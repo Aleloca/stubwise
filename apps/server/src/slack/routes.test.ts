@@ -1727,6 +1727,29 @@ describe("POST /api/slack/interactions — block_actions dell'inbox", () => {
     }
   });
 
+  it("la risposta finisce nella nota ESCAPATA: nessun markup iniettato nei DM altrui", async () => {
+    const { jobId, notificationId } = await seedQuestion();
+    await seedNotification({ userId: seeded.memberId, kind: "job.awaiting_input", jobId });
+
+    await slackPost(
+      "/api/slack/interactions",
+      answerSubmissionBody({
+        notificationId,
+        text: "A & B, vedi <https://evil.test|questo link>",
+      }),
+    );
+
+    const updates = await slackUpdates();
+    expect(updates).toHaveLength(2);
+    for (const update of updates) {
+      const note = (update.event as { note: string }).note;
+      expect(note).not.toContain("<https://evil.test|");
+      expect(note).toContain("A &amp; B, vedi &lt;https://evil.test|questo link&gt;");
+      // Una volta sola: nessuna entità doppia.
+      expect(note).not.toContain("&amp;amp;");
+    }
+  });
+
   it("view_submission inbox_answer_free col testo vuoto → errore NEL MODAL, nessuna risposta", async () => {
     const { questionId, notificationId } = await seedQuestion();
 

@@ -24,7 +24,7 @@
  */
 import { t, type Language } from "@stubwise/i18n";
 import { SNOOZE_OPTIONS, type ActionId, type SnoozeUntil } from "./actions.js";
-import type { AgentQuestionOption } from "./format.js";
+import { escapeSlackMrkdwn, type AgentQuestionOption } from "./format.js";
 
 /**
  * Un blocco Block Kit. Non tipizziamo l'intero schema di Slack: il payload è
@@ -213,17 +213,6 @@ function truncate(text: string, max: number): string {
   return text.length <= max ? text : `${text.slice(0, max - 1).trimEnd()}…`;
 }
 
-/**
- * Escape mrkdwn del testo NON FIDATO: domanda, etichette e conseguenze le
- * scrive l'agente. Slack vuole `&`, `<` e `>` come entità HTML, ed è anche ciò
- * che impedisce a un'etichetta di iniettare un link (`<https://…|Fidati>`) o di
- * far finta di essere un'altra parte del messaggio. `*` e `_` restano: al
- * massimo sballano il corsivo, non fingono nulla.
- */
-function escapeMrkdwn(text: string): string {
-  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-
 /** La domanda come serve a questi blocchi, estratta dal payload dell'evento. */
 interface QuestionForBlocks {
   options: AgentQuestionOption[];
@@ -321,9 +310,9 @@ export function buildQuestionBlocks(input: QuestionBlocksInput): SlackBlock[] {
         ? ` ${RECOMMENDED_MARK} _(${t(lang, "comment.agentQuestionRecommended")})_`
         : "";
     const consequence = option.consequence
-      ? `\n${escapeMrkdwn(truncate(option.consequence, CONSEQUENCE_MAX))}`
+      ? `\n${escapeSlackMrkdwn(truncate(option.consequence, CONSEQUENCE_MAX))}`
       : "";
-    return `${index + 1}. *${escapeMrkdwn(option.label)}*${recommended}${consequence}`;
+    return `${index + 1}. *${escapeSlackMrkdwn(option.label)}*${recommended}${consequence}`;
   });
 
   const elements: SlackBlock[] = question.options.map((option, index) => {

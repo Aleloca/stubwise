@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   formatNotification,
+  formatNotificationText,
   sampleEvents,
   type NotificationEvent,
   type NotificationFormat,
@@ -220,6 +221,37 @@ describe("formatNotification — slack (lingua default en)", () => {
     expect(text).toContain("AI has a question");
     expect(text).toContain("Il logout deve invalidare tutte le sessioni");
     expect(text).toContain("<https://app.example.com/tickets/42|Open>");
+  });
+
+  it("la domanda dell'AGENTE è escapata: non può iniettare markup nel messaggio Slack", () => {
+    const event: NotificationEvent = {
+      ...(JOB_AWAITING_INPUT as Extract<NotificationEvent, { kind: "job.awaiting_input" }>),
+      question: "Uso <https://evil.test|questo link> per A & B?",
+    };
+    const text = (formatNotification(event, "slack").body as { text: string }).text;
+    // Il link dell'agente è neutralizzato...
+    expect(text).not.toContain("<https://evil.test|");
+    expect(text).toContain("&lt;https://evil.test|questo link&gt; per A &amp; B");
+    // ...mentre il markup NOSTRO (riferimento e link al ticket) resta vivo.
+    expect(text).toContain("*#42*");
+    expect(text).toContain("<https://app.example.com/tickets/42|Open>");
+    // Escape UNA sola volta: nessuna entità doppia.
+    expect(text).not.toContain("&amp;amp;");
+    expect(text).not.toContain("&amp;lt;");
+  });
+
+  it("l'escape è SOLO di Slack: testo piano, generic e Discord restano leggibili", () => {
+    const event: NotificationEvent = {
+      ...(JOB_AWAITING_INPUT as Extract<NotificationEvent, { kind: "job.awaiting_input" }>),
+      question: "A & B <c>?",
+    };
+    expect(formatNotificationText(event)).toContain("A & B <c>?");
+    const generic = formatNotification(event, "generic").body as Record<string, unknown>;
+    expect(generic.question).toBe("A & B <c>?");
+    expect(generic.message as string).toContain("A & B <c>?");
+    expect((formatNotification(event, "discord").body as { content: string }).content).toContain(
+      "A & B <c>?",
+    );
   });
 
   it("job.budget_held (ticket) → budget exceeded, scope, importi a 2 decimali, link", () => {

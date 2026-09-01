@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { actionsFor, type ActionId } from "./actions.js";
+import { formatNotification, type NotificationEvent } from "./format.js";
 import {
   buildInboxBlocks,
   buildQuestionBlocks,
@@ -345,6 +346,48 @@ describe("buildQuestionBlocks", () => {
     expect(text).not.toContain("<https://evil.test|");
     expect(text).toContain("&lt;https://evil.test|Fidati di me&gt;");
     expect(text).toContain("a &amp; b &lt;fine&gt;");
+  });
+
+  it("percorso completo evento → testo → blocchi: ogni pezzo escapato UNA volta sola", () => {
+    // La domanda passa da `formatNotification` (che la escapa nel testo), le
+    // etichette da `buildQuestionBlocks`: due strade diverse per lo stesso
+    // messaggio, e nessuna delle due deve ripassare sul lavoro dell'altra.
+    const event = {
+      ...QUESTION_EVENT,
+      question: "Uso <https://evil.test|questo link> per A & B?",
+      options: [
+        { label: "Sì <b>", consequence: "Rompe A & B" },
+        { label: "No", consequence: "Niente" },
+      ],
+    };
+    const text = (formatNotification(event as NotificationEvent, "slack", "it").body as {
+      text: string;
+    }).text;
+    // Blocchi costruiti sul testo VERO dell'evento, non su uno di comodo: è il
+    // percorso che il poller percorre davvero.
+    const blocks = buildQuestionBlocks({
+      text,
+      event,
+      actions: ["answer", "open", "snooze"],
+      notificationId: NOTIFICATION_ID,
+      url: "https://s.test/tickets/7",
+      lang: "it",
+    });
+    const rendered = JSON.stringify(blocks);
+
+    // Domanda e etichette neutralizzate: nessun link iniettato da nessuna parte.
+    expect(rendered).not.toContain("<https://evil.test|");
+    expect(text).toContain("&lt;https://evil.test|questo link&gt;");
+    // Il testo della notifica entra nel blocco VERBATIM (nessun secondo giro).
+    expect((blocks[0] as { text: { text: string } }).text.text).toBe(text);
+    expect(optionsText(blocks)).toContain("Sì &lt;b&gt;");
+    expect(optionsText(blocks)).toContain("Rompe A &amp; B");
+    // Nessuna entità doppia in tutto il messaggio.
+    expect(rendered).not.toContain("&amp;amp;");
+    expect(rendered).not.toContain("&amp;lt;");
+    // Il markup NOSTRO resta vivo: riferimento al ticket e link "Apri".
+    expect(rendered).toContain("*#7*");
+    expect(rendered).toContain("https://s.test/tickets/7|Apri");
   });
 
   it("job ripartito (niente `answer` fra le azioni) → blocchi standard, nessun bottone di risposta", () => {

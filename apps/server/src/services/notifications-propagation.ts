@@ -24,7 +24,7 @@
  */
 import { notificationDeliveries, notifications, users, type Db } from "@stubwise/db";
 import { t, type Language } from "@stubwise/i18n";
-import type { ActionId, NotificationKind } from "@stubwise/notifications";
+import { escapeSlackMrkdwn, type ActionId, type NotificationKind } from "@stubwise/notifications";
 import { and, eq, inArray, ne, sql } from "drizzle-orm";
 
 /**
@@ -110,8 +110,15 @@ export function inboxNote(
   }
   if (action === "answer") {
     // La nota della risposta PORTA la risposta: chi legge il DM di un collega
-    // deve sapere cosa è stato deciso, non solo che qualcuno ha deciso.
-    return t(lang, NOTE_KEY.answer, { actor: args.actor, answer: args.answer ?? "—" });
+    // deve sapere cosa è stato deciso, non solo che qualcuno ha deciso. Il
+    // testo però non è nostro (l'etichetta dell'opzione la scrive l'agente, il
+    // testo libero chi ha risposto) e finisce in una `section` mrkdwn: si
+    // escapa qui, che è dove la nota diventa markup Slack — a valle nessuno lo
+    // rifà, quindi l'escape resta uno solo.
+    return t(lang, NOTE_KEY.answer, {
+      actor: args.actor,
+      answer: args.answer ? escapeSlackMrkdwn(args.answer) : "—",
+    });
   }
   return t(lang, NOTE_KEY[action], { actor: args.actor });
 }

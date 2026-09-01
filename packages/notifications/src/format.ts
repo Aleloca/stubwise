@@ -279,6 +279,23 @@ const EMOJI: Record<NotificationKind, string> = {
   "job.awaiting_input": "❓",
 };
 
+/**
+ * Escape mrkdwn del testo NON FIDATO che finisce in un messaggio Slack: Slack
+ * vuole `&`, `<` e `>` come entità HTML, ed è anche ciò che impedisce a un
+ * testo scritto da altri di iniettare un link (`<https://…|Fidati>`) o di
+ * fingersi un'altra parte del messaggio. `*` e `_` restano: al massimo sballano
+ * il corsivo, non fingono nulla.
+ *
+ * Vive QUI, insieme al resto della conoscenza del markup Slack ({@link
+ * renderLink}), e lo riusa `./slack-blocks.ts` per le etichette dei bottoni
+ * della domanda: una sola definizione, applicata UNA SOLA VOLTA per ogni pezzo
+ * di testo (il testo della notifica lo escapa {@link formatNotification}, i
+ * blocchi lo inseriscono verbatim).
+ */
+export function escapeSlackMrkdwn(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 /** Rende un link nel markup del formato (mai chiamato per `generic`). */
 function renderLink(
   format: "slack" | "discord",
@@ -425,6 +442,27 @@ function textParams(
 }
 
 /**
+ * Parametri il cui contenuto NON è nostro e va escapato prima di finire in un
+ * messaggio Slack (vedi {@link escapeSlackMrkdwn}). Solo per il formato
+ * `slack`: il testo piano dell'inbox web e il payload `generic` devono restare
+ * leggibili, e il markdown di Discord non ha questa sintassi.
+ *
+ * `question` la scrive l'AGENTE (tool `ask_user`): nasce con la pianificazione
+ * interattiva ed è chiusa qui.
+ *
+ * ⚠️ NON è l'elenco completo dei parametri non fidati: `ticketTitle` (lo scrive
+ * chi apre il ticket, widget pubblico incluso), `error` (messaggio d'eccezione
+ * o output dell'agente) e `detail` (nome del check e ultimo errore riportato
+ * dall'agente sull'host monitorato) hanno la stessa origine. È un vettore
+ * PRE-ESISTENTE che riguarda quasi tutti i kind e va chiuso a parte, non di
+ * straforo insieme a una feature: finché non lo si fa, questa mappa dice quali
+ * pezzi sono coperti e quali no.
+ */
+const UNTRUSTED_SLACK_PARAMS: Partial<Record<NotificationKind, readonly string[]>> = {
+  "job.awaiting_input": ["question"],
+};
+
+/**
  * Frase localizzata per un formato con markup (Slack/Discord), inclusi emoji,
  * riferimento `#n` e link. Unica fonte testuale: le chiavi `notify.*`.
  */
@@ -434,8 +472,15 @@ function renderText(
   event: NotificationEvent,
 ): string {
   const cost = event.kind === "job.pr_opened" ? costParam(lang, event.costUsd) : "";
+  const params = textParams(event, lang);
+  if (format === "slack") {
+    for (const name of UNTRUSTED_SLACK_PARAMS[event.kind] ?? []) {
+      const value = params[name];
+      if (typeof value === "string") params[name] = escapeSlackMrkdwn(value);
+    }
+  }
   const sentence = t(lang, KEY_FOR_KIND[event.kind], {
-    ...textParams(event, lang),
+    ...params,
     // `{ref}` esiste solo per gli eventi ancorati a un ticket.
     ...(hasTicket(event) ? { ref: refParam(format, event.ticketNumber) } : {}),
     cost,

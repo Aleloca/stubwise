@@ -67,6 +67,7 @@ export {
 } from "./routing.js";
 
 export {
+  escapeSlackMrkdwn,
   formatNotification,
   formatNotificationText,
   sampleEvents,
