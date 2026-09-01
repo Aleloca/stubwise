@@ -9,7 +9,7 @@ import {
   type ActionActor,
   type ActionId,
 } from "./actions.js";
-import type { NotificationKind } from "./format.js";
+import { sampleEvents, type NotificationKind } from "./format.js";
 
 /**
  * Test PURI del catalogo delle azioni: nessun DB, nessun container.
@@ -215,7 +215,16 @@ describe("`answer` per kind", () => {
     // catalogo decide l'azione. Divergerebbero in silenzio: un kind nel Set che
     // non offre `answer` mostrerebbe bottoni che danno sempre errore.
     expect([...KINDS_WITH_OPTIONS].sort()).toEqual(["job.awaiting_input", "project.pulse"]);
+    // Nel Set ⇒ offre `answer`: bottoni che portano a un'azione che esiste.
     for (const kind of KINDS_WITH_OPTIONS) expect(kindOffers(kind, "answer")).toBe(true);
+    // E il contrario, che è il verso pericoloso: un kind che offre `answer`
+    // senza essere nel Set avrebbe l'azione ma nessun modo di sceglierne
+    // l'opzione — card e DM mostrerebbero solo testo. `sampleEvents` è
+    // l'elenco esaustivo dei kind (un esempio per ciascuno, verificato in
+    // format.test.ts), così un kind aggiunto domani passa comunque di qui.
+    for (const { kind } of sampleEvents("https://stubwise.test")) {
+      expect(KINDS_WITH_OPTIONS.has(kind)).toBe(kindOffers(kind, "answer"));
+    }
   });
 
   const TABELLA: {
