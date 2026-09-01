@@ -208,11 +208,11 @@ With the **generic JSON** format your endpoint receives a `POST` request with
 | Field          | Type             | Presence                | Description                                              |
 | -------------- | ---------------- | ----------------------- | ------------------------------------------------------- |
 | `event`        | string           | always                  | Event type: one of the `kind`s listed above.            |
-| `ticketNumber` | number           | events with a ticket (not `docs.limit_paused`, `monitor.*`, `project.pulse`) | The ticket number.                        |
-| `title`        | string           | events with a ticket (not `docs.limit_paused`, `monitor.*`, `project.pulse`) | The ticket title.                         |
+| `ticketNumber` | number           | events anchored to a ticket | The ticket number.                        |
+| `title`        | string           | events anchored to a ticket | The ticket title.                         |
 | `projectName`  | string           | always                  | The project name.                                       |
 | `message`      | string           | always                  | Human-readable summary of the event, no markup. Rendered in the instance's [content language](/docs/ai-pipeline/configuration/#content-language) (not always English). |
-| `ticketUrl`    | string           | events with a ticket (not `docs.limit_paused`, `monitor.*`, `project.pulse`) | Link to the ticket in Stubwise.           |
+| `ticketUrl`    | string           | events anchored to a ticket | Link to the ticket in Stubwise.           |
 | `source`       | string           | only `ticket.created`   | SDK source: `sdk_error` or `sdk_feedback`.              |
 | `prUrl`        | string           | only `job.pr_opened` / `job.pr_closed` / `review.completed` | Pull request URL. |
 | `costUsd`      | number \| null   | only `job.pr_opened`    | USD cost of the fix run (`null` if unknown).            |
@@ -224,8 +224,8 @@ With the **generic JSON** format your endpoint receives a `POST` request with
 | `verdict`      | string           | only `review.completed` | Review verdict: `approve` or `request_changes`.         |
 | `questionId`   | string           | only `job.awaiting_input` | Id of the question being asked (the anchor an answer refers to). |
 | `round`        | number           | only `job.awaiting_input` | Which question this is within the run (`1` = the first). |
-| `question`     | string           | `job.awaiting_input` and `project.pulse` | The question: as the AI wrote it on `job.awaiting_input`, a fixed prompt for the options on `project.pulse`. |
-| `options`      | array            | `job.awaiting_input` and `project.pulse` | The options: `{ "label": "…", "consequence": "…" }`, `consequence` optional. Two to four on a question; one per proposal on a pulse, in the same order as `proposals`. |
+| `question`     | string           | `job.awaiting_input` and `project.pulse` | The question: as the AI wrote it on `job.awaiting_input`; on `project.pulse` a sentence naming the project and the days it has been idle, composed in Italian (it does not go through the content language). |
+| `options`      | array            | `job.awaiting_input` and `project.pulse` | The options: `{ "label": "…", "consequence": "…" }`, `consequence` optional. Two to four on a question; one per proposal on a pulse, in the same order as `proposals` — there `label` is the item's title and `consequence` its urgency/effort/analysis, in Italian. |
 | `recommendedIndex` | number \| null | `job.awaiting_input` and `project.pulse` | Index in `options` of the recommended one (`null` if none). |
 | `allowFreeText` | boolean         | `job.awaiting_input` and `project.pulse` | Whether an answer written in your own words is accepted too. Always `false` on a pulse: you pick a proposal, you don't write one. |
 | `pulseId`      | string           | only `project.pulse`    | Id of this set of proposals (the anchor its copies share).       |
@@ -397,7 +397,10 @@ render it without calling the API):
 
 [`project.pulse`](#the-pulse-on-idle-projects) (no ticket either: `projectUrl`
 points at the project's backlog, and the whole set of proposals travels in the
-payload, so a consumer can render it without calling the API):
+payload, so a consumer can render it without calling the API). Unlike `message`,
+the pulse's `question` and the options' `consequence` do **not** go through the
+instance's content language: the worker composes them in Italian, whatever
+language the rest of the payload is in.
 
 ```json
 {
@@ -407,13 +410,13 @@ payload, so a consumer can render it without calling the API):
   "idleDays": 4,
   "message": "No work in progress on web-shop (days idle: 4): there are proposals in the backlog.",
   "projectUrl": "https://stubwise.example.com/backlog?projectId=2e5a8c4b-9999-4aaa-8bbb-ccccddddeeee",
-  "question": "No work in progress on web-shop (days idle: 4). Which proposal do we start from?",
+  "question": "Nessun lavoro in corso su web-shop (giorni di fermo: 4). Da quale proposta partiamo?",
   "options": [
     {
       "label": "Add a CSV export to the order history",
-      "consequence": "urgency high · effort 2 · analysis ready"
+      "consequence": "urgenza alta · effort 2 · analisi pronta"
     },
-    { "label": "Status filter on the order list", "consequence": "urgency medium · effort 1" }
+    { "label": "Status filter on the order list", "consequence": "urgenza media · effort 1" }
   ],
   "recommendedIndex": 0,
   "allowFreeText": false,
