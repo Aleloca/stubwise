@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import {
   ApiError,
   handledByFromError,
+  INBOX_DECISION_ACTIONS,
   postInboxAction,
   postInboxHandled,
   postInboxSnooze,
@@ -44,20 +45,15 @@ export const INBOX_KIND_LABEL_KEYS: Record<InboxItem["kind"], string> = {
 };
 
 /**
- * Le azioni che fanno di una notifica una DECISIONE (sezione "Da decidere").
- * `answer` è fra queste: una domanda dell'agente tiene FERMO il job finché
- * qualcuno non risponde: è esattamente ciò che la sezione raccoglie.
+ * True se la riga chiede una DECISIONE (sezione "Da decidere"), non solo una
+ * lettura. `answer` è fra le decisionali: una domanda dell'agente tiene FERMO
+ * il job finché qualcuno non risponde, ed è esattamente ciò che la sezione
+ * raccoglie.
  */
-const DECISION_ACTIONS: InboxDecisionAction[] = [
-  "approve_plan",
-  "reject_plan",
-  "relaunch",
-  "answer",
-];
-
-/** True se la riga chiede una decisione, non solo una lettura. */
 export function isDecisionItem(item: InboxItem): boolean {
-  return item.actions.some((action) => (DECISION_ACTIONS as readonly string[]).includes(action));
+  return item.actions.some((action) =>
+    (INBOX_DECISION_ACTIONS as readonly string[]).includes(action),
+  );
 }
 
 const buttonBase =

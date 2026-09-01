@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import type { InboxQuestion } from "../lib/api";
+import { ANSWER_TEXT_MAX_CHARS, type InboxQuestion } from "../lib/api";
 import { QuestionPanel } from "./question-panel";
 
 /**
@@ -93,6 +93,8 @@ describe("QuestionPanel", () => {
     await userEvent.click(screen.getByRole("radio", { name: "Other…" }));
 
     const textarea = screen.getByLabelText("Your answer");
+    // Il tetto del contratto è sul campo: oltre, il server risponderebbe 400.
+    expect(textarea).toHaveAttribute("maxlength", String(ANSWER_TEXT_MAX_CHARS));
     // Testo vuoto = niente da inviare.
     expect(screen.getByRole("button", { name: "Send answer" })).toBeDisabled();
 
@@ -160,6 +162,69 @@ describe("QuestionPanel", () => {
       />,
     );
     expect(screen.getByRole("alert")).toHaveTextContent("Already answered by bea@example.com");
+  });
+
+  it("una domanda NUOVA azzera la scelta fatta sulla precedente", async () => {
+    const onSubmit = vi.fn();
+    const { rerender } = render(<QuestionPanel question={question()} onSubmit={onSubmit} />);
+
+    // Round 1: tre opzioni, si sceglie la terza.
+    await userEvent.click(screen.getByRole("radio", { name: "On both" }));
+    expect(screen.getByRole("radio", { name: "On both" })).toBeChecked();
+
+    // Round 2 (arriva col pannello montato, per esempio dal polling della
+    // pagina ticket): domanda diversa, DUE opzioni. L'indice 2 del round 1 non
+    // deve sopravvivere: nessun radio risulterebbe selezionato eppure l'invio
+    // manderebbe `optionIndex: 2` contro la domanda nuova.
+    rerender(
+      <QuestionPanel
+        question={question({
+          questionId: "12121212-1212-4121-8121-121212121212",
+          round: 2,
+          question: "How far should the retry go?",
+          options: [{ label: "Three attempts" }, { label: "Give up at once" }],
+          recommendedIndex: 0,
+        })}
+        onSubmit={onSubmit}
+      />,
+    );
+
+    for (const radio of screen.getAllByRole("radio")) expect(radio).not.toBeChecked();
+    expect(screen.getByRole("button", { name: "Send answer" })).toBeDisabled();
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("una domanda NUOVA azzera anche il testo libero già digitato", async () => {
+    const onSubmit = vi.fn();
+    const { rerender } = render(<QuestionPanel question={question()} onSubmit={onSubmit} />);
+
+    await userEvent.click(screen.getByRole("radio", { name: "Other…" }));
+    await userEvent.type(screen.getByLabelText("Your answer"), "Answer to the FIRST question");
+
+    rerender(
+      <QuestionPanel
+        question={question({ questionId: "12121212-1212-4121-8121-121212121212", round: 2 })}
+        onSubmit={onSubmit}
+      />,
+    );
+
+    // Nemmeno la textarea è più aperta: la scelta "Altro…" era del round 1.
+    expect(screen.queryByLabelText("Your answer")).toBeNull();
+    expect(screen.getByRole("button", { name: "Send answer" })).toBeDisabled();
+  });
+
+  it("un ri-render della STESSA domanda non perde quello che si stava scrivendo", async () => {
+    const onSubmit = vi.fn();
+    const { rerender } = render(<QuestionPanel question={question()} onSubmit={onSubmit} />);
+
+    await userEvent.click(screen.getByRole("radio", { name: "Other…" }));
+    await userEvent.type(screen.getByLabelText("Your answer"), "Half a thought");
+
+    // Stessa domanda, altre prop (qui `pending`): la rimonta è legata al
+    // questionId, non a un ri-render qualunque.
+    rerender(<QuestionPanel question={question()} onSubmit={onSubmit} error="Network error" />);
+
+    expect(screen.getByLabelText("Your answer")).toHaveValue("Half a thought");
   });
 
   it("mostra il testo della domanda, e lo tace su richiesta di chi lo rende già", () => {

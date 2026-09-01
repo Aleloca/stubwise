@@ -106,8 +106,11 @@ export interface QuestionPanelProps {
  * testo libero) il pannello non rende NULLA. La superficie che lo ospita resta
  * intera — sulla card i bottoni `actions` continuano a funzionare, e alla
  * domanda si risponde dalla pagina ticket.
+ *
+ * Reso da {@link QuestionPanel}, che lo rimonta a ogni domanda nuova: qui
+ * dentro si può assumere che lo stato appartenga SEMPRE a `question`.
  */
-export function QuestionPanel({
+function QuestionPanelInner({
   question,
   onSubmit,
   pending = false,
@@ -255,4 +258,24 @@ export function QuestionPanel({
       </div>
     </div>
   );
+}
+
+/**
+ * Il pannello, rimontato a ogni domanda DIVERSA.
+ *
+ * La `key` sul figlio non è un dettaglio di resa: è ciò che impedisce a una
+ * scelta di sopravvivere alla domanda per cui è stata fatta. Sulla pagina
+ * ticket un round nuovo arriva col pannello montato (polling): senza rimonta,
+ * `choice = 2` scelto sul round 1 resterebbe lì mentre il round 2 mostra due
+ * opzioni — nessun radio apparirebbe selezionato, ma il bottone d'invio sarebbe
+ * comunque attivo e manderebbe l'indice 2 contro la domanda nuova. È la stessa
+ * classe di fallimento del bail-out sugli indici: una scelta diversa da quella
+ * letta, in silenzio.
+ *
+ * Difesa DENTRO il componente e non nel contratto d'uso: un `key` chiesto ai
+ * chiamanti è una regola che ogni consumatore futuro deve conoscere, e che si
+ * dimentica senza rumore.
+ */
+export function QuestionPanel(props: QuestionPanelProps) {
+  return <QuestionPanelInner key={props.question.questionId} {...props} />;
 }

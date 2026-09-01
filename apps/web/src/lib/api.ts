@@ -51,12 +51,30 @@ import type {
 // Import RUNTIME (non di solo tipo): l'unico schema che il client ESEGUE, per
 // validare il body del 409 `already_handled` prima di fidarsene (vedi
 // `handledByFromError`).
-import { ANSWER_TEXT_MAX_CHARS, inboxActionErrorSchema } from "@stubwise/shared";
+import {
+  ANSWER_TEXT_MAX_CHARS,
+  inboxActionErrorSchema,
+  inboxDecisionActionSchema,
+} from "@stubwise/shared";
 
 // Tetto del testo libero di una risposta: ri-esportato dal binding locale come
 // i tipi qui sopra, così il pannello della domanda può limitare la textarea
 // senza conoscere `@stubwise/shared`.
 export { ANSWER_TEXT_MAX_CHARS };
+
+/**
+ * Le azioni DECISIONALI, DERIVATE dallo schema condiviso invece di riscritte:
+ * è l'insieme che la rotta `POST /api/inbox/:id/actions/:action` accetta, ed è
+ * anche ciò che rende una riga d'inbox una decisione anziché una lettura.
+ *
+ * Semantica del legame: da qui in avanti un'azione decisionale NUOVA finisce
+ * automaticamente in "Da decidere" anche prima che qualcuno le disegni un
+ * bottone — una riga che chiede una decisione e non offre nulla è un difetto
+ * visibile, mentre una riga decisionale caduta in silenzio fra le informative
+ * (com'era con l'elenco riscritto a mano) non se ne accorge nessuno.
+ */
+export const INBOX_DECISION_ACTIONS: readonly InboxDecisionAction[] =
+  inboxDecisionActionSchema.options;
 
 export type { PatView, PatWithToken, PrState, WidgetSettings, WidgetUpsertBody } from "@stubwise/shared";
 // Tipi dell'inbox ri-esportati dal binding locale: i componenti li importano da

@@ -1091,7 +1091,7 @@
       "alreadyAnsweredUnknown": "Already answered by someone else",
       "notPending": "This question is no longer waiting for an answer",
       "invalidAnswer": "This answer does not fit the question",
-      "forbidden": "Only who started the run, or a maintainer, can answer",
+      "forbidden": "Only the person who started the run, or a maintainer, can answer",
       "generic": "Could not send the answer"
     }
   },
