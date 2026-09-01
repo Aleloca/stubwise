@@ -16,6 +16,22 @@ function emptyAsUndefined(value: unknown): unknown {
   return value === "" ? undefined : value;
 }
 
+/**
+ * Il fuso orario è un nome IANA che l'ambiente conosce? Unico modo affidabile:
+ * chiederlo a `Intl`, che lancia `RangeError` su un fuso sconosciuto. Preferito a
+ * `Intl.supportedValuesOf("timeZone")` perché quella lista è CANONICA e non
+ * contiene gli alias storici (`Europe/Kiev`, `Asia/Calcutta`) che restano validi
+ * e diffusi nei file di configurazione.
+ */
+function isValidTimeZone(value: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: value });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 const envSchema = z.object({
   DATABASE_URL: z.url({
     error: (issue) =>
@@ -664,6 +680,53 @@ const envSchema = z.object({
       .min(0, "deve essere un intero ≥ 0 in secondi (es. 5; 0 = disabilitato)")
       .default(5),
   ),
+  // Intervallo in minuti del poller del PULSE PROATTIVO (task separato dal loop
+  // dei job, vedi pulse/poller.ts): nella finestra oraria d'istanza cerca i
+  // progetti fermi con voci proponibili nel backlog e pubblica una notifica
+  // `project.pulse`. È BEST-EFFORT e non tocca i timeout dei job.
+  // 0 = disabilitato (il pulse tace). Default 15', più corto della finestra
+  // (un'ora) perché la finestra venga incontrata anche se un tick salta.
+  PULSE_POLL_MINUTES: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 0 in minuti (es. 15; 0 = disabilitato)" })
+      .int("deve essere un intero ≥ 0 in minuti (es. 15; 0 = disabilitato)")
+      .min(0, "deve essere un intero ≥ 0 in minuti (es. 15; 0 = disabilitato)")
+      .default(15),
+  ),
+  // Fuso orario (IANA) della finestra d'invio del pulse. È l'UNICO fuso del
+  // sistema: tutto il resto è UTC. Validato QUI e non degradato in silenzio su
+  // UTC — un fuso sbagliato manderebbe i pulse all'ora sbagliata per sempre,
+  // senza che nulla lo segnali. La validazione è un try/catch su
+  // `Intl.DateTimeFormat` invece di `Intl.supportedValuesOf("timeZone")`:
+  // accetta anche gli alias storici (es. `Europe/Kiev`) che la lista canonica
+  // non contiene ma che Postgres e i sistemi operativi conoscono ancora.
+  PULSE_TIMEZONE: z.preprocess(
+    emptyAsUndefined,
+    z
+      .string({ error: "deve essere un fuso orario IANA (es. Europe/Rome)" })
+      .min(1)
+      .default("UTC")
+      .refine(isValidTimeZone, { error: "non è un fuso orario IANA valido (es. Europe/Rome)" }),
+  ),
+  // Ora LOCALE (nel fuso qui sopra) in cui si apre la finestra d'invio del
+  // pulse. La finestra è [ora, ora+1): un poller da 15' la incontra quattro
+  // volte, ma la cadenza per progetto fa passare solo il primo. Default 9.
+  PULSE_SEND_HOUR: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero tra 0 e 23 (es. 9)" })
+      .int("deve essere un intero tra 0 e 23 (es. 9)")
+      .min(0, "deve essere un intero tra 0 e 23 (es. 9)")
+      .max(23, "deve essere un intero tra 0 e 23 (es. 9)")
+      .default(9),
+  ),
+  // Se true (default) il pulse tace il sabato e la domenica: è uno "standup",
+  // non un allarme.
+  PULSE_WEEKDAYS_ONLY: z.preprocess(
+    (value) => (value === "" ? undefined : value === "true" ? true : value === "false" ? false : value),
+    z.boolean({ error: "deve essere true o false" }).default(true),
+  ),
 }).refine(
   (env) => env.BACKLOG_SIMILAR_THRESHOLD <= env.BACKLOG_MERGE_THRESHOLD,
   {
@@ -824,6 +887,16 @@ export interface WorkerConfig {
   /** Intervallo in secondi del poller dell'outbox delle notifiche
    * (`notification_deliveries`) (default 5; 0 = disabilitato). */
   notifyPollSeconds: number;
+  /** Intervallo in minuti del poller del pulse proattivo (default 15;
+   * 0 = disabilitato). */
+  pulsePollMinutes: number;
+  /** Fuso orario IANA della finestra d'invio del pulse (default "UTC"): è
+   * l'UNICO fuso del sistema, tutto il resto è UTC. */
+  pulseTimezone: string;
+  /** Ora locale (0..23) di apertura della finestra d'invio del pulse (default 9). */
+  pulseSendHour: number;
+  /** Se true (default) il pulse tace il sabato e la domenica. */
+  pulseWeekdaysOnly: boolean;
 }
 
 /**
@@ -906,5 +979,9 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     graphBuildTimeoutMs: parsed.GRAPH_BUILD_TIMEOUT_MINUTES * 60_000,
     graphPollSeconds: parsed.GRAPH_POLL_SECONDS,
     notifyPollSeconds: parsed.NOTIFY_POLL_SECONDS,
+    pulsePollMinutes: parsed.PULSE_POLL_MINUTES,
+    pulseTimezone: parsed.PULSE_TIMEZONE,
+    pulseSendHour: parsed.PULSE_SEND_HOUR,
+    pulseWeekdaysOnly: parsed.PULSE_WEEKDAYS_ONLY,
   };
 }

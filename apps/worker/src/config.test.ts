@@ -82,6 +82,47 @@ describe("loadWorkerConfig", () => {
     expect(config.graphifyBin).toBe("graphify");
     expect(config.graphBuildTimeoutMs).toBe(1_200_000);
     expect(config.graphPollSeconds).toBe(20);
+    // Outbox delle notifiche: default 5".
+    expect(config.notifyPollSeconds).toBe(5);
+    // Pulse proattivo: poller ogni 15', finestra alle 9 UTC, solo feriali.
+    expect(config.pulsePollMinutes).toBe(15);
+    expect(config.pulseTimezone).toBe("UTC");
+    expect(config.pulseSendHour).toBe(9);
+    expect(config.pulseWeekdaysOnly).toBe(true);
+  });
+
+  it("rispetta gli override del pulse e 0 = poller disabilitato", () => {
+    const config = loadWorkerConfig({
+      ...VALID,
+      PULSE_POLL_MINUTES: "0",
+      PULSE_TIMEZONE: "Europe/Rome",
+      PULSE_SEND_HOUR: "0",
+      PULSE_WEEKDAYS_ONLY: "false",
+    });
+    expect(config.pulsePollMinutes).toBe(0);
+    expect(config.pulseTimezone).toBe("Europe/Rome");
+    // Mezzanotte è un'ora legittima: il range è 0..23, non 1..23.
+    expect(config.pulseSendHour).toBe(0);
+    expect(config.pulseWeekdaysOnly).toBe(false);
+  });
+
+  it("rifiuta un PULSE_TIMEZONE che non è un fuso IANA, invece di degradare su UTC", () => {
+    // Un fuso sbagliato manderebbe i pulse all'ora sbagliata per sempre, in
+    // silenzio: meglio non partire.
+    expect(() => loadWorkerConfig({ ...VALID, PULSE_TIMEZONE: "Europa/Roma" })).toThrow(
+      /PULSE_TIMEZONE/,
+    );
+    expect(() => loadWorkerConfig({ ...VALID, PULSE_TIMEZONE: "UTC+2" })).toThrow(/PULSE_TIMEZONE/);
+    // Gli alias storici restano validi (non sono nella lista canonica di
+    // `Intl.supportedValuesOf`, ma i sistemi li conoscono ancora).
+    expect(loadWorkerConfig({ ...VALID, PULSE_TIMEZONE: "Asia/Calcutta" }).pulseTimezone).toBe(
+      "Asia/Calcutta",
+    );
+  });
+
+  it("rifiuta un PULSE_SEND_HOUR fuori da 0..23", () => {
+    expect(() => loadWorkerConfig({ ...VALID, PULSE_SEND_HOUR: "24" })).toThrow(/PULSE_SEND_HOUR/);
+    expect(() => loadWorkerConfig({ ...VALID, PULSE_SEND_HOUR: "-1" })).toThrow(/PULSE_SEND_HOUR/);
   });
 
   it("rispetta gli override del knowledge graph e rifiuta i valori assurdi", () => {
@@ -591,7 +632,15 @@ describe("loadWorkerConfig", () => {
       FIX_EXECUTE_MODEL: "",
       FIX_TWO_PHASE: "",
       FIX_PLAN_TIMEOUT_MS: "",
+      PULSE_POLL_MINUTES: "",
+      PULSE_TIMEZONE: "",
+      PULSE_SEND_HOUR: "",
+      PULSE_WEEKDAYS_ONLY: "",
     });
+    expect(config.pulsePollMinutes).toBe(15);
+    expect(config.pulseTimezone).toBe("UTC");
+    expect(config.pulseSendHour).toBe(9);
+    expect(config.pulseWeekdaysOnly).toBe(true);
     expect(config.mirrorsDir).toBe("/var/stubwise/mirrors");
     expect(config.concurrency).toBe(2);
     expect(config.staleAfterMinutes).toBe(150);

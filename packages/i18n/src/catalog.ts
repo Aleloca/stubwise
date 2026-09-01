@@ -206,6 +206,11 @@ export const en: Catalog = {
   "notify.inbox.notePulseTicketOnly":
     "▶️ {actor} turned «{title}» into a ticket — the run did not start, launch it by hand",
   "notify.inbox.notePulseStale": "🗄️ «{title}» has already been taken care of",
+  // Pulse SOSTITUITO da uno più recente sullo stesso progetto (la scrive il
+  // poller del worker, non un'azione umana): nessun `{actor}`, perché non l'ha
+  // deciso nessuno. Serve a togliere i bottoni da un DM le cui proposte non
+  // esistono più.
+  "notify.inbox.notePulseReplaced": "🔄 Replaced by a newer set of proposals",
   // Modal di rifiuto del piano (il titolo Slack tronca oltre i 24 caratteri).
   "notify.inbox.rejectTitle": "Reject plan",
   "notify.inbox.rejectSubmit": "Reject",
@@ -385,6 +390,7 @@ export const it: Catalog = {
   "notify.inbox.notePulseTicketOnly":
     "▶️ {actor} ha creato il ticket per «{title}» — il run non è partito, va lanciato a mano",
   "notify.inbox.notePulseStale": "🗄️ «{title}» è già stata presa in carico",
+  "notify.inbox.notePulseReplaced": "🔄 Sostituita da proposte più recenti",
   "notify.inbox.rejectTitle": "Rifiuta il piano",
   "notify.inbox.rejectSubmit": "Rifiuta",
   "notify.inbox.rejectClose": "Annulla",
