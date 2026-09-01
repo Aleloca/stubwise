@@ -97,4 +97,6 @@ Test (`pulse/poller.test.ts`, testcontainers, `now` iniettabile): finestra (ora/
 
 `pnpm lint` + `pnpm typecheck` + `pnpm test`; playwright --list; `feature-backlog.md` (fase 2 ✅); `CLAUDE.md` § Deploy (fase 2: rebuild server+worker+caddy insieme, migrazione 0065, env `PULSE_*` — in prod `PULSE_TIMEZONE=Europe/Rome`, attivazione per progetto dal toggle) e § Invarianti (il pulse tace se ci sono decisioni pendenti). Chiudere la voce di backlog `8931d96d` (decisione presa: opzione 1, implementata nel Task 8). Commit `docs: note di deploy fase 2`.
 
+**Cambio di superficie API introdotto dal Task 4:** `POST /api/backlog/:id/convert` su una voce **archiviata** ora risponde 409 `not_convertible` invece di convertirla (prima 200). Allinea l'API alla SPA, che già nasconde «Converti» sulle voci bloccate; l'unica superficie che poteva raggiungerla è il tool MCP `convert_backlog_to_ticket`.
+
 **Deploy:** backup DB → `git pull` → aggiungere `PULSE_TIMEZONE=Europe/Rome` a `.env` → `docker compose up -d --build server worker caddy` → verifica 0065 → attivare il toggle su un progetto con backlog.

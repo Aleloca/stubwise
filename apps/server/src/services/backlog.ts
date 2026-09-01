@@ -28,8 +28,10 @@ export interface ConvertBacklogItemInput {
    * Chi chiede la conversione. NON è un gate: promuovere un'idea a task è
    * lavoro da operator (la rotta è `requireAuth`, non `requireAdmin`) e il
    * controllo su chi può ESEGUIRE sta a valle, nel gate del piano di
-   * `startRun`. Resta nell'input per l'audit e per omogeneità con gli altri
-   * servizi.
+   * `startRun`. OGGI NON È USATO: né `createTicket` né `backlog_items`
+   * registrano chi ha convertito. Sta nell'input per stabilità di firma verso
+   * i chiamanti (la rotta e il pulse), così tracciare l'autore in futuro non
+   * costringerà a toccarli.
    */
   actor: Actor;
 }
@@ -49,6 +51,13 @@ export type ConvertBacklogItemResult =
  * Errori: `not_found` (voce inesistente), `already_converted` (voce già
  * convertita, anche per corsa fra due chiamate concorrenti), `not_convertible`
  * (voce archiviata: la UI nasconde già l'azione sulle voci bloccate).
+ *
+ * ASIMMETRIA VOLUTA fra pre-check e claim: la guardia sull'archiviata sta SOLO
+ * nel pre-check, quindi la corsa archivia/converti resta aperta (chi archivia
+ * mentre l'altro sta convertendo perde: il ticket nasce lo stesso). Il claim
+ * protegge dal DOPPIO ticket, non dall'archiviazione. Non spostare la guardia
+ * dentro il claim: `claimed = 0` diventerebbe ambiguo fra `already_converted` e
+ * `not_convertible`, e i due 409 non sarebbero più distinguibili.
  */
 export async function convertBacklogItem(
   db: Db,
