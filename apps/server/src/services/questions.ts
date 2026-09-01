@@ -32,7 +32,11 @@
 import { agentQuestions, aiJobs, comments, notifications, users, type Db } from "@stubwise/db";
 import { t } from "@stubwise/i18n";
 import { actorAllows, stateAllows } from "@stubwise/notifications";
-import { ANSWER_TEXT_MAX_CHARS, type AgentQuestionAnswer } from "@stubwise/shared";
+import {
+  ANSWER_TEXT_MAX_CHARS,
+  agentQuestionAnswerSchema,
+  type AgentQuestionAnswer,
+} from "@stubwise/shared";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { getContentLanguage } from "../settings.js";
 import type { Actor } from "./jobs.js";
@@ -131,8 +135,9 @@ export async function answerQuestion(
 ): Promise<AnswerQuestionResult> {
   const { actor } = input;
 
-  const jobId = input.jobId ?? (await jobIdOfNotification(db, input.notificationId));
-  if (!jobId) return { ok: false, error: "not_found" };
+  const anchor = await resolveAnchor(db, input);
+  if (!anchor) return { ok: false, error: "not_found" };
+  const { jobId } = anchor;
 
   const [job] = await db
     .select({
@@ -170,9 +175,21 @@ export async function answerQuestion(
   // si crede), oppure qualcuno ha già risposto — e in quel caso il messaggio
   // giusto è "l'ha già fatto X", non "non c'è nulla da rispondere". Va guardato
   // PRIMA dello stato del job, che dopo la risposta è per forza cambiato.
-  if (!question) return await notPending(db, jobId);
+  if (!question) return await notPending(db, anchor, actor, { jobHasOpenQuestion: false });
 
-  if (!stateAllows("answer", job.status)) return { ok: false, error: "question_not_pending" };
+  // LA CARD È DEL ROUND GIUSTO? L'ancora è una notifica, e la notifica porta nel
+  // payload la domanda a cui si riferisce: se il job nel frattempo ne ha aperta
+  // un'altra (round 2) e qualcuno preme un bottone della card del round 1, quel
+  // click sarebbe validato contro le opzioni del round 2 — una risposta
+  // sintatticamente valida a una domanda DIVERSA da quella che si stava
+  // leggendo. Si rifiuta: la card vecchia non risponde alla domanda nuova.
+  if (anchor.questionId && anchor.questionId !== question.id) {
+    return await notPending(db, anchor, actor, { jobHasOpenQuestion: true });
+  }
+
+  if (!stateAllows("answer", job.status)) {
+    return await notPending(db, anchor, actor, { jobHasOpenQuestion: true });
+  }
 
   const answer = normalizeAnswer(input.answer, question);
   if (!answer) return { ok: false, error: "invalid_answer" };
@@ -224,11 +241,16 @@ export async function answerQuestion(
       return true;
     });
   } catch (err) {
-    if (err instanceof JobMovedError) return { ok: false, error: "question_not_pending" };
+    // Rollback: la nostra risposta è stata annullata, quindi la domanda è di
+    // nuovo (ancora) aperta.
+    if (err instanceof JobMovedError) {
+      return await notPending(db, anchor, actor, { jobHasOpenQuestion: true });
+    }
     throw err;
   }
 
-  if (!written) return await notPending(db, jobId);
+  // Corsa persa: la domanda l'ha chiusa l'altra risposta, non ne resta di aperte.
+  if (!written) return await notPending(db, anchor, actor, { jobHasOpenQuestion: false });
 
   // Da qui in poi la risposta è scritta e il job è ripartito: nulla di ciò che
   // segue deve poterlo annullare (vedi il punto 5 del docblock).
@@ -250,42 +272,169 @@ export async function answerQuestion(
 /** Sentinella interna: il job non è più `awaiting_input` → rollback. */
 class JobMovedError extends Error {}
 
-/** Il `job_id` della notifica, o `null` se la riga non esiste o non ha un job dietro. */
-async function jobIdOfNotification(db: Db, notificationId?: string): Promise<string | null> {
-  if (!notificationId) return null;
+/**
+ * A COSA si sta rispondendo: il job da riprendere e, quando l'ancora è una riga
+ * d'inbox, la domanda che QUELLA card mostrava.
+ */
+interface Anchor {
+  jobId: string;
+  /** Riga d'inbox da cui si è risposto (assente per l'ancora `jobId`). */
+  notificationId?: string;
+  /**
+   * `questionId` letto dal payload dell'evento: la domanda che la card mostrava
+   * quando è stata premuta. Assente su un payload illeggibile (o sull'ancora
+   * `jobId`), e in quel caso la guardia del round non si applica — si degrada al
+   * job, come fa il resto del recinto.
+   */
+  questionId?: string;
+}
+
+/** Risolve l'ancora della risposta; `null` se non porta a nessun job. */
+async function resolveAnchor(db: Db, input: AnswerQuestionInput): Promise<Anchor | null> {
+  if (input.jobId) return { jobId: input.jobId };
+  if (!input.notificationId) return null;
   const [row] = await db
-    .select({ jobId: notifications.jobId })
+    .select({ jobId: notifications.jobId, event: notifications.event })
     .from(notifications)
-    .where(eq(notifications.id, notificationId));
-  return row?.jobId ?? null;
+    .where(eq(notifications.id, input.notificationId));
+  if (!row?.jobId) return null;
+  // Il payload è jsonb non validato dal DB: si prende il `questionId` solo se è
+  // davvero una stringa. Qualunque altra cosa vale come "assente".
+  const questionId = (row.event as { questionId?: unknown }).questionId;
+  return {
+    jobId: row.jobId,
+    notificationId: input.notificationId,
+    ...(typeof questionId === "string" ? { questionId } : {}),
+  };
 }
 
 /**
- * Esito quando il job non ha (più) una domanda aperta: `already_handled` con
- * l'autore se qualcuno ha già risposto, `question_not_pending` se di domande non
- * ce n'erano proprio.
+ * Esito quando non c'è (più) una domanda a cui rispondere: `already_handled` con
+ * l'autore se una risposta c'è già, `question_not_pending` altrimenti.
+ *
+ * Guarda la domanda dell'ANCORA quando la conosce (la card premuta), la più
+ * recente del job quando non la conosce: è la differenza fra "la tua card è
+ * vecchia, quella domanda l'ha già risposta X" e "questo job non aspetta più
+ * niente".
+ *
+ * È anche il punto in cui si SANA il residuo: vedi {@link repairOrphanCopies}.
  */
-async function notPending(db: Db, jobId: string): Promise<AnswerQuestionResult> {
-  // La domanda più recente del job (round più alto). LEFT JOIN e non INNER:
-  // `answered_by_user_id` è ON DELETE SET NULL, quindi una risposta di un utente
-  // cancellato resta una risposta — solo senza un nome da fare.
+async function notPending(
+  db: Db,
+  anchor: Anchor,
+  actor: Actor,
+  state: { jobHasOpenQuestion: boolean },
+): Promise<AnswerQuestionResult> {
+  const answered = await answeredQuestionOf(db, anchor);
+  if (!answered) return { ok: false, error: "question_not_pending" };
+  // La riparazione chiude TUTTE le copie del job (la propagazione ha per
+  // bersaglio job+kind): se il job ha una domanda APERTA — una card del round
+  // precedente su cui si è premuto mentre il round nuovo aspetta — chiuderle
+  // strapperebbe via anche la notifica che sta aspettando una risposta. In quel
+  // caso il residuo resta, e se ne va da solo quando il round aperto verrà
+  // risposto: la sua propagazione chiude le copie di tutti i round.
+  if (!state.jobHasOpenQuestion) await repairOrphanCopies(db, anchor, answered, actor);
+  return {
+    ok: false,
+    error: "already_handled",
+    ...(answered.answeredBy ? { answeredBy: answered.answeredBy } : {}),
+  };
+}
+
+/** Una domanda già risposta: chi ha risposto e cosa, per la nota e per il 409. */
+interface AnsweredQuestion {
+  answeredBy?: AnsweredBy;
+  answer: unknown;
+  options: { label: string; consequence?: string }[];
+}
+
+/**
+ * La domanda RISPOSTA a cui l'ancora si riferisce, o `null` se quella domanda è
+ * ancora aperta (o non esiste).
+ *
+ * LEFT JOIN e non INNER: `answered_by_user_id` è ON DELETE SET NULL, quindi una
+ * risposta di un utente cancellato resta una risposta — solo senza un nome da
+ * fare.
+ */
+async function answeredQuestionOf(db: Db, anchor: Anchor): Promise<AnsweredQuestion | null> {
   const [row] = await db
     .select({
       answeredAt: agentQuestions.answeredAt,
+      answer: agentQuestions.answer,
+      options: agentQuestions.options,
       userId: users.id,
       email: users.email,
     })
     .from(agentQuestions)
     .leftJoin(users, eq(users.id, agentQuestions.answeredByUserId))
-    .where(eq(agentQuestions.jobId, jobId))
+    .where(
+      anchor.questionId
+        ? and(eq(agentQuestions.jobId, anchor.jobId), eq(agentQuestions.id, anchor.questionId))
+        : eq(agentQuestions.jobId, anchor.jobId),
+    )
+    // Senza `questionId` si prende la più recente del job (round più alto); con
+    // il `questionId` la riga è una sola e l'ordinamento è irrilevante.
     .orderBy(desc(agentQuestions.round))
     .limit(1);
-  if (!row || row.answeredAt === null) return { ok: false, error: "question_not_pending" };
+  if (!row || row.answeredAt === null) return null;
   return {
-    ok: false,
-    error: "already_handled",
+    answer: row.answer,
+    options: row.options,
     ...(row.userId && row.email ? { answeredBy: { id: row.userId, email: row.email } } : {}),
   };
+}
+
+/**
+ * RIPARAZIONE PIGRA delle copie rimaste aperte dopo una risposta.
+ *
+ * Fra il commit della transazione di {@link answerQuestion} e la propagazione
+ * c'è una finestra: se il processo muore lì in mezzo, o se `propagateHandled`
+ * fallisce, la risposta è registrata e il job è ripartito ma le copie della
+ * notifica restano `open`. Su QUESTO kind il residuo non ha via d'uscita — il
+ * catalogo nega `handled` (`archivable: false`) e lo stato nega `answer` (il job
+ * non è più `awaiting_input`) — quindi resterebbe in inbox per sempre, a colpi
+ * di snooze: esattamente il fallimento che `archivable: false` vuole evitare.
+ *
+ * Si sana da qui perché l'inbox è l'UNICA superficie che il residuo lo incontra:
+ * chi vede la card vecchia e ci risponde sopra. Il costo è una chiamata in più
+ * solo quando il residuo c'è davvero: la riga d'ancora ancora `open` è il
+ * filtro, e nel caso normale (risposta appena propagata) è già `handled` e qui
+ * non si fa nulla.
+ *
+ * La chiusura è attribuita a CHI HA RISPOSTO, non a chi passa di qui: il senso
+ * della riga è "questa domanda l'ha decisa X", e la nota del DM porta la sua
+ * risposta come se la propagazione fosse riuscita al primo colpo.
+ *
+ * Best-effort come tutta la propagazione: non lancia e non cambia l'esito che il
+ * chiamante sta per restituire.
+ */
+async function repairOrphanCopies(
+  db: Db,
+  anchor: Anchor,
+  answered: AnsweredQuestion,
+  actor: Actor,
+): Promise<void> {
+  if (!anchor.notificationId) return;
+  try {
+    const [row] = await db
+      .select({ status: notifications.status })
+      .from(notifications)
+      .where(eq(notifications.id, anchor.notificationId));
+    if (row?.status !== "open") return;
+    const parsed = agentQuestionAnswerSchema.safeParse(answered.answer);
+    await propagateDecision(db, {
+      target: { jobId: anchor.jobId, kind: "job.awaiting_input" },
+      action: "answer",
+      // Se chi ha risposto è stato cancellato nel frattempo resta chi sta
+      // sanando: la riga va chiusa comunque, e `handled_by_user_id` non è
+      // nullable a piacere.
+      actorId: answered.answeredBy?.id ?? actor.id,
+      ...(parsed.success ? { answer: renderAnswer(parsed.data, answered.options) } : {}),
+    });
+  } catch {
+    // Inghiottito di proposito: la riparazione è un di più, non deve poter
+    // trasformare un 409 legittimo in un 500.
+  }
 }
 
 /** Quel poco della domanda persistita che serve a validare e a rendere la risposta. */

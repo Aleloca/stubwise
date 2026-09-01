@@ -98,20 +98,30 @@ export const agentQuestionOptionSchema = z.object({
 export type AgentQuestionOption = z.infer<typeof agentQuestionOptionSchema>;
 
 /**
- * La domanda dell'agente allegata a una riga d'inbox di kind
- * `job.awaiting_input`: quanto basta a disegnare i bottoni senza risalire ad
- * `agent_questions`.
+ * LA DOMANDA DELL'AGENTE, nella forma che serve a chi la deve far rispondere:
+ * il testo, le alternative, quale è consigliata e se è ammesso il testo libero.
  *
- * È RICAVATA dal payload `event` della notifica (che la porta intera), quindi
- * può mancare: su una riga scritta da una versione precedente del codice, o con
- * un payload che non supera più questa validazione, l'item arriva senza
+ * È la forma CANONICA, ed è deliberatamente la stessa su due superfici che
+ * prendono il dato da due posti diversi:
+ *
+ *  - la CARD D'INBOX la ricava dal payload `event` della notifica, che porta la
+ *    domanda intera (evento autosufficiente: nessuna rilettura di
+ *    `agent_questions` per disegnare una lista);
+ *  - la PAGINA TICKET la legge dalla riga `agent_questions` via
+ *    `GET /api/tickets/:id/questions`, che restituisce
+ *    {@link ticketQuestionSchema} — questo schema PIÙ la risposta.
+ *
+ * Un solo componente di risposta le consuma entrambe, e per questo i nomi e le
+ * convenzioni devono coincidere: `questionId` (non `id`) e `recommendedIndex`
+ * OMESSO quando non c'è (non `null`), anche dove la colonna DB è nullable. La
+ * normalizzazione la fa la rotta, non il client.
+ *
+ * Sulla card è OPZIONALE: se il payload dell'evento non supera più questa
+ * validazione (riga scritta da una versione precedente) l'item arriva senza
  * `question` e la card degrada a testo — vedi il recinto per-item di
- * `listInbox`. Per questo il campo è opzionale nell'item.
- *
- * `question` è ridondante col `text` localizzato dell'item (che la include nella
- * frase) ed è qui lo stesso: il pannello di risposta è lo stesso componente
- * usato dalla pagina ticket, che la domanda la riceve da
- * `GET /api/tickets/:id/questions` — una sola forma per le due superfici.
+ * `listInbox`. Il `question` testuale è ridondante col `text` localizzato
+ * dell'item, che lo include nella frase: è qui lo stesso perché il pannello
+ * deve poterlo mostrare identico sulle due superfici.
  */
 export const inboxQuestionSchema = z.object({
   questionId: z.uuid(),
@@ -134,6 +144,34 @@ export const agentQuestionAnswerSchema = z.union([
   z.object({ text: z.string() }),
 ]);
 export type AgentQuestionAnswer = z.infer<typeof agentQuestionAnswerSchema>;
+
+/**
+ * Una Q&A dell'agente come la restituisce `GET /api/tickets/:id/questions`: la
+ * domanda ({@link inboxQuestionSchema}, stessi nomi e stesse convenzioni) PIÙ la
+ * risposta e chi l'ha data.
+ *
+ * `extend` e non una dichiarazione a parte: è ciò che rende impossibile far
+ * divergere le due superfici: se un giorno la domanda guadagna un campo, lo
+ * guadagnano insieme e il pannello di risposta continua a consumarle entrambe
+ * senza normalizzare nulla a mano.
+ *
+ * `answer` è `null` sia sulla domanda ancora aperta sia su una risposta che non
+ * è più leggibile (jsonb di una versione precedente): `answeredAt` distingue i
+ * due casi, ed è lui che il client deve guardare per sapere se una risposta c'è
+ * stata.
+ */
+export const ticketQuestionSchema = inboxQuestionSchema.extend({
+  /** Job che ha posto la domanda: la pagina ticket ci ancora la risposta. */
+  jobId: z.uuid(),
+  askedAt: z.iso.datetime(),
+  answer: agentQuestionAnswerSchema.nullable(),
+  answeredAt: z.iso.datetime().nullable(),
+  answeredBy: handledBySchema.nullable(),
+});
+export type TicketQuestion = z.infer<typeof ticketQuestionSchema>;
+
+/** Corpo di `GET /api/tickets/:id/questions`: le Q&A in ordine cronologico. */
+export const ticketQuestionsSchema = z.array(ticketQuestionSchema);
 
 /** Tetto per una risposta in testo libero (allineato al servizio). */
 export const ANSWER_TEXT_MAX_CHARS = 4000;

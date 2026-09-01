@@ -122,6 +122,15 @@ const CATALOG_FOR_KIND: Record<
   // scadenza, un recovery) DEVE chiudere anche le notifiche: qui non resterebbe
   // nessuna azione utile — `answer` la nega lo stato, `handled` la nega il
   // catalogo — e la riga vivrebbe per sempre a colpi di snooze.
+  //
+  // La stessa trappola si apre anche SENZA una nuova uscita, per un guasto:
+  // fra la scrittura della risposta e la sua propagazione c'è una finestra (il
+  // processo muore, la propagazione fallisce) che lascia le copie `open` su un
+  // job ormai ripartito. Per questo `answerQuestion`
+  // (`apps/server/src/services/questions.ts`) le SANA quando le incontra: un
+  // tentativo di rispondere su una card ormai vecchia chiude le copie
+  // attribuendole a chi aveva risposto davvero. È l'unica via d'uscita del
+  // residuo, e vive lì perché l'inbox è l'unica superficie che lo incontra.
   "job.awaiting_input": { decisions: ["answer"], adminOnly: false, archivable: false },
 };
 

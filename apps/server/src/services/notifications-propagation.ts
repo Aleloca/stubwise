@@ -241,7 +241,12 @@ const NOTE_ANSWER_MAX_CHARS = 200;
  */
 function truncateNote(answer: string): string {
   const oneLine = answer.replace(/\s+/g, " ").trim();
-  return oneLine.length > NOTE_ANSWER_MAX_CHARS
-    ? `${oneLine.slice(0, NOTE_ANSWER_MAX_CHARS - 1)}…`
+  // Taglio per PUNTO DI CODICE (`Array.from`) e non per code unit UTF-16:
+  // `slice` su una stringa che contiene un'emoji può spezzarne la coppia di
+  // surrogati proprio al confine, e la nota arriverebbe su Slack con un
+  // carattere rotto.
+  const points = Array.from(oneLine);
+  return points.length > NOTE_ANSWER_MAX_CHARS
+    ? `${points.slice(0, NOTE_ANSWER_MAX_CHARS - 1).join("")}…`
     : oneLine;
 }

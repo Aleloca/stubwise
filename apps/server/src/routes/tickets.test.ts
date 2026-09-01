@@ -2552,12 +2552,15 @@ describe("GET /api/tickets/:id — campi design/piano", () => {
 
 describe("GET /api/tickets/:id/questions", () => {
   interface QuestionBody {
-    id: string;
+    // `questionId` e `recommendedIndex` OPZIONALE: è la stessa forma che la card
+    // d'inbox riceve (`inboxQuestionSchema`), così il pannello di risposta
+    // consuma le due superfici senza normalizzare nulla.
+    questionId: string;
     jobId: string;
     round: number;
     question: string;
     options: { label: string; consequence?: string }[];
-    recommendedIndex: number | null;
+    recommendedIndex?: number;
     allowFreeText: boolean;
     askedAt: string;
     answer: { optionIndex?: number; text?: string } | null;
@@ -2630,6 +2633,7 @@ describe("GET /api/tickets/:id/questions", () => {
     expect(body.map((q) => q.round)).toEqual([1, 2]);
 
     expect(body[0]).toMatchObject({
+      questionId: expect.any(String),
       jobId: job!.id,
       question: "Quali colonne?",
       options: [{ label: "Vecchie", consequence: "Nessuna migrazione" }, { label: "Nuove" }],
@@ -2640,15 +2644,17 @@ describe("GET /api/tickets/:id/questions", () => {
     });
     expect(body[0]!.answeredAt).not.toBeNull();
 
-    // La domanda ancora aperta: nessuna risposta, nessun autore.
+    // La domanda ancora aperta: nessuna risposta, nessun autore. Senza
+    // raccomandata il campo è OMESSO, non `null`: la colonna è nullable, il
+    // contratto no.
     expect(body[1]).toMatchObject({
       round: 2,
       allowFreeText: false,
-      recommendedIndex: null,
       answer: null,
       answeredAt: null,
       answeredBy: null,
     });
+    expect(body[1]).not.toHaveProperty("recommendedIndex");
   });
 
   it("una risposta illeggibile non fa fallire la lista", async () => {

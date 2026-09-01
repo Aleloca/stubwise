@@ -1,10 +1,10 @@
 import {
   agentQuestionAnswerSchema,
-  agentQuestionOptionSchema,
   ticketPrioritySchema,
   ticketRepositorySchema,
   ticketSourceSchema,
   ticketStatusSchema,
+  ticketQuestionsSchema,
   ticketTypeSchema,
   setContentSchema,
   type AgentQuestionAnswer,
@@ -258,27 +258,6 @@ const activityResponseSchema = z.array(
 );
 
 type ActivityItem = z.infer<typeof activityResponseSchema>[number];
-
-/**
- * Q&A dell'agente su un ticket: la domanda posta e, se c'è, la risposta con chi
- * l'ha data. `answer` è il jsonb grezzo (`{optionIndex}` o `{text}`): la resa in
- * parole la fa il client, che ha le `options` qui accanto.
- */
-const ticketQuestionSchema = z.object({
-  id: z.uuid(),
-  jobId: z.uuid(),
-  round: z.number().int(),
-  question: z.string(),
-  options: z.array(agentQuestionOptionSchema),
-  recommendedIndex: z.number().int().nullable(),
-  allowFreeText: z.boolean(),
-  askedAt: z.iso.datetime(),
-  answer: agentQuestionAnswerSchema.nullable(),
-  answeredAt: z.iso.datetime().nullable(),
-  answeredBy: z.object({ id: z.uuid(), email: z.string() }).nullable(),
-});
-
-const ticketQuestionsResponseSchema = z.array(ticketQuestionSchema);
 
 /**
  * Ri-valida la risposta letta dal jsonb: `null` se non è (più) leggibile. La
@@ -761,7 +740,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
       schema: {
         params: idParamsSchema,
         response: {
-          200: ticketQuestionsResponseSchema,
+          200: ticketQuestionsSchema,
           404: errorSchema,
           ...authErrorResponses,
         },
@@ -798,12 +777,17 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         .orderBy(agentQuestions.askedAt, agentQuestions.round);
 
       return rows.map((row) => ({
-        id: row.id,
+        // `questionId` e non `id`, e `recommendedIndex` OMESSO invece che
+        // `null`: è la forma condivisa con la card d'inbox
+        // (`inboxQuestionSchema`), che la pagina ticket e l'inbox danno allo
+        // stesso pannello di risposta. La normalizzazione dalla colonna nullable
+        // è compito di questa rotta, non del client.
+        questionId: row.id,
         jobId: row.jobId,
         round: row.round,
         question: row.question,
         options: row.options,
-        recommendedIndex: row.recommendedIndex,
+        ...(row.recommendedIndex === null ? {} : { recommendedIndex: row.recommendedIndex }),
         allowFreeText: row.allowFreeText,
         askedAt: row.askedAt.toISOString(),
         // Il jsonb viene ri-validato prima di uscire: la colonna è tipata sulla

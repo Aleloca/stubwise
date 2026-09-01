@@ -607,3 +607,242 @@ describe("answerQuestion — effetti", () => {
     expect(await readSlackUpdates(other)).toHaveLength(0);
   });
 });
+
+describe("answerQuestion — residuo e round", () => {
+  /**
+   * Riproduce lo STATO che resta se il processo muore (o `propagateHandled`
+   * fallisce) fra il commit della transazione e la propagazione: risposta
+   * registrata, job ripartito, copie della notifica ancora `open`. È l'unico
+   * modo di scriverlo — la finestra è fra due statement, non fra due chiamate —
+   * e su questo kind quel residuo non avrebbe via d'uscita: `handled` lo nega il
+   * catalogo, `answer` lo nega lo stato del job.
+   */
+  async function seedOrphanState() {
+    const parked = await seedParkedJob({ requestedByUserId: operator.id });
+    const mine = await seedNotification({
+      userId: operator.id,
+      ticketId: parked.ticketId,
+      jobId: parked.jobId,
+      questionId: parked.questionId!,
+    });
+    const theirs = await seedNotification({
+      userId: maintainer.id,
+      ticketId: parked.ticketId,
+      jobId: parked.jobId,
+      questionId: parked.questionId!,
+    });
+    await db
+      .update(agentQuestions)
+      .set({
+        answer: { optionIndex: 0 },
+        answeredAt: new Date(),
+        answeredByUserId: maintainer.id,
+      })
+      .where(eq(agentQuestions.id, parked.questionId!));
+    await db
+      .update(aiJobs)
+      .set({ status: "queued", resumeMode: "plan_continue" })
+      .where(eq(aiJobs.id, parked.jobId));
+    return { ...parked, mine, theirs };
+  }
+
+  it("chiude le copie orfane al primo tentativo che le incontra", async () => {
+    const { mine, theirs, jobId } = await seedOrphanState();
+
+    const result = await answerQuestion(db, {
+      notificationId: mine,
+      actor: operator,
+      answer: { optionIndex: 1 },
+    });
+    expect(result).toEqual({
+      ok: false,
+      error: "already_handled",
+      answeredBy: { id: maintainer.id, email: maintainer.email },
+    });
+
+    // Tutte le copie chiuse, attribuite a CHI HA RISPOSTO (non a chi è passato
+    // di qui): la riga significa "questa domanda l'ha decisa il maintainer".
+    const rows = await db.select().from(notifications).where(eq(notifications.jobId, jobId));
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      expect(row.status).toBe("handled");
+      expect(row.handledByUserId).toBe(maintainer.id);
+    }
+    // E il DM porta la risposta vera, come se la propagazione fosse riuscita
+    // al primo colpo.
+    const note = ((await readSlackUpdates(theirs))[0]!.event as { note?: string }).note ?? "";
+    expect(note).toContain(maintainer.email);
+    expect(note).toContain("Colonne vecchie");
+  });
+
+  it("non riscrive nulla quando le copie sono già chiuse (percorso normale)", async () => {
+    const parked = await seedParkedJob({ requestedByUserId: operator.id });
+    const theirs = await seedNotification({
+      userId: maintainer.id,
+      ticketId: parked.ticketId,
+      jobId: parked.jobId,
+      questionId: parked.questionId!,
+    });
+    expect(
+      (await answerQuestion(db, { notificationId: theirs, actor: operator, answer: { text: "A" } }))
+        .ok,
+    ).toBe(true);
+    // Secondo tentativo sulla stessa card: 409 e basta. La riparazione è
+    // guardata sullo stato della riga, quindi non accoda un secondo DM.
+    expect(
+      (
+        await answerQuestion(db, {
+          notificationId: theirs,
+          actor: operator,
+          answer: { optionIndex: 0 },
+        })
+      ).ok,
+    ).toBe(false);
+    expect(await readSlackUpdates(theirs)).toHaveLength(1);
+  });
+
+  it("una card di un round precedente NON risponde alla domanda nuova", async () => {
+    const parked = await seedParkedJob({ requestedByUserId: operator.id });
+    const cardRound1 = await seedNotification({
+      userId: operator.id,
+      ticketId: parked.ticketId,
+      jobId: parked.jobId,
+      questionId: parked.questionId!,
+    });
+    expect(
+      (
+        await answerQuestion(db, {
+          jobId: parked.jobId,
+          actor: operator,
+          answer: { optionIndex: 0 },
+        })
+      ).ok,
+    ).toBe(true);
+
+    // Il run riprende e fa una SECONDA domanda, con opzioni diverse.
+    await db.update(aiJobs).set({ status: "awaiting_input" }).where(eq(aiJobs.id, parked.jobId));
+    const [round2] = await db
+      .insert(agentQuestions)
+      .values({
+        jobId: parked.jobId,
+        ticketId: parked.ticketId,
+        round: 2,
+        question: "E il TTL della cache?",
+        options: [{ label: "Un'ora" }, { label: "Un giorno" }],
+        allowFreeText: true,
+      })
+      .returning({ id: agentQuestions.id });
+
+    // Click su "opzione 2" della card VECCHIA: senza la guardia sarebbe stato
+    // validato contro le opzioni del round 2 — una risposta valida a un'altra
+    // domanda.
+    const result = await answerQuestion(db, {
+      notificationId: cardRound1,
+      actor: operator,
+      answer: { optionIndex: 1 },
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("impossibile");
+    expect(result.error).toBe("already_handled");
+
+    // La domanda nuova è rimasta APERTA e il job in attesa: nessuno ha risposto
+    // per sbaglio al suo posto.
+    const [q2] = await db.select().from(agentQuestions).where(eq(agentQuestions.id, round2!.id));
+    expect(q2?.answeredAt).toBeNull();
+    expect((await readJob(parked.jobId))?.status).toBe("awaiting_input");
+  });
+
+  it("la card del round 1 non viene chiusa mentre il round 2 aspetta", async () => {
+    const parked = await seedParkedJob({ requestedByUserId: operator.id });
+    const cardRound1 = await seedNotification({
+      userId: operator.id,
+      ticketId: parked.ticketId,
+      jobId: parked.jobId,
+      questionId: parked.questionId!,
+    });
+    await db
+      .update(agentQuestions)
+      .set({
+        answer: { optionIndex: 0 },
+        answeredAt: new Date(),
+        answeredByUserId: maintainer.id,
+      })
+      .where(eq(agentQuestions.id, parked.questionId!));
+    const [round2] = await db
+      .insert(agentQuestions)
+      .values({
+        jobId: parked.jobId,
+        ticketId: parked.ticketId,
+        round: 2,
+        question: "E il TTL della cache?",
+        options: [{ label: "Un'ora" }, { label: "Un giorno" }],
+        allowFreeText: true,
+      })
+      .returning({ id: agentQuestions.id });
+    const cardRound2 = await seedNotification({
+      userId: operator.id,
+      ticketId: parked.ticketId,
+      jobId: parked.jobId,
+      questionId: round2!.id,
+    });
+
+    // Premere la card vecchia non deve sanare nulla: la riparazione chiude
+    // TUTTE le copie del job, e fra queste c'è la card del round 2, che sta
+    // aspettando una risposta.
+    await answerQuestion(db, {
+      notificationId: cardRound1,
+      actor: operator,
+      answer: { optionIndex: 1 },
+    });
+    const rows = await db.select().from(notifications).where(eq(notifications.jobId, parked.jobId));
+    expect(rows.map((r) => r.status)).toEqual(["open", "open"]);
+    expect(cardRound1).not.toBe(cardRound2);
+
+    // Rispondendo al round 2 se ne vanno entrambe: il residuo del round 1 si
+    // sana da solo, senza bisogno della riparazione.
+    expect(
+      (
+        await answerQuestion(db, {
+          jobId: parked.jobId,
+          actor: operator,
+          answer: { optionIndex: 0 },
+        })
+      ).ok,
+    ).toBe(true);
+    const after = await db
+      .select()
+      .from(notifications)
+      .where(eq(notifications.jobId, parked.jobId));
+    expect(after.every((r) => r.status === "handled")).toBe(true);
+  });
+});
+
+describe("answerQuestion — nota del DM", () => {
+  it("il taglio della risposta lunga non spezza un'emoji a metà", async () => {
+    const parked = await seedParkedJob();
+    const notificationId = await seedNotification({
+      userId: maintainer.id,
+      ticketId: parked.ticketId,
+      jobId: parked.jobId,
+      questionId: parked.questionId!,
+    });
+    // 198 caratteri, poi l'emoji: in UTF-16 la sua coppia di surrogati sta a
+    // cavallo del taglio a 199 *code unit*, quindi uno `slice` ingenuo
+    // lascerebbe nella nota un surrogato spaiato.
+    const text = `${"x".repeat(198)}😀${"y".repeat(50)}`;
+    expect(
+      (await answerQuestion(db, { notificationId, actor: maintainer, answer: { text } })).ok,
+    ).toBe(true);
+
+    const note =
+      ((await readSlackUpdates(notificationId))[0]!.event as { note?: string }).note ?? "";
+    expect(note).toContain("😀");
+    // Nessun surrogato alto senza il suo basso (né viceversa).
+    expect(
+      /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(note),
+    ).toBe(false);
+    // Troncata: la coda non c'è, e la nota finisce col carattere di ellissi.
+    expect(note).not.toContain("yyyyy");
+    expect(note).toContain("…");
+  });
+});
