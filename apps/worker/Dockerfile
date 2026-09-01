@@ -110,6 +110,19 @@ RUN python3 -m venv /opt/graphify \
 RUN useradd --create-home --uid 10001 worker
 COPY --from=base --chown=worker:worker /app /app
 
+# Plugin base Stubwise (hook SessionStart col contratto della run + skill delle
+# convenzioni di piano/report): dati puri (json, sh, markdown), non passano dal
+# build TypeScript. Oggi `pnpm deploy --legacy` copia l'intera dir del package,
+# quindi /app/plugins arriverebbe comunque dallo stadio base — ma solo finché il
+# package.json non dichiara un campo `files`: questa COPY esplicita rende il
+# path indipendente dalla semantica di packaging, e va DOPO il dist perché la
+# COPY qui sopra lo sovrascriverebbe.
+# COPY preserva i permessi: il bit +x di hooks/session-start.sh è committato in
+# git, e senza quello il CLI non eseguirebbe l'hook.
+# Il path deve restare quello che `src/plugins/base.ts` risolve relativamente al
+# modulo: /app/dist/plugins/base.js -> /app/plugins/stubwise-base.
+COPY --chown=worker:worker apps/worker/plugins /app/plugins
+
 # Directory dei mirror git persistenti (montata come volume nel compose).
 RUN mkdir -p /var/stubwise/mirrors && chown -R worker:worker /var/stubwise
 ENV MIRRORS_DIR=/var/stubwise/mirrors

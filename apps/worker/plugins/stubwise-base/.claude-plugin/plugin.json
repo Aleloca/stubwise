@@ -1,0 +1,6 @@
+{
+  "name": "stubwise-base",
+  "version": "1.0.0",
+  "description": "Stubwise run contract and plan/report conventions.",
+  "author": { "name": "Stubwise" }
+}
