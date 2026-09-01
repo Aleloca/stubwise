@@ -1,4 +1,5 @@
 import {
+  agentQuestions,
   automationRules,
   comments,
   decrypt,
@@ -15,8 +16,9 @@ import {
 import { getProvider, type GitProvider } from "@stubwise/git";
 import { t } from "@stubwise/i18n";
 import type { GitProviderKind } from "@stubwise/shared";
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, count, desc, eq } from "drizzle-orm";
 import { execa } from "execa";
+import { existsSync } from "node:fs";
 import { readFile, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
@@ -24,6 +26,7 @@ import {
   AgentRunError,
   AgentTimeoutError,
   type AgentRunner,
+  type AgentRunResult,
   type AgentRunUsage,
 } from "../agent/runner.js";
 import { mirrorSlug, MirrorManager, type MirrorProject } from "../git/mirrors.js";
@@ -35,12 +38,23 @@ import {
   completeJob,
   failJob,
   holdJob,
+  parkForInput,
   parkForPlanApproval,
   recordAgentRun,
   touchJob,
   type AiJob,
 } from "../queue.js";
 import { getContentLanguage } from "../settings.js";
+import {
+  ASK_USER_FILENAME,
+  ASK_USER_MCP_SERVER_KEY,
+  ASK_USER_TOOL_PATTERN,
+  DEFAULT_AGENT_QUESTION_MAX_ROUNDS,
+  askUserServerPath,
+  planParentDir,
+  readAskUserQuestion,
+  type AskUserPayload,
+} from "./ask-user.js";
 import { notify, ticketUrl, type NotifyDeps } from "./notify.js";
 import {
   buildFixExecutePrompt,
@@ -301,12 +315,22 @@ export interface FixDeps extends NotifyDeps {
    * passata a ogni runner.run (plan/execute/repair) per l'iniezione dell'auth.
    * Assente = auth storica (env del container / OAuth del volume). */
   provider?: ResolvedProvider;
+  /** Entry del server MCP `ask_user` da lanciare con `node` (iniettabile nei
+   * test). Default: risolta accanto al modulo (vedi ./ask-user.ts). Se il file
+   * non esiste il tool viene DISATTIVATO con una riga nel log del job. */
+  askUserServerPath?: string;
+  /** Tetto di round di domanda per job (default 5, vedi ./ask-user.ts). */
+  questionMaxRounds?: number;
 }
 
 export type FixOutcome =
   | "pr_opened"
   | "failed"
   | "awaiting_approval"
+  /** La pianificazione si è fermata su una domanda all'umano: il job è
+   * parcheggiato in `awaiting_input` (NON chiuso) e riprenderà dalla risposta.
+   * Come "awaiting_approval" per il chiamante: nessun failover, niente retry. */
+  | "awaiting_input"
   | "held"
   /** Il provider AI ha risposto con un limite di rate/usage PRIMA di qualunque
    * effetto osservabile (push/PR): il job NON è stato chiuso (niente failJob),
@@ -718,10 +742,9 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     ? [...allowedTools, ...GRAPHIFY_AGENT_ALLOWED_TOOLS]
     : allowedTools;
   // I run di PIANIFICAZIONE sono read-only e oggi senza Bash: si apre SOLO
-  // graphify (niente comandi di test in plan mode).
-  const planAllowedToolsOpt = hasCodeGraph
-    ? { allowedTools: GRAPHIFY_AGENT_ALLOWED_TOOLS }
-    : {};
+  // graphify (niente comandi di test in plan mode). Il tool ask_user si
+  // aggiunge più sotto, quando è davvero disponibile.
+  const planGraphTools = hasCodeGraph ? GRAPHIFY_AGENT_ALLOWED_TOOLS : [];
   const branch = `stubwise/ticket-${ticket.number}`;
   const titleLine = toSingleLine(ticket.title, TITLE_MAX_CHARS);
   const prTitle = `fix: ${titleLine} (#${ticket.number})`;
@@ -750,6 +773,75 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     .limit(10);
   const teamComments = teamCommentRows.map((r) => r.body);
 
+  // --- PIANIFICAZIONE INTERATTIVA (tool ask_user) ---------------------------
+  // Un run di pianificazione c'è in plan-only e nella fase 1 del flusso a due
+  // fasi; in execute-only (piano già approvato) e a fase singola no. Solo quei
+  // run possono fermarsi su una domanda, e solo loro pagano la cornice qui
+  // sotto: parent dir deterministica, server MCP, blocco di prompt.
+  const hasPlanRun = fixMode === "plan-only" || (fixMode !== "execute-only" && twoPhase);
+  // Entry del server MCP: risolta accanto al modulo (dist in produzione). Se
+  // manca — sviluppo con tsx, build parziale — il tool NON si configura: un
+  // server MCP fantasma fallirebbe in SILENZIO (l'agente non troverebbe il tool
+  // e produrrebbe comunque un piano), quindi lo diciamo nel log del job.
+  const askUserEntry = deps.askUserServerPath ?? askUserServerPath();
+  const askUserEnabled = hasPlanRun && existsSync(askUserEntry);
+  if (hasPlanRun && !askUserEnabled) {
+    await appendLog(
+      db,
+      job.id,
+      `[fix] tool ask_user non disponibile (entry '${askUserEntry}' assente): la pianificazione non potrà fare domande`,
+    );
+  }
+  // Round della PROSSIMA domanda: le domande già poste su questo job (di
+  // qualunque round e già risposte o meno) più uno. Serve sia al tool (che
+  // oltre il tetto smette di registrare) sia alla riga `agent_questions`.
+  const [askedSoFar] = await db
+    .select({ value: count() })
+    .from(agentQuestions)
+    .where(eq(agentQuestions.jobId, job.id));
+  const questionRound = (askedSoFar?.value ?? 0) + 1;
+  const questionMaxRounds = deps.questionMaxRounds ?? DEFAULT_AGENT_QUESTION_MAX_ROUNDS;
+  // Parent dir DETERMINISTICA per i run di pianificazione: la ripresa dalla
+  // risposta (`--resume`) deve ritrovare la stessa cwd. withProjectWorktrees la
+  // ripulisce a ogni ingresso, quindi il file-bridge di un round precedente non
+  // può bloccare quello successivo. Gli altri percorsi restano su mkdtemp.
+  // È per-JOB, quindi due job diversi non collidono mai; due runFix CONCORRENTI
+  // sullo STESSO job si calpesterebbero, ma è già escluso a monte (claim +
+  // transizioni status-guarded) e sarebbe comunque fatale sul mirror condiviso,
+  // dir temporanea o no (vedi il docblock di serializzazione del modulo).
+  const worktreeOptions = hasPlanRun ? { parentDir: planParentDir(job.id) } : {};
+  const askUserFile = join(planParentDir(job.id), ASK_USER_FILENAME);
+  // Server MCP locale al run + il suo tool in allowlist (abilitare il server non
+  // basta). I parametri del bridge viaggiano SOLO nell'env del server MCP: l'env
+  // del CLI è una allowlist con denylist assoluta sui segreti e non va allargata.
+  const askUserOpt = askUserEnabled
+    ? {
+        mcpConfig: {
+          servers: {
+            [ASK_USER_MCP_SERVER_KEY]: {
+              // process.execPath, non "node": è il node che sta già girando,
+              // senza dipendere da come è fatto il PATH del processo figlio.
+              command: process.execPath,
+              args: [askUserEntry],
+              env: {
+                ASK_USER_FILE: askUserFile,
+                ASK_USER_ROUND: String(questionRound),
+                ASK_USER_MAX_ROUNDS: String(questionMaxRounds),
+              },
+            },
+          },
+        },
+      }
+    : {};
+  const planAskUserPromptOpt = askUserEnabled
+    ? { askUser: { round: questionRound, maxRounds: questionMaxRounds } }
+    : {};
+  // Allowlist dei run di pianificazione: graphify (se c'è un grafo) + il tool
+  // ask_user (se il server MCP è configurato). Vuota → nessuna opzione, come
+  // prima.
+  const planTools = [...planGraphTools, ...(askUserEnabled ? [ASK_USER_TOOL_PATTERN] : [])];
+  const planAllowedToolsOpt = planTools.length > 0 ? { allowedTools: planTools } : {};
+
   // Un repo effettivamente MODIFICATO dall'agente e già pushato: raccoglie ciò che
   // serve, FUORI dalla callback, per aprire la PR e inserire la riga
   // `ticket_repositories`. Il push avviene DENTRO la callback (il ref vive nel
@@ -765,7 +857,11 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
   // repo modificati, uno per PR).
   type WorktreeResult =
     | { kind: "executed"; report: string | null; agentOutput: string; changedRepos: ChangedRepo[] }
-    | { kind: "planned"; planText: string };
+    | { kind: "planned"; planText: string }
+    /** La pianificazione si è fermata su una domanda: il payload è già stato
+     * rivalidato, `cliSessionId` è la sessione CLI da riprendere (assente se il
+     * run non l'ha esposta, es. timeout → la ripresa userà il fallback). */
+    | { kind: "question"; payload: AskUserPayload; cliSessionId?: string };
   let worktreeResult: WorktreeResult;
   // Consumi dei run dell'agente: ogni run (plan ed execute, o l'unico run nella
   // modalità a fase singola) registra la PROPRIA riga sotto phase 'fix' così i
@@ -778,6 +874,48 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     for (const usage of fixUsages) {
       await recordAgentRun(db, { jobId: job.id, phase: "fix", usage });
     }
+  };
+  /**
+   * Legge il file-bridge dopo un run di pianificazione riuscito e, se c'è una
+   * domanda valida, la trasforma nell'esito `question`.
+   *
+   * Due decisioni di comportamento, entrambe conservative:
+   * - file MALFORMATO (JSON rotto, schema violato) → si logga e si prosegue col
+   *   piano: un file corrotto non deve buttare via un run altrimenti riuscito;
+   * - domanda + testo del piano nello STESSO turno → vince la DOMANDA. Il
+   *   modello ha ignorato l'istruzione "termina il turno ORA": il suo piano è
+   *   stato scritto senza la risposta che stava chiedendo, quindi è proprio il
+   *   piano da non tenere. Il testo scartato resta nel log.
+   */
+  const captureQuestion = async (result: AgentRunResult): Promise<WorktreeResult | null> => {
+    if (!askUserEnabled) return null;
+    const read = await readAskUserQuestion(askUserFile);
+    if (read.kind === "absent") return null;
+    if (read.kind === "malformed") {
+      await appendLog(
+        db,
+        job.id,
+        `[fix] domanda dell'agente ignorata, file-bridge non valido (${read.reason}): proseguo con il piano`,
+      ).catch(() => {
+        // Log best-effort.
+      });
+      return null;
+    }
+    if (result.output.trim() !== "") {
+      await appendLog(
+        db,
+        job.id,
+        "[fix] l'agente ha registrato una domanda E prodotto testo nello stesso turno: vince la domanda, il testo del turno viene scartato\n" +
+          truncateForLog(result.output),
+      ).catch(() => {
+        // Log best-effort.
+      });
+    }
+    return {
+      kind: "question",
+      payload: read.payload,
+      ...(result.sessionId !== undefined ? { cliSessionId: result.sessionId } : {}),
+    };
   };
   try {
     worktreeResult = await mirrors.withProjectWorktrees(
@@ -911,12 +1049,16 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
           if (fixMode === "plan-only") {
             const planResult = await runner.run({
               cwd: parentDir,
-              prompt: buildFixPlanPrompt({ ticket, teamComments, repos: promptRepos }, lang),
+              prompt: buildFixPlanPrompt(
+                { ticket, teamComments, repos: promptRepos, ...planAskUserPromptOpt },
+                lang,
+              ),
               model: planModel,
               permissionMode: "plan",
               maxTurns: DEFAULT_PLAN_MAX_TURNS,
               timeoutMs: planTimeoutMs,
               ...planAllowedToolsOpt,
+              ...askUserOpt,
               ...providerOpt,
             });
             fixUsages.push(planResult.usage);
@@ -928,6 +1070,10 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
             if (planResult.exitCode !== 0) {
               throw new AgentExitError(planResult.exitCode, planResult.output);
             }
+            // Domanda all'umano: vince sul piano, il fix si ferma qui (il
+            // parcheggio avviene FUORI, a worktree già smontati).
+            const question = await captureQuestion(planResult);
+            if (question) return question;
             return { kind: "planned", planText: planResult.output };
           }
 
@@ -944,12 +1090,16 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
           } else if (twoPhase) {
             const planResult = await runner.run({
               cwd: parentDir,
-              prompt: buildFixPlanPrompt({ ticket, teamComments, repos: promptRepos }, lang),
+              prompt: buildFixPlanPrompt(
+                { ticket, teamComments, repos: promptRepos, ...planAskUserPromptOpt },
+                lang,
+              ),
               model: planModel,
               permissionMode: "plan",
               maxTurns: DEFAULT_PLAN_MAX_TURNS,
               timeoutMs: planTimeoutMs,
               ...planAllowedToolsOpt,
+              ...askUserOpt,
               ...providerOpt,
             });
             fixUsages.push(planResult.usage);
@@ -961,6 +1111,10 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
             if (planResult.exitCode !== 0) {
               throw new AgentExitError(planResult.exitCode, planResult.output);
             }
+            // Domanda all'umano: si esce PRIMA di eseguire (niente commit,
+            // niente PR); il fix riprenderà dalla risposta.
+            const question = await captureQuestion(planResult);
+            if (question) return question;
             executePrompt = buildFixExecutePrompt(
               { ticket, plan: planResult.output, teamComments, repos: promptRepos },
               lang,
@@ -1182,6 +1336,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
           clearInterval(heartbeat);
         }
       },
+      worktreeOptions,
     );
   } catch (err) {
     // Qualunque sia l'errore, il worktree è già stato rimosso da withWorktree.
@@ -1264,6 +1419,107 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
   // proseguire. Non fa mai fallire il job. Vale sia per plan-only sia per
   // l'esecuzione.
   await recordAllUsages();
+
+  // DOMANDA ALL'UMANO: la pianificazione si è fermata su un bivio. I worktree
+  // sono già smontati (siamo fuori da withProjectWorktrees, come per il
+  // parcheggio del piano), quindi l'attesa non tiene aperto nulla sul disco né
+  // sul mirror.
+  //
+  // Ordine: (1) transazione domanda + commento, (2) parcheggio, (3) notifica.
+  // In transazione stanno le due SCRITTURE DI CONTENUTO: la riga
+  // `agent_questions` — che è l'ancora su cui si risponde — e il commento AI che
+  // la rende visibile nel feed del ticket. O ci sono entrambi o nessuno: un
+  // commento "l'AI ha una domanda" senza la riga su cui rispondere sarebbe un
+  // vicolo cieco. Il parcheggio resta FUORI (è status-guarded e deve poter dire
+  // "ownership persa" senza abortire le scritture, come parkForPlanApproval) e
+  // la notifica pure — best-effort, e va emessa DOPO che lo stato è committato.
+  //
+  // L'indice unico parziale ammette UNA sola domanda aperta per job: se il round
+  // precedente non fosse stato chiuso l'insert violerebbe il vincolo. Non deve
+  // poter accadere (si arriva qui solo da un job in lavorazione, e la ripresa
+  // passa da una risposta), ma se accade il job FALLISCE con l'errore in chiaro
+  // invece di restare `fixing` per sempre.
+  if (worktreeResult.kind === "question") {
+    const { payload } = worktreeResult;
+    const optionLines = payload.options
+      .map((option, index) => {
+        const consequence = option.consequence ? ` — ${option.consequence}` : "";
+        const recommended =
+          payload.recommendedIndex === index
+            ? ` _(${t(lang, "comment.agentQuestionRecommended")})_`
+            : "";
+        return `${index + 1}. **${option.label}**${consequence}${recommended}`;
+      })
+      .join("\n");
+    let questionId: string;
+    try {
+      questionId = await db.transaction(async (tx) => {
+        const [row] = await tx
+          .insert(agentQuestions)
+          .values({
+            jobId: job.id,
+            ticketId: ticket.id,
+            round: questionRound,
+            question: payload.question,
+            options: payload.options,
+            recommendedIndex: payload.recommendedIndex ?? null,
+            allowFreeText: payload.allowFreeText,
+          })
+          .returning({ id: agentQuestions.id });
+        if (!row) throw new Error("insert della domanda non ha restituito la riga");
+        await tx.insert(comments).values({
+          ticketId: ticket.id,
+          authorType: "ai",
+          body:
+            `${t(lang, "comment.agentQuestion", { round: String(questionRound) })}\n\n` +
+            `${payload.question}\n\n${optionLines}`,
+        });
+        return row.id;
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      await failJob(db, job.id, {
+        log: `[fix] impossibile registrare la domanda dell'agente (round ${questionRound}): ${message}`,
+        error: `registrazione della domanda fallita: ${message}`,
+      });
+      await notifyFailed(`registrazione della domanda fallita: ${message}`);
+      return "failed";
+    }
+    const parked = await parkForInput(db, job.id, {
+      cliSessionId: worktreeResult.cliSessionId ?? null,
+      log:
+        `[fix] domanda registrata (round ${questionRound}), job in attesa di risposta` +
+        (worktreeResult.cliSessionId === undefined
+          ? " (nessuna sessione CLI da riprendere: la ripresa ripianificherà da zero)"
+          : ""),
+    });
+    if (!parked) {
+      // Ownership persa: la domanda e il commento restano veri (sono contenuto
+      // del ticket); solo una riga di log, nessun overwrite dello stato.
+      await appendLog(db, job.id, "[fix] ownership persa dopo la registrazione della domanda");
+    }
+    await notify(
+      notifyDeps,
+      db,
+      {
+        kind: "job.awaiting_input",
+        ticketNumber: ticket.number,
+        ticketTitle: ticket.title,
+        projectName,
+        ticketUrl: url,
+        questionId,
+        round: questionRound,
+        question: payload.question,
+        options: payload.options,
+        ...(payload.recommendedIndex !== undefined
+          ? { recommendedIndex: payload.recommendedIndex }
+          : {}),
+        allowFreeText: payload.allowFreeText,
+      },
+      notifyRefs,
+    );
+    return "awaiting_input";
+  }
 
   // PLAN-ONLY: la pianificazione è andata a buon fine. Niente PR: si persiste
   // il piano (commento AI + ticket in_progress), si parcheggia il job in

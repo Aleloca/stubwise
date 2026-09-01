@@ -1178,3 +1178,125 @@ describe("MirrorManager.withProjectWorktrees", () => {
     expect(await git(["branch", "--list", "stubwise/ticket-mid"], mirrorA)).toBe("");
   });
 });
+
+describe("MirrorManager.withProjectWorktrees — parentDir deterministica", () => {
+  it("usa ESATTAMENTE la parent dir richiesta invece di una mkdtemp", async () => {
+    const root = await makeRoot();
+    const upA = await makeUpstream(root, "repo-a");
+    const upB = await makeUpstream(root, "repo-b");
+    const manager = new MirrorManager({ mirrorsDir: join(root, "mirrors") });
+    const repos = [projectFor(upA), projectFor(upB)];
+    const wanted = join(root, "stubwise-plan-job-1");
+
+    let seenParent = "";
+    const seenDirs: string[] = [];
+    await manager.withProjectWorktrees(
+      repos,
+      "stubwise/ticket-101",
+      async ({ parentDir, worktrees }) => {
+        seenParent = parentDir;
+        for (const wt of worktrees) seenDirs.push(wt.dir);
+        // I worktree sono davvero materializzati SOTTO la dir richiesta.
+        for (const wt of worktrees) expect(existsSync(join(wt.dir, ".git"))).toBe(true);
+      },
+      { parentDir: wanted }
+    );
+
+    expect(seenParent).toBe(wanted);
+    expect(seenDirs).toHaveLength(2);
+    for (const d of seenDirs) expect(d.startsWith(`${wanted}/`)).toBe(true);
+  });
+
+  it("se la dir esiste già la RIPULISCE: i residui di un run precedente spariscono", async () => {
+    const root = await makeRoot();
+    const upA = await makeUpstream(root, "repo-a");
+    const manager = new MirrorManager({ mirrorsDir: join(root, "mirrors") });
+    const wanted = join(root, "stubwise-plan-job-2");
+    // Residuo di un run precedente: il file-bridge della domanda già registrata.
+    // Se sopravvivesse, il tool ask_user del round successivo si rifiuterebbe
+    // di sovrascriverlo e l'agente non potrebbe più fare domande.
+    await mkdir(join(wanted, "sottocartella"), { recursive: true });
+    await writeFile(join(wanted, ".stubwise-question.json"), '{"question":"vecchia"}');
+    await writeFile(join(wanted, "sottocartella", "residuo.txt"), "vecchio");
+
+    let leftovers: string[] = [];
+    await manager.withProjectWorktrees(
+      [projectFor(upA)],
+      "stubwise/ticket-102",
+      async ({ parentDir }) => {
+        leftovers = [
+          join(parentDir, ".stubwise-question.json"),
+          join(parentDir, "sottocartella", "residuo.txt"),
+        ].filter((p) => existsSync(p));
+      },
+      { parentDir: wanted }
+    );
+
+    expect(leftovers).toEqual([]);
+  });
+
+  it("rimuove comunque la parent dir richiesta alla fine (anche se fn lancia)", async () => {
+    const root = await makeRoot();
+    const upA = await makeUpstream(root, "repo-a");
+    const manager = new MirrorManager({ mirrorsDir: join(root, "mirrors") });
+    const proj = projectFor(upA);
+    const wanted = join(root, "stubwise-plan-job-3");
+    const boom = new Error("fn esplosa");
+
+    await expect(
+      manager.withProjectWorktrees(
+        [proj],
+        "stubwise/ticket-103",
+        async () => {
+          throw boom;
+        },
+        { parentDir: wanted }
+      )
+    ).rejects.toBe(boom);
+
+    expect(existsSync(wanted)).toBe(false);
+    const mirrorDir = manager.mirrorDirFor(proj);
+    expect(await git(["branch", "--list", "stubwise/ticket-103"], mirrorDir)).toBe("");
+  });
+
+  it("la stessa parent dir è riusabile da due chiamate consecutive (ripresa della pianificazione)", async () => {
+    const root = await makeRoot();
+    const upA = await makeUpstream(root, "repo-a");
+    const manager = new MirrorManager({ mirrorsDir: join(root, "mirrors") });
+    const proj = projectFor(upA);
+    const wanted = join(root, "stubwise-plan-job-4");
+
+    const dirs: string[] = [];
+    for (let i = 0; i < 2; i++) {
+      await manager.withProjectWorktrees(
+        [proj],
+        "stubwise/ticket-104",
+        async ({ worktrees }) => {
+          dirs.push(worktrees[0]!.dir);
+        },
+        { parentDir: wanted }
+      );
+    }
+
+    // Stesso path a entrambi i giri: la ripresa ritrova la cwd di prima.
+    expect(dirs[0]).toBe(dirs[1]);
+    expect(existsSync(wanted)).toBe(false);
+  });
+
+  it("senza opzioni resta il comportamento storico (mkdtemp in /tmp, dir diverse)", async () => {
+    const root = await makeRoot();
+    const upA = await makeUpstream(root, "repo-a");
+    const manager = new MirrorManager({ mirrorsDir: join(root, "mirrors") });
+    const proj = projectFor(upA);
+
+    const parents: string[] = [];
+    for (let i = 0; i < 2; i++) {
+      await manager.withProjectWorktrees([proj], "stubwise/ticket-105", async ({ parentDir }) => {
+        parents.push(parentDir);
+      });
+    }
+
+    expect(parents[0]).not.toBe(parents[1]);
+    for (const p of parents) expect(p.includes("stubwise-proj-")).toBe(true);
+  });
+});

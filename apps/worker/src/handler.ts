@@ -121,6 +121,9 @@ async function runJobWithProvider(
       return false;
     }
     const fixOutcome: FixOutcome = await runFix(fixDeps, job);
+    // Solo "limit" chiede il failover sulla credenziale successiva. Gli esiti di
+    // PARCHEGGIO — "awaiting_approval" e "awaiting_input" — non sono fallimenti:
+    // il job è vivo, in attesa di un umano, e nessuno deve ritentarlo.
     return fixOutcome === "limit";
   }
 
@@ -139,6 +142,8 @@ async function runJobWithProvider(
     // held/failed): gestito dal triage, niente fix, niente failover.
     if (triageOutcome !== "fixing") return false;
     const fixOutcome: FixOutcome = await runFix(fixDeps, job);
+    // Come sopra: failover solo su "limit"; i parcheggi (piano da approvare,
+    // domanda in attesa di risposta) tornano false.
     return fixOutcome === "limit";
   } finally {
     await rm(workDir, { recursive: true, force: true });

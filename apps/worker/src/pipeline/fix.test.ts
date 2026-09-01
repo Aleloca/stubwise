@@ -1,4 +1,4 @@
-import { agentRuns, aiJobs, automationRules, comments, encrypt, gitAccounts, instanceSettings, projects, repositories, ticketRepositories, tickets, type Db } from "@stubwise/db";
+import { agentQuestions, agentRuns, aiJobs, automationRules, comments, encrypt, gitAccounts, instanceSettings, projects, repositories, ticketRepositories, tickets, type Db } from "@stubwise/db";
 import { seedGitAccount, startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { PublishOpts } from "@stubwise/notifications";
 import { asc, eq } from "drizzle-orm";
@@ -390,6 +390,36 @@ describe("buildFixPlanPrompt / buildFixExecutePrompt", () => {
     expect(prompt).toContain("Causa radice");
     expect(prompt).toContain("File/funzione da modificare");
     expect(prompt).toContain("Test di regressione da aggiungere");
+  });
+
+  it("la sezione 'Decisioni e assunzioni' è obbligatoria e indipendente dal tool ask_user", () => {
+    const en = buildFixPlanPrompt({ ticket: baseTicket }, "en");
+    expect(en).toContain("Decisions and assumptions");
+    expect(en).toMatch(/MANDATORY/);
+    const it = buildFixPlanPrompt({ ticket: baseTicket }, "it");
+    expect(it).toContain("Decisioni e assunzioni");
+  });
+
+  it("senza askUser il prompt NON menziona il tool (mai promettere un tool che non c'è)", () => {
+    const prompt = buildFixPlanPrompt({ ticket: baseTicket }, "en");
+    expect(prompt).not.toContain("ask_user");
+  });
+
+  it("con askUser il prompt porta la regola d'ingaggio, il tetto di round e l'ordine di chiudere il turno", () => {
+    const prompt = buildFixPlanPrompt(
+      { ticket: baseTicket, askUser: { round: 2, maxRounds: 5 } },
+      "en",
+    );
+    // Soglia: le scelte reversibili/minori le prende da solo e le documenta.
+    expect(prompt).toMatch(/REVERSIBLE or MINOR/);
+    expect(prompt).toContain("Decisions and assumptions");
+    // ask_user solo per bivi materialmente diversi.
+    expect(prompt).toMatch(/MATERIALLY DIFFERENT/);
+    // Chiudere il turno SUBITO, senza produrre il piano.
+    expect(prompt).toMatch(/END YOUR TURN IMMEDIATELY/);
+    // Tetto e round corrente.
+    expect(prompt).toContain("5 question(s) per ticket");
+    expect(prompt).toContain("round 2 (4 left)");
   });
 
   it("il prompt di esecuzione include il PIANO verbatim in un blocco <piano> fidato e il ticket non fidato", () => {
@@ -2738,5 +2768,448 @@ describe("runFix — multi-repository (Fase 3)", () => {
     for (const repo of fixture.repos) {
       expect(planPrompt).toContain(`./${mirrorSlug(repo.repoUrl)}/`);
     }
+  });
+});
+
+describe("runFix — domanda dell'agente (ask_user)", () => {
+  /** Evento job.awaiting_input catturato dalla publish iniettata. */
+  interface QuestionDispatched {
+    kind: string;
+    ticketUrl: string;
+    questionId?: string;
+    round?: number;
+    question?: string;
+    options?: { label: string; consequence?: string }[];
+    recommendedIndex?: number;
+    allowFreeText?: boolean;
+  }
+
+  const QUESTION = {
+    question: "La cache va persistita?",
+    options: [
+      { label: "Solo in memoria", consequence: "Si perde a ogni riavvio" },
+      { label: "Su Postgres", consequence: "Una tabella e una migrazione in più" },
+    ],
+    recommendedIndex: 1,
+    allowFreeText: true,
+  };
+
+  /**
+   * Entry FINTA del server MCP: al worker basta che il file ESISTA per
+   * configurare il server (non lo esegue mai — è il claude CLI a lanciarlo, e
+   * qui il runner è finto). Serve perché nei test si gira dai sorgenti, dove il
+   * `dist/ask-user-mcp/index.js` reale non c'è.
+   */
+  async function fakeAskUserEntry(): Promise<string> {
+    const dir = await mkdtemp(join(tmpdir(), "ask-user-entry-"));
+    cleanups.push(() => rm(dir, { recursive: true, force: true }));
+    const entry = join(dir, "index.js");
+    await writeFile(entry, "// server MCP finto\n");
+    return entry;
+  }
+
+  /** Attiva il gate plan-only per il tipo 'bug' e crea un ticket sopra soglia. */
+  async function planOnlyTicket(db: Db, fixture: Fixture): Promise<Ticket> {
+    await db
+      .update(automationRules)
+      .set({ planApprovalMinEffort: 3 })
+      .where(eq(automationRules.type, "bug"));
+    return createTicket(db, fixture, { type: "bug", effort: 4 });
+  }
+
+  /**
+   * Runner che si comporta come il CLI quando il modello chiama `ask_user`:
+   * scrive il file-bridge nella cwd del run (è lì che il tool lo metterebbe) e
+   * ritorna output + sessionId.
+   */
+  function questionRunner(
+    content: string | object,
+    result: { output: string; sessionId?: string } = { output: "", sessionId: "sess-42" },
+  ): FakeAgentRunner {
+    return new FakeAgentRunner({
+      script: async (opts) => {
+        await writeFile(
+          join(opts.cwd, ".stubwise-question.json"),
+          typeof content === "string" ? content : JSON.stringify(content),
+        );
+        return {
+          output: result.output,
+          exitCode: 0,
+          ...(result.sessionId !== undefined ? { sessionId: result.sessionId } : {}),
+        };
+      },
+    });
+  }
+
+  it("il run scrive la domanda → job awaiting_input con cliSessionId, riga agent_questions, notifica e worktree distrutti", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    const ticket = await planOnlyTicket(db, fixture);
+    const job = await createFixingJob(db, ticket.id);
+    const runner = questionRunner(QUESTION);
+    const provider = makeProvider();
+    const calls: Published<QuestionDispatched>[] = [];
+
+    const outcome = await runFix(
+      makeDeps(fixture, runner, provider, {
+        askUserServerPath: await fakeAskUserEntry(),
+        publicUrl: "https://stubwise.example.com",
+        publish: async (_db, event, opts) => {
+          calls.push({ event: event as unknown as QuestionDispatched, opts: opts ?? {} });
+          return { published: 1 };
+        },
+      }),
+      job,
+    );
+
+    expect(outcome).toBe("awaiting_input");
+
+    // Job parcheggiato: non chiuso (niente finishedAt), sessione CLI salvata,
+    // nessun piano persistito (la domanda non è un piano).
+    const jobAfter = await getJob(db, job.id);
+    expect(jobAfter.status).toBe("awaiting_input");
+    expect(jobAfter.cliSessionId).toBe("sess-42");
+    expect(jobAfter.finishedAt).toBeNull();
+    expect(jobAfter.planText).toBeNull();
+
+    // Riga agent_questions: round 1, payload rivalidato, ancora aperta.
+    const questions = await db
+      .select()
+      .from(agentQuestions)
+      .where(eq(agentQuestions.jobId, job.id));
+    expect(questions).toHaveLength(1);
+    const question = questions[0]!;
+    expect(question.round).toBe(1);
+    expect(question.ticketId).toBe(ticket.id);
+    expect(question.question).toBe(QUESTION.question);
+    expect(question.options).toEqual(QUESTION.options);
+    expect(question.recommendedIndex).toBe(1);
+    expect(question.allowFreeText).toBe(true);
+    expect(question.answeredAt).toBeNull();
+
+    // Commento AI sul ticket: la domanda è visibile nel feed, opzioni incluse.
+    const ticketComments = await db.select().from(comments).where(eq(comments.ticketId, ticket.id));
+    expect(ticketComments).toHaveLength(1);
+    expect(ticketComments[0]?.authorType).toBe("ai");
+    expect(ticketComments[0]?.body).toContain(QUESTION.question);
+    expect(ticketComments[0]?.body).toContain("Solo in memoria");
+    expect(ticketComments[0]?.body).toContain("Su Postgres");
+
+    // Notifica: evento autosufficiente (domanda intera) e RIFERIMENTI completi.
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.event.kind).toBe("job.awaiting_input");
+    expect(calls[0]!.event.questionId).toBe(question.id);
+    expect(calls[0]!.event.round).toBe(1);
+    expect(calls[0]!.event.question).toBe(QUESTION.question);
+    expect(calls[0]!.event.options).toEqual(QUESTION.options);
+    expect(calls[0]!.event.recommendedIndex).toBe(1);
+    expect(calls[0]!.event.allowFreeText).toBe(true);
+    expect(calls[0]!.event.ticketUrl).toBe(`https://stubwise.example.com/tickets/${ticket.id}`);
+    expect(calls[0]!.opts).toEqual({
+      projectId: fixture.projectId,
+      ticketId: ticket.id,
+      jobId: job.id,
+    });
+
+    // Nessuna PR e nessun branch: il repo non è stato toccato.
+    expect(provider.openPullRequest).not.toHaveBeenCalled();
+    expect(
+      await git(["branch", "--list", `stubwise/ticket-${ticket.number}`], fixture.upstreamDir),
+    ).toBe("");
+    // Worktree e parent dir smontati PRIMA del parcheggio: l'attesa (che può
+    // durare ore) non tiene aperto nulla sul disco.
+    expect(existsSync(runner.calls[0]!.cwd)).toBe(false);
+  });
+
+  it("usa la parent dir DETERMINISTICA del job e vi configura il server MCP ask_user", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    const ticket = await planOnlyTicket(db, fixture);
+    const job = await createFixingJob(db, ticket.id);
+    const runner = new FakeAgentRunner({ results: [{ output: "PIANO", exitCode: 0 }] });
+    const entry = await fakeAskUserEntry();
+
+    await runFix(
+      makeDeps(fixture, runner, makeProvider(), {
+        askUserServerPath: entry,
+        questionMaxRounds: 3,
+      }),
+      job,
+    );
+
+    const planCall = runner.calls[0]!;
+    // La cwd del run è deterministica: la ripresa con --resume deve ritrovarla.
+    const expectedDir = join(tmpdir(), `stubwise-plan-${job.id}`);
+    expect(planCall.cwd).toBe(expectedDir);
+    // Server MCP configurato col bridge su file dentro quella dir. I parametri
+    // passano dall'env DEL SERVER, mai dall'env del CLI (che è in allowlist).
+    const server = planCall.mcpConfig?.servers.stubwise_ask;
+    expect(server).toBeDefined();
+    expect(server?.command).toBe(process.execPath);
+    expect(server?.args).toEqual([entry]);
+    expect(server?.env).toEqual({
+      ASK_USER_FILE: join(expectedDir, ".stubwise-question.json"),
+      ASK_USER_ROUND: "1",
+      ASK_USER_MAX_ROUNDS: "3",
+    });
+    // Abilitare il server non basta: il tool va anche in allowlist.
+    expect(planCall.allowedTools).toContain("mcp__stubwise_ask__ask_user");
+    // Il prompt annuncia il tool e il tetto di round.
+    expect(planCall.prompt).toContain("ask_user");
+    expect(planCall.prompt).toContain("round 1");
+  });
+
+  it("la dir deterministica viene RIPULITA: il file-bridge di un run precedente non blocca il round", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    const ticket = await planOnlyTicket(db, fixture);
+    const job = await createFixingJob(db, ticket.id);
+    // Residuo di un run precedente crashato: senza pulizia, il tool ask_user si
+    // rifiuterebbe di sovrascriverlo e il worker leggerebbe la domanda VECCHIA.
+    const parentDir = join(tmpdir(), `stubwise-plan-${job.id}`);
+    await mkdir(parentDir, { recursive: true });
+    await writeFile(
+      join(parentDir, ".stubwise-question.json"),
+      JSON.stringify({ ...QUESTION, question: "DOMANDA VECCHIA" }),
+    );
+    // Questo run NON fa domande: produce il piano.
+    const runner = new FakeAgentRunner({ results: [{ output: "PIANO NUOVO", exitCode: 0 }] });
+
+    const outcome = await runFix(
+      makeDeps(fixture, runner, makeProvider(), { askUserServerPath: await fakeAskUserEntry() }),
+      job,
+    );
+
+    // Il residuo è stato rimosso: nessuna domanda fantasma, flusso normale.
+    expect(outcome).toBe("awaiting_approval");
+    const jobAfter = await getJob(db, job.id);
+    expect(jobAfter.status).toBe("awaiting_plan_approval");
+    expect(jobAfter.planText).toBe("PIANO NUOVO");
+    expect(await db.select().from(agentQuestions).where(eq(agentQuestions.jobId, job.id))).toEqual(
+      [],
+    );
+  });
+
+  it("file-bridge malformato → warning nel log e flusso normale (il piano vince)", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    const ticket = await planOnlyTicket(db, fixture);
+    const job = await createFixingJob(db, ticket.id);
+    // JSON valido ma fuori schema: una sola opzione.
+    const runner = questionRunner({ ...QUESTION, options: [{ label: "Unica" }] }, {
+      output: "PIANO",
+      sessionId: "sess-9",
+    });
+
+    const outcome = await runFix(
+      makeDeps(fixture, runner, makeProvider(), { askUserServerPath: await fakeAskUserEntry() }),
+      job,
+    );
+
+    expect(outcome).toBe("awaiting_approval");
+    const jobAfter = await getJob(db, job.id);
+    expect(jobAfter.status).toBe("awaiting_plan_approval");
+    expect(jobAfter.planText).toBe("PIANO");
+    expect(jobAfter.log).toContain("file-bridge non valido");
+    expect(await db.select().from(agentQuestions).where(eq(agentQuestions.jobId, job.id))).toEqual(
+      [],
+    );
+  });
+
+  it("JSON non parsabile → stesso trattamento: warning e piano", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    const ticket = await planOnlyTicket(db, fixture);
+    const job = await createFixingJob(db, ticket.id);
+    const runner = questionRunner("{ tronc", { output: "PIANO" });
+
+    const outcome = await runFix(
+      makeDeps(fixture, runner, makeProvider(), { askUserServerPath: await fakeAskUserEntry() }),
+      job,
+    );
+
+    expect(outcome).toBe("awaiting_approval");
+    const jobAfter = await getJob(db, job.id);
+    expect(jobAfter.log).toContain("file-bridge non valido");
+  });
+
+  it("domanda E piano nello stesso turno → vince la domanda, il testo del turno è scartato con un warning", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    const ticket = await planOnlyTicket(db, fixture);
+    const job = await createFixingJob(db, ticket.id);
+    const runner = questionRunner(QUESTION, {
+      output: "PIANO COMPLETO che l'agente non doveva produrre",
+      sessionId: "sess-7",
+    });
+
+    const outcome = await runFix(
+      makeDeps(fixture, runner, makeProvider(), { askUserServerPath: await fakeAskUserEntry() }),
+      job,
+    );
+
+    expect(outcome).toBe("awaiting_input");
+    const jobAfter = await getJob(db, job.id);
+    expect(jobAfter.status).toBe("awaiting_input");
+    // Il piano prodotto senza la risposta NON viene persistito.
+    expect(jobAfter.planText).toBeNull();
+    expect(jobAfter.log).toContain("vince la domanda");
+    expect(jobAfter.log).toContain("PIANO COMPLETO");
+    expect(await db.select().from(agentQuestions).where(eq(agentQuestions.jobId, job.id))).toHaveLength(1);
+  });
+
+  it("run senza sessionId (timeout del CLI) → parcheggio comunque, cli_session_id NULL", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    const ticket = await planOnlyTicket(db, fixture);
+    const job = await createFixingJob(db, ticket.id);
+    const runner = questionRunner(QUESTION, { output: "" });
+
+    const outcome = await runFix(
+      makeDeps(fixture, runner, makeProvider(), { askUserServerPath: await fakeAskUserEntry() }),
+      job,
+    );
+
+    expect(outcome).toBe("awaiting_input");
+    const jobAfter = await getJob(db, job.id);
+    expect(jobAfter.cliSessionId).toBeNull();
+    expect(jobAfter.log).toContain("ripianificherà da zero");
+  });
+
+  it("il round riparte dalle domande già poste sul job (seconda domanda = round 2)", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    const ticket = await planOnlyTicket(db, fixture);
+    const job = await createFixingJob(db, ticket.id);
+    // Round 1 già posto e RISPOSTO (l'indice unico parziale ammette una sola
+    // domanda aperta per job).
+    await db.insert(agentQuestions).values({
+      jobId: job.id,
+      ticketId: ticket.id,
+      round: 1,
+      question: "Prima domanda",
+      options: [{ label: "A" }, { label: "B" }],
+      allowFreeText: true,
+      answer: { optionIndex: 0 },
+      answeredAt: new Date(),
+    });
+    const runner = questionRunner(QUESTION);
+
+    const outcome = await runFix(
+      makeDeps(fixture, runner, makeProvider(), { askUserServerPath: await fakeAskUserEntry() }),
+      job,
+    );
+
+    expect(outcome).toBe("awaiting_input");
+    // L'env del server MCP annuncia il round corrente al tool (che ci applica il tetto).
+    expect(runner.calls[0]!.mcpConfig?.servers.stubwise_ask?.env?.ASK_USER_ROUND).toBe("2");
+    const rows = await db
+      .select()
+      .from(agentQuestions)
+      .where(eq(agentQuestions.jobId, job.id))
+      .orderBy(asc(agentQuestions.round));
+    expect(rows.map((r) => r.round)).toEqual([1, 2]);
+    expect(rows[1]?.question).toBe(QUESTION.question);
+  });
+
+  it("una seconda domanda APERTA sullo stesso job non passa il vincolo: job failed e non fixing", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    const ticket = await planOnlyTicket(db, fixture);
+    const job = await createFixingJob(db, ticket.id);
+    // Domanda già aperta (non risposta): l'indice unico parziale la protegge.
+    await db.insert(agentQuestions).values({
+      jobId: job.id,
+      ticketId: ticket.id,
+      round: 1,
+      question: "Domanda ancora aperta",
+      options: [{ label: "A" }, { label: "B" }],
+      allowFreeText: true,
+    });
+    const runner = questionRunner(QUESTION);
+
+    const outcome = await runFix(
+      makeDeps(fixture, runner, makeProvider(), { askUserServerPath: await fakeAskUserEntry() }),
+      job,
+    );
+
+    // Fallimento DIAGNOSTICABILE invece di un job piantato in `fixing`.
+    expect(outcome).toBe("failed");
+    const jobAfter = await getJob(db, job.id);
+    expect(jobAfter.status).toBe("failed");
+    expect(jobAfter.error).toMatch(/registrazione della domanda fallita/);
+  });
+
+  it("entry del server MCP assente → tool disattivato, warning nel log e prompt senza ask_user", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    const ticket = await planOnlyTicket(db, fixture);
+    const job = await createFixingJob(db, ticket.id);
+    const runner = new FakeAgentRunner({ results: [{ output: "PIANO", exitCode: 0 }] });
+
+    const outcome = await runFix(
+      makeDeps(fixture, runner, makeProvider(), {
+        askUserServerPath: join(tmpdir(), "non-esiste", "index.js"),
+      }),
+      job,
+    );
+
+    expect(outcome).toBe("awaiting_approval");
+    const jobAfter = await getJob(db, job.id);
+    expect(jobAfter.log).toContain("tool ask_user non disponibile");
+    // Nessun server MCP e nessuna menzione del tool nel prompt: promettere al
+    // modello un tool inesistente lo farebbe improvvisare.
+    expect(runner.calls[0]!.mcpConfig).toBeUndefined();
+    expect(runner.calls[0]!.allowedTools).toBeUndefined();
+    expect(runner.calls[0]!.prompt).not.toContain("ask_user");
+  });
+
+  it("full a due fasi: la domanda ferma il fix PRIMA dell'esecuzione (nessun run di execute, nessuna PR)", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    const ticket = await createTicket(db, fixture, { type: "bug", effort: 1 });
+    const job = await createFixingJob(db, ticket.id);
+    const runner = questionRunner(QUESTION);
+    const provider = makeProvider();
+
+    const outcome = await runFix(
+      makeDeps(fixture, runner, provider, { askUserServerPath: await fakeAskUserEntry() }),
+      job,
+    );
+
+    expect(outcome).toBe("awaiting_input");
+    // Un solo run: la pianificazione. L'esecuzione non è mai partita.
+    expect(runner.calls).toHaveLength(1);
+    expect(runner.calls[0]!.permissionMode).toBe("plan");
+    expect(provider.openPullRequest).not.toHaveBeenCalled();
+  });
+
+  it("execute-only (piano già approvato): niente dir deterministica, niente server MCP", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    const ticket = await createTicket(db, fixture);
+    const [job] = await db
+      .insert(aiJobs)
+      .values({
+        ticketId: ticket.id,
+        status: "fixing",
+        startedAt: new Date(),
+        resumeMode: "execute",
+        planText: "1. cambia - in +",
+      })
+      .returning();
+    if (!job) throw new Error("insert del job non ha restituito la riga");
+    const runner = new FakeAgentRunner({ fileChanges: fixChanges(fixture) });
+
+    const outcome = await runFix(
+      makeDeps(fixture, runner, makeProvider(), { askUserServerPath: await fakeAskUserEntry() }),
+      job,
+    );
+
+    expect(outcome).toBe("pr_opened");
+    // Nessun run di pianificazione → parent dir temporanea storica.
+    expect(runner.calls[0]!.cwd).not.toBe(join(tmpdir(), `stubwise-plan-${job.id}`));
+    expect(runner.calls[0]!.cwd).toContain("stubwise-proj-");
+    expect(runner.calls[0]!.mcpConfig).toBeUndefined();
   });
 });

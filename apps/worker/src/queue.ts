@@ -291,6 +291,46 @@ export async function parkForPlanApproval(
   return updated.length > 0;
 }
 
+export interface ParkForInputInput {
+  /**
+   * Id della sessione CLI del run di pianificazione, da cui la risposta
+   * riprenderà con `--resume`. Assente/null (run andato in timeout, che non
+   * espone il sessionId): la ripresa ricadrà sulla ri-pianificazione da zero
+   * con la storia delle domande già risposte.
+   */
+  cliSessionId?: string | null;
+  log: string;
+}
+
+/**
+ * Transizione fix → awaiting_input: l'agente che pianifica ha fatto una domanda
+ * a un umano e il job resta parcheggiato finché non arriva la risposta. Gemello
+ * di parkForPlanApproval — stesso guard sulla ownership, NESSUN finishedAt (il
+ * job non è concluso) — con in più il salvataggio del `cliSessionId` per la
+ * ripresa.
+ *
+ * `awaiting_input` sta FUORI da ACTIVE_STATUSES: il job non è più claimabile né
+ * sorvegliato da requeueStale, quindi l'attesa può durare quanto serve senza
+ * che nessuno lo riaccodi alle spalle di chi deve rispondere.
+ */
+export async function parkForInput(
+  db: Db,
+  jobId: string,
+  input: ParkForInputInput,
+): Promise<boolean> {
+  const updated = await db
+    .update(aiJobs)
+    .set({
+      status: "awaiting_input",
+      cliSessionId: input.cliSessionId ?? null,
+      log: sql`${aiJobs.log} || ${`${input.log}\n`}`,
+      lastActivityAt: sql`now()`,
+    })
+    .where(and(eq(aiJobs.id, jobId), inArray(aiJobs.status, [...ACTIVE_STATUSES])))
+    .returning({ id: aiJobs.id });
+  return updated.length > 0;
+}
+
 export interface RequeueStaleOptions {
   olderThanMinutes: number;
 }

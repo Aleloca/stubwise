@@ -30,6 +30,9 @@ export const en: Catalog = {
     "AI triage: type {type}. It does not enter the fix pipeline: moved to the discovery backlog for collection and refinement.",
   "comment.backlogIntake": 'Moved to the discovery backlog: "{title}".',
   "comment.planProposed": "Proposed plan (awaiting approval):",
+  "comment.agentQuestion":
+    "The AI needs a decision to continue planning (question {round}). Answer from your inbox or from this ticket.",
+  "comment.agentQuestionRecommended": "recommended",
   "comment.planApproved": "Plan approved — execution in progress",
   "comment.planRejected": "Plan rejected — replanning in progress",
   "comment.reportFooter": "Generated automatically by Stubwise AI for ticket #{number}.",
@@ -187,6 +190,7 @@ export const en: Catalog = {
   "plan.changeToApply": "Change to apply",
   "plan.regressionTest": "Regression test to add",
   "plan.testCommands": "Test commands to run",
+  "plan.decisions": "Decisions and assumptions",
 };
 
 /** Testi italiani: copia esatta dei testi attualmente hard-coded nel backend. */
@@ -204,6 +208,9 @@ export const it: Catalog = {
     "Triage AI: tipo {type}. Non entra nella pipeline di fix: spostato nel backlog di discovery per raccolta e raffinamento.",
   "comment.backlogIntake": 'Spostato nel backlog di discovery: "{title}".',
   "comment.planProposed": "Piano proposto (in attesa di approvazione):",
+  "comment.agentQuestion":
+    "L'AI ha bisogno di una decisione per continuare la pianificazione (domanda {round}). Rispondi dall'inbox o da questo ticket.",
+  "comment.agentQuestionRecommended": "consigliata",
   "comment.planApproved": "Piano approvato — esecuzione in corso",
   "comment.planRejected": "Piano rifiutato — ripianificazione in corso",
   "comment.reportFooter":
@@ -332,6 +339,7 @@ export const it: Catalog = {
   "plan.changeToApply": "Modifica da applicare",
   "plan.regressionTest": "Test di regressione da aggiungere",
   "plan.testCommands": "Comandi di test da eseguire",
+  "plan.decisions": "Decisioni e assunzioni",
 };
 
 /** Catalogo per lingua. Mappato per `t()`/`languageName()`. */
