@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
-import { readFileSync, statSync } from "node:fs";
+import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -23,7 +24,7 @@ function pluginDir(): string {
 
 /** Esegue lo script dell'hook con `sh`, con lo stdin e l'env indicati. */
 async function runHook(
-  options: { stdin?: string | null; env?: NodeJS.ProcessEnv } = {},
+  options: { stdin?: string; env?: NodeJS.ProcessEnv } = {},
 ): Promise<{ code: number | null; stdout: string; stderr: string }> {
   const script = join(pluginDir(), "hooks", "session-start.sh");
   // `/bin/sh` assoluto: uno dei casi mette in PATH una dir inesistente.
@@ -37,7 +38,7 @@ async function runHook(
   child.stderr.setEncoding("utf8");
   child.stdout.on("data", (chunk: string) => (stdout += chunk));
   child.stderr.on("data", (chunk: string) => (stderr += chunk));
-  if (options.stdin !== null) child.stdin.write(options.stdin ?? "");
+  child.stdin.write(options.stdin ?? "");
   child.stdin.end();
   const code = await new Promise<number | null>((resolve, reject) => {
     child.on("error", reject);
@@ -127,7 +128,6 @@ describe("hook SessionStart", () => {
       "commit",
       "push",
       "STUBWISE_REPORT.md",
-      "read-only",
       "ask_user",
       "superpowers:brainstorming",
       "superpowers:using-git-worktrees",
@@ -137,7 +137,12 @@ describe("hook SessionStart", () => {
     ]) {
       expect(contract).toContain(needle);
     }
+    expect(contract.toLowerCase()).toContain("read-only");
     expect(contract.toLowerCase()).toContain("decision");
+    // Lo stesso hook entra anche nei run di backlog (deep dive, chat), dove il
+    // deliverable NON e' un piano: la forma la decide il prompt, non il
+    // contratto. Senza questa riga il contratto istruirebbe male quei run.
+    expect(contract).toContain("your prompt");
   });
 
   it("resta sotto i 400 token stimati (~4 caratteri per token)", async () => {
@@ -154,6 +159,23 @@ describe("hook SessionStart", () => {
     const { code, stdout } = await runHook({ stdin: "" });
     expect(code).toBe(0);
     expect(() => JSON.parse(stdout)).not.toThrow();
+  });
+
+  it("esce 0 in silenzio se node fallisce sporcando stdout", async () => {
+    // Protegge la command substitution + `|| exit 0`: senza, la spazzatura di
+    // un node rotto finirebbe nel contesto della sessione a ogni run.
+    const fakeBin = mkdtempSync(join(tmpdir(), "stubwise-fake-node-"));
+    writeFileSync(
+      join(fakeBin, "node"),
+      "#!/bin/sh\necho 'non sono JSON'\nexit 1\n",
+      { mode: 0o755 },
+    );
+    const { code, stdout } = await runHook({
+      stdin: "{}",
+      env: { PATH: fakeBin },
+    });
+    expect(code).toBe(0);
+    expect(stdout).toBe("");
   });
 
   it("esce 0 in silenzio se node non è sul PATH", async () => {
