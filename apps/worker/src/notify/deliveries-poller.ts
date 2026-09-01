@@ -13,6 +13,7 @@ import {
   createSlackClient,
   formatNotification,
   isFatalSlackError,
+  KINDS_WITH_OPTIONS,
   loadSettings,
   loadSlackBotToken,
   openUrl,
@@ -509,27 +510,27 @@ async function sendSlackDm(
     jobStatus,
     { id: recipient.userId, role: recipient.role },
   );
-  // La DOMANDA dell'agente ha bottoni suoi, uno per opzione: il generico
-  // "Rispondi" non potrebbe portarsi dietro la scelta. `buildQuestionBlocks`
-  // legge la domanda dal payload dell'evento (autosufficiente) e, se non è
-  // utilizzabile, degrada da sé ai blocchi standard.
-  const blocks =
-    recipient.kind === "job.awaiting_input"
-      ? buildQuestionBlocks({
-          text,
-          event: recipient.event,
-          actions,
-          notificationId: recipient.notificationId,
-          lang: recipient.language,
-          ...(url ? { url } : {}),
-        })
-      : buildInboxBlocks({
-          text,
-          actions,
-          notificationId: recipient.notificationId,
-          lang: recipient.language,
-          ...(url ? { url } : {}),
-        });
+  // I kind CON OPZIONI (la domanda dell'agente, il pulse proattivo) hanno
+  // bottoni loro, uno per scelta: il generico "Rispondi" non potrebbe portarsi
+  // dietro l'opzione premuta. `buildQuestionBlocks` legge le opzioni dal payload
+  // dell'evento (autosufficiente, e indifferente al kind) e, se non sono
+  // utilizzabili, degrada da sé ai blocchi standard.
+  const blocks = KINDS_WITH_OPTIONS.has(recipient.kind)
+    ? buildQuestionBlocks({
+        text,
+        event: recipient.event,
+        actions,
+        notificationId: recipient.notificationId,
+        lang: recipient.language,
+        ...(url ? { url } : {}),
+      })
+    : buildInboxBlocks({
+        text,
+        actions,
+        notificationId: recipient.notificationId,
+        lang: recipient.language,
+        ...(url ? { url } : {}),
+      });
 
   // `channel` = lo user id: Slack apre da sé il DM (scope chat:write + im:write).
   const posted = await client.postMessage({ channel: recipient.slackUserId, text, blocks });

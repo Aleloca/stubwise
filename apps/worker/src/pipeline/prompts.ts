@@ -474,9 +474,11 @@ export interface BuildFixPlanPromptInput extends BuildFixPromptInput {
   };
   /**
    * Q&A già chiuse su questo job, in ordine di round. Vuoto/assente sulla prima
-   * pianificazione; valorizzato quando il run è il FALLBACK di una ripresa (la
-   * sessione CLI non era riprendibile): il modello riparte da zero sul codice ma
-   * NON sulle decisioni, che sono già state prese da un umano.
+   * pianificazione; valorizzato in OGNI run che ripianifica un job che ha già
+   * delle risposte — il FALLBACK di una ripresa (la sessione CLI non era
+   * riprendibile) e il rilancio manuale, che riusa la riga del job e ne eredita
+   * le Q&A. Il modello riparte da zero sul codice ma NON sulle decisioni, che
+   * sono già state prese da un umano.
    */
   answeredQuestions?: AnsweredQuestionInput[];
 }
@@ -538,11 +540,13 @@ function renderQaEntry(entry: AnsweredQuestionInput): string {
 }
 
 /**
- * Blocco "decisioni già prese" del FALLBACK di ripresa: la sessione CLI non era
- * riprendibile, quindi il modello ripianifica da zero — ma le domande già poste
- * hanno già avuto una risposta, e ri-porle brucerebbe il budget di round e la
- * pazienza di chi ha risposto. Le risposte sono FIDATE (vengono dal richiedente
- * o da un maintainer) e sono CHIUSE: vanno usate, non rinegoziate.
+ * Blocco "decisioni già prese" di una pianificazione che RICOMINCIA su un job
+ * dove qualcuno ha già risposto: il fallback di una ripresa (sessione CLI non
+ * riprendibile) o un rilancio manuale. Il modello ripianifica da zero — ma le
+ * domande già poste hanno già avuto una risposta, e ri-porle brucerebbe il
+ * budget di round (che resta per-job) e la pazienza di chi ha risposto. Le
+ * risposte sono FIDATE (vengono dal richiedente o da un maintainer) e sono
+ * CHIUSE: vanno usate, non rinegoziate.
  */
 function renderAnsweredQuestionsBlock(
   answered: AnsweredQuestionInput[] | undefined,

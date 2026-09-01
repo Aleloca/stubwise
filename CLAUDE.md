@@ -112,6 +112,42 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   rimosso), ma su un'immagine vecchia i job rimasti in `awaiting_input` non
   hanno più un consumatore e restano fermi in silenzio → vanno rilanciati a mano
   con run-ai sui ticket coinvolti.
+- **Fase 2 (pulse proattivo)**: rebuild **server+worker+caddy insieme**
+  (migrazione 0065 all'avvio del server; il worker nuovo è l'unico che ha il
+  poller che rileva i progetti fermi e pubblica il `project.pulse`, il server
+  nuovo l'unico che sa eseguire «Procedi» — convert della voce di backlog + run
+  con approvazione obbligatoria del piano —, il bundle nuovo l'unico che sa
+  disegnare la card delle proposte e il toggle sul progetto). Env opzionali:
+  `PULSE_POLL_MINUTES` (default 15, **0 = spegne la feature**, ed è il
+  rollback), `PULSE_TIMEZONE` (fuso IANA della finestra d'invio, default `UTC`,
+  **in prod `Europe/Rome`**; ⚠️ un valore non valido fa **fallire l'avvio del
+  worker**, di proposito: meglio un worker che non parte di un pulse mandato
+  all'ora sbagliata), `PULSE_SEND_HOUR` (0..23, default 9: il pulse parte solo
+  nella finestra `[ora, ora+1)` locale) e `PULSE_WEEKDAYS_ONLY` (default true,
+  tace sabato e domenica). **Attivazione per progetto** dal dettaglio progetto
+  in /team, **solo se il backlog di discovery è già acceso** (il pulse propone
+  voci di backlog: senza backlog non ha nulla da dire — la UI tiene il toggle
+  disabilitato e il poller pesca solo i progetti con **entrambi** i flag);
+  default off, quindi al deploy nessun progetto riceve pulse.
+  Cadenza per progetto (`pulseEveryDays`, 1..30, default 3) nello stesso form.
+  **Nessun passo Slack manuale**: la card e i bottoni riusano scope e superficie
+  interattiva delle fasi 0/1. Post-merge: (a) mergiare la PR di versioning
+  Changesets che pubblica `@stubwise/mcp` con il tool `list_proposals` — il tool
+  arriva agli utenti a quel merge, **non** al deploy dell'istanza; (b) ricopiare
+  la skill aggiornata in `~/.claude/skills/stubwise/SKILL.md` **sulle macchine
+  degli altri sviluppatori** (questa è già allineata). **Rollback — due strade
+  che NON si equivalgono**: (1) *spegnere la feature* è la strada innocua:
+  `PULSE_POLL_MINUTES=0` (o i toggle per progetto) e il pulse tace subito, senza
+  toccare lo schema né le immagini, con le notifiche già in inbox che restano
+  usabili; (2) *tornare all'immagine server precedente* **NON è sicuro** finché
+  in `notifications` esiste anche UNA riga `project.pulse`, **incluse quelle già
+  gestite** (che il binario vecchio incontra nella tab "Gestite"): il kind non
+  esiste in quell'immagine, `inboxPageSchema` fa fallire la serializzazione e
+  salta **tutta `/api/inbox` con un 500** — non una card degradata. È la lezione
+  della fase 1 in forma nuova. Chi deve davvero scendere di immagine deve prima
+  **eliminare quelle righe** da `notifications` (o metterle da parte in una
+  tabella d'appoggio): segnarle gestite NON basta — non esiste uno stato che le
+  nasconda, la tab "Gestite" le rilegge tutte.
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
@@ -138,6 +174,16 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   `NODE_ENV=production` (ometterebbe le devDeps → exit 127).
 - **File `.env` per progetto:** cifrati, materializzati nel worktree prima di
   install/test; il safeguard anti-leak è l'esclusione da TUTTI i `git add`/`status`.
+- **Il pulse tace se c'è una decisione umana pendente:** un progetto non è
+  "fermo" solo perché nessun job gira. Il poller del pulse
+  (`apps/worker/src/pulse/signals.ts`) resta zitto se c'è un job AI in volo **o
+  parcheggiato in `held`** (limite/budget/gate dell'automazione), una domanda
+  `ask_user` aperta, una PR aperta, un job di backlog attivo o una sessione di
+  analisi in corso. Il motivo non è il carico: per ognuna di quelle situazioni
+  la notifica esiste già in inbox, e proporre lavoro nuovo mentre quello
+  esistente è bloccato è la spinta sbagliata. `held` in particolare **non** è in
+  `IN_FLIGHT_JOB_STATUSES` (quella lista risponde a un'altra domanda), quindi è
+  un controllo a sé: chi tocca i segnali non lo tolga per "semplificare".
 
 ## Integrazione Claude Code (MCP)
 
@@ -167,6 +213,12 @@ Stubwise si integra con Claude Code via il server MCP `@stubwise/mcp`
   da solo quando il richiedente o un maintainer risponde dall'inbox, dal DM Slack
   o dalla pagina del ticket. Nessun tool MCP risponde a una domanda, e dopo una
   domanda **non si rilancia `run_ticket`** (409).
+- **Pulse proattivo (fase 2)**: il tool `list_proposals` elenca le proposte del
+  pulse **aperte e indirizzate al titolare del token** (per ogni progetto fermo,
+  le voci di backlog da cui ripartire, con urgenza, effort e id). Serve a
+  SAPERE: nessun tool MCP risponde a una proposta — si sceglie dalla card in
+  inbox o dal DM Slack, e ticket + run con approvazione del piano partono da
+  soli.
 - Serve un Personal Access Token (`stw_pat_...`, dalle impostazioni Stubwise) in
   `STUBWISE_TOKEN`; `STUBWISE_URL` punta all'istanza (default
   `http://localhost:3000`). Il pacchetto è pubblicato su npm come

@@ -26,6 +26,7 @@ import {
   actorAllows,
   formatNotificationText,
   kindOffers,
+  KINDS_WITH_OPTIONS,
   openUrl,
   stateAllows,
   type ActionId,
@@ -34,10 +35,16 @@ import {
   type NotificationKind,
   type SnoozeUntil,
 } from "@stubwise/notifications";
-import { inboxQuestionSchema, type InboxQuestion } from "@stubwise/shared";
+import {
+  inboxPulseSchema,
+  inboxQuestionSchema,
+  type InboxPulse,
+  type InboxQuestion,
+} from "@stubwise/shared";
 import { and, desc, eq, inArray, isNull, ne, sql, type SQL } from "drizzle-orm";
 import { resolvePlan, startRun, type Actor } from "./jobs.js";
 import { mirrorDecision, propagateDecision } from "./notifications-propagation.js";
+import { proceedWithProposal } from "./pulse.js";
 import { answerQuestion, type AnswerInput } from "./questions.js";
 
 // Catalogo delle azioni: implementazione in `@stubwise/notifications/actions`
@@ -66,7 +73,11 @@ export type ExecuteActionError =
   // risposta non regge contro la domanda persistita, oppure non c'è (più) una
   // domanda a cui rispondere.
   | "invalid_answer"
-  | "question_not_pending";
+  | "question_not_pending"
+  // Errori del "Procedi" del pulse (`proceedWithProposal`): la proposta non è
+  // più prendibile, oppure il ticket è nato ma il run non è partito.
+  | "proposal_stale"
+  | "run_not_started";
 
 /**
  * Esito di {@link executeAction}. Il ramo di successo porta abbastanza contesto
@@ -100,6 +111,21 @@ export type ExecuteActionResult =
       changedNotificationIds: string[];
       /** Id del job AI toccato da `resolvePlan`/`startRun`, se l'azione ne ha toccato uno. */
       jobId?: string;
+      /**
+       * Ticket NATO dall'azione: solo il "Procedi" del pulse ne crea uno (la
+       * proposta scelta diventa un ticket `task`). Alle superfici serve per
+       * linkarlo subito — "▶️ Avviato: #42" — senza rileggere nulla.
+       */
+      ticketId?: string;
+      ticketNumber?: number;
+      /**
+       * Come è nato il run del "Procedi": `awaiting_plan_approval` se il piano
+       * ereditato dalla voce l'ha già fermato sul gate, `queued` se la
+       * pianificazione deve ancora partire (e si fermerà dopo). Sono due
+       * esperienze diverse e le superfici le dicono con parole diverse, invece
+       * di promettere uno stato che l'utente non vedrà subito.
+       */
+      runStatus?: "queued" | "awaiting_plan_approval";
       snoozedUntil?: Date;
     }
   | {
@@ -107,6 +133,9 @@ export type ExecuteActionResult =
       error: ExecuteActionError;
       handledBy?: HandledBy;
       jobStatus?: string;
+      /** Solo su `run_not_started`: il ticket c'è comunque, e si può aprire. */
+      ticketId?: string;
+      ticketNumber?: number;
     };
 
 export interface ExecuteActionInput {
@@ -185,15 +214,57 @@ export async function executeAction(
   if (action === "open") return { ok: false, error: "invalid_action" };
 
   // `answer` NON scivola nel ramo delle decisioni sul piano (`runDecision` non
-  // saprebbe cosa farne): ha un servizio suo, `answerQuestion`, che è la sede
-  // unica della risposta — ci passano anche la pagina ticket, che una notifica
-  // in mano non ce l'ha, e i bottoni Slack. Qui si delega e basta: permessi,
-  // validazione, transizione del job e propagazione vivono tutti là.
+  // saprebbe cosa farne): ha un servizio suo per ciascun kind che la offre — la
+  // sede unica di quella risposta — e qui si delega e basta. Permessi,
+  // validazione, transizione e propagazione vivono là, perché ci arrivano anche
+  // le superfici che una notifica in mano non ce l'hanno (la pagina ticket) e i
+  // bottoni Slack.
   if (action === "answer") {
     // Il kind deve offrirla: `answer` su un `job.failed` è una richiesta senza
     // senso (400), non un permesso mancante (403). È la stessa guardia che le
     // decisioni fanno più sotto, anticipata perché qui si esce subito.
     if (!kindOffers(row.kind, action)) return { ok: false, error: "invalid_action" };
+    // DISPATCH PER KIND: la stessa azione agisce su cose diverse. Sulla domanda
+    // dell'agente scrive la risposta e fa ripartire il job (`answerQuestion`);
+    // sul pulse converte la proposta scelta in ticket e ne lancia la
+    // pianificazione (`proceedWithProposal`).
+    if (row.kind === "project.pulse") {
+      // Il pulse non ha un job dietro: `optionIndex` è l'indice della PROPOSTA,
+      // e un corpo a testo libero (che il pulse non ammette) arriva qui senza
+      // indice — il servizio lo rifiuta con `invalid_answer`.
+      const proceeded = await proceedWithProposal(db, {
+        notificationId: row.id,
+        actor,
+        ...(input.payload?.answer?.optionIndex === undefined
+          ? {}
+          : { optionIndex: input.payload.answer.optionIndex }),
+        ...(input.publicUrl ? { publicUrl: input.publicUrl } : {}),
+      });
+      if (!proceeded.ok) {
+        return {
+          ok: false,
+          error: proceeded.error,
+          ...(proceeded.handledBy ? { handledBy: proceeded.handledBy } : {}),
+          // `run_not_started` porta il ticket: l'azione è riuscita a metà, e
+          // dirlo senza il ticket lascerebbe l'utente senza il pezzo che c'è.
+          ...(proceeded.ticketId === undefined ? {} : { ticketId: proceeded.ticketId }),
+          ...(proceeded.ticketNumber === undefined ? {} : { ticketNumber: proceeded.ticketNumber }),
+        };
+      }
+      return {
+        ok: true,
+        action,
+        kind: row.kind,
+        notificationJobId: row.jobId,
+        // Le copie le ha già chiuse `proceedWithProposal` (il claim del pulse
+        // sta là, prima della conversione): qui si riferiscono soltanto.
+        changedNotificationIds: proceeded.changedNotificationIds,
+        jobId: proceeded.jobId,
+        ticketId: proceeded.ticketId,
+        ticketNumber: proceeded.ticketNumber,
+        runStatus: proceeded.status,
+      };
+    }
     const outcome = await answerQuestion(db, {
       notificationId: row.id,
       actor,
@@ -302,7 +373,7 @@ export async function executeAction(
   if (row.status === "handled") return alreadyHandled(db, row.id);
 
   const jobStatus = await latestJobStatus(db, row.ticketId);
-  if (!stateAllows(action, jobStatus)) {
+  if (!stateAllows(row.kind, action, jobStatus)) {
     return action === "relaunch"
       ? { ok: false, error: "job_in_flight", ...(jobStatus ? { jobStatus } : {}) }
       : { ok: false, error: "plan_not_pending" };
@@ -468,6 +539,13 @@ export interface InboxItem {
    * payload non la contiene in forma leggibile — vedi {@link renderItem}.
    */
   question?: InboxQuestion;
+  /**
+   * Il contorno del pulse (progetto, giorni di fermo, voci di backlog dietro le
+   * opzioni), sul solo kind `project.pulse`. ASSENTE se il payload non lo porta
+   * in forma leggibile, o se non è ALLINEATO alle opzioni — vedi
+   * {@link readPulse}.
+   */
+  pulse?: InboxPulse;
   projectId: string | null;
   ticketId: string | null;
   jobId: string | null;
@@ -483,6 +561,14 @@ export interface ListInboxInput {
   /** Default `open`: l'inbox è la lista di ciò che resta da smaltire. */
   status?: InboxStatus;
   projectId?: string;
+  /**
+   * Filtra per TIPO di evento. Assente = tutti i kind (comportamento storico
+   * della lista): serve a chi vuole un taglio solo dell'inbox, come le sole
+   * proposte del pulse (`kind: "project.pulse"`). È un AND con gli altri
+   * filtri, e non tocca l'ordinamento né il cursore — che scorre le sole righe
+   * filtrate, perché la condizione entra nella STESSA query.
+   */
+  kind?: NotificationKind;
   limit?: number;
   /** Cursore keyset opaco restituito dalla pagina precedente. */
   cursor?: string;
@@ -532,6 +618,9 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
 
   const conditions = [eq(notifications.userId, userId), eq(notifications.status, status)];
   if (input.projectId) conditions.push(eq(notifications.projectId, input.projectId));
+  // Sulla COLONNA enum, non sul jsonb `event`: è il dato di cui ci si può
+  // fidare (il payload storico può portare un `kind` diverso o non portarlo).
+  if (input.kind) conditions.push(eq(notifications.kind, input.kind));
   if (cursor) {
     conditions.push(
       sql`(${notifications.createdAt}, ${notifications.id}) < (${cursor.createdAt}::timestamptz, ${cursor.id}::uuid)`,
@@ -615,6 +704,71 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
 }
 
 /**
+ * Estrae dal payload grezzo la DOMANDA A OPZIONI, per i soli kind che ne hanno
+ * una ({@link KINDS_WITH_OPTIONS}). `undefined` quando il kind non ne prevede o
+ * quando il jsonb non la regge più: è ciò che fa degradare la card a testo.
+ *
+ * Il PULSE non ha una riga `agent_questions` dietro, quindi nemmeno un
+ * `questionId`: al suo posto va il `pulseId`, che è un uuid per-istanza del
+ * ping. Non è un adattamento cosmetico — è la difesa contro la SCELTA STALE. Un
+ * pulse nuovo sostituisce il precedente sullo stesso progetto, e le sue opzioni
+ * sono proposte DIVERSE agli stessi indici: `QuestionPanel` si rimonta sul
+ * `questionId` proprio per non lasciare selezionato l'indice scelto su un'altra
+ * lista. Col `pulseId` lì dentro quella rimonta continua a scattare; lasciare il
+ * campo vuoto la disattiverebbe esattamente dove serve.
+ *
+ * La mappatura sta QUI e non nell'evento: `renderItem` è già il posto dove un
+ * payload per-kind diventa la forma comune che la card consuma, e duplicare il
+ * `pulseId` in un secondo campo dell'evento lascerebbe due verità da tenere
+ * allineate.
+ */
+function readQuestion(
+  rawEvent: Record<string, unknown>,
+  kind: NotificationKind,
+): InboxQuestion | undefined {
+  if (!KINDS_WITH_OPTIONS.has(kind)) return undefined;
+  const candidate =
+    kind === "project.pulse" ? { ...rawEvent, questionId: rawEvent.pulseId } : rawEvent;
+  const parsed = inboxQuestionSchema.safeParse(candidate);
+  return parsed.success ? parsed.data : undefined;
+}
+
+/**
+ * Estrae dal payload grezzo IL CONTORNO DEL PULSE — progetto, giorni di fermo e
+ * voci di backlog dietro le opzioni — per il solo kind che ne ha uno.
+ * `undefined` quando il kind non è il pulse, quando il jsonb non regge più la
+ * validazione, o quando le proposte NON sono allineate alle opzioni.
+ *
+ * ⚠️ L'ALLINEAMENTO È IL PUNTO. L'indice che l'utente sceglie viaggia su
+ * `question.options` (è la lista che le superfici disegnano) e agisce su
+ * `proposals` (è la lista che `proceedWithProposal` indicizza per trovare la
+ * voce da convertire). Le due liste nascono allineate in `buildPulseEvent`, ma
+ * qui arrivano da un jsonb scritto mesi fa: se le lunghezze non coincidono, il
+ * blocco viene OMESSO invece di accostare l'i-esima proposta all'i-esima
+ * opzione. È la stessa disciplina del bail-out sugli indici di `QuestionPanel`:
+ * meglio nessun contorno — la card resta scegliibile, e il servizio valida
+ * comunque l'indice sulle proposte persistite — che un contorno che attribuisce
+ * a una scelta la voce sbagliata.
+ *
+ * Prende la domanda GIÀ estratta (non la ri-legge): è l'unico modo perché il
+ * confronto avvenga sulle opzioni che la card mostrerà davvero.
+ */
+function readPulse(
+  rawEvent: Record<string, unknown>,
+  kind: NotificationKind,
+  question: InboxQuestion | undefined,
+): InboxPulse | undefined {
+  if (kind !== "project.pulse") return undefined;
+  // Senza domanda leggibile non c'è nessuna lista di opzioni con cui allinearsi,
+  // e la card non offre scelte: il contorno non avrebbe a cosa riferirsi.
+  if (!question) return undefined;
+  const parsed = inboxPulseSchema.safeParse(rawEvent);
+  if (!parsed.success) return undefined;
+  if (parsed.data.proposals.length !== question.options.length) return undefined;
+  return parsed.data;
+}
+
+/**
  * RECINTO attorno alla resa del singolo item.
  *
  * `notifications.event` è un jsonb scritto da chi ha pubblicato l'evento, anche
@@ -636,18 +790,22 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
  * restituire `undefined` (`openUrl` su un kind sconosciuto esce dallo switch),
  * quindi l'esito viene comunque validato prima di uscire.
  *
- * Stesso recinto per la DOMANDA dell'agente: si estrae dal payload con un
- * `safeParse`, quindi una riga con opzioni malformate perde i bottoni ma resta
- * una card leggibile — e resta comunque rispondibile dalla pagina ticket, che
- * la domanda la legge da `agent_questions`.
+ * Stesso recinto per la DOMANDA A OPZIONI ({@link readQuestion}): si estrae dal
+ * payload con un `safeParse`, quindi una riga con opzioni malformate perde i
+ * bottoni ma resta una card leggibile — e nel caso della domanda dell'agente
+ * resta comunque rispondibile dalla pagina ticket, che la legge da
+ * `agent_questions`.
  */
 function renderItem(
   rawEvent: Record<string, unknown>,
   kind: NotificationKind,
   lang: Language,
-): { text: string; url?: string; question?: InboxQuestion } {
-  const question = kind === "job.awaiting_input" ? inboxQuestionSchema.safeParse(rawEvent) : null;
-  const questionPart = question?.success ? { question: question.data } : {};
+): { text: string; url?: string; question?: InboxQuestion; pulse?: InboxPulse } {
+  const question = readQuestion(rawEvent, kind);
+  const pulse = readPulse(rawEvent, kind, question);
+  // I due blocchi opzionali della card, insieme: entrambi degradano ad assenti
+  // e nessuno dei due deve poter far saltare la resa del testo.
+  const optionsPart = { ...(question ? { question } : {}), ...(pulse ? { pulse } : {}) };
   try {
     const event = rawEvent as unknown as NotificationEvent;
     const text = formatNotificationText(event, lang);
@@ -655,10 +813,10 @@ function renderItem(
     return {
       text: typeof text === "string" && text.trim() !== "" ? text : kind,
       ...(typeof url === "string" && url !== "" ? { url } : {}),
-      ...questionPart,
+      ...optionsPart,
     };
   } catch {
-    return { text: kind, ...questionPart };
+    return { text: kind, ...optionsPart };
   }
 }
 

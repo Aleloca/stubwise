@@ -152,6 +152,37 @@ const MONITOR_CHECK_DOWN: NotificationEvent = {
   url: "https://app.example.com/monitor/servers/s1",
 };
 
+const PROJECT_PULSE: NotificationEvent = {
+  kind: "project.pulse",
+  pulseId: "1c9e4f70-5555-4666-8777-888899990000",
+  projectName: "webapp",
+  projectUrl: "https://app.example.com/projects/p1/backlog",
+  idleDays: 4,
+  question: "Nessun lavoro in corso su webapp da 4 giorni. Da quale proposta partiamo?",
+  options: [
+    { label: "Export CSV degli ordini", consequence: "urgenza alta · effort 2 · analisi pronta" },
+    { label: "Filtro per stato nella lista", consequence: "urgenza media · effort 1" },
+  ],
+  recommendedIndex: 0,
+  allowFreeText: false,
+  proposals: [
+    {
+      backlogItemId: "aa11bb22-1111-4222-8333-444455556666",
+      title: "Export CSV degli ordini",
+      urgency: "high",
+      effort: 2,
+      hasAnalysis: true,
+    },
+    {
+      backlogItemId: "cc33dd44-1111-4222-8333-444455556666",
+      title: "Filtro per stato nella lista",
+      urgency: "medium",
+      effort: 1,
+      hasAnalysis: false,
+    },
+  ],
+};
+
 describe("formatNotification — contratto", () => {
   it("ogni formato dichiara content-type application/json", () => {
     for (const format of ["slack", "discord", "generic"] as NotificationFormat[]) {
@@ -327,6 +358,47 @@ describe("formatNotification — slack (lingua default en)", () => {
     expect(text).toContain("disco rientrato al 72%");
     expect(text).toContain("<https://app.example.com/monitor/servers/s1|Server>");
   });
+
+  it("project.pulse → progetto, giorni di fermo e link al backlog; nessun riferimento #n", () => {
+    const text = (formatNotification(PROJECT_PULSE, "slack").body as { text: string }).text;
+    expect(text.startsWith("📣 ")).toBe(true);
+    expect(text).toContain("webapp");
+    // Forma `etichetta: N`: corretta a 0, 1 e N senza regole di plurale.
+    expect(text).toContain("days idle: 4");
+    expect(text).toContain("<https://app.example.com/projects/p1/backlog|Backlog>");
+    // Non c'è un ticket: nessun residuo di {ref} né riferimenti #n.
+    expect(text).not.toContain("#");
+    expect(text).not.toContain("{ref}");
+  });
+
+  it("project.pulse → la frase regge 0, 1 e N giorni senza plurali sbagliati", () => {
+    // Il catalogo non ha regole di plurale: "da 1 giorni" / "for 1 days" è il
+    // motivo per cui i giorni di fermo sono resi in forma `etichetta: N`. Lo
+    // `0` non è teorico — è il fallback quando l'ultimo segnale di attività non
+    // si riesce a datare.
+    for (const [idleDays, atteso] of [
+      [0, "days idle: 0"],
+      [1, "days idle: 1"],
+      [7, "days idle: 7"],
+    ] as const) {
+      const en = (
+        formatNotification({ ...PROJECT_PULSE, idleDays }, "slack").body as { text: string }
+      ).text;
+      expect(en).toContain(atteso);
+      expect(en).not.toContain("1 days");
+      const it = (
+        formatNotification({ ...PROJECT_PULSE, idleDays }, "slack", "it").body as { text: string }
+      ).text;
+      expect(it).toContain(`giorni di fermo: ${idleDays}`);
+      expect(it).not.toContain("1 giorni");
+    }
+  });
+
+  it("project.pulse → i TITOLI delle proposte non entrano nella frase (li rendono i blocchi)", () => {
+    const text = (formatNotification(PROJECT_PULSE, "slack").body as { text: string }).text;
+    expect(text).not.toContain("Export CSV degli ordini");
+    expect(text).not.toContain("Filtro per stato nella lista");
+  });
 });
 
 describe("formatNotification — slack (lingua it)", () => {
@@ -421,6 +493,13 @@ describe("formatNotification — slack (lingua it)", () => {
     expect(text).toContain("web-prod-1 tornato su (disco)");
     expect(text).toContain("disco rientrato al 72%");
     expect(text).toContain("<https://app.example.com/monitor/servers/s1|Server>");
+  });
+
+  it("project.pulse it → progetto fermo da N giorni e label Backlog", () => {
+    const text = (formatNotification(PROJECT_PULSE, "slack", "it").body as { text: string }).text;
+    expect(text).toContain("📣 Nessun lavoro in corso su webapp (giorni di fermo: 4)");
+    expect(text).toContain("ci sono proposte nel backlog");
+    expect(text).toContain("<https://app.example.com/projects/p1/backlog|Backlog>");
   });
 });
 
@@ -700,6 +779,34 @@ describe("formatNotification — generic", () => {
     expect(body.message as string).toContain("recovered");
   });
 
+  it("project.pulse → payload autosufficiente: domanda, opzioni e proposte, senza campi ticket", () => {
+    const body = formatNotification(PROJECT_PULSE, "generic").body as Record<string, unknown>;
+    expect(body.event).toBe("project.pulse");
+    expect(body.pulseId).toBe("1c9e4f70-5555-4666-8777-888899990000");
+    expect(body.projectName).toBe("webapp");
+    expect(body.idleDays).toBe(4);
+    // `projectUrl`, uniforme a ticketUrl/docsUrl/serverUrl degli altri eventi.
+    expect(body.projectUrl).toBe("https://app.example.com/projects/p1/backlog");
+    expect(body.question).toBe(
+      "Nessun lavoro in corso su webapp da 4 giorni. Da quale proposta partiamo?",
+    );
+    expect(body.options).toEqual([
+      { label: "Export CSV degli ordini", consequence: "urgenza alta · effort 2 · analisi pronta" },
+      { label: "Filtro per stato nella lista", consequence: "urgenza media · effort 1" },
+    ]);
+    expect(body.recommendedIndex).toBe(0);
+    expect(body.allowFreeText).toBe(false);
+    // Le proposte portano l'ancora alla voce di backlog: chi consuma il webhook
+    // sa QUALI voci sono state proposte, non solo come si chiamano.
+    expect(body.proposals).toEqual(PROJECT_PULSE.proposals);
+    expect(body).not.toHaveProperty("ticketNumber");
+    expect(body).not.toHaveProperty("title");
+    expect(body).not.toHaveProperty("ticketUrl");
+    expect(body.message as string).toBe(
+      "No work in progress on webapp (days idle: 4): there are proposals in the backlog.",
+    );
+  });
+
   it("message → frase senza markup né link, niente emoji né spazio finale (en)", () => {
     const body = formatNotification(TICKET_CREATED, "generic").body as Record<string, unknown>;
     const message = body.message as string;
@@ -748,6 +855,7 @@ describe("sampleEvents", () => {
       "monitor.alert",
       "monitor.recovered",
       "job.awaiting_input",
+      "project.pulse",
     ]);
     for (const event of events) {
       // Eventi senza ticket: il link non è un ticketUrl ma la superficie propria.
@@ -755,6 +863,8 @@ describe("sampleEvents", () => {
         expect(event.docsUrl.startsWith("https://app.example.com/docs/")).toBe(true);
       } else if (event.kind === "monitor.alert" || event.kind === "monitor.recovered") {
         expect(event.url.startsWith("https://app.example.com/monitor/")).toBe(true);
+      } else if (event.kind === "project.pulse") {
+        expect(event.projectUrl.startsWith("https://app.example.com/projects/")).toBe(true);
       } else {
         expect(event.ticketUrl.startsWith("https://app.example.com/tickets/")).toBe(true);
       }

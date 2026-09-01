@@ -200,7 +200,7 @@ export async function answerQuestion(
     return await notPending(db, anchor, actor, { jobHasOpenQuestion: true });
   }
 
-  if (!stateAllows("answer", job.status)) {
+  if (!stateAllows("job.awaiting_input", "answer", job.status)) {
     return await notPending(db, anchor, actor, { jobHasOpenQuestion: true });
   }
 

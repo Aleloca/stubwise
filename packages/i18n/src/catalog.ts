@@ -116,6 +116,15 @@ export const en: Catalog = {
     "Server alert on {serverName} ({condition}): {detail}. {link}",
   "notify.monitorRecovered":
     "{serverName} recovered ({condition}): {detail}. {link}",
+  // Pulse proattivo: evento SENZA ticket ancorato al PROGETTO, il {link} porta
+  // al suo backlog. I titoli delle proposte NON stanno nella frase — sono le
+  // opzioni della domanda, che ogni superficie rende a modo suo.
+  // `{idleDays}` è in forma `etichetta: N` (stessa convenzione di
+  // comment.reviewImpact.*) perché il catalogo non ha regole di plurale: "for 1
+  // days" sarebbe sbagliato, e `0` è il fallback previsto quando i giorni di
+  // fermo non si riescono a calcolare.
+  "notify.pulse":
+    "No work in progress on {project} (days idle: {idleDays}): there are proposals in the backlog. {link}",
   // Etichette delle condizioni di monitoraggio (interpolate in notify.monitor*).
   "notify.monitorCondition.offline": "offline",
   "notify.monitorCondition.cpu": "CPU",
@@ -137,6 +146,7 @@ export const en: Catalog = {
   "notify.linkTicket": "Ticket",
   "notify.linkDocs": "Docs",
   "notify.linkServer": "Server",
+  "notify.linkBacklog": "Backlog",
   // Etichette dei BOTTONI dell'inbox (DM Slack e, un domani, altre superfici
   // interattive). Testi brevi: Slack tronca oltre i 75 caratteri.
   "notify.action.approvePlan": "Approve plan",
@@ -174,6 +184,10 @@ export const en: Catalog = {
   "notify.inbox.errPlanNotPending": "No plan is awaiting approval.",
   "notify.inbox.errInvalidAnswer": "That answer is not valid for this question.",
   "notify.inbox.errQuestionNotPending": "No question is awaiting an answer.",
+  "notify.inbox.errProposalStale":
+    "That proposal is no longer available: it has already been taken care of.",
+  "notify.inbox.errRunNotStarted":
+    "Ticket created, but the run did not start. Launch it from the ticket.",
   "notify.inbox.errFailed": "The action could not be completed. Try again from Stubwise.",
   // Note di stato: sostituiscono i bottoni sul messaggio già deciso.
   "notify.inbox.notePlanApproved": "✅ Plan approved by {actor}",
@@ -182,6 +196,26 @@ export const en: Catalog = {
   "notify.inbox.noteAnswered": "💬 Answer from {actor}: {answer}",
   "notify.inbox.noteHandled": "✅ Marked as handled by {actor}",
   "notify.inbox.noteSnoozed": "⏰ Snoozed until {until}",
+  // Note del "Procedi" del pulse: quattro esiti, quattro frasi. Le prime due
+  // NON sono intercambiabili — col piano già pronto il run aspetta subito
+  // un'approvazione, senza piano la pianificazione parte e si fermerà dopo.
+  //
+  // Le tre che hanno un ticket ne portano il NUMERO perché il DM è TESTO: chi
+  // lo rilegge non ha una card da cui cliccare. Nell'inbox il link arriva
+  // invece dai dati — la decisione valorizza `notifications.ticket_id` (vedi
+  // `proceedWithProposal`) — e queste frasi non ne sono l'unica traccia.
+  "notify.inbox.notePulseStartedApproval":
+    "▶️ {actor} started «{title}» as #{number} — waiting for plan approval",
+  "notify.inbox.notePulseStartedPlanning":
+    "▶️ {actor} started «{title}» as #{number} — planning under way, it will stop for approval",
+  "notify.inbox.notePulseTicketOnly":
+    "▶️ {actor} turned «{title}» into ticket #{number} — the run did not start, launch it by hand",
+  "notify.inbox.notePulseStale": "🗄️ «{title}» has already been taken care of",
+  // Pulse SOSTITUITO da uno più recente sullo stesso progetto (la scrive il
+  // poller del worker, non un'azione umana): nessun `{actor}`, perché non l'ha
+  // deciso nessuno. Serve a togliere i bottoni da un DM le cui proposte non
+  // esistono più.
+  "notify.inbox.notePulseReplaced": "🔄 Replaced by a newer set of proposals",
   // Modal di rifiuto del piano (il titolo Slack tronca oltre i 24 caratteri).
   "notify.inbox.rejectTitle": "Reject plan",
   "notify.inbox.rejectSubmit": "Reject",
@@ -301,6 +335,8 @@ export const it: Catalog = {
     "Alert sul server {serverName} ({condition}): {detail}. {link}",
   "notify.monitorRecovered":
     "{serverName} tornato su ({condition}): {detail}. {link}",
+  "notify.pulse":
+    "Nessun lavoro in corso su {project} (giorni di fermo: {idleDays}): ci sono proposte nel backlog. {link}",
   "notify.monitorCondition.offline": "offline",
   "notify.monitorCondition.cpu": "CPU",
   "notify.monitorCondition.mem": "memoria",
@@ -317,6 +353,7 @@ export const it: Catalog = {
   "notify.linkTicket": "Ticket",
   "notify.linkDocs": "Docs",
   "notify.linkServer": "Server",
+  "notify.linkBacklog": "Backlog",
   "notify.action.approvePlan": "Approva il piano",
   "notify.action.rejectPlan": "Rifiuta",
   "notify.action.relaunch": "Rilancia",
@@ -341,6 +378,9 @@ export const it: Catalog = {
   "notify.inbox.errPlanNotPending": "Nessun piano in attesa di approvazione.",
   "notify.inbox.errInvalidAnswer": "Questa risposta non è valida per questa domanda.",
   "notify.inbox.errQuestionNotPending": "Nessuna domanda in attesa di risposta.",
+  "notify.inbox.errProposalStale":
+    "Questa proposta non è più disponibile: è già stata presa in carico.",
+  "notify.inbox.errRunNotStarted": "Ticket creato, ma il run non è partito. Lancialo dal ticket.",
   "notify.inbox.errFailed": "Azione non riuscita. Riprova da Stubwise.",
   "notify.inbox.notePlanApproved": "✅ Piano approvato da {actor}",
   "notify.inbox.notePlanRejected": "🚫 Piano rifiutato da {actor}",
@@ -348,6 +388,14 @@ export const it: Catalog = {
   "notify.inbox.noteAnswered": "💬 Risposta di {actor}: {answer}",
   "notify.inbox.noteHandled": "✅ Segnata come gestita da {actor}",
   "notify.inbox.noteSnoozed": "⏰ Rinviata fino a {until}",
+  "notify.inbox.notePulseStartedApproval":
+    "▶️ {actor} ha avviato «{title}» come #{number} — in attesa dell'approvazione del piano",
+  "notify.inbox.notePulseStartedPlanning":
+    "▶️ {actor} ha avviato «{title}» come #{number} — pianificazione avviata, si fermerà per l'approvazione",
+  "notify.inbox.notePulseTicketOnly":
+    "▶️ {actor} ha creato il ticket #{number} per «{title}» — il run non è partito, va lanciato a mano",
+  "notify.inbox.notePulseStale": "🗄️ «{title}» è già stata presa in carico",
+  "notify.inbox.notePulseReplaced": "🔄 Sostituita da proposte più recenti",
   "notify.inbox.rejectTitle": "Rifiuta il piano",
   "notify.inbox.rejectSubmit": "Rifiuta",
   "notify.inbox.rejectClose": "Annulla",

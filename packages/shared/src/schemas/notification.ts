@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ticketPrioritySchema } from "./ticket.js";
 
 /**
  * Schemi dell'INBOX: la forma con cui `/api/inbox` e `/api/me/*` parlano alla
@@ -35,6 +36,7 @@ export const notificationKindSchema = z.enum([
   "monitor.alert",
   "monitor.recovered",
   "job.awaiting_input",
+  "project.pulse",
 ]);
 
 /**
@@ -125,13 +127,70 @@ export type AgentQuestionOption = z.infer<typeof agentQuestionOptionSchema>;
  */
 export const inboxQuestionSchema = z.object({
   questionId: z.uuid(),
-  round: z.number().int(),
+  /**
+   * OPZIONALE, e non per lassismo: il `round` conta i giri di `ask_user` sullo
+   * stesso job, ed è quindi specifico della domanda dell'agente. Gli altri kind
+   * con opzioni (il pulse proattivo, che di job non ne ha) hanno la stessa
+   * forma senza averne uno. Chi ne ha uno lo porta ancora, e
+   * {@link ticketQuestionSchema} lo ri-stringe a obbligatorio.
+   */
+  round: z.number().int().optional(),
   question: z.string(),
   options: z.array(agentQuestionOptionSchema),
   recommendedIndex: z.number().int().optional(),
   allowFreeText: z.boolean(),
 });
 export type InboxQuestion = z.infer<typeof inboxQuestionSchema>;
+
+/**
+ * Una PROPOSTA del pulse: la voce di backlog dietro l'opzione omonima, più i
+ * metadati su cui il ranking l'ha ordinata.
+ *
+ * `urgency`/`effort` sono nullable come le colonne che li portano (una voce
+ * appena nata può non averli ancora). `backlogItemId` è ciò che permette a un
+ * consumatore non-visuale — il tool MCP — di dire *quale voce* è la proposta
+ * numero 2, senza rileggere il payload della notifica.
+ */
+export const inboxPulseProposalSchema = z.object({
+  backlogItemId: z.uuid(),
+  title: z.string(),
+  urgency: ticketPrioritySchema.nullable(),
+  effort: z.number().int().nullable(),
+  /** La voce ha già la sezione "## Analisi tecnica" del deep dive. */
+  hasAnalysis: z.boolean(),
+});
+export type InboxPulseProposal = z.infer<typeof inboxPulseProposalSchema>;
+
+/**
+ * IL CONTORNO DEL PULSE: ciò che la sua card deve poter dire e che
+ * {@link inboxQuestionSchema} non porta — di quale progetto si parla, da quanti
+ * giorni è fermo, e quali voci di backlog stanno dietro le opzioni.
+ *
+ * Blocco a parte e non campi sparsi su {@link inboxItemSchema}: i kind sono
+ * tredici e uno solo ha queste informazioni: raccoglierle qui le tiene
+ * assenti-o-complete invece di spargere quattro campi opzionali che nessun
+ * altro kind valorizza. E non dentro `question.options[]`, che è lo schema
+ * CONDIVISO con la domanda dell'agente e con la pagina ticket, dove un
+ * `backlogItemId` non significherebbe nulla.
+ *
+ * ⚠️ **`proposals[i]` DESCRIVE `question.options[i]`**. L'indice che l'utente
+ * sceglie viaggia su `options` e agisce su `proposals` (è la lista che
+ * `proceedWithProposal` indicizza per trovare la voce da convertire): un
+ * disallineamento non darebbe nessun errore, farebbe partire la voce
+ * sbagliata. Chi popola questo blocco DEVE quindi verificare l'allineamento —
+ * lo fa il recinto per-item di `listInbox`, che in caso di dubbio omette il
+ * blocco invece di mentire.
+ *
+ * OPZIONALE come `question`, e per la stessa ragione: su un payload che il
+ * server non ha saputo rileggere la card resta intera e senza contorno.
+ */
+export const inboxPulseSchema = z.object({
+  projectName: z.string(),
+  /** Da quanti giorni il progetto non ha lavoro in corso. */
+  idleDays: z.number().int(),
+  proposals: z.array(inboxPulseProposalSchema),
+});
+export type InboxPulse = z.infer<typeof inboxPulseSchema>;
 
 /**
  * La risposta umana COME VIENE PERSISTITA in `agent_questions.answer`: l'indice
@@ -161,6 +220,14 @@ export type AgentQuestionAnswer = z.infer<typeof agentQuestionAnswerSchema>;
  * stata.
  */
 export const ticketQuestionSchema = inboxQuestionSchema.extend({
+  /**
+   * RI-STRETTO a obbligatorio: sulla card d'inbox il `round` è opzionale perché
+   * lì la stessa forma serve anche a kind che non hanno giri (il pulse), ma qui
+   * la sorgente è la colonna `agent_questions.round`, che c'è SEMPRE. Allentare
+   * anche questo contratto — che non ne ha bisogno — costringerebbe la pagina
+   * ticket a difendersi da un'assenza impossibile.
+   */
+  round: z.number().int(),
   /** Job che ha posto la domanda: la pagina ticket ci ancora la risposta. */
   jobId: z.uuid(),
   askedAt: z.iso.datetime(),
@@ -217,11 +284,18 @@ export const inboxItemSchema = z.object({
   url: z.string().optional(),
   actions: z.array(inboxActionSchema),
   /**
-   * Presente SOLO sul kind `job.awaiting_input`, e solo se il payload
-   * dell'evento è leggibile: è ciò che permette alla card di offrire i bottoni
-   * delle opzioni invece del solo testo.
+   * Presente solo sui kind CON OPZIONI (`KINDS_WITH_OPTIONS` di
+   * `@stubwise/notifications`: la domanda dell'agente e il pulse proattivo), e
+   * solo se il payload dell'evento è leggibile: è ciò che permette alla card di
+   * offrire i bottoni delle opzioni invece del solo testo.
    */
   question: inboxQuestionSchema.optional(),
+  /**
+   * Il contorno del pulse (progetto, giorni di fermo, voci dietro le opzioni):
+   * presente solo sul kind `project.pulse`, e solo se il payload è leggibile e
+   * ALLINEATO a `question.options` — vedi {@link inboxPulseSchema}.
+   */
+  pulse: inboxPulseSchema.optional(),
   projectId: z.uuid().nullable(),
   ticketId: z.uuid().nullable(),
   jobId: z.uuid().nullable(),
@@ -262,29 +336,60 @@ export type SnoozeResult = z.infer<typeof snoozeResultSchema>;
  * chiude in blocco TUTTE le copie della stessa notifica (anche di altri
  * utenti), e il client aggiorna quelle righe senza ricaricare l'inbox.
  * `jobId` è presente solo quando l'azione ha toccato un job (approva/rilancia).
+ *
+ * `ticketId`/`ticketNumber` compaiono solo sul "Procedi" del pulse
+ * (`project.pulse`), l'unica azione che CREA un ticket: la proposta scelta
+ * diventa un ticket `task` e la card lo linka subito ("▶️ Avviato: #42") invece
+ * di mandare l'utente a cercarlo.
  */
 export const inboxActionResultSchema = z.object({
   kind: notificationKindSchema,
   jobId: z.uuid().optional(),
+  ticketId: z.uuid().optional(),
+  ticketNumber: z.number().int().positive().optional(),
+  /**
+   * Come è NATO il run del "Procedi" — `runStatus` e non `status`, che su una
+   * riga d'inbox significa già un'altra cosa (aperta/gestita/rinviata).
+   *
+   * Sono due esperienze diverse e le superfici le dicono con parole diverse:
+   * col piano ereditato dalla voce il job è GIÀ fermo sul gate
+   * (`awaiting_plan_approval`), senza piano parte `queued` e sarà il worker a
+   * fermarsi a piano pronto. Promettere il primo stato nel secondo caso
+   * manderebbe l'utente a cercare un'approvazione che ancora non esiste.
+   *
+   * Presente solo sul "Procedi" riuscito del pulse: nessun'altra azione avvia
+   * un run da zero.
+   */
+  runStatus: z.enum(["queued", "awaiting_plan_approval"]).optional(),
   changedNotificationIds: z.array(z.uuid()),
 });
 export type InboxActionResult = z.infer<typeof inboxActionResultSchema>;
 
 /**
  * Corpo d'errore delle rotte d'AZIONE dell'inbox: l'errore standard
- * `{ code, message }` (stessa forma di `errorSchema` lato server) più il DATO
- * che serve alla UI per dire "l'ha già gestita X" invece di un generico
- * conflitto. Il nome è sul MITTENTE (le rotte azione), non sul singolo caso
- * `already_handled`: lo stesso body copre tutti i loro errori.
+ * `{ code, message }` (stessa forma di `errorSchema` lato server) più i DATI che
+ * servono alla UI per dire cosa è successo invece di un generico conflitto. Il
+ * nome è sul MITTENTE (le rotte azione), non sul singolo caso: lo stesso body
+ * copre tutti i loro errori.
  *
- * `handledBy` è opzionale perché lo stesso 409 copre anche `job_in_flight` e
- * `plan_not_pending`, che non hanno un autore da nominare; `code` è opzionale
- * perché gli errori di validazione Zod non lo valorizzano.
+ * `handledBy` risponde alla domanda "chi l'ha già fatto?" (`already_handled`);
+ * `ticketId`/`ticketNumber` a "cosa è comunque riuscito?" — li porta il 409
+ * `run_not_started` del "Procedi" del pulse, l'unico errore che lascia dietro
+ * di sé qualcosa di utile: il ticket è nato, il run no, e la card deve poterlo
+ * LINKARE per farlo lanciare a mano. Senza dati strutturati quel link si
+ * potrebbe costruire solo estraendo il numero dal `message`, che è inglese e
+ * non è contratto.
+ *
+ * Tutti opzionali: lo stesso 409 copre anche `job_in_flight`, `plan_not_pending`
+ * e `proposal_stale`, che non hanno né un autore da nominare né un ticket da
+ * offrire; `code` lo è perché gli errori di validazione Zod non lo valorizzano.
  */
 export const inboxActionErrorSchema = z.object({
   code: z.string().optional(),
   message: z.string(),
   handledBy: handledBySchema.optional(),
+  ticketId: z.uuid().optional(),
+  ticketNumber: z.number().int().positive().optional(),
 });
 export type InboxActionError = z.infer<typeof inboxActionErrorSchema>;
 

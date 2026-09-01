@@ -207,6 +207,11 @@ export function inboxErrorText(
       // La domanda è già stata risposta da qualcuno: `already_handled` (con il
       // nome) copre il caso normale, questo resta per il job ripartito.
       return t(lang, "notify.inbox.errQuestionNotPending");
+    case "proposal_stale":
+      return t(lang, "notify.inbox.errProposalStale");
+    case "run_not_started":
+      // Riuscita a metà: il ticket c'è, il run va lanciato a mano dal ticket.
+      return t(lang, "notify.inbox.errRunNotStarted");
   }
 }
 

@@ -1,5 +1,7 @@
 import type {
   BacklogItemStatus,
+  InboxItem,
+  InboxStatus,
   Project,
   TicketPriority,
   TicketStatus,
@@ -135,6 +137,65 @@ export interface RunTicketResult {
    * il piano prima di eseguire.
    */
   status: "queued" | "awaiting_plan_approval";
+}
+
+/**
+ * Una PROPOSTA del pulse proattivo: la voce di backlog dietro l'opzione, più i
+ * metadati su cui il ranking l'ha ordinata. `backlogItemId` è ciò che permette
+ * a un consumatore non-visuale (questo client) di dire QUALE voce è la proposta
+ * numero 2 senza rileggere il payload della notifica.
+ */
+export interface InboxPulseProposal {
+  backlogItemId: string;
+  title: string;
+  urgency: Urgency | null;
+  effort: number | null;
+  /** La voce ha già la sezione "## Analisi tecnica" del deep dive. */
+  hasAnalysis: boolean;
+}
+
+/**
+ * Il contorno del pulse su una riga d'inbox: di quale progetto si parla, da
+ * quanti giorni è fermo, quali voci di backlog stanno dietro le proposte.
+ *
+ * ⚠️ Il server lo omette INTERAMENTE quando il payload non è leggibile o non è
+ * allineato alle opzioni della notifica: è opzionale sulla riga, e chi lo legge
+ * deve reggerne l'assenza (la riga resta valida, senza il dettaglio).
+ */
+export interface InboxPulse {
+  projectName: string;
+  idleDays: number;
+  proposals: InboxPulseProposal[];
+}
+
+/**
+ * Forma difensiva di una riga d'inbox (`GET /api/inbox`): i soli campi che i
+ * tool MCP leggono. Il contratto completo (azioni, snooze, chi l'ha gestita,
+ * la domanda dell'agente...) resta al client web: qui l'inbox si LEGGE e basta
+ * — non esiste un tool MCP che decida da questa superficie.
+ */
+export interface InboxItemSummary {
+  id: string;
+  kind: InboxItem["kind"];
+  status: InboxStatus;
+  /** Testo già localizzato nella lingua del destinatario. */
+  text: string;
+  /** Assente quando il payload dell'evento non porta un URL utilizzabile. */
+  url?: string;
+  /** Presente solo sul kind `project.pulse`, e solo se il payload è leggibile. */
+  pulse?: InboxPulse;
+  createdAt: string;
+}
+
+/**
+ * Filtri della lista inbox. Entrambi opzionali: senza `status` il server
+ * risponde con le sole righe `open` (suo default), senza `kind` con tutti i
+ * tipi di evento. Un `kind` fuori vocabolario è un 400 del server, non una
+ * lista vuota.
+ */
+export interface ListInboxParams {
+  status?: InboxStatus;
+  kind?: InboxItem["kind"];
 }
 
 /** Bersaglio delle operazioni design/plan: una voce di backlog o un ticket. */
@@ -515,6 +576,22 @@ export class StubwiseClient {
       body: body?.mode ? { mode: body.mode } : {},
     });
     return this.parseResponse(runTicketResultSchema, raw, "l'avvio dell'esecuzione del ticket");
+  }
+
+  // --- Inbox --------------------------------------------------------------
+
+  /**
+   * Pagina dell'inbox DELL'UTENTE DEL TOKEN (`GET /api/inbox`): l'inbox è
+   * per-destinatario, quindi non c'è nessun progetto da risolvere — quello che
+   * si vede è ciò che è stato recapitato a chi possiede il PAT.
+   *
+   * Risposta di lista grande e di forma difensiva ≠ schema condiviso: cast
+   * tipizzato, nessuna validazione runtime (stessa scelta di listTickets).
+   */
+  async listInbox(params: ListInboxParams = {}): Promise<Page<InboxItemSummary>> {
+    return this.request<Page<InboxItemSummary>>("/api/inbox", {
+      query: { status: params.status, kind: params.kind },
+    });
   }
 
   // --- Design / piano (backlog e ticket) ----------------------------------

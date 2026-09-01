@@ -31,7 +31,7 @@ import {
   tickets,
 } from "@stubwise/db";
 import { requireAdmin, requireAuth } from "../auth/session.js";
-import { createTicket } from "../db/tickets.js";
+import { convertBacklogItem } from "../services/backlog.js";
 import { apiError } from "../errors.js";
 import { getContentLanguage } from "../settings.js";
 import {
@@ -1444,6 +1444,10 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
   // savepoint annidato). requireAuth (non admin): promuovere un'idea a task è
   // lavoro da operator — la conversione non fa partire nulla da sola, ed è il
   // gate del piano (services/jobs.ts) a decidere se un member può eseguire.
+  //
+  // Il corpo vive in `services/backlog.ts` (`convertBacklogItem`), perché il
+  // pulse della fase 2 converte la proposta scelta senza passare da HTTP: qui
+  // resta solo l'adattatore che mappa gli errori tipizzati sugli status.
   app.post(
     "/:id/convert",
     {
@@ -1459,81 +1463,20 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const { id } = request.params;
-      const [item] = await app.db
-        .select({
-          projectId: backlogItems.projectId,
-          title: backlogItems.title,
-          document: backlogItems.document,
-          implementationPlan: backlogItems.implementationPlan,
-          originContent: backlogItems.originContent,
-          status: backlogItems.status,
-          effort: backlogItems.effort,
-          urgency: backlogItems.urgency,
-        })
-        .from(backlogItems)
-        .where(eq(backlogItems.id, id));
-      if (!item) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
-      if (item.status === "converted") {
-        return apiError(reply, 409, "already_converted", "Backlog item already converted");
-      }
-
-      const result = await app.db.transaction(async (tx) => {
-        // CLAIM anti-TOCTOU come PRIMA operazione: UPDATE condizionato allo
-        // stato. Due convert concorrenti si serializzano sul row-lock della
-        // voce: il secondo trova 0 righe (status già converted) ed esce SENZA
-        // aver creato nulla (→ 409). Il pre-check sopra resta solo per il
-        // fast-path senza transazione.
-        const claimed = await tx
-          .update(backlogItems)
-          .set({ status: "converted" })
-          .where(and(eq(backlogItems.id, id), sql`${backlogItems.status} <> 'converted'`))
-          .returning({ id: backlogItems.id });
-        if (claimed.length === 0) return null;
-
-        const ticket = await createTicket(tx, {
-          projectId: item.projectId,
-          title: item.title,
-          body: item.document,
-          type: "task",
-          priority: item.urgency ?? "medium",
-          source: "manual",
-          // Il ticket eredita design (originContent) e piano dalla voce.
-          implementationPlan: item.implementationPlan,
-          originContent: item.originContent,
-        });
-        // createTicket non copre l'effort: lo propaghiamo dalla voce (già stimato).
-        if (item.effort !== null) {
-          await tx.update(tickets).set({ effort: item.effort }).where(eq(tickets.id, ticket.id));
-        }
-        await tx
-          .insert(backlogItemTickets)
-          .values({ itemId: id, ticketId: ticket.id, role: "converted_to" });
-        // Una conversione CHIUDE l'eventuale sessione di analisi sul codice
-        // active: la voce è ormai un ticket, non ha più senso investigarla in
-        // chat. Il worker (sweep/turno) rimuoverà il worktree in-memoria alla
-        // prossima riconciliazione; un chat_turn in volo trova la sessione closed
-        // → no-op morbido. Status-guarded: nessuna sessione active → 0 righe.
-        const [closedSession] = await tx
-          .update(backlogCodeSessions)
-          .set({ status: "closed", closedAt: new Date() })
-          .where(and(eq(backlogCodeSessions.itemId, id), eq(backlogCodeSessions.status, "active")))
-          .returning({ id: backlogCodeSessions.id });
-        if (closedSession) {
-          const lang = await getContentLanguage(tx);
-          await tx.insert(backlogChatMessages).values({
-            itemId: id,
-            role: "system",
-            content: t(lang, "backlog.codeSessionClosed"),
-          });
-        }
-        return { ticketId: ticket.id, ticketNumber: ticket.number };
+      const result = await convertBacklogItem(app.db, {
+        itemId: request.params.id,
+        actor: request.user!,
       });
-
-      if (!result) {
+      if (!result.ok) {
+        if (result.error === "not_found") {
+          return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
+        }
+        if (result.error === "not_convertible") {
+          return apiError(reply, 409, "not_convertible", "Backlog item cannot be converted");
+        }
         return apiError(reply, 409, "already_converted", "Backlog item already converted");
       }
-      return result;
+      return { ticketId: result.ticketId, ticketNumber: result.ticketNumber };
     },
   );
 

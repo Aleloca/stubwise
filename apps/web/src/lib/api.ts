@@ -1372,6 +1372,13 @@ export interface Project {
    */
   backlogEnabled: boolean;
   /**
+   * Se true, quando il progetto è fermo il poller propone 2–3 voci del backlog
+   * da cui ripartire (pulse proattivo). Default false.
+   */
+  pulseEnabled: boolean;
+  /** Cadenza minima fra due pulse dello stesso progetto, in giorni (1..30). */
+  pulseEveryDays: number;
+  /**
    * Chiave di ingestion del progetto (Fase 3): gli SDK e i webhook inbound la
    * usano per autenticare l'invio di errori/ticket. Salita dal repository al
    * progetto; tutti i repo del gruppo condividono questa chiave.
@@ -1408,6 +1415,8 @@ export interface ProjectDraft {
   docAutoUpdate?: boolean;
   dailyReportEnabled?: boolean;
   backlogEnabled?: boolean;
+  pulseEnabled?: boolean;
+  pulseEveryDays?: number;
 }
 
 /** Campi modificabili di un progetto (gruppo). Patch parziale. */
@@ -1422,6 +1431,10 @@ export interface ProjectPatch {
   dailyReportEnabled?: boolean;
   /** Toggle backlog di discovery (deviazione feedback/feature); assente = invariato. */
   backlogEnabled?: boolean;
+  /** Toggle pulse proattivo; assente = invariato. */
+  pulseEnabled?: boolean;
+  /** Cadenza del pulse in giorni (1..30); assente = invariata. */
+  pulseEveryDays?: number;
 }
 
 export function getProjects(): Promise<ProjectListItem[]> {
@@ -1833,6 +1846,8 @@ export interface NotificationSettings {
   notifyMonitor: boolean;
   /** La pianificazione AI si è fermata con una domanda in attesa di risposta. */
   notifyAwaitingInput: boolean;
+  /** Pulse proattivo: un progetto è fermo e il backlog ha proposte pronte. */
+  notifyPulse: boolean;
 }
 
 /** Esito dell'invio di una notifica di test (lo restituisce l'endpoint /test). */
@@ -1872,6 +1887,8 @@ export function putNotificationSettings(
     notifyMonitor: settings.notifyMonitor,
     // Idem: default server true, va inviato sempre.
     notifyAwaitingInput: settings.notifyAwaitingInput,
+    // Idem: default server true, va inviato sempre.
+    notifyPulse: settings.notifyPulse,
   });
 }
 

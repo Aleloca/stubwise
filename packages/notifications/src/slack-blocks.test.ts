@@ -390,6 +390,62 @@ describe("buildQuestionBlocks", () => {
     expect(rendered).toContain("https://s.test/tickets/7|Apri");
   });
 
+  it("project.pulse: i TITOLI di backlog (non fidati) sono escapati UNA volta sola", () => {
+    // Il titolo di una voce di backlog lo scrive un utente — anche uno estraneo,
+    // via widget pubblico — e finisce nel DM di tutti i destinatari. Il pulse ha
+    // la forma della domanda, quindi passa dagli stessi blocchi, che sono
+    // l'UNICO punto in cui quei titoli vengono escapati: la frase della notifica
+    // non li contiene, e per questo `UNTRUSTED_SLACK_PARAMS` non ha una voce per
+    // `project.pulse` (non ci sarebbe nulla da escapare, e un secondo giro
+    // produrrebbe entità doppie).
+    const event = {
+      kind: "project.pulse",
+      pulseId: "5b7c2e10-1111-4222-8333-444455556666",
+      projectName: "negozio-web",
+      projectUrl: "https://s.test/projects/p1/backlog",
+      idleDays: 4,
+      question: "Da quale proposta partiamo?",
+      options: [
+        { label: "<https://evil.test|Clicca qui>", consequence: "urgenza alta & effort <2>" },
+        { label: "Filtro per stato" },
+      ],
+      recommendedIndex: 0,
+      allowFreeText: false,
+      proposals: [],
+    };
+    const text = (
+      formatNotification(event as NotificationEvent, "slack", "it").body as { text: string }
+    ).text;
+    const blocks = buildQuestionBlocks({
+      text,
+      event,
+      actions: ["answer", "open", "snooze", "handled"],
+      notificationId: NOTIFICATION_ID,
+      url: "https://s.test/projects/p1/backlog",
+      lang: "it",
+    });
+    const rendered = JSON.stringify(blocks);
+
+    // Nella SEZIONE (mrkdwn) il titolo ostile è neutralizzato: nessun link
+    // iniettato, e le entità sono singole.
+    expect(optionsText(blocks)).not.toContain("<https://evil.test|");
+    expect(optionsText(blocks)).toContain("&lt;https://evil.test|Clicca qui&gt;");
+    expect(optionsText(blocks)).toContain("urgenza alta &amp; effort &lt;2&gt;");
+    // Escape SINGOLO: nessuna entità doppia da nessuna parte nel messaggio.
+    expect(rendered).not.toContain("&amp;amp;");
+    expect(rendered).not.toContain("&amp;lt;");
+    // Sul BOTTONE l'etichetta resta verbatim, ed è corretto così: è un
+    // `plain_text`, dove Slack non interpreta mrkdwn — escaparlo mostrerebbe
+    // all'utente le entità (`&lt;`) invece del titolo. L'escape appartiene alla
+    // sola sezione mrkdwn, e questa è la prova che non lo si applica due volte.
+    expect(elementsOf(blocks)[0]?.text?.text).toContain("<https://evil.test|Clicca qui>");
+    // La frase della notifica entra verbatim e non porta titoli con sé.
+    expect((blocks[0] as { text: { text: string } }).text.text).toBe(text);
+    expect(text).not.toContain("evil.test");
+    // Il markup NOSTRO resta vivo: il link al backlog del progetto.
+    expect(text).toContain("<https://s.test/projects/p1/backlog|Backlog>");
+  });
+
   it("job ripartito (niente `answer` fra le azioni) → blocchi standard, nessun bottone di risposta", () => {
     const blocks = questionBlocks({}, { actions: ["open", "snooze"] });
     expect(ids(blocks)).toEqual(["inbox:open", "inbox:snooze"]);

@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { InboxItemCard, isDecisionItem } from "../components/inbox-item";
+import { InboxItemCard, isDecisionItem, type PulseOutcome } from "../components/inbox-item";
 import { FilterSelect } from "../components/ticket-filters";
 import {
   getInbox,
@@ -60,6 +60,14 @@ export function InboxPage() {
   const items = query.data?.items ?? [];
   const projectNames = new Map(projects.map((project) => [project.id, project.name]));
   const currentUser = { id: me.user.id, email: me.user.email };
+  /**
+   * Esiti dei "Procedi" presi in questa sessione di pagina, per riga.
+   *
+   * Stanno QUI e non nella card perché la decisione svuota `actions`: la riga
+   * smette di essere una decisione e passa da "Da decidere" a "Da sapere",
+   * rimontando la card — uno stato locale sparirebbe proprio quando serve.
+   */
+  const [pulseOutcomes, setPulseOutcomes] = useState<Record<string, PulseOutcome>>({});
 
   useMarkVisibleAsRead(items);
 
@@ -122,6 +130,10 @@ export function InboxPage() {
               filters={filters}
               projectNames={projectNames}
               currentUser={currentUser}
+              pulseOutcomes={pulseOutcomes}
+              onPulseOutcome={(id, outcome) =>
+                setPulseOutcomes((current) => ({ ...current, [id]: outcome }))
+              }
             />
             <div className="mt-8">
               <InboxSection
@@ -130,6 +142,10 @@ export function InboxPage() {
                 filters={filters}
                 projectNames={projectNames}
                 currentUser={currentUser}
+                pulseOutcomes={pulseOutcomes}
+                onPulseOutcome={(id, outcome) =>
+                  setPulseOutcomes((current) => ({ ...current, [id]: outcome }))
+                }
               />
             </div>
           </>
@@ -140,6 +156,10 @@ export function InboxPage() {
             filters={filters}
             projectNames={projectNames}
             currentUser={currentUser}
+            pulseOutcomes={pulseOutcomes}
+            onPulseOutcome={(id, outcome) =>
+              setPulseOutcomes((current) => ({ ...current, [id]: outcome }))
+            }
           />
         )}
 
@@ -155,10 +175,21 @@ interface InboxSectionProps {
   filters: InboxFilters;
   projectNames: Map<string, string>;
   currentUser: { id: string; email: string };
+  /** Esiti del "Procedi" per id di riga (vedi {@link InboxPage}). */
+  pulseOutcomes: Record<string, PulseOutcome>;
+  onPulseOutcome: (notificationId: string, outcome: PulseOutcome) => void;
 }
 
 /** Una sezione con il suo titolo e il suo vuoto: mai una lista senza contesto. */
-function InboxSection({ title, items, filters, projectNames, currentUser }: InboxSectionProps) {
+function InboxSection({
+  title,
+  items,
+  filters,
+  projectNames,
+  currentUser,
+  pulseOutcomes,
+  onPulseOutcome,
+}: InboxSectionProps) {
   const { t } = useTranslation();
 
   return (
@@ -179,6 +210,8 @@ function InboxSection({ title, items, filters, projectNames, currentUser }: Inbo
               projectName={item.projectId ? projectNames.get(item.projectId) : undefined}
               filters={filters}
               currentUser={currentUser}
+              pulseOutcome={pulseOutcomes[item.id] ?? null}
+              onPulseOutcome={(outcome) => onPulseOutcome(item.id, outcome)}
             />
           ))}
         </div>

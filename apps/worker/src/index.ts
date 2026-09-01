@@ -23,6 +23,7 @@ import { startMonitorAlertPoller } from "./monitor/alerts.js";
 import { startDeliveriesPoller } from "./notify/deliveries-poller.js";
 import { startMonitorRollupPoller } from "./monitor/rollup.js";
 import { startLimitResumePoller } from "./providers/limit-resume-poller.js";
+import { startPulsePoller } from "./pulse/poller.js";
 import { startDailyReportPoller } from "./reports/daily-report-poller.js";
 import { DEFAULT_FIX_PLAN_TIMEOUT_MS, DEFAULT_FIX_TIMEOUT_MS } from "./pipeline/fix.js";
 import { DEFAULT_TRIAGE_TIMEOUT_MS } from "./pipeline/triage.js";
@@ -503,6 +504,27 @@ startMonitorAlertPoller({
   signal: controller.signal,
 });
 
+// Poller del PULSE PROATTIVO: task SEPARATO dal loop dei job, sul proprio
+// intervallo. Solo dentro la finestra oraria d'istanza (ora locale in
+// PULSE_TIMEZONE, weekend escluso di default) cerca i progetti con
+// pulseEnabled+backlogEnabled che sono FERMI — nessun job AI in volo, nessuna
+// decisione umana pendente — e con voci proponibili nel backlog, e pubblica una
+// `project.pulse` con le prime 3 proposte del ranking deterministico. Nessun
+// agente, nessun mirror: è tutto SQL, quindi NON usa il serializer per-progetto.
+// È BEST-EFFORT (non fa mai crashare il worker) e NON tocca il lock/heartbeat
+// dei job. Si ferma sullo stesso AbortSignal.
+startPulsePoller({
+  db,
+  publicUrl: config.publicUrl,
+  sendWindow: {
+    timezone: config.pulseTimezone,
+    hour: config.pulseSendHour,
+    weekdaysOnly: config.pulseWeekdaysOnly,
+  },
+  intervalMinutes: config.pulsePollMinutes,
+  signal: controller.signal,
+});
+
 console.error(
   `[stubwise-worker] avviato (concurrency ${config.concurrency}, db-pool ${config.databasePoolMax}, mirrors in ${config.mirrorsDir}` +
     `, usage-poll ${config.usagePollMinutes > 0 ? `ogni ${config.usagePollMinutes}'` : "disabilitato"}` +
@@ -515,7 +537,8 @@ console.error(
     `, backlog-chat-turn ${config.backlogChatTurnPollSeconds > 0 ? `ogni ${config.backlogChatTurnPollSeconds}" (ttl ${config.backlogChatSessionTtlMinutes}')` : "disabilitato"}` +
     `, graph ${config.graphPollSeconds > 0 ? `ogni ${config.graphPollSeconds}"` : "disabilitato"}` +
     `, monitor-rollup ${config.monitorRollupIntervalMinutes > 0 ? `ogni ${config.monitorRollupIntervalMinutes}'` : "disabilitato"}` +
-    `, monitor-alert ${config.monitorAlertIntervalMinutes > 0 ? `ogni ${config.monitorAlertIntervalMinutes}'` : "disabilitato"})`,
+    `, monitor-alert ${config.monitorAlertIntervalMinutes > 0 ? `ogni ${config.monitorAlertIntervalMinutes}'` : "disabilitato"}` +
+    `, pulse ${config.pulsePollMinutes > 0 ? `ogni ${config.pulsePollMinutes}' (finestra ${config.pulseSendHour}:00 ${config.pulseTimezone}${config.pulseWeekdaysOnly ? ", feriali" : ""})` : "disabilitato"})`,
 );
 // POLITICA DI PRIORITÀ doc vs fix (Task 5.4): i fix hanno la precedenza. Il
 // loop satura la concorrenza con i fix in coda; reclama UN doc-job per tick solo

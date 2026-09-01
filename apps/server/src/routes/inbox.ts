@@ -7,6 +7,7 @@ import {
   inboxDecisionActionSchema,
   inboxPageSchema,
   inboxStatusSchema,
+  notificationKindSchema,
   snoozeResultSchema,
   snoozeUntilSchema,
   unreadCountSchema,
@@ -88,9 +89,13 @@ function toInboxItemView(item: ServiceInboxItem): InboxItem {
     // Assente (non null) quando il payload non porta un URL utilizzabile.
     ...(item.url === undefined ? {} : { url: item.url }),
     actions: item.actions,
-    // Assente (non null) su tutti i kind che non sono una domanda dell'agente,
-    // e sulle domande il cui payload non è più leggibile.
+    // Assente (non null) su tutti i kind che non portano opzioni (vedi
+    // `KINDS_WITH_OPTIONS`: oggi la domanda dell'agente e il pulse) e su quelli
+    // il cui payload non è più leggibile.
     ...(item.question === undefined ? {} : { question: item.question }),
+    // Assente (non null) su tutti i kind che non sono il pulse, e sui pulse il
+    // cui payload non è leggibile o non è allineato alle opzioni.
+    ...(item.pulse === undefined ? {} : { pulse: item.pulse }),
     projectId: item.projectId,
     ticketId: item.ticketId,
     jobId: item.jobId,
@@ -148,6 +153,26 @@ function sendActionError(
       return apiError(reply, 400, "invalid_answer", "Invalid answer for this question");
     case "question_not_pending":
       return apiError(reply, 409, "question_not_pending", "No question pending an answer");
+    case "proposal_stale":
+      // 409: la proposta esiste ancora sulla card ma non è più prendibile
+      // (voce già convertita, archiviata o sparita). È un conflitto di stato,
+      // non una richiesta malformata.
+      return apiError(reply, 409, "proposal_stale", "This proposal is no longer available");
+    case "run_not_started":
+      // Riuscita a metà: il ticket c'è, il run no. 409 perché c'è qualcosa da
+      // fare — aprire il ticket e lanciarlo a mano — non un errore del client
+      // da correggere.
+      //
+      // Composto A MANO come `already_handled` e non via `apiError`: quel
+      // ticket è il pezzo che serve DI PIÙ proprio qui, e deve arrivare come
+      // DATO. Interpolarlo nel `message` (inglese, non contratto) costringerebbe
+      // la card a estrarlo da una stringa per costruire il link.
+      return reply.code(409).send({
+        code: "run_not_started",
+        message: "Ticket created, but the run did not start",
+        ...(result.ticketId ? { ticketId: result.ticketId } : {}),
+        ...(result.ticketNumber === undefined ? {} : { ticketNumber: result.ticketNumber }),
+      });
   }
 }
 
@@ -168,6 +193,11 @@ export async function inboxRoutes(instance: FastifyInstance): Promise<void> {
         querystring: z.object({
           status: inboxStatusSchema.default("open"),
           projectId: z.uuid().optional(),
+          // Filtro per TIPO di evento, dallo schema condiviso: un kind fuori
+          // enum è un 400 esplicito e non una lista vuota — la differenza è
+          // tutto per chi debugga un client che chiede un taglio solo
+          // (`?status=open&kind=project.pulse`, cioè le proposte del pulse).
+          kind: notificationKindSchema.optional(),
           // Default e tetto ripetuti dal servizio (che li riapplica comunque
           // con un clamp): qui servono a rifiutare 0 o 101 con un 400 esplicito
           // invece di accettarli in silenzio e restituire un'altra dimensione.
@@ -178,13 +208,14 @@ export async function inboxRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const { status, projectId, limit, cursor } = request.query;
+      const { status, projectId, kind, limit, cursor } = request.query;
       const result = await listInbox(app.db, {
         userId: request.user!.id,
         status,
         limit,
         lang: request.user!.language,
         ...(projectId ? { projectId } : {}),
+        ...(kind === undefined ? {} : { kind }),
         ...(cursor === undefined ? {} : { cursor }),
       });
       if (result.invalidCursor) {
@@ -359,6 +390,13 @@ export async function inboxRoutes(instance: FastifyInstance): Promise<void> {
       return {
         kind: result.kind,
         ...(result.jobId === undefined ? {} : { jobId: result.jobId }),
+        // Solo il "Procedi" del pulse crea un ticket: sugli altri esiti i due
+        // campi restano ASSENTI (non null), come `url` e `question` altrove.
+        ...(result.ticketId === undefined ? {} : { ticketId: result.ticketId }),
+        ...(result.ticketNumber === undefined ? {} : { ticketNumber: result.ticketNumber }),
+        // Come è nato il run: la card lo dice con parole diverse (fermo sul
+        // gate / pianificazione avviata) invece di promettere sempre la prima.
+        ...(result.runStatus === undefined ? {} : { runStatus: result.runStatus }),
         changedNotificationIds: result.changedNotificationIds,
       };
     },

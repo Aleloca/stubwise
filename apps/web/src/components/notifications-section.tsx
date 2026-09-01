@@ -40,6 +40,7 @@ const EVENT_TOGGLES: { key: keyof NotificationSettings; labelKey: string }[] = [
   { key: "notifyDocsLimitPaused", labelKey: "notifications:toggles.docsLimitPaused" },
   { key: "notifyMonitor", labelKey: "notifications:toggles.monitor" },
   { key: "notifyAwaitingInput", labelKey: "notifications:toggles.awaitingInput" },
+  { key: "notifyPulse", labelKey: "notifications:toggles.pulse" },
 ];
 
 /** Eventi d'esempio per il selettore d'anteprima; `labelKey` → `notifications:samples.*`. */
@@ -53,6 +54,7 @@ const SAMPLE_LABELS: { kind: NotificationEvent["kind"]; labelKey: string }[] = [
   { kind: "job.failed", labelKey: "notifications:samples.jobFailed" },
   { kind: "docs.limit_paused", labelKey: "notifications:samples.docsLimitPaused" },
   { kind: "job.awaiting_input", labelKey: "notifications:samples.awaitingInput" },
+  { kind: "project.pulse", labelKey: "notifications:samples.pulse" },
 ];
 
 /** Placeholder dell'URL webhook in base al formato selezionato (URL letterali). */

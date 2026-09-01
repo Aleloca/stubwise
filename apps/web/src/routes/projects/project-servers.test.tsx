@@ -68,6 +68,8 @@ function detail(overrides: Partial<ProjectDetail> = {}): ProjectDetail {
     docAutoUpdate: false,
     dailyReportEnabled: false,
     backlogEnabled: false,
+    pulseEnabled: false,
+    pulseEveryDays: 3,
     ingestionKey: "0123456789abcdef0123456789abcdef",
     nextTicketNumber: 1,
     repositories: [],

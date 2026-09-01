@@ -32,6 +32,7 @@ const BASE_ROW: NotificationSettingsRow = {
   notifyDocsLimitPaused: true,
   notifyMonitor: true,
   notifyAwaitingInput: true,
+  notifyPulse: true,
 };
 
 /**
@@ -165,6 +166,34 @@ const MONITOR_ALERT: NotificationEvent = {
   condition: "disk",
   detail: "disco al 93% (soglia 90%)",
   url: "https://app.example.com/monitor/servers/s1",
+};
+
+const PROJECT_PULSE: NotificationEvent = {
+  kind: "project.pulse",
+  pulseId: "1c9e4f70-5555-4666-8777-888899990000",
+  projectName: "webapp",
+  projectUrl: "https://app.example.com/projects/p1/backlog",
+  idleDays: 3,
+  question: "Nessun lavoro in corso su webapp da 3 giorni. Da quale proposta partiamo?",
+  options: [{ label: "Export CSV degli ordini" }, { label: "Filtro per stato" }],
+  recommendedIndex: 0,
+  allowFreeText: false,
+  proposals: [
+    {
+      backlogItemId: "aa11bb22-1111-4222-8333-444455556666",
+      title: "Export CSV degli ordini",
+      urgency: "high",
+      effort: 2,
+      hasAnalysis: true,
+    },
+    {
+      backlogItemId: "cc33dd44-1111-4222-8333-444455556666",
+      title: "Filtro per stato",
+      urgency: "medium",
+      effort: 1,
+      hasAnalysis: false,
+    },
+  ],
 };
 
 const MONITOR_RECOVERED: NotificationEvent = {
@@ -367,6 +396,41 @@ describe("dispatchNotification — gating", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     const body = (await bodyOf(fetchImpl)) as { text: string };
     expect(body.text).toContain("AI has a question");
+  });
+
+  it("notifyPulse off blocca project.pulse", async () => {
+    const fetchImpl = okFetch();
+    await dispatchNotification(fakeDb({ ...BASE_ROW, notifyPulse: false }), PROJECT_PULSE, {
+      fetchImpl,
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("notifyPulse on posta project.pulse (e nessun altro toggle lo governa)", async () => {
+    const fetchImpl = okFetch();
+    // Tutti gli altri toggle spenti: se `project.pulse` fosse mappato sul
+    // toggle sbagliato, qui non partirebbe nulla.
+    await dispatchNotification(
+      fakeDb({
+        ...BASE_ROW,
+        notifyTicketCreated: false,
+        notifyPrOpened: false,
+        notifyPrClosed: false,
+        notifyJobHeld: false,
+        notifyPlanReview: false,
+        notifyBudgetHeld: false,
+        notifyReviewCompleted: false,
+        notifyDocsLimitPaused: false,
+        notifyJobFailed: false,
+        notifyMonitor: false,
+        notifyAwaitingInput: false,
+      }),
+      PROJECT_PULSE,
+      { fetchImpl },
+    );
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const body = (await bodyOf(fetchImpl)) as { text: string };
+    expect(body.text).toContain("No work in progress on webapp");
   });
 
   it("posta all'URL configurato con POST e content-type JSON", async () => {

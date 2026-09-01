@@ -217,6 +217,19 @@ services:
       # 0 = disabilitato (le consegne si accumulano senza partire).
       # Default: 5 secondi.
       - NOTIFY_POLL_SECONDS=${NOTIFY_POLL_SECONDS:-5}
+      # --- Pulse proattivo (progetti fermi con voci nel backlog) ---
+      # Poller che, DENTRO la finestra oraria d'istanza, cerca i progetti fermi
+      # con voci proponibili e pubblica una notifica `project.pulse` con 2–3
+      # proposte. 0 = disabilitato (il pulse tace: è anche il rollback della
+      # feature). Default 15', più corto della finestra (un'ora) perché la
+      # finestra venga incontrata anche se un tick salta.
+      - PULSE_POLL_MINUTES=${PULSE_POLL_MINUTES:-15}
+      # Fuso IANA della finestra (unico fuso del sistema: tutto il resto è UTC),
+      # ora locale di apertura della finestra [ora, ora+1) e weekend escluso.
+      # In produzione: PULSE_TIMEZONE=Europe/Rome.
+      - PULSE_TIMEZONE=${PULSE_TIMEZONE:-UTC}
+      - PULSE_SEND_HOUR=${PULSE_SEND_HOUR:-9}
+      - PULSE_WEEKDAYS_ONLY=${PULSE_WEEKDAYS_ONLY:-true}
       # --- Backlog di discovery (poller separato dal loop dei job) ---
       # Reclama i job backlog_jobs (intake + deep dive) ed esegue gli agenti nella
       # catena PER-PROGETTO. Soglie del dedup semantico: merge (fusione automatica)

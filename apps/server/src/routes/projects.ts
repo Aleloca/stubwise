@@ -84,6 +84,12 @@ function toPublicProject(row: ProjectRow): z.infer<typeof projectSchema> {
     // Backlog di discovery: se true i ticket feedback/feature vengono deviati
     // all'intake del backlog invece di entrare nella pipeline fix.
     backlogEnabled: row.backlogEnabled,
+    // Pulse proattivo: se attivo, quando il progetto è fermo il poller propone
+    // voci del backlog da cui ripartire, ogni `pulseEveryDays` giorni.
+    // `pulseLastSentAt` NON fa parte della proiezione: è stato interno del
+    // poller (il gate di idempotenza), non un'impostazione.
+    pulseEnabled: row.pulseEnabled,
+    pulseEveryDays: row.pulseEveryDays,
     // Ingestion di prodotto (Fase 3): la chiave con cui gli SDK inviano
     // errori/feedback e il contatore ticket per-progetto, saliti dal repo.
     ingestionKey: row.ingestionKey,
@@ -115,8 +121,16 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const { name, description, aiProviderId, docAutoUpdate, dailyReportEnabled, backlogEnabled } =
-        request.body;
+      const {
+        name,
+        description,
+        aiProviderId,
+        docAutoUpdate,
+        dailyReportEnabled,
+        backlogEnabled,
+        pulseEnabled,
+        pulseEveryDays,
+      } = request.body;
 
       // Provider AI opzionale: se valorizzato deve riferire una riga esistente
       // (non serve enabled: è configurazione, l'enabled si valuta all'esecuzione).
@@ -147,6 +161,8 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
               ...(docAutoUpdate !== undefined ? { docAutoUpdate } : {}),
               ...(dailyReportEnabled !== undefined ? { dailyReportEnabled } : {}),
               ...(backlogEnabled !== undefined ? { backlogEnabled } : {}),
+              ...(pulseEnabled !== undefined ? { pulseEnabled } : {}),
+              ...(pulseEveryDays !== undefined ? { pulseEveryDays } : {}),
               // Chiave di ingestion del progetto per gli SDK (Fase 3): 32 hex,
               // stesso generatore usato finora per i repository. UNIQUE: in caso
               // di collisione (astronomicamente improbabile) l'insert rilancia e
@@ -228,8 +244,16 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const { name, description, aiProviderId, docAutoUpdate, dailyReportEnabled, backlogEnabled } =
-        request.body;
+      const {
+        name,
+        description,
+        aiProviderId,
+        docAutoUpdate,
+        dailyReportEnabled,
+        backlogEnabled,
+        pulseEnabled,
+        pulseEveryDays,
+      } = request.body;
       const updates: Partial<ProjectRow> = {};
       if (name !== undefined) updates.name = name;
       // null azzera la descrizione, una stringa la imposta; omesso lascia.
@@ -240,6 +264,11 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
       if (dailyReportEnabled !== undefined) updates.dailyReportEnabled = dailyReportEnabled;
       // Toggle backlog di discovery: omesso lo lascia invariato.
       if (backlogEnabled !== undefined) updates.backlogEnabled = backlogEnabled;
+      // Toggle e cadenza del pulse proattivo: omessi li lasciano invariati. Il
+      // range 1..30 lo ha già applicato lo schema del corpo (400), e il CHECK
+      // del DB resta l'arbitro per chi scrive senza passare da qui.
+      if (pulseEnabled !== undefined) updates.pulseEnabled = pulseEnabled;
+      if (pulseEveryDays !== undefined) updates.pulseEveryDays = pulseEveryDays;
       // Provider AI del progetto (Docs e fix). null lo azzera (automatico); un
       // uuid deve riferire una riga ai_providers esistente; omesso lo lascia.
       if (aiProviderId !== undefined) {

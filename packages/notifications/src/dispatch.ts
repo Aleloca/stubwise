@@ -52,6 +52,7 @@ export interface NotificationSettingsRow {
   notifyDocsLimitPaused: boolean;
   notifyMonitor: boolean;
   notifyAwaitingInput: boolean;
+  notifyPulse: boolean;
 }
 
 /**
@@ -86,6 +87,7 @@ const TOGGLE_FOR_KIND: Record<NotificationKind, keyof NotificationSettingsRow> =
   "monitor.alert": "notifyMonitor",
   "monitor.recovered": "notifyMonitor",
   "job.awaiting_input": "notifyAwaitingInput",
+  "project.pulse": "notifyPulse",
 };
 
 /**
@@ -117,6 +119,7 @@ export async function loadSettings(db: DbOrTx): Promise<NotificationSettingsRow 
       notifyDocsLimitPaused: notificationSettings.notifyDocsLimitPaused,
       notifyMonitor: notificationSettings.notifyMonitor,
       notifyAwaitingInput: notificationSettings.notifyAwaitingInput,
+      notifyPulse: notificationSettings.notifyPulse,
     })
     .from(notificationSettings)
     .limit(1);

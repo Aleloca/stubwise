@@ -110,6 +110,34 @@ describe("publishNotification", () => {
     allowFreeText: true,
   };
 
+  const projectPulse: NotificationEvent = {
+    kind: "project.pulse",
+    pulseId: "5b7c2e10-1111-4222-8333-444455556666",
+    projectName: "Progetto di test",
+    projectUrl: "https://stubwise.example.com/projects/p1/backlog",
+    idleDays: 5,
+    question: "Nessun lavoro in corso da 5 giorni. Da quale proposta partiamo?",
+    options: [{ label: "Export CSV" }, { label: "Filtro per stato" }],
+    recommendedIndex: 0,
+    allowFreeText: false,
+    proposals: [
+      {
+        backlogItemId: "aa11bb22-1111-4222-8333-444455556666",
+        title: "Export CSV",
+        urgency: "high",
+        effort: 2,
+        hasAnalysis: true,
+      },
+      {
+        backlogItemId: "cc33dd44-1111-4222-8333-444455556666",
+        title: "Filtro per stato",
+        urgency: "medium",
+        effort: 1,
+        hasAnalysis: false,
+      },
+    ],
+  };
+
   it("scrive una notifica per admin e follower, con evento e riferimenti", async () => {
     const { projectId, ticketId, adminId, followerId, outsiderId } = await seedScenario();
 
@@ -280,6 +308,27 @@ describe("publishNotification", () => {
     expect(result).toEqual({ published: 1 });
     const rows = await db.select().from(notifications);
     expect(rows[0]?.userId).toBe(adminId);
+  });
+
+  it("manda project.pulse ad admin e follower, senza ticket né job dietro", async () => {
+    const { projectId, ticketId, adminId, followerId, outsiderId } = await seedScenario();
+    // L'outsider è ASSEGNATARIO del ticket del progetto: il pulse non è ancorato
+    // a nessun ticket, quindi non deve raggiungerlo per quella via.
+    await db.update(tickets).set({ assigneeId: outsiderId }).where(eq(tickets.id, ticketId));
+
+    const result = await publishNotification(db, projectPulse, { projectId });
+
+    expect(result).toEqual({ published: 2 });
+    const rows = await db.select().from(notifications);
+    expect(rows.map((row) => row.userId).sort()).toEqual([adminId, followerId].sort());
+    expect(rows.map((row) => row.userId)).not.toContain(outsiderId);
+    for (const row of rows) {
+      expect(row.kind).toBe("project.pulse");
+      expect(row.event).toEqual(projectPulse);
+      expect(row.projectId).toBe(projectId);
+      expect(row.ticketId).toBeNull();
+      expect(row.jobId).toBeNull();
+    }
   });
 
   it("inserisce DENTRO la transazione ricevuta (il rollback annulla tutto)", async () => {

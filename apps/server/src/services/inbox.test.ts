@@ -792,6 +792,116 @@ describe("listInbox", () => {
     expect(gestite.items.map((i) => i.id)).toEqual([chiusa]);
   });
 
+  it("filtra per kind, e senza il filtro la lista resta intera", async () => {
+    const user = await seedUser("admin");
+    const piano = await seedNotification({
+      userId: user.id,
+      kind: "job.plan_review",
+      event: planReviewEvent(),
+    });
+    const pulse = await seedRawNotification({
+      userId: user.id,
+      kind: "project.pulse",
+      event: {
+        kind: "project.pulse",
+        pulseId: randomUUID(),
+        projectName: "negozio-web",
+        projectUrl: "https://stubwise.test/projects/p1/backlog",
+        idleDays: 4,
+        question: "Da quale proposta partiamo?",
+        options: [{ label: "Export CSV degli ordini" }],
+        allowFreeText: false,
+        proposals: [],
+      },
+    });
+
+    // È il taglio che serve al tool MCP `list_proposals`: le sole proposte del
+    // pulse, senza il resto dell'inbox.
+    const soloPulse = await listInbox(db, { userId: user.id, lang: "it", kind: "project.pulse" });
+    expect(soloPulse.items.map((i) => i.id)).toEqual([pulse]);
+
+    // Non-regressione: il filtro è OPZIONALE e senza di lui la lista è quella
+    // di sempre — nessun kind sparisce per effetto della sua sola esistenza.
+    const tutte = await listInbox(db, { userId: user.id, lang: "it" });
+    expect([...tutte.items.map((i) => i.id)].sort()).toEqual([piano, pulse].sort());
+  });
+
+  it("kind e status si combinano in AND", async () => {
+    const user = await seedUser("admin");
+    const aperta = await seedNotification({
+      userId: user.id,
+      kind: "job.plan_review",
+      event: planReviewEvent(),
+    });
+    const chiusa = await seedNotification({
+      userId: user.id,
+      kind: "job.plan_review",
+      event: planReviewEvent(),
+      status: "handled",
+    });
+    const altroKind = await seedNotification({
+      userId: user.id,
+      kind: "job.failed",
+      event: planReviewEvent({ kind: "job.failed", error: "test rossi" }),
+      status: "handled",
+    });
+
+    const filtrata = await listInbox(db, {
+      userId: user.id,
+      lang: "it",
+      status: "handled",
+      kind: "job.plan_review",
+    });
+    // Solo l'intersezione: non la aperta dello stesso kind, non l'altro kind
+    // dello stesso stato.
+    expect(filtrata.items.map((i) => i.id)).toEqual([chiusa]);
+    expect(filtrata.items.map((i) => i.id)).not.toContain(aperta);
+    expect(filtrata.items.map((i) => i.id)).not.toContain(altroKind);
+  });
+
+  it("il filtro kind non rompe la paginazione: il cursore scorre le sole righe filtrate", async () => {
+    const user = await seedUser("admin");
+    const base = Date.now();
+    const pulsi: string[] = [];
+    for (let i = 0; i < 3; i += 1) {
+      pulsi.push(
+        await seedRawNotification({
+          userId: user.id,
+          kind: "project.pulse",
+          event: { kind: "project.pulse", pulseId: randomUUID(), question: "Da dove partiamo?" },
+          createdAt: new Date(base - i * 1000),
+        }),
+      );
+      // Intercalata: se il cursore ignorasse il filtro, questa si infilerebbe
+      // fra le pagine (o le accorcerebbe).
+      await seedNotification({
+        userId: user.id,
+        kind: "job.plan_review",
+        event: planReviewEvent(),
+        createdAt: new Date(base - i * 1000 - 500),
+      });
+    }
+
+    const prima = await listInbox(db, {
+      userId: user.id,
+      lang: "it",
+      kind: "project.pulse",
+      limit: 2,
+    });
+    expect(prima.items.map((i) => i.id)).toEqual(pulsi.slice(0, 2));
+    expect(prima.nextCursor).toEqual(expect.any(String));
+
+    const seconda = await listInbox(db, {
+      userId: user.id,
+      lang: "it",
+      kind: "project.pulse",
+      limit: 2,
+      cursor: prima.nextCursor!,
+    });
+    expect(seconda.items.map((i) => i.id)).toEqual(pulsi.slice(2));
+    expect(seconda.nextCursor).toBeNull();
+  });
+
   it("pagina in keyset dalla più recente", async () => {
     const user = await seedUser("admin");
     const base = Date.now();
@@ -1261,5 +1371,258 @@ describe("executeAction — answer", () => {
     expect(byId.get(marcia)?.actions).toContain("answer");
     // Kind non archiviabile: nessun `handled` su nessuna delle due.
     expect(byId.get(sana)?.actions).not.toContain("handled");
+  });
+});
+
+/**
+ * Il PULSE è il secondo kind con opzioni, e differisce dalla domanda
+ * dell'agente su tutto ciò che la card deve dedurre: non ha ticket, non ha job,
+ * non ha un `questionId` — e la sua identità per la rimonta del pannello è il
+ * `pulseId`.
+ */
+describe("project.pulse — kind con opzioni senza job dietro", () => {
+  const PULSE_ID = "1c9e4f70-5555-4666-8777-888899990000";
+
+  /** Evento `project.pulse` realistico (payload che scriverà il poller). */
+  function pulseEvent(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      kind: "project.pulse",
+      pulseId: PULSE_ID,
+      projectName: "negozio-web",
+      projectUrl: "https://stubwise.test/projects/p1/backlog",
+      idleDays: 4,
+      question: "Da quale proposta partiamo?",
+      options: [
+        { label: "Export CSV degli ordini", consequence: "urgenza alta · effort 2" },
+        { label: "Filtro per stato", consequence: "urgenza media · effort 1" },
+      ],
+      recommendedIndex: 0,
+      allowFreeText: false,
+      proposals: [
+        {
+          backlogItemId: "aa11bb22-1111-4222-8333-444455556666",
+          title: "Export CSV degli ordini",
+          urgency: "high",
+          effort: 2,
+          hasAnalysis: true,
+        },
+        {
+          backlogItemId: "bb22cc33-2222-4333-8444-555566667777",
+          title: "Filtro per stato",
+          urgency: "medium",
+          effort: 1,
+          hasAnalysis: false,
+        },
+      ],
+      ...overrides,
+    };
+  }
+
+  it("la card porta la domanda, con `questionId` = `pulseId`", async () => {
+    const user = await seedUser("member");
+    const id = await seedRawNotification({
+      userId: user.id,
+      kind: "project.pulse",
+      event: pulseEvent(),
+    });
+
+    const { items } = await listInbox(db, { userId: user.id, lang: "it" });
+    const item = items.find((i) => i.id === id);
+    // Il pulse non ha una riga `agent_questions`: l'identità della scelta è il
+    // `pulseId`. È lui che fa rimontare `QuestionPanel` quando un ping nuovo
+    // sostituisce il precedente con proposte DIVERSE agli stessi indici.
+    expect(item?.question).toEqual({
+      questionId: PULSE_ID,
+      question: "Da quale proposta partiamo?",
+      options: [
+        { label: "Export CSV degli ordini", consequence: "urgenza alta · effort 2" },
+        { label: "Filtro per stato", consequence: "urgenza media · effort 1" },
+      ],
+      recommendedIndex: 0,
+      allowFreeText: false,
+    });
+    // Nessun `round`: è dei giri di `ask_user`, e qui non ce ne sono.
+    expect(item?.question && "round" in item.question).toBe(false);
+    // Senza job dietro (`jobStatus` null) `answer` c'è comunque, e la card è
+    // archiviabile: non dare seguito a una proposta è legittimo.
+    expect(item?.actions).toEqual(["answer", "open", "snooze", "handled"]);
+    expect(item?.url).toBe("https://stubwise.test/projects/p1/backlog");
+  });
+
+  it("la card porta il blocco `pulse`, allineato indice per indice alle opzioni", async () => {
+    const user = await seedUser("member");
+    const id = await seedRawNotification({
+      userId: user.id,
+      kind: "project.pulse",
+      event: pulseEvent(),
+    });
+
+    const { items } = await listInbox(db, { userId: user.id, lang: "it" });
+    const item = items.find((i) => i.id === id);
+    // Progetto e giorni di fermo: il nome esiste anche dentro la frase
+    // localizzata, ma lì è prosa — la card ha bisogno del dato.
+    expect(item?.pulse).toEqual({
+      projectName: "negozio-web",
+      idleDays: 4,
+      proposals: [
+        {
+          backlogItemId: "aa11bb22-1111-4222-8333-444455556666",
+          title: "Export CSV degli ordini",
+          urgency: "high",
+          effort: 2,
+          hasAnalysis: true,
+        },
+        {
+          backlogItemId: "bb22cc33-2222-4333-8444-555566667777",
+          title: "Filtro per stato",
+          urgency: "medium",
+          effort: 1,
+          hasAnalysis: false,
+        },
+      ],
+    });
+    // L'INVARIANTE, asserita e non sperata: l'indice che l'utente sceglie
+    // viaggia su `options` e agisce su `proposals`. Un disallineamento non
+    // darebbe nessun errore, farebbe partire la voce sbagliata.
+    const options = item?.question?.options ?? [];
+    const proposals = item?.pulse?.proposals ?? [];
+    expect(proposals).toHaveLength(options.length);
+    expect(proposals.map((p) => p.title)).toEqual(options.map((o) => o.label));
+  });
+
+  it("proposte e opzioni di lunghezza diversa → niente blocco `pulse` (mai un indice che mente)", async () => {
+    const user = await seedUser("member");
+    const id = await seedRawNotification({
+      userId: user.id,
+      kind: "project.pulse",
+      // Una proposta in più delle opzioni: il payload non può più dire quale
+      // voce sta dietro quale scelta.
+      event: pulseEvent({
+        options: [{ label: "Export CSV degli ordini" }],
+      }),
+    });
+
+    const { items } = await listInbox(db, { userId: user.id, lang: "it" });
+    const item = items.find((i) => i.id === id);
+    expect(item?.pulse).toBeUndefined();
+    // La card resta intera e azionabile: si sceglie dalle opzioni, che sono
+    // ancora quelle persistite (ed è su quelle che il servizio valida l'indice).
+    expect(item?.question?.options).toHaveLength(1);
+    expect(item?.actions).toContain("answer");
+  });
+
+  it("proposte illeggibili → niente blocco `pulse`, la domanda resta", async () => {
+    const user = await seedUser("member");
+    const id = await seedRawNotification({
+      userId: user.id,
+      kind: "project.pulse",
+      // Payload di una versione precedente: le proposte erano stringhe.
+      event: pulseEvent({ proposals: ["Export CSV degli ordini", "Filtro per stato"] }),
+    });
+
+    const { items } = await listInbox(db, { userId: user.id, lang: "it" });
+    const item = items.find((i) => i.id === id);
+    expect(item?.pulse).toBeUndefined();
+    expect(item?.question?.options).toHaveLength(2);
+  });
+
+  it("il blocco `pulse` è SOLO del pulse: la domanda dell'agente non lo porta", async () => {
+    const user = await seedUser("admin");
+    // Stesso payload, altro kind: il blocco si aggancia al `kind` (la colonna
+    // enum), non alla forma del jsonb — che qui sarebbe pure leggibile.
+    const id = await seedRawNotification({
+      userId: user.id,
+      kind: "job.awaiting_input",
+      event: pulseEvent({ kind: "job.awaiting_input" }),
+    });
+
+    const { items } = await listInbox(db, { userId: user.id, lang: "it" });
+    expect(items.find((i) => i.id === id)?.pulse).toBeUndefined();
+  });
+
+  it("payload marcio → la card degrada a testo senza bottoni, la lista regge", async () => {
+    const user = await seedUser("admin");
+    const sana = await seedRawNotification({
+      userId: user.id,
+      kind: "project.pulse",
+      event: pulseEvent(),
+      createdAt: new Date(Date.UTC(2026, 8, 1, 10, 0, 0)),
+    });
+    // `pulseId` non è un uuid e le opzioni sono stringhe: la domanda non si
+    // ricostruisce. La riga deve restare in lista — un jsonb marcio non può
+    // rendere inaccessibile l'inbox intera.
+    const marcia = await seedRawNotification({
+      userId: user.id,
+      kind: "project.pulse",
+      event: pulseEvent({ pulseId: "non-un-uuid", options: ["Export CSV", "Filtro"] }),
+      createdAt: new Date(Date.UTC(2026, 8, 1, 9, 0, 0)),
+    });
+
+    const { items } = await listInbox(db, { userId: user.id, lang: "it" });
+    const byId = new Map(items.map((i) => [i.id, i]));
+    expect(byId.get(sana)?.question).toBeDefined();
+    expect(byId.get(marcia)).toBeDefined();
+    expect(byId.get(marcia)?.question).toBeUndefined();
+    // Le azioni non dipendono dal jsonb: si calcolano dalla colonna `kind`.
+    expect(byId.get(marcia)?.actions).toContain("answer");
+    expect(byId.get(marcia)?.actions).toContain("handled");
+  });
+
+  it("`answer` sul pulse dispatcha su `proceedWithProposal` (voce sparita → proposal_stale)", async () => {
+    const user = await seedUser("member");
+    const id = await seedRawNotification({
+      userId: user.id,
+      kind: "project.pulse",
+      event: pulseEvent(),
+    });
+    // Le proposte del payload puntano a voci che in questo file non esistono:
+    // il servizio arriva fino al convert e trova il nulla. Qui interessa il
+    // DISPATCH (l'azione non è più `invalid_action`); il merito di
+    // `proceedWithProposal` è coperto da `pulse.test.ts`.
+    expect(
+      await executeAction(db, {
+        notificationId: id,
+        action: "answer",
+        actor: user,
+        payload: { answer: { optionIndex: 0 } },
+      }),
+    ).toMatchObject({ ok: false, error: "proposal_stale" });
+    // La riga resta CHIUSA: il claim del pulse l'ha consumata, e riaprirla
+    // rimetterebbe in inbox l'invito a un'azione impossibile.
+    expect((await readNotification(id))?.status).toBe("handled");
+  });
+
+  it("la notifica di un ALTRO utente resta invisibile: not_found, non forbidden", async () => {
+    // `actorAllows` sul pulse dice sempre sì (è una proposta rivolta a tutti i
+    // destinatari): il controllo che conta è l'ownership della RIGA, e vive nel
+    // `WHERE` di `executeAction`. Se saltasse, questo test diventerebbe
+    // `invalid_action` — cioè un estraneo scoprirebbe che la riga esiste.
+    const altrui = await seedUser("member");
+    const estraneo = await seedUser("member");
+    const id = await seedRawNotification({
+      userId: altrui.id,
+      kind: "project.pulse",
+      event: pulseEvent(),
+    });
+    expect(
+      await executeAction(db, {
+        notificationId: id,
+        action: "answer",
+        actor: estraneo,
+        payload: { answer: { optionIndex: 0 } },
+      }),
+    ).toEqual({ ok: false, error: "not_found" });
+  });
+
+  it("`handled` chiude il pulse (al contrario della domanda dell'agente)", async () => {
+    const user = await seedUser("member");
+    const id = await seedRawNotification({
+      userId: user.id,
+      kind: "project.pulse",
+      event: pulseEvent(),
+    });
+    const result = await executeAction(db, { notificationId: id, action: "handled", actor: user });
+    expect(result.ok).toBe(true);
+    expect((await readNotification(id))?.status).toBe("handled");
   });
 });

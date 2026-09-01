@@ -102,6 +102,43 @@ function awaitingInputEvent(): NotificationEvent {
   };
 }
 
+/**
+ * Pulse proattivo: il SECONDO kind con opzioni. Non ha ticket né job, quindi i
+ * bottoni delle scelte non possono dipendere dallo stato di un job.
+ */
+function pulseEvent(): NotificationEvent {
+  return {
+    kind: "project.pulse",
+    pulseId: "1c9e4f70-5555-4666-8777-888899990000",
+    projectName: "negozio-web",
+    projectUrl: "https://example.test/projects/p1/backlog",
+    idleDays: 4,
+    question: "Da quale proposta partiamo?",
+    options: [
+      { label: "Export CSV degli ordini", consequence: "urgenza alta · effort 2" },
+      { label: "Filtro per stato", consequence: "urgenza media · effort 1" },
+    ],
+    recommendedIndex: 0,
+    allowFreeText: false,
+    proposals: [
+      {
+        backlogItemId: "aa11bb22-1111-4222-8333-444455556666",
+        title: "Export CSV degli ordini",
+        urgency: "high",
+        effort: 2,
+        hasAnalysis: true,
+      },
+      {
+        backlogItemId: "bb22cc33-2222-4333-8444-555566667777",
+        title: "Filtro per stato",
+        urgency: "medium",
+        effort: 1,
+        hasAnalysis: false,
+      },
+    ],
+  };
+}
+
 interface SlackDeliveryOpts {
   /** Ruolo del destinatario: decide le azioni offerte dai bottoni. */
   role?: "admin" | "member";
@@ -465,6 +502,27 @@ describe("canale slack_dm", () => {
     // Le conseguenze stanno nella sezione, non nei bottoni.
     const sections = slack.posted[0]!.blocks!.filter((b) => b.type === "section");
     expect(JSON.stringify(sections)).toContain("Rompe gli script dei clienti");
+  });
+
+  it("anche il PULSE ha un bottone per proposta, senza nessun job dietro", async () => {
+    const slack = fakeSlack();
+    // Nessun `jobStatus`: il pulse non è ancorato a un ticket. Se i blocchi
+    // domanda fossero ancora legati al kind `job.awaiting_input`, qui
+    // arriverebbe il "Rispondi" generico — un bottone che non può portarsi
+    // dietro la proposta scelta.
+    await insertSlackDelivery("slack_dm", { role: "member", event: pulseEvent() });
+    await processDeliveriesOnce(slackDeps(slack));
+    expect(actionIdsOf(slack.posted[0]!.blocks)).toEqual([
+      "inbox:answer:0",
+      "inbox:answer:1",
+      // `allowFreeText: false`: dal pulse si sceglie, non si scrive.
+      "inbox:open",
+      "inbox:snooze",
+      // Il pulse è archiviabile: ignorare una proposta è una risposta.
+      "inbox:handled",
+    ]);
+    const sections = slack.posted[0]!.blocks!.filter((b) => b.type === "section");
+    expect(JSON.stringify(sections)).toContain("Export CSV degli ordini");
   });
 
   it("gli altri kind restano coi blocchi standard", async () => {

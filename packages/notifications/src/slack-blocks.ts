@@ -297,7 +297,10 @@ function readQuestion(event: unknown): QuestionForBlocks | null {
 export interface QuestionBlocksInput {
   /** Testo mrkdwn della notifica: contiene già la domanda e il link al ticket. */
   text: string;
-  /** Payload GREZZO della notifica `job.awaiting_input` (jsonb, non fidato). */
+  /**
+   * Payload GREZZO della notifica (jsonb, non fidato). Vale per TUTTI i kind
+   * con opzioni (`KINDS_WITH_OPTIONS`): `job.awaiting_input` e `project.pulse`.
+   */
   event: unknown;
   /** Azioni offerte al DESTINATARIO (`actionsFor`): senza `answer` non si risponde. */
   actions: ActionId[];
@@ -309,9 +312,12 @@ export interface QuestionBlocksInput {
 }
 
 /**
- * Blocchi del DM di una DOMANDA dell'agente: al posto del bottone generico
- * "Rispondi" ci sono i bottoni delle opzioni, uno per scelta, più "Altro…" se
- * l'agente accetta anche il testo libero.
+ * Blocchi del DM di una notifica A OPZIONI (`KINDS_WITH_OPTIONS`: la DOMANDA
+ * dell'agente e il PULSE proattivo, dove le opzioni sono le proposte di
+ * backlog): al posto del bottone generico "Rispondi" ci sono i bottoni delle
+ * opzioni, uno per scelta, più "Altro…" quando il payload accetta anche il
+ * testo libero (le domande possono, il pulse mai — una proposta si sceglie, non
+ * si scrive).
  *
  * Tre blocchi: il testo della notifica (che porta già la domanda), la SEZIONE
  * delle opzioni con le conseguenze — che nei bottoni non ci starebbero, e sono

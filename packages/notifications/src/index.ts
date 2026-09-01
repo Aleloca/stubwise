@@ -21,6 +21,7 @@ export {
   openUrl,
   stateAllows,
   IN_FLIGHT_JOB_STATUSES,
+  KINDS_WITH_OPTIONS,
   SNOOZE_OPTIONS,
   type ActionActor,
   type ActionId,
@@ -85,5 +86,8 @@ export {
   type NotificationFormat,
   type NotificationKind,
   type PrOpenedEvent,
+  type ProjectPulseEvent,
+  type PulseProposal,
+  type PulseUrgency,
   type TicketCreatedEvent,
 } from "./format.js";

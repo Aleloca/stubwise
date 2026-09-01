@@ -1,8 +1,8 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { and, desc, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { agentQuestions, aiJobs, comments, notifications, users } from "@stubwise/db";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { agentQuestions, aiJobs, backlogItems, comments, notifications, users } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
@@ -20,6 +20,39 @@ import { seedUsers } from "../test/fixtures.js";
  */
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
+
+/**
+ * Mock PARZIALE del servizio del pulse: `proceedWithProposal` resta quello vero
+ * (il ticket nasce davvero, le copie si chiudono davvero) e SOLO col flag alzato
+ * il suo esito riuscito viene declassato a `run_not_started`, portandosi dietro
+ * il ticket reale.
+ *
+ * Serve a coprire l'unico errore che lascia dietro di sé un dato utile: su un
+ * ticket appena creato `startRun` non può fallire nel merito, e senza questo
+ * flag la mappatura HTTP di quel 409 non sarebbe raggiungibile da un test.
+ * Con `failRun` a false il mock è trasparente per tutto il resto del file.
+ */
+const pulseState = vi.hoisted(() => ({ failRun: false }));
+
+vi.mock("../services/pulse.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../services/pulse.js")>();
+  return {
+    ...actual,
+    proceedWithProposal: async (
+      db: Parameters<typeof actual.proceedWithProposal>[0],
+      input: Parameters<typeof actual.proceedWithProposal>[1],
+    ) => {
+      const result = await actual.proceedWithProposal(db, input);
+      if (!pulseState.failRun || !result.ok) return result;
+      return {
+        ok: false as const,
+        error: "run_not_started" as const,
+        ticketId: result.ticketId,
+        ticketNumber: result.ticketNumber,
+      };
+    },
+  };
+});
 
 let testDb: TestDb;
 let db: Db;
@@ -296,6 +329,43 @@ describe("GET /api/inbox", () => {
     expect(
       ((await getInbox({ status: "snoozed" })).json() as InboxPageBody).items.map((i) => i.id),
     ).toEqual([snoozed]);
+  });
+
+  it("filtra per kind, e senza il filtro la lista resta intera", async () => {
+    await clearInbox();
+    const piano = await seedNotification({ userId: seeded.adminId });
+    const fallita = await seedNotification({
+      userId: seeded.adminId,
+      event: planReviewEvent({ kind: "job.failed", error: "test rossi" }),
+    });
+
+    const res = await getInbox({ kind: "job.failed" });
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as InboxPageBody).items.map((i) => i.id)).toEqual([fallita]);
+
+    // Non-regressione: il filtro è opzionale e la lista senza di lui è intera.
+    expect(((await getInbox()).json() as InboxPageBody).items.map((i) => i.id).sort()).toEqual(
+      [piano, fallita].sort(),
+    );
+  });
+
+  it("kind e status si combinano", async () => {
+    await clearInbox();
+    await seedNotification({ userId: seeded.adminId });
+    const chiusa = await seedNotification({ userId: seeded.adminId, status: "handled" });
+    await seedNotification({
+      userId: seeded.adminId,
+      event: planReviewEvent({ kind: "job.failed", error: "test rossi" }),
+      status: "handled",
+    });
+
+    const res = await getInbox({ status: "handled", kind: "job.plan_review" });
+    expect((res.json() as InboxPageBody).items.map((i) => i.id)).toEqual([chiusa]);
+  });
+
+  it("rifiuta un kind fuori enum (400, non una lista vuota)", async () => {
+    const res = await getInbox({ kind: "project.pulseee" });
+    expect(res.statusCode).toBe(400);
   });
 
   it("rifiuta uno stato fuori enum", async () => {
@@ -814,5 +884,84 @@ describe("POST /api/inbox/:id/actions/answer", () => {
     // Kind non archiviabile: la card offre answer, mai handled.
     expect(item?.actions).toContain("answer");
     expect(item?.actions).not.toContain("handled");
+  });
+});
+
+describe("POST /api/inbox/:id/actions/answer — il pulse", () => {
+  /** Voce di backlog candidabile + pulse che la propone, per l'admin. */
+  async function seedPulse(title: string): Promise<{ itemId: string; notificationId: string }> {
+    const [item] = await db
+      .insert(backlogItems)
+      .values({ projectId, title, source: "manual", status: "ready", document: "# Design" })
+      .returning({ id: backlogItems.id });
+    const notificationId = await seedNotification({
+      userId: seeded.adminId,
+      event: {
+        kind: "project.pulse",
+        pulseId: randomUUID(),
+        projectName: "negozio-web",
+        projectUrl: "https://stubwise.test/projects/p1/backlog",
+        idleDays: 4,
+        question: "Da quale proposta partiamo?",
+        options: [{ label: title, consequence: "urgenza alta · effort 2" }],
+        recommendedIndex: 0,
+        allowFreeText: false,
+        proposals: [
+          { backlogItemId: item!.id, title, urgency: "high", effort: 2, hasAnalysis: false },
+        ],
+      } as NotificationEvent,
+    });
+    return { itemId: item!.id, notificationId };
+  }
+
+  it("200: l'esito porta il ticket creato, non solo il job", async () => {
+    const { notificationId } = await seedPulse("Export CSV dal pulse");
+    const res = await post(`/api/inbox/${notificationId}/actions/answer`, seeded.adminCookie, {
+      optionIndex: 0,
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as {
+      kind: string;
+      jobId?: string;
+      ticketId?: string;
+      ticketNumber?: number;
+      changedNotificationIds: string[];
+    };
+    expect(body.kind).toBe("project.pulse");
+    expect(body.jobId).toBeTruthy();
+    // I due campi che la card usa per linkare subito il ticket appena creato.
+    expect(body.ticketId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(body.ticketNumber).toBeGreaterThan(0);
+    expect(body.changedNotificationIds).toEqual([notificationId]);
+  });
+
+  it("409 run_not_started: il ticket arriva come DATO, non dentro il messaggio", async () => {
+    const { notificationId } = await seedPulse("Voce col run mancato");
+    pulseState.failRun = true;
+    const res = await post(`/api/inbox/${notificationId}/actions/answer`, seeded.adminCookie, {
+      optionIndex: 0,
+    }).finally(() => {
+      pulseState.failRun = false;
+    });
+
+    expect(res.statusCode).toBe(409);
+    const body = res.json() as { code: string; ticketId?: string; ticketNumber?: number };
+    expect(body.code).toBe("run_not_started");
+    // È QUESTO il punto: senza i campi strutturati la card dovrebbe estrarre il
+    // numero dal `message` inglese per costruire il link "apri il ticket".
+    expect(body.ticketId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(body.ticketNumber).toBeGreaterThan(0);
+  });
+
+  it("409 proposal_stale su una voce già convertita, senza campi ticket", async () => {
+    const { itemId, notificationId } = await seedPulse("Voce già presa");
+    await db.update(backlogItems).set({ status: "converted" }).where(eq(backlogItems.id, itemId));
+    const res = await post(`/api/inbox/${notificationId}/actions/answer`, seeded.adminCookie, {
+      optionIndex: 0,
+    });
+    expect(res.statusCode).toBe(409);
+    const body = res.json() as { code: string; ticketId?: string };
+    expect(body.code).toBe("proposal_stale");
+    expect(body.ticketId).toBeUndefined();
   });
 });

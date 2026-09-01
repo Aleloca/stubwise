@@ -62,6 +62,9 @@ const KNOW_ID = "22222222-2222-4222-8222-222222222222";
 const EXTRA_ID = "33333333-3333-4333-8333-333333333333";
 const ASK_ID = "77777777-7777-4777-8777-777777777777";
 const QUESTION_ID = "88888888-8888-4888-8888-888888888888";
+const PULSE_NOTIFICATION_ID = "99999999-9999-4999-8999-999999999999";
+const PULSE_ID = "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa";
+const TICKET_ID = "bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb";
 
 const PROJECTS = [{ id: PROJECT_ID, name: "Apollo", slug: "apollo" }];
 
@@ -112,6 +115,51 @@ const ASK = item({
     ],
     recommendedIndex: 1,
     allowFreeText: true,
+  },
+});
+
+/**
+ * Riga del PULSE proattivo: una proposta, non una domanda. Ha la stessa forma a
+ * opzioni della domanda dell'agente PIÙ il blocco `pulse`, che porta il
+ * contorno (progetto, giorni di fermo, voci dietro le opzioni).
+ */
+const PULSE = item({
+  id: PULSE_NOTIFICATION_ID,
+  kind: "project.pulse",
+  text: "Nothing in progress on Apollo (idle days: 4). Which proposal do we start from?",
+  actions: ["answer", "open", "snooze", "handled"],
+  url: "/backlog?projectId=" + PROJECT_ID,
+  question: {
+    // Il pulse non ha una riga `agent_questions`: l'identità è il `pulseId`.
+    questionId: PULSE_ID,
+    question: "Which proposal do we start from?",
+    options: [
+      { label: "CSV export of orders", consequence: "urgency high · effort 2 · analysis ready" },
+      { label: "Filter by status", consequence: "urgency medium · effort 1" },
+    ],
+    recommendedIndex: 0,
+    // Dal pulse si sceglie, non si scrive: niente "Other…".
+    allowFreeText: false,
+  },
+  pulse: {
+    projectName: "Apollo",
+    idleDays: 4,
+    proposals: [
+      {
+        backlogItemId: "cccccccc-3333-4333-8333-cccccccccccc",
+        title: "CSV export of orders",
+        urgency: "high",
+        effort: 2,
+        hasAnalysis: true,
+      },
+      {
+        backlogItemId: "dddddddd-4444-4444-8444-dddddddddddd",
+        title: "Filter by status",
+        urgency: "medium",
+        effort: 1,
+        hasAnalysis: false,
+      },
+    ],
   },
 });
 
@@ -531,6 +579,239 @@ describe("pagina /inbox", () => {
     expect(decide.queryByRole("button", { name: "Send answer" })).toBeNull();
     expect(decide.getByRole("link", { name: "Open" })).toHaveAttribute("href", "/tickets/tck-3");
     expect(decide.getByRole("button", { name: "Snooze" })).toBeInTheDocument();
+  });
+
+  it("il pulse: contorno nel titolino, opzioni col contesto, conferma 'Start', niente 'Other…'", async () => {
+    mockApi(
+      baseApi({ "GET /api/inbox": () => jsonResponse(200, { items: [PULSE], nextCursor: null }) }),
+    );
+    renderInbox();
+    await screen.findByRole("heading", { name: "Inbox" });
+
+    // Una proposta è una decisione: sta fra quelle da prendere.
+    const decide = within(section("To decide"));
+    expect(decide.getByText("Proposal")).toBeInTheDocument();
+    expect(decide.getByText("Apollo")).toBeInTheDocument();
+    expect(decide.getByText("idle for 4 days")).toBeInTheDocument();
+
+    // Le opzioni portano il contesto su cui il ranking le ha ordinate.
+    expect(decide.getByRole("radio", { name: "CSV export of orders recommended" })).not.toBeChecked();
+    expect(decide.getByText("urgency high · effort 2 · analysis ready")).toBeInTheDocument();
+    // La consigliata è MARCATA, mai preselezionata.
+    expect(decide.getByRole("radio", { name: "Filter by status" })).not.toBeChecked();
+
+    // `allowFreeText: false`: dal pulse si sceglie, non si scrive.
+    expect(decide.queryByRole("radio", { name: "Other…" })).toBeNull();
+    expect(decide.queryByRole("textbox")).toBeNull();
+
+    // Confermare non manda una risposta a nessuno: fa partire un lavoro.
+    expect(decide.getByRole("button", { name: "Start" })).toBeInTheDocument();
+    expect(decide.queryByRole("button", { name: "Send answer" })).toBeNull();
+    // "Apri" porta dove si vedono TUTTE le proposte, e lo dice.
+    expect(decide.getByRole("link", { name: "Open backlog" })).toHaveAttribute(
+      "href",
+      `/backlog?projectId=${PROJECT_ID}`,
+    );
+  });
+
+  it("Procedi con piano: due passi, l'esito col ticket, poi la riga esce dall'inbox", async () => {
+    let body: unknown = null;
+    // Il refetch dopo l'azione si sblocca a comando: così si osserva PRIMA
+    // l'esito a schermo e POI la sparizione della riga, senza corse.
+    let releaseRefetch: ((response: Response) => void) | null = null;
+    mockApi(
+      baseApi({
+        "GET /api/inbox": () =>
+          body === null
+            ? jsonResponse(200, { items: [PULSE], nextCursor: null })
+            : // Come risponde il server DOPO la decisione: la riga è chiusa,
+              // quindi non è più fra le aperte.
+              new Promise<Response>((resolve) => {
+                releaseRefetch = resolve;
+              }),
+        "POST /api/inbox/:id/actions/answer": (_url, init) => {
+          body = JSON.parse(String(init?.body));
+          return jsonResponse(200, {
+            kind: "project.pulse",
+            ticketId: TICKET_ID,
+            ticketNumber: 42,
+            runStatus: "awaiting_plan_approval",
+            changedNotificationIds: [PULSE_NOTIFICATION_ID],
+          });
+        },
+      }),
+    );
+    renderInbox();
+    await screen.findByRole("heading", { name: "Inbox" });
+
+    await userEvent.click(screen.getByRole("radio", { name: "Filter by status" }));
+    // Un tap non avvia niente: la conferma è deliberatamente a due passi.
+    expect(body).toBeNull();
+
+    await userEvent.click(screen.getByRole("button", { name: "Start" }));
+
+    await waitFor(() => expect(body).toEqual({ optionIndex: 1 }));
+    const started = within(card(PULSE.text));
+    expect(started.getByText(/Started by ada@example.com/)).toBeInTheDocument();
+    // Il ticket è LINKATO, col suo numero: lo sa chi ha appena premuto.
+    expect(started.getByRole("link", { name: "#42" })).toHaveAttribute(
+      "href",
+      `/tickets/${TICKET_ID}`,
+    );
+    expect(started.getByText(/waiting for plan approval/)).toBeInTheDocument();
+    // Deciso: la scelta sparisce.
+    expect(started.queryByRole("button", { name: "Start" })).toBeNull();
+
+    // E quando il refetch atterra la riga esce dall'inbox aperta, come ogni
+    // altra decisione: il link al ticket non muore con lei — la riga gestita
+    // lo porta nei dati (vedi il test sulla riga già decisa).
+    await waitFor(() => expect(releaseRefetch).not.toBeNull());
+    releaseRefetch!(jsonResponse(200, { items: [], nextCursor: null }));
+    await waitFor(() => expect(screen.queryByRole("article", { name: PULSE.text })).toBeNull());
+  });
+
+  it("Procedi senza piano: la pianificazione parte, e la card NON promette il gate", async () => {
+    let answered = false;
+    mockApi(
+      baseApi({
+        // Il refetch resta in volo: quello che si vede viene dall'esito
+        // dell'azione, non da una riga che il server rimanderebbe indietro.
+        "GET /api/inbox": () =>
+          answered
+            ? new Promise<Response>(() => {})
+            : jsonResponse(200, { items: [PULSE], nextCursor: null }),
+        "POST /api/inbox/:id/actions/answer": () => {
+          answered = true;
+          return jsonResponse(200, {
+            kind: "project.pulse",
+            ticketId: TICKET_ID,
+            ticketNumber: 43,
+            runStatus: "queued",
+            changedNotificationIds: [PULSE_NOTIFICATION_ID],
+          });
+        },
+      }),
+    );
+    renderInbox();
+    await screen.findByRole("heading", { name: "Inbox" });
+
+    await userEvent.click(screen.getByRole("radio", { name: "CSV export of orders recommended" }));
+    await userEvent.click(screen.getByRole("button", { name: "Start" }));
+
+    // Senza piano il job nasce `queued`: promettere "in attesa di approvazione"
+    // manderebbe l'utente a cercare un gate che ancora non esiste.
+    expect(
+      await screen.findByText(/planning under way, it will stop for approval/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/waiting for plan approval/)).toBeNull();
+  });
+
+  it("409 proposal_stale: parole del pulse, e la lista si ricarica", async () => {
+    let fetched = 0;
+    mockApi(
+      baseApi({
+        "GET /api/inbox": () => {
+          fetched += 1;
+          return jsonResponse(200, { items: [PULSE], nextCursor: null });
+        },
+        "POST /api/inbox/:id/actions/answer": () =>
+          jsonResponse(409, { code: "proposal_stale", message: "Proposal is stale" }),
+      }),
+    );
+    renderInbox();
+    await screen.findByRole("heading", { name: "Inbox" });
+    const before = fetched;
+
+    await userEvent.click(screen.getByRole("radio", { name: "Filter by status" }));
+    await userEvent.click(screen.getByRole("button", { name: "Start" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "This proposal has already been taken",
+    );
+    // Il 409 del pulse NON porta `changedNotificationIds` benché le copie siano
+    // cambiate: l'unico modo di riallinearsi è rileggere.
+    await waitFor(() => expect(fetched).toBeGreaterThan(before));
+  });
+
+  it("409 run_not_started: dice che il ticket c'è, e ricarica la lista", async () => {
+    let fetched = 0;
+    mockApi(
+      baseApi({
+        "GET /api/inbox": () => {
+          fetched += 1;
+          return jsonResponse(200, { items: [PULSE], nextCursor: null });
+        },
+        "POST /api/inbox/:id/actions/answer": () =>
+          jsonResponse(409, {
+            code: "run_not_started",
+            message: "Run did not start",
+            ticketId: TICKET_ID,
+            ticketNumber: 44,
+          }),
+      }),
+    );
+    renderInbox();
+    await screen.findByRole("heading", { name: "Inbox" });
+    const before = fetched;
+
+    await userEvent.click(screen.getByRole("radio", { name: "Filter by status" }));
+    await userEvent.click(screen.getByRole("button", { name: "Start" }));
+
+    // L'azione è riuscita a metà: dirlo "non riuscito" nasconderebbe il ticket
+    // appena creato, che è proprio quello su cui va agito a mano.
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "The ticket was created but the run did not start",
+    );
+    // Il claim ha chiuso le copie senza dire quali: si rilegge.
+    await waitFor(() => expect(fetched).toBeGreaterThan(before));
+  });
+
+  it("riga già decisa: il link al ticket viene dai DATI, senza aver premuto nulla", async () => {
+    // È la riga come la rimanda il server dopo la decisione — in "Gestite",
+    // dopo un reload, o nell'inbox di un collega che non ha premuto lui: il
+    // pulse ha ACQUISITO il ticket, e la card lo linka senza sapere nient'altro.
+    const decided: InboxItem = {
+      ...PULSE,
+      status: "handled",
+      actions: [],
+      ticketId: TICKET_ID,
+      handledAt: "2026-08-31T11:00:00.000Z",
+      handledBy: { id: "55555555-5555-4555-8555-555555555555", email: "bea@example.com" },
+    };
+    mockApi(
+      baseApi({
+        "GET /api/inbox": () => jsonResponse(200, { items: [decided], nextCursor: null }),
+      }),
+    );
+    renderInbox();
+    await screen.findByRole("heading", { name: "Inbox" });
+
+    const row = within(card(PULSE.text));
+    expect(row.getByText("handled by bea@example.com")).toBeInTheDocument();
+    expect(row.getByRole("link", { name: "open the ticket" })).toHaveAttribute(
+      "href",
+      `/tickets/${TICKET_ID}`,
+    );
+  });
+
+  it("pulse senza il blocco `pulse`: la card resta intera e scegliibile", async () => {
+    // `pulse` è opzionale nel contratto (payload di una versione precedente, o
+    // proposte non allineate alle opzioni): si perde il contorno, non la card.
+    const withoutPulse: InboxItem = { ...PULSE };
+    delete withoutPulse.pulse;
+    mockApi(
+      baseApi({
+        "GET /api/inbox": () => jsonResponse(200, { items: [withoutPulse], nextCursor: null }),
+      }),
+    );
+    renderInbox();
+    await screen.findByRole("heading", { name: "Inbox" });
+
+    const decide = within(section("To decide"));
+    expect(decide.queryByText("idle for 4 days")).toBeNull();
+    // Le opzioni vengono da `question`, che c'è: si sceglie e si avvia lo stesso.
+    expect(decide.getByRole("radio", { name: "Filter by status" })).toBeInTheDocument();
+    expect(decide.getByRole("button", { name: "Start" })).toBeInTheDocument();
   });
 
   it("errore di caricamento: messaggio e retry", async () => {

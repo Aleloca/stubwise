@@ -969,7 +969,8 @@
       "jobFailed": "Fix fallito",
       "docsLimitPaused": "Generazione Docs in pausa (limite di utilizzo)",
       "monitor": "Alert di monitoraggio",
-      "awaitingInput": "Domanda dell'AI in attesa di risposta"
+      "awaitingInput": "Domanda dell'AI in attesa di risposta",
+      "pulse": "Pulse proattivo sui progetti fermi"
     },
     "samples": {
       "ticketCreated": "Nuovo ticket",
@@ -980,7 +981,8 @@
       "reviewCompleted": "Review PR",
       "jobFailed": "Fix fallito",
       "docsLimitPaused": "Docs in pausa",
-      "awaitingInput": "Domanda dell'AI"
+      "awaitingInput": "Domanda dell'AI",
+      "pulse": "Proposta dal backlog"
     },
     "slack": {
       "step1Prefix": "Vai su",
@@ -1043,7 +1045,8 @@
       "docsLimitPaused": "Docs in pausa",
       "monitorAlert": "Allarme",
       "monitorRecovered": "Rientrato",
-      "awaitingInput": "Domanda a cui rispondere"
+      "awaitingInput": "Domanda a cui rispondere",
+      "pulse": "Proposta"
     },
     "actions": {
       "approvePlan": "Approva piano",
@@ -1061,6 +1064,25 @@
       "placeholder": "Cosa cambiare nel piano…",
       "submit": "Invia rifiuto",
       "cancel": "Annulla"
+    },
+    "pulse": {
+      "idle_one": "fermo da {{count}} giorno",
+      "idle_other": "fermo da {{count}} giorni",
+      "start": "Avvia",
+      "openBacklog": "Apri backlog",
+      "startedBy": "▶️ Avviato da {{email}}:",
+      "ticketCreated": "▶️ Ticket creato da questa proposta:",
+      "openTicket": "apri il ticket",
+      "outcomeApproval": "in attesa dell'approvazione del piano",
+      "outcomePlanning": "pianificazione avviata, si fermerà per l'approvazione",
+      "errors": {
+        "stale": "Questa proposta è già stata presa in carico",
+        "alreadyTaken": "L'ha già presa {{email}}",
+        "alreadyTakenUnknown": "L'ha già presa qualcun altro",
+        "runNotStarted": "Il ticket è stato creato ma il run non è partito: aprilo e lancialo a mano",
+        "invalidChoice": "Questa proposta non è più disponibile",
+        "generic": "Avvio della proposta non riuscito"
+      }
     },
     "status": {
       "awaitingApproval": "in attesa di approvazione",
@@ -1235,6 +1257,9 @@
       "saved": "Modifiche salvate.",
       "name": "Nome",
       "readOnlyHint": "// sola lettura: le impostazioni le modificano i maintainer",
+      "pulseEvery_one": "Attivo, ogni giorno",
+      "pulseEvery_other": "Attivo, ogni {{count}} giorni",
+      "pulseWaitingBacklog": "Attivo (in attesa del backlog di discovery)",
       "repositories": "Repository",
       "addRepository": "+ Aggiungi repository",
       "noRepositories": "// nessun repository",
@@ -1266,6 +1291,11 @@
       "dailyReportHint": "// genera ogni notte uno standup dai commit del giorno dei repository del progetto.",
       "backlog": "Backlog di discovery",
       "backlogHint": "// devia i ticket feedback/feature all'intake del backlog invece della pipeline di fix.",
+      "pulse": "Pulse proattivo",
+      "pulseHint": "// quando il progetto è fermo, propone voci del backlog da cui ripartire.",
+      "pulseEveryDays": "Giorni fra un pulse e l'altro",
+      "pulseEveryDaysRange": "I giorni fra un pulse e l'altro devono stare fra {{min}} e {{max}}.",
+      "pulseNeedsBacklog": "// serve il backlog di discovery: senza, non c'è nulla da proporre.",
       "aiProvider": "Provider AI del progetto",
       "aiProviderAuto": "Automatico (catena con failover)",
       "aiProviderHint": "// vale per Docs e fix di tutti i repository; vuoto = catena dei provider abilitati.",

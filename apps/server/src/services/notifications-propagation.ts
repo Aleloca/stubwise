@@ -25,15 +25,55 @@
 import { notificationDeliveries, notifications, users, type Db } from "@stubwise/db";
 import { t, type Language } from "@stubwise/i18n";
 import { escapeSlackMrkdwn, type ActionId, type NotificationKind } from "@stubwise/notifications";
-import { and, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, eq, inArray, ne, sql, type SQL } from "drizzle-orm";
 
 /**
- * Bersaglio della chiusura: tutte le copie di un evento (`jobId` + `kind`) o,
- * quando non c'è un job dietro, la singola riga.
+ * Bersaglio della chiusura: tutte le copie di un evento (`jobId` + `kind`),
+ * tutte le copie di un PULSE (che un job dietro non ce l'ha) o, quando non c'è
+ * nessuna delle due ancore, la singola riga.
  */
 export type PropagationTarget =
   | { jobId: string; kind: NotificationKind }
+  | { pulseId: string }
   | { notificationId: string };
+
+/**
+ * WHERE del bersaglio.
+ *
+ * ⚠️ IL RAMO `pulseId` NON HA UN INDICE: `pulseId` vive nel jsonb `event`
+ * (`event->>'pulseId'`), e su `notifications` non c'è né un indice su `kind` né
+ * uno di espressione su quel campo — quindi è un seq scan sulla tabella. È una
+ * scelta MISURATA, non un'omissione. `EXPLAIN (ANALYZE, BUFFERS)` su un
+ * Postgres di test caricato a 50.003 righe (1 settembre 2026):
+ *
+ *   Seq Scan on notifications  (cost=0.00..1695.05 rows=1) (actual 2.778..2.779 rows=3)
+ *     Filter: kind = 'project.pulse' AND (event->>'pulseId') = '…'
+ *     Rows Removed by Filter: 50000
+ *     Buffers: shared hit=820        Execution Time: 2.795 ms
+ *
+ * ~2,8 ms per scandire 50k righe, tutte in cache. Per confronto, l'istanza di
+ * produzione alla stessa data ha 10 righe in `notifications` (80 kB): quattro
+ * ordini di grandezza sotto la misura. E il "Procedi" è un'azione a ritmo umano,
+ * poche volte al giorno.
+ *
+ * Il filtro su `kind` non serve al piano ma alla CORRETTEZZA (nessun altro
+ * evento porta un `pulseId`) e restringe comunque le righe confrontate. Se un
+ * giorno `notifications` crescesse di ordini di grandezza — è la misura sopra a
+ * dire quando conviene rifarla — l'indice giusto è parziale:
+ * `(event->>'pulseId') WHERE kind = 'project.pulse'`.
+ */
+function targetWhere(target: PropagationTarget): SQL {
+  if ("jobId" in target) {
+    return and(eq(notifications.jobId, target.jobId), eq(notifications.kind, target.kind))!;
+  }
+  if ("pulseId" in target) {
+    return and(
+      eq(notifications.kind, "project.pulse"),
+      sql`${notifications.event}->>'pulseId' = ${target.pulseId}`,
+    )!;
+  }
+  return eq(notifications.id, target.notificationId);
+}
 
 /**
  * Chiude le righe d'inbox bersaglio ancora aperte, attribuendole ad `actorId`.
@@ -54,10 +94,6 @@ export async function propagateHandled(
   target: PropagationTarget,
   actorId: string,
 ): Promise<string[]> {
-  const where =
-    "jobId" in target
-      ? and(eq(notifications.jobId, target.jobId), eq(notifications.kind, target.kind))
-      : eq(notifications.id, target.notificationId);
   const closed = await db
     .update(notifications)
     .set({
@@ -66,7 +102,7 @@ export async function propagateHandled(
       handledByUserId: actorId,
       snoozedUntil: null,
     })
-    .where(and(where, ne(notifications.status, "handled")))
+    .where(and(targetWhere(target), ne(notifications.status, "handled")))
     .returning({ id: notifications.id });
   return closed.map((row) => row.id);
 }
@@ -80,6 +116,44 @@ const NOTE_KEY: Record<Exclude<ActionId, "open">, string> = {
   handled: "notify.inbox.noteHandled",
   snooze: "notify.inbox.noteSnoozed",
 };
+
+/**
+ * ESITO del "Procedi" del pulse, che sceglie la nota fra le sue varianti.
+ *
+ * Non è una sfumatura estetica: al lettore del DM servono parole diverse a
+ * seconda di cosa è successo davvero. Col piano ereditato dalla voce il run è
+ * GIÀ fermo sul gate (`awaiting_approval`); senza piano la pianificazione parte
+ * e si fermerà dopo (`planning`) — promettere il primo stato nel secondo caso
+ * farebbe cercare un'approvazione che ancora non esiste. `ticket_only` è il
+ * ticket nato senza run (vedi `services/pulse.ts`), `stale` la proposta che
+ * qualcun altro aveva già preso.
+ */
+export type PulseNoteOutcome = "awaiting_approval" | "planning" | "ticket_only" | "stale";
+
+/** Chiave i18n della nota per ciascun esito del "Procedi". */
+const PULSE_NOTE_KEY: Record<PulseNoteOutcome, string> = {
+  awaiting_approval: "notify.inbox.notePulseStartedApproval",
+  planning: "notify.inbox.notePulseStartedPlanning",
+  ticket_only: "notify.inbox.notePulseTicketOnly",
+  stale: "notify.inbox.notePulseStale",
+};
+
+/**
+ * La proposta scelta e come è andata: quanto basta a comporre la nota del pulse.
+ *
+ * Union e non un campo opzionale: i tre esiti che hanno prodotto un ticket ne
+ * DEVONO portare il numero — il DM è testo, e chi lo rilegge non ha una card da
+ * cui cliccare — mentre `stale` un ticket non ce l'ha. Col campo opzionale il
+ * compilatore lascerebbe passare la nota che dice "avviato «X» come {number}".
+ */
+export type PulseNote =
+  | { title: string; outcome: "stale" }
+  | {
+      title: string;
+      outcome: Exclude<PulseNoteOutcome, "stale">;
+      /** Numero del ticket nato dalla proposta. */
+      ticketNumber: number;
+    };
 
 /**
  * Data resa con il token di Slack `<!date^…>`: la scadenza dello snooze compare
@@ -121,7 +195,7 @@ function truncateNote(answer: string): string {
 export function inboxNote(
   action: Exclude<ActionId, "open">,
   lang: Language,
-  args: { actor: string; snoozedUntil?: Date; answer?: string },
+  args: { actor: string; snoozedUntil?: Date; answer?: string; pulse?: PulseNote },
 ): string {
   if (action === "snooze") {
     return t(lang, NOTE_KEY.snooze, {
@@ -129,6 +203,19 @@ export function inboxNote(
     });
   }
   if (action === "answer") {
+    // Il PULSE condivide l'azione `answer` con la domanda dell'agente ma non la
+    // sua nota: là si riferisce una risposta, qui si annuncia un lavoro
+    // avviato. Il titolo passa dallo stesso taglio+escape della risposta (una
+    // voce di backlog può avere un titolo lungo, e finisce in un `section`).
+    if (args.pulse) {
+      return t(lang, PULSE_NOTE_KEY[args.pulse.outcome], {
+        actor: args.actor,
+        title: escapeSlackMrkdwn(truncateNote(args.pulse.title)),
+        // Solo gli esiti con un ticket hanno un `{number}` da interpolare (la
+        // union lo garantisce); `stale` non ne ha né uno né l'altro.
+        ...(args.pulse.outcome === "stale" ? {} : { number: args.pulse.ticketNumber }),
+      });
+    }
     // La nota della risposta PORTA la risposta: chi legge il DM di un collega
     // deve sapere cosa è stato deciso, non solo che qualcuno ha deciso.
     //
@@ -214,6 +301,11 @@ export async function mirrorDecision(
      * stato deciso, non solo che qualcuno ha deciso.
      */
     answer?: string;
+    /**
+     * Solo per il "Procedi" del pulse: la proposta scelta e come è andata. È
+     * alternativo ad `answer` — sono due note diverse della stessa azione.
+     */
+    pulse?: PulseNote;
   },
 ): Promise<void> {
   if (args.notificationIds.length === 0) return;
@@ -230,6 +322,7 @@ export async function mirrorDecision(
       // Niente troncatura qui: la fa `inboxNote`, che è il punto comune a
       // tutte le superfici.
       ...(args.answer === undefined ? {} : { answer: args.answer }),
+      ...(args.pulse === undefined ? {} : { pulse: args.pulse }),
     };
     await enqueueInboxUpdates(db, args.notificationIds, (lang) =>
       inboxNote(args.action, lang, noteArgs),
@@ -253,6 +346,8 @@ export async function propagateDecision(
     actorId: string;
     /** Solo per `answer`: la risposta resa in una riga, da mettere nella nota. */
     answer?: string;
+    /** Solo per il "Procedi" del pulse: la proposta scelta e come è andata. */
+    pulse?: PulseNote;
   },
 ): Promise<string[]> {
   const changed = await propagateHandled(db, args.target, args.actorId);
@@ -261,7 +356,7 @@ export async function propagateDecision(
     action: args.action,
     actorId: args.actorId,
     ...(args.answer === undefined ? {} : { answer: args.answer }),
+    ...(args.pulse === undefined ? {} : { pulse: args.pulse }),
   });
   return changed;
 }
-

@@ -192,6 +192,73 @@ export interface MonitorRecoveredEvent {
   url: string;
 }
 
+/**
+ * Urgenza di una proposta del pulse: gli stessi valori dell'enum DB
+ * `ticket_priority` (che `backlog_items.urgency` riusa). Ridichiarata qui — e
+ * non importata — perché questo modulo non deve dipendere da `@stubwise/db`
+ * (vedi il docblock in cima).
+ */
+export type PulseUrgency = "low" | "medium" | "high" | "urgent";
+
+/**
+ * Una voce di backlog PROPOSTA dal pulse: l'ancora alla voce più i metadati che
+ * spiegano perché sta lì (sono anche ciò che ne ha deciso l'ordine).
+ *
+ * `urgency` ed `effort` sono nullable come le colonne che li portano: una voce
+ * appena nata può non averli ancora.
+ *
+ * ⚠️ `title` è TESTO NON FIDATO: lo scrive chi ha creato la voce, e le voci
+ * nascono anche dai ticket del widget pubblico, cioè da estranei. Non entra mai
+ * nella frase della notifica (vedi {@link KEY_FOR_KIND}); sul DM Slack ci arriva
+ * come etichetta dell'opzione, ed è `./slack-blocks.ts` a escaparlo — una volta
+ * sola.
+ */
+export interface PulseProposal {
+  backlogItemId: string;
+  title: string;
+  urgency: PulseUrgency | null;
+  effort: number | null;
+  /** La voce ha già la sezione "## Analisi tecnica" del deep dive. */
+  hasAnalysis: boolean;
+}
+
+/**
+ * PULSE PROATTIVO: il progetto è fermo da un po' e il backlog ha voci
+ * candidabili. Evento SENZA ticket — è ancorato al PROGETTO — il cui link porta
+ * alla pagina backlog.
+ *
+ * Il payload è modellato sulla DOMANDA della fase 1 ({@link
+ * JobAwaitingInputEvent}): `question`, `options`, `recommendedIndex`,
+ * `allowFreeText`. Non è un'analogia estetica ma la ragione per cui pannello
+ * web, blocchi Slack, modal e schemi condivisi funzionano sul pulse senza una
+ * riga di codice in più. Le differenze sono deliberate: `allowFreeText` è
+ * SEMPRE `false` (si sceglie una proposta o si archivia, non si scrive), e
+ * accanto ci sono i campi propri del pulse.
+ */
+export interface ProjectPulseEvent {
+  kind: "project.pulse";
+  /**
+   * Identifica QUESTO pulse: è la chiave con cui si ritrovano tutte le copie
+   * della stessa notifica quando qualcuno sceglie una proposta. Il pulse non ha
+   * un job dietro, quindi è l'unica ancora disponibile per la propagazione.
+   */
+  pulseId: string;
+  projectName: string;
+  /** Pagina backlog del progetto (al posto del ticketUrl). */
+  projectUrl: string;
+  /** Da quanti giorni il progetto non ha lavoro in corso. */
+  idleDays: number;
+  question: string;
+  /** Una opzione per proposta, nello stesso ordine di {@link proposals}. */
+  options: AgentQuestionOption[];
+  /** Indice della proposta consigliata dal ranking (di norma la prima). */
+  recommendedIndex?: number;
+  /** Sempre `false`: dal pulse si sceglie, non si scrive. */
+  allowFreeText: false;
+  /** Le voci di backlog dietro le opzioni: è ciò su cui agisce "Procedi". */
+  proposals: PulseProposal[];
+}
+
 /** Unione tipata di tutti gli eventi che generano una notifica. */
 export type NotificationEvent =
   | TicketCreatedEvent
@@ -205,13 +272,19 @@ export type NotificationEvent =
   | DocsLimitPausedEvent
   | MonitorAlertEvent
   | MonitorRecoveredEvent
-  | JobAwaitingInputEvent;
+  | JobAwaitingInputEvent
+  | ProjectPulseEvent;
 
 /**
- * Eventi SENZA ticket (`docs.limit_paused`, `monitor.*`): non hanno
- * `ticketNumber`/`ticketTitle`/`ticketUrl`, portano una superficie propria.
+ * Eventi SENZA ticket (`docs.limit_paused`, `monitor.*`, `project.pulse`): non
+ * hanno `ticketNumber`/`ticketTitle`/`ticketUrl`, portano una superficie
+ * propria.
  */
-type NonTicketedEvent = DocsLimitPausedEvent | MonitorAlertEvent | MonitorRecoveredEvent;
+type NonTicketedEvent =
+  | DocsLimitPausedEvent
+  | MonitorAlertEvent
+  | MonitorRecoveredEvent
+  | ProjectPulseEvent;
 
 /**
  * Eventi ANCORATI A UN TICKET: hanno `ticketNumber`/`ticketTitle`/`ticketUrl`.
@@ -225,7 +298,8 @@ function hasTicket(event: NotificationEvent): event is TicketedEvent {
   return (
     event.kind !== "docs.limit_paused" &&
     event.kind !== "monitor.alert" &&
-    event.kind !== "monitor.recovered"
+    event.kind !== "monitor.recovered" &&
+    event.kind !== "project.pulse"
   );
 }
 
@@ -277,6 +351,7 @@ const EMOJI: Record<NotificationKind, string> = {
   "monitor.alert": "🔴",
   "monitor.recovered": "🟢",
   "job.awaiting_input": "❓",
+  "project.pulse": "📣",
 };
 
 /**
@@ -361,6 +436,10 @@ function linkParam(
     case "monitor.recovered":
       // Nessun ticket: il link porta alla pagina del server nella SPA.
       return renderLink(format, event.url, t(lang, "notify.linkServer"));
+    case "project.pulse":
+      // Nessun ticket: il link porta al backlog del progetto, che è dove si
+      // guardano le proposte per intero (la notifica ne porta solo le prime).
+      return renderLink(format, event.projectUrl, t(lang, "notify.linkBacklog"));
   }
 }
 
@@ -378,6 +457,7 @@ const KEY_FOR_KIND: Record<NotificationKind, string> = {
   "monitor.alert": "notify.monitorAlert",
   "monitor.recovered": "notify.monitorRecovered",
   "job.awaiting_input": "notify.awaitingInput",
+  "project.pulse": "notify.pulse",
 };
 
 /** Params (oltre a ref/link/cost) specifici per evento, passati a `t()`. */
@@ -394,6 +474,12 @@ function textParams(
         repositoryName: event.repositoryName,
         projectName: event.projectName,
       };
+    }
+    // Il pulse nomina il progetto e da quanti giorni è fermo. I TITOLI delle
+    // proposte non entrano nella frase: vivono nelle opzioni, che ogni
+    // superficie rende a modo suo (bottoni Slack, pannello web).
+    if (event.kind === "project.pulse") {
+      return { project: event.projectName, idleDays: event.idleDays };
     }
     // monitor.alert | monitor.recovered: la condizione è resa come etichetta
     // localizzata; il detail è già una frase leggibile.
@@ -457,6 +543,14 @@ function textParams(
  * PRE-ESISTENTE che riguarda quasi tutti i kind e va chiuso a parte, non di
  * straforo insieme a una feature: finché non lo si fa, questa mappa dice quali
  * pezzi sono coperti e quali no.
+ *
+ * `project.pulse` NON ha una voce, e non è una dimenticanza: i suoi testi non
+ * fidati sono i TITOLI delle voci di backlog (li scrivono gli utenti, widget
+ * pubblico compreso), ma quei titoli non passano di qui — la frase del pulse
+ * nomina solo progetto e giorni di fermo. Su Slack arrivano come etichette
+ * delle opzioni, e le escapa `./slack-blocks.ts`. Aggiungerli qui non
+ * escaperebbe nulla oggi, e il giorno in cui la frase li includesse produrrebbe
+ * un doppio escape (entità `&amp;amp;`) invece di proteggerli meglio.
  */
 const UNTRUSTED_SLACK_PARAMS: Partial<Record<NotificationKind, readonly string[]>> = {
   "job.awaiting_input": ["question"],
@@ -532,6 +626,24 @@ function formatGeneric(event: NotificationEvent, lang: Language): Record<string,
         message: formatNotificationText(event, lang),
         docsUrl: event.docsUrl,
         reason: event.reason,
+      };
+    }
+    if (event.kind === "project.pulse") {
+      // Payload AUTOSUFFICIENTE: la domanda con le sue opzioni (come per
+      // `job.awaiting_input`) più le proposte con l'ancora alla voce di
+      // backlog, così chi consuma il webhook sa QUALI voci sono in ballo.
+      return {
+        event: event.kind,
+        pulseId: event.pulseId,
+        projectName: event.projectName,
+        idleDays: event.idleDays,
+        message: formatNotificationText(event, lang),
+        projectUrl: event.projectUrl,
+        question: event.question,
+        options: event.options,
+        recommendedIndex: event.recommendedIndex ?? null,
+        allowFreeText: event.allowFreeText,
+        proposals: event.proposals,
       };
     }
     // monitor.alert | monitor.recovered: la `condition` resta l'enum grezzo
@@ -725,6 +837,39 @@ export function sampleEvents(baseUrl: string): NotificationEvent[] {
       ],
       recommendedIndex: 0,
       allowFreeText: true,
+    },
+    {
+      kind: "project.pulse",
+      pulseId: "5b7c2e10-4444-4555-8666-777788889999",
+      projectName: "negozio-web",
+      projectUrl: `${base}/projects/2e5a8c4b-9999-4aaa-8bbb-ccccddddeeee/backlog`,
+      idleDays: 4,
+      question: "Nessun lavoro in corso su negozio-web da 4 giorni. Da quale proposta partiamo?",
+      options: [
+        {
+          label: "Aggiungere export CSV allo storico ordini",
+          consequence: "urgenza alta · effort 2 · analisi pronta",
+        },
+        { label: "Filtro per stato nella lista ordini", consequence: "urgenza media · effort 1" },
+      ],
+      recommendedIndex: 0,
+      allowFreeText: false,
+      proposals: [
+        {
+          backlogItemId: "6a155c3a-1111-4222-8333-444455556666",
+          title: "Aggiungere export CSV allo storico ordini",
+          urgency: "high",
+          effort: 2,
+          hasAnalysis: true,
+        },
+        {
+          backlogItemId: "8931d96d-1111-4222-8333-444455556666",
+          title: "Filtro per stato nella lista ordini",
+          urgency: "medium",
+          effort: 1,
+          hasAnalysis: false,
+        },
+      ],
     },
   ];
 }

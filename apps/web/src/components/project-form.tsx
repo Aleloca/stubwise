@@ -17,7 +17,15 @@ interface ProjectInitialValues {
   dailyReportEnabled: boolean;
   /** Se true, i ticket feedback/feature vengono deviati all'intake del backlog. */
   backlogEnabled: boolean;
+  /** Se true, quando il progetto è fermo il poller propone voci dal backlog. */
+  pulseEnabled: boolean;
+  /** Cadenza minima fra due pulse dello stesso progetto, in giorni (1..30). */
+  pulseEveryDays: number;
 }
+
+/** Estremi della cadenza del pulse: gli stessi del CHECK sul DB. */
+const PULSE_DAYS_MIN = 1;
+const PULSE_DAYS_MAX = 30;
 
 interface ProjectFormProps {
   initial: ProjectInitialValues;
@@ -51,12 +59,37 @@ export function ProjectForm({ initial, onSubmit }: ProjectFormProps) {
   const [dailyReportEnabled, setDailyReportEnabled] = useState(initial.dailyReportEnabled);
   // Backlog di discovery: deviazione dei ticket feedback/feature all'intake (default off).
   const [backlogEnabled, setBacklogEnabled] = useState(initial.backlogEnabled);
+  // Pulse proattivo: ping sul progetto fermo (default off).
+  const [pulseEnabled, setPulseEnabled] = useState(initial.pulseEnabled);
+  // Cadenza come STRINGA e non come numero: è il testo che l'utente sta
+  // scrivendo, e un campo numerico controllato su uno `state` numerico non
+  // saprebbe rappresentare il momento in cui il campo è vuoto (o a metà di
+  // "15"). La conversione — e il range — si applicano all'invio.
+  const [pulseEveryDays, setPulseEveryDays] = useState(String(initial.pulseEveryDays));
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+
+  // Un pulse senza backlog non avrebbe nulla da proporre. Guarda lo STATO del
+  // form e non `initial`: chi accende il backlog adesso deve poter accendere il
+  // pulse nello stesso passaggio, senza salvare e rientrare.
+  const pulseAvailable = backlogEnabled;
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     setError(null);
+    // Il range 1..30 è il CHECK del DB (e lo schema del corpo): fermarsi qui
+    // evita un 400 che direbbe la stessa cosa in inglese e senza contesto.
+    // Sbagliato NON vuol dire "invariato": il valore si dice, non si scarta.
+    //
+    // Solo a controlli ATTIVI, però: col backlog spento il campo è disabilitato,
+    // e un valore rimasto lì dentro bloccherebbe il salvataggio di tutto il
+    // resto senza che lo si possa correggere.
+    const days = Number(pulseEveryDays);
+    const daysValid = Number.isInteger(days) && days >= PULSE_DAYS_MIN && days <= PULSE_DAYS_MAX;
+    if (pulseAvailable && !daysValid) {
+      setError(t("projects:form.pulseEveryDaysRange", { min: PULSE_DAYS_MIN, max: PULSE_DAYS_MAX }));
+      return;
+    }
     setPending(true);
     try {
       const trimmedDescription = description.trim();
@@ -75,6 +108,11 @@ export function ProjectForm({ initial, onSubmit }: ProjectFormProps) {
         ...(dailyReportEnabled !== initial.dailyReportEnabled && { dailyReportEnabled }),
         // backlogEnabled incluso solo se cambiato (toggle), per un PATCH minimo.
         ...(backlogEnabled !== initial.backlogEnabled && { backlogEnabled }),
+        // Pulse: toggle e cadenza, ciascuno solo se cambiato.
+        ...(pulseEnabled !== initial.pulseEnabled && { pulseEnabled }),
+        // Solo se valida: coi controlli disabilitati può essere rimasta a metà,
+        // e non si manda al server un valore che il CHECK rifiuterebbe.
+        ...(daysValid && days !== initial.pulseEveryDays && { pulseEveryDays: days }),
       });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : t("common:unexpectedError"));
@@ -192,6 +230,61 @@ export function ProjectForm({ initial, onSubmit }: ProjectFormProps) {
           </label>
         </div>
         <p className="font-mono text-[11px] text-fg-faint">{t("projects:form.backlogHint")}</p>
+      </div>
+
+      {/*
+        Pulse proattivo: toggle + cadenza (default off, 3 giorni). Vive DENTRO
+        lo stesso riquadro della cadenza perché sono un'impostazione sola letta
+        in una riga ("proponi ogni N giorni"), e si spegne insieme al backlog —
+        senza voci da proporre il ping sarebbe muto.
+      */}
+      <div className="flex flex-col gap-1.5 rounded-sm border border-line bg-ink-900 px-3 py-3">
+        <div className="flex items-center gap-2.5">
+          <input
+            id="project-pulse"
+            type="checkbox"
+            checked={pulseEnabled}
+            disabled={!pulseAvailable}
+            onChange={(event) => setPulseEnabled(event.target.checked)}
+            className="h-4 w-4 shrink-0 accent-signal disabled:cursor-not-allowed disabled:opacity-50"
+          />
+          <label
+            htmlFor="project-pulse"
+            className={`font-mono text-[11px] font-medium tracking-[0.14em] uppercase ${
+              pulseAvailable ? "text-fg-muted" : "text-fg-faint"
+            }`}
+          >
+            {t("projects:form.pulse")}
+          </label>
+        </div>
+        <p className="font-mono text-[11px] text-fg-faint">{t("projects:form.pulseHint")}</p>
+
+        <div className="mt-1 flex items-center gap-2.5">
+          <label
+            htmlFor="project-pulse-every-days"
+            className={`font-mono text-[11px] font-medium tracking-[0.14em] uppercase ${
+              pulseAvailable ? "text-fg-muted" : "text-fg-faint"
+            }`}
+          >
+            {t("projects:form.pulseEveryDays")}
+          </label>
+          <input
+            id="project-pulse-every-days"
+            type="number"
+            min={PULSE_DAYS_MIN}
+            max={PULSE_DAYS_MAX}
+            step={1}
+            value={pulseEveryDays}
+            disabled={!pulseAvailable}
+            onChange={(event) => setPulseEveryDays(event.target.value)}
+            className="w-20 rounded-sm border border-line-strong bg-ink-950/70 px-2 py-1 font-mono text-[13px] text-fg transition-colors hover:border-ink-700 focus-visible:border-signal-dim disabled:cursor-not-allowed disabled:opacity-50"
+          />
+        </div>
+        {!pulseAvailable && (
+          <p className="font-mono text-[11px] text-fg-faint">
+            {t("projects:form.pulseNeedsBacklog")}
+          </p>
+        )}
       </div>
 
       <FormError message={error} />

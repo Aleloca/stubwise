@@ -11,7 +11,8 @@ sincronizzati backlog e ticket con il lavoro di design e implementazione.
 ## Tool MCP disponibili
 
 Lettura: `list_projects`, `list_backlog`, `get_backlog_item`, `list_tickets`,
-`get_ticket`. `get_backlog_item`/`get_ticket` mostrano anche
+`get_ticket`, `list_proposals` (le proposte aperte del pulse per l'utente del
+token, vedi § 10). `get_backlog_item`/`get_ticket` mostrano anche
 `implementationPlan` (il piano salvato) e `originContent` (il corpo/feedback
 originale, se il design ha sostituito il corpo principale).
 
@@ -178,6 +179,12 @@ Alla domanda "cosa c'è in backlog?" (o simili):
 2. Riassumi le voci trovate e proponi cosa affrontare, con priorità.
 3. Per il dettaglio di una voce usa `get_backlog_item`.
 
+**All'apertura di una sessione** (e alla domanda "cosa devo fare / c'è qualcosa
+in sospeso?") chiama anche **`list_proposals`**: sono le proposte del pulse
+ancora aperte per l'utente del token. Sono già ordinate e già collegate a una
+voce di backlog, quindi vengono prima di una scelta fatta a mano nel backlog.
+Vedi § 10 per cosa farne (e cosa NON fare).
+
 ### 5. Nota al volo
 
 Quando durante il lavoro emerge un'attività collaterale / un'idea da non
@@ -276,3 +283,34 @@ Su richiesta esplicita dell'utente:
   design era attivo — è voluto ("elimina design → torna all'origine").
 - **`delete_plan({ target, id })`** — azzera il piano di implementazione (non
   tocca design né corpo).
+
+### 10. Proposte del pulse (`list_proposals`)
+
+Quando un progetto resta **fermo** (nessun lavoro AI in corso, nessuna decisione
+umana in sospeso) e il suo backlog ha voci candidabili, Stubwise manda una
+**proposta**: 2–3 voci da cui ripartire, ordinate per urgenza ed effort.
+
+**`list_proposals`** (nessun argomento) le elenca: progetto, da quanti giorni è
+fermo, le voci con urgenza/effort/analisi tecnica e il loro `backlogItemId`, più
+l'id della notifica.
+
+Come usarlo:
+
+- È **per destinatario**, non per progetto: mostra le proposte arrivate
+  all'utente del token (maintainer e chi segue il progetto). Una lista vuota
+  significa "a te non ne è arrivata nessuna aperta", **non** "il progetto non ha
+  niente da fare" — per quello c'è `list_backlog`.
+- Serve a **sapere**, non ad agire. **Non esiste un tool MCP per avviare una
+  proposta**, come non ne esiste uno per approvare un piano o rispondere a una
+  domanda dell'agente: si sceglie dalla card in inbox nella web app o dal DM
+  Slack. Riferisci all'utente cosa c'è in attesa e dove si risponde; **non
+  provare** a "procedere" convertendo la voce con
+  `convert_backlog_to_ticket` + `run_ticket` per conto tuo — a meno che sia
+  l'utente a chiedertelo esplicitamente, e sapendo che in quel caso la notifica
+  del pulse resta aperta.
+- Scelta una proposta dalla web app o da Slack, la voce diventa un ticket e il
+  run si ferma **sull'approvazione del piano** di un maintainer: da lì valgono
+  le regole del § 8 (non si rilancia `run_ticket`, l'esecuzione riparte da sola
+  dopo l'approvazione).
+- Se una proposta ti interessa, il `backlogItemId` è quello giusto da passare a
+  `get_backlog_item` per leggerne il documento prima di consigliare l'utente.
