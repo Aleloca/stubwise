@@ -359,23 +359,24 @@ interface ResolvedFixMode {
  * del ticket:
  * - `execute-only`: il piano è già stato approvato (resumeMode="execute" con un
  *   planText): si salta la pianificazione e si esegue direttamente dal piano.
- * - `plan-only`: il job porta il gate `plan_approval_required` (è stato chiesto
- *   da un operatore, vedi sotto) OPPURE per il tipo del ticket è impostata una
- *   soglia di approvazione del piano (`plan_approval_min_effort`) e l'effort
- *   stimato la raggiunge: si pianifica e ci si ferma in attesa dell'ok umano.
+ * - `plan-only`: il job porta il gate `plan_approval_required` (chiesto da un
+ *   operatore, o nato da una proposta del pulse — vedi sotto) OPPURE per il
+ *   tipo del ticket è impostata una soglia di approvazione del piano
+ *   (`plan_approval_min_effort`) e l'effort stimato la raggiunge: si pianifica
+ *   e ci si ferma in attesa dell'ok umano.
  * - `full`: comportamento storico (plan + execute in fila).
  *
  * NOTA: il gate di approvazione del piano è ORTOGONALE a `manualTrigger`. Un
- * avvio a mano NON aggira l'approvazione: un fix rischioso (effort alto, o
- * chiesto da un operatore) deve comunque proporre un piano e attendere l'ok
- * umano prima di toccare il codice.
+ * avvio a mano NON aggira l'approvazione: un fix rischioso (effort alto,
+ * chiesto da un operatore, o accettato da una proposta) deve comunque proporre
+ * un piano e attendere l'ok umano prima di toccare il codice.
  *
  * `plan_continue` (la ripresa da una risposta umana) NON è una quarta modalità:
  * è un ASSE ORTOGONALE, e per questo non compare nei rami qui sotto. Passa
  * "prima del gate" nel senso che non ne AGGIUNGE uno — ma non ne toglie
  * nemmeno: dopo la risposta il run riprende il REGIME CHE AVEVA, cioè prosegue
  * esattamente come sarebbe proseguito se la domanda non fosse mai stata posta.
- * Un run `plan-only` (operatore, o effort sopra soglia) torna in
+ * Un run `plan-only` (gate sul job, o effort sopra soglia) torna in
  * `awaiting_plan_approval`; un run `full` (maintainer, nessuna soglia) prosegue
  * con l'esecuzione. Introdurre un'approvazione solo perché è stata posta una
  * domanda darebbe a quel run un gate che non avrebbe mai avuto — e il regime si
@@ -395,12 +396,17 @@ async function resolveFixMode(db: Db, job: AiJob, ticket: Ticket): Promise<Resol
   if (job.resumeMode === "execute" && job.planText) {
     return { mode: "execute-only", planContinue: false };
   }
-  // Job lanciato da un utente `member` (operatore): il server ha acceso
-  // `planApprovalRequired` perché il piano va approvato da un maintainer,
-  // QUALUNQUE sia l'effort del ticket e la soglia del tipo. Sta DOPO il ramo
-  // execute-only di proposito: se il job arriva con resumeMode="execute" e un
-  // planText è perché quel piano è GIÀ passato dall'approvazione del
-  // maintainer (resolvePlan), e ri-pianificare sarebbe un ciclo infinito.
+  // Il server ha acceso `planApprovalRequired` perché il piano va approvato da
+  // un maintainer, QUALUNQUE sia l'effort del ticket e la soglia del tipo. Due
+  // origini, entrambe in `startRun` (`apps/server/src/services/jobs.ts`): un
+  // job lanciato da un utente `member` (operatore), e un run nato da una
+  // PROPOSTA del pulse accettata (`requirePlanApproval: true`, fase 2) — lì il
+  // gate vale anche per un maintainer, perché chi clicca accetta una proposta,
+  // non ha letto un piano. Qui le due origini non si distinguono: il gate è
+  // uno solo, persistito sul job. Il ramo sta DOPO execute-only di proposito:
+  // se il job arriva con resumeMode="execute" e un planText è perché quel
+  // piano è GIÀ passato dall'approvazione del maintainer (resolvePlan), e
+  // ri-pianificare sarebbe un ciclo infinito.
   if (job.planApprovalRequired) return { mode: "plan-only", planContinue };
   const [rule] = await db
     .select({ minEffort: automationRules.planApprovalMinEffort })
@@ -1014,11 +1020,18 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
   const planAllowedToolsOpt = planTools.length > 0 ? { allowedTools: planTools } : {};
   // STORICO Q&A del job, solo le domande già RISPOSTE e in ordine di round. È
   // ciò che rende la ripresa possibile: il turno di `--resume` porta l'ultima
-  // risposta (le precedenti sono già nel contesto della sessione), e il
-  // FALLBACK — che ripianifica da zero — le porta tutte, così il modello
-  // riparte da capo sul codice ma non sulle decisioni. Caricato solo in
-  // ripresa: sulla prima pianificazione non c'è nulla da caricare.
-  const answeredQuestions = planContinue
+  // risposta (le precedenti sono già nel contesto della sessione), e il run di
+  // pianificazione pieno le porta tutte, così il modello riparte da capo sul
+  // codice ma non sulle decisioni.
+  //
+  // Caricato per OGNI run che pianifica, non solo in ripresa: un rilancio
+  // manuale riusa la riga dell'ultimo job (`startRun`), quindi eredita le sue
+  // Q&A anche con `resumeMode` `fix`/null, e senza questo caricamento
+  // l'agente ri-porrebbe domande a cui un umano ha già risposto (voce di
+  // backlog `8931d96d`, chiusa in fase 2). Sulla prima pianificazione la
+  // query torna vuota e nessun blocco entra nel prompt. In execute-only e a
+  // fase singola non si pianifica: la query sarebbe un giro a vuoto.
+  const answeredQuestions = hasPlanRun
     ? await db
         .select({
           round: agentQuestions.round,
@@ -1038,16 +1051,17 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
   // annuncia una risposta inesistente. In quei casi si degrada al flusso
   // normale invece di costruire un turno incoerente.
   //
-  // ⚠️ In quel degrado la risposta umana NON raggiunge il modello per NESSUN
-  // canale: il blocco `<decisioni_prese>` lo si costruisce solo con
-  // `resumingPlan` (vedi sotto), e il commento che `answerQuestion` lascia sul
-  // ticket è `authorType='system'`, quindi resta fuori dai
-  // `<indicazioni_del_team>` per costruzione (la query filtra `user`). È
-  // leggibile agli UMANI nel feed del ticket, non al modello: la
-  // pianificazione riparte ignorando una decisione già presa. Si accetta
-  // perché il trigger è un flip di configurazione a domanda aperta, non un
-  // percorso normale — ma se `FIX_TWO_PHASE` diventasse una manopola che si
-  // gira spesso, questo è il punto da chiudere.
+  // ⚠️ Il degrado per FIX_TWO_PHASE spento (nessuna fase di piano) resta il
+  // caso in cui la risposta umana NON raggiunge il modello per NESSUN canale:
+  // non c'è un prompt di pianificazione in cui iniettarla, e il commento che
+  // `answerQuestion` lascia sul ticket è `authorType='system'`, quindi resta
+  // fuori dai `<indicazioni_del_team>` per costruzione (la query filtra
+  // `user`). È leggibile agli UMANI nel feed del ticket, non al modello. Si
+  // accetta perché il trigger è un flip di configurazione a domanda aperta,
+  // non un percorso normale — ma se `FIX_TWO_PHASE` diventasse una manopola
+  // che si gira spesso, questo è il punto da chiudere. L'altro degrado
+  // (nessuna risposta da cui riprendere) non perde nulla: non ci sono
+  // decisioni prese da portare.
   const resumingPlan = planContinue && hasPlanRun && answeredQuestions.length > 0;
   if (planContinue && !resumingPlan) {
     await appendLog(
@@ -1168,16 +1182,14 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
    * con un rilancio manuale. Quel rilancio NON è un job nuovo — `startRun`
    * (`apps/server/src/services/jobs.ts`) RIUSA la riga dell'ultimo job del
    * ticket quando non è più in volo — quindi le Q&A, scopate per `job_id`,
-   * restano attaccate. Ne esce un'ASIMMETRIA: il conteggio dei round le vede
-   * (`questionRound` = domande già registrate sul job + 1, quindi il budget
-   * parte già eroso da quelle vecchie), le decisioni prese no — un rilancio
-   * manuale nasce con `resumeMode` `execute`/`fix`/null, mai `plan_continue`,
-   * quindi `planContinue` è false e lo storico delle risposte non viene
-   * nemmeno caricato. L'agente può insomma rifare una domanda a cui aveva già
-   * avuto risposta, e per di più con meno round a disposizione. È accettato in
-   * v1, ma le due metà vanno sistemate INSIEME (o si scorpora il conteggio per
-   * run, o si iniettano le decisioni anche fuori dalla ripresa): correggerne
-   * una sola sposta il problema invece di chiuderlo.
+   * restano attaccate anche se `resumeMode` è `execute`/`fix`/null e non
+   * `plan_continue`. Le due metà sono allineate (voce di backlog `8931d96d`,
+   * chiusa in fase 2, opzione 1): il conteggio dei round le vede
+   * (`questionRound` = domande già registrate sul job + 1) E le decisioni
+   * prese entrano nel prompt, perché lo storico è caricato per ogni run che
+   * pianifica, non solo in ripresa. Il budget resta deliberatamente PER-JOB:
+   * un rilancio non azzera i round già spesi, altrimenti si aprirebbe la
+   * porta al ping-pong di domande a spese di chi risponde.
    */
   const runPlanResume = async (
     parentDir: string,
@@ -1252,7 +1264,13 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
           teamComments,
           repos: promptRepos,
           ...planAskUserPromptOpt,
-          ...(resumingPlan ? { answeredQuestions } : {}),
+          // UNICO punto in cui il blocco `<decisioni_prese>` entra in un
+          // prompt di pianificazione: ci passano sia il fallback della ripresa
+          // sia il rilancio manuale, quindi non c'è modo di iniettarlo due
+          // volte. Il turno `--resume` ha un prompt suo
+          // (buildFixPlanContinuePrompt: solo l'ultima risposta, le
+          // precedenti sono già nel contesto della sessione).
+          ...(answeredQuestions.length > 0 ? { answeredQuestions } : {}),
         },
         lang,
       ),

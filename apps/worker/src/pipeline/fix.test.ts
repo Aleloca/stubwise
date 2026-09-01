@@ -3750,4 +3750,132 @@ describe("runFix — domanda dell'agente (ask_user)", () => {
       expect(rows.every((r) => r.answeredAt !== null)).toBe(true);
     });
   });
+
+  /* ---------------------------------------------------------------------- *
+   * Rilancio manuale di un job che ha già delle Q&A chiuse.
+   * ---------------------------------------------------------------------- */
+  describe("rilancio manuale con decisioni già prese", () => {
+    /**
+     * Job come lo lascia un RILANCIO a mano: `startRun` RIUSA la riga
+     * dell'ultimo job del ticket, quindi le Q&A (scopate per `job_id`) restano
+     * attaccate — ma il resumeMode NON è `plan_continue`: è `fix`, `execute` o
+     * null a seconda di come è stato rilanciato. È il caso della voce di
+     * backlog `8931d96d` (es. un timeout in ripresa → failed → rilancio).
+     */
+    async function relaunchedJob(
+      db: Db,
+      ticket: Ticket,
+      opts: { resumeMode?: "fix" | null; answered?: boolean } = {},
+    ): Promise<AiJob> {
+      const [job] = await db
+        .insert(aiJobs)
+        .values({
+          ticketId: ticket.id,
+          status: "fixing",
+          startedAt: new Date(),
+          resumeMode: opts.resumeMode ?? null,
+        })
+        .returning();
+      if (!job) throw new Error("insert del job non ha restituito la riga");
+      await db.insert(agentQuestions).values({
+        jobId: job.id,
+        ticketId: ticket.id,
+        round: 1,
+        question: QUESTION.question,
+        options: QUESTION.options,
+        recommendedIndex: QUESTION.recommendedIndex,
+        allowFreeText: true,
+        ...(opts.answered === false ? {} : { answer: { optionIndex: 1 }, answeredAt: new Date() }),
+      });
+      return job;
+    }
+
+    for (const resumeMode of ["fix", null] as const) {
+      it(`resumeMode=${resumeMode ?? "null"} → la pianificazione porta comunque le decisioni già prese`, async () => {
+        const { db } = testDb;
+        const fixture = await makeFixture();
+        const ticket = await planOnlyTicket(db, fixture);
+        const job = await relaunchedJob(db, ticket, { resumeMode });
+        const runner = new FakeAgentRunner({
+          results: [{ output: "PIANO RILANCIATO", exitCode: 0 }],
+        });
+
+        const outcome = await runFix(
+          makeDeps(fixture, runner, makeProvider(), {
+            askUserServerPath: await fakeAskUserEntry(),
+          }),
+          job,
+        );
+
+        // Pianificazione da zero (nessuna sessione da riprendere: non è una
+        // ripresa), ma con le decisioni già prese in prompt.
+        expect(runner.calls).toHaveLength(1);
+        const call = runner.calls[0]!;
+        expect(call.resumeSessionId).toBeUndefined();
+        expect(call.prompt).toContain("<ticket_content>");
+        expect(call.prompt).toContain("<decisioni_prese>");
+        expect(call.prompt).toContain("La cache va persistita?");
+        expect(call.prompt).toContain("Su Postgres");
+        // Un solo blocco: l'iniezione è unica anche fuori dalla ripresa.
+        expect(call.prompt.split("</decisioni_prese>").length - 1).toBe(1);
+        // Il budget dei round resta PER-JOB e non si azzera: la domanda già
+        // posta è contata, la prossima sarebbe la 2ª.
+        expect(call.mcpConfig?.servers.stubwise_ask?.env?.ASK_USER_ROUND).toBe("2");
+
+        expect(outcome).toBe("awaiting_approval");
+        expect((await getJob(db, job.id)).planText).toBe("PIANO RILANCIATO");
+      });
+    }
+
+    it("job senza Q&A risposte → nessun blocco (una domanda aperta non è una decisione)", async () => {
+      const { db } = testDb;
+      const fixture = await makeFixture();
+      const ticket = await planOnlyTicket(db, fixture);
+      // Nessuna domanda del tutto.
+      const pulito = await createFixingJob(db, ticket.id);
+      const runnerPulito = new FakeAgentRunner({ results: [{ output: "PIANO", exitCode: 0 }] });
+      await runFix(
+        makeDeps(fixture, runnerPulito, makeProvider(), {
+          askUserServerPath: await fakeAskUserEntry(),
+        }),
+        pulito,
+      );
+      expect(runnerPulito.calls[0]!.prompt).not.toContain("decisioni_prese");
+
+      // Domanda registrata ma SENZA risposta: non è una decisione presa, però
+      // il budget la conta comunque (la prossima è la 2ª).
+      const ticket2 = await createTicket(db, fixture, { number: 8, type: "bug", effort: 4 });
+      const aperta = await relaunchedJob(db, ticket2, { answered: false });
+      const runnerAperta = new FakeAgentRunner({ results: [{ output: "PIANO", exitCode: 0 }] });
+      await runFix(
+        makeDeps(fixture, runnerAperta, makeProvider(), {
+          askUserServerPath: await fakeAskUserEntry(),
+        }),
+        aperta,
+      );
+      expect(runnerAperta.calls[0]!.prompt).not.toContain("decisioni_prese");
+      expect(runnerAperta.calls[0]!.mcpConfig?.servers.stubwise_ask?.env?.ASK_USER_ROUND).toBe("2");
+    });
+
+    it("modalità senza fase di piano (execute-only) → nessuna query e nessun blocco", async () => {
+      const { db } = testDb;
+      const fixture = await makeFixture();
+      const ticket = await planOnlyTicket(db, fixture);
+      const job = await relaunchedJob(db, ticket);
+      // Piano già approvato: si esegue e basta, non si pianifica.
+      await db
+        .update(aiJobs)
+        .set({ resumeMode: "execute", planText: "PIANO GIÀ APPROVATO" })
+        .where(eq(aiJobs.id, job.id));
+      const runner = new FakeAgentRunner({ results: [{ output: REPORT, exitCode: 0 }] });
+
+      await runFix(
+        makeDeps(fixture, runner, makeProvider(), { askUserServerPath: await fakeAskUserEntry() }),
+        await getJob(db, job.id),
+      );
+
+      expect(runner.calls).toHaveLength(1);
+      expect(runner.calls[0]!.prompt).not.toContain("decisioni_prese");
+    });
+  });
 });
