@@ -1,4 +1,12 @@
-import { pluginJobs, plugins, projectPlugins, type Db, type PluginJob, type PluginRow } from "@stubwise/db";
+import {
+  pluginJobs,
+  plugins,
+  projectPlugins,
+  type Db,
+  type PluginJob,
+  type PluginRow,
+  type ProjectPluginRow,
+} from "@stubwise/db";
 import type { PluginInventory } from "@stubwise/shared";
 import { and, eq, sql } from "drizzle-orm";
 import { execa } from "execa";
@@ -36,8 +44,11 @@ import {
  * NIENTE SERIALIZER per-progetto, a differenza del grafo: il registro è
  * d'istanza e non tocca né i mirror né i worktree dei progetti. La mutua
  * esclusione che serve — due materializzazioni concorrenti della stessa
- * directory — la dà già l'indice unico parziale su `(plugin_id, kind)` per gli
- * stati vivi (vedi queue.ts).
+ * directory — sta su DUE gambe, e servono entrambe: l'indice unico parziale su
+ * `(plugin_id, kind)` per gli stati vivi (che esclude due job DIVERSI) e
+ * l'invariante aritmetica di `PLUGIN_STALE_MINUTES` (che esclude il recovery
+ * dello STESSO job mentre è ancora vivo). Vedi il docblock di quella costante
+ * in queue.ts prima di toccare i timeout qui sotto.
  *
  * DIVISIONE COL RUNNER: i runner qui sotto LANCIANO in caso di errore e il
  * poller chiude il job (`failed` + riflesso sullo stato del plugin, vedi
@@ -319,12 +330,8 @@ async function runMaterialize(
     // dir non viene mai pubblicata (nulla a valle vedrà uno sha senza inventario).
     const inventory = await readInventory(source);
 
-    // Pubblicazione. Ri-materializzare lo STESSO sha sovrascrive la dir: c'è una
-    // finestra in cui una copia per-run concorrente non trova i file, e in quel
-    // caso il run salta il plugin e prosegue (fail-open documentato in Task 7).
     const pluginDir = join(slugDir, sha);
-    await rm(pluginDir, { recursive: true, force: true });
-    await rename(source, pluginDir);
+    await publishPluginDir(source, pluginDir);
 
     await deps.db
       .update(plugins)
@@ -353,7 +360,42 @@ async function runMaterialize(
   }
 }
 
-/** Rimuove dallo slug ogni dir che non sia lo sha corrente (sha vecchi, `.tmp-*` orfane). */
+/**
+ * Pubblica la dir del plugin in `<slug>/<sha>` con due `rename` e nessuna
+ * finestra in cui il path non esiste.
+ *
+ * Il caso che serve coprire è la RI-materializzazione dello STESSO sha (il
+ * registro dice già `ready` su quel path): un `rm` seguito da `rename` lascia il
+ * path assente per qualche millisecondo, e — molto peggio — un crash del worker
+ * fra i due, con i tentativi esauriti, lascerebbe `ready` su una dir che non
+ * c'è più, in modo PERMANENTE e silenzioso: nessuno smoke riaccodato, e i run
+ * che saltano il plugin in fail-open senza che nessuno se ne accorga.
+ *
+ * Con `rename` della vecchia in `<sha>.old`, `rename` della nuova al suo posto e
+ * `rm` della `.old` alla fine, ogni istante intermedio ha una dir valida su
+ * `<sha>` — vecchia o nuova. Un crash lascia al più una `.old` di troppo, che è
+ * proprio ciò che la potatura rimuove al `ready` successivo. Se il secondo
+ * `rename` fallisce si rimette a posto la vecchia prima di propagare l'errore:
+ * meglio la versione precedente di nessuna versione.
+ */
+async function publishPluginDir(source: string, pluginDir: string): Promise<void> {
+  const previous = `${pluginDir}.old`;
+  // Residuo di un crash precedente: va tolto, altrimenti il rename qui sotto
+  // fallirebbe su una dir non vuota.
+  await rm(previous, { recursive: true, force: true });
+
+  const hadPrevious = await isDirectory(pluginDir);
+  if (hadPrevious) await rename(pluginDir, previous);
+  try {
+    await rename(source, pluginDir);
+  } catch (error) {
+    if (hadPrevious) await rename(previous, pluginDir).catch(() => {});
+    throw error;
+  }
+  if (hadPrevious) await rm(previous, { recursive: true, force: true });
+}
+
+/** Rimuove dallo slug ogni dir che non sia lo sha corrente (sha vecchi, `.tmp-*` orfane, `.old` residue). */
 async function pruneShaDirs(
   deps: PluginPollerDeps,
   slugDir: string,
@@ -376,8 +418,25 @@ async function pruneShaDirs(
  * inventario. Senza questo, una voce rimasta orfana resterebbe salvata per
  * sempre e — se il plugin un giorno reintroducesse quel nome — tornerebbe ad
  * applicarsi da sola, spegnendo qualcosa che nessuno ha chiesto di spegnere.
- * Solo le righe che cambiano davvero vengono riscritte (e `updated_at` con
- * loro: la colonna non ha `$onUpdate`).
+ *
+ * ⚠️ UN SOLO UPDATE, SENZA read-modify-write. La versione ovvia (select →
+ * filtro in memoria → UPDATE della lista calcolata) è una corsa persa in
+ * partenza contro il PUT delle abilitazioni del server: uno spegnimento salvato
+ * fra la select e l'UPDATE verrebbe sovrascritto dalla foto vecchia, cioè una
+ * skill appena spenta tornerebbe accesa in silenzio. Ed è esattamente la
+ * superficie di controllo di sicurezza di questa fase: l'esito peggiore
+ * possibile per questo modulo.
+ *
+ * Qui il filtro lo fa POSTGRES sull'array della riga, dentro lo stesso
+ * statement che la aggiorna: qualunque cosa il server abbia scritto un istante
+ * prima viene letta e filtrata dall'UPDATE stesso, e ciò che è valido nel nuovo
+ * inventario sopravvive sempre. Il `WHERE` con i due `EXISTS` limita la
+ * scrittura alle righe che contengono davvero una voce sparita: le altre non
+ * vengono toccate (e il loro `updated_at`, che non ha `$onUpdate`, resta quello
+ * di chi le ha scritte davvero).
+ *
+ * La select iniziale serve SOLO al log diagnostico: se è leggermente stantia il
+ * log lo è con lei, mentre la scrittura resta corretta.
  */
 async function pruneEnablements(
   deps: PluginPollerDeps,
@@ -385,38 +444,48 @@ async function pruneEnablements(
   inventory: PluginInventory,
 ): Promise<void> {
   try {
-    const skills = new Set(inventory.skills.map((s) => s.name));
-    const hooks = new Set(inventory.hooks.map((h) => h.key));
-    const rows = await deps.db
+    // `sql.param`, non l'interpolazione diretta: dentro un template `sql` un
+    // array JS diventerebbe una LISTA di parametri — `($1, $2)` — e per un
+    // inventario senza hook addirittura `()`, cioè un errore di sintassi. Qui
+    // serve UN parametro solo, di tipo `text[]`.
+    const skills = sql.param(inventory.skills.map((s) => s.name));
+    const hooks = sql.param(inventory.hooks.map((h) => h.key));
+    const skillNames = new Set(inventory.skills.map((s) => s.name));
+    const hookKeys = new Set(inventory.hooks.map((h) => h.key));
+
+    // Foto ANTE per il solo log (vedi docblock): mai usata per decidere cosa scrivere.
+    const before = new Map<string, ProjectPluginRow>();
+    for (const row of await deps.db
       .select()
       .from(projectPlugins)
-      .where(eq(projectPlugins.pluginId, plugin.id));
+      .where(eq(projectPlugins.pluginId, plugin.id))) {
+      before.set(row.projectId, row);
+    }
 
-    for (const row of rows) {
-      const nextSkills = row.disabledSkills.filter((name) => skills.has(name));
-      const nextHooks = row.disabledHooks.filter((key) => hooks.has(key));
-      // `filter` può solo togliere: confrontare le lunghezze basta.
-      if (
-        nextSkills.length === row.disabledSkills.length &&
-        nextHooks.length === row.disabledHooks.length
-      ) {
-        continue;
-      }
-      await deps.db
-        .update(projectPlugins)
-        .set({ disabledSkills: nextSkills, disabledHooks: nextHooks, updatedAt: sql`now()` })
-        .where(
-          and(
-            eq(projectPlugins.projectId, row.projectId),
-            eq(projectPlugins.pluginId, plugin.id),
-          ),
-        );
+    const pruned = await deps.db
+      .update(projectPlugins)
+      .set({
+        disabledSkills: sql`ARRAY(SELECT s FROM unnest(${projectPlugins.disabledSkills}) AS s WHERE s = ANY(${skills}::text[]))`,
+        disabledHooks: sql`ARRAY(SELECT h FROM unnest(${projectPlugins.disabledHooks}) AS h WHERE h = ANY(${hooks}::text[]))`,
+        updatedAt: sql`now()`,
+      })
+      .where(
+        and(
+          eq(projectPlugins.pluginId, plugin.id),
+          sql`(EXISTS (SELECT 1 FROM unnest(${projectPlugins.disabledSkills}) AS s WHERE NOT (s = ANY(${skills}::text[])))
+            OR EXISTS (SELECT 1 FROM unnest(${projectPlugins.disabledHooks}) AS h WHERE NOT (h = ANY(${hooks}::text[]))))`,
+        ),
+      )
+      .returning({ projectId: projectPlugins.projectId });
+
+    for (const row of pruned) {
+      const old = before.get(row.projectId);
       deps.logger.info(
         {
           slug: plugin.slug,
           projectId: row.projectId,
-          skills: row.disabledSkills.filter((name) => !skills.has(name)),
-          hooks: row.disabledHooks.filter((key) => !hooks.has(key)),
+          skills: old?.disabledSkills.filter((name) => !skillNames.has(name)) ?? [],
+          hooks: old?.disabledHooks.filter((key) => !hookKeys.has(key)) ?? [],
         },
         "[plugins] potati spegnimenti che citavano voci non più presenti nell'inventario",
       );
@@ -453,6 +522,22 @@ async function enqueueSmoke(deps: PluginPollerDeps, plugin: PluginRow): Promise<
 // ---------------------------------------------------------------------------
 // smoke
 // ---------------------------------------------------------------------------
+
+/**
+ * Normalizza un elenco di skill per il confronto dello smoke: minuscole e
+ * spazi/a capo attorno ai due punti riassorbiti (`demo: alpha`, `demo :alpha` e
+ * un `demo:` a fine riga con `alpha` sulla successiva diventano tutti
+ * `demo:alpha`).
+ *
+ * I FALSI POSITIVI non sono un rischio: il prompt non contiene i nomi delle
+ * skill, quindi un modello che non ha il plugin caricato non può inventarli. I
+ * FALSI NEGATIVI invece sono plausibili — basta che il modello formatti
+ * l'elenco a modo suo — e costerebbero un badge rosso spurio in UI su un plugin
+ * perfettamente funzionante. Nel dubbio si è permissivi sulla forma.
+ */
+function normalizeSkillList(text: string): string {
+  return text.toLowerCase().replace(/\s*:\s*/g, ":");
+}
 
 /**
  * Smoke run: carica il plugin nel CLI e verifica che ogni skill dell'inventario
@@ -524,10 +609,8 @@ async function runSmoke(
   });
 
   const expected = inventory.skills.map((skill) => `${inventory.name}:${skill.name}`);
-  // Confronto case-insensitive: il modello riscrive l'elenco a modo suo, e
-  // pretendere il case esatto trasformerebbe una formattazione in un guasto.
-  const haystack = result.output.toLowerCase();
-  const missing = expected.filter((name) => !haystack.includes(name.toLowerCase()));
+  const haystack = normalizeSkillList(result.output);
+  const missing = expected.filter((name) => !haystack.includes(normalizeSkillList(name)));
 
   if (result.exitCode === 0 && missing.length === 0) {
     await deps.db

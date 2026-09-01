@@ -36,7 +36,29 @@ import { and, eq, gte, lt, sql } from "drizzle-orm";
 /** Tentativi massimi di un job del registro prima del fallimento definitivo. */
 export const MAX_PLUGIN_ATTEMPTS = 3;
 
-/** Minuti oltre cui un job `running` è considerato orfano di un worker morto. */
+/**
+ * Minuti oltre cui un job `running` è considerato orfano di un worker morto.
+ *
+ * ⚠️ INVARIANTE ARITMETICA, non un numero scelto a occhio:
+ *
+ *     PLUGIN_STALE_MINUTES > MATERIALIZE_TIMEOUT_MS + VALIDATE_TIMEOUT_MS + margine
+ *     (15'                 > 10'                    + 1'                  + 3')
+ *
+ * Il margine copre il lavoro di filesystem che NON ha un budget proprio
+ * (rimozione di `.git`, lettura dell'inventario, `rename` della dir pubblicata).
+ * L'invariante è congelata da un test in `poller.test.ts`: chi alza i timeout
+ * della materializzazione senza alzare questa soglia lo vede fallire.
+ *
+ * PERCHÉ È UN INVARIANTE E NON UNA PREFERENZA: l'indice unico parziale su
+ * `(plugin_id, kind)` impedisce due job DIVERSI attivi sullo stesso plugin, ma
+ * non può nulla contro il recovery, che riaccoda lo STESSO job. Se un
+ * materializzatore ancora vivo superasse la soglia, un secondo claimant
+ * eseguirebbe lo stesso `job.id`: stessa dir temporanea `.tmp-<jobId>` (quindi
+ * `rm` incrociati sulla checkout dell'altro) e chiusure del job che si
+ * scavalcano, dato che `failPluginJob` è guarded su `status = 'running'` e non
+ * sulla PROPRIETÀ del claim. È questa disuguaglianza — non l'indice — a rendere
+ * sicuro il riuso della dir temporanea per id di job.
+ */
 export const PLUGIN_STALE_MINUTES = 15;
 
 /**

@@ -1,7 +1,7 @@
 import { pluginJobs, plugins, projectPlugins, projects, type Db } from "@stubwise/db";
 import { startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { PluginInventory } from "@stubwise/shared";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { execa } from "execa";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readdir, rm, symlink, writeFile } from "node:fs/promises";
@@ -10,13 +10,17 @@ import { dirname, join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { FakeAgentRunner } from "../agent/fake.js";
 import type { AgentRunOptions } from "../agent/runner.js";
+import type { ResolvedProvider } from "../providers/chain.js";
 import { fetchAtRef } from "./git.js";
 import {
+  MATERIALIZE_TIMEOUT_MS,
   processPluginJobsOnce,
   startPluginPoller,
+  VALIDATE_TIMEOUT_MS,
   type PluginPollerDeps,
   type ValidatePluginFn,
 } from "./poller.js";
+import { PLUGIN_STALE_MINUTES } from "./queue.js";
 
 /**
  * Test del poller del registro plugin su roba VERA: Postgres effimero
@@ -133,12 +137,23 @@ async function enqueue(
   db: Db,
   pluginId: string,
   kind: "materialize" | "smoke" = "materialize",
+  createdAt?: Date,
 ): Promise<string> {
   const [job] = await db
     .insert(pluginJobs)
-    .values({ pluginId, kind })
+    .values({ pluginId, kind, ...(createdAt ? { createdAt } : {}) })
     .returning({ id: pluginJobs.id });
   return job!.id;
+}
+
+/** Progetto minimo (la colonna `ingestion_key` è NOT NULL senza default utile). */
+async function insertProject(db: Db, slug: string): Promise<string> {
+  counter++;
+  const [project] = await db
+    .insert(projects)
+    .values({ name: slug, slug: `${slug}-${counter}`, ingestionKey: `k-${counter}` })
+    .returning({ id: projects.id });
+  return project!.id;
 }
 
 async function readPlugin(db: Db, id: string) {
@@ -161,6 +176,8 @@ interface MakeDepsOptions {
   validate?: ValidatePluginFn;
   runner?: FakeAgentRunner;
   basePluginPathFn?: () => string | null;
+  /** Catena dei provider AI risolta. Default: vuota (auth di default). */
+  chain?: ResolvedProvider[];
 }
 
 function makeDeps(options: MakeDepsOptions): PluginPollerDeps {
@@ -176,11 +193,28 @@ function makeDeps(options: MakeDepsOptions): PluginPollerDeps {
     // poller è il CLI vero.
     runner: options.runner ?? new FakeAgentRunner(),
     basePluginPathFn: options.basePluginPathFn ?? (() => null),
-    // Nessun provider AI configurato nel DB di test: lo smoke gira con l'auth
-    // di default (comportamento del self-hosting senza catena).
-    loadProviderChainFn: async () => [],
+    // Catena vuota di default: lo smoke gira con l'auth di default del
+    // container (comportamento del self-hosting senza catena).
+    loadProviderChainFn: async () => options.chain ?? [],
   };
 }
+
+// ---------------------------------------------------------------------------
+// Invariante di staleness
+// ---------------------------------------------------------------------------
+
+describe("invariante di staleness del registro", () => {
+  it("la soglia degli orfani supera il budget massimo di una materializzazione", () => {
+    // È ciò che rende sicuro riusare `.tmp-<jobId>` per lo stesso job: finché
+    // un materializzatore vivo non può superare la soglia, il recovery non
+    // riaccoda MAI un job che sta ancora girando (e l'indice unico, che copre
+    // solo i job diversi, non potrebbe farci nulla). Il margine di 3' copre il
+    // lavoro di filesystem senza budget proprio (rimozione di `.git`, lettura
+    // dell'inventario, rename della dir pubblicata).
+    const budget = MATERIALIZE_TIMEOUT_MS + VALIDATE_TIMEOUT_MS + 3 * 60_000;
+    expect(PLUGIN_STALE_MINUTES * 60_000).toBeGreaterThan(budget);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // materialize
@@ -397,11 +431,7 @@ describe("processPluginJobsOnce — materialize", () => {
     expect(oldSha).toBe(source.sha);
 
     // Un progetto ha spento una skill e un hook che l'aggiornamento farà sparire.
-    const [project] = await db
-      .insert(projects)
-      .values({ name: "Demo", slug: "demo", ingestionKey: `k-${counter}` })
-      .returning({ id: projects.id });
-    const projectId = project!.id;
+    const projectId = await insertProject(db, "con-voci-obsolete");
     const stale = new Date(Date.now() - 3_600_000);
     await db.insert(projectPlugins).values({
       projectId,
@@ -410,6 +440,22 @@ describe("processPluginJobsOnce — materialize", () => {
       disabledHooks: ["SessionStart#0", "Stop#2"],
       updatedAt: stale,
     });
+
+    // Un secondo progetto ha spento SOLO voci che sopravvivono: la sua riga non
+    // deve essere riscritta affatto (l'UPDATE è mirato, non un salvataggio
+    // cieco della lista che il poller ha letto).
+    const untouchedProjectId = await insertProject(db, "gia-pulito");
+    await db.insert(projectPlugins).values({
+      projectId: untouchedProjectId,
+      pluginId: id,
+      disabledSkills: ["alpha"],
+      disabledHooks: [],
+      updatedAt: stale,
+    });
+
+    // Dir temporanea orfana di un worker morto a metà: la potatura del `ready`
+    // successivo è ciò che la rimuove.
+    await mkdir(join(pluginsDir, slug, ".tmp-orfana"), { recursive: true });
 
     // Nuova versione: `beta` sparisce, gli hook spariscono del tutto.
     await rm(join(source.dir, "skills", "beta"), { recursive: true });
@@ -426,16 +472,82 @@ describe("processPluginJobsOnce — materialize", () => {
     const plugin = await readPlugin(db, id);
     expect(plugin.status).toBe("ready");
     expect(plugin.resolvedSha).toBe(newSha);
-    // Sul volume resta SOLO lo sha corrente.
+    // Sul volume resta SOLO lo sha corrente: sha vecchio e `.tmp-*` orfana via.
     expect(await readdir(join(pluginsDir, slug))).toEqual([newSha]);
 
-    const [enablement] = await db
+    const [pruned] = await db
       .select()
       .from(projectPlugins)
-      .where(eq(projectPlugins.pluginId, id));
-    expect(enablement?.disabledSkills).toEqual(["alpha"]);
-    expect(enablement?.disabledHooks).toEqual([]);
-    expect(enablement!.updatedAt.getTime()).toBeGreaterThan(stale.getTime());
+      .where(
+        and(eq(projectPlugins.pluginId, id), eq(projectPlugins.projectId, projectId)),
+      );
+    expect(pruned?.disabledSkills).toEqual(["alpha"]);
+    expect(pruned?.disabledHooks).toEqual([]);
+    expect(pruned!.updatedAt.getTime()).toBeGreaterThan(stale.getTime());
+
+    const [untouched] = await db
+      .select()
+      .from(projectPlugins)
+      .where(
+        and(eq(projectPlugins.pluginId, id), eq(projectPlugins.projectId, untouchedProjectId)),
+      );
+    expect(untouched?.disabledSkills).toEqual(["alpha"]);
+    expect(untouched!.updatedAt.getTime()).toBe(stale.getTime());
+  });
+
+  it("ri-materializzando lo stesso sha non lascia mai il path senza una dir valida", async () => {
+    const db = testDb.db;
+    const root = await makeRoot();
+    const source = await makeSource(root, "source", pluginFiles());
+    const pluginsDir = join(root, "plugins");
+    const { id, slug } = await insertPlugin(db, { sourceUrl: source.dir });
+
+    await enqueue(db, id);
+    await processPluginJobsOnce(makeDeps({ pluginsDir }));
+    await db.delete(pluginJobs).where(eq(pluginJobs.pluginId, id));
+    await enqueue(db, id);
+    await processPluginJobsOnce(makeDeps({ pluginsDir }));
+
+    const plugin = await readPlugin(db, id);
+    expect(plugin.status).toBe("ready");
+    expect(plugin.resolvedSha).toBe(source.sha);
+    // Nessuna `<sha>.old` residua: la dir pubblicata è una sola ed è completa.
+    expect(await readdir(join(pluginsDir, slug))).toEqual([source.sha]);
+    expect(
+      existsSync(join(pluginsDir, slug, source.sha, ".claude-plugin", "plugin.json")),
+    ).toBe(true);
+  });
+
+  it("non lascia uno smoke `pending` orfano se ce n'è già uno attivo", async () => {
+    const db = testDb.db;
+    const root = await makeRoot();
+    const source = await makeSource(root, "source", pluginFiles());
+    const pluginsDir = join(root, "plugins");
+    const { id } = await insertPlugin(db, { sourceUrl: source.dir });
+
+    // Uno smoke è già in coda (materializzazione precedente, o click "Riprova").
+    // La materialize è più vecchia, quindi il claim FIFO la prende per prima.
+    await enqueue(db, id, "smoke");
+    await enqueue(db, id, "materialize", new Date(Date.now() - 60_000));
+
+    // Stop dopo la sola materializzazione, come nel test felice.
+    const controller = new AbortController();
+    await processPluginJobsOnce({
+      ...makeDeps({
+        pluginsDir,
+        validate: async () => {
+          controller.abort();
+          return { ok: true, output: "" };
+        },
+      }),
+      signal: controller.signal,
+    });
+
+    const jobs = await readJobs(db, id);
+    expect(jobs.filter((j) => j.kind === "smoke")).toHaveLength(1);
+    // `onConflictDoNothing`: nessun job nuovo, quindi nemmeno un `pending` che
+    // resterebbe senza chi lo risolve.
+    expect((await readPlugin(db, id)).smokeStatus).toBe("idle");
   });
 });
 
@@ -519,6 +631,48 @@ describe("processPluginJobsOnce — smoke", () => {
     expect(plugin.smokeError).toContain("demo:alpha");
     // Lo stato del plugin resta `ready`: a fallire è lo smoke, non la materializzazione.
     expect(plugin.status).toBe("ready");
+  });
+
+  it("tollera la formattazione dell'elenco (spazi e a capo attorno ai due punti)", async () => {
+    const db = testDb.db;
+    const root = await makeRoot();
+    const pluginsDir = join(root, "plugins");
+    const { id } = await seedReadyPlugin(db, pluginsDir);
+    await enqueue(db, id, "smoke");
+
+    // Un badge rosso su un plugin funzionante sarebbe peggio di un badge verde
+    // permissivo: qui il modello ha solo impaginato l'elenco a modo suo.
+    const runner = new FakeAgentRunner({
+      output: "- Demo: alpha\n- demo :\n  beta\n",
+    });
+    await processPluginJobsOnce(makeDeps({ pluginsDir, runner }));
+
+    expect((await readPlugin(db, id)).smokeStatus).toBe("passed");
+  });
+
+  it("non lascia il segreto del provider dentro smoke_error", async () => {
+    const db = testDb.db;
+    const root = await makeRoot();
+    const pluginsDir = join(root, "plugins");
+    const { id } = await seedReadyPlugin(db, pluginsDir);
+    await enqueue(db, id, "smoke");
+
+    const secret = "sk-ant-segretissimo-123";
+    const chain: ResolvedProvider[] = [{ id: "p1", kind: "api_key", secret }];
+    const runner = new FakeAgentRunner({
+      output: `errore di auth con la chiave ${secret}`,
+      exitCode: 1,
+    });
+
+    await processPluginJobsOnce(makeDeps({ pluginsDir, runner, chain }));
+
+    // Il provider è quello della catena globale...
+    expect((runner.calls[0] as AgentRunOptions).provider?.secret).toBe(secret);
+    // ...ma non deve arrivare nel DB (e quindi in UI) nemmeno se il CLI lo stampa.
+    const plugin = await readPlugin(db, id);
+    expect(plugin.smokeStatus).toBe("failed");
+    expect(plugin.smokeError).not.toContain(secret);
+    expect(plugin.smokeError).toContain("***");
   });
 
   it("fallisce su exit code non-zero anche se l'output elenca le skill", async () => {
