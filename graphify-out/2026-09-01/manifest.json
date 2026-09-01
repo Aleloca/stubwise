@@ -4938,5 +4938,10 @@
     "mtime": 1788213969.8790534,
     "ast_hash": "6e969ca0f1629bf07b29b7983e052d56",
     "semantic_hash": ""
+  },
+  "docs/plans/2026-09-01-phase1-ask-user-plan.md": {
+    "mtime": 1788214078.246867,
+    "ast_hash": "965d63ecfbff0900461d572574c28094",
+    "semantic_hash": ""
   }
 }
