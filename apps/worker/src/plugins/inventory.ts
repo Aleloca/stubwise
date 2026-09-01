@@ -59,6 +59,36 @@ function optionalString(value: unknown, max: number): string | undefined {
   return trimmed.length === 0 ? undefined : clamp(trimmed, max);
 }
 
+/**
+ * Normalizza un NOME di plugin o di skill letto da un file di terze parti
+ * (`plugin.json`, frontmatter di `SKILL.md`): trim, cap, `undefined` se vuoto o
+ * non stringa. Esportata insieme a {@link resolveSkillName} perché la copia
+ * filtrata per-run deve normalizzare allo STESSO modo — confronta il `name` del
+ * manifest riletto dal disco con quello registrato nell'inventario, e un cap
+ * diverso fra le due farebbe fallire il confronto in silenzio.
+ */
+export function normalizePluginName(value: unknown): string | undefined {
+  return optionalString(value, MAX_NAME);
+}
+
+/**
+ * Nome con cui una skill compare (e viene namespacata dal CLI): il `name` del
+ * frontmatter se c'è ed è non vuoto, altrimenti il nome della DIRECTORY.
+ *
+ * UNICO punto di verità della formula, condiviso fra il PRODUTTORE
+ * dell'inventario ({@link readSkills}, che ci scrive il nome salvato poi in
+ * `project_plugins.disabled_skills`) e il CONSUMATORE (la copia filtrata per-run,
+ * che dal nome spento deve risalire alla directory da NON copiare). Se le due
+ * risoluzioni divergessero — anche solo per un cap diverso — uno spegnimento
+ * salvato smetterebbe di applicarsi senza che nessuno se ne accorga.
+ *
+ * `frontmatter` vuoto (`{}`) è il caso "SKILL.md assente o illeggibile": vale il
+ * nome della directory, che è ciò che il CLI stesso userebbe.
+ */
+export function resolveSkillName(dirName: string, frontmatter: Record<string, string>): string {
+  return normalizePluginName(frontmatter.name) ?? clamp(dirName, MAX_NAME);
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -222,7 +252,7 @@ async function readManifest(pluginDir: string): Promise<Manifest> {
   if (!isRecord(parsed)) {
     throw new InvalidPluginManifestError(pluginDir, ".claude-plugin/plugin.json non è un oggetto");
   }
-  const name = optionalString(parsed.name, MAX_NAME);
+  const name = normalizePluginName(parsed.name);
   if (name === undefined) {
     throw new InvalidPluginManifestError(pluginDir, "campo `name` mancante o vuoto");
   }
@@ -260,14 +290,14 @@ async function readSkills(pluginDir: string): Promise<PluginInventory["skills"]>
       // skill viene comunque ELENCATA col nome della directory e `bytes: 0`.
       // Il CLI potrebbe caricarla lo stesso, e una skill invisibile
       // nell'inventario è una skill che nessuno può spegnere.
-      skills.push({ name: clamp(entry.name, MAX_NAME), bytes: 0 });
+      skills.push({ name: resolveSkillName(entry.name, {}), bytes: 0 });
       continue;
     }
     const frontmatter = parseFrontmatter(buffer.toString("utf8"));
     skills.push({
-      // `name` del frontmatter se c'è ed è non vuoto, altrimenti il nome della
-      // directory: è comunque il nome con cui il CLI namespaca la skill.
-      name: optionalString(frontmatter.name, MAX_NAME) ?? clamp(entry.name, MAX_NAME),
+      // Stessa formula del consumatore (vedi resolveSkillName): è il nome con
+      // cui il CLI namespaca la skill, ed è quello che un progetto spegne.
+      name: resolveSkillName(entry.name, frontmatter),
       description: optionalString(frontmatter.description, MAX_DESCRIPTION),
       // Dimensione reale del file: la UI la mostra come "costo" in KB.
       bytes: buffer.byteLength,

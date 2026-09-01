@@ -14,6 +14,7 @@ import { z } from "zod";
 import type { AgentRunner } from "../agent/runner.js";
 import type { MirrorManager, MirrorProject } from "../git/mirrors.js";
 import type { ProjectSerializer } from "../handler.js";
+import { openRunPlugins } from "../plugins/materialize-run.js";
 import { loadProviderById, loadProviderChain } from "../providers/chain.js";
 import { getContentLanguage } from "../settings.js";
 import { GRAPHIFY_AGENT_ALLOWED_TOOLS, resolveRepoGraphJson } from "../graph/agent-hint.js";
@@ -78,6 +79,10 @@ export interface ChatTurnDeps {
    * priming riceve il blocco GRAFO DEL CODICE e il run l'allowlist read-only di
    * graphify (vedi graph/agent-hint.ts). */
   graphsDir?: string;
+  /** Radice del volume dei plugin del registro d'istanza (PLUGINS_DIR): quando
+   * presente, ogni turno carica i plugin abilitati sul progetto (copia filtrata
+   * per-run). Assente = nessun plugin, argv storico. */
+  pluginsDir?: string;
   /** Turni massimi del run dell'agente per turno di chat. */
   maxTurns: number;
   /** Timeout (ms) del run dell'agente per turno di chat. */
@@ -303,6 +308,14 @@ export async function runChatTurn(
 
   // 7. Run dell'agente nel worktree read-only (plan mode). Errore/timeout →
   //    messaggio di errore + throw (poller: failed senza retry).
+  // I plugin abilitati sul progetto sono preparati per OGNI turno (copia filtrata
+  // in una dir temporanea fuori dal worktree, liberata nel `finally`): il flag è
+  // session-scoped nel CLI, quindi anche un turno in `--resume` deve ripassarlo.
+  const runPlugins = await openRunPlugins(db, {
+    projectId: job.projectId,
+    ...(deps.pluginsDir !== undefined ? { pluginsDir: deps.pluginsDir } : {}),
+    log: (message) => deps.logger.warn({ jobId: job.id, itemId: payload.itemId }, message),
+  });
   let output: string;
   let cliSessionId: string | undefined;
   try {
@@ -316,6 +329,7 @@ export async function runChatTurn(
       timeoutMs: deps.timeoutMs,
       ...(provider !== undefined ? { provider } : {}),
       ...(entry.cliSessionId !== null ? { resumeSessionId: entry.cliSessionId } : {}),
+      ...runPlugins.options,
     });
     if (result.exitCode !== 0) {
       await insertErrorMessage(db, payload.itemId, lang);
@@ -332,6 +346,9 @@ export async function runChatTurn(
       await insertErrorMessage(db, payload.itemId, lang).catch(() => undefined);
     }
     throw err;
+  } finally {
+    // Il turno è finito (riuscito o no): la copia dei plugin non serve più.
+    await runPlugins.cleanup();
   }
 
   // 8. Successo: aggiorna il cli_session_id se il CLI l'ha riportato (altrimenti

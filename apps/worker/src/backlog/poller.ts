@@ -69,6 +69,10 @@ export interface BacklogDeps {
    * dive e sessioni di analisi ricevono il blocco GRAFO DEL CODICE nel prompt e
    * l'allowlist read-only di graphify (vedi graph/agent-hint.ts). */
   graphsDir?: string;
+  /** Radice del volume dei plugin del registro d'istanza (PLUGINS_DIR): quando
+   * presente, il deep dive carica i plugin abilitati sul progetto (copia
+   * filtrata per-run). Assente = nessun plugin, argv storico. */
+  pluginsDir?: string;
   db: Db;
   embeddingClient: EmbeddingProvider;
   runner: AgentRunner;

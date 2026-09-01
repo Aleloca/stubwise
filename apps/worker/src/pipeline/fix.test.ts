@@ -1,4 +1,4 @@
-import { agentQuestions, agentRuns, aiJobs, automationRules, comments, encrypt, gitAccounts, instanceSettings, projects, repositories, ticketRepositories, tickets, type Db } from "@stubwise/db";
+import { agentQuestions, agentRuns, aiJobs, automationRules, comments, encrypt, gitAccounts, instanceSettings, plugins, projectPlugins, projects, repositories, ticketRepositories, tickets, type Db } from "@stubwise/db";
 import { seedGitAccount, startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { PublishOpts } from "@stubwise/notifications";
 import type { AgentQuestionAnswer } from "@stubwise/shared";
@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { FakeAgentRunner } from "../agent/fake.js";
+import { basePluginPath } from "../plugins/base.js";
 import { AgentTimeoutError } from "../agent/runner.js";
 import { MirrorManager, mirrorSlug } from "../git/mirrors.js";
 import { requeueStale, type AiJob } from "../queue.js";
@@ -3877,5 +3878,174 @@ describe("runFix — domanda dell'agente (ask_user)", () => {
       expect(runner.calls).toHaveLength(1);
       expect(runner.calls[0]!.prompt).not.toContain("decisioni_prese");
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Plugin del registro nei run del fix (fase 3)
+// ---------------------------------------------------------------------------
+
+describe("runFix — plugin del progetto", () => {
+  /** Plugin `ready` materializzato sul finto volume + abilitato sul progetto. */
+  async function seedPlugin(
+    db: Db,
+    fixture: Fixture,
+    pluginsDir: string,
+    disabled: { disabledSkills?: string[]; disabledHooks?: string[] } = {},
+  ): Promise<{ slug: string; sha: string }> {
+    const slug = "plugin-fix";
+    const sha = "a".repeat(40);
+    const dir = join(pluginsDir, slug, sha);
+    await mkdir(join(dir, ".claude-plugin"), { recursive: true });
+    await writeFile(
+      join(dir, ".claude-plugin", "plugin.json"),
+      JSON.stringify({ name: "demo" }),
+      "utf8",
+    );
+    await mkdir(join(dir, "skills", "alpha"), { recursive: true });
+    await writeFile(join(dir, "skills", "alpha", "SKILL.md"), "---\nname: alpha\n---\n", "utf8");
+    await mkdir(join(dir, "skills", "beta"), { recursive: true });
+    await writeFile(join(dir, "skills", "beta", "SKILL.md"), "---\nname: beta\n---\n", "utf8");
+    await writeFile(join(dir, ".mcp.json"), JSON.stringify({ mcpServers: {} }), "utf8");
+    const [row] = await db
+      .insert(plugins)
+      .values({
+        slug,
+        name: "demo",
+        sourceUrl: "https://example.com/org/demo.git",
+        ref: "main",
+        resolvedSha: sha,
+        status: "ready",
+        inventory: {
+          name: "demo",
+          skills: [
+            { name: "alpha", bytes: 10 },
+            { name: "beta", bytes: 10 },
+          ],
+          commands: [],
+          agents: [],
+          hooks: [],
+          hasMcp: true,
+        },
+        materializedAt: new Date(),
+      })
+      .returning({ id: plugins.id });
+    await db
+      .insert(projectPlugins)
+      .values({ projectId: fixture.projectId, pluginId: row!.id, ...disabled });
+    cleanups.push(async () => {
+      await db.delete(plugins);
+    });
+    return { slug, sha };
+  }
+
+  it("TUTTI i run del fix (plan ed execute) ricevono i plugin, col base per primo, e la copia sparisce a fine run", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    const ticket = await createTicket(db, fixture);
+    const job = await createFixingJob(db, ticket.id);
+    const root = await mkdtemp(join(tmpdir(), "stubwise-fix-plugins-"));
+    cleanups.push(() => rm(root, { recursive: true, force: true }));
+    const pluginsDir = join(root, "plugins");
+    // Il plugin BASE non è iniettabile: è quello vero, risolto accanto al
+    // modulo (`apps/worker/plugins/stubwise-base`, che nell'immagine diventa
+    // `/app/plugins/stubwise-base`).
+    const base = basePluginPath();
+    const { slug } = await seedPlugin(db, fixture, pluginsDir, { disabledSkills: ["beta"] });
+    // Contenuto della copia osservato DENTRO il run (dopo, la dir non c'è più).
+    const seen: Array<{ alpha: boolean; beta: boolean; mcp: boolean }> = [];
+    const runner = new FakeAgentRunner({
+      fileChanges: fixChanges(fixture),
+      script: (opts) => {
+        const copy = opts.pluginDirs![1]!;
+        seen.push({
+          alpha: existsSync(join(copy, "skills", "alpha", "SKILL.md")),
+          beta: existsSync(join(copy, "skills", "beta")),
+          mcp: existsSync(join(copy, ".mcp.json")),
+        });
+        return { output: seen.length === 1 ? "PIANO" : "fatto", exitCode: 0 };
+      },
+    });
+
+    const outcome = await runFix(makeDeps(fixture, runner, makeProvider(), { pluginsDir }), job);
+
+    expect(outcome).toBe("pr_opened");
+    expect(runner.calls).toHaveLength(2);
+    // Copia FILTRATA in ogni run: skill accesa presente, skill spenta e
+    // `.mcp.json` assenti.
+    expect(seen).toEqual([
+      { alpha: true, beta: false, mcp: false },
+      { alpha: true, beta: false, mcp: false },
+    ]);
+    for (const call of runner.calls) {
+      // Base PRIMO, poi la COPIA filtrata del plugin del progetto (mai la dir
+      // del volume) — e le stesse identiche opzioni in ogni run.
+      expect(call.pluginDirs).toHaveLength(2);
+      expect(call.pluginDirs?.[0]).toBe(base);
+      expect(call.pluginDirs?.[1]).toMatch(new RegExp(`/plugins/${slug}$`));
+      expect(call.pluginDirs?.[1]).not.toContain(pluginsDir);
+      // La copia sta FUORI dalla cwd del run (parent dir dei worktree).
+      expect(call.pluginDirs?.[1]?.startsWith(call.cwd)).toBe(false);
+      expect(call.disallowedTools).toEqual(["Skill(demo:beta)"]);
+      expect(call.settingSources).toBe("");
+    }
+    // A fine run la dir temporanea è stata rimossa.
+    const copy = runner.calls[0]!.pluginDirs![1]!;
+    expect(existsSync(copy)).toBe(false);
+  });
+
+  it("nessun plugin abilitato → argv storico: niente pluginDirs, niente disallowedTools, niente settingSources", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    const ticket = await createTicket(db, fixture);
+    const job = await createFixingJob(db, ticket.id);
+    const root = await mkdtemp(join(tmpdir(), "stubwise-fix-plugins-"));
+    cleanups.push(() => rm(root, { recursive: true, force: true }));
+    const runner = new FakeAgentRunner({
+      fileChanges: fixChanges(fixture),
+      results: [
+        { output: "PIANO", exitCode: 0 },
+        { output: "fatto", exitCode: 0 },
+      ],
+    });
+
+    await runFix(
+      makeDeps(fixture, runner, makeProvider(), { pluginsDir: join(root, "plugins") }),
+      job,
+    );
+
+    for (const call of runner.calls) {
+      expect(call.pluginDirs).toBeUndefined();
+      expect(call.disallowedTools).toBeUndefined();
+      expect(call.settingSources).toBeUndefined();
+    }
+  });
+
+  it("dir materializzata sparita → il fix procede senza quel plugin e lo dice nel log del job", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    const ticket = await createTicket(db, fixture);
+    const job = await createFixingJob(db, ticket.id);
+    const root = await mkdtemp(join(tmpdir(), "stubwise-fix-plugins-"));
+    cleanups.push(() => rm(root, { recursive: true, force: true }));
+    const pluginsDir = join(root, "plugins");
+    const { slug, sha } = await seedPlugin(db, fixture, pluginsDir);
+    // La dir sparisce dopo la registrazione (finestra TOCTOU della
+    // rimaterializzazione): il run deve proseguire, non fallire.
+    await rm(join(pluginsDir, slug, sha), { recursive: true, force: true });
+    const runner = new FakeAgentRunner({
+      fileChanges: fixChanges(fixture),
+      results: [
+        { output: "PIANO", exitCode: 0 },
+        { output: "fatto", exitCode: 0 },
+      ],
+    });
+
+    const outcome = await runFix(makeDeps(fixture, runner, makeProvider(), { pluginsDir }), job);
+
+    expect(outcome).toBe("pr_opened");
+    expect(runner.calls[0]!.pluginDirs).toBeUndefined();
+    const jobAfter = await getJob(db, job.id);
+    expect(jobAfter.log).toContain(slug);
   });
 });

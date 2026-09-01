@@ -32,6 +32,7 @@ import { mirrorSlug, MirrorManager, type MirrorProject } from "../git/mirrors.js
 import { GRAPHIFY_AGENT_ALLOWED_TOOLS, resolveRepoGraphJson } from "../graph/agent-hint.js";
 import type { ResolvedProvider } from "../providers/chain.js";
 import { isLimitError, ProviderLimitError } from "../providers/limit.js";
+import { openRunPlugins } from "../plugins/materialize-run.js";
 import {
   appendLog,
   clearCliSessionId,
@@ -321,6 +322,11 @@ export interface FixDeps extends NotifyDeps {
    * `AGENT_QUESTION_MAX_ROUNDS` (config del worker); omesso, vale il default di
    * ./ask-user.ts (5). */
   questionMaxRounds?: number;
+  /** Radice del volume dei plugin del registro d'istanza (`PLUGINS_DIR`):
+   * quando presente, i plugin abilitati sul progetto vengono copiati filtrati
+   * nella dir temporanea del run e passati a TUTTI i suoi run (plan, ripresa,
+   * esecuzione, self-repair). Assente = nessun plugin, argv storico. */
+  pluginsDir?: string;
 }
 
 export type FixOutcome =
@@ -1074,6 +1080,28 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     );
   }
 
+  // PLUGIN DEL PROGETTO: preparati UNA VOLTA per run e passati a tutti e quattro
+  // i run dell'agente (pianificazione, ripresa `--resume`, esecuzione,
+  // self-repair) — un plugin che compare a metà run cambierebbe le regole del
+  // gioco fra il piano e la sua esecuzione. Le copie filtrate vivono in una dir
+  // temporanea di sistema, FUORI dalla cwd (che nei run multi-repo è la parent
+  // dir dei worktree: qualunque cosa ci finisse dentro l'agente la vedrebbe come
+  // file del progetto, fino a un `git add`), e sono liberate nel `finally` del
+  // blocco che avvolge tutti i run. `pluginOpt` è VUOTA quando non c'è nessun
+  // plugin abilitato: l'argv resta identico a quello di prima.
+  //
+  // NB: la preparazione sta QUI, subito prima del blocco che la ripulisce, e non
+  // fra le altre "opt": in mezzo non deve poterci essere nessun `await` capace di
+  // lanciare, o la dir temporanea resterebbe in giro.
+  const runPlugins = await openRunPlugins(db, {
+    projectId: ticket.projectId,
+    ...(deps.pluginsDir !== undefined ? { pluginsDir: deps.pluginsDir } : {}),
+    // Il log del degrado va nel log del JOB: è lì che si guarda quando un run
+    // "non ha usato" un plugin che invece risultava abilitato.
+    log: (message) => appendLog(db, job.id, message),
+  });
+  const pluginOpt = runPlugins.options;
+
   // Un repo effettivamente MODIFICATO dall'agente e già pushato: raccoglie ciò che
   // serve, FUORI dalla callback, per aprire la PR e inserire la riga
   // `ticket_repositories`. Il push avviene DENTRO la callback (il ref vive nel
@@ -1207,6 +1235,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
       ...planAllowedToolsOpt,
       ...askUserOpt,
       ...providerOpt,
+      ...pluginOpt,
     });
     fixUsages.push(resumeResult.usage);
     if (isLimitError(resumeResult)) throw new ProviderLimitError(resumeResult.output);
@@ -1281,6 +1310,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
       ...planAllowedToolsOpt,
       ...askUserOpt,
       ...providerOpt,
+      ...pluginOpt,
     });
     fixUsages.push(planResult.usage);
     // LIMITE di rate/usage (best-effort), PRIMA di qualunque effetto: la
@@ -1479,6 +1509,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
             timeoutMs,
             allowedTools: executeAllowedTools,
             ...providerOpt,
+            ...pluginOpt,
           });
           output = result.output;
           exitCode = result.exitCode;
@@ -1627,6 +1658,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
                 timeoutMs,
                 allowedTools,
                 ...providerOpt,
+                ...pluginOpt,
               });
               fixUsages.push(repair.usage);
               // LIMITE di rate/usage (best-effort): PRIMA del commit/push finale.
@@ -1750,6 +1782,12 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     await failJob(db, job.id, { log: `[fix] errore: ${message}`, error: message });
     await notifyFailed(message);
     return "failed";
+  } finally {
+    // Le copie filtrate dei plugin servono a TUTTI i run dell'agente, che stanno
+    // tutti dentro il blocco qui sopra: qui il loro lavoro è finito, qualunque
+    // sia l'esito (piano, esecuzione, domanda, limite, fallimento). La dir
+    // temporanea sparisce col run, come il file di config MCP del runner.
+    await runPlugins.cleanup();
   }
 
   // Run riusciti: registra i consumi di TUTTI i run (best-effort) prima di

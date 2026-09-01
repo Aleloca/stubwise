@@ -4,6 +4,8 @@ import {
   backlogItems,
   encrypt,
   gitAccounts,
+  plugins,
+  projectPlugins,
   projects,
   repositories,
   type Db,
@@ -11,8 +13,13 @@ import {
 import { startTestDb, type TestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import { randomBytes, randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { AgentRunner, AgentRunOptions, AgentRunResult } from "../agent/runner.js";
+import { basePluginPath } from "../plugins/base.js";
 import type { ResolvedProvider } from "../providers/chain.js";
 import { normalizeAnalysisHeadings, runDeepDive, upsertAnalysisSection } from "./deep-dive.js";
 import { MalformedBacklogPayloadError, type BacklogDeps, type BacklogJob } from "./poller.js";
@@ -39,6 +46,66 @@ afterAll(async () => {
 });
 
 const silentLogger = { warn: () => {}, error: () => {} };
+
+/** Ripuliture registrate dai test (volumi finti dei plugin). */
+const cleanups: Array<() => Promise<void>> = [];
+
+afterEach(async () => {
+  while (cleanups.length > 0) await cleanups.pop()?.();
+});
+
+/**
+ * Plugin `ready` materializzato su un finto volume e abilitato sul progetto.
+ * Ritorna la radice del volume e lo slug; la dir temporanea è ripulita da
+ * `cleanups`. Gemello identico in chat-turn.test.ts: i due file duplicano già i
+ * propri fake (mirrors, progetto+repo, logger) e restano leggibili da soli.
+ */
+async function seedEnabledPlugin(
+  db: Db,
+  projectId: string,
+): Promise<{ pluginsDir: string; slug: string }> {
+  const root = await mkdtemp(join(tmpdir(), "stubwise-plugin-backlog-"));
+  cleanups.push(() => rm(root, { recursive: true, force: true }));
+  const pluginsDir = join(root, "plugins");
+  const slug = "plugin-backlog";
+  const sha = "a".repeat(40);
+  const dir = join(pluginsDir, slug, sha);
+  await mkdir(join(dir, ".claude-plugin"), { recursive: true });
+  await writeFile(
+    join(dir, ".claude-plugin", "plugin.json"),
+    JSON.stringify({ name: "demo" }),
+    "utf8",
+  );
+  await mkdir(join(dir, "skills", "alpha"), { recursive: true });
+  await writeFile(join(dir, "skills", "alpha", "SKILL.md"), "---\nname: alpha\n---\n", "utf8");
+  const [row] = await db
+    .insert(plugins)
+    .values({
+      slug,
+      name: "demo",
+      sourceUrl: "https://example.com/org/demo.git",
+      ref: "main",
+      resolvedSha: sha,
+      status: "ready",
+      inventory: {
+        name: "demo",
+        skills: [{ name: "alpha", bytes: 10 }],
+        commands: [],
+        agents: [],
+        hooks: [],
+        hasMcp: false,
+      },
+      materializedAt: new Date(),
+    })
+    .returning({ id: plugins.id });
+  await db
+    .insert(projectPlugins)
+    .values({ projectId, pluginId: row!.id, disabledSkills: ["alpha"] });
+  cleanups.push(async () => {
+    await db.delete(plugins);
+  });
+  return { pluginsDir, slug };
+}
 
 /** Runner che cattura le opzioni dell'ultimo run e restituisce un output fisso. */
 function fakeRunner(output: string, exitCode = 0): AgentRunner & { calls: AgentRunOptions[] } {
@@ -277,6 +344,44 @@ describe("runDeepDive — successo", () => {
     expect(msg!.role).toBe("system");
     expect(msg!.content).toContain("Technical analysis completed");
     expect(msg!.content).toContain("Repo deep dive");
+  });
+
+  it("i plugin abilitati sul progetto arrivano al run (base per primo, deny rule, copia liberata)", async () => {
+    const db = testDb.db;
+    const { projectId, repositoryId } = await createProjectWithRepo(db);
+    const itemId = await createItem(db, projectId, { document: "## Contesto\nx" });
+    const { pluginsDir, slug } = await seedEnabledPlugin(db, projectId);
+    const runner = fakeRunner(DEEP_DIVE_JSON);
+
+    await runDeepDive(makeDeps(db, { runner, pluginsDir }), fakeJob(projectId), {
+      itemId,
+      repositoryId,
+    });
+
+    const call = runner.calls[0]!;
+    expect(call.pluginDirs?.[0]).toBe(basePluginPath());
+    expect(call.pluginDirs?.[1]).toMatch(new RegExp(`/plugins/${slug}$`));
+    expect(call.pluginDirs?.[1]).not.toContain(pluginsDir);
+    expect(call.disallowedTools).toEqual(["Skill(demo:alpha)"]);
+    expect(call.settingSources).toBe("");
+    // La copia sparisce con la fine del run.
+    expect(existsSync(call.pluginDirs![1]!)).toBe(false);
+  });
+
+  it("senza plugin abilitati il run resta identico a prima (nessun flag)", async () => {
+    const db = testDb.db;
+    const { projectId, repositoryId } = await createProjectWithRepo(db);
+    const itemId = await createItem(db, projectId, {});
+    const runner = fakeRunner(DEEP_DIVE_JSON);
+
+    await runDeepDive(
+      makeDeps(db, { runner, pluginsDir: join(tmpdir(), "stubwise-plugins-inesistente") }),
+      fakeJob(projectId),
+      { itemId, repositoryId },
+    );
+
+    expect(runner.calls[0]!.pluginDirs).toBeUndefined();
+    expect(runner.calls[0]!.settingSources).toBeUndefined();
   });
 
   it("una modifica dell'utente DURANTE il run sopravvive (upsert sul documento fresco, no lost update)", async () => {

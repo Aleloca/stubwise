@@ -15,6 +15,7 @@ import {
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import type { AgentRunResult } from "../agent/runner.js";
+import { openRunPlugins } from "../plugins/materialize-run.js";
 import type { MirrorProject } from "../git/mirrors.js";
 import { GRAPHIFY_AGENT_ALLOWED_TOOLS, resolveRepoGraphJson } from "../graph/agent-hint.js";
 import { getContentLanguage } from "../settings.js";
@@ -296,25 +297,40 @@ export async function runDeepDive(
     deps.graphsDir !== undefined
       ? resolveRepoGraphJson(deps.graphsDir, payload.repositoryId)
       : null;
-  const result = await deps.mirrors.withWorktreeAtSha(ctx.mirrorProject, headSha, (dir) =>
-    deps.runner.run({
-      cwd: dir,
-      prompt: buildDeepDivePrompt({
-        title: item.title,
-        document: item.document,
-        effort: item.effort,
-        risk: item.risk,
-        urgency: item.urgency,
-        ...(graphJsonPath !== null ? { graphJsonPath } : {}),
+  // Plugin abilitati sul progetto: copie filtrate in una dir temporanea FUORI
+  // dal worktree (che è la cwd del run), liberate nel `finally`. Il deep dive è
+  // nel perimetro dei run con plugin come la pianificazione del fix: è
+  // un'analisi del codice, ed è lì che le skill di terze parti servono.
+  const runPlugins = await openRunPlugins(db, {
+    projectId: job.projectId,
+    ...(deps.pluginsDir !== undefined ? { pluginsDir: deps.pluginsDir } : {}),
+    log: (message) => deps.logger.warn({ jobId: job.id, itemId: payload.itemId }, message),
+  });
+  let result: AgentRunResult;
+  try {
+    result = await deps.mirrors.withWorktreeAtSha(ctx.mirrorProject, headSha, (dir) =>
+      deps.runner.run({
+        cwd: dir,
+        prompt: buildDeepDivePrompt({
+          title: item.title,
+          document: item.document,
+          effort: item.effort,
+          risk: item.risk,
+          urgency: item.urgency,
+          ...(graphJsonPath !== null ? { graphJsonPath } : {}),
+        }),
+        ...(graphJsonPath !== null ? { allowedTools: GRAPHIFY_AGENT_ALLOWED_TOOLS } : {}),
+        ...(deps.model !== undefined ? { model: deps.model } : {}),
+        permissionMode: "plan",
+        maxTurns: deps.deepDiveMaxTurns,
+        timeoutMs: deps.agentTimeoutMs,
+        ...(provider !== undefined ? { provider } : {}),
+        ...runPlugins.options,
       }),
-      ...(graphJsonPath !== null ? { allowedTools: GRAPHIFY_AGENT_ALLOWED_TOOLS } : {}),
-      ...(deps.model !== undefined ? { model: deps.model } : {}),
-      permissionMode: "plan",
-      maxTurns: deps.deepDiveMaxTurns,
-      timeoutMs: deps.agentTimeoutMs,
-      ...(provider !== undefined ? { provider } : {}),
-    }),
-  );
+    );
+  } finally {
+    await runPlugins.cleanup();
+  }
 
   // 6. Parse difensivo: exit ≠ 0 o output non conforme → throw (retry).
   const parsed = parseAgentJson(outputOrThrow(result), deepDiveOutputSchema);

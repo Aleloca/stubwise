@@ -54,6 +54,10 @@ export interface HandlerDeps {
   /** Radice del volume dei knowledge graph (GRAPHS_DIR): passata al fix per il
    * blocco CODE GRAPH nei prompt (vedi graph/agent-hint.ts). */
   graphsDir?: string;
+  /** Radice del volume dei plugin del registro d'istanza (PLUGINS_DIR): passata
+   * al fix, che ci prepara la copia filtrata dei plugin abilitati sul progetto.
+   * Assente = nessun plugin nei run (argv storico). */
+  pluginsDir?: string;
   /** Override delle opzioni di triage (model/maxTurns/timeoutMs). */
   triage?: { model?: string; maxTurns?: number; timeoutMs?: number };
   /** Override delle opzioni di fix (modelli, due fasi, timeout, allowedTools,
@@ -105,6 +109,7 @@ async function runJobWithProvider(
     encryptionKey: deps.encryptionKey,
     ...(deps.getProviderFn ? { getProviderFn: deps.getProviderFn } : {}),
     ...(deps.graphsDir !== undefined ? { graphsDir: deps.graphsDir } : {}),
+    ...(deps.pluginsDir !== undefined ? { pluginsDir: deps.pluginsDir } : {}),
     ...providerOpt,
     ...notifyOpts,
     ...deps.fix,

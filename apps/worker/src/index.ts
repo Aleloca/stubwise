@@ -142,6 +142,9 @@ const handler = createHandler(
     mirrors,
     encryptionKey: config.encryptionKey,
     graphsDir: config.graphsDir,
+    // Volume dei plugin del registro d'istanza (fase 3): i run del fix caricano
+    // i plugin abilitati sul progetto (copia filtrata per-run).
+    pluginsDir: config.pluginsDir,
     // URL pubblico per i link nelle notifiche webhook (vuoto = solo path).
     publicUrl: config.publicUrl,
     fix: {
@@ -402,6 +405,8 @@ startBacklogPoller({
   logger: backlogLogger,
   encryptionKey: config.encryptionKey,
   graphsDir: config.graphsDir,
+  // Volume dei plugin (fase 3): il deep dive è nel perimetro dei run con plugin.
+  pluginsDir: config.pluginsDir,
   mergeThreshold: config.backlogMergeThreshold,
   similarThreshold: config.backlogSimilarThreshold,
   model: config.backlogModel,
@@ -433,6 +438,8 @@ startChatTurnPoller({
   logger: backlogLogger,
   encryptionKey: config.encryptionKey,
   graphsDir: config.graphsDir,
+  // Volume dei plugin (fase 3): la sessione di analisi è nel perimetro.
+  pluginsDir: config.pluginsDir,
   model: config.backlogModel,
   maxTurns: config.backlogChatTurnMaxTurns,
   timeoutMs: config.backlogChatTurnTimeoutMs,
