@@ -463,6 +463,13 @@
       "when": 1785142627676,
       "tag": "0065_project_pulse",
       "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1785142628676,
+      "tag": "0066_plugin_registry",
+      "breakpoints": true
     }
   ]
 }

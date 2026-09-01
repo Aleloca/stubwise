@@ -4,6 +4,7 @@ import {
   type BacklogJobPayload,
   type BacklogSuggested,
   type DiscoveredService,
+  type PluginInventory,
   backlogCodeSessionStatusSchema,
   backlogItemSourceSchema,
   backlogItemStatusSchema,
@@ -2585,3 +2586,133 @@ export const agentQuestions = pgTable(
 
 /** Riga di `agent_questions`: una domanda dell'agente e la risposta umana. */
 export type AgentQuestion = typeof agentQuestions.$inferSelect;
+
+/**
+ * REGISTRO PLUGIN d'istanza (fase 3): repo git pubblici pinnati a uno sha,
+ * materializzati dal worker su un volume (`/plugins/<slug>/<sha>/`) e passati
+ * ai run dell'agente con `--plugin-dir`. Qui vive solo il METADATO: i file del
+ * plugin stanno sul volume, che il server non monta affatto (legge `inventory`
+ * dal DB). Il registro è d'istanza, non di progetto: `project_plugins` dice chi
+ * lo usa.
+ *
+ * `status` segue la materializzazione asincrona; `smokeStatus` è l'esito
+ * separato dello smoke run che verifica che le skill siano davvero visibili
+ * all'agente (un plugin materializzato ma invisibile al CLI sarebbe un no-op
+ * silenzioso). Al `ready` vengono valorizzati `resolvedSha`, `inventory` e
+ * `materializedAt`.
+ */
+export const plugins = pgTable("plugins", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  // Identità stabile del plugin nella UI e NEL PERCORSO sul volume
+  // (`/plugins/<slug>/<sha>/`): derivato dalla sorgente alla registrazione.
+  slug: text("slug").notNull().unique(),
+  name: text("name").notNull(),
+  // Sorgente https pubblica (il fetch gira senza auth): la validazione dello
+  // schema — https, niente credenziali nell'URL — è in `@stubwise/shared`.
+  sourceUrl: text("source_url").notNull(),
+  // Sottocartella del repo che contiene il plugin (monorepo di plugin). Null =
+  // il plugin è la radice della checkout.
+  sourceSubdir: text("source_subdir"),
+  // Ref richiesto dall'utente (tag, branch, sha): è ciò che si aggiorna.
+  ref: text("ref").notNull(),
+  // Sha a cui il ref è stato risolto dall'ultimo fetch riuscito: il pin in uso è
+  // sempre uno sha, mai un ref mobile. Null finché mai materializzato.
+  resolvedSha: text("resolved_sha"),
+  // Colonna `text` con enum compile-time (come `repo_graphs.status`): nessun
+  // enum Postgres, nessun CHECK.
+  status: text("status", { enum: ["none", "materializing", "ready", "failed"] })
+    .notNull()
+    .default("none"),
+  // Inventario costruito DAL WORKER leggendo la dir materializzata (skill,
+  // comandi, agenti, hook, presenza di .mcp.json). Tipato sullo schema
+  // condiviso: worker che scrive, server che espone e SPA che disegna nascono
+  // dalla stessa dichiarazione. Chi LEGGE resta difensivo (il jsonb può venire
+  // da una versione precedente del formato).
+  inventory: jsonb("inventory").$type<PluginInventory>(),
+  // Motivo dell'ultima materializzazione fallita, mostrato in UI.
+  error: text("error"),
+  smokeStatus: text("smoke_status", { enum: ["idle", "pending", "passed", "failed"] })
+    .notNull()
+    .default("idle"),
+  smokeError: text("smoke_error"),
+  materializedAt: timestamp("materialized_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Coda di job del registro plugin: `materialize` (fetch + checkout + validate +
+ * inventario) o `smoke` (run di verifica che le skill siano visibili al CLI).
+ * Il poller del worker li claima con `FOR UPDATE SKIP LOCKED` in ordine FIFO.
+ */
+export const pluginJobs = pgTable(
+  "plugin_jobs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    pluginId: uuid("plugin_id")
+      .notNull()
+      .references(() => plugins.id, { onDelete: "cascade" }),
+    kind: text("kind", { enum: ["materialize", "smoke"] }).notNull(),
+    status: text("status", { enum: ["queued", "running", "done", "failed"] })
+      .notNull()
+      .default("queued"),
+    attempts: integer("attempts").notNull().default(0),
+    error: text("error"),
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // Al più un job ATTIVO per (plugin, kind). Indice unico PARZIALE (come
+    // `graph_jobs_active_unique`): i job done/failed non partecipano, quindi lo
+    // storico può accumulare N materializzazioni sullo stesso plugin. È ciò che
+    // impedisce due materializzazioni concorrenti della stessa dir.
+    uniqueIndex("plugin_jobs_active_unique")
+      .on(table.pluginId, table.kind)
+      .where(sql`status IN ('queued', 'running')`),
+    // Claim del worker: il job in coda più vecchio (FIFO). Indice PARZIALE: resta
+    // minuscolo perché copre solo i job ancora `queued`.
+    index("plugin_jobs_queued_created_at_idx")
+      .on(table.createdAt)
+      .where(sql`status = 'queued'`),
+  ],
+);
+
+/**
+ * Abilitazioni per progetto, con gli spegnimenti a grana fine. Spegnere è per
+ * SOTTRAZIONE (default: tutto acceso) perché l'inventario può crescere con un
+ * aggiornamento del plugin: `disabled_skills` sono nomi di skill,
+ * `disabled_hooks` chiavi `<Evento>#<indice>` (es. `SessionStart#0`). Sono le
+ * voci che il worker TOGLIE dalla copia filtrata del plugin per quel run — non
+ * esiste una disabilitazione nativa del CLI per la singola skill di un plugin.
+ */
+export const projectPlugins = pgTable(
+  "project_plugins",
+  {
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    pluginId: uuid("plugin_id")
+      .notNull()
+      .references(() => plugins.id, { onDelete: "cascade" }),
+    enabled: boolean("enabled").notNull().default(true),
+    disabledSkills: text("disabled_skills").array().notNull().default([]),
+    disabledHooks: text("disabled_hooks").array().notNull().default([]),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.projectId, table.pluginId] })],
+);
+
+/**
+ * Riga di `plugins`: un plugin del registro d'istanza.
+ *
+ * Suffisso `Row` (unico nello schema) perché `Plugin` in `@stubwise/shared` è
+ * già la PROIEZIONE PUBBLICA del plugin (date ISO, inventario validato): sono
+ * due tipi diversi, e un file del server che li usa entrambi non deve dover
+ * aliasare l'import. Stesso motivo per `ProjectPluginRow`.
+ */
+export type PluginRow = typeof plugins.$inferSelect;
+/** Riga di `plugin_jobs`: un job di materializzazione o smoke in coda. */
+export type PluginJob = typeof pluginJobs.$inferSelect;
+/** Riga di `project_plugins`: l'abilitazione di un plugin su un progetto. */
+export type ProjectPluginRow = typeof projectPlugins.$inferSelect;
