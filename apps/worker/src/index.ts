@@ -21,6 +21,7 @@ import { startGraphPoller } from "./graph/poller.js";
 import { createHandler, createProjectSerializer } from "./handler.js";
 import { startMonitorAlertPoller } from "./monitor/alerts.js";
 import { startDeliveriesPoller } from "./notify/deliveries-poller.js";
+import { startPluginPoller } from "./plugins/poller.js";
 import { startMonitorRollupPoller } from "./monitor/rollup.js";
 import { startLimitResumePoller } from "./providers/limit-resume-poller.js";
 import { startPulsePoller } from "./pulse/poller.js";
@@ -480,6 +481,33 @@ startGraphPoller({
   signal: controller.signal,
 });
 
+// Poller del REGISTRO PLUGIN: task SEPARATO dal loop dei job, sul proprio
+// intervallo. Reclama i `plugin_jobs` e fa due cose: materializza un plugin
+// registrato dall'admin in <PLUGINS_DIR>/<slug>/<sha> (fetch senza auth, guard
+// sui symlink, `claude plugin validate --strict`, inventario, potatura degli sha
+// vecchi e degli spegnimenti orfani) ed esegue lo smoke run che verifica che le
+// sue skill siano davvero visibili al CLI. NON usa il serializer per-progetto:
+// il registro è d'istanza e non tocca mirror né worktree; la mutua esclusione
+// sulla stessa dir la dà l'indice unico parziale della coda. È BEST-EFFORT (non
+// fa mai crashare il worker) e NON tocca il lock/heartbeat né i timeout dei job.
+// Si ferma sullo stesso AbortSignal.
+const pluginLogger = {
+  info: (obj: unknown, msg?: string) =>
+    console.error(`[stubwise-worker] ${msg ?? "plugins: info"}`, obj),
+  warn: (obj: unknown, msg?: string) =>
+    console.error(`[stubwise-worker] ${msg ?? "plugins: warning"}`, obj),
+  error: (obj: unknown, msg?: string) =>
+    console.error(`[stubwise-worker] ${msg ?? "plugins: error"}`, obj),
+};
+startPluginPoller({
+  db,
+  pluginsDir: config.pluginsDir,
+  encryptionKey: config.encryptionKey,
+  logger: pluginLogger,
+  intervalSeconds: config.pluginPollSeconds,
+  signal: controller.signal,
+});
+
 // Poller di ROLLUP + retention delle metriche di monitoraggio: task SEPARATO
 // dal loop dei job, sul proprio intervallo. Aggrega i campioni fini oltre le
 // 48h in bucket da 5' e applica la retention (tutto in una transazione con
@@ -536,6 +564,7 @@ console.error(
     `, backlog ${config.backlogPollSeconds > 0 ? `ogni ${config.backlogPollSeconds}"` : "disabilitato"}` +
     `, backlog-chat-turn ${config.backlogChatTurnPollSeconds > 0 ? `ogni ${config.backlogChatTurnPollSeconds}" (ttl ${config.backlogChatSessionTtlMinutes}')` : "disabilitato"}` +
     `, graph ${config.graphPollSeconds > 0 ? `ogni ${config.graphPollSeconds}"` : "disabilitato"}` +
+    `, plugins ${config.pluginPollSeconds > 0 ? `ogni ${config.pluginPollSeconds}" (in ${config.pluginsDir})` : "disabilitato"}` +
     `, monitor-rollup ${config.monitorRollupIntervalMinutes > 0 ? `ogni ${config.monitorRollupIntervalMinutes}'` : "disabilitato"}` +
     `, monitor-alert ${config.monitorAlertIntervalMinutes > 0 ? `ogni ${config.monitorAlertIntervalMinutes}'` : "disabilitato"}` +
     `, pulse ${config.pulsePollMinutes > 0 ? `ogni ${config.pulsePollMinutes}' (finestra ${config.pulseSendHour}:00 ${config.pulseTimezone}${config.pulseWeekdaysOnly ? ", feriali" : ""})` : "disabilitato"})`,

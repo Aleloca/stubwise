@@ -666,6 +666,31 @@ const envSchema = z.object({
       .min(0, "deve essere un intero ≥ 0 in secondi (es. 20; 0 = disabilitato)")
       .default(20),
   ),
+  // Radice del VOLUME dei plugin Claude Code del registro d'istanza: il worker
+  // ci materializza `<PLUGINS_DIR>/<slug>/<sha>/` ed è l'UNICO a montarlo (il
+  // server non lo vede: legge l'inventario dal DB).
+  PLUGINS_DIR: z.preprocess(
+    emptyAsUndefined,
+    z
+      .string({ error: "deve essere il path della directory dei plugin" })
+      .min(1)
+      .default("/plugins"),
+  ),
+  // Intervallo di poll (secondi) del poller della coda `plugin_jobs` (task
+  // separato dal loop dei job, vedi plugins/poller.ts): materializza i plugin
+  // registrati dall'admin ed esegue lo smoke run che verifica che le loro skill
+  // siano visibili all'agente. È BEST-EFFORT e non tocca i timeout dei job.
+  // 0 = disabilitato (nessuna materializzazione parte: è il rollback della
+  // feature — il registro resta com'è e i run non vedono plugin nuovi).
+  // Default 20".
+  PLUGIN_POLL_SECONDS: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 0 in secondi (es. 20; 0 = disabilitato)" })
+      .int("deve essere un intero ≥ 0 in secondi (es. 20; 0 = disabilitato)")
+      .min(0, "deve essere un intero ≥ 0 in secondi (es. 20; 0 = disabilitato)")
+      .default(20),
+  ),
   // Intervallo di poll (secondi) del poller dell'OUTBOX delle notifiche
   // (`notification_deliveries`, vedi notify/deliveries-poller.ts): reclama le
   // consegne dovute e le spedisce sul loro canale (oggi il webhook d'istanza).
@@ -884,6 +909,11 @@ export interface WorkerConfig {
   /** Intervallo in secondi del poller della coda `graph_jobs` (default 20;
    * 0 = disabilitato). */
   graphPollSeconds: number;
+  /** Radice del volume dei plugin del registro d'istanza (default "/plugins"). */
+  pluginsDir: string;
+  /** Intervallo in secondi del poller della coda `plugin_jobs` (default 20;
+   * 0 = disabilitato, ed è il rollback della feature). */
+  pluginPollSeconds: number;
   /** Intervallo in secondi del poller dell'outbox delle notifiche
    * (`notification_deliveries`) (default 5; 0 = disabilitato). */
   notifyPollSeconds: number;
@@ -978,6 +1008,8 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     // Minuti → ms: il runner del CLI vuole millisecondi.
     graphBuildTimeoutMs: parsed.GRAPH_BUILD_TIMEOUT_MINUTES * 60_000,
     graphPollSeconds: parsed.GRAPH_POLL_SECONDS,
+    pluginsDir: parsed.PLUGINS_DIR,
+    pluginPollSeconds: parsed.PLUGIN_POLL_SECONDS,
     notifyPollSeconds: parsed.NOTIFY_POLL_SECONDS,
     pulsePollMinutes: parsed.PULSE_POLL_MINUTES,
     pulseTimezone: parsed.PULSE_TIMEZONE,

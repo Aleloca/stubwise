@@ -135,6 +135,16 @@ ENV MIRRORS_DIR=/var/stubwise/mirrors
 RUN mkdir -p /graphs && chown worker:worker /graphs
 ENV GRAPHS_DIR=/graphs
 
+# Directory dei plugin Claude Code del registro d'istanza (volume `claude-plugins`
+# nel compose). Stessa ragione di ownership dei due volumi qui sopra: va creata
+# con owner worker PRIMA di USER, altrimenti al primo mount Docker la crea
+# root-owned e il worker (uid 10001) non può materializzarci i plugin.
+# NB: /plugins (volume, plugin di terze parti materializzati) è un'altra cosa da
+# /app/plugins (il plugin BASE bundlato nell'immagine, vedi la COPY qui sopra):
+# il server non monta né l'uno né l'altro.
+RUN mkdir -p /plugins && chown worker:worker /plugins
+ENV PLUGINS_DIR=/plugins
+
 # Directory di config di claude (montata come volume claude-config nel compose).
 # Va creata con ownership worker PRIMA che USER cambi: un volume nominato vuoto
 # eredita l'ownership della dir dell'immagine al primo mount, altrimenti Docker

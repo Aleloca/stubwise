@@ -264,6 +264,16 @@ services:
       # stesso claude CLI del worker). false = grafo valido coi placeholder
       # "Community N", senza spendere chiamate LLM.
       - GRAPH_LABEL_ENABLED=${GRAPH_LABEL_ENABLED:-true}
+      # --- Registro plugin/skill Claude Code (d'istanza) ---
+      # Il worker materializza i plugin registrati dall'admin in
+      # <PLUGINS_DIR>/<slug>/<sha>/ sul volume `claude-plugins` (unico a
+      # montarlo: il server legge l'inventario dal DB). Il path DEVE coincidere
+      # col mount qui sotto.
+      - PLUGINS_DIR=/plugins
+      # Poller della coda plugin_jobs, in secondi: materializzazione + smoke run.
+      # 0 = disabilitato (nessuna materializzazione parte): è il rollback della
+      # feature, il registro resta com'è.
+      - PLUGIN_POLL_SECONDS=${PLUGIN_POLL_SECONDS:-20}
       # --- Auth del CLI claude ---
       # Metodo raccomandato: gestisci le credenziali in Settings -> AI providers
       # (catena cifrata nel DB, con failover). Le due righe pass-through qui sotto
@@ -279,6 +289,9 @@ services:
       - claude-config:/home/worker/.claude
       # Output di graphify: il worker ci SCRIVE (unico produttore).
       - graphs:/graphs
+      # Plugin Claude Code del registro: il worker li materializza e li legge,
+      # nessun altro servizio lo monta.
+      - claude-plugins:/plugins
     # Limiti di risorse: un agent build puo' durare ~30 min e clonare/buildare
     # repo grandi. Senza tetti, un run impazzito affamerebbe postgres/caddy
     # sullo stesso host. Valori conservativi e TUNABLE in base alla macchina e
@@ -351,3 +364,8 @@ volumes:
   # scritti dal worker, rigenerati a ogni build. Non sono un dato di verità (si
   # possono ricostruire dai mirror), ma persisterli evita di rifare il lavoro.
   graphs:
+  # Plugin Claude Code del registro d'istanza, materializzati dal worker a sha
+  # (`<slug>/<sha>/`). Ricostruibili dal registro (sorgente e ref stanno nel DB),
+  # ma persisterli evita di rifetchare a ogni riavvio. Solo il worker lo monta:
+  # il server legge l'inventario dal DB e non ha bisogno dei file.
+  claude-plugins:
