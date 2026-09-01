@@ -149,8 +149,10 @@ services:
       # WORKER_CONCURRENCY (i job concorrenti si contendono le connessioni).
       - DATABASE_POOL_MAX=${DATABASE_POOL_MAX:-10}
       # Deve superare l'invariante verificato all'avvio del worker. Con fix a
-      # due fasi + self-repair: install(10', una volta) + plan(10') + fix(30') +
-      # self-repair 2x(fix 30' + test 5') + 2x triage(2') + margine(5') ~= 129'.
+      # due fasi + self-repair: install(10', una volta) + 2x plan(10', la
+      # ripresa da una risposta puo' lanciare un --resume fallito piu' il
+      # fallback pieno) + fix(30') + self-repair 2x(fix 30' + test 5') +
+      # 2x triage(2') + margine(5') ~= 139'.
       # Default 150. Se abbassi SELF_REPAIR_MAX_ATTEMPTS l'invariante cala e puoi
       # ridurlo.
       - WORKER_STALE_MINUTES=${WORKER_STALE_MINUTES:-150}

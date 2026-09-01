@@ -60,9 +60,10 @@ const envSchema = z.object({
   // heartbeat oltre questo limite è orfano di un worker crashato e torna in
   // coda. Deve restare > del tempo massimo di un job: vedi l'invariante
   // verificata in index.ts. Min 1; il default 150 min supera con margine
-  // l'invariante col fix in due fasi (plan 10' + fix 30') PIÙ il loop di
-  // self-repair (2 RE-tentativi × (fix 30' + test 5') = 70') + install (una
-  // volta) 10' + 2× triage 2' + margine 5' ≈ 129'.
+  // l'invariante col fix in due fasi (2× plan 10' — la ripresa da una risposta
+  // può lanciare un run `--resume` fallito PIÙ il fallback pieno — + fix 30')
+  // PIÙ il loop di self-repair (2 RE-tentativi × (fix 30' + test 5') = 70') +
+  // install (una volta) 10' + 2× triage 2' + margine 5' ≈ 139'.
   WORKER_STALE_MINUTES: z.preprocess(
     emptyAsUndefined,
     z.coerce
