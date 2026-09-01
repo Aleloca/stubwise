@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { t } from "@stubwise/i18n";
 import { buildApp } from "../app.js";
 import {
+  agentQuestions,
   aiJobs,
   backlogJobs,
   comments,
@@ -2546,5 +2547,136 @@ describe("GET /api/tickets/:id — campi design/piano", () => {
     expect(body.body).toBe("## Design nel detail");
     expect(body.originContent).toBe("Corpo base");
     expect(body.implementationPlan).toBe("## Piano nel detail");
+  });
+});
+
+describe("GET /api/tickets/:id/questions", () => {
+  interface QuestionBody {
+    id: string;
+    jobId: string;
+    round: number;
+    question: string;
+    options: { label: string; consequence?: string }[];
+    recommendedIndex: number | null;
+    allowFreeText: boolean;
+    askedAt: string;
+    answer: { optionIndex?: number; text?: string } | null;
+    answeredAt: string | null;
+    answeredBy: { id: string; email: string } | null;
+  }
+
+  function getQuestions(id: string, cookie = users.memberCookie) {
+    return app.inject({ method: "GET", url: `/api/tickets/${id}/questions`, headers: { cookie } });
+  }
+
+  it("401 senza sessione, 404 su un ticket inesistente", async () => {
+    const anon = await app.inject({
+      method: "GET",
+      url: `/api/tickets/${randomUUID()}/questions`,
+    });
+    expect(anon.statusCode).toBe(401);
+    const missing = await getQuestions(randomUUID());
+    expect(missing.statusCode).toBe(404);
+  });
+
+  it("lista vuota su un ticket senza domande", async () => {
+    const created = (await postTicket({ projectId, title: "Senza Q&A", type: "bug" })).json() as {
+      id: string;
+    };
+    const res = await getQuestions(created.id);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual([]);
+  });
+
+  it("elenca le Q&A in ordine, con l'email di chi ha risposto", async () => {
+    const created = (await postTicket({ projectId, title: "Con Q&A", type: "bug" })).json() as {
+      id: string;
+    };
+    const ticketId = created.id;
+    const [job] = await testDb.db
+      .insert(aiJobs)
+      .values({ ticketId, status: "awaiting_input" })
+      .returning({ id: aiJobs.id });
+    const at = (offsetMs: number) => new Date(Date.UTC(2026, 0, 1, 12, 0, 0) + offsetMs);
+
+    // Inserite fuori ordine: la rotta le riordina per askedAt.
+    await testDb.db.insert(agentQuestions).values([
+      {
+        jobId: job!.id,
+        ticketId,
+        round: 2,
+        question: "E il TTL?",
+        options: [{ label: "Un'ora" }, { label: "Un giorno" }],
+        allowFreeText: false,
+        askedAt: at(2000),
+      },
+      {
+        jobId: job!.id,
+        ticketId,
+        round: 1,
+        question: "Quali colonne?",
+        options: [{ label: "Vecchie", consequence: "Nessuna migrazione" }, { label: "Nuove" }],
+        recommendedIndex: 0,
+        askedAt: at(1000),
+        answer: { optionIndex: 0 },
+        answeredAt: at(1500),
+        answeredByUserId: users.adminId,
+      },
+    ]);
+
+    const res = await getQuestions(ticketId);
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as QuestionBody[];
+    expect(body.map((q) => q.round)).toEqual([1, 2]);
+
+    expect(body[0]).toMatchObject({
+      jobId: job!.id,
+      question: "Quali colonne?",
+      options: [{ label: "Vecchie", consequence: "Nessuna migrazione" }, { label: "Nuove" }],
+      recommendedIndex: 0,
+      allowFreeText: true,
+      answer: { optionIndex: 0 },
+      answeredBy: { id: users.adminId, email: "admin@example.com" },
+    });
+    expect(body[0]!.answeredAt).not.toBeNull();
+
+    // La domanda ancora aperta: nessuna risposta, nessun autore.
+    expect(body[1]).toMatchObject({
+      round: 2,
+      allowFreeText: false,
+      recommendedIndex: null,
+      answer: null,
+      answeredAt: null,
+      answeredBy: null,
+    });
+  });
+
+  it("una risposta illeggibile non fa fallire la lista", async () => {
+    const created = (await postTicket({ projectId, title: "Q&A marcia", type: "bug" })).json() as {
+      id: string;
+    };
+    const ticketId = created.id;
+    const [job] = await testDb.db
+      .insert(aiJobs)
+      .values({ ticketId, status: "queued" })
+      .returning({ id: aiJobs.id });
+    await testDb.db.insert(agentQuestions).values({
+      jobId: job!.id,
+      ticketId,
+      round: 1,
+      question: "Domanda storica",
+      options: [{ label: "A" }, { label: "B" }],
+      // Forma di una versione precedente: non è né `{optionIndex}` né `{text}`.
+      answer: { choice: "A" } as unknown as { text: string },
+      answeredAt: new Date(),
+    });
+
+    const res = await getQuestions(ticketId);
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as QuestionBody[];
+    expect(body).toHaveLength(1);
+    // Degrada a null, ma `answeredAt` dice comunque che una risposta c'è stata.
+    expect(body[0]!.answer).toBeNull();
+    expect(body[0]!.answeredAt).not.toBeNull();
   });
 });

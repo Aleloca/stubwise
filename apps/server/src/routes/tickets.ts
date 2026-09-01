@@ -1,10 +1,13 @@
 import {
+  agentQuestionAnswerSchema,
+  agentQuestionOptionSchema,
   ticketPrioritySchema,
   ticketRepositorySchema,
   ticketSourceSchema,
   ticketStatusSchema,
   ticketTypeSchema,
   setContentSchema,
+  type AgentQuestionAnswer,
   type TicketStatus,
 } from "@stubwise/shared";
 import { and, desc, eq, inArray, or, sql, type SQL } from "drizzle-orm";
@@ -14,6 +17,7 @@ import { z } from "zod";
 import { requireAdmin, requireAuth } from "../auth/session.js";
 import type { Db } from "@stubwise/db";
 import {
+  agentQuestions,
   aiJobs,
   aiJobStatus,
   comments,
@@ -254,6 +258,39 @@ const activityResponseSchema = z.array(
 );
 
 type ActivityItem = z.infer<typeof activityResponseSchema>[number];
+
+/**
+ * Q&A dell'agente su un ticket: la domanda posta e, se c'è, la risposta con chi
+ * l'ha data. `answer` è il jsonb grezzo (`{optionIndex}` o `{text}`): la resa in
+ * parole la fa il client, che ha le `options` qui accanto.
+ */
+const ticketQuestionSchema = z.object({
+  id: z.uuid(),
+  jobId: z.uuid(),
+  round: z.number().int(),
+  question: z.string(),
+  options: z.array(agentQuestionOptionSchema),
+  recommendedIndex: z.number().int().nullable(),
+  allowFreeText: z.boolean(),
+  askedAt: z.iso.datetime(),
+  answer: agentQuestionAnswerSchema.nullable(),
+  answeredAt: z.iso.datetime().nullable(),
+  answeredBy: z.object({ id: z.uuid(), email: z.string() }).nullable(),
+});
+
+const ticketQuestionsResponseSchema = z.array(ticketQuestionSchema);
+
+/**
+ * Ri-valida la risposta letta dal jsonb: `null` se non è (più) leggibile. La
+ * colonna è tipata sulla union ma il DB non la fa rispettare, e una riga scritta
+ * da una versione precedente non deve poter far fallire la serializzazione
+ * dell'intera lista — la stessa difesa che il worker applica nel prompt.
+ */
+function parseStoredAnswer(answer: unknown): AgentQuestionAnswer | null {
+  if (answer == null) return null;
+  const parsed = agentQuestionAnswerSchema.safeParse(answer);
+  return parsed.success ? parsed.data : null;
+}
 
 /** Proiezione pubblica della riga ticket: date serializzate in ISO. */
 function toPublicTicket(row: Ticket): z.infer<typeof ticketSchema> {
@@ -705,6 +742,81 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
       });
       return items;
+    },
+  );
+
+  /**
+   * Q&A dell'agente sul ticket, in ordine cronologico: le domande poste dai run
+   * di pianificazione e le risposte già date. Serve alla pagina ticket, che
+   * mostra la domanda aperta (chi può, risponde) e lo storico di quelle chiuse.
+   *
+   * Sola LETTURA e visibile a chiunque sia autenticato, come `/activity`: la
+   * Q&A è contenuto del ticket. Il permesso di RISPONDERE è un'altra cosa e
+   * vive in `answerQuestion` (il richiedente del run o un maintainer).
+   */
+  app.get(
+    "/:id/questions",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: idParamsSchema,
+        response: {
+          200: ticketQuestionsResponseSchema,
+          404: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params;
+      const [ticket] = await app.db
+        .select({ id: tickets.id })
+        .from(tickets)
+        .where(eq(tickets.id, id));
+      if (!ticket) return apiError(reply, 404, "ticket_not_found", "Ticket not found");
+
+      const rows = await app.db
+        .select({
+          id: agentQuestions.id,
+          jobId: agentQuestions.jobId,
+          round: agentQuestions.round,
+          question: agentQuestions.question,
+          options: agentQuestions.options,
+          recommendedIndex: agentQuestions.recommendedIndex,
+          allowFreeText: agentQuestions.allowFreeText,
+          askedAt: agentQuestions.askedAt,
+          answer: agentQuestions.answer,
+          answeredAt: agentQuestions.answeredAt,
+          answeredById: users.id,
+          answeredByEmail: users.email,
+        })
+        .from(agentQuestions)
+        // LEFT JOIN: `answered_by_user_id` è ON DELETE SET NULL, e una risposta
+        // di un utente cancellato resta una risposta — solo senza un nome.
+        .leftJoin(users, eq(users.id, agentQuestions.answeredByUserId))
+        .where(eq(agentQuestions.ticketId, id))
+        .orderBy(agentQuestions.askedAt, agentQuestions.round);
+
+      return rows.map((row) => ({
+        id: row.id,
+        jobId: row.jobId,
+        round: row.round,
+        question: row.question,
+        options: row.options,
+        recommendedIndex: row.recommendedIndex,
+        allowFreeText: row.allowFreeText,
+        askedAt: row.askedAt.toISOString(),
+        // Il jsonb viene ri-validato prima di uscire: la colonna è tipata sulla
+        // union ma il DB non la fa rispettare, e una riga di una versione
+        // precedente non deve poter far fallire la SERIALIZZAZIONE dell'intera
+        // lista. `answeredAt` dice comunque che una risposta c'è stata.
+        answer: parseStoredAnswer(row.answer),
+        answeredAt: row.answeredAt?.toISOString() ?? null,
+        answeredBy:
+          row.answeredById && row.answeredByEmail
+            ? { id: row.answeredById, email: row.answeredByEmail }
+            : null,
+      }));
     },
   );
 

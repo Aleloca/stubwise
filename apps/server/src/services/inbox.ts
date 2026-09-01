@@ -34,9 +34,11 @@ import {
   type NotificationKind,
   type SnoozeUntil,
 } from "@stubwise/notifications";
+import { inboxQuestionSchema, type InboxQuestion } from "@stubwise/shared";
 import { and, desc, eq, inArray, isNull, ne, sql, type SQL } from "drizzle-orm";
 import { resolvePlan, startRun, type Actor } from "./jobs.js";
 import { mirrorDecision, propagateDecision } from "./notifications-propagation.js";
+import { answerQuestion, type AnswerInput } from "./questions.js";
 
 // Catalogo delle azioni: implementazione in `@stubwise/notifications/actions`
 // (condivisa col worker), ri-esportata qui per i consumatori del servizio.
@@ -59,7 +61,12 @@ export type ExecuteActionError =
   | "invalid_action"
   | "already_handled"
   | "job_in_flight"
-  | "plan_not_pending";
+  | "plan_not_pending"
+  // Errori di `answerQuestion` che non hanno un gemello fra i precedenti: la
+  // risposta non regge contro la domanda persistita, oppure non c'è (più) una
+  // domanda a cui rispondere.
+  | "invalid_answer"
+  | "question_not_pending";
 
 /**
  * Esito di {@link executeAction}. Il ramo di successo porta abbastanza contesto
@@ -106,8 +113,11 @@ export interface ExecuteActionInput {
   notificationId: string;
   action: ActionId;
   actor: Actor;
-  /** Parametri dell'azione: `until` per lo snooze, `instructions` per il rifiuto. */
-  payload?: { until?: SnoozeUntil; instructions?: string };
+  /**
+   * Parametri dell'azione: `until` per lo snooze, `instructions` per il rifiuto,
+   * `answer` per la risposta a una domanda dell'agente.
+   */
+  payload?: { until?: SnoozeUntil; instructions?: string; answer?: AnswerInput };
   /** PUBLIC_URL, inoltrato a `startRun` per i link nelle notifiche che emette. */
   publicUrl?: string;
 }
@@ -174,13 +184,42 @@ export async function executeAction(
 
   if (action === "open") return { ok: false, error: "invalid_action" };
 
-  // `answer` è già nel catalogo (la card e i DM la offrono a chi può
-  // rispondere), ma la sua ESECUZIONE — validare la risposta contro la domanda
-  // persistita, riprendere il job — vive in `answerQuestion`, che non esiste
-  // ancora. Finché non c'è la si rifiuta qui, esplicitamente: lasciarla
-  // scivolare nel ramo delle decisioni sul piano la manderebbe a `runDecision`,
-  // che non saprebbe cosa farne.
-  if (action === "answer") return { ok: false, error: "invalid_action" };
+  // `answer` NON scivola nel ramo delle decisioni sul piano (`runDecision` non
+  // saprebbe cosa farne): ha un servizio suo, `answerQuestion`, che è la sede
+  // unica della risposta — ci passano anche la pagina ticket, che una notifica
+  // in mano non ce l'ha, e i bottoni Slack. Qui si delega e basta: permessi,
+  // validazione, transizione del job e propagazione vivono tutti là.
+  if (action === "answer") {
+    // Il kind deve offrirla: `answer` su un `job.failed` è una richiesta senza
+    // senso (400), non un permesso mancante (403). È la stessa guardia che le
+    // decisioni fanno più sotto, anticipata perché qui si esce subito.
+    if (!kindOffers(row.kind, action)) return { ok: false, error: "invalid_action" };
+    const outcome = await answerQuestion(db, {
+      notificationId: row.id,
+      actor,
+      answer: input.payload?.answer ?? {},
+    });
+    if (!outcome.ok) {
+      return {
+        ok: false,
+        error: outcome.error,
+        // `answeredBy` ha la stessa forma di `handledBy`: alle superfici serve
+        // dire "ha già risposto X", che è l'informazione che chiedono al 409.
+        ...(outcome.answeredBy ? { handledBy: outcome.answeredBy } : {}),
+      };
+    }
+    return {
+      ok: true,
+      action,
+      kind: row.kind,
+      notificationJobId: row.jobId,
+      // Le copie le ha già chiuse `answerQuestion` (propagazione nel servizio,
+      // così la ottiene anche chi risponde dalla pagina ticket): qui si
+      // riferiscono soltanto.
+      changedNotificationIds: outcome.changedNotificationIds,
+      jobId: outcome.jobId,
+    };
+  }
 
   if (action === "snooze") {
     const until = input.payload?.until;
@@ -423,6 +462,12 @@ export interface InboxItem {
    */
   url?: string;
   actions: ActionId[];
+  /**
+   * La domanda dell'agente, sul solo kind `job.awaiting_input`: è ciò che
+   * permette alla card di offrire i bottoni delle opzioni. ASSENTE se il
+   * payload non la contiene in forma leggibile — vedi {@link renderItem}.
+   */
+  question?: InboxQuestion;
   projectId: string | null;
   ticketId: string | null;
   jobId: string | null;
@@ -590,12 +635,19 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
  * Non è solo un try/catch: un payload malformato può anche NON lanciare e
  * restituire `undefined` (`openUrl` su un kind sconosciuto esce dallo switch),
  * quindi l'esito viene comunque validato prima di uscire.
+ *
+ * Stesso recinto per la DOMANDA dell'agente: si estrae dal payload con un
+ * `safeParse`, quindi una riga con opzioni malformate perde i bottoni ma resta
+ * una card leggibile — e resta comunque rispondibile dalla pagina ticket, che
+ * la domanda la legge da `agent_questions`.
  */
 function renderItem(
   rawEvent: Record<string, unknown>,
   kind: NotificationKind,
   lang: Language,
-): { text: string; url?: string } {
+): { text: string; url?: string; question?: InboxQuestion } {
+  const question = kind === "job.awaiting_input" ? inboxQuestionSchema.safeParse(rawEvent) : null;
+  const questionPart = question?.success ? { question: question.data } : {};
   try {
     const event = rawEvent as unknown as NotificationEvent;
     const text = formatNotificationText(event, lang);
@@ -603,9 +655,10 @@ function renderItem(
     return {
       text: typeof text === "string" && text.trim() !== "" ? text : kind,
       ...(typeof url === "string" && url !== "" ? { url } : {}),
+      ...questionPart,
     };
   } catch {
-    return { text: kind };
+    return { text: kind, ...questionPart };
   }
 }
 

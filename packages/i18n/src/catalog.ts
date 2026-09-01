@@ -33,6 +33,8 @@ export const en: Catalog = {
   "comment.agentQuestion":
     "The AI needs a decision to continue planning (question {round}). Answer from your inbox or from this ticket.",
   "comment.agentQuestionRecommended": "recommended",
+  "comment.agentQuestionAnswered":
+    "{actor} answered the AI question (question {round}): {answer}",
   "comment.planApproved": "Plan approved — execution in progress",
   "comment.planRejected": "Plan rejected — replanning in progress",
   "comment.reportFooter": "Generated automatically by Stubwise AI for ticket #{number}.",
@@ -163,6 +165,8 @@ export const en: Catalog = {
   "notify.inbox.errAlreadyHandledUnknown": "This notification has already been handled.",
   "notify.inbox.errJobInFlight": "A job for this ticket is already running ({status}).",
   "notify.inbox.errPlanNotPending": "No plan is awaiting approval.",
+  "notify.inbox.errInvalidAnswer": "That answer is not valid for this question.",
+  "notify.inbox.errQuestionNotPending": "No question is awaiting an answer.",
   "notify.inbox.errFailed": "The action could not be completed. Try again from Stubwise.",
   // Note di stato: sostituiscono i bottoni sul messaggio già deciso.
   "notify.inbox.notePlanApproved": "✅ Plan approved by {actor}",
@@ -211,6 +215,8 @@ export const it: Catalog = {
   "comment.agentQuestion":
     "L'AI ha bisogno di una decisione per continuare la pianificazione (domanda {round}). Rispondi dall'inbox o da questo ticket.",
   "comment.agentQuestionRecommended": "consigliata",
+  "comment.agentQuestionAnswered":
+    "{actor} ha risposto alla domanda dell'AI (domanda {round}): {answer}",
   "comment.planApproved": "Piano approvato — esecuzione in corso",
   "comment.planRejected": "Piano rifiutato — ripianificazione in corso",
   "comment.reportFooter":
@@ -313,6 +319,8 @@ export const it: Catalog = {
   "notify.inbox.errAlreadyHandledUnknown": "Questa notifica è già stata gestita.",
   "notify.inbox.errJobInFlight": "C'è già un job in corso per questo ticket ({status}).",
   "notify.inbox.errPlanNotPending": "Nessun piano in attesa di approvazione.",
+  "notify.inbox.errInvalidAnswer": "Questa risposta non è valida per questa domanda.",
+  "notify.inbox.errQuestionNotPending": "Nessuna domanda in attesa di risposta.",
   "notify.inbox.errFailed": "Azione non riuscita. Riprova da Stubwise.",
   "notify.inbox.notePlanApproved": "✅ Piano approvato da {actor}",
   "notify.inbox.notePlanRejected": "🚫 Piano rifiutato da {actor}",

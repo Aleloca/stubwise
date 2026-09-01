@@ -87,6 +87,82 @@ export const handledBySchema = z.object({ id: z.uuid(), email: z.string() });
 export type HandledBy = z.infer<typeof handledBySchema>;
 
 /**
+ * Una delle alternative proposte dall'agente con `ask_user`: l'etichetta del
+ * bottone e la conseguenza che la UI mostra sotto (assente quando l'agente non
+ * l'ha scritta).
+ */
+export const agentQuestionOptionSchema = z.object({
+  label: z.string(),
+  consequence: z.string().optional(),
+});
+export type AgentQuestionOption = z.infer<typeof agentQuestionOptionSchema>;
+
+/**
+ * La domanda dell'agente allegata a una riga d'inbox di kind
+ * `job.awaiting_input`: quanto basta a disegnare i bottoni senza risalire ad
+ * `agent_questions`.
+ *
+ * È RICAVATA dal payload `event` della notifica (che la porta intera), quindi
+ * può mancare: su una riga scritta da una versione precedente del codice, o con
+ * un payload che non supera più questa validazione, l'item arriva senza
+ * `question` e la card degrada a testo — vedi il recinto per-item di
+ * `listInbox`. Per questo il campo è opzionale nell'item.
+ *
+ * `question` è ridondante col `text` localizzato dell'item (che la include nella
+ * frase) ed è qui lo stesso: il pannello di risposta è lo stesso componente
+ * usato dalla pagina ticket, che la domanda la riceve da
+ * `GET /api/tickets/:id/questions` — una sola forma per le due superfici.
+ */
+export const inboxQuestionSchema = z.object({
+  questionId: z.uuid(),
+  round: z.number().int(),
+  question: z.string(),
+  options: z.array(agentQuestionOptionSchema),
+  recommendedIndex: z.number().int().optional(),
+  allowFreeText: z.boolean(),
+});
+export type InboxQuestion = z.infer<typeof inboxQuestionSchema>;
+
+/**
+ * La risposta umana COME VIENE PERSISTITA in `agent_questions.answer`: l'indice
+ * dell'opzione scelta, oppure il testo libero. È la forma canonica del dato —
+ * `packages/db` ci tipa la colonna jsonb e il worker ci rilegge la decisione per
+ * il prompt di ripresa — e sta qui perché nessuno dei due lati la ridichiari.
+ */
+export const agentQuestionAnswerSchema = z.union([
+  z.object({ optionIndex: z.number().int().nonnegative() }),
+  z.object({ text: z.string() }),
+]);
+export type AgentQuestionAnswer = z.infer<typeof agentQuestionAnswerSchema>;
+
+/** Tetto per una risposta in testo libero (allineato al servizio). */
+export const ANSWER_TEXT_MAX_CHARS = 4000;
+
+/**
+ * Corpo di `POST /api/inbox/:id/actions/answer`: ESATTAMENTE uno dei due campi.
+ *
+ * Non è la union persistita ({@link agentQuestionAnswerSchema}) ma un oggetto
+ * con due campi opzionali più un refine, per una ragione pratica: un client che
+ * manda `{}` o entrambi i campi deve ricevere un errore di validazione che
+ * NOMINA il problema, mentre una union di oggetti gli risponderebbe con l'unione
+ * degli errori dei due rami ("optionIndex richiesto" *e* "text richiesto"), che
+ * non aiuta nessuno.
+ *
+ * La validazione di MERITO — indice dentro le opzioni davvero persistite, testo
+ * libero ammesso da quella domanda — non sta qui: dipende dalla riga
+ * `agent_questions` e vive in `answerQuestion`.
+ */
+export const answerBodySchema = z
+  .object({
+    optionIndex: z.number().int().nonnegative().optional(),
+    text: z.string().max(ANSWER_TEXT_MAX_CHARS).optional(),
+  })
+  .refine((v) => (v.optionIndex === undefined) !== (v.text === undefined), {
+    message: "provide exactly one of optionIndex or text",
+  });
+export type AnswerBody = z.infer<typeof answerBodySchema>;
+
+/**
  * Una riga d'inbox pronta per la UI. `text` è già localizzato nella lingua del
  * destinatario e `actions` è calcolato (kind + stato del job + ruolo di chi
  * guarda): il client non deve dedurre nulla, disegna quello che riceve.
@@ -102,6 +178,12 @@ export const inboxItemSchema = z.object({
   text: z.string(),
   url: z.string().optional(),
   actions: z.array(inboxActionSchema),
+  /**
+   * Presente SOLO sul kind `job.awaiting_input`, e solo se il payload
+   * dell'evento è leggibile: è ciò che permette alla card di offrire i bottoni
+   * delle opzioni invece del solo testo.
+   */
+  question: inboxQuestionSchema.optional(),
   projectId: z.uuid().nullable(),
   ticketId: z.uuid().nullable(),
   jobId: z.uuid().nullable(),

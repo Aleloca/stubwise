@@ -1,4 +1,5 @@
 import {
+  type AgentQuestionAnswer,
   type AlertThresholds,
   type BacklogJobPayload,
   type BacklogSuggested,
@@ -2529,7 +2530,14 @@ export const agentQuestions = pgTable(
     askedAt: timestamp("asked_at", { withTimezone: true }).notNull().defaultNow(),
     // Risposta umana: `{ optionIndex }` per una delle opzioni, `{ text }` per il
     // testo libero. Null finché la domanda è aperta.
-    answer: jsonb("answer").$type<Record<string, unknown>>(),
+    //
+    // Tipata sulla UNION e non su `Record<string, unknown>`: il contratto è
+    // stretto e noto (lo scrive `answerQuestion`, lo rilegge il prompt di
+    // ripresa del worker), quindi il tipo Drizzle e lo schema Zod condiviso
+    // nascono dalla stessa dichiarazione. Chi LEGGE la colonna resta comunque
+    // difensivo (il jsonb può venire da una versione precedente): il tipo
+    // descrive ciò che scriviamo, non una garanzia del DB.
+    answer: jsonb("answer").$type<AgentQuestionAnswer>(),
     answeredAt: timestamp("answered_at", { withTimezone: true }),
     // Chi ha risposto: il richiedente del job o un maintainer. ON DELETE SET
     // NULL, lo storico della domanda sopravvive all'utente.

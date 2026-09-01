@@ -156,6 +156,12 @@ export function inboxErrorText(
       return t(lang, "notify.inbox.errJobInFlight", { status: result.jobStatus ?? "running" });
     case "plan_not_pending":
       return t(lang, "notify.inbox.errPlanNotPending");
+    case "invalid_answer":
+      return t(lang, "notify.inbox.errInvalidAnswer");
+    case "question_not_pending":
+      // La domanda è già stata risposta da qualcuno: `already_handled` (con il
+      // nome) copre il caso normale, questo resta per il job ripartito.
+      return t(lang, "notify.inbox.errQuestionNotPending");
   }
 }
 

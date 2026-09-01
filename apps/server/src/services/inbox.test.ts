@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { aiJobs, comments, notifications, users, type Db } from "@stubwise/db";
+import { agentQuestions, aiJobs, comments, notifications, users, type Db } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import type { NotificationEvent } from "@stubwise/notifications";
@@ -19,8 +19,8 @@ import { executeAction, listInbox, markRead, unreadCount } from "./inbox.js";
 let testDb: TestDb;
 let db: Db;
 let projectId: string;
-let maintainer: Actor;
-let operator: Actor;
+let maintainer: Actor & { email: string };
+let operator: Actor & { email: string };
 
 beforeAll(async () => {
   testDb = await startTestDb();
@@ -60,7 +60,14 @@ async function seedTicket(plan?: string): Promise<string> {
 /** Inserisce un job nello stato dato e ne restituisce l'id. */
 async function seedJob(
   ticketId: string,
-  status: "queued" | "fixing" | "awaiting_plan_approval" | "failed" | "pr_merged" | "held",
+  status:
+    | "queued"
+    | "fixing"
+    | "awaiting_plan_approval"
+    | "awaiting_input"
+    | "failed"
+    | "pr_merged"
+    | "held",
   values: Partial<typeof aiJobs.$inferInsert> = {},
 ): Promise<string> {
   const [row] = await db
@@ -122,6 +129,8 @@ async function seedRawNotification(input: {
   userId: string;
   kind: NotificationEvent["kind"];
   event: Record<string, unknown>;
+  ticketId?: string;
+  jobId?: string;
   createdAt?: Date;
 }): Promise<string> {
   const [row] = await db
@@ -132,6 +141,8 @@ async function seedRawNotification(input: {
       event: input.event,
       projectId,
       status: "open",
+      ...(input.ticketId ? { ticketId: input.ticketId } : {}),
+      ...(input.jobId ? { jobId: input.jobId } : {}),
       ...(input.createdAt ? { createdAt: input.createdAt } : {}),
     })
     .returning({ id: notifications.id });
@@ -1017,5 +1028,238 @@ describe("invarianti dello schema", () => {
       .from(notifications)
       .where(and(eq(notifications.status, "handled"), sql`${notifications.handledAt} is null`));
     expect(rows).toEqual([]);
+  });
+});
+
+describe("executeAction — answer", () => {
+  /** Ticket + job parcheggiato su una domanda aperta + una copia di notifica. */
+  async function seedQuestion(options: { requestedByUserId?: string } = {}) {
+    const ticketId = await seedTicket();
+    const jobId = await seedJob(ticketId, "awaiting_input", {
+      ...(options.requestedByUserId ? { requestedByUserId: options.requestedByUserId } : {}),
+    });
+    const [question] = await db
+      .insert(agentQuestions)
+      .values({
+        jobId,
+        ticketId,
+        round: 1,
+        question: "Quali colonne deve avere il CSV?",
+        options: [{ label: "Colonne vecchie" }, { label: "Colonne nuove" }],
+        recommendedIndex: 0,
+        allowFreeText: true,
+      })
+      .returning({ id: agentQuestions.id });
+    return { ticketId, jobId, questionId: question!.id };
+  }
+
+  /** Evento `job.awaiting_input` realistico per la domanda data. */
+  function awaitingInputEvent(questionId: string): NotificationEvent {
+    return {
+      kind: "job.awaiting_input",
+      ticketNumber: 7,
+      ticketTitle: "Export CSV dello storico",
+      projectName: "negozio-web",
+      ticketUrl: "https://stubwise.test/tickets/7",
+      questionId,
+      round: 1,
+      question: "Quali colonne deve avere il CSV?",
+      options: [{ label: "Colonne vecchie" }, { label: "Colonne nuove" }],
+      recommendedIndex: 0,
+      allowFreeText: true,
+    };
+  }
+
+  it("delega ad answerQuestion: risposta scritta, job in coda, copie chiuse", async () => {
+    const { ticketId, jobId, questionId } = await seedQuestion({
+      requestedByUserId: operator.id,
+    });
+    const mine = await seedNotification({
+      userId: operator.id,
+      kind: "job.awaiting_input",
+      event: awaitingInputEvent(questionId),
+      ticketId,
+      jobId,
+    });
+    const theirs = await seedNotification({
+      userId: maintainer.id,
+      kind: "job.awaiting_input",
+      event: awaitingInputEvent(questionId),
+      ticketId,
+      jobId,
+    });
+
+    const result = await executeAction(db, {
+      notificationId: mine,
+      action: "answer",
+      actor: operator,
+      payload: { answer: { optionIndex: 1 } },
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("impossibile");
+    expect(result.kind).toBe("job.awaiting_input");
+    expect(result.jobId).toBe(jobId);
+    expect(new Set(result.changedNotificationIds)).toEqual(new Set([mine, theirs]));
+
+    const [question] = await db
+      .select()
+      .from(agentQuestions)
+      .where(eq(agentQuestions.id, questionId));
+    expect(question?.answer).toEqual({ optionIndex: 1 });
+    const job = await readJob(jobId);
+    expect(job?.status).toBe("queued");
+    expect(job?.resumeMode).toBe("plan_continue");
+    expect((await readNotification(theirs))?.status).toBe("handled");
+  });
+
+  it("un member che non ha chiesto il run → forbidden", async () => {
+    const { ticketId, jobId, questionId } = await seedQuestion({
+      requestedByUserId: maintainer.id,
+    });
+    const id = await seedNotification({
+      userId: operator.id,
+      kind: "job.awaiting_input",
+      event: awaitingInputEvent(questionId),
+      ticketId,
+      jobId,
+    });
+    expect(
+      await executeAction(db, {
+        notificationId: id,
+        action: "answer",
+        actor: operator,
+        payload: { answer: { optionIndex: 0 } },
+      }),
+    ).toEqual({ ok: false, error: "forbidden" });
+  });
+
+  it("risposta malformata → invalid_answer (nulla si muove)", async () => {
+    const { ticketId, jobId, questionId } = await seedQuestion();
+    const id = await seedNotification({
+      userId: maintainer.id,
+      kind: "job.awaiting_input",
+      event: awaitingInputEvent(questionId),
+      ticketId,
+      jobId,
+    });
+    expect(
+      await executeAction(db, {
+        notificationId: id,
+        action: "answer",
+        actor: maintainer,
+        payload: { answer: { optionIndex: 5 } },
+      }),
+    ).toEqual({ ok: false, error: "invalid_answer" });
+    // Senza payload la risposta è vuota: stesso errore.
+    expect(
+      await executeAction(db, { notificationId: id, action: "answer", actor: maintainer }),
+    ).toEqual({ ok: false, error: "invalid_answer" });
+    expect((await readJob(jobId))?.status).toBe("awaiting_input");
+  });
+
+  it("answer su un kind che non la offre → invalid_action", async () => {
+    const ticketId = await seedTicket();
+    const jobId = await seedJob(ticketId, "failed");
+    const id = await seedNotification({
+      userId: maintainer.id,
+      kind: "job.failed",
+      event: planReviewEvent({ kind: "job.failed", error: "boom" }),
+      ticketId,
+      jobId,
+    });
+    expect(
+      await executeAction(db, {
+        notificationId: id,
+        action: "answer",
+        actor: maintainer,
+        payload: { answer: { optionIndex: 0 } },
+      }),
+    ).toEqual({ ok: false, error: "invalid_action" });
+  });
+
+  it("seconda risposta → already_handled con chi ha risposto", async () => {
+    const { ticketId, jobId, questionId } = await seedQuestion();
+    const id = await seedNotification({
+      userId: maintainer.id,
+      kind: "job.awaiting_input",
+      event: awaitingInputEvent(questionId),
+      ticketId,
+      jobId,
+    });
+    expect(
+      (
+        await executeAction(db, {
+          notificationId: id,
+          action: "answer",
+          actor: maintainer,
+          payload: { answer: { optionIndex: 0 } },
+        })
+      ).ok,
+    ).toBe(true);
+    expect(
+      await executeAction(db, {
+        notificationId: id,
+        action: "answer",
+        actor: maintainer,
+        payload: { answer: { optionIndex: 1 } },
+      }),
+    ).toEqual({
+      ok: false,
+      error: "already_handled",
+      handledBy: { id: maintainer.id, email: maintainer.email },
+    });
+  });
+
+  it("listInbox espone la domanda, e un payload marcio degrada la sola card", async () => {
+    const user = await seedUser("admin");
+    const { ticketId, jobId, questionId } = await seedQuestion();
+    const base = Date.now();
+    const sana = await seedNotification({
+      userId: user.id,
+      kind: "job.awaiting_input",
+      event: awaitingInputEvent(questionId),
+      ticketId,
+      jobId,
+      createdAt: new Date(base),
+    });
+    // Opzioni non leggibili (stringhe invece di oggetti): la domanda non si
+    // ricostruisce, ma la card deve restare in lista e restare azionabile.
+    const marcia = await seedRawNotification({
+      userId: user.id,
+      kind: "job.awaiting_input",
+      event: {
+        kind: "job.awaiting_input",
+        ticketNumber: 7,
+        ticketTitle: "Export CSV dello storico",
+        projectName: "negozio-web",
+        ticketUrl: "https://stubwise.test/tickets/7",
+        questionId,
+        round: 1,
+        question: "Quali colonne?",
+        options: ["Colonne vecchie", "Colonne nuove"],
+        allowFreeText: true,
+      },
+      ticketId,
+      jobId,
+      createdAt: new Date(base - 1_000),
+    });
+
+    const { items } = await listInbox(db, { userId: user.id, lang: "it" });
+    const byId = new Map(items.map((i) => [i.id, i]));
+    expect(byId.get(sana)?.question).toEqual({
+      questionId,
+      round: 1,
+      question: "Quali colonne deve avere il CSV?",
+      options: [{ label: "Colonne vecchie" }, { label: "Colonne nuove" }],
+      recommendedIndex: 0,
+      allowFreeText: true,
+    });
+    expect(byId.get(marcia)).toBeDefined();
+    expect(byId.get(marcia)?.question).toBeUndefined();
+    // Le azioni NON dipendono dal jsonb: la card marcia resta rispondibile
+    // (dalla pagina ticket, che la domanda la legge da agent_questions).
+    expect(byId.get(marcia)?.actions).toContain("answer");
+    // Kind non archiviabile: nessun `handled` su nessuna delle due.
+    expect(byId.get(sana)?.actions).not.toContain("handled");
   });
 });

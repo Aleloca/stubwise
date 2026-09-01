@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { and, desc, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { aiJobs, comments, notifications, users } from "@stubwise/db";
+import { agentQuestions, aiJobs, comments, notifications, users } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
@@ -61,17 +61,18 @@ function planReviewEvent(overrides: Partial<NotificationEvent> = {}): Notificati
 }
 
 /** Evento `job.awaiting_input` realistico: il kind NON archiviabile. */
-function awaitingInputEvent(): NotificationEvent {
+function awaitingInputEvent(questionId: string = randomUUID()): NotificationEvent {
   return {
     kind: "job.awaiting_input",
     ticketNumber: 7,
     ticketTitle: "Export CSV dello storico",
     projectName: "negozio-web",
     ticketUrl: "https://stubwise.test/tickets/7",
-    questionId: randomUUID(),
+    questionId,
     round: 1,
     question: "Il CSV va esportato con le colonne del vecchio report o con quelle nuove?",
     options: [{ label: "Colonne vecchie" }, { label: "Colonne nuove" }],
+    recommendedIndex: 0,
     allowFreeText: true,
   };
 }
@@ -175,6 +176,14 @@ interface InboxItemBody {
   text: string;
   url?: string;
   actions: string[];
+  question?: {
+    questionId: string;
+    round: number;
+    question: string;
+    options: { label: string; consequence?: string }[];
+    recommendedIndex?: number;
+    allowFreeText: boolean;
+  };
   projectId: string | null;
   ticketId: string | null;
   jobId: string | null;
@@ -652,5 +661,158 @@ describe("guardia di coerenza", () => {
       .where(
         and(eq(notifications.userId, seeded.adminId), eq(notifications.projectId, otherProjectId)),
       );
+  });
+});
+
+describe("POST /api/inbox/:id/actions/answer", () => {
+  /** Ticket + job parcheggiato su una domanda aperta, con la copia di inbox. */
+  async function seedQuestion(options: { requestedByUserId?: string } = {}) {
+    const ticketId = await seedTicket();
+    const [job] = await db
+      .insert(aiJobs)
+      .values({
+        ticketId,
+        status: "awaiting_input",
+        ...(options.requestedByUserId ? { requestedByUserId: options.requestedByUserId } : {}),
+      })
+      .returning({ id: aiJobs.id });
+    const [question] = await db
+      .insert(agentQuestions)
+      .values({
+        jobId: job!.id,
+        ticketId,
+        round: 1,
+        question: "Quali colonne deve avere il CSV?",
+        options: [{ label: "Colonne vecchie" }, { label: "Colonne nuove" }],
+        recommendedIndex: 0,
+        allowFreeText: true,
+      })
+      .returning({ id: agentQuestions.id });
+    const notificationId = await seedNotification({
+      userId: options.requestedByUserId ?? seeded.adminId,
+      event: awaitingInputEvent(question!.id),
+      ticketId,
+      jobId: job!.id,
+    });
+    return { ticketId, jobId: job!.id, questionId: question!.id, notificationId };
+  }
+
+  it("200: risposta scritta, job in coda e copie chiuse", async () => {
+    const { jobId, questionId, notificationId } = await seedQuestion();
+    const res = await post(`/api/inbox/${notificationId}/actions/answer`, seeded.adminCookie, {
+      optionIndex: 1,
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { kind: string; jobId?: string; changedNotificationIds: string[] };
+    expect(body.kind).toBe("job.awaiting_input");
+    expect(body.jobId).toBe(jobId);
+    expect(body.changedNotificationIds).toEqual([notificationId]);
+
+    const [question] = await db
+      .select()
+      .from(agentQuestions)
+      .where(eq(agentQuestions.id, questionId));
+    expect(question?.answer).toEqual({ optionIndex: 1 });
+    const job = await readJob(jobId);
+    expect(job?.status).toBe("queued");
+    expect(job?.resumeMode).toBe("plan_continue");
+  });
+
+  it("200 col testo libero", async () => {
+    const { questionId, notificationId } = await seedQuestion();
+    const res = await post(`/api/inbox/${notificationId}/actions/answer`, seeded.adminCookie, {
+      text: "  Colonne nuove, senza header  ",
+    });
+    expect(res.statusCode).toBe(200);
+    const [question] = await db
+      .select()
+      .from(agentQuestions)
+      .where(eq(agentQuestions.id, questionId));
+    expect(question?.answer).toEqual({ text: "Colonne nuove, senza header" });
+  });
+
+  it("400 senza campi, con entrambi, o con un indice fuori range", async () => {
+    const { notificationId, jobId } = await seedQuestion();
+    for (const payload of [
+      {},
+      { optionIndex: 0, text: "anche" },
+      { optionIndex: 9 },
+      { optionIndex: -1 },
+    ]) {
+      const res = await post(
+        `/api/inbox/${notificationId}/actions/answer`,
+        seeded.adminCookie,
+        payload,
+      );
+      expect(res.statusCode, JSON.stringify(payload)).toBe(400);
+    }
+    // Nulla si è mosso: il job resta parcheggiato ad aspettare.
+    expect((await readJob(jobId))?.status).toBe("awaiting_input");
+  });
+
+  it("403 per un member che non ha chiesto il run", async () => {
+    const { notificationId } = await seedQuestion();
+    // La notifica è dell'admin: al member serve la SUA copia per arrivare al
+    // controllo di permesso (altrimenti sarebbe un 404).
+    const row = await readNotification(notificationId);
+    const mine = await seedNotification({
+      userId: seeded.memberId,
+      event: awaitingInputEvent(),
+      ticketId: row!.ticketId,
+      jobId: row!.jobId,
+    });
+    const res = await post(`/api/inbox/${mine}/actions/answer`, seeded.memberCookie, {
+      optionIndex: 0,
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("409 alla seconda risposta, con chi ha risposto", async () => {
+    const { notificationId } = await seedQuestion();
+    expect(
+      (
+        await post(`/api/inbox/${notificationId}/actions/answer`, seeded.adminCookie, {
+          optionIndex: 0,
+        })
+      ).statusCode,
+    ).toBe(200);
+    const res = await post(`/api/inbox/${notificationId}/actions/answer`, seeded.adminCookie, {
+      optionIndex: 1,
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toMatchObject({
+      code: "already_handled",
+      handledBy: { id: seeded.adminId, email: "admin@example.com" },
+    });
+  });
+
+  it("409 question_not_pending se il job non è più in attesa", async () => {
+    const { notificationId, jobId } = await seedQuestion();
+    await db.update(aiJobs).set({ status: "fixing" }).where(eq(aiJobs.id, jobId));
+    const res = await post(`/api/inbox/${notificationId}/actions/answer`, seeded.adminCookie, {
+      optionIndex: 0,
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toMatchObject({ code: "question_not_pending" });
+  });
+
+  it("la lista espone la domanda della card", async () => {
+    await clearInbox();
+    const { questionId } = await seedQuestion();
+    const res = await getInbox();
+    const body = res.json() as InboxPageBody;
+    const item = body.items.find((i) => i.kind === "job.awaiting_input");
+    expect(item?.question).toMatchObject({
+      round: 1,
+      options: [{ label: "Colonne vecchie" }, { label: "Colonne nuove" }],
+      recommendedIndex: 0,
+      allowFreeText: true,
+    });
+    // L'id della domanda arriva dal payload dell'EVENTO (autosufficiente): la
+    // riga `agent_questions` non viene riletta per disegnare la card.
+    expect(item?.question?.questionId).toBe(questionId);
+    // Kind non archiviabile: la card offre answer, mai handled.
+    expect(item?.actions).toContain("answer");
+    expect(item?.actions).not.toContain("handled");
   });
 });

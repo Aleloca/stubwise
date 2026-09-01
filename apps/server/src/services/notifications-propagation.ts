@@ -176,6 +176,12 @@ export async function mirrorDecision(
     action: Exclude<ActionId, "open">;
     actorId: string;
     snoozedUntil?: Date;
+    /**
+     * La risposta data, già resa in una riga (solo per `answer`): la nota del DM
+     * la PORTA, perché chi legge il messaggio di un collega deve sapere cosa è
+     * stato deciso, non solo che qualcuno ha deciso.
+     */
+    answer?: string;
   },
 ): Promise<void> {
   if (args.notificationIds.length === 0) return;
@@ -189,6 +195,7 @@ export async function mirrorDecision(
       // sparito fra la decisione e qui, la nota resta comunque leggibile.
       actor: actor?.email ?? "—",
       ...(args.snoozedUntil ? { snoozedUntil: args.snoozedUntil } : {}),
+      ...(args.answer === undefined ? {} : { answer: truncateNote(args.answer) }),
     };
     await enqueueInboxUpdates(db, args.notificationIds, (lang) =>
       inboxNote(args.action, lang, noteArgs),
@@ -210,6 +217,8 @@ export async function propagateDecision(
     target: PropagationTarget;
     action: Exclude<ActionId, "open">;
     actorId: string;
+    /** Solo per `answer`: la risposta resa in una riga, da mettere nella nota. */
+    answer?: string;
   },
 ): Promise<string[]> {
   const changed = await propagateHandled(db, args.target, args.actorId);
@@ -217,6 +226,22 @@ export async function propagateDecision(
     notificationIds: changed,
     action: args.action,
     actorId: args.actorId,
+    ...(args.answer === undefined ? {} : { answer: args.answer }),
   });
   return changed;
+}
+
+/** Quanto della risposta entra nella nota del DM. */
+const NOTE_ANSWER_MAX_CHARS = 200;
+
+/**
+ * Riduce la risposta a UNA riga corta: la nota è una didascalia in coda a un DM,
+ * non il posto dove rileggere quattromila caratteri di testo libero (la risposta
+ * per intero resta sul ticket, nel commento di sistema).
+ */
+function truncateNote(answer: string): string {
+  const oneLine = answer.replace(/\s+/g, " ").trim();
+  return oneLine.length > NOTE_ANSWER_MAX_CHARS
+    ? `${oneLine.slice(0, NOTE_ANSWER_MAX_CHARS - 1)}…`
+    : oneLine;
 }

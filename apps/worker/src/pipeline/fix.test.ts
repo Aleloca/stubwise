@@ -1,6 +1,7 @@
 import { agentQuestions, agentRuns, aiJobs, automationRules, comments, encrypt, gitAccounts, instanceSettings, projects, repositories, ticketRepositories, tickets, type Db } from "@stubwise/db";
 import { seedGitAccount, startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { PublishOpts } from "@stubwise/notifications";
+import type { AgentQuestionAnswer } from "@stubwise/shared";
 import { asc, eq } from "drizzle-orm";
 import { execa } from "execa";
 import { randomBytes } from "node:crypto";
@@ -3406,7 +3407,7 @@ describe("runFix — domanda dell'agente (ask_user)", () => {
       ticket: Ticket,
       opts: {
         cliSessionId?: string | null;
-        answer?: Record<string, unknown>;
+        answer?: AgentQuestionAnswer;
         planApprovalRequired?: boolean;
       } = {},
     ): Promise<{ job: AiJob; questionId: string }> {
@@ -3689,7 +3690,7 @@ describe("runFix — domanda dell'agente (ask_user)", () => {
       expect(q1.round).toBe(1);
 
       /** Risposta umana + rimessa in lavorazione (Task 8 + handler). */
-      const answerAndResume = async (questionId: string, answer: Record<string, unknown>) => {
+      const answerAndResume = async (questionId: string, answer: AgentQuestionAnswer) => {
         await db
           .update(agentQuestions)
           .set({ answer, answeredAt: new Date() })
