@@ -89,8 +89,9 @@ function toInboxItemView(item: ServiceInboxItem): InboxItem {
     // Assente (non null) quando il payload non porta un URL utilizzabile.
     ...(item.url === undefined ? {} : { url: item.url }),
     actions: item.actions,
-    // Assente (non null) su tutti i kind che non sono una domanda dell'agente,
-    // e sulle domande il cui payload non è più leggibile.
+    // Assente (non null) su tutti i kind che non portano opzioni (vedi
+    // `KINDS_WITH_OPTIONS`: oggi la domanda dell'agente e il pulse) e su quelli
+    // il cui payload non è più leggibile.
     ...(item.question === undefined ? {} : { question: item.question }),
     // Assente (non null) su tutti i kind che non sono il pulse, e sui pulse il
     // cui payload non è leggibile o non è allineato alle opzioni.

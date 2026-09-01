@@ -135,9 +135,19 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   Changesets che pubblica `@stubwise/mcp` con il tool `list_proposals` — il tool
   arriva agli utenti a quel merge, **non** al deploy dell'istanza; (b) ricopiare
   la skill aggiornata in `~/.claude/skills/stubwise/SKILL.md` **sulle macchine
-  degli altri sviluppatori** (questa è già allineata). **Rollback**: la fase è
-  additiva (kind, colonne e rotte nuove, niente rimosso) e
-  `PULSE_POLL_MINUTES=0` la spegne senza toccare lo schema.
+  degli altri sviluppatori** (questa è già allineata). **Rollback — due strade
+  che NON si equivalgono**: (1) *spegnere la feature* è la strada innocua:
+  `PULSE_POLL_MINUTES=0` (o i toggle per progetto) e il pulse tace subito, senza
+  toccare lo schema né le immagini, con le notifiche già in inbox che restano
+  usabili; (2) *tornare all'immagine server precedente* **NON è sicuro** finché
+  in `notifications` esiste anche UNA riga `project.pulse`, **incluse quelle già
+  gestite** (che il binario vecchio incontra nella tab "Gestite"): il kind non
+  esiste in quell'immagine, `inboxPageSchema` fa fallire la serializzazione e
+  salta **tutta `/api/inbox` con un 500** — non una card degradata. È la lezione
+  della fase 1 in forma nuova. Chi deve davvero scendere di immagine deve prima
+  **eliminare quelle righe** da `notifications` (o metterle da parte in una
+  tabella d'appoggio): segnarle gestite NON basta — non esiste uno stato che le
+  nasconda, la tab "Gestite" le rilegge tutte.
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
