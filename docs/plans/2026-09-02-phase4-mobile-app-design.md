@@ -7,6 +7,8 @@ design-source: designs/app-design.zip (canvas Claude Design "Stubwise Mobile")
 stubwise:
   project: stubwise
   backlog: ab61e273-a522-40bc-9534-b2c6085ead37
+  ticket: 309111fe-b675-463d-91fd-da98bbc99fb5
+  ticketUrl: https://stubwise.thecove.it/tickets/309111fe-b675-463d-91fd-da98bbc99fb5
 ---
 
 # Fase 4 — App mobile (React Native bare)
