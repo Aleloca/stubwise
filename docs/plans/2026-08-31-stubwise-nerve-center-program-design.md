@@ -165,6 +165,12 @@ Piccola, sblocca tutto il resto.
   timeline, PR in attesa, cattura rapida (nota → backlog).
 - Il design dell'esperienza viene fatto **prima**, con Claude Design, dal brief
   in `docs/plans/2026-08-31-mobile-app-claude-design-brief.md`.
+- **Rinvii decisi al design della v1 (2 set 2026)**, collocati nelle fasi a
+  valle: "Rilascia (merge)" dalla card PR → fase 8; riassunto "in breve" di
+  piano e PR per non tecnici → fase 5; chat di raffinamento guidata a bottoni
+  → fase 7; azioni dinamiche nella notifica espansa (Content Extension),
+  widget WidgetKit/Glance, dettatura, login via QR, quiet hours per utente →
+  **fase 4b**; canale email → backlog (nessun SMTP).
 
 ### Fase 5 — Roadmap e narrativa
 
@@ -174,6 +180,16 @@ Piccola, sblocca tutto il resto.
   inoltrabile.
 - Registro decisioni (ADR leggero) nei Docs, alimentato da chat, `ask_user`,
   PR ed email.
+- Riassunti "in breve" in linguaggio umano di piani e PR (per le card
+  dell'app e dell'inbox): rinvio dalla fase 4.
+
+### Fase 4b — App mobile v2 (nativo avanzato)
+
+Dopo la fase 5, con l'app già in mano agli utenti: Notification Content
+Extension per le opzioni della domanda direttamente nella notifica espansa;
+widget WidgetKit (iOS) e Glance (Android) con "decisioni in attesa"; dettatura
+dedicata nella cattura rapida; login via QR dalla web app; quiet hours per
+utente (preferenza server + rispetto nel canale push).
 
 ### Fase 6 — Gmail / Calendar
 
@@ -193,6 +209,9 @@ Piccola, sblocca tutto il resto.
   prompt liberi. È la versione web di ciò che chi sa usare Claude Code fa con
   `/stubwise:run`.
 - Sessioni con scrittura su worktree per i maintainer.
+- Chat di raffinamento del backlog guidata a bottoni (domande dell'agente
+  con opzioni, testo libero come fallback): consumata anche dall'app (rinvio
+  dalla fase 4).
 
 ### Fase 8 — Staging per PR e coda di rilascio
 
@@ -204,10 +223,11 @@ Piccola, sblocca tutto il resto.
   esito test, link staging, rischio, riassunto non-tecnico, merge/deploy.
 - Livelli di autonomia per progetto (es. basso rischio + validazione e staging
   verdi → auto-merge) per non affogare il maintainer.
+- "Rilascia (merge)" dalla card PR dell'inbox e dell'app (rinvio dalla fase 4).
 
 ## 6. Ordine e stima onesta
 
-Ordine: 0 → 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8. Le fasi 1 e 3 rendono i risultati
+Ordine: 0 → 1 → 2 → 3 → 4 → 5 → 4b → 6 → 7 → 8. Le fasi 1 e 3 rendono i risultati
 *affidabili* e per questo precedono l'app. Nei due mesi ci stanno
 realisticamente 0–3 e una prima app essenziale (4); 5–6 subito dopo; 7–8 nel
 trimestre successivo. Il design dell'app (Claude Design) parte subito, in
