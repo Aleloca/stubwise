@@ -10,13 +10,17 @@ test-results/
 apps/docs/src/openapi.json
 
 # App mobile (apps/mobile): artefatti nativi iOS/Android, mai committati.
+# Sono tutte voci ancorate ad apps/mobile/: apps/mobile/.gitignore (dal template
+# React Native) copre già gli stessi casi con pattern generici, e `*.keystore`
+# senza prefisso varrebbe per TUTTO il repo — un fixture di test in packages/*
+# sparirebbe in silenzio.
 apps/mobile/ios/Pods
 apps/mobile/ios/build
 apps/mobile/ios/*.xcworkspace/xcuserdata
 apps/mobile/android/.gradle
 apps/mobile/android/app/build
 apps/mobile/android/build
-*.keystore
+apps/mobile/**/*.keystore
 !apps/mobile/android/app/debug.keystore
 
 # Git worktrees

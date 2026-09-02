@@ -2,6 +2,7 @@
  * @format
  */
 
+import { ticketStatusSchema } from "@stubwise/shared";
 import ReactTestRenderer from "react-test-renderer";
 import type { ReactTestRendererJSON } from "react-test-renderer";
 import App from "../App";
@@ -16,14 +17,17 @@ function collectText(node: Node | Node[]): string[] {
 }
 
 test("mostra il numero di stati ticket esposti da @stubwise/shared", async () => {
+  // L'import in cima è già la prova che Metro/Jest risolvono il package del
+  // workspace: se non lo risolvessero, il modulo non si caricherebbe. Qui si
+  // verifica solo che l'app renda quel numero, senza inchiodare apps/mobile al
+  // contenuto dell'enum (aggiungere uno stato non deve rompere questo test).
+  expect(ticketStatusSchema.options.length).toBeGreaterThan(0);
+  const expected = String(ticketStatusSchema.options.length);
+
   let renderer: ReactTestRenderer.ReactTestRenderer | undefined;
   await ReactTestRenderer.act(() => {
     renderer = ReactTestRenderer.create(<App />);
   });
 
-  // Il conteggio reale di ticketStatusSchema: open, triaged, in_progress,
-  // in_review, done, closed. Asserendo il letterale (e non
-  // ticketStatusSchema.options.length) il test fallisce davvero se l'import del
-  // package workspace smette di funzionare o se l'enum cambia.
-  expect(collectText(renderer?.toJSON() ?? null)).toContain("6");
+  expect(collectText(renderer?.toJSON() ?? null)).toContain(expected);
 });

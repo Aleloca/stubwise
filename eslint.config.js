@@ -17,16 +17,6 @@ export default tseslint.config(
   },
   ...tseslint.configs.recommended,
   {
-    // React Native: gira su Hermes, non su Node né sul DOM. `__DEV__` è il solo
-    // global del bundler che serve al codice dell'app.
-    files: ["apps/mobile/**/*.{ts,tsx,js}"],
-    languageOptions: {
-      globals: {
-        __DEV__: "readonly",
-      },
-    },
-  },
-  {
     // I file di configurazione di Metro, Babel e Jest sono caricati da Node in
     // CommonJS: `require` lì non è una scelta di stile.
     files: ["apps/mobile/*.config.js"],
@@ -40,5 +30,5 @@ export default tseslint.config(
     rules: {
       "@typescript-eslint/no-require-imports": "off",
     },
-  }
+  },
 );
