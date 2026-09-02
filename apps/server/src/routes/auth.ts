@@ -31,9 +31,13 @@ import { loadSlackCreds, defaultSlackClientFactory, type SlackClientFactory } fr
 
 export interface AuthRoutesOptions {
   /**
-   * Limite per IP applicato a login e register: entrambe pagano una verifica
-   * o un hash argon2 (deliberatamente costoso), che senza limite sarebbe un
-   * vettore di DoS. Ogni route ha il proprio bucket.
+   * Limite per IP applicato a login, mobile-login e register: tutte pagano una
+   * verifica o un hash argon2 (deliberatamente costoso), che senza limite
+   * sarebbe un vettore di DoS.
+   *
+   * `/login` e `/mobile-login` condividono UN SOLO bucket (sono due porte sulle
+   * stesse credenziali: il tetto è della superficie, non della rotta).
+   * `/register` ne ha uno proprio: consuma un invito, non prova una password.
    */
   rateLimit: RateLimitConfig;
   /**
@@ -255,8 +259,9 @@ export async function authRoutes(
    * NON crea la sessione a cookie: sarebbe una riga in `sessions` che nessun
    * client chiuderà mai, per un client che non manda cookie.
    *
-   * Stesso rate limit di `/login` (bucket proprio, per rotta): paga una
-   * verifica argon2 come quello, e la deve pagare con lo stesso tetto.
+   * Condivide il bucket di rate limit con `/login` — non «lo stesso limite»,
+   * proprio lo stesso contatore: sono due porte sulle stesse credenziali, e
+   * bucket separati raddoppierebbero i tentativi disponibili a un attaccante.
    */
   app.post(
     "/mobile-login",
