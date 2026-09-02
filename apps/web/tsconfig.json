@@ -12,7 +12,18 @@
     "declaration": false,
     "declarationMap": false,
     "sourceMap": false,
-    "types": ["vite/client"]
+    "types": ["vite/client"],
+    // apps/mobile (React Native) porta nel workspace @types/react 19, e pnpm ne
+    // mette una copia nella dir nascosta node_modules/.pnpm/node_modules: i .d.ts
+    // dei package risolti da lì (p.es. @tanstack/react-router) prenderebbero i
+    // tipi di React 19 mentre questa app è su React 18, con TS2786 su ogni
+    // <Link>. Ancorare react/react-dom ai @types di QUESTA app rende il
+    // typecheck indipendente da chi vince l'hoisting. Vite non legge i paths
+    // (nessun plugin tsconfig-paths), quindi il bundle non cambia.
+    "paths": {
+      "react": ["./node_modules/@types/react"],
+      "react-dom": ["./node_modules/@types/react-dom"]
+    }
   },
   "include": ["src", "vite.config.ts"]
 }

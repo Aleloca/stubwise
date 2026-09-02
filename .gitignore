@@ -9,6 +9,16 @@ test-results/
 # Spec OpenAPI generata dal prebuild della documentazione (apps/docs).
 apps/docs/src/openapi.json
 
+# App mobile (apps/mobile): artefatti nativi iOS/Android, mai committati.
+apps/mobile/ios/Pods
+apps/mobile/ios/build
+apps/mobile/ios/*.xcworkspace/xcuserdata
+apps/mobile/android/.gradle
+apps/mobile/android/app/build
+apps/mobile/android/build
+*.keystore
+!apps/mobile/android/app/debug.keystore
+
 # Git worktrees
 .worktrees/
 graphify-out/cost.json

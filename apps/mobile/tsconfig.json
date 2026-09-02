@@ -1,0 +1,12 @@
+{
+  "extends": "@react-native/typescript-config",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    // Il codice è bundlato da Metro: i package workspace (@stubwise/shared) si
+    // risolvono da node_modules senza bisogno di "paths".
+    "moduleResolution": "bundler",
+    "noEmit": true
+  },
+  "include": ["src", "index.js", "App.tsx", "__tests__"],
+  "exclude": ["**/node_modules", "**/Pods"]
+}
