@@ -124,6 +124,40 @@ export async function authRoutes(
   const app = instance.withTypeProvider<ZodTypeProvider>();
   const slackClientFactory = opts.slackClientFactory ?? defaultSlackClientFactory;
 
+  /**
+   * UN SOLO limiter, condiviso da `/login` e `/mobile-login`.
+   *
+   * PERCHÉ: il tetto anti-brute-force è una proprietà della SUPERFICIE
+   * CREDENZIALI, non della singola rotta. Sono due porte sulla stessa
+   * password: se ognuna avesse il suo bucket, aggiungerne una raddoppierebbe
+   * i tentativi al minuto per IP senza che nessun numero in configurazione
+   * cambi. Chi aggiungerà una TERZA porta sulle credenziali — un magic link,
+   * un SSO, un rinnovo di token — la attacchi a QUESTO handler invece di
+   * dichiarare `config.rateLimit`, altrimenti apre un terzo bucket e alza il
+   * tetto un'altra volta.
+   *
+   * PERCHÉ COSÌ e non con `groupId`: in @fastify/rate-limit 11 `groupId` NON
+   * unisce i bucket di due rotte diverse, malgrado il README lo presenti così.
+   * Ogni `config.rateLimit` di rotta riceve il proprio store da `store.child()`
+   * — che per lo store in memoria è una LRU nuova di zecca (e per quello Redis
+   * un prefisso di chiave `<metodo><url>-`), quindi `groupId` cambia solo la
+   * chiave DENTRO un contenitore già separato. `app.rateLimit()` invece crea il
+   * limiter — e il suo store — UNA volta: montando lo stesso handler su
+   * entrambe le rotte, il contenitore è davvero uno. I due test "tetto
+   * condiviso con /login" falliscono con `groupId` e passano così; sono lì
+   * perché la differenza non si vede leggendo il codice.
+   *
+   * `onRequest` come il `config.rateLimit` che sostituisce (è l'hook di
+   * default del plugin): il conteggio resta prima del parsing del corpo, così
+   * un corpo malformato costa comunque un tentativo.
+   *
+   * `/register` resta fuori dal gruppo, con il suo bucket: non verifica le
+   * credenziali di un account esistente: consuma un invito. Non è una porta
+   * sulla stessa password e il suo tetto è indipendente (lo asserisce un test
+   * in `ingest.test.ts`).
+   */
+  const credentialsRateLimit = instance.rateLimit(opts.rateLimit);
+
   // La UI usa questo flag per decidere se mostrare la pagina di primo setup.
   app.get(
     "/setup",
@@ -176,7 +210,7 @@ export async function authRoutes(
   app.post(
     "/login",
     {
-      config: { rateLimit: opts.rateLimit },
+      onRequest: credentialsRateLimit,
       schema: {
         // Nessun vincolo di lunghezza al login: la policy vale alla creazione.
         body: z.object({ email: z.email(), password: z.string().min(1) }),
@@ -227,7 +261,7 @@ export async function authRoutes(
   app.post(
     "/mobile-login",
     {
-      config: { rateLimit: opts.rateLimit },
+      onRequest: credentialsRateLimit,
       schema: {
         body: mobileLoginBodySchema,
         response: { 200: mobileLoginResponseSchema, 400: errorSchema, 401: errorSchema },

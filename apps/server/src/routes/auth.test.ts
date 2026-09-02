@@ -30,7 +30,16 @@ let adminCookie: string;
 
 beforeAll(async () => {
   testDb = await startTestDb();
-  app = buildApp({ db: testDb.db, sessionSecret: SESSION_SECRET });
+  // Tetto alto sull'app condivisa: /login e /mobile-login spendono ORA lo
+  // stesso budget di tentativi (è il punto dei test "tetto condiviso"), e col
+  // default di 10/minuto questo file lo esaurirebbe da sé, facendo comparire
+  // 429 in test che parlano d'altro. Il limite vero si asserisce dove è il
+  // soggetto, su app dedicate con `max: 2`.
+  app = buildApp({
+    db: testDb.db,
+    sessionSecret: SESSION_SECRET,
+    authRateLimit: { max: 1000, timeWindow: "1 minute" },
+  });
 }, 120_000);
 
 afterAll(async () => {
@@ -362,28 +371,52 @@ describe("mobile-login", () => {
     expect(rows).toEqual([]);
   });
 
-  it("è rate-limited come /login", async () => {
-    // App a parte: il bucket del rate limit è per rotta e per IP, e saturarlo
-    // sull'app condivisa lascerebbe 429 ai test che vengono dopo.
-    const limited = buildApp({
-      db: testDb.db,
-      sessionSecret: SESSION_SECRET,
-      authRateLimit: { max: 2, timeWindow: "1 minute" },
-    });
-    try {
-      const payload = {
-        email: "admin@example.com",
-        password: "password-sbagliata",
-        deviceName: "iPhone di Ada",
-      };
-      const first = await mobileLogin(payload, limited);
-      const second = await mobileLogin(payload, limited);
-      const third = await mobileLogin(payload, limited);
-      expect([first.statusCode, second.statusCode]).toEqual([401, 401]);
-      expect(third.statusCode).toBe(429);
-    } finally {
-      await limited.close();
+  // Il tetto anti-brute-force è una proprietà della SUPERFICIE CREDENZIALI,
+  // non della singola rotta: /login e /mobile-login sono due porte sulla stessa
+  // password, quindi devono spendere lo stesso budget di tentativi. Testarle
+  // separatamente non lo dimostrerebbe — due bucket da 2 passano quel test e
+  // lasciano un tetto di 4. Qui si alternano di proposito.
+  describe("tetto condiviso con /login", () => {
+    const WRONG = { email: "admin@example.com", password: "password-sbagliata" };
+
+    /** App a parte: saturare il bucket di quella condivisa lascerebbe 429 ai test dopo. */
+    function limitedApp() {
+      return buildApp({
+        db: testDb.db,
+        sessionSecret: SESSION_SECRET,
+        authRateLimit: { max: 2, timeWindow: "1 minute" },
+      });
     }
+
+    async function webLogin(target: FastifyInstance) {
+      return target.inject({ method: "POST", url: "/api/auth/login", payload: WRONG });
+    }
+
+    it("due tentativi su /login esauriscono il tetto anche per mobile-login", async () => {
+      const limited = limitedApp();
+      try {
+        expect((await webLogin(limited)).statusCode).toBe(401);
+        expect((await webLogin(limited)).statusCode).toBe(401);
+        // Il terzo tentativo passa dall'ALTRA porta: se i bucket fossero
+        // separati risponderebbe 401 e il tetto reale sarebbe il doppio.
+        const viaMobile = await mobileLogin({ ...WRONG, deviceName: "iPhone di Ada" }, limited);
+        expect(viaMobile.statusCode).toBe(429);
+      } finally {
+        await limited.close();
+      }
+    });
+
+    it("e simmetricamente: due tentativi da mobile-login esauriscono il tetto di /login", async () => {
+      const limited = limitedApp();
+      try {
+        const payload = { ...WRONG, deviceName: "iPhone di Ada" };
+        expect((await mobileLogin(payload, limited)).statusCode).toBe(401);
+        expect((await mobileLogin(payload, limited)).statusCode).toBe(401);
+        expect((await webLogin(limited)).statusCode).toBe(429);
+      } finally {
+        await limited.close();
+      }
+    });
   });
 });
 
