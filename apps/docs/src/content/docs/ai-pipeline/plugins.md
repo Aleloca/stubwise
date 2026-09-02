@@ -99,6 +99,19 @@ The preset is a **recommendation**, not a rule. It only ever turns skills
 
 ## Security
 
+:::caution[Registering a plugin already runs its code]
+The smoke test starts on its own, right after the plugin is materialized, with
+the plugin loaded whole — and a plugin's hooks fire in a headless run **without
+asking for approval**, with the worker's permissions: the git mirrors of your
+repositories and the CLI's stored credentials.
+
+A hostile `SessionStart` hook therefore runs **at registration**, before anyone
+has had the chance to read the inventory. The decision that carries the risk is
+**registering**: register only a repository and a commit you already trust.
+Reading the skills and the hooks afterwards is how you decide **what to enable**,
+not **whether to register**.
+:::
+
 - **Only admins** can register a plugin or change what runs on a project. A
   plugin is code that runs next to your repositories.
 - **Public repos only, over `https://`.** The fetch runs with no credentials at
@@ -108,8 +121,9 @@ The preset is a **recommendation**, not a rule. It only ever turns skills
 - **Pinned to a commit.** What was reviewed is what runs. Moving the pin is an
   explicit action, and the UI shows the inventory diff it produces.
 - **Hooks are shown with their command.** A hook is code that runs on an event
-  without asking; you can read every one of them before enabling the plugin, and
-  turn off individual hook groups.
+  without asking; you can read every one of them before enabling the plugin on a
+  project, and turn off individual hook groups. (Registration itself already runs
+  them once — see the warning above.)
 - **Symlinks are refused.** A plugin tree containing one is rejected at
   materialization rather than followed.
 - **A plugin's `.mcp.json` is never loaded.** Some plugins ship one to declare

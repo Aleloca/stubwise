@@ -74,6 +74,16 @@ Coda `plugin_jobs` (kind `materialize` e `smoke`), poller `PLUGIN_POLL_SECONDS`.
 Lo **slug** è validato `^[a-z0-9][a-z0-9-]{0,63}$` perché è un componente di
 percorso sul volume.
 
+- **⚠️ Registrare un plugin ne ESEGUE già il codice, prima di ogni
+  abilitazione.** Lo smoke run parte da solo subito dopo la materializzazione,
+  col plugin **integrale**, e gli hook di un plugin scattano in `-p` **senza
+  approvazione**, coi permessi del worker — che monta i mirror dei repo e il
+  volume `claude-config` con le credenziali del CLI. Un `SessionStart` ostile
+  gira quindi al primo tick dopo la registrazione, **prima** che qualcuno abbia
+  potuto leggere l'inventario. Il consenso informato è perciò sulla
+  REGISTRAZIONE — si registra solo un repo e un commit di cui ci si fida — e
+  l'ispezione di skill e hook serve a decidere **cosa abilitare**, non **se
+  registrare**.
 - **Plugin base `stubwise-base`** (`apps/worker/plugins/`, bundlato
   nell'immagine, fuori dal registro, mai filtrato): un hook `SessionStart` col
   **contratto della run** e la skill `stubwise-conventions`. Il contratto dice
