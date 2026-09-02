@@ -360,7 +360,7 @@ describe("ProjectPluginsSection — salvataggio", () => {
     });
   });
 
-  it("blocca i controlli durante il volo e riparte dalla foto riconciliata", async () => {
+  it("blocca i controlli durante il volo e rilegge la foto quando il PUT si chiude", async () => {
     const user = userEvent.setup();
     // Stato del server MUTABILE: il PUT lo riscrive, la GET lo rilegge — così
     // l'invalidazione a fine mutazione non riporta indietro una foto finta.
@@ -375,10 +375,7 @@ describe("ProjectPluginsSection — salvataggio", () => {
       [`GET ${PROJECT_PLUGINS_PATH}`]: () => jsonResponse(200, { plugins: server }),
       [`PUT ${PROJECT_PLUGINS_PATH}`]: async (_url, init) => {
         const body = JSON.parse(String(init?.body)) as { plugins: ProjectPlugin[] };
-        // Il server riconcilia con una foto DIVERSA da quella mandata (qui: la
-        // scrittura di un altro admin che spegne una skill). È il caso che
-        // distingue "body dalla foto riconciliata" da "body dall'ottimistico".
-        server = body.plugins.map((row) => ({ ...row, disabledSkills: ["using-git-worktrees"] }));
+        server = body.plugins;
         await inFlight;
         return jsonResponse(200, { plugins: server });
       },
@@ -388,7 +385,7 @@ describe("ProjectPluginsSection — salvataggio", () => {
     const toggle = await screen.findByRole("checkbox", { name: /enabled in this project/i });
     await user.click(toggle);
 
-    // (i) Finestra del salvataggio: nulla è cliccabile e lo si vede.
+    // Finestra del salvataggio: nulla è cliccabile, e lo si vede.
     expect(await screen.findByText(/saving/i)).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: /enabled in this project/i })).toBeDisabled();
 
@@ -398,8 +395,41 @@ describe("ProjectPluginsSection — salvataggio", () => {
     // refetch partito DURANTE il volo (non cancellabile dall'`onMutate`) non
     // può lasciare la UI ferma su dati pre-PUT.
     await waitFor(() => expect(callCount("GET", PROJECT_PLUGINS_PATH)).toBeGreaterThan(1));
+  });
 
-    // (ii) Il secondo click parte dalla foto riconciliata, non dall'ottimistico:
+  it("riconcilia col corpo della risposta anche se il refetch non è ancora atterrato", async () => {
+    const user = userEvent.setup();
+    let server: ProjectPlugin[] = [makeRow()];
+    let gets = 0;
+
+    mockApi({
+      "GET /api/plugins": () => jsonResponse(200, registry([makePlugin()])),
+      // Risponde SOLO la prima lettura: quella dell'invalidazione resta in volo
+      // per sempre. Così la foto riconciliata può arrivare unicamente dal corpo
+      // della risposta del PUT — se ci pensasse il refetch, questo test non
+      // direbbe nulla su `onSuccess`.
+      [`GET ${PROJECT_PLUGINS_PATH}`]: () => {
+        gets += 1;
+        return gets === 1
+          ? jsonResponse(200, { plugins: server })
+          : new Promise<Response>(() => {});
+      },
+      [`PUT ${PROJECT_PLUGINS_PATH}`]: (_url, init) => {
+        const body = JSON.parse(String(init?.body)) as { plugins: ProjectPlugin[] };
+        // Il server risponde con una foto DIVERSA da quella mandata (qui: la
+        // scrittura di un altro admin che spegne una skill). È il caso che
+        // distingue "body dalla foto riconciliata" da "body dall'ottimistico".
+        server = body.plugins.map((row) => ({ ...row, disabledSkills: ["using-git-worktrees"] }));
+        return jsonResponse(200, { plugins: server });
+      },
+    });
+    renderSection();
+
+    await user.click(await screen.findByRole("checkbox", { name: /enabled in this project/i }));
+    await waitFor(() => expect(callCount("PUT", PROJECT_PLUGINS_PATH)).toBe(1));
+    await waitFor(() => expect(screen.queryByText(/saving/i)).toBeNull());
+
+    // Il secondo click parte dalla foto riconciliata, non dall'ottimistico:
     // porta con sé lo spegnimento che il primo PUT non aveva mandato.
     await user.click(screen.getByRole("checkbox", { name: /enabled in this project/i }));
 
