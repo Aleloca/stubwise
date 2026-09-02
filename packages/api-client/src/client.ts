@@ -6,9 +6,16 @@ import { createDocsEndpoints } from "./endpoints/docs.js";
 import { createInboxEndpoints } from "./endpoints/inbox.js";
 import { createMeEndpoints } from "./endpoints/me.js";
 import { createProjectsEndpoints } from "./endpoints/projects.js";
+import { createSearchEndpoints } from "./endpoints/search.js";
 import { createTicketsEndpoints } from "./endpoints/tickets.js";
 
-/** Init di `fetch` così com'è definito nell'ambiente che compila: niente `lib.dom`. */
+/**
+ * L'init di `fetch` DERIVATO dal `fetch` dell'ambiente, invece di nominare
+ * `RequestInit`: quel nome esiste nella `lib.dom` del browser e nei tipi di
+ * Node, ma non è garantito ovunque questo pacchetto venga compilato — React
+ * Native su tutte. Derivandolo, il tipo è sempre quello del `fetch` che il
+ * client userà davvero.
+ */
 type FetchInit = NonNullable<Parameters<typeof globalThis.fetch>[1]>;
 
 export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
@@ -65,6 +72,7 @@ export interface StubwiseClient {
   tickets: ReturnType<typeof createTicketsEndpoints>;
   backlog: ReturnType<typeof createBacklogEndpoints>;
   docs: ReturnType<typeof createDocsEndpoints>;
+  search: ReturnType<typeof createSearchEndpoints>;
 }
 
 /**
@@ -95,7 +103,18 @@ export function createStubwiseClient(options: StubwiseClientOptions): StubwiseCl
     schema?: ZodType<T>,
   ): Promise<T> => {
     const headers: Record<string, string> = {};
-    const authHeader = await getAuthHeader();
+    let authHeader: string | null | undefined;
+    try {
+      authHeader = await getAuthHeader();
+    } catch (error) {
+      // Sull'app mobile il token viene dal keychain, che può non essere
+      // disponibile (dispositivo bloccato, portachiavi in errore). Era l'unico
+      // punto del trasporto da cui usciva un errore NON normalizzato: status 0
+      // come gli errori di rete, perché anche qui la richiesta non è partita.
+      throw new ApiError(0, "Unable to read the stored credentials", "auth_unavailable", {
+        cause: error,
+      });
+    }
     if (authHeader) headers.authorization = authHeader;
 
     const init: FetchInit = { method, headers };
@@ -124,7 +143,22 @@ export function createStubwiseClient(options: StubwiseClientOptions): StubwiseCl
 
     if (response.status === 204) return undefined as T;
     const data: unknown = await response.json();
-    return schema ? schema.parse(data) : (data as T);
+    if (!schema) return data as T;
+    try {
+      return schema.parse(data);
+    } catch (error) {
+      // Una forma inattesa resta un BUG (vedi il commento su `ApiRequest`), ma
+      // non deve uscire come `ZodError` nuda: i chiamanti hanno un solo tipo di
+      // errore da gestire, e il messaggio di Zod ("Invalid input: expected
+      // number, received string") non è una frase da mostrare a un utente. Lo
+      // status è quello vero della risposta — 200, non 0: il server HA
+      // risposto. Il dettaglio resta in `cause` (la ZodError) e in `details`
+      // (il body grezzo) per chi fa diagnosi.
+      throw new ApiError(response.status, "Unexpected response shape", "invalid_response", {
+        cause: error,
+        details: data,
+      });
+    }
   };
 
   return {
@@ -136,5 +170,6 @@ export function createStubwiseClient(options: StubwiseClientOptions): StubwiseCl
     tickets: createTicketsEndpoints(request),
     backlog: createBacklogEndpoints(request),
     docs: createDocsEndpoints(request),
+    search: createSearchEndpoints(request),
   };
 }

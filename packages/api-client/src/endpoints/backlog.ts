@@ -38,6 +38,8 @@ const chatTurnSchema = z.object({ mode: z.literal("code"), userMessageId: z.uuid
 
 export type CreateBacklogResult = z.infer<typeof createResultSchema>;
 export type ConvertBacklogResult = z.infer<typeof convertResultSchema>;
+/** Esito di un turno di chat con sessione di analisi attiva. */
+export type BacklogChatTurn = z.infer<typeof chatTurnSchema>;
 
 /**
  * Backlog di discovery.
@@ -80,7 +82,7 @@ export function createBacklogEndpoints(request: ApiRequest) {
     },
 
     /** Un turno della chat di raffinamento CON sessione di analisi attiva (202). */
-    chat(id: string, message: string): Promise<z.infer<typeof chatTurnSchema>> {
+    chat(id: string, message: string): Promise<BacklogChatTurn> {
       return request("POST", `/api/backlog/${seg(id)}/chat`, { message }, chatTurnSchema);
     },
   };

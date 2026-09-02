@@ -1,12 +1,7 @@
-import {
-  docPageKindSchema,
-  searchDocsSemanticResultsSchema,
-  searchResultsSchema,
-} from "@stubwise/shared";
-import type { SearchDocsSemanticResults, SearchResults } from "@stubwise/shared";
+import { docPageKindSchema } from "@stubwise/shared";
 import { z } from "zod";
 import type { ApiRequest } from "../client.js";
-import { seg, toQuery } from "../query.js";
+import { seg } from "../query.js";
 
 /** MIRROR di `spaceSchema` (`apps/server/src/routes/docs.ts`). */
 export const docSpaceSchema = z.object({
@@ -84,13 +79,10 @@ const sessionsSchema = z.array(docChatSessionSchema);
 const messagesSchema = z.array(docChatMessageSchema);
 
 /**
- * Docs: ricerca e navigazione della documentazione autogenerata.
+ * Docs: navigazione della documentazione autogenerata.
  *
- * La ricerca ha DUE corsie che il client fonde: `search` è full-text ed è
- * veloce, `searchDocsSemantic` è il retrieval vettoriale sui soli Docs ed è
- * lenta ma migliore. La seconda è best-effort lato server (mai un errore: lista
- * vuota se il retrieval non è disponibile), quindi si può lanciare in parallelo
- * alla prima e fondere quando arriva.
+ * La RICERCA non è qui: è globale (ticket, progetti, repository e docs) e vive
+ * in `client.search`.
  *
  * L'INVIO di un messaggio alla chat NON è qui: oggi la rotta risponde solo in
  * SSE (`reply.hijack()`), che non passa da questo trasporto; la variante
@@ -99,24 +91,6 @@ const messagesSchema = z.array(docChatMessageSchema);
  */
 export function createDocsEndpoints(request: ApiRequest) {
   return {
-    /**
-     * Ricerca globale full-text (ticket, progetti, repository, docs).
-     * `repositoryId` restringe SOLO il gruppo docs; gli altri restano globali.
-     */
-    search(q: string, repositoryId?: string): Promise<SearchResults> {
-      return request("GET", `/api/search${toQuery({ q, repositoryId })}`, undefined, searchResultsSchema);
-    },
-
-    /** Corsia semantica sui Docs, da fondere nel gruppo docs della ricerca. */
-    searchDocsSemantic(q: string, repositoryId?: string): Promise<SearchDocsSemanticResults> {
-      return request(
-        "GET",
-        `/api/search/docs-semantic${toQuery({ q, repositoryId })}`,
-        undefined,
-        searchDocsSemanticResultsSchema,
-      );
-    },
-
     /** Gli spazi documentali (un repository con documentazione) dell'istanza. */
     spaces(): Promise<DocSpace[]> {
       return request("GET", "/api/docs/spaces", undefined, spacesSchema);

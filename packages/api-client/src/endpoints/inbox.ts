@@ -41,6 +41,22 @@ export type InboxActionBody = { instructions?: string } | AnswerBody;
  * `changedNotificationIds`.
  */
 export function createInboxEndpoints(request: ApiRequest) {
+  /**
+   * Azione DECISIONALE (approva/rifiuta il piano, rilancia, rispondi).
+   *
+   * Errori attesi (tutti `ApiError`): 409 `already_handled` — qualcun altro ha
+   * deciso prima, con `handledBy` nel body (vedi `handledByFromError`); 409
+   * `job_in_flight`, `plan_not_pending`, `question_not_pending`,
+   * `proposal_stale`; 403 `forbidden`; 400 `invalid_action`/`invalid_answer`.
+   */
+  function act(
+    id: string,
+    action: InboxDecisionAction,
+    body?: InboxActionBody,
+  ): Promise<InboxActionResult> {
+    return request("POST", `/api/inbox/${seg(id)}/actions/${action}`, body, inboxActionResultSchema);
+  }
+
   return {
     list(filters: InboxFilters = {}, cursor?: string, limit?: number): Promise<InboxPage> {
       const query = toQuery({
@@ -72,38 +88,15 @@ export function createInboxEndpoints(request: ApiRequest) {
       return request("POST", `/api/inbox/${seg(id)}/handled`);
     },
 
-    /**
-     * Azione DECISIONALE (approva/rifiuta il piano, rilancia, rispondi).
-     *
-     * Errori attesi (tutti `ApiError`): 409 `already_handled` — qualcun altro ha
-     * deciso prima, con `handledBy` nel body (vedi `handledByFromError`); 409
-     * `job_in_flight`, `plan_not_pending`, `question_not_pending`,
-     * `proposal_stale`; 403 `forbidden`; 400 `invalid_action`/`invalid_answer`.
-     */
-    act(
-      id: string,
-      action: InboxDecisionAction,
-      body?: InboxActionBody,
-    ): Promise<InboxActionResult> {
-      return request(
-        "POST",
-        `/api/inbox/${seg(id)}/actions/${action}`,
-        body,
-        inboxActionResultSchema,
-      );
-    },
+    act,
 
     /**
-     * Risposta a una domanda dell'agente DALL'INBOX. Scorciatoia su `act`: è
-     * l'azione più usata dell'app e passa da un corpo suo, non generico.
+     * Risposta a una domanda dell'agente DALL'INBOX. È l'azione più usata
+     * dell'app e merita un nome suo, ma DELEGA ad `act`: il path della rotta
+     * azione è costruito in un posto solo.
      */
     answer(id: string, answer: AnswerBody): Promise<InboxActionResult> {
-      return request(
-        "POST",
-        `/api/inbox/${seg(id)}/actions/answer`,
-        answer,
-        inboxActionResultSchema,
-      );
+      return act(id, "answer", answer);
     },
   };
 }

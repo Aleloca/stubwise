@@ -53,6 +53,10 @@ const runAiResultSchema = z.object({
 const jobIdSchema = z.object({ jobId: z.uuid() });
 
 export type RunAiResult = z.infer<typeof runAiResultSchema>;
+/** Esito di una risposta a una domanda dell'agente dalla pagina ticket. */
+export type AnswerQuestionResult = z.infer<typeof answerResultSchema>;
+/** Esito di approva/rifiuta piano: il job che riparte. */
+export type PlanDecisionResult = z.infer<typeof jobIdSchema>;
 
 /**
  * Ticket e stato del lavoro dell'agente: è il materiale della "storia del
@@ -110,7 +114,7 @@ export function createTicketsEndpoints(request: ApiRequest) {
       ticketId: string,
       questionId: string,
       answer: AnswerBody,
-    ): Promise<z.infer<typeof answerResultSchema>> {
+    ): Promise<AnswerQuestionResult> {
       return request(
         "POST",
         `/api/tickets/${seg(ticketId)}/questions/answer`,
@@ -134,7 +138,7 @@ export function createTicketsEndpoints(request: ApiRequest) {
     },
 
     /** Approva il piano in attesa: il worker lo esegue. 409 se non ce n'è uno. */
-    approvePlan(ticketId: string): Promise<{ jobId: string }> {
+    approvePlan(ticketId: string): Promise<PlanDecisionResult> {
       return request("POST", `/api/tickets/${seg(ticketId)}/approve-plan`, undefined, jobIdSchema);
     },
 
@@ -143,7 +147,7 @@ export function createTicketsEndpoints(request: ApiRequest) {
      * (max 4000) diventano un commento del team sul ticket — cioè proprio ciò
      * che il nuovo piano rilegge.
      */
-    rejectPlan(ticketId: string, body?: { instructions?: string }): Promise<{ jobId: string }> {
+    rejectPlan(ticketId: string, body?: { instructions?: string }): Promise<PlanDecisionResult> {
       return request("POST", `/api/tickets/${seg(ticketId)}/reject-plan`, body, jobIdSchema);
     },
   };

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 import { ApiError, createStubwiseClient } from "./index.js";
 
 function jsonResponse(status: number, body: unknown): Response {
@@ -158,9 +159,43 @@ describe("createStubwiseClient", () => {
     expect(rethrown).toBe(abort);
   });
 
-  it("con uno schema fallisce forte su una forma inattesa (non è un dato, è un bug)", async () => {
-    const client = clientWith(async () => jsonResponse(200, { count: "tre" }));
-    await expect(client.inbox.unreadCount()).rejects.toThrow();
+  it("con uno schema una forma inattesa è un ApiError, non una ZodError nuda", async () => {
+    // Resta un BUG e fallisce forte, ma esce dal SOLO tipo d'errore del
+    // trasporto: un utente non deve mai leggere "Invalid input: expected
+    // number, received string". Lo status è quello vero (il server HA
+    // risposto), la ZodError resta in `cause` e il body in `details`.
+    const body = { count: "tre" };
+    const client = clientWith(async () => jsonResponse(200, body));
+
+    const error = await client.inbox.unreadCount().catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error).toMatchObject({
+      status: 200,
+      code: "invalid_response",
+      message: "Unexpected response shape",
+      details: body,
+    });
+    expect((error as ApiError).cause).toBeInstanceOf(z.ZodError);
+  });
+
+  it("un getAuthHeader che lancia diventa ApiError, non un errore grezzo", async () => {
+    // Sul mobile il token viene dal keychain: se non è leggibile la richiesta
+    // non parte, e il chiamante deve poterlo trattare come ogni altro errore.
+    const cause = new Error("keychain locked");
+    const fetchImpl = mockFetch(async () => jsonResponse(200, { count: 0 }));
+    const client = createStubwiseClient({
+      baseUrl: "",
+      getAuthHeader: () => {
+        throw cause;
+      },
+      fetch: fetchImpl,
+    });
+
+    const error = await client.inbox.unreadCount().catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error).toMatchObject({ status: 0, code: "auth_unavailable" });
+    expect((error as ApiError).cause).toBe(cause);
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it("risolve il fetch globale a ogni chiamata, non alla costruzione", async () => {
