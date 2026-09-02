@@ -12,8 +12,11 @@ import {
   SESSION_COOKIE,
   SESSION_TTL_MS,
   sessionIdFromRequest,
+  toSessionUser,
 } from "../auth/session.js";
+import type { SessionUserColumns } from "../auth/session.js";
 import { invites, sessions, users } from "@stubwise/db";
+import type { Db } from "@stubwise/db";
 import {
   authUserResponseSchema,
   languageResponseSchema,
@@ -88,19 +91,69 @@ function getDummyHash(): Promise<string> {
  * della risposta né il tempo per produrla dicono se l'account esiste.
  *
  * Chi chiama deve rispondere allo stesso identico modo per ogni `null`.
+ *
+ * L'utente esce SENZA `passwordHash`, e per ALLOWLIST: si elencano le colonne
+ * che escono invece di togliere quella che non deve uscire. È la stessa regola
+ * di `toPatView` per il `tokenHash` (`routes/pat.ts`) — "mai lo spread della
+ * riga" — ed è più forte di un `Omit`: una colonna sensibile aggiunta domani a
+ * `users` non entra qui da sola. Serve perché questa funzione è l'unico punto
+ * di `auth.ts` da cui l'hash potrebbe uscire, e lo schema zod di risposta fa
+ * da rete solo dove una rotta ne dichiara uno: il prossimo chiamante
+ * potrebbe non averlo.
+ *
+ * Le colonne sono esattamente quelle che consuma `toSessionUser`, cioè quanto
+ * basta a entrambi i chiamanti.
  */
 async function verifyCredentials(
-  db: FastifyInstance["db"],
+  db: Db,
   email: string,
   password: string,
-): Promise<typeof users.$inferSelect | null> {
+): Promise<SessionUserColumns | null> {
   const [user] = await db.select().from(users).where(eq(users.email, email));
   if (!user) {
     await verifyPassword(await getDummyHash(), password);
     return null;
   }
   if (!(await verifyPassword(user.passwordHash, password))) return null;
-  return user;
+  return {
+    id: user.id,
+    email: user.email,
+    role: user.role,
+    language: user.language,
+    slackAvatarUrl: user.slackAvatarUrl,
+    slackUserId: user.slackUserId,
+  };
+}
+
+/**
+ * Le rotte di `authRoutes` che possono legittimamente avere un bucket di rate
+ * limit tutto loro. Confronto per suffisso e non per url intera perché il
+ * prefisso (`/api/auth`) lo decide chi registra il plugin.
+ */
+const OWN_BUCKET_ROUTES = ["/register"];
+
+/**
+ * Descrive la violazione se una rotta di `authRoutes` dichiara
+ * `config.rateLimit` invece di montare il limiter condiviso, altrimenti
+ * `null`. Estratta dall'hook perché una guardia non testabile è solo un
+ * commento più lungo: `auth-rate-limit-guard.test.ts` la esercita da sola,
+ * senza dover registrare una rotta finta.
+ *
+ * `config.rateLimit === false` (limite esplicitamente disattivato) non è una
+ * violazione: non apre nessun bucket.
+ */
+export function credentialsBucketViolation(
+  url: string,
+  config: { rateLimit?: unknown } | undefined,
+): string | null {
+  if (!config?.rateLimit) return null;
+  if (OWN_BUCKET_ROUTES.some((suffix) => url.endsWith(suffix))) return null;
+  return (
+    `${url}: le rotte di autenticazione condividono un solo tetto di tentativi. ` +
+    "Monta `credentialsRateLimit` come onRequest invece di dichiarare " +
+    "`config.rateLimit`, che aprirebbe un bucket a sé e alzerebbe il tetto " +
+    `per IP (vedi il commento su credentialsRateLimit; eccezioni: ${OWN_BUCKET_ROUTES.join(", ")}).`
+  );
 }
 
 const credentialsSchema = z.object({
@@ -151,16 +204,39 @@ export async function authRoutes(
    * condiviso con /login" falliscono con `groupId` e passano così; sono lì
    * perché la differenza non si vede leggendo il codice.
    *
+   * ⚠️ E IL BUG SPECULARE, per chi un giorno monterà un SECONDO limiter a mano
+   * su un'altra superficie (l'ingestion, il widget…). Il prefisso di chiave
+   * `<metodo><url>-` dello store Redis viene da `routeInfo`, che
+   * `config.rateLimit` valorizza con la rotta vera ma che `app.rateLimit()`
+   * passa VUOTO (`routeInfo: {}`): il prefisso diventa la costante
+   * `undefinedundefined-`, uguale per tutti. Con lo store in memoria non si
+   * vede (ogni limiter ha comunque la sua LRU), ma con Redis due limiter
+   * montati a mano si FONDEREBBERO per IP — il tetto di una superficie
+   * consumato dai tentativi su un'altra. È la fusione silenziosa, l'esatto
+   * opposto del problema di `groupId`, e oggi non morde solo perché di
+   * limiter montati a mano ce n'è uno. Il secondo passi un `nameSpace`
+   * proprio, o torni a `config.rateLimit` se non deve condividere niente.
+   *
    * `onRequest` come il `config.rateLimit` che sostituisce (è l'hook di
    * default del plugin): il conteggio resta prima del parsing del corpo, così
    * un corpo malformato costa comunque un tentativo.
    *
    * `/register` resta fuori dal gruppo, con il suo bucket: non verifica le
-   * credenziali di un account esistente: consuma un invito. Non è una porta
+   * credenziali di un account esistente, consuma un invito. Non è una porta
    * sulla stessa password e il suo tetto è indipendente (lo asserisce un test
    * in `ingest.test.ts`).
    */
   const credentialsRateLimit = instance.rateLimit(opts.rateLimit);
+
+  // La guardia che rende verificabile il paragrafo qui sopra: senza, "attacca
+  // la prossima rotta a credentialsRateLimit" resta una frase in un commento,
+  // e chi la salta apre un bucket nuovo senza che nessun test se ne accorga
+  // (i due test alternati coprono login<->mobile, non una rotta che ancora non
+  // esiste). Con, l'errore è all'AVVIO del server, non in produzione.
+  instance.addHook("onRoute", (route) => {
+    const problem = credentialsBucketViolation(route.url, route.config);
+    if (problem) throw new Error(problem);
+  });
 
   // La UI usa questo flag per decidere se mostrare la pagina di primo setup.
   app.get(
@@ -285,17 +361,7 @@ export async function authRoutes(
         `Mobile · ${request.body.deviceName}`,
         null,
       );
-      return reply.code(200).send({
-        token,
-        user: {
-          id: user.id,
-          email: user.email,
-          role: user.role,
-          language: user.language,
-          avatarUrl: user.slackAvatarUrl,
-          slackUserId: user.slackUserId,
-        },
-      });
+      return reply.code(200).send({ token, user: toSessionUser(user) });
     },
   );
 

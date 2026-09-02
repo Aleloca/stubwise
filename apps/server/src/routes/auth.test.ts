@@ -324,6 +324,47 @@ describe("mobile-login", () => {
     expect(created?.expiresAt).toBeNull();
   });
 
+  it("trimma il deviceName prima di comporre il nome del PAT", async () => {
+    const res = await mobileLogin({
+      email: "admin@example.com",
+      password: "password-sicura",
+      deviceName: "  iPad di Ada  ",
+    });
+    expect(res.statusCode).toBe(200);
+    const { token } = res.json() as { token: string };
+    const pats = await app.inject({
+      method: "GET",
+      url: "/api/pats",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    // Senza trim il nome sarebbe "Mobile ·   iPad di Ada  ".
+    const names = (pats.json() as { name: string }[]).map((p) => p.name);
+    expect(names).toContain("Mobile · iPad di Ada");
+  });
+
+  // Un nome di device vero contiene emoji, e ogni emoji composta e' tenuta
+  // insieme da uno ZWJ (U+200D). Questo caso e' la regressione di un errore
+  // vero: la prima versione vietava \p{Cf} in blocco e rispondeva 400 a
+  // "iPhone di <emoji programmatore>" — un rifiuto incomprensibile su un nome
+  // legittimo. La tabella completa sta in packages/shared (pat.test.ts).
+  it("accetta un deviceName con emoji composta (ZWJ)", async () => {
+    const deviceName = "iPhone di \u{1F468}\u200D\u{1F4BB}";
+    const res = await mobileLogin({
+      email: "admin@example.com",
+      password: "password-sicura",
+      deviceName,
+    });
+    expect(res.statusCode).toBe(200);
+    const { token } = res.json() as { token: string };
+    const pats = await app.inject({
+      method: "GET",
+      url: "/api/pats",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const names = (pats.json() as { name: string }[]).map((p) => p.name);
+    expect(names).toContain(`Mobile \u00B7 ${deviceName}`);
+  });
+
   it("con password errata → 401 e nessun PAT creato", async () => {
     const before = await testDb.db.select().from(personalAccessTokens);
     const res = await mobileLogin({
@@ -356,19 +397,36 @@ describe("mobile-login", () => {
       .from(users)
       .where(eq(users.email, "nessuno-qui@example.com"));
     expect(rows).toEqual([]);
+
+    // ...e nemmeno dall'ALTRA porta: le due rotte condividono
+    // `verifyCredentials`, quindi devono rispondere identiche anche fra loro.
+    // Senza questo confronto, "identica parola per parola alla 401 di /login"
+    // resterebbe una promessa del commento in auth.ts.
+    const viaWeb = await login("admin@example.com", "password-sbagliata");
+    expect(viaWeb.statusCode).toBe(wrongPassword.statusCode);
+    expect(viaWeb.json()).toEqual(wrongPassword.json());
   });
 
-  it("rifiuta un deviceName vuoto, troppo lungo o con caratteri di controllo", async () => {
+  it("rifiuta un deviceName vuoto, troppo lungo, o con bidi/interruzioni di riga", async () => {
     const base = { email: "admin@example.com", password: "password-sicura" };
-    for (const deviceName of ["", "   ", "x".repeat(81), "iPhone\nAdmin", "iPhone‮off"]) {
+    const before = await testDb.db.select().from(personalAccessTokens);
+    const rifiutati = [
+      "",
+      "   ",
+      "x".repeat(81),
+      "iPhone\nAdmin",
+      "iPhone\u2028Admin", // LINE SEPARATOR: e' Zl, NON lo prende \p{Cc}
+      "iPhone\u202Eoff", // RLO: fa leggere il nome al contrario
+    ];
+    for (const deviceName of rifiutati) {
       const res = await mobileLogin({ ...base, deviceName });
       expect(res.statusCode, `deviceName ${JSON.stringify(deviceName)}`).toBe(400);
     }
-    const rows = await testDb.db
-      .select()
-      .from(personalAccessTokens)
-      .where(eq(personalAccessTokens.name, "Mobile · "));
-    expect(rows).toEqual([]);
+    // Si contano le righe invece di cercare il nome "Mobile · ": quello
+    // coprirebbe solo il caso vuoto, e un 81esimo carattere o un RLO che
+    // passassero creerebbero un PAT con un nome diverso, invisibile al test.
+    const after = await testDb.db.select().from(personalAccessTokens);
+    expect(after.length).toBe(before.length);
   });
 
   // Il tetto anti-brute-force è una proprietà della SUPERFICIE CREDENZIALI,

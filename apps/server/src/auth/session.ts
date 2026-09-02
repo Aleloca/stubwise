@@ -40,6 +40,36 @@ declare module "fastify" {
 }
 
 /**
+ * Le colonne di `users` che bastano a costruire un {@link SessionUser}.
+ * Espresso come `Pick` della riga, non come forma a mano: se una colonna
+ * cambia nome, e' qui che il typecheck si ferma.
+ */
+export type SessionUserColumns = Pick<
+  typeof users.$inferSelect,
+  "id" | "email" | "role" | "language" | "slackAvatarUrl" | "slackUserId"
+>;
+
+/**
+ * Proiezione riga-utente -> {@link SessionUser}, in un punto solo.
+ *
+ * Esiste perche' la mappatura ha un dettaglio che il typecheck NON protegge:
+ * la colonna si chiama `slackAvatarUrl` e il campo `avatarUrl`. Un campo
+ * dimenticato lo vedrebbe il compilatore; un campo mappato dalla COLONNA
+ * SBAGLIATA no — e con tre copie della stessa proiezione (sessione, PAT,
+ * mobile-login) era questione di tempo.
+ */
+export function toSessionUser(row: SessionUserColumns): SessionUser {
+  return {
+    id: row.id,
+    email: row.email,
+    role: row.role,
+    language: row.language,
+    avatarUrl: row.slackAvatarUrl,
+    slackUserId: row.slackUserId,
+  };
+}
+
+/**
  * Crea una sessione opaca: l'id è entropia pura (32 byte, base64url), non
  * contiene claim. Il client lo riceve in un cookie firmato; il server lo
  * risolve in utente con una lookup su `sessions`.
@@ -72,7 +102,7 @@ export async function findSessionUser(db: Db, sessionId: string): Promise<Sessio
       email: users.email,
       role: users.role,
       language: users.language,
-      avatarUrl: users.slackAvatarUrl,
+      slackAvatarUrl: users.slackAvatarUrl,
       slackUserId: users.slackUserId,
     })
     .from(sessions)
@@ -84,14 +114,7 @@ export async function findSessionUser(db: Db, sessionId: string): Promise<Sessio
     await deleteSession(db, sessionId);
     return null;
   }
-  return {
-    id: row.id,
-    email: row.email,
-    role: row.role,
-    language: row.language,
-    avatarUrl: row.avatarUrl,
-    slackUserId: row.slackUserId,
-  };
+  return toSessionUser(row);
 }
 
 /**
@@ -135,7 +158,7 @@ export async function findPatUser(
       email: users.email,
       role: users.role,
       language: users.language,
-      avatarUrl: users.slackAvatarUrl,
+      slackAvatarUrl: users.slackAvatarUrl,
       slackUserId: users.slackUserId,
     })
     .from(personalAccessTokens)
@@ -156,14 +179,7 @@ export async function findPatUser(
       ),
     )
     .catch(() => undefined);
-  return {
-    id: row.id,
-    email: row.email,
-    role: row.role,
-    language: row.language,
-    avatarUrl: row.avatarUrl,
-    slackUserId: row.slackUserId,
-  };
+  return toSessionUser(row);
 }
 
 /**

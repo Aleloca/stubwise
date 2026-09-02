@@ -35,6 +35,12 @@ function toPatView(row: PatRow): PatView {
  * Il chiamante decide chi è l'utente — qui non c'è nessun controllo di
  * autorizzazione: `POST /api/pats` prende l'id dalla sessione, `mobile-login`
  * lo prende dall'utente di cui ha appena verificato la password.
+ *
+ * E nemmeno nessuna validazione: i vincoli su `name` e `expiresAt` li applica
+ * lo schema del chiamante (`createPatSchema` per la rotta, il `deviceName` di
+ * `mobileLoginBodySchema` per l'app), perché sono diversi — 100 caratteri
+ * liberi contro 80 senza bidi né interruzioni di riga. Chi aggiunge un
+ * chiamante porta il proprio schema.
  */
 export async function createPatForUser(
   db: Db,
