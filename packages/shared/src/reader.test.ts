@@ -26,10 +26,21 @@ function allEnumValues(): { name: string; values: string[] }[] {
     if (!(schema instanceof z.ZodType) || seen.has(schema)) return;
     seen.add(schema);
     if (schema instanceof z.ZodEnum) found.push({ name, values: schema.options.map(String) });
-    const def = schema.def as unknown as Record<string, unknown>;
-    if (def.shape) for (const [k, v] of Object.entries(def.shape)) walk(v, `${name}.${k}`);
-    for (const key of ["element", "innerType", "valueType", "keyType"]) walk(def[key], name);
-    if (Array.isArray(def.options)) for (const o of def.options) walk(o, name);
+    // Si scende in TUTTI i figli del `def`, qualunque nome abbiano: `shape`,
+    // `element`, `options`, ma anche `in`/`out` di un `.pipe()`, `left`/`right`
+    // di un'intersection, `items` di una tupla. Enumerare le chiavi a mano
+    // avrebbe nascosto al guardiano proprio l'enum introdotto da una forma
+    // nuova. Le funzioni (il `getter` di `z.lazy`) si saltano: valutarle
+    // potrebbe ricorrere all'infinito.
+    const descend = (value: unknown, path: string): void => {
+      if (value instanceof z.ZodType) return walk(value, path);
+      if (typeof value === "function") return;
+      if (Array.isArray(value)) return value.forEach((v) => descend(v, path));
+      if (value && typeof value === "object") {
+        for (const [k, v] of Object.entries(value)) descend(v, `${path}.${k}`);
+      }
+    };
+    descend(schema.def as unknown, name);
   };
   for (const [name, schema] of exportedSchemas()) walk(schema, name);
   return found;
@@ -62,14 +73,13 @@ describe("readerSchema", () => {
     expect(reader.parse("kind.nuovo.di.un.server.piu.recente")).toBe(UNKNOWN);
   });
 
-  it("apre gli enum ANNIDATI: in oggetti, array, optional, nullable e union", () => {
+  it("apre gli enum ANNIDATI: in oggetti, array, optional e nullable", () => {
     const schema = z.object({
       kind: z.enum(["x"]),
       list: z.array(z.enum(["x"])),
       maybe: z.enum(["x"]).optional(),
       nullable: z.enum(["x"]).nullable(),
       deep: z.object({ inner: z.array(z.object({ k: z.enum(["x"]) })) }),
-      union: z.union([z.enum(["x"]), z.number()]),
     });
     const parsed = readerSchema(schema).parse({
       kind: "nuovo",
@@ -77,7 +87,6 @@ describe("readerSchema", () => {
       maybe: "nuovo",
       nullable: null,
       deep: { inner: [{ k: "nuovo" }] },
-      union: "nuovo",
     });
     expect(parsed).toEqual({
       kind: UNKNOWN,
@@ -85,7 +94,6 @@ describe("readerSchema", () => {
       maybe: UNKNOWN,
       nullable: null,
       deep: { inner: [{ k: UNKNOWN }] },
-      union: UNKNOWN,
     });
   });
 
@@ -139,11 +147,79 @@ describe("readerSchema", () => {
     expect(unsupportedNodeKinds(z.looseObject({ a: z.string() }))).toEqual(["object(catchall)"]);
   });
 
+  // Le union hanno un blocco tutto loro più sotto: lì l'apertura è VIETATA.
   it("readerNodeKinds descrive lo stesso cammino che apre gli enum", () => {
     expect([...readerNodeKinds(z.object({ a: z.array(z.enum(["x"])) }))].sort()).toEqual([
       "array",
       "enum",
       "object",
     ]);
+  });
+});
+
+/**
+ * I casi in cui la derivazione NON deve aprire nulla.
+ *
+ * Sono documentazione eseguibile: ognuno di questi, se aperto, produrrebbe un
+ * dato SBAGLIATO (non un dato mancante), e la validazione rigida del server non
+ * lo intercetterebbe perché quei payload sono per lei validi.
+ */
+describe("union: dove l'apertura cambierebbe QUALE opzione vince", () => {
+  it("union di literal: un valore legittimo NON viene scambiato per ignoto", () => {
+    // Aprendo, `z.literal("a")` non fallisce più e vince sempre: `"b"` —
+    // valore perfettamente legittimo — tornerebbe come UNKNOWN.
+    const schema = z.union([z.literal("a"), z.literal("b")]);
+    expect(readerSchema(schema).parse("b")).toBe("b");
+    expect(unsupportedNodeKinds(schema)).toEqual(["union(opened)"]);
+  });
+
+  it("union enum|numero: il numero resta un numero", () => {
+    const schema = z.union([z.enum(["x"]), z.number()]);
+    expect(readerSchema(schema).parse(123)).toBe(123);
+    expect(unsupportedNodeKinds(schema)).toEqual(["union(opened)"]);
+  });
+
+  it("discriminatedUnion: una risposta valida NON viene attribuita all'altra variante", () => {
+    // Il caso peggiore: aprendo il discriminante, la variante `b` verrebbe
+    // letta come `a` e `y` sparirebbe. Il payload è valido per lo schema
+    // rigido, quindi il server non lo intercetta.
+    const schema = z.discriminatedUnion("kind", [
+      z.object({ kind: z.literal("a"), x: z.number().nullable() }),
+      z.object({ kind: z.literal("b"), y: z.string() }),
+    ]);
+    expect(readerSchema(schema).parse({ kind: "b", y: "s", x: null })).toEqual({
+      kind: "b",
+      y: "s",
+    });
+    expect(unsupportedNodeKinds(schema)).toEqual(["discriminatedUnion"]);
+  });
+
+  it("una union SENZA enum dentro resta attraversabile (niente falsi allarmi)", () => {
+    // È la forma che esiste davvero oggi negli schemi di risposta
+    // (`agentQuestionAnswerSchema`): due oggetti, nessun enum. Segnalarla
+    // sarebbe un guardiano che grida al lupo.
+    const schema = z.union([z.object({ optionIndex: z.number() }), z.object({ text: z.string() })]);
+    expect(unsupportedNodeKinds(schema)).toEqual([]);
+    expect(readerSchema(schema).parse({ text: "ciao" })).toEqual({ text: "ciao" });
+  });
+});
+
+describe("checks persi dalla ricostruzione", () => {
+  it("segnala un .refine() su un oggetto, che la ricostruzione perderebbe", () => {
+    const schema = z.object({ a: z.number() }).refine((v) => v.a > 10);
+    expect(() => schema.parse({ a: 1 })).toThrow();
+    // Il reader accetta ciò che il rigido rifiuta: allentamento, quindi nella
+    // direzione sicura — ma va DETTO, non subìto in silenzio.
+    expect(readerSchema(schema).parse({ a: 1 })).toEqual({ a: 1 });
+    expect(unsupportedNodeKinds(schema)).toEqual(["object(checks)"]);
+  });
+
+  it("segnala un .max() su un array", () => {
+    expect(unsupportedNodeKinds(z.array(z.string()).max(2))).toEqual(["array(checks)"]);
+  });
+
+  it("i checks di una FOGLIA sopravvivono: non viene ricostruita", () => {
+    expect(unsupportedNodeKinds(z.object({ s: z.string().min(3) }))).toEqual([]);
+    expect(() => readerSchema(z.object({ s: z.string().min(3) })).parse({ s: "ab" })).toThrow();
   });
 });

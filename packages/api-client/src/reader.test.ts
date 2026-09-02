@@ -17,8 +17,12 @@ const NOW = "2026-09-02T10:00:00.000Z";
  * dimenticare" resti vero anche al task 20. Gli argomenti sono finti di
  * proposito: lo schema è scelto prima che il corpo conti qualcosa.
  */
-function responseSchemas(): { name: string; schema: ZodType }[] {
+function responseSchemas(): {
+  schemas: { name: string; schema: ZodType }[];
+  failures: { name: string; error: string }[];
+} {
   const collected: { name: string; schema: ZodType }[] = [];
+  const failures: { name: string; error: string }[] = [];
   let current = "";
   const request = ((_m: string, _p: string, _b?: unknown, schema?: ZodType) => {
     if (schema) collected.push({ name: current, schema });
@@ -32,12 +36,16 @@ function responseSchemas(): { name: string; schema: ZodType }[] {
       current = `${groupName}.${method}`;
       try {
         (fn as (...a: unknown[]) => unknown).call(group, ID, ID, ID);
-      } catch {
-        // Argomenti finti: un errore qui non interessa, lo schema è già passato.
+      } catch (error) {
+        // Gli argomenti sono finti, ma un endpoint NON deve lanciare prima di
+        // chiamare `request`: se lo facesse uscirebbe da questi controlli in
+        // silenzio, e il pavimento sul numero di schemi non se ne accorgerebbe
+        // di UNO solo. Si raccoglie e si asserisce vuoto.
+        failures.push({ name: current, error: String(error) });
       }
     }
   }
-  return collected;
+  return { schemas: collected, failures };
 }
 
 describe("guardiano dei tipi di nodo", () => {
@@ -46,14 +54,18 @@ describe("guardiano dei tipi di nodo", () => {
     // (un `record`, un oggetto con catchall), passerebbe invariato — sicuro,
     // ma gli enum lì dentro resterebbero CHIUSI in silenzio: di nuovo il bug
     // che tutto questo esiste per evitare, proprio dove nessuno lo cerca.
-    const offenders = responseSchemas()
+    const { schemas, failures } = responseSchemas();
+    // Nessun endpoint deve essersi sottratto alla raccolta.
+    expect(failures).toEqual([]);
+
+    const offenders = schemas
       .map(({ name, schema }) => ({ name, kinds: unsupportedNodeKinds(schema) }))
       .filter((entry) => entry.kinds.length > 0);
     expect(offenders).toEqual([]);
   });
 
   it("il guardiano non passa a vuoto: gli schemi ci sono e contengono enum", () => {
-    const schemas = responseSchemas();
+    const { schemas } = responseSchemas();
     expect(schemas.length).toBeGreaterThan(30);
     expect(schemas.filter(({ schema }) => readerNodeKinds(schema).has("enum")).length).toBeGreaterThan(
       10,

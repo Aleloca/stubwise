@@ -81,6 +81,13 @@ export type Reader<T> = T extends string
  * Per questo l'insieme è esportato: i test lo confrontano con i tipi di nodo
  * davvero presenti negli schemi che i client leggono, e l'introduzione di un
  * nodo non gestito diventa un rosso in CI invece di un buco.
+ *
+ * Fuori dall'elenco — cioè segnalati — finiscono anche alcune FORME dei nodi
+ * che pure sappiamo attraversare, perché attraversarle sarebbe INFEDELE:
+ * `object(catchall)` (la ricostruzione lo appiattirebbe a strip),
+ * `<nodo>(checks)` (un `.refine()`/`.max()` che la ricostruzione perderebbe),
+ * `discriminatedUnion` e `union(opened)` (vedi il commento sulle union in
+ * `derive`: lì aprire un enum cambierebbe QUALE opzione vince).
  */
 export const READER_NODE_KINDS = [
   "object",
@@ -104,61 +111,136 @@ function openValues(values: readonly string[]): z.ZodType {
 }
 
 /**
- * Attraversa lo schema una volta sola, ricostruendolo E annotando i tipi di
- * nodo incontrati. Ricostruzione e ispezione condividono lo STESSO cammino di
- * proposito: se fossero due funzioni potrebbero divergere, e il test che
- * sorveglia i tipi di nodo starebbe sorvegliando un cammino diverso da quello
- * che poi apre gli enum davvero.
+ * Stato di una singola derivazione: i tipi di nodo incontrati e QUANTI enum
+ * sono stati aperti. Il conteggio non è statistica — serve alle union, che
+ * devono sapere se sotto di loro è cambiato qualcosa (vedi sotto).
  */
+interface Trace {
+  kinds: Set<string>;
+  opened: number;
+}
+
+/**
+ * Annota un nodo che stiamo RICOSTRUENDO, segnalando a parte se porta dei
+ * `checks`.
+ *
+ * `.refine()`, `.superRefine()`, `.max()` su un array e simili vivono in
+ * `def.checks`, e ricostruire il nodo (`z.object(shape)`, `z.array(inner)`, …)
+ * li PERDE: lo schema da lettore accetterebbe ciò che il rigido rifiuta. È un
+ * allentamento, quindi nella direzione sicura — ma il guardiano promette
+ * "attraversabile fedelmente", e una perdita silenziosa non è fedeltà.
+ */
+function noteRebuild(schema: z.ZodType, kind: string, trace: Trace): void {
+  const checks = (schema.def as { checks?: unknown[] }).checks;
+  trace.kinds.add(checks && checks.length > 0 ? `${kind}(checks)` : kind);
+}
+
 // `.shape`, `.options` ed `.element` sono tipati sul core (`$ZodType`), non su
 // `ZodType`: il cast è meccanico e riguarda solo i tipi, non il valore.
 function child(value: unknown): z.ZodType {
   return value as z.ZodType;
 }
 
-function derive(schema: z.ZodType, kinds: Set<string>): z.ZodType {
-  const kind = schema.def.type;
-
+/**
+ * Attraversa lo schema una volta sola, ricostruendolo E annotando i tipi di
+ * nodo incontrati. Ricostruzione e ispezione condividono lo STESSO cammino di
+ * proposito: se fossero due funzioni potrebbero divergere, e il test che
+ * sorveglia i tipi di nodo starebbe sorvegliando un cammino diverso da quello
+ * che poi apre gli enum davvero.
+ */
+function derive(schema: z.ZodType, trace: Trace): z.ZodType {
   if (schema instanceof z.ZodObject) {
     // Un oggetto "loose"/con catchall non sopravviverebbe a `z.object()`, che lo
     // ricostruisce in modalità strip: si annota a parte, così il test lo vede.
-    kinds.add(schema.def.catchall === undefined ? "object" : "object(catchall)");
+    noteRebuild(
+      schema,
+      schema.def.catchall === undefined ? "object" : "object(catchall)",
+      trace,
+    );
     const shape = Object.fromEntries(
-      Object.entries(schema.shape).map(([key, value]) => [key, derive(child(value), kinds)]),
+      Object.entries(schema.shape).map(([key, value]) => [key, derive(child(value), trace)]),
     );
     return z.object(shape);
   }
-
-  kinds.add(kind);
 
   // Enum e literal si aprono alla stessa condizione: che i valori siano
   // STRINGHE. Un enum numerico o un `z.literal(true)` non hanno un segnaposto
   // sensato, e `Reader<T>` non tocca i tipi non-stringa — i due capi restano
   // d'accordo senza casi speciali.
   if (schema instanceof z.ZodEnum || schema instanceof z.ZodLiteral) {
+    trace.kinds.add(schema.def.type);
     const values: unknown[] =
       schema instanceof z.ZodEnum ? [...schema.options] : [...schema.values];
-    return values.every((value) => typeof value === "string")
-      ? openValues(values as string[])
-      : schema;
+    if (!values.every((value) => typeof value === "string")) return schema;
+    trace.opened += 1;
+    return openValues(values as string[]);
   }
-  if (schema instanceof z.ZodArray) return z.array(derive(child(schema.element), kinds));
-  if (schema instanceof z.ZodOptional) return derive(child(schema.unwrap()), kinds).optional();
-  if (schema instanceof z.ZodNullable) return derive(child(schema.unwrap()), kinds).nullable();
+
+  /**
+   * ⚠️ LE UNION SONO IL PUNTO DELICATO DI TUTTO IL FILE.
+   *
+   * `z.union` prova le opzioni IN ORDINE e tiene la prima che passa. Un'opzione
+   * aperta però non fallisce MAI — è proprio ciò che `.catch()` le fa fare —
+   * quindi vince sempre, e le opzioni successive diventano irraggiungibili. Non
+   * è un caso di scuola: `z.union([z.literal("a"), z.literal("b")])` derivato
+   * legge `"b"` come UNKNOWN, cioè PERDE un valore legittimo.
+   *
+   * Peggio con le `discriminatedUnion`: aprendo il discriminante, una risposta
+   * valida della variante `b` può essere attribuita alla variante `a` e perdere
+   * i suoi campi. Non è un caso che la validazione rigida del server
+   * intercetti, perché quel payload è per lei perfettamente valido.
+   *
+   * Quindi qui NON si apre nulla, in due modi:
+   * - una `discriminatedUnion` resta com'è sempre (ricostruirla come union
+   *   semplice ne perderebbe anche il dispatch sul discriminante);
+   * - una union semplice si ricostruisce SOLO se sotto di lei non è stato
+   *   aperto niente; se qualcosa è stato aperto si torna l'originale RIGIDO.
+   *
+   * In entrambi i casi il tipo di nodo annotato è fuori da
+   * {@link READER_NODE_KINDS}: la CI diventa rossa, e chi ci arriva progetta
+   * l'apertura del discriminante apposta — per esempio
+   * `z.union([originale_rigido, variante_di_fallback])`, col rigido per primo —
+   * invece di scoprirlo da un bug su un telefono.
+   */
+  if (schema instanceof z.ZodDiscriminatedUnion) {
+    trace.kinds.add("discriminatedUnion");
+    return schema;
+  }
   if (schema instanceof z.ZodUnion) {
-    const options = schema.options.map((option) => derive(child(option), kinds));
+    const openedBefore = trace.opened;
+    const options = schema.options.map((option) => derive(child(option), trace));
+    if (trace.opened > openedBefore) {
+      noteRebuild(schema, "union(opened)", trace);
+      return schema;
+    }
+    noteRebuild(schema, "union", trace);
     return z.union(options as [z.ZodType, z.ZodType, ...z.ZodType[]]);
   }
 
-  // Foglia (string/number/boolean/unknown) o nodo non gestito: invariata.
+  if (schema instanceof z.ZodArray) {
+    noteRebuild(schema, "array", trace);
+    return z.array(derive(child(schema.element), trace));
+  }
+  if (schema instanceof z.ZodOptional) {
+    noteRebuild(schema, "optional", trace);
+    return derive(child(schema.unwrap()), trace).optional();
+  }
+  if (schema instanceof z.ZodNullable) {
+    noteRebuild(schema, "nullable", trace);
+    return derive(child(schema.unwrap()), trace).nullable();
+  }
+
+  // Foglia (string/number/boolean/unknown) o nodo non gestito: invariata, e
+  // quindi anche i suoi `checks` sopravvivono.
+  trace.kinds.add(schema.def.type);
   return schema;
 }
 
 /** I tipi di nodo Zod raggiungibili dallo schema, sul cammino di `readerSchema`. */
 export function readerNodeKinds(schema: z.ZodType): Set<string> {
-  const kinds = new Set<string>();
-  derive(schema, kinds);
-  return kinds;
+  const trace: Trace = { kinds: new Set(), opened: 0 };
+  derive(schema, trace);
+  return trace.kinds;
 }
 
 /** I tipi di nodo dello schema che `readerSchema` NON sa attraversare. */
@@ -192,7 +274,7 @@ export function readerSchema<S extends z.ZodType>(schema: S): z.ZodType<Reader<z
   // Il cast è l'unico punto in cui ci si fida di sé: TypeScript non può provare
   // che la ricostruzione produca `Reader<output>`. Lo provano i test, che
   // confrontano tipo e comportamento sullo stesso schema.
-  const derived = derive(schema, new Set()) as z.ZodType<Reader<z.output<S>>>;
+  const derived = derive(schema, { kinds: new Set(), opened: 0 }) as z.ZodType<Reader<z.output<S>>>;
   cache.set(schema, derived as unknown as z.ZodType);
   return derived;
 }
