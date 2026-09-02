@@ -1,6 +1,8 @@
 const path = require("node:path");
 const { getDefaultConfig, mergeConfig } = require("@react-native/metro-config");
 
+const defaults = getDefaultConfig(__dirname);
+
 // La radice del monorepo pnpm.
 const root = path.resolve(__dirname, "../..");
 
@@ -27,8 +29,14 @@ const config = {
     // scritto come /\.worktrees\//: lanciato DA un worktree la project root sta
     // essa stessa sotto .worktrees/, e un pattern non ancorato bloccherebbe i
     // sorgenti dell'app.
-    blockList: [new RegExp(`^${escapeRegExp(path.join(root, ".worktrees"))}/`)],
+    // mergeConfig SOSTITUISCE blockList invece di unirla: senza rimettere
+    // qui defaults.resolver.blockList perderemmo in silenzio le esclusioni
+    // del preset (p.es. /__tests__/).
+    blockList: [
+      defaults.resolver.blockList,
+      new RegExp(`^${escapeRegExp(path.join(root, ".worktrees"))}/`),
+    ],
   },
 };
 
-module.exports = mergeConfig(getDefaultConfig(__dirname), config);
+module.exports = mergeConfig(defaults, config);

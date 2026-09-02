@@ -76,12 +76,6 @@ pnpm --filter @stubwise/mobile ios --udid <UDID>
 xcrun simctl list devices booted      # su quale simulatore è partita davvero
 ```
 
-Sul device fisico del maintainer (iPhone 15 Pro Max, iOS 26.6.1):
-
-```bash
-pnpm --filter @stubwise/mobile ios --udid <UDID>
-```
-
 ⚠️ **Dal Task 19 in poi il device fisico è obbligatorio, non una preferenza:**
 le push APNs non arrivano sul simulatore.
 
@@ -137,7 +131,8 @@ C'è poi una `resolver.blockList` per escludere i git worktree in
 ancorata al percorso della radice, perché un pattern generico su `.worktrees`
 bloccherebbe i sorgenti dell'app quando si lavora *dentro* un worktree.
 
-Per lo stesso motivo `jest.config.js` sovrascrive `transformIgnorePatterns`: il
+Anche `jest.config.js` paga il layout di pnpm, e sovrascrive
+`transformIgnorePatterns`: il
 pattern del preset React Native è scritto per un `node_modules` piatto e sotto
 pnpm escluderebbe dalla trasformazione Babel anche i sorgenti ESM di
 `react-native` (che stanno in `node_modules/.pnpm/<pkg>/node_modules/<pkg>`).
