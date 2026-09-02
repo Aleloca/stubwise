@@ -193,13 +193,33 @@ offline** (rischio di corse e stato stantio); la card resta e il bottone dice
   attivi — semplice e coerente con `slack_dm`. Esito per device registrato
   nel `detail` della delivery; la delivery è `sent` se almeno un device ha
   accettato.
-- **Poller**: ramo `push` → APNs (HTTP/2, token `.p8`) + FCM (HTTP v1,
-  service account); env opzionali `APNS_KEY_P8` (base64), `APNS_KEY_ID`,
-  `APNS_TEAM_ID`, `APNS_BUNDLE_ID` (= `com.app.aleloca.stubwise`),
-  `APNS_SANDBOX`, `FCM_SERVICE_ACCOUNT_JSON` (base64); senza config →
-  `skipped push_not_configured`. Token invalido (`BadDeviceToken`,
-  `Unregistered`, `UNREGISTERED`, `INVALID_ARGUMENT` su token) →
-  `disabledAt` sul device, nessun retry; rete/5xx → retry esistente.
+- **Relay push (unica modalità)**. L'app sugli store è una sola ed è la
+  nostra, quindi le chiavi APNs (`.p8` del team Apple) e FCM (service
+  account del progetto Firebase) sono legate alla **nostra** identità e non
+  possono stare nel repo né in un'istanza self-hosted: chiunque le avesse
+  potrebbe spammare i device e farle revocare. Nessuna istanza parla con
+  APNs/FCM: il **poller** del worker manda `POST <PUSH_RELAY_URL>/v1/send`
+  `{ tokens: [{ platform, token }], payload }` a un **relay** gestito da noi
+  (`apps/push-relay`, deployato sul nostro VPS su un sottodominio dedicato),
+  che possiede le chiavi e inoltra. Env dell'istanza: `PUSH_RELAY_URL`
+  (default = il relay pubblico; **stringa vuota = push spente**, delivery
+  `skipped push_disabled`). Il relay risponde per token: `ok` /
+  `invalid_token` (`BadDeviceToken`, `Unregistered`, `UNREGISTERED`,
+  `INVALID_ARGUMENT`) → `disabledAt` sul device, nessun retry / `retry`
+  (rete, 429, 5xx) → backoff esistente.
+- **Perché è sicuro senza registrare le istanze**: il **token del device è
+  già la credenziale** (stringa lunga e non indovinabile, nota solo
+  all'istanza su cui il telefono ha fatto login): chi ha accesso al relay
+  può raggiungere solo gli utenti che si sono loggati volontariamente sulla
+  sua istanza. Il relay aggiunge: rate limit per token (60/h, 500/giorno) e
+  per IP, cap sulla dimensione del payload, nessun log dei payload; e
+  l'app, al **logout**, invalida il token (`messaging().deleteToken()`) e lo
+  cancella sull'istanza, così un'ex istanza non può più raggiungere quel
+  telefono anche se se lo era salvato.
+- **Privacy dichiarata (v1)**: il relay vede titolo e corpo delle
+  notifiche di tutte le istanze, in TLS e senza log. La cifratura
+  end-to-end (chiave per device, ciphertext attraverso il relay,
+  decifratura in una Notification Service Extension) è in **fase 4b**.
 - **Payload**: `title` per kind (i18n backend `push.title.*` nella lingua del
   destinatario), `body = formatNotificationText`, `category = kind`,
   `data = { notificationId, kind, deepLink: "stubwise://inbox/<id>" }`,
@@ -250,7 +270,12 @@ offline** (rischio di corse e stato stantio); la card resta e il bottone dice
   assembleRelease`/`bundleRelease` con keystore locale (fuori dal repo),
   APK diretto / Play internal. Versione e build in `package.json` +
   `Info.plist`/`build.gradle` (script `pnpm --filter @stubwise/mobile
-  version:bump`). Credenziali APNs/FCM solo nel `.env` del VPS.
+  version:bump`). Credenziali APNs/FCM **solo nel `.env` del relay** sul
+  nostro VPS (`APNS_KEY_P8` base64, `APNS_KEY_ID`, `APNS_TEAM_ID`,
+  `APNS_BUNDLE_ID` = `com.app.aleloca.stubwise`, `FCM_SERVICE_ACCOUNT_JSON`
+  base64): il relay è un servizio del nostro compose (`push-relay`, immagine
+  `Dockerfile.push-relay`) esposto da Caddy sul sottodominio `push.<dominio>`;
+  le altre istanze non lo deployano, lo usano.
 - **CI**: `apps/mobile` entra in `pnpm -r lint/typecheck/test` su ubuntu
   (Jest + `@testing-library/react-native`); nessuna build nativa in CI (v1);
   `pnpm -r build` non deve richiedere toolchain nativa (script `build` del
@@ -259,11 +284,14 @@ offline** (rischio di corse e stato stantio); la card resta e il bottone dice
   timeline, sezioni, polso), logica pura (kind → categoria push, timeline
   builder, `workStateFor`), `packages/api-client` (fetch mock), server
   (mobile-login, devices, prefs push, canale push con client APNs/FCM fake,
-  `/projects/pulse`, chat `stream=false`), worker (delivery push: invio,
-  token invalido → disabled, retry). Nessun test tocca APNs/FCM veri; E2E e
-  prova su device alla verifica di fine programma.
-- **Deploy**: migrazione 0067; env push opzionali sul VPS; rebuild
-  server+worker+caddy; poi TestFlight/APK interno.
+  `/projects/pulse`, chat `stream=false`), worker (delivery push via relay
+  finto: invio, `invalid_token` → disabled, `retry` → backoff), relay
+  (client APNs/FCM con trasporto finto, rate limit, validazione). Nessun
+  test tocca APNs/FCM veri; E2E e prova su device alla verifica di fine
+  programma.
+- **Deploy**: migrazione 0067; rebuild server+worker+caddy; servizio
+  `push-relay` nuovo con le chiavi nel `.env` e la rotta Caddy per
+  `push.<dominio>` (DNS da creare); poi TestFlight/APK interno.
 
 ## 8. Fuori scopo (v2+ → fase 4b e altre)
 

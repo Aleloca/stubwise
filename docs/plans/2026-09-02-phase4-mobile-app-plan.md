@@ -21,8 +21,11 @@ stubwise:
 `com.app.aleloca.stubwise`) che è l'inbox delle decisioni di Stubwise in
 tasca — stesse azioni della web app, push native con deep link, polso dei
 progetti, timeline del lavoro, backlog e docs — più il backend che le serve
-(login mobile → PAT, device token + canale delivery `push` APNs/FCM, riepilogo
-`GET /api/projects/pulse`, chat non-streaming).
+(login mobile → PAT, device token + canale delivery `push` che passa dal
+**relay push** gestito da noi — unica modalità: le chiavi APNs/FCM sono
+legate alla nostra identità dell'app e vivono solo nel relay, mai nelle
+istanze —, riepilogo `GET /api/projects/pulse`, chat non-streaming) e il
+relay stesso (`apps/push-relay`).
 
 **Architecture:** l'app è un client come la SPA: chiama le rotte esistenti col
 PAT (`Authorization: Bearer`), attraverso un client HTTP condiviso nuovo
@@ -402,59 +405,57 @@ delivery `push`; con device `disabled_at` → nessuna; con `notify_push=false`
 
 **Step 5: Commit** `feat(notifications): delivery push per destinatario con device attivi`.
 
-### Task 9: client APNs e FCM (`packages/notifications/src/push/`)
+### Task 9: contratto del relay, payload e client del relay (`packages/notifications/src/push/`)
+
+Il modello è **relay-only**: l'app sugli store è una sola (la nostra), le
+chiavi APNs/FCM sono legate alla nostra identità e vivono SOLO nel relay
+(Task 10b). Nessuna istanza parla con APNs/FCM.
 
 **Files:**
-- Create: `packages/notifications/src/push/apns.ts` (`createApnsClient({ keyP8, keyId, teamId, bundleId, sandbox, http2Connect? })` → `send(deviceToken, payload) → { ok: true } | { ok: false, fatal: boolean, reason }`; JWT ES256 con `node:crypto` (`createSign("SHA256")` su `{ alg:"ES256", kid }.{ iss, iat }`), cache 50 min; header `apns-topic = bundleId`, `apns-push-type = alert`, `apns-collapse-id = notificationId`)
-- Create: `packages/notifications/src/push/fcm.ts` (`createFcmClient({ serviceAccountJson, fetch? })` → stesso contratto; token OAuth2 con `google-auth-library` (`JWT` con scope `firebase.messaging`), POST `https://fcm.googleapis.com/v1/projects/<project_id>/messages:send`)
-- Create: `packages/notifications/src/push/payload.ts` (`buildPushPayload(event, lang, { notificationId, unreadCount }) → { title, body, category, data, badge, threadId }`)
-- Create: `packages/notifications/src/push/config.ts` (`loadPushConfig(env) → { apns?, fcm? } | null`, decodifica base64 di `APNS_KEY_P8` e `FCM_SERVICE_ACCOUNT_JSON`)
+- Modify: `packages/shared/src/schemas/push.ts` (nuovo): `pushRelaySendRequestSchema { tokens: [{ platform: "ios"|"android", token }].min(1).max(20), payload: { title, body, category, data: Record<string,string>, badge?: number, threadId?: string, collapseId?: string } }`, `pushRelaySendResponseSchema { results: [{ token, status: "ok"|"invalid_token"|"retry", reason? }] }` — è il contratto pubblico tra istanze e relay: versionato nel path (`/v1/send`), additivo da qui in poi
+- Create: `packages/notifications/src/push/payload.ts` (`buildPushPayload(event, lang, { notificationId, unreadCount }) → payload` del contratto: `data = { notificationId, kind, deepLink: "stubwise://inbox/<id>" }`, `collapseId = notificationId`, `threadId = projectId`)
+- Create: `packages/notifications/src/push/relay-client.ts` (`createPushRelayClient({ url, fetch?, timeoutMs = 10_000 }) → send(tokens, payload) → PushRelaySendResponse`; errori di rete/timeout/5xx del relay → lancia `PushRelayUnavailable` (→ retry nel poller); 4xx → lancia `PushRelayRejected` (→ delivery `failed`, è un bug di contratto))
+- Create: `packages/notifications/src/push/config.ts` (`loadPushConfig(env) → { relayUrl } | null`: `PUSH_RELAY_URL` **assente → default `https://push.stubwise.thecove.it`** (costante `DEFAULT_PUSH_RELAY_URL`), **stringa vuota → `null` = push spente**, URL non `https:` (tranne `http://localhost*` per i test) → lancia, fail-fast all'avvio come `PULSE_TIMEZONE`)
 - Modify: `packages/notifications/src/index.ts` (export)
 - Modify: `packages/i18n/src/catalog.ts` (`push.title.<kind>` it/en, uno per kind: es. `job.awaiting_input` → «Una domanda ti aspetta» / "A question is waiting for you"; `project.pulse` → «Da dove ripartire su {project}»; `job.plan_review` → «Piano da approvare»; `job.failed` → «Lavoro fallito»; `pr.opened` → «PR pronta»; ecc. — copri TUTTI i `NotificationKind`)
-- Test: `push/apns.test.ts`, `push/fcm.test.ts`, `push/payload.test.ts`, `push/config.test.ts`
+- Test: `push/payload.test.ts`, `push/relay-client.test.ts`, `push/config.test.ts`, `packages/shared/src/schemas/push.test.ts`
 
 **Step 1: test rossi**
 - `payload`: per ogni kind di `sampleEvents` produce title non vuoto in it ed
   en, `category === kind`, `data.deepLink === "stubwise://inbox/<id>"`,
-  `body === formatNotificationText(event, lang)`.
-- `apns`: con un `http2Connect` finto che registra le richieste: header
-  `apns-topic`, `authorization: bearer <jwt>` con `kid` nell'header JWT;
-  risposta 410 `BadDeviceToken`/`Unregistered` → `{ ok:false, fatal:true }`;
-  503 → `{ ok:false, fatal:false }`; il JWT è riusato entro 50 min.
-- `fcm`: con `fetch` finto: URL con il `project_id` del service account,
-  `message.token`, `message.notification`, `message.data` stringhe, `apns`/
-  `android` con category/channel; risposta 404 `UNREGISTERED` → fatal; 429/
-  5xx → non fatal.
-- `config`: env vuota → `null`; solo APNs → `{ apns }`; base64 non valido →
-  lancia (fail-fast all'avvio del worker, come `PULSE_TIMEZONE`).
+  `body === formatNotificationText(event, lang)`; il risultato passa
+  `pushRelaySendRequestSchema.shape.payload`.
+- `relay-client`: con `fetch` finto: POST `<url>/v1/send`, body conforme allo
+  schema, `content-type: application/json`; risposta 200 → parsata con lo
+  schema; 503/timeout → `PushRelayUnavailable`; 400 → `PushRelayRejected`;
+  risposta 200 malformata → `PushRelayRejected`.
+- `config`: env senza la chiave → default pubblico; `""` → `null`; `http://
+  relay.example` → lancia; `http://localhost:9999` → ok.
 
-**Step 2: Run** `pnpm --filter @stubwise/notifications exec vitest run push/` → FAIL.
+**Step 2: Run** `pnpm --filter @stubwise/notifications exec vitest run push/ && pnpm --filter @stubwise/shared exec vitest run push` → FAIL.
 
-**Step 3: implementa** i quattro moduli. Aggiungi `google-auth-library` alle
-dependencies di `packages/notifications` (verifica che sia già nel lockfile
-tramite altri package; altrimenti `pnpm add`). Nessun SDK Apple: `http2` +
-`crypto` nativi.
+**Step 3: implementa.** **Step 4: Run** → PASS.
 
-**Step 4: Run** → PASS. **Step 5: Commit** `feat(notifications): client APNs/FCM, payload e config push`.
+**Step 5: Commit** `feat(notifications): contratto del relay push, payload e client`.
 
-### Task 10: ramo `push` nel poller delle delivery
+### Task 10: ramo `push` nel poller delle delivery (via relay)
 
 **Files:**
 - Modify: `apps/worker/src/notify/deliveries-poller.ts` (prima del fallback `channel_not_implemented` alla riga ~240: `case "push"`)
-- Modify: `apps/worker/src/config.ts` (`loadPushConfig(process.env)` esposto nella config; log di avvio «push: APNs+FCM» / «push: non configurato»)
-- Modify: `apps/worker/src/index.ts` (passa il config al poller; riga di riepilogo avvio)
-- Modify: `docker-compose.yml` (env `APNS_KEY_P8`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_BUNDLE_ID`, `APNS_SANDBOX`, `FCM_SERVICE_ACCOUNT_JSON` passate al worker con `${VAR:-}`)
+- Modify: `apps/worker/src/config.ts` (`loadPushConfig(process.env)`; log di avvio «push: relay <url>» / «push: spente (PUSH_RELAY_URL vuota)»)
+- Modify: `apps/worker/src/index.ts` (passa il client del relay al poller; riga di riepilogo avvio)
+- Modify: `docker-compose.yml` (env `PUSH_RELAY_URL: ${PUSH_RELAY_URL-https://push.stubwise.thecove.it}` sul worker — sintassi `${VAR-default}` (trattino, non `:-`) così una stringa vuota in `.env` resta vuota e spegne le push)
 - Test: `apps/worker/src/notify/deliveries-poller.test.ts`
 
-**Step 1: test rosso** (con client APNs/FCM finti iniettati in
-`DeliveriesPollerDeps`):
-- nessun config → delivery `skipped` con `push_not_configured`;
-- utente con 2 device (ios+android) → un `send` per client, delivery `sent`,
-  `detail` con esito per device;
-- APNs risponde fatal per un token → quel device prende `disabled_at` +
-  `disabled_reason`, la delivery resta `sent` se l'altro ha accettato,
-  `failed` senza retry se erano tutti fatal;
-- errore non fatal → retry col `backoffMs` esistente;
+**Step 1: test rosso** (con un client del relay finto in `DeliveriesPollerDeps`):
+- config `null` → delivery `skipped` con `push_disabled`;
+- utente con 2 device (ios+android) → UNA chiamata al relay con entrambi i
+  token, delivery `sent`, `detail` con l'esito per token;
+- relay risponde `invalid_token` per un token → quel device prende
+  `disabled_at` + `disabled_reason`, la delivery resta `sent` se l'altro è
+  `ok`, `failed` senza retry se erano tutti `invalid_token`;
+- relay risponde `retry` per tutti, o `PushRelayUnavailable` → retry col
+  `backoffMs` esistente; `PushRelayRejected` → `failed` senza retry;
 - il payload contiene `badge = unreadCount` del destinatario (query
   `notifications where user_id and read_at is null and handled_at is null`
   — riusa la stessa condizione della rotta `unread-count` in
@@ -468,7 +469,52 @@ tramite altri package; altrimenti `pnpm add`). Nessun SDK Apple: `http2` +
 **Step 3: implementa**; la lingua del destinatario viene da `users.language`
 (vedi come lo fa il ramo `slack_dm`).
 
-**Step 4: Run** → PASS. **Step 5: Commit** `feat(worker): consegna push APNs/FCM con disabilitazione dei token invalidi`.
+**Step 4: Run** → PASS. **Step 5: Commit** `feat(worker): consegna push attraverso il relay, token invalidi disabilitati`.
+
+### Task 10b: il relay (`apps/push-relay`)
+
+Microservizio nostro, deployato solo sul nostro VPS. Le istanze self-hosted
+non lo eseguono: lo chiamano.
+
+**Files:**
+- Create: `apps/push-relay/package.json` (`@stubwise/push-relay`, private; dip: `fastify`, `@fastify/rate-limit`, `@stubwise/shared`, `google-auth-library`; script `build` (tsc), `start`, `test`, `typecheck`, `lint`)
+- Create: `apps/push-relay/src/apns.ts` (`createApnsClient({ keyP8, keyId, teamId, bundleId, sandbox, http2Connect? })` → `send(token, payload) → { status: "ok"|"invalid_token"|"retry", reason? }`; JWT ES256 con `node:crypto` (`createSign("SHA256")` su `{ alg:"ES256", kid }.{ iss, iat }`), cache 50 min; header `apns-topic = bundleId`, `apns-push-type = alert`, `apns-collapse-id`, `apns-priority 10`; `aps: { alert: {title, body}, badge, category, "thread-id", sound: "default" }` + `data`)
+- Create: `apps/push-relay/src/fcm.ts` (`createFcmClient({ serviceAccountJson, fetch? })` → stesso contratto; token OAuth2 con `google-auth-library` (`JWT`, scope `https://www.googleapis.com/auth/firebase.messaging`), POST `https://fcm.googleapis.com/v1/projects/<project_id>/messages:send`; `message: { token, notification: {title, body}, data, android: { notification: { channel_id: category, tag: collapseId } }, apns: { headers: { "apns-collapse-id" }, payload: { aps: { category, badge, "thread-id" } } } }` — l'`apns` dentro FCM serve se i token iOS arrivano da Firebase Messaging: vedi decisione in fondo)
+- Create: `apps/push-relay/src/config.ts` (`loadRelayConfig(env)`: `APNS_KEY_P8` base64, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_BUNDLE_ID`, `APNS_SANDBOX`, `FCM_SERVICE_ACCOUNT_JSON` base64, `RELAY_RATE_PER_TOKEN_HOUR` (60), `RELAY_RATE_PER_TOKEN_DAY` (500), `RELAY_RATE_PER_IP_MINUTE` (600), `PORT` (8090); **entrambe le chiavi obbligatorie**, fail-fast)
+- Create: `apps/push-relay/src/server.ts` (`buildRelay({ config, apns, fcm })` → Fastify: `POST /v1/send` valida con `pushRelaySendRequestSchema`, applica il rate limit per token (contatore in memoria con finestra scorrevole — UN solo processo, niente Redis in v1) e per IP (`@fastify/rate-limit`), inoltra per piattaforma in parallelo, risponde `pushRelaySendResponseSchema`; `GET /healthz`; **nessun log del payload** (solo conteggi e stati); body limit 16 KB)
+- Create: `apps/push-relay/src/index.ts` (avvio)
+- Create: `Dockerfile.push-relay` (come `apps/server/Dockerfile`: build pnpm del workspace, `pnpm deploy --filter @stubwise/push-relay`)
+- Modify: `docker-compose.yml` (servizio `push-relay`, `profiles: ["relay"]` così le istanze self-hosted NON lo avviano per default; env dal `.env`; solo rete interna)
+- Modify: `Caddyfile` (blocco `push.{$PUSH_RELAY_HOST}` → `reverse_proxy push-relay:8090`, attivo solo se `PUSH_RELAY_HOST` è impostato — verifica la sintassi condizionale di Caddy; in alternativa un `Caddyfile.relay` importato)
+- Test: `apps/push-relay/src/{apns,fcm,server,config}.test.ts`
+
+**Step 1: test rossi**
+- `apns`: con un `http2Connect` finto che registra le richieste: header
+  `apns-topic`, `authorization: bearer <jwt>` con `kid` nell'header JWT;
+  risposta 410 `Unregistered` / 400 `BadDeviceToken` → `invalid_token`; 503
+  → `retry`; il JWT è riusato entro 50 min.
+- `fcm`: con `fetch` finto: URL con il `project_id` del service account,
+  `message.token`, `message.data` con SOLE stringhe; risposta 404
+  `UNREGISTERED` / 400 `INVALID_ARGUMENT` → `invalid_token`; 429/5xx →
+  `retry`.
+- `server` (`app.inject`): body non conforme → 400; 2 token ios+android →
+  un send per client, risposta con 2 risultati; 61ª richiesta per lo stesso
+  token nell'ora → quel token risponde `retry` con `reason:
+  "rate_limited"` (la richiesta NON è 429: gli altri token passano); payload
+  > 16 KB → 413; `GET /healthz` → 200.
+- `config`: chiave mancante → lancia; base64 non valido → lancia.
+
+**Step 2: Run** `pnpm --filter @stubwise/push-relay test` → FAIL. **Step 3:
+implementa.** **Step 4: Run** → PASS; `docker build -f Dockerfile.push-relay .`
+riesce.
+
+**Step 5: Commit** `feat(push-relay): relay push con chiavi APNs/FCM, rate limit per token`.
+
+**Deploy del relay (maintainer, a fine fase)**: DNS `push.stubwise.thecove.it`
+→ VPS; `.env`: `PUSH_RELAY_HOST`, `APNS_*`, `FCM_SERVICE_ACCOUNT_JSON`;
+`docker compose --profile relay up -d --build push-relay caddy`. La nostra
+istanza usa il relay come tutte le altre (default di `PUSH_RELAY_URL`), così
+lo esercitiamo davvero.
 
 ### Task 11: segnali di progetto condivisi + `GET /api/projects/pulse`
 
@@ -706,9 +752,9 @@ comparire in `device_tokens`.
 ### Task 20: Impostazioni e logout; polish offline; accessibilità di base
 
 **Files:**
-- Create: `apps/mobile/src/screens/settings/SettingsSheet.tsx` (dall'avatar: Notifiche → push on/off (`me/prefs push`), progetti seguiti (`me/follows`); Istanza → server (sola lettura), lingua (it/en, persiste); Esci → `DELETE /api/pats/:patId` + `DELETE /api/me/devices/:token` + `clearSession` + reset cache)
+- Create: `apps/mobile/src/screens/settings/SettingsSheet.tsx` (dall'avatar: Notifiche → push on/off (`me/prefs push`), progetti seguiti (`me/follows`); Istanza → server (sola lettura), lingua (it/en, persiste); Esci → `DELETE /api/me/devices/:token` + `DELETE /api/pats/:patId` + **`messaging().deleteToken()`** (invalida il token: un'ex istanza non può più raggiungere questo telefono, anche se se lo era salvato — è la garanzia di sicurezza del modello a relay) + `clearSession` + reset cache; al login successivo `getToken()` ne genera uno nuovo)
 - Modify: `apps/mobile/src/app/providers.tsx` (`OfflineBanner` globale da NetInfo: «Offline — ultima sincronizzazione {time}»; `lastSyncAt` aggiornato a ogni fetch riuscito)
-- Test: `SettingsSheet.test.tsx` (logout revoca PAT e device, anche se una delle due chiamate fallisce la sessione locale viene comunque cancellata), `OfflineBanner.test.tsx`
+- Test: `SettingsSheet.test.tsx` (logout revoca device e PAT e chiama `deleteToken`; anche se una delle chiamate remote fallisce la sessione locale viene comunque cancellata e `deleteToken` viene comunque chiamato), `OfflineBanner.test.tsx`
 - Accessibilità: `accessibilityLabel` sui bottoni con glifo, `accessibilityRole="button"`, font scaling consentito (niente `allowFontScaling={false}`)
 
 **Step 1–4**: rosso → implementa → verde. **Step 5: Commit** `feat(mobile): impostazioni, logout, banner offline`.
@@ -738,8 +784,8 @@ il job CI su ubuntu passi con il mobile incluso.
 ### Task 22: README di build/distribuzione e documentazione
 
 **Files:**
-- Modify: `apps/mobile/README.md`: (1) prerequisiti; (2) dev locale; (3) Firebase: creare il progetto, scaricare `GoogleService-Info.plist` / `google-services.json` (fuori dal repo, percorsi attesi); (4) iOS: Xcode → Signing & Capabilities (team, Push Notifications, Background Modes) → Product → Archive → Distribute → TestFlight interno, passo per passo; (5) Android: keystore locale (`keytool` comando), `gradle.properties` con le proprietà `STUBWISE_UPLOAD_STORE_FILE`… (fuori dal repo), `./gradlew bundleRelease`/`assembleRelease`, Play internal o APK diretto; (6) `pnpm --filter @stubwise/mobile version:bump`; (7) come ottenere le credenziali APNs (`.p8` da Apple Developer → Keys, `APNS_KEY_ID`, `APNS_TEAM_ID`) e FCM (service account JSON) e come metterle in `.env` (base64: `base64 -i AuthKey.p8 | tr -d '\n'`); (8) troubleshooting Metro+pnpm.
-- Modify: `CLAUDE.md`: sezione monorepo (`apps/mobile`, `packages/api-client`), sezione "Deploy" con la voce **Fase 4** (migrazione 0067; env push opzionali; rebuild server+worker+caddy; senza env il canale push è `skipped push_not_configured` e NON è un errore; rollback: server precedente è sicuro? — NO se esistono delivery `push`: il canale è un valore enum nuovo che il **poller vecchio** marca `channel_not_implemented` (innocuo) ma che `notificationPrefsViewSchema` vecchio non conosce solo se la prefs la include → verifica e scrivi la conclusione VERA dopo aver letto gli schemi), trappola «rotta `/api/projects/pulse` prima di `/:id`», nota che `apps/web` dipende da `@stubwise/api-client` in dependencies (Dockerfile.caddy).
+- Modify: `apps/mobile/README.md`: (1) prerequisiti; (2) dev locale; (3) Firebase: creare il progetto, scaricare `GoogleService-Info.plist` / `google-services.json` (fuori dal repo, percorsi attesi); (4) iOS: Xcode → Signing & Capabilities (team, Push Notifications, Background Modes) → Product → Archive → Distribute → TestFlight interno, passo per passo; (5) Android: keystore locale (`keytool` comando), `gradle.properties` con le proprietà `STUBWISE_UPLOAD_STORE_FILE`… (fuori dal repo), `./gradlew bundleRelease`/`assembleRelease`, Play internal o APK diretto; (6) `pnpm --filter @stubwise/mobile version:bump`; (7) **il relay push**: perché esiste (app unica sugli store, chiavi legate alla nostra identità), cosa vede (titolo e corpo in TLS, nessun log — cifratura E2E in fase 4b), come un'istanza self-hosted lo usa (default di `PUSH_RELAY_URL`, `""` per spegnere le push) e come lo operiamo noi: credenziali APNs (`.p8` da Apple Developer → Keys, `APNS_KEY_ID`, `APNS_TEAM_ID`) e FCM (service account JSON) in base64 nel `.env` del VPS (`base64 -i AuthKey.p8 | tr -d '\n'`), DNS `push.<dominio>`, `docker compose --profile relay up -d --build push-relay caddy`; (8) troubleshooting Metro+pnpm.
+- Modify: `CLAUDE.md`: sezione monorepo (`apps/mobile`, `packages/api-client`, `apps/push-relay`), architettura runtime (servizio `push-relay` sotto profilo `relay`, solo sul nostro VPS; le istanze self-hosted NON lo avviano), sezione "Deploy" con la voce **Fase 4** (migrazione 0067; rebuild server+worker+caddy; `PUSH_RELAY_URL` di default punta al relay pubblico e `""` spegne le push; deploy del relay con profilo `relay` + DNS; rollback: scendere di immagine sul server è sicuro? — il canale `push` è un valore enum nuovo che il **poller vecchio** marca `channel_not_implemented` (innocuo), ma controlla se `notificationPrefsViewSchema`/`deliveryChannel` in shared compaiono in risposte di rotte preesistenti → scrivi la conclusione VERA dopo aver letto gli schemi), trappola «rotta `/api/projects/pulse` prima di `/:id`», nota che `apps/web` dipende da `@stubwise/api-client` in dependencies (Dockerfile.caddy).
 - Modify: `apps/docs` (guida utente Starlight): pagina «App mobile» (installazione via TestFlight/APK, login, notifiche, cosa si può fare dall'app).
 
 **Step: Commit** `docs(fase4): README di build mobile, note di deploy, guida utente`.
@@ -763,15 +809,23 @@ il job CI su ubuntu passi con il mobile incluso.
 - **Metro + pnpm** è il rischio n.1 e sta nel Task 1: se serve `node-linker=
   hoisted` cambia il layout di `node_modules` di tutto il monorepo; il Task 1
   impone di ri-verificare build/typecheck/test globali prima di proseguire.
-- **Firebase su iOS**: scelto `@react-native-firebase/messaging` anche su iOS
-  (un solo SDK, token FCM anche per iOS via APNs mediato da Firebase). Il
-  client APNs diretto del backend serve comunque? NO in questa configurazione:
-  se il token iOS è un token FCM, basta il client FCM. **Decisione**: il
-  backend implementa entrambi i client (Task 9) ma il worker usa il client
-  in base alla `platform` del device SOLO se il device ha `platform: ios` e
-  `APNS_*` sono configurate; altrimenti manda tutto via FCM. Così si può
-  scegliere in seguito il nativo puro su iOS senza toccare l'app. Documenta
-  in README quale dei due è attivo in prod.
+- **Relay-only, per decisione del maintainer**: niente modalità «diretta»
+  con le chiavi nell'istanza. L'app sugli store è una sola ed è la nostra;
+  chi self-hosta usa quella e il nostro relay. Il token del device è la
+  credenziale: un'istanza può raggiungere solo i telefoni che vi hanno
+  fatto login, e il logout invalida il token. Il contratto `/v1/send` è
+  pubblico e additivo (le istanze vecchie devono continuare a funzionare
+  contro relay nuovi).
+- **Token iOS**: l'app usa `@react-native-firebase/messaging` anche su iOS,
+  quindi il token registrato con `platform: ios` è un **token FCM** (Firebase
+  media verso APNs). Il relay manda perciò tutto via FCM in v1, con il blocco
+  `apns` dentro il messaggio FCM per category/badge/thread; il client APNs
+  diretto del relay resta implementato e testato ma inattivo finché non si
+  registrano token APNs nativi (fase 4b, insieme alla Notification Service
+  Extension). Documentalo in README e in un commento in `server.ts`.
+  **Semplificazione ammessa**: se il tempo stringe, il client APNs diretto
+  può essere rimandato a 4b; in quel caso `APNS_*` NON sono obbligatorie e
+  la config lo dice.
 - **Nessuna build nativa in CI**: gli errori nativi emergono solo in locale;
   accettato per la v1 (fase 4b valuta un runner macOS/fastlane).
 - **Le azioni decisionali dalla notifica** (Approva, Procedi con la
