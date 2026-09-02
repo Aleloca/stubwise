@@ -48,17 +48,23 @@ export default tseslint.config(
     // build lo intercetta — mentre la CI fallisce sul lint.
     files: ["apps/web/src/**", "apps/mobile/**/*.{ts,tsx}"],
     rules: {
+      // `patterns` con `regex`, non `paths`: `paths` confronta il nome ESATTO,
+      // quindi lascerebbe passare i sottopercorsi — e `@stubwise/db/testing` è
+      // un sottopercorso davvero esportato, cioè un aggiramento raggiungibile
+      // per distrazione. La forma `patterns` con negazione gitignore
+      // ("!@stubwise/notifications/pure") NON funziona su ESLint 9: segnala
+      // anche ./pure. Verificato, non riprovarla.
       "no-restricted-imports": [
         "error",
         {
-          paths: [
+          patterns: [
             {
-              name: "@stubwise/notifications",
+              regex: "^@stubwise/notifications(?!/pure$)(/|$)",
               message:
                 "Lato client si importa da @stubwise/notifications/pure (entry senza DB). L'entry `.` trascina @stubwise/db e il driver postgres: Metro non la bundla e Vite produce un bundle che esplode a runtime.",
             },
             {
-              name: "@stubwise/db",
+              regex: "^@stubwise/db(/|$)",
               message: "Il DB non entra nei bundle client: passa dall'API del server.",
             },
           ],
