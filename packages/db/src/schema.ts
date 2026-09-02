@@ -94,6 +94,22 @@ const vector = (dimensions: number) =>
  * preservando i tipi letterali. Gli schemi Zod in @stubwise/shared restano
  * l'unica fonte di verità per i valori: enum Postgres e validazione non
  * possono divergere.
+ *
+ * REGOLA per scegliere dove nasce un enum: **se i suoi valori compaiono in una
+ * forma pubblica** (risposta API, notifica, payload letto dalla SPA o dall'app
+ * mobile) lo schema Zod va in `@stubwise/shared` e il pgEnum ne deriva con
+ * questo helper; se invece resta interno al database, la lista letterale sta
+ * qui. Ogni enum dichiara nel proprio commento da quale delle due parti viene.
+ *
+ * Oggi il file è misto, ed è normale: la conversione è graduale. Alcuni enum
+ * letterali RISALGONO già verso Zod nelle rotte (`z.enum(x.enumValues)` in
+ * `tickets.ts` e `milestones.ts`) — sono quelli che stanno per capovolgersi:
+ * `ticketEventKind`, `commentAuthorType`, `ticketLinkKind` e `milestoneStatus`
+ * entreranno in shared quando l'app mobile leggerà la timeline di un ticket.
+ *
+ * In nessuno dei due versi questo helper fa esistere il tipo in Postgres: è
+ * sempre una migrazione scritta a mano a crearlo o ad aggiungerci un valore
+ * (`enum-parity.test.ts` verifica che le due cose combacino).
  */
 function enumValues<T extends string>(schema: { options: readonly T[] }): [T, ...T[]] {
   return schema.options as [T, ...T[]];
@@ -175,8 +191,7 @@ export const prState = pgEnum("pr_state", enumValues(prStateSchema));
 
 // Tipo di credenziale di un provider AI: "api_key" (chiave API a consumo) o
 // "account" (login a un piano/abbonamento, es. Claude Max). Determina come il
-// worker prepara l'ambiente per il CLI. Lista letterale locale al DB, come gli
-// altri enum del dominio AI (ai_job_status, agent_run_phase, resume_mode).
+// worker prepara l'ambiente per il CLI.
 // I valori derivano da `aiProviderKindSchema` (shared = unica fonte di verità):
 // il tipo di credenziale entra nella forma pubblica di un job AI.
 export const aiProviderKind = pgEnum("ai_provider_kind", enumValues(aiProviderKindSchema));

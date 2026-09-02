@@ -51,9 +51,7 @@ import {
 
 // Le forme pubbliche di ticket (base, dettaglio, item di lista) vivono in
 // `@stubwise/shared`: le condividono server, SPA e app mobile, e restano
-// l'unica fonte di verità della risposta. Qui sono solo ri-esportate perché la
-// registrazione delle rotte e i test le referenziano da questo modulo.
-export { ticketSchema, ticketDetailSchema, ticketListItemSchema };
+// l'unica fonte di verità della risposta.
 
 const titleSchema = z.string().min(1).max(300);
 const bodyTextSchema = z.string().max(20_000);

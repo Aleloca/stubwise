@@ -1,9 +1,13 @@
 import type { AiJobStatus } from "./schemas/ai-job.js";
 
 /**
- * Vocabolario "in parole" dello stato di lavorazione di un ticket: è quello che
- * legge chi non conosce la pipeline (app mobile, notifiche), al posto dei nomi
- * interni della coda (`triaging`, `pr_opened`, …).
+ * Vocabolario "in parole" dello stato di un JOB AI: è quello che legge chi non
+ * conosce la pipeline (app mobile, notifiche), al posto dei nomi interni della
+ * coda (`triaging`, `pr_opened`, …).
+ *
+ * È lo stato di UN job, non di un ticket: un ticket ne ha N (triage, fix,
+ * self-repair, rilanci manuali) e quale rappresenti "come sta andando" lo
+ * decide il chiamante — di norma il più recente.
  *
  * Sono 11, uno per stato della coda, NON 9: `skipped` e `rejected` esistono
  * apposta perché comprimerli su `failed` racconterebbe una bugia — «Fallito»
@@ -47,7 +51,7 @@ const WORK_STATE_BY_JOB_STATUS: Record<AiJobStatus, WorkState> = {
   awaiting_input: "waiting_answer",
 };
 
-/** Stato in parole del job AI. Funzione pura: nessun I/O, nessun accesso al DB. */
+/** Stato in parole di UN job AI. Funzione pura: nessun I/O, nessun accesso al DB. */
 export function workStateFor(status: AiJobStatus): WorkState {
   return WORK_STATE_BY_JOB_STATUS[status];
 }

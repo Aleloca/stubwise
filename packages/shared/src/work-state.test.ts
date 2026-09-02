@@ -27,11 +27,13 @@ describe("workStateFor", () => {
     expect(workStateFor(status)).toBe(expected);
   });
 
-  // Le due prove qui sotto sono la difesa contro chi aggiunge un valore a
-  // `ai_job_status` senza tradurlo: la prima iterando l'enum (non una lista
-  // scritta a mano), la seconda pretendendo che anche la tabella qui sopra sia
-  // completa. A monte c'è il `Record<AiJobStatus, WorkState>` di work-state.ts,
-  // che su un valore nuovo non compila nemmeno.
+  // ATTENZIONE a cosa protegge cosa. L'esaustività della mappa la impone il
+  // `Record<AiJobStatus, WorkState>` di work-state.ts, cioè il COMPILATORE:
+  // vitest non fa typecheck, quindi chi lancia solo `pnpm test` non la vede —
+  // la vede `pnpm typecheck`. Qui l'unica difesa a runtime è l'ultimo caso, che
+  // pretende che anche la tabella di questo file resti completa; il caso di
+  // mezzo è implicato dagli altri due e resta come rete di sicurezza a costo
+  // zero se un giorno la tabella smettesse di essere l'oracolo.
   it("produce uno stato valido per OGNI valore dell'enum ai_job_status", () => {
     for (const status of aiJobStatusSchema.options) {
       expect(WORK_STATES).toContain(workStateFor(status));

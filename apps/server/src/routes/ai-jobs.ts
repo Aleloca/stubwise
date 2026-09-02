@@ -9,10 +9,8 @@ import { aiJobSchema } from "@stubwise/shared";
 import { authErrorResponses, errorSchema } from "./shared.js";
 import { apiError } from "../errors.js";
 
-// La forma pubblica di un job AI vive in `@stubwise/shared` (unica fonte di
-// verità con la SPA e l'app mobile). Ri-esportata perché le rotte e i test la
-// referenziano da questo modulo.
-export { aiJobSchema };
+// La forma pubblica di un job AI vive in `@stubwise/shared`: unica fonte di
+// verità con la SPA e l'app mobile.
 
 const ticketParamsSchema = z.object({ ticketId: z.uuid() });
 

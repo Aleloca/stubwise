@@ -46,6 +46,8 @@ import type {
   ServerStatus,
   SnoozeResult,
   SnoozeUntil,
+  // `TicketBase` non esce da questo file: è la forma che il server restituisce
+  // da POST/PATCH (`ticketSchema`), senza `repositories`.
   Ticket as TicketBase,
   TicketDetail as Ticket,
   TicketListItem,
@@ -352,11 +354,11 @@ export function postRegister(registration: Registration): Promise<{ user: Public
 // --- Tickets ---
 
 // Le forme di ticket e job AI vivono in `@stubwise/shared`, unica fonte di
-// verità con il server (che ci valida le risposte) e con l'app mobile. Qui
-// restano solo gli ALIAS storici con cui la SPA le chiama: `TicketBase` è la
-// forma base, `Ticket` il DETTAGLIO. Rinominarli in tutta la SPA sarebbe churn
-// senza valore.
-export type { TicketRepository, TicketBase, Ticket, TicketListItem };
+// verità con il server (che ci valida le risposte) e con l'app mobile. Resta
+// una sola inversione di nome: per la SPA `Ticket` è il DETTAGLIO, che in
+// shared si chiama `TicketDetail`. Rinominarlo nelle sue ~40 occorrenze sarebbe
+// churn senza valore.
+export type { TicketRepository, Ticket, TicketListItem };
 
 /** Filtri della lista ticket: combaciano con i search param di /tickets. */
 export interface TicketFilters {

@@ -8,10 +8,8 @@ import { requireAdmin } from "../auth/session.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 import { apiError } from "../errors.js";
 
-// Tipo di credenziale del provider: definito in `@stubwise/shared` (da cui
-// deriva anche l'enum ai_provider_kind del DB), ri-esportato per i moduli che
-// lo importano da qui.
-export { aiProviderKindSchema };
+// Tipo di credenziale del provider: definito in `@stubwise/shared`, da cui
+// deriva anche l'enum ai_provider_kind del DB.
 
 const createProviderSchema = z.object({
   kind: aiProviderKindSchema,

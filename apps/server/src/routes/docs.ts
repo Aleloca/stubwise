@@ -1,4 +1,5 @@
 import {
+  aiProviderKindSchema,
   docGenerationStatusSchema,
   docGenerationTriggerSchema,
   docJobStatusSchema,
@@ -21,7 +22,6 @@ import {
 } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
 import { apiError } from "../errors.js";
-import { aiProviderKindSchema } from "./ai-providers.js";
 import { buildDocsExportZip, safeFilenamePart } from "./docs-export-zip.js";
 import {
   emptyCountsByKind,
