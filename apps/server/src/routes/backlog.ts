@@ -2,7 +2,10 @@ import {
   backlogCodeSessionSchema,
   backlogItemBaseSchema,
   backlogItemDetailSchema,
+  backlogChatAcceptedSchema,
   backlogPageSchema,
+  convertBacklogResultSchema,
+  createBacklogResultSchema,
   backlogItemStatusSchema,
   backlogJobStatusSchema,
   backlogRiskSchema,
@@ -836,7 +839,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
       schema: {
         body: createBacklogItemSchema,
         response: {
-          202: z.object({ queued: z.literal(true), jobId: z.uuid() }),
+          202: createBacklogResultSchema,
           404: errorSchema,
           ...authErrorResponses,
         },
@@ -997,7 +1000,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
         // (reply.hijack), quindi niente schema 200. Restano gli errori PRIMA
         // dello stream (404/503/auth).
         response: {
-          202: z.object({ mode: z.literal("code"), userMessageId: z.uuid() }),
+          202: backlogChatAcceptedSchema,
           404: errorSchema,
           503: errorSchema,
           ...authErrorResponses,
@@ -1364,7 +1367,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
       schema: {
         params: idParamsSchema,
         response: {
-          200: z.object({ ticketId: z.uuid(), ticketNumber: z.number().int() }),
+          200: convertBacklogResultSchema,
           404: errorSchema,
           409: errorSchema,
           ...authErrorResponses,

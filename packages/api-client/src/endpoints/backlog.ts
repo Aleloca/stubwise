@@ -1,13 +1,21 @@
-import { backlogItemDetailSchema, backlogPageSchema } from "@stubwise/shared";
+import {
+  backlogChatAcceptedSchema,
+  backlogItemDetailSchema,
+  backlogPageSchema,
+  convertBacklogResultSchema,
+  createBacklogResultSchema,
+} from "@stubwise/shared";
 import type {
+  BacklogChatAccepted,
   BacklogItemDetail,
   BacklogPage,
+  ConvertBacklogResult,
+  CreateBacklogResult,
   BacklogItemStatus,
   BacklogRisk,
   CreateBacklogItemInput,
   TicketPriority,
 } from "@stubwise/shared";
-import { z } from "zod";
 import type { ApiRequest } from "../client.js";
 import { seg, toQuery } from "../query.js";
 
@@ -20,15 +28,6 @@ export interface BacklogFilters {
   risk?: BacklogRisk;
   q?: string;
 }
-
-const createResultSchema = z.object({ queued: z.literal(true), jobId: z.uuid() });
-const convertResultSchema = z.object({ ticketId: z.uuid(), ticketNumber: z.number().int() });
-const chatTurnSchema = z.object({ mode: z.literal("code"), userMessageId: z.uuid() });
-
-export type CreateBacklogResult = z.infer<typeof createResultSchema>;
-export type ConvertBacklogResult = z.infer<typeof convertResultSchema>;
-/** Esito di un turno di chat con sessione di analisi attiva. */
-export type BacklogChatTurn = z.infer<typeof chatTurnSchema>;
 
 /**
  * Backlog di discovery.
@@ -62,17 +61,17 @@ export function createBacklogEndpoints(request: ApiRequest) {
 
     /** Creazione manuale: accoda un job `intake` (202), non crea la voce. */
     create(input: CreateBacklogItemInput): Promise<CreateBacklogResult> {
-      return request("POST", "/api/backlog", input, createResultSchema);
+      return request("POST", "/api/backlog", input, createBacklogResultSchema);
     },
 
     /** Converte la voce in un ticket task; torna id e numero del ticket creato. */
     convert(id: string): Promise<ConvertBacklogResult> {
-      return request("POST", `/api/backlog/${seg(id)}/convert`, undefined, convertResultSchema);
+      return request("POST", `/api/backlog/${seg(id)}/convert`, undefined, convertBacklogResultSchema);
     },
 
     /** Un turno della chat di raffinamento CON sessione di analisi attiva (202). */
-    chat(id: string, message: string): Promise<BacklogChatTurn> {
-      return request("POST", `/api/backlog/${seg(id)}/chat`, { message }, chatTurnSchema);
+    chat(id: string, message: string): Promise<BacklogChatAccepted> {
+      return request("POST", `/api/backlog/${seg(id)}/chat`, { message }, backlogChatAcceptedSchema);
     },
   };
 }

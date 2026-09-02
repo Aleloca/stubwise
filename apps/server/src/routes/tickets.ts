@@ -6,6 +6,9 @@ import {
   ticketPrioritySchema,
   ticketRepositorySchema,
   ticketStatusSchema,
+  answerQuestionResultSchema,
+  planDecisionResultSchema,
+  runAiResultSchema,
   ticketQuestionsSchema,
   ticketTypeSchema,
   setContentSchema,
@@ -826,7 +829,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         // resta quello condiviso con la rotta d'inbox.
         body: answerBodySchema.extend({ questionId: z.uuid().optional() }),
         response: {
-          200: z.object({ jobId: z.uuid(), questionId: z.uuid() }),
+          200: answerQuestionResultSchema,
           400: errorSchema,
           404: errorSchema,
           // 409 con `handledBy`: il conflitto della corsa deve poter dire CHI
@@ -1407,12 +1410,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
           })
           .nullish(),
         response: {
-          202: z.object({
-            jobId: z.uuid(),
-            // Un run chiesto da un operator con piano salvato nasce già fermo
-            // sul gate: il client deve poterlo distinguere da un run in coda.
-            status: z.enum(["queued", "awaiting_plan_approval"]),
-          }),
+          202: runAiResultSchema,
           404: errorSchema,
           409: errorSchema,
           ...authErrorResponses,
@@ -1455,7 +1453,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
       schema: {
         params: idParamsSchema,
         response: {
-          202: z.object({ jobId: z.uuid() }),
+          202: planDecisionResultSchema,
           404: errorSchema,
           409: errorSchema,
           ...authErrorResponses,
@@ -1485,7 +1483,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         // nullish come run-ai: il client può non mandare corpo affatto.
         body: z.object({ instructions: z.string().max(4000).optional() }).nullish(),
         response: {
-          202: z.object({ jobId: z.uuid() }),
+          202: planDecisionResultSchema,
           404: errorSchema,
           409: errorSchema,
           ...authErrorResponses,

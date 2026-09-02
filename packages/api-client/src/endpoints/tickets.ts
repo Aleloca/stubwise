@@ -1,5 +1,8 @@
 import {
   aiJobSchema,
+  answerQuestionResultSchema,
+  planDecisionResultSchema,
+  runAiResultSchema,
   ticketDetailSchema,
   ticketPageSchema,
   ticketQuestionsSchema,
@@ -7,6 +10,9 @@ import {
 import type {
   AiJob,
   AnswerBody,
+  AnswerQuestionResult,
+  PlanDecisionResult,
+  RunAiResult,
   TicketDetail,
   TicketPage,
   TicketPriority,
@@ -35,18 +41,6 @@ export interface TicketFilters {
 }
 
 const jobsSchema = z.array(aiJobSchema);
-const answerResultSchema = z.object({ jobId: z.uuid(), questionId: z.uuid() });
-const runAiResultSchema = z.object({
-  jobId: z.uuid(),
-  status: z.enum(["queued", "awaiting_plan_approval"]),
-});
-const jobIdSchema = z.object({ jobId: z.uuid() });
-
-export type RunAiResult = z.infer<typeof runAiResultSchema>;
-/** Esito di una risposta a una domanda dell'agente dalla pagina ticket. */
-export type AnswerQuestionResult = z.infer<typeof answerResultSchema>;
-/** Esito di approva/rifiuta piano: il job che riparte. */
-export type PlanDecisionResult = z.infer<typeof jobIdSchema>;
 
 /**
  * Ticket e stato del lavoro dell'agente: è il materiale della "storia del
@@ -109,7 +103,7 @@ export function createTicketsEndpoints(request: ApiRequest) {
         "POST",
         `/api/tickets/${seg(ticketId)}/questions/answer`,
         { ...answer, questionId },
-        answerResultSchema,
+        answerQuestionResultSchema,
       );
     },
 
@@ -129,7 +123,7 @@ export function createTicketsEndpoints(request: ApiRequest) {
 
     /** Approva il piano in attesa: il worker lo esegue. 409 se non ce n'è uno. */
     approvePlan(ticketId: string): Promise<PlanDecisionResult> {
-      return request("POST", `/api/tickets/${seg(ticketId)}/approve-plan`, undefined, jobIdSchema);
+      return request("POST", `/api/tickets/${seg(ticketId)}/approve-plan`, undefined, planDecisionResultSchema);
     },
 
     /**
@@ -138,7 +132,7 @@ export function createTicketsEndpoints(request: ApiRequest) {
      * che il nuovo piano rilegge.
      */
     rejectPlan(ticketId: string, body?: { instructions?: string }): Promise<PlanDecisionResult> {
-      return request("POST", `/api/tickets/${seg(ticketId)}/reject-plan`, body, jobIdSchema);
+      return request("POST", `/api/tickets/${seg(ticketId)}/reject-plan`, body, planDecisionResultSchema);
     },
   };
 }

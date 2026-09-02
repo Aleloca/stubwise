@@ -1,17 +1,22 @@
-import { languageSchema, publicUserSchema, sessionUserSchema } from "@stubwise/shared";
-import type { Language, PublicUser, SessionUser } from "@stubwise/shared";
-import { z } from "zod";
+import {
+  authUserResponseSchema,
+  languageResponseSchema,
+  sessionResponseSchema,
+  setupStatusSchema,
+} from "@stubwise/shared";
+import type {
+  AuthUserResponse,
+  Language,
+  LanguageResponse,
+  SessionResponse,
+  SetupStatus,
+} from "@stubwise/shared";
 import type { ApiRequest } from "../client.js";
 
 export interface Credentials {
   email: string;
   password: string;
 }
-
-const userEnvelopeSchema = z.object({ user: publicUserSchema });
-const sessionEnvelopeSchema = z.object({ user: sessionUserSchema });
-const setupStatusSchema = z.object({ needed: z.boolean() });
-const languageEnvelopeSchema = z.object({ language: languageSchema });
 
 /**
  * Autenticazione.
@@ -28,25 +33,25 @@ const languageEnvelopeSchema = z.object({ language: languageSchema });
 export function createAuthEndpoints(request: ApiRequest) {
   return {
     /** L'istanza non ha ancora un utente: la schermata di setup iniziale. */
-    setupStatus(): Promise<{ needed: boolean }> {
+    setupStatus(): Promise<SetupStatus> {
       return request("GET", "/api/auth/setup", undefined, setupStatusSchema);
     },
 
-    login(credentials: Credentials): Promise<{ user: PublicUser }> {
-      return request("POST", "/api/auth/login", credentials, userEnvelopeSchema);
+    login(credentials: Credentials): Promise<AuthUserResponse> {
+      return request("POST", "/api/auth/login", credentials, authUserResponseSchema);
     },
 
     logout(): Promise<void> {
       return request("POST", "/api/auth/logout");
     },
 
-    me(): Promise<{ user: SessionUser }> {
-      return request("GET", "/api/auth/me", undefined, sessionEnvelopeSchema);
+    me(): Promise<SessionResponse> {
+      return request("GET", "/api/auth/me", undefined, sessionResponseSchema);
     },
 
     /** L'id lo ricava il server dalla sessione: si manda solo la lingua. */
-    setLanguage(language: Language): Promise<{ language: Language }> {
-      return request("PATCH", "/api/auth/me", { language }, languageEnvelopeSchema);
+    setLanguage(language: Language): Promise<LanguageResponse> {
+      return request("PATCH", "/api/auth/me", { language }, languageResponseSchema);
     },
   };
 }

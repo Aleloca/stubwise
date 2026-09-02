@@ -29,3 +29,23 @@ export const sessionUserSchema = publicUserSchema.extend({
   slackUserId: z.string().nullable(),
 });
 export type SessionUser = z.infer<typeof sessionUserSchema>;
+
+/** Risposta di `GET /api/auth/setup`: l'istanza non ha ancora nessun utente. */
+export const setupStatusSchema = z.object({ needed: z.boolean() });
+export type SetupStatus = z.infer<typeof setupStatusSchema>;
+
+/**
+ * Risposta di setup, login e registrazione: l'utente PUBBLICO in una busta.
+ * La busta (`{ user }`) non è cerimonia — lascia spazio ad affiancargli altro
+ * senza rompere i client che leggono `body.user`.
+ */
+export const authUserResponseSchema = z.object({ user: publicUserSchema });
+export type AuthUserResponse = z.infer<typeof authUserResponseSchema>;
+
+/** Risposta di `GET /api/auth/me`: l'utente della sessione corrente. */
+export const sessionResponseSchema = z.object({ user: sessionUserSchema });
+export type SessionResponse = z.infer<typeof sessionResponseSchema>;
+
+/** Risposta di `PATCH /api/auth/me`: la lingua effettivamente persistita. */
+export const languageResponseSchema = z.object({ language: languageSchema });
+export type LanguageResponse = z.infer<typeof languageResponseSchema>;

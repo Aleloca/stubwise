@@ -18,17 +18,11 @@ export { createStubwiseClient } from "./client.js";
 export type { ApiRequest, HttpMethod, StubwiseClient, StubwiseClientOptions } from "./client.js";
 export { ApiError, errorFromResponse, handledByFromError } from "./errors.js";
 
+// Solo i tipi che sono DAVVERO di questo pacchetto: le forme dei filtri e dei
+// corpi che il client costruisce. Le forme di RISPOSTA — comprese quelle degli
+// esiti (`RunAiResult`, `ConvertBacklogResult`, `SessionResponse`, …) — vivono
+// tutte in `@stubwise/shared` e si importano da lì: non sono di nessun client.
 export type { Credentials } from "./endpoints/auth.js";
-export type {
-  BacklogChatTurn,
-  BacklogFilters,
-  ConvertBacklogResult,
-  CreateBacklogResult,
-} from "./endpoints/backlog.js";
+export type { BacklogFilters } from "./endpoints/backlog.js";
 export type { InboxActionBody, InboxFilters } from "./endpoints/inbox.js";
-export type {
-  AnswerQuestionResult,
-  PlanDecisionResult,
-  RunAiResult,
-  TicketFilters,
-} from "./endpoints/tickets.js";
+export type { TicketFilters } from "./endpoints/tickets.js";

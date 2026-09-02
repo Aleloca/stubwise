@@ -309,3 +309,37 @@ export const backlogPageSchema = z.object({
   nextCursor: z.string().nullable(),
 });
 export type BacklogPage = z.infer<typeof backlogPageSchema>;
+
+/**
+ * Esito (202) della creazione manuale di una voce. `queued: true` e non un id:
+ * la rotta NON crea la voce, accoda un job di intake — è quello a deciderne
+ * forma e stima, e a volte a FONDERLA in una voce esistente invece di crearne
+ * una nuova. `jobId` è il job accodato.
+ */
+export const createBacklogResultSchema = z.object({
+  queued: z.literal(true),
+  jobId: z.uuid(),
+});
+export type CreateBacklogResult = z.infer<typeof createBacklogResultSchema>;
+
+/** Esito della conversione di una voce in ticket: id e numero del ticket nato. */
+export const convertBacklogResultSchema = z.object({
+  ticketId: z.uuid(),
+  ticketNumber: z.number().int(),
+});
+export type ConvertBacklogResult = z.infer<typeof convertBacklogResultSchema>;
+
+/**
+ * Esito (202) di un turno di chat CON una sessione di analisi sul codice
+ * attiva: il turno è stato accettato e l'agente risponderà in modo asincrono.
+ * `userMessageId` è l'id server del messaggio utente persistito, con cui la UI
+ * dedupa il proprio messaggio ottimistico contro il rifetch.
+ *
+ * SENZA sessione attiva la stessa rotta risponde invece in SSE: è il chiamante
+ * a sapere in quale dei due modi sta chiedendo.
+ */
+export const backlogChatAcceptedSchema = z.object({
+  mode: z.literal("code"),
+  userMessageId: z.uuid(),
+});
+export type BacklogChatAccepted = z.infer<typeof backlogChatAcceptedSchema>;

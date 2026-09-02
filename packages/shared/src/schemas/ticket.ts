@@ -138,3 +138,28 @@ export const ticketPageSchema = z.object({
   nextCursor: z.string().nullable(),
 });
 export type TicketPage = z.infer<typeof ticketPageSchema>;
+
+/**
+ * Esito di `POST /api/tickets/:id/questions/answer`: il job che riparte e la
+ * domanda a cui si è risposto. `questionId` torna indietro perché il server
+ * confronta quella MOSTRATA con quella davvero aperta, e il client deve poter
+ * verificare a quale delle due ha risposto.
+ */
+export const answerQuestionResultSchema = z.object({ jobId: z.uuid(), questionId: z.uuid() });
+export type AnswerQuestionResult = z.infer<typeof answerQuestionResultSchema>;
+
+/**
+ * Esito (202) dell'avvio manuale dell'AI su un ticket. `status` distingue i due
+ * modi in cui un run può nascere: in coda, oppure GIÀ fermo sul gate di
+ * approvazione — un run chiesto da un operatore su un ticket con piano salvato.
+ * Sono due esperienze diverse e il client deve dirle con parole diverse.
+ */
+export const runAiResultSchema = z.object({
+  jobId: z.uuid(),
+  status: z.enum(["queued", "awaiting_plan_approval"]),
+});
+export type RunAiResult = z.infer<typeof runAiResultSchema>;
+
+/** Esito (202) di approva/rifiuta piano: il job che riparte. */
+export const planDecisionResultSchema = z.object({ jobId: z.uuid() });
+export type PlanDecisionResult = z.infer<typeof planDecisionResultSchema>;

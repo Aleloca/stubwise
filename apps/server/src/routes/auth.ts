@@ -14,7 +14,13 @@ import {
   sessionIdFromRequest,
 } from "../auth/session.js";
 import { invites, sessions, users } from "@stubwise/db";
-import { languageSchema, publicUserSchema, sessionUserSchema } from "@stubwise/shared";
+import {
+  authUserResponseSchema,
+  languageResponseSchema,
+  languageSchema,
+  sessionResponseSchema,
+  setupStatusSchema,
+} from "@stubwise/shared";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
 import type { RateLimitConfig } from "./shared.js";
 import { apiError } from "../errors.js";
@@ -91,7 +97,7 @@ export async function authRoutes(
   // La UI usa questo flag per decidere se mostrare la pagina di primo setup.
   app.get(
     "/setup",
-    { schema: { response: { 200: z.object({ needed: z.boolean() }) } } },
+    { schema: { response: { 200: setupStatusSchema } } },
     async () => {
       const [row] = await app.db.select({ value: count() }).from(users);
       return { needed: (row?.value ?? 0) === 0 };
@@ -103,7 +109,7 @@ export async function authRoutes(
     {
       schema: {
         body: credentialsSchema,
-        response: { 201: z.object({ user: publicUserSchema }), 403: errorSchema },
+        response: { 201: authUserResponseSchema, 403: errorSchema },
       },
     },
     async (request, reply) => {
@@ -144,7 +150,7 @@ export async function authRoutes(
       schema: {
         // Nessun vincolo di lunghezza al login: la policy vale alla creazione.
         body: z.object({ email: z.email(), password: z.string().min(1) }),
-        response: { 200: z.object({ user: publicUserSchema }), 401: errorSchema },
+        response: { 200: authUserResponseSchema, 401: errorSchema },
       },
     },
     async (request, reply) => {
@@ -195,7 +201,7 @@ export async function authRoutes(
     {
       preHandler: requireAuth,
       schema: {
-        response: { 200: z.object({ user: sessionUserSchema }), ...authErrorResponses },
+        response: { 200: sessionResponseSchema, ...authErrorResponses },
       },
     },
     async (request) => ({ user: request.user! }),
@@ -209,7 +215,7 @@ export async function authRoutes(
       preHandler: requireAuth,
       schema: {
         body: z.object({ language: languageSchema }),
-        response: { 200: z.object({ language: languageSchema }), ...authErrorResponses },
+        response: { 200: languageResponseSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {
@@ -336,7 +342,7 @@ export async function authRoutes(
       schema: {
         body: credentialsSchema.extend({ token: z.string().min(1) }),
         response: {
-          201: z.object({ user: publicUserSchema }),
+          201: authUserResponseSchema,
           409: errorSchema,
           410: errorSchema,
         },
