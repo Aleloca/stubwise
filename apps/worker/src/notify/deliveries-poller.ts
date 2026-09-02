@@ -21,7 +21,7 @@ import {
   type SlackBlock,
   type SlackMessenger,
 } from "@stubwise/notifications";
-import type { Language, NotificationEvent } from "@stubwise/notifications/format";
+import type { Language, NotificationEvent } from "@stubwise/notifications/pure";
 import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
 
 /**

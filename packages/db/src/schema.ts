@@ -906,7 +906,7 @@ export const automationRules = pgTable("automation_rules", {
 export const notificationFormat = pgEnum("notification_format", ["slack", "discord", "generic"]);
 
 // Tipo di evento dietro una notifica dell'inbox. Speculare ai `kind` di
-// `NotificationEvent` (@stubwise/notifications/format): la lista è ripetuta qui
+// `NotificationEvent` (@stubwise/notifications/pure): la lista è ripetuta qui
 // come letterale perché `db` NON può importare da `notifications` (è
 // `notifications` a dipendere da `db`; l'inverso sarebbe un ciclo).
 // Aggiungere un kind richiede `ALTER TYPE ... ADD VALUE` in una migrazione che
@@ -2392,7 +2392,7 @@ export const notifications = pgTable(
     kind: notificationKind("kind").notNull(),
     // Payload dell'evento, già completo di tutto ciò che serve a renderlo
     // (titolo del ticket, url, dettaglio). Il tipo forte è `NotificationEvent`
-    // di @stubwise/notifications/format: qui resta `Record<string, unknown>`
+    // di @stubwise/notifications/pure: qui resta `Record<string, unknown>`
     // perché `db` non può importare da `notifications` (ciclo di dipendenze); i
     // consumatori castano al tipo dell'unione dopo aver letto `kind`.
     event: jsonb("event").$type<Record<string, unknown>>().notNull(),
