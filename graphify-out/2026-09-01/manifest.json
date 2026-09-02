@@ -5058,5 +5058,15 @@
     "mtime": 1788278828.879448,
     "ast_hash": "c7fae52da17f6d38c4c89733c034ed0c",
     "semantic_hash": ""
+  },
+  "docs/plans/2026-09-01-phase3-plugin-registry-design.md": {
+    "mtime": 1788284906.0592024,
+    "ast_hash": "e0d34149823f3c1ac954b84e670bb7a9",
+    "semantic_hash": ""
+  },
+  "docs/plans/2026-09-01-phase3-plugin-registry-plan.md": {
+    "mtime": 1788284906.059647,
+    "ast_hash": "de0c96db9ed707a4065fc03066f6167e",
+    "semantic_hash": ""
   }
 }
