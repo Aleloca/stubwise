@@ -194,7 +194,10 @@ function NotificationPrefsSection() {
   const { data: prefs } = useSuspenseQuery(notificationPrefsQueryOptions);
 
   const mutation = useMutation({
-    mutationFn: (slackDm: boolean) => putNotificationPrefs({ slackDm }),
+    // Il PUT sostituisce l'insieme dei canali: `push` si rimanda com'è, perché
+    // qui non c'è un toggle che lo governi (si accende registrando un device
+    // dall'app mobile) e ometterlo lo spegnerebbe.
+    mutationFn: (slackDm: boolean) => putNotificationPrefs({ slackDm, push: prefs.push }),
     onMutate: async (slackDm) => {
       await queryClient.cancelQueries({ queryKey: notificationPrefsQueryOptions.queryKey });
       const previous = queryClient.getQueryData(notificationPrefsQueryOptions.queryKey);

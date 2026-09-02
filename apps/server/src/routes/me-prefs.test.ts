@@ -65,12 +65,13 @@ function getPrefs(cookie = seeded.adminCookie) {
   return app.inject({ method: "GET", url: "/api/me/notification-prefs", headers: { cookie } });
 }
 
-function putPrefs(slackDm: boolean, cookie = seeded.adminCookie) {
+/** Il PUT sostituisce l'insieme dei canali: il body li porta tutti. */
+function putPrefs(prefs: { slackDm: boolean; push: boolean }, cookie = seeded.adminCookie) {
   return app.inject({
     method: "PUT",
     url: "/api/me/notification-prefs",
     headers: { cookie },
-    payload: { slackDm },
+    payload: prefs,
   });
 }
 
@@ -80,7 +81,11 @@ describe("autenticazione", () => {
       app.inject({ method: "GET", url: "/api/me/follows" }),
       app.inject({ method: "PUT", url: "/api/me/follows", payload: { projectIds: [] } }),
       app.inject({ method: "GET", url: "/api/me/notification-prefs" }),
-      app.inject({ method: "PUT", url: "/api/me/notification-prefs", payload: { slackDm: true } }),
+      app.inject({
+        method: "PUT",
+        url: "/api/me/notification-prefs",
+        payload: { slackDm: true, push: true },
+      }),
     ];
     for (const res of await Promise.all(calls)) {
       expect(res.statusCode).toBe(401);
@@ -144,16 +149,19 @@ describe("/api/me/notification-prefs", () => {
   it("GET: default acceso, ma senza identità Slack collegata", async () => {
     const res = await getPrefs();
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ slackDm: true, slackLinked: false });
+    expect(res.json()).toEqual({ slackDm: true, push: true, slackLinked: false });
   });
 
-  it("PUT aggiorna il toggle e non tocca gli altri utenti", async () => {
-    expect((await putPrefs(false)).statusCode).toBe(204);
-    expect((await getPrefs()).json()).toMatchObject({ slackDm: false });
-    expect((await getPrefs(seeded.memberCookie)).json()).toMatchObject({ slackDm: true });
+  it("PUT aggiorna i toggle e non tocca gli altri utenti", async () => {
+    expect((await putPrefs({ slackDm: false, push: false })).statusCode).toBe(204);
+    expect((await getPrefs()).json()).toMatchObject({ slackDm: false, push: false });
+    expect((await getPrefs(seeded.memberCookie)).json()).toMatchObject({
+      slackDm: true,
+      push: true,
+    });
 
-    expect((await putPrefs(true)).statusCode).toBe(204);
-    expect((await getPrefs()).json()).toMatchObject({ slackDm: true });
+    expect((await putPrefs({ slackDm: true, push: true })).statusCode).toBe(204);
+    expect((await getPrefs()).json()).toMatchObject({ slackDm: true, push: true });
   });
 
   it("slackLinked segue users.slack_user_id", async () => {
@@ -172,6 +180,16 @@ describe("/api/me/notification-prefs", () => {
       url: "/api/me/notification-prefs",
       headers: { cookie: seeded.adminCookie },
       payload: {},
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("rifiuta un body senza push: il PUT sostituisce, non aggiorna un campo", async () => {
+    const res = await app.inject({
+      method: "PUT",
+      url: "/api/me/notification-prefs",
+      headers: { cookie: seeded.adminCookie },
+      payload: { slackDm: true },
     });
     expect(res.statusCode).toBe(400);
   });

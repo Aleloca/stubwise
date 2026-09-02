@@ -251,6 +251,10 @@ export const users = pgTable("users", {
   // vengono anche inviate come DM Slack (oltre a comparire nella sua inbox).
   // Default true; senza `slackUserId` il canale resta comunque muto.
   notifySlackDm: boolean("notify_slack_dm").notNull().default(true),
+  // Preferenza di recapito speculare a `notifySlackDm`, per le push sui device
+  // mobili (fase 4). Default true; senza device attivi in `device_tokens` il
+  // canale resta comunque muto.
+  notifyPush: boolean("notify_push").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -940,9 +944,19 @@ export const notificationStatus = pgEnum("notification_status", ["open", "handle
 
 // Canale di recapito di una consegna: `webhook` (il webhook d'istanza di
 // notification_settings, per EVENTO), `slack_dm` (messaggio diretto al
-// destinatario) o `slack_update` (aggiornamento di un DM già inviato,
-// identificato dal `ts` in `externalRef`).
-export const deliveryChannel = pgEnum("delivery_channel", ["webhook", "slack_dm", "slack_update"]);
+// destinatario), `slack_update` (aggiornamento di un DM già inviato,
+// identificato dal `ts` in `externalRef`) o `push` (notifica ai device mobili
+// del destinatario, fase 4).
+// Lista LETTERALE per scelta: questi valori non escono mai dall'API — vivono
+// solo in `notification_deliveries`, che nessuna rotta serializza. Se un giorno
+// lo stato di recapito comparisse in una risposta, la regola di `enumValues`
+// qui sopra impone di far nascere lo schema Zod in `@stubwise/shared`.
+export const deliveryChannel = pgEnum("delivery_channel", [
+  "webhook",
+  "slack_dm",
+  "slack_update",
+  "push",
+]);
 
 // Stato di una consegna in outbox: `pending` (da tentare, non prima di
 // `nextAttemptAt`), `sent`, `failed` (tentativi esauriti, `error` valorizzato) o
@@ -2516,12 +2530,63 @@ export const projectFollows = pgTable(
   ],
 );
 
+/**
+ * Un'installazione dell'app mobile che può ricevere notifiche push (fase 4).
+ * È il "dove" del canale `push`: l'instradamento sceglie il destinatario, qui
+ * si trovano i suoi telefoni.
+ *
+ * `token` è il token del servizio di notifica del sistema operativo ed è unico
+ * GLOBALMENTE, non per utente: il sistema lo riassegna, e la stessa stringa su
+ * due righe manderebbe la push due volte o alla persona sbagliata. Registrare
+ * di nuovo un device è quindi un upsert su questa unique, non una riga in più.
+ *
+ * La disattivazione è un soft delete con motivo (`disabledAt` +
+ * `disabledReason`, es. token rifiutato dal provider): serve a smettere di
+ * provarci senza perdere la traccia del perché.
+ */
+export const deviceTokens = pgTable(
+  "device_tokens",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    // PAT con cui l'app si è autenticata registrando il device. SET NULL e non
+    // CASCADE: revocare un token è un'operazione di credenziali, non di
+    // recapito — la riga sopravvive e resta disattivabile a parte.
+    patId: uuid("pat_id").references(() => personalAccessTokens.id, { onDelete: "set null" }),
+    // Colonna text con CHECK invece di un enum Postgres: aggiungere una
+    // piattaforma domani non richiede una migrazione a sé (un `ALTER TYPE …
+    // ADD VALUE` non è usabile nello stesso batch che lo aggiunge).
+    platform: text("platform", { enum: ["ios", "android"] }).notNull(),
+    token: text("token").notNull().unique(),
+    // Versione dell'app che ha registrato il device, utile a diagnosticare le
+    // push che non arrivano. Nullable: non è un dato di cui si dipende.
+    appVersion: text("app_version"),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    disabledAt: timestamp("disabled_at", { withTimezone: true }),
+    disabledReason: text("disabled_reason"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // Destinatari di una push: i device ATTIVI di un utente. Indice parziale,
+    // così i device disattivati non pesano su una query che sta sul percorso di
+    // ogni notifica.
+    index("device_tokens_user_active_idx")
+      .on(table.userId)
+      .where(sql`disabled_at is null`),
+    check("device_tokens_platform_chk", sql`platform in ('ios', 'android')`),
+  ],
+);
+
 /** Riga di `notifications`: una notifica nell'inbox di un utente. */
 export type Notification = typeof notifications.$inferSelect;
 /** Riga di `notification_deliveries`: una consegna verso un canale esterno. */
 export type NotificationDelivery = typeof notificationDeliveries.$inferSelect;
 /** Riga di `project_follows`: un progetto seguito da un utente. */
 export type ProjectFollow = typeof projectFollows.$inferSelect;
+/** Riga di `device_tokens`: un'installazione dell'app mobile che riceve push. */
+export type DeviceToken = typeof deviceTokens.$inferSelect;
 
 /**
  * Domande poste dall'agente durante la pianificazione di un fix (fase 1,

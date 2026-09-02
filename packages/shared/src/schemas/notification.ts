@@ -401,11 +401,22 @@ export const projectFollowsSchema = z.object({ projectIds: z.array(z.uuid()) });
 export type ProjectFollows = z.infer<typeof projectFollowsSchema>;
 
 /**
- * Preferenze di notifica dell'utente. Oggi un solo canale opzionale: il DM
- * Slack (`users.notify_slack_dm`). L'inbox in-app non è disattivabile — è la
- * superficie primaria, non un canale.
+ * Preferenze di notifica dell'utente: i canali OPZIONALI su cui recapitare —
+ * il DM Slack (`users.notify_slack_dm`) e la push sui device mobili
+ * (`users.notify_push`). L'inbox in-app non è disattivabile: è la superficie
+ * primaria, non un canale.
+ *
+ * Il PUT SOSTITUISCE l'insieme (come i progetti seguiti), quindi i campi sono
+ * tutti obbligatori: un client che ne omette uno prende 400, non uno
+ * spegnimento implicito. Aggiungere un canale è perciò un cambio ROMPENTE per
+ * il client che manda il body — la SPA, che viaggia nella stessa immagine del
+ * server e si aggiorna insieme. In LETTURA invece resta additivo, ed è la
+ * direzione da cui guarda l'app mobile, che non viaggia col server.
  */
-export const notificationPrefsSchema = z.object({ slackDm: z.boolean() });
+export const notificationPrefsSchema = z.object({
+  slackDm: z.boolean(),
+  push: z.boolean(),
+});
 export type NotificationPrefs = z.infer<typeof notificationPrefsSchema>;
 
 /**

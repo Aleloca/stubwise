@@ -108,18 +108,24 @@ export async function mePrefsRoutes(instance: FastifyInstance): Promise<void> {
     },
     async (request, reply) => {
       const [row] = await app.db
-        .select({ slackDm: users.notifySlackDm, slackUserId: users.slackUserId })
+        .select({
+          slackDm: users.notifySlackDm,
+          push: users.notifyPush,
+          slackUserId: users.slackUserId,
+        })
         .from(users)
         .where(eq(users.id, request.user!.id));
       // Utente cancellato fra l'autenticazione e questa query: raro ma non
       // impossibile, e meglio di un 500 su `row` undefined.
       if (!row) return apiError(reply, 404, "not_found", "User not found");
-      return { slackDm: row.slackDm, slackLinked: row.slackUserId !== null };
+      return { slackDm: row.slackDm, push: row.push, slackLinked: row.slackUserId !== null };
     },
   );
 
   /**
-   * Accende o spegne il DM Slack. Non c'è un toggle per l'inbox in-app: è la
+   * Accende o spegne i canali opzionali (DM Slack, push sui device mobili).
+   * SOSTITUISCE l'insieme: il body li porta tutti, così due schede aperte non
+   * si sovrascrivono a metà. Non c'è un toggle per l'inbox in-app: è la
    * superficie primaria delle notifiche, non un canale opzionale.
    */
   app.put(
@@ -134,7 +140,7 @@ export async function mePrefsRoutes(instance: FastifyInstance): Promise<void> {
     async (request, reply) => {
       await app.db
         .update(users)
-        .set({ notifySlackDm: request.body.slackDm })
+        .set({ notifySlackDm: request.body.slackDm, notifyPush: request.body.push })
         .where(eq(users.id, request.user!.id));
       return reply.code(204).send(null);
     },

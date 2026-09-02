@@ -41,18 +41,21 @@ interface AccountMockState {
   /** Body inviati a PUT /api/me/follows (l'insieme COMPLETO, mai un delta). */
   followPuts: unknown[];
   /** Preferenze di notifica correnti (`slackLinked` è contesto del server). */
-  prefs: { slackDm: boolean; slackLinked: boolean };
+  prefs: { slackDm: boolean; push: boolean; slackLinked: boolean };
   /** Body inviati a PUT /api/me/notification-prefs. */
   prefsPuts: unknown[];
 }
 
 function mockAccountApi(
-  overrides: { followed?: string[]; prefs?: { slackDm: boolean; slackLinked: boolean } } = {},
+  overrides: {
+    followed?: string[];
+    prefs?: { slackDm: boolean; push: boolean; slackLinked: boolean };
+  } = {},
 ): AccountMockState {
   const state: AccountMockState = {
     followed: overrides.followed ?? [],
     followPuts: [],
-    prefs: overrides.prefs ?? { slackDm: false, slackLinked: true },
+    prefs: overrides.prefs ?? { slackDm: false, push: true, slackLinked: true },
     prefsPuts: [],
   };
 
@@ -101,9 +104,9 @@ function mockAccountApi(
     },
     "GET /api/me/notification-prefs": () => jsonResponse(200, state.prefs),
     "PUT /api/me/notification-prefs": (_url, init) => {
-      const body = JSON.parse(String(init?.body)) as { slackDm: boolean };
+      const body = JSON.parse(String(init?.body)) as { slackDm: boolean; push: boolean };
       state.prefsPuts.push(body);
-      state.prefs = { ...state.prefs, slackDm: body.slackDm };
+      state.prefs = { ...state.prefs, slackDm: body.slackDm, push: body.push };
       return new Response(null, { status: 204 });
     },
   };
@@ -166,19 +169,20 @@ describe("account: progetti seguiti", () => {
 
 describe("account: preferenze di notifica", () => {
   it("il toggle del DM Slack salva la preferenza", async () => {
-    const state = mockAccountApi({ prefs: { slackDm: false, slackLinked: true } });
+    const state = mockAccountApi({ prefs: { slackDm: false, push: true, slackLinked: true } });
     renderAccount();
 
     const toggle = await screen.findByLabelText(/Slack DM/i);
     expect(toggle).toBeEnabled();
     await userEvent.click(toggle);
 
-    await waitFor(() => expect(state.prefsPuts).toEqual([{ slackDm: true }]));
+    // Il PUT sostituisce l'insieme: `push` viaggia com'era, non si perde.
+    await waitFor(() => expect(state.prefsPuts).toEqual([{ slackDm: true, push: true }]));
     expect(toggle).toBeChecked();
   });
 
   it("senza identità Slack collegata il toggle è disabilitato, con l'hint", async () => {
-    const state = mockAccountApi({ prefs: { slackDm: false, slackLinked: false } });
+    const state = mockAccountApi({ prefs: { slackDm: false, push: true, slackLinked: false } });
     renderAccount();
 
     const toggle = await screen.findByLabelText(/Slack DM/i);

@@ -2950,7 +2950,11 @@ export function getNotificationPrefs(): Promise<NotificationPrefsView> {
   return api.get("/api/me/notification-prefs");
 }
 
-/** Accende o spegne il DM Slack: 204. L'inbox in-app non è disattivabile. */
+/**
+ * SOSTITUISCE i canali opzionali (DM Slack, push mobile): 204. Il body li porta
+ * tutti, anche quelli che questa pagina non mostra. L'inbox in-app non è
+ * disattivabile.
+ */
 export function putNotificationPrefs(prefs: NotificationPrefs): Promise<void> {
   return api.put("/api/me/notification-prefs", prefs);
 }

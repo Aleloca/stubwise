@@ -470,6 +470,13 @@
       "when": 1785142628676,
       "tag": "0066_plugin_registry",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1785142629676,
+      "tag": "0067_mobile_push",
+      "breakpoints": true
     }
   ]
 }
