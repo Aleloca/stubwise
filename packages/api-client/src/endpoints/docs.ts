@@ -1,77 +1,20 @@
-import { docPageKindSchema } from "@stubwise/shared";
+import {
+  docChatMessageSchema,
+  docChatSessionSchema,
+  docPageSchema,
+  docSpaceSchema,
+  docTreeNodeSchema,
+} from "@stubwise/shared";
+import type {
+  DocChatMessage,
+  DocChatSession,
+  DocPage,
+  DocSpace,
+  DocTreeNode,
+} from "@stubwise/shared";
 import { z } from "zod";
 import type { ApiRequest } from "../client.js";
 import { seg } from "../query.js";
-
-/** MIRROR di `spaceSchema` (`apps/server/src/routes/docs.ts`). */
-export const docSpaceSchema = z.object({
-  repositoryId: z.uuid(),
-  slug: z.string(),
-  name: z.string(),
-  pageCount: z.number().int(),
-  lastGenerationAt: z.string().nullable(),
-  lastCommitSha: z.string().nullable(),
-});
-export type DocSpace = z.infer<typeof docSpaceSchema>;
-
-/** MIRROR di `treeNodeSchema` (stesso file lato server). */
-export const docTreeNodeSchema = z.object({
-  id: z.uuid(),
-  slug: z.string(),
-  title: z.string(),
-  kind: docPageKindSchema,
-  parentId: z.uuid().nullable(),
-  position: z.number().int(),
-  sourcePath: z.string().nullable(),
-  isManual: z.boolean(),
-  createdAt: z.string(),
-  viewCount: z.number().int(),
-  significant: z.boolean().nullable(),
-});
-export type DocTreeNode = z.infer<typeof docTreeNodeSchema>;
-
-/** MIRROR di `docPageLinkSchema` (stesso file lato server). */
-const docPageLinkSchema = z.object({
-  type: z.enum(["implements", "implemented_by", "related"]),
-  slug: z.string(),
-  title: z.string(),
-});
-
-/** MIRROR di `pageSchema` (stesso file lato server): corpo markdown + metadati. */
-export const docPageSchema = z.object({
-  id: z.uuid(),
-  slug: z.string(),
-  title: z.string(),
-  kind: docPageKindSchema,
-  parentId: z.uuid().nullable(),
-  position: z.number().int(),
-  sourcePath: z.string().nullable(),
-  body: z.string(),
-  isManual: z.boolean(),
-  commitSha: z.string().nullable(),
-  commitUrl: z.string().nullable(),
-  links: z.array(docPageLinkSchema).nullable(),
-  updatedAt: z.string(),
-  createdAt: z.string(),
-  viewCount: z.number().int(),
-  significant: z.boolean().nullable(),
-});
-export type DocPage = z.infer<typeof docPageSchema>;
-
-/** MIRROR delle risposte di `apps/server/src/routes/docs-chat.ts`. */
-const docChatSessionSchema = z.object({ id: z.uuid(), createdAt: z.string() });
-export type DocChatSession = z.infer<typeof docChatSessionSchema>;
-
-const docChatMessageSchema = z.object({
-  id: z.uuid(),
-  role: z.string(),
-  content: z.string(),
-  // `unknown` anche lato server: le citazioni sono una colonna jsonb, e il
-  // contratto non le stringe. Chi le usa se le valida.
-  citations: z.unknown().nullable(),
-  createdAt: z.string(),
-});
-export type DocChatMessage = z.infer<typeof docChatMessageSchema>;
 
 const spacesSchema = z.array(docSpaceSchema);
 const treeSchema = z.array(docTreeNodeSchema);

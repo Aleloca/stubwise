@@ -1,7 +1,8 @@
 import {
   createProjectSchema,
+  projectDetailSchema,
+  projectListItemSchema,
   projectSchema,
-  repositorySchema,
   updateProjectSchema,
 } from "@stubwise/shared";
 import { eq, sql } from "drizzle-orm";
@@ -26,28 +27,6 @@ import { apiError } from "../errors.js";
 const MAX_SLUG_ATTEMPTS = 100;
 
 const idParamsSchema = z.object({ projectId: z.uuid() });
-
-/**
- * Riepilogo di un repository nella lista/dettaglio progetto: solo i campi che
- * servono alla UI per elencare i repo del gruppo (id, nome, slug, provider). La
- * proiezione pubblica completa del repository vive sotto /api/repositories.
- */
-const repositorySummarySchema = z.object({
-  id: z.uuid(),
-  name: z.string(),
-  slug: z.string(),
-  provider: repositorySchema.shape.provider,
-});
-
-/** Progetto con conteggio repository, per la lista. */
-const projectListItemSchema = projectSchema.extend({
-  repositoryCount: z.number().int(),
-});
-
-/** Progetto con l'elenco (sintetico) dei suoi repository, per il dettaglio. */
-const projectDetailSchema = projectSchema.extend({
-  repositories: z.array(repositorySummarySchema),
-});
 
 /**
  * Slug URL-safe dal nome: minuscole, accenti scomposti e rimossi, tutto il

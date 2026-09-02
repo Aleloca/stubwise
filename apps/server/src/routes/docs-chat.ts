@@ -27,6 +27,7 @@
 import { and, asc, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
+import { docChatMessageSchema, docChatSessionSchema } from "@stubwise/shared";
 import { z } from "zod";
 import { requireAuth } from "../auth/session.js";
 import { docChatMessages, docChatSessions, repositories } from "@stubwise/db";
@@ -203,7 +204,7 @@ export async function docsChatRoutes(instance: FastifyInstance): Promise<void> {
       schema: {
         params: repositoryIdParamsSchema,
         response: {
-          200: z.array(z.object({ id: z.uuid(), createdAt: z.string() })),
+          200: z.array(docChatSessionSchema),
           404: errorSchema,
           ...authErrorResponses,
         },
@@ -239,15 +240,7 @@ export async function docsChatRoutes(instance: FastifyInstance): Promise<void> {
       schema: {
         params: z.object({ repositoryId: z.uuid(), id: z.uuid() }),
         response: {
-          200: z.array(
-            z.object({
-              id: z.uuid(),
-              role: z.string(),
-              content: z.string(),
-              citations: z.unknown().nullable(),
-              createdAt: z.string(),
-            }),
-          ),
+          200: z.array(docChatMessageSchema),
           404: errorSchema,
           ...authErrorResponses,
         },

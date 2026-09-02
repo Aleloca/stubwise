@@ -1,9 +1,14 @@
-import { aiJobSchema, ticketDetailSchema, ticketListItemSchema, ticketQuestionsSchema } from "@stubwise/shared";
+import {
+  aiJobSchema,
+  ticketDetailSchema,
+  ticketPageSchema,
+  ticketQuestionsSchema,
+} from "@stubwise/shared";
 import type {
   AiJob,
   AnswerBody,
   TicketDetail,
-  TicketListItem,
+  TicketPage,
   TicketPriority,
   TicketQuestion,
   TicketStatus,
@@ -28,21 +33,6 @@ export interface TicketFilters {
   milestoneId?: string;
   q?: string;
 }
-
-export interface TicketPage {
-  items: TicketListItem[];
-  nextCursor: string | null;
-}
-
-/**
- * MIRROR di `listTicketsResponseSchema` (`apps/server/src/routes/tickets.ts`):
- * l'involucro paginato resta locale alle rotte, mentre gli item sono lo schema
- * condiviso. Stesso discorso per il backlog.
- */
-const ticketPageSchema = z.object({
-  items: z.array(ticketListItemSchema),
-  nextCursor: z.string().nullable(),
-});
 
 const jobsSchema = z.array(aiJobSchema);
 const answerResultSchema = z.object({ jobId: z.uuid(), questionId: z.uuid() });

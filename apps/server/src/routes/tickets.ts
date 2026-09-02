@@ -10,7 +10,7 @@ import {
   ticketTypeSchema,
   setContentSchema,
   ticketDetailSchema,
-  ticketListItemSchema,
+  ticketPageSchema,
   ticketSchema,
   type AgentQuestionAnswer,
   type TicketStatus,
@@ -97,11 +97,6 @@ const listTicketsQuerySchema = z.object({
   q: z.string().min(1).max(300).optional(),
   cursor: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(25),
-});
-
-const listTicketsResponseSchema = z.object({
-  items: z.array(ticketListItemSchema),
-  nextCursor: z.string().nullable(),
 });
 
 const idParamsSchema = z.object({ id: z.uuid() });
@@ -525,7 +520,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
       preHandler: requireAuth,
       schema: {
         querystring: listTicketsQuerySchema,
-        response: { 200: listTicketsResponseSchema, 400: errorSchema, ...authErrorResponses },
+        response: { 200: ticketPageSchema, 400: errorSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {

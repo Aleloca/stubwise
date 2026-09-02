@@ -14,7 +14,7 @@ import {
   sessionIdFromRequest,
 } from "../auth/session.js";
 import { invites, sessions, users } from "@stubwise/db";
-import { languageSchema } from "@stubwise/shared";
+import { languageSchema, publicUserSchema, sessionUserSchema } from "@stubwise/shared";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
 import type { RateLimitConfig } from "./shared.js";
 import { apiError } from "../errors.js";
@@ -62,25 +62,6 @@ function getDummyHash(): Promise<string> {
   });
   return dummyHashPromise;
 }
-
-const publicUserSchema = z.object({
-  id: z.uuid(),
-  email: z.email(),
-  role: z.enum(["admin", "member"]),
-});
-
-/**
- * L'utente di sessione esposto da /me: come publicUserSchema ma con la
- * preferenza di lingua, che le altre route (setup/login/register) non
- * restituiscono perché creano l'utente prima di conoscerne la sessione.
- */
-const sessionUserSchema = publicUserSchema.extend({
-  language: languageSchema,
-  // Identità Slack del corrente utente: avatar (URL) e Slack user id, entrambi
-  // null finché un admin non linka l'utente (o l'auto-link via attribuzione).
-  avatarUrl: z.string().nullable(),
-  slackUserId: z.string().nullable(),
-});
 
 const credentialsSchema = z.object({
   email: z.email(),

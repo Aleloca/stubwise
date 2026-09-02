@@ -18,21 +18,17 @@ export { createStubwiseClient } from "./client.js";
 export type { ApiRequest, HttpMethod, StubwiseClient, StubwiseClientOptions } from "./client.js";
 export { ApiError, errorFromResponse, handledByFromError } from "./errors.js";
 
-export type { Credentials, PublicUser, SessionUser } from "./endpoints/auth.js";
+export type { Credentials } from "./endpoints/auth.js";
 export type {
   BacklogChatTurn,
   BacklogFilters,
-  BacklogPage,
   ConvertBacklogResult,
   CreateBacklogResult,
 } from "./endpoints/backlog.js";
-export type { DocChatMessage, DocChatSession, DocPage, DocSpace, DocTreeNode } from "./endpoints/docs.js";
 export type { InboxActionBody, InboxFilters } from "./endpoints/inbox.js";
-export type { ProjectDetail, ProjectListItem } from "./endpoints/projects.js";
 export type {
   AnswerQuestionResult,
   PlanDecisionResult,
   RunAiResult,
   TicketFilters,
-  TicketPage,
 } from "./endpoints/tickets.js";

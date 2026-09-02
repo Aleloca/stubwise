@@ -126,3 +126,15 @@ export const ticketListItemSchema = ticketSchema.extend({
   repositoryCount: z.number().int(),
 });
 export type TicketListItem = z.infer<typeof ticketListItemSchema>;
+
+/**
+ * Pagina della lista ticket: gli item più il cursore della pagina successiva
+ * (null sull'ultima). L'involucro sta qui accanto agli item e non nelle rotte
+ * perché lo leggono in tre — server, SPA e app mobile — e una copia per
+ * lettore è esattamente ciò che questo pacchetto esiste per evitare.
+ */
+export const ticketPageSchema = z.object({
+  items: z.array(ticketListItemSchema),
+  nextCursor: z.string().nullable(),
+});
+export type TicketPage = z.infer<typeof ticketPageSchema>;

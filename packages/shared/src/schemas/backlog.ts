@@ -302,3 +302,10 @@ export const backlogItemDetailSchema = backlogItemBaseSchema.extend({
   pendingTurn: z.boolean(),
 });
 export type BacklogItemDetail = z.infer<typeof backlogItemDetailSchema>;
+
+/** Pagina della lista backlog: gemella di `ticketPageSchema`. */
+export const backlogPageSchema = z.object({
+  items: z.array(backlogItemSchema),
+  nextCursor: z.string().nullable(),
+});
+export type BacklogPage = z.infer<typeof backlogPageSchema>;

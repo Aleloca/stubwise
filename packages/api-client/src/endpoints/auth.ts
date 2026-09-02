@@ -1,34 +1,7 @@
-import { languageSchema } from "@stubwise/shared";
-import type { Language } from "@stubwise/shared";
+import { languageSchema, publicUserSchema, sessionUserSchema } from "@stubwise/shared";
+import type { Language, PublicUser, SessionUser } from "@stubwise/shared";
 import { z } from "zod";
 import type { ApiRequest } from "../client.js";
-
-/**
- * MIRROR di `publicUserSchema` (`apps/server/src/routes/auth.ts`).
- *
- * Non è in `@stubwise/shared` perché nasce dalle rotte di autenticazione, che
- * non hanno un dominio condiviso; ma la rotta la dichiara come schema di
- * risposta, quindi qui è ricopiata e — se un giorno divergesse — un `parse`
- * fallito lo direbbe ad alta voce invece di lasciare un tipo che mente.
- */
-export const publicUserSchema = z.object({
-  id: z.uuid(),
-  email: z.email(),
-  role: z.enum(["admin", "member"]),
-});
-export type PublicUser = z.infer<typeof publicUserSchema>;
-
-/**
- * MIRROR di `sessionUserSchema` (stesso file lato server): l'utente di sessione
- * esposto da `/me`. Porta la lingua e l'identità Slack, che le rotte di
- * setup/login/registrazione NON restituiscono.
- */
-export const sessionUserSchema = publicUserSchema.extend({
-  language: languageSchema,
-  avatarUrl: z.string().nullable(),
-  slackUserId: z.string().nullable(),
-});
-export type SessionUser = z.infer<typeof sessionUserSchema>;
 
 export interface Credentials {
   email: string;

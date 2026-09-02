@@ -15,7 +15,12 @@
  * tutto condiviso con le route per-repository, senza duplicazione.
  */
 
-import { docPageKindSchema } from "@stubwise/shared";
+import {
+  docChatMessageSchema,
+  docChatSessionSchema,
+  docPageKindSchema,
+  docSpaceSchema,
+} from "@stubwise/shared";
 import { and, asc, desc, eq, isNull, ne, or, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
@@ -51,16 +56,6 @@ const chatBodySchema = z.object({
 
 /** Query di ricerca: `q` non vuota, cappata a 300 char (come la ricerca per-repo). */
 const searchQuerySchema = z.object({ q: z.string().min(1).max(300) });
-
-/** Uno "spazio" dell'hub di progetto: un repository del progetto che ha documentazione. */
-const spaceSchema = z.object({
-  repositoryId: z.uuid(),
-  slug: z.string(),
-  name: z.string(),
-  pageCount: z.number().int(),
-  lastGenerationAt: z.string().nullable(),
-  lastCommitSha: z.string().nullable(),
-});
 
 /**
  * Un risultato di ricerca cross-repo: stesso shape della search per-repo
@@ -112,7 +107,7 @@ export async function projectDocsRoutes(instance: FastifyInstance): Promise<void
       preHandler: requireAuth,
       schema: {
         params: projectIdParamsSchema,
-        response: { 200: z.array(spaceSchema), 404: errorSchema, ...authErrorResponses },
+        response: { 200: z.array(docSpaceSchema), 404: errorSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {
@@ -446,7 +441,7 @@ export async function projectDocsRoutes(instance: FastifyInstance): Promise<void
       schema: {
         params: projectIdParamsSchema,
         response: {
-          200: z.array(z.object({ id: z.uuid(), createdAt: z.string() })),
+          200: z.array(docChatSessionSchema),
           404: errorSchema,
           ...authErrorResponses,
         },
@@ -477,15 +472,7 @@ export async function projectDocsRoutes(instance: FastifyInstance): Promise<void
       schema: {
         params: z.object({ projectId: z.uuid(), id: z.uuid() }),
         response: {
-          200: z.array(
-            z.object({
-              id: z.uuid(),
-              role: z.string(),
-              content: z.string(),
-              citations: z.unknown().nullable(),
-              createdAt: z.string(),
-            }),
-          ),
+          200: z.array(docChatMessageSchema),
           404: errorSchema,
           ...authErrorResponses,
         },

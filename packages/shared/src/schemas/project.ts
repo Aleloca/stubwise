@@ -142,3 +142,29 @@ export const updateProjectSchema = z.object({
   pulseEveryDays: z.number().int().min(1).max(30).optional(),
 });
 export type UpdateProjectInput = z.infer<typeof updateProjectSchema>;
+
+/**
+ * Riepilogo di un repository dentro la lista/dettaglio di un progetto: solo i
+ * campi che servono a ELENCARE i repo del gruppo. La proiezione pubblica
+ * completa ({@link repositorySchema}) vive sotto `/api/repositories` — qui
+ * sarebbe rumore su ogni riga.
+ */
+export const repositorySummarySchema = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  slug: z.string(),
+  provider: gitProviderKindSchema,
+});
+export type RepositorySummary = z.infer<typeof repositorySummarySchema>;
+
+/** Progetto con il CONTEGGIO dei repository: la forma della lista. */
+export const projectListItemSchema = projectSchema.extend({
+  repositoryCount: z.number().int(),
+});
+export type ProjectListItem = z.infer<typeof projectListItemSchema>;
+
+/** Progetto con l'ELENCO sintetico dei suoi repository: la forma del dettaglio. */
+export const projectDetailSchema = projectSchema.extend({
+  repositories: z.array(repositorySummarySchema),
+});
+export type ProjectDetail = z.infer<typeof projectDetailSchema>;

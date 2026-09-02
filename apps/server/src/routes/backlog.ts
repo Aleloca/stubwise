@@ -2,7 +2,7 @@ import {
   backlogCodeSessionSchema,
   backlogItemBaseSchema,
   backlogItemDetailSchema,
-  backlogItemSchema,
+  backlogPageSchema,
   backlogItemStatusSchema,
   backlogJobStatusSchema,
   backlogRiskSchema,
@@ -62,14 +62,9 @@ import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js"
  * similarToId della pagina e `ticketCount` con una subquery correlata.
  */
 
-// Le forme pubbliche di una voce di backlog (lista, base, dettaglio e i loro
-// pezzi) vivono in `@stubwise/shared`: le condividono server, SPA e app mobile.
-// La lista aggiunge solo l'involucro paginato, che resta locale alle rotte.
-const listResponseSchema = z.object({
-  items: z.array(backlogItemSchema),
-  nextCursor: z.string().nullable(),
-});
-
+// Le forme pubbliche di una voce di backlog — lista, base, dettaglio, i loro
+// pezzi e l'involucro paginato — vivono TUTTE in `@stubwise/shared`: le
+// condividono server, SPA e app mobile.
 const listQuerySchema = z.object({
   projectId: z.uuid().optional(),
   status: backlogItemStatusSchema.optional(),
@@ -398,7 +393,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
       preHandler: requireAuth,
       schema: {
         querystring: listQuerySchema,
-        response: { 200: listResponseSchema, 400: errorSchema, ...authErrorResponses },
+        response: { 200: backlogPageSchema, 400: errorSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {

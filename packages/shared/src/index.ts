@@ -5,6 +5,7 @@ export * from "./schemas/project.js";
 export * from "./schemas/ingest.js";
 export * from "./schemas/widget.js";
 export * from "./schemas/language.js";
+export * from "./schemas/user.js";
 export * from "./schemas/docs.js";
 export * from "./schemas/search.js";
 export * from "./schemas/server.js";

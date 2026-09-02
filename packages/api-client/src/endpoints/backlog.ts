@@ -1,7 +1,7 @@
-import { backlogItemDetailSchema, backlogItemSchema } from "@stubwise/shared";
+import { backlogItemDetailSchema, backlogPageSchema } from "@stubwise/shared";
 import type {
-  BacklogItem,
   BacklogItemDetail,
+  BacklogPage,
   BacklogItemStatus,
   BacklogRisk,
   CreateBacklogItemInput,
@@ -20,17 +20,6 @@ export interface BacklogFilters {
   risk?: BacklogRisk;
   q?: string;
 }
-
-export interface BacklogPage {
-  items: BacklogItem[];
-  nextCursor: string | null;
-}
-
-/** MIRROR di `listResponseSchema` (`apps/server/src/routes/backlog.ts`). */
-const backlogPageSchema = z.object({
-  items: z.array(backlogItemSchema),
-  nextCursor: z.string().nullable(),
-});
 
 const createResultSchema = z.object({ queued: z.literal(true), jobId: z.uuid() });
 const convertResultSchema = z.object({ ticketId: z.uuid(), ticketNumber: z.number().int() });
