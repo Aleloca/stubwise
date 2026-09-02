@@ -1,6 +1,7 @@
 import {
   authUserResponseSchema,
   languageResponseSchema,
+  mobileLoginResponseSchema,
   sessionResponseSchema,
   setupStatusSchema,
 } from "@stubwise/shared";
@@ -9,6 +10,8 @@ import type {
   AuthUserResponse,
   Language,
   LanguageResponse,
+  MobileLoginInput,
+  MobileLoginResponse,
   SessionResponse,
   SetupStatus,
 } from "@stubwise/shared";
@@ -28,8 +31,8 @@ export interface Credentials {
  * il login deve fare la seconda chiamata, non sperare nel corpo della prima.
  *
  * Il login qui apre una SESSIONE a cookie: va bene alla SPA, non all'app
- * mobile, che userà `POST /api/auth/mobile-login` (rotta della fase B) per
- * ricevere un token da mettere nell'header.
+ * mobile, che usa {@link createAuthEndpoints.mobileLogin} per ricevere un
+ * token da mettere nell'header.
  */
 export function createAuthEndpoints(request: ApiRequest) {
   return {
@@ -40,6 +43,20 @@ export function createAuthEndpoints(request: ApiRequest) {
 
     login(credentials: Credentials): Promise<Reader<AuthUserResponse>> {
       return request("POST", "/api/auth/login", credentials, authUserResponseSchema);
+    },
+
+    /**
+     * Login dell'app mobile: nessun cookie, un PAT chiamato `Mobile ·
+     * <deviceName>` da conservare nel Keychain e restituire poi da
+     * `getAuthHeader`. A differenza di `login`, la risposta porta già l'utente
+     * della sessione (lingua e avatar compresi): il primo render dell'app non
+     * deve aspettare `me`.
+     *
+     * Il logout dell'app NON è `logout` qui sotto (che chiude un cookie che
+     * non esiste): è la revoca di quel PAT.
+     */
+    mobileLogin(credentials: MobileLoginInput): Promise<Reader<MobileLoginResponse>> {
+      return request("POST", "/api/auth/mobile-login", credentials, mobileLoginResponseSchema);
     },
 
     logout(): Promise<void> {

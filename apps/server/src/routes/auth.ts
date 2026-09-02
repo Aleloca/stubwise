@@ -18,9 +18,12 @@ import {
   authUserResponseSchema,
   languageResponseSchema,
   languageSchema,
+  mobileLoginBodySchema,
+  mobileLoginResponseSchema,
   sessionResponseSchema,
   setupStatusSchema,
 } from "@stubwise/shared";
+import { createPatForUser } from "./pat.js";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
 import type { RateLimitConfig } from "./shared.js";
 import { apiError } from "../errors.js";
@@ -67,6 +70,33 @@ function getDummyHash(): Promise<string> {
     throw error;
   });
   return dummyHashPromise;
+}
+
+/**
+ * Verifica email+password e restituisce l'utente, oppure `null` se le
+ * credenziali non sono valide — SENZA dire quale dei due motivi.
+ *
+ * Vive qui, in una funzione sola, perché è la difesa anti-enumerazione e ha
+ * più di un chiamante (`/login` per il web, `/mobile-login` per l'app): due
+ * copie della sequenza sarebbero due occasioni di farla divergere, e la
+ * divergenza è esattamente il buco. Entrambi i rami pagano una verifica
+ * argon2 — quello senza utente contro l'hash fittizio — quindi né il corpo
+ * della risposta né il tempo per produrla dicono se l'account esiste.
+ *
+ * Chi chiama deve rispondere allo stesso identico modo per ogni `null`.
+ */
+async function verifyCredentials(
+  db: FastifyInstance["db"],
+  email: string,
+  password: string,
+): Promise<typeof users.$inferSelect | null> {
+  const [user] = await db.select().from(users).where(eq(users.email, email));
+  if (!user) {
+    await verifyPassword(await getDummyHash(), password);
+    return null;
+  }
+  if (!(await verifyPassword(user.passwordHash, password))) return null;
+  return user;
 }
 
 const credentialsSchema = z.object({
@@ -154,18 +184,8 @@ export async function authRoutes(
       },
     },
     async (request, reply) => {
-      const [user] = await app.db
-        .select()
-        .from(users)
-        .where(eq(users.email, request.body.email));
-      // Risposta identica per email inesistente e password errata, e stesso
-      // costo (una verifica argon2) in entrambi i rami: nessuna enumerazione
-      // degli account né dal messaggio né dal tempo di risposta.
+      const user = await verifyCredentials(app.db, request.body.email, request.body.password);
       if (!user) {
-        await verifyPassword(await getDummyHash(), request.body.password);
-        return apiError(reply, 401, "invalid_credentials", "Invalid credentials");
-      }
-      if (!(await verifyPassword(user.passwordHash, request.body.password))) {
         return apiError(reply, 401, "invalid_credentials", "Invalid credentials");
       }
       // Igiene opportunistica: le sessioni scadute dell'utente vengono
@@ -184,6 +204,59 @@ export async function authRoutes(
         })
         .code(200)
         .send({ user: { id: user.id, email: user.email, role: user.role } });
+    },
+  );
+
+  /**
+   * Login dell'app mobile: stesse credenziali del web, ma invece di aprire una
+   * sessione a cookie emette un Personal Access Token per QUEL device, che
+   * l'app tiene nel Keychain e manda nell'header `authorization`.
+   *
+   * Un PAT per device, e non uno condiviso, perché è ciò che rende governabile
+   * la revoca: il token si chiama `Mobile · <deviceName>`, l'utente lo
+   * riconosce nella lista dei token e può buttare giù il telefono perso senza
+   * sloggare gli altri — ed è la stessa riga che il logout dell'app revoca da
+   * sé. Nessuna scadenza: la fine di un PAT mobile è la revoca, non il tempo.
+   *
+   * NON crea la sessione a cookie: sarebbe una riga in `sessions` che nessun
+   * client chiuderà mai, per un client che non manda cookie.
+   *
+   * Stesso rate limit di `/login` (bucket proprio, per rotta): paga una
+   * verifica argon2 come quello, e la deve pagare con lo stesso tetto.
+   */
+  app.post(
+    "/mobile-login",
+    {
+      config: { rateLimit: opts.rateLimit },
+      schema: {
+        body: mobileLoginBodySchema,
+        response: { 200: mobileLoginResponseSchema, 400: errorSchema, 401: errorSchema },
+      },
+    },
+    async (request, reply) => {
+      const user = await verifyCredentials(app.db, request.body.email, request.body.password);
+      // Identica, parola per parola, alla 401 di /login: le due rotte non
+      // devono nemmeno distinguersi fra loro.
+      if (!user) {
+        return apiError(reply, 401, "invalid_credentials", "Invalid credentials");
+      }
+      const { token } = await createPatForUser(
+        app.db,
+        user.id,
+        `Mobile · ${request.body.deviceName}`,
+        null,
+      );
+      return reply.code(200).send({
+        token,
+        user: {
+          id: user.id,
+          email: user.email,
+          role: user.role,
+          language: user.language,
+          avatarUrl: user.slackAvatarUrl,
+          slackUserId: user.slackUserId,
+        },
+      });
     },
   );
 

@@ -1,6 +1,7 @@
 import { personalAccessTokens } from "@stubwise/db";
+import type { Db } from "@stubwise/db";
 import { createPatSchema, patViewSchema, patWithTokenSchema } from "@stubwise/shared";
-import type { PatView } from "@stubwise/shared";
+import type { PatView, PatWithToken } from "@stubwise/shared";
 import { and, desc, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
@@ -24,6 +25,30 @@ function toPatView(row: PatRow): PatView {
     expiresAt: row.expiresAt ? row.expiresAt.toISOString() : null,
     createdAt: row.createdAt.toISOString(),
   };
+}
+
+/**
+ * Emette un PAT per un utente e ne restituisce la vista pubblica CON il token
+ * in chiaro. Unico punto in cui un PAT nasce: la generazione, l'hash e il
+ * fatto che in DB finisca solo lo sha256 non vanno riscritti altrove.
+ *
+ * Il chiamante decide chi è l'utente — qui non c'è nessun controllo di
+ * autorizzazione: `POST /api/pats` prende l'id dalla sessione, `mobile-login`
+ * lo prende dall'utente di cui ha appena verificato la password.
+ */
+export async function createPatForUser(
+  db: Db,
+  userId: string,
+  name: string,
+  expiresAt: Date | null,
+): Promise<PatWithToken> {
+  const token = generatePat();
+  const [created] = await db
+    .insert(personalAccessTokens)
+    .values({ userId, name, tokenHash: hashServerKey(token), expiresAt })
+    .returning();
+  if (!created) throw new Error("insert del PAT non ha restituito la riga");
+  return { ...toPatView(created), token };
 }
 
 /**
@@ -62,18 +87,13 @@ export async function patRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const token = generatePat();
-      const [created] = await app.db
-        .insert(personalAccessTokens)
-        .values({
-          userId: request.user!.id,
-          name: request.body.name,
-          tokenHash: hashServerKey(token),
-          expiresAt: request.body.expiresAt ? new Date(request.body.expiresAt) : null,
-        })
-        .returning();
-      if (!created) throw new Error("insert del PAT non ha restituito la riga");
-      return await reply.code(201).send({ ...toPatView(created), token });
+      const created = await createPatForUser(
+        app.db,
+        request.user!.id,
+        request.body.name,
+        request.body.expiresAt ? new Date(request.body.expiresAt) : null,
+      );
+      return await reply.code(201).send(created);
     },
   );
 

@@ -4,7 +4,14 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { eq, inArray } from "drizzle-orm";
 import { buildApp } from "../app.js";
-import { encrypt, instanceSettings, invites, sessions, users } from "@stubwise/db";
+import {
+  encrypt,
+  instanceSettings,
+  invites,
+  personalAccessTokens,
+  sessions,
+  users,
+} from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import type { SlackClient } from "../slack/api.js";
@@ -261,6 +268,122 @@ describe("login e sessioni", () => {
     const cleared = res.cookies.find((c) => c.name === "stubwise_session");
     expect(cleared).toBeDefined();
     expect(cleared?.value).toBe("");
+  });
+});
+
+// L'app mobile non ha cookie: scambia email+password con un PAT dedicato al
+// device, che poi manda nell'header. Il nome del token ("Mobile · <device>")
+// è ciò che rende la revoca dal web — e quindi il logout remoto — possibile.
+describe("mobile-login", () => {
+  async function mobileLogin(payload: Record<string, string>, target: FastifyInstance = app) {
+    return target.inject({ method: "POST", url: "/api/auth/mobile-login", payload });
+  }
+
+  it("emette un PAT 'Mobile · <device>' e risponde token+user", async () => {
+    const res = await mobileLogin({
+      email: "admin@example.com",
+      password: "password-sicura",
+      deviceName: "iPhone di Ada",
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { token: string; user: Record<string, unknown> };
+    expect(body.token).toMatch(/^stw_pat_/);
+    expect(body.user).toEqual({
+      id: expect.any(String),
+      email: "admin@example.com",
+      role: "admin",
+      language: "en",
+      avatarUrl: null,
+      slackUserId: null,
+    });
+    // Nessuna sessione a cookie: il mobile non ne ha bisogno e non deve
+    // ritrovarsi una riga in `sessions` che nessuno chiuderà mai.
+    expect(res.cookies.find((c) => c.name === "stubwise_session")).toBeUndefined();
+
+    // Il token funziona davvero come credenziale, e il PAT è visibile (e
+    // quindi revocabile) dalla lista dell'utente.
+    const pats = await app.inject({
+      method: "GET",
+      url: "/api/pats",
+      headers: { authorization: `Bearer ${body.token}` },
+    });
+    expect(pats.statusCode).toBe(200);
+    const list = pats.json() as { name: string; expiresAt: string | null }[];
+    const created = list.find((p) => p.name === "Mobile · iPhone di Ada");
+    expect(created).toBeDefined();
+    // Senza scadenza: l'app resta loggata finché non si fa logout (che revoca).
+    expect(created?.expiresAt).toBeNull();
+  });
+
+  it("con password errata → 401 e nessun PAT creato", async () => {
+    const before = await testDb.db.select().from(personalAccessTokens);
+    const res = await mobileLogin({
+      email: "admin@example.com",
+      password: "password-sbagliata",
+      deviceName: "iPhone di Ada",
+    });
+    expect(res.statusCode).toBe(401);
+    const after = await testDb.db.select().from(personalAccessTokens);
+    expect(after.length).toBe(before.length);
+  });
+
+  it("password errata ed email inesistente danno risposte indistinguibili", async () => {
+    const wrongPassword = await mobileLogin({
+      email: "admin@example.com",
+      password: "password-sbagliata",
+      deviceName: "iPhone di Ada",
+    });
+    const unknownEmail = await mobileLogin({
+      email: "nessuno-qui@example.com",
+      password: "password-sicura",
+      deviceName: "iPhone di Ada",
+    });
+    // Stesso status e stesso corpo: dal fuori non si distingue un account
+    // inesistente da una password sbagliata, quindi la rotta non enumera.
+    expect(unknownEmail.statusCode).toBe(wrongPassword.statusCode);
+    expect(unknownEmail.json()).toEqual(wrongPassword.json());
+    const rows = await testDb.db
+      .select()
+      .from(users)
+      .where(eq(users.email, "nessuno-qui@example.com"));
+    expect(rows).toEqual([]);
+  });
+
+  it("rifiuta un deviceName vuoto, troppo lungo o con caratteri di controllo", async () => {
+    const base = { email: "admin@example.com", password: "password-sicura" };
+    for (const deviceName of ["", "   ", "x".repeat(81), "iPhone\nAdmin", "iPhone‮off"]) {
+      const res = await mobileLogin({ ...base, deviceName });
+      expect(res.statusCode, `deviceName ${JSON.stringify(deviceName)}`).toBe(400);
+    }
+    const rows = await testDb.db
+      .select()
+      .from(personalAccessTokens)
+      .where(eq(personalAccessTokens.name, "Mobile · "));
+    expect(rows).toEqual([]);
+  });
+
+  it("è rate-limited come /login", async () => {
+    // App a parte: il bucket del rate limit è per rotta e per IP, e saturarlo
+    // sull'app condivisa lascerebbe 429 ai test che vengono dopo.
+    const limited = buildApp({
+      db: testDb.db,
+      sessionSecret: SESSION_SECRET,
+      authRateLimit: { max: 2, timeWindow: "1 minute" },
+    });
+    try {
+      const payload = {
+        email: "admin@example.com",
+        password: "password-sbagliata",
+        deviceName: "iPhone di Ada",
+      };
+      const first = await mobileLogin(payload, limited);
+      const second = await mobileLogin(payload, limited);
+      const third = await mobileLogin(payload, limited);
+      expect([first.statusCode, second.statusCode]).toEqual([401, 401]);
+      expect(third.statusCode).toBe(429);
+    } finally {
+      await limited.close();
+    }
   });
 });
 
