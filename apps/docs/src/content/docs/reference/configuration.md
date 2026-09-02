@@ -128,6 +128,17 @@ These variables set the **instance-wide** schedule; the pulse itself is enabled
 | `PULSE_SEND_HOUR`      | No       | `9`     | Local hour (`0`–`23`, in `PULSE_TIMEZONE`) at which the send window opens. The window is one hour long.    |
 | `PULSE_WEEKDAYS_ONLY`  | No       | `true`  | `true` = no pulse on Saturday and Sunday. It's a standup, not an alert.                                    |
 
+## Plugin registry (worker)
+
+See [Plugins and skills](/docs/ai-pipeline/plugins/). The registry is
+instance-wide and managed from the UI; these variables only tune where the
+plugins are materialized and how often the queue is drained.
+
+| Variable               | Required | Default    | Notes                                                                                                     |
+| ---------------------- | -------- | ---------- | ----------------------------------------------------------------------------------------------------------- |
+| `PLUGINS_DIR`          | No       | `/plugins` | Root of the plugins volume: the worker materializes `<PLUGINS_DIR>/<slug>/<sha>/`. **Only the worker mounts it** — the server reads the inventory from the database — and the path must match the mount in the compose. |
+| `PLUGIN_POLL_SECONDS`  | No       | `20`       | Poll interval of the `plugin_jobs` queue (materialization + smoke run). `0` freezes the registry: nothing is fetched and no smoke test runs. ⚠️ It does **not** take plugins out of the runs — plugins already materialized keep being loaded. To stop one, disable it on the projects or remove it from the registry. |
+
 ## Daily activity reports (worker)
 
 See [Daily activity reports](/docs/team/activity/).

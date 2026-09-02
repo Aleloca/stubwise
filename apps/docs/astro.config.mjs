@@ -139,6 +139,7 @@ export default defineConfig({
           items: [
             { label: "How it works", slug: "ai-pipeline/how-it-works" },
             { label: "Automation", slug: "ai-pipeline/automation" },
+            { label: "Plugins and skills", slug: "ai-pipeline/plugins" },
             { label: "Configuration", slug: "ai-pipeline/configuration" },
             { label: "Security", slug: "ai-pipeline/security" },
           ],

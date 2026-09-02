@@ -1,0 +1,10 @@
+{
+  "name": "shop",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Mini negozio online: carrello, formattazione e incasso.",
+  "scripts": {
+    "test": "node --test test/cart.check.js"
+  }
+}

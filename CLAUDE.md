@@ -57,6 +57,70 @@ via MCP il sottografo della domanda e allegano gli snippet di codice letti dai
 mirror git, che il server monta `:ro` (`apps/server/src/graph-chat`, fail-open:
 spegnibile con `GRAPHIFY_MCP_URL=` vuota).
 
+## Plugin e skill dell'agente (registro d'istanza)
+
+Fase 3. Un **registro d'istanza** (`plugins`, solo admin, Impostazioni → Plugin)
+tiene i plugin Claude Code che possono entrare nei run dell'agente: repo git
+**pubblici https** (fetch senza credenziali per costruzione, protocolli in
+allowlist, errori redatti) **pinnati a uno sha**. Il worker li materializza in
+`/plugins/<slug>/<sha>/` sul volume `claude-plugins`, validando con `claude
+plugin validate --strict` e **rifiutando gli alberi che contengono symlink**.
+Quel volume lo monta **solo il worker**: il server legge l'inventario dal DB e
+non ha bisogno dei file. Quella dir è già la dir del plugin anche quando c'è un
+`sourceSubdir`. Poi gira uno **smoke run**
+(`haiku`, 1 turno, `--setting-sources ""`, base + plugin integrale): `passed`
+solo se tutte le skill dell'inventario compaiono col namespace atteso.
+Coda `plugin_jobs` (kind `materialize` e `smoke`), poller `PLUGIN_POLL_SECONDS`.
+Lo **slug** è validato `^[a-z0-9][a-z0-9-]{0,63}$` perché è un componente di
+percorso sul volume.
+
+- **Plugin base `stubwise-base`** (`apps/worker/plugins/`, bundlato
+  nell'immagine, fuori dal registro, mai filtrato): un hook `SessionStart` col
+  **contratto della run** e la skill `stubwise-conventions`. Il contratto dice
+  che worktree, branch, commit e PR li fa la pipeline, che le domande passano da
+  `ask_user` e quali skill di terze parti qui non si applicano — ma **non impone
+  la forma del deliverable**: lo stesso hook entra anche nei run di backlog,
+  dove è il prompt a deciderla. Il matcher è `startup|resume|compact`, e
+  `compact` non è di troppo: i run lunghi auto-compattano e il contratto va
+  re-iniettato.
+- **Abilitazioni per progetto** (Progetto → Plugin, solo admin): per
+  **sottrazione** (default tutto acceso), per singola skill e per gruppo di hook
+  (`<Evento>#<indice>`). Il CLI non sa disabilitare una skill di plugin
+  (`skillOverrides` ignora `source: "plugin"`), quindi ogni run riceve una
+  **copia filtrata** della dir in una tmp fuori dalla cwd, più la deny rule
+  `Skill(<plugin>:<skill>)`: la copia la toglie dall'elenco, la deny rule ne
+  blocca l'esecuzione. Servono entrambe. Il preset consigliato per `superpowers`
+  spegne le 4 skill che rifanno il lavoro della pipeline
+  (`using-git-worktrees`, `finishing-a-development-branch`,
+  `dispatching-parallel-agents`, `subagent-driven-development`) ed è chiavato sul
+  **`name` del manifest**, non sullo slug.
+- **Run col perimetro plugin**: fix (piano, ripresa del piano, esecuzione,
+  self-repair), deep dive del backlog, chat di analisi del backlog. **Esclusi**:
+  triage, intake/stima, docs, review PR, daily report, test credenziali.
+- **INVARIANTE — il `.mcp.json` di un plugin non è mai caricato.** I server MCP
+  di un run passano SOLO da `--mcp-config` + `--strict-mcp-config`; la copia
+  filtrata omette quel file per costruzione (il CLI lo caricherebbe con
+  `--plugin-dir`). Chi tocca la copia non lo reintroduca «per completezza».
+- **`--setting-sources ""` va insieme ai plugin** (c'è solo quando c'è almeno un
+  `--plugin-dir`): spegne plugin dell'utente, `.claude/` e `.mcp.json` intorno
+  alla cwd, così l'insieme di skill e hook è deterministico. **Asimmetria da
+  ricordare**: nei run di fix la cwd è SEMPRE la parent dir dei worktree (anche
+  con un repo solo), quindi le `.claude/settings.json` dei repo target non erano
+  mai state caricate e non cambia nulla; nel **deep dive** e nella **chat di
+  analisi** la cwd è la radice del worktree, quindi lì il flag le disattiva
+  davvero. La UI lo avvisa (`projects:plugins.settingSourcesWarning`).
+- Tutto il percorso è **fail-open ma mai silenzioso**: un plugin non preparabile
+  viene saltato per quel run con una riga nel log (log del job per il fix,
+  logger per i job di backlog) e il run prosegue.
+- **Scenari golden (manuali, mai in CI)**: `pnpm --filter @stubwise/worker
+  golden -- --plugin <dir>` (`apps/worker/scripts/golden/`, README accanto) fa
+  tre run veri col CLI su un repo fixture — piano read-only, bivio materiale con
+  `ask_user`, esecuzione — e verifica che l'agente rispetti ancora il contratto
+  (nessun commit/branch/worktree, sezione delle decisioni, report nella radice
+  della working dir). **Lanciali quando aggiorni un plugin, un prompt o il CLI
+  `claude`**: sono l'unica verifica che copre il comportamento del modello con i
+  plugin caricati (la copia filtrata è già coperta dai test unitari).
+
 ## Deploy (prod)
 
 Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
@@ -148,6 +212,42 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   **eliminare quelle righe** da `notifications` (o metterle da parte in una
   tabella d'appoggio): segnarle gestite NON basta — non esiste uno stato che le
   nasconda, la tab "Gestite" le rilegge tutte.
+- **Fase 3 (registro plugin/skill)**: rebuild **server+worker+caddy insieme**
+  (migrazione 0066 all'avvio del server — 3 tabelle NUOVE, `plugins`,
+  `plugin_jobs`, `project_plugins`; il worker nuovo è l'unico che materializza,
+  fa lo smoke e carica i plugin nei run, il server nuovo l'unico che espone il
+  registro e le abilitazioni, il bundle nuovo l'unico che disegna Impostazioni →
+  Plugin e la sezione Plugin del progetto). Serve il **volume `claude-plugins`
+  montato in `/plugins` SOLO sul worker** (il server legge l'inventario dal DB e
+  non deve vedere i file): è già in `docker-compose.yml`, ma su un host che
+  ricrea i servizi a mano va verificato. Env opzionali: `PLUGIN_POLL_SECONDS`
+  (default 20, **0 = nessuna materializzazione parte**) e `PLUGINS_DIR` (default
+  `/plugins`, **deve coincidere col mount**). **Nessun passo manuale
+  obbligatorio**, e al deploy nessun plugin esiste: il registro nasce vuoto e i
+  run hanno l'argv di sempre. Post-deploy: da Impostazioni → Plugin aggiungere
+  `https://github.com/obra/superpowers.git` @ `v4.0.3`, attendere `ready` +
+  smoke `passed`, poi abilitarlo sui progetti applicando il **preset
+  consigliato**; e lanciare una volta gli **scenari golden** (vedi sopra).
+  **Rollback — tre livelli, e solo il primo è pieno**: (1) *togliere i plugin
+  dai run* si fa **dalla UI**, disabilitandoli sui progetti o rimuovendoli dal
+  registro; è l'unica strada che li fa uscire davvero dai run. ⚠️
+  `PLUGIN_POLL_SECONDS=0` **non** è quella strada: congela il registro (nessun
+  fetch, nessuno smoke, nessun plugin *nuovo*) ma i plugin **già materializzati
+  restano nei run**, perché la copia per-run legge DB e volume, non il poller.
+  (2) *scendere di immagine sul worker* riporta l'argv storico (niente
+  `--plugin-dir`, niente `--setting-sources`): innocuo per i run, ma i
+  `plugin_jobs` restano senza consumatore e un plugin preso a metà resta
+  `materializing` in silenzio finché non torna il worker nuovo (che poi lo
+  recupera da sé con il recovery degli orfani). (3) *scendere di immagine sul
+  server* **è sicuro qui**, al contrario della fase 2: la fase è davvero
+  additiva — tre tabelle nuove, **nessun valore aggiunto a un enum esistente e
+  nessun kind nuovo che entri nella risposta di una rotta già esistente**,
+  quindi non esiste l'equivalente del `project.pulse` che faceva saltare tutta
+  `/api/inbox`. Le rotte `/api/plugins` e `/api/projects/:id/plugins`
+  semplicemente non esistono più (404) e il migratore ignora la 0066 già
+  applicata; ma **il caddy va sceso insieme**, altrimenti il bundle nuovo chiama
+  rotte che non ci sono. Il volume `claude-plugins` e le righe del registro
+  sopravvivono a tutto: non c'è niente da ripulire.
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
@@ -184,6 +284,32 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   esistente è bloccato è la spinta sbagliata. `held` in particolare **non** è in
   `IN_FLIGHT_JOB_STATUSES` (quella lista risponde a un'altra domanda), quindi è
   un controllo a sé: chi tocca i segnali non lo tolga per "semplificare".
+- **Plugin — TOCTOU sulla potatura dello sha vecchio:** appena un plugin passa a
+  `ready` il poller **rimuove subito** dallo slug ogni dir che non sia lo sha
+  corrente. Un run che ha letto la riga del registro **prima** dell'UPDATE e sta
+  copiando la dir vecchia può quindi prendere un `ENOENT` a metà copia. È una
+  **scelta**, non una svista: il degrado è fail-open e documentato — quel plugin
+  viene saltato **per quel run**, con una riga nel log, e il run prosegue. Chi
+  tocca `pruneShaDirs`/`publishPluginDir` (`apps/worker/src/plugins/poller.ts`)
+  sappia che l'alternativa (tenere gli sha vecchi) è un volume che cresce, e che
+  la finestra è larga quanto una copia di poche centinaia di KB.
+- **Plugin — il recovery degli orfani non è transazionale:**
+  `recoverStalePluginJobs` fa prima l'UPDATE dei job stantii a `failed`, poi in
+  un secondo giro `markPluginFailure` sul plugin. Un crash del worker **in
+  mezzo** lascia un plugin in `materializing` **per sempre**: nessun job attivo
+  lo sbloccherà, e nessun poller rimette a posto lo stato del plugin. Stessa
+  famiglia della trappola di `doc_generations` qui sopra. Recovery manuale:
+  riaccodare la materializzazione dalla UI ("Aggiorna a ref…" con lo stesso ref
+  — l'indice unico parziale è sui soli job vivi, e quello vecchio è già
+  `failed`, quindi il job nuovo passa) oppure `update plugins set
+  status='failed', error='worker crash during recovery' where id=...`.
+- **Plugin — limite noto v1: un solo admin per volta sulla sezione Plugin del
+  progetto.** Il `PUT /api/projects/:id/plugins` sostituisce l'**insieme
+  completo** delle abilitazioni **senza precondizione di versione**: se un admin
+  spegne una skill e un altro — con la pagina aperta da prima — tocca una
+  qualunque casella e salva, la skill torna accesa **in silenzio**. Accettato per
+  la v1 (voce di backlog aperta). La UI ricarica e avvisa solo quando cambia
+  l'*inventario* o il *registro*, non quando cambia la selezione altrui.
 
 ## Integrazione Claude Code (MCP)
 

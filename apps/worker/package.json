@@ -9,6 +9,7 @@
     "build": "tsc -p tsconfig.build.json",
     "test": "pnpm --filter @stubwise/db... --filter @stubwise/docs-engine... --filter @stubwise/embeddings... --filter @stubwise/git... --filter @stubwise/i18n... --filter @stubwise/notifications... build && vitest run",
     "smoke": "tsx scripts/smoke.ts",
+    "golden": "tsx scripts/golden/run.ts",
     "typecheck": "tsc --noEmit && tsc -p scripts/tsconfig.json"
   },
   "dependencies": {
