@@ -1382,10 +1382,13 @@
       "hooks": "Hook",
       "hookMatcher": "matcher {{matcher}}",
       "applyPreset": "Applica preset consigliato",
-      "presetApplied": "// preset consigliato applicato",
       "saving": "Salvataggio…",
       "inventoryChanged": "L'inventario del plugin è cambiato: almeno una skill o un hook che avevi spento non c'è più. La lista è stata ricaricata: ricontrolla la selezione e salva di nuovo.",
-      "registryChanged": "Il registro dei plugin è cambiato: un plugin è stato rimosso mentre sceglievi. La lista è stata ricaricata: ricontrolla la selezione e salva di nuovo."
+      "registryChanged": "Il registro dei plugin è cambiato: un plugin è stato rimosso mentre sceglievi. La lista è stata ricaricata: ricontrolla la selezione e salva di nuovo.",
+      "emptyList": "// nessuno",
+      "applyPresetHint_one": "// spegne 1 skill consigliata; non ne riaccende mai nessuna (per riaccenderla, riseleziona la sua casella).",
+      "applyPresetHint_other": "// spegne {{count}} skill consigliate; non ne riaccende mai nessuna (per riaccenderne una, riseleziona la sua casella).",
+      "presetNoneActive": "// nessuna skill del preset è attiva"
     }
   },
   "repositories": {

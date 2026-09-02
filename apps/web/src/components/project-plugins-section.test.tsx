@@ -44,7 +44,7 @@ afterEach(() => {
   fetchMock.mockReset();
 });
 
-type Handler = (url: URL, init?: RequestInit) => Response;
+type Handler = (url: URL, init?: RequestInit) => Response | Promise<Response>;
 
 function mockApi(handlers: Record<string, Handler>) {
   fetchMock.mockImplementation((input, init) => {
@@ -360,6 +360,62 @@ describe("ProjectPluginsSection — salvataggio", () => {
     });
   });
 
+  it("blocca i controlli durante il volo e riparte dalla foto riconciliata", async () => {
+    const user = userEvent.setup();
+    // Stato del server MUTABILE: il PUT lo riscrive, la GET lo rilegge — così
+    // l'invalidazione a fine mutazione non riporta indietro una foto finta.
+    let server: ProjectPlugin[] = [makeRow()];
+    let release!: () => void;
+    const inFlight = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    mockApi({
+      "GET /api/plugins": () => jsonResponse(200, registry([makePlugin()])),
+      [`GET ${PROJECT_PLUGINS_PATH}`]: () => jsonResponse(200, { plugins: server }),
+      [`PUT ${PROJECT_PLUGINS_PATH}`]: async (_url, init) => {
+        const body = JSON.parse(String(init?.body)) as { plugins: ProjectPlugin[] };
+        // Il server riconcilia con una foto DIVERSA da quella mandata (qui: la
+        // scrittura di un altro admin che spegne una skill). È il caso che
+        // distingue "body dalla foto riconciliata" da "body dall'ottimistico".
+        server = body.plugins.map((row) => ({ ...row, disabledSkills: ["using-git-worktrees"] }));
+        await inFlight;
+        return jsonResponse(200, { plugins: server });
+      },
+    });
+    renderSection();
+
+    const toggle = await screen.findByRole("checkbox", { name: /enabled in this project/i });
+    await user.click(toggle);
+
+    // (i) Finestra del salvataggio: nulla è cliccabile e lo si vede.
+    expect(await screen.findByText(/saving/i)).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /enabled in this project/i })).toBeDisabled();
+
+    release();
+    await waitFor(() => expect(screen.queryByText(/saving/i)).toBeNull());
+    // La mutazione chiude con un'invalidazione: la foto viene riletta, così un
+    // refetch partito DURANTE il volo (non cancellabile dall'`onMutate`) non
+    // può lasciare la UI ferma su dati pre-PUT.
+    await waitFor(() => expect(callCount("GET", PROJECT_PLUGINS_PATH)).toBeGreaterThan(1));
+
+    // (ii) Il secondo click parte dalla foto riconciliata, non dall'ottimistico:
+    // porta con sé lo spegnimento che il primo PUT non aveva mandato.
+    await user.click(screen.getByRole("checkbox", { name: /enabled in this project/i }));
+
+    await waitFor(() => expect(callCount("PUT", PROJECT_PLUGINS_PATH)).toBe(2));
+    expect(bodiesOf("PUT", PROJECT_PLUGINS_PATH)[1]).toEqual({
+      plugins: [
+        {
+          pluginId: SUPERPOWERS_ID,
+          enabled: true,
+          disabledSkills: ["using-git-worktrees"],
+          disabledHooks: [],
+        },
+      ],
+    });
+  });
+
   it("deselezionando un hook manda la sua chiave fra quelli spenti", async () => {
     const user = userEvent.setup();
     mockApi({
@@ -437,6 +493,30 @@ describe("ProjectPluginsSection — preset consigliato", () => {
         },
       ],
     });
+  });
+
+  it("dice PRIMA del click che il preset spegne e che non riaccende nulla", async () => {
+    mockApi({
+      "GET /api/plugins": () => jsonResponse(200, registry([makePlugin()], RECOMMENDED)),
+      [`GET ${PROJECT_PLUGINS_PATH}`]: () => jsonResponse(200, { plugins: [makeRow()] }),
+    });
+    renderSection();
+
+    await screen.findByRole("button", { name: /recommended preset/i });
+    expect(screen.getByText(/turns off 1 recommended skill/i)).toBeInTheDocument();
+    expect(screen.getByText(/never turns any back on/i)).toBeInTheDocument();
+  });
+
+  it("con le skill del preset già spente a mano descrive lo STATO, non un'azione", async () => {
+    mockApi({
+      "GET /api/plugins": () => jsonResponse(200, registry([makePlugin()], RECOMMENDED)),
+      [`GET ${PROJECT_PLUGINS_PATH}`]: () =>
+        jsonResponse(200, { plugins: [makeRow({ disabledSkills: ["using-git-worktrees"] })] }),
+    });
+    renderSection();
+
+    expect(await screen.findByRole("button", { name: /recommended preset/i })).toBeDisabled();
+    expect(screen.getByText(/no recommended skill is active/i)).toBeInTheDocument();
   });
 
   it("non offre il preset per un plugin senza raccomandazioni", async () => {

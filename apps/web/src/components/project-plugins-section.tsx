@@ -60,6 +60,11 @@ export function ProjectPluginsSection({ projectId }: { projectId: string }) {
         void queryClient.invalidateQueries({ queryKey: projectPluginsKey });
       }
     },
+    // Un refetch partito DURANTE il PUT non è stato cancellato dall'`onMutate`
+    // (allora non esisteva) e può atterrare DOPO la riconciliazione, riportando
+    // in cache dati pre-PUT. Senza polling su questa query la UI resterebbe
+    // indietro fino al rimontaggio: l'invalidazione finale chiude la finestra.
+    onSettled: () => void queryClient.invalidateQueries({ queryKey: projectPluginsKey }),
   });
 
   if (registry.isPending || enabled.isPending) {
@@ -284,11 +289,20 @@ function PluginRow({
                       })
                     }
                   />
-                  {presetLeft.length === 0 && (
-                    <span className="font-mono text-[11px] text-fg-faint">
-                      {t("projects:plugins.presetApplied")}
-                    </span>
-                  )}
+                  {/*
+                    "Preset" da solo suona come un'attivazione, mentre il bottone
+                    SPEGNE: quante skill spegne e che non ne riaccende nessuna va
+                    detto PRIMA del click, non dedotto dopo dalle caselle che si
+                    deselezionano.
+                  */}
+                  <span className="font-mono text-[11px] text-fg-faint">
+                    {presetLeft.length === 0
+                      ? // Stato, non azione: le skill del preset possono essere
+                        // spente a mano, senza che il bottone sia mai stato
+                        // premuto.
+                        t("projects:plugins.presetNoneActive")
+                      : t("projects:plugins.applyPresetHint", { count: presetLeft.length })}
+                  </span>
                 </>
               )}
             </div>
@@ -296,6 +310,7 @@ function PluginRow({
             <InventoryGroup
               title={t("projects:plugins.skills")}
               empty={inventory.skills.length === 0}
+              emptyLabel={t("projects:plugins.emptyList")}
             >
               {inventory.skills.map((skill) => (
                 <li key={skill.name}>
@@ -321,6 +336,7 @@ function PluginRow({
             <InventoryGroup
               title={t("projects:plugins.hooks")}
               empty={inventory.hooks.length === 0}
+              emptyLabel={t("projects:plugins.emptyList")}
             >
               {inventory.hooks.map((hook) => (
                 <li key={hook.key} className="flex flex-col gap-0.5">
@@ -334,7 +350,12 @@ function PluginRow({
                       }
                       className="h-4 w-4 shrink-0 self-center accent-signal"
                     />
-                    <span className="font-mono text-[12px] text-fg">{hook.event}</span>
+                    {/*
+                      La CHIAVE, non il solo evento: due hook sullo stesso evento
+                      avrebbero un nome accessibile identico, e la chiave
+                      `<Evento>#<indice>` è anche ciò che viaggia nel salvataggio.
+                    */}
+                    <span className="font-mono text-[12px] text-fg">{hook.key}</span>
                     {hook.matcher !== undefined && (
                       <span className="font-mono text-[11px] text-fg-faint">
                         {t("projects:plugins.hookMatcher", { matcher: hook.matcher })}

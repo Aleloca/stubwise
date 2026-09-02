@@ -1382,10 +1382,13 @@
       "hooks": "Hooks",
       "hookMatcher": "matcher {{matcher}}",
       "applyPreset": "Apply recommended preset",
-      "presetApplied": "// recommended preset applied",
       "saving": "Saving…",
       "inventoryChanged": "The plugin inventory has changed: at least one skill or hook you had turned off is no longer there. The list has been reloaded: check the selection and save again.",
-      "registryChanged": "The plugin registry has changed: a plugin was removed while you were choosing. The list has been reloaded: check the selection and save again."
+      "registryChanged": "The plugin registry has changed: a plugin was removed while you were choosing. The list has been reloaded: check the selection and save again.",
+      "emptyList": "// none",
+      "applyPresetHint_one": "// turns off 1 recommended skill; it never turns any back on (to re-enable one, tick its box).",
+      "applyPresetHint_other": "// turns off {{count}} recommended skills; it never turns any back on (to re-enable one, tick its box).",
+      "presetNoneActive": "// no recommended skill is active"
     }
   },
   "repositories": {

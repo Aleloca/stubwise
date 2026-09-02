@@ -394,7 +394,11 @@ function InventoryPanel({ inventory }: { inventory: PluginInventory }) {
 
   return (
     <div className="flex flex-col gap-3">
-      <InventoryGroup title={t("settings:plugins.skills")} empty={inventory.skills.length === 0}>
+      <InventoryGroup
+        title={t("settings:plugins.skills")}
+        empty={inventory.skills.length === 0}
+        emptyLabel={t("settings:plugins.emptyList")}
+      >
         {inventory.skills.map((skill) => (
           <li key={skill.name} className="flex flex-wrap items-baseline gap-x-2">
             <span className="font-mono text-[12px] text-fg">{skill.name}</span>
@@ -411,6 +415,7 @@ function InventoryPanel({ inventory }: { inventory: PluginInventory }) {
       <InventoryGroup
         title={t("settings:plugins.commands")}
         empty={inventory.commands.length === 0}
+        emptyLabel={t("settings:plugins.emptyList")}
       >
         {inventory.commands.map((command) => (
           <li key={command.name} className="font-mono text-[12px] text-fg">
@@ -419,7 +424,11 @@ function InventoryPanel({ inventory }: { inventory: PluginInventory }) {
         ))}
       </InventoryGroup>
 
-      <InventoryGroup title={t("settings:plugins.agents")} empty={inventory.agents.length === 0}>
+      <InventoryGroup
+        title={t("settings:plugins.agents")}
+        empty={inventory.agents.length === 0}
+        emptyLabel={t("settings:plugins.emptyList")}
+      >
         {inventory.agents.map((agent) => (
           <li key={agent.name} className="font-mono text-[12px] text-fg">
             {agent.name}
@@ -427,7 +436,11 @@ function InventoryPanel({ inventory }: { inventory: PluginInventory }) {
         ))}
       </InventoryGroup>
 
-      <InventoryGroup title={t("settings:plugins.hooks")} empty={inventory.hooks.length === 0}>
+      <InventoryGroup
+        title={t("settings:plugins.hooks")}
+        empty={inventory.hooks.length === 0}
+        emptyLabel={t("settings:plugins.emptyList")}
+      >
         {inventory.hooks.map((hook) => (
           <li key={hook.key} className="flex flex-col gap-0.5">
             <span className="flex flex-wrap items-baseline gap-x-2">
