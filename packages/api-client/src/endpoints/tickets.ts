@@ -8,6 +8,7 @@ import {
   ticketQuestionsSchema,
 } from "@stubwise/shared";
 import type {
+  Reader,
   AiJob,
   AnswerBody,
   AnswerQuestionResult,
@@ -49,7 +50,7 @@ const jobsSchema = z.array(aiJobSchema);
  */
 export function createTicketsEndpoints(request: ApiRequest) {
   return {
-    list(filters: TicketFilters = {}, cursor?: string, limit?: number): Promise<TicketPage> {
+    list(filters: TicketFilters = {}, cursor?: string, limit?: number): Promise<Reader<TicketPage>> {
       const query = toQuery({
         projectId: filters.projectId,
         status: filters.status,
@@ -64,12 +65,12 @@ export function createTicketsEndpoints(request: ApiRequest) {
       return request("GET", `/api/tickets${query}`, undefined, ticketPageSchema);
     },
 
-    get(id: string): Promise<TicketDetail> {
+    get(id: string): Promise<Reader<TicketDetail>> {
       return request("GET", `/api/tickets/${seg(id)}`, undefined, ticketDetailSchema);
     },
 
     /** I run dell'agente sul ticket, dal più recente: la timeline del lavoro. */
-    jobs(ticketId: string): Promise<AiJob[]> {
+    jobs(ticketId: string): Promise<Reader<AiJob>[]> {
       return request("GET", `/api/tickets/${seg(ticketId)}/jobs`, undefined, jobsSchema);
     },
 
@@ -78,7 +79,7 @@ export function createTicketsEndpoints(request: ApiRequest) {
      * sulla domanda aperta sia su una risposta non più leggibile: è `answeredAt`
      * a dire se una risposta c'è stata.
      */
-    questions(ticketId: string): Promise<TicketQuestion[]> {
+    questions(ticketId: string): Promise<Reader<TicketQuestion>[]> {
       return request(
         "GET",
         `/api/tickets/${seg(ticketId)}/questions`,
@@ -98,7 +99,7 @@ export function createTicketsEndpoints(request: ApiRequest) {
       ticketId: string,
       questionId: string,
       answer: AnswerBody,
-    ): Promise<AnswerQuestionResult> {
+    ): Promise<Reader<AnswerQuestionResult>> {
       return request(
         "POST",
         `/api/tickets/${seg(ticketId)}/questions/answer`,
@@ -117,12 +118,12 @@ export function createTicketsEndpoints(request: ApiRequest) {
     runAi(
       ticketId: string,
       opts?: { withInstructions?: boolean; mode?: "ai_plan" },
-    ): Promise<RunAiResult> {
+    ): Promise<Reader<RunAiResult>> {
       return request("POST", `/api/tickets/${seg(ticketId)}/run-ai`, opts, runAiResultSchema);
     },
 
     /** Approva il piano in attesa: il worker lo esegue. 409 se non ce n'è uno. */
-    approvePlan(ticketId: string): Promise<PlanDecisionResult> {
+    approvePlan(ticketId: string): Promise<Reader<PlanDecisionResult>> {
       return request("POST", `/api/tickets/${seg(ticketId)}/approve-plan`, undefined, planDecisionResultSchema);
     },
 
@@ -131,7 +132,7 @@ export function createTicketsEndpoints(request: ApiRequest) {
      * (max 4000) diventano un commento del team sul ticket — cioè proprio ciò
      * che il nuovo piano rilegge.
      */
-    rejectPlan(ticketId: string, body?: { instructions?: string }): Promise<PlanDecisionResult> {
+    rejectPlan(ticketId: string, body?: { instructions?: string }): Promise<Reader<PlanDecisionResult>> {
       return request("POST", `/api/tickets/${seg(ticketId)}/reject-plan`, body, planDecisionResultSchema);
     },
   };

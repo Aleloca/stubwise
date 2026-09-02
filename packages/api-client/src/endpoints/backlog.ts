@@ -6,6 +6,7 @@ import {
   createBacklogResultSchema,
 } from "@stubwise/shared";
 import type {
+  Reader,
   BacklogChatAccepted,
   BacklogItemDetail,
   BacklogPage,
@@ -42,7 +43,7 @@ export interface BacklogFilters {
  */
 export function createBacklogEndpoints(request: ApiRequest) {
   return {
-    list(filters: BacklogFilters = {}, cursor?: string, limit?: number): Promise<BacklogPage> {
+    list(filters: BacklogFilters = {}, cursor?: string, limit?: number): Promise<Reader<BacklogPage>> {
       const query = toQuery({
         projectId: filters.projectId,
         status: filters.status,
@@ -55,22 +56,22 @@ export function createBacklogEndpoints(request: ApiRequest) {
       return request("GET", `/api/backlog${query}`, undefined, backlogPageSchema);
     },
 
-    get(id: string): Promise<BacklogItemDetail> {
+    get(id: string): Promise<Reader<BacklogItemDetail>> {
       return request("GET", `/api/backlog/${seg(id)}`, undefined, backlogItemDetailSchema);
     },
 
     /** Creazione manuale: accoda un job `intake` (202), non crea la voce. */
-    create(input: CreateBacklogItemInput): Promise<CreateBacklogResult> {
+    create(input: CreateBacklogItemInput): Promise<Reader<CreateBacklogResult>> {
       return request("POST", "/api/backlog", input, createBacklogResultSchema);
     },
 
     /** Converte la voce in un ticket task; torna id e numero del ticket creato. */
-    convert(id: string): Promise<ConvertBacklogResult> {
+    convert(id: string): Promise<Reader<ConvertBacklogResult>> {
       return request("POST", `/api/backlog/${seg(id)}/convert`, undefined, convertBacklogResultSchema);
     },
 
     /** Un turno della chat di raffinamento CON sessione di analisi attiva (202). */
-    chat(id: string, message: string): Promise<BacklogChatAccepted> {
+    chat(id: string, message: string): Promise<Reader<BacklogChatAccepted>> {
       return request("POST", `/api/backlog/${seg(id)}/chat`, { message }, backlogChatAcceptedSchema);
     },
   };

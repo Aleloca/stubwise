@@ -1,5 +1,5 @@
 import { notificationPrefsViewSchema, projectFollowsSchema } from "@stubwise/shared";
-import type { NotificationPrefs, NotificationPrefsView, ProjectFollows } from "@stubwise/shared";
+import type { NotificationPrefs, NotificationPrefsView, ProjectFollows, Reader } from "@stubwise/shared";
 import type { ApiRequest } from "../client.js";
 
 /**
@@ -16,7 +16,7 @@ import type { ApiRequest } from "../client.js";
 export function createMeEndpoints(request: ApiRequest) {
   return {
     /** Progetti seguiti: l'insieme COMPLETO. */
-    follows(): Promise<ProjectFollows> {
+    follows(): Promise<Reader<ProjectFollows>> {
       return request("GET", "/api/me/follows", undefined, projectFollowsSchema);
     },
 
@@ -30,7 +30,7 @@ export function createMeEndpoints(request: ApiRequest) {
      * il toggle del DM va mostrato disabilitato (acceso, il canale resterebbe
      * muto).
      */
-    notificationPrefs(): Promise<NotificationPrefsView> {
+    notificationPrefs(): Promise<Reader<NotificationPrefsView>> {
       return request("GET", "/api/me/notification-prefs", undefined, notificationPrefsViewSchema);
     },
 

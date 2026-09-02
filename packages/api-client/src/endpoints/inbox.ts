@@ -5,6 +5,7 @@ import {
   unreadCountSchema,
 } from "@stubwise/shared";
 import type {
+  Reader,
   AnswerBody,
   InboxActionResult,
   InboxDecisionAction,
@@ -53,12 +54,12 @@ export function createInboxEndpoints(request: ApiRequest) {
     id: string,
     action: InboxDecisionAction,
     body?: InboxActionBody,
-  ): Promise<InboxActionResult> {
+  ): Promise<Reader<InboxActionResult>> {
     return request("POST", `/api/inbox/${seg(id)}/actions/${action}`, body, inboxActionResultSchema);
   }
 
   return {
-    list(filters: InboxFilters = {}, cursor?: string, limit?: number): Promise<InboxPage> {
+    list(filters: InboxFilters = {}, cursor?: string, limit?: number): Promise<Reader<InboxPage>> {
       const query = toQuery({
         status: filters.status,
         projectId: filters.projectId,
@@ -69,7 +70,7 @@ export function createInboxEndpoints(request: ApiRequest) {
     },
 
     /** Contatore della campanella: lettura pura, interrogata in polling. */
-    unreadCount(): Promise<UnreadCount> {
+    unreadCount(): Promise<Reader<UnreadCount>> {
       return request("GET", "/api/inbox/unread-count", undefined, unreadCountSchema);
     },
 
@@ -79,7 +80,7 @@ export function createInboxEndpoints(request: ApiRequest) {
     },
 
     /** Rinvia la notifica; la scadenza torna indietro per dirlo senza ricaricare. */
-    snooze(id: string, until: SnoozeUntil): Promise<SnoozeResult> {
+    snooze(id: string, until: SnoozeUntil): Promise<Reader<SnoozeResult>> {
       return request("POST", `/api/inbox/${seg(id)}/snooze`, { until }, snoozeResultSchema);
     },
 
@@ -95,7 +96,7 @@ export function createInboxEndpoints(request: ApiRequest) {
      * dell'app e merita un nome suo, ma DELEGA ad `act`: il path della rotta
      * azione è costruito in un posto solo.
      */
-    answer(id: string, answer: AnswerBody): Promise<InboxActionResult> {
+    answer(id: string, answer: AnswerBody): Promise<Reader<InboxActionResult>> {
       return act(id, "answer", answer);
     },
   };

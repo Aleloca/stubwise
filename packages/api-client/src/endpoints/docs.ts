@@ -6,6 +6,7 @@ import {
   docTreeNodeSchema,
 } from "@stubwise/shared";
 import type {
+  Reader,
   DocChatMessage,
   DocChatSession,
   DocPage,
@@ -35,17 +36,17 @@ const messagesSchema = z.array(docChatMessageSchema);
 export function createDocsEndpoints(request: ApiRequest) {
   return {
     /** Gli spazi documentali (un repository con documentazione) dell'istanza. */
-    spaces(): Promise<DocSpace[]> {
+    spaces(): Promise<Reader<DocSpace>[]> {
       return request("GET", "/api/docs/spaces", undefined, spacesSchema);
     },
 
     /** Gli spazi dei soli repository di un progetto. */
-    projectSpaces(projectId: string): Promise<DocSpace[]> {
+    projectSpaces(projectId: string): Promise<Reader<DocSpace>[]> {
       return request("GET", `/api/projects/${seg(projectId)}/docs/spaces`, undefined, spacesSchema);
     },
 
     /** Albero di navigazione di uno spazio (piatto: i nodi portano `parentId`). */
-    tree(repositoryId: string): Promise<DocTreeNode[]> {
+    tree(repositoryId: string): Promise<Reader<DocTreeNode>[]> {
       return request(
         "GET",
         `/api/repositories/${seg(repositoryId)}/docs/tree`,
@@ -55,7 +56,7 @@ export function createDocsEndpoints(request: ApiRequest) {
     },
 
     /** Una pagina completa (markdown + metadati). */
-    page(repositoryId: string, slug: string): Promise<DocPage> {
+    page(repositoryId: string, slug: string): Promise<Reader<DocPage>> {
       return request(
         "GET",
         `/api/repositories/${seg(repositoryId)}/docs/pages/${seg(slug)}`,
@@ -64,7 +65,7 @@ export function createDocsEndpoints(request: ApiRequest) {
       );
     },
 
-    chatSessions(repositoryId: string): Promise<DocChatSession[]> {
+    chatSessions(repositoryId: string): Promise<Reader<DocChatSession>[]> {
       return request(
         "GET",
         `/api/repositories/${seg(repositoryId)}/docs/chat/sessions`,
@@ -73,7 +74,7 @@ export function createDocsEndpoints(request: ApiRequest) {
       );
     },
 
-    chatMessages(repositoryId: string, sessionId: string): Promise<DocChatMessage[]> {
+    chatMessages(repositoryId: string, sessionId: string): Promise<Reader<DocChatMessage>[]> {
       return request(
         "GET",
         `/api/repositories/${seg(repositoryId)}/docs/chat/sessions/${seg(sessionId)}/messages`,
@@ -82,7 +83,7 @@ export function createDocsEndpoints(request: ApiRequest) {
       );
     },
 
-    projectChatSessions(projectId: string): Promise<DocChatSession[]> {
+    projectChatSessions(projectId: string): Promise<Reader<DocChatSession>[]> {
       return request(
         "GET",
         `/api/projects/${seg(projectId)}/docs/chat/sessions`,
@@ -91,7 +92,7 @@ export function createDocsEndpoints(request: ApiRequest) {
       );
     },
 
-    projectChatMessages(projectId: string, sessionId: string): Promise<DocChatMessage[]> {
+    projectChatMessages(projectId: string, sessionId: string): Promise<Reader<DocChatMessage>[]> {
       return request(
         "GET",
         `/api/projects/${seg(projectId)}/docs/chat/sessions/${seg(sessionId)}/messages`,

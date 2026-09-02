@@ -1,3 +1,5 @@
+import { readerSchema } from "@stubwise/shared";
+import type { Reader } from "@stubwise/shared";
 import type { ZodType } from "zod";
 import { ApiError, errorFromResponse } from "./errors.js";
 import { createAuthEndpoints } from "./endpoints/auth.js";
@@ -25,18 +27,43 @@ export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
  * c'è — lo schema di risposta. Gli endpoint la ricevono e non conoscono altro
  * del client (né `fetch`, né la baseUrl, né come si ottiene il token).
  *
- * `schema` è OPZIONALE, ed è la scelta centrale del pacchetto:
- * - passato → `schema.parse` sulla risposta, cioè fail-fast. Si passa solo dove
- *   il server dichiara lo STESSO schema come risposta della rotta: il
- *   serializzatore Zod di Fastify ci fa passare ogni payload prima di
- *   spedirlo, quindi la forma sul filo È quella dello schema per costruzione e
- *   una `parse` lato client non può fallire su una risposta legittima;
- * - omesso → il JSON grezzo con un cast, esattamente ciò che la SPA fa oggi.
- *   È la corsia che `apps/web` usa per le ~40 rotte che qui non sono mappate:
- *   adottare il client non deve poter cambiare cosa vede un utente del web.
+ * Le DUE corsie sono nella firma, non in una convenzione:
+ *
+ * - **con schema** → la risposta è validata, e con la variante "da lettore"
+ *   dello schema ({@link readerSchema}): il tipo che esce è `Reader<T>`, in cui
+ *   ogni enum ammette anche il segnaposto `UNKNOWN`. È la corsia degli endpoint
+ *   tipizzati, cioè quella dell'app mobile — che gira su telefoni aggiornati
+ *   settimane dopo il server e non deve crollare davanti a un valore nuovo.
+ *   Passa da qui CHIUNQUE dia uno schema: non c'è un endpoint che possa
+ *   dimenticarsene.
+ *
+ * - **senza schema** → il JSON grezzo con un cast, esattamente ciò che la SPA
+ *   fa da sempre. È la corsia che `apps/web` usa per le ~40 rotte non mappate,
+ *   e il tipo NON viene allargato: adottare il client non cambia una virgola di
+ *   ciò che vede un utente del web.
+ *
+ * Validare è fail-fast a costo zero, non una scommessa: dove il server dichiara
+ * lo stesso schema come risposta della rotta, il `serializerCompiler` di
+ * `fastify-type-provider-zod` ci fa passare ogni payload prima di spedirlo e
+ * lancia se non combacia — la forma sul filo È quella dello schema.
+ *
+ * ⚠️ QUANDO RIVEDERE QUESTA SCELTA. La corsia senza schema della SPA è una
+ * misura di transizione, non un principio: va rivista quando (a) esisterà un
+ * test che percorre rotte VERE con la SPA — oggi i suoi test usano mock, quindi
+ * accendere la validazione sul web trasformerebbe divergenze latenti in
+ * eccezioni in faccia a un utente senza che nulla le abbia scoperte prima —
+ * oppure (b) una risposta letta dal mobile cambierà in modo NON additivo.
+ *
+ * E "non additivo" include più di quanto sembri: **gli enum chiusi sono un
+ * cambio non additivo**, ed è la ragione per cui gli schemi dei client passano
+ * da {@link readerSchema}. Restano non additivi, e NON coperti da quella
+ * soluzione, il campo rimosso e il campo rinominato: nessuna apertura di enum
+ * li salva, e su un client che non controlliamo rompono il parse dell'intera
+ * risposta. Verso l'app mobile, quindi, **solo cambi additivi**.
  */
 export interface ApiRequest {
-  <T>(method: HttpMethod, path: string, body?: unknown, schema?: ZodType<T>): Promise<T>;
+  <T>(method: HttpMethod, path: string, body: unknown, schema: ZodType<T>): Promise<Reader<T>>;
+  <T>(method: HttpMethod, path: string, body?: unknown): Promise<T>;
 }
 
 export interface StubwiseClientOptions {
@@ -62,17 +89,32 @@ export interface StubwiseClientOptions {
   credentials?: "omit" | "same-origin" | "include";
 }
 
-export interface StubwiseClient {
+/**
+ * Costruisce TUTTI i gruppi di endpoint attorno a un trasporto.
+ *
+ * Estratto da `createStubwiseClient` per una ragione sola: è l'unico posto in
+ * cui i gruppi sono elencati, quindi il test che sorveglia gli schemi di
+ * risposta (`reader.test.ts`) può percorrerli tutti passando un `request`
+ * tracciato. Aggiungere un gruppo qui lo fa entrare nei controlli da sé —
+ * mentre un elenco duplicato nel test si sarebbe scordato il gruppo nuovo
+ * proprio il giorno in cui serviva.
+ */
+export function createEndpoints(request: ApiRequest) {
+  return {
+    auth: createAuthEndpoints(request),
+    inbox: createInboxEndpoints(request),
+    me: createMeEndpoints(request),
+    projects: createProjectsEndpoints(request),
+    tickets: createTicketsEndpoints(request),
+    backlog: createBacklogEndpoints(request),
+    docs: createDocsEndpoints(request),
+    search: createSearchEndpoints(request),
+  };
+}
+
+export interface StubwiseClient extends ReturnType<typeof createEndpoints> {
   /** Trasporto grezzo, per le rotte che questo pacchetto non mappa. */
   request: ApiRequest;
-  auth: ReturnType<typeof createAuthEndpoints>;
-  inbox: ReturnType<typeof createInboxEndpoints>;
-  me: ReturnType<typeof createMeEndpoints>;
-  projects: ReturnType<typeof createProjectsEndpoints>;
-  tickets: ReturnType<typeof createTicketsEndpoints>;
-  backlog: ReturnType<typeof createBacklogEndpoints>;
-  docs: ReturnType<typeof createDocsEndpoints>;
-  search: ReturnType<typeof createSearchEndpoints>;
 }
 
 /**
@@ -96,12 +138,12 @@ export function createStubwiseClient(options: StubwiseClientOptions): StubwiseCl
   // degli endpoint iniziano tutti con "/" e "https://host//api/…" è un 404.
   const baseUrl = options.baseUrl.replace(/\/+$/, "");
 
-  const request: ApiRequest = async <T>(
+  const send = async (
     method: HttpMethod,
     path: string,
     body?: unknown,
-    schema?: ZodType<T>,
-  ): Promise<T> => {
+    schema?: ZodType<unknown>,
+  ): Promise<unknown> => {
     const headers: Record<string, string> = {};
     let authHeader: string | null | undefined;
     try {
@@ -141,11 +183,14 @@ export function createStubwiseClient(options: StubwiseClientOptions): StubwiseCl
 
     if (!response.ok) throw await errorFromResponse(response);
 
-    if (response.status === 204) return undefined as T;
+    if (response.status === 204) return undefined;
     const data: unknown = await response.json();
-    if (!schema) return data as T;
+    if (!schema) return data;
     try {
-      return schema.parse(data);
+      // Non `schema.parse`: la variante DA LETTORE dello schema, memoizzata.
+      // È qui e non nei singoli endpoint di proposito — così non esiste un
+      // endpoint che possa dimenticarsene, oggi o al task 20.
+      return readerSchema(schema).parse(data);
     } catch (error) {
       // Una forma inattesa resta un BUG (vedi il commento su `ApiRequest`), ma
       // non deve uscire come `ZodError` nuda: i chiamanti hanno un solo tipo di
@@ -161,15 +206,11 @@ export function createStubwiseClient(options: StubwiseClientOptions): StubwiseCl
     }
   };
 
-  return {
-    request,
-    auth: createAuthEndpoints(request),
-    inbox: createInboxEndpoints(request),
-    me: createMeEndpoints(request),
-    projects: createProjectsEndpoints(request),
-    tickets: createTicketsEndpoints(request),
-    backlog: createBacklogEndpoints(request),
-    docs: createDocsEndpoints(request),
-    search: createSearchEndpoints(request),
-  };
+  // L'unico cast del trasporto: `send` ha una firma sola, `ApiRequest` due
+  // (con e senza schema). TypeScript non riconcilia da sé un'implementazione
+  // singola con un tipo sovraccarico; il comportamento delle due corsie è
+  // fissato dai test.
+  const request = send as ApiRequest;
+
+  return { request, ...createEndpoints(request) };
 }

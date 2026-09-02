@@ -5,6 +5,7 @@ import {
   setupStatusSchema,
 } from "@stubwise/shared";
 import type {
+  Reader,
   AuthUserResponse,
   Language,
   LanguageResponse,
@@ -33,11 +34,11 @@ export interface Credentials {
 export function createAuthEndpoints(request: ApiRequest) {
   return {
     /** L'istanza non ha ancora un utente: la schermata di setup iniziale. */
-    setupStatus(): Promise<SetupStatus> {
+    setupStatus(): Promise<Reader<SetupStatus>> {
       return request("GET", "/api/auth/setup", undefined, setupStatusSchema);
     },
 
-    login(credentials: Credentials): Promise<AuthUserResponse> {
+    login(credentials: Credentials): Promise<Reader<AuthUserResponse>> {
       return request("POST", "/api/auth/login", credentials, authUserResponseSchema);
     },
 
@@ -45,12 +46,12 @@ export function createAuthEndpoints(request: ApiRequest) {
       return request("POST", "/api/auth/logout");
     },
 
-    me(): Promise<SessionResponse> {
+    me(): Promise<Reader<SessionResponse>> {
       return request("GET", "/api/auth/me", undefined, sessionResponseSchema);
     },
 
     /** L'id lo ricava il server dalla sessione: si manda solo la lingua. */
-    setLanguage(language: Language): Promise<LanguageResponse> {
+    setLanguage(language: Language): Promise<Reader<LanguageResponse>> {
       return request("PATCH", "/api/auth/me", { language }, languageResponseSchema);
     },
   };

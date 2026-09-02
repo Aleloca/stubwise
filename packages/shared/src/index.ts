@@ -14,6 +14,7 @@ export * from "./schemas/notification.js";
 export * from "./schemas/plugin.js";
 export * from "./env/dotenv.js";
 export * from "./work-state.js";
+export * from "./reader.js";
 // NOTA: `mirror-slug.js` NON è ri-esportato da questo barrel di proposito —
 // importa `node:crypto` e apps/web importa questo index nel bundle browser
 // (vite fallirebbe con "createHash is not exported by __vite-browser-external").

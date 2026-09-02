@@ -1,5 +1,5 @@
 import { searchDocsSemanticResultsSchema, searchResultsSchema } from "@stubwise/shared";
-import type { SearchDocsSemanticResults, SearchResults } from "@stubwise/shared";
+import type { Reader, SearchDocsSemanticResults, SearchResults } from "@stubwise/shared";
 import type { ApiRequest } from "../client.js";
 import { toQuery } from "../query.js";
 
@@ -18,12 +18,12 @@ import { toQuery } from "../query.js";
 export function createSearchEndpoints(request: ApiRequest) {
   return {
     /** `repositoryId` restringe SOLO il gruppo docs; gli altri restano globali. */
-    global(q: string, repositoryId?: string): Promise<SearchResults> {
+    global(q: string, repositoryId?: string): Promise<Reader<SearchResults>> {
       return request("GET", `/api/search${toQuery({ q, repositoryId })}`, undefined, searchResultsSchema);
     },
 
     /** Corsia semantica sui soli Docs, da fondere nel gruppo docs di `global`. */
-    docsSemantic(q: string, repositoryId?: string): Promise<SearchDocsSemanticResults> {
+    docsSemantic(q: string, repositoryId?: string): Promise<Reader<SearchDocsSemanticResults>> {
       return request(
         "GET",
         `/api/search/docs-semantic${toQuery({ q, repositoryId })}`,
