@@ -215,6 +215,21 @@ function PluginRow({ plugin }: { plugin: Plugin }) {
   const busy = update.isPending || smoke.isPending || deletion.isPending;
   const actionError = [update.error, smoke.error, deletion.error].find((e) => e !== null);
 
+  // L'errore di un'azione descrive lo STATO in cui il server l'ha rifiutata (un
+  // job in volo, una revisione che non c'era). Qui la lista polla: quando il
+  // worker scrive, `updatedAt` avanza e quello stato non esiste più — il
+  // messaggio resterebbe a schermo accanto a un badge che dice il contrario.
+  // Il ref fa scattare l'azzeramento una volta sola per revisione vista.
+  const seenUpdatedAt = useRef(plugin.updatedAt);
+  useEffect(() => {
+    if (seenUpdatedAt.current === plugin.updatedAt) return;
+    seenUpdatedAt.current = plugin.updatedAt;
+    if (actionError === undefined) return;
+    update.reset();
+    smoke.reset();
+    deletion.reset();
+  }, [plugin.updatedAt, actionError, update, smoke, deletion]);
+
   return (
     <li className="px-4 py-3">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -273,6 +288,7 @@ function PluginRow({ plugin }: { plugin: Plugin }) {
         <UpdateRefForm
           plugin={plugin}
           pending={update.isPending}
+          jobPending={jobPending}
           onSubmit={(ref) => update.mutate(ref)}
           onCancel={() => setUpdating(false)}
         />
@@ -319,15 +335,23 @@ function PluginRow({ plugin }: { plugin: Plugin }) {
   );
 }
 
-/** Form inline del cambio ref: parte dal ref corrente, che è quasi sempre la base. */
+/**
+ * Form inline del cambio ref: parte dal ref corrente, che è quasi sempre la
+ * base. `jobPending` gate anche il SUBMIT, non solo il bottone che apre il
+ * form: il form resta aperto mentre la lista polla, e un job accodato nel
+ * frattempo (da un altro admin, o da un'altra azione di questa stessa riga)
+ * renderebbe il submit un 409 `plugin_job_pending` annunciato.
+ */
 function UpdateRefForm({
   plugin,
   pending,
+  jobPending,
   onSubmit,
   onCancel,
 }: {
   plugin: Plugin;
   pending: boolean;
+  jobPending: boolean;
   onSubmit: (ref: string) => void;
   onCancel: () => void;
 }) {
@@ -353,7 +377,7 @@ function UpdateRefForm({
       <div className="flex items-center gap-2 pb-1">
         <RowButton
           type="submit"
-          disabled={pending || ref.trim() === ""}
+          disabled={pending || jobPending || ref.trim() === ""}
           label={t("settings:plugins.updateSubmit")}
         />
         <RowButton onClick={onCancel} label={t("common:cancel")} />

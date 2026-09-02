@@ -352,6 +352,32 @@ describe("PluginsSection — registrazione", () => {
     expect(alert).toHaveTextContent(/remove the existing plugin/i);
   });
 
+  it("409 plugin_slug_taken senza virgolette nel messaggio: degrada al messaggio del server", async () => {
+    // Il ramo difensivo di `creationErrorMessage`: lo slug viaggia SOLO dentro
+    // il messaggio del server, quindi se un giorno quel messaggio cambia forma
+    // l'estrazione fallisce — e l'utente deve vedere comunque ciò che il server
+    // ha detto, non un errore muto.
+    const user = userEvent.setup();
+    mockApi({
+      "GET /api/plugins": () => jsonResponse(200, registry([])),
+      "POST /api/plugins": () =>
+        jsonResponse(409, {
+          code: "plugin_slug_taken",
+          message: "A plugin with slug superpowers is already registered",
+        }),
+    });
+
+    renderSection();
+    await user.click(await screen.findByRole("button", { name: /add plugin/i }));
+    await user.type(screen.getByLabelText("Source URL"), "https://github.com/obra/superpowers");
+    await user.type(screen.getByLabelText("Ref"), "main");
+    await user.click(screen.getByRole("button", { name: "Register plugin" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "A plugin with slug superpowers is already registered",
+    );
+  });
+
   it("400 invalid_plugin_slug: messaggio tradotto dal code", async () => {
     const user = userEvent.setup();
     mockApi({
@@ -427,6 +453,32 @@ describe("PluginsSection — azioni", () => {
     expect(within(row).getByRole("button", { name: /retry smoke/i })).toBeDisabled();
   });
 
+  it("un job accodato mentre il form di aggiornamento è aperto disabilita anche il submit", async () => {
+    // Il bottone che APRE il form è gated su `pendingJobKind`, ma il form resta
+    // aperto: se nel frattempo un job entra in coda (qui lo smoke, nella realtà
+    // anche un altro admin) il submit prenderebbe un 409 `plugin_job_pending`.
+    const user = userEvent.setup();
+    let queued = false;
+    mockApi({
+      "GET /api/plugins": () =>
+        jsonResponse(200, registry([makePlugin({ pendingJobKind: queued ? "smoke" : null })])),
+      "POST /api/plugins/11111111-1111-4111-8111-111111111111/smoke": () => {
+        queued = true;
+        return jsonResponse(202, { queued: true });
+      },
+    });
+
+    renderSection();
+    const row = await rowOf("superpowers");
+    await user.click(within(row).getByRole("button", { name: /update to ref/i }));
+    expect(within(row).getByRole("button", { name: "Update" })).toBeEnabled();
+
+    // Il job entra in coda e il refetch lo porta in pagina col form ancora aperto.
+    await user.click(within(row).getByRole("button", { name: /retry smoke/i }));
+
+    await waitFor(() => expect(within(row).getByRole("button", { name: "Update" })).toBeDisabled());
+  });
+
   it("senza revisione materializzata lo smoke è disabilitato (sarebbe plugin_not_ready)", async () => {
     mockApi({
       "GET /api/plugins": () =>
@@ -487,6 +539,45 @@ describe("PluginsSection — azioni", () => {
     expect(await within(row).findByRole("alert")).toHaveTextContent(
       /disable it there before removing it/i,
     );
+  });
+
+  it("l'errore di un'azione sparisce quando il polling porta una revisione nuova della riga", async () => {
+    // Un 409 descrive lo STATO in cui il server ha rifiutato l'azione: quando
+    // quello stato non c'è più (il worker ha scritto, `updatedAt` è avanzato)
+    // il messaggio è stantio e va tolto da solo, senza un refresh a mano.
+    const user = userEvent.setup();
+    let settled = false;
+    mockApi({
+      // Il secondo plugin ha un job in volo: tiene acceso il polling del
+      // registro (è una query sola) senza toccare le azioni del primo.
+      "GET /api/plugins": () =>
+        jsonResponse(
+          200,
+          registry([
+            makePlugin({
+              updatedAt: settled ? "2026-09-01T11:00:00.000Z" : "2026-09-01T10:00:00.000Z",
+            }),
+            makePlugin({
+              id: "22222222-2222-4222-8222-222222222222",
+              slug: "altro",
+              name: "altro",
+              pendingJobKind: "materialize",
+            }),
+          ]),
+        ),
+      "POST /api/plugins/11111111-1111-4111-8111-111111111111/smoke": () =>
+        jsonResponse(409, { code: "plugin_job_pending", message: "A smoke job is running" }),
+    });
+
+    renderSection();
+    const row = await rowOf("superpowers");
+    await user.click(within(row).getByRole("button", { name: /retry smoke/i }));
+    expect(await within(row).findByRole("alert")).toHaveTextContent(/wait for it to finish/i);
+
+    settled = true;
+    await waitFor(() => expect(within(row).queryByRole("alert")).not.toBeInTheDocument(), {
+      timeout: 6_000,
+    });
   });
 });
 
