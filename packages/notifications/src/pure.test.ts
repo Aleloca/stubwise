@@ -30,10 +30,9 @@
  * pur essendo importato (come tipo) da `@stubwise/i18n`.
  */
 import * as esbuild from "esbuild";
+import { isBuiltin } from "node:module";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-
-import { actionsFor, formatNotificationText, KINDS_WITH_OPTIONS, SNOOZE_OPTIONS } from "./pure.js";
 
 const srcDir = fileURLToPath(new URL(".", import.meta.url));
 
@@ -45,10 +44,25 @@ const srcDir = fileURLToPath(new URL(".", import.meta.url));
  */
 const ALLOWED_BARE = ["@stubwise/i18n"];
 
-/** Ciò che non deve MAI entrare: il DB, il suo driver, l'I/O di Node. */
+/**
+ * Valori puri tenuti FUORI da `./pure` di proposito (YAGNI): li si aggiunge
+ * quando un client ne ha bisogno davvero, non "per completezza". `openUrl` e
+ * `IN_FLIGHT_JOB_STATUSES` li usa oggi solo il server/worker via l'entry `.`;
+ * `escapeSlackMrkdwn` è specifico di Slack e in un client non ha senso.
+ * Questa lista è la decisione, scritta dove si può rivedere.
+ */
+const NOT_IN_PURE = ["IN_FLIGHT_JOB_STATUSES", "openUrl", "escapeSlackMrkdwn"];
+
+/**
+ * Ciò che non deve MAI entrare: il DB, il suo driver, i builtin di Node.
+ * `isBuiltin` e non `startsWith("node:")` perché la forma senza prefisso
+ * (`import ... from "fs"`) è altrettanto valida e altrettanto letale in un
+ * bundle client: senza, sfuggirebbe al messaggio mirato e la fermerebbe solo
+ * l'allowlist, che dice molto meno su cosa è andato storto.
+ */
 function isForbidden(specifier: string): boolean {
   return (
-    specifier.startsWith("node:") ||
+    isBuiltin(specifier) ||
     ["@stubwise/db", "drizzle-orm", "postgres", "pg"].some(
       (pkg) => specifier === pkg || specifier.startsWith(`${pkg}/`),
     )
@@ -64,6 +78,15 @@ async function bareDepsOf(entryFile: string): Promise<string[]> {
     write: false,
     format: "esm",
     // "neutral": nessun ambiente dato per scontato, come in un bundle client.
+    //
+    // LIMITI NOTI del walker, per chi ci mette mano domani. (a) Non segue
+    // `import.meta.resolve` né `new URL(..., import.meta.url)` — ma non sono
+    // nemmeno bundlabili: Hermes non ha `import.meta`, quindi ciò che sfugge
+    // qui si romperebbe comunque, e rumorosamente. (b) Risolve con la
+    // condizione `default`: un workspace che un giorno dichiarasse una
+    // condizione `react-native`/`browser` verso un file DIVERSO farebbe vedere
+    // a questo test un grafo che non è quello dell'app. Oggi nessuno dei nostri
+    // package lo fa.
     platform: "neutral",
     logLevel: "silent",
     plugins: [
@@ -90,11 +113,17 @@ async function bareDepsOf(entryFile: string): Promise<string[]> {
 describe("entry pure", () => {
   it("non trascina il DB nel grafo delle dipendenze", async () => {
     const forbidden = (await bareDepsOf("pure.ts")).filter(isForbidden);
-    expect(forbidden).toEqual([]);
+    expect(
+      forbidden,
+      "Queste dipendenze sono arrivate a ./pure (magari in transitivo, da un modulo che format.ts o actions.ts importa). Un client non può bundlarle: il DB e i builtin di Node non entrano in un bundle React Native. Sposta il codice che le usa fuori dal grafo di pure.ts.",
+    ).toEqual([]);
   });
 
-  it("ha esattamente la superficie di dipendenze bare dichiarata", async () => {
-    expect(await bareDepsOf("pure.ts")).toEqual(ALLOWED_BARE);
+  it("ha esattamente la superficie di dipendenze bare dichiarata (ALLOWED_BARE)", async () => {
+    expect(
+      await bareDepsOf("pure.ts"),
+      "La superficie di dipendenze di ./pure è cambiata. Se la nuova è innocua e la vuoi davvero nel bundle mobile, aggiungila ad ALLOWED_BARE scrivendo NEL COMMENTO perché ce la porti: ogni bare specifier qui è peso che finisce sul telefono.",
+    ).toEqual(ALLOWED_BARE);
   });
 
   /**
@@ -113,19 +142,28 @@ describe("entry pure", () => {
     expect(deps.some((dep) => dep.startsWith("node:"))).toBe(true);
   });
 
-  it("ri-esporta la logica di formattazione e il catalogo delle azioni", () => {
+  /**
+   * ESAUSTIVITÀ della superficie. Il grafo qui sopra difende `./pure` da ciò
+   * che vi entra di troppo; questo lo difende da ciò che NON vi entra. Senza,
+   * chi aggiunge una funzione pura ad `actions.ts` non ha nulla che gli ricordi
+   * di riesportarla, e la dimenticanza la scopre il primo consumatore mobile
+   * che non la trova. Qui diventa un rosso col NOME della funzione.
+   *
+   * `NOT_IN_PURE` è l'altra metà del valore: rende la scelta YAGNI esplicita e
+   * rivedibile invece di lasciarla implicita in ciò che capita di riesportare.
+   */
+  it("ogni valore puro è in ./pure o escluso di proposito", async () => {
+    const [actions, format, pure] = await Promise.all([
+      import("./actions.js"),
+      import("./format.js"),
+      import("./pure.js"),
+    ]);
+    const missing = [...new Set([...Object.keys(actions), ...Object.keys(format)])].filter(
+      (name) => !(name in pure) && !NOT_IN_PURE.includes(name),
+    );
     expect(
-      formatNotificationText({
-        kind: "job.failed",
-        ticketNumber: 1,
-        ticketTitle: "T",
-        projectName: "P",
-        error: "boom",
-        ticketUrl: "http://x",
-      }),
-    ).toContain("T");
-    expect(typeof actionsFor).toBe("function");
-    expect(SNOOZE_OPTIONS).toContain("1h");
-    expect(KINDS_WITH_OPTIONS.size).toBeGreaterThan(0);
+      missing,
+      "Questi valori puri di format.ts/actions.ts non sono raggiungibili da ./pure. Riesportali in pure.ts, oppure — se un client non deve averli — aggiungili a NOT_IN_PURE spiegando perché.",
+    ).toEqual([]);
   });
 });

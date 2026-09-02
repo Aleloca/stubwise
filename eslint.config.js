@@ -31,4 +31,39 @@ export default tseslint.config(
       "@typescript-eslint/no-require-imports": "off",
     },
   },
+  {
+    // CONFINE CLIENT/SERVER sui package del workspace.
+    //
+    // `@stubwise/notifications` espone due entry: `.` (pubblicazione, routing,
+    // dispatch — parla con Postgres) e `./pure` (testo e catalogo delle azioni,
+    // senza DB). Un client deve importare la seconda, e qui lo si RENDE
+    // IMPOSSIBILE invece di sperarlo.
+    //
+    // Perché è una regola di lint e non "ci si sta attenti": i due bundler si
+    // comportano in modo opposto davanti allo stesso errore. Metro fallisce il
+    // bundle, rumorosamente, e l'errore non arriva mai in produzione. Vite
+    // INVECE esternalizza `net`/`tls`/`postgres` con un warning e produce un
+    // bundle che sembra a posto e poi esplode a runtime, in una pagina, davanti
+    // a un utente. Il caso pericoloso è quindi proprio quello web, dove nessun
+    // build lo intercetta — mentre la CI fallisce sul lint.
+    files: ["apps/web/src/**", "apps/mobile/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "@stubwise/notifications",
+              message:
+                "Lato client si importa da @stubwise/notifications/pure (entry senza DB). L'entry `.` trascina @stubwise/db e il driver postgres: Metro non la bundla e Vite produce un bundle che esplode a runtime.",
+            },
+            {
+              name: "@stubwise/db",
+              message: "Il DB non entra nei bundle client: passa dall'API del server.",
+            },
+          ],
+        },
+      ],
+    },
+  },
 );

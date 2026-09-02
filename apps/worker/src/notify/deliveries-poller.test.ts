@@ -9,8 +9,12 @@ import {
   type NotificationDelivery,
 } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
-import { SlackApiError, type SlackBlock, type SlackMessenger } from "@stubwise/notifications";
-import type { NotificationEvent } from "@stubwise/notifications/pure";
+import {
+  SlackApiError,
+  type NotificationEvent,
+  type SlackBlock,
+  type SlackMessenger,
+} from "@stubwise/notifications";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";

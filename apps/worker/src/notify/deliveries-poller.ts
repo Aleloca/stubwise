@@ -6,6 +6,7 @@ import {
   type Db,
   type NotificationDelivery,
 } from "@stubwise/db";
+import type { Language } from "@stubwise/i18n";
 import {
   actionsFor,
   buildInboxBlocks,
@@ -18,10 +19,10 @@ import {
   loadSlackBotToken,
   openUrl,
   sendWebhookEvent,
+  type NotificationEvent,
   type SlackBlock,
   type SlackMessenger,
 } from "@stubwise/notifications";
-import type { Language, NotificationEvent } from "@stubwise/notifications/pure";
 import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
 
 /**
