@@ -7,7 +7,6 @@ import {
   RECOMMENDED_DISABLED_SKILLS,
   type Plugin,
 } from "@stubwise/shared";
-import type { PluginRow } from "@stubwise/db";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -20,6 +19,7 @@ import {
   listPlugins,
   requestSmoke,
   requestUpdate,
+  type PluginWithPendingJob,
 } from "../services/plugins.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
@@ -45,7 +45,7 @@ const registrySchema = z.object({
  * un inventario illeggibile deve degradare a `null` — non far fallire in
  * serializzazione l'INTERA lista del registro.
  */
-function toPublicPlugin(row: PluginRow): Plugin {
+function toPublicPlugin(row: PluginWithPendingJob): Plugin {
   const inventory = pluginInventorySchema.safeParse(row.inventory);
   return {
     id: row.id,
@@ -60,6 +60,7 @@ function toPublicPlugin(row: PluginRow): Plugin {
     error: row.error,
     smokeStatus: row.smokeStatus,
     smokeError: row.smokeError,
+    pendingJobKind: row.pendingJobKind,
     materializedAt: row.materializedAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -206,7 +207,7 @@ export async function pluginRoutes(instance: FastifyInstance): Promise<void> {
             reply,
             409,
             "plugin_not_ready",
-            "The plugin has never been materialized: there is no revision to smoke-test",
+            "The plugin is not currently ready: there is no materialized revision to smoke-test",
           );
         }
         return apiError(

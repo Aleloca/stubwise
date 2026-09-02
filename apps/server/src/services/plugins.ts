@@ -25,10 +25,11 @@ import {
   pluginInventorySchema,
   pluginSlugSchema,
   type CreatePluginInput,
+  type PluginJobKind,
   type ProjectPlugin,
 } from "@stubwise/shared";
-import { and, asc, eq, notInArray, sql } from "drizzle-orm";
-import { isUniqueViolation } from "../routes/shared.js";
+import { and, asc, eq, inArray, notInArray, sql } from "drizzle-orm";
+import { isForeignKeyViolation, isUniqueViolation } from "../routes/shared.js";
 
 /** Lunghezza massima dello slug, la stessa del pattern in `@stubwise/shared`. */
 const SLUG_MAX_LENGTH = 64;
@@ -107,22 +108,76 @@ function lastUrlSegment(sourceUrl: string): string | null {
 // Registro
 // ---------------------------------------------------------------------------
 
+/** Stati in cui un job del registro è VIVO: sono quelli che il worker claima. */
+const ACTIVE_JOB_STATUSES = ["queued", "running"] as const;
+
+/**
+ * Riga del registro più il job del registro attualmente in volo su di lei. È la
+ * forma che le rotte proiettano: `pendingJobKind` non è una colonna.
+ */
+export interface PluginWithPendingJob extends PluginRow {
+  pendingJobKind: PluginJobKind | null;
+}
+
+/**
+ * Kind del job vivo per ciascuno dei plugin dati.
+ *
+ * Perché serve: `status` da solo non è osservabile abbastanza. Fra
+ * l'accodamento e il claim del worker un plugin appena registrato resta `none` e
+ * uno appena aggiornato resta `ready`, quindi una UI che pollasse su
+ * `status === "materializing"` smetterebbe di pollare proprio nella finestra in
+ * cui il flip deve ancora arrivare.
+ *
+ * Query separata invece di una join: la LEFT JOIN duplicherebbe le righe dei
+ * plugin con DUE job vivi (l'indice unico parziale è su `(plugin_id, kind)`, non
+ * su `plugin_id`), obbligando comunque a de-duplicare a valle. Costa una
+ * lettura in più su un indice minuscolo.
+ */
+async function pendingJobKinds(db: Db, pluginIds: string[]): Promise<Map<string, PluginJobKind>> {
+  if (pluginIds.length === 0) return new Map();
+  const rows = await db
+    .select({ pluginId: pluginJobs.pluginId, kind: pluginJobs.kind })
+    .from(pluginJobs)
+    .where(
+      and(
+        inArray(pluginJobs.pluginId, pluginIds),
+        inArray(pluginJobs.status, [...ACTIVE_JOB_STATUSES]),
+      ),
+    );
+  const byPlugin = new Map<string, PluginJobKind>();
+  for (const row of rows) {
+    // Con entrambi i kind vivi vince `materialize`: è quello che cambia
+    // `status`, e finendo riaccoda lui stesso lo smoke.
+    if (row.kind === "materialize" || !byPlugin.has(row.pluginId)) {
+      byPlugin.set(row.pluginId, row.kind);
+    }
+  }
+  return byPlugin;
+}
+
 /**
  * Elenco del registro in ordine di slug: è un elenco che si consulta per nome
  * (la UI ci cerca dentro un plugin), non un flusso cronologico.
  */
-export async function listPlugins(db: Db): Promise<PluginRow[]> {
-  return db.select().from(plugins).orderBy(asc(plugins.slug));
+export async function listPlugins(db: Db): Promise<PluginWithPendingJob[]> {
+  const rows = await db.select().from(plugins).orderBy(asc(plugins.slug));
+  const pending = await pendingJobKinds(
+    db,
+    rows.map((r) => r.id),
+  );
+  return rows.map((row) => ({ ...row, pendingJobKind: pending.get(row.id) ?? null }));
 }
 
-/** Una riga del registro, o `null`. */
-export async function getPlugin(db: Db, id: string): Promise<PluginRow | null> {
+/** Una riga del registro col suo job in volo, o `null`. */
+export async function getPlugin(db: Db, id: string): Promise<PluginWithPendingJob | null> {
   const [row] = await db.select().from(plugins).where(eq(plugins.id, id));
-  return row ?? null;
+  if (!row) return null;
+  const pending = await pendingJobKinds(db, [row.id]);
+  return { ...row, pendingJobKind: pending.get(row.id) ?? null };
 }
 
 export type CreatePluginResult =
-  | { ok: true; plugin: PluginRow }
+  | { ok: true; plugin: PluginWithPendingJob }
   /** L'URL (o la subdir) non contiene un nome da cui ricavare uno slug valido. */
   | { ok: false; error: "invalid_slug" }
   /** Esiste già un plugin con quello slug: l'admin deve rimuoverlo o cambiare sorgente. */
@@ -157,7 +212,9 @@ export async function createPlugin(db: Db, input: CreatePluginInput): Promise<Cr
         .returning();
       if (!created) throw new Error("insert del plugin non ha restituito la riga");
       await tx.insert(pluginJobs).values({ pluginId: created.id, kind: "materialize" });
-      return { ok: true as const, plugin: created };
+      // `pendingJobKind` senza rileggere: il job lo abbiamo appena inserito in
+      // questa stessa transazione, è un fatto, non una stima.
+      return { ok: true as const, plugin: { ...created, pendingJobKind: "materialize" as const } };
     });
   } catch (error) {
     // Unico unique in gioco su questa transazione: `plugins.slug` (il plugin è
@@ -234,6 +291,10 @@ export async function requestSmoke(db: Db, id: string): Promise<RequestSmokeResu
     });
   } catch (error) {
     if (isUniqueViolation(error)) return { ok: false, error: "job_in_flight" };
+    // Finestra fra la lettura del plugin e l'insert del job: un altro admin può
+    // averlo rimosso nel frattempo, e la FK di `plugin_jobs` se ne accorge. È
+    // un 404, non un 500: il plugin davvero non c'è più.
+    if (isForeignKeyViolation(error)) return { ok: false, error: "not_found" };
     throw error;
   }
 }
@@ -325,7 +386,9 @@ export async function putProjectPlugins(
   const ids = desired.map((p) => p.pluginId);
   const registry = new Map<string, PluginRow>();
   if (ids.length > 0) {
-    for (const row of await db.select().from(plugins)) registry.set(row.id, row);
+    for (const row of await db.select().from(plugins).where(inArray(plugins.id, ids))) {
+      registry.set(row.id, row);
+    }
   }
 
   for (const entry of desired) {
@@ -350,6 +413,31 @@ export async function putProjectPlugins(
     }
   }
 
+  // La validazione qui sopra è fuori dalla transazione, quindi fra lei e le
+  // scritture ci sta la rimozione di un plugin da parte di un altro admin: la
+  // FK di `project_plugins` la intercetta e diventa lo stesso 400 di un id
+  // sconosciuto (per la UI la reazione è identica: ricaricare il registro).
+  try {
+    return await writeProjectPlugins(db, projectId, desired, ids);
+  } catch (error) {
+    if (isForeignKeyViolation(error)) {
+      return {
+        ok: false,
+        error: "unknown_plugin",
+        detail: "one of the referenced plugins was removed concurrently",
+      };
+    }
+    throw error;
+  }
+}
+
+/** Scritture del PUT, già validate: cancella ciò che non è nel body e riscrive il resto. */
+async function writeProjectPlugins(
+  db: Db,
+  projectId: string,
+  desired: ProjectPlugin[],
+  ids: string[],
+): Promise<PutProjectPluginsResult> {
   const rows = await db.transaction(async (tx) => {
     // Semantica di sostituzione completa: ciò che non è nel body sparisce.
     await tx

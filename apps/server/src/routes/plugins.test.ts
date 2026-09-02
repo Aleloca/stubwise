@@ -1,12 +1,13 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { createFakeEmbeddingClient } from "@stubwise/embeddings";
-import { pluginJobs, plugins, projectPlugins, projects } from "@stubwise/db";
+import { pluginJobs, plugins, projectPlugins, projects, type Db } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
+import { requestSmoke } from "../services/plugins.js";
 import { seedUsers } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
@@ -115,13 +116,23 @@ describe("autorizzazione", () => {
       const res = await app.inject({ ...call, headers: { cookie: memberCookie } });
       expect(res.statusCode, `${call.method} ${call.url}`).toBe(403);
     }
-    const create = await app.inject({
-      method: "POST",
-      url: "/api/plugins",
-      headers: { cookie: memberCookie },
-      payload: { sourceUrl: "https://github.com/obra/superpowers", ref: "v4.0.3" },
-    });
-    expect(create.statusCode).toBe(403);
+    const withBody = [
+      {
+        url: "/api/plugins",
+        payload: { sourceUrl: "https://github.com/obra/superpowers", ref: "v4.0.3" },
+      },
+      { url: `/api/plugins/${id}/update`, payload: { ref: "v4.0.3" } },
+      { url: `/api/plugins/${id}/smoke`, payload: undefined },
+    ];
+    for (const call of withBody) {
+      const res = await app.inject({
+        method: "POST",
+        url: call.url,
+        headers: { cookie: memberCookie },
+        payload: call.payload,
+      });
+      expect(res.statusCode, `POST ${call.url}`).toBe(403);
+    }
   });
 });
 
@@ -138,6 +149,9 @@ describe("POST /api/plugins", () => {
     expect(body.resolvedSha).toBeNull();
     expect(body.inventory).toBeNull();
     expect(body.sourceSubdir).toBeNull();
+    // Il flip di `status` arriva solo al claim del worker: senza questo campo la
+    // UI non saprebbe che c'è già qualcosa in coda.
+    expect(body.pendingJobKind).toBe("materialize");
 
     const jobs = await testDb.db
       .select()
@@ -290,6 +304,97 @@ describe("GET /api/plugins", () => {
   });
 });
 
+describe("pendingJobKind", () => {
+  it("resta valorizzato finché il job è vivo, in lista e nel dettaglio", async () => {
+    const id = await createPlugin({ sourceUrl: "https://github.com/obra/superpowers", ref: "v1" });
+
+    const read = async () => {
+      const list = await app.inject({
+        method: "GET",
+        url: "/api/plugins",
+        headers: { cookie: adminCookie },
+      });
+      const detail = await app.inject({
+        method: "GET",
+        url: `/api/plugins/${id}`,
+        headers: { cookie: adminCookie },
+      });
+      const fromList = (list.json() as { plugins: Array<{ pendingJobKind: string | null }> })
+        .plugins[0]?.pendingJobKind;
+      const fromDetail = (detail.json() as { pendingJobKind: string | null }).pendingJobKind;
+      // Le due superfici devono dire la stessa cosa: la UI usa entrambe.
+      expect(fromList).toBe(fromDetail);
+      return fromDetail;
+    };
+
+    // Job `queued` (appena registrato) e `running` (claimato dal worker) sono
+    // entrambi "in volo": è la finestra in cui `status` non è ancora cambiato.
+    expect(await read()).toBe("materialize");
+    await testDb.db
+      .update(pluginJobs)
+      .set({ status: "running" })
+      .where(eq(pluginJobs.pluginId, id));
+    expect(await read()).toBe("materialize");
+
+    // Job chiuso: nessun lavoro in volo, la UI può smettere di pollare.
+    await testDb.db.update(pluginJobs).set({ status: "done" }).where(eq(pluginJobs.pluginId, id));
+    expect(await read()).toBeNull();
+  });
+
+  it("con materialize e smoke entrambi vivi vince materialize", async () => {
+    const id = await createPlugin({ sourceUrl: "https://github.com/obra/superpowers", ref: "v1" });
+    // L'indice unico parziale è su (plugin_id, kind): i due kind possono
+    // convivere, e la UI deve vedere quello che cambia `status`.
+    await testDb.db.insert(pluginJobs).values({ pluginId: id, kind: "smoke" });
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/plugins/${id}`,
+      headers: { cookie: adminCookie },
+    });
+    expect((res.json() as { pendingJobKind: string }).pendingJobKind).toBe("materialize");
+  });
+
+  it("dopo update e smoke riflette il kind appena accodato", async () => {
+    const id = await createPlugin({ sourceUrl: "https://github.com/obra/superpowers", ref: "v1" });
+    await markReady(id);
+
+    const detail = async () => {
+      const res = await app.inject({
+        method: "GET",
+        url: `/api/plugins/${id}`,
+        headers: { cookie: adminCookie },
+      });
+      return (res.json() as { status: string; pendingJobKind: string | null }).pendingJobKind;
+    };
+    expect(await detail()).toBeNull();
+
+    await app.inject({
+      method: "POST",
+      url: `/api/plugins/${id}/smoke`,
+      headers: { cookie: adminCookie },
+    });
+    expect(await detail()).toBe("smoke");
+    await testDb.db.update(pluginJobs).set({ status: "done" }).where(eq(pluginJobs.pluginId, id));
+
+    await app.inject({
+      method: "POST",
+      url: `/api/plugins/${id}/update`,
+      headers: { cookie: adminCookie },
+      payload: { ref: "v2" },
+    });
+    // `status` è ancora `ready` (il worker non ha claimato): è esattamente il
+    // caso in cui pollare su `status` non funzionerebbe.
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/plugins/${id}`,
+      headers: { cookie: adminCookie },
+    });
+    const body = res.json() as { status: string; pendingJobKind: string | null };
+    expect(body.status).toBe("ready");
+    expect(body.pendingJobKind).toBe("materialize");
+  });
+});
+
 describe("POST /api/plugins/:id/update", () => {
   it("cambia il ref, accoda la materializzazione e avanza updatedAt", async () => {
     const id = await createPlugin({ sourceUrl: "https://github.com/obra/superpowers", ref: "v1" });
@@ -357,7 +462,10 @@ describe("POST /api/plugins/:id/smoke", () => {
   it("accoda lo smoke e porta smokeStatus a pending", async () => {
     const id = await createPlugin({ sourceUrl: "https://github.com/obra/superpowers", ref: "v1" });
     await markReady(id);
-    await testDb.db.update(plugins).set({ smokeStatus: "failed", smokeError: "vecchio errore" });
+    await testDb.db
+      .update(plugins)
+      .set({ smokeStatus: "failed", smokeError: "vecchio errore" })
+      .where(eq(plugins.id, id));
 
     const res = await app.inject({
       method: "POST",
@@ -409,6 +517,33 @@ describe("POST /api/plugins/:id/smoke", () => {
       headers: { cookie: adminCookie },
     });
     expect(res.statusCode).toBe(404);
+  });
+});
+
+describe("finestre di scrittura", () => {
+  it("un plugin rimosso fra la lettura e l'accodamento dello smoke dà not_found, non un 500", async () => {
+    const id = await createPlugin({ sourceUrl: "https://github.com/obra/superpowers", ref: "v1" });
+    await markReady(id);
+
+    // La finestra è reale ma stretta: la si apre di proposito cancellando il
+    // plugin nell'istante esatto in cui il servizio apre la transazione, così
+    // l'insert del job trova la FK già violata. Senza la cattura sarebbe un 500.
+    const racing = new Proxy(testDb.db, {
+      get(target, prop, receiver) {
+        if (prop === "transaction") {
+          return async (...args: unknown[]) => {
+            await testDb.db.delete(plugins).where(eq(plugins.id, id));
+            return (Reflect.get(target, prop, receiver) as (...a: unknown[]) => unknown).apply(
+              target,
+              args,
+            );
+          };
+        }
+        return Reflect.get(target, prop, receiver) as unknown;
+      },
+    }) as Db;
+
+    await expect(requestSmoke(racing, id)).resolves.toEqual({ ok: false, error: "not_found" });
   });
 });
 

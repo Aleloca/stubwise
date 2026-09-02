@@ -1,12 +1,13 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { createFakeEmbeddingClient } from "@stubwise/embeddings";
-import { plugins, projectPlugins, projects } from "@stubwise/db";
+import { plugins, projectPlugins, projects, type Db } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
+import { putProjectPlugins } from "../services/plugins.js";
 import { seedUsers } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
@@ -249,6 +250,34 @@ describe("GET/PUT /api/projects/:projectId/plugins", () => {
     });
     expect(res.statusCode).toBe(400);
     expect((res.json() as { code: string }).code).toBe("unknown_plugin_skill");
+  });
+
+  it("un plugin rimosso fra la validazione e la scrittura dà 400, non un 500", async () => {
+    const id = await seedPlugin("superpowers");
+    // La validazione sta FUORI dalla transazione (deve leggere l'inventario),
+    // quindi la finestra esiste: la si apre cancellando il plugin nell'istante
+    // in cui il servizio apre la transazione. La FK di `project_plugins` la
+    // intercetta e deve diventare lo stesso 400 di un id sconosciuto.
+    const racing = new Proxy(testDb.db, {
+      get(target, prop, receiver) {
+        if (prop === "transaction") {
+          return async (...args: unknown[]) => {
+            await testDb.db.delete(plugins).where(eq(plugins.id, id));
+            return (Reflect.get(target, prop, receiver) as (...a: unknown[]) => unknown).apply(
+              target,
+              args,
+            );
+          };
+        }
+        return Reflect.get(target, prop, receiver) as unknown;
+      },
+    }) as Db;
+
+    const result = await putProjectPlugins(racing, projectId, [
+      { pluginId: id, enabled: true, disabledSkills: [], disabledHooks: [] },
+    ]);
+    expect(result.ok).toBe(false);
+    expect(result).toMatchObject({ error: "unknown_plugin" });
   });
 
   it("400 su un body senza `plugins` o con un pluginId ripetuto", async () => {

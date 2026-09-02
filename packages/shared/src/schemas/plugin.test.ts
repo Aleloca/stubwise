@@ -233,6 +233,7 @@ describe("pluginSchema", () => {
     error: null,
     smokeStatus: "idle",
     smokeError: null,
+    pendingJobKind: null,
     materializedAt: null,
     createdAt: "2026-09-01T10:00:00.000Z",
     updatedAt: "2026-09-01T10:00:00.000Z",
@@ -426,12 +427,40 @@ describe("pluginSlugSchema", () => {
       error: null,
       smokeStatus: "idle",
       smokeError: null,
+      pendingJobKind: "materialize",
       materializedAt: null,
       createdAt: "2026-09-01T10:00:00.000Z",
       updatedAt: "2026-09-01T10:00:00.000Z",
     };
     expect(pluginSchema.parse({ ...base, slug: "superpowers" }).slug).toBe("superpowers");
     expect(() => pluginSchema.parse({ ...base, slug: "../evil" })).toThrow();
+  });
+
+  it("ammette `pendingJobKind` null o uno dei due kind, e nient'altro", () => {
+    const base = {
+      id: "00000000-0000-4000-8000-000000000000",
+      slug: "superpowers",
+      name: "superpowers",
+      sourceUrl: "https://github.com/obra/superpowers",
+      sourceSubdir: null,
+      ref: "v4.0.3",
+      resolvedSha: null,
+      status: "none",
+      inventory: null,
+      error: null,
+      smokeStatus: "idle",
+      smokeError: null,
+      materializedAt: null,
+      createdAt: "2026-09-01T10:00:00.000Z",
+      updatedAt: "2026-09-01T10:00:00.000Z",
+    };
+    for (const pendingJobKind of [null, "materialize", "smoke"]) {
+      expect(pluginSchema.parse({ ...base, pendingJobKind }).pendingJobKind).toBe(pendingJobKind);
+    }
+    // Campo obbligatorio: ometterlo è un errore, non un `null` implicito — la UI
+    // deve poterlo leggere sempre.
+    expect(() => pluginSchema.parse(base)).toThrow();
+    expect(() => pluginSchema.parse({ ...base, pendingJobKind: "cleanup" })).toThrow();
   });
 });
 

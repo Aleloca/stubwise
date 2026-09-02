@@ -29,6 +29,14 @@ export type PluginStatus = z.infer<typeof pluginStatusSchema>;
 export const pluginSmokeStatusSchema = z.enum(["idle", "pending", "passed", "failed"]);
 export type PluginSmokeStatus = z.infer<typeof pluginSmokeStatusSchema>;
 
+/**
+ * Kind di un job del registro (speculare a `plugin_jobs.kind`): `materialize`
+ * scarica e pubblica la dir del plugin, `smoke` verifica che le sue skill siano
+ * davvero visibili al CLI.
+ */
+export const pluginJobKindSchema = z.enum(["materialize", "smoke"]);
+export type PluginJobKind = z.infer<typeof pluginJobKindSchema>;
+
 // ---------------------------------------------------------------------------
 // Inventario (prodotto dal worker, persistito come jsonb, mostrato dalla UI)
 // ---------------------------------------------------------------------------
@@ -170,6 +178,23 @@ export const pluginSchema = z.object({
   error: z.string().nullable(),
   smokeStatus: pluginSmokeStatusSchema,
   smokeError: z.string().nullable(),
+  /**
+   * Kind del job del registro attualmente in coda o in corso su questo plugin,
+   * `null` se non ce n'è nessuno. NON è una colonna: è calcolato dal server con
+   * una lettura di `plugin_jobs` sugli stati vivi.
+   *
+   * Esiste perché `status` da solo NON dice che sta per succedere qualcosa: fra
+   * l'accodamento e il claim del worker (fino a `PLUGIN_POLL_SECONDS`) un
+   * plugin appena registrato resta `none` e uno appena aggiornato resta `ready`.
+   * Una UI che pollasse su `status === "materializing"` smetterebbe di pollare
+   * PRIMA che il flip avvenga, e il plugin sembrerebbe fermo per sempre; e un
+   * secondo admin, che il 202 non l'ha visto, non avrebbe modo di sapere che
+   * c'è un aggiornamento in coda. Con questo campo si polla su un fatto.
+   *
+   * Se fossero attivi entrambi i kind vince `materialize`: è quello che cambia
+   * `status` e che, finendo, riaccoda lui stesso lo smoke.
+   */
+  pendingJobKind: pluginJobKindSchema.nullable(),
   materializedAt: z.iso.datetime().nullable(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
