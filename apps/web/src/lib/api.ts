@@ -65,14 +65,18 @@ import type {
   WidgetUpsertBody,
 } from "@stubwise/shared";
 
-// Import RUNTIME (non di solo tipo): l'unico schema che il client ESEGUE, per
-// validare il body del 409 `already_handled` prima di fidarsene (vedi
-// `handledByFromError`).
+// Import RUNTIME (non di solo tipo).
+import { ANSWER_TEXT_MAX_CHARS, inboxDecisionActionSchema } from "@stubwise/shared";
+
+// `errorFromResponse` serve alle poche chiamate che NON passano dal wrapper
+// (upload multipart e artefatti serviti come testo): fanno fetch a mano ma
+// devono produrre lo STESSO ApiError di tutte le altre.
 import {
-  ANSWER_TEXT_MAX_CHARS,
-  inboxActionErrorSchema,
-  inboxDecisionActionSchema,
-} from "@stubwise/shared";
+  ApiError,
+  createStubwiseClient,
+  errorFromResponse,
+  handledByFromError,
+} from "@stubwise/api-client";
 
 // Tetto del testo libero di una risposta: ri-esportato dal binding locale come
 // i tipi qui sopra, così il pannello della domanda può limitare la textarea
@@ -118,104 +122,39 @@ export type {
 export type { BacklogSuggested };
 
 /**
- * Wrapper fetch tipizzato per l'API di Stubwise.
+ * Il client HTTP della SPA: il trasporto vive in `@stubwise/api-client`, che la
+ * web condivide con l'app mobile — path, verbi, header, forma degli errori.
  *
- * In dev le richieste passano dal proxy di Vite (same-origin), in produzione
- * Caddy serve statici e API dallo stesso host: il cookie di sessione httpOnly
- * viaggia da solo. `credentials: "include"` è ridondante in same-origin ma
- * rende esplicita l'intenzione e copre eventuali setup cross-origin.
+ * `baseUrl` VUOTA perché la SPA è same-origin: in dev le richieste passano dal
+ * proxy di Vite, in produzione Caddy serve statici e API dallo stesso host.
+ * `getAuthHeader` torna null perché qui l'autenticazione è il cookie di
+ * sessione httpOnly, che `credentials: "include"` fa viaggiare (ridondante in
+ * same-origin, ma esplicito e a prova di setup cross-origin); è l'app mobile,
+ * senza cookie, a mettere un token nell'header.
+ *
+ * ⚠️ Le funzioni di questo file NON passano uno schema di risposta al client, ed
+ * è deliberato: continuano a fare il cast che facevano prima. La validazione
+ * `schema.parse` c'è solo sugli endpoint tipizzati del pacchetto (quelli che
+ * userà l'app mobile), dove il server dichiara lo stesso schema come risposta
+ * della rotta. Accenderla qui su ~40 rotte trasformerebbe ogni divergenza
+ * latente in un'eccezione in faccia a un utente del web, che oggi non c'è — e
+ * i test della SPA, che usano mock, non la scoprirebbero.
  */
+const client = createStubwiseClient({
+  baseUrl: "",
+  credentials: "include",
+  getAuthHeader: () => null,
+});
 
 /**
- * Errore HTTP dell'API: status + messaggio estratto dal body del server.
- * `code` è l'identificatore stabile (snake_case, indipendente dalla lingua)
- * che il server invia su `{ code, message }`: la UI lo usa per la traduzione
- * via `translateApiError`. Assente su risposte non-JSON, errori di validazione
- * Zod ed errori di rete. Status 0 = errore di rete (il server non ha risposto).
+ * `ApiError` e `handledByFromError` sono ri-esportati dal binding locale: i
+ * componenti li importano da "./api" come sempre e non sanno del pacchetto.
+ * Sono la CLASSE e la funzione del pacchetto, non copie: un `instanceof
+ * ApiError` vale lo stesso ovunque.
  */
-export class ApiError extends Error {
-  readonly status: number;
-  readonly code?: string;
-  /**
-   * Body JSON grezzo della risposta d'errore, quando ce n'è uno.
-   *
-   * `code` e `message` bastano quasi sempre; alcuni errori però portano un DATO
-   * che alla UI serve (oggi solo il 409 `already_handled` dell'inbox, che dice
-   * CHI ha gestito la notifica). Invece di aggiungere un campo tipizzato per
-   * ciascuno di questi casi si conserva il body così com'è, `unknown`: chi lo
-   * vuole lo valida con lo schema condiviso della sua superficie — vedi
-   * {@link handledByFromError}. Assente su risposte non-JSON e di rete.
-   */
-  readonly details?: unknown;
+export { ApiError, handledByFromError };
 
-  constructor(
-    status: number,
-    message: string,
-    code?: string,
-    options?: ErrorOptions & { details?: unknown },
-  ) {
-    super(message, options);
-    this.name = "ApiError";
-    this.status = status;
-    this.code = code;
-    this.details = options?.details;
-  }
-}
-
-/**
- * Costruisce l'{@link ApiError} di una risposta non-ok leggendone il body.
- *
- * Il server risponde `{ code, message }` sugli errori user-facing (code assente
- * sugli errori di validazione Zod); il fallback copre risposte non-JSON (proxy,
- * gateway, artefatti serviti in streaming, …). Caso raro e senza code: message
- * in inglese (coerente con "API in inglese, UI traduce per code").
- */
-async function errorFromResponse(response: Response): Promise<ApiError> {
-  const fallback = `Error ${response.status}`;
-  const { message, code, details } = await response
-    .json()
-    .then((data: unknown) => {
-      const obj = typeof data === "object" && data !== null ? (data as Record<string, unknown>) : {};
-      return {
-        message: "message" in obj ? String(obj.message) : fallback,
-        code: typeof obj.code === "string" ? obj.code : undefined,
-        // Il body intero resta a disposizione dei pochi errori che portano un
-        // dato oltre a code/message (vedi ApiError.details).
-        details: data,
-      };
-    })
-    .catch(() => ({ message: fallback, code: undefined, details: undefined }));
-  return new ApiError(response.status, message, code, { details });
-}
-
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const init: RequestInit = { method, credentials: "include" };
-  if (body !== undefined) {
-    init.headers = { "content-type": "application/json" };
-    init.body = JSON.stringify(body);
-  }
-
-  let response: Response;
-  try {
-    response = await fetch(path, init);
-  } catch (error) {
-    // fetch rifiuta con TypeError sugli errori di rete (server giù, DNS,
-    // CORS): normalizzato in ApiError così i chiamanti hanno un solo tipo
-    // di errore da gestire. Tutto il resto (es. AbortError) riemerge as-is.
-    if (error instanceof TypeError) {
-      // `network_error` è un code stabile (non c'è un body server da cui
-      // leggerlo): `translateApiError` lo localizza. Il message inglese è il
-      // fallback se la chiave non esistesse.
-      throw new ApiError(0, "Unable to reach the server", "network_error", { cause: error });
-    }
-    throw error;
-  }
-
-  if (!response.ok) throw await errorFromResponse(response);
-
-  if (response.status === 204) return undefined as T;
-  return (await response.json()) as T;
-}
+const request = client.request;
 
 export const api = {
   get: <T>(path: string) => request<T>("GET", path),
@@ -2989,20 +2928,9 @@ export function postInboxAction(
   return api.post(`/api/inbox/${encodeURIComponent(id)}/actions/${action}`, body);
 }
 
-/**
- * Chi ha già gestito la notifica, letto dal 409 `already_handled`.
- *
- * È l'unico errore dell'API che porta un DATO oltre a `code`/`message`: il body
- * grezzo viaggia in {@link ApiError.details} e qui si valida con lo schema
- * condiviso prima di usarlo — non ci si fida della forma di un body d'errore.
- * Ritorna `undefined` per qualunque altro errore, o se il server non ha saputo
- * dire chi (`handledBy` è opzionale nel contratto).
- */
-export function handledByFromError(error: unknown): HandledBy | undefined {
-  if (!(error instanceof ApiError) || error.code !== "already_handled") return undefined;
-  const parsed = inboxActionErrorSchema.safeParse(error.details);
-  return parsed.success ? parsed.data.handledBy : undefined;
-}
+// `handledByFromError` vive ora in `@stubwise/api-client` (ri-esportata in cima
+// a questo file): è la lettura di un body d'errore, cioè trasporto, e la stessa
+// card d'inbox esiste anche sull'app mobile.
 
 /** Progetti seguiti dall'utente corrente: l'insieme COMPLETO. */
 export function getMyFollows(): Promise<ProjectFollows> {
