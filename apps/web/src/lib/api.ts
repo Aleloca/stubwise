@@ -30,6 +30,7 @@ import type {
   PluginRecommendations,
   PrState,
   ProjectFollows,
+  ProjectPlugin,
   RecordSearchHistoryBody,
   SearchDocsSemanticResults,
   SearchEntityType,
@@ -1734,6 +1735,7 @@ export type {
   PluginInventory,
   PluginRecommendations,
   PluginSkill,
+  ProjectPlugin,
 } from "@stubwise/shared";
 
 /**
@@ -1778,6 +1780,36 @@ export function smokePlugin(id: string): Promise<{ queued: true }> {
 /** Rimuove un plugin: 204, oppure 409 `plugin_in_use` se è abilitato altrove. */
 export function deletePlugin(id: string): Promise<void> {
   return api.delete(`/api/plugins/${encodeURIComponent(id)}`);
+}
+
+// --- Abilitazioni dei plugin su un progetto (solo admin) ---
+
+/** Le abilitazioni di un progetto: la stessa forma del body del PUT. */
+export interface ProjectPlugins {
+  plugins: ProjectPlugin[];
+}
+
+/** Abilitazioni dei plugin sul progetto. 404 `project_not_found` se non esiste. */
+export function getProjectPlugins(projectId: string): Promise<ProjectPlugins> {
+  return api.get(`/api/projects/${encodeURIComponent(projectId)}/plugins`);
+}
+
+/**
+ * Sostituisce l'INSIEME COMPLETO delle abilitazioni del progetto e restituisce
+ * la foto salvata (round-trip con il body). I plugin assenti dal body risultano
+ * non abilitati e perdono gli spegnimenti: per "disabilitato ma con le scelte
+ * ricordate" si manda la riga con `enabled: false`, non la si omette.
+ *
+ * 400 `unknown_plugin` (plugin rimosso nel frattempo),
+ * `unknown_plugin_skill`/`unknown_plugin_hook` (spegnimento che cita una voce
+ * non più nell'inventario): in tutti e tre i casi la reazione è ricaricare, mai
+ * ritentare togliendo la voce.
+ */
+export function putProjectPlugins(
+  projectId: string,
+  plugins: ProjectPlugin[],
+): Promise<ProjectPlugins> {
+  return api.put(`/api/projects/${encodeURIComponent(projectId)}/plugins`, { plugins });
 }
 
 /**

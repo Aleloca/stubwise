@@ -13,6 +13,7 @@ import {
 } from "../lib/api";
 import { aiProvidersQueryOptions, aiUsageSnapshotsQueryOptions } from "../lib/queries";
 import { FormError, SelectField, SubmitButton, TextField } from "./field";
+import { RowButton } from "./row-button";
 
 /**
  * Sezione "AI providers" delle impostazioni (solo admin): catena ordinata delle
@@ -487,32 +488,5 @@ function KindBadge({ kind }: { kind: AiProviderKind }) {
         ? t("settings:aiProviders.kindAccount")
         : t("settings:aiProviders.kindApiKey")}
     </span>
-  );
-}
-
-function RowButton({
-  onClick,
-  label,
-  disabled,
-  danger,
-}: {
-  onClick: () => void;
-  label: string;
-  disabled?: boolean;
-  danger?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className={`rounded-sm border bg-ink-950/70 px-3 py-1.5 font-mono text-[11px] font-medium tracking-[0.08em] uppercase transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-        danger
-          ? "border-danger/30 text-danger hover:border-danger/60"
-          : "border-line-strong text-fg-muted hover:border-ink-700 hover:text-fg"
-      }`}
-    >
-      {label}
-    </button>
   );
 }

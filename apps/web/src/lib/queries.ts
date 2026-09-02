@@ -19,6 +19,7 @@ import {
   getPlugins,
   listPats,
   getProject,
+  getProjectPlugins,
   getProjects,
   getRepoGraph,
   getRepoGraphReport,
@@ -546,6 +547,23 @@ export function projectQueryOptions(projectId: string) {
     queryKey: ["projects", "detail", projectId],
     queryFn: () => getProject(projectId),
     staleTime: 60_000,
+  });
+}
+
+/**
+ * Abilitazioni dei plugin su un progetto (solo admin). Chiave figlia del
+ * progetto: il PUT riconcilia la cache con la foto restituita dal server.
+ *
+ * Nessun `refetchInterval`: qui non c'è nulla in volo da attendere — la
+ * configurazione per-progetto cambia solo quando qualcuno la salva. Il registro
+ * d'istanza, che invece polla mentre il worker materializza, si legge a parte
+ * con {@link pluginsQueryOptions}.
+ */
+export function projectPluginsQueryOptions(projectId: string) {
+  return queryOptions({
+    queryKey: ["projects", "detail", projectId, "plugins"],
+    queryFn: () => getProjectPlugins(projectId),
+    staleTime: 30_000,
   });
 }
 

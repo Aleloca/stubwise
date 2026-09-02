@@ -6,6 +6,7 @@ import { ProviderBadge } from "../../components/badges";
 import { IntegrationPanel } from "../../components/integration-panel";
 import { MilestoneManager } from "../../components/milestone-manager";
 import { ProjectForm } from "../../components/project-form";
+import { ProjectPluginsSection } from "../../components/project-plugins-section";
 import { ProjectServersSection } from "../../components/project-servers-section";
 import { WidgetsSection } from "../../components/widgets-section";
 import { deleteProject, patchProject, putMyFollows, type ProjectPatch } from "../../lib/api";
@@ -242,6 +243,27 @@ export function ProjectDetailPage() {
         <h2 className={sectionTitleClass}>{t("projects:detail.servers")}</h2>
         <ProjectServersSection projectId={project.id} />
       </section>
+
+      {/*
+        Plugin di Claude Code abilitati su questo progetto (fase 3): solo admin,
+        come il registro d'istanza — decidere quali skill di terze parti girano
+        nei run è una scelta da maintainer, e le rotte sono `requireAdmin`
+        (a un membro la GET risponderebbe 403).
+      */}
+      {isAdmin && (
+        <section
+          aria-label={t("projects:plugins.title")}
+          className="mt-8 border-t border-line pt-6"
+        >
+          <div className="mb-3">
+            <h2 className={sectionTitleClass + " mb-0"}>{t("projects:plugins.title")}</h2>
+            <p className="mt-1 font-mono text-[11px] text-fg-faint">
+              {t("projects:plugins.subtitle")}
+            </p>
+          </div>
+          <ProjectPluginsSection projectId={project.id} />
+        </section>
+      )}
 
       {/*
         Gestione milestone: vivono per-progetto (gruppo). Visibile a tutti gli

@@ -1364,6 +1364,28 @@
       "label": "Default branch",
       "loadFailed": "// unable to load branches: enter it manually.",
       "loading": "// loading branches…"
+    },
+    "plugins": {
+      "title": "Plugins",
+      "subtitle": "Which registry plugins run in this project's agent runs, and which of their skills and hooks to turn off here.",
+      "settingSourcesWarning": "// with plugins on, deep dive runs and backlog analysis sessions no longer load the target repository's .claude/settings.json. Fix runs are unaffected.",
+      "loading": "// loading plugins…",
+      "error": "// could not load the plugins for this project",
+      "empty": "// no plugins registered",
+      "emptyHint": "The registry is instance-wide: register a plugin there and it becomes enableable here.",
+      "manage": "Settings → Plugins",
+      "enabled": "Enabled in this project",
+      "refValue": "ref {{ref}}",
+      "notReady": "// no materialized revision: it will not enter runs, even if enabled",
+      "selectionHint": "// unchecked = it does not run in this project",
+      "skills": "Skills",
+      "hooks": "Hooks",
+      "hookMatcher": "matcher {{matcher}}",
+      "applyPreset": "Apply recommended preset",
+      "presetApplied": "// recommended preset applied",
+      "saving": "Saving…",
+      "inventoryChanged": "The plugin inventory has changed: at least one skill or hook you had turned off is no longer there. The list has been reloaded: check the selection and save again.",
+      "registryChanged": "The plugin registry has changed: a plugin was removed while you were choosing. The list has been reloaded: check the selection and save again."
     }
   },
   "repositories": {

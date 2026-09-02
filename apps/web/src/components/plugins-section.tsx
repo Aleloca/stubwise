@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import {
@@ -15,6 +15,8 @@ import { pluginsQueryOptions } from "../lib/queries";
 import { translateApiError } from "../lib/translate-api-error";
 import { CollapsibleSection } from "./collapsible-section";
 import { FormError, SubmitButton, TextField } from "./field";
+import { HookCommand, InventoryGroup } from "./plugin-inventory";
+import { RowButton } from "./row-button";
 
 /**
  * Sezione "Plugin" delle impostazioni (solo admin): il REGISTRO D'ISTANZA dei
@@ -425,8 +427,6 @@ function InventoryPanel({ inventory }: { inventory: PluginInventory }) {
         ))}
       </InventoryGroup>
 
-      {/* Un hook è codice che gira a ogni run: il comando si legge in chiaro,
-          non si riassume. */}
       <InventoryGroup title={t("settings:plugins.hooks")} empty={inventory.hooks.length === 0}>
         {inventory.hooks.map((hook) => (
           <li key={hook.key} className="flex flex-col gap-0.5">
@@ -438,40 +438,13 @@ function InventoryPanel({ inventory }: { inventory: PluginInventory }) {
                 </span>
               )}
             </span>
-            <span className="rounded-sm border border-line bg-ink-950/70 px-2 py-1 font-mono text-[11px] break-all text-fg-muted">
-              {hook.command}
-            </span>
+            <HookCommand command={hook.command} />
           </li>
         ))}
       </InventoryGroup>
 
       {inventory.hasMcp && (
         <p className="font-mono text-[11px] text-fg-faint">{t("settings:plugins.mcpPresent")}</p>
-      )}
-    </div>
-  );
-}
-
-/** Gruppo dell'inventario con titolo mono e vuoto esplicito. */
-function InventoryGroup({
-  title,
-  empty,
-  children,
-}: {
-  title: string;
-  empty: boolean;
-  children: ReactNode;
-}) {
-  const { t } = useTranslation();
-  return (
-    <div className="flex flex-col gap-1">
-      <span className="font-mono text-[11px] tracking-[0.14em] text-fg-faint uppercase">
-        {title}
-      </span>
-      {empty ? (
-        <p className="font-mono text-[11px] text-fg-faint">{t("settings:plugins.emptyList")}</p>
-      ) : (
-        <ul className="flex flex-col gap-1">{children}</ul>
       )}
     </div>
   );
@@ -629,35 +602,5 @@ function SmokeBadge({ status }: { status: Plugin["smokeStatus"] }) {
     >
       {text}
     </span>
-  );
-}
-
-/** Bottone d'azione della riga, gemello di quello dei provider AI. */
-function RowButton({
-  onClick,
-  label,
-  disabled,
-  danger,
-  type = "button",
-}: {
-  onClick?: () => void;
-  label: string;
-  disabled?: boolean;
-  danger?: boolean;
-  type?: "button" | "submit";
-}) {
-  return (
-    <button
-      type={type}
-      onClick={onClick}
-      disabled={disabled}
-      className={`rounded-sm border bg-ink-950/70 px-3 py-1.5 font-mono text-[11px] font-medium tracking-[0.08em] uppercase transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-        danger
-          ? "border-danger/30 text-danger hover:border-danger/60"
-          : "border-line-strong text-fg-muted hover:border-ink-700 hover:text-fg"
-      }`}
-    >
-      {label}
-    </button>
   );
 }

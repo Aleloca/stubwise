@@ -1364,6 +1364,28 @@
       "label": "Branch di default",
       "loadFailed": "// impossibile caricare i branch: inseriscilo manualmente.",
       "loading": "// caricamento branch…"
+    },
+    "plugins": {
+      "title": "Plugin",
+      "subtitle": "Quali plugin del registro entrano nei run dell'agente di questo progetto, e quali loro skill e hook spegnere qui.",
+      "settingSourcesWarning": "// con i plugin attivi, i run di deep dive e le sessioni di analisi del backlog non caricano più le .claude/settings.json del repository. Nei run di fix non cambia nulla.",
+      "loading": "// caricamento plugin…",
+      "error": "// impossibile caricare i plugin di questo progetto",
+      "empty": "// nessun plugin registrato",
+      "emptyHint": "Il registro è d'istanza: registra lì un plugin e diventa abilitabile qui.",
+      "manage": "Impostazioni → Plugin",
+      "enabled": "Abilitato su questo progetto",
+      "refValue": "ref {{ref}}",
+      "notReady": "// nessuna revisione materializzata: non entrerà nei run, anche se abilitato",
+      "selectionHint": "// non selezionato = non gira in questo progetto",
+      "skills": "Skill",
+      "hooks": "Hook",
+      "hookMatcher": "matcher {{matcher}}",
+      "applyPreset": "Applica preset consigliato",
+      "presetApplied": "// preset consigliato applicato",
+      "saving": "Salvataggio…",
+      "inventoryChanged": "L'inventario del plugin è cambiato: almeno una skill o un hook che avevi spento non c'è più. La lista è stata ricaricata: ricontrolla la selezione e salva di nuovo.",
+      "registryChanged": "Il registro dei plugin è cambiato: un plugin è stato rimosso mentre sceglievi. La lista è stata ricaricata: ricontrolla la selezione e salva di nuovo."
     }
   },
   "repositories": {
