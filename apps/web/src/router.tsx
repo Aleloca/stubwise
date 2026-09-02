@@ -15,6 +15,7 @@ import {
   activityQueryOptions,
   activityReportQueryOptions,
   aiProvidersQueryOptions,
+  pluginsQueryOptions,
   backlogInfiniteQueryOptions,
   backlogItemQueryOptions,
   automationSettingsQueryOptions,
@@ -86,6 +87,7 @@ import { SettingsAutomationPage } from "./routes/settings/automation";
 import { SettingsGitAccountsPage } from "./routes/settings/git-accounts";
 import { SettingsLayout } from "./routes/settings/layout";
 import { SettingsNotificationsPage } from "./routes/settings/notifications";
+import { SettingsPluginsPage } from "./routes/settings/plugins";
 import { SettingsSlackPage } from "./routes/settings/slack";
 import { SettingsStoragePage } from "./routes/settings/storage";
 import { SettingsUsagePage } from "./routes/settings/usage";
@@ -710,6 +712,20 @@ const settingsAiProvidersRoute = createRoute({
   component: SettingsAiProvidersPage,
 });
 
+/**
+ * Registro plugin d'istanza (solo admin): plugin di Claude Code abilitabili per
+ * progetto. Prefetch best-effort come le altre sotto-rotte admin.
+ */
+const settingsPluginsRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "/plugins",
+  beforeLoad: ({ context }) => requireAdmin(context.user.role),
+  loader: async ({ context }) => {
+    await context.queryClient.ensureQueryData(pluginsQueryOptions).catch(() => undefined);
+  },
+  component: SettingsPluginsPage,
+});
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
   registerRoute,
@@ -754,6 +770,7 @@ const routeTree = rootRoute.addChildren([
       settingsStorageRoute,
       settingsSlackRoute,
       settingsAiProvidersRoute,
+      settingsPluginsRoute,
     ]),
   ]),
 ]);

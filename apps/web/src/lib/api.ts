@@ -10,6 +10,7 @@ import type {
   CheckType,
   CreateBacklogItemInput,
   CreateCheckInput,
+  CreatePluginInput,
   DiscoveredService,
   GitProviderKind,
   HandledBy,
@@ -25,6 +26,8 @@ import type {
   NotificationPrefsView,
   PatView,
   PatWithToken,
+  Plugin,
+  PluginRecommendations,
   PrState,
   ProjectFollows,
   RecordSearchHistoryBody,
@@ -1718,6 +1721,63 @@ export function reorderAiProviders(orderedIds: string[]): Promise<AiProvider[]> 
  */
 export function testAiProvider(id: string): Promise<AiProvider> {
   return api.post(`/api/ai-providers/${encodeURIComponent(id)}/test`);
+}
+
+// --- Registro plugin (solo admin) ---
+
+// Tipi del registro ri-esportati dal binding locale: i componenti importano
+// tutto il dominio da "./api", come per la sezione Monitor.
+export type {
+  CreatePluginInput,
+  Plugin,
+  PluginHook,
+  PluginInventory,
+  PluginRecommendations,
+  PluginSkill,
+} from "@stubwise/shared";
+
+/**
+ * Risposta del registro: NON è un array. Oltre ai plugin porta i preset di
+ * skill consigliate per i plugin noti, indicizzati per `inventory.name` (non
+ * per slug): li usa la sezione Plugin della pagina progetto.
+ */
+export interface PluginRegistry {
+  plugins: Plugin[];
+  recommendations: PluginRecommendations;
+}
+
+/** Registro plugin d'istanza (solo admin), i plugin in ordine di slug. */
+export function getPlugins(): Promise<PluginRegistry> {
+  return api.get("/api/plugins");
+}
+
+/**
+ * Registra un plugin: 201 con la riga appena creata, ancora `status: "none"` —
+ * la materializzazione la fa il worker quando claima il job accodato qui.
+ */
+export function createPlugin(input: CreatePluginInput): Promise<Plugin> {
+  return api.post("/api/plugins", input);
+}
+
+/**
+ * Cambia il ref pinnato e riaccoda la materializzazione: 202, il lavoro lo fa
+ * il worker. 409 `plugin_job_pending` se ce n'è già uno in volo.
+ */
+export function updatePluginRef(id: string, ref: string): Promise<{ queued: true }> {
+  return api.post(`/api/plugins/${encodeURIComponent(id)}/update`, { ref });
+}
+
+/**
+ * Riaccoda lo smoke run (202). 409 `plugin_not_ready` se non c'è una revisione
+ * materializzata, `plugin_job_pending` se c'è già un job in volo.
+ */
+export function smokePlugin(id: string): Promise<{ queued: true }> {
+  return api.post(`/api/plugins/${encodeURIComponent(id)}/smoke`);
+}
+
+/** Rimuove un plugin: 204, oppure 409 `plugin_in_use` se è abilitato altrove. */
+export function deletePlugin(id: string): Promise<void> {
+  return api.delete(`/api/plugins/${encodeURIComponent(id)}`);
 }
 
 /**

@@ -16,6 +16,7 @@ import {
   getNotificationPrefs,
   getNotificationSettings,
   getObservedAuthors,
+  getPlugins,
   listPats,
   getProject,
   getProjects,
@@ -50,6 +51,7 @@ import {
   type AIJobStatus,
   type BacklogFilters,
   type InboxFilters,
+  type PluginRegistry,
   type RepoGraph,
   type ServerMetricsRange,
   type TicketFilters,
@@ -462,6 +464,39 @@ export const aiProvidersQueryOptions = queryOptions({
   // `pending` ricarichiamo ogni 2s; altrimenti niente refetch periodico.
   refetchInterval: (query) =>
     (query.state.data ?? []).some((p) => p.testStatus === "pending") ? 2000 : false,
+});
+
+/** Cadenza del polling del registro plugin mentre il worker sta lavorando. */
+const PLUGINS_POLL_MS = 2_000;
+
+/**
+ * Intervallo di refetch del registro: 2s finché ALMENO UN plugin ha un job del
+ * registro in coda o in corso, nessun polling altrimenti. Funzione pura
+ * (testabile a sé) usata dal `refetchInterval` di {@link pluginsQueryOptions}.
+ *
+ * La condizione è `pendingJobKind`, NON `status`/`smokeStatus`. Fra
+ * l'accodamento e il claim del worker (fino a `PLUGIN_POLL_SECONDS`) un plugin
+ * appena registrato resta `none` e uno appena aggiornato resta `ready`: una UI
+ * che pollasse sugli stati smetterebbe di pollare PROPRIO PRIMA del flip e il
+ * plugin sembrerebbe fermo per sempre. `pendingJobKind` è il fatto — lo calcola
+ * il server leggendo `plugin_jobs` — e copre anche il job accodato da un ALTRO
+ * admin, che questa scheda non ha mai visto partire.
+ */
+export function pluginsRefetchInterval(registry: PluginRegistry | undefined): number | false {
+  if (registry === undefined) return false;
+  return registry.plugins.some((p) => p.pendingJobKind !== null) ? PLUGINS_POLL_MS : false;
+}
+
+/**
+ * Registro plugin d'istanza (solo admin). Chiave radice ["plugins"]: ogni
+ * create/update/smoke/delete la invalida, così il registro resta riconciliato
+ * col backend senza aspettare il polling.
+ */
+export const pluginsQueryOptions = queryOptions({
+  queryKey: ["plugins"],
+  queryFn: getPlugins,
+  staleTime: 30_000,
+  refetchInterval: (query) => pluginsRefetchInterval(query.state.data),
 });
 
 /**

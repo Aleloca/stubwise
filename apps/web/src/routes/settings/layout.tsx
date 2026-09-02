@@ -19,6 +19,7 @@ const SETTINGS_NAV = [
   { to: "/settings/storage", labelKey: "storage", adminOnly: true },
   { to: "/settings/slack", labelKey: "slack", adminOnly: true },
   { to: "/settings/ai-providers", labelKey: "aiProviders", adminOnly: true },
+  { to: "/settings/plugins", labelKey: "plugins", adminOnly: true },
 ] as const;
 
 /**

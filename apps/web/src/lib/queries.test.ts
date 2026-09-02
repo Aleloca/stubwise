@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { AIJob, AIJobStatus, RepoGraph } from "./api";
+import type { AIJob, AIJobStatus, Plugin, PluginRegistry, RepoGraph } from "./api";
 import {
   graphKeys,
   inboxKeys,
+  pluginsRefetchInterval,
   repoGraphRefetchInterval,
   ticketJobsRefetchInterval,
 } from "./queries";
@@ -126,5 +127,92 @@ describe("inboxKeys", () => {
 
   it("il contatore è una chiave distinta dalle liste", () => {
     expect(inboxKeys.unread()).not.toEqual(inboxKeys.lists());
+  });
+});
+
+/** Plugin del registro fermo e materializzato: la base dei casi con job vivi. */
+function plugin(overrides: Partial<Plugin> = {}): Plugin {
+  return {
+    id: "11111111-1111-4111-8111-111111111111",
+    slug: "superpowers",
+    name: "superpowers",
+    sourceUrl: "https://github.com/obra/superpowers",
+    sourceSubdir: null,
+    ref: "v4.0.3",
+    resolvedSha: "a".repeat(40),
+    status: "ready",
+    inventory: null,
+    error: null,
+    smokeStatus: "passed",
+    smokeError: null,
+    pendingJobKind: null,
+    materializedAt: "2026-09-01T10:00:00.000Z",
+    createdAt: "2026-09-01T09:00:00.000Z",
+    updatedAt: "2026-09-01T10:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function registry(plugins: Plugin[]): PluginRegistry {
+  return { plugins, recommendations: {} };
+}
+
+describe("pluginsRefetchInterval", () => {
+  it("nessun dato in cache (primo fetch) o registro vuoto: niente polling", () => {
+    expect(pluginsRefetchInterval(undefined)).toBe(false);
+    expect(pluginsRefetchInterval(registry([]))).toBe(false);
+  });
+
+  it("registro fermo (ready/failed senza job): niente polling", () => {
+    expect(pluginsRefetchInterval(registry([plugin()]))).toBe(false);
+    expect(
+      pluginsRefetchInterval(registry([plugin({ status: "failed", error: "fetch KO" })])),
+    ).toBe(false);
+  });
+
+  it("job in volo su un plugin: polling a 2s", () => {
+    expect(pluginsRefetchInterval(registry([plugin({ pendingJobKind: "materialize" })]))).toBe(
+      2_000,
+    );
+    expect(pluginsRefetchInterval(registry([plugin({ pendingJobKind: "smoke" })]))).toBe(2_000);
+  });
+
+  it("appena registrato (status none) con il job ancora da claimare: polling comunque", () => {
+    // È la finestra che una condizione su `status` sbaglierebbe: il plugin resta
+    // `none` finché il worker non claima, e senza polling sembrerebbe fermo.
+    expect(
+      pluginsRefetchInterval(
+        registry([
+          plugin({
+            status: "none",
+            resolvedSha: null,
+            smokeStatus: "idle",
+            materializedAt: null,
+            pendingJobKind: "materialize",
+          }),
+        ]),
+      ),
+    ).toBe(2_000);
+  });
+
+  it("aggiornamento accodato su un plugin ancora ready: polling comunque", () => {
+    // Dopo il 202 di /update il plugin resta `ready` fino al claim: l'altra
+    // finestra che una condizione su `status` mancherebbe.
+    expect(
+      pluginsRefetchInterval(
+        registry([plugin({ status: "ready", pendingJobKind: "materialize" })]),
+      ),
+    ).toBe(2_000);
+  });
+
+  it("basta UN plugin con un job in volo perché tutto il registro polli", () => {
+    expect(
+      pluginsRefetchInterval(
+        registry([
+          plugin(),
+          plugin({ id: "22222222-2222-4222-8222-222222222222", pendingJobKind: "smoke" }),
+        ]),
+      ),
+    ).toBe(2_000);
   });
 });
