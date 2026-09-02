@@ -723,6 +723,82 @@ export async function processPluginJobsOnce(deps: PluginPollerDeps): Promise<num
   return done;
 }
 
+// ---------------------------------------------------------------------------
+// Sweep delle dir di slug orfane
+// ---------------------------------------------------------------------------
+
+/**
+ * Ogni quanto girare lo sweep. Un'ora, e NON a ogni tick, perché il lavoro che
+ * ripulisce è raro per costruzione: una dir orfana nasce solo quando un admin
+ * rimuove dal registro un plugin già materializzato. Il costo di aspettare è
+ * qualche MB su un volume; il costo di guardare in continuazione sarebbe una
+ * `readdir` + una query ogni pochi secondi, per sempre, senza che quasi mai ci
+ * sia qualcosa da fare.
+ */
+export const PLUGIN_SWEEP_INTERVAL_MS = 60 * 60_000;
+
+/**
+ * Rimuove da `<PLUGINS_DIR>` le directory di slug che non hanno più una riga in
+ * `plugins`. Ritorna gli slug rimossi.
+ *
+ * PERCHÉ UNO SWEEP E NON UN JOB: `plugin_jobs.plugin_id` ha la FK
+ * `ON DELETE CASCADE`, quindi un ipotetico job "cleanup" verrebbe cancellato
+ * insieme al plugin che dovrebbe ripulire. E non può farlo il server, che il
+ * volume dei plugin non lo monta affatto.
+ *
+ * ⚠️ L'ORDINE DEI DUE PASSI È LA CORRETTEZZA, NON UNO STILE. Prima si elencano
+ * le directory, POI si chiede al DB l'insieme degli slug vivi:
+ *
+ *  - una dir creata DOPO il passo 1 non è nella lista, quindi non può essere
+ *    rimossa: è salva per costruzione;
+ *  - una dir che era nella lista esisteva già, e una dir può esistere solo
+ *    perché una materializzazione l'ha creata per una riga esistente. Se al
+ *    passo 2 quella riga non c'è più, il plugin è stato davvero rimosso nel
+ *    frattempo — cancellarla è esattamente ciò che si voleva.
+ *
+ * Invertendo i due passi (prima la query, poi la readdir) si otterrebbe il caso
+ * mortale: si legge l'insieme degli slug, un admin registra un plugin nuovo, la
+ * materializzazione crea la sua dir, e la readdir successiva la trova senza che
+ * sia nell'insieme — cancellando la directory di un plugin VIVO. È la
+ * "semplificazione" che chi rilegge questo codice sarà tentato di fare.
+ */
+export async function sweepOrphanPluginDirs(deps: PluginPollerDeps): Promise<string[]> {
+  // PASSO 1: le directory presenti ADESSO. `withFileTypes` ha semantica lstat:
+  // un symlink di primo livello non è `isDirectory()` e resta fuori — non lo
+  // crea questo modulo e seguirlo porterebbe una `rm -rf` fuori dal volume.
+  let names: string[];
+  try {
+    const entries = await readdir(deps.pluginsDir, { withFileTypes: true });
+    names = entries.filter((e) => e.isDirectory()).map((e) => e.name);
+  } catch {
+    // Volume non ancora creato (nessuna materializzazione è mai girata): niente
+    // da ripulire, e nessuna query.
+    return [];
+  }
+  // Uscita a costo zero nel caso normale di un'istanza senza plugin: si evita
+  // anche la query, che altrimenti girerebbe a vuoto a ogni sweep.
+  if (names.length === 0) return [];
+
+  // PASSO 2, dopo: l'insieme degli slug vivi.
+  const rows = await deps.db.select({ slug: plugins.slug }).from(plugins);
+  const alive = new Set(rows.map((r) => r.slug));
+
+  const removed: string[] = [];
+  for (const name of names) {
+    if (alive.has(name)) continue;
+    try {
+      await rm(join(deps.pluginsDir, name), { recursive: true, force: true });
+      removed.push(name);
+      deps.logger.info({ slug: name }, "[plugins] rimossa la dir di uno slug non più nel registro");
+    } catch (err) {
+      // Best-effort: una dir che non si riesce a togliere è spazio sprecato,
+      // non un errore che debba fermare il poller. Si riprova al prossimo sweep.
+      deps.logger.warn({ err, slug: name }, "[plugins] rimozione della dir orfana fallita");
+    }
+  }
+  return removed;
+}
+
 export interface StartPluginPollerOptions extends PluginPollerDeps {
   /** Intervallo di poll in secondi. ≤ 0 = disabilitato (non avvia nulla). */
   intervalSeconds: number;
@@ -742,6 +818,9 @@ export function startPluginPoller(opts: StartPluginPollerOptions): () => void {
   }
   const { intervalSeconds, ...deps } = opts;
   let running = false;
+  // 0 = mai: il PRIMO tick sweepa. È il momento giusto — un plugin rimosso
+  // mentre il worker era spento non ha lasciato nessuno a ripulire la sua dir.
+  let lastSweepAt = 0;
 
   const tick = async (): Promise<void> => {
     // Evita sovrapposizioni se un giro è più lento dell'intervallo: un fetch
@@ -750,6 +829,12 @@ export function startPluginPoller(opts: StartPluginPollerOptions): () => void {
     running = true;
     try {
       await processPluginJobsOnce(deps);
+      // Dopo il drain, mai prima: se in questo tick una materializzazione ha
+      // appena creato una dir, la riga del suo plugin esiste da prima ancora.
+      if (Date.now() - lastSweepAt >= PLUGIN_SWEEP_INTERVAL_MS) {
+        lastSweepAt = Date.now();
+        await sweepOrphanPluginDirs(deps);
+      }
     } catch (err) {
       // Difesa finale (processPluginJobsOnce già non lancia): mai propagare.
       deps.logger.error({ err }, "[plugins] tick fallito");

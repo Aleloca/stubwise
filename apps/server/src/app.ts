@@ -48,6 +48,8 @@ import { projectRoutes } from "./routes/projects.js";
 import { repositoryRoutes } from "./routes/repositories.js";
 import { repoGraphRoutes } from "./routes/repo-graph.js";
 import { patRoutes } from "./routes/pat.js";
+import { pluginRoutes } from "./routes/plugins.js";
+import { projectPluginRoutes } from "./routes/project-plugins.js";
 import { serverRoutes } from "./routes/servers.js";
 import { serverCheckRoutes } from "./routes/servers-checks.js";
 import { savedViewRoutes } from "./routes/saved-views.js";
@@ -490,6 +492,12 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   void app.register(settingsRoutes, { prefix: "/api/settings" });
   // Provider AI (credenziali del worker, secret cifrata write-only): solo admin.
   void app.register(aiProviderRoutes, { prefix: "/api/ai-providers" });
+  // Registro plugin d'istanza (fase 3): metadati e job: i file stanno sul volume
+  // del worker, che il server non monta. Solo admin.
+  void app.register(pluginRoutes, { prefix: "/api/plugins" });
+  // Abilitazioni dei plugin su un progetto: secondo plugin sotto /api/projects
+  // (come widgetAdminRoutes), `:projectId` = id del progetto. Solo admin.
+  void app.register(projectPluginRoutes, { prefix: "/api/projects" });
   // Dashboard consumi AI (costi/token aggregati): solo admin.
   void app.register(aiUsageCostsRoutes, { prefix: "/api/ai-usage" });
   // Usage residuo abbonamento: ultimo snapshot per credenziale account. Solo admin.

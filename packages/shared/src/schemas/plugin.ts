@@ -92,6 +92,62 @@ export const pluginInventorySchema = z.object({
 export type PluginInventory = z.infer<typeof pluginInventorySchema>;
 
 // ---------------------------------------------------------------------------
+// Slug
+// ---------------------------------------------------------------------------
+
+/**
+ * Slug del plugin: minuscole, cifre e trattini, primo carattere alfanumerico,
+ * al più 64 caratteri.
+ *
+ * NON è un vincolo cosmetico. Lo slug è un COMPONENTE DI PERCORSO: il worker
+ * materializza il plugin in `<PLUGINS_DIR>/<slug>/<sha>/` e su quella directory
+ * fa `rename` e `rm -rf`. Il pattern esclude per costruzione separatori, `.`,
+ * `..` e ogni carattere che un filesystem o una shell potrebbero interpretare,
+ * quindi uno slug valido non può uscire dal volume nemmeno concatenato a mano.
+ *
+ * Il worker ha una guardia sua, più larga (`assertSafeSegment`): è difesa in
+ * profondità su un altro strato, che legge dal DB. Questa è la validazione
+ * ALL'INGRESSO, ed è deliberatamente più stretta — ciò che non la passa non
+ * entra proprio nel registro.
+ */
+export const pluginSlugSchema = z
+  .string()
+  .regex(/^[a-z0-9][a-z0-9-]{0,63}$/, "slug non valido: minuscole, cifre e trattini, max 64");
+
+// ---------------------------------------------------------------------------
+// Raccomandazioni per plugin noti
+// ---------------------------------------------------------------------------
+
+/**
+ * Preset di skill da spegnere per i plugin noti. Chiave = `name` di
+ * `.claude-plugin/plugin.json` (cioè `inventory.name`), NON lo slug: lo slug lo
+ * deriva Stubwise dall'URL e può cambiare da istanza a istanza, il nome del
+ * manifest è del plugin.
+ *
+ * Perché queste quattro per `superpowers`: creano branch, chiudono rami di
+ * sviluppo e dispatchano subagent — cioè fanno esattamente ciò che nella
+ * pipeline di Stubwise fa il worker (worktree, branch, commit, PR). Lasciarle
+ * accese porta l'agente a duplicare o a scavalcare il contratto della run.
+ *
+ * È un CONSIGLIO, non una regola: la UI lo propone come preset all'abilitazione
+ * e l'admin resta libero di non applicarlo. Sta in `@stubwise/shared` (e non
+ * lato server) perché serve a due lati — l'API lo espone nel GET del registro e
+ * la SPA lo usa per il bottone "Applica preset consigliato".
+ */
+export const RECOMMENDED_DISABLED_SKILLS: Record<string, string[]> = {
+  superpowers: [
+    "using-git-worktrees",
+    "finishing-a-development-branch",
+    "dispatching-parallel-agents",
+    "subagent-driven-development",
+  ],
+};
+
+/** Forma con cui le raccomandazioni viaggiano nella risposta del registro. */
+export const pluginRecommendationsSchema = z.record(z.string(), z.array(z.string()));
+export type PluginRecommendations = z.infer<typeof pluginRecommendationsSchema>;
+
+// ---------------------------------------------------------------------------
 // Proiezione pubblica
 // ---------------------------------------------------------------------------
 
@@ -102,7 +158,7 @@ export type PluginInventory = z.infer<typeof pluginInventorySchema>;
  */
 export const pluginSchema = z.object({
   id: z.uuid(),
-  slug: z.string().min(1),
+  slug: pluginSlugSchema,
   name: z.string().min(1),
   sourceUrl: z.url(),
   sourceSubdir: z.string().nullable(),

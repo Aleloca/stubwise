@@ -3,9 +3,12 @@ import { z } from "zod";
 import {
   createPluginSchema,
   pluginInventorySchema,
+  pluginRecommendationsSchema,
   pluginSchema,
+  pluginSlugSchema,
   projectPluginSchema,
   putProjectPluginsSchema,
+  RECOMMENDED_DISABLED_SKILLS,
   updatePluginRefSchema,
 } from "./plugin.js";
 
@@ -374,5 +377,77 @@ describe("projectPluginSchema / putProjectPluginsSchema", () => {
     // Nessun default sul body: omettere `plugins` è un errore, non un
     // azzeramento silenzioso delle abilitazioni del progetto.
     expect(() => putProjectPluginsSchema.parse({})).toThrow();
+  });
+});
+
+describe("pluginSlugSchema", () => {
+  it("accetta gli slug ammessi", () => {
+    // `trailing-` passa: un trattino finale non è un problema di sicurezza (il
+    // normalizzatore del server lo toglie comunque), e stringere qui il pattern
+    // oltre il necessario non aggiungerebbe nulla.
+    for (const slug of ["superpowers", "a", "stubwise-base", "x9", "trailing-", "a".repeat(64)]) {
+      expect(pluginSlugSchema.parse(slug)).toBe(slug);
+    }
+  });
+
+  it("rifiuta tutto ciò che non è un singolo segmento di path innocuo", () => {
+    // Lo slug è un COMPONENTE DI PERCORSO su `<PLUGINS_DIR>/<slug>/<sha>`: ogni
+    // riga qui sotto è un modo di uscire da quella directory o di confondere
+    // chi la compone.
+    for (const slug of [
+      "",
+      ".",
+      "..",
+      "../evil",
+      "a/b",
+      "a\\b",
+      "a b",
+      ".hidden",
+      "-leading",
+      "MAIUSCOLE",
+      "acc£nti",
+      "punto.punto",
+      "a".repeat(65),
+    ]) {
+      expect(() => pluginSlugSchema.parse(slug)).toThrow();
+    }
+  });
+
+  it("vincola anche la proiezione pubblica del plugin", () => {
+    const base = {
+      id: "00000000-0000-4000-8000-000000000000",
+      name: "superpowers",
+      sourceUrl: "https://github.com/obra/superpowers",
+      sourceSubdir: null,
+      ref: "v4.0.3",
+      resolvedSha: null,
+      status: "none",
+      inventory: null,
+      error: null,
+      smokeStatus: "idle",
+      smokeError: null,
+      materializedAt: null,
+      createdAt: "2026-09-01T10:00:00.000Z",
+      updatedAt: "2026-09-01T10:00:00.000Z",
+    };
+    expect(pluginSchema.parse({ ...base, slug: "superpowers" }).slug).toBe("superpowers");
+    expect(() => pluginSchema.parse({ ...base, slug: "../evil" })).toThrow();
+  });
+});
+
+describe("RECOMMENDED_DISABLED_SKILLS", () => {
+  it("spegne le quattro skill di superpowers che confliggono col contratto della run", () => {
+    expect(RECOMMENDED_DISABLED_SKILLS.superpowers).toEqual([
+      "using-git-worktrees",
+      "finishing-a-development-branch",
+      "dispatching-parallel-agents",
+      "subagent-driven-development",
+    ]);
+  });
+
+  it("è validabile dallo schema con cui viaggia nell'API", () => {
+    expect(pluginRecommendationsSchema.parse(RECOMMENDED_DISABLED_SKILLS)).toEqual(
+      RECOMMENDED_DISABLED_SKILLS,
+    );
   });
 });

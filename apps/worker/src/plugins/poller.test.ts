@@ -16,6 +16,7 @@ import {
   MATERIALIZE_TIMEOUT_MS,
   processPluginJobsOnce,
   startPluginPoller,
+  sweepOrphanPluginDirs,
   VALIDATE_TIMEOUT_MS,
   type PluginPollerDeps,
   type ValidatePluginFn,
@@ -741,5 +742,86 @@ describe("startPluginPoller", () => {
     // Nessun tick: il job resta in coda.
     const jobs = await readJobs(db, id);
     expect(jobs[0]?.status).toBe("queued");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Sweep delle dir di slug orfane
+// ---------------------------------------------------------------------------
+
+describe("sweepOrphanPluginDirs", () => {
+  it("rimuove solo le dir di slug che non hanno più una riga in `plugins`", async () => {
+    const db = testDb.db;
+    const root = await makeRoot();
+    const pluginsDir = join(root, "plugins");
+    const { slug: vivo } = await insertPlugin(db, { slug: "vivo" });
+
+    // Due dir sul volume: una del plugin vivo, una di un plugin cancellato
+    // (nessuna riga la reclama più).
+    await mkdir(join(pluginsDir, vivo, "a".repeat(40)), { recursive: true });
+    await mkdir(join(pluginsDir, "cancellato", "b".repeat(40)), { recursive: true });
+    await writeFile(join(pluginsDir, "cancellato", "b".repeat(40), "f.txt"), "x", "utf8");
+
+    const removed = await sweepOrphanPluginDirs(makeDeps({ pluginsDir }));
+    expect(removed).toEqual(["cancellato"]);
+    expect(existsSync(join(pluginsDir, vivo))).toBe(true);
+    expect(existsSync(join(pluginsDir, "cancellato"))).toBe(false);
+  });
+
+  it("non tocca nulla quando ogni dir ha la sua riga", async () => {
+    const db = testDb.db;
+    const root = await makeRoot();
+    const pluginsDir = join(root, "plugins");
+    const { slug: a } = await insertPlugin(db, { slug: "alfa" });
+    const { slug: b } = await insertPlugin(db, { slug: "beta" });
+    await mkdir(join(pluginsDir, a), { recursive: true });
+    await mkdir(join(pluginsDir, b), { recursive: true });
+
+    expect(await sweepOrphanPluginDirs(makeDeps({ pluginsDir }))).toEqual([]);
+    expect(existsSync(join(pluginsDir, a))).toBe(true);
+    expect(existsSync(join(pluginsDir, b))).toBe(true);
+  });
+
+  it("non costa niente (nessuna query) su un volume vuoto o inesistente", async () => {
+    const root = await makeRoot();
+    const pluginsDir = join(root, "plugins");
+    // Una riga c'è: se lo sweep interrogasse comunque il DB, non se ne
+    // accorgerebbe nessuno — perciò si conta la query.
+    await insertPlugin(testDb.db, { slug: "vivo" });
+
+    const deps = makeDeps({ pluginsDir });
+    let queries = 0;
+    const counting = {
+      ...deps,
+      db: new Proxy(deps.db, {
+        get(target, prop, receiver) {
+          if (prop === "select") queries++;
+          return Reflect.get(target, prop, receiver) as unknown;
+        },
+      }) as Db,
+    };
+
+    // Volume inesistente.
+    expect(await sweepOrphanPluginDirs(counting)).toEqual([]);
+    // Volume esistente ma vuoto.
+    await mkdir(pluginsDir, { recursive: true });
+    expect(await sweepOrphanPluginDirs(counting)).toEqual([]);
+    expect(queries).toBe(0);
+  });
+
+  it("ignora ciò che non è una directory (file e symlink di primo livello)", async () => {
+    const root = await makeRoot();
+    const pluginsDir = join(root, "plugins");
+    await mkdir(join(pluginsDir, "orfana"), { recursive: true });
+    await writeFile(join(pluginsDir, "un-file"), "x", "utf8");
+    await symlink(root, join(pluginsDir, "un-link"));
+
+    const removed = await sweepOrphanPluginDirs(makeDeps({ pluginsDir }));
+    expect(removed).toEqual(["orfana"]);
+    // Il link NON viene seguito né rimosso: non lo crea questo modulo, e
+    // rimuoverlo non è compito di uno sweep di slug.
+    expect(existsSync(join(pluginsDir, "un-link"))).toBe(true);
+    expect(existsSync(join(pluginsDir, "un-file"))).toBe(true);
+    expect(existsSync(root)).toBe(true);
   });
 });
