@@ -1,4 +1,5 @@
 export * from "./schemas/ticket.js";
+export * from "./schemas/ai-job.js";
 export * from "./schemas/backlog.js";
 export * from "./schemas/project.js";
 export * from "./schemas/ingest.js";
@@ -11,6 +12,7 @@ export * from "./schemas/pat.js";
 export * from "./schemas/notification.js";
 export * from "./schemas/plugin.js";
 export * from "./env/dotenv.js";
+export * from "./work-state.js";
 // NOTA: `mirror-slug.js` NON è ri-esportato da questo barrel di proposito —
 // importa `node:crypto` e apps/web importa questo index nel bundle browser
 // (vite fallirebbe con "createHash is not exported by __vite-browser-external").

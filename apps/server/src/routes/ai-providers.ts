@@ -1,4 +1,5 @@
 import { aiProviders, encrypt } from "@stubwise/db";
+import { aiProviderKindSchema } from "@stubwise/shared";
 import { asc, eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
@@ -7,8 +8,10 @@ import { requireAdmin } from "../auth/session.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 import { apiError } from "../errors.js";
 
-// Tipo di credenziale del provider: allineato all'enum ai_provider_kind del DB.
-export const aiProviderKindSchema = z.enum(["api_key", "account"]);
+// Tipo di credenziale del provider: definito in `@stubwise/shared` (da cui
+// deriva anche l'enum ai_provider_kind del DB), ri-esportato per i moduli che
+// lo importano da qui.
+export { aiProviderKindSchema };
 
 const createProviderSchema = z.object({
   kind: aiProviderKindSchema,

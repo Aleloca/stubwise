@@ -71,3 +71,58 @@ export const ticketRepositorySchema = z.object({
   prState: prStateSchema,
 });
 export type TicketRepository = z.infer<typeof ticketRepositorySchema>;
+
+/**
+ * Forma pubblica di un ticket nelle risposte API: la riga del DB con le date
+ * in ISO 8601. Alimenta anche l'OpenAPI generata.
+ */
+export const ticketSchema = z.object({
+  id: z.uuid(),
+  projectId: z.uuid(),
+  number: z.number().int(),
+  title: z.string(),
+  body: z.string(),
+  type: ticketTypeSchema,
+  priority: ticketPrioritySchema,
+  status: ticketStatusSchema,
+  source: ticketSourceSchema,
+  assigneeId: z.uuid().nullable(),
+  // Milestone a cui il ticket è assegnato; null = nessuna milestone.
+  milestoneId: z.uuid().nullable(),
+  // Stima di sforzo 1–5 del triage AI; null finché il ticket non è triagiato.
+  effort: effortSchema.nullable(),
+  labels: z.array(z.string()),
+  technicalPayload: z.unknown().nullable(),
+  occurrences: z.number().int(),
+  lastSeenAt: z.iso.datetime(),
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+});
+export type Ticket = z.infer<typeof ticketSchema>;
+
+/**
+ * Dettaglio del ticket: la forma pubblica più lo stato PR per-repo (Fase 3,
+ * fix multi-repo). `repositories` elenca una voce per ogni repository
+ * effettivamente modificato dal fix (righe `ticket_repositories`), con branch,
+ * PR e stato. Vuoto prima dell'esecuzione dell'agente. È l'unico legame
+ * ticket↔repo: il ticket appartiene solo al progetto.
+ */
+export const ticketDetailSchema = ticketSchema.extend({
+  // Piano di implementazione e contenuto d'origine (design/piano collegati al
+  // ticket): testo libero, null finché non impostati. Solo nel dettaglio: sono
+  // potenzialmente grandi e fuori posto nelle liste.
+  implementationPlan: z.string().nullable(),
+  originContent: z.string().nullable(),
+  repositories: z.array(ticketRepositorySchema),
+});
+export type TicketDetail = z.infer<typeof ticketDetailSchema>;
+
+/**
+ * Item della lista ticket: la forma pubblica più il conteggio dei repository
+ * toccati (righe `ticket_repositories`), utile ai badge di board/lista senza
+ * caricare l'elenco completo per ogni ticket.
+ */
+export const ticketListItemSchema = ticketSchema.extend({
+  repositoryCount: z.number().int(),
+});
+export type TicketListItem = z.infer<typeof ticketListItemSchema>;

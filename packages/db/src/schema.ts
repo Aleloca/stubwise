@@ -5,12 +5,16 @@ import {
   type BacklogSuggested,
   type DiscoveredService,
   type PluginInventory,
+  aiJobStatusSchema,
+  aiProviderKindSchema,
   backlogCodeSessionStatusSchema,
   backlogItemSourceSchema,
   backlogItemStatusSchema,
   backlogJobKindSchema,
   backlogJobStatusSchema,
+  backlogMessageRoleSchema,
   backlogRiskSchema,
+  backlogTicketRoleSchema,
   checkStatusSchema,
   checkTypeSchema,
   docGenerationStatusSchema,
@@ -111,10 +115,10 @@ export const backlogCodeSessionStatus = pgEnum(
   "backlog_code_session_status",
   enumValues(backlogCodeSessionStatusSchema),
 );
-// Ruolo del legame voce↔ticket: `origin` (il ticket ha originato la voce) o
-// `converted_to` (la voce è stata convertita in questo ticket). Lista letterale
-// locale al DB (non passa da uno schema Zod di shared).
-export const backlogTicketRole = pgEnum("backlog_ticket_role", ["origin", "converted_to"]);
+// Ruolo del legame voce↔ticket: i valori derivano da `backlogTicketRoleSchema`
+// (shared = unica fonte di verità), perché entrano nella forma pubblica del
+// dettaglio di una voce.
+export const backlogTicketRole = pgEnum("backlog_ticket_role", enumValues(backlogTicketRoleSchema));
 // "system" copre le notifiche automatiche (es. "PR mergiata → ticket chiuso"):
 // non hanno un autore umano né l'AI dietro, e vanno distinte nella timeline.
 export const commentAuthorType = pgEnum("comment_author_type", ["user", "ai", "system"]);
@@ -140,31 +144,10 @@ export const ticketLinkKind = pgEnum("ticket_link_kind", ["blocks", "relates_to"
 // Stato di una milestone: "open" (attiva, raccoglie i ticket pianificati) o
 // "closed" (chiusa/archiviata). Lista letterale locale al DB.
 export const milestoneStatus = pgEnum("milestone_status", ["open", "closed"]);
-// Dominio del worker AI, ma vive nel DB: definito qui.
-export const aiJobStatus = pgEnum("ai_job_status", [
-  "queued",
-  "triaging",
-  "fixing",
-  // "held": il triage ha deciso "fix" ma il gate di automazione non lo
-  // consente (auto-fix disattivato per il tipo, oppure effort sopra soglia).
-  // Il job resta in attesa di un avvio manuale (POST /run-ai).
-  "held",
-  "pr_opened",
-  "pr_merged",
-  "failed",
-  "skipped",
-  // "pr_closed": la PR aperta dal fix è stata chiusa senza merge (rifiutata da
-  // un umano). Stato terminale, distinto da "pr_merged".
-  "pr_closed",
-  // "awaiting_plan_approval": la pianificazione ha prodotto un piano che
-  // supera la soglia di effort configurata; il job è parcheggiato in attesa
-  // dell'approvazione umana prima di eseguirlo.
-  "awaiting_plan_approval",
-  // "awaiting_input": la pianificazione si è fermata su una domanda posta a un
-  // umano (`agent_questions`); riparte alla risposta. Fuori da ACTIVE_STATUSES
-  // e non claimabile: nessun heartbeat, nessun recupero da orfano.
-  "awaiting_input",
-]);
+// Stato del job AI: i valori derivano da `aiJobStatusSchema` (shared = unica
+// fonte di verità), dove vive anche il commento su ciascuno stato. Sta in
+// shared perché è la forma pubblica dei job, letta anche dai client.
+export const aiJobStatus = pgEnum("ai_job_status", enumValues(aiJobStatusSchema));
 // Le fasi AI di cui tracciamo i consumi (token + costo): triage, fix e review.
 export const agentRunPhase = pgEnum("agent_run_phase", ["triage", "fix", "review"]);
 
@@ -194,7 +177,9 @@ export const prState = pgEnum("pr_state", enumValues(prStateSchema));
 // "account" (login a un piano/abbonamento, es. Claude Max). Determina come il
 // worker prepara l'ambiente per il CLI. Lista letterale locale al DB, come gli
 // altri enum del dominio AI (ai_job_status, agent_run_phase, resume_mode).
-export const aiProviderKind = pgEnum("ai_provider_kind", ["api_key", "account"]);
+// I valori derivano da `aiProviderKindSchema` (shared = unica fonte di verità):
+// il tipo di credenziale entra nella forma pubblica di un job AI.
+export const aiProviderKind = pgEnum("ai_provider_kind", enumValues(aiProviderKindSchema));
 // Origine di uno snapshot di consumo: "deterministic" (estratto da un output
 // strutturato/parsabile del CLI) o "llm_fallback" (dedotto da un modello quando
 // il parsing deterministico fallisce). Marca l'affidabilità del dato.
@@ -2200,7 +2185,9 @@ export const backlogChatMessages = pgTable(
     itemId: uuid("item_id")
       .notNull()
       .references(() => backlogItems.id, { onDelete: "cascade" }),
-    role: text("role", { enum: ["user", "assistant", "system"] }).notNull(),
+    // Colonna text (non pgEnum) storica: i valori ammessi derivano comunque da
+    // `backlogMessageRoleSchema` in shared, unica fonte di verità.
+    role: text("role", { enum: enumValues(backlogMessageRoleSchema) }).notNull(),
     content: text("content").notNull(),
     citations: jsonb("citations"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

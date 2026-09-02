@@ -1,6 +1,8 @@
 import {
-  backlogCodeSessionStatusSchema,
-  backlogItemSourceSchema,
+  backlogCodeSessionSchema,
+  backlogItemBaseSchema,
+  backlogItemDetailSchema,
+  backlogItemSchema,
   backlogItemStatusSchema,
   backlogJobStatusSchema,
   backlogRiskSchema,
@@ -11,6 +13,8 @@ import {
   setContentSchema,
   startCodeSessionSchema,
   updateBacklogItemSchema,
+  type BacklogCodeSession,
+  type BacklogItemBase,
   type BacklogSuggested,
 } from "@stubwise/shared";
 import { and, asc, desc, eq, ilike, inArray, notInArray, sql, type SQL } from "drizzle-orm";
@@ -25,7 +29,6 @@ import {
   backlogItems,
   backlogItemTickets,
   backlogJobs,
-  backlogTicketRole,
   projects,
   repositories,
   tickets,
@@ -59,101 +62,12 @@ import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js"
  * similarToId della pagina e `ticketCount` con una subquery correlata.
  */
 
-/** Riferimento a una voce simile suggerita dal dedup (o null). */
-const similarToSchema = z.object({ id: z.uuid(), title: z.string() }).nullable();
-
-/**
- * Voce del backlog nella lista: campi leggeri per le card. Volutamente SENZA
- * `document` né `embedding` (payload pesanti inutili in lista).
- */
-const backlogListItemSchema = z.object({
-  id: z.uuid(),
-  projectId: z.uuid(),
-  title: z.string(),
-  status: backlogItemStatusSchema,
-  effort: z.number().int().nullable(),
-  risk: backlogRiskSchema.nullable(),
-  riskNote: z.string().nullable(),
-  urgency: backlogUrgencySchema.nullable(),
-  requestCount: z.number().int(),
-  source: backlogItemSourceSchema,
-  createdAt: z.iso.datetime(),
-  updatedAt: z.iso.datetime(),
-  similarTo: similarToSchema,
-  ticketCount: z.number().int(),
-});
-
+// Le forme pubbliche di una voce di backlog (lista, base, dettaglio e i loro
+// pezzi) vivono in `@stubwise/shared`: le condividono server, SPA e app mobile.
+// La lista aggiunge solo l'involucro paginato, che resta locale alle rotte.
 const listResponseSchema = z.object({
-  items: z.array(backlogListItemSchema),
+  items: z.array(backlogItemSchema),
   nextCursor: z.string().nullable(),
-});
-
-/**
- * Forma "base" della voce: tutti i campi confermati più `document`, `suggested`
- * e `similarTo` risolto (SENZA `embedding`). È la risposta di PATCH/accept/dismiss
- * e il nucleo del dettaglio, che vi aggiunge `tickets` e `messages`.
- */
-const backlogItemBaseSchema = z.object({
-  id: z.uuid(),
-  projectId: z.uuid(),
-  title: z.string(),
-  document: z.string(),
-  // Piano di implementazione e contenuto d'origine (design/piano collegati alla
-  // voce): testo libero, null finché non impostati.
-  implementationPlan: z.string().nullable(),
-  originContent: z.string().nullable(),
-  status: backlogItemStatusSchema,
-  effort: z.number().int().nullable(),
-  risk: backlogRiskSchema.nullable(),
-  riskNote: z.string().nullable(),
-  urgency: backlogUrgencySchema.nullable(),
-  requestCount: z.number().int(),
-  source: backlogItemSourceSchema,
-  suggested: backlogSuggestedSchema.nullable(),
-  similarTo: similarToSchema,
-  createdAt: z.iso.datetime(),
-  updatedAt: z.iso.datetime(),
-});
-
-/** Ticket collegato a una voce (join backlog_item_tickets → tickets). */
-const linkedTicketSchema = z.object({
-  id: z.uuid(),
-  number: z.number().int(),
-  title: z.string(),
-  role: z.enum(backlogTicketRole.enumValues),
-});
-
-/** Messaggio della chat di raffinamento (una sola conversazione per voce). */
-const chatMessageSchema = z.object({
-  id: z.uuid(),
-  role: z.enum(backlogChatMessages.role.enumValues),
-  content: z.string(),
-  citations: z.unknown().nullable(),
-  createdAt: z.iso.datetime(),
-});
-
-/**
- * Sessione di analisi sul codice ATTIVA di una voce (o null). In modalità code
- * ogni messaggio della chat diventa un turno dell'agente sul repo. Espone lo
- * stretto necessario alla UI: stato, repo su cui investiga e istante d'avvio.
- */
-const codeSessionSchema = z.object({
-  status: backlogCodeSessionStatusSchema,
-  repositoryId: z.uuid(),
-  startedAt: z.iso.datetime(),
-});
-
-const backlogItemDetailSchema = backlogItemBaseSchema.extend({
-  tickets: z.array(linkedTicketSchema),
-  messages: z.array(chatMessageSchema),
-  // True se esiste un job deep_dive queued/running per la voce (UI: "analisi in
-  // corso" con polling).
-  deepDivePending: z.boolean(),
-  // Sessione di analisi sul codice attiva (o null): la chat è in modalità code.
-  codeSession: codeSessionSchema.nullable(),
-  // True se esiste un job chat_turn queued/running per la voce (UI: "sta
-  // investigando nel codice…" con polling).
-  pendingTurn: z.boolean(),
 });
 
 const listQuerySchema = z.object({
@@ -254,7 +168,7 @@ async function resolveSimilar(
 async function loadBaseItem(
   db: Db,
   id: string,
-): Promise<z.infer<typeof backlogItemBaseSchema> | null> {
+): Promise<BacklogItemBase | null> {
   const [row] = await db.select(baseColumns).from(backlogItems).where(eq(backlogItems.id, id));
   if (!row) return null;
   const similarTo = await resolveSimilar(db, row.similarToId);
@@ -445,7 +359,7 @@ async function hasPendingChatTurn(db: Db, itemId: string): Promise<boolean> {
 async function loadActiveCodeSession(
   db: Db,
   itemId: string,
-): Promise<z.infer<typeof codeSessionSchema> | null> {
+): Promise<BacklogCodeSession | null> {
   const [row] = await db
     .select({
       status: backlogCodeSessions.status,
@@ -1223,7 +1137,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
         params: idParamsSchema,
         body: startCodeSessionSchema,
         response: {
-          201: codeSessionSchema,
+          201: backlogCodeSessionSchema,
           400: errorSchema,
           404: errorSchema,
           409: errorSchema,

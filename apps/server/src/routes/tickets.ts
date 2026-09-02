@@ -1,14 +1,17 @@
 import {
   agentQuestionAnswerSchema,
+  aiJobStatusSchema,
   answerBodySchema,
   inboxActionErrorSchema,
   ticketPrioritySchema,
   ticketRepositorySchema,
-  ticketSourceSchema,
   ticketStatusSchema,
   ticketQuestionsSchema,
   ticketTypeSchema,
   setContentSchema,
+  ticketDetailSchema,
+  ticketListItemSchema,
+  ticketSchema,
   type AgentQuestionAnswer,
   type TicketStatus,
 } from "@stubwise/shared";
@@ -21,7 +24,6 @@ import type { Db } from "@stubwise/db";
 import {
   agentQuestions,
   aiJobs,
-  aiJobStatus,
   comments,
   commentAuthorType,
   milestones,
@@ -47,57 +49,11 @@ import {
   isUniqueViolation,
 } from "./shared.js";
 
-/**
- * Forma pubblica di un ticket nelle risposte API: la riga del DB con le
- * date in ISO 8601. Alimenta anche l'OpenAPI generata (Task 9).
- */
-export const ticketSchema = z.object({
-  id: z.uuid(),
-  projectId: z.uuid(),
-  number: z.number().int(),
-  title: z.string(),
-  body: z.string(),
-  type: ticketTypeSchema,
-  priority: ticketPrioritySchema,
-  status: ticketStatusSchema,
-  source: ticketSourceSchema,
-  assigneeId: z.uuid().nullable(),
-  // Milestone a cui il ticket è assegnato; null = nessuna milestone.
-  milestoneId: z.uuid().nullable(),
-  // Stima di sforzo 1–5 del triage AI; null finché il ticket non è triagiato.
-  effort: z.number().int().min(1).max(5).nullable(),
-  labels: z.array(z.string()),
-  technicalPayload: z.unknown().nullable(),
-  occurrences: z.number().int(),
-  lastSeenAt: z.iso.datetime(),
-  createdAt: z.iso.datetime(),
-  updatedAt: z.iso.datetime(),
-});
-
-/**
- * Dettaglio del ticket: la forma pubblica più lo stato PR per-repo (Fase 3,
- * fix multi-repo). `repositories` elenca una voce per ogni repository
- * effettivamente modificato dal fix (righe `ticket_repositories`), con branch,
- * PR e stato. Vuoto prima dell'esecuzione dell'agente. È l'unico legame
- * ticket↔repo: il ticket appartiene solo al progetto.
- */
-export const ticketDetailSchema = ticketSchema.extend({
-  // Piano di implementazione e contenuto d'origine (design/piano collegati al
-  // ticket): testo libero, null finché non impostati. Solo nel dettaglio: sono
-  // potenzialmente grandi e fuori posto nelle liste.
-  implementationPlan: z.string().nullable(),
-  originContent: z.string().nullable(),
-  repositories: z.array(ticketRepositorySchema),
-});
-
-/**
- * Item della lista ticket: la forma pubblica più il conteggio dei repository
- * toccati (righe `ticket_repositories`), utile ai badge di board/lista senza
- * caricare l'elenco completo per ogni ticket.
- */
-export const ticketListItemSchema = ticketSchema.extend({
-  repositoryCount: z.number().int(),
-});
+// Le forme pubbliche di ticket (base, dettaglio, item di lista) vivono in
+// `@stubwise/shared`: le condividono server, SPA e app mobile, e restano
+// l'unica fonte di verità della risposta. Qui sono solo ri-esportate perché la
+// registrazione delle rotte e i test le referenziano da questo modulo.
+export { ticketSchema, ticketDetailSchema, ticketListItemSchema };
 
 const titleSchema = z.string().min(1).max(300);
 const bodyTextSchema = z.string().max(20_000);
@@ -246,7 +202,7 @@ const activityEventSchema = z.object({
 const activityAiJobSchema = z.object({
   kind: z.literal("ai_job"),
   id: z.uuid(),
-  status: z.enum(aiJobStatus.enumValues),
+  status: aiJobStatusSchema,
   prUrl: z.string().nullable(),
   createdAt: z.iso.datetime(),
   finishedAt: z.iso.datetime().nullable(),

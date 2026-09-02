@@ -4,38 +4,15 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { requireAuth } from "../auth/session.js";
 import type { Db } from "@stubwise/db";
-import { agentRuns, aiJobs, aiJobStatus, aiProviders, tickets } from "@stubwise/db";
+import { agentRuns, aiJobs, aiProviders, tickets } from "@stubwise/db";
+import { aiJobSchema } from "@stubwise/shared";
 import { authErrorResponses, errorSchema } from "./shared.js";
-import { aiProviderKindSchema } from "./ai-providers.js";
 import { apiError } from "../errors.js";
 
-/**
- * Forma pubblica di un AIJob nelle risposte API: la riga del DB con le date
- * in ISO 8601. `startedAt`/`finishedAt` sono nulli finché il worker non
- * prende in carico / conclude il job. Alimenta l'OpenAPI generata (Task 9).
- */
-export const aiJobSchema = z.object({
-  id: z.uuid(),
-  ticketId: z.uuid(),
-  status: z.enum(aiJobStatus.enumValues),
-  log: z.string(),
-  prUrl: z.string().nullable(),
-  error: z.string().nullable(),
-  createdAt: z.iso.datetime(),
-  startedAt: z.iso.datetime().nullable(),
-  finishedAt: z.iso.datetime().nullable(),
-  // Provider AI usato dal job: solo etichetta e tipo credenziale (mai il
-  // segreto). Null quando il job non ha provider: job pre-feature, fallback
-  // env, o provider eliminato (FK on delete set null).
-  providerLabel: z.string().nullable(),
-  providerKind: aiProviderKindSchema.nullable(),
-  // Chi ha chiesto il run. Null sui job nati automaticamente dall'ingest
-  // (nessun umano dietro) e su quelli precedenti al campo. È IDENTITÀ, non
-  // ruolo: la pagina ticket ci decide chi vede il pannello di risposta a una
-  // domanda dell'agente (il richiedente, più i maintainer) — la stessa regola
-  // che `actorAllows` applica lato server, dove resta l'autorità.
-  requestedByUserId: z.uuid().nullable(),
-});
+// La forma pubblica di un job AI vive in `@stubwise/shared` (unica fonte di
+// verità con la SPA e l'app mobile). Ri-esportata perché le rotte e i test la
+// referenziano da questo modulo.
+export { aiJobSchema };
 
 const ticketParamsSchema = z.object({ ticketId: z.uuid() });
 
