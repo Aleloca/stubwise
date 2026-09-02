@@ -46,7 +46,10 @@ export default tseslint.config(
     // bundle che sembra a posto e poi esplode a runtime, in una pagina, davanti
     // a un utente. Il caso pericoloso è quindi proprio quello web, dove nessun
     // build lo intercetta — mentre la CI fallisce sul lint.
-    files: ["apps/web/src/**", "apps/mobile/**/*.{ts,tsx}"],
+    // `packages/api-client` è nell'elenco perché finisce in ENTRAMBI i bundle
+    // client (Vite per la SPA, Metro per la mobile): un import del DB qui
+    // produrrebbe lo stesso bundle rotto, un livello più in basso.
+    files: ["apps/web/src/**", "apps/mobile/**/*.{ts,tsx}", "packages/api-client/src/**"],
     rules: {
       // `patterns` con `regex`, non `paths`: `paths` confronta il nome ESATTO,
       // quindi lascerebbe passare i sottopercorsi — e `@stubwise/db/testing` è
