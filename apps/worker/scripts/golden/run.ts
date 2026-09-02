@@ -38,39 +38,35 @@
  * modello lo ha eseguito senza dirlo. Il messaggio finale resta nell'output
  * JSON, così un umano può leggerlo.
  *
+ * ATTENZIONE al limite di questo approccio: lo stato git rileva le violazioni
+ * RIUSCITE, non i TENTATIVI bloccati. In `plan-only` è il permission mode
+ * `plan` a negare scritture e comandi, quindi un agente che HA PROVATO a
+ * committare e si è visto negare il tool passa i check esattamente come uno che
+ * non ci ha mai pensato. «Più forte di un nome di tool» vale per gli ESITI:
+ * questi scenari dicono che il contratto non è stato violato, non che il
+ * modello lo abbia capito.
+ *
  * Il plugin passato con `--plugin` viene caricato INTEGRALE, come fa lo smoke
  * run del poller: qui si chiede «come si comporta l'agente avendo questo
  * plugin», non «cosa vede un dato progetto» (quello lo copre il filtro
  * per-progetto, già testato).
  */
 
-import { t, type Language } from "@stubwise/i18n";
 import { execa } from "execa";
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { cp, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { randomUUID } from "node:crypto";
 
-import { ClaudeCliRunner } from "../../src/agent/claude-cli.js";
-import type { AgentRunResult } from "../../src/agent/runner.js";
-import {
-  askUserServerPath,
-  buildAskUserRunConfig,
-  readAskUserQuestion,
-} from "../../src/pipeline/ask-user.js";
-import {
-  DEFAULT_FIX_ALLOWED_TOOLS,
-  DEFAULT_FIX_PLAN_TIMEOUT_MS,
-  DEFAULT_FIX_TIMEOUT_MS,
-} from "../../src/pipeline/fix.js";
-import { basePluginPath } from "../../src/plugins/base.js";
-import {
-  buildFixExecutePrompt,
-  buildFixPlanPrompt,
-  type FixTicketInput,
-} from "../../src/pipeline/prompts.js";
+// Dai package workspace e dai sorgenti del worker si importano SOLO I TIPI:
+// `import type` è cancellato a compilazione e non fa risolvere nulla a runtime.
+// I VALORI arrivano da `loadRuntime()`, dopo il check dei prerequisiti — il
+// perché sta nel suo docblock.
+import type { Language } from "@stubwise/i18n";
+import type { AgentRunner, AgentRunResult } from "../../src/agent/runner.js";
+import type { FixTicketInput } from "../../src/pipeline/prompts.js";
 
 /* ------------------------------------------------------------------ *
  * Costanti
@@ -192,6 +188,57 @@ function fail(message: string): never {
 }
 
 /* ------------------------------------------------------------------ *
+ * Runtime: i moduli veri, caricati dopo i prerequisiti
+ * ------------------------------------------------------------------ */
+
+/**
+ * Carica i moduli del worker e dei package workspace, e li restituisce in un
+ * unico oggetto che gli scenari ricevono dentro il loro contesto.
+ *
+ * Sono import DINAMICI, non statici, per un motivo solo: `../../src/...` tira
+ * dentro `@stubwise/db`, `@stubwise/git`, `@stubwise/i18n`…, che a runtime si
+ * risolvono sul `dist` di ciascun package. Con i workspace non buildati un
+ * import statico farebbe fallire il MODULO, prima che `main()` parta: un errore
+ * di risoluzione grezzo, exit 1, e nessuna traccia del fatto che manca un
+ * `pnpm build`. Caricandoli qui il fallimento diventa il prerequisito mancante
+ * che è — exit 2, col comando da lanciare — coerente con tutti gli altri.
+ */
+async function loadRuntime() {
+  try {
+    const [i18n, cli, askUser, fix, base, prompts] = await Promise.all([
+      import("@stubwise/i18n"),
+      import("../../src/agent/claude-cli.js"),
+      import("../../src/pipeline/ask-user.js"),
+      import("../../src/pipeline/fix.js"),
+      import("../../src/plugins/base.js"),
+      import("../../src/pipeline/prompts.js"),
+    ]);
+    return {
+      t: i18n.t,
+      ClaudeCliRunner: cli.ClaudeCliRunner,
+      askUserServerPath: askUser.askUserServerPath,
+      buildAskUserRunConfig: askUser.buildAskUserRunConfig,
+      readAskUserQuestion: askUser.readAskUserQuestion,
+      DEFAULT_FIX_ALLOWED_TOOLS: fix.DEFAULT_FIX_ALLOWED_TOOLS,
+      DEFAULT_FIX_PLAN_TIMEOUT_MS: fix.DEFAULT_FIX_PLAN_TIMEOUT_MS,
+      DEFAULT_FIX_TIMEOUT_MS: fix.DEFAULT_FIX_TIMEOUT_MS,
+      basePluginPath: base.basePluginPath,
+      buildFixPlanPrompt: prompts.buildFixPlanPrompt,
+      buildFixExecutePrompt: prompts.buildFixExecutePrompt,
+    };
+  } catch (error) {
+    fail(
+      "Impossibile caricare i moduli del worker: i package workspace non sono " +
+        "buildati. Lancia `pnpm --filter @stubwise/worker... build` e riprova.\n" +
+        `  (${error instanceof Error ? error.message : String(error)})`,
+    );
+  }
+}
+
+/** L'insieme dei valori caricati da {@link loadRuntime}. */
+type Runtime = Awaited<ReturnType<typeof loadRuntime>>;
+
+/* ------------------------------------------------------------------ *
  * Log e utilità
  * ------------------------------------------------------------------ */
 
@@ -221,8 +268,8 @@ const FIXTURE_DIR = fileURLToPath(new URL("fixture", import.meta.url));
  * poi il `dist` del package: così lo scenario `ask-user` gira sull'ENTRY VERA,
  * quella che il worker userebbe in produzione, senza toccare `ask-user.ts`.
  */
-function resolveAskUserServerPath(): string {
-  const fromModule = askUserServerPath();
+function resolveAskUserServerPath(rt: Runtime): string {
+  const fromModule = rt.askUserServerPath();
   if (existsSync(fromModule)) return fromModule;
   return fileURLToPath(new URL("../../dist/ask-user-mcp/index.js", import.meta.url));
 }
@@ -415,7 +462,11 @@ function gitDisciplineChecks(state: GitState): Check[] {
  * ------------------------------------------------------------------ */
 
 interface ScenarioContext {
-  runner: ClaudeCliRunner;
+  /** Moduli del worker: gli scenari li usano da qui, non da import statici. */
+  rt: Runtime;
+  /** Entry del server MCP di `ask_user`, già risolta (vedi resolveAskUserServerPath). */
+  askUserServerPath: string;
+  runner: AgentRunner;
   pluginDirs: string[];
   model: string;
   keep: boolean;
@@ -436,14 +487,14 @@ async function runPlanOnly(ctx: ScenarioContext): Promise<ScenarioResult> {
   const startedAt = Date.now();
   const result = await ctx.runner.run({
     cwd: parentDir,
-    prompt: buildFixPlanPrompt(
+    prompt: ctx.rt.buildFixPlanPrompt(
       { ticket: DISCOUNT_TICKET, repos: [{ dir: REPO_DIR, name: "shop" }] },
       LANG,
     ),
     model: ctx.model,
     permissionMode: "plan",
     maxTurns: PLAN_MAX_TURNS,
-    timeoutMs: DEFAULT_FIX_PLAN_TIMEOUT_MS,
+    timeoutMs: ctx.rt.DEFAULT_FIX_PLAN_TIMEOUT_MS,
     pluginDirs: ctx.pluginDirs,
     settingSources: "",
   });
@@ -451,7 +502,7 @@ async function runPlanOnly(ctx: ScenarioContext): Promise<ScenarioResult> {
 
   const gitState = await readGitState(repoDir);
   const extras = await extraEntriesInParent(parentDir);
-  const decisions = t(LANG, "plan.decisions");
+  const decisions = ctx.rt.t(LANG, "plan.decisions");
   const checks: Check[] = [
     {
       name: "exit 0",
@@ -500,9 +551,9 @@ async function runPlanOnly(ctx: ScenarioContext): Promise<ScenarioResult> {
  */
 async function runAskUser(ctx: ScenarioContext): Promise<ScenarioResult> {
   const jobId = randomUUID();
-  const askUser = buildAskUserRunConfig({
+  const askUser = ctx.rt.buildAskUserRunConfig({
     jobId,
-    serverPath: resolveAskUserServerPath(),
+    serverPath: ctx.askUserServerPath,
     round: 1,
     maxRounds: 5,
   });
@@ -521,7 +572,7 @@ async function runAskUser(ctx: ScenarioContext): Promise<ScenarioResult> {
   const startedAt = Date.now();
   const result = await ctx.runner.run({
     cwd: parentDir,
-    prompt: buildFixPlanPrompt(
+    prompt: ctx.rt.buildFixPlanPrompt(
       {
         ticket: ROUNDING_TICKET,
         repos: [{ dir: REPO_DIR, name: "shop" }],
@@ -532,7 +583,7 @@ async function runAskUser(ctx: ScenarioContext): Promise<ScenarioResult> {
     model: ctx.model,
     permissionMode: "plan",
     maxTurns: PLAN_MAX_TURNS,
-    timeoutMs: DEFAULT_FIX_PLAN_TIMEOUT_MS,
+    timeoutMs: ctx.rt.DEFAULT_FIX_PLAN_TIMEOUT_MS,
     allowedTools: askUser.tools,
     pluginDirs: ctx.pluginDirs,
     settingSources: "",
@@ -540,7 +591,7 @@ async function runAskUser(ctx: ScenarioContext): Promise<ScenarioResult> {
   });
   const durationMs = Date.now() - startedAt;
 
-  const question = await readAskUserQuestion(askUser.filePath);
+  const question = await ctx.rt.readAskUserQuestion(askUser.filePath);
   const gitState = await readGitState(repoDir);
 
   // «Domanda in chiaro»: una riga del messaggio finale che termina con un punto
@@ -612,7 +663,7 @@ async function runExecute(ctx: ScenarioContext): Promise<ScenarioResult> {
   const startedAt = Date.now();
   const result = await ctx.runner.run({
     cwd: parentDir,
-    prompt: buildFixExecutePrompt(
+    prompt: ctx.rt.buildFixExecutePrompt(
       {
         ticket: DISCOUNT_TICKET,
         plan: DISCOUNT_PLAN,
@@ -623,8 +674,8 @@ async function runExecute(ctx: ScenarioContext): Promise<ScenarioResult> {
     model: ctx.model,
     permissionMode: "acceptEdits",
     maxTurns: EXECUTE_MAX_TURNS,
-    timeoutMs: DEFAULT_FIX_TIMEOUT_MS,
-    allowedTools: DEFAULT_FIX_ALLOWED_TOOLS,
+    timeoutMs: ctx.rt.DEFAULT_FIX_TIMEOUT_MS,
+    allowedTools: ctx.rt.DEFAULT_FIX_ALLOWED_TOOLS,
     pluginDirs: ctx.pluginDirs,
     settingSources: "",
   });
@@ -698,14 +749,15 @@ async function main(): Promise<void> {
       fail(`Non è la directory di un plugin (manca .claude-plugin/plugin.json): ${dir}`);
     }
   }
-  const base = basePluginPath();
+  const rt = await loadRuntime();
+  const base = rt.basePluginPath();
   if (base === null) fail("Plugin base di Stubwise non trovato accanto al modulo");
   try {
     await execa("claude", ["--version"]);
   } catch {
     fail("Il CLI `claude` non è nel PATH (o non è eseguibile): i golden girano sul modello vero");
   }
-  const askUserEntry = resolveAskUserServerPath();
+  const askUserEntry = resolveAskUserServerPath(rt);
   if (args.scenarios.includes("ask-user") && !existsSync(askUserEntry)) {
     fail(
       `Il server MCP di ask_user non è buildato (${askUserEntry}): lancia prima ` +
@@ -715,7 +767,9 @@ async function main(): Promise<void> {
 
   const pluginDirs = [base, ...args.plugins];
   const ctx: ScenarioContext = {
-    runner: new ClaudeCliRunner(),
+    rt,
+    askUserServerPath: askUserEntry,
+    runner: new rt.ClaudeCliRunner(),
     pluginDirs,
     model: args.model,
     keep: args.keep,
@@ -747,14 +801,22 @@ async function main(): Promise<void> {
     passed: results.every((result) => result.passed),
     scenarios: results,
   };
-  const json = `${JSON.stringify(report, null, 2)}\n`;
-  if (args.out !== undefined) await writeFile(args.out, json, "utf8");
-  process.stdout.write(json);
-
   section("Esito");
   for (const result of results) {
     log(`${result.passed ? "PASSATO" : "FALLITO"}  ${result.scenario}`);
   }
+
+  // Il JSON è IL PRODOTTO di questo script, e va scritto per INTERO anche
+  // quando lo stdout è una pipe o un file: `process.exit()` non attende il
+  // flush di uno stdout non-bloccante, e un JSON troncato non è un errore
+  // visibile — è un risultato falso. Si aspetta quindi la callback della write.
+  // L'uscita resta esplicita (e non `process.exitCode`) così lo script non può
+  // restare appeso su un handle rimasto aperto.
+  const json = `${JSON.stringify(report, null, 2)}\n`;
+  if (args.out !== undefined) await writeFile(args.out, json, "utf8");
+  await new Promise<void>((resolve, reject) => {
+    process.stdout.write(json, (error) => (error ? reject(error) : resolve()));
+  });
   process.exit(report.passed ? 0 : 1);
 }
 

@@ -67,8 +67,9 @@ Il **log umano va su stderr**, lo **stdout è solo il JSON**: `... > golden.json
 lascia a video il progresso e sul file il report.
 
 Exit code: `0` tutti gli scenari passati, `1` almeno uno fallito, `2`
-prerequisito mancante (argomenti, `claude`, build). Un prerequisito mancante non
-esce mai 0: un golden che non ha girato non è un golden verde.
+prerequisito mancante (argomenti, dir del plugin, package workspace non
+buildati, `claude` assente, build del server MCP di `ask_user`). Un prerequisito
+mancante non esce mai 0: un golden che non ha girato non è un golden verde.
 
 > **Al primo giro reale** vanno lanciati con **superpowers registrato nel
 > registro d'istanza** e materializzato (`ready` + smoke passato): è il plugin
@@ -103,6 +104,15 @@ osservabile** — `git status`, rami, commit, worktree, stash del repo fixture, 
 i file presenti nella working dir — che è un controllo più forte di un nome di
 tool: un `git commit` riuscito si vede nel repo anche se il modello non lo
 racconta. Il messaggio finale finisce comunque nel JSON, così si legge.
+
+**Cosa questi check NON possono vedere: i tentativi bloccati.** Lo stato git
+rileva le violazioni **riuscite**, non quelle che il CLI ha impedito. In
+`plan-only` è il permission mode `plan` a negare da sé scritture e comandi: un
+agente che *ha provato* a committare e si è visto negare il tool passa i check
+esattamente come uno che non ci ha mai pensato. «Più forte di un nome di tool»
+vale per gli **esiti** — questi scenari dicono che il contratto non è stato
+violato, non che il modello lo abbia capito. Per un sospetto del genere resta il
+messaggio finale nel JSON (e la sessione, con `--keep`).
 
 Due check sono **euristici** e stanno lì col dettaglio di cosa hanno visto,
 perché a decidere sia chi legge:
