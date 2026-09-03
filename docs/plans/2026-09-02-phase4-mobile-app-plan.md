@@ -789,7 +789,7 @@ il job CI su ubuntu passi con il mobile incluso.
 - Modify: `apps/mobile/README.md`: (1) prerequisiti; (2) dev locale; (3) Firebase: creare il progetto, scaricare `GoogleService-Info.plist` / `google-services.json` (fuori dal repo, percorsi attesi); (4) iOS: Xcode → Signing & Capabilities (team, Push Notifications, Background Modes) → Product → Archive → Distribute → TestFlight interno, passo per passo; (5) Android: keystore locale (`keytool` comando), `gradle.properties` con le proprietà `STUBWISE_UPLOAD_STORE_FILE`… (fuori dal repo), `./gradlew bundleRelease`/`assembleRelease`, Play internal o APK diretto; (6) `pnpm --filter @stubwise/mobile version:bump`; (7) **il relay push**: perché esiste (app unica sugli store, chiavi legate alla nostra identità), cosa vede (titolo e corpo in TLS, nessun log — cifratura E2E in fase 4b), come un'istanza self-hosted lo usa (default di `PUSH_RELAY_URL`, `""` per spegnere le push) e come lo operiamo noi: credenziali APNs (`.p8` da Apple Developer → Keys, `APNS_KEY_ID`, `APNS_TEAM_ID`) e FCM (service account JSON) in base64 nel `.env` del VPS (`base64 -i AuthKey.p8 | tr -d '\n'`), DNS `push.<dominio>`, `docker compose --profile relay up -d --build push-relay caddy`; (8) troubleshooting Metro+pnpm.
 - **⚠️ VOCE OBBLIGATORIA per `CLAUDE.md`, sezione "Invarianti e trappole"** (emersa nella fase A, Task 4b — non perderla):
 
-  > **Verso l'app mobile, solo cambi ADDITIVI alle risposte.** L'app si aggiorna
+  > **Verso l'app mobile, solo cambi ADDITIVI — alle risposte E alle richieste.** L'app si aggiorna
   > dagli store, non dai nostri deploy: per settimane un server nuovo parla a
   > client vecchi. Aggiungere un campo è sicuro (il client vecchio lo scarta);
   > aggiungere un valore a un enum è sicuro **solo perché** gli schemi dei client
@@ -800,6 +800,25 @@ il job CI su ubuntu passi con il mobile incluso.
   > telefono finché l'utente non aggiorna. Un rename «tanto è solo un rename» su
   > una rotta che il mobile legge è un incidente di produzione che non possiamo
   > ritirare.
+  >
+  > **Vale anche nel verso opposto**: l'app *manda* richieste, quindi rendere
+  > OBBLIGATORIO un campo nuovo in un body rompe le app vecchie esattamente come
+  > rimuovere un campo da una risposta. È già successo in fase B: aggiungere
+  > `push` a `notificationPrefsSchema` ha reso `PUT /api/me/notification-prefs`
+  > non soddisfacibile da un client che non lo conosce. La forma giusta per un
+  > body che cresce nel tempo è la **patch**: campi opzionali, gli assenti
+  > restano invariati.
+
+- **Due avvertenze accertate al Task 6, da riportare nelle note di rollback:**
+  (a) `delivery_channel += 'push'` **NON** replica la lezione della fase 2:
+  `notification_kind` aveva due anelli (schema in shared *e* presenza in
+  `inboxPageSchema`), `delivery_channel` non ne ha nessuno — l'unico riferimento
+  fuori da `packages/db` è una scrittura, nessuna rotta lo legge. Scendere di
+  immagine sul server è sicuro, e le righe `push` in `notification_deliveries`
+  non vanno ripulite. (b) Ma `notificationPrefsViewSchema` ha ora `push`
+  obbligatorio ed **è** nella risposta di una rotta preesistente: un rollback del
+  server lascia l'app mobile installata senza quel campo, e l'app non viaggia
+  nell'immagine.
 
 - Modify: `CLAUDE.md`: sezione monorepo (`apps/mobile`, `packages/api-client`, `apps/push-relay`), architettura runtime (servizio `push-relay` sotto profilo `relay`, solo sul nostro VPS; le istanze self-hosted NON lo avviano), sezione "Deploy" con la voce **Fase 4** (migrazione 0067; rebuild server+worker+caddy; `PUSH_RELAY_URL` di default punta al relay pubblico e `""` spegne le push; deploy del relay con profilo `relay` + DNS; rollback: scendere di immagine sul server è sicuro? — il canale `push` è un valore enum nuovo che il **poller vecchio** marca `channel_not_implemented` (innocuo), ma controlla se `notificationPrefsViewSchema`/`deliveryChannel` in shared compaiono in risposte di rotte preesistenti → scrivi la conclusione VERA dopo aver letto gli schemi), trappola «rotta `/api/projects/pulse` prima di `/:id`», nota che `apps/web` dipende da `@stubwise/api-client` in dependencies (Dockerfile.caddy).
 - Modify: `apps/docs` (guida utente Starlight): pagina «App mobile» (installazione via TestFlight/APK, login, notifiche, cosa si può fare dall'app).
