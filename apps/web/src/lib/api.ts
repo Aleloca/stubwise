@@ -30,7 +30,7 @@ import type {
   InboxQuestion,
   InboxStatus,
   Language,
-  NotificationPrefs,
+  NotificationPrefsUpdate,
   NotificationPrefsView,
   PatView,
   PatWithToken,
@@ -111,7 +111,7 @@ export type {
   InboxPage,
   InboxQuestion,
   InboxStatus,
-  NotificationPrefs,
+  NotificationPrefsUpdate,
   NotificationPrefsView,
   ProjectFollows,
   SnoozeUntil,
@@ -2951,10 +2951,10 @@ export function getNotificationPrefs(): Promise<NotificationPrefsView> {
 }
 
 /**
- * SOSTITUISCE i canali opzionali (DM Slack, push mobile): 204. Il body li porta
- * tutti, anche quelli che questa pagina non mostra. L'inbox in-app non è
+ * PATCH dei canali opzionali (DM Slack, push mobile): 204. Si mandano i soli
+ * campi da cambiare, gli altri restano come sono. L'inbox in-app non è
  * disattivabile.
  */
-export function putNotificationPrefs(prefs: NotificationPrefs): Promise<void> {
-  return api.put("/api/me/notification-prefs", prefs);
+export function putNotificationPrefs(patch: NotificationPrefsUpdate): Promise<void> {
+  return api.put("/api/me/notification-prefs", patch);
 }

@@ -406,18 +406,35 @@ export type ProjectFollows = z.infer<typeof projectFollowsSchema>;
  * (`users.notify_push`). L'inbox in-app non è disattivabile: è la superficie
  * primaria, non un canale.
  *
- * Il PUT SOSTITUISCE l'insieme (come i progetti seguiti), quindi i campi sono
- * tutti obbligatori: un client che ne omette uno prende 400, non uno
- * spegnimento implicito. Aggiungere un canale è perciò un cambio ROMPENTE per
- * il client che manda il body — la SPA, che viaggia nella stessa immagine del
- * server e si aggiorna insieme. In LETTURA invece resta additivo, ed è la
- * direzione da cui guarda l'app mobile, che non viaggia col server.
+ * Questa è la forma in LETTURA: i canali ci sono tutti, sempre. Un client deve
+ * poter sapere lo stato completo senza indovinare i campi assenti — ed è per
+ * questo che non è lo stesso schema del body di scrittura, che invece è una
+ * patch (vedi {@link notificationPrefsUpdateSchema}).
  */
 export const notificationPrefsSchema = z.object({
   slackDm: z.boolean(),
   push: z.boolean(),
 });
 export type NotificationPrefs = z.infer<typeof notificationPrefsSchema>;
+
+/**
+ * Body di `PUT /api/me/notification-prefs`: una PATCH, non una sostituzione.
+ * I campi presenti si applicano, gli assenti restano come sono.
+ *
+ * Tutto opzionale per una ragione precisa: l'app mobile NON viaggia
+ * nell'immagine del server, e una versione installata mesi fa continua a
+ * mandare il body che conosceva. Se i campi fossero obbligatori, aggiungere un
+ * canale renderebbe 400 ogni richiesta delle app vecchie — un cambio rompente
+ * in SCRITTURA, speculare a un campo tolto da una risposta. Con la patch,
+ * aggiungere un canale è additivo in entrambe le direzioni.
+ *
+ * Un body vuoto `{}` è una patch senza campi, quindi un no-op legittimo (204),
+ * non un errore: non c'è niente di ambiguo da segnalare a chi lo manda, e un
+ * 400 costringerebbe ogni client a un controllo che il server sa già fare.
+ * Resta invece 400 un campo presente col tipo sbagliato.
+ */
+export const notificationPrefsUpdateSchema = notificationPrefsSchema.partial();
+export type NotificationPrefsUpdate = z.infer<typeof notificationPrefsUpdateSchema>;
 
 /**
  * Le preferenze più il contesto che serve alla UI per renderle: senza identità

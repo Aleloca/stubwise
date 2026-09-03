@@ -1,6 +1,6 @@
 import { projectFollows, projects, users } from "@stubwise/db";
 import {
-  notificationPrefsSchema,
+  notificationPrefsUpdateSchema,
   notificationPrefsViewSchema,
   projectFollowsSchema,
 } from "@stubwise/shared";
@@ -18,7 +18,8 @@ import { authErrorResponses, errorSchema } from "./shared.js";
  *
  * Sono i due ingressi dell'instradamento delle notifiche (`packages/notifications`
  * → `recipientsFor`): i follow decidono CHI riceve un evento di progetto,
- * `notify_slack_dm` decide se a quella persona si manda anche il DM. Nessun
+ * `notify_slack_dm` e `notify_push` se a quella persona si manda anche il DM
+ * Slack o la push sui suoi device. Nessun
  * privilegio admin: ognuno gestisce solo le proprie righe, e `userId` è sempre
  * nel WHERE — un utente non può leggere né scrivere le preferenze altrui.
  *
@@ -124,8 +125,14 @@ export async function mePrefsRoutes(instance: FastifyInstance): Promise<void> {
 
   /**
    * Accende o spegne i canali opzionali (DM Slack, push sui device mobili).
-   * SOSTITUISCE l'insieme: il body li porta tutti, così due schede aperte non
-   * si sovrascrivono a metà. Non c'è un toggle per l'inbox in-app: è la
+   * È una PATCH: applica i campi presenti e lascia stare gli assenti — non una
+   * sostituzione dell'insieme. Così un client vecchio, che manda solo i canali
+   * che conosceva, continua a funzionare quando ne aggiungiamo uno: è
+   * l'invariante «solo cambi additivi» applicata alla direzione in SCRITTURA,
+   * dove pesa più che altrove perché l'app mobile non si aggiorna col server.
+   *
+   * Un body vuoto è un no-op da 204, non un 400: una patch senza campi non è
+   * ambigua, è solo vuota. Non c'è un toggle per l'inbox in-app: è la
    * superficie primaria delle notifiche, non un canale opzionale.
    */
   app.put(
@@ -133,15 +140,20 @@ export async function mePrefsRoutes(instance: FastifyInstance): Promise<void> {
     {
       preHandler: requireAuth,
       schema: {
-        body: notificationPrefsSchema,
+        body: notificationPrefsUpdateSchema,
         response: { 204: z.null(), ...authErrorResponses },
       },
     },
     async (request, reply) => {
-      await app.db
-        .update(users)
-        .set({ notifySlackDm: request.body.slackDm, notifyPush: request.body.push })
-        .where(eq(users.id, request.user!.id));
+      // Si costruisce il SET coi soli campi presenti. Passare `undefined` a
+      // drizzle non è equivalente: l'update finirebbe senza colonne da
+      // scrivere (errore) o, peggio in futuro, con una colonna azzerata.
+      const patch: Partial<typeof users.$inferInsert> = {};
+      if (request.body.slackDm !== undefined) patch.notifySlackDm = request.body.slackDm;
+      if (request.body.push !== undefined) patch.notifyPush = request.body.push;
+      if (Object.keys(patch).length > 0) {
+        await app.db.update(users).set(patch).where(eq(users.id, request.user!.id));
+      }
       return reply.code(204).send(null);
     },
   );

@@ -2557,7 +2557,15 @@ export const deviceTokens = pgTable(
     patId: uuid("pat_id").references(() => personalAccessTokens.id, { onDelete: "set null" }),
     // Colonna text con CHECK invece di un enum Postgres: aggiungere una
     // piattaforma domani non richiede una migrazione a sé (un `ALTER TYPE …
-    // ADD VALUE` non è usabile nello stesso batch che lo aggiunge).
+    // ADD VALUE` non è usabile nello stesso batch che lo aggiunge). Stessa
+    // scelta di `plugins`/`graph_jobs`.
+    // ⚠️ Il prezzo: `enum-parity.test.ts` NON copre questa lista — guarda i
+    // `pgEnum`, e qui non c'è un tipo Postgres da confrontare. Se i valori qui
+    // e quelli del CHECK `device_tokens_platform_chk` (migrazione 0067)
+    // divergono, nulla lo segnala: TypeScript accetta il valore nuovo e
+    // Postgres lo rifiuta al primo insert. Chi aggiunge una piattaforma tocca
+    // ENTRAMBI i punti; il test `device-tokens.test.ts` verifica il CHECK a
+    // runtime con un insert raw, ed è lì che va aggiunto il caso.
     platform: text("platform", { enum: ["ios", "android"] }).notNull(),
     token: text("token").notNull().unique(),
     // Versione dell'app che ha registrato il device, utile a diagnosticare le
