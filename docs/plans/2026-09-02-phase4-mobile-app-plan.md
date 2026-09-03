@@ -375,7 +375,7 @@ separato con una connessione nuova).
 ### Task 7: rotte `/api/me/devices` e preferenza `push`
 
 **Files:**
-- Modify: `apps/server/src/routes/me-prefs.ts` (GET/PATCH prefs con `push`; `PUT /api/me/devices`; `DELETE /api/me/devices/:token`)
+- Modify: `apps/server/src/routes/me-prefs.ts` (GET/PATCH prefs con `push`; `PUT /api/me/devices`; `POST /api/me/devices/delete` — token nel BODY, non nel path: il server gira con `logger: true` e pino scrive l'URL intero, quindi un `DELETE /:token` scriverebbe il token push nei log a ogni logout)
 - Modify: `packages/shared/src/schemas/notification.ts` (`deviceRegistrationSchema { platform, token, appVersion? }`)
 - Test: `apps/server/src/routes/me-prefs.test.ts`
 
@@ -754,7 +754,7 @@ comparire in `device_tokens`.
 ### Task 20: Impostazioni e logout; polish offline; accessibilità di base
 
 **Files:**
-- Create: `apps/mobile/src/screens/settings/SettingsSheet.tsx` (dall'avatar: Notifiche → push on/off (`me/prefs push`), progetti seguiti (`me/follows`); Istanza → server (sola lettura), lingua (it/en, persiste); Esci → `DELETE /api/me/devices/:token` + `DELETE /api/pats/:patId` + **`messaging().deleteToken()`** (invalida il token: un'ex istanza non può più raggiungere questo telefono, anche se se lo era salvato — è la garanzia di sicurezza del modello a relay) + `clearSession` + reset cache; al login successivo `getToken()` ne genera uno nuovo)
+- Create: `apps/mobile/src/screens/settings/SettingsSheet.tsx` (dall'avatar: Notifiche → push on/off (`me/prefs push`), progetti seguiti (`me/follows`); Istanza → server (sola lettura), lingua (it/en, persiste); Esci → `POST /api/me/devices/delete` (token nel body: vedi Task 7, un `DELETE /:token` lo scriverebbe nei log) + `DELETE /api/pats/:patId` + **`messaging().deleteToken()`** (invalida il token: un'ex istanza non può più raggiungere questo telefono, anche se se lo era salvato — è la garanzia di sicurezza del modello a relay) + `clearSession` + reset cache; al login successivo `getToken()` ne genera uno nuovo)
 - Modify: `apps/mobile/src/app/providers.tsx` (`OfflineBanner` globale da NetInfo: «Offline — ultima sincronizzazione {time}»; `lastSyncAt` aggiornato a ogni fetch riuscito)
 - Test: `SettingsSheet.test.tsx` (logout revoca device e PAT e chiama `deleteToken`; anche se una delle chiamate remote fallisce la sessione locale viene comunque cancellata e `deleteToken` viene comunque chiamato), `OfflineBanner.test.tsx`
 - Accessibilità: `accessibilityLabel` sui bottoni con glifo, `accessibilityRole="button"`, font scaling consentito (niente `allowFontScaling={false}`)
