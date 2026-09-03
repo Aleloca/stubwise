@@ -187,7 +187,9 @@ offline** (rischio di corse e stato stantio); la card resta e il bottone dice
   default true); `ALTER TYPE delivery_channel ADD VALUE 'push'` (statement
   separato).
 - **Rotte** `PUT /api/me/devices` (upsert per token; lega al PAT corrente),
-  `DELETE /api/me/devices/:token`; `notification-prefs` estese con `push`.
+  `POST /api/me/devices/delete` (token nel BODY: pino scrive l'URL intero,
+  quindi un `DELETE /:token` lo scriverebbe nei log a ogni logout);
+  `notification-prefs` estese con `push`, e diventate una `PATCH`.
 - **Publish**: `pushRecipients` (gemello di `slackRecipients`): per ogni
   destinatario con `notify_push` e almeno un device attivo → **una** delivery
   `push` per destinatario (non per device): i device si risolvono al momento
