@@ -5,7 +5,7 @@ import { buildApp } from "../app.js";
 import { aiJobs, aiProviders, notifications, projectFollows, tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
-import { seedUsers } from "../test/fixtures.js";
+import { seedUsers, sessionCookie } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 const ENCRYPTION_KEY = randomBytes(32);
@@ -425,14 +425,57 @@ describe("GET /api/projects/pulse", () => {
     expect(Array.isArray(res.json())).toBe(true);
   });
 
+  /**
+   * Invita e registra un member DEDICATO (email nuova, mai usata altrove nel
+   * file), distinto dal `memberCookie`/`memberId` condivisi da tutto il
+   * `beforeAll`: un test che deve vedere "zero follow" non può appoggiarsi
+   * all'unico member del file, la cui riga in `project_follows` un altro test
+   * di questo stesso describe può tranquillamente popolare. Stesso identico
+   * flusso HTTP di `seedUsers` in `../test/fixtures.js`, solo ripetuto con
+   * un'email diversa.
+   */
+  async function seedMember(email: string): Promise<{ cookie: string; id: string }> {
+    const invite = await app.inject({
+      method: "POST",
+      url: "/api/auth/invites",
+      headers: { cookie: adminCookie },
+      payload: { email },
+    });
+    if (invite.statusCode !== 201) {
+      throw new Error(`invito fallito: ${invite.statusCode} ${invite.body}`);
+    }
+    const register = await app.inject({
+      method: "POST",
+      url: "/api/auth/register",
+      payload: {
+        token: (invite.json() as { token: string }).token,
+        email,
+        password: "password-dedicata-al-test",
+      },
+    });
+    if (register.statusCode !== 201) {
+      throw new Error(`registrazione fallita: ${register.statusCode} ${register.body}`);
+    }
+    const id = (register.json() as { user: { id: string } }).user.id;
+    const login = await app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      payload: { email, password: "password-dedicata-al-test" },
+    });
+    if (login.statusCode !== 200) {
+      throw new Error(`login fallito: ${login.statusCode} ${login.body}`);
+    }
+    return { cookie: sessionCookie(login), id };
+  }
+
   it("un member senza nessun progetto seguito vede un array vuoto", async () => {
-    // Deve girare PRIMA che qualunque altro test di questo blocco segua un
-    // progetto per `memberId` (unico member del file, condiviso da tutto il
-    // beforeAll): l'ordine dei test in questo describe non è casuale.
+    // Member dedicato: nessun altro test di questo file gli fa seguire un
+    // progetto, quindi il risultato non dipende dall'ordine di esecuzione.
+    const { cookie } = await seedMember("member-senza-follow@example.com");
     const res = await app.inject({
       method: "GET",
       url: "/api/projects/pulse",
-      headers: { cookie: memberCookie },
+      headers: { cookie },
     });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual([]);

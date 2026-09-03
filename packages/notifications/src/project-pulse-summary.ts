@@ -8,7 +8,13 @@ import {
   type Db,
 } from "@stubwise/db";
 import { and, eq, inArray, sql } from "drizzle-orm";
-import type { ActorRole } from "./actions.js";
+import {
+  actorAllows,
+  type ActionableNotification,
+  type ActionId,
+  type ActorRole,
+} from "./actions.js";
+import type { NotificationKind } from "./format.js";
 import { isProjectIdle } from "./project-signals.js";
 
 /**
@@ -113,11 +119,30 @@ export interface ProjectPulseSummary {
 }
 
 /** Stati di `ai_jobs` che rappresentano una DECISIONE UMANA pendente. */
-const WAITING_STATUSES = ["awaiting_input", "awaiting_plan_approval"] as const;
+export const WAITING_STATUSES = ["awaiting_input", "awaiting_plan_approval"] as const;
+
+/**
+ * Vero se lo stato è uno di {@link WAITING_STATUSES}. DERIVATA dalla costante
+ * (stesso pattern di `isInFlight` in `./actions.ts`) e non un confronto
+ * letterale ripetuto qui: uno stato aggiunto o tolto da WAITING_STATUSES
+ * cambia anche questa funzione da sola. Un confronto scritto a mano
+ * (`status === "awaiting_input" || status === "..."`) potrebbe silenziosamente
+ * disallinearsi dalla query SQL che usa la stessa costante (riga sotto) — qui
+ * non può, perché leggono lo stesso array.
+ */
+export function isWaitingStatus(status: string): boolean {
+  return (WAITING_STATUSES as readonly string[]).includes(status);
+}
 
 /** Stati di `ai_jobs` in cui l'agente sta lavorando DAVVERO (non solo in coda:
  * `queued` non è "running", non c'è ancora nessuna attività da mostrare). */
-const RUNNING_STATUSES = ["triaging", "fixing"] as const;
+export const RUNNING_STATUSES = ["triaging", "fixing"] as const;
+
+/** Vero se lo stato è uno di {@link RUNNING_STATUSES}. Stesso pattern di
+ * {@link isWaitingStatus}, stesso perché. */
+export function isRunningStatus(status: string): boolean {
+  return (RUNNING_STATUSES as readonly string[]).includes(status);
+}
 
 /**
  * Da quanti giorni è fermo un progetto, data l'ultima attività di un job AI.
@@ -191,40 +216,72 @@ export async function summarizeProject(
     .where(eq(projects.id, projectId));
   if (!project) return null;
 
-  // I job "vivi" del progetto in UNA query: le due categorie di attesa, i due
-  // stati "in esecuzione" e i falliti. Un solo giro invece di quattro: il
-  // filtro sullo stato è lo stesso indice (`ai_jobs_ticket_id_idx` + il join
-  // su `tickets`) che i segnali del pulse già pagano.
-  const jobRows = await db
-    .select({
-      jobId: aiJobs.id,
-      ticketId: tickets.id,
-      ticketNumber: tickets.number,
-      title: tickets.title,
-      status: aiJobs.status,
-      requestedByUserId: aiJobs.requestedByUserId,
-      // Calcolato IN SQL, non in JS dopo il fetch: evita lo sfasamento fra
-      // l'orologio di questo processo e quello del DB. A differenza di
-      // `idleDays` (granularità giorni, dove qualche secondo di skew è
-      // innocuo), un job appena avviato deve poter dire "da 0 minuti" con
-      // precisione.
-      sinceMinutes: sql<number | null>`floor(extract(epoch from (now() - ${aiJobs.startedAt})) / 60)::int`,
-    })
-    .from(aiJobs)
-    .innerJoin(tickets, eq(tickets.id, aiJobs.ticketId))
-    .where(
-      and(
-        eq(tickets.projectId, projectId),
-        inArray(aiJobs.status, [...WAITING_STATUSES, ...RUNNING_STATUSES, "failed"]),
-      ),
-    )
-    // Ordine stabile e leggibile: il ticket più vecchio del progetto prima.
-    // Nessun requisito funzionale dietro, solo test deterministici.
-    .orderBy(tickets.number);
+  // Le QUATTRO query indipendenti da qui in poi (job vivi, backlog pronto,
+  // fermo/idle, ultimo report) non hanno dati in comune fra loro: nessuna
+  // legge ciò che un'altra scrive o restituisce. Le si lancia insieme con
+  // `Promise.all` invece che in sequenza — dimezza abbondantemente il numero
+  // di round-trip in serie per QUESTO progetto (da 6 a ~3: questa più
+  // `loadNotificationIds`, che invece DEVE aspettare `jobRows`).
+  //
+  // ⚠️ LIMITE NOTO v1, non risolto da questo `Promise.all`: per un viewer
+  // `admin`, `projectIds` nella rotta (`apps/server/src/routes/projects.ts`)
+  // è OGNI progetto dell'istanza, senza cap né paginazione, e la rotta chiama
+  // `summarizeProject` per ciascuno IN PARALLELO (anche quello è un
+  // `Promise.all`). Il parallelismo qui dentro riduce la latenza per singolo
+  // progetto (il caso comune: un viewer segue poche unità), ma su un'istanza
+  // con MOLTI progetti alza il picco di query simultanee verso il pool
+  // (`DATABASE_POOL_MAX`) — un admin che apre questa vista genera comunque
+  // dell'ordine di N×4 query, solo più fitte nel tempo invece che più lunghe
+  // in serie. Non c'è oggi un cap sul numero di progetti né una paginazione:
+  // se un'istanza crescesse a centinaia di progetti, andrebbe rivisitato
+  // (limite sui progetti restituiti all'admin, o esecuzione a lotti). Stessa
+  // categoria della sezione "limite noto v1" sui Plugin di progetto in
+  // CLAUDE.md: accettato per la v1, non per un difetto di oggi.
+  const [jobRows, backlogReadyRow, idleness, lastReportRow] = await Promise.all([
+    // I job "vivi" del progetto in UNA query: le due categorie di attesa, i
+    // due stati "in esecuzione" e i falliti. Un solo giro invece di quattro:
+    // il filtro sullo stato è lo stesso indice (`ai_jobs_ticket_id_idx` + il
+    // join su `tickets`) che i segnali del pulse già pagano.
+    db
+      .select({
+        jobId: aiJobs.id,
+        ticketId: tickets.id,
+        ticketNumber: tickets.number,
+        title: tickets.title,
+        status: aiJobs.status,
+        requestedByUserId: aiJobs.requestedByUserId,
+        // Calcolato IN SQL, non in JS dopo il fetch: evita lo sfasamento fra
+        // l'orologio di questo processo e quello del DB. A differenza di
+        // `idleDays` (granularità giorni, dove qualche secondo di skew è
+        // innocuo), un job appena avviato deve poter dire "da 0 minuti" con
+        // precisione.
+        sinceMinutes: sql<number | null>`floor(extract(epoch from (now() - ${aiJobs.startedAt})) / 60)::int`,
+      })
+      .from(aiJobs)
+      .innerJoin(tickets, eq(tickets.id, aiJobs.ticketId))
+      .where(
+        and(
+          eq(tickets.projectId, projectId),
+          inArray(aiJobs.status, [...WAITING_STATUSES, ...RUNNING_STATUSES, "failed"]),
+        ),
+      )
+      // Ordine stabile e leggibile: il ticket più vecchio del progetto prima.
+      // Nessun requisito funzionale dietro, solo test deterministici.
+      .orderBy(tickets.number),
+    db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(backlogItems)
+      .where(and(eq(backlogItems.projectId, projectId), eq(backlogItems.status, "ready")))
+      .then((rows) => rows[0]),
+    isProjectIdle(db, projectId),
+    db
+      .select({ date: sql<string | null>`max(${activityReports.date})` })
+      .from(activityReports)
+      .where(and(eq(activityReports.projectId, projectId), eq(activityReports.status, "done")))
+      .then((rows) => rows[0]),
+  ]);
 
-  const waitingRows = jobRows.filter(
-    (row) => row.status === "awaiting_input" || row.status === "awaiting_plan_approval",
-  );
+  const waitingRows = jobRows.filter((row) => isWaitingStatus(row.status));
 
   const notificationByJobId = await loadNotificationIds(
     db,
@@ -237,17 +294,18 @@ export async function summarizeProject(
 
   for (const row of waitingRows) {
     const kind: PulseWaitingKind = row.status === "awaiting_input" ? "question" : "plan_approval";
-    // `job.plan_review` è `adminOnly` nel catalogo delle azioni: il
-    // richiedente stesso non può approvare il proprio piano, quindi qui
-    // l'identità non conta, solo il ruolo. `job.awaiting_input` invece la
-    // offre ad admin O richiedente (vedi `actorAllows` in `./actions.ts`):
-    // qui la specificità conta, e va ripetuta qui perché quella funzione
-    // lavora su una `NotificationEvent` già costruita, non su un job.
-    const canAct =
-      kind === "plan_approval"
-        ? viewer.role === "admin"
-        : viewer.role === "admin" ||
-          (row.requestedByUserId !== null && row.requestedByUserId === viewer.userId);
+    // Il kind di NOTIFICA e l'AZIONE corrispondente a questo tipo di attesa:
+    // servono solo a interrogare `actorAllows`, la stessa funzione che decide
+    // i bottoni delle notifiche vere (`./actions.ts`). Nessuna policy scritta
+    // qui: la policy resta unica, in un solo posto.
+    const notifKind: NotificationKind = kind === "plan_approval" ? "job.plan_review" : "job.awaiting_input";
+    const action: ActionId = kind === "plan_approval" ? "approve_plan" : "answer";
+    const notification: ActionableNotification = {
+      kind: notifKind,
+      requestedByUserId: row.requestedByUserId,
+    };
+
+    const canAct = actorAllows(notification, action, { id: viewer.userId, role: viewer.role });
 
     const shared = {
       kind,
@@ -264,14 +322,25 @@ export async function summarizeProject(
       // funzione indovinare dove metterla.
       if (notificationId) waitingForYou.push({ ...shared, notificationId });
     } else {
-      const who: PulseWaitingWho =
-        kind === "plan_approval" ? { kind: "maintainer" } : { kind: "requester" };
+      // "Chi PUÒ sbloccarla, se non il viewer?" è la stessa domanda che
+      // `actorAllows` sa rispondere per un attore preciso — la si pone per IL
+      // RICHIEDENTE (ipotetico, ruolo `member`) invece di ripetere qui la
+      // policy per kind. Se anche un richiedente `member` risulterebbe
+      // ammesso, lui è il destinatario naturale (`requester`, es.
+      // `job.awaiting_input`); se no, resta solo l'ammissione per RUOLO
+      // (`maintainer`, es. `job.plan_review`, `adminOnly` nel catalogo — il
+      // richiedente stesso non basta). Nessuna seconda policy scritta a mano:
+      // stessa chiamata a `actorAllows` di sopra, solo con un attore diverso.
+      const requesterCouldAct =
+        row.requestedByUserId !== null &&
+        actorAllows(notification, action, { id: row.requestedByUserId, role: "member" });
+      const who: PulseWaitingWho = requesterCouldAct ? { kind: "requester" } : { kind: "maintainer" };
       waitingForOthers.push({ ...shared, who });
     }
   }
 
   const running: PulseRunningItem[] = jobRows
-    .filter((row) => row.status === "triaging" || row.status === "fixing")
+    .filter((row) => isRunningStatus(row.status))
     .map((row) => ({
       ticketId: row.ticketId,
       ticketNumber: row.ticketNumber,
@@ -285,18 +354,9 @@ export async function summarizeProject(
 
   const failedCount = jobRows.filter((row) => row.status === "failed").length;
 
-  const [backlogReadyRow] = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(backlogItems)
-    .where(and(eq(backlogItems.projectId, projectId), eq(backlogItems.status, "ready")));
-
-  const idleness = await isProjectIdle(db, projectId);
+  // `backlogReadyRow`, `idleness` e `lastReportRow` sono già arrivati dal
+  // `Promise.all` di sopra: qui si legge solo il risultato.
   const idleDays = idleDaysFrom(new Date(), idleness.lastJobActivityAt);
-
-  const [lastReportRow] = await db
-    .select({ date: sql<string | null>`max(${activityReports.date})` })
-    .from(activityReports)
-    .where(and(eq(activityReports.projectId, projectId), eq(activityReports.status, "done")));
 
   return {
     projectId: project.id,

@@ -11,7 +11,13 @@ import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { summarizeProject } from "./project-pulse-summary.js";
+import {
+  isRunningStatus,
+  isWaitingStatus,
+  RUNNING_STATUSES,
+  summarizeProject,
+  WAITING_STATUSES,
+} from "./project-pulse-summary.js";
 
 /**
  * Test di `summarizeProject` su un Postgres reale (testcontainers), stesso
@@ -103,6 +109,7 @@ describe("summarizeProject", () => {
     kind: "job.awaiting_input" | "job.plan_review";
     status?: "open" | "handled" | "snoozed";
   }): Promise<string> {
+    const status = opts.status ?? "open";
     const [row] = await db
       .insert(notifications)
       .values({
@@ -110,7 +117,12 @@ describe("summarizeProject", () => {
         jobId: opts.jobId,
         kind: opts.kind,
         event: {},
-        status: opts.status ?? "open",
+        status,
+        // I CHECK del DB impongono la coerenza: `handled` vuole `handledAt`,
+        // `snoozed` vuole `snoozedUntil` (vedi `notifications_handled_at_chk`
+        // e `notifications_snoozed_until_chk` in `packages/db/src/schema.ts`).
+        ...(status === "handled" ? { handledAt: new Date() } : {}),
+        ...(status === "snoozed" ? { snoozedUntil: new Date(Date.now() + 60 * 60 * 1000) } : {}),
       })
       .returning({ id: notifications.id });
     return row!.id;
@@ -164,6 +176,60 @@ describe("summarizeProject", () => {
       },
     ]);
     expect(summary?.waitingForOthers).toEqual([]);
+  });
+
+  it("notifica handled per il job awaiting_input: la voce non compare da nessuna parte (stale)", async () => {
+    const projectId = await seedProject();
+    const viewerId = await seedUser("member");
+    const { ticketId } = await seedTicketRow(projectId, { title: "Domanda aperta" });
+    const jobId = await seedAiJob({
+      ticketId,
+      status: "awaiting_input",
+      requestedByUserId: viewerId,
+    });
+    // La notifica è handled ma il JOB resta awaiting_input: incoerenza che
+    // segnala una copia stantia (vedi il commento su `loadNotificationIds`).
+    await seedNotification({
+      userId: viewerId,
+      jobId,
+      kind: "job.awaiting_input",
+      status: "handled",
+    });
+
+    const summary = await summarizeProject(db, projectId, { userId: viewerId, role: "member" });
+
+    expect(summary?.waitingForYou).toEqual([]);
+    expect(summary?.waitingForOthers).toEqual([]);
+  });
+
+  it("notifica snoozed per il job awaiting_input: la voce compare normalmente in waitingForYou", async () => {
+    const projectId = await seedProject();
+    const viewerId = await seedUser("member");
+    const { ticketId, number } = await seedTicketRow(projectId, { title: "Domanda aperta" });
+    const jobId = await seedAiJob({
+      ticketId,
+      status: "awaiting_input",
+      requestedByUserId: viewerId,
+    });
+    const notificationId = await seedNotification({
+      userId: viewerId,
+      jobId,
+      kind: "job.awaiting_input",
+      status: "snoozed",
+    });
+
+    const summary = await summarizeProject(db, projectId, { userId: viewerId, role: "member" });
+
+    // Rinviata non vuol dire risolta: resta la riga giusta su cui agire.
+    expect(summary?.waitingForYou).toEqual([
+      {
+        kind: "question",
+        ticketId,
+        ticketNumber: number,
+        title: "Domanda aperta",
+        notificationId,
+      },
+    ]);
   });
 
   it("job awaiting_input, viewer member NON richiedente -> waitingForOthers con who=requester", async () => {
@@ -389,5 +455,52 @@ describe("summarizeProject", () => {
 
     expect(summary?.waitingForYou).toEqual([]);
     expect(summary?.waitingForOthers).toEqual([]);
+  });
+});
+
+/**
+ * `isWaitingStatus`/`isRunningStatus` DERIVANO da `WAITING_STATUSES`/
+ * `RUNNING_STATUSES` (stesso pattern di `isInFlight` in `./actions.ts`): un
+ * test che si limitasse a verificare "gli stati di oggi tornano il valore
+ * atteso" passerebbe anche se le due funzioni fossero riscritte come confronti
+ * letterali (`status === "awaiting_input" || ...`) — esattamente il difetto
+ * che questa derivazione elimina. La prova che chiude il buco per davvero è
+ * MUTARE l'array a runtime (gli array `as const` restano array normali, non
+ * congelati) e verificare che la funzione SEGUA: se seguisse un confronto
+ * scritto a mano invece che l'array, non se ne accorgerebbe.
+ */
+describe("isWaitingStatus / isRunningStatus derivano dalle costanti, non da confronti ripetuti", () => {
+  it("isWaitingStatus segue WAITING_STATUSES anche se la lista cambia a runtime", () => {
+    expect(isWaitingStatus("failed")).toBe(false);
+    const mutable = WAITING_STATUSES as unknown as string[];
+    mutable.push("failed");
+    try {
+      expect(isWaitingStatus("failed")).toBe(true);
+    } finally {
+      mutable.pop();
+    }
+    // Ripristinato: non deve restare vero fuori da questo test.
+    expect(isWaitingStatus("failed")).toBe(false);
+  });
+
+  it("isRunningStatus segue RUNNING_STATUSES anche se la lista cambia a runtime", () => {
+    expect(isRunningStatus("failed")).toBe(false);
+    const mutable = RUNNING_STATUSES as unknown as string[];
+    mutable.push("failed");
+    try {
+      expect(isRunningStatus("failed")).toBe(true);
+    } finally {
+      mutable.pop();
+    }
+    expect(isRunningStatus("failed")).toBe(false);
+  });
+
+  it("i due elenchi non si sovrappongono (uno stato non è mai sia 'in attesa' che 'in esecuzione')", () => {
+    for (const status of WAITING_STATUSES) {
+      expect(isRunningStatus(status)).toBe(false);
+    }
+    for (const status of RUNNING_STATUSES) {
+      expect(isWaitingStatus(status)).toBe(false);
+    }
   });
 });
