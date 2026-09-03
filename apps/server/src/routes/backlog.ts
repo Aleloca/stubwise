@@ -49,7 +49,7 @@ import {
   type OriginTicketContext,
   type PromptMessage,
 } from "./backlog-rag.js";
-import { streamChatResponse, TRUNCATION_MARKER } from "./docs-chat-core.js";
+import { chatQuerySchema, streamChatResponse, TRUNCATION_MARKER } from "./docs-chat-core.js";
 import { buildCitations } from "./docs-rag.js";
 import { retrieveChunksForProject } from "./docs-retrieval.js";
 import { appendGraphContext, retrieveGraphContextForProject } from "../graph-chat/context.js";
@@ -85,7 +85,6 @@ const idParamsSchema = z.object({ id: z.uuid() });
 const chatBodySchema = z.object({ message: z.string().min(1).max(8000) });
 
 /** Query della chat: `stream` sceglie fra SSE (default) e JSON non-streaming (fase 4, mobile). */
-const chatQuerySchema = z.object({ stream: z.stringbool().default(true) });
 
 /** Body di merge: la voce di destinazione che assorbe questa. */
 const mergeBodySchema = z.object({ targetId: z.uuid() });

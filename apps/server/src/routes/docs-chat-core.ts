@@ -27,6 +27,7 @@
 import { asc, eq } from "drizzle-orm";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { docChatMessages } from "@stubwise/db";
+import { z } from "zod";
 import type { Db } from "@stubwise/db";
 import { apiError } from "../errors.js";
 import type { ChatLlm } from "./chat-llm.js";
@@ -44,6 +45,17 @@ export function writeSseEvent(reply: FastifyReply, event: unknown): void {
 
 /** Marcatore appeso a una risposta troncata (errore/disconnessione a metà stream). */
 export const TRUNCATION_MARKER = "\n\n_[risposta interrotta]_";
+
+/**
+ * Query condivisa dai tre punti di chiamata di `streamChatResponse` (chat
+ * repo-level, project-level, backlog): `stream=false` passa alla modalità
+ * json (vedi `StreamChatResponseArgs.mode`). Un solo punto di verità: prima
+ * era ridichiarata identica in ciascuno dei tre file, un candidato a
+ * divergere in silenzio se uno dei tre non fosse aggiornato insieme agli
+ * altri due.
+ */
+export const chatQuerySchema = z.object({ stream: z.stringbool().default(true) });
+
 
 /**
  * Carica lo storico della sessione (cronologico) come messaggi per l'LLM.

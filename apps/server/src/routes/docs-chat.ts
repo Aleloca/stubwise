@@ -42,7 +42,7 @@ import { apiError } from "../errors.js";
 import type { ChatLlm } from "./chat-llm.js";
 import { retrieveChunks } from "./docs-retrieval.js";
 import { buildCitations, buildDocsSystemPrompt, CHAT_RETRIEVAL_K } from "./docs-rag.js";
-import { loadHistory, streamChatResponse } from "./docs-chat-core.js";
+import { chatQuerySchema, loadHistory, streamChatResponse } from "./docs-chat-core.js";
 import { appendGraphContext, retrieveGraphContext } from "../graph-chat/context.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
@@ -72,7 +72,6 @@ const chatBodySchema = z.object({
  * alias come "1"/"0") e rifiuta con un messaggio leggibile il resto — coerente
  * con un query param, che arriva sempre come stringa.
  */
-const chatQuerySchema = z.object({ stream: z.stringbool().default(true) });
 
 /**
  * Numero di pagine di contesto recuperate per la chat. Il system prompt e le
@@ -204,8 +203,9 @@ export async function docsChatRoutes(instance: FastifyInstance): Promise<void> {
       const system = appendGraphContext(buildDocsSystemPrompt(chunks), graphBlock);
       const history = await loadHistory(app.db, resolvedSessionId);
 
-      // Streaming SSE + persistenza del messaggio assistant: cuore condiviso con
-      // la chat di progetto (vedi ./docs-chat-core.ts).
+      // Streaming SSE (o risposta JSON unica con ?stream=false, fase 4 mobile) +
+      // persistenza del messaggio assistant: cuore condiviso con la chat di
+      // progetto (vedi ./docs-chat-core.ts).
       await streamChatResponse({
         db: app.db,
         chatLlm: app.chatLlm,

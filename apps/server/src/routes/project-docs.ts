@@ -37,7 +37,7 @@ import {
   repositories,
 } from "@stubwise/db";
 import { apiError } from "../errors.js";
-import { loadHistory, streamChatResponse } from "./docs-chat-core.js";
+import { chatQuerySchema, loadHistory, streamChatResponse } from "./docs-chat-core.js";
 import {
   emptyCountsByKind,
   HIGHLIGHT_LIMITS,
@@ -57,7 +57,6 @@ const chatBodySchema = z.object({
 });
 
 /** Query della chat: `stream` sceglie fra SSE (default) e JSON non-streaming (fase 4, mobile). */
-const chatQuerySchema = z.object({ stream: z.stringbool().default(true) });
 
 /** Query di ricerca: `q` non vuota, cappata a 300 char (come la ricerca per-repo). */
 const searchQuerySchema = z.object({ q: z.string().min(1).max(300) });
@@ -431,8 +430,9 @@ export async function projectDocsRoutes(instance: FastifyInstance): Promise<void
       const system = appendGraphContext(buildDocsSystemPrompt(chunks), graphBlock);
       const history = await loadHistory(app.db, resolvedSessionId);
 
-      // Streaming SSE + persistenza del messaggio assistant: cuore condiviso con
-      // la chat per-repo (vedi ./docs-chat-core.ts).
+      // Streaming SSE (o risposta JSON unica con ?stream=false, fase 4 mobile) +
+      // persistenza del messaggio assistant: cuore condiviso con la chat
+      // per-repo (vedi ./docs-chat-core.ts).
       await streamChatResponse({
         db: app.db,
         chatLlm: app.chatLlm,
