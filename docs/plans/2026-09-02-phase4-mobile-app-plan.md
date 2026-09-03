@@ -458,6 +458,28 @@ chiavi APNs/FCM sono legate alla nostra identità e vivono SOLO nel relay
   `ok`, `failed` senza retry se erano tutti `invalid_token`;
 - relay risponde `retry` per tutti, o `PushRelayUnavailable` → retry col
   `backoffMs` esistente; `PushRelayRejected` → `failed` senza retry;
+- ⚠️ **il `detail` della delivery NON deve contenere i token.** `results[].token`
+  torna al chiamante sul percorso di successo, e questa riga del piano diceva
+  «`detail` con l'esito per token»: copiare `results` così com'è scriverebbe i
+  token push in `notification_deliveries`, cioè in chiaro nel DB e nei log —
+  la stessa cosa che `POST /api/me/devices/delete` evita tenendoli fuori dal
+  path. Salva gli esiti **per id del device**, mai per token.
+- ⚠️ **appaia gli esiti per VALORE del token, non per indice.** Lo schema
+  dichiara che il relay risponde nell'ordine dei token, ma un contratto non lo
+  può imporre: un relay che riordina farebbe disabilitare il device sbagliato,
+  cioè spegnere un telefono sano e tenerne attivo uno morto — senza errori,
+  solo un utente che smette di ricevere notifiche.
+- ⚠️ **stringi `timeoutMs`** (2–3 s invece dei 10 s di default). Il poller
+  processa fino a 20 righe per tick **in sequenza** con guardia anti-rientro:
+  un relay morto allunga il tick a 200 s, e in quel tick non partono nemmeno i
+  DM Slack e i webhook, che stanno nella stessa coda. Il backoff non aiuta,
+  agisce dopo. Il relay è un hop che gestiamo noi e in salute risponde in
+  decine di ms.
+- ⚠️ **il default dell'URL vivrà in due posti** (`DEFAULT_PUSH_RELAY_URL` nel
+  codice e `${PUSH_RELAY_URL-…}` nel compose): dentro Docker quello nel codice
+  è morto, e chi cambia l'uno e non l'altro non lo scopre da nessun test.
+  Stessa famiglia di `WORKER_STALE_MINUTES`: prevedi un test nel worker che
+  legga il compose e lo confronti con la costante esportata.
 - il payload contiene `badge = unreadCount` del destinatario (query
   `notifications where user_id and read_at is null and handled_at is null`
   — riusa la stessa condizione della rotta `unread-count` in
