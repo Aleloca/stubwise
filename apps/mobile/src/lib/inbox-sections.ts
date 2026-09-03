@@ -43,6 +43,18 @@ export function hasDecisionAction(item: Reader<InboxItem>): boolean {
   return item.actions.some((action) => DECISION_ACTIONS.has(action));
 }
 
+/**
+ * La riga offre QUESTA azione specifica (decisionale o d'igiene)? Fattorizzato
+ * qui — invece che ridichiarato identico in ciascuna delle sei varianti di
+ * card (`components/inbox/*.tsx`) — perché è la stessa domanda su cui si
+ * regge ogni bottone condizionale della UI: se un domani un kind nuovo o
+ * un'azione nuova cambiano la forma di `actions`, c'è un solo punto da
+ * aggiornare invece di sei copie che possono divergere in silenzio.
+ */
+export function can(item: Reader<InboxItem>, action: string): boolean {
+  return (item.actions as string[]).includes(action);
+}
+
 export interface InboxSections {
   /** Blocca il viewer ORA: una domanda a cui rispondere, una proposta da avviare, un lavoro da rilanciare. */
   blocksYou: Reader<InboxItem>[];

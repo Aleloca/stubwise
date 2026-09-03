@@ -6,6 +6,7 @@ import { CardFooter, CardShell } from "./CardShell";
 import { QuestionSheet } from "./QuestionSheet";
 import { SnoozeSheet } from "./SnoozeSheet";
 import { useAnswer, useSnooze } from "../../lib/inbox-mutations";
+import { can } from "../../lib/inbox-sections";
 import { colors } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
 
@@ -28,7 +29,6 @@ export function QuestionCard({ item, projectName }: QuestionCardProps) {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [snoozeOpen, setSnoozeOpen] = useState(false);
 
-  const can = (action: string) => (item.actions as string[]).includes(action);
   const question = item.question;
 
   const subtitle = (() => {
@@ -47,7 +47,7 @@ export function QuestionCard({ item, projectName }: QuestionCardProps) {
   })();
 
   const buttons = [];
-  if (can("answer") && question !== undefined) {
+  if (can(item, "answer") && question !== undefined) {
     buttons.push({
       key: "respond",
       label: t("mobile.inbox.actions.respond"),
@@ -55,7 +55,7 @@ export function QuestionCard({ item, projectName }: QuestionCardProps) {
       onPress: () => setSheetOpen(true),
       testID: "question-card-respond",
     });
-  } else if (can("open") && item.url !== undefined) {
+  } else if (can(item, "open") && item.url !== undefined) {
     buttons.push({
       key: "open",
       label: t("mobile.inbox.actions.open"),
@@ -64,7 +64,7 @@ export function QuestionCard({ item, projectName }: QuestionCardProps) {
       testID: "question-card-open",
     });
   }
-  if (can("snooze")) {
+  if (can(item, "snooze")) {
     buttons.push({
       key: "snooze",
       label: t("mobile.inbox.actions.snooze"),
@@ -80,6 +80,7 @@ export function QuestionCard({ item, projectName }: QuestionCardProps) {
       projectName={projectName}
       createdAt={item.createdAt}
       footer={buttons.length > 0 ? <CardFooter buttons={buttons} /> : undefined}
+      errorMessage={snooze.errorMessage}
       testID="question-card"
     >
       <Text style={styles.text}>{item.text}</Text>

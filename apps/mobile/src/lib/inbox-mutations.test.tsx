@@ -5,6 +5,7 @@ import { act, renderHook, waitFor } from "@testing-library/react-native";
 import type { ReactNode } from "react";
 import { AuthContext } from "../app/auth-context";
 import type { AuthContextValue } from "../app/providers";
+import "../i18n";
 import { inboxKeys, useHandled, useSnooze } from "./inbox-mutations";
 
 /**
@@ -98,13 +99,19 @@ describe("useSnooze — ottimismo con rollback", () => {
     // ancora appesa, `reject`/`resolve` non sono stati chiamati.
     await waitFor(() => expect(idsOf(queryClient)).toEqual(["b"]));
     expect(snooze).toHaveBeenCalledWith("a", "1h");
+    // Nessun errore ancora: il rifiuto non è arrivato.
+    expect(rendered.result.current.errorMessage).toBeNull();
 
-    // Ora il server rifiuta davvero: ROLLBACK, la riga torna.
+    // Ora il server rifiuta davvero: ROLLBACK, la riga torna, E l'errore
+    // diventa visibile — a differenza di prima del fix del Task 14 (revisione
+    // di qualità), dove il rollback avveniva ma nessuna card poteva mostrare
+    // perché: sembrava un misclick, non un errore di rete.
     await act(async () => {
       reject(new Error("network down"));
       await promise.catch(() => {});
     });
     await waitFor(() => expect(idsOf(queryClient)).toEqual(["a", "b"]));
+    await waitFor(() => expect(rendered.result.current.errorMessage).toBe("Qualcosa è andato storto. Riprova."));
 
     await rendered.unmount();
   });
@@ -120,8 +127,9 @@ describe("useSnooze — ottimismo con rollback", () => {
       rendered.result.current.mutate({ id: "a", until: "1h" });
     });
 
-    await waitFor(() => expect(rendered.result.current.isSuccess).toBe(true));
-    expect(idsOf(queryClient)).toEqual(["b"]);
+    await waitFor(() => expect(idsOf(queryClient)).toEqual(["b"]));
+    // Errore assente al successo: `errorMessage` resta `null` per tutto il ciclo.
+    expect(rendered.result.current.errorMessage).toBeNull();
 
     await rendered.unmount();
   });
@@ -144,12 +152,14 @@ describe("useHandled — ottimismo con rollback", () => {
 
     await waitFor(() => expect(idsOf(queryClient)).toEqual(["a"]));
     expect(handled).toHaveBeenCalledWith("b");
+    expect(rendered.result.current.errorMessage).toBeNull();
 
     await act(async () => {
       reject(new Error("network down"));
       await promise.catch(() => {});
     });
     await waitFor(() => expect(idsOf(queryClient)).toEqual(["a", "b"]));
+    await waitFor(() => expect(rendered.result.current.errorMessage).toBe("Qualcosa è andato storto. Riprova."));
 
     await rendered.unmount();
   });

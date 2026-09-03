@@ -55,55 +55,6 @@ export function useUnreadCount() {
 }
 
 /**
- * Mutazione OTTIMISTICA generica: rimuove subito la riga dalla lista in cache
- * (la card sparisce), e la ripristina se il server rifiuta. Fattorizzata da
- * `useSnooze`/`useHandled`, che sono igiene PERSONALE — non possono fallire
- * per colpa di altri (nessuna corsa con un collega, a differenza delle azioni
- * decisionali) — quindi l'ottimismo è sicuro. Stessa scelta di
- * `apps/web/src/components/inbox-item.tsx`.
- */
-function useOptimisticRemoval<TInput extends { id: string }>(mutationFn: (input: TInput) => Promise<unknown>) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn,
-    onMutate: async (input: TInput) => {
-      await queryClient.cancelQueries({ queryKey: inboxKeys.list() });
-      const previous = queryClient.getQueryData<InboxListData>(inboxKeys.list());
-      queryClient.setQueryData<InboxListData>(inboxKeys.list(), (page) =>
-        page ? { ...page, items: page.items.filter((row) => row.id !== input.id) } : page,
-      );
-      return { previous };
-    },
-    // `context` può mancare (`onMutate` non ancora girato, caso di scuola in
-    // test sincroni): il rollback si applica solo se c'è qualcosa da ripristinare.
-    onError: (_error, _input, context) => {
-      if (context?.previous) queryClient.setQueryData(inboxKeys.list(), context.previous);
-    },
-    // `onSettled` e non `onSuccess`: dopo un rollback la lista va comunque
-    // riallineata al server (e il badge non letto con lei).
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: inboxKeys.all });
-    },
-  });
-}
-
-export function useSnooze() {
-  const { client } = useAuth();
-  return useOptimisticRemoval<{ id: string; until: SnoozeUntil }>(({ id, until }) => {
-    if (!client) return Promise.reject(new Error("useSnooze richiede un client autenticato"));
-    return client.inbox.snooze(id, until);
-  });
-}
-
-export function useHandled() {
-  const { client } = useAuth();
-  return useOptimisticRemoval<{ id: string }>(({ id }) => {
-    if (!client) return Promise.reject(new Error("useHandled richiede un client autenticato"));
-    return client.inbox.handled(id);
-  });
-}
-
-/**
  * Messaggio d'errore di un'azione decisionale, dal solo `code` (mai da
  * `error.message`: i messaggi del server sono in inglese e non sono
  * contratto). Stessa mappatura di `messageForError`/`answerErrorMessage` in
@@ -139,6 +90,88 @@ export function describeInboxError(error: unknown, t: TFunction): string {
     default:
       return t("mobile.inbox.errors.generic");
   }
+}
+
+export interface OptimisticMutation<TInput> {
+  mutate: (input: TInput) => void;
+  isPending: boolean;
+  /**
+   * Errore dell'ULTIMA `mutate()`, già localizzato; `null` = nessuno (o non
+   * ancora tentata). Il chiamante lo mostra vicino al bottone che l'ha
+   * causata (`snooze`/`handled` non hanno un pannello dedicato come le azioni
+   * decisionali — vedi `DecisionMutation` — quindi una riga di testo sulla
+   * card stessa, via `CardShell`, basta).
+   */
+  errorMessage: string | null;
+}
+
+/**
+ * Mutazione OTTIMISTICA generica: rimuove subito la riga dalla lista in cache
+ * (la card sparisce), e la ripristina se il server rifiuta. Fattorizzata da
+ * `useSnooze`/`useHandled`, che sono igiene PERSONALE — non possono fallire
+ * per colpa di altri (nessuna corsa con un collega, a differenza delle azioni
+ * decisionali) — quindi l'ottimismo è sicuro sul DATO (la riga torna se il
+ * server rifiuta).
+ *
+ * ⚠️ Sull'ERRORE il parallelo con `apps/web/src/components/inbox-item.tsx`
+ * era rotto fino a qui: il web chiama `setError({ message: messageForError
+ * (cause), onPanel: false })` in `onError` per SIA `snooze` SIA `handled`
+ * (righe 303-345 di quel file), ma questa funzione non esponeva `error`
+ * affatto — il rollback della cache avvenne comunque (l'ottimismo sul DATO
+ * era corretto), ma nessuna card poteva mostrare perché una card rimandata o
+ * archiviata fosse tornata indietro da sola: sembrava un misclick, non un
+ * errore di rete. Ora il messaggio (`describeInboxError`, la stessa mappatura
+ * usata da `useDecision` qui sotto) è nel valore di ritorno, e il parallelo
+ * col web è ristabilito davvero, non solo a parole.
+ */
+function useOptimisticRemoval<TInput extends { id: string }>(
+  mutationFn: (input: TInput) => Promise<unknown>,
+): OptimisticMutation<TInput> {
+  const queryClient = useQueryClient();
+  const { t } = useTranslation();
+  const mutation = useMutation({
+    mutationFn,
+    onMutate: async (input: TInput) => {
+      await queryClient.cancelQueries({ queryKey: inboxKeys.list() });
+      const previous = queryClient.getQueryData<InboxListData>(inboxKeys.list());
+      queryClient.setQueryData<InboxListData>(inboxKeys.list(), (page) =>
+        page ? { ...page, items: page.items.filter((row) => row.id !== input.id) } : page,
+      );
+      return { previous };
+    },
+    // `context` può mancare (`onMutate` non ancora girato, caso di scuola in
+    // test sincroni): il rollback si applica solo se c'è qualcosa da ripristinare.
+    onError: (_error, _input, context) => {
+      if (context?.previous) queryClient.setQueryData(inboxKeys.list(), context.previous);
+    },
+    // `onSettled` e non `onSuccess`: dopo un rollback la lista va comunque
+    // riallineata al server (e il badge non letto con lei).
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: inboxKeys.all });
+    },
+  });
+
+  return {
+    mutate: (input: TInput) => mutation.mutate(input),
+    isPending: mutation.isPending,
+    errorMessage: mutation.error ? describeInboxError(mutation.error, t) : null,
+  };
+}
+
+export function useSnooze(): OptimisticMutation<{ id: string; until: SnoozeUntil }> {
+  const { client } = useAuth();
+  return useOptimisticRemoval<{ id: string; until: SnoozeUntil }>(({ id, until }) => {
+    if (!client) return Promise.reject(new Error("useSnooze richiede un client autenticato"));
+    return client.inbox.snooze(id, until);
+  });
+}
+
+export function useHandled(): OptimisticMutation<{ id: string }> {
+  const { client } = useAuth();
+  return useOptimisticRemoval<{ id: string }>(({ id }) => {
+    if (!client) return Promise.reject(new Error("useHandled richiede un client autenticato"));
+    return client.inbox.handled(id);
+  });
 }
 
 export interface DecisionMutation {

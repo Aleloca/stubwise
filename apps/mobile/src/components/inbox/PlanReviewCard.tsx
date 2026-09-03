@@ -8,6 +8,7 @@ import { SnoozeSheet } from "./SnoozeSheet";
 import { GhostButton } from "../GhostButton";
 import { PrimaryButton } from "../PrimaryButton";
 import { useApprove, useHandled, useReject, useSnooze } from "../../lib/inbox-mutations";
+import { can } from "../../lib/inbox-sections";
 import { colors } from "../../theme/tokens";
 
 export interface PlanReviewCardProps {
@@ -32,10 +33,8 @@ export function PlanReviewCard({ item, projectName }: PlanReviewCardProps) {
   const [rejectOpen, setRejectOpen] = useState(false);
   const [snoozeOpen, setSnoozeOpen] = useState(false);
 
-  const can = (action: string) => (item.actions as string[]).includes(action);
-
   const footerButtons = [];
-  if (can("snooze")) {
+  if (can(item, "snooze")) {
     footerButtons.push({
       key: "snooze",
       label: t("mobile.inbox.actions.snooze"),
@@ -43,7 +42,7 @@ export function PlanReviewCard({ item, projectName }: PlanReviewCardProps) {
       testID: "plan-review-card-snooze",
     });
   }
-  if (can("handled")) {
+  if (can(item, "handled")) {
     footerButtons.push({
       key: "handled",
       label: t("mobile.inbox.actions.handled"),
@@ -59,14 +58,14 @@ export function PlanReviewCard({ item, projectName }: PlanReviewCardProps) {
       projectName={projectName}
       createdAt={item.createdAt}
       footer={footerButtons.length > 0 ? <CardFooter buttons={footerButtons} /> : undefined}
+      errorMessage={approve.errorMessage ?? snooze.errorMessage ?? handled.errorMessage}
       testID="plan-review-card"
     >
       <Text style={styles.text}>{item.text}</Text>
-      {approve.errorMessage !== null && <Text style={styles.error}>{approve.errorMessage}</Text>}
 
-      {(can("approve_plan") || can("reject_plan")) && (
+      {(can(item, "approve_plan") || can(item, "reject_plan")) && (
         <View style={styles.actions}>
-          {can("approve_plan") &&
+          {can(item, "approve_plan") &&
             (confirmingApprove ? (
               <View style={styles.confirmRow} testID="plan-review-card-confirm-row">
                 <Text style={styles.confirmQuestion}>{t("mobile.inbox.actions.approveConfirmQuestion")}</Text>
@@ -101,7 +100,7 @@ export function PlanReviewCard({ item, projectName }: PlanReviewCardProps) {
                 />
               </View>
             ))}
-          {can("reject_plan") && !confirmingApprove && (
+          {can(item, "reject_plan") && !confirmingApprove && (
             <View style={styles.rejectButton}>
               <GhostButton
                 label={t("mobile.inbox.actions.rejectWithInstructions")}
@@ -145,11 +144,6 @@ const styles = StyleSheet.create({
     color: colors.fg,
     fontSize: 15,
     lineHeight: 21,
-  },
-  error: {
-    color: colors.danger,
-    fontSize: 13,
-    marginTop: 8,
   },
   actions: {
     flexDirection: "row",

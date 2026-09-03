@@ -21,7 +21,15 @@ import { fontSize } from "../../theme/typography";
  *
  * Se la riga non c'è più (gestita o rinviata nel frattempo da qualcun altro,
  * o un deep link su un id ormai scaduto) mostra un avviso invece di un
- * errore: non è un guasto, è solo cronologia.
+ * errore: non è un guasto, è solo cronologia. ⚠️ Ma questo vale SOLO quando
+ * la query è riuscita e la riga semplicemente non c'è (`query.isError ===
+ * false`): un fallimento di RETE deve restare distinto — "non trovata"
+ * implicherebbe "gestita da qualcun altro", un esito rassicurante che su un
+ * deep link push (il caso più probabile di rete ballerina: notifica appena
+ * arrivata, tap immediato) sarebbe fuorviante. Stesso pattern isPending →
+ * isError → dato di `InboxScreen.tsx`, copiato di proposito: due schermate,
+ * un solo modo di distinguere "non è successo niente" da "non ho potuto
+ * controllare".
  */
 export function InboxCardScreen({ route, navigation }: NativeStackScreenProps<InboxStackParamList, "Card">) {
   const { t } = useTranslation();
@@ -62,6 +70,17 @@ export function InboxCardScreen({ route, navigation }: NativeStackScreenProps<In
           <View testID="inbox-card-skeleton">
             <Skeleton height={180} />
           </View>
+        ) : query.isError ? (
+          <View style={styles.centered} testID="inbox-card-error">
+            <Text style={styles.notFoundTitle}>{t("mobile.inbox.loadError.title")}</Text>
+            <View style={styles.retryButton}>
+              <GhostButton
+                label={t("mobile.inbox.loadError.retry")}
+                onPress={() => void query.refetch()}
+                testID="inbox-card-retry"
+              />
+            </View>
+          </View>
         ) : item !== undefined ? (
           <InboxCard item={item} projectName={projectName} />
         ) : (
@@ -91,6 +110,13 @@ const styles = StyleSheet.create({
   notFound: {
     alignItems: "center",
     paddingTop: 48,
+  },
+  centered: {
+    alignItems: "center",
+    paddingTop: 48,
+  },
+  retryButton: {
+    marginTop: 16,
   },
   notFoundTitle: {
     color: colors.fg,

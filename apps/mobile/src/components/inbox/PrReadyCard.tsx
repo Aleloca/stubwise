@@ -5,6 +5,7 @@ import { Linking, StyleSheet, Text } from "react-native";
 import { CardFooter, CardShell } from "./CardShell";
 import { SnoozeSheet } from "./SnoozeSheet";
 import { useHandled, useSnooze } from "../../lib/inbox-mutations";
+import { can } from "../../lib/inbox-sections";
 import { colors } from "../../theme/tokens";
 
 export interface PrReadyCardProps {
@@ -34,11 +35,10 @@ export function PrReadyCard({ item, projectName }: PrReadyCardProps) {
   const handled = useHandled();
   const [snoozeOpen, setSnoozeOpen] = useState(false);
 
-  const can = (action: string) => (item.actions as string[]).includes(action);
   const kindLabelKey = item.kind === "review.completed" ? "mobile.inbox.kinds.reviewCompleted" : "mobile.inbox.kinds.prOpened";
 
   const buttons = [];
-  if (can("open") && item.url !== undefined) {
+  if (can(item, "open") && item.url !== undefined) {
     buttons.push({
       key: "open",
       label: t("mobile.inbox.actions.openWork"),
@@ -47,7 +47,7 @@ export function PrReadyCard({ item, projectName }: PrReadyCardProps) {
       testID: "pr-ready-card-open",
     });
   }
-  if (can("snooze")) {
+  if (can(item, "snooze")) {
     buttons.push({
       key: "snooze",
       label: t("mobile.inbox.actions.snooze"),
@@ -55,7 +55,7 @@ export function PrReadyCard({ item, projectName }: PrReadyCardProps) {
       testID: "pr-ready-card-snooze",
     });
   }
-  if (can("handled")) {
+  if (can(item, "handled")) {
     buttons.push({
       key: "handled",
       label: t("mobile.inbox.actions.handled"),
@@ -71,6 +71,7 @@ export function PrReadyCard({ item, projectName }: PrReadyCardProps) {
       projectName={projectName}
       createdAt={item.createdAt}
       footer={buttons.length > 0 ? <CardFooter buttons={buttons} /> : undefined}
+      errorMessage={snooze.errorMessage ?? handled.errorMessage}
       testID="pr-ready-card"
     >
       <Text style={styles.text}>{item.text}</Text>

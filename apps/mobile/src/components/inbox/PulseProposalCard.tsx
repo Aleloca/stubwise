@@ -1,10 +1,11 @@
 import type { InboxItem, Reader } from "@stubwise/shared";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Linking, StyleSheet, Text, View } from "react-native";
+import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
 import { CardFooter, CardShell } from "./CardShell";
 import { SnoozeSheet } from "./SnoozeSheet";
 import { useHandled, useProceed, useSnooze } from "../../lib/inbox-mutations";
+import { can } from "../../lib/inbox-sections";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
 
@@ -30,7 +31,6 @@ export function PulseProposalCard({ item, projectName }: PulseProposalCardProps)
   const handled = useHandled();
   const [snoozeOpen, setSnoozeOpen] = useState(false);
 
-  const can = (action: string) => (item.actions as string[]).includes(action);
   const question = item.question;
   const pulse = item.pulse;
 
@@ -49,7 +49,7 @@ export function PulseProposalCard({ item, projectName }: PulseProposalCardProps)
       : undefined;
 
   const footerButtons = [];
-  if (can("open") && item.url !== undefined) {
+  if (can(item, "open") && item.url !== undefined) {
     footerButtons.push({
       key: "refine",
       label: t("mobile.inbox.actions.refine"),
@@ -57,7 +57,7 @@ export function PulseProposalCard({ item, projectName }: PulseProposalCardProps)
       testID: "pulse-card-refine",
     });
   }
-  if (can("snooze")) {
+  if (can(item, "snooze")) {
     footerButtons.push({
       key: "snooze",
       label: t("mobile.inbox.actions.snooze"),
@@ -65,7 +65,7 @@ export function PulseProposalCard({ item, projectName }: PulseProposalCardProps)
       testID: "pulse-card-snooze",
     });
   }
-  if (can("handled")) {
+  if (can(item, "handled")) {
     footerButtons.push({
       key: "handled",
       label: t("mobile.inbox.actions.handled"),
@@ -81,6 +81,7 @@ export function PulseProposalCard({ item, projectName }: PulseProposalCardProps)
       projectName={projectName ?? pulse?.projectName}
       createdAt={item.createdAt}
       footer={footerButtons.length > 0 ? <CardFooter buttons={footerButtons} /> : undefined}
+      errorMessage={snooze.errorMessage ?? handled.errorMessage}
       testID="pulse-proposal-card"
     >
       {pulse !== undefined && (
@@ -107,7 +108,7 @@ export function PulseProposalCard({ item, projectName }: PulseProposalCardProps)
         </View>
       ))}
 
-      {recommended !== undefined && can("answer") && (
+      {recommended !== undefined && can(item, "answer") && (
         <View style={styles.proceedButton}>
           <PulseProceedButton
             label={t("mobile.inbox.actions.proceedWith", { letter: recommended.letter })}
@@ -140,35 +141,46 @@ export function PulseProposalCard({ item, projectName }: PulseProposalCardProps)
  */
 function PulseProceedButton({ label, onPress, disabled }: { label: string; onPress: () => void; disabled: boolean }) {
   return (
-    <Text
+    <Pressable
       accessibilityRole="button"
       accessibilityState={{ disabled }}
-      onPress={disabled ? undefined : onPress}
+      disabled={disabled}
+      onPress={onPress}
       testID="pulse-card-proceed"
-      style={[proceedStyles.button, disabled && proceedStyles.disabled]}
+      style={({ pressed }) => [
+        proceedStyles.button,
+        disabled && proceedStyles.disabled,
+        pressed && !disabled && proceedStyles.pressed,
+      ]}
     >
-      {label}
-    </Text>
+      <Text style={proceedStyles.label}>{label}</Text>
+    </Pressable>
   );
 }
 
 const proceedStyles = StyleSheet.create({
   button: {
+    alignItems: "center",
     backgroundColor: colors.signal,
     borderRadius: radii.control,
+    justifyContent: "center",
+    minHeight: 44,
+    paddingVertical: 12,
+  },
+  pressed: {
+    opacity: 0.85,
+  },
+  disabled: {
+    opacity: 0.5,
+  },
+  label: {
     color: colors.ink950,
     fontFamily: fontFamily.monoSemiBold,
     fontSize: 13,
     fontWeight: "600",
     letterSpacing: 0.8,
-    minHeight: 44,
-    overflow: "hidden",
-    paddingVertical: 12,
     textAlign: "center",
     textTransform: "uppercase",
-  },
-  disabled: {
-    opacity: 0.5,
   },
 });
 

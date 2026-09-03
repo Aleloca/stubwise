@@ -5,6 +5,7 @@ import { Linking, StyleSheet, Text } from "react-native";
 import { CardFooter, CardShell } from "./CardShell";
 import { SnoozeSheet } from "./SnoozeSheet";
 import { useHandled, useRelaunch, useSnooze } from "../../lib/inbox-mutations";
+import { can } from "../../lib/inbox-sections";
 import { colors } from "../../theme/tokens";
 
 export interface FailedCardProps {
@@ -24,10 +25,8 @@ export function FailedCard({ item, projectName }: FailedCardProps) {
   const handled = useHandled();
   const [snoozeOpen, setSnoozeOpen] = useState(false);
 
-  const can = (action: string) => (item.actions as string[]).includes(action);
-
   const buttons = [];
-  if (can("relaunch")) {
+  if (can(item, "relaunch")) {
     buttons.push({
       key: "retry",
       label: t("mobile.inbox.actions.retry"),
@@ -37,7 +36,7 @@ export function FailedCard({ item, projectName }: FailedCardProps) {
       testID: "failed-card-retry",
     });
   }
-  if (can("open") && item.url !== undefined) {
+  if (can(item, "open") && item.url !== undefined) {
     buttons.push({
       key: "open",
       label: t("mobile.inbox.actions.openWork"),
@@ -45,7 +44,7 @@ export function FailedCard({ item, projectName }: FailedCardProps) {
       testID: "failed-card-open",
     });
   }
-  if (can("snooze")) {
+  if (can(item, "snooze")) {
     buttons.push({
       key: "snooze",
       label: t("mobile.inbox.actions.snooze"),
@@ -53,7 +52,7 @@ export function FailedCard({ item, projectName }: FailedCardProps) {
       testID: "failed-card-snooze",
     });
   }
-  if (can("handled")) {
+  if (can(item, "handled")) {
     buttons.push({
       key: "handled",
       label: t("mobile.inbox.actions.handled"),
@@ -69,10 +68,10 @@ export function FailedCard({ item, projectName }: FailedCardProps) {
       projectName={projectName}
       createdAt={item.createdAt}
       footer={buttons.length > 0 ? <CardFooter buttons={buttons} /> : undefined}
+      errorMessage={relaunch.errorMessage ?? snooze.errorMessage ?? handled.errorMessage}
       testID="failed-card"
     >
       <Text style={styles.text}>{item.text}</Text>
-      {relaunch.errorMessage !== null && <Text style={styles.error}>{relaunch.errorMessage}</Text>}
 
       <SnoozeSheet
         visible={snoozeOpen}
@@ -92,10 +91,5 @@ const styles = StyleSheet.create({
     color: colors.fg,
     fontSize: 15,
     lineHeight: 21,
-  },
-  error: {
-    color: colors.danger,
-    fontSize: 13,
-    marginTop: 8,
   },
 });

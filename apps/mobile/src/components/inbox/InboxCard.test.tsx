@@ -312,6 +312,21 @@ describe("InboxCard", () => {
       await fireEvent.press(screen.getByTestId("snooze-sheet-tomorrow"));
       await waitFor(() => expect(client.inbox.snooze).toHaveBeenCalledWith("f1", "tomorrow"));
     });
+
+    // Revisione di qualità del Task 14: `useSnooze`/`useHandled` non
+    // mostravano MAI un errore — il rollback della cache avveniva ma la card
+    // tornava senza spiegazione, indistinguibile da un misclick. Verifica che
+    // ora la card lo dica.
+    test("'Rimanda' fallito mostra un messaggio d'errore sulla card (non sparisce in silenzio)", async () => {
+      const client = makeClient({
+        snooze: jest.fn().mockRejectedValue(new Error("network down")),
+      });
+      await renderCard(FAILED_ITEM, client);
+      await fireEvent.press(screen.getByTestId("failed-card-snooze"));
+      await fireEvent.press(screen.getByTestId("snooze-sheet-1h"));
+
+      await waitFor(() => expect(screen.getByText("Qualcosa è andato storto. Riprova.")).toBeTruthy());
+    });
   });
 
   describe("InfoCard (catch-all informativo)", () => {

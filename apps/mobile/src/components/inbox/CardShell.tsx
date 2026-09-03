@@ -26,10 +26,19 @@ export interface CardShellProps {
   createdAt: string;
   children: ReactNode;
   footer?: ReactNode;
+  /**
+   * Errore dell'ultima azione su QUESTA riga (decisionale o d'igiene:
+   * `snooze`/`handled` incluse — vedi `OptimisticMutation.errorMessage` in
+   * `lib/inbox-mutations.ts`), già localizzato. `null`/assente = nessuno.
+   * Centralizzato qui (invece che ridisegnato in ognuna delle sei varianti)
+   * così un rinvio o un'archiviazione falliti hanno SEMPRE un posto dove
+   * dirlo, non solo le azioni decisionali che già passavano da un pannello.
+   */
+  errorMessage?: string | null;
   testID?: string;
 }
 
-export function CardShell({ tone, kindLabel, projectName, createdAt, children, footer, testID }: CardShellProps) {
+export function CardShell({ tone, kindLabel, projectName, createdAt, children, footer, errorMessage, testID }: CardShellProps) {
   const { t } = useTranslation();
   const relative = relativeTimeCompact(createdAt);
   const timeText =
@@ -48,6 +57,11 @@ export function CardShell({ tone, kindLabel, projectName, createdAt, children, f
         <Text style={[styles.kindLabel, { color: colors[tone] }]}>{kindLabel}</Text>
       </View>
       <View style={styles.body}>{children}</View>
+      {errorMessage != null && errorMessage.length > 0 && (
+        <Text accessibilityLiveRegion="polite" style={styles.errorText}>
+          {errorMessage}
+        </Text>
+      )}
       {footer !== undefined ? <View style={styles.footer}>{footer}</View> : null}
     </View>
   );
@@ -101,6 +115,13 @@ const styles = StyleSheet.create({
   body: {
     padding: 16,
     paddingTop: 8,
+  },
+  errorText: {
+    color: colors.danger,
+    fontSize: 13,
+    marginTop: -8,
+    paddingBottom: 12,
+    paddingHorizontal: 16,
   },
   footer: {
     borderTopColor: colors.line,
