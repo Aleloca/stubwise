@@ -11,6 +11,7 @@ export * from "./schemas/search.js";
 export * from "./schemas/server.js";
 export * from "./schemas/pat.js";
 export * from "./schemas/notification.js";
+export * from "./schemas/push.js";
 export * from "./schemas/plugin.js";
 export * from "./env/dotenv.js";
 export * from "./work-state.js";

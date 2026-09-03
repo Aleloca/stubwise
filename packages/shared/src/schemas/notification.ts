@@ -496,11 +496,16 @@ const PUSH_TOKEN_MAX_BYTES = 1024;
  * token è ASCII, quindi un byte per carattere e i due limiti coincidono); il
  * controllo in byte è quello che PROTEGGE, ed è l'unico che regge sul testo
  * multibyte. Il perché del numero sta su {@link PUSH_TOKEN_MAX_BYTES}.
+ *
+ * ESPORTATO perché lo riusa anche il contratto del relay push
+ * (`pushRelayTokenSchema` in `./push.ts`): un token che passa la registrazione
+ * deve essere spedibile, e l'unico modo di garantirlo è che sia lo STESSO
+ * schema, non due tetti tenuti allineati a mano.
  */
 // Istanziato una volta sola: il refine gira su ogni registrazione.
 const tokenByteLength = new TextEncoder();
 
-const pushTokenSchema = z
+export const pushTokenSchema = z
   .string()
   .min(1)
   .max(PUSH_TOKEN_MAX_BYTES)

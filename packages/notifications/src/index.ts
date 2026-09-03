@@ -67,6 +67,30 @@ export {
   type RoutingContext,
 } from "./routing.js";
 
+// --- push (Fase 4) ---
+//
+// NON sono nell'entry `./pure`: a costruire un payload e a parlare col relay è
+// il WORKER, non un client. Il mobile riceve le push, non le manda.
+export {
+  buildPushPayload,
+  PUSH_TITLE_KEY,
+  type PushPayloadContext,
+} from "./push/payload.js";
+
+export {
+  createPushRelayClient,
+  PushRelayRejected,
+  PushRelayUnavailable,
+  type PushRelayClient,
+  type PushRelayClientOptions,
+} from "./push/relay-client.js";
+
+export {
+  DEFAULT_PUSH_RELAY_URL,
+  loadPushConfig,
+  type PushConfig,
+} from "./push/config.js";
+
 export {
   escapeSlackMrkdwn,
   formatNotification,
