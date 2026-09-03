@@ -213,7 +213,12 @@ describe("pushRelaySendResponseSchema", () => {
     const parsed = pushRelaySendResponseSchema.parse({
       results: [{ token: TOKEN, status: "z".repeat(5000) }],
     });
-    expect(parsed.results[0]!.reason!.length).toBeLessThan(80);
+    // La forma PRIMA della lunghezza: se una mutazione togliesse il reason,
+    // `.length` su undefined crasherebbe e il test passerebbe per il motivo
+    // sbagliato invece di fallire sull'asserzione.
+    const reason = parsed.results[0]!.reason;
+    expect(reason).toMatch(/^unknown status /);
+    expect(reason!.length).toBeLessThan(80);
   });
 
   it("la tolleranza vale solo per una STRINGA fuori elenco, non per una risposta rotta", () => {

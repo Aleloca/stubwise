@@ -99,9 +99,13 @@ export function loadPushConfig(env: Record<string, string | undefined>): PushCon
       "PUSH_RELAY_URL deve essere la sola base del relay, senza query né frammento",
     );
   }
-  if (parsed.protocol === "https:") return { relayUrl: value };
+  // Da `origin + pathname` e non dalla stringa grezza: un `?` o un `#` NUDI
+  // hanno `search`/`hash` vuoti e passerebbero il controllo qui sopra,
+  // producendo `https://host?/v1/send`. Normalizza anche `HTTPS://HOST`.
+  const relayUrl = (parsed.origin + parsed.pathname).replace(/\/$/, "");
+  if (parsed.protocol === "https:") return { relayUrl };
   if (parsed.protocol === "http:" && LOOPBACK_HOSTS.has(parsed.hostname)) {
-    return { relayUrl: value };
+    return { relayUrl };
   }
   throw new Error(
     "PUSH_RELAY_URL deve usare https (http è ammesso solo su localhost): il payload della push contiene testo dell'utente",

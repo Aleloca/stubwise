@@ -200,7 +200,10 @@ const pushRelayResultSchema = z.preprocess((value) => {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return value;
   const row = value as Record<string, unknown>;
   const status = row.status;
-  if (typeof status !== "string" || KNOWN_RESULT_STATUSES.has(status)) return value;
+  // `""` non è «un relay più nuovo di noi» ma una risposta rotta: tollerarlo
+  // produrrebbe l'etichetta vuota «unknown status » invece di un errore.
+  if (typeof status !== "string" || status === "" || KNOWN_RESULT_STATUSES.has(status))
+    return value;
   const label = status.slice(0, UNKNOWN_STATUS_MAX_CHARS);
   const previous = typeof row.reason === "string" && row.reason !== "" ? `: ${row.reason}` : "";
   return { ...row, status: "failed", reason: `unknown status ${label}${previous}` };
