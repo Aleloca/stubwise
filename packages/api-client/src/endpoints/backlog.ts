@@ -4,6 +4,7 @@ import {
   backlogPageSchema,
   convertBacklogResultSchema,
   createBacklogResultSchema,
+  docsChatAnswerSchema,
 } from "@stubwise/shared";
 import type {
   Reader,
@@ -15,6 +16,7 @@ import type {
   BacklogItemStatus,
   BacklogRisk,
   CreateBacklogItemInput,
+  DocsChatAnswer,
   TicketPriority,
 } from "@stubwise/shared";
 import type { ApiRequest } from "../client.js";
@@ -33,13 +35,20 @@ export interface BacklogFilters {
 /**
  * Backlog di discovery.
  *
- * Due asimmetrie da tenere a mente, entrambe volute lato server:
+ * Asimmetrie da tenere a mente, tutte volute lato server:
  * - `create` NON crea la voce, accoda un job `intake` (202): dopo la cattura
  *   rapida la voce compare in lista con qualche secondo di ritardo;
- * - `chat` esiste in due modi, e questo è quello NON in streaming: risponde 202
- *   quando c'è una sessione di analisi sul codice attiva. Senza sessione la
- *   stessa rotta risponde in SSE, che il client non sa (ancora) leggere — la
- *   variante non-streaming per l'app arriva con la fase B.
+ * - `chat` (202) SOLO con una sessione di analisi sul codice attiva: è il
+ *   chiamante a sapere che è quello il caso — la STESSA rotta, senza sessione
+ *   attiva, risponde altrimenti in SSE (che questo pacchetto non legge) o, con
+ *   `?stream=false`, nel body JSON di `chatText` qui sotto;
+ * - `chatText` (200, fase 4 mobile) è la chat di raffinamento SENZA sessione di
+ *   analisi attiva: stesso contratto “è il chiamante a sapere in quale modo sta
+ *   chiedendo” — se una sessione FOSSE attiva, il server risponde comunque 202
+ *   (`?stream` è ignorato in quel ramo, vedi `backlog.ts` lato server) e questa
+ *   chiamata fallirebbe con `invalid_response` (la forma non è quella attesa):
+ *   il chiamante verifica lo stato della sessione PRIMA di scegliere fra `chat`
+ *   e `chatText`, non dopo.
  */
 export function createBacklogEndpoints(request: ApiRequest) {
   return {
@@ -73,6 +82,21 @@ export function createBacklogEndpoints(request: ApiRequest) {
     /** Un turno della chat di raffinamento CON sessione di analisi attiva (202). */
     chat(id: string, message: string): Promise<Reader<BacklogChatAccepted>> {
       return request("POST", `/api/backlog/${seg(id)}/chat`, { message }, backlogChatAcceptedSchema);
+    },
+
+    /**
+     * Un turno della chat di raffinamento SENZA sessione di analisi attiva,
+     * risposta JSON completa (`?stream=false`, fase 4 mobile). `sessionId` nella
+     * risposta è l'id della VOCE (non c'è una tabella di sessioni dedicata per
+     * il backlog, vedi `backlog.ts` lato server).
+     */
+    chatText(id: string, message: string): Promise<Reader<DocsChatAnswer>> {
+      return request(
+        "POST",
+        `/api/backlog/${seg(id)}/chat?stream=false`,
+        { message },
+        docsChatAnswerSchema,
+      );
     },
   };
 }

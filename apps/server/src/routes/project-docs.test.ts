@@ -706,6 +706,123 @@ describe("POST /api/projects/:projectId/docs/chat", () => {
   });
 });
 
+describe("POST /api/projects/:projectId/docs/chat?stream=false (fase 4, mobile)", () => {
+  it("risponde 200 application/json {answer, sources, sessionId} cross-repo; persistito come nel caso SSE", async () => {
+    const projectId = await seedProject(testDb.db);
+    const repoA = await seedRepoInProject(testDb.db, projectId, "Repo Alfa");
+    const genA = await seedGeneration(testDb.db, repoA.id);
+    const question = "Domanda cross-repo in modalità JSON.";
+    const page = await seedPageWithChunk(testDb.db, repoA.id, genA, {
+      title: "Pagina JSON progetto",
+      body: "Contenuto.",
+      chunkContent: question,
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/docs/chat?stream=false`,
+      headers: { cookie: memberCookie },
+      payload: { message: question },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toContain("application/json");
+
+    const body = res.json() as {
+      answer: string;
+      sources: { slug: string; repositoryId: string }[];
+      sessionId: string;
+    };
+    expect(body.answer).toBe(FAKE_DELTAS.join(""));
+    expect(body.sources.some((s) => s.slug === page.slug && s.repositoryId === repoA.id)).toBe(
+      true,
+    );
+
+    const [session] = await testDb.db
+      .select()
+      .from(docChatSessions)
+      .where(eq(docChatSessions.projectId, projectId));
+    expect(body.sessionId).toBe(session!.id);
+    // Sessione project-level anche in modalità json: projectId valorizzato, repositoryId NULL.
+    expect(session!.repositoryId).toBeNull();
+
+    const messages = await testDb.db
+      .select()
+      .from(docChatMessages)
+      .where(eq(docChatMessages.sessionId, session!.id));
+    expect(messages.length).toBe(2);
+    const assistant = messages.find((m) => m.role === "assistant");
+    expect(assistant?.content).toBe(FAKE_DELTAS.join(""));
+  });
+
+  it("errore LLM a metà: 502, NESSUNA persistenza (a differenza dell'SSE)", async () => {
+    const projectId = await seedProject(testDb.db);
+    const repoA = await seedRepoInProject(testDb.db, projectId, "Repo Alfa");
+    await seedGeneration(testDb.db, repoA.id);
+
+    streamOverride = async function* (): AsyncIterable<string> {
+      yield "parziale progetto";
+      throw new Error("LLM esploso a metà (project, json)");
+    };
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/docs/chat?stream=false`,
+      headers: { cookie: memberCookie },
+      payload: { message: "Domanda che fallisce a metà." },
+    });
+    expect(res.statusCode).toBe(502);
+    expect((res.json() as { code?: string }).code).toBe("chat_generation_failed");
+
+    const [session] = await testDb.db
+      .select()
+      .from(docChatSessions)
+      .where(eq(docChatSessions.projectId, projectId));
+    const messages = await testDb.db
+      .select()
+      .from(docChatMessages)
+      .where(eq(docChatMessages.sessionId, session!.id));
+    expect(messages.some((m) => m.role === "assistant")).toBe(false);
+  });
+
+  it("default additivo: senza `stream` resta SSE", async () => {
+    const projectId = await seedProject(testDb.db);
+    const repoA = await seedRepoInProject(testDb.db, projectId, "Repo Alfa");
+    await seedGeneration(testDb.db, repoA.id);
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/docs/chat`,
+      headers: { cookie: memberCookie },
+      payload: { message: "Domanda senza stream." },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toContain("text/event-stream");
+  });
+
+  it("sessionId di un altro progetto: 404 (ownership invariata da ?stream)", async () => {
+    const projectA = await seedProject(testDb.db);
+    const projectB = await seedProject(testDb.db);
+    const repoA = await seedRepoInProject(testDb.db, projectA, "Repo Alfa");
+    await seedGeneration(testDb.db, repoA.id);
+
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectA}/docs/chat`,
+      headers: { cookie: memberCookie },
+      payload: { message: "Domanda nel progetto A." },
+    });
+    const session = parseSse(created.payload).find((e) => e.type === "done")!.sessionId as string;
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectB}/docs/chat?stream=false`,
+      headers: { cookie: memberCookie },
+      payload: { sessionId: session, message: "Cross-project in json." },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+});
+
 describe("GET /api/projects/:projectId/docs/chat/sessions[/:id/messages]", () => {
   it("elenca le sessioni dell'utente e i loro messaggi, scoped a (projectId, userId)", async () => {
     const projectId = await seedProject(testDb.db);

@@ -13,6 +13,7 @@ import {
   backlogUrgencySchema,
   createBacklogFromDesignSchema,
   createBacklogItemSchema,
+  docsChatAnswerSchema,
   setContentSchema,
   startCodeSessionSchema,
   updateBacklogItemSchema,
@@ -82,6 +83,9 @@ const idParamsSchema = z.object({ id: z.uuid() });
 
 /** Body della chat di raffinamento: un messaggio non vuoto. */
 const chatBodySchema = z.object({ message: z.string().min(1).max(8000) });
+
+/** Query della chat: `stream` sceglie fra SSE (default) e JSON non-streaming (fase 4, mobile). */
+const chatQuerySchema = z.object({ stream: z.stringbool().default(true) });
 
 /** Body di merge: la voce di destinazione che assorbe questa. */
 const mergeBodySchema = z.object({ targetId: z.uuid() });
@@ -980,28 +984,41 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
     },
   );
 
-  // --- Chat RAG di raffinamento (SSE) --------------------------------------
+  // --- Chat RAG di raffinamento ---------------------------------------------
   //
   // UNA conversazione per voce (backlog_chat_messages). Stesso trasporto della
   // chat Docs (streamChatResponse): pre-flight isAvailable → 503 PRIMA
-  // dell'hijack, poi stream SSE grezzo su reply.raw. Non c'è una tabella di
-  // sessioni: la voce È la sessione, quindi `sessionId` passato a
-  // streamChatResponse (per l'evento `done`) è l'id della voce stessa.
+  // dell'hijack/send, poi SSE (default) o JSON non-streaming (?stream=false,
+  // fase 4 mobile). Non c'è una tabella di sessioni: la voce È la sessione,
+  // quindi `sessionId` passato a streamChatResponse (per l'evento `done`/il
+  // campo `sessionId` della risposta json) è l'id della voce stessa.
+  //
+  // NOTA `?stream` in modalità CODE: se c'è una sessione di analisi sul codice
+  // attiva, la risposta è SEMPRE 202 (`{mode:"code", userMessageId}`) — quel
+  // ramo gira PRIMA di leggere `stream` (il turno va al worker, non a
+  // streamChatResponse), quindi il parametro è ignorato in quel caso: è il
+  // chiamante a sapere se una sessione di analisi è attiva (stesso contratto
+  // già in vigore per la sola modalità SSE, invariato qui).
   app.post(
     "/:id/chat",
     {
       preHandler: requireAuth,
       schema: {
         params: idParamsSchema,
+        querystring: chatQuerySchema,
         body: chatBodySchema,
         // In modalità CODE la risposta è un 202 JSON (`{mode:"code",
         // userMessageId}` — l'id serve alla UI per dedupare il messaggio
-        // ottimistico); in modalità DOCS (default) è uno stream SSE grezzo
-        // (reply.hijack), quindi niente schema 200. Restano gli errori PRIMA
-        // dello stream (404/503/auth).
+        // ottimistico), indipendentemente da `?stream`. In modalità DOCS con
+        // `?stream=false` è un body JSON completo (docsChatAnswerSchema, fase 4
+        // mobile) o un 502 su errore/persistenza a metà; col default
+        // `?stream=true` resta uno stream SSE grezzo (reply.hijack), che
+        // bypassa questo schema 200.
         response: {
+          200: docsChatAnswerSchema,
           202: backlogChatAcceptedSchema,
           404: errorSchema,
+          502: errorSchema,
           503: errorSchema,
           ...authErrorResponses,
         },
@@ -1009,6 +1026,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
     },
     async (request, reply) => {
       const { id } = request.params;
+      const { stream } = request.query;
       const { message } = request.body;
 
       const item = await loadBaseItem(app.db, id);
@@ -1095,16 +1113,21 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
       );
       const history = await loadBacklogHistory(app.db, id);
 
-      // Streaming SSE + persistenza dell'assistant su backlog_chat_messages.
-      // Semantica di troncamento coerente col default della chat Docs: parziale
-      // salvato con TRUNCATION_MARKER e SENZA citazioni (non "giustificate").
+      // Streaming SSE (o risposta JSON unica con ?stream=false, fase 4 mobile)
+      // + persistenza dell'assistant su backlog_chat_messages. Semantica di
+      // troncamento coerente col default della chat Docs in modalità sse:
+      // parziale salvato con TRUNCATION_MARKER e SENZA citazioni (non
+      // "giustificate"). In modalità json `truncated` è sempre `false` (vedi
+      // docs-chat-core.ts: quel branch persiste solo il completo), quindi qui
+      // il ramo troncato semplicemente non viene mai preso in quel caso.
       await streamChatResponse({
         db: app.db,
         chatLlm: app.chatLlm,
         request,
         reply,
         // La voce È la sessione: nessuna tabella sessioni, l'id voce identifica
-        // la conversazione nell'evento `done`.
+        // la conversazione nell'evento `done`/nel campo `sessionId` della
+        // risposta json.
         sessionId: id,
         system,
         history,
@@ -1118,6 +1141,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
             citations: truncated ? null : cites,
           });
         },
+        mode: stream ? "sse" : "json",
       });
     },
   );

@@ -2,6 +2,7 @@ import {
   docChatMessageSchema,
   docChatSessionSchema,
   docPageSchema,
+  docsChatAnswerSchema,
   docSpaceSchema,
   docTreeNodeSchema,
 } from "@stubwise/shared";
@@ -10,6 +11,7 @@ import type {
   DocChatMessage,
   DocChatSession,
   DocPage,
+  DocsChatAnswer,
   DocSpace,
   DocTreeNode,
 } from "@stubwise/shared";
@@ -28,10 +30,11 @@ const messagesSchema = z.array(docChatMessageSchema);
  * La RICERCA non è qui: è globale (ticket, progetti, repository e docs) e vive
  * in `client.search`.
  *
- * L'INVIO di un messaggio alla chat NON è qui: oggi la rotta risponde solo in
- * SSE (`reply.hijack()`), che non passa da questo trasporto; la variante
- * `?stream=false` che serve all'app arriva con la fase B del programma. Le due
- * letture (sessioni e messaggi) invece sono JSON normale e ci sono.
+ * L'INVIO di un messaggio alla chat è `chat`/`projectChat` qui sotto, SOLO nella
+ * variante `?stream=false` (fase 4, mobile): con lo stream a `true` (default) la
+ * rotta risponde in SSE grezzo (`reply.hijack()`), che non passa da questo
+ * trasporto — quel percorso resta della SPA, che legge l'evento stream a mano.
+ * Le due letture (sessioni e messaggi) sono JSON normale e ci sono da sempre.
  */
 export function createDocsEndpoints(request: ApiRequest) {
   return {
@@ -65,6 +68,24 @@ export function createDocsEndpoints(request: ApiRequest) {
       );
     },
 
+    /**
+     * Un turno della chat sui Docs di un repository, risposta JSON completa
+     * (`?stream=false`, fase 4 mobile): niente SSE, un unico body a fine
+     * generazione. `sessionId` è opzionale (nuova sessione se assente), come
+     * nella variante SSE.
+     */
+    chat(
+      repositoryId: string,
+      input: { message: string; sessionId?: string },
+    ): Promise<Reader<DocsChatAnswer>> {
+      return request(
+        "POST",
+        `/api/repositories/${seg(repositoryId)}/docs/chat?stream=false`,
+        input,
+        docsChatAnswerSchema,
+      );
+    },
+
     chatSessions(repositoryId: string): Promise<Reader<DocChatSession>[]> {
       return request(
         "GET",
@@ -80,6 +101,19 @@ export function createDocsEndpoints(request: ApiRequest) {
         `/api/repositories/${seg(repositoryId)}/docs/chat/sessions/${seg(sessionId)}/messages`,
         undefined,
         messagesSchema,
+      );
+    },
+
+    /** Un turno della chat sui Docs di PROGETTO (cross-repo), risposta JSON completa (`?stream=false`, fase 4 mobile). */
+    projectChat(
+      projectId: string,
+      input: { message: string; sessionId?: string },
+    ): Promise<Reader<DocsChatAnswer>> {
+      return request(
+        "POST",
+        `/api/projects/${seg(projectId)}/docs/chat?stream=false`,
+        input,
+        docsChatAnswerSchema,
       );
     },
 

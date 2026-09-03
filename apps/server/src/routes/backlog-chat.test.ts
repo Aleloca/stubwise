@@ -292,6 +292,86 @@ describe("POST /api/backlog/:id/chat", () => {
   });
 });
 
+describe("POST /api/backlog/:id/chat?stream=false (fase 4, mobile)", () => {
+  it("risponde 200 application/json {answer, sources, sessionId=id della voce}; persistito come nel caso SSE", async () => {
+    const item = await insertItem({ status: "new" });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/chat?stream=false`,
+      headers: { cookie: memberCookie },
+      payload: { message: "Come funziona questa idea, in json?" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toContain("application/json");
+
+    const body = res.json() as { answer: string; sources: unknown[]; sessionId: string };
+    expect(body.answer).toBe(FAKE_DELTAS.join(""));
+    // La voce È la sessione: sessionId nella risposta json è l'id della voce.
+    expect(body.sessionId).toBe(item.id);
+
+    // Transizione new→refining, come nel caso SSE.
+    const [row] = await testDb.db
+      .select({ status: backlogItems.status })
+      .from(backlogItems)
+      .where(eq(backlogItems.id, item.id));
+    expect(row!.status).toBe("refining");
+
+    const messages = await readMessages(item.id);
+    expect(messages).toHaveLength(2);
+    expect(messages[0]!.role).toBe("user");
+    expect(messages[1]!.role).toBe("assistant");
+    expect(messages[1]!.content).toBe(FAKE_DELTAS.join(""));
+  });
+
+  it("errore LLM a metà: 502, NESSUNA persistenza (a differenza dell'SSE che salva il parziale con marcatore)", async () => {
+    const item = await insertItem({ status: "refining" });
+    streamOverride = async function* (): AsyncIterable<string> {
+      yield "parziale backlog json";
+      throw new Error("LLM esploso a metà (backlog json)");
+    };
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/chat?stream=false`,
+      headers: { cookie: memberCookie },
+      payload: { message: "domanda che fallisce a metà" },
+    });
+    expect(res.statusCode).toBe(502);
+    expect((res.json() as { code?: string }).code).toBe("chat_generation_failed");
+
+    // Nessun assistant persistito (né completo né parziale con marcatore).
+    const messages = await readMessages(item.id);
+    expect(messages.some((m) => m.role === "assistant")).toBe(false);
+    expect(messages.filter((m) => m.role === "user")).toHaveLength(1);
+  });
+
+  it("default additivo: senza `stream` resta SSE", async () => {
+    const item = await insertItem({ status: "refining" });
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/chat`,
+      headers: { cookie: memberCookie },
+      payload: { message: "domanda senza stream" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toContain("text/event-stream");
+  });
+
+  it("chat non servibile: 503 anche con ?stream=false, nessun messaggio persistito", async () => {
+    const item = await insertItem();
+    availabilityOverride = { available: false, reason: "no_api_key_provider" };
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/chat?stream=false`,
+      headers: { cookie: memberCookie },
+      payload: { message: "ciao" },
+    });
+    expect(res.statusCode).toBe(503);
+    expect(await readMessages(item.id)).toHaveLength(0);
+  });
+});
+
 describe("POST /api/backlog/:id/chat in modalità CODE (sessione attiva)", () => {
   it("202 {mode:code, userMessageId}: persiste user, accoda chat_turn, NIENTE SSE né chatLlm", async () => {
     const item = await insertItem({ status: "refining" });
@@ -380,6 +460,23 @@ describe("POST /api/backlog/:id/chat in modalità CODE (sessione attiva)", () =>
       .from(backlogItems)
       .where(eq(backlogItems.id, item.id));
     expect(row!.status).toBe("refining");
+  });
+
+  it("`?stream=false` è IGNORATO con sessione attiva: resta 202 {mode:code} (il ramo code gira prima di leggere `stream`)", async () => {
+    const item = await insertItem({ status: "refining" });
+    const repoId = await seedRepositoryInProject(testDb.db, projectId);
+    await testDb.db.insert(backlogCodeSessions).values({ itemId: item.id, repositoryId: repoId });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/chat?stream=false`,
+      headers: { cookie: memberCookie },
+      payload: { message: "domanda con sessione attiva, stream=false" },
+    });
+
+    expect(res.statusCode).toBe(202);
+    expect(res.json()).toMatchObject({ mode: "code" });
+    expect(lastChatInput).toBeNull();
   });
 
   it("una sessione closed NON attiva la modalità code: torna al percorso SSE (DOCS)", async () => {

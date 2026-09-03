@@ -242,3 +242,37 @@ export const docChatMessageSchema = z.object({
   createdAt: z.string(),
 });
 export type DocChatMessage = z.infer<typeof docChatMessageSchema>;
+
+/**
+ * Una fonte allegata a una risposta della chat RAG (una pagina di
+ * documentazione citata). Rispecchia `Citation` di
+ * `apps/server/src/routes/docs-rag.ts` — a differenza di
+ * `docChatMessageSchema.citations` (jsonb non tipizzato, storico) questa è la
+ * forma di una risposta 200 VERA (`docsChatAnswerSchema`), validata dal
+ * serializerCompiler Zod: qui la stringiamo.
+ */
+export const docsChatSourceSchema = z.object({
+  slug: z.string(),
+  title: z.string(),
+  kind: docPageKindSchema,
+  repositoryId: z.uuid(),
+  repositorySlug: z.string(),
+  repositoryName: z.string(),
+});
+export type DocsChatSource = z.infer<typeof docsChatSourceSchema>;
+
+/**
+ * Risposta JSON non-streaming della chat RAG (`?stream=false`, fase 4 mobile):
+ * usata dai client che non leggono SSE. Stesso contenuto della modalità
+ * streaming — testo completo + fonti + sessionId, che nell'SSE arrivano
+ * frammentati fra gli eventi `delta` e `done` — in un unico body. Condivisa
+ * dalle tre chat RAG (Docs per-repository, Docs di progetto, raffinamento del
+ * backlog): per il backlog `sessionId` è l'id della voce (non c'è una tabella
+ * di sessioni dedicata, vedi `backlog.ts`).
+ */
+export const docsChatAnswerSchema = z.object({
+  answer: z.string(),
+  sources: z.array(docsChatSourceSchema),
+  sessionId: z.uuid(),
+});
+export type DocsChatAnswer = z.infer<typeof docsChatAnswerSchema>;

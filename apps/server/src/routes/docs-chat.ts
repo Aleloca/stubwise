@@ -17,17 +17,24 @@
  *     marcatore di troncamento, così storico e UI lo distinguono da una risposta
  *     completa e non abortisce inutilmente il consumo di token (AbortSignal).
  *
- * NOTA SSE: questa è l'UNICA route che bypassa lo schema di risposta Zod —
- * scrive uno stream grezzo su `reply.raw`, quindi `reply.hijack()` dice a
- * Fastify di non gestire/serializzare la risposta. Niente precedente in questo
- * progetto: il protocollo (header + framing `data: {json}\n\n`) è documentato
- * qui sotto.
+ * NOTA SSE: con `?stream=true` (default, invariato) questa route bypassa lo
+ * schema di risposta Zod — scrive uno stream grezzo su `reply.raw`, quindi
+ * `reply.hijack()` dice a Fastify di non gestire/serializzare la risposta. Il
+ * protocollo (header + framing `data: {json}\n\n`) è documentato in
+ * `./docs-chat-core.ts`.
+ *
+ * NOTA JSON (fase 4, mobile): con `?stream=false` la stessa route risponde in
+ * un unico body `{ answer, sources, sessionId }` (200) o un errore (502) su
+ * fallimento a metà generazione — SENZA persistere nulla in quel caso (a
+ * differenza dell'SSE, vedi `./docs-chat-core.ts`). Il default `true` è
+ * additivo: un client che non manda il parametro ottiene il comportamento di
+ * sempre.
  */
 
 import { and, asc, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
-import { docChatMessageSchema, docChatSessionSchema } from "@stubwise/shared";
+import { docChatMessageSchema, docChatSessionSchema, docsChatAnswerSchema } from "@stubwise/shared";
 import { z } from "zod";
 import { requireAuth } from "../auth/session.js";
 import { docChatMessages, docChatSessions, repositories } from "@stubwise/db";
@@ -60,6 +67,14 @@ const chatBodySchema = z.object({
 });
 
 /**
+ * Query della chat: `stream` sceglie fra SSE (default, storico) e JSON
+ * non-streaming (fase 4, mobile). `z.stringbool()` accetta "true"/"false" (più
+ * alias come "1"/"0") e rifiuta con un messaggio leggibile il resto — coerente
+ * con un query param, che arriva sempre come stringa.
+ */
+const chatQuerySchema = z.object({ stream: z.stringbool().default(true) });
+
+/**
  * Numero di pagine di contesto recuperate per la chat. Il system prompt e le
  * citazioni vivono in {@link ./docs-rag.ts} (UNICA definizione, condivisa con il
  * flusso RAG non-streaming): qui li importiamo invece di duplicarli. Il loop SSE,
@@ -81,17 +96,28 @@ export async function docsChatRoutes(instance: FastifyInstance): Promise<void> {
       preHandler: requireAuth,
       schema: {
         params: repositoryIdParamsSchema,
+        querystring: chatQuerySchema,
         body: chatBodySchema,
-        // Nessuno schema di risposta 200: la risposta è uno stream SSE grezzo
-        // scritto su reply.raw (reply.hijack), non un body serializzato da Zod.
-        // Restano gli errori PRIMA dello streaming (404/403/401/503), che usano
-        // il path normale di Fastify. Il 503 è la chat non servibile (nessun
-        // provider api_key): un errore JSON pulito, non un evento SSE opaco.
-        response: { 404: errorSchema, 503: errorSchema, ...authErrorResponses },
+        // Schema 200 SOLO per la modalità json (?stream=false): reply.send()
+        // resta nel ciclo normale di Fastify, quindi validato. La modalità sse
+        // (default) bypassa questo schema via reply.hijack() (vedi
+        // docs-chat-core.ts) — dichiararlo qui non la tocca.
+        // 502: errore di generazione/persistenza A METÀ in modalità json (SENZA
+        // persistenza, vedi docs-chat-core.ts). Restano gli altri errori PRIMA
+        // dello streaming/response (404/403/401/503); il 503 è la chat non
+        // servibile (nessun provider api_key), un errore JSON pulito.
+        response: {
+          200: docsChatAnswerSchema,
+          404: errorSchema,
+          502: errorSchema,
+          503: errorSchema,
+          ...authErrorResponses,
+        },
       },
     },
     async (request, reply) => {
       const { repositoryId } = request.params;
+      const { stream } = request.query;
       const { sessionId, message } = request.body;
       const userId = request.user!.id;
 
@@ -190,6 +216,7 @@ export async function docsChatRoutes(instance: FastifyInstance): Promise<void> {
         history,
         citations,
         logContext: { repositoryId },
+        mode: stream ? "sse" : "json",
       });
     },
   );
