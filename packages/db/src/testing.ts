@@ -199,3 +199,32 @@ export async function seedTicketRepository(
   if (!row) throw new Error("insert di ticket_repositories di test non ha restituito la riga");
   return row.id;
 }
+
+/**
+ * Esegue una query che DEVE fallire e ne verifica il codice SQLSTATE, così il
+ * test non passa per un errore diverso da quello atteso.
+ *
+ * Codici ricorrenti: `23514` violazione di CHECK, `23505` violazione di
+ * unique/PK, `23503` violazione di foreign key, `22P02` valore fuori enum.
+ *
+ * drizzle incarta l'errore del driver in un `DrizzleQueryError`: il
+ * `PostgresError` col codice arriva come `cause`, e leggerlo dal solo `err`
+ * darebbe `undefined` — motivo per cui questa funzione esiste invece di un
+ * `expect().rejects`.
+ */
+export async function expectSqlState(query: PromiseLike<unknown>, sqlState: string): Promise<void> {
+  try {
+    await query;
+  } catch (err) {
+    const cause = (err as { cause?: unknown }).cause ?? err;
+    if ((cause as { code?: string }).code !== sqlState) {
+      throw new Error(
+        `attesa una query fallita con SQLSTATE ${sqlState}, ricevuto ${String(
+          (cause as { code?: string }).code,
+        )}: ${String(err)}`,
+      );
+    }
+    return;
+  }
+  throw new Error(`la query doveva fallire con SQLSTATE ${sqlState}, invece è riuscita`);
+}

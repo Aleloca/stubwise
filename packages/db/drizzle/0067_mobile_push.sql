@@ -18,14 +18,19 @@ ALTER TABLE "users" ADD COLUMN "notify_push" boolean DEFAULT true NOT NULL;--> s
 -- reinserimento è un upsert su questa unique, non una riga in più).
 --
 -- `pat_id` lega il device al Personal Access Token con cui l'app si è
--- autenticata: ON DELETE SET NULL e non CASCADE perché revocare un token è
--- un'operazione di credenziali, non di recapito — la riga sopravvive e resta
--- disattivabile a parte (`disabled_at`).
+-- autenticata: ON DELETE SET NULL e non CASCADE perché un device registrato via
+-- cookie di sessione non ha PAT e non deve morire con quello di nessun altro. A
+-- fermare le push dopo una revoca NON è questa FK (lascerebbe la riga attiva e
+-- indistinguibile da una registrata via web) ma la rotta di revoca, che
+-- disabilita i device di quel PAT nella stessa transazione.
 --
 -- La disattivazione è un soft delete con motivo (`disabled_reason`, es. il
--- token rifiutato dal provider): serve a smettere di provarci senza perdere la
--- traccia del perché. `platform` è text con CHECK e non un enum Postgres, così
--- aggiungerne uno domani non richiede una migrazione a sé (vedi sopra).
+-- token rifiutato dal provider o `pat_revoked`): serve a smettere di provarci
+-- senza perdere la traccia del perché, e i due campi vivono e muoiono insieme
+-- (CHECK `device_tokens_disabled_chk`). `platform` è text con CHECK e non un
+-- enum Postgres: sostituire un CHECK si fa in DROP + ADD dentro la migrazione
+-- che serve, mentre un valore di enum richiede una migrazione SEPARATA dal
+-- batch (vedi sopra).
 CREATE TABLE "device_tokens" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"user_id" uuid NOT NULL,
@@ -38,7 +43,8 @@ CREATE TABLE "device_tokens" (
 	"disabled_reason" text,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "device_tokens_token_unique" UNIQUE("token"),
-	CONSTRAINT "device_tokens_platform_chk" CHECK ("platform" in ('ios', 'android'))
+	CONSTRAINT "device_tokens_platform_chk" CHECK ("platform" in ('ios', 'android')),
+	CONSTRAINT "device_tokens_disabled_chk" CHECK (("disabled_at" IS NULL) = ("disabled_reason" IS NULL))
 );
 --> statement-breakpoint
 ALTER TABLE "device_tokens" ADD CONSTRAINT "device_tokens_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint

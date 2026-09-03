@@ -145,9 +145,9 @@ export async function mePrefsRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      // Si costruisce il SET coi soli campi presenti. Passare `undefined` a
-      // drizzle non è equivalente: l'update finirebbe senza colonne da
-      // scrivere (errore) o, peggio in futuro, con una colonna azzerata.
+      // Si costruisce il SET coi soli campi presenti: con un body vuoto
+      // l'update resterebbe senza colonne da scrivere e drizzle solleverebbe
+      // "No values to set" (un 500 al posto del no-op).
       const patch: Partial<typeof users.$inferInsert> = {};
       if (request.body.slackDm !== undefined) patch.notifySlackDm = request.body.slackDm;
       if (request.body.push !== undefined) patch.notifyPush = request.body.push;

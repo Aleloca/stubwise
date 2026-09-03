@@ -10,7 +10,7 @@ import {
   projects,
   users,
 } from "./schema.js";
-import { seedTicket, startTestDb, type TestDb } from "./testing.js";
+import { expectSqlState, seedTicket, startTestDb, type TestDb } from "./testing.js";
 
 /**
  * Verifica che la migrazione delle fondamenta dell'inbox (colonne su `ai_jobs`
@@ -33,23 +33,6 @@ describe("schema: fondamenta dell'inbox di notifiche", () => {
     await testDb.stop();
   });
 
-  /**
-   * Esegue una query che deve fallire e ne verifica il codice SQLSTATE, così il
-   * test non passa per un errore diverso da quello atteso (23514 = violazione di
-   * CHECK, 23505 = violazione di unique/PK, 22P02 = valore fuori enum). drizzle
-   * incarta l'errore del driver in un `DrizzleQueryError`: il `PostgresError`
-   * con il codice arriva come `cause`.
-   */
-  async function expectSqlState(query: PromiseLike<unknown>, sqlState: string): Promise<void> {
-    try {
-      await query;
-    } catch (err) {
-      const cause = (err as { cause?: unknown }).cause ?? err;
-      expect((cause as { code?: string }).code).toBe(sqlState);
-      return;
-    }
-    throw new Error(`la query doveva fallire con SQLSTATE ${sqlState}, invece è riuscita`);
-  }
 
   async function seedUser(): Promise<string> {
     const [user] = await db

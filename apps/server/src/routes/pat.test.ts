@@ -5,6 +5,8 @@ import { buildApp } from "../app.js";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import { seedUsers, sessionCookie } from "../test/fixtures.js";
+import { deviceTokens } from "@stubwise/db";
+import { eq } from "drizzle-orm";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 const ENCRYPTION_KEY = randomBytes(32);
@@ -13,6 +15,8 @@ let testDb: TestDb;
 let app: FastifyInstance;
 let adminCookie: string;
 let memberCookie: string;
+let adminId: string;
+let memberId: string;
 
 beforeAll(async () => {
   testDb = await startTestDb();
@@ -23,7 +27,7 @@ beforeAll(async () => {
     publicUrl: "https://stubwise.example.com",
     monitorRateLimit: { max: 10_000, timeWindow: "1 minute" },
   });
-  ({ adminCookie, memberCookie } = await seedUsers(app));
+  ({ adminCookie, memberCookie, adminId, memberId } = await seedUsers(app));
 }, 120_000);
 
 afterAll(async () => {
@@ -170,6 +174,76 @@ describe("DELETE /api/pats/:id", () => {
       headers: { cookie: adminCookie },
     });
     expect(del.statusCode).toBe(404);
+  });
+});
+
+describe("revoca di un PAT e device push collegati", () => {
+  /** Registra un device come farebbe `PUT /api/me/devices` (rotta del task 7). */
+  async function seedDevice(userId: string, patId: string | null) {
+    const token = `tok-${randomBytes(8).toString("hex")}`;
+    await testDb.db.insert(deviceTokens).values({ userId, patId, platform: "ios", token });
+    return token;
+  }
+
+  async function readDevice(token: string) {
+    const [row] = await testDb.db
+      .select()
+      .from(deviceTokens)
+      .where(eq(deviceTokens.token, token));
+    if (!row) throw new Error(`device ${token} non trovato`);
+    return row;
+  }
+
+  it("revocare un PAT disabilita i SUOI device e lascia intatti gli altri", async () => {
+    // Lo scenario vero: si perde il telefono e si revoca il suo token
+    // credendo di averlo tagliato fuori. Se la riga restasse attiva con
+    // `pat_id` null, le push continuerebbero ad arrivare a un dispositivo in
+    // mano a qualcun altro finché il relay non dichiara invalido il token —
+    // cosa che su un telefono acceso non succede mai.
+    const created = await createPat({ name: "Mobile · iPhone" });
+    const patId = (created.json() as { id: string }).id;
+    const delPhone = await seedDevice(adminId, patId);
+    // Registrato via cookie di sessione: nessun PAT dietro, non deve morire
+    // con quello di nessuno.
+    const webDevice = await seedDevice(adminId, null);
+
+    const del = await app.inject({
+      method: "DELETE",
+      url: `/api/pats/${patId}`,
+      headers: { cookie: adminCookie },
+    });
+    expect(del.statusCode).toBe(204);
+
+    const revocato = await readDevice(delPhone);
+    expect(revocato.disabledAt).toBeInstanceOf(Date);
+    expect(revocato.disabledReason).toBe("pat_revoked");
+    // La FK ha comunque azzerato il legame: è la riga disabilitata a
+    // conservare la traccia, non `pat_id`.
+    expect(revocato.patId).toBeNull();
+
+    const intatto = await readDevice(webDevice);
+    expect(intatto.disabledAt).toBeNull();
+    expect(intatto.disabledReason).toBeNull();
+  });
+
+  it("un 404 su un PAT altrui non tocca i device di quell'utente", async () => {
+    // Il 404 è un return, non un throw: la transazione COMMITTA lo stesso.
+    // Senza `userId` nel WHERE dell'update, indovinare l'id di un PAT
+    // basterebbe a spegnere le push di chiunque.
+    const memberPat = await createPat({ name: "del member" }, memberCookie);
+    const memberPatId = (memberPat.json() as { id: string }).id;
+    const memberDevice = await seedDevice(memberId, memberPatId);
+
+    const del = await app.inject({
+      method: "DELETE",
+      url: `/api/pats/${memberPatId}`,
+      headers: { cookie: adminCookie },
+    });
+    expect(del.statusCode).toBe(404);
+
+    const intatto = await readDevice(memberDevice);
+    expect(intatto.disabledAt).toBeNull();
+    expect(intatto.patId).toBe(memberPatId);
   });
 });
 

@@ -2538,11 +2538,16 @@ export const projectFollows = pgTable(
  * `token` è il token del servizio di notifica del sistema operativo ed è unico
  * GLOBALMENTE, non per utente: il sistema lo riassegna, e la stessa stringa su
  * due righe manderebbe la push due volte o alla persona sbagliata. Registrare
- * di nuovo un device è quindi un upsert su questa unique, non una riga in più.
+ * di nuovo un device è quindi un upsert su questa unique, non una riga in più
+ * — e quell'upsert deve RIATTIVARE la riga (`disabledAt` e `disabledReason` a
+ * NULL), altrimenti un telefono il cui token era stato dichiarato invalido, o
+ * il cui PAT era stato revocato, resterebbe muto per sempre pur avendo appena
+ * rifatto l'accesso dall'app.
  *
  * La disattivazione è un soft delete con motivo (`disabledAt` +
- * `disabledReason`, es. token rifiutato dal provider): serve a smettere di
- * provarci senza perdere la traccia del perché.
+ * `disabledReason`, es. token rifiutato dal provider, o `pat_revoked`): serve
+ * a smettere di provarci senza perdere la traccia del perché. I due campi
+ * vivono e muoiono insieme, e il CHECK in fondo lo impone.
  */
 export const deviceTokens = pgTable(
   "device_tokens",
@@ -2552,20 +2557,29 @@ export const deviceTokens = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     // PAT con cui l'app si è autenticata registrando il device. SET NULL e non
-    // CASCADE: revocare un token è un'operazione di credenziali, non di
-    // recapito — la riga sopravvive e resta disattivabile a parte.
+    // CASCADE perché un device registrato via cookie di sessione non ha PAT e
+    // non deve morire con quello di nessun altro.
+    // ⚠️ Ma il SET NULL da solo NON basta: dopo la revoca la riga resterebbe
+    // `pat_id` null e ATTIVA, indistinguibile da un device registrato via web,
+    // e il telefono continuerebbe a ricevere push — cioè il contrario di ciò
+    // che si aspetta chi revoca il token dopo aver perso il telefono. A
+    // chiudere il buco è la revoca stessa (`routes/pat.ts`), che disabilita i
+    // device di quel PAT nella stessa transazione e PRIMA del delete; qui il
+    // SET NULL resta solo come rete se qualcuno cancellasse una riga di
+    // `personal_access_tokens` per altre vie.
     patId: uuid("pat_id").references(() => personalAccessTokens.id, { onDelete: "set null" }),
-    // Colonna text con CHECK invece di un enum Postgres: aggiungere una
-    // piattaforma domani non richiede una migrazione a sé (un `ALTER TYPE …
-    // ADD VALUE` non è usabile nello stesso batch che lo aggiunge). Stessa
-    // scelta di `plugins`/`graph_jobs`.
-    // ⚠️ Il prezzo: `enum-parity.test.ts` NON copre questa lista — guarda i
-    // `pgEnum`, e qui non c'è un tipo Postgres da confrontare. Se i valori qui
-    // e quelli del CHECK `device_tokens_platform_chk` (migrazione 0067)
-    // divergono, nulla lo segnala: TypeScript accetta il valore nuovo e
-    // Postgres lo rifiuta al primo insert. Chi aggiunge una piattaforma tocca
-    // ENTRAMBI i punti; il test `device-tokens.test.ts` verifica il CHECK a
-    // runtime con un insert raw, ed è lì che va aggiunto il caso.
+    // Colonna text con CHECK invece di un enum Postgres. NON è la stessa scelta
+    // di `plugins`/`graph_jobs`, che stanno senza enum E senza CHECK: qui il
+    // vincolo nel DB c'è. Il motivo di non usare un pgEnum è un altro —
+    // aggiungere un valore a un enum Postgres obbliga a una migrazione SEPARATA
+    // dal resto del batch (`ALTER TYPE … ADD VALUE` non è usabile nella stessa
+    // transazione che lo aggiunge), mentre un CHECK si sostituisce in DROP +
+    // ADD CONSTRAINT dentro la migrazione che serve. Il risparmio è sulla
+    // separazione, non sulla migrazione: quella serve comunque.
+    // Il prezzo è che `enum-parity.test.ts` non copre questa lista (guarda i
+    // `pgEnum`, e qui non c'è un tipo Postgres da confrontare) — al suo posto
+    // c'è `device-tokens.test.ts`, che confronta questi `enumValues` con la
+    // definizione reale del CHECK letta da `pg_get_constraintdef`.
     platform: text("platform", { enum: ["ios", "android"] }).notNull(),
     token: text("token").notNull().unique(),
     // Versione dell'app che ha registrato il device, utile a diagnosticare le
@@ -2584,6 +2598,17 @@ export const deviceTokens = pgTable(
       .on(table.userId)
       .where(sql`disabled_at is null`),
     check("device_tokens_platform_chk", sql`platform in ('ios', 'android')`),
+    // Un device è disattivato se e solo se sappiamo perché. Senza questo
+    // vincolo esisterebbero due righe senza senso: una con `disabled_reason` ma
+    // `disabled_at` NULL, che l'indice parziale qui sopra considererebbe un
+    // destinatario valido pur avendo un motivo di esclusione scritto sopra; e
+    // una disattivata senza motivo, che perde esattamente la traccia per cui il
+    // soft delete esiste. Stesso pattern di `notifications_handled_at_chk` e
+    // `agent_questions_answer_chk`.
+    check(
+      "device_tokens_disabled_chk",
+      sql`(disabled_at IS NULL) = (disabled_reason IS NULL)`,
+    ),
   ],
 );
 

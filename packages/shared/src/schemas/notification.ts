@@ -415,6 +415,11 @@ export const notificationPrefsSchema = z.object({
   slackDm: z.boolean(),
   push: z.boolean(),
 });
+/**
+ * Non ha consumatori diretti: web e api-client usano `…Update` (scrittura) e
+ * `…View` (lettura). Resta esportato perché è la forma di lettura da cui la
+ * view deriva, e nominarla è ciò che tiene distinte le due semantiche.
+ */
 export type NotificationPrefs = z.infer<typeof notificationPrefsSchema>;
 
 /**
@@ -433,9 +438,12 @@ export type NotificationPrefs = z.infer<typeof notificationPrefsSchema>;
  * 400 costringerebbe ogni client a un controllo che il server sa già fare.
  * Resta invece 400 un campo presente col tipo sbagliato.
  *
- * `.strict()` è qui — e non sugli altri body, dove la convenzione del repo è
- * lo strip — perché su una patch lo strip è pericoloso in un modo che altrove
- * non è: con tutti i campi opzionali, `{ pussh: false }` verrebbe ripulito a
+ * `.strict()` non è un'eccezione ma il precedente del repo per questa forma:
+ * `apps/server/src/routes/saved-views.ts` fa la stessa cosa (tutti i campi
+ * opzionali + strict) per la stessa ragione, e `backlog.ts` ne ha altri sei.
+ * Su una patch lo strip è pericoloso in un modo che su un body a campi
+ * obbligatori non è: con tutti i campi opzionali, `{ pussh: false }` sarebbe
+ * ripulito a
  * `{}` e risponderebbe 204, cioè un typo indistinguibile da un successo.
  * Finché i campi erano obbligatori quel caso dava 400 per un effetto
  * collaterale (mancava `slackDm`); rendendo il body una patch quella

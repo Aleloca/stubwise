@@ -198,7 +198,8 @@ describe("/api/me/notification-prefs", () => {
   });
 
   it("rifiuta un campo sconosciuto: un typo non deve passare per successo", async () => {
-    // Il gemello del test qui sopra, e i due vanno letti insieme: `{}` è 204
+    // Il gemello di «un body vuoto è un no-op da 204», e i due vanno letti
+    // insieme: `{}` è 204
     // perché una patch vuota è legittima, ma `{ pussh: false }` NON deve
     // finire nello stesso 204 — con tutti i campi opzionali lo strip lo
     // ridurrebbe a `{}` e il client crederebbe di aver salvato. Da qui lo

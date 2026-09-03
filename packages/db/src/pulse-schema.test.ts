@@ -3,7 +3,7 @@ import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Db } from "./client.js";
 import { notificationSettings, notifications, projects, users } from "./schema.js";
-import { startTestDb, type TestDb } from "./testing.js";
+import { expectSqlState, startTestDb, type TestDb } from "./testing.js";
 
 /**
  * Verifica che la migrazione del pulse proattivo (fase 2) sia applicabile su un
@@ -25,22 +25,6 @@ describe("schema: pulse proattivo per progetto", () => {
     await testDb.stop();
   });
 
-  /**
-   * Esegue una query che deve fallire e ne verifica il codice SQLSTATE, così il
-   * test non passa per un errore diverso da quello atteso (23514 = violazione di
-   * CHECK). drizzle incarta l'errore del driver in un `DrizzleQueryError`: il
-   * `PostgresError` con il codice arriva come `cause`.
-   */
-  async function expectSqlState(query: PromiseLike<unknown>, sqlState: string): Promise<void> {
-    try {
-      await query;
-    } catch (err) {
-      const cause = (err as { cause?: unknown }).cause ?? err;
-      expect((cause as { code?: string }).code).toBe(sqlState);
-      return;
-    }
-    throw new Error(`la query doveva fallire con SQLSTATE ${sqlState}, invece è riuscita`);
-  }
 
   /** Progetto minimo, con la cadenza del pulse eventualmente forzata. */
   async function seedProject(pulse: { pulseEveryDays?: number } = {}): Promise<string> {

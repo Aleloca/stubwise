@@ -1,8 +1,8 @@
-import { personalAccessTokens } from "@stubwise/db";
+import { deviceTokens, personalAccessTokens } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
 import { createPatSchema, patViewSchema, patWithTokenSchema } from "@stubwise/shared";
 import type { PatView, PatWithToken } from "@stubwise/shared";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -113,17 +113,46 @@ export async function patRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      // userId nel WHERE: revoca solo un token proprio; un id altrui non matcha
-      // e torna 404 (indistinguibile da inesistente, nessun leak d'esistenza).
-      const deleted = await app.db
-        .delete(personalAccessTokens)
-        .where(
-          and(
-            eq(personalAccessTokens.id, request.params.id),
-            eq(personalAccessTokens.userId, request.user!.id),
-          ),
-        )
-        .returning({ id: personalAccessTokens.id });
+      const deleted = await app.db.transaction(async (tx) => {
+        // ⚠️ L'ORDINE NON È LIBERO: i device vanno disabilitati PRIMA del
+        // delete. Dopo, la FK `ON DELETE SET NULL` ha già azzerato `pat_id` e
+        // questo UPDATE non troverebbe più nulla — un riordino che sembra
+        // innocuo e che spegnerebbe in silenzio tutto il meccanismo.
+        //
+        // Serve perché chi revoca il PAT di un telefono perso si aspetta di
+        // aver tagliato fuori quel telefono. Senza questo passo la riga
+        // resterebbe attiva con `pat_id` null, indistinguibile da un device
+        // registrato via web, e le push continuerebbero ad arrivare finché il
+        // relay non dichiarasse invalido il token — cosa che su un telefono
+        // acceso non succede mai.
+        // `userId` è nel WHERE per la stessa ragione per cui sta nel delete
+        // qui sotto, e non è ridondante: su un id altrui il delete non matcha e
+        // si esce con un 404, ma la transazione COMMITTA lo stesso (il 404 è un
+        // return, non un throw). Senza questo filtro un utente potrebbe
+        // spegnere le push dei device di chiunque indovinandone l'id del PAT.
+        await tx
+          .update(deviceTokens)
+          .set({ disabledAt: new Date(), disabledReason: "pat_revoked" })
+          .where(
+            and(
+              eq(deviceTokens.patId, request.params.id),
+              eq(deviceTokens.userId, request.user!.id),
+              isNull(deviceTokens.disabledAt),
+            ),
+          );
+        // userId nel WHERE: revoca solo un token proprio; un id altrui non
+        // matcha e torna 404 (indistinguibile da inesistente, nessun leak
+        // d'esistenza).
+        return await tx
+          .delete(personalAccessTokens)
+          .where(
+            and(
+              eq(personalAccessTokens.id, request.params.id),
+              eq(personalAccessTokens.userId, request.user!.id),
+            ),
+          )
+          .returning({ id: personalAccessTokens.id });
+      });
       if (deleted.length === 0) return apiError(reply, 404, "pat_not_found", "Token not found");
       return reply.code(204).send(null);
     },
