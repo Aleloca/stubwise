@@ -2,11 +2,11 @@
   "extends": "@react-native/typescript-config",
   "compilerOptions": {
     // Unico override reale sul preset, che usa jsx: "react-native": con
-    // "react-jsx" App.tsx non deve importare React per usare il JSX.
+    // "react-jsx" i componenti non devono importare React per usare il JSX.
     // Tutto il resto (moduleResolution "bundler", noEmit, strict, allowJs…)
     // arriva già dal preset.
     "jsx": "react-jsx"
   },
-  "include": ["src", "index.js", "App.tsx", "__tests__"],
+  "include": ["src", "index.js", "jest.setup.ts"],
   "exclude": ["**/node_modules", "**/Pods"]
 }

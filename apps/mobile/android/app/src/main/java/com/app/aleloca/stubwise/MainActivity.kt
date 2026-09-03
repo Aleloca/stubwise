@@ -1,5 +1,6 @@
 package com.app.aleloca.stubwise
 
+import android.content.Intent
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.fabricEnabled
@@ -19,4 +20,14 @@ class MainActivity : ReactActivity() {
    */
   override fun createReactActivityDelegate(): ReactActivityDelegate =
       DefaultReactActivityDelegate(this, mainComponentName, fabricEnabled)
+
+  // Deep link `stubwise://…` (Task 13): `ReactActivity` NON inoltra da sé
+  // un nuovo Intent al modulo Linking di RN quando l'activity è già in
+  // primo piano (`launchMode="singleTask"` nel manifest la riusa invece di
+  // aprirne una seconda) — senza questo override, `Linking.addEventListener
+  // ("url", …)` non riceve mai l'evento su un secondo tap del link.
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    setIntent(intent)
+  }
 }

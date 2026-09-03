@@ -11,7 +11,17 @@ module.exports = {
   // `react-native-<qualcosa>`. Ogni libreria RN pubblicata in ESM che aggiungeremo
   // (react-native-svg, react-native-gesture-handler, …) va aggiunta qui a mano,
   // altrimenti Jest fallisce con "Cannot use import statement outside a module".
+  //
+  // Task 13: aggiunte @react-navigation (i sorgenti pubblicati sono SOLO
+  // ESM, `exports.default` punta a `lib/module`, verificato sul package.json
+  // installato), @notifee/react-native (il suo `jest-mock.js` è un file ESM
+  // sciolto alla radice del package, non sotto `lib/`) e
+  // @react-native-async-storage (idem per `jest/AsyncStorageMock.js`).
+  // react-native-screens, react-native-safe-area-context, i18next,
+  // react-i18next e @tanstack/* risolvono già a CJS via `main` — non serve
+  // aggiungerli.
   transformIgnorePatterns: [
-    "node_modules/(?!\\.pnpm/)(?!((jest-)?react-native|@react-native(-community)?)/)",
+    "node_modules/(?!\\.pnpm/)(?!((jest-)?react-native|@react-native(-community)?|@react-navigation|@notifee|@react-native-async-storage)/)",
   ],
+  setupFilesAfterEnv: ["<rootDir>/jest.setup.ts"],
 };

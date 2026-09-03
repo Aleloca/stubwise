@@ -96,9 +96,18 @@ export type MobileLoginInput = z.infer<typeof mobileLoginBodySchema>;
  * pubblica del login web. L'app mobile non ha un cookie da spendere subito
  * dopo su `/me`: lingua e avatar le servono al primo render, quindi arrivano
  * qui insieme al token.
+ *
+ * `patId` (Task 13, app mobile — GAP verificato e chiuso qui): l'id della
+ * riga PAT appena creata, NON il token stesso. Serve al Task 20 (logout
+ * dell'app), che deve revocare QUESTO PAT (`DELETE /api/pats/:id`) senza
+ * dover prima elencare i token dell'utente per indovinare quale sia "Mobile
+ * · <deviceName>". Aggiunta ADDITIVA (campo nuovo, nessuno rimosso o
+ * rinominato): rispetta l'invariante "solo cambi additivi" verso l'app
+ * mobile documentata su `ApiRequest` in `@stubwise/api-client`.
  */
 export const mobileLoginResponseSchema = z.object({
   token: z.string(),
+  patId: z.uuid(),
   user: sessionUserSchema,
 });
 export type MobileLoginResponse = z.infer<typeof mobileLoginResponseSchema>;

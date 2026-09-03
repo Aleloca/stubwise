@@ -7,11 +7,16 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0909512CFF4949B0B3755E4F /* IBMPlexMono-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 531F3FA724034E2A99B2AE3D /* IBMPlexMono-Regular.ttf */; };
 		0C80B921A6F3F58F76C31292 /* libPods-StubwiseMobile.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 5DCACB8F33CDC322A6C60F78 /* libPods-StubwiseMobile.a */; };
+		106D8F780EFE47F987AD2407 /* OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = 91C9B0037C4341A8A72C32B0 /* OFL.txt */; };
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
 		7025CC148BC1A8EF5493FA06 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */; };
 		761780ED2CA45674006654EE /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 761780EC2CA45674006654EE /* AppDelegate.swift */; };
 		81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */; };
+		908C65B02D8947DCB2A8B9B6 /* IBMPlexMono-SemiBold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = FC67BA99D12542F794E9E88E /* IBMPlexMono-SemiBold.ttf */; };
+		AD8FAAFD79E846AA802FF2EC /* IBMPlexMono-Bold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = BA7899AAF0B54E60A8C3ECB7 /* IBMPlexMono-Bold.ttf */; };
+		EAAED9265619495787C9A50F /* IBMPlexMono-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = E83C443982544D59B1480CA2 /* IBMPlexMono-Medium.ttf */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -20,11 +25,16 @@
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = StubwiseMobile/Info.plist; sourceTree = "<group>"; };
 		13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = PrivacyInfo.xcprivacy; path = StubwiseMobile/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		3B4392A12AC88292D35C810B /* Pods-StubwiseMobile.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-StubwiseMobile.debug.xcconfig"; path = "Target Support Files/Pods-StubwiseMobile/Pods-StubwiseMobile.debug.xcconfig"; sourceTree = "<group>"; };
+		531F3FA724034E2A99B2AE3D /* IBMPlexMono-Regular.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "IBMPlexMono-Regular.ttf"; path = "../assets/fonts/IBMPlexMono-Regular.ttf"; sourceTree = "<group>"; };
 		5709B34CF0A7D63546082F79 /* Pods-StubwiseMobile.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-StubwiseMobile.release.xcconfig"; path = "Target Support Files/Pods-StubwiseMobile/Pods-StubwiseMobile.release.xcconfig"; sourceTree = "<group>"; };
 		5DCACB8F33CDC322A6C60F78 /* libPods-StubwiseMobile.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-StubwiseMobile.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 		761780EC2CA45674006654EE /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = StubwiseMobile/AppDelegate.swift; sourceTree = "<group>"; };
 		81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = LaunchScreen.storyboard; path = StubwiseMobile/LaunchScreen.storyboard; sourceTree = "<group>"; };
+		91C9B0037C4341A8A72C32B0 /* OFL.txt */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = OFL.txt; path = ../assets/fonts/OFL.txt; sourceTree = "<group>"; };
+		BA7899AAF0B54E60A8C3ECB7 /* IBMPlexMono-Bold.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "IBMPlexMono-Bold.ttf"; path = "../assets/fonts/IBMPlexMono-Bold.ttf"; sourceTree = "<group>"; };
+		E83C443982544D59B1480CA2 /* IBMPlexMono-Medium.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "IBMPlexMono-Medium.ttf"; path = "../assets/fonts/IBMPlexMono-Medium.ttf"; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
+		FC67BA99D12542F794E9E88E /* IBMPlexMono-SemiBold.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "IBMPlexMono-SemiBold.ttf"; path = "../assets/fonts/IBMPlexMono-SemiBold.ttf"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -60,6 +70,19 @@
 			name = Frameworks;
 			sourceTree = "<group>";
 		};
+		6F3343C011414FD5A5E41DA1 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				BA7899AAF0B54E60A8C3ECB7 /* IBMPlexMono-Bold.ttf */,
+				E83C443982544D59B1480CA2 /* IBMPlexMono-Medium.ttf */,
+				531F3FA724034E2A99B2AE3D /* IBMPlexMono-Regular.ttf */,
+				FC67BA99D12542F794E9E88E /* IBMPlexMono-SemiBold.ttf */,
+				91C9B0037C4341A8A72C32B0 /* OFL.txt */,
+			);
+			name = Resources;
+			path = "";
+			sourceTree = "<group>";
+		};
 		832341AE1AAA6A7D00B99B32 /* Libraries */ = {
 			isa = PBXGroup;
 			children = (
@@ -75,6 +98,7 @@
 				83CBBA001A601CBA00E9B192 /* Products */,
 				2D16E6871FA4F8E400B85C8A /* Frameworks */,
 				BBD78D7AC51CEA395F1C20DB /* Pods */,
+				6F3343C011414FD5A5E41DA1 /* Resources */,
 			);
 			indentWidth = 2;
 			sourceTree = "<group>";
@@ -161,6 +185,11 @@
 				81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */,
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
 				7025CC148BC1A8EF5493FA06 /* PrivacyInfo.xcprivacy in Resources */,
+				AD8FAAFD79E846AA802FF2EC /* IBMPlexMono-Bold.ttf in Resources */,
+				EAAED9265619495787C9A50F /* IBMPlexMono-Medium.ttf in Resources */,
+				0909512CFF4949B0B3755E4F /* IBMPlexMono-Regular.ttf in Resources */,
+				908C65B02D8947DCB2A8B9B6 /* IBMPlexMono-SemiBold.ttf in Resources */,
+				106D8F780EFE47F987AD2407 /* OFL.txt in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

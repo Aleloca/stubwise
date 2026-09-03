@@ -1,0 +1,25 @@
+{
+  "migIndex": 1,
+  "data": [
+    {
+      "path": "assets/fonts/IBMPlexMono-Bold.ttf",
+      "sha1": "b053ac8833a0c47749279791af2d623590a63223"
+    },
+    {
+      "path": "assets/fonts/IBMPlexMono-Medium.ttf",
+      "sha1": "d1246280a315c377a651879047723bab6e3b411e"
+    },
+    {
+      "path": "assets/fonts/IBMPlexMono-Regular.ttf",
+      "sha1": "2b7c2393fff41a6e1446fd6351002e1aa1a999e8"
+    },
+    {
+      "path": "assets/fonts/IBMPlexMono-SemiBold.ttf",
+      "sha1": "f3a7efe0dc14fce44455e570ab6dea33dddc5133"
+    },
+    {
+      "path": "assets/fonts/OFL.txt",
+      "sha1": "0ae1afdcc6d9bc8ed3195c89cbcba5fcd3dda1db"
+    }
+  ]
+}

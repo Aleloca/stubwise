@@ -32,6 +32,18 @@ export default tseslint.config(
     },
   },
   {
+    // jest.setup.ts usa `jest.mock(nome, () => require(...))`: è il pattern
+    // documentato dai package stessi (async-storage, notifee, device-info,
+    // netinfo, safe-area-context) per caricare il proprio mock ufficiale —
+    // `import` in cima al file non funzionerebbe per lo stesso motivo per
+    // cui jest.mock() richiede una factory: deve restare `require()`
+    // dentro la callback, valutato quando il modulo viene richiesto DAVVERO.
+    files: ["apps/mobile/jest.setup.ts"],
+    rules: {
+      "@typescript-eslint/no-require-imports": "off",
+    },
+  },
+  {
     // CONFINE CLIENT/SERVER sui package del workspace.
     //
     // `@stubwise/notifications` espone due entry: `.` (pubblicazione, routing,

@@ -1,0 +1,44 @@
+{
+  "mobile": {
+    "auth": {
+      "wordmark": "stubwise",
+      "tagline": "issue tracking · ai pipeline — self-hosted",
+      "login": {
+        "urlLabel": "Instance URL",
+        "urlPlaceholder": "stubwise.farmakom.it",
+        "emailLabel": "Email",
+        "passwordLabel": "Password",
+        "submit": "Log in",
+        "qrHint": "// QR login is coming in a later phase",
+        "invalidCredentials": "Invalid credentials",
+        "unexpectedError": "Something went wrong. Please retry.",
+        "unreachableTitle": "The instance isn't responding",
+        "unreachableBody": "Check the URL and your connection, then retry.",
+        "retry": "Retry"
+      },
+      "onboarding": {
+        "step": "Step 2 of 2",
+        "title": "Stubwise comes to you",
+        "body": "When a project needs a decision, you get a notification with the options ready to go. Without notifications, you'll have to remember to check yourself.",
+        "followProjects": "Follow projects",
+        "settingsHint": "// you can change followed projects later in settings",
+        "activate": "Turn on notifications and start",
+        "later": "Later",
+        "loadError": "Can't load the projects.",
+        "retry": "Retry"
+      }
+    },
+    "tabs": {
+      "inbox": "Inbox",
+      "projects": "Projects",
+      "backlog": "Backlog",
+      "docs": "Docs"
+    },
+    "common": {
+      "loading": "Loading…",
+      "offlineNoSync": "Offline — no sync yet",
+      "offlineSyncedMinutesAgo": "Offline — last synced {{count}} min ago",
+      "offlineSyncedJustNow": "Offline — last synced moments ago"
+    }
+  }
+}

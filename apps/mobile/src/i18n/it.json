@@ -1,0 +1,44 @@
+{
+  "mobile": {
+    "auth": {
+      "wordmark": "stubwise",
+      "tagline": "issue tracking · ai pipeline — self-hosted",
+      "login": {
+        "urlLabel": "URL dell'istanza",
+        "urlPlaceholder": "stubwise.farmakom.it",
+        "emailLabel": "Email",
+        "passwordLabel": "Password",
+        "submit": "Accedi",
+        "qrHint": "// il login via QR arriverà in una fase successiva",
+        "invalidCredentials": "Credenziali non valide",
+        "unexpectedError": "Qualcosa è andato storto. Riprova.",
+        "unreachableTitle": "L'istanza non risponde",
+        "unreachableBody": "Verifica l'URL e la connessione, poi riprova.",
+        "retry": "Riprova"
+      },
+      "onboarding": {
+        "step": "Passo 2 di 2",
+        "title": "È Stubwise che ti raggiunge",
+        "body": "Quando un progetto ha bisogno di una decisione, ti arriva una notifica con le opzioni già pronte. Senza notifiche, dovrai ricordarti tu di controllare.",
+        "followProjects": "Segui i progetti",
+        "settingsHint": "// potrai cambiare i progetti seguiti nelle impostazioni",
+        "activate": "Attiva le notifiche e inizia",
+        "later": "Più tardi",
+        "loadError": "Non riesco a caricare i progetti.",
+        "retry": "Riprova"
+      }
+    },
+    "tabs": {
+      "inbox": "Inbox",
+      "projects": "Progetti",
+      "backlog": "Backlog",
+      "docs": "Docs"
+    },
+    "common": {
+      "loading": "Caricamento…",
+      "offlineNoSync": "Offline — nessuna sincronizzazione ancora",
+      "offlineSyncedMinutesAgo": "Offline — ultima sincronizzazione {{count}} min fa",
+      "offlineSyncedJustNow": "Offline — ultima sincronizzazione pochi istanti fa"
+    }
+  }
+}

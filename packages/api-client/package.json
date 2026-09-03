@@ -21,6 +21,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@babel/runtime": "^7.25.0",
     "@stubwise/shared": "workspace:*",
     "zod": "^4.1.5"
   },

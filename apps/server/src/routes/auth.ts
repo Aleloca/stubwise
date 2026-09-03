@@ -355,13 +355,13 @@ export async function authRoutes(
       if (!user) {
         return apiError(reply, 401, "invalid_credentials", "Invalid credentials");
       }
-      const { token } = await createPatForUser(
+      const { id: patId, token } = await createPatForUser(
         app.db,
         user.id,
         `Mobile · ${request.body.deviceName}`,
         null,
       );
-      return reply.code(200).send({ token, user: toSessionUser(user) });
+      return reply.code(200).send({ token, patId, user: toSessionUser(user) });
     },
   );
 

@@ -295,8 +295,9 @@ describe("mobile-login", () => {
       deviceName: "iPhone di Ada",
     });
     expect(res.statusCode).toBe(200);
-    const body = res.json() as { token: string; user: Record<string, unknown> };
+    const body = res.json() as { token: string; patId: string; user: Record<string, unknown> };
     expect(body.token).toMatch(/^stw_pat_/);
+    expect(body.patId).toMatch(/^[0-9a-f-]{36}$/);
     expect(body.user).toEqual({
       id: expect.any(String),
       email: "admin@example.com",
@@ -317,11 +318,15 @@ describe("mobile-login", () => {
       headers: { authorization: `Bearer ${body.token}` },
     });
     expect(pats.statusCode).toBe(200);
-    const list = pats.json() as { name: string; expiresAt: string | null }[];
+    const list = pats.json() as { id: string; name: string; expiresAt: string | null }[];
     const created = list.find((p) => p.name === "Mobile · iPhone di Ada");
     expect(created).toBeDefined();
     // Senza scadenza: l'app resta loggata finché non si fa logout (che revoca).
     expect(created?.expiresAt).toBeNull();
+    // patId è l'id di QUESTA riga, non un altro valore a caso che passa la
+    // sola forma UUID: il Task 20 lo userà per revocare esattamente questo
+    // PAT al logout.
+    expect(body.patId).toBe(created?.id);
   });
 
   it("trimma il deviceName prima di comporre il nome del PAT", async () => {

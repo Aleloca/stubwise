@@ -4,10 +4,11 @@ App React Native **bare** (niente Expo) di Stubwise, per iOS e Android.
 Bundle id iOS e `applicationId` Android: `com.app.aleloca.stubwise`; nome
 visualizzato: **Stubwise**.
 
-Al momento è solo lo scheletro della Fase 4: `App.tsx` importa
-`ticketStatusSchema` da `@stubwise/shared` e ne mostra il numero di stati. Serve
-a dimostrare che Metro risolve i package del workspace pnpm. Le schermate vere
-arrivano nei task successivi.
+Dal Task 13 (fondamenta): tema, i18n, sessione (Keychain), client HTTP verso
+`@stubwise/api-client`, navigazione (`@react-navigation`, deep link
+`stubwise://…`), login e onboarding. `src/app/App.tsx` è la radice; i tab di
+`Main` (Inbox/Progetti/Backlog/Docs) sono ancora placeholder — il contenuto
+vero arriva nei task 14–18.
 
 ## Prerequisiti
 
@@ -102,15 +103,41 @@ bundle id sotto un prefisso che gli appartiene (`PRODUCT_BUNDLE_IDENTIFIER` in
 
 ### Porta di Metro
 
-Metro usa la 8081. Se è già occupata da un altro progetto, il bundle che l'app
-scarica è quello dell'ALTRO progetto (si manifesta come un red screen con errori
-su moduli nativi che qui non esistono). Usa una porta libera e dì all'app di
-usarla:
+Metro usa la 8081. Se è già occupata da un altro progetto (in pratica: da
+`half-story-app` su questa macchina — verificato più volte, `lsof -i :8081`
+lo conferma), il bundle che l'app scarica è quello dell'ALTRO progetto (si
+manifesta come un red screen con errori su moduli nativi che qui non
+esistono). Usa una porta libera e dì all'app di usarla — **il modo cambia fra
+simulatore e device fisico, verificato in entrambi i casi**:
 
 ```bash
 pnpm --filter @stubwise/mobile start --port 8082
+```
+
+**Simulatore**: `xcrun simctl spawn` gira PROCESSI dentro il simulatore, che
+condivide il meccanismo `defaults` dell'host — quindi puoi scrivere
+`RCT_jsLocation` da fuori:
+
+```bash
 xcrun simctl spawn <UDID> defaults write com.app.aleloca.stubwise RCT_jsLocation "localhost:8082"
 pnpm --filter @stubwise/mobile ios --udid <UDID> --port 8082
+```
+
+**Device fisico**: `RCT_jsLocation` vive negli `NSUserDefaults` DENTRO la
+sandbox dell'app sul telefono — non c'è un equivalente di `simctl spawn` per
+scriverli da riga di comando (verificato: `xcrun devicectl device process
+launch --environment-variables '{"RCT_METRO_PORT":"8082"}'` non ha effetto,
+l'app continua a chiedere la 8081; `devicectl device copy` scrive solo nella
+cartella Documents condivisa dell'app, non in Library/Preferences). L'unico
+modo pulito è dal **Dev Menu sul telefono** (scuoti il device, o tocca tre
+volte con tre dita → "Configure Bundler" → host e porta) DOPO il primo avvio
+dell'app — l'app parte comunque (prova a chiamare la 8081, fallisce, mostra
+il red screen di "no bundler"), poi da lì cambi la porta e l'app si
+riconnette da sola, senza reinstallare nulla:
+
+```bash
+pnpm --filter @stubwise/mobile ios --udid <UDID> --port 8082
+# poi sul telefono: scuoti il device → Configure Bundler → 8082
 ```
 
 (`RCT_jsLocation` è la stessa impostazione del Dev Menu → "Configure Bundler".)

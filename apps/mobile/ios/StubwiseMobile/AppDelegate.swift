@@ -31,6 +31,18 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     return true
   }
+
+  // Deep link `stubwise://…` (Task 13): senza questo override iOS non
+  // inoltra affatto l'URL a React Native — `Linking.getInitialURL`/
+  // `addEventListener("url", …)` (usati in `src/app/linking.ts`) restano
+  // muti anche con lo schema dichiarato in Info.plist.
+  func application(
+    _ app: UIApplication,
+    open url: URL,
+    options: [UIApplication.OpenURLOptionsKey: Any] = [:]
+  ) -> Bool {
+    return RCTLinkingManager.application(app, open: url, options: options)
+  }
 }
 
 class ReactNativeDelegate: RCTDefaultReactNativeFactoryDelegate {
