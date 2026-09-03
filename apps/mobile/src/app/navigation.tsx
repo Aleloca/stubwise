@@ -7,8 +7,11 @@ import { useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, Text, View } from "react-native";
 import { SectionLabel } from "../components/SectionLabel";
+import { InboxCardScreen } from "../screens/inbox/InboxCardScreen";
+import { InboxScreen } from "../screens/inbox/InboxScreen";
 import { LoginScreen } from "../screens/auth/LoginScreen";
 import { OnboardingScreen } from "../screens/auth/OnboardingScreen";
+import { useUnreadCount } from "../lib/inbox-mutations";
 import { colors } from "../theme/tokens";
 import { fontFamily } from "../theme/typography";
 import { buildLinking, getPendingDeepLink, resolveDeepLinkTarget, setPendingDeepLink } from "./linking";
@@ -62,15 +65,6 @@ function Placeholder({ label }: { label: string }) {
   );
 }
 
-function InboxListScreen() {
-  const { t } = useTranslation();
-  return <Placeholder label={t("mobile.tabs.inbox")} />;
-}
-
-function InboxCardScreen({ route }: NativeStackScreenProps<InboxStackParamList, "Card">) {
-  return <Placeholder label={`Card ${route.params.id}`} />;
-}
-
 function ProjectsListScreen() {
   const { t } = useTranslation();
   return <Placeholder label={t("mobile.tabs.projects")} />;
@@ -97,7 +91,7 @@ function DocsScreen() {
 function InboxNavigator() {
   return (
     <InboxStack.Navigator screenOptions={{ headerShown: false }}>
-      <InboxStack.Screen name="List" component={InboxListScreen} />
+      <InboxStack.Screen name="List" component={InboxScreen} />
       <InboxStack.Screen name="Card" component={InboxCardScreen} />
     </InboxStack.Navigator>
   );
@@ -139,6 +133,13 @@ function MainNavigator() {
   // diretto — "Inbox" non è uno screen del RootStack.
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { t } = useTranslation();
+  // Il conteggio non letto (campanella web, badge qui): poller di 30s via
+  // TanStack Query, vedi `useUnreadCount` in `lib/inbox-mutations.ts`. `0`
+  // (o non ancora caricato) non mostra badge — `tabBarBadge` a `0` lo
+  // renderebbe comunque (bottom-tabs non nasconde uno "0"), quindi lo si
+  // passa come `undefined`.
+  const unreadCount = useUnreadCount();
+  const badge = unreadCount.data !== undefined && unreadCount.data > 0 ? String(unreadCount.data) : undefined;
 
   useEffect(() => {
     const pending = getPendingDeepLink();
@@ -168,10 +169,7 @@ function MainNavigator() {
         component={InboxNavigator}
         options={{
           tabBarIcon: ({ focused }) => <TabGlyph code="INB" label={t("mobile.tabs.inbox")} focused={focused} />,
-          // Il conteggio non letto lo cablerà il Task 14 (sezioni/badge
-          // dell'inbox): la capacità c'è già (tabBarBadge è supportato da
-          // bottom-tabs), il valore no.
-          tabBarBadge: undefined,
+          tabBarBadge: badge,
         }}
       />
       <Tab.Screen

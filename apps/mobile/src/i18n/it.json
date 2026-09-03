@@ -35,6 +35,131 @@
       "backlog": "Backlog",
       "docs": "Docs"
     },
+    "inbox": {
+      "header": {
+        "loading": "sincronizzo…",
+        "empty": "niente da decidere",
+        "subtitle_one": "{{count}} decisione ti aspetta",
+        "subtitle_other": "{{count}} decisioni ti aspettano",
+        "subtitleMaintainer_one": "{{count}} decisione — {{onlyYours}} solo tue",
+        "subtitleMaintainer_other": "{{count}} decisioni — {{onlyYours}} solo tue"
+      },
+      "sections": {
+        "blocksYou": "Ti blocca · {{count}}",
+        "onlyYouMaintainer": "Solo tu · maintainer · {{count}}",
+        "waitingOthers": "In attesa di altri · {{count}}",
+        "fromProjects": "Dai progetti · {{count}}"
+      },
+      "empty": {
+        "title": "Tutto gestito.",
+        "body": "Ti avviso io quando un progetto ha bisogno di te."
+      },
+      "loadError": {
+        "title": "Non riesco a caricare l'inbox.",
+        "retry": "Riprova"
+      },
+      "notFound": {
+        "title": "Questa card non c'è più.",
+        "body": "È stata gestita o rimandata nel frattempo.",
+        "back": "Torna all'Inbox"
+      },
+      "notifications": {
+        "badgeLabel": "Notifiche disattivate",
+        "title": "Stubwise non può raggiungerti",
+        "body": "Senza notifiche le decisioni si accumulano qui in silenzio. Riattivale per essere avvisato quando serve.",
+        "settingsButton": "Attiva nelle impostazioni iOS"
+      },
+      "time": {
+        "now": "adesso",
+        "minutes": "{{count}} min",
+        "hours": "{{count}} h",
+        "days": "{{count}} g"
+      },
+      "kinds": {
+        "ticketCreated": "Nuovo ticket",
+        "prOpened": "PR aperta",
+        "prClosed": "PR chiusa",
+        "jobHeld": "In coda",
+        "planReview": "Piano da approvare",
+        "budgetHeld": "Budget superato",
+        "reviewCompleted": "Review completata",
+        "jobFailed": "Lavoro fallito",
+        "docsLimitPaused": "Docs in pausa",
+        "monitorAlert": "Allerta monitor",
+        "monitorRecovered": "Monitor ripristinato",
+        "awaitingInput": "Domanda dell'agente",
+        "pulse": "Proposta del pulse",
+        "unknown": "Aggiornamento"
+      },
+      "actions": {
+        "respond": "Rispondi",
+        "snooze": "Rimanda",
+        "handled": "Gestita",
+        "open": "Apri",
+        "openWork": "Apri il lavoro",
+        "retry": "Riprova",
+        "approve": "Approva",
+        "approveConfirmQuestion": "Confermi?",
+        "approveConfirm": "Sì, approva",
+        "cancel": "Annulla",
+        "rejectWithInstructions": "Rifiuta con istruzioni",
+        "refine": "Va raffinata",
+        "proceedWith": "Procedi con {{letter}}"
+      },
+      "question": {
+        "recommended": "Consigliata",
+        "otherFreeText": "Altro (testo libero)",
+        "freeLabel": "La tua risposta",
+        "freePlaceholder": "Scrivi qui…",
+        "submit": "Invia la risposta",
+        "subtitle_one": "{{count}} opzione · consigliata: «{{label}}»",
+        "subtitle_other": "{{count}} opzioni · consigliata: «{{label}}»",
+        "subtitleNoRecommendation_one": "{{count}} opzione",
+        "subtitleNoRecommendation_other": "{{count}} opzioni"
+      },
+      "reject": {
+        "title": "Cosa deve cambiare?",
+        "placeholder": "Scrivi le tue istruzioni…",
+        "chipScope": "Riduci lo scope",
+        "chipCost": "Costa troppo",
+        "chipLater": "Rimanda a dopo",
+        "submit": "Invia e rigenera il piano",
+        "cancel": "Annulla",
+        "hint": "// il prossimo piano terrà conto delle tue istruzioni"
+      },
+      "snooze": {
+        "title": "Rimanda a…",
+        "oneHour": "1h",
+        "tonight": "Stasera",
+        "tomorrow": "Domani"
+      },
+      "pulse": {
+        "idle_one": "fermo da {{count}} giorno",
+        "idle_other": "fermo da {{count}} giorni",
+        "priority": {
+          "low": "bassa",
+          "medium": "media",
+          "high": "alta",
+          "urgent": "urgente"
+        },
+        "effort": "E{{value}}"
+      },
+      "errors": {
+        "generic": "Qualcosa è andato storto. Riprova.",
+        "alreadyHandled": "Ci ha pensato {{email}}.",
+        "alreadyHandledUnknown": "Ci ha pensato qualcun altro.",
+        "jobInFlight": "C'è già un lavoro in corso su questo ticket.",
+        "planNotPending": "Il piano non è più in attesa di approvazione.",
+        "questionNotPending": "La domanda non è più aperta.",
+        "invalidAnswer": "Risposta non valida.",
+        "proposalStale": "Questa proposta non è più disponibile.",
+        "runNotStarted": "Il ticket è stato creato ma il lavoro non è partito: riprova ad avviarlo.",
+        "forbidden": "Non hai i permessi per questa azione.",
+        "invalidAction": "Questa azione non è disponibile per questa riga."
+      },
+      "waitingOnMaintainer": "Aspetta un maintainer.",
+      "offlineAction": "Serve la rete"
+    },
     "common": {
       "loading": "Caricamento…",
       "offlineNoSync": "Offline — nessuna sincronizzazione ancora",

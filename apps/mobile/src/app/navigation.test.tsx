@@ -39,6 +39,14 @@ function routeFetch(input: RequestInfo | URL, init?: RequestInit): Response {
   if (url.endsWith("/api/me/follows") && method === "PUT") {
     return jsonResponse(204, undefined);
   }
+  // L'Inbox vera (Task 14) monta insieme al deep link: List e Card leggono la
+  // stessa query, e la tab bar interroga il contatore non letto.
+  if (url.endsWith("/api/inbox") && method === "GET") {
+    return jsonResponse(200, { items: [], nextCursor: null });
+  }
+  if (url.endsWith("/api/inbox/unread-count") && method === "GET") {
+    return jsonResponse(200, { count: 0 });
+  }
   throw new Error(`rotta non mockata nel test: ${method} ${url}`);
 }
 
@@ -64,6 +72,7 @@ describe("deep link", () => {
       storage: "keychain",
     });
     (Linking.getInitialURL as jest.Mock).mockResolvedValue("stubwise://inbox/abc");
+    jest.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => routeFetch(input, init));
 
     await render(
       <AppProviders>
@@ -71,7 +80,7 @@ describe("deep link", () => {
       </AppProviders>,
     );
 
-    await waitFor(() => expect(screen.getByText("Card abc")).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId("inbox-card-screen")).toBeTruthy());
     // Non è finito su Login: la sessione esisteva già.
     expect(screen.queryByTestId("login-url")).toBeNull();
   });
@@ -90,7 +99,7 @@ describe("deep link", () => {
     // Il link NON porta direttamente alla card: senza sessione si finisce
     // su Login, e il link resta "in sospeso" (vedi app/linking.ts).
     await waitFor(() => expect(screen.getByTestId("login-url")).toBeTruthy());
-    expect(screen.queryByText("Card abc")).toBeNull();
+    expect(screen.queryByTestId("inbox-card-screen")).toBeNull();
 
     await fireEvent.changeText(screen.getByTestId("login-url"), "stubwise.example");
     await fireEvent.changeText(screen.getByTestId("login-email"), "giulia@farmakom.it");
@@ -104,7 +113,7 @@ describe("deep link", () => {
     // Solo ORA `Main` monta per la prima volta, e consuma il link rimasto
     // in sospeso: la card compare senza che l'utente abbia dovuto toccare
     // di nuovo la notifica.
-    await waitFor(() => expect(screen.getByText("Card abc")).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId("inbox-card-screen")).toBeTruthy());
   });
 
   // Mutazione da rompere apposta: se `getInitialURL`/`subscribe` in
@@ -138,6 +147,6 @@ describe("deep link", () => {
     // nessuna card fantasma sia apparsa.
     await waitFor(() => expect(screen.queryByTestId("onboarding-later")).toBeNull());
     expect(screen.getAllByText("Inbox").length).toBeGreaterThan(0);
-    expect(screen.queryByText("Card abc")).toBeNull();
+    expect(screen.queryByTestId("inbox-card-screen")).toBeNull();
   });
 });

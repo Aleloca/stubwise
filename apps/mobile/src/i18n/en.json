@@ -35,6 +35,131 @@
       "backlog": "Backlog",
       "docs": "Docs"
     },
+    "inbox": {
+      "header": {
+        "loading": "syncing…",
+        "empty": "nothing to decide",
+        "subtitle_one": "{{count}} decision needs you",
+        "subtitle_other": "{{count}} decisions need you",
+        "subtitleMaintainer_one": "{{count}} decision — {{onlyYours}} only yours",
+        "subtitleMaintainer_other": "{{count}} decisions — {{onlyYours}} only yours"
+      },
+      "sections": {
+        "blocksYou": "Blocks you · {{count}}",
+        "onlyYouMaintainer": "Only you · maintainer · {{count}}",
+        "waitingOthers": "Waiting on others · {{count}}",
+        "fromProjects": "From projects · {{count}}"
+      },
+      "empty": {
+        "title": "All handled.",
+        "body": "I'll notify you when a project needs you."
+      },
+      "loadError": {
+        "title": "Can't load the inbox.",
+        "retry": "Retry"
+      },
+      "notFound": {
+        "title": "This card is gone.",
+        "body": "It was handled or snoozed in the meantime.",
+        "back": "Back to Inbox"
+      },
+      "notifications": {
+        "badgeLabel": "Notifications off",
+        "title": "Stubwise can't reach you",
+        "body": "Without notifications, decisions just pile up here silently. Turn them back on to be notified when it matters.",
+        "settingsButton": "Turn on in iOS settings"
+      },
+      "time": {
+        "now": "now",
+        "minutes": "{{count}} min",
+        "hours": "{{count}} h",
+        "days": "{{count}} d"
+      },
+      "kinds": {
+        "ticketCreated": "New ticket",
+        "prOpened": "PR opened",
+        "prClosed": "PR closed",
+        "jobHeld": "Queued",
+        "planReview": "Plan awaiting approval",
+        "budgetHeld": "Budget exceeded",
+        "reviewCompleted": "Review completed",
+        "jobFailed": "Work failed",
+        "docsLimitPaused": "Docs paused",
+        "monitorAlert": "Monitor alert",
+        "monitorRecovered": "Monitor recovered",
+        "awaitingInput": "Agent question",
+        "pulse": "Pulse proposal",
+        "unknown": "Update"
+      },
+      "actions": {
+        "respond": "Respond",
+        "snooze": "Snooze",
+        "handled": "Handled",
+        "open": "Open",
+        "openWork": "Open the work",
+        "retry": "Retry",
+        "approve": "Approve",
+        "approveConfirmQuestion": "Confirm?",
+        "approveConfirm": "Yes, approve",
+        "cancel": "Cancel",
+        "rejectWithInstructions": "Reject with instructions",
+        "refine": "Needs refining",
+        "proceedWith": "Proceed with {{letter}}"
+      },
+      "question": {
+        "recommended": "Recommended",
+        "otherFreeText": "Other (free text)",
+        "freeLabel": "Your answer",
+        "freePlaceholder": "Write here…",
+        "submit": "Send the answer",
+        "subtitle_one": "{{count}} option · recommended: “{{label}}”",
+        "subtitle_other": "{{count}} options · recommended: “{{label}}”",
+        "subtitleNoRecommendation_one": "{{count}} option",
+        "subtitleNoRecommendation_other": "{{count}} options"
+      },
+      "reject": {
+        "title": "What needs to change?",
+        "placeholder": "Write your instructions…",
+        "chipScope": "Reduce the scope",
+        "chipCost": "Too expensive",
+        "chipLater": "Push it later",
+        "submit": "Send and regenerate the plan",
+        "cancel": "Cancel",
+        "hint": "// the next plan will take your instructions into account"
+      },
+      "snooze": {
+        "title": "Snooze until…",
+        "oneHour": "1h",
+        "tonight": "Tonight",
+        "tomorrow": "Tomorrow"
+      },
+      "pulse": {
+        "idle_one": "idle for {{count}} day",
+        "idle_other": "idle for {{count}} days",
+        "priority": {
+          "low": "low",
+          "medium": "medium",
+          "high": "high",
+          "urgent": "urgent"
+        },
+        "effort": "E{{value}}"
+      },
+      "errors": {
+        "generic": "Something went wrong. Please retry.",
+        "alreadyHandled": "{{email}} already took care of it.",
+        "alreadyHandledUnknown": "Someone else already took care of it.",
+        "jobInFlight": "There's already a job running on this ticket.",
+        "planNotPending": "The plan is no longer awaiting approval.",
+        "questionNotPending": "The question is no longer open.",
+        "invalidAnswer": "Invalid answer.",
+        "proposalStale": "This proposal is no longer available.",
+        "runNotStarted": "The ticket was created but the run didn't start: try starting it again.",
+        "forbidden": "You don't have permission for this action.",
+        "invalidAction": "This action isn't available for this row."
+      },
+      "waitingOnMaintainer": "Waiting on a maintainer.",
+      "offlineAction": "Needs network"
+    },
     "common": {
       "loading": "Loading…",
       "offlineNoSync": "Offline — no sync yet",
