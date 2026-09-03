@@ -550,6 +550,17 @@ riesce.
 istanza usa il relay come tutte le altre (default di `PUSH_RELAY_URL`), così
 lo esercitiamo davvero.
 
+> ⚠️ **Debito noto dal Task 10, da chiudere quando si rimetterà mano alla
+> transazione di `applyPushOutcome`**: l'atomicità fra disabilitazione del
+> device e chiusura della delivery **è** osservabile dall'esterno, contro quanto
+> si era concluso in prima battuta — basta un trigger temporaneo `BEFORE UPDATE
+> ON notification_deliveries` che faccia `RAISE EXCEPTION` su `NEW.error LIKE
+> 'devices:%'` (il claim non scrive `error`, quindi passa). Con la `tx` giusta
+> l'eccezione fa rollback anche dell'UPDATE dei device; senza, il device
+> risulta disabilitato mentre la consegna è rimasta com'era. Oggi la proprietà
+> è vera per ispezione e nessun test la difende: un refactoring che perdesse la
+> `tx` nel ramo retry resterebbe verde.
+
 ### Task 11: segnali di progetto condivisi + `GET /api/projects/pulse`
 
 **Files:**

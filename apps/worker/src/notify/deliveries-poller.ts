@@ -815,7 +815,12 @@ async function applyPushOutcome(
    * ricostruibile da `device_tokens`.
    */
   const allOk = outcomes.every(({ result }) => result?.status === "ok");
-  const detail = allOk ? null : summarizePushOutcomes(outcomes);
+  // Il riassunto si calcola comunque: serve ai rami che NON sono il tutto-ok,
+  // e averlo come stringa invece che come `string | null` toglie un `?? ""` in
+  // un punto irraggiungibile — che inviterebbe a credere possibile un caso che
+  // non lo è.
+  const summary = summarizePushOutcomes(outcomes);
+  const detail = allOk ? null : summary;
 
   await deps.db.transaction(async (tx) => {
     if (toDisable.length > 0) {
@@ -835,8 +840,7 @@ async function applyPushOutcome(
     if (anyRetry) {
       // Nessuno raggiunto ma qualcuno da riprovare: il backoff è già schedulato
       // dal claim, e i device appena disabilitati non saranno del giro dopo.
-      // `detail` non è mai null qui (un `retry` esclude il tutto-ok).
-      await retryOrFail(deps, row, detail ?? "", tx);
+      await retryOrFail(deps, row, summary, tx);
       return;
     }
     // Solo esiti permanenti (`invalid_token`, `failed`): ritentare non
