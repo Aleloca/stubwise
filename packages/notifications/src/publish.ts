@@ -1,12 +1,13 @@
 import {
   aiJobs,
+  deviceTokens,
   notificationDeliveries,
   notifications,
   projectFollows,
   tickets,
   users,
 } from "@stubwise/db";
-import { and, eq, inArray, isNotNull } from "drizzle-orm";
+import { and, eq, exists, inArray, isNotNull, isNull } from "drizzle-orm";
 import { loadSettings, shouldSendWebhook, type DbOrTx } from "./dispatch.js";
 import type { NotificationEvent } from "./format.js";
 import { audienceFor, recipientsFor, type RoutingContext } from "./routing.js";
@@ -105,11 +106,22 @@ export async function publishNotification(
 
       // Outbox. Le consegne `slack_dm` vanno solo a chi ha un'identità Slack e
       // non ha spento i DM: chi non ce l'ha non genera riga (lo stato `skipped`
-      // è del poller, per il bot non configurato al momento dell'invio).
+      // è del poller, per il bot non configurato al momento dell'invio). Le
+      // `push` seguono la stessa regola, con l'altra coppia di condizioni
+      // (preferenza accesa + almeno un device attivo).
       const slackReady = await slackRecipients(inner, recipients);
-      const deliveries: (typeof notificationDeliveries.$inferInsert)[] = inserted
-        .filter((row) => slackReady.has(row.userId))
-        .map((row) => ({ notificationId: row.id, channel: "slack_dm" as const }));
+      const pushReady = await pushRecipients(inner, recipients);
+      const deliveries: (typeof notificationDeliveries.$inferInsert)[] = [
+        ...inserted
+          .filter((row) => slackReady.has(row.userId))
+          .map((row) => ({ notificationId: row.id, channel: "slack_dm" as const })),
+        // UNA riga per DESTINATARIO, non una per device: aprire il ventaglio
+        // sui token del destinatario è del poller, che al momento dell'invio
+        // conosce quali sono ancora vivi — qui sarebbero già stantii.
+        ...inserted
+          .filter((row) => pushReady.has(row.userId))
+          .map((row) => ({ notificationId: row.id, channel: "push" as const })),
+      ];
       if (withWebhook) {
         deliveries.push({
           channel: "webhook" as const,
@@ -225,6 +237,44 @@ async function slackRecipients(db: DbOrTx, recipients: string[]): Promise<Set<st
         inArray(users.id, recipients),
         isNotNull(users.slackUserId),
         eq(users.notifySlackDm, true),
+      ),
+    );
+  return new Set(rows.map((row) => row.id));
+}
+
+/**
+ * Sottoinsieme dei destinatari raggiungibili via push: preferenza accesa E
+ * almeno un device non disattivato. Gemella di {@link slackRecipients}, con la
+ * stessa promessa — UNA query per tutti i destinatari.
+ *
+ * `exists` e non una join su `device_tokens`: qui interessa SE il destinatario
+ * ha un recapito, non quanti — una join produrrebbe una riga per device e da lì
+ * una consegna per device.
+ *
+ * Il filtro guarda `disabled_at IS NULL` e MAI il motivo: i motivi sono già due
+ * (`pat_revoked` alla revoca del PAT, `invalid_token` quando il provider
+ * rifiuta il token) e possono crescere, mentre l'unica cosa che conta è che il
+ * device sia spento. Scritto così il predicato è anche, alla lettera, quello
+ * dell'indice parziale `device_tokens_user_active_idx`, cioè quello che serve a
+ * una query sul percorso di OGNI notifica: l'EXPLAIN (a seqscan disabilitato,
+ * su tabelle vuote) risolve l'`exists` in un `Nested Loop Semi Join` con
+ * `Index Only Scan using device_tokens_user_active_idx`.
+ */
+async function pushRecipients(db: DbOrTx, recipients: string[]): Promise<Set<string>> {
+  if (recipients.length === 0) return new Set();
+  const rows = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(
+      and(
+        inArray(users.id, recipients),
+        eq(users.notifyPush, true),
+        exists(
+          db
+            .select({ id: deviceTokens.id })
+            .from(deviceTokens)
+            .where(and(eq(deviceTokens.userId, users.id), isNull(deviceTokens.disabledAt))),
+        ),
       ),
     );
   return new Set(rows.map((row) => row.id));

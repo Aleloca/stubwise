@@ -1,5 +1,6 @@
 import {
   aiJobs,
+  deviceTokens,
   notificationDeliveries,
   notifications,
   notificationSettings,
@@ -51,6 +52,7 @@ describe("publishNotification", () => {
     role: "admin" | "member";
     slackUserId?: string | null;
     notifySlackDm?: boolean;
+    notifyPush?: boolean;
   }): Promise<string> {
     const [row] = await db
       .insert(users)
@@ -60,9 +62,40 @@ describe("publishNotification", () => {
         role: opts.role,
         slackUserId: opts.slackUserId ?? null,
         notifySlackDm: opts.notifySlackDm ?? true,
+        notifyPush: opts.notifyPush ?? true,
       })
       .returning();
     if (!row) throw new Error("insert dell'utente di test non ha restituito la riga");
+    return row.id;
+  }
+
+  /**
+   * Registra un device dell'app mobile per l'utente. Il token è CASUALE a ogni
+   * chiamata, non una stringa fissa: è `unique` in tabella, e un valore
+   * ripetuto renderebbe il test cieco al caso di due device dello stesso
+   * utente.
+   */
+  async function seedDevice(
+    userId: string,
+    opts: {
+      platform?: "ios" | "android";
+      disabledReason?: "pat_revoked" | "invalid_token";
+    } = {},
+  ): Promise<string> {
+    const disabled = opts.disabledReason !== undefined;
+    const [row] = await db
+      .insert(deviceTokens)
+      .values({
+        userId,
+        platform: opts.platform ?? "ios",
+        token: `tok-${randomUUID()}`,
+        // `disabledAt` e `disabledReason` vivono e muoiono insieme: il CHECK
+        // `device_tokens_disabled_chk` rifiuta una riga a metà.
+        disabledAt: disabled ? new Date() : null,
+        disabledReason: opts.disabledReason ?? null,
+      })
+      .returning();
+    if (!row) throw new Error("insert del device di test non ha restituito la riga");
     return row.id;
   }
 
@@ -201,6 +234,97 @@ describe("publishNotification", () => {
 
     expect(result).toEqual({ published: 1 });
     expect(await db.select().from(notificationDeliveries)).toHaveLength(0);
+  });
+
+  it("crea una push per chi ha un device attivo, legata alla SUA notifica", async () => {
+    const { projectId, ticketId } = await seedTicket(db);
+    // Nessuna identità Slack: così l'unica consegna possibile è la push, e
+    // l'asserzione sull'elenco dei canali non può passare per caso.
+    const adminId = await seedUser({ role: "admin" });
+    await seedDevice(adminId);
+
+    const result = await publishNotification(db, prOpened, { projectId, ticketId });
+
+    expect(result).toEqual({ published: 1 });
+    const deliveries = await db.select().from(notificationDeliveries);
+    expect(deliveries.map((row) => row.channel)).toEqual(["push"]);
+    const [delivery] = deliveries;
+    expect(delivery?.status).toBe("pending");
+    expect(delivery?.attempts).toBe(0);
+    // Consegna per DESTINATARIO: il payload sta sulla notifica, non sulla riga.
+    expect(delivery?.event).toBeNull();
+    const [adminNotification] = await db
+      .select()
+      .from(notifications)
+      .where(eq(notifications.userId, adminId));
+    expect(delivery?.notificationId).toBe(adminNotification?.id);
+  });
+
+  it.each(["pat_revoked", "invalid_token"] as const)(
+    "non crea la push se l'unico device è disattivato (%s)",
+    async (disabledReason) => {
+      const { projectId, ticketId } = await seedTicket(db);
+      const adminId = await seedUser({ role: "admin" });
+      await seedDevice(adminId, { disabledReason });
+
+      const result = await publishNotification(db, prOpened, { projectId, ticketId });
+
+      // La notifica in inbox nasce lo stesso: a mancare è solo il recapito.
+      expect(result).toEqual({ published: 1 });
+      expect(await db.select().from(notificationDeliveries)).toHaveLength(0);
+    },
+  );
+
+  it("non crea la push per chi ha spento le notifiche push", async () => {
+    const { projectId, ticketId } = await seedTicket(db);
+    const adminId = await seedUser({ role: "admin", notifyPush: false });
+    await seedDevice(adminId);
+
+    const result = await publishNotification(db, prOpened, { projectId, ticketId });
+
+    expect(result).toEqual({ published: 1 });
+    expect(await db.select().from(notificationDeliveries)).toHaveLength(0);
+  });
+
+  it("crea UNA sola push per destinatario anche con più device attivi", async () => {
+    const { projectId, ticketId } = await seedTicket(db);
+    const adminId = await seedUser({
+      role: "admin",
+      slackUserId: `U${randomUUID().slice(0, 8)}`,
+    });
+    await seedDevice(adminId, { platform: "ios" });
+    await seedDevice(adminId, { platform: "android" });
+
+    const result = await publishNotification(db, prOpened, { projectId, ticketId });
+
+    expect(result).toEqual({ published: 1 });
+    const deliveries = await db.select().from(notificationDeliveries);
+    // Una push (non due: il ventaglio sui token è del poller) e il DM Slack,
+    // che il ramo push non deve aver mangiato.
+    expect(deliveries.map((row) => row.channel).sort()).toEqual(["push", "slack_dm"]);
+  });
+
+  it("la push va solo al destinatario che ha il device, non a chi ne è senza", async () => {
+    const { projectId, ticketId } = await seedTicket(db);
+    const conDevice = await seedUser({ role: "admin" });
+    const senzaDevice = await seedUser({ role: "admin" });
+    await seedDevice(conDevice);
+
+    const result = await publishNotification(db, prOpened, { projectId, ticketId });
+
+    expect(result).toEqual({ published: 2 });
+    const deliveries = await db.select().from(notificationDeliveries);
+    expect(deliveries).toHaveLength(1);
+    const [notificaConDevice] = await db
+      .select()
+      .from(notifications)
+      .where(eq(notifications.userId, conDevice));
+    const [notificaSenzaDevice] = await db
+      .select()
+      .from(notifications)
+      .where(eq(notifications.userId, senzaDevice));
+    expect(deliveries[0]?.notificationId).toBe(notificaConDevice?.id);
+    expect(deliveries[0]?.notificationId).not.toBe(notificaSenzaDevice?.id);
   });
 
   it("crea una sola consegna webhook per evento quando il webhook è configurato", async () => {
