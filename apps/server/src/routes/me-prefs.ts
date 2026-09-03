@@ -125,17 +125,26 @@ export async function mePrefsRoutes(instance: FastifyInstance): Promise<void> {
 
   /**
    * Accende o spegne i canali opzionali (DM Slack, push sui device mobili).
-   * È una PATCH: applica i campi presenti e lascia stare gli assenti — non una
-   * sostituzione dell'insieme. Così un client vecchio, che manda solo i canali
-   * che conosceva, continua a funzionare quando ne aggiungiamo uno: è
-   * l'invariante «solo cambi additivi» applicata alla direzione in SCRITTURA,
-   * dove pesa più che altrove perché l'app mobile non si aggiorna col server.
+   * Applica i campi presenti e lascia stare gli assenti — non sostituisce
+   * l'insieme. Così un client vecchio, che manda solo i canali che conosceva,
+   * continua a funzionare quando ne aggiungiamo uno: è l'invariante «solo
+   * cambi additivi» applicata alla direzione in SCRITTURA, dove pesa più che
+   * altrove perché l'app mobile non si aggiorna insieme al server.
+   *
+   * ⚠️ È `PATCH`, e NON va "uniformata" al `PUT /follows` qui sopra: i due
+   * verbi sono diversi perché le due semantiche lo sono. `/follows`
+   * SOSTITUISCE l'insieme dei progetti seguiti (mandarne metà ne cancella
+   * metà); questa applica un delta. Quando i due verbi erano uguali la
+   * differenza è passata inosservata abbastanza a lungo da produrre un
+   * commento sbagliato in `@stubwise/api-client` («entrambi i PUT
+   * sostituiscono»), che il verbo identico rendeva plausibile. Il verbo è la
+   * prima cosa che si legge: qui è lui a raccontare la differenza.
    *
    * Un body vuoto è un no-op da 204, non un 400: una patch senza campi non è
    * ambigua, è solo vuota. Non c'è un toggle per l'inbox in-app: è la
    * superficie primaria delle notifiche, non un canale opzionale.
    */
-  app.put(
+  app.patch(
     "/notification-prefs",
     {
       preHandler: requireAuth,

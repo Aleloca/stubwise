@@ -2952,9 +2952,10 @@ export function getNotificationPrefs(): Promise<NotificationPrefsView> {
 
 /**
  * PATCH dei canali opzionali (DM Slack, push mobile): 204. Si mandano i soli
- * campi da cambiare, gli altri restano come sono. L'inbox in-app non è
+ * campi da cambiare, gli altri restano come sono — a differenza di
+ * `putMyFollows` qui sopra, che sostituisce l'insieme. L'inbox in-app non è
  * disattivabile.
  */
-export function putNotificationPrefs(patch: NotificationPrefsUpdate): Promise<void> {
-  return api.put("/api/me/notification-prefs", patch);
+export function patchNotificationPrefs(patch: NotificationPrefsUpdate): Promise<void> {
+  return api.patch("/api/me/notification-prefs", patch);
 }

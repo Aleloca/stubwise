@@ -42,7 +42,7 @@ interface AccountMockState {
   followPuts: unknown[];
   /** Preferenze di notifica correnti (`slackLinked` è contesto del server). */
   prefs: { slackDm: boolean; push: boolean; slackLinked: boolean };
-  /** Body inviati a PUT /api/me/notification-prefs. */
+  /** Body inviati a PATCH /api/me/notification-prefs. */
   prefsPuts: unknown[];
 }
 
@@ -103,7 +103,7 @@ function mockAccountApi(
       return new Response(null, { status: 204 });
     },
     "GET /api/me/notification-prefs": () => jsonResponse(200, state.prefs),
-    "PUT /api/me/notification-prefs": (_url, init) => {
+    "PATCH /api/me/notification-prefs": (_url, init) => {
       // Il server applica una PATCH: i campi assenti restano come sono.
       const body = JSON.parse(String(init?.body)) as { slackDm?: boolean; push?: boolean };
       state.prefsPuts.push(body);

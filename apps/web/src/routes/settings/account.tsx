@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import {
   patchMyLanguage,
   putMyFollows,
-  putNotificationPrefs,
+  patchNotificationPrefs,
   type NotificationPrefsUpdate,
 } from "../../lib/api";
 import { meQueryOptions } from "../../lib/auth";
@@ -205,7 +205,7 @@ function NotificationPrefsSection() {
   const { data: prefs } = useSuspenseQuery(notificationPrefsQueryOptions);
 
   const mutation = useMutation({
-    mutationFn: (patch: NotificationPrefsUpdate) => putNotificationPrefs(patch),
+    mutationFn: (patch: NotificationPrefsUpdate) => patchNotificationPrefs(patch),
     onMutate: async (patch) => {
       await queryClient.cancelQueries({ queryKey: notificationPrefsQueryOptions.queryKey });
       const previous = queryClient.getQueryData(notificationPrefsQueryOptions.queryKey);

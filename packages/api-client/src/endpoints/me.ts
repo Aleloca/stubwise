@@ -15,7 +15,8 @@ import type { ApiRequest } from "../client.js";
  *  - `setFollows` SOSTITUISCE l'insieme dei progetti seguiti. Chi salva manda
  *    sempre la lista completa — è la ragione per cui l'onboarding dell'app li
  *    manda tutti insieme invece di un toggle per volta.
- *  - `setNotificationPrefs` è una PATCH: si mandano i soli canali da cambiare
+ *  - `setNotificationPrefs` è una `PATCH` (anche nel verbo HTTP, non solo
+ *    nella semantica): si mandano i soli canali da cambiare
  *    e gli assenti restano come sono. Mandare l'insieme completo funziona, ma
  *    vanifica il motivo per cui è una patch — una versione vecchia dell'app,
  *    che non conosce un canale aggiunto dopo, non deve poterlo spegnere per il
@@ -53,7 +54,7 @@ export function createMeEndpoints(request: ApiRequest) {
      * non un 204 che nasconde un typo. L'inbox in-app non è disattivabile.
      */
     setNotificationPrefs(patch: NotificationPrefsUpdate): Promise<void> {
-      return request("PUT", "/api/me/notification-prefs", patch);
+      return request("PATCH", "/api/me/notification-prefs", patch);
     },
   };
 }

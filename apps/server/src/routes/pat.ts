@@ -125,11 +125,13 @@ export async function patRoutes(instance: FastifyInstance): Promise<void> {
         // registrato via web, e le push continuerebbero ad arrivare finché il
         // relay non dichiarasse invalido il token — cosa che su un telefono
         // acceso non succede mai.
-        // `userId` è nel WHERE per la stessa ragione per cui sta nel delete
-        // qui sotto, e non è ridondante: su un id altrui il delete non matcha e
-        // si esce con un 404, ma la transazione COMMITTA lo stesso (il 404 è un
-        // return, non un throw). Senza questo filtro un utente potrebbe
-        // spegnere le push dei device di chiunque indovinandone l'id del PAT.
+        // `userId` nel WHERE NON è ridondante col controllo di proprietà del
+        // delete qui sotto, e va letto per esteso prima di toglierlo: su un PAT
+        // altrui il delete non matcha e la richiesta esce con un 404, ma il 404
+        // è un `return`, non un `throw` — la transazione COMMITTA comunque,
+        // portandosi dietro questo UPDATE. Il filtro per utente è quindi
+        // l'unica cosa che impedisce di spegnere i device altrui indovinando
+        // l'id di un PAT; il 404 non protegge niente.
         await tx
           .update(deviceTokens)
           .set({ disabledAt: new Date(), disabledReason: "pat_revoked" })

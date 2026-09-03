@@ -65,13 +65,13 @@ function getPrefs(cookie = seeded.adminCookie) {
   return app.inject({ method: "GET", url: "/api/me/notification-prefs", headers: { cookie } });
 }
 
-/** Il PUT è una PATCH: si mandano i campi da cambiare, non l'insieme intero. */
-function putPrefs(
+/** PATCH: si mandano i soli campi da cambiare, non l'insieme intero. */
+function patchPrefs(
   prefs: { slackDm?: boolean; push?: boolean },
   cookie = seeded.adminCookie,
 ) {
   return app.inject({
-    method: "PUT",
+    method: "PATCH",
     url: "/api/me/notification-prefs",
     headers: { cookie },
     payload: prefs,
@@ -85,7 +85,7 @@ describe("autenticazione", () => {
       app.inject({ method: "PUT", url: "/api/me/follows", payload: { projectIds: [] } }),
       app.inject({ method: "GET", url: "/api/me/notification-prefs" }),
       app.inject({
-        method: "PUT",
+        method: "PATCH",
         url: "/api/me/notification-prefs",
         payload: { slackDm: true, push: true },
       }),
@@ -156,34 +156,34 @@ describe("/api/me/notification-prefs", () => {
   });
 
   it("PUT aggiorna i toggle e non tocca gli altri utenti", async () => {
-    expect((await putPrefs({ slackDm: false, push: false })).statusCode).toBe(204);
+    expect((await patchPrefs({ slackDm: false, push: false })).statusCode).toBe(204);
     expect((await getPrefs()).json()).toMatchObject({ slackDm: false, push: false });
     expect((await getPrefs(seeded.memberCookie)).json()).toMatchObject({
       slackDm: true,
       push: true,
     });
 
-    expect((await putPrefs({ slackDm: true, push: true })).statusCode).toBe(204);
+    expect((await patchPrefs({ slackDm: true, push: true })).statusCode).toBe(204);
     expect((await getPrefs()).json()).toMatchObject({ slackDm: true, push: true });
   });
 
   it("PATCH: un body col solo slackDm non azzera push", async () => {
     // È la proprietà che rende sicuro aggiungere un canale: un client vecchio
     // manda solo i campi che conosceva e non spegne quelli che ignora.
-    expect((await putPrefs({ slackDm: true, push: true })).statusCode).toBe(204);
-    expect((await putPrefs({ slackDm: false })).statusCode).toBe(204);
+    expect((await patchPrefs({ slackDm: true, push: true })).statusCode).toBe(204);
+    expect((await patchPrefs({ slackDm: false })).statusCode).toBe(204);
     expect((await getPrefs()).json()).toMatchObject({ slackDm: false, push: true });
   });
 
   it("PATCH: un body col solo push non azzera slackDm", async () => {
-    expect((await putPrefs({ slackDm: true, push: true })).statusCode).toBe(204);
-    expect((await putPrefs({ push: false })).statusCode).toBe(204);
+    expect((await patchPrefs({ slackDm: true, push: true })).statusCode).toBe(204);
+    expect((await patchPrefs({ push: false })).statusCode).toBe(204);
     expect((await getPrefs()).json()).toMatchObject({ slackDm: true, push: false });
   });
 
   it("PATCH: un body vuoto è un no-op da 204, non un 400", async () => {
-    expect((await putPrefs({ slackDm: false, push: false })).statusCode).toBe(204);
-    expect((await putPrefs({})).statusCode).toBe(204);
+    expect((await patchPrefs({ slackDm: false, push: false })).statusCode).toBe(204);
+    expect((await patchPrefs({})).statusCode).toBe(204);
     expect((await getPrefs()).json()).toMatchObject({ slackDm: false, push: false });
   });
 
@@ -205,7 +205,7 @@ describe("/api/me/notification-prefs", () => {
     // ridurrebbe a `{}` e il client crederebbe di aver salvato. Da qui lo
     // `.strict()` sul solo schema di update.
     const res = await app.inject({
-      method: "PUT",
+      method: "PATCH",
       url: "/api/me/notification-prefs",
       headers: { cookie: seeded.adminCookie },
       payload: { pussh: false },
@@ -219,7 +219,7 @@ describe("/api/me/notification-prefs", () => {
   it("rifiuta un campo presente col tipo sbagliato", async () => {
     // Opzionale non vuol dire libero: se il campo c'è, deve essere un boolean.
     const res = await app.inject({
-      method: "PUT",
+      method: "PATCH",
       url: "/api/me/notification-prefs",
       headers: { cookie: seeded.adminCookie },
       payload: { slackDm: "si" },
