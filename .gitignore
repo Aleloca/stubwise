@@ -27,3 +27,8 @@ apps/mobile/**/*.keystore
 .worktrees/
 graphify-out/cost.json
 graphify-out/cache/
+
+# Blocchi di sito Caddy specifici dell'host (vedi caddy.d/README.md): il relay
+# push si attiva copiando il .example, e quella copia è configurazione della
+# macchina, non del repo.
+caddy.d/*.caddy
