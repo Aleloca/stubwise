@@ -43,7 +43,7 @@ interface AccountMockState {
   /** Preferenze di notifica correnti (`slackLinked` è contesto del server). */
   prefs: { slackDm: boolean; push: boolean; slackLinked: boolean };
   /** Body inviati a PATCH /api/me/notification-prefs. */
-  prefsPuts: unknown[];
+  prefsPatches: unknown[];
 }
 
 function mockAccountApi(
@@ -56,7 +56,7 @@ function mockAccountApi(
     followed: overrides.followed ?? [],
     followPuts: [],
     prefs: overrides.prefs ?? { slackDm: false, push: true, slackLinked: true },
-    prefsPuts: [],
+    prefsPatches: [],
   };
 
   const handlers: Record<string, Handler> = {
@@ -106,7 +106,7 @@ function mockAccountApi(
     "PATCH /api/me/notification-prefs": (_url, init) => {
       // Il server applica una PATCH: i campi assenti restano come sono.
       const body = JSON.parse(String(init?.body)) as { slackDm?: boolean; push?: boolean };
-      state.prefsPuts.push(body);
+      state.prefsPatches.push(body);
       state.prefs = { ...state.prefs, ...body };
       return new Response(null, { status: 204 });
     },
@@ -178,7 +178,7 @@ describe("account: preferenze di notifica", () => {
     await userEvent.click(toggle);
 
     // Si manda il SOLO campo toccato: `push` non compare nel body.
-    await waitFor(() => expect(state.prefsPuts).toEqual([{ slackDm: true }]));
+    await waitFor(() => expect(state.prefsPatches).toEqual([{ slackDm: true }]));
     expect(toggle).toBeChecked();
   });
 
@@ -190,7 +190,7 @@ describe("account: preferenze di notifica", () => {
     expect(toggle).toBeChecked();
     await userEvent.click(toggle);
 
-    await waitFor(() => expect(state.prefsPuts).toEqual([{ push: false }]));
+    await waitFor(() => expect(state.prefsPatches).toEqual([{ push: false }]));
     expect(toggle).not.toBeChecked();
     // Il canale che non si è toccato resta acceso: è la proprietà della PATCH.
     expect(state.prefs.slackDm).toBe(true);
@@ -214,6 +214,6 @@ describe("account: preferenze di notifica", () => {
     expect(screen.getByText(/Link your Slack account first/i)).toBeInTheDocument();
 
     await userEvent.click(toggle);
-    expect(state.prefsPuts).toEqual([]);
+    expect(state.prefsPatches).toEqual([]);
   });
 });

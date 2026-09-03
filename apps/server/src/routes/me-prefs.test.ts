@@ -155,7 +155,7 @@ describe("/api/me/notification-prefs", () => {
     expect(res.json()).toEqual({ slackDm: true, push: true, slackLinked: false });
   });
 
-  it("PUT aggiorna i toggle e non tocca gli altri utenti", async () => {
+  it("PATCH aggiorna i toggle e non tocca gli altri utenti", async () => {
     expect((await patchPrefs({ slackDm: false, push: false })).statusCode).toBe(204);
     expect((await getPrefs()).json()).toMatchObject({ slackDm: false, push: false });
     expect((await getPrefs(seeded.memberCookie)).json()).toMatchObject({

@@ -375,7 +375,7 @@ separato con una connessione nuova).
 ### Task 7: rotte `/api/me/devices` e preferenza `push`
 
 **Files:**
-- Modify: `apps/server/src/routes/me-prefs.ts` (GET/PUT prefs con `push`; `PUT /api/me/devices`; `DELETE /api/me/devices/:token`)
+- Modify: `apps/server/src/routes/me-prefs.ts` (GET/PATCH prefs con `push`; `PUT /api/me/devices`; `DELETE /api/me/devices/:token`)
 - Modify: `packages/shared/src/schemas/notification.ts` (`deviceRegistrationSchema { platform, token, appVersion? }`)
 - Test: `apps/server/src/routes/me-prefs.test.ts`
 
