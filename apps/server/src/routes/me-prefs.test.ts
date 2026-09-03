@@ -507,8 +507,9 @@ describe("/api/me/devices", () => {
     const casuale = randomBytes(2048).toString("hex");
     const res = await putDevice({ platform: "ios", token: casuale });
     expect(res.statusCode).toBe(400);
-    // Un token appena sotto il tetto, sempre casuale, deve invece passare: un
-    // tetto che rifiuta tutto passerebbe l'asserzione qui sopra per sbaglio.
+    // Un token ASCII casuale ben dentro il tetto (512 caratteri = 512 byte)
+    // deve invece passare: un tetto che rifiuta tutto passerebbe l'asserzione
+    // qui sopra per sbaglio.
     const ammesso = randomBytes(256).toString("hex");
     expect((await putDevice({ platform: "ios", token: ammesso })).statusCode).toBe(204);
   });

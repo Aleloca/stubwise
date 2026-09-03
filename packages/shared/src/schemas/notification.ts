@@ -497,11 +497,14 @@ const PUSH_TOKEN_MAX_BYTES = 1024;
  * controllo in byte è quello che PROTEGGE, ed è l'unico che regge sul testo
  * multibyte. Il perché del numero sta su {@link PUSH_TOKEN_MAX_BYTES}.
  */
+// Istanziato una volta sola: il refine gira su ogni registrazione.
+const tokenByteLength = new TextEncoder();
+
 const pushTokenSchema = z
   .string()
   .min(1)
   .max(PUSH_TOKEN_MAX_BYTES)
-  .refine((value) => new TextEncoder().encode(value).length <= PUSH_TOKEN_MAX_BYTES, {
+  .refine((value) => tokenByteLength.encode(value).length <= PUSH_TOKEN_MAX_BYTES, {
     message: `token too long: max ${PUSH_TOKEN_MAX_BYTES} bytes`,
   });
 
