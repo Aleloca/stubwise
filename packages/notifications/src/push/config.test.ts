@@ -42,12 +42,52 @@ describe("loadPushConfig", () => {
     expect(() => loadPushConfig({ PUSH_RELAY_URL: "non un url" })).toThrow();
   });
 
-  it("l'eccezione dell'http non ripete l'URL rifiutato dentro il messaggio", () => {
-    // Il messaggio finisce nei log d'avvio; l'URL può contenere un host interno
-    // o credenziali in `user:pass@`. Basta dire QUALE variabile è sbagliata.
-    expect(() => loadPushConfig({ PUSH_RELAY_URL: "http://admin:segreto@relay.example" })).toThrow(
-      /^(?!.*segreto).*$/s,
+  /** L'errore lanciato da `loadPushConfig`, per ispezionarne il messaggio. */
+  function errorFor(url: string): Error {
+    try {
+      loadPushConfig({ PUSH_RELAY_URL: url });
+    } catch (error) {
+      return error as Error;
+    }
+    throw new Error(`atteso un errore per ${url}`);
+  }
+
+  it("il messaggio non ripete l'URL rifiutato: finisce nei log d'avvio", () => {
+    // L'URL può contenere un host interno o credenziali in `user:pass@`.
+    // Basta dire QUALE variabile è sbagliata.
+    const error = errorFor("http://admin:segreto@relay.example");
+    expect(error.message).not.toContain("segreto");
+    expect(error.message).not.toContain("relay.example");
+    expect(error.message).toContain("PUSH_RELAY_URL");
+  });
+
+  it("le credenziali nell'URL fanno fallire l'avvio, non cinque tentativi a vuoto", () => {
+    // `new URL()` le accetta, ma `fetch` di Node lancia un TypeError che le
+    // ripete per intero: il client lo leggerebbe come errore di rete, e a ogni
+    // ritentativo la password finirebbe come `cause` nel log del poller.
+    expect(() => loadPushConfig({ PUSH_RELAY_URL: "https://user:pw@relay.example" })).toThrow(
+      /credenziali/,
     );
+    expect(() => loadPushConfig({ PUSH_RELAY_URL: "https://user@relay.example" })).toThrow(
+      /credenziali/,
+    );
+  });
+
+  it("query e frammento fanno fallire l'avvio: l'endpoint si compone per concatenazione", () => {
+    // `https://relay.example/?x=1` diventerebbe `…/?x=1/v1/send`: un 404 a ogni
+    // consegna, cioè PushRelayRejected e tutte le push `failed` senza retry.
+    expect(() => loadPushConfig({ PUSH_RELAY_URL: "https://relay.example/?x=1" })).toThrow(
+      /query/,
+    );
+    expect(() => loadPushConfig({ PUSH_RELAY_URL: "https://relay.example/#frag" })).toThrow(
+      /frammento/,
+    );
+  });
+
+  it("un path di base resta lecito: il relay può stare dietro un prefisso", () => {
+    expect(loadPushConfig({ PUSH_RELAY_URL: "https://api.example/push" })).toEqual({
+      relayUrl: "https://api.example/push",
+    });
   });
 
   it("il loopback in chiaro è ammesso: serve ai test e non attraversa la rete", () => {

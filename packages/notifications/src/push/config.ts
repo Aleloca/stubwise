@@ -71,6 +71,34 @@ export function loadPushConfig(env: Record<string, string | undefined>): PushCon
   } catch {
     throw new Error("PUSH_RELAY_URL non è un URL valido (atteso https://…)");
   }
+  /**
+   * CREDENZIALI NELL'URL: rifiutate, e non per pulizia.
+   *
+   * `new URL()` le accetta, ma `fetch` di Node no: costruire una Request da un
+   * URL con credenziali lancia un `TypeError` che le riporta **per intero nel
+   * messaggio**. Quel TypeError il client lo classifica come errore di rete,
+   * quindi ogni notifica brucerebbe cinque tentativi a vuoto — e a ogni giro
+   * l'eccezione finirebbe come `cause` nel log del poller, **password
+   * compresa**. Non basta quindi tenere il valore fuori dal messaggio d'avvio:
+   * va rifiutato l'avvio.
+   */
+  if (parsed.username !== "" || parsed.password !== "") {
+    throw new Error(
+      "PUSH_RELAY_URL non deve contenere credenziali (user:password@): fetch le rifiuta e finirebbero nei log",
+    );
+  }
+  /**
+   * QUERY E FRAGMENT: rifiutati perché l'endpoint si compone per CONCATENAZIONE
+   * (`<url>/v1/send`), e su `https://relay.example/?x=1` verrebbe fuori
+   * `https://relay.example/?x=1/v1/send` — un 404 a ogni consegna, cioè un
+   * `PushRelayRejected` e **tutte** le push `failed` senza retry. Sarebbe un
+   * degrado silenzioso in un file che esiste per fallire subito e forte.
+   */
+  if (parsed.search !== "" || parsed.hash !== "") {
+    throw new Error(
+      "PUSH_RELAY_URL deve essere la sola base del relay, senza query né frammento",
+    );
+  }
   if (parsed.protocol === "https:") return { relayUrl: value };
   if (parsed.protocol === "http:" && LOOPBACK_HOSTS.has(parsed.hostname)) {
     return { relayUrl: value };

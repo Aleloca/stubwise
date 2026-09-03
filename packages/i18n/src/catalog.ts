@@ -450,10 +450,10 @@ export const it: Catalog = {
   "push.title.job.plan_review": "Piano da approvare",
   "push.title.job.budget_held": "Budget superato",
   "push.title.review.completed": "Review della PR pronta",
-  "push.title.job.failed": "Lavoro fallito",
+  "push.title.job.failed": "Fix AI fallito",
   "push.title.docs.limit_paused": "Docs in pausa",
   "push.title.monitor.alert": "Allarme su un server",
-  "push.title.monitor.recovered": "Server rientrato",
+  "push.title.monitor.recovered": "Server tornato su",
   "push.title.job.awaiting_input": "Una domanda ti aspetta",
   "push.title.project.pulse": "Da dove ripartire su {project}",
 

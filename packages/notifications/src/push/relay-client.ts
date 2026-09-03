@@ -21,6 +21,18 @@ import {
   type PushRelaySendResponse,
   type PushRelayToken,
 } from "@stubwise/shared";
+import { truncate } from "./truncate.js";
+
+/**
+ * Tetto del `reason` che si riporta al chiamante.
+ *
+ * Il CONTRATTO non ne ha (un tetto là sarebbe una restrizione, e un relay più
+ * loquace romperebbe le istanze vecchie), quindi il tetto lo mette chi
+ * consuma: al Task 10 questo campo finisce in `notification_deliveries`, e un
+ * `reason` da 100 KB per token non è diagnostica, è una colonna piena.
+ * Duecentoquaranta caratteri bastano a un codice APNs/FCM e alla sua frase.
+ */
+const REASON_MAX_CHARS = 240;
 
 /**
  * Il relay non è raggiungibile o non ce l'ha fatta: rete, timeout, 5xx, e
@@ -84,6 +96,43 @@ function chunk(tokens: PushRelayToken[]): PushRelayToken[][] {
     chunks.push(tokens.slice(i, i + PUSH_RELAY_MAX_TOKENS));
   }
   return chunks;
+}
+
+/**
+ * Il relay ha risposto un esito per OGNI token spedito, una volta sola e
+ * nessuno di troppo?
+ *
+ * Il contratto lo promette ma non lo può imporre: uno schema vede la risposta,
+ * non la richiesta. Senza questo controllo un relay che risponde `200` avendo
+ * ignorato metà dei token passerebbe in silenzio — la `send` risolverebbe con
+ * meno esiti dei token — e la politica per "token senza esito" dovrebbe
+ * inventarsela il chiamante, che a quel punto non saprebbe nemmeno che c'è un
+ * problema. È la stessa famiglia del `results` mancante, che è già un rifiuto.
+ *
+ * ⚠️ Nel messaggio vanno SOLO I CONTEGGI. Nominare i token mancanti sarebbe la
+ * cosa più utile da leggere e la più sbagliata da scrivere: questi messaggi
+ * finiscono nel log del poller e in `notification_deliveries.error`, e da un
+ * token in un log ci si può intestare il device di qualcun altro.
+ */
+function assertOneResultPerToken(
+  tokens: PushRelayToken[],
+  response: PushRelaySendResponse,
+): void {
+  const sent = new Set(tokens.map((entry) => entry.token));
+  const seen = new Set<string>();
+  let unknown = 0;
+  let duplicated = 0;
+  for (const { token } of response.results) {
+    if (!sent.has(token)) unknown += 1;
+    else if (seen.has(token)) duplicated += 1;
+    else seen.add(token);
+  }
+  const missing = sent.size - seen.size;
+  if (missing === 0 && unknown === 0 && duplicated === 0) return;
+  throw new PushRelayRejected(
+    `il relay push ha risposto ${response.results.length} esiti per ${tokens.length} token ` +
+      `(mancanti: ${missing}, estranei: ${unknown}, duplicati: ${duplicated})`,
+  );
 }
 
 /**
@@ -186,7 +235,18 @@ export function createPushRelayClient({
           `risposta del relay push fuori contratto (campi: ${[...new Set(fields)].join(", ")})`,
         );
       }
-      return parsed.data;
+      assertOneResultPerToken(tokens, parsed.data);
+      // Il `reason` arriva dalla rete e non ha tetto nel contratto: si tronca
+      // QUI, prima che il chiamante lo scriva da qualche parte. Grapheme-safe
+      // come il resto: una diagnostica tagliata a metà emoji finirebbe in una
+      // colonna Postgres come UTF-8 non valido.
+      return {
+        results: parsed.data.results.map((result) =>
+          result.reason === undefined
+            ? result
+            : { ...result, reason: truncate(result.reason, REASON_MAX_CHARS) },
+        ),
+      };
     } finally {
       clearTimeout(timer);
     }
@@ -207,10 +267,19 @@ export function createPushRelayClient({
        *
        * In sequenza e non in parallelo: sono le stesse ragioni per cui il
        * poller manda le consegne una alla volta, e i gruppi sono al più due o
-       * tre. Se un gruppo intermedio lancia, l'intera `send` lancia e il poller
-       * ritenta tutto: i device del primo gruppo ricevono una seconda volta la
-       * stessa push, che il `collapseId` fa SOSTITUIRE a quella già arrivata
-       * invece di accodarla.
+       * tre.
+       *
+       * ⚠️ **LA SPEDIZIONE È AT-LEAST-ONCE PER GRUPPO, NON ATOMICA.** Se un
+       * gruppo intermedio lancia, l'intera `send` lancia e il poller ritenta
+       * TUTTO, gruppi già consegnati compresi: quei device ricevono una
+       * seconda volta la stessa push. Non è un difetto da nascondere ma una
+       * proprietà da conoscere, e regge su una cosa sola — il `collapseId`,
+       * che il sistema operativo usa per SOSTITUIRE la notifica già arrivata
+       * invece di accodarne una seconda. Chi costruisse un payload senza
+       * `collapseId` (o con uno diverso a ogni tentativo) si ritroverebbe le
+       * notifiche duplicate sul telefono, e non ci sarebbe nessun errore a
+       * dirglielo: `buildPushPayload` lo valorizza sempre con
+       * `notificationId`, ed è il motivo per cui lo fa.
        */
       // `tokens` vuoto non produce nessun gruppo: senza questo controllo la
       // validazione locale non scatterebbe mai e la funzione tornerebbe una

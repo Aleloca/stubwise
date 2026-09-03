@@ -134,27 +134,98 @@ export type PushRelaySendRequest = z.infer<typeof pushRelaySendRequestSchema>;
  *  - `ok` — accettata dal servizio di push;
  *  - `invalid_token` — il token non esiste più (app disinstallata, token
  *    ruotato): il chiamante DEVE disabilitare quel device, non ritentare;
- *  - `retry` — guasto transitorio (5xx di APNs/FCM, rate limit): si ritenta.
+ *  - `retry` — guasto TRANSITORIO (5xx di APNs/FCM, rate limit): si ritenta;
+ *  - `failed` — guasto PERMANENTE che però **non dice nulla sul token**: quel
+ *    payload non arriverà mai a quel device, ma il device è sano. Non si
+ *    ritenta e non si disabilita niente; il perché sta in `reason`.
+ *
+ * ⚠️ **`failed` esiste perché senza di lui il relay dovrebbe mentire.** APNs
+ * risponde `PayloadTooLarge`, `BadTopic`, `TopicDisallowed`, `BadCollapseId`,
+ * `DeviceTokenNotForTopic`, `ExpiredProviderToken`; FCM risponde
+ * `THIRD_PARTY_AUTH_ERROR` (credenziali del RELAY sbagliate) o
+ * `INVALID_ARGUMENT` sul payload. Nessuno di questi è transitorio e nessuno
+ * riguarda il token. Con tre sole caselle il relay dovrebbe scegliere fra
+ * `retry` — cinque tentativi buttati e un segnale falso — e `invalid_token`,
+ * che **spegne in silenzio un device sano**: l'utente smette di ricevere push
+ * e non se ne accorge nessuno.
  */
-export const pushRelayResultStatusSchema = z.enum(["ok", "invalid_token", "retry"]);
+export const pushRelayResultStatusSchema = z.enum([
+  "ok",
+  "invalid_token",
+  "retry",
+  "failed",
+]);
 export type PushRelayResultStatus = z.infer<typeof pushRelayResultStatusSchema>;
+
+/** Gli stati che questa versione conosce, per il lettore tollerante qui sotto. */
+const KNOWN_RESULT_STATUSES = new Set<string>(pushRelayResultStatusSchema.options);
+
+/**
+ * Quanto di uno stato ignoto si ricopia dentro `reason`: è testo che arriva
+ * dalla rete e finisce in un log e in una colonna, quindi non può essere
+ * illimitato. Bastano poche decine di caratteri per riconoscerlo.
+ */
+const UNKNOWN_STATUS_MAX_CHARS = 40;
+
+/**
+ * Un esito, letto in modo TOLLERANTE: uno `status` che questa versione non
+ * conosce diventa `failed` con il motivo dentro `reason`.
+ *
+ * ⚠️ QUESTO È IL PUNTO PIÙ IMPORTANTE DEL FILE, e corregge una versione
+ * precedente che diceva l'opposto («qui NON si aprono gli enum»). La regola 1
+ * in cima — solo cambi additivi, in entrambe le direzioni — non era rispettata
+ * proprio qui: con un enum chiuso, aggiungere domani uno stato nuovo NON
+ * sarebbe additivo. Il client fa `safeParse` sull'INTERA risposta, quindi
+ * un'istanza vecchia prenderebbe `PushRelayRejected` per tutto il batch —
+ * **compresi i token andati `ok`** — e segnerebbe `failed` senza retry una
+ * consegna che agli altri device era arrivata. È la lezione degli enum chiusi
+ * della fase A sullo stesso meccanismo, in un posto dove `readerSchema` non
+ * arriva (non è un'API di Stubwise: il mobile questo schema non lo vede mai).
+ *
+ * `preprocess` e non `z.enum([...]).catch("failed")`, e la differenza è tutta
+ * nel LOG. `.catch()` sostituisce il valore e basta: al poller arriverebbe un
+ * `failed` senza `reason`, cioè un device che smette di ricevere una notifica
+ * e nessuno che sappia dire perché — la stessa cecità che l'aggiunta di
+ * `failed` esiste per togliere. Il `preprocess` invece SCRIVE il motivo
+ * (`unknown status <x>`) dentro il campo che il Task 10 salverà in
+ * `notification_deliveries`: chi legge il log vede il nome dello stato che non
+ * conosciamo e sa che gli manca un aggiornamento. Tollerante, ma non silenzioso.
+ *
+ * La tolleranza è STRETTA di proposito: si applica solo a uno `status` che è
+ * una STRINGA fuori elenco. Un `status` numerico, assente o `null` resta un
+ * errore di parse (→ `PushRelayRejected`), perché quello non è un relay più
+ * nuovo di noi: è una risposta rotta.
+ */
+const pushRelayResultSchema = z.preprocess((value) => {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return value;
+  const row = value as Record<string, unknown>;
+  const status = row.status;
+  if (typeof status !== "string" || KNOWN_RESULT_STATUSES.has(status)) return value;
+  const label = status.slice(0, UNKNOWN_STATUS_MAX_CHARS);
+  const previous = typeof row.reason === "string" && row.reason !== "" ? `: ${row.reason}` : "";
+  return { ...row, status: "failed", reason: `unknown status ${label}${previous}` };
+}, z.object({
+  token: z.string().min(1),
+  status: pushRelayResultStatusSchema,
+  /**
+   * Diagnostica leggibile, mai un dato su cui ramificare. SENZA `.max()`, e non
+   * per distrazione: un tetto qui è una restrizione del contratto, e un relay
+   * più loquace di noi romperebbe le istanze già installate. Chi lo consuma lo
+   * tronca a casa propria — lo fa `createPushRelayClient`, perché al Task 10
+   * questo campo finisce in `notification_deliveries`.
+   */
+  reason: z.string().optional(),
+}));
 
 /**
  * Risposta di `/v1/send`: un esito per token, nello stesso ordine della
- * richiesta. `reason` è diagnostica leggibile, mai un dato su cui ramificare.
+ * richiesta.
  *
- * L'enum qui NON si apre col `readerSchema`: quello serve al mobile, che si
- * aggiorna dagli store. Il relay lo deployiamo noi, e uno stato che non
- * conosciamo è un bug di contratto che il poller deve vedere — non qualcosa da
- * trattare in silenzio come "ok".
+ * Che gli esiti CORRISPONDANO ai token spediti — tutti, una volta sola,
+ * nessuno di troppo — questo schema non lo può dire: lo verifica il client
+ * dopo il parse, dove i token spediti sono noti.
  */
 export const pushRelaySendResponseSchema = z.object({
-  results: z.array(
-    z.object({
-      token: z.string().min(1),
-      status: pushRelayResultStatusSchema,
-      reason: z.string().optional(),
-    }),
-  ),
+  results: z.array(pushRelayResultSchema),
 });
 export type PushRelaySendResponse = z.infer<typeof pushRelaySendResponseSchema>;

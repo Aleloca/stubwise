@@ -179,13 +179,61 @@ describe("pushRelaySendResponseSchema", () => {
     expect(pushRelaySendResponseSchema.parse(body)).toEqual(body);
   });
 
-  it("uno stato che non conosciamo è un errore: qui NON si aprono gli enum", () => {
-    // Il lettore aperto (`readerSchema`) serve al MOBILE, che si aggiorna dagli
-    // store. Il relay lo deployiamo noi: uno stato ignoto qui è un bug di
-    // contratto, e il poller deve accorgersene invece di trattarlo come "ok".
-    expect(() =>
-      pushRelaySendResponseSchema.parse({ results: [{ token: TOKEN, status: "boh" }] }),
-    ).toThrow();
+  it("`failed` è uno stato di prima classe: permanente, ma il token resta sano", () => {
+    const body = { results: [{ token: TOKEN, status: "failed", reason: "PayloadTooLarge" }] };
+    expect(pushRelaySendResponseSchema.parse(body)).toEqual(body);
+  });
+
+  it("uno stato IGNOTO diventa `failed` e dice PERCHÉ, invece di far saltare il batch", () => {
+    // Se restasse un errore di parse, un relay più nuovo di noi farebbe
+    // fallire l'INTERA risposta — token andati `ok` compresi — e la consegna
+    // finirebbe `failed` senza retry pur essendo arrivata agli altri device.
+    const parsed = pushRelaySendResponseSchema.parse({
+      results: [
+        { token: TOKEN, status: "ok" },
+        { token: `${TOKEN}-2`, status: "throttled_by_apns" },
+      ],
+    });
+    expect(parsed.results[0]).toEqual({ token: TOKEN, status: "ok" });
+    expect(parsed.results[1]!.status).toBe("failed");
+    // TOLLERANTE MA NON SILENZIOSO: il nome dello stato che non conosciamo
+    // sopravvive fino al log del poller. È la ragione per cui è un
+    // `preprocess` e non un `.catch("failed")`, che il motivo lo perderebbe.
+    expect(parsed.results[1]!.reason).toBe("unknown status throttled_by_apns");
+  });
+
+  it("uno stato ignoto non cancella il `reason` che il relay aveva già scritto", () => {
+    const parsed = pushRelaySendResponseSchema.parse({
+      results: [{ token: TOKEN, status: "quarantined", reason: "topic mismatch" }],
+    });
+    expect(parsed.results[0]!.reason).toBe("unknown status quarantined: topic mismatch");
+  });
+
+  it("lo stato ignoto ricopiato in `reason` è LIMITATO: arriva dalla rete", () => {
+    const parsed = pushRelaySendResponseSchema.parse({
+      results: [{ token: TOKEN, status: "z".repeat(5000) }],
+    });
+    expect(parsed.results[0]!.reason!.length).toBeLessThan(80);
+  });
+
+  it("la tolleranza vale solo per una STRINGA fuori elenco, non per una risposta rotta", () => {
+    // Un `status` numerico, assente o `null` non è un relay più nuovo di noi:
+    // è una risposta che non sappiamo leggere, e deve restare un errore.
+    for (const status of [123, null, undefined, { value: "ok" }]) {
+      expect(() =>
+        pushRelaySendResponseSchema.parse({ results: [{ token: TOKEN, status }] }),
+      ).toThrow();
+    }
+  });
+
+  it("`reason` NON ha un tetto: sarebbe una restrizione del contratto", () => {
+    // Un relay più loquace di noi non deve rompere le istanze già installate.
+    // Il tetto lo mette chi consuma (`createPushRelayClient`), non il contratto.
+    const long = "x".repeat(100_000);
+    expect(
+      pushRelaySendResponseSchema.parse({ results: [{ token: TOKEN, status: "retry", reason: long }] })
+        .results[0]!.reason,
+    ).toHaveLength(100_000);
   });
 
   it("una lista vuota è lecita, un `results` mancante no", () => {

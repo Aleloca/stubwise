@@ -1,4 +1,3 @@
-import { en, it as itCatalog } from "@stubwise/i18n";
 import {
   languageSchema,
   PUSH_BODY_MAX_CHARS,
@@ -7,7 +6,7 @@ import {
 } from "@stubwise/shared";
 import { describe, expect, it } from "vitest";
 import { formatNotificationText, sampleEvents, type NotificationEvent } from "../format.js";
-import { buildPushPayload, PUSH_TITLE_KEY } from "./payload.js";
+import { buildPushPayload, PUSH_TITLE_KEY, type PushPayloadContext } from "./payload.js";
 
 const BASE_URL = "https://stubwise.test";
 const NOTIFICATION_ID = "3f2a91c4-5555-4666-8777-888899990000";
@@ -21,7 +20,7 @@ const payloadSchema = pushRelaySendRequestSchema.shape.payload;
 
 const EVENTS = sampleEvents(BASE_URL);
 
-function build(event: NotificationEvent, lang: Language, extra: Record<string, unknown> = {}) {
+function build(event: NotificationEvent, lang: Language, extra: Partial<PushPayloadContext> = {}) {
   return buildPushPayload(event, lang, {
     notificationId: NOTIFICATION_ID,
     unreadCount: 3,
@@ -62,16 +61,12 @@ describe("buildPushPayload", () => {
       expect(payloadSchema.safeParse(payload).success).toBe(true);
     });
 
-    it("ha la chiave del titolo in ENTRAMBI i cataloghi", () => {
-      // Il guardiano vero: `t()` fa fallback su `en` quando la chiave manca in
-      // `it`, quindi una traduzione dimenticata darebbe un titolo inglese su un
-      // telefono italiano senza che nulla protesti.
-      const key = PUSH_TITLE_KEY[event.kind];
-      expect(Object.keys(en)).toContain(key);
-      expect(Object.keys(itCatalog)).toContain(key);
-    });
-
     it("il titolo italiano non è quello inglese (nessun fallback silenzioso)", () => {
+      // `t()` fa fallback su `en` quando la chiave manca in `it`: una
+      // traduzione dimenticata darebbe un titolo inglese su un telefono
+      // italiano senza che nulla protesti. Questo test e quello sul
+      // `title !== chiave` qui sopra coprono insieme i due modi di sbagliare —
+      // chiave assente da un catalogo, o da entrambi.
       expect(build(event, "it").title).not.toBe(build(event, "en").title);
     });
   });
@@ -130,6 +125,35 @@ describe("tetto del payload", () => {
     expect(lone).toEqual([]);
     expect(payload.body.length).toBeLessThanOrEqual(PUSH_BODY_MAX_CHARS);
     expect(payloadSchema.safeParse(payload).success).toBe(true);
+  });
+
+  it("non spezza una FAMIGLIA ZWJ: niente padre con uno ZWJ penzolante", () => {
+    // `👨‍👩‍👧` è un solo grafema fatto di cinque code point tenuti insieme
+    // da due ZWJ. Tagliare sui code point produce UTF-8 validissimo — quindi
+    // nessun test sui byte se ne accorge — e sulla lock screen si vede un
+    // padre solo, o uno ZWJ appeso all'ellissi.
+    const payload = build(longFailure("👨‍👩‍👧".repeat(200)), "it");
+    const body = payload.body.slice(0, -1);
+    expect(body.endsWith("\u200d")).toBe(false);
+    // Ogni ZWJ del corpo deve stare FRA due caratteri, mai in fondo.
+    expect(/\u200d$/.test(body)).toBe(false);
+    // …e i grafemi rimasti devono essere famiglie intere: due ZWJ ciascuna.
+    const zwj = [...body].filter((char) => char === "\u200d").length;
+    const persons = [...body].filter((char) => "👨👩👧".includes(char)).length;
+    expect(zwj).toBe(persons - persons / 3);
+    expect(payload.body.length).toBeLessThanOrEqual(PUSH_BODY_MAX_CHARS);
+  });
+
+  it("non spezza una BANDIERA: i regional indicator restano in coppia", () => {
+    // `🇮🇹` sono DUE regional indicator: mezzo grafema si vede come una «I»
+    // dentro un riquadro, che è esattamente ciò che l'utente non deve leggere.
+    const payload = build(longFailure("🇮🇹".repeat(400)), "it");
+    const indicators = [...payload.body].filter((char) => {
+      const code = char.codePointAt(0)!;
+      return code >= 0x1f1e6 && code <= 0x1f1ff;
+    }).length;
+    expect(indicators % 2).toBe(0);
+    expect(payload.body.length).toBeLessThanOrEqual(PUSH_BODY_MAX_CHARS);
   });
 
   it("un corpo che ci sta non viene toccato", () => {

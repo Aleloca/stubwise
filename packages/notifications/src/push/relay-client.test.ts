@@ -210,7 +210,10 @@ describe("createPushRelayClient — errori", () => {
     await expect(sendWith(() => jsonResponse({ results: [{ token: 1, status: "ok" }] }))).rejects.toBeInstanceOf(
       PushRelayRejected,
     );
-    await expect(sendWith(() => jsonResponse({ results: [{ token: TOKEN, status: "boh" }] }))).rejects.toBeInstanceOf(
+    // NB: uno `status` STRINGA che non conosciamo NON è malformato — il
+    // contratto lo legge in modo tollerante (vedi il test più sotto). Rotto è
+    // uno `status` che stringa non è.
+    await expect(sendWith(() => jsonResponse({ results: [{ token: TOKEN, status: 7 }] }))).rejects.toBeInstanceOf(
       PushRelayRejected,
     );
     await expect(sendWith(() => jsonResponse("non sono json", 200))).rejects.toBeInstanceOf(
@@ -218,7 +221,53 @@ describe("createPushRelayClient — errori", () => {
     );
   });
 
-  it("un payload fuori contratto non parte nemmeno: è un bug nostro", async () => {
+  it("meno esiti dei token spediti → PushRelayRejected, non un successo a metà", async () => {
+    // Un relay che risponde 200 avendo ignorato metà dei token passerebbe in
+    // silenzio: la `send` risolverebbe con meno esiti dei token e la politica
+    // per "token senza esito" dovrebbe inventarsela il chiamante — che a quel
+    // punto non saprebbe nemmeno che c'è un problema.
+    const two: PushRelayToken[] = [
+      { platform: "ios", token: TOKEN },
+      { platform: "android", token: `${TOKEN}-2` },
+    ];
+    const { impl } = fakeFetch(() => jsonResponse({ results: [] }));
+    await expect(
+      createPushRelayClient({ url: URL_BASE, fetch: impl }).send(two, PAYLOAD),
+    ).rejects.toBeInstanceOf(PushRelayRejected);
+  });
+
+  it("un esito DUPLICATO (e uno estraneo) → PushRelayRejected", async () => {
+    const two: PushRelayToken[] = [
+      { platform: "ios", token: TOKEN },
+      { platform: "android", token: `${TOKEN}-2` },
+    ];
+    const { impl } = fakeFetch(() =>
+      jsonResponse({
+        results: [
+          { token: TOKEN, status: "ok" },
+          { token: TOKEN, status: "ok" },
+          { token: "un-token-mai-spedito", status: "ok" },
+        ],
+      }),
+    );
+    await expect(
+      createPushRelayClient({ url: URL_BASE, fetch: impl }).send(two, PAYLOAD),
+    ).rejects.toBeInstanceOf(PushRelayRejected);
+  });
+
+  it("il messaggio della corrispondenza mancata porta i CONTEGGI, non i token", async () => {
+    const { impl } = fakeFetch(() => jsonResponse({ results: [] }));
+    const error = await createPushRelayClient({ url: URL_BASE, fetch: impl })
+      .send(TOKENS, PAYLOAD)
+      .then(
+        () => null,
+        (err: unknown) => err as Error,
+      );
+    expect(error!.message).toContain("0 esiti per 1 token");
+    expect(error!.message).not.toContain(TOKEN);
+  });
+
+  it("un payload fuori contratto non parte nemmeno: è un bug nostro", async () =>{
     const { impl, calls } = fakeFetch(() => jsonResponse(okBody(TOKENS)));
     const client = createPushRelayClient({ url: URL_BASE, fetch: impl });
     await expect(client.send([], PAYLOAD)).rejects.toBeInstanceOf(PushRelayRejected);
@@ -228,6 +277,44 @@ describe("createPushRelayClient — errori", () => {
     expect(calls).toHaveLength(0);
   });
 
+  it("un `reason` sterminato viene troncato PRIMA di tornare al chiamante", async () => {
+    // Il contratto non ha un tetto sul `reason`, di proposito: metterlo là
+    // romperebbe le istanze vecchie appena il relay diventa più loquace. Il
+    // tetto lo mette chi consuma, perché al Task 10 quel campo finisce in
+    // `notification_deliveries`.
+    const { impl } = fakeFetch(() =>
+      jsonResponse({ results: [{ token: TOKEN, status: "retry", reason: "x".repeat(100_000) }] }),
+    );
+    const res = await createPushRelayClient({ url: URL_BASE, fetch: impl }).send(TOKENS, PAYLOAD);
+    expect(res.results[0]!.reason!.length).toBeLessThanOrEqual(240);
+    expect(res.results[0]!.reason!.endsWith("…")).toBe(true);
+  });
+
+  it("uno stato IGNOTO non fa saltare gli esiti `ok` dello stesso batch", async () => {
+    // Il lettore tollerante del contratto visto dal client: un relay più nuovo
+    // di noi non deve poter trasformare una consegna riuscita in un `failed`
+    // senza retry per TUTTI i device.
+    const two: PushRelayToken[] = [
+      { platform: "ios", token: TOKEN },
+      { platform: "android", token: `${TOKEN}-2` },
+    ];
+    const { impl } = fakeFetch(() =>
+      jsonResponse({
+        results: [
+          { token: TOKEN, status: "ok" },
+          { token: `${TOKEN}-2`, status: "throttled_by_apns" },
+        ],
+      }),
+    );
+    const res = await createPushRelayClient({ url: URL_BASE, fetch: impl }).send(two, PAYLOAD);
+    expect(res.results[0]!.status).toBe("ok");
+    expect(res.results[1]).toEqual({
+      token: `${TOKEN}-2`,
+      status: "failed",
+      reason: "unknown status throttled_by_apns",
+    });
+  });
+
   it("NESSUN messaggio d'errore contiene un token", async () => {
     // I token push non vanno nei log: da lì chi li legge se li può intestare
     // (vedi il docblock di `deviceDeletionSchema`). Un messaggio d'eccezione
@@ -235,8 +322,17 @@ describe("createPushRelayClient — errori", () => {
     const cases: (() => Promise<unknown>)[] = [
       () => sendWith(() => jsonResponse({ error: TOKEN }, 400)),
       () => sendWith(() => jsonResponse({ error: TOKEN }, 503)),
-      () => sendWith(() => jsonResponse({ results: [{ token: TOKEN, status: "boh" }] })),
+      () => sendWith(() => jsonResponse({ results: [{ token: TOKEN, status: 7 }] })),
       () => createPushRelayClient({ url: URL_BASE, fetch: fakeFetch(() => jsonResponse({}, 200)).impl }).send([], PAYLOAD),
+      // Validazione LOCALE: il ramo scritto apposta per un token fuori
+      // contratto è anche quello che ha il token fra le mani.
+      () =>
+        createPushRelayClient({ url: URL_BASE, fetch: fakeFetch(() => jsonResponse({}, 200)).impl }).send(
+          [{ platform: "ios", token: `${TOKEN}${"x".repeat(2000)}` }],
+          PAYLOAD,
+        ),
+      // …e la corrispondenza mancata, che i token spediti li conosce tutti.
+      () => sendWith(() => jsonResponse({ results: [] })),
     ];
     for (const run of cases) {
       const error = await run().then(

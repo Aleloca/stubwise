@@ -17,6 +17,7 @@ import {
   type PushPayload,
 } from "@stubwise/shared";
 import { formatNotificationText, type NotificationEvent, type NotificationKind } from "../format.js";
+import { truncate } from "./truncate.js";
 
 /**
  * Chiave del catalogo col titolo della push, per kind.
@@ -63,34 +64,6 @@ export interface PushPayloadContext {
    * `PublishOpts`), ed è nullable — i kind senza progetto esistono davvero.
    */
   projectId?: string | null;
-}
-
-/**
- * Taglia `value` in modo che `value.length` non superi `max`, chiudendo con
- * un'ellissi.
- *
- * ⚠️ Due unità di misura diverse, e servono ENTRAMBE:
- *
- *  - il TAGLIO avviene sui CODE POINT (`for…of`), perché `slice()` conta unità
- *    UTF-16 e può spezzare a metà una coppia surrogata, lasciando un surrogato
- *    spaiato — una stringa senza codifica UTF-8 valida, che il relay o APNs
- *    rifiutano su un contenuto perfettamente legittimo. Le emoji, che nei
- *    titoli dei ticket abbondano, sono esattamente quel caso;
- *  - la MISURA è in unità UTF-16 (`out.length`), perché il tetto che deve
- *    reggere è il `.max()` di Zod nel contratto, e Zod misura `.length`. Un
- *    taglio a "500 code point" produce fino a 1000 unità su un corpo di
- *    emoji: nessun surrogato spaiato, e la richiesta comunque fuori contratto.
- *
- * Una unità è riservata all'ellissi (`…` è BMP, quindi `.length === 1`).
- */
-function truncate(value: string, max: number): string {
-  if (value.length <= max) return value;
-  let out = "";
-  for (const char of value) {
-    if (out.length + char.length > max - 1) break;
-    out += char;
-  }
-  return `${out}…`;
 }
 
 /**
