@@ -2,15 +2,17 @@ import {
   createProjectSchema,
   projectDetailSchema,
   projectListItemSchema,
+  projectPulseSummarySchema,
   projectSchema,
   updateProjectSchema,
 } from "@stubwise/shared";
+import { summarizeProject, type ProjectPulseSummary } from "@stubwise/notifications";
 import { eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { requireAdmin, requireAuth } from "../auth/session.js";
-import { aiProviders, projects, repositories } from "@stubwise/db";
+import { aiProviders, projectFollows, projects, repositories } from "@stubwise/db";
 import {
   authErrorResponses,
   errorSchema,
@@ -40,6 +42,33 @@ function slugify(name: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
   return slug || "progetto";
+}
+
+/**
+ * Ordinamento di `GET /api/projects/pulse`: prima chi ha `waitingForYou`
+ * (una decisione del viewer ferma il progetto), poi chi ha `running` (lavoro
+ * in corso, meno urgente di una decisione ma più di uno fermo), infine per
+ * `idleDays` decrescente (il più fermo in cima, fra pari).
+ *
+ * SORT applicativo dopo aver raccolto i riepiloghi, non un `ORDER BY` SQL: i
+ * progetti che un viewer segue (il caso comune, quello per cui questa rotta
+ * esiste) sono poche unità — un `Array.sort` su una manciata di oggetti è più
+ * semplice da leggere e mantenere di un `ORDER BY` su colonne calcolate da tre
+ * query diverse, e non ci sarebbe comunque un modo di farlo in UNA query sola
+ * (`summarizeProject` ne fa già più di una per progetto).
+ */
+function pulseOrder(a: ProjectPulseSummary, b: ProjectPulseSummary): number {
+  const rank = (s: ProjectPulseSummary): [number, number, number] => [
+    s.waitingForYou.length > 0 ? 0 : 1,
+    s.running.length > 0 ? 0 : 1,
+    -s.idleDays,
+  ];
+  const [ra, rb] = [rank(a), rank(b)];
+  for (let i = 0; i < ra.length; i++) {
+    const diff = ra[i]! - rb[i]!;
+    if (diff !== 0) return diff;
+  }
+  return 0;
 }
 
 type ProjectRow = typeof projects.$inferSelect;
@@ -180,6 +209,49 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
         ...toPublicProject(row),
         repositoryCount: countByProject.get(row.id) ?? 0,
       }));
+    },
+  );
+
+  /**
+   * IL "polso" dei progetti: chi aspetta cosa, cosa gira, cosa langue —
+   * l'app mobile la usa come vista di apertura (Fase 4).
+   *
+   * ⚠️ DEVE restare registrata PRIMA di `GET /:projectId`: Fastify sceglie la
+   * rotta più specifica quando ce n'è una, ma qui "/pulse" e "/:projectId" sono
+   * ENTRAMBE candidate per lo stesso path — se questa venisse dichiarata dopo,
+   * "pulse" verrebbe letto come `projectId` e fallirebbe la validazione UUID
+   * dei `params` (400), mai raggiungendo questo handler. Un test in
+   * `projects.test.ts` lo verifica chiamando `/api/projects/pulse` e
+   * controllando che NON torni l'errore di validazione di `/:projectId`.
+   *
+   * Un `member` vede solo i progetti che segue (`project_follows`, stesso
+   * criterio di `/api/me/follows`); un `admin` li vede tutti — non ha bisogno
+   * di seguirli per doverne sapere lo stato.
+   */
+  app.get(
+    "/pulse",
+    {
+      preHandler: requireAuth,
+      schema: { response: { 200: z.array(projectPulseSummarySchema), ...authErrorResponses } },
+    },
+    async (request) => {
+      const viewer = { userId: request.user!.id, role: request.user!.role };
+
+      const projectIds =
+        viewer.role === "admin"
+          ? (await app.db.select({ id: projects.id }).from(projects)).map((row) => row.id)
+          : (
+              await app.db
+                .select({ id: projectFollows.projectId })
+                .from(projectFollows)
+                .where(eq(projectFollows.userId, viewer.userId))
+            ).map((row) => row.id);
+
+      const summaries = (
+        await Promise.all(projectIds.map((id) => summarizeProject(app.db, id, viewer)))
+      ).filter((summary): summary is ProjectPulseSummary => summary !== null);
+
+      return summaries.sort(pulseOrder);
     },
   );
 

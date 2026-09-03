@@ -62,6 +62,33 @@ export {
 
 export { unreadCount } from "./unread.js";
 
+// --- segnali di progetto condivisi (Fase 4) ---
+//
+// Spostati da `apps/worker/src/pulse/signals.ts`: li usa il poller del pulse
+// (worker, via il re-export sottile in `apps/worker/src/pulse/signals.ts`) e
+// `summarizeProject` qui sotto (server, `GET /api/projects/pulse`).
+export {
+  isProjectIdle,
+  listCandidates,
+  PULSE_HELD_STATUS,
+  PULSE_IN_FLIGHT_STATUSES,
+  PULSE_BLOCKING_JOB_STATUSES,
+  type IdleBlocker,
+  type ProjectIdleness,
+  type PulseCandidate,
+} from "./project-signals.js";
+
+export {
+  summarizeProject,
+  type ProjectPulseSummary,
+  type PulseViewer,
+  type PulseWaitingKind,
+  type PulseWaitingForYouItem,
+  type PulseWaitingForOthersItem,
+  type PulseWaitingWho,
+  type PulseRunningItem,
+} from "./project-pulse-summary.js";
+
 export {
   audienceFor,
   recipientsFor,

@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
-import { aiProviders } from "@stubwise/db";
+import { aiJobs, aiProviders, notifications, projectFollows, tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { seedUsers } from "../test/fixtures.js";
@@ -14,6 +14,8 @@ let testDb: TestDb;
 let app: FastifyInstance;
 let adminCookie: string;
 let memberCookie: string;
+let adminId: string;
+let memberId: string;
 
 beforeAll(async () => {
   testDb = await startTestDb();
@@ -23,7 +25,7 @@ beforeAll(async () => {
     encryptionKey: ENCRYPTION_KEY.toString("base64"),
     publicUrl: "https://stubwise.example.com",
   });
-  ({ adminCookie, memberCookie } = await seedUsers(app));
+  ({ adminCookie, memberCookie, adminId, memberId } = await seedUsers(app));
 }, 120_000);
 
 afterAll(async () => {
@@ -376,5 +378,141 @@ describe("DELETE /api/projects/:projectId", () => {
       headers: { cookie: memberCookie },
     });
     expect(res.statusCode).toBe(403);
+  });
+});
+
+describe("GET /api/projects/pulse", () => {
+  async function seedTicketRow(
+    projectId: string,
+    opts: { number?: number; title?: string } = {},
+  ): Promise<string> {
+    const [row] = await testDb.db
+      .insert(tickets)
+      .values({
+        projectId,
+        number: opts.number ?? 1,
+        title: opts.title ?? "Ticket",
+        type: "bug",
+        priority: "medium",
+        source: "manual",
+      })
+      .returning({ id: tickets.id });
+    return row!.id;
+  }
+
+  async function seedJob(
+    ticketId: string,
+    status: "awaiting_input" | "awaiting_plan_approval" | "triaging" | "fixing" | "failed" | "pr_merged" | "queued",
+    extra: { requestedByUserId?: string | null; startedAt?: Date; lastActivityAt?: Date } = {},
+  ): Promise<string> {
+    const [row] = await testDb.db
+      .insert(aiJobs)
+      .values({ ticketId, status, ...extra })
+      .returning({ id: aiJobs.id });
+    return row!.id;
+  }
+
+  it("è raggiungibile: 200 con un array, non il 400 di validazione UUID di /:projectId", async () => {
+    // Se questa rotta fosse registrata DOPO "/:projectId", Fastify leggerebbe
+    // "pulse" come projectId e fallirebbe la validazione zod dei params (400)
+    // prima ancora di arrivare a questo handler.
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/projects/pulse",
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(Array.isArray(res.json())).toBe(true);
+  });
+
+  it("un member senza nessun progetto seguito vede un array vuoto", async () => {
+    // Deve girare PRIMA che qualunque altro test di questo blocco segua un
+    // progetto per `memberId` (unico member del file, condiviso da tutto il
+    // beforeAll): l'ordine dei test in questo describe non è casuale.
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/projects/pulse",
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual([]);
+  });
+
+  it("un member vede solo i progetti che segue; un admin li vede tutti", async () => {
+    const { projectId: followedId } = await seedRepository(testDb.db);
+    const { projectId: unfollowedId } = await seedRepository(testDb.db);
+    await testDb.db.insert(projectFollows).values({ userId: memberId, projectId: followedId });
+
+    const memberRes = await app.inject({
+      method: "GET",
+      url: "/api/projects/pulse",
+      headers: { cookie: memberCookie },
+    });
+    expect(memberRes.statusCode).toBe(200);
+    const memberIds = (memberRes.json() as { projectId: string }[]).map((s) => s.projectId);
+    expect(memberIds).toContain(followedId);
+    expect(memberIds).not.toContain(unfollowedId);
+
+    const adminRes = await app.inject({
+      method: "GET",
+      url: "/api/projects/pulse",
+      headers: { cookie: adminCookie },
+    });
+    expect(adminRes.statusCode).toBe(200);
+    const adminIds = (adminRes.json() as { projectId: string }[]).map((s) => s.projectId);
+    expect(adminIds).toContain(followedId);
+    expect(adminIds).toContain(unfollowedId);
+  });
+
+  it("ordina: prima chi ha waitingForYou, poi chi ha running, poi idleDays decrescente", async () => {
+    const { projectId: waitingProjectId } = await seedRepository(testDb.db);
+    const { projectId: runningProjectId } = await seedRepository(testDb.db);
+    const { projectId: idleProjectId } = await seedRepository(testDb.db);
+    const { projectId: idleProjectId2 } = await seedRepository(testDb.db);
+
+    // waitingForYou (admin è sempre nel pubblico di un piano da approvare) —
+    // serve anche la riga di notifica: senza, `summarizeProject` OMETTE la
+    // voce da `waitingForYou` (nessun modo di agirci), e il progetto finirebbe
+    // nel gruppo "né in attesa né in corso" invece che in cima.
+    const waitingTicket = await seedTicketRow(waitingProjectId);
+    const waitingJobId = await seedJob(waitingTicket, "awaiting_plan_approval", {
+      requestedByUserId: memberId,
+    });
+    await testDb.db
+      .insert(notifications)
+      .values({ userId: adminId, jobId: waitingJobId, kind: "job.plan_review", event: {} });
+
+    // running.
+    const runningTicket = await seedTicketRow(runningProjectId);
+    await seedJob(runningTicket, "fixing", { startedAt: new Date() });
+
+    // fermo da 10 giorni.
+    const idleTicket = await seedTicketRow(idleProjectId);
+    await seedJob(idleTicket, "pr_merged", {
+      lastActivityAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000),
+    });
+
+    // fermo da 1 giorno: deve stare DOPO quello fermo da 10 (idleDays desc).
+    const idleTicket2 = await seedTicketRow(idleProjectId2);
+    await seedJob(idleTicket2, "pr_merged", {
+      lastActivityAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000),
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/projects/pulse",
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const order = (res.json() as { projectId: string }[]).map((s) => s.projectId);
+    const indexOf = (id: string) => order.indexOf(id);
+
+    expect(indexOf(waitingProjectId)).toBeGreaterThanOrEqual(0);
+    expect(indexOf(runningProjectId)).toBeGreaterThanOrEqual(0);
+    expect(indexOf(idleProjectId)).toBeGreaterThanOrEqual(0);
+    expect(indexOf(idleProjectId2)).toBeGreaterThanOrEqual(0);
+    expect(indexOf(waitingProjectId)).toBeLessThan(indexOf(runningProjectId));
+    expect(indexOf(runningProjectId)).toBeLessThan(indexOf(idleProjectId));
+    expect(indexOf(idleProjectId)).toBeLessThan(indexOf(idleProjectId2));
   });
 });
