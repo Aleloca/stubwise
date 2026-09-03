@@ -293,6 +293,13 @@ export async function summarizeProject(
   const waitingForOthers: PulseWaitingForOthersItem[] = [];
 
   for (const row of waitingRows) {
+    // Binario e non derivato da WAITING_STATUSES di proposito: `row` è già
+    // filtrata da isWaitingStatus, quindi qui i valori possibili sono solo
+    // questi due. Se un domani WAITING_STATUSES cresce a un terzo stato,
+    // questo ternario lo etichetterebbe silenziosamente "plan_approval" — a
+    // quel punto serve uno switch esaustivo su PulseWaitingKind (o l'unione
+    // che copre il nuovo stato), non un terzo ramo qui: un `.includes` non
+    // basterebbe comunque a essere esaustivo su più di due valori.
     const kind: PulseWaitingKind = row.status === "awaiting_input" ? "question" : "plan_approval";
     // Il kind di NOTIFICA e l'AZIONE corrispondente a questo tipo di attesa:
     // servono solo a interrogare `actorAllows`, la stessa funzione che decide
