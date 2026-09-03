@@ -12,7 +12,7 @@ import {
 import { seedTicket, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { eq, inArray } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { NotificationEvent } from "./format.js";
 import { publishNotification } from "./publish.js";
 
@@ -81,22 +81,17 @@ describe("publishNotification", () => {
       platform?: "ios" | "android";
       disabledReason?: "pat_revoked" | "invalid_token";
     } = {},
-  ): Promise<string> {
+  ): Promise<void> {
     const disabled = opts.disabledReason !== undefined;
-    const [row] = await db
-      .insert(deviceTokens)
-      .values({
-        userId,
-        platform: opts.platform ?? "ios",
-        token: `tok-${randomUUID()}`,
-        // `disabledAt` e `disabledReason` vivono e muoiono insieme: il CHECK
-        // `device_tokens_disabled_chk` rifiuta una riga a metà.
-        disabledAt: disabled ? new Date() : null,
-        disabledReason: opts.disabledReason ?? null,
-      })
-      .returning();
-    if (!row) throw new Error("insert del device di test non ha restituito la riga");
-    return row.id;
+    await db.insert(deviceTokens).values({
+      userId,
+      platform: opts.platform ?? "ios",
+      token: `tok-${randomUUID()}`,
+      // `disabledAt` e `disabledReason` vivono e muoiono insieme: il CHECK
+      // `device_tokens_disabled_chk` rifiuta una riga a metà.
+      disabledAt: disabled ? new Date() : null,
+      disabledReason: opts.disabledReason ?? null,
+    });
   }
 
   /**
@@ -261,7 +256,7 @@ describe("publishNotification", () => {
   });
 
   it.each(["pat_revoked", "invalid_token"] as const)(
-    "non crea la push se l'unico device è disattivato (%s)",
+    "non crea la push se l'unico device è disattivato, qualunque sia il motivo (%s)",
     async (disabledReason) => {
       const { projectId, ticketId } = await seedTicket(db);
       const adminId = await seedUser({ role: "admin" });
@@ -286,7 +281,7 @@ describe("publishNotification", () => {
     expect(await db.select().from(notificationDeliveries)).toHaveLength(0);
   });
 
-  it("crea UNA sola push per destinatario anche con più device attivi", async () => {
+  it("con più device attivi crea UNA sola push, e non al posto del DM Slack", async () => {
     const { projectId, ticketId } = await seedTicket(db);
     const adminId = await seedUser({
       role: "admin",
@@ -306,25 +301,22 @@ describe("publishNotification", () => {
 
   it("la push va solo al destinatario che ha il device, non a chi ne è senza", async () => {
     const { projectId, ticketId } = await seedTicket(db);
-    const conDevice = await seedUser({ role: "admin" });
-    const senzaDevice = await seedUser({ role: "admin" });
-    await seedDevice(conDevice);
+    const withDeviceId = await seedUser({ role: "admin" });
+    await seedUser({ role: "admin" });
+    await seedDevice(withDeviceId);
 
     const result = await publishNotification(db, prOpened, { projectId, ticketId });
 
+    // Due destinatari, un solo device: se l'`exists` non fosse correlato
+    // all'utente, il device di uno varrebbe come recapito anche per l'altro.
     expect(result).toEqual({ published: 2 });
     const deliveries = await db.select().from(notificationDeliveries);
     expect(deliveries).toHaveLength(1);
-    const [notificaConDevice] = await db
+    const [withDeviceNotification] = await db
       .select()
       .from(notifications)
-      .where(eq(notifications.userId, conDevice));
-    const [notificaSenzaDevice] = await db
-      .select()
-      .from(notifications)
-      .where(eq(notifications.userId, senzaDevice));
-    expect(deliveries[0]?.notificationId).toBe(notificaConDevice?.id);
-    expect(deliveries[0]?.notificationId).not.toBe(notificaSenzaDevice?.id);
+      .where(eq(notifications.userId, withDeviceId));
+    expect(deliveries[0]?.notificationId).toBe(withDeviceNotification?.id);
   });
 
   it("crea una sola consegna webhook per evento quando il webhook è configurato", async () => {
@@ -470,7 +462,7 @@ describe("publishNotification", () => {
     expect(await db.select().from(notificationDeliveries)).toHaveLength(0);
   });
 
-  it("non lancia mai: con un db rotto restituisce { published: 0 }", async () => {
+  it("non lancia mai: con un db rotto restituisce { published: 0 }, ma LOGGA", async () => {
     const broken = {
       transaction() {
         throw new Error("connessione persa");
@@ -482,8 +474,18 @@ describe("publishNotification", () => {
         throw new Error("connessione persa");
       },
     } as unknown as Db;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     await expect(publishNotification(broken, prOpened, {})).resolves.toEqual({ published: 0 });
+
+    // Il valore di ritorno non lo guarda nessun chiamante: il log è l'UNICA
+    // traccia che la notifica è sparita, e deve dire quale kind e perché.
+    expect(warn).toHaveBeenCalledTimes(1);
+    const [message, error] = warn.mock.calls[0] ?? [];
+    expect(message).toContain("job.pr_opened");
+    expect(message).toContain("nessuna riga scritta");
+    expect((error as Error).message).toBe("connessione persa");
+    warn.mockRestore();
   });
 
   it("su errore SQL non aborta la transazione del chiamante (savepoint annidato)", async () => {
@@ -492,6 +494,7 @@ describe("publishNotification", () => {
     // fallimento deve restare confinato al savepoint di publishNotification.
     const projectIdFantasma = randomUUID();
     const emailDopo = `${randomUUID()}@example.com`;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     await db.transaction(async (tx) => {
       const result = await publishNotification(tx, prOpened, {
@@ -511,6 +514,10 @@ describe("publishNotification", () => {
     // ...e la pubblicazione fallita non ha lasciato righe parziali.
     expect(await db.select().from(notifications)).toHaveLength(0);
     expect(await db.select().from(notificationDeliveries)).toHaveLength(0);
+    // Anche su un errore SQL vero (non solo con un db finto) resta il log:
+    // è tutto ciò che distingue "niente da notificare" da "notifica persa".
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
   });
 
   it("instrada verso chi ha richiesto il job e ancora le notifiche al job", async () => {
