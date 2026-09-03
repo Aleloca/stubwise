@@ -374,6 +374,19 @@ describe("/api/me/devices", () => {
     expect(await deviceRow("tok-altrui")).toBeUndefined();
   });
 
+  it("un token con caratteri da percent-encoding sopravvive al giro nel path", async () => {
+    // Il token sta nel PATH solo sul DELETE, e non è un identificatore che
+    // scegliamo noi: lo assegna il sistema operativo. `/` è il carattere che
+    // romperebbe il routing se qualcuno smettesse di codificarlo — ed è quello
+    // che `deleteDevice` di `@stubwise/api-client` codifica con
+    // `encodeURIComponent`. Qui si verifica che il giro completo torni alla
+    // riga giusta, non a una a caso.
+    const token = "abc/def:ghi_jkl-mno";
+    expect((await putDevice({ platform: "ios", token })).statusCode).toBe(204);
+    expect((await deleteDevice(token)).statusCode).toBe(204);
+    expect(await deviceRow(token)).toBeUndefined();
+  });
+
   it("DELETE di un token inesistente: 204, non 404", async () => {
     // Il logout dev'essere idempotente: l'app lo ritenta dopo un timeout di
     // rete e non deve inciampare in un errore per un lavoro già fatto. Un 404
