@@ -1,10 +1,11 @@
-import { projectFollows, projects, users } from "@stubwise/db";
+import { deviceTokens, projectFollows, projects, users } from "@stubwise/db";
 import {
+  deviceRegistrationSchema,
   notificationPrefsUpdateSchema,
   notificationPrefsViewSchema,
   projectFollowsSchema,
 } from "@stubwise/shared";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -16,10 +17,10 @@ import { authErrorResponses, errorSchema } from "./shared.js";
  * Preferenze PERSONALI dell'utente autenticato, sotto `/api/me`: quali progetti
  * segue e su quali canali vuole essere avvisato.
  *
- * Sono i due ingressi dell'instradamento delle notifiche (`packages/notifications`
+ * Sono gli ingressi dell'instradamento delle notifiche (`packages/notifications`
  * → `recipientsFor`): i follow decidono CHI riceve un evento di progetto,
  * `notify_slack_dm` e `notify_push` se a quella persona si manda anche il DM
- * Slack o la push sui suoi device. Nessun
+ * Slack o la push, e `device_tokens` DOVE recapitare quella push. Nessun
  * privilegio admin: ognuno gestisce solo le proprie righe, e `userId` è sempre
  * nel WHERE — un utente non può leggere né scrivere le preferenze altrui.
  *
@@ -163,6 +164,120 @@ export async function mePrefsRoutes(instance: FastifyInstance): Promise<void> {
       if (Object.keys(patch).length > 0) {
         await app.db.update(users).set(patch).where(eq(users.id, request.user!.id));
       }
+      return reply.code(204).send(null);
+    },
+  );
+
+  /**
+   * REGISTRA il token push di un device: un UPSERT idempotente, non una
+   * creazione. L'app lo chiama a ogni avvio e a ogni rotazione del token del
+   * sistema operativo, quindi la stessa chiamata ripetuta deve valere una sola
+   * riga.
+   *
+   * La chiave del conflitto è `token` (unique GLOBALE, non per utente), e da
+   * questo discendono i due comportamenti che seguono.
+   *
+   * 1. **L'upsert RIATTIVA.** Se la riga era disattivata — `pat_revoked` dopo
+   *    la revoca del PAT, `invalid_token` da un rifiuto del relay — questa
+   *    registrazione azzera `disabledAt` **e** `disabledReason`. Senza,
+   *    un telefono che rifà login resterebbe muto PER SEMPRE, e in silenzio:
+   *    la registrazione risponderebbe 204 e nessuna push arriverebbe mai più.
+   *    I due campi si azzerano INSIEME perché il CHECK
+   *    `device_tokens_disabled_chk` impone `(disabled_at IS NULL) =
+   *    (disabled_reason IS NULL)`: uno solo darebbe un 23514.
+   *
+   * 2. **Il device PASSA a chi lo registra ora.** `userId` è nel SET, non solo
+   *    nei valori d'insert: sullo stesso telefono l'utente A esce e B entra, e
+   *    il token del sistema operativo è lo stesso. Senza il passaggio la
+   *    registrazione di B sbatterebbe contro la unique e quel telefono non
+   *    riceverebbe più nulla. Il token identifica l'INSTALLAZIONE, non la
+   *    persona. Il prezzo è noto e accettato: chi conosce il token di un altro
+   *    device può intestarselo, e da quel momento è il telefono altrui a
+   *    ricevere le SUE notifiche mentre il legittimo proprietario smette di
+   *    riceverne — un disservizio più che una lettura di dati altrui, e
+   *    raggiungibile solo da chi il token ce l'ha già.
+   *
+   * Una sola istruzione, quindi nessuna transazione: non c'è una scrittura
+   * "prima di quella decisiva" da cui difendersi.
+   */
+  app.put(
+    "/devices",
+    {
+      preHandler: requireAuth,
+      schema: {
+        body: deviceRegistrationSchema,
+        response: { 204: z.null(), 400: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const userId = request.user!.id;
+      // Il PAT con cui l'app si è autenticata, se è arrivata con un PAT: è ciò
+      // su cui la revoca (`routes/pat.ts`) ritrova i device di quel telefono.
+      // Da cookie di sessione non c'è, e la colonna resta null.
+      const patId = request.user!.patId ?? null;
+      const appVersion = request.body.appVersion ?? null;
+      const values = {
+        userId,
+        patId,
+        platform: request.body.platform,
+        token: request.body.token,
+        appVersion,
+      };
+      await app.db
+        .insert(deviceTokens)
+        .values(values)
+        .onConflictDoUpdate({
+          target: deviceTokens.token,
+          set: {
+            ...values,
+            lastSeenAt: new Date(),
+            // La riattivazione: vedi il punto 1 del docblock.
+            disabledAt: null,
+            disabledReason: null,
+          },
+        });
+      return reply.code(204).send(null);
+    },
+  );
+
+  /**
+   * CANCELLA la registrazione di un device: è il logout dell'app.
+   *
+   * La riga si ELIMINA, non si disattiva. Un soft delete continuerebbe a
+   * occupare la unique sul token e si farebbe riaccendere dal primo upsert di
+   * chiunque: il contrario di ciò che chiede chi esce.
+   *
+   * ⚠️ `userId` nel WHERE è la sola cosa che impedisce a chi conosce un token
+   * altrui di cancellarlo. Non è ridondante con nulla — qui non c'è nemmeno un
+   * 404 dietro cui nascondersi — e va letto insieme alla stessa riga in
+   * `routes/pat.ts`, dove il filtro serve per una ragione diversa e altrettanto
+   * non ovvia. C'è un test che lo dimostra guardando il DB, non lo status code:
+   * senza il filtro la risposta sarebbe 204 identica.
+   *
+   * **204 anche su un token che non c'è (o non è nostro)**, non 404. Il logout
+   * dev'essere idempotente: l'app lo ritenta dopo un timeout di rete e non deve
+   * inciampare in un errore per un lavoro già fatto. Un 404 in più direbbe
+   * «questo token non è tuo o non esiste», che è più di quanto serva a chi sta
+   * uscendo — e non c'è nessun client che sappia farci qualcosa.
+   */
+  app.delete(
+    "/devices/:token",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: z.object({ token: z.string().min(1) }),
+        response: { 204: z.null(), ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      await app.db
+        .delete(deviceTokens)
+        .where(
+          and(
+            eq(deviceTokens.token, request.params.token),
+            eq(deviceTokens.userId, request.user!.id),
+          ),
+        );
       return reply.code(204).send(null);
     },
   );

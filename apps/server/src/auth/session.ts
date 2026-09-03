@@ -30,6 +30,23 @@ export interface SessionUser {
   avatarUrl: string | null;
   /** Slack user id linkato a questo utente, o null se non linkato. */
   slackUserId: string | null;
+  /**
+   * Id del PAT con cui QUESTA richiesta si è autenticata, assente quando ci si
+   * è autenticati col cookie di sessione.
+   *
+   * Non è un attributo dell'utente ma della credenziale usata, ed è l'unica
+   * cosa in `SessionUser` che lo sia: sta qui perché la registrazione di un
+   * device (`PUT /api/me/devices`) deve poter scrivere `device_tokens.pat_id`,
+   * che è ciò su cui la revoca del PAT ritrova i device di quel telefono. Un
+   * device registrato dal web non ha un PAT dietro e lascia la colonna null —
+   * `undefined` qui, non `null`, perché "non c'è un PAT" e "c'è un PAT nullo"
+   * non sono due stati distinti.
+   *
+   * Deliberatamente FUORI da {@link toSessionUser}: quella proiezione parte da
+   * una riga di `users`, dove un id di PAT non esiste. Lo aggiunge il solo
+   * {@link findPatUser}, che è l'unico posto in cui la credenziale è nota.
+   */
+  patId?: string;
 }
 
 declare module "fastify" {
@@ -137,9 +154,12 @@ export function sessionIdFromRequest(request: FastifyRequest): string | null {
  * token nella colonna unique `token_hash` (stesso schema delle server key in
  * monitor.ts: nessun confronto in tempo variabile a riposo). Aggiorna
  * `lastUsedAt` best-effort e con debounce (solo se null o più vecchio di
- * {@link LAST_USED_DEBOUNCE_MS}; un errore di update non fa fallire l'auth). Il
- * SessionUser prodotto è identico a quello di findSessionUser: il PAT eredita
- * i permessi dell'utente.
+ * {@link LAST_USED_DEBOUNCE_MS}; un errore di update non fa fallire l'auth).
+ *
+ * Il SessionUser prodotto ha gli STESSI PERMESSI di quello di findSessionUser
+ * — il PAT eredita l'utente — ma non è identico: porta in più `patId`, l'unico
+ * campo che dipende dalla credenziale e non dall'utente. Vedi
+ * {@link SessionUser.patId}.
  */
 export async function findPatUser(
   db: Db,
@@ -179,7 +199,9 @@ export async function findPatUser(
       ),
     )
     .catch(() => undefined);
-  return toSessionUser(row);
+  // `patId` in più rispetto alla proiezione condivisa: qui, e solo qui, si sa
+  // con QUALE credenziale è arrivata la richiesta.
+  return { ...toSessionUser(row), patId: row.patId };
 }
 
 /**

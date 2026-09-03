@@ -463,3 +463,51 @@ export const notificationPrefsViewSchema = notificationPrefsSchema.extend({
   slackLinked: z.boolean(),
 });
 export type NotificationPrefsView = z.infer<typeof notificationPrefsViewSchema>;
+
+/**
+ * Body di `PUT /api/me/devices`: la registrazione del token push di UN device.
+ *
+ * `token` è il token del servizio di push del sistema operativo (APNs o FCM):
+ * lo assegna il dispositivo, non noi, e può cambiare — l'app lo ri-registra a
+ * ogni avvio e a ogni rotazione. È lui la chiave della riga (unique in
+ * `device_tokens`), non l'utente: la registrazione è quindi un UPSERT
+ * idempotente, non una creazione.
+ *
+ * `platform` è speculare al CHECK `device_tokens_platform_chk` di
+ * `packages/db`. Le due liste non hanno un guardiano dedicato che le confronti
+ * — `@stubwise/shared` finisce nel bundle browser e non può importare
+ * `@stubwise/db` — ma la divergenza pericolosa (un valore in più QUI, che il
+ * DB rifiuterebbe con un 23514 a runtime) è fermata dal typecheck: la rotta
+ * passa `request.body.platform` a un insert Drizzle tipato sui valori del
+ * CHECK, e un valore in più non ci entra. Verificato, non supposto.
+ *
+ * `appVersion` è OPZIONALE, e non solo perché la colonna è nullable: è il
+ * modello dei campi che verranno. L'app mobile non viaggia nell'immagine del
+ * server, e un campo NUOVO e OBBLIGATORIO in questo body renderebbe 400 ogni
+ * registrazione delle versioni già installate — cioè quei telefoni
+ * smetterebbero di ricevere push al primo deploy. L'invariante «solo cambi
+ * additivi» vale anche in SCRITTURA: ogni campo aggiunto qui dopo il primo
+ * rilascio dell'app nasce opzionale.
+ *
+ * NON è `.strict()`, al contrario di {@link notificationPrefsUpdateSchema}, e
+ * la differenza non è una svista: là TUTTI i campi sono opzionali, quindi lo
+ * strip trasformerebbe `{ pussh: false }` in `{}` e un typo diventerebbe un
+ * 204 bugiardo. Qui i campi che contano sono obbligatori — un typo su
+ * `platform` o `token` resta un 400 per campo mancante — e l'unico strip
+ * possibile è su `appVersion`, che è un dato diagnostico: perderlo non fa
+ * credere a nessuno di aver salvato qualcosa che non è stato salvato. In
+ * cambio, un'app più nuova del server che mandasse un campo ancora ignoto
+ * continua a registrarsi invece di prendere un 400.
+ */
+export const deviceRegistrationSchema = z.object({
+  platform: z.enum(["ios", "android"]),
+  /**
+   * Il tetto non è una regola del formato (un token APNs è 64 esadecimali, uno
+   * FCM ~163 caratteri, e nessuna delle due lunghezze è promessa dai
+   * fornitori): è il limite oltre il quale non stiamo più registrando un
+   * device ma scrivendo testo arbitrario in una colonna indicizzata.
+   */
+  token: z.string().min(1).max(4096),
+  appVersion: z.string().min(1).max(64).optional(),
+});
+export type DeviceRegistration = z.infer<typeof deviceRegistrationSchema>;

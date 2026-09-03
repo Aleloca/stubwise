@@ -1,8 +1,8 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { projectFollows, users } from "@stubwise/db";
+import { eq } from "drizzle-orm";
+import { deviceTokens, projectFollows, users } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
@@ -11,10 +11,10 @@ import type { SeededUsers } from "../test/fixtures.js";
 import { seedUsers } from "../test/fixtures.js";
 
 /**
- * Test di `/api/me/follows` e `/api/me/notification-prefs`: le preferenze
- * PERSONALI dell'utente autenticato. Il punto delicato è l'isolamento — ogni
- * utente vede e scrive solo le proprie righe — e la sostituzione atomica
- * dell'insieme dei progetti seguiti.
+ * Test di `/api/me/follows`, `/api/me/notification-prefs` e `/api/me/devices`:
+ * le preferenze PERSONALI dell'utente autenticato. Il punto delicato è
+ * l'isolamento — ogni utente vede e scrive solo le proprie righe — e la
+ * sostituzione atomica dell'insieme dei progetti seguiti.
  */
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
@@ -25,6 +25,10 @@ let app: FastifyInstance;
 let seeded: SeededUsers;
 let projectA: string;
 let projectB: string;
+/** PAT in chiaro dell'admin: serve a registrare un device COME fa l'app. */
+let adminPat: string;
+/** Id della riga `personal_access_tokens` dietro {@link adminPat}. */
+let adminPatId: string;
 
 beforeAll(async () => {
   testDb = await startTestDb();
@@ -37,6 +41,14 @@ beforeAll(async () => {
   seeded = await seedUsers(app);
   ({ projectId: projectA } = await seedRepository(db));
   ({ projectId: projectB } = await seedRepository(db));
+  const pat = await app.inject({
+    method: "POST",
+    url: "/api/pats",
+    headers: { cookie: seeded.adminCookie },
+    payload: { name: "iPhone di test" },
+  });
+  if (pat.statusCode !== 201) throw new Error(`creazione PAT fallita: ${pat.body}`);
+  ({ token: adminPat, id: adminPatId } = pat.json() as { token: string; id: string });
 }, 120_000);
 
 afterAll(async () => {
@@ -46,6 +58,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   await db.delete(projectFollows);
+  await db.delete(deviceTokens);
 });
 
 function getFollows(cookie = seeded.adminCookie) {
@@ -78,6 +91,32 @@ function patchPrefs(
   });
 }
 
+/**
+ * Registrazione di un device COME la fa l'app: il token nel body, non nel path.
+ * `auth` è un header intero (cookie di sessione o `Bearer` di un PAT) perché
+ * la differenza fra le due porte è ESATTAMENTE ciò che questi test misurano.
+ */
+function putDevice(
+  body: Record<string, unknown>,
+  auth: Record<string, string> = { cookie: seeded.adminCookie },
+) {
+  return app.inject({ method: "PUT", url: "/api/me/devices", headers: auth, payload: body });
+}
+
+function deleteDevice(token: string, auth: Record<string, string> = { cookie: seeded.adminCookie }) {
+  return app.inject({
+    method: "DELETE",
+    url: `/api/me/devices/${encodeURIComponent(token)}`,
+    headers: auth,
+  });
+}
+
+/** La riga di `device_tokens` con quel token, o undefined. */
+async function deviceRow(token: string) {
+  const [row] = await db.select().from(deviceTokens).where(eq(deviceTokens.token, token));
+  return row;
+}
+
 describe("autenticazione", () => {
   it("tutte le rotte /api/me rispondono 401 senza sessione", async () => {
     const calls = [
@@ -89,6 +128,12 @@ describe("autenticazione", () => {
         url: "/api/me/notification-prefs",
         payload: { slackDm: true, push: true },
       }),
+      app.inject({
+        method: "PUT",
+        url: "/api/me/devices",
+        payload: { platform: "ios", token: "tok-anonimo" },
+      }),
+      app.inject({ method: "DELETE", url: "/api/me/devices/tok-anonimo" }),
     ];
     for (const res of await Promise.all(calls)) {
       expect(res.statusCode).toBe(401);
@@ -225,5 +270,126 @@ describe("/api/me/notification-prefs", () => {
       payload: { slackDm: "si" },
     });
     expect(res.statusCode).toBe(400);
+  });
+});
+describe("/api/me/devices", () => {
+  const PAT_AUTH = () => ({ authorization: `Bearer ${adminPat}` });
+
+  it("PUT con PAT: 204 e la riga porta il patId di QUEL token", async () => {
+    // Il `patId` è ciò che lega il device alla credenziale con cui è stato
+    // registrato: senza, revocare il PAT del telefono perso non saprebbe quali
+    // device spegnere (vedi il DELETE di `routes/pat.ts`).
+    expect(
+      (await putDevice({ platform: "ios", token: "tok-pat", appVersion: "1.2.3" }, PAT_AUTH()))
+        .statusCode,
+    ).toBe(204);
+    const row = await deviceRow("tok-pat");
+    expect(row).toMatchObject({
+      userId: seeded.adminId,
+      patId: adminPatId,
+      platform: "ios",
+      appVersion: "1.2.3",
+      disabledAt: null,
+      disabledReason: null,
+    });
+  });
+
+  it("PUT con cookie di sessione: 204 e patId null", async () => {
+    // Registrare dal web è legittimo e non ha un PAT dietro: la colonna resta
+    // null e la revoca di un PAT altrui non deve poterla toccare.
+    expect((await putDevice({ platform: "android", token: "tok-web" })).statusCode).toBe(204);
+    expect(await deviceRow("tok-web")).toMatchObject({
+      userId: seeded.adminId,
+      patId: null,
+      appVersion: null,
+    });
+  });
+
+  it("PUT è idempotente e aggiorna i campi (una sola riga per token)", async () => {
+    await putDevice({ platform: "ios", token: "tok-idem", appVersion: "1.0.0" });
+    await putDevice({ platform: "ios", token: "tok-idem", appVersion: "2.0.0" });
+    const rows = await db.select().from(deviceTokens).where(eq(deviceTokens.token, "tok-idem"));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.appVersion).toBe("2.0.0");
+  });
+
+  it("PUT RIATTIVA un device disabilitato, azzerando istante E motivo", async () => {
+    // È il caso che rende inutile tutto il resto se sbagliato: dopo la revoca
+    // del PAT (o un `invalid_token` dal relay) la riga resta disattivata, e se
+    // il ri-login non la riaccendesse quel telefono resterebbe muto PER
+    // SEMPRE — senza nessun errore da nessuna parte. `disabled_at` e
+    // `disabled_reason` vanno azzerati INSIEME: il CHECK
+    // `device_tokens_disabled_chk` li vuole entrambi null o entrambi
+    // valorizzati, e azzerarne uno solo darebbe un 23514 a runtime.
+    await putDevice({ platform: "ios", token: "tok-spento" }, PAT_AUTH());
+    await db
+      .update(deviceTokens)
+      .set({ disabledAt: new Date(), disabledReason: "pat_revoked" })
+      .where(eq(deviceTokens.token, "tok-spento"));
+    expect((await putDevice({ platform: "ios", token: "tok-spento" })).statusCode).toBe(204);
+    expect(await deviceRow("tok-spento")).toMatchObject({
+      disabledAt: null,
+      disabledReason: null,
+    });
+  });
+
+  it("PUT dello stesso token da un altro utente: il device PASSA al nuovo utente", async () => {
+    // Il token identifica l'INSTALLAZIONE, non la persona: su un telefono dove
+    // A esce e B entra, il token del sistema operativo è lo stesso. Senza
+    // questo passaggio la registrazione di B sbatterebbe contro la unique e
+    // quel telefono non riceverebbe mai una push. Il prezzo — chi conosce un
+    // token altrui se lo può intestare — è discusso nel report del task.
+    await putDevice({ platform: "ios", token: "tok-condiviso" }, { cookie: seeded.adminCookie });
+    expect(
+      (await putDevice({ platform: "ios", token: "tok-condiviso" }, { cookie: seeded.memberCookie }))
+        .statusCode,
+    ).toBe(204);
+    const rows = await db.select().from(deviceTokens).where(eq(deviceTokens.token, "tok-condiviso"));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.userId).toBe(seeded.memberId);
+  });
+
+  it("DELETE: la riga sparisce, non viene disabilitata", async () => {
+    // Logout = via. Una riga soft-deleted resterebbe a occupare la unique sul
+    // token e a farsi riaccendere dal primo upsert di chiunque.
+    await putDevice({ platform: "ios", token: "tok-logout" });
+    expect((await deleteDevice("tok-logout")).statusCode).toBe(204);
+    expect(await deviceRow("tok-logout")).toBeUndefined();
+  });
+
+  it("DELETE di un token di un ALTRO utente: 204, ma la riga altrui resta INTATTA", async () => {
+    // Il test che la previsione del revisore chiedeva. Il 204 non prova nulla:
+    // senza `userId` nel WHERE risponderebbe 204 ESATTAMENTE come adesso, e
+    // avrebbe cancellato la riga. È il DB a dover essere guardato.
+    await putDevice({ platform: "ios", token: "tok-altrui" }, { cookie: seeded.memberCookie });
+    const prima = await deviceRow("tok-altrui");
+    expect((await deleteDevice("tok-altrui", { cookie: seeded.adminCookie })).statusCode).toBe(204);
+    const dopo = await deviceRow("tok-altrui");
+    expect(dopo).toBeDefined();
+    expect(dopo?.id).toBe(prima?.id);
+    expect(dopo?.userId).toBe(seeded.memberId);
+    // E il member lo cancella eccome: il 204 di prima non era un permesso
+    // negato per tutti, era negato per l'admin.
+    expect((await deleteDevice("tok-altrui", { cookie: seeded.memberCookie })).statusCode).toBe(204);
+    expect(await deviceRow("tok-altrui")).toBeUndefined();
+  });
+
+  it("DELETE di un token inesistente: 204, non 404", async () => {
+    // Il logout dev'essere idempotente: l'app lo ritenta dopo un timeout di
+    // rete e non deve inciampare in un errore per un lavoro già fatto. Un 404
+    // direbbe anche «questo token non è tuo o non esiste», che è più di quanto
+    // serva a chi sta uscendo.
+    expect((await deleteDevice("tok-mai-esistito")).statusCode).toBe(204);
+  });
+
+  it("rifiuta una piattaforma fuori dai valori ammessi", async () => {
+    // Speculare al CHECK `device_tokens_platform_chk`: qui il 400 arriva PRIMA
+    // del DB, che altrimenti risponderebbe con un 500 da 23514.
+    expect((await putDevice({ platform: "web", token: "tok-web-platform" })).statusCode).toBe(400);
+  });
+
+  it("rifiuta un body senza token e un token vuoto", async () => {
+    expect((await putDevice({ platform: "ios" })).statusCode).toBe(400);
+    expect((await putDevice({ platform: "ios", token: "" })).statusCode).toBe(400);
   });
 });
