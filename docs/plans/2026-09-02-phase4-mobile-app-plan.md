@@ -842,6 +842,16 @@ il job CI su ubuntu passi con il mobile incluso.
   quella vera: «il test non discrimina» quando invece discrimina. **Regola: dopo
   ogni mutazione cross-package, ribuildare prima di eseguire.**
 
+- **⚠️ SECONDA TRAPPOLA DEL MUTATION TESTING, emersa al Task 9: una mutazione
+  che CRASHA non prova niente.** Mutando un controllo in `KNOWN.has(status as
+  string)`, un input numerico arrivava fino a `status.slice(...)` e **lanciava**:
+  la `parse` falliva comunque e l'`expect(...).toThrow()` passava **per il
+  motivo sbagliato** — il test sembrava difeso, ma la logica cambiata non era
+  mai stata esercitata. **Regola: una mutazione deve produrre codice che GIRA e
+  dà l'esito sbagliato, non codice che esplode.** Se dopo una mutazione il test
+  resta verde, prima di concludere «il test non discrimina» verifica che la
+  mutazione non stia fallendo per conto suo.
+
 - **Due voci accertate al Task 8:** (a) *nota di deploy* — finché il Task 10 non
   c'è, il poller marca ogni riga `push` come `skipped / channel_not_implemented`
   e **non la ripesca più**. Innocuo se server e worker si deployano insieme
