@@ -769,6 +769,8 @@ interface PushDeliveryOpts {
   extraOpen?: number;
   /** Se false la notifica non ha progetto (niente `threadId` nel payload). */
   withProject?: boolean;
+  /** Tentativi già bruciati sulla riga: serve a raggiungere MAX_ATTEMPTS. */
+  attempts?: number;
 }
 
 interface PushDeliverySeed {
@@ -830,7 +832,11 @@ async function insertPushDelivery(opts: PushDeliveryOpts = {}): Promise<PushDeli
 
   const [row] = await db
     .insert(notificationDeliveries)
-    .values({ channel: "push", notificationId: notification!.id })
+    .values({
+      channel: "push",
+      notificationId: notification!.id,
+      ...(opts.attempts ? { attempts: opts.attempts } : {}),
+    })
     .returning({ id: notificationDeliveries.id });
   return {
     deliveryId: row!.id,
@@ -938,6 +944,9 @@ describe("processDeliveriesOnce — canale push", () => {
 
     const row = await readDelivery(seed.deliveryId);
     expect(row.status).toBe("sent");
+    // Prefisso fisso: `error LIKE 'devices:%'` separa la lista del relay dalle
+    // frasi libere delle eccezioni e dai codici snake_case.
+    expect(row.error).toMatch(/^devices: /);
     expect(row.error).toContain(seed.deviceIds[0]!);
     expect(row.error).toContain(seed.deviceIds[1]!);
     expect(row.error).toContain("failed");
@@ -1085,7 +1094,7 @@ describe("processDeliveriesOnce — canale push", () => {
 
   it("il badge è l'unread count del destinatario, non delle sue push", async () => {
     // 1 notifica di questa consegna + 2 altre aperte = 3.
-    const seed = await insertPushDelivery({ extraOpen: 2 });
+    await insertPushDelivery({ extraOpen: 2 });
     const relay = fakeRelay();
 
     await processDeliveriesOnce(pushDeps(relay));
@@ -1093,10 +1102,9 @@ describe("processDeliveriesOnce — canale push", () => {
     expect(relay.calls[0]!.payload.badge).toBe(3);
     // Ed è il conteggio di QUEL destinatario: un'altra persona con la sua
     // inbox piena non deve alterarlo.
-    const seedAltri = await insertPushDelivery({ extraOpen: 5 });
+    await insertPushDelivery({ extraOpen: 5 });
     await processDeliveriesOnce(pushDeps(relay));
     expect(relay.calls[1]!.payload.badge).toBe(6);
-    expect(seedAltri.userId).not.toBe(seed.userId);
   });
 
   it("nessun device attivo al momento dell'invio → skipped no_active_device", async () => {
@@ -1137,6 +1145,114 @@ describe("processDeliveriesOnce — canale push", () => {
     await processDeliveriesOnce(pushDeps(relay));
 
     expect(relay.calls[0]!.payload.threadId).toBeUndefined();
+  });
+
+  it("tutti i device raggiunti → `error` NULL, come su ogni altro canale", async () => {
+    // Se il push fosse l'unico canale a valorizzare `error` su una consegna
+    // `sent`, `error IS NOT NULL` smetterebbe di significare la stessa cosa
+    // nella stessa colonna.
+    const seed = await insertPushDelivery({
+      devices: [
+        { platform: "ios", token: "tok-1" },
+        { platform: "android", token: "tok-2" },
+      ],
+    });
+
+    await processDeliveriesOnce(pushDeps(fakeRelay()));
+
+    const row = await readDelivery(seed.deliveryId);
+    expect(row.status).toBe("sent");
+    expect(row.error).toBeNull();
+  });
+
+  it("retry + invalid_token insieme: disabilita QUEL device E resta pending", async () => {
+    // È l'unico caso in cui la transazione fa entrambe le cose non banali. Al
+    // giro dopo il device morto non è più del gruppo: il relay vede UN token.
+    const seed = await insertPushDelivery({
+      devices: [
+        { platform: "ios", token: "tok-da-riprovare" },
+        { platform: "android", token: "tok-morto" },
+      ],
+    });
+    const relay = fakeRelay({
+      results: (tokens) =>
+        tokens.map((entry) =>
+          entry.token === "tok-morto"
+            ? { token: entry.token, status: "invalid_token" as const }
+            : { token: entry.token, status: "retry" as const },
+        ),
+    });
+
+    await processDeliveriesOnce(pushDeps(relay));
+
+    const row = await readDelivery(seed.deliveryId);
+    expect(row.status).toBe("pending");
+    expect(row.error).toMatch(/^devices: /);
+    expect((await readDevice(seed.deviceIds[0]!)).disabledAt).toBeNull();
+    expect((await readDevice(seed.deviceIds[1]!)).disabledAt).not.toBeNull();
+
+    // Secondo giro: la consegna è di nuovo dovuta.
+    await db
+      .update(notificationDeliveries)
+      .set({ nextAttemptAt: new Date(Date.now() - 1_000) })
+      .where(eq(notificationDeliveries.id, seed.deliveryId));
+    await processDeliveriesOnce(pushDeps(relay));
+
+    expect(relay.calls).toHaveLength(2);
+    expect(relay.calls[1]!.tokens).toEqual([{ platform: "ios", token: "tok-da-riprovare" }]);
+  });
+
+  it("all'ultimo tentativo una push ritentabile diventa failed, e finisce nei log", async () => {
+    const seed = await insertPushDelivery({ attempts: 4 });
+    const logger = collectingLogger();
+    const relay = fakeRelay({
+      results: (tokens) =>
+        tokens.map((entry) => ({ token: entry.token, status: "retry" as const })),
+    });
+
+    await processDeliveriesOnce(pushDeps(relay, logger));
+
+    const row = await readDelivery(seed.deliveryId);
+    expect(row.status).toBe("failed");
+    expect(row.attempts).toBe(5);
+    expect(row.error).toMatch(/^devices: /);
+    // Una notifica persa per sempre non deve restare solo nella colonna.
+    expect(logger.warns).toHaveLength(1);
+    expect(logger.warns[0]!.msg).toContain("MAX_ATTEMPTS");
+  });
+
+  it("oltre il tetto, gli esiti in più diventano un `+N`", async () => {
+    const devices = Array.from({ length: 21 }, (_, index) => ({
+      platform: "ios" as const,
+      token: `tok-${index}`,
+    }));
+    const seed = await insertPushDelivery({ devices });
+    const relay = fakeRelay({
+      results: (tokens) =>
+        tokens.map((entry) => ({ token: entry.token, status: "failed" as const })),
+    });
+
+    await processDeliveriesOnce(pushDeps(relay));
+
+    const row = await readDelivery(seed.deliveryId);
+    const detail = row.error ?? "";
+    expect(detail).toMatch(/, \+1$/);
+    // Esattamente 20 esiti elencati, non 19 né 21.
+    expect(detail.match(/=failed/g)).toHaveLength(20);
+    expect(seed.deviceIds.filter((id) => detail.includes(id))).toHaveLength(20);
+  });
+
+  it("push spente: UNA riga di log per tick, non una per consegna", async () => {
+    // `PUSH_RELAY_URL=` è uno stato STABILE (l'interruttore del rollback): un
+    // warn per consegna sarebbe rumore perpetuo.
+    await insertPushDelivery();
+    await insertPushDelivery();
+    const logger = collectingLogger();
+
+    const processed = await processDeliveriesOnce(pushDeps(null, logger));
+
+    expect(processed).toBe(2);
+    expect(logger.warns).toHaveLength(1);
   });
 
   it("il timeout del relay è corto: un relay morto non blocca il tick per minuti", () => {

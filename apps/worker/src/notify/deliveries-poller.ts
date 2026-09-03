@@ -253,7 +253,7 @@ async function processDelivery(
     return;
   }
   if (row.channel === "push") {
-    await processPushDelivery(deps, row);
+    await processPushDelivery(deps, tick, row);
     return;
   }
   if (row.channel !== "webhook") {
@@ -337,15 +337,33 @@ async function retryOrFail(
 interface TickContext {
   /** Bot token decifrato, `null` se l'integrazione non è configurata. Memoizzato. */
   botToken(): Promise<string | null>;
+  /**
+   * Vero la PRIMA volta che lo si chiama in questo tick: serve a loggare UNA
+   * SOLA riga per le push spente, non una per consegna.
+   *
+   * La differenza col bot Slack non configurato — che logga per consegna — è
+   * che quello è una misconfigurazione TRANSITORIA (qualcuno ricollegherà
+   * Slack), mentre `PUSH_RELAY_URL=` è l'interruttore documentato del rollback,
+   * cioè uno stato STABILE: su un'istanza con dieci telefoni sarebbero dieci
+   * warn per notifica, per sempre, e un log che si ripete così smette di essere
+   * letto.
+   */
+  firstPushDisabled(): boolean;
 }
 
 function createTickContext(deps: DeliveriesPollerDeps): TickContext {
   const load = deps.loadSlackBotToken ?? loadSlackBotToken;
   let pending: Promise<string | null> | undefined;
+  let pushDisabledLogged = false;
   return {
     botToken() {
       pending ??= load(deps.db, deps.encryptionKey);
       return pending;
+    },
+    firstPushDisabled() {
+      if (pushDisabledLogged) return false;
+      pushDisabledLogged = true;
+      return true;
     },
   };
 }
@@ -693,6 +711,13 @@ export const PUSH_RELAY_TIMEOUT_MS = 3_000;
  * accumulano (un token resta attivo finché una push non torna `invalid_token`),
  * quindi l'elenco non è limitato dal numero di telefoni veri; il resto diventa
  * un `+N`. Ogni `reason` è già troncato a 240 caratteri dal client.
+ *
+ * ⚠️ Vale 20 come `PUSH_RELAY_MAX_TOKENS` per pura COINCIDENZA, e le due
+ * costanti sono indipendenti: quella è il tetto del CONTRATTO (quanti token
+ * stanno in una chiamata, oltre i quali il client spezza in più chiamate),
+ * questa è quanto testo diagnostico ha senso tenere in una colonna. Chi le
+ * "unifica" cambia il significato di una delle due — e un `send` da 25 token
+ * resta legittimo, con 25 esiti da riassumere.
  */
 const PUSH_DETAIL_MAX_ENTRIES = 20;
 
@@ -734,11 +759,11 @@ interface DeviceOutcome {
  * Da un token push ci si intesta il device di qualcun altro: è lo stesso motivo
  * per cui `POST /api/me/devices/delete` li tiene fuori dal path.
  *
- * Finisce nella colonna `error` anche quando la consegna è `sent`, e non è una
- * svista: è l'unica colonna diagnostica della riga (`external_ref` ha già un
- * significato suo, ed è dei canali Slack), ed è l'unico posto in cui resta
- * scritto QUALI telefoni hanno ricevuto la notifica e quali no. Una riga `sent`
- * con `error` valorizzato è quindi normale su questo canale, e solo su questo.
+ * PREFISSO FISSO `devices: `, perché in questa colonna convivono tre dialetti:
+ * i codici snake_case (`push_disabled`), i messaggi liberi delle eccezioni e
+ * questa lista. `error LIKE 'devices:%'` separa «il relay ha risposto, ecco
+ * cos'ha detto per ciascun telefono» da «è saltata un'eccezione», che altrimenti
+ * si distinguono solo a occhio.
  */
 function summarizePushOutcomes(outcomes: DeviceOutcome[]): string {
   const shown = outcomes.slice(0, PUSH_DETAIL_MAX_ENTRIES).map(({ device, result }) => {
@@ -746,7 +771,8 @@ function summarizePushOutcomes(outcomes: DeviceOutcome[]): string {
     return result?.reason ? `${device.id}=${status} (${result.reason})` : `${device.id}=${status}`;
   });
   const rest = outcomes.length - shown.length;
-  return rest > 0 ? `${shown.join(", ")}, +${rest}` : shown.join(", ");
+  const list = rest > 0 ? `${shown.join(", ")}, +${rest}` : shown.join(", ");
+  return `devices: ${list}`;
 }
 
 /**
@@ -774,9 +800,22 @@ async function applyPushOutcome(
   const toDisable = outcomes
     .filter(({ result }) => result?.status === "invalid_token")
     .map(({ device }) => device.id);
-  const detail = summarizePushOutcomes(outcomes);
   const anyOk = outcomes.some(({ result }) => result?.status === "ok");
   const anyRetry = outcomes.some(({ result }) => result?.status === "retry");
+  /**
+   * Tutti raggiunti = `error` NULL, come su ogni altro canale.
+   *
+   * Gli altri tre canali scrivono `error = null` su una consegna `sent`: fosse
+   * il push l'unico a valorizzarla sempre, `error IS NOT NULL` smetterebbe di
+   * significare la stessa cosa nella stessa colonna. Il successo PARZIALE
+   * (`id1=ok, id2=failed (PayloadTooLarge)`) resta invece scritto, perché lì
+   * qualcosa è andato storto davvero — ed è anche l'unico posto in cui si vede
+   * che una push `retry` è stata persa perché un altro device era `ok`. Del
+   * caso tutto-ok si perde solo l'elenco dei device raggiunti, che è
+   * ricostruibile da `device_tokens`.
+   */
+  const allOk = outcomes.every(({ result }) => result?.status === "ok");
+  const detail = allOk ? null : summarizePushOutcomes(outcomes);
 
   await deps.db.transaction(async (tx) => {
     if (toDisable.length > 0) {
@@ -796,7 +835,8 @@ async function applyPushOutcome(
     if (anyRetry) {
       // Nessuno raggiunto ma qualcuno da riprovare: il backoff è già schedulato
       // dal claim, e i device appena disabilitati non saranno del giro dopo.
-      await retryOrFail(deps, row, detail, tx);
+      // `detail` non è mai null qui (un `retry` esclude il tutto-ok).
+      await retryOrFail(deps, row, detail ?? "", tx);
       return;
     }
     // Solo esiti permanenti (`invalid_token`, `failed`): ritentare non
@@ -818,18 +858,21 @@ async function applyPushOutcome(
  */
 async function processPushDelivery(
   deps: DeliveriesPollerDeps,
+  tick: TickContext,
   row: NotificationDelivery,
 ): Promise<void> {
   const { db } = deps;
   const client = deps.pushRelay;
   if (!client) {
     // Esito terminale altrimenti silenzioso: senza log l'unica traccia sarebbe
-    // una riga di DB che nessuno guarda. Vale come per il bot Slack non
-    // configurato — chi ha spento le push le vede tacere e sa perché.
-    deps.logger.warn(
-      { deliveryId: row.id, channel: row.channel },
-      "[notify] consegna skipped: push spente (PUSH_RELAY_URL vuota)",
-    );
+    // una riga di DB che nessuno guarda. UNA riga per tick, non una per
+    // consegna: vedi `firstPushDisabled`.
+    if (tick.firstPushDisabled()) {
+      deps.logger.warn(
+        { deliveryId: row.id, channel: row.channel },
+        "[notify] consegne skipped: push spente (PUSH_RELAY_URL vuota)",
+      );
+    }
     await finish(db, row.id, "skipped", "push_disabled");
     return;
   }
@@ -854,22 +897,46 @@ async function processPushDelivery(
     return;
   }
 
+  /**
+   * Il badge è il numero della campanella di QUESTO destinatario, non un
+   * conteggio delle sue push: stessa funzione della rotta `unread-count`.
+   *
+   * ⚠️ FUORI dal `try` qui sotto, e non è una questione di stile. Il recinto
+   * chiude `failed` SENZA RITENTATIVO, e questa riga è una query: una
+   * connessione chiusa dal pool o un restart di Postgres a metà tick
+   * diventerebbero una notifica persa per sempre, per giunta etichettata
+   * «payload non costruibile» — cioè un errore Postgres da cercare nel posto
+   * sbagliato. Lasciata qui, la stessa eccezione esce da `processDelivery`, la
+   * prende il catch del tick e la riga resta `pending` col backoff già
+   * schedulato, esattamente come farebbe fallendo `activeDevices`.
+   *
+   * UNA QUERY PER CONSEGNA, e va bene così: è un index-only scan su
+   * `notifications_user_status_created_idx`, sullo stesso percorso che fa già
+   * una chiamata di rete al relay. Memoizzarla per tick risparmierebbe ~zero
+   * query nel caso comune (una push per utente per tick) in cambio di una mappa
+   * da tenere: se un giorno il tetto per tick crescesse molto, la mossa giusta
+   * non è la memo ma un conteggio solo per tutti gli utenti del batch.
+   */
+  const badge = await unreadCount(db, recipient.userId);
+
   let payload;
   try {
     payload = buildPushPayload(recipient.event as unknown as NotificationEvent, recipient.language, {
       notificationId: recipient.notificationId,
-      // Il badge è il numero della campanella di QUESTO destinatario, non un
-      // conteggio delle sue push: stessa funzione della rotta `unread-count`.
-      unreadCount: await unreadCount(db, recipient.userId),
+      unreadCount: badge,
       projectId: recipient.projectId,
     });
   } catch (err) {
-    // RECINTO attorno alla resa dal jsonb, gemello di quello di `renderSlack`:
+    // RECINTO attorno alla resa dal jsonb, cugino di quello di `renderSlack`:
     // `notifications.event` può essere stato scritto mesi fa da una versione
-    // precedente. Senza questo catch l'eccezione uscirebbe da `processDelivery`
-    // e la riga resterebbe `pending` PER SEMPRE: `retryOrFail` non verrebbe mai
-    // raggiunto, quindi nessuno la dichiarerebbe `failed` e il claim
-    // continuerebbe a ripescarla a ogni scadenza del backoff.
+    // precedente. Qui però NON si degrada come fa `renderSlack`, che consegna
+    // comunque col solo `kind`: una push con titolo `push.title.qualcosa` sul
+    // telefono è peggio di una push che non arriva, e l'inbox la notifica ce
+    // l'ha comunque. Senza questo catch l'eccezione uscirebbe da
+    // `processDelivery` e la riga resterebbe `pending` PER SEMPRE:
+    // `retryOrFail` non verrebbe mai raggiunto, quindi nessuno la
+    // dichiarerebbe `failed` e il claim continuerebbe a ripescarla a ogni
+    // scadenza del backoff.
     const error = errText(err);
     deps.logger.warn(
       { deliveryId: row.id, channel: row.channel, error },
