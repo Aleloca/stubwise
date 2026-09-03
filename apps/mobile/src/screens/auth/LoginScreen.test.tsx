@@ -135,6 +135,35 @@ describe("LoginScreen", () => {
     expect(navigate).not.toHaveBeenCalled();
   });
 
+  // Il ramo "unexpected" (status diverso da 401 e da 0 — qui: 200 con un
+  // body che non passa mobileLoginResponseSchema) era rimasto MUTO fino a
+  // che non l'ho scoperto rompendo un test per un altro motivo (fixture
+  // "u1" al posto di un UUID vero — vedi il commento su `successUser`
+  // sopra). Riuso lo stesso meccanismo apposta: un `user.id` non-UUID fa
+  // fallire il parse lato client con ApiError status 200/invalid_response,
+  // che LoginScreen deve mostrare con un messaggio, non ignorare in
+  // silenzio.
+  test("risposta inattesa (200 ma non valida lo schema): mostra un errore generico, NON naviga", async () => {
+    jest.spyOn(globalThis, "fetch").mockResolvedValue(
+      jsonResponse(200, {
+        token: "stw_pat_x",
+        patId: "77777777-7777-4777-8777-777777777777",
+        user: { ...successUser, id: "non-e-un-uuid" },
+      }),
+    );
+    await renderLogin();
+    await waitFor(() => expect(screen.getByTestId("login-url")).toBeTruthy());
+
+    await fireEvent.changeText(screen.getByTestId("login-url"), "stubwise.example");
+    await fireEvent.changeText(screen.getByTestId("login-email"), "giulia@farmakom.it");
+    await fireEvent.changeText(screen.getByTestId("login-password"), "hunter2");
+    await fireEvent.press(screen.getByTestId("login-submit"));
+
+    await waitFor(() => expect(screen.getByText("Qualcosa è andato storto. Riprova.")).toBeTruthy());
+    expect(navigate).not.toHaveBeenCalled();
+    expect(Keychain.setGenericPassword).not.toHaveBeenCalled();
+  });
+
   test("Riprova rilancia la stessa richiesta di login", async () => {
     const fetchSpy = jest
       .spyOn(globalThis, "fetch")
