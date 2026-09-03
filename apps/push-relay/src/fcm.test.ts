@@ -271,6 +271,27 @@ describe("createFcmClient", () => {
       expect(result.reason ?? "").not.toContain(TOKEN);
     });
 
+    /**
+     * ⚠️ LA SOVRAPPOSIZIONE A UN BORDO: il caso che il confronto per contenenza
+     * TOTALE lasciava passare. Qui né il codice contiene il token né il token
+     * contiene il codice — si toccano solo su un bordo — eppure il codice si
+     * porta via dieci caratteri del token. È il buco che ha reso necessario
+     * `sharesRunWithToken`: con un `code` fino a 40 caratteri il frammento
+     * poteva arrivare a 39.
+     */
+    it.each([
+      ["un SUFFISSO del token in testa al codice", "klmnopqrstUnregistered"],
+      ["un PREFISSO del token in coda al codice", "InvalidTokenabcdefghij"],
+    ])("nemmeno con %s", async (_name, hostileCode) => {
+      const overlapToken = "abcdefghijklmnopqrst";
+      const body = JSON.stringify({ error: { status: hostileCode } });
+      const { client } = build([{ status: 400, body }]);
+      const result = await client.send(overlapToken, PAYLOAD);
+      // Nessun frammento lungo del token deve sopravvivere in `reason`.
+      expect(result.reason ?? "").not.toContain("klmnopqrst");
+      expect(result.reason ?? "").not.toContain("abcdefghij");
+    });
+
     it("nemmeno quando l'errore di rete porta il token nel messaggio", async () => {
       const client = createFcmClient({
         serviceAccountJson: SERVICE_ACCOUNT,

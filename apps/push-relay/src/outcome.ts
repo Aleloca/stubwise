@@ -84,23 +84,66 @@ const REASON_CODE_MAX_CHARS = 40;
 const REASON_CODE_SHAPE = /^[A-Za-z][A-Za-z0-9_]*$/;
 
 /**
+ * Quanti caratteri consecutivi in comune col token bastano a considerare un
+ * codice compromesso.
+ *
+ * ⚠️ Sei, e la soglia è bassa DI PROPOSITO. La versione precedente confrontava
+ * per contenenza TOTALE (`code.includes(token) || token.includes(code)`) e
+ * lasciava passare la sovrapposizione a un bordo, che è il caso realmente
+ * ostile: con `token = "abcdefghijklmnopqrst"`, il codice
+ * `"klmnopqrstUnregistered"` non contiene il token e non è contenuto in esso,
+ * ma si porta via dieci dei suoi caratteri — e con un `code` fino a 40
+ * caratteri il frammento poteva arrivare a 39. Un filtro che dichiara di
+ * reggere «un corpo ostile» non può fermarsi alla contenenza totale.
+ *
+ * Sui falsi positivi il conto torna: perché scattasse per caso servirebbero sei
+ * caratteri consecutivi di un codice dentro un token. I token APNs sono esadecimali
+ * (`[0-9a-f]`) e nessuna finestra da sei dei codici veri è tutta esadecimale
+ * (`baddevicetoken` → `baddev`, `addevi`, … tutte con lettere fuori range); per un
+ * token FCM in base64url la probabilità è dell'ordine di 10⁻⁸. E quando scatta,
+ * il degrado è benigno: `reason` diventa `unknown … status N`, cioè si perde
+ * una diagnostica, non si spegne un telefono.
+ */
+const SHARED_RUN_MIN_CHARS = 6;
+
+/**
+ * Il codice e il token condividono una sequenza abbastanza lunga?
+ *
+ * La soglia è `min(SHARED_RUN_MIN_CHARS, len(code), len(token))`, così l'unico
+ * controllo copre anche i due estremi senza casi speciali: se il TOKEN è più
+ * corto della soglia si finisce a cercare il token intero dentro il codice, e
+ * se è il CODICE a essere più corto si cerca il codice intero dentro il token —
+ * cioè esattamente la vecchia contenenza totale, che resta inclusa.
+ *
+ * Scansione a finestra scorrevole: `code` è ≤ 40 caratteri e `token` ≤ 1024
+ * byte, quindi qualche centinaio di confronti nel caso peggiore. Non serve di
+ * meglio, e un algoritmo più furbo qui sarebbe solo più facile da sbagliare.
+ */
+function sharesRunWithToken(code: string, token: string): boolean {
+  const needle = code.toLowerCase();
+  const haystack = token.toLowerCase();
+  const threshold = Math.min(SHARED_RUN_MIN_CHARS, needle.length, haystack.length);
+  if (threshold === 0) return false;
+  for (let start = 0; start + threshold <= needle.length; start += 1) {
+    if (haystack.includes(needle.slice(start, start + threshold))) return true;
+  }
+  return false;
+}
+
+/**
  * Estrae un codice d'errore riportabile, o `null` se ciò che è arrivato non lo
  * è. È l'unico varco fra un corpo di risposta e il campo `reason`.
  *
- * `token` non serve a costruire il risultato: serve a ESCLUDERLO. La forma e il
- * tetto bastano contro i token veri, ma questa è la garanzia che non dipende
- * dal formato che APNs e Google useranno domani — e siccome è un confronto fra
- * due stringhe che abbiamo già in mano, costa nulla e non può sbagliarsi.
+ * `token` non serve a costruire il risultato: serve a ESCLUDERLO, tramite
+ * {@link sharesRunWithToken}. La forma e il tetto bastano contro i token veri,
+ * ma quello è il filtro che non dipende dal formato che APNs e Google useranno
+ * domani.
  */
 export function reasonCode(raw: unknown, token: string): string | null {
   if (typeof raw !== "string") return null;
   const value = raw.trim();
   if (value === "" || value.length > REASON_CODE_MAX_CHARS) return null;
   if (!REASON_CODE_SHAPE.test(value)) return null;
-  // Sia il caso ovvio (il codice CONTIENE il token) sia quello sottile (il
-  // codice è un PEZZO del token: rivelarne 40 caratteri è comunque una fuga).
-  const haystack = token.toLowerCase();
-  const needle = value.toLowerCase();
-  if (needle.includes(haystack) || haystack.includes(needle)) return null;
+  if (sharesRunWithToken(value, token)) return null;
   return value;
 }
