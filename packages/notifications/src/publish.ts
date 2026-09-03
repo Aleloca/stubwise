@@ -111,8 +111,17 @@ export async function publishNotification(
       // dell'invio (il bot Slack non configurato).
       const slackReady = await slackRecipients(inner, recipients);
       const pushReady = await pushRecipients(inner, recipients);
-      /** Una riga per destinatario raggiungibile, sul canale dato. */
-      const perRecipient = <C extends (typeof notificationDeliveries.$inferInsert)["channel"]>(
+      /**
+       * Una riga per destinatario raggiungibile, sul canale dato.
+       *
+       * `webhook` è escluso dal generico di proposito: è una consegna per
+       * EVENTO, non per destinatario, e il CHECK
+       * `notification_deliveries_channel_shape_chk` la rifiuterebbe in questa
+       * forma. Escluderlo qui sposta l'errore dal DB al compilatore.
+       */
+      const perRecipient = <
+        C extends Exclude<(typeof notificationDeliveries.$inferInsert)["channel"], "webhook">,
+      >(
         ready: Set<string>,
         channel: C,
       ) =>
@@ -276,6 +285,10 @@ async function slackRecipients(db: DbOrTx, recipients: string[]): Promise<Set<st
  * Sottoinsieme dei destinatari raggiungibili via push: preferenza accesa E
  * almeno un device non disattivato. Gemella di {@link slackRecipients}, con la
  * stessa promessa — UNA query per tutti i destinatari.
+ *
+ * ⚠️ Prima di copiarla per un TERZO canale: leggi la nota sopra
+ * `slackRecipients`. Copiare non eredita l'early return sull'elenco vuoto,
+ * e senza quello drizzle emette un `IN ()` che Postgres rifiuta.
  *
  * `exists` e non una join su `device_tokens`: qui interessa SE il destinatario
  * ha un recapito, non quanti — una join produrrebbe una riga per device e da lì

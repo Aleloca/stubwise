@@ -12,7 +12,7 @@ import {
 import { seedTicket, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { eq, inArray } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { NotificationEvent } from "./format.js";
 import { publishNotification } from "./publish.js";
 
@@ -35,6 +35,15 @@ describe("publishNotification", () => {
   afterAll(async () => {
     await testDb.stop();
   });
+
+  // Gli spy si ripristinano SEMPRE: un mockRestore in coda al test resta
+
+  // montato se la prima asserzione fallisce, e il test dopo vede le sue
+
+  // chiamate.
+
+  afterEach(() => vi.restoreAllMocks());
+
 
   beforeEach(async () => {
     // Ogni test parte da zero utenti (gli admin sono destinatari di TUTTO:
@@ -485,7 +494,6 @@ describe("publishNotification", () => {
     expect(message).toContain("job.pr_opened");
     expect(message).toContain("nessuna riga scritta");
     expect((error as Error).message).toBe("connessione persa");
-    warn.mockRestore();
   });
 
   it("su errore SQL non aborta la transazione del chiamante (savepoint annidato)", async () => {
@@ -517,7 +525,6 @@ describe("publishNotification", () => {
     // Anche su un errore SQL vero (non solo con un db finto) resta il log:
     // è tutto ciò che distingue "niente da notificare" da "notifica persa".
     expect(warn).toHaveBeenCalledTimes(1);
-    warn.mockRestore();
   });
 
   it("instrada verso chi ha richiesto il job e ancora le notifiche al job", async () => {
