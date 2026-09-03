@@ -34,6 +34,8 @@ export interface Http2StreamLike {
   on(event: "error", listener: (error: Error) => void): unknown;
   setEncoding(encoding: string): unknown;
   end(body?: string): unknown;
+  /** Serve a troncare uno stream appeso: vedi il timeout in `send`. */
+  close(): unknown;
 }
 
 export interface Http2SessionLike {
@@ -55,6 +57,8 @@ export interface ApnsClientOptions {
   http2Connect?: Http2ConnectLike;
   /** Iniettabile nei test, per esercitare la scadenza del provider token. */
   now?: () => number;
+  /** Tetto per singola richiesta. Vedi {@link DEFAULT_REQUEST_TIMEOUT_MS}. */
+  timeoutMs?: number;
 }
 
 export interface ApnsClient extends PushClient {
@@ -69,6 +73,26 @@ export interface ApnsClient extends PushClient {
  * il margine di dieci minuti serve a stare lontani da entrambi i muri.
  */
 const PROVIDER_TOKEN_TTL_MS = 50 * 60_000;
+
+/**
+ * Tetto per SINGOLA richiesta ad APNs.
+ *
+ * ⚠️ Senza questo tetto una richiesta può restare appesa PER SEMPRE: `node:http2`
+ * non impone timeout suoi, quindi un provider che tiene la connessione aperta
+ * senza rispondere né chiuderla lascia la Promise di `send` irrisolta. Il danno
+ * non si ferma a quella notifica: il server fa `Promise.all` sui token del
+ * batch, quindi un solo token appeso blocca anche quelli già consegnati; il
+ * worker abortisce a 10s e RITENTA, ma la richiesta appesa qui dentro resta
+ * viva, e ogni tentativo ne aggiunge una. Sotto un degrado prolungato del
+ * provider il processo accumula richieste che non si risolvono mai, fino a
+ * portare offline il relay per TUTTE le istanze Stubwise — non solo per il
+ * progetto che ha innescato il guasto.
+ *
+ * Venti secondi: sopra i 10s del client (`createPushRelayClient`), così il
+ * chiamante molla per primo e noi non tronchiamo una richiesta che stava per
+ * riuscire, ma finito — che è l'unica cosa che conta.
+ */
+const DEFAULT_REQUEST_TIMEOUT_MS = 20_000;
 
 function base64url(value: Buffer | string): string {
   return Buffer.from(value).toString("base64url");
@@ -113,6 +137,7 @@ const ENVIRONMENT_SENSITIVE_REASONS = new Set(["BadDeviceToken", "DeviceTokenNot
 export function createApnsClient(options: ApnsClientOptions): ApnsClient {
   const connect = options.http2Connect ?? (http2Connect as unknown as Http2ConnectLike);
   const now = options.now ?? Date.now;
+  const timeoutMs = options.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
   const authority = options.sandbox ? APNS_SANDBOX_HOST : APNS_PRODUCTION_HOST;
   const environment = options.sandbox ? "sandbox" : "production";
 
@@ -237,25 +262,64 @@ export function createApnsClient(options: ApnsClientOptions): ApnsClient {
       };
       if (payload.collapseId !== undefined) headers["apns-collapse-id"] = payload.collapseId;
 
-      const { status, raw } = await new Promise<{ status: number; raw: string }>(
-        (resolve, reject) => {
-          const stream = openSession().request(headers);
-          let chunks = "";
-          let httpStatus = 0;
-          stream.setEncoding("utf8");
-          stream.on("response", (responseHeaders) => {
-            httpStatus = Number(responseHeaders[":status"] ?? 0);
-          });
-          stream.on("data", (chunk) => {
-            chunks += chunk;
-          });
-          stream.on("end", () => resolve({ status: httpStatus, raw: chunks }));
-          stream.on("error", (error) => reject(error));
-          stream.end(body);
-        },
-      );
+      /**
+       * L'esito del giro di rete, in tre forme. `timeout` ed `error` non sono
+       * eccezioni ma valori: un'eccezione che esce di qui si porterebbe dietro
+       * il messaggio di `node:http2`, e da lì in `reason` — che finisce in
+       * `notification_deliveries.error`. Vedi la regola 2 in `./outcome.ts`.
+       */
+      type Settled =
+        | { kind: "response"; status: number; raw: string }
+        | { kind: "timeout" }
+        | { kind: "error" };
 
-      return classify(status, raw, token);
+      const settled = await new Promise<Settled>((resolve) => {
+        const stream = openSession().request(headers);
+        let chunks = "";
+        let httpStatus = 0;
+        let done = false;
+        // Una sola via d'uscita: `end` ed `error` possono arrivare dopo il
+        // timeout (o insieme), e una Promise già risolta ignorerebbe il
+        // secondo — ma il timer resterebbe appeso a trattenere il processo.
+        const finish = (value: Settled): void => {
+          if (done) return;
+          done = true;
+          clearTimeout(timer);
+          resolve(value);
+        };
+        const timer = setTimeout(() => {
+          // Lo stream va CHIUSO, non solo abbandonato: lasciarlo aperto
+          // manterrebbe viva la richiesta HTTP/2 che stiamo rinunciando a
+          // leggere, cioè esattamente la perdita che il tetto esiste per
+          // evitare.
+          try {
+            stream.close();
+          } catch {
+            // Già morto: non cambia nulla, l'esito è comunque `timeout`.
+          }
+          finish({ kind: "timeout" });
+        }, timeoutMs);
+
+        stream.setEncoding("utf8");
+        stream.on("response", (responseHeaders) => {
+          httpStatus = Number(responseHeaders[":status"] ?? 0);
+        });
+        stream.on("data", (chunk) => {
+          chunks += chunk;
+        });
+        stream.on("end", () => finish({ kind: "response", status: httpStatus, raw: chunks }));
+        stream.on("error", () => finish({ kind: "error" }));
+        stream.end(body);
+      });
+
+      // Entrambi transitori: la connessione è caduta o non ha risposto, il che
+      // non dice NULLA sul token. Messaggi fissi, nessun dato dalla rete.
+      if (settled.kind === "timeout") {
+        return { status: "retry", reason: `apns timeout after ${timeoutMs}ms` };
+      }
+      if (settled.kind === "error") return { status: "retry", reason: "apns stream error" };
+
+      return classify(settled.status, settled.raw, token);
     },
     close() {
       session?.close();

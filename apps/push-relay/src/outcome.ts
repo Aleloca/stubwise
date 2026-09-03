@@ -123,6 +123,11 @@ function sharesRunWithToken(code: string, token: string): boolean {
   const needle = code.toLowerCase();
   const haystack = token.toLowerCase();
   const threshold = Math.min(SHARED_RUN_MIN_CHARS, needle.length, haystack.length);
+  // Soglia 0 = una delle due stringhe è vuota. Non capita per costruzione (il
+  // codice qui arriva già non vuoto, e `pushTokenSchema` impone `.min(1)` sul
+  // token a monte), ma senza questa riga `haystack.includes("")` sarebbe SEMPRE
+  // vero e la funzione rifiuterebbe ogni codice: un guasto silenzioso che
+  // toglierebbe la diagnostica a tutti gli esiti. Vale la riga.
   if (threshold === 0) return false;
   for (let start = 0; start + threshold <= needle.length; start += 1) {
     if (haystack.includes(needle.slice(start, start + threshold))) return true;

@@ -31,10 +31,12 @@ interface RecordedRequest {
   body: string;
 }
 
-interface ProgrammedResponse {
-  status: number;
-  body?: string;
-}
+/**
+ * Una risposta programmata, o uno dei due modi in cui un giro di rete può NON
+ * arrivare: `hang` tiene lo stream aperto per sempre (il degrado che il timeout
+ * esiste per troncare), `error` lo fa fallire a metà.
+ */
+type ProgrammedResponse = { status: number; body?: string } | { kind: "hang" } | { kind: "error" };
 
 /**
  * Sessione HTTP/2 finta: registra ciò che il client manda e risponde con la
@@ -44,9 +46,11 @@ interface ProgrammedResponse {
 function fakeHttp2(responses: ProgrammedResponse[]): {
   connect: Http2ConnectLike;
   requests: RecordedRequest[];
+  streams: Array<{ closed: boolean }>;
   sessions: number;
 } {
   const requests: RecordedRequest[] = [];
+  const streams: Array<{ closed: boolean }> = [];
   const state = { sessions: 0 };
   const queue = [...responses];
   const connect: Http2ConnectLike = (authority) => {
@@ -58,17 +62,30 @@ function fakeHttp2(responses: ProgrammedResponse[]): {
       },
       request(headers: Record<string, string | number>) {
         const stream = Object.assign(new EventEmitter(), {
+          closed: false,
           setEncoding() {},
+          close() {
+            stream.closed = true;
+          },
           end(body?: string) {
             requests.push({ authority, headers, body: body ?? "" });
-            const next = queue.shift() ?? { status: 200 };
+            const next: ProgrammedResponse = queue.shift() ?? { status: 200 };
+            // `hang`: nessuna emissione, mai. Lo stream resta aperto finché non
+            // è il client a troncarlo.
+            if ("kind" in next && next.kind === "hang") return;
             setImmediate(() => {
-              stream.emit("response", { ":status": next.status });
-              if (next.body !== undefined) stream.emit("data", next.body);
+              if ("kind" in next && next.kind === "error") {
+                stream.emit("error", new Error(`h2 reset sending ${TOKEN}`));
+                return;
+              }
+              const response = next as { status: number; body?: string };
+              stream.emit("response", { ":status": response.status });
+              if (response.body !== undefined) stream.emit("data", response.body);
               stream.emit("end");
             });
           },
         });
+        streams.push(stream);
         return stream;
       },
     });
@@ -77,6 +94,7 @@ function fakeHttp2(responses: ProgrammedResponse[]): {
   return {
     connect,
     requests,
+    streams,
     get sessions() {
       return state.sessions;
     },
@@ -96,6 +114,7 @@ function build(options: {
   responses?: ProgrammedResponse[];
   sandbox?: boolean;
   now?: () => number;
+  timeoutMs?: number;
 }) {
   const http2 = fakeHttp2(options.responses ?? [{ status: 200 }]);
   const client = createApnsClient({
@@ -106,6 +125,7 @@ function build(options: {
     sandbox: options.sandbox ?? false,
     http2Connect: http2.connect,
     now: options.now,
+    timeoutMs: options.timeoutMs,
   });
   return { client, http2 };
 }
@@ -307,6 +327,52 @@ describe("createApnsClient", () => {
     it("un corpo che non è JSON non fa esplodere il client", async () => {
       const result = await sendWith(400, "<html>gateway</html>");
       expect(result.status).toBe("failed");
+    });
+  });
+
+  /**
+   * ⚠️ IL GUASTO CHE PORTA GIÙ IL RELAY PER TUTTI.
+   *
+   * `node:http2` non impone timeout suoi: un provider che tiene la connessione
+   * aperta senza rispondere lascerebbe la Promise di `send` irrisolta PER
+   * SEMPRE. Il server fa `Promise.all` sui token del batch, quindi un token
+   * appeso blocca anche quelli già consegnati; il worker molla a 10s e ritenta,
+   * ma la richiesta appesa resta viva e ogni tentativo ne aggiunge una. Sotto
+   * un degrado prolungato il processo si riempie di richieste che non si
+   * risolvono mai — e il relay va offline per TUTTE le istanze Stubwise.
+   */
+  describe("il tetto per singola richiesta", () => {
+    it("uno stream che non risponde mai diventa retry, non un blocco", async () => {
+      const { client } = build({ responses: [{ kind: "hang" }], timeoutMs: 30 });
+      const result = await client.send(TOKEN, PAYLOAD);
+      expect(result.status).toBe("retry");
+      expect(result.reason).toContain("timeout");
+    });
+
+    it("allo scadere lo stream viene CHIUSO, non solo abbandonato", async () => {
+      const { client, http2 } = build({ responses: [{ kind: "hang" }], timeoutMs: 30 });
+      await client.send(TOKEN, PAYLOAD);
+      expect(http2.streams[0]!.closed).toBe(true);
+    });
+
+    it("una risposta che arriva in tempo non è toccata dal tetto", async () => {
+      const { client, http2 } = build({ responses: [{ status: 200 }], timeoutMs: 5_000 });
+      expect(await client.send(TOKEN, PAYLOAD)).toEqual({ status: "ok" });
+      expect(http2.streams[0]!.closed).toBe(false);
+    });
+
+    /** Un errore a metà richiesta è transitorio: la connessione, non il token. */
+    it("uno stream che fallisce a metà diventa retry", async () => {
+      const { client } = build({ responses: [{ kind: "error" }] });
+      const result = await client.send(TOKEN, PAYLOAD);
+      expect(result.status).toBe("retry");
+    });
+
+    /** ⚠️ E il messaggio dell'errore di rete non deve portarsi dietro il token. */
+    it("il token non esce nel reason di un errore di stream", async () => {
+      const { client } = build({ responses: [{ kind: "error" }] });
+      const result = await client.send(TOKEN, PAYLOAD);
+      expect(result.reason ?? "").not.toContain(TOKEN);
     });
   });
 

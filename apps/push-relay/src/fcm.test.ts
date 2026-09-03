@@ -231,6 +231,92 @@ describe("createFcmClient", () => {
     });
   });
 
+  /**
+   * ⚠️ Senza `signal`, `fetch` ricade sui timeout di undici (~300s): trenta
+   * volte il tetto che il chiamante si aspetta, con lo stesso accumulo di
+   * richieste appese descritto su `apns.ts`. Il fake qui sotto non risponde
+   * MAI di suo: si sblocca solo perché è il client ad abortire.
+   */
+  describe("il tetto per singola richiesta", () => {
+    /** Un fetch che si risolve solo quando il segnale viene abortito. */
+    function hangingFetch(): typeof fetch {
+      return ((_url: string | URL, init?: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          const signal = init?.signal;
+          signal?.addEventListener("abort", () => {
+            reject(new DOMException("This operation was aborted", "AbortError"));
+          });
+        })) as unknown as typeof fetch;
+    }
+
+    it("una richiesta che non risponde mai diventa retry, non un blocco", async () => {
+      const client = createFcmClient({
+        serviceAccountJson: SERVICE_ACCOUNT,
+        fetch: hangingFetch(),
+        getAccessToken: async () => "t",
+        timeoutMs: 30,
+      });
+      const result = await client.send(TOKEN, PAYLOAD);
+      expect(result.status).toBe("retry");
+      expect(result.reason).toContain("timeout");
+    });
+
+    /**
+     * ⚠️ Il caso che il solo `signal` NON copre: un `fetch` che il segnale lo
+     * IGNORA. `signal` è una promessa che ci fa il trasporto — undici la
+     * mantiene, ma il tetto non può dipendere da questo. Qui il fake non
+     * risponde e non ascolta l'abort: se `send` ritorna comunque, è perché il
+     * tetto è nostro.
+     */
+    it("regge anche se il fetch ignora del tutto il segnale", async () => {
+      const client = createFcmClient({
+        serviceAccountJson: SERVICE_ACCOUNT,
+        fetch: (() => new Promise<Response>(() => {})) as unknown as typeof fetch,
+        getAccessToken: async () => "t",
+        timeoutMs: 30,
+      });
+      const result = await client.send(TOKEN, PAYLOAD);
+      expect(result.status).toBe("retry");
+      expect(result.reason).toContain("timeout");
+    });
+
+    it("il segnale arriva davvero al fetch (non è un rifiuto simulato)", async () => {
+      let seenSignal: AbortSignal | undefined;
+      const client = createFcmClient({
+        serviceAccountJson: SERVICE_ACCOUNT,
+        fetch: ((_url: string | URL, init?: RequestInit) => {
+          seenSignal = init?.signal ?? undefined;
+          return Promise.resolve(new Response("{}", { status: 200 }));
+        }) as unknown as typeof fetch,
+        getAccessToken: async () => "t",
+      });
+      await client.send(TOKEN, PAYLOAD);
+      expect(seenSignal).toBeInstanceOf(AbortSignal);
+      expect(seenSignal!.aborted).toBe(false);
+    });
+
+    /**
+     * Il timer copre ANCHE la lettura del corpo: un server che manda gli header
+     * e poi si pianta lascerebbe `text()` senza tetto — è la lezione già
+     * imparata in `createPushRelayClient`.
+     */
+    it("un corpo che non arriva mai è comunque un timeout", async () => {
+      const client = createFcmClient({
+        serviceAccountJson: SERVICE_ACCOUNT,
+        fetch: (() =>
+          Promise.resolve({
+            status: 200,
+            text: () => new Promise<string>(() => {}),
+          })) as unknown as typeof fetch,
+        getAccessToken: async () => "t",
+        timeoutMs: 30,
+      });
+      const result = await client.send(TOKEN, PAYLOAD);
+      expect(result.status).toBe("retry");
+      expect(result.reason).toContain("timeout");
+    });
+  });
+
   /** ⚠️ VINCOLO DEL TASK 10, e qui morde davvero: FCM ripete il token nei messaggi. */
   describe("il token non esce mai dentro reason", () => {
     it("nemmeno quando FCM lo ripete nel messaggio d'errore", async () => {

@@ -25,6 +25,22 @@ import { reasonCode, type PushClient, type PushSendResult } from "./outcome.js";
 
 const FCM_SCOPE = "https://www.googleapis.com/auth/firebase.messaging";
 
+/**
+ * Tetto per SINGOLA richiesta a FCM.
+ *
+ * ⚠️ Senza `signal`, `fetch` ricade sui timeout di default di undici (~300s):
+ * trenta volte il tetto che il chiamante si aspetta. Il danno è quello descritto
+ * su `DEFAULT_REQUEST_TIMEOUT_MS` in `./apns.ts` — il server fa `Promise.all`
+ * sui token del batch, il worker molla a 10s e ritenta, e ogni tentativo lascia
+ * qui una richiesta viva finché undici non si arrende. Venti secondi: sopra i
+ * 10s del client, così è il chiamante a mollare per primo, ma finito.
+ *
+ * Il timer copre ANCHE la lettura del corpo, non solo gli header: è la stessa
+ * lezione già imparata in `createPushRelayClient`, dove un server che manda gli
+ * header e poi si pianta sul corpo lasciava la lettura senza tetto.
+ */
+const DEFAULT_REQUEST_TIMEOUT_MS = 20_000;
+
 export interface FcmClientOptions {
   /** Il JSON del service account, già decodificato (vedi `./config.ts`). */
   serviceAccountJson: string;
@@ -32,6 +48,8 @@ export interface FcmClientOptions {
   fetch?: typeof fetch;
   /** Iniettabile nei test, per non fare OAuth vero. */
   getAccessToken?: () => Promise<string>;
+  /** Tetto per singola richiesta. Vedi {@link DEFAULT_REQUEST_TIMEOUT_MS}. */
+  timeoutMs?: number;
 }
 
 /**
@@ -86,6 +104,7 @@ export function createFcmClient(options: FcmClientOptions): PushClient {
     private_key: string;
   };
   const fetchImpl = options.fetch ?? globalThis.fetch;
+  const timeoutMs = options.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
   const endpoint = `https://fcm.googleapis.com/v1/projects/${account.project_id}/messages:send`;
 
   // Creato pigramente: con `getAccessToken` iniettato (i test) non serve, e
@@ -188,29 +207,68 @@ export function createFcmClient(options: FcmClientOptions): PushClient {
         return { status: "failed", reason: "fcm auth failed" };
       }
 
-      let response: Response;
-      try {
-        response = await fetchImpl(endpoint, {
-          method: "POST",
-          headers: {
-            authorization: `Bearer ${accessToken}`,
-            "content-type": "application/json",
-          },
-          body: JSON.stringify(buildMessage(token, payload)),
+      // `AbortController` esplicito e non `AbortSignal.timeout`: così il
+      // segnale è osservabile dal `fetch` iniettato nei test, che può abortire
+      // per davvero invece di simulare un rifiuto.
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      /**
+       * Il tetto non si affida SOLO al segnale.
+       *
+       * `signal` dice a undici di chiudere la connessione — ed è quello che
+       * libera davvero il socket — ma è una promessa che ci fa la libreria: un
+       * `fetch` che lo ignorasse ci lascerebbe appesi comunque, che è la
+       * lacuna appena chiusa. Correndo contro questa promessa il tetto diventa
+       * NOSTRO: qualunque cosa faccia il trasporto, `send` ritorna entro
+       * `timeoutMs`. Le due cose sono complementari, non ridondanti — il
+       * segnale libera la risorsa, la corsa libera noi.
+       */
+      const expired = new Promise<never>((_, reject) => {
+        controller.signal.addEventListener("abort", () => reject(new Error("timeout")), {
+          once: true,
         });
-      } catch {
-        // ⚠️ Messaggio FISSO. Un errore di rete di undici può portarsi dietro
-        // l'URL e, in alcune forme, il corpo della richiesta — cioè il token.
-        return { status: "retry", reason: "fcm network error" };
-      }
-
-      let rawBody = "";
+      });
+      // Il `finally` cancella il timer, quindi normalmente questa non rigetta
+      // mai; il no-op evita un'unhandled rejection nella corsa fra i due.
+      expired.catch(() => {});
       try {
-        rawBody = await response.text();
-      } catch {
-        // Corpo illeggibile: si classifica sul solo status.
+        let response: Response;
+        try {
+          response = await Promise.race([
+            fetchImpl(endpoint, {
+              method: "POST",
+              headers: {
+                authorization: `Bearer ${accessToken}`,
+                "content-type": "application/json",
+              },
+              body: JSON.stringify(buildMessage(token, payload)),
+              signal: controller.signal,
+            }),
+            expired,
+          ]);
+        } catch {
+          // ⚠️ Messaggio FISSO. Un errore di rete di undici può portarsi dietro
+          // l'URL e, in alcune forme, il corpo della richiesta — cioè il token.
+          return controller.signal.aborted
+            ? { status: "retry", reason: `fcm timeout after ${timeoutMs}ms` }
+            : { status: "retry", reason: "fcm network error" };
+        }
+
+        let rawBody = "";
+        try {
+          rawBody = await Promise.race([response.text(), expired]);
+        } catch {
+          // Corpo illeggibile, o timeout scattato MENTRE lo leggevamo: in
+          // entrambi i casi si classifica su ciò che si ha. Se è stato il
+          // timeout, lo si dice — è transitorio, non un guasto del payload.
+          if (controller.signal.aborted) {
+            return { status: "retry", reason: `fcm timeout after ${timeoutMs}ms` };
+          }
+        }
+        return classify(response.status, rawBody, token);
+      } finally {
+        clearTimeout(timer);
       }
-      return classify(response.status, rawBody, token);
     },
   };
 }

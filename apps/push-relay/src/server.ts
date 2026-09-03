@@ -49,11 +49,13 @@ const DAY_MS = 24 * HOUR_MS;
  * aggirare** — è accettato, perché in quello scenario la difesa vera è il tetto
  * per IP, e perdere il conteggio è meglio che perdere il processo.
  */
-const MAX_TRACKED_TOKENS = 100_000;
+export const MAX_TRACKED_TOKENS = 100_000;
 
 export interface TokenLimiter {
   /** `true` se l'invio può partire; `false` se il token ha esaurito la quota. */
   take(token: string): boolean;
+  /** Quanti token il limitatore sta tracciando. Serve a sorvegliare il tetto. */
+  size(): number;
 }
 
 /**
@@ -82,11 +84,12 @@ export interface TokenLimiter {
 export function createTokenLimiter(
   rate: RelayConfig["rate"],
   now: () => number = Date.now,
+  maxTrackedTokens: number = MAX_TRACKED_TOKENS,
 ): TokenLimiter {
   const hits = new Map<string, number[]>();
 
   function evictIfNeeded(): void {
-    if (hits.size <= MAX_TRACKED_TOKENS) return;
+    if (hits.size <= maxTrackedTokens) return;
     const cutoff = now() - DAY_MS;
     for (const [key, stamps] of hits) {
       if (stamps.length === 0 || stamps[stamps.length - 1]! <= cutoff) hits.delete(key);
@@ -94,12 +97,13 @@ export function createTokenLimiter(
     // Ancora sopra: si buttano le voci meno recenti (la Map itera in ordine
     // d'inserimento e ogni aggiornamento re-inserisce, quindi è un LRU povero).
     for (const key of hits.keys()) {
-      if (hits.size <= MAX_TRACKED_TOKENS) break;
+      if (hits.size <= maxTrackedTokens) break;
       hits.delete(key);
     }
   }
 
   return {
+    size: () => hits.size,
     take(token) {
       const key = createHash("sha256").update(token).digest("hex");
       const current = now();

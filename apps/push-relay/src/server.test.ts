@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildRelay } from "./server.js";
+import { buildRelay, createTokenLimiter, MAX_TRACKED_TOKENS } from "./server.js";
 import type { RelayConfig } from "./config.js";
 import type { PushClient, PushSendResult } from "./outcome.js";
 import type { PushPayload } from "@stubwise/shared";
@@ -270,6 +270,53 @@ describe("buildRelay", () => {
       const res = await app.inject(send([{ platform: "android", token: ANDROID_TOKEN }]));
       expect(res.json().results[0].reason).toBe("rate_limited");
       await app.close();
+    });
+  });
+
+  /**
+   * ⚠️ IL TETTO SULLA MEMORIA DEL LIMITATORE.
+   *
+   * La mappa è indicizzata per token, e i token li sceglie il chiamante: un
+   * flusso di token inventati (il tetto per IP ne concede 600×20 al minuto) la
+   * farebbe crescere fino all'OOM, e morto il processo muoiono le push di
+   * TUTTE le istanze. La potatura è quindi una difesa di disponibilità, non
+   * un'ottimizzazione — e prima di questi test nessuna mutazione che la
+   * rompesse avrebbe fatto fallire la suite.
+   */
+  describe("tetto sui token tracciati", () => {
+    it("la mappa non supera mai il tetto, per quanti token distinti arrivino", () => {
+      const limiter = createTokenLimiter(
+        { perTokenHour: 60, perTokenDay: 500, perIpMinute: 600 },
+        Date.now,
+        10,
+      );
+      for (let i = 0; i < 250; i += 1) limiter.take(`token-${i}`);
+      expect(limiter.size()).toBeLessThanOrEqual(10);
+    });
+
+    /**
+     * A essere potate devono essere le voci VECCHIE. Lo si osserva dal
+     * comportamento, non dall'interno: con un tetto orario di 1, un token la
+     * cui voce è sopravvissuta viene rifiutato al secondo giro, mentre uno la
+     * cui voce è stata buttata riparte con la quota piena.
+     */
+    it("sopravvivono le voci recenti, non le vecchie", () => {
+      const limiter = createTokenLimiter(
+        { perTokenHour: 1, perTokenDay: 500, perIpMinute: 600 },
+        Date.now,
+        10,
+      );
+      for (let i = 0; i < 25; i += 1) expect(limiter.take(`token-${i}`)).toBe(true);
+      // L'ultimo entrato è ancora tracciato: la sua quota oraria è esaurita.
+      expect(limiter.take("token-24")).toBe(false);
+      // Il primo è stato potato: riparte da zero. È il prezzo dichiarato del
+      // tetto — sotto flood il limite per token si aggira, e la difesa vera
+      // resta quella per IP.
+      expect(limiter.take("token-0")).toBe(true);
+    });
+
+    it("il tetto di default è quello documentato", () => {
+      expect(MAX_TRACKED_TOKENS).toBe(100_000);
     });
   });
 
