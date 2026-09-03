@@ -6,7 +6,7 @@ import {
   notificationPrefsViewSchema,
   projectFollowsSchema,
 } from "@stubwise/shared";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -24,6 +24,15 @@ import { authErrorResponses, errorSchema } from "./shared.js";
  * Slack o la push, e `device_tokens` DOVE recapitare quella push. Nessun
  * privilegio admin: ognuno gestisce solo le proprie righe, e `userId` è sempre
  * nel WHERE — un utente non può leggere né scrivere le preferenze altrui.
+ *
+ * ⚠️ **Una sola rotta fa eccezione, di proposito: `PUT /devices`.** È un upsert
+ * sul `token`, che è unique GLOBALE, e non ha nessun `userId` nel WHERE: per
+ * costruzione può riscrivere la riga di un ALTRO utente, perché è così che un
+ * telefono passa di mano quando A esce e B entra. Chi legge la regola qui
+ * sopra e poi quell'upsert vede una contraddizione, e la correzione che viene
+ * naturale — mettere `userId` nel bersaglio del conflitto — è esattamente il
+ * bug del telefono muto per sempre. Prima di toccarlo, il punto 2 del docblock
+ * di quella rotta.
  *
  * Separate da `/api/users` (che è l'amministrazione degli utenti, riservata
  * agli admin) proprio per questa ragione: qui il soggetto è sempre "io".
@@ -192,12 +201,10 @@ export async function mePrefsRoutes(instance: FastifyInstance): Promise<void> {
    *    il token del sistema operativo è lo stesso. Senza il passaggio la
    *    registrazione di B sbatterebbe contro la unique e quel telefono non
    *    riceverebbe più nulla. Il token identifica l'INSTALLAZIONE, non la
-   *    persona. Il prezzo è noto e accettato: chi conosce il token di un altro
-   *    device può intestarselo, e da quel momento è il telefono della VITTIMA
-   *    a ricevere le notifiche dell'ATTACCANTE, mentre la vittima smette di
-   *    riceverne le proprie — un disservizio per lei più una fuga dei dati di
-   *    lui, non una lettura di dati altrui. La direzione per esteso, e perché
-   *    il baratto conviene comunque, sta su `deviceRegistrationSchema`.
+   *    persona. Il prezzo — chi conosce un token altrui se lo può intestare —
+   *    è noto e accettato: la direzione del danno e perché il baratto conviene
+   *    stanno per esteso su `deviceRegistrationSchema`, che è il posto
+   *    canonico di questo ragionamento.
    *
    * Una sola istruzione, quindi nessuna transazione: non c'è una scrittura
    * "prima di quella decisiva" da cui difendersi.
@@ -218,6 +225,13 @@ export async function mePrefsRoutes(instance: FastifyInstance): Promise<void> {
       // Da cookie di sessione non c'è, e la colonna resta null.
       const patId = request.user!.patId ?? null;
       const appVersion = request.body.appVersion ?? null;
+      // ⚠️ REGOLA DI QUESTO OGGETTO: ci sta solo ciò che deve seguire la
+      // semantica «vince l'ultima registrazione», perché `values` finisce
+      // INTERO anche nel SET del conflitto qui sotto. Un campo che dovesse
+      // descrivere la PRIMA registrazione e non l'ultima (una
+      // `firstRegisteredAt`, un `registeredVia`) va nei soli valori d'insert e
+      // tenuto fuori dallo spread, altrimenti ogni ri-registrazione lo
+      // riscrive e il campo mente senza che nessun test lo noti.
       const values = {
         userId,
         patId,
@@ -232,7 +246,11 @@ export async function mePrefsRoutes(instance: FastifyInstance): Promise<void> {
           target: deviceTokens.token,
           set: {
             ...values,
-            lastSeenAt: new Date(),
+            // `now()` e non `new Date()`: l'insert usa il `defaultNow()` della
+            // colonna, cioè l'orologio del DB, e due sorgenti di tempo per la
+            // stessa colonna renderebbero i valori confrontabili solo a meno
+            // dello skew fra server e Postgres.
+            lastSeenAt: sql`now()`,
             // La riattivazione: vedi il punto 1 del docblock.
             disabledAt: null,
             disabledReason: null,

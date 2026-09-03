@@ -11,15 +11,13 @@ import type { ApiRequest } from "../client.js";
 /**
  * Preferenze personali dell'utente corrente.
  *
- * Le due SCRITTURE sulle preferenze NON hanno la stessa semantica, e
- * confonderle si paga — «i due PUT» non è più il modo di nominarle, perché una
- * delle due è una PATCH e `registerDevice` è ora un terzo PUT:
+ * Le due scritture sulle PREFERENZE hanno semantiche diverse, e il verbo HTTP
+ * di ciascuna la dichiara — è la ragione per cui non sono lo stesso verbo:
  *
  *  - `setFollows` SOSTITUISCE l'insieme dei progetti seguiti. Chi salva manda
  *    sempre la lista completa — è la ragione per cui l'onboarding dell'app li
  *    manda tutti insieme invece di un toggle per volta.
- *  - `setNotificationPrefs` è una `PATCH` (anche nel verbo HTTP, non solo
- *    nella semantica): si mandano i soli canali da cambiare
+ *  - `setNotificationPrefs` è una `PATCH`: si mandano i soli canali da cambiare
  *    e gli assenti restano come sono. Mandare l'insieme completo funziona, ma
  *    vanifica il motivo per cui è una patch — una versione vecchia dell'app,
  *    che non conosce un canale aggiunto dopo, non deve poterlo spegnere per il
@@ -67,14 +65,11 @@ export function createMeEndpoints(request: ApiRequest) {
      * del token del sistema operativo, senza tenere traccia di "l'ho già
      * fatto".
      *
-     * Due comportamenti da conoscere prima di usarlo:
-     *
-     *  - RIATTIVA un device che il server aveva disattivato (revoca del PAT,
-     *    token rifiutato dal relay). È per questo che ri-registrare al login è
-     *    la cura di un telefono diventato muto, e non un no-op.
-     *  - Il device PASSA all'utente autenticato ORA. Su un telefono dove A
-     *    esce e B entra il token è lo stesso, e senza il passaggio B non
-     *    riceverebbe mai una push.
+     * Due conseguenze che cambiano come lo si usa: RIATTIVA un device che il
+     * server aveva disattivato (quindi ri-registrare al login è la cura di un
+     * telefono diventato muto, non un no-op), e il device PASSA all'utente
+     * autenticato ORA. Il ragionamento completo sul passaggio — perché serve e
+     * cosa costa — sta su `deviceRegistrationSchema` in `@stubwise/shared`.
      *
      * Va chiamato con l'autenticazione a PAT (il login mobile): il server lega
      * il device a QUEL token, così revocarlo dalla lista dei token spegne

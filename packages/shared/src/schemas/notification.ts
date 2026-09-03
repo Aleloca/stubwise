@@ -465,17 +465,45 @@ export const notificationPrefsViewSchema = notificationPrefsSchema.extend({
 export type NotificationPrefsView = z.infer<typeof notificationPrefsViewSchema>;
 
 /**
+ * Tetto del token push, in BYTE della codifica UTF-8.
+ *
+ * Il numero non è scelto per stile: la colonna `device_tokens.token` è
+ * `unique`, quindi ha dietro un indice btree, e Postgres rifiuta una voce
+ * d'indice sopra **2704 byte** con `index row size … exceeds btree version 4
+ * maximum 2704` (SQLSTATE 54000). Un token che passa la validazione e sfonda
+ * quel limite non dà un 400: dà un **500**, perché l'errore arriva
+ * dall'insert. La validazione deve quindi stare comodamente SOTTO 2704, non
+ * "vicino": 1024 byte sono 5× un token FCM (~163 caratteri) e 16× uno APNs (64
+ * esadecimali), cioè tutto il margine che serve senza avvicinarsi al muro.
+ *
+ * ⚠️ **In byte, non in caratteri, e la differenza non è pedanteria.** `.max()`
+ * di Zod conta unità UTF-16, e un carattere BMP fuori ASCII (CJK, per dirne
+ * una) è 1 unità ma 3 byte: con un tetto di 1024 CARATTERI si passa la
+ * validazione con 3072 byte e si torna dritti al 500. Misurato: 1024 CJK
+ * casuali = 3072 byte → 500, e falliscono anche 900 caratteri (2700 byte),
+ * perché il limite è sulla voce d'indice INTERA, non sul solo valore, e
+ * l'intestazione della tupla mangia i byte che mancano.
+ */
+const PUSH_TOKEN_MAX_BYTES = 1024;
+
+/**
  * Il token del servizio di push del sistema operativo (APNs o FCM), dichiarato
  * una volta sola perché lo usano sia la registrazione sia la cancellazione: se
  * i due tetti divergessero, esisterebbe un token registrabile e non
  * cancellabile.
  *
- * Il tetto non è una regola del formato (un token APNs è 64 esadecimali, uno
- * FCM ~163 caratteri, e nessuna delle due lunghezze è promessa dai fornitori):
- * è il limite oltre il quale non stiamo più registrando un device ma scrivendo
- * testo arbitrario in una colonna indicizzata.
+ * Il tetto in caratteri c'è per dare un errore leggibile nel caso normale (un
+ * token è ASCII, quindi un byte per carattere e i due limiti coincidono); il
+ * controllo in byte è quello che PROTEGGE, ed è l'unico che regge sul testo
+ * multibyte. Il perché del numero sta su {@link PUSH_TOKEN_MAX_BYTES}.
  */
-const pushTokenSchema = z.string().min(1).max(4096);
+const pushTokenSchema = z
+  .string()
+  .min(1)
+  .max(PUSH_TOKEN_MAX_BYTES)
+  .refine((value) => new TextEncoder().encode(value).length <= PUSH_TOKEN_MAX_BYTES, {
+    message: `token too long: max ${PUSH_TOKEN_MAX_BYTES} bytes`,
+  });
 
 /**
  * Body di `PUT /api/me/devices`: la registrazione del token push di UN device.

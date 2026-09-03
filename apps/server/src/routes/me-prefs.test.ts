@@ -41,14 +41,7 @@ beforeAll(async () => {
   seeded = await seedUsers(app);
   ({ projectId: projectA } = await seedRepository(db));
   ({ projectId: projectB } = await seedRepository(db));
-  const pat = await app.inject({
-    method: "POST",
-    url: "/api/pats",
-    headers: { cookie: seeded.adminCookie },
-    payload: { name: "iPhone di test" },
-  });
-  if (pat.statusCode !== 201) throw new Error(`creazione PAT fallita: ${pat.body}`);
-  ({ token: adminPat, id: adminPatId } = pat.json() as { token: string; id: string });
+  ({ token: adminPat, id: adminPatId } = await creaPat("iPhone di test"));
 }, 120_000);
 
 afterAll(async () => {
@@ -115,6 +108,28 @@ function deleteDevice(token: string, auth: Record<string, string> = { cookie: se
     headers: auth,
     payload: { token },
   });
+}
+
+/**
+ * Crea un PAT dell'admin e ne restituisce id e token in chiaro. I test che
+ * toccano `patId` ne vogliono uno PROPRIO: condividerne uno solo renderebbe
+ * indistinguibile "il device è legato al PAT giusto" da "è legato all'unico
+ * PAT che esiste".
+ */
+async function creaPat(name: string): Promise<{ id: string; token: string }> {
+  const res = await app.inject({
+    method: "POST",
+    url: "/api/pats",
+    headers: { cookie: seeded.adminCookie },
+    payload: { name },
+  });
+  if (res.statusCode !== 201) throw new Error(`creazione PAT fallita: ${res.body}`);
+  return res.json() as { id: string; token: string };
+}
+
+/** Header di autenticazione a PAT, com'è quella dell'app. */
+function bearer(token: string): Record<string, string> {
+  return { authorization: `Bearer ${token}` };
 }
 
 /** La riga di `device_tokens` con quel token, o undefined. */
@@ -283,7 +298,7 @@ describe("/api/me/notification-prefs", () => {
   });
 });
 describe("/api/me/devices", () => {
-  const PAT_AUTH = () => ({ authorization: `Bearer ${adminPat}` });
+  const PAT_AUTH = () => bearer(adminPat);
 
   it("PUT con PAT: 204 e la riga porta il patId di QUEL token", async () => {
     // Il `patId` è ciò che lega il device alla credenziale con cui è stato
@@ -315,26 +330,75 @@ describe("/api/me/devices", () => {
     });
   });
 
-  it("PUT è idempotente e aggiorna i campi (una sola riga per token)", async () => {
+  it("PUT è idempotente: aggiorna la riga ESISTENTE, non ne crea una nuova", async () => {
     await putDevice({ platform: "ios", token: "tok-idem", appVersion: "1.0.0" });
+    const prima = await deviceRow("tok-idem");
     await putDevice({ platform: "ios", token: "tok-idem", appVersion: "2.0.0" });
     const rows = await db.select().from(deviceTokens).where(eq(deviceTokens.token, "tok-idem"));
     expect(rows).toHaveLength(1);
     expect(rows[0]?.appVersion).toBe("2.0.0");
+    // `id` e `createdAt` invariati: senza queste due righe un'implementazione
+    // a delete + insert passerebbe il test (una riga sola, campi aggiornati) e
+    // saremmo comunque rotti il giorno in cui una tabella di consegna delle
+    // push farà FK su `device_tokens.id` — le consegne in volo cadrebbero a
+    // ogni riavvio dell'app.
+    expect(rows[0]?.id).toBe(prima?.id);
+    expect(rows[0]?.createdAt).toEqual(prima?.createdAt);
   });
 
-  it("PUT RIATTIVA un device disabilitato, azzerando istante E motivo", async () => {
+  it("il ciclo VERO revoca → ri-login → PUT riaccende il device e lo lega al PAT nuovo", async () => {
     // È il caso che rende inutile tutto il resto se sbagliato: dopo la revoca
-    // del PAT (o un `invalid_token` dal relay) la riga resta disattivata, e se
-    // il ri-login non la riaccendesse quel telefono resterebbe muto PER
-    // SEMPRE — senza nessun errore da nessuna parte. `disabled_at` e
-    // `disabled_reason` vanno azzerati INSIEME: il CHECK
-    // `device_tokens_disabled_chk` li vuole entrambi null o entrambi
-    // valorizzati, e azzerarne uno solo darebbe un 23514 a runtime.
-    await putDevice({ platform: "ios", token: "tok-spento" }, PAT_AUTH());
+    // del PAT la riga resta disattivata, e se il ri-login non la riaccendesse
+    // quel telefono resterebbe muto PER SEMPRE — senza nessun errore da
+    // nessuna parte.
+    //
+    // Il percorso è quello reale, non una disattivazione scritta a mano: si
+    // revoca P1 dalla ROTTA di revoca (è lei a spegnere i device, e passare
+    // dal DB salterebbe proprio il pezzo che stiamo dando per funzionante), si
+    // rifà login ottenendo P2, si ri-registra.
+    //
+    // E l'asserzione che conta davvero non è solo che il device torni acceso,
+    // ma che `patId` sia passato a **P2**: se restasse P1 il telefono sarebbe
+    // sì di nuovo raggiungibile, ma la PROSSIMA revoca — quella di P2, il
+    // token che l'utente vede in lista come "il mio telefono" — non lo
+    // spegnerebbe più. Sarebbe un device non più revocabile dalla UI.
+    const p1 = await creaPat("telefono P1");
+    await putDevice({ platform: "ios", token: "tok-ciclo" }, bearer(p1.token));
+
+    expect(
+      (
+        await app.inject({
+          method: "DELETE",
+          url: `/api/pats/${p1.id}`,
+          headers: { cookie: seeded.adminCookie },
+        })
+      ).statusCode,
+    ).toBe(204);
+    // La revoca ha spento il device: è la premessa del test, non un dettaglio.
+    expect(await deviceRow("tok-ciclo")).toMatchObject({ disabledReason: "pat_revoked" });
+
+    const p2 = await creaPat("telefono P2");
+    expect((await putDevice({ platform: "ios", token: "tok-ciclo" }, bearer(p2.token))).statusCode)
+      .toBe(204);
+    expect(await deviceRow("tok-ciclo")).toMatchObject({
+      disabledAt: null,
+      disabledReason: null,
+      patId: p2.id,
+    });
+  });
+
+  it("l'upsert azzera istante E motivo insieme, non uno solo", async () => {
+    // Il gemello ravvicinato del test qui sopra, tenuto separato perché
+    // sorveglia un vincolo del DB e non un flusso: il CHECK
+    // `device_tokens_disabled_chk` vuole `disabled_at` e `disabled_reason`
+    // entrambi null o entrambi valorizzati, quindi azzerarne uno solo non
+    // darebbe una riga mezza spenta ma un 23514, cioè un 500. Qui la
+    // disattivazione è scritta a mano apposta: serve lo stato, non il modo in
+    // cui ci si arriva.
+    await putDevice({ platform: "ios", token: "tok-spento" });
     await db
       .update(deviceTokens)
-      .set({ disabledAt: new Date(), disabledReason: "pat_revoked" })
+      .set({ disabledAt: new Date(), disabledReason: "invalid_token" })
       .where(eq(deviceTokens.token, "tok-spento"));
     expect((await putDevice({ platform: "ios", token: "tok-spento" })).statusCode).toBe(204);
     expect(await deviceRow("tok-spento")).toMatchObject({
@@ -348,8 +412,10 @@ describe("/api/me/devices", () => {
     // A esce e B entra, il token del sistema operativo è lo stesso. Senza
     // questo passaggio la registrazione di B sbatterebbe contro la unique e
     // quel telefono non riceverebbe mai una push. Il prezzo — chi conosce un
-    // token altrui se lo può intestare — è discusso nel report del task.
-    await putDevice({ platform: "ios", token: "tok-condiviso" }, { cookie: seeded.adminCookie });
+    // token altrui se lo può intestare — è discusso su `deviceRegistrationSchema`.
+    const p1 = await creaPat("telefono che cambia mano");
+    await putDevice({ platform: "ios", token: "tok-condiviso" }, bearer(p1.token));
+    const prima = await deviceRow("tok-condiviso");
     expect(
       (await putDevice({ platform: "ios", token: "tok-condiviso" }, { cookie: seeded.memberCookie }))
         .statusCode,
@@ -357,6 +423,12 @@ describe("/api/me/devices", () => {
     const rows = await db.select().from(deviceTokens).where(eq(deviceTokens.token, "tok-condiviso"));
     expect(rows).toHaveLength(1);
     expect(rows[0]?.userId).toBe(seeded.memberId);
+    // Stessa riga, non una nuova: il passaggio è un UPDATE.
+    expect(rows[0]?.id).toBe(prima?.id);
+    // E `patId` segue l'utente. Se restasse quello di A, revocare il PAT di A
+    // spegnerebbe un telefono che ormai è di B — cioè A conserverebbe una leva
+    // su un device che non è più suo.
+    expect(rows[0]?.patId).toBeNull();
   });
 
   it("cancellare: la riga sparisce, non viene disabilitata", async () => {
@@ -384,14 +456,18 @@ describe("/api/me/devices", () => {
     expect(await deviceRow("tok-altrui")).toBeUndefined();
   });
 
-  it("un token con caratteri speciali attraversa il body senza codifiche", async () => {
-    // Stesso token di prima, motivo nuovo. Finché stava nel path, `/` era il
-    // carattere che rompeva il routing se qualcuno smetteva di codificarlo;
-    // ora che sta nel body non c'è più niente da codificare, e questo test
-    // serve a dimostrare proprio quello — che il giro completo torna alla riga
-    // giusta con il token GREZZO, così nessuno reintroduce un
-    // `encodeURIComponent` "per sicurezza" (codificherebbe il token e la
-    // cancellazione non troverebbe più nulla, in silenzio, con un 204).
+  it("un token con caratteri speciali fa il giro server senza essere trasformato", async () => {
+    // Cosa pinna, per esteso: che registrazione e cancellazione confrontino la
+    // STESSA stringa: il token entra grezzo, viene salvato grezzo e ritrovato
+    // grezzo, senza normalizzazioni per strada. `/` e `:` sono i caratteri che
+    // una codifica di passaggio cambierebbe.
+    //
+    // Cosa NON pinna, e va detto per non fidarsi più di quanto vale: qui si
+    // usa `app.inject` col payload diretto, quindi il CLIENT non è nel giro. È
+    // nel client che qualcuno rimetterebbe un `encodeURIComponent` "per
+    // sicurezza" (che produrrebbe un token diverso da quello registrato: una
+    // cancellazione che risponde 204 senza cancellare), ed è
+    // `packages/api-client/src/endpoints/me.test.ts` a sorvegliare quello.
     const token = "abc/def:ghi_jkl-mno";
     expect((await putDevice({ platform: "ios", token })).statusCode).toBe(204);
     expect((await deleteDevice(token)).statusCode).toBe(204);
@@ -417,6 +493,44 @@ describe("/api/me/devices", () => {
       payload: {},
     });
     expect(res.statusCode).toBe(400);
+  });
+
+  it("rifiuta un token oltre il tetto — con un token CASUALE, non ripetitivo", async () => {
+    // ⚠️ La casualità è il test. Il tetto esiste perché la colonna `token` è
+    // unique, e una voce di indice btree sopra 2704 byte fa fallire l'insert
+    // con SQLSTATE 54000 — cioè un 500, non un 400. Ma Postgres COMPRIME il
+    // valore prima di indicizzarlo: un token scritto nel modo ovvio,
+    // `"a".repeat(3000)`, si comprime benissimo, entra senza fiatare e
+    // renderebbe questo test VERDE anche togliendo del tutto il tetto.
+    // Verificato: 3000 caratteri ripetuti → 204, 2800 casuali → 500. I token
+    // veri sono casuali, quindi è il caso casuale a essere quello reale.
+    const casuale = randomBytes(2048).toString("hex");
+    const res = await putDevice({ platform: "ios", token: casuale });
+    expect(res.statusCode).toBe(400);
+    // Un token appena sotto il tetto, sempre casuale, deve invece passare: un
+    // tetto che rifiuta tutto passerebbe l'asserzione qui sopra per sbaglio.
+    const ammesso = randomBytes(256).toString("hex");
+    expect((await putDevice({ platform: "ios", token: ammesso })).statusCode).toBe(204);
+  });
+
+  it("il tetto è in BYTE: 1024 caratteri multibyte CASUALI non passano", async () => {
+    // `.max()` di Zod conta unità UTF-16, e un carattere CJK è 1 unità ma 3
+    // byte: con un tetto in CARATTERI questo payload passerebbe la validazione
+    // a 1024 di `.length` portandosi dietro 3072 byte, e morirebbe in DB con
+    // un 500. È il motivo per cui lo schema ha anche un controllo sui byte.
+    //
+    // ⚠️ CJK casuale, non `"中".repeat(1024)`, e ci sono cascato scrivendo
+    // questo test: la versione ripetitiva si comprime come si comprimeva
+    // `"a".repeat(3000)`, entra in DB con un 204 e rende falsa la frase qui
+    // sopra. Misurato: con un tetto di 1024 CARATTERI il CJK ripetuto dà 204,
+    // quello casuale dà 500. Stessa lezione del test qui sopra, e a quanto
+    // pare va imparata due volte.
+    const cjk = Array.from(
+      { length: 1024 },
+      () => String.fromCharCode(0x4e00 + Math.floor(Math.random() * 0x5000)),
+    ).join("");
+    expect(new TextEncoder().encode(cjk).length).toBe(3072);
+    expect((await putDevice({ platform: "ios", token: cjk })).statusCode).toBe(400);
   });
 
   it("rifiuta una piattaforma fuori dai valori ammessi", async () => {
