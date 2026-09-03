@@ -809,6 +809,17 @@ il job CI su ubuntu passi con il mobile incluso.
   > body che cresce nel tempo è la **patch**: campi opzionali, gli assenti
   > restano invariati.
 
+- **Due voci accertate al Task 8:** (a) *nota di deploy* — finché il Task 10 non
+  c'è, il poller marca ogni riga `push` come `skipped / channel_not_implemented`
+  e **non la ripesca più**. Innocuo se server e worker si deployano insieme
+  (regola già in vigore); se il rilascio venisse spezzato, i device già
+  registrati resterebbero saltati a vita. (b) *guida utente Starlight* — il
+  consenso vero alle push non è la preferenza `notify_push` ma il **prompt del
+  sistema operativo**: senza permesso non nasce il token e il canale è muto per
+  costruzione. La preferenza è un opt-out di secondo livello, come collegare
+  Slack lo è per i DM. Scriverlo nella guida: «installare l'app e accettare le
+  notifiche di sistema basta; si spengono dall'Account».
+
 - **Due avvertenze accertate al Task 6, da riportare nelle note di rollback:**
   (a) `delivery_channel += 'push'` **NON** replica la lezione della fase 2:
   `notification_kind` aveva due anelli (schema in shared *e* presenza in
