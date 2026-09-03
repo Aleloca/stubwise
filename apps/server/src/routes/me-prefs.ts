@@ -1,5 +1,6 @@
 import { deviceTokens, projectFollows, projects, users } from "@stubwise/db";
 import {
+  deviceDeletionSchema,
   deviceRegistrationSchema,
   notificationPrefsUpdateSchema,
   notificationPrefsViewSchema,
@@ -192,10 +193,11 @@ export async function mePrefsRoutes(instance: FastifyInstance): Promise<void> {
    *    registrazione di B sbatterebbe contro la unique e quel telefono non
    *    riceverebbe più nulla. Il token identifica l'INSTALLAZIONE, non la
    *    persona. Il prezzo è noto e accettato: chi conosce il token di un altro
-   *    device può intestarselo, e da quel momento è il telefono altrui a
-   *    ricevere le SUE notifiche mentre il legittimo proprietario smette di
-   *    riceverne — un disservizio più che una lettura di dati altrui, e
-   *    raggiungibile solo da chi il token ce l'ha già.
+   *    device può intestarselo, e da quel momento è il telefono della VITTIMA
+   *    a ricevere le notifiche dell'ATTACCANTE, mentre la vittima smette di
+   *    riceverne le proprie — un disservizio per lei più una fuga dei dati di
+   *    lui, non una lettura di dati altrui. La direzione per esteso, e perché
+   *    il baratto conviene comunque, sta su `deviceRegistrationSchema`.
    *
    * Una sola istruzione, quindi nessuna transazione: non c'è una scrittura
    * "prima di quella decisiva" da cui difendersi.
@@ -243,6 +245,24 @@ export async function mePrefsRoutes(instance: FastifyInstance): Promise<void> {
   /**
    * CANCELLA la registrazione di un device: è il logout dell'app.
    *
+   * ⚠️ **`POST /devices/delete` con il token nel BODY, e NON un
+   * `DELETE /devices/:token`.** Sembra il verbo sbagliato, e fra sei mesi
+   * qualcuno vorrà "correggerlo" in qualcosa di più RESTful: non è un
+   * miglioramento, è la reintroduzione di una fuga di dati. Il server gira con
+   * `logger: true`, e pino scrive l'URL per intero su ogni richiesta. Con il
+   * token nel path la riga di log è, alla lettera:
+   *
+   * ```
+   * {"level":30,…,"req":{"method":"DELETE",
+   *  "url":"/api/me/devices/fcm-TOKEN-SEGRETISSIMO",…},"msg":"incoming request"}
+   * ```
+   *
+   * cioè il token push di un utente finisce in chiaro nei log del server, dove
+   * ha molti più lettori del DB. E chi lo legge se lo può INTESTARE, perché la
+   * registrazione qui sopra fa passare il device a chi lo registra per ultimo.
+   * Il body non viene loggato: è l'unica differenza, ed è tutta la differenza.
+   * Misurato, non supposto.
+   *
    * La riga si ELIMINA, non si disattiva. Un soft delete continuerebbe a
    * occupare la unique sul token e si farebbe riaccendere dal primo upsert di
    * chiunque: il contrario di ciò che chiede chi esce.
@@ -254,19 +274,21 @@ export async function mePrefsRoutes(instance: FastifyInstance): Promise<void> {
    * non ovvia. C'è un test che lo dimostra guardando il DB, non lo status code:
    * senza il filtro la risposta sarebbe 204 identica.
    *
-   * **204 anche su un token che non c'è (o non è nostro)**, non 404. Il logout
-   * dev'essere idempotente: l'app lo ritenta dopo un timeout di rete e non deve
-   * inciampare in un errore per un lavoro già fatto. Un 404 in più direbbe
-   * «questo token non è tuo o non esiste», che è più di quanto serva a chi sta
-   * uscendo — e non c'è nessun client che sappia farci qualcosa.
+   * **204 anche su un token che non c'è (o non è nostro)**, non 404, e la
+   * ragione NON è nascondere l'esistenza dei token altrui: con `userId` nel
+   * WHERE quell'oracolo non esiste comunque — un 404 direbbe «non è tuo
+   * *oppure* non esiste», due casi già confusi fra loro. La ragione è
+   * l'idempotenza del logout: l'app cancella uscendo e ritenta dopo un timeout
+   * di rete, e al secondo giro un 404 sarebbe un errore da mostrare per un
+   * lavoro già fatto. Nessun client saprebbe farci nulla di diverso.
    */
-  app.delete(
-    "/devices/:token",
+  app.post(
+    "/devices/delete",
     {
       preHandler: requireAuth,
       schema: {
-        params: z.object({ token: z.string().min(1) }),
-        response: { 204: z.null(), ...authErrorResponses },
+        body: deviceDeletionSchema,
+        response: { 204: z.null(), 400: errorSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {
@@ -274,7 +296,7 @@ export async function mePrefsRoutes(instance: FastifyInstance): Promise<void> {
         .delete(deviceTokens)
         .where(
           and(
-            eq(deviceTokens.token, request.params.token),
+            eq(deviceTokens.token, request.body.token),
             eq(deviceTokens.userId, request.user!.id),
           ),
         );

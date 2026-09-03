@@ -465,13 +465,39 @@ export const notificationPrefsViewSchema = notificationPrefsSchema.extend({
 export type NotificationPrefsView = z.infer<typeof notificationPrefsViewSchema>;
 
 /**
+ * Il token del servizio di push del sistema operativo (APNs o FCM), dichiarato
+ * una volta sola perché lo usano sia la registrazione sia la cancellazione: se
+ * i due tetti divergessero, esisterebbe un token registrabile e non
+ * cancellabile.
+ *
+ * Il tetto non è una regola del formato (un token APNs è 64 esadecimali, uno
+ * FCM ~163 caratteri, e nessuna delle due lunghezze è promessa dai fornitori):
+ * è il limite oltre il quale non stiamo più registrando un device ma scrivendo
+ * testo arbitrario in una colonna indicizzata.
+ */
+const pushTokenSchema = z.string().min(1).max(4096);
+
+/**
  * Body di `PUT /api/me/devices`: la registrazione del token push di UN device.
  *
- * `token` è il token del servizio di push del sistema operativo (APNs o FCM):
- * lo assegna il dispositivo, non noi, e può cambiare — l'app lo ri-registra a
- * ogni avvio e a ogni rotazione. È lui la chiave della riga (unique in
- * `device_tokens`), non l'utente: la registrazione è quindi un UPSERT
- * idempotente, non una creazione.
+ * `token` lo assegna il dispositivo, non noi, e può cambiare — l'app lo
+ * ri-registra a ogni avvio e a ogni rotazione. È lui la chiave della riga
+ * (unique in `device_tokens`), non l'utente: la registrazione è quindi un
+ * UPSERT idempotente, non una creazione.
+ *
+ * Da quella unique globale discende che **chi conosce il token di un device
+ * altrui se lo può intestare**, e vale la pena essere precisi sulla DIREZIONE
+ * del danno, perché l'intuizione la sbaglia: non è «leggo le notifiche
+ * altrui». La riga mappa token → utente, quindi intestandomi il token della
+ * vittima ottengo che **le MIE notifiche arrivano sul SUO telefono** e lei
+ * smette di riceverne. È un disservizio per lei più una fuga dei MIEI dati
+ * verso uno schermo che non controllo — un'aggressione poco attraente, e
+ * raggiungibile solo da chi il token ce l'ha già (dal telefono, dal nostro DB,
+ * o dai log: per questo il token non sta MAI in un path, vedi
+ * {@link deviceDeletionSchema}). In cambio, senza il passaggio di proprietà,
+ * il telefono su cui l'utente A esce e B entra sbatterebbe contro la unique e
+ * non riceverebbe MAI più una push, senza nessun errore visibile. Il baratto
+ * è accettato con cognizione, non per inerzia.
  *
  * `platform` è speculare al CHECK `device_tokens_platform_chk` di
  * `packages/db`. Le due liste non hanno un guardiano dedicato che le confronti
@@ -501,13 +527,25 @@ export type NotificationPrefsView = z.infer<typeof notificationPrefsViewSchema>;
  */
 export const deviceRegistrationSchema = z.object({
   platform: z.enum(["ios", "android"]),
-  /**
-   * Il tetto non è una regola del formato (un token APNs è 64 esadecimali, uno
-   * FCM ~163 caratteri, e nessuna delle due lunghezze è promessa dai
-   * fornitori): è il limite oltre il quale non stiamo più registrando un
-   * device ma scrivendo testo arbitrario in una colonna indicizzata.
-   */
-  token: z.string().min(1).max(4096),
+  token: pushTokenSchema,
   appVersion: z.string().min(1).max(64).optional(),
 });
 export type DeviceRegistration = z.infer<typeof deviceRegistrationSchema>;
+
+/**
+ * Body di `POST /api/me/devices/delete`: il logout dell'app.
+ *
+ * ⚠️ **Il token sta nel BODY, e la rotta è un `POST` con `/delete` nel path,
+ * non un `DELETE /api/me/devices/:token`.** Il verbo scomodo è deliberato e
+ * non va "sistemato": il server gira con `logger: true` e pino scrive l'URL
+ * intero di ogni richiesta, quindi un token nel path finirebbe in chiaro nei
+ * log — dove ha molti più lettori del DB, e da dove chi lo legge se lo può
+ * intestare (vedi il punto 2 di {@link deviceRegistrationSchema}). Il body non
+ * viene loggato. La motivazione per esteso, con la riga di log reale, sta sul
+ * docblock della rotta in `apps/server/src/routes/me-prefs.ts`.
+ *
+ * Un oggetto con un campo solo e non una stringa nuda: è la forma che può
+ * crescere senza rompere le app già installate.
+ */
+export const deviceDeletionSchema = z.object({ token: pushTokenSchema });
+export type DeviceDeletion = z.infer<typeof deviceDeletionSchema>;

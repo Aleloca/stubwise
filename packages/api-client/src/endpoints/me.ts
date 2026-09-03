@@ -89,12 +89,20 @@ export function createMeEndpoints(request: ApiRequest) {
      * Cancella la registrazione di questo device: 204. È il logout dell'app —
      * la riga viene ELIMINATA, non disattivata.
      *
+     * ⚠️ `POST` con il token nel BODY, e non un `DELETE` con il token nel
+     * path: il server logga l'URL intero di ogni richiesta, quindi nel path il
+     * token push finirebbe in chiaro nei log. Il body no. Per la stessa
+     * ragione il token va passato GREZZO — nessun `encodeURIComponent`, che
+     * qui non proteggerebbe da nulla e produrrebbe un token diverso da quello
+     * registrato, cioè una cancellazione che non cancella niente e risponde
+     * 204.
+     *
      * 204 anche su un token già cancellato o mai registrato: è idempotente
      * apposta, così un ritentativo dopo un timeout di rete non diventa un
      * errore da mostrare a chi sta uscendo.
      */
     deleteDevice(token: string): Promise<void> {
-      return request("DELETE", `/api/me/devices/${encodeURIComponent(token)}`);
+      return request("POST", "/api/me/devices/delete", { token });
     },
   };
 }

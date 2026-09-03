@@ -103,11 +103,17 @@ function putDevice(
   return app.inject({ method: "PUT", url: "/api/me/devices", headers: auth, payload: body });
 }
 
+/**
+ * Logout dell'app: `POST` con il token nel BODY. Non è un
+ * `DELETE /devices/:token` di proposito — pino logga l'URL intero e il token
+ * finirebbe in chiaro nei log (vedi il docblock della rotta).
+ */
 function deleteDevice(token: string, auth: Record<string, string> = { cookie: seeded.adminCookie }) {
   return app.inject({
-    method: "DELETE",
-    url: `/api/me/devices/${encodeURIComponent(token)}`,
+    method: "POST",
+    url: "/api/me/devices/delete",
     headers: auth,
+    payload: { token },
   });
 }
 
@@ -133,7 +139,11 @@ describe("autenticazione", () => {
         url: "/api/me/devices",
         payload: { platform: "ios", token: "tok-anonimo" },
       }),
-      app.inject({ method: "DELETE", url: "/api/me/devices/tok-anonimo" }),
+      app.inject({
+        method: "POST",
+        url: "/api/me/devices/delete",
+        payload: { token: "tok-anonimo" },
+      }),
     ];
     for (const res of await Promise.all(calls)) {
       expect(res.statusCode).toBe(401);
@@ -349,7 +359,7 @@ describe("/api/me/devices", () => {
     expect(rows[0]?.userId).toBe(seeded.memberId);
   });
 
-  it("DELETE: la riga sparisce, non viene disabilitata", async () => {
+  it("cancellare: la riga sparisce, non viene disabilitata", async () => {
     // Logout = via. Una riga soft-deleted resterebbe a occupare la unique sul
     // token e a farsi riaccendere dal primo upsert di chiunque.
     await putDevice({ platform: "ios", token: "tok-logout" });
@@ -357,7 +367,7 @@ describe("/api/me/devices", () => {
     expect(await deviceRow("tok-logout")).toBeUndefined();
   });
 
-  it("DELETE di un token di un ALTRO utente: 204, ma la riga altrui resta INTATTA", async () => {
+  it("cancellare il token di un ALTRO utente: 204, ma la riga altrui resta INTATTA", async () => {
     // Il test che la previsione del revisore chiedeva. Il 204 non prova nulla:
     // senza `userId` nel WHERE risponderebbe 204 ESATTAMENTE come adesso, e
     // avrebbe cancellato la riga. È il DB a dover essere guardato.
@@ -374,25 +384,39 @@ describe("/api/me/devices", () => {
     expect(await deviceRow("tok-altrui")).toBeUndefined();
   });
 
-  it("un token con caratteri da percent-encoding sopravvive al giro nel path", async () => {
-    // Il token sta nel PATH solo sul DELETE, e non è un identificatore che
-    // scegliamo noi: lo assegna il sistema operativo. `/` è il carattere che
-    // romperebbe il routing se qualcuno smettesse di codificarlo — ed è quello
-    // che `deleteDevice` di `@stubwise/api-client` codifica con
-    // `encodeURIComponent`. Qui si verifica che il giro completo torni alla
-    // riga giusta, non a una a caso.
+  it("un token con caratteri speciali attraversa il body senza codifiche", async () => {
+    // Stesso token di prima, motivo nuovo. Finché stava nel path, `/` era il
+    // carattere che rompeva il routing se qualcuno smetteva di codificarlo;
+    // ora che sta nel body non c'è più niente da codificare, e questo test
+    // serve a dimostrare proprio quello — che il giro completo torna alla riga
+    // giusta con il token GREZZO, così nessuno reintroduce un
+    // `encodeURIComponent` "per sicurezza" (codificherebbe il token e la
+    // cancellazione non troverebbe più nulla, in silenzio, con un 204).
     const token = "abc/def:ghi_jkl-mno";
     expect((await putDevice({ platform: "ios", token })).statusCode).toBe(204);
     expect((await deleteDevice(token)).statusCode).toBe(204);
     expect(await deviceRow(token)).toBeUndefined();
   });
 
-  it("DELETE di un token inesistente: 204, non 404", async () => {
+  it("cancellare un token inesistente: 204, non 404", async () => {
     // Il logout dev'essere idempotente: l'app lo ritenta dopo un timeout di
     // rete e non deve inciampare in un errore per un lavoro già fatto. Un 404
     // direbbe anche «questo token non è tuo o non esiste», che è più di quanto
     // serva a chi sta uscendo.
     expect((await deleteDevice("tok-mai-esistito")).statusCode).toBe(204);
+  });
+
+  it("la cancellazione rifiuta un body senza token", async () => {
+    // Il token è nel body, quindi è il body a doverlo validare: senza questo,
+    // un client che manda `{}` cancellerebbe... nulla, ma con un 204 che gli
+    // direbbe di sì.
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/me/devices/delete",
+      headers: { cookie: seeded.adminCookie },
+      payload: {},
+    });
+    expect(res.statusCode).toBe(400);
   });
 
   it("rifiuta una piattaforma fuori dai valori ammessi", async () => {
