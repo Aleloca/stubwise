@@ -23,7 +23,7 @@ const SCHEME_PREFIX = "stubwise://";
  * (`getStateFromPath`) perché deve poter girare ANCHE quando non c'è ancora
  * una sessione — cioè quando i soli screen montati sono quelli di `Auth` e
  * "Main/Inbox/Card" non esiste nell'albero — un caso che il parser di
- * react-navigation non è pensato per gestire (vedi {@link subscribePendingDeepLink}).
+ * react-navigation non è pensato per gestire (vedi {@link getPendingDeepLink}).
  */
 export function resolveDeepLinkTarget(url: string): DeepLinkTarget | null {
   if (!url.startsWith(SCHEME_PREFIX)) return null;
@@ -40,22 +40,21 @@ export function resolveDeepLinkTarget(url: string): DeepLinkTarget | null {
  * schermata di login). UN VALORE IN MEMORIA basta — non deve sopravvivere a
  * un riavvio del processo, solo al tempo che l'utente impiega a fare login
  * nella STESSA sessione dell'app (vedi il design doc del Task 13).
+ *
+ * Nessun pub/sub: chi lo consuma è `MainNavigator`
+ * (`src/app/navigation.tsx`), che chiama {@link getPendingDeepLink} UNA
+ * VOLTA in un `useEffect` al mount (cioè subito dopo il login, quando `Main`
+ * viene montato per la prima volta) e poi lo azzera con
+ * {@link setPendingDeepLink}.
  */
 let pendingUrl: string | null = null;
-const pendingListeners = new Set<(url: string | null) => void>();
 
 export function setPendingDeepLink(url: string | null): void {
   pendingUrl = url;
-  pendingListeners.forEach((listener) => listener(url));
 }
 
 export function getPendingDeepLink(): string | null {
   return pendingUrl;
-}
-
-export function subscribePendingDeepLink(listener: (url: string | null) => void): () => void {
-  pendingListeners.add(listener);
-  return () => pendingListeners.delete(listener);
 }
 
 /**

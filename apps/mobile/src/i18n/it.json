@@ -25,7 +25,8 @@
         "activate": "Attiva le notifiche e inizia",
         "later": "Più tardi",
         "loadError": "Non riesco a caricare i progetti.",
-        "retry": "Riprova"
+        "retry": "Riprova",
+        "finishError": "Non sono riuscito a salvare, riprova."
       }
     },
     "tabs": {

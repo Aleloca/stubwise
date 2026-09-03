@@ -28,6 +28,7 @@ export function OnboardingScreen() {
   const [state, setState] = useState<LoadState>({ kind: "loading" });
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
+  const [finishError, setFinishError] = useState(false);
 
   async function load() {
     if (!client) return;
@@ -67,6 +68,7 @@ export function OnboardingScreen() {
   async function finish(withNotifications: boolean) {
     if (!client) return;
     setBusy(true);
+    setFinishError(false);
     try {
       if (withNotifications) {
         await notifee.requestPermission();
@@ -79,6 +81,13 @@ export function OnboardingScreen() {
       }
       await client.me.setFollows(Array.from(selected));
       completeOnboarding();
+    } catch {
+      // Rete instabile appena dopo un login è il caso comune. Senza questo
+      // `catch` l'eccezione si propagava come rejection non gestita (il
+      // `void finish(...)` nell'`onPress` non la intercetta): `busy` tornava
+      // `false` grazie al `finally`, ma l'utente restava sullo screen senza
+      // alcun messaggio — sembrava che il bottone non avesse fatto nulla.
+      setFinishError(true);
     } finally {
       setBusy(false);
     }
@@ -121,6 +130,8 @@ export function OnboardingScreen() {
 
         <Text style={styles.settingsHint}>{t("mobile.auth.onboarding.settingsHint")}</Text>
       </View>
+
+      {finishError ? <Text style={styles.errorText}>{t("mobile.auth.onboarding.finishError")}</Text> : null}
 
       <View style={styles.actions}>
         <PrimaryButton
@@ -197,6 +208,11 @@ const styles = StyleSheet.create({
     color: colors.faint,
     fontSize: 11,
     marginTop: 10,
+  },
+  errorText: {
+    color: colors.danger,
+    fontSize: 13,
+    marginTop: 20,
   },
   actions: {
     gap: 6,

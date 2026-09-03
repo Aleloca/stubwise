@@ -170,3 +170,14 @@ zod (dipendenza di `@stubwise/shared`) usa nei suoi sorgenti ESM.
 
 Il lint è centralizzato nella `eslint.config.js` di radice, che ignora
 `apps/mobile/ios` e `apps/mobile/android` (progetti nativi generati).
+
+`@babel/runtime` è una dependency DIRETTA di `packages/api-client` (Task 13)
+anche se nessun sorgente TS del package lo importa: Metro trasforma con Babel
+anche il `dist/index.js` già compilato di `api-client` quando lo bundla per
+questa app, e quella trasformazione inietta `require("@babel/runtime/helpers/...")`.
+Sotto pnpm — niente hoisting dei transitive — quell'helper deve essere una
+dependency dichiarata del package che lo importa, altrimenti Metro non lo
+risolve. Un depcheck/knip (o un umano che cerca `@babel/runtime` nei sorgenti
+TS e non lo trova) lo scambierebbe per morto: la rottura si vedrebbe solo al
+bundle Metro dell'app mobile, mai nei test Vitest di `api-client` (che non
+passano da Metro).

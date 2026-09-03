@@ -25,7 +25,8 @@
         "activate": "Turn on notifications and start",
         "later": "Later",
         "loadError": "Can't load the projects.",
-        "retry": "Retry"
+        "retry": "Retry",
+        "finishError": "Couldn't save, please retry."
       }
     },
     "tabs": {

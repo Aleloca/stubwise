@@ -109,6 +109,22 @@ describe("OnboardingScreen", () => {
     expect(client.me.setFollows).toHaveBeenCalledWith(["p1", "p2", "p3"]);
   });
 
+  test("'Attiva le notifiche e inizia' fallisce (setFollows rigetta): mostra l'errore e il bottone torna utilizzabile", async () => {
+    const client = makeClient();
+    (client.me.setFollows as jest.Mock).mockRejectedValueOnce(new Error("network down"));
+    const { completeOnboarding } = await renderOnboarding(client);
+    await waitFor(() => expect(screen.getByText("Portale B2B")).toBeTruthy());
+
+    await fireEvent.press(screen.getByTestId("onboarding-activate"));
+
+    await waitFor(() => expect(screen.getByText("Non sono riuscito a salvare, riprova.")).toBeTruthy());
+    expect(completeOnboarding).not.toHaveBeenCalled();
+    // Il bottone torna utilizzabile: non resta bloccato in `busy` (il
+    // `finally` gira sempre, ma senza `catch` l'errore non gestito lasciava
+    // lo screen senza messaggio — questo test verifica anche quello).
+    expect(screen.getByTestId("onboarding-activate").props.accessibilityState?.disabled).toBe(false);
+  });
+
   test("errore nel caricamento dei progetti: mostra Riprova, che ricarica", async () => {
     const client = makeClient();
     (client.projects.list as jest.Mock)
