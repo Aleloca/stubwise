@@ -497,6 +497,16 @@ chiavi APNs/FCM sono legate alla nostra identità e vivono SOLO nel relay
 
 ### Task 10b: il relay (`apps/push-relay`)
 
+> ⚠️ **VINCOLO dal Task 10: `reason` non deve MAI contenere il token.** Il
+> poller scrive gli esiti per **id del device** e non per token proprio per
+> tenerli fuori da `notification_deliveries` e dai log — ma `result.reason`
+> arriva dal relay e finisce dritto in quella stringa. È l'unico punto in cui
+> il poller si fida di ciò che il relay gli manda. Se il relay echeggia il
+> token in `reason` (p.es. ricopiando un messaggio d'errore di APNs/FCM che lo
+> contiene), vanifica da solo tutta la catena — token fuori dal path del
+> DELETE, esiti per device id, messaggi coi soli conteggi.
+
+
 Microservizio nostro, deployato solo sul nostro VPS. Le istanze self-hosted
 non lo eseguono: lo chiamano.
 
