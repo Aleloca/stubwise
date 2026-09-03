@@ -809,6 +809,17 @@ il job CI su ubuntu passi con il mobile incluso.
   > body che cresce nel tempo è la **patch**: campi opzionali, gli assenti
   > restano invariati.
 
+- **⚠️ TRAPPOLA DI METODO, emersa al Task 9 — vale per chiunque faccia mutation
+  testing in questo monorepo.** Quando la mutazione è in un package **diverso**
+  da quello dei test, un `dist/` stantio la nasconde: i test leggono `dist`, non
+  i sorgenti, quindi la mutazione sembra «non catturata» mentre in realtà lo
+  sarebbe. Successo davvero: togliere un titolo da `packages/i18n/src` lasciava
+  verdi i test di `packages/notifications` finché non si rifaceva
+  `pnpm --filter @stubwise/i18n build`. In CI è innocuo (`ci.yml` fa `pnpm -r
+  build` prima di `pnpm -r test`), ma in locale porta alla conclusione opposta a
+  quella vera: «il test non discrimina» quando invece discrimina. **Regola: dopo
+  ogni mutazione cross-package, ribuildare prima di eseguire.**
+
 - **Due voci accertate al Task 8:** (a) *nota di deploy* — finché il Task 10 non
   c'è, il poller marca ogni riga `push` come `skipped / channel_not_implemented`
   e **non la ripesca più**. Innocuo se server e worker si deployano insieme

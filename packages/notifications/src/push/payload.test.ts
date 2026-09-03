@@ -1,5 +1,10 @@
 import { en, it as itCatalog } from "@stubwise/i18n";
-import { PUSH_BODY_MAX_CHARS, pushRelaySendRequestSchema, type Language } from "@stubwise/shared";
+import {
+  languageSchema,
+  PUSH_BODY_MAX_CHARS,
+  pushRelaySendRequestSchema,
+  type Language,
+} from "@stubwise/shared";
 import { describe, expect, it } from "vitest";
 import { formatNotificationText, sampleEvents, type NotificationEvent } from "../format.js";
 import { buildPushPayload, PUSH_TITLE_KEY } from "./payload.js";
@@ -7,7 +12,9 @@ import { buildPushPayload, PUSH_TITLE_KEY } from "./payload.js";
 const BASE_URL = "https://stubwise.test";
 const NOTIFICATION_ID = "3f2a91c4-5555-4666-8777-888899990000";
 const PROJECT_ID = "2e5a8c4b-9999-4aaa-8bbb-ccccddddeeee";
-const LANGS: Language[] = ["it", "en"];
+// Legato all'enum e non scritto a mano: una lingua nuova deve far girare
+// questi test su di essa, non restare fuori copertura in silenzio.
+const LANGS: Language[] = [...languageSchema.options];
 
 /** Lo schema del solo `payload`, come lo vede il relay. */
 const payloadSchema = pushRelaySendRequestSchema.shape.payload;
