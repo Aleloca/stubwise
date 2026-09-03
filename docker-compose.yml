@@ -217,6 +217,16 @@ services:
       # 0 = disabilitato (le consegne si accumulano senza partire).
       # Default: 5 secondi.
       - NOTIFY_POLL_SECONDS=${NOTIFY_POLL_SECONDS:-5}
+      # --- Notifiche push sull'app mobile (fase 4) ---
+      # Il worker NON parla con APNs/FCM: spedisce al RELAY, che tiene le chiavi
+      # dell'app (una sola, la nostra). Tre valori con tre significati diversi:
+      # variabile ASSENTE -> relay pubblico (il default qui sotto, che deve
+      # coincidere con DEFAULT_PUSH_RELAY_URL nel codice); stringa VUOTA -> push
+      # SPENTE (e' l'interruttore del rollback); un URL https -> quel relay.
+      # ATTENZIONE alla sintassi: `${VAR-default}` col TRATTINO NUDO, non `:-`.
+      # Con i due punti una stringa vuota in .env verrebbe rimpiazzata dal
+      # default e le push NON si spegnerebbero.
+      - PUSH_RELAY_URL=${PUSH_RELAY_URL-https://push.stubwise.thecove.it}
       # --- Pulse proattivo (progetti fermi con voci nel backlog) ---
       # Poller che, DENTRO la finestra oraria d'istanza, cerca i progetti fermi
       # con voci proponibili e pubblica una notifica `project.pulse` con 2–3

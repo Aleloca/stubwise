@@ -60,6 +60,8 @@ export {
   type UpdateMessageInput,
 } from "./slack-client.js";
 
+export { unreadCount } from "./unread.js";
+
 export {
   audienceFor,
   recipientsFor,

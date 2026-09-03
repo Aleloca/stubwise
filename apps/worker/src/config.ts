@@ -1,3 +1,4 @@
+import { loadPushConfig, type PushConfig } from "@stubwise/notifications";
 import { z } from "zod";
 
 /**
@@ -927,6 +928,16 @@ export interface WorkerConfig {
   pulseSendHour: number;
   /** Se true (default) il pulse tace il sabato e la domenica. */
   pulseWeekdaysOnly: boolean;
+  /**
+   * Relay a cui spedire le notifiche push, o `null` = PUSH SPENTE.
+   *
+   * Le tre forme di `PUSH_RELAY_URL` (assente = relay pubblico, vuota = spente,
+   * un URL = quel relay) e la validazione fail-fast stanno in `loadPushConfig`
+   * (`@stubwise/notifications`), non qui: lo stesso valore lo leggerà anche il
+   * relay stesso, e la distinzione fra "assente" e "vuota" non sopravviverebbe
+   * a `emptyAsUndefined`, che è il preprocess di TUTTE le env di questo file.
+   */
+  push: PushConfig | null;
 }
 
 /**
@@ -1015,5 +1026,10 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     pulseTimezone: parsed.PULSE_TIMEZONE,
     pulseSendHour: parsed.PULSE_SEND_HOUR,
     pulseWeekdaysOnly: parsed.PULSE_WEEKDAYS_ONLY,
+    // Letta dall'env GREZZO, non da `parsed`: `envSchema` non la conosce (e non
+    // deve, vedi il campo `push` di WorkerConfig). LANCIA su un valore
+    // inutilizzabile — un relay in chiaro o con credenziali — così il worker
+    // non parte invece di spedire i titoli dei ticket a un indirizzo sbagliato.
+    push: loadPushConfig(env),
   };
 }

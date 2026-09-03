@@ -1,5 +1,6 @@
 import {
   aiJobs,
+  deviceTokens,
   notificationDeliveries,
   notifications,
   users,
@@ -10,6 +11,7 @@ import type { Language } from "@stubwise/i18n";
 import {
   actionsFor,
   buildInboxBlocks,
+  buildPushPayload,
   buildQuestionBlocks,
   createSlackClient,
   formatNotification,
@@ -18,12 +20,17 @@ import {
   loadSettings,
   loadSlackBotToken,
   openUrl,
+  PushRelayRejected,
   sendWebhookEvent,
+  unreadCount,
+  type DbOrTx,
   type NotificationEvent,
+  type PushRelayClient,
   type SlackBlock,
   type SlackMessenger,
 } from "@stubwise/notifications";
-import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
+import type { PushPlatform, PushRelaySendResponse } from "@stubwise/shared";
+import { and, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 
 /**
  * POLLER DELL'OUTBOX delle notifiche (`notification_deliveries`): task SEPARATO
@@ -48,7 +55,10 @@ import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
  *    stato. Il testo da aggiungere sta nel jsonb `event` della riga, nella
  *    forma `{ "note": "✅ Gestita da …" }` (`event` è nullable per i canali
  *    diversi da `webhook`: senza nota si limita a togliere i bottoni, che è
- *    esattamente ciò che serve dopo uno snooze).
+ *    esattamente ciò che serve dopo uno snooze);
+ *  - `push` — la notifica sui telefoni del destinatario, spedita al RELAY
+ *    (nessuna istanza parla con APNs o FCM). Una consegna per destinatario,
+ *    non per device: i device attivi si leggono al momento dell'invio.
  *
  * FORMATO DI `external_ref` (canali Slack): `"<channel>|<ts>"`, dove `channel`
  * è quello RISOLTO da Slack (postando su uno user id è il DM `D…`) e `ts` la
@@ -128,6 +138,14 @@ export interface DeliveriesPollerDeps {
   loadSlackBotToken?: LoadSlackBotTokenFn;
   /** Client Slack iniettabile nei test. Default createSlackClient (rete vera). */
   slackClientFactory?: SlackMessengerFactory;
+  /**
+   * Client del relay push, costruito all'avvio dal `PUSH_RELAY_URL`.
+   * `null`/assente = PUSH SPENTE: la consegna si chiude `skipped push_disabled`
+   * invece di restare pending per sempre. Non c'è un default che vada in rete —
+   * al contrario del webhook — perché il relay è una destinazione CONFIGURATA:
+   * chi non l'ha configurata non deve scoprirlo con un POST.
+   */
+  pushRelay?: PushRelayClient | null;
   /** Consegne massime per tick. Default 20. */
   limit?: number;
   /** Stop cooperativo: interrompe il giro a metà. */
@@ -174,7 +192,7 @@ export async function claimDue(db: Db, limit = DEFAULT_LIMIT): Promise<Notificat
  * l'UPDATE non tocca nulla invece di sovrascrivere.
  */
 async function finish(
-  db: Db,
+  db: DbOrTx,
   id: string,
   status: "sent" | "failed" | "skipped",
   error: string | null,
@@ -192,7 +210,7 @@ async function finish(
 }
 
 /** Registra un fallimento ritentabile: resta `pending` (il claim ha già schedulato). */
-async function keepPending(db: Db, id: string, error: string): Promise<void> {
+async function keepPending(db: DbOrTx, id: string, error: string): Promise<void> {
   await db
     .update(notificationDeliveries)
     .set({ error })
@@ -232,6 +250,10 @@ async function processDelivery(
   const { db } = deps;
   if (row.channel === "slack_dm" || row.channel === "slack_update") {
     await processSlackDelivery(deps, tick, row);
+    return;
+  }
+  if (row.channel === "push") {
+    await processPushDelivery(deps, row);
     return;
   }
   if (row.channel !== "webhook") {
@@ -279,6 +301,12 @@ async function retryOrFail(
   deps: DeliveriesPollerDeps,
   row: NotificationDelivery,
   error: string,
+  /**
+   * Dove scrivere. Il canale push passa la sua transazione: la disabilitazione
+   * dei device e l'esito della consegna devono muoversi insieme (vedi
+   * {@link applyPushOutcome}).
+   */
+  db: DbOrTx = deps.db,
 ): Promise<void> {
   // `attempts` è già quello POST-claim: al quinto tentativo si chiude.
   if (row.attempts >= MAX_ATTEMPTS) {
@@ -288,10 +316,10 @@ async function retryOrFail(
       { deliveryId: row.id, channel: row.channel, attempts: row.attempts, error },
       "[notify] consegna failed dopo MAX_ATTEMPTS",
     );
-    await finish(deps.db, row.id, "failed", error);
+    await finish(db, row.id, "failed", error);
     return;
   }
-  await keepPending(deps.db, row.id, error);
+  await keepPending(db, row.id, error);
 }
 
 
@@ -347,12 +375,18 @@ export function parseExternalRef(
 }
 
 /** La notifica dietro una consegna per-destinatario, col suo destinatario. */
-interface SlackRecipient {
+interface DeliveryRecipient {
   notificationId: string;
   userId: string;
   kind: NotificationKindColumn;
   event: Record<string, unknown>;
   ticketId: string | null;
+  /**
+   * Progetto della notifica (nullable: i kind d'istanza non ne hanno uno).
+   * Serve al canale push come `threadId`, cioè al raggruppamento delle
+   * notifiche sul telefono. L'evento porta il NOME del progetto, non l'id.
+   */
+  projectId: string | null;
   /**
    * Richiedente del job dietro la notifica (`null` sui run dell'automazione e
    * sugli eventi senza job): decide chi può rispondere a una domanda
@@ -391,7 +425,7 @@ function renderSlack(
 }
 
 /** Legge la notifica e il destinatario di una consegna per-destinatario. */
-async function loadRecipient(db: Db, notificationId: string): Promise<SlackRecipient | null> {
+async function loadRecipient(db: Db, notificationId: string): Promise<DeliveryRecipient | null> {
   const [row] = await db
     .select({
       notificationId: notifications.id,
@@ -399,6 +433,7 @@ async function loadRecipient(db: Db, notificationId: string): Promise<SlackRecip
       kind: notifications.kind,
       event: notifications.event,
       ticketId: notifications.ticketId,
+      projectId: notifications.projectId,
       // LEFT JOIN sul job della notifica (nullo sugli eventi d'istanza): una
       // colonna in più nella query che c'era già, non una query in più.
       requestedByUserId: aiJobs.requestedByUserId,
@@ -494,7 +529,7 @@ async function processSlackDelivery(
 async function sendSlackDm(
   deps: DeliveriesPollerDeps,
   row: NotificationDelivery,
-  recipient: SlackRecipient,
+  recipient: DeliveryRecipient,
   client: SlackMessenger,
 ): Promise<void> {
   const { db } = deps;
@@ -549,7 +584,7 @@ async function sendSlackDm(
 async function sendSlackUpdate(
   deps: DeliveriesPollerDeps,
   row: NotificationDelivery,
-  recipient: SlackRecipient,
+  recipient: DeliveryRecipient,
   client: SlackMessenger,
 ): Promise<void> {
   const { db } = deps;
@@ -634,6 +669,256 @@ async function sendSlackUpdate(
 function noteOf(event: Record<string, unknown> | null): string | null {
   const note = event?.note;
   return typeof note === "string" && note.trim() !== "" ? note : null;
+}
+
+// --- Canale push (fase 4) -------------------------------------------------
+
+/**
+ * Tetto per SINGOLA chiamata al relay push, molto più stretto dei 10 s di
+ * default del client.
+ *
+ * Non è un'ottimizzazione della latenza della push: è la protezione di TUTTE le
+ * altre consegne. Il poller processa fino a 20 righe per tick IN SEQUENZA e con
+ * una guardia anti-rientro, quindi col default un relay morto allungherebbe il
+ * tick a 200 s — e in quel tick non partirebbero nemmeno i DM Slack e i
+ * webhook, che stanno nella stessa coda. Il backoff non aiuta: agisce dopo.
+ * Il relay è un hop che gestiamo noi e in salute risponde in decine di ms;
+ * 3 secondi sono già due ordini di grandezza di margine, e una push tardata di
+ * un tick è invisibile mentre un tick fermo non lo è.
+ */
+export const PUSH_RELAY_TIMEOUT_MS = 3_000;
+
+/**
+ * Quanti esiti per-device si scrivono al massimo nella riga. I token stantii si
+ * accumulano (un token resta attivo finché una push non torna `invalid_token`),
+ * quindi l'elenco non è limitato dal numero di telefoni veri; il resto diventa
+ * un `+N`. Ogni `reason` è già troncato a 240 caratteri dal client.
+ */
+const PUSH_DETAIL_MAX_ENTRIES = 20;
+
+/** Un device raggiungibile del destinatario. */
+interface ActiveDevice {
+  id: string;
+  platform: PushPlatform;
+  token: string;
+}
+
+/**
+ * I device ATTIVI del destinatario, letti al momento dell'invio.
+ *
+ * Il predicato è `disabled_at IS NULL` e MAI il motivo — alla lettera quello
+ * dell'indice parziale `device_tokens_user_active_idx` e quello di
+ * `pushRecipients` al publish. Che la lista possa essere VUOTA anche se al
+ * publish non lo era è normale e non è una corsa da chiudere: fra le due letture
+ * l'utente può aver revocato il PAT con cui aveva registrato il telefono.
+ */
+async function activeDevices(db: Db, userId: string): Promise<ActiveDevice[]> {
+  return db
+    .select({ id: deviceTokens.id, platform: deviceTokens.platform, token: deviceTokens.token })
+    .from(deviceTokens)
+    .where(and(eq(deviceTokens.userId, userId), isNull(deviceTokens.disabledAt)));
+}
+
+/** Un device con l'esito che il relay gli ha dato. */
+interface DeviceOutcome {
+  device: ActiveDevice;
+  result: PushRelaySendResponse["results"][number] | undefined;
+}
+
+/**
+ * Riga di diagnostica salvata sulla consegna: un esito PER ID DI DEVICE.
+ *
+ * ⚠️ **Mai per token.** `results[].token` torna dal relay anche sul percorso di
+ * successo, e copiarlo qui scriverebbe i token push in chiaro in
+ * `notification_deliveries` — cioè nel DB e in ogni log che ne legge le righe.
+ * Da un token push ci si intesta il device di qualcun altro: è lo stesso motivo
+ * per cui `POST /api/me/devices/delete` li tiene fuori dal path.
+ *
+ * Finisce nella colonna `error` anche quando la consegna è `sent`, e non è una
+ * svista: è l'unica colonna diagnostica della riga (`external_ref` ha già un
+ * significato suo, ed è dei canali Slack), ed è l'unico posto in cui resta
+ * scritto QUALI telefoni hanno ricevuto la notifica e quali no. Una riga `sent`
+ * con `error` valorizzato è quindi normale su questo canale, e solo su questo.
+ */
+function summarizePushOutcomes(outcomes: DeviceOutcome[]): string {
+  const shown = outcomes.slice(0, PUSH_DETAIL_MAX_ENTRIES).map(({ device, result }) => {
+    const status = result?.status ?? "no_result";
+    return result?.reason ? `${device.id}=${status} (${result.reason})` : `${device.id}=${status}`;
+  });
+  const rest = outcomes.length - shown.length;
+  return rest > 0 ? `${shown.join(", ")}, +${rest}` : shown.join(", ");
+}
+
+/**
+ * Scrive INSIEME le due conseguenze di una spedizione: i device da disabilitare
+ * e l'esito della consegna.
+ *
+ * UNA TRANSAZIONE, e la ragione non è che perderne una sarebbe una catastrofe —
+ * entrambi gli stati si riparano da soli al giro dopo (un token morto lasciato
+ * attivo torna `invalid_token` alla notifica successiva; una consegna lasciata
+ * `pending` si ritenta e il `collapseId` fa sostituire la push già arrivata
+ * invece di accodarne una seconda). La ragione è che sono la stessa decisione,
+ * presa sulla stessa risposta: separarle vorrebbe dire ammettere uno stato in
+ * cui la riga dice «consegnato» e il device dice «vivo» pur essendo morto, e
+ * doverlo poi spiegare a chi legge il DB.
+ *
+ * L'UPDATE dei device è ristretto anche a `disabled_at IS NULL`: se nel
+ * frattempo la revoca di un PAT li ha già disabilitati, il suo motivo — che è
+ * quello vero — non viene sovrascritto da `invalid_token`.
+ */
+async function applyPushOutcome(
+  deps: DeliveriesPollerDeps,
+  row: NotificationDelivery,
+  outcomes: DeviceOutcome[],
+): Promise<void> {
+  const toDisable = outcomes
+    .filter(({ result }) => result?.status === "invalid_token")
+    .map(({ device }) => device.id);
+  const detail = summarizePushOutcomes(outcomes);
+  const anyOk = outcomes.some(({ result }) => result?.status === "ok");
+  const anyRetry = outcomes.some(({ result }) => result?.status === "retry");
+
+  await deps.db.transaction(async (tx) => {
+    if (toDisable.length > 0) {
+      await tx
+        .update(deviceTokens)
+        .set({ disabledAt: sql`now()`, disabledReason: "invalid_token" })
+        .where(and(inArray(deviceTokens.id, toDisable), isNull(deviceTokens.disabledAt)));
+    }
+    if (anyOk) {
+      // Basta UN device raggiunto: la consegna è per DESTINATARIO, e la persona
+      // la notifica ce l'ha. Se un altro suo device ha detto `retry`, quella
+      // singola push si perde — ritentare l'intera consegna rimanderebbe la
+      // stessa notifica ai telefoni che l'hanno già.
+      await finish(tx, row.id, "sent", detail);
+      return;
+    }
+    if (anyRetry) {
+      // Nessuno raggiunto ma qualcuno da riprovare: il backoff è già schedulato
+      // dal claim, e i device appena disabilitati non saranno del giro dopo.
+      await retryOrFail(deps, row, detail, tx);
+      return;
+    }
+    // Solo esiti permanenti (`invalid_token`, `failed`): ritentare non
+    // cambierebbe nulla, e cinque tentativi a vuoto nasconderebbero il guasto.
+    await finish(tx, row.id, "failed", detail);
+  });
+}
+
+/**
+ * Processa UNA consegna push: relay configurato → destinatario → device attivi
+ * → payload nella sua lingua → spedizione → conseguenze.
+ *
+ * CLASSIFICAZIONE DEGLI ERRORI, che è tutto il senso delle due eccezioni del
+ * client: {@link PushRelayRejected} è un bug di contratto fra due software che
+ * deployiamo noi e chiude subito `failed` (ritentarlo cinque volte non lo
+ * farebbe cambiare idea, e il guasto si vedrebbe solo come una notifica che non
+ * arriva); tutto il resto — `PushRelayUnavailable` e qualunque imprevisto —
+ * passa dal backoff ordinario.
+ */
+async function processPushDelivery(
+  deps: DeliveriesPollerDeps,
+  row: NotificationDelivery,
+): Promise<void> {
+  const { db } = deps;
+  const client = deps.pushRelay;
+  if (!client) {
+    // Esito terminale altrimenti silenzioso: senza log l'unica traccia sarebbe
+    // una riga di DB che nessuno guarda. Vale come per il bot Slack non
+    // configurato — chi ha spento le push le vede tacere e sa perché.
+    deps.logger.warn(
+      { deliveryId: row.id, channel: row.channel },
+      "[notify] consegna skipped: push spente (PUSH_RELAY_URL vuota)",
+    );
+    await finish(db, row.id, "skipped", "push_disabled");
+    return;
+  }
+  if (!row.notificationId) {
+    // Impossibile per il CHECK `notification_deliveries_channel_shape_chk`, ma
+    // il tipo lo ammette: riga malformata → terminale.
+    await finish(db, row.id, "failed", "consegna push senza notificationId");
+    return;
+  }
+  const recipient = await loadRecipient(db, row.notificationId);
+  if (!recipient) {
+    await finish(db, row.id, "failed", "notifica o destinatario non trovati");
+    return;
+  }
+
+  const devices = await activeDevices(db, recipient.userId);
+  if (devices.length === 0) {
+    // Al publish ne aveva almeno uno: nel frattempo li ha persi (revoca del
+    // PAT, o l'ultima push aveva già disabilitato l'ultimo token). Non è un
+    // errore e non c'è dove consegnare: `skipped`, come l'utente senza Slack.
+    await finish(db, row.id, "skipped", "no_active_device");
+    return;
+  }
+
+  let payload;
+  try {
+    payload = buildPushPayload(recipient.event as unknown as NotificationEvent, recipient.language, {
+      notificationId: recipient.notificationId,
+      // Il badge è il numero della campanella di QUESTO destinatario, non un
+      // conteggio delle sue push: stessa funzione della rotta `unread-count`.
+      unreadCount: await unreadCount(db, recipient.userId),
+      projectId: recipient.projectId,
+    });
+  } catch (err) {
+    // RECINTO attorno alla resa dal jsonb, gemello di quello di `renderSlack`:
+    // `notifications.event` può essere stato scritto mesi fa da una versione
+    // precedente. Senza questo catch l'eccezione uscirebbe da `processDelivery`
+    // e la riga resterebbe `pending` PER SEMPRE: `retryOrFail` non verrebbe mai
+    // raggiunto, quindi nessuno la dichiarerebbe `failed` e il claim
+    // continuerebbe a ripescarla a ogni scadenza del backoff.
+    const error = errText(err);
+    deps.logger.warn(
+      { deliveryId: row.id, channel: row.channel, error },
+      "[notify] consegna push failed: payload non costruibile",
+    );
+    await finish(db, row.id, "failed", `payload push non costruibile: ${error}`);
+    return;
+  }
+
+  let response: PushRelaySendResponse;
+  try {
+    response = await client.send(
+      devices.map(({ platform, token }) => ({ platform, token })),
+      payload,
+    );
+  } catch (err) {
+    const error = errText(err);
+    if (err instanceof PushRelayRejected) {
+      deps.logger.warn(
+        { deliveryId: row.id, channel: row.channel, error },
+        "[notify] consegna push failed: il relay ha rifiutato la richiesta",
+      );
+      await finish(db, row.id, "failed", error);
+      return;
+    }
+    await retryOrFail(deps, row, error);
+    return;
+  }
+
+  /**
+   * APPAIAMENTO PER VALORE DEL TOKEN, mai per indice.
+   *
+   * Lo schema dichiara che il relay risponde nell'ordine dei token, ma un
+   * contratto non lo può imporre e i due capi si deployano da soli. Un relay
+   * che riordinasse la risposta farebbe disabilitare il device SBAGLIATO —
+   * spegnere un telefono sano e tenerne attivo uno morto — senza nessun errore
+   * da nessuna parte, solo un utente che smette di ricevere notifiche.
+   *
+   * Che ci sia un esito per ogni token spedito, una volta sola, lo verifica già
+   * il client (`assertOneResultPerToken`, che altrimenti lancia
+   * `PushRelayRejected`): qui un `undefined` non è raggiungibile, e per questo
+   * non disabilita nulla e conta come esito permanente.
+   */
+  const byToken = new Map(response.results.map((result) => [result.token, result]));
+  await applyPushOutcome(
+    deps,
+    row,
+    devices.map((device) => ({ device, result: byToken.get(device.token) })),
+  );
 }
 
 /**
