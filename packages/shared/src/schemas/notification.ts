@@ -432,8 +432,18 @@ export type NotificationPrefs = z.infer<typeof notificationPrefsSchema>;
  * non un errore: non c'è niente di ambiguo da segnalare a chi lo manda, e un
  * 400 costringerebbe ogni client a un controllo che il server sa già fare.
  * Resta invece 400 un campo presente col tipo sbagliato.
+ *
+ * `.strict()` è qui — e non sugli altri body, dove la convenzione del repo è
+ * lo strip — perché su una patch lo strip è pericoloso in un modo che altrove
+ * non è: con tutti i campi opzionali, `{ pussh: false }` verrebbe ripulito a
+ * `{}` e risponderebbe 204, cioè un typo indistinguibile da un successo.
+ * Finché i campi erano obbligatori quel caso dava 400 per un effetto
+ * collaterale (mancava `slackDm`); rendendo il body una patch quella
+ * protezione è sparita, e `.strict()` la rimette di proposito. La chiave
+ * sconosciuta diventa un 400 con dentro il nome che non conosciamo, che è
+ * l'informazione che serve a chi ha sbagliato a scrivere.
  */
-export const notificationPrefsUpdateSchema = notificationPrefsSchema.partial();
+export const notificationPrefsUpdateSchema = notificationPrefsSchema.partial().strict();
 export type NotificationPrefsUpdate = z.infer<typeof notificationPrefsUpdateSchema>;
 
 /**

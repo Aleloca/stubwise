@@ -197,6 +197,24 @@ describe("/api/me/notification-prefs", () => {
     expect((await getPrefs()).json()).toMatchObject({ slackLinked: false });
   });
 
+  it("rifiuta un campo sconosciuto: un typo non deve passare per successo", async () => {
+    // Il gemello del test qui sopra, e i due vanno letti insieme: `{}` è 204
+    // perché una patch vuota è legittima, ma `{ pussh: false }` NON deve
+    // finire nello stesso 204 — con tutti i campi opzionali lo strip lo
+    // ridurrebbe a `{}` e il client crederebbe di aver salvato. Da qui lo
+    // `.strict()` sul solo schema di update.
+    const res = await app.inject({
+      method: "PUT",
+      url: "/api/me/notification-prefs",
+      headers: { cookie: seeded.adminCookie },
+      payload: { pussh: false },
+    });
+    expect(res.statusCode).toBe(400);
+    // Il nome sbagliato dev'essere NEL messaggio: è l'informazione che serve a
+    // chi ha fatto il typo, e senza di essa il 400 è solo un muro.
+    expect(JSON.stringify(res.json())).toContain("pussh");
+  });
+
   it("rifiuta un campo presente col tipo sbagliato", async () => {
     // Opzionale non vuol dire libero: se il campo c'è, deve essere un boolean.
     const res = await app.inject({
