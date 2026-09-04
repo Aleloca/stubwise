@@ -1,4 +1,5 @@
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
+import { isUnknown } from "@stubwise/shared";
 import type { ProjectPulseSummary, Reader } from "@stubwise/shared";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
@@ -7,6 +8,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import type { ProjectsStackParamList } from "../../app/navigation";
 import { useAuth } from "../../app/providers";
 import { GhostButton } from "../../components/GhostButton";
+import { PulseIndicator } from "../../components/PulseIndicator";
 import { ProjectGroup } from "../../components/projects/ProjectGroup";
 import { Skeleton } from "../../components/Skeleton";
 import { pulseLineFor } from "../../lib/pulse-line";
@@ -14,12 +16,20 @@ import { projectsPulseKey } from "./ProjectsScreen";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
 
-/** Ruolo di chi sblocca una voce `waitingForOthers`, nel testo del canvas ("→ …"). */
-function whoArrowKey(kind: "requester" | "maintainer" | string): string {
-  if (kind === "maintainer") return "mobile.projects.detail.waitingMaintainerArrow";
-  if (kind === "requester") return "mobile.projects.detail.waitingRequesterArrow";
-  // `UNKNOWN` (server più nuovo di questa build): stesso trattamento del
-  // richiedente, il meno privilegiato dei due — mai un testo grezzo.
+type WaitingForOthersItem = Reader<ProjectPulseSummary>["waitingForOthers"][number];
+
+/**
+ * Ruolo di chi sblocca una voce `waitingForOthers`, nel testo del canvas
+ * ("→ …"). Tipizzato sul campo REALE (`WaitingForOthersItem["who"]["kind"]`,
+ * non un'unione scritta a mano che collasserebbe a `string` aggiungendoci
+ * `| string`) e con `isUnknown()`, stesso trattamento di `waitingKindKey` in
+ * `lib/pulse-line.ts`: se `pulseWaitingWhoKindSchema` guadagna un terzo
+ * valore un domani, il compilatore lo fa notare qui esattamente come là.
+ * `UNKNOWN` (server più nuovo di questa build) va allo stesso testo del
+ * richiedente, il meno privilegiato dei due — mai un valore grezzo mostrato.
+ */
+function whoArrowKey(kind: WaitingForOthersItem["who"]["kind"]): string {
+  if (!isUnknown(kind) && kind === "maintainer") return "mobile.projects.detail.waitingMaintainerArrow";
   return "mobile.projects.detail.waitingRequesterArrow";
 }
 
@@ -99,14 +109,14 @@ function ProjectDetailBody({
 
   const waitingRows = [
     ...summary.waitingForYou.map((item) => ({
-      key: `you-${item.ticketId}`,
+      rowKey: `you-${item.ticketId}`,
       title: item.title,
       trailing: t("mobile.projects.detail.waitingYouArrow"),
       trailingTone: "amber" as const,
       onPress: () => navigation.navigate("Ticket", { id: item.ticketId }),
     })),
     ...summary.waitingForOthers.map((item) => ({
-      key: `other-${item.ticketId}`,
+      rowKey: `other-${item.ticketId}`,
       title: item.title,
       trailing: t(whoArrowKey(item.who.kind)),
       trailingTone: "muted" as const,
@@ -115,7 +125,7 @@ function ProjectDetailBody({
   ];
 
   const runningRows = summary.running.map((item) => ({
-    key: `running-${item.ticketId}`,
+    rowKey: `running-${item.ticketId}`,
     title: item.title,
     trailing: t("mobile.projects.detail.running"),
     trailingTone: "muted" as const,
@@ -124,15 +134,14 @@ function ProjectDetailBody({
 
   const backlogRows =
     summary.backlogReadyCount > 0
-      ? [{ key: "backlog-ready", title: t("mobile.projects.detail.backlogReadySummary", { count: summary.backlogReadyCount }) }]
+      ? [{ rowKey: "backlog-ready", title: t("mobile.projects.detail.backlogReadySummary", { count: summary.backlogReadyCount }) }]
       : [];
 
   return (
     <ScrollView contentContainerStyle={styles.body}>
       <Text style={styles.title}>{summary.projectName}</Text>
       <View style={styles.pulseRow}>
-        <View style={[styles.dot, { backgroundColor: colors[line.tone] }]} />
-        <Text style={[styles.pulseText, { color: colors[line.tone] }]}>{t(line.key, line.params)}</Text>
+        <PulseIndicator tone={line.tone} text={t(line.key, line.params)} />
       </View>
 
       <View style={styles.groups}>
@@ -257,19 +266,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   pulseRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 8,
     marginBottom: 8,
-  },
-  dot: {
-    borderRadius: 4,
-    height: 8,
-    width: 8,
-  },
-  pulseText: {
-    fontFamily: fontFamily.mono,
-    fontSize: 12,
   },
   groups: {
     gap: 16,

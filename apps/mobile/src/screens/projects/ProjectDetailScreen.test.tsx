@@ -156,6 +156,61 @@ describe("ProjectDetailScreen", () => {
     expect(navigate).toHaveBeenCalledWith("Ticket", { id: TICKET_A });
   });
 
+  test("'Aspetta qualcuno': un tap su una riga waitingForOthers naviga anch'esso al ticket", async () => {
+    const navigate = jest.fn();
+    const client = makeClient({
+      pulse: jest.fn().mockResolvedValue([
+        summary({
+          waitingForOthers: [
+            { kind: "plan_approval", ticketId: TICKET_B, ticketNumber: 246, title: "Piano da approvare", who: { kind: "maintainer" } },
+          ],
+        }),
+      ]),
+    });
+    await renderScreen(client, navigate);
+    await waitFor(() => expect(screen.getByText("Piano da approvare")).toBeTruthy());
+    await fireEvent.press(screen.getByText("Piano da approvare"));
+    expect(navigate).toHaveBeenCalledWith("Ticket", { id: TICKET_B });
+  });
+
+  test("'Aspetta qualcuno': who.kind 'requester' mostra 'chi l'ha richiesto'", async () => {
+    const client = makeClient({
+      pulse: jest.fn().mockResolvedValue([
+        summary({
+          waitingForOthers: [
+            { kind: "question", ticketId: TICKET_A, ticketNumber: 245, title: "Domanda", who: { kind: "requester" } },
+          ],
+        }),
+      ]),
+    });
+    await renderScreen(client);
+    await waitFor(() => expect(screen.getByText("→ chi l'ha richiesto")).toBeTruthy());
+    // NON deve comparire l'arrow del maintainer: sono due testi distinti.
+    expect(screen.queryByText("→ un maintainer")).toBeNull();
+  });
+
+  test("'Aspetta qualcuno': who.kind ignoto (UNKNOWN, server più nuovo) degrada allo stesso fallback del richiedente, mai un valore grezzo", async () => {
+    const client = makeClient({
+      pulse: jest.fn().mockResolvedValue([
+        summary({
+          waitingForOthers: [
+            {
+              kind: "question",
+              ticketId: TICKET_A,
+              ticketNumber: 245,
+              title: "Domanda",
+              who: { kind: "UNKNOWN" as unknown as "requester" },
+            },
+          ],
+        }),
+      ]),
+    });
+    await renderScreen(client);
+    await waitFor(() => expect(screen.getByText("→ chi l'ha richiesto")).toBeTruthy());
+    expect(screen.queryByText("UNKNOWN")).toBeNull();
+    expect(screen.queryByText("→ un maintainer")).toBeNull();
+  });
+
   test("gruppo 'Adesso': una riga per lavoro in esecuzione, tap naviga al ticket", async () => {
     const navigate = jest.fn();
     const client = makeClient({

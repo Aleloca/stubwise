@@ -1,6 +1,7 @@
 import { activityForDateSchema } from "@stubwise/shared";
 import type { ActivityForDate, Reader } from "@stubwise/shared";
 import type { ApiRequest } from "../client.js";
+import { toQuery } from "../query.js";
 
 /**
  * Daily Activity Report (feature pre-esistente, non di questa fase): SOLO la
@@ -14,7 +15,7 @@ import type { ApiRequest } from "../client.js";
 export function createActivityEndpoints(request: ApiRequest) {
   return {
     forDate(date: string): Promise<Reader<ActivityForDate>> {
-      return request("GET", `/api/activity?date=${encodeURIComponent(date)}`, undefined, activityForDateSchema);
+      return request("GET", `/api/activity${toQuery({ date })}`, undefined, activityForDateSchema);
     },
   };
 }

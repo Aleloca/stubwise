@@ -2,9 +2,9 @@ import type { ProjectPulseSummary, Reader } from "@stubwise/shared";
 import { useTranslation } from "react-i18next";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { CountsLine } from "./CountsLine";
+import { PulseIndicator } from "../PulseIndicator";
 import { pulseLineFor } from "../../lib/pulse-line";
 import { colors, radii } from "../../theme/tokens";
-import { fontFamily } from "../../theme/typography";
 
 /**
  * UNA riga della lista Progetti (canvas `2a`): nome, il polso in una riga
@@ -37,8 +37,7 @@ export function PulseRow({
         <Text style={styles.title}>{summary.projectName}</Text>
       </View>
       <View style={styles.pulseRow}>
-        <View style={[styles.dot, { backgroundColor: colors[line.tone] }]} />
-        <Text style={[styles.pulseText, { color: colors[line.tone] }]}>{t(line.key, line.params)}</Text>
+        <PulseIndicator tone={line.tone} text={t(line.key, line.params)} />
       </View>
       <View style={styles.countsWrap}>
         <CountsLine waiting={waiting} running={summary.running.length} ready={summary.backlogReadyCount} />
@@ -68,19 +67,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   pulseRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 8,
     marginTop: 8,
-  },
-  dot: {
-    borderRadius: 4,
-    height: 8,
-    width: 8,
-  },
-  pulseText: {
-    fontFamily: fontFamily.mono,
-    fontSize: 12,
   },
   countsWrap: {
     marginTop: 8,

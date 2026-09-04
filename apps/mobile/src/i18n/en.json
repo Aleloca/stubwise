@@ -187,7 +187,6 @@
         "waitingMixed_one": "needs you — {{count}} decision",
         "waitingMixed_other": "needs you — {{count}} decisions",
         "runningOne": "working — {{title}}",
-        "runningMany_one": "working — {{count}} job running",
         "runningMany_other": "working — {{count}} jobs running",
         "idle_one": "idle for {{count}} day",
         "idle_other": "idle for {{count}} days",

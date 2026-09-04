@@ -12,7 +12,8 @@ export interface ProjectGroupRowProps {
   trailingTone?: "amber" | "muted";
   onPress?: () => void;
   testID?: string;
-  key: string;
+  /** Chiave React (non `key`: quel nome ombreggerebbe la prop riservata quando l'oggetto viene letto come props altrove). */
+  rowKey: string;
 }
 
 /**
@@ -47,13 +48,13 @@ export function ProjectGroup({ label, amber = false, rows }: { label: string; am
           );
           if (!row.onPress) {
             return (
-              <View key={row.key} testID={row.testID}>
+              <View key={row.rowKey} testID={row.testID}>
                 {content}
               </View>
             );
           }
           return (
-            <Pressable key={row.key} onPress={row.onPress} accessibilityRole="button" testID={row.testID}>
+            <Pressable key={row.rowKey} onPress={row.onPress} accessibilityRole="button" testID={row.testID}>
               {content}
             </Pressable>
           );

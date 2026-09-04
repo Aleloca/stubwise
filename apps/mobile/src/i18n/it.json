@@ -187,7 +187,6 @@
         "waitingMixed_one": "aspetta te — {{count}} decisione",
         "waitingMixed_other": "aspetta te — {{count}} decisioni",
         "runningOne": "sta lavorando — {{title}}",
-        "runningMany_one": "sta lavorando — {{count}} lavoro in corso",
         "runningMany_other": "sta lavorando — {{count}} lavori in corso",
         "idle_one": "fermo da {{count}} giorno",
         "idle_other": "fermo da {{count}} giorni",
