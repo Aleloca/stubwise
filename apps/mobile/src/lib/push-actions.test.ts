@@ -1,7 +1,7 @@
 import { ApiError } from "@stubwise/api-client";
 import type { StubwiseClient } from "@stubwise/api-client";
 import { Linking } from "react-native";
-import { categoryFor, handlePushAction } from "./push-actions";
+import { categoryFor, handlePushAction, pushActionEventFromNotifeeData } from "./push-actions";
 
 jest.mock("react-native", () => ({ Linking: { openURL: jest.fn() } }));
 
@@ -140,5 +140,27 @@ describe("handlePushAction", () => {
     });
     await handlePushAction({ kind: "job.awaiting_input", notificationId: "n11", actionId: "snooze_1h" }, client);
     expect(mockOpenURL).toHaveBeenCalledWith("stubwise://inbox/n11");
+  });
+});
+
+describe("pushActionEventFromNotifeeData", () => {
+  test("con dati validi e senza pressActionId (tap sul corpo) → actionId 'open'", () => {
+    const event = pushActionEventFromNotifeeData({ notificationId: "n30", kind: "job.awaiting_input" }, undefined);
+    expect(event).toEqual({ notificationId: "n30", kind: "job.awaiting_input", actionId: "open" });
+  });
+
+  test("con dati validi e un pressActionId (bottone premuto) → quell'actionId", () => {
+    const event = pushActionEventFromNotifeeData({ notificationId: "n31", kind: "job.plan_review" }, "approve");
+    expect(event).toEqual({ notificationId: "n31", kind: "job.plan_review", actionId: "approve" });
+  });
+
+  test("senza data (notifica non nostra) → null", () => {
+    expect(pushActionEventFromNotifeeData(undefined, "approve")).toBeNull();
+  });
+
+  test("con notificationId o kind mancanti/malformati → null", () => {
+    expect(pushActionEventFromNotifeeData({ kind: "job.awaiting_input" }, undefined)).toBeNull();
+    expect(pushActionEventFromNotifeeData({ notificationId: "n32" }, undefined)).toBeNull();
+    expect(pushActionEventFromNotifeeData({ notificationId: 1, kind: "job.awaiting_input" }, undefined)).toBeNull();
   });
 });

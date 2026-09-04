@@ -118,6 +118,47 @@ export interface PushActionEvent {
   actionId: string;
 }
 
+/**
+ * Da `{ data, pressActionId }` di un'interazione notifee (press/action-press
+ * su una notifica, sia in PRIMO PIANO che in BACKGROUND) a un
+ * {@link PushActionEvent} pronto per {@link handlePushAction}, o `null` se
+ * `data` non porta i nostri campi custom (notifica non nostra, o payload di
+ * una versione precedente non più leggibile).
+ *
+ * UNA sola implementazione condivisa da due chiamanti che altrimenti
+ * dovrebbero duplicarla carattere per carattere:
+ *
+ *  - `lib/push.ts` (`onForegroundEvent`, primo piano, TS);
+ *  - `index.js` (`onBackgroundEvent`, background/quit — un `import` da un
+ *    file `.js` verso un file `.ts` funziona già in questo progetto senza
+ *    build a parte, vedi `handlePushAction`/`createClientFromSession`
+ *    importati anche loro lì: Metro e Jest risolvono l'estensione da sé).
+ *
+ * Senza questa condivisione, un cambio di forma del payload aggiornato SOLO
+ * qui (coperto dai test) lascerebbe `index.js` — SENZA un proprio file di
+ * test, il percorso più difficile da debuggare (headless, niente breakpoint
+ * pratico su device) — silenziosamente disallineato: il primo piano
+ * continuerebbe a funzionare, il background smetterebbe di funzionare senza
+ * che nessun test se ne accorga.
+ *
+ * Volutamente NON prende `type`/`EventType` di notifee: la differenza fra
+ * PRESS e ACTION_PRESS la filtra il chiamante (un `if` di una riga, non vale
+ * la pena importare i tipi di notifee qui solo per quello — questo modulo
+ * resta senza alcuna dipendenza RUNTIME da notifee, vedi il docblock in
+ * cima al file). `pressActionId` è già la decisione presa dal chiamante:
+ * l'id del bottone su ACTION_PRESS, `undefined` su un tap semplice (PRESS,
+ * nessun bottone).
+ */
+export function pushActionEventFromNotifeeData(
+  data: { [key: string]: unknown } | undefined,
+  pressActionId: string | undefined,
+): PushActionEvent | null {
+  const notificationId = data?.["notificationId"];
+  const kind = data?.["kind"];
+  if (typeof notificationId !== "string" || typeof kind !== "string") return null;
+  return { notificationId, kind, actionId: pressActionId ?? "open" };
+}
+
 function deepLinkFor(notificationId: string): string {
   return `stubwise://inbox/${notificationId}`;
 }

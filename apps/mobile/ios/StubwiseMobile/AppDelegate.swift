@@ -31,18 +31,24 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     // soli — è responsabilità dell'app, per lasciarle la scelta di COSA
     // mostrare in foreground).
     //
-    // ⚠️ L'ORDINE CONTA, verificato sui sorgenti installati
-    // (`@notifee/react-native/ios/NotifeeCore/NotifeeCore+UNUserNotificationCenter.m`,
-    // metodo `observe`): notifee installa il PROPRIO delegate più tardi (al
-    // primo giro dei suoi moduli nativi, cioè DENTRO `startReactNative` qui
-    // sotto), catturando `center.delegate` DI QUEL MOMENTO come
-    // `_originalDelegate` e inoltrandogli `willPresent`/
+    // ⚠️ L'ORDINE CONTA, verificato sui sorgenti installati. Notifee installa
+    // il PROPRIO delegate più tardi, ma NON "dentro `startReactNative`": è un
+    // observer NSNotificationCenter registrato a `+load` (process load time,
+    // prima di `main()`) su `UIApplicationDidFinishLaunchingNotification` —
+    // la notifica che UIKit posta DOPO che questo metodo ha fatto `return`
+    // (`NotifeeCore+NSNotificationCenter.m`, `observe`/`+load`, che al
+    // trigger chiama `[NotifeeCoreUNUserNotificationCenter observe]` in
+    // `NotifeeCore+UNUserNotificationCenter.m`), catturando `center.delegate`
+    // DI QUEL MOMENTO come `_originalDelegate` e inoltrandogli `willPresent`/
     // `didReceiveNotificationResponse` quando la notifica non è "sua"
     // (nessun `kNotifeeUserInfoNotification` nello `userInfo` — il caso di
     // OGNI push FCM: le nostre non passano da `notifee.displayNotification`).
-    // Se questa riga girasse DOPO `startReactNative`, notifee catturerebbe
-    // `nil` come delegate originale e le nostre push non avrebbero MAI un
-    // banner in foreground — silenziosamente, senza errori. Le pressioni sui
+    // La riga sotto gira comunque PRIMA (siamo ancora dentro
+    // `didFinishLaunchingWithOptions`, che deve fare `return` prima che la
+    // notifica parta): se finisse DOPO il `return` di questo metodo, notifee
+    // catturerebbe `nil` come delegate originale e le nostre push non
+    // avrebbero MAI un banner in foreground — silenziosamente, senza errori.
+    // Le pressioni sui
     // bottoni (`didReceiveNotificationResponse`) sono al sicuro in ENTRAMBI
     // gli ordini: quando `_originalDelegate` non implementa quel metodo (qui
     // non lo implementiamo — vedi sotto), notifee ricade su un parsing

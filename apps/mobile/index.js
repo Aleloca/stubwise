@@ -8,7 +8,7 @@ import notifee, { EventType } from "@notifee/react-native";
 import App from "./src/app/App";
 import { name as appName } from "./app.json";
 import { createClientFromSession } from "./src/lib/client";
-import { handlePushAction } from "./src/lib/push-actions";
+import { handlePushAction, pushActionEventFromNotifeeData } from "./src/lib/push-actions";
 
 /**
  * Gli handler BACKGROUND (Task 19) vanno registrati QUI — a livello di
@@ -27,19 +27,31 @@ import { handlePushAction } from "./src/lib/push-actions";
  * `null` (nessuna sessione: logout, o notifica arrivata dopo un logout su
  * questo device) degrada a "non faccio nulla" — non c'è un utente per cui
  * eseguire l'azione.
+ *
+ * ⚠️ Questo file NON ha un proprio `index.test.js`, di proposito: sotto
+ * questa riga resta SOLO plumbing nativo (guardia `EventType`, costruzione
+ * del client, chiamata a `handlePushAction`) — l'unica logica con davvero
+ * qualcosa da rompere (leggere `notificationId`/`kind` dal payload,
+ * derivare `actionId`) vive in `pushActionEventFromNotifeeData`
+ * (`src/lib/push-actions.ts`), la STESSA funzione che usa
+ * `lib/push.ts` per il gemello in primo piano — coperta lì da
+ * `push-actions.test.ts`, senza bisogno di montare notifee/RNFirebase per
+ * testarla. È deliberato: questo è il percorso headless, senza breakpoint
+ * pratico su device, quindi la logica che conta è stata spostata FUORI da
+ * qui, dove un test la protegge davvero.
  */
 async function handleBackgroundNotificationEvent(type, detail) {
   if (type !== EventType.PRESS && type !== EventType.ACTION_PRESS) return;
-  const data = detail.notification?.data;
-  const notificationId = data && typeof data["notificationId"] === "string" ? data["notificationId"] : undefined;
-  const kind = data && typeof data["kind"] === "string" ? data["kind"] : undefined;
-  if (!notificationId || !kind) return;
+  const event = pushActionEventFromNotifeeData(
+    detail.notification?.data,
+    type === EventType.ACTION_PRESS ? detail.pressAction?.id : undefined,
+  );
+  if (!event) return;
 
   const client = await createClientFromSession();
   if (!client) return;
 
-  const actionId = type === EventType.ACTION_PRESS ? (detail.pressAction?.id ?? "open") : "open";
-  await handlePushAction({ notificationId, kind, actionId }, client);
+  await handlePushAction(event, client);
 }
 
 /**

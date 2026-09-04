@@ -4,7 +4,7 @@ import type { RemoteMessage } from "@react-native-firebase/messaging";
 import notifee, { EventType } from "@notifee/react-native";
 import { Platform } from "react-native";
 import i18n from "../i18n";
-import { ALL_PUSH_CATEGORIES, categoryFor, handlePushAction } from "./push-actions";
+import { ALL_PUSH_CATEGORIES, categoryFor, handlePushAction, pushActionEventFromNotifeeData } from "./push-actions";
 import { currentPlatform, getPushToken } from "./push-token";
 
 // API MODULARE di `@react-native-firebase/messaging` (v26): `getMessaging()`
@@ -75,10 +75,18 @@ async function registerCategories(): Promise<void> {
   }
 }
 
-/** I dati custom di una notifica notifee, nella forma che `Notification.data` dichiara. */
+/** I dati custom di un `RemoteMessage`, nella forma che `RemoteMessage.data` dichiara. */
 type NotificationData = { [key: string]: string | object | number } | undefined;
 
-/** Estrae `{ notificationId, kind }` dai dati custom di una notifica, o `null` se mancano. */
+/**
+ * Estrae `{ notificationId, kind }` da `RemoteMessage.data`, o `null` se
+ * mancano — usata SOLO da `displayForegroundAndroidNotification` qui sotto,
+ * che non ha un `actionId` da derivare (non è un'interazione, è l'arrivo del
+ * messaggio). Per l'ALTRO caso — un'interazione notifee (press/action-press,
+ * che porta anche l'azione scelta) — vedi
+ * `pushActionEventFromNotifeeData` in `push-actions.ts`, condivisa con
+ * `index.js`.
+ */
 function parseNotificationData(data: NotificationData): { notificationId: string; kind: string } | null {
   const notificationId = data?.["notificationId"];
   const kind = data?.["kind"];
@@ -173,12 +181,18 @@ export function setupPush(client: StubwiseClient): () => void {
     displayForegroundAndroidNotification(remoteMessage);
   });
 
+  // `pushActionEventFromNotifeeData` (in `push-actions.ts`) è la STESSA
+  // funzione che usa `index.js` per il gemello in background — un cambio di
+  // forma del payload aggiornato solo lì lascerebbe l'altro disallineato in
+  // silenzio, vedi il docblock lì.
   const unsubscribeForeground = notifee.onForegroundEvent(({ type, detail }) => {
     if (type !== EventType.PRESS && type !== EventType.ACTION_PRESS) return;
-    const parsed = parseNotificationData(detail.notification?.data);
-    if (!parsed) return;
-    const actionId = type === EventType.ACTION_PRESS ? (detail.pressAction?.id ?? "open") : "open";
-    void handlePushAction({ ...parsed, actionId }, client);
+    const event = pushActionEventFromNotifeeData(
+      detail.notification?.data,
+      type === EventType.ACTION_PRESS ? detail.pressAction?.id : undefined,
+    );
+    if (!event) return;
+    void handlePushAction(event, client);
   });
 
   return () => {
