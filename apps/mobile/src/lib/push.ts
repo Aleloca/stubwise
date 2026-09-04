@@ -1,8 +1,10 @@
 import type { StubwiseClient } from "@stubwise/api-client";
-import { getMessaging, onTokenRefresh } from "@react-native-firebase/messaging";
+import { getMessaging, onMessage, onTokenRefresh } from "@react-native-firebase/messaging";
+import type { RemoteMessage } from "@react-native-firebase/messaging";
 import notifee, { EventType } from "@notifee/react-native";
+import { Platform } from "react-native";
 import i18n from "../i18n";
-import { ALL_PUSH_CATEGORIES, handlePushAction } from "./push-actions";
+import { ALL_PUSH_CATEGORIES, categoryFor, handlePushAction } from "./push-actions";
 import { currentPlatform, getPushToken } from "./push-token";
 
 // API MODULARE di `@react-native-firebase/messaging` (v26): `getMessaging()`
@@ -46,14 +48,17 @@ async function registerCurrentToken(client: StubwiseClient): Promise<void> {
  *  - Android: `createChannel` per categoria — un canale per `kind` (il payload
  *    FCM lo referenzia come `channel_id`, vedi `apps/push-relay/src/fcm.ts`),
  *    così un canale sconosciuto non fa sparire la notifica in silenzio.
- *    ⚠️ **I bottoni d'azione Android NON viaggiano nel canale** (un canale è
- *    volume/importanza/suono, non azioni): FCM auto-mostra le notifiche coi
- *    soli titolo/corpo quando l'app è in background — è un limite noto e
- *    documentato di v1, non qualcosa che questo file può risolvere da solo.
- *    Le azioni Android arrivano SOLO quando l'app è in primo piano, tramite
- *    `onForegroundEvent` più sotto: `PUSH_CATEGORIES.actions` è comunque la
- *    fonte di verità che un domani (mostrando la notifica a mano da un
- *    `onMessage`) le userebbe anche in background.
+ *    ⚠️ **Il canale NON porta le azioni** (è volume/importanza/suono, non
+ *    bottoni — verificato: `AndroidChannel` non ha un campo `actions` nei
+ *    `.d.ts` di notifee). Le azioni Android vivono SOLO sulla singola
+ *    notifica *mostrata*: in background FCM la mostra da SOLO, coi soli
+ *    titolo/corpo (limite noto di v1, vedi `index.js`); in PRIMO PIANO FCM
+ *    su Android NON mostra nulla da sé (verificato sui sorgenti nativi:
+ *    `ReactNativeFirebaseMessagingReceiver.onReceive`, ramo foreground, emette
+ *    solo l'evento JS) — è `displayForegroundAndroidNotification` più sotto,
+ *    agganciata a `onMessage`, a ridisegnarla con le azioni di
+ *    `categoryFor(kind)`. `onForegroundEvent` gestisce poi le PRESSIONI su
+ *    quella notifica, non la sua comparsa.
  */
 async function registerCategories(): Promise<void> {
   const categories = ALL_PUSH_CATEGORIES.map((category) => ({
@@ -82,11 +87,59 @@ function parseNotificationData(data: NotificationData): { notificationId: string
 }
 
 /**
+ * Ridisegna a mano, SOLO su Android, la notifica di un messaggio FCM
+ * ricevuto in PRIMO PIANO — con le azioni rapide di `categoryFor(kind)`.
+ *
+ * ⚠️ **Perché serve, verificato sui sorgenti nativi installati** (non
+ * assunto): `ReactNativeFirebaseMessagingReceiver.onReceive`
+ * (`@react-native-firebase/messaging/android/.../ReactNativeFirebaseMessagingReceiver.java`),
+ * ramo `App in Foreground`, si limita a `emitter.sendEvent(...)` (l'evento
+ * che alimenta `onMessage`) e fa `return` — NESSUNA chiamata a un'API di
+ * sistema che mostri qualcosa. A differenza del background (dove FCM la
+ * mostra DA SOLO, senza azioni: vedi il docblock di `registerCategories`),
+ * su Android in primo piano un push senza questa funzione non produce
+ * NESSUNA notifica — non "senza bottoni", proprio nessuna.
+ *
+ * **Perché SOLO Android, e non anche iOS** (stesso motivo, verificato):
+ * `RNFBMessaging+UNUserNotificationCenter.m`, `willPresentNotification`,
+ * emette SEMPRE lo stesso evento `messaging_message_received` (quindi
+ * `onMessage` scatta anche lì) — ma la notifica la mostra già il SO via
+ * APNs, in ogni stato dell'app (`AppDelegate.willPresent`, vedi il commento
+ * lì sull'ordine dei delegate). Chiamare `displayNotification` anche su iOS
+ * duplicherebbe la notifica: una dal SO, una nostra.
+ *
+ * `id: notificationId` (non generato): riusa la stessa notifica locale se
+ * `onMessage` scattasse due volte per lo stesso push, invece di impilarne
+ * una seconda — lo stesso principio del `collapseId` lato server.
+ */
+function displayForegroundAndroidNotification(remoteMessage: RemoteMessage): void {
+  if (Platform.OS !== "android") return;
+  const parsed = parseNotificationData(remoteMessage.data);
+  if (!parsed) return;
+  const category = categoryFor(parsed.kind);
+  void notifee.displayNotification({
+    id: parsed.notificationId,
+    title: remoteMessage.notification?.title,
+    body: remoteMessage.notification?.body,
+    data: remoteMessage.data,
+    android: {
+      channelId: category.id,
+      pressAction: { id: "default" },
+      actions: category.actions.map((action) => ({
+        title: i18n.t(action.titleKey),
+        pressAction: { id: action.id },
+      })),
+    },
+  });
+}
+
+/**
  * Avvia la metà PUSH dell'app: registra il token (ora e a ogni refresh),
- * registra le categorie/canali e ascolta le pressioni sui bottoni mentre
- * l'app è in PRIMO PIANO (`onForegroundEvent` — il gemello in background sta
- * in `index.js`, FUORI da qualunque componente React: notifee/RNFirebase lo
- * richiedono a livello di modulo).
+ * registra le categorie/canali, ridisegna (Android, primo piano — vedi
+ * `displayForegroundAndroidNotification`) e ascolta le pressioni sui
+ * bottoni mentre l'app è in PRIMO PIANO (`onForegroundEvent` — il gemello in
+ * background sta in `index.js`, FUORI da qualunque componente React:
+ * notifee/RNFirebase lo richiedono a livello di modulo).
  *
  * Chiamata da `AppProviders` a ogni transizione verso `"authenticated"` — non
  * ha senso registrare un device per un utente sloggato, e un logout deve
@@ -112,6 +165,14 @@ export function setupPush(client: StubwiseClient): () => void {
     });
   });
 
+  // Android, primo piano: FCM non mostra nulla da sé (vedi il docblock di
+  // `displayForegroundAndroidNotification`) — la ridisegniamo qui. Su iOS la
+  // funzione è un no-op (guardia `Platform.OS`): la notifica la mostra già
+  // il SO via APNs, vedi `AppDelegate.swift`.
+  const unsubscribeMessage = onMessage(getMessaging(), (remoteMessage: RemoteMessage) => {
+    displayForegroundAndroidNotification(remoteMessage);
+  });
+
   const unsubscribeForeground = notifee.onForegroundEvent(({ type, detail }) => {
     if (type !== EventType.PRESS && type !== EventType.ACTION_PRESS) return;
     const parsed = parseNotificationData(detail.notification?.data);
@@ -122,6 +183,7 @@ export function setupPush(client: StubwiseClient): () => void {
 
   return () => {
     unsubscribeRefresh();
+    unsubscribeMessage();
     unsubscribeForeground();
   };
 }

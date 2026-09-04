@@ -248,16 +248,26 @@ non registra mai un token vero.
   in fondo al file (richiesto da Google). `AndroidManifest.xml` dichiara
   `POST_NOTIFICATIONS` (permesso runtime obbligatorio da Android 13+, richiesto
   da `notifee.requestPermission()` in `OnboardingScreen`).
-  ⚠️ **Limite noto v1**: le notifiche FCM (il relay manda un messaggio CON
-  `notification`, non data-only — vedi `packages/notifications/src/push/payload.ts`)
-  vengono mostrate dal SO automaticamente in background/app chiusa, SENZA
-  eseguire codice JS: i bottoni d'azione rapida su Android esistono solo
-  quando l'app è già in PRIMO PIANO (`onForegroundEvent` in `lib/push.ts`).
+  Su Android FCM (messaggio CON `notification`, non data-only — vedi
+  `packages/notifications/src/push/payload.ts`) si comporta diversamente nei
+  due stati, verificato sui sorgenti nativi installati di
+  `@react-native-firebase/messaging`
+  (`ReactNativeFirebaseMessagingReceiver.onReceive`): in BACKGROUND/app chiusa
+  il SO la mostra da SOLO, coi soli titolo/corpo (nessuna azione: un canale
+  porta volume/importanza, non bottoni — `AndroidChannel` non ha un campo
+  `actions`); in PRIMO PIANO il SO non mostra NULLA da sé (il ramo foreground
+  del receiver si limita a emettere l'evento JS `onMessage`) — è
+  `displayForegroundAndroidNotification` in `lib/push.ts`, agganciata a
+  `onMessage`, a ridisegnarla con le azioni di `categoryFor(kind)`.
+  ⚠️ **Limite noto v1**: i bottoni d'azione rapida su Android esistono quindi
+  SOLO in primo piano; in background la notifica compare ma senza bottoni.
   `index.js` registra comunque `setBackgroundMessageHandler`/
   `notifee.onBackgroundEvent` — pronti per il giorno in cui i messaggi
-  diventassero data-only, e già funzionanti per le pressioni su iOS (dove il
-  SO instrada le interazioni al delegate installato da notifee indipendentemente
-  da come la notifica è stata mostrata).
+  diventassero data-only (a quel punto anche il background passerebbe dallo
+  stesso ridisegno esplicito, con le azioni). Su iOS il SO mostra già la
+  notifica in OGNI stato via APNs (`AppDelegate.willPresent`): `onMessage`
+  scatta anche lì per lo stesso push, ma NON viene usato per ridisegnare —
+  duplicherebbe la notifica.
 
 ### Dopo aver aggiunto i file veri
 

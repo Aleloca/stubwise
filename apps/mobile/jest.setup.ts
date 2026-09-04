@@ -40,7 +40,8 @@ jest.mock("@react-native-community/netinfo", () => require("@react-native-commun
 /**
  * `@react-native-firebase/messaging` (Task 19) NON spedisce un mock ufficiale
  * per Jest — mock a mano, con le sole funzioni che questo repo usa
- * (`getToken`/`onTokenRefresh`, lette da `lib/push-token.ts` e `lib/push.ts`).
+ * (`getToken`/`onTokenRefresh`/`onMessage`, lette da `lib/push-token.ts` e
+ * `lib/push.ts`).
  *
  * API MODULARE (v26, verificata sui `.d.ts` pubblicati: il pacchetto non
  * esporta più un `default` namespaced `messaging()`): `getMessaging()` prende
@@ -61,6 +62,7 @@ jest.mock("@react-native-firebase/messaging", () => ({
   getMessaging: jest.fn(() => ({})),
   getToken: jest.fn(async () => null),
   onTokenRefresh: jest.fn(() => jest.fn()),
+  onMessage: jest.fn(() => jest.fn()),
   setBackgroundMessageHandler: jest.fn(),
 }));
 

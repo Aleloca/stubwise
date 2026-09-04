@@ -1,7 +1,7 @@
 import type { StubwiseClient } from "@stubwise/api-client";
 import notifee, { EventType } from "@notifee/react-native";
-import { getToken, onTokenRefresh } from "@react-native-firebase/messaging";
-import { Linking } from "react-native";
+import { getToken, onMessage, onTokenRefresh } from "@react-native-firebase/messaging";
+import { Linking, Platform } from "react-native";
 import { setupPush } from "./push";
 
 jest.mock("react-native", () => ({
@@ -11,9 +11,11 @@ jest.mock("react-native", () => ({
 
 const mockGetToken = getToken as jest.Mock;
 const mockOnTokenRefresh = onTokenRefresh as jest.Mock;
+const mockOnMessage = onMessage as jest.Mock;
 const mockSetNotificationCategories = notifee.setNotificationCategories as jest.Mock;
 const mockCreateChannel = notifee.createChannel as jest.Mock;
 const mockOnForegroundEvent = notifee.onForegroundEvent as jest.Mock;
+const mockDisplayNotification = notifee.displayNotification as jest.Mock;
 const mockOpenURL = Linking.openURL as jest.Mock;
 
 function fakeClient(): StubwiseClient {
@@ -44,7 +46,9 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockGetToken.mockResolvedValue(null);
   mockOnTokenRefresh.mockReturnValue(jest.fn());
+  mockOnMessage.mockReturnValue(jest.fn());
   mockOnForegroundEvent.mockReturnValue(jest.fn());
+  Platform.OS = "ios";
 });
 
 describe("setupPush — registrazione del token", () => {
@@ -124,10 +128,12 @@ describe("setupPush — refresh del token", () => {
     warnSpy.mockRestore();
   });
 
-  test("il cleanup ritornato da setupPush disiscrive onTokenRefresh e onForegroundEvent", async () => {
+  test("il cleanup ritornato da setupPush disiscrive onTokenRefresh, onMessage e onForegroundEvent", async () => {
     const unsubscribeRefresh = jest.fn();
+    const unsubscribeMessage = jest.fn();
     const unsubscribeForeground = jest.fn();
     mockOnTokenRefresh.mockReturnValue(unsubscribeRefresh);
+    mockOnMessage.mockReturnValue(unsubscribeMessage);
     mockOnForegroundEvent.mockReturnValue(unsubscribeForeground);
     const client = fakeClient();
 
@@ -136,6 +142,7 @@ describe("setupPush — refresh del token", () => {
     cleanup();
 
     expect(unsubscribeRefresh).toHaveBeenCalledTimes(1);
+    expect(unsubscribeMessage).toHaveBeenCalledTimes(1);
     expect(unsubscribeForeground).toHaveBeenCalledTimes(1);
   });
 });
@@ -222,6 +229,94 @@ describe("setupPush — azioni dalla notifica in primo piano", () => {
     await flush();
 
     expect(mockOpenURL).not.toHaveBeenCalled();
+    cleanup();
+  });
+});
+
+describe("setupPush — ridisegno Android in primo piano (onMessage)", () => {
+  test("Android: onMessage ridisegna la notifica con canale e azioni della categoria del kind", async () => {
+    Platform.OS = "android";
+    const client = fakeClient();
+    const cleanup = setupPush(client);
+    await flush();
+
+    const messageHandler = mockOnMessage.mock.calls[0]?.[1] as (message: unknown) => void;
+    messageHandler({
+      notification: { title: "Serve una risposta", body: "L'agente ha una domanda" },
+      data: { notificationId: "n20", kind: "job.awaiting_input", deepLink: "stubwise://inbox/n20" },
+    });
+    await flush();
+
+    expect(mockDisplayNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "n20",
+        title: "Serve una risposta",
+        body: "L'agente ha una domanda",
+        android: expect.objectContaining({
+          channelId: "job.awaiting_input",
+          actions: [
+            expect.objectContaining({ pressAction: { id: "answer" } }),
+            expect.objectContaining({ pressAction: { id: "snooze_1h" } }),
+          ],
+        }),
+      }),
+    );
+    cleanup();
+  });
+
+  test("iOS: onMessage NON ridisegna nulla (il SO mostra già il banner via APNs — vedi AppDelegate)", async () => {
+    Platform.OS = "ios";
+    const client = fakeClient();
+    const cleanup = setupPush(client);
+    await flush();
+
+    const messageHandler = mockOnMessage.mock.calls[0]?.[1] as (message: unknown) => void;
+    messageHandler({
+      notification: { title: "Serve una risposta", body: "L'agente ha una domanda" },
+      data: { notificationId: "n21", kind: "job.awaiting_input", deepLink: "stubwise://inbox/n21" },
+    });
+    await flush();
+
+    expect(mockDisplayNotification).not.toHaveBeenCalled();
+    cleanup();
+  });
+
+  test("Android: un messaggio senza i dati custom (notifica non nostra) non ridisegna nulla", async () => {
+    Platform.OS = "android";
+    const client = fakeClient();
+    const cleanup = setupPush(client);
+    await flush();
+
+    const messageHandler = mockOnMessage.mock.calls[0]?.[1] as (message: unknown) => void;
+    messageHandler({ notification: { title: "t", body: "b" }, data: undefined });
+    await flush();
+
+    expect(mockDisplayNotification).not.toHaveBeenCalled();
+    cleanup();
+  });
+
+  test("Android: un kind sconosciuto ridisegna comunque, con la categoria di riserva (solo Apri)", async () => {
+    Platform.OS = "android";
+    const client = fakeClient();
+    const cleanup = setupPush(client);
+    await flush();
+
+    const messageHandler = mockOnMessage.mock.calls[0]?.[1] as (message: unknown) => void;
+    messageHandler({
+      notification: { title: "t", body: "b" },
+      data: { notificationId: "n22", kind: "ticket.created" },
+    });
+    await flush();
+
+    expect(mockDisplayNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "n22",
+        android: expect.objectContaining({
+          channelId: "default",
+          actions: [expect.objectContaining({ pressAction: { id: "open" } })],
+        }),
+      }),
+    );
     cleanup();
   });
 });
