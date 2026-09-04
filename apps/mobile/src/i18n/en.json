@@ -160,6 +160,70 @@
       "waitingOnMaintainer": "Waiting on a maintainer.",
       "offlineAction": "Needs network"
     },
+    "projects": {
+      "header": {
+        "loading": "syncing…",
+        "subtitle_one": "{{count}} followed",
+        "subtitle_other": "{{count}} followed",
+        "subtitleWaiting_one": "{{count}} followed · {{waiting}} needs you",
+        "subtitleWaiting_other": "{{count}} followed · {{waiting}} needs you"
+      },
+      "loadError": {
+        "title": "Can't load the projects.",
+        "retry": "Retry"
+      },
+      "empty": {
+        "eyebrow": "// no project followed",
+        "title": "Choose what to follow",
+        "body": "You'll get decisions and updates only for the projects you follow.",
+        "cta": "Choose projects",
+        "ctaHint": "// available from Settings → followed projects"
+      },
+      "pulse": {
+        "waitingQuestion_one": "needs you — {{count}} agent question",
+        "waitingQuestion_other": "needs you — {{count}} agent questions",
+        "waitingPlan_one": "needs you — {{count}} plan to approve",
+        "waitingPlan_other": "needs you — {{count}} plans to approve",
+        "waitingMixed_one": "needs you — {{count}} decision",
+        "waitingMixed_other": "needs you — {{count}} decisions",
+        "runningOne": "working — {{title}}",
+        "runningMany_one": "working — {{count}} job running",
+        "runningMany_other": "working — {{count}} jobs running",
+        "idle_one": "idle for {{count}} day",
+        "idle_other": "idle for {{count}} days",
+        "ok": "all quiet"
+      },
+      "counts": {
+        "waiting": "{{count}} waiting",
+        "running": "{{count}} running",
+        "ready_one": "{{count}} ready",
+        "ready_other": "{{count}} ready"
+      },
+      "detail": {
+        "back": "‹ Projects",
+        "notFound": {
+          "title": "This project is gone.",
+          "body": "You no longer follow it, or it doesn't exist."
+        },
+        "groups": {
+          "waitingSomeone": "Waiting on someone · {{count}}",
+          "now": "Now · {{count}}",
+          "backlogReady": "Ready in backlog · {{count}}"
+        },
+        "waitingYouArrow": "→ you",
+        "waitingMaintainerArrow": "→ a maintainer",
+        "waitingRequesterArrow": "→ whoever asked",
+        "running": "running",
+        "backlogReadySummary_one": "{{count}} item ready to convert",
+        "backlogReadySummary_other": "{{count}} items ready to convert",
+        "report": {
+          "title": "Yesterday's report",
+          "loading": "loading the summary…",
+          "empty": "No summary for this day.",
+          "loadError": "Can't load the report."
+        }
+      }
+    },
     "common": {
       "loading": "Loading…",
       "offlineNoSync": "Offline — no sync yet",

@@ -11,6 +11,8 @@ import { InboxCardScreen } from "../screens/inbox/InboxCardScreen";
 import { InboxScreen } from "../screens/inbox/InboxScreen";
 import { LoginScreen } from "../screens/auth/LoginScreen";
 import { OnboardingScreen } from "../screens/auth/OnboardingScreen";
+import { ProjectDetailScreen } from "../screens/projects/ProjectDetailScreen";
+import { ProjectsScreen } from "../screens/projects/ProjectsScreen";
 import { useUnreadCount } from "../lib/inbox-mutations";
 import { colors } from "../theme/tokens";
 import { fontFamily } from "../theme/typography";
@@ -52,10 +54,12 @@ const ProjectsStack = createNativeStackNavigator<ProjectsStackParamList>();
 const Tab = createBottomTabNavigator<MainTabParamList>();
 
 /**
- * Schermate placeholder per i tab: il contenuto vero arriva coi Task
- * 14–18. Qui servono solo a dare un albero di navigazione reale su cui
+ * Schermate placeholder per i tab non ancora implementati (Backlog: Task 17,
+ * Docs: Task 18) e per `Projects/Ticket` (Task 16 — il "Lavoro" del canvas
+ * `2c`/`2d`): servono solo a dare un albero di navigazione reale su cui
  * verificare tema, tab bar e deep link — e a mostrare il param `id` così i
- * test del deep link possono verificarlo senza aspettare l'Inbox vera.
+ * test del deep link possono verificarlo senza aspettare la schermata vera.
+ * `Projects/List` e `Projects/Detail` sono REALI da qui in poi (Task 15).
  */
 function Placeholder({ label }: { label: string }) {
   return (
@@ -63,15 +67,6 @@ function Placeholder({ label }: { label: string }) {
       <SectionLabel>{label}</SectionLabel>
     </View>
   );
-}
-
-function ProjectsListScreen() {
-  const { t } = useTranslation();
-  return <Placeholder label={t("mobile.tabs.projects")} />;
-}
-
-function ProjectDetailScreen({ route }: NativeStackScreenProps<ProjectsStackParamList, "Detail">) {
-  return <Placeholder label={`Project ${route.params.id}`} />;
 }
 
 function TicketScreen({ route }: NativeStackScreenProps<ProjectsStackParamList, "Ticket">) {
@@ -100,7 +95,7 @@ function InboxNavigator() {
 function ProjectsNavigator() {
   return (
     <ProjectsStack.Navigator screenOptions={{ headerShown: false }}>
-      <ProjectsStack.Screen name="List" component={ProjectsListScreen} />
+      <ProjectsStack.Screen name="List" component={ProjectsScreen} />
       <ProjectsStack.Screen name="Detail" component={ProjectDetailScreen} />
       <ProjectsStack.Screen name="Ticket" component={TicketScreen} />
     </ProjectsStack.Navigator>

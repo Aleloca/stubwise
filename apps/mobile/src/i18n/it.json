@@ -160,6 +160,70 @@
       "waitingOnMaintainer": "Aspetta un maintainer.",
       "offlineAction": "Serve la rete"
     },
+    "projects": {
+      "header": {
+        "loading": "sincronizzo…",
+        "subtitle_one": "{{count}} seguito",
+        "subtitle_other": "{{count}} seguiti",
+        "subtitleWaiting_one": "{{count}} seguito · {{waiting}} aspetta te",
+        "subtitleWaiting_other": "{{count}} seguiti · {{waiting}} aspetta te"
+      },
+      "loadError": {
+        "title": "Non riesco a caricare i progetti.",
+        "retry": "Riprova"
+      },
+      "empty": {
+        "eyebrow": "// nessun progetto seguito",
+        "title": "Scegli cosa seguire",
+        "body": "Riceverai decisioni e aggiornamenti solo dei progetti che segui.",
+        "cta": "Scegli progetti",
+        "ctaHint": "// disponibile da Impostazioni → progetti seguiti"
+      },
+      "pulse": {
+        "waitingQuestion_one": "aspetta te — {{count}} domanda dell'agente",
+        "waitingQuestion_other": "aspetta te — {{count}} domande dell'agente",
+        "waitingPlan_one": "aspetta te — {{count}} piano da approvare",
+        "waitingPlan_other": "aspetta te — {{count}} piani da approvare",
+        "waitingMixed_one": "aspetta te — {{count}} decisione",
+        "waitingMixed_other": "aspetta te — {{count}} decisioni",
+        "runningOne": "sta lavorando — {{title}}",
+        "runningMany_one": "sta lavorando — {{count}} lavoro in corso",
+        "runningMany_other": "sta lavorando — {{count}} lavori in corso",
+        "idle_one": "fermo da {{count}} giorno",
+        "idle_other": "fermo da {{count}} giorni",
+        "ok": "tutto tranquillo"
+      },
+      "counts": {
+        "waiting": "{{count}} in attesa",
+        "running": "{{count}} in corso",
+        "ready_one": "{{count}} pronta",
+        "ready_other": "{{count}} pronte"
+      },
+      "detail": {
+        "back": "‹ Progetti",
+        "notFound": {
+          "title": "Questo progetto non c'è più.",
+          "body": "Non lo segui più, o non esiste."
+        },
+        "groups": {
+          "waitingSomeone": "Aspetta qualcuno · {{count}}",
+          "now": "Adesso · {{count}}",
+          "backlogReady": "Pronto nel backlog · {{count}}"
+        },
+        "waitingYouArrow": "→ te",
+        "waitingMaintainerArrow": "→ un maintainer",
+        "waitingRequesterArrow": "→ chi l'ha richiesto",
+        "running": "in esecuzione",
+        "backlogReadySummary_one": "{{count}} voce pronta alla conversione",
+        "backlogReadySummary_other": "{{count}} voci pronte alla conversione",
+        "report": {
+          "title": "Report di ieri",
+          "loading": "carico il riassunto…",
+          "empty": "Nessun riassunto per questo giorno.",
+          "loadError": "Non riesco a caricare il report."
+        }
+      }
+    },
     "common": {
       "loading": "Caricamento…",
       "offlineNoSync": "Offline — nessuna sincronizzazione ancora",

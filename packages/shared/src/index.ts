@@ -13,6 +13,7 @@ export * from "./schemas/pat.js";
 export * from "./schemas/notification.js";
 export * from "./schemas/push.js";
 export * from "./schemas/plugin.js";
+export * from "./schemas/activity.js";
 export * from "./env/dotenv.js";
 export * from "./work-state.js";
 export * from "./reader.js";

@@ -2,6 +2,7 @@ import { readerSchema } from "@stubwise/shared";
 import type { Reader } from "@stubwise/shared";
 import type { ZodType } from "zod";
 import { ApiError, errorFromResponse } from "./errors.js";
+import { createActivityEndpoints } from "./endpoints/activity.js";
 import { createAuthEndpoints } from "./endpoints/auth.js";
 import { createBacklogEndpoints } from "./endpoints/backlog.js";
 import { createDocsEndpoints } from "./endpoints/docs.js";
@@ -109,6 +110,7 @@ export function createEndpoints(request: ApiRequest) {
     backlog: createBacklogEndpoints(request),
     docs: createDocsEndpoints(request),
     search: createSearchEndpoints(request),
+    activity: createActivityEndpoints(request),
   };
 }
 
