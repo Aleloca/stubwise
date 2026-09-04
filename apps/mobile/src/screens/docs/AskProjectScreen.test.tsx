@@ -132,6 +132,39 @@ describe("AskProjectScreen — chat di progetto (canvas 3f, «Chiedi al progetto
     expect(projectChat).toHaveBeenNthCalledWith(2, PROJECT_ID, { message: "seconda domanda", sessionId: SESSION_ID });
   });
 
+  // Il sessionId di una conversazione GIÀ iniziata non deve perdersi se un
+  // turno SUCCESSIVO fallisce: primo turno ok (sessionId impostato), secondo
+  // turno che fallisce, terzo turno che deve ANCORA passare il sessionId del
+  // primo — non undefined, non azzerato dal fallimento intermedio. Copre
+  // esattamente la classe di gap "mutazione critica senza test dedicato"
+  // segnalata in revisione: il codice era già corretto (sessionId.current si
+  // aggiorna SOLO in onSuccess, un turno fallito non lo tocca), ma nessun test
+  // lo proteggeva.
+  test("un turno che fallisce a metà conversazione non perde il sessionId del turno precedente", async () => {
+    const projectChat = jest
+      .fn()
+      .mockResolvedValueOnce(answer({ answer: "Prima risposta.", sessionId: SESSION_ID }))
+      .mockRejectedValueOnce(new Error("network down"))
+      .mockResolvedValueOnce(answer({ answer: "Terza risposta.", sessionId: SESSION_ID }));
+    await renderScreen(makeClient({ projectChat }));
+
+    await fireEvent.changeText(screen.getByTestId("ask-project-input"), "prima domanda");
+    await fireEvent.press(screen.getByTestId("ask-project-send"));
+    await waitFor(() => expect(screen.getByText("Prima risposta.")).toBeTruthy());
+
+    await fireEvent.changeText(screen.getByTestId("ask-project-input"), "seconda domanda (fallisce)");
+    await fireEvent.press(screen.getByTestId("ask-project-send"));
+    await waitFor(() => expect(screen.getByTestId("ask-project-send-error")).toBeTruthy());
+
+    await fireEvent.changeText(screen.getByTestId("ask-project-input"), "terza domanda");
+    await fireEvent.press(screen.getByTestId("ask-project-send"));
+    await waitFor(() => expect(screen.getByText("Terza risposta.")).toBeTruthy());
+
+    expect(projectChat).toHaveBeenNthCalledWith(1, PROJECT_ID, { message: "prima domanda", sessionId: undefined });
+    expect(projectChat).toHaveBeenNthCalledWith(2, PROJECT_ID, { message: "seconda domanda (fallisce)", sessionId: SESSION_ID });
+    expect(projectChat).toHaveBeenNthCalledWith(3, PROJECT_ID, { message: "terza domanda", sessionId: SESSION_ID });
+  });
+
   test("503 chat_unavailable → messaggio dedicato, non l'errore generico", async () => {
     const projectChat = jest.fn().mockRejectedValue(new ApiError(503, "Docs chat requires an API-key AI provider", "chat_unavailable"));
     await renderScreen(makeClient({ projectChat }));

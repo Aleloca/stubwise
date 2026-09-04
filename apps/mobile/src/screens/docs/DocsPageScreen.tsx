@@ -11,6 +11,7 @@ import { SectionLabel } from "../../components/SectionLabel";
 import { Skeleton } from "../../components/Skeleton";
 import { docsKeys, docsKindLabelKey } from "../../lib/docs-mutations";
 import { colors } from "../../theme/tokens";
+import { MARKDOWN_STYLE } from "../../theme/markdown";
 import { fontFamily, fontSize } from "../../theme/typography";
 
 /**
@@ -21,9 +22,10 @@ import { fontFamily, fontSize } from "../../theme/typography";
  * `AskProjectScreen` — sempre con `repositoryId`+`slug`, mai un id di pagina:
  * è la stessa coppia che porta una fonte della chat.
  *
- * Rendering: `react-native-markdown-display`, stessa configurazione di
- * `PlanSection.tsx` (sanitizzato per costruzione — `html: false` di default
- * in markdown-it, un tag HTML nel corpo appare come testo letterale).
+ * Rendering: `react-native-markdown-display`, stile condiviso con
+ * `PlanSection.tsx` (Task 16) in `theme/markdown.ts` — sanitizzato per
+ * costruzione (`html: false` di default in markdown-it, un tag HTML nel
+ * corpo appare come testo letterale).
  */
 export function DocsPageScreen({ navigation, route }: NativeStackScreenProps<DocsStackParamList, "Page">) {
   const { t } = useTranslation();
@@ -74,18 +76,6 @@ export function DocsPageScreen({ navigation, route }: NativeStackScreenProps<Doc
     </View>
   );
 }
-
-const MARKDOWN_STYLE = {
-  body: { color: colors.fg, fontSize: fontSize.body },
-  heading1: { color: colors.fg },
-  heading2: { color: colors.fg },
-  heading3: { color: colors.fg },
-  strong: { color: colors.fg },
-  bullet_list: { marginTop: 4 },
-  code_inline: { backgroundColor: colors.ink800, color: colors.fg },
-  fence: { backgroundColor: colors.ink800, borderColor: colors.line },
-  code_block: { backgroundColor: colors.ink800, borderColor: colors.line },
-};
 
 const styles = StyleSheet.create({
   container: {

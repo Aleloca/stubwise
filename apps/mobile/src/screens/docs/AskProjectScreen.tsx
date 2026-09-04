@@ -48,6 +48,12 @@ export function AskProjectScreen({ navigation, route }: NativeStackScreenProps<D
   const send = useAskProjectChat();
   const [bubbles, setBubbles] = useState<ChatBubble[]>([]);
   const [draft, setDraft] = useState("");
+  // Nessun reset esplicito su questi due ref: oggi è innocuo perché ogni
+  // progetto diverso smonta e rimonta questo screen (route param nuovo,
+  // nessun caching della schermata fra progetti) — un futuro cambiamento che
+  // introducesse riuso/caching di `AskProjectScreen` fra progetti diversi
+  // dovrebbe azzerarli esplicitamente, altrimenti una conversazione
+  // continuerebbe a usare il sessionId/i bubbleId del progetto precedente.
   const sessionId = useRef<string | undefined>(undefined);
   const bubbleId = useRef(0);
 

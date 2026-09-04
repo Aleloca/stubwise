@@ -7,6 +7,7 @@ import { GhostButton } from "../GhostButton";
 import { PrimaryButton } from "../PrimaryButton";
 import { useApprovePlan, useRejectPlan } from "../../lib/work-mutations";
 import { colors, radii } from "../../theme/tokens";
+import { MARKDOWN_STYLE } from "../../theme/markdown";
 import { fontFamily, fontSize } from "../../theme/typography";
 
 export interface PlanSectionProps {
@@ -25,11 +26,14 @@ export interface PlanSectionProps {
  * contesto"), i bottoni di decisione solo quando `canDecide`.
  *
  * "Leggi il piano completo" apre il testo INTERO in una modale, renderizzato
- * con `react-native-markdown-display`. Sanitizzazione: markdown-it (la libreria
- * sotto al renderer) ha `html: false` di DEFAULT — un tag HTML nel testo viene
- * escapato a testo letterale, mai interpretato — verificato nella sorgente del
- * pacchetto prima di aggiungerlo; nessuna config esplicita necessaria, ma
- * NESSUNO tolga questa nota pensando che manchi una configurazione.
+ * con `react-native-markdown-display`, stile in `theme/markdown.ts`
+ * (`MARKDOWN_STYLE`, condiviso con `DocsPageScreen.tsx` — Task 18, UNICA
+ * definizione: prima duplicato char-per-char nei due file). Sanitizzazione:
+ * markdown-it (la libreria sotto al renderer) ha `html: false` di DEFAULT —
+ * un tag HTML nel testo viene escapato a testo letterale, mai interpretato —
+ * verificato nella sorgente del pacchetto prima di aggiungerlo; nessuna
+ * config esplicita necessaria, ma NESSUNO tolga questa nota pensando che
+ * manchi una configurazione.
  */
 export function PlanSection({ ticketId, ticketTitle, plan, canDecide }: PlanSectionProps) {
   const { t } = useTranslation();
@@ -139,18 +143,6 @@ export function PlanSection({ ticketId, ticketTitle, plan, canDecide }: PlanSect
     </View>
   );
 }
-
-const MARKDOWN_STYLE = {
-  body: { color: colors.fg, fontSize: fontSize.body },
-  heading1: { color: colors.fg },
-  heading2: { color: colors.fg },
-  heading3: { color: colors.fg },
-  strong: { color: colors.fg },
-  bullet_list: { marginTop: 4 },
-  code_inline: { backgroundColor: colors.ink800, color: colors.fg },
-  fence: { backgroundColor: colors.ink800, borderColor: colors.line },
-  code_block: { backgroundColor: colors.ink800, borderColor: colors.line },
-};
 
 const styles = StyleSheet.create({
   card: {
