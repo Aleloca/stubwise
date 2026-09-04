@@ -223,6 +223,72 @@
         }
       }
     },
+    "work": {
+      "back": "‹ Progetti",
+      "loadError": {
+        "title": "Non riesco a caricare il lavoro.",
+        "retry": "Riprova"
+      },
+      "notFound": {
+        "title": "Questo ticket non c'è più.",
+        "body": "Non esiste, o non hai accesso al progetto."
+      },
+      "ticketNumber": "lavoro #{{number}}",
+      "noDescription": "Nessuna descrizione.",
+      "time": {
+        "now": "adesso",
+        "minutes": "{{count}} min",
+        "hours": "{{count}} h",
+        "days": "{{count}} g"
+      },
+      "status": {
+        "proposed": "In coda",
+        "planning": "In analisi",
+        "held": "In attesa di avvio",
+        "waitingAnswer": "In attesa di risposta",
+        "waitingApproval": "Piano da approvare",
+        "working": "In esecuzione",
+        "prReady": "PR aperta",
+        "done": "Rilasciato",
+        "failed": "Fallito",
+        "skipped": "Saltato",
+        "rejected": "PR chiusa",
+        "unknown": "Aggiornamento"
+      },
+      "workingPill": "sta lavorando da {{count}} min — ti avviso io",
+      "workingPillNow": "sta lavorando da pochi istanti — ti avviso io",
+      "releaseNote": "// il rilascio spetta a un maintainer: ti avviso quando esce",
+      "timeline": {
+        "title": "Storia del lavoro",
+        "proposed": "Proposto",
+        "questionAnswered": "Domanda risposta",
+        "planApproved": "Piano approvato",
+        "working": "In esecuzione",
+        "prReview": "PR e review",
+        "release": "Rilascio"
+      },
+      "plan": {
+        "title": "Il piano, in breve",
+        "empty": "Nessun piano collegato.",
+        "readFull": "Leggi il piano completo →",
+        "modalTitle": "Piano",
+        "close": "Chiudi",
+        "approve": "Approva",
+        "approveConfirmQuestion": "Confermi?",
+        "approveConfirm": "Sì, approva",
+        "cancel": "Annulla",
+        "rejectWithInstructions": "Rifiuta con istruzioni"
+      },
+      "techLevel": {
+        "title": "Livello tecnico · solo maintainer",
+        "branch": "ramo",
+        "showLog": "▸ Mostra log",
+        "hideLog": "▾ Nascondi log",
+        "noLog": "Nessun log ancora.",
+        "logLines_one": "{{count}} riga",
+        "logLines_other": "{{count}} righe"
+      }
+    },
     "common": {
       "loading": "Caricamento…",
       "offlineNoSync": "Offline — nessuna sincronizzazione ancora",

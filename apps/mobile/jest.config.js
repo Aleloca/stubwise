@@ -20,8 +20,13 @@ module.exports = {
   // react-native-screens, react-native-safe-area-context, i18next,
   // react-i18next e @tanstack/* risolvono già a CJS via `main` — non serve
   // aggiungerli.
+  //
+  // Task 16: aggiunto `react-native-markdown-display` per "Leggi il piano"
+  // (`main` punta a `src/index.js`, sorgente ESM — verificato). La sua dip
+  // `react-native-fit-image` risolve a CJS via `dist/` (verificato) e NON va
+  // aggiunta; `markdown-it`/`css-to-react-native`/`prop-types` sono CJS pure.
   transformIgnorePatterns: [
-    "node_modules/(?!\\.pnpm/)(?!((jest-)?react-native|@react-native(-community)?|@react-navigation|@notifee|@react-native-async-storage)/)",
+    "node_modules/(?!\\.pnpm/)(?!((jest-)?react-native|@react-native(-community)?|@react-navigation|@notifee|@react-native-async-storage|react-native-markdown-display)/)",
   ],
   setupFilesAfterEnv: ["<rootDir>/jest.setup.ts"],
 };

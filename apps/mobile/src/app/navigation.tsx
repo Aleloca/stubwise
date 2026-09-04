@@ -2,7 +2,7 @@ import { NavigationContainer, useNavigation } from "@react-navigation/native";
 import type { NavigatorScreenParams } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
-import type { NativeStackNavigationProp, NativeStackScreenProps } from "@react-navigation/native-stack";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, Text, View } from "react-native";
@@ -13,6 +13,7 @@ import { LoginScreen } from "../screens/auth/LoginScreen";
 import { OnboardingScreen } from "../screens/auth/OnboardingScreen";
 import { ProjectDetailScreen } from "../screens/projects/ProjectDetailScreen";
 import { ProjectsScreen } from "../screens/projects/ProjectsScreen";
+import { WorkScreen } from "../screens/work/WorkScreen";
 import { useUnreadCount } from "../lib/inbox-mutations";
 import { colors } from "../theme/tokens";
 import { fontFamily } from "../theme/typography";
@@ -55,11 +56,10 @@ const Tab = createBottomTabNavigator<MainTabParamList>();
 
 /**
  * Schermate placeholder per i tab non ancora implementati (Backlog: Task 17,
- * Docs: Task 18) e per `Projects/Ticket` (Task 16 — il "Lavoro" del canvas
- * `2c`/`2d`): servono solo a dare un albero di navigazione reale su cui
- * verificare tema, tab bar e deep link — e a mostrare il param `id` così i
- * test del deep link possono verificarlo senza aspettare la schermata vera.
- * `Projects/List` e `Projects/Detail` sono REALI da qui in poi (Task 15).
+ * Docs: Task 18): servono solo a dare un albero di navigazione reale su cui
+ * verificare tema e tab bar. `Projects/List`, `Projects/Detail` (Task 15) e
+ * `Projects/Ticket` (Task 16, `WorkScreen` — il "Lavoro" del canvas `2c`/`2d`)
+ * sono REALI.
  */
 function Placeholder({ label }: { label: string }) {
   return (
@@ -67,10 +67,6 @@ function Placeholder({ label }: { label: string }) {
       <SectionLabel>{label}</SectionLabel>
     </View>
   );
-}
-
-function TicketScreen({ route }: NativeStackScreenProps<ProjectsStackParamList, "Ticket">) {
-  return <Placeholder label={`Ticket ${route.params.id}`} />;
 }
 
 function BacklogScreen() {
@@ -97,7 +93,7 @@ function ProjectsNavigator() {
     <ProjectsStack.Navigator screenOptions={{ headerShown: false }}>
       <ProjectsStack.Screen name="List" component={ProjectsScreen} />
       <ProjectsStack.Screen name="Detail" component={ProjectDetailScreen} />
-      <ProjectsStack.Screen name="Ticket" component={TicketScreen} />
+      <ProjectsStack.Screen name="Ticket" component={WorkScreen} />
     </ProjectsStack.Navigator>
   );
 }

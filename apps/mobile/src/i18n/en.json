@@ -223,6 +223,72 @@
         }
       }
     },
+    "work": {
+      "back": "‹ Projects",
+      "loadError": {
+        "title": "Can't load the work.",
+        "retry": "Retry"
+      },
+      "notFound": {
+        "title": "This ticket is gone.",
+        "body": "It doesn't exist, or you don't have access to the project."
+      },
+      "ticketNumber": "job #{{number}}",
+      "noDescription": "No description.",
+      "time": {
+        "now": "now",
+        "minutes": "{{count}} min",
+        "hours": "{{count}} h",
+        "days": "{{count}} d"
+      },
+      "status": {
+        "proposed": "Queued",
+        "planning": "Analyzing",
+        "held": "Waiting to start",
+        "waitingAnswer": "Waiting for an answer",
+        "waitingApproval": "Plan to approve",
+        "working": "Running",
+        "prReady": "PR open",
+        "done": "Released",
+        "failed": "Failed",
+        "skipped": "Skipped",
+        "rejected": "PR closed",
+        "unknown": "Update"
+      },
+      "workingPill": "working for {{count}} min — I'll let you know",
+      "workingPillNow": "working for a few moments — I'll let you know",
+      "releaseNote": "// release is up to a maintainer: I'll let you know when it ships",
+      "timeline": {
+        "title": "Story of the work",
+        "proposed": "Proposed",
+        "questionAnswered": "Question answered",
+        "planApproved": "Plan approved",
+        "working": "Running",
+        "prReview": "PR & review",
+        "release": "Release"
+      },
+      "plan": {
+        "title": "The plan, in short",
+        "empty": "No plan attached.",
+        "readFull": "Read the full plan →",
+        "modalTitle": "Plan",
+        "close": "Close",
+        "approve": "Approve",
+        "approveConfirmQuestion": "Confirm?",
+        "approveConfirm": "Yes, approve",
+        "cancel": "Cancel",
+        "rejectWithInstructions": "Reject with instructions"
+      },
+      "techLevel": {
+        "title": "Technical level · maintainer only",
+        "branch": "branch",
+        "showLog": "▸ Show log",
+        "hideLog": "▾ Hide log",
+        "noLog": "No log yet.",
+        "logLines_one": "{{count}} line",
+        "logLines_other": "{{count}} lines"
+      }
+    },
     "common": {
       "loading": "Loading…",
       "offlineNoSync": "Offline — no sync yet",
