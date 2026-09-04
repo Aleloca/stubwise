@@ -477,7 +477,7 @@
       },
       "role": {
         "admin": "Admin",
-        "member": "Operator"
+        "member": "Operatore"
       },
       "logout": "Esci",
       "loggingOut": "Uscita…"

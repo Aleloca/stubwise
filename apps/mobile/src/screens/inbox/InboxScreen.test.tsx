@@ -1,7 +1,6 @@
 import type { StubwiseClient } from "@stubwise/api-client";
 import type { InboxItem, Reader } from "@stubwise/shared";
 import notifee from "@notifee/react-native";
-import NetInfo from "@react-native-community/netinfo";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { AuthContext } from "../../app/auth-context";
@@ -76,7 +75,6 @@ beforeEach(() => {
   jest.clearAllMocks();
   // AUTHORIZED di default: solo i test sui permessi negati lo sovrascrivono.
   (notifee.getNotificationSettings as jest.Mock).mockResolvedValue({ authorizationStatus: 1 });
-  (NetInfo.useNetInfo as jest.Mock).mockReturnValue({ isConnected: true, isInternetReachable: true });
 });
 
 describe("InboxScreen", () => {
@@ -97,12 +95,14 @@ describe("InboxScreen", () => {
     expect(screen.getByText("Ti avviso io quando un progetto ha bisogno di te.")).toBeTruthy();
   });
 
-  test("offline: banner persistente in cima alla lista", async () => {
-    (NetInfo.useNetInfo as jest.Mock).mockReturnValue({ isConnected: false, isInternetReachable: false });
-    const client = makeClient();
-    await renderScreen(client);
-    await waitFor(() => expect(screen.getByText(/Offline/)).toBeTruthy());
-  });
+  // Il banner offline NON è più responsabilità di questo screen (Task 20:
+  // spostato in `app/providers.tsx`, top bar globale sopra ogni tab — vedi
+  // il docblock su `InboxScreen`). La copertura "InboxScreen offline" vive
+  // ora a un livello di composizione più alto, in
+  // `app/navigation.test.tsx` ("il banner offline globale non duplica —
+  // compare UNA sola volta anche sulla tab Inbox reale"): qui, isolato
+  // dietro un `AuthContext.Provider` fittizio senza `AppProviders`, non
+  // c'è alcun banner da testare per definizione.
 
   test("permessi di notifica negati: card non bloccante — il resto dello screen resta usabile", async () => {
     (notifee.getNotificationSettings as jest.Mock).mockResolvedValue({ authorizationStatus: 0 });

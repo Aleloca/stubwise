@@ -8,13 +8,11 @@ import { Linking, RefreshControl, ScrollView, StyleSheet, Text, View } from "rea
 import { useAuth } from "../../app/providers";
 import { GhostButton } from "../../components/GhostButton";
 import { InboxCard } from "../../components/inbox/InboxCard";
-import { OfflineBanner } from "../../components/OfflineBanner";
 import { SectionLabel } from "../../components/SectionLabel";
 import { Skeleton } from "../../components/Skeleton";
-import { inboxKeys, useIsOnline } from "../../lib/inbox-mutations";
+import { inboxKeys } from "../../lib/inbox-mutations";
 import type { InboxSections } from "../../lib/inbox-sections";
 import { sectionize } from "../../lib/inbox-sections";
-import { getLastSyncAt, setLastSyncAt } from "../../lib/storage";
 import { colors } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
 
@@ -34,19 +32,18 @@ function resolveProjectName(item: Reader<InboxItem>, projectsById: Map<string, s
 
 /**
  * Schermata Inbox (canvas `1b`/`1c`/`1f`/`1g`/`1h`): quattro sezioni per
- * ruolo, stato vuoto "Tutto gestito.", skeleton al primo caricamento, banner
- * offline persistente e — non bloccante — l'avviso di notifiche disattivate.
+ * ruolo, stato vuoto "Tutto gestito.", skeleton al primo caricamento e — non
+ * bloccante — l'avviso di notifiche disattivate.
+ *
+ * Il banner offline (Task 13/14) era qui, ora è GLOBALE (Task 20,
+ * `app/providers.tsx`, top bar sopra ogni tab) — vedi il commento lì sul
+ * perché: non solo l'Inbox va offline. Niente banner locale, quindi, o
+ * comparirebbe due volte.
  */
 export function InboxScreen() {
   const { t } = useTranslation();
   const { client, user } = useAuth();
-  const online = useIsOnline();
-  const [lastSyncAt, setLastSyncAtState] = useState<string | null>(null);
   const [notificationsDenied, setNotificationsDenied] = useState(false);
-
-  useEffect(() => {
-    void getLastSyncAt().then(setLastSyncAtState);
-  }, []);
 
   useEffect(() => {
     void notifee.getNotificationSettings().then((settings) => {
@@ -66,13 +63,9 @@ export function InboxScreen() {
 
   const query = useQuery({
     queryKey: inboxKeys.list(),
-    queryFn: async () => {
+    queryFn: () => {
       if (!client) throw new Error("InboxScreen richiede un client autenticato");
-      const page = await client.inbox.list();
-      const now = new Date().toISOString();
-      void setLastSyncAt(now);
-      setLastSyncAtState(now);
-      return page;
+      return client.inbox.list();
     },
     enabled: client !== null,
     staleTime: 10_000,
@@ -118,12 +111,6 @@ export function InboxScreen() {
             <RefreshControl refreshing={query.isRefetching} onRefresh={() => void query.refetch()} tintColor={colors.signal} />
           }
         >
-          {!online && (
-            <View style={styles.bannerWrap}>
-              <OfflineBanner lastSyncAt={lastSyncAt} />
-            </View>
-          )}
-
           {notificationsDenied && (
             <View style={styles.notifCard} testID="inbox-notifications-denied">
               <Text style={styles.notifBadge}>{t("mobile.inbox.notifications.badgeLabel")}</Text>
@@ -230,9 +217,6 @@ const styles = StyleSheet.create({
     gap: 8,
     padding: 16,
     paddingBottom: 40,
-  },
-  bannerWrap: {
-    marginBottom: 4,
   },
   skeletonList: {
     gap: 8,

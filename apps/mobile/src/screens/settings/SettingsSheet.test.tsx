@@ -111,10 +111,10 @@ describe("SettingsSheet — visibilità e profilo", () => {
     expect(screen.queryByTestId("settings-logout-button")).toBeNull();
   });
 
-  test("mostra l'email e il ruolo (Operator per member)", async () => {
+  test("mostra l'email e il ruolo (Operatore per member)", async () => {
     await renderSheet(makeClient());
     expect(screen.getByText("giulia@farmakom.it")).toBeTruthy();
-    expect(screen.getByText("Operator")).toBeTruthy();
+    expect(screen.getByText("Operatore")).toBeTruthy();
   });
 
   test("mostra 'Admin' per un ruolo admin", async () => {

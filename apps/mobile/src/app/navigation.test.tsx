@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
+import NetInfo from "@react-native-community/netinfo";
 import { Linking } from "react-native";
 import * as Keychain from "react-native-keychain";
 import "../i18n";
@@ -148,5 +149,49 @@ describe("deep link", () => {
     await waitFor(() => expect(screen.queryByTestId("onboarding-later")).toBeNull());
     expect(screen.getAllByText("Inbox").length).toBeGreaterThan(0);
     expect(screen.queryByTestId("inbox-card-screen")).toBeNull();
+  });
+});
+
+// Task 20: il banner offline è GLOBALE (`app/providers.tsx`, top bar sopra
+// ogni tab) — PRIMA viveva anche dentro `InboxScreen` (Task 13/14), che
+// aveva la propria copia locale pilotata dalla STESSA condizione
+// (`useIsOnline()`/NetInfo). Un test che monta solo `InboxScreen` isolata
+// (come `InboxScreen.test.tsx`) non può vedere la duplicazione — vede
+// SOLO il banner locale, non quello globale, che vive un livello sopra in
+// `AppProviders`. Serve una composizione VERA (`AppProviders` → `RootNavigator`
+// → `MainNavigator` → `InboxScreen`, la stessa di `App.tsx`) per accorgersene:
+// è esattamente questo test.
+describe("banner offline globale (Task 20) — non duplica sulla tab Inbox reale", () => {
+  test("da offline, con sessione già valida, il banner compare UNA sola volta (chrome globale, non anche dentro l'Inbox)", async () => {
+    const session = {
+      baseUrl: "https://stubwise.example",
+      token: "stw_pat_existing",
+      patId: "77777777-7777-4777-8777-777777777777",
+      user: successUser,
+    };
+    (Keychain.getGenericPassword as jest.Mock).mockResolvedValue({
+      username: "stubwise-session",
+      password: JSON.stringify(session),
+      service: "com.app.aleloca.stubwise.session",
+      storage: "keychain",
+    });
+    (Linking.getInitialURL as jest.Mock).mockResolvedValue(undefined);
+    (NetInfo.useNetInfo as jest.Mock).mockReturnValue({ isConnected: false, isInternetReachable: false });
+    jest.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => routeFetch(input, init));
+
+    await render(
+      <AppProviders>
+        <RootNavigator />
+      </AppProviders>,
+    );
+
+    // Aspetta che la vera InboxScreen abbia finito il primo caricamento
+    // (skeleton sparito, ScrollView montato): è lì dentro, PRIMA del fix,
+    // che sarebbe comparso il secondo banner ridondante.
+    await waitFor(() => expect(screen.queryByTestId("inbox-skeleton")).toBeNull());
+
+    expect(screen.getAllByText(/Offline/)).toHaveLength(1);
+
+    (NetInfo.useNetInfo as jest.Mock).mockReturnValue({ isConnected: true, isInternetReachable: true });
   });
 });
