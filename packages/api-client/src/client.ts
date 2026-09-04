@@ -8,6 +8,7 @@ import { createBacklogEndpoints } from "./endpoints/backlog.js";
 import { createDocsEndpoints } from "./endpoints/docs.js";
 import { createInboxEndpoints } from "./endpoints/inbox.js";
 import { createMeEndpoints } from "./endpoints/me.js";
+import { createPatsEndpoints } from "./endpoints/pats.js";
 import { createProjectsEndpoints } from "./endpoints/projects.js";
 import { createSearchEndpoints } from "./endpoints/search.js";
 import { createTicketsEndpoints } from "./endpoints/tickets.js";
@@ -105,6 +106,7 @@ export function createEndpoints(request: ApiRequest) {
     auth: createAuthEndpoints(request),
     inbox: createInboxEndpoints(request),
     me: createMeEndpoints(request),
+    pats: createPatsEndpoints(request),
     projects: createProjectsEndpoints(request),
     tickets: createTicketsEndpoints(request),
     backlog: createBacklogEndpoints(request),

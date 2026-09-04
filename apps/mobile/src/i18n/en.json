@@ -456,6 +456,31 @@
         "retry": "Retry",
         "open": "Open"
       }
+    },
+    "settings": {
+      "openLabel": "Settings",
+      "close": "Close",
+      "notifications": {
+        "title": "Notifications",
+        "pushLabel": "Push notifications",
+        "followedProjectsLabel": "Followed projects",
+        "noProjects": "No projects available."
+      },
+      "instance": {
+        "title": "Instance",
+        "serverLabel": "Server",
+        "languageLabel": "Language",
+        "language": {
+          "it": "Italiano",
+          "en": "English"
+        }
+      },
+      "role": {
+        "admin": "Admin",
+        "member": "Operator"
+      },
+      "logout": "Log out",
+      "loggingOut": "Logging out…"
     }
   }
 }

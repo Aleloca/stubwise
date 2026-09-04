@@ -61,6 +61,12 @@ jest.mock("@react-native-firebase/messaging", () => ({
   __esModule: true,
   getMessaging: jest.fn(() => ({})),
   getToken: jest.fn(async () => null),
+  // Task 20 (logout): invalida il token FCM del device — vedi
+  // `screens/settings/SettingsSheet.tsx`. Risolve `undefined` di default
+  // (`Promise<void>` reale): il test che vuole verificarne la CHIAMATA lo fa
+  // sul mock stesso (`deleteToken as jest.Mock`), non sul suo valore di
+  // ritorno.
+  deleteToken: jest.fn(async () => undefined),
   onTokenRefresh: jest.fn(() => jest.fn()),
   onMessage: jest.fn(() => jest.fn()),
   setBackgroundMessageHandler: jest.fn(),

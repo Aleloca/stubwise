@@ -1,19 +1,25 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryCache, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createAsyncStoragePersister } from "@tanstack/query-async-storage-persister";
 import { persistQueryClient } from "@tanstack/react-query-persist-client";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { isUnknown } from "@stubwise/shared";
 import type { Reader, SessionUser } from "@stubwise/shared";
 import notifee from "@notifee/react-native";
-import { AppState, type AppStateStatus } from "react-native";
+import { useNetInfo } from "@react-native-community/netinfo";
+import { useTranslation } from "react-i18next";
+import { AppState, Pressable, StyleSheet, Text, View, type AppStateStatus } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AuthContext, type AuthContextValue, type AuthState } from "./auth-context";
+import { OfflineBanner } from "../components/OfflineBanner";
 import { setLanguage } from "../i18n";
 import { createClient, onSessionExpired } from "../lib/client";
 import { setupPush } from "../lib/push";
 import { inboxKeys } from "../lib/query-keys";
-import { loadSession, saveSession, type StoredSession } from "../lib/storage";
+import { getLastSyncAt, loadSession, saveSession, setLastSyncAt, type StoredSession } from "../lib/storage";
+import { SettingsSheet } from "../screens/settings/SettingsSheet";
+import { colors } from "../theme/tokens";
+import { fontFamily } from "../theme/typography";
 
 /**
  * Allinea la lingua dell'app a `user.language` — MA quel campo è
@@ -40,6 +46,20 @@ export type { AuthContextValue } from "./auth-context";
  * dal componente perché deve sopravvivere ai re-render.
  */
 export const queryClient = new QueryClient({
+  // Task 20: "ultima sincronizzazione" (banner offline) si aggiorna a OGNI
+  // fetch riuscita gestita da TanStack Query — non solo dall'Inbox (che
+  // prima dell'estrazione della sheet aveva la sua chiamata ad-hoc a
+  // `setLastSyncAt`, ancora lì e ora ridondante ma innocua). Un `QueryCache`
+  // con `onSuccess` GLOBALE copre ogni schermo, presente e futuro, senza che
+  // ciascuno debba ricordarsi di chiamare `setLastSyncAt` da sé — persiste
+  // su AsyncStorage (non nello state di questo componente: il valore
+  // reattivo per il banner lo rilegge `AppProviders` sotto, alle transizioni
+  // online/offline, dove serve davvero).
+  queryCache: new QueryCache({
+    onSuccess: () => {
+      void setLastSyncAt(new Date().toISOString());
+    },
+  }),
   defaultOptions: {
     queries: {
       // I dati di Stubwise cambiano per iniziativa di altri (un altro
@@ -70,12 +90,36 @@ const FOREGROUND_BADGE_INTERVAL_MS = 60_000;
  * avvio a freddo.
  */
 export function AppProviders({ children }: { children: ReactNode }) {
+  const { t } = useTranslation();
   const [state, setState] = useState<AuthState>({
     status: "loading",
     client: null,
     user: null,
     justLoggedIn: false,
   });
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [lastSyncAt, setLastSyncAtState] = useState<string | null>(null);
+
+  // `isConnected !== false`, non `=== true`: stessa regola di `useIsOnline`
+  // (`lib/inbox-mutations.ts`) — `null` (stato non ancora noto, es. al
+  // primissimo render) resta online per default. NON importato da lì:
+  // quel file importa `useAuth` da QUESTO modulo, e il giro opposto
+  // creerebbe un ciclo (vedi il docblock su `inboxKeys` più sotto).
+  const netInfo = useNetInfo();
+  const online = netInfo.isConnected !== false;
+
+  /**
+   * Valore REATTIVO di `lastSyncAt` per il banner globale — la scrittura
+   * (persistita) è il `QueryCache.onSuccess` sopra. Rilette da AsyncStorage
+   * a ogni transizione online/offline (compreso il mount, che è la PRIMA
+   * transizione che questo effetto vede): mentre `online` resta true non
+   * serve una copia più fresca (il banner non è a schermo), e mentre resta
+   * false nessuna nuova sincronizzazione può comunque essere avvenuta — il
+   * momento che conta è esattamente quando si passa a offline.
+   */
+  useEffect(() => {
+    void getLastSyncAt().then(setLastSyncAtState);
+  }, [online]);
 
   useEffect(() => {
     let cancelled = false;
@@ -186,11 +230,88 @@ export function AppProviders({ children }: { children: ReactNode }) {
     [state],
   );
 
+  /**
+   * Chrome globale (banner offline + avatar → Impostazioni, Task 20): visibile
+   * su OGNI tab, non solo l'Inbox — da qui vive in `AppProviders`, l'unico
+   * antenato comune a tutta la navigazione autenticata, invece che duplicato
+   * schermo per schermo. Gate su `authenticated && !justLoggedIn`: lo stesso
+   * di `showMain` in `navigation.tsx` — durante l'Onboarding (`justLoggedIn`)
+   * non c'è ancora nulla da gestire nelle Impostazioni.
+   */
+  const showChrome = state.status === "authenticated" && !state.justLoggedIn && state.client !== null && state.user !== null;
+
+  /** Logout riuscito (best-effort remoto + pulizia locale, vedi `SettingsSheet`): torna a `unauthenticated`. */
+  function handleLoggedOut(): void {
+    setSettingsOpen(false);
+    setState({ status: "unauthenticated", client: null, user: null, justLoggedIn: false });
+  }
+
+  const avatarInitial = state.user ? state.user.email.charAt(0).toUpperCase() : "";
+
   return (
     <QueryClientProvider client={queryClient}>
       <SafeAreaProvider>
-        <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
+        <AuthContext.Provider value={value}>
+          <View style={styles.root}>
+            {showChrome && (
+              <View style={styles.topBar}>
+                <View style={styles.topBarBanner}>{!online && <OfflineBanner lastSyncAt={lastSyncAt} />}</View>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={t("mobile.settings.openLabel")}
+                  onPress={() => setSettingsOpen(true)}
+                  style={styles.avatarButton}
+                  testID="settings-avatar-button"
+                >
+                  <Text style={styles.avatarLabel}>{avatarInitial}</Text>
+                </Pressable>
+              </View>
+            )}
+            {children}
+            {showChrome && state.client && state.user && (
+              <SettingsSheet
+                visible={settingsOpen}
+                onRequestClose={() => setSettingsOpen(false)}
+                client={state.client}
+                user={state.user}
+                onLoggedOut={handleLoggedOut}
+              />
+            )}
+          </View>
+        </AuthContext.Provider>
       </SafeAreaProvider>
     </QueryClientProvider>
   );
 }
+
+const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+  },
+  topBar: {
+    alignItems: "center",
+    backgroundColor: colors.ink900,
+    borderBottomColor: colors.line,
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  topBarBanner: {
+    flex: 1,
+  },
+  avatarButton: {
+    alignItems: "center",
+    backgroundColor: colors.ink800,
+    borderRadius: 16,
+    height: 32,
+    justifyContent: "center",
+    width: 32,
+  },
+  avatarLabel: {
+    color: colors.muted,
+    fontFamily: fontFamily.mono,
+    fontSize: 13,
+  },
+});

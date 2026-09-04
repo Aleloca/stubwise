@@ -1,15 +1,22 @@
-import { act, render, waitFor } from "@testing-library/react-native";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import notifee from "@notifee/react-native";
+import NetInfo from "@react-native-community/netinfo";
 import { AppState, Text } from "react-native";
 import "../i18n";
 import { createClient, onSessionExpired } from "../lib/client";
 import { setupPush } from "../lib/push";
-import { loadSession } from "../lib/storage";
+import { getLastSyncAt, loadSession } from "../lib/storage";
 import { AppProviders } from "./providers";
 
 jest.mock("../lib/storage", () => ({
   loadSession: jest.fn(),
   saveSession: jest.fn(),
+  // Task 20: `AppProviders` ora legge/scrive anche queste due (banner
+  // offline globale) a OGNI render — senza mockarle qui, ogni test di
+  // QUESTO file (non solo quelli nuovi sotto) romperebbe su
+  // "getLastSyncAt is not a function" al primo effect.
+  getLastSyncAt: jest.fn().mockResolvedValue(null),
+  setLastSyncAt: jest.fn().mockResolvedValue(undefined),
 }));
 
 jest.mock("../lib/client", () => ({
@@ -250,5 +257,100 @@ describe("AppProviders — collegamento con setupPush (lib/push.ts)", () => {
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
 
     expect(unsubscribePush).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("AppProviders — chrome globale (Task 20: avatar → Impostazioni, banner offline)", () => {
+  test("il bottone Impostazioni (avatar) compare da autenticato", async () => {
+    mockLoadSession.mockResolvedValue(session);
+    mockCreateClient.mockReturnValue(fakeClient());
+
+    await render(
+      <AppProviders>
+        <Text>ok</Text>
+      </AppProviders>,
+    );
+
+    await waitFor(() => expect(screen.getByTestId("settings-avatar-button")).toBeTruthy());
+  });
+
+  // Accessibilità: l'avatar è SOLO glifo (l'iniziale dell'email) — senza
+  // `accessibilityLabel` uno screen reader lo leggerebbe come una lettera
+  // sciolta, non come "apri le Impostazioni".
+  test("il bottone Impostazioni ha un accessibilityLabel (è solo glifo: l'iniziale dell'email)", async () => {
+    mockLoadSession.mockResolvedValue(session);
+    mockCreateClient.mockReturnValue(fakeClient());
+
+    await render(
+      <AppProviders>
+        <Text>ok</Text>
+      </AppProviders>,
+    );
+
+    await waitFor(() => {
+      const button = screen.getByTestId("settings-avatar-button");
+      expect(button.props.accessibilityLabel).toBe("Impostazioni");
+      expect(button.props.accessibilityRole).toBe("button");
+    });
+  });
+
+  test("nessun bottone Impostazioni prima del login (non autenticato)", async () => {
+    mockLoadSession.mockResolvedValue(null);
+
+    await render(
+      <AppProviders>
+        <Text>ok</Text>
+      </AppProviders>,
+    );
+    await waitFor(() => expect(mockLoadSession).toHaveBeenCalled());
+
+    expect(screen.queryByTestId("settings-avatar-button")).toBeNull();
+  });
+
+  test("il banner offline globale compare quando NetInfo segnala offline, su QUALSIASI schermo (non solo l'Inbox)", async () => {
+    (NetInfo.useNetInfo as jest.Mock).mockReturnValue({ isConnected: false, isInternetReachable: false });
+    mockLoadSession.mockResolvedValue(session);
+    mockCreateClient.mockReturnValue(fakeClient());
+
+    await render(
+      <AppProviders>
+        <Text>ok</Text>
+      </AppProviders>,
+    );
+
+    await waitFor(() => expect(screen.getByText(/Offline/)).toBeTruthy());
+    (NetInfo.useNetInfo as jest.Mock).mockReturnValue({ isConnected: true, isInternetReachable: true });
+  });
+
+  test("toccare l'avatar apre la sheet Impostazioni (Esci diventa raggiungibile)", async () => {
+    mockLoadSession.mockResolvedValue(session);
+    mockCreateClient.mockReturnValue(fakeClient());
+
+    await render(
+      <AppProviders>
+        <Text>ok</Text>
+      </AppProviders>,
+    );
+    await waitFor(() => expect(screen.getByTestId("settings-avatar-button")).toBeTruthy());
+
+    await fireEvent.press(screen.getByTestId("settings-avatar-button"));
+
+    await waitFor(() => expect(screen.getByTestId("settings-logout-button")).toBeTruthy());
+  });
+
+  test("lastSyncAt: il banner lo rilegge da AsyncStorage (getLastSyncAt) quando compare offline", async () => {
+    (NetInfo.useNetInfo as jest.Mock).mockReturnValue({ isConnected: false, isInternetReachable: false });
+    (getLastSyncAt as jest.Mock).mockResolvedValue("2026-09-02T09:00:00.000Z");
+    mockLoadSession.mockResolvedValue(session);
+    mockCreateClient.mockReturnValue(fakeClient());
+
+    await render(
+      <AppProviders>
+        <Text>ok</Text>
+      </AppProviders>,
+    );
+
+    await waitFor(() => expect(getLastSyncAt).toHaveBeenCalled());
+    (NetInfo.useNetInfo as jest.Mock).mockReturnValue({ isConnected: true, isInternetReachable: true });
   });
 });

@@ -456,6 +456,31 @@
         "retry": "Riprova",
         "open": "Apri"
       }
+    },
+    "settings": {
+      "openLabel": "Impostazioni",
+      "close": "Chiudi",
+      "notifications": {
+        "title": "Notifiche",
+        "pushLabel": "Notifiche push",
+        "followedProjectsLabel": "Progetti seguiti",
+        "noProjects": "Nessun progetto disponibile."
+      },
+      "instance": {
+        "title": "Istanza",
+        "serverLabel": "Server",
+        "languageLabel": "Lingua",
+        "language": {
+          "it": "Italiano",
+          "en": "English"
+        }
+      },
+      "role": {
+        "admin": "Admin",
+        "member": "Operator"
+      },
+      "logout": "Esci",
+      "loggingOut": "Uscita…"
     }
   }
 }
