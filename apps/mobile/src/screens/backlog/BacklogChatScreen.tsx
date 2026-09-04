@@ -34,6 +34,17 @@ interface ChatBubble {
  * documenta l'invariante di design «niente skeleton animati, transizioni
  * decorative» e `WorkingPill.tsx` applica la stessa scelta al pallino "sta
  * lavorando" per non tenere viva la suite Jest con un timer decorativo.
+ *
+ * ⚠️ GUARDIA `codeSession`: `chatText` fallisce con `invalid_response` se una
+ * sessione di analisi sul codice è attiva sulla voce (avviata da web) — è il
+ * CHIAMANTE a doverlo sapere PRIMA di scegliere `chatText`, non dopo (vedi il
+ * commento su `chatText` in `packages/api-client/src/endpoints/backlog.ts`).
+ * `BacklogItemDetail.codeSession` (già nel payload di `client.backlog.get`)
+ * dice appunto questo: quando non è `null` il composer si disabilita con un
+ * messaggio dedicato invece di lasciar fallire l'invio in modo opaco. Gestire
+ * per intero la modalità CODE (bolle a bottoni, turni via job) resta FUORI
+ * SCOPE per questo task — nessuna schermata mobile avvia una sessione di
+ * analisi — questa è solo la guardia che evita la chiamata sbagliata.
  */
 export function BacklogChatScreen({ navigation, route }: NativeStackScreenProps<BacklogStackParamList, "Chat">) {
   const { t } = useTranslation();
@@ -81,7 +92,7 @@ export function BacklogChatScreen({ navigation, route }: NativeStackScreenProps<
 
   function handleSend(): void {
     const trimmed = draft.trim();
-    if (trimmed.length === 0 || send.disabled) return;
+    if (trimmed.length === 0 || send.disabled || codeSessionActive) return;
     setBubbles((current) => [...current, { id: nextLocalId(), role: "user", text: trimmed }]);
     setDraft("");
     send.mutate(
@@ -95,7 +106,10 @@ export function BacklogChatScreen({ navigation, route }: NativeStackScreenProps<
   }
 
   const notFound = itemQuery.isError && itemQuery.error instanceof ApiError && itemQuery.error.status === 404;
-  const canSend = draft.trim().length > 0 && !send.disabled;
+  // Sessione di analisi sul codice attiva (avviata da web): niente invio da
+  // qui, vedi il commento in testa al file.
+  const codeSessionActive = itemQuery.data?.codeSession != null;
+  const canSend = draft.trim().length > 0 && !send.disabled && !codeSessionActive;
 
   return (
     <View style={styles.container}>
@@ -129,7 +143,7 @@ export function BacklogChatScreen({ navigation, route }: NativeStackScreenProps<
               <View
                 key={bubble.id}
                 style={[styles.bubble, bubble.role === "user" ? styles.bubbleUser : styles.bubbleAgent]}
-                testID={`backlog-chat-bubble-${bubble.role}`}
+                testID={`backlog-chat-bubble-${bubble.id}`}
               >
                 {bubble.role === "assistant" && <Text style={styles.bubbleLabel}>{t("mobile.backlog.chat.agent")}</Text>}
                 <Text style={styles.bubbleText}>{bubble.text}</Text>
@@ -148,12 +162,18 @@ export function BacklogChatScreen({ navigation, route }: NativeStackScreenProps<
             </Text>
           )}
 
+          {codeSessionActive && (
+            <Text style={styles.notice} testID="backlog-chat-code-session-notice">
+              {t("mobile.backlog.chat.codeSessionActive")}
+            </Text>
+          )}
+
           <View style={styles.composer}>
             <TextInput
               accessibilityLabel={t("mobile.backlog.chat.placeholder")}
               value={draft}
               onChangeText={setDraft}
-              editable={!send.disabled}
+              editable={!send.disabled && !codeSessionActive}
               placeholder={t("mobile.backlog.chat.placeholder")}
               placeholderTextColor={colors.faint}
               style={styles.input}
@@ -266,6 +286,13 @@ const styles = StyleSheet.create({
     color: colors.danger,
     fontSize: 13,
     marginHorizontal: 16,
+  },
+  notice: {
+    color: colors.signal,
+    fontFamily: fontFamily.mono,
+    fontSize: 11,
+    marginHorizontal: 16,
+    marginTop: 4,
   },
   composer: {
     alignItems: "center",

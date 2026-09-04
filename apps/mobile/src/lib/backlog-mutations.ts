@@ -140,8 +140,16 @@ export function backlogMetaParts(item: {
   return parts;
 }
 
-/** Unisce più pagine per id (dedup) e ordina per `updatedAt` decrescente — vedi il chip `"all"` in {@link useBacklogList}. */
-function mergeBacklogPages(pages: Reader<BacklogItem>[][]): Reader<BacklogItem>[] {
+/**
+ * Unisce più pagine per id (dedup, l'ultima occorrenza vince) e ordina per
+ * `updatedAt` decrescente — vedi il chip `"all"` in {@link useBacklogList}.
+ * Esportata (non solo uso interno) perché il caso reale non è ipotetico: le 3
+ * chiamate di `"all"` partono in parallelo (`Promise.all`), quindi una voce
+ * che cambia stato PROPRIO in quella finestra (es. appena convertita) può
+ * comparire in due risposte — dedup e ordine sono testati direttamente qui,
+ * non solo indirettamente da uno screen (`backlog-mutations.test.tsx`).
+ */
+export function mergeBacklogPages(pages: Reader<BacklogItem>[][]): Reader<BacklogItem>[] {
   const merged = new Map<string, Reader<BacklogItem>>();
   for (const page of pages) {
     for (const item of page) merged.set(item.id, item);

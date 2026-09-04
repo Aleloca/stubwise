@@ -1,6 +1,14 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Keychain from "react-native-keychain";
-import { clearSession, getLastSyncAt, loadSession, saveSession, setLastSyncAt } from "./storage";
+import {
+  clearSession,
+  getLastBacklogProjectId,
+  getLastSyncAt,
+  loadSession,
+  saveSession,
+  setLastBacklogProjectId,
+  setLastSyncAt,
+} from "./storage";
 
 const session = {
   baseUrl: "https://stubwise.example",
@@ -88,5 +96,21 @@ describe("lastSyncAt (AsyncStorage)", () => {
   test("setLastSyncAt scrive sotto una chiave dedicata di AsyncStorage", async () => {
     await setLastSyncAt("2026-09-03T10:00:00.000Z");
     await expect(AsyncStorage.getItem("stubwise:lastSyncAt")).resolves.toBe("2026-09-03T10:00:00.000Z");
+  });
+});
+
+describe("lastBacklogProjectId (AsyncStorage — picker progetto della cattura rapida, Task 17)", () => {
+  test("getLastBacklogProjectId ritorna null prima di ogni cattura", async () => {
+    await expect(getLastBacklogProjectId()).resolves.toBeNull();
+  });
+
+  test("setLastBacklogProjectId poi getLastBacklogProjectId ritorna lo stesso valore", async () => {
+    await setLastBacklogProjectId("proj-b2b");
+    await expect(getLastBacklogProjectId()).resolves.toBe("proj-b2b");
+  });
+
+  test("setLastBacklogProjectId scrive sotto una chiave dedicata di AsyncStorage", async () => {
+    await setLastBacklogProjectId("proj-b2b");
+    await expect(AsyncStorage.getItem("stubwise:lastBacklogProjectId")).resolves.toBe("proj-b2b");
   });
 });

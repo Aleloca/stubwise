@@ -351,7 +351,8 @@
         "agent": "Agent",
         "thinking": "Thinking…",
         "placeholder": "Or write your own…",
-        "send": "Send"
+        "send": "Send",
+        "codeSessionActive": "A code analysis session is active on this item — continue from web."
       },
       "item": {
         "back": "‹ Backlog",

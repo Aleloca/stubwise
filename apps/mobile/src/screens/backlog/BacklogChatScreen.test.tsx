@@ -171,4 +171,24 @@ describe("BacklogChatScreen — storia e invio", () => {
     await waitFor(() => expect(screen.getByTestId("backlog-chat-send")).toBeTruthy());
     expect(screen.getByTestId("backlog-chat-send").props.accessibilityState?.disabled).toBe(true);
   });
+
+  test("sessione di analisi sul codice attiva (avviata da web): composer disabilitato, niente chatText — chatText fallirebbe con invalid_response", async () => {
+    const chatText = jest.fn().mockResolvedValue({ answer: "non dovrebbe arrivare qui", sources: [], sessionId: ITEM_ID });
+    const client = makeClient({
+      get: jest
+        .fn()
+        .mockResolvedValue(item({ codeSession: { status: "active", repositoryId: "repo-1", startedAt: "2026-08-01T00:00:00.000Z" } })),
+      chatText,
+    });
+    await renderScreen(client);
+    await waitFor(() => expect(screen.getByTestId("backlog-chat-code-session-notice")).toBeTruthy());
+    expect(screen.getByText("Sessione di analisi sul codice attiva su questa voce — continua da web.")).toBeTruthy();
+
+    expect(screen.getByTestId("backlog-chat-input").props.editable).toBe(false);
+    await fireEvent.changeText(screen.getByTestId("backlog-chat-input"), "Domanda");
+    expect(screen.getByTestId("backlog-chat-send").props.accessibilityState?.disabled).toBe(true);
+
+    await fireEvent.press(screen.getByTestId("backlog-chat-send"));
+    expect(chatText).not.toHaveBeenCalled();
+  });
 });
