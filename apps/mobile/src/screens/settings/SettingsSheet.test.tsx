@@ -145,6 +145,39 @@ describe("SettingsSheet — notifiche push", () => {
     await fireEvent(screen.getByTestId("settings-push-switch"), "valueChange", false);
     await waitFor(() => expect(setNotificationPrefs).toHaveBeenCalledWith({ push: false }));
   });
+
+  // Query fallita (non la mutazione): niente switch bloccato senza spiegazione
+  // — un messaggio + un modo di riprovare, sullo stesso modello già stabilito
+  // da InboxScreen/ProjectDetailScreen (`isError` → titolo/testo + retry).
+  test("me.notificationPrefs() fallita: messaggio + retry al posto dell'interruttore", async () => {
+    const notificationPrefs = jest.fn().mockRejectedValue(new Error("network down"));
+    await renderSheet(makeClient({ notificationPrefs }));
+
+    await waitFor(() => expect(screen.getByTestId("settings-push-error")).toBeTruthy());
+    expect(screen.queryByTestId("settings-push-switch")).toBeNull();
+
+    notificationPrefs.mockResolvedValue({ push: true, slackDm: false, slackLinked: false });
+    await fireEvent.press(screen.getByTestId("settings-push-retry"));
+    await waitFor(() => expect(screen.getByTestId("settings-push-switch")).toBeTruthy());
+  });
+
+  // Mutazione fallita (non la query): lo switch "scatta indietro" da solo
+  // (pilotato dal valore invariato di `prefsQuery.data`, nessuno stato
+  // ottimistico) — SENZA il testo sotto, l'utente non avrebbe alcun modo di
+  // sapere perché. Stesso principio "mai silenzioso" già applicato al
+  // logout in questo file.
+  test("setNotificationPrefs() fallita: messaggio visibile, il valore resta quello del server", async () => {
+    const setNotificationPrefs = jest.fn().mockRejectedValue(new Error("network down"));
+    await renderSheet(makeClient({ setNotificationPrefs }));
+    await waitFor(() => expect(screen.getByTestId("settings-push-switch")).toBeTruthy());
+
+    await fireEvent(screen.getByTestId("settings-push-switch"), "valueChange", false);
+
+    await waitFor(() => expect(screen.getByTestId("settings-push-mutation-error")).toBeTruthy());
+    // Nessuno stato ottimistico: il valore mostrato resta quello letto dalla
+    // GET (true), non il `false` mai confermato dal server.
+    expect(screen.getByTestId("settings-push-switch").props.value).toBe(true);
+  });
 });
 
 describe("SettingsSheet — progetti seguiti", () => {
@@ -169,6 +202,35 @@ describe("SettingsSheet — progetti seguiti", () => {
     await fireEvent(screen.getByLabelText("Farmakom"), "valueChange", false);
     await waitFor(() => expect(setFollows).toHaveBeenCalledWith([]));
   });
+
+  // Query fallita (projects.list): niente elenco muto — messaggio + retry,
+  // che rilancia ENTRAMBE le query della sezione (progetti E follow).
+  test("projects.list() fallita: messaggio + retry al posto dell'elenco", async () => {
+    const projectsList = jest.fn().mockRejectedValue(new Error("network down"));
+    await renderSheet(makeClient({ projectsList }));
+
+    await waitFor(() => expect(screen.getByTestId("settings-projects-error")).toBeTruthy());
+    expect(screen.queryByLabelText("Farmakom")).toBeNull();
+
+    projectsList.mockResolvedValue([PROJECT_A, PROJECT_B]);
+    await fireEvent.press(screen.getByTestId("settings-projects-retry"));
+    await waitFor(() => expect(screen.getByLabelText("Farmakom")).toBeTruthy());
+  });
+
+  // Mutazione fallita: stesso principio del push — il toggle torna da solo
+  // al valore del server, e senza il testo sotto nessuno spiegherebbe perché.
+  test("setFollows() fallita: messaggio visibile, l'insieme resta quello del server", async () => {
+    const setFollows = jest.fn().mockRejectedValue(new Error("network down"));
+    await renderSheet(makeClient({ setFollows }));
+    await waitFor(() => expect(screen.getByLabelText("Audin")).toBeTruthy());
+
+    await fireEvent(screen.getByLabelText("Audin"), "valueChange", true);
+
+    await waitFor(() => expect(screen.getByTestId("settings-follows-mutation-error")).toBeTruthy());
+    // Nessuno stato ottimistico: "Audin" resta non seguito (il PUT non è mai
+    // stato confermato dal server).
+    expect(screen.getByLabelText("Audin").props.value).toBe(false);
+  });
 });
 
 describe("SettingsSheet — istanza (server + lingua)", () => {
@@ -183,6 +245,20 @@ describe("SettingsSheet — istanza (server + lingua)", () => {
     await fireEvent.press(screen.getByTestId("settings-language-en"));
     await waitFor(() => expect(setLanguage).toHaveBeenCalledWith("en"));
     await waitFor(() => expect(i18n.language).toBe("en"));
+  });
+
+  // Mutazione fallita: `i18n.changeLanguage` gira SOLO in `onSuccess`, quindi
+  // un fallimento del server non deve MAI applicare la lingua in locale — ma
+  // senza il testo sotto l'utente non avrebbe alcun segnale del perché il
+  // tap su "English" non ha avuto effetto.
+  test("client.auth.setLanguage() fallita: messaggio visibile, la lingua locale NON cambia", async () => {
+    const setLanguage = jest.fn().mockRejectedValue(new Error("network down"));
+    await renderSheet(makeClient({ setLanguage }));
+
+    await fireEvent.press(screen.getByTestId("settings-language-en"));
+
+    await waitFor(() => expect(screen.getByTestId("settings-language-mutation-error")).toBeTruthy());
+    expect(i18n.language).toBe("it");
   });
 });
 

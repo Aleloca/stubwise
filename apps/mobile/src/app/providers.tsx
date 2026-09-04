@@ -47,9 +47,9 @@ export type { AuthContextValue } from "./auth-context";
  */
 export const queryClient = new QueryClient({
   // Task 20: "ultima sincronizzazione" (banner offline) si aggiorna a OGNI
-  // fetch riuscita gestita da TanStack Query — non solo dall'Inbox (che
-  // prima dell'estrazione della sheet aveva la sua chiamata ad-hoc a
-  // `setLastSyncAt`, ancora lì e ora ridondante ma innocua). Un `QueryCache`
+  // fetch riuscita gestita da TanStack Query — non solo dall'Inbox (che aveva
+  // la propria chiamata ad-hoc a `setLastSyncAt`: rimossa dal fix del Task 20
+  // — commit 393d8b0 — insieme al banner locale duplicato). Un `QueryCache`
   // con `onSuccess` GLOBALE copre ogni schermo, presente e futuro, senza che
   // ciascuno debba ricordarsi di chiamare `setLastSyncAt` da sé — persiste
   // su AsyncStorage (non nello state di questo componente: il valore
@@ -237,6 +237,19 @@ export function AppProviders({ children }: { children: ReactNode }) {
    * schermo per schermo. Gate su `authenticated && !justLoggedIn`: lo stesso
    * di `showMain` in `navigation.tsx` — durante l'Onboarding (`justLoggedIn`)
    * non c'è ancora nulla da gestire nelle Impostazioni.
+   *
+   * ⚠️ DEBITO NOTO, SEGNALATO IN REVISIONE (Task 20): questo file ha superato
+   * la soglia della leggibilità-in-un-colpo-d'occhio (bootstrap sessione,
+   * `onSessionExpired`, wiring `setupPush`+cleanup del Task 19, refresh badge
+   * foreground, e ora questa chrome + `lastSyncAt`). Estrarre un
+   * `AppChrome.tsx` (riceve `state`/`online`/`lastSyncAt`, si occupa solo di
+   * top-bar+sheet) è il refactor giusto — RIMANDATO di proposito qui: è
+   * l'ultimo task funzionale della fase C, il refactor è puramente
+   * organizzativo (nessun comportamento cambierebbe) e il rischio di una
+   * regressione dell'ultimo minuto su un task già approvato-con-riserve pesa
+   * più del beneficio immediato. Chi tocca ancora questo file in fase D
+   * (dove diventerebbe più economico farlo PRIMA di aggiungere altro sopra)
+   * lo consideri il momento giusto.
    */
   const showChrome = state.status === "authenticated" && !state.justLoggedIn && state.client !== null && state.user !== null;
 

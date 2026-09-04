@@ -464,7 +464,12 @@
         "title": "Notifications",
         "pushLabel": "Push notifications",
         "followedProjectsLabel": "Followed projects",
-        "noProjects": "No projects available."
+        "noProjects": "No projects available.",
+        "retry": "Retry",
+        "pushLoadError": "Couldn't load notification preferences.",
+        "pushSaveError": "Couldn't save the push preference. Retry.",
+        "projectsLoadError": "Couldn't load followed projects.",
+        "followSaveError": "Couldn't update followed projects. Retry."
       },
       "instance": {
         "title": "Instance",
@@ -473,7 +478,8 @@
         "language": {
           "it": "Italiano",
           "en": "English"
-        }
+        },
+        "languageSaveError": "Couldn't save the language. Retry."
       },
       "role": {
         "admin": "Admin",

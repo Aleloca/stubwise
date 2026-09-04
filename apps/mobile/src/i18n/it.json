@@ -464,7 +464,12 @@
         "title": "Notifiche",
         "pushLabel": "Notifiche push",
         "followedProjectsLabel": "Progetti seguiti",
-        "noProjects": "Nessun progetto disponibile."
+        "noProjects": "Nessun progetto disponibile.",
+        "retry": "Riprova",
+        "pushLoadError": "Impossibile leggere le preferenze di notifica.",
+        "pushSaveError": "Impossibile salvare la preferenza push. Riprova.",
+        "projectsLoadError": "Impossibile leggere i progetti seguiti.",
+        "followSaveError": "Impossibile aggiornare i progetti seguiti. Riprova."
       },
       "instance": {
         "title": "Istanza",
@@ -473,7 +478,8 @@
         "language": {
           "it": "Italiano",
           "en": "English"
-        }
+        },
+        "languageSaveError": "Impossibile salvare la lingua. Riprova."
       },
       "role": {
         "admin": "Admin",

@@ -91,17 +91,31 @@ export function SettingsSheet({ visible, onRequestClose, client, user, onLoggedO
     enabled: visible,
   });
 
+  // Le tre mutazioni di questa sheet: MAI silenziose (stesso principio del
+  // logout più sotto — vedi il commento lì). Senza `onError`, uno `Switch`
+  // pilotato solo dal valore della query (nessuno stato ottimistico locale
+  // qui: vedi `toggleFollow`) "scatta indietro" da solo quando la mutazione
+  // fallisce — il `value` torna a leggere `prefsQuery.data`/`followsQuery.data`
+  // invariati — senza che NULLA lo spieghi. `console.warn` per chi guarda i
+  // log, il testo sotto la riga (renderizzato da `mutation.isError` nel JSX)
+  // per chi guarda lo schermo.
   const setPushMutation = useMutation({
     // PATCH mirata: manda SOLO `push` (vedi il docblock su `setNotificationPrefs`
     // in `packages/api-client/src/endpoints/me.ts`) — mai l'intero oggetto letto
     // dalla GET, che vanificherebbe il motivo per cui è una patch.
     mutationFn: (push: boolean) => client.me.setNotificationPrefs({ push }),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["me", "notification-prefs"] }),
+    onError: (error) => {
+      console.warn("stubwise: impostazioni — aggiornamento della notifica push fallito", error);
+    },
   });
 
   const setFollowsMutation = useMutation({
     mutationFn: (projectIds: string[]) => client.me.setFollows(projectIds),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["me", "follows"] }),
+    onError: (error) => {
+      console.warn("stubwise: impostazioni — aggiornamento dei progetti seguiti fallito", error);
+    },
   });
 
   const setLanguageMutation = useMutation({
@@ -112,6 +126,9 @@ export function SettingsSheet({ visible, onRequestClose, client, user, onLoggedO
       // appena scelto la lingua, non deve aspettare un altro giro di rete
       // per vederla cambiata.
       void i18n.changeLanguage(language);
+    },
+    onError: (error) => {
+      console.warn("stubwise: impostazioni — salvataggio della lingua fallito", error);
     },
   });
 
@@ -186,40 +203,77 @@ export function SettingsSheet({ visible, onRequestClose, client, user, onLoggedO
 
             <SectionLabel style={styles.sectionLabel}>{t("mobile.settings.notifications.title")}</SectionLabel>
             <View style={styles.card}>
-              <View style={styles.row}>
-                <Text style={styles.rowLabel}>{t("mobile.settings.notifications.pushLabel")}</Text>
-                <Switch
-                  accessibilityLabel={t("mobile.settings.notifications.pushLabel")}
-                  disabled={!prefsQuery.data}
-                  onValueChange={(value) => setPushMutation.mutate(value)}
-                  thumbColor={colors.ink950}
-                  trackColor={{ false: colors.line, true: colors.signal }}
-                  value={prefsQuery.data?.push ?? false}
-                  testID="settings-push-switch"
-                />
-              </View>
+              {prefsQuery.isError ? (
+                <View style={styles.errorRow} testID="settings-push-error">
+                  <Text style={styles.errorText}>{t("mobile.settings.notifications.pushLoadError")}</Text>
+                  <GhostButton
+                    label={t("mobile.settings.notifications.retry")}
+                    onPress={() => void prefsQuery.refetch()}
+                    testID="settings-push-retry"
+                  />
+                </View>
+              ) : (
+                <View style={styles.row}>
+                  <Text style={styles.rowLabel}>{t("mobile.settings.notifications.pushLabel")}</Text>
+                  <Switch
+                    accessibilityLabel={t("mobile.settings.notifications.pushLabel")}
+                    disabled={!prefsQuery.data || setPushMutation.isPending}
+                    onValueChange={(value) => setPushMutation.mutate(value)}
+                    thumbColor={colors.ink950}
+                    trackColor={{ false: colors.line, true: colors.signal }}
+                    value={prefsQuery.data?.push ?? false}
+                    testID="settings-push-switch"
+                  />
+                </View>
+              )}
+              {setPushMutation.isError && (
+                <Text accessibilityLiveRegion="polite" style={styles.mutationErrorText} testID="settings-push-mutation-error">
+                  {t("mobile.settings.notifications.pushSaveError")}
+                </Text>
+              )}
 
               <SectionLabel tone="faint" style={styles.subLabel}>
                 {t("mobile.settings.notifications.followedProjectsLabel")}
               </SectionLabel>
-              {(projectsQuery.data ?? []).map((project) => (
-                <View key={project.id} style={styles.row}>
-                  <Text style={styles.rowLabel} numberOfLines={1}>
-                    {project.name}
-                  </Text>
-                  <Switch
-                    accessibilityLabel={project.name}
-                    disabled={!followsQuery.data}
-                    onValueChange={(value) => toggleFollow(project.id, value)}
-                    thumbColor={colors.ink950}
-                    trackColor={{ false: colors.line, true: colors.signal }}
-                    value={(followsQuery.data?.projectIds ?? []).includes(project.id)}
-                    testID={`settings-follow-${project.id}`}
+              {projectsQuery.isError || followsQuery.isError ? (
+                <View style={styles.errorRow} testID="settings-projects-error">
+                  <Text style={styles.errorText}>{t("mobile.settings.notifications.projectsLoadError")}</Text>
+                  <GhostButton
+                    label={t("mobile.settings.notifications.retry")}
+                    onPress={() => {
+                      void projectsQuery.refetch();
+                      void followsQuery.refetch();
+                    }}
+                    testID="settings-projects-retry"
                   />
                 </View>
-              ))}
-              {projectsQuery.data && projectsQuery.data.length === 0 && (
-                <Text style={styles.emptyNote}>{t("mobile.settings.notifications.noProjects")}</Text>
+              ) : (
+                <>
+                  {(projectsQuery.data ?? []).map((project) => (
+                    <View key={project.id} style={styles.row}>
+                      <Text style={styles.rowLabel} numberOfLines={1}>
+                        {project.name}
+                      </Text>
+                      <Switch
+                        accessibilityLabel={project.name}
+                        disabled={!followsQuery.data || setFollowsMutation.isPending}
+                        onValueChange={(value) => toggleFollow(project.id, value)}
+                        thumbColor={colors.ink950}
+                        trackColor={{ false: colors.line, true: colors.signal }}
+                        value={(followsQuery.data?.projectIds ?? []).includes(project.id)}
+                        testID={`settings-follow-${project.id}`}
+                      />
+                    </View>
+                  ))}
+                  {projectsQuery.data && projectsQuery.data.length === 0 && (
+                    <Text style={styles.emptyNote}>{t("mobile.settings.notifications.noProjects")}</Text>
+                  )}
+                </>
+              )}
+              {setFollowsMutation.isError && (
+                <Text accessibilityLiveRegion="polite" style={styles.mutationErrorText} testID="settings-follows-mutation-error">
+                  {t("mobile.settings.notifications.followSaveError")}
+                </Text>
               )}
             </View>
 
@@ -231,7 +285,7 @@ export function SettingsSheet({ visible, onRequestClose, client, user, onLoggedO
               </View>
               <View style={styles.row}>
                 <Text style={styles.rowLabel}>{t("mobile.settings.instance.languageLabel")}</Text>
-                <View style={styles.languageChips}>
+                <View accessibilityRole="radiogroup" style={styles.languageChips}>
                   {LANGUAGES.map((language) => {
                     const active = i18n.language === language;
                     return (
@@ -252,6 +306,15 @@ export function SettingsSheet({ visible, onRequestClose, client, user, onLoggedO
                   })}
                 </View>
               </View>
+              {setLanguageMutation.isError && (
+                <Text
+                  accessibilityLiveRegion="polite"
+                  style={styles.mutationErrorText}
+                  testID="settings-language-mutation-error"
+                >
+                  {t("mobile.settings.instance.languageSaveError")}
+                </Text>
+              )}
             </View>
 
             <View style={styles.logoutWrap}>
@@ -356,6 +419,25 @@ const styles = StyleSheet.create({
   },
   emptyNote: {
     color: colors.faint,
+    fontSize: 13,
+    paddingBottom: 12,
+  },
+  errorRow: {
+    gap: 8,
+    paddingVertical: 12,
+  },
+  errorText: {
+    color: colors.danger,
+    fontSize: 13,
+  },
+  // Sotto una riga già disegnata (switch/chip), non al posto suo — a
+  // differenza di `errorText` (che sostituisce l'intera sezione quando la
+  // QUERY fallisce), questo si aggiunge quando è la MUTAZIONE a fallire: il
+  // controllo resta a schermo (lo `Switch` è già scattato indietro da solo,
+  // pilotato dal valore invariato della query), e questo testo è l'unica
+  // cosa che spiega perché.
+  mutationErrorText: {
+    color: colors.danger,
     fontSize: 13,
     paddingBottom: 12,
   },
