@@ -376,6 +376,70 @@
       },
       "offlineAction": "Needs a connection"
     },
+    "docs": {
+      "title": "Docs",
+      "searchPlaceholder": "Search the documentation…",
+      "project": {
+        "pickerLabel": "Project",
+        "none": "No projects available."
+      },
+      "loadError": {
+        "title": "Can't load Docs.",
+        "retry": "Retry"
+      },
+      "empty": {
+        "title": "No documentation here.",
+        "body": "This project has no documented pages yet."
+      },
+      "search": {
+        "empty": "No results."
+      },
+      "browse": {
+        "label": "Or browse",
+        "functional": "Functional guide",
+        "technical": "Technical pages",
+        "releases": "Release notes",
+        "pageCount_one": "{{count}} page",
+        "pageCount_other": "{{count}} pages",
+        "latestRelease": "latest: {{title}}",
+        "noReleases": "no releases",
+        "groupEmpty": "No pages here."
+      },
+      "ask": {
+        "sectionLabel": "Ask the project",
+        "entryHint": "Ask a question about this project's documentation ›",
+        "back": "‹ Docs",
+        "placeholder": "Ask a question…",
+        "send": "Send",
+        "thinking": "Thinking…",
+        "sourcesLabel": "Sources:",
+        "empty": "Ask a question: the agent answers citing the project's documentation pages."
+      },
+      "page": {
+        "back": "‹ Docs",
+        "notFound": {
+          "title": "This page is gone.",
+          "body": "It was removed, or you don't have access to the repository."
+        },
+        "loadError": {
+          "title": "Can't load this page.",
+          "retry": "Retry"
+        }
+      },
+      "kind": {
+        "technical": "Technical page",
+        "functional": "Functional guide",
+        "product": "Product guide",
+        "manual": "Manual page",
+        "releases": "Release notes",
+        "unknown": "Update"
+      },
+      "errors": {
+        "generic": "Something went wrong. Please retry.",
+        "chatUnavailable": "Chat requires an API-key AI provider.",
+        "notFound": "This project no longer exists."
+      }
+    },
     "common": {
       "loading": "Loading…",
       "offlineNoSync": "Offline — no sync yet",

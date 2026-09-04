@@ -6,7 +6,6 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, Text, View } from "react-native";
-import { SectionLabel } from "../components/SectionLabel";
 import { InboxCardScreen } from "../screens/inbox/InboxCardScreen";
 import { InboxScreen } from "../screens/inbox/InboxScreen";
 import { LoginScreen } from "../screens/auth/LoginScreen";
@@ -16,6 +15,9 @@ import { ProjectsScreen } from "../screens/projects/ProjectsScreen";
 import { BacklogChatScreen } from "../screens/backlog/BacklogChatScreen";
 import { BacklogItemScreen } from "../screens/backlog/BacklogItemScreen";
 import { BacklogScreen } from "../screens/backlog/BacklogScreen";
+import { AskProjectScreen } from "../screens/docs/AskProjectScreen";
+import { DocsPageScreen } from "../screens/docs/DocsPageScreen";
+import { DocsScreen } from "../screens/docs/DocsScreen";
 import { WorkScreen } from "../screens/work/WorkScreen";
 import { useUnreadCount } from "../lib/inbox-mutations";
 import { colors } from "../theme/tokens";
@@ -51,11 +53,24 @@ export type BacklogStackParamList = {
   Chat: { id: string };
 };
 
+/**
+ * Stack del tab Docs (Task 18, canvas `3f`): hub (ricerca + «Oppure sfoglia» +
+ * entrata di «Chiedi al progetto»), una pagina in markdown e la chat di
+ * progetto. `Page` prende `repositoryId`+`slug` (non un id di pagina: è così
+ * che `client.docs.page` la vuole, e le "Fonti" di una risposta chat portano
+ * esattamente questi due campi) — vedi `DocsScreen.tsx`.
+ */
+export type DocsStackParamList = {
+  List: undefined;
+  Page: { repositoryId: string; slug: string };
+  Ask: { projectId: string; projectName: string };
+};
+
 export type MainTabParamList = {
   Inbox: NavigatorScreenParams<InboxStackParamList>;
   Projects: NavigatorScreenParams<ProjectsStackParamList>;
   Backlog: NavigatorScreenParams<BacklogStackParamList>;
-  Docs: undefined;
+  Docs: NavigatorScreenParams<DocsStackParamList>;
 };
 
 export type RootStackParamList = {
@@ -68,26 +83,8 @@ const AuthStack = createNativeStackNavigator<AuthStackParamList>();
 const InboxStack = createNativeStackNavigator<InboxStackParamList>();
 const ProjectsStack = createNativeStackNavigator<ProjectsStackParamList>();
 const BacklogStack = createNativeStackNavigator<BacklogStackParamList>();
+const DocsStack = createNativeStackNavigator<DocsStackParamList>();
 const Tab = createBottomTabNavigator<MainTabParamList>();
-
-/**
- * Schermata placeholder per il tab non ancora implementato (Docs: Task 18):
- * serve solo a dare un albero di navigazione reale su cui verificare tema e
- * tab bar. Tutti gli altri tab (Inbox, Projects, Backlog) sono REALI da
- * questo task in poi.
- */
-function Placeholder({ label }: { label: string }) {
-  return (
-    <View style={styles.placeholder}>
-      <SectionLabel>{label}</SectionLabel>
-    </View>
-  );
-}
-
-function DocsScreen() {
-  const { t } = useTranslation();
-  return <Placeholder label={t("mobile.tabs.docs")} />;
-}
 
 function InboxNavigator() {
   return (
@@ -115,6 +112,16 @@ function BacklogNavigator() {
       <BacklogStack.Screen name="Item" component={BacklogItemScreen} />
       <BacklogStack.Screen name="Chat" component={BacklogChatScreen} />
     </BacklogStack.Navigator>
+  );
+}
+
+function DocsNavigator() {
+  return (
+    <DocsStack.Navigator screenOptions={{ headerShown: false }}>
+      <DocsStack.Screen name="List" component={DocsScreen} />
+      <DocsStack.Screen name="Page" component={DocsPageScreen} />
+      <DocsStack.Screen name="Ask" component={AskProjectScreen} />
+    </DocsStack.Navigator>
   );
 }
 
@@ -199,7 +206,7 @@ function MainNavigator() {
       />
       <Tab.Screen
         name="Docs"
-        component={DocsScreen}
+        component={DocsNavigator}
         options={{
           tabBarIcon: ({ focused }) => <TabGlyph code="DOC" label={t("mobile.tabs.docs")} focused={focused} />,
         }}
@@ -246,12 +253,6 @@ export function RootNavigator() {
 }
 
 const styles = StyleSheet.create({
-  placeholder: {
-    alignItems: "center",
-    backgroundColor: colors.ink950,
-    flex: 1,
-    justifyContent: "center",
-  },
   tabBar: {
     backgroundColor: colors.ink900,
     borderTopColor: colors.line,

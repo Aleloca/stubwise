@@ -103,3 +103,20 @@ export async function getLastBacklogProjectId(): Promise<string | null> {
 export async function setLastBacklogProjectId(projectId: string): Promise<void> {
   await AsyncStorage.setItem(LAST_BACKLOG_PROJECT_KEY, projectId);
 }
+
+/**
+ * Chiave AsyncStorage dell'ultimo progetto scelto nel picker della schermata
+ * Docs (Task 18): stesso pattern di {@link LAST_BACKLOG_PROJECT_KEY}, chiave
+ * dedicata — i due picker sono indipendenti, scegliere un progetto nell'uno
+ * non deve preselezionarlo nell'altro.
+ */
+const LAST_DOCS_PROJECT_KEY = "stubwise:lastDocsProjectId";
+
+/** Id dell'ultimo progetto scelto nella schermata Docs, o `null` se non è mai successo. */
+export async function getLastDocsProjectId(): Promise<string | null> {
+  return AsyncStorage.getItem(LAST_DOCS_PROJECT_KEY);
+}
+
+export async function setLastDocsProjectId(projectId: string): Promise<void> {
+  await AsyncStorage.setItem(LAST_DOCS_PROJECT_KEY, projectId);
+}

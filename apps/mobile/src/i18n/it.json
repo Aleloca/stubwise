@@ -376,6 +376,70 @@
       },
       "offlineAction": "Serve la rete"
     },
+    "docs": {
+      "title": "Docs",
+      "searchPlaceholder": "Cerca nella documentazione…",
+      "project": {
+        "pickerLabel": "Progetto",
+        "none": "Nessun progetto disponibile."
+      },
+      "loadError": {
+        "title": "Non riesco a caricare i Docs.",
+        "retry": "Riprova"
+      },
+      "empty": {
+        "title": "Nessuna documentazione qui.",
+        "body": "Questo progetto non ha ancora pagine documentate."
+      },
+      "search": {
+        "empty": "Nessun risultato."
+      },
+      "browse": {
+        "label": "Oppure sfoglia",
+        "functional": "Guida funzionale",
+        "technical": "Pagine tecniche",
+        "releases": "Note di rilascio",
+        "pageCount_one": "{{count}} pagina",
+        "pageCount_other": "{{count}} pagine",
+        "latestRelease": "ultima: {{title}}",
+        "noReleases": "nessuna release",
+        "groupEmpty": "Nessuna pagina qui."
+      },
+      "ask": {
+        "sectionLabel": "Chiedi al progetto",
+        "entryHint": "Fai una domanda sulla documentazione di questo progetto ›",
+        "back": "‹ Docs",
+        "placeholder": "Fai una domanda…",
+        "send": "Invia",
+        "thinking": "Sta pensando…",
+        "sourcesLabel": "Fonti:",
+        "empty": "Fai una domanda: l'agente risponde citando le pagine di documentazione del progetto."
+      },
+      "page": {
+        "back": "‹ Docs",
+        "notFound": {
+          "title": "Questa pagina non c'è più.",
+          "body": "È stata rimossa o non hai accesso al repository."
+        },
+        "loadError": {
+          "title": "Non riesco a caricare la pagina.",
+          "retry": "Riprova"
+        }
+      },
+      "kind": {
+        "technical": "Pagina tecnica",
+        "functional": "Guida funzionale",
+        "product": "Guida prodotto",
+        "manual": "Pagina manuale",
+        "releases": "Note di rilascio",
+        "unknown": "Aggiornamento"
+      },
+      "errors": {
+        "generic": "Qualcosa è andato storto. Riprova.",
+        "chatUnavailable": "La chat richiede un provider AI con chiave API.",
+        "notFound": "Questo progetto non esiste più."
+      }
+    },
     "common": {
       "loading": "Caricamento…",
       "offlineNoSync": "Offline — nessuna sincronizzazione ancora",

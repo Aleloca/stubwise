@@ -3,10 +3,12 @@ import * as Keychain from "react-native-keychain";
 import {
   clearSession,
   getLastBacklogProjectId,
+  getLastDocsProjectId,
   getLastSyncAt,
   loadSession,
   saveSession,
   setLastBacklogProjectId,
+  setLastDocsProjectId,
   setLastSyncAt,
 } from "./storage";
 
@@ -112,5 +114,24 @@ describe("lastBacklogProjectId (AsyncStorage — picker progetto della cattura r
   test("setLastBacklogProjectId scrive sotto una chiave dedicata di AsyncStorage", async () => {
     await setLastBacklogProjectId("proj-b2b");
     await expect(AsyncStorage.getItem("stubwise:lastBacklogProjectId")).resolves.toBe("proj-b2b");
+  });
+});
+
+describe("lastDocsProjectId (AsyncStorage — picker progetto dello screen Docs, Task 18)", () => {
+  test("getLastDocsProjectId ritorna null prima di ogni visita", async () => {
+    await expect(getLastDocsProjectId()).resolves.toBeNull();
+  });
+
+  test("setLastDocsProjectId poi getLastDocsProjectId ritorna lo stesso valore", async () => {
+    await setLastDocsProjectId("proj-b2b");
+    await expect(getLastDocsProjectId()).resolves.toBe("proj-b2b");
+  });
+
+  test("setLastDocsProjectId scrive sotto una chiave dedicata di AsyncStorage, DIVERSA da quella del backlog", async () => {
+    await setLastDocsProjectId("proj-b2b");
+    await expect(AsyncStorage.getItem("stubwise:lastDocsProjectId")).resolves.toBe("proj-b2b");
+    // Le due chiavi non devono collidere: scegliere un progetto per la cattura
+    // rapida del backlog non deve influenzare il picker della schermata Docs.
+    await expect(AsyncStorage.getItem("stubwise:lastBacklogProjectId")).resolves.toBeNull();
   });
 });
