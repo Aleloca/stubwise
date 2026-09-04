@@ -86,3 +86,20 @@ export async function getLastSyncAt(): Promise<string | null> {
 export async function setLastSyncAt(isoDate: string): Promise<void> {
   await AsyncStorage.setItem(LAST_SYNC_KEY, isoDate);
 }
+
+/**
+ * Chiave AsyncStorage dell'ultimo progetto scelto nella sheet di cattura
+ * rapida del backlog (Task 17, canvas `3b`: il picker progetto vuole
+ * "ultimo usato" come default). Stesso store di {@link LAST_SYNC_KEY} e per
+ * lo stesso motivo (non un segreto, il Keychain non serve).
+ */
+const LAST_BACKLOG_PROJECT_KEY = "stubwise:lastBacklogProjectId";
+
+/** Id dell'ultimo progetto scelto in cattura rapida, o `null` se non è mai successo. */
+export async function getLastBacklogProjectId(): Promise<string | null> {
+  return AsyncStorage.getItem(LAST_BACKLOG_PROJECT_KEY);
+}
+
+export async function setLastBacklogProjectId(projectId: string): Promise<void> {
+  await AsyncStorage.setItem(LAST_BACKLOG_PROJECT_KEY, projectId);
+}

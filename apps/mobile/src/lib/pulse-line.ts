@@ -2,8 +2,16 @@ import { isUnknown } from "@stubwise/shared";
 import type { ProjectPulseSummary, Reader } from "@stubwise/shared";
 import type { ColorToken } from "../theme/tokens";
 
-/** I quattro toni del polso — sottoinsieme di `ColorToken` che il canvas usa per la riga di polso. */
-export type PulseTone = Extract<ColorToken, "signal" | "sky" | "faint" | "ok">;
+/**
+ * I toni del polso — sottoinsieme di `ColorToken` che il canvas usa per la
+ * riga di polso, più `"violet"`: NON usato da `pulseLineFor` qui sotto
+ * (nessuna riga di polso lo produce), ma dal Task 17 in poi anche
+ * `PulseIndicator` (il componente dot+testo colorato che questo tipo
+ * vincola) rende lo stato `converted` di una voce del backlog — vedi
+ * `BACKLOG_STATUS_TONE` in `lib/backlog-mutations.ts`, stesso riuso già
+ * praticato da `WorkingPill` per lo stato "sta lavorando" di un job.
+ */
+export type PulseTone = Extract<ColorToken, "signal" | "sky" | "faint" | "ok" | "violet">;
 
 /**
  * Una riga di polso pronta per il rendering: `key` è una chiave i18n

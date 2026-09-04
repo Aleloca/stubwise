@@ -97,7 +97,15 @@ export function buildLinking(isAuthenticated: () => boolean): LinkingOptions<Roo
                 Ticket: "tickets/:id",
               },
             },
-            Backlog: "backlog",
+            // Solo la lista è raggiungibile da deep link: nessuna area
+            // "backlog" in `DeepLinkArea` sopra, e questo task non ne
+            // aggiunge una (nessuna notifica punta oggi a una voce del
+            // backlog) — `Item`/`Chat` restano senza un path.
+            Backlog: {
+              screens: {
+                List: "backlog",
+              },
+            },
             Docs: "docs",
           },
         },

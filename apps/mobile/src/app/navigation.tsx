@@ -13,6 +13,9 @@ import { LoginScreen } from "../screens/auth/LoginScreen";
 import { OnboardingScreen } from "../screens/auth/OnboardingScreen";
 import { ProjectDetailScreen } from "../screens/projects/ProjectDetailScreen";
 import { ProjectsScreen } from "../screens/projects/ProjectsScreen";
+import { BacklogChatScreen } from "../screens/backlog/BacklogChatScreen";
+import { BacklogItemScreen } from "../screens/backlog/BacklogItemScreen";
+import { BacklogScreen } from "../screens/backlog/BacklogScreen";
 import { WorkScreen } from "../screens/work/WorkScreen";
 import { useUnreadCount } from "../lib/inbox-mutations";
 import { colors } from "../theme/tokens";
@@ -36,10 +39,22 @@ export type ProjectsStackParamList = {
   Ticket: { id: string };
 };
 
+/**
+ * Stack del tab Backlog (Task 17, canvas `3a`/`3b`/`3c`): lista, dettaglio di
+ * sola lettura (voci `converted`/`archived`, raggiunte dal chip "Tutti") e
+ * chat di raffinamento. `List` e `Chat` sono le due destinazioni del canvas;
+ * `Item` non ha un mockup dedicato — vedi il commento su `BacklogItemScreen`.
+ */
+export type BacklogStackParamList = {
+  List: undefined;
+  Item: { id: string };
+  Chat: { id: string };
+};
+
 export type MainTabParamList = {
   Inbox: NavigatorScreenParams<InboxStackParamList>;
   Projects: NavigatorScreenParams<ProjectsStackParamList>;
-  Backlog: undefined;
+  Backlog: NavigatorScreenParams<BacklogStackParamList>;
   Docs: undefined;
 };
 
@@ -52,14 +67,14 @@ const RootStack = createNativeStackNavigator<RootStackParamList>();
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
 const InboxStack = createNativeStackNavigator<InboxStackParamList>();
 const ProjectsStack = createNativeStackNavigator<ProjectsStackParamList>();
+const BacklogStack = createNativeStackNavigator<BacklogStackParamList>();
 const Tab = createBottomTabNavigator<MainTabParamList>();
 
 /**
- * Schermate placeholder per i tab non ancora implementati (Backlog: Task 17,
- * Docs: Task 18): servono solo a dare un albero di navigazione reale su cui
- * verificare tema e tab bar. `Projects/List`, `Projects/Detail` (Task 15) e
- * `Projects/Ticket` (Task 16, `WorkScreen` — il "Lavoro" del canvas `2c`/`2d`)
- * sono REALI.
+ * Schermata placeholder per il tab non ancora implementato (Docs: Task 18):
+ * serve solo a dare un albero di navigazione reale su cui verificare tema e
+ * tab bar. Tutti gli altri tab (Inbox, Projects, Backlog) sono REALI da
+ * questo task in poi.
  */
 function Placeholder({ label }: { label: string }) {
   return (
@@ -67,11 +82,6 @@ function Placeholder({ label }: { label: string }) {
       <SectionLabel>{label}</SectionLabel>
     </View>
   );
-}
-
-function BacklogScreen() {
-  const { t } = useTranslation();
-  return <Placeholder label={t("mobile.tabs.backlog")} />;
 }
 
 function DocsScreen() {
@@ -95,6 +105,16 @@ function ProjectsNavigator() {
       <ProjectsStack.Screen name="Detail" component={ProjectDetailScreen} />
       <ProjectsStack.Screen name="Ticket" component={WorkScreen} />
     </ProjectsStack.Navigator>
+  );
+}
+
+function BacklogNavigator() {
+  return (
+    <BacklogStack.Navigator screenOptions={{ headerShown: false }}>
+      <BacklogStack.Screen name="List" component={BacklogScreen} />
+      <BacklogStack.Screen name="Item" component={BacklogItemScreen} />
+      <BacklogStack.Screen name="Chat" component={BacklogChatScreen} />
+    </BacklogStack.Navigator>
   );
 }
 
@@ -172,7 +192,7 @@ function MainNavigator() {
       />
       <Tab.Screen
         name="Backlog"
-        component={BacklogScreen}
+        component={BacklogNavigator}
         options={{
           tabBarIcon: ({ focused }) => <TabGlyph code="BLG" label={t("mobile.tabs.backlog")} focused={focused} />,
         }}

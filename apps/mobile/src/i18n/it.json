@@ -289,6 +289,92 @@
         "logLines_other": "{{count}} righe"
       }
     },
+    "backlog": {
+      "chips": {
+        "active": "Attivi",
+        "ready": "Pronti",
+        "all": "Tutti"
+      },
+      "status": {
+        "new": "Nuovo",
+        "refining": "In raffinamento",
+        "ready": "Pronto",
+        "converted": "Convertito",
+        "archived": "Archiviato",
+        "unknown": "Aggiornamento"
+      },
+      "urgency": {
+        "low": "bassa",
+        "medium": "media",
+        "high": "alta",
+        "urgent": "urgente"
+      },
+      "meta": {
+        "effort": "E{{value}}",
+        "riskLow": "rischio basso",
+        "riskMedium": "rischio medio",
+        "riskHigh": "rischio alto",
+        "estimating": "da stimare — l'agente ci sta lavorando",
+        "chatOpen": "chat aperta ›",
+        "requestCount_one": "richiesto {{count}} volta",
+        "requestCount_other": "richiesto {{count}} volte",
+        "ticketCount_one": "{{count}} ticket collegato",
+        "ticketCount_other": "{{count}} ticket collegati"
+      },
+      "actions": {
+        "proceed": "Procedi",
+        "refineInChat": "Raffina in chat"
+      },
+      "fab": {
+        "add": "Nuova idea"
+      },
+      "loadError": {
+        "title": "Non riesco a caricare il backlog.",
+        "retry": "Riprova"
+      },
+      "empty": {
+        "title": "Nessuna voce qui.",
+        "body": "Le idee catturate o deviate dai ticket compaiono in questa lista."
+      },
+      "capture": {
+        "title": "Nuova idea",
+        "placeholder": "Descrivi l'idea…",
+        "projectPickerLabel": "Progetto",
+        "submit": "Aggiungi al backlog",
+        "cancel": "Annulla",
+        "hint": "// l'agente la trasforma in una voce con urgenza, effort e duplicati uniti",
+        "toast": "Aggiunta al backlog",
+        "noProjects": "Nessun progetto disponibile."
+      },
+      "chat": {
+        "back": "‹ Backlog",
+        "agent": "Agente",
+        "thinking": "Sta pensando…",
+        "placeholder": "Oppure scrivi tu…",
+        "send": "Invia"
+      },
+      "item": {
+        "back": "‹ Backlog",
+        "loadError": {
+          "title": "Non riesco a caricare la voce.",
+          "retry": "Riprova"
+        },
+        "notFound": {
+          "title": "Questa voce non c'è più.",
+          "body": "È stata rimossa o non hai accesso al progetto."
+        },
+        "noDocument": "Nessuna descrizione.",
+        "linkedTickets": "Ticket collegati"
+      },
+      "errors": {
+        "generic": "Qualcosa è andato storto. Riprova.",
+        "notConvertible": "Questa voce non può essere convertita.",
+        "alreadyConverted": "Questa voce è già stata convertita.",
+        "notFound": "Questa voce non esiste più.",
+        "chatUnavailable": "La chat richiede un provider AI con chiave API."
+      },
+      "offlineAction": "Serve la rete"
+    },
     "common": {
       "loading": "Caricamento…",
       "offlineNoSync": "Offline — nessuna sincronizzazione ancora",

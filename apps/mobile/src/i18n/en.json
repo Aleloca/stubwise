@@ -289,6 +289,92 @@
         "logLines_other": "{{count}} lines"
       }
     },
+    "backlog": {
+      "chips": {
+        "active": "Active",
+        "ready": "Ready",
+        "all": "All"
+      },
+      "status": {
+        "new": "New",
+        "refining": "Refining",
+        "ready": "Ready",
+        "converted": "Converted",
+        "archived": "Archived",
+        "unknown": "Update"
+      },
+      "urgency": {
+        "low": "low",
+        "medium": "medium",
+        "high": "high",
+        "urgent": "urgent"
+      },
+      "meta": {
+        "effort": "E{{value}}",
+        "riskLow": "low risk",
+        "riskMedium": "medium risk",
+        "riskHigh": "high risk",
+        "estimating": "estimating — the agent is on it",
+        "chatOpen": "chat open ›",
+        "requestCount_one": "requested {{count}} time",
+        "requestCount_other": "requested {{count}} times",
+        "ticketCount_one": "{{count}} linked ticket",
+        "ticketCount_other": "{{count}} linked tickets"
+      },
+      "actions": {
+        "proceed": "Proceed",
+        "refineInChat": "Refine in chat"
+      },
+      "fab": {
+        "add": "New idea"
+      },
+      "loadError": {
+        "title": "Can't load the backlog.",
+        "retry": "Retry"
+      },
+      "empty": {
+        "title": "Nothing here yet.",
+        "body": "Ideas you capture, or deviated from tickets, show up in this list."
+      },
+      "capture": {
+        "title": "New idea",
+        "placeholder": "Describe the idea…",
+        "projectPickerLabel": "Project",
+        "submit": "Add to backlog",
+        "cancel": "Cancel",
+        "hint": "// the agent turns it into an item with urgency, effort and merged duplicates",
+        "toast": "Added to backlog",
+        "noProjects": "No projects available."
+      },
+      "chat": {
+        "back": "‹ Backlog",
+        "agent": "Agent",
+        "thinking": "Thinking…",
+        "placeholder": "Or write your own…",
+        "send": "Send"
+      },
+      "item": {
+        "back": "‹ Backlog",
+        "loadError": {
+          "title": "Can't load this item.",
+          "retry": "Retry"
+        },
+        "notFound": {
+          "title": "This item is gone.",
+          "body": "It was removed, or you don't have access to the project."
+        },
+        "noDocument": "No description.",
+        "linkedTickets": "Linked tickets"
+      },
+      "errors": {
+        "generic": "Something went wrong. Please retry.",
+        "notConvertible": "This item can't be converted.",
+        "alreadyConverted": "This item has already been converted.",
+        "notFound": "This item no longer exists.",
+        "chatUnavailable": "Chat requires an API-key AI provider."
+      },
+      "offlineAction": "Needs a connection"
+    },
     "common": {
       "loading": "Loading…",
       "offlineNoSync": "Offline — no sync yet",
