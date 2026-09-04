@@ -1,4 +1,4 @@
-import { relativeTimeCompact } from "./format";
+import { elapsedMinutes, relativeTimeCompact } from "./format";
 
 const NOW = new Date("2026-09-02T10:00:00.000Z").getTime();
 
@@ -33,4 +33,21 @@ test("il conteggio è in minuti, non in millisecondi grezzi", () => {
 test("un timestamp futuro (clock skew) non va mai sotto zero", () => {
   const iso = new Date("2026-09-02T10:05:00.000Z").toISOString();
   expect(relativeTimeCompact(iso, NOW)).toEqual({ kind: "now" });
+});
+
+describe("elapsedMinutes", () => {
+  test("18 minuti: conteggio continuo, non bucket", () => {
+    const iso = new Date("2026-09-02T09:42:00.000Z").toISOString();
+    expect(elapsedMinutes(iso, NOW)).toBe(18);
+  });
+
+  test("oltre un'ora (78 min): NON collassa a 'ore', a differenza di relativeTimeCompact", () => {
+    const iso = new Date("2026-09-02T08:42:00.000Z").toISOString();
+    expect(elapsedMinutes(iso, NOW)).toBe(78);
+  });
+
+  test("un timestamp futuro (clock skew) non va mai sotto zero", () => {
+    const iso = new Date("2026-09-02T10:05:00.000Z").toISOString();
+    expect(elapsedMinutes(iso, NOW)).toBe(0);
+  });
 });

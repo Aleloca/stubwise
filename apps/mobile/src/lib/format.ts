@@ -24,3 +24,16 @@ export function relativeTimeCompact(iso: string, now: number = Date.now()): Rela
   if (elapsed < DAY) return { kind: "hours", count: Math.floor(elapsed / HOUR) };
   return { kind: "days", count: Math.floor(elapsed / DAY) };
 }
+
+/**
+ * Minuti trascorsi da `iso`, SENZA bucket — continua oltre l'ora (78, non "1
+ * h"), a differenza di {@link relativeTimeCompact}: serve a `WorkingPill.tsx`
+ * ("sta lavorando da N min"), dove il canvas vuole il conteggio continuo, non
+ * la forma compatta dell'inbox. Stessa guardia anti clock-skew (`Math.max(0,
+ * …)`) di `relativeTimeCompact`, estratta qui perché duplicarla a mano in
+ * `WorkingPill.tsx` era la stessa svista già segnalata nella revisione del
+ * Task 16 per `PulseIndicator`.
+ */
+export function elapsedMinutes(iso: string, now: number = Date.now()): number {
+  return Math.floor(Math.max(0, now - new Date(iso).getTime()) / MINUTE);
+}

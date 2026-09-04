@@ -160,7 +160,12 @@ function WorkBody({
       </View>
       <Text style={styles.releaseNote}>{t("mobile.work.releaseNote")}</Text>
 
-      {isAdmin && <TechLevel branches={ticket.repositories.map((repo) => repo.branch)} log={latestJob?.log ?? ""} />}
+      {isAdmin && (
+        <TechLevel
+          repositories={ticket.repositories.map((repo) => ({ repositoryId: repo.repositoryId, branch: repo.branch }))}
+          log={latestJob?.log ?? ""}
+        />
+      )}
     </ScrollView>
   );
 }

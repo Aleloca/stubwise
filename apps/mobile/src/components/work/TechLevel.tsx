@@ -12,9 +12,15 @@ function lastLines(log: string, max: number): string {
   return lines.slice(Math.max(0, lines.length - max)).join("\n");
 }
 
+/** Repository toccata dal fix, proiettata sui soli campi che questo componente usa (`ticket.repositories[]`). */
+export interface TechLevelRepo {
+  repositoryId: string;
+  branch: string;
+}
+
 export interface TechLevelProps {
-  /** Un ramo per repository toccato dal fix (`ticket.repositories[].branch`) — vuoto prima dell'esecuzione. */
-  branches: string[];
+  /** Una riga per repository toccata dal fix — vuoto prima dell'esecuzione. */
+  repositories: TechLevelRepo[];
   /** `job.log` dell'ultimo job — stringa vuota se il job non ha ancora scritto nulla. */
   log: string;
 }
@@ -40,7 +46,7 @@ export interface TechLevelProps {
  * Chi mostra questo componente (gate ruolo+visibilità) è `WorkScreen`, non
  * questo file.
  */
-export function TechLevel({ branches, log }: TechLevelProps) {
+export function TechLevel({ repositories, log }: TechLevelProps) {
   const { t } = useTranslation();
   const [showLog, setShowLog] = useState(false);
   const trimmedLog = log.trim();
@@ -51,10 +57,13 @@ export function TechLevel({ branches, log }: TechLevelProps) {
     <View style={styles.card}>
       <Text style={styles.eyebrow}>{t("mobile.work.techLevel.title")}</Text>
       <View style={styles.body}>
-        {branches.map((branch, index) => (
-          <View key={branch} style={[styles.row, index === branches.length - 1 && !hasLog && styles.rowLast]}>
+        {repositories.map((repo, index) => (
+          <View
+            key={repo.repositoryId}
+            style={[styles.row, index === repositories.length - 1 && !hasLog && styles.rowLast]}
+          >
             <Text style={styles.rowLabel}>{t("mobile.work.techLevel.branch")}</Text>
-            <Text style={styles.rowValue}>{branch}</Text>
+            <Text style={styles.rowValue}>{repo.branch}</Text>
           </View>
         ))}
 

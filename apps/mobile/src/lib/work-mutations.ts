@@ -1,3 +1,4 @@
+import { ApiError } from "@stubwise/api-client";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "../app/providers";
@@ -24,6 +25,7 @@ export interface PlanDecisionMutation<TInput> {
   disabled: boolean;
   online: boolean;
   errorMessage: string | null;
+  reset: () => void;
 }
 
 /**
@@ -39,6 +41,15 @@ export interface PlanDecisionMutation<TInput> {
  * può perdere una corsa con un altro maintainer (409 `plan_not_pending`), e
  * promettere in ottimismo un esito potenzialmente falso sarebbe peggio di
  * aspettare la risposta del server. Disabilitata offline per lo stesso motivo.
+ *
+ * `onError` su un 409 invalida `workKeys.all(ticketId)` — STESSO pattern di
+ * `useDecision` in `inbox-mutations.ts`: se un altro maintainer ha già deciso
+ * (`plan_not_pending`), il job non è più `awaiting_plan_approval`, e senza
+ * questa invalidazione `PlanSection` resterebbe con Approva/Rifiuta ancora
+ * attivi finché `staleTime` non scade o lo screen non si rimonta — la UI
+ * mostrerebbe il messaggio d'errore ma resterebbe altrimenti "bloccata" su uno
+ * stato stantio. Il refetch che ne segue aggiorna `job.status`, e `WorkScreen`
+ * ricalcola `canDecide` da lì.
  */
 function usePlanDecision<TInput>(mutationFn: (client: NonNullable<ReturnType<typeof useAuth>["client"]>, input: TInput) => Promise<unknown>, ticketId: string): PlanDecisionMutation<TInput> {
   const { client } = useAuth();
@@ -54,6 +65,11 @@ function usePlanDecision<TInput>(mutationFn: (client: NonNullable<ReturnType<typ
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: workKeys.all(ticketId) });
     },
+    onError: (error) => {
+      if (error instanceof ApiError && error.status === 409) {
+        void queryClient.invalidateQueries({ queryKey: workKeys.all(ticketId) });
+      }
+    },
   });
 
   return {
@@ -62,6 +78,7 @@ function usePlanDecision<TInput>(mutationFn: (client: NonNullable<ReturnType<typ
     disabled: !online || mutation.isPending,
     online,
     errorMessage: mutation.error ? describeInboxError(mutation.error, t) : null,
+    reset: () => mutation.reset(),
   };
 }
 

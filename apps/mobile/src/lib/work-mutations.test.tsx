@@ -73,6 +73,28 @@ describe("useApprovePlan", () => {
     );
   });
 
+  test("409 (un altro maintainer ha già deciso): invalida workKeys.all, non lascia la UI su uno stato stantio", async () => {
+    const approvePlan = jest.fn().mockRejectedValue(new ApiError(409, "No plan pending", "plan_not_pending"));
+    const client = makeClient({ approvePlan });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidateSpy = jest.spyOn(queryClient, "invalidateQueries");
+    // Seme nella cache, così `invalidateQueries` ha una query VERA da marcare
+    // (senza una entry preesistente non c'è nulla da invalidare, e il test
+    // non proverebbe niente): stessa chiave che `WorkScreen` popola davvero.
+    queryClient.setQueryData(workKeys.ticket(TICKET_ID), { status: "awaiting_plan_approval" });
+
+    const rendered = await renderHook(() => useApprovePlan(TICKET_ID), { wrapper: makeWrapper(client, queryClient) });
+    await act(async () => {
+      rendered.result.current.mutate();
+    });
+
+    await waitFor(() => expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: workKeys.all(TICKET_ID) }));
+    await waitFor(() =>
+      expect(queryClient.getQueryState(workKeys.ticket(TICKET_ID))?.isInvalidated).toBe(true),
+    );
+    await waitFor(() => expect(rendered.result.current.isPending).toBe(false));
+  });
+
   test("offline: disabled è true", async () => {
     (NetInfo.useNetInfo as jest.Mock).mockReturnValue({ isConnected: false, isInternetReachable: false });
     const client = makeClient();
@@ -102,6 +124,23 @@ describe("useRejectPlan", () => {
     // che il test finisca: altrimenti l'`invalidateQueries` schedulato può
     // scattare durante il RENDER DEL FILE DI TEST SUCCESSIVO nello stesso
     // worker Jest, con un warning "update… not wrapped in act" fuori contesto.
+    await waitFor(() => expect(rendered.result.current.isPending).toBe(false));
+  });
+
+  test("409 (un altro maintainer ha già deciso): invalida workKeys.all anche sul rifiuto", async () => {
+    const rejectPlan = jest.fn().mockRejectedValue(new ApiError(409, "No plan pending", "plan_not_pending"));
+    const client = makeClient({ rejectPlan });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(workKeys.ticket(TICKET_ID), { status: "awaiting_plan_approval" });
+
+    const rendered = await renderHook(() => useRejectPlan(TICKET_ID), { wrapper: makeWrapper(client, queryClient) });
+    await act(async () => {
+      rendered.result.current.mutate(undefined);
+    });
+
+    await waitFor(() =>
+      expect(queryClient.getQueryState(workKeys.ticket(TICKET_ID))?.isInvalidated).toBe(true),
+    );
     await waitFor(() => expect(rendered.result.current.isPending).toBe(false));
   });
 
