@@ -6,17 +6,13 @@ import { useNetInfo } from "@react-native-community/netinfo";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "../app/providers";
+import { inboxKeys } from "./query-keys";
 
-/**
- * Chiavi di query dell'inbox — stesso schema di `inboxKeys` in
- * `apps/web/src/lib/queries.ts`, ma SENZA filtri: l'app mobile legge sempre
- * l'inbox APERTA per intero (nessuna vista per progetto/stato in questo task).
- */
-export const inboxKeys = {
-  all: ["inbox"] as const,
-  list: () => [...inboxKeys.all, "list"] as const,
-  unread: () => [...inboxKeys.all, "unread"] as const,
-};
+// `inboxKeys` vive in `./query-keys` (Task 19: serve anche a
+// `app/providers.tsx`, che non può importare QUESTO file senza un ciclo —
+// vedi il docblock lì). Ri-esportato qui perché nessun chiamante esistente
+// cambi import.
+export { inboxKeys };
 
 type InboxListData = Reader<InboxPage>;
 

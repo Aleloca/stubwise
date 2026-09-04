@@ -1,29 +1,39 @@
+import { getMessaging, getToken } from "@react-native-firebase/messaging";
+import { Platform } from "react-native";
+
 export interface PushToken {
   platform: "ios" | "android";
   token: string;
 }
 
+/** La piattaforma nella forma che `PUT /api/me/devices` accetta (vedi `deviceRegistrationSchema`). */
+export function currentPlatform(): "ios" | "android" {
+  return Platform.OS === "ios" ? "ios" : "android";
+}
+
 /**
- * Seam del provider del push token — NON ancora cablato.
+ * Il token push del device, letto da `@react-native-firebase/messaging`
+ * (FCM, **anche su iOS**: vedi §4 del design doc di fase 4 — il routing è
+ * FCM-first su entrambe le piattaforme, non APNs nativo direttamente).
+ * `@notifee/react-native` (usato altrove per `requestPermission` e le
+ * categorie) non genera token push: è un provider di notifiche/canali, non di
+ * FCM/APNs.
  *
- * Il Task 19 lo sostituirà con la lettura vera da
- * `@react-native-firebase/messaging` (FCM, anche su iOS: vedi §4 del design
- * doc di fase 4). `@notifee/react-native` — che questo task USA per
- * `requestPermission` — non genera token push: è un provider di
- * notifiche/canali, non di FCM/APNs.
+ * ⚠️ API MODULARE (`getMessaging()` + `getToken(messaging)`), non quella
+ * namespaced `messaging().getToken()` di versioni precedenti del pacchetto:
+ * la v26 installata qui NON esporta più un `default` chiamabile — verificato
+ * sui `.d.ts` pubblicati, il compat namespace è sparito. `getMessaging()`
+ * senza argomenti prende l'app Firebase di default (quella configurata da
+ * `GoogleService-Info.plist`/`google-services.json`, vedi README).
  *
- * Ritorna sempre `null` qui: senza un provider cablato non esiste un token
- * vero da mandare a `PUT /api/me/devices`, e mandarne uno fabbricato
- * scriverebbe una riga morta in `device_tokens` (nessuna push potrà mai
- * raggiungerla) che l'upsert per-token del Task 19 non "ripulirebbe" da sé —
- * resterebbe lì come riga orfana. L'onboarding (`OnboardingScreen`) chiama
- * comunque `notifee.requestPermission()`: il permesso di sistema si chiede
- * una volta sola, e conviene chiederlo ora così il Task 19 lo trova già
- * concesso.
+ * `null` quando FCM non ha ancora un token da dare (permesso negato, provider
+ * non pronto, device senza servizi Google): mandare un token fabbricato
+ * scriverebbe una riga morta in `device_tokens` che nessuna push
+ * raggiungerebbe mai — meglio non registrare nulla che registrare un valore
+ * inventato.
  */
-// Firma già `async` (anche se oggi non c'è nulla da attendere): il Task 19
-// la implementerà con `messaging().getToken()`, che è asincrono — i
-// chiamanti (OnboardingScreen) già fanno `await getPushToken()`.
-export function getPushToken(): Promise<PushToken | null> {
-  return Promise.resolve(null);
+export async function getPushToken(): Promise<PushToken | null> {
+  const token = await getToken(getMessaging());
+  if (!token) return null;
+  return { platform: currentPlatform(), token };
 }

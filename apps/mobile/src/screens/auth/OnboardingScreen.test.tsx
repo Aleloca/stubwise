@@ -1,10 +1,14 @@
 import type { StubwiseClient } from "@stubwise/api-client";
 import notifee from "@notifee/react-native";
+import { getToken } from "@react-native-firebase/messaging";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
+import { Platform } from "react-native";
 import { AuthContext } from "../../app/auth-context";
 import type { AuthContextValue } from "../../app/providers";
 import "../../i18n";
 import { OnboardingScreen } from "./OnboardingScreen";
+
+const mockGetToken = getToken as jest.Mock;
 
 const projects = [
   { id: "p1", name: "Portale B2B" },
@@ -67,7 +71,8 @@ describe("OnboardingScreen", () => {
     expect(screen.getByLabelText("Gestionale interno").props.value).toBe(false);
   });
 
-  test("'Attiva le notifiche e inizia': chiede il permesso, registra il device (se c'è un token), salva i follow e completa l'onboarding", async () => {
+  test("'Attiva le notifiche e inizia': chiede il permesso, registra il device (c'è un token), salva i follow e completa l'onboarding", async () => {
+    mockGetToken.mockResolvedValueOnce("fcm-token-abc");
     const client = makeClient();
     const { completeOnboarding } = await renderOnboarding(client);
     await waitFor(() => expect(screen.getByText("Portale B2B")).toBeTruthy());
@@ -76,8 +81,25 @@ describe("OnboardingScreen", () => {
 
     await waitFor(() => expect(completeOnboarding).toHaveBeenCalledTimes(1));
     expect(notifee.requestPermission).toHaveBeenCalledTimes(1);
-    // Nessun provider push cablato in questo task (vedi lib/push-token.ts):
-    // getPushToken() risolve sempre null, quindi registerDevice NON parte.
+    expect(client.me.registerDevice).toHaveBeenCalledWith({
+      platform: Platform.OS === "ios" ? "ios" : "android",
+      token: "fcm-token-abc",
+    });
+    expect(client.me.setFollows).toHaveBeenCalledWith(["p1", "p2", "p3"]);
+  });
+
+  test("'Attiva le notifiche e inizia' SENZA un token FCM (getToken risolve null): niente registerDevice, l'onboarding si completa comunque", async () => {
+    // `mockGetToken` risolve `null` di default (vedi jest.setup.ts): questo
+    // test non ha bisogno di riconfigurarlo, ma lo rende esplicito perché è
+    // il ramo che la mutazione qui sotto rompe.
+    const client = makeClient();
+    const { completeOnboarding } = await renderOnboarding(client);
+    await waitFor(() => expect(screen.getByText("Portale B2B")).toBeTruthy());
+
+    await fireEvent.press(screen.getByTestId("onboarding-activate"));
+
+    await waitFor(() => expect(completeOnboarding).toHaveBeenCalledTimes(1));
+    expect(notifee.requestPermission).toHaveBeenCalledTimes(1);
     expect(client.me.registerDevice).not.toHaveBeenCalled();
     expect(client.me.setFollows).toHaveBeenCalledWith(["p1", "p2", "p3"]);
   });

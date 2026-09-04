@@ -445,6 +445,17 @@
       "offlineNoSync": "Offline — no sync yet",
       "offlineSyncedMinutesAgo": "Offline — last synced {{count}} min ago",
       "offlineSyncedJustNow": "Offline — last synced moments ago"
+    },
+    "push": {
+      "actions": {
+        "answer": "Reply",
+        "snooze1h": "Snooze 1h",
+        "approve": "Approve",
+        "reject": "Reject…",
+        "proceed": "Proceed with the recommended",
+        "retry": "Retry",
+        "open": "Open"
+      }
     }
   }
 }

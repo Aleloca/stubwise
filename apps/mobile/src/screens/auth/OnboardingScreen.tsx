@@ -72,10 +72,15 @@ export function OnboardingScreen() {
     try {
       if (withNotifications) {
         await notifee.requestPermission();
-        // Nessun provider FCM/APNs cablato in questo task (vedi
-        // `lib/push-token.ts`): oggi `getPushToken()` risolve sempre `null`,
-        // e senza un token vero non si chiama `registerDevice` — una riga
-        // con un token fabbricato non raggiungerebbe mai nessun device.
+        // `getPushToken()` (Task 19: `lib/push-token.ts`) legge il token FCM
+        // vero — `null` solo se il SO non l'ha ancora consegnato (permesso
+        // appena negato, provider non pronto): niente `registerDevice` con un
+        // token fabbricato, che non raggiungerebbe mai nessun device.
+        // `lib/push.ts` (`setupPush`, montato da `AppProviders` a ogni avvio
+        // autenticato) registra di nuovo lo STESSO token — è un upsert
+        // idempotente — e si occupa del refresh e delle categorie; questa
+        // chiamata resta perché il permesso lo si chiede solo qui, la prima
+        // volta.
         const pushToken = await getPushToken();
         if (pushToken) await client.me.registerDevice(pushToken);
       }

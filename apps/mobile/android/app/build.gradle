@@ -117,3 +117,11 @@ dependencies {
         implementation jscFlavor
     }
 }
+
+// Task 19 (push): DEVE stare in fondo al file (raccomandazione di Google) —
+// legge `google-services.json` (NON nel repo, vedi README) e collega
+// l'`applicationId` di questo modulo (`com.app.aleloca.stubwise`) al progetto
+// Firebase dichiarato in quel file. Senza `google-services.json` il build
+// fallisce con un errore esplicito ("File google-services.json is missing"),
+// non un crash silenzioso a runtime.
+apply plugin: "com.google.gms.google-services"

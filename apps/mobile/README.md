@@ -181,3 +181,92 @@ risolve. Un depcheck/knip (o un umano che cerca `@babel/runtime` nei sorgenti
 TS e non lo trova) lo scambierebbe per morto: la rottura si vedrebbe solo al
 bundle Metro dell'app mobile, mai nei test Vitest di `api-client` (che non
 passano da Metro).
+
+## Push (Task 19)
+
+Registrazione del device, categorie/azioni rapide sulle notifiche e badge —
+`src/lib/push.ts` (`setupPush`, montato da `AppProviders` a ogni avvio
+autenticato), `src/lib/push-actions.ts` (`categoryFor`, `handlePushAction` —
+puri, testati senza device), `src/lib/push-token.ts`. Il routing è FCM-first
+**anche su iOS** (`@react-native-firebase/messaging`, API MODULARE
+`getMessaging()`/`getToken()`/`onTokenRefresh()` — la v26 installata qui non
+espone più il vecchio `messaging()` namespaced, verificato sui `.d.ts`
+pubblicati): l'app sugli store è una sola, quindi un solo progetto Firebase.
+Il modello è **relay-only** (design doc §5): le chiavi APNs/FCM vivono SOLO
+nel `.env` di `apps/push-relay` sul nostro VPS — quest'app non le vede mai.
+
+⚠️ **Le push APNs non arrivano sul simulatore: dal Task 19 in poi il device
+fisico è obbligatorio** (vedi "Scegliere il device o il simulatore" sopra). La
+prova reale è rimandata al Task 23 (istanza prod configurata) — quanto segue
+porta la configurazione a uno stato pronto per quella prova, non la sostituisce.
+
+### File di chiavi (NON nel repo)
+
+`GoogleService-Info.plist` (iOS) e `google-services.json` (Android) — scaricati
+dalla console Firebase del progetto (bundle id / `applicationId`
+`com.app.aleloca.stubwise`) — sono in `.gitignore` per lo stesso motivo delle
+chiavi del relay: nessun'istanza self-hosted deve poterle vedere. Vanno
+piazzati a mano:
+
+- **iOS**: `apps/mobile/ios/StubwiseMobile/GoogleService-Info.plist`, POI
+  trascinato dentro Xcode nel target `StubwiseMobile` ("Copy items if needed",
+  membership sul target app) — piazzarlo solo nella cartella NON basta, Xcode
+  deve avere un riferimento al file per includerlo nel bundle.
+- **Android**: `apps/mobile/android/app/google-services.json` — nessun passo
+  Xcode-equivalente, il plugin Gradle (sotto) lo trova da solo per posizione.
+
+Senza questi file l'app COMPILA (il plugin Gradle fallisce solo se manca
+`google-services.json`; su iOS `FirebaseApp.configure()` — vedi `AppDelegate.swift`
+— solleva un'eccezione runtime alla prima chiamata, non un errore di build) ma
+non registra mai un token vero.
+
+### Cosa fa già il codice committato
+
+- **iOS**: `Podfile` ha `$RNFirebaseDisableSPM = true` (RN >= 0.75 userebbe
+  Swift Package Manager per Firebase di default, che richiede linking dinamico
+  per TUTTI i pod — questo flag tiene Firebase sulla stessa strada CocoaPods
+  statica del resto del progetto). `AppDelegate.swift` chiama
+  `FirebaseApp.configure()` PRIMA di avviare React Native e imposta se stesso
+  come `UNUserNotificationCenterDelegate` (**l'ordine conta**: è commentato
+  nel file, verificato sui sorgenti nativi installati di notifee — se questa
+  riga girasse dopo `startReactNative` i banner in primo piano delle nostre
+  push smetterebbero di funzionare in silenzio). `Info.plist` ha
+  `UIBackgroundModes: [remote-notification]`. `firebase.json` alla radice
+  dell'app configura `messaging_ios_foreground_presentation_options` (la leva
+  UFFICIALE di RNFirebase per lo stesso problema, ridondante col delegate
+  sopra ma più affidabile sotto pnpm — la ricerca di `firebase.json` di
+  RNFirebase risale le directory da `node_modules/@react-native-firebase/app`,
+  un percorso reso più profondo dalla struttura `.pnpm/`: se in un
+  aggiornamento futuro NON trovasse più il file, verificarlo dal log di
+  `pod install`, "Using firebase.json from…"). `StubwiseMobile.entitlements`
+  ha `aps-environment: development` ed è già collegato via
+  `CODE_SIGN_ENTITLEMENTS` nel progetto — Xcode lo promuove da solo a
+  `production` in un archivio di distribuzione, non serve un secondo file.
+- **Android**: `android/build.gradle` ha il classpath
+  `com.google.gms:google-services:4.5.0` (versione allineata a quella che
+  RNFirebase stesso raccomanda); `android/app/build.gradle` applica il plugin
+  in fondo al file (richiesto da Google). `AndroidManifest.xml` dichiara
+  `POST_NOTIFICATIONS` (permesso runtime obbligatorio da Android 13+, richiesto
+  da `notifee.requestPermission()` in `OnboardingScreen`).
+  ⚠️ **Limite noto v1**: le notifiche FCM (il relay manda un messaggio CON
+  `notification`, non data-only — vedi `packages/notifications/src/push/payload.ts`)
+  vengono mostrate dal SO automaticamente in background/app chiusa, SENZA
+  eseguire codice JS: i bottoni d'azione rapida su Android esistono solo
+  quando l'app è già in PRIMO PIANO (`onForegroundEvent` in `lib/push.ts`).
+  `index.js` registra comunque `setBackgroundMessageHandler`/
+  `notifee.onBackgroundEvent` — pronti per il giorno in cui i messaggi
+  diventassero data-only, e già funzionanti per le pressioni su iOS (dove il
+  SO instrada le interazioni al delegate installato da notifee indipendentemente
+  da come la notifica è stata mostrata).
+
+### Dopo aver aggiunto i file veri
+
+```bash
+cd apps/mobile/ios && bundle exec pod install   # legge $RNFirebaseDisableSPM, linka Firebase
+pnpm --filter @stubwise/mobile ios --udid <UDID>     # SOLO su device fisico
+pnpm --filter @stubwise/mobile android
+```
+
+In Xcode, abilitare la capability **Push Notifications** dal tab *Signing &
+Capabilities* del target (punta da sé a `StubwiseMobile.entitlements`, già
+presente — non ne crea uno nuovo).

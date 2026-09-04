@@ -15,6 +15,13 @@ buildscript {
         classpath("com.android.tools.build:gradle")
         classpath("com.facebook.react:react-native-gradle-plugin")
         classpath("org.jetbrains.kotlin:kotlin-gradle-plugin")
+        // Task 19 (push): legge `google-services.json` (NON nel repo, vedi
+        // README) e genera le risorse/config che
+        // `@react-native-firebase/app` si aspetta di trovare a runtime.
+        // Versione allineata a quella che RNFirebase stesso raccomanda
+        // (verificato: `sdkVersions.android.gmsGoogleServicesGradle` nel
+        // `package.json` installato di `@react-native-firebase/app`).
+        classpath("com.google.gms:google-services:4.5.0")
     }
 }
 

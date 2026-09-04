@@ -5,10 +5,14 @@ import { persistQueryClient } from "@tanstack/react-query-persist-client";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { isUnknown } from "@stubwise/shared";
 import type { Reader, SessionUser } from "@stubwise/shared";
+import notifee from "@notifee/react-native";
+import { AppState, type AppStateStatus } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AuthContext, type AuthContextValue, type AuthState } from "./auth-context";
 import { setLanguage } from "../i18n";
 import { createClient, onSessionExpired } from "../lib/client";
+import { setupPush } from "../lib/push";
+import { inboxKeys } from "../lib/query-keys";
 import { loadSession, saveSession, type StoredSession } from "../lib/storage";
 
 /**
@@ -54,6 +58,9 @@ const persister = createAsyncStoragePersister({
 
 void persistQueryClient({ queryClient, persister });
 
+/** Intervallo del refresh del badge OS in primo piano (design doc §6: "ogni 60s"). */
+const FOREGROUND_BADGE_INTERVAL_MS = 60_000;
+
 /**
  * Bootstrap della sessione (letta dal Keychain all'avvio) + reazione alla
  * scadenza (401 da `lib/client.ts`, vedi `onSessionExpired`). `status`
@@ -96,6 +103,68 @@ export function AppProviders({ children }: { children: ReactNode }) {
       setState({ status: "unauthenticated", client: null, user: null, justLoggedIn: false });
     });
   }, []);
+
+  /**
+   * Metà PUSH dell'app (Task 19, design doc §4/§6): registra il token,
+   * ascolta il refresh e le pressioni sui bottoni mentre l'app è in primo
+   * piano. Un utente sloggato non ha un device da registrare — da qui il
+   * gate su `authenticated`. Il cleanup di `setupPush` disiscrive gli
+   * ascoltatori quando il client cambia (nuovo login) o l'app va a
+   * `unauthenticated` (401, logout).
+   */
+  useEffect(() => {
+    if (state.status !== "authenticated" || state.client === null) return;
+    return setupPush(state.client);
+  }, [state.status, state.client]);
+
+  /**
+   * Badge OS e freschezza dell'inbox al FOREGROUND (design doc §6: "Badge =
+   * unread-count al foreground e a ogni push ricevuta" — la push la copre
+   * da sé via `badge` nel payload, questo effetto copre il "al foreground";
+   * "contatore ogni 60 s solo in foreground").
+   *
+   * `isForeground` è una variabile LOCALE alla chiusura dell'effetto, non
+   * `AppState.currentState`: il mock ufficiale di `AppState` per Jest
+   * (`@react-native/jest-preset/jest/mocks/AppState.js`) tipa `currentState`
+   * come un `jest.fn()`, non una stringa — leggerlo qui produrrebbe un
+   * confronto sempre falso sotto test. Tenerla in chiusura la rende anche
+   * l'unica fonte di verità, aggiornata dallo stesso listener che la legge.
+   */
+  useEffect(() => {
+    if (state.status !== "authenticated" || state.client === null) return;
+    const client = state.client;
+    let isForeground = true;
+
+    async function refreshBadge(): Promise<void> {
+      try {
+        const result = await client.inbox.unreadCount();
+        await notifee.setBadgeCount(result.count);
+      } catch {
+        // Best-effort: un fallimento di rete non deve piantare l'app né
+        // lasciare il badge scorretto per sempre — il prossimo giro (60s, o
+        // il prossimo foreground) riprova da solo.
+      }
+    }
+
+    function onForeground(): void {
+      void queryClient.refetchQueries({ queryKey: inboxKeys.all });
+      void refreshBadge();
+    }
+
+    const subscription = AppState.addEventListener("change", (next: AppStateStatus) => {
+      isForeground = next === "active";
+      if (isForeground) onForeground();
+    });
+
+    const interval = setInterval(() => {
+      if (isForeground) void refreshBadge();
+    }, FOREGROUND_BADGE_INTERVAL_MS);
+
+    return () => {
+      subscription.remove();
+      clearInterval(interval);
+    };
+  }, [state.status, state.client]);
 
   const value = useMemo<AuthContextValue>(
     () => ({

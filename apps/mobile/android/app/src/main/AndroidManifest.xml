@@ -1,6 +1,18 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Task 19 (push): su Android 13+ (API 33) le notifiche sono NEGATE di
+         default finché l'app non chiede — e l'utente non concede — questo
+         permesso a runtime (`notifee.requestPermission()`, già chiamato da
+         `OnboardingScreen`). La dichiarazione qui è il prerequisito perché
+         quella richiesta sia possibile: senza, il SO la rifiuta da sé, senza
+         nemmeno mostrare il dialogo. Il Firebase Messaging SDK (dipendenza
+         transitiva di `@react-native-firebase/messaging`, non visibile in
+         questo node_modules JS) la dichiara probabilmente già da sé nel
+         proprio AAR — esplicita qui comunque: innocua se duplicata (il
+         merger dei manifest Android deduplica), e rende il requisito
+         leggibile da chi guarda SOLO il manifest dell'app. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
       android:name=".MainApplication"

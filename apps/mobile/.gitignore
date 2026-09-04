@@ -73,3 +73,10 @@ yarn-error.log
 !.yarn/releases
 !.yarn/sdks
 !.yarn/versions
+
+# Task 19 (push): chiavi Firebase per-progetto. NON esistono in questo repo
+# (nessun'istanza self-hosted deve poterle vedere — sono legate alla NOSTRA
+# app sugli store, vedi il design doc §5 "Relay push"): ognuno le scarica
+# dalla console Firebase e le mette a mano, vedi README.
+ios/StubwiseMobile/GoogleService-Info.plist
+android/app/google-services.json

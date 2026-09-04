@@ -38,6 +38,33 @@ jest.mock("react-native-device-info", () =>
 jest.mock("@react-native-community/netinfo", () => require("@react-native-community/netinfo/jest/netinfo-mock"));
 
 /**
+ * `@react-native-firebase/messaging` (Task 19) NON spedisce un mock ufficiale
+ * per Jest — mock a mano, con le sole funzioni che questo repo usa
+ * (`getToken`/`onTokenRefresh`, lette da `lib/push-token.ts` e `lib/push.ts`).
+ *
+ * API MODULARE (v26, verificata sui `.d.ts` pubblicati: il pacchetto non
+ * esporta più un `default` namespaced `messaging()`): `getMessaging()` prende
+ * l'app di default, e ogni funzione la vuole come primo argomento — il mock
+ * qui sotto ignora quell'argomento (nessun test ha bisogno di distinguere fra
+ * app diverse) e si comporta come un singolo store globale di `jest.fn()`.
+ *
+ * `getToken` risolve `null` di DEFAULT (nessun token): un token presente è il
+ * caso ECCEZIONALE che ogni test interessato attiva da sé con
+ * `mockResolvedValueOnce`/`mockResolvedValue` — stesso principio di
+ * `mockLoadSession.mockResolvedValue(null)` in `client.test.ts`, e per la
+ * stessa ragione: un default "c'è un token" farebbe scattare
+ * `registerDevice` in OGNI test che monta `AppProviders` o `OnboardingScreen`,
+ * anche quelli che non stanno testando la push.
+ */
+jest.mock("@react-native-firebase/messaging", () => ({
+  __esModule: true,
+  getMessaging: jest.fn(() => ({})),
+  getToken: jest.fn(async () => null),
+  onTokenRefresh: jest.fn(() => jest.fn()),
+  setBackgroundMessageHandler: jest.fn(),
+}));
+
+/**
  * Senza questo mock `SafeAreaProvider` non renderizza i figli in Jest: sotto
  * test non arriva mai l'evento nativo `onInsetsChange` che gli dice quali
  * insets usare, quindi resta in attesa per sempre (`<RNCSafeAreaProvider />`

@@ -8,6 +8,16 @@ require Pod::Executable.execute_command('node', ['-p',
 platform :ios, min_ios_version_supported
 prepare_react_native_project!
 
+# Task 19 (push): RN >= 0.75 risolve le dipendenze iOS di Firebase via Swift
+# Package Manager di default, che a sua volta richiede `use_frameworks!
+# :linkage => :dynamic` — un cambio invasivo (linking dinamico per TUTTI i pod,
+# non solo Firebase, con implicazioni sugli altri moduli nativi già in uso:
+# keychain, notifee, netinfo…). Questo flag tiene invece Firebase sulla stessa
+# strada CocoaPods statica del resto del progetto: nessun'altra riga del
+# Podfile cambia comportamento. Documentato da
+# `@react-native-firebase/app` (README, sezione "iOS Dependency Resolution").
+$RNFirebaseDisableSPM = true
+
 linkage = ENV['USE_FRAMEWORKS']
 if linkage != nil
   Pod::UI.puts "Configuring Pod with #{linkage}ally linked Frameworks".green
