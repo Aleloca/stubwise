@@ -119,6 +119,28 @@ beforeEach(async () => {
 });
 
 describe("DocsScreen — picker progetto", () => {
+  test("senza storico: preseleziona il primo progetto della lista", async () => {
+    await renderScreen(makeClient({ projectsList: jest.fn().mockResolvedValue([PROJECT, PROJECT_B]) }));
+    await waitFor(() => expect(screen.getByText("Portale B2B ▾")).toBeTruthy());
+  });
+
+  test("con uno storico valido: preseleziona l'ultimo progetto usato (non il primo)", async () => {
+    await AsyncStorage.setItem("stubwise:lastDocsProjectId", PROJECT_B.id);
+    await renderScreen(
+      makeClient({
+        projectsList: jest.fn().mockResolvedValue([PROJECT, PROJECT_B]),
+        projectSpaces: jest.fn().mockResolvedValue([space({ repositoryId: REPO_B_ID, name: "Piattaforma Acme" })]),
+      }),
+    );
+    await waitFor(() => expect(screen.getByText("Piattaforma Acme ▾")).toBeTruthy());
+  });
+
+  test("storico che punta a un progetto non più disponibile: ricade sul primo", async () => {
+    await AsyncStorage.setItem("stubwise:lastDocsProjectId", "proj-removed");
+    await renderScreen(makeClient({ projectsList: jest.fn().mockResolvedValue([PROJECT, PROJECT_B]) }));
+    await waitFor(() => expect(screen.getByText("Portale B2B ▾")).toBeTruthy());
+  });
+
   test("cambiare progetto ricarica gli spazi doc del progetto scelto, e lo ricorda per la prossima visita", async () => {
     const projectSpaces = jest.fn().mockImplementation((projectId: string) =>
       Promise.resolve(projectId === PROJECT_B.id ? [space({ repositoryId: REPO_B_ID, name: "Piattaforma Acme" })] : [space()]),
