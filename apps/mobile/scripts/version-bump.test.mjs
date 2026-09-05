@@ -86,7 +86,7 @@ describe("updatePbxprojVersion", () => {
     ).toThrow(/CURRENT_PROJECT_VERSION/);
   });
 
-  test("non scrive nulla (lancia) su un pbxproj malformato senza il ';' finale", () => {
+  test("lancia su un pbxproj malformato senza il ';' finale (il match non deve scavalcare la riga)", () => {
     const malformed = PBXPROJ_FIXTURE.replaceAll(
       "MARKETING_VERSION = 1.0;",
       "MARKETING_VERSION = 1.0",
@@ -152,6 +152,28 @@ describe("updateGradleVersion", () => {
       updateGradleVersion(broken, { version: "1.2.3", buildNumber: 7 }),
     ).toThrow(/versionName/);
   });
+
+  test("lancia se versionCode compare più di una volta (es. productFlavors futuri)", () => {
+    const withFlavor = GRADLE_FIXTURE.replace(
+      "versionCode 1\n",
+      "versionCode 1\n        versionCode 2\n",
+    );
+
+    expect(() =>
+      updateGradleVersion(withFlavor, { version: "1.2.3", buildNumber: 7 }),
+    ).toThrow(/versionCode/);
+  });
+
+  test("lancia se versionName compare più di una volta (es. productFlavors futuri)", () => {
+    const withFlavor = GRADLE_FIXTURE.replace(
+      'versionName "1.0"\n',
+      'versionName "1.0"\n        versionName "1.1"\n',
+    );
+
+    expect(() =>
+      updateGradleVersion(withFlavor, { version: "1.2.3", buildNumber: 7 }),
+    ).toThrow(/versionName/);
+  });
 });
 
 describe("computeBuildNumber", () => {
@@ -161,6 +183,24 @@ describe("computeBuildNumber", () => {
 
   test("incrementa di 1 il buildNumber esistente", () => {
     expect(computeBuildNumber({ version: "1.0.0", buildNumber: 5 })).toBe(6);
+  });
+
+  test("lancia se buildNumber è una stringa (niente reset silenzioso a 1)", () => {
+    expect(() =>
+      computeBuildNumber({ version: "1.0.0", buildNumber: "5" }),
+    ).toThrow(/buildNumber/);
+  });
+
+  test("lancia se buildNumber è un float", () => {
+    expect(() =>
+      computeBuildNumber({ version: "1.0.0", buildNumber: 5.5 }),
+    ).toThrow(/buildNumber/);
+  });
+
+  test("lancia se buildNumber è negativo", () => {
+    expect(() =>
+      computeBuildNumber({ version: "1.0.0", buildNumber: -1 }),
+    ).toThrow(/buildNumber/);
   });
 });
 
@@ -242,14 +282,31 @@ describe("run (end-to-end su fixture temporanee)", () => {
     expect(gradle).toContain("versionCode 2");
   });
 
-  test("propaga l'errore e non va in crash silenzioso se il gradle è malformato", async () => {
+  test("propaga l'errore e non va in crash silenzioso se il gradle è malformato, senza scritture parziali", async () => {
     await writeFile(
       path.join(mobileRoot, "android", "app", "build.gradle"),
       "// nessun versionCode qui\n",
     );
 
+    const pbxprojPath = path.join(
+      mobileRoot,
+      "ios",
+      "StubwiseMobile.xcodeproj",
+      "project.pbxproj",
+    );
+    const packageJsonPath = path.join(mobileRoot, "package.json");
+    const pbxprojBefore = await readFile(pbxprojPath, "utf8");
+    const packageJsonBefore = await readFile(packageJsonPath, "utf8");
+
     await expect(run({ mobileRoot, log: () => {} })).rejects.toThrow(
       /versionCode/,
     );
+
+    // Proprietà di sicurezza più importante dello script: un fallimento nel
+    // parsing di UN file non deve lasciare gli ALTRI file a metà aggiornati
+    // (qui il pbxproj, letto e validato PRIMA del gradle malformato, e
+    // package.json, scritto per ultimo) — bit per bit identici a prima.
+    expect(await readFile(pbxprojPath, "utf8")).toBe(pbxprojBefore);
+    expect(await readFile(packageJsonPath, "utf8")).toBe(packageJsonBefore);
   });
 });
