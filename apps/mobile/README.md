@@ -200,6 +200,35 @@ fisico è obbligatorio** (vedi "Scegliere il device o il simulatore" sopra). La
 prova reale è rimandata al Task 23 (istanza prod configurata) — quanto segue
 porta la configurazione a uno stato pronto per quella prova, non la sostituisce.
 
+### Creare il progetto Firebase
+
+Serve UN progetto Firebase, condiviso da iOS e Android (l'app sugli store è
+una sola, vedi "Firma (iOS)" sopra sullo stesso ragionamento per il team di
+firma). Da [console.firebase.google.com](https://console.firebase.google.com):
+
+1. **Add project** → nome libero (es. "Stubwise") → Google Analytics è
+   facoltativo, si può disattivare.
+2. **Add app → iOS**: bundle ID `com.app.aleloca.stubwise` (deve combaciare
+   con `PRODUCT_BUNDLE_IDENTIFIER` nel pbxproj, vedi "Firma (iOS)"). Al passo
+   di download, scarica `GoogleService-Info.plist` — dove piazzarlo è nella
+   sezione subito sotto.
+3. **Add app → Android**: package name `com.app.aleloca.stubwise` (deve
+   combaciare con `namespace`/`applicationId` in `android/app/build.gradle`).
+   Scarica `google-services.json`.
+4. Cloud Messaging (FCM) è già attivo di default su ogni progetto Firebase
+   nuovo: non serve un passo di attivazione separato.
+
+⚠️ **Chi forka il repo deve creare un proprio progetto Firebase**, con le
+proprie app iOS/Android sotto il bundle id che sceglie (vedi "Firma (iOS)"):
+un progetto Firebase è legato ai bundle id/`applicationId` dichiarati, non è
+condivisibile fra due firme diverse.
+
+Il **service account JSON** che serve al relay push (sezione "Il relay push"
+più sotto) è un artefatto DIVERSO, dallo stesso progetto: Project settings →
+service accounts → **Generate new private key**. `GoogleService-Info.plist` e
+`google-services.json` configurano l'SDK client (quest'app); il service
+account autentica il relay verso l'API di FCM — non sono intercambiabili.
+
 ### File di chiavi (NON nel repo)
 
 `GoogleService-Info.plist` (iOS) e `google-services.json` (Android) — scaricati
@@ -280,3 +309,279 @@ pnpm --filter @stubwise/mobile android
 In Xcode, abilitare la capability **Push Notifications** dal tab *Signing &
 Capabilities* del target (punta da sé a `StubwiseMobile.entitlements`, già
 presente — non ne crea uno nuovo).
+
+## Distribuzione (Task 22)
+
+Build interne (TestFlight iOS, Play internal/APK Android): niente ancora in
+CI (vedi "Nessuna build nativa in CI" nel piano di fase 4 — valutata per la
+fase 4b), quindi ogni passo qui sotto è manuale, dalla macchina di chi
+rilascia.
+
+### iOS: firma, archivio, TestFlight interno
+
+Presupposti già a posto nel repo (sezione "Firma (iOS)" sopra): team
+`6ZQUNJK5N4`, `CODE_SIGN_STYLE = Automatic`, bundle id
+`com.app.aleloca.stubwise`. Serve comunque un **Apple Developer Program**
+attivo su quel team (App Store Connect, TestFlight).
+
+1. `pnpm --filter @stubwise/mobile version:bump` (vedi sotto) — un archivio
+   con un `buildNumber` già usato viene rifiutato da App Store Connect.
+2. Apri **`apps/mobile/ios/StubwiseMobile.xcworkspace`** in Xcode — non lo
+   `.xcodeproj`: i pod si linkano solo passando dal workspace.
+3. Seleziona il target **StubwiseMobile** → tab **Signing & Capabilities**:
+   - **Team**: conferma sia quello giusto (o selezionalo, se Xcode l'ha
+     smarrito aprendo il progetto su un'altra macchina);
+   - verifica che compaiano le capability **Push Notifications** e
+     **Background Modes** con **Remote notifications** spuntato — sono già
+     nel progetto committato (entitlements + `Info.plist`, vedi sezione
+     "Push" sopra), qui si controlla solo che Xcode le stia leggendo.
+4. In alto, scegli come destinazione **Any iOS Device (arm64)** — non un
+   simulatore: **Product → Archive** è disabilitato finché è selezionato un
+   simulatore.
+5. **Product → Archive.** A fine build si apre l'**Organizer** con l'archivio
+   appena creato.
+6. Nell'Organizer, seleziona l'archivio → **Distribute App** → **App Store
+   Connect** → **Upload** → lascia **Automatically manage signing** →
+   **Upload**. Xcode carica il build su App Store Connect.
+7. Attendi l'elaborazione di App Store Connect (email di conferma, di solito
+   pochi minuti): in **App Store Connect → app → TestFlight**, il build
+   compare sotto "Elaborazione" e poi "Pronto per il test".
+8. **TestFlight interno**: nella tab TestFlight, aggiungi il build al gruppo
+   **Internal Testing** (fino a 100 tester, membri del team Apple Developer:
+   nessuna revisione Apple richiesta, a differenza dell'external testing) →
+   i tester ricevono l'invito nell'app **TestFlight** sul loro iPhone.
+
+### Android: keystore, build di release, distribuzione interna
+
+Lo scaffold React Native di partenza firma la variante `release` con la
+**stessa keystore di debug** (`android/app/build.gradle`,
+`buildTypes.release.signingConfig = signingConfigs.debug`) — va bene per
+`react-native run-android` durante lo sviluppo, MA non per una build
+distribuita: prima del primo rilascio reale serve una keystore di upload
+propria e un piccolo cablaggio in `build.gradle`, una tantum.
+
+1. **Genera la keystore** (una volta sola; conservala, non è recuperabile se
+   persa — un cambio di keystore blocca gli aggiornamenti in-place su Play):
+
+   ```bash
+   cd apps/mobile/android/app
+   keytool -genkeypair -v -storetype PKCS12 -keyalg RSA -keysize 2048 \
+     -validity 10000 -alias stubwise-upload -keystore stubwise-upload-key.keystore
+   ```
+
+   Il file `*.keystore` finisce già escluso da git per costruzione (regola
+   `apps/mobile/**/*.keystore` in `.gitignore`, con la sola eccezione di
+   `debug.keystore`): nessun rischio a generarlo dentro `android/app/`.
+
+2. **Credenziali FUORI dal repo**: NON in `apps/mobile/android/gradle.properties`
+   (quel file è tracciato — ci sono solo flag pubblici come
+   `newArchEnabled`). Vanno nel `gradle.properties` **globale della macchina**,
+   `~/.gradle/gradle.properties` (crealo se non esiste):
+
+   ```properties
+   STUBWISE_UPLOAD_STORE_FILE=/percorso/assoluto/stubwise-upload-key.keystore
+   STUBWISE_UPLOAD_KEY_ALIAS=stubwise-upload
+   STUBWISE_UPLOAD_STORE_PASSWORD=...
+   STUBWISE_UPLOAD_KEY_PASSWORD=...
+   ```
+
+3. **Cablaggio in `android/app/build.gradle`** (non ancora nel repo: è il
+   pezzo che manca allo scaffold di partenza, da aggiungere una tantum prima
+   del primo rilascio). Nel blocco `signingConfigs`, aggiungi accanto a
+   `debug`:
+
+   ```groovy
+   signingConfigs {
+       debug { /* invariato */ }
+       release {
+           if (project.hasProperty('STUBWISE_UPLOAD_STORE_FILE')) {
+               storeFile file(STUBWISE_UPLOAD_STORE_FILE)
+               storePassword STUBWISE_UPLOAD_STORE_PASSWORD
+               keyAlias STUBWISE_UPLOAD_KEY_ALIAS
+               keyPassword STUBWISE_UPLOAD_KEY_PASSWORD
+           }
+       }
+   }
+   buildTypes {
+       release {
+           signingConfig signingConfigs.release  // era signingConfigs.debug
+           // ... minifyEnabled/proguardFiles invariati
+       }
+   }
+   ```
+
+   Senza questo passo, `bundleRelease`/`assembleRelease` continuano a
+   produrre un binario firmato con la keystore di debug: si installa e gira,
+   ma Play Console lo rifiuta come primo upload (e un binario firmato debug
+   non è comunque distribuibile fuori da dispositivi di sviluppo).
+
+4. **Bump versione, poi build**:
+
+   ```bash
+   pnpm --filter @stubwise/mobile version:bump
+   cd apps/mobile/android
+   ./gradlew bundleRelease    # .aab, per Play — android/app/build/outputs/bundle/release/app-release.aab
+   ./gradlew assembleRelease  # .apk diretto — android/app/build/outputs/apk/release/app-release.apk
+   ```
+
+5. **Distribuzione**: carica l'`.aab` in Play Console → il tuo app →
+   **Testing → Internal testing** → crea una release, aggiungi i tester per
+   email (nessuna revisione Google per l'internal testing); oppure, per un
+   giro più rapido senza Play Console, condividi direttamente l'`.apk`
+   (sideload — il device deve consentire l'installazione da sorgenti non
+   verificate).
+
+### Versionare un rilascio: `pnpm --filter @stubwise/mobile version:bump`
+
+Prima di ogni archivio iOS o build Android di rilascio:
+
+1. Alza a mano il campo `"version"` in `apps/mobile/package.json` (semver).
+2. Lancia `pnpm --filter @stubwise/mobile version:bump`
+   (`apps/mobile/scripts/version-bump.mjs`): legge `version`, calcola il
+   prossimo `buildNumber` (persistito nello stesso `package.json`,
+   **incrementato a ogni invocazione**, non idempotente), e lo scrive in
+   `MARKETING_VERSION`/`CURRENT_PROJECT_VERSION` su TUTTI i build config del
+   pbxproj iOS e in `versionName`/`versionCode` di
+   `android/app/build.gradle`.
+3. Solo a quel punto archivia (iOS) o lancia `./gradlew bundleRelease`
+   (Android): sia App Store Connect sia Play Console rifiutano un upload col
+   build number/versionCode già visto.
+
+⚠️ Lo script non è idempotente **di proposito** (Apple/Google richiedono un
+build number monotono a ogni upload, non "impostato"): rilanciarlo due volte
+senza un archivio/build in mezzo brucia un numero senza motivo — innocuo, ma
+inutile.
+
+## Il relay push
+
+Le notifiche push non partono mai direttamente da un'istanza self-hosted
+verso APNs/FCM: passano da un **relay** che gira solo sul nostro VPS
+(`apps/push-relay`, servizio `push-relay` nel `docker-compose.yml`, sotto il
+profilo `relay`).
+
+**Perché un relay e non ogni istanza con le proprie chiavi.** L'app sugli
+store è UNA sola — la nostra — quindi esiste una sola identità di publisher
+Apple/Google, e le chiavi APNs/FCM sono legate a QUELLA identità, non a
+un'istanza. Un'istanza self-hosted non potrebbe procurarsi le proprie chiavi
+APNs/FCM per la nostra app anche volendo: dovrebbe pubblicare un'app diversa.
+Il relay è quindi l'unico modo perché chiunque self-hosti Stubwise possa
+comunque mandare push all'app ufficiale ai propri utenti.
+
+**Cosa vede il relay, e cosa no.** Ogni istanza gli manda `{ tokens, payload
+}` via HTTPS (`POST /v1/send`): il relay vede quindi titolo e corpo delle
+notifiche di TUTTE le istanze che lo usano, in transito su TLS, e **non li
+logga**. È una scelta v1, dichiarata: la **cifratura end-to-end** (chiave per
+device, ciphertext attraverso il relay, decifratura in una Notification
+Service Extension sul telefono) è pianificata per la **fase 4b**, non c'è
+ancora. Chi ha requisiti di riservatezza stringenti sul CONTENUTO delle
+notifiche (non sul fatto che ne esistano) lo tenga presente fino a quel
+punto.
+
+**Come lo usa un'istanza self-hosted.** Un solo env sul **worker**,
+`PUSH_RELAY_URL`, con tre forme (⚠️ nel compose la sintassi è `${VAR-default}`
+col trattino nudo, non `:-`: coi due punti una stringa vuota in `.env`
+verrebbe rimpiazzata dal default e le push non si spegnerebbero mai):
+
+- **assente** → punta al relay pubblico che operiamo noi
+  (`https://push.stubwise.thecove.it`, `DEFAULT_PUSH_RELAY_URL` in
+  `packages/notifications/src/push/config.ts`) — il default, funziona senza
+  fare nulla;
+- **stringa vuota** (`PUSH_RELAY_URL=`) → push **spente**: il poller marca
+  ogni consegna `push` come `skipped` senza contattare nessun relay. È
+  l'interruttore del rollback della fase 4 (vedi CLAUDE.md);
+- **un URL https** → quel relay (per chi decidesse di operarne uno proprio).
+
+Il device registra il proprio token via `PUT /api/me/devices`
+(`platform`/`token`, vedi `apps/server/src/routes/me-prefs.ts`): l'istanza
+non vede mai le chiavi APNs/FCM, solo i token dei device dei propri utenti,
+che passa al relay a ogni notifica dovuta.
+
+**Come lo operiamo sul nostro VPS.** Il relay gira **solo** da noi, dietro
+`docker compose --profile relay` (senza quel flag il servizio non si builda
+né si avvia — vedi il blocco commentato `push-relay:` in
+`docker-compose.yml`). Setup:
+
+1. **Credenziali APNs** (necessarie solo se `IOS_PUSH_VIA=apns`; il default
+   `fcm` instrada anche i token iOS via Firebase — vedi "Push (Task 19)"
+   sopra): da [Apple Developer](https://developer.apple.com/account) →
+   **Certificates, Identifiers & Profiles → Keys**, crea una chiave APNs
+   (abilita "Apple Push Notifications service"), scarica il file `.p8`
+   (scaricabile UNA sola volta), annota il **Key ID** (`APNS_KEY_ID`) e il
+   **Team ID** (`APNS_TEAM_ID`, lo stesso `6ZQUNJK5N4` della firma iOS).
+   Codifica il `.p8` in base64 su una riga:
+
+   ```bash
+   base64 -i AuthKey_XXXXXXXXXX.p8 | tr -d '\n'
+   ```
+
+   e mettilo in `APNS_KEY_P8` nel `.env` del VPS, insieme a `APNS_KEY_ID`,
+   `APNS_TEAM_ID`, `APNS_BUNDLE_ID=com.app.aleloca.stubwise` e `APNS_SANDBOX`
+   (nient'altro che `"true"`/`"false"` letterali, il relay rifiuta ogni altra
+   forma). ⚠️ **`false` copre sia TestFlight sia App Store**: l'entitlement
+   `aps-environment` del progetto è `development` nei sorgenti, ma Xcode lo
+   promuove da solo a `production` in OGNI archivio di distribuzione (vedi
+   "Push (Task 19)" sopra) — TestFlight non è un ambiente intermedio.
+   `APNS_SANDBOX=true` serve solo per un token registrato da un run di
+   sviluppo lanciato direttamente da Xcode/`react-native run-ios` su device
+   fisico (mai da un archivio).
+
+2. **Credenziali FCM** (sempre obbligatorie: è il canale attivo anche per
+   iOS in v1): dalla console Firebase → **Project settings → Service
+   accounts → Generate new private key** (JSON), poi:
+
+   ```bash
+   base64 -i service-account.json | tr -d '\n'
+   ```
+
+   in `FCM_SERVICE_ACCOUNT_JSON` nel `.env` del VPS.
+
+3. **DNS**: un record per `push.<dominio>` (es. `push.stubwise.thecove.it`)
+   che punti al VPS, e `PUSH_RELAY_HOST=<dominio>` (solo l'host, senza
+   `push.`) in `.env` — è quel che monta il blocco Caddy del relay, vedi
+   `caddy.d/README.md`. Prima di attivarlo per la prima volta:
+
+   ```bash
+   cp caddy.d/relay.caddy.example caddy.d/relay.caddy
+   ```
+
+   (il file `.example` non viene mai caricato da Caddy; copiato senza
+   suffisso lo attiva — e da quel momento `PUSH_RELAY_HOST` diventa
+   obbligatoria, altrimenti Caddy si rifiuta di partire).
+
+4. **Avvio**:
+
+   ```bash
+   docker compose --profile relay up -d --build push-relay caddy
+   ```
+
+Nessuna porta pubblicata dal relay verso l'host: ci arriva solo Caddy, dalla
+rete interna del compose.
+
+## Troubleshooting
+
+La maggior parte dei problemi noti è già coperta più sopra, con la causa
+verificata:
+
+- **`Cannot find module '@stubwise/shared'`** (Metro o Jest) → i package del
+  workspace non sono buildati: "Il build di `packages/*` non è opzionale".
+- **Red screen su moduli nativi inesistenti** → Metro sta servendo il bundle
+  di un ALTRO progetto sulla porta 8081: "Porta di Metro".
+- **App compila ma nessun token push arriva mai** → mancano
+  `GoogleService-Info.plist`/`google-services.json`, o sono a posto ma
+  l'eccezione di `FirebaseApp.configure()` non è stata vista (solo su iOS, a
+  runtime): "File di chiavi (NON nel repo)".
+- **Le push non arrivano affatto sul simulatore** → per costruzione: APNs
+  non consegna ai simulatori. Serve un device fisico, vedi "Scegliere il
+  device o il simulatore".
+- **Dopo `git pull`/cambio branch, l'app iOS non builda più** (simboli
+  mancanti, pod introvabili) → rifai `cd ios && bundle exec pod install`: un
+  `Podfile.lock` cambiato non si applica da solo.
+- **`pod install` non trova un pod nuovo dopo aver aggiunto una dipendenza
+  nativa** → `bundle exec pod install` di nuovo (non `pod install` col
+  CocoaPods di sistema: si perderebbe il pin del `Gemfile`, vedi
+  "Prerequisiti").
+- **Archivio Xcode disabilitato (grigio)** → la destinazione selezionata è
+  un simulatore: seleziona **Any iOS Device (arm64)** prima di **Product →
+  Archive**.
+- **Upload App Store Connect rifiutato, build number già usato** → manca il
+  passo `pnpm --filter @stubwise/mobile version:bump` prima dell'archivio.

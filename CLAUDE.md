@@ -13,9 +13,16 @@ repo, ricerca vettoriale e chat RAG.
 - `apps/web` — SPA React + Vite + TanStack Router/Query, Tailwind v4 (estetica
   "terminal", test in happy-dom). **Servita da caddy** (vedi sotto), non dal server.
 - `apps/docs` — sito Starlight (guida utente), buildato e servito su `/guide`.
+- `apps/mobile` — app React Native **bare** (iOS + Android, niente Expo) di
+  Stubwise; build/distribuzione manuali, vedi `apps/mobile/README.md`.
+- `apps/push-relay` — relay HTTP delle notifiche push (fase 4), servizio
+  `push-relay` sotto il profilo compose `relay`: **gira solo sul nostro VPS**
+  (vedi "Architettura runtime" e "Deploy" sotto).
 - `packages/*` — `db` (Drizzle + Postgres/pgvector), `docs-engine`, `embeddings`,
   `git`, `i18n`, `notifications`, `sdk`, `shared`, `widget` (bundle embeddabile
-  del customer service, servito come `/widget.js` da caddy).
+  del customer service, servito come `/widget.js` da caddy), `api-client`
+  (client HTTP tipato verso l'API server, condiviso da `apps/web` — dependency,
+  non devDependency: vedi il commento in `Dockerfile.caddy` — e da `apps/mobile`).
 
 ## Comandi (dalla radice)
 
@@ -56,6 +63,19 @@ progetto, refinement del backlog, `/docs` di Slack — il widget NO) gli chiedon
 via MCP il sottografo della domanda e allegano gli snippet di codice letti dai
 mirror git, che il server monta `:ro` (`apps/server/src/graph-chat`, fail-open:
 spegnibile con `GRAPHIFY_MCP_URL=` vuota).
+`push-relay` (fase 4, servizio `push-relay` in `docker-compose.yml`,
+`Dockerfile.push-relay`) è il relay HTTP (`POST /v1/send`) che tiene le chiavi
+APNs/FCM legate all'identità di publisher dell'app mobile — una sola, sugli
+store — e **gira solo sul nostro VPS**, sotto il profilo compose `relay`
+(`docker compose --profile relay up -d`): senza quel flag il servizio non si
+builda né si avvia, ed è così che resta fuori dalle istanze self-hosted. Il
+worker gli parla via HTTPS (env `PUSH_RELAY_URL` sul worker: assente = il
+relay pubblico che operiamo noi, di default `https://push.stubwise.thecove.it`
+— `DEFAULT_PUSH_RELAY_URL` in `packages/notifications/src/push/config.ts` —,
+stringa vuota = push spente, un URL = quel relay), mai per import diretto: le
+istanze self-hosted non vedono le chiavi, solo i token dei propri device. Non
+pubblica porte sull'host (ci arriva solo Caddy dalla rete interna, blocco
+opzionale in `caddy.d/`, vedi `caddy.d/README.md`) e non monta volumi.
 
 ## Plugin e skill dell'agente (registro d'istanza)
 
@@ -258,12 +278,88 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   applicata; ma **il caddy va sceso insieme**, altrimenti il bundle nuovo chiama
   rotte che non ci sono. Il volume `claude-plugins` e le righe del registro
   sopravvivono a tutto: non c'è niente da ripulire.
+- **Fase 4 (app mobile + notifiche push)**: rebuild **server+worker+caddy
+  insieme** (migrazione 0067 all'avvio del server — nuova tabella
+  `device_tokens`, nuova colonna `users.notify_push`, nuovo valore `push`
+  sull'enum `delivery_channel`; il worker nuovo è l'unico che sa consegnare
+  su quel canale tramite il relay, il server nuovo l'unico che espone
+  `/api/auth/mobile-login`, `/api/me/devices*` e il campo `push` in
+  `/api/me/notification-prefs`, il bundle caddy nuovo l'unico che disegna il
+  toggle push in Impostazioni → Account). **L'app mobile stessa NON fa parte
+  di questo rebuild**: si distribuisce a parte via TestFlight/Play (vedi
+  `apps/mobile/README.md`) e si aggiorna dagli store, non dai nostri deploy —
+  è la premessa dell'invariante "solo cambi additivi" qui sotto. Env
+  opzionale sul worker: `PUSH_RELAY_URL` (assente = punta di default al relay
+  pubblico che operiamo noi, `https://push.stubwise.thecove.it`; stringa
+  vuota = push spente, **è il rollback della sola consegna** senza toccare
+  schema o immagini; un URL https = quel relay — ⚠️ nel compose la sintassi è
+  `${VAR-default}` col trattino nudo, non `:-`: coi due punti una stringa
+  vuota in `.env` verrebbe rimpiazzata dal default). **Deploy del relay**
+  (solo sul nostro VPS, mai sulle istanze self-hosted): `cp
+  caddy.d/relay.caddy.example caddy.d/relay.caddy`, DNS `push.<dominio>` →
+  VPS, `PUSH_RELAY_HOST=<dominio>` + credenziali APNs/FCM in `.env`, poi
+  `docker compose --profile relay up -d --build push-relay caddy` (senza
+  `--profile relay` il servizio non si builda né si avvia: vedi
+  `apps/mobile/README.md`, sezione "Il relay push", per il dettaglio
+  di ogni credenziale). **Rollback — non è simmetrico fra i due valori nuovi
+  in `packages/shared`, verificato leggendo schemi e route, non assunto**:
+  (a) il valore enum `push` di `delivery_channel` **non compare in nessuna
+  risposta di rotta esistente** (né `deliveryChannel` né `channel` sono letti
+  fuori da `packages/db` e dal poller del worker) — scendere di immagine sul
+  server è sicuro quanto lo era in fase 3: un poller vecchio marca ogni riga
+  `push` `skipped / channel_not_implemented` e non la ripesca più (innocuo se
+  il rollback è anche del worker), ma nessuna rotta smette di rispondere. (b)
+  **`notificationPrefsViewSchema` è diverso, ed è il rischio vero**: ha
+  `push: z.boolean()` **obbligatorio** ed è la risposta di
+  `GET /api/me/notification-prefs`, una rotta **preesistente** (dalla fase 0).
+  Scendere di immagine sul server qui non fa **crashare il server** (il
+  binario vecchio non sa di `push` e non lo produce, quindi non c'è
+  l'equivalente del 500 di `inboxPageSchema` in fase 2) — ma l'app mobile
+  **già installata** valida quella stessa risposta con lo schema `push`
+  obbligatorio compilato al suo interno, e un rollback del server gliela
+  fa arrivare **senza quel campo**: esattamente il caso "rimuovere un campo
+  da una risposta che un client mobile già installato si aspetta", la prima
+  voce della sezione "Invarianti e trappole" qui sotto. Il rollback del
+  server in fase 4 è quindi sicuro per il server e per il web (rifatto
+  insieme al caddy), ma **rompe l'app mobile già in mano agli utenti** finché
+  non si torna avanti.
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
 
 ## Invarianti e trappole
 
+- **Verso l'app mobile, solo cambi ADDITIVI — alle risposte E alle
+  richieste.** L'app si aggiorna dagli store, non dai nostri deploy: per
+  settimane un server nuovo parla a client vecchi. Aggiungere un campo è
+  sicuro (il client vecchio lo scarta); aggiungere un valore a un enum è
+  sicuro **solo perché** gli schemi dei client passano da `readerSchema`
+  (`packages/shared/src/reader.ts`), che li apre e riporta l'ignoto come
+  `UNKNOWN`. **Rimuovere o rinominare un campo NON è sicuro e nessun
+  meccanismo lo copre**: il parse dell'intera risposta fallisce, e sulla
+  lista d'inbox significa schermata principale vuota su ogni telefono finché
+  l'utente non aggiorna. Un rename «tanto è solo un rename» su una rotta che
+  il mobile legge è un incidente di produzione che non possiamo ritirare.
+
+  **Vale anche nel verso opposto**: l'app *manda* richieste, quindi rendere
+  OBBLIGATORIO un campo nuovo in un body rompe le app vecchie esattamente
+  come rimuovere un campo da una risposta. È già successo in fase 4:
+  aggiungere `push` a `notificationPrefsSchema` ha reso
+  `PUT /api/me/notification-prefs` non soddisfacibile da un client che non lo
+  conosce. La forma giusta per un body che cresce nel tempo è la **patch**:
+  campi opzionali, gli assenti restano invariati (è la ragione per cui quella
+  rotta è un `PATCH` e non un `PUT`, vedi il docblock in
+  `apps/server/src/routes/me-prefs.ts`).
+- **Trappola di routing Fastify — rotta parametrica registrata prima di una
+  letterale sullo stesso prefisso.** `GET /api/projects/pulse` e
+  `GET /api/projects/:projectId` condividono il prefisso `/api/projects`:
+  se `:projectId` venisse registrata PRIMA di `/pulse`, "pulse" verrebbe
+  letto come un `projectId` e fallirebbe la validazione UUID invece di
+  colpire la rotta giusta. Oggi è già gestito correttamente — `/pulse` è
+  registrata prima, con un commento esplicito in
+  `apps/server/src/routes/projects.ts` — ma è una trappola da NON
+  reintrodurre: qualunque nuova rotta letterale su un prefisso che ha già
+  una `:id` va registrata PRIMA di quella parametrica.
 - **Worker fail-on-restart:** un riavvio del worker fallisce le generazioni Docs
   in corso (lavoro perso). Riavvia il worker solo quando NON ci sono generazioni
   attive: `select id from doc_generations where status in ('running','paused');`
