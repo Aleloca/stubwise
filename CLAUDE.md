@@ -18,11 +18,12 @@ repo, ricerca vettoriale e chat RAG.
 - `apps/push-relay` — relay HTTP delle notifiche push (fase 4), servizio
   `push-relay` sotto il profilo compose `relay`: **gira solo sul nostro VPS**
   (vedi "Architettura runtime" e "Deploy" sotto).
-- `packages/*` — `db` (Drizzle + Postgres/pgvector), `docs-engine`, `embeddings`,
-  `git`, `i18n`, `notifications`, `sdk`, `shared`, `widget` (bundle embeddabile
-  del customer service, servito come `/widget.js` da caddy), `api-client`
-  (client HTTP tipato verso l'API server, condiviso da `apps/web` — dependency,
-  non devDependency: vedi il commento in `Dockerfile.caddy` — e da `apps/mobile`).
+- `packages/*` — `api-client` (client HTTP tipato verso l'API server, condiviso
+  da `apps/web` — dependency, non devDependency: vedi il commento in
+  `Dockerfile.caddy` — e da `apps/mobile`), `db` (Drizzle + Postgres/pgvector),
+  `docs-engine`, `embeddings`, `git`, `i18n`, `notifications`, `sdk`, `shared`,
+  `widget` (bundle embeddabile del customer service, servito come `/widget.js`
+  da caddy).
 
 ## Comandi (dalla radice)
 
@@ -303,13 +304,13 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   `apps/mobile/README.md`, sezione "Il relay push", per il dettaglio
   di ogni credenziale). **Rollback — non è simmetrico fra i due valori nuovi
   in `packages/shared`, verificato leggendo schemi e route, non assunto**:
-  (a) il valore enum `push` di `delivery_channel` **non compare in nessuna
+  (1) il valore enum `push` di `delivery_channel` **non compare in nessuna
   risposta di rotta esistente** (né `deliveryChannel` né `channel` sono letti
   fuori da `packages/db` e dal poller del worker) — scendere di immagine sul
   server è sicuro quanto lo era in fase 3: un poller vecchio marca ogni riga
   `push` `skipped / channel_not_implemented` e non la ripesca più (innocuo se
-  il rollback è anche del worker), ma nessuna rotta smette di rispondere. (b)
-  **`notificationPrefsViewSchema` è diverso, ed è il rischio vero**: ha
+  il rollback è anche del worker), ma nessuna rotta smette di rispondere.
+  (2) **`notificationPrefsViewSchema` è diverso, ed è il rischio vero**: ha
   `push: z.boolean()` **obbligatorio** ed è la risposta di
   `GET /api/me/notification-prefs`, una rotta **preesistente** (dalla fase 0).
   Scendere di immagine sul server qui non fa **crashare il server** (il
@@ -429,12 +430,14 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   ribuilda prima di eseguire, dopo ogni mutazione cross-package.** (b) Una
   mutazione che **crasha** non prova niente: se il test resta verde solo
   perché un `expect(...).toThrow()` intercetta un'eccezione diversa da
-  quella attesa (es. un controllo tolto lascia un valore inatteso arrivare
-  fino a una `.slice()` che lancia), la logica cambiata non è mai stata
-  davvero esercitata. **Regola: una mutazione deve produrre codice che GIRA
-  e dà l'esito sbagliato, non codice che esplode** — prima di concludere «il
-  test non discrimina» su una mutazione rimasta verde, verifica che non
-  stia fallendo per conto suo.
+  quella attesa, la logica cambiata non è mai stata davvero esercitata.
+  Successo reale: mutando un controllo in `KNOWN.has(status as string)`, un
+  input numerico arrivava fino a `status.slice(...)` e **lanciava** — la
+  `parse` falliva comunque e il test passava per il motivo sbagliato.
+  **Regola: una mutazione deve produrre codice che GIRA e dà l'esito
+  sbagliato, non codice che esplode** — prima di concludere «il test non
+  discrimina» su una mutazione rimasta verde, verifica che non stia
+  fallendo per conto suo.
 
 ## Integrazione Claude Code (MCP)
 

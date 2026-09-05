@@ -312,6 +312,14 @@ presente — non ne crea uno nuovo).
 
 ## Distribuzione (Task 22)
 
+⚠️ **Presuppone che la sezione "Push (Task 19)" sopra sia già completata**
+(progetto Firebase creato, `GoogleService-Info.plist`/`google-services.json`
+piazzati). Non è un blocco tecnico — l'app **compila silenziosamente** anche
+senza quei file (vedi "Cosa fa già il codice committato" sopra) — ma un primo
+archivio/build che saltasse quel passo produce un binario TestFlight/Play
+perfettamente installabile con le push **mute in silenzio**, senza nessun
+errore che lo segnali.
+
 Build interne (TestFlight iOS, Play internal/APK Android): niente ancora in
 CI (vedi "Nessuna build nativa in CI" nel piano di fase 4 — valutata per la
 fase 4b), quindi ogni passo qui sotto è manuale, dalla macchina di chi
@@ -431,6 +439,17 @@ propria e un piccolo cablaggio in `build.gradle`, una tantum.
    (sideload — il device deve consentire l'installazione da sorgenti non
    verificate).
 
+   ⚠️ **Sul TUO device di sviluppo, non solo su Play, la keystore diversa è
+   un problema anche al PRIMO passaggio, non solo nei rilasci futuri.** Se
+   quel device/emulatore ha già l'app installata da una build di debug
+   (`pnpm --filter @stubwise/mobile android`), installarci sopra l'APK/AAB
+   firmato con la keystore di upload fallisce con
+   `INSTALL_FAILED_UPDATE_INCOMPATIBLE`: Android rifiuta un aggiornamento
+   in-place quando il certificato di firma cambia, e debug → upload è
+   sempre un certificato diverso. Disinstalla prima l'app di debug
+   (`adb uninstall com.app.aleloca.stubwise`), poi installa la build
+   firmata release.
+
 ### Versionare un rilascio: `pnpm --filter @stubwise/mobile version:bump`
 
 Prima di ogni archivio iOS o build Android di rilascio:
@@ -459,28 +478,32 @@ verso APNs/FCM: passano da un **relay** che gira solo sul nostro VPS
 (`apps/push-relay`, servizio `push-relay` nel `docker-compose.yml`, sotto il
 profilo `relay`).
 
-**Perché un relay e non ogni istanza con le proprie chiavi.** L'app sugli
-store è UNA sola — la nostra — quindi esiste una sola identità di publisher
-Apple/Google, e le chiavi APNs/FCM sono legate a QUELLA identità, non a
-un'istanza. Un'istanza self-hosted non potrebbe procurarsi le proprie chiavi
-APNs/FCM per la nostra app anche volendo: dovrebbe pubblicare un'app diversa.
-Il relay è quindi l'unico modo perché chiunque self-hosti Stubwise possa
-comunque mandare push all'app ufficiale ai propri utenti.
+### Perché un relay e non ogni istanza con le proprie chiavi
 
-**Cosa vede il relay, e cosa no.** Ogni istanza gli manda `{ tokens, payload
-}` via HTTPS (`POST /v1/send`): il relay vede quindi titolo e corpo delle
-notifiche di TUTTE le istanze che lo usano, in transito su TLS, e **non li
-logga**. È una scelta v1, dichiarata: la **cifratura end-to-end** (chiave per
-device, ciphertext attraverso il relay, decifratura in una Notification
-Service Extension sul telefono) è pianificata per la **fase 4b**, non c'è
-ancora. Chi ha requisiti di riservatezza stringenti sul CONTENUTO delle
-notifiche (non sul fatto che ne esistano) lo tenga presente fino a quel
-punto.
+L'app sugli store è UNA sola — la nostra — quindi esiste una sola identità di
+publisher Apple/Google, e le chiavi APNs/FCM sono legate a QUELLA identità,
+non a un'istanza. Un'istanza self-hosted non potrebbe procurarsi le proprie
+chiavi APNs/FCM per la nostra app anche volendo: dovrebbe pubblicare un'app
+diversa. Il relay è quindi l'unico modo perché chiunque self-hosti Stubwise
+possa comunque mandare push all'app ufficiale ai propri utenti.
 
-**Come lo usa un'istanza self-hosted.** Un solo env sul **worker**,
-`PUSH_RELAY_URL`, con tre forme (⚠️ nel compose la sintassi è `${VAR-default}`
-col trattino nudo, non `:-`: coi due punti una stringa vuota in `.env`
-verrebbe rimpiazzata dal default e le push non si spegnerebbero mai):
+### Cosa vede il relay, e cosa no
+
+Ogni istanza gli manda `{ tokens, payload }` via HTTPS (`POST /v1/send`): il
+relay vede quindi titolo e corpo delle notifiche di TUTTE le istanze che lo
+usano, in transito su TLS, e **non li logga**. È una scelta v1, dichiarata: la
+**cifratura end-to-end** (chiave per device, ciphertext attraverso il relay,
+decifratura in una Notification Service Extension sul telefono) è pianificata
+per la **fase 4b**, non c'è ancora. Chi ha requisiti di riservatezza
+stringenti sul CONTENUTO delle notifiche (non sul fatto che ne esistano) lo
+tenga presente fino a quel punto.
+
+### Come lo usa un'istanza self-hosted
+
+Un solo env sul **worker**, `PUSH_RELAY_URL`, con tre forme (⚠️ nel compose la
+sintassi è `${VAR-default}` col trattino nudo, non `:-`: coi due punti una
+stringa vuota in `.env` verrebbe rimpiazzata dal default e le push non si
+spegnerebbero mai):
 
 - **assente** → punta al relay pubblico che operiamo noi
   (`https://push.stubwise.thecove.it`, `DEFAULT_PUSH_RELAY_URL` in
@@ -496,10 +519,11 @@ Il device registra il proprio token via `PUT /api/me/devices`
 non vede mai le chiavi APNs/FCM, solo i token dei device dei propri utenti,
 che passa al relay a ogni notifica dovuta.
 
-**Come lo operiamo sul nostro VPS.** Il relay gira **solo** da noi, dietro
-`docker compose --profile relay` (senza quel flag il servizio non si builda
-né si avvia — vedi il blocco commentato `push-relay:` in
-`docker-compose.yml`). Setup:
+### Come lo operiamo sul nostro VPS
+
+Il relay gira **solo** da noi, dietro `docker compose --profile relay` (senza
+quel flag il servizio non si builda né si avvia — vedi il blocco commentato
+`push-relay:` in `docker-compose.yml`). Setup:
 
 1. **Credenziali APNs** (necessarie solo se `IOS_PUSH_VIA=apns`; il default
    `fcm` instrada anche i token iOS via Firebase — vedi "Push (Task 19)"
@@ -573,6 +597,11 @@ verificata:
 - **Le push non arrivano affatto sul simulatore** → per costruzione: APNs
   non consegna ai simulatori. Serve un device fisico, vedi "Scegliere il
   device o il simulatore".
+- **`adb install`/l'installazione sul device fallisce con
+  `INSTALL_FAILED_UPDATE_INCOMPATIBLE`** → il device ha ancora l'app di
+  debug installata, firmata con un certificato diverso da quello di upload:
+  disinstallala prima (`adb uninstall com.app.aleloca.stubwise`), vedi
+  "Android: keystore, build di release, distribuzione interna" sopra.
 - **Dopo `git pull`/cambio branch, l'app iOS non builda più** (simboli
   mancanti, pod introvabili) → rifai `cd ios && bundle exec pod install`: un
   `Podfile.lock` cambiato non si applica da solo.
