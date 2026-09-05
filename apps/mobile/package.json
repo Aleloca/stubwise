@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "build": "pnpm typecheck",
-    "test": "jest"
+    "test": "jest",
+    "version:bump": "node scripts/version-bump.mjs"
   },
   "dependencies": {
     "@notifee/react-native": "^9.1.8",

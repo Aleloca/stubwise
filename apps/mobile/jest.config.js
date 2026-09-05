@@ -1,5 +1,23 @@
+// Task 21 (version-bump.test.mjs): il preset RN trasforma solo js/ts/tsx e
+// il testMatch di default non include .mjs — senza questi due aggiustamenti
+// Jest ignorerebbe il file di test (0 match) o fallirebbe su "Unexpected
+// token 'export'". `transform` sostituisce l'intera mappa del preset se
+// impostato qui, quindi la ricostruiamo a partire da quella (mantenendo
+// l'asset transformer per bmp/gif/... ereditato) invece di riscriverla a
+// mano con un percorso interno del preset.
+const rnPreset = require("@react-native/jest-preset");
+const transform = { ...rnPreset.transform };
+delete transform["^.+\\.(js|ts|tsx)$"];
+transform["^.+\\.(js|mjs|ts|tsx)$"] = "babel-jest";
+
 module.exports = {
   preset: "@react-native/jest-preset",
+  transform,
+  testMatch: [
+    "**/__tests__/**/*.[jt]s?(x)",
+    "**/?(*.)+(spec|test).[tj]s?(x)",
+    "**/?(*.)+(spec|test).mjs",
+  ],
   // Il pattern del preset RN è scritto per un node_modules piatto: con pnpm i
   // package stanno in node_modules/.pnpm/<nome>@<ver>/node_modules/<nome>, e il
   // primo segmento (.pnpm) non è in allowlist, quindi anche i sorgenti ESM di
