@@ -417,6 +417,25 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   la v1 (voce di backlog aperta). La UI ricarica e avvisa solo quando cambia
   l'*inventario* o il *registro*, non quando cambia la selezione altrui.
 
+- **Mutation testing in questo monorepo — due trappole di metodo, emerse al
+  Task 9 della fase 4, valide per chiunque ne faccia.** (a) Quando la
+  mutazione è in un package **diverso** da quello dei test, un `dist/`
+  stantio la nasconde: i test leggono `dist`, non i sorgenti, quindi la
+  mutazione sembra «non catturata» mentre in realtà lo sarebbe (successo
+  reale: togliere un titolo da `packages/i18n/src` lasciava verdi i test di
+  `packages/notifications` finché non si rifaceva `pnpm --filter
+  @stubwise/i18n build`). Innocuo in CI (`ci.yml` builda prima di testare),
+  ma in locale porta alla conclusione opposta a quella vera. **Regola:
+  ribuilda prima di eseguire, dopo ogni mutazione cross-package.** (b) Una
+  mutazione che **crasha** non prova niente: se il test resta verde solo
+  perché un `expect(...).toThrow()` intercetta un'eccezione diversa da
+  quella attesa (es. un controllo tolto lascia un valore inatteso arrivare
+  fino a una `.slice()` che lancia), la logica cambiata non è mai stata
+  davvero esercitata. **Regola: una mutazione deve produrre codice che GIRA
+  e dà l'esito sbagliato, non codice che esplode** — prima di concludere «il
+  test non discrimina» su una mutazione rimasta verde, verifica che non
+  stia fallendo per conto suo.
+
 ## Integrazione Claude Code (MCP)
 
 Stubwise si integra con Claude Code via il server MCP `@stubwise/mcp`
