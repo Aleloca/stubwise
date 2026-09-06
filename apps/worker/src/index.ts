@@ -306,6 +306,10 @@ startPrReviewPoller({
   model: config.prReviewModel,
   maxTurns: config.prReviewMaxTurns,
   agentTimeoutMs: config.prReviewTimeoutMs,
+  // Riassunto "in breve" della PR (fase 5): un run di solo testo appeso alla
+  // review, scritto nella stessa transazione di verdetto e analisi.
+  summariesEnabled: config.summariesEnabled,
+  summaryModel: config.summaryModel,
   publicUrl: config.publicUrl,
   graphsDir: config.graphsDir,
   staleMinutes: config.staleAfterMinutes,

@@ -196,6 +196,10 @@ function makeFakes(overrides: Partial<RunPrReviewDeps> = {}): Fakes {
       dispatched.push({ event, opts: opts ?? {} });
       return { published: 1 };
     },
+    // Riassunto "in breve" della PR SPENTO di default nei test: è un run in più
+    // dell'agente e falserebbe i conteggi di `runner.run` di tutti gli altri
+    // casi. I test che lo riguardano lo riaccendono con override.
+    summariesEnabled: false,
     ...overrides,
   };
   return { deps, runner, mirrors, upsertPrComment, getPullRequestState, dispatched };
@@ -499,6 +503,72 @@ describe("runPrReview", () => {
     expect(projectTickets).toHaveLength(0);
     expect(fakes.upsertPrComment).not.toHaveBeenCalled();
     expect(fakes.dispatched).toHaveLength(0);
+  });
+
+  it("riassunto in breve della PR scritto nella STESSA riga di verdetto e analisi", async () => {
+    const { repositoryId } = await createRepository(testDb.db);
+    await enableReview(testDb.db);
+    const fakes = makeFakes({ summariesEnabled: true, summaryModel: "haiku" });
+    // Primo run: la review (JSON). Secondo run: il riassunto (testo libero).
+    fakes.runner.run
+      .mockImplementationOnce(async () => makeRunResult())
+      .mockImplementationOnce(async () =>
+        makeRunResult({ output: "La PR sistema il login. La review chiede una correzione." }),
+      );
+
+    await runPrReview(fakes.deps, makeJob(repositoryId));
+
+    expect(fakes.runner.run).toHaveBeenCalledTimes(2);
+    const summaryCall = fakes.runner.run.mock.calls[1]![0] as { prompt: string; model?: string };
+    expect(summaryCall.model).toBe("haiku");
+    // Il riassunto traduce il verdetto e l'analisi appena parsati, non il diff.
+    expect(summaryCall.prompt).toContain("request_changes");
+    expect(summaryCall.prompt).toContain("bug nella condizione");
+
+    const [review] = await testDb.db
+      .select()
+      .from(prReviews)
+      .where(eq(prReviews.repositoryId, repositoryId));
+    expect(review!.status).toBe("completed");
+    expect(review!.verdict).toBe("request_changes");
+    expect(review!.prSummary).toBe("La PR sistema il login. La review chiede una correzione.");
+  });
+
+  it("riassunto fallito: pr_summary NULL e review comunque completed", async () => {
+    const { repositoryId } = await createRepository(testDb.db);
+    await enableReview(testDb.db);
+    const fakes = makeFakes({ summariesEnabled: true });
+    fakes.runner.run
+      .mockImplementationOnce(async () => makeRunResult())
+      .mockImplementationOnce(async () => makeRunResult({ output: "parziale", exitCode: 1 }));
+
+    await runPrReview(fakes.deps, makeJob(repositoryId));
+
+    const [review] = await testDb.db
+      .select()
+      .from(prReviews)
+      .where(eq(prReviews.repositoryId, repositoryId));
+    expect(review!.status).toBe("completed");
+    expect(review!.verdict).toBe("request_changes");
+    expect(review!.prSummary).toBeNull();
+  });
+
+  it("review scartata dal cap di costo: NESSUN run di riassunto", async () => {
+    const { repositoryId } = await createRepository(testDb.db);
+    await enableReview(testDb.db, { maxCostUsd: "0.01" });
+    const fakes = makeFakes({ summariesEnabled: true }); // usage 0.5 > cap 0.01
+
+    await runPrReview(fakes.deps, makeJob(repositoryId));
+
+    // Un solo run: quello della review, poi scartato. Non si paga un riassunto
+    // di un risultato che nessuno vedrà.
+    expect(fakes.runner.run).toHaveBeenCalledTimes(1);
+    const [review] = await testDb.db
+      .select()
+      .from(prReviews)
+      .where(eq(prReviews.repositoryId, repositoryId));
+    expect(review!.status).toBe("failed");
+    expect(review!.prSummary).toBeNull();
   });
 
   it("upsertPrComment fallisce: review completed comunque, commento ticket presente", async () => {
