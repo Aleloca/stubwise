@@ -1,13 +1,18 @@
 import {
   prReviewSummarySchema,
   projectBriefWeeklySchema,
+  projectDecisionSchema,
   projectDetailSchema,
   projectListItemSchema,
   projectPulseSummarySchema,
 } from "@stubwise/shared";
 import type {
+  DecisionDraft,
+  DecisionPatch,
+  DecisionSource,
   PrReviewSummary,
   ProjectBriefWeekly,
+  ProjectDecision,
   ProjectDetail,
   ProjectListItem,
   ProjectPulseSummary,
@@ -23,6 +28,7 @@ const projectListSchema = z.array(projectListItemSchema);
 const pulseSchema = z.array(projectPulseSummarySchema);
 const reviewsSchema = z.array(prReviewSummarySchema);
 const briefsSchema = z.array(projectBriefWeeklySchema);
+const decisionsSchema = z.array(projectDecisionSchema);
 
 /**
  * Progetti visibili all'utente corrente.
@@ -48,7 +54,10 @@ export function createProjectsEndpoints(request: ApiRequest) {
     },
 
     /** Le review AI di PR del progetto, dalla più recente (fase 5). */
-    reviews(projectId: string, options: { limit?: number } = {}): Promise<Reader<PrReviewSummary>[]> {
+    reviews(
+      projectId: string,
+      options: { limit?: number } = {},
+    ): Promise<Reader<PrReviewSummary>[]> {
       return request(
         "GET",
         `/api/projects/${seg(projectId)}/reviews${toQuery({ limit: options.limit })}`,
@@ -132,6 +141,57 @@ export function createProjectsEndpoints(request: ApiRequest) {
      */
     brief(briefId: string): Promise<Reader<ProjectBriefWeekly>> {
       return request("GET", `/api/briefs/${seg(briefId)}`, undefined, projectBriefWeeklySchema);
+    },
+
+    /**
+     * IL REGISTRO DECISIONI del progetto (fase 5), dalla più recente.
+     *
+     * `source` filtra per origine (`ask_user`, `plan_review`, `pulse`,
+     * `manual`). Passa da `readerSchema` come tutto il resto: una sorgente
+     * futura che questo client non conosce arriva come `UNKNOWN`, non fa
+     * fallire il parse dell'intera lista.
+     */
+    decisions(
+      projectId: string,
+      options: { limit?: number; source?: DecisionSource } = {},
+    ): Promise<Reader<ProjectDecision>[]> {
+      return request(
+        "GET",
+        `/api/projects/${seg(projectId)}/decisions${toQuery({
+          limit: options.limit,
+          source: options.source,
+        })}`,
+        undefined,
+        decisionsSchema,
+      );
+    },
+
+    /** Registra una decisione scritta a mano (chiunque veda il progetto). */
+    createDecision(projectId: string, body: DecisionDraft): Promise<Reader<ProjectDecision>> {
+      return request(
+        "POST",
+        `/api/projects/${seg(projectId)}/decisions`,
+        body,
+        projectDecisionSchema,
+      );
+    },
+
+    /**
+     * Corregge una decisione o la segna come superata (`supersededById`).
+     * Solo l'autore o un maintainer; PATCH, quindi i campi assenti restano
+     * invariati.
+     */
+    patchDecision(
+      projectId: string,
+      decisionId: string,
+      body: DecisionPatch,
+    ): Promise<Reader<ProjectDecision>> {
+      return request(
+        "PATCH",
+        `/api/projects/${seg(projectId)}/decisions/${seg(decisionId)}`,
+        body,
+        projectDecisionSchema,
+      );
     },
   };
 }

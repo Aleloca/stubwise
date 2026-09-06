@@ -1941,6 +1941,45 @@
       "whatsNew": "What's new",
       "recentlyUpdated": "Recently updated",
       "topViewed": "Most read"
+    },
+    "decisions": {
+      "back": "← Project documentation",
+      "title": "Decision register",
+      "subtitle": "Decisions taken by people on this project: answers to the agent's questions, plans approved or rejected with instructions, pulse proposals accepted, and entries written by hand. Never written by AI.",
+      "link": "Decision register",
+      "homeTitle": "Decisions",
+      "homeAll": "See the whole register",
+      "homeEmpty": "No decision recorded yet.",
+      "filters": "Filter by origin",
+      "filter": {
+        "all": "All"
+      },
+      "source": {
+        "ask_user": "Agent question",
+        "plan_review": "Plan review",
+        "pulse": "Pulse proposal",
+        "manual": "By hand"
+      },
+      "listTitle": "Recorded decisions",
+      "loading": "// loading the register…",
+      "error": "The register could not be loaded.",
+      "empty": "// no decision recorded yet",
+      "superseded": "Superseded",
+      "supersedeBy": "Superseded by",
+      "supersedeChange": "Superseded by",
+      "supersedeNone": "— not superseded —",
+      "by": "decided by {{email}}",
+      "byNobody": "no actor recorded",
+      "field": {
+        "title": "Title",
+        "decision": "Decision",
+        "context": "Context",
+        "consequences": "Consequences"
+      },
+      "newTitle": "Record a decision",
+      "newHint": "For the decisions taken outside Stubwise: in a call, in a chat, in a meeting. Automatic entries are added on their own.",
+      "submit": "Record",
+      "saveError": "The decision could not be saved."
     }
   },
   "search": {

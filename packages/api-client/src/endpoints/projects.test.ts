@@ -126,3 +126,57 @@ describe("endpoints projects: brief settimanale (fase 5)", () => {
     expect(lastUrl(fetchImpl)).toBe(`/api/briefs/${ID}`);
   });
 });
+
+describe("endpoints projects: registro decisioni (fase 5)", () => {
+  const DECISION_ID = "11111111-2222-4333-8444-555555555555";
+  const DECISION = {
+    id: DECISION_ID,
+    projectId: ID,
+    source: "manual",
+    ticketId: null,
+    ticketNumber: null,
+    title: "Niente multi-tenant nella v1",
+    context: null,
+    decision: "Un'istanza per cliente.",
+    consequences: null,
+    decidedBy: { id: "99999999-8888-4777-8666-555555555555", email: "a@b.it" },
+    decidedAt: "2026-09-06T10:00:00.000Z",
+    supersededById: null,
+    createdAt: "2026-09-06T10:00:00.000Z",
+  };
+
+  it("decisions: GET sotto il progetto, col filtro per sorgente in querystring", async () => {
+    const { client, fetchImpl } = clientCon([DECISION]);
+    await client.projects.decisions(ID, { source: "manual", limit: 10 });
+    expect(lastUrl(fetchImpl)).toBe(`/api/projects/${ID}/decisions?limit=10&source=manual`);
+  });
+
+  it("decisions: senza opzioni non aggiunge querystring", async () => {
+    const { client, fetchImpl } = clientCon([DECISION]);
+    await client.projects.decisions(ID);
+    expect(lastUrl(fetchImpl)).toBe(`/api/projects/${ID}/decisions`);
+  });
+
+  it("createDecision: POST col corpo della voce manuale", async () => {
+    const { client, fetchImpl } = clientCon(DECISION);
+    await client.projects.createDecision(ID, {
+      title: "Niente multi-tenant nella v1",
+      decision: "Un'istanza per cliente.",
+    });
+    expect(lastUrl(fetchImpl)).toBe(`/api/projects/${ID}/decisions`);
+    const init = fetchImpl.mock.calls.at(-1)![1] as RequestInit;
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(String(init.body))).toEqual({
+      title: "Niente multi-tenant nella v1",
+      decision: "Un'istanza per cliente.",
+    });
+  });
+
+  it("patchDecision: PATCH sulla singola decisione", async () => {
+    const { client, fetchImpl } = clientCon({ ...DECISION, supersededById: DECISION_ID });
+    await client.projects.patchDecision(ID, DECISION_ID, { supersededById: DECISION_ID });
+    expect(lastUrl(fetchImpl)).toBe(`/api/projects/${ID}/decisions/${DECISION_ID}`);
+    const init = fetchImpl.mock.calls.at(-1)![1] as RequestInit;
+    expect(init.method).toBe("PATCH");
+  });
+});

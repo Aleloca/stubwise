@@ -61,6 +61,7 @@ function makeClient() {
     getTicket: vi.fn(),
     listInbox: vi.fn(),
     listProjectBriefs: vi.fn(),
+    listProjectDecisions: vi.fn(),
   };
 }
 
@@ -612,7 +613,7 @@ describe("registerReadTools", () => {
 
     registerReadTools(server, ctx);
 
-    expect(registerTool).toHaveBeenCalledTimes(7);
+    expect(registerTool).toHaveBeenCalledTimes(8);
     const names = registerTool.mock.calls.map((c) => c[0]);
     expect(names).toEqual([
       "list_projects",
@@ -622,6 +623,7 @@ describe("registerReadTools", () => {
       "get_ticket",
       "list_proposals",
       "get_project_brief",
+      "list_decisions",
     ]);
     // Ogni registrazione passa un config con description + inputSchema e una callback.
     for (const call of registerTool.mock.calls) {
@@ -629,5 +631,82 @@ describe("registerReadTools", () => {
       expect(call[1]).toHaveProperty("inputSchema");
       expect(typeof call[2]).toBe("function");
     }
+  });
+});
+
+describe("list_decisions", () => {
+  const DECISION_ID = "cccccccc-dddd-4eee-8fff-aaaaaaaaaaaa";
+
+  function fakeDecision(over: Record<string, unknown> = {}) {
+    return {
+      id: DECISION_ID,
+      projectId: PROJECT_ID,
+      source: "ask_user",
+      ticketId: null,
+      ticketNumber: 42,
+      title: "Domanda dell'agente: quale formato per l'export?",
+      context: null,
+      decision: "CSV",
+      consequences: "Nessuna dipendenza nuova",
+      decidedBy: { id: "11111111-2222-4333-8444-555555555555", email: "ada@example.com" },
+      decidedAt: "2026-09-06T10:00:00.000Z",
+      supersededById: null,
+      createdAt: "2026-09-06T10:00:00.000Z",
+      ...over,
+    };
+  }
+
+  it("elenca le decisioni con origine, attore e ticket", async () => {
+    const client = makeClient();
+    client.getProjectBySlug.mockResolvedValue(fakeProject());
+    client.listProjectDecisions.mockResolvedValue([fakeDecision()]);
+    const { ctx } = makeCtx(client);
+
+    const res = await tool("list_decisions").handler({ project: "acme" }, ctx);
+
+    expect(client.listProjectDecisions).toHaveBeenCalledWith(PROJECT_ID, { limit: 20 });
+    expect(res.isError).toBeUndefined();
+    const text = firstText(res);
+    expect(text).toContain("CSV");
+    expect(text).toContain("Nessuna dipendenza nuova");
+    expect(text).toContain("risposta a una domanda dell'agente");
+    expect(text).toContain("ada@example.com");
+    expect(text).toContain("ticket #42");
+  });
+
+  it("marca le decisioni superate, che restano nell'elenco", async () => {
+    const client = makeClient();
+    client.getProjectBySlug.mockResolvedValue(fakeProject());
+    client.listProjectDecisions.mockResolvedValue([
+      fakeDecision({ supersededById: "99999999-8888-4777-8666-555555555555" }),
+    ]);
+    const { ctx } = makeCtx(client);
+
+    const text = firstText(await tool("list_decisions").handler({ project: "acme" }, ctx));
+    expect(text).toContain("[SUPERATA]");
+  });
+
+  it("nessuna decisione non è un errore: lo dice e spiega come si riempie", async () => {
+    const client = makeClient();
+    client.getProjectBySlug.mockResolvedValue(fakeProject());
+    client.listProjectDecisions.mockResolvedValue([]);
+    const { ctx } = makeCtx(client);
+
+    const res = await tool("list_decisions").handler({ project: "acme" }, ctx);
+    expect(res.isError).toBeUndefined();
+    expect(firstText(res)).toContain("Nessuna decisione registrata");
+  });
+
+  it("passa il filtro di origine al client", async () => {
+    const client = makeClient();
+    client.getProjectBySlug.mockResolvedValue(fakeProject());
+    client.listProjectDecisions.mockResolvedValue([]);
+    const { ctx } = makeCtx(client);
+
+    await tool("list_decisions").handler({ project: "acme", source: "manual", limit: 5 }, ctx);
+    expect(client.listProjectDecisions).toHaveBeenCalledWith(PROJECT_ID, {
+      limit: 5,
+      source: "manual",
+    });
   });
 });

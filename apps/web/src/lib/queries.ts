@@ -21,6 +21,7 @@ import {
   getProject,
   getProjectPlugins,
   getBrief,
+  getProjectDecisions,
   getProjectTimeline,
   getProjects,
   getRepoGraph,
@@ -55,6 +56,7 @@ import {
   type BacklogFilters,
   type InboxFilters,
   type PluginRegistry,
+  type DecisionSource,
   type ProjectTimelineKind,
   type RepoGraph,
   type ServerMetricsRange,
@@ -573,6 +575,24 @@ export function projectTimelineQueryOptions(projectId: string, kinds: ProjectTim
 }
 
 /**
+ * IL REGISTRO DECISIONI di un progetto (Fase 5).
+ *
+ * `source` entra nella chiave per la stessa ragione dei `kinds` della timeline:
+ * il filtro lo applica il server, quindi due filtri diversi sono due risposte
+ * diverse e non possono condividere una cache.
+ *
+ * `staleTime` breve ma non nullo: il registro cresce per eventi umani (una
+ * risposta, un piano approvato), non a ritmo di cruscotto.
+ */
+export function projectDecisionsQueryOptions(projectId: string, source?: DecisionSource) {
+  return queryOptions({
+    queryKey: ["projects", "detail", projectId, "decisions", source ?? "all"],
+    queryFn: () => getProjectDecisions(projectId, source ? { source } : {}),
+    staleTime: 30_000,
+  });
+}
+
+/**
  * UN brief settimanale per id (Fase 5).
  *
  * `refetchInterval` mentre il brief NON è terminale: dopo un "Rigenera" la riga
@@ -644,10 +664,7 @@ export function widgetConversationsQueryOptions(
       widgetId ?? null,
     ],
     queryFn: () =>
-      getWidgetConversations(
-        projectId,
-        ticketId || widgetId ? { ticketId, widgetId } : undefined,
-      ),
+      getWidgetConversations(projectId, ticketId || widgetId ? { ticketId, widgetId } : undefined),
     staleTime: 10_000,
   });
 }
@@ -824,8 +841,7 @@ export const docsKeys = {
   // distinto dallo spazio per-repository sopra.
   project: (projectId: string) => [...docsKeys.all, "project", projectId] as const,
   projectSpaces: (projectId: string) => [...docsKeys.project(projectId), "spaces"] as const,
-  projectHighlights: (projectId: string) =>
-    [...docsKeys.project(projectId), "highlights"] as const,
+  projectHighlights: (projectId: string) => [...docsKeys.project(projectId), "highlights"] as const,
 };
 
 /**

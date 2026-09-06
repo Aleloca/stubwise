@@ -72,6 +72,7 @@ import { MonitorListPage } from "./routes/monitor/index";
 import { ServerDetailPage } from "./routes/monitor/server-detail";
 import { ProjectDetailPage } from "./routes/projects/$projectId";
 import { BriefPage } from "./routes/briefs/$id";
+import { ProjectDecisionsPage } from "./routes/docs/project.$projectId.decisions";
 import { ProjectRoadmapPage } from "./routes/projects/$projectId.roadmap";
 import { ProjectsPage } from "./routes/projects/index";
 import {
@@ -97,11 +98,7 @@ import { SettingsUsagePage } from "./routes/settings/usage";
 import { SetupPage } from "./routes/setup";
 import { TeamPage } from "./routes/team";
 import { TicketDetailPage } from "./routes/tickets/$id";
-import {
-  effectiveTicketFilters,
-  ticketSearchSchema,
-  TicketsPage,
-} from "./routes/tickets/index";
+import { effectiveTicketFilters, ticketSearchSchema, TicketsPage } from "./routes/tickets/index";
 
 /*
  * Routing code-based (createRoute, niente plugin file-router): l'albero è
@@ -455,6 +452,22 @@ const projectDocsRoute = createRoute({
 });
 
 /**
+ * REGISTRO DECISIONI del progetto (`/docs/project/$projectId/decisions`, Fase 5).
+ *
+ * Rotta PIATTA sotto `authedRoute` come `projectDocsRoute`, di cui è la
+ * sotto-pagina logica: la landing dei Docs di progetto non è un layout con
+ * `Outlet` (non ha figli), quindi annidarcela sotto la trasformerebbe in uno —
+ * un cambio strutturale che nessuna delle due pagine chiede.
+ */
+const projectDecisionsRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/docs/project/$projectId/decisions",
+  loader: ({ context, params }) =>
+    context.queryClient.ensureQueryData(projectQueryOptions(params.projectId)),
+  component: ProjectDecisionsPage,
+});
+
+/**
  * Spazio di un progetto: layout a tre zone (albero a sinistra, Outlet al
  * centro, zona chat riservata a destra). Prefetch dell'albero prima del
  * render; ricerca/trigger (M7.4) e chat (M7.5) arrivano dopo.
@@ -687,7 +700,9 @@ const settingsAutomationRoute = createRoute({
   beforeLoad: ({ context }) => requireAdmin(context.user.role),
   // Prefetch best-effort: la sezione monta senza attese; un errore non blocca.
   loader: async ({ context }) => {
-    await context.queryClient.ensureQueryData(automationSettingsQueryOptions).catch(() => undefined);
+    await context.queryClient
+      .ensureQueryData(automationSettingsQueryOptions)
+      .catch(() => undefined);
   },
   component: SettingsAutomationPage,
 });
@@ -697,7 +712,9 @@ const settingsNotificationsRoute = createRoute({
   path: "/notifications",
   beforeLoad: ({ context }) => requireAdmin(context.user.role),
   loader: async ({ context }) => {
-    await context.queryClient.ensureQueryData(notificationSettingsQueryOptions).catch(() => undefined);
+    await context.queryClient
+      .ensureQueryData(notificationSettingsQueryOptions)
+      .catch(() => undefined);
   },
   component: SettingsNotificationsPage,
 });
@@ -785,6 +802,7 @@ const routeTree = rootRoute.addChildren([
     repositoryDetailRoute,
     docsRoute,
     projectDocsRoute,
+    projectDecisionsRoute,
     docsSpaceRoute.addChildren([
       docsSpaceIndexRoute,
       docsManualNewRoute,

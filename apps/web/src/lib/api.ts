@@ -8,6 +8,9 @@ import type {
   BacklogItem,
   BacklogItemBase,
   BacklogItemDetail,
+  DecisionDraft,
+  DecisionPatch,
+  DecisionSource,
   BacklogItemStatus,
   BacklogLinkedTicket,
   BacklogMessage,
@@ -38,6 +41,7 @@ import type {
   Plugin,
   ProjectBriefWeekly,
   PluginRecommendations,
+  ProjectDecision,
   ProjectFollows,
   ProjectPlugin,
   ProjectTimeline,
@@ -102,7 +106,13 @@ export { ANSWER_TEXT_MAX_CHARS };
 export const INBOX_DECISION_ACTIONS: readonly InboxDecisionAction[] =
   inboxDecisionActionSchema.options;
 
-export type { PatView, PatWithToken, PrState, WidgetSettings, WidgetUpsertBody } from "@stubwise/shared";
+export type {
+  PatView,
+  PatWithToken,
+  PrState,
+  WidgetSettings,
+  WidgetUpsertBody,
+} from "@stubwise/shared";
 // Tipi dell'inbox ri-esportati dal binding locale: i componenti li importano da
 // "./api" come gli altri tipi di dominio, senza conoscere `@stubwise/shared`.
 export type {
@@ -119,7 +129,11 @@ export type {
   NotificationPrefsUpdate,
   NotificationPrefsView,
   PrReviewSummary,
+  DecisionDraft,
+  DecisionPatch,
+  DecisionSource,
   ProjectBriefWeekly,
+  ProjectDecision,
   ProjectFollows,
   ProjectTimeline,
   ProjectTimelineEntry,
@@ -2153,10 +2167,7 @@ export function postSearchHistory(body: RecordSearchHistoryBody): Promise<void> 
 }
 
 /** Rimuove una singola voce (per tipo+entità) della cronologia: ritorna 204. */
-export function deleteSearchHistoryEntry(
-  type: SearchEntityType,
-  entityId: string,
-): Promise<void> {
+export function deleteSearchHistoryEntry(type: SearchEntityType, entityId: string): Promise<void> {
   return request(
     "DELETE",
     `/api/search/history/${encodeURIComponent(type)}/${encodeURIComponent(entityId)}`,
@@ -2871,10 +2882,7 @@ export function deleteBacklogPlan(id: string): Promise<BacklogItemBase> {
  * sessione creata; 400 repo estraneo al progetto; 409 se già attiva o la voce è
  * convertita/archiviata.
  */
-export function startCodeSession(
-  id: string,
-  repositoryId: string,
-): Promise<BacklogCodeSession> {
+export function startCodeSession(id: string, repositoryId: string): Promise<BacklogCodeSession> {
   return api.post(`/api/backlog/${encodeURIComponent(id)}/code-session`, { repositoryId });
 }
 
@@ -3022,4 +3030,46 @@ export function getNotificationPrefs(): Promise<NotificationPrefsView> {
  */
 export function patchNotificationPrefs(patch: NotificationPrefsUpdate): Promise<void> {
   return api.patch("/api/me/notification-prefs", patch);
+}
+
+/**
+ * IL REGISTRO DECISIONI di un progetto (Fase 5), dalla più recente.
+ *
+ * `source` filtra per origine. Il default di `limit` è del SERVER: qui non si
+ * duplica, come per la timeline.
+ */
+export function getProjectDecisions(
+  projectId: string,
+  options: { limit?: number; source?: DecisionSource } = {},
+): Promise<ProjectDecision[]> {
+  const search = new URLSearchParams();
+  if (options.limit !== undefined) search.set("limit", String(options.limit));
+  if (options.source) search.set("source", options.source);
+  const query = search.toString();
+  return api.get(
+    `/api/projects/${encodeURIComponent(projectId)}/decisions${query ? `?${query}` : ""}`,
+  );
+}
+
+/** Registra una decisione scritta a mano (chiunque veda il progetto). */
+export function createProjectDecision(
+  projectId: string,
+  body: DecisionDraft,
+): Promise<ProjectDecision> {
+  return api.post(`/api/projects/${encodeURIComponent(projectId)}/decisions`, body);
+}
+
+/**
+ * Corregge una decisione o la segna come superata da un'altra. Solo l'autore o
+ * un maintainer; i campi assenti restano invariati (semantica PATCH).
+ */
+export function patchProjectDecision(
+  projectId: string,
+  decisionId: string,
+  body: DecisionPatch,
+): Promise<ProjectDecision> {
+  return api.patch(
+    `/api/projects/${encodeURIComponent(projectId)}/decisions/${encodeURIComponent(decisionId)}`,
+    body,
+  );
 }

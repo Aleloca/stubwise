@@ -1,6 +1,10 @@
 import {
   createProjectSchema,
+  decisionDraftSchema,
+  decisionPatchSchema,
+  decisionSourceSchema,
   prReviewSummarySchema,
+  projectDecisionSchema,
   projectDetailSchema,
   projectListItemSchema,
   projectPulseSummarySchema,
@@ -31,10 +35,12 @@ import {
   listProjectReviews,
   resolveTimelineWindow,
 } from "../services/project-timeline.js";
+import { listProjectBriefs, queueBriefRegeneration } from "../services/project-briefs.js";
 import {
-  listProjectBriefs,
-  queueBriefRegeneration,
-} from "../services/project-briefs.js";
+  createManualDecision,
+  listProjectDecisions,
+  patchDecision,
+} from "../services/project-decisions.js";
 
 /**
  * Tentativi massimi di insert prima di arrendersi sulla generazione dello
@@ -369,7 +375,12 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
           (value) => !projectTimelineKindSchema.options.includes(value as never),
         );
         if (unknown.length > 0) {
-          return apiError(reply, 400, "invalid_kinds", `Unknown timeline kinds: ${unknown.join(", ")}`);
+          return apiError(
+            reply,
+            400,
+            "invalid_kinds",
+            `Unknown timeline kinds: ${unknown.join(", ")}`,
+          );
         }
         kinds = new Set(requested);
       }
@@ -467,6 +478,144 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
         );
       }
       return reply.code(result.created ? 201 : 200).send(result.brief);
+    },
+  );
+
+  /**
+   * IL REGISTRO DECISIONI del progetto (Fase 5): i fatti decisi da persone —
+   * risposte alle domande dell'agente, piani approvati o rifiutati con
+   * indicazioni, proposte del pulse prese — più le voci scritte a mano.
+   *
+   * ⚠️ Registrata PRIMA di `/:projectId`, come ogni rotta con suffisso
+   * letterale su questo prefisso (vedi il commento su `/pulse`).
+   *
+   * ACL di LETTURA come timeline e brief: un member vede solo i progetti che
+   * segue, un admin tutti; "non seguito" e "inesistente" rispondono 404.
+   */
+  app.get(
+    "/:projectId/decisions",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: idParamsSchema,
+        querystring: z.object({
+          limit: z.coerce.number().int().min(1).max(200).optional(),
+          source: decisionSourceSchema.optional(),
+        }),
+        response: {
+          200: z.array(projectDecisionSchema),
+          404: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const viewer = { userId: request.user!.id, role: request.user!.role };
+      if (!(await canViewProject(app.db, request.params.projectId, viewer))) {
+        return apiError(reply, 404, "project_not_found", "Project not found");
+      }
+      return listProjectDecisions(app.db, request.params.projectId, {
+        limit: request.query.limit ?? 50,
+        ...(request.query.source ? { source: request.query.source } : {}),
+      });
+    },
+  );
+
+  /**
+   * Registra una decisione SCRITTA A MANO. Non serve essere maintainer: chi
+   * lavora al progetto è chi ha deciso, e un registro che solo gli admin
+   * possono alimentare si svuota. La stessa ACL di lettura vale come gate.
+   */
+  app.post(
+    "/:projectId/decisions",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: idParamsSchema,
+        body: decisionDraftSchema,
+        response: {
+          201: projectDecisionSchema,
+          404: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const viewer = { userId: request.user!.id, role: request.user!.role };
+      const { projectId } = request.params;
+      if (!(await canViewProject(app.db, projectId, viewer))) {
+        return apiError(reply, 404, "project_not_found", "Project not found");
+      }
+      const created = await createManualDecision(app.db, {
+        projectId,
+        authorId: viewer.userId,
+        title: request.body.title,
+        decision: request.body.decision,
+        ...(request.body.context ? { context: request.body.context } : {}),
+        ...(request.body.consequences ? { consequences: request.body.consequences } : {}),
+        ...(request.body.ticketId ? { ticketId: request.body.ticketId } : {}),
+        ...(request.body.decidedAt ? { decidedAt: request.body.decidedAt } : {}),
+      });
+      return reply.code(201).send(created);
+    },
+  );
+
+  /**
+   * Corregge una decisione o la segna come SUPERATA da un'altra
+   * (`supersededById`). Solo l'autore o un maintainer: una decisione non è un
+   * wiki, e riscrivere il fatto altrui è la cosa che questo registro non deve
+   * permettere.
+   *
+   * `superseded` non cancella: la voce vecchia resta, e sapere che è stata
+   * cambiata vale quanto sapere che era stata presa.
+   */
+  app.patch(
+    "/:projectId/decisions/:decisionId",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: z.object({ projectId: z.uuid(), decisionId: z.uuid() }),
+        body: decisionPatchSchema,
+        response: {
+          200: projectDecisionSchema,
+          400: errorSchema,
+          404: errorSchema,
+          // 403 arriva da `authErrorResponses`: qui lo usa anche la regola
+          // "solo l'autore o un maintainer", non solo il gate di sessione.
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const viewer = { userId: request.user!.id, role: request.user!.role };
+      const { projectId, decisionId } = request.params;
+      if (!(await canViewProject(app.db, projectId, viewer))) {
+        return apiError(reply, 404, "project_not_found", "Project not found");
+      }
+      const result = await patchDecision(app.db, {
+        projectId,
+        decisionId,
+        actor: { id: viewer.userId, role: viewer.role },
+        patch: request.body,
+      });
+      if (result.ok) return result.decision;
+      if (result.error === "not_found") {
+        return apiError(reply, 404, "decision_not_found", "Decision not found");
+      }
+      if (result.error === "forbidden") {
+        return apiError(
+          reply,
+          403,
+          "decision_forbidden",
+          "Only the author or a maintainer can edit this decision",
+        );
+      }
+      return apiError(
+        reply,
+        400,
+        "invalid_supersede",
+        "supersededById must be another decision of the same project",
+      );
     },
   );
 

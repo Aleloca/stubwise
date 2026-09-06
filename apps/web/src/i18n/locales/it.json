@@ -1941,6 +1941,45 @@
       "whatsNew": "Novità",
       "recentlyUpdated": "Aggiornate di recente",
       "topViewed": "Più lette"
+    },
+    "decisions": {
+      "back": "← Documentazione del progetto",
+      "title": "Registro decisioni",
+      "subtitle": "Le decisioni prese da persone su questo progetto: risposte alle domande dell'agente, piani approvati o rifiutati con indicazioni, proposte del pulse accettate e voci scritte a mano. Mai scritte dall'AI.",
+      "link": "Registro decisioni",
+      "homeTitle": "Decisioni",
+      "homeAll": "Vedi tutto il registro",
+      "homeEmpty": "Nessuna decisione registrata.",
+      "filters": "Filtra per origine",
+      "filter": {
+        "all": "Tutte"
+      },
+      "source": {
+        "ask_user": "Domanda dell'agente",
+        "plan_review": "Gate del piano",
+        "pulse": "Proposta del pulse",
+        "manual": "A mano"
+      },
+      "listTitle": "Decisioni registrate",
+      "loading": "// carico il registro…",
+      "error": "Non è stato possibile caricare il registro.",
+      "empty": "// nessuna decisione registrata",
+      "superseded": "Superata",
+      "supersedeBy": "Superata da",
+      "supersedeChange": "Superata da",
+      "supersedeNone": "— non superata —",
+      "by": "decisa da {{email}}",
+      "byNobody": "nessun attore registrato",
+      "field": {
+        "title": "Titolo",
+        "decision": "Decisione",
+        "context": "Contesto",
+        "consequences": "Conseguenze"
+      },
+      "newTitle": "Registra una decisione",
+      "newHint": "Per le decisioni prese fuori da Stubwise: in una call, in una chat, in una riunione. Le voci automatiche si aggiungono da sole.",
+      "submit": "Registra",
+      "saveError": "Non è stato possibile salvare la decisione."
     }
   },
   "search": {

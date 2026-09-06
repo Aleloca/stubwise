@@ -313,6 +313,29 @@ export interface ProjectBriefSummary {
   finishedAt: string | null;
 }
 
+/**
+ * Una DECISIONE del registro di progetto (`GET /api/projects/:id/decisions`),
+ * nella forma minima che serve al tool `list_decisions`. Riscritta qui come
+ * `ProjectBriefSummary`: il pacchetto è un bundle senza dipendenze workspace a
+ * runtime.
+ */
+export interface ProjectDecisionSummary {
+  id: string;
+  projectId: string;
+  source: "ask_user" | "plan_review" | "pulse" | "manual";
+  ticketId: string | null;
+  ticketNumber: number | null;
+  title: string;
+  context: string | null;
+  decision: string;
+  consequences: string | null;
+  decidedBy: { id: string; email: string } | null;
+  decidedAt: string;
+  /** Valorizzato = questa decisione è stata superata da un'altra. */
+  supersededById: string | null;
+  createdAt: string;
+}
+
 export interface StubwiseClientDeps {
   fetch?: typeof fetch;
 }
@@ -510,7 +533,9 @@ export class StubwiseClient {
     return this.request<BacklogItemDetail>(`/api/backlog/${id}`);
   }
 
-  async createBacklogItem(params: CreateBacklogItemParams): Promise<{ queued: true; jobId: string }> {
+  async createBacklogItem(
+    params: CreateBacklogItemParams,
+  ): Promise<{ queued: true; jobId: string }> {
     const raw = await this.request<unknown>("/api/backlog", { method: "POST", body: params });
     return this.parseResponse(createBacklogResultSchema, raw, "la creazione della voce di backlog");
   }
@@ -631,6 +656,21 @@ export class StubwiseClient {
     });
   }
 
+  /**
+   * Il REGISTRO DECISIONI di un progetto, dalla più recente
+   * (`GET /api/projects/:id/decisions`). `source` filtra per origine.
+   *
+   * Cast tipizzato senza validazione runtime, come `listProjectBriefs`.
+   */
+  async listProjectDecisions(
+    projectId: string,
+    options: { limit?: number; source?: string } = {},
+  ): Promise<ProjectDecisionSummary[]> {
+    return this.request<ProjectDecisionSummary[]>(`/api/projects/${projectId}/decisions`, {
+      query: { limit: options.limit, source: options.source },
+    });
+  }
+
   // --- Design / piano (backlog e ticket) ----------------------------------
   //
   // Superficie unificata sulle risorse omogenee `backlog`/`ticket`: entrambe
@@ -657,7 +697,10 @@ export class StubwiseClient {
   }
 
   /** DELETE del design: ripristina il corpo d'origine e azzera `originContent` lato server. */
-  async deleteDesign(target: DesignPlanTarget, id: string): Promise<BacklogItemDetail | TicketDetail> {
+  async deleteDesign(
+    target: DesignPlanTarget,
+    id: string,
+  ): Promise<BacklogItemDetail | TicketDetail> {
     return this.request<BacklogItemDetail | TicketDetail>(`${this.basePath(target)}/${id}/design`, {
       method: "DELETE",
     });
@@ -676,7 +719,10 @@ export class StubwiseClient {
   }
 
   /** DELETE del piano di implementazione: azzera `implementationPlan`. */
-  async deletePlan(target: DesignPlanTarget, id: string): Promise<BacklogItemDetail | TicketDetail> {
+  async deletePlan(
+    target: DesignPlanTarget,
+    id: string,
+  ): Promise<BacklogItemDetail | TicketDetail> {
     return this.request<BacklogItemDetail | TicketDetail>(`${this.basePath(target)}/${id}/plan`, {
       method: "DELETE",
     });

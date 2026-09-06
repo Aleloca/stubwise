@@ -26,7 +26,7 @@ const ctx: ToolContext = {
 };
 
 describe("buildServer", () => {
-  it("registra tutti e 17 i tool (7 read + 10 write) con i nomi attesi", () => {
+  it("registra tutti e 18 i tool (8 read + 10 write) con i nomi attesi", () => {
     // Spia il registerTool reale dell'SDK: buildServer usa l'istanza McpServer,
     // così verifichiamo l'assemblaggio end-to-end senza toccare il transport.
     const spy = vi.spyOn(McpServer.prototype, "registerTool");
@@ -43,6 +43,7 @@ describe("buildServer", () => {
       "get_ticket",
       "list_proposals",
       "get_project_brief",
+      "list_decisions",
       "create_ticket",
       "convert_backlog_to_ticket",
       "set_ticket_status",

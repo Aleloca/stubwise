@@ -473,3 +473,83 @@ export const projectBriefWeeklySchema = z.object({
   finishedAt: z.iso.datetime().nullable(),
 });
 export type ProjectBriefWeekly = z.infer<typeof projectBriefWeeklySchema>;
+
+// --- Registro decisioni di progetto (Fase 5) ---------------------------------
+
+/**
+ * Da dove viene una decisione. Le prime tre sono scritte dai writer automatici
+ * nella stessa transazione dell'evento che le origina; `manual` è la voce che
+ * una persona aggiunge a mano dai Docs del progetto.
+ *
+ * ⚠️ Non esiste — e non deve esistere — una sorgente "ai": il registro è la
+ * fonte di verità sui fatti decisi da PERSONE, e i writer automatici compongono
+ * i testi da template i18n. Il brief settimanale e i riassunti "in breve" sono
+ * la narrativa generata; questo è il fatto.
+ */
+export const decisionSourceSchema = z.enum(["ask_user", "plan_review", "pulse", "manual"]);
+export type DecisionSource = z.infer<typeof decisionSourceSchema>;
+
+/**
+ * Una decisione del registro, come la vedono API, Docs, chat e MCP.
+ *
+ * ⚠️ COSA NON C'È: `sourceKey` e `sourceRef`. Sono la meccanica interna
+ * dell'idempotenza e gli id d'origine (job, notifica, domanda): servono al
+ * writer, non a chi legge il registro, e pubblicarli inviterebbe a costruirci
+ * sopra client che dipendono dalla forma delle nostre chiavi.
+ */
+export const projectDecisionSchema = z.object({
+  id: z.uuid(),
+  projectId: z.uuid(),
+  source: decisionSourceSchema,
+  /** Il ticket da cui è nata, se ce n'era uno. Resta null se il ticket è stato cancellato. */
+  ticketId: z.uuid().nullable(),
+  /** Numero del ticket, per linkarlo senza una seconda chiamata. */
+  ticketNumber: z.number().int().nullable(),
+  title: z.string(),
+  /** In che contesto è stata presa (es. le alternative scartate del pulse). */
+  context: z.string().nullable(),
+  decision: z.string(),
+  /** Cosa comporta, quando chi ha proposto le alternative l'aveva dichiarato. */
+  consequences: z.string().nullable(),
+  /** Chi ha deciso. Null per una decisione il cui autore è stato cancellato. */
+  decidedBy: z.object({ id: z.uuid(), email: z.string() }).nullable(),
+  decidedAt: z.iso.datetime(),
+  /**
+   * La decisione che ha superato questa. Non la cancella: una scelta revocata
+   * resta un fatto accaduto, e sapere che è stata cambiata vale quanto sapere
+   * che era stata presa.
+   */
+  supersededById: z.uuid().nullable(),
+  createdAt: z.iso.datetime(),
+});
+export type ProjectDecision = z.infer<typeof projectDecisionSchema>;
+
+/** Corpo di `POST /api/projects/:projectId/decisions`: una voce scritta a mano. */
+export const decisionDraftSchema = z.object({
+  title: z.string().min(1).max(300),
+  decision: z.string().min(1).max(5000),
+  context: z.string().max(5000).optional(),
+  consequences: z.string().max(5000).optional(),
+  /** Ticket a cui agganciarla, se la decisione ne riguarda uno. */
+  ticketId: z.uuid().optional(),
+  /** Quando è stata presa davvero: una decisione si può registrare dopo. */
+  decidedAt: z.iso.datetime().optional(),
+});
+export type DecisionDraft = z.infer<typeof decisionDraftSchema>;
+
+/**
+ * Corpo di `PATCH /api/projects/:projectId/decisions/:id`.
+ *
+ * PATCH e non PUT, per la stessa ragione di `/api/me/notification-prefs`: i
+ * campi assenti restano invariati, così un client vecchio non azzera ciò che
+ * non conosce. `supersededById` è nullable perché "non è più superata" è una
+ * correzione legittima quanto "ora lo è".
+ */
+export const decisionPatchSchema = z.object({
+  title: z.string().min(1).max(300).optional(),
+  decision: z.string().min(1).max(5000).optional(),
+  context: z.string().max(5000).nullable().optional(),
+  consequences: z.string().max(5000).nullable().optional(),
+  supersededById: z.uuid().nullable().optional(),
+});
+export type DecisionPatch = z.infer<typeof decisionPatchSchema>;
