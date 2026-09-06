@@ -28,7 +28,7 @@ sito**, e le alternative che sembrano equivalenti non lo sono. Verificato con
 
 ```sh
 cp caddy.d/relay.caddy.example caddy.d/relay.caddy
-# in .env: PUSH_RELAY_HOST=stubwise.thecove.it  (+ le chiavi APNs/FCM)
+# in .env: PUSH_RELAY_HOST=stubwise.aleloca.dev  (+ le chiavi APNs/FCM)
 docker compose --profile relay up -d --build push-relay caddy
 ```
 

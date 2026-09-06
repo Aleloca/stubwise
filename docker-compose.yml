@@ -226,7 +226,7 @@ services:
       # ATTENZIONE alla sintassi: `${VAR-default}` col TRATTINO NUDO, non `:-`.
       # Con i due punti una stringa vuota in .env verrebbe rimpiazzata dal
       # default e le push NON si spegnerebbero.
-      - PUSH_RELAY_URL=${PUSH_RELAY_URL-https://push.stubwise.thecove.it}
+      - PUSH_RELAY_URL=${PUSH_RELAY_URL-https://push.stubwise.aleloca.dev}
       # --- Pulse proattivo (progetti fermi con voci nel backlog) ---
       # Poller che, DENTRO la finestra oraria d'istanza, cerca i progetti fermi
       # con voci proponibili e pubblica una notifica `project.pulse` con 2–3

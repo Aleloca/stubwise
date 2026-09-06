@@ -497,7 +497,7 @@ stringa vuota in `.env` verrebbe rimpiazzata dal default e le push non si
 spegnerebbero mai):
 
 - **assente** → punta al relay pubblico che operiamo noi
-  (`https://push.stubwise.thecove.it`, `DEFAULT_PUSH_RELAY_URL` in
+  (`https://push.stubwise.aleloca.dev`, `DEFAULT_PUSH_RELAY_URL` in
   `packages/notifications/src/push/config.ts`) — il default, funziona senza
   fare nulla;
 - **stringa vuota** (`PUSH_RELAY_URL=`) → push **spente**: il poller marca
@@ -550,7 +550,7 @@ quel flag il servizio non si builda né si avvia — vedi il blocco commentato
 
    in `FCM_SERVICE_ACCOUNT_JSON` nel `.env` del VPS.
 
-3. **DNS**: un record per `push.<dominio>` (es. `push.stubwise.thecove.it`)
+3. **DNS**: un record per `push.<dominio>` (es. `push.stubwise.aleloca.dev`)
    che punti al VPS, e `PUSH_RELAY_HOST=<dominio>` (solo l'host, senza
    `push.`) in `.env` — è quel che monta il blocco Caddy del relay, vedi
    `caddy.d/README.md`. Prima di attivarlo per la prima volta:

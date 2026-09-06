@@ -71,7 +71,7 @@ store — e **gira solo sul nostro VPS**, sotto il profilo compose `relay`
 (`docker compose --profile relay up -d`): senza quel flag il servizio non si
 builda né si avvia, ed è così che resta fuori dalle istanze self-hosted. Il
 worker gli parla via HTTPS (env `PUSH_RELAY_URL` sul worker: assente = il
-relay pubblico che operiamo noi, di default `https://push.stubwise.thecove.it`
+relay pubblico che operiamo noi, di default `https://push.stubwise.aleloca.dev`
 — `DEFAULT_PUSH_RELAY_URL` in `packages/notifications/src/push/config.ts` —,
 stringa vuota = push spente, un URL = quel relay), mai per import diretto: le
 istanze self-hosted non vedono le chiavi, solo i token dei propri device. Non
@@ -291,7 +291,7 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   `apps/mobile/README.md`) e si aggiorna dagli store, non dai nostri deploy —
   è la premessa dell'invariante "solo cambi additivi" qui sotto. Env
   opzionale sul worker: `PUSH_RELAY_URL` (assente = punta di default al relay
-  pubblico che operiamo noi, `https://push.stubwise.thecove.it`; stringa
+  pubblico che operiamo noi, `https://push.stubwise.aleloca.dev`; stringa
   vuota = push spente, **è il rollback della sola consegna** senza toccare
   schema o immagini; un URL https = quel relay — ⚠️ nel compose la sintassi è
   `${VAR-default}` col trattino nudo, non `:-`: coi due punti una stringa

@@ -2,8 +2,8 @@
 #
 # Per attivarlo (solo noi, non le istanze self-hosted):
 #   1. cp caddy.d/relay.caddy.example caddy.d/relay.caddy
-#   2. in .env:  PUSH_RELAY_HOST=stubwise.thecove.it
-#      (il sito diventa push.stubwise.thecove.it; il DNS deve puntare al VPS)
+#   2. in .env:  PUSH_RELAY_HOST=stubwise.aleloca.dev
+#      (il sito diventa push.stubwise.aleloca.dev; il DNS deve puntare al VPS)
 #   3. docker compose --profile relay up -d --build push-relay caddy
 #
 # ⚠️ Il file si chiama `.example` di proposito: il `import
