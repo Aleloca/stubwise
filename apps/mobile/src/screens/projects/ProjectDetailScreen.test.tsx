@@ -1,5 +1,5 @@
 import type { StubwiseClient } from "@stubwise/api-client";
-import type { ProjectPulseSummary, Reader } from "@stubwise/shared";
+import type { ProjectBriefWeekly, ProjectPulseSummary, Reader } from "@stubwise/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { AuthContext } from "../../app/auth-context";
@@ -26,9 +26,30 @@ function summary(overrides: Partial<Reader<ProjectPulseSummary>> = {}): Reader<P
   };
 }
 
-function makeClient(overrides: { pulse?: jest.Mock; activityForDate?: jest.Mock } = {}): StubwiseClient {
+function brief(overrides: Partial<Reader<ProjectBriefWeekly>> = {}): Reader<ProjectBriefWeekly> {
   return {
-    projects: { pulse: overrides.pulse ?? jest.fn().mockResolvedValue([summary()]) },
+    id: "99999999-9999-4999-8999-999999999999",
+    projectId: PROJECT_ID,
+    periodStart: "2026-08-31",
+    periodEnd: "2026-09-06",
+    status: "done",
+    summary: "Il **checkout** è tornato stabile.",
+    sections: null,
+    notificationId: null,
+    createdAt: "2026-09-07T09:00:00.000Z",
+    finishedAt: "2026-09-07T09:02:00.000Z",
+    ...overrides,
+  } as Reader<ProjectBriefWeekly>;
+}
+
+function makeClient(
+  overrides: { pulse?: jest.Mock; activityForDate?: jest.Mock; briefs?: jest.Mock } = {},
+): StubwiseClient {
+  return {
+    projects: {
+      pulse: overrides.pulse ?? jest.fn().mockResolvedValue([summary()]),
+      briefs: overrides.briefs ?? jest.fn().mockResolvedValue([]),
+    },
     activity: { forDate: overrides.activityForDate ?? jest.fn().mockResolvedValue({ date: "2026-08-31", projects: [] }) },
   } as unknown as StubwiseClient;
 }
@@ -292,5 +313,62 @@ describe("ProjectDetailScreen", () => {
     await waitFor(() => expect(screen.getByText("Report di ieri")).toBeTruthy());
     await fireEvent.press(screen.getByText("Report di ieri"));
     await waitFor(() => expect(screen.getByText("Nessun riassunto per questo giorno.")).toBeTruthy());
+  });
+});
+
+/**
+ * Fase 5, ondata 2: il brief settimanale — il resoconto per chi non legge
+ * codice — nel dettaglio del progetto. Stesso schema del "Report di ieri" qui
+ * accanto: riga sempre presente, fetch PIGRO al primo tocco (la maggior parte
+ * delle visite al dettaglio non lo apre), markdown vero nel corpo.
+ */
+describe("ProjectDetailScreen — brief settimanale", () => {
+  async function openBrief() {
+    await waitFor(() => expect(screen.getByTestId("project-detail-brief-toggle")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("project-detail-brief-toggle"));
+  }
+
+  test("la riga c'è ma il brief NON viene caricato finché non la si tocca", async () => {
+    const briefs = jest.fn().mockResolvedValue([brief()]);
+    await renderScreen(makeClient({ briefs }));
+    await waitFor(() => expect(screen.getByTestId("project-detail-brief-toggle")).toBeTruthy());
+    expect(screen.getByText("Brief settimanale")).toBeTruthy();
+    expect(briefs).not.toHaveBeenCalled();
+  });
+
+  test("al tocco chiede l'ULTIMO brief del progetto e ne mostra il testo", async () => {
+    const briefs = jest.fn().mockResolvedValue([brief()]);
+    await renderScreen(makeClient({ briefs }));
+    await openBrief();
+    await waitFor(() => expect(briefs).toHaveBeenCalledWith(PROJECT_ID, { limit: 1 }));
+    // Markdown VERO: gli asterischi del grassetto non compaiono a schermo.
+    await waitFor(() => expect(screen.getByText("checkout")).toBeTruthy());
+    expect(screen.queryByText(/\*\*/)).toBeNull();
+  });
+
+  test("nessun brief ancora generato: lo stato vuoto, non un errore", async () => {
+    await renderScreen(makeClient({ briefs: jest.fn().mockResolvedValue([]) }));
+    await openBrief();
+    await waitFor(() => expect(screen.getByText("Nessun brief ancora.")).toBeTruthy());
+  });
+
+  test("brief senza testo (istanza senza provider AI): lo stesso stato vuoto, mai una card muta", async () => {
+    await renderScreen(makeClient({ briefs: jest.fn().mockResolvedValue([brief({ summary: null })]) }));
+    await openBrief();
+    await waitFor(() => expect(screen.getByText("Nessun brief ancora.")).toBeTruthy());
+  });
+
+  test("brief fallito: lo dice, invece di far credere che non ce ne sia mai stato uno", async () => {
+    await renderScreen(
+      makeClient({ briefs: jest.fn().mockResolvedValue([brief({ status: "failed", summary: null })]) }),
+    );
+    await openBrief();
+    await waitFor(() => expect(screen.getByText("Il brief di questa settimana non è stato generato.")).toBeTruthy());
+  });
+
+  test("errore di rete: un messaggio, non una schermata rotta", async () => {
+    await renderScreen(makeClient({ briefs: jest.fn().mockRejectedValue(new Error("down")) }));
+    await openBrief();
+    await waitFor(() => expect(screen.getByText("Non riesco a caricare il brief.")).toBeTruthy());
   });
 });

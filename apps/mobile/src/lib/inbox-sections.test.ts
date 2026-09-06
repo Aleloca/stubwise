@@ -44,6 +44,8 @@ const UNKNOWN_KIND = item({
   kind: "__unknown__" as InboxItem["kind"],
   actions: ["open", "snooze", "handled"],
 });
+/** Lo stesso brief visto da una build che il kind lo CONOSCE (ondata 2). */
+const BRIEF = item({ id: "wb1", kind: "project.brief", actions: ["open", "snooze", "handled"] });
 
 describe("sectionize", () => {
   test("una domanda dell'agente e una proposta del pulse bloccano il viewer, per qualunque ruolo", () => {
@@ -64,6 +66,16 @@ describe("sectionize", () => {
       expect(result.onlyYouMaintainer).toEqual([]);
       // NON "in attesa di altri": non è una decisione riservata a un maintainer,
       // e mostrarla lì suggerirebbe che qualcuno debba fare qualcosa.
+      expect(result.waitingOthers).toEqual([]);
+    }
+  });
+
+  test("il brief settimanale è un aggiornamento 'dai progetti', per qualunque ruolo", () => {
+    for (const viewer of [MEMBER, ADMIN]) {
+      const result = sectionize([BRIEF], viewer);
+      expect(result.fromProjects.map((i) => i.id)).toEqual(["wb1"]);
+      expect(result.blocksYou).toEqual([]);
+      expect(result.onlyYouMaintainer).toEqual([]);
       expect(result.waitingOthers).toEqual([]);
     }
   });

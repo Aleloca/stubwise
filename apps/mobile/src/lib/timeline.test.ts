@@ -1,8 +1,17 @@
 import { UNKNOWN } from "@stubwise/shared";
-import type { AiJob, AiJobStatus, Reader, TicketQuestion } from "@stubwise/shared";
+import type {
+  AiJob,
+  AiJobStatus,
+  PrReviewSummary,
+  Reader,
+  TicketActivityEntry,
+  TicketQuestion,
+} from "@stubwise/shared";
 import { buildTimeline, resolveWorkState } from "./timeline";
 
-const TICKET = { createdAt: "2026-08-12T09:00:00.000Z" };
+const TICKET_ID = "33333333-3333-4333-8333-333333333333";
+const OTHER_TICKET_ID = "44444444-4444-4444-8444-444444444444";
+const TICKET = { id: TICKET_ID, createdAt: "2026-08-12T09:00:00.000Z" };
 const JOB_ID = "11111111-1111-4111-8111-111111111111";
 const OTHER_JOB_ID = "22222222-2222-4222-8222-222222222222";
 
@@ -243,5 +252,160 @@ describe("resolveWorkState", () => {
 
   test("job con stato ignoto: il segnaposto UNKNOWN, mai il valore grezzo del server", () => {
     expect(resolveWorkState(job({ status: UNKNOWN }))).toBe(UNKNOWN);
+  });
+});
+
+function statusEvent(to: string, at: string, id = "55555555-5555-4555-8555-555555555555"): Reader<TicketActivityEntry> {
+  return {
+    kind: "event",
+    id,
+    eventKind: "status_changed",
+    payload: { from: "triaged", to },
+    createdAt: at,
+  } as Reader<TicketActivityEntry>;
+}
+
+function review(overrides: Partial<Reader<PrReviewSummary>> = {}): Reader<PrReviewSummary> {
+  return {
+    id: "66666666-6666-4666-8666-666666666666",
+    repositoryId: "77777777-7777-4777-8777-777777777777",
+    repositoryName: "shop",
+    ticketId: TICKET_ID,
+    prNumber: 12,
+    prUrl: "https://example.com/pr/12",
+    prTitle: "Export CSV",
+    status: "completed",
+    verdict: "approve",
+    prSummary: null,
+    createdAt: "2026-08-12T15:00:00.000Z",
+    finishedAt: "2026-08-12T15:10:00.000Z",
+    ...overrides,
+  } as Reader<PrReviewSummary>;
+}
+
+/**
+ * Le DATE REALI dei due passi che non ne avevano nessuna (fase 5). Nessun campo
+ * di `AiJob` dice quando il gate del piano è stato sbloccato o quando la PR è
+ * nata: lo dicono gli eventi `status_changed` del feed del ticket.
+ */
+describe("buildTimeline — date dagli eventi del ticket", () => {
+  const JOBS = [job({ status: "pr_opened", startedAt: "2026-08-12T10:00:00.000Z" })];
+
+  test("'piano approvato' prende la data del passaggio a in_progress", () => {
+    const steps = buildTimeline({
+      ticket: TICKET,
+      jobs: JOBS,
+      questions: [],
+      activity: [statusEvent("in_progress", "2026-08-12T12:00:00.000Z")],
+    });
+    expect(steps.find((s) => s.id === "planApproved")!.at).toBe("2026-08-12T12:00:00.000Z");
+  });
+
+  test("'PR e review' prende la data del passaggio a in_review", () => {
+    const steps = buildTimeline({
+      ticket: TICKET,
+      jobs: JOBS,
+      questions: [],
+      activity: [
+        statusEvent("in_progress", "2026-08-12T12:00:00.000Z", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
+        statusEvent("in_review", "2026-08-12T14:30:00.000Z", "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"),
+      ],
+    });
+    expect(steps.find((s) => s.id === "prReview")!.at).toBe("2026-08-12T14:30:00.000Z");
+  });
+
+  test("più passaggi allo stesso stato (rilancio): vince il PIÙ RECENTE, non il primo", () => {
+    const steps = buildTimeline({
+      ticket: TICKET,
+      jobs: JOBS,
+      questions: [],
+      // Il feed arriva ordinato per createdAt CRESCENTE (contratto della rotta).
+      activity: [
+        statusEvent("in_progress", "2026-08-10T09:00:00.000Z", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
+        statusEvent("in_progress", "2026-08-12T12:00:00.000Z", "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"),
+      ],
+    });
+    expect(steps.find((s) => s.id === "planApproved")!.at).toBe("2026-08-12T12:00:00.000Z");
+  });
+
+  test("eventi di altro tipo o verso altri stati non datano nulla", () => {
+    const steps = buildTimeline({
+      ticket: TICKET,
+      jobs: JOBS,
+      questions: [],
+      activity: [
+        { kind: "comment", id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", createdAt: "2026-08-12T11:00:00.000Z" } as Reader<TicketActivityEntry>,
+        {
+          kind: "event",
+          id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+          eventKind: "priority_changed",
+          payload: null,
+          createdAt: "2026-08-12T11:30:00.000Z",
+        } as Reader<TicketActivityEntry>,
+        statusEvent("done", "2026-08-12T16:00:00.000Z", "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"),
+      ],
+    });
+    expect(steps.find((s) => s.id === "planApproved")!.at).toBeNull();
+    expect(steps.find((s) => s.id === "prReview")!.at).toBeNull();
+  });
+
+  test("senza feed (query assente o fallita) i due passi restano senza data, come prima", () => {
+    const steps = buildTimeline({ ticket: TICKET, jobs: JOBS, questions: [] });
+    expect(steps.find((s) => s.id === "planApproved")!.at).toBeNull();
+    expect(steps.find((s) => s.id === "prReview")!.at).toBeNull();
+  });
+});
+
+describe("buildTimeline — verdetto della review", () => {
+  test("il verdetto della review di QUESTO ticket sta sul passo 'PR e review'", () => {
+    const steps = buildTimeline({
+      ticket: TICKET,
+      jobs: [job({ status: "pr_opened" })],
+      questions: [],
+      reviews: [review({ verdict: "request_changes" })],
+    });
+    expect(steps.find((s) => s.id === "prReview")!.verdict).toBe("request_changes");
+    // Su nessun altro passo: è un fatto della PR, non del lavoro in generale.
+    expect(steps.filter((s) => s.id !== "prReview").every((s) => s.verdict === null)).toBe(true);
+  });
+
+  test("le review di ALTRI ticket del progetto sono ignorate", () => {
+    const steps = buildTimeline({
+      ticket: TICKET,
+      jobs: [job({ status: "pr_opened" })],
+      questions: [],
+      reviews: [review({ ticketId: OTHER_TICKET_ID, verdict: "approve" })],
+    });
+    expect(steps.find((s) => s.id === "prReview")!.verdict).toBeNull();
+  });
+
+  test("review ancora in corso (verdetto null) o nessuna review: nessun verdetto mostrato", () => {
+    const running = buildTimeline({
+      ticket: TICKET,
+      jobs: [job({ status: "pr_opened" })],
+      questions: [],
+      reviews: [review({ status: "running", verdict: null })],
+    });
+    expect(running.find((s) => s.id === "prReview")!.verdict).toBeNull();
+
+    const none = buildTimeline({ ticket: TICKET, jobs: [job({ status: "pr_opened" })], questions: [], reviews: [] });
+    expect(none.find((s) => s.id === "prReview")!.verdict).toBeNull();
+  });
+
+  test("più review sulla stessa PR: vince la più recente COMPLETATA", () => {
+    const steps = buildTimeline({
+      ticket: TICKET,
+      jobs: [job({ status: "pr_opened" })],
+      questions: [],
+      reviews: [
+        review({ id: "88888888-8888-4888-8888-888888888888", verdict: "approve", createdAt: "2026-08-12T15:00:00.000Z" }),
+        review({
+          id: "99999999-9999-4999-8999-999999999999",
+          verdict: "request_changes",
+          createdAt: "2026-08-13T09:00:00.000Z",
+        }),
+      ],
+    });
+    expect(steps.find((s) => s.id === "prReview")!.verdict).toBe("request_changes");
   });
 });

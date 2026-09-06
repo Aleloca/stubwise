@@ -173,3 +173,52 @@ export type RunAiResult = z.infer<typeof runAiResultSchema>;
 /** Esito (202) di approva/rifiuta piano: il job che riparte. */
 export const planDecisionResultSchema = z.object({ jobId: z.uuid() });
 export type PlanDecisionResult = z.infer<typeof planDecisionResultSchema>;
+
+/**
+ * Una voce del feed di attività di un ticket (`GET /api/tickets/:id/activity`):
+ * commenti, eventi di audit e marker dei run dell'agente, già fusi e ordinati
+ * per `createdAt` crescente dal server.
+ *
+ * ⚠️ **FORMA PIATTA E PERMISSIVA, di proposito.** Lato server la risposta è una
+ * `discriminatedUnion` di tre varianti (`apps/server/src/routes/tickets.ts`),
+ * ma `readerSchema` (`packages/shared/src/reader.ts`) NON attraversa le union:
+ * dichiararla qui com'è lascerebbe chiusi gli enum interni (`eventKind`,
+ * `status`) senza che nulla lo segnali, e una quarta variante aggiunta domani
+ * farebbe fallire il parse dell'INTERO feed su un'app già installata — la
+ * schermata "Storia del lavoro" vuota su ogni telefono. Vedi la stessa
+ * riflessione, con la conclusione opposta (nessuno schema affatto), sul metodo
+ * `timeline` in `packages/api-client/src/endpoints/projects.ts`.
+ *
+ * Qui la si legge invece come UN oggetto con i campi comuni obbligatori e
+ * quelli specifici di una variante opzionali. Le conseguenze sono volute:
+ *
+ * - `kind` ed `eventKind` sono `z.string()` e non enum: aperti per
+ *   costruzione, senza bisogno che `readerSchema` li apra. Chi li confronta
+ *   confronta stringhe, e un valore ignoto semplicemente non corrisponde a
+ *   nulla — mai un crash, mai un `UNKNOWN` da gestire.
+ * - `payload` dichiara le sole due chiavi che i consumatori leggono davvero
+ *   (`from`/`to` di `status_changed`) e non un `z.record`, che sarebbe un nodo
+ *   NON attraversabile e farebbe scattare il guardiano in
+ *   `packages/api-client/src/reader.test.ts`.
+ * - i campi delle altre varianti (autore e corpo di un commento) non sono
+ *   dichiarati: `z.object` li spoglia, e nessuno li legge.
+ */
+export const ticketActivityEntrySchema = z.object({
+  /** `comment` | `event` | `ai_job` oggi — stringa aperta, vedi sopra. */
+  kind: z.string(),
+  /** Identità della riga d'origine (commento, evento, job). */
+  id: z.uuid(),
+  createdAt: z.iso.datetime(),
+  /** Solo su `kind: "event"`: il tipo di evento di audit, es. `status_changed`. */
+  eventKind: z.string().optional(),
+  /** Solo su `kind: "event"`: `{ from, to }` per `status_changed`, `null` per gli eventi che non ne hanno. */
+  payload: z
+    .object({ from: z.string().optional(), to: z.string().optional() })
+    .nullable()
+    .optional(),
+  /** Solo su `kind: "ai_job"`. */
+  status: z.string().optional(),
+  prUrl: z.string().nullable().optional(),
+  finishedAt: z.iso.datetime().nullable().optional(),
+});
+export type TicketActivityEntry = z.infer<typeof ticketActivityEntrySchema>;

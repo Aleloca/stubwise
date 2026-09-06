@@ -439,3 +439,102 @@ describe("InboxCard", () => {
     });
   });
 });
+
+/**
+ * Fase 5: il server allega alle righe che ne hanno uno il riassunto "in breve"
+ * (`inboxItemSchema.summary`, opzionale). Sta SOTTO il testo della notifica —
+ * che resta il titolo di cosa è successo — e non lo sostituisce.
+ */
+describe("InboxCard — riassunto in breve", () => {
+  test("PR pronta: il riassunto compare sotto il testo della notifica", async () => {
+    await renderCard(
+      item({
+        id: "s1",
+        kind: "job.pr_opened",
+        text: "PR #12 aperta su shop",
+        summary: "Aggiunge l'export CSV degli ordini. La review non ha chiesto modifiche.",
+        actions: ["open", "snooze", "handled"],
+        url: "https://example.com/pr/12",
+      }),
+      makeClient(),
+    );
+    expect(screen.getByText("PR #12 aperta su shop")).toBeTruthy();
+    expect(screen.getByTestId("pr-ready-card-summary")).toBeTruthy();
+    expect(screen.getByText(/Aggiunge l'export CSV degli ordini/)).toBeTruthy();
+  });
+
+  test("PR pronta senza riassunto: nessuna riga vuota in più", async () => {
+    await renderCard(
+      item({ id: "s2", kind: "job.pr_opened", text: "PR #12 aperta su shop", actions: ["open", "snooze", "handled"] }),
+      makeClient(),
+    );
+    expect(screen.queryByTestId("pr-ready-card-summary")).toBeNull();
+  });
+
+  test("piano da approvare: il riassunto compare sopra i bottoni di decisione", async () => {
+    await renderCard(
+      item({
+        id: "s3",
+        kind: "job.plan_review",
+        text: "Piano pronto per Export CSV degli ordini",
+        summary: "Gli ordini si potranno scaricare in CSV. Tocca solo l'area ordini, non i pagamenti.",
+        actions: ["approve_plan", "reject_plan", "open", "snooze", "handled"],
+      }),
+      makeClient(),
+    );
+    expect(screen.getByTestId("plan-review-card-summary")).toBeTruthy();
+    expect(screen.getByText(/Gli ordini si potranno scaricare in CSV/)).toBeTruthy();
+    expect(screen.getByTestId("plan-review-card-approve")).toBeTruthy();
+  });
+
+  test("piano da approvare senza riassunto: nessuna riga vuota in più", async () => {
+    await renderCard(
+      item({
+        id: "s4",
+        kind: "job.plan_review",
+        text: "Piano pronto",
+        actions: ["approve_plan", "reject_plan", "open", "snooze", "handled"],
+      }),
+      makeClient(),
+    );
+    expect(screen.queryByTestId("plan-review-card-summary")).toBeNull();
+  });
+});
+
+/**
+ * Fase 5, ondata 2: `project.brief` è ora un kind CONOSCIUTO da questa build —
+ * non più `UNKNOWN` come nel test qui sopra, che continua a coprire l'app già
+ * installata. Resta informativo (nessuna decisione da prendere): `InfoCard`,
+ * etichetta propria invece di "Aggiornamento", e "Apri" verso la roadmap web.
+ */
+describe("InboxCard — brief settimanale (kind conosciuto)", () => {
+  const BRIEF = item({
+    id: "wb1",
+    kind: "project.brief",
+    text: "🗞️ Brief settimanale di Portale B2B (2026-08-31 → 2026-09-06): settimana di consolidamento.",
+    actions: ["open", "snooze", "handled"],
+    projectId: "11111111-1111-4111-8111-111111111111",
+    url: "https://stubwise.example.com/projects/11111111-1111-4111-8111-111111111111/roadmap",
+  });
+
+  test("card informativa con la sua etichetta, non il generico 'Aggiornamento'", async () => {
+    await renderCard(BRIEF, makeClient());
+    expect(screen.getByTestId("info-card")).toBeTruthy();
+    expect(screen.getByText("Brief settimanale")).toBeTruthy();
+    expect(screen.queryByText("Aggiornamento")).toBeNull();
+  });
+
+  test("'Apri' porta alla roadmap del progetto sul web", async () => {
+    await renderCard(BRIEF, makeClient());
+    await fireEvent.press(screen.getByTestId("info-card-open"));
+    expect(Linking.openURL).toHaveBeenCalledWith(
+      "https://stubwise.example.com/projects/11111111-1111-4111-8111-111111111111/roadmap",
+    );
+  });
+
+  test("nessun bottone di decisione: non c'è niente da decidere su un brief", async () => {
+    await renderCard(BRIEF, makeClient());
+    expect(screen.queryByTestId("info-card-retry")).toBeNull();
+    expect(screen.queryByText("Approva")).toBeNull();
+  });
+});

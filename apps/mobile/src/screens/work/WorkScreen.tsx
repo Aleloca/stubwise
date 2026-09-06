@@ -1,7 +1,14 @@
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { ApiError } from "@stubwise/api-client";
 import { isUnknown } from "@stubwise/shared";
-import type { AiJob, Reader, TicketDetail, TicketQuestion } from "@stubwise/shared";
+import type {
+  AiJob,
+  PrReviewSummary,
+  Reader,
+  TicketActivityEntry,
+  TicketDetail,
+  TicketQuestion,
+} from "@stubwise/shared";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
@@ -24,12 +31,24 @@ import { fontFamily, fontSize } from "../../theme/typography";
  * approvazione + livello tecnico solo per un maintainer. Monta sotto
  * `ProjectsStack` come screen `Ticket` (era il placeholder del Task 15).
  *
- * Tre query in parallelo sulla STESSA chiave radice (`workKeys.all(id)`, così
+ * Quattro query sulla STESSA chiave radice (`workKeys.all(id)`, così
  * `useApprovePlan`/`useRejectPlan` — dentro `PlanSection` — le invalidano
  * tutte insieme dopo una decisione): dettaglio ticket (titolo, descrizione,
- * piano), job (la storia del lavoro) e domande dell'agente. Solo `jobs[0]` —
- * l'ultimo job — decide badge/pillola/timeline/gate di approvazione: vedi il
- * commento su questa stessa scelta in `lib/timeline.ts`.
+ * piano, riassunto del piano), job (la storia del lavoro), domande dell'agente
+ * e — dalla fase 5 — il feed di attività del ticket. Solo `jobs[0]` — l'ultimo
+ * job — decide badge/pillola/timeline/gate di approvazione: vedi il commento su
+ * questa stessa scelta in `lib/timeline.ts`.
+ *
+ * ⚠️ **Le due query della fase 5 NON entrano nei gate `isPending`/`isError`.**
+ * Il feed di attività (date reali dei passi "piano approvato" e "PR e review")
+ * e le review del progetto (il verdetto) sono DECORAZIONE della timeline: un
+ * loro guasto deve costare quelle due date e quell'etichetta, non la
+ * schermata. Le tre query storiche restano invece i dati senza cui la pagina
+ * non ha senso, e continuano a decidere skeleton ed errore da sole.
+ *
+ * Le review sono per PROGETTO (non esiste una rotta "review di un ticket"),
+ * quindi quella query DIPENDE dal dettaglio: parte solo quando `projectId` è
+ * noto, e `buildTimeline` scarta le review degli altri ticket.
  *
  * Il bottone indietro fa `navigation.goBack()`, NON `navigate("List")` come
  * `ProjectDetailScreen`: a differenza del dettaglio progetto (raggiungibile
@@ -71,6 +90,26 @@ export function WorkScreen({ navigation, route }: NativeStackScreenProps<Project
     staleTime: 10_000,
   });
 
+  const activityQuery = useQuery({
+    queryKey: workKeys.activity(id),
+    queryFn: () => {
+      if (!client) throw new Error("WorkScreen richiede un client autenticato");
+      return client.tickets.activity(id);
+    },
+    enabled: client !== null,
+    staleTime: 10_000,
+  });
+  const projectId = ticketQuery.data?.projectId;
+  const reviewsQuery = useQuery({
+    queryKey: ["projects", projectId ?? "", "reviews"],
+    queryFn: () => {
+      if (!client) throw new Error("WorkScreen richiede un client autenticato");
+      return client.projects.reviews(projectId!);
+    },
+    enabled: client !== null && projectId !== undefined,
+    staleTime: 30_000,
+  });
+
   const isPending = ticketQuery.isPending || jobsQuery.isPending || questionsQuery.isPending;
   const isError = ticketQuery.isError || jobsQuery.isError || questionsQuery.isError;
   // Solo il dettaglio del ticket dice "non esiste" (404): un errore su
@@ -83,6 +122,8 @@ export function WorkScreen({ navigation, route }: NativeStackScreenProps<Project
     void ticketQuery.refetch();
     void jobsQuery.refetch();
     void questionsQuery.refetch();
+    void activityQuery.refetch();
+    void reviewsQuery.refetch();
   }
 
   const isAdmin = user !== null && !isUnknown(user.role) && user.role === "admin";
@@ -110,7 +151,14 @@ export function WorkScreen({ navigation, route }: NativeStackScreenProps<Project
           <GhostButton label={t("mobile.work.loadError.retry")} onPress={retry} testID="work-retry" />
         </View>
       ) : (
-        <WorkBody ticket={ticketQuery.data!} jobs={jobsQuery.data!} questions={questionsQuery.data!} isAdmin={isAdmin} />
+        <WorkBody
+          ticket={ticketQuery.data!}
+          jobs={jobsQuery.data!}
+          questions={questionsQuery.data!}
+          activity={activityQuery.data}
+          reviews={reviewsQuery.data}
+          isAdmin={isAdmin}
+        />
       )}
     </View>
   );
@@ -120,17 +168,23 @@ function WorkBody({
   ticket,
   jobs,
   questions,
+  activity,
+  reviews,
   isAdmin,
 }: {
   ticket: Reader<TicketDetail>;
   jobs: Reader<AiJob>[];
   questions: Reader<TicketQuestion>[];
+  /** `undefined` finché la query non ha risposto, o se è fallita: la timeline resta senza quelle date. */
+  activity: Reader<TicketActivityEntry>[] | undefined;
+  /** Idem per il verdetto della review. */
+  reviews: Reader<PrReviewSummary>[] | undefined;
   isAdmin: boolean;
 }) {
   const { t } = useTranslation();
   const latestJob = jobs[0];
   const workState = resolveWorkState(latestJob);
-  const steps = buildTimeline({ ticket, jobs, questions });
+  const steps = buildTimeline({ ticket, jobs, questions, activity, reviews });
   const canDecide = isAdmin && latestJob !== undefined && !isUnknown(latestJob.status) && latestJob.status === "awaiting_plan_approval";
   const isWorking =
     latestJob !== undefined && !isUnknown(latestJob.status) && latestJob.status === "fixing" && latestJob.startedAt !== null;
@@ -152,7 +206,13 @@ function WorkBody({
       )}
 
       <View style={styles.planRow}>
-        <PlanSection ticketId={ticket.id} ticketTitle={ticket.title} plan={ticket.implementationPlan} canDecide={canDecide} />
+        <PlanSection
+          ticketId={ticket.id}
+          ticketTitle={ticket.title}
+          plan={ticket.implementationPlan}
+          planSummary={ticket.planSummary ?? null}
+          canDecide={canDecide}
+        />
       </View>
 
       <View style={styles.timelineRow}>

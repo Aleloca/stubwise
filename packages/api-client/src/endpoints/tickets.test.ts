@@ -35,4 +35,28 @@ describe("endpoints tickets", () => {
     expect(url).toBe(`/api/tickets/${ID}/questions/answer`);
     expect(JSON.parse(String(init!.body))).toEqual({ optionIndex: 2, questionId: ID });
   });
+  it("activity: chiama il feed del ticket e legge le voci senza chiudere i tipi", async () => {
+    const fetchImpl = vi.fn<typeof globalThis.fetch>(async () =>
+      new Response(
+        JSON.stringify([
+          {
+            kind: "event",
+            id: ID,
+            eventKind: "status_changed",
+            actorId: null,
+            payload: { from: "triaged", to: "in_progress" },
+            createdAt: "2026-09-01T10:00:00.000Z",
+          },
+          // Una variante che questa build non conosce: il feed resta leggibile.
+          { kind: "deploy", id: ID, createdAt: "2026-09-01T11:00:00.000Z" },
+        ]),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+    const c = createStubwiseClient({ baseUrl: "", getAuthHeader: () => null, fetch: fetchImpl });
+    const items = await c.tickets.activity(ID);
+    expect(fetchImpl.mock.calls.at(-1)![0]).toBe(`/api/tickets/${ID}/activity`);
+    expect(items.map((entry) => entry.kind)).toEqual(["event", "deploy"]);
+    expect(items[0]!.payload?.to).toBe("in_progress");
+  });
 });
