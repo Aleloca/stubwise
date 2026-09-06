@@ -140,34 +140,51 @@ export function SettingsSheet({ visible, onRequestClose, client, user, onLoggedO
   }
 
   /**
-   * Logout: BEST-EFFORT ma sempre locale. Le tre chiamate remote (device push,
-   * PAT, token FCM) partono in PARALLELO e indipendenti (`Promise.allSettled`,
-   * non un `await` sequenziale) — un fallimento di una NON deve impedire le
-   * altre due. `clearSession()` e l'azzeramento della cache girano SEMPRE,
-   * qualunque sia l'esito delle tre: un'ex istanza non deve poter continuare a
-   * raggiungere questo device (`deleteToken`) né usare il PAT rubato dal
-   * Keychain di un telefono perso, ma nemmeno un errore di rete deve lasciare
-   * l'utente bloccato in una sessione che non riesce a chiudere da qui.
+   * Logout: BEST-EFFORT ma sempre locale. Le tre chiamate remote (device
+   * push, PAT, token FCM) girano in SEQUENZA, non in parallelo (review fase
+   * 4, finding #3): il token corrente si legge UNA volta sola, PRIMA di
+   * qualunque chiamata distruttiva, e SUBITO passato a `deleteDevice`. Farle
+   * in parallelo con `deleteToken` era un bug reale — se `deleteToken`
+   * finiva per primo, un `getToken` letto più tardi (anche solo dentro la
+   * stessa `Promise.allSettled`, senza garanzia d'ordine) poteva restituire
+   * un token NUOVO generato al volo da FCM, e `deleteDevice` avrebbe
+   * cancellato quello SBAGLIATO — lasciando sul server il vecchio, quello
+   * davvero registrato, vivo per sempre.
+   *
+   * Ordine: 1. leggi il token UNA volta; 2. `deleteDevice`; 3. revoca il PAT;
+   * 4. `deleteToken`; 5. `clearSession` + azzeramento cache, SEMPRE. I passi
+   * 2–4 sono in `try/catch` SEPARATI: un fallimento non salta i successivi
+   * (best-effort, mai un `await` che si ferma al primo errore), e il passo 5
+   * gira qualunque sia l'esito dei tre — un'ex istanza non deve poter
+   * continuare a raggiungere questo device (`deleteToken`) né usare il PAT
+   * rubato dal Keychain di un telefono perso, ma nemmeno un errore di rete
+   * deve lasciare l'utente bloccato in una sessione che non riesce a
+   * chiudere da qui.
    */
   async function handleLogout(): Promise<void> {
     setLoggingOut(true);
     const session = await loadSession().catch(() => null);
+    const pushToken = await getPushToken().catch(() => null);
 
-    const results = await Promise.allSettled([
-      (async () => {
-        const pushToken = await getPushToken().catch(() => null);
-        if (pushToken) await client.me.deleteDevice(pushToken.token);
-      })(),
-      session?.patId ? client.pats.revoke(session.patId) : Promise.resolve(),
-      deleteToken(getMessaging()),
-    ]);
-    for (const result of results) {
-      if (result.status === "rejected") {
-        // Best-effort, mai silenzioso (stesso principio di `lib/push.ts`): un
-        // logout che sembra riuscito ma ha lasciato un device o un PAT vivi
-        // dall'altra parte è il guasto peggiore da diagnosticare più tardi.
-        console.warn("stubwise: logout — una chiamata remota è fallita (best-effort)", result.reason);
-      }
+    try {
+      if (pushToken) await client.me.deleteDevice(pushToken.token);
+    } catch (error) {
+      // Best-effort, mai silenzioso (stesso principio di `lib/push.ts`): un
+      // logout che sembra riuscito ma ha lasciato un device o un PAT vivi
+      // dall'altra parte è il guasto peggiore da diagnosticare più tardi.
+      console.warn("stubwise: logout — cancellazione del device push fallita (best-effort)", error);
+    }
+
+    try {
+      if (session?.patId) await client.pats.revoke(session.patId);
+    } catch (error) {
+      console.warn("stubwise: logout — revoca del PAT fallita (best-effort)", error);
+    }
+
+    try {
+      await deleteToken(getMessaging());
+    } catch (error) {
+      console.warn("stubwise: logout — invalidazione del token FCM fallita (best-effort)", error);
     }
 
     await clearSession();

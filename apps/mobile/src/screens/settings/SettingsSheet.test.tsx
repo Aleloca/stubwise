@@ -345,6 +345,44 @@ describe("SettingsSheet — Esci (logout)", () => {
     expect(mockDeleteToken).toHaveBeenCalledTimes(1);
     expect(mockClearSession).toHaveBeenCalledTimes(1);
   });
+
+  /**
+   * Review fase 4, finding #3: le tre chiamate remote giravano in PARALLELO
+   * (`Promise.allSettled`). Se `deleteToken` finiva PRIMA, un `getToken`
+   * successivo poteva generare un token NUOVO — e `deleteDevice` avrebbe
+   * cancellato quello SBAGLIATO, lasciando il vecchio (quello davvero
+   * registrato sul server) orfano. Il fix legge il token UNA sola volta,
+   * PRIMA di qualunque chiamata distruttiva, e sequenzia il resto.
+   *
+   * Il mock di `getToken` restituisce un valore DIVERSO alla seconda
+   * chiamata (`fcm-token-nuovo-dopo-delete`) apposta: se `handleLogout`
+   * richiamasse `getPushToken()`/`getToken` una seconda volta dopo
+   * `deleteToken`, questo test lo scoprirebbe — `deleteDevice` riceverebbe
+   * il token nuovo invece di quello vecchio già registrato.
+   */
+  test("ordine: deleteDevice → revoca PAT → deleteToken → clearSession, con il token letto PRIMA di deleteToken", async () => {
+    mockGetToken.mockResolvedValueOnce("fcm-token-vecchio").mockResolvedValue("fcm-token-nuovo-dopo-delete");
+    const order: string[] = [];
+    const deleteDevice = jest.fn().mockImplementation(async (token: string) => {
+      order.push(`deleteDevice:${token}`);
+    });
+    const patsRevoke = jest.fn().mockImplementation(async () => {
+      order.push("patsRevoke");
+    });
+    mockDeleteToken.mockImplementation(async () => {
+      order.push("deleteToken");
+    });
+    mockClearSession.mockImplementation(async () => {
+      order.push("clearSession");
+    });
+    const onLoggedOut = jest.fn();
+    await renderSheet(makeClient({ deleteDevice, patsRevoke }), { onLoggedOut });
+
+    await fireEvent.press(screen.getByTestId("settings-logout-button"));
+
+    await waitFor(() => expect(onLoggedOut).toHaveBeenCalledTimes(1));
+    expect(order).toEqual(["deleteDevice:fcm-token-vecchio", "patsRevoke", "deleteToken", "clearSession"]);
+  });
 });
 
 describe("SettingsSheet — accessibilità", () => {
