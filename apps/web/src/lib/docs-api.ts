@@ -183,11 +183,33 @@ interface DocRepoOrigin {
 export type DocProjectHighlightRef = DocHighlightRef & DocRepoOrigin;
 export type DocProjectReleaseRef = DocReleaseRef & DocRepoOrigin;
 
+/**
+ * Una DECISIONE del registro come compare nella home Docs (Fase 5): il minimo
+ * per orientarsi, il resto sta in `/docs/project/$projectId/decisions`.
+ */
+export interface DocDecisionRef {
+  id: string;
+  source: "ask_user" | "plan_review" | "pulse" | "manual";
+  title: string;
+  decision: string;
+  decidedByEmail: string | null;
+  decidedAt: string;
+  /** True = questa decisione è stata sostituita da una più recente. */
+  superseded: boolean;
+}
+
 /** Highlights aggregate di progetto: changelog cross-repo + pagine più lette. */
 export interface DocProjectHighlights {
   countsByKind: DocCountsByKind;
   topViewed: DocProjectHighlightRef[];
   latestReleases: DocProjectReleaseRef[];
+  /**
+   * Le ultime decisioni registrate (Fase 5).
+   *
+   * OPZIONALE come nello schema del server: un server sceso di immagine non lo
+   * produce, e l'assenza vale "nessuna decisione" — non un errore.
+   */
+  latestDecisions?: DocDecisionRef[];
 }
 
 /** Highlights del repository (conteggi, pagine top, ultime release). */
@@ -438,7 +460,8 @@ async function postDocChatStream(
     const { message, code } = await response
       .json()
       .then((data: unknown) => {
-        const obj = typeof data === "object" && data !== null ? (data as Record<string, unknown>) : {};
+        const obj =
+          typeof data === "object" && data !== null ? (data as Record<string, unknown>) : {};
         return {
           message: "message" in obj ? String(obj.message) : fallback,
           code: typeof obj.code === "string" ? obj.code : undefined,
@@ -459,10 +482,7 @@ export function postDocChat(
   repositoryId: string,
   body: { sessionId?: string; message: string },
 ): Promise<Response> {
-  return postDocChatStream(
-    `/api/repositories/${encodeURIComponent(repositoryId)}/docs/chat`,
-    body,
-  );
+  return postDocChatStream(`/api/repositories/${encodeURIComponent(repositoryId)}/docs/chat`, body);
 }
 
 /**

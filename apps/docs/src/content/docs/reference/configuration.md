@@ -129,6 +129,20 @@ These variables set the **instance-wide** schedule; the pulse itself is enabled
 | `PULSE_SEND_HOUR`      | No       | `9`     | Local hour (`0`–`23`, in `PULSE_TIMEZONE`) at which the send window opens. The window is one hour long.    |
 | `PULSE_WEEKDAYS_ONLY`  | No       | `true`  | `true` = no pulse on Saturday and Sunday. It's a standup, not an alert.                                    |
 
+## Summaries and weekly brief (worker)
+
+See [Roadmap, brief and decisions](/docs/team/roadmap-briefs-decisions/). The
+"in short" summaries are instance-wide; the weekly brief is scheduled here but
+enabled **per project** (off by default).
+
+| Variable             | Required | Default            | Notes                                                                                                    |
+| -------------------- | -------- | ------------------ | ---------------------------------------------------------------------------------------------------------- |
+| `SUMMARIES_ENABLED`  | No       | `true`             | Generate the plain-language summary of a plan and of a pull request. `false` = no summary run at all: the fields stay empty and the cards show what they showed before. It is the harmless rollback of the summaries alone — nothing else changes. |
+| `SUMMARY_MODEL`      | No       | `PR_REVIEW_MODEL`  | Model of the summary runs. Empty/unset falls back to `PR_REVIEW_MODEL`: same profile of run (text only, read-only, short), so there is no second value to keep aligned. |
+| `BRIEF_POLL_MINUTES` | No       | `15`               | Poll interval in **minutes** of the weekly brief poller. `0` disables the feature for the whole instance — no brief is generated, not even one requested by hand from the UI. Shorter than the send window on purpose, so a skipped tick still meets it. |
+| `BRIEF_WEEKDAY`      | No       | `1`                | ISO day of the send window: `1` = Monday … `7` = Sunday. The **covered period follows the day**: move it to Friday and the brief covers Friday→Thursday, with no other setting to change. |
+| `BRIEF_SEND_HOUR`    | No       | `9`                | Local hour (`0`–`23`) at which the window opens; the window is one hour long. The time zone is `PULSE_TIMEZONE` above — reused, not duplicated: it is the only time zone in Stubwise. |
+
 ## Plugin registry (worker)
 
 See [Plugins and skills](/docs/ai-pipeline/plugins/). The registry is

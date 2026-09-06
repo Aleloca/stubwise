@@ -37,6 +37,7 @@ export const notificationKindSchema = z.enum([
   "monitor.recovered",
   "job.awaiting_input",
   "project.pulse",
+  "project.brief",
 ]);
 
 /**
@@ -296,6 +297,16 @@ export const inboxItemSchema = z.object({
    * ALLINEATO a `question.options` — vedi {@link inboxPulseSchema}.
    */
   pulse: inboxPulseSchema.optional(),
+  /**
+   * Riassunto "in breve" (fase 5): due o tre frasi in linguaggio non tecnico su
+   * cosa il piano cambia o su cosa fa la PR. Presente solo sui kind che ne
+   * hanno uno — piano da approvare, PR aperta, review completata — e solo se il
+   * riassunto è stato davvero generato.
+   *
+   * `.optional()` e non `.nullable()`, come `question` e `pulse`: un riassunto
+   * che non c'è è un campo ASSENTE, non un `null` da distinguere nella UI.
+   */
+  summary: z.string().optional(),
   projectId: z.uuid().nullable(),
   ticketId: z.uuid().nullable(),
   jobId: z.uuid().nullable(),

@@ -15,6 +15,13 @@ export interface PlanSectionProps {
   /** Riga di contesto della sheet di rifiuto (canvas `1e`: "Piano: … — Progetto"). */
   ticketTitle: string;
   plan: string | null;
+  /**
+   * Il riassunto "in breve" del piano (fase 5, `ai_jobs.plan_summary`): due o
+   * tre frasi per chi non legge codice. `null` quando il worker non l'ha
+   * generato — un'istanza senza provider, un run precedente alla fase, una
+   * generazione fallita: è best-effort, e la card ricade sul piano tecnico.
+   */
+  planSummary: string | null;
   /** `job.status === "awaiting_plan_approval" && ruolo admin` — decide il chiamante (`WorkScreen`), non questo componente. */
   canDecide: boolean;
 }
@@ -34,8 +41,16 @@ export interface PlanSectionProps {
  * verificato nella sorgente del pacchetto prima di aggiungerlo; nessuna
  * config esplicita necessaria, ma NESSUNO tolga questa nota pensando che
  * manchi una configurazione.
+ *
+ * Il titolo "Il piano, in breve" promette un riassunto, e dalla fase 5 c'è
+ * davvero: `planSummary` ha la precedenza sul piano tecnico troncato. Quando
+ * manca, il piano troncato resta il fallback ma viene DICHIARATO come tale
+ * (`summaryFallback`) invece di essere spacciato per un riassunto — la
+ * differenza fra "ecco il succo" e "ecco le prime quattro righe di un
+ * documento tecnico" è tutta per il lettore a cui questa schermata parla.
+ * "Leggi il piano completo" apre sempre il PIANO, mai il riassunto.
  */
-export function PlanSection({ ticketId, ticketTitle, plan, canDecide }: PlanSectionProps) {
+export function PlanSection({ ticketId, ticketTitle, plan, planSummary, canDecide }: PlanSectionProps) {
   const { t } = useTranslation();
   const approve = useApprovePlan(ticketId);
   const reject = useRejectPlan(ticketId);
@@ -47,17 +62,28 @@ export function PlanSection({ ticketId, ticketTitle, plan, canDecide }: PlanSect
     <View>
       <View style={styles.card}>
         <Text style={styles.eyebrow}>{t("mobile.work.plan.title")}</Text>
-        {plan === null ? (
-          <Text style={styles.empty}>{t("mobile.work.plan.empty")}</Text>
-        ) : (
+        {planSummary !== null ? (
+          // Il riassunto è già corto per costruzione (tre frasi): nessun
+          // `numberOfLines`, si legge intero.
+          <Text style={styles.excerpt} testID="plan-section-summary">
+            {planSummary}
+          </Text>
+        ) : plan !== null ? (
           <>
             <Text style={styles.excerpt} numberOfLines={4}>
               {plan}
             </Text>
-            <Pressable onPress={() => setReadOpen(true)} testID="plan-section-read">
-              <Text style={styles.readFull}>{t("mobile.work.plan.readFull")}</Text>
-            </Pressable>
+            <Text style={styles.fallbackNote} testID="plan-section-summary-fallback">
+              {t("mobile.work.plan.summaryFallback")}
+            </Text>
           </>
+        ) : (
+          <Text style={styles.empty}>{t("mobile.work.plan.empty")}</Text>
+        )}
+        {plan !== null && (
+          <Pressable onPress={() => setReadOpen(true)} testID="plan-section-read">
+            <Text style={styles.readFull}>{t("mobile.work.plan.readFull")}</Text>
+          </Pressable>
         )}
       </View>
 
@@ -169,6 +195,12 @@ const styles = StyleSheet.create({
     color: colors.fg,
     fontSize: fontSize.body,
     lineHeight: 20,
+    marginTop: 8,
+  },
+  fallbackNote: {
+    color: colors.faint,
+    fontFamily: fontFamily.mono,
+    fontSize: fontSize.label,
     marginTop: 8,
   },
   readFull: {

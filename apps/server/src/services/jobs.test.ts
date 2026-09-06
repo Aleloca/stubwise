@@ -7,6 +7,7 @@ import {
   instanceSettings,
   notificationDeliveries,
   notifications,
+  projectDecisions,
   users,
   type Db,
 } from "@stubwise/db";
@@ -269,25 +270,28 @@ describe("startRun", () => {
     expect(job?.planText).toBe(piano);
   });
 
-  it.each(IN_FLIGHT)("ultimo job in %s → job_in_flight, e il job NON viene toccato", async (status) => {
-    const ticketId = await seedTicket();
-    const [existing] = await db
-      .insert(aiJobs)
-      .values({ ticketId, status, planText: "piano in volo", error: "vecchio errore" })
-      .returning();
+  it.each(IN_FLIGHT)(
+    "ultimo job in %s → job_in_flight, e il job NON viene toccato",
+    async (status) => {
+      const ticketId = await seedTicket();
+      const [existing] = await db
+        .insert(aiJobs)
+        .values({ ticketId, status, planText: "piano in volo", error: "vecchio errore" })
+        .returning();
 
-    const result = await startRun(db, { ticketId, actor: maintainer });
-    expect(result).toEqual({ ok: false, error: "job_in_flight", jobStatus: status });
+      const result = await startRun(db, { ticketId, actor: maintainer });
+      expect(result).toEqual({ ok: false, error: "job_in_flight", jobStatus: status });
 
-    const job = await readJob(existing!.id);
-    expect(job?.status).toBe(status);
-    expect(job?.planText).toBe("piano in volo");
-    expect(job?.error).toBe("vecchio errore");
-    expect(job?.requestedByUserId).toBeNull();
-    // Nessun job nuovo accodato accanto a quello in volo.
-    const all = await db.select().from(aiJobs).where(eq(aiJobs.ticketId, ticketId));
-    expect(all).toHaveLength(1);
-  });
+      const job = await readJob(existing!.id);
+      expect(job?.status).toBe(status);
+      expect(job?.planText).toBe("piano in volo");
+      expect(job?.error).toBe("vecchio errore");
+      expect(job?.requestedByUserId).toBeNull();
+      // Nessun job nuovo accodato accanto a quello in volo.
+      const all = await db.select().from(aiJobs).where(eq(aiJobs.ticketId, ticketId));
+      expect(all).toHaveLength(1);
+    },
+  );
 
   it.each(["held", "failed", "pr_closed", "skipped", "pr_opened", "pr_merged"] as const)(
     "ultimo job in %s → riusa la riga, azzerando started/finished/error",
@@ -393,6 +397,7 @@ describe("resolvePlan", () => {
         ticketId,
         status: "awaiting_plan_approval",
         planText,
+        planSummary: "Il piano corregge la somma.",
         startedAt: new Date(),
         finishedAt: new Date(),
         error: "vecchio errore",
@@ -448,6 +453,8 @@ describe("resolvePlan", () => {
     expect(updated?.status).toBe("queued");
     expect(updated?.resumeMode).toBe("execute");
     expect(updated?.planText).toBe("## Piano proposto\n1. Passo A");
+    // Il riassunto è la faccia leggibile DI QUEL piano: vive e muore con lui.
+    expect(updated?.planSummary).toBe("Il piano corregge la somma.");
     expect(updated?.startedAt).toBeNull();
     expect(updated?.finishedAt).toBeNull();
     expect(updated?.error).toBeNull();
@@ -469,6 +476,9 @@ describe("resolvePlan", () => {
     expect(updated?.status).toBe("queued");
     expect(updated?.resumeMode).toBe("fix");
     expect(updated?.planText).toBeNull();
+    // Azzerati INSIEME: un riassunto sopravvissuto al piano che descrive
+    // resterebbe nelle card a raccontare un piano che non esiste più.
+    expect(updated?.planSummary).toBeNull();
 
     const cmts = await readComments(ticketId);
     expect(cmts).toHaveLength(1);
@@ -661,5 +671,122 @@ describe("resolvePlan", () => {
     } finally {
       await setContentLanguage("en");
     }
+  });
+});
+
+describe("resolvePlan — registro decisioni", () => {
+  /** Job fermo sul gate, come in `describe("resolvePlan")`. */
+  async function seedAwaitingJob(ticketId: string) {
+    const [job] = await db
+      .insert(aiJobs)
+      .values({
+        ticketId,
+        status: "awaiting_plan_approval",
+        planText: "## Piano proposto\n1. Passo A",
+        planSummary: "Il piano corregge la somma.",
+        planApprovalRequired: true,
+      })
+      .returning();
+    return job!;
+  }
+
+  /** Decisioni del ticket dato, dalla più vecchia. */
+  async function readDecisions(ticketId: string) {
+    return db
+      .select()
+      .from(projectDecisions)
+      .where(eq(projectDecisions.ticketId, ticketId))
+      .orderBy(asc(projectDecisions.createdAt), asc(projectDecisions.sourceKey));
+  }
+
+  beforeAll(async () => {
+    await setContentLanguage("en");
+  });
+
+  it("l'approvazione lascia una decisione col titolo del ticket e l'attore", async () => {
+    const ticketId = await seedTicket();
+    const job = await seedAwaitingJob(ticketId);
+
+    expect((await resolvePlan(db, { ticketId, actor: maintainer, mode: "execute" })).ok).toBe(true);
+
+    const rows = await readDecisions(ticketId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      source: "plan_review",
+      sourceKey: `plan_review:${job.id}:1`,
+      title: "Ticket di servizio",
+      decision: t("en", "decision.plan.approved"),
+      decidedByUserId: maintainer.id,
+    });
+    expect(rows[0]?.sourceRef).toMatchObject({ jobId: job.id, mode: "execute" });
+  });
+
+  it("il rifiuto CON istruzioni registra le istruzioni come decisione", async () => {
+    const ticketId = await seedTicket();
+    await seedAwaitingJob(ticketId);
+
+    expect(
+      (
+        await resolvePlan(db, {
+          ticketId,
+          actor: maintainer,
+          mode: "fix",
+          instructions: "Non toccare le API pubbliche.",
+        })
+      ).ok,
+    ).toBe(true);
+
+    const rows = await readDecisions(ticketId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.decision).toBe(
+      t("en", "decision.plan.rejected", { instructions: "Non toccare le API pubbliche." }),
+    );
+  });
+
+  it("il rifiuto SENZA istruzioni non registra nulla", async () => {
+    const ticketId = await seedTicket();
+    await seedAwaitingJob(ticketId);
+
+    expect((await resolvePlan(db, { ticketId, actor: maintainer, mode: "fix" })).ok).toBe(true);
+
+    expect(await readDecisions(ticketId)).toHaveLength(0);
+  });
+
+  it("due cicli sullo stesso job sono due decisioni distinte", async () => {
+    const ticketId = await seedTicket();
+    const job = await seedAwaitingJob(ticketId);
+
+    expect(
+      (
+        await resolvePlan(db, {
+          ticketId,
+          actor: maintainer,
+          mode: "fix",
+          instructions: "Prima passata: aggiungi i test.",
+        })
+      ).ok,
+    ).toBe(true);
+    // Il worker ripianifica e riparcheggia il MEDESIMO job sul gate.
+    await db
+      .update(aiJobs)
+      .set({ status: "awaiting_plan_approval", planText: "## Piano 2" })
+      .where(eq(aiJobs.id, job.id));
+    expect((await resolvePlan(db, { ticketId, actor: maintainer, mode: "execute" })).ok).toBe(true);
+
+    const rows = await readDecisions(ticketId);
+    expect(rows.map((row) => row.sourceKey)).toEqual([
+      `plan_review:${job.id}:1`,
+      `plan_review:${job.id}:2`,
+    ]);
+  });
+
+  it("una risoluzione persa (gate già chiuso) non lascia decisioni", async () => {
+    const ticketId = await seedTicket();
+    await seedAwaitingJob(ticketId);
+    expect((await resolvePlan(db, { ticketId, actor: maintainer, mode: "execute" })).ok).toBe(true);
+
+    const second = await resolvePlan(db, { ticketId, actor: maintainer, mode: "execute" });
+    expect(second).toEqual({ ok: false, error: "plan_not_pending" });
+    expect(await readDecisions(ticketId)).toHaveLength(1);
   });
 });

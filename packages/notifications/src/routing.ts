@@ -68,6 +68,11 @@ const AUDIENCE_FOR_KIND: Record<NotificationKind, Audience> = {
   // saperlo. Senza ticket restano admin ∪ follower: assegnatario, richiedente e
   // reporter non esistono per questo evento.
   "project.pulse": "broadcast",
+  // Il brief racconta com'è andata la settimana su un progetto: lo vuole chi
+  // quel progetto lo segue, più gli admin. Stesso pubblico del pulse, per la
+  // stessa ragione — e come il pulse non ha ticket, quindi assegnatario,
+  // richiedente e reporter non esistono per questo evento.
+  "project.brief": "broadcast",
 };
 
 /** Pubblico del kind. Unico punto in cui si legge {@link AUDIENCE_FOR_KIND}. */

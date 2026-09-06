@@ -157,6 +157,10 @@ export default defineConfig({
           items: [
             { label: "Backlog discovery", slug: "team/backlog" },
             { label: "Daily activity reports", slug: "team/activity" },
+            {
+              label: "Roadmap, brief and decisions",
+              slug: "team/roadmap-briefs-decisions",
+            },
           ],
         },
         {

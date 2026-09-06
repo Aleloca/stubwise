@@ -378,6 +378,22 @@ const envSchema = z.object({
       .min(1)
       .default("sonnet"),
   ),
+  // Riassunti "in breve" di piani e PR (fase 5). false = nessun run di
+  // riassunto: le colonne plan_summary/pr_summary restano NULL e le card
+  // mostrano quello che mostravano prima. È il rollback INNOCUO della sola
+  // generazione — non tocca schema né immagini — e per questo vive in un env
+  // separato dai modelli.
+  SUMMARIES_ENABLED: z.preprocess(
+    (value) => (value === "" ? undefined : value === "true" ? true : value === "false" ? false : value),
+    z.boolean({ error: "deve essere true o false" }).default(true),
+  ),
+  // Modello dei run di riassunto. Nessun default proprio qui: assente/vuoto
+  // ricade su PR_REVIEW_MODEL (vedi sotto), perché è lo stesso profilo di run —
+  // solo testo, read-only, breve — e non ha senso tenerne allineati due.
+  SUMMARY_MODEL: z.preprocess(
+    emptyAsUndefined,
+    z.string({ error: "deve essere il nome di un modello (es. sonnet)" }).min(1).optional(),
+  ),
   // Turni massimi del run di review: limita esplorazione/iterazioni dell'agente
   // (costo e durata per review).
   PR_REVIEW_MAX_TURNS: z.preprocess(
@@ -753,6 +769,45 @@ const envSchema = z.object({
     (value) => (value === "" ? undefined : value === "true" ? true : value === "false" ? false : value),
     z.boolean({ error: "deve essere true o false" }).default(true),
   ),
+  // Intervallo in minuti del poller del BRIEF SETTIMANALE (fase 5, task
+  // separato dal loop dei job, vedi briefs/poller.ts): dentro la finestra
+  // settimanale genera il brief della settimana appena chiusa per ogni progetto
+  // con `weeklyBriefEnabled`, e in ogni tick lavora i brief accodati a mano.
+  // 0 = disabilitato (nessun brief nasce più, nemmeno quelli richiesti dalla
+  // UI): è il ROLLBACK innocuo della feature. Default 15', più corto della
+  // finestra (un'ora) perché la finestra venga incontrata anche se un tick salta.
+  BRIEF_POLL_MINUTES: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 0 in minuti (es. 15; 0 = disabilitato)" })
+      .int("deve essere un intero ≥ 0 in minuti (es. 15; 0 = disabilitato)")
+      .min(0, "deve essere un intero ≥ 0 in minuti (es. 15; 0 = disabilitato)")
+      .default(15),
+  ),
+  // Giorno ISO della finestra d'invio del brief: 1 = lunedì … 7 = domenica.
+  // Default 1 — il brief racconta la settimana appena chiusa, e il lunedì
+  // mattina è quando serve. Il PERIODO segue il giorno: spostandolo al venerdì
+  // il brief copre venerdì→giovedì, senza altra configurazione.
+  BRIEF_WEEKDAY: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero tra 1 (lunedì) e 7 (domenica)" })
+      .int("deve essere un intero tra 1 (lunedì) e 7 (domenica)")
+      .min(1, "deve essere un intero tra 1 (lunedì) e 7 (domenica)")
+      .max(7, "deve essere un intero tra 1 (lunedì) e 7 (domenica)")
+      .default(1),
+  ),
+  // Ora LOCALE (nel fuso PULSE_TIMEZONE, che è l'UNICO fuso dell'istanza) in cui
+  // si apre la finestra d'invio del brief. La finestra è [ora, ora+1). Default 9.
+  BRIEF_SEND_HOUR: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero tra 0 e 23 (es. 9)" })
+      .int("deve essere un intero tra 0 e 23 (es. 9)")
+      .min(0, "deve essere un intero tra 0 e 23 (es. 9)")
+      .max(23, "deve essere un intero tra 0 e 23 (es. 9)")
+      .default(9),
+  ),
 }).refine(
   (env) => env.BACKLOG_SIMILAR_THRESHOLD <= env.BACKLOG_MERGE_THRESHOLD,
   {
@@ -845,6 +900,11 @@ export interface WorkerConfig {
   prReviewPollSeconds: number;
   /** Modello dell'agente di PR Review, read-only in plan mode (default "sonnet"). */
   prReviewModel: string;
+  /** Riassunti "in breve" di piano e PR attivi (default true; false = nessun
+   * run di riassunto, colonne NULL). */
+  summariesEnabled: boolean;
+  /** Modello dei run di riassunto (default: `prReviewModel`). */
+  summaryModel: string;
   /** Turni massimi del run di review (default 50). */
   prReviewMaxTurns: number;
   /** Timeout del run di review in ms (da PR_REVIEW_TIMEOUT_MINUTES, default
@@ -928,6 +988,14 @@ export interface WorkerConfig {
   pulseSendHour: number;
   /** Se true (default) il pulse tace il sabato e la domenica. */
   pulseWeekdaysOnly: boolean;
+  /** Intervallo in minuti del poller del brief settimanale (default 15;
+   * 0 = disabilitato, ed è il rollback della feature). */
+  briefPollMinutes: number;
+  /** Giorno ISO della finestra d'invio del brief (1 = lunedì … 7 = domenica). */
+  briefWeekday: number;
+  /** Ora locale (0..23) di apertura della finestra d'invio del brief. Il FUSO è
+   * `pulseTimezone`: l'istanza ne ha uno solo. */
+  briefSendHour: number;
   /**
    * Relay a cui spedire le notifiche push, o `null` = PUSH SPENTE.
    *
@@ -992,6 +1060,10 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     docsAutoUpdateMaxNewPages: parsed.DOCS_AUTOUPDATE_MAX_NEW_PAGES,
     prReviewPollSeconds: parsed.PR_REVIEW_POLL_SECONDS,
     prReviewModel: parsed.PR_REVIEW_MODEL,
+    summariesEnabled: parsed.SUMMARIES_ENABLED,
+    // SUMMARY_MODEL assente/vuoto = stesso modello della PR review: un solo
+    // valore da cambiare quando si sposta il profilo di costo dei run brevi.
+    summaryModel: parsed.SUMMARY_MODEL ?? parsed.PR_REVIEW_MODEL,
     prReviewMaxTurns: parsed.PR_REVIEW_MAX_TURNS,
     // Minuti → ms: il runner dell'agente vuole millisecondi.
     prReviewTimeoutMs: parsed.PR_REVIEW_TIMEOUT_MINUTES * 60_000,
@@ -1026,6 +1098,9 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     pulseTimezone: parsed.PULSE_TIMEZONE,
     pulseSendHour: parsed.PULSE_SEND_HOUR,
     pulseWeekdaysOnly: parsed.PULSE_WEEKDAYS_ONLY,
+    briefPollMinutes: parsed.BRIEF_POLL_MINUTES,
+    briefWeekday: parsed.BRIEF_WEEKDAY,
+    briefSendHour: parsed.BRIEF_SEND_HOUR,
     // Letta dall'env GREZZO, non da `parsed`: `envSchema` non la conosce (e non
     // deve, vedi il campo `push` di WorkerConfig). LANCIA su un valore
     // inutilizzabile — un relay in chiaro o con credenziali — così il worker

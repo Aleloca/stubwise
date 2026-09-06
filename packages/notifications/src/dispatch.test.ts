@@ -33,6 +33,7 @@ const BASE_ROW: NotificationSettingsRow = {
   notifyMonitor: true,
   notifyAwaitingInput: true,
   notifyPulse: true,
+  notifyBrief: true,
 };
 
 /**
@@ -166,6 +167,16 @@ const MONITOR_ALERT: NotificationEvent = {
   condition: "disk",
   detail: "disco al 93% (soglia 90%)",
   url: "https://app.example.com/monitor/servers/s1",
+};
+
+const PROJECT_BRIEF: NotificationEvent = {
+  kind: "project.brief",
+  briefId: "7f3e1a20-2222-4333-8444-555566667777",
+  projectName: "webapp",
+  projectUrl: "https://app.example.com/projects/p1/roadmap",
+  periodStart: "2026-08-31",
+  periodEnd: "2026-09-06",
+  headline: "Settimana di consolidamento: due bug chiusi.",
 };
 
 const PROJECT_PULSE: NotificationEvent = {
@@ -431,6 +442,40 @@ describe("dispatchNotification — gating", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     const body = (await bodyOf(fetchImpl)) as { text: string };
     expect(body.text).toContain("No work in progress on webapp");
+  });
+
+  it("notifyBrief off blocca project.brief", async () => {
+    const fetchImpl = okFetch();
+    await dispatchNotification(fakeDb({ ...BASE_ROW, notifyBrief: false }), PROJECT_BRIEF, {
+      fetchImpl,
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("notifyBrief on posta project.brief (e nessun altro toggle lo governa)", async () => {
+    const fetchImpl = okFetch();
+    await dispatchNotification(
+      fakeDb({
+        ...BASE_ROW,
+        notifyTicketCreated: false,
+        notifyPrOpened: false,
+        notifyPrClosed: false,
+        notifyJobHeld: false,
+        notifyPlanReview: false,
+        notifyBudgetHeld: false,
+        notifyReviewCompleted: false,
+        notifyDocsLimitPaused: false,
+        notifyJobFailed: false,
+        notifyMonitor: false,
+        notifyAwaitingInput: false,
+        notifyPulse: false,
+      }),
+      PROJECT_BRIEF,
+      { fetchImpl },
+    );
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const body = (await bodyOf(fetchImpl)) as { text: string };
+    expect(body.text).toContain("Weekly brief");
   });
 
   it("posta all'URL configurato con POST e content-type JSON", async () => {

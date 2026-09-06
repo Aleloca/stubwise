@@ -5,6 +5,7 @@ import {
   comments,
   instanceSettings,
   projects,
+  ticketEvents,
   tickets,
   type Db,
 } from "@stubwise/db";
@@ -495,6 +496,11 @@ describe("runTriage", () => {
     expect(afterTicket.status).toBe("triaged");
     expect(afterTicket.type).toBe("feature");
     expect(afterTicket.effort).toBe(1);
+    // AUDIT: la transizione del triage lascia un evento, actor NULL.
+    const events = await db.select().from(ticketEvents).where(eq(ticketEvents.ticketId, ticket.id));
+    expect(events).toHaveLength(1);
+    expect(events[0]?.payload).toEqual({ from: "open", to: "triaged" });
+    expect(events[0]?.actorId).toBeNull();
 
     // Commento AI esplicativo, nella lingua d'istanza (default 'en').
     const ticketComments = await db.select().from(comments).where(eq(comments.ticketId, ticket.id));
@@ -684,6 +690,11 @@ describe("runTriage", () => {
     expect(outcome).toBe("closed_duplicate");
     const afterTicket = await getTicket(db, ticket.id);
     expect(afterTicket.status).toBe("closed");
+    // AUDIT della chiusura per duplicato (nessun umano dietro).
+    const events = await db.select().from(ticketEvents).where(eq(ticketEvents.ticketId, ticket.id));
+    expect(events).toHaveLength(1);
+    expect(events[0]?.payload).toEqual({ from: "open", to: "closed" });
+    expect(events[0]?.actorId).toBeNull();
     // Tipo ed effort registrati anche per il duplicato.
     expect(afterTicket.type).toBe("bug");
     expect(afterTicket.effort).toBe(2);

@@ -3,7 +3,7 @@ import { Link, useParams } from "@tanstack/react-router";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { DocsChat } from "../../components/docs-chat";
-import type { DocProjectReleaseRef, DocSpace } from "../../lib/docs-api";
+import type { DocDecisionRef, DocProjectReleaseRef, DocSpace } from "../../lib/docs-api";
 import { formatDate, formatRelativeTime } from "../../lib/format";
 import {
   docBriefQueryOptions,
@@ -11,6 +11,39 @@ import {
   projectDocSpacesQueryOptions,
   projectQueryOptions,
 } from "../../lib/queries";
+
+/**
+ * Una riga di decisione nella home: titolo, decisione e da chi.
+ *
+ * Una decisione SUPERATA resta in elenco, attenuata e marcata: nasconderla
+ * darebbe l'impressione che non sia mai stata presa, che è l'opposto di ciò che
+ * un registro serve a ricordare.
+ */
+function ProjectDecisionRow({ decision }: { decision: DocDecisionRef }) {
+  const { t } = useTranslation();
+  return (
+    <li className={`border-b border-line py-2.5 ${decision.superseded ? "opacity-60" : ""}`}>
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <span className="text-[13px]">{decision.title}</span>
+        <span className="font-mono text-[10px] tracking-[0.12em] text-fg-faint uppercase">
+          {t(`docs:decisions.source.${decision.source}`)}
+        </span>
+        {decision.superseded && (
+          <span className="font-mono text-[10px] tracking-[0.12em] text-signal-dim uppercase">
+            {t("docs:decisions.superseded")}
+          </span>
+        )}
+      </div>
+      <p className="mt-1 text-[12px] text-fg-muted">{decision.decision}</p>
+      <p className="mt-1 font-mono text-[11px] text-fg-faint">
+        {formatDate(decision.decidedAt)} ·{" "}
+        {decision.decidedByEmail
+          ? t("docs:decisions.by", { email: decision.decidedByEmail })
+          : t("docs:decisions.byNobody")}
+      </p>
+    </li>
+  );
+}
 
 /**
  * Home della documentazione di PROGETTO (`/docs/project/$projectId`, Fase 2).
@@ -99,6 +132,19 @@ export function ProjectDocsLanding() {
             <p className="mt-3 max-w-prose text-sm leading-relaxed text-fg-muted">
               {briefResponse?.brief.identity ?? t("docs:project.subtitle")}
             </p>
+            {/*
+              La Roadmap (Fase 5) è l'altra metà di questa pagina per chi non
+              legge codice: qui c'è "di cosa si tratta", di là "dove siamo".
+              Sta fuori dal blocco "Da dove cominciare" perché quello dipende da
+              un repository documentato, e la roadmap esiste comunque.
+            */}
+            <Link
+              to="/projects/$projectId/roadmap"
+              params={{ projectId }}
+              className="mt-4 inline-block font-mono text-[11px] tracking-[0.12em] text-fg-faint uppercase transition-colors hover:text-signal"
+            >
+              {t("projects:roadmap.link")} →
+            </Link>
           </header>
 
           {/* Punti d'ingresso: il percorso consigliato a chi arriva a freddo. */}
@@ -198,6 +244,35 @@ export function ProjectDocsLanding() {
             )}
           </section>
 
+          {/*
+            DECISIONI (Fase 5): i fatti decisi da persone su questo progetto.
+            Sta accanto a "Novità" perché risponde all'altra metà di "cosa è
+            successo": le release dicono cosa è cambiato, le decisioni perché.
+            `latestDecisions` è opzionale (server sceso di immagine): l'assenza
+            e la lista vuota sono la stessa cosa, e la sezione non compare.
+          */}
+          {highlights && (highlights.latestDecisions?.length ?? 0) > 0 && (
+            <section className="mt-10" aria-label={t("docs:decisions.homeTitle")}>
+              <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                <h2 className="font-mono text-[11px] tracking-[0.18em] text-fg-faint uppercase">
+                  {t("docs:decisions.homeTitle")}
+                </h2>
+                <Link
+                  to="/docs/project/$projectId/decisions"
+                  params={{ projectId }}
+                  className="font-mono text-[11px] text-signal hover:underline"
+                >
+                  {t("docs:decisions.homeAll")}
+                </Link>
+              </div>
+              <ul className="mt-3">
+                {highlights.latestDecisions!.map((decision) => (
+                  <ProjectDecisionRow key={decision.id} decision={decision} />
+                ))}
+              </ul>
+            </section>
+          )}
+
           {/* Novità: il changelog unificato dei repository del progetto. */}
           {highlights && highlights.latestReleases.length > 0 && (
             <section className="mt-10" aria-label={t("docs:overview.whatsNew")}>
@@ -206,7 +281,10 @@ export function ProjectDocsLanding() {
               </h2>
               <ul className="mt-3">
                 {highlights.latestReleases.slice(0, 6).map((release) => (
-                  <ProjectReleaseRow key={`${release.repositoryId}:${release.slug}`} release={release} />
+                  <ProjectReleaseRow
+                    key={`${release.repositoryId}:${release.slug}`}
+                    release={release}
+                  />
                 ))}
               </ul>
             </section>

@@ -27,8 +27,10 @@ function makeMilestone(overrides: Partial<MilestoneWithCounts>): MilestoneWithCo
     id: M1,
     projectId: PROJECT_ID,
     name: "v1.0",
+    description: null,
     dueDate: null,
     status: "open",
+    closedAt: null,
     createdAt: "2026-01-01T00:00:00.000Z",
     counts: { total: 4, completed: 1, byStatus: {} },
     ...overrides,
@@ -54,11 +56,16 @@ function installMock(state: MockState) {
       return Promise.resolve(jsonResponse(200, state.milestones));
     }
     if (url.pathname === "/api/milestones" && method === "POST") {
-      const body = JSON.parse(String(init?.body)) as { name: string; dueDate?: string | null };
+      const body = JSON.parse(String(init?.body)) as {
+        name: string;
+        description?: string | null;
+        dueDate?: string | null;
+      };
       state.created.push(body);
       const created = makeMilestone({
         id: M2,
         name: body.name,
+        description: body.description ?? null,
         dueDate: body.dueDate ?? null,
         counts: { total: 0, completed: 0, byStatus: {} },
       });
@@ -135,10 +142,35 @@ describe("MilestoneManager", () => {
     await userEvent.type(screen.getByLabelText("Milestone name"), "v3.0");
     await userEvent.click(screen.getByRole("button", { name: "Create" }));
 
+    // Il body è verificato per INTERO, non per campi presenti: è la forma che
+    // il server accetta. Niente `repositoryId` — la UI non ce l'ha mai messo,
+    // ed è il server ad aver smesso di esigerlo.
     await waitFor(() =>
-      expect(state.created).toEqual([{ projectId: PROJECT_ID, name: "v3.0", dueDate: null }]),
+      expect(state.created).toEqual([
+        { projectId: PROJECT_ID, name: "v3.0", description: null, dueDate: null },
+      ]),
     );
     expect(await screen.findByText("v3.0")).toBeInTheDocument();
+  });
+
+  it("crea una milestone con descrizione: la manda nel body", async () => {
+    const state = renderManager([]);
+
+    await screen.findByText("// no milestones yet");
+    await userEvent.type(screen.getByLabelText("Milestone name"), "v4.0");
+    await userEvent.type(screen.getByLabelText("Description"), "La release di settembre");
+    await userEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() =>
+      expect(state.created).toEqual([
+        {
+          projectId: PROJECT_ID,
+          name: "v4.0",
+          description: "La release di settembre",
+          dueDate: null,
+        },
+      ]),
+    );
   });
 
   it("rinomina una milestone: PATCH con il nuovo nome", async () => {

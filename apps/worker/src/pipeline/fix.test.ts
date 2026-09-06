@@ -1,4 +1,4 @@
-import { agentQuestions, agentRuns, aiJobs, automationRules, comments, encrypt, gitAccounts, instanceSettings, plugins, projectPlugins, projects, repositories, ticketRepositories, tickets, type Db } from "@stubwise/db";
+import { agentQuestions, agentRuns, aiJobs, automationRules, comments, encrypt, gitAccounts, instanceSettings, plugins, projectPlugins, projects, repositories, ticketEvents, ticketRepositories, tickets, type Db } from "@stubwise/db";
 import { seedGitAccount, startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { PublishOpts } from "@stubwise/notifications";
 import type { AgentQuestionAnswer } from "@stubwise/shared";
@@ -205,6 +205,10 @@ function makeDeps(
     mirrors: fixture.mirrors,
     encryptionKey: ENCRYPTION_KEY,
     getProviderFn: () => provider as never,
+    // Riassunto "in breve" del piano SPENTO di default nei test: è un run in
+    // più dell'agente e falserebbe i `runner.calls` di tutti i test plan-only
+    // che contano i run. I test che lo riguardano lo riaccendono con override.
+    summariesEnabled: false,
     ...overrides,
   };
 }
@@ -752,6 +756,16 @@ describe("runFix", () => {
     // Ticket in review, job chiuso con la PR.
     const [after] = await db.select().from(tickets).where(eq(tickets.id, ticket.id));
     expect(after?.status).toBe("in_review");
+    // AUDIT: la transizione del worker lascia un evento con actor NULL — non
+    // c'è nessun umano dietro una transizione della pipeline.
+    const statusEvents = await db
+      .select()
+      .from(ticketEvents)
+      .where(eq(ticketEvents.ticketId, ticket.id));
+    expect(statusEvents).toHaveLength(1);
+    expect(statusEvents[0]?.kind).toBe("status_changed");
+    expect(statusEvents[0]?.payload).toEqual({ from: "open", to: "in_review" });
+    expect(statusEvents[0]?.actorId).toBeNull();
     const jobAfter = await getJob(db, job.id);
     expect(jobAfter.status).toBe("pr_opened");
     expect(jobAfter.prUrl).toBe("https://github.com/acme/repo/pull/99");
@@ -1222,10 +1236,112 @@ describe("runFix", () => {
     expect(ticketComments[0]?.body).toMatch(/awaiting approval/i);
     const [after] = await db.select().from(tickets).where(eq(tickets.id, ticket.id));
     expect(after?.status).toBe("in_progress");
+    // AUDIT anche sulla transizione del piano: la timeline deve vedere quando
+    // il ticket è entrato in lavorazione, non solo quando è uscito.
+    const statusEvents = await db
+      .select()
+      .from(ticketEvents)
+      .where(eq(ticketEvents.ticketId, ticket.id));
+    expect(statusEvents).toHaveLength(1);
+    expect(statusEvents[0]?.payload).toEqual({ from: "open", to: "in_progress" });
+    expect(statusEvents[0]?.actorId).toBeNull();
 
     // Consumo del run di pianificazione registrato (best-effort).
     const runs = await db.select().from(agentRuns).where(eq(agentRuns.jobId, job.id));
     expect(runs.filter((r) => r.phase === "fix").map((r) => r.model)).toEqual(["opus"]);
+  });
+
+  it("plan-only: il riassunto in breve del piano è generato PRIMA del parcheggio e scritto sul job", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    await db.update(automationRules).set({ planApprovalMinEffort: 3 }).where(eq(automationRules.type, "bug"));
+    const ticket = await createTicket(db, fixture, { type: "bug", effort: 4 });
+    const job = await createFixingJob(db, ticket.id);
+    const runner = new FakeAgentRunner({
+      results: [
+        { output: "PIANO PROPOSTO: cambia - in + in app.js", exitCode: 0 },
+        { output: "Il conto delle somme torna corretto.", exitCode: 0 },
+      ],
+    });
+    const provider = makeProvider();
+    const published: Published<{ kind: string; summary?: string }>[] = [];
+
+    const outcome = await runFix(
+      makeDeps(fixture, runner, provider, {
+        summariesEnabled: true,
+        summaryModel: "haiku",
+        publish: async (_db, event, opts) => {
+          published.push({
+            event: event as unknown as { kind: string; summary?: string },
+            opts: opts ?? {},
+          });
+          return { published: 1 };
+        },
+      }),
+      job,
+    );
+
+    expect(outcome).toBe("awaiting_approval");
+    // DUE run: pianificazione e riassunto. Il riassunto è l'ULTIMO e gira sul
+    // modello dei riassunti, in plan mode, su una dir sua (i worktree del fix
+    // sono già smontati quando parte).
+    expect(runner.calls).toHaveLength(2);
+    expect(runner.calls[1]?.model).toBe("haiku");
+    expect(runner.calls[1]?.permissionMode).toBe("plan");
+    expect(runner.calls[1]?.prompt).toContain("PIANO PROPOSTO: cambia - in + in app.js");
+
+    const jobAfter = await getJob(db, job.id);
+    expect(jobAfter.status).toBe("awaiting_plan_approval");
+    expect(jobAfter.planText).toBe("PIANO PROPOSTO: cambia - in + in app.js");
+    expect(jobAfter.planSummary).toBe("Il conto delle somme torna corretto.");
+
+    // Il riassunto viaggia anche NELL'EVENTO: webhook e Slack si consegnano al
+    // publish e non rileggono il DB, quindi senza questo campo la card web
+    // avrebbe il riassunto e il DM Slack no.
+    const planEvent = published.find((p) => p.event.kind === "job.plan_review")?.event;
+    expect(planEvent).toMatchObject({ summary: "Il conto delle somme torna corretto." });
+  });
+
+  it("plan-only: riassunto fallito → il piano si parcheggia comunque, planSummary NULL", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    await db.update(automationRules).set({ planApprovalMinEffort: 3 }).where(eq(automationRules.type, "bug"));
+    const ticket = await createTicket(db, fixture, { type: "bug", effort: 4 });
+    const job = await createFixingJob(db, ticket.id);
+    const runner = new FakeAgentRunner({
+      results: [
+        { output: "PIANO PROPOSTO: cambia - in + in app.js", exitCode: 0 },
+        // Run del riassunto crashato: non deve MAI far saltare il parcheggio.
+        { output: "output parziale", exitCode: 1 },
+      ],
+    });
+
+    const outcome = await runFix(
+      makeDeps(fixture, runner, makeProvider(), { summariesEnabled: true }),
+      job,
+    );
+
+    expect(outcome).toBe("awaiting_approval");
+    const jobAfter = await getJob(db, job.id);
+    expect(jobAfter.status).toBe("awaiting_plan_approval");
+    expect(jobAfter.planText).toBe("PIANO PROPOSTO: cambia - in + in app.js");
+    expect(jobAfter.planSummary).toBeNull();
+  });
+
+  it("plan-only: riassunti spenti → nessun run in più e planSummary NULL", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    await db.update(automationRules).set({ planApprovalMinEffort: 3 }).where(eq(automationRules.type, "bug"));
+    const ticket = await createTicket(db, fixture, { type: "bug", effort: 4 });
+    const job = await createFixingJob(db, ticket.id);
+    const runner = new FakeAgentRunner({
+      results: [{ output: "PIANO PROPOSTO: cambia - in + in app.js", exitCode: 0 }],
+    });
+
+    await runFix(makeDeps(fixture, runner, makeProvider(), { summariesEnabled: false }), job);
+
+    expect(runner.calls).toHaveLength(1);
+    expect((await getJob(db, job.id)).planSummary).toBeNull();
   });
 
   it("plan-only: il gate è ortogonale a un job avviato manualmente (manualTrigger non lo bypassa)", async () => {

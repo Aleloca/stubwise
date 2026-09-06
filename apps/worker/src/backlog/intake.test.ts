@@ -5,6 +5,7 @@ import {
   backlogJobs,
   comments,
   projects,
+  ticketEvents,
   tickets,
   type Db,
   type EmbeddingProvider,
@@ -187,6 +188,14 @@ describe("runIntake — nuova voce", () => {
 
     const [closed] = await db.select({ status: tickets.status }).from(tickets).where(eq(tickets.id, ticket.id));
     expect(closed!.status).toBe("closed");
+
+    // AUDIT: anche la chiusura verso il backlog è una transizione di stato, e
+    // la timeline di progetto la vuole datata. actorId null: nessun umano.
+    const events = await db.select().from(ticketEvents).where(eq(ticketEvents.ticketId, ticket.id));
+    expect(events).toHaveLength(1);
+    expect(events[0]?.kind).toBe("status_changed");
+    expect(events[0]?.payload).toEqual({ from: "open", to: "closed" });
+    expect(events[0]?.actorId).toBeNull();
 
     // Commento AI nella lingua d'istanza (default 'en'), via catalogo i18n.
     const [comment] = await db.select().from(comments).where(eq(comments.ticketId, ticket.id));

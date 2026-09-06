@@ -1,11 +1,18 @@
-import { ticketStatusSchema } from "@stubwise/shared";
+import {
+  milestoneCountsSchema,
+  milestoneDraftSchema,
+  milestonePatchSchema,
+  milestoneSchema,
+  milestoneWithCountsSchema,
+  ticketStatusSchema,
+} from "@stubwise/shared";
 import { and, asc, eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { requireAuth } from "../auth/session.js";
 import type { Db } from "@stubwise/db";
-import { milestoneStatus, milestones, projects, repositories, tickets } from "@stubwise/db";
+import { milestones, projects, repositories, tickets } from "@stubwise/db";
 import { apiError } from "../errors.js";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
 
@@ -17,47 +24,14 @@ import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js"
  */
 const COMPLETED_STATUS = "done" satisfies z.infer<typeof ticketStatusSchema>;
 
-/** Avanzamento di una milestone: totale, completati e ripartizione per stato. */
-const milestoneCountsSchema = z.object({
-  total: z.number().int(),
-  completed: z.number().int(),
-  byStatus: z.record(ticketStatusSchema, z.number().int()),
-});
-
-/** Proiezione pubblica della milestone, senza avanzamento (POST). */
-const milestoneSchema = z.object({
-  id: z.uuid(),
-  projectId: z.uuid(),
-  name: z.string(),
-  dueDate: z.iso.datetime().nullable(),
-  status: z.enum(milestoneStatus.enumValues),
-  createdAt: z.iso.datetime(),
-});
-
-/** Milestone con avanzamento (GET lista/dettaglio, PATCH). */
-const milestoneWithCountsSchema = milestoneSchema.extend({ counts: milestoneCountsSchema });
-
-const nameSchema = z.string().min(1).max(200);
-// ISO datetime o null (azzeramento). Optional separa "campo assente" da "null".
-const dueDateSchema = z.iso.datetime().nullable();
-const statusSchema = z.enum(milestoneStatus.enumValues);
-
-const createMilestoneBodySchema = z.object({
-  projectId: z.uuid(),
-  // Repository d'origine della milestone: deve appartenere al progetto (400
-  // altrimenti). In Fase 1 la milestone è product-level ma porta un repo
-  // d'origine valorizzato (continuità con i dati esistenti, schema NOT NULL).
-  repositoryId: z.uuid(),
-  name: nameSchema,
-  dueDate: dueDateSchema.optional(),
-  status: statusSchema.optional(),
-});
-
-const updateMilestoneBodySchema = z.object({
-  name: nameSchema.optional(),
-  dueDate: dueDateSchema.optional(),
-  status: statusSchema.optional(),
-});
+/**
+ * Schemi di richiesta e risposta: vivono in `@stubwise/shared`, così la web app
+ * ne deriva i propri tipi invece di riscriverli. È la ragione per cui la
+ * creazione dalla UI aveva potuto divergere dal body atteso dal server senza
+ * che nulla se ne accorgesse.
+ */
+const createMilestoneBodySchema = milestoneDraftSchema;
+const updateMilestoneBodySchema = milestonePatchSchema;
 
 const listMilestonesQuerySchema = z.object({ projectId: z.uuid() });
 const idParamsSchema = z.object({ id: z.uuid() });
@@ -79,8 +53,10 @@ function toPublicMilestone(row: MilestoneRow): z.infer<typeof milestoneSchema> {
     id: row.id,
     projectId: row.projectId,
     name: row.name,
+    description: row.description,
     dueDate: row.dueDate?.toISOString() ?? null,
     status: row.status,
+    closedAt: row.closedAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -150,7 +126,7 @@ export async function milestoneRoutes(instance: FastifyInstance): Promise<void> 
       },
     },
     async (request, reply) => {
-      const { projectId, repositoryId, name, dueDate, status } = request.body;
+      const { projectId, repositoryId, name, description, dueDate, status } = request.body;
 
       const [project] = await app.db
         .select({ id: projects.id })
@@ -158,18 +134,22 @@ export async function milestoneRoutes(instance: FastifyInstance): Promise<void> 
         .where(eq(projects.id, projectId));
       if (!project) return apiError(reply, 404, "project_not_found", "Project not found");
 
-      // Il repository d'origine deve appartenere al progetto (400 altrimenti).
-      const [repository] = await app.db
-        .select({ id: repositories.id })
-        .from(repositories)
-        .where(and(eq(repositories.id, repositoryId), eq(repositories.projectId, projectId)));
-      if (!repository) {
-        return apiError(
-          reply,
-          400,
-          "repository_not_in_project",
-          "Repository not found in this project",
-        );
+      // Il repository d'origine è OPZIONALE (la milestone è del progetto, e la
+      // web app non lo manda). Se c'è, deve appartenere al progetto: 400
+      // altrimenti — un repo altrui resta un errore, non un campo ignorato.
+      if (repositoryId !== undefined) {
+        const [repository] = await app.db
+          .select({ id: repositories.id })
+          .from(repositories)
+          .where(and(eq(repositories.id, repositoryId), eq(repositories.projectId, projectId)));
+        if (!repository) {
+          return apiError(
+            reply,
+            400,
+            "repository_not_in_project",
+            "Repository not found in this project",
+          );
+        }
       }
 
       try {
@@ -177,10 +157,14 @@ export async function milestoneRoutes(instance: FastifyInstance): Promise<void> 
           .insert(milestones)
           .values({
             projectId,
-            repositoryId,
+            repositoryId: repositoryId ?? null,
             name,
+            description: description ?? null,
             dueDate: dueDate !== undefined && dueDate !== null ? new Date(dueDate) : null,
             ...(status !== undefined ? { status } : {}),
+            // `closedAt` coerente con lo stato fin dalla nascita: una milestone
+            // creata già chiusa ha una data di chiusura.
+            ...(status === "closed" ? { closedAt: new Date() } : {}),
           })
           .returning();
         if (!created) throw new Error("insert della milestone non ha restituito la riga");
@@ -282,12 +266,21 @@ export async function milestoneRoutes(instance: FastifyInstance): Promise<void> 
       },
     },
     async (request, reply) => {
-      const { name, dueDate, status } = request.body;
+      const { name, description, dueDate, status } = request.body;
 
       const updates: Partial<typeof milestones.$inferInsert> = {};
       if (name !== undefined) updates.name = name;
+      if (description !== undefined) updates.description = description;
       if (dueDate !== undefined) updates.dueDate = dueDate === null ? null : new Date(dueDate);
-      if (status !== undefined) updates.status = status;
+      if (status !== undefined) {
+        updates.status = status;
+        // `closedAt` lo governa il passaggio di stato, non il client: chiudere
+        // la data la mette, riaprire la toglie. Una PATCH che non tocca
+        // `status` non ci mette mano. Non è idempotente sul valore — richiudere
+        // una milestone già chiusa riscrive la data — ma la seconda chiusura è
+        // comunque l'ultima, e non esiste uno stato "chiusa senza data".
+        updates.closedAt = status === "closed" ? new Date() : null;
+      }
 
       if (Object.keys(updates).length === 0) {
         return apiError(reply, 400, "no_fields", "Provide at least one field to update");

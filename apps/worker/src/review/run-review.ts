@@ -34,6 +34,7 @@ import {
   type ResolvedProvider,
 } from "../providers/chain.js";
 import { isLimitError } from "../providers/limit.js";
+import { generatePrSummary } from "../summaries/pr-summary.js";
 import { buildReviewPrompt, parseReviewOutput } from "./prompts.js";
 
 /**
@@ -143,7 +144,22 @@ export interface RunPrReviewDeps {
   monthlyCostUsdFn?: (db: Db) => Promise<number>;
   /** Publish delle notifiche (iniettabile). Default: publishNotification. */
   publish?: PublishFn;
+  /** Riassunto "in breve" della PR (fase 5): false = nessun run, `pr_summary`
+   * resta NULL. Default true (SUMMARIES_ENABLED). */
+  summariesEnabled?: boolean;
+  /** Modello del run di riassunto (default: `model` della review). */
+  summaryModel?: string;
+  /** Timeout del run di riassunto in ms (default SUMMARY_TIMEOUT_MS). */
+  summaryTimeoutMs?: number;
 }
+
+/**
+ * Timeout del run di riassunto della PR. Corto: run di solo testo, senza tool e
+ * senza working tree, appeso in coda a una review già conclusa. Il suo costo
+ * peggiore è ritardare di due minuti la chiusura della riga, non trattenere il
+ * poller.
+ */
+const SUMMARY_TIMEOUT_MS = 120_000;
 
 function errText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -663,6 +679,29 @@ export async function runPrReview(deps: RunPrReviewDeps, job: PrReviewJobRow): P
       return;
     }
 
+    // 10-bis. Riassunto "in breve" della PR (fase 5): un secondo run di solo
+    // testo che traduce verdetto e analisi appena parsati per chi non legge
+    // codice. Sta QUI — dopo il parse e dopo il cap di costo — di proposito: una
+    // review scartata dal cap o non parsabile non produce nulla che qualcuno
+    // leggerà, e non deve costare un run in più. Best-effort: `null` su
+    // qualunque fallimento, e la review si completa comunque.
+    const prSummary = await generatePrSummary(
+      {
+        runner: deps.runner,
+        timeoutMs: deps.summaryTimeoutMs ?? SUMMARY_TIMEOUT_MS,
+        model: deps.summaryModel ?? deps.model,
+        ...(resolved.provider !== undefined ? { provider: resolved.provider } : {}),
+        ...(deps.summariesEnabled !== undefined ? { enabled: deps.summariesEnabled } : {}),
+      },
+      {
+        lang,
+        prTitle: job.prTitle,
+        prBody: job.prBody,
+        verdict: parsed.verdict,
+        analysis: parsed.summary,
+      },
+    );
+
     // 11. Ticket che ospita la review (creato SOLO ora, a parse riuscito).
     const ticket = await resolveTicket(deps.db, ctx, job, lang, () =>
       getProviderFn(ctx.mirrorProject.provider).getPullRequestState(
@@ -688,6 +727,7 @@ export async function runPrReview(deps: RunPrReviewDeps, job: PrReviewJobRow): P
           status: "completed",
           verdict: parsed.verdict,
           summary: parsed.summary,
+          prSummary,
           finishedAt: sql`now()`,
           lastActivityAt: sql`now()`,
         })
@@ -722,6 +762,10 @@ export async function runPrReview(deps: RunPrReviewDeps, job: PrReviewJobRow): P
           status: "completed",
           verdict: parsed.verdict,
           summary: parsed.summary,
+          // Il riassunto entra nella STESSA transazione di verdetto e analisi:
+          // le tre colonne descrivono lo stesso risultato e nessuno stato
+          // intermedio deve poter mostrare un verdetto senza la sua traduzione.
+          prSummary,
           ticketId: ticket.id,
           finishedAt: sql`now()`,
           lastActivityAt: sql`now()`,
@@ -761,6 +805,9 @@ export async function runPrReview(deps: RunPrReviewDeps, job: PrReviewJobRow): P
         ticketUrl: ticketUrl(deps.publicUrl, ticket.id),
         prUrl: job.prUrl,
         verdict: parsed.verdict,
+        // Riassunto anche nell'evento: webhook e DM Slack partono dal payload
+        // pubblicato, non da una rilettura di `pr_reviews`.
+        ...(prSummary !== null ? { summary: prSummary } : {}),
       },
       // NIENTE jobId: il "job" della review è una riga `pr_review_jobs`, mentre
       // `notifications.job_id` ha la FK su `ai_jobs` — passarlo qui farebbe

@@ -4,6 +4,7 @@ import {
   backlogItemTickets,
   backlogJobs,
   comments,
+  recordTicketStatusChange,
   retrieveChunksForProject,
   tickets,
   type Db,
@@ -18,7 +19,7 @@ import {
 } from "@stubwise/shared";
 import { and, eq, notInArray, sql } from "drizzle-orm";
 import { z } from "zod";
-import type { AgentRunResult } from "../agent/runner.js";
+import { outputOrThrow, parseAgentJson } from "../agent/text.js";
 import type { ResolvedProvider } from "../providers/chain.js";
 import { getContentLanguage } from "../settings.js";
 import type { BacklogDeps, BacklogJob } from "./poller.js";
@@ -68,34 +69,6 @@ type IntakeOutput = z.infer<typeof intakeOutputSchema>;
 /** Output JSON del merge (buildMergePrompt): solo il documento aggiornato. */
 const mergeOutputSchema = z.object({ document: z.string().min(1) });
 type MergeOutput = z.infer<typeof mergeOutputSchema>;
-
-/**
- * Estrae e parsa l'oggetto JSON dall'output dell'agente, in modo DIFENSIVO
- * (mirror di parseRefreshOutput nel server): tollera un fence ```json … ``` e un
- * pre/postambolo attorno all'oggetto (fetta tra la prima `{` e l'ultima `}`),
- * poi valida contro `schema`. Restituisce null se non parsabile/non conforme.
- */
-function parseAgentJson<T>(raw: string, schema: z.ZodType<T>): T | null {
-  let text = raw.trim();
-  const fence = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(text);
-  if (fence) text = fence[1]!.trim();
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    const start = text.indexOf("{");
-    const end = text.lastIndexOf("}");
-    if (start === -1 || end <= start) return null;
-    try {
-      parsed = JSON.parse(text.slice(start, end + 1));
-    } catch {
-      return null;
-    }
-  }
-  const result = schema.safeParse(parsed);
-  return result.success ? result.data : null;
-}
 
 /** Testo del feedback per embedding e prompt: titolo + corpo. */
 function feedbackText(title: string, body: string): string {
@@ -152,15 +125,6 @@ async function findBestMatch(
   return { id: row.id, title: row.title, document: row.document, similarity: 1 - row.distance };
 }
 
-/** Testo utile da un run: throw se exit ≠ 0 (runner.run RISOLVE anche su
- * exit non-zero → niente output da un run crashato). */
-function outputOrThrow(result: AgentRunResult, phase: string): string {
-  if (result.exitCode !== 0) {
-    throw new Error(`intake: agente (${phase}) uscito con exit ${result.exitCode}`);
-  }
-  return result.output;
-}
-
 /**
  * MERGE: integra il nuovo feedback nel documento della voce esistente. L'embedding
  * della voce NON si ricalcola di proposito: resta rappresentativo del NUCLEO
@@ -186,7 +150,7 @@ async function mergeIntoItem(
     timeoutMs: deps.agentTimeoutMs,
     ...(provider !== undefined ? { provider } : {}),
   });
-  const parsed: MergeOutput | null = parseAgentJson(outputOrThrow(result, "merge"), mergeOutputSchema);
+  const parsed: MergeOutput | null = parseAgentJson(mergeOutputSchema, outputOrThrow(result, "intake (merge)"));
   if (!parsed) throw new Error("intake: output del merge non parsabile");
 
   await deps.db.transaction(async (tx) => {
@@ -251,8 +215,8 @@ async function createNewItem(
     ...(provider !== undefined ? { provider } : {}),
   });
   const parsed: IntakeOutput | null = parseAgentJson(
-    outputOrThrow(result, "intake"),
     intakeOutputSchema,
+    outputOrThrow(result, "intake"),
   );
   if (!parsed) throw new Error("intake: output della generazione non parsabile");
 
@@ -284,10 +248,12 @@ async function createNewItem(
 
 /**
  * Chiude il ticket d'origine e lo collega alla voce. Coerente col percorso di
- * chiusura del triage (comment + status update, NESSUN ticket_event: non esiste
- * un kind adatto per "spostato nel backlog" e il triage stesso, quando chiude un
- * duplicato, usa solo il commento). Il link è idempotente
- * (`onConflictDoNothing`): un merge che ri-linka lo stesso ticket non esplode.
+ * chiusura del triage (comment + status update). Dalla fase 5 la transizione
+ * lascia anche un `ticket_events` `status_changed`: non esiste un kind
+ * "spostato nel backlog", ma il ticket PASSA comunque a `closed`, ed è quella
+ * transizione — datata, con actor null — che la timeline di progetto deve poter
+ * leggere. Il link è idempotente (`onConflictDoNothing`): un merge che ri-linka
+ * lo stesso ticket non esplode.
  */
 async function closeOriginTicket(
   tx: Db,
@@ -306,7 +272,19 @@ async function closeOriginTicket(
     authorType: "ai",
     body: t(lang, "comment.backlogIntake", { title: itemTitle }),
   });
+  const [before] = await tx
+    .select({ status: tickets.status })
+    .from(tickets)
+    .where(eq(tickets.id, ticket.id));
   await tx.update(tickets).set({ status: "closed" }).where(eq(tickets.id, ticket.id));
+  if (before) {
+    await recordTicketStatusChange(tx, {
+      ticketId: ticket.id,
+      from: before.status,
+      to: "closed",
+      actorId: null,
+    });
+  }
 }
 
 /**

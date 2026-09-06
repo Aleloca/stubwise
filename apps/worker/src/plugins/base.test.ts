@@ -38,6 +38,18 @@ async function runHook(
   child.stderr.setEncoding("utf8");
   child.stdout.on("data", (chunk: string) => (stdout += chunk));
   child.stderr.on("data", (chunk: string) => (stderr += chunk));
+  // Lo script può uscire PRIMA che la scrittura su stdin sia stata consumata —
+  // è proprio quello che fa il caso del node rotto, che esce subito dopo la
+  // command substitution. Quando succede la pipe è già chiusa e la write emette
+  // un EPIPE ASINCRONO: senza un handler diventa un'eccezione non gestita che
+  // fa fallire l'intero run di vitest a test verdi (visto in CI, non in locale:
+  // è una corsa che perde solo su una macchina lenta o carica).
+  // Qui l'EPIPE è atteso e innocuo — questi test asseriscono sul codice di
+  // uscita e su stdout, non sul fatto che lo script abbia letto lo stdin.
+  // Si ignora SOLO EPIPE: un altro errore sulla pipe resta un errore vero.
+  child.stdin.on("error", (error: NodeJS.ErrnoException) => {
+    if (error.code !== "EPIPE") throw error;
+  });
   child.stdin.write(options.stdin ?? "");
   child.stdin.end();
   const code = await new Promise<number | null>((resolve, reject) => {

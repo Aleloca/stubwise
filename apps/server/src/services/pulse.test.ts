@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   aiJobs,
@@ -7,6 +7,7 @@ import {
   backlogItemTickets,
   notificationDeliveries,
   notifications,
+  projectDecisions,
   tickets,
   users,
   type Db,
@@ -586,5 +587,79 @@ describe("executeAction — dispatch del pulse", () => {
       payload: { answer: { optionIndex: 0 } },
     });
     expect(result).toMatchObject({ ok: false, error: "proposal_stale" });
+  });
+});
+
+describe("proceedWithProposal — registro decisioni", () => {
+  /** Decisioni `pulse` del progetto di test, dalla più recente. */
+  async function readPulseDecisions() {
+    return db
+      .select()
+      .from(projectDecisions)
+      .where(and(eq(projectDecisions.projectId, projectId), eq(projectDecisions.source, "pulse")))
+      .orderBy(desc(projectDecisions.createdAt));
+  }
+
+  it("procedere registra la voce scelta, le alternative scartate e l'attore", async () => {
+    const chosen = await seedItem({ title: "Export CSV degli ordini" });
+    const other1 = await seedItem({ title: "Filtro per data" });
+    const other2 = await seedItem({ title: "Notifica di consegna" });
+    const { ids } = await seedPulse([operator], [other1, chosen, other2]);
+    const before = (await readPulseDecisions()).length;
+
+    const result = await proceedWithProposal(db, {
+      notificationId: ids[0]!,
+      actor: operator,
+      optionIndex: 1,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const rows = await readPulseDecisions();
+    expect(rows).toHaveLength(before + 1);
+    const decision = rows[0]!;
+    expect(decision.sourceKey).toBe(`pulse:${ids[0]}`);
+    expect(decision.sourceRef).toMatchObject({ backlogItemId: chosen.id });
+    // Il ticket appena nato: la decisione ci resta agganciata.
+    expect(decision.ticketId).toBe(result.ticketId);
+    expect(decision.title).toBe("Export CSV degli ordini");
+    expect(decision.decision).toContain("Export CSV degli ordini");
+    // Le alternative scartate sono il CONTESTO in cui la scelta è stata fatta.
+    expect(decision.context).toContain("Filtro per data");
+    expect(decision.context).toContain("Notifica di consegna");
+    expect(decision.context).not.toContain("Export CSV degli ordini");
+    expect(decision.decidedByUserId).toBe(operator.id);
+  });
+
+  it("con una sola proposta non c'è contesto di alternative", async () => {
+    const only = await seedItem({ title: "Unica proposta" });
+    const { ids } = await seedPulse([maintainer], [only]);
+
+    expect(
+      (
+        await proceedWithProposal(db, {
+          notificationId: ids[0]!,
+          actor: maintainer,
+          optionIndex: 0,
+        })
+      ).ok,
+    ).toBe(true);
+
+    expect((await readPulseDecisions())[0]?.context).toBeNull();
+  });
+
+  it("una proposta scaduta (voce già convertita) non registra nulla", async () => {
+    const item = await seedItem({ title: "Voce già presa" });
+    const { ids } = await seedPulse([maintainer], [item], { pulseId: randomUUID() });
+    await db.update(backlogItems).set({ status: "archived" }).where(eq(backlogItems.id, item.id));
+    const before = (await readPulseDecisions()).length;
+
+    const result = await proceedWithProposal(db, {
+      notificationId: ids[0]!,
+      actor: maintainer,
+      optionIndex: 0,
+    });
+    expect(result).toMatchObject({ ok: false, error: "proposal_stale" });
+    expect(await readPulseDecisions()).toHaveLength(before);
   });
 });

@@ -1,9 +1,17 @@
 import {
   createProjectSchema,
+  decisionDraftSchema,
+  decisionPatchSchema,
+  decisionSourceSchema,
+  prReviewSummarySchema,
+  projectDecisionSchema,
   projectDetailSchema,
   projectListItemSchema,
   projectPulseSummarySchema,
   projectSchema,
+  projectTimelineKindSchema,
+  projectBriefWeeklySchema,
+  projectTimelineSchema,
   updateProjectSchema,
 } from "@stubwise/shared";
 import { summarizeProject, type ProjectPulseSummary } from "@stubwise/notifications";
@@ -20,6 +28,19 @@ import {
   isUniqueViolation,
 } from "./shared.js";
 import { apiError } from "../errors.js";
+import {
+  TIMELINE_MAX_DAYS,
+  buildProjectTimeline,
+  canViewProject,
+  listProjectReviews,
+  resolveTimelineWindow,
+} from "../services/project-timeline.js";
+import { listProjectBriefs, queueBriefRegeneration } from "../services/project-briefs.js";
+import {
+  createManualDecision,
+  listProjectDecisions,
+  patchDecision,
+} from "../services/project-decisions.js";
 
 /**
  * Tentativi massimi di insert prima di arrendersi sulla generazione dello
@@ -98,6 +119,10 @@ function toPublicProject(row: ProjectRow): z.infer<typeof projectSchema> {
     // poller (il gate di idempotenza), non un'impostazione.
     pulseEnabled: row.pulseEnabled,
     pulseEveryDays: row.pulseEveryDays,
+    // Brief settimanale (Fase 5): indipendente dal backlog, al contrario del
+    // pulse — il brief racconta quello che è già successo, e ha qualcosa da
+    // dire anche su un progetto senza backlog di discovery.
+    weeklyBriefEnabled: row.weeklyBriefEnabled,
     // Ingestion di prodotto (Fase 3): la chiave con cui gli SDK inviano
     // errori/feedback e il contatore ticket per-progetto, saliti dal repo.
     ingestionKey: row.ingestionKey,
@@ -138,6 +163,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
         backlogEnabled,
         pulseEnabled,
         pulseEveryDays,
+        weeklyBriefEnabled,
       } = request.body;
 
       // Provider AI opzionale: se valorizzato deve riferire una riga esistente
@@ -171,6 +197,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
               ...(backlogEnabled !== undefined ? { backlogEnabled } : {}),
               ...(pulseEnabled !== undefined ? { pulseEnabled } : {}),
               ...(pulseEveryDays !== undefined ? { pulseEveryDays } : {}),
+              ...(weeklyBriefEnabled !== undefined ? { weeklyBriefEnabled } : {}),
               // Chiave di ingestion del progetto per gli SDK (Fase 3): 32 hex,
               // stesso generatore usato finora per i repository. UNIQUE: in caso
               // di collisione (astronomicamente improbabile) l'insert rilancia e
@@ -255,6 +282,343 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
     },
   );
 
+  /**
+   * Le review AI di PR del progetto (Fase 5): la PRIMA lettura di `pr_reviews`
+   * da un'API. Serve alla timeline (verdetto accanto alla PR) e all'app.
+   *
+   * Registrata PRIMA di `GET /:projectId` per coerenza con `/pulse` qui sopra.
+   * Il path ha un suffisso letterale (`/reviews`) e non collide davvero con la
+   * rotta parametrica, ma l'ordine "letterali prima della `:id`" è la regola di
+   * questo file e non si fa un'eccezione per ricordarsi che era innocua.
+   */
+  app.get(
+    "/:projectId/reviews",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: idParamsSchema,
+        querystring: z.object({
+          limit: z.coerce.number().int().min(1).max(200).optional(),
+        }),
+        response: {
+          200: z.array(prReviewSummarySchema),
+          404: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const viewer = { userId: request.user!.id, role: request.user!.role };
+      if (!(await canViewProject(app.db, request.params.projectId, viewer))) {
+        return apiError(reply, 404, "project_not_found", "Project not found");
+      }
+      return listProjectReviews(app.db, request.params.projectId, request.query.limit ?? 50);
+    },
+  );
+
+  /**
+   * LA TIMELINE DI PROGETTO (Fase 5): ticket, milestone, PR, report, decisioni
+   * e brief fusi in un racconto ordinato. Alimenta la pagina web "Roadmap".
+   *
+   * `from`/`to` sono ISO 8601 e hanno default lato server (ultime 4 settimane);
+   * `kinds` è un elenco separato da virgole per filtrare i tipi di voce. La
+   * finestra non può superare i 180 giorni: sopra è un 400, non una risposta
+   * enorme costruita scandendo lo storico intero.
+   *
+   * ACL come `/pulse`: un member vede solo i progetti che segue, un admin
+   * tutti. "Non seguito" e "inesistente" rispondono entrambi 404.
+   */
+  app.get(
+    "/:projectId/timeline",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: idParamsSchema,
+        querystring: z.object({
+          from: z.string().optional(),
+          to: z.string().optional(),
+          kinds: z.string().optional(),
+        }),
+        response: {
+          200: projectTimelineSchema,
+          400: errorSchema,
+          404: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const viewer = { userId: request.user!.id, role: request.user!.role };
+      if (!(await canViewProject(app.db, request.params.projectId, viewer))) {
+        return apiError(reply, 404, "project_not_found", "Project not found");
+      }
+
+      const resolved = resolveTimelineWindow(request.query);
+      if (!resolved.ok) {
+        return apiError(
+          reply,
+          400,
+          resolved.reason,
+          resolved.reason === "window_too_large"
+            ? `The timeline window cannot exceed ${TIMELINE_MAX_DAYS} days`
+            : "Invalid from/to range",
+        );
+      }
+
+      // `kinds` vuoto (`?kinds=`) NON è "nessun tipo": è un parametro che il
+      // client ha mandato senza valore, e la risposta giusta è la timeline
+      // intera, non una lista vuota che sembra un progetto senza storia.
+      let kinds: Set<string> | undefined;
+      if (request.query.kinds !== undefined && request.query.kinds.trim() !== "") {
+        const requested = request.query.kinds.split(",").map((value) => value.trim());
+        const unknown = requested.filter(
+          (value) => !projectTimelineKindSchema.options.includes(value as never),
+        );
+        if (unknown.length > 0) {
+          return apiError(
+            reply,
+            400,
+            "invalid_kinds",
+            `Unknown timeline kinds: ${unknown.join(", ")}`,
+          );
+        }
+        kinds = new Set(requested);
+      }
+
+      const entries = await buildProjectTimeline(
+        app.db,
+        request.params.projectId,
+        resolved.window,
+        kinds,
+      );
+      return {
+        from: resolved.window.from.toISOString(),
+        to: resolved.window.to.toISOString(),
+        entries,
+      };
+    },
+  );
+
+  /**
+   * I BRIEF SETTIMANALI del progetto (Fase 5), dal più recente.
+   *
+   * ACL come `/timeline` e `/reviews`: member = solo i progetti che segue.
+   * ⚠️ Registrata PRIMA di `/:projectId` come ogni rotta con suffisso letterale
+   * su questo prefisso (vedi il commento su `/pulse`).
+   */
+  app.get(
+    "/:projectId/briefs",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: idParamsSchema,
+        querystring: z.object({
+          limit: z.coerce.number().int().min(1).max(100).optional(),
+        }),
+        response: {
+          200: z.array(projectBriefWeeklySchema),
+          404: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const viewer = { userId: request.user!.id, role: request.user!.role };
+      if (!(await canViewProject(app.db, request.params.projectId, viewer))) {
+        return apiError(reply, 404, "project_not_found", "Project not found");
+      }
+      return listProjectBriefs(app.db, request.params.projectId, request.query.limit ?? 20);
+    },
+  );
+
+  /**
+   * RIGENERA il brief dell'ultima settimana chiusa: mette la riga in coda, e a
+   * generarla sarà il poller del worker al tick successivo (non aspetta il
+   * giorno d'invio). Solo admin: è un run AI, e chi lo lancia spende.
+   *
+   * `force` è richiesto solo se il brief è già `done` — rifare un testo che
+   * qualcuno ha già letto, e che è già stato annunciato in inbox e su Slack, è
+   * una decisione. Un brief `failed` o ancora in coda si rigenera senza.
+   *
+   * 201 se la riga è stata creata, 200 se una esistente è tornata in coda: la
+   * UI distingue "ne parte uno nuovo" da "questo lo rifacciamo".
+   */
+  app.post(
+    "/:projectId/briefs/generate",
+    {
+      preHandler: requireAdmin,
+      schema: {
+        params: idParamsSchema,
+        body: z.object({ force: z.boolean().optional() }),
+        response: {
+          200: projectBriefWeeklySchema,
+          201: projectBriefWeeklySchema,
+          404: errorSchema,
+          409: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const [project] = await app.db
+        .select({ id: projects.id })
+        .from(projects)
+        .where(eq(projects.id, request.params.projectId));
+      if (!project) return apiError(reply, 404, "project_not_found", "Project not found");
+
+      const result = await queueBriefRegeneration(app.db, request.params.projectId, {
+        ...(request.body.force !== undefined ? { force: request.body.force } : {}),
+      });
+      if (!result.ok) {
+        return apiError(
+          reply,
+          409,
+          "brief_already_done",
+          "This week's brief is already generated: pass force to regenerate it",
+        );
+      }
+      return reply.code(result.created ? 201 : 200).send(result.brief);
+    },
+  );
+
+  /**
+   * IL REGISTRO DECISIONI del progetto (Fase 5): i fatti decisi da persone —
+   * risposte alle domande dell'agente, piani approvati o rifiutati con
+   * indicazioni, proposte del pulse prese — più le voci scritte a mano.
+   *
+   * ⚠️ Registrata PRIMA di `/:projectId`, come ogni rotta con suffisso
+   * letterale su questo prefisso (vedi il commento su `/pulse`).
+   *
+   * ACL di LETTURA come timeline e brief: un member vede solo i progetti che
+   * segue, un admin tutti; "non seguito" e "inesistente" rispondono 404.
+   */
+  app.get(
+    "/:projectId/decisions",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: idParamsSchema,
+        querystring: z.object({
+          limit: z.coerce.number().int().min(1).max(200).optional(),
+          source: decisionSourceSchema.optional(),
+        }),
+        response: {
+          200: z.array(projectDecisionSchema),
+          404: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const viewer = { userId: request.user!.id, role: request.user!.role };
+      if (!(await canViewProject(app.db, request.params.projectId, viewer))) {
+        return apiError(reply, 404, "project_not_found", "Project not found");
+      }
+      return listProjectDecisions(app.db, request.params.projectId, {
+        limit: request.query.limit ?? 50,
+        ...(request.query.source ? { source: request.query.source } : {}),
+      });
+    },
+  );
+
+  /**
+   * Registra una decisione SCRITTA A MANO. Non serve essere maintainer: chi
+   * lavora al progetto è chi ha deciso, e un registro che solo gli admin
+   * possono alimentare si svuota. La stessa ACL di lettura vale come gate.
+   */
+  app.post(
+    "/:projectId/decisions",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: idParamsSchema,
+        body: decisionDraftSchema,
+        response: {
+          201: projectDecisionSchema,
+          404: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const viewer = { userId: request.user!.id, role: request.user!.role };
+      const { projectId } = request.params;
+      if (!(await canViewProject(app.db, projectId, viewer))) {
+        return apiError(reply, 404, "project_not_found", "Project not found");
+      }
+      const created = await createManualDecision(app.db, {
+        projectId,
+        authorId: viewer.userId,
+        title: request.body.title,
+        decision: request.body.decision,
+        ...(request.body.context ? { context: request.body.context } : {}),
+        ...(request.body.consequences ? { consequences: request.body.consequences } : {}),
+        ...(request.body.ticketId ? { ticketId: request.body.ticketId } : {}),
+        ...(request.body.decidedAt ? { decidedAt: request.body.decidedAt } : {}),
+      });
+      return reply.code(201).send(created);
+    },
+  );
+
+  /**
+   * Corregge una decisione o la segna come SUPERATA da un'altra
+   * (`supersededById`). Solo l'autore o un maintainer: una decisione non è un
+   * wiki, e riscrivere il fatto altrui è la cosa che questo registro non deve
+   * permettere.
+   *
+   * `superseded` non cancella: la voce vecchia resta, e sapere che è stata
+   * cambiata vale quanto sapere che era stata presa.
+   */
+  app.patch(
+    "/:projectId/decisions/:decisionId",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: z.object({ projectId: z.uuid(), decisionId: z.uuid() }),
+        body: decisionPatchSchema,
+        response: {
+          200: projectDecisionSchema,
+          400: errorSchema,
+          404: errorSchema,
+          // 403 arriva da `authErrorResponses`: qui lo usa anche la regola
+          // "solo l'autore o un maintainer", non solo il gate di sessione.
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const viewer = { userId: request.user!.id, role: request.user!.role };
+      const { projectId, decisionId } = request.params;
+      if (!(await canViewProject(app.db, projectId, viewer))) {
+        return apiError(reply, 404, "project_not_found", "Project not found");
+      }
+      const result = await patchDecision(app.db, {
+        projectId,
+        decisionId,
+        actor: { id: viewer.userId, role: viewer.role },
+        patch: request.body,
+      });
+      if (result.ok) return result.decision;
+      if (result.error === "not_found") {
+        return apiError(reply, 404, "decision_not_found", "Decision not found");
+      }
+      if (result.error === "forbidden") {
+        return apiError(
+          reply,
+          403,
+          "decision_forbidden",
+          "Only the author or a maintainer can edit this decision",
+        );
+      }
+      return apiError(
+        reply,
+        400,
+        "invalid_supersede",
+        "supersededById must be another decision of the same project",
+      );
+    },
+  );
+
   app.get(
     "/:projectId",
     {
@@ -304,6 +668,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
         backlogEnabled,
         pulseEnabled,
         pulseEveryDays,
+        weeklyBriefEnabled,
       } = request.body;
       const updates: Partial<ProjectRow> = {};
       if (name !== undefined) updates.name = name;
@@ -320,6 +685,8 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
       // del DB resta l'arbitro per chi scrive senza passare da qui.
       if (pulseEnabled !== undefined) updates.pulseEnabled = pulseEnabled;
       if (pulseEveryDays !== undefined) updates.pulseEveryDays = pulseEveryDays;
+      // Toggle brief settimanale: omesso lo lascia invariato.
+      if (weeklyBriefEnabled !== undefined) updates.weeklyBriefEnabled = weeklyBriefEnabled;
       // Provider AI del progetto (Docs e fix). null lo azzera (automatico); un
       // uuid deve riferire una riga ai_providers esistente; omesso lo lascia.
       if (aiProviderId !== undefined) {

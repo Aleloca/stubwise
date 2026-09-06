@@ -19,7 +19,7 @@
  * (`src/actions.ts`, coi loro test) e questo modulo li ri-esporta: gli import
  * dei suoi consumatori (rotte, test) restano validi.
  */
-import { aiJobs, notifications, users, type Db } from "@stubwise/db";
+import { aiJobs, notifications, prReviews, users, type Db } from "@stubwise/db";
 import type { Language } from "@stubwise/i18n";
 import {
   actionsFor,
@@ -41,7 +41,7 @@ import {
   type InboxPulse,
   type InboxQuestion,
 } from "@stubwise/shared";
-import { and, desc, eq, inArray, isNull, ne, sql, type SQL } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, ne, sql, type SQL } from "drizzle-orm";
 import { resolvePlan, startRun, type Actor } from "./jobs.js";
 import { mirrorDecision, propagateDecision } from "./notifications-propagation.js";
 import { proceedWithProposal } from "./pulse.js";
@@ -540,6 +540,15 @@ export interface InboxItem {
    */
   question?: InboxQuestion;
   /**
+   * Riassunto "in breve" (fase 5): due o tre frasi non tecniche sui kind che ne
+   * hanno uno — piano da approvare, PR aperta, review completata. NON viene dal
+   * payload `event` ma dalle colonne (`ai_jobs.plan_summary`,
+   * `pr_reviews.pr_summary`), caricate in batch per pagina: così una card
+   * mostra il riassunto anche quando è arrivato DOPO la notifica. ASSENTE, mai
+   * `null`, quando non c'è — vedi {@link summaryForItem}.
+   */
+  summary?: string;
+  /**
    * Il contorno del pulse (progetto, giorni di fermo, voci di backlog dietro le
    * opzioni), sul solo kind `project.pulse`. ASSENTE se il payload non lo porta
    * in forma leggibile, o se non è ALLINEATO alle opzioni — vedi
@@ -658,7 +667,11 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
       ? encodeCursor({ createdAt: last.cursorTimestamp, id: last.id })
       : null;
 
-  const { latestStatusByTicket, requesterByJob } = await jobsOfTickets(
+  const { latestStatusByTicket, requesterByJob, planSummaryByJob } = await jobsOfTickets(
+    db,
+    page.map((r) => r.ticketId),
+  );
+  const prSummaryByTicketAndUrl = await prSummariesOfTickets(
     db,
     page.map((r) => r.ticketId),
   );
@@ -675,6 +688,15 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
       // La resa dal jsonb è l'unica parte che può esplodere: sta dentro il suo
       // recinto (vedi `renderItem`).
       ...renderItem(r.event, r.kind, lang),
+      // Il riassunto NON passa dal jsonb dell'evento: viene dalle colonne
+      // (`ai_jobs.plan_summary`, `pr_reviews.pr_summary`) caricate in batch
+      // sopra. Così una card mostra il riassunto anche quando è arrivato DOPO
+      // la notifica — è il caso di `job.pr_opened`, pubblicata all'apertura
+      // della PR, quando la review non è ancora girata.
+      ...(() => {
+        const summary = summaryForItem(r, r.event, planSummaryByJob, prSummaryByTicketAndUrl);
+        return summary !== undefined ? { summary } : {};
+      })(),
       // Le azioni NON passano dal jsonb: la chiave del catalogo è la colonna
       // enum `kind`, che il DB garantisce valida. Una card col testo degradato
       // resta quindi azionabile.
@@ -860,17 +882,24 @@ async function jobsOfTickets(
 ): Promise<{
   latestStatusByTicket: Map<string, string>;
   requesterByJob: Map<string, string | null>;
+  planSummaryByJob: Map<string, string>;
 }> {
   const ids = [...new Set(ticketIds.filter((id): id is string => id !== null))];
   const latestStatusByTicket = new Map<string, string>();
   const requesterByJob = new Map<string, string | null>();
-  if (ids.length === 0) return { latestStatusByTicket, requesterByJob };
+  // Riassunto "in breve" del piano, per ID DI JOB e non per ticket: la card di
+  // `job.plan_review` deve mostrare il piano del job della NOTIFICA, non
+  // dell'ultimo job del ticket. Un replan crea una notifica nuova con un job
+  // nuovo, e la card vecchia deve continuare a descrivere la sua decisione.
+  const planSummaryByJob = new Map<string, string>();
+  if (ids.length === 0) return { latestStatusByTicket, requesterByJob, planSummaryByJob };
   const rows = await db
     .select({
       id: aiJobs.id,
       ticketId: aiJobs.ticketId,
       status: aiJobs.status,
       requestedByUserId: aiJobs.requestedByUserId,
+      planSummary: aiJobs.planSummary,
     })
     .from(aiJobs)
     .where(inArray(aiJobs.ticketId, ids))
@@ -878,8 +907,66 @@ async function jobsOfTickets(
   for (const row of rows) {
     if (!latestStatusByTicket.has(row.ticketId)) latestStatusByTicket.set(row.ticketId, row.status);
     requesterByJob.set(row.id, row.requestedByUserId);
+    if (row.planSummary !== null) planSummaryByJob.set(row.id, row.planSummary);
   }
-  return { latestStatusByTicket, requesterByJob };
+  return { latestStatusByTicket, requesterByJob, planSummaryByJob };
+}
+
+/**
+ * Riassunti "in breve" delle PR revisionate dei ticket della pagina, in UNA
+ * query: chiave `<ticketId>|<prUrl>`, perché un ticket può avere più PR (fix
+ * multi-repo) e la card deve prendere quella del proprio evento.
+ *
+ * Solo righe con un riassunto: una review senza `pr_summary` non deve occupare
+ * la chiave e far credere che il riassunto sia vuoto. A parità di chiave vince
+ * la più recente (la review si rifà ad ogni push sulla PR).
+ */
+async function prSummariesOfTickets(
+  db: Db,
+  ticketIds: (string | null)[],
+): Promise<Map<string, string>> {
+  const ids = [...new Set(ticketIds.filter((id): id is string => id !== null))];
+  const byTicketAndUrl = new Map<string, string>();
+  if (ids.length === 0) return byTicketAndUrl;
+  const rows = await db
+    .select({
+      ticketId: prReviews.ticketId,
+      prUrl: prReviews.prUrl,
+      prSummary: prReviews.prSummary,
+    })
+    .from(prReviews)
+    .where(and(inArray(prReviews.ticketId, ids), isNotNull(prReviews.prSummary)))
+    .orderBy(desc(prReviews.createdAt), desc(prReviews.id));
+  for (const row of rows) {
+    if (row.ticketId === null || row.prSummary === null) continue;
+    const key = `${row.ticketId}|${row.prUrl}`;
+    if (!byTicketAndUrl.has(key)) byTicketAndUrl.set(key, row.prSummary);
+  }
+  return byTicketAndUrl;
+}
+
+/** I kind la cui card porta il riassunto della PR (e non quello del piano). */
+const PR_SUMMARY_KINDS = new Set<NotificationKind>(["job.pr_opened", "review.completed"]);
+
+/**
+ * Riassunto "in breve" da mostrare su UNA card, dalle mappe già caricate per la
+ * pagina. `undefined` quando il kind non ne ha uno, quando il riassunto non è
+ * stato generato o quando l'evento non porta un `prUrl` leggibile: la card si
+ * mostra senza, mai con un `null` da interpretare.
+ */
+function summaryForItem(
+  row: { kind: NotificationKind; jobId: string | null; ticketId: string | null },
+  rawEvent: Record<string, unknown>,
+  planSummaryByJob: Map<string, string>,
+  prSummaryByTicketAndUrl: Map<string, string>,
+): string | undefined {
+  if (row.kind === "job.plan_review") {
+    return row.jobId ? planSummaryByJob.get(row.jobId) : undefined;
+  }
+  if (!PR_SUMMARY_KINDS.has(row.kind) || row.ticketId === null) return undefined;
+  const prUrl = rawEvent.prUrl;
+  if (typeof prUrl !== "string" || prUrl === "") return undefined;
+  return prSummaryByTicketAndUrl.get(`${row.ticketId}|${prUrl}`);
 }
 
 /** Id → { id, email } per gli utenti del batch, in UNA query. */

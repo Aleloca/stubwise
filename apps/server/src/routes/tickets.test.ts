@@ -2550,6 +2550,54 @@ describe("GET /api/tickets/:id — campi design/piano", () => {
   });
 });
 
+describe("GET /api/tickets/:id — riassunto in breve del piano", () => {
+  it("espone il planSummary dell'ULTIMO job del ticket", async () => {
+    const created = await postTicket({
+      projectId,
+      title: "Detail riassunto",
+      type: "task",
+      body: "Corpo",
+    });
+    const id = (created.json() as TicketBody).id;
+    await app.db.insert(aiJobs).values({
+      ticketId: id,
+      status: "awaiting_plan_approval",
+      planText: "1. Passo A",
+      planSummary: "Il conto delle somme torna corretto.",
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/tickets/${id}`,
+      headers: { cookie: users.memberCookie },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { planSummary: string | null }).planSummary).toBe(
+      "Il conto delle somme torna corretto.",
+    );
+  });
+
+  it("ticket senza job → planSummary null (non un errore)", async () => {
+    const created = await postTicket({
+      projectId,
+      title: "Detail senza job",
+      type: "task",
+      body: "Corpo",
+    });
+    const id = (created.json() as TicketBody).id;
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/tickets/${id}`,
+      headers: { cookie: users.memberCookie },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { planSummary: string | null }).planSummary).toBeNull();
+  });
+});
+
 describe("GET /api/tickets/:id/questions", () => {
   interface QuestionBody {
     // `questionId` e `recommendedIndex` OPZIONALE: è la stessa forma che la card

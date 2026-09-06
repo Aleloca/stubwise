@@ -43,6 +43,14 @@ export interface PrOpenedEvent {
   ticketUrl: string;
   /** Costo USD del run di fix, se noto. */
   costUsd?: number | null;
+  /**
+   * Riassunto "in breve" (fase 5): due o tre frasi in linguaggio NON tecnico,
+   * generate dall'agente. Assente quando i riassunti sono spenti, quando il run
+   * è fallito o — per `job.pr_opened` — quando la PR non è ancora stata
+   * revisionata. È testo GENERATO su input non fidato: chi lo rende su una
+   * superficie con markup deve escaparlo (vedi `buildInboxBlocks` per Slack).
+   */
+  summary?: string;
 }
 
 /** Il job è in attesa di revisione umana (gate di automazione / soglia effort). */
@@ -79,6 +87,14 @@ export interface JobPlanReviewEvent {
   ticketTitle: string;
   projectName: string;
   ticketUrl: string;
+  /**
+   * Riassunto "in breve" (fase 5): due o tre frasi in linguaggio NON tecnico,
+   * generate dall'agente. Assente quando i riassunti sono spenti, quando il run
+   * è fallito o — per `job.pr_opened` — quando la PR non è ancora stata
+   * revisionata. È testo GENERATO su input non fidato: chi lo rende su una
+   * superficie con markup deve escaparlo (vedi `buildInboxBlocks` per Slack).
+   */
+  summary?: string;
 }
 
 /**
@@ -147,6 +163,14 @@ export interface ReviewCompletedEvent {
   prUrl: string;
   /** Verdetto della review. */
   verdict: "approve" | "request_changes";
+  /**
+   * Riassunto "in breve" (fase 5): due o tre frasi in linguaggio NON tecnico,
+   * generate dall'agente. Assente quando i riassunti sono spenti, quando il run
+   * è fallito o — per `job.pr_opened` — quando la PR non è ancora stata
+   * revisionata. È testo GENERATO su input non fidato: chi lo rende su una
+   * superficie con markup deve escaparlo (vedi `buildInboxBlocks` per Slack).
+   */
+  summary?: string;
 }
 
 /** Il fix AI è fallito. */
@@ -265,6 +289,46 @@ export interface ProjectPulseEvent {
   proposals: PulseProposal[];
 }
 
+/**
+ * BRIEF SETTIMANALE (fase 5): il resoconto per non-tecnici di una settimana di
+ * progetto. Evento SENZA ticket — ancorato al PROGETTO come {@link
+ * ProjectPulseEvent} — ma, a differenza del pulse, puramente INFORMATIVO: non
+ * porta una domanda né opzioni, il link porta alla roadmap e le uniche azioni
+ * sono quelle d'igiene dell'inbox.
+ */
+export interface ProjectBriefEvent {
+  kind: "project.brief";
+  /** Il brief a cui la notifica si riferisce (`project_briefs.id`). */
+  briefId: string;
+  projectName: string;
+  /** Pagina roadmap del progetto (al posto del ticketUrl). */
+  projectUrl: string;
+  /** Primo giorno del periodo coperto, `YYYY-MM-DD`. */
+  periodStart: string;
+  /** Ultimo giorno del periodo coperto, `YYYY-MM-DD`. */
+  periodEnd: string;
+  /**
+   * Prima frase di "dove siamo". È testo GENERATO dall'AI su input non fidato
+   * (titoli di ticket, commit, messaggi): per Slack passa da
+   * {@link escapeSlackMrkdwn} — vedi {@link UNTRUSTED_SLACK_PARAMS}.
+   */
+  headline: string;
+  /**
+   * Il brief in markdown, per intero — è ciò che diventa la `section` propria
+   * del DM Slack (via {@link eventSummary} e `buildInboxBlocks`, che la escapa)
+   * e il campo `summary` del payload webhook.
+   *
+   * Viaggia NEL payload e non dietro una lettura del database perché le
+   * consegne sono asincrone: il poller delle consegne gira minuti dopo, e un
+   * DM che dovesse rileggere `project_briefs` mostrerebbe un brief rigenerato
+   * nel frattempo invece di quello annunciato. Il prezzo è la copia per
+   * destinatario, e per questo chi pubblica lo TRONCA (vedi
+   * `BRIEF_EVENT_SUMMARY_MAX_CHARS` nel poller): oltre i 3000 caratteri della
+   * `section` Slack non ne verrebbe mostrato nemmeno uno in più.
+   */
+  summary?: string;
+}
+
 /** Unione tipata di tutti gli eventi che generano una notifica. */
 export type NotificationEvent =
   | TicketCreatedEvent
@@ -279,10 +343,12 @@ export type NotificationEvent =
   | MonitorAlertEvent
   | MonitorRecoveredEvent
   | JobAwaitingInputEvent
-  | ProjectPulseEvent;
+  | ProjectPulseEvent
+  | ProjectBriefEvent;
 
 /**
- * Eventi SENZA ticket (`docs.limit_paused`, `monitor.*`, `project.pulse`): non
+ * Eventi SENZA ticket (`docs.limit_paused`, `monitor.*`, `project.pulse`,
+ * `project.brief`): non
  * hanno `ticketNumber`/`ticketTitle`/`ticketUrl`, portano una superficie
  * propria.
  */
@@ -290,7 +356,8 @@ type NonTicketedEvent =
   | DocsLimitPausedEvent
   | MonitorAlertEvent
   | MonitorRecoveredEvent
-  | ProjectPulseEvent;
+  | ProjectPulseEvent
+  | ProjectBriefEvent;
 
 /**
  * Eventi ANCORATI A UN TICKET: hanno `ticketNumber`/`ticketTitle`/`ticketUrl`.
@@ -305,7 +372,8 @@ function hasTicket(event: NotificationEvent): event is TicketedEvent {
     event.kind !== "docs.limit_paused" &&
     event.kind !== "monitor.alert" &&
     event.kind !== "monitor.recovered" &&
-    event.kind !== "project.pulse"
+    event.kind !== "project.pulse" &&
+    event.kind !== "project.brief"
   );
 }
 
@@ -358,6 +426,7 @@ const EMOJI: Record<NotificationKind, string> = {
   "monitor.recovered": "🟢",
   "job.awaiting_input": "❓",
   "project.pulse": "📣",
+  "project.brief": "🗞️",
 };
 
 /**
@@ -373,6 +442,21 @@ const EMOJI: Record<NotificationKind, string> = {
  * di testo (il testo della notifica lo escapa {@link formatNotification}, i
  * blocchi lo inseriscono verbatim).
  */
+/**
+ * Riassunto "in breve" di un evento, letto in modo DIFENSIVO dal payload jsonb.
+ *
+ * Serve a chi consegna (il poller delle notifiche) e non può fidarsi della
+ * forma della riga: un evento salvato da una versione precedente non ha il
+ * campo, e una riga corrotta potrebbe averne uno non stringa. In entrambi i
+ * casi `undefined`, e la consegna prosegue senza il blocco del riassunto.
+ */
+export function eventSummary(rawEvent: Record<string, unknown>): string | undefined {
+  const value = rawEvent.summary;
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed === "" ? undefined : trimmed;
+}
+
 export function escapeSlackMrkdwn(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
@@ -446,6 +530,10 @@ function linkParam(
       // Nessun ticket: il link porta al backlog del progetto, che è dove si
       // guardano le proposte per intero (la notifica ne porta solo le prime).
       return renderLink(format, event.projectUrl, t(lang, "notify.linkBacklog"));
+    case "project.brief":
+      // Nessun ticket: il link porta alla roadmap del progetto, dove il brief
+      // si legge per intero in mezzo agli eventi del periodo.
+      return renderLink(format, event.projectUrl, t(lang, "notify.linkRoadmap"));
   }
 }
 
@@ -464,6 +552,7 @@ const KEY_FOR_KIND: Record<NotificationKind, string> = {
   "monitor.recovered": "notify.monitorRecovered",
   "job.awaiting_input": "notify.awaitingInput",
   "project.pulse": "notify.pulse",
+  "project.brief": "notify.brief",
 };
 
 /** Params (oltre a ref/link/cost) specifici per evento, passati a `t()`. */
@@ -486,6 +575,15 @@ function textParams(
     // superficie rende a modo suo (bottoni Slack, pannello web).
     if (event.kind === "project.pulse") {
       return { project: event.projectName, idleDays: event.idleDays };
+    }
+    // Il brief nomina il progetto, il periodo coperto e la sua prima frase.
+    if (event.kind === "project.brief") {
+      return {
+        project: event.projectName,
+        periodStart: event.periodStart,
+        periodEnd: event.periodEnd,
+        headline: event.headline,
+      };
     }
     // monitor.alert | monitor.recovered: la condizione è resa come etichetta
     // localizzata; il detail è già una frase leggibile.
@@ -560,6 +658,9 @@ function textParams(
  */
 const UNTRUSTED_SLACK_PARAMS: Partial<Record<NotificationKind, readonly string[]>> = {
   "job.awaiting_input": ["question"],
+  // `headline` la scrive l'AI del brief settimanale, su input non fidato
+  // (titoli di ticket, messaggi di commit): stessa famiglia di `question`.
+  "project.brief": ["headline"],
 };
 
 /**
@@ -652,6 +753,24 @@ function formatGeneric(event: NotificationEvent, lang: Language): Record<string,
         proposals: event.proposals,
       };
     }
+    if (event.kind === "project.brief") {
+      // Payload AUTOSUFFICIENTE: chi consuma il webhook sa quale brief è, che
+      // periodo copre e come si apre, senza chiamare l'API.
+      return {
+        event: event.kind,
+        briefId: event.briefId,
+        projectName: event.projectName,
+        periodStart: event.periodStart,
+        periodEnd: event.periodEnd,
+        headline: event.headline,
+        // Il markdown intero quando c'è: un consumatore del webhook (un bot di
+        // canale, un digest via email) deve poter pubblicare il brief senza
+        // chiamare l'API. Assente — non `null` — quando il brief non ha testo.
+        ...(event.summary ? { summary: event.summary } : {}),
+        message: formatNotificationText(event, lang),
+        projectUrl: event.projectUrl,
+      };
+    }
     // monitor.alert | monitor.recovered: la `condition` resta l'enum grezzo
     // (machine-readable), il `detail` la descrizione, `serverUrl` la pagina
     // server (uniforme a ticketUrl/docsUrl degli altri eventi).
@@ -676,13 +795,21 @@ function formatGeneric(event: NotificationEvent, lang: Language): Record<string,
     case "ticket.created":
       return { ...base, source: event.source };
     case "job.pr_opened":
-      return { ...base, prUrl: event.prUrl, costUsd: event.costUsd ?? null };
+      return {
+        ...base,
+        prUrl: event.prUrl,
+        costUsd: event.costUsd ?? null,
+        summary: event.summary ?? null,
+      };
     case "job.pr_closed":
       return { ...base, prUrl: event.prUrl };
     case "job.held":
       return { ...base, type: event.type, effort: event.effort };
     case "job.plan_review":
-      return base;
+      // `summary` SEMPRE presente (null quando manca), come `costUsd` e
+      // `recommendedIndex`: chi consuma il webhook non deve distinguere fra
+      // "campo assente perché versione vecchia" e "riassunto non generato".
+      return { ...base, summary: event.summary ?? null };
     case "job.budget_held":
       return {
         ...base,
@@ -691,7 +818,12 @@ function formatGeneric(event: NotificationEvent, lang: Language): Record<string,
         spentUsd: event.spentUsd,
       };
     case "review.completed":
-      return { ...base, prUrl: event.prUrl, verdict: event.verdict };
+      return {
+        ...base,
+        prUrl: event.prUrl,
+        verdict: event.verdict,
+        summary: event.summary ?? null,
+      };
     case "job.failed":
       return { ...base, error: event.error };
     case "job.awaiting_input":
@@ -876,6 +1008,15 @@ export function sampleEvents(baseUrl: string): NotificationEvent[] {
           hasAnalysis: false,
         },
       ],
+    },
+    {
+      kind: "project.brief",
+      briefId: "3d9f6b12-1111-4222-8333-444455556666",
+      projectName: "negozio-web",
+      projectUrl: `${base}/projects/2e5a8c4b-9999-4aaa-8bbb-ccccddddeeee/roadmap`,
+      periodStart: "2026-08-31",
+      periodEnd: "2026-09-06",
+      headline: "Settimana di consolidamento: nessuna funzione nuova, due bug chiusi.",
     },
   ];
 }

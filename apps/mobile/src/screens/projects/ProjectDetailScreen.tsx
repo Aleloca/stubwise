@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import Markdown from "react-native-markdown-display";
 import type { ProjectsStackParamList } from "../../app/navigation";
 import { useAuth } from "../../app/providers";
 import { GhostButton } from "../../components/GhostButton";
@@ -13,6 +14,7 @@ import { ProjectGroup } from "../../components/projects/ProjectGroup";
 import { Skeleton } from "../../components/Skeleton";
 import { pulseLineFor } from "../../lib/pulse-line";
 import { projectsPulseKey } from "./ProjectsScreen";
+import { MARKDOWN_STYLE } from "../../theme/markdown";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
 
@@ -161,9 +163,80 @@ function ProjectDetailBody({
             rows={backlogRows}
           />
         )}
+        <BriefRow projectId={summary.projectId} />
         {summary.lastReportDate !== null && <ReportRow projectId={summary.projectId} date={summary.lastReportDate} />}
       </View>
     </ScrollView>
+  );
+}
+
+/**
+ * "Brief settimanale" (fase 5): il resoconto della settimana scritto per chi
+ * non legge codice — dove siamo, cosa è cambiato, cosa è fermo, cosa serve.
+ *
+ * Stessa forma del "Report di ieri" qui sotto, e per le stesse ragioni: la riga
+ * c'è sempre (un brief può esistere anche per un progetto senza attività
+ * recente, quindi non c'è un campo del polso che dica "qui non guardare"), e il
+ * fetch è PIGRO — parte al primo tocco, non all'apertura del dettaglio.
+ *
+ * `limit: 1`: solo l'ULTIMO brief. Lo storico ha una sua pagina sul web
+ * (`/projects/:id/roadmap`), e la vista roadmap sull'app è esplicitamente fuori
+ * dalla v1 della fase.
+ *
+ * Tre esiti diversi, tre parole diverse — un brief assente, uno senza testo e
+ * uno fallito non sono la stessa cosa: `summary` è `null` anche a brief `done`
+ * quando l'istanza non ha un provider AI configurato (vedi
+ * `projectBriefWeeklySchema`), e quello è "non c'è ancora niente da leggere";
+ * `failed` invece è "c'è stato un tentativo e non è andato", che merita di
+ * essere detto perché suggerisce di riprovare dal web.
+ */
+function BriefRow({ projectId }: { projectId: string }) {
+  const { t } = useTranslation();
+  const { client } = useAuth();
+  const [expanded, setExpanded] = useState(false);
+
+  const query = useQuery({
+    queryKey: ["briefs", "latest", projectId],
+    queryFn: () => {
+      if (!client) throw new Error("BriefRow richiede un client autenticato");
+      return client.projects.briefs(projectId, { limit: 1 });
+    },
+    enabled: expanded && client !== null,
+    staleTime: 60_000,
+  });
+
+  const latest = query.data?.[0];
+  const text = latest?.summary ?? null;
+
+  return (
+    <View style={styles.reportCard}>
+      <Pressable
+        onPress={() => setExpanded((current) => !current)}
+        accessibilityRole="button"
+        style={styles.reportRow}
+        testID="project-detail-brief-toggle"
+      >
+        <Text style={styles.reportTitle}>{t("mobile.projects.detail.brief.title")}</Text>
+      </Pressable>
+      {expanded && (
+        <View style={styles.reportBody} testID="project-detail-brief">
+          {query.isPending ? (
+            <Text style={styles.reportMeta}>{t("mobile.projects.detail.brief.loading")}</Text>
+          ) : query.isError ? (
+            <Text style={styles.reportMeta}>{t("mobile.projects.detail.brief.loadError")}</Text>
+          ) : text !== null && text.trim() !== "" ? (
+            // Markdown come il piano e le pagine Docs: `MARKDOWN_STYLE` è
+            // l'unica definizione dello stile, e markdown-it ha `html: false`
+            // di default (vedi la nota in `components/work/PlanSection.tsx`).
+            <Markdown style={MARKDOWN_STYLE}>{text}</Markdown>
+          ) : latest !== undefined && !isUnknown(latest.status) && latest.status === "failed" ? (
+            <Text style={styles.reportMeta}>{t("mobile.projects.detail.brief.failed")}</Text>
+          ) : (
+            <Text style={styles.reportMeta}>{t("mobile.projects.detail.brief.empty")}</Text>
+          )}
+        </View>
+      )}
+    </View>
   );
 }
 

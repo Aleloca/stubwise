@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { handledBySchema } from "./notification.js";
+import { milestoneStatusSchema } from "./milestone.js";
 
 export const gitProviderKindSchema = z.enum(["bitbucket", "github"]);
 export type GitProviderKind = z.infer<typeof gitProviderKindSchema>;
@@ -99,6 +101,14 @@ export const projectSchema = z.object({
   // sotto 1 giorno sarebbe un ping continuo, sopra 30 un promemoria che non
   // arriva mai.
   pulseEveryDays: z.number().int().min(1).max(30),
+  // Brief settimanale (fase 5): se true, una volta a settimana il worker
+  // genera il resoconto per non-tecnici del progetto e lo annuncia con una
+  // `project.brief`. Default false (opt-in esplicito).
+  //
+  // INDIPENDENTE dal backlog, al contrario del pulse: il brief racconta quello
+  // che è già successo (report, ticket, PR, decisioni), e ha qualcosa da dire
+  // anche su un progetto senza backlog di discovery.
+  weeklyBriefEnabled: z.boolean(),
   // Chiave di ingestion del progetto: gli SDK la usano per inviare errori e
   // feedback (l'ingestion è di prodotto, non di repo — Fase 3).
   ingestionKey: z.string().min(1),
@@ -122,6 +132,7 @@ export const createProjectSchema = z.object({
   backlogEnabled: z.boolean().optional(),
   pulseEnabled: z.boolean().optional(),
   pulseEveryDays: z.number().int().min(1).max(30).optional(),
+  weeklyBriefEnabled: z.boolean().optional(),
 });
 export type CreateProjectInput = z.infer<typeof createProjectSchema>;
 
@@ -140,6 +151,7 @@ export const updateProjectSchema = z.object({
   // Fuori dal range 1..30 il PATCH è un 400 di validazione, e non arriva mai al
   // CHECK del DB (che resta l'arbitro per chi scrive senza passare da qui).
   pulseEveryDays: z.number().int().min(1).max(30).optional(),
+  weeklyBriefEnabled: z.boolean().optional(),
 });
 export type UpdateProjectInput = z.infer<typeof updateProjectSchema>;
 
@@ -254,3 +266,290 @@ export const projectPulseSummarySchema = z.object({
   lastReportDate: z.string().nullable(),
 });
 export type ProjectPulseSummary = z.infer<typeof projectPulseSummarySchema>;
+
+/**
+ * Una review AI di PR, nella forma pubblica di `GET /api/projects/:id/reviews`
+ * (Fase 5: la prima lettura di `pr_reviews` da un'API).
+ *
+ * ⚠️ COSA NON C'È, e perché. `pr_reviews.error` è il messaggio d'errore
+ * dell'agente — un dettaglio interno che può portarsi dietro path del worker e
+ * frammenti di prompt: non esce da qui. Non c'è nemmeno `summary`, l'analisi
+ * markdown completa: la superficie pubblica della fase è il riassunto "in
+ * breve" (`prSummary`), e aggiungere l'analisi domani resta un cambio additivo,
+ * mentre toglierla non lo sarebbe.
+ */
+export const prReviewSummarySchema = z.object({
+  id: z.uuid(),
+  repositoryId: z.uuid(),
+  repositoryName: z.string().nullable(),
+  // Il ticket da cui la PR è nata; null se il ticket è stato cancellato
+  // (`ticket_id` è ON DELETE SET NULL) o se la PR non veniva dalla pipeline.
+  ticketId: z.uuid().nullable(),
+  prNumber: z.number().int(),
+  prUrl: z.string(),
+  prTitle: z.string(),
+  status: z.enum(["running", "completed", "failed"]),
+  // Null finché la review non è completata (o se è fallita).
+  verdict: z.enum(["approve", "request_changes"]).nullable(),
+  // Riassunto "in breve" della PR per non-tecnici; null se non generato.
+  prSummary: z.string().nullable(),
+  createdAt: z.iso.datetime(),
+  finishedAt: z.iso.datetime().nullable(),
+});
+export type PrReviewSummary = z.infer<typeof prReviewSummarySchema>;
+
+/** I tipi di voce della timeline di progetto: il discriminante dell'unione. */
+export const projectTimelineKindSchema = z.enum([
+  "ticket_opened",
+  "ticket_done",
+  "milestone_due",
+  "milestone_closed",
+  "pr_opened",
+  "pr_merged",
+  "pr_closed",
+  "report_day",
+  "decision",
+  "brief",
+]);
+export type ProjectTimelineKind = z.infer<typeof projectTimelineKindSchema>;
+
+/**
+ * Campi comuni a OGNI voce: `id` è l'identità della riga d'origine (evento,
+ * ticket, milestone, job, report, decisione, brief) e serve al tie-break
+ * dell'ordinamento; `at` è l'istante in cui la voce va collocata.
+ *
+ * `id` NON è unico attraverso i tipi: un job che ha aperto e poi visto mergiare
+ * la sua PR produce due voci con lo stesso `id` e `kind` diversi. La chiave di
+ * lista lato UI è quindi `kind:id`, non `id`.
+ */
+const timelineBase = { id: z.uuid(), at: z.iso.datetime() };
+
+/** Campi comuni alle tre voci di PR (aperta, mergiata, chiusa senza merge). */
+const timelinePr = {
+  ...timelineBase,
+  ticketId: z.uuid(),
+  ticketNumber: z.number().int(),
+  ticketTitle: z.string(),
+  prUrl: z.string(),
+  // Verdetto della review AI di quella PR, se una review completata esiste.
+  reviewVerdict: z.enum(["approve", "request_changes"]).optional(),
+  // Riassunto "in breve" della PR, se la review l'ha prodotto.
+  prSummary: z.string().optional(),
+};
+
+/**
+ * Una voce della timeline di progetto (Fase 5).
+ *
+ * ⚠️ È una `discriminatedUnion`, quindi NON è attraversabile da `readerSchema`
+ * (vedi `packages/shared/src/reader.ts`): aprire il discriminante farebbe
+ * vincere sempre la prima variante. Non è una svista ed è compatibile con la
+ * fase: la vista roadmap mobile è esplicitamente FUORI dalla v1, e il client
+ * tipato legge questa rotta dalla corsia senza schema. Chi un domani volesse
+ * darla in pasto all'app dovrà progettare l'apertura apposta
+ * (`z.union([rigido, variante_di_fallback])`), non derivarla.
+ */
+export const projectTimelineEntrySchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("ticket_opened"),
+    ...timelineBase,
+    ticketNumber: z.number().int(),
+    title: z.string(),
+  }),
+  z.object({
+    kind: z.literal("ticket_done"),
+    ...timelineBase,
+    // `id` qui è l'id dell'EVENTO `ticket_events`, non del ticket: lo stesso
+    // ticket può essere chiuso, riaperto e richiuso, e ogni chiusura è una voce.
+    ticketId: z.uuid(),
+    ticketNumber: z.number().int(),
+    title: z.string(),
+  }),
+  z.object({
+    kind: z.literal("milestone_due"),
+    ...timelineBase,
+    name: z.string(),
+    status: milestoneStatusSchema,
+  }),
+  z.object({ kind: z.literal("milestone_closed"), ...timelineBase, name: z.string() }),
+  z.object({ kind: z.literal("pr_opened"), ...timelinePr }),
+  z.object({ kind: z.literal("pr_merged"), ...timelinePr }),
+  z.object({ kind: z.literal("pr_closed"), ...timelinePr }),
+  z.object({
+    kind: z.literal("report_day"),
+    ...timelineBase,
+    // Giorno del report (YYYY-MM-DD): stessa convenzione di `/api/activity` e
+    // di `projectPulseSummarySchema.lastReportDate` — la colonna è `date`,
+    // non `timestamptz`, e non c'è un fuso da portare.
+    date: z.string(),
+    // Riassunto narrativo della giornata; null se il run di sintesi è fallito.
+    summary: z.string().nullable(),
+  }),
+  z.object({
+    kind: z.literal("decision"),
+    ...timelineBase,
+    title: z.string(),
+    decision: z.string(),
+    // Chi ha deciso; null per una decisione il cui autore è stato eliminato.
+    decidedBy: handledBySchema.nullable(),
+  }),
+  z.object({
+    kind: z.literal("brief"),
+    ...timelineBase,
+    periodStart: z.string(),
+    periodEnd: z.string(),
+    // Prima sezione del brief ("dove siamo"), o l'inizio del markdown se le
+    // sezioni non sono state parsate; null se il brief non ha testo.
+    headline: z.string().nullable(),
+  }),
+]);
+export type ProjectTimelineEntry = z.infer<typeof projectTimelineEntrySchema>;
+
+/**
+ * Corpo di `GET /api/projects/:id/timeline`: la finestra effettivamente usata
+ * (che può differire da quella richiesta — i default sono del server) e le voci
+ * in ordine cronologico crescente.
+ */
+export const projectTimelineSchema = z.object({
+  from: z.iso.datetime(),
+  to: z.iso.datetime(),
+  entries: z.array(projectTimelineEntrySchema),
+});
+export type ProjectTimeline = z.infer<typeof projectTimelineSchema>;
+
+/**
+ * IL BRIEF SETTIMANALE di un progetto (Fase 5), nella forma pubblica di
+ * `GET /api/projects/:id/briefs` e `GET /api/briefs/:id`.
+ *
+ * Nome `...Weekly...` per non confonderlo con il *project brief* della
+ * documentazione (`projectBriefSchema`, tab `/docs/$projectId/brief`): sono due
+ * cose diverse che condividono solo la parola, ed è già successo che il nome
+ * corto rendesse ambiguo di quale si stesse parlando.
+ *
+ * ⚠️ COSA NON C'È: `error`. È il messaggio con cui la generazione è fallita —
+ * può contenere path del worker e frammenti di prompt — e non esce da qui,
+ * esattamente come per {@link prReviewSummarySchema}. Lo stato `failed` è tutto
+ * ciò che serve a una UI per dire "questo brief non c'è, riprova".
+ *
+ * `summary` e `sections` sono NULL anche a brief `done`: è il caso previsto
+ * dell'istanza senza provider AI configurato, dove il brief esiste come riga
+ * ma non ha testo. La UI lo distingue da `failed` e lo dice.
+ */
+export const projectBriefWeeklySchema = z.object({
+  id: z.uuid(),
+  projectId: z.uuid(),
+  // Estremi INCLUSI del periodo coperto, `YYYY-MM-DD`. Stringhe e non
+  // `z.iso.datetime()`: le colonne sono `date`, giorni di calendario senza fuso
+  // (stessa convenzione di `lastReportDate` nel pulse).
+  periodStart: z.string(),
+  periodEnd: z.string(),
+  status: z.enum(["queued", "running", "done", "failed"]),
+  /** Il brief in markdown. Null finché non generato, o se manca il provider AI. */
+  summary: z.string().nullable(),
+  /**
+   * Le quattro sezioni separate, quando il parse dei marcatori le ha prodotte.
+   *
+   * Oggetto RIGIDO con quattro chiavi opzionali, e non un `z.record`: un
+   * `record` non è attraversabile da `readerSchema`
+   * (`packages/shared/src/reader.ts`), quindi passerebbe invariato e lascerebbe
+   * CHIUSO l'enum `status` accanto — il bug che quel meccanismo esiste per
+   * evitare, proprio dove nessuno lo cercherebbe. Il guardiano in
+   * `packages/api-client/src/reader.test.ts` lo verifica.
+   *
+   * Le quattro chiavi sono comunque il contratto fra il prompt e il parser del
+   * worker (`apps/worker/src/briefs/prompt.ts`): una sezione mancante è assente
+   * qui, e una quinta sezione futura andrà aggiunta in entrambi i punti.
+   */
+  sections: z
+    .object({
+      whereWeAre: z.string().optional(),
+      whatChanged: z.string().optional(),
+      whatBlocks: z.string().optional(),
+      whatWeNeed: z.string().optional(),
+    })
+    .nullable(),
+  /** La notifica che l'ha annunciato; null se non è stata pubblicata. */
+  notificationId: z.uuid().nullable(),
+  createdAt: z.iso.datetime(),
+  finishedAt: z.iso.datetime().nullable(),
+});
+export type ProjectBriefWeekly = z.infer<typeof projectBriefWeeklySchema>;
+
+// --- Registro decisioni di progetto (Fase 5) ---------------------------------
+
+/**
+ * Da dove viene una decisione. Le prime tre sono scritte dai writer automatici
+ * nella stessa transazione dell'evento che le origina; `manual` è la voce che
+ * una persona aggiunge a mano dai Docs del progetto.
+ *
+ * ⚠️ Non esiste — e non deve esistere — una sorgente "ai": il registro è la
+ * fonte di verità sui fatti decisi da PERSONE, e i writer automatici compongono
+ * i testi da template i18n. Il brief settimanale e i riassunti "in breve" sono
+ * la narrativa generata; questo è il fatto.
+ */
+export const decisionSourceSchema = z.enum(["ask_user", "plan_review", "pulse", "manual"]);
+export type DecisionSource = z.infer<typeof decisionSourceSchema>;
+
+/**
+ * Una decisione del registro, come la vedono API, Docs, chat e MCP.
+ *
+ * ⚠️ COSA NON C'È: `sourceKey` e `sourceRef`. Sono la meccanica interna
+ * dell'idempotenza e gli id d'origine (job, notifica, domanda): servono al
+ * writer, non a chi legge il registro, e pubblicarli inviterebbe a costruirci
+ * sopra client che dipendono dalla forma delle nostre chiavi.
+ */
+export const projectDecisionSchema = z.object({
+  id: z.uuid(),
+  projectId: z.uuid(),
+  source: decisionSourceSchema,
+  /** Il ticket da cui è nata, se ce n'era uno. Resta null se il ticket è stato cancellato. */
+  ticketId: z.uuid().nullable(),
+  /** Numero del ticket, per linkarlo senza una seconda chiamata. */
+  ticketNumber: z.number().int().nullable(),
+  title: z.string(),
+  /** In che contesto è stata presa (es. le alternative scartate del pulse). */
+  context: z.string().nullable(),
+  decision: z.string(),
+  /** Cosa comporta, quando chi ha proposto le alternative l'aveva dichiarato. */
+  consequences: z.string().nullable(),
+  /** Chi ha deciso. Null per una decisione il cui autore è stato cancellato. */
+  decidedBy: z.object({ id: z.uuid(), email: z.string() }).nullable(),
+  decidedAt: z.iso.datetime(),
+  /**
+   * La decisione che ha superato questa. Non la cancella: una scelta revocata
+   * resta un fatto accaduto, e sapere che è stata cambiata vale quanto sapere
+   * che era stata presa.
+   */
+  supersededById: z.uuid().nullable(),
+  createdAt: z.iso.datetime(),
+});
+export type ProjectDecision = z.infer<typeof projectDecisionSchema>;
+
+/** Corpo di `POST /api/projects/:projectId/decisions`: una voce scritta a mano. */
+export const decisionDraftSchema = z.object({
+  title: z.string().min(1).max(300),
+  decision: z.string().min(1).max(5000),
+  context: z.string().max(5000).optional(),
+  consequences: z.string().max(5000).optional(),
+  /** Ticket a cui agganciarla, se la decisione ne riguarda uno. */
+  ticketId: z.uuid().optional(),
+  /** Quando è stata presa davvero: una decisione si può registrare dopo. */
+  decidedAt: z.iso.datetime().optional(),
+});
+export type DecisionDraft = z.infer<typeof decisionDraftSchema>;
+
+/**
+ * Corpo di `PATCH /api/projects/:projectId/decisions/:id`.
+ *
+ * PATCH e non PUT, per la stessa ragione di `/api/me/notification-prefs`: i
+ * campi assenti restano invariati, così un client vecchio non azzera ciò che
+ * non conosce. `supersededById` è nullable perché "non è più superata" è una
+ * correzione legittima quanto "ora lo è".
+ */
+export const decisionPatchSchema = z.object({
+  title: z.string().min(1).max(300).optional(),
+  decision: z.string().min(1).max(5000).optional(),
+  context: z.string().max(5000).nullable().optional(),
+  consequences: z.string().max(5000).nullable().optional(),
+  supersededById: z.uuid().nullable().optional(),
+});
+export type DecisionPatch = z.infer<typeof decisionPatchSchema>;

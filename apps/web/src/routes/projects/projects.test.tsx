@@ -70,6 +70,7 @@ function listItem(overrides: Partial<ProjectListItem> = {}): ProjectListItem {
     backlogEnabled: false,
     pulseEnabled: false,
     pulseEveryDays: 3,
+    weeklyBriefEnabled: false,
     ingestionKey: "0123456789abcdef0123456789abcdef",
     nextTicketNumber: 1,
     repositoryCount: 2,
@@ -90,6 +91,7 @@ function detail(overrides: Partial<ProjectDetail> = {}): ProjectDetail {
     backlogEnabled: false,
     pulseEnabled: false,
     pulseEveryDays: 3,
+    weeklyBriefEnabled: false,
     ingestionKey: "0123456789abcdef0123456789abcdef",
     nextTicketNumber: 1,
     repositories: [

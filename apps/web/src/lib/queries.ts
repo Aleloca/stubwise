@@ -20,6 +20,9 @@ import {
   listPats,
   getProject,
   getProjectPlugins,
+  getBrief,
+  getProjectDecisions,
+  getProjectTimeline,
   getProjects,
   getRepoGraph,
   getRepoGraphReport,
@@ -53,6 +56,8 @@ import {
   type BacklogFilters,
   type InboxFilters,
   type PluginRegistry,
+  type DecisionSource,
+  type ProjectTimelineKind,
   type RepoGraph,
   type ServerMetricsRange,
   type TicketFilters,
@@ -551,6 +556,62 @@ export function projectQueryOptions(projectId: string) {
 }
 
 /**
+ * Timeline di progetto per la pagina Roadmap (Fase 5).
+ *
+ * `kinds` fa parte della CHIAVE perché fa parte della richiesta: il filtro lo
+ * applica il server, quindi due filtri diversi sono due risposte diverse e non
+ * possono condividere una cache. Filtrare lato client sarebbe stato più comodo
+ * ma avrebbe scaricato l'intera finestra per mostrarne un decimo.
+ *
+ * `staleTime` breve ma non nullo: la roadmap è un racconto, non un cruscotto in
+ * tempo reale — e non deve rifare la fusione di sei query a ogni focus.
+ */
+export function projectTimelineQueryOptions(projectId: string, kinds: ProjectTimelineKind[]) {
+  return queryOptions({
+    queryKey: ["projects", "detail", projectId, "timeline", [...kinds].sort().join(",")],
+    queryFn: () => getProjectTimeline(projectId, { kinds }),
+    staleTime: 60_000,
+  });
+}
+
+/**
+ * IL REGISTRO DECISIONI di un progetto (Fase 5).
+ *
+ * `source` entra nella chiave per la stessa ragione dei `kinds` della timeline:
+ * il filtro lo applica il server, quindi due filtri diversi sono due risposte
+ * diverse e non possono condividere una cache.
+ *
+ * `staleTime` breve ma non nullo: il registro cresce per eventi umani (una
+ * risposta, un piano approvato), non a ritmo di cruscotto.
+ */
+export function projectDecisionsQueryOptions(projectId: string, source?: DecisionSource) {
+  return queryOptions({
+    queryKey: ["projects", "detail", projectId, "decisions", source ?? "all"],
+    queryFn: () => getProjectDecisions(projectId, source ? { source } : {}),
+    staleTime: 30_000,
+  });
+}
+
+/**
+ * UN brief settimanale per id (Fase 5).
+ *
+ * `refetchInterval` mentre il brief NON è terminale: dopo un "Rigenera" la riga
+ * è `queued` e il testo arriva al tick del worker (minuti, non secondi). Senza
+ * questo la pagina resterebbe ferma su "in corso" finché qualcuno non ricarica
+ * — che è esattamente il momento in cui un utente conclude che non funziona.
+ */
+export function briefQueryOptions(briefId: string) {
+  return queryOptions({
+    queryKey: ["briefs", "detail", briefId],
+    queryFn: () => getBrief(briefId),
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      return status === "queued" || status === "running" ? 15_000 : false;
+    },
+  });
+}
+
+/**
  * Abilitazioni dei plugin su un progetto (solo admin). Chiave figlia del
  * progetto: il PUT riconcilia la cache con la foto restituita dal server.
  *
@@ -603,10 +664,7 @@ export function widgetConversationsQueryOptions(
       widgetId ?? null,
     ],
     queryFn: () =>
-      getWidgetConversations(
-        projectId,
-        ticketId || widgetId ? { ticketId, widgetId } : undefined,
-      ),
+      getWidgetConversations(projectId, ticketId || widgetId ? { ticketId, widgetId } : undefined),
     staleTime: 10_000,
   });
 }
@@ -783,8 +841,7 @@ export const docsKeys = {
   // distinto dallo spazio per-repository sopra.
   project: (projectId: string) => [...docsKeys.all, "project", projectId] as const,
   projectSpaces: (projectId: string) => [...docsKeys.project(projectId), "spaces"] as const,
-  projectHighlights: (projectId: string) =>
-    [...docsKeys.project(projectId), "highlights"] as const,
+  projectHighlights: (projectId: string) => [...docsKeys.project(projectId), "highlights"] as const,
 };
 
 /**

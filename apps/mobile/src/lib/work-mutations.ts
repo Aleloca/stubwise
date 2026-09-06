@@ -16,6 +16,8 @@ export const workKeys = {
   ticket: (ticketId: string) => [...workKeys.all(ticketId), "ticket"] as const,
   jobs: (ticketId: string) => [...workKeys.all(ticketId), "jobs"] as const,
   questions: (ticketId: string) => [...workKeys.all(ticketId), "questions"] as const,
+  /** Il feed di attività del ticket (fase 5): date reali dei passi della timeline. */
+  activity: (ticketId: string) => [...workKeys.all(ticketId), "activity"] as const,
 };
 
 export interface PlanDecisionMutation<TInput> {

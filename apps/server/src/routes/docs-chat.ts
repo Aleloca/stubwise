@@ -44,6 +44,10 @@ import { retrieveChunks } from "./docs-retrieval.js";
 import { buildCitations, buildDocsSystemPrompt, CHAT_RETRIEVAL_K } from "./docs-rag.js";
 import { chatQuerySchema, loadHistory, streamChatResponse } from "./docs-chat-core.js";
 import { appendGraphContext, retrieveGraphContext } from "../graph-chat/context.js";
+import {
+  appendDecisionContext,
+  retrieveDecisionContextForRepository,
+} from "../graph-chat/decisions.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 declare module "fastify" {
@@ -189,7 +193,10 @@ export async function docsChatRoutes(instance: FastifyInstance): Promise<void> {
       // stessa domanda dell'utente, latenza invariata (la query al grafo è più
       // veloce dell'embedding) e fail-open totale — `null` = system identico a
       // prima. Il blocco va DOPO i chunk (vedi appendGraphContext).
-      const [chunks, graphBlock] = await Promise.all([
+      // Insieme a loro il REGISTRO DECISIONI del PROGETTO a cui il repository
+      // appartiene (fase 5): le decisioni sono di progetto, non di repo, e una
+      // chat sui Docs di un repo deve conoscerle lo stesso. Fail-open.
+      const [chunks, graphBlock, decisionBlock] = await Promise.all([
         retrieveChunks(app.db, app.embeddingClient, repositoryId, message, {
           k: CHAT_RETRIEVAL_K,
           logger: request.log,
@@ -198,9 +205,18 @@ export async function docsChatRoutes(instance: FastifyInstance): Promise<void> {
           { db: app.db, logger: request.log, ...app.graphChat },
           { repositoryId, question: message },
         ),
+        retrieveDecisionContextForRepository(
+          app.db,
+          { repositoryId, question: message },
+          request.log,
+        ),
       ]);
       const citations = buildCitations(chunks);
-      const system = appendGraphContext(buildDocsSystemPrompt(chunks), graphBlock);
+      // Le decisioni per ULTIME (vedi `appendDecisionContext`).
+      const system = appendDecisionContext(
+        appendGraphContext(buildDocsSystemPrompt(chunks), graphBlock),
+        decisionBlock,
+      );
       const history = await loadHistory(app.db, resolvedSessionId);
 
       // Streaming SSE (o risposta JSON unica con ?stream=false, fase 4 mobile) +

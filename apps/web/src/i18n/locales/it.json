@@ -374,6 +374,7 @@
       "originalRequest": "Richiesta originale",
       "pastQuestions": "Domande passate",
       "plan": "Piano di implementazione",
+      "planSummary": "In breve",
       "priority": "Priorità",
       "questionAnswerUnreadable": "La risposta non è più leggibile.",
       "questionAnsweredBy": "Ha risposto {{email}}",
@@ -1106,7 +1107,8 @@
       "monitorAlert": "Allarme",
       "monitorRecovered": "Rientrato",
       "awaitingInput": "Domanda a cui rispondere",
-      "pulse": "Proposta"
+      "pulse": "Proposta",
+      "brief": "Brief settimanale"
     },
     "actions": {
       "approvePlan": "Approva piano",
@@ -1356,6 +1358,8 @@
       "pulseEveryDays": "Giorni fra un pulse e l'altro",
       "pulseEveryDaysRange": "I giorni fra un pulse e l'altro devono stare fra {{min}} e {{max}}.",
       "pulseNeedsBacklog": "// serve il backlog di discovery: senza, non c'è nulla da proporre.",
+      "weeklyBrief": "Brief settimanale",
+      "weeklyBriefHint": "// una volta a settimana, il resoconto del progetto scritto per chi non legge codice.",
       "aiProvider": "Provider AI del progetto",
       "aiProviderAuto": "Automatico (catena con failover)",
       "aiProviderHint": "// vale per Docs e fix di tutti i repository; vuoto = catena dei provider abilitati.",
@@ -1391,6 +1395,67 @@
       "applyPresetHint_one": "// spegne 1 skill consigliata; non ne riaccende mai nessuna (per riaccenderla, riseleziona la sua casella).",
       "applyPresetHint_other": "// spegne {{count}} skill consigliate; non ne riaccende mai nessuna (per riaccenderne una, riseleziona la sua casella).",
       "presetNoneActive": "// nessuna skill del preset è attiva"
+    },
+    "roadmap": {
+      "link": "Roadmap",
+      "title": "Roadmap",
+      "subtitle": "Dove sta il progetto: milestone, ticket, pull request, report e decisioni.",
+      "back": "← Torna al progetto",
+      "milestonesTitle": "Milestone aperte",
+      "milestonesEmpty": "// nessuna milestone aperta",
+      "noDueDate": "nessuna scadenza",
+      "dueOn": "scade il {{date}}",
+      "overdue": "scaduta",
+      "progress": "{{completed}}/{{total}} ticket completati",
+      "progressEmpty": "nessun ticket",
+      "timelineTitle": "Timeline",
+      "filters": "Filtra per tipo",
+      "filterAll": "Tutti",
+      "filter": {
+        "tickets": "Ticket",
+        "pr": "Pull request",
+        "milestones": "Milestone",
+        "reports": "Report giornalieri",
+        "decisions": "Decisioni",
+        "briefs": "Brief settimanali"
+      },
+      "weekOf": "Settimana del {{date}}",
+      "empty": "Nessun evento nel periodo.",
+      "emptyHint": "Allarga la finestra o togli i filtri.",
+      "loading": "// carico la timeline…",
+      "error": "// non è stato possibile caricare la timeline",
+      "entry": {
+        "ticketOpened": "Ticket aperto",
+        "ticketDone": "Ticket chiuso",
+        "milestoneDue": "Milestone in scadenza",
+        "milestoneClosed": "Milestone chiusa",
+        "prOpened": "Pull request aperta",
+        "prMerged": "Pull request mergiata",
+        "prClosed": "Pull request chiusa senza merge",
+        "reportDay": "Report giornaliero",
+        "decision": "Decisione",
+        "brief": "Brief settimanale"
+      },
+      "verdict": {
+        "approve": "review: approvata",
+        "request_changes": "review: modifiche richieste"
+      },
+      "briefPeriod": "{{from}} → {{to}}",
+      "noSummary": "// nessun riassunto",
+      "decidedBy": "deciso da {{who}}",
+      "decidedBySystem": "nessun autore registrato",
+      "openPr": "Apri la pull request",
+      "openBrief": "Apri il brief"
+    },
+    "weeklyBrief": {
+      "backToRoadmap": "← Torna alla roadmap",
+      "title": "Brief settimanale",
+      "copy": "Copia come testo",
+      "regenerate": "Rigenera",
+      "generatedAt": "generato il",
+      "pending": "// il brief è in corso di scrittura: arriva fra qualche minuto.",
+      "failed": "// la generazione del brief è fallita. Rigenerala per riprovare.",
+      "noText": "// questo brief non ha nessun testo: l'istanza non ha un provider AI utilizzabile per generarlo."
     }
   },
   "repositories": {
@@ -1551,6 +1616,8 @@
     "new": "Nuova milestone",
     "name": "Nome milestone",
     "namePlaceholder": "Es. release v1.0",
+    "description": "Descrizione",
+    "descriptionPlaceholder": "Es. cosa consegna questa milestone",
     "dueDate": "Scadenza",
     "noDueDate": "Nessuna scadenza",
     "create": "Crea",
@@ -1874,6 +1941,45 @@
       "whatsNew": "Novità",
       "recentlyUpdated": "Aggiornate di recente",
       "topViewed": "Più lette"
+    },
+    "decisions": {
+      "back": "← Documentazione del progetto",
+      "title": "Registro decisioni",
+      "subtitle": "Le decisioni prese da persone su questo progetto: risposte alle domande dell'agente, piani approvati o rifiutati con indicazioni, proposte del pulse accettate e voci scritte a mano. Mai scritte dall'AI.",
+      "link": "Registro decisioni",
+      "homeTitle": "Decisioni",
+      "homeAll": "Vedi tutto il registro",
+      "homeEmpty": "Nessuna decisione registrata.",
+      "filters": "Filtra per origine",
+      "filter": {
+        "all": "Tutte"
+      },
+      "source": {
+        "ask_user": "Domanda dell'agente",
+        "plan_review": "Gate del piano",
+        "pulse": "Proposta del pulse",
+        "manual": "A mano"
+      },
+      "listTitle": "Decisioni registrate",
+      "loading": "// carico il registro…",
+      "error": "Non è stato possibile caricare il registro.",
+      "empty": "// nessuna decisione registrata",
+      "superseded": "Superata",
+      "supersedeBy": "Superata da",
+      "supersedeChange": "Superata da",
+      "supersedeNone": "— non superata —",
+      "by": "decisa da {{email}}",
+      "byNobody": "nessun attore registrato",
+      "field": {
+        "title": "Titolo",
+        "decision": "Decisione",
+        "context": "Contesto",
+        "consequences": "Conseguenze"
+      },
+      "newTitle": "Registra una decisione",
+      "newHint": "Per le decisioni prese fuori da Stubwise: in una call, in una chat, in una riunione. Le voci automatiche si aggiungono da sole.",
+      "submit": "Registra",
+      "saveError": "Non è stato possibile salvare la decisione."
     }
   },
   "search": {

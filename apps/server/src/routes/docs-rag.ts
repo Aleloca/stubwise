@@ -26,17 +26,18 @@
  */
 
 import type { ChatLlm } from "./chat-llm.js";
-import {
-  retrieveChunks,
-  retrieveChunksForProject,
-  type RetrievedChunk,
-} from "./docs-retrieval.js";
+import { retrieveChunks, retrieveChunksForProject, type RetrievedChunk } from "./docs-retrieval.js";
 import {
   appendGraphContext,
   retrieveGraphContext,
   retrieveGraphContextForProject,
   type GraphContextDeps,
 } from "../graph-chat/context.js";
+import {
+  appendDecisionContext,
+  retrieveDecisionContext,
+  retrieveDecisionContextForRepository,
+} from "../graph-chat/decisions.js";
 import type { EmbeddingClient } from "@stubwise/embeddings";
 import type { Db } from "@stubwise/db";
 
@@ -79,7 +80,7 @@ export function buildDocsSystemPrompt(chunks: RetrievedChunk[]): string {
     '- Domanda TECNICA ("come funziona X?", "dove sta Y?") → risposta tecnica, con riferimenti a moduli, API pubbliche e flussi reali presenti nel contesto.',
     '- Domanda di CAPABILITY ("si può fare X?", "è possibile Y?") → risposta funzionale: se è fattibile descrivi i passi; se NON è fattibile spiega il perché, sempre ancorato a cosa il codice/documentazione effettivamente fa.',
     "",
-    "RISPONDI SOLO DAL CONTESTO RECUPERATO QUI SOTTO. Non inventare: se il contesto non basta a rispondere, dillo esplicitamente (es. \"La documentazione recuperata non copre questo punto\") invece di tirare a indovinare.",
+    'RISPONDI SOLO DAL CONTESTO RECUPERATO QUI SOTTO. Non inventare: se il contesto non basta a rispondere, dillo esplicitamente (es. "La documentazione recuperata non copre questo punto") invece di tirare a indovinare.',
     "",
     "Il contesto può provenire da PIÙ REPOSITORY dello stesso progetto: ogni fonte indica il repository di appartenenza. DISAMBIGUA per repository quando ti riferisci a moduli/concetti omonimi, e indica il repository pertinente nella risposta.",
     "",
@@ -147,6 +148,15 @@ export interface DocsAnswer {
 export type DocsGraphDeps = Omit<GraphContextDeps, "db">;
 
 /**
+ * Logger di ripiego per il retrieval delle decisioni quando il chiamante non
+ * passa `graph` (che è dove vive il logger delle deps). Le decisioni non
+ * dipendono dal grafo, quindi non possono restare senza un posto in cui
+ * riportare un fallimento — e inghiottire l'errore in silenzio sarebbe
+ * l'unica cosa peggiore di non averlo.
+ */
+const SILENT_LOGGER = { debug: () => {} };
+
+/**
  * Flusso RAG completo NON-streaming per una singola domanda one-shot (es. Slack).
  *
  * Stesso cuore della chat web ({@link ../routes/docs-chat.ts}) — stesso retrieval
@@ -170,7 +180,7 @@ export async function answerDocsQuestion(
 ): Promise<DocsAnswer> {
   // Grafo e pgvector in PARALLELO, come nelle route delle chat: la query al
   // grafo è più veloce dell'embedding, quindi la latenza resta quella di prima.
-  const [chunks, graphBlock] = await Promise.all([
+  const [chunks, graphBlock, decisionBlock] = await Promise.all([
     retrieveChunks(deps.db, deps.embeddingClient, input.repositoryId, input.question, {
       k: CHAT_RETRIEVAL_K,
     }),
@@ -180,9 +190,20 @@ export async function answerDocsQuestion(
           { repositoryId: input.repositoryId, question: input.question },
         )
       : null,
+    // Il REGISTRO DECISIONI (fase 5) NON è condizionato a `deps.graph`: non ha
+    // niente a che vedere col grafo (è una query sul nostro DB) e vale anche
+    // sulle istanze che il retrieval strutturale non lo hanno acceso.
+    retrieveDecisionContextForRepository(
+      deps.db,
+      { repositoryId: input.repositoryId, question: input.question },
+      deps.graph?.logger ?? SILENT_LOGGER,
+    ),
   ]);
 
-  const system = appendGraphContext(buildDocsSystemPrompt(chunks), graphBlock);
+  const system = appendDecisionContext(
+    appendGraphContext(buildDocsSystemPrompt(chunks), graphBlock),
+    decisionBlock,
+  );
   // Niente history: solo la domanda corrente come unico messaggio utente.
   const messages = [{ role: "user" as const, content: input.question }];
 
@@ -220,7 +241,7 @@ export async function answerProjectDocsQuestion(
 ): Promise<DocsAnswer> {
   // Grafo (di tutti i repo del progetto col grafo pronto) e pgvector in
   // PARALLELO, come nella chat Docs di progetto.
-  const [chunks, graphBlock] = await Promise.all([
+  const [chunks, graphBlock, decisionBlock] = await Promise.all([
     retrieveChunksForProject(deps.db, deps.embeddingClient, input.projectId, input.question),
     deps.graph
       ? retrieveGraphContextForProject(
@@ -228,9 +249,18 @@ export async function answerProjectDocsQuestion(
           { projectId: input.projectId, question: input.question },
         )
       : null,
+    // Come sopra: le decisioni non dipendono dal grafo.
+    retrieveDecisionContext(
+      deps.db,
+      { projectId: input.projectId, question: input.question },
+      deps.graph?.logger ?? SILENT_LOGGER,
+    ),
   ]);
 
-  const system = appendGraphContext(buildDocsSystemPrompt(chunks), graphBlock);
+  const system = appendDecisionContext(
+    appendGraphContext(buildDocsSystemPrompt(chunks), graphBlock),
+    decisionBlock,
+  );
   // Niente history: solo la domanda corrente come unico messaggio utente.
   const messages = [{ role: "user" as const, content: input.question }];
 

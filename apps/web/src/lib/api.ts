@@ -8,6 +8,9 @@ import type {
   BacklogItem,
   BacklogItemBase,
   BacklogItemDetail,
+  DecisionDraft,
+  DecisionPatch,
+  DecisionSource,
   BacklogItemStatus,
   BacklogLinkedTicket,
   BacklogMessage,
@@ -34,10 +37,16 @@ import type {
   NotificationPrefsView,
   PatView,
   PatWithToken,
+  PrReviewSummary,
   Plugin,
+  ProjectBriefWeekly,
   PluginRecommendations,
+  ProjectDecision,
   ProjectFollows,
   ProjectPlugin,
+  ProjectTimeline,
+  ProjectTimelineEntry,
+  ProjectTimelineKind,
   RecordSearchHistoryBody,
   SearchDocsSemanticResults,
   SearchEntityType,
@@ -97,7 +106,13 @@ export { ANSWER_TEXT_MAX_CHARS };
 export const INBOX_DECISION_ACTIONS: readonly InboxDecisionAction[] =
   inboxDecisionActionSchema.options;
 
-export type { PatView, PatWithToken, PrState, WidgetSettings, WidgetUpsertBody } from "@stubwise/shared";
+export type {
+  PatView,
+  PatWithToken,
+  PrState,
+  WidgetSettings,
+  WidgetUpsertBody,
+} from "@stubwise/shared";
 // Tipi dell'inbox ri-esportati dal binding locale: i componenti li importano da
 // "./api" come gli altri tipi di dominio, senza conoscere `@stubwise/shared`.
 export type {
@@ -113,7 +128,16 @@ export type {
   InboxStatus,
   NotificationPrefsUpdate,
   NotificationPrefsView,
+  PrReviewSummary,
+  DecisionDraft,
+  DecisionPatch,
+  DecisionSource,
+  ProjectBriefWeekly,
+  ProjectDecision,
   ProjectFollows,
+  ProjectTimeline,
+  ProjectTimelineEntry,
+  ProjectTimelineKind,
   SnoozeUntil,
   TicketQuestion,
 };
@@ -405,40 +429,20 @@ export function postTicket(draft: TicketDraft): Promise<TicketBase> {
 
 // --- Milestones ---
 
-/** Milestone di progetto: raggruppa i ticket verso un obiettivo con scadenza. */
-export interface Milestone {
-  id: string;
-  projectId: string;
-  name: string;
-  /** Scadenza ISO 8601; null = nessuna scadenza. */
-  dueDate: string | null;
-  status: "open" | "closed";
-  createdAt: string;
-}
-
-/** Milestone con l'avanzamento: total/completed e ripartizione per stato. */
-export interface MilestoneWithCounts extends Milestone {
-  counts: {
-    total: number;
-    completed: number;
-    byStatus: Partial<Record<TicketStatus, number>>;
-  };
-}
-
-/** Dati di creazione di una milestone. */
-export interface MilestoneDraft {
-  projectId: string;
-  name: string;
-  dueDate?: string | null;
-  status?: "open" | "closed";
-}
-
-/** Campi modificabili di una milestone. */
-export interface MilestonePatch {
-  name?: string;
-  dueDate?: string | null;
-  status?: "open" | "closed";
-}
+/**
+ * I tipi delle milestone arrivano da `@stubwise/shared`, gli stessi schemi con
+ * cui il server valida richieste e risposte: le interfacce scritte a mano che
+ * stavano qui avevano lasciato divergere il body della creazione da quello
+ * atteso dalla rotta (la POST partiva senza `repositoryId`, che il server
+ * esigeva), e nessun typecheck poteva accorgersene.
+ */
+import type {
+  Milestone,
+  MilestoneDraft,
+  MilestonePatch,
+  MilestoneWithCounts,
+} from "@stubwise/shared";
+export type { Milestone, MilestoneDraft, MilestonePatch, MilestoneWithCounts };
 
 export function listMilestones(projectId: string): Promise<MilestoneWithCounts[]> {
   return api.get(`/api/milestones?projectId=${encodeURIComponent(projectId)}`);
@@ -1226,6 +1230,12 @@ export interface Project {
   /** Cadenza minima fra due pulse dello stesso progetto, in giorni (1..30). */
   pulseEveryDays: number;
   /**
+   * Brief settimanale (Fase 5): se true, una volta a settimana il worker scrive
+   * il resoconto del progetto per chi non legge codice. INDIPENDENTE dal
+   * backlog, al contrario del pulse.
+   */
+  weeklyBriefEnabled: boolean;
+  /**
    * Chiave di ingestion del progetto (Fase 3): gli SDK e i webhook inbound la
    * usano per autenticare l'invio di errori/ticket. Salita dal repository al
    * progetto; tutti i repo del gruppo condividono questa chiave.
@@ -1282,6 +1292,8 @@ export interface ProjectPatch {
   pulseEnabled?: boolean;
   /** Cadenza del pulse in giorni (1..30); assente = invariata. */
   pulseEveryDays?: number;
+  /** Toggle brief settimanale (Fase 5); assente = invariato. */
+  weeklyBriefEnabled?: boolean;
 }
 
 export function getProjects(): Promise<ProjectListItem[]> {
@@ -1294,6 +1306,72 @@ export function getProject(projectId: string): Promise<ProjectDetail> {
 
 export function postProject(draft: ProjectDraft): Promise<Project> {
   return api.post("/api/projects", draft);
+}
+
+/**
+ * Timeline di progetto (Fase 5): milestone, ticket, PR, report giornalieri,
+ * decisioni e brief fusi in un elenco ordinato. Alimenta la pagina Roadmap.
+ *
+ * I default della finestra (ultime 4 settimane, tetto 180 giorni) sono del
+ * SERVER: qui non si duplicano, così una sola implementazione decide che cosa
+ * significa "di recente" e la pagina non può divergerne.
+ */
+export function getProjectTimeline(
+  projectId: string,
+  params: { from?: string; to?: string; kinds?: ProjectTimelineKind[] } = {},
+): Promise<ProjectTimeline> {
+  const search = new URLSearchParams();
+  if (params.from) search.set("from", params.from);
+  if (params.to) search.set("to", params.to);
+  // `kinds` vuoto NON diventa `kinds=`: il server tratterebbe il parametro come
+  // presente, e un elenco vuoto significa "nessun filtro", non "niente".
+  if (params.kinds && params.kinds.length > 0) search.set("kinds", params.kinds.join(","));
+  const query = search.toString();
+  return api.get(
+    `/api/projects/${encodeURIComponent(projectId)}/timeline${query ? `?${query}` : ""}`,
+  );
+}
+
+/**
+ * I brief settimanali di un progetto, dal periodo più recente (Fase 5).
+ * `limit` assente = il default del server.
+ */
+export function getProjectBriefs(
+  projectId: string,
+  options: { limit?: number } = {},
+): Promise<ProjectBriefWeekly[]> {
+  const query = options.limit === undefined ? "" : `?limit=${options.limit}`;
+  return api.get(`/api/projects/${encodeURIComponent(projectId)}/briefs${query}`);
+}
+
+/**
+ * UN brief per id. Rotta di PRIMO LIVELLO (`/api/briefs/:id`) e non annidata
+ * sotto il progetto: il brief ha un link proprio, che notifica, separatore
+ * della roadmap e tool MCP indirizzano per id.
+ */
+export function getBrief(briefId: string): Promise<ProjectBriefWeekly> {
+  return api.get(`/api/briefs/${encodeURIComponent(briefId)}`);
+}
+
+/**
+ * Rimette in coda il brief dell'ultima settimana chiusa (solo admin). A
+ * generarlo è il poller del worker: la risposta dice che è ACCODATO, non che è
+ * pronto. Senza `force` un brief già `done` risponde 409.
+ */
+export function generateProjectBrief(
+  projectId: string,
+  body: { force?: boolean } = {},
+): Promise<ProjectBriefWeekly> {
+  return api.post(`/api/projects/${encodeURIComponent(projectId)}/briefs/generate`, body);
+}
+
+/** Le review AI di PR del progetto, dalla più recente (Fase 5). */
+export function getProjectReviews(
+  projectId: string,
+  options: { limit?: number } = {},
+): Promise<PrReviewSummary[]> {
+  const query = options.limit === undefined ? "" : `?limit=${options.limit}`;
+  return api.get(`/api/projects/${encodeURIComponent(projectId)}/reviews${query}`);
 }
 
 export function patchProject(projectId: string, patch: ProjectPatch): Promise<Project> {
@@ -2089,10 +2167,7 @@ export function postSearchHistory(body: RecordSearchHistoryBody): Promise<void> 
 }
 
 /** Rimuove una singola voce (per tipo+entità) della cronologia: ritorna 204. */
-export function deleteSearchHistoryEntry(
-  type: SearchEntityType,
-  entityId: string,
-): Promise<void> {
+export function deleteSearchHistoryEntry(type: SearchEntityType, entityId: string): Promise<void> {
   return request(
     "DELETE",
     `/api/search/history/${encodeURIComponent(type)}/${encodeURIComponent(entityId)}`,
@@ -2807,10 +2882,7 @@ export function deleteBacklogPlan(id: string): Promise<BacklogItemBase> {
  * sessione creata; 400 repo estraneo al progetto; 409 se già attiva o la voce è
  * convertita/archiviata.
  */
-export function startCodeSession(
-  id: string,
-  repositoryId: string,
-): Promise<BacklogCodeSession> {
+export function startCodeSession(id: string, repositoryId: string): Promise<BacklogCodeSession> {
   return api.post(`/api/backlog/${encodeURIComponent(id)}/code-session`, { repositoryId });
 }
 
@@ -2958,4 +3030,46 @@ export function getNotificationPrefs(): Promise<NotificationPrefsView> {
  */
 export function patchNotificationPrefs(patch: NotificationPrefsUpdate): Promise<void> {
   return api.patch("/api/me/notification-prefs", patch);
+}
+
+/**
+ * IL REGISTRO DECISIONI di un progetto (Fase 5), dalla più recente.
+ *
+ * `source` filtra per origine. Il default di `limit` è del SERVER: qui non si
+ * duplica, come per la timeline.
+ */
+export function getProjectDecisions(
+  projectId: string,
+  options: { limit?: number; source?: DecisionSource } = {},
+): Promise<ProjectDecision[]> {
+  const search = new URLSearchParams();
+  if (options.limit !== undefined) search.set("limit", String(options.limit));
+  if (options.source) search.set("source", options.source);
+  const query = search.toString();
+  return api.get(
+    `/api/projects/${encodeURIComponent(projectId)}/decisions${query ? `?${query}` : ""}`,
+  );
+}
+
+/** Registra una decisione scritta a mano (chiunque veda il progetto). */
+export function createProjectDecision(
+  projectId: string,
+  body: DecisionDraft,
+): Promise<ProjectDecision> {
+  return api.post(`/api/projects/${encodeURIComponent(projectId)}/decisions`, body);
+}
+
+/**
+ * Corregge una decisione o la segna come superata da un'altra. Solo l'autore o
+ * un maintainer; i campi assenti restano invariati (semantica PATCH).
+ */
+export function patchProjectDecision(
+  projectId: string,
+  decisionId: string,
+  body: DecisionPatch,
+): Promise<ProjectDecision> {
+  return api.patch(
+    `/api/projects/${encodeURIComponent(projectId)}/decisions/${encodeURIComponent(decisionId)}`,
+    body,
+  );
 }

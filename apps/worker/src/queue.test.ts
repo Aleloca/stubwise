@@ -257,6 +257,43 @@ describe("transizioni di stato", () => {
     expect(persisted.lastActivityAt.getTime()).toBeGreaterThan(Date.now() - 60_000);
   });
 
+  it("parkForPlanApproval scrive planText e planSummary nello STESSO UPDATE guardato", async () => {
+    const { db } = testDb;
+    const job = await enqueueJob(db, { status: "fixing", startedAt: minutesAgo(1) });
+    // Spia sull'UNICA scrittura: il riassunto NON deve arrivare da una query
+    // successiva (fuori dal guard sulla ownership potrebbe atterrare su un job
+    // che nel frattempo è stato riaccodato e reclamato da un altro worker).
+    const updateSpy = vi.spyOn(db, "update");
+
+    expect(
+      await parkForPlanApproval(db, job.id, {
+        planText: "1. fix A",
+        planSummary: "Il piano corregge la somma.",
+        log: "[fix] piano pronto",
+      }),
+    ).toBe(true);
+
+    expect(updateSpy).toHaveBeenCalledTimes(1);
+    const persisted = await getJob(db, job.id);
+    expect(persisted.planText).toBe("1. fix A");
+    expect(persisted.planSummary).toBe("Il piano corregge la somma.");
+    updateSpy.mockRestore();
+  });
+
+  it("parkForPlanApproval senza planSummary lascia la colonna NULL (riassunto fallito, piano comunque parcheggiato)", async () => {
+    const { db } = testDb;
+    const job = await enqueueJob(db, { status: "fixing", startedAt: minutesAgo(1) });
+
+    expect(
+      await parkForPlanApproval(db, job.id, { planText: "1. fix A", log: "[fix] piano pronto" }),
+    ).toBe(true);
+
+    const persisted = await getJob(db, job.id);
+    expect(persisted.status).toBe("awaiting_plan_approval");
+    expect(persisted.planText).toBe("1. fix A");
+    expect(persisted.planSummary).toBeNull();
+  });
+
   it("parkForPlanApproval su un job non in lavorazione restituisce false e non tocca la riga", async () => {
     const { db } = testDb;
     const job = await enqueueJob(db); // ancora `queued`: nessuno lo possiede

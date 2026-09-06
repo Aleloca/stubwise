@@ -1,8 +1,18 @@
 import { randomBytes } from "node:crypto";
+import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
-import { aiJobs, aiProviders, notifications, projectFollows, tickets } from "@stubwise/db";
+import {
+  aiJobs,
+  aiProviders,
+  notifications,
+  prReviews,
+  projectBriefs,
+  projectDecisions,
+  projectFollows,
+  tickets,
+} from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { seedUsers, sessionCookie } from "../test/fixtures.js";
@@ -67,6 +77,8 @@ describe("POST /api/projects", () => {
       // Pulse proattivo: spento, con la cadenza di default di 3 giorni.
       pulseEnabled: false,
       pulseEveryDays: 3,
+      // Brief settimanale (fase 5): spento, e indipendente dal backlog.
+      weeklyBriefEnabled: false,
       // Fase 3: il progetto nasce con la chiave di ingestion (32 hex) e il
       // contatore ticket per-progetto a 1.
       ingestionKey: expect.stringMatching(/^[0-9a-f]{32}$/),
@@ -402,7 +414,14 @@ describe("GET /api/projects/pulse", () => {
 
   async function seedJob(
     ticketId: string,
-    status: "awaiting_input" | "awaiting_plan_approval" | "triaging" | "fixing" | "failed" | "pr_merged" | "queued",
+    status:
+      | "awaiting_input"
+      | "awaiting_plan_approval"
+      | "triaging"
+      | "fixing"
+      | "failed"
+      | "pr_merged"
+      | "queued",
     extra: { requestedByUserId?: string | null; startedAt?: Date; lastActivityAt?: Date } = {},
   ): Promise<string> {
     const [row] = await testDb.db
@@ -557,5 +576,595 @@ describe("GET /api/projects/pulse", () => {
     expect(indexOf(waitingProjectId)).toBeLessThan(indexOf(runningProjectId));
     expect(indexOf(runningProjectId)).toBeLessThan(indexOf(idleProjectId));
     expect(indexOf(idleProjectId)).toBeLessThan(indexOf(idleProjectId2));
+  });
+});
+
+/**
+ * Rotte di narrativa della Fase 5. Il grosso della logica di fusione è coperto
+ * da `services/project-timeline.test.ts`: qui si sorveglia ciò che solo la
+ * ROTTA può sbagliare — l'ordine di registrazione, l'ACL, i 400 sulla finestra
+ * e sui `kinds`, e il fatto che l'errore interno di una review non esca.
+ */
+describe("GET /api/projects/:projectId/timeline", () => {
+  async function seedProjectWithTicket(): Promise<{ projectId: string; ticketId: string }> {
+    const created = await createProject({ name: `Roadmap ${randomBytes(4).toString("hex")}` });
+    const projectId = created.json().id as string;
+    const [ticket] = await testDb.db
+      .insert(tickets)
+      .values({
+        projectId,
+        number: 1,
+        title: "Ticket in timeline",
+        type: "bug",
+        priority: "medium",
+        source: "manual",
+      })
+      .returning({ id: tickets.id });
+    return { projectId, ticketId: ticket!.id };
+  }
+
+  it("l'admin legge la timeline: finestra di default e voci del progetto", async () => {
+    const { projectId } = await seedProjectWithTicket();
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/timeline`,
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(typeof body.from).toBe("string");
+    expect(typeof body.to).toBe("string");
+    // Il ticket appena creato è dentro le ultime 4 settimane.
+    expect(body.entries.map((entry: { kind: string }) => entry.kind)).toContain("ticket_opened");
+  });
+
+  it("finestra oltre 180 giorni: 400 window_too_large", async () => {
+    const { projectId } = await seedProjectWithTicket();
+    const to = new Date();
+    const from = new Date(to.getTime() - 181 * 24 * 60 * 60 * 1000);
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/timeline?from=${from.toISOString()}&to=${to.toISOString()}`,
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().code).toBe("window_too_large");
+  });
+
+  it("un kind sconosciuto è un 400, non un filtro che non filtra niente", async () => {
+    const { projectId } = await seedProjectWithTicket();
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/timeline?kinds=pr_merged,ticket_esploso`,
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().code).toBe("invalid_kinds");
+  });
+
+  it("`kinds` filtra le voci", async () => {
+    const { projectId } = await seedProjectWithTicket();
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/timeline?kinds=pr_merged`,
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().entries).toEqual([]);
+  });
+
+  it("un member che NON segue il progetto: 404, come se non esistesse", async () => {
+    const { projectId } = await seedProjectWithTicket();
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/timeline`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().code).toBe("project_not_found");
+  });
+
+  it("lo stesso member, dopo aver seguito il progetto: 200", async () => {
+    const { projectId } = await seedProjectWithTicket();
+    await testDb.db.insert(projectFollows).values({ userId: memberId, projectId });
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/timeline`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it("progetto inesistente: 404", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/projects/11111111-1111-4111-8111-111111111111/timeline",
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+});
+
+describe("GET /api/projects/:projectId/reviews", () => {
+  it("elenca le review del progetto senza mai l'errore interno dell'agente", async () => {
+    const { projectId, repositoryId } = await seedRepository(testDb.db);
+    await testDb.db.insert(prReviews).values({
+      repositoryId,
+      prNumber: 11,
+      prUrl: "https://git.example.com/pr/11",
+      prTitle: "Titolo PR",
+      headSha: "sha",
+      status: "completed",
+      verdict: "approve",
+      summary: "analisi lunga",
+      prSummary: "In breve: sistema il login.",
+      error: "/worker/tmp/percorso-interno: boom",
+    });
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/reviews`,
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body).toHaveLength(1);
+    expect(body[0]).toMatchObject({
+      prNumber: 11,
+      verdict: "approve",
+      prSummary: "In breve: sistema il login.",
+    });
+    expect(res.payload).not.toContain("percorso-interno");
+    expect(res.payload).not.toContain("analisi lunga");
+  });
+
+  it("un member che non segue il progetto: 404", async () => {
+    const { projectId } = await seedRepository(testDb.db);
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/reviews`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+});
+
+describe("brief settimanale", () => {
+  /** Un progetto col brief acceso e, opzionalmente, un brief già in tabella. */
+  async function seedProjectWithBrief(
+    brief?: Partial<typeof projectBriefs.$inferInsert>,
+  ): Promise<{ projectId: string; briefId?: string }> {
+    const created = await createProject({ name: `Brief ${randomBytes(4).toString("hex")}` });
+    const projectId = created.json().id as string;
+    if (!brief) return { projectId };
+    const [row] = await testDb.db
+      .insert(projectBriefs)
+      .values({
+        projectId,
+        periodStart: "2026-08-31",
+        periodEnd: "2026-09-06",
+        status: "done",
+        summary: "## Dove siamo\n\nTutto bene.",
+        sections: { whereWeAre: "Tutto bene." },
+        ...brief,
+      })
+      .returning({ id: projectBriefs.id });
+    return { projectId, briefId: row!.id };
+  }
+
+  describe("PATCH weeklyBriefEnabled", () => {
+    it("l'admin accende il brief e il valore torna nella risposta e nella GET", async () => {
+      const { projectId } = await seedProjectWithBrief();
+      const res = await app.inject({
+        method: "PATCH",
+        url: `/api/projects/${projectId}`,
+        headers: { cookie: adminCookie },
+        payload: { weeklyBriefEnabled: true },
+      });
+      expect(res.statusCode).toBe(200);
+      expect((res.json() as { weeklyBriefEnabled: boolean }).weeklyBriefEnabled).toBe(true);
+
+      const get = await app.inject({
+        method: "GET",
+        url: `/api/projects/${projectId}`,
+        headers: { cookie: adminCookie },
+      });
+      expect((get.json() as { weeklyBriefEnabled: boolean }).weeklyBriefEnabled).toBe(true);
+    });
+
+    it("il brief NON dipende dal backlog: si accende su un progetto che non ce l'ha", async () => {
+      const { projectId } = await seedProjectWithBrief();
+      const res = await app.inject({
+        method: "PATCH",
+        url: `/api/projects/${projectId}`,
+        headers: { cookie: adminCookie },
+        payload: { weeklyBriefEnabled: true },
+      });
+      expect(res.statusCode).toBe(200);
+      expect((res.json() as { backlogEnabled: boolean }).backlogEnabled).toBe(false);
+    });
+  });
+
+  describe("GET /api/projects/:projectId/briefs", () => {
+    it("elenca i brief dal periodo più recente, senza mai l'errore interno", async () => {
+      const { projectId } = await seedProjectWithBrief({ error: "/worker/tmp/segreto: boom" });
+      await testDb.db.insert(projectBriefs).values({
+        projectId,
+        periodStart: "2026-08-24",
+        periodEnd: "2026-08-30",
+        status: "done",
+        summary: "Vecchio",
+      });
+
+      const res = await app.inject({
+        method: "GET",
+        url: `/api/projects/${projectId}/briefs`,
+        headers: { cookie: adminCookie },
+      });
+      expect(res.statusCode).toBe(200);
+      const rows = res.json() as { periodStart: string; summary: string | null }[];
+      expect(rows.map((r) => r.periodStart)).toEqual(["2026-08-31", "2026-08-24"]);
+      expect(JSON.stringify(rows)).not.toContain("segreto");
+    });
+
+    it("rispetta `limit`", async () => {
+      const { projectId } = await seedProjectWithBrief();
+      await testDb.db.insert(projectBriefs).values({
+        projectId,
+        periodStart: "2026-08-24",
+        periodEnd: "2026-08-30",
+        status: "done",
+      });
+      const res = await app.inject({
+        method: "GET",
+        url: `/api/projects/${projectId}/briefs?limit=1`,
+        headers: { cookie: adminCookie },
+      });
+      expect(res.json()).toHaveLength(1);
+    });
+
+    it("un member che NON segue il progetto: 404, come le altre rotte di progetto", async () => {
+      const { projectId } = await seedProjectWithBrief();
+      const res = await app.inject({
+        method: "GET",
+        url: `/api/projects/${projectId}/briefs`,
+        headers: { cookie: memberCookie },
+      });
+      expect(res.statusCode).toBe(404);
+    });
+
+    it("un member che SEGUE il progetto lo legge", async () => {
+      const { projectId } = await seedProjectWithBrief();
+      await testDb.db.insert(projectFollows).values({ projectId, userId: memberId });
+      const res = await app.inject({
+        method: "GET",
+        url: `/api/projects/${projectId}/briefs`,
+        headers: { cookie: memberCookie },
+      });
+      expect(res.statusCode).toBe(200);
+    });
+  });
+
+  describe("POST /api/projects/:projectId/briefs/generate", () => {
+    it("brief `done` senza force: 409, non si butta via un brief già scritto", async () => {
+      const { projectId } = await seedProjectWithBrief({});
+      const res = await app.inject({
+        method: "POST",
+        url: `/api/projects/${projectId}/briefs/generate`,
+        headers: { cookie: adminCookie },
+        payload: {},
+      });
+      expect(res.statusCode).toBe(409);
+      expect((res.json() as { code: string }).code).toBe("brief_already_done");
+    });
+
+    it("con `force`: il brief torna in coda, azzerando i tentativi", async () => {
+      const { projectId, briefId } = await seedProjectWithBrief({ attempts: 3 });
+      const res = await app.inject({
+        method: "POST",
+        url: `/api/projects/${projectId}/briefs/generate`,
+        headers: { cookie: adminCookie },
+        payload: { force: true },
+      });
+      expect(res.statusCode).toBe(200);
+      const body = res.json() as { id: string; status: string };
+      expect(body.id).toBe(briefId);
+      expect(body.status).toBe("queued");
+      const [row] = await testDb.db
+        .select()
+        .from(projectBriefs)
+        .where(eq(projectBriefs.projectId, projectId));
+      expect(row).toMatchObject({ status: "queued", attempts: 0, error: null });
+    });
+
+    it("un brief `failed` si rigenera SENZA force: non c'è niente da preservare", async () => {
+      const { projectId } = await seedProjectWithBrief({ status: "failed", error: "boom" });
+      const res = await app.inject({
+        method: "POST",
+        url: `/api/projects/${projectId}/briefs/generate`,
+        headers: { cookie: adminCookie },
+        payload: {},
+      });
+      expect(res.statusCode).toBe(200);
+      expect((res.json() as { status: string }).status).toBe("queued");
+    });
+
+    it("nessun brief ancora: ne crea uno `queued` per l'ultima settimana chiusa", async () => {
+      const { projectId } = await seedProjectWithBrief();
+      const res = await app.inject({
+        method: "POST",
+        url: `/api/projects/${projectId}/briefs/generate`,
+        headers: { cookie: adminCookie },
+        payload: {},
+      });
+      expect(res.statusCode).toBe(201);
+      const body = res.json() as { status: string; periodStart: string; periodEnd: string };
+      expect(body.status).toBe("queued");
+      // Sette giorni di calendario, estremi inclusi.
+      const days =
+        (Date.parse(`${body.periodEnd}T00:00:00Z`) - Date.parse(`${body.periodStart}T00:00:00Z`)) /
+        86_400_000;
+      expect(days).toBe(6);
+    });
+
+    it("un member non rigenera: 403 (è un run AI, lo decide un maintainer)", async () => {
+      const { projectId } = await seedProjectWithBrief();
+      const res = await app.inject({
+        method: "POST",
+        url: `/api/projects/${projectId}/briefs/generate`,
+        headers: { cookie: memberCookie },
+        payload: { force: true },
+      });
+      expect(res.statusCode).toBe(403);
+    });
+  });
+
+  describe("GET /api/briefs/:briefId", () => {
+    it("l'admin legge un brief per id", async () => {
+      const { projectId, briefId } = await seedProjectWithBrief({});
+      const res = await app.inject({
+        method: "GET",
+        url: `/api/briefs/${briefId}`,
+        headers: { cookie: adminCookie },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toMatchObject({
+        id: briefId,
+        projectId,
+        periodStart: "2026-08-31",
+        status: "done",
+        sections: { whereWeAre: "Tutto bene." },
+      });
+    });
+
+    it("brief inesistente: 404", async () => {
+      const res = await app.inject({
+        method: "GET",
+        url: "/api/briefs/11111111-1111-4111-8111-111111111111",
+        headers: { cookie: adminCookie },
+      });
+      expect(res.statusCode).toBe(404);
+    });
+
+    it("un member che non segue il progetto: 404, come se il brief non esistesse", async () => {
+      const { briefId } = await seedProjectWithBrief({});
+      const res = await app.inject({
+        method: "GET",
+        url: `/api/briefs/${briefId}`,
+        headers: { cookie: memberCookie },
+      });
+      expect(res.statusCode).toBe(404);
+    });
+  });
+});
+
+describe("registro decisioni", () => {
+  /** Una decisione già in tabella, scritta come farebbe un writer automatico. */
+  async function seedDecision(
+    projectId: string,
+    over: Partial<typeof projectDecisions.$inferInsert> = {},
+  ): Promise<string> {
+    const [row] = await testDb.db
+      .insert(projectDecisions)
+      .values({
+        projectId,
+        source: "ask_user",
+        sourceKey: `question:${randomBytes(8).toString("hex")}`,
+        sourceRef: { questionId: "q", jobId: "j" },
+        title: "Domanda dell'agente: quale formato?",
+        decision: "CSV",
+        consequences: "Nessuna dipendenza nuova",
+        decidedByUserId: adminId,
+        ...over,
+      })
+      .returning({ id: projectDecisions.id });
+    return row!.id;
+  }
+
+  describe("GET /api/projects/:projectId/decisions", () => {
+    it("elenca le decisioni con attore, senza esporre le chiavi interne", async () => {
+      const { projectId } = await seedRepository(testDb.db);
+      await seedDecision(projectId);
+
+      const res = await app.inject({
+        method: "GET",
+        url: `/api/projects/${projectId}/decisions`,
+        headers: { cookie: adminCookie },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body).toHaveLength(1);
+      expect(body[0]).toMatchObject({
+        source: "ask_user",
+        decision: "CSV",
+        consequences: "Nessuna dipendenza nuova",
+        decidedBy: { id: adminId },
+        supersededById: null,
+      });
+      // `sourceKey`/`sourceRef` sono meccanica interna: non escono di qui.
+      expect(res.payload).not.toContain("sourceKey");
+      expect(res.payload).not.toContain("sourceRef");
+    });
+
+    it("filtra per sorgente", async () => {
+      const { projectId } = await seedRepository(testDb.db);
+      await seedDecision(projectId);
+      await seedDecision(projectId, {
+        source: "manual",
+        sourceKey: `manual:${randomBytes(8).toString("hex")}`,
+        title: "Scelta a mano",
+        decision: "Rimandiamo",
+      });
+
+      const res = await app.inject({
+        method: "GET",
+        url: `/api/projects/${projectId}/decisions?source=manual`,
+        headers: { cookie: adminCookie },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toHaveLength(1);
+      expect(res.json()[0]).toMatchObject({ source: "manual", decision: "Rimandiamo" });
+    });
+
+    it("un member che non segue il progetto: 404", async () => {
+      const { projectId } = await seedRepository(testDb.db);
+      await seedDecision(projectId);
+      const res = await app.inject({
+        method: "GET",
+        url: `/api/projects/${projectId}/decisions`,
+        headers: { cookie: memberCookie },
+      });
+      expect(res.statusCode).toBe(404);
+    });
+  });
+
+  describe("POST /api/projects/:projectId/decisions", () => {
+    it("un member che segue il progetto registra una voce manuale: 201", async () => {
+      const { projectId } = await seedRepository(testDb.db);
+      await testDb.db.insert(projectFollows).values({ projectId, userId: memberId });
+
+      const res = await app.inject({
+        method: "POST",
+        url: `/api/projects/${projectId}/decisions`,
+        headers: { cookie: memberCookie },
+        payload: {
+          title: "Niente multi-tenant nella v1",
+          decision: "Un'istanza per cliente.",
+          context: "Valutato anche lo schema per tenant.",
+        },
+      });
+
+      expect(res.statusCode).toBe(201);
+      expect(res.json()).toMatchObject({
+        source: "manual",
+        title: "Niente multi-tenant nella v1",
+        decision: "Un'istanza per cliente.",
+        context: "Valutato anche lo schema per tenant.",
+        decidedBy: { id: memberId },
+      });
+    });
+
+    it("due voci manuali identiche sono due decisioni (nessuna idempotenza)", async () => {
+      const { projectId } = await seedRepository(testDb.db);
+      const payload = { title: "Stessa scelta", decision: "Stessa decisione" };
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const res = await app.inject({
+          method: "POST",
+          url: `/api/projects/${projectId}/decisions`,
+          headers: { cookie: adminCookie },
+          payload,
+        });
+        expect(res.statusCode).toBe(201);
+      }
+      const list = await app.inject({
+        method: "GET",
+        url: `/api/projects/${projectId}/decisions`,
+        headers: { cookie: adminCookie },
+      });
+      expect(list.json()).toHaveLength(2);
+    });
+  });
+
+  describe("PATCH /api/projects/:projectId/decisions/:decisionId", () => {
+    it("l'autore corregge la propria decisione", async () => {
+      const { projectId } = await seedRepository(testDb.db);
+      const id = await seedDecision(projectId, { decidedByUserId: memberId });
+      await testDb.db.insert(projectFollows).values({ projectId, userId: memberId });
+
+      const res = await app.inject({
+        method: "PATCH",
+        url: `/api/projects/${projectId}/decisions/${id}`,
+        headers: { cookie: memberCookie },
+        payload: { decision: "CSV, con separatore ;" },
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toMatchObject({ decision: "CSV, con separatore ;" });
+      // I campi non passati restano invariati (semantica PATCH).
+      expect(res.json().consequences).toBe("Nessuna dipendenza nuova");
+    });
+
+    it("chi non è né autore né maintainer: 403", async () => {
+      const { projectId } = await seedRepository(testDb.db);
+      const id = await seedDecision(projectId, { decidedByUserId: adminId });
+      await testDb.db.insert(projectFollows).values({ projectId, userId: memberId });
+
+      const res = await app.inject({
+        method: "PATCH",
+        url: `/api/projects/${projectId}/decisions/${id}`,
+        headers: { cookie: memberCookie },
+        payload: { decision: "riscrivo il fatto di un altro" },
+      });
+      expect(res.statusCode).toBe(403);
+    });
+
+    it("segnare come superata da un'altra decisione dello stesso progetto", async () => {
+      const { projectId } = await seedRepository(testDb.db);
+      const oldId = await seedDecision(projectId);
+      const newId = await seedDecision(projectId, { title: "La scelta nuova" });
+
+      const res = await app.inject({
+        method: "PATCH",
+        url: `/api/projects/${projectId}/decisions/${oldId}`,
+        headers: { cookie: adminCookie },
+        payload: { supersededById: newId },
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json().supersededById).toBe(newId);
+      // La voce superata NON sparisce: resta nel registro.
+      const list = await app.inject({
+        method: "GET",
+        url: `/api/projects/${projectId}/decisions`,
+        headers: { cookie: adminCookie },
+      });
+      expect(list.json()).toHaveLength(2);
+    });
+
+    it("una decisione non può superare sé stessa: 400", async () => {
+      const { projectId } = await seedRepository(testDb.db);
+      const id = await seedDecision(projectId);
+      const res = await app.inject({
+        method: "PATCH",
+        url: `/api/projects/${projectId}/decisions/${id}`,
+        headers: { cookie: adminCookie },
+        payload: { supersededById: id },
+      });
+      expect(res.statusCode).toBe(400);
+    });
+
+    it("supersededById di un ALTRO progetto: 400", async () => {
+      const a = await seedRepository(testDb.db);
+      const b = await seedRepository(testDb.db);
+      const id = await seedDecision(a.projectId);
+      const foreign = await seedDecision(b.projectId);
+      const res = await app.inject({
+        method: "PATCH",
+        url: `/api/projects/${a.projectId}/decisions/${id}`,
+        headers: { cookie: adminCookie },
+        payload: { supersededById: foreign },
+      });
+      expect(res.statusCode).toBe(400);
+    });
   });
 });

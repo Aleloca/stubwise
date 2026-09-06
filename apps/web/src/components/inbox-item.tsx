@@ -44,6 +44,7 @@ export const INBOX_KIND_LABEL_KEYS: Record<InboxItem["kind"], string> = {
   "monitor.recovered": "inbox:kinds.monitorRecovered",
   "job.awaiting_input": "inbox:kinds.awaitingInput",
   "project.pulse": "inbox:kinds.pulse",
+  "project.brief": "inbox:kinds.brief",
 };
 
 /**
@@ -378,6 +379,21 @@ export function InboxItemCard({
       </div>
 
       <p className="mt-2 text-sm text-fg">{item.text}</p>
+
+      {/*
+        RIASSUNTO "IN BREVE" (fase 5): due o tre frasi non tecniche su cosa il
+        piano cambia o cosa fa la PR. Sta SUBITO SOTTO IL TESTO, che è anche
+        subito SOPRA i bottoni: sulla card del piano si legge quindi prima di
+        Approva/Rifiuta — l'ordine che serve a chi deve decidere senza leggere
+        il piano intero — e sulla card della PR resta un contorno del testo.
+        Blocco evidenziato e non un paragrafo in più perché non è la notifica:
+        è la sua traduzione. Assente ⇒ la card è esattamente quella di prima.
+      */}
+      {item.summary !== undefined && (
+        <p className="mt-2 border-l-2 border-line-strong pl-3 text-sm text-fg-muted">
+          {item.summary}
+        </p>
+      )}
 
       {isHandled && (
         <p className="mt-1 font-mono text-[11px] text-fg-faint">

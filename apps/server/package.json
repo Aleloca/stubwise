@@ -9,9 +9,10 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
-    "build": "tsc -p tsconfig.build.json",
+    "backfill:ticket-events": "tsx scripts/backfill-ticket-done-events.ts",
+    "build": "tsc -p tsconfig.build.json && tsc -p tsconfig.scripts-build.json",
     "test": "pnpm --filter @stubwise/sdk... --filter @stubwise/db... --filter @stubwise/embeddings... --filter @stubwise/notifications... --filter @stubwise/agent... build && vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && tsc -p scripts/tsconfig.json"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.105.0",

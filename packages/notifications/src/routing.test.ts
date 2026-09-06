@@ -100,6 +100,15 @@ describe("recipientsFor", () => {
     ).toEqual(["admin-1", "admin-2", "follower-1"]);
   });
 
+  it("manda il brief settimanale ad admin ∪ follower (broadcast SENZA ticket, come il pulse)", () => {
+    expect(
+      recipientsFor(eventOfKind("project.brief"), {
+        admins: ["admin-1", "admin-2"],
+        followers: ["follower-1", "admin-2"],
+      }),
+    ).toEqual(["admin-1", "admin-2", "follower-1"]);
+  });
+
   it("il pulse non è una domanda al richiedente: raggiunge anche chi segue il progetto", () => {
     // Contrapposto esplicito a `job.awaiting_input`, che ha la stessa forma di
     // payload ma pubblico `requester`: qui i follower ci sono, là no.

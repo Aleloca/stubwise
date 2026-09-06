@@ -413,6 +413,12 @@ function diffTicketEvents(current: Ticket, updates: Partial<Ticket>): PendingEve
       payload: { from: current.priority, to: updates.priority },
     });
   }
+  // NB: la transizione di stato NON passa da `recordTicketStatusChange`
+  // (`@stubwise/db`), che è l'helper delle transizioni di SISTEMA (webhook e
+  // worker, `actorId: null`). Qui l'evento nasce dentro un diff multi-campo che
+  // finisce in UN solo INSERT con l'attore umano: spezzarlo in due scritture
+  // per riusare l'helper renderebbe il codice peggiore, non migliore. Il
+  // payload è identico — `{ from, to }` — ed è quello su cui la timeline conta.
   if (updates.status !== undefined && updates.status !== current.status) {
     events.push({ kind: "status_changed", payload: { from: current.status, to: updates.status } });
   }
@@ -453,10 +459,20 @@ async function ticketDetailResponse(
   row: Ticket,
 ): Promise<z.infer<typeof ticketDetailSchema>> {
   const repositoriesState = await loadTicketRepositories(db, row.id);
+  // Riassunto "in breve" del piano (fase 5): dell'ULTIMO job, che è lo stesso
+  // che la pagina ticket mostra come `jobs[0]`. Un job più vecchio col suo
+  // riassunto non deve riemergere sul dettaglio quando un run nuovo è partito.
+  const [latestJob] = await db
+    .select({ planSummary: aiJobs.planSummary })
+    .from(aiJobs)
+    .where(eq(aiJobs.ticketId, row.id))
+    .orderBy(desc(aiJobs.createdAt), desc(aiJobs.id))
+    .limit(1);
   return {
     ...toPublicTicket(row),
     implementationPlan: row.implementationPlan,
     originContent: row.originContent,
+    planSummary: latestJob?.planSummary ?? null,
     repositories: repositoriesState,
   };
 }

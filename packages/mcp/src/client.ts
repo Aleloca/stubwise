@@ -293,6 +293,49 @@ export interface TicketPatch {
 }
 
 /** Dipendenze iniettabili: `fetch` è iniettabile per testabilità. */
+/**
+ * Un brief settimanale nella forma letta dal tool `get_project_brief`
+ * (`projectBriefWeeklySchema` lato server, qui riscritto perché il pacchetto è
+ * un bundle senza dipendenze workspace a runtime).
+ */
+export interface ProjectBriefSummary {
+  id: string;
+  projectId: string;
+  /** Estremi INCLUSI del periodo coperto, `YYYY-MM-DD`. */
+  periodStart: string;
+  periodEnd: string;
+  status: "queued" | "running" | "done" | "failed";
+  /** Il brief in markdown; null se non generato o se manca il provider AI. */
+  summary: string | null;
+  sections: Record<string, string> | null;
+  notificationId: string | null;
+  createdAt: string;
+  finishedAt: string | null;
+}
+
+/**
+ * Una DECISIONE del registro di progetto (`GET /api/projects/:id/decisions`),
+ * nella forma minima che serve al tool `list_decisions`. Riscritta qui come
+ * `ProjectBriefSummary`: il pacchetto è un bundle senza dipendenze workspace a
+ * runtime.
+ */
+export interface ProjectDecisionSummary {
+  id: string;
+  projectId: string;
+  source: "ask_user" | "plan_review" | "pulse" | "manual";
+  ticketId: string | null;
+  ticketNumber: number | null;
+  title: string;
+  context: string | null;
+  decision: string;
+  consequences: string | null;
+  decidedBy: { id: string; email: string } | null;
+  decidedAt: string;
+  /** Valorizzato = questa decisione è stata superata da un'altra. */
+  supersededById: string | null;
+  createdAt: string;
+}
+
 export interface StubwiseClientDeps {
   fetch?: typeof fetch;
 }
@@ -490,7 +533,9 @@ export class StubwiseClient {
     return this.request<BacklogItemDetail>(`/api/backlog/${id}`);
   }
 
-  async createBacklogItem(params: CreateBacklogItemParams): Promise<{ queued: true; jobId: string }> {
+  async createBacklogItem(
+    params: CreateBacklogItemParams,
+  ): Promise<{ queued: true; jobId: string }> {
     const raw = await this.request<unknown>("/api/backlog", { method: "POST", body: params });
     return this.parseResponse(createBacklogResultSchema, raw, "la creazione della voce di backlog");
   }
@@ -594,6 +639,38 @@ export class StubwiseClient {
     });
   }
 
+  // --- Brief settimanale ---------------------------------------------------
+
+  /**
+   * I brief settimanali di un progetto, dal più recente
+   * (`GET /api/projects/:id/briefs`). `limit` 1 = solo l'ultimo, che è il caso
+   * del tool `get_project_brief`.
+   *
+   * Cast tipizzato senza validazione runtime, come le altre letture di questo
+   * client: lo schema vive in `@stubwise/shared` e il pacchetto MCP è un bundle
+   * autonomo, senza dipendenze `workspace:` a runtime.
+   */
+  async listProjectBriefs(projectId: string, limit?: number): Promise<ProjectBriefSummary[]> {
+    return this.request<ProjectBriefSummary[]>(`/api/projects/${projectId}/briefs`, {
+      query: { limit },
+    });
+  }
+
+  /**
+   * Il REGISTRO DECISIONI di un progetto, dalla più recente
+   * (`GET /api/projects/:id/decisions`). `source` filtra per origine.
+   *
+   * Cast tipizzato senza validazione runtime, come `listProjectBriefs`.
+   */
+  async listProjectDecisions(
+    projectId: string,
+    options: { limit?: number; source?: string } = {},
+  ): Promise<ProjectDecisionSummary[]> {
+    return this.request<ProjectDecisionSummary[]>(`/api/projects/${projectId}/decisions`, {
+      query: { limit: options.limit, source: options.source },
+    });
+  }
+
   // --- Design / piano (backlog e ticket) ----------------------------------
   //
   // Superficie unificata sulle risorse omogenee `backlog`/`ticket`: entrambe
@@ -620,7 +697,10 @@ export class StubwiseClient {
   }
 
   /** DELETE del design: ripristina il corpo d'origine e azzera `originContent` lato server. */
-  async deleteDesign(target: DesignPlanTarget, id: string): Promise<BacklogItemDetail | TicketDetail> {
+  async deleteDesign(
+    target: DesignPlanTarget,
+    id: string,
+  ): Promise<BacklogItemDetail | TicketDetail> {
     return this.request<BacklogItemDetail | TicketDetail>(`${this.basePath(target)}/${id}/design`, {
       method: "DELETE",
     });
@@ -639,7 +719,10 @@ export class StubwiseClient {
   }
 
   /** DELETE del piano di implementazione: azzera `implementationPlan`. */
-  async deletePlan(target: DesignPlanTarget, id: string): Promise<BacklogItemDetail | TicketDetail> {
+  async deletePlan(
+    target: DesignPlanTarget,
+    id: string,
+  ): Promise<BacklogItemDetail | TicketDetail> {
     return this.request<BacklogItemDetail | TicketDetail>(`${this.basePath(target)}/${id}/plan`, {
       method: "DELETE",
     });
