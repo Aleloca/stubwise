@@ -87,6 +87,48 @@ describe("createClient", () => {
     unsubscribe();
   });
 
+  /**
+   * Review fase 4, finding #4: un 401 su `mobile-login` è una PASSWORD
+   * ERRATA, non una sessione scaduta — non esiste ancora nessuna sessione da
+   * pulire. Prima del fix, il guardiano reagiva a QUALUNQUE 401 (compreso
+   * questo), quindi ogni tentativo di login con credenziali sbagliate
+   * innescava `clearSession`/`session:expired` — innocuo quando il Keychain
+   * è già vuoto, ma concettualmente sbagliato e pericoloso se un giorno
+   * l'evento acquisisse un effetto più visibile (es. un redirect forzato
+   * mentre l'utente sta ancora scrivendo la password).
+   */
+  test("un 401 su mobile-login NON pulisce la sessione (è una password errata, non una sessione scaduta)", async () => {
+    jest.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ code: "invalid_credentials", message: "Invalid credentials" }), {
+        status: 401,
+      }),
+    );
+    const listener = jest.fn();
+    const unsubscribe = onSessionExpired(listener);
+    const client = createClient("https://stubwise.example");
+
+    await expect(
+      client.auth.mobileLogin({ email: "a@b.it", password: "wrong", deviceName: "iPhone di test" }),
+    ).rejects.toMatchObject({ status: 401 });
+
+    expect(mockClearSession).not.toHaveBeenCalled();
+    expect(listener).not.toHaveBeenCalled();
+    unsubscribe();
+  });
+
+  test("un 401 su un'ALTRA rotta (non mobile-login) pulisce la sessione come sempre", async () => {
+    jest.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 401 }));
+    const listener = jest.fn();
+    const unsubscribe = onSessionExpired(listener);
+    const client = createClient("https://stubwise.example");
+
+    await expect(client.auth.setupStatus()).rejects.toMatchObject({ status: 401 });
+
+    expect(mockClearSession).toHaveBeenCalledTimes(1);
+    expect(listener).toHaveBeenCalledTimes(1);
+    unsubscribe();
+  });
+
   test("un ascoltatore disiscritto non riceve più l'evento", async () => {
     jest.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 401 }));
     const listener = jest.fn();

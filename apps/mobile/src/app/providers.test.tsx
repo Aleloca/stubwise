@@ -105,11 +105,12 @@ describe("AppProviders — badge OS al foreground", () => {
     expect(mockSetBadgeCount).not.toHaveBeenCalled();
   });
 
-  test("un fallimento di rete su unreadCount non lancia e non aggiorna il badge (si riprova al prossimo giro)", async () => {
+  test("un fallimento di rete su unreadCount non lancia e non aggiorna il badge (si riprova al prossimo giro) — ma si logga (review fase 4, finding #4)", async () => {
     mockLoadSession.mockResolvedValue(session);
     const client = fakeClient();
     (client.inbox.unreadCount as jest.Mock).mockRejectedValue(new Error("network down"));
     mockCreateClient.mockReturnValue(client);
+    const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
 
     await render(
       <AppProviders>
@@ -123,6 +124,11 @@ describe("AppProviders — badge OS al foreground", () => {
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
 
     expect(mockSetBadgeCount).not.toHaveBeenCalled();
+    // Un badge che smette di aggiornarsi senza che NESSUNO ne veda traccia è
+    // lo stesso guasto (silenzioso, difficile da diagnosticare) già evitato
+    // altrove nell'app (`lib/push.ts`) — il catch qui non deve restare vuoto.
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
   });
 
   test("nessun client (non autenticato): AppState non viene ascoltato per il badge", async () => {

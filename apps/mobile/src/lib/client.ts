@@ -23,12 +23,33 @@ function emitSessionExpired(): void {
 }
 
 /**
- * `fetch` che osserva ogni risposta e, su 401, pulisce la sessione ed emette
- * l'evento — PRIMA di restituire la risposta al chiamante. L'ordine conta:
- * chi ascolta `onSessionExpired` (il provider di autenticazione, che
- * riporta l'app alla schermata di login) deve poter contare sul fatto che
- * il Keychain sia già vuoto quando l'evento arriva, così un `loadSession()`
- * eseguito dentro il listener non rivede il token appena invalidato.
+ * `mobile-login` è l'UNICA rotta dove un 401 NON è "la sessione è scaduta" —
+ * è "la password è sbagliata", e non esiste ancora nessuna sessione da
+ * pulire (review fase 4, finding #4). Reagire come a un 401 qualunque
+ * innescherebbe `clearSession`/`session:expired` a ogni tentativo di login
+ * fallito: innocuo quando il Keychain è già vuoto, ma concettualmente
+ * sbagliato — e pericoloso se un giorno l'evento acquisisse un effetto più
+ * visibile (es. un redirect forzato mentre l'utente sta ancora scrivendo la
+ * password).
+ *
+ * `input` è sempre una stringa qui: `@stubwise/api-client` chiama
+ * `fetchImpl` con `${baseUrl}${path}` (mai un oggetto `Request`), quindi
+ * `endsWith` sul path basta — nessun bisogno di parsare un URL completo.
+ */
+const MOBILE_LOGIN_PATH = "/api/auth/mobile-login";
+
+function isMobileLoginRequest(input: Parameters<typeof fetch>[0]): boolean {
+  return typeof input === "string" && input.endsWith(MOBILE_LOGIN_PATH);
+}
+
+/**
+ * `fetch` che osserva ogni risposta e, su 401 (tranne `mobile-login`, vedi
+ * sopra), pulisce la sessione ed emette l'evento — PRIMA di restituire la
+ * risposta al chiamante. L'ordine conta: chi ascolta `onSessionExpired` (il
+ * provider di autenticazione, che riporta l'app alla schermata di login)
+ * deve poter contare sul fatto che il Keychain sia già vuoto quando l'evento
+ * arriva, così un `loadSession()` eseguito dentro il listener non rivede il
+ * token appena invalidato.
  *
  * Passa attraverso invariata qualunque altra risposta (compreso ogni altro
  * status non-2xx): la costruzione dell'`ApiError` resta compito del
@@ -37,7 +58,7 @@ function emitSessionExpired(): void {
 function createSessionAwareFetch(): typeof fetch {
   return async (input, init) => {
     const response = await fetch(input, init);
-    if (response.status === 401) {
+    if (response.status === 401 && !isMobileLoginRequest(input)) {
       await clearSession();
       emitSessionExpired();
     }

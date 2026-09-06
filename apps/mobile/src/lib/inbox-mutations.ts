@@ -46,7 +46,11 @@ export function useUnreadCount() {
       return result.count;
     },
     enabled: client !== null,
-    refetchInterval: 30_000,
+    // 60s, non 30s: allineato al badge OS (`FOREGROUND_BADGE_INTERVAL_MS` in
+    // `app/providers.tsx`) e al design doc §6 ("contatore ogni 60 s solo in
+    // foreground") — review fase 4, finding #4. Due intervalli diversi per
+    // lo stesso "contatore non letto" erano un disallineamento senza motivo.
+    refetchInterval: 60_000,
   });
 }
 

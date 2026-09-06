@@ -183,10 +183,14 @@ export function AppProviders({ children }: { children: ReactNode }) {
       try {
         const result = await client.inbox.unreadCount();
         await notifee.setBadgeCount(result.count);
-      } catch {
+      } catch (error) {
         // Best-effort: un fallimento di rete non deve piantare l'app né
         // lasciare il badge scorretto per sempre — il prossimo giro (60s, il
-        // prossimo foreground, o la prossima push) riprova da solo.
+        // prossimo foreground, o la prossima push) riprova da solo. Ma si
+        // logga (stesso principio di `lib/push.ts`): un badge che smette di
+        // aggiornarsi senza che NESSUNO ne veda traccia è il guasto peggiore
+        // da diagnosticare più tardi.
+        console.warn("stubwise: aggiornamento badge fallito", error);
       }
     }
 

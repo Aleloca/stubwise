@@ -178,9 +178,6 @@ importers:
       react-test-renderer:
         specifier: 19.2.3
         version: 19.2.3(react@19.2.3)
-      test-renderer:
-        specifier: ^1.2.0
-        version: 1.2.0(@types/react@19.2.18)(react@19.2.3)
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
