@@ -24,6 +24,14 @@ repo, ricerca vettoriale e chat RAG.
   `docs-engine`, `embeddings`, `git`, `i18n`, `notifications`, `sdk`, `shared`,
   `widget` (bundle embeddabile del customer service, servito come `/widget.js`
   da caddy).
+  `notifications` ospita anche i moduli **puri e condivisi fra server e
+  worker** che leggono lo stato di un progetto: `project-signals.ts` (i
+  segnali del pulse) e, dalla fase 5, `project-timeline.ts` — l'unione degli
+  eventi di un progetto in una finestra temporale. La timeline serve sia alla
+  rotta `GET /api/projects/:projectId/timeline` (server) sia al brief
+  settimanale (worker): sta in un package che entrambi hanno già come
+  dipendenza proprio per non duplicarne le query in due posti che poi
+  divergono.
 
 ## Comandi (dalla radice)
 
@@ -324,6 +332,89 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   server in fase 4 è quindi sicuro per il server e per il web (rifatto
   insieme al caddy), ma **rompe l'app mobile già in mano agli utenti** finché
   non si torna avanti.
+- **Fase 5 (roadmap, brief settimanale, registro decisioni)**: rebuild
+  **server+worker+caddy insieme** (migrazione 0068 all'avvio del server —
+  nuovo valore `project.brief` sull'enum `notification_kind` **in uno
+  statement a sé** e mai usato nella stessa migrazione (vedi la trappola
+  delle migrazioni batch qui sotto), colonne **nullable** su `ai_jobs`
+  (`plan_summary`), `pr_reviews` (`pr_summary`) e `milestones`
+  (`description`, `closed_at`), colonne con default su `projects`
+  (`weekly_brief_enabled`, default `false`) e `notification_settings`
+  (`notify_brief`, default `true` — è il toggle d'istanza del kind, in
+  Impostazioni → Notifiche, non una preferenza per utente: `notificationPrefs`
+  **non cambia**, quindi qui non si ripresenta la trappola della fase 4
+  sull'app mobile già installata), un `DROP NOT NULL` su
+  `milestones.repository_id` (la milestone è di progetto: il repo d'origine è
+  un dettaglio, e la creazione dalla UI non lo manda più) e due tabelle NUOVE
+  `project_briefs` e `project_decisions`; il worker nuovo è
+  l'unico che genera i riassunti "in breve" e che ha il poller del brief, il
+  server nuovo l'unico che espone timeline, review, brief e decisioni — e
+  l'unico che sa serializzare un'inbox che contiene `project.brief` —, il
+  bundle nuovo l'unico che disegna la Roadmap, il brief e il registro
+  decisioni). Env opzionali sul worker: `SUMMARIES_ENABLED` (default `true`;
+  `false` spegne **solo** la generazione dei riassunti — `plan_summary` e
+  `pr_summary` restano `NULL` e le card tornano a mostrare quello che
+  mostravano prima), `SUMMARY_MODEL` (vuoto/assente = **lo stesso di
+  `PR_REVIEW_MODEL`**: stesso profilo di run, solo testo e read-only, non ha
+  senso tenerne allineati due), `BRIEF_POLL_MINUTES` (default 15, **0 =
+  spegne la feature**, ed è il rollback: non nasce più nemmeno un brief
+  richiesto a mano dalla UI), `BRIEF_WEEKDAY` (1 = lunedì … 7 = domenica,
+  default 1 — e il **periodo segue il giorno**: spostandolo al venerdì il
+  brief copre venerdì→giovedì, senza altra configurazione) e
+  `BRIEF_SEND_HOUR` (0..23, default 9, finestra `[ora, ora+1)`). ⚠️ Il fuso è
+  **`PULSE_TIMEZONE`, riusato e non duplicato**: è l'unico fuso
+  dell'istanza — chi sposta il pulse sposta anche il brief, di proposito.
+  **Attivazione per progetto** (`weeklyBriefEnabled`) dal dettaglio progetto,
+  **default off**: al deploy nessun progetto riceve brief. **Passo manuale
+  post-deploy — backfill una tantum degli eventi di chiusura**: fino a questa
+  fase solo `PATCH /api/tickets/:id` scriveva uno `status_changed`, quindi le
+  chiusure fatte dal webhook git (PR mergiata → `done`) non hanno lasciato
+  traccia e la timeline mostrerebbe come chiusi i soli ticket chiusi a mano.
+  Sul VPS, **dentro il container server**, prima in prova e poi davvero:
+  `docker compose exec server node
+  dist/scripts/backfill-ticket-done-events.js --dry-run`, poi lo stesso senza
+  `--dry-run`. È **idempotente** (salta i ticket che hanno già uno
+  `status_changed` verso `done`) e **non** è una migrazione di proposito:
+  tocca molte righe storiche e va lanciato quando si vuole. ⚠️ In prod si
+  lancia col **`node` compilato**, non con `pnpm --filter @stubwise/server
+  backfill:ticket-events` (quello è la forma di sviluppo): l'immagine di
+  runtime è un `pnpm deploy --prod` e **non contiene né `tsx` né pnpm**, e il
+  Postgres del compose non pubblica porte sull'host, quindi non è nemmeno
+  raggiungibile dal checkout in `/opt/stubwise`. Per questo il build del
+  server emette anche `dist/scripts/` (`apps/server/tsconfig.scripts-build.json`):
+  chi aggiunge uno script operativo lo tenga sulle sole dipendenze di
+  produzione. Altri post-merge: mergiare la PR di
+  versioning Changesets che pubblica `@stubwise/shared` e `@stubwise/mcp`
+  (tool `get_project_brief` e `list_decisions` — arrivano agli utenti a quel
+  merge, **non** al deploy dell'istanza) e ricopiare la skill aggiornata in
+  `~/.claude/skills/stubwise/SKILL.md` sulle macchine degli altri
+  sviluppatori. **Nessun passo Slack manuale**: la card del brief riusa scope
+  e superficie interattiva delle fasi 0/1/2. **Rollback — tre strade, e solo
+  le prime due sono innocue**: (1) *spegnere le feature*:
+  `BRIEF_POLL_MINUTES=0` (o il toggle per progetto) e nessun brief nasce più;
+  `SUMMARIES_ENABLED=false` e nessun riassunto viene generato. Nessuna delle
+  due tocca schema o immagini, e quello che è già stato prodotto resta
+  leggibile. (2) *scendere di immagine sul worker* è innocuo per i run: i
+  brief rimasti `running` restano orfani **in silenzio** finché non torna il
+  worker nuovo, che poi li recupera da sé col recovery degli stantii — nessun
+  intervento manuale. (3) *scendere di immagine sul server* **NON è sicuro**
+  finché in `notifications` esiste anche UNA riga `project.brief`, **incluse
+  quelle già gestite**: `notificationKindSchema` è un enum **chiuso**, il
+  binario vecchio non conosce quel valore, `inboxPageSchema` fa fallire la
+  serializzazione e salta **tutta `/api/inbox` con un 500** — non una card
+  degradata. È esattamente la lezione di `project.pulse` in fase 2, e vale
+  qui identica: chi deve davvero scendere di immagine deve prima **eliminare
+  quelle righe** (`delete from notifications where kind = 'project.brief';`,
+  o spostarle in una tabella d'appoggio). Segnarle gestite NON basta: la tab
+  "Gestite" le rilegge tutte. Le colonne e le due tabelle nuove sopravvivono
+  a tutto e il migratore ignora la 0068 già applicata; ma **il caddy va sceso
+  insieme al server**, altrimenti il bundle nuovo chiama rotte che non ci
+  sono — e non solo: il body di creazione delle milestone dell'immagine
+  vecchia esige `repositoryId`, che la UI nuova non manda più. (Le milestone
+  già create senza repo, invece, non sono un problema: `repositoryId` non è
+  mai stato nella *risposta*, nemmeno prima, quindi nessuna rotta smette di
+  serializzare — verificato leggendo lo schema di risposta su `main`, non
+  assunto.)
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
@@ -360,7 +451,52 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   registrata prima, con un commento esplicito in
   `apps/server/src/routes/projects.ts` — ma è una trappola da NON
   reintrodurre: qualunque nuova rotta letterale su un prefisso che ha già
-  una `:id` va registrata PRIMA di quella parametrica.
+  una `:id` va registrata PRIMA di quella parametrica. La fase 5 ha
+  moltiplicato le occasioni di sbagliare: sotto `/api/projects` convivono
+  ora `/pulse` (letterale nudo, il caso pericoloso davvero) e i suffissi
+  `/:projectId/reviews`, `/:projectId/timeline`, `/:projectId/briefs`,
+  `/:projectId/decisions`. **Regola operativa, senza distinguere i due
+  casi: ogni rotta con una parte letterale va registrata PRIMA di `GET
+  /:projectId`** — è la convenzione già seguita dal file, con un commento su
+  ognuna, e tenerla uniforme costa nulla mentre ragionare caso per caso su
+  quale segmento è ambiguo è come si reintroduce il bug.
+- **Migrazioni Drizzle — il batch gira in UNA transazione.** Il migratore
+  esegue tutte le migrazioni pendenti dentro una sola transazione, e Postgres
+  **non permette di usare un valore di enum nella stessa transazione in cui
+  è stato aggiunto**. Quindi un `ALTER TYPE ... ADD VALUE` va in uno
+  **statement a sé** e il valore non può essere usato (insert, default,
+  confronto) né lì né in una migrazione successiva dello stesso batch: il
+  seed che ne ha bisogno va fatto **dopo**, in `runMigrations`. È il motivo
+  per cui la 0068 aggiunge `project.brief` da sola e non lo tocca più.
+- **Il registro decisioni non è MAI scritto dall'AI.** `project_decisions`
+  raccoglie *fatti* — la risposta a una domanda dell'agente, un piano
+  approvato o rifiutato con indicazioni, una proposta del pulse accettata,
+  una voce registrata a mano — e ogni testo automatico viene da un
+  **template i18n**, mai da un run del modello. La distinzione è la spina
+  dorsale della fase 5: il brief e i riassunti "in breve" sono **narrativa**
+  (generata, rigenerabile, sbagliabile), il registro è **fatto** (deve poter
+  essere citato senza riverificarlo) — e il brief regge proprio perché il
+  registro su cui si appoggia non è a sua volta prosa generata.
+  `apps/server/src/services/decisions-never-ai.test.ts` la verifica su **due
+  piani**, perché nessuno dei due basta da solo: **a runtime** (l'SDK
+  Anthropic, unica superficie AI raggiungibile dal server, è mockato con
+  delle spie mentre i writer automatici girano davvero contro un Postgres
+  vero: le spie devono restare a zero) e **sul sorgente** (i moduli del
+  percorso non nominano alcun esecutore di agenti — copre il caso che un
+  domani `runAgentText` diventasse importabile da qui). Chi aggiunge
+  un'origine nuova al registro la scriva con un template, non con un prompt;
+  chi ci aggiunge "un riassunto migliore" fa fallire quel test, ed è il
+  punto: la riga da cambiare non è il test, è la scelta.
+- **`plan_summary` vive e muore con `plan_text`.** Il riassunto del piano si
+  genera **prima** del parcheggio e si scrive nello **stesso UPDATE guardato**
+  che salva il piano e porta il job in `awaiting_plan_approval`; il rifiuto
+  del piano li azzera **insieme**. Non esiste — e non va introdotto — un
+  poller che rilegge i job in `awaiting_plan_approval` per riassumerli dopo:
+  competerebbe sul serializer per-progetto, e aprirebbe la finestra in cui un
+  piano è visibile senza il suo riassunto (o, peggio, con il riassunto di una
+  versione precedente). Stessa forma per `pr_summary`, scritto nella
+  transazione della review. Chi tocca `parkForPlanApproval` o la scrittura
+  della review tenga il riassunto dentro quella transazione.
 - **Worker fail-on-restart:** un riavvio del worker fallisce le generazioni Docs
   in corso (lavoro perso). Riavvia il worker solo quando NON ci sono generazioni
   attive: `select id from doc_generations where status in ('running','paused');`
@@ -473,6 +609,17 @@ Stubwise si integra con Claude Code via il server MCP `@stubwise/mcp`
   SAPERE: nessun tool MCP risponde a una proposta — si sceglie dalla card in
   inbox o dal DM Slack, e ticket + run con approvazione del piano partono da
   soli.
+- **Roadmap e memoria del progetto (fase 5)**: due tool di sola lettura, che
+  servono a SAPERE prima di proporre. `get_project_brief` restituisce
+  l'ultimo **brief settimanale** in markdown — dove sta il progetto, cosa è
+  cambiato, cosa è fermo, cosa serve — ed è **narrativa generata**: si cita
+  come tale. `list_decisions` restituisce il **registro decisioni** (risposte
+  alle domande dell'agente, piani approvati o rifiutati con indicazioni,
+  proposte del pulse accettate, voci registrate a mano) con origine, attore e
+  ticket, e serve a non riproporre un'alternativa che il team ha già
+  scartato: è **fatto**, mai scritto dall'AI (vedi l'invariante). Una
+  decisione superata resta nell'elenco, marcata come tale. In entrambi i
+  casi, "non c'è ancora nulla" è una risposta esplicita, non un errore.
 - Serve un Personal Access Token (`stw_pat_...`, dalle impostazioni Stubwise) in
   `STUBWISE_TOKEN`; `STUBWISE_URL` punta all'istanza (default
   `http://localhost:3000`). Il pacchetto è pubblicato su npm come
