@@ -417,7 +417,7 @@ chiavi APNs/FCM sono legate alla nostra identità e vivono SOLO nel relay
 - Modify: `packages/shared/src/schemas/push.ts` (nuovo): `pushRelaySendRequestSchema { tokens: [{ platform: "ios"|"android", token }].min(1).max(20), payload: { title, body, category, data: Record<string,string>, badge?: number, threadId?: string, collapseId?: string } }`, `pushRelaySendResponseSchema { results: [{ token, status: "ok"|"invalid_token"|"retry", reason? }] }` — è il contratto pubblico tra istanze e relay: versionato nel path (`/v1/send`), additivo da qui in poi
 - Create: `packages/notifications/src/push/payload.ts` (`buildPushPayload(event, lang, { notificationId, unreadCount }) → payload` del contratto: `data = { notificationId, kind, deepLink: "stubwise://inbox/<id>" }`, `collapseId = notificationId`, `threadId = projectId`)
 - Create: `packages/notifications/src/push/relay-client.ts` (`createPushRelayClient({ url, fetch?, timeoutMs = 10_000 }) → send(tokens, payload) → PushRelaySendResponse`; errori di rete/timeout/5xx del relay → lancia `PushRelayUnavailable` (→ retry nel poller); 4xx → lancia `PushRelayRejected` (→ delivery `failed`, è un bug di contratto))
-- Create: `packages/notifications/src/push/config.ts` (`loadPushConfig(env) → { relayUrl } | null`: `PUSH_RELAY_URL` **assente → default `https://push.stubwise.thecove.it`** (costante `DEFAULT_PUSH_RELAY_URL`), **stringa vuota → `null` = push spente**, URL non `https:` (tranne `http://localhost*` per i test) → lancia, fail-fast all'avvio come `PULSE_TIMEZONE`)
+- Create: `packages/notifications/src/push/config.ts` (`loadPushConfig(env) → { relayUrl } | null`: `PUSH_RELAY_URL` **assente → default `https://push.stubwise.aleloca.dev`** (costante `DEFAULT_PUSH_RELAY_URL`), **stringa vuota → `null` = push spente**, URL non `https:` (tranne `http://localhost*` per i test) → lancia, fail-fast all'avvio come `PULSE_TIMEZONE`)
 - Modify: `packages/notifications/src/index.ts` (export)
 - Modify: `packages/i18n/src/catalog.ts` (`push.title.<kind>` it/en, uno per kind: es. `job.awaiting_input` → «Una domanda ti aspetta» / "A question is waiting for you"; `project.pulse` → «Da dove ripartire su {project}»; `job.plan_review` → «Piano da approvare»; `job.failed` → «Lavoro fallito»; `pr.opened` → «PR pronta»; ecc. — copri TUTTI i `NotificationKind`)
 - Test: `push/payload.test.ts`, `push/relay-client.test.ts`, `push/config.test.ts`, `packages/shared/src/schemas/push.test.ts`
@@ -446,7 +446,7 @@ chiavi APNs/FCM sono legate alla nostra identità e vivono SOLO nel relay
 - Modify: `apps/worker/src/notify/deliveries-poller.ts` (prima del fallback `channel_not_implemented` alla riga ~240: `case "push"`)
 - Modify: `apps/worker/src/config.ts` (`loadPushConfig(process.env)`; log di avvio «push: relay <url>» / «push: spente (PUSH_RELAY_URL vuota)»)
 - Modify: `apps/worker/src/index.ts` (passa il client del relay al poller; riga di riepilogo avvio)
-- Modify: `docker-compose.yml` (env `PUSH_RELAY_URL: ${PUSH_RELAY_URL-https://push.stubwise.thecove.it}` sul worker — sintassi `${VAR-default}` (trattino, non `:-`) così una stringa vuota in `.env` resta vuota e spegne le push)
+- Modify: `docker-compose.yml` (env `PUSH_RELAY_URL: ${PUSH_RELAY_URL-https://push.stubwise.aleloca.dev}` sul worker — sintassi `${VAR-default}` (trattino, non `:-`) così una stringa vuota in `.env` resta vuota e spegne le push)
 - Test: `apps/worker/src/notify/deliveries-poller.test.ts`
 
 **Step 1: test rosso** (con un client del relay finto in `DeliveriesPollerDeps`):
@@ -544,7 +544,7 @@ riesce.
 
 **Step 5: Commit** `feat(push-relay): relay push con chiavi APNs/FCM, rate limit per token`.
 
-**Deploy del relay (maintainer, a fine fase)**: DNS `push.stubwise.thecove.it`
+**Deploy del relay (maintainer, a fine fase)**: DNS `push.stubwise.aleloca.dev`
 → VPS; `.env`: `PUSH_RELAY_HOST`, `APNS_*`, `FCM_SERVICE_ACCOUNT_JSON`;
 `docker compose --profile relay up -d --build push-relay caddy`. La nostra
 istanza usa il relay come tutte le altre (default di `PUSH_RELAY_URL`), così

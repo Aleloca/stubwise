@@ -7,7 +7,7 @@ describe("loadPushConfig", () => {
     expect(loadPushConfig({ PUSH_RELAY_URL: undefined })).toEqual({
       relayUrl: DEFAULT_PUSH_RELAY_URL,
     });
-    expect(DEFAULT_PUSH_RELAY_URL).toBe("https://push.stubwise.thecove.it");
+    expect(DEFAULT_PUSH_RELAY_URL).toBe("https://push.stubwise.aleloca.dev");
   });
 
   it("stringa VUOTA = push spente, ed è diverso da assente", () => {

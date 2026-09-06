@@ -18,7 +18,7 @@
  */
 
 /** Il relay che gestiamo noi: il default di ogni istanza. */
-export const DEFAULT_PUSH_RELAY_URL = "https://push.stubwise.thecove.it";
+export const DEFAULT_PUSH_RELAY_URL = "https://push.stubwise.aleloca.dev";
 
 export interface PushConfig {
   /** Base del relay, senza slash finale. */
