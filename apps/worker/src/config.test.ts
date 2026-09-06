@@ -435,6 +435,31 @@ describe("loadWorkerConfig", () => {
     expect(defaults.prReviewTimeoutMs).toBe(900_000);
   });
 
+  it("riassunti in breve: accesi di default, sul modello della PR review", () => {
+    const config = loadWorkerConfig(VALID);
+    expect(config.summariesEnabled).toBe(true);
+    expect(config.summaryModel).toBe("sonnet");
+  });
+
+  it("SUMMARIES_ENABLED=false spegne i riassunti e SUMMARY_MODEL sceglie il modello", () => {
+    const config = loadWorkerConfig({
+      ...VALID,
+      SUMMARIES_ENABLED: "false",
+      SUMMARY_MODEL: "haiku",
+    });
+    expect(config.summariesEnabled).toBe(false);
+    expect(config.summaryModel).toBe("haiku");
+  });
+
+  it("SUMMARY_MODEL vuoto ricade sul modello della PR review, anche se personalizzato", () => {
+    const config = loadWorkerConfig({
+      ...VALID,
+      SUMMARY_MODEL: "",
+      PR_REVIEW_MODEL: "opus",
+    });
+    expect(config.summaryModel).toBe("opus");
+  });
+
   it("rifiuta PR_REVIEW_MAX_TURNS e PR_REVIEW_TIMEOUT_MINUTES fuori range", () => {
     expect(() => loadWorkerConfig({ ...VALID, PR_REVIEW_MAX_TURNS: "0" })).toThrow(
       /PR_REVIEW_MAX_TURNS/,

@@ -378,6 +378,22 @@ const envSchema = z.object({
       .min(1)
       .default("sonnet"),
   ),
+  // Riassunti "in breve" di piani e PR (fase 5). false = nessun run di
+  // riassunto: le colonne plan_summary/pr_summary restano NULL e le card
+  // mostrano quello che mostravano prima. È il rollback INNOCUO della sola
+  // generazione — non tocca schema né immagini — e per questo vive in un env
+  // separato dai modelli.
+  SUMMARIES_ENABLED: z.preprocess(
+    (value) => (value === "" ? undefined : value === "true" ? true : value === "false" ? false : value),
+    z.boolean({ error: "deve essere true o false" }).default(true),
+  ),
+  // Modello dei run di riassunto. Nessun default proprio qui: assente/vuoto
+  // ricade su PR_REVIEW_MODEL (vedi sotto), perché è lo stesso profilo di run —
+  // solo testo, read-only, breve — e non ha senso tenerne allineati due.
+  SUMMARY_MODEL: z.preprocess(
+    emptyAsUndefined,
+    z.string({ error: "deve essere il nome di un modello (es. sonnet)" }).min(1).optional(),
+  ),
   // Turni massimi del run di review: limita esplorazione/iterazioni dell'agente
   // (costo e durata per review).
   PR_REVIEW_MAX_TURNS: z.preprocess(
@@ -845,6 +861,11 @@ export interface WorkerConfig {
   prReviewPollSeconds: number;
   /** Modello dell'agente di PR Review, read-only in plan mode (default "sonnet"). */
   prReviewModel: string;
+  /** Riassunti "in breve" di piano e PR attivi (default true; false = nessun
+   * run di riassunto, colonne NULL). */
+  summariesEnabled: boolean;
+  /** Modello dei run di riassunto (default: `prReviewModel`). */
+  summaryModel: string;
   /** Turni massimi del run di review (default 50). */
   prReviewMaxTurns: number;
   /** Timeout del run di review in ms (da PR_REVIEW_TIMEOUT_MINUTES, default
@@ -992,6 +1013,10 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     docsAutoUpdateMaxNewPages: parsed.DOCS_AUTOUPDATE_MAX_NEW_PAGES,
     prReviewPollSeconds: parsed.PR_REVIEW_POLL_SECONDS,
     prReviewModel: parsed.PR_REVIEW_MODEL,
+    summariesEnabled: parsed.SUMMARIES_ENABLED,
+    // SUMMARY_MODEL assente/vuoto = stesso modello della PR review: un solo
+    // valore da cambiare quando si sposta il profilo di costo dei run brevi.
+    summaryModel: parsed.SUMMARY_MODEL ?? parsed.PR_REVIEW_MODEL,
     prReviewMaxTurns: parsed.PR_REVIEW_MAX_TURNS,
     // Minuti → ms: il runner dell'agente vuole millisecondi.
     prReviewTimeoutMs: parsed.PR_REVIEW_TIMEOUT_MINUTES * 60_000,

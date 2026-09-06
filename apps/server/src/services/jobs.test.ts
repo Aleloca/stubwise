@@ -393,6 +393,7 @@ describe("resolvePlan", () => {
         ticketId,
         status: "awaiting_plan_approval",
         planText,
+        planSummary: "Il piano corregge la somma.",
         startedAt: new Date(),
         finishedAt: new Date(),
         error: "vecchio errore",
@@ -448,6 +449,8 @@ describe("resolvePlan", () => {
     expect(updated?.status).toBe("queued");
     expect(updated?.resumeMode).toBe("execute");
     expect(updated?.planText).toBe("## Piano proposto\n1. Passo A");
+    // Il riassunto è la faccia leggibile DI QUEL piano: vive e muore con lui.
+    expect(updated?.planSummary).toBe("Il piano corregge la somma.");
     expect(updated?.startedAt).toBeNull();
     expect(updated?.finishedAt).toBeNull();
     expect(updated?.error).toBeNull();
@@ -469,6 +472,9 @@ describe("resolvePlan", () => {
     expect(updated?.status).toBe("queued");
     expect(updated?.resumeMode).toBe("fix");
     expect(updated?.planText).toBeNull();
+    // Azzerati INSIEME: un riassunto sopravvissuto al piano che descrive
+    // resterebbe nelle card a raccontare un piano che non esiste più.
+    expect(updated?.planSummary).toBeNull();
 
     const cmts = await readComments(ticketId);
     expect(cmts).toHaveLength(1);

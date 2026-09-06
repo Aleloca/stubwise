@@ -33,6 +33,7 @@ import { mirrorSlug, MirrorManager, type MirrorProject } from "../git/mirrors.js
 import { GRAPHIFY_AGENT_ALLOWED_TOOLS, resolveRepoGraphJson } from "../graph/agent-hint.js";
 import type { ResolvedProvider } from "../providers/chain.js";
 import { isLimitError, ProviderLimitError } from "../providers/limit.js";
+import { generatePlanSummary } from "../summaries/plan-summary.js";
 import { openRunPlugins } from "../plugins/materialize-run.js";
 import {
   appendLog,
@@ -241,6 +242,13 @@ export interface FixDeps extends NotifyDeps {
   executeModel?: string;
   /** Timeout del run di pianificazione (default 10 minuti). */
   planTimeoutMs?: number;
+  /** Riassunto "in breve" del piano (fase 5): false = nessun run, la colonna
+   * `plan_summary` resta NULL. Default true (SUMMARIES_ENABLED). */
+  summariesEnabled?: boolean;
+  /** Modello del run di riassunto (default: quello della PR review). */
+  summaryModel?: string;
+  /** Timeout del run di riassunto in ms (default DEFAULT_SUMMARY_TIMEOUT_MS). */
+  summaryTimeoutMs?: number;
   /** Turni agentici massimi del run di esecuzione/fix (default 80). */
   maxTurns?: number;
   /** Timeout complessivo del run di esecuzione/fix (default 30 minuti). */
@@ -440,6 +448,15 @@ const TITLE_MAX_CHARS = 200;
  * fresco lastActivityAt; 60s è << della soglia di staleness (≥ 30 min), così
  * un job davvero stuck (interval morto col processo) viene comunque recuperato. */
 const HEARTBEAT_INTERVAL_MS = 60_000;
+
+/**
+ * Timeout del run di riassunto del piano (fase 5). Corto di proposito: è un run
+ * di solo testo, senza tool e senza working tree, e sta DENTRO la finestra di un
+ * job che ha appena finito di pianificare. Tenerlo breve significa che un
+ * provider lento allunga il parcheggio del piano di due minuti al massimo,
+ * invece di trattenere il job fino alla soglia di staleness.
+ */
+const DEFAULT_SUMMARY_TIMEOUT_MS = 120_000;
 
 function truncateForLog(output: string): string {
   return output.length > LOG_OUTPUT_MAX_CHARS
@@ -1850,8 +1867,33 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
         });
       }
     });
+    // Riassunto "in breve" del piano PRIMA del parcheggio, e FUORI da ogni
+    // transazione: i worktree del fix sono già smontati (siamo fuori da
+    // withProjectWorktrees), quindi questo run non tiene aperto nulla sul disco
+    // né sul mirror, e nessuna transazione resta aperta per la sua durata.
+    //
+    // L'ORDINE È VINCOLANTE. Il riassunto entra nello STESSO UPDATE guardato di
+    // parkForPlanApproval, non in una scrittura successiva: solo così la
+    // scrittura è protetta dallo stesso guard sulla ownership. Se il riassunto
+    // arrivasse dopo — o da un poller che rilegge `awaiting_plan_approval` —
+    // potrebbe atterrare su un job nel frattempo riaccodato e reclamato da un
+    // altro worker, e competerebbe per giunta sul serializer per-progetto.
+    // Fallisce → null → si parcheggia lo stesso: il piano vale, il riassunto è
+    // un extra.
+    const planSummary = await generatePlanSummary(
+      {
+        runner: deps.runner,
+        timeoutMs: deps.summaryTimeoutMs ?? DEFAULT_SUMMARY_TIMEOUT_MS,
+        ...(deps.summaryModel !== undefined ? { model: deps.summaryModel } : {}),
+        ...(deps.provider !== undefined ? { provider: deps.provider } : {}),
+        ...(deps.summariesEnabled !== undefined ? { enabled: deps.summariesEnabled } : {}),
+      },
+      { lang, ticketTitle: ticket.title, planText },
+    );
+
     const parked = await parkForPlanApproval(db, job.id, {
       planText,
+      planSummary,
       log: "[fix] piano pronto, in attesa di approvazione",
     });
     if (!parked) {

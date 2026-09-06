@@ -288,7 +288,11 @@ export async function resolvePlan(db: Db, input: ResolvePlanInput): Promise<Reso
   const lang = await getContentLanguage(db);
   const instructions = input.instructions?.trim();
   // planText: conservato in execute (è il piano approvato), azzerato in fix.
-  const planTextUpdate = mode === "fix" ? { planText: null } : {};
+  // Il riassunto "in breve" (fase 5) segue il piano nello STESSO oggetto e non
+  // in una scrittura a parte: è la faccia leggibile di QUEL piano, e un
+  // riassunto sopravvissuto alla ripianificazione resterebbe nelle card
+  // dell'inbox a descrivere un piano che non esiste più.
+  const planTextUpdate = mode === "fix" ? { planText: null, planSummary: null } : {};
 
   const resolved = await db.transaction(async (tx) => {
     const updated = await tx

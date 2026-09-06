@@ -159,6 +159,10 @@ const handler = createHandler(
       selfRepairMaxAttempts: config.selfRepairMaxAttempts,
       testTimeoutMs: config.selfRepairTestTimeoutMs,
       installTimeoutMs: config.installTimeoutMs,
+      // Riassunto "in breve" del piano (fase 5): un run di solo testo subito
+      // prima del parcheggio, sullo stesso profilo di modello della PR review.
+      summariesEnabled: config.summariesEnabled,
+      summaryModel: config.summaryModel,
     },
   },
   serializer,

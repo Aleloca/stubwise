@@ -76,6 +76,9 @@ export interface HandlerDeps {
     selfRepairMaxAttempts?: number;
     testTimeoutMs?: number;
     installTimeoutMs?: number;
+    /** Riassunto "in breve" del piano (fase 5): SUMMARIES_ENABLED/SUMMARY_MODEL. */
+    summariesEnabled?: boolean;
+    summaryModel?: string;
   };
 }
 

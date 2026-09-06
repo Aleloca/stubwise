@@ -205,6 +205,10 @@ function makeDeps(
     mirrors: fixture.mirrors,
     encryptionKey: ENCRYPTION_KEY,
     getProviderFn: () => provider as never,
+    // Riassunto "in breve" del piano SPENTO di default nei test: è un run in
+    // più dell'agente e falserebbe i `runner.calls` di tutti i test plan-only
+    // che contano i run. I test che lo riguardano lo riaccendono con override.
+    summariesEnabled: false,
     ...overrides,
   };
 }
@@ -1245,6 +1249,82 @@ describe("runFix", () => {
     // Consumo del run di pianificazione registrato (best-effort).
     const runs = await db.select().from(agentRuns).where(eq(agentRuns.jobId, job.id));
     expect(runs.filter((r) => r.phase === "fix").map((r) => r.model)).toEqual(["opus"]);
+  });
+
+  it("plan-only: il riassunto in breve del piano è generato PRIMA del parcheggio e scritto sul job", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    await db.update(automationRules).set({ planApprovalMinEffort: 3 }).where(eq(automationRules.type, "bug"));
+    const ticket = await createTicket(db, fixture, { type: "bug", effort: 4 });
+    const job = await createFixingJob(db, ticket.id);
+    const runner = new FakeAgentRunner({
+      results: [
+        { output: "PIANO PROPOSTO: cambia - in + in app.js", exitCode: 0 },
+        { output: "Il conto delle somme torna corretto.", exitCode: 0 },
+      ],
+    });
+    const provider = makeProvider();
+
+    const outcome = await runFix(
+      makeDeps(fixture, runner, provider, { summariesEnabled: true, summaryModel: "haiku" }),
+      job,
+    );
+
+    expect(outcome).toBe("awaiting_approval");
+    // DUE run: pianificazione e riassunto. Il riassunto è l'ULTIMO e gira sul
+    // modello dei riassunti, in plan mode, su una dir sua (i worktree del fix
+    // sono già smontati quando parte).
+    expect(runner.calls).toHaveLength(2);
+    expect(runner.calls[1]?.model).toBe("haiku");
+    expect(runner.calls[1]?.permissionMode).toBe("plan");
+    expect(runner.calls[1]?.prompt).toContain("PIANO PROPOSTO: cambia - in + in app.js");
+
+    const jobAfter = await getJob(db, job.id);
+    expect(jobAfter.status).toBe("awaiting_plan_approval");
+    expect(jobAfter.planText).toBe("PIANO PROPOSTO: cambia - in + in app.js");
+    expect(jobAfter.planSummary).toBe("Il conto delle somme torna corretto.");
+  });
+
+  it("plan-only: riassunto fallito → il piano si parcheggia comunque, planSummary NULL", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    await db.update(automationRules).set({ planApprovalMinEffort: 3 }).where(eq(automationRules.type, "bug"));
+    const ticket = await createTicket(db, fixture, { type: "bug", effort: 4 });
+    const job = await createFixingJob(db, ticket.id);
+    const runner = new FakeAgentRunner({
+      results: [
+        { output: "PIANO PROPOSTO: cambia - in + in app.js", exitCode: 0 },
+        // Run del riassunto crashato: non deve MAI far saltare il parcheggio.
+        { output: "output parziale", exitCode: 1 },
+      ],
+    });
+
+    const outcome = await runFix(
+      makeDeps(fixture, runner, makeProvider(), { summariesEnabled: true }),
+      job,
+    );
+
+    expect(outcome).toBe("awaiting_approval");
+    const jobAfter = await getJob(db, job.id);
+    expect(jobAfter.status).toBe("awaiting_plan_approval");
+    expect(jobAfter.planText).toBe("PIANO PROPOSTO: cambia - in + in app.js");
+    expect(jobAfter.planSummary).toBeNull();
+  });
+
+  it("plan-only: riassunti spenti → nessun run in più e planSummary NULL", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    await db.update(automationRules).set({ planApprovalMinEffort: 3 }).where(eq(automationRules.type, "bug"));
+    const ticket = await createTicket(db, fixture, { type: "bug", effort: 4 });
+    const job = await createFixingJob(db, ticket.id);
+    const runner = new FakeAgentRunner({
+      results: [{ output: "PIANO PROPOSTO: cambia - in + in app.js", exitCode: 0 }],
+    });
+
+    await runFix(makeDeps(fixture, runner, makeProvider(), { summariesEnabled: false }), job);
+
+    expect(runner.calls).toHaveLength(1);
+    expect((await getJob(db, job.id)).planSummary).toBeNull();
   });
 
   it("plan-only: il gate è ortogonale a un job avviato manualmente (manualTrigger non lo bypassa)", async () => {

@@ -279,6 +279,15 @@ export const en: Catalog = {
   "report.solution": "Solution",
   "report.rationale": "Rationale",
 
+  // --- summary.* — riassunti "in breve" per NON tecnici (fase 5).
+  // La lingua NON è cablata nel builder del prompt: sta qui, dentro il testo
+  // stesso delle istruzioni, che è già scritto nella lingua di destinazione.
+  // È la correzione dell'errore del report giornaliero ("Scrivi in ITALIANO"
+  // dentro il prompt, qualunque fosse la lingua d'istanza). ---
+  "summary.plan.instructions":
+    "Write exactly THREE sentences in English, for a person who does NOT read code: (1) what changes for whoever uses the product, (2) which parts of the product it touches, (3) what stays out of scope. No code, no file names, no technical jargon. Reply with the three sentences only, no preamble and no title.",
+  "summary.truncated": "[input truncated for length]",
+
   // --- plan.* — label delle sezioni del piano di fix ---
   "plan.rootCause": "Root cause",
   "plan.filesToChange": "File/function to change",
@@ -473,6 +482,11 @@ export const it: Catalog = {
   "report.rootCause": "Causa radice",
   "report.solution": "Soluzione",
   "report.rationale": "Motivazione",
+
+  // --- summary.* (vedi la nota nel catalogo `en`) ---
+  "summary.plan.instructions":
+    "Scrivi esattamente TRE frasi in ITALIANO, per una persona che NON legge codice: (1) cosa cambia per chi usa il prodotto, (2) quali parti del prodotto tocca, (3) cosa resta fuori. Niente codice, niente nomi di file, niente gergo tecnico. Rispondi SOLO con le tre frasi, senza preamboli e senza titolo.",
+  "summary.truncated": "[input troncato per lunghezza]",
 
   // --- plan.* ---
   "plan.rootCause": "Causa radice",
