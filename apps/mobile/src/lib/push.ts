@@ -149,12 +149,25 @@ function displayForegroundAndroidNotification(remoteMessage: RemoteMessage): voi
  * background sta in `index.js`, FUORI da qualunque componente React:
  * notifee/RNFirebase lo richiedono a livello di modulo).
  *
+ * `onPushReceived` (review fase 4, finding #2): chiamata a OGNI `onMessage`,
+ * su ENTRAMBE le piattaforme — un push arrivato in primo piano può aver
+ * cambiato l'inbox (una risposta, un job finito), quindi la lista e il
+ * badge non devono restare stantii fino al prossimo foreground o al
+ * prossimo giro dei 60s. `AppProviders` ci passa la STESSA funzione che usa
+ * per il refresh al foreground: un solo punto che decide "cosa si
+ * aggiorna", non due implementazioni indipendenti che potrebbero divergere.
+ * Parametro opzionale (non tutti i chiamanti/test hanno bisogno del
+ * refresh) e chiamata anche quando `remoteMessage.data` non parsa (una
+ * notifica non nostra non deve per questo saltare il refresh: il refresh
+ * non dipende dal contenuto del singolo messaggio, solo dal fatto che UNA
+ * push sia arrivata).
+ *
  * Chiamata da `AppProviders` a ogni transizione verso `"authenticated"` — non
  * ha senso registrare un device per un utente sloggato, e un logout deve
  * poter fermare gli ascoltatori (per questo si ritorna una funzione di
  * cleanup, chiamata dall'`useEffect` che invoca `setupPush`).
  */
-export function setupPush(client: StubwiseClient): () => void {
+export function setupPush(client: StubwiseClient, onPushReceived?: () => void): () => void {
   // Le categorie/canali PRIMA del token, non in parallelo: su Android una
   // notifica il cui `channel_id` non esiste ancora sul device viene SCARTATA
   // dal SO in silenzio (comportamento documentato di FCM/Android, non un
@@ -179,6 +192,7 @@ export function setupPush(client: StubwiseClient): () => void {
   // il SO via APNs, vedi `AppDelegate.swift`.
   const unsubscribeMessage = onMessage(getMessaging(), (remoteMessage: RemoteMessage) => {
     displayForegroundAndroidNotification(remoteMessage);
+    onPushReceived?.();
   });
 
   // `pushActionEventFromNotifeeData` (in `push-actions.ts`) è la STESSA

@@ -149,23 +149,23 @@ export function AppProviders({ children }: { children: ReactNode }) {
   }, []);
 
   /**
-   * Metà PUSH dell'app (Task 19, design doc §4/§6): registra il token,
-   * ascolta il refresh e le pressioni sui bottoni mentre l'app è in primo
-   * piano. Un utente sloggato non ha un device da registrare — da qui il
-   * gate su `authenticated`. Il cleanup di `setupPush` disiscrive gli
-   * ascoltatori quando il client cambia (nuovo login) o l'app va a
+   * Metà PUSH dell'app (Task 19, design doc §4/§6) + badge OS e freschezza
+   * dell'inbox al FOREGROUND e a OGNI PUSH ricevuta in primo piano (design
+   * doc §6: "Badge = unread-count al foreground e a ogni push ricevuta";
+   * "contatore ogni 60 s solo in foreground"; review fase 4, finding #2: una
+   * push arrivata mentre l'app è già aperta non aggiornava né la lista né
+   * il badge, restava stantia fino al prossimo foreground o al prossimo
+   * giro dei 60s).
+   *
+   * Un solo effetto per entrambe le cose (non due, come prima) perché
+   * `refreshInboxAndBadge` deve essere la STESSA funzione passata sia al
+   * listener `AppState` sia a `setupPush` come `onPushReceived` — un solo
+   * punto che decide "cosa si aggiorna", non due implementazioni
+   * indipendenti che potrebbero divergere. Un utente sloggato non ha un
+   * device da registrare né un badge da tenere — da qui il gate su
+   * `authenticated`. Il cleanup disiscrive tutto (push + `AppState` +
+   * intervallo) quando il client cambia (nuovo login) o l'app va a
    * `unauthenticated` (401, logout).
-   */
-  useEffect(() => {
-    if (state.status !== "authenticated" || state.client === null) return;
-    return setupPush(state.client);
-  }, [state.status, state.client]);
-
-  /**
-   * Badge OS e freschezza dell'inbox al FOREGROUND (design doc §6: "Badge =
-   * unread-count al foreground e a ogni push ricevuta" — la push la copre
-   * da sé via `badge` nel payload, questo effetto copre il "al foreground";
-   * "contatore ogni 60 s solo in foreground").
    *
    * `isForeground` è una variabile LOCALE alla chiusura dell'effetto, non
    * `AppState.currentState`: il mock ufficiale di `AppState` per Jest
@@ -185,19 +185,21 @@ export function AppProviders({ children }: { children: ReactNode }) {
         await notifee.setBadgeCount(result.count);
       } catch {
         // Best-effort: un fallimento di rete non deve piantare l'app né
-        // lasciare il badge scorretto per sempre — il prossimo giro (60s, o
-        // il prossimo foreground) riprova da solo.
+        // lasciare il badge scorretto per sempre — il prossimo giro (60s, il
+        // prossimo foreground, o la prossima push) riprova da solo.
       }
     }
 
-    function onForeground(): void {
+    function refreshInboxAndBadge(): void {
       void queryClient.refetchQueries({ queryKey: inboxKeys.all });
       void refreshBadge();
     }
 
+    const unsubscribePush = setupPush(client, refreshInboxAndBadge);
+
     const subscription = AppState.addEventListener("change", (next: AppStateStatus) => {
       isForeground = next === "active";
-      if (isForeground) onForeground();
+      if (isForeground) refreshInboxAndBadge();
     });
 
     const interval = setInterval(() => {
@@ -205,6 +207,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     }, FOREGROUND_BADGE_INTERVAL_MS);
 
     return () => {
+      unsubscribePush();
       subscription.remove();
       clearInterval(interval);
     };

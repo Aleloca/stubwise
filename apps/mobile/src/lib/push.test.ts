@@ -320,3 +320,75 @@ describe("setupPush — ridisegno Android in primo piano (onMessage)", () => {
     cleanup();
   });
 });
+
+/**
+ * Review fase 4, finding #2: una push ricevuta in PRIMO PIANO deve
+ * riallineare l'inbox e il badge, non solo (su Android) ridisegnare la
+ * notifica. `onPushReceived` è la STESSA funzione che `AppProviders` passa
+ * al listener `AppState` per il refresh al foreground (design doc §6) — un
+ * solo punto che decide "cosa si aggiorna", non due implementazioni
+ * indipendenti che potrebbero divergere. Vale su ENTRAMBE le piattaforme:
+ * `onMessage` scatta anche su iOS (vedi il docblock su
+ * `displayForegroundAndroidNotification`), quindi il refresh non va gated
+ * dietro `Platform.OS` come lo è il ridisegno.
+ */
+describe("setupPush — una push in primo piano avvisa il chiamante (inbox/badge)", () => {
+  test("onMessage chiama onPushReceived su iOS", async () => {
+    Platform.OS = "ios";
+    const client = fakeClient();
+    const onPushReceived = jest.fn();
+    const cleanup = setupPush(client, onPushReceived);
+    await flush();
+
+    const messageHandler = mockOnMessage.mock.calls[0]?.[1] as (message: unknown) => void;
+    messageHandler({
+      notification: { title: "t", body: "b" },
+      data: { notificationId: "n30", kind: "job.awaiting_input" },
+    });
+
+    expect(onPushReceived).toHaveBeenCalledTimes(1);
+    cleanup();
+  });
+
+  test("onMessage chiama onPushReceived anche su Android, oltre a ridisegnare la notifica", async () => {
+    Platform.OS = "android";
+    const client = fakeClient();
+    const onPushReceived = jest.fn();
+    const cleanup = setupPush(client, onPushReceived);
+    await flush();
+
+    const messageHandler = mockOnMessage.mock.calls[0]?.[1] as (message: unknown) => void;
+    messageHandler({
+      notification: { title: "t", body: "b" },
+      data: { notificationId: "n31", kind: "job.awaiting_input" },
+    });
+    await flush();
+
+    expect(onPushReceived).toHaveBeenCalledTimes(1);
+    expect(mockDisplayNotification).toHaveBeenCalled();
+    cleanup();
+  });
+
+  test("un messaggio senza dati custom (notifica non nostra) avvisa comunque il chiamante", async () => {
+    const client = fakeClient();
+    const onPushReceived = jest.fn();
+    const cleanup = setupPush(client, onPushReceived);
+    await flush();
+
+    const messageHandler = mockOnMessage.mock.calls[0]?.[1] as (message: unknown) => void;
+    messageHandler({ notification: { title: "t", body: "b" }, data: undefined });
+
+    expect(onPushReceived).toHaveBeenCalledTimes(1);
+    cleanup();
+  });
+
+  test("senza callback (parametro opzionale), onMessage non lancia", async () => {
+    const client = fakeClient();
+    const cleanup = setupPush(client);
+    await flush();
+
+    const messageHandler = mockOnMessage.mock.calls[0]?.[1] as (message: unknown) => void;
+    expect(() => messageHandler({ notification: {}, data: undefined })).not.toThrow();
+    cleanup();
+  });
+});

@@ -139,6 +139,53 @@ describe("AppProviders — badge OS al foreground", () => {
   });
 });
 
+/**
+ * Review fase 4, finding #2: una push ricevuta in primo piano deve
+ * aggiornare inbox e badge, con la STESSA funzione del refresh al
+ * foreground — non due implementazioni indipendenti. `onPushReceived` è il
+ * secondo argomento con cui `AppProviders` chiama `setupPush` (verificato
+ * sopra, "collegamento con setupPush"): qui si invoca quella callback
+ * direttamente e si osserva che produce esattamente l'effetto del
+ * foreground (badge + `refetchQueries` sull'inbox), non un percorso
+ * separato che potrebbe divergere.
+ *
+ * Mutazione da rompere apposta: se `push.ts` smettesse di chiamare
+ * `onPushReceived` (o se `providers.tsx` passasse `undefined`/una funzione
+ * vuota invece di `refreshInboxAndBadge`), `mockSetBadgeCount` non
+ * verrebbe mai chiamato da questo test — a differenza del test "al
+ * foreground" sopra, che passa comunque perché usa `AppState`, non
+ * `setupPush`.
+ */
+describe("AppProviders — una push in primo piano riusa lo stesso refresh del foreground", () => {
+  test("invocare onPushReceived aggiorna il badge (stessa funzione del foreground, non un percorso separato)", async () => {
+    mockLoadSession.mockResolvedValue(session);
+    mockCreateClient.mockReturnValue(fakeClient(3));
+
+    const { unmount } = await render(
+      <AppProviders>
+        <Text>ok</Text>
+      </AppProviders>,
+    );
+    await waitFor(() => expect(mockSetupPush).toHaveBeenCalledWith(expect.anything(), expect.any(Function)));
+
+    // `onPushReceived` è il secondo argomento con cui `AppProviders` chiama
+    // `setupPush` — invocarlo a mano simula una push ricevuta.
+    const onPushReceived = mockSetupPush.mock.calls[0]?.[1] as () => void;
+    await act(async () => {
+      onPushReceived();
+    });
+
+    // `mockSetBadgeCount` può essere chiamato SOLO da `refreshBadge` dentro
+    // `refreshInboxAndBadge`: se questo test lo osserva a fronte della sola
+    // `onPushReceived()` (nessuna transizione `AppState`), è la prova che
+    // `push.ts` la chiama davvero e che è la STESSA funzione del foreground,
+    // non un percorso separato che potrebbe divergere o mancare.
+    await waitFor(() => expect(mockSetBadgeCount).toHaveBeenCalledWith(3));
+
+    unmount();
+  });
+});
+
 describe("AppProviders — intervallo di refresh (60s)", () => {
   /**
    * Verifica che il timer non sopravviva allo smontaggio, senza dipendere da
@@ -190,7 +237,7 @@ describe("AppProviders — collegamento con setupPush (lib/push.ts)", () => {
       </AppProviders>,
     );
 
-    await waitFor(() => expect(mockSetupPush).toHaveBeenCalledWith(client));
+    await waitFor(() => expect(mockSetupPush).toHaveBeenCalledWith(client, expect.any(Function)));
   });
 
   test("nessun client (non autenticato): setupPush non viene mai chiamata", async () => {
@@ -226,7 +273,7 @@ describe("AppProviders — collegamento con setupPush (lib/push.ts)", () => {
         <Text>ok</Text>
       </AppProviders>,
     );
-    await waitFor(() => expect(mockSetupPush).toHaveBeenCalledWith(client));
+    await waitFor(() => expect(mockSetupPush).toHaveBeenCalledWith(client, expect.any(Function)));
     expect(unsubscribePush).not.toHaveBeenCalled();
 
     // `onSessionExpired(listener)` — il listener è il solo argomento della
