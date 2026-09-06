@@ -47,4 +47,12 @@ module.exports = {
     "node_modules/(?!\\.pnpm/)(?!((jest-)?react-native|@react-native(-community)?|@react-navigation|@notifee|@react-native-async-storage|react-native-markdown-display)/)",
   ],
   setupFilesAfterEnv: ["<rootDir>/jest.setup.ts"],
+  // Review fase 4, finding CI: il default di Jest (5000ms) basta in locale ma
+  // NON sui runner CI condivisi — un test genuino (render reale di
+  // `AppProviders`, più mock di Keychain/AsyncStorage/notifee/i18n, un
+  // `waitFor` su un evento AppState) può superarlo lì senza che ci sia nulla
+  // di rotto: era la prima volta che la CI girava su questo branch, e ha
+  // esposto esattamente questo margine stretto. 15s dà respiro reale senza
+  // mascherare un test che pende per sempre (un hang vero lo supera comunque).
+  testTimeout: 15000,
 };
