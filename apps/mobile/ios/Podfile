@@ -18,11 +18,20 @@ prepare_react_native_project!
 # `@react-native-firebase/app` (README, sezione "iOS Dependency Resolution").
 $RNFirebaseDisableSPM = true
 
-linkage = ENV['USE_FRAMEWORKS']
-if linkage != nil
-  Pod::UI.puts "Configuring Pod with #{linkage}ally linked Frameworks".green
-  use_frameworks! :linkage => linkage.to_sym
-end
+# I pod Swift di Firebase (FirebaseCoreInternal → GoogleUtilities) non si
+# integrano come librerie statiche "nude": CocoaPods lo rifiuta con «The
+# following Swift pods cannot yet be integrated as static libraries». La
+# strada documentata da @react-native-firebase per la modalità CocoaPods è
+# `use_frameworks! :linkage => :static` (framework, ma statici: nessun dylib
+# embeddato, tutto resta linkato staticamente come prima) più
+# `$RNFirebaseAsStaticFramework = true`, che dice a RNFBApp di dichiararsi
+# static_framework. `USE_FRAMEWORKS=dynamic` in env resta possibile per chi
+# volesse provare il linking dinamico; il default è `static`.
+$RNFirebaseAsStaticFramework = true
+
+linkage = ENV['USE_FRAMEWORKS'] || 'static'
+Pod::UI.puts "Configuring Pod with #{linkage}ally linked Frameworks".green
+use_frameworks! :linkage => linkage.to_sym
 
 target 'StubwiseMobile' do
   config = use_native_modules!
