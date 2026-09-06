@@ -45,6 +45,7 @@ export const PUSH_TITLE_KEY: Record<NotificationKind, string> = {
   "monitor.recovered": "push.title.monitor.recovered",
   "job.awaiting_input": "push.title.job.awaiting_input",
   "project.pulse": "push.title.project.pulse",
+  "project.brief": "push.title.project.brief",
 };
 
 /**
@@ -73,6 +74,7 @@ export interface PushPayloadContext {
  */
 function titleParams(event: NotificationEvent): Record<string, string | number> {
   if (event.kind === "project.pulse") return { project: event.projectName };
+  if (event.kind === "project.brief") return { project: event.projectName };
   return {};
 }
 

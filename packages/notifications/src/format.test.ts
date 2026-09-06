@@ -187,6 +187,21 @@ const PROJECT_PULSE: NotificationEvent = {
   ],
 };
 
+/**
+ * Brief settimanale (fase 5): evento SENZA ticket, ancorato al progetto, il cui
+ * link porta alla roadmap. `headline` è la prima frase di "dove siamo",
+ * scritta dall'AI su input non fidato: su Slack va escapata.
+ */
+const PROJECT_BRIEF: NotificationEvent = {
+  kind: "project.brief",
+  briefId: "7f3e1a20-2222-4333-8444-555566667777",
+  projectName: "webapp",
+  projectUrl: "https://app.example.com/projects/p1/roadmap",
+  periodStart: "2026-08-31",
+  periodEnd: "2026-09-06",
+  headline: "Settimana di consolidamento: nessuna funzione nuova, due bug chiusi.",
+};
+
 describe("formatNotification — contratto", () => {
   it("ogni formato dichiara content-type application/json", () => {
     for (const format of ["slack", "discord", "generic"] as NotificationFormat[]) {
@@ -403,6 +418,29 @@ describe("formatNotification — slack (lingua default en)", () => {
     expect(text).not.toContain("Export CSV degli ordini");
     expect(text).not.toContain("Filtro per stato nella lista");
   });
+
+  it("project.brief → progetto, periodo, headline e link alla roadmap; nessun #n", () => {
+    const text = (formatNotification(PROJECT_BRIEF, "slack").body as { text: string }).text;
+    expect(text.startsWith("🗞️ ")).toBe(true);
+    expect(text).toContain("webapp");
+    expect(text).toContain("2026-08-31");
+    expect(text).toContain("2026-09-06");
+    expect(text).toContain("Settimana di consolidamento");
+    expect(text).toContain("<https://app.example.com/projects/p1/roadmap|Roadmap>");
+    expect(text).not.toContain("#");
+    expect(text).not.toContain("{ref}");
+  });
+
+  it("project.brief → la headline (testo AI su input non fidato) è escapata per Slack", () => {
+    const text = (
+      formatNotification(
+        { ...PROJECT_BRIEF, headline: "<https://evil.example|Fidati> & co" },
+        "slack",
+      ).body as { text: string }
+    ).text;
+    expect(text).toContain("&lt;https://evil.example|Fidati&gt; &amp; co");
+    expect(text).not.toContain("<https://evil.example|Fidati>");
+  });
 });
 
 describe("formatNotification — slack (lingua it)", () => {
@@ -504,6 +542,13 @@ describe("formatNotification — slack (lingua it)", () => {
     expect(text).toContain("📣 Nessun lavoro in corso su webapp (giorni di fermo: 4)");
     expect(text).toContain("ci sono proposte nel backlog");
     expect(text).toContain("<https://app.example.com/projects/p1/backlog|Backlog>");
+  });
+
+  it("project.brief it → brief settimanale del progetto e label Roadmap", () => {
+    const text = (formatNotification(PROJECT_BRIEF, "slack", "it").body as { text: string }).text;
+    expect(text).toContain("Brief settimanale di webapp");
+    expect(text).toContain("2026-08-31");
+    expect(text).toContain("<https://app.example.com/projects/p1/roadmap|Roadmap>");
   });
 });
 
@@ -783,6 +828,19 @@ describe("formatNotification — generic", () => {
     expect(body.message as string).toContain("recovered");
   });
 
+  it("project.brief → payload col periodo, la headline e l'url della roadmap, senza campi ticket", () => {
+    const body = formatNotification(PROJECT_BRIEF, "generic").body as Record<string, unknown>;
+    expect(body.event).toBe("project.brief");
+    expect(body.briefId).toBe("7f3e1a20-2222-4333-8444-555566667777");
+    expect(body.projectName).toBe("webapp");
+    expect(body.periodStart).toBe("2026-08-31");
+    expect(body.periodEnd).toBe("2026-09-06");
+    expect(body.headline).toContain("Settimana di consolidamento");
+    expect(body.projectUrl).toBe("https://app.example.com/projects/p1/roadmap");
+    expect(body.ticketNumber).toBeUndefined();
+    expect(body.ticketUrl).toBeUndefined();
+  });
+
   it("project.pulse → payload autosufficiente: domanda, opzioni e proposte, senza campi ticket", () => {
     const body = formatNotification(PROJECT_PULSE, "generic").body as Record<string, unknown>;
     expect(body.event).toBe("project.pulse");
@@ -860,6 +918,7 @@ describe("sampleEvents", () => {
       "monitor.recovered",
       "job.awaiting_input",
       "project.pulse",
+      "project.brief",
     ]);
     for (const event of events) {
       // Eventi senza ticket: il link non è un ticketUrl ma la superficie propria.
@@ -867,7 +926,7 @@ describe("sampleEvents", () => {
         expect(event.docsUrl.startsWith("https://app.example.com/docs/")).toBe(true);
       } else if (event.kind === "monitor.alert" || event.kind === "monitor.recovered") {
         expect(event.url.startsWith("https://app.example.com/monitor/")).toBe(true);
-      } else if (event.kind === "project.pulse") {
+      } else if (event.kind === "project.pulse" || event.kind === "project.brief") {
         expect(event.projectUrl.startsWith("https://app.example.com/projects/")).toBe(true);
       } else {
         expect(event.ticketUrl.startsWith("https://app.example.com/tickets/")).toBe(true);

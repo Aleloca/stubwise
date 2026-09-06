@@ -182,6 +182,17 @@ describe("actionsFor", () => {
     expect(kindOffers("project.pulse", "approve_plan")).toBe(false);
   });
 
+  it("project.brief: informativo e ARCHIVIABILE — nessuna decisione da prendere", () => {
+    // Il brief si legge; non chiede niente a nessuno. Al contrario del pulse
+    // (che ha la stessa ancora al progetto) non offre `answer`.
+    expect(kindOffers("project.brief", "answer")).toBe(false);
+    expect(kindOffers("project.brief", "handled")).toBe(true);
+    expect(kindOffers("project.brief", "open")).toBe(true);
+    expect(kindOffers("project.brief", "snooze")).toBe(true);
+    expect(kindOffers("project.brief", "relaunch")).toBe(false);
+    expect(kindOffers("project.brief", "approve_plan")).toBe(false);
+  });
+
   it("kind informativi → solo apri, snooze, gestita", () => {
     for (const kind of [
       "job.pr_opened",
@@ -244,6 +255,8 @@ describe("`answer` per kind", () => {
     // comunque — lo stato che conta è quello della NOTIFICA, e lo verifica il
     // servizio che esegue l'azione, non il catalogo.
     { kind: "project.pulse", jobStatus: null, attese: ["answer", "open", "snooze", "handled"] },
+    // Brief: nessun job e nessuna decisione — solo l'igiene dell'inbox.
+    { kind: "project.brief", jobStatus: null, attese: ["open", "snooze", "handled"] },
     // Kind senza opzioni: `answer` non compare in nessuno stato.
     {
       kind: "job.plan_review",

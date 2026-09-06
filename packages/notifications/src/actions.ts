@@ -155,6 +155,10 @@ const CATALOG_FOR_KIND: Record<
   // che su `answer` ragionano PER KIND (vedi {@link KINDS_WITH_OPTIONS}): al
   // pulse risponde ogni destinatario, e non c'è nessuno stato di job da leggere.
   "project.pulse": { decisions: ["answer"], adminOnly: false, archivable: true },
+  // Il brief settimanale si LEGGE: non chiede niente a nessuno, quindi nessuna
+  // decisione. Archiviabile come ogni informativa — letta la settimana, la card
+  // esce dall'inbox.
+  "project.brief": { decisions: [], adminOnly: false, archivable: true },
 };
 
 /**
@@ -324,6 +328,9 @@ export function openUrl(event: NotificationEvent): string {
     // Il pulse è ancorato al progetto, non a un ticket: "Apri" porta dove si
     // vedono TUTTE le proposte, cioè il backlog del progetto.
     case "project.pulse":
+    // Il brief porta alla roadmap, dove si legge per intero in mezzo agli
+    // eventi del periodo che racconta.
+    case "project.brief":
       return event.projectUrl;
     case "ticket.created":
     case "job.pr_closed":

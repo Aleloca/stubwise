@@ -1106,7 +1106,8 @@
       "monitorAlert": "Alert",
       "monitorRecovered": "Recovered",
       "awaitingInput": "Question to answer",
-      "pulse": "Proposal"
+      "pulse": "Proposal",
+        "brief": "Weekly brief"
     },
     "actions": {
       "approvePlan": "Approve plan",

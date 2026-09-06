@@ -265,6 +265,32 @@ export interface ProjectPulseEvent {
   proposals: PulseProposal[];
 }
 
+/**
+ * BRIEF SETTIMANALE (fase 5): il resoconto per non-tecnici di una settimana di
+ * progetto. Evento SENZA ticket — ancorato al PROGETTO come {@link
+ * ProjectPulseEvent} — ma, a differenza del pulse, puramente INFORMATIVO: non
+ * porta una domanda né opzioni, il link porta alla roadmap e le uniche azioni
+ * sono quelle d'igiene dell'inbox.
+ */
+export interface ProjectBriefEvent {
+  kind: "project.brief";
+  /** Il brief a cui la notifica si riferisce (`project_briefs.id`). */
+  briefId: string;
+  projectName: string;
+  /** Pagina roadmap del progetto (al posto del ticketUrl). */
+  projectUrl: string;
+  /** Primo giorno del periodo coperto, `YYYY-MM-DD`. */
+  periodStart: string;
+  /** Ultimo giorno del periodo coperto, `YYYY-MM-DD`. */
+  periodEnd: string;
+  /**
+   * Prima frase di "dove siamo". È testo GENERATO dall'AI su input non fidato
+   * (titoli di ticket, commit, messaggi): per Slack passa da
+   * {@link escapeSlackMrkdwn} — vedi {@link UNTRUSTED_SLACK_PARAMS}.
+   */
+  headline: string;
+}
+
 /** Unione tipata di tutti gli eventi che generano una notifica. */
 export type NotificationEvent =
   | TicketCreatedEvent
@@ -279,10 +305,12 @@ export type NotificationEvent =
   | MonitorAlertEvent
   | MonitorRecoveredEvent
   | JobAwaitingInputEvent
-  | ProjectPulseEvent;
+  | ProjectPulseEvent
+  | ProjectBriefEvent;
 
 /**
- * Eventi SENZA ticket (`docs.limit_paused`, `monitor.*`, `project.pulse`): non
+ * Eventi SENZA ticket (`docs.limit_paused`, `monitor.*`, `project.pulse`,
+ * `project.brief`): non
  * hanno `ticketNumber`/`ticketTitle`/`ticketUrl`, portano una superficie
  * propria.
  */
@@ -290,7 +318,8 @@ type NonTicketedEvent =
   | DocsLimitPausedEvent
   | MonitorAlertEvent
   | MonitorRecoveredEvent
-  | ProjectPulseEvent;
+  | ProjectPulseEvent
+  | ProjectBriefEvent;
 
 /**
  * Eventi ANCORATI A UN TICKET: hanno `ticketNumber`/`ticketTitle`/`ticketUrl`.
@@ -305,7 +334,8 @@ function hasTicket(event: NotificationEvent): event is TicketedEvent {
     event.kind !== "docs.limit_paused" &&
     event.kind !== "monitor.alert" &&
     event.kind !== "monitor.recovered" &&
-    event.kind !== "project.pulse"
+    event.kind !== "project.pulse" &&
+    event.kind !== "project.brief"
   );
 }
 
@@ -358,6 +388,7 @@ const EMOJI: Record<NotificationKind, string> = {
   "monitor.recovered": "🟢",
   "job.awaiting_input": "❓",
   "project.pulse": "📣",
+  "project.brief": "🗞️",
 };
 
 /**
@@ -446,6 +477,10 @@ function linkParam(
       // Nessun ticket: il link porta al backlog del progetto, che è dove si
       // guardano le proposte per intero (la notifica ne porta solo le prime).
       return renderLink(format, event.projectUrl, t(lang, "notify.linkBacklog"));
+    case "project.brief":
+      // Nessun ticket: il link porta alla roadmap del progetto, dove il brief
+      // si legge per intero in mezzo agli eventi del periodo.
+      return renderLink(format, event.projectUrl, t(lang, "notify.linkRoadmap"));
   }
 }
 
@@ -464,6 +499,7 @@ const KEY_FOR_KIND: Record<NotificationKind, string> = {
   "monitor.recovered": "notify.monitorRecovered",
   "job.awaiting_input": "notify.awaitingInput",
   "project.pulse": "notify.pulse",
+  "project.brief": "notify.brief",
 };
 
 /** Params (oltre a ref/link/cost) specifici per evento, passati a `t()`. */
@@ -486,6 +522,15 @@ function textParams(
     // superficie rende a modo suo (bottoni Slack, pannello web).
     if (event.kind === "project.pulse") {
       return { project: event.projectName, idleDays: event.idleDays };
+    }
+    // Il brief nomina il progetto, il periodo coperto e la sua prima frase.
+    if (event.kind === "project.brief") {
+      return {
+        project: event.projectName,
+        periodStart: event.periodStart,
+        periodEnd: event.periodEnd,
+        headline: event.headline,
+      };
     }
     // monitor.alert | monitor.recovered: la condizione è resa come etichetta
     // localizzata; il detail è già una frase leggibile.
@@ -560,6 +605,9 @@ function textParams(
  */
 const UNTRUSTED_SLACK_PARAMS: Partial<Record<NotificationKind, readonly string[]>> = {
   "job.awaiting_input": ["question"],
+  // `headline` la scrive l'AI del brief settimanale, su input non fidato
+  // (titoli di ticket, messaggi di commit): stessa famiglia di `question`.
+  "project.brief": ["headline"],
 };
 
 /**
@@ -650,6 +698,20 @@ function formatGeneric(event: NotificationEvent, lang: Language): Record<string,
         recommendedIndex: event.recommendedIndex ?? null,
         allowFreeText: event.allowFreeText,
         proposals: event.proposals,
+      };
+    }
+    if (event.kind === "project.brief") {
+      // Payload AUTOSUFFICIENTE: chi consuma il webhook sa quale brief è, che
+      // periodo copre e come si apre, senza chiamare l'API.
+      return {
+        event: event.kind,
+        briefId: event.briefId,
+        projectName: event.projectName,
+        periodStart: event.periodStart,
+        periodEnd: event.periodEnd,
+        headline: event.headline,
+        message: formatNotificationText(event, lang),
+        projectUrl: event.projectUrl,
       };
     }
     // monitor.alert | monitor.recovered: la `condition` resta l'enum grezzo
@@ -876,6 +938,15 @@ export function sampleEvents(baseUrl: string): NotificationEvent[] {
           hasAnalysis: false,
         },
       ],
+    },
+    {
+      kind: "project.brief",
+      briefId: "3d9f6b12-1111-4222-8333-444455556666",
+      projectName: "negozio-web",
+      projectUrl: `${base}/projects/2e5a8c4b-9999-4aaa-8bbb-ccccddddeeee/roadmap`,
+      periodStart: "2026-08-31",
+      periodEnd: "2026-09-06",
+      headline: "Settimana di consolidamento: nessuna funzione nuova, due bug chiusi.",
     },
   ];
 }

@@ -125,6 +125,11 @@ export const en: Catalog = {
   // fermo non si riescono a calcolare.
   "notify.pulse":
     "No work in progress on {project} (days idle: {idleDays}): there are proposals in the backlog. {link}",
+  // Brief settimanale (fase 5): informativo, nessuna azione richiesta. Le date
+  // sono ISO `YYYY-MM-DD` — il catalogo non formatta date, e un brief va letto
+  // nella stessa forma su web, Slack e webhook.
+  "notify.brief":
+    "Weekly brief for {project} ({periodStart} → {periodEnd}): {headline} {link}",
   // Etichette delle condizioni di monitoraggio (interpolate in notify.monitor*).
   "notify.monitorCondition.offline": "offline",
   "notify.monitorCondition.cpu": "CPU",
@@ -147,6 +152,7 @@ export const en: Catalog = {
   "notify.linkDocs": "Docs",
   "notify.linkServer": "Server",
   "notify.linkBacklog": "Backlog",
+  "notify.linkRoadmap": "Roadmap",
   // Etichette dei BOTTONI dell'inbox (DM Slack e, un domani, altre superfici
   // interattive). Testi brevi: Slack tronca oltre i 75 caratteri.
   "notify.action.approvePlan": "Approve plan",
@@ -265,6 +271,7 @@ export const en: Catalog = {
   // L'unico titolo con un segnaposto: il pulse arriva a progetto fermo, e
   // nominarlo è ciò che distingue due pulse nella stessa notifica di sistema.
   "push.title.project.pulse": "Where to pick up on {project}",
+  "push.title.project.brief": "This week on {project}",
 
   // --- report.* — header delle sezioni del report ---
   "report.investigation": "Investigation process",
@@ -369,6 +376,8 @@ export const it: Catalog = {
     "{serverName} tornato su ({condition}): {detail}. {link}",
   "notify.pulse":
     "Nessun lavoro in corso su {project} (giorni di fermo: {idleDays}): ci sono proposte nel backlog. {link}",
+  "notify.brief":
+    "Brief settimanale di {project} ({periodStart} → {periodEnd}): {headline} {link}",
   "notify.monitorCondition.offline": "offline",
   "notify.monitorCondition.cpu": "CPU",
   "notify.monitorCondition.mem": "memoria",
@@ -386,6 +395,7 @@ export const it: Catalog = {
   "notify.linkDocs": "Docs",
   "notify.linkServer": "Server",
   "notify.linkBacklog": "Backlog",
+  "notify.linkRoadmap": "Roadmap",
   "notify.action.approvePlan": "Approva il piano",
   "notify.action.rejectPlan": "Rifiuta",
   "notify.action.relaunch": "Rilancia",
@@ -456,6 +466,7 @@ export const it: Catalog = {
   "push.title.monitor.recovered": "Server tornato su",
   "push.title.job.awaiting_input": "Una domanda ti aspetta",
   "push.title.project.pulse": "Da dove ripartire su {project}",
+  "push.title.project.brief": "Questa settimana su {project}",
 
   // --- report.* ---
   "report.investigation": "Processo di indagine",

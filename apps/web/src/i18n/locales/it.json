@@ -1106,7 +1106,8 @@
       "monitorAlert": "Allarme",
       "monitorRecovered": "Rientrato",
       "awaitingInput": "Domanda a cui rispondere",
-      "pulse": "Proposta"
+      "pulse": "Proposta",
+        "brief": "Brief settimanale"
     },
     "actions": {
       "approvePlan": "Approva piano",
