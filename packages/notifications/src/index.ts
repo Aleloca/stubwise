@@ -121,6 +121,11 @@ export {
 } from "./push/config.js";
 
 export {
+  buildProjectTimeline,
+  type TimelineWindow,
+} from "./project-timeline.js";
+
+export {
   escapeSlackMrkdwn,
   eventSummary,
   formatNotification,
@@ -140,6 +145,7 @@ export {
   type NotificationFormat,
   type NotificationKind,
   type PrOpenedEvent,
+  type ProjectBriefEvent,
   type ProjectPulseEvent,
   type PulseProposal,
   type PulseUrgency,
