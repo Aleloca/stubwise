@@ -405,40 +405,20 @@ export function postTicket(draft: TicketDraft): Promise<TicketBase> {
 
 // --- Milestones ---
 
-/** Milestone di progetto: raggruppa i ticket verso un obiettivo con scadenza. */
-export interface Milestone {
-  id: string;
-  projectId: string;
-  name: string;
-  /** Scadenza ISO 8601; null = nessuna scadenza. */
-  dueDate: string | null;
-  status: "open" | "closed";
-  createdAt: string;
-}
-
-/** Milestone con l'avanzamento: total/completed e ripartizione per stato. */
-export interface MilestoneWithCounts extends Milestone {
-  counts: {
-    total: number;
-    completed: number;
-    byStatus: Partial<Record<TicketStatus, number>>;
-  };
-}
-
-/** Dati di creazione di una milestone. */
-export interface MilestoneDraft {
-  projectId: string;
-  name: string;
-  dueDate?: string | null;
-  status?: "open" | "closed";
-}
-
-/** Campi modificabili di una milestone. */
-export interface MilestonePatch {
-  name?: string;
-  dueDate?: string | null;
-  status?: "open" | "closed";
-}
+/**
+ * I tipi delle milestone arrivano da `@stubwise/shared`, gli stessi schemi con
+ * cui il server valida richieste e risposte: le interfacce scritte a mano che
+ * stavano qui avevano lasciato divergere il body della creazione da quello
+ * atteso dalla rotta (la POST partiva senza `repositoryId`, che il server
+ * esigeva), e nessun typecheck poteva accorgersene.
+ */
+import type {
+  Milestone,
+  MilestoneDraft,
+  MilestonePatch,
+  MilestoneWithCounts,
+} from "@stubwise/shared";
+export type { Milestone, MilestoneDraft, MilestonePatch, MilestoneWithCounts };
 
 export function listMilestones(projectId: string): Promise<MilestoneWithCounts[]> {
   return api.get(`/api/milestones?projectId=${encodeURIComponent(projectId)}`);

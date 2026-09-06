@@ -1552,6 +1552,8 @@
     "new": "New milestone",
     "name": "Milestone name",
     "namePlaceholder": "E.g. v1.0 release",
+        "description": "Description",
+        "descriptionPlaceholder": "E.g. what this milestone delivers",
     "dueDate": "Due date",
     "noDueDate": "No due date",
     "create": "Create",

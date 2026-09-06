@@ -21,3 +21,4 @@ export * from "./reader.js";
 // importa `node:crypto` e apps/web importa questo index nel bundle browser
 // (vite fallirebbe con "createHash is not exported by __vite-browser-external").
 // È esposto come sottopercorso: `@stubwise/shared/mirror-slug`.
+export * from "./schemas/milestone.js";
