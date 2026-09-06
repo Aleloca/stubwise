@@ -380,6 +380,38 @@ describe("InboxCard", () => {
       expect(screen.getByText("Un evento che questa build non conosce ancora")).toBeTruthy();
       expect(screen.getByText("Aggiornamento")).toBeTruthy();
     });
+
+    /**
+     * IL CASO CONCRETO della fase 5: `project.brief` è un kind NUOVO del server,
+     * e l'app gia' installata lo legge come `__unknown__` (readerSchema). La
+     * card non deve sparire ne' restare muta: il testo della notifica lo porta
+     * gia' il server (`notify.brief`, con progetto, periodo e headline), e
+     * "Apri" porta alla roadmap. È l'ondata 1 della fase: il brief arriva sui
+     * telefoni PRIMA del rilascio in store che ne conosce il kind.
+     */
+    test("un `project.brief` da un server piu' nuovo (kind UNKNOWN) resta leggibile e apribile", async () => {
+      const client = makeClient();
+      const BRIEF_ITEM = item({
+        id: "b1",
+        kind: "__unknown__" as InboxItem["kind"],
+        text: "🗞️ Brief settimanale di Portale B2B (2026-08-31 → 2026-09-06): settimana di consolidamento.",
+        actions: ["open", "snooze", "handled"],
+        projectId: "11111111-1111-4111-8111-111111111111",
+        // `openUrl` del server: il brief porta alla roadmap del progetto.
+        url: "https://stubwise.example.com/projects/11111111-1111-4111-8111-111111111111/roadmap",
+      });
+      await renderCard(BRIEF_ITEM, client);
+
+      expect(
+        screen.getByText(
+          "🗞️ Brief settimanale di Portale B2B (2026-08-31 → 2026-09-06): settimana di consolidamento.",
+        ),
+      ).toBeTruthy();
+      // Informativa, non nascosta: le azioni d'igiene ci sono tutte.
+      expect(screen.getByTestId("info-card-open")).toBeTruthy();
+      expect(screen.getByTestId("info-card-snooze")).toBeTruthy();
+      expect(screen.getByTestId("info-card-handled")).toBeTruthy();
+    });
   });
 
   describe("conflitto (409 already_handled)", () => {

@@ -868,6 +868,19 @@ describe("formatNotification — generic", () => {
     expect(body.ticketUrl).toBeUndefined();
   });
 
+  it("project.brief → il markdown intero viaggia come `summary` quando c'è", () => {
+    const body = formatNotification(
+      { ...PROJECT_BRIEF, summary: "## Dove siamo\n\nTutto bene." } as NotificationEvent,
+      "generic",
+    ).body as Record<string, unknown>;
+    expect(body.summary).toBe("## Dove siamo\n\nTutto bene.");
+  });
+
+  it("project.brief → senza brief testuale il campo `summary` è ASSENTE, non null", () => {
+    const body = formatNotification(PROJECT_BRIEF, "generic").body as Record<string, unknown>;
+    expect("summary" in body).toBe(false);
+  });
+
   it("project.pulse → payload autosufficiente: domanda, opzioni e proposte, senza campi ticket", () => {
     const body = formatNotification(PROJECT_PULSE, "generic").body as Record<string, unknown>;
     expect(body.event).toBe("project.pulse");

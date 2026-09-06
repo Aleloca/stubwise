@@ -313,6 +313,20 @@ export interface ProjectBriefEvent {
    * {@link escapeSlackMrkdwn} — vedi {@link UNTRUSTED_SLACK_PARAMS}.
    */
   headline: string;
+  /**
+   * Il brief in markdown, per intero — è ciò che diventa la `section` propria
+   * del DM Slack (via {@link eventSummary} e `buildInboxBlocks`, che la escapa)
+   * e il campo `summary` del payload webhook.
+   *
+   * Viaggia NEL payload e non dietro una lettura del database perché le
+   * consegne sono asincrone: il poller delle consegne gira minuti dopo, e un
+   * DM che dovesse rileggere `project_briefs` mostrerebbe un brief rigenerato
+   * nel frattempo invece di quello annunciato. Il prezzo è la copia per
+   * destinatario, e per questo chi pubblica lo TRONCA (vedi
+   * `BRIEF_EVENT_SUMMARY_MAX_CHARS` nel poller): oltre i 3000 caratteri della
+   * `section` Slack non ne verrebbe mostrato nemmeno uno in più.
+   */
+  summary?: string;
 }
 
 /** Unione tipata di tutti gli eventi che generano una notifica. */
@@ -749,6 +763,10 @@ function formatGeneric(event: NotificationEvent, lang: Language): Record<string,
         periodStart: event.periodStart,
         periodEnd: event.periodEnd,
         headline: event.headline,
+        // Il markdown intero quando c'è: un consumatore del webhook (un bot di
+        // canale, un digest via email) deve poter pubblicare il brief senza
+        // chiamare l'API. Assente — non `null` — quando il brief non ha testo.
+        ...(event.summary ? { summary: event.summary } : {}),
         message: formatNotificationText(event, lang),
         projectUrl: event.projectUrl,
       };

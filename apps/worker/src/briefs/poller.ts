@@ -1,5 +1,6 @@
-import { projectBriefs, projects, type Db } from "@stubwise/db";
-import { and, eq, inArray, lt, or, sql } from "drizzle-orm";
+import { notifications, projectBriefs, projects, type Db } from "@stubwise/db";
+import { briefHeadline, publishNotification, type ProjectBriefEvent } from "@stubwise/notifications";
+import { and, asc, eq, lt, sql } from "drizzle-orm";
 import type { AgentRunner } from "../agent/runner.js";
 import { runAgentText } from "../agent/text.js";
 import {
@@ -56,6 +57,17 @@ export const BRIEF_MAX_ATTEMPTS = 3;
  * valore configurabile in più sarebbe una manopola che nessuno saprebbe girare.
  */
 export const DEFAULT_BRIEF_STALE_MINUTES = 30;
+
+/**
+ * Quanto del brief viaggia dentro la notifica. 3000 è il tetto della `section`
+ * mrkdwn di Slack: oltre, non se ne vedrebbe un carattere in più, e il payload
+ * è copiato su OGNI riga d'inbox (una per destinatario). Chi vuole il brief
+ * intero apre la pagina, che è appunto ciò che il bottone "Apri" fa.
+ */
+export const BRIEF_EVENT_SUMMARY_MAX_CHARS = 3_000;
+
+/** Firma della publish iniettabile (default: `publishNotification`). */
+export type PublishFn = typeof publishNotification;
 
 /** Turni massimi del run: il brief è un solo testo, non un'indagine. */
 const BRIEF_MAX_TURNS = 3;
@@ -174,6 +186,8 @@ export interface BriefPollerDeps {
   staleMinutes: number;
   /** "adesso" iniettabile: finestra e periodo si testano solo così. */
   now?: () => Date;
+  /** Publish iniettabile nei test. Default: `publishNotification`. */
+  publish?: PublishFn;
   logger?: BriefLogger;
   /** Risolutore di UN provider AI per id (iniettabile nei test). */
   loadProviderByIdFn?: typeof loadProviderById;
@@ -364,6 +378,75 @@ async function failBrief(deps: BriefPollerDeps, brief: ClaimableBrief, now: Date
 }
 
 /**
+ * Pubblica la notifica `project.brief` di un brief appena chiuso e ne salva
+ * l'id sulla riga.
+ *
+ * TRE COSE CHE NON SONO ERRORI, e vanno lette insieme:
+ *  - **zero destinatari**: un'istanza senza admin e senza follower non ha
+ *    nessuno a cui dirlo. Il brief resta `done` e leggibile dalla sua pagina;
+ *  - **brief senza testo** (provider assente): non c'è niente da annunciare,
+ *    e una card con una headline vuota sarebbe rumore;
+ *  - **publish fallita**: `publishNotification` per contratto non lancia, ma
+ *    qui c'è comunque un try/catch — il testo del brief è già salvo, e
+ *    perderlo per una notifica sarebbe il baratto sbagliato.
+ *
+ * `notification_id` è UNA delle copie (ce n'è una per destinatario): serve a
+ * risalire dal brief all'annuncio, non a possederne l'insieme. Si prende la
+ * più vecchia perché due tick non possano scriverne due diverse.
+ */
+async function publishBrief(
+  deps: BriefPollerDeps,
+  brief: ClaimableBrief,
+  outcome: Extract<GenerationOutcome, { ok: true }>,
+  logger: BriefLogger,
+): Promise<void> {
+  const headline = briefHeadline(outcome.sections, outcome.summary);
+  if (!headline) return;
+
+  const base = deps.publicUrl.replace(/\/+$/, "");
+  const event: ProjectBriefEvent = {
+    kind: "project.brief",
+    briefId: brief.id,
+    projectName: brief.projectName,
+    // La ROADMAP e non la pagina del brief: il brief è il racconto della
+    // settimana, e lì sta in mezzo agli eventi che racconta.
+    projectUrl: `${base}/projects/${brief.projectId}/roadmap`,
+    periodStart: brief.periodStart,
+    periodEnd: brief.periodEnd,
+    headline,
+    ...(outcome.summary
+      ? { summary: outcome.summary.slice(0, BRIEF_EVENT_SUMMARY_MAX_CHARS) }
+      : {}),
+  };
+
+  try {
+    const publish = deps.publish ?? publishNotification;
+    const { published } = await publish(deps.db, event, { projectId: brief.projectId });
+    if (published === 0) return;
+
+    const [row] = await deps.db
+      .select({ id: notifications.id })
+      .from(notifications)
+      .where(
+        and(
+          eq(notifications.kind, "project.brief"),
+          sql`${notifications.event}->>'briefId' = ${brief.id}`,
+        ),
+      )
+      .orderBy(asc(notifications.createdAt), asc(notifications.id))
+      .limit(1);
+    if (row) {
+      await deps.db
+        .update(projectBriefs)
+        .set({ notificationId: row.id })
+        .where(eq(projectBriefs.id, brief.id));
+    }
+  } catch (err) {
+    logger.error(`brief: notifica del progetto ${brief.projectId} non pubblicata: ${errText(err)}`);
+  }
+}
+
+/**
  * Esegue UN tick. Non lancia mai: ogni brief è isolato in try/catch e l'intero
  * giro a sua volta, come tutti i poller del worker.
  *
@@ -433,6 +516,12 @@ export async function pollBriefsOnce(deps: BriefPollerDeps): Promise<number> {
         })
         .where(eq(projectBriefs.id, brief.id));
       done++;
+
+      // La notifica arriva DOPO il commit del brief, mai dentro: chi la riceve
+      // deve poter aprire una pagina che esiste già. L'ordine opposto — publish
+      // e poi UPDATE — regalerebbe una card che porta a un brief ancora
+      // `running`, e su un crash in mezzo resterebbe per sempre.
+      await publishBrief(deps, brief, outcome, logger);
     } catch (err) {
       // Best-effort: un brief che esplode non ferma gli altri. La riga resta
       // `running` e il recovery degli orfani la riprende al tick giusto.

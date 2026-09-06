@@ -573,3 +573,40 @@ describe("buildQuestionBlocks", () => {
     expect(ids(blocks)).toEqual(["inbox:answer_free", "inbox:open", "inbox:snooze"]);
   });
 });
+
+describe("buildInboxBlocks — brief settimanale", () => {
+  /**
+   * Il DM del brief (fase 5): il markdown del brief sta in una `section` SUA,
+   * fra il testo della notifica e i bottoni. È lo stesso meccanismo del
+   * riassunto "in breve" di piani e PR — il brief non ha bisogno di un
+   * renderer dedicato, e non doveva averne uno.
+   */
+  it("il markdown del brief è una section a sé, e il bottone Apri resta", () => {
+    const blocks = buildInboxBlocks({
+      text: "🗞️ Brief settimanale di webapp (2026-08-31 → 2026-09-06): ok <https://x|Roadmap>",
+      actions: ["open", "snooze", "handled"],
+      notificationId: "11111111-1111-4111-8111-111111111111",
+      url: "https://app.example.com/projects/p1/roadmap",
+      lang: "it",
+      summary: "## Dove siamo\n\nIl progetto è a metà del lavoro sul login.",
+    });
+    const sections = blocks.filter((b) => b.type === "section");
+    expect(sections).toHaveLength(2);
+    expect(JSON.stringify(sections[1])).toContain("Dove siamo");
+    const actions = blocks.find((b) => b.type === "actions") as Record<string, unknown>;
+    expect(JSON.stringify(actions)).toContain("https://app.example.com/projects/p1/roadmap");
+  });
+
+  it("il markdown del brief è ESCAPATO: è testo AI su input non fidato", () => {
+    const blocks = buildInboxBlocks({
+      text: "testo",
+      actions: ["open"],
+      notificationId: "11111111-1111-4111-8111-111111111111",
+      lang: "it",
+      summary: "Il ticket <https://evil.example|Fidati> & altro",
+    });
+    const rendered = JSON.stringify(blocks);
+    expect(rendered).toContain("&lt;https://evil.example|Fidati&gt; &amp; altro");
+    expect(rendered).not.toContain("<https://evil.example|Fidati>");
+  });
+});

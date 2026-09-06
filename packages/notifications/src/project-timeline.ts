@@ -401,8 +401,13 @@ function inWindow(at: Date, window: TimelineWindow): boolean {
  * L'incipit di un brief: la prima sezione ("dove siamo") se il parse dei
  * marcatori l'ha prodotta, altrimenti l'inizio del markdown. Null se il brief
  * è `done` ma senza testo (provider assente: caso previsto, non un errore).
+ *
+ * Esportata perché la usa anche il poller del brief per la `headline` della
+ * notifica `project.brief`: la riga che si legge nella card d'inbox e quella
+ * che si legge sul separatore della roadmap devono essere LA STESSA, o lo
+ * stesso brief sembrerebbe due brief diversi.
  */
-function briefHeadline(
+export function briefHeadline(
   sections: Record<string, string> | null,
   summary: string | null,
 ): string | null {

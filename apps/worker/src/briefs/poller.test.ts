@@ -1,4 +1,13 @@
-import { activityReports, projectBriefs, projects, users, type Db } from "@stubwise/db";
+import {
+  activityReports,
+  notificationDeliveries,
+  notifications,
+  projectBriefs,
+  projectFollows,
+  projects,
+  users,
+  type Db,
+} from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -277,6 +286,101 @@ describe("pollBriefsOnce", () => {
     } as unknown as AgentRunner;
     expect(await pollBriefsOnce(deps({ runner }))).toBe(1);
     expect((await briefRows(good))[0]!.status).toBeDefined();
+  });
+});
+
+describe("notifica project.brief", () => {
+  /** Un admin: il pulse e il brief hanno audience `broadcast` (admin + follower). */
+  async function seedAdmin(): Promise<string> {
+    const [row] = await db
+      .insert(users)
+      .values({ email: `admin-${crypto.randomUUID()}@example.com`, passwordHash: "x", role: "admin" })
+      .returning({ id: users.id });
+    return row!.id;
+  }
+
+  it("pubblica DOPO il commit del brief e ne salva il notification_id", async () => {
+    const adminId = await seedAdmin();
+    const projectId = await enabledProject();
+
+    expect(await pollBriefsOnce(deps())).toBe(1);
+
+    const [brief] = await briefRows(projectId);
+    expect(brief!.status).toBe("done");
+    expect(brief!.notificationId).not.toBeNull();
+
+    const [notification] = await db
+      .select()
+      .from(notifications)
+      .where(eq(notifications.userId, adminId));
+    expect(notification).toBeDefined();
+    expect(notification!.kind).toBe("project.brief");
+    expect(notification!.id).toBe(brief!.notificationId);
+
+    const event = notification!.event as Record<string, unknown>;
+    expect(event.briefId).toBe(brief!.id);
+    expect(event.periodStart).toBe("2026-08-31");
+    expect(event.periodEnd).toBe("2026-09-06");
+    // La headline è la prima sezione, non tutto il brief.
+    expect(event.headline).toBe("Il progetto è a metà del lavoro sul login.");
+    // Il link porta alla ROADMAP, dove il brief si legge in mezzo agli eventi.
+    expect(event.projectUrl).toBe(
+      `https://stubwise.example.com/projects/${projectId}/roadmap`,
+    );
+    // Il markdown completo viaggia come `summary`: è la section del DM Slack.
+    expect(event.summary as string).toContain("## ");
+  });
+
+  it("zero destinatari NON è un errore: il brief resta `done`, senza notifica", async () => {
+    // Nessun admin, nessun follower.
+    const projectId = await enabledProject();
+    expect(await pollBriefsOnce(deps())).toBe(1);
+    const [brief] = await briefRows(projectId);
+    expect(brief!.status).toBe("done");
+    expect(brief!.notificationId).toBeNull();
+    expect(await db.select().from(notifications)).toEqual([]);
+  });
+
+  it("brief senza testo (provider assente): nessuna notifica da mandare", async () => {
+    await seedAdmin();
+    const projectId = await enabledProject();
+    await pollBriefsOnce(
+      deps({ loadProviderChainFn: async () => [], loadProviderByIdFn: async () => null }),
+    );
+    const [brief] = await briefRows(projectId);
+    expect(brief!.status).toBe("done");
+    expect(brief!.notificationId).toBeNull();
+    expect(await db.select().from(notifications)).toEqual([]);
+  });
+
+  it("una publish che fallisce NON fa fallire il brief: il testo è salvo", async () => {
+    await seedAdmin();
+    const projectId = await enabledProject();
+    const publish = async () => {
+      throw new Error("database in fiamme");
+    };
+    expect(await pollBriefsOnce(deps({ publish }))).toBe(1);
+    const [brief] = await briefRows(projectId);
+    expect(brief).toMatchObject({ status: "done", notificationId: null });
+    expect(brief!.summary).not.toBeNull();
+  });
+
+  it("raggiunge anche chi SEGUE il progetto senza essere admin", async () => {
+    const projectId = await enabledProject();
+    const [member] = await db
+      .insert(users)
+      .values({ email: `member-${crypto.randomUUID()}@example.com`, passwordHash: "x", role: "member" })
+      .returning({ id: users.id });
+    await db.insert(projectFollows).values({ projectId, userId: member!.id });
+
+    await pollBriefsOnce(deps());
+    const rows = await db.select().from(notifications).where(eq(notifications.userId, member!.id));
+    expect(rows).toHaveLength(1);
+    // Nessuna riga d'OUTBOX: il member non ha Slack collegato né device, e il
+    // webhook d'istanza non è configurato. È il comportamento del publish
+    // condiviso, non un caso del brief — qui si sorveglia solo che il brief non
+    // ne inventi uno per conto suo.
+    expect(await db.select().from(notificationDeliveries)).toEqual([]);
   });
 });
 

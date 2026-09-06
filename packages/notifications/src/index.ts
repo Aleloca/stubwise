@@ -121,6 +121,7 @@ export {
 } from "./push/config.js";
 
 export {
+  briefHeadline,
   buildProjectTimeline,
   type TimelineWindow,
 } from "./project-timeline.js";

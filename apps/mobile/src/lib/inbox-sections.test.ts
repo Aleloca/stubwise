@@ -35,6 +35,15 @@ const FAILED = item({ id: "f1", kind: "job.failed", actions: ["relaunch", "open"
 const PR_OPENED = item({ id: "pro1", kind: "job.pr_opened", actions: ["open", "snooze", "handled"] });
 const TICKET_CREATED = item({ id: "t1", kind: "ticket.created", actions: ["open", "snooze", "handled"] });
 const HANDLED_ITEM = item({ id: "h1", kind: "job.failed", status: "handled", actions: [] });
+/**
+ * Un kind che questa build non conosce (`readerSchema` lo rende `__unknown__`):
+ * dalla fase 5 è il caso di `project.brief` su un'app già installata.
+ */
+const UNKNOWN_KIND = item({
+  id: "uk1",
+  kind: "__unknown__" as InboxItem["kind"],
+  actions: ["open", "snooze", "handled"],
+});
 
 describe("sectionize", () => {
   test("una domanda dell'agente e una proposta del pulse bloccano il viewer, per qualunque ruolo", () => {
@@ -44,6 +53,18 @@ describe("sectionize", () => {
       expect(result.onlyYouMaintainer).toEqual([]);
       expect(result.waitingOthers).toEqual([]);
       expect(result.fromProjects).toEqual([]);
+    }
+  });
+
+  test("un kind SCONOSCIUTO (es. project.brief da un server più nuovo) finisce in 'Dai progetti'", () => {
+    for (const viewer of [MEMBER, ADMIN]) {
+      const result = sectionize([UNKNOWN_KIND], viewer);
+      expect(result.fromProjects.map((i) => i.id)).toEqual(["uk1"]);
+      expect(result.blocksYou).toEqual([]);
+      expect(result.onlyYouMaintainer).toEqual([]);
+      // NON "in attesa di altri": non è una decisione riservata a un maintainer,
+      // e mostrarla lì suggerirebbe che qualcuno debba fare qualcosa.
+      expect(result.waitingOthers).toEqual([]);
     }
   });
 
