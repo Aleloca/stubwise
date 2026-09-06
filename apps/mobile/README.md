@@ -332,6 +332,12 @@ Presupposti già a posto nel repo (sezione "Firma (iOS)" sopra): team
 `com.app.aleloca.stubwise`. Serve comunque un **Apple Developer Program**
 attivo su quel team (App Store Connect, TestFlight).
 
+0. `pnpm install && pnpm -r build` dalla radice, se non l'hai già fatto
+   dopo l'ultimo pull: la fase "Bundle React Native code and images"
+   dell'archivio risolve `@stubwise/api-client` e `@stubwise/shared` dal
+   loro `dist/`, e senza build fallisce con `InvalidPackageError … main
+   module field that could not be resolved` (visto al primo archivio
+   reale, 6 set 2026). Poi `cd apps/mobile/ios && pod install`.
 1. `pnpm --filter @stubwise/mobile version:bump` (vedi sotto) — un archivio
    con un `buildNumber` già usato viene rifiutato da App Store Connect.
 2. Apri **`apps/mobile/ios/StubwiseMobile.xcworkspace`** in Xcode — non lo
