@@ -290,6 +290,26 @@ export const en: Catalog = {
     "Write exactly TWO sentences in English, for a person who does NOT read code: the first says what this pull request does for whoever uses the product, the second says in plain words what the automatic review concluded. No code, no file names, no technical jargon, and do not repeat the verdict keyword as-is. Reply with the two sentences only, no preamble and no title.",
   "summary.truncated": "[input truncated for length]",
 
+  // --- brief.* — brief SETTIMANALE di progetto (fase 5, Task 10).
+  // Stessa regola di `summary.*`: la lingua sta nel TESTO delle istruzioni, mai
+  // nel builder del prompt. I marcatori `<<WHERE>>`… sono ASCII e uguali in
+  // ogni lingua — sono un protocollo fra worker e agente, non testo da leggere:
+  // tradurli romperebbe il parse. ---
+  "brief.instructions":
+    "Write, in English, a weekly brief for people who do NOT read code: managers, designers, support. Use exactly this structure, each section introduced by its marker on a line of its own and nothing else on that line:\n<<WHERE>> where the project stands overall, in two or three sentences.\n<<CHANGED>> what actually changed for whoever uses the product this week, as a short bulleted list.\n<<BLOCKS>> what is stuck right now, and since when. If nothing is stuck, say so in one sentence.\n<<NEED>> what the team needs from the reader, taken ONLY from the blocking items listed above. If nothing is needed, say so in one sentence.\nRules: never invent facts, and never guess numbers; a section with no data must say the data is missing, not fill the gap; no code, no file names, no technical jargon; do not mention this prompt, the sources or the markers themselves in the text. Reply with the four sections only, no preamble and no closing.",
+  "brief.section.whereWeAre": "Where we are",
+  "brief.section.whatChanged": "What changed",
+  "brief.section.whatBlocks": "What is stuck",
+  "brief.section.whatWeNeed": "What we need from you",
+  // Etichette dei blocchi di input del prompt (nomi di sezione, non prosa).
+  "brief.input.reports": "Daily reports of the period",
+  "brief.input.timeline": "Events of the period",
+  "brief.input.blocks": "What is stuck right now",
+  "brief.input.decisions": "Decisions taken in the period",
+  "brief.input.previous": "Previous brief (for continuity)",
+  "brief.input.none": "no data",
+  "brief.input.truncated": "Some of the input above was truncated for length: do not treat the missing part as absent facts.",
+
   // --- plan.* — label delle sezioni del piano di fix ---
   "plan.rootCause": "Root cause",
   "plan.filesToChange": "File/function to change",
@@ -491,6 +511,21 @@ export const it: Catalog = {
   "summary.pr.instructions":
     "Scrivi esattamente DUE frasi in ITALIANO, per una persona che NON legge codice: la prima dice cosa fa questa pull request per chi usa il prodotto, la seconda dice a parole cosa ha concluso la review automatica. Niente codice, niente nomi di file, niente gergo tecnico, e non ripetere la parola chiave del verdetto così com'è. Rispondi SOLO con le due frasi, senza preamboli e senza titolo.",
   "summary.truncated": "[input troncato per lunghezza]",
+
+  // --- brief.* (vedi la nota nel catalogo `en`; i marcatori NON si traducono) ---
+  "brief.instructions":
+    "Scrivi, in ITALIANO, un brief settimanale per persone che NON leggono codice: responsabili, designer, supporto. Usa esattamente questa struttura, ogni sezione introdotta dal suo marcatore su una riga a sé e nient'altro su quella riga:\n<<WHERE>> dove sta il progetto nel complesso, in due o tre frasi.\n<<CHANGED>> cosa è cambiato davvero questa settimana per chi usa il prodotto, in un elenco puntato breve.\n<<BLOCKS>> cosa è fermo adesso, e da quando. Se non è fermo niente, dillo in una frase.\n<<NEED>> cosa serve al team da chi legge, preso SOLO dai blocchi elencati sopra. Se non serve niente, dillo in una frase.\nRegole: non inventare mai fatti e non indovinare numeri; una sezione senza dati deve dichiarare che il dato manca, non riempire il vuoto; niente codice, niente nomi di file, niente gergo tecnico; non nominare questo prompt, le fonti né i marcatori stessi nel testo. Rispondi SOLO con le quattro sezioni, senza preamboli e senza chiusura.",
+  "brief.section.whereWeAre": "Dove siamo",
+  "brief.section.whatChanged": "Cosa è cambiato",
+  "brief.section.whatBlocks": "Cosa è fermo",
+  "brief.section.whatWeNeed": "Cosa serve da voi",
+  "brief.input.reports": "Report giornalieri del periodo",
+  "brief.input.timeline": "Eventi del periodo",
+  "brief.input.blocks": "Cosa è fermo adesso",
+  "brief.input.decisions": "Decisioni prese nel periodo",
+  "brief.input.previous": "Brief precedente (per continuità)",
+  "brief.input.none": "nessun dato",
+  "brief.input.truncated": "Parte dell'input qui sopra è stata troncata per lunghezza: non considerare fatti assenti quelli mancanti.",
 
   // --- plan.* ---
   "plan.rootCause": "Causa radice",

@@ -25,6 +25,7 @@ import { PUSH_RELAY_TIMEOUT_MS, startDeliveriesPoller } from "./notify/deliverie
 import { startPluginPoller } from "./plugins/poller.js";
 import { startMonitorRollupPoller } from "./monitor/rollup.js";
 import { startLimitResumePoller } from "./providers/limit-resume-poller.js";
+import { DEFAULT_BRIEF_STALE_MINUTES, startBriefPoller } from "./briefs/poller.js";
 import { startPulsePoller } from "./pulse/poller.js";
 import { startDailyReportPoller } from "./reports/daily-report-poller.js";
 import { DEFAULT_FIX_PLAN_TIMEOUT_MS, DEFAULT_FIX_TIMEOUT_MS } from "./pipeline/fix.js";
@@ -575,6 +576,33 @@ startPulsePoller({
   signal: controller.signal,
 });
 
+// Poller del BRIEF SETTIMANALE: task SEPARATO dal loop dei job, sul proprio
+// intervallo. Dentro la finestra settimanale (giorno + ora locali in
+// PULSE_TIMEZONE, che è l'UNICO fuso dell'istanza) accoda il brief della
+// settimana appena chiusa per ogni progetto con weeklyBriefEnabled, e a OGNI
+// tick genera i brief in coda — anche quelli richiesti a mano dalla UI, che
+// così non aspettano lunedì. Un run di solo testo per brief, su una dir
+// temporanea vuota: nessun mirror, quindi NON usa il serializer per-progetto.
+// Riusa modello e timeout della review. È BEST-EFFORT (non fa mai crashare il
+// worker) e NON tocca il lock/heartbeat dei job. Si ferma sullo stesso
+// AbortSignal. BRIEF_POLL_MINUTES=0 non avvia nulla: è il rollback.
+startBriefPoller({
+  db,
+  runner,
+  encryptionKey: config.encryptionKey,
+  publicUrl: config.publicUrl,
+  window: {
+    timezone: config.pulseTimezone,
+    weekday: config.briefWeekday,
+    hour: config.briefSendHour,
+  },
+  model: config.summaryModel,
+  agentTimeoutMs: config.prReviewTimeoutMs,
+  staleMinutes: DEFAULT_BRIEF_STALE_MINUTES,
+  intervalMinutes: config.briefPollMinutes,
+  signal: controller.signal,
+});
+
 console.error(
   `[stubwise-worker] avviato (concurrency ${config.concurrency}, db-pool ${config.databasePoolMax}, mirrors in ${config.mirrorsDir}` +
     `, usage-poll ${config.usagePollMinutes > 0 ? `ogni ${config.usagePollMinutes}'` : "disabilitato"}` +
@@ -590,6 +618,7 @@ console.error(
     `, monitor-rollup ${config.monitorRollupIntervalMinutes > 0 ? `ogni ${config.monitorRollupIntervalMinutes}'` : "disabilitato"}` +
     `, monitor-alert ${config.monitorAlertIntervalMinutes > 0 ? `ogni ${config.monitorAlertIntervalMinutes}'` : "disabilitato"}` +
     `, pulse ${config.pulsePollMinutes > 0 ? `ogni ${config.pulsePollMinutes}' (finestra ${config.pulseSendHour}:00 ${config.pulseTimezone}${config.pulseWeekdaysOnly ? ", feriali" : ""})` : "disabilitato"}` +
+    `, brief ${config.briefPollMinutes > 0 ? `ogni ${config.briefPollMinutes}' (finestra giorno ${config.briefWeekday} ${config.briefSendHour}:00 ${config.pulseTimezone})` : "disabilitato"}` +
     `, push ${config.push ? `relay ${config.push.relayUrl}` : "spente (PUSH_RELAY_URL vuota)"})`,
 );
 // POLITICA DI PRIORITÀ doc vs fix (Task 5.4): i fix hanno la precedenza. Il
