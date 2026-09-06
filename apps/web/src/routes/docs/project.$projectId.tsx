@@ -99,6 +99,19 @@ export function ProjectDocsLanding() {
             <p className="mt-3 max-w-prose text-sm leading-relaxed text-fg-muted">
               {briefResponse?.brief.identity ?? t("docs:project.subtitle")}
             </p>
+            {/*
+              La Roadmap (Fase 5) è l'altra metà di questa pagina per chi non
+              legge codice: qui c'è "di cosa si tratta", di là "dove siamo".
+              Sta fuori dal blocco "Da dove cominciare" perché quello dipende da
+              un repository documentato, e la roadmap esiste comunque.
+            */}
+            <Link
+              to="/projects/$projectId/roadmap"
+              params={{ projectId }}
+              className="mt-4 inline-block font-mono text-[11px] tracking-[0.12em] text-fg-faint uppercase transition-colors hover:text-signal"
+            >
+              {t("projects:roadmap.link")} →
+            </Link>
           </header>
 
           {/* Punti d'ingresso: il percorso consigliato a chi arriva a freddo. */}

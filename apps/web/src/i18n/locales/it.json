@@ -1393,6 +1393,56 @@
       "applyPresetHint_one": "// spegne 1 skill consigliata; non ne riaccende mai nessuna (per riaccenderla, riseleziona la sua casella).",
       "applyPresetHint_other": "// spegne {{count}} skill consigliate; non ne riaccende mai nessuna (per riaccenderne una, riseleziona la sua casella).",
       "presetNoneActive": "// nessuna skill del preset è attiva"
+    },
+    "roadmap": {
+      "link": "Roadmap",
+      "title": "Roadmap",
+      "subtitle": "Dove sta il progetto: milestone, ticket, pull request, report e decisioni.",
+      "back": "← Torna al progetto",
+      "milestonesTitle": "Milestone aperte",
+      "milestonesEmpty": "// nessuna milestone aperta",
+      "noDueDate": "nessuna scadenza",
+      "dueOn": "scade il {{date}}",
+      "overdue": "scaduta",
+      "progress": "{{completed}}/{{total}} ticket completati",
+      "progressEmpty": "nessun ticket",
+      "timelineTitle": "Timeline",
+      "filters": "Filtra per tipo",
+      "filterAll": "Tutti",
+      "filter": {
+        "tickets": "Ticket",
+        "pr": "Pull request",
+        "milestones": "Milestone",
+        "reports": "Report giornalieri",
+        "decisions": "Decisioni",
+        "briefs": "Brief settimanali"
+      },
+      "weekOf": "Settimana del {{date}}",
+      "empty": "Nessun evento nel periodo.",
+      "emptyHint": "Allarga la finestra o togli i filtri.",
+      "loading": "// carico la timeline…",
+      "error": "// non è stato possibile caricare la timeline",
+      "entry": {
+        "ticketOpened": "Ticket aperto",
+        "ticketDone": "Ticket chiuso",
+        "milestoneDue": "Milestone in scadenza",
+        "milestoneClosed": "Milestone chiusa",
+        "prOpened": "Pull request aperta",
+        "prMerged": "Pull request mergiata",
+        "prClosed": "Pull request chiusa senza merge",
+        "reportDay": "Report giornaliero",
+        "decision": "Decisione",
+        "brief": "Brief settimanale"
+      },
+      "verdict": {
+        "approve": "review: approvata",
+        "request_changes": "review: modifiche richieste"
+      },
+      "briefPeriod": "{{from}} → {{to}}",
+      "noSummary": "// nessun riassunto",
+      "decidedBy": "deciso da {{who}}",
+      "decidedBySystem": "nessun autore registrato",
+      "openPr": "Apri la pull request"
     }
   },
   "repositories": {

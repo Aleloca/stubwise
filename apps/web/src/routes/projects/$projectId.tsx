@@ -270,7 +270,21 @@ export function ProjectDetailPage() {
         utenti autenticati (il server arbitra i permessi).
       */}
       <section aria-label={t("milestones:title")} className="mt-8 border-t border-line pt-6">
-        <h2 className={sectionTitleClass}>{t("milestones:title")}</h2>
+        <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+          <h2 className={sectionTitleClass + " mb-0"}>{t("milestones:title")}</h2>
+          {/*
+            La Roadmap (Fase 5) è la lettura delle stesse milestone per chi non
+            legge codice: sta accanto al gestore, non al posto suo — qui si
+            configura, di là si guarda.
+          */}
+          <Link
+            to="/projects/$projectId/roadmap"
+            params={{ projectId: project.id }}
+            className="font-mono text-[11px] tracking-[0.08em] text-fg-faint uppercase transition-colors hover:text-signal"
+          >
+            {t("projects:roadmap.link")} →
+          </Link>
+        </div>
         <MilestoneManager projectId={project.id} />
       </section>
 

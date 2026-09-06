@@ -34,10 +34,14 @@ import type {
   NotificationPrefsView,
   PatView,
   PatWithToken,
+  PrReviewSummary,
   Plugin,
   PluginRecommendations,
   ProjectFollows,
   ProjectPlugin,
+  ProjectTimeline,
+  ProjectTimelineEntry,
+  ProjectTimelineKind,
   RecordSearchHistoryBody,
   SearchDocsSemanticResults,
   SearchEntityType,
@@ -113,7 +117,11 @@ export type {
   InboxStatus,
   NotificationPrefsUpdate,
   NotificationPrefsView,
+  PrReviewSummary,
   ProjectFollows,
+  ProjectTimeline,
+  ProjectTimelineEntry,
+  ProjectTimelineKind,
   SnoozeUntil,
   TicketQuestion,
 };
@@ -1274,6 +1282,39 @@ export function getProject(projectId: string): Promise<ProjectDetail> {
 
 export function postProject(draft: ProjectDraft): Promise<Project> {
   return api.post("/api/projects", draft);
+}
+
+/**
+ * Timeline di progetto (Fase 5): milestone, ticket, PR, report giornalieri,
+ * decisioni e brief fusi in un elenco ordinato. Alimenta la pagina Roadmap.
+ *
+ * I default della finestra (ultime 4 settimane, tetto 180 giorni) sono del
+ * SERVER: qui non si duplicano, così una sola implementazione decide che cosa
+ * significa "di recente" e la pagina non può divergerne.
+ */
+export function getProjectTimeline(
+  projectId: string,
+  params: { from?: string; to?: string; kinds?: ProjectTimelineKind[] } = {},
+): Promise<ProjectTimeline> {
+  const search = new URLSearchParams();
+  if (params.from) search.set("from", params.from);
+  if (params.to) search.set("to", params.to);
+  // `kinds` vuoto NON diventa `kinds=`: il server tratterebbe il parametro come
+  // presente, e un elenco vuoto significa "nessun filtro", non "niente".
+  if (params.kinds && params.kinds.length > 0) search.set("kinds", params.kinds.join(","));
+  const query = search.toString();
+  return api.get(
+    `/api/projects/${encodeURIComponent(projectId)}/timeline${query ? `?${query}` : ""}`,
+  );
+}
+
+/** Le review AI di PR del progetto, dalla più recente (Fase 5). */
+export function getProjectReviews(
+  projectId: string,
+  options: { limit?: number } = {},
+): Promise<PrReviewSummary[]> {
+  const query = options.limit === undefined ? "" : `?limit=${options.limit}`;
+  return api.get(`/api/projects/${encodeURIComponent(projectId)}/reviews${query}`);
 }
 
 export function patchProject(projectId: string, patch: ProjectPatch): Promise<Project> {

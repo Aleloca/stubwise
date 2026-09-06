@@ -1393,6 +1393,56 @@
       "applyPresetHint_one": "// turns off 1 recommended skill; it never turns any back on (to re-enable one, tick its box).",
       "applyPresetHint_other": "// turns off {{count}} recommended skills; it never turns any back on (to re-enable one, tick its box).",
       "presetNoneActive": "// no recommended skill is active"
+    },
+    "roadmap": {
+      "link": "Roadmap",
+      "title": "Roadmap",
+      "subtitle": "Where the project stands: milestones, tickets, pull requests, reports and decisions.",
+      "back": "← Back to project",
+      "milestonesTitle": "Open milestones",
+      "milestonesEmpty": "// no open milestones",
+      "noDueDate": "no due date",
+      "dueOn": "due {{date}}",
+      "overdue": "overdue",
+      "progress": "{{completed}}/{{total}} tickets done",
+      "progressEmpty": "no tickets yet",
+      "timelineTitle": "Timeline",
+      "filters": "Filter by type",
+      "filterAll": "All",
+      "filter": {
+        "tickets": "Tickets",
+        "pr": "Pull requests",
+        "milestones": "Milestones",
+        "reports": "Daily reports",
+        "decisions": "Decisions",
+        "briefs": "Weekly briefs"
+      },
+      "weekOf": "Week of {{date}}",
+      "empty": "No events in this period.",
+      "emptyHint": "Widen the window or clear the filters.",
+      "loading": "// loading the timeline…",
+      "error": "// could not load the timeline",
+      "entry": {
+        "ticketOpened": "Ticket opened",
+        "ticketDone": "Ticket closed",
+        "milestoneDue": "Milestone due",
+        "milestoneClosed": "Milestone closed",
+        "prOpened": "Pull request opened",
+        "prMerged": "Pull request merged",
+        "prClosed": "Pull request closed without merging",
+        "reportDay": "Daily report",
+        "decision": "Decision",
+        "brief": "Weekly brief"
+      },
+      "verdict": {
+        "approve": "review: approved",
+        "request_changes": "review: changes requested"
+      },
+      "briefPeriod": "{{from}} → {{to}}",
+      "noSummary": "// no summary",
+      "decidedBy": "decided by {{who}}",
+      "decidedBySystem": "no author recorded",
+      "openPr": "Open the pull request"
     }
   },
   "repositories": {

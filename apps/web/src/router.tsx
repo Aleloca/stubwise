@@ -70,6 +70,7 @@ import { LoginPage } from "./routes/login";
 import { MonitorListPage } from "./routes/monitor/index";
 import { ServerDetailPage } from "./routes/monitor/server-detail";
 import { ProjectDetailPage } from "./routes/projects/$projectId";
+import { ProjectRoadmapPage } from "./routes/projects/$projectId.roadmap";
 import { ProjectsPage } from "./routes/projects/index";
 import {
   widgetConversationsSearchSchema,
@@ -288,6 +289,24 @@ const projectDetailRoute = createRoute({
     void context.queryClient.ensureQueryData(myFollowsQueryOptions).catch(() => undefined);
   },
   component: ProjectDetailPage,
+});
+
+/**
+ * Roadmap del progetto (Fase 5): milestone aperte con avanzamento e timeline
+ * degli ultimi eventi, in sola lettura. Prefetch di progetto e milestone (le
+ * `useSuspenseQuery` della pagina non devono attendere); la timeline resta
+ * fuori dal loader perché dipende dai filtri, che sono stato del componente.
+ */
+const projectRoadmapRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/projects/$projectId/roadmap",
+  loader: async ({ context, params }) => {
+    const project = await context.queryClient.ensureQueryData(
+      projectQueryOptions(params.projectId),
+    );
+    await context.queryClient.ensureQueryData(milestonesQueryOptions(project.id));
+  },
+  component: ProjectRoadmapPage,
 });
 
 /**
@@ -739,6 +758,7 @@ const routeTree = rootRoute.addChildren([
     backlogDetailRoute,
     projectsRoute,
     projectDetailRoute,
+    projectRoadmapRoute,
     widgetConversationsRoute,
     repositoryNewRoute,
     repositoriesIndexRoute,

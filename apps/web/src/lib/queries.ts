@@ -20,6 +20,7 @@ import {
   listPats,
   getProject,
   getProjectPlugins,
+  getProjectTimeline,
   getProjects,
   getRepoGraph,
   getRepoGraphReport,
@@ -53,6 +54,7 @@ import {
   type BacklogFilters,
   type InboxFilters,
   type PluginRegistry,
+  type ProjectTimelineKind,
   type RepoGraph,
   type ServerMetricsRange,
   type TicketFilters,
@@ -546,6 +548,25 @@ export function projectQueryOptions(projectId: string) {
   return queryOptions({
     queryKey: ["projects", "detail", projectId],
     queryFn: () => getProject(projectId),
+    staleTime: 60_000,
+  });
+}
+
+/**
+ * Timeline di progetto per la pagina Roadmap (Fase 5).
+ *
+ * `kinds` fa parte della CHIAVE perché fa parte della richiesta: il filtro lo
+ * applica il server, quindi due filtri diversi sono due risposte diverse e non
+ * possono condividere una cache. Filtrare lato client sarebbe stato più comodo
+ * ma avrebbe scaricato l'intera finestra per mostrarne un decimo.
+ *
+ * `staleTime` breve ma non nullo: la roadmap è un racconto, non un cruscotto in
+ * tempo reale — e non deve rifare la fusione di sei query a ogni focus.
+ */
+export function projectTimelineQueryOptions(projectId: string, kinds: ProjectTimelineKind[]) {
+  return queryOptions({
+    queryKey: ["projects", "detail", projectId, "timeline", [...kinds].sort().join(",")],
+    queryFn: () => getProjectTimeline(projectId, { kinds }),
     staleTime: 60_000,
   });
 }
