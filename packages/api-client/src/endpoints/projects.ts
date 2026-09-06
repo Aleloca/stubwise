@@ -1,15 +1,25 @@
 import {
+  prReviewSummarySchema,
   projectDetailSchema,
   projectListItemSchema,
   projectPulseSummarySchema,
 } from "@stubwise/shared";
-import type { ProjectDetail, ProjectListItem, ProjectPulseSummary, Reader } from "@stubwise/shared";
+import type {
+  PrReviewSummary,
+  ProjectDetail,
+  ProjectListItem,
+  ProjectPulseSummary,
+  ProjectTimeline,
+  ProjectTimelineKind,
+  Reader,
+} from "@stubwise/shared";
 import { z } from "zod";
 import type { ApiRequest } from "../client.js";
-import { seg } from "../query.js";
+import { seg, toQuery } from "../query.js";
 
 const projectListSchema = z.array(projectListItemSchema);
 const pulseSchema = z.array(projectPulseSummarySchema);
+const reviewsSchema = z.array(prReviewSummarySchema);
 
 /**
  * Progetti visibili all'utente corrente.
@@ -32,6 +42,43 @@ export function createProjectsEndpoints(request: ApiRequest) {
 
     pulse(): Promise<Reader<ProjectPulseSummary>[]> {
       return request("GET", "/api/projects/pulse", undefined, pulseSchema);
+    },
+
+    /** Le review AI di PR del progetto, dalla più recente (fase 5). */
+    reviews(projectId: string, options: { limit?: number } = {}): Promise<Reader<PrReviewSummary>[]> {
+      return request(
+        "GET",
+        `/api/projects/${seg(projectId)}/reviews${toQuery({ limit: options.limit })}`,
+        undefined,
+        reviewsSchema,
+      );
+    },
+
+    /**
+     * La timeline di progetto (fase 5) che alimenta la pagina Roadmap.
+     *
+     * ⚠️ CORSIA SENZA SCHEMA, di proposito. `projectTimelineEntrySchema` è una
+     * `discriminatedUnion`, e `readerSchema` non la attraversa: aprire il
+     * discriminante farebbe vincere sempre la prima variante e una voce `brief`
+     * verrebbe letta come `ticket_opened` perdendo i suoi campi (vedi il
+     * commento sulle union in `packages/shared/src/reader.ts`). Non è una
+     * lacuna da colmare in fretta: la vista roadmap mobile è esplicitamente
+     * fuori dalla v1 della fase, e il solo consumatore è la SPA — che si
+     * ridistribuisce a ogni deploy insieme al server. Chi porterà la roadmap
+     * sull'app dovrà PRIMA progettare l'apertura del discriminante
+     * (`z.union([rigido, variante_di_fallback])`), non limitarsi a passare lo
+     * schema qui.
+     */
+    timeline(
+      projectId: string,
+      params: { from?: string; to?: string; kinds?: ProjectTimelineKind[] } = {},
+    ): Promise<ProjectTimeline> {
+      const query = toQuery({
+        from: params.from,
+        to: params.to,
+        kinds: params.kinds?.join(","),
+      });
+      return request("GET", `/api/projects/${seg(projectId)}/timeline${query}`);
     },
   };
 }

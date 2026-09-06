@@ -1,9 +1,12 @@
 import {
   createProjectSchema,
+  prReviewSummarySchema,
   projectDetailSchema,
   projectListItemSchema,
   projectPulseSummarySchema,
   projectSchema,
+  projectTimelineKindSchema,
+  projectTimelineSchema,
   updateProjectSchema,
 } from "@stubwise/shared";
 import { summarizeProject, type ProjectPulseSummary } from "@stubwise/notifications";
@@ -20,6 +23,13 @@ import {
   isUniqueViolation,
 } from "./shared.js";
 import { apiError } from "../errors.js";
+import {
+  TIMELINE_MAX_DAYS,
+  buildProjectTimeline,
+  canViewProject,
+  listProjectReviews,
+  resolveTimelineWindow,
+} from "../services/project-timeline.js";
 
 /**
  * Tentativi massimi di insert prima di arrendersi sulla generazione dello
@@ -252,6 +262,118 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
       ).filter((summary): summary is ProjectPulseSummary => summary !== null);
 
       return summaries.sort(pulseOrder);
+    },
+  );
+
+  /**
+   * Le review AI di PR del progetto (Fase 5): la PRIMA lettura di `pr_reviews`
+   * da un'API. Serve alla timeline (verdetto accanto alla PR) e all'app.
+   *
+   * Registrata PRIMA di `GET /:projectId` per coerenza con `/pulse` qui sopra.
+   * Il path ha un suffisso letterale (`/reviews`) e non collide davvero con la
+   * rotta parametrica, ma l'ordine "letterali prima della `:id`" è la regola di
+   * questo file e non si fa un'eccezione per ricordarsi che era innocua.
+   */
+  app.get(
+    "/:projectId/reviews",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: idParamsSchema,
+        querystring: z.object({
+          limit: z.coerce.number().int().min(1).max(200).optional(),
+        }),
+        response: {
+          200: z.array(prReviewSummarySchema),
+          404: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const viewer = { userId: request.user!.id, role: request.user!.role };
+      if (!(await canViewProject(app.db, request.params.projectId, viewer))) {
+        return apiError(reply, 404, "project_not_found", "Project not found");
+      }
+      return listProjectReviews(app.db, request.params.projectId, request.query.limit ?? 50);
+    },
+  );
+
+  /**
+   * LA TIMELINE DI PROGETTO (Fase 5): ticket, milestone, PR, report, decisioni
+   * e brief fusi in un racconto ordinato. Alimenta la pagina web "Roadmap".
+   *
+   * `from`/`to` sono ISO 8601 e hanno default lato server (ultime 4 settimane);
+   * `kinds` è un elenco separato da virgole per filtrare i tipi di voce. La
+   * finestra non può superare i 180 giorni: sopra è un 400, non una risposta
+   * enorme costruita scandendo lo storico intero.
+   *
+   * ACL come `/pulse`: un member vede solo i progetti che segue, un admin
+   * tutti. "Non seguito" e "inesistente" rispondono entrambi 404.
+   */
+  app.get(
+    "/:projectId/timeline",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: idParamsSchema,
+        querystring: z.object({
+          from: z.string().optional(),
+          to: z.string().optional(),
+          kinds: z.string().optional(),
+        }),
+        response: {
+          200: projectTimelineSchema,
+          400: errorSchema,
+          404: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const viewer = { userId: request.user!.id, role: request.user!.role };
+      if (!(await canViewProject(app.db, request.params.projectId, viewer))) {
+        return apiError(reply, 404, "project_not_found", "Project not found");
+      }
+
+      const resolved = resolveTimelineWindow(request.query);
+      if (!resolved.ok) {
+        return apiError(
+          reply,
+          400,
+          resolved.reason,
+          resolved.reason === "window_too_large"
+            ? `The timeline window cannot exceed ${TIMELINE_MAX_DAYS} days`
+            : "Invalid from/to range",
+        );
+      }
+
+      // `kinds` vuoto (`?kinds=`) NON è "nessun tipo": è un parametro che il
+      // client ha mandato senza valore, e la risposta giusta è la timeline
+      // intera, non una lista vuota che sembra un progetto senza storia.
+      let kinds: Set<string> | undefined;
+      if (request.query.kinds !== undefined && request.query.kinds.trim() !== "") {
+        const requested = request.query.kinds.split(",").map((value) => value.trim());
+        const unknown = requested.filter(
+          (value) => !projectTimelineKindSchema.options.includes(value as never),
+        );
+        if (unknown.length > 0) {
+          return apiError(reply, 400, "invalid_kinds", `Unknown timeline kinds: ${unknown.join(", ")}`);
+        }
+        kinds = new Set(requested);
+      }
+
+      const entries = await buildProjectTimeline(
+        app.db,
+        request.params.projectId,
+        resolved.window,
+        kinds,
+      );
+      return {
+        from: resolved.window.from.toISOString(),
+        to: resolved.window.to.toISOString(),
+        entries,
+      };
     },
   );
 

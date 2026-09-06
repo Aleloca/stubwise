@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { handledBySchema } from "./notification.js";
+import { milestoneStatusSchema } from "./milestone.js";
 
 export const gitProviderKindSchema = z.enum(["bitbucket", "github"]);
 export type GitProviderKind = z.infer<typeof gitProviderKindSchema>;
@@ -254,3 +256,152 @@ export const projectPulseSummarySchema = z.object({
   lastReportDate: z.string().nullable(),
 });
 export type ProjectPulseSummary = z.infer<typeof projectPulseSummarySchema>;
+
+/**
+ * Una review AI di PR, nella forma pubblica di `GET /api/projects/:id/reviews`
+ * (Fase 5: la prima lettura di `pr_reviews` da un'API).
+ *
+ * ⚠️ COSA NON C'È, e perché. `pr_reviews.error` è il messaggio d'errore
+ * dell'agente — un dettaglio interno che può portarsi dietro path del worker e
+ * frammenti di prompt: non esce da qui. Non c'è nemmeno `summary`, l'analisi
+ * markdown completa: la superficie pubblica della fase è il riassunto "in
+ * breve" (`prSummary`), e aggiungere l'analisi domani resta un cambio additivo,
+ * mentre toglierla non lo sarebbe.
+ */
+export const prReviewSummarySchema = z.object({
+  id: z.uuid(),
+  repositoryId: z.uuid(),
+  repositoryName: z.string().nullable(),
+  // Il ticket da cui la PR è nata; null se il ticket è stato cancellato
+  // (`ticket_id` è ON DELETE SET NULL) o se la PR non veniva dalla pipeline.
+  ticketId: z.uuid().nullable(),
+  prNumber: z.number().int(),
+  prUrl: z.string(),
+  prTitle: z.string(),
+  status: z.enum(["running", "completed", "failed"]),
+  // Null finché la review non è completata (o se è fallita).
+  verdict: z.enum(["approve", "request_changes"]).nullable(),
+  // Riassunto "in breve" della PR per non-tecnici; null se non generato.
+  prSummary: z.string().nullable(),
+  createdAt: z.iso.datetime(),
+  finishedAt: z.iso.datetime().nullable(),
+});
+export type PrReviewSummary = z.infer<typeof prReviewSummarySchema>;
+
+/** I tipi di voce della timeline di progetto: il discriminante dell'unione. */
+export const projectTimelineKindSchema = z.enum([
+  "ticket_opened",
+  "ticket_done",
+  "milestone_due",
+  "milestone_closed",
+  "pr_opened",
+  "pr_merged",
+  "pr_closed",
+  "report_day",
+  "decision",
+  "brief",
+]);
+export type ProjectTimelineKind = z.infer<typeof projectTimelineKindSchema>;
+
+/**
+ * Campi comuni a OGNI voce: `id` è l'identità della riga d'origine (evento,
+ * ticket, milestone, job, report, decisione, brief) e serve al tie-break
+ * dell'ordinamento; `at` è l'istante in cui la voce va collocata.
+ *
+ * `id` NON è unico attraverso i tipi: un job che ha aperto e poi visto mergiare
+ * la sua PR produce due voci con lo stesso `id` e `kind` diversi. La chiave di
+ * lista lato UI è quindi `kind:id`, non `id`.
+ */
+const timelineBase = { id: z.uuid(), at: z.iso.datetime() };
+
+/** Campi comuni alle tre voci di PR (aperta, mergiata, chiusa senza merge). */
+const timelinePr = {
+  ...timelineBase,
+  ticketId: z.uuid(),
+  ticketNumber: z.number().int(),
+  ticketTitle: z.string(),
+  prUrl: z.string(),
+  // Verdetto della review AI di quella PR, se una review completata esiste.
+  reviewVerdict: z.enum(["approve", "request_changes"]).optional(),
+  // Riassunto "in breve" della PR, se la review l'ha prodotto.
+  prSummary: z.string().optional(),
+};
+
+/**
+ * Una voce della timeline di progetto (Fase 5).
+ *
+ * ⚠️ È una `discriminatedUnion`, quindi NON è attraversabile da `readerSchema`
+ * (vedi `packages/shared/src/reader.ts`): aprire il discriminante farebbe
+ * vincere sempre la prima variante. Non è una svista ed è compatibile con la
+ * fase: la vista roadmap mobile è esplicitamente FUORI dalla v1, e il client
+ * tipato legge questa rotta dalla corsia senza schema. Chi un domani volesse
+ * darla in pasto all'app dovrà progettare l'apertura apposta
+ * (`z.union([rigido, variante_di_fallback])`), non derivarla.
+ */
+export const projectTimelineEntrySchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("ticket_opened"),
+    ...timelineBase,
+    ticketNumber: z.number().int(),
+    title: z.string(),
+  }),
+  z.object({
+    kind: z.literal("ticket_done"),
+    ...timelineBase,
+    // `id` qui è l'id dell'EVENTO `ticket_events`, non del ticket: lo stesso
+    // ticket può essere chiuso, riaperto e richiuso, e ogni chiusura è una voce.
+    ticketId: z.uuid(),
+    ticketNumber: z.number().int(),
+    title: z.string(),
+  }),
+  z.object({
+    kind: z.literal("milestone_due"),
+    ...timelineBase,
+    name: z.string(),
+    status: milestoneStatusSchema,
+  }),
+  z.object({ kind: z.literal("milestone_closed"), ...timelineBase, name: z.string() }),
+  z.object({ kind: z.literal("pr_opened"), ...timelinePr }),
+  z.object({ kind: z.literal("pr_merged"), ...timelinePr }),
+  z.object({ kind: z.literal("pr_closed"), ...timelinePr }),
+  z.object({
+    kind: z.literal("report_day"),
+    ...timelineBase,
+    // Giorno del report (YYYY-MM-DD): stessa convenzione di `/api/activity` e
+    // di `projectPulseSummarySchema.lastReportDate` — la colonna è `date`,
+    // non `timestamptz`, e non c'è un fuso da portare.
+    date: z.string(),
+    // Riassunto narrativo della giornata; null se il run di sintesi è fallito.
+    summary: z.string().nullable(),
+  }),
+  z.object({
+    kind: z.literal("decision"),
+    ...timelineBase,
+    title: z.string(),
+    decision: z.string(),
+    // Chi ha deciso; null per una decisione il cui autore è stato eliminato.
+    decidedBy: handledBySchema.nullable(),
+  }),
+  z.object({
+    kind: z.literal("brief"),
+    ...timelineBase,
+    periodStart: z.string(),
+    periodEnd: z.string(),
+    // Prima sezione del brief ("dove siamo"), o l'inizio del markdown se le
+    // sezioni non sono state parsate; null se il brief non ha testo.
+    headline: z.string().nullable(),
+  }),
+]);
+export type ProjectTimelineEntry = z.infer<typeof projectTimelineEntrySchema>;
+
+/**
+ * Corpo di `GET /api/projects/:id/timeline`: la finestra effettivamente usata
+ * (che può differire da quella richiesta — i default sono del server) e le voci
+ * in ordine cronologico crescente.
+ */
+export const projectTimelineSchema = z.object({
+  from: z.iso.datetime(),
+  to: z.iso.datetime(),
+  entries: z.array(projectTimelineEntrySchema),
+});
+export type ProjectTimeline = z.infer<typeof projectTimelineSchema>;

@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
-import { aiJobs, aiProviders, notifications, projectFollows, tickets } from "@stubwise/db";
+import { aiJobs, aiProviders, notifications, prReviews, projectFollows, tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { seedUsers, sessionCookie } from "../test/fixtures.js";
@@ -557,5 +557,154 @@ describe("GET /api/projects/pulse", () => {
     expect(indexOf(waitingProjectId)).toBeLessThan(indexOf(runningProjectId));
     expect(indexOf(runningProjectId)).toBeLessThan(indexOf(idleProjectId));
     expect(indexOf(idleProjectId)).toBeLessThan(indexOf(idleProjectId2));
+  });
+});
+
+/**
+ * Rotte di narrativa della Fase 5. Il grosso della logica di fusione è coperto
+ * da `services/project-timeline.test.ts`: qui si sorveglia ciò che solo la
+ * ROTTA può sbagliare — l'ordine di registrazione, l'ACL, i 400 sulla finestra
+ * e sui `kinds`, e il fatto che l'errore interno di una review non esca.
+ */
+describe("GET /api/projects/:projectId/timeline", () => {
+  async function seedProjectWithTicket(): Promise<{ projectId: string; ticketId: string }> {
+    const created = await createProject({ name: `Roadmap ${randomBytes(4).toString("hex")}` });
+    const projectId = created.json().id as string;
+    const [ticket] = await testDb.db
+      .insert(tickets)
+      .values({
+        projectId,
+        number: 1,
+        title: "Ticket in timeline",
+        type: "bug",
+        priority: "medium",
+        source: "manual",
+      })
+      .returning({ id: tickets.id });
+    return { projectId, ticketId: ticket!.id };
+  }
+
+  it("l'admin legge la timeline: finestra di default e voci del progetto", async () => {
+    const { projectId } = await seedProjectWithTicket();
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/timeline`,
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(typeof body.from).toBe("string");
+    expect(typeof body.to).toBe("string");
+    // Il ticket appena creato è dentro le ultime 4 settimane.
+    expect(body.entries.map((entry: { kind: string }) => entry.kind)).toContain("ticket_opened");
+  });
+
+  it("finestra oltre 180 giorni: 400 window_too_large", async () => {
+    const { projectId } = await seedProjectWithTicket();
+    const to = new Date();
+    const from = new Date(to.getTime() - 181 * 24 * 60 * 60 * 1000);
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/timeline?from=${from.toISOString()}&to=${to.toISOString()}`,
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().code).toBe("window_too_large");
+  });
+
+  it("un kind sconosciuto è un 400, non un filtro che non filtra niente", async () => {
+    const { projectId } = await seedProjectWithTicket();
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/timeline?kinds=pr_merged,ticket_esploso`,
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().code).toBe("invalid_kinds");
+  });
+
+  it("`kinds` filtra le voci", async () => {
+    const { projectId } = await seedProjectWithTicket();
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/timeline?kinds=pr_merged`,
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().entries).toEqual([]);
+  });
+
+  it("un member che NON segue il progetto: 404, come se non esistesse", async () => {
+    const { projectId } = await seedProjectWithTicket();
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/timeline`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().code).toBe("project_not_found");
+  });
+
+  it("lo stesso member, dopo aver seguito il progetto: 200", async () => {
+    const { projectId } = await seedProjectWithTicket();
+    await testDb.db.insert(projectFollows).values({ userId: memberId, projectId });
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/timeline`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it("progetto inesistente: 404", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/projects/11111111-1111-4111-8111-111111111111/timeline",
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+});
+
+describe("GET /api/projects/:projectId/reviews", () => {
+  it("elenca le review del progetto senza mai l'errore interno dell'agente", async () => {
+    const { projectId, repositoryId } = await seedRepository(testDb.db);
+    await testDb.db.insert(prReviews).values({
+      repositoryId,
+      prNumber: 11,
+      prUrl: "https://git.example.com/pr/11",
+      prTitle: "Titolo PR",
+      headSha: "sha",
+      status: "completed",
+      verdict: "approve",
+      summary: "analisi lunga",
+      prSummary: "In breve: sistema il login.",
+      error: "/worker/tmp/percorso-interno: boom",
+    });
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/reviews`,
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body).toHaveLength(1);
+    expect(body[0]).toMatchObject({
+      prNumber: 11,
+      verdict: "approve",
+      prSummary: "In breve: sistema il login.",
+    });
+    expect(res.payload).not.toContain("percorso-interno");
+    expect(res.payload).not.toContain("analisi lunga");
+  });
+
+  it("un member che non segue il progetto: 404", async () => {
+    const { projectId } = await seedRepository(testDb.db);
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/reviews`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(404);
   });
 });
