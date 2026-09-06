@@ -142,3 +142,115 @@ export const updateProjectSchema = z.object({
   pulseEveryDays: z.number().int().min(1).max(30).optional(),
 });
 export type UpdateProjectInput = z.infer<typeof updateProjectSchema>;
+
+/**
+ * Riepilogo di un repository dentro la lista/dettaglio di un progetto: solo i
+ * campi che servono a ELENCARE i repo del gruppo. La proiezione pubblica
+ * completa ({@link repositorySchema}) vive sotto `/api/repositories` — qui
+ * sarebbe rumore su ogni riga.
+ */
+export const repositorySummarySchema = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  slug: z.string(),
+  provider: gitProviderKindSchema,
+});
+export type RepositorySummary = z.infer<typeof repositorySummarySchema>;
+
+/** Progetto con il CONTEGGIO dei repository: la forma della lista. */
+export const projectListItemSchema = projectSchema.extend({
+  repositoryCount: z.number().int(),
+});
+export type ProjectListItem = z.infer<typeof projectListItemSchema>;
+
+/** Progetto con l'ELENCO sintetico dei suoi repository: la forma del dettaglio. */
+export const projectDetailSchema = projectSchema.extend({
+  repositories: z.array(repositorySummarySchema),
+});
+export type ProjectDetail = z.infer<typeof projectDetailSchema>;
+
+/**
+ * Le due decisioni umane che possono fermare un job, nella forma del pulse
+ * (Fase 4): `question` = `ai_jobs.status = 'awaiting_input'` (notifica
+ * `job.awaiting_input`), `plan_approval` = `awaiting_plan_approval` (notifica
+ * `job.plan_review`). Un enum, non un letterale: apribile lato lettore mobile
+ * (vedi `packages/shared/src/reader.ts`) se un domani si aggiunge un terzo tipo
+ * di attesa.
+ */
+export const pulseWaitingKindSchema = z.enum(["question", "plan_approval"]);
+export type PulseWaitingKind = z.infer<typeof pulseWaitingKindSchema>;
+
+/**
+ * Voce di `waitingForYou`: il viewer PUÒ agire. `notificationId` è la riga
+ * d'inbox su cui farlo (stessa identità di `/api/inbox/:id/actions`).
+ */
+export const pulseWaitingForYouItemSchema = z.object({
+  kind: pulseWaitingKindSchema,
+  ticketId: z.uuid(),
+  ticketNumber: z.number().int(),
+  title: z.string(),
+  notificationId: z.uuid(),
+});
+export type PulseWaitingForYouItem = z.infer<typeof pulseWaitingForYouItemSchema>;
+
+/**
+ * Chi PUÒ sbloccare una voce di `waitingForOthers`, quando non è il viewer:
+ * `requester` (chi ha lanciato il job — `job.awaiting_input`, rivolta a lui)
+ * o `maintainer` (solo un admin — `job.plan_review` è adminOnly, il
+ * richiedente stesso non può approvare il proprio piano). STRUTTURATO e non
+ * testo: la frase per l'umano la compone l'app, che sa in che lingua parlare —
+ * il server manda solo il ruolo di chi deve agire.
+ *
+ * Un oggetto `{ kind }` e non l'enum nudo: lascia spazio a un domani in cui
+ * `waitingWho` porti anche un nome (es. il richiedente), senza cambiare la
+ * forma del campo — un array di stringhe diventerebbe un array di oggetti,
+ * l'oggetto resta un oggetto.
+ */
+export const pulseWaitingWhoKindSchema = z.enum(["requester", "maintainer"]);
+export const pulseWaitingWhoSchema = z.object({ kind: pulseWaitingWhoKindSchema });
+export type PulseWaitingWho = z.infer<typeof pulseWaitingWhoSchema>;
+
+/** Voce di `waitingForOthers`: il viewer non può agire lui stesso su questa. */
+export const pulseWaitingForOthersItemSchema = z.object({
+  kind: pulseWaitingKindSchema,
+  ticketId: z.uuid(),
+  ticketNumber: z.number().int(),
+  title: z.string(),
+  who: pulseWaitingWhoSchema,
+});
+export type PulseWaitingForOthersItem = z.infer<typeof pulseWaitingForOthersItemSchema>;
+
+/** Voce di `running`: un job che l'agente sta eseguendo ORA. */
+export const pulseRunningItemSchema = z.object({
+  ticketId: z.uuid(),
+  ticketNumber: z.number().int(),
+  title: z.string(),
+  // Calcolato al momento della richiesta (non un dato stabile da mettere in
+  // cache lato client oltre la sessione in cui è arrivato).
+  sinceMinutes: z.number().int().min(0),
+});
+export type PulseRunningItem = z.infer<typeof pulseRunningItemSchema>;
+
+/**
+ * Il "polso" di UN progetto per il viewer che l'ha richiesto: la vista che
+ * alimenta l'app mobile (Fase 4, `GET /api/projects/pulse`). Nasce dagli
+ * stessi segnali che il poller del pulse proattivo (Fase 2) già calcola per
+ * decidere quando proporre lavoro (`@stubwise/notifications`), letti qui
+ * sincronamente per un umano che guarda l'app.
+ */
+export const projectPulseSummarySchema = z.object({
+  projectId: z.uuid(),
+  projectName: z.string(),
+  waitingForYou: z.array(pulseWaitingForYouItemSchema),
+  waitingForOthers: z.array(pulseWaitingForOthersItemSchema),
+  running: z.array(pulseRunningItemSchema),
+  failedCount: z.number().int().min(0),
+  backlogReadyCount: z.number().int().min(0),
+  idleDays: z.number().int().min(0),
+  // Data (YYYY-MM-DD) dell'ultimo report attività completato, o null se
+  // nessuno è mai stato generato per questo progetto. Stringa e non
+  // `z.iso.date()`: stessa convenzione della rotta `/api/activity` esistente
+  // (la colonna Postgres è `date`, non `timestamptz`: nessun fuso da portare).
+  lastReportDate: z.string().nullable(),
+});
+export type ProjectPulseSummary = z.infer<typeof projectPulseSummarySchema>;

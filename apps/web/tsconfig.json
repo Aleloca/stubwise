@@ -12,7 +12,33 @@
     "declaration": false,
     "declarationMap": false,
     "sourceMap": false,
-    "types": ["vite/client"]
+    "types": ["vite/client"],
+    // apps/mobile (React Native) porta nel workspace @types/react 19, e pnpm ne
+    // mette una copia nella dir nascosta node_modules/.pnpm/node_modules: i .d.ts
+    // dei package risolti da lì (p.es. @tanstack/react-router) prenderebbero i
+    // tipi di React 19 mentre questa app è su React 18, con TS2786 su ogni
+    // <Link>. Ancorare react/react-dom ai @types di QUESTA app rende il
+    // typecheck indipendente da chi vince l'hoisting. Vite non legge i paths
+    // (nessun plugin tsconfig-paths), quindi il bundle non cambia.
+    //
+    // Le voci "react/*" e "react-dom/*" NON sono di troppo: senza di esse un
+    // sottopercorso resta scoperto e continua a risolvere i tipi hoistati — è il
+    // caso di @tanstack/react-query, il cui .d.ts fa
+    // `import { JSX } from 'react/jsx-runtime'`.
+    //
+    // DA RIMUOVERE quando apps/web passa a React 19 / @types/react 19: a quel
+    // punto non ci sono più due major in gioco e l'ancoraggio non serve.
+    // Cosa lo romperebbe di nuovo: (a) una dipendenza il cui .d.ts importa un
+    // sottopercorso di react (p.es. react/jsx-runtime) usando un tipo che
+    // diverge fra 18 e 19 e non è coperto qui; (b) aggiungere "baseUrl" a questo
+    // tsconfig, perché renderebbe questi paths relativi a quello e non più alla
+    // dir del file.
+    "paths": {
+      "react": ["./node_modules/@types/react"],
+      "react/*": ["./node_modules/@types/react/*"],
+      "react-dom": ["./node_modules/@types/react-dom"],
+      "react-dom/*": ["./node_modules/@types/react-dom/*"]
+    }
   },
   "include": ["src", "vite.config.ts"]
 }

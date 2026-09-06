@@ -2,10 +2,16 @@
  * Formattazione PURA delle notifiche in uscita di Stubwise.
  *
  * Questo modulo è la SINGOLA fonte di verità su COME un evento diventa il body
- * postato al webhook (Slack / Discord / JSON generico). Non importa `@stubwise/db`
- * né `drizzle-orm`: è riusabile lato web (anteprima dal vivo, documentazione)
- * senza trascinare il DB nel bundle. Il dispatch effettivo (lettura config,
- * gating, POST best-effort) vive in `./dispatch.ts` e riusa `formatNotification`.
+ * postato al webhook (Slack / Discord / JSON generico). Il dispatch effettivo
+ * (lettura config, gating, POST best-effort) vive in `./dispatch.ts` e riusa
+ * `formatNotification`.
+ *
+ * ⚠️ LA PUREZZA QUI NON È UNA CONVENZIONE, È UN INVARIANTE VERIFICATO. Questo
+ * file sta nel grafo dell'entry client `./pure.ts`, quindi non può importare
+ * `@stubwise/db`, `drizzle-orm` o un builtin di Node — né direttamente né
+ * attraverso un modulo che importa. Non è una raccomandazione da soppesare:
+ * `pure.test.ts` ricostruisce quel grafo e diventa rosso, perché un import di
+ * troppo qui rompe il bundle dell'app mobile.
  */
 
 import { t, type Language } from "@stubwise/i18n";

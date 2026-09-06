@@ -1684,6 +1684,16 @@ describe("POST /api/slack/interactions — block_actions dell'inbox", () => {
     // L'indice registrato punta all'opzione la cui etichetta stava sul bottone.
     const persisted = (question?.options as { label: string }[])[answer.optionIndex];
     expect(persisted?.label).toBe("Nessuna delle due");
+    // La scrittura su DB e la nota a Slack sono due `await` sequenziali nello
+    // stesso handler asincrono (mai atteso dalla richiesta HTTP, che risponde
+    // subito): il `vi.waitFor` sopra osserva solo il primo. Senza aspettare
+    // ANCHE `postResponse` (come fanno gli altri test di questo file, es. la
+    // riga con `expect(postResponse).toHaveBeenCalled()` più sopra), c'è una
+    // finestra reale — fra i due `await` — in cui il DB è già scritto ma la
+    // nota non è ancora partita: `.mock.calls.at(-1)` prende `undefined`.
+    // Era esattamente questo il fallimento visto la prima volta che la CI ha
+    // girato su questo branch (mai eseguita prima d'ora).
+    await vi.waitFor(() => expect(postResponse).toHaveBeenCalled());
     // E la nota parla della stessa opzione, non di un'altra.
     const payload = postResponse.mock.calls.at(-1)![1] as { text: string };
     expect(payload.text).toContain("Nessuna delle due");

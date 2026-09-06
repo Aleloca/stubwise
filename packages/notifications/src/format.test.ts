@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   formatNotification,
@@ -11,9 +9,15 @@ import {
 
 /**
  * Test della formattazione PURA (`./format.ts`): è la singola fonte di verità
- * su come un evento diventa il body del webhook. Non tocca il DB né la rete, e
- * non DEVE importarli — qui lo si verifica anche staticamente sul sorgente, così
- * il modulo resta importabile lato web senza trascinare `@stubwise/db`.
+ * su come un evento diventa il body del webhook.
+ *
+ * QUI NON C'È PIÙ LA GUARDIA DI PUREZZA. Fino a `cee1748` questo file conteneva
+ * un `describe("indipendenza dal DB")` che cercava `@stubwise/db` e `drizzle-orm`
+ * fra le righe di import di `format.ts`. Vedeva solo gli import DIRETTI di UN
+ * file: un modulo pulito che ne importa uno sporco gli passava sotto il naso.
+ * L'ha sostituita `pure.test.ts`, che ricostruisce il grafo VERO dell'entry
+ * client (transitivo, workspace attraversati). Se stai cercando dove si difende
+ * la purezza per estenderla, è là: non rimettere un grep qui.
  */
 
 const TICKET_CREATED: NotificationEvent = {
@@ -877,15 +881,5 @@ describe("sampleEvents", () => {
         expect(() => formatNotification(event, format)).not.toThrow();
       }
     }
-  });
-});
-
-describe("indipendenza dal DB", () => {
-  it("il sorgente di format.ts non importa @stubwise/db né drizzle-orm", () => {
-    const src = readFileSync(fileURLToPath(new URL("./format.ts", import.meta.url)), "utf8");
-    // Solo le righe di import: i commenti possono citare i nomi a parole.
-    const imports = src.split("\n").filter((line) => /^\s*import\b/.test(line));
-    expect(imports.join("\n")).not.toMatch(/@stubwise\/db/);
-    expect(imports.join("\n")).not.toMatch(/drizzle-orm/);
   });
 });

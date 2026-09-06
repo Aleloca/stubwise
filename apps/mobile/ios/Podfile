@@ -1,0 +1,44 @@
+# Resolve react_native_pods.rb with node to allow for hoisting
+require Pod::Executable.execute_command('node', ['-p',
+  'require.resolve(
+    "react-native/scripts/react_native_pods.rb",
+    {paths: [process.argv[1]]},
+  )', __dir__]).strip
+
+platform :ios, min_ios_version_supported
+prepare_react_native_project!
+
+# Task 19 (push): RN >= 0.75 risolve le dipendenze iOS di Firebase via Swift
+# Package Manager di default, che a sua volta richiede `use_frameworks!
+# :linkage => :dynamic` — un cambio invasivo (linking dinamico per TUTTI i pod,
+# non solo Firebase, con implicazioni sugli altri moduli nativi già in uso:
+# keychain, notifee, netinfo…). Questo flag tiene invece Firebase sulla stessa
+# strada CocoaPods statica del resto del progetto: nessun'altra riga del
+# Podfile cambia comportamento. Documentato da
+# `@react-native-firebase/app` (README, sezione "iOS Dependency Resolution").
+$RNFirebaseDisableSPM = true
+
+linkage = ENV['USE_FRAMEWORKS']
+if linkage != nil
+  Pod::UI.puts "Configuring Pod with #{linkage}ally linked Frameworks".green
+  use_frameworks! :linkage => linkage.to_sym
+end
+
+target 'StubwiseMobile' do
+  config = use_native_modules!
+
+  use_react_native!(
+    :path => config[:reactNativePath],
+    # An absolute path to your application root.
+    :app_path => "#{Pod::Config.instance.installation_root}/.."
+  )
+
+  post_install do |installer|
+    react_native_post_install(
+      installer,
+      config[:reactNativePath],
+      :mac_catalyst_enabled => false,
+      # :ccache_enabled => true
+    )
+  end
+end

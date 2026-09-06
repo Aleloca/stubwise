@@ -1,0 +1,492 @@
+{
+  "mobile": {
+    "auth": {
+      "wordmark": "stubwise",
+      "tagline": "issue tracking · ai pipeline — self-hosted",
+      "login": {
+        "urlLabel": "Instance URL",
+        "urlPlaceholder": "stubwise.farmakom.it",
+        "emailLabel": "Email",
+        "passwordLabel": "Password",
+        "submit": "Log in",
+        "qrHint": "// QR login is coming in a later phase",
+        "invalidCredentials": "Invalid credentials",
+        "unexpectedError": "Something went wrong. Please retry.",
+        "unreachableTitle": "The instance isn't responding",
+        "unreachableBody": "Check the URL and your connection, then retry.",
+        "retry": "Retry"
+      },
+      "onboarding": {
+        "step": "Step 2 of 2",
+        "title": "Stubwise comes to you",
+        "body": "When a project needs a decision, you get a notification with the options ready to go. Without notifications, you'll have to remember to check yourself.",
+        "followProjects": "Follow projects",
+        "settingsHint": "// you can change followed projects later in settings",
+        "activate": "Turn on notifications and start",
+        "later": "Later",
+        "loadError": "Can't load the projects.",
+        "retry": "Retry",
+        "finishError": "Couldn't save, please retry."
+      }
+    },
+    "tabs": {
+      "inbox": "Inbox",
+      "projects": "Projects",
+      "backlog": "Backlog",
+      "docs": "Docs"
+    },
+    "inbox": {
+      "header": {
+        "loading": "syncing…",
+        "empty": "nothing to decide",
+        "subtitle_one": "{{count}} decision needs you",
+        "subtitle_other": "{{count}} decisions need you",
+        "subtitleMaintainer_one": "{{count}} decision — {{onlyYours}} only yours",
+        "subtitleMaintainer_other": "{{count}} decisions — {{onlyYours}} only yours"
+      },
+      "sections": {
+        "blocksYou": "Blocks you · {{count}}",
+        "onlyYouMaintainer": "Only you · maintainer · {{count}}",
+        "waitingOthers": "Waiting on others · {{count}}",
+        "fromProjects": "From projects · {{count}}"
+      },
+      "empty": {
+        "title": "All handled.",
+        "body": "I'll notify you when a project needs you."
+      },
+      "loadError": {
+        "title": "Can't load the inbox.",
+        "retry": "Retry"
+      },
+      "notFound": {
+        "title": "This card is gone.",
+        "body": "It was handled or snoozed in the meantime.",
+        "back": "Back to Inbox"
+      },
+      "notifications": {
+        "badgeLabel": "Notifications off",
+        "title": "Stubwise can't reach you",
+        "body": "Without notifications, decisions just pile up here silently. Turn them back on to be notified when it matters.",
+        "settingsButton": "Turn on in iOS settings"
+      },
+      "time": {
+        "now": "now",
+        "minutes": "{{count}} min",
+        "hours": "{{count}} h",
+        "days": "{{count}} d"
+      },
+      "kinds": {
+        "ticketCreated": "New ticket",
+        "prOpened": "PR opened",
+        "prClosed": "PR closed",
+        "jobHeld": "Queued",
+        "planReview": "Plan awaiting approval",
+        "budgetHeld": "Budget exceeded",
+        "reviewCompleted": "Review completed",
+        "jobFailed": "Work failed",
+        "docsLimitPaused": "Docs paused",
+        "monitorAlert": "Monitor alert",
+        "monitorRecovered": "Monitor recovered",
+        "awaitingInput": "Agent question",
+        "pulse": "Pulse proposal",
+        "unknown": "Update"
+      },
+      "actions": {
+        "respond": "Respond",
+        "snooze": "Snooze",
+        "handled": "Handled",
+        "open": "Open",
+        "openWork": "Open the work",
+        "retry": "Retry",
+        "approve": "Approve",
+        "approveConfirmQuestion": "Confirm?",
+        "approveConfirm": "Yes, approve",
+        "cancel": "Cancel",
+        "rejectWithInstructions": "Reject with instructions",
+        "refine": "Needs refining",
+        "proceedWith": "Proceed with {{letter}}"
+      },
+      "question": {
+        "recommended": "Recommended",
+        "otherFreeText": "Other (free text)",
+        "freeLabel": "Your answer",
+        "freePlaceholder": "Write here…",
+        "submit": "Send the answer",
+        "subtitle_one": "{{count}} option · recommended: “{{label}}”",
+        "subtitle_other": "{{count}} options · recommended: “{{label}}”",
+        "subtitleNoRecommendation_one": "{{count}} option",
+        "subtitleNoRecommendation_other": "{{count}} options"
+      },
+      "reject": {
+        "title": "What needs to change?",
+        "placeholder": "Write your instructions…",
+        "chipScope": "Reduce the scope",
+        "chipCost": "Too expensive",
+        "chipLater": "Push it later",
+        "submit": "Send and regenerate the plan",
+        "cancel": "Cancel",
+        "hint": "// the next plan will take your instructions into account"
+      },
+      "snooze": {
+        "title": "Snooze until…",
+        "oneHour": "1h",
+        "tonight": "Tonight",
+        "tomorrow": "Tomorrow"
+      },
+      "pulse": {
+        "idle_one": "idle for {{count}} day",
+        "idle_other": "idle for {{count}} days",
+        "priority": {
+          "low": "low",
+          "medium": "medium",
+          "high": "high",
+          "urgent": "urgent"
+        },
+        "effort": "E{{value}}"
+      },
+      "errors": {
+        "generic": "Something went wrong. Please retry.",
+        "alreadyHandled": "{{email}} already took care of it.",
+        "alreadyHandledUnknown": "Someone else already took care of it.",
+        "jobInFlight": "There's already a job running on this ticket.",
+        "planNotPending": "The plan is no longer awaiting approval.",
+        "questionNotPending": "The question is no longer open.",
+        "invalidAnswer": "Invalid answer.",
+        "proposalStale": "This proposal is no longer available.",
+        "runNotStarted": "The ticket was created but the run didn't start: try starting it again.",
+        "forbidden": "You don't have permission for this action.",
+        "invalidAction": "This action isn't available for this row."
+      },
+      "waitingOnMaintainer": "Waiting on a maintainer.",
+      "offlineAction": "Needs network"
+    },
+    "projects": {
+      "header": {
+        "loading": "syncing…",
+        "subtitle_one": "{{count}} followed",
+        "subtitle_other": "{{count}} followed",
+        "subtitleWaiting_one": "{{count}} followed · {{waiting}} needs you",
+        "subtitleWaiting_other": "{{count}} followed · {{waiting}} needs you"
+      },
+      "loadError": {
+        "title": "Can't load the projects.",
+        "retry": "Retry"
+      },
+      "empty": {
+        "eyebrow": "// no project followed",
+        "title": "Choose what to follow",
+        "body": "You'll get decisions and updates only for the projects you follow.",
+        "cta": "Choose projects",
+        "ctaHint": "// available from Settings → followed projects"
+      },
+      "pulse": {
+        "waitingQuestion_one": "needs you — {{count}} agent question",
+        "waitingQuestion_other": "needs you — {{count}} agent questions",
+        "waitingPlan_one": "needs you — {{count}} plan to approve",
+        "waitingPlan_other": "needs you — {{count}} plans to approve",
+        "waitingMixed_one": "needs you — {{count}} decision",
+        "waitingMixed_other": "needs you — {{count}} decisions",
+        "runningOne": "working — {{title}}",
+        "runningMany_other": "working — {{count}} jobs running",
+        "idle_one": "idle for {{count}} day",
+        "idle_other": "idle for {{count}} days",
+        "ok": "all quiet"
+      },
+      "counts": {
+        "waiting": "{{count}} waiting",
+        "running": "{{count}} running",
+        "ready_one": "{{count}} ready",
+        "ready_other": "{{count}} ready"
+      },
+      "detail": {
+        "back": "‹ Projects",
+        "notFound": {
+          "title": "This project is gone.",
+          "body": "You no longer follow it, or it doesn't exist."
+        },
+        "groups": {
+          "waitingSomeone": "Waiting on someone · {{count}}",
+          "now": "Now · {{count}}",
+          "backlogReady": "Ready in backlog · {{count}}"
+        },
+        "waitingYouArrow": "→ you",
+        "waitingMaintainerArrow": "→ a maintainer",
+        "waitingRequesterArrow": "→ whoever asked",
+        "running": "running",
+        "backlogReadySummary_one": "{{count}} item ready to convert",
+        "backlogReadySummary_other": "{{count}} items ready to convert",
+        "report": {
+          "title": "Yesterday's report",
+          "loading": "loading the summary…",
+          "empty": "No summary for this day.",
+          "loadError": "Can't load the report."
+        }
+      }
+    },
+    "work": {
+      "back": "‹ Projects",
+      "loadError": {
+        "title": "Can't load the work.",
+        "retry": "Retry"
+      },
+      "notFound": {
+        "title": "This ticket is gone.",
+        "body": "It doesn't exist, or you don't have access to the project."
+      },
+      "ticketNumber": "job #{{number}}",
+      "noDescription": "No description.",
+      "time": {
+        "now": "now",
+        "minutes": "{{count}} min",
+        "hours": "{{count}} h",
+        "days": "{{count}} d"
+      },
+      "status": {
+        "proposed": "Queued",
+        "planning": "Analyzing",
+        "held": "Waiting to start",
+        "waitingAnswer": "Waiting for an answer",
+        "waitingApproval": "Plan to approve",
+        "working": "Running",
+        "prReady": "PR open",
+        "done": "Released",
+        "failed": "Failed",
+        "skipped": "Skipped",
+        "rejected": "PR closed",
+        "unknown": "Update"
+      },
+      "workingPill": "working for {{count}} min — I'll let you know",
+      "workingPillNow": "working for a few moments — I'll let you know",
+      "releaseNote": "// release is up to a maintainer: I'll let you know when it ships",
+      "timeline": {
+        "title": "Story of the work",
+        "proposed": "Proposed",
+        "questionAnswered": "Question answered",
+        "planApproved": "Plan approved",
+        "working": "Running",
+        "prReview": "PR & review",
+        "release": "Release"
+      },
+      "plan": {
+        "title": "The plan, in short",
+        "empty": "No plan attached.",
+        "readFull": "Read the full plan →",
+        "modalTitle": "Plan",
+        "close": "Close",
+        "approve": "Approve",
+        "approveConfirmQuestion": "Confirm?",
+        "approveConfirm": "Yes, approve",
+        "cancel": "Cancel",
+        "rejectWithInstructions": "Reject with instructions"
+      },
+      "techLevel": {
+        "title": "Technical level · maintainer only",
+        "branch": "branch",
+        "showLog": "▸ Show log",
+        "hideLog": "▾ Hide log",
+        "noLog": "No log yet.",
+        "logLines_one": "{{count}} line",
+        "logLines_other": "{{count}} lines"
+      }
+    },
+    "backlog": {
+      "chips": {
+        "active": "Active",
+        "ready": "Ready",
+        "all": "All"
+      },
+      "status": {
+        "new": "New",
+        "refining": "Refining",
+        "ready": "Ready",
+        "converted": "Converted",
+        "archived": "Archived",
+        "unknown": "Update"
+      },
+      "urgency": {
+        "low": "low",
+        "medium": "medium",
+        "high": "high",
+        "urgent": "urgent"
+      },
+      "meta": {
+        "effort": "E{{value}}",
+        "riskLow": "low risk",
+        "riskMedium": "medium risk",
+        "riskHigh": "high risk",
+        "estimating": "estimating — the agent is on it",
+        "chatOpen": "chat open ›",
+        "requestCount_one": "requested {{count}} time",
+        "requestCount_other": "requested {{count}} times",
+        "ticketCount_one": "{{count}} linked ticket",
+        "ticketCount_other": "{{count}} linked tickets"
+      },
+      "actions": {
+        "proceed": "Proceed",
+        "refineInChat": "Refine in chat"
+      },
+      "fab": {
+        "add": "New idea"
+      },
+      "loadError": {
+        "title": "Can't load the backlog.",
+        "retry": "Retry"
+      },
+      "empty": {
+        "title": "Nothing here yet.",
+        "body": "Ideas you capture, or deviated from tickets, show up in this list."
+      },
+      "capture": {
+        "title": "New idea",
+        "placeholder": "Describe the idea…",
+        "projectPickerLabel": "Project",
+        "submit": "Add to backlog",
+        "cancel": "Cancel",
+        "hint": "// the agent turns it into an item with urgency, effort and merged duplicates",
+        "toast": "Added to backlog",
+        "noProjects": "No projects available."
+      },
+      "chat": {
+        "back": "‹ Backlog",
+        "agent": "Agent",
+        "thinking": "Thinking…",
+        "placeholder": "Or write your own…",
+        "send": "Send",
+        "codeSessionActive": "A code analysis session is active on this item — continue from web."
+      },
+      "item": {
+        "back": "‹ Backlog",
+        "loadError": {
+          "title": "Can't load this item.",
+          "retry": "Retry"
+        },
+        "notFound": {
+          "title": "This item is gone.",
+          "body": "It was removed, or you don't have access to the project."
+        },
+        "noDocument": "No description.",
+        "linkedTickets": "Linked tickets"
+      },
+      "errors": {
+        "generic": "Something went wrong. Please retry.",
+        "notConvertible": "This item can't be converted.",
+        "alreadyConverted": "This item has already been converted.",
+        "notFound": "This item no longer exists.",
+        "chatUnavailable": "Chat requires an API-key AI provider."
+      },
+      "offlineAction": "Needs a connection"
+    },
+    "docs": {
+      "title": "Docs",
+      "searchPlaceholder": "Search the documentation…",
+      "project": {
+        "pickerLabel": "Project",
+        "none": "No projects available."
+      },
+      "loadError": {
+        "title": "Can't load Docs.",
+        "retry": "Retry"
+      },
+      "empty": {
+        "title": "No documentation here.",
+        "body": "This project has no documented pages yet."
+      },
+      "search": {
+        "empty": "No results."
+      },
+      "browse": {
+        "label": "Or browse",
+        "functional": "Functional guide",
+        "technical": "Technical pages",
+        "releases": "Release notes",
+        "pageCount_one": "{{count}} page",
+        "pageCount_other": "{{count}} pages",
+        "latestRelease": "latest: {{title}}",
+        "noReleases": "no releases",
+        "groupEmpty": "No pages here."
+      },
+      "ask": {
+        "sectionLabel": "Ask the project",
+        "entryHint": "Ask a question about this project's documentation ›",
+        "back": "‹ Docs",
+        "placeholder": "Ask a question…",
+        "send": "Send",
+        "thinking": "Thinking…",
+        "sourcesLabel": "Sources:",
+        "empty": "Ask a question: the agent answers citing the project's documentation pages."
+      },
+      "page": {
+        "back": "‹ Docs",
+        "notFound": {
+          "title": "This page is gone.",
+          "body": "It was removed, or you don't have access to the repository."
+        },
+        "loadError": {
+          "title": "Can't load this page.",
+          "retry": "Retry"
+        }
+      },
+      "kind": {
+        "technical": "Technical page",
+        "functional": "Functional guide",
+        "product": "Product guide",
+        "manual": "Manual page",
+        "releases": "Release notes",
+        "unknown": "Update"
+      },
+      "errors": {
+        "generic": "Something went wrong. Please retry.",
+        "chatUnavailable": "Chat requires an API-key AI provider.",
+        "notFound": "This project no longer exists."
+      }
+    },
+    "common": {
+      "loading": "Loading…",
+      "offlineNoSync": "Offline — no sync yet",
+      "offlineSyncedMinutesAgo": "Offline — last synced {{count}} min ago",
+      "offlineSyncedJustNow": "Offline — last synced moments ago"
+    },
+    "push": {
+      "actions": {
+        "answer": "Reply",
+        "snooze1h": "Snooze 1h",
+        "approve": "Approve",
+        "reject": "Reject…",
+        "proceed": "Proceed with the recommended",
+        "retry": "Retry",
+        "open": "Open"
+      }
+    },
+    "settings": {
+      "openLabel": "Settings",
+      "close": "Close",
+      "notifications": {
+        "title": "Notifications",
+        "pushLabel": "Push notifications",
+        "followedProjectsLabel": "Followed projects",
+        "noProjects": "No projects available.",
+        "retry": "Retry",
+        "pushLoadError": "Couldn't load notification preferences.",
+        "pushSaveError": "Couldn't save the push preference. Retry.",
+        "projectsLoadError": "Couldn't load followed projects.",
+        "followSaveError": "Couldn't update followed projects. Retry."
+      },
+      "instance": {
+        "title": "Instance",
+        "serverLabel": "Server",
+        "languageLabel": "Language",
+        "language": {
+          "it": "Italiano",
+          "en": "English"
+        },
+        "languageSaveError": "Couldn't save the language. Retry."
+      },
+      "role": {
+        "admin": "Admin",
+        "member": "Operator"
+      },
+      "logout": "Log out",
+      "loggingOut": "Logging out…"
+    }
+  }
+}

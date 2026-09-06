@@ -9,7 +9,26 @@ test-results/
 # Spec OpenAPI generata dal prebuild della documentazione (apps/docs).
 apps/docs/src/openapi.json
 
+# App mobile (apps/mobile): artefatti nativi iOS/Android, mai committati.
+# Sono tutte voci ancorate ad apps/mobile/: apps/mobile/.gitignore (dal template
+# React Native) copre già gli stessi casi con pattern generici, e `*.keystore`
+# senza prefisso varrebbe per TUTTO il repo — un fixture di test in packages/*
+# sparirebbe in silenzio.
+apps/mobile/ios/Pods
+apps/mobile/ios/build
+apps/mobile/ios/*.xcworkspace/xcuserdata
+apps/mobile/android/.gradle
+apps/mobile/android/app/build
+apps/mobile/android/build
+apps/mobile/**/*.keystore
+!apps/mobile/android/app/debug.keystore
+
 # Git worktrees
 .worktrees/
 graphify-out/cost.json
 graphify-out/cache/
+
+# Blocchi di sito Caddy specifici dell'host (vedi caddy.d/README.md): il relay
+# push si attiva copiando il .example, e quella copia è configurazione della
+# macchina, non del repo.
+caddy.d/*.caddy

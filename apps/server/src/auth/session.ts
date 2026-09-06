@@ -30,6 +30,23 @@ export interface SessionUser {
   avatarUrl: string | null;
   /** Slack user id linkato a questo utente, o null se non linkato. */
   slackUserId: string | null;
+  /**
+   * Id del PAT con cui QUESTA richiesta si è autenticata, assente quando ci si
+   * è autenticati col cookie di sessione.
+   *
+   * Non è un attributo dell'utente ma della credenziale usata, ed è l'unica
+   * cosa in `SessionUser` che lo sia: sta qui perché la registrazione di un
+   * device (`PUT /api/me/devices`) deve poter scrivere `device_tokens.pat_id`,
+   * che è ciò su cui la revoca del PAT ritrova i device di quel telefono. Un
+   * device registrato dal web non ha un PAT dietro e lascia la colonna null —
+   * `undefined` qui, non `null`, perché "non c'è un PAT" e "c'è un PAT nullo"
+   * non sono due stati distinti.
+   *
+   * Deliberatamente FUORI da {@link toSessionUser}: quella proiezione parte da
+   * una riga di `users`, dove un id di PAT non esiste. Lo aggiunge il solo
+   * {@link findPatUser}, che è l'unico posto in cui la credenziale è nota.
+   */
+  patId?: string;
 }
 
 declare module "fastify" {
@@ -37,6 +54,36 @@ declare module "fastify" {
     /** Popolato da requireAuth/requireAdmin; assente sulle route pubbliche. */
     user?: SessionUser;
   }
+}
+
+/**
+ * Le colonne di `users` che bastano a costruire un {@link SessionUser}.
+ * Espresso come `Pick` della riga, non come forma a mano: se una colonna
+ * cambia nome, e' qui che il typecheck si ferma.
+ */
+export type SessionUserColumns = Pick<
+  typeof users.$inferSelect,
+  "id" | "email" | "role" | "language" | "slackAvatarUrl" | "slackUserId"
+>;
+
+/**
+ * Proiezione riga-utente -> {@link SessionUser}, in un punto solo.
+ *
+ * Esiste perche' la mappatura ha un dettaglio che il typecheck NON protegge:
+ * la colonna si chiama `slackAvatarUrl` e il campo `avatarUrl`. Un campo
+ * dimenticato lo vedrebbe il compilatore; un campo mappato dalla COLONNA
+ * SBAGLIATA no — e con tre copie della stessa proiezione (sessione, PAT,
+ * mobile-login) era questione di tempo.
+ */
+export function toSessionUser(row: SessionUserColumns): SessionUser {
+  return {
+    id: row.id,
+    email: row.email,
+    role: row.role,
+    language: row.language,
+    avatarUrl: row.slackAvatarUrl,
+    slackUserId: row.slackUserId,
+  };
 }
 
 /**
@@ -72,7 +119,7 @@ export async function findSessionUser(db: Db, sessionId: string): Promise<Sessio
       email: users.email,
       role: users.role,
       language: users.language,
-      avatarUrl: users.slackAvatarUrl,
+      slackAvatarUrl: users.slackAvatarUrl,
       slackUserId: users.slackUserId,
     })
     .from(sessions)
@@ -84,14 +131,7 @@ export async function findSessionUser(db: Db, sessionId: string): Promise<Sessio
     await deleteSession(db, sessionId);
     return null;
   }
-  return {
-    id: row.id,
-    email: row.email,
-    role: row.role,
-    language: row.language,
-    avatarUrl: row.avatarUrl,
-    slackUserId: row.slackUserId,
-  };
+  return toSessionUser(row);
 }
 
 /**
@@ -114,9 +154,12 @@ export function sessionIdFromRequest(request: FastifyRequest): string | null {
  * token nella colonna unique `token_hash` (stesso schema delle server key in
  * monitor.ts: nessun confronto in tempo variabile a riposo). Aggiorna
  * `lastUsedAt` best-effort e con debounce (solo se null o più vecchio di
- * {@link LAST_USED_DEBOUNCE_MS}; un errore di update non fa fallire l'auth). Il
- * SessionUser prodotto è identico a quello di findSessionUser: il PAT eredita
- * i permessi dell'utente.
+ * {@link LAST_USED_DEBOUNCE_MS}; un errore di update non fa fallire l'auth).
+ *
+ * Il SessionUser prodotto ha gli STESSI PERMESSI di quello di findSessionUser
+ * — il PAT eredita l'utente — ma non è identico: porta in più `patId`, l'unico
+ * campo che dipende dalla credenziale e non dall'utente. Vedi
+ * {@link SessionUser.patId}.
  */
 export async function findPatUser(
   db: Db,
@@ -135,7 +178,7 @@ export async function findPatUser(
       email: users.email,
       role: users.role,
       language: users.language,
-      avatarUrl: users.slackAvatarUrl,
+      slackAvatarUrl: users.slackAvatarUrl,
       slackUserId: users.slackUserId,
     })
     .from(personalAccessTokens)
@@ -156,14 +199,9 @@ export async function findPatUser(
       ),
     )
     .catch(() => undefined);
-  return {
-    id: row.id,
-    email: row.email,
-    role: row.role,
-    language: row.language,
-    avatarUrl: row.avatarUrl,
-    slackUserId: row.slackUserId,
-  };
+  // `patId` in più rispetto alla proiezione condivisa: qui, e solo qui, si sa
+  // con QUALE credenziale è arrivata la richiesta.
+  return { ...toSessionUser(row), patId: row.patId };
 }
 
 /**

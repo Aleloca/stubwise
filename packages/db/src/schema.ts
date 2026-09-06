@@ -5,12 +5,16 @@ import {
   type BacklogSuggested,
   type DiscoveredService,
   type PluginInventory,
+  aiJobStatusSchema,
+  aiProviderKindSchema,
   backlogCodeSessionStatusSchema,
   backlogItemSourceSchema,
   backlogItemStatusSchema,
   backlogJobKindSchema,
   backlogJobStatusSchema,
+  backlogMessageRoleSchema,
   backlogRiskSchema,
+  backlogTicketRoleSchema,
   checkStatusSchema,
   checkTypeSchema,
   docGenerationStatusSchema,
@@ -90,6 +94,22 @@ const vector = (dimensions: number) =>
  * preservando i tipi letterali. Gli schemi Zod in @stubwise/shared restano
  * l'unica fonte di verità per i valori: enum Postgres e validazione non
  * possono divergere.
+ *
+ * REGOLA per scegliere dove nasce un enum: **se i suoi valori compaiono in una
+ * forma pubblica** (risposta API, notifica, payload letto dalla SPA o dall'app
+ * mobile) lo schema Zod va in `@stubwise/shared` e il pgEnum ne deriva con
+ * questo helper; se invece resta interno al database, la lista letterale sta
+ * qui. Ogni enum dichiara nel proprio commento da quale delle due parti viene.
+ *
+ * Oggi il file è misto, ed è normale: la conversione è graduale. Alcuni enum
+ * letterali RISALGONO già verso Zod nelle rotte (`z.enum(x.enumValues)` in
+ * `tickets.ts` e `milestones.ts`) — sono quelli che stanno per capovolgersi:
+ * `ticketEventKind`, `commentAuthorType`, `ticketLinkKind` e `milestoneStatus`
+ * entreranno in shared quando l'app mobile leggerà la timeline di un ticket.
+ *
+ * In nessuno dei due versi questo helper fa esistere il tipo in Postgres: è
+ * sempre una migrazione scritta a mano a crearlo o ad aggiungerci un valore
+ * (`enum-parity.test.ts` verifica che le due cose combacino).
  */
 function enumValues<T extends string>(schema: { options: readonly T[] }): [T, ...T[]] {
   return schema.options as [T, ...T[]];
@@ -111,10 +131,10 @@ export const backlogCodeSessionStatus = pgEnum(
   "backlog_code_session_status",
   enumValues(backlogCodeSessionStatusSchema),
 );
-// Ruolo del legame voce↔ticket: `origin` (il ticket ha originato la voce) o
-// `converted_to` (la voce è stata convertita in questo ticket). Lista letterale
-// locale al DB (non passa da uno schema Zod di shared).
-export const backlogTicketRole = pgEnum("backlog_ticket_role", ["origin", "converted_to"]);
+// Ruolo del legame voce↔ticket: i valori derivano da `backlogTicketRoleSchema`
+// (shared = unica fonte di verità), perché entrano nella forma pubblica del
+// dettaglio di una voce.
+export const backlogTicketRole = pgEnum("backlog_ticket_role", enumValues(backlogTicketRoleSchema));
 // "system" copre le notifiche automatiche (es. "PR mergiata → ticket chiuso"):
 // non hanno un autore umano né l'AI dietro, e vanno distinte nella timeline.
 export const commentAuthorType = pgEnum("comment_author_type", ["user", "ai", "system"]);
@@ -140,31 +160,10 @@ export const ticketLinkKind = pgEnum("ticket_link_kind", ["blocks", "relates_to"
 // Stato di una milestone: "open" (attiva, raccoglie i ticket pianificati) o
 // "closed" (chiusa/archiviata). Lista letterale locale al DB.
 export const milestoneStatus = pgEnum("milestone_status", ["open", "closed"]);
-// Dominio del worker AI, ma vive nel DB: definito qui.
-export const aiJobStatus = pgEnum("ai_job_status", [
-  "queued",
-  "triaging",
-  "fixing",
-  // "held": il triage ha deciso "fix" ma il gate di automazione non lo
-  // consente (auto-fix disattivato per il tipo, oppure effort sopra soglia).
-  // Il job resta in attesa di un avvio manuale (POST /run-ai).
-  "held",
-  "pr_opened",
-  "pr_merged",
-  "failed",
-  "skipped",
-  // "pr_closed": la PR aperta dal fix è stata chiusa senza merge (rifiutata da
-  // un umano). Stato terminale, distinto da "pr_merged".
-  "pr_closed",
-  // "awaiting_plan_approval": la pianificazione ha prodotto un piano che
-  // supera la soglia di effort configurata; il job è parcheggiato in attesa
-  // dell'approvazione umana prima di eseguirlo.
-  "awaiting_plan_approval",
-  // "awaiting_input": la pianificazione si è fermata su una domanda posta a un
-  // umano (`agent_questions`); riparte alla risposta. Fuori da ACTIVE_STATUSES
-  // e non claimabile: nessun heartbeat, nessun recupero da orfano.
-  "awaiting_input",
-]);
+// Stato del job AI: i valori derivano da `aiJobStatusSchema` (shared = unica
+// fonte di verità), dove vive anche il commento su ciascuno stato. Sta in
+// shared perché è la forma pubblica dei job, letta anche dai client.
+export const aiJobStatus = pgEnum("ai_job_status", enumValues(aiJobStatusSchema));
 // Le fasi AI di cui tracciamo i consumi (token + costo): triage, fix e review.
 export const agentRunPhase = pgEnum("agent_run_phase", ["triage", "fix", "review"]);
 
@@ -192,9 +191,10 @@ export const prState = pgEnum("pr_state", enumValues(prStateSchema));
 
 // Tipo di credenziale di un provider AI: "api_key" (chiave API a consumo) o
 // "account" (login a un piano/abbonamento, es. Claude Max). Determina come il
-// worker prepara l'ambiente per il CLI. Lista letterale locale al DB, come gli
-// altri enum del dominio AI (ai_job_status, agent_run_phase, resume_mode).
-export const aiProviderKind = pgEnum("ai_provider_kind", ["api_key", "account"]);
+// worker prepara l'ambiente per il CLI.
+// I valori derivano da `aiProviderKindSchema` (shared = unica fonte di verità):
+// il tipo di credenziale entra nella forma pubblica di un job AI.
+export const aiProviderKind = pgEnum("ai_provider_kind", enumValues(aiProviderKindSchema));
 // Origine di uno snapshot di consumo: "deterministic" (estratto da un output
 // strutturato/parsabile del CLI) o "llm_fallback" (dedotto da un modello quando
 // il parsing deterministico fallisce). Marca l'affidabilità del dato.
@@ -251,6 +251,10 @@ export const users = pgTable("users", {
   // vengono anche inviate come DM Slack (oltre a comparire nella sua inbox).
   // Default true; senza `slackUserId` il canale resta comunque muto.
   notifySlackDm: boolean("notify_slack_dm").notNull().default(true),
+  // Preferenza di recapito speculare a `notifySlackDm`, per le push sui device
+  // mobili (fase 4). Default true; senza device attivi in `device_tokens` il
+  // canale resta comunque muto.
+  notifyPush: boolean("notify_push").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -906,7 +910,7 @@ export const automationRules = pgTable("automation_rules", {
 export const notificationFormat = pgEnum("notification_format", ["slack", "discord", "generic"]);
 
 // Tipo di evento dietro una notifica dell'inbox. Speculare ai `kind` di
-// `NotificationEvent` (@stubwise/notifications/format): la lista è ripetuta qui
+// `NotificationEvent` (@stubwise/notifications/pure): la lista è ripetuta qui
 // come letterale perché `db` NON può importare da `notifications` (è
 // `notifications` a dipendere da `db`; l'inverso sarebbe un ciclo).
 // Aggiungere un kind richiede `ALTER TYPE ... ADD VALUE` in una migrazione che
@@ -940,9 +944,19 @@ export const notificationStatus = pgEnum("notification_status", ["open", "handle
 
 // Canale di recapito di una consegna: `webhook` (il webhook d'istanza di
 // notification_settings, per EVENTO), `slack_dm` (messaggio diretto al
-// destinatario) o `slack_update` (aggiornamento di un DM già inviato,
-// identificato dal `ts` in `externalRef`).
-export const deliveryChannel = pgEnum("delivery_channel", ["webhook", "slack_dm", "slack_update"]);
+// destinatario), `slack_update` (aggiornamento di un DM già inviato,
+// identificato dal `ts` in `externalRef`) o `push` (notifica ai device mobili
+// del destinatario, fase 4).
+// Lista LETTERALE per scelta: questi valori non escono mai dall'API — vivono
+// solo in `notification_deliveries`, che nessuna rotta serializza. Se un giorno
+// lo stato di recapito comparisse in una risposta, la regola di `enumValues`
+// qui sopra impone di far nascere lo schema Zod in `@stubwise/shared`.
+export const deliveryChannel = pgEnum("delivery_channel", [
+  "webhook",
+  "slack_dm",
+  "slack_update",
+  "push",
+]);
 
 // Stato di una consegna in outbox: `pending` (da tentare, non prima di
 // `nextAttemptAt`), `sent`, `failed` (tentativi esauriti, `error` valorizzato) o
@@ -2200,7 +2214,9 @@ export const backlogChatMessages = pgTable(
     itemId: uuid("item_id")
       .notNull()
       .references(() => backlogItems.id, { onDelete: "cascade" }),
-    role: text("role", { enum: ["user", "assistant", "system"] }).notNull(),
+    // Colonna text (non pgEnum) storica: i valori ammessi derivano comunque da
+    // `backlogMessageRoleSchema` in shared, unica fonte di verità.
+    role: text("role", { enum: enumValues(backlogMessageRoleSchema) }).notNull(),
     content: text("content").notNull(),
     citations: jsonb("citations"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -2390,7 +2406,7 @@ export const notifications = pgTable(
     kind: notificationKind("kind").notNull(),
     // Payload dell'evento, già completo di tutto ciò che serve a renderlo
     // (titolo del ticket, url, dettaglio). Il tipo forte è `NotificationEvent`
-    // di @stubwise/notifications/format: qui resta `Record<string, unknown>`
+    // di @stubwise/notifications/pure: qui resta `Record<string, unknown>`
     // perché `db` non può importare da `notifications` (ciclo di dipendenze); i
     // consumatori castano al tipo dell'unione dopo aver letto `kind`.
     event: jsonb("event").$type<Record<string, unknown>>().notNull(),
@@ -2514,12 +2530,96 @@ export const projectFollows = pgTable(
   ],
 );
 
+/**
+ * Un'installazione dell'app mobile che può ricevere notifiche push (fase 4).
+ * È il "dove" del canale `push`: l'instradamento sceglie il destinatario, qui
+ * si trovano i suoi telefoni.
+ *
+ * `token` è il token del servizio di notifica del sistema operativo ed è unico
+ * GLOBALMENTE, non per utente: il sistema lo riassegna, e la stessa stringa su
+ * due righe manderebbe la push due volte o alla persona sbagliata. Registrare
+ * di nuovo un device è quindi un upsert su questa unique, non una riga in più
+ * — e quell'upsert deve RIATTIVARE la riga (`disabledAt` e `disabledReason` a
+ * NULL), altrimenti un telefono il cui token era stato dichiarato invalido, o
+ * il cui PAT era stato revocato, resterebbe muto per sempre pur avendo appena
+ * rifatto l'accesso dall'app.
+ *
+ * La disattivazione è un soft delete con motivo (`disabledAt` +
+ * `disabledReason`, es. token rifiutato dal provider, o `pat_revoked`): serve
+ * a smettere di provarci senza perdere la traccia del perché. I due campi
+ * vivono e muoiono insieme, e il CHECK in fondo lo impone.
+ */
+export const deviceTokens = pgTable(
+  "device_tokens",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    // PAT con cui l'app si è autenticata registrando il device. SET NULL e non
+    // CASCADE perché un device registrato via cookie di sessione non ha PAT e
+    // non deve morire con quello di nessun altro.
+    // ⚠️ Ma il SET NULL da solo NON basta: dopo la revoca la riga resterebbe
+    // `pat_id` null e ATTIVA, indistinguibile da un device registrato via web,
+    // e il telefono continuerebbe a ricevere push — cioè il contrario di ciò
+    // che si aspetta chi revoca il token dopo aver perso il telefono. A
+    // chiudere il buco è la revoca stessa (`routes/pat.ts`), che disabilita i
+    // device di quel PAT nella stessa transazione e PRIMA del delete; qui il
+    // SET NULL resta solo come rete se qualcuno cancellasse una riga di
+    // `personal_access_tokens` per altre vie.
+    patId: uuid("pat_id").references(() => personalAccessTokens.id, { onDelete: "set null" }),
+    // Colonna text con CHECK invece di un enum Postgres. NON è la stessa scelta
+    // di `plugins`/`graph_jobs`, che stanno senza enum E senza CHECK: qui il
+    // vincolo nel DB c'è. Il motivo di non usare un pgEnum è un altro —
+    // aggiungere un valore a un enum Postgres obbliga a una migrazione SEPARATA
+    // dal resto del batch (`ALTER TYPE … ADD VALUE` non è usabile nella stessa
+    // transazione che lo aggiunge), mentre un CHECK si sostituisce in DROP +
+    // ADD CONSTRAINT dentro la migrazione che serve. Il risparmio è sulla
+    // separazione, non sulla migrazione: quella serve comunque.
+    // Il prezzo è che `enum-parity.test.ts` non copre questa lista (guarda i
+    // `pgEnum`, e qui non c'è un tipo Postgres da confrontare) — al suo posto
+    // c'è `device-tokens.test.ts`, che confronta questi `enumValues` con la
+    // definizione reale del CHECK letta da `pg_get_constraintdef`.
+    platform: text("platform", { enum: ["ios", "android"] }).notNull(),
+    token: text("token").notNull().unique(),
+    // Versione dell'app che ha registrato il device, utile a diagnosticare le
+    // push che non arrivano. Nullable: non è un dato di cui si dipende.
+    appVersion: text("app_version"),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    disabledAt: timestamp("disabled_at", { withTimezone: true }),
+    disabledReason: text("disabled_reason"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // Destinatari di una push: i device ATTIVI di un utente. Indice parziale,
+    // così i device disattivati non pesano su una query che sta sul percorso di
+    // ogni notifica.
+    index("device_tokens_user_active_idx")
+      .on(table.userId)
+      .where(sql`disabled_at is null`),
+    check("device_tokens_platform_chk", sql`platform in ('ios', 'android')`),
+    // Un device è disattivato se e solo se sappiamo perché. Senza questo
+    // vincolo esisterebbero due righe senza senso: una con `disabled_reason` ma
+    // `disabled_at` NULL, che l'indice parziale qui sopra considererebbe un
+    // destinatario valido pur avendo un motivo di esclusione scritto sopra; e
+    // una disattivata senza motivo, che perde esattamente la traccia per cui il
+    // soft delete esiste. Stesso pattern di `notifications_handled_at_chk` e
+    // `agent_questions_answer_chk`.
+    check(
+      "device_tokens_disabled_chk",
+      sql`(disabled_at IS NULL) = (disabled_reason IS NULL)`,
+    ),
+  ],
+);
+
 /** Riga di `notifications`: una notifica nell'inbox di un utente. */
 export type Notification = typeof notifications.$inferSelect;
 /** Riga di `notification_deliveries`: una consegna verso un canale esterno. */
 export type NotificationDelivery = typeof notificationDeliveries.$inferSelect;
 /** Riga di `project_follows`: un progetto seguito da un utente. */
 export type ProjectFollow = typeof projectFollows.$inferSelect;
+/** Riga di `device_tokens`: un'installazione dell'app mobile che riceve push. */
+export type DeviceToken = typeof deviceTokens.$inferSelect;
 
 /**
  * Domande poste dall'agente durante la pianificazione di un fix (fase 1,

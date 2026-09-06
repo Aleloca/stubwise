@@ -1,7 +1,12 @@
 import type { Language } from "@stubwise/shared";
 import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { patchMyLanguage, putMyFollows, putNotificationPrefs } from "../../lib/api";
+import {
+  patchMyLanguage,
+  putMyFollows,
+  patchNotificationPrefs,
+  type NotificationPrefsUpdate,
+} from "../../lib/api";
 import { meQueryOptions } from "../../lib/auth";
 import {
   myFollowsQueryOptions,
@@ -180,13 +185,19 @@ function FollowedProjectsSection() {
 }
 
 /**
- * Canali di notifica: oggi solo il DM Slack (l'inbox in-app non è
- * disattivabile). Stesso salvataggio immediato con rollback dei follow.
+ * Canali di notifica opzionali: il DM Slack e la push sui device mobili
+ * (l'inbox in-app non è disattivabile). Stesso salvataggio immediato con
+ * rollback dei follow.
  *
- * Senza identità Slack collegata il toggle è DISABILITATO: acceso, il canale
- * resterebbe muto — meglio dirlo che far credere di aver attivato qualcosa.
- * Collegare l'identità è un'azione da maintainer (pagina /team), non
- * self-service: l'hint indirizza lì.
+ * Senza identità Slack collegata il toggle del DM è DISABILITATO: acceso, il
+ * canale resterebbe muto — meglio dirlo che far credere di aver attivato
+ * qualcosa. Collegare l'identità è un'azione da maintainer (pagina /team), non
+ * self-service: l'hint indirizza lì. La push non ha un vincolo simmetrico: chi
+ * non ha ancora installato l'app può comunque decidere adesso, e la preferenza
+ * vale dal primo device che registrerà.
+ *
+ * Il PUT è una PATCH, quindi si manda il SOLO campo toccato: l'altro canale
+ * resta com'è anche se questa pagina ne avesse una copia stantia.
  */
 function NotificationPrefsSection() {
   const { t } = useTranslation();
@@ -194,13 +205,13 @@ function NotificationPrefsSection() {
   const { data: prefs } = useSuspenseQuery(notificationPrefsQueryOptions);
 
   const mutation = useMutation({
-    mutationFn: (slackDm: boolean) => putNotificationPrefs({ slackDm }),
-    onMutate: async (slackDm) => {
+    mutationFn: (patch: NotificationPrefsUpdate) => patchNotificationPrefs(patch),
+    onMutate: async (patch) => {
       await queryClient.cancelQueries({ queryKey: notificationPrefsQueryOptions.queryKey });
       const previous = queryClient.getQueryData(notificationPrefsQueryOptions.queryKey);
       queryClient.setQueryData(notificationPrefsQueryOptions.queryKey, (current) =>
         // `slackLinked` è contesto del server, non una preferenza: si conserva.
-        current ? { ...current, slackDm } : current,
+        current ? { ...current, ...patch } : current,
       );
       return { previous };
     },
@@ -219,26 +230,43 @@ function NotificationPrefsSection() {
         <h2 className={sectionTitleClass}>{t("settings:account.notifications.title")}</h2>
         <p className={sectionSubtitleClass}>{t("settings:account.notifications.subtitle")}</p>
       </header>
-      <div className="px-4 py-4">
-        <label className="flex items-center gap-2 text-sm text-fg">
-          <input
-            type="checkbox"
-            checked={prefs.slackDm}
-            disabled={!prefs.slackLinked || mutation.isPending}
-            onChange={(event) => mutation.mutate(event.target.checked)}
-            className="size-4 accent-[var(--color-signal)] disabled:cursor-not-allowed"
-          />
-          <span className={prefs.slackLinked ? undefined : "text-fg-muted"}>
-            {t("settings:account.notifications.slackDm")}
-          </span>
-        </label>
-        {!prefs.slackLinked && (
+      <div className="flex flex-col gap-3 px-4 py-4">
+        <div>
+          <label className="flex items-center gap-2 text-sm text-fg">
+            <input
+              type="checkbox"
+              checked={prefs.slackDm}
+              disabled={!prefs.slackLinked || mutation.isPending}
+              onChange={(event) => mutation.mutate({ slackDm: event.target.checked })}
+              className="size-4 accent-[var(--color-signal)] disabled:cursor-not-allowed"
+            />
+            <span className={prefs.slackLinked ? undefined : "text-fg-muted"}>
+              {t("settings:account.notifications.slackDm")}
+            </span>
+          </label>
+          {!prefs.slackLinked && (
+            <p className="mt-2 font-mono text-[11px] text-fg-muted">
+              {t("settings:account.notifications.slackNotLinked")}
+            </p>
+          )}
+        </div>
+        <div>
+          <label className="flex items-center gap-2 text-sm text-fg">
+            <input
+              type="checkbox"
+              checked={prefs.push}
+              disabled={mutation.isPending}
+              onChange={(event) => mutation.mutate({ push: event.target.checked })}
+              className="size-4 accent-[var(--color-signal)] disabled:cursor-not-allowed"
+            />
+            <span>{t("settings:account.notifications.push")}</span>
+          </label>
           <p className="mt-2 font-mono text-[11px] text-fg-muted">
-            {t("settings:account.notifications.slackNotLinked")}
+            {t("settings:account.notifications.pushHint")}
           </p>
-        )}
+        </div>
         {mutation.isError && (
-          <p role="alert" className="mt-3 font-mono text-[12px] text-danger">
+          <p role="alert" className="font-mono text-[12px] text-danger">
             {translateApiError(mutation.error, t)}
           </p>
         )}

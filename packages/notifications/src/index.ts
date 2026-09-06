@@ -60,12 +60,65 @@ export {
   type UpdateMessageInput,
 } from "./slack-client.js";
 
+export { unreadCount } from "./unread.js";
+
+// --- segnali di progetto condivisi (Fase 4) ---
+//
+// Spostati da `apps/worker/src/pulse/signals.ts`: li usa il poller del pulse
+// (worker, via il re-export sottile in `apps/worker/src/pulse/signals.ts`) e
+// `summarizeProject` qui sotto (server, `GET /api/projects/pulse`).
+export {
+  isProjectIdle,
+  listCandidates,
+  PULSE_HELD_STATUS,
+  PULSE_IN_FLIGHT_STATUSES,
+  PULSE_BLOCKING_JOB_STATUSES,
+  type IdleBlocker,
+  type ProjectIdleness,
+  type PulseCandidate,
+} from "./project-signals.js";
+
+export {
+  summarizeProject,
+  type ProjectPulseSummary,
+  type PulseViewer,
+  type PulseWaitingKind,
+  type PulseWaitingForYouItem,
+  type PulseWaitingForOthersItem,
+  type PulseWaitingWho,
+  type PulseRunningItem,
+} from "./project-pulse-summary.js";
+
 export {
   audienceFor,
   recipientsFor,
   type Audience,
   type RoutingContext,
 } from "./routing.js";
+
+// --- push (Fase 4) ---
+//
+// NON sono nell'entry `./pure`: a costruire un payload e a parlare col relay è
+// il WORKER, non un client. Il mobile riceve le push, non le manda.
+export {
+  buildPushPayload,
+  PUSH_TITLE_KEY,
+  type PushPayloadContext,
+} from "./push/payload.js";
+
+export {
+  createPushRelayClient,
+  PushRelayRejected,
+  PushRelayUnavailable,
+  type PushRelayClient,
+  type PushRelayClientOptions,
+} from "./push/relay-client.js";
+
+export {
+  DEFAULT_PUSH_RELAY_URL,
+  loadPushConfig,
+  type PushConfig,
+} from "./push/config.js";
 
 export {
   escapeSlackMrkdwn,

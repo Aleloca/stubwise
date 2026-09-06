@@ -2,7 +2,7 @@ import {
   formatNotification,
   sampleEvents,
   type NotificationEvent,
-} from "@stubwise/notifications/format";
+} from "@stubwise/notifications/pure";
 import type { Language } from "@stubwise/shared";
 import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";

@@ -1,6 +1,11 @@
 import {
-  backlogCodeSessionStatusSchema,
-  backlogItemSourceSchema,
+  backlogCodeSessionSchema,
+  backlogItemBaseSchema,
+  backlogItemDetailSchema,
+  backlogChatAcceptedSchema,
+  backlogPageSchema,
+  convertBacklogResultSchema,
+  createBacklogResultSchema,
   backlogItemStatusSchema,
   backlogJobStatusSchema,
   backlogRiskSchema,
@@ -8,9 +13,12 @@ import {
   backlogUrgencySchema,
   createBacklogFromDesignSchema,
   createBacklogItemSchema,
+  docsChatAnswerSchema,
   setContentSchema,
   startCodeSessionSchema,
   updateBacklogItemSchema,
+  type BacklogCodeSession,
+  type BacklogItemBase,
   type BacklogSuggested,
 } from "@stubwise/shared";
 import { and, asc, desc, eq, ilike, inArray, notInArray, sql, type SQL } from "drizzle-orm";
@@ -25,7 +33,6 @@ import {
   backlogItems,
   backlogItemTickets,
   backlogJobs,
-  backlogTicketRole,
   projects,
   repositories,
   tickets,
@@ -42,7 +49,7 @@ import {
   type OriginTicketContext,
   type PromptMessage,
 } from "./backlog-rag.js";
-import { streamChatResponse, TRUNCATION_MARKER } from "./docs-chat-core.js";
+import { chatQuerySchema, streamChatResponse, TRUNCATION_MARKER } from "./docs-chat-core.js";
 import { buildCitations } from "./docs-rag.js";
 import { retrieveChunksForProject } from "./docs-retrieval.js";
 import { appendGraphContext, retrieveGraphContextForProject } from "../graph-chat/context.js";
@@ -59,103 +66,9 @@ import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js"
  * similarToId della pagina e `ticketCount` con una subquery correlata.
  */
 
-/** Riferimento a una voce simile suggerita dal dedup (o null). */
-const similarToSchema = z.object({ id: z.uuid(), title: z.string() }).nullable();
-
-/**
- * Voce del backlog nella lista: campi leggeri per le card. Volutamente SENZA
- * `document` né `embedding` (payload pesanti inutili in lista).
- */
-const backlogListItemSchema = z.object({
-  id: z.uuid(),
-  projectId: z.uuid(),
-  title: z.string(),
-  status: backlogItemStatusSchema,
-  effort: z.number().int().nullable(),
-  risk: backlogRiskSchema.nullable(),
-  riskNote: z.string().nullable(),
-  urgency: backlogUrgencySchema.nullable(),
-  requestCount: z.number().int(),
-  source: backlogItemSourceSchema,
-  createdAt: z.iso.datetime(),
-  updatedAt: z.iso.datetime(),
-  similarTo: similarToSchema,
-  ticketCount: z.number().int(),
-});
-
-const listResponseSchema = z.object({
-  items: z.array(backlogListItemSchema),
-  nextCursor: z.string().nullable(),
-});
-
-/**
- * Forma "base" della voce: tutti i campi confermati più `document`, `suggested`
- * e `similarTo` risolto (SENZA `embedding`). È la risposta di PATCH/accept/dismiss
- * e il nucleo del dettaglio, che vi aggiunge `tickets` e `messages`.
- */
-const backlogItemBaseSchema = z.object({
-  id: z.uuid(),
-  projectId: z.uuid(),
-  title: z.string(),
-  document: z.string(),
-  // Piano di implementazione e contenuto d'origine (design/piano collegati alla
-  // voce): testo libero, null finché non impostati.
-  implementationPlan: z.string().nullable(),
-  originContent: z.string().nullable(),
-  status: backlogItemStatusSchema,
-  effort: z.number().int().nullable(),
-  risk: backlogRiskSchema.nullable(),
-  riskNote: z.string().nullable(),
-  urgency: backlogUrgencySchema.nullable(),
-  requestCount: z.number().int(),
-  source: backlogItemSourceSchema,
-  suggested: backlogSuggestedSchema.nullable(),
-  similarTo: similarToSchema,
-  createdAt: z.iso.datetime(),
-  updatedAt: z.iso.datetime(),
-});
-
-/** Ticket collegato a una voce (join backlog_item_tickets → tickets). */
-const linkedTicketSchema = z.object({
-  id: z.uuid(),
-  number: z.number().int(),
-  title: z.string(),
-  role: z.enum(backlogTicketRole.enumValues),
-});
-
-/** Messaggio della chat di raffinamento (una sola conversazione per voce). */
-const chatMessageSchema = z.object({
-  id: z.uuid(),
-  role: z.enum(backlogChatMessages.role.enumValues),
-  content: z.string(),
-  citations: z.unknown().nullable(),
-  createdAt: z.iso.datetime(),
-});
-
-/**
- * Sessione di analisi sul codice ATTIVA di una voce (o null). In modalità code
- * ogni messaggio della chat diventa un turno dell'agente sul repo. Espone lo
- * stretto necessario alla UI: stato, repo su cui investiga e istante d'avvio.
- */
-const codeSessionSchema = z.object({
-  status: backlogCodeSessionStatusSchema,
-  repositoryId: z.uuid(),
-  startedAt: z.iso.datetime(),
-});
-
-const backlogItemDetailSchema = backlogItemBaseSchema.extend({
-  tickets: z.array(linkedTicketSchema),
-  messages: z.array(chatMessageSchema),
-  // True se esiste un job deep_dive queued/running per la voce (UI: "analisi in
-  // corso" con polling).
-  deepDivePending: z.boolean(),
-  // Sessione di analisi sul codice attiva (o null): la chat è in modalità code.
-  codeSession: codeSessionSchema.nullable(),
-  // True se esiste un job chat_turn queued/running per la voce (UI: "sta
-  // investigando nel codice…" con polling).
-  pendingTurn: z.boolean(),
-});
-
+// Le forme pubbliche di una voce di backlog — lista, base, dettaglio, i loro
+// pezzi e l'involucro paginato — vivono TUTTE in `@stubwise/shared`: le
+// condividono server, SPA e app mobile.
 const listQuerySchema = z.object({
   projectId: z.uuid().optional(),
   status: backlogItemStatusSchema.optional(),
@@ -170,6 +83,8 @@ const idParamsSchema = z.object({ id: z.uuid() });
 
 /** Body della chat di raffinamento: un messaggio non vuoto. */
 const chatBodySchema = z.object({ message: z.string().min(1).max(8000) });
+
+/** Query della chat: `stream` sceglie fra SSE (default) e JSON non-streaming (fase 4, mobile). */
 
 /** Body di merge: la voce di destinazione che assorbe questa. */
 const mergeBodySchema = z.object({ targetId: z.uuid() });
@@ -254,7 +169,7 @@ async function resolveSimilar(
 async function loadBaseItem(
   db: Db,
   id: string,
-): Promise<z.infer<typeof backlogItemBaseSchema> | null> {
+): Promise<BacklogItemBase | null> {
   const [row] = await db.select(baseColumns).from(backlogItems).where(eq(backlogItems.id, id));
   if (!row) return null;
   const similarTo = await resolveSimilar(db, row.similarToId);
@@ -445,7 +360,7 @@ async function hasPendingChatTurn(db: Db, itemId: string): Promise<boolean> {
 async function loadActiveCodeSession(
   db: Db,
   itemId: string,
-): Promise<z.infer<typeof codeSessionSchema> | null> {
+): Promise<BacklogCodeSession | null> {
   const [row] = await db
     .select({
       status: backlogCodeSessions.status,
@@ -484,7 +399,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
       preHandler: requireAuth,
       schema: {
         querystring: listQuerySchema,
-        response: { 200: listResponseSchema, 400: errorSchema, ...authErrorResponses },
+        response: { 200: backlogPageSchema, 400: errorSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {
@@ -927,7 +842,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
       schema: {
         body: createBacklogItemSchema,
         response: {
-          202: z.object({ queued: z.literal(true), jobId: z.uuid() }),
+          202: createBacklogResultSchema,
           404: errorSchema,
           ...authErrorResponses,
         },
@@ -1068,28 +983,41 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
     },
   );
 
-  // --- Chat RAG di raffinamento (SSE) --------------------------------------
+  // --- Chat RAG di raffinamento ---------------------------------------------
   //
   // UNA conversazione per voce (backlog_chat_messages). Stesso trasporto della
   // chat Docs (streamChatResponse): pre-flight isAvailable → 503 PRIMA
-  // dell'hijack, poi stream SSE grezzo su reply.raw. Non c'è una tabella di
-  // sessioni: la voce È la sessione, quindi `sessionId` passato a
-  // streamChatResponse (per l'evento `done`) è l'id della voce stessa.
+  // dell'hijack/send, poi SSE (default) o JSON non-streaming (?stream=false,
+  // fase 4 mobile). Non c'è una tabella di sessioni: la voce È la sessione,
+  // quindi `sessionId` passato a streamChatResponse (per l'evento `done`/il
+  // campo `sessionId` della risposta json) è l'id della voce stessa.
+  //
+  // NOTA `?stream` in modalità CODE: se c'è una sessione di analisi sul codice
+  // attiva, la risposta è SEMPRE 202 (`{mode:"code", userMessageId}`) — quel
+  // ramo gira PRIMA di leggere `stream` (il turno va al worker, non a
+  // streamChatResponse), quindi il parametro è ignorato in quel caso: è il
+  // chiamante a sapere se una sessione di analisi è attiva (stesso contratto
+  // già in vigore per la sola modalità SSE, invariato qui).
   app.post(
     "/:id/chat",
     {
       preHandler: requireAuth,
       schema: {
         params: idParamsSchema,
+        querystring: chatQuerySchema,
         body: chatBodySchema,
         // In modalità CODE la risposta è un 202 JSON (`{mode:"code",
         // userMessageId}` — l'id serve alla UI per dedupare il messaggio
-        // ottimistico); in modalità DOCS (default) è uno stream SSE grezzo
-        // (reply.hijack), quindi niente schema 200. Restano gli errori PRIMA
-        // dello stream (404/503/auth).
+        // ottimistico), indipendentemente da `?stream`. In modalità DOCS con
+        // `?stream=false` è un body JSON completo (docsChatAnswerSchema, fase 4
+        // mobile) o un 502 su errore/persistenza a metà; col default
+        // `?stream=true` resta uno stream SSE grezzo (reply.hijack), che
+        // bypassa questo schema 200.
         response: {
-          202: z.object({ mode: z.literal("code"), userMessageId: z.uuid() }),
+          200: docsChatAnswerSchema,
+          202: backlogChatAcceptedSchema,
           404: errorSchema,
+          502: errorSchema,
           503: errorSchema,
           ...authErrorResponses,
         },
@@ -1097,6 +1025,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
     },
     async (request, reply) => {
       const { id } = request.params;
+      const { stream } = request.query;
       const { message } = request.body;
 
       const item = await loadBaseItem(app.db, id);
@@ -1183,16 +1112,21 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
       );
       const history = await loadBacklogHistory(app.db, id);
 
-      // Streaming SSE + persistenza dell'assistant su backlog_chat_messages.
-      // Semantica di troncamento coerente col default della chat Docs: parziale
-      // salvato con TRUNCATION_MARKER e SENZA citazioni (non "giustificate").
+      // Streaming SSE (o risposta JSON unica con ?stream=false, fase 4 mobile)
+      // + persistenza dell'assistant su backlog_chat_messages. Semantica di
+      // troncamento coerente col default della chat Docs in modalità sse:
+      // parziale salvato con TRUNCATION_MARKER e SENZA citazioni (non
+      // "giustificate"). In modalità json `truncated` è sempre `false` (vedi
+      // docs-chat-core.ts: quel branch persiste solo il completo), quindi qui
+      // il ramo troncato semplicemente non viene mai preso in quel caso.
       await streamChatResponse({
         db: app.db,
         chatLlm: app.chatLlm,
         request,
         reply,
         // La voce È la sessione: nessuna tabella sessioni, l'id voce identifica
-        // la conversazione nell'evento `done`.
+        // la conversazione nell'evento `done`/nel campo `sessionId` della
+        // risposta json.
         sessionId: id,
         system,
         history,
@@ -1206,6 +1140,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
             citations: truncated ? null : cites,
           });
         },
+        mode: stream ? "sse" : "json",
       });
     },
   );
@@ -1223,7 +1158,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
         params: idParamsSchema,
         body: startCodeSessionSchema,
         response: {
-          201: codeSessionSchema,
+          201: backlogCodeSessionSchema,
           400: errorSchema,
           404: errorSchema,
           409: errorSchema,
@@ -1455,7 +1390,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
       schema: {
         params: idParamsSchema,
         response: {
-          200: z.object({ ticketId: z.uuid(), ticketNumber: z.number().int() }),
+          200: convertBacklogResultSchema,
           404: errorSchema,
           409: errorSchema,
           ...authErrorResponses,

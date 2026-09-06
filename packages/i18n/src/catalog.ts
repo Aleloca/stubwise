@@ -234,6 +234,38 @@ export const en: Catalog = {
   "notify.inbox.answerLabel": "Your answer",
   "notify.inbox.answerPlaceholder": "Answer in your own words: the AI resumes planning from here.",
 
+  // --- push.title.* — TITOLO della notifica push (Fase 4) ---
+  //
+  // Il corpo della push è la frase `notify.*` già esistente: qui c'è solo il
+  // titolo, che sul telefono è una riga in grassetto sopra al corpo e viene
+  // TRONCATO dal sistema operativo dopo poche decine di caratteri. Vanno quindi
+  // tenuti corti e senza dettagli: il dettaglio è nel corpo, che si legge
+  // subito sotto.
+  //
+  // La chiave è `push.title.<kind>` col kind LETTERALE (punti compresi), così
+  // la corrispondenza con `NotificationKind` si legge a occhio. Non c'è nulla
+  // da ricordare quando nasce un kind: `PUSH_TITLE_KEY` in
+  // `@stubwise/notifications` è un `Record<NotificationKind, string>` — senza
+  // la voce nuova non compila — e un test verifica che ogni chiave esista in
+  // ENTRAMBI i cataloghi (senza, `t()` farebbe fallback sull'inglese e un
+  // telefono italiano riceverebbe un titolo in inglese senza che nulla
+  // protesti).
+  "push.title.ticket.created": "New ticket",
+  "push.title.job.pr_opened": "PR ready",
+  "push.title.job.pr_closed": "PR closed",
+  "push.title.job.held": "Fix waiting for a go-ahead",
+  "push.title.job.plan_review": "Plan to approve",
+  "push.title.job.budget_held": "Budget exceeded",
+  "push.title.review.completed": "PR review ready",
+  "push.title.job.failed": "Job failed",
+  "push.title.docs.limit_paused": "Docs paused",
+  "push.title.monitor.alert": "Server alert",
+  "push.title.monitor.recovered": "Server recovered",
+  "push.title.job.awaiting_input": "A question is waiting for you",
+  // L'unico titolo con un segnaposto: il pulse arriva a progetto fermo, e
+  // nominarlo è ciò che distingue due pulse nella stessa notifica di sistema.
+  "push.title.project.pulse": "Where to pick up on {project}",
+
   // --- report.* — header delle sezioni del report ---
   "report.investigation": "Investigation process",
   "report.rootCause": "Root cause",
@@ -409,6 +441,21 @@ export const it: Catalog = {
   "notify.inbox.answerLabel": "La tua risposta",
   "notify.inbox.answerPlaceholder":
     "Rispondi con parole tue: l'AI riprende la pianificazione da qui.",
+
+  // --- push.title.* — TITOLO della notifica push (vedi il catalogo `en`) ---
+  "push.title.ticket.created": "Nuovo ticket",
+  "push.title.job.pr_opened": "PR pronta",
+  "push.title.job.pr_closed": "PR chiusa",
+  "push.title.job.held": "Fix in attesa di via libera",
+  "push.title.job.plan_review": "Piano da approvare",
+  "push.title.job.budget_held": "Budget superato",
+  "push.title.review.completed": "Review della PR pronta",
+  "push.title.job.failed": "Fix AI fallito",
+  "push.title.docs.limit_paused": "Docs in pausa",
+  "push.title.monitor.alert": "Allarme su un server",
+  "push.title.monitor.recovered": "Server tornato su",
+  "push.title.job.awaiting_input": "Una domanda ti aspetta",
+  "push.title.project.pulse": "Da dove ripartire su {project}",
 
   // --- report.* ---
   "report.investigation": "Processo di indagine",

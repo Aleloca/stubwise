@@ -898,28 +898,13 @@ async function usersById(db: Db, userIds: (string | null)[]): Promise<Map<string
 /**
  * Quante notifiche l'utente ha ancora da smaltire: è il numero sulla campanella.
  *
- * DECISIONE: conta lo stato, non la lettura. `read_at` dice solo che l'utente ha
- * aperto la riga una volta, non che ha fatto ciò che chiedeva — un piano da
- * approvare letto e lasciato lì deve continuare a comparire. Il conteggio è
- * quindi "da smaltire": `open` più le snoozate GIÀ SCADUTE, che a un `listInbox`
- * successivo tornerebbero aperte comunque.
- *
- * NON scrive: la riapertura lazy è di `listInbox`. Così la campanella (polling
- * ogni 30 s da ogni scheda aperta) resta una lettura pura e dice comunque il
- * numero giusto.
+ * L'implementazione è in `@stubwise/notifications` (`src/unread.ts`, col suo
+ * docblock): dalla fase 4 lo stesso numero è il `badge` di ogni push, e a
+ * calcolarlo è il WORKER, che non può importare da `apps/server`. Qui resta la
+ * ri-esportazione, così gli import dei consumatori (rotte, test) restano validi
+ * — stessa scelta di `actionsFor`.
  */
-export async function unreadCount(db: Db, userId: string): Promise<number> {
-  const [row] = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(notifications)
-    .where(
-      and(
-        eq(notifications.userId, userId),
-        sql`(${notifications.status} = 'open' or (${notifications.status} = 'snoozed' and ${notifications.snoozedUntil} <= now()))`,
-      ),
-    );
-  return row?.count ?? 0;
-}
+export { unreadCount } from "@stubwise/notifications";
 
 /**
  * Segna la notifica come letta, se non lo era già. Idempotente: `read_at` è il

@@ -68,7 +68,7 @@ function mockApi(handlers: Record<string, Handler>) {
     "GET /api/projects": () => jsonResponse(200, []),
     "GET /api/me/follows": () => jsonResponse(200, { projectIds: [] }),
     "GET /api/me/notification-prefs": () =>
-      jsonResponse(200, { slackDm: false, slackLinked: false }),
+      jsonResponse(200, { slackDm: false, push: true, slackLinked: false }),
     ...handlers,
   };
   fetchMock.mockImplementation((input, init) => {

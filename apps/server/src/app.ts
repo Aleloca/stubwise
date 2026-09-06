@@ -392,8 +392,12 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
 
   // Rate limiting opt-in (`global: false`): nessuna route è limitata di
   // default, lo diventano solo quelle che dichiarano `config.rateLimit`
-  // (ingestion per chiave, login/register per IP). Store in-memory: per un
-  // deployment self-hosted a singola istanza è sufficiente.
+  // (ingestion per chiave, register per IP) o che montano a mano un handler
+  // di `app.rateLimit()` — così fa `authRoutes` per tenere UN SOLO tetto di
+  // tentativi su login e mobile-login, che sono due porte sulle stesse
+  // credenziali (il perché è nel commento accanto a `credentialsRateLimit`).
+  // Store in-memory: per un deployment self-hosted a singola istanza è
+  // sufficiente.
   void app.register(fastifyRateLimit, { global: false });
 
   // Spec OpenAPI derivata dagli schemi Zod delle route. Va registrato PRIMA

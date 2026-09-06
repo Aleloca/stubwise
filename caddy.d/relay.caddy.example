@@ -1,0 +1,44 @@
+# Blocco Caddy del RELAY PUSH — attivo solo sul nostro VPS.
+#
+# Per attivarlo (solo noi, non le istanze self-hosted):
+#   1. cp caddy.d/relay.caddy.example caddy.d/relay.caddy
+#   2. in .env:  PUSH_RELAY_HOST=stubwise.thecove.it
+#      (il sito diventa push.stubwise.thecove.it; il DNS deve puntare al VPS)
+#   3. docker compose --profile relay up -d --build push-relay caddy
+#
+# ⚠️ Il file si chiama `.example` di proposito: il `import
+# /etc/caddy/conf.d/*.caddy` del Caddyfile NON lo matcha, quindi finché resta
+# così è inerte. Copiandolo in `relay.caddy` diventa attivo — e da quel momento
+# `PUSH_RELAY_HOST` è OBBLIGATORIA: senza, l'indirizzo diventa `push.` e Caddy
+# si rifiuta di partire (`subject does not qualify for certificate: 'push.'`),
+# portandosi dietro tutto il sito. È un guasto rumoroso e immediato, non
+# silenzioso: se ne accorge il primo `docker compose up`.
+#
+# Il relay NON pubblica porte sull'host: vive sulla rete interna del compose ed
+# è questo blocco a esporlo, con HTTPS automatico.
+#
+# ⚠️ Il relay si fida di UN solo hop davanti a sé (`trustProxy: 1` in
+# `apps/push-relay/src/server.ts`) per calcolare l'IP del client ai fini del
+# rate limit per IP: usa l'ULTIMO indirizzo della catena `X-Forwarded-For`,
+# quello che il proxy immediatamente davanti gli ha annesso. Questo blocco va
+# bene così com'è perché `reverse_proxy` di Caddy ANNETTE l'IP reale del
+# client all'header (non lo sovrascrive, e non si fida di un valore che il
+# client stesso avesse provato a scriversi) — è il comportamento di default,
+# nessuna opzione da aggiungere qui. Il relay NON va MAI esposto con la
+# porta pubblicata direttamente (bypassando Caddy): un client diretto
+# potrebbe scriversi da sé `X-Forwarded-For` e scegliersi un bucket diverso
+# a ogni richiesta, aggirando il limite per IP.
+
+push.{$PUSH_RELAY_HOST} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	reverse_proxy {$PUSH_RELAY_UPSTREAM:push-relay:8090}
+}

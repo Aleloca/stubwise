@@ -1,4 +1,7 @@
+import { DEFAULT_PUSH_RELAY_URL } from "@stubwise/notifications";
 import { randomBytes } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { loadWorkerConfig } from "./config.js";
 import { DEFAULT_AGENT_QUESTION_MAX_ROUNDS } from "./pipeline/ask-user.js";
@@ -679,5 +682,58 @@ describe("loadWorkerConfig", () => {
     expect(() => loadWorkerConfig({ ...VALID, WORKER_CONCURRENCY: "0" })).toThrow(
       /WORKER_CONCURRENCY/,
     );
+  });
+});
+
+describe("configurazione push", () => {
+  it("senza PUSH_RELAY_URL usa il relay pubblico; vuota = push spente", () => {
+    expect(loadWorkerConfig(VALID).push).toEqual({ relayUrl: DEFAULT_PUSH_RELAY_URL });
+    expect(loadWorkerConfig({ ...VALID, PUSH_RELAY_URL: "" }).push).toBeNull();
+    expect(loadWorkerConfig({ ...VALID, PUSH_RELAY_URL: "https://push.example" }).push).toEqual({
+      relayUrl: "https://push.example",
+    });
+  });
+
+  it("un relay inutilizzabile fa FALLIRE l'avvio del worker", () => {
+    expect(() => loadWorkerConfig({ ...VALID, PUSH_RELAY_URL: "http://relay.example" })).toThrow(
+      /PUSH_RELAY_URL/,
+    );
+  });
+
+  /**
+   * IL DEFAULT DELL'URL VIVE IN DUE POSTI e nessun test lo terrebbe allineato
+   * da solo: dentro Docker il default del CODICE è morto — il compose passa
+   * SEMPRE la variabile — quindi chi cambia la costante e non il compose (o
+   * viceversa) non se ne accorgerebbe da nessuna parte. Stessa famiglia di
+   * `WORKER_STALE_MINUTES`, che il repo tiene allineato in tre punti.
+   */
+  it("il default del compose coincide con DEFAULT_PUSH_RELAY_URL", () => {
+    const compose = readFileSync(
+      fileURLToPath(new URL("../../../docker-compose.yml", import.meta.url)),
+      "utf8",
+    );
+    const match = compose.match(/PUSH_RELAY_URL=\$\{PUSH_RELAY_URL(:?-)([^}]*)\}/);
+    expect(match, "PUSH_RELAY_URL non è nell'env del worker in docker-compose.yml").not.toBeNull();
+    expect(match![2]).toBe(DEFAULT_PUSH_RELAY_URL);
+    // ⚠️ `${VAR-default}` col TRATTINO NUDO, non `${VAR:-default}`: con i due
+    // punti una stringa vuota in `.env` verrebbe rimpiazzata dal default, e
+    // l'interruttore documentato per spegnere le push non spegnerebbe niente.
+    expect(match![1]).toBe("-");
+  });
+
+  /**
+   * ⚠️ In `.env.example` OGNI variabile è scritta vuota e vuota significa «usa
+   * il default». Per questa sola variabile vuoto significa l'OPPOSTO — push
+   * spente — quindi una riga `PUSH_RELAY_URL=` non commentata trasformerebbe il
+   * gesto più normale del self-hosting (copiare `.env.example` in `.env`) nello
+   * spegnimento silenzioso delle push. Deve restare commentata.
+   */
+  it(".env.example non contiene una PUSH_RELAY_URL vuota non commentata", () => {
+    const example = readFileSync(
+      fileURLToPath(new URL("../../../.env.example", import.meta.url)),
+      "utf8",
+    );
+    expect(example).toContain("PUSH_RELAY_URL");
+    expect(example.split("\n").filter((line) => /^\s*PUSH_RELAY_URL=/.test(line))).toEqual([]);
   });
 });

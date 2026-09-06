@@ -1,0 +1,86 @@
+/**
+ * Necessario perché `@testing-library/react-native` sappia che è lecito
+ * fare `setState` fuori da un giro sincrono di `act()` — succede in OGNI
+ * screen che carica dati all'avvio (`AppProviders`, `OnboardingScreen`): la
+ * `Promise` si risolve su un microtask che il singolo `act()` sincrono di
+ * `render()` non copre. Senza questa riga React stampa "The current testing
+ * environment is not configured to support act(...)" e — verificato — gli
+ * aggiornamenti di stato che ne conseguono arrivano in modo incoerente da
+ * un test all'altro nello stesso file (`getByTestId` che trova l'elemento
+ * in un test e non nel successivo, a parità di codice).
+ */
+(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+/**
+ * Mock dei moduli nativi per Jest. Dove il package spedisce un mock
+ * ufficiale lo si usa (async-storage, notifee, device-info, netinfo);
+ * `react-native-keychain` (10.0.0, verificato) NON ne spedisce uno — mockato
+ * a mano con `jest.fn()` sulle sole funzioni che l'app usa
+ * (`{set,get,reset}GenericPassword`).
+ */
+
+jest.mock("@react-native-async-storage/async-storage", () =>
+  require("@react-native-async-storage/async-storage/jest"),
+);
+
+jest.mock("react-native-keychain", () => ({
+  setGenericPassword: jest.fn(),
+  getGenericPassword: jest.fn(),
+  resetGenericPassword: jest.fn(),
+}));
+
+jest.mock("@notifee/react-native", () => require("@notifee/react-native/jest-mock"));
+
+jest.mock("react-native-device-info", () =>
+  require("react-native-device-info/jest/react-native-device-info-mock"),
+);
+
+jest.mock("@react-native-community/netinfo", () => require("@react-native-community/netinfo/jest/netinfo-mock"));
+
+/**
+ * `@react-native-firebase/messaging` (Task 19) NON spedisce un mock ufficiale
+ * per Jest — mock a mano, con le sole funzioni che questo repo usa
+ * (`getToken`/`onTokenRefresh`/`onMessage`, lette da `lib/push-token.ts` e
+ * `lib/push.ts`).
+ *
+ * API MODULARE (v26, verificata sui `.d.ts` pubblicati: il pacchetto non
+ * esporta più un `default` namespaced `messaging()`): `getMessaging()` prende
+ * l'app di default, e ogni funzione la vuole come primo argomento — il mock
+ * qui sotto ignora quell'argomento (nessun test ha bisogno di distinguere fra
+ * app diverse) e si comporta come un singolo store globale di `jest.fn()`.
+ *
+ * `getToken` risolve `null` di DEFAULT (nessun token): un token presente è il
+ * caso ECCEZIONALE che ogni test interessato attiva da sé con
+ * `mockResolvedValueOnce`/`mockResolvedValue` — stesso principio di
+ * `mockLoadSession.mockResolvedValue(null)` in `client.test.ts`, e per la
+ * stessa ragione: un default "c'è un token" farebbe scattare
+ * `registerDevice` in OGNI test che monta `AppProviders` o `OnboardingScreen`,
+ * anche quelli che non stanno testando la push.
+ */
+jest.mock("@react-native-firebase/messaging", () => ({
+  __esModule: true,
+  getMessaging: jest.fn(() => ({})),
+  getToken: jest.fn(async () => null),
+  // Task 20 (logout): invalida il token FCM del device — vedi
+  // `screens/settings/SettingsSheet.tsx`. Risolve `undefined` di default
+  // (`Promise<void>` reale): il test che vuole verificarne la CHIAMATA lo fa
+  // sul mock stesso (`deleteToken as jest.Mock`), non sul suo valore di
+  // ritorno.
+  deleteToken: jest.fn(async () => undefined),
+  onTokenRefresh: jest.fn(() => jest.fn()),
+  onMessage: jest.fn(() => jest.fn()),
+  setBackgroundMessageHandler: jest.fn(),
+}));
+
+/**
+ * Senza questo mock `SafeAreaProvider` non renderizza i figli in Jest: sotto
+ * test non arriva mai l'evento nativo `onInsetsChange` che gli dice quali
+ * insets usare, quindi resta in attesa per sempre (`<RNCSafeAreaProvider />`
+ * vuoto — verificato: era la causa di OGNI `getByTestId` fallito prima di
+ * questa riga).
+ */
+// Il mock ufficiale esporta tutto sotto `.default` (è un modulo ESM
+// compilato con `__esModule: true`): senza `.default` qui, un `import {
+// SafeAreaProvider }` a named import prenderebbe `undefined` — verificato,
+// era il primo errore ("Element type is invalid") prima di questa riga.
+jest.mock("react-native-safe-area-context", () => require("react-native-safe-area-context/jest/mock").default);

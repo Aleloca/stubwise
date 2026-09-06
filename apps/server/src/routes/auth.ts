@@ -12,9 +12,21 @@ import {
   SESSION_COOKIE,
   SESSION_TTL_MS,
   sessionIdFromRequest,
+  toSessionUser,
 } from "../auth/session.js";
+import type { SessionUserColumns } from "../auth/session.js";
 import { invites, sessions, users } from "@stubwise/db";
-import { languageSchema } from "@stubwise/shared";
+import type { Db } from "@stubwise/db";
+import {
+  authUserResponseSchema,
+  languageResponseSchema,
+  languageSchema,
+  mobileLoginBodySchema,
+  mobileLoginResponseSchema,
+  sessionResponseSchema,
+  setupStatusSchema,
+} from "@stubwise/shared";
+import { createPatForUser } from "./pat.js";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
 import type { RateLimitConfig } from "./shared.js";
 import { apiError } from "../errors.js";
@@ -22,9 +34,13 @@ import { loadSlackCreds, defaultSlackClientFactory, type SlackClientFactory } fr
 
 export interface AuthRoutesOptions {
   /**
-   * Limite per IP applicato a login e register: entrambe pagano una verifica
-   * o un hash argon2 (deliberatamente costoso), che senza limite sarebbe un
-   * vettore di DoS. Ogni route ha il proprio bucket.
+   * Limite per IP applicato a login, mobile-login e register: tutte pagano una
+   * verifica o un hash argon2 (deliberatamente costoso), che senza limite
+   * sarebbe un vettore di DoS.
+   *
+   * `/login` e `/mobile-login` condividono UN SOLO bucket (sono due porte sulle
+   * stesse credenziali: il tetto è della superficie, non della rotta).
+   * `/register` ne ha uno proprio: consuma un invito, non prova una password.
    */
   rateLimit: RateLimitConfig;
   /**
@@ -63,24 +79,82 @@ function getDummyHash(): Promise<string> {
   return dummyHashPromise;
 }
 
-const publicUserSchema = z.object({
-  id: z.uuid(),
-  email: z.email(),
-  role: z.enum(["admin", "member"]),
-});
+/**
+ * Verifica email+password e restituisce l'utente, oppure `null` se le
+ * credenziali non sono valide — SENZA dire quale dei due motivi.
+ *
+ * Vive qui, in una funzione sola, perché è la difesa anti-enumerazione e ha
+ * più di un chiamante (`/login` per il web, `/mobile-login` per l'app): due
+ * copie della sequenza sarebbero due occasioni di farla divergere, e la
+ * divergenza è esattamente il buco. Entrambi i rami pagano una verifica
+ * argon2 — quello senza utente contro l'hash fittizio — quindi né il corpo
+ * della risposta né il tempo per produrla dicono se l'account esiste.
+ *
+ * Chi chiama deve rispondere allo stesso identico modo per ogni `null`.
+ *
+ * L'utente esce SENZA `passwordHash`, e per ALLOWLIST: si elencano le colonne
+ * che escono invece di togliere quella che non deve uscire. È la stessa regola
+ * di `toPatView` per il `tokenHash` (`routes/pat.ts`) — "mai lo spread della
+ * riga" — ed è più forte di un `Omit`: una colonna sensibile aggiunta domani a
+ * `users` non entra qui da sola. Serve perché questa funzione è l'unico punto
+ * di `auth.ts` da cui l'hash potrebbe uscire, e lo schema zod di risposta fa
+ * da rete solo dove una rotta ne dichiara uno: il prossimo chiamante
+ * potrebbe non averlo.
+ *
+ * Le colonne sono esattamente quelle che consuma `toSessionUser`, cioè quanto
+ * basta a entrambi i chiamanti.
+ */
+async function verifyCredentials(
+  db: Db,
+  email: string,
+  password: string,
+): Promise<SessionUserColumns | null> {
+  const [user] = await db.select().from(users).where(eq(users.email, email));
+  if (!user) {
+    await verifyPassword(await getDummyHash(), password);
+    return null;
+  }
+  if (!(await verifyPassword(user.passwordHash, password))) return null;
+  return {
+    id: user.id,
+    email: user.email,
+    role: user.role,
+    language: user.language,
+    slackAvatarUrl: user.slackAvatarUrl,
+    slackUserId: user.slackUserId,
+  };
+}
 
 /**
- * L'utente di sessione esposto da /me: come publicUserSchema ma con la
- * preferenza di lingua, che le altre route (setup/login/register) non
- * restituiscono perché creano l'utente prima di conoscerne la sessione.
+ * Le rotte di `authRoutes` che possono legittimamente avere un bucket di rate
+ * limit tutto loro. Confronto per suffisso e non per url intera perché il
+ * prefisso (`/api/auth`) lo decide chi registra il plugin.
  */
-const sessionUserSchema = publicUserSchema.extend({
-  language: languageSchema,
-  // Identità Slack del corrente utente: avatar (URL) e Slack user id, entrambi
-  // null finché un admin non linka l'utente (o l'auto-link via attribuzione).
-  avatarUrl: z.string().nullable(),
-  slackUserId: z.string().nullable(),
-});
+const OWN_BUCKET_ROUTES = ["/register"];
+
+/**
+ * Descrive la violazione se una rotta di `authRoutes` dichiara
+ * `config.rateLimit` invece di montare il limiter condiviso, altrimenti
+ * `null`. Estratta dall'hook perché una guardia non testabile è solo un
+ * commento più lungo: `auth-rate-limit-guard.test.ts` la esercita da sola,
+ * senza dover registrare una rotta finta.
+ *
+ * `config.rateLimit === false` (limite esplicitamente disattivato) non è una
+ * violazione: non apre nessun bucket.
+ */
+export function credentialsBucketViolation(
+  url: string,
+  config: { rateLimit?: unknown } | undefined,
+): string | null {
+  if (!config?.rateLimit) return null;
+  if (OWN_BUCKET_ROUTES.some((suffix) => url.endsWith(suffix))) return null;
+  return (
+    `${url}: le rotte di autenticazione condividono un solo tetto di tentativi. ` +
+    "Monta `credentialsRateLimit` come onRequest invece di dichiarare " +
+    "`config.rateLimit`, che aprirebbe un bucket a sé e alzerebbe il tetto " +
+    `per IP (vedi il commento su credentialsRateLimit; eccezioni: ${OWN_BUCKET_ROUTES.join(", ")}).`
+  );
+}
 
 const credentialsSchema = z.object({
   email: z.email(),
@@ -107,10 +181,67 @@ export async function authRoutes(
   const app = instance.withTypeProvider<ZodTypeProvider>();
   const slackClientFactory = opts.slackClientFactory ?? defaultSlackClientFactory;
 
+  /**
+   * UN SOLO limiter, condiviso da `/login` e `/mobile-login`.
+   *
+   * PERCHÉ: il tetto anti-brute-force è una proprietà della SUPERFICIE
+   * CREDENZIALI, non della singola rotta. Sono due porte sulla stessa
+   * password: se ognuna avesse il suo bucket, aggiungerne una raddoppierebbe
+   * i tentativi al minuto per IP senza che nessun numero in configurazione
+   * cambi. Chi aggiungerà una TERZA porta sulle credenziali — un magic link,
+   * un SSO, un rinnovo di token — la attacchi a QUESTO handler invece di
+   * dichiarare `config.rateLimit`, altrimenti apre un terzo bucket e alza il
+   * tetto un'altra volta.
+   *
+   * PERCHÉ COSÌ e non con `groupId`: in @fastify/rate-limit 11 `groupId` NON
+   * unisce i bucket di due rotte diverse, malgrado il README lo presenti così.
+   * Ogni `config.rateLimit` di rotta riceve il proprio store da `store.child()`
+   * — che per lo store in memoria è una LRU nuova di zecca (e per quello Redis
+   * un prefisso di chiave `<metodo><url>-`), quindi `groupId` cambia solo la
+   * chiave DENTRO un contenitore già separato. `app.rateLimit()` invece crea il
+   * limiter — e il suo store — UNA volta: montando lo stesso handler su
+   * entrambe le rotte, il contenitore è davvero uno. I due test "tetto
+   * condiviso con /login" falliscono con `groupId` e passano così; sono lì
+   * perché la differenza non si vede leggendo il codice.
+   *
+   * ⚠️ E IL BUG SPECULARE, per chi un giorno monterà un SECONDO limiter a mano
+   * su un'altra superficie (l'ingestion, il widget…). Il prefisso di chiave
+   * `<metodo><url>-` dello store Redis viene da `routeInfo`, che
+   * `config.rateLimit` valorizza con la rotta vera ma che `app.rateLimit()`
+   * passa VUOTO (`routeInfo: {}`): il prefisso diventa la costante
+   * `undefinedundefined-`, uguale per tutti. Con lo store in memoria non si
+   * vede (ogni limiter ha comunque la sua LRU), ma con Redis due limiter
+   * montati a mano si FONDEREBBERO per IP — il tetto di una superficie
+   * consumato dai tentativi su un'altra. È la fusione silenziosa, l'esatto
+   * opposto del problema di `groupId`, e oggi non morde solo perché di
+   * limiter montati a mano ce n'è uno. Il secondo passi un `nameSpace`
+   * proprio, o torni a `config.rateLimit` se non deve condividere niente.
+   *
+   * `onRequest` come il `config.rateLimit` che sostituisce (è l'hook di
+   * default del plugin): il conteggio resta prima del parsing del corpo, così
+   * un corpo malformato costa comunque un tentativo.
+   *
+   * `/register` resta fuori dal gruppo, con il suo bucket: non verifica le
+   * credenziali di un account esistente, consuma un invito. Non è una porta
+   * sulla stessa password e il suo tetto è indipendente (lo asserisce un test
+   * in `ingest.test.ts`).
+   */
+  const credentialsRateLimit = instance.rateLimit(opts.rateLimit);
+
+  // La guardia che rende verificabile il paragrafo qui sopra: senza, "attacca
+  // la prossima rotta a credentialsRateLimit" resta una frase in un commento,
+  // e chi la salta apre un bucket nuovo senza che nessun test se ne accorga
+  // (i due test alternati coprono login<->mobile, non una rotta che ancora non
+  // esiste). Con, l'errore è all'AVVIO del server, non in produzione.
+  instance.addHook("onRoute", (route) => {
+    const problem = credentialsBucketViolation(route.url, route.config);
+    if (problem) throw new Error(problem);
+  });
+
   // La UI usa questo flag per decidere se mostrare la pagina di primo setup.
   app.get(
     "/setup",
-    { schema: { response: { 200: z.object({ needed: z.boolean() }) } } },
+    { schema: { response: { 200: setupStatusSchema } } },
     async () => {
       const [row] = await app.db.select({ value: count() }).from(users);
       return { needed: (row?.value ?? 0) === 0 };
@@ -122,7 +253,7 @@ export async function authRoutes(
     {
       schema: {
         body: credentialsSchema,
-        response: { 201: z.object({ user: publicUserSchema }), 403: errorSchema },
+        response: { 201: authUserResponseSchema, 403: errorSchema },
       },
     },
     async (request, reply) => {
@@ -159,26 +290,16 @@ export async function authRoutes(
   app.post(
     "/login",
     {
-      config: { rateLimit: opts.rateLimit },
+      onRequest: credentialsRateLimit,
       schema: {
         // Nessun vincolo di lunghezza al login: la policy vale alla creazione.
         body: z.object({ email: z.email(), password: z.string().min(1) }),
-        response: { 200: z.object({ user: publicUserSchema }), 401: errorSchema },
+        response: { 200: authUserResponseSchema, 401: errorSchema },
       },
     },
     async (request, reply) => {
-      const [user] = await app.db
-        .select()
-        .from(users)
-        .where(eq(users.email, request.body.email));
-      // Risposta identica per email inesistente e password errata, e stesso
-      // costo (una verifica argon2) in entrambi i rami: nessuna enumerazione
-      // degli account né dal messaggio né dal tempo di risposta.
+      const user = await verifyCredentials(app.db, request.body.email, request.body.password);
       if (!user) {
-        await verifyPassword(await getDummyHash(), request.body.password);
-        return apiError(reply, 401, "invalid_credentials", "Invalid credentials");
-      }
-      if (!(await verifyPassword(user.passwordHash, request.body.password))) {
         return apiError(reply, 401, "invalid_credentials", "Invalid credentials");
       }
       // Igiene opportunistica: le sessioni scadute dell'utente vengono
@@ -200,6 +321,50 @@ export async function authRoutes(
     },
   );
 
+  /**
+   * Login dell'app mobile: stesse credenziali del web, ma invece di aprire una
+   * sessione a cookie emette un Personal Access Token per QUEL device, che
+   * l'app tiene nel Keychain e manda nell'header `authorization`.
+   *
+   * Un PAT per device, e non uno condiviso, perché è ciò che rende governabile
+   * la revoca: il token si chiama `Mobile · <deviceName>`, l'utente lo
+   * riconosce nella lista dei token e può buttare giù il telefono perso senza
+   * sloggare gli altri — ed è la stessa riga che il logout dell'app revoca da
+   * sé. Nessuna scadenza: la fine di un PAT mobile è la revoca, non il tempo.
+   *
+   * NON crea la sessione a cookie: sarebbe una riga in `sessions` che nessun
+   * client chiuderà mai, per un client che non manda cookie.
+   *
+   * Condivide il bucket di rate limit con `/login` — non «lo stesso limite»,
+   * proprio lo stesso contatore: sono due porte sulle stesse credenziali, e
+   * bucket separati raddoppierebbero i tentativi disponibili a un attaccante.
+   */
+  app.post(
+    "/mobile-login",
+    {
+      onRequest: credentialsRateLimit,
+      schema: {
+        body: mobileLoginBodySchema,
+        response: { 200: mobileLoginResponseSchema, 400: errorSchema, 401: errorSchema },
+      },
+    },
+    async (request, reply) => {
+      const user = await verifyCredentials(app.db, request.body.email, request.body.password);
+      // Identica, parola per parola, alla 401 di /login: le due rotte non
+      // devono nemmeno distinguersi fra loro.
+      if (!user) {
+        return apiError(reply, 401, "invalid_credentials", "Invalid credentials");
+      }
+      const { id: patId, token } = await createPatForUser(
+        app.db,
+        user.id,
+        `Mobile · ${request.body.deviceName}`,
+        null,
+      );
+      return reply.code(200).send({ token, patId, user: toSessionUser(user) });
+    },
+  );
+
   // Best effort, senza requireAuth: il logout deve riuscire anche con cookie
   // assente, manomesso o già scaduto. Si elimina la riga solo se il cookie
   // si risolve; in ogni caso si pulisce il cookie e si risponde 204.
@@ -214,7 +379,7 @@ export async function authRoutes(
     {
       preHandler: requireAuth,
       schema: {
-        response: { 200: z.object({ user: sessionUserSchema }), ...authErrorResponses },
+        response: { 200: sessionResponseSchema, ...authErrorResponses },
       },
     },
     async (request) => ({ user: request.user! }),
@@ -228,7 +393,7 @@ export async function authRoutes(
       preHandler: requireAuth,
       schema: {
         body: z.object({ language: languageSchema }),
-        response: { 200: z.object({ language: languageSchema }), ...authErrorResponses },
+        response: { 200: languageResponseSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {
@@ -355,7 +520,7 @@ export async function authRoutes(
       schema: {
         body: credentialsSchema.extend({ token: z.string().min(1) }),
         response: {
-          201: z.object({ user: publicUserSchema }),
+          201: authUserResponseSchema,
           409: errorSchema,
           410: errorSchema,
         },

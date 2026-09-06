@@ -1,7 +1,8 @@
-import { personalAccessTokens } from "@stubwise/db";
+import { deviceTokens, personalAccessTokens } from "@stubwise/db";
+import type { Db } from "@stubwise/db";
 import { createPatSchema, patViewSchema, patWithTokenSchema } from "@stubwise/shared";
-import type { PatView } from "@stubwise/shared";
-import { and, desc, eq } from "drizzle-orm";
+import type { PatView, PatWithToken } from "@stubwise/shared";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -24,6 +25,36 @@ function toPatView(row: PatRow): PatView {
     expiresAt: row.expiresAt ? row.expiresAt.toISOString() : null,
     createdAt: row.createdAt.toISOString(),
   };
+}
+
+/**
+ * Emette un PAT per un utente e ne restituisce la vista pubblica CON il token
+ * in chiaro. Unico punto in cui un PAT nasce: la generazione, l'hash e il
+ * fatto che in DB finisca solo lo sha256 non vanno riscritti altrove.
+ *
+ * Il chiamante decide chi è l'utente — qui non c'è nessun controllo di
+ * autorizzazione: `POST /api/pats` prende l'id dalla sessione, `mobile-login`
+ * lo prende dall'utente di cui ha appena verificato la password.
+ *
+ * E nemmeno nessuna validazione: i vincoli su `name` e `expiresAt` li applica
+ * lo schema del chiamante (`createPatSchema` per la rotta, il `deviceName` di
+ * `mobileLoginBodySchema` per l'app), perché sono diversi — 100 caratteri
+ * liberi contro 80 senza bidi né interruzioni di riga. Chi aggiunge un
+ * chiamante porta il proprio schema.
+ */
+export async function createPatForUser(
+  db: Db,
+  userId: string,
+  name: string,
+  expiresAt: Date | null,
+): Promise<PatWithToken> {
+  const token = generatePat();
+  const [created] = await db
+    .insert(personalAccessTokens)
+    .values({ userId, name, tokenHash: hashServerKey(token), expiresAt })
+    .returning();
+  if (!created) throw new Error("insert del PAT non ha restituito la riga");
+  return { ...toPatView(created), token };
 }
 
 /**
@@ -62,18 +93,13 @@ export async function patRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const token = generatePat();
-      const [created] = await app.db
-        .insert(personalAccessTokens)
-        .values({
-          userId: request.user!.id,
-          name: request.body.name,
-          tokenHash: hashServerKey(token),
-          expiresAt: request.body.expiresAt ? new Date(request.body.expiresAt) : null,
-        })
-        .returning();
-      if (!created) throw new Error("insert del PAT non ha restituito la riga");
-      return await reply.code(201).send({ ...toPatView(created), token });
+      const created = await createPatForUser(
+        app.db,
+        request.user!.id,
+        request.body.name,
+        request.body.expiresAt ? new Date(request.body.expiresAt) : null,
+      );
+      return await reply.code(201).send(created);
     },
   );
 
@@ -87,17 +113,48 @@ export async function patRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      // userId nel WHERE: revoca solo un token proprio; un id altrui non matcha
-      // e torna 404 (indistinguibile da inesistente, nessun leak d'esistenza).
-      const deleted = await app.db
-        .delete(personalAccessTokens)
-        .where(
-          and(
-            eq(personalAccessTokens.id, request.params.id),
-            eq(personalAccessTokens.userId, request.user!.id),
-          ),
-        )
-        .returning({ id: personalAccessTokens.id });
+      const deleted = await app.db.transaction(async (tx) => {
+        // ⚠️ L'ORDINE NON È LIBERO: i device vanno disabilitati PRIMA del
+        // delete. Dopo, la FK `ON DELETE SET NULL` ha già azzerato `pat_id` e
+        // questo UPDATE non troverebbe più nulla — un riordino che sembra
+        // innocuo e che spegnerebbe in silenzio tutto il meccanismo.
+        //
+        // Serve perché chi revoca il PAT di un telefono perso si aspetta di
+        // aver tagliato fuori quel telefono. Senza questo passo la riga
+        // resterebbe attiva con `pat_id` null, indistinguibile da un device
+        // registrato via web, e le push continuerebbero ad arrivare finché il
+        // relay non dichiarasse invalido il token — cosa che su un telefono
+        // acceso non succede mai.
+        // `userId` nel WHERE NON è ridondante col controllo di proprietà del
+        // delete qui sotto, e va letto per esteso prima di toglierlo: su un PAT
+        // altrui il delete non matcha e la richiesta esce con un 404, ma il 404
+        // è un `return`, non un `throw` — la transazione COMMITTA comunque,
+        // portandosi dietro questo UPDATE. Il filtro per utente è quindi
+        // l'unica cosa che impedisce di spegnere i device altrui indovinando
+        // l'id di un PAT; il 404 non protegge niente.
+        await tx
+          .update(deviceTokens)
+          .set({ disabledAt: new Date(), disabledReason: "pat_revoked" })
+          .where(
+            and(
+              eq(deviceTokens.patId, request.params.id),
+              eq(deviceTokens.userId, request.user!.id),
+              isNull(deviceTokens.disabledAt),
+            ),
+          );
+        // userId nel WHERE: revoca solo un token proprio; un id altrui non
+        // matcha e torna 404 (indistinguibile da inesistente, nessun leak
+        // d'esistenza).
+        return await tx
+          .delete(personalAccessTokens)
+          .where(
+            and(
+              eq(personalAccessTokens.id, request.params.id),
+              eq(personalAccessTokens.userId, request.user!.id),
+            ),
+          )
+          .returning({ id: personalAccessTokens.id });
+      });
       if (deleted.length === 0) return apiError(reply, 404, "pat_not_found", "Token not found");
       return reply.code(204).send(null);
     },

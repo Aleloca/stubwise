@@ -1,25 +1,35 @@
 /**
- * Cuore di trasporto condiviso della chat RAG sui Docs (streaming SSE).
+ * Cuore di trasporto condiviso della chat RAG sui Docs, in DUE modalità:
+ *  - "sse" (default, storica): il loop SSE su `reply.raw` dopo `reply.hijack()`;
+ *  - "json" (fase 4, mobile): accumula la risposta intera e la manda con
+ *    `reply.send()` — NESSUN hijack, dentro il ciclo normale di Fastify (schema
+ *    di risposta validato).
  *
- * Isola le parti del flusso chat che NON dipendono dallo scope (repo-level o
- * project-level): il loop SSE su `reply.raw`, l'AbortSignal sulla disconnessione
- * del client, la persistenza del messaggio assistant (completo con citazioni vs
- * parziale con marcatore di troncamento), e il caricamento dello storico.
+ * In comune alle due modalità: l'AbortSignal sulla disconnessione del client, il
+ * caricamento dello storico, e — sul percorso di successo — la persistenza del
+ * messaggio assistant. **Divergono deliberatamente sul troncamento** (vedi la
+ * nota su {@link StreamChatResponseArgs.mode} qui sotto): è l'unico punto in cui
+ * le due modalità non condividono comportamento, non solo trasporto.
  *
- * Lo usano sia la chat per-repository ({@link ./docs-chat.ts}) sia quella di
- * progetto ({@link ./project-docs.ts}): entrambe risolvono PRIMA la sessione e il
- * retrieval (scope diverso), poi delegano qui l'identico streaming/persistenza.
+ * Lo usano tre route: la chat per-repository ({@link ./docs-chat.ts}), quella di
+ * progetto ({@link ./project-docs.ts}) e quella di raffinamento del backlog
+ * ({@link ./backlog.ts}): tutte risolvono PRIMA la sessione e il retrieval (scope
+ * diverso), poi delegano qui l'identico streaming/persistenza.
  *
- * NOTA SSE: la chat è l'UNICA superficie che bypassa lo schema di risposta Zod —
- * scrive uno stream grezzo su `reply.raw` dopo `reply.hijack()` (Fastify non
+ * NOTA SSE: in modalità "sse" la chat bypassa lo schema di risposta Zod — scrive
+ * uno stream grezzo su `reply.raw` dopo `reply.hijack()` (Fastify non
  * serializza/chiude la risposta). Il protocollo (header + framing
- * `data: {json}\n\n`) vive qui, una sola volta.
+ * `data: {json}\n\n`) vive qui, una sola volta. In modalità "json" NON c'è
+ * hijack: la risposta passa dal normale `reply.send()`, validata dallo schema di
+ * risposta della route (200: `docsChatAnswerSchema`, 502: `errorSchema`).
  */
 
 import { asc, eq } from "drizzle-orm";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { docChatMessages } from "@stubwise/db";
+import { z } from "zod";
 import type { Db } from "@stubwise/db";
+import { apiError } from "../errors.js";
 import type { ChatLlm } from "./chat-llm.js";
 import type { Citation } from "./docs-rag.js";
 
@@ -35,6 +45,17 @@ export function writeSseEvent(reply: FastifyReply, event: unknown): void {
 
 /** Marcatore appeso a una risposta troncata (errore/disconnessione a metà stream). */
 export const TRUNCATION_MARKER = "\n\n_[risposta interrotta]_";
+
+/**
+ * Query condivisa dai tre punti di chiamata di `streamChatResponse` (chat
+ * repo-level, project-level, backlog): `stream=false` passa alla modalità
+ * json (vedi `StreamChatResponseArgs.mode`). Un solo punto di verità: prima
+ * era ridichiarata identica in ciascuno dei tre file, un candidato a
+ * divergere in silenzio se uno dei tre non fosse aggiornato insieme agli
+ * altri due.
+ */
+export const chatQuerySchema = z.object({ stream: z.stringbool().default(true) });
+
 
 /**
  * Carica lo storico della sessione (cronologico) come messaggi per l'LLM.
@@ -61,15 +82,15 @@ interface StreamChatResponseArgs {
   chatLlm: ChatLlm;
   request: FastifyRequest;
   reply: FastifyReply;
-  /** Sessione (repo-level o project-level) già risolta/creata e ownership-verificata. */
+  /** Sessione (repo-level, project-level, o l'id della voce per il backlog) già risolta/creata e ownership-verificata. */
   sessionId: string;
   /** System prompt costruito dal contesto recuperato (scope già applicato). */
   system: string;
   /** Storico per l'LLM (include la domanda corrente in coda). */
   history: { role: "user" | "assistant"; content: string }[];
-  /** Citazioni delle fonti recuperate, allegate al `done` e al messaggio assistant. */
+  /** Citazioni delle fonti recuperate, allegate al `done`/`sources` e al messaggio assistant. */
   citations: Citation[];
-  /** Contesto per il log degli errori LLM (repositoryId o projectId). */
+  /** Contesto per il log degli errori LLM (repositoryId, projectId o backlogItemId). */
   logContext: Record<string, string>;
   /**
    * Persistenza pluggabile del messaggio assistant: se presente sostituisce
@@ -78,13 +99,75 @@ interface StreamChatResponseArgs {
    * a metà: nel default la parziale viene salvata con TRUNCATION_MARKER e senza
    * citazioni — un chiamante custom decide da sé cosa farne. Con risposta
    * interrotta e NESSUN testo accumulato non viene chiamato (come il default,
-   * che in quel caso non persiste nulla).
+   * che in quel caso non persiste nulla). In modalità "json" questo callback è
+   * invocato SOLO sul percorso di successo (mai con `truncated: true`, vedi sotto).
    */
   persistAssistantMessage?: (args: {
     content: string;
     citations: Citation[];
     truncated: boolean;
   }) => Promise<void>;
+  /**
+   * Modalità di consegna della risposta. Default `"sse"` (comportamento
+   * storico, invariato): un evento `delta` per frammento su `reply.raw`, poi un
+   * evento `done` con citazioni e sessionId.
+   *
+   * `"json"` è per i client che non leggono SSE (l'app mobile, `?stream=false`):
+   * NESSUN hijack, i delta sono accumulati e la risposta è un unico body
+   * `{ answer, sources, sessionId }` via `reply.send()` — dentro il ciclo
+   * normale di Fastify, quindi validata dallo schema di risposta della route.
+   *
+   * ⚠️ **DIFFERENZA VOLUTA sul troncamento** (verificata con un test dedicato,
+   * non solo descritta): in "sse" un errore/disconnessione a metà stream CON
+   * testo già accumulato salva il PARZIALE (`TRUNCATION_MARKER`, niente
+   * citazioni) — la UI web l'ha già ricevuto frammento per frammento, quindi ha
+   * senso tenerlo nello storico. In "json" lo stesso errore risponde **502,
+   * SENZA persistere nulla**: un client non-streaming non ha MAI visto un solo
+   * byte di quella risposta (non c'è stato alcun evento `delta` da mostrare),
+   * quindi non esiste un "già visto" da preservare — e persistere un messaggio
+   * che il client non ha mai ricevuto romperebbe la lettura dello storico al
+   * turno successivo (un assistant "fantasma" in mezzo alla conversazione).
+   * Stessa ragione per cui, se la persistenza del COMPLETO fallisce in modalità
+   * "json", si risponde 502 invece di 200: senza garanzia di persistenza non si
+   * può promettere al client che quella risposta sopravviverà a un refresh.
+   */
+  mode?: "sse" | "json";
+}
+
+/**
+ * Consuma lo stream dell'LLM accumulando il testo completo. Condiviso dalle due
+ * modalità: qui vive SOLO la generazione (chiamata all'LLM, AbortSignal,
+ * accumulo), non la persistenza — quella resta nel chiamante perché è l'UNICO
+ * punto in cui sse e json divergono davvero (vedi la nota sul troncamento sopra
+ * {@link StreamChatResponseArgs.mode}). `onDelta` lascia alla modalità la scelta
+ * di cosa fare di ogni frammento (SSE lo inoltra subito, json lo accumula e
+ * basta); `onError` lascia alla modalità la scelta di come reagire a un errore
+ * a metà (SSE scrive un evento `error` se il client c'è ancora, json non scrive
+ * nulla qui — risponderà 502 dopo, nel chiamante).
+ */
+async function consumeLlmStream(args: {
+  chatLlm: ChatLlm;
+  system: string;
+  history: { role: "user" | "assistant"; content: string }[];
+  signal: AbortSignal;
+  isClientGone: () => boolean;
+  onDelta: (delta: string) => void;
+  onError: (error: unknown) => void;
+}): Promise<{ full: string; completed: boolean }> {
+  const { chatLlm, system, history, signal, isClientGone, onDelta, onError } = args;
+  let full = "";
+  let completed = false;
+  try {
+    for await (const delta of chatLlm.stream({ system, messages: history, signal })) {
+      if (isClientGone()) break;
+      full += delta;
+      onDelta(delta);
+    }
+    completed = !isClientGone();
+  } catch (error) {
+    onError(error);
+  }
+  return { full, completed };
 }
 
 /**
@@ -99,11 +182,8 @@ interface StreamChatResponseArgs {
  *  5. su errore/disconnessione a metà con testo accumulato: evento `error` (se il
  *     client è ancora connesso) e persistenza del PARZIALE con marcatore di
  *     troncamento e SENZA citazioni (storico/UI distinguono dal completo).
- *
- * Il chiamante ha già: hijack NON ancora fatto, sessione risolta, messaggio utente
- * persistito, system/history/citations pronti. Da qui la risposta è gestita a mano.
  */
-export async function streamChatResponse(args: StreamChatResponseArgs): Promise<void> {
+async function respondSse(args: StreamChatResponseArgs): Promise<void> {
   const {
     db,
     chatLlm,
@@ -117,7 +197,6 @@ export async function streamChatResponse(args: StreamChatResponseArgs): Promise<
     persistAssistantMessage,
   } = args;
 
-  // --- Streaming SSE --------------------------------------------------------
   // Da qui in poi gestiamo la risposta a mano: header SSE + scrittura grezza su
   // reply.raw. reply.hijack() impedisce a Fastify di serializzare/chiudere la
   // risposta al posto nostro.
@@ -139,35 +218,29 @@ export async function streamChatResponse(args: StreamChatResponseArgs): Promise<
     controller.abort();
   });
 
-  let full = "";
-  // `completed` = lo stream è terminato normalmente (nessun errore, nessuna
-  // disconnessione a metà). Solo in quel caso la risposta è "completa" e tiene
-  // le citazioni; altrimenti è parziale e va marcata come interrotta.
-  let completed = false;
   // La persistenza è fallita: il `done` va soppresso (vedi sotto).
   let persistFailed = false;
+  let full = "";
+  let completed = false;
   try {
-    try {
-      for await (const delta of chatLlm.stream({
-        system,
-        messages: history,
-        signal: controller.signal,
-      })) {
-        if (clientGone) break;
-        full += delta;
-        writeSseEvent(reply, { type: "delta", text: delta });
-      }
-      completed = !clientGone;
-    } catch (error) {
-      // Errore dell'LLM a metà stream: lo segnaliamo al client con un evento
-      // `error` e abortiamo la generazione sottostante (no token sprecati).
-      // Logghiamo per intero lato server (mai nel body).
-      controller.abort();
-      request.log.error({ err: error, ...logContext, sessionId }, "chat LLM error");
-      if (!clientGone) {
-        writeSseEvent(reply, { type: "error", message: "Chat generation failed" });
-      }
-    }
+    ({ full, completed } = await consumeLlmStream({
+      chatLlm,
+      system,
+      history,
+      signal: controller.signal,
+      isClientGone: () => clientGone,
+      onDelta: (delta) => writeSseEvent(reply, { type: "delta", text: delta }),
+      onError: (error) => {
+        // Errore dell'LLM a metà stream: lo segnaliamo al client con un evento
+        // `error` e abortiamo la generazione sottostante (no token sprecati).
+        // Logghiamo per intero lato server (mai nel body).
+        controller.abort();
+        request.log.error({ err: error, ...logContext, sessionId }, "chat LLM error");
+        if (!clientGone) {
+          writeSseEvent(reply, { type: "error", message: "Chat generation failed" });
+        }
+      },
+    }));
 
     // Persistenza del messaggio assistant — PRIMA della chiusura della risposta.
     // Le UI fanno refetch dello storico appena ricevono `done` (o vedono lo
@@ -221,4 +294,105 @@ export async function streamChatResponse(args: StreamChatResponseArgs): Promise<
       reply.raw.end();
     }
   }
+}
+
+/**
+ * Esegue la chat in un'UNICA risposta JSON, senza streaming: accumula i delta
+ * dell'LLM e risponde `{ answer, sources, sessionId }` (200) a generazione
+ * completa, o 502 su errore/persistenza fallita — SENZA mai persistere un
+ * parziale (vedi la nota su {@link StreamChatResponseArgs.mode}).
+ *
+ * NIENTE hijack: la risposta passa dal normale `reply.send()`/`apiError`, quindi
+ * resta dentro la validazione dello schema di risposta della route.
+ */
+async function respondJson(args: StreamChatResponseArgs): Promise<void> {
+  const {
+    db,
+    chatLlm,
+    request,
+    reply,
+    sessionId,
+    system,
+    history,
+    citations,
+    logContext,
+    persistAssistantMessage,
+  } = args;
+
+  // Stessa ragione della modalità sse: fermare il consumo di token se il client
+  // se ne va prima che la generazione finisca.
+  const controller = new AbortController();
+  let clientGone = false;
+  request.raw.on("close", () => {
+    clientGone = true;
+    controller.abort();
+  });
+
+  const { full, completed } = await consumeLlmStream({
+    chatLlm,
+    system,
+    history,
+    signal: controller.signal,
+    isClientGone: () => clientGone,
+    // Nessun inoltro frammento-per-frammento: il body è un pezzo unico a fine
+    // consumo, quindi l'accumulo (già fatto da consumeLlmStream) basta.
+    onDelta: () => {},
+    onError: (error) => {
+      controller.abort();
+      request.log.error({ err: error, ...logContext, sessionId }, "chat LLM error");
+    },
+  });
+
+  // Client sparito: nessuno a cui rispondere. Niente persistenza (stesso motivo
+  // del ramo di errore sotto: il client non ha MAI visto questa risposta) e
+  // niente reply.send (il socket è già chiuso).
+  if (clientGone) return;
+
+  if (!completed) {
+    // Errore LLM a metà: 502, NESSUNA persistenza — a differenza dell'sse, che
+    // salva il parziale con TRUNCATION_MARKER. Qui il client non ha ricevuto
+    // NESSUN byte della risposta (nessun evento `delta`, questa è una risposta
+    // unica), quindi non c'è un "già visto" da preservare nello storico: un
+    // messaggio assistant persistito ma mai arrivato al client sarebbe un
+    // fantasma nella conversazione, letto al turno successivo come se il client
+    // lo avesse visto.
+    apiError(reply, 502, "chat_generation_failed", "Chat generation failed");
+    return;
+  }
+
+  try {
+    if (persistAssistantMessage) {
+      await persistAssistantMessage({ content: full, citations, truncated: false });
+    } else {
+      await db.insert(docChatMessages).values({
+        sessionId,
+        role: "assistant",
+        content: full,
+        citations,
+      });
+    }
+  } catch (error) {
+    request.log.error({ err: error, ...logContext, sessionId }, "chat persist error");
+    // Stessa logica del `done` soppresso in sse: senza garanzia che la
+    // persistenza sia andata a buon fine, non si promette al client una
+    // risposta che potrebbe sparire dallo storico al refresh successivo.
+    apiError(reply, 502, "chat_persist_failed", "Chat response could not be saved");
+    return;
+  }
+
+  reply.send({ answer: full, sources: citations, sessionId });
+}
+
+/**
+ * Punto d'ingresso condiviso: dispatcha su {@link respondSse} (default,
+ * `mode: "sse"` o omesso) o {@link respondJson} (`mode: "json"`) in base a
+ * `args.mode`. Il chiamante ha già: hijack/send NON ancora fatti, sessione
+ * risolta, messaggio utente persistito, system/history/citations pronti. Da qui
+ * la risposta è gestita a mano.
+ */
+export async function streamChatResponse(args: StreamChatResponseArgs): Promise<void> {
+  if (args.mode === "json") {
+    return respondJson(args);
+  }
+  return respondSse(args);
 }

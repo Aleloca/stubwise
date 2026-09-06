@@ -530,6 +530,146 @@ describe("POST /api/repositories/:projectId/docs/chat", () => {
   });
 });
 
+describe("POST /api/repositories/:repositoryId/docs/chat?stream=false (fase 4, mobile)", () => {
+  it("risponde 200 application/json {answer, sources, sessionId}; il messaggio assistant è persistito come nel caso SSE", async () => {
+    const project = await insertProject(testDb.db);
+    const genId = await insertCurrentGeneration(testDb.db, project.id);
+    const question = "Domanda in modalità JSON non-streaming.";
+    const page = await insertPageWithChunk(testDb.db, project.id, genId, {
+      title: "Pagina JSON",
+      body: "Contenuto.",
+      chunkContent: question,
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/repositories/${project.id}/docs/chat?stream=false`,
+      headers: { cookie: memberCookie },
+      payload: { message: question },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toContain("application/json");
+
+    const body = res.json() as { answer: string; sources: { slug: string }[]; sessionId: string };
+    expect(body.answer).toBe(FAKE_DELTAS.join(""));
+    expect(body.sources.some((s) => s.slug === page.slug)).toBe(true);
+
+    const [session] = await testDb.db
+      .select()
+      .from(docChatSessions)
+      .where(eq(docChatSessions.repositoryId, project.id));
+    expect(body.sessionId).toBe(session!.id);
+
+    // Persistito esattamente come nel caso SSE: 2 messaggi (user + assistant),
+    // l'assistant col testo intero e le citazioni.
+    const messages = await testDb.db
+      .select()
+      .from(docChatMessages)
+      .where(eq(docChatMessages.sessionId, session!.id));
+    expect(messages.length).toBe(2);
+    const assistant = messages.find((m) => m.role === "assistant");
+    expect(assistant?.content).toBe(FAKE_DELTAS.join(""));
+    const stored = assistant?.citations as { slug: string }[] | null;
+    expect(stored?.some((c) => c.slug === page.slug)).toBe(true);
+  });
+
+  it("errore LLM a metà: 502 {code, message}, NESSUNA persistenza (a differenza dell'SSE che appende il TRUNCATION_MARKER)", async () => {
+    const project = await insertProject(testDb.db);
+    await insertCurrentGeneration(testDb.db, project.id);
+
+    streamOverride = async function* (): AsyncIterable<string> {
+      yield "parziale che non deve arrivare da nessuna parte";
+      throw new Error("LLM esploso a metà (json)");
+    };
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/repositories/${project.id}/docs/chat?stream=false`,
+      headers: { cookie: memberCookie },
+      payload: { message: "Domanda che fallisce a metà." },
+    });
+    expect(res.statusCode).toBe(502);
+    const body = res.json() as { code?: string; message: string };
+    expect(body.code).toBe("chat_generation_failed");
+
+    // Nessun messaggio assistant: né il completo né un parziale con marcatore
+    // (quel comportamento è SOLO dell'SSE, vedi docs-chat-core.ts).
+    const [session] = await testDb.db
+      .select()
+      .from(docChatSessions)
+      .where(eq(docChatSessions.repositoryId, project.id));
+    const messages = await testDb.db
+      .select()
+      .from(docChatMessages)
+      .where(eq(docChatMessages.sessionId, session!.id));
+    expect(messages.some((m) => m.role === "assistant")).toBe(false);
+    expect(messages.filter((m) => m.role === "user").length).toBe(1);
+  });
+
+  it("default additivo: senza il parametro `stream` la rotta resta SSE (comportamento di sempre)", async () => {
+    const project = await insertProject(testDb.db);
+    await insertCurrentGeneration(testDb.db, project.id);
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/repositories/${project.id}/docs/chat`,
+      headers: { cookie: memberCookie },
+      payload: { message: "Domanda senza il parametro stream." },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toContain("text/event-stream");
+  });
+
+  it("?stream=maybe: 400 di validazione Zod (valore non fra quelli accettati)", async () => {
+    const project = await insertProject(testDb.db);
+    await insertCurrentGeneration(testDb.db, project.id);
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/repositories/${project.id}/docs/chat?stream=maybe`,
+      headers: { cookie: memberCookie },
+      payload: { message: "ciao" },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("chat non servibile (nessun provider api_key): 503 PRIMA di consumare l'LLM, anche in modalità json", async () => {
+    availabilityOverride = { available: false };
+    const project = await insertProject(testDb.db);
+    await insertCurrentGeneration(testDb.db, project.id);
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/repositories/${project.id}/docs/chat?stream=false`,
+      headers: { cookie: memberCookie },
+      payload: { message: "Domanda con chat indisponibile." },
+    });
+    expect(res.statusCode).toBe(503);
+  });
+
+  it("sessionId di un altro utente: 404 (stessa ownership della sse, invariata da ?stream)", async () => {
+    const project = await insertProject(testDb.db);
+    await insertCurrentGeneration(testDb.db, project.id);
+
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/repositories/${project.id}/docs/chat`,
+      headers: { cookie: memberCookie },
+      payload: { message: "Domanda del member." },
+    });
+    const doneEvent = parseSse(created.payload).find((e) => e.type === "done");
+    const session = doneEvent!.sessionId as string;
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/repositories/${project.id}/docs/chat?stream=false`,
+      headers: { cookie: adminCookie },
+      payload: { sessionId: session, message: "Intrusione in json." },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+});
+
 describe("GET /api/repositories/:projectId/docs/chat/sessions[/:id/messages]", () => {
   it("elenca le sessioni dell'utente e i loro messaggi", async () => {
     const project = await insertProject(testDb.db);

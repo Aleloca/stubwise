@@ -182,3 +182,164 @@ export const createBacklogFromDesignSchema = z.object({
   design: z.string().min(1).max(200_000),
 });
 export type CreateBacklogFromDesignInput = z.infer<typeof createBacklogFromDesignSchema>;
+
+/**
+ * Ruolo del legame voce↔ticket: `origin` (il ticket ha originato la voce) o
+ * `converted_to` (la voce è stata convertita in questo ticket). L'enum Postgres
+ * deriva da questo schema.
+ */
+export const backlogTicketRoleSchema = z.enum(["origin", "converted_to"]);
+export type BacklogTicketRole = z.infer<typeof backlogTicketRoleSchema>;
+
+/**
+ * Autore di un messaggio della chat di raffinamento. `system` copre i marker
+ * automatici (es. l'esito di un deep dive), che non hanno né un umano né
+ * l'assistente dietro. La colonna `backlog_chat_messages.role` deriva da qui.
+ */
+export const backlogMessageRoleSchema = z.enum(["user", "assistant", "system"]);
+export type BacklogMessageRole = z.infer<typeof backlogMessageRoleSchema>;
+
+/** Riferimento a una voce simile suggerita dal dedup (o null). */
+export const backlogSimilarRefSchema = z.object({ id: z.uuid(), title: z.string() });
+export type BacklogSimilarRef = z.infer<typeof backlogSimilarRefSchema>;
+
+/**
+ * Voce del backlog nella LISTA: campi leggeri per le card. Volutamente SENZA
+ * `document` né `embedding` (payload pesanti inutili in lista).
+ */
+export const backlogItemSchema = z.object({
+  id: z.uuid(),
+  projectId: z.uuid(),
+  title: z.string(),
+  status: backlogItemStatusSchema,
+  effort: z.number().int().nullable(),
+  risk: backlogRiskSchema.nullable(),
+  riskNote: z.string().nullable(),
+  urgency: backlogUrgencySchema.nullable(),
+  requestCount: z.number().int(),
+  source: backlogItemSourceSchema,
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+  similarTo: backlogSimilarRefSchema.nullable(),
+  ticketCount: z.number().int(),
+});
+export type BacklogItem = z.infer<typeof backlogItemSchema>;
+
+/**
+ * Forma "base" della voce: tutti i campi confermati più `document`, `suggested`
+ * e `similarTo` risolto (SENZA `embedding`). È la risposta di PATCH/accept/dismiss
+ * e il nucleo del dettaglio, che vi aggiunge `tickets` e `messages`.
+ */
+export const backlogItemBaseSchema = z.object({
+  id: z.uuid(),
+  projectId: z.uuid(),
+  title: z.string(),
+  document: z.string(),
+  // Piano di implementazione e contenuto d'origine (design/piano collegati alla
+  // voce): testo libero, null finché non impostati.
+  implementationPlan: z.string().nullable(),
+  originContent: z.string().nullable(),
+  status: backlogItemStatusSchema,
+  effort: z.number().int().nullable(),
+  risk: backlogRiskSchema.nullable(),
+  riskNote: z.string().nullable(),
+  urgency: backlogUrgencySchema.nullable(),
+  requestCount: z.number().int(),
+  source: backlogItemSourceSchema,
+  suggested: backlogSuggestedSchema.nullable(),
+  similarTo: backlogSimilarRefSchema.nullable(),
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+});
+export type BacklogItemBase = z.infer<typeof backlogItemBaseSchema>;
+
+/** Ticket collegato a una voce (join backlog_item_tickets → tickets). */
+export const backlogLinkedTicketSchema = z.object({
+  id: z.uuid(),
+  number: z.number().int(),
+  title: z.string(),
+  role: backlogTicketRoleSchema,
+});
+export type BacklogLinkedTicket = z.infer<typeof backlogLinkedTicketSchema>;
+
+/** Messaggio della chat di raffinamento (una sola conversazione per voce). */
+export const backlogMessageSchema = z.object({
+  id: z.uuid(),
+  role: backlogMessageRoleSchema,
+  content: z.string(),
+  // Citazioni RAG dell'assistant (jsonb opaco), null se assenti.
+  citations: z.unknown().nullable(),
+  createdAt: z.iso.datetime(),
+});
+export type BacklogMessage = z.infer<typeof backlogMessageSchema>;
+
+/**
+ * Sessione di analisi sul codice ATTIVA di una voce (o null). In modalità code
+ * ogni messaggio della chat diventa un turno dell'agente sul repo. Espone lo
+ * stretto necessario alla UI: stato, repo su cui investiga e istante d'avvio.
+ */
+export const backlogCodeSessionSchema = z.object({
+  status: backlogCodeSessionStatusSchema,
+  repositoryId: z.uuid(),
+  startedAt: z.iso.datetime(),
+});
+export type BacklogCodeSession = z.infer<typeof backlogCodeSessionSchema>;
+
+/**
+ * DETTAGLIO di una voce: la forma base più i ticket collegati, i messaggi di
+ * chat e i flag di lavorazione in corso.
+ */
+export const backlogItemDetailSchema = backlogItemBaseSchema.extend({
+  tickets: z.array(backlogLinkedTicketSchema),
+  messages: z.array(backlogMessageSchema),
+  // True se esiste un job deep_dive queued/running per la voce (UI: "analisi in
+  // corso" con polling).
+  deepDivePending: z.boolean(),
+  // Sessione di analisi sul codice attiva (o null): la chat è in modalità code.
+  codeSession: backlogCodeSessionSchema.nullable(),
+  // True se esiste un job chat_turn queued/running per la voce (UI: "sta
+  // investigando nel codice…" con polling).
+  pendingTurn: z.boolean(),
+});
+export type BacklogItemDetail = z.infer<typeof backlogItemDetailSchema>;
+
+/** Pagina della lista backlog: gemella di `ticketPageSchema`. */
+export const backlogPageSchema = z.object({
+  items: z.array(backlogItemSchema),
+  nextCursor: z.string().nullable(),
+});
+export type BacklogPage = z.infer<typeof backlogPageSchema>;
+
+/**
+ * Esito (202) della creazione manuale di una voce. `queued: true` e non un id:
+ * la rotta NON crea la voce, accoda un job di intake — è quello a deciderne
+ * forma e stima, e a volte a FONDERLA in una voce esistente invece di crearne
+ * una nuova. `jobId` è il job accodato.
+ */
+export const createBacklogResultSchema = z.object({
+  queued: z.literal(true),
+  jobId: z.uuid(),
+});
+export type CreateBacklogResult = z.infer<typeof createBacklogResultSchema>;
+
+/** Esito della conversione di una voce in ticket: id e numero del ticket nato. */
+export const convertBacklogResultSchema = z.object({
+  ticketId: z.uuid(),
+  ticketNumber: z.number().int(),
+});
+export type ConvertBacklogResult = z.infer<typeof convertBacklogResultSchema>;
+
+/**
+ * Esito (202) di un turno di chat CON una sessione di analisi sul codice
+ * attiva: il turno è stato accettato e l'agente risponderà in modo asincrono.
+ * `userMessageId` è l'id server del messaggio utente persistito, con cui la UI
+ * dedupa il proprio messaggio ottimistico contro il rifetch.
+ *
+ * SENZA sessione attiva la stessa rotta risponde invece in SSE: è il chiamante
+ * a sapere in quale dei due modi sta chiedendo.
+ */
+export const backlogChatAcceptedSchema = z.object({
+  mode: z.literal("code"),
+  userMessageId: z.uuid(),
+});
+export type BacklogChatAccepted = z.infer<typeof backlogChatAcceptedSchema>;

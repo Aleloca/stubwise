@@ -713,9 +713,11 @@
       },
       "notifications": {
         "title": "Notifiche",
-        "subtitle": "L'inbox in-app è sempre attiva. Il DM su Slack è facoltativo.",
+        "subtitle": "L'inbox in-app è sempre attiva. Il DM su Slack e le notifiche push sono facoltativi.",
         "slackDm": "Ricevi le notifiche in DM su Slack",
-        "slackNotLinked": "Collega prima il tuo account Slack (chiedi a un maintainer da /team)."
+        "slackNotLinked": "Collega prima il tuo account Slack (chiedi a un maintainer da /team).",
+        "push": "Ricevi le notifiche push sull'app mobile",
+        "pushHint": "Vale per tutti i dispositivi su cui hai fatto l'accesso dall'app."
       }
     },
     "accessTokens": {

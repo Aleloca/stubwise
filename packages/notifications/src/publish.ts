@@ -1,12 +1,13 @@
 import {
   aiJobs,
+  deviceTokens,
   notificationDeliveries,
   notifications,
   projectFollows,
   tickets,
   users,
 } from "@stubwise/db";
-import { and, eq, inArray, isNotNull } from "drizzle-orm";
+import { and, eq, exists, inArray, isNotNull, isNull } from "drizzle-orm";
 import { loadSettings, shouldSendWebhook, type DbOrTx } from "./dispatch.js";
 import type { NotificationEvent } from "./format.js";
 import { audienceFor, recipientsFor, type RoutingContext } from "./routing.js";
@@ -103,13 +104,34 @@ export async function publishNotification(
               .returning({ id: notifications.id, userId: notifications.userId })
           : [];
 
-      // Outbox. Le consegne `slack_dm` vanno solo a chi ha un'identità Slack e
-      // non ha spento i DM: chi non ce l'ha non genera riga (lo stato `skipped`
-      // è del poller, per il bot non configurato al momento dell'invio).
+      // Outbox. Ogni canale per-destinatario ha il suo sottoinsieme di
+      // raggiungibili (vedi i docblock di `slackRecipients` e
+      // `pushRecipients`): chi non ne fa parte non genera riga, e lo stato
+      // `skipped` resta del poller, per ciò che si scopre solo al momento
+      // dell'invio (il bot Slack non configurato).
       const slackReady = await slackRecipients(inner, recipients);
-      const deliveries: (typeof notificationDeliveries.$inferInsert)[] = inserted
-        .filter((row) => slackReady.has(row.userId))
-        .map((row) => ({ notificationId: row.id, channel: "slack_dm" as const }));
+      const pushReady = await pushRecipients(inner, recipients);
+      /**
+       * Una riga per destinatario raggiungibile, sul canale dato.
+       *
+       * `webhook` è escluso dal generico di proposito: è una consegna per
+       * EVENTO, non per destinatario, e il CHECK
+       * `notification_deliveries_channel_shape_chk` la rifiuterebbe in questa
+       * forma. Escluderlo qui sposta l'errore dal DB al compilatore.
+       */
+      const perRecipient = <
+        C extends Exclude<(typeof notificationDeliveries.$inferInsert)["channel"], "webhook">,
+      >(
+        ready: Set<string>,
+        channel: C,
+      ) =>
+        inserted
+          .filter((row) => ready.has(row.userId))
+          .map((row) => ({ notificationId: row.id, channel }));
+      const deliveries: (typeof notificationDeliveries.$inferInsert)[] = [
+        ...perRecipient(slackReady, "slack_dm"),
+        ...perRecipient(pushReady, "push"),
+      ];
       if (withWebhook) {
         deliveries.push({
           channel: "webhook" as const,
@@ -122,10 +144,20 @@ export async function publishNotification(
 
       return { published: inserted.length };
     });
-  } catch {
+  } catch (error) {
     // Inghiottito di proposito: vedi docblock della funzione. Il rollback della
-    // transazione annidata ha già rimesso a posto le eventuali scritture
-    // parziali.
+    // transazione annidata ha già rimesso a posto le scritture parziali — e
+    // "parziali" qui vuol dire TUTTE: le query dei canali girano nella stessa
+    // transazione dell'insert in inbox, quindi un errore in una di loro si
+    // porta via anche la riga di inbox. La notifica non è degradata, non è mai
+    // esistita.
+    //
+    // Il log è l'unica traccia che resti: nessun chiamante guarda `published`,
+    // quindi senza questa riga il job proseguirebbe come se nulla fosse e il
+    // primo a scoprirlo sarebbe un umano che dopo giorni si chiede perché non
+    // riceve nulla. `console` e non un logger perché il package non ne ha uno
+    // fra le mani (stessa scelta di `slack-client.ts`).
+    console.warn(`[notify] publish di ${event.kind} fallita, nessuna riga scritta:`, error);
     return { published: 0 };
   }
 }
@@ -211,6 +243,25 @@ async function resolveRequestedBy(db: DbOrTx, jobId?: string): Promise<string | 
     .then((rows) => rows[0]?.userId ?? undefined);
 }
 
+/*
+ * AL TERZO CANALE QUESTE FUNZIONI SI UNIFICANO.
+ *
+ * Sono due query sulla STESSA tabella con lo STESSO `inArray`, diverse solo nel
+ * predicato: con due canali la duplicazione costa un round trip ed è
+ * tollerabile, ma quella che si sta consolidando è la regola implicita «copia
+ * la funzione», e una copia non eredita nulla — non la firma, non l'early
+ * return sull'elenco vuoto (senza il quale drizzle emette un `IN ()` che
+ * Postgres rifiuta), non la promessa di una sola andata. È una simmetria di
+ * forma, non di struttura, e il terzo canale la fa divergere.
+ *
+ * La forma indicativa dell'unificazione:
+ *   select id, (…) as slack, (…) as push, (…) as <nuovo> from users where id in …
+ * letta in una `Map<userId, Set<channel>>` che `perRecipient` interroga al posto
+ * dei Set di oggi. Vale anche il principio dichiarato in
+ * `resolveRoutingContext`: query in meno per notifica, su una funzione che gira
+ * dentro la transazione di chi emette l'evento.
+ */
+
 /**
  * Sottoinsieme dei destinatari raggiungibili via DM Slack (identità Slack
  * presente e preferenza attiva). UNA query per tutti, non una per destinatario.
@@ -225,6 +276,48 @@ async function slackRecipients(db: DbOrTx, recipients: string[]): Promise<Set<st
         inArray(users.id, recipients),
         isNotNull(users.slackUserId),
         eq(users.notifySlackDm, true),
+      ),
+    );
+  return new Set(rows.map((row) => row.id));
+}
+
+/**
+ * Sottoinsieme dei destinatari raggiungibili via push: preferenza accesa E
+ * almeno un device non disattivato. Gemella di {@link slackRecipients}, con la
+ * stessa promessa — UNA query per tutti i destinatari.
+ *
+ * ⚠️ Prima di copiarla per un TERZO canale: leggi la nota sopra
+ * `slackRecipients`. Copiare non eredita l'early return sull'elenco vuoto,
+ * e senza quello drizzle emette un `IN ()` che Postgres rifiuta.
+ *
+ * `exists` e non una join su `device_tokens`: qui interessa SE il destinatario
+ * ha un recapito, non quanti — una join produrrebbe una riga per device e da lì
+ * una consegna per device.
+ *
+ * Il filtro guarda `disabled_at IS NULL` e MAI il motivo: i motivi sono già due
+ * (`pat_revoked` alla revoca del PAT, `invalid_token` quando il provider
+ * rifiuta il token) e possono crescere, mentre l'unica cosa che conta è che il
+ * device sia spento. Scritto così il predicato è anche, alla lettera, quello
+ * dell'indice parziale `device_tokens_user_active_idx`, così il planner PUÒ
+ * usarlo quando la tabella cresce — su una query che sta sul percorso di OGNI
+ * notifica. Con poche righe sceglierà comunque un seq scan, ed è normale: il
+ * piano non è una proprietà di questo codice, la forma del predicato sì.
+ */
+async function pushRecipients(db: DbOrTx, recipients: string[]): Promise<Set<string>> {
+  if (recipients.length === 0) return new Set();
+  const rows = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(
+      and(
+        inArray(users.id, recipients),
+        eq(users.notifyPush, true),
+        exists(
+          db
+            .select({ id: deviceTokens.id })
+            .from(deviceTokens)
+            .where(and(eq(deviceTokens.userId, users.id), isNull(deviceTokens.disabledAt))),
+        ),
       ),
     );
   return new Set(rows.map((row) => row.id));

@@ -5,7 +5,8 @@
  *  - `GET /spaces` — gli spazi-doc dei repo del progetto in un'unica vista;
  *  - `GET /search?q=` — ricerca cross-repo (semantica + full-text), NESSUNA
  *    persistenza di cronologia (D5);
- *  - `POST /chat` — chat RAG streaming SSE cross-repo, su sessione project-level;
+ *  - `POST /chat` — chat RAG cross-repo, su sessione project-level: SSE di
+ *    default, `?stream=false` risponde in un unico body JSON (fase 4, mobile);
  *  - `GET /chat/sessions` e `.../:id/messages` — storico scoped a (progetto, utente).
  *
  * Montato sotto `/api/projects/:projectId/docs` (vedi app.ts). Il retrieval
@@ -15,7 +16,13 @@
  * tutto condiviso con le route per-repository, senza duplicazione.
  */
 
-import { docPageKindSchema } from "@stubwise/shared";
+import {
+  docChatMessageSchema,
+  docChatSessionSchema,
+  docPageKindSchema,
+  docsChatAnswerSchema,
+  docSpaceSchema,
+} from "@stubwise/shared";
 import { and, asc, desc, eq, isNull, ne, or, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
@@ -30,7 +37,7 @@ import {
   repositories,
 } from "@stubwise/db";
 import { apiError } from "../errors.js";
-import { loadHistory, streamChatResponse } from "./docs-chat-core.js";
+import { chatQuerySchema, loadHistory, streamChatResponse } from "./docs-chat-core.js";
 import {
   emptyCountsByKind,
   HIGHLIGHT_LIMITS,
@@ -49,18 +56,10 @@ const chatBodySchema = z.object({
   message: z.string().min(1).max(8000),
 });
 
+/** Query della chat: `stream` sceglie fra SSE (default) e JSON non-streaming (fase 4, mobile). */
+
 /** Query di ricerca: `q` non vuota, cappata a 300 char (come la ricerca per-repo). */
 const searchQuerySchema = z.object({ q: z.string().min(1).max(300) });
-
-/** Uno "spazio" dell'hub di progetto: un repository del progetto che ha documentazione. */
-const spaceSchema = z.object({
-  repositoryId: z.uuid(),
-  slug: z.string(),
-  name: z.string(),
-  pageCount: z.number().int(),
-  lastGenerationAt: z.string().nullable(),
-  lastCommitSha: z.string().nullable(),
-});
 
 /**
  * Un risultato di ricerca cross-repo: stesso shape della search per-repo
@@ -112,7 +111,7 @@ export async function projectDocsRoutes(instance: FastifyInstance): Promise<void
       preHandler: requireAuth,
       schema: {
         params: projectIdParamsSchema,
-        response: { 200: z.array(spaceSchema), 404: errorSchema, ...authErrorResponses },
+        response: { 200: z.array(docSpaceSchema), 404: errorSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {
@@ -332,14 +331,25 @@ export async function projectDocsRoutes(instance: FastifyInstance): Promise<void
       preHandler: requireAuth,
       schema: {
         params: projectIdParamsSchema,
+        querystring: chatQuerySchema,
         body: chatBodySchema,
-        // Nessuno schema 200: la risposta è uno stream SSE grezzo su reply.raw
-        // (reply.hijack). Restano gli errori PRIMA dello streaming.
-        response: { 404: errorSchema, 503: errorSchema, ...authErrorResponses },
+        // Schema 200 SOLO per la modalità json (?stream=false, fase 4 mobile):
+        // reply.send() resta nel ciclo normale di Fastify. La modalità sse
+        // (default) bypassa questo schema via reply.hijack() su reply.raw (vedi
+        // docs-chat-core.ts). 502 = errore/persistenza fallita A METÀ in
+        // modalità json (SENZA persistenza, vedi docs-chat-core.ts).
+        response: {
+          200: docsChatAnswerSchema,
+          404: errorSchema,
+          502: errorSchema,
+          503: errorSchema,
+          ...authErrorResponses,
+        },
       },
     },
     async (request, reply) => {
       const { projectId } = request.params;
+      const { stream } = request.query;
       const { sessionId, message } = request.body;
       const userId = request.user!.id;
 
@@ -420,8 +430,9 @@ export async function projectDocsRoutes(instance: FastifyInstance): Promise<void
       const system = appendGraphContext(buildDocsSystemPrompt(chunks), graphBlock);
       const history = await loadHistory(app.db, resolvedSessionId);
 
-      // Streaming SSE + persistenza del messaggio assistant: cuore condiviso con
-      // la chat per-repo (vedi ./docs-chat-core.ts).
+      // Streaming SSE (o risposta JSON unica con ?stream=false, fase 4 mobile) +
+      // persistenza del messaggio assistant: cuore condiviso con la chat
+      // per-repo (vedi ./docs-chat-core.ts).
       await streamChatResponse({
         db: app.db,
         chatLlm: app.chatLlm,
@@ -432,6 +443,7 @@ export async function projectDocsRoutes(instance: FastifyInstance): Promise<void
         history,
         citations,
         logContext: { projectId },
+        mode: stream ? "sse" : "json",
       });
     },
   );
@@ -446,7 +458,7 @@ export async function projectDocsRoutes(instance: FastifyInstance): Promise<void
       schema: {
         params: projectIdParamsSchema,
         response: {
-          200: z.array(z.object({ id: z.uuid(), createdAt: z.string() })),
+          200: z.array(docChatSessionSchema),
           404: errorSchema,
           ...authErrorResponses,
         },
@@ -477,15 +489,7 @@ export async function projectDocsRoutes(instance: FastifyInstance): Promise<void
       schema: {
         params: z.object({ projectId: z.uuid(), id: z.uuid() }),
         response: {
-          200: z.array(
-            z.object({
-              id: z.uuid(),
-              role: z.string(),
-              content: z.string(),
-              citations: z.unknown().nullable(),
-              createdAt: z.string(),
-            }),
-          ),
+          200: z.array(docChatMessageSchema),
           404: errorSchema,
           ...authErrorResponses,
         },

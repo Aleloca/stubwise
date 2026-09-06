@@ -217,6 +217,16 @@ services:
       # 0 = disabilitato (le consegne si accumulano senza partire).
       # Default: 5 secondi.
       - NOTIFY_POLL_SECONDS=${NOTIFY_POLL_SECONDS:-5}
+      # --- Notifiche push sull'app mobile (fase 4) ---
+      # Il worker NON parla con APNs/FCM: spedisce al RELAY, che tiene le chiavi
+      # dell'app (una sola, la nostra). Tre valori con tre significati diversi:
+      # variabile ASSENTE -> relay pubblico (il default qui sotto, che deve
+      # coincidere con DEFAULT_PUSH_RELAY_URL nel codice); stringa VUOTA -> push
+      # SPENTE (e' l'interruttore del rollback); un URL https -> quel relay.
+      # ATTENZIONE alla sintassi: `${VAR-default}` col TRATTINO NUDO, non `:-`.
+      # Con i due punti una stringa vuota in .env verrebbe rimpiazzata dal
+      # default e le push NON si spegnerebbero.
+      - PUSH_RELAY_URL=${PUSH_RELAY_URL-https://push.stubwise.thecove.it}
       # --- Pulse proattivo (progetti fermi con voci nel backlog) ---
       # Poller che, DENTRO la finestra oraria d'istanza, cerca i progetti fermi
       # con voci proponibili e pubblica una notifica `project.pulse` con 2–3
@@ -347,10 +357,60 @@ services:
       # usa ":80" (solo HTTP) o "localhost" (TLS self-signed).
       DOMAIN: ${DOMAIN:-:80}
       SERVER_UPSTREAM: server:${PORT:-3000}
+      # Sottodominio del relay push (`push.<host>`), usato SOLO dal blocco di
+      # sito opzionale in caddy.d. Vuoto per tutte le istanze self-hosted, che
+      # quel blocco non ce l'hanno: vedi caddy.d/README.md.
+      PUSH_RELAY_HOST: ${PUSH_RELAY_HOST:-}
     logging: *default-logging
     volumes:
       - caddy-data:/data
       - caddy-config:/config
+      # Blocchi di sito aggiuntivi montati dall'host. Nel repo la cartella
+      # contiene solo file `.example`, che il glob `*.caddy` del Caddyfile non
+      # matcha: per chi non usa il relay non cambia nulla.
+      - ./caddy.d:/etc/caddy/conf.d:ro
+
+  # RELAY PUSH — gira SOLO sul nostro VPS, sotto il profilo `relay`.
+  #
+  # Il modello è relay-only: l'app sugli store è una sola (la nostra), quindi le
+  # chiavi APNs/FCM sono legate alla NOSTRA identità di publisher e vivono solo
+  # qui. Le istanze self-hosted NON avviano questo servizio — lo CHIAMANO via
+  # HTTPS (`PUSH_RELAY_URL`, che di default punta già al relay pubblico). Il
+  # `profiles` è ciò che le tiene fuori: senza `--profile relay` il servizio non
+  # viene né buildato né avviato da `docker compose up -d`.
+  #
+  # ⚠️ È il bersaglio di maggior valore del sistema: chi ruba queste chiavi può
+  # mandare notifiche a nome di Stubwise a OGNI telefono su cui l'app è
+  # installata. Per questo non pubblica porte sull'host (ci arriva solo Caddy,
+  # dalla rete interna) e non monta nulla.
+  push-relay:
+    build:
+      context: .
+      dockerfile: Dockerfile.push-relay
+    profiles: ["relay"]
+    restart: unless-stopped
+    environment:
+      # Service account Firebase in base64 (`base64 -i sa.json | tr -d '\n'`).
+      # Obbligatorio: è il canale attivo per Android e, in v1, anche per iOS.
+      # Il relay fallisce l'avvio se manca, invece di consegnare a vuoto.
+      FCM_SERVICE_ACCOUNT_JSON: ${FCM_SERVICE_ACCOUNT_JSON:-}
+      # `fcm` (default) o `apns`. In v1 l'app usa Firebase Messaging anche su
+      # iOS, quindi un token `ios` è un token FCM: instradarlo ad APNs lo
+      # farebbe rifiutare. Si passerà a `apns` in fase 4b, coi token nativi.
+      IOS_PUSH_VIA: ${IOS_PUSH_VIA:-fcm}
+      # Obbligatorie SOLO con IOS_PUSH_VIA=apns (il relay lo verifica all'avvio).
+      APNS_KEY_P8: ${APNS_KEY_P8:-}
+      APNS_KEY_ID: ${APNS_KEY_ID:-}
+      APNS_TEAM_ID: ${APNS_TEAM_ID:-}
+      APNS_BUNDLE_ID: ${APNS_BUNDLE_ID:-}
+      # ⚠️ Solo "true" o "false": niente 1/0/yes, che il relay rifiuta. Un
+      # ambiente sbagliato fa rispondere ad Apple `BadDeviceToken`, lo stesso
+      # codice di un token inventato — indistinguibile a valle.
+      APNS_SANDBOX: ${APNS_SANDBOX:-false}
+      RELAY_RATE_PER_TOKEN_HOUR: ${RELAY_RATE_PER_TOKEN_HOUR:-60}
+      RELAY_RATE_PER_TOKEN_DAY: ${RELAY_RATE_PER_TOKEN_DAY:-500}
+      RELAY_RATE_PER_IP_MINUTE: ${RELAY_RATE_PER_IP_MINUTE:-600}
+    logging: *default-logging
 
 volumes:
   pgdata:

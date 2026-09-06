@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createDb } from "@stubwise/db";
 import { createEmbeddingClient } from "@stubwise/embeddings";
+import { createPushRelayClient } from "@stubwise/notifications";
 import { ClaudeCliRunner } from "./agent/claude-cli.js";
 import { startBacklogPoller } from "./backlog/poller.js";
 import { startChatTurnPoller } from "./backlog/chat-turn-poller.js";
@@ -20,7 +21,7 @@ import { createGraphifyRunner } from "./graph/graphify-cli.js";
 import { startGraphPoller } from "./graph/poller.js";
 import { createHandler, createProjectSerializer } from "./handler.js";
 import { startMonitorAlertPoller } from "./monitor/alerts.js";
-import { startDeliveriesPoller } from "./notify/deliveries-poller.js";
+import { PUSH_RELAY_TIMEOUT_MS, startDeliveriesPoller } from "./notify/deliveries-poller.js";
 import { startPluginPoller } from "./plugins/poller.js";
 import { startMonitorRollupPoller } from "./monitor/rollup.js";
 import { startLimitResumePoller } from "./providers/limit-resume-poller.js";
@@ -347,6 +348,12 @@ startDeliveriesPoller({
   // Serve ai canali Slack: il bot token è cifrato nelle instance settings con
   // la stessa chiave del server.
   encryptionKey: config.encryptionKey,
+  // Client del relay push, o `null` se le push sono spente (`PUSH_RELAY_URL=`).
+  // Il timeout è quello STRETTO del poller, non il default del client: vedi
+  // PUSH_RELAY_TIMEOUT_MS.
+  pushRelay: config.push
+    ? createPushRelayClient({ url: config.push.relayUrl, timeoutMs: PUSH_RELAY_TIMEOUT_MS })
+    : null,
   intervalSeconds: config.notifyPollSeconds,
   signal: controller.signal,
 });
@@ -574,7 +581,8 @@ console.error(
     `, plugins ${config.pluginPollSeconds > 0 ? `ogni ${config.pluginPollSeconds}" (in ${config.pluginsDir})` : "disabilitato"}` +
     `, monitor-rollup ${config.monitorRollupIntervalMinutes > 0 ? `ogni ${config.monitorRollupIntervalMinutes}'` : "disabilitato"}` +
     `, monitor-alert ${config.monitorAlertIntervalMinutes > 0 ? `ogni ${config.monitorAlertIntervalMinutes}'` : "disabilitato"}` +
-    `, pulse ${config.pulsePollMinutes > 0 ? `ogni ${config.pulsePollMinutes}' (finestra ${config.pulseSendHour}:00 ${config.pulseTimezone}${config.pulseWeekdaysOnly ? ", feriali" : ""})` : "disabilitato"})`,
+    `, pulse ${config.pulsePollMinutes > 0 ? `ogni ${config.pulsePollMinutes}' (finestra ${config.pulseSendHour}:00 ${config.pulseTimezone}${config.pulseWeekdaysOnly ? ", feriali" : ""})` : "disabilitato"}` +
+    `, push ${config.push ? `relay ${config.push.relayUrl}` : "spente (PUSH_RELAY_URL vuota)"})`,
 );
 // POLITICA DI PRIORITÀ doc vs fix (Task 5.4): i fix hanno la precedenza. Il
 // loop satura la concorrenza con i fix in coda; reclama UN doc-job per tick solo

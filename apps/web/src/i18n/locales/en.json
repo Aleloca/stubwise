@@ -713,9 +713,11 @@
       },
       "notifications": {
         "title": "Notifications",
-        "subtitle": "The in-app inbox is always on. Slack DMs are optional.",
+        "subtitle": "The in-app inbox is always on. Slack DMs and push notifications are optional.",
         "slackDm": "Get notifications as a Slack DM",
-        "slackNotLinked": "Link your Slack account first (ask a maintainer in /team)."
+        "slackNotLinked": "Link your Slack account first (ask a maintainer in /team).",
+        "push": "Get push notifications on the mobile app",
+        "pushHint": "Applies to every device where you signed in from the app."
       }
     },
     "accessTokens": {

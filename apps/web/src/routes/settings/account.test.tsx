@@ -41,19 +41,22 @@ interface AccountMockState {
   /** Body inviati a PUT /api/me/follows (l'insieme COMPLETO, mai un delta). */
   followPuts: unknown[];
   /** Preferenze di notifica correnti (`slackLinked` è contesto del server). */
-  prefs: { slackDm: boolean; slackLinked: boolean };
-  /** Body inviati a PUT /api/me/notification-prefs. */
-  prefsPuts: unknown[];
+  prefs: { slackDm: boolean; push: boolean; slackLinked: boolean };
+  /** Body inviati a PATCH /api/me/notification-prefs. */
+  prefsPatches: unknown[];
 }
 
 function mockAccountApi(
-  overrides: { followed?: string[]; prefs?: { slackDm: boolean; slackLinked: boolean } } = {},
+  overrides: {
+    followed?: string[];
+    prefs?: { slackDm: boolean; push: boolean; slackLinked: boolean };
+  } = {},
 ): AccountMockState {
   const state: AccountMockState = {
     followed: overrides.followed ?? [],
     followPuts: [],
-    prefs: overrides.prefs ?? { slackDm: false, slackLinked: true },
-    prefsPuts: [],
+    prefs: overrides.prefs ?? { slackDm: false, push: true, slackLinked: true },
+    prefsPatches: [],
   };
 
   const handlers: Record<string, Handler> = {
@@ -100,10 +103,11 @@ function mockAccountApi(
       return new Response(null, { status: 204 });
     },
     "GET /api/me/notification-prefs": () => jsonResponse(200, state.prefs),
-    "PUT /api/me/notification-prefs": (_url, init) => {
-      const body = JSON.parse(String(init?.body)) as { slackDm: boolean };
-      state.prefsPuts.push(body);
-      state.prefs = { ...state.prefs, slackDm: body.slackDm };
+    "PATCH /api/me/notification-prefs": (_url, init) => {
+      // Il server applica una PATCH: i campi assenti restano come sono.
+      const body = JSON.parse(String(init?.body)) as { slackDm?: boolean; push?: boolean };
+      state.prefsPatches.push(body);
+      state.prefs = { ...state.prefs, ...body };
       return new Response(null, { status: 204 });
     },
   };
@@ -166,19 +170,43 @@ describe("account: progetti seguiti", () => {
 
 describe("account: preferenze di notifica", () => {
   it("il toggle del DM Slack salva la preferenza", async () => {
-    const state = mockAccountApi({ prefs: { slackDm: false, slackLinked: true } });
+    const state = mockAccountApi({ prefs: { slackDm: false, push: true, slackLinked: true } });
     renderAccount();
 
     const toggle = await screen.findByLabelText(/Slack DM/i);
     expect(toggle).toBeEnabled();
     await userEvent.click(toggle);
 
-    await waitFor(() => expect(state.prefsPuts).toEqual([{ slackDm: true }]));
+    // Si manda il SOLO campo toccato: `push` non compare nel body.
+    await waitFor(() => expect(state.prefsPatches).toEqual([{ slackDm: true }]));
     expect(toggle).toBeChecked();
   });
 
+  it("il toggle delle push salva la preferenza senza toccare il DM Slack", async () => {
+    const state = mockAccountApi({ prefs: { slackDm: true, push: true, slackLinked: true } });
+    renderAccount();
+
+    const toggle = await screen.findByLabelText(/push/i);
+    expect(toggle).toBeChecked();
+    await userEvent.click(toggle);
+
+    await waitFor(() => expect(state.prefsPatches).toEqual([{ push: false }]));
+    expect(toggle).not.toBeChecked();
+    // Il canale che non si è toccato resta acceso: è la proprietà della PATCH.
+    expect(state.prefs.slackDm).toBe(true);
+  });
+
+  it("il toggle delle push è attivo anche senza identità Slack collegata", async () => {
+    // Non c'è un vincolo simmetrico a quello del DM: le push non dipendono da
+    // Slack, e chi non ha ancora installato l'app può comunque decidere ora.
+    mockAccountApi({ prefs: { slackDm: false, push: false, slackLinked: false } });
+    renderAccount();
+
+    expect(await screen.findByLabelText(/push/i)).toBeEnabled();
+  });
+
   it("senza identità Slack collegata il toggle è disabilitato, con l'hint", async () => {
-    const state = mockAccountApi({ prefs: { slackDm: false, slackLinked: false } });
+    const state = mockAccountApi({ prefs: { slackDm: false, push: true, slackLinked: false } });
     renderAccount();
 
     const toggle = await screen.findByLabelText(/Slack DM/i);
@@ -186,6 +214,6 @@ describe("account: preferenze di notifica", () => {
     expect(screen.getByText(/Link your Slack account first/i)).toBeInTheDocument();
 
     await userEvent.click(toggle);
-    expect(state.prefsPuts).toEqual([]);
+    expect(state.prefsPatches).toEqual([]);
   });
 });

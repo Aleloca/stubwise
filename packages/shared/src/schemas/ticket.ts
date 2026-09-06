@@ -71,3 +71,95 @@ export const ticketRepositorySchema = z.object({
   prState: prStateSchema,
 });
 export type TicketRepository = z.infer<typeof ticketRepositorySchema>;
+
+/**
+ * Forma pubblica di un ticket nelle risposte API: la riga del DB con le date
+ * in ISO 8601. Alimenta anche l'OpenAPI generata.
+ */
+export const ticketSchema = z.object({
+  id: z.uuid(),
+  projectId: z.uuid(),
+  number: z.number().int(),
+  title: z.string(),
+  body: z.string(),
+  type: ticketTypeSchema,
+  priority: ticketPrioritySchema,
+  status: ticketStatusSchema,
+  source: ticketSourceSchema,
+  assigneeId: z.uuid().nullable(),
+  // Milestone a cui il ticket è assegnato; null = nessuna milestone.
+  milestoneId: z.uuid().nullable(),
+  // Stima di sforzo 1–5 del triage AI; null finché il ticket non è triagiato.
+  effort: effortSchema.nullable(),
+  labels: z.array(z.string()),
+  technicalPayload: z.unknown().nullable(),
+  occurrences: z.number().int(),
+  lastSeenAt: z.iso.datetime(),
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+});
+export type Ticket = z.infer<typeof ticketSchema>;
+
+/**
+ * Dettaglio del ticket: la forma pubblica più lo stato PR per-repo (Fase 3,
+ * fix multi-repo). `repositories` elenca una voce per ogni repository
+ * effettivamente modificato dal fix (righe `ticket_repositories`), con branch,
+ * PR e stato. Vuoto prima dell'esecuzione dell'agente. È l'unico legame
+ * ticket↔repo: il ticket appartiene solo al progetto.
+ */
+export const ticketDetailSchema = ticketSchema.extend({
+  // Piano di implementazione e contenuto d'origine (design/piano collegati al
+  // ticket): testo libero, null finché non impostati. Solo nel dettaglio: sono
+  // potenzialmente grandi e fuori posto nelle liste.
+  implementationPlan: z.string().nullable(),
+  originContent: z.string().nullable(),
+  repositories: z.array(ticketRepositorySchema),
+});
+export type TicketDetail = z.infer<typeof ticketDetailSchema>;
+
+/**
+ * Item della lista ticket: la forma pubblica più il conteggio dei repository
+ * toccati (righe `ticket_repositories`), utile ai badge di board/lista senza
+ * caricare l'elenco completo per ogni ticket.
+ */
+export const ticketListItemSchema = ticketSchema.extend({
+  repositoryCount: z.number().int(),
+});
+export type TicketListItem = z.infer<typeof ticketListItemSchema>;
+
+/**
+ * Pagina della lista ticket: gli item più il cursore della pagina successiva
+ * (null sull'ultima). L'involucro sta qui accanto agli item e non nelle rotte
+ * perché lo leggono in tre — server, SPA e app mobile — e una copia per
+ * lettore è esattamente ciò che questo pacchetto esiste per evitare.
+ */
+export const ticketPageSchema = z.object({
+  items: z.array(ticketListItemSchema),
+  nextCursor: z.string().nullable(),
+});
+export type TicketPage = z.infer<typeof ticketPageSchema>;
+
+/**
+ * Esito di `POST /api/tickets/:id/questions/answer`: il job che riparte e la
+ * domanda a cui si è risposto. `questionId` torna indietro perché il server
+ * confronta quella MOSTRATA con quella davvero aperta, e il client deve poter
+ * verificare a quale delle due ha risposto.
+ */
+export const answerQuestionResultSchema = z.object({ jobId: z.uuid(), questionId: z.uuid() });
+export type AnswerQuestionResult = z.infer<typeof answerQuestionResultSchema>;
+
+/**
+ * Esito (202) dell'avvio manuale dell'AI su un ticket. `status` distingue i due
+ * modi in cui un run può nascere: in coda, oppure GIÀ fermo sul gate di
+ * approvazione — un run chiesto da un operatore su un ticket con piano salvato.
+ * Sono due esperienze diverse e il client deve dirle con parole diverse.
+ */
+export const runAiResultSchema = z.object({
+  jobId: z.uuid(),
+  status: z.enum(["queued", "awaiting_plan_approval"]),
+});
+export type RunAiResult = z.infer<typeof runAiResultSchema>;
+
+/** Esito (202) di approva/rifiuta piano: il job che riparte. */
+export const planDecisionResultSchema = z.object({ jobId: z.uuid() });
+export type PlanDecisionResult = z.infer<typeof planDecisionResultSchema>;

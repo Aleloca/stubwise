@@ -5,6 +5,8 @@ design: 2026-09-02-phase4-mobile-app-design.md
 stubwise:
   project: stubwise
   backlog: ab61e273-a522-40bc-9534-b2c6085ead37
+  ticket: 309111fe-b675-463d-91fd-da98bbc99fb5
+  ticketUrl: https://stubwise.thecove.it/tickets/309111fe-b675-463d-91fd-da98bbc99fb5
 ---
 
 # Fase 4 — App mobile: piano di implementazione
@@ -373,7 +375,7 @@ separato con una connessione nuova).
 ### Task 7: rotte `/api/me/devices` e preferenza `push`
 
 **Files:**
-- Modify: `apps/server/src/routes/me-prefs.ts` (GET/PUT prefs con `push`; `PUT /api/me/devices`; `DELETE /api/me/devices/:token`)
+- Modify: `apps/server/src/routes/me-prefs.ts` (GET/PATCH prefs con `push`; `PUT /api/me/devices`; `POST /api/me/devices/delete` — token nel BODY, non nel path: il server gira con `logger: true` e pino scrive l'URL intero, quindi un `DELETE /:token` scriverebbe il token push nei log a ogni logout)
 - Modify: `packages/shared/src/schemas/notification.ts` (`deviceRegistrationSchema { platform, token, appVersion? }`)
 - Test: `apps/server/src/routes/me-prefs.test.ts`
 
@@ -456,6 +458,28 @@ chiavi APNs/FCM sono legate alla nostra identità e vivono SOLO nel relay
   `ok`, `failed` senza retry se erano tutti `invalid_token`;
 - relay risponde `retry` per tutti, o `PushRelayUnavailable` → retry col
   `backoffMs` esistente; `PushRelayRejected` → `failed` senza retry;
+- ⚠️ **il `detail` della delivery NON deve contenere i token.** `results[].token`
+  torna al chiamante sul percorso di successo, e questa riga del piano diceva
+  «`detail` con l'esito per token»: copiare `results` così com'è scriverebbe i
+  token push in `notification_deliveries`, cioè in chiaro nel DB e nei log —
+  la stessa cosa che `POST /api/me/devices/delete` evita tenendoli fuori dal
+  path. Salva gli esiti **per id del device**, mai per token.
+- ⚠️ **appaia gli esiti per VALORE del token, non per indice.** Lo schema
+  dichiara che il relay risponde nell'ordine dei token, ma un contratto non lo
+  può imporre: un relay che riordina farebbe disabilitare il device sbagliato,
+  cioè spegnere un telefono sano e tenerne attivo uno morto — senza errori,
+  solo un utente che smette di ricevere notifiche.
+- ⚠️ **stringi `timeoutMs`** (2–3 s invece dei 10 s di default). Il poller
+  processa fino a 20 righe per tick **in sequenza** con guardia anti-rientro:
+  un relay morto allunga il tick a 200 s, e in quel tick non partono nemmeno i
+  DM Slack e i webhook, che stanno nella stessa coda. Il backoff non aiuta,
+  agisce dopo. Il relay è un hop che gestiamo noi e in salute risponde in
+  decine di ms.
+- ⚠️ **il default dell'URL vivrà in due posti** (`DEFAULT_PUSH_RELAY_URL` nel
+  codice e `${PUSH_RELAY_URL-…}` nel compose): dentro Docker quello nel codice
+  è morto, e chi cambia l'uno e non l'altro non lo scopre da nessun test.
+  Stessa famiglia di `WORKER_STALE_MINUTES`: prevedi un test nel worker che
+  legga il compose e lo confronti con la costante esportata.
 - il payload contiene `badge = unreadCount` del destinatario (query
   `notifications where user_id and read_at is null and handled_at is null`
   — riusa la stessa condizione della rotta `unread-count` in
@@ -472,6 +496,16 @@ chiavi APNs/FCM sono legate alla nostra identità e vivono SOLO nel relay
 **Step 4: Run** → PASS. **Step 5: Commit** `feat(worker): consegna push attraverso il relay, token invalidi disabilitati`.
 
 ### Task 10b: il relay (`apps/push-relay`)
+
+> ⚠️ **VINCOLO dal Task 10: `reason` non deve MAI contenere il token.** Il
+> poller scrive gli esiti per **id del device** e non per token proprio per
+> tenerli fuori da `notification_deliveries` e dai log — ma `result.reason`
+> arriva dal relay e finisce dritto in quella stringa. È l'unico punto in cui
+> il poller si fida di ciò che il relay gli manda. Se il relay echeggia il
+> token in `reason` (p.es. ricopiando un messaggio d'errore di APNs/FCM che lo
+> contiene), vanifica da solo tutta la catena — token fuori dal path del
+> DELETE, esiti per device id, messaggi coi soli conteggi.
+
 
 Microservizio nostro, deployato solo sul nostro VPS. Le istanze self-hosted
 non lo eseguono: lo chiamano.
@@ -515,6 +549,17 @@ riesce.
 `docker compose --profile relay up -d --build push-relay caddy`. La nostra
 istanza usa il relay come tutte le altre (default di `PUSH_RELAY_URL`), così
 lo esercitiamo davvero.
+
+> ⚠️ **Debito noto dal Task 10, da chiudere quando si rimetterà mano alla
+> transazione di `applyPushOutcome`**: l'atomicità fra disabilitazione del
+> device e chiusura della delivery **è** osservabile dall'esterno, contro quanto
+> si era concluso in prima battuta — basta un trigger temporaneo `BEFORE UPDATE
+> ON notification_deliveries` che faccia `RAISE EXCEPTION` su `NEW.error LIKE
+> 'devices:%'` (il claim non scrive `error`, quindi passa). Con la `tx` giusta
+> l'eccezione fa rollback anche dell'UPDATE dei device; senza, il device
+> risulta disabilitato mentre la consegna è rimasta com'era. Oggi la proprietà
+> è vera per ispezione e nessun test la difende: un refactoring che perdesse la
+> `tx` nel ramo retry resterebbe verde.
 
 ### Task 11: segnali di progetto condivisi + `GET /api/projects/pulse`
 
@@ -752,7 +797,7 @@ comparire in `device_tokens`.
 ### Task 20: Impostazioni e logout; polish offline; accessibilità di base
 
 **Files:**
-- Create: `apps/mobile/src/screens/settings/SettingsSheet.tsx` (dall'avatar: Notifiche → push on/off (`me/prefs push`), progetti seguiti (`me/follows`); Istanza → server (sola lettura), lingua (it/en, persiste); Esci → `DELETE /api/me/devices/:token` + `DELETE /api/pats/:patId` + **`messaging().deleteToken()`** (invalida il token: un'ex istanza non può più raggiungere questo telefono, anche se se lo era salvato — è la garanzia di sicurezza del modello a relay) + `clearSession` + reset cache; al login successivo `getToken()` ne genera uno nuovo)
+- Create: `apps/mobile/src/screens/settings/SettingsSheet.tsx` (dall'avatar: Notifiche → push on/off (`me/prefs push`), progetti seguiti (`me/follows`); Istanza → server (sola lettura), lingua (it/en, persiste); Esci → `POST /api/me/devices/delete` (token nel body: vedi Task 7, un `DELETE /:token` lo scriverebbe nei log) + `DELETE /api/pats/:patId` + **`messaging().deleteToken()`** (invalida il token: un'ex istanza non può più raggiungere questo telefono, anche se se lo era salvato — è la garanzia di sicurezza del modello a relay) + `clearSession` + reset cache; al login successivo `getToken()` ne genera uno nuovo)
 - Modify: `apps/mobile/src/app/providers.tsx` (`OfflineBanner` globale da NetInfo: «Offline — ultima sincronizzazione {time}»; `lastSyncAt` aggiornato a ogni fetch riuscito)
 - Test: `SettingsSheet.test.tsx` (logout revoca device e PAT e chiama `deleteToken`; anche se una delle chiamate remote fallisce la sessione locale viene comunque cancellata e `deleteToken` viene comunque chiamato), `OfflineBanner.test.tsx`
 - Accessibilità: `accessibilityLabel` sui bottoni con glifo, `accessibilityRole="button"`, font scaling consentito (niente `allowFontScaling={false}`)
@@ -785,6 +830,71 @@ il job CI su ubuntu passi con il mobile incluso.
 
 **Files:**
 - Modify: `apps/mobile/README.md`: (1) prerequisiti; (2) dev locale; (3) Firebase: creare il progetto, scaricare `GoogleService-Info.plist` / `google-services.json` (fuori dal repo, percorsi attesi); (4) iOS: Xcode → Signing & Capabilities (team, Push Notifications, Background Modes) → Product → Archive → Distribute → TestFlight interno, passo per passo; (5) Android: keystore locale (`keytool` comando), `gradle.properties` con le proprietà `STUBWISE_UPLOAD_STORE_FILE`… (fuori dal repo), `./gradlew bundleRelease`/`assembleRelease`, Play internal o APK diretto; (6) `pnpm --filter @stubwise/mobile version:bump`; (7) **il relay push**: perché esiste (app unica sugli store, chiavi legate alla nostra identità), cosa vede (titolo e corpo in TLS, nessun log — cifratura E2E in fase 4b), come un'istanza self-hosted lo usa (default di `PUSH_RELAY_URL`, `""` per spegnere le push) e come lo operiamo noi: credenziali APNs (`.p8` da Apple Developer → Keys, `APNS_KEY_ID`, `APNS_TEAM_ID`) e FCM (service account JSON) in base64 nel `.env` del VPS (`base64 -i AuthKey.p8 | tr -d '\n'`), DNS `push.<dominio>`, `docker compose --profile relay up -d --build push-relay caddy`; (8) troubleshooting Metro+pnpm.
+- **⚠️ VOCE OBBLIGATORIA per `CLAUDE.md`, sezione "Invarianti e trappole"** (emersa nella fase A, Task 4b — non perderla):
+
+  > **Verso l'app mobile, solo cambi ADDITIVI — alle risposte E alle richieste.** L'app si aggiorna
+  > dagli store, non dai nostri deploy: per settimane un server nuovo parla a
+  > client vecchi. Aggiungere un campo è sicuro (il client vecchio lo scarta);
+  > aggiungere un valore a un enum è sicuro **solo perché** gli schemi dei client
+  > passano da `readerSchema` (`packages/shared/src/reader.ts`), che li apre e
+  > riporta l'ignoto come `UNKNOWN`. **Rimuovere o rinominare un campo NON è
+  > sicuro e nessun meccanismo lo copre**: il parse dell'intera risposta
+  > fallisce, e sulla lista d'inbox significa schermata principale vuota su ogni
+  > telefono finché l'utente non aggiorna. Un rename «tanto è solo un rename» su
+  > una rotta che il mobile legge è un incidente di produzione che non possiamo
+  > ritirare.
+  >
+  > **Vale anche nel verso opposto**: l'app *manda* richieste, quindi rendere
+  > OBBLIGATORIO un campo nuovo in un body rompe le app vecchie esattamente come
+  > rimuovere un campo da una risposta. È già successo in fase B: aggiungere
+  > `push` a `notificationPrefsSchema` ha reso `PUT /api/me/notification-prefs`
+  > non soddisfacibile da un client che non lo conosce. La forma giusta per un
+  > body che cresce nel tempo è la **patch**: campi opzionali, gli assenti
+  > restano invariati.
+
+- **⚠️ TRAPPOLA DI METODO, emersa al Task 9 — vale per chiunque faccia mutation
+  testing in questo monorepo.** Quando la mutazione è in un package **diverso**
+  da quello dei test, un `dist/` stantio la nasconde: i test leggono `dist`, non
+  i sorgenti, quindi la mutazione sembra «non catturata» mentre in realtà lo
+  sarebbe. Successo davvero: togliere un titolo da `packages/i18n/src` lasciava
+  verdi i test di `packages/notifications` finché non si rifaceva
+  `pnpm --filter @stubwise/i18n build`. In CI è innocuo (`ci.yml` fa `pnpm -r
+  build` prima di `pnpm -r test`), ma in locale porta alla conclusione opposta a
+  quella vera: «il test non discrimina» quando invece discrimina. **Regola: dopo
+  ogni mutazione cross-package, ribuildare prima di eseguire.**
+
+- **⚠️ SECONDA TRAPPOLA DEL MUTATION TESTING, emersa al Task 9: una mutazione
+  che CRASHA non prova niente.** Mutando un controllo in `KNOWN.has(status as
+  string)`, un input numerico arrivava fino a `status.slice(...)` e **lanciava**:
+  la `parse` falliva comunque e l'`expect(...).toThrow()` passava **per il
+  motivo sbagliato** — il test sembrava difeso, ma la logica cambiata non era
+  mai stata esercitata. **Regola: una mutazione deve produrre codice che GIRA e
+  dà l'esito sbagliato, non codice che esplode.** Se dopo una mutazione il test
+  resta verde, prima di concludere «il test non discrimina» verifica che la
+  mutazione non stia fallendo per conto suo.
+
+- **Due voci accertate al Task 8:** (a) *nota di deploy* — finché il Task 10 non
+  c'è, il poller marca ogni riga `push` come `skipped / channel_not_implemented`
+  e **non la ripesca più**. Innocuo se server e worker si deployano insieme
+  (regola già in vigore); se il rilascio venisse spezzato, i device già
+  registrati resterebbero saltati a vita. (b) *guida utente Starlight* — il
+  consenso vero alle push non è la preferenza `notify_push` ma il **prompt del
+  sistema operativo**: senza permesso non nasce il token e il canale è muto per
+  costruzione. La preferenza è un opt-out di secondo livello, come collegare
+  Slack lo è per i DM. Scriverlo nella guida: «installare l'app e accettare le
+  notifiche di sistema basta; si spengono dall'Account».
+
+- **Due avvertenze accertate al Task 6, da riportare nelle note di rollback:**
+  (a) `delivery_channel += 'push'` **NON** replica la lezione della fase 2:
+  `notification_kind` aveva due anelli (schema in shared *e* presenza in
+  `inboxPageSchema`), `delivery_channel` non ne ha nessuno — l'unico riferimento
+  fuori da `packages/db` è una scrittura, nessuna rotta lo legge. Scendere di
+  immagine sul server è sicuro, e le righe `push` in `notification_deliveries`
+  non vanno ripulite. (b) Ma `notificationPrefsViewSchema` ha ora `push`
+  obbligatorio ed **è** nella risposta di una rotta preesistente: un rollback del
+  server lascia l'app mobile installata senza quel campo, e l'app non viaggia
+  nell'immagine.
+
 - Modify: `CLAUDE.md`: sezione monorepo (`apps/mobile`, `packages/api-client`, `apps/push-relay`), architettura runtime (servizio `push-relay` sotto profilo `relay`, solo sul nostro VPS; le istanze self-hosted NON lo avviano), sezione "Deploy" con la voce **Fase 4** (migrazione 0067; rebuild server+worker+caddy; `PUSH_RELAY_URL` di default punta al relay pubblico e `""` spegne le push; deploy del relay con profilo `relay` + DNS; rollback: scendere di immagine sul server è sicuro? — il canale `push` è un valore enum nuovo che il **poller vecchio** marca `channel_not_implemented` (innocuo), ma controlla se `notificationPrefsViewSchema`/`deliveryChannel` in shared compaiono in risposte di rotte preesistenti → scrivi la conclusione VERA dopo aver letto gli schemi), trappola «rotta `/api/projects/pulse` prima di `/:id`», nota che `apps/web` dipende da `@stubwise/api-client` in dependencies (Dockerfile.caddy).
 - Modify: `apps/docs` (guida utente Starlight): pagina «App mobile» (installazione via TestFlight/APK, login, notifiche, cosa si può fare dall'app).
 

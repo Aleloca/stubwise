@@ -1,10 +1,18 @@
 import type {
   AgentQuestionOption,
+  AiJob as AIJob,
+  AiJobStatus as AIJobStatus,
   AlertThresholds,
   AnswerBody,
-  BacklogItemSource,
+  BacklogCodeSession,
+  BacklogItem,
+  BacklogItemBase,
+  BacklogItemDetail,
   BacklogItemStatus,
+  BacklogLinkedTicket,
+  BacklogMessage,
   BacklogRisk,
+  BacklogSimilarRef,
   BacklogSuggested,
   CheckStatus,
   CheckType,
@@ -22,13 +30,12 @@ import type {
   InboxQuestion,
   InboxStatus,
   Language,
-  NotificationPrefs,
+  NotificationPrefsUpdate,
   NotificationPrefsView,
   PatView,
   PatWithToken,
   Plugin,
   PluginRecommendations,
-  PrState,
   ProjectFollows,
   ProjectPlugin,
   RecordSearchHistoryBody,
@@ -39,9 +46,14 @@ import type {
   ServerStatus,
   SnoozeResult,
   SnoozeUntil,
+  // `TicketBase` non esce da questo file: è la forma che il server restituisce
+  // da POST/PATCH (`ticketSchema`), senza `repositories`.
+  Ticket as TicketBase,
+  TicketDetail as Ticket,
+  TicketListItem,
   TicketPriority,
   TicketQuestion,
-  TicketSource,
+  TicketRepository,
   TicketStatus,
   TicketType,
   UnreadCount,
@@ -53,14 +65,18 @@ import type {
   WidgetUpsertBody,
 } from "@stubwise/shared";
 
-// Import RUNTIME (non di solo tipo): l'unico schema che il client ESEGUE, per
-// validare il body del 409 `already_handled` prima di fidarsene (vedi
-// `handledByFromError`).
+// Import RUNTIME (non di solo tipo).
+import { ANSWER_TEXT_MAX_CHARS, inboxDecisionActionSchema } from "@stubwise/shared";
+
+// `errorFromResponse` serve alle poche chiamate che NON passano dal wrapper
+// (upload multipart e artefatti serviti come testo): fanno fetch a mano ma
+// devono produrre lo STESSO ApiError di tutte le altre.
 import {
-  ANSWER_TEXT_MAX_CHARS,
-  inboxActionErrorSchema,
-  inboxDecisionActionSchema,
-} from "@stubwise/shared";
+  ApiError,
+  createStubwiseClient,
+  errorFromResponse,
+  handledByFromError,
+} from "@stubwise/api-client";
 
 // Tetto del testo libero di una risposta: ri-esportato dal binding locale come
 // i tipi qui sopra, così il pannello della domanda può limitare la textarea
@@ -95,7 +111,7 @@ export type {
   InboxPage,
   InboxQuestion,
   InboxStatus,
-  NotificationPrefs,
+  NotificationPrefsUpdate,
   NotificationPrefsView,
   ProjectFollows,
   SnoozeUntil,
@@ -106,104 +122,39 @@ export type {
 export type { BacklogSuggested };
 
 /**
- * Wrapper fetch tipizzato per l'API di Stubwise.
+ * Il client HTTP della SPA: il trasporto vive in `@stubwise/api-client`, che la
+ * web condivide con l'app mobile — path, verbi, header, forma degli errori.
  *
- * In dev le richieste passano dal proxy di Vite (same-origin), in produzione
- * Caddy serve statici e API dallo stesso host: il cookie di sessione httpOnly
- * viaggia da solo. `credentials: "include"` è ridondante in same-origin ma
- * rende esplicita l'intenzione e copre eventuali setup cross-origin.
+ * `baseUrl` VUOTA perché la SPA è same-origin: in dev le richieste passano dal
+ * proxy di Vite, in produzione Caddy serve statici e API dallo stesso host.
+ * `getAuthHeader` torna null perché qui l'autenticazione è il cookie di
+ * sessione httpOnly, che `credentials: "include"` fa viaggiare (ridondante in
+ * same-origin, ma esplicito e a prova di setup cross-origin); è l'app mobile,
+ * senza cookie, a mettere un token nell'header.
+ *
+ * ⚠️ Le funzioni di questo file NON passano uno schema di risposta al client, ed
+ * è deliberato: continuano a fare il cast che facevano prima. La validazione
+ * `schema.parse` c'è solo sugli endpoint tipizzati del pacchetto (quelli che
+ * userà l'app mobile), dove il server dichiara lo stesso schema come risposta
+ * della rotta. Accenderla qui su ~40 rotte trasformerebbe ogni divergenza
+ * latente in un'eccezione in faccia a un utente del web, che oggi non c'è — e
+ * i test della SPA, che usano mock, non la scoprirebbero.
  */
+const client = createStubwiseClient({
+  baseUrl: "",
+  credentials: "include",
+  getAuthHeader: () => null,
+});
 
 /**
- * Errore HTTP dell'API: status + messaggio estratto dal body del server.
- * `code` è l'identificatore stabile (snake_case, indipendente dalla lingua)
- * che il server invia su `{ code, message }`: la UI lo usa per la traduzione
- * via `translateApiError`. Assente su risposte non-JSON, errori di validazione
- * Zod ed errori di rete. Status 0 = errore di rete (il server non ha risposto).
+ * `ApiError` e `handledByFromError` sono ri-esportati dal binding locale: i
+ * componenti li importano da "./api" come sempre e non sanno del pacchetto.
+ * Sono la CLASSE e la funzione del pacchetto, non copie: un `instanceof
+ * ApiError` vale lo stesso ovunque.
  */
-export class ApiError extends Error {
-  readonly status: number;
-  readonly code?: string;
-  /**
-   * Body JSON grezzo della risposta d'errore, quando ce n'è uno.
-   *
-   * `code` e `message` bastano quasi sempre; alcuni errori però portano un DATO
-   * che alla UI serve (oggi solo il 409 `already_handled` dell'inbox, che dice
-   * CHI ha gestito la notifica). Invece di aggiungere un campo tipizzato per
-   * ciascuno di questi casi si conserva il body così com'è, `unknown`: chi lo
-   * vuole lo valida con lo schema condiviso della sua superficie — vedi
-   * {@link handledByFromError}. Assente su risposte non-JSON e di rete.
-   */
-  readonly details?: unknown;
+export { ApiError, handledByFromError };
 
-  constructor(
-    status: number,
-    message: string,
-    code?: string,
-    options?: ErrorOptions & { details?: unknown },
-  ) {
-    super(message, options);
-    this.name = "ApiError";
-    this.status = status;
-    this.code = code;
-    this.details = options?.details;
-  }
-}
-
-/**
- * Costruisce l'{@link ApiError} di una risposta non-ok leggendone il body.
- *
- * Il server risponde `{ code, message }` sugli errori user-facing (code assente
- * sugli errori di validazione Zod); il fallback copre risposte non-JSON (proxy,
- * gateway, artefatti serviti in streaming, …). Caso raro e senza code: message
- * in inglese (coerente con "API in inglese, UI traduce per code").
- */
-async function errorFromResponse(response: Response): Promise<ApiError> {
-  const fallback = `Error ${response.status}`;
-  const { message, code, details } = await response
-    .json()
-    .then((data: unknown) => {
-      const obj = typeof data === "object" && data !== null ? (data as Record<string, unknown>) : {};
-      return {
-        message: "message" in obj ? String(obj.message) : fallback,
-        code: typeof obj.code === "string" ? obj.code : undefined,
-        // Il body intero resta a disposizione dei pochi errori che portano un
-        // dato oltre a code/message (vedi ApiError.details).
-        details: data,
-      };
-    })
-    .catch(() => ({ message: fallback, code: undefined, details: undefined }));
-  return new ApiError(response.status, message, code, { details });
-}
-
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const init: RequestInit = { method, credentials: "include" };
-  if (body !== undefined) {
-    init.headers = { "content-type": "application/json" };
-    init.body = JSON.stringify(body);
-  }
-
-  let response: Response;
-  try {
-    response = await fetch(path, init);
-  } catch (error) {
-    // fetch rifiuta con TypeError sugli errori di rete (server giù, DNS,
-    // CORS): normalizzato in ApiError così i chiamanti hanno un solo tipo
-    // di errore da gestire. Tutto il resto (es. AbortError) riemerge as-is.
-    if (error instanceof TypeError) {
-      // `network_error` è un code stabile (non c'è un body server da cui
-      // leggerlo): `translateApiError` lo localizza. Il message inglese è il
-      // fallback se la chiave non esistesse.
-      throw new ApiError(0, "Unable to reach the server", "network_error", { cause: error });
-    }
-    throw error;
-  }
-
-  if (!response.ok) throw await errorFromResponse(response);
-
-  if (response.status === 204) return undefined as T;
-  return (await response.json()) as T;
-}
+const request = client.request;
 
 export const api = {
   get: <T>(path: string) => request<T>("GET", path),
@@ -341,81 +292,12 @@ export function postRegister(registration: Registration): Promise<{ user: Public
 
 // --- Tickets ---
 
-/**
- * Stato per-repo di un ticket (Fase 3, fix multi-repo): una voce per ogni
- * repository effettivamente modificato dal fix (riga `ticket_repositories`),
- * con il branch, la PR aperta (se già aperta) e il suo stato. Esposto solo nel
- * DETTAGLIO del ticket; vuoto finché il fix non è stato eseguito.
- */
-export interface TicketRepository {
-  repositoryId: string;
-  repositorySlug: string;
-  /** Nome del repository (comodità di UI); slug e id sono sempre presenti. */
-  repositoryName?: string;
-  branch: string;
-  /** URL della PR aperta dal fix; null finché non è stata aperta. */
-  prUrl: string | null;
-  prState: PrState;
-}
-
-/**
- * Campi base di un ticket, comuni a tutte le risposte (POST/PATCH li
- * restituiscono così com'è; lista e dettaglio li estendono con lo stato repo).
- * Il ticket appartiene al solo PROGETTO (Fase 3): non c'è più un repository
- * bersaglio, l'AI sceglie i repo da toccare in fase di fix.
- */
-export interface TicketBase {
-  id: string;
-  /** Progetto (gruppo) a cui il ticket appartiene. */
-  projectId: string;
-  number: number;
-  title: string;
-  body: string;
-  type: TicketType;
-  priority: TicketPriority;
-  status: TicketStatus;
-  source: TicketSource;
-  assigneeId: string | null;
-  /** Milestone a cui il ticket è assegnato; null = nessuna milestone. */
-  milestoneId: string | null;
-  /** Stima di sforzo 1–5 del triage AI; null finché non triagiato. */
-  effort: number | null;
-  labels: string[];
-  technicalPayload: unknown;
-  occurrences: number;
-  lastSeenAt: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-/**
- * Ticket nel DETTAGLIO (getTicket): oltre ai campi base, lo stato per-repo
- * (`repositories`). Una voce per ogni repository modificato dal fix; vuoto
- * finché il fix non è stato eseguito.
- */
-export interface Ticket extends TicketBase {
-  /**
-   * Piano di implementazione collegato al ticket (testo libero, null finché non
-   * impostato da Claude Code). Solo nel DETTAGLIO. Solo render/delete lato SPA.
-   */
-  implementationPlan: string | null;
-  /**
-   * Contenuto d'origine preservato quando un design ne sostituisce il `body`
-   * (null se nessun design è attivo). DELETE del design ripristina questo valore.
-   * Solo nel DETTAGLIO.
-   */
-  originContent: string | null;
-  repositories: TicketRepository[];
-}
-
-/**
- * Ticket nella LISTA/BOARD: i campi base più il solo CONTEGGIO dei repo toccati
- * (`repositoryCount`), per il badge di board/lista senza caricare lo stato PR
- * completo.
- */
-export interface TicketListItem extends TicketBase {
-  repositoryCount: number;
-}
+// Le forme di ticket e job AI vivono in `@stubwise/shared`, unica fonte di
+// verità con il server (che ci valida le risposte) e con l'app mobile. Resta
+// una sola inversione di nome: per la SPA `Ticket` è il DETTAGLIO, che in
+// shared si chiama `TicketDetail`. Rinominarlo nelle sue ~40 occorrenze sarebbe
+// churn senza valore.
+export type { TicketRepository, Ticket, TicketListItem };
 
 /** Filtri della lista ticket: combaciano con i search param di /tickets. */
 export interface TicketFilters {
@@ -743,48 +625,9 @@ export function attachmentDownloadUrl(attachmentId: string): string {
 
 // --- AI Jobs ---
 
-export type AIJobStatus =
-  | "queued"
-  | "triaging"
-  | "fixing"
-  // "held": triage ha deciso fix ma il gate di automazione lo tiene in attesa
-  // di un avvio manuale.
-  | "held"
-  | "pr_opened"
-  | "pr_merged"
-  | "failed"
-  | "skipped"
-  // "pr_closed": la PR aperta dal fix è stata chiusa senza merge (rifiutata da
-  // un umano). Stato terminale, distinto da "pr_merged".
-  | "pr_closed"
-  // "awaiting_plan_approval": il piano prodotto supera la soglia di effort
-  // configurata; il job attende l'approvazione umana prima di eseguirlo.
-  | "awaiting_plan_approval"
-  // "awaiting_input": l'agente che pianifica ha fatto una domanda a un umano e
-  // il job è parcheggiato finché non arriva la risposta (inbox, DM Slack o
-  // pagina ticket). Come "awaiting_plan_approval" aspetta una PERSONA, non il
-  // worker — ma non si rilancia: il job è vivo e la risposta lo riprende.
-  | "awaiting_input";
-
-export interface AIJob {
-  id: string;
-  ticketId: string;
-  status: AIJobStatus;
-  log: string;
-  prUrl: string | null;
-  error: string | null;
-  createdAt: string;
-  startedAt: string | null;
-  finishedAt: string | null;
-  // Provider AI usato dal job: etichetta e tipo credenziale, null quando il
-  // job non ha provider (pre-feature, fallback env, provider eliminato).
-  providerLabel: string | null;
-  providerKind: "api_key" | "account" | null;
-  // Chi ha chiesto il run; null sui job nati automaticamente dall'ingest. È
-  // IDENTITÀ, non ruolo: a una domanda dell'agente rispondono il richiedente e
-  // i maintainer, e senza questo campo la pagina ticket saprebbe solo il ruolo.
-  requestedByUserId: string | null;
-}
+// Stato e forma pubblica di un job AI: definiti in `@stubwise/shared` (da cui
+// deriva anche l'enum Postgres). Alias `AIJob*` per non rinominare la SPA.
+export type { AIJobStatus, AIJob };
 
 export function getTicketJobs(ticketId: string): Promise<AIJob[]> {
   return api.get(`/api/tickets/${ticketId}/jobs`);
@@ -2852,110 +2695,19 @@ export function generateActivity(
 // flag di deep dive in corso. PATCH/accept/dismiss/merge/refresh tornano la
 // forma base; il dettaglio è solo GET /:id.
 
-/** Riferimento a una voce simile suggerita dal dedup (o null). */
-export interface BacklogSimilarRef {
-  id: string;
-  title: string;
-}
-
-/** Voce del backlog nella LISTA: campi leggeri per le card (senza `document`). */
-export interface BacklogItem {
-  id: string;
-  projectId: string;
-  title: string;
-  status: BacklogItemStatus;
-  /** Stima di effort (punti); null se non stimata. */
-  effort: number | null;
-  risk: BacklogRisk | null;
-  riskNote: string | null;
-  /** L'urgenza riusa la scala di priority dei ticket; null se non stimata. */
-  urgency: TicketPriority | null;
-  /** Quante volte l'idea è stata richiesta (dedup incrementa questo contatore). */
-  requestCount: number;
-  source: BacklogItemSource;
-  similarTo: BacklogSimilarRef | null;
-  /** Ticket con role=origin collegati alla voce. */
-  ticketCount: number;
-  createdAt: string;
-  updatedAt: string;
-}
-
-/** Ticket collegato a una voce del backlog (join backlog_item_tickets). */
-export interface BacklogLinkedTicket {
-  id: string;
-  number: number;
-  title: string;
-  role: "origin" | "converted_to";
-}
-
-/** Messaggio della chat di raffinamento (una sola conversazione per voce). */
-export interface BacklogMessage {
-  id: string;
-  role: "user" | "assistant" | "system";
-  content: string;
-  /** Citazioni RAG dell'assistant (jsonb opaco), null se assenti. */
-  citations: unknown;
-  createdAt: string;
-}
-
-/**
- * Forma BASE di una voce: campi confermati più `document` e `suggested`
- * (SENZA `embedding`). È la risposta di PATCH/accept/dismiss/merge/refresh e il
- * nucleo del dettaglio.
- */
-export interface BacklogItemBase {
-  id: string;
-  projectId: string;
-  title: string;
-  document: string;
-  /**
-   * Piano di implementazione collegato alla voce (testo libero, null finché non
-   * impostato da Claude Code). Solo render/delete lato SPA.
-   */
-  implementationPlan: string | null;
-  /**
-   * Documento d'origine preservato quando un design ne sostituisce il `document`
-   * (null se nessun design è attivo). DELETE del design ripristina questo valore.
-   */
-  originContent: string | null;
-  status: BacklogItemStatus;
-  effort: number | null;
-  risk: BacklogRisk | null;
-  riskNote: string | null;
-  urgency: TicketPriority | null;
-  requestCount: number;
-  source: BacklogItemSource;
-  suggested: BacklogSuggested | null;
-  similarTo: BacklogSimilarRef | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-/**
- * Sessione di analisi sul codice ATTIVA di una voce (o null nel dettaglio). In
- * modalità code ogni messaggio della chat diventa un turno dell'agente sul repo.
- * Forma allineata allo schema risposta del server (`codeSessionSchema`).
- */
-export interface BacklogCodeSession {
-  status: "active" | "closed";
-  repositoryId: string;
-  startedAt: string;
-}
-
-/**
- * DETTAGLIO di una voce: la forma base più i ticket collegati, i messaggi di
- * chat e il flag `deepDivePending` (deep dive queued/running → "analisi in corso").
- * `codeSession` è la sessione di analisi attiva (o null → chat in modalità DOCS);
- * `pendingTurn` è vero mentre un turno `chat_turn` è queued/running (UI: "sta
- * investigando nel codice…" con polling).
- */
-export interface BacklogItemDetail extends BacklogItemBase {
-  tickets: BacklogLinkedTicket[];
-  messages: BacklogMessage[];
-  deepDivePending: boolean;
-  codeSession: BacklogCodeSession | null;
-  pendingTurn: boolean;
-}
+// Le forme pubbliche di una voce di backlog vivono in `@stubwise/shared`: la
+// LISTA è leggera (senza `document`), la forma BASE aggiunge `document` e
+// `suggested`, il DETTAGLIO estende la base con ticket, messaggi di chat e i
+// flag di lavorazione in corso.
+export type {
+  BacklogSimilarRef,
+  BacklogItem,
+  BacklogLinkedTicket,
+  BacklogMessage,
+  BacklogItemBase,
+  BacklogCodeSession,
+  BacklogItemDetail,
+};
 
 /** Filtri della lista backlog: combaciano con i search param di /backlog. */
 export interface BacklogFilters {
@@ -3176,20 +2928,9 @@ export function postInboxAction(
   return api.post(`/api/inbox/${encodeURIComponent(id)}/actions/${action}`, body);
 }
 
-/**
- * Chi ha già gestito la notifica, letto dal 409 `already_handled`.
- *
- * È l'unico errore dell'API che porta un DATO oltre a `code`/`message`: il body
- * grezzo viaggia in {@link ApiError.details} e qui si valida con lo schema
- * condiviso prima di usarlo — non ci si fida della forma di un body d'errore.
- * Ritorna `undefined` per qualunque altro errore, o se il server non ha saputo
- * dire chi (`handledBy` è opzionale nel contratto).
- */
-export function handledByFromError(error: unknown): HandledBy | undefined {
-  if (!(error instanceof ApiError) || error.code !== "already_handled") return undefined;
-  const parsed = inboxActionErrorSchema.safeParse(error.details);
-  return parsed.success ? parsed.data.handledBy : undefined;
-}
+// `handledByFromError` vive ora in `@stubwise/api-client` (ri-esportata in cima
+// a questo file): è la lettura di un body d'errore, cioè trasporto, e la stessa
+// card d'inbox esiste anche sull'app mobile.
 
 /** Progetti seguiti dall'utente corrente: l'insieme COMPLETO. */
 export function getMyFollows(): Promise<ProjectFollows> {
@@ -3209,7 +2950,12 @@ export function getNotificationPrefs(): Promise<NotificationPrefsView> {
   return api.get("/api/me/notification-prefs");
 }
 
-/** Accende o spegne il DM Slack: 204. L'inbox in-app non è disattivabile. */
-export function putNotificationPrefs(prefs: NotificationPrefs): Promise<void> {
-  return api.put("/api/me/notification-prefs", prefs);
+/**
+ * PATCH dei canali opzionali (DM Slack, push mobile): 204. Si mandano i soli
+ * campi da cambiare, gli altri restano come sono — a differenza di
+ * `putMyFollows` qui sopra, che sostituisce l'insieme. L'inbox in-app non è
+ * disattivabile.
+ */
+export function patchNotificationPrefs(patch: NotificationPrefsUpdate): Promise<void> {
+  return api.patch("/api/me/notification-prefs", patch);
 }

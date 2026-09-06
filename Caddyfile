@@ -86,3 +86,28 @@
 		file_server
 	}
 }
+
+# Blocchi di sito AGGIUNTIVI, montati dall'host (./caddy.d -> /etc/caddy/conf.d).
+# Oggi ce n'è uno solo: il relay push sul nostro VPS (vedi caddy.d/README.md).
+#
+# ⚠️ La forma è un GLOB, e non è intercambiabile con le alternative che
+# sembrano più dirette. Verificato con `caddy validate` su caddy:2-alpine:
+#
+#   - `push.{$PUSH_RELAY_HOST} { ... }` messo qui dentro con la variabile NON
+#     impostata NON si disattiva: l'indirizzo diventa `push.` e Caddy RIFIUTA
+#     l'intera configurazione ("subject does not qualify for certificate:
+#     'push.'", exit 1). Non romperebbe solo il relay: romperebbe il sito di
+#     OGNI istanza self-hosted. Non esiste una sintassi condizionale per un
+#     indirizzo di sito.
+#   - `push.{$PUSH_RELAY_HOST:localhost}` (variabile con default) è valido, ma
+#     lascia un sito fantasma `push.localhost` a tutti: con `DOMAIN=:80` fa
+#     comparire un listener `:443` che prima non c'era (verificato con `caddy
+#     adapt`), cioè cambia il comportamento di chi il relay non lo usa.
+#   - `import Caddyfile.relay` LETTERALE con il file assente è un errore ("File
+#     to import not found"). Solo il glob tollera lo zero-match.
+#
+# Un glob che non matcha niente è configurazione valida (exit 0), e la dir può
+# anche non esistere affatto: per le istanze self-hosted la configurazione resta
+# identica a com'era, senza listener in più. Il file `.example` in caddy.d NON
+# matcha `*.caddy` e resta quindi inerte finché non lo si copia.
+import /etc/caddy/conf.d/*.caddy

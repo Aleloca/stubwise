@@ -1,5 +1,6 @@
 import {
   aiJobs,
+  deviceTokens,
   notificationDeliveries,
   notifications,
   notificationSettings,
@@ -11,7 +12,7 @@ import {
 import { seedTicket, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { eq, inArray } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { NotificationEvent } from "./format.js";
 import { publishNotification } from "./publish.js";
 
@@ -35,6 +36,15 @@ describe("publishNotification", () => {
     await testDb.stop();
   });
 
+  // Gli spy si ripristinano SEMPRE: un mockRestore in coda al test resta
+
+  // montato se la prima asserzione fallisce, e il test dopo vede le sue
+
+  // chiamate.
+
+  afterEach(() => vi.restoreAllMocks());
+
+
   beforeEach(async () => {
     // Ogni test parte da zero utenti (gli admin sono destinatari di TUTTO:
     // lasciarli accumulare falserebbe i conteggi dei test successivi), inbox
@@ -51,6 +61,7 @@ describe("publishNotification", () => {
     role: "admin" | "member";
     slackUserId?: string | null;
     notifySlackDm?: boolean;
+    notifyPush?: boolean;
   }): Promise<string> {
     const [row] = await db
       .insert(users)
@@ -60,10 +71,36 @@ describe("publishNotification", () => {
         role: opts.role,
         slackUserId: opts.slackUserId ?? null,
         notifySlackDm: opts.notifySlackDm ?? true,
+        notifyPush: opts.notifyPush ?? true,
       })
       .returning();
     if (!row) throw new Error("insert dell'utente di test non ha restituito la riga");
     return row.id;
+  }
+
+  /**
+   * Registra un device dell'app mobile per l'utente. Il token è CASUALE a ogni
+   * chiamata, non una stringa fissa: è `unique` in tabella, e un valore
+   * ripetuto renderebbe il test cieco al caso di due device dello stesso
+   * utente.
+   */
+  async function seedDevice(
+    userId: string,
+    opts: {
+      platform?: "ios" | "android";
+      disabledReason?: "pat_revoked" | "invalid_token";
+    } = {},
+  ): Promise<void> {
+    const disabled = opts.disabledReason !== undefined;
+    await db.insert(deviceTokens).values({
+      userId,
+      platform: opts.platform ?? "ios",
+      token: `tok-${randomUUID()}`,
+      // `disabledAt` e `disabledReason` vivono e muoiono insieme: il CHECK
+      // `device_tokens_disabled_chk` rifiuta una riga a metà.
+      disabledAt: disabled ? new Date() : null,
+      disabledReason: opts.disabledReason ?? null,
+    });
   }
 
   /**
@@ -201,6 +238,94 @@ describe("publishNotification", () => {
 
     expect(result).toEqual({ published: 1 });
     expect(await db.select().from(notificationDeliveries)).toHaveLength(0);
+  });
+
+  it("crea una push per chi ha un device attivo, legata alla SUA notifica", async () => {
+    const { projectId, ticketId } = await seedTicket(db);
+    // Nessuna identità Slack: così l'unica consegna possibile è la push, e
+    // l'asserzione sull'elenco dei canali non può passare per caso.
+    const adminId = await seedUser({ role: "admin" });
+    await seedDevice(adminId);
+
+    const result = await publishNotification(db, prOpened, { projectId, ticketId });
+
+    expect(result).toEqual({ published: 1 });
+    const deliveries = await db.select().from(notificationDeliveries);
+    expect(deliveries.map((row) => row.channel)).toEqual(["push"]);
+    const [delivery] = deliveries;
+    expect(delivery?.status).toBe("pending");
+    expect(delivery?.attempts).toBe(0);
+    // Consegna per DESTINATARIO: il payload sta sulla notifica, non sulla riga.
+    expect(delivery?.event).toBeNull();
+    const [adminNotification] = await db
+      .select()
+      .from(notifications)
+      .where(eq(notifications.userId, adminId));
+    expect(delivery?.notificationId).toBe(adminNotification?.id);
+  });
+
+  it.each(["pat_revoked", "invalid_token"] as const)(
+    "non crea la push se l'unico device è disattivato, qualunque sia il motivo (%s)",
+    async (disabledReason) => {
+      const { projectId, ticketId } = await seedTicket(db);
+      const adminId = await seedUser({ role: "admin" });
+      await seedDevice(adminId, { disabledReason });
+
+      const result = await publishNotification(db, prOpened, { projectId, ticketId });
+
+      // La notifica in inbox nasce lo stesso: a mancare è solo il recapito.
+      expect(result).toEqual({ published: 1 });
+      expect(await db.select().from(notificationDeliveries)).toHaveLength(0);
+    },
+  );
+
+  it("non crea la push per chi ha spento le notifiche push", async () => {
+    const { projectId, ticketId } = await seedTicket(db);
+    const adminId = await seedUser({ role: "admin", notifyPush: false });
+    await seedDevice(adminId);
+
+    const result = await publishNotification(db, prOpened, { projectId, ticketId });
+
+    expect(result).toEqual({ published: 1 });
+    expect(await db.select().from(notificationDeliveries)).toHaveLength(0);
+  });
+
+  it("con più device attivi crea UNA sola push, e non al posto del DM Slack", async () => {
+    const { projectId, ticketId } = await seedTicket(db);
+    const adminId = await seedUser({
+      role: "admin",
+      slackUserId: `U${randomUUID().slice(0, 8)}`,
+    });
+    await seedDevice(adminId, { platform: "ios" });
+    await seedDevice(adminId, { platform: "android" });
+
+    const result = await publishNotification(db, prOpened, { projectId, ticketId });
+
+    expect(result).toEqual({ published: 1 });
+    const deliveries = await db.select().from(notificationDeliveries);
+    // Una push (non due: il ventaglio sui token è del poller) e il DM Slack,
+    // che il ramo push non deve aver mangiato.
+    expect(deliveries.map((row) => row.channel).sort()).toEqual(["push", "slack_dm"]);
+  });
+
+  it("la push va solo al destinatario che ha il device, non a chi ne è senza", async () => {
+    const { projectId, ticketId } = await seedTicket(db);
+    const withDeviceId = await seedUser({ role: "admin" });
+    await seedUser({ role: "admin" });
+    await seedDevice(withDeviceId);
+
+    const result = await publishNotification(db, prOpened, { projectId, ticketId });
+
+    // Due destinatari, un solo device: se l'`exists` non fosse correlato
+    // all'utente, il device di uno varrebbe come recapito anche per l'altro.
+    expect(result).toEqual({ published: 2 });
+    const deliveries = await db.select().from(notificationDeliveries);
+    expect(deliveries).toHaveLength(1);
+    const [withDeviceNotification] = await db
+      .select()
+      .from(notifications)
+      .where(eq(notifications.userId, withDeviceId));
+    expect(deliveries[0]?.notificationId).toBe(withDeviceNotification?.id);
   });
 
   it("crea una sola consegna webhook per evento quando il webhook è configurato", async () => {
@@ -346,7 +471,7 @@ describe("publishNotification", () => {
     expect(await db.select().from(notificationDeliveries)).toHaveLength(0);
   });
 
-  it("non lancia mai: con un db rotto restituisce { published: 0 }", async () => {
+  it("non lancia mai: con un db rotto restituisce { published: 0 }, ma LOGGA", async () => {
     const broken = {
       transaction() {
         throw new Error("connessione persa");
@@ -358,8 +483,17 @@ describe("publishNotification", () => {
         throw new Error("connessione persa");
       },
     } as unknown as Db;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     await expect(publishNotification(broken, prOpened, {})).resolves.toEqual({ published: 0 });
+
+    // Il valore di ritorno non lo guarda nessun chiamante: il log è l'UNICA
+    // traccia che la notifica è sparita, e deve dire quale kind e perché.
+    expect(warn).toHaveBeenCalledTimes(1);
+    const [message, error] = warn.mock.calls[0] ?? [];
+    expect(message).toContain("job.pr_opened");
+    expect(message).toContain("nessuna riga scritta");
+    expect((error as Error).message).toBe("connessione persa");
   });
 
   it("su errore SQL non aborta la transazione del chiamante (savepoint annidato)", async () => {
@@ -368,6 +502,7 @@ describe("publishNotification", () => {
     // fallimento deve restare confinato al savepoint di publishNotification.
     const projectIdFantasma = randomUUID();
     const emailDopo = `${randomUUID()}@example.com`;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     await db.transaction(async (tx) => {
       const result = await publishNotification(tx, prOpened, {
@@ -387,6 +522,9 @@ describe("publishNotification", () => {
     // ...e la pubblicazione fallita non ha lasciato righe parziali.
     expect(await db.select().from(notifications)).toHaveLength(0);
     expect(await db.select().from(notificationDeliveries)).toHaveLength(0);
+    // Anche su un errore SQL vero (non solo con un db finto) resta il log:
+    // è tutto ciò che distingue "niente da notificare" da "notifica persa".
+    expect(warn).toHaveBeenCalledTimes(1);
   });
 
   it("instrada verso chi ha richiesto il job e ancora le notifiche al job", async () => {

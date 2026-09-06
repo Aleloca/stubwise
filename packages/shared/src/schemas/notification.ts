@@ -401,12 +401,58 @@ export const projectFollowsSchema = z.object({ projectIds: z.array(z.uuid()) });
 export type ProjectFollows = z.infer<typeof projectFollowsSchema>;
 
 /**
- * Preferenze di notifica dell'utente. Oggi un solo canale opzionale: il DM
- * Slack (`users.notify_slack_dm`). L'inbox in-app non è disattivabile — è la
- * superficie primaria, non un canale.
+ * Preferenze di notifica dell'utente: i canali OPZIONALI su cui recapitare —
+ * il DM Slack (`users.notify_slack_dm`) e la push sui device mobili
+ * (`users.notify_push`). L'inbox in-app non è disattivabile: è la superficie
+ * primaria, non un canale.
+ *
+ * Questa è la forma in LETTURA: i canali ci sono tutti, sempre. Un client deve
+ * poter sapere lo stato completo senza indovinare i campi assenti — ed è per
+ * questo che non è lo stesso schema del body di scrittura, che invece è una
+ * patch (vedi {@link notificationPrefsUpdateSchema}).
  */
-export const notificationPrefsSchema = z.object({ slackDm: z.boolean() });
+export const notificationPrefsSchema = z.object({
+  slackDm: z.boolean(),
+  push: z.boolean(),
+});
+/**
+ * Non ha consumatori diretti: web e api-client usano `…Update` (scrittura) e
+ * `…View` (lettura). Resta esportato perché è la forma di lettura da cui la
+ * view deriva, e nominarla è ciò che tiene distinte le due semantiche.
+ */
 export type NotificationPrefs = z.infer<typeof notificationPrefsSchema>;
+
+/**
+ * Body di `PUT /api/me/notification-prefs`: una PATCH, non una sostituzione.
+ * I campi presenti si applicano, gli assenti restano come sono.
+ *
+ * Tutto opzionale per una ragione precisa: l'app mobile NON viaggia
+ * nell'immagine del server, e una versione installata mesi fa continua a
+ * mandare il body che conosceva. Se i campi fossero obbligatori, aggiungere un
+ * canale renderebbe 400 ogni richiesta delle app vecchie — un cambio rompente
+ * in SCRITTURA, speculare a un campo tolto da una risposta. Con la patch,
+ * aggiungere un canale è additivo in entrambe le direzioni.
+ *
+ * Un body vuoto `{}` è una patch senza campi, quindi un no-op legittimo (204),
+ * non un errore: non c'è niente di ambiguo da segnalare a chi lo manda, e un
+ * 400 costringerebbe ogni client a un controllo che il server sa già fare.
+ * Resta invece 400 un campo presente col tipo sbagliato.
+ *
+ * `.strict()` non è un'eccezione ma il precedente del repo per questa forma:
+ * `apps/server/src/routes/saved-views.ts` fa la stessa cosa (tutti i campi
+ * opzionali + strict) per la stessa ragione, e `backlog.ts` ne ha altri sei.
+ * Su una patch lo strip è pericoloso in un modo che su un body a campi
+ * obbligatori non è: con tutti i campi opzionali, `{ pussh: false }` sarebbe
+ * ripulito a
+ * `{}` e risponderebbe 204, cioè un typo indistinguibile da un successo.
+ * Finché i campi erano obbligatori quel caso dava 400 per un effetto
+ * collaterale (mancava `slackDm`); rendendo il body una patch quella
+ * protezione è sparita, e `.strict()` la rimette di proposito. La chiave
+ * sconosciuta diventa un 400 con dentro il nome che non conosciamo, che è
+ * l'informazione che serve a chi ha sbagliato a scrivere.
+ */
+export const notificationPrefsUpdateSchema = notificationPrefsSchema.partial().strict();
+export type NotificationPrefsUpdate = z.infer<typeof notificationPrefsUpdateSchema>;
 
 /**
  * Le preferenze più il contesto che serve alla UI per renderle: senza identità
@@ -417,3 +463,125 @@ export const notificationPrefsViewSchema = notificationPrefsSchema.extend({
   slackLinked: z.boolean(),
 });
 export type NotificationPrefsView = z.infer<typeof notificationPrefsViewSchema>;
+
+/**
+ * Tetto del token push, in BYTE della codifica UTF-8.
+ *
+ * Il numero non è scelto per stile: la colonna `device_tokens.token` è
+ * `unique`, quindi ha dietro un indice btree, e Postgres rifiuta una voce
+ * d'indice sopra **2704 byte** con `index row size … exceeds btree version 4
+ * maximum 2704` (SQLSTATE 54000). Un token che passa la validazione e sfonda
+ * quel limite non dà un 400: dà un **500**, perché l'errore arriva
+ * dall'insert. La validazione deve quindi stare comodamente SOTTO 2704, non
+ * "vicino": 1024 byte sono 5× un token FCM (~163 caratteri) e 16× uno APNs (64
+ * esadecimali), cioè tutto il margine che serve senza avvicinarsi al muro.
+ *
+ * ⚠️ **In byte, non in caratteri, e la differenza non è pedanteria.** `.max()`
+ * di Zod conta unità UTF-16, e un carattere BMP fuori ASCII (CJK, per dirne
+ * una) è 1 unità ma 3 byte: con un tetto di 1024 CARATTERI si passa la
+ * validazione con 3072 byte e si torna dritti al 500. Misurato: 1024 CJK
+ * casuali = 3072 byte → 500, e falliscono anche 900 caratteri (2700 byte),
+ * perché il limite è sulla voce d'indice INTERA, non sul solo valore, e
+ * l'intestazione della tupla mangia i byte che mancano.
+ */
+const PUSH_TOKEN_MAX_BYTES = 1024;
+
+/**
+ * Il token del servizio di push del sistema operativo (APNs o FCM), dichiarato
+ * una volta sola perché lo usano sia la registrazione sia la cancellazione: se
+ * i due tetti divergessero, esisterebbe un token registrabile e non
+ * cancellabile.
+ *
+ * Il tetto in caratteri c'è per dare un errore leggibile nel caso normale (un
+ * token è ASCII, quindi un byte per carattere e i due limiti coincidono); il
+ * controllo in byte è quello che PROTEGGE, ed è l'unico che regge sul testo
+ * multibyte. Il perché del numero sta su {@link PUSH_TOKEN_MAX_BYTES}.
+ *
+ * ESPORTATO perché lo riusa anche il contratto del relay push
+ * (`pushRelayTokenSchema` in `./push.ts`): un token che passa la registrazione
+ * deve essere spedibile, e l'unico modo di garantirlo è che sia lo STESSO
+ * schema, non due tetti tenuti allineati a mano.
+ */
+// Istanziato una volta sola: il refine gira su ogni registrazione.
+const tokenByteLength = new TextEncoder();
+
+export const pushTokenSchema = z
+  .string()
+  .min(1)
+  .max(PUSH_TOKEN_MAX_BYTES)
+  .refine((value) => tokenByteLength.encode(value).length <= PUSH_TOKEN_MAX_BYTES, {
+    message: `token too long: max ${PUSH_TOKEN_MAX_BYTES} bytes`,
+  });
+
+/**
+ * Body di `PUT /api/me/devices`: la registrazione del token push di UN device.
+ *
+ * `token` lo assegna il dispositivo, non noi, e può cambiare — l'app lo
+ * ri-registra a ogni avvio e a ogni rotazione. È lui la chiave della riga
+ * (unique in `device_tokens`), non l'utente: la registrazione è quindi un
+ * UPSERT idempotente, non una creazione.
+ *
+ * Da quella unique globale discende che **chi conosce il token di un device
+ * altrui se lo può intestare**, e vale la pena essere precisi sulla DIREZIONE
+ * del danno, perché l'intuizione la sbaglia: non è «leggo le notifiche
+ * altrui». La riga mappa token → utente, quindi intestandomi il token della
+ * vittima ottengo che **le MIE notifiche arrivano sul SUO telefono** e lei
+ * smette di riceverne. È un disservizio per lei più una fuga dei MIEI dati
+ * verso uno schermo che non controllo — un'aggressione poco attraente, e
+ * raggiungibile solo da chi il token ce l'ha già (dal telefono, dal nostro DB,
+ * o dai log: per questo il token non sta MAI in un path, vedi
+ * {@link deviceDeletionSchema}). In cambio, senza il passaggio di proprietà,
+ * il telefono su cui l'utente A esce e B entra sbatterebbe contro la unique e
+ * non riceverebbe MAI più una push, senza nessun errore visibile. Il baratto
+ * è accettato con cognizione, non per inerzia.
+ *
+ * `platform` è speculare al CHECK `device_tokens_platform_chk` di
+ * `packages/db`. Le due liste non hanno un guardiano dedicato che le confronti
+ * — `@stubwise/shared` finisce nel bundle browser e non può importare
+ * `@stubwise/db` — ma la divergenza pericolosa (un valore in più QUI, che il
+ * DB rifiuterebbe con un 23514 a runtime) è fermata dal typecheck: la rotta
+ * passa `request.body.platform` a un insert Drizzle tipato sui valori del
+ * CHECK, e un valore in più non ci entra. Verificato, non supposto.
+ *
+ * `appVersion` è OPZIONALE, e non solo perché la colonna è nullable: è il
+ * modello dei campi che verranno. L'app mobile non viaggia nell'immagine del
+ * server, e un campo NUOVO e OBBLIGATORIO in questo body renderebbe 400 ogni
+ * registrazione delle versioni già installate — cioè quei telefoni
+ * smetterebbero di ricevere push al primo deploy. L'invariante «solo cambi
+ * additivi» vale anche in SCRITTURA: ogni campo aggiunto qui dopo il primo
+ * rilascio dell'app nasce opzionale.
+ *
+ * NON è `.strict()`, al contrario di {@link notificationPrefsUpdateSchema}, e
+ * la differenza non è una svista: là TUTTI i campi sono opzionali, quindi lo
+ * strip trasformerebbe `{ pussh: false }` in `{}` e un typo diventerebbe un
+ * 204 bugiardo. Qui i campi che contano sono obbligatori — un typo su
+ * `platform` o `token` resta un 400 per campo mancante — e l'unico strip
+ * possibile è su `appVersion`, che è un dato diagnostico: perderlo non fa
+ * credere a nessuno di aver salvato qualcosa che non è stato salvato. In
+ * cambio, un'app più nuova del server che mandasse un campo ancora ignoto
+ * continua a registrarsi invece di prendere un 400.
+ */
+export const deviceRegistrationSchema = z.object({
+  platform: z.enum(["ios", "android"]),
+  token: pushTokenSchema,
+  appVersion: z.string().min(1).max(64).optional(),
+});
+export type DeviceRegistration = z.infer<typeof deviceRegistrationSchema>;
+
+/**
+ * Body di `POST /api/me/devices/delete`: il logout dell'app.
+ *
+ * ⚠️ **Il token sta nel BODY, e la rotta è un `POST` con `/delete` nel path,
+ * non un `DELETE /api/me/devices/:token`.** Il verbo scomodo è deliberato e
+ * non va "sistemato": il server gira con `logger: true` e pino scrive l'URL
+ * intero di ogni richiesta, quindi un token nel path finirebbe in chiaro nei
+ * log — dove ha molti più lettori del DB, e da dove chi lo legge se lo può
+ * intestare (vedi il punto 2 di {@link deviceRegistrationSchema}). Il body non
+ * viene loggato. La motivazione per esteso, con la riga di log reale, sta sul
+ * docblock della rotta in `apps/server/src/routes/me-prefs.ts`.
+ *
+ * Un oggetto con un campo solo e non una stringa nuda: è la forma che può
+ * crescere senza rompere le app già installate.
+ */
+export const deviceDeletionSchema = z.object({ token: pushTokenSchema });
+export type DeviceDeletion = z.infer<typeof deviceDeletionSchema>;

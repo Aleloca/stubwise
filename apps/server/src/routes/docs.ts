@@ -1,5 +1,10 @@
 import {
+  aiProviderKindSchema,
   docGenerationStatusSchema,
+  docPageLinkSchema,
+  docPageSchema,
+  docSpaceSchema,
+  docTreeNodeSchema,
   docGenerationTriggerSchema,
   docJobStatusSchema,
   docPageKindSchema,
@@ -21,7 +26,6 @@ import {
 } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
 import { apiError } from "../errors.js";
-import { aiProviderKindSchema } from "./ai-providers.js";
 import { buildDocsExportZip, safeFilenamePart } from "./docs-export-zip.js";
 import {
   emptyCountsByKind,
@@ -111,58 +115,6 @@ function productExclusionsFromStats(stats: unknown): z.infer<typeof productExclu
   return parsed.success ? parsed.data : [];
 }
 
-/** Nodo dell'albero/sidebar: quanto basta per renderizzare la navigazione. */
-const treeNodeSchema = z.object({
-  id: z.uuid(),
-  slug: z.string(),
-  title: z.string(),
-  kind: docPageKindSchema,
-  parentId: z.uuid().nullable(),
-  position: z.number().int(),
-  sourcePath: z.string().nullable(),
-  isManual: z.boolean(),
-  createdAt: z.string(),
-  viewCount: z.number().int(),
-  // Solo per kind="releases": significatività della release; null altrove.
-  significant: z.boolean().nullable(),
-});
-
-/**
- * Un cross-link risolto di una pagina: il `type` raggruppa la relazione
- * (implements/implemented_by/related), `slug`+`title` linkano la pagina target.
- */
-const docPageLinkSchema = z.object({
-  type: z.enum(["implements", "implemented_by", "related"]),
-  slug: z.string(),
-  title: z.string(),
-});
-
-/** Pagina completa: corpo markdown + metadati. */
-const pageSchema = z.object({
-  id: z.uuid(),
-  slug: z.string(),
-  title: z.string(),
-  kind: docPageKindSchema,
-  parentId: z.uuid().nullable(),
-  position: z.number().int(),
-  sourcePath: z.string().nullable(),
-  body: z.string(),
-  isManual: z.boolean(),
-  // commitSha della generazione di appartenenza; null per le pagine manuali.
-  commitSha: z.string().nullable(),
-  // URL web del commit sul provider (GitHub/Bitbucket): null per le pagine
-  // manuali, o se il repoUrl non è parsabile (la UI mostra il solo sha).
-  commitUrl: z.string().nullable(),
-  // Cross-link risolti a fine generazione; null se non calcolati (es. manuali
-  // o generazioni del vecchio motore senza cross-link).
-  links: z.array(docPageLinkSchema).nullable(),
-  updatedAt: z.string(),
-  createdAt: z.string(),
-  viewCount: z.number().int(),
-  // Solo per kind="releases": significatività della release; null altrove.
-  significant: z.boolean().nullable(),
-});
-
 type DocPageRow = typeof docPages.$inferSelect;
 
 /**
@@ -173,7 +125,7 @@ function toPage(
   row: DocPageRow,
   commitSha: string | null = null,
   commitUrl: string | null = null,
-): z.infer<typeof pageSchema> {
+): z.infer<typeof docPageSchema> {
   // `links` è jsonb (unknown a runtime): valida col contratto e scarta voci
   // malformate. Una colonna null o non-array → null (nessun cross-link).
   const parsedLinks = z.array(docPageLinkSchema).safeParse(row.links);
@@ -196,16 +148,6 @@ function toPage(
     significant: row.significant,
   };
 }
-
-/** Uno "spazio" dell'hub: un repository che ha documentazione. */
-const spaceSchema = z.object({
-  repositoryId: z.uuid(),
-  slug: z.string(),
-  name: z.string(),
-  pageCount: z.number().int(),
-  lastGenerationAt: z.string().nullable(),
-  lastCommitSha: z.string().nullable(),
-});
 
 const createManualSchema = z.object({
   title: z.string().min(1).max(300),
@@ -603,7 +545,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
     "/docs/spaces",
     {
       preHandler: requireAuth,
-      schema: { response: { 200: z.array(spaceSchema), ...authErrorResponses } },
+      schema: { response: { 200: z.array(docSpaceSchema), ...authErrorResponses } },
     },
     async () => {
       // L'hub elenca TUTTI i repository, ognuno come "spazio" doc: è anche
@@ -674,7 +616,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
       preHandler: requireAuth,
       schema: {
         params: repositoryIdParamsSchema,
-        response: { 200: z.array(treeNodeSchema), 404: errorSchema, ...authErrorResponses },
+        response: { 200: z.array(docTreeNodeSchema), 404: errorSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {
@@ -890,7 +832,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
       preHandler: requireAuth,
       schema: {
         params: slugParamsSchema,
-        response: { 200: pageSchema, 404: errorSchema, ...authErrorResponses },
+        response: { 200: docPageSchema, 404: errorSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {
@@ -987,7 +929,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
         params: repositoryIdParamsSchema,
         body: createManualSchema,
         response: {
-          201: pageSchema,
+          201: docPageSchema,
           404: errorSchema,
           409: errorSchema,
           ...authErrorResponses,
@@ -1051,7 +993,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
       schema: {
         params: manualIdParamsSchema,
         body: updateManualSchema,
-        response: { 200: pageSchema, 400: errorSchema, 404: errorSchema, ...authErrorResponses },
+        response: { 200: docPageSchema, 400: errorSchema, 404: errorSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {

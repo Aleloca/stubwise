@@ -2,7 +2,10 @@
  * CATALOGO DELLE AZIONI di una notifica: cosa si può fare su una riga d'inbox,
  * in funzione del `kind`, dello stato attuale del job e del ruolo di chi guarda.
  *
- * Modulo PURO: nessun accesso al DB, nessuna dipendenza da Fastify. Vive qui —
+ * Modulo PURO: nessun accesso al DB, nessuna dipendenza da Fastify. ⚠️ E la
+ * purezza è VERIFICATA, non promessa: questo file sta nel grafo dell'entry
+ * client `./pure.ts`, e `pure.test.ts` diventa rosso se ci arriva (anche in
+ * transitivo) `@stubwise/db`, `drizzle-orm` o un builtin di Node. Vive qui —
  * e non nel servizio inbox del server — perché ha DUE consumatori:
  *  - `apps/server/src/services/inbox.ts` (lista e esecuzione delle azioni), che
  *    lo ri-esporta per i suoi chiamanti;
