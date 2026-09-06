@@ -23,3 +23,8 @@ export type {
   RetrieveChunksOptions,
   RetrievalLogger,
 } from "./docs-retrieval.js";
+// Audit delle transizioni di stato di un ticket: vive qui perché a scrivere in
+// `ticket_events` sono sia il server (rotte e webhook) sia il worker (pipeline
+// di fix, intake del backlog), e la regola "una transizione = un evento datato"
+// deve essere una sola.
+export { recordTicketStatusChange } from "./ticket-events.js";

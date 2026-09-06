@@ -4,6 +4,7 @@ import {
   backlogItemTickets,
   backlogJobs,
   comments,
+  recordTicketStatusChange,
   retrieveChunksForProject,
   tickets,
   type Db,
@@ -247,10 +248,12 @@ async function createNewItem(
 
 /**
  * Chiude il ticket d'origine e lo collega alla voce. Coerente col percorso di
- * chiusura del triage (comment + status update, NESSUN ticket_event: non esiste
- * un kind adatto per "spostato nel backlog" e il triage stesso, quando chiude un
- * duplicato, usa solo il commento). Il link è idempotente
- * (`onConflictDoNothing`): un merge che ri-linka lo stesso ticket non esplode.
+ * chiusura del triage (comment + status update). Dalla fase 5 la transizione
+ * lascia anche un `ticket_events` `status_changed`: non esiste un kind
+ * "spostato nel backlog", ma il ticket PASSA comunque a `closed`, ed è quella
+ * transizione — datata, con actor null — che la timeline di progetto deve poter
+ * leggere. Il link è idempotente (`onConflictDoNothing`): un merge che ri-linka
+ * lo stesso ticket non esplode.
  */
 async function closeOriginTicket(
   tx: Db,
@@ -269,7 +272,19 @@ async function closeOriginTicket(
     authorType: "ai",
     body: t(lang, "comment.backlogIntake", { title: itemTitle }),
   });
+  const [before] = await tx
+    .select({ status: tickets.status })
+    .from(tickets)
+    .where(eq(tickets.id, ticket.id));
   await tx.update(tickets).set({ status: "closed" }).where(eq(tickets.id, ticket.id));
+  if (before) {
+    await recordTicketStatusChange(tx, {
+      ticketId: ticket.id,
+      from: before.status,
+      to: "closed",
+      actorId: null,
+    });
+  }
 }
 
 /**

@@ -413,6 +413,12 @@ function diffTicketEvents(current: Ticket, updates: Partial<Ticket>): PendingEve
       payload: { from: current.priority, to: updates.priority },
     });
   }
+  // NB: la transizione di stato NON passa da `recordTicketStatusChange`
+  // (`@stubwise/db`), che è l'helper delle transizioni di SISTEMA (webhook e
+  // worker, `actorId: null`). Qui l'evento nasce dentro un diff multi-campo che
+  // finisce in UN solo INSERT con l'attore umano: spezzarlo in due scritture
+  // per riusare l'helper renderebbe il codice peggiore, non migliore. Il
+  // payload è identico — `{ from, to }` — ed è quello su cui la timeline conta.
   if (updates.status !== undefined && updates.status !== current.status) {
     events.push({ kind: "status_changed", payload: { from: current.status, to: updates.status } });
   }

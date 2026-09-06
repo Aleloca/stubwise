@@ -7,6 +7,7 @@ import {
   instanceSettings,
   monthlyCostUsd,
   projects,
+  recordTicketStatusChange,
   repositories,
   ticketCostUsd,
   ticketRepositories,
@@ -1830,7 +1831,24 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
         authorType: "ai",
         body: `${t(lang, "comment.planProposed")}\n\n${planText}`,
       });
+      // Stato precedente riletto DENTRO la transazione: `ticket` è stato
+      // caricato all'inizio del run, che può essere durato a lungo.
+      const [before] = await tx
+        .select({ status: tickets.status })
+        .from(tickets)
+        .where(eq(tickets.id, ticket.id));
       await tx.update(tickets).set({ status: "in_progress" }).where(eq(tickets.id, ticket.id));
+      // Audit della transizione: actorId null, la pipeline non è una persona.
+      // Senza questo evento la timeline di progetto non saprebbe DA QUANDO il
+      // ticket è in lavorazione.
+      if (before) {
+        await recordTicketStatusChange(tx, {
+          ticketId: ticket.id,
+          from: before.status,
+          to: "in_progress",
+          actorId: null,
+        });
+      }
     });
     const parked = await parkForPlanApproval(db, job.id, {
       planText,
@@ -1934,7 +1952,21 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
         (openedPrs.length > 1 ? `${prSummary}\n\n` : "") +
         reportBody,
     });
+    // Stato precedente riletto dentro la transazione (vedi sopra: il run può
+    // essere durato a lungo dopo il caricamento di `ticket`).
+    const [before] = await tx
+      .select({ status: tickets.status })
+      .from(tickets)
+      .where(eq(tickets.id, ticket.id));
     await tx.update(tickets).set({ status: "in_review" }).where(eq(tickets.id, ticket.id));
+    if (before) {
+      await recordTicketStatusChange(tx, {
+        ticketId: ticket.id,
+        from: before.status,
+        to: "in_review",
+        actorId: null,
+      });
+    }
   });
 
   const closed = await completeJob(db, job.id, {

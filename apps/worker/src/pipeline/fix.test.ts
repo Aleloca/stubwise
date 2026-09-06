@@ -1,4 +1,4 @@
-import { agentQuestions, agentRuns, aiJobs, automationRules, comments, encrypt, gitAccounts, instanceSettings, plugins, projectPlugins, projects, repositories, ticketRepositories, tickets, type Db } from "@stubwise/db";
+import { agentQuestions, agentRuns, aiJobs, automationRules, comments, encrypt, gitAccounts, instanceSettings, plugins, projectPlugins, projects, repositories, ticketEvents, ticketRepositories, tickets, type Db } from "@stubwise/db";
 import { seedGitAccount, startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { PublishOpts } from "@stubwise/notifications";
 import type { AgentQuestionAnswer } from "@stubwise/shared";
@@ -752,6 +752,16 @@ describe("runFix", () => {
     // Ticket in review, job chiuso con la PR.
     const [after] = await db.select().from(tickets).where(eq(tickets.id, ticket.id));
     expect(after?.status).toBe("in_review");
+    // AUDIT: la transizione del worker lascia un evento con actor NULL — non
+    // c'è nessun umano dietro una transizione della pipeline.
+    const statusEvents = await db
+      .select()
+      .from(ticketEvents)
+      .where(eq(ticketEvents.ticketId, ticket.id));
+    expect(statusEvents).toHaveLength(1);
+    expect(statusEvents[0]?.kind).toBe("status_changed");
+    expect(statusEvents[0]?.payload).toEqual({ from: "open", to: "in_review" });
+    expect(statusEvents[0]?.actorId).toBeNull();
     const jobAfter = await getJob(db, job.id);
     expect(jobAfter.status).toBe("pr_opened");
     expect(jobAfter.prUrl).toBe("https://github.com/acme/repo/pull/99");
@@ -1222,6 +1232,15 @@ describe("runFix", () => {
     expect(ticketComments[0]?.body).toMatch(/awaiting approval/i);
     const [after] = await db.select().from(tickets).where(eq(tickets.id, ticket.id));
     expect(after?.status).toBe("in_progress");
+    // AUDIT anche sulla transizione del piano: la timeline deve vedere quando
+    // il ticket è entrato in lavorazione, non solo quando è uscito.
+    const statusEvents = await db
+      .select()
+      .from(ticketEvents)
+      .where(eq(ticketEvents.ticketId, ticket.id));
+    expect(statusEvents).toHaveLength(1);
+    expect(statusEvents[0]?.payload).toEqual({ from: "open", to: "in_progress" });
+    expect(statusEvents[0]?.actorId).toBeNull();
 
     // Consumo del run di pianificazione registrato (best-effort).
     const runs = await db.select().from(agentRuns).where(eq(agentRuns.jobId, job.id));
