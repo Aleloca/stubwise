@@ -1,7 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { agentQuestions, aiJobs, comments, notifications, users, type Db } from "@stubwise/db";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  agentQuestions,
+  aiJobs,
+  comments,
+  notifications,
+  prReviews,
+  repositories,
+  users,
+  type Db,
+} from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import type { NotificationEvent } from "@stubwise/notifications";
@@ -1035,6 +1044,137 @@ describe("listInbox", () => {
     });
     const result = await listInbox(db, { userId: user.id, lang: "it", cursor: "non-un-cursore" });
     expect(result).toEqual({ items: [], nextCursor: null, invalidCursor: true });
+  });
+});
+
+describe("listInbox — riassunto in breve", () => {
+  it("job.plan_review: il summary viene dal plan_summary del job DELLA notifica", async () => {
+    const user = await seedUser("admin");
+    const ticketId = await seedTicket();
+    const jobId = await seedJob(ticketId, "awaiting_plan_approval", {
+      planText: "1. Passo A",
+      planSummary: "Il conto delle somme torna corretto.",
+    });
+    await seedNotification({
+      userId: user.id,
+      kind: "job.plan_review",
+      event: planReviewEvent(),
+      ticketId,
+      jobId,
+    });
+
+    const { items } = await listInbox(db, { userId: user.id, lang: "it" });
+
+    expect(items[0]!.summary).toBe("Il conto delle somme torna corretto.");
+  });
+
+  it("job.plan_review senza plan_summary: il campo è ASSENTE, non null", async () => {
+    const user = await seedUser("admin");
+    const ticketId = await seedTicket();
+    const jobId = await seedJob(ticketId, "awaiting_plan_approval", { planText: "1. Passo A" });
+    await seedNotification({
+      userId: user.id,
+      kind: "job.plan_review",
+      event: planReviewEvent(),
+      ticketId,
+      jobId,
+    });
+
+    const { items } = await listInbox(db, { userId: user.id, lang: "it" });
+
+    expect(items[0]).not.toHaveProperty("summary");
+  });
+
+  it("il riassunto è quello del job DELLA notifica, non dell'ultimo job del ticket", async () => {
+    const user = await seedUser("admin");
+    const ticketId = await seedTicket();
+    const vecchio = await seedJob(ticketId, "awaiting_plan_approval", {
+      planText: "1. Piano vecchio",
+      planSummary: "Riassunto del piano vecchio.",
+    });
+    // Job più recente sullo stesso ticket: non deve rubare il riassunto alla
+    // card, che si riferisce alla decisione chiesta dal job vecchio.
+    await seedJob(ticketId, "fixing", { planSummary: "Riassunto del piano nuovo." });
+    await seedNotification({
+      userId: user.id,
+      kind: "job.plan_review",
+      event: planReviewEvent(),
+      ticketId,
+      jobId: vecchio,
+    });
+
+    const { items } = await listInbox(db, { userId: user.id, lang: "it" });
+
+    expect(items[0]!.summary).toBe("Riassunto del piano vecchio.");
+  });
+
+  it("review.completed: il summary viene dalla review della PR di quel ticket", async () => {
+    const user = await seedUser("admin");
+    const ticketId = await seedTicket();
+    const prUrl = "https://github.com/o/r/pull/7";
+    const [repository] = await db
+      .select({ id: repositories.id })
+      .from(repositories)
+      .where(eq(repositories.projectId, projectId));
+    await db.insert(prReviews).values({
+      repositoryId: repository!.id,
+      ticketId,
+      prNumber: 7,
+      prUrl,
+      prTitle: "fix: somma",
+      headSha: "a".repeat(40),
+      status: "completed",
+      verdict: "approve",
+      summary: "- `src/x.ts:3`: ok",
+      prSummary: "La PR sistema il login. La review approva.",
+    });
+    await seedNotification({
+      userId: user.id,
+      kind: "review.completed",
+      event: {
+        kind: "review.completed",
+        ticketNumber: 7,
+        ticketTitle: "Export CSV",
+        projectName: "negozio-web",
+        ticketUrl: "https://stubwise.test/tickets/7",
+        prUrl,
+        verdict: "approve",
+      } as NotificationEvent,
+      ticketId,
+    });
+
+    const { items } = await listInbox(db, { userId: user.id, lang: "it" });
+
+    expect(items[0]!.summary).toBe("La PR sistema il login. La review approva.");
+  });
+
+  it("una pagina intera costa UNA query in più, non una per item", async () => {
+    const user = await seedUser("admin");
+    for (let i = 0; i < 5; i++) {
+      const ticketId = await seedTicket();
+      const jobId = await seedJob(ticketId, "awaiting_plan_approval", {
+        planText: "1. Passo A",
+        planSummary: `Riassunto ${i}.`,
+      });
+      await seedNotification({
+        userId: user.id,
+        kind: "job.plan_review",
+        event: planReviewEvent(),
+        ticketId,
+        jobId,
+      });
+    }
+    const selectSpy = vi.spyOn(db, "select");
+
+    const { items } = await listInbox(db, { userId: user.id, lang: "it" });
+
+    expect(items).toHaveLength(5);
+    expect(items.every((item) => item.summary !== undefined)).toBe(true);
+    // Le query della pagina sono un numero FISSO (righe, job, utenti, review):
+    // non cresce con gli item, altrimenti una pagina da 50 card sarebbe 50
+    // round-trip.
+    expect(selectSpy.mock.calls.length).toBeLessThanOrEqual(5);
+    selectSpy.mockRestore();
   });
 });
 

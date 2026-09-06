@@ -805,6 +805,9 @@ export async function runPrReview(deps: RunPrReviewDeps, job: PrReviewJobRow): P
         ticketUrl: ticketUrl(deps.publicUrl, ticket.id),
         prUrl: job.prUrl,
         verdict: parsed.verdict,
+        // Riassunto anche nell'evento: webhook e DM Slack partono dal payload
+        // pubblicato, non da una rilettura di `pr_reviews`.
+        ...(prSummary !== null ? { summary: prSummary } : {}),
       },
       // NIENTE jobId: il "job" della review è una riga `pr_review_jobs`, mentre
       // `notifications.job_id` ha la FK su `ai_jobs` — passarlo qui farebbe

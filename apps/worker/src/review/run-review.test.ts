@@ -532,6 +532,14 @@ describe("runPrReview", () => {
     expect(review!.status).toBe("completed");
     expect(review!.verdict).toBe("request_changes");
     expect(review!.prSummary).toBe("La PR sistema il login. La review chiede una correzione.");
+
+    // E viaggia anche nell'EVENTO: la consegna webhook/Slack parte dal payload
+    // pubblicato, non da una rilettura del DB.
+    const event = fakes.dispatched[0]!.event;
+    expect(event).toMatchObject({
+      kind: "review.completed",
+      summary: "La PR sistema il login. La review chiede una correzione.",
+    });
   });
 
   it("riassunto fallito: pr_summary NULL e review comunque completed", async () => {

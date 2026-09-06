@@ -374,6 +374,7 @@
       "originalRequest": "Richiesta originale",
       "pastQuestions": "Domande passate",
       "plan": "Piano di implementazione",
+      "planSummary": "In breve",
       "priority": "Priorità",
       "questionAnswerUnreadable": "La risposta non è più leggibile.",
       "questionAnsweredBy": "Ha risposto {{email}}",
@@ -1107,7 +1108,7 @@
       "monitorRecovered": "Rientrato",
       "awaitingInput": "Domanda a cui rispondere",
       "pulse": "Proposta",
-        "brief": "Brief settimanale"
+      "brief": "Brief settimanale"
     },
     "actions": {
       "approvePlan": "Approva piano",
@@ -1552,8 +1553,8 @@
     "new": "Nuova milestone",
     "name": "Nome milestone",
     "namePlaceholder": "Es. release v1.0",
-        "description": "Descrizione",
-        "descriptionPlaceholder": "Es. cosa consegna questa milestone",
+    "description": "Descrizione",
+    "descriptionPlaceholder": "Es. cosa consegna questa milestone",
     "dueDate": "Scadenza",
     "noDueDate": "Nessuna scadenza",
     "create": "Crea",

@@ -87,6 +87,7 @@ const ticketFixture: Ticket = {
   // Design/piano non collegati di default (solo nel dettaglio).
   implementationPlan: null,
   originContent: null,
+  planSummary: null,
   // Vuoto di default: il fix non ha ancora toccato repository (placeholder).
   repositories: [],
 };
@@ -750,6 +751,34 @@ describe("dettaglio ticket", () => {
     // Il piano segue il corpo come sezione "## Implementation plan" (label i18n).
     expect(md).toContain("## Implementation plan");
     expect(md).toContain("1. Aggiungi retry al gateway.");
+  });
+
+  it("riassunto in breve del piano: reso sopra il piano, con la sua etichetta", async () => {
+    mockDetailApi({
+      ticket: {
+        ...ticketFixture,
+        implementationPlan: "1. Aggiungi endpoint **/retry**.",
+        planSummary: "Il pagamento riprova da solo quando il gateway non risponde.",
+      },
+    });
+    renderDetail();
+
+    await screen.findByRole("heading", { name: "TypeError al checkout" });
+    expect(screen.getByText("In brief")).toBeInTheDocument();
+    const riassunto = screen.getByText(
+      "Il pagamento riprova da solo quando il gateway non risponde.",
+    );
+    expect(riassunto).toBeInTheDocument();
+  });
+
+  it("senza planSummary la sezione del piano resta quella di prima", async () => {
+    mockDetailApi({
+      ticket: { ...ticketFixture, implementationPlan: "1. Aggiungi endpoint **/retry**." },
+    });
+    renderDetail();
+
+    await screen.findByRole("heading", { name: "TypeError al checkout" });
+    expect(screen.queryByText("In brief")).toBeNull();
   });
 
   it("piano di implementazione: reso in markdown quando presente", async () => {

@@ -113,6 +113,16 @@ export const ticketDetailSchema = ticketSchema.extend({
   // potenzialmente grandi e fuori posto nelle liste.
   implementationPlan: z.string().nullable(),
   originContent: z.string().nullable(),
+  /**
+   * Riassunto "in breve" del piano dell'ULTIMO job del ticket (fase 5): le
+   * stesse frasi non tecniche che la card d'inbox mostra sopra Approva/Rifiuta.
+   * Null quando l'ultimo job non ha un piano riassunto.
+   *
+   * `.optional()` OLTRE a `.nullable()`: l'app mobile installata valida questa
+   * risposta con lo schema compilato dentro di sé, e un campo obbligatorio
+   * nuovo la romperebbe se il server tornasse a un'immagine precedente.
+   */
+  planSummary: z.string().nullable().optional(),
   repositories: z.array(ticketRepositorySchema),
 });
 export type TicketDetail = z.infer<typeof ticketDetailSchema>;

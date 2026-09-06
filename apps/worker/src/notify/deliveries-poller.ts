@@ -14,6 +14,7 @@ import {
   buildPushPayload,
   buildQuestionBlocks,
   createSlackClient,
+  eventSummary,
   formatNotification,
   isFatalSlackError,
   KINDS_WITH_OPTIONS,
@@ -584,6 +585,13 @@ async function sendSlackDm(
         notificationId: recipient.notificationId,
         lang: recipient.language,
         ...(url ? { url } : {}),
+        // Riassunto "in breve" (fase 5): letto in modo difensivo dal payload
+        // jsonb — le righe scritte prima della fase non ce l'hanno — e reso in
+        // una section sua, escapata da `buildInboxBlocks`.
+        ...(() => {
+          const summary = eventSummary(recipient.event);
+          return summary ? { summary } : {};
+        })(),
       });
 
   // `channel` = lo user id: Slack apre da sé il DM (scope chat:write + im:write).

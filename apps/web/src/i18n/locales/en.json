@@ -374,6 +374,7 @@
       "originalRequest": "Original request",
       "pastQuestions": "Past questions",
       "plan": "Implementation plan",
+      "planSummary": "In brief",
       "priority": "Priority",
       "questionAnswerUnreadable": "The answer is no longer readable.",
       "questionAnsweredBy": "Answered by {{email}}",
@@ -1107,7 +1108,7 @@
       "monitorRecovered": "Recovered",
       "awaitingInput": "Question to answer",
       "pulse": "Proposal",
-        "brief": "Weekly brief"
+      "brief": "Weekly brief"
     },
     "actions": {
       "approvePlan": "Approve plan",
@@ -1552,8 +1553,8 @@
     "new": "New milestone",
     "name": "Milestone name",
     "namePlaceholder": "E.g. v1.0 release",
-        "description": "Description",
-        "descriptionPlaceholder": "E.g. what this milestone delivers",
+    "description": "Description",
+    "descriptionPlaceholder": "E.g. what this milestone delivers",
     "dueDate": "Due date",
     "noDueDate": "No due date",
     "create": "Create",

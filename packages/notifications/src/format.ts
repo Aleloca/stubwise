@@ -43,6 +43,14 @@ export interface PrOpenedEvent {
   ticketUrl: string;
   /** Costo USD del run di fix, se noto. */
   costUsd?: number | null;
+  /**
+   * Riassunto "in breve" (fase 5): due o tre frasi in linguaggio NON tecnico,
+   * generate dall'agente. Assente quando i riassunti sono spenti, quando il run
+   * è fallito o — per `job.pr_opened` — quando la PR non è ancora stata
+   * revisionata. È testo GENERATO su input non fidato: chi lo rende su una
+   * superficie con markup deve escaparlo (vedi `buildInboxBlocks` per Slack).
+   */
+  summary?: string;
 }
 
 /** Il job è in attesa di revisione umana (gate di automazione / soglia effort). */
@@ -79,6 +87,14 @@ export interface JobPlanReviewEvent {
   ticketTitle: string;
   projectName: string;
   ticketUrl: string;
+  /**
+   * Riassunto "in breve" (fase 5): due o tre frasi in linguaggio NON tecnico,
+   * generate dall'agente. Assente quando i riassunti sono spenti, quando il run
+   * è fallito o — per `job.pr_opened` — quando la PR non è ancora stata
+   * revisionata. È testo GENERATO su input non fidato: chi lo rende su una
+   * superficie con markup deve escaparlo (vedi `buildInboxBlocks` per Slack).
+   */
+  summary?: string;
 }
 
 /**
@@ -147,6 +163,14 @@ export interface ReviewCompletedEvent {
   prUrl: string;
   /** Verdetto della review. */
   verdict: "approve" | "request_changes";
+  /**
+   * Riassunto "in breve" (fase 5): due o tre frasi in linguaggio NON tecnico,
+   * generate dall'agente. Assente quando i riassunti sono spenti, quando il run
+   * è fallito o — per `job.pr_opened` — quando la PR non è ancora stata
+   * revisionata. È testo GENERATO su input non fidato: chi lo rende su una
+   * superficie con markup deve escaparlo (vedi `buildInboxBlocks` per Slack).
+   */
+  summary?: string;
 }
 
 /** Il fix AI è fallito. */
@@ -404,6 +428,21 @@ const EMOJI: Record<NotificationKind, string> = {
  * di testo (il testo della notifica lo escapa {@link formatNotification}, i
  * blocchi lo inseriscono verbatim).
  */
+/**
+ * Riassunto "in breve" di un evento, letto in modo DIFENSIVO dal payload jsonb.
+ *
+ * Serve a chi consegna (il poller delle notifiche) e non può fidarsi della
+ * forma della riga: un evento salvato da una versione precedente non ha il
+ * campo, e una riga corrotta potrebbe averne uno non stringa. In entrambi i
+ * casi `undefined`, e la consegna prosegue senza il blocco del riassunto.
+ */
+export function eventSummary(rawEvent: Record<string, unknown>): string | undefined {
+  const value = rawEvent.summary;
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed === "" ? undefined : trimmed;
+}
+
 export function escapeSlackMrkdwn(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
@@ -738,13 +777,21 @@ function formatGeneric(event: NotificationEvent, lang: Language): Record<string,
     case "ticket.created":
       return { ...base, source: event.source };
     case "job.pr_opened":
-      return { ...base, prUrl: event.prUrl, costUsd: event.costUsd ?? null };
+      return {
+        ...base,
+        prUrl: event.prUrl,
+        costUsd: event.costUsd ?? null,
+        summary: event.summary ?? null,
+      };
     case "job.pr_closed":
       return { ...base, prUrl: event.prUrl };
     case "job.held":
       return { ...base, type: event.type, effort: event.effort };
     case "job.plan_review":
-      return base;
+      // `summary` SEMPRE presente (null quando manca), come `costUsd` e
+      // `recommendedIndex`: chi consuma il webhook non deve distinguere fra
+      // "campo assente perché versione vecchia" e "riassunto non generato".
+      return { ...base, summary: event.summary ?? null };
     case "job.budget_held":
       return {
         ...base,
@@ -753,7 +800,12 @@ function formatGeneric(event: NotificationEvent, lang: Language): Record<string,
         spentUsd: event.spentUsd,
       };
     case "review.completed":
-      return { ...base, prUrl: event.prUrl, verdict: event.verdict };
+      return {
+        ...base,
+        prUrl: event.prUrl,
+        verdict: event.verdict,
+        summary: event.summary ?? null,
+      };
     case "job.failed":
       return { ...base, error: event.error };
     case "job.awaiting_input":

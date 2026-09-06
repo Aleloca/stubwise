@@ -1910,6 +1910,11 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
         ticketTitle: ticket.title,
         projectName,
         ticketUrl: url,
+        // Il riassunto viaggia NELL'EVENTO oltre che in colonna: webhook e DM
+        // Slack si consegnano a partire dal payload pubblicato e non rileggono
+        // il DB, quindi senza questo campo il riassunto resterebbe confinato
+        // alla card web.
+        ...(planSummary !== null ? { summary: planSummary } : {}),
       },
       notifyRefs,
     );

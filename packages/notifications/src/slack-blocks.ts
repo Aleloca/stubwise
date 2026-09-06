@@ -140,6 +140,15 @@ export interface InboxBlocksInput {
   url?: string;
   /** Lingua del destinatario. */
   lang: Language;
+  /**
+   * Riassunto "in breve" della notifica (fase 5). Va in una `section` SUA, fra
+   * il testo e i bottoni: il DM si legge dal telefono e un riassunto appeso in
+   * coda al testo si confonderebbe con esso. Assente o vuoto ⇒ nessun blocco.
+   *
+   * È testo GENERATO dall'agente su input non fidato (titoli, descrizioni di PR,
+   * piani): viene escapato qui con `escapeSlackMrkdwn`, mai passato verbatim.
+   */
+  summary?: string;
 }
 
 /**
@@ -155,8 +164,19 @@ export interface InboxBlocksInput {
  * emette un blocco `actions` vuoto, che Slack rifiuterebbe.
  */
 export function buildInboxBlocks(input: InboxBlocksInput): SlackBlock[] {
-  const { text, actions, notificationId, url, lang } = input;
+  const { text, actions, notificationId, url, lang, summary } = input;
   const blocks: SlackBlock[] = [{ type: "section", text: { type: "mrkdwn", text } }];
+
+  const trimmedSummary = summary?.trim();
+  if (trimmedSummary) {
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: escapeSlackMrkdwn(truncate(trimmedSummary, SECTION_TEXT_MAX)),
+      },
+    });
+  }
 
   const elements: SlackBlock[] = [];
   for (const action of actions) {

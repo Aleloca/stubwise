@@ -1264,9 +1264,20 @@ describe("runFix", () => {
       ],
     });
     const provider = makeProvider();
+    const published: Published<{ kind: string; summary?: string }>[] = [];
 
     const outcome = await runFix(
-      makeDeps(fixture, runner, provider, { summariesEnabled: true, summaryModel: "haiku" }),
+      makeDeps(fixture, runner, provider, {
+        summariesEnabled: true,
+        summaryModel: "haiku",
+        publish: async (_db, event, opts) => {
+          published.push({
+            event: event as unknown as { kind: string; summary?: string },
+            opts: opts ?? {},
+          });
+          return { published: 1 };
+        },
+      }),
       job,
     );
 
@@ -1283,6 +1294,12 @@ describe("runFix", () => {
     expect(jobAfter.status).toBe("awaiting_plan_approval");
     expect(jobAfter.planText).toBe("PIANO PROPOSTO: cambia - in + in app.js");
     expect(jobAfter.planSummary).toBe("Il conto delle somme torna corretto.");
+
+    // Il riassunto viaggia anche NELL'EVENTO: webhook e Slack si consegnano al
+    // publish e non rileggono il DB, quindi senza questo campo la card web
+    // avrebbe il riassunto e il DM Slack no.
+    const planEvent = published.find((p) => p.event.kind === "job.plan_review")?.event;
+    expect(planEvent).toMatchObject({ summary: "Il conto delle somme torna corretto." });
   });
 
   it("plan-only: riassunto fallito → il piano si parcheggia comunque, planSummary NULL", async () => {

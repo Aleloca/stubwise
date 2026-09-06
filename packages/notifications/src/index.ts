@@ -122,6 +122,7 @@ export {
 
 export {
   escapeSlackMrkdwn,
+  eventSummary,
   formatNotification,
   formatNotificationText,
   sampleEvents,

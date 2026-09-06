@@ -706,6 +706,33 @@ describe("formatNotification — generic", () => {
     expect(body.message as string).toContain("Plan awaiting approval");
   });
 
+  it("job.plan_review → il riassunto in breve nel payload webhook", () => {
+    const body = formatNotification(
+      { ...JOB_PLAN_REVIEW, summary: "Il conto delle somme torna corretto." },
+      "generic",
+    ).body as Record<string, unknown>;
+    expect(body.summary).toBe("Il conto delle somme torna corretto.");
+  });
+
+  it("job.plan_review senza riassunto → campo presente e null (payload di forma stabile)", () => {
+    const body = formatNotification(JOB_PLAN_REVIEW, "generic").body as Record<string, unknown>;
+    expect(body.summary).toBeNull();
+  });
+
+  it("job.pr_opened e review.completed portano anch'essi il riassunto", () => {
+    const opened = formatNotification(
+      { ...PR_OPENED, summary: "La PR sistema il login." },
+      "generic",
+    ).body as Record<string, unknown>;
+    expect(opened.summary).toBe("La PR sistema il login.");
+
+    const reviewed = formatNotification(
+      { ...REVIEW_COMPLETED, summary: "La review chiede una correzione." },
+      "generic",
+    ).body as Record<string, unknown>;
+    expect(reviewed.summary).toBe("La review chiede una correzione.");
+  });
+
   it("job.awaiting_input → payload con la domanda intera (autosufficiente)", () => {
     const body = formatNotification(JOB_AWAITING_INPUT, "generic").body as Record<string, unknown>;
     expect(body.event).toBe("job.awaiting_input");

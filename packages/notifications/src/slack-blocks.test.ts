@@ -57,6 +57,62 @@ describe("buildInboxBlocks", () => {
     });
   });
 
+  it("il riassunto in breve è una section SUA, fra il testo e le azioni", () => {
+    const blocks = buildInboxBlocks({
+      text: "📝 Piano da approvare per *#42*",
+      summary: "Il conto delle somme torna corretto.",
+      actions: ["approve_plan", "reject_plan"],
+      notificationId: NOTIFICATION_ID,
+      lang: "it",
+    });
+
+    expect(blocks).toHaveLength(3);
+    expect(blocks[1]).toEqual({
+      type: "section",
+      text: { type: "mrkdwn", text: "Il conto delle somme torna corretto." },
+    });
+    expect(blocks[2]!.type).toBe("actions");
+  });
+
+  it("il riassunto è testo GENERATO su input non fidato: `<`, `>` e `&` vengono escapati", () => {
+    const blocks = buildInboxBlocks({
+      text: "Piano da approvare",
+      summary: "Tocca <config> & la home > profilo.",
+      actions: [],
+      notificationId: NOTIFICATION_ID,
+      lang: "it",
+    });
+
+    expect(blocks[1]).toEqual({
+      type: "section",
+      text: { type: "mrkdwn", text: "Tocca &lt;config&gt; &amp; la home &gt; profilo." },
+    });
+  });
+
+  it("riassunto assente o vuoto → nessuna section in più", () => {
+    // `handled` rende sempre un bottone (a differenza di `open`, che senza url
+    // non produce elementi): così la lunghezza attesa isola davvero il blocco
+    // del riassunto e non un blocco `actions` mancante.
+    const senza = buildInboxBlocks({
+      text: "Piano da approvare",
+      actions: ["handled"],
+      notificationId: NOTIFICATION_ID,
+      lang: "it",
+    });
+    expect(senza).toHaveLength(2);
+    expect(senza[1]!.type).toBe("actions");
+
+    const vuoto = buildInboxBlocks({
+      text: "Piano da approvare",
+      summary: "   ",
+      actions: ["handled"],
+      notificationId: NOTIFICATION_ID,
+      lang: "it",
+    });
+    expect(vuoto).toHaveLength(2);
+    expect(vuoto[1]!.type).toBe("actions");
+  });
+
   it("le azioni dell'admin su un piano in attesa: approva (primary), rifiuta (danger), apri, snooze, gestita", () => {
     const actions = actionsFor(
       { kind: "job.plan_review", requestedByUserId: null },
