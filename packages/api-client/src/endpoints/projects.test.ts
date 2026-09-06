@@ -71,3 +71,58 @@ describe("endpoints projects: reviews e timeline (fase 5)", () => {
     expect(lastUrl(fetchImpl)).toBe(`/api/projects/${ID}/timeline`);
   });
 });
+
+/** Client il cui `fetch` finto risponde SEMPRE il body dato (schemi validati). */
+function clientCon(body: unknown) {
+  const fetchImpl = vi.fn<typeof globalThis.fetch>(
+    async () =>
+      new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+  );
+  const client = createStubwiseClient({
+    baseUrl: "",
+    getAuthHeader: () => null,
+    fetch: fetchImpl,
+  });
+  return { client, fetchImpl };
+}
+
+const BRIEF = {
+  id: ID,
+  projectId: ID,
+  periodStart: "2026-08-31",
+  periodEnd: "2026-09-06",
+  status: "done",
+  summary: "## Dove siamo\n\nTutto bene.",
+  sections: { whereWeAre: "Tutto bene." },
+  notificationId: null,
+  createdAt: "2026-09-07T07:30:00.000Z",
+  finishedAt: "2026-09-07T07:31:00.000Z",
+};
+
+describe("endpoints projects: brief settimanale (fase 5)", () => {
+  it("briefs: GET sotto il progetto, col limit in querystring quando c'è", async () => {
+    const { client, fetchImpl } = clientCon([BRIEF]);
+    await client.projects.briefs(ID);
+    expect(lastUrl(fetchImpl)).toBe(`/api/projects/${ID}/briefs`);
+    await client.projects.briefs(ID, { limit: 5 });
+    expect(lastUrl(fetchImpl)).toBe(`/api/projects/${ID}/briefs?limit=5`);
+  });
+
+  it("generateBrief: POST col force nel corpo, non in querystring", async () => {
+    const { client, fetchImpl } = clientCon(BRIEF);
+    await client.projects.generateBrief(ID, { force: true });
+    expect(lastUrl(fetchImpl)).toBe(`/api/projects/${ID}/briefs/generate`);
+    const init = fetchImpl.mock.calls.at(-1)![1] as RequestInit;
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(String(init.body))).toEqual({ force: true });
+  });
+
+  it("brief: rotta di PRIMO LIVELLO per id, non annidata sotto il progetto", async () => {
+    const { client, fetchImpl } = clientCon(BRIEF);
+    await client.projects.brief(ID);
+    expect(lastUrl(fetchImpl)).toBe(`/api/briefs/${ID}`);
+  });
+});

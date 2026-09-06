@@ -1358,6 +1358,8 @@
       "pulseEveryDays": "Giorni fra un pulse e l'altro",
       "pulseEveryDaysRange": "I giorni fra un pulse e l'altro devono stare fra {{min}} e {{max}}.",
       "pulseNeedsBacklog": "// serve il backlog di discovery: senza, non c'è nulla da proporre.",
+      "weeklyBrief": "Brief settimanale",
+      "weeklyBriefHint": "// una volta a settimana, il resoconto del progetto scritto per chi non legge codice.",
       "aiProvider": "Provider AI del progetto",
       "aiProviderAuto": "Automatico (catena con failover)",
       "aiProviderHint": "// vale per Docs e fix di tutti i repository; vuoto = catena dei provider abilitati.",
@@ -1442,7 +1444,18 @@
       "noSummary": "// nessun riassunto",
       "decidedBy": "deciso da {{who}}",
       "decidedBySystem": "nessun autore registrato",
-      "openPr": "Apri la pull request"
+      "openPr": "Apri la pull request",
+      "openBrief": "Apri il brief"
+    },
+    "weeklyBrief": {
+      "backToRoadmap": "← Torna alla roadmap",
+      "title": "Brief settimanale",
+      "copy": "Copia come testo",
+      "regenerate": "Rigenera",
+      "generatedAt": "generato il",
+      "pending": "// il brief è in corso di scrittura: arriva fra qualche minuto.",
+      "failed": "// la generazione del brief è fallita. Rigenerala per riprovare.",
+      "noText": "// questo brief non ha nessun testo: l'istanza non ha un provider AI utilizzabile per generarlo."
     }
   },
   "repositories": {

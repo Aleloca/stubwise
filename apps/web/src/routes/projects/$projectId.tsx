@@ -103,6 +103,7 @@ export function ProjectDetailPage() {
                   backlogEnabled: project.backlogEnabled,
                   pulseEnabled: project.pulseEnabled,
                   pulseEveryDays: project.pulseEveryDays,
+                  weeklyBriefEnabled: project.weeklyBriefEnabled,
                 }}
                 onSubmit={handleSubmit}
               />
@@ -139,6 +140,10 @@ export function ProjectDetailPage() {
                       ? t("projects:detail.pulseEvery", { count: project.pulseEveryDays })
                       : t("projects:detail.pulseWaitingBacklog")
                 }
+              />
+              <ReadOnlyRow
+                label={t("projects:form.weeklyBrief")}
+                value={project.weeklyBriefEnabled ? t("common:on") : t("common:off")}
               />
               <p className="pt-1 font-mono text-[11px] text-fg-faint">
                 {t("projects:detail.readOnlyHint")}

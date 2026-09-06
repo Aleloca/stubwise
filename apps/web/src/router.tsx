@@ -28,6 +28,7 @@ import {
   inboxQueryOptions,
   instanceSettingsQueryOptions,
   invitesQueryOptions,
+  briefQueryOptions,
   milestonesQueryOptions,
   myFollowsQueryOptions,
   notificationPrefsQueryOptions,
@@ -70,6 +71,7 @@ import { LoginPage } from "./routes/login";
 import { MonitorListPage } from "./routes/monitor/index";
 import { ServerDetailPage } from "./routes/monitor/server-detail";
 import { ProjectDetailPage } from "./routes/projects/$projectId";
+import { BriefPage } from "./routes/briefs/$id";
 import { ProjectRoadmapPage } from "./routes/projects/$projectId.roadmap";
 import { ProjectsPage } from "./routes/projects/index";
 import {
@@ -307,6 +309,22 @@ const projectRoadmapRoute = createRoute({
     await context.queryClient.ensureQueryData(milestonesQueryOptions(project.id));
   },
   component: ProjectRoadmapPage,
+});
+
+/**
+ * UN brief settimanale (Fase 5). Rotta di PRIMO LIVELLO come il suo endpoint:
+ * il link al brief viaggia dentro la notifica `project.brief`, sul separatore
+ * della roadmap e nel tool MCP, e nessuno di quei tre porta con sé il progetto.
+ * Il loader prefetcha il brief; il progetto lo carica la pagina (serve il
+ * `projectId`, che è nel brief).
+ */
+const briefRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/briefs/$id",
+  loader: async ({ context, params }) => {
+    await context.queryClient.ensureQueryData(briefQueryOptions(params.id));
+  },
+  component: BriefPage,
 });
 
 /**
@@ -759,6 +777,7 @@ const routeTree = rootRoute.addChildren([
     projectsRoute,
     projectDetailRoute,
     projectRoadmapRoute,
+    briefRoute,
     widgetConversationsRoute,
     repositoryNewRoute,
     repositoriesIndexRoute,

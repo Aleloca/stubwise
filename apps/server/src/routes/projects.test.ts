@@ -1,8 +1,17 @@
 import { randomBytes } from "node:crypto";
+import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
-import { aiJobs, aiProviders, notifications, prReviews, projectFollows, tickets } from "@stubwise/db";
+import {
+  aiJobs,
+  aiProviders,
+  notifications,
+  prReviews,
+  projectBriefs,
+  projectFollows,
+  tickets,
+} from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { seedUsers, sessionCookie } from "../test/fixtures.js";
@@ -67,6 +76,8 @@ describe("POST /api/projects", () => {
       // Pulse proattivo: spento, con la cadenza di default di 3 giorni.
       pulseEnabled: false,
       pulseEveryDays: 3,
+      // Brief settimanale (fase 5): spento, e indipendente dal backlog.
+      weeklyBriefEnabled: false,
       // Fase 3: il progetto nasce con la chiave di ingestion (32 hex) e il
       // contatore ticket per-progetto a 1.
       ingestionKey: expect.stringMatching(/^[0-9a-f]{32}$/),
@@ -706,5 +717,234 @@ describe("GET /api/projects/:projectId/reviews", () => {
       headers: { cookie: memberCookie },
     });
     expect(res.statusCode).toBe(404);
+  });
+});
+
+describe("brief settimanale", () => {
+  /** Un progetto col brief acceso e, opzionalmente, un brief già in tabella. */
+  async function seedProjectWithBrief(
+    brief?: Partial<typeof projectBriefs.$inferInsert>,
+  ): Promise<{ projectId: string; briefId?: string }> {
+    const created = await createProject({ name: `Brief ${randomBytes(4).toString("hex")}` });
+    const projectId = created.json().id as string;
+    if (!brief) return { projectId };
+    const [row] = await testDb.db
+      .insert(projectBriefs)
+      .values({
+        projectId,
+        periodStart: "2026-08-31",
+        periodEnd: "2026-09-06",
+        status: "done",
+        summary: "## Dove siamo\n\nTutto bene.",
+        sections: { whereWeAre: "Tutto bene." },
+        ...brief,
+      })
+      .returning({ id: projectBriefs.id });
+    return { projectId, briefId: row!.id };
+  }
+
+  describe("PATCH weeklyBriefEnabled", () => {
+    it("l'admin accende il brief e il valore torna nella risposta e nella GET", async () => {
+      const { projectId } = await seedProjectWithBrief();
+      const res = await app.inject({
+        method: "PATCH",
+        url: `/api/projects/${projectId}`,
+        headers: { cookie: adminCookie },
+        payload: { weeklyBriefEnabled: true },
+      });
+      expect(res.statusCode).toBe(200);
+      expect((res.json() as { weeklyBriefEnabled: boolean }).weeklyBriefEnabled).toBe(true);
+
+      const get = await app.inject({
+        method: "GET",
+        url: `/api/projects/${projectId}`,
+        headers: { cookie: adminCookie },
+      });
+      expect((get.json() as { weeklyBriefEnabled: boolean }).weeklyBriefEnabled).toBe(true);
+    });
+
+    it("il brief NON dipende dal backlog: si accende su un progetto che non ce l'ha", async () => {
+      const { projectId } = await seedProjectWithBrief();
+      const res = await app.inject({
+        method: "PATCH",
+        url: `/api/projects/${projectId}`,
+        headers: { cookie: adminCookie },
+        payload: { weeklyBriefEnabled: true },
+      });
+      expect(res.statusCode).toBe(200);
+      expect((res.json() as { backlogEnabled: boolean }).backlogEnabled).toBe(false);
+    });
+  });
+
+  describe("GET /api/projects/:projectId/briefs", () => {
+    it("elenca i brief dal periodo più recente, senza mai l'errore interno", async () => {
+      const { projectId } = await seedProjectWithBrief({ error: "/worker/tmp/segreto: boom" });
+      await testDb.db.insert(projectBriefs).values({
+        projectId,
+        periodStart: "2026-08-24",
+        periodEnd: "2026-08-30",
+        status: "done",
+        summary: "Vecchio",
+      });
+
+      const res = await app.inject({
+        method: "GET",
+        url: `/api/projects/${projectId}/briefs`,
+        headers: { cookie: adminCookie },
+      });
+      expect(res.statusCode).toBe(200);
+      const rows = res.json() as { periodStart: string; summary: string | null }[];
+      expect(rows.map((r) => r.periodStart)).toEqual(["2026-08-31", "2026-08-24"]);
+      expect(JSON.stringify(rows)).not.toContain("segreto");
+    });
+
+    it("rispetta `limit`", async () => {
+      const { projectId } = await seedProjectWithBrief();
+      await testDb.db.insert(projectBriefs).values({
+        projectId,
+        periodStart: "2026-08-24",
+        periodEnd: "2026-08-30",
+        status: "done",
+      });
+      const res = await app.inject({
+        method: "GET",
+        url: `/api/projects/${projectId}/briefs?limit=1`,
+        headers: { cookie: adminCookie },
+      });
+      expect(res.json()).toHaveLength(1);
+    });
+
+    it("un member che NON segue il progetto: 404, come le altre rotte di progetto", async () => {
+      const { projectId } = await seedProjectWithBrief();
+      const res = await app.inject({
+        method: "GET",
+        url: `/api/projects/${projectId}/briefs`,
+        headers: { cookie: memberCookie },
+      });
+      expect(res.statusCode).toBe(404);
+    });
+
+    it("un member che SEGUE il progetto lo legge", async () => {
+      const { projectId } = await seedProjectWithBrief();
+      await testDb.db.insert(projectFollows).values({ projectId, userId: memberId });
+      const res = await app.inject({
+        method: "GET",
+        url: `/api/projects/${projectId}/briefs`,
+        headers: { cookie: memberCookie },
+      });
+      expect(res.statusCode).toBe(200);
+    });
+  });
+
+  describe("POST /api/projects/:projectId/briefs/generate", () => {
+    it("brief `done` senza force: 409, non si butta via un brief già scritto", async () => {
+      const { projectId } = await seedProjectWithBrief({});
+      const res = await app.inject({
+        method: "POST",
+        url: `/api/projects/${projectId}/briefs/generate`,
+        headers: { cookie: adminCookie },
+        payload: {},
+      });
+      expect(res.statusCode).toBe(409);
+      expect((res.json() as { code: string }).code).toBe("brief_already_done");
+    });
+
+    it("con `force`: il brief torna in coda, azzerando i tentativi", async () => {
+      const { projectId, briefId } = await seedProjectWithBrief({ attempts: 3 });
+      const res = await app.inject({
+        method: "POST",
+        url: `/api/projects/${projectId}/briefs/generate`,
+        headers: { cookie: adminCookie },
+        payload: { force: true },
+      });
+      expect(res.statusCode).toBe(200);
+      const body = res.json() as { id: string; status: string };
+      expect(body.id).toBe(briefId);
+      expect(body.status).toBe("queued");
+      const [row] = await testDb.db
+        .select()
+        .from(projectBriefs)
+        .where(eq(projectBriefs.projectId, projectId));
+      expect(row).toMatchObject({ status: "queued", attempts: 0, error: null });
+    });
+
+    it("un brief `failed` si rigenera SENZA force: non c'è niente da preservare", async () => {
+      const { projectId } = await seedProjectWithBrief({ status: "failed", error: "boom" });
+      const res = await app.inject({
+        method: "POST",
+        url: `/api/projects/${projectId}/briefs/generate`,
+        headers: { cookie: adminCookie },
+        payload: {},
+      });
+      expect(res.statusCode).toBe(200);
+      expect((res.json() as { status: string }).status).toBe("queued");
+    });
+
+    it("nessun brief ancora: ne crea uno `queued` per l'ultima settimana chiusa", async () => {
+      const { projectId } = await seedProjectWithBrief();
+      const res = await app.inject({
+        method: "POST",
+        url: `/api/projects/${projectId}/briefs/generate`,
+        headers: { cookie: adminCookie },
+        payload: {},
+      });
+      expect(res.statusCode).toBe(201);
+      const body = res.json() as { status: string; periodStart: string; periodEnd: string };
+      expect(body.status).toBe("queued");
+      // Sette giorni di calendario, estremi inclusi.
+      const days =
+        (Date.parse(`${body.periodEnd}T00:00:00Z`) - Date.parse(`${body.periodStart}T00:00:00Z`)) /
+        86_400_000;
+      expect(days).toBe(6);
+    });
+
+    it("un member non rigenera: 403 (è un run AI, lo decide un maintainer)", async () => {
+      const { projectId } = await seedProjectWithBrief();
+      const res = await app.inject({
+        method: "POST",
+        url: `/api/projects/${projectId}/briefs/generate`,
+        headers: { cookie: memberCookie },
+        payload: { force: true },
+      });
+      expect(res.statusCode).toBe(403);
+    });
+  });
+
+  describe("GET /api/briefs/:briefId", () => {
+    it("l'admin legge un brief per id", async () => {
+      const { projectId, briefId } = await seedProjectWithBrief({});
+      const res = await app.inject({
+        method: "GET",
+        url: `/api/briefs/${briefId}`,
+        headers: { cookie: adminCookie },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toMatchObject({
+        id: briefId,
+        projectId,
+        periodStart: "2026-08-31",
+        status: "done",
+        sections: { whereWeAre: "Tutto bene." },
+      });
+    });
+
+    it("brief inesistente: 404", async () => {
+      const res = await app.inject({
+        method: "GET",
+        url: "/api/briefs/11111111-1111-4111-8111-111111111111",
+        headers: { cookie: adminCookie },
+      });
+      expect(res.statusCode).toBe(404);
+    });
+
+    it("un member che non segue il progetto: 404, come se il brief non esistesse", async () => {
+      const { briefId } = await seedProjectWithBrief({});
+      const res = await app.inject({
+        method: "GET",
+        url: `/api/briefs/${briefId}`,
+        headers: { cookie: memberCookie },
+      });
+      expect(res.statusCode).toBe(404);
+    });
   });
 });

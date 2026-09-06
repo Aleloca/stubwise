@@ -5,7 +5,7 @@ import {
   type IdleBlocker,
 } from "@stubwise/notifications";
 import type { ProjectTimelineEntry } from "@stubwise/shared";
-import { and, asc, desc, eq, gte, isNotNull, lt, lte, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, isNotNull, lt, lte, sql } from "drizzle-orm";
 
 /**
  * L'INPUT del BRIEF SETTIMANALE: cinque sorgenti, un ordine fisso, un tetto.

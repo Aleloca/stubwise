@@ -60,6 +60,7 @@ function makeClient() {
     listTickets: vi.fn(),
     getTicket: vi.fn(),
     listInbox: vi.fn(),
+    listProjectBriefs: vi.fn(),
   };
 }
 
@@ -522,6 +523,86 @@ describe("list_proposals", () => {
   });
 });
 
+describe("get_project_brief", () => {
+  const BRIEF_ID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+
+  function fakeBrief(over: Record<string, unknown> = {}) {
+    return {
+      id: BRIEF_ID,
+      projectId: PROJECT_ID,
+      periodStart: "2026-08-31",
+      periodEnd: "2026-09-06",
+      status: "done",
+      summary: "## Dove siamo\n\nIl progetto è a metà del lavoro sul login.",
+      sections: { whereWeAre: "Il progetto è a metà del lavoro sul login." },
+      notificationId: null,
+      createdAt: "2026-09-07T07:30:00.000Z",
+      finishedAt: "2026-09-07T07:31:00.000Z",
+      ...over,
+    };
+  }
+
+  it("restituisce il markdown dell'ULTIMO brief, col periodo che copre", async () => {
+    const client = makeClient();
+    client.getProjectBySlug.mockResolvedValue(fakeProject());
+    client.listProjectBriefs.mockResolvedValue([fakeBrief()]);
+    const { ctx } = makeCtx(client);
+
+    const res = await tool("get_project_brief").handler({ project: "acme" }, ctx);
+
+    expect(client.listProjectBriefs).toHaveBeenCalledWith(PROJECT_ID, 1);
+    expect(res.isError).toBeUndefined();
+    const text = firstText(res);
+    expect(text).toContain("2026-08-31");
+    expect(text).toContain("2026-09-06");
+    expect(text).toContain("Il progetto è a metà del lavoro sul login.");
+  });
+
+  it("nessun brief: lo dice, e non è un errore", async () => {
+    const client = makeClient();
+    client.getProjectBySlug.mockResolvedValue(fakeProject());
+    client.listProjectBriefs.mockResolvedValue([]);
+    const { ctx } = makeCtx(client);
+
+    const res = await tool("get_project_brief").handler({ project: "acme" }, ctx);
+    expect(res.isError).toBeUndefined();
+    expect(firstText(res)).toContain("Nessun brief");
+  });
+
+  it("brief senza testo (istanza senza provider AI): lo dichiara invece di mostrare il vuoto", async () => {
+    const client = makeClient();
+    client.getProjectBySlug.mockResolvedValue(fakeProject());
+    client.listProjectBriefs.mockResolvedValue([fakeBrief({ summary: null, sections: null })]);
+    const { ctx } = makeCtx(client);
+
+    const res = await tool("get_project_brief").handler({ project: "acme" }, ctx);
+    expect(res.isError).toBeUndefined();
+    expect(firstText(res)).toContain("senza testo");
+  });
+
+  it("brief ancora in coda: lo dice, senza far finta che sia pronto", async () => {
+    const client = makeClient();
+    client.getProjectBySlug.mockResolvedValue(fakeProject());
+    client.listProjectBriefs.mockResolvedValue([
+      fakeBrief({ status: "queued", summary: null, sections: null, finishedAt: null }),
+    ]);
+    const { ctx } = makeCtx(client);
+
+    const res = await tool("get_project_brief").handler({ project: "acme" }, ctx);
+    expect(firstText(res)).toContain("in corso");
+  });
+
+  it("progetto non risolvibile: errore del resolver, nessuna chiamata ai brief", async () => {
+    const client = makeClient();
+    client.getProjectBySlug.mockResolvedValue(null);
+    const { ctx } = makeCtx(client);
+
+    const res = await tool("get_project_brief").handler({ project: "ignoto" }, ctx);
+    expect(res.isError).toBe(true);
+    expect(client.listProjectBriefs).not.toHaveBeenCalled();
+  });
+});
+
 describe("registerReadTools", () => {
   it("registra tutti i tool di lettura con i nomi attesi", () => {
     const client = makeClient();
@@ -531,7 +612,7 @@ describe("registerReadTools", () => {
 
     registerReadTools(server, ctx);
 
-    expect(registerTool).toHaveBeenCalledTimes(6);
+    expect(registerTool).toHaveBeenCalledTimes(7);
     const names = registerTool.mock.calls.map((c) => c[0]);
     expect(names).toEqual([
       "list_projects",
@@ -540,6 +621,7 @@ describe("registerReadTools", () => {
       "list_tickets",
       "get_ticket",
       "list_proposals",
+      "get_project_brief",
     ]);
     // Ogni registrazione passa un config con description + inputSchema e una callback.
     for (const call of registerTool.mock.calls) {

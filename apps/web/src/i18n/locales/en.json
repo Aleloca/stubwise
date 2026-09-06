@@ -1358,6 +1358,8 @@
       "pulseEveryDays": "Days between pulses",
       "pulseEveryDaysRange": "Days between pulses must be between {{min}} and {{max}}.",
       "pulseNeedsBacklog": "// needs the discovery backlog: without it there is nothing to propose.",
+      "weeklyBrief": "Weekly brief",
+      "weeklyBriefHint": "// once a week, the project's recap written for people who don't read code.",
       "aiProvider": "Project AI provider",
       "aiProviderAuto": "Automatic (failover chain)",
       "aiProviderHint": "// applies to Docs and fixes of all repositories; empty = chain of enabled providers.",
@@ -1442,7 +1444,18 @@
       "noSummary": "// no summary",
       "decidedBy": "decided by {{who}}",
       "decidedBySystem": "no author recorded",
-      "openPr": "Open the pull request"
+      "openPr": "Open the pull request",
+      "openBrief": "Open the brief"
+    },
+    "weeklyBrief": {
+      "backToRoadmap": "← Back to the roadmap",
+      "title": "Weekly brief",
+      "copy": "Copy as text",
+      "regenerate": "Regenerate",
+      "generatedAt": "generated on",
+      "pending": "// the brief is being written: it will be here in a few minutes.",
+      "failed": "// generating the brief failed. Regenerate it to try again.",
+      "noText": "// this brief has no text: the instance has no usable AI provider to generate it."
     }
   },
   "repositories": {

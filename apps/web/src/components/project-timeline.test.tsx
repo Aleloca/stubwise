@@ -1,3 +1,10 @@
+import {
+  createMemoryHistory,
+  createRootRoute,
+  createRoute,
+  createRouter,
+  RouterProvider,
+} from "@tanstack/react-router";
 import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { ProjectTimelineEntry } from "../lib/api";
@@ -14,6 +21,23 @@ const TICKET = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
 function entries(...items: ProjectTimelineEntry[]): ProjectTimelineEntry[] {
   return items;
+}
+
+/**
+ * Render dentro un router di memoria, per le voci che contengono un `Link`
+ * (il brief e i ticket chiusi): fuori da un `RouterProvider` `useLinkProps`
+ * esplode, e non è un difetto del componente — è il contratto di TanStack
+ * Router. Le altre voci non ne hanno bisogno e restano su `render` nudo.
+ */
+function renderWithRouter(items: ProjectTimelineEntry[]) {
+  const rootRoute = createRootRoute({ component: () => <ProjectTimeline entries={items} /> });
+  const briefRoute = createRoute({ getParentRoute: () => rootRoute, path: "/briefs/$id" });
+  const ticketRoute = createRoute({ getParentRoute: () => rootRoute, path: "/tickets/$id" });
+  const router = createRouter({
+    routeTree: rootRoute.addChildren([briefRoute, ticketRoute]),
+    history: createMemoryHistory({ initialEntries: ["/"] }),
+  });
+  return render(<RouterProvider router={router} />);
 }
 
 describe("weekStart", () => {
@@ -102,22 +126,26 @@ describe("ProjectTimeline", () => {
     expect(screen.queryByText(/review:/i)).not.toBeInTheDocument();
   });
 
-  it("il brief è un SEPARATORE, non una riga come le altre", () => {
-    render(
-      <ProjectTimeline
-        entries={entries({
-          kind: "brief",
-          id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
-          at: "2026-09-01T10:00:00.000Z",
-          periodStart: "2026-08-24",
-          periodEnd: "2026-08-30",
-          headline: "Siamo a metà del rilascio.",
-        })}
-      />,
+  it("il brief è un SEPARATORE, non una riga come le altre, e LINKA al brief intero", async () => {
+    renderWithRouter(
+      entries({
+        kind: "brief",
+        id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+        at: "2026-09-01T10:00:00.000Z",
+        periodStart: "2026-08-24",
+        periodEnd: "2026-08-30",
+        headline: "Siamo a metà del rilascio.",
+      }),
     );
-    const separator = screen.getByRole("separator");
+    const separator = await screen.findByRole("separator");
     expect(within(separator).getByText(/Siamo a metà del rilascio/)).toBeInTheDocument();
     expect(within(separator).getByText(/Weekly brief/i)).toBeInTheDocument();
+    // Il link che la Fase C aveva lasciato in sospeso: la headline è l'incipit,
+    // il testo intero sta sulla pagina del brief.
+    expect(within(separator).getByRole("link")).toHaveAttribute(
+      "href",
+      "/briefs/eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+    );
   });
 
   it("la decisione mostra il testo deciso e chi ha deciso", () => {

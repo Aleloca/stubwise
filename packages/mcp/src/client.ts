@@ -293,6 +293,26 @@ export interface TicketPatch {
 }
 
 /** Dipendenze iniettabili: `fetch` è iniettabile per testabilità. */
+/**
+ * Un brief settimanale nella forma letta dal tool `get_project_brief`
+ * (`projectBriefWeeklySchema` lato server, qui riscritto perché il pacchetto è
+ * un bundle senza dipendenze workspace a runtime).
+ */
+export interface ProjectBriefSummary {
+  id: string;
+  projectId: string;
+  /** Estremi INCLUSI del periodo coperto, `YYYY-MM-DD`. */
+  periodStart: string;
+  periodEnd: string;
+  status: "queued" | "running" | "done" | "failed";
+  /** Il brief in markdown; null se non generato o se manca il provider AI. */
+  summary: string | null;
+  sections: Record<string, string> | null;
+  notificationId: string | null;
+  createdAt: string;
+  finishedAt: string | null;
+}
+
 export interface StubwiseClientDeps {
   fetch?: typeof fetch;
 }
@@ -591,6 +611,23 @@ export class StubwiseClient {
   async listInbox(params: ListInboxParams = {}): Promise<Page<InboxItemSummary>> {
     return this.request<Page<InboxItemSummary>>("/api/inbox", {
       query: { status: params.status, kind: params.kind },
+    });
+  }
+
+  // --- Brief settimanale ---------------------------------------------------
+
+  /**
+   * I brief settimanali di un progetto, dal più recente
+   * (`GET /api/projects/:id/briefs`). `limit` 1 = solo l'ultimo, che è il caso
+   * del tool `get_project_brief`.
+   *
+   * Cast tipizzato senza validazione runtime, come le altre letture di questo
+   * client: lo schema vive in `@stubwise/shared` e il pacchetto MCP è un bundle
+   * autonomo, senza dipendenze `workspace:` a runtime.
+   */
+  async listProjectBriefs(projectId: string, limit?: number): Promise<ProjectBriefSummary[]> {
+    return this.request<ProjectBriefSummary[]>(`/api/projects/${projectId}/briefs`, {
+      query: { limit },
     });
   }
 

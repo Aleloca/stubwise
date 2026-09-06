@@ -36,6 +36,7 @@ import type {
   PatWithToken,
   PrReviewSummary,
   Plugin,
+  ProjectBriefWeekly,
   PluginRecommendations,
   ProjectFollows,
   ProjectPlugin,
@@ -118,6 +119,7 @@ export type {
   NotificationPrefsUpdate,
   NotificationPrefsView,
   PrReviewSummary,
+  ProjectBriefWeekly,
   ProjectFollows,
   ProjectTimeline,
   ProjectTimelineEntry,
@@ -1214,6 +1216,12 @@ export interface Project {
   /** Cadenza minima fra due pulse dello stesso progetto, in giorni (1..30). */
   pulseEveryDays: number;
   /**
+   * Brief settimanale (Fase 5): se true, una volta a settimana il worker scrive
+   * il resoconto del progetto per chi non legge codice. INDIPENDENTE dal
+   * backlog, al contrario del pulse.
+   */
+  weeklyBriefEnabled: boolean;
+  /**
    * Chiave di ingestion del progetto (Fase 3): gli SDK e i webhook inbound la
    * usano per autenticare l'invio di errori/ticket. Salita dal repository al
    * progetto; tutti i repo del gruppo condividono questa chiave.
@@ -1270,6 +1278,8 @@ export interface ProjectPatch {
   pulseEnabled?: boolean;
   /** Cadenza del pulse in giorni (1..30); assente = invariata. */
   pulseEveryDays?: number;
+  /** Toggle brief settimanale (Fase 5); assente = invariato. */
+  weeklyBriefEnabled?: boolean;
 }
 
 export function getProjects(): Promise<ProjectListItem[]> {
@@ -1306,6 +1316,39 @@ export function getProjectTimeline(
   return api.get(
     `/api/projects/${encodeURIComponent(projectId)}/timeline${query ? `?${query}` : ""}`,
   );
+}
+
+/**
+ * I brief settimanali di un progetto, dal periodo più recente (Fase 5).
+ * `limit` assente = il default del server.
+ */
+export function getProjectBriefs(
+  projectId: string,
+  options: { limit?: number } = {},
+): Promise<ProjectBriefWeekly[]> {
+  const query = options.limit === undefined ? "" : `?limit=${options.limit}`;
+  return api.get(`/api/projects/${encodeURIComponent(projectId)}/briefs${query}`);
+}
+
+/**
+ * UN brief per id. Rotta di PRIMO LIVELLO (`/api/briefs/:id`) e non annidata
+ * sotto il progetto: il brief ha un link proprio, che notifica, separatore
+ * della roadmap e tool MCP indirizzano per id.
+ */
+export function getBrief(briefId: string): Promise<ProjectBriefWeekly> {
+  return api.get(`/api/briefs/${encodeURIComponent(briefId)}`);
+}
+
+/**
+ * Rimette in coda il brief dell'ultima settimana chiusa (solo admin). A
+ * generarlo è il poller del worker: la risposta dice che è ACCODATO, non che è
+ * pronto. Senza `force` un brief già `done` risponde 409.
+ */
+export function generateProjectBrief(
+  projectId: string,
+  body: { force?: boolean } = {},
+): Promise<ProjectBriefWeekly> {
+  return api.post(`/api/projects/${encodeURIComponent(projectId)}/briefs/generate`, body);
 }
 
 /** Le review AI di PR del progetto, dalla più recente (Fase 5). */

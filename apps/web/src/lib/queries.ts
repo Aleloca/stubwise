@@ -20,6 +20,7 @@ import {
   listPats,
   getProject,
   getProjectPlugins,
+  getBrief,
   getProjectTimeline,
   getProjects,
   getRepoGraph,
@@ -568,6 +569,25 @@ export function projectTimelineQueryOptions(projectId: string, kinds: ProjectTim
     queryKey: ["projects", "detail", projectId, "timeline", [...kinds].sort().join(",")],
     queryFn: () => getProjectTimeline(projectId, { kinds }),
     staleTime: 60_000,
+  });
+}
+
+/**
+ * UN brief settimanale per id (Fase 5).
+ *
+ * `refetchInterval` mentre il brief NON è terminale: dopo un "Rigenera" la riga
+ * è `queued` e il testo arriva al tick del worker (minuti, non secondi). Senza
+ * questo la pagina resterebbe ferma su "in corso" finché qualcuno non ricarica
+ * — che è esattamente il momento in cui un utente conclude che non funziona.
+ */
+export function briefQueryOptions(briefId: string) {
+  return queryOptions({
+    queryKey: ["briefs", "detail", briefId],
+    queryFn: () => getBrief(briefId),
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      return status === "queued" || status === "running" ? 15_000 : false;
+    },
   });
 }
 

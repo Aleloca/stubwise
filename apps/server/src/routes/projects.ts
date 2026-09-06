@@ -6,6 +6,7 @@ import {
   projectPulseSummarySchema,
   projectSchema,
   projectTimelineKindSchema,
+  projectBriefWeeklySchema,
   projectTimelineSchema,
   updateProjectSchema,
 } from "@stubwise/shared";
@@ -30,6 +31,10 @@ import {
   listProjectReviews,
   resolveTimelineWindow,
 } from "../services/project-timeline.js";
+import {
+  listProjectBriefs,
+  queueBriefRegeneration,
+} from "../services/project-briefs.js";
 
 /**
  * Tentativi massimi di insert prima di arrendersi sulla generazione dello
@@ -108,6 +113,10 @@ function toPublicProject(row: ProjectRow): z.infer<typeof projectSchema> {
     // poller (il gate di idempotenza), non un'impostazione.
     pulseEnabled: row.pulseEnabled,
     pulseEveryDays: row.pulseEveryDays,
+    // Brief settimanale (Fase 5): indipendente dal backlog, al contrario del
+    // pulse — il brief racconta quello che è già successo, e ha qualcosa da
+    // dire anche su un progetto senza backlog di discovery.
+    weeklyBriefEnabled: row.weeklyBriefEnabled,
     // Ingestion di prodotto (Fase 3): la chiave con cui gli SDK inviano
     // errori/feedback e il contatore ticket per-progetto, saliti dal repo.
     ingestionKey: row.ingestionKey,
@@ -148,6 +157,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
         backlogEnabled,
         pulseEnabled,
         pulseEveryDays,
+        weeklyBriefEnabled,
       } = request.body;
 
       // Provider AI opzionale: se valorizzato deve riferire una riga esistente
@@ -181,6 +191,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
               ...(backlogEnabled !== undefined ? { backlogEnabled } : {}),
               ...(pulseEnabled !== undefined ? { pulseEnabled } : {}),
               ...(pulseEveryDays !== undefined ? { pulseEveryDays } : {}),
+              ...(weeklyBriefEnabled !== undefined ? { weeklyBriefEnabled } : {}),
               // Chiave di ingestion del progetto per gli SDK (Fase 3): 32 hex,
               // stesso generatore usato finora per i repository. UNIQUE: in caso
               // di collisione (astronomicamente improbabile) l'insert rilancia e
@@ -377,6 +388,88 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
     },
   );
 
+  /**
+   * I BRIEF SETTIMANALI del progetto (Fase 5), dal più recente.
+   *
+   * ACL come `/timeline` e `/reviews`: member = solo i progetti che segue.
+   * ⚠️ Registrata PRIMA di `/:projectId` come ogni rotta con suffisso letterale
+   * su questo prefisso (vedi il commento su `/pulse`).
+   */
+  app.get(
+    "/:projectId/briefs",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: idParamsSchema,
+        querystring: z.object({
+          limit: z.coerce.number().int().min(1).max(100).optional(),
+        }),
+        response: {
+          200: z.array(projectBriefWeeklySchema),
+          404: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const viewer = { userId: request.user!.id, role: request.user!.role };
+      if (!(await canViewProject(app.db, request.params.projectId, viewer))) {
+        return apiError(reply, 404, "project_not_found", "Project not found");
+      }
+      return listProjectBriefs(app.db, request.params.projectId, request.query.limit ?? 20);
+    },
+  );
+
+  /**
+   * RIGENERA il brief dell'ultima settimana chiusa: mette la riga in coda, e a
+   * generarla sarà il poller del worker al tick successivo (non aspetta il
+   * giorno d'invio). Solo admin: è un run AI, e chi lo lancia spende.
+   *
+   * `force` è richiesto solo se il brief è già `done` — rifare un testo che
+   * qualcuno ha già letto, e che è già stato annunciato in inbox e su Slack, è
+   * una decisione. Un brief `failed` o ancora in coda si rigenera senza.
+   *
+   * 201 se la riga è stata creata, 200 se una esistente è tornata in coda: la
+   * UI distingue "ne parte uno nuovo" da "questo lo rifacciamo".
+   */
+  app.post(
+    "/:projectId/briefs/generate",
+    {
+      preHandler: requireAdmin,
+      schema: {
+        params: idParamsSchema,
+        body: z.object({ force: z.boolean().optional() }),
+        response: {
+          200: projectBriefWeeklySchema,
+          201: projectBriefWeeklySchema,
+          404: errorSchema,
+          409: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const [project] = await app.db
+        .select({ id: projects.id })
+        .from(projects)
+        .where(eq(projects.id, request.params.projectId));
+      if (!project) return apiError(reply, 404, "project_not_found", "Project not found");
+
+      const result = await queueBriefRegeneration(app.db, request.params.projectId, {
+        ...(request.body.force !== undefined ? { force: request.body.force } : {}),
+      });
+      if (!result.ok) {
+        return apiError(
+          reply,
+          409,
+          "brief_already_done",
+          "This week's brief is already generated: pass force to regenerate it",
+        );
+      }
+      return reply.code(result.created ? 201 : 200).send(result.brief);
+    },
+  );
+
   app.get(
     "/:projectId",
     {
@@ -426,6 +519,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
         backlogEnabled,
         pulseEnabled,
         pulseEveryDays,
+        weeklyBriefEnabled,
       } = request.body;
       const updates: Partial<ProjectRow> = {};
       if (name !== undefined) updates.name = name;
@@ -442,6 +536,8 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
       // del DB resta l'arbitro per chi scrive senza passare da qui.
       if (pulseEnabled !== undefined) updates.pulseEnabled = pulseEnabled;
       if (pulseEveryDays !== undefined) updates.pulseEveryDays = pulseEveryDays;
+      // Toggle brief settimanale: omesso lo lascia invariato.
+      if (weeklyBriefEnabled !== undefined) updates.weeklyBriefEnabled = weeklyBriefEnabled;
       // Provider AI del progetto (Docs e fix). null lo azzera (automatico); un
       // uuid deve riferire una riga ai_providers esistente; omesso lo lascia.
       if (aiProviderId !== undefined) {

@@ -12,7 +12,11 @@ sincronizzati backlog e ticket con il lavoro di design e implementazione.
 
 Lettura: `list_projects`, `list_backlog`, `get_backlog_item`, `list_tickets`,
 `get_ticket`, `list_proposals` (le proposte aperte del pulse per l'utente del
-token, vedi § 10). `get_backlog_item`/`get_ticket` mostrano anche
+token, vedi § 10), `get_project_brief` (l'ultimo brief settimanale di un
+progetto: il resoconto in markdown per chi non legge codice — dove siamo, cosa
+è cambiato, cosa è fermo, cosa serve. Serve a SAPERE come sta un progetto senza
+scorrere ticket e PR, e a riusarne il testo; un brief assente o ancora in coda
+è una risposta esplicita, non un errore). `get_backlog_item`/`get_ticket` mostrano anche
 `implementationPlan` (il piano salvato) e `originContent` (il corpo/feedback
 originale, se il design ha sostituito il corpo principale).
 

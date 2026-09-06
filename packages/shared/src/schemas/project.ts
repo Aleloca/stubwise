@@ -101,6 +101,14 @@ export const projectSchema = z.object({
   // sotto 1 giorno sarebbe un ping continuo, sopra 30 un promemoria che non
   // arriva mai.
   pulseEveryDays: z.number().int().min(1).max(30),
+  // Brief settimanale (fase 5): se true, una volta a settimana il worker
+  // genera il resoconto per non-tecnici del progetto e lo annuncia con una
+  // `project.brief`. Default false (opt-in esplicito).
+  //
+  // INDIPENDENTE dal backlog, al contrario del pulse: il brief racconta quello
+  // che è già successo (report, ticket, PR, decisioni), e ha qualcosa da dire
+  // anche su un progetto senza backlog di discovery.
+  weeklyBriefEnabled: z.boolean(),
   // Chiave di ingestion del progetto: gli SDK la usano per inviare errori e
   // feedback (l'ingestion è di prodotto, non di repo — Fase 3).
   ingestionKey: z.string().min(1),
@@ -124,6 +132,7 @@ export const createProjectSchema = z.object({
   backlogEnabled: z.boolean().optional(),
   pulseEnabled: z.boolean().optional(),
   pulseEveryDays: z.number().int().min(1).max(30).optional(),
+  weeklyBriefEnabled: z.boolean().optional(),
 });
 export type CreateProjectInput = z.infer<typeof createProjectSchema>;
 
@@ -142,6 +151,7 @@ export const updateProjectSchema = z.object({
   // Fuori dal range 1..30 il PATCH è un 400 di validazione, e non arriva mai al
   // CHECK del DB (che resta l'arbitro per chi scrive senza passare da qui).
   pulseEveryDays: z.number().int().min(1).max(30).optional(),
+  weeklyBriefEnabled: z.boolean().optional(),
 });
 export type UpdateProjectInput = z.infer<typeof updateProjectSchema>;
 
@@ -405,3 +415,61 @@ export const projectTimelineSchema = z.object({
   entries: z.array(projectTimelineEntrySchema),
 });
 export type ProjectTimeline = z.infer<typeof projectTimelineSchema>;
+
+/**
+ * IL BRIEF SETTIMANALE di un progetto (Fase 5), nella forma pubblica di
+ * `GET /api/projects/:id/briefs` e `GET /api/briefs/:id`.
+ *
+ * Nome `...Weekly...` per non confonderlo con il *project brief* della
+ * documentazione (`projectBriefSchema`, tab `/docs/$projectId/brief`): sono due
+ * cose diverse che condividono solo la parola, ed è già successo che il nome
+ * corto rendesse ambiguo di quale si stesse parlando.
+ *
+ * ⚠️ COSA NON C'È: `error`. È il messaggio con cui la generazione è fallita —
+ * può contenere path del worker e frammenti di prompt — e non esce da qui,
+ * esattamente come per {@link prReviewSummarySchema}. Lo stato `failed` è tutto
+ * ciò che serve a una UI per dire "questo brief non c'è, riprova".
+ *
+ * `summary` e `sections` sono NULL anche a brief `done`: è il caso previsto
+ * dell'istanza senza provider AI configurato, dove il brief esiste come riga
+ * ma non ha testo. La UI lo distingue da `failed` e lo dice.
+ */
+export const projectBriefWeeklySchema = z.object({
+  id: z.uuid(),
+  projectId: z.uuid(),
+  // Estremi INCLUSI del periodo coperto, `YYYY-MM-DD`. Stringhe e non
+  // `z.iso.datetime()`: le colonne sono `date`, giorni di calendario senza fuso
+  // (stessa convenzione di `lastReportDate` nel pulse).
+  periodStart: z.string(),
+  periodEnd: z.string(),
+  status: z.enum(["queued", "running", "done", "failed"]),
+  /** Il brief in markdown. Null finché non generato, o se manca il provider AI. */
+  summary: z.string().nullable(),
+  /**
+   * Le quattro sezioni separate, quando il parse dei marcatori le ha prodotte.
+   *
+   * Oggetto RIGIDO con quattro chiavi opzionali, e non un `z.record`: un
+   * `record` non è attraversabile da `readerSchema`
+   * (`packages/shared/src/reader.ts`), quindi passerebbe invariato e lascerebbe
+   * CHIUSO l'enum `status` accanto — il bug che quel meccanismo esiste per
+   * evitare, proprio dove nessuno lo cercherebbe. Il guardiano in
+   * `packages/api-client/src/reader.test.ts` lo verifica.
+   *
+   * Le quattro chiavi sono comunque il contratto fra il prompt e il parser del
+   * worker (`apps/worker/src/briefs/prompt.ts`): una sezione mancante è assente
+   * qui, e una quinta sezione futura andrà aggiunta in entrambi i punti.
+   */
+  sections: z
+    .object({
+      whereWeAre: z.string().optional(),
+      whatChanged: z.string().optional(),
+      whatBlocks: z.string().optional(),
+      whatWeNeed: z.string().optional(),
+    })
+    .nullable(),
+  /** La notifica che l'ha annunciato; null se non è stata pubblicata. */
+  notificationId: z.uuid().nullable(),
+  createdAt: z.iso.datetime(),
+  finishedAt: z.iso.datetime().nullable(),
+});
+export type ProjectBriefWeekly = z.infer<typeof projectBriefWeeklySchema>;

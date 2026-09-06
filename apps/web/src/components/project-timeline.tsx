@@ -174,8 +174,11 @@ function TimelineBody({ entry }: { entry: ProjectTimelineEntry }) {
  * Il brief settimanale come SEPARATORE: chiude idealmente la settimana con la
  * sua sintesi, invece di stare in coda alle righe come un evento qualsiasi.
  *
- * Nessun link al brief completo per ora: la pagina `/briefs/$id` arriva con la
- * Fase D, e un `Link` verso una rotta che non esiste non risolverebbe l'href.
+ * La `headline` è l'incipit, non il brief: il testo intero sta su `/briefs/$id`
+ * (Fase D), e ci si arriva da qui — il link che la Fase C aveva lasciato in
+ * sospeso perché la rotta non esisteva ancora. È lo STESSO incipit che si legge
+ * nella card d'inbox: le due superfici lo prendono da `briefHeadline`, in un
+ * punto solo, perché lo stesso brief non sembri due brief diversi.
  */
 function BriefSeparator({
   entry,
@@ -202,6 +205,13 @@ function BriefSeparator({
       <p className="mt-1 text-[13px] text-fg-muted">
         {entry.headline ?? t("projects:roadmap.noSummary")}
       </p>
+      <Link
+        to="/briefs/$id"
+        params={{ id: entry.id }}
+        className="mt-2 inline-block font-mono text-[11px] tracking-[0.08em] text-fg-faint uppercase transition-colors hover:text-signal"
+      >
+        {t("projects:roadmap.openBrief")}
+      </Link>
     </li>
   );
 }

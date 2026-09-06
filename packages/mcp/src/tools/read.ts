@@ -8,7 +8,12 @@ import { z } from "zod";
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
-import type { InboxItemSummary, InboxPulseProposal, Urgency } from "../client.js";
+import type {
+  InboxItemSummary,
+  InboxPulseProposal,
+  ProjectBriefSummary,
+  Urgency,
+} from "../client.js";
 import { resolveProject, runTool, textResult } from "./shared.js";
 import type { ToolContext, ToolDef, ToolResult } from "./types.js";
 
@@ -289,6 +294,67 @@ const listProposals: ToolDef = {
     }),
 };
 
+// --- get_project_brief ------------------------------------------------------
+
+/** Il periodo coperto, come lo legge un umano. */
+function briefPeriod(brief: ProjectBriefSummary): string {
+  return `${brief.periodStart} → ${brief.periodEnd}`;
+}
+
+const getProjectBriefInput = {
+  project: z
+    .string()
+    .optional()
+    .describe("Slug del progetto. Se omesso, usa il progetto collegato al repo corrente."),
+};
+
+const getProjectBrief: ToolDef = {
+  name: "get_project_brief",
+  description:
+    "Restituisce l'ULTIMO brief settimanale di un progetto: il resoconto in markdown, scritto per chi NON legge codice, di cosa è successo nella settimana (dove siamo, cosa è cambiato, cosa è fermo, cosa serve). " +
+    "Serve a SAPERE come sta un progetto senza scorrere ticket e PR, e a riusarne il testo (in una mail, in una nota di rilascio, in una risposta a chi chiede 'a che punto siamo'). " +
+    "Il brief lo genera il worker una volta a settimana, solo sui progetti che lo hanno acceso: se non c'è, non è un errore — semplicemente il progetto non ne ha ancora uno.",
+  inputSchema: getProjectBriefInput,
+  handler: (args, ctx): Promise<ToolResult> =>
+    runTool(async () => {
+      const resolved = await resolveProject(args.project as string | undefined, ctx);
+      if (!resolved.ok) return resolved.result;
+      const { project } = resolved;
+
+      const briefs = await ctx.client.listProjectBriefs(project.id, 1);
+      const brief = briefs[0];
+      if (!brief) {
+        return textResult(
+          `Nessun brief settimanale per '${project.name}'.\n` +
+            "Il brief si accende per progetto (Progetto → Brief settimanale) e lo genera il worker una volta a settimana: l'assenza qui non dice nulla sullo stato del progetto (per quello usa list_tickets o list_backlog).",
+        );
+      }
+
+      if (brief.status !== "done") {
+        // Un brief accodato o in generazione NON si spaccia per pronto: chi
+        // legge deve sapere che fra qualche minuto ci sarà un testo.
+        return textResult(
+          `Il brief di '${project.name}' per il periodo ${briefPeriod(brief)} è ancora in corso (stato: ${brief.status}).\n` +
+            (brief.status === "failed"
+              ? "La generazione è fallita: si rilancia dalla pagina del brief nella web app (Rigenera)."
+              : "Riprova fra qualche minuto: lo genera il worker al prossimo tick."),
+        );
+      }
+
+      const text = brief.summary?.trim();
+      if (!text) {
+        // Caso previsto, non un guasto: istanza senza provider AI configurato.
+        return textResult(
+          `Il brief di '${project.name}' per il periodo ${briefPeriod(brief)} esiste ma è senza testo: l'istanza non ha un provider AI utilizzabile per generarlo.`,
+        );
+      }
+
+      return textResult(
+        `Brief settimanale di ${project.name} — periodo ${briefPeriod(brief)} (brief id: ${brief.id}):\n\n${text}`,
+      );
+    }),
+};
+
 /** Tutti i tool di lettura, nell'ordine di registrazione. */
 export const readTools: ToolDef[] = [
   listProjects,
@@ -297,6 +363,7 @@ export const readTools: ToolDef[] = [
   listTickets,
   getTicket,
   listProposals,
+  getProjectBrief,
 ];
 
 /**
