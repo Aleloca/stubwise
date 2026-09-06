@@ -5,6 +5,7 @@ design: 2026-09-06-phase5-roadmap-narrative-design.md
 stubwise:
   project: stubwise
   backlog: fd5129d8-347e-457a-9da8-86cfd7355b67
+  ticket: https://stubwise.thecove.it/tickets/93857e43-8bf5-4fb5-82d4-0920d15adfd1
 ---
 
 # Fase 5 — Roadmap e narrativa: piano di implementazione
