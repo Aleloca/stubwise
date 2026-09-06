@@ -33,8 +33,7 @@ export const en: Catalog = {
   "comment.agentQuestion":
     "The AI needs a decision to continue planning (question {round}). Answer from your inbox or from this ticket.",
   "comment.agentQuestionRecommended": "recommended",
-  "comment.agentQuestionAnswered":
-    "{actor} answered the AI question (question {round}): {answer}",
+  "comment.agentQuestionAnswered": "{actor} answered the AI question (question {round}): {answer}",
   "comment.planApproved": "Plan approved — execution in progress",
   "comment.planRejected": "Plan rejected — replanning in progress",
   "comment.reportFooter": "Generated automatically by Stubwise AI for ticket #{number}.",
@@ -44,8 +43,7 @@ export const en: Catalog = {
     "Cost budget exceeded ({scope}): spent ${spent} of ${limit}. The fix is on hold; start it manually to override.",
   "comment.providersLimitHeld":
     "All AI providers reached their rate/usage limit. The job will need to be retried after the limit resets.",
-  "comment.limitResumed":
-    "The provider usage limit has reset: the job was requeued automatically.",
+  "comment.limitResumed": "The provider usage limit has reset: the job was requeued automatically.",
   // Verdetti della PR Review automatica postati come commento AI (niente
   // emoji DI VERDETTO ✅/⚠️ nel testo, convenzione condivisa con
   // notify.verdict.*; il 🔎 è il prefisso neutro della feature, non un verdetto).
@@ -71,8 +69,7 @@ export const en: Catalog = {
   "backlog.codeSessionStarted": 'Code analysis session started on repository "{repo}".',
   "backlog.codeSessionClosed": "Code analysis session closed.",
   "backlog.codeSessionExpired": "Code analysis session closed due to inactivity.",
-  "backlog.codeTurnError":
-    "The code analysis run failed. Please try sending your message again.",
+  "backlog.codeTurnError": "The code analysis run failed. Please try sending your message again.",
 
   // --- effort.* — etichette della scala di sforzo 1–5 (allineate alle label
   // della web UI, namespace `badges.effort`). Usate nei commenti AI del triage.
@@ -88,19 +85,14 @@ export const en: Catalog = {
   // già reso/i nel markup del formato (vuoto per il payload generico, che porta
   // gli URL come campi); `{cost}` è il suffisso costo localizzato o vuoto.
   // Un'UNICA chiave per evento serve tutti i formati: vedi `format.ts`.
-  "notify.ticketCreated":
-    "New ticket {ref} — {ticketTitle} ({projectName}, {source}). {link}",
+  "notify.ticketCreated": "New ticket {ref} — {ticketTitle} ({projectName}, {source}). {link}",
   "notify.prOpened": "PR opened for {ref} — {ticketTitle}{cost}. {link}",
-  "notify.prClosed":
-    "PR closed without merging — ticket reopened: {ref} — {ticketTitle}. {link}",
-  "notify.jobHeld":
-    "{ref} awaiting review — {ticketTitle} ({type}, effort {effort}/5). {link}",
-  "notify.planReview":
-    "Plan awaiting approval — {ref} — {ticketTitle} ({projectName}). {link}",
+  "notify.prClosed": "PR closed without merging — ticket reopened: {ref} — {ticketTitle}. {link}",
+  "notify.jobHeld": "{ref} awaiting review — {ticketTitle} ({type}, effort {effort}/5). {link}",
+  "notify.planReview": "Plan awaiting approval — {ref} — {ticketTitle} ({projectName}). {link}",
   // Domanda dell'AI durante la pianificazione: `{question}` è il testo posto
   // dall'agente (le opzioni vivono nel payload, non nella frase).
-  "notify.awaitingInput":
-    "AI has a question on {ref} — {ticketTitle}: {question} {link}",
+  "notify.awaitingInput": "AI has a question on {ref} — {ticketTitle}: {question} {link}",
   "notify.jobFailed": "AI fix failed on {ref} — {ticketTitle}: {error}. {link}",
   "notify.budgetHeld":
     "Budget exceeded ({scope}) — {ref} {ticketTitle} ({projectName}): spent ${spent} of ${limit} limit. Job on hold; start it manually to override. {link}",
@@ -112,10 +104,8 @@ export const en: Catalog = {
   // Monitoraggio server: eventi SENZA ticket; il {link} porta alla pagina del
   // server. `{condition}` è l'etichetta localizzata della condizione (vedi
   // notify.monitorCondition.*), `{detail}` la descrizione già leggibile.
-  "notify.monitorAlert":
-    "Server alert on {serverName} ({condition}): {detail}. {link}",
-  "notify.monitorRecovered":
-    "{serverName} recovered ({condition}): {detail}. {link}",
+  "notify.monitorAlert": "Server alert on {serverName} ({condition}): {detail}. {link}",
+  "notify.monitorRecovered": "{serverName} recovered ({condition}): {detail}. {link}",
   // Pulse proattivo: evento SENZA ticket ancorato al PROGETTO, il {link} porta
   // al suo backlog. I titoli delle proposte NON stanno nella frase — sono le
   // opzioni della domanda, che ogni superficie rende a modo suo.
@@ -128,8 +118,7 @@ export const en: Catalog = {
   // Brief settimanale (fase 5): informativo, nessuna azione richiesta. Le date
   // sono ISO `YYYY-MM-DD` — il catalogo non formatta date, e un brief va letto
   // nella stessa forma su web, Slack e webhook.
-  "notify.brief":
-    "Weekly brief for {project} ({periodStart} → {periodEnd}): {headline} {link}",
+  "notify.brief": "Weekly brief for {project} ({periodStart} → {periodEnd}): {headline} {link}",
   // Etichette delle condizioni di monitoraggio (interpolate in notify.monitor*).
   "notify.monitorCondition.offline": "offline",
   "notify.monitorCondition.cpu": "CPU",
@@ -308,7 +297,23 @@ export const en: Catalog = {
   "brief.input.decisions": "Decisions taken in the period",
   "brief.input.previous": "Previous brief (for continuity)",
   "brief.input.none": "no data",
-  "brief.input.truncated": "Some of the input above was truncated for length: do not treat the missing part as absent facts.",
+  "brief.input.truncated":
+    "Some of the input above was truncated for length: do not treat the missing part as absent facts.",
+
+  // --- decision.* — REGISTRO DECISIONI di progetto (fase 5, Task 13).
+  //
+  // ⚠️ Queste stringhe esistono perché il registro NON È MAI SCRITTO DALL'AI.
+  // I writer automatici (risposta a una domanda dell'agente, gate del piano,
+  // "Procedi" del pulse) compongono la riga interpolando qui dati già
+  // persistiti: il testo della domanda, l'etichetta scelta, le istruzioni di
+  // rifiuto scritte da una persona, i titoli delle voci di backlog. A
+  // differenza di `summary.*` e `brief.*` — che sono ISTRUZIONI a un agente —
+  // questi sono i testi FINALI, e nessun modello li rilegge né li riscrive. ---
+  "decision.askUser.title": "Agent question: {question}",
+  "decision.plan.approved": "Plan approved: execution can start.",
+  "decision.plan.rejected": "Plan rejected, replanning with these instructions: {instructions}",
+  "decision.pulse.proceed": "Proceed with: {title}",
+  "decision.pulse.alternatives": "Discarded alternatives: {alternatives}",
 
   // --- plan.* — label delle sezioni del piano di fix ---
   "plan.rootCause": "Root cause",
@@ -323,8 +328,7 @@ export const en: Catalog = {
 export const it: Catalog = {
   // --- comment.* ---
   "comment.prMerged": "PR mergiata: {url} — ticket chiuso automaticamente",
-  "comment.prClosed":
-    "PR chiusa senza merge: {url} — ticket riaperto, rilancia il fix quando vuoi",
+  "comment.prClosed": "PR chiusa senza merge: {url} — ticket riaperto, rilancia il fix quando vuoi",
   "comment.fixReady": "Fix automatico pronto: {url}",
   "comment.triageHeld":
     "Triage AI: tipo={type}, effort={effortLabel} ({effort}/5). Automazione non avviata (auto-fix disattivato per questo tipo, oppure effort sopra la soglia di {threshold}). Puoi avviare il fix manualmente.",
@@ -341,8 +345,7 @@ export const it: Catalog = {
     "{actor} ha risposto alla domanda dell'AI (domanda {round}): {answer}",
   "comment.planApproved": "Piano approvato — esecuzione in corso",
   "comment.planRejected": "Piano rifiutato — ripianificazione in corso",
-  "comment.reportFooter":
-    "Generato automaticamente da Stubwise AI per il ticket #{number}.",
+  "comment.reportFooter": "Generato automaticamente da Stubwise AI per il ticket #{number}.",
   "comment.reportMissing":
     "Il report non è stato generato dall'agente ({filename} mancante). Esaminare il diff della PR.",
   "comment.budgetHeld":
@@ -371,8 +374,7 @@ export const it: Catalog = {
   "backlog.codeSessionStarted": 'Sessione di analisi sul codice avviata sul repository "{repo}".',
   "backlog.codeSessionClosed": "Sessione di analisi sul codice chiusa.",
   "backlog.codeSessionExpired": "Sessione di analisi sul codice chiusa per inattività.",
-  "backlog.codeTurnError":
-    "L'analisi del codice non è riuscita. Riprova a inviare il messaggio.",
+  "backlog.codeTurnError": "L'analisi del codice non è riuscita. Riprova a inviare il messaggio.",
 
   // --- effort.* (etichette italiane della scala di sforzo, = EFFORT_LABELS) ---
   "effort.1": "Banale",
@@ -382,17 +384,14 @@ export const it: Catalog = {
   "effort.5": "Molto grande",
 
   // --- notify.* (vedi note sui placeholder {ref}/{link}/{cost} in `en`) ---
-  "notify.ticketCreated":
-    "Nuovo ticket {ref} — {ticketTitle} ({projectName}, {source}). {link}",
+  "notify.ticketCreated": "Nuovo ticket {ref} — {ticketTitle} ({projectName}, {source}). {link}",
   "notify.prOpened": "PR aperta per {ref} — {ticketTitle}{cost}. {link}",
-  "notify.prClosed":
-    "PR chiusa senza merge — ticket riaperto: {ref} — {ticketTitle}. {link}",
+  "notify.prClosed": "PR chiusa senza merge — ticket riaperto: {ref} — {ticketTitle}. {link}",
   "notify.jobHeld":
     "{ref} in attesa di revisione — {ticketTitle} ({type}, effort {effort}/5). {link}",
   "notify.planReview":
     "Piano in attesa di approvazione — {ref} — {ticketTitle} ({projectName}). {link}",
-  "notify.awaitingInput":
-    "L'AI ha una domanda su {ref} — {ticketTitle}: {question} {link}",
+  "notify.awaitingInput": "L'AI ha una domanda su {ref} — {ticketTitle}: {question} {link}",
   "notify.jobFailed": "Fix AI fallito su {ref} — {ticketTitle}: {error}. {link}",
   "notify.budgetHeld":
     "Budget superato ({scope}) — {ref} {ticketTitle} ({projectName}): spesi ${spent} sul limite di ${limit}. Job in pausa; avvialo manualmente per forzare. {link}",
@@ -401,14 +400,11 @@ export const it: Catalog = {
   // Unico evento SENZA ticket: niente {ref}, il {link} porta alla pagina Docs.
   "notify.docsLimitPaused":
     "Generazione Docs in pausa per {repositoryName} ({projectName}): limite di utilizzo del provider raggiunto. Riprenderà da sola. {link}",
-  "notify.monitorAlert":
-    "Alert sul server {serverName} ({condition}): {detail}. {link}",
-  "notify.monitorRecovered":
-    "{serverName} tornato su ({condition}): {detail}. {link}",
+  "notify.monitorAlert": "Alert sul server {serverName} ({condition}): {detail}. {link}",
+  "notify.monitorRecovered": "{serverName} tornato su ({condition}): {detail}. {link}",
   "notify.pulse":
     "Nessun lavoro in corso su {project} (giorni di fermo: {idleDays}): ci sono proposte nel backlog. {link}",
-  "notify.brief":
-    "Brief settimanale di {project} ({periodStart} → {periodEnd}): {headline} {link}",
+  "notify.brief": "Brief settimanale di {project} ({periodStart} → {periodEnd}): {headline} {link}",
   "notify.monitorCondition.offline": "offline",
   "notify.monitorCondition.cpu": "CPU",
   "notify.monitorCondition.mem": "memoria",
@@ -525,7 +521,17 @@ export const it: Catalog = {
   "brief.input.decisions": "Decisioni prese nel periodo",
   "brief.input.previous": "Brief precedente (per continuità)",
   "brief.input.none": "nessun dato",
-  "brief.input.truncated": "Parte dell'input qui sopra è stata troncata per lunghezza: non considerare fatti assenti quelli mancanti.",
+  "brief.input.truncated":
+    "Parte dell'input qui sopra è stata troncata per lunghezza: non considerare fatti assenti quelli mancanti.",
+
+  // --- decision.* (vedi la nota nel catalogo `en`: testi FINALI, mai istruzioni
+  // a un agente — il registro decisioni non è mai scritto dall'AI) ---
+  "decision.askUser.title": "Domanda dell'agente: {question}",
+  "decision.plan.approved": "Piano approvato: l'esecuzione può partire.",
+  "decision.plan.rejected":
+    "Piano rifiutato, si ripianifica con queste indicazioni: {instructions}",
+  "decision.pulse.proceed": "Si procede con: {title}",
+  "decision.pulse.alternatives": "Alternative scartate: {alternatives}",
 
   // --- plan.* ---
   "plan.rootCause": "Causa radice",

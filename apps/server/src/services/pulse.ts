@@ -26,10 +26,12 @@
  * ({@link ProceedWithProposalError.run_not_started}) invece di fingere un
  * fallimento totale o un successo pieno.
  */
-import { notifications, users, type Db } from "@stubwise/db";
+import { notifications, recordDecision, users, type Db } from "@stubwise/db";
+import { t } from "@stubwise/i18n";
 import { actorAllows } from "@stubwise/notifications";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
+import { getContentLanguage } from "../settings.js";
 import { convertBacklogItem } from "./backlog.js";
 import { startRun, type Actor } from "./jobs.js";
 import { mirrorDecision, propagateHandled } from "./notifications-propagation.js";
@@ -181,7 +183,13 @@ export async function proceedWithProposal(
   const { actor } = input;
 
   const [row] = await db
-    .select({ status: notifications.status, event: notifications.event })
+    .select({
+      status: notifications.status,
+      event: notifications.event,
+      // Il pulse è ancorato al PROGETTO (il ticket nasce dopo): è l'unico posto
+      // da cui il registro decisioni può sapere di chi è la decisione.
+      projectId: notifications.projectId,
+    })
     .from(notifications)
     .where(
       and(eq(notifications.id, input.notificationId), eq(notifications.kind, "project.pulse")),
@@ -263,10 +271,49 @@ export async function proceedWithProposal(
   // Va DOPO il convert (prima non c'è un ticket) e su `changedNotificationIds`,
   // cioè le copie che questa decisione ha chiuso: le righe di chi ha archiviato
   // il pulse prima non sono state toccate e non devono esserlo ora.
-  await db
-    .update(notifications)
-    .set({ ticketId: converted.ticketId })
-    .where(inArray(notifications.id, changedNotificationIds));
+  const lang = await getContentLanguage(db);
+  await db.transaction(async (tx) => {
+    await tx
+      .update(notifications)
+      .set({ ticketId: converted.ticketId })
+      .where(inArray(notifications.id, changedNotificationIds));
+
+    // REGISTRO DECISIONI (fase 5). Sta QUI, in transazione con l'acquisizione
+    // del ticket, e non prima: finché il convert non è riuscito non c'è stata
+    // nessuna decisione da registrare (una proposta scaduta non è una scelta),
+    // e non dopo `startRun`, che è deliberatamente una scrittura separata e può
+    // fallire lasciando comunque il ticket — cioè lasciando la decisione presa.
+    //
+    // `projectId` nullo non capita per un pulse (il poller lo scrive sempre) ma
+    // la colonna è nullable: senza progetto non c'è registro a cui appartenere,
+    // e la decisione si salta invece di inventare un'ancora.
+    //
+    // ⚠️ Nessuna AI tocca questi testi: sono due template i18n interpolati coi
+    // TITOLI delle voci di backlog persistite nel payload del pulse.
+    if (row.projectId) {
+      const alternatives = proposals.filter((_, at) => at !== index).map((other) => other.title);
+      await recordDecision(tx, {
+        projectId: row.projectId,
+        source: "pulse",
+        sourceKey: `pulse:${input.notificationId}`,
+        sourceRef: {
+          pulseId,
+          notificationId: input.notificationId,
+          backlogItemId: proposal.backlogItemId,
+        },
+        ticketId: converted.ticketId,
+        title: proposal.title,
+        decision: t(lang, "decision.pulse.proceed", { title: proposal.title }),
+        // Nessuna alternativa = nessun contesto: una riga "Alternative
+        // scartate: " vuota direbbe meno di niente.
+        context:
+          alternatives.length > 0
+            ? t(lang, "decision.pulse.alternatives", { alternatives: alternatives.join(" · ") })
+            : null,
+        decidedByUserId: actor.id,
+      });
+    }
+  });
 
   const run = await startRun(db, {
     ticketId: converted.ticketId,

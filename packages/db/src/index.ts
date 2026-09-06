@@ -12,11 +12,7 @@ export { monthlyCostUsd, ticketCostUsd } from "./cost.js";
 // serve sia al server (ricerca, chat RAG) sia al worker (intake del backlog di
 // discovery + similarity search). L'embedder è un tipo strutturale locale
 // (`EmbeddingProvider`), così db non dipende da `@stubwise/embeddings`.
-export {
-  retrieveChunks,
-  retrieveChunksForProject,
-  retrieveChunksAll,
-} from "./docs-retrieval.js";
+export { retrieveChunks, retrieveChunksForProject, retrieveChunksAll } from "./docs-retrieval.js";
 export type {
   EmbeddingProvider,
   RetrievedChunk,
@@ -28,3 +24,9 @@ export type {
 // di fix, intake del backlog), e la regola "una transizione = un evento datato"
 // deve essere una sola.
 export { recordTicketStatusChange } from "./ticket-events.js";
+// Registro delle DECISIONI di progetto: vive qui perché a scrivere in
+// `project_decisions` sono il server (risposta a una domanda, gate del piano,
+// "Procedi" del pulse, voci manuali) e, in lettura, il worker che compone il
+// brief. ⚠️ Non chiama e non deve mai chiamare un agente: il registro non è mai
+// scritto dall'AI (vedi il docblock di `recordDecision`).
+export { recordDecision, type DecisionSource, type RecordDecisionParams } from "./decisions.js";

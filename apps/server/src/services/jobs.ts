@@ -10,10 +10,18 @@
  *  - `member` = OPERATOR: propone il lavoro, ma non lo approva. Ogni run che
  *    chiede si ferma sul gate del piano prima di toccare il codice.
  */
-import { aiJobs, comments, projects, tickets, type Db } from "@stubwise/db";
+import {
+  aiJobs,
+  comments,
+  projectDecisions,
+  projects,
+  recordDecision,
+  tickets,
+  type Db,
+} from "@stubwise/db";
 import { t } from "@stubwise/i18n";
 import { IN_FLIGHT_JOB_STATUSES, publishNotification } from "@stubwise/notifications";
-import { and, desc, eq, notInArray, sql } from "drizzle-orm";
+import { and, count, desc, eq, like, notInArray, sql } from "drizzle-orm";
 import { ticketUrl } from "../ingest/shared.js";
 import { getContentLanguage } from "../settings.js";
 import { propagateDecision } from "./notifications-propagation.js";
@@ -269,7 +277,9 @@ export async function resolvePlan(db: Db, input: ResolvePlanInput): Promise<Reso
   if (actor.role !== "admin") return { ok: false, error: "forbidden" };
 
   const [ticket] = await db
-    .select({ id: tickets.id })
+    // Titolo e progetto servono al registro decisioni (fase 5): la voce si
+    // intitola col ticket ed è ancorata al progetto.
+    .select({ id: tickets.id, title: tickets.title, projectId: tickets.projectId })
     .from(tickets)
     .where(eq(tickets.id, ticketId));
   if (!ticket) return { ok: false, error: "ticket_not_found" };
@@ -326,6 +336,41 @@ export async function resolvePlan(db: Db, input: ResolvePlanInput): Promise<Reso
       // ordina per createdAt) potrebbe mostrarli invertiti.
       createdAt: sql`clock_timestamp()`,
     });
+
+    // REGISTRO DECISIONI (fase 5), nella stessa transazione del gate: una
+    // decisione che sopravvive a un UPDATE annullato (il piano risolto da un
+    // altro maintainer fra la lettura e la scrittura) racconterebbe
+    // un'approvazione mai avvenuta.
+    //
+    // ⚠️ Nessuna AI tocca questi testi: `decision.plan.*` sono template i18n, e
+    // l'unica parte variabile del rifiuto sono le istruzioni SCRITTE DA UNA
+    // PERSONA. Il `plan_summary` del job — che è generato — resta FUORI di
+    // proposito: è la narrativa "in breve" per le card, non il fatto, e il
+    // registro contiene solo fatti. Chi vuole rileggere quel piano parte da
+    // `sourceRef.jobId`.
+    //
+    // RIFIUTO SENZA ISTRUZIONI = NESSUNA VOCE: "rifiutato e basta" non è una
+    // decisione da tramandare, è un giro di ripianificazione. Con le istruzioni
+    // lo diventa, perché dicono cosa il team ha stabilito.
+    if (mode === "execute" || instructions) {
+      await recordDecision(tx, {
+        projectId: ticket.projectId,
+        source: "plan_review",
+        // `n` distingue i cicli di gate dello STESSO job (rifiuta → ripianifica
+        // → riparcheggia → approva). Si conta dentro la transazione, dopo
+        // l'UPDATE guardato che ha già stabilito che questo ciclo è nostro:
+        // due risoluzioni concorrenti non possono arrivare entrambe qui.
+        sourceKey: `plan_review:${latest.id}:${(await planReviewRound(tx, latest.id)) + 1}`,
+        sourceRef: { jobId: latest.id, mode },
+        ticketId,
+        title: ticket.title,
+        decision:
+          mode === "execute"
+            ? t(lang, "decision.plan.approved")
+            : t(lang, "decision.plan.rejected", { instructions: instructions! }),
+        decidedByUserId: actor.id,
+      });
+    }
     return updated[0]!;
   });
 
@@ -341,6 +386,25 @@ export async function resolvePlan(db: Db, input: ResolvePlanInput): Promise<Reso
     actorId: actor.id,
   });
   return { ok: true, jobId: resolved.id, changedNotificationIds };
+}
+
+/**
+ * Quanti cicli di gate ha già registrato QUESTO job: il progressivo `n` di
+ * `plan_review:<jobId>:<n>`.
+ *
+ * Il `LIKE` sul prefisso della `sourceKey` è la chiave del conto e non un
+ * ripiego su `sourceRef`: la `sourceKey` è la colonna che porta l'unique, cioè
+ * l'unica su cui il conteggio e l'idempotenza guardano lo stesso dato.
+ */
+async function planReviewRound(
+  tx: Parameters<Parameters<Db["transaction"]>[0]>[0],
+  jobId: string,
+): Promise<number> {
+  const [row] = await tx
+    .select({ n: count() })
+    .from(projectDecisions)
+    .where(like(projectDecisions.sourceKey, `plan_review:${jobId}:%`));
+  return row?.n ?? 0;
 }
 
 /** True se lo stato del job è uno di {@link IN_FLIGHT}. */
