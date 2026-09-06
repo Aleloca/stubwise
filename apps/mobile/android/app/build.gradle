@@ -72,6 +72,29 @@ def enableProguardInReleaseBuilds = false
  */
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
 
+/**
+ * Keystore di UPLOAD per la firma di release (review fase 4, finding #5):
+ * NON nel repo, ovviamente — letta da proprietà Gradle (`~/.gradle/
+ * gradle.properties`, così sopravvive a un `git clean`) o, in alternativa,
+ * da variabili d'ambiente (utile in CI). `project.hasProperty(...)` è come
+ * Gradle espone le proprietà di `gradle.properties` (sia quello del progetto
+ * sia quello globale nella home) come variabili di questo script.
+ *
+ * `hasUploadKeystore` decide TUTTO più sotto: senza le quattro proprietà,
+ * `release` resta firmata con `debug` (esattamente come oggi, comportamento
+ * INVARIATO per chi non ha ancora la keystore) — `pnpm --filter
+ * @stubwise/mobile android` continua a funzionare per lo sviluppo locale
+ * senza che nessuno debba configurare nulla. Il warning (sotto, in
+ * `buildTypes.release`) rende il fallback VISIBILE invece di silenzioso: chi
+ * genera un build di release pensando di aver cablato la keystore se ne
+ * accorge dal log, non lo scopre a Play Console.
+ */
+def uploadStoreFile = project.hasProperty('STUBWISE_UPLOAD_STORE_FILE') ? STUBWISE_UPLOAD_STORE_FILE : System.getenv('STUBWISE_UPLOAD_STORE_FILE')
+def uploadStorePassword = project.hasProperty('STUBWISE_UPLOAD_STORE_PASSWORD') ? STUBWISE_UPLOAD_STORE_PASSWORD : System.getenv('STUBWISE_UPLOAD_STORE_PASSWORD')
+def uploadKeyAlias = project.hasProperty('STUBWISE_UPLOAD_KEY_ALIAS') ? STUBWISE_UPLOAD_KEY_ALIAS : System.getenv('STUBWISE_UPLOAD_KEY_ALIAS')
+def uploadKeyPassword = project.hasProperty('STUBWISE_UPLOAD_KEY_PASSWORD') ? STUBWISE_UPLOAD_KEY_PASSWORD : System.getenv('STUBWISE_UPLOAD_KEY_PASSWORD')
+def hasUploadKeystore = uploadStoreFile != null
+
 android {
     ndkVersion rootProject.ext.ndkVersion
     buildToolsVersion rootProject.ext.buildToolsVersion
@@ -92,15 +115,29 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        if (hasUploadKeystore) {
+            release {
+                storeFile file(uploadStoreFile)
+                storePassword uploadStorePassword
+                keyAlias uploadKeyAlias
+                keyPassword uploadKeyPassword
+            }
+        }
     }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.debug
+            if (hasUploadKeystore) {
+                signingConfig signingConfigs.release
+            } else {
+                // Vedi il commento su `hasUploadKeystore` più sopra: fallback
+                // INVARIATO (debug), ma reso visibile — non più un commento
+                // ignorabile nel sorgente, un log a ogni build di release.
+                logger.warn("Release firmata con la keystore di DEBUG: definisci STUBWISE_UPLOAD_* in ~/.gradle/gradle.properties")
+                signingConfig signingConfigs.debug
+            }
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
         }

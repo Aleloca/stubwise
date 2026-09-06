@@ -361,12 +361,14 @@ attivo su quel team (App Store Connect, TestFlight).
 
 ### Android: keystore, build di release, distribuzione interna
 
-Lo scaffold React Native di partenza firma la variante `release` con la
-**stessa keystore di debug** (`android/app/build.gradle`,
-`buildTypes.release.signingConfig = signingConfigs.debug`) — va bene per
+Per default (nessuna keystore di upload configurata) `release` si firma con
+la **stessa keystore di debug** dello scaffold React Native — va bene per
 `react-native run-android` durante lo sviluppo, MA non per una build
 distribuita: prima del primo rilascio reale serve una keystore di upload
-propria e un piccolo cablaggio in `build.gradle`, una tantum.
+propria. Il cablaggio in `build.gradle` (`signingConfigs.release` +
+`buildTypes.release.signingConfig`) è già nel repo (review fase 4, finding
+#5): l'unico passo che resta è generare la keystore e definire le sue
+credenziali.
 
 1. **Genera la keystore** (una volta sola; conservala, non è recuperabile se
    persa — un cambio di keystore blocca gli aggiornamenti in-place su Play):
@@ -393,35 +395,24 @@ propria e un piccolo cablaggio in `build.gradle`, una tantum.
    STUBWISE_UPLOAD_KEY_PASSWORD=...
    ```
 
-3. **Cablaggio in `android/app/build.gradle`** (non ancora nel repo: è il
-   pezzo che manca allo scaffold di partenza, da aggiungere una tantum prima
-   del primo rilascio). Nel blocco `signingConfigs`, aggiungi accanto a
-   `debug`:
+3. **Il cablaggio è già in `android/app/build.gradle`** (review fase 4,
+   finding #5) — niente da modificare a mano. Definendo le quattro
+   proprietà sopra (in `~/.gradle/gradle.properties`, o come variabili
+   d'ambiente — lo script le legge in entrambi i modi), `release` si firma
+   da sola con la keystore di upload: `hasUploadKeystore` (in cima al file)
+   passa da `false` a `true`, `signingConfigs.release` si popola, e
+   `buildTypes.release.signingConfig` la usa al posto di `signingConfigs
+   .debug`.
 
-   ```groovy
-   signingConfigs {
-       debug { /* invariato */ }
-       release {
-           if (project.hasProperty('STUBWISE_UPLOAD_STORE_FILE')) {
-               storeFile file(STUBWISE_UPLOAD_STORE_FILE)
-               storePassword STUBWISE_UPLOAD_STORE_PASSWORD
-               keyAlias STUBWISE_UPLOAD_KEY_ALIAS
-               keyPassword STUBWISE_UPLOAD_KEY_PASSWORD
-           }
-       }
-   }
-   buildTypes {
-       release {
-           signingConfig signingConfigs.release  // era signingConfigs.debug
-           // ... minifyEnabled/proguardFiles invariati
-       }
-   }
-   ```
-
-   Senza questo passo, `bundleRelease`/`assembleRelease` continuano a
-   produrre un binario firmato con la keystore di debug: si installa e gira,
-   ma Play Console lo rifiuta come primo upload (e un binario firmato debug
-   non è comunque distribuibile fuori da dispositivi di sviluppo).
+   **Senza** quelle quattro proprietà (lo stato di partenza, e quello di chi
+   fa solo sviluppo locale), `bundleRelease`/`assembleRelease` continuano a
+   funzionare esattamente come lo scaffold originale — firmano con la
+   keystore di debug — ma ora lo dicono: un
+   `logger.warn("Release firmata con la keystore di DEBUG: …")` compare nel
+   log a ogni build di release, invece del vecchio commento nel sorgente che
+   nessuno legge finché non è già in produzione. Un binario firmato debug
+   comunque non è distribuibile fuori da dispositivi di sviluppo (Play
+   Console lo rifiuta come primo upload).
 
 4. **Bump versione, poi build**:
 
