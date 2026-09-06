@@ -339,6 +339,81 @@ describe("buildRelay", () => {
       }
       await app.close();
     });
+
+    /**
+     * Il relay sta dietro Caddy (nessuna porta pubblicata): `request.socket
+     * .remoteAddress` è SEMPRE l'IP interno di Caddy, mai quello del client
+     * reale. Senza `trustProxy`, `request.ip` di Fastify ricade su
+     * `remoteAddress` — lo stesso valore per ogni istanza del mondo — e il
+     * limite "per IP" diventa in realtà un limite GLOBALE condiviso da tutti.
+     * Questi test documentano il comportamento reale di `trustProxy: 1`
+     * leggendo `request.ip` da un hook di prova, invece di indovinarlo dal
+     * solo esito HTTP.
+     */
+    describe("l'IP visto dal relay è quello del client reale, non quello di Caddy", () => {
+      /** IP con cui Fastify `inject` simula la connessione TCP — è Caddy. */
+      const CADDY_ADDRESS = "10.0.0.5";
+
+      /**
+       * UNA sola app (un solo rate limiter in memoria) per tutte le richieste
+       * di un test: il bug che questi test devono catturare è la condivisione
+       * del bucket FRA client diversi DENTRO la stessa istanza del relay —
+       * due `build()` separate avrebbero due limitatori indipendenti a
+       * prescindere dall'IP, e non direbbero niente sul comportamento reale.
+       */
+      function injectFrom(app: ReturnType<typeof buildRelay>, xForwardedFor: string) {
+        return app.inject({
+          ...send([{ platform: "android", token: "a" }]),
+          remoteAddress: CADDY_ADDRESS,
+          headers: { "x-forwarded-for": xForwardedFor },
+        });
+      }
+
+      it("con trustProxy: 1, request.ip è l'ULTIMO indirizzo della catena — quello annesso da Caddy", async () => {
+        const { app } = build();
+        let seenIp: string | undefined;
+        app.addHook("onRequest", async (request) => {
+          seenIp = request.ip;
+        });
+        await app.inject({
+          method: "GET",
+          url: "/healthz",
+          remoteAddress: CADDY_ADDRESS,
+          headers: { "x-forwarded-for": "1.2.3.4, 203.0.113.1" },
+        });
+        expect(seenIp).toBe("203.0.113.1");
+        await app.close();
+      });
+
+      it("due client reali dietro la STESSA Caddy hanno bucket distinti: esaurire il tetto del primo non blocca il secondo", async () => {
+        const { app } = build({ rate: { perTokenHour: 60, perTokenDay: 500, perIpMinute: 3 } });
+        for (let i = 0; i < 3; i += 1) {
+          expect((await injectFrom(app, "203.0.113.1")).statusCode).toBe(200);
+        }
+        // Il 4° del primo IP esaurisce il suo bucket.
+        expect((await injectFrom(app, "203.0.113.1")).statusCode).toBe(429);
+
+        // Un secondo IP, MAI visto prima, parte con la quota piena sulla
+        // STESSA app: non è lo stesso bucket, nonostante entrambi arrivino
+        // dalla stessa Caddy (stesso `remoteAddress`).
+        expect((await injectFrom(app, "203.0.113.2")).statusCode).toBe(200);
+        await app.close();
+      });
+
+      it("anti-spoofing: un client non può scegliersi un bucket diverso aggiungendo un hop finto in testa", async () => {
+        const { app } = build({ rate: { perTokenHour: 60, perTokenDay: 500, perIpMinute: 1 } });
+        // Un client "onesto" con un solo hop esaurisce subito il suo bucket.
+        expect((await injectFrom(app, "203.0.113.1")).statusCode).toBe(200);
+
+        // Lo stesso client reale (Caddy vede la stessa connessione, quindi
+        // annette lo stesso ultimo indirizzo) prova a spacciarsi per un IP
+        // diverso anteponendo un hop inventato: con `trustProxy: 1` conta solo
+        // l'ULTIMO indirizzo — quello che Caddy stesso ha annesso — quindi
+        // finisce comunque nel bucket già esaurito di `203.0.113.1`.
+        expect((await injectFrom(app, "1.2.3.4, 203.0.113.1")).statusCode).toBe(429);
+        await app.close();
+      });
+    });
   });
 
   /**

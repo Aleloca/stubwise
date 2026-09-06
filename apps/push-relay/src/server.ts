@@ -47,7 +47,10 @@ const DAY_MS = 24 * HOUR_MS;
  * lui le push di tutte le istanze. Oltre il tetto si buttano le voci più
  * vecchie, il che vuol dire che **sotto flood il limite per token si può
  * aggirare** — è accettato, perché in quello scenario la difesa vera è il tetto
- * per IP, e perdere il conteggio è meglio che perdere il processo.
+ * per IP (funziona perché `trustProxy: 1` fa leggere a Fastify l'IP del
+ * client reale dietro Caddy, non quello — sempre uguale — di Caddy stesso:
+ * vedi il commento su `Fastify({ trustProxy: 1, ... })` qui sotto), e perdere
+ * il conteggio è meglio che perdere il processo.
  */
 export const MAX_TRACKED_TOKENS = 100_000;
 
@@ -151,6 +154,22 @@ export function buildRelay({
   const app = Fastify({
     bodyLimit: BODY_LIMIT_BYTES,
     logger: loggerStream ? { level: "info", stream: loggerStream } : { level: "info" },
+    /**
+     * `1`, non `true`. Il relay non pubblica nessuna porta: ci arriva SOLO
+     * Caddy dalla rete interna (vedi `caddy.d/relay.caddy.example`), quindi
+     * c'è esattamente UN hop fidato fra il client reale e questo processo.
+     * `trustProxy: 1` fa sì che `request.ip` sia l'ultimo indirizzo della
+     * catena `X-Forwarded-For` — quello che Caddy stesso ha annesso — così
+     * il rate limit "per IP" distingue davvero le istanze fra loro invece di
+     * vederle tutte come lo stesso IP (quello di Caddy).
+     *
+     * `true` sarebbe SBAGLIATO qui: significherebbe fidarsi dell'INTERA
+     * catena `X-Forwarded-For`, che un client può scrivere lui stesso —
+     * basterebbe anteporre un hop finto per scegliersi un bucket diverso a
+     * ogni richiesta e aggirare il limite. Con `1` conta solo l'ultimo
+     * indirizzo, quello che SOLO Caddy può aver annesso.
+     */
+    trustProxy: 1,
   });
 
   /**

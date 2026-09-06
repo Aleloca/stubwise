@@ -579,7 +579,13 @@ quel flag il servizio non si builda né si avvia — vedi il blocco commentato
    ```
 
 Nessuna porta pubblicata dal relay verso l'host: ci arriva solo Caddy, dalla
-rete interna del compose.
+rete interna del compose. **Non esporre mai il relay direttamente** (porta
+pubblicata, un altro reverse proxy che non riscrive `X-Forwarded-For`): il
+rate limit per IP (`apps/push-relay/src/server.ts`, `trustProxy: 1`) si fida
+di UN solo hop davanti a sé per calcolare l'IP del client — se quell'hop non
+è un proxy fidato che annette l'indirizzo reale (come fa Caddy di default),
+un client può scriversi da sé `X-Forwarded-For` e scegliersi un bucket
+diverso a ogni richiesta, aggirando il limite.
 
 ## Troubleshooting
 
