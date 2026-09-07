@@ -359,6 +359,7 @@ interface NotificationSettings {
   notifyDocsLimitPaused: boolean;
   notifyJobFailed: boolean;
   notifyMonitor: boolean;
+  notifyBrief: boolean;
 }
 
 describe("GET /api/settings/notifications", () => {
