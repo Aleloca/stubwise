@@ -469,6 +469,13 @@ interface MessageBatch {
   historyId: string | null;
   /** Il giro è passato dal resync per query (primo giro o history scaduta). */
   resynced: boolean;
+  /**
+   * Il lotto NON copre tutta la history disponibile: `ids` è stato tagliato a
+   * {@link GMAIL_RESYNC_MAX_MESSAGES}, o resta almeno una pagina non letta.
+   * `historyId` (lo stato "adesso" della casella) non è quindi un cursore
+   * sicuro — vedi il commento su `historyId` in fondo a {@link syncGmail}.
+   */
+  truncated: boolean;
 }
 
 /**
@@ -507,7 +514,13 @@ async function collectMessageIds(
         historyId = page.historyId ?? historyId;
         pageToken = page.nextPageToken;
       } while (pageToken && ids.length < GMAIL_RESYNC_MAX_MESSAGES);
-      return { ids: ids.slice(0, GMAIL_RESYNC_MAX_MESSAGES), historyId, resynced: false };
+      // Troncato quando resta almeno una pagina di history NON letta (il loop
+      // si è fermato per il tetto, non perché la history fosse finita — in tal
+      // caso `pageToken` è ancora valorizzato) o quando l'ultima pagina letta
+      // ha da sola superato il tetto: in entrambi i casi `ids.slice(...)` sotto
+      // lascia fuori messaggi che questo giro non vedrà.
+      const truncated = pageToken !== null || ids.length > GMAIL_RESYNC_MAX_MESSAGES;
+      return { ids: ids.slice(0, GMAIL_RESYNC_MAX_MESSAGES), historyId, resynced: false, truncated };
     } catch (err) {
       if (!isHistoryExpired(err)) throw err;
       logger.info(
@@ -528,7 +541,13 @@ async function collectMessageIds(
     ids.push(...page.messageIds);
     pageToken = page.nextPageToken;
   } while (pageToken && ids.length < GMAIL_RESYNC_MAX_MESSAGES);
-  return { ids: ids.slice(0, GMAIL_RESYNC_MAX_MESSAGES), historyId: null, resynced: true };
+  // `messages.list` non dà mai un `historyId` (vedi sopra): il cursore finale
+  // sarà comunque `seenHistoryId`, calcolato dai messaggi letti in `syncGmail`
+  // — `truncated` non cambia quella scelta qui. Lo si calcola comunque, per
+  // non lasciare un campo silenziosamente falso quando in futuro qualcosa ne
+  // dipendesse.
+  const truncated = pageToken !== null || ids.length > GMAIL_RESYNC_MAX_MESSAGES;
+  return { ids: ids.slice(0, GMAIL_RESYNC_MAX_MESSAGES), historyId: null, resynced: true, truncated };
 }
 
 /** Gli id che questa casella ha già in `email_messages`: non si riscaricano. */
@@ -572,10 +591,16 @@ async function syncGmail(
   let ingested = 0;
   // Cursore di ripiego dopo un resync: `messages.list` non ne dà uno, i
   // messaggi sì. È il modo documentato da Google di ripartire in incrementale
-  // dopo una sincronizzazione completa.
+  // dopo una sincronizzazione completa. È anche il cursore che vince ogni
+  // volta che il lotto non è stato processato per intero (vedi `historyId`
+  // qui sotto).
   let seenHistoryId: string | null = null;
+  let aborted = false;
   for (const id of ids) {
-    if (deps.signal?.aborted) break;
+    if (deps.signal?.aborted) {
+      aborted = true;
+      break;
+    }
 
     let metadata: GmailMessage;
     try {
@@ -624,7 +649,17 @@ async function syncGmail(
     if (inserted.length > 0) ingested += 1;
   }
 
-  const historyId = batch.historyId ?? seenHistoryId;
+  // `batch.historyId` — lo stato "adesso" della casella secondo l'ultima
+  // pagina di `history.list` — è un cursore sicuro SOLO se questo giro ha
+  // visto l'intera history senza troncamenti (`batch.truncated`) né
+  // interruzioni (`aborted`): altrimenti supererebbe messaggi che il tick non
+  // ha processato, e quei messaggi non comparirebbero mai più in nessuna
+  // history futura (sono "prima" del cursore salvato). In quel caso si scrive
+  // `seenHistoryId` — il max fra i messaggi EFFETTIVAMENTE letti — e il tick
+  // dopo riparte da lì, rileggendo (senza duplicare, `onConflictDoNothing`
+  // sopra) ciò che non era stato ancora processato.
+  const complete = !batch.truncated && !aborted;
+  const historyId = complete ? (batch.historyId ?? seenHistoryId) : seenHistoryId;
   return { ingested, historyId, clearCursor: batch.resynced && historyId === null };
 }
 

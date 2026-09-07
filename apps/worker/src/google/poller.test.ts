@@ -24,7 +24,7 @@ import {
   type GmailClient,
   type GooglePollerDeps,
 } from "./poller.js";
-import { GMAIL_MAX_SYNC_ATTEMPTS, GMAIL_RESYNC_QUERY } from "./sync.js";
+import { GMAIL_MAX_SYNC_ATTEMPTS, GMAIL_RESYNC_MAX_MESSAGES, GMAIL_RESYNC_QUERY } from "./sync.js";
 
 /**
  * POLLER GMAIL (fase 6, Task 7).
@@ -540,6 +540,125 @@ describe("sincronizzazione Gmail", () => {
     expect(await db.select().from(emailMessages)).toHaveLength(1);
     // Il messaggio già ingerito non viene nemmeno riletto da Gmail.
     expect(gmail.calls.filter((call) => call === "metadata:m1")).toHaveLength(1);
+  });
+
+  it("più di GMAIL_RESYNC_MAX_MESSAGES messaggi nuovi: il cursore resta al lotto processato, il tick dopo prende il resto", async () => {
+    const projectId = await seedProject("Acme");
+    await db
+      .insert(projectEmailRoutes)
+      .values({ projectId, kind: "sender_domain", value: "cliente.com" });
+    const account = await seedAccount({
+      nextSyncAt: new Date(Date.now() - 60_000),
+      gmailHistoryId: "1000",
+    });
+
+    const total = GMAIL_RESYNC_MAX_MESSAGES + 50;
+    const ids = Array.from({ length: total }, (_, i) => `m${i + 1}`);
+    // `historyId` crescente nell'ordine in cui `history.list` li elenca: il
+    // 200esimo (l'ultimo del lotto processato) è "2200".
+    const messages = Object.fromEntries(
+      ids.map((id, i) => [id, message({ id, historyId: String(2000 + i + 1) })]),
+    );
+    const gmail = fakeGmail({
+      // Una SOLA pagina di `history.list` con più addedMessageIds di quanti il
+      // tick ne processi: `page.historyId` è lo stato "adesso" della casella,
+      // ben oltre il 200esimo messaggio effettivamente letto.
+      history: { addedMessageIds: ids, historyId: "9999999" },
+      messages,
+    });
+
+    const stats = await pollGoogleOnce(deps(account, gmail));
+
+    expect(stats.ingested).toBe(GMAIL_RESYNC_MAX_MESSAGES);
+    const reloaded = await reload(account.id);
+    // NON "9999999" (lo stato adesso della casella): il cursore resta fermo
+    // all'historyId del 200esimo messaggio EFFETTIVAMENTE processato.
+    expect(reloaded.gmailHistoryId).toBe(String(2000 + GMAIL_RESYNC_MAX_MESSAGES));
+    expect(reloaded.gmailHistoryId).not.toBe("9999999");
+
+    // Il tick successivo: da quel cursore, la history (finta) restituisce solo
+    // i 50 messaggi rimasti — esattamente ciò che Gmail farebbe con un
+    // `startHistoryId` avanzato di così poco.
+    const remainingIds = ids.slice(GMAIL_RESYNC_MAX_MESSAGES);
+    const gmail2 = fakeGmail({
+      history: { addedMessageIds: remainingIds, historyId: "9999999" },
+      messages,
+    });
+    await db
+      .update(googleAccounts)
+      .set({ nextSyncAt: new Date(Date.now() - 60_000) })
+      .where(eq(googleAccounts.id, account.id));
+    const stats2 = await pollGoogleOnce(deps(await reload(account.id), gmail2));
+
+    expect(stats2.ingested).toBe(50);
+    const rows = await db
+      .select()
+      .from(emailMessages)
+      .where(eq(emailMessages.accountId, account.id));
+    expect(rows).toHaveLength(total);
+    expect(new Set(rows.map((row) => row.gmailMessageId)).size).toBe(total);
+  });
+
+  it("abort a metà lotto: il cursore resta all'ultimo messaggio inserito, la ripresa non duplica", async () => {
+    const projectId = await seedProject("Acme");
+    await db
+      .insert(projectEmailRoutes)
+      .values({ projectId, kind: "sender_domain", value: "cliente.com" });
+    const account = await seedAccount({
+      nextSyncAt: new Date(Date.now() - 60_000),
+      gmailHistoryId: "1000",
+    });
+    const messages = {
+      m1: message({ id: "m1", historyId: "2001" }),
+      m2: message({ id: "m2", historyId: "2002" }),
+      m3: message({ id: "m3", historyId: "2003" }),
+    };
+    const controller = new AbortController();
+    const gmail = fakeGmail({
+      history: { addedMessageIds: ["m1", "m2", "m3"], historyId: "9999999" },
+      messages,
+    });
+    // Interrompe DOPO che m1 è stato letto (e quindi inserito): il prossimo
+    // giro del loop, su m2, trova il segnale già interrotto e si ferma prima
+    // di leggerlo — come un riavvio del worker a metà lotto.
+    const originalGetMessageMetadata = gmail.getMessageMetadata;
+    gmail.getMessageMetadata = async (input: { accessToken: string; id: string }) => {
+      const result = await originalGetMessageMetadata(input);
+      if (input.id === "m1") controller.abort();
+      return result;
+    };
+
+    const stats = await pollGoogleOnce({ ...deps(account, gmail), signal: controller.signal });
+
+    expect(stats.ingested).toBe(1);
+    const reloaded = await reload(account.id);
+    // NON "9999999": il cursore resta all'historyId dell'unico messaggio
+    // effettivamente inserito.
+    expect(reloaded.gmailHistoryId).toBe("2001");
+    const rowsAfterAbort = await db
+      .select()
+      .from(emailMessages)
+      .where(eq(emailMessages.accountId, account.id));
+    expect(rowsAfterAbort.map((row) => row.gmailMessageId)).toEqual(["m1"]);
+
+    // La ripresa: nessun abort stavolta, la history (finta) mostra solo i due
+    // messaggi rimasti — senza duplicare m1.
+    const gmail2 = fakeGmail({
+      history: { addedMessageIds: ["m2", "m3"], historyId: "9999999" },
+      messages,
+    });
+    await db
+      .update(googleAccounts)
+      .set({ nextSyncAt: new Date(Date.now() - 60_000) })
+      .where(eq(googleAccounts.id, account.id));
+    const stats2 = await pollGoogleOnce(deps(await reload(account.id), gmail2));
+
+    expect(stats2.ingested).toBe(2);
+    const allRows = await db
+      .select()
+      .from(emailMessages)
+      .where(eq(emailMessages.accountId, account.id));
+    expect(allRows.map((row) => row.gmailMessageId).sort()).toEqual(["m1", "m2", "m3"]);
   });
 });
 
