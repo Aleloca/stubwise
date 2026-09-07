@@ -84,6 +84,12 @@ export async function publishNotification(
       const recipients = recipientsFor(event, ctx);
 
       const settings = await loadSettings(inner);
+      // `shouldSendWebhook` è l'UNICO punto in cui vive il gating del webhook,
+      // guardia sull'audience `mailbox_owner` inclusa (privacy by
+      // construction, fase 6 — vedi il docblock in `dispatch.ts`): per un
+      // kind come `google.proposal` questo è sempre `false`, qualunque sia il
+      // toggle o la config del webhook d'istanza, quindi il push in
+      // `deliveries` più sotto non scatta mai per quel kind.
       const withWebhook = shouldSendWebhook(settings, event.kind);
       if (recipients.length === 0 && !withWebhook) return { published: 0 };
 

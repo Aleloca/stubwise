@@ -95,11 +95,15 @@ const notificationSettingsResponseSchema = z.object({
   notifyAwaitingInput: z.boolean(),
   notifyPulse: z.boolean(),
   notifyBrief: z.boolean(),
-  // Fase 6: il toggle d'istanza della proposta nata dalla posta/calendario.
-  // Esiste in `dispatch` e nella colonna dal Task 1 (`notify_google_proposal`,
-  // default true), ma senza questo campo di rotta non era raggiungibile da
-  // nessuna UI — stessa storia di `notifyBrief` in fase 5.
-  notifyGoogleProposal: z.boolean(),
+  // ⚠️ NIENTE `notifyGoogleProposal` qui, di proposito (fase 6, Task 4 del
+  // piano di fix di review): la proposta nata dalla posta/calendario ha
+  // audience `mailbox_owner` e non deve MAI raggiungere il webhook
+  // d'istanza — un canale condiviso — indipendentemente da un toggle. La
+  // colonna `notify_google_proposal` resta in DB (innocua, sempre `true` di
+  // default, nessuna migrazione), ma questo campo di rotta è stato rimosso
+  // apposta: un toggle che sembrasse controllare "manda la posta di un
+  // collega sul webhook di team" sarebbe fuorviante di per sé, anche se
+  // inerte. Vedi `shouldSendWebhook` in `packages/notifications/src/dispatch.ts`.
 });
 
 /**
@@ -145,9 +149,11 @@ const updateNotificationsBodySchema = z.object({
   // Default true: i client esistenti che non inviano il campo conservano il
   // comportamento "annuncia il brief settimanale del progetto".
   notifyBrief: z.boolean().default(true),
-  // Default true: i client esistenti che non inviano il campo conservano il
-  // comportamento "notifica le proposte nate dalla posta/calendario".
-  notifyGoogleProposal: z.boolean().default(true),
+  // ⚠️ NIENTE `notifyGoogleProposal` qui: vedi il commento gemello su
+  // `notificationSettingsResponseSchema`. Un client che lo manda comunque
+  // (SPA in cache, automazione) lo vede ignorato in silenzio — Zod scarta i
+  // campi ignoti da un `z.object()` non `.strict()` — non rifiutato: stessa
+  // tolleranza di ogni altro campo qui.
 });
 
 const testNotificationResponseSchema = z.object({
@@ -232,7 +238,6 @@ async function loadNotificationSettings(
       notifyAwaitingInput: true,
       notifyPulse: true,
       notifyBrief: true,
-      notifyGoogleProposal: true,
     };
   }
   return {
@@ -252,7 +257,9 @@ async function loadNotificationSettings(
     notifyAwaitingInput: row.notifyAwaitingInput,
     notifyPulse: row.notifyPulse,
     notifyBrief: row.notifyBrief,
-    notifyGoogleProposal: row.notifyGoogleProposal,
+    // `row.notifyGoogleProposal` esiste ancora in DB (colonna innocua) ma non
+    // entra più nella proiezione pubblica: vedi il commento su
+    // `notificationSettingsResponseSchema`.
   };
 }
 
@@ -467,7 +474,10 @@ export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
           notifyAwaitingInput: body.notifyAwaitingInput,
           notifyPulse: body.notifyPulse,
           notifyBrief: body.notifyBrief,
-          notifyGoogleProposal: body.notifyGoogleProposal,
+          // Niente `notifyGoogleProposal` nel `set`: la colonna resta com'è
+          // (default `true` all'insert iniziale, la migrazione l'ha già
+          // seedata) — nessun body la può più toccare, vedi il commento sullo
+          // schema del body qui sopra.
         })
         .onConflictDoUpdate({
           target: notificationSettings.id,
@@ -488,7 +498,8 @@ export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
             notifyAwaitingInput: body.notifyAwaitingInput,
             notifyPulse: body.notifyPulse,
             notifyBrief: body.notifyBrief,
-            notifyGoogleProposal: body.notifyGoogleProposal,
+            // Niente `notifyGoogleProposal`: vedi il commento sull'insert
+            // sopra, stessa ragione.
             updatedAt: new Date(),
           },
         });

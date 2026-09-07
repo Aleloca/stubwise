@@ -42,7 +42,12 @@ const EVENT_TOGGLES: { key: keyof NotificationSettings; labelKey: string }[] = [
   { key: "notifyAwaitingInput", labelKey: "notifications:toggles.awaitingInput" },
   { key: "notifyPulse", labelKey: "notifications:toggles.pulse" },
   { key: "notifyBrief", labelKey: "notifications:toggles.brief" },
-  { key: "notifyGoogleProposal", labelKey: "notifications:toggles.googleProposal" },
+  // NIENTE toggle per google.proposal, di proposito (fase 6, Task 4 del piano
+  // di fix di review): controllava solo il webhook d'istanza, che non deve
+  // MAI ricevere quell'evento (audience `mailbox_owner` — un canale
+  // condiviso non può vedere la posta di un collega). La proposta arriva
+  // comunque sempre in inbox, DM Slack e push al proprietario della casella,
+  // senza bisogno di un interruttore.
 ];
 
 /** Eventi d'esempio per il selettore d'anteprima; `labelKey` → `notifications:samples.*`. */
@@ -57,7 +62,10 @@ const SAMPLE_LABELS: { kind: NotificationEvent["kind"]; labelKey: string }[] = [
   { kind: "docs.limit_paused", labelKey: "notifications:samples.docsLimitPaused" },
   { kind: "job.awaiting_input", labelKey: "notifications:samples.awaitingInput" },
   { kind: "project.pulse", labelKey: "notifications:samples.pulse" },
-  { kind: "google.proposal", labelKey: "notifications:samples.googleProposal" },
+  // NIENTE campione per google.proposal: questa anteprima mostra esattamente
+  // ciò che il webhook d'istanza riceverebbe, e google.proposal non ci arriva
+  // MAI (vedi il commento su EVENT_TOGGLES) — includerlo qui suggerirebbe il
+  // contrario. L'evento resta visibile in inbox con la sua card dedicata.
 ];
 
 /** Placeholder dell'URL webhook in base al formato selezionato (URL letterali). */

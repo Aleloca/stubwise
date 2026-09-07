@@ -1101,8 +1101,7 @@
       "monitor": "Alert di monitoraggio",
       "awaitingInput": "Domanda dell'AI in attesa di risposta",
       "pulse": "Pulse proattivo sui progetti fermi",
-      "brief": "Brief settimanale del progetto",
-      "googleProposal": "Proposta dalla posta (email/calendario)"
+      "brief": "Brief settimanale del progetto"
     },
     "samples": {
       "ticketCreated": "Nuovo ticket",
@@ -1114,8 +1113,7 @@
       "jobFailed": "Fix fallito",
       "docsLimitPaused": "Docs in pausa",
       "awaitingInput": "Domanda dell'AI",
-      "pulse": "Proposta dal backlog",
-      "googleProposal": "Proposta dalla posta"
+      "pulse": "Proposta dal backlog"
     },
     "slack": {
       "step1Prefix": "Vai su",

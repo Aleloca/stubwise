@@ -1101,8 +1101,7 @@
       "monitor": "Monitoring alerts",
       "awaitingInput": "AI question awaiting an answer",
       "pulse": "Proactive pulse on idle projects",
-      "brief": "Weekly project brief",
-      "googleProposal": "Mailbox proposal (email/calendar)"
+      "brief": "Weekly project brief"
     },
     "samples": {
       "ticketCreated": "New ticket",
@@ -1114,8 +1113,7 @@
       "jobFailed": "Fix failed",
       "docsLimitPaused": "Docs paused",
       "awaitingInput": "AI question",
-      "pulse": "Backlog proposal",
-      "googleProposal": "Mailbox proposal"
+      "pulse": "Backlog proposal"
     },
     "slack": {
       "step1Prefix": "Go to",

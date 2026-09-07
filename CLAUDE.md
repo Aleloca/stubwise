@@ -655,7 +655,21 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   follower presenti nel contesto, per essere sicuri che nessuno dei due
   compaia). Chi aggiunge un'audience nuova non la faccia ereditare da
   `requester` "per comodità": se deve escludere gli admin, è un caso a sé
-  come questo.
+  come questo. **Un evento `mailbox_owner` non esce mai dal perimetro del
+  proprietario: inbox, DM Slack e push suoi; mai webhook d'istanza.**
+  `shouldSendWebhook` (`packages/notifications/src/dispatch.ts`) ritorna
+  sempre `false` per quell'audience, PRIMA di consultare qualunque toggle o
+  configurazione del webhook: un canale Slack/Discord/generico condiviso
+  leggerebbe `from`/`subject`/`question` della posta di un collega, che è
+  esattamente ciò che l'audience esiste per impedire. Non è un caso limite
+  scoperto dopo: il toggle `notifyGoogleProposal` che in origine governava
+  anche questo canale è stato **rimosso** da UI, schema di risposta e body
+  di `PUT /api/settings/notifications` (la colonna `notify_google_proposal`
+  resta in DB, innocua, sempre `true` di default) proprio perché un toggle
+  suggerirebbe che spegnerlo o accenderlo cambi qualcosa — mentre la
+  risposta è sempre e comunque "mai". Chi tocca `shouldSendWebhook` o
+  `publishNotification` non reintroduca un ramo che, per una audience
+  `mailbox_owner`, arrivi a scrivere una riga `channel: "webhook"`.
 - **La classificazione dei segnali email gira con la stessa dottrina
   dell'intake, non un'eccezione per la posta.**
   `apps/worker/src/google/classify.ts` chiama `runAgentText` con

@@ -7,6 +7,7 @@ import {
   type NotificationKind,
   type TicketCreatedEvent,
 } from "./format.js";
+import { audienceFor } from "./routing.js";
 
 /**
  * Modulo di dispatch delle notifiche in uscita di Stubwise.
@@ -74,7 +75,19 @@ export interface DispatchOptions {
 /** Timeout di default del POST del webhook. */
 const DEFAULT_TIMEOUT_MS = 10_000;
 
-/** Mappa evento → colonna toggle della config. */
+/**
+ * Mappa evento → colonna toggle della config.
+ *
+ * ⚠️ `"google.proposal": "notifyGoogleProposal"` è INERTE per il webhook:
+ * {@link shouldSendWebhook} ritorna sempre `false` per l'audience
+ * `mailbox_owner` PRIMA di consultare questo toggle (privacy by construction,
+ * fase 6 — vedi il commento lì). La colonna `notify_google_proposal` resta in
+ * DB (innocua, sempre `true` di default) ma non è più raggiungibile da
+ * nessuna UI: il campo è stato rimosso dallo schema di risposta e dal body di
+ * `PUT /api/settings/notifications` (Task 4 del piano di review). La riga
+ * resta mappata qui solo perché questa Record è ESAUSTIVA su
+ * `NotificationKind` — toglierla non farebbe compilare il modulo.
+ */
 const TOGGLE_FOR_KIND: Record<NotificationKind, keyof NotificationSettingsRow> = {
   "ticket.created": "notifyTicketCreated",
   "job.pr_opened": "notifyPrOpened",
@@ -195,11 +208,23 @@ async function postWebhook(
  * PRIMA di accodare la consegna (così l'outbox non si riempie di righe che il
  * poller scarterebbe) e {@link dispatchNotification} la usa nel percorso
  * sincrono legacy.
+ *
+ * ⚠️ PRIVACY BY CONSTRUCTION (fase 6, Task 4 del piano di fix di review): un
+ * evento con audience `mailbox_owner` (oggi il solo `google.proposal`) nasce
+ * dalla casella Gmail/Calendar di UNA persona e il webhook d'istanza è un
+ * canale CONDIVISO — in prod un canale Slack/Discord dell'intero team, che
+ * leggerebbe `from`/`subject`/`question` della posta di un collega. Questa
+ * guardia vince SEMPRE, PRIMA di ogni altro controllo: non è un default che
+ * si potrebbe riabilitare da un toggle o da una config del webhook, ed è per
+ * questo che sta all'inizio della funzione e non in coda. Vedi l'invariante
+ * gemella in `routing.ts` (`recipientsFor`/`resolveRoutingContext`, caso
+ * `mailbox_owner`: nessun admin, un solo destinatario).
  */
 export function shouldSendWebhook(
   settings: NotificationSettingsRow | null,
   kind: NotificationKind,
 ): boolean {
+  if (audienceFor(kind) === "mailbox_owner") return false;
   if (!settings || !settings.enabled || !settings.webhookUrl) return false;
   return settings[TOGGLE_FOR_KIND[kind]] === true;
 }

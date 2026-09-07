@@ -518,6 +518,51 @@ describe("publishNotification", () => {
     expect(await db.select().from(notifications)).toHaveLength(0);
   });
 
+  it("google.proposal non genera MAI una consegna webhook, anche col webhook configurato e il toggle acceso", async () => {
+    // Task 4 (fase 6, fix di review): il webhook d'istanza è un canale
+    // condiviso (in prod un canale Slack/Discord dell'intero team) — vederci
+    // comparire `from`/`subject`/`question` della casella di un collega
+    // contraddirebbe l'unico destinatario dell'audience `mailbox_owner`. La
+    // guardia vince ANCHE col toggle esplicitamente acceso: non è un default,
+    // è privacy by construction.
+    const { projectId, outsiderId } = await seedScenario();
+    await db
+      .update(notificationSettings)
+      .set({ webhookUrl: "https://hooks.example.com/abc", notifyGoogleProposal: true });
+
+    const result = await publishNotification(db, googleProposal, {
+      projectId,
+      mailboxOwnerUserId: outsiderId,
+    });
+
+    // Il proprietario della casella riceve comunque la sua notifica in inbox:
+    // la guardia esclude SOLO il webhook, non le altre vie di consegna.
+    expect(result).toEqual({ published: 1 });
+    expect(
+      await db
+        .select()
+        .from(notificationDeliveries)
+        .where(eq(notificationDeliveries.channel, "webhook")),
+    ).toHaveLength(0);
+  });
+
+  it("google.proposal con 0 destinatari e webhook configurato: zero delivery IN ASSOLUTO, non solo zero webhook", async () => {
+    // Prima del fix, `withWebhook` restava vero anche con `recipients.length
+    // === 0`: la riga in inbox non nasceva, ma la consegna webhook sì —
+    // esattamente il caso "0 destinatari" del finding. Qui verifichiamo che
+    // non nasca NESSUNA riga, in nessuna tabella dell'outbox.
+    await seedScenario();
+    await db
+      .update(notificationSettings)
+      .set({ webhookUrl: "https://hooks.example.com/abc", notifyGoogleProposal: true });
+
+    const result = await publishNotification(db, googleProposal, {});
+
+    expect(result).toEqual({ published: 0 });
+    expect(await db.select().from(notifications)).toHaveLength(0);
+    expect(await db.select().from(notificationDeliveries)).toHaveLength(0);
+  });
+
   it("inserisce DENTRO la transazione ricevuta (il rollback annulla tutto)", async () => {
     const { projectId, ticketId } = await seedScenario();
 

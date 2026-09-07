@@ -1976,8 +1976,13 @@ export interface NotificationSettings {
   notifyPulse: boolean;
   /** Brief settimanale: il resoconto per non-tecnici del progetto (fase 5). */
   notifyBrief: boolean;
-  /** Proposta nata dalla posta o dal calendario, indirizzata al proprietario della casella (fase 6). */
-  notifyGoogleProposal: boolean;
+  // NIENTE notifyGoogleProposal qui, di proposito (fase 6, Task 4 del piano
+  // di fix di review): il campo è stato rimosso dalla rotta perché
+  // controllava SOLO il webhook d'istanza, che non deve mai vedere la posta
+  // di un collega (audience `mailbox_owner`) — vedi `shouldSendWebhook` in
+  // `packages/notifications/src/dispatch.ts`. La proposta continua ad
+  // arrivare SEMPRE in inbox, DM Slack e push al proprietario della casella,
+  // senza toggle: non c'è più nulla da spegnere qui.
 }
 
 /** Esito dell'invio di una notifica di test (lo restituisce l'endpoint /test). */
@@ -2021,8 +2026,8 @@ export function putNotificationSettings(
     notifyPulse: settings.notifyPulse,
     // Idem: default server true, va inviato sempre.
     notifyBrief: settings.notifyBrief,
-    // Idem: default server true, va inviato sempre.
-    notifyGoogleProposal: settings.notifyGoogleProposal,
+    // Niente notifyGoogleProposal: campo rimosso dal body (vedi il commento
+    // sull'interfaccia `NotificationSettings` sopra).
   });
 }
 

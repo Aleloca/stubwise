@@ -360,7 +360,8 @@ interface NotificationSettings {
   notifyJobFailed: boolean;
   notifyMonitor: boolean;
   notifyBrief: boolean;
-  notifyGoogleProposal: boolean;
+  // NIENTE notifyGoogleProposal qui, di proposito: rimosso dallo schema di
+  // risposta (fase 6, Task 4 del piano di fix di review). Vedi i test sotto.
 }
 
 describe("GET /api/settings/notifications", () => {
@@ -391,9 +392,17 @@ describe("GET /api/settings/notifications", () => {
     // e nella colonna dal giorno uno della fase, ma senza queste due righe di
     // rotta non era raggiungibile da nessuna UI — cioè non era un toggle.
     expect(body.notifyBrief).toBe(true);
-    // Fase 6: stessa storia del toggle del brief, per la proposta nata dalla
-    // posta/calendario.
-    expect(body.notifyGoogleProposal).toBe(true);
+  });
+
+  it("la risposta non espone più notifyGoogleProposal (rimosso dallo schema, fase 6 Task 4)", async () => {
+    // Il toggle controllava SOLO se la proposta finiva sul webhook d'istanza
+    // — un canale condiviso che non deve mai vedere la posta di un collega
+    // (audience `mailbox_owner`). Il campo di rotta è stato rimosso apposta:
+    // vedi `shouldSendWebhook` in `packages/notifications/src/dispatch.ts`,
+    // che ora esclude quell'audience a prescindere da qualunque toggle.
+    const res = await getNotifications(users.adminCookie);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).not.toHaveProperty("notifyGoogleProposal");
   });
 });
 
@@ -419,7 +428,11 @@ describe("PUT /api/settings/notifications", () => {
     expect(after.notifyBrief).toBe(false);
   });
 
-  it("il toggle della proposta Google si spegne e resta spento", async () => {
+  it("un body che manda notifyGoogleProposal lo ignora silenziosamente (campo rimosso dallo schema)", async () => {
+    // Il campo non esiste più nello schema Zod del body (non `.strict()`):
+    // Zod lo scarta come qualunque proprietà ignota, la PUT riesce comunque e
+    // la risposta non lo riespone. Nessun 400: è la stessa tolleranza usata
+    // per gli altri campi opzionali di questa rotta.
     const res = await putNotifications(
       {
         webhookUrl: "",
@@ -434,10 +447,10 @@ describe("PUT /api/settings/notifications", () => {
       users.adminCookie,
     );
     expect(res.statusCode).toBe(200);
-    expect((res.json() as NotificationSettings).notifyGoogleProposal).toBe(false);
+    expect(res.json()).not.toHaveProperty("notifyGoogleProposal");
 
-    const after = (await getNotifications(users.adminCookie)).json() as NotificationSettings;
-    expect(after.notifyGoogleProposal).toBe(false);
+    const after = (await getNotifications(users.adminCookie)).json();
+    expect(after).not.toHaveProperty("notifyGoogleProposal");
   });
 
   /**
@@ -460,23 +473,6 @@ describe("PUT /api/settings/notifications", () => {
     );
     expect(res.statusCode).toBe(200);
     expect((res.json() as NotificationSettings).notifyBrief).toBe(true);
-  });
-
-  it("un body che NON manda notifyGoogleProposal non lo spegne", async () => {
-    const res = await putNotifications(
-      {
-        webhookUrl: "",
-        format: "slack",
-        enabled: true,
-        notifyTicketCreated: true,
-        notifyPrOpened: true,
-        notifyJobHeld: true,
-        notifyJobFailed: true,
-      },
-      users.adminCookie,
-    );
-    expect(res.statusCode).toBe(200);
-    expect((res.json() as NotificationSettings).notifyGoogleProposal).toBe(true);
   });
 
   it("member: 403", async () => {
