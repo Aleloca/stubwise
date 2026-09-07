@@ -1,5 +1,10 @@
 import { notifications, projectBriefs, projects, type Db } from "@stubwise/db";
-import { briefHeadline, publishNotification, type ProjectBriefEvent } from "@stubwise/notifications";
+import {
+  briefHeadline,
+  publishNotification,
+  truncateText,
+  type ProjectBriefEvent,
+} from "@stubwise/notifications";
 import { and, asc, eq, lt, sql } from "drizzle-orm";
 import type { AgentRunner } from "../agent/runner.js";
 import { runAgentText } from "../agent/text.js";
@@ -63,6 +68,12 @@ export const DEFAULT_BRIEF_STALE_MINUTES = 30;
  * mrkdwn di Slack: oltre, non se ne vedrebbe un carattere in più, e il payload
  * è copiato su OGNI riga d'inbox (una per destinatario). Chi vuole il brief
  * intero apre la pagina, che è appunto ciò che il bottone "Apri" fa.
+ *
+ * ⚠️ Il taglio passa da `truncateText` e NON da `slice`: il payload è un
+ * `jsonb`, e uno `slice` che cada in mezzo a una coppia di surrogati produce
+ * un orfano che Postgres rifiuta — `publishNotification` lancia, e il brief
+ * resta `done` senza notifica. Il brief lo scrive l'agente, le emoji ci
+ * arrivano da sole, e questo tetto è esattamente dove il testo viene tagliato.
  */
 export const BRIEF_EVENT_SUMMARY_MAX_CHARS = 3_000;
 
@@ -415,7 +426,7 @@ async function publishBrief(
     periodEnd: brief.periodEnd,
     headline,
     ...(outcome.summary
-      ? { summary: outcome.summary.slice(0, BRIEF_EVENT_SUMMARY_MAX_CHARS) }
+      ? { summary: truncateText(outcome.summary, BRIEF_EVENT_SUMMARY_MAX_CHARS) }
       : {}),
   };
 

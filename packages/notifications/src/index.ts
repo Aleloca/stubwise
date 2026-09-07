@@ -37,6 +37,7 @@ export {
   buildQuestionBlocks,
   inboxBlockId,
   parseInboxBlockId,
+  truncateText,
   type InboxBlocksInput,
   type QuestionBlocksInput,
   type SlackBlock,

@@ -12,8 +12,10 @@ import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { AgentRunner } from "../agent/runner.js";
-import { BRIEF_MARKERS } from "./prompt.js";
+import { getContentLanguage } from "../settings.js";
+import { BRIEF_MARKERS, parseBriefOutput } from "./prompt.js";
 import {
+  BRIEF_EVENT_SUMMARY_MAX_CHARS,
   BRIEF_MAX_ATTEMPTS,
   isInBriefWindow,
   pollBriefsOnce,
@@ -329,6 +331,53 @@ describe("notifica project.brief", () => {
     );
     // Il markdown completo viaggia come `summary`: è la section del DM Slack.
     expect(event.summary as string).toContain("## ");
+  });
+
+  /**
+   * Il `summary` dell'evento viaggia dentro un `jsonb`, e Postgres RIFIUTA un
+   * surrogato orfano (`\ud83d` da solo): un taglio secco a 3000 code unit che
+   * cada in mezzo a una coppia produce esattamente quello, `publishNotification`
+   * lancia, e il brief resta `done` SENZA notifica — nessuno lo legge, e il
+   * fallimento non assomiglia per niente alla sua causa. Il brief lo scrive
+   * l'agente e le emoji ci finiscono da sole (i marcatori di sezione stessi ne
+   * hanno).
+   */
+  it("il taglio del summary non spezza una coppia di surrogati (jsonb rifiuterebbe l'orfano)", async () => {
+    const adminId = await seedAdmin();
+    const projectId = await enabledProject();
+
+    // Il limite deve cadere ESATTAMENTE fra i due surrogati della prima emoji.
+    // Il markdown ha un'intestazione di sezione tradotta davanti al testo, e
+    // indovinarne la lunghezza renderebbe il test una scommessa: la si MISURA
+    // parsando una sonda con la stessa funzione che usa il poller.
+    const lang = await getContentLanguage(db);
+    const probe = parseBriefOutput(lang, [BRIEF_MARKERS.whereWeAre, "x"].join("\n"))!;
+    const prefixLength = probe.summary.length - 1;
+    const padding = "a".repeat(BRIEF_EVENT_SUMMARY_MAX_CHARS - 1 - prefixLength);
+    const output = [
+      BRIEF_MARKERS.whereWeAre,
+      `${padding}🚀🚀🚀`,
+      BRIEF_MARKERS.whatChanged,
+      "- Nulla.",
+      BRIEF_MARKERS.whatBlocks,
+      "Niente è fermo.",
+      BRIEF_MARKERS.whatWeNeed,
+      "Niente, per ora.",
+    ].join("\n");
+
+    await pollBriefsOnce(deps({ runner: fakeRunner(output) }));
+
+    const [notification] = await db
+      .select()
+      .from(notifications)
+      .where(eq(notifications.userId, adminId));
+    expect(notification, "la notifica deve esistere: se manca, la publish è esplosa").toBeDefined();
+
+    const summary = (notification!.event as Record<string, unknown>).summary as string;
+    expect(summary.length).toBeLessThanOrEqual(BRIEF_EVENT_SUMMARY_MAX_CHARS);
+    // Nessun surrogato orfano: un round-trip UTF-8 lo sostituirebbe con U+FFFD.
+    expect(Buffer.from(summary, "utf8").toString()).toBe(summary);
+    expect(await briefRows(projectId)).toHaveLength(1);
   });
 
   it("zero destinatari NON è un errore: il brief resta `done`, senza notifica", async () => {

@@ -173,7 +173,7 @@ export function buildInboxBlocks(input: InboxBlocksInput): SlackBlock[] {
       type: "section",
       text: {
         type: "mrkdwn",
-        text: escapeSlackMrkdwn(truncate(trimmedSummary, SECTION_TEXT_MAX)),
+        text: escapedSection(trimmedSummary, SECTION_TEXT_MAX),
       },
     });
   }
@@ -237,8 +237,17 @@ const RECOMMENDED_MARK = "⭐";
  *
  * Il tetto resta contato in code unit UTF-16 (`length`), che è la misura più
  * prudente rispetto a quella di Slack.
+ *
+ * ESPORTATA perché il taglio per punto di codice serve anche FUORI da Block
+ * Kit: il poller del brief tronca il markdown che finisce nel payload della
+ * notifica, e quel payload è un `jsonb`. Un `slice` secco che spezzi una
+ * coppia di surrogati produce un orfano, Postgres lo RIFIUTA
+ * (`json_errsave_error`), `publishNotification` lancia e il brief resta `done`
+ * senza notifica — nessuno lo legge, e il sintomo non assomiglia alla causa.
+ * Chi ha bisogno di tagliare testo destinato a una notifica usa questa, non
+ * `slice`.
  */
-function truncate(text: string, max: number): string {
+export function truncateText(text: string, max: number): string {
   if (text.length <= max) return text;
   let kept = "";
   for (const point of text) {
@@ -247,6 +256,28 @@ function truncate(text: string, max: number): string {
     kept += point;
   }
   return `${kept.trimEnd()}…`;
+}
+
+/**
+ * Testo non fidato pronto per una `section`: escapato PRIMA, troncato DOPO.
+ *
+ * L'ordine è l'intero motivo per cui questa funzione esiste, e non è una
+ * preferenza di stile. `escapeSlackMrkdwn` ALLUNGA il testo — `&` diventa
+ * `&amp;`, cinque caratteri per uno — quindi troncare a `max` e poi escapare
+ * produce un testo che può stare parecchio SOPRA `max`. Sul riassunto è un
+ * incidente vero e non teorico: il brief pubblicato è già tagliato a
+ * esattamente 3000 caratteri (`BRIEF_EVENT_SUMMARY_MAX_CHARS` nel poller),
+ * cioè al tetto della `section`, e basta un `&` o un `->` perché il blocco
+ * sfori e Slack risponda `invalid_blocks` — la consegna fallisce del tutto,
+ * non si degrada a una card più corta.
+ *
+ * Il troncamento può tagliare una entity a metà (`&amp;` → `&am…`): è
+ * cosmetico e innocuo — mrkdwn rende quei caratteri alla lettera e non c'è
+ * modo che da un pezzo di entity nasca del markup, perché i caratteri
+ * pericolosi sono già stati sostituiti.
+ */
+function escapedSection(text: string, max: number): string {
+  return truncateText(escapeSlackMrkdwn(text), max);
 }
 
 /** La domanda come serve a questi blocchi, estratta dal payload dell'evento. */
@@ -370,7 +401,7 @@ export function buildQuestionBlocks(input: QuestionBlocksInput): SlackBlock[] {
         ? ` ${RECOMMENDED_MARK} _(${t(lang, "comment.agentQuestionRecommended")})_`
         : "";
     const consequence = option.consequence
-      ? `\n${escapeSlackMrkdwn(truncate(option.consequence, CONSEQUENCE_MAX))}`
+      ? `\n${escapedSection(option.consequence, CONSEQUENCE_MAX)}`
       : "";
     return `${index + 1}. *${escapeSlackMrkdwn(option.label)}*${recommended}${consequence}`;
   });
@@ -385,7 +416,7 @@ export function buildQuestionBlocks(input: QuestionBlocksInput): SlackBlock[] {
       // stella compresi (il numero la lega alla riga della sezione, che è dove
       // si leggono le conseguenze).
       text: plainText(
-        `${prefix}${truncate(option.label, BUTTON_TEXT_MAX - prefix.length - suffix.length)}${suffix}`,
+        `${prefix}${truncateText(option.label, BUTTON_TEXT_MAX - prefix.length - suffix.length)}${suffix}`,
       ),
       value: notificationId,
     };
@@ -410,7 +441,7 @@ export function buildQuestionBlocks(input: QuestionBlocksInput): SlackBlock[] {
       type: "section",
       // Riga vuota fra un'opzione e l'altra: il DM si legge dal telefono, e
       // senza respiro le conseguenze si confondono con l'etichetta successiva.
-      text: { type: "mrkdwn", text: truncate(lines.join("\n\n"), SECTION_TEXT_MAX) },
+      text: { type: "mrkdwn", text: truncateText(lines.join("\n\n"), SECTION_TEXT_MAX) },
     });
   }
   blocks.push({ type: "actions", block_id: inboxBlockId(notificationId), elements });

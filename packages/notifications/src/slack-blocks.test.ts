@@ -89,6 +89,44 @@ describe("buildInboxBlocks", () => {
     });
   });
 
+  /**
+   * L'ORDINE fra escape e troncamento non è un dettaglio di stile: l'escape
+   * ALLUNGA il testo (`&` → `&amp;`, cinque caratteri per uno), quindi
+   * troncare prima e escapare dopo può riportare la `section` sopra i 3000
+   * caratteri che Slack accetta. Il brief pubblicato è già tagliato a
+   * ESATTAMENTE 3000 (`BRIEF_EVENT_SUMMARY_MAX_CHARS`), quindi non serve un
+   * caso di laboratorio: basta un `&` o un `->` in un brief lungo e Slack
+   * risponde `invalid_blocks` — la consegna fallisce del tutto, non si degrada.
+   */
+  it("un riassunto al limite e pieno di `&<>` resta dentro i 3000 caratteri della section", () => {
+    const blocks = buildInboxBlocks({
+      text: "Brief settimanale",
+      summary: "&<>".repeat(1000),
+      actions: [],
+      notificationId: NOTIFICATION_ID,
+      lang: "it",
+    });
+
+    const section = blocks[1] as { text: { text: string } };
+    expect(section.text.text.length).toBeLessThanOrEqual(3000);
+    // E deve essere escapato davvero: dentro il limite non resta un `<` nudo.
+    expect(section.text.text).not.toMatch(/[<>&](?!amp;|lt;|gt;)/);
+  });
+
+  it("il troncamento non spezza una coppia di surrogati (emoji a cavallo del limite)", () => {
+    const blocks = buildInboxBlocks({
+      text: "Brief settimanale",
+      summary: `${"a".repeat(2999)}${"🚀".repeat(20)}`,
+      actions: [],
+      notificationId: NOTIFICATION_ID,
+      lang: "it",
+    });
+
+    const section = blocks[1] as { text: { text: string } };
+    expect(section.text.text.length).toBeLessThanOrEqual(3000);
+    expect(Buffer.from(section.text.text, "utf8").toString()).toBe(section.text.text);
+  });
+
   it("riassunto assente o vuoto → nessuna section in più", () => {
     // `handled` rende sempre un bottone (a differenza di `open`, che senza url
     // non produce elementi): così la lunghezza attesa isola davvero il blocco
@@ -389,6 +427,21 @@ describe("buildQuestionBlocks", () => {
       })),
     });
     expect(optionsText(blocks).length).toBeLessThanOrEqual(3000);
+  });
+
+  /**
+   * Stesso ordine sbagliato del riassunto, sull'altro punto che tronca testo
+   * dell'agente: una conseguenza tagliata a 240 e POI escapata può arrivare a
+   * 240 + 4×(numero di `&`) caratteri. Qui il tetto è nostro (leggibilità) e
+   * non di Slack, quindi non fa fallire la consegna — ma è la stessa svista, e
+   * lasciarne una in giro è come si reintroduce l'altra.
+   */
+  it("una conseguenza piena di `&` resta dentro il suo tetto anche dopo l'escape", () => {
+    const blocks = questionBlocks({
+      options: [{ label: "Sì", consequence: "&".repeat(400) }],
+    });
+    const consequenceLine = optionsText(blocks).split("\n")[1]!;
+    expect(consequenceLine.length).toBeLessThanOrEqual(240);
   });
 
   it("testo dell'agente non fidato: nessun markup Slack iniettabile dalle etichette", () => {
