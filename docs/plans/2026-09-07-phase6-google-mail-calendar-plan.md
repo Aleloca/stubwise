@@ -5,6 +5,7 @@ design: 2026-09-07-phase6-google-mail-calendar-design.md
 stubwise:
   project: stubwise
   backlog: a03a1621-6a9f-44d8-b0ec-631ee3d21cbf
+  ticket: https://stubwise.thecove.it/tickets/e459bab2-cb1a-45ff-8a8c-1f968f31b31e
 ---
 
 # Fase 6 — Gmail e Calendar: piano di implementazione
