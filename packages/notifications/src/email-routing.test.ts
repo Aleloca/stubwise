@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  containsWholeWord,
   matchRoutes,
   normalizeAddress,
   normalizeRouteValue,
@@ -245,5 +246,42 @@ describe("matchRoutes", () => {
       route(PROJECT_A, "keyword", "Preventivo"),
     ]);
     expect(result.projectId).toBe(PROJECT_A);
+  });
+
+  it("una keyword combacia su un confine di parola, non come una sottostringa qualunque", () => {
+    const rule = [route(PROJECT_A, "keyword", "api")];
+    // "api" è incollata dentro "capitale": non è la parola "api".
+    expect(matchRoutes(message({ subject: "Bilancio del capitale sociale" }), rule).inScope).toBe(
+      false,
+    );
+    // "api" è una parola a sé, delimitata da spazi/punteggiatura.
+    expect(matchRoutes(message({ subject: "Questa API è lenta" }), rule).projectId).toBe(
+      PROJECT_A,
+    );
+  });
+});
+
+describe("containsWholeWord", () => {
+  it("non combacia se la parola è incollata a lettere accentate o Unicode", () => {
+    // Confine ASCII (`\b`) tratterebbe l'inizio/fine di "città" come un
+    // confine: qui non deve esserlo, perché "tà" non è "api".
+    expect(containsWholeWord("città", "tà")).toBe(false);
+    expect(containsWholeWord("l'apice", "api")).toBe(false);
+  });
+
+  it("combacia agli estremi della stringa e su punteggiatura", () => {
+    expect(containsWholeWord("api", "api")).toBe(true);
+    expect(containsWholeWord("chiamata: api, subito", "api")).toBe(true);
+    expect(containsWholeWord("(api)", "api")).toBe(true);
+  });
+
+  it("una frase con spazi interni combacia solo sul confine dell'INTERA frase", () => {
+    expect(containsWholeWord("il portale clienti è lento", "portale clienti")).toBe(true);
+    // "clienti" da solo, senza "portale" davanti, non è la frase cercata.
+    expect(containsWholeWord("nuovi clienti in arrivo", "portale clienti")).toBe(false);
+  });
+
+  it("una needle vuota non combacia mai (niente 'combacia con tutto')", () => {
+    expect(containsWholeWord("qualunque cosa", "")).toBe(false);
   });
 });

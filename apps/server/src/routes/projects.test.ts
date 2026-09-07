@@ -1384,6 +1384,23 @@ describe("regole di routing della posta", () => {
       expect(await routesOf(projectId)).toEqual([{ kind: "keyword", value: "portale" }]);
     });
 
+    it("una keyword più corta di 3 caratteri: 400, e le regole di prima restano", async () => {
+      const { projectId } = await seedRepository(testDb.db);
+      await putRoutes(projectId, [{ kind: "keyword", value: "portale" }]);
+
+      const res = await putRoutes(projectId, [{ kind: "keyword", value: "IT" }]);
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe("keyword_too_short");
+      expect(await routesOf(projectId)).toEqual([{ kind: "keyword", value: "portale" }]);
+    });
+
+    it("una keyword di ESATTAMENTE 3 caratteri (dopo normalizzazione) è accettata", async () => {
+      const { projectId } = await seedRepository(testDb.db);
+      const res = await putRoutes(projectId, [{ kind: "keyword", value: " Api " }]);
+      expect(res.statusCode).toBe(200);
+      expect(await routesOf(projectId)).toEqual([{ kind: "keyword", value: "api" }]);
+    });
+
     it("un criterio sconosciuto: 400 dalla validazione del corpo", async () => {
       const { projectId } = await seedRepository(testDb.db);
       const res = await putRoutes(projectId, [{ kind: "subject", value: "x" }]);

@@ -577,7 +577,12 @@ describe("cursore del calendario", () => {
     expect(calendar.calls).toHaveLength(1);
     const first = calendar.calls[0]!;
     expect(first.syncToken).toBeUndefined();
-    expect(first.showDeleted).toBe(false);
+    // Task 6: `showDeleted` è acceso anche nel resync per finestra, non solo
+    // in incrementale — così un evento cancellato fra l'ultimo sync valido e
+    // un 410 non resta candidato per sempre (vedi il docblock di
+    // `collectCalendarEvents` in poller.ts, e la describe dedicata in
+    // poller.test.ts).
+    expect(first.showDeleted).toBe(true);
     const spanDays = (first.timeMax!.getTime() - first.timeMin!.getTime()) / 86_400_000;
     expect(Math.round(spanDays)).toBe(CALENDAR_WINDOW_DAYS);
     expect((await reload(account.id)).calendarSyncToken).toBe("tok-1");

@@ -169,6 +169,41 @@ export function normalizeRouteValue(kind: EmailRouteKind, value: string): string
   return trimmed;
 }
 
+/**
+ * Un carattere "di parola", Unicode-aware: lettera, cifra o `_`.
+ *
+ * `\b` di una regex JS è ASCII-only e non basta — tratterebbe l'inizio o la
+ * fine di "città" come un confine, facendo combaciare una keyword incollata a
+ * una lettera accentata. `\p{L}`/`\p{N}` (col flag `u`) coprono l'alfabeto che
+ * conta qui.
+ */
+const WORD_CHAR = /[\p{L}\p{N}_]/u;
+
+function isWordChar(ch: string | undefined): boolean {
+  return ch !== undefined && WORD_CHAR.test(ch);
+}
+
+/**
+ * `haystack` contiene `needle` su un confine di PAROLA, non come una
+ * sottostringa qualunque: `"api"` non deve combaciare dentro `"capitale"`. Si
+ * scorrono a mano i caratteri adiacenti a ogni occorrenza — vedi
+ * {@link isWordChar} sul perché non basta `\b`. `needle` può contenere spazi
+ * interni (`"portale clienti"` è una frase): il confine si controlla solo agli
+ * estremi della frase intera, non a ogni parola che la compone.
+ */
+export function containsWholeWord(haystack: string, needle: string): boolean {
+  if (needle === "") return false;
+  let from = 0;
+  for (;;) {
+    const index = haystack.indexOf(needle, from);
+    if (index === -1) return false;
+    const before = index > 0 ? haystack[index - 1] : undefined;
+    const after = index + needle.length < haystack.length ? haystack[index + needle.length] : undefined;
+    if (!isWordChar(before) && !isWordChar(after)) return true;
+    from = index + 1;
+  }
+}
+
 /** Una regola combacia con questo messaggio? Tutto già normalizzato. */
 function ruleMatches(
   kind: EmailRouteKind,
@@ -186,7 +221,7 @@ function ruleMatches(
     case "gmail_label":
       return labels.has(value);
     case "keyword":
-      return haystack.includes(value);
+      return containsWholeWord(haystack, value);
   }
 }
 

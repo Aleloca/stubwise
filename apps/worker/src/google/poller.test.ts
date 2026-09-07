@@ -1,5 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import {
+  calendarEvents,
   emailMessages,
   googleAccounts,
   googleWorkspaces,
@@ -10,7 +11,12 @@ import {
   type Db,
 } from "@stubwise/db";
 import { startTestDb, type TestDb } from "@stubwise/db/testing";
-import { GoogleApiError, MAX_TEXT_LENGTH, TEXT_TRUNCATION_MARKER } from "@stubwise/google";
+import {
+  GoogleApiError,
+  MAX_TEXT_LENGTH,
+  TEXT_TRUNCATION_MARKER,
+  type GoogleCalendarEvent,
+} from "@stubwise/google";
 import type { GoogleAccountCredentials } from "@stubwise/google/credentials";
 import { and, eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -59,6 +65,7 @@ beforeAll(async () => {
 
 afterEach(async () => {
   await db.delete(emailMessages);
+  await db.delete(calendarEvents);
   await db.delete(googleAccounts);
   await db.delete(googleWorkspaces);
   await db.delete(projectEmailRoutes);
@@ -1205,5 +1212,134 @@ describe("fase 4 — le righe pronte diventano proposte", () => {
     const reloaded = await reload(account.id);
     expect(reloaded.syncAttempts).toBe(0);
     expect(reloaded.disabledAt).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 6 (rifiniture): il resync del calendario dopo un 410 deve vedere anche
+// le cancellazioni, non solo la finestra "com'è adesso".
+// ---------------------------------------------------------------------------
+
+/** Un evento di calendario finto, normalizzato come lo restituisce `@stubwise/google`. */
+function calendarEvent(input: Partial<GoogleCalendarEvent> & { id: string }): GoogleCalendarEvent {
+  return {
+    status: "confirmed",
+    title: "Revisione portale",
+    description: null,
+    allDay: false,
+    startsAt: new Date("2026-10-12T09:00:00.000Z"),
+    endsAt: new Date("2026-10-12T10:00:00.000Z"),
+    attendees: ["cliente@cliente.com", MAILBOX],
+    organizer: MAILBOX,
+    htmlLink: null,
+    updatedAt: null,
+    ...input,
+  };
+}
+
+interface FakeListEventsCall {
+  syncToken?: string | null;
+  timeMin?: Date | null;
+  timeMax?: Date | null;
+  showDeleted?: boolean;
+  pageToken?: string | null;
+}
+
+/**
+ * Calendar finto: risponde con una CODA di pagine (evento o errore), così si
+ * può simulare un 410 seguito dal resync che lo smaltisce, nella STESSA
+ * chiamata a `pollGoogleOnce` — esattamente come fa `collectCalendarEvents`.
+ * Registra ogni chiamata per verificare `showDeleted` e la finestra/il token.
+ */
+function fakeCalendarSequence(
+  pages: (
+    | { events: GoogleCalendarEvent[]; nextPageToken?: string | null; nextSyncToken?: string | null }
+    | { error: unknown }
+  )[],
+): CalendarClient & { calls: FakeListEventsCall[] } {
+  const calls: FakeListEventsCall[] = [];
+  const queue = [...pages];
+  const client = {
+    calls,
+    listEvents: async (input: FakeListEventsCall) => {
+      calls.push(input);
+      const next = queue.shift() ?? { events: [], nextPageToken: null, nextSyncToken: null };
+      if ("error" in next) throw next.error;
+      return {
+        events: next.events,
+        nextPageToken: next.nextPageToken ?? null,
+        nextSyncToken: next.nextSyncToken ?? null,
+      };
+    },
+  };
+  return client as unknown as CalendarClient & { calls: FakeListEventsCall[] };
+}
+
+async function calendarRows(): Promise<(typeof calendarEvents.$inferSelect)[]> {
+  return db.select().from(calendarEvents).orderBy(calendarEvents.googleEventId);
+}
+
+describe("il resync del calendario dopo un 410 vede anche le cancellazioni", () => {
+  it("un evento proposto, cancellato prima del prossimo sync, poi un 410: la riga risulta cancelled", async () => {
+    const projectId = await seedProject("Acme");
+    await db
+      .insert(projectEmailRoutes)
+      .values({ projectId, kind: "sender_domain", value: "cliente.com" });
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+
+    // Primo giro: nessun `calendarSyncToken` → resync per finestra (primo
+    // giro), crea la riga e la fase 4 (accesa di default in questo file) la
+    // propone nello stesso tick.
+    await pollGoogleOnce(
+      deps(account, fakeGmail({ listed: [] }), {
+        calendar: fakeCalendarSequence([
+          { events: [calendarEvent({ id: "e1" })], nextSyncToken: "tok-1" },
+        ]),
+      }),
+    );
+
+    const proposed = (await calendarRows())[0]!;
+    expect(proposed.status).toBe("confirmed");
+    expect(proposed.proposalNotificationId).not.toBeNull();
+
+    // Secondo giro: il token "tok-1" è scaduto (410). Il resync che segue —
+    // SUBITO, nello stesso tick — deve vedere l'evento con `showDeleted: true`
+    // per poter chiudere la riga: senza il fix resterebbe aperta per sempre,
+    // candidata a un appuntamento che non esiste più.
+    await db
+      .update(googleAccounts)
+      .set({ nextSyncAt: new Date(Date.now() - 60_000) })
+      .where(eq(googleAccounts.id, account.id));
+    const calendar = fakeCalendarSequence([
+      {
+        error: new GoogleApiError({
+          api: "calendar.events.list",
+          status: 410,
+          code: "sync_token_expired",
+          reason: "fullSyncRequired",
+        }),
+      },
+      {
+        events: [calendarEvent({ id: "e1", status: "cancelled", title: "", attendees: [] })],
+        nextSyncToken: "tok-2",
+      },
+    ]);
+    const stats = await pollGoogleOnce(
+      deps(await reload(account.id), fakeGmail({ listed: [] }), { calendar }),
+    );
+
+    expect(stats.calendarCancelled).toBe(1);
+    // La PRIMA chiamata (fallita col 410) usa ancora il vecchio syncToken; la
+    // SECONDA — il resync per finestra — deve chiedere anche i cancellati.
+    expect(calendar.calls[0]!.syncToken).toBe("tok-1");
+    expect(calendar.calls[1]!.syncToken).toBeUndefined();
+    expect(calendar.calls[1]!.showDeleted).toBe(true);
+
+    const [row] = await calendarRows();
+    expect(row!.status).toBe("cancelled");
+    expect(row!.outcome).toEqual({ type: "cancelled" });
+    // Non è più candidata a una proposta: il proprietario non la rivedrà.
+    expect(row!.proposalNotificationId).not.toBeNull();
+    expect((await reload(account.id)).calendarSyncToken).toBe("tok-2");
   });
 });

@@ -30,10 +30,21 @@ export function listEmailRoutes(db: Db, projectId: string): Promise<EmailRoute[]
   return readRoutes(db, projectId);
 }
 
+/**
+ * Lunghezza minima di una `keyword`, DOPO la normalizzazione.
+ *
+ * Una keyword di 1-2 caratteri combacia con quasi tutto — anche col confine di
+ * parola acceso (`containsWholeWord` in `@stubwise/notifications`): "IT"
+ * combacia con "IT" isolato ovunque compaia nell'oggetto o nel corpo di
+ * chiunque scriva quella sigla. Sotto la soglia il rumore non è un caso limite,
+ * è la norma.
+ */
+export const MIN_KEYWORD_LENGTH = 3;
+
 /** Esito di {@link putEmailRoutes}: o le regole salvate, o il valore da correggere. */
 export type PutEmailRoutesResult =
   | { ok: true; routes: EmailRoute[] }
-  | { ok: false; error: "invalid_route_value"; detail: string };
+  | { ok: false; error: "invalid_route_value" | "keyword_too_short"; detail: string };
 
 /**
  * SOSTITUISCE l'insieme completo delle regole del progetto.
@@ -48,7 +59,9 @@ export type PutEmailRoutesResult =
  * errore dell'utente ma la stessa intenzione scritta due volte. Un valore che
  * dopo la normalizzazione resta VUOTO è invece un 400: `@` o `<>` non sono una
  * regola, e salvarli come riga inerte darebbe l'impressione che filtrino
- * qualcosa.
+ * qualcosa. Una `keyword` più corta di {@link MIN_KEYWORD_LENGTH} è un 400
+ * distinto (`keyword_too_short`): è una regola scrivibile e valida come
+ * `value`, ma inutilizzabile come filtro (vedi la costante).
  */
 export async function putEmailRoutes(
   db: Db,
@@ -60,6 +73,9 @@ export async function putEmailRoutes(
   for (const route of routes) {
     const value = normalizeRouteValue(route.kind, route.value);
     if (value === "") return { ok: false, error: "invalid_route_value", detail: route.value };
+    if (route.kind === "keyword" && value.length < MIN_KEYWORD_LENGTH) {
+      return { ok: false, error: "keyword_too_short", detail: route.value };
+    }
     const key = `${route.kind} ${value}`;
     if (seen.has(key)) continue;
     seen.add(key);

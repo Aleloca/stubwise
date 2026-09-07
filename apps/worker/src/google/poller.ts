@@ -765,9 +765,18 @@ async function drainCalendarPages(
  * — ogni volta, finché la casella non ha un giro perfetto. Azzerandolo appena
  * si sa che è morto, quel costo si paga una volta sola.
  *
- * `showDeleted` è acceso solo in incrementale: è così che arrivano gli eventi
- * `cancelled`, che servono a chiudere le righe già viste. In un resync per
- * finestra un evento cancellato non ha nulla da chiudere e sarebbe solo rumore.
+ * `showDeleted` è acceso in ENTRAMBI i percorsi. In incrementale è così che
+ * arrivano gli eventi `cancelled`, che servono a chiudere le righe già viste —
+ * l'unica ragione per cui esiste. Il resync per finestra lo era rimasto
+ * spento fino a quando non si è visto il caso vero: un 410 non capita mai da
+ * solo, capita DOPO un giro incrementale che aveva già tracciato righe (magari
+ * candidate a una proposta), e un appuntamento cancellato fra quell'ultimo
+ * giro riuscito e il 410 non comparirebbe più in NESSUN resync — la riga
+ * resterebbe aperta per sempre, candidata a una proposta di un appuntamento
+ * che non esiste più. Al primo giro in assoluto (nessuna riga tracciata)
+ * `showDeleted: true` costa solo qualche evento cancellato in più nella
+ * risposta, scartato subito da {@link closeCancelledEvents} perché non trova
+ * niente da chiudere — rumore innocuo, non un errore.
  */
 async function collectCalendarEvents(
   deps: GooglePollerDeps,
@@ -801,7 +810,7 @@ async function collectCalendarEvents(
     accessToken: ctx.accessToken,
     timeMin,
     timeMax,
-    showDeleted: false,
+    showDeleted: true,
   });
 }
 
