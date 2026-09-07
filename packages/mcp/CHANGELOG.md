@@ -1,5 +1,20 @@
 # @stubwise/mcp
 
+## 0.6.0
+
+### Minor Changes
+
+- ab16d0e: Nuovo tool `get_project_brief`: l'ultimo brief settimanale di un progetto in
+  markdown — il resoconto per chi non legge codice di dove sta il progetto, cosa è
+  cambiato, cosa è fermo e cosa serve. Un brief assente, ancora in coda o senza
+  testo (istanza senza provider AI) è una risposta esplicita, non un errore.
+- a019d4c: Nuovo tool `list_decisions`: le decisioni già prese su un progetto — risposte
+  alle domande dell'agente, piani approvati o rifiutati con indicazioni, proposte
+  del pulse accettate e voci registrate a mano — con origine, attore e ticket.
+  Serve a non riproporre un'alternativa che il team ha già scartato. Una decisione
+  superata resta nell'elenco, marcata come tale; un registro vuoto è una risposta
+  esplicita, non un errore.
+
 ## 0.5.0
 
 ### Minor Changes
