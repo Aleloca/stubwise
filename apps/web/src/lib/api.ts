@@ -1861,6 +1861,8 @@ export interface NotificationSettings {
   notifyAwaitingInput: boolean;
   /** Pulse proattivo: un progetto è fermo e il backlog ha proposte pronte. */
   notifyPulse: boolean;
+  /** Brief settimanale: il resoconto per non-tecnici del progetto (fase 5). */
+  notifyBrief: boolean;
 }
 
 /** Esito dell'invio di una notifica di test (lo restituisce l'endpoint /test). */
@@ -1902,6 +1904,8 @@ export function putNotificationSettings(
     notifyAwaitingInput: settings.notifyAwaitingInput,
     // Idem: default server true, va inviato sempre.
     notifyPulse: settings.notifyPulse,
+    // Idem: default server true, va inviato sempre.
+    notifyBrief: settings.notifyBrief,
   });
 }
 

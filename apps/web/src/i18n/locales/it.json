@@ -1031,7 +1031,8 @@
       "docsLimitPaused": "Generazione Docs in pausa (limite di utilizzo)",
       "monitor": "Alert di monitoraggio",
       "awaitingInput": "Domanda dell'AI in attesa di risposta",
-      "pulse": "Pulse proattivo sui progetti fermi"
+      "pulse": "Pulse proattivo sui progetti fermi",
+      "brief": "Brief settimanale del progetto"
     },
     "samples": {
       "ticketCreated": "Nuovo ticket",

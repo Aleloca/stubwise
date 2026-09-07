@@ -1031,7 +1031,8 @@
       "docsLimitPaused": "Docs generation paused (usage limit)",
       "monitor": "Monitoring alerts",
       "awaitingInput": "AI question awaiting an answer",
-      "pulse": "Proactive pulse on idle projects"
+      "pulse": "Proactive pulse on idle projects",
+      "brief": "Weekly project brief"
     },
     "samples": {
       "ticketCreated": "New ticket",

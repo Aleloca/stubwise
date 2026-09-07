@@ -385,10 +385,57 @@ describe("GET /api/settings/notifications", () => {
     expect(body.notifyDocsLimitPaused).toBe(true);
     expect(body.notifyJobFailed).toBe(true);
     expect(body.notifyMonitor).toBe(true);
+    // Fase 5: il toggle d'istanza del brief settimanale. Esiste in `dispatch`
+    // e nella colonna dal giorno uno della fase, ma senza queste due righe di
+    // rotta non era raggiungibile da nessuna UI — cioè non era un toggle.
+    expect(body.notifyBrief).toBe(true);
   });
 });
 
 describe("PUT /api/settings/notifications", () => {
+  it("il toggle del brief settimanale si spegne e resta spento", async () => {
+    const res = await putNotifications(
+      {
+        webhookUrl: "",
+        format: "slack",
+        enabled: true,
+        notifyTicketCreated: true,
+        notifyPrOpened: true,
+        notifyJobHeld: true,
+        notifyJobFailed: true,
+        notifyBrief: false,
+      },
+      users.adminCookie,
+    );
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as NotificationSettings).notifyBrief).toBe(false);
+
+    const after = (await getNotifications(users.adminCookie)).json() as NotificationSettings;
+    expect(after.notifyBrief).toBe(false);
+  });
+
+  /**
+   * Come ogni altro toggle di questo body: `.default(true)`. Un client che non
+   * conosce il campo (una SPA in cache, un'automazione) non deve SPEGNERE il
+   * brief salvando le altre impostazioni — il silenzio non è un "no".
+   */
+  it("un body che NON manda notifyBrief non lo spegne", async () => {
+    const res = await putNotifications(
+      {
+        webhookUrl: "",
+        format: "slack",
+        enabled: true,
+        notifyTicketCreated: true,
+        notifyPrOpened: true,
+        notifyJobHeld: true,
+        notifyJobFailed: true,
+      },
+      users.adminCookie,
+    );
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as NotificationSettings).notifyBrief).toBe(true);
+  });
+
   it("member: 403", async () => {
     const res = await putNotifications(
       {

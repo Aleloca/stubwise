@@ -41,6 +41,7 @@ const EVENT_TOGGLES: { key: keyof NotificationSettings; labelKey: string }[] = [
   { key: "notifyMonitor", labelKey: "notifications:toggles.monitor" },
   { key: "notifyAwaitingInput", labelKey: "notifications:toggles.awaitingInput" },
   { key: "notifyPulse", labelKey: "notifications:toggles.pulse" },
+  { key: "notifyBrief", labelKey: "notifications:toggles.brief" },
 ];
 
 /** Eventi d'esempio per il selettore d'anteprima; `labelKey` → `notifications:samples.*`. */
