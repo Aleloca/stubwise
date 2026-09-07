@@ -127,3 +127,107 @@ export const googleWorkspacePatchSchema = z.object({
   clientSecret: z.string().max(500).optional(),
 });
 export type GoogleWorkspacePatch = z.input<typeof googleWorkspacePatchSchema>;
+
+// ---------------------------------------------------------------------------
+// Caselle collegate (Task 5)
+// ---------------------------------------------------------------------------
+
+/**
+ * Proiezione pubblica di una casella Google collegata da un utente.
+ *
+ * ⚠️ INVARIANTE GEMELLA di quella del Workspace, e più stretta: **qui non c'è
+ * NESSUN campo che possa portare il refresh token**, nemmeno un booleano — il
+ * token c'è per definizione (una riga senza non esisterebbe), quindi un
+ * `refreshTokenSet` non direbbe nulla e sarebbe solo un invito a metterci il
+ * valore. La proiezione si costruisce campo per campo nella rotta, mai con uno
+ * spread della riga; il test accanto lo verifica anche sul NOME dei campi.
+ *
+ * Ogni campo accessorio nasce con un default (vedi CLAUDE.md, "Invarianti e
+ * trappole"): la superficie `/api/me/*` è quella che l'app mobile legge, e un
+ * campo obbligatorio in più qui è un client nuovo che non sa parsare la
+ * risposta di un server più vecchio.
+ *
+ * `disabledReason` è una `string` e non un enum chiuso di proposito: il DB ne
+ * conosce cinque valori oggi (`revoked`, `invalid_grant`, `insufficient_scope`,
+ * `workspace_removed`, `sync_failed`) e la UI ne traduce quelli che conosce,
+ * ma un motivo aggiunto domani non deve far fallire il parse di un client
+ * vecchio — stesso spirito di `readerSchema`.
+ */
+export const googleAccountSchema = z.object({
+  id: z.uuid(),
+  email: z.string(),
+  workspaceId: z.uuid(),
+  /** Nome del Workspace, per non costringere la UI a una seconda chiamata. */
+  workspaceName: z.string().default(""),
+  scopes: z.array(z.string()).default([]),
+  proposalsEnabled: z.boolean(),
+  connectedAt: z.string(),
+  lastSyncAt: z.string().nullable().default(null),
+  disabledAt: z.string().nullable().default(null),
+  disabledReason: z.string().nullable().default(null),
+});
+export type GoogleAccount = z.infer<typeof googleAccountSchema>;
+
+/**
+ * Un Workspace come lo vede un OPERATORE, per scegliere da quale collegarsi.
+ *
+ * È una proiezione a sé e non `googleWorkspaceSchema` perché la sorgente è una
+ * rotta diversa con un pubblico diverso: il registro (`/api/settings/...`) è
+ * solo admin e porta `clientId` e `redirectUri`, che a chi deve solo scegliere
+ * una voce da una select non servono e sono dettagli di configurazione
+ * dell'istanza. Qui c'è il minimo: come si chiama, quali domini serve, e se è
+ * utilizzabile.
+ *
+ * `clientSecretSet` c'è — e la rotta non filtra i Workspace inutilizzabili —
+ * perché un elenco che nasconde in silenzio la voce che l'utente si aspetta di
+ * vedere è peggio di una voce disabilitata che spiega perché.
+ */
+export const googleWorkspaceOptionSchema = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  domains: z.array(z.string()).default([]),
+  clientSecretSet: z.boolean().default(false),
+});
+export type GoogleWorkspaceOption = z.infer<typeof googleWorkspaceOptionSchema>;
+
+/** Avvio del flusso: quale Workspace fa da app OAuth per questa casella. */
+export const googleConnectBodySchema = z.object({ workspaceId: z.uuid() });
+export type GoogleConnectBody = z.input<typeof googleConnectBodySchema>;
+
+/**
+ * Risposta di `POST /api/me/google/connect`: la URL di consenso su cui il
+ * browser deve navigare. Non è un redirect del server perché la chiamata parte
+ * da `fetch` nella SPA, e un 302 su una richiesta XHR verrebbe seguito dal
+ * browser verso `accounts.google.com` in background — cioè in nessun posto.
+ */
+export const googleConnectResponseSchema = z.object({ authorizeUrl: z.string() });
+export type GoogleConnectResponse = z.infer<typeof googleConnectResponseSchema>;
+
+/** Modifica di una casella: l'unica cosa che l'utente può cambiare è il toggle. */
+export const googleAccountPatchSchema = z.object({ proposalsEnabled: z.boolean() });
+export type GoogleAccountPatch = z.input<typeof googleAccountPatchSchema>;
+
+/**
+ * Gli esiti che il callback OAuth comunica alla SPA nel query param `google=`.
+ *
+ * Sono qui e non nel solo server perché il produttore (la rotta di callback) e
+ * il consumatore (il banner della pagina Account) sono due codebase diverse, e
+ * una stringa scritta a mano in entrambe è una traduzione che manca senza che
+ * nessun test se ne accorga.
+ *
+ * `error` è il catch-all: qualunque cosa vada storta con Google (rete, code
+ * scaduto, credenziale sbagliata) arriva lì, perché il dettaglio sta nei log
+ * del server e non nella barra degli indirizzi di chi ha solo bisogno di
+ * riprovare.
+ */
+export const googleCallbackOutcomes = [
+  "ok",
+  "domain_mismatch",
+  "no_refresh_token",
+  "insufficient_scope",
+  "error",
+] as const;
+export type GoogleCallbackOutcome = (typeof googleCallbackOutcomes)[number];
+
+/** Il path della SPA su cui il callback rimanda, con `?google=<esito>`. */
+export const GOOGLE_ACCOUNT_SETTINGS_PATH = "/settings/account";

@@ -61,14 +61,17 @@ afterEach(() => {
 type Handler = (url: URL, init?: RequestInit) => Response;
 
 function mockApi(handlers: Record<string, Handler>) {
-  // Il loader di /settings/account precarica anche progetti, follow e
-  // preferenze di notifica (sezioni "Progetti seguiti" e "Notifiche"): default
-  // vuoti qui, i test dedicati a quelle sezioni vivono in settings/account.test.tsx.
+  // Il loader di /settings/account precarica anche progetti, follow,
+  // preferenze di notifica e caselle Google (sezioni "Progetti seguiti",
+  // "Notifiche" e "Caselle Google"): default vuoti qui, i test dedicati a
+  // quelle sezioni vivono in settings/account.test.tsx.
   const withDefaults: Record<string, Handler> = {
     "GET /api/projects": () => jsonResponse(200, []),
     "GET /api/me/follows": () => jsonResponse(200, { projectIds: [] }),
     "GET /api/me/notification-prefs": () =>
       jsonResponse(200, { slackDm: false, push: true, slackLinked: false }),
+    "GET /api/me/google/accounts": () => jsonResponse(200, []),
+    "GET /api/me/google/workspaces": () => jsonResponse(200, []),
     ...handlers,
   };
   fetchMock.mockImplementation((input, init) => {

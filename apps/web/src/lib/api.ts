@@ -24,8 +24,10 @@ import type {
   CreatePluginInput,
   DiscoveredService,
   GitProviderKind,
+  GoogleAccount,
   GoogleWorkspace,
   GoogleWorkspaceDraft,
+  GoogleWorkspaceOption,
   GoogleWorkspacePatch,
   HandledBy,
   InboxAction,
@@ -121,8 +123,10 @@ export type {
 export type {
   AgentQuestionOption,
   AnswerBody,
+  GoogleAccount,
   GoogleWorkspace,
   GoogleWorkspaceDraft,
+  GoogleWorkspaceOption,
   GoogleWorkspacePatch,
   HandledBy,
   InboxAction,
@@ -2027,6 +2031,44 @@ export function patchGoogleWorkspace(
 /** Elimina un Workspace (solo admin): 409 `workspace_in_use` se ha caselle. */
 export function deleteGoogleWorkspace(id: string): Promise<void> {
   return request("DELETE", `/api/settings/google-workspaces/${encodeURIComponent(id)}`);
+}
+
+// --- Caselle Google dell'utente (fase 6) ---
+
+/**
+ * I Workspace fra cui scegliere per collegare una casella. Rotta a sé rispetto
+ * al registro `/api/settings/google-workspaces`, che è solo admin: qui ci passa
+ * anche un operatore, e ottiene il minimo che serve alla select.
+ */
+export function getMyGoogleWorkspaceOptions(): Promise<GoogleWorkspaceOption[]> {
+  return api.get("/api/me/google/workspaces");
+}
+
+/** Le MIE caselle collegate. Nessun campo porta mai il refresh token. */
+export function getMyGoogleAccounts(): Promise<GoogleAccount[]> {
+  return api.get("/api/me/google/accounts");
+}
+
+/**
+ * Avvia il consenso: il server risponde con la URL di Google, su cui il
+ * chiamante deve NAVIGARE (`window.location.href`). Non è un redirect HTTP
+ * perché una `fetch` lo seguirebbe in background, senza mostrare nulla.
+ */
+export function postMyGoogleConnect(workspaceId: string): Promise<{ authorizeUrl: string }> {
+  return api.post("/api/me/google/connect", { workspaceId });
+}
+
+/** L'unica modifica possibile su una casella: il toggle delle proposte. */
+export function patchMyGoogleAccount(
+  id: string,
+  patch: { proposalsEnabled: boolean },
+): Promise<GoogleAccount> {
+  return api.patch(`/api/me/google/accounts/${encodeURIComponent(id)}`, patch);
+}
+
+/** Scollega: il server revoca su Google (best-effort) e cancella la riga. */
+export function deleteMyGoogleAccount(id: string): Promise<void> {
+  return request("DELETE", `/api/me/google/accounts/${encodeURIComponent(id)}`);
 }
 
 // --- Dashboard consumi AI (costi/token) ---

@@ -15,6 +15,7 @@ import {
 import { createRequire } from "node:module";
 import type { Db } from "@stubwise/db";
 import { createEmbeddingClient, type EmbeddingClient } from "@stubwise/embeddings";
+import type { FetchImpl as GoogleFetchImpl } from "@stubwise/google";
 import { aiJobRoutes, ticketUsageRoutes } from "./routes/ai-jobs.js";
 import { aiProviderRoutes } from "./routes/ai-providers.js";
 import { aiUsageCostsRoutes } from "./routes/usage-costs.js";
@@ -34,6 +35,7 @@ import { docsRoutes } from "./routes/docs.js";
 import { gitAccountRoutes } from "./routes/git-accounts.js";
 import { gitIdentityRoutes } from "./routes/git-identity-routes.js";
 import { googleWorkspaceRoutes } from "./routes/google-workspaces.js";
+import { meGoogleRoutes } from "./routes/me-google.js";
 import { activityRoutes } from "./routes/activity-routes.js";
 import { backlogRoutes } from "./routes/backlog.js";
 import { inboundRoutes } from "./routes/inbound.js";
@@ -136,6 +138,12 @@ export interface BuildAppOptions {
    * Override pensato per i test; default 10 richieste al minuto.
    */
   authRateLimit?: RateLimitConfig;
+  /**
+   * `fetch` usato per parlare con Google (token endpoint, userinfo, revoca) nel
+   * flusso OAuth delle caselle. Default: il fetch globale. Override pensato per
+   * i test, che non devono toccare la rete di Google.
+   */
+  googleFetch?: GoogleFetchImpl;
   /**
    * Fidarsi degli header X-Forwarded-* del reverse proxy (Caddy nel deploy
    * Docker). Va abilitato dietro un proxy affinché `secure: "auto"` sul cookie
@@ -604,6 +612,21 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // Preferenze PERSONALI: progetti seguiti e canali di notifica. Sotto /api/me
   // perché il soggetto è sempre chi chiama, non un utente amministrato.
   void app.register(mePrefsRoutes, { prefix: "/api/me" });
+  // Caselle Google PERSONALI e flusso OAuth. Prefisso a sé (`/api/me/google`)
+  // e non dentro mePrefsRoutes perché una sola delle sue rotte — il callback —
+  // è pubblica e ha un rate limit, e mescolarla con le preferenze significherebbe
+  // dover ricordare quale rotta di quel file è autenticata e quale no.
+  //
+  // Il tetto del callback è lo STESSO PRESET del login (non lo stesso bucket:
+  // sono due superfici diverse, e il commento su `credentialsRateLimit` in
+  // routes/auth.ts spiega perché un bucket condiviso si monta a mano e non con
+  // `config.rateLimit`). Il callback non prova credenziali, ma è l'unica porta
+  // di `/api/me` che uno sconosciuto può bussare.
+  void app.register(meGoogleRoutes, {
+    prefix: "/api/me/google",
+    rateLimit: opts.authRateLimit ?? { max: 10, timeWindow: "1 minute" },
+    ...(opts.googleFetch ? { fetchImpl: opts.googleFetch } : {}),
+  });
 
   app.get("/health", async () => ({ status: "ok" }));
 

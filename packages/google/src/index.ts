@@ -4,8 +4,12 @@
  * (poller della posta e del calendario), che non può importare dal server.
  *
  * È un client PURO: `fetch` iniettabile, nessuna dipendenza dal DB, nessuno
- * stato. Chi ha bisogno del refresh token decifrato lo carica da sé — l'helper
- * che parla col DB vive fuori da questo livello.
+ * stato. **Questo entrypoint non importa nulla che tocchi il database, e va
+ * tenuto così.** L'unica funzione che legge il DB — `loadGoogleAccountCredentials`,
+ * che decifra il refresh token di una casella e le credenziali OAuth del suo
+ * Workspace — vive nel subpath `@stubwise/google/credentials`, apposta: chi
+ * importa il client non si tira dietro Drizzle, e la purezza del core resta
+ * verificabile leggendo gli `import` di questo file.
  */
 export {
   FATAL_GOOGLE_CODES,

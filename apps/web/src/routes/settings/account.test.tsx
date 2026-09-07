@@ -102,6 +102,10 @@ function mockAccountApi(
       state.followed = body.projectIds;
       return new Response(null, { status: 204 });
     },
+    // La sezione "Caselle Google" (fase 6) vive su questa pagina: senza queste
+    // due handler la route esplode con "fetch non mockata".
+    "GET /api/me/google/accounts": () => jsonResponse(200, []),
+    "GET /api/me/google/workspaces": () => jsonResponse(200, []),
     "GET /api/me/notification-prefs": () => jsonResponse(200, state.prefs),
     "PATCH /api/me/notification-prefs": (_url, init) => {
       // Il server applica una PATCH: i campi assenti restano come sono.
@@ -124,12 +128,9 @@ function mockAccountApi(
   return state;
 }
 
-function renderAccount() {
+function renderAccount(path = "/settings/account") {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const router = createAppRouter(
-    queryClient,
-    createMemoryHistory({ initialEntries: ["/settings/account"] }),
-  );
+  const router = createAppRouter(queryClient, createMemoryHistory({ initialEntries: [path] }));
   render(
     <QueryClientProvider client={queryClient}>
       <RouterProvider router={router} />
@@ -215,5 +216,38 @@ describe("account: preferenze di notifica", () => {
 
     await userEvent.click(toggle);
     expect(state.prefsPatches).toEqual([]);
+  });
+});
+
+/**
+ * Il cablaggio fra il callback OAuth (una rotta del SERVER, che rimanda a
+ * `/settings/account?google=<esito>`) e la sezione che lo mostra. Il
+ * comportamento della sezione è coperto da
+ * `components/google-accounts-section.test.tsx`: qui si verifica solo che il
+ * query param arrivi — cioè `validateSearch` sulla route più la prop — perché
+ * è l'unico pezzo che i test del componente, che gira senza router, non
+ * possono esercitare.
+ */
+describe("account: esito del collegamento Google", () => {
+  it("il param ?google=ok arriva alla sezione e diventa un banner", async () => {
+    mockAccountApi();
+    renderAccount("/settings/account?google=ok");
+
+    expect(await screen.findByText("Mailbox connected.")).toBeInTheDocument();
+  });
+
+  it("senza param nessun banner, e la sezione c'è comunque", async () => {
+    mockAccountApi();
+    renderAccount();
+
+    expect(await screen.findByText("Google mailboxes")).toBeInTheDocument();
+    expect(screen.queryByText("Mailbox connected.")).not.toBeInTheDocument();
+  });
+
+  it("un param inventato non rompe la route", async () => {
+    mockAccountApi();
+    renderAccount("/settings/account?google=%7B%7Bnope");
+
+    expect(await screen.findByText("Google mailboxes")).toBeInTheDocument();
   });
 });

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  googleAccountSchema,
+  googleCallbackOutcomes,
   googleOauthScopes,
   googleWorkspaceDraftSchema,
   googleWorkspacePatchSchema,
@@ -124,6 +126,60 @@ describe("googleOauthScopes", () => {
       "email",
       "https://www.googleapis.com/auth/gmail.readonly",
       "https://www.googleapis.com/auth/calendar.readonly",
+    ]);
+  });
+});
+
+describe("googleAccountSchema", () => {
+  const full = {
+    id: "6b1f3c2a-1f4d-4c9a-9a3e-9b5f0d2c7e31",
+    email: "mario@acme.com",
+    workspaceId: "0f2c6d6e-6e4a-4d9b-9d6a-2f5b4c8e1a11",
+    workspaceName: "Acme",
+    scopes: ["openid", "https://www.googleapis.com/auth/gmail.readonly"],
+    proposalsEnabled: true,
+    connectedAt: "2026-09-07T10:00:00.000Z",
+    lastSyncAt: "2026-09-07T10:05:00.000Z",
+    disabledAt: null,
+    disabledReason: null,
+  };
+
+  it("non ha nessun campo che possa contenere il refresh token", () => {
+    const parsed = googleAccountSchema.parse(full);
+    expect(parsed).not.toHaveProperty("refreshToken");
+    expect(parsed).not.toHaveProperty("refreshTokenEncrypted");
+    expect(Object.keys(parsed).join(" ")).not.toMatch(/token|secret/i);
+  });
+
+  it("i campi accessori hanno un default: una risposta senza di essi resta parsabile", () => {
+    const parsed = googleAccountSchema.parse({
+      id: full.id,
+      email: full.email,
+      workspaceId: full.workspaceId,
+      proposalsEnabled: false,
+      connectedAt: full.connectedAt,
+    });
+    expect(parsed.workspaceName).toBe("");
+    expect(parsed.scopes).toEqual([]);
+    expect(parsed.lastSyncAt).toBeNull();
+    expect(parsed.disabledAt).toBeNull();
+    expect(parsed.disabledReason).toBeNull();
+  });
+
+  it("accetta un `disabledReason` sconosciuto senza far fallire il parse", () => {
+    const parsed = googleAccountSchema.parse({ ...full, disabledReason: "motivo_futuro" });
+    expect(parsed.disabledReason).toBe("motivo_futuro");
+  });
+});
+
+describe("googleCallbackOutcomes", () => {
+  it("contiene l'esito buono e i tre rifiuti che il callback sa distinguere", () => {
+    expect(googleCallbackOutcomes).toEqual([
+      "ok",
+      "domain_mismatch",
+      "no_refresh_token",
+      "insufficient_scope",
+      "error",
     ]);
   });
 });

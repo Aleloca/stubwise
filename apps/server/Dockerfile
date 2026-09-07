@@ -33,6 +33,13 @@ COPY apps/web/package.json apps/web/package.json
 COPY packages/db/package.json packages/db/package.json
 COPY packages/shared/package.json packages/shared/package.json
 COPY packages/git/package.json packages/git/package.json
+# `@stubwise/google` è una dipendenza (non dev) del server dalla fase 6, e ha
+# dipendenze ESTERNE proprie (zod, drizzle-orm): senza il suo manifest in questo
+# layer `pnpm install` non le installa e il `tsc` del package fallisce nel build
+# qui sotto. È la stessa trappola annotata in Dockerfile.caddy per
+# `@stubwise/api-client` — e la ragione per cui `@stubwise/embeddings`, pure
+# assente da questa lista, non la fa scattare è solo che non ha deps esterne.
+COPY packages/google/package.json packages/google/package.json
 COPY packages/sdk/package.json packages/sdk/package.json
 COPY packages/notifications/package.json packages/notifications/package.json
 COPY packages/i18n/package.json packages/i18n/package.json

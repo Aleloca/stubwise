@@ -720,6 +720,37 @@
         "slackNotLinked": "Collega prima il tuo account Slack (chiedi a un maintainer da /team).",
         "push": "Ricevi le notifiche push sull'app mobile",
         "pushHint": "Vale per tutti i dispositivi su cui hai fatto l'accesso dall'app."
+      },
+      "googleAccounts": {
+        "title": "Caselle Google",
+        "subtitle": "// Gmail e Calendar in sola lettura. Stubwise legge solo la posta che le regole di routing dei progetti riconoscono.",
+        "connect": "Collega una casella",
+        "empty": "// nessuna casella collegata",
+        "workspace": "Workspace",
+        "authorize": "Continua su Google",
+        "noWorkspace": "Su questa istanza non è ancora configurato nessun Google Workspace. Chiedi a un maintainer di aggiungerne uno da Impostazioni → Google Workspace.",
+        "active": "Attiva",
+        "disabled": "Disabilitata",
+        "reconnect": "Ricollega",
+        "disconnect": "Scollega",
+        "confirmDisconnect": "Conferma",
+        "proposalsEnabled": "Proposte attive per questa casella",
+        "lastSync": "ultima sync {{date}}",
+        "neverSynced": "mai sincronizzata",
+        "outcome": {
+          "ok": "Casella collegata.",
+          "domain_mismatch": "Quell'account Google non è su un dominio del Workspace scelto. Scegli la casella della tua organizzazione.",
+          "no_refresh_token": "Google non ha rilasciato un'autorizzazione duratura. Revoca l'accesso di Stubwise da myaccount.google.com/permissions e riprova.",
+          "insufficient_scope": "Alcune autorizzazioni sono state escluse. Riprova lasciando spuntate tutte quelle richieste.",
+          "error": "Collegamento non riuscito. Riprova; se continua a fallire, chiedi a un maintainer di controllare le impostazioni del Workspace."
+        },
+        "reason": {
+          "revoked": "accesso revocato su Google",
+          "invalid_grant": "autorizzazione non più valida: ricollega",
+          "insufficient_scope": "autorizzazioni mancanti: ricollega",
+          "workspace_removed": "il Workspace è stato rimosso",
+          "sync_failed": "troppi errori di sincronizzazione consecutivi"
+        }
       }
     },
     "accessTokens": {

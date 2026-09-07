@@ -720,6 +720,37 @@
         "slackNotLinked": "Link your Slack account first (ask a maintainer in /team).",
         "push": "Get push notifications on the mobile app",
         "pushHint": "Applies to every device where you signed in from the app."
+      },
+      "googleAccounts": {
+        "title": "Google mailboxes",
+        "subtitle": "// Gmail and Calendar, read-only. Stubwise reads only mail your projects' routing rules match.",
+        "connect": "Connect a mailbox",
+        "empty": "// no mailbox connected",
+        "workspace": "Workspace",
+        "authorize": "Continue on Google",
+        "noWorkspace": "No Google Workspace is configured on this instance yet. Ask a maintainer to add one in Settings → Google Workspace.",
+        "active": "Active",
+        "disabled": "Disabled",
+        "reconnect": "Reconnect",
+        "disconnect": "Disconnect",
+        "confirmDisconnect": "Confirm",
+        "proposalsEnabled": "Proposals on for this mailbox",
+        "lastSync": "last sync {{date}}",
+        "neverSynced": "never synced",
+        "outcome": {
+          "ok": "Mailbox connected.",
+          "domain_mismatch": "That Google account is not on a domain of the chosen Workspace. Pick the mailbox of your organization.",
+          "no_refresh_token": "Google did not send a durable authorization. Revoke Stubwise's access at myaccount.google.com/permissions, then try again.",
+          "insufficient_scope": "Some permissions were left out. Try again and keep every requested permission ticked.",
+          "error": "Connection failed. Try again; if it keeps failing, ask a maintainer to check the Workspace settings."
+        },
+        "reason": {
+          "revoked": "access revoked on Google",
+          "invalid_grant": "authorization no longer valid: reconnect",
+          "insufficient_scope": "missing permissions: reconnect",
+          "workspace_removed": "the Workspace was removed",
+          "sync_failed": "too many sync failures in a row"
+        }
       }
     },
     "accessTokens": {

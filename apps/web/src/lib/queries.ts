@@ -11,6 +11,8 @@ import {
   getInbox,
   getInboxUnreadCount,
   getGoogleWorkspaces,
+  getMyGoogleAccounts,
+  getMyGoogleWorkspaceOptions,
   getInstanceSettings,
   getInvites,
   getMyFollows,
@@ -464,6 +466,25 @@ export const instanceSettingsQueryOptions = queryOptions({
 export const googleWorkspacesQueryOptions = queryOptions({
   queryKey: ["settings", "google-workspaces"],
   queryFn: getGoogleWorkspaces,
+  staleTime: 30_000,
+});
+
+/**
+ * Le caselle Google dell'utente corrente (fase 6) e i Workspace fra cui
+ * sceglierne uno nuovo. Chiave sotto "me" come le altre risorse PERSONALI
+ * (follows, preferenze): il soggetto è chi chiama, non l'istanza — e questo è
+ * anche il motivo per cui non riusano `googleWorkspacesQueryOptions`, che
+ * punta a una rotta solo admin.
+ */
+export const myGoogleAccountsQueryOptions = queryOptions({
+  queryKey: ["me", "google-accounts"],
+  queryFn: getMyGoogleAccounts,
+  staleTime: 30_000,
+});
+
+export const myGoogleWorkspaceOptionsQueryOptions = queryOptions({
+  queryKey: ["me", "google-workspace-options"],
+  queryFn: getMyGoogleWorkspaceOptions,
   staleTime: 30_000,
 });
 

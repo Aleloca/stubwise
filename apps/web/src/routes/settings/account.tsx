@@ -1,6 +1,9 @@
 import type { Language } from "@stubwise/shared";
+import { getRouteApi } from "@tanstack/react-router";
 import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
+import { z } from "zod";
+import { GoogleAccountsSection } from "../../components/google-accounts-section";
 import {
   patchMyLanguage,
   putMyFollows,
@@ -16,8 +19,24 @@ import {
 import { translateApiError } from "../../lib/translate-api-error";
 
 /**
+ * Query param della pagina: l'esito del callback OAuth di Google, su cui il
+ * server rimanda dopo il consenso (`/settings/account?google=ok|<errore>`).
+ *
+ * `.catch(undefined)` è l'idioma già usato da `/register`: un valore
+ * inventato nella barra degli indirizzi non deve far esplodere la route, deve
+ * semplicemente non mostrare nessun banner. La validazione di QUALI esiti
+ * esistono sta nel componente, con la lista condivisa `googleCallbackOutcomes`.
+ */
+export const settingsAccountSearchSchema = z.object({
+  google: z.string().min(1).optional().catch(undefined),
+});
+
+const route = getRouteApi("/authed/settings/account");
+
+/**
  * Sotto-pagina Account: i dati dell'utente corrente (email, ruolo), il
- * selettore di lingua, i progetti seguiti e le preferenze di notifica.
+ * selettore di lingua, i progetti seguiti, le preferenze di notifica e le
+ * caselle Google collegate.
  * Visibile a tutti gli utenti autenticati (sono preferenze PERSONALI, non
  * amministrazione). Il logout vive nella sidebar del layout.
  */
@@ -26,6 +45,7 @@ export function SettingsAccountPage() {
   const queryClient = useQueryClient();
   const { data: me } = useSuspenseQuery(meQueryOptions);
   const isAdmin = me.user.role === "admin";
+  const search = route.useSearch();
 
   // Cambio lingua: persiste la preferenza sul server, allinea subito la UI e
   // aggiorna la cache `me` così resta coerente con il valore appena salvato.
@@ -91,6 +111,7 @@ export function SettingsAccountPage() {
 
       <FollowedProjectsSection />
       <NotificationPrefsSection />
+      <GoogleAccountsSection outcome={search.google} />
     </div>
   );
 }

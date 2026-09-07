@@ -248,6 +248,9 @@ importers:
       '@stubwise/git':
         specifier: workspace:*
         version: link:../../packages/git
+      '@stubwise/google':
+        specifier: workspace:*
+        version: link:../../packages/google
       '@stubwise/i18n':
         specifier: workspace:*
         version: link:../../packages/i18n
@@ -583,6 +586,12 @@ importers:
 
   packages/google:
     dependencies:
+      '@stubwise/db':
+        specifier: workspace:*
+        version: link:../db
+      drizzle-orm:
+        specifier: ^0.45.2
+        version: 0.45.2(mysql2@3.22.6(@types/node@22.19.20))(postgres@3.4.9)
       zod:
         specifier: ^4.1.5
         version: 4.4.3

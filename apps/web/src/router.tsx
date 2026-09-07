@@ -32,6 +32,7 @@ import {
   briefQueryOptions,
   milestonesQueryOptions,
   myFollowsQueryOptions,
+  myGoogleAccountsQueryOptions,
   notificationPrefsQueryOptions,
   notificationSettingsQueryOptions,
   patsQueryOptions,
@@ -86,7 +87,7 @@ import { NewRepositoryPage } from "./routes/repositories/new";
 import { NewRepositoryStandalonePage } from "./routes/repositories/new-standalone";
 import { registerSearchSchema, RegisterPage } from "./routes/register";
 import { SettingsAccessTokensPage } from "./routes/settings/access-tokens";
-import { SettingsAccountPage } from "./routes/settings/account";
+import { SettingsAccountPage, settingsAccountSearchSchema } from "./routes/settings/account";
 import { SettingsAiProvidersPage } from "./routes/settings/ai-providers";
 import { SettingsAutomationPage } from "./routes/settings/automation";
 import { SettingsGitAccountsPage } from "./routes/settings/git-accounts";
@@ -661,14 +662,19 @@ const settingsIndexRoute = createRoute({
 const settingsAccountRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: "/account",
-  // Progetti seguiti e preferenze di notifica sono sezioni della pagina: si
-  // precaricano qui insieme alla lista progetti (che alimenta le checkbox), così
-  // le useSuspenseQuery della pagina non attendono.
+  // `?google=<esito>`: è qui che il callback OAuth del server rimanda dopo il
+  // consenso. Lo schema lo accetta anche sbagliato (`.catch(undefined)`) — la
+  // barra degli indirizzi non deve poter rompere la pagina.
+  validateSearch: (search) => settingsAccountSearchSchema.parse(search),
+  // Progetti seguiti, preferenze di notifica e caselle Google sono sezioni
+  // della pagina: si precaricano qui insieme alla lista progetti (che alimenta
+  // le checkbox), così le useSuspenseQuery della pagina non attendono.
   loader: async ({ context }) => {
     await Promise.all([
       context.queryClient.ensureQueryData(projectsQueryOptions),
       context.queryClient.ensureQueryData(myFollowsQueryOptions),
       context.queryClient.ensureQueryData(notificationPrefsQueryOptions),
+      context.queryClient.ensureQueryData(myGoogleAccountsQueryOptions),
     ]);
   },
   component: SettingsAccountPage,
