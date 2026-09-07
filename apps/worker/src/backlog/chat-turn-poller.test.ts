@@ -42,6 +42,31 @@ const explodingRunner: AgentRunner = {
 /** Piccola attesa per lasciar entrare i turni dispatchati (non attesi dal poller). */
 const settle = (ms = 15): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * Attende che una condizione diventi VERA, invece di dormire un tempo fisso
+ * sperando che basti.
+ *
+ * `settle()` è 15ms: su questa macchina il dispatch asincrono di
+ * `pollChatTurnsOnce` è dentro `runChatTurn` molto prima, su un runner di CI
+ * carico no — e l'asserzione trovava il flag ancora `false`. Il test falliva
+ * per la velocità della macchina, non per il comportamento del poller, che è
+ * il tipo di rosso peggiore: non distingue un bug da un runner lento.
+ *
+ * `settle()` resta dov'è corretto: per asserire che qualcosa NON è successo
+ * non si può attendere una condizione, si può solo dare tempo e guardare.
+ */
+async function waitFor(
+  condition: () => boolean,
+  descrizione: string,
+  timeoutMs = 5_000,
+): Promise<void> {
+  const scadenza = Date.now() + timeoutMs;
+  while (!condition()) {
+    if (Date.now() >= scadenza) throw new Error(`timeout in attesa che: ${descrizione}`);
+    await settle(5);
+  }
+}
+
 async function createProject(db: Db): Promise<string> {
   const [p] = await db
     .insert(projects)
@@ -248,13 +273,13 @@ describe("pollChatTurnsOnce — nessuna barriera di tick (serializer condiviso)"
     // Tick 1: turno lungo sulla voce A (dispatchato, NON atteso).
     await insertChatJob(db, projectId, { payload: chatPayload(itemA) });
     const d1 = await pollChatTurnsOnce(deps, serializer);
-    await settle();
+    await waitFor(() => aEntered, "il turno della voce A sia entrato");
     expect(aEntered).toBe(true);
 
     // Tick 2: turno sulla voce B. Deve partire subito, senza aspettare A.
     await insertChatJob(db, projectId, { payload: chatPayload(itemB) });
     const d2 = await pollChatTurnsOnce(deps, serializer);
-    await settle();
+    await waitFor(() => bEntered, "il turno della voce B sia entrato senza attendere A");
     expect(bEntered).toBe(true);
 
     // Chiusura pulita: sblocca A e attende tutto.
@@ -285,7 +310,7 @@ describe("pollChatTurnsOnce — nessuna barriera di tick (serializer condiviso)"
     // Tick 1: primo turno (resta in volo sul gate).
     await insertChatJob(db, projectId, { payload: chatPayload(itemId) });
     const d1 = await pollChatTurnsOnce(deps, serializer);
-    await settle();
+    await waitFor(() => firstEntered, "il primo turno sia entrato");
     expect(firstEntered).toBe(true);
 
     // Tick 2: secondo turno STESSA voce → accodato dietro il primo, NON entra.
@@ -317,10 +342,12 @@ describe("pollChatTurnsOnce — nessuna barriera di tick (serializer condiviso)"
     });
     const deps = makeDeps(db, { runChatTurnFn });
 
-    // T1 in volo (blocca la catena della voce).
+    // T1 in volo (blocca la catena della voce). Attesa sulla CONDIZIONE e non a
+    // tempo: se T1 non fosse ancora entrato, T2 non sarebbe accodato dietro
+    // nulla e il test misurerebbe un altro scenario.
     await insertChatJob(db, projectId, { payload: chatPayload(itemId) });
     const d1 = await pollChatTurnsOnce(deps, serializer);
-    await settle();
+    await waitFor(() => firstEntered, "T1 sia in volo e tenga la catena della voce");
 
     // T2 stessa voce, accodato dietro T1.
     const t2 = await insertChatJob(db, projectId, { payload: chatPayload(itemId) });
