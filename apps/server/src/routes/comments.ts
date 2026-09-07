@@ -7,6 +7,7 @@ import type { Db } from "@stubwise/db";
 import { comments, tickets } from "@stubwise/db";
 import { authErrorResponses, errorSchema } from "./shared.js";
 import { apiError } from "../errors.js";
+import { addComment } from "../services/comments.js";
 
 /**
  * Forma pubblica di un commento. `authorId` è nullo per i commenti dell'AI
@@ -70,17 +71,13 @@ export async function commentRoutes(instance: FastifyInstance): Promise<void> {
       if (!(await ticketExists(app.db, ticketId))) {
         return apiError(reply, 404, "ticket_not_found", "Ticket not found");
       }
-      const [created] = await app.db
-        .insert(comments)
-        .values({
-          ticketId,
-          authorType: "user",
-          // requireAuth è passato: request.user è popolato.
-          authorId: request.user?.id,
-          body: request.body.body,
-        })
-        .returning();
-      if (!created) throw new Error("L'insert del commento non ha restituito la riga creata");
+      const created = await addComment(app.db, {
+        ticketId,
+        authorType: "user",
+        // requireAuth è passato: request.user è popolato.
+        authorId: request.user?.id,
+        body: request.body.body,
+      });
       return reply.code(201).send(toPublicComment(created));
     },
   );
