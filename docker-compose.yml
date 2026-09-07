@@ -268,6 +268,25 @@ services:
       # copre venerdì→giovedì, senza altra configurazione.
       - BRIEF_WEEKDAY=${BRIEF_WEEKDAY:-1}
       - BRIEF_SEND_HOUR=${BRIEF_SEND_HOUR:-9}
+      # --- Caselle Google: Gmail e Calendar (fase 6) ---
+      # Poller separato dal loop dei job: per ogni casella collegata e attiva
+      # rinnova l'access token dal refresh token cifrato, sincronizza Gmail in
+      # incrementale (History API; resync `newer_than:7d -from:me` al primo giro
+      # o quando la history è scaduta), PRE-FILTRA sui soli metadati con le
+      # regole di routing dei progetti e scarica il corpo solo dei messaggi in
+      # perimetro. 0 = disabilitato (nessuna casella viene più sincronizzata):
+      # è il ROLLBACK innocuo della feature. Default 5'.
+      - GMAIL_POLL_MINUTES=${GMAIL_POLL_MINUTES:-5}
+      # Modello della classificazione della posta: run di solo testo, senza
+      # tool e su directory vuota — il modello piccolo basta.
+      - GMAIL_MODEL=${GMAIL_MODEL:-haiku}
+      # Giorni di conservazione dei messaggi in stato TERMINALE (actioned,
+      # ignored, failed). Gli stati non terminali non si toccano mai: `proposed`
+      # è una card ancora aperta in una inbox. 0 = nessuna potatura.
+      - GMAIL_RETENTION_DAYS=${GMAIL_RETENTION_DAYS:-90}
+      # Messaggi per casella che la classificazione manda al modello in un tick:
+      # è il tetto di spesa per giro.
+      - GMAIL_MAX_PER_TICK=${GMAIL_MAX_PER_TICK:-20}
       # --- Backlog di discovery (poller separato dal loop dei job) ---
       # Reclama i job backlog_jobs (intake + deep dive) ed esegue gli agenti nella
       # catena PER-PROGETTO. Soglie del dedup semantico: merge (fusione automatica)
