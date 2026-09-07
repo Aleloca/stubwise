@@ -425,7 +425,8 @@ describe("GET /api/me/google/callback — state non spendibile", () => {
 });
 
 // ---------------------------------------------------------------------------
-// GET /callback — i tre rifiuti di prodotto
+// GET /callback — i rifiuti di prodotto (dominio, refresh token, scope,
+// email non verificata) e il catch-all "error"
 // ---------------------------------------------------------------------------
 
 describe("GET /api/me/google/callback — rifiuti", () => {
@@ -470,6 +471,17 @@ describe("GET /api/me/google/callback — rifiuti", () => {
     const res = await callback(state);
     expect(res.statusCode).toBe(302);
     expect(outcomeOf(res)).toBe("error");
+    expect(await accountRows()).toHaveLength(0);
+  });
+
+  it("email_not_verified: Google non garantisce l'indirizzo, redirect e NESSUNA riga scritta", async () => {
+    const workspaceId = await createWorkspace();
+    userinfoResponse = { ...userinfoResponse, email_verified: false };
+    const state = await stateFor(workspaceId);
+
+    const res = await callback(state);
+    expect(res.statusCode).toBe(302);
+    expect(outcomeOf(res)).toBe("email_not_verified");
     expect(await accountRows()).toHaveLength(0);
   });
 
@@ -602,6 +614,53 @@ describe("GET /api/me/google/callback — successo", () => {
         "2f4bd0f0-9c2a-4a1c-9f13-8b4d9a1e0000",
       ),
     ).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /callback — titolarità: nessun trasferimento silenzioso della casella
+// ---------------------------------------------------------------------------
+
+describe("GET /api/me/google/callback — titolarità della casella", () => {
+  it("mailbox_owned_by_other: un secondo utente non può rubare una casella già collegata, e la riga di A resta ESATTAMENTE invariata", async () => {
+    const workspaceId = await createWorkspace();
+    // A (member) collega la casella.
+    await callback(await stateFor(workspaceId, memberCookie));
+    const [before] = await accountRows();
+    expect(before!.userId).toBe(memberId);
+
+    // B (admin) prova a collegare la STESSA email: il consenso di B su Google è
+    // reale (il fake risponde comunque con `userinfoResponse`), ma la riga
+    // esiste già per un altro utente.
+    calls = [];
+    tokenResponse = { ...tokenResponse, refresh_token: "1//refresh-token-tentativo-di-B" };
+    const res = await callback(await stateFor(workspaceId, adminCookie));
+    expect(res.statusCode).toBe(302);
+    expect(outcomeOf(res)).toBe("mailbox_owned_by_other");
+
+    // Lo scambio del code con Google È avvenuto (serve l'userinfo per sapere che
+    // l'email combacia), ma NESSUNA scrittura: la riga di A è la stessa, non solo
+    // "ancora presente".
+    const rows = await accountRows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toEqual(before);
+  });
+
+  it("lo STESSO utente può ricollegare la propria casella: riattivazione regolare, non `mailbox_owned_by_other`", async () => {
+    const workspaceId = await createWorkspace();
+    await callback(await stateFor(workspaceId, memberCookie));
+    const [first] = await accountRows();
+
+    tokenResponse = { ...tokenResponse, refresh_token: "1//refresh-token-nuovo-stesso-utente" };
+    const res = await callback(await stateFor(workspaceId, memberCookie));
+    expect(outcomeOf(res)).toBe("ok");
+
+    const rows = await accountRows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.id).toBe(first!.id);
+    expect(decrypt(rows[0]!.refreshTokenEncrypted, ENCRYPTION_KEY)).toBe(
+      "1//refresh-token-nuovo-stesso-utente",
+    );
   });
 });
 

@@ -16,6 +16,7 @@ import { createRequire } from "node:module";
 import type { Db } from "@stubwise/db";
 import { createEmbeddingClient, type EmbeddingClient } from "@stubwise/embeddings";
 import type { FetchImpl as GoogleFetchImpl } from "@stubwise/google";
+import { GOOGLE_OAUTH_CALLBACK_PATH } from "@stubwise/shared";
 import { aiJobRoutes, ticketUsageRoutes } from "./routes/ai-jobs.js";
 import { aiProviderRoutes } from "./routes/ai-providers.js";
 import { aiUsageCostsRoutes } from "./routes/usage-costs.js";
@@ -109,6 +110,73 @@ declare module "fastify" {
      */
     graphChat: GraphChatRuntime;
   }
+}
+
+/**
+ * LOG DELLA RICHIESTA E CALLBACK OAUTH GOOGLE (fase 6, Task 5a).
+ *
+ * `logger: true` (index.ts, prod) usa il serializer `req` di default di
+ * Fastify/pino, che logga `request.url` per intero — query string inclusa.
+ * `GET /api/me/google/callback?code=…&state=…` finirebbe quindi nei log di
+ * prod con un codice di autorizzazione ancora spendibile per ~10' se lo
+ * scambio con Google fallisce dopo che la riga "incoming request" è già
+ * stata scritta (la riga parte PRIMA dell'handler: vedi `route.js` di
+ * Fastify, `childLogger.info({ req: request }, 'incoming request')`).
+ *
+ * La difesa è un serializer `req` custom, non un `disableRequestLogging` per
+ * rotta: Fastify lo supporta a runtime ma non lo tipizza su
+ * `RouteShorthandOptions` (verificato sui `.d.ts` della versione installata),
+ * quindi passarlo alla rotta del callback significherebbe uscire dai tipi.
+ * Un serializer, invece, è già tipizzato su `FastifyLoggerOptions` e tocca
+ * SOLO l'URL — il resto della richiesta resta loggato per debug — e SOLO
+ * questo path esatto: sulle altre rotte la query resta intera.
+ */
+export function redactGoogleOauthCallbackUrl(url: string): string {
+  const queryIndex = url.indexOf("?");
+  if (queryIndex === -1) return url;
+  const path = url.slice(0, queryIndex);
+  if (path !== GOOGLE_OAUTH_CALLBACK_PATH) return url;
+
+  const params = new URLSearchParams(url.slice(queryIndex + 1));
+  const hadCode = params.has("code");
+  const hadState = params.has("state");
+  if (!hadCode && !hadState) return url;
+  params.delete("code");
+  params.delete("state");
+
+  const redactedKeys = [hadCode ? "code" : null, hadState ? "state" : null]
+    .filter((key): key is string => key !== null)
+    .join(",");
+  const rest = params.toString();
+  return `${path}?${rest ? `${rest}&` : ""}redacted=${redactedKeys}`;
+}
+
+/**
+ * Applica {@link redactGoogleOauthCallbackUrl} al `logger` passato a
+ * `buildApp`, senza toccare nient'altro della configurazione (livello,
+ * stream, eventuali serializer già presenti su `res`/`err`). `false`/`undefined`
+ * restano tali e basta: senza logging non c'è niente da redigere.
+ */
+function withRedactedRequestLog(
+  logger: FastifyServerOptions["logger"],
+): FastifyServerOptions["logger"] {
+  if (!logger) return logger;
+  const base = logger === true ? {} : logger;
+  return {
+    ...base,
+    serializers: {
+      ...base.serializers,
+      req(req) {
+        return {
+          method: req.method,
+          url: redactGoogleOauthCallbackUrl(req.url),
+          host: req.host,
+          remoteAddress: req.ip,
+          remotePort: req.socket?.remotePort,
+        };
+      },
+    },
+  };
 }
 
 export interface BuildAppOptions {
@@ -255,7 +323,10 @@ export interface BuildAppOptions {
  * così i test possono usare `app.inject` senza variabili d'ambiente.
  */
 export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
-  const app = Fastify({ logger: opts.logger ?? false, trustProxy: opts.trustProxy ?? false });
+  const app = Fastify({
+    logger: withRedactedRequestLog(opts.logger ?? false),
+    trustProxy: opts.trustProxy ?? false,
+  });
 
   // Validazione e serializzazione via Zod su tutta l'app: gli schemi delle
   // route sono oggetti Zod e (Task 9) diventeranno la fonte dell'OpenAPI.

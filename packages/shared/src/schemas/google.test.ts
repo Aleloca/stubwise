@@ -177,12 +177,14 @@ describe("googleAccountSchema", () => {
 });
 
 describe("googleCallbackOutcomes", () => {
-  it("contiene l'esito buono e i tre rifiuti che il callback sa distinguere", () => {
+  it("contiene l'esito buono e i rifiuti che il callback sa distinguere", () => {
     expect(googleCallbackOutcomes).toEqual([
       "ok",
       "domain_mismatch",
       "no_refresh_token",
       "insufficient_scope",
+      "email_not_verified",
+      "mailbox_owned_by_other",
       "error",
     ]);
   });

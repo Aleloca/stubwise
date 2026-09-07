@@ -743,6 +743,8 @@
           "domain_mismatch": "That Google account is not on a domain of the chosen Workspace. Pick the mailbox of your organization.",
           "no_refresh_token": "Google did not send a durable authorization. Revoke Stubwise's access at myaccount.google.com/permissions, then try again.",
           "insufficient_scope": "Some permissions were left out. Try again and keep every requested permission ticked.",
+          "email_not_verified": "Google could not confirm that email address is verified. Verify it on your Google account, then try again.",
+          "mailbox_owned_by_other": "That mailbox is already connected to a different Stubwise account. Ask that person to disconnect it first, or connect a mailbox of your own.",
           "error": "Connection failed. Try again; if it keeps failing, ask a maintainer to check the Workspace settings."
         },
         "reason": {

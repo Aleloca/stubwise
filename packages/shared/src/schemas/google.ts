@@ -219,12 +219,21 @@ export type GoogleAccountPatch = z.input<typeof googleAccountPatchSchema>;
  * scaduto, credenziale sbagliata) arriva lì, perché il dettaglio sta nei log
  * del server e non nella barra degli indirizzi di chi ha solo bisogno di
  * riprovare.
+ *
+ * `email_not_verified` ed `mailbox_owned_by_other` (fase 6, Task 5 di review)
+ * sono due rifiuti che, come gli altri, non scrivono NESSUNA riga: il primo
+ * perché `userinfo.emailVerified` è falso (Google stesso non garantisce
+ * l'identità), il secondo perché l'email risulta già collegata da un utente
+ * DIVERSO — senza questo esito il ricollegamento trasferirebbe la casella (e
+ * la sua storia di `email_messages`/`calendar_events`) in silenzio.
  */
 export const googleCallbackOutcomes = [
   "ok",
   "domain_mismatch",
   "no_refresh_token",
   "insufficient_scope",
+  "email_not_verified",
+  "mailbox_owned_by_other",
   "error",
 ] as const;
 export type GoogleCallbackOutcome = (typeof googleCallbackOutcomes)[number];

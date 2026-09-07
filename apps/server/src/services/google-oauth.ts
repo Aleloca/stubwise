@@ -236,6 +236,8 @@ export type CallbackStatus =
   | "domain_mismatch"
   | "no_refresh_token"
   | "insufficient_scope"
+  | "email_not_verified"
+  | "mailbox_owned_by_other"
   | "error";
 
 export interface CallbackResult {
@@ -255,14 +257,23 @@ function domainOf(email: string): string | null {
 
 /**
  * Conclude il collegamento: verifica lo state, lo consuma, scambia il code,
- * controlla i tre requisiti e fa l'upsert.
+ * controlla i requisiti e fa l'upsert.
  *
  * ⚠️ ORDINE DEI CONTROLLI, che è un contratto e non un dettaglio: state →
- * scambio → identità → **dominio** → refresh token → scope → scrittura. Il
- * dominio viene PRIMA di tutto ciò che riguarda i token perché è l'unico
- * rifiuto che dipende da CHI è la casella: su `domain_mismatch` non deve
- * restare traccia di quell'indirizzo nel database (design §3), e l'unico modo
- * di garantirlo è non arrivare mai alla scrittura.
+ * scambio → identità (**email verificata**) → **dominio** → refresh token →
+ * scope → **titolarità della casella** → scrittura. L'email verificata viene
+ * SUBITO dopo lo scambio perché tutto ciò che segue (dominio, titolarità)
+ * ragiona su `userinfo.email` come se fosse garantita: un'email non
+ * verificata da Google non è un'identità su cui prendere nessuna delle
+ * decisioni successive. Il dominio viene PRIMA di tutto ciò che riguarda i
+ * token perché è l'unico rifiuto che dipende da CHI è la casella: su
+ * `domain_mismatch` non deve restare traccia di quell'indirizzo nel database
+ * (design §3), e l'unico modo di garantirlo è non arrivare mai alla
+ * scrittura. La titolarità (un'altra riga, di un ALTRO utente, già su
+ * quell'email) viene per ultima, appena prima della scrittura vera: è
+ * l'ultimo cancello prima dell'unico punto che tocca il DB in scrittura, e
+ * un rifiuto qui — come gli altri — non lascia tracce nuove né tocca la riga
+ * esistente.
  */
 export async function completeCallback(
   deps: GoogleOauthDeps,
@@ -332,6 +343,14 @@ export async function completeCallback(
     return { status: "error", detail: error instanceof Error ? error.message : String(error) };
   }
 
+  // `emailVerified` PRIMA del dominio: se Google stesso non garantisce che
+  // l'indirizzo appartenga davvero al titolare del token, non ha senso
+  // ragionare sul suo dominio (design §3, Task 5 di review). Nessuna riga
+  // scritta, come `domain_mismatch`.
+  if (!userinfo.emailVerified) {
+    return { status: "email_not_verified", detail: `email ${userinfo.email} non verificata da Google` };
+  }
+
   const domain = domainOf(userinfo.email);
   if (!domain || !workspace.domains.includes(domain)) {
     return { status: "domain_mismatch", detail: `dominio ${domain ?? "assente"} fuori dal Workspace` };
@@ -350,6 +369,23 @@ export async function completeCallback(
     return { status: "insufficient_scope", detail: `concessi: ${tokens.scopes.join(" ")}` };
   }
 
+  // TITOLARITÀ: se quell'email è GIÀ una riga di un ALTRO utente, non si
+  // scrive nulla. Senza questo controllo l'upsert sotto trasferirebbe la
+  // casella (e con essa la storia già ingerita di `email_messages` e
+  // `calendar_events`) all'utente che sta completando QUESTO callback, in
+  // silenzio: l'unica prova che questo flusso raccoglie è che chi ha appena
+  // dato il consenso su Google controlla l'indirizzo ORA, non che sia la
+  // stessa persona che l'aveva collegato la prima volta con un account
+  // Stubwise diverso. Un ricollegamento dello STESSO utente (userId
+  // coincide) non entra in questo ramo e prosegue come riattivazione.
+  const [existingByEmail] = await deps.db
+    .select({ userId: googleAccounts.userId })
+    .from(googleAccounts)
+    .where(eq(googleAccounts.email, userinfo.email));
+  if (existingByEmail && existingByEmail.userId !== payload.userId) {
+    return { status: "mailbox_owned_by_other", detail: `casella ${userinfo.email} già collegata da un altro utente` };
+  }
+
   // UPSERT SULL'EMAIL, che è unique GLOBALE.
   //
   // Il ramo di conflitto è la RIATTIVAZIONE del design §3 («ricollegare
@@ -359,9 +395,12 @@ export async function completeCallback(
   // riuscito, e in silenzio. È la stessa lezione dell'upsert dei device token
   // (`routes/me-prefs.ts`).
   //
-  // `user_id` è nel SET: la casella passa a chi la ricollega. L'email è la
-  // stessa persona reale, e il consenso appena dato su Google è la prova che
-  // quella persona controlla quella casella ORA.
+  // `user_id` è nel SET ma, grazie al controllo qui sopra, non trasferisce
+  // MAI la casella a un altro utente: quando questo ramo scatta, la riga
+  // esistente (se c'è) è già dello STESSO `payload.userId`, quindi il SET è
+  // un no-op sul proprietario. È la stessa persona reale, e il consenso
+  // appena dato su Google è la prova che quella persona controlla quella
+  // casella ORA.
   //
   // NON si toccano `proposals_enabled` (è la preferenza dell'utente: un
   // ricollegamento non è il momento di riaccendergliela) né i cursori

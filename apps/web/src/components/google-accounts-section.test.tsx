@@ -193,6 +193,18 @@ describe("caselle Google: esito del callback", () => {
     expect(await screen.findByRole("status")).toHaveTextContent(/permissions were left out/i);
   });
 
+  it("email_not_verified chiede di verificare l'indirizzo su Google", async () => {
+    mockApi();
+    renderSection("email_not_verified");
+    expect(await screen.findByRole("status")).toHaveTextContent(/could not confirm/i);
+  });
+
+  it("mailbox_owned_by_other spiega che la casella è già di un altro account", async () => {
+    mockApi();
+    renderSection("mailbox_owned_by_other");
+    expect(await screen.findByRole("status")).toHaveTextContent(/already connected to a different/i);
+  });
+
   it("un valore inventato nella URL non mostra nessun banner", async () => {
     mockApi();
     renderSection("qualcosa-di-inventato");
