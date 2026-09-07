@@ -356,13 +356,29 @@ describe("startRun", () => {
     const holdOpen = new Promise<void>((resolve) => {
       release = resolve;
     });
+    // BARRIERA: `db.transaction(...)` parte ma non è atteso, quindi senza
+    // questo segnale non c'è NIENTE che garantisca che il writer abbia già il
+    // lock quando `startRun` parte. Su un runner lento vinceva `startRun`: lock
+    // preso per primo, nessun job ancora inserito da vedere, e la race con
+    // `delay(250)` si risolveva con un `{ ok: true, status: "queued" }` invece
+    // che col simbolo `pending`. Era il test a essere in corsa con sé stesso,
+    // non il codice: la CI l'ha colto una volta, e un `await delay(50)` prima
+    // del lock lo riproduce in locale ogni volta.
+    let lockHeld!: () => void;
+    const writerReady = new Promise<void>((resolve) => {
+      lockHeld = resolve;
+    });
     const writer = db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${ticketId}))`);
       await tx.insert(aiJobs).values({ ticketId, status: "queued" });
+      lockHeld();
       await holdOpen;
     });
 
     try {
+      // Da qui in poi il writer tiene DAVVERO il lock e il job è inserito (non
+      // committato): è la precondizione che lo scenario descrive.
+      await writerReady;
       const running = startRun(db, { ticketId, actor: maintainer });
       // Finché il writer non committa, startRun deve restare bloccato sul lock.
       const pending = Symbol("pending");
