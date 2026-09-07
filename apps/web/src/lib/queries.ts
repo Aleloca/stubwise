@@ -22,6 +22,8 @@ import {
   getPlugins,
   listPats,
   getProject,
+  getProjectEmailLabels,
+  getProjectEmailRoutes,
   getProjectPlugins,
   getBrief,
   getProjectDecisions,
@@ -658,6 +660,31 @@ export function projectPluginsQueryOptions(projectId: string) {
     queryKey: ["projects", "detail", projectId, "plugins"],
     queryFn: () => getProjectPlugins(projectId),
     staleTime: 30_000,
+  });
+}
+
+/**
+ * Regole di routing della posta di un progetto (Fase 6). Lettura per chi vede
+ * il progetto; il PUT è solo admin e riconcilia la cache con la foto salvata.
+ */
+export function projectEmailRoutesQueryOptions(projectId: string) {
+  return queryOptions({
+    queryKey: ["projects", "detail", projectId, "email-routes"],
+    queryFn: () => getProjectEmailRoutes(projectId),
+    staleTime: 30_000,
+  });
+}
+
+/**
+ * Etichette Gmail già osservate nella posta di chi guarda: suggerimenti per il
+ * picker delle regole `gmail_label`. `staleTime` lungo — è una lista che cambia
+ * al ritmo con cui si etichetta la posta, non a quello della pagina.
+ */
+export function projectEmailLabelsQueryOptions(projectId: string) {
+  return queryOptions({
+    queryKey: ["projects", "detail", projectId, "email-labels"],
+    queryFn: () => getProjectEmailLabels(projectId),
+    staleTime: 5 * 60_000,
   });
 }
 

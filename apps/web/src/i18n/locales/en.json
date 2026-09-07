@@ -1526,6 +1526,28 @@
       "pending": "// the brief is being written: it will be here in a few minutes.",
       "failed": "// generating the brief failed. Regenerate it to try again.",
       "noText": "// this brief has no text: the instance has no usable AI provider to generate it."
+    },
+    "email": {
+      "title": "Mail",
+      "subtitle": "// which emails are about this project. At least one rule is needed: with none, no message comes in.",
+      "perimeterWarning": "A message no rule recognises is not even downloaded from Gmail. These rules are the perimeter of what Stubwise reads of the mail of whoever connected a mailbox.",
+      "empty": "// no rules: this project's mail is not read",
+      "loading": "// loading rules…",
+      "error": "// could not load the mail routing rules",
+      "senders": "Senders and recipients",
+      "sendersHint": "// a domain (acme.com) or a single address (mario@acme.com). Matches From, To and Cc.",
+      "labels": "Gmail labels",
+      "labelsHint": "// the label you put on this project's mail in your mailbox.",
+      "keywords": "Keywords",
+      "keywordsHint": "// searched in subject and body. Only the ones in the subject are enough to have the message downloaded.",
+      "pickLabel": "Pick from observed labels",
+      "pickLabelPlaceholder": "Search a label…",
+      "labelNoResults": "// no label matches",
+      "labelMoreResults": "+{{count}} more",
+      "noObservedLabels": "// no label observed yet: type it by hand in the field above.",
+      "loadingLabels": "// loading labels…",
+      "useTypedLabel": "Use \"{{value}}\"",
+      "cancel": "Cancel"
     }
   },
   "repositories": {

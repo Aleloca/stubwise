@@ -23,6 +23,7 @@ import type {
   CreateCheckInput,
   CreatePluginInput,
   DiscoveredService,
+  EmailRoute,
   GitProviderKind,
   GoogleAccount,
   GoogleWorkspace,
@@ -1741,6 +1742,49 @@ export function putProjectPlugins(
   plugins: ProjectPlugin[],
 ): Promise<ProjectPlugins> {
   return api.put(`/api/projects/${encodeURIComponent(projectId)}/plugins`, { plugins });
+}
+
+// --- Regole di routing della posta su un progetto (Fase 6) ---
+
+/**
+ * I tipi delle regole vengono da `@stubwise/shared`, come per i plugin: il
+ * criterio è lo stesso valore che il DB vincola col CHECK e che il poller
+ * confronta, e ridichiararlo qui sarebbe una terza copia da tenere allineata.
+ */
+export type { EmailRoute, EmailRouteKind } from "@stubwise/shared";
+
+/** L'insieme delle regole di un progetto: stessa forma del body del PUT. */
+export interface ProjectEmailRoutes {
+  routes: EmailRoute[];
+}
+
+/** Le regole del progetto. 404 se non esiste o se un member non lo segue. */
+export function getProjectEmailRoutes(projectId: string): Promise<ProjectEmailRoutes> {
+  return api.get(`/api/projects/${encodeURIComponent(projectId)}/email-routes`);
+}
+
+/**
+ * SOSTITUISCE l'insieme completo delle regole e restituisce la foto salvata,
+ * coi valori NORMALIZZATI dal server (minuscolo, indirizzo estratto dal nome
+ * visualizzato, dominio senza `@`): la risposta è la verità, non il body che
+ * si è mandato. Solo admin (403 a un member).
+ *
+ * 400 `invalid_route_value` se un valore, normalizzato, resta vuoto.
+ */
+export function putProjectEmailRoutes(
+  projectId: string,
+  routes: EmailRoute[],
+): Promise<ProjectEmailRoutes> {
+  return api.put(`/api/projects/${encodeURIComponent(projectId)}/email-routes`, { routes });
+}
+
+/**
+ * Le etichette Gmail già osservate nella posta delle caselle di CHI CHIEDE:
+ * suggerimenti per il picker delle regole `gmail_label`. Vuota finché il poller
+ * non ha ingerito nulla, ed è una risposta valida.
+ */
+export function getProjectEmailLabels(projectId: string): Promise<{ labels: string[] }> {
+  return api.get(`/api/projects/${encodeURIComponent(projectId)}/email-labels`);
 }
 
 /**

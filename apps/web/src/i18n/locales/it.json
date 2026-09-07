@@ -1526,6 +1526,28 @@
       "pending": "// il brief è in corso di scrittura: arriva fra qualche minuto.",
       "failed": "// la generazione del brief è fallita. Rigenerala per riprovare.",
       "noText": "// questo brief non ha nessun testo: l'istanza non ha un provider AI utilizzabile per generarlo."
+    },
+    "email": {
+      "title": "Posta",
+      "subtitle": "// quali email parlano di questo progetto. Ne serve almeno una: senza regole, nessun messaggio entra.",
+      "perimeterWarning": "Un messaggio che nessuna regola riconosce non viene nemmeno scaricato da Gmail. Queste regole sono il perimetro di ciò che Stubwise legge della posta di chi ha collegato una casella.",
+      "empty": "// nessuna regola: la posta di questo progetto non viene letta",
+      "loading": "// caricamento regole…",
+      "error": "// impossibile caricare le regole di routing della posta",
+      "senders": "Mittenti e destinatari",
+      "sendersHint": "// un dominio (acme.com) o un singolo indirizzo (mario@acme.com). Vale su Da, A e Cc.",
+      "labels": "Etichette Gmail",
+      "labelsHint": "// l'etichetta con cui marchi la posta di questo progetto nella tua casella.",
+      "keywords": "Parole chiave",
+      "keywordsHint": "// cercate nell'oggetto e nel testo. Solo quelle nell'oggetto bastano a far scaricare il messaggio.",
+      "pickLabel": "Scegli fra le etichette viste",
+      "pickLabelPlaceholder": "Cerca un'etichetta…",
+      "labelNoResults": "// nessuna etichetta corrisponde",
+      "labelMoreResults": "+{{count}} altre",
+      "noObservedLabels": "// nessuna etichetta osservata: scrivila a mano nel campo qui sopra.",
+      "loadingLabels": "// caricamento etichette…",
+      "useTypedLabel": "Usa \"{{value}}\"",
+      "cancel": "Annulla"
     }
   },
   "repositories": {

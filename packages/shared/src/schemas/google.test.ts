@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  emailLabelsSchema,
+  emailRouteSchema,
+  emailRoutesPutSchema,
+  emailRoutesSchema,
   googleAccountSchema,
   googleCallbackOutcomes,
   googleOauthScopes,
@@ -181,5 +185,61 @@ describe("googleCallbackOutcomes", () => {
       "insufficient_scope",
       "error",
     ]);
+  });
+});
+
+describe("emailRouteSchema", () => {
+  it("accetta i quattro criteri e rifiuta gli altri", () => {
+    for (const kind of ["sender_domain", "sender_address", "gmail_label", "keyword"] as const) {
+      expect(emailRouteSchema.parse({ kind, value: "x" }).kind).toBe(kind);
+    }
+    expect(emailRouteSchema.safeParse({ kind: "subject", value: "x" }).success).toBe(false);
+  });
+
+  it("toglie gli spazi ai bordi del valore", () => {
+    expect(emailRouteSchema.parse({ kind: "keyword", value: "  portale  " }).value).toBe("portale");
+  });
+
+  it("rifiuta un valore vuoto o fatto di soli spazi", () => {
+    expect(emailRouteSchema.safeParse({ kind: "keyword", value: "" }).success).toBe(false);
+    expect(emailRouteSchema.safeParse({ kind: "keyword", value: "   " }).success).toBe(false);
+  });
+
+  it("rifiuta un valore piu lungo del cap", () => {
+    expect(emailRouteSchema.safeParse({ kind: "keyword", value: "x".repeat(201) }).success).toBe(
+      false,
+    );
+  });
+
+  it("NON normalizza il valore in minuscolo: quello lo fa il server con la stessa funzione del match", () => {
+    expect(emailRouteSchema.parse({ kind: "sender_domain", value: "Acme.COM" }).value).toBe(
+      "Acme.COM",
+    );
+  });
+});
+
+describe("emailRoutesPutSchema", () => {
+  it("accetta un insieme vuoto: e come si cancellano tutte le regole", () => {
+    expect(emailRoutesPutSchema.parse({ routes: [] }).routes).toEqual([]);
+  });
+
+  it("rifiuta piu di 200 regole", () => {
+    const routes = Array.from({ length: 201 }, (_, i) => ({
+      kind: "keyword" as const,
+      value: `k${i}`,
+    }));
+    expect(emailRoutesPutSchema.safeParse({ routes }).success).toBe(false);
+  });
+});
+
+describe("emailRoutesSchema / emailLabelsSchema", () => {
+  it("una risposta senza il campo resta parsabile (default)", () => {
+    expect(emailRoutesSchema.parse({}).routes).toEqual([]);
+    expect(emailLabelsSchema.parse({}).labels).toEqual([]);
+  });
+
+  it("fa round-trip col corpo del PUT", () => {
+    const body = { routes: [{ kind: "gmail_label" as const, value: "clienti" }] };
+    expect(emailRoutesSchema.parse(emailRoutesPutSchema.parse(body))).toEqual(body);
   });
 });

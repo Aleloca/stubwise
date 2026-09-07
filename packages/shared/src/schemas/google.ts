@@ -231,3 +231,73 @@ export type GoogleCallbackOutcome = (typeof googleCallbackOutcomes)[number];
 
 /** Il path della SPA su cui il callback rimanda, con `?google=<esito>`. */
 export const GOOGLE_ACCOUNT_SETTINGS_PATH = "/settings/account";
+
+// ---------------------------------------------------------------------------
+// Regole di routing della posta verso un progetto (Task 6)
+// ---------------------------------------------------------------------------
+
+/**
+ * I quattro criteri con cui un messaggio finisce su un progetto. Sono gli
+ * stessi valori del CHECK su `project_email_routes.kind` (text con CHECK, non
+ * un enum Postgres) e della `EmailRouteKind` di `@stubwise/notifications`:
+ * allargarli vuol dire toccare tutti e tre i posti nella stessa PR.
+ */
+export const emailRouteKindSchema = z.enum([
+  "sender_domain",
+  "sender_address",
+  "gmail_label",
+  "keyword",
+]);
+export type EmailRouteKind = z.infer<typeof emailRouteKindSchema>;
+
+/**
+ * Una regola: il criterio e il suo valore.
+ *
+ * Qui il `value` è solo *ripulito* (trim, non vuoto, cappato): la forma
+ * canonica vera — minuscolo, indirizzo estratto dalle parentesi angolari,
+ * dominio senza `@` — la applica il server con `normalizeRouteValue` di
+ * `@stubwise/notifications`, che è la STESSA funzione che il poller usa per
+ * confrontare. Uno schema che normalizzasse per conto suo sarebbe una seconda
+ * implementazione destinata a divergere da quella del match.
+ *
+ * `projectId` non c'è di proposito: viene dal path della rotta, e averlo anche
+ * nel corpo aprirebbe la domanda "cosa faccio se non coincidono?".
+ */
+export const emailRouteSchema = z.object({
+  kind: emailRouteKindSchema,
+  value: z.string().trim().min(1).max(200),
+});
+export type EmailRoute = z.infer<typeof emailRouteSchema>;
+
+/**
+ * L'insieme delle regole di un progetto. È la risposta di GET e di PUT, e ha la
+ * stessa forma del corpo del PUT così che faccia round-trip.
+ */
+export const emailRoutesSchema = z.object({ routes: z.array(emailRouteSchema).default([]) });
+export type EmailRoutes = z.infer<typeof emailRoutesSchema>;
+
+/**
+ * Corpo del PUT: SOSTITUISCE l'insieme completo (le regole assenti spariscono),
+ * come il PUT delle abilitazioni dei plugin. La UI ha davanti tutte le regole
+ * del progetto e salva la foto intera; un PATCH per-regola inviterebbe solo a
+ * stati parziali.
+ *
+ * Il tetto di 200 regole non è una politica di prodotto: è il limite oltre il
+ * quale un errore di copia-incolla diventa un ciclo di match inutilmente lungo
+ * su OGNI messaggio di OGNI casella.
+ */
+export const emailRoutesPutSchema = z.object({
+  routes: z.array(emailRouteSchema).max(200),
+});
+export type EmailRoutesPut = z.input<typeof emailRoutesPutSchema>;
+
+/**
+ * Le etichette Gmail GIÀ OSSERVATE nella posta delle caselle di chi chiede:
+ * alimentano il picker delle regole `gmail_label`, così l'admin sceglie da un
+ * elenco invece di indovinare il nome esatto di una label.
+ *
+ * `.default([])` come ogni campo nuovo di una risposta: finché il poller (Task
+ * 7) non esiste la lista è vuota, e vuota deve restare una risposta valida.
+ */
+export const emailLabelsSchema = z.object({ labels: z.array(z.string()).default([]) });
+export type EmailLabels = z.infer<typeof emailLabelsSchema>;

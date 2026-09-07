@@ -97,6 +97,22 @@ export {
   type RoutingContext,
 } from "./routing.js";
 
+// --- routing della posta verso un progetto (Fase 6) ---
+//
+// Puro: lo usa il SERVER per normalizzare le regole che l'admin salva e il
+// WORKER (poller Gmail, Task 7) per applicarle a ogni messaggio. Una sola
+// implementazione perché le due normalizzazioni non possano divergere.
+export {
+  matchRoutes,
+  normalizeAddress,
+  normalizeRouteValue,
+  parseAddressList,
+  type EmailForRouting,
+  type EmailRoute,
+  type EmailRouteKind,
+  type EmailRoutingResult,
+} from "./email-routing.js";
+
 // --- push (Fase 4) ---
 //
 // NON sono nell'entry `./pure`: a costruire un payload e a parlare col relay è
