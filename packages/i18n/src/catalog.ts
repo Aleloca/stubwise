@@ -189,6 +189,10 @@ export const en: Catalog = {
     "That proposal is no longer available: it has already been taken care of.",
   "notify.inbox.errRunNotStarted":
     "Ticket created, but the run did not start. Launch it from the ticket.",
+  // Errori dell'esecuzione di una proposta Google (fase 6, Task 11).
+  "notify.inbox.errTargetGone": "The target of this action no longer exists.",
+  "notify.inbox.errActionFailed":
+    "This action could not be completed. You can propose it again from Mail.",
   "notify.inbox.errFailed": "The action could not be completed. Try again from Stubwise.",
   // Note di stato: sostituiscono i bottoni sul messaggio già deciso.
   "notify.inbox.notePlanApproved": "✅ Plan approved by {actor}",
@@ -359,6 +363,10 @@ export const en: Catalog = {
   "email.proposal.ignore": "Do nothing",
   "email.proposal.ignoreConsequence": "The message is left as it is, with no proposal.",
 
+  // --- email.execution.* — testi scritti quando una proposta è CONFERMATA
+  // (fase 6, Task 11). `{link}` è il permalink al thread Gmail sorgente.
+  "email.execution.commentBody": "{body}\n\n— from an email, see {link}",
+
   // --- decision.* — REGISTRO DECISIONI di progetto (fase 5, Task 13).
   //
   // ⚠️ Queste stringhe esistono perché il registro NON È MAI SCRITTO DALL'AI.
@@ -373,6 +381,13 @@ export const en: Catalog = {
   "decision.plan.rejected": "Plan rejected, replanning with these instructions: {instructions}",
   "decision.pulse.proceed": "Proceed with: {title}",
   "decision.pulse.alternatives": "Discarded alternatives: {alternatives}",
+  // Proposta Google confermata (fase 6, Task 11): il testo è composto SOLO da
+  // `from`/`subject` (non fidati, mai interpretati) e `option`, l'etichetta
+  // GIÀ TEMPLATA dell'opzione scelta — mai il titolo/la decisione che il
+  // classificatore aveva suggerito. Vedi il docblock di
+  // `apps/server/src/services/google-proposal.ts`.
+  "decision.email.title": "Email decision: {subject}",
+  "decision.email.decision": "Confirmed via email from {from}: {option}",
 
   // --- plan.* — label delle sezioni del piano di fix ---
   "plan.rootCause": "Root cause",
@@ -510,6 +525,10 @@ export const it: Catalog = {
   "notify.inbox.errProposalStale":
     "Questa proposta non è più disponibile: è già stata presa in carico.",
   "notify.inbox.errRunNotStarted": "Ticket creato, ma il run non è partito. Lancialo dal ticket.",
+  // Errori dell'esecuzione di una proposta Google (vedi la nota nel catalogo `en`).
+  "notify.inbox.errTargetGone": "L'oggetto di questa azione non esiste più.",
+  "notify.inbox.errActionFailed":
+    "Questa azione non è riuscita. Puoi riproporla dalla sezione Posta.",
   "notify.inbox.errFailed": "Azione non riuscita. Riprova da Stubwise.",
   "notify.inbox.notePlanApproved": "✅ Piano approvato da {actor}",
   "notify.inbox.notePlanRejected": "🚫 Piano rifiutato da {actor}",
@@ -619,6 +638,9 @@ export const it: Catalog = {
   "email.proposal.ignore": "Non fare nulla",
   "email.proposal.ignoreConsequence": "Il messaggio resta com'è, senza nessuna proposta.",
 
+  // --- email.execution.* (vedi la nota nel catalogo `en`) ---
+  "email.execution.commentBody": "{body}\n\n— da un'email, vedi {link}",
+
   // --- decision.* (vedi la nota nel catalogo `en`: testi FINALI, mai istruzioni
   // a un agente — il registro decisioni non è mai scritto dall'AI) ---
   "decision.askUser.title": "Domanda dell'agente: {question}",
@@ -627,6 +649,9 @@ export const it: Catalog = {
     "Piano rifiutato, si ripianifica con queste indicazioni: {instructions}",
   "decision.pulse.proceed": "Si procede con: {title}",
   "decision.pulse.alternatives": "Alternative scartate: {alternatives}",
+  // Proposta Google confermata (vedi la nota nel catalogo `en`).
+  "decision.email.title": "Decisione dalla posta: {subject}",
+  "decision.email.decision": "Confermata dall'email di {from}: {option}",
 
   // --- plan.* ---
   "plan.rootCause": "Causa radice",

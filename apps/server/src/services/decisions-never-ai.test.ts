@@ -7,6 +7,9 @@ import {
   agentQuestions,
   aiJobs,
   backlogItems,
+  emailMessages,
+  googleAccounts,
+  googleWorkspaces,
   notifications,
   projectDecisions,
   users,
@@ -55,6 +58,7 @@ vi.mock("@anthropic-ai/sdk", () => ({
   },
 }));
 
+import { answerGoogleProposal } from "./google-proposal.js";
 import { resolvePlan, type Actor } from "./jobs.js";
 import { proceedWithProposal } from "./pulse.js";
 import { answerQuestion } from "./questions.js";
@@ -186,6 +190,98 @@ describe("il registro decisioni non è mai scritto dall'AI — a runtime", () =>
     expect(await decisionsOf(result.ticketId)).toHaveLength(1);
     expectNoAgentCalled();
   });
+
+  it("la conferma di una proposta Google registra la decisione senza chiamare nessun agente", async () => {
+    const ticketId = await seedTicket("Ticket dalla posta");
+    const [workspace] = await db
+      .insert(googleWorkspaces)
+      .values({
+        name: "Acme",
+        domains: ["acme.test"],
+        clientId: "client-id",
+        clientSecretEncrypted: "blob",
+      })
+      .returning({ id: googleWorkspaces.id });
+    const [account] = await db
+      .insert(googleAccounts)
+      .values({
+        userId: maintainer.id,
+        workspaceId: workspace!.id,
+        email: `mailbox-${randomUUID()}@acme.test`,
+        googleSub: `sub-${randomUUID()}`,
+        refreshTokenEncrypted: "blob",
+      })
+      .returning({ id: googleAccounts.id });
+    const [message] = await db
+      .insert(emailMessages)
+      .values({
+        accountId: account!.id,
+        gmailMessageId: `m-${randomUUID()}`,
+        threadId: `t-${randomUUID()}`,
+        fromAddress: "laura@cliente.test",
+        receivedAt: new Date(),
+        projectId,
+        status: "proposed",
+      })
+      .returning({ id: emailMessages.id });
+
+    const proposalId = randomUUID();
+    const [notification] = await db
+      .insert(notifications)
+      .values({
+        userId: maintainer.id,
+        projectId,
+        kind: "google.proposal",
+        status: "open",
+        event: {
+          kind: "google.proposal",
+          proposalId,
+          source: "email",
+          messageUrl: "https://mail.google.com/mail/u/x/#all/t",
+          signal: "decision",
+          from: "Laura <laura@cliente.test>",
+          subject: "Rinviamo il rilascio?",
+          question: "Laura scrive a proposito di «Rinviamo il rilascio?». Come diamo seguito?",
+          options: [
+            { label: "Registra la decisione: Rinviare il rilascio" },
+            { label: "Non fare nulla" },
+          ],
+          actions: [
+            {
+              type: "record_decision",
+              projectId,
+              ticketId,
+              title: "Rinviare il rilascio",
+              // Testo che, se finisse nel registro, farebbe fallire questo
+              // stesso test: `answerGoogleProposal` NON lo deve mai usare.
+              decision: "Testo generato dal modello, mai usato nel registro.",
+            },
+            { type: "ignore" },
+          ],
+          recommendedIndex: 0,
+          allowFreeText: false,
+        },
+      })
+      .returning({ id: notifications.id });
+    await db
+      .update(emailMessages)
+      .set({ proposalNotificationId: notification!.id })
+      .where(eq(emailMessages.id, message!.id));
+
+    const result = await answerGoogleProposal(db, {
+      notificationId: notification!.id,
+      actor: maintainer,
+      optionIndex: 0,
+    });
+    expect(result.ok).toBe(true);
+
+    const rows = await decisionsOf(ticketId);
+    expect(rows).toHaveLength(1);
+    // La prova che la prosa del classificatore non è entrata nel fatto
+    // registrato: solo `from`/`subject`/l'etichetta templata dell'opzione.
+    expect(JSON.stringify(rows[0])).not.toContain("Testo generato dal modello");
+    expectNoAgentCalled();
+  });
 });
 
 describe("il registro decisioni non è mai scritto dall'AI — sul sorgente", () => {
@@ -207,6 +303,11 @@ describe("il registro decisioni non è mai scritto dall'AI — sul sorgente", ()
     "./questions.ts",
     "./jobs.ts",
     "./pulse.ts",
+    // Fase 6, Task 11: l'esecuzione delle proposte Google (email + calendario)
+    // scrive nel registro decisioni (`record_decision`) da un template i18n,
+    // mai dal testo che il classificatore ha suggerito — vedi il docblock del
+    // modulo.
+    "./google-proposal.ts",
   ];
 
   it.each(MODULES)("%s non nomina nessun esecutore di agenti", async (relative) => {

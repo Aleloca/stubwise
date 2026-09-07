@@ -162,6 +162,17 @@ function sendActionError(
       // (voce già convertita, archiviata o sparita). È un conflitto di stato,
       // non una richiesta malformata.
       return apiError(reply, 409, "proposal_stale", "This proposal is no longer available");
+    case "target_gone":
+      // 409: l'azione confermata è ancora valida come CONCETTO, ma il suo
+      // referente (progetto, ticket) è sparito nelle ore fra la proposta e la
+      // conferma. Stesso status di `proposal_stale`, motivo diverso: qui è il
+      // bersaglio a mancare, non la proposta a essere già presa.
+      return apiError(reply, 409, "target_gone", "The target of this action no longer exists");
+    case "action_failed":
+      // 409: la proposta era valida e il claim è riuscito, ma l'esecuzione è
+      // fallita per un imprevisto DOPO. La riga sorgente è `failed` e resta
+      // riproponibile dalla pagina Posta — qui si segnala solo il fallimento.
+      return apiError(reply, 409, "action_failed", "This action could not be completed");
     case "run_not_started":
       // Riuscita a metà: il ticket c'è, il run no. 409 perché c'è qualcosa da
       // fare — aprire il ticket e lanciarlo a mano — non un errore del client

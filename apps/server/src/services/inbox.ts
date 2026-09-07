@@ -44,6 +44,7 @@ import {
   type InboxQuestion,
 } from "@stubwise/shared";
 import { and, desc, eq, inArray, isNotNull, isNull, ne, sql, type SQL } from "drizzle-orm";
+import { answerGoogleProposal } from "./google-proposal.js";
 import { resolvePlan, startRun, type Actor } from "./jobs.js";
 import { mirrorDecision, propagateDecision } from "./notifications-propagation.js";
 import { proceedWithProposal } from "./pulse.js";
@@ -79,7 +80,13 @@ export type ExecuteActionError =
   // Errori del "Procedi" del pulse (`proceedWithProposal`): la proposta non è
   // più prendibile, oppure il ticket è nato ma il run non è partito.
   | "proposal_stale"
-  | "run_not_started";
+  | "run_not_started"
+  // Errori dell'esecuzione di una proposta Google (`answerGoogleProposal`,
+  // fase 6, Task 11): il referente dietro l'azione (progetto, ticket) non
+  // esiste più, oppure un imprevisto DOPO il claim ha lasciato la riga
+  // sorgente `failed` — riproponibile, ma non da qui.
+  | "target_gone"
+  | "action_failed";
 
 /**
  * Esito di {@link executeAction}. Il ramo di successo porta abbastanza contesto
@@ -265,6 +272,32 @@ export async function executeAction(
         ticketId: proceeded.ticketId,
         ticketNumber: proceeded.ticketNumber,
         runStatus: proceeded.status,
+      };
+    }
+    if (row.kind === "google.proposal") {
+      // Stessa forma del pulse qui sopra: nessun job dietro, `optionIndex` è
+      // l'indice dell'AZIONE scelta, e il servizio ha già chiuso le copie (il
+      // claim sta là, prima del dispatch) — qui si riferiscono soltanto.
+      const answered = await answerGoogleProposal(db, {
+        notificationId: row.id,
+        actor,
+        ...(input.payload?.answer?.optionIndex === undefined
+          ? {}
+          : { optionIndex: input.payload.answer.optionIndex }),
+      });
+      if (!answered.ok) {
+        return {
+          ok: false,
+          error: answered.error,
+          ...(answered.handledBy ? { handledBy: answered.handledBy } : {}),
+        };
+      }
+      return {
+        ok: true,
+        action,
+        kind: row.kind,
+        notificationJobId: row.jobId,
+        changedNotificationIds: answered.changedNotificationIds,
       };
     }
     const outcome = await answerQuestion(db, {
