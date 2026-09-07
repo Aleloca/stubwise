@@ -36,6 +36,7 @@ import { gitAccountRoutes } from "./routes/git-accounts.js";
 import { gitIdentityRoutes } from "./routes/git-identity-routes.js";
 import { googleWorkspaceRoutes } from "./routes/google-workspaces.js";
 import { meGoogleRoutes } from "./routes/me-google.js";
+import { meMailRoutes } from "./routes/me-mail.js";
 import { activityRoutes } from "./routes/activity-routes.js";
 import { backlogRoutes } from "./routes/backlog.js";
 import { inboundRoutes } from "./routes/inbound.js";
@@ -627,6 +628,11 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     rateLimit: opts.authRateLimit ?? { max: 10, timeWindow: "1 minute" },
     ...(opts.googleFetch ? { fetchImpl: opts.googleFetch } : {}),
   });
+  // Pagina Posta (Task 12): messaggi ed eventi TRATTATI dal poller Google,
+  // per utente — sempre filtrati per `userId` via il JOIN su google_accounts
+  // (vedi il docblock del modulo). Prefisso a sé come meGoogleRoutes, per
+  // la stessa ragione di leggibilità (un file, un pezzo di superficie).
+  void app.register(meMailRoutes, { prefix: "/api/me/mail" });
 
   app.get("/health", async () => ({ status: "ok" }));
 

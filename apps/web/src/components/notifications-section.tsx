@@ -42,6 +42,7 @@ const EVENT_TOGGLES: { key: keyof NotificationSettings; labelKey: string }[] = [
   { key: "notifyAwaitingInput", labelKey: "notifications:toggles.awaitingInput" },
   { key: "notifyPulse", labelKey: "notifications:toggles.pulse" },
   { key: "notifyBrief", labelKey: "notifications:toggles.brief" },
+  { key: "notifyGoogleProposal", labelKey: "notifications:toggles.googleProposal" },
 ];
 
 /** Eventi d'esempio per il selettore d'anteprima; `labelKey` → `notifications:samples.*`. */
@@ -56,6 +57,7 @@ const SAMPLE_LABELS: { kind: NotificationEvent["kind"]; labelKey: string }[] = [
   { kind: "docs.limit_paused", labelKey: "notifications:samples.docsLimitPaused" },
   { kind: "job.awaiting_input", labelKey: "notifications:samples.awaitingInput" },
   { kind: "project.pulse", labelKey: "notifications:samples.pulse" },
+  { kind: "google.proposal", labelKey: "notifications:samples.googleProposal" },
 ];
 
 /** Placeholder dell'URL webhook in base al formato selezionato (URL letterali). */

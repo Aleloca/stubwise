@@ -524,6 +524,112 @@ describe("list_proposals", () => {
   });
 });
 
+describe("list_mail_proposals", () => {
+  const MAIL_NOTIFICATION_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+
+  /** Riga d'inbox di una proposta Google, col contorno completo salvo override. */
+  function fakeMailItem(over: Record<string, unknown> = {}) {
+    return {
+      id: MAIL_NOTIFICATION_ID,
+      kind: "google.proposal",
+      status: "open",
+      text: "Laura chiede a proposito di «Rinviamo il rilascio?». Come diamo seguito?",
+      url: "https://mail.google.com/mail/u/mailbox@acme.test/#all/t1",
+      google: {
+        source: "email",
+        from: "laura@cliente.test",
+        subject: "Rinviamo il rilascio?",
+        receivedAt: "2026-09-07T08:14:00.000Z",
+        signal: "decision",
+      },
+      projectId: PROJECT_ID,
+      ticketId: null,
+      createdAt: "2026-09-07T08:14:00.000Z",
+      ...over,
+    };
+  }
+
+  it("chiede al server le sole notifiche google.proposal aperte ed elenca mittente/oggetto/segnale", async () => {
+    const client = makeClient();
+    client.listInbox.mockResolvedValue({ items: [fakeMailItem()], nextCursor: null });
+    const { ctx } = makeCtx(client);
+
+    const res = await tool("list_mail_proposals").handler({}, ctx);
+
+    expect(client.listInbox).toHaveBeenCalledWith({ status: "open", kind: "google.proposal" });
+    expect(res.isError).toBeUndefined();
+    const text = firstText(res);
+    expect(text).toContain("laura@cliente.test");
+    expect(text).toContain("Rinviamo il rilascio?");
+    expect(text).toContain("segnale: decision");
+    expect(text).toContain("email");
+    expect(text).toContain(MAIL_NOTIFICATION_ID);
+    expect(text).toContain("Slack");
+  });
+
+  it("distingue una proposta dal calendario", async () => {
+    const client = makeClient();
+    client.listInbox.mockResolvedValue({
+      items: [
+        fakeMailItem({
+          google: {
+            source: "calendar",
+            from: "laura@cliente.test",
+            subject: "Demo col cliente",
+            signal: "none",
+          },
+        }),
+      ],
+      nextCursor: null,
+    });
+    const { ctx } = makeCtx(client);
+
+    const res = await tool("list_mail_proposals").handler({}, ctx);
+
+    expect(firstText(res)).toContain("evento di calendario");
+  });
+
+  it("rende comprensibile la lista vuota, senza segnalarla come errore", async () => {
+    const client = makeClient();
+    client.listInbox.mockResolvedValue({ items: [], nextCursor: null });
+    const { ctx } = makeCtx(client);
+
+    const res = await tool("list_mail_proposals").handler({}, ctx);
+
+    expect(res.isError).toBeUndefined();
+    expect(firstText(res)).toContain("Nessuna proposta dalla posta");
+  });
+
+  it("regge una riga senza il blocco google (payload non allineato): niente contorno inventato", async () => {
+    const client = makeClient();
+    const item = fakeMailItem();
+    delete (item as { google?: unknown }).google;
+    client.listInbox.mockResolvedValue({ items: [item], nextCursor: null });
+    const { ctx } = makeCtx(client);
+
+    const res = await tool("list_mail_proposals").handler({}, ctx);
+
+    expect(res.isError).toBeUndefined();
+    const text = firstText(res);
+    expect(text).toContain("Laura chiede a proposito");
+    expect(text).toContain(MAIL_NOTIFICATION_ID);
+    expect(text).not.toContain("laura@cliente.test");
+  });
+
+  it("cattura gli errori del client in un ToolResult d'errore", async () => {
+    const client = makeClient();
+    client.listInbox.mockRejectedValue(
+      new StubwiseApiError("Token non valido", 401, "unauthorized"),
+    );
+    const { ctx } = makeCtx(client);
+
+    const res = await tool("list_mail_proposals").handler({}, ctx);
+
+    expect(res.isError).toBe(true);
+    expect(firstText(res)).toContain("Token non valido");
+  });
+});
+
 describe("get_project_brief", () => {
   const BRIEF_ID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
 
@@ -613,7 +719,7 @@ describe("registerReadTools", () => {
 
     registerReadTools(server, ctx);
 
-    expect(registerTool).toHaveBeenCalledTimes(8);
+    expect(registerTool).toHaveBeenCalledTimes(9);
     const names = registerTool.mock.calls.map((c) => c[0]);
     expect(names).toEqual([
       "list_projects",
@@ -622,6 +728,7 @@ describe("registerReadTools", () => {
       "list_tickets",
       "get_ticket",
       "list_proposals",
+      "list_mail_proposals",
       "get_project_brief",
       "list_decisions",
     ]);

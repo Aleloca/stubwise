@@ -301,3 +301,104 @@ export type EmailRoutesPut = z.input<typeof emailRoutesPutSchema>;
  */
 export const emailLabelsSchema = z.object({ labels: z.array(z.string()).default([]) });
 export type EmailLabels = z.infer<typeof emailLabelsSchema>;
+
+// ---------------------------------------------------------------------------
+// Pagina Posta (Task 12): messaggi ed eventi TRATTATI, per utente
+// ---------------------------------------------------------------------------
+
+/** Da dove nasce la riga: una email o un evento di calendario. */
+export const mailSourceSchema = z.enum(["email", "calendar"]);
+export type MailSource = z.infer<typeof mailSourceSchema>;
+
+/**
+ * Stato NORMALIZZATO di una riga della pagina Posta, uguale per le due
+ * sorgenti anche se le colonne sottostanti non lo sono: `email_messages.status`
+ * ha esattamente questi valori, `calendar_events` non ha una colonna di
+ * workflow gemella (la sua `status` è quella di GOOGLE — confirmed/tentative/
+ * cancelled) e il server la deriva da `outcome`/`proposal_notification_id`
+ * (vedi `deriveCalendarMailStatus` in `apps/server/src/routes/me-mail.ts`).
+ * Un unico vocabolario è ciò che permette a `?status=failed` di filtrare le
+ * due tabelle allo stesso modo, ed è ciò che decide se «Riproponi» compare.
+ */
+export const mailItemStatusSchema = z.enum([
+  "new",
+  "classified",
+  "proposed",
+  "actioned",
+  "ignored",
+  "failed",
+  "cancelled",
+]);
+export type MailItemStatus = z.infer<typeof mailItemStatusSchema>;
+
+/** Il segnale riconosciuto dalla classificazione. Assente sugli eventi di calendario (non c'è AI). */
+export const mailSignalSchema = z.enum(["decision", "request", "deadline", "blocker", "none"]);
+export type MailSignal = z.infer<typeof mailSignalSchema>;
+
+/**
+ * UNA riga della pagina Posta: un messaggio Gmail o un evento di calendario
+ * TRATTATO, nella forma UNIFICATA che la UI consuma senza sapere da quale
+ * tabella viene (`source` distingue le due, per chi deve costruire il link
+ * di «Riproponi»).
+ *
+ * `from` è il mittente della email o l'organizzatore dell'evento; `title` è
+ * l'oggetto o il titolo. Entrambi TESTO NON FIDATO (li scrive chi ha mandato
+ * la email o creato l'evento): chi li rende su una superficie con markup li
+ * escapa, come `from`/`subject` di `inboxGoogleSchema`.
+ *
+ * `reproposable` è calcolato dal server (stesso criterio di
+ * `POST /api/me/mail/:source/:id/repropose`: `status` `failed` o `ignored`) —
+ * la UI non lo deduce da `status` per non duplicare quella regola.
+ */
+export const mailItemSchema = z.object({
+  id: z.uuid(),
+  source: mailSourceSchema,
+  accountId: z.uuid(),
+  /** L'email della casella Google da cui la riga è arrivata. */
+  accountEmail: z.string(),
+  projectId: z.uuid().nullable(),
+  /** Nome del progetto, per non costringere la UI a una seconda chiamata. `null` = non risolto. */
+  projectName: z.string().nullable().default(null),
+  /** Oggetto della email o titolo dell'evento. NON FIDATO. */
+  title: z.string().nullable().default(null),
+  /** Mittente della email o organizzatore dell'evento. NON FIDATO. */
+  from: z.string().nullable().default(null),
+  /** Quando la email è arrivata, o quando l'evento comincia. */
+  date: z.iso.datetime(),
+  status: mailItemStatusSchema,
+  /** `null` sugli eventi di calendario (nessuna classificazione AI) e sui messaggi non ancora classificati. */
+  signal: mailSignalSchema.nullable().default(null),
+  /** Esito dell'azione confermata (id creati, `exists`, `cancelled`, `failed`+`error`…), se già chiusa. */
+  outcome: z.record(z.string(), z.unknown()).nullable().default(null),
+  /** Messaggio TECNICO del fallimento (mai il testo dell'email), se `status: "failed"`. */
+  error: z.string().nullable().default(null),
+  /** Link al thread Gmail o all'evento del calendario. `null` se non ricostruibile. */
+  url: z.string().nullable().default(null),
+  reproposable: z.boolean().default(false),
+});
+export type MailItem = z.infer<typeof mailItemSchema>;
+
+/** Pagina della lista Posta: `nextCursor` null quando non c'è altro da leggere. */
+export const mailPageSchema = z.object({
+  items: z.array(mailItemSchema),
+  nextCursor: z.string().nullable(),
+});
+export type MailPage = z.infer<typeof mailPageSchema>;
+
+/**
+ * Contatori per il badge di nav e l'intestazione della pagina. `openProposals`
+ * è quello che alimenta il badge (le proposte APERTE, cioè le notifiche
+ * `google.proposal` non ancora gestite di questo utente — non lo stato delle
+ * righe di posta, che può restare `proposed` anche dopo che la notifica è
+ * stata archiviata senza confermare un'opzione).
+ */
+export const mailSummarySchema = z.object({
+  openProposals: z.number().int().min(0).default(0),
+  failed: z.number().int().min(0).default(0),
+  ignored: z.number().int().min(0).default(0),
+});
+export type MailSummary = z.infer<typeof mailSummarySchema>;
+
+/** Risposta di `POST /api/me/mail/:source/:id/repropose`: nessun dato oltre l'esito. */
+export const mailReproposeResultSchema = z.object({ ok: z.literal(true) });
+export type MailReproposeResult = z.infer<typeof mailReproposeResultSchema>;

@@ -287,6 +287,50 @@ const listProposals: ToolDef = {
     }),
 };
 
+// --- list_mail_proposals -----------------------------------------------------
+
+/**
+ * Rende una riga di proposta Google. Il blocco `google` è OPZIONALE — il
+ * server lo omette quando il payload non è leggibile o non è allineato alle
+ * opzioni — e la sua assenza NON è un errore: la proposta esiste comunque, si
+ * perde solo il contorno (mittente, oggetto, segnale), che resta leggibile
+ * dall'inbox web. Stesso stile difensivo di `renderPulseItem`.
+ */
+function renderMailItem(item: InboxItemSummary): string {
+  if (!item.google) return `- ${item.text} (notifica: ${item.id})`;
+  const { source, from, subject, signal } = item.google;
+  const originLabel = source === "email" ? "email" : "evento di calendario";
+  const subjectPart = subject ? ` — "${subject}"` : "";
+  return `- [${originLabel}] ${from || "mittente sconosciuto"}${subjectPart} · segnale: ${signal} (notifica: ${item.id})`;
+}
+
+const listMailProposals: ToolDef = {
+  name: "list_mail_proposals",
+  description:
+    "Elenca le proposte APERTE nate dalla posta o dal calendario (kind google.proposal), indirizzate A TE (l'utente del token): per ogni email o evento in perimetro, mittente/organizzatore, oggetto/titolo, segnale riconosciuto (decisione/richiesta/scadenza/blocco) e id della notifica. " +
+    "Serve a SAPERE, non ad agire: da qui NON si conferma niente e non esiste un tool MCP che risponda a una proposta — si sceglie dall'inbox della web app o dal DM Slack, dove si vede anche l'azione proposta (voce di backlog, milestone, aggiornamento o commento a un ticket, decisione registrata). " +
+    "La proposta è per DESTINATARIO, non per casella: solo il proprietario della casella la vede (mai un admin), e una lista vuota significa solo che a te non ne è arrivata nessuna di aperta.",
+  inputSchema: {},
+  handler: (_args, ctx): Promise<ToolResult> =>
+    runTool(async () => {
+      const page = await ctx.client.listInbox({ status: "open", kind: "google.proposal" });
+
+      if (page.items.length === 0) {
+        return textResult(
+          "Nessuna proposta dalla posta o dal calendario aperta per te.\n" +
+            "Arrivano solo al proprietario della casella collegata (Impostazioni → Account), solo per email/eventi che rientrano nelle regole di routing di un progetto: l'assenza qui non dice nulla sulla posta non ancora trattata.",
+        );
+      }
+
+      const blocks = page.items.map(renderMailItem);
+      return textResult(
+        `Proposte dalla posta aperte per te (${page.items.length}):\n${blocks.join("\n")}\n\n` +
+          "Per confermarne una si risponde dall'inbox della web app o dal DM Slack: non c'è un tool MCP per farlo da qui. " +
+          "L'elenco completo (comprese quelle già trattate, fallite o riproponibili) è nella pagina Posta della web app.",
+      );
+    }),
+};
+
 // --- get_project_brief ------------------------------------------------------
 
 /** Il periodo coperto, come lo legge un umano. */
@@ -428,6 +472,7 @@ export const readTools: ToolDef[] = [
   listTickets,
   getTicket,
   listProposals,
+  listMailProposals,
   getProjectBrief,
   listDecisions,
 ];

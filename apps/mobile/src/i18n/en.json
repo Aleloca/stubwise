@@ -90,7 +90,8 @@
         "awaitingInput": "Agent question",
         "pulse": "Pulse proposal",
         "brief": "Weekly brief",
-        "unknown": "Update"
+        "unknown": "Update",
+        "googleProposal": "Mailbox proposal"
       },
       "actions": {
         "respond": "Respond",

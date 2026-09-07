@@ -169,6 +169,23 @@ export interface InboxPulse {
 }
 
 /**
+ * Il contorno di una proposta Google su una riga d'inbox (fase 6, Task 12):
+ * da dove nasce (email o calendario), mittente/oggetto (testo NON FIDATO —
+ * scritto da chi ha mandato la email), quando, e il segnale riconosciuto.
+ *
+ * ⚠️ Il server lo omette INTERAMENTE quando il payload non è leggibile o non è
+ * allineato alle opzioni della notifica: è opzionale sulla riga, come
+ * {@link InboxPulse}, e chi lo legge deve reggerne l'assenza.
+ */
+export interface InboxGoogle {
+  source: "email" | "calendar";
+  from: string;
+  subject: string;
+  receivedAt?: string;
+  signal: "decision" | "request" | "deadline" | "blocker" | "none";
+}
+
+/**
  * Forma difensiva di una riga d'inbox (`GET /api/inbox`): i soli campi che i
  * tool MCP leggono. Il contratto completo (azioni, snooze, chi l'ha gestita,
  * la domanda dell'agente...) resta al client web: qui l'inbox si LEGGE e basta
@@ -184,6 +201,8 @@ export interface InboxItemSummary {
   url?: string;
   /** Presente solo sul kind `project.pulse`, e solo se il payload è leggibile. */
   pulse?: InboxPulse;
+  /** Presente solo sul kind `google.proposal`, e solo se il payload è leggibile. */
+  google?: InboxGoogle;
   createdAt: string;
 }
 

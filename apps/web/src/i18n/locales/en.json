@@ -25,7 +25,8 @@
       "settings": "Settings",
       "docs": "Documentation",
       "label": "Navigation",
-      "open": "Open navigation"
+      "open": "Open navigation",
+      "mail": "Mail"
     },
     "on": "on",
     "off": "off"
@@ -1100,7 +1101,8 @@
       "monitor": "Monitoring alerts",
       "awaitingInput": "AI question awaiting an answer",
       "pulse": "Proactive pulse on idle projects",
-      "brief": "Weekly project brief"
+      "brief": "Weekly project brief",
+      "googleProposal": "Mailbox proposal (email/calendar)"
     },
     "samples": {
       "ticketCreated": "New ticket",
@@ -1112,7 +1114,8 @@
       "jobFailed": "Fix failed",
       "docsLimitPaused": "Docs paused",
       "awaitingInput": "AI question",
-      "pulse": "Backlog proposal"
+      "pulse": "Backlog proposal",
+      "googleProposal": "Mailbox proposal"
     },
     "slack": {
       "step1Prefix": "Go to",
@@ -1238,6 +1241,22 @@
       "forbidden": "Maintainers only",
       "invalidAction": "This action is not available on this notification",
       "generic": "Action failed"
+    },
+    "google": {
+      "unknownSender": "Unknown sender",
+      "confirm": "Confirm",
+      "openThread": "Open the thread",
+      "openEvent": "Open the event",
+      "errors": {
+        "stale": "This proposal is no longer available",
+        "alreadyTaken": "Already handled by {{email}}",
+        "alreadyTakenUnknown": "Already handled by someone else",
+        "targetGone": "The target of this action no longer exists — you can retry it from the Mail page",
+        "actionFailed": "This action could not be completed — you can retry it from the Mail page",
+        "invalidChoice": "This proposal is no longer available",
+        "forbidden": "You cannot confirm this proposal",
+        "generic": "Could not confirm the proposal"
+      }
     }
   },
   "question": {
@@ -1363,7 +1382,14 @@
     },
     "priorityTitle": "Priority: {{label}}",
     "sourceTitle": "Source: {{label}}",
-    "effortTitle": "Effort: {{label}} ({{value}}/5)"
+    "effortTitle": "Effort: {{label}} ({{value}}/5)",
+    "signal": {
+      "decision": "Decision",
+      "request": "Request",
+      "deadline": "Deadline",
+      "blocker": "Blocker",
+      "none": "Other"
+    }
   },
   "projects": {
     "list": {
@@ -2237,5 +2263,42 @@
       "done": "Done",
       "failed": "Failed"
     }
+  },
+  "mail": {
+    "title": "Mail",
+    "subtitle": "Messages and calendar events handled by Stubwise, and what happened to them.",
+    "filters": {
+      "account": "Mailbox",
+      "allAccounts": "All mailboxes",
+      "status": "Status",
+      "allStatuses": "All statuses",
+      "project": "Project",
+      "allProjects": "All projects"
+    },
+    "status": {
+      "new": "New",
+      "classified": "Classified",
+      "proposed": "Proposed",
+      "actioned": "Actioned",
+      "ignored": "Ignored",
+      "failed": "Failed",
+      "cancelled": "Cancelled"
+    },
+    "source": {
+      "email": "Email",
+      "calendar": "Calendar"
+    },
+    "noProject": "No project",
+    "noSubject": "(no subject)",
+    "open": "Open",
+    "repropose": "Repropose",
+    "reproposing": "Reproposing…",
+    "reproposed": "Reproposed — check the inbox for the new proposal",
+    "reproposeError": "Could not repropose this item",
+    "openProposalsBadge": "{{count}} open",
+    "empty": "// no mail",
+    "loadMore": "Load more",
+    "loadingMore": "Loading…",
+    "loadError": "Could not load Mail."
   }
 }

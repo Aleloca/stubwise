@@ -95,6 +95,11 @@ const notificationSettingsResponseSchema = z.object({
   notifyAwaitingInput: z.boolean(),
   notifyPulse: z.boolean(),
   notifyBrief: z.boolean(),
+  // Fase 6: il toggle d'istanza della proposta nata dalla posta/calendario.
+  // Esiste in `dispatch` e nella colonna dal Task 1 (`notify_google_proposal`,
+  // default true), ma senza questo campo di rotta non era raggiungibile da
+  // nessuna UI — stessa storia di `notifyBrief` in fase 5.
+  notifyGoogleProposal: z.boolean(),
 });
 
 /**
@@ -140,6 +145,9 @@ const updateNotificationsBodySchema = z.object({
   // Default true: i client esistenti che non inviano il campo conservano il
   // comportamento "annuncia il brief settimanale del progetto".
   notifyBrief: z.boolean().default(true),
+  // Default true: i client esistenti che non inviano il campo conservano il
+  // comportamento "notifica le proposte nate dalla posta/calendario".
+  notifyGoogleProposal: z.boolean().default(true),
 });
 
 const testNotificationResponseSchema = z.object({
@@ -224,6 +232,7 @@ async function loadNotificationSettings(
       notifyAwaitingInput: true,
       notifyPulse: true,
       notifyBrief: true,
+      notifyGoogleProposal: true,
     };
   }
   return {
@@ -243,6 +252,7 @@ async function loadNotificationSettings(
     notifyAwaitingInput: row.notifyAwaitingInput,
     notifyPulse: row.notifyPulse,
     notifyBrief: row.notifyBrief,
+    notifyGoogleProposal: row.notifyGoogleProposal,
   };
 }
 
@@ -457,6 +467,7 @@ export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
           notifyAwaitingInput: body.notifyAwaitingInput,
           notifyPulse: body.notifyPulse,
           notifyBrief: body.notifyBrief,
+          notifyGoogleProposal: body.notifyGoogleProposal,
         })
         .onConflictDoUpdate({
           target: notificationSettings.id,
@@ -477,6 +488,7 @@ export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
             notifyAwaitingInput: body.notifyAwaitingInput,
             notifyPulse: body.notifyPulse,
             notifyBrief: body.notifyBrief,
+            notifyGoogleProposal: body.notifyGoogleProposal,
             updatedAt: new Date(),
           },
         });

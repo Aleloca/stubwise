@@ -25,7 +25,8 @@
       "settings": "Impostazioni",
       "docs": "Documentazione",
       "label": "Navigazione",
-      "open": "Apri navigazione"
+      "open": "Apri navigazione",
+      "mail": "Posta"
     },
     "on": "attivo",
     "off": "disattivato"
@@ -1100,7 +1101,8 @@
       "monitor": "Alert di monitoraggio",
       "awaitingInput": "Domanda dell'AI in attesa di risposta",
       "pulse": "Pulse proattivo sui progetti fermi",
-      "brief": "Brief settimanale del progetto"
+      "brief": "Brief settimanale del progetto",
+      "googleProposal": "Proposta dalla posta (email/calendario)"
     },
     "samples": {
       "ticketCreated": "Nuovo ticket",
@@ -1112,7 +1114,8 @@
       "jobFailed": "Fix fallito",
       "docsLimitPaused": "Docs in pausa",
       "awaitingInput": "Domanda dell'AI",
-      "pulse": "Proposta dal backlog"
+      "pulse": "Proposta dal backlog",
+      "googleProposal": "Proposta dalla posta"
     },
     "slack": {
       "step1Prefix": "Vai su",
@@ -1238,6 +1241,22 @@
       "forbidden": "Azione riservata ai maintainer",
       "invalidAction": "Azione non disponibile su questa notifica",
       "generic": "Azione non riuscita"
+    },
+    "google": {
+      "unknownSender": "Mittente sconosciuto",
+      "confirm": "Conferma",
+      "openThread": "Apri il thread",
+      "openEvent": "Apri l'evento",
+      "errors": {
+        "stale": "Questa proposta non è più disponibile",
+        "alreadyTaken": "Già gestita da {{email}}",
+        "alreadyTakenUnknown": "Già gestita da qualcun altro",
+        "targetGone": "Il bersaglio di questa azione non esiste più — puoi riproporla dalla pagina Posta",
+        "actionFailed": "Questa azione non è riuscita — puoi riproporla dalla pagina Posta",
+        "invalidChoice": "Questa proposta non è più disponibile",
+        "forbidden": "Non puoi confermare questa proposta",
+        "generic": "Conferma della proposta non riuscita"
+      }
     }
   },
   "question": {
@@ -1363,7 +1382,14 @@
     },
     "priorityTitle": "Priorità: {{label}}",
     "sourceTitle": "Origine: {{label}}",
-    "effortTitle": "Sforzo: {{label}} ({{value}}/5)"
+    "effortTitle": "Sforzo: {{label}} ({{value}}/5)",
+    "signal": {
+      "decision": "Decisione",
+      "request": "Richiesta",
+      "deadline": "Scadenza",
+      "blocker": "Blocco",
+      "none": "Altro"
+    }
   },
   "projects": {
     "list": {
@@ -2237,5 +2263,42 @@
       "done": "Completato",
       "failed": "Fallito"
     }
+  },
+  "mail": {
+    "title": "Posta",
+    "subtitle": "Messaggi ed eventi di calendario trattati da Stubwise, e cosa ne è stato fatto.",
+    "filters": {
+      "account": "Casella",
+      "allAccounts": "Tutte le caselle",
+      "status": "Stato",
+      "allStatuses": "Tutti gli stati",
+      "project": "Progetto",
+      "allProjects": "Tutti i progetti"
+    },
+    "status": {
+      "new": "Nuovo",
+      "classified": "Classificato",
+      "proposed": "Proposto",
+      "actioned": "Eseguito",
+      "ignored": "Ignorato",
+      "failed": "Fallito",
+      "cancelled": "Annullato"
+    },
+    "source": {
+      "email": "Email",
+      "calendar": "Calendario"
+    },
+    "noProject": "Nessun progetto",
+    "noSubject": "(nessun oggetto)",
+    "open": "Apri",
+    "repropose": "Riproponi",
+    "reproposing": "Riproponendo…",
+    "reproposed": "Riproposto — la nuova proposta arriverà in inbox a breve",
+    "reproposeError": "Non è stato possibile riproporre questa voce",
+    "openProposalsBadge": "{{count}} aperte",
+    "empty": "// nessuna posta",
+    "loadMore": "Carica altre",
+    "loadingMore": "Carico…",
+    "loadError": "Non è stato possibile caricare la Posta."
   }
 }

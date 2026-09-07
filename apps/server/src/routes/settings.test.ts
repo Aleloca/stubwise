@@ -360,6 +360,7 @@ interface NotificationSettings {
   notifyJobFailed: boolean;
   notifyMonitor: boolean;
   notifyBrief: boolean;
+  notifyGoogleProposal: boolean;
 }
 
 describe("GET /api/settings/notifications", () => {
@@ -390,6 +391,9 @@ describe("GET /api/settings/notifications", () => {
     // e nella colonna dal giorno uno della fase, ma senza queste due righe di
     // rotta non era raggiungibile da nessuna UI — cioè non era un toggle.
     expect(body.notifyBrief).toBe(true);
+    // Fase 6: stessa storia del toggle del brief, per la proposta nata dalla
+    // posta/calendario.
+    expect(body.notifyGoogleProposal).toBe(true);
   });
 });
 
@@ -415,6 +419,27 @@ describe("PUT /api/settings/notifications", () => {
     expect(after.notifyBrief).toBe(false);
   });
 
+  it("il toggle della proposta Google si spegne e resta spento", async () => {
+    const res = await putNotifications(
+      {
+        webhookUrl: "",
+        format: "slack",
+        enabled: true,
+        notifyTicketCreated: true,
+        notifyPrOpened: true,
+        notifyJobHeld: true,
+        notifyJobFailed: true,
+        notifyGoogleProposal: false,
+      },
+      users.adminCookie,
+    );
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as NotificationSettings).notifyGoogleProposal).toBe(false);
+
+    const after = (await getNotifications(users.adminCookie)).json() as NotificationSettings;
+    expect(after.notifyGoogleProposal).toBe(false);
+  });
+
   /**
    * Come ogni altro toggle di questo body: `.default(true)`. Un client che non
    * conosce il campo (una SPA in cache, un'automazione) non deve SPEGNERE il
@@ -435,6 +460,23 @@ describe("PUT /api/settings/notifications", () => {
     );
     expect(res.statusCode).toBe(200);
     expect((res.json() as NotificationSettings).notifyBrief).toBe(true);
+  });
+
+  it("un body che NON manda notifyGoogleProposal non lo spegne", async () => {
+    const res = await putNotifications(
+      {
+        webhookUrl: "",
+        format: "slack",
+        enabled: true,
+        notifyTicketCreated: true,
+        notifyPrOpened: true,
+        notifyJobHeld: true,
+        notifyJobFailed: true,
+      },
+      users.adminCookie,
+    );
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as NotificationSettings).notifyGoogleProposal).toBe(true);
   });
 
   it("member: 403", async () => {

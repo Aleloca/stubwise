@@ -27,6 +27,15 @@ const KIND_META: Record<string, { i18nKey: string; tone: ColorToken }> = {
   // aggiornamenti dai progetti. Su un'app PRECEDENTE alla fase questo kind è
   // `UNKNOWN` e ricade sull'etichetta generica: previsto, e coperto da un test.
   "project.brief": { i18nKey: "mobile.inbox.kinds.brief", tone: "muted" },
+  // Fase 6: la proposta nata dalla posta o dal calendario. DEGRADAZIONE
+  // VOLUTA — l'app resta informativa anche qui, mai una card azionabile: la
+  // riga MCP `google.proposal → InfoCard` in `InboxCard.tsx` la fa già
+  // ricadere sul `default` di quello switch, questa voce le dà solo
+  // un'etichetta propria invece del generico "Update". `tone: "signal"`
+  // (come `job.awaiting_input`/`project.pulse`): è una proposta che aspetta
+  // una scelta, anche se qui non si può prenderla — si conferma da "Apri" →
+  // la web app o Slack.
+  "google.proposal": { i18nKey: "mobile.inbox.kinds.googleProposal", tone: "signal" },
 };
 
 export interface InfoCardProps {

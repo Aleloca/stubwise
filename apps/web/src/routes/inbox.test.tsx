@@ -163,6 +163,39 @@ const PULSE = item({
   },
 });
 
+const GOOGLE_NOTIFICATION_ID = "eeeeeeee-5555-4555-8555-eeeeeeeeeeee";
+
+/**
+ * Riga di una PROPOSTA GOOGLE (fase 6): stessa forma a opzioni del pulse, ma
+ * con `allowFreeText: false` fisso e il blocco `google` (mittente, oggetto,
+ * data, segnale) invece di `pulse`.
+ */
+const GOOGLE = item({
+  id: GOOGLE_NOTIFICATION_ID,
+  kind: "google.proposal",
+  text: "Laura asks about «Ship next week?». How do we follow up?",
+  actions: ["answer", "open", "snooze", "handled"],
+  url: "https://mail.google.com/mail/u/mailbox@acme.test/#all/t1",
+  question: {
+    questionId: GOOGLE_NOTIFICATION_ID,
+    question: "How do we follow up?",
+    options: [
+      { label: "Add to backlog", consequence: "New backlog item on Apollo" },
+      { label: "Ignore", consequence: "Nothing happens" },
+    ],
+    recommendedIndex: 0,
+    allowFreeText: false,
+  },
+  google: {
+    source: "email",
+    from: "laura@cliente.test",
+    subject: "Ship next week?",
+    receivedAt: "2026-08-31T09:00:00.000Z",
+    signal: "decision",
+    actions: [{ type: "create_backlog_item" }, { type: "ignore" }],
+  },
+});
+
 /** Riga di sola informazione: nessuna azione decisionale. */
 const KNOW = item({
   id: KNOW_ID,
@@ -868,6 +901,110 @@ describe("pagina /inbox", () => {
     // Le opzioni vengono da `question`, che c'è: si sceglie e si avvia lo stesso.
     expect(decide.getByRole("radio", { name: "Filter by status" })).toBeInTheDocument();
     expect(decide.getByRole("button", { name: "Start" })).toBeInTheDocument();
+  });
+
+  it("la proposta Google: contorno (mittente, oggetto, data, segnale), conferma 'Confirm', link al thread in una scheda nuova", async () => {
+    mockApi(
+      baseApi({ "GET /api/inbox": () => jsonResponse(200, { items: [GOOGLE], nextCursor: null }) }),
+    );
+    renderInbox();
+    await screen.findByRole("heading", { name: "Inbox" });
+
+    const decide = within(section("To decide"));
+    expect(decide.getByText("Mailbox proposal")).toBeInTheDocument();
+    // Il contorno: mittente, oggetto, data (relativa), segnale.
+    expect(decide.getByText("laura@cliente.test")).toBeInTheDocument();
+    expect(decide.getByText("— Ship next week?")).toBeInTheDocument();
+    expect(decide.getByText("Decision")).toBeInTheDocument();
+
+    // Confermare esegue l'azione scelta, non risponde a nessuno: "Confirm".
+    expect(decide.getByRole("button", { name: "Confirm" })).toBeInTheDocument();
+    expect(decide.queryByRole("button", { name: "Send answer" })).toBeNull();
+    expect(decide.queryByRole("button", { name: "Start" })).toBeNull();
+
+    // Il link al thread apre in una scheda NUOVA, a differenza degli altri "Apri".
+    const openLink = decide.getByRole("link", { name: "Open the thread" });
+    expect(openLink).toHaveAttribute(
+      "href",
+      "https://mail.google.com/mail/u/mailbox@acme.test/#all/t1",
+    );
+    expect(openLink).toHaveAttribute("target", "_blank");
+    expect(openLink).toHaveAttribute("rel", "noopener noreferrer");
+  });
+
+  it("la proposta Google da un evento di calendario: 'Apri l'evento'", async () => {
+    const calendarProposal: InboxItem = {
+      ...GOOGLE,
+      google: { ...GOOGLE.google!, source: "calendar" },
+    };
+    mockApi(
+      baseApi({
+        "GET /api/inbox": () => jsonResponse(200, { items: [calendarProposal], nextCursor: null }),
+      }),
+    );
+    renderInbox();
+    await screen.findByRole("heading", { name: "Inbox" });
+
+    expect(
+      within(section("To decide")).getByRole("link", { name: "Open the event" }),
+    ).toBeInTheDocument();
+  });
+
+  it("409 target_gone su una proposta Google: messaggio dedicato, non generico", async () => {
+    mockApi(
+      baseApi({
+        "GET /api/inbox": () => jsonResponse(200, { items: [GOOGLE], nextCursor: null }),
+        "POST /api/inbox/:id/actions/answer": () =>
+          jsonResponse(409, { code: "target_gone", message: "Target is gone" }),
+      }),
+    );
+    renderInbox();
+    await screen.findByRole("heading", { name: "Inbox" });
+
+    await userEvent.click(screen.getByRole("radio", { name: "Add to backlog recommended" }));
+    await userEvent.click(screen.getByRole("button", { name: "Confirm" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "The target of this action no longer exists",
+    );
+  });
+
+  it("409 action_failed su una proposta Google: messaggio dedicato", async () => {
+    mockApi(
+      baseApi({
+        "GET /api/inbox": () => jsonResponse(200, { items: [GOOGLE], nextCursor: null }),
+        "POST /api/inbox/:id/actions/answer": () =>
+          jsonResponse(409, { code: "action_failed", message: "Action failed" }),
+      }),
+    );
+    renderInbox();
+    await screen.findByRole("heading", { name: "Inbox" });
+
+    await userEvent.click(screen.getByRole("radio", { name: "Add to backlog recommended" }));
+    await userEvent.click(screen.getByRole("button", { name: "Confirm" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "This action could not be completed",
+    );
+  });
+
+  it("proposta Google senza il blocco `google`: la card resta intera e confermabile, senza contorno", async () => {
+    // `google` è opzionale nel contratto (payload di una versione precedente,
+    // o azioni non allineate alle opzioni): si perde il contorno, non la card.
+    const withoutGoogle: InboxItem = { ...GOOGLE };
+    delete withoutGoogle.google;
+    mockApi(
+      baseApi({
+        "GET /api/inbox": () => jsonResponse(200, { items: [withoutGoogle], nextCursor: null }),
+      }),
+    );
+    renderInbox();
+    await screen.findByRole("heading", { name: "Inbox" });
+
+    const decide = within(section("To decide"));
+    expect(decide.queryByText("laura@cliente.test")).toBeNull();
+    expect(decide.getByRole("radio", { name: "Add to backlog recommended" })).toBeInTheDocument();
+    expect(decide.getByRole("button", { name: "Confirm" })).toBeInTheDocument();
   });
 
   it("errore di caricamento: messaggio e retry", async () => {

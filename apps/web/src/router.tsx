@@ -30,6 +30,8 @@ import {
   instanceSettingsQueryOptions,
   invitesQueryOptions,
   briefQueryOptions,
+  mailQueryOptions,
+  mailSummaryQueryOptions,
   milestonesQueryOptions,
   myFollowsQueryOptions,
   myGoogleAccountsQueryOptions,
@@ -69,6 +71,7 @@ import { DocsGraphView } from "./routes/docs/graph.$projectId";
 import { DocsPage } from "./routes/docs/index";
 import { ProjectDocsLanding } from "./routes/docs/project.$projectId";
 import { InboxPage } from "./routes/inbox";
+import { MailPage } from "./routes/mail";
 import { LoginPage } from "./routes/login";
 import { MonitorListPage } from "./routes/monitor/index";
 import { ServerDetailPage } from "./routes/monitor/server-detail";
@@ -607,6 +610,27 @@ const inboxRoute = createRoute({
 });
 
 /**
+ * Pagina Posta (fase 6, Task 12): messaggi ed eventi TRATTATI dal poller
+ * Google, per l'utente autenticato. `projects` e `myGoogleAccounts`
+ * alimentano i select dei filtri (`useSuspenseQuery`, non catturati); la lista
+ * e il contatore sono best-effort come l'inbox — la pagina ha un proprio
+ * stato d'errore con retry.
+ */
+const mailRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/mail",
+  loader: async ({ context }) => {
+    await Promise.all([
+      context.queryClient.ensureQueryData(mailQueryOptions({})).catch(() => undefined),
+      context.queryClient.ensureQueryData(mailSummaryQueryOptions).catch(() => undefined),
+      context.queryClient.ensureQueryData(projectsQueryOptions),
+      context.queryClient.ensureQueryData(myGoogleAccountsQueryOptions),
+    ]);
+  },
+  component: MailPage,
+});
+
+/**
  * Sezione Attività (standup giornaliero), visibile a ogni membro. Prefetch
  * best-effort del report di IERI (default del componente): la data vive nello
  * stato del componente, quindi il loader può solo precaricare il default; il
@@ -838,6 +862,7 @@ const routeTree = rootRoute.addChildren([
     serverDetailRoute,
     activityRoute,
     inboxRoute,
+    mailRoute,
     teamRoute,
     settingsRoute.addChildren([
       settingsIndexRoute,

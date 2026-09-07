@@ -39,6 +39,10 @@ import type {
   InboxQuestion,
   InboxStatus,
   Language,
+  MailItemStatus,
+  MailPage,
+  MailSource,
+  MailSummary,
   NotificationPrefsUpdate,
   NotificationPrefsView,
   PatView,
@@ -1787,6 +1791,61 @@ export function getProjectEmailLabels(projectId: string): Promise<{ labels: stri
   return api.get(`/api/projects/${encodeURIComponent(projectId)}/email-labels`);
 }
 
+// --- Pagina Posta, per utente (Fase 6, Task 12) ---
+
+export type {
+  MailItem,
+  MailItemStatus,
+  MailPage,
+  MailSignal,
+  MailSource,
+  MailSummary,
+} from "@stubwise/shared";
+
+/** Filtri della lista Posta: tutti opzionali, ognuno è un AND coi gli altri. */
+export interface MailFilters {
+  account?: string;
+  status?: MailItemStatus;
+  project?: string;
+}
+
+/**
+ * Pagina della Posta dell'utente autenticato: messaggi Gmail ed eventi di
+ * calendario TRATTATI, fusi in una lista sola ordinata per data (`source`
+ * distingue le due). Sempre filtrata per `userId` sul server — non esiste un
+ * modo di vedere la posta di un altro, admin compreso.
+ */
+export function getMail(
+  filters: MailFilters = {},
+  cursor?: string,
+  limit?: number,
+): Promise<MailPage> {
+  const params = new URLSearchParams();
+  if (filters.account) params.set("account", filters.account);
+  if (filters.status) params.set("status", filters.status);
+  if (filters.project) params.set("project", filters.project);
+  if (cursor) params.set("cursor", cursor);
+  if (limit !== undefined) params.set("limit", String(limit));
+  const query = params.toString();
+  return api.get(`/api/me/mail${query ? `?${query}` : ""}`);
+}
+
+/** Contatori per il badge di nav e l'intestazione della pagina Posta. */
+export function getMailSummary(): Promise<MailSummary> {
+  return api.get("/api/me/mail/summary");
+}
+
+/**
+ * Riproponi una riga `failed`/`ignored`: resetta lo stato perché il PROSSIMO
+ * tick del poller la riprenda e generi una proposta NUOVA (non ripubblica da
+ * qui). 409 `not_reproposable` se lo stato attuale non è fra quelli
+ * riproponibili — la UI non dovrebbe mostrare il bottone in quel caso, ma la
+ * rotta lo verifica comunque.
+ */
+export function postMailRepropose(source: MailSource, id: string): Promise<{ ok: true }> {
+  return api.post(`/api/me/mail/${source}/${encodeURIComponent(id)}/repropose`);
+}
+
 /**
  * Verifica REPO-SPECIFICA delle credenziali dell'account su un repo scelto
  * (solo admin): sonda i tre check che richiedono un repo reale — push git,
@@ -1917,6 +1976,8 @@ export interface NotificationSettings {
   notifyPulse: boolean;
   /** Brief settimanale: il resoconto per non-tecnici del progetto (fase 5). */
   notifyBrief: boolean;
+  /** Proposta nata dalla posta o dal calendario, indirizzata al proprietario della casella (fase 6). */
+  notifyGoogleProposal: boolean;
 }
 
 /** Esito dell'invio di una notifica di test (lo restituisce l'endpoint /test). */
@@ -1960,6 +2021,8 @@ export function putNotificationSettings(
     notifyPulse: settings.notifyPulse,
     // Idem: default server true, va inviato sempre.
     notifyBrief: settings.notifyBrief,
+    // Idem: default server true, va inviato sempre.
+    notifyGoogleProposal: settings.notifyGoogleProposal,
   });
 }
 

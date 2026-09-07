@@ -10,6 +10,8 @@ import {
   getGitAccounts,
   getInbox,
   getInboxUnreadCount,
+  getMail,
+  getMailSummary,
   getGoogleWorkspaces,
   getMyGoogleAccounts,
   getMyGoogleWorkspaceOptions,
@@ -60,6 +62,7 @@ import {
   type AIJobStatus,
   type BacklogFilters,
   type InboxFilters,
+  type MailFilters,
   type PluginRegistry,
   type DecisionSource,
   type ProjectTimelineKind,
@@ -1183,4 +1186,43 @@ export const notificationPrefsQueryOptions = queryOptions({
   queryKey: mePrefsKeys.notifications(),
   queryFn: getNotificationPrefs,
   staleTime: 60_000,
+});
+
+/**
+ * Chiavi della PAGINA POSTA (fase 6, Task 12): `lists()` matcha ogni lista
+ * filtrata (da invalidare dopo un "Riproponi", che cambia lo stato di una
+ * riga), `summary()` i contatori del badge di nav — separato perché ha un
+ * consumatore diverso (la sidebar, montata anche fuori dalla pagina).
+ */
+export const mailKeys = {
+  all: ["mail"] as const,
+  lists: () => [...mailKeys.all, "list"] as const,
+  list: (filters: MailFilters) => [...mailKeys.lists(), filters] as const,
+  summary: () => [...mailKeys.all, "summary"] as const,
+};
+
+/**
+ * Pagina della Posta per i filtri dati. Stessa forma di `inboxQueryOptions`:
+ * i filtri nella chiave (ogni combinazione è una lista a sé), `staleTime`
+ * breve perché lo stato di una riga cambia anche da un tick del poller, non
+ * solo da un'azione dell'utente.
+ */
+export function mailQueryOptions(filters: MailFilters = {}) {
+  return queryOptions({
+    queryKey: mailKeys.list(filters),
+    queryFn: () => getMail(filters),
+    staleTime: 10_000,
+  });
+}
+
+/**
+ * Contatori per il badge di nav e l'intestazione: `staleTime` più largo
+ * dell'inbox (niente polling costante — la Posta non ha una campanella che
+ * deve accorgersi in tempo reale di un evento nuovo, il numero si allinea
+ * quando si visita la pagina o si naviga altrove e si torna).
+ */
+export const mailSummaryQueryOptions = queryOptions({
+  queryKey: mailKeys.summary(),
+  queryFn: getMailSummary,
+  staleTime: 30_000,
 });

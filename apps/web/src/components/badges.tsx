@@ -2,6 +2,7 @@ import type {
   BacklogItemStatus,
   BacklogRisk,
   GitProviderKind,
+  MailSignal,
   PrState,
   TicketPriority,
   TicketSource,
@@ -75,6 +76,37 @@ const TYPE_CLASS: Record<TicketType, string> = {
   feedback: "text-sky-400 border-sky-400/30",
   review: "text-purple-400 border-purple-400/30",
 };
+
+/**
+ * Il segnale che la classificazione della posta ha riconosciuto (fase 6):
+ * stessa forma dei badge di dominio qui sopra, colore come unico elemento
+ * distintivo. Usato dalla card `google.proposal` (`inbox-item.tsx`) e dalla
+ * pagina Posta (`routes/mail.tsx`) — un solo componente per le due superfici.
+ */
+export const SIGNAL_LABEL_KEYS: Record<MailSignal, string> = {
+  decision: "badges:signal.decision",
+  request: "badges:signal.request",
+  deadline: "badges:signal.deadline",
+  blocker: "badges:signal.blocker",
+  none: "badges:signal.none",
+};
+
+const SIGNAL_CLASS: Record<MailSignal, string> = {
+  decision: "text-sky-400 border-sky-400/30",
+  request: "text-fg-muted border-line-strong",
+  deadline: "text-signal border-signal-dim/40",
+  blocker: "text-danger border-danger/30",
+  none: "text-fg-faint border-line-strong",
+};
+
+export function SignalBadge({ signal }: { signal: MailSignal }) {
+  const { t } = useTranslation();
+  return (
+    <span className={`${badgeBase} border px-2 py-0.5 ${SIGNAL_CLASS[signal]}`}>
+      {t(SIGNAL_LABEL_KEYS[signal])}
+    </span>
+  );
+}
 
 export const SOURCE_LABEL_KEYS: Record<TicketSource, string> = {
   manual: "badges:source.manual",

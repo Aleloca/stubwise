@@ -538,3 +538,64 @@ describe("InboxCard — brief settimanale (kind conosciuto)", () => {
     expect(screen.queryByText("Approva")).toBeNull();
   });
 });
+
+/**
+ * Fase 6, Task 12: `google.proposal` (la proposta nata dalla posta o dal
+ * calendario) è un kind CON opzioni (ha `question`/`google` come il pulse),
+ * ma sull'app resta DEGRADATO a `InfoCard` — mai una card azionabile: è la
+ * differenza voluta rispetto al pulse (`PulseProposalCard`), che sull'app
+ * sceglie e conferma. Qui si può solo "Apri" (verso la web app o il thread) e
+ * fare igiene (posticipa/archivia); confermare l'opzione si fa da un'altra
+ * superficie.
+ */
+describe("InboxCard — proposta Google (fase 6)", () => {
+  const GOOGLE_PROPOSAL = item({
+    id: "gp1",
+    kind: "google.proposal",
+    text: "Laura chiede a proposito di «Rinviamo il rilascio?». Come diamo seguito?",
+    actions: ["answer", "open", "snooze", "handled"],
+    projectId: "11111111-1111-4111-8111-111111111111",
+    url: "https://mail.google.com/mail/u/mailbox@acme.test/#all/t1",
+    question: {
+      questionId: "gp1",
+      question: "Come diamo seguito?",
+      options: [
+        { label: "Aggiungi al backlog", consequence: "Nuova voce su Portale B2B" },
+        { label: "Ignora", consequence: "Nessuna azione" },
+      ],
+      recommendedIndex: 0,
+      allowFreeText: false,
+    },
+    google: {
+      source: "email",
+      from: "laura@cliente.test",
+      subject: "Rinviamo il rilascio?",
+      signal: "decision",
+      actions: [{ type: "create_backlog_item" }, { type: "ignore" }],
+    },
+  });
+
+  test("degrada a InfoCard con la sua etichetta, non a una card con opzioni da scegliere", async () => {
+    await renderCard(GOOGLE_PROPOSAL, makeClient());
+    expect(screen.getByTestId("info-card")).toBeTruthy();
+    expect(screen.getByText("Proposta dalla posta")).toBeTruthy();
+    // Nessun radio/opzione: qui non si conferma l'azione, si va ad "Apri".
+    expect(screen.queryByText("Aggiungi al backlog")).toBeNull();
+    expect(screen.queryByText("Ignora")).toBeNull();
+  });
+
+  test("'Apri' porta al thread (o alla card web), non esegue alcuna azione", async () => {
+    await renderCard(GOOGLE_PROPOSAL, makeClient());
+    await fireEvent.press(screen.getByTestId("info-card-open"));
+    expect(Linking.openURL).toHaveBeenCalledWith(
+      "https://mail.google.com/mail/u/mailbox@acme.test/#all/t1",
+    );
+  });
+
+  test("igiene disponibile (posticipa/archivia), nessun bottone di conferma", async () => {
+    await renderCard(GOOGLE_PROPOSAL, makeClient());
+    expect(screen.getByTestId("info-card-snooze")).toBeTruthy();
+    expect(screen.getByTestId("info-card-handled")).toBeTruthy();
+    expect(screen.queryByTestId("info-card-retry")).toBeNull();
+  });
+});
