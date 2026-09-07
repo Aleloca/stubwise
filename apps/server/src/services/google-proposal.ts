@@ -457,12 +457,22 @@ async function dispatchAction(
         }
         const [project] = await tx.select({ id: projects.id }).from(projects).where(eq(projects.id, args.action.projectId));
         if (!project) return { ok: false, error: "target_gone" };
-        // SOLA riassegnazione: `status: "new"` riporta il messaggio al primo
-        // giro del poller, che lo riclassifica col progetto giusto — nessun'
-        // altra mutazione, come da design.
+        // Riassegnazione: `status: "new"` riporta il messaggio al primo giro
+        // del poller, che lo riclassifica col progetto giusto. `classification`
+        // NON va toccata: il poller la SOVRASCRIVE incondizionatamente a ogni
+        // riclassificazione (`classify.ts`, righe attorno a `revalidateClassification`),
+        // quindi lasciarla lì fino ad allora è innocuo — nessuno la rilegge
+        // prima che venga rimpiazzata. `proposalNotificationId`, invece, VA
+        // azzerato: è l'ancora della proposta appena chiusa e sia la selezione
+        // del poller (`status = 'classified' AND proposal_notification_id IS
+        // NULL`) sia il claim di `publishProposal` lo esigono NULL — senza
+        // questo azzeramento il messaggio torna `classified` dopo la
+        // riclassificazione ma resta invisibile per sempre: nessuna nuova
+        // card, e «Riproponi» in UI è ammesso solo su `failed`/`ignored`, non
+        // su `classified`.
         await tx
           .update(emailMessages)
-          .set({ projectId: args.action.projectId, status: "new" })
+          .set({ projectId: args.action.projectId, status: "new", proposalNotificationId: null })
           .where(eq(emailMessages.id, args.source.rowId));
         return { ok: true };
       }

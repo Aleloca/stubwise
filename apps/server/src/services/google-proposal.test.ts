@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   backlogItems,
@@ -645,7 +645,7 @@ describe("answerGoogleProposal — record_decision", () => {
 // ---------------------------------------------------------------------------
 
 describe("answerGoogleProposal — choose_project", () => {
-  it("riassegna il progetto e riporta status a new (riclassificazione)", async () => {
+  it("riassegna il progetto, riporta status a new e azzera proposalNotificationId (il messaggio torna riproponibile)", async () => {
     const { owner, projectId: originalProjectId, accountId } = await seedOwner();
     const { projectId: chosenProjectId } = await seedRepository(db);
     const email = await seedEmailRow(accountId, originalProjectId);
@@ -668,8 +668,84 @@ describe("answerGoogleProposal — choose_project", () => {
     const msg = await readEmailMessage(email.id);
     expect(msg!.projectId).toBe(chosenProjectId);
     expect(msg!.status).toBe("new");
-    // Nessun'altra mutazione: nessuna decisione, nessun job, nessun outcome.
+    // Nessun'altra mutazione applicativa: nessuna decisione, nessun job, nessun outcome.
     expect(msg!.outcome).toBeNull();
+    // La notifica appena chiusa NON deve restare agganciata: senza questo
+    // azzeramento la riga, una volta riclassificata a `classified`, resta
+    // invisibile per sempre alla selezione del poller e al claim di
+    // `publishProposal` (entrambi esigono `proposal_notification_id IS
+    // NULL`) — vedi il test di integrazione sotto.
+    expect(msg!.proposalNotificationId).toBeNull();
+  });
+
+  it("dopo la riassegnazione, una riclassificazione rende il messaggio di nuovo selezionabile dal poller e claimabile da publishProposal", async () => {
+    const { owner, projectId: originalProjectId, accountId } = await seedOwner();
+    const { projectId: chosenProjectId } = await seedRepository(db);
+    const email = await seedEmailRow(accountId, originalProjectId);
+    await db.update(emailMessages).set({ projectId: null }).where(eq(emailMessages.id, email.id));
+    const { notificationId } = await seedProposal({
+      ownerId: owner.id,
+      sourceId: email.id,
+      source: "email",
+      actions: [{ type: "choose_project", projectId: chosenProjectId }, { type: "ignore" }],
+    });
+
+    const result = await answerGoogleProposal(db, { notificationId, actor: owner, optionIndex: 0 });
+    expect(result.ok).toBe(true);
+
+    // Simula la riclassificazione del poller (`apps/worker/src/google/classify.ts`):
+    // il messaggio `new` diventa `classified` con una classificazione valida,
+    // sovrascrivendo `classification`/`signal`/`error` incondizionatamente —
+    // esattamente come fa `classifyOneMessage`. Qui riprodotta a mano perché
+    // il worker è un package diverso, non una dipendenza del server (vedi il
+    // Task 3 del piano fase 6: import diretto scomodo, si documenta la
+    // scelta di riprodurre il contratto invece di richiamare il worker).
+    await db
+      .update(emailMessages)
+      .set({
+        status: "classified",
+        signal: "request",
+        classification: { proposals: [{ type: "choose_project" }] },
+        error: null,
+      })
+      .where(eq(emailMessages.id, email.id));
+
+    // La stessa condizione della SELECT del poller
+    // (`apps/worker/src/google/poller.ts`, righe ~1022-1026): il messaggio
+    // riassegnato deve ORA comparire fra i candidati alla proposta.
+    const pollerCandidates = await db
+      .select({ id: emailMessages.id })
+      .from(emailMessages)
+      .where(
+        and(
+          eq(emailMessages.accountId, accountId),
+          eq(emailMessages.status, "classified"),
+          isNull(emailMessages.proposalNotificationId),
+        ),
+      );
+    expect(pollerCandidates.map((r) => r.id)).toContain(email.id);
+
+    // E la stessa condizione del CLAIM di `publishProposal`
+    // (`apps/worker/src/google/proposal.ts`, righe ~562-573) deve ora
+    // riuscire su questa riga: `status = 'classified' AND
+    // proposal_notification_id IS NULL`, entrambe soddisfatte.
+    const claimed = await db
+      .update(emailMessages)
+      .set({ status: "proposed", proposalNotificationId: notificationId })
+      .where(
+        and(
+          eq(emailMessages.id, email.id),
+          eq(emailMessages.status, "classified"),
+          isNull(emailMessages.proposalNotificationId),
+        ),
+      )
+      .returning({ id: emailMessages.id });
+    expect(claimed).toHaveLength(1);
+
+    const msg = await readEmailMessage(email.id);
+    expect(msg!.status).toBe("proposed");
+    expect(msg!.proposalNotificationId).toBe(notificationId);
+    expect(msg!.projectId).toBe(chosenProjectId);
   });
 });
 
