@@ -329,6 +329,58 @@ export interface ProjectBriefEvent {
   summary?: string;
 }
 
+/**
+ * PROPOSTA NATA DALLA POSTA O DAL CALENDARIO (fase 6): una email in perimetro
+ * (o un evento del calendario) ha prodotto uno o più modi di dare seguito —
+ * aprire una voce di backlog, una milestone, aggiornare o commentare un ticket,
+ * registrare una decisione — e li mette davanti a chi possiede la casella.
+ *
+ * Ha la FORMA della domanda della fase 1 e del pulse (`question`, `options`,
+ * `recommendedIndex`, `allowFreeText`) per la stessa ragione: pannello web,
+ * blocchi Slack e schemi condivisi funzionano senza una riga in più.
+ * `allowFreeText` è SEMPRE `false` — si conferma una proposta, non si scrive.
+ *
+ * ⚠️ Il pubblico è UNO SOLO: il proprietario della casella (audience
+ * `mailbox_owner`, vedi `./routing.ts`). Nemmeno gli admin la vedono, e non è
+ * un'ottimizzazione ma l'invariante di privacy della fase: quello che nasce da
+ * una casella resta di chi l'ha collegata.
+ *
+ * ⚠️ `from` e `subject` sono TESTO NON FIDATO — li scrive chi ha mandato la
+ * email, cioè spesso un estraneo. Entrano nella frase della notifica e per
+ * Slack passano da {@link escapeSlackMrkdwn} (vedi
+ * {@link UNTRUSTED_SLACK_PARAMS}).
+ *
+ * Le AZIONI eseguibili allineate 1:1 con le opzioni non stanno ancora qui:
+ * arrivano col Task 10 della fase 6, insieme al publisher e all'esecuzione.
+ */
+export interface GoogleProposalEvent {
+  kind: "google.proposal";
+  /**
+   * Identifica QUESTA proposta: è la chiave con cui si ritrovano tutte le copie
+   * della notifica quando qualcuno la conferma (stesso ruolo di `pulseId`).
+   * Nessun job dietro, quindi è l'unica ancora per la propagazione.
+   */
+  proposalId: string;
+  /** Da dove nasce: una email in perimetro o un evento di calendario. */
+  source: "email" | "calendar";
+  /** Thread Gmail o evento del calendario: è dove porta "Apri". */
+  messageUrl: string;
+  /** Progetto risolto dalle regole di routing. Assente = ancora da scegliere. */
+  projectName?: string;
+  /** Il segnale riconosciuto nel messaggio. */
+  signal: "decision" | "request" | "deadline" | "blocker" | "none";
+  /** Mittente (email) o organizzatore dell'evento. NON FIDATO. */
+  from: string;
+  /** Oggetto della email o titolo dell'evento. NON FIDATO. */
+  subject: string;
+  question: string;
+  /** Una opzione per proposta, più l'ultima che archivia senza fare nulla. */
+  options: AgentQuestionOption[];
+  recommendedIndex?: number;
+  /** Sempre `false`: da una proposta si conferma, non si scrive. */
+  allowFreeText: false;
+}
+
 /** Unione tipata di tutti gli eventi che generano una notifica. */
 export type NotificationEvent =
   | TicketCreatedEvent
@@ -344,11 +396,12 @@ export type NotificationEvent =
   | MonitorRecoveredEvent
   | JobAwaitingInputEvent
   | ProjectPulseEvent
-  | ProjectBriefEvent;
+  | ProjectBriefEvent
+  | GoogleProposalEvent;
 
 /**
  * Eventi SENZA ticket (`docs.limit_paused`, `monitor.*`, `project.pulse`,
- * `project.brief`): non
+ * `project.brief`, `google.proposal`): non
  * hanno `ticketNumber`/`ticketTitle`/`ticketUrl`, portano una superficie
  * propria.
  */
@@ -357,7 +410,8 @@ type NonTicketedEvent =
   | MonitorAlertEvent
   | MonitorRecoveredEvent
   | ProjectPulseEvent
-  | ProjectBriefEvent;
+  | ProjectBriefEvent
+  | GoogleProposalEvent;
 
 /**
  * Eventi ANCORATI A UN TICKET: hanno `ticketNumber`/`ticketTitle`/`ticketUrl`.
@@ -373,7 +427,8 @@ function hasTicket(event: NotificationEvent): event is TicketedEvent {
     event.kind !== "monitor.alert" &&
     event.kind !== "monitor.recovered" &&
     event.kind !== "project.pulse" &&
-    event.kind !== "project.brief"
+    event.kind !== "project.brief" &&
+    event.kind !== "google.proposal"
   );
 }
 
@@ -427,6 +482,7 @@ const EMOJI: Record<NotificationKind, string> = {
   "job.awaiting_input": "❓",
   "project.pulse": "📣",
   "project.brief": "🗞️",
+  "google.proposal": "📬",
 };
 
 /**
@@ -534,6 +590,10 @@ function linkParam(
       // Nessun ticket: il link porta alla roadmap del progetto, dove il brief
       // si legge per intero in mezzo agli eventi del periodo.
       return renderLink(format, event.projectUrl, t(lang, "notify.linkRoadmap"));
+    case "google.proposal":
+      // Nessun ticket: il link porta ALLA FONTE — il thread Gmail o l'evento
+      // di calendario — perché è lì che si capisce se la proposta ha senso.
+      return renderLink(format, event.messageUrl, t(lang, "notify.linkOpen"));
   }
 }
 
@@ -553,6 +613,7 @@ const KEY_FOR_KIND: Record<NotificationKind, string> = {
   "job.awaiting_input": "notify.awaitingInput",
   "project.pulse": "notify.pulse",
   "project.brief": "notify.brief",
+  "google.proposal": "notify.googleProposal",
 };
 
 /** Params (oltre a ref/link/cost) specifici per evento, passati a `t()`. */
@@ -584,6 +645,13 @@ function textParams(
         periodEnd: event.periodEnd,
         headline: event.headline,
       };
+    }
+    // La proposta nomina mittente e oggetto (o organizzatore e titolo
+    // dell'evento): sono l'unica cosa che permette di riconoscere DI QUALE
+    // messaggio si parla senza aprirlo. Entrambi NON FIDATI, vedi
+    // `UNTRUSTED_SLACK_PARAMS`.
+    if (event.kind === "google.proposal") {
+      return { from: event.from, subject: event.subject };
     }
     // monitor.alert | monitor.recovered: la condizione è resa come etichetta
     // localizzata; il detail è già una frase leggibile.
@@ -661,6 +729,10 @@ const UNTRUSTED_SLACK_PARAMS: Partial<Record<NotificationKind, readonly string[]
   // `headline` la scrive l'AI del brief settimanale, su input non fidato
   // (titoli di ticket, messaggi di commit): stessa famiglia di `question`.
   "project.brief": ["headline"],
+  // `from` e `subject` li scrive CHI HA MANDATO LA EMAIL — il caso più
+  // estraneo di tutti — e stanno dentro la frase: qui l'escape non è una
+  // precauzione teorica.
+  "google.proposal": ["from", "subject"],
 };
 
 /**
@@ -769,6 +841,26 @@ function formatGeneric(event: NotificationEvent, lang: Language): Record<string,
         ...(event.summary ? { summary: event.summary } : {}),
         message: formatNotificationText(event, lang),
         projectUrl: event.projectUrl,
+      };
+    }
+    if (event.kind === "google.proposal") {
+      // Payload AUTOSUFFICIENTE: chi consuma il webhook sa quale proposta è, da
+      // dove nasce e che scelte offre, senza chiamare l'API. Le AZIONI
+      // eseguibili non ci sono: si confermano dall'inbox, non dal webhook.
+      return {
+        event: event.kind,
+        proposalId: event.proposalId,
+        source: event.source,
+        signal: event.signal,
+        from: event.from,
+        subject: event.subject,
+        ...(event.projectName ? { projectName: event.projectName } : {}),
+        message: formatNotificationText(event, lang),
+        messageUrl: event.messageUrl,
+        question: event.question,
+        options: event.options,
+        recommendedIndex: event.recommendedIndex ?? null,
+        allowFreeText: event.allowFreeText,
       };
     }
     // monitor.alert | monitor.recovered: la `condition` resta l'enum grezzo
@@ -1017,6 +1109,26 @@ export function sampleEvents(baseUrl: string): NotificationEvent[] {
       periodStart: "2026-08-31",
       periodEnd: "2026-09-06",
       headline: "Settimana di consolidamento: nessuna funzione nuova, due bug chiusi.",
+    },
+    {
+      kind: "google.proposal",
+      proposalId: "9e4b1a72-5555-4666-8777-888899990000",
+      source: "email",
+      messageUrl: "https://mail.google.com/mail/u/0/#inbox/18f3a9c0d1e2f345",
+      projectName: "negozio-web",
+      signal: "request",
+      from: "laura@cliente.test",
+      subject: "Export degli ordini in CSV",
+      question: "Laura chiede l'export CSV degli ordini. Come diamo seguito?",
+      options: [
+        {
+          label: "Apri una voce di backlog su negozio-web",
+          consequence: "Entra nel backlog di discovery, senza partire subito.",
+        },
+        { label: "Non fare nulla", consequence: "La email resta archiviata così." },
+      ],
+      recommendedIndex: 0,
+      allowFreeText: false,
     },
   ];
 }

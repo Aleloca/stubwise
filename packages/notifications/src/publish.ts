@@ -36,6 +36,14 @@ export interface PublishOpts {
   ticketId?: string;
   /** Job dell'evento: instrada verso l'operatore che l'ha lanciato. */
   jobId?: string;
+  /**
+   * Proprietario della casella Google da cui nasce l'evento (fase 6): è l'UNICO
+   * destinatario dell'audience `mailbox_owner`. Chi pubblica lo legge da
+   * `google_accounts.user_id`; senza di lui la proposta non ha destinatari, che
+   * è il degrado giusto — meglio nessuna notifica che una alla persona
+   * sbagliata.
+   */
+  mailboxOwnerUserId?: string;
 }
 
 /**
@@ -191,6 +199,12 @@ async function resolveRoutingContext(
       // Bastano gli admin e chi ha lanciato il job: le query su follower e
       // ticket non cambierebbero l'esito, quindi non si fanno.
       return { admins, followers: [], requestedBy: await resolveRequestedBy(db, opts.jobId) };
+    case "mailbox_owner":
+      // Nessuna lettura: il destinatario lo porta il chiamante. `admins: []`
+      // non è una svista — è l'invariante di privacy della fase 6, e scriverlo
+      // qui vuol dire che nemmeno un domani un refactor di `recipientsFor`
+      // potrebbe far scivolare gli admin dentro una proposta.
+      return { admins: [], followers: [], mailboxOwner: opts.mailboxOwnerUserId };
     case "broadcast":
       return await resolveBroadcastContext(db, admins, opts);
   }

@@ -38,6 +38,7 @@ export const notificationKindSchema = z.enum([
   "job.awaiting_input",
   "project.pulse",
   "project.brief",
+  "google.proposal",
 ]);
 
 /**

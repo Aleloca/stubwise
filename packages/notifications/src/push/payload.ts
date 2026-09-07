@@ -46,6 +46,7 @@ export const PUSH_TITLE_KEY: Record<NotificationKind, string> = {
   "job.awaiting_input": "push.title.job.awaiting_input",
   "project.pulse": "push.title.project.pulse",
   "project.brief": "push.title.project.brief",
+  "google.proposal": "push.title.google.proposal",
 };
 
 /**

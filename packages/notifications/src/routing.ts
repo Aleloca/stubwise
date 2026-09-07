@@ -28,10 +28,16 @@ export interface RoutingContext {
    * appena la colonna esiste, senza toccare queste regole.
    */
   reporter?: string;
+  /**
+   * Proprietario della casella Google da cui nasce l'evento (fase 6): l'UNICO
+   * destinatario dell'audience `mailbox_owner`. Il chiamante lo risolve da
+   * `google_accounts.user_id`.
+   */
+  mailboxOwner?: string;
 }
 
 /** I pubblici possibili di un kind (vedi {@link AUDIENCE_FOR_KIND}). */
-export type Audience = "admins" | "broadcast" | "requester";
+export type Audience = "admins" | "broadcast" | "requester" | "mailbox_owner";
 
 /**
  * Pubblico di un kind: `admins` per gli eventi che richiedono una DECISIONE
@@ -73,6 +79,12 @@ const AUDIENCE_FOR_KIND: Record<NotificationKind, Audience> = {
   // stessa ragione — e come il pulse non ha ticket, quindi assegnatario,
   // richiedente e reporter non esistono per questo evento.
   "project.brief": "broadcast",
+  // ⚠️ PRIVACY PER COSTRUZIONE (fase 6): la proposta nasce dalla casella di una
+  // persona, e la vede SOLO quella persona. Non è un caso particolare di
+  // `requester` — che include sempre gli admin — ed è per questo che
+  // l'audience esiste come valore a sé: qui un admin in più non è "uno che può
+  // sbloccare", è qualcuno che legge la posta di un collega.
+  "google.proposal": "mailbox_owner",
 };
 
 /** Pubblico del kind. Unico punto in cui si legge {@link AUDIENCE_FOR_KIND}. */
@@ -93,6 +105,11 @@ export function recipientsFor(event: NotificationEvent, ctx: RoutingContext): st
       // Chi ha lanciato il job più gli admin. Senza richiedente (run
       // dell'automazione) restano i soli admin: qualcuno deve pur rispondere.
       return dedupe([...ctx.admins, ctx.requestedBy]);
+    case "mailbox_owner":
+      // Un solo destinatario, e NESSUN admin: senza `mailboxOwner` risolto la
+      // notifica non ha destinatari — meglio nessuna notifica che una notifica
+      // alla persona sbagliata.
+      return dedupe([ctx.mailboxOwner]);
     case "broadcast":
       return dedupe([
         ...ctx.admins,

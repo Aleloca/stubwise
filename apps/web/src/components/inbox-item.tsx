@@ -45,6 +45,7 @@ export const INBOX_KIND_LABEL_KEYS: Record<InboxItem["kind"], string> = {
   "job.awaiting_input": "inbox:kinds.awaitingInput",
   "project.pulse": "inbox:kinds.pulse",
   "project.brief": "inbox:kinds.brief",
+  "google.proposal": "inbox:kinds.googleProposal",
 };
 
 /**

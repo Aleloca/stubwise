@@ -959,6 +959,7 @@ describe("sampleEvents", () => {
       "job.awaiting_input",
       "project.pulse",
       "project.brief",
+      "google.proposal",
     ]);
     for (const event of events) {
       // Eventi senza ticket: il link non è un ticketUrl ma la superficie propria.
@@ -968,6 +969,10 @@ describe("sampleEvents", () => {
         expect(event.url.startsWith("https://app.example.com/monitor/")).toBe(true);
       } else if (event.kind === "project.pulse" || event.kind === "project.brief") {
         expect(event.projectUrl.startsWith("https://app.example.com/projects/")).toBe(true);
+      } else if (event.kind === "google.proposal") {
+        // Unico evento la cui superficie NON sta su Stubwise: la fonte è il
+        // thread Gmail (o l'evento di calendario), fuori dal `baseUrl`.
+        expect(event.messageUrl.startsWith("https://mail.google.com/")).toBe(true);
       } else {
         expect(event.ticketUrl.startsWith("https://app.example.com/tickets/")).toBe(true);
       }

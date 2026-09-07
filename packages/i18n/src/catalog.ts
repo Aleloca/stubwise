@@ -119,6 +119,12 @@ export const en: Catalog = {
   // sono ISO `YYYY-MM-DD` — il catalogo non formatta date, e un brief va letto
   // nella stessa forma su web, Slack e webhook.
   "notify.brief": "Weekly brief for {project} ({periodStart} → {periodEnd}): {headline} {link}",
+  // Proposta dalla posta o dal calendario (fase 6). `{from}` e `{subject}` sono
+  // NON FIDATI (li scrive chi ha mandato la email): su Slack passano da
+  // `escapeSlackMrkdwn`, vedi `UNTRUSTED_SLACK_PARAMS` in `format.ts`. La frase
+  // non nomina la sorgente: la stessa vale per una email e per un evento di
+  // calendario, dove `{from}` è l'organizzatore e `{subject}` il titolo.
+  "notify.googleProposal": "New proposal from {from} — {subject}. {link}",
   // Etichette delle condizioni di monitoraggio (interpolate in notify.monitor*).
   "notify.monitorCondition.offline": "offline",
   "notify.monitorCondition.cpu": "CPU",
@@ -261,6 +267,7 @@ export const en: Catalog = {
   // nominarlo è ciò che distingue due pulse nella stessa notifica di sistema.
   "push.title.project.pulse": "Where to pick up on {project}",
   "push.title.project.brief": "This week on {project}",
+  "push.title.google.proposal": "A proposal from your mailbox",
 
   // --- report.* — header delle sezioni del report ---
   "report.investigation": "Investigation process",
@@ -405,6 +412,7 @@ export const it: Catalog = {
   "notify.pulse":
     "Nessun lavoro in corso su {project} (giorni di fermo: {idleDays}): ci sono proposte nel backlog. {link}",
   "notify.brief": "Brief settimanale di {project} ({periodStart} → {periodEnd}): {headline} {link}",
+  "notify.googleProposal": "Nuova proposta da {from} — {subject}. {link}",
   "notify.monitorCondition.offline": "offline",
   "notify.monitorCondition.cpu": "CPU",
   "notify.monitorCondition.mem": "memoria",
@@ -494,6 +502,7 @@ export const it: Catalog = {
   "push.title.job.awaiting_input": "Una domanda ti aspetta",
   "push.title.project.pulse": "Da dove ripartire su {project}",
   "push.title.project.brief": "Questa settimana su {project}",
+  "push.title.google.proposal": "Una proposta dalla tua casella",
 
   // --- report.* ---
   "report.investigation": "Processo di indagine",

@@ -1109,7 +1109,8 @@
       "monitorRecovered": "Rientrato",
       "awaitingInput": "Domanda a cui rispondere",
       "pulse": "Proposta",
-      "brief": "Brief settimanale"
+      "brief": "Brief settimanale",
+      "googleProposal": "Proposta dalla posta"
     },
     "actions": {
       "approvePlan": "Approva piano",

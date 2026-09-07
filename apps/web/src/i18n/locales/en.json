@@ -1109,7 +1109,8 @@
       "monitorRecovered": "Recovered",
       "awaitingInput": "Question to answer",
       "pulse": "Proposal",
-      "brief": "Weekly brief"
+      "brief": "Weekly brief",
+      "googleProposal": "Mailbox proposal"
     },
     "actions": {
       "approvePlan": "Approve plan",

@@ -225,7 +225,11 @@ describe("`answer` per kind", () => {
     // Il Set accende i bottoni delle opzioni (card web, blocchi Slack); il
     // catalogo decide l'azione. Divergerebbero in silenzio: un kind nel Set che
     // non offre `answer` mostrerebbe bottoni che danno sempre errore.
-    expect([...KINDS_WITH_OPTIONS].sort()).toEqual(["job.awaiting_input", "project.pulse"]);
+    expect([...KINDS_WITH_OPTIONS].sort()).toEqual([
+      "google.proposal",
+      "job.awaiting_input",
+      "project.pulse",
+    ]);
     // Nel Set ⇒ offre `answer`: bottoni che portano a un'azione che esiste.
     for (const kind of KINDS_WITH_OPTIONS) expect(kindOffers(kind, "answer")).toBe(true);
     // E il contrario, che è il verso pericoloso: un kind che offre `answer`

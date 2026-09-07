@@ -159,6 +159,12 @@ const CATALOG_FOR_KIND: Record<
   // decisione. Archiviabile come ogni informativa — letta la settimana, la card
   // esce dall'inbox.
   "project.brief": { decisions: [], adminOnly: false, archivable: true },
+  // La proposta dalla posta offre la stessa decisione del pulse — si conferma
+  // un'opzione — ed è ARCHIVIABILE: non dare seguito a una email è una
+  // risposta legittima, e dietro non c'è nessun job fermo ad aspettare.
+  // `adminOnly: false` è coerente con l'audience `mailbox_owner`: il
+  // destinatario è uno solo, e il ruolo non c'entra.
+  "google.proposal": { decisions: ["answer"], adminOnly: false, archivable: true },
 };
 
 /**
@@ -180,6 +186,7 @@ const CATALOG_FOR_KIND: Record<
 export const KINDS_WITH_OPTIONS: ReadonlySet<NotificationKind> = new Set<NotificationKind>([
   "job.awaiting_input",
   "project.pulse",
+  "google.proposal",
 ]);
 
 /** Igiene dell'inbox: presente su OGNI notifica, non è una decisione. */
@@ -332,6 +339,10 @@ export function openUrl(event: NotificationEvent): string {
     // eventi del periodo che racconta.
     case "project.brief":
       return event.projectUrl;
+    // La proposta porta ALLA FONTE — il thread Gmail o l'evento di calendario
+    // — perché è lì che si capisce se ha senso confermarla.
+    case "google.proposal":
+      return event.messageUrl;
     case "ticket.created":
     case "job.pr_closed":
     case "job.held":

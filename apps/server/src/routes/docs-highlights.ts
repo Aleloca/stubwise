@@ -5,7 +5,7 @@
  * aggregate di progetto ({@link ./project-docs.ts}), con lo stesso contratto.
  */
 
-import { docPageKindSchema, type DocPageKind } from "@stubwise/shared";
+import { decisionSourceSchema, docPageKindSchema, type DocPageKind } from "@stubwise/shared";
 import { z } from "zod";
 
 /** Riferimento leggero a una pagina in una lista di highlights. */
@@ -78,7 +78,10 @@ export const projectReleaseRefSchema = releaseRefSchema.extend({
  */
 export const decisionHighlightRefSchema = z.object({
   id: z.uuid(),
-  source: z.enum(["ask_user", "plan_review", "pulse", "manual"]),
+  // `decisionSourceSchema` di `@stubwise/shared` e non una lista ripetuta: le
+  // sorgenti crescono (la fase 6 ha aggiunto `email`) e una copia locale si
+  // scopre disallineata solo quando la risposta non serializza più.
+  source: decisionSourceSchema,
   title: z.string(),
   decision: z.string(),
   decidedByEmail: z.string().nullable(),

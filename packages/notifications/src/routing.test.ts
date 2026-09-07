@@ -138,6 +138,21 @@ describe("recipientsFor", () => {
     ).toEqual(["member-assignee"]);
   });
 
+  it("manda la proposta dalla posta al SOLO proprietario della casella", () => {
+    // ⚠️ Nemmeno gli admin: è l'invariante di privacy della fase 6, e questo è
+    // l'unico kind che NON li include. Il contesto qui ne ha due, più i
+    // follower e tutte le persone del ticket: nessuno di loro deve comparire.
+    expect(
+      recipientsFor(eventOfKind("google.proposal"), { ...CTX, mailboxOwner: "member-owner" }),
+    ).toEqual(["member-owner"]);
+  });
+
+  it("senza proprietario risolto la proposta non ha destinatari", () => {
+    // Il degrado giusto: meglio nessuna notifica che una notifica a chi non
+    // possiede quella casella. Chi pubblica passa `mailboxOwnerUserId`.
+    expect(recipientsFor(eventOfKind("google.proposal"), CTX)).toEqual([]);
+  });
+
   it("non usa follower e persone del ticket per i kind decisionali", () => {
     expect(
       recipientsFor(eventOfKind("job.plan_review"), {

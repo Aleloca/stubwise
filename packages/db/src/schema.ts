@@ -164,8 +164,17 @@ export const milestoneStatus = pgEnum("milestone_status", ["open", "closed"]);
 // fonte di verità), dove vive anche il commento su ciascuno stato. Sta in
 // shared perché è la forma pubblica dei job, letta anche dai client.
 export const aiJobStatus = pgEnum("ai_job_status", enumValues(aiJobStatusSchema));
-// Le fasi AI di cui tracciamo i consumi (token + costo): triage, fix e review.
-export const agentRunPhase = pgEnum("agent_run_phase", ["triage", "fix", "review"]);
+// Le fasi AI di cui tracciamo i consumi (token + costo): triage, fix, review e
+// — dalla fase 6 — la classificazione dei segnali di una email
+// (`email_classify`). L'ordine è quello di `enumsortorder` in Postgres: i valori
+// nuovi si aggiungono in CODA, perché `ALTER TYPE ... ADD VALUE` li appende
+// (vedi `enum-parity.test.ts`, che verifica anche l'ordine).
+export const agentRunPhase = pgEnum("agent_run_phase", [
+  "triage",
+  "fix",
+  "review",
+  "email_classify",
+]);
 
 // Motivo per cui un job è parcheggiato in "held": i valori derivano da
 // `heldReasonSchema` (shared = unica fonte di verità). Solo "limit" (limite di
@@ -793,6 +802,16 @@ export const agentRuns = pgTable(
     jobId: uuid("job_id").references(() => aiJobs.id, { onDelete: "cascade" }),
     // Run dell'automazione PR Review; null per triage/fix.
     prReviewId: uuid("pr_review_id").references(() => prReviews.id, { onDelete: "cascade" }),
+    // Messaggio di posta classificato (fase 6); null per tutti gli altri run.
+    // TERZO owner possibile, così la classificazione dei segnali email compare
+    // in Usage col metro dei fix invece di essere un costo invisibile.
+    //
+    // CASCADE come gli altri due, e non SET NULL: il check qui sotto vuole
+    // esattamente un owner valorizzato, quindi un run svuotato lo violerebbe e
+    // la retention dei messaggi non riuscirebbe più a cancellarne nessuno.
+    emailMessageId: uuid("email_message_id").references((): AnyPgColumn => emailMessages.id, {
+      onDelete: "cascade",
+    }),
     phase: agentRunPhase("phase").notNull(),
     model: text("model").notNull(),
     inputTokens: integer("input_tokens").notNull().default(0),
@@ -808,9 +827,15 @@ export const agentRuns = pgTable(
     index("agent_runs_job_id_idx").on(table.jobId),
     // Aggregazione del costo per review + cascade delete da pr_reviews.
     index("agent_runs_pr_review_id_idx").on(table.prReviewId),
-    // Esattamente uno tra job_id e pr_review_id valorizzato (vedi commenti
-    // sulle colonne): l'invariante è garantita dal DB, non solo dal codice.
-    check("agent_runs_owner_check", sql`num_nonnulls(job_id, pr_review_id) = 1`),
+    // Aggregazione del costo per messaggio + cascade delete da email_messages.
+    index("agent_runs_email_message_id_idx").on(table.emailMessageId),
+    // Esattamente uno tra job_id, pr_review_id ed email_message_id valorizzato
+    // (vedi commenti sulle colonne): l'invariante è garantita dal DB, non solo
+    // dal codice.
+    check(
+      "agent_runs_owner_check",
+      sql`num_nonnulls(job_id, pr_review_id, email_message_id) = 1`,
+    ),
   ],
 );
 
@@ -956,6 +981,10 @@ export const notificationKind = pgEnum("notification_kind", [
   // Fase 5: il brief settimanale del progetto, scritto per non-tecnici.
   // Ancorato al PROGETTO come il pulse: né ticket né job dietro.
   "project.brief",
+  // Fase 6: una proposta nata da una email o da un evento di calendario. Il
+  // destinatario è UNO SOLO — il proprietario della casella (audience
+  // `mailbox_owner`) — e nemmeno gli admin la vedono.
+  "google.proposal",
 ]);
 
 // Stato di una notifica nell'inbox del destinatario: `open` (da smaltire),
@@ -1027,6 +1056,9 @@ export const notificationSettings = pgTable("notification_settings", {
   notifyPulse: boolean("notify_pulse").notNull().default(true),
   // Notifica del brief settimanale di un progetto (`project.brief`).
   notifyBrief: boolean("notify_brief").notNull().default(true),
+  // Notifica di una proposta nata dalla posta o dal calendario
+  // (`google.proposal`).
+  notifyGoogleProposal: boolean("notify_google_proposal").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
@@ -2467,6 +2499,16 @@ export const notifications = pgTable(
     index("notifications_job_id_idx").on(table.jobId),
     // Stesso fan-in per gli eventi ancorati a un ticket (nessun job dietro).
     index("notifications_ticket_id_idx").on(table.ticketId),
+    // Claim di una PROPOSTA (fase 6): `propagateHandled` chiude tutte le copie
+    // della notifica con lo stesso `event->>'proposalId'`. Indice
+    // sull'ESPRESSIONE, parziale su `IS NOT NULL` — e NON su
+    // `kind = 'google.proposal'`, che nella migrazione userebbe un valore di
+    // enum aggiunto nella stessa transazione (Postgres lo rifiuta). Indicizza
+    // comunque le sole righe che portano un `proposalId`, e il planner lo usa
+    // perché `event->>'proposalId' = $1` implica `IS NOT NULL`.
+    index("notifications_proposal_id_idx")
+      .on(sql`(${table.event}->>'proposalId')`)
+      .where(sql`(event->>'proposalId') is not null`),
     // Una notifica rinviata ha sempre una scadenza, altrimenti resterebbe fuori
     // dall'inbox per sempre.
     check("notifications_snoozed_until_chk", sql`status <> 'snoozed' OR snoozed_until IS NOT NULL`),
@@ -2930,8 +2972,10 @@ export const projectDecisions = pgTable(
     projectId: uuid("project_id")
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
+    // `email` (fase 6) è la conferma di una proposta nata dalla posta o dal
+    // calendario: anch'essa scritta da TEMPLATE i18n, come le altre automatiche.
     source: text("source")
-      .$type<"ask_user" | "plan_review" | "pulse" | "manual">()
+      .$type<"ask_user" | "plan_review" | "pulse" | "manual" | "email">()
       .notNull(),
     sourceKey: text("source_key").notNull(),
     // Gli id d'origine in forma strutturata (questionId, jobId, notificationId…),
@@ -2965,7 +3009,7 @@ export const projectDecisions = pgTable(
     index("project_decisions_project_decided_idx").on(table.projectId, table.decidedAt.desc()),
     check(
       "project_decisions_source_chk",
-      sql`source in ('ask_user', 'plan_review', 'pulse', 'manual')`,
+      sql`source in ('ask_user', 'plan_review', 'pulse', 'manual', 'email')`,
     ),
   ],
 );
@@ -2974,3 +3018,299 @@ export const projectDecisions = pgTable(
 export type ProjectBriefRow = typeof projectBriefs.$inferSelect;
 /** Riga di `project_decisions`: una decisione registrata su un progetto. */
 export type ProjectDecisionRow = typeof projectDecisions.$inferSelect;
+
+/**
+ * GOOGLE WORKSPACE registrato dall'admin (Fase 6): l'app OAuth **interna**
+ * creata nella Google Cloud Console di quell'organizzazione.
+ *
+ * Un'app per Workspace e non una sola d'istanza: l'app interna è l'unica forma
+ * che non richiede la verifica di Google per gli scope sensibili, e vale solo
+ * dentro il suo dominio. `clientSecretEncrypted` è il blob AES-256-GCM (vedi
+ * `secrets.ts`): non esce mai in chiaro dall'API, che risponde col solo
+ * `clientSecretSet`.
+ *
+ * `domains` sono i domini email del Workspace, normalizzati lowercase: il
+ * callback OAuth RIFIUTA una casella il cui dominio non è qui dentro
+ * (`domain_mismatch`). È il confine fra una casella aziendale e un account
+ * Google qualunque.
+ */
+export const googleWorkspaces = pgTable("google_workspaces", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  domains: text("domains").array().notNull(),
+  clientId: text("client_id").notNull(),
+  clientSecretEncrypted: text("client_secret_encrypted").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * CASELLA GOOGLE collegata da un utente (N per utente, Fase 6).
+ *
+ * ⚠️ NESSUN access token è persistito: c'è solo il refresh token cifrato, e il
+ * worker ottiene l'access token dal refresh a ogni ciclo, in memoria. Un dump
+ * del database senza `ENCRYPTION_KEY` non dà accesso a nessuna casella.
+ *
+ * `workspaceId` è RESTRICT (non cascade): togliere un Workspace con caselle
+ * vive è un errore dell'admin, non un'operazione da fare in silenzio — la rotta
+ * risponde 409 `workspace_in_use`. `userId` invece cascata: la casella è un
+ * dato personale e se ne va con l'utente.
+ *
+ * `nextSyncAt` (default now()) è il claim del poller — la casella appena
+ * collegata è già dovuta al primo tick —, `syncAttempts` il contatore del
+ * backoff, `disabledAt` + `disabledReason` la disabilitazione (fatale da Google
+ * o troppi errori transitori di fila).
+ */
+export const googleAccounts = pgTable(
+  "google_accounts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => googleWorkspaces.id, { onDelete: "restrict" }),
+    email: text("email").notNull(),
+    /** `sub` dell'identità Google: stabile anche se l'email viene rinominata. */
+    googleSub: text("google_sub").notNull(),
+    refreshTokenEncrypted: text("refresh_token_encrypted").notNull(),
+    scopes: text("scopes").array().notNull().default([]),
+    /** Toggle dell'utente: spenta, la casella non viene più sincronizzata. */
+    proposalsEnabled: boolean("proposals_enabled").notNull().default(true),
+    /** Cursore della History API di Gmail. Null = primo giro (o history scaduta). */
+    gmailHistoryId: text("gmail_history_id"),
+    /** Cursore incrementale del calendario `primary`. Null = primo giro. */
+    calendarSyncToken: text("calendar_sync_token"),
+    connectedAt: timestamp("connected_at", { withTimezone: true }).notNull().defaultNow(),
+    lastSyncAt: timestamp("last_sync_at", { withTimezone: true }),
+    nextSyncAt: timestamp("next_sync_at", { withTimezone: true }).notNull().defaultNow(),
+    syncAttempts: integer("sync_attempts").notNull().default(0),
+    disabledAt: timestamp("disabled_at", { withTimezone: true }),
+    disabledReason: text("disabled_reason").$type<
+      "revoked" | "invalid_grant" | "insufficient_scope" | "workspace_removed" | "sync_failed"
+    >(),
+  },
+  (table) => [
+    uniqueIndex("google_accounts_email_unique").on(table.email),
+    // Le caselle di un utente si leggono insieme (pagina Account, pagina Posta).
+    index("google_accounts_user_id_idx").on(table.userId),
+    // Claim del poller: la prossima casella dovuta. Indice PARZIALE sulle sole
+    // caselle vive e con le proposte accese — le altre non vengono mai pescate.
+    index("google_accounts_due_idx")
+      .on(table.nextSyncAt)
+      .where(sql`disabled_at is null and proposals_enabled`),
+    check(
+      "google_accounts_disabled_reason_chk",
+      sql`disabled_reason is null or disabled_reason in ('revoked', 'invalid_grant', 'insufficient_scope', 'workspace_removed', 'sync_failed')`,
+    ),
+  ],
+);
+
+/**
+ * NONCE MONOUSO del flusso OAuth (Fase 6).
+ *
+ * Lo `state` che va e torna da Google è firmato HMAC con la chiave d'istanza,
+ * ma una firma valida da sola non impedisce il REPLAY di un callback
+ * intercettato: questa riga è il nonce che lo impedisce (si consuma alla prima
+ * verifica) e `expiresAt` la finestra di 10 minuti oltre la quale il callback
+ * non è più accettato.
+ */
+export const oauthStates = pgTable(
+  "oauth_states",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    nonce: text("nonce").notNull(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => googleWorkspaces.id, { onDelete: "cascade" }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    /** Valorizzato alla prima verifica riuscita: un secondo callback è rifiutato. */
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("oauth_states_nonce_unique").on(table.nonce),
+    // Potatura degli state scaduti.
+    index("oauth_states_expires_at_idx").on(table.expiresAt),
+  ],
+);
+
+/**
+ * REGOLE DI ROUTING della posta verso un progetto (Fase 6).
+ *
+ * Un messaggio è "in perimetro" se almeno una regola di almeno un progetto
+ * combacia; il progetto risolto è quello che ne soddisfa il numero maggiore, e
+ * in caso di parità la posta resta senza progetto con i candidati registrati.
+ *
+ * `value` lo normalizza lowercase chi scrive, così l'unique
+ * `(projectId, kind, value)` è davvero la stessa regola e non due grafie della
+ * stessa cosa. `kind` è text con CHECK (non un enum Postgres): allargarlo si fa
+ * dentro la migrazione che serve.
+ */
+export const projectEmailRoutes = pgTable(
+  "project_email_routes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    kind: text("kind")
+      .$type<"sender_domain" | "sender_address" | "gmail_label" | "keyword">()
+      .notNull(),
+    value: text("value").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("project_email_routes_project_kind_value_unique").on(
+      table.projectId,
+      table.kind,
+      table.value,
+    ),
+    check(
+      "project_email_routes_kind_chk",
+      sql`kind in ('sender_domain', 'sender_address', 'gmail_label', 'keyword')`,
+    ),
+  ],
+);
+
+/**
+ * MESSAGGIO GMAIL in perimetro (Fase 6): quelli che nessuna regola riconosce
+ * non vengono nemmeno scaricati e qui dentro non esistono.
+ *
+ * `textExcerpt` è il testo già ripulito e CAPATO (≤ 20k con marcatore): il MIME
+ * originale non si conserva e gli allegati non entrano affatto — di un allegato
+ * resta il link al thread. `projectId` è il progetto risolto dalle regole (SET
+ * NULL: cancellarlo non cancella la posta), `candidateProjectIds` i progetti in
+ * parità quando le regole non decidono.
+ *
+ * `status` e `signal` sono text con CHECK e non enum Postgres, per la stessa
+ * ragione di `project_briefs.status`: sostituire un CHECK si fa nella
+ * migrazione che serve, un valore di enum ne richiede una separata dal batch.
+ *
+ * L'unique `(accountId, gmailMessageId)` è l'IDEMPOTENZA del poller: il tick
+ * inserisce con `onConflictDoNothing`, quindi rileggere la stessa history due
+ * volte non duplica niente.
+ */
+export const emailMessages = pgTable(
+  "email_messages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => googleAccounts.id, { onDelete: "cascade" }),
+    gmailMessageId: text("gmail_message_id").notNull(),
+    threadId: text("thread_id").notNull(),
+    fromAddress: text("from_address").notNull(),
+    fromName: text("from_name"),
+    toAddresses: text("to_addresses").array().notNull().default([]),
+    subject: text("subject"),
+    receivedAt: timestamp("received_at", { withTimezone: true }).notNull(),
+    /** Etichette Gmail del messaggio: le usa il routing (`gmail_label`). */
+    labels: text("labels").array().notNull().default([]),
+    textExcerpt: text("text_excerpt"),
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
+    candidateProjectIds: uuid("candidate_project_ids").array().notNull().default([]),
+    status: text("status")
+      .$type<"new" | "classified" | "proposed" | "actioned" | "ignored" | "failed">()
+      .notNull()
+      .default("new"),
+    signal: text("signal").$type<"decision" | "request" | "deadline" | "blocker" | "none">(),
+    /** Output della classificazione già RIVALIDATO (referenti compresi). */
+    classification: jsonb("classification").$type<Record<string, unknown>>(),
+    /** La proposta pubblicata per questo messaggio. SET NULL come per i brief. */
+    proposalNotificationId: uuid("proposal_notification_id").references(() => notifications.id, {
+      onDelete: "set null",
+    }),
+    /** Esito dell'azione confermata (id creati, esito `exists`, `cancelled`…). */
+    outcome: jsonb("outcome").$type<Record<string, unknown>>(),
+    error: text("error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex("email_messages_account_message_unique").on(table.accountId, table.gmailMessageId),
+    // Fase 2 del tick: i messaggi `new` di una casella, da classificare.
+    index("email_messages_account_status_idx").on(table.accountId, table.status),
+    // La posta di un progetto, dalla più recente (pagina Posta, contesto).
+    index("email_messages_project_received_idx").on(table.projectId, table.receivedAt.desc()),
+    check(
+      "email_messages_status_chk",
+      sql`status in ('new', 'classified', 'proposed', 'actioned', 'ignored', 'failed')`,
+    ),
+    check(
+      "email_messages_signal_chk",
+      sql`signal is null or signal in ('decision', 'request', 'deadline', 'blocker', 'none')`,
+    ),
+  ],
+);
+
+/**
+ * EVENTO del calendario `primary` di una casella, in perimetro come la posta
+ * (Fase 6).
+ *
+ * `fingerprint` (giorno + titolo) è ciò che impedisce di riproporre lo stesso
+ * appuntamento quando Google lo restituisce modificato: uno spostamento
+ * d'orario nello stesso giorno NON è una proposta nuova. `status` è quello di
+ * Google: un evento `cancelled` chiude la riga con un esito, senza mutare
+ * niente.
+ *
+ * Per il calendario NON c'è nessun run del modello: la proposta di milestone è
+ * deterministica (titolo + data), quindi qui non esiste una `classification`.
+ */
+export const calendarEvents = pgTable(
+  "calendar_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => googleAccounts.id, { onDelete: "cascade" }),
+    googleEventId: text("google_event_id").notNull(),
+    title: text("title"),
+    startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+    endsAt: timestamp("ends_at", { withTimezone: true }),
+    allDay: boolean("all_day").notNull().default(false),
+    attendees: text("attendees").array().notNull().default([]),
+    organizer: text("organizer"),
+    status: text("status").$type<"confirmed" | "tentative" | "cancelled">(),
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
+    proposalNotificationId: uuid("proposal_notification_id").references(() => notifications.id, {
+      onDelete: "set null",
+    }),
+    outcome: jsonb("outcome").$type<Record<string, unknown>>(),
+    fingerprint: text("fingerprint").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex("calendar_events_account_event_unique").on(table.accountId, table.googleEventId),
+    // "Questo appuntamento l'abbiamo già trattato?": la lettura per fingerprint
+    // dentro la casella, fatta per ogni evento di ogni ciclo.
+    index("calendar_events_account_fingerprint_idx").on(table.accountId, table.fingerprint),
+    check(
+      "calendar_events_status_chk",
+      sql`status is null or status in ('confirmed', 'tentative', 'cancelled')`,
+    ),
+  ],
+);
+
+/** Riga di `google_workspaces`: un Workspace con la sua app OAuth interna. */
+export type GoogleWorkspaceRow = typeof googleWorkspaces.$inferSelect;
+/** Riga di `google_accounts`: una casella Google collegata da un utente. */
+export type GoogleAccountRow = typeof googleAccounts.$inferSelect;
+/** Riga di `oauth_states`: il nonce monouso di un flusso OAuth in corso. */
+export type OauthStateRow = typeof oauthStates.$inferSelect;
+/** Riga di `project_email_routes`: una regola di routing della posta. */
+export type ProjectEmailRouteRow = typeof projectEmailRoutes.$inferSelect;
+/** Riga di `email_messages`: un messaggio Gmail in perimetro. */
+export type EmailMessageRow = typeof emailMessages.$inferSelect;
+/** Riga di `calendar_events`: un evento di calendario in perimetro. */
+export type CalendarEventRow = typeof calendarEvents.$inferSelect;

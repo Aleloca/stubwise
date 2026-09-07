@@ -34,6 +34,7 @@ const BASE_ROW: NotificationSettingsRow = {
   notifyAwaitingInput: true,
   notifyPulse: true,
   notifyBrief: true,
+  notifyGoogleProposal: true,
 };
 
 /**
