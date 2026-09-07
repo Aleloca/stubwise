@@ -24,6 +24,9 @@ import type {
   CreatePluginInput,
   DiscoveredService,
   GitProviderKind,
+  GoogleWorkspace,
+  GoogleWorkspaceDraft,
+  GoogleWorkspacePatch,
   HandledBy,
   InboxAction,
   InboxActionResult,
@@ -118,6 +121,9 @@ export type {
 export type {
   AgentQuestionOption,
   AnswerBody,
+  GoogleWorkspace,
+  GoogleWorkspaceDraft,
+  GoogleWorkspacePatch,
   HandledBy,
   InboxAction,
   InboxActionResult,
@@ -1988,6 +1994,39 @@ export function getInstanceSettings(): Promise<InstanceSettings> {
  */
 export function putInstanceSettings(patch: InstanceSettingsPatch): Promise<InstanceSettings> {
   return api.put("/api/settings/instance", patch);
+}
+
+// --- Google Workspace (fase 6) ---
+
+/**
+ * Registro dei Google Workspace (solo admin): l'app OAuth interna di una
+ * organizzazione. Il `clientSecret` NON torna mai dal server — c'è solo il
+ * flag `clientSecretSet` — e `redirectUri` è la stringa da incollare nella
+ * Google Cloud Console, composta dal server sul suo URL pubblico.
+ */
+export function getGoogleWorkspaces(): Promise<GoogleWorkspace[]> {
+  return api.get("/api/settings/google-workspaces");
+}
+
+export function postGoogleWorkspace(draft: GoogleWorkspaceDraft): Promise<GoogleWorkspace> {
+  return api.post("/api/settings/google-workspaces", draft);
+}
+
+/**
+ * Modifica di un Workspace. Il `clientSecret` è write-only: **omesso** lascia
+ * intatto quello salvato, `""` lo azzera. La UI non deve mai inviare stringa
+ * vuota per "non ho digitato nulla".
+ */
+export function patchGoogleWorkspace(
+  id: string,
+  patch: GoogleWorkspacePatch,
+): Promise<GoogleWorkspace> {
+  return api.patch(`/api/settings/google-workspaces/${encodeURIComponent(id)}`, patch);
+}
+
+/** Elimina un Workspace (solo admin): 409 `workspace_in_use` se ha caselle. */
+export function deleteGoogleWorkspace(id: string): Promise<void> {
+  return request("DELETE", `/api/settings/google-workspaces/${encodeURIComponent(id)}`);
 }
 
 // --- Dashboard consumi AI (costi/token) ---

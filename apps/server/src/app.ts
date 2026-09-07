@@ -33,6 +33,7 @@ import { docsChatRoutes } from "./routes/docs-chat.js";
 import { docsRoutes } from "./routes/docs.js";
 import { gitAccountRoutes } from "./routes/git-accounts.js";
 import { gitIdentityRoutes } from "./routes/git-identity-routes.js";
+import { googleWorkspaceRoutes } from "./routes/google-workspaces.js";
 import { activityRoutes } from "./routes/activity-routes.js";
 import { backlogRoutes } from "./routes/backlog.js";
 import { inboundRoutes } from "./routes/inbound.js";
@@ -499,6 +500,11 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   void app.register(patRoutes, { prefix: "/api/pats" });
   // Impostazioni di automazione AI (regole per tipo): solo admin.
   void app.register(settingsRoutes, { prefix: "/api/settings" });
+  // Registro dei Google Workspace (fase 6): app OAuth interne con client secret
+  // cifrato write-only e domini ammessi. Solo admin. Prefix sotto /api/settings
+  // ma plugin a sé: `settingsRoutes` è il singleton d'istanza, questo è un CRUD
+  // di N righe.
+  void app.register(googleWorkspaceRoutes, { prefix: "/api/settings/google-workspaces" });
   // Provider AI (credenziali del worker, secret cifrata write-only): solo admin.
   void app.register(aiProviderRoutes, { prefix: "/api/ai-providers" });
   // Registro plugin d'istanza (fase 3): metadati e job: i file stanno sul volume

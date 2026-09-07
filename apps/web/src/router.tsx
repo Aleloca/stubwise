@@ -25,6 +25,7 @@ import {
   docSpacesQueryOptions,
   docTreeQueryOptions,
   gitAccountsQueryOptions,
+  googleWorkspacesQueryOptions,
   inboxQueryOptions,
   instanceSettingsQueryOptions,
   invitesQueryOptions,
@@ -89,6 +90,7 @@ import { SettingsAccountPage } from "./routes/settings/account";
 import { SettingsAiProvidersPage } from "./routes/settings/ai-providers";
 import { SettingsAutomationPage } from "./routes/settings/automation";
 import { SettingsGitAccountsPage } from "./routes/settings/git-accounts";
+import { SettingsGooglePage } from "./routes/settings/google";
 import { SettingsLayout } from "./routes/settings/layout";
 import { SettingsNotificationsPage } from "./routes/settings/notifications";
 import { SettingsPluginsPage } from "./routes/settings/plugins";
@@ -756,6 +758,21 @@ const settingsSlackRoute = createRoute({
   component: SettingsSlackPage,
 });
 
+/**
+ * Registro dei Google Workspace (solo admin, fase 6): le app OAuth interne su
+ * cui gli operatori collegano le proprie caselle. Prefetch best-effort come le
+ * altre sotto-rotte admin.
+ */
+const settingsGoogleRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "/google",
+  beforeLoad: ({ context }) => requireAdmin(context.user.role),
+  loader: async ({ context }) => {
+    await context.queryClient.ensureQueryData(googleWorkspacesQueryOptions).catch(() => undefined);
+  },
+  component: SettingsGooglePage,
+});
+
 const settingsAiProvidersRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: "/ai-providers",
@@ -826,6 +843,7 @@ const routeTree = rootRoute.addChildren([
       settingsGitAccountsRoute,
       settingsStorageRoute,
       settingsSlackRoute,
+      settingsGoogleRoute,
       settingsAiProvidersRoute,
       settingsPluginsRoute,
     ]),

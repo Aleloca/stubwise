@@ -10,6 +10,7 @@ import {
   getGitAccounts,
   getInbox,
   getInboxUnreadCount,
+  getGoogleWorkspaces,
   getInstanceSettings,
   getInvites,
   getMyFollows,
@@ -452,6 +453,17 @@ export const notificationSettingsQueryOptions = queryOptions({
 export const instanceSettingsQueryOptions = queryOptions({
   queryKey: ["settings", "instance"],
   queryFn: getInstanceSettings,
+  staleTime: 30_000,
+});
+
+/**
+ * Registro dei Google Workspace (solo admin, fase 6): le app OAuth interne su
+ * cui si appoggiano le caselle degli operatori. Chiave sotto "settings" come le
+ * altre voci d'istanza; ogni create/patch/delete la invalida.
+ */
+export const googleWorkspacesQueryOptions = queryOptions({
+  queryKey: ["settings", "google-workspaces"],
+  queryFn: getGoogleWorkspaces,
   staleTime: 30_000,
 });
 

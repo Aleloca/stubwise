@@ -132,6 +132,7 @@ export default defineConfig({
             { label: "Inbound webhook", slug: "integrations/inbound-webhook" },
             { label: "Customer service widget", slug: "integrations/widget" },
             { label: "Slack", slug: "integrations/slack" },
+            { label: "Google Workspace", slug: "integrations/google-workspace" },
           ],
 
         },
