@@ -202,6 +202,38 @@ const PROJECT_BRIEF: NotificationEvent = {
   headline: "Settimana di consolidamento: nessuna funzione nuova, due bug chiusi.",
 };
 
+/**
+ * Proposta dalla posta (fase 6): evento SENZA ticket, il cui link porta ALLA
+ * FONTE. `from` e `subject` li scrive chi ha mandato la email, ed entrano nella
+ * frase: qui sono scritti apposta con i caratteri che su Slack farebbero markup.
+ */
+const GOOGLE_PROPOSAL: NotificationEvent = {
+  kind: "google.proposal",
+  proposalId: "0f5c9d31-6666-4777-8888-999900001111",
+  source: "email",
+  messageUrl: "https://mail.google.com/mail/u/laura%40acme.test/#all/18f3a9c0d1e2f345",
+  projectName: "webapp",
+  signal: "request",
+  from: "<https://evil.test|Direzione> & C.",
+  subject: "Export <ordini> & fatture",
+  receivedAt: "2026-09-07T08:14:00.000Z",
+  question: "Come diamo seguito?",
+  options: [
+    { label: "Apri una voce di backlog: Export CSV", consequence: "Entra nel backlog." },
+    { label: "Non fare nulla", consequence: "La email resta com'è." },
+  ],
+  actions: [
+    {
+      type: "create_backlog_item",
+      projectId: "aa11bb22-1111-4222-8333-444455556666",
+      title: "Export CSV",
+    },
+    { type: "ignore" },
+  ],
+  recommendedIndex: 0,
+  allowFreeText: false,
+};
+
 describe("formatNotification — contratto", () => {
   it("ogni formato dichiara content-type application/json", () => {
     for (const format of ["slack", "discord", "generic"] as NotificationFormat[]) {
@@ -940,6 +972,48 @@ describe("formatNotification — generic", () => {
   });
 });
 
+describe("google.proposal", () => {
+  it("slack: mittente e oggetto sono ESCAPATI, il link porta alla fonte", () => {
+    // Il vettore vero: senza escape, un mittente che si chiama
+    // `<https://evil.test|Direzione>` diventerebbe un LINK dentro la nostra
+    // frase, indistinguibile da uno nostro. `&` e `<` diventano entità, gli
+    // unici delimitatori con cui Slack costruisce markup.
+    const { body } = formatNotification(GOOGLE_PROPOSAL, "slack");
+    const text = (body as { text: string }).text;
+    expect(text).toContain("&lt;https://evil.test|Direzione&gt; &amp; C.");
+    expect(text).toContain("Export &lt;ordini&gt; &amp; fatture");
+    // L'unico `<…|…>` rimasto è il NOSTRO link, quello alla fonte.
+    expect(text).toContain(`<${GOOGLE_PROPOSAL.messageUrl}|`);
+  });
+
+  it("generic: payload autosufficiente, ma SENZA le azioni eseguibili", () => {
+    const body = formatNotification(GOOGLE_PROPOSAL, "generic", "en").body as Record<
+      string,
+      unknown
+    >;
+    expect(body.event).toBe("google.proposal");
+    expect(body.proposalId).toBe("0f5c9d31-6666-4777-8888-999900001111");
+    expect(body.source).toBe("email");
+    expect(body.signal).toBe("request");
+    expect(body.receivedAt).toBe("2026-09-07T08:14:00.000Z");
+    expect(body.options).toHaveLength(2);
+    expect(body.recommendedIndex).toBe(0);
+    // ⚠️ Le azioni NON escono dal webhook: una proposta si conferma dall'inbox,
+    // dove il server rilegge il payload persistito. Se un giorno comparissero
+    // qui, un consumatore potrebbe rimandarcele modificate.
+    expect(body.actions).toBeUndefined();
+  });
+
+  it("il testo piano non contiene markup (è quello dell'inbox e della push)", () => {
+    const text = formatNotificationText(GOOGLE_PROPOSAL, "en");
+    expect(text).toContain(GOOGLE_PROPOSAL.from);
+    expect(text).toContain(GOOGLE_PROPOSAL.subject);
+    // Nessuna entità HTML: l'escape è SOLO di Slack, e applicarlo qui
+    // renderebbe illeggibile la card web.
+    expect(text).not.toContain("&amp;");
+  });
+});
+
 describe("sampleEvents", () => {
   it("produce un esempio per ciascun kind, con link sotto baseUrl", () => {
     const events = sampleEvents("https://app.example.com/");
@@ -977,6 +1051,22 @@ describe("sampleEvents", () => {
         expect(event.ticketUrl.startsWith("https://app.example.com/tickets/")).toBe(true);
       }
     }
+  });
+
+  it("la proposta d'esempio ha le azioni ALLINEATE alle opzioni", () => {
+    // L'invariante `actions[i] ↔ options[i]` si rompe in silenzio: un
+    // disallineamento non dà nessun errore, fa ESEGUIRE l'azione sbagliata su
+    // una conferma data in buona fede. L'esempio è anche il modello che chi
+    // costruisce un evento copia, quindi qui l'invariante va vista.
+    const event = sampleEvents("https://app.example.com").find(
+      (candidate) => candidate.kind === "google.proposal",
+    );
+    if (event?.kind !== "google.proposal") throw new Error("esempio google.proposal assente");
+    expect(event.actions).toHaveLength(event.options.length);
+    // L'ultima opzione è SEMPRE «non fare nulla», e ha la sua azione.
+    expect(event.actions.at(-1)).toEqual({ type: "ignore" });
+    expect(event.allowFreeText).toBe(false);
+    expect(event.recommendedIndex).toBeLessThan(event.options.length);
   });
 
   it("ogni esempio si formatta in tutti i formati senza errori", () => {

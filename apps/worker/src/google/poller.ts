@@ -3,6 +3,7 @@ import {
   emailMessages,
   googleAccounts,
   projectEmailRoutes,
+  projects,
   type Db,
 } from "@stubwise/db";
 import {
@@ -23,7 +24,7 @@ import {
 } from "@stubwise/google/credentials";
 import type { Language } from "@stubwise/i18n";
 import { matchRoutes, type EmailRoute } from "@stubwise/notifications";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import type { AgentRunner } from "../agent/runner.js";
 import type { loadProviderChain } from "../providers/chain.js";
 import { getContentLanguage } from "../settings.js";
@@ -46,6 +47,13 @@ import {
   DEFAULT_CLASSIFY_MAX_PER_TICK,
   type ClassifyBatchStats,
 } from "./classify.js";
+import {
+  buildCalendarProposalEvent,
+  buildEmailProposalEvent,
+  DEFAULT_PROPOSE_MAX_PER_TICK,
+  publishProposal,
+  type PublishFn,
+} from "./proposal.js";
 import {
   buildEmailMessageInsert,
   disabledReasonFor,
@@ -220,6 +228,14 @@ export interface GooglePollerDeps {
   gmailModel?: string;
   /** Caricatore della catena di provider AI (iniettabile nei test). */
   loadProviderChainFn?: typeof loadProviderChain;
+  /**
+   * Proposte pubblicate in un tick per casella (fase 4 del giro). Assente =
+   * {@link DEFAULT_PROPOSE_MAX_PER_TICK}; `0` spegne la sola pubblicazione —
+   * le righe restano `classified`/candidate e vengono proposte al giro dopo.
+   */
+  proposeMaxPerTick?: number;
+  /** Publish iniettabile nei test. Default: `publishNotification`. */
+  publish?: PublishFn;
   /** Caselle reclamate per tick. Default {@link DEFAULT_ACCOUNT_BATCH}. */
   accountBatch?: number;
   /** Stop cooperativo: interrompe il giro fra una casella e l'altra. */
@@ -253,6 +269,8 @@ export interface GoogleTickStats {
   calendarReady: number;
   /** Righe chiuse perché l'appuntamento è stato cancellato su Google. */
   calendarCancelled: number;
+  /** Proposte pubblicate (posta + calendario): card nate in una inbox. */
+  proposed: number;
 }
 
 /** Cosa ha prodotto la fase 3 nel giro di una casella. */
@@ -615,6 +633,7 @@ interface AccountTickResult {
   ingested: number;
   classify: ClassifyBatchStats;
   calendar: CalendarPhaseStats;
+  proposed: number;
 }
 
 /**
@@ -938,6 +957,181 @@ async function syncCalendar(
   return { syncToken, stats };
 }
 
+/** Nomi dei progetti nominati dalle righe del lotto, in UNA query. */
+async function projectNamesOf(db: Db, ids: (string | null)[]): Promise<Map<string, string>> {
+  const unique = [...new Set(ids.filter((id): id is string => id !== null))];
+  const names = new Map<string, string>();
+  if (unique.length === 0) return names;
+  const rows = await db
+    .select({ id: projects.id, name: projects.name })
+    .from(projects)
+    .where(inArray(projects.id, unique));
+  for (const row of rows) names.set(row.id, row.name);
+  return names;
+}
+
+/**
+ * FASE 4 del giro: le righe già trattate diventano PROPOSTE in inbox.
+ *
+ * È la fase che rende visibile tutto il resto: senza di lei un messaggio
+ * classificato e un appuntamento in perimetro restano righe che nessuno vede.
+ * Sta QUI, in coda alle altre, e non dentro la classificazione o dentro
+ * `syncCalendar`, per una ragione precisa: pesca dallo STATO del database, non
+ * da ciò che questo tick ha appena prodotto. Così una riga rimasta indietro —
+ * perché il tick precedente si era interrotto, perché la publish era fallita,
+ * perché il tetto per tick l'aveva tagliata fuori — viene ripresa da sola al
+ * giro dopo, senza nessun recovery dedicato.
+ *
+ * ⚠️ **Non lascia MAI salire un'eccezione**, per le stesse due ragioni di
+ * {@link runClassifyPhase}: il gestore d'errore del chiamante leggerebbe il
+ * guasto come un verdetto sulla CASELLA (backoff, poi `sync_failed`) mentre
+ * qui i guasti possibili non dicono niente su Google, e `applySuccess` non
+ * girerebbe, facendo perdere i cursori appena guadagnati.
+ *
+ * `publishProposal` è già atomica riga per riga (notifica + chiusura della riga
+ * nella stessa transazione): un errore su un messaggio non compromette quelli
+ * già proposti, e quello fallito resta esattamente dov'era.
+ */
+async function runProposePhase(
+  deps: GooglePollerDeps,
+  account: ClaimedAccount,
+): Promise<number> {
+  const logger = deps.logger ?? defaultLogger;
+  const limit = Math.trunc(deps.proposeMaxPerTick ?? DEFAULT_PROPOSE_MAX_PER_TICK);
+  if (limit <= 0) return 0;
+
+  try {
+    const lang = deps.lang ?? (await getContentLanguage(deps.db));
+    let published = 0;
+
+    // --- Posta: i messaggi classificati e non ancora proposti, dai più vecchi.
+    const messages = await deps.db
+      .select({
+        id: emailMessages.id,
+        threadId: emailMessages.threadId,
+        fromAddress: emailMessages.fromAddress,
+        fromName: emailMessages.fromName,
+        subject: emailMessages.subject,
+        receivedAt: emailMessages.receivedAt,
+        projectId: emailMessages.projectId,
+        candidateProjectIds: emailMessages.candidateProjectIds,
+        classification: emailMessages.classification,
+      })
+      .from(emailMessages)
+      .where(
+        and(
+          eq(emailMessages.accountId, account.id),
+          eq(emailMessages.status, "classified"),
+          isNull(emailMessages.proposalNotificationId),
+        ),
+      )
+      .orderBy(asc(emailMessages.receivedAt), asc(emailMessages.id))
+      .limit(limit);
+
+    // --- Calendario: la `where` è, alla lettera, il contratto documentato su
+    // `isReadyForProposal` (che `buildCalendarProposalEvent` riapplica).
+    const events = await deps.db
+      .select({
+        id: calendarEventsTable.id,
+        title: calendarEventsTable.title,
+        startsAt: calendarEventsTable.startsAt,
+        organizer: calendarEventsTable.organizer,
+        status: calendarEventsTable.status,
+        projectId: calendarEventsTable.projectId,
+        proposalNotificationId: calendarEventsTable.proposalNotificationId,
+        outcome: calendarEventsTable.outcome,
+      })
+      .from(calendarEventsTable)
+      .where(
+        and(
+          eq(calendarEventsTable.accountId, account.id),
+          sql`${calendarEventsTable.status} is distinct from 'cancelled'`,
+          isNotNull(calendarEventsTable.projectId),
+          isNull(calendarEventsTable.proposalNotificationId),
+          isNull(calendarEventsTable.outcome),
+        ),
+      )
+      .orderBy(asc(calendarEventsTable.startsAt), asc(calendarEventsTable.id))
+      .limit(limit);
+
+    if (messages.length === 0 && events.length === 0) return 0;
+
+    // Una query sola per i nomi di TUTTI i progetti nominati dal lotto: il
+    // risolto di ogni riga più i candidati, che diventano le opzioni
+    // «Riguarda …» dei messaggi ambigui.
+    const projectNames = await projectNamesOf(deps.db, [
+      ...messages.flatMap((message) => [message.projectId, ...message.candidateProjectIds]),
+      ...events.map((event) => event.projectId),
+    ]);
+
+    for (const message of messages) {
+      if (deps.signal?.aborted) return published;
+      const event = buildEmailProposalEvent({
+        lang,
+        message,
+        mailboxEmail: account.email,
+        projectNames,
+      });
+      if (!event) {
+        // Niente da proporre da una classificazione che non regge più: la riga
+        // resta `classified` e verrebbe ripescata a ogni tick per sempre.
+        // `ignored` la chiude senza inventare una proposta.
+        await deps.db
+          .update(emailMessages)
+          .set({ status: "ignored" })
+          .where(eq(emailMessages.id, message.id));
+        continue;
+      }
+      const result = await publishProposal(deps.db, {
+        event,
+        source: "email",
+        rowId: message.id,
+        mailboxOwnerUserId: account.userId,
+        ...(message.projectId ? { projectId: message.projectId } : {}),
+        ...(deps.publish !== undefined ? { publish: deps.publish } : {}),
+      });
+      if (result.ok) published += 1;
+      else if (result.reason !== "not_claimable") {
+        logger.warn(
+          `google: proposta non pubblicata per il messaggio ${message.id} (${result.reason})`,
+        );
+      }
+    }
+
+    for (const row of events) {
+      if (deps.signal?.aborted) return published;
+      const event = buildCalendarProposalEvent({
+        lang,
+        event: row,
+        mailboxEmail: account.email,
+        projectNames,
+      });
+      if (!event) continue;
+      const result = await publishProposal(deps.db, {
+        event,
+        source: "calendar",
+        rowId: row.id,
+        mailboxOwnerUserId: account.userId,
+        ...(row.projectId ? { projectId: row.projectId } : {}),
+        ...(deps.publish !== undefined ? { publish: deps.publish } : {}),
+      });
+      if (result.ok) published += 1;
+      else if (result.reason !== "not_claimable") {
+        logger.warn(
+          `google: proposta non pubblicata per l'evento ${row.id} (${result.reason})`,
+        );
+      }
+    }
+
+    return published;
+  } catch (err) {
+    logger.error(
+      `google: pubblicazione delle proposte di ${account.email} interrotta: ${errText(err)}`,
+    );
+    return 0;
+  }
+}
+
 /**
  * Il giro di UNA casella: credenziali → access token → le fasi.
  *
@@ -986,7 +1180,12 @@ async function runAccountTick(
   const calendar = await syncCalendar(deps, ctx, account);
   await applyCalendarCursor(deps, account, calendar.syncToken);
 
-  return { ingested: gmailResult.ingested, classify, calendar: calendar.stats };
+  // Fase 4 — le righe pronte (di questo giro e di quelli prima) diventano
+  // proposte in inbox. Dopo i cursori: non parla con Google, e un suo guasto
+  // non deve poter costare una risincronizzazione.
+  const proposed = await runProposePhase(deps, account);
+
+  return { ingested: gmailResult.ingested, classify, calendar: calendar.stats, proposed };
 }
 
 /**
@@ -1035,6 +1234,7 @@ export async function pollGoogleOnce(deps: GooglePollerDeps): Promise<GoogleTick
     calendarEvents: 0,
     calendarReady: 0,
     calendarCancelled: 0,
+    proposed: 0,
   };
 
   // La potatura gira SEMPRE, anche quando nessuna casella è dovuta: è
@@ -1079,6 +1279,7 @@ export async function pollGoogleOnce(deps: GooglePollerDeps): Promise<GoogleTick
       stats.calendarEvents += result.calendar.events;
       stats.calendarReady += result.calendar.ready;
       stats.calendarCancelled += result.calendar.cancelled;
+      stats.proposed += result.proposed;
       await applySuccess(deps, account);
     } catch (err) {
       try {
@@ -1128,6 +1329,7 @@ export function startGooglePoller(opts: StartGooglePollerOptions): () => void {
             `${stats.classified} classificati, ${stats.ignoredMessages} ignorati, ` +
             `${stats.failedMessages} falliti, ${stats.calendarEvents} eventi ` +
             `(${stats.calendarReady} da proporre, ${stats.calendarCancelled} cancellati), ` +
+            `${stats.proposed} proposte pubblicate, ` +
             `${stats.disabled} disabilitate, ${stats.pruned} potati`,
         );
       }

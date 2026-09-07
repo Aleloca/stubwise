@@ -189,6 +189,32 @@ export const KINDS_WITH_OPTIONS: ReadonlySet<NotificationKind> = new Set<Notific
   "google.proposal",
 ]);
 
+/**
+ * I kind con opzioni che NON hanno un job dietro.
+ *
+ * È la faccia "stato" di {@link KINDS_WITH_OPTIONS}, e serve a due predicati
+ * diversi che senza di lei ripeterebbero lo stesso elenco:
+ *
+ *  - {@link stateAllows} — non c'è nessun `ai_jobs.status` da leggere
+ *    (`jobStatus` è per forza `null`), quindi la regola "il job dev'essere in
+ *    `awaiting_input`" li escluderebbe SEMPRE. Ciò che deve essere ancora
+ *    aperto è la RIGA di notifica, e la verifica chi esegue l'azione;
+ *  - {@link actorAllows} — non essendoci un job non c'è nemmeno un
+ *    "richiedente" a cui la domanda sia rivolta: risponde chi la riceve.
+ *    Sul pulse è chiunque lo segua; su `google.proposal` è UNA persona sola —
+ *    l'audience `mailbox_owner` la consegna solo al proprietario della casella
+ *    — e il controllo che conta ("questa riga è tua") è il `WHERE` sull'utente
+ *    in `executeAction`, non un permesso di ruolo. Chiedere `role === "admin"`
+ *    qui toglierebbe la proposta proprio all'unica persona a cui è rivolta.
+ *
+ * Scritta al POSITIVO sui soli kind esenti: un kind con opzioni aggiunto
+ * domani ricade sul controllo severo invece di ereditare un lasciapassare.
+ */
+const KINDS_WITHOUT_JOB: ReadonlySet<NotificationKind> = new Set<NotificationKind>([
+  "project.pulse",
+  "google.proposal",
+]);
+
 /** Igiene dell'inbox: presente su OGNI notifica, non è una decisione. */
 const HYGIENE: readonly ActionId[] = ["open", "snooze"];
 
@@ -241,13 +267,12 @@ export function actorAllows(
   if (!kindOffers(kind, action)) return false;
   if (hygieneFor(kind).includes(action)) return true;
   if (action === "answer") {
-    // Il PULSE è una proposta, non una domanda a qualcuno in particolare: la
-    // riceve chi segue il progetto (audience `broadcast`) e la può prendere in
-    // mano chiunque l'abbia ricevuta. Il controllo che conta — "questa riga è
-    // tua" — non è di ruolo e non sta qui: è il `WHERE` sulla riga di notifica
-    // dell'utente in `executeAction`. Duplicarlo con un permesso per ruolo
-    // toglierebbe la proposta proprio agli operatori a cui è rivolta.
-    if (kind === "project.pulse") return true;
+    // I kind SENZA JOB (pulse e proposta dalla posta) non hanno un richiedente
+    // a cui la domanda sia rivolta: la prende in mano chi l'ha ricevuta. Il
+    // controllo che conta — "questa riga è tua" — non è di ruolo e non sta qui:
+    // è il `WHERE` sulla riga di notifica dell'utente in `executeAction`. Vedi
+    // {@link KINDS_WITHOUT_JOB} per il perché, kind per kind.
+    if (KINDS_WITHOUT_JOB.has(kind)) return true;
     return actor.role === "admin" || (requestedByUserId !== null && actor.id === requestedByUserId);
   }
   return !CATALOG_FOR_KIND[kind].adminOnly || actor.role === "admin";
@@ -277,13 +302,12 @@ export function stateAllows(
     case "reject_plan":
       return jobStatus === "awaiting_plan_approval";
     case "answer":
-      // Il pulse non ha un job: ciò che deve essere ancora "aperto" è la RIGA di
-      // notifica, e quella la verifica chi esegue l'azione (`executeAction`, che
-      // la sta già leggendo) — qui non c'è nulla da controllare. La condizione è
-      // scritta al positivo sul solo kind che ne è esente, così un kind con
-      // opzioni aggiunto domani ricade sul controllo severo invece di ereditare
-      // in silenzio un lasciapassare.
-      return kind === "project.pulse" || jobStatus === "awaiting_input";
+      // I kind senza job non hanno uno stato da leggere: ciò che deve essere
+      // ancora "aperto" è la RIGA di notifica, e quella la verifica chi esegue
+      // l'azione (`executeAction`, che la sta già leggendo). Vedi
+      // {@link KINDS_WITHOUT_JOB}, che è anche il motivo per cui la condizione
+      // è scritta al positivo sui soli kind esenti.
+      return KINDS_WITHOUT_JOB.has(kind) || jobStatus === "awaiting_input";
     case "relaunch":
       return !isInFlight(jobStatus);
     default:

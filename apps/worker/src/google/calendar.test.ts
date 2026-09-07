@@ -239,6 +239,14 @@ function deps(
     intervalMinutes: 5,
     retentionDays: 90,
     lang: "it",
+    // ⚠️ FASE 4 SPENTA di default in questo file, e non per comodità: dal Task
+    // 10 il tick PUBBLICA le righe pronte nello stesso giro, quindi
+    // `isReadyForProposal` — che è ciò che quasi tutti i test qui osservano —
+    // tornerebbe `false` un istante dopo, e sui sintomi non si distinguerebbe
+    // «la fase 3 non l'ha resa candidata» da «la fase 4 se l'è presa». Il
+    // PASSAGGIO fra le due fasi ha un test suo qui sotto, che il flag lo
+    // riaccende apposta.
+    proposeMaxPerTick: 0,
     ...overrides,
   };
 }
@@ -698,5 +706,41 @@ describe("errori della fase 3 e i due cursori", () => {
 
     expect(stats.disabled).toBe(1);
     expect((await reload(account.id)).disabledReason).toBe("insufficient_scope");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Il passaggio dalla fase 3 alla fase 4
+// ---------------------------------------------------------------------------
+
+/**
+ * `isReadyForProposal` è il CONTRATTO fra le due fasi, e un contratto lo si
+ * verifica dalle due parti: gli altri test di questo file guardano che la fase
+ * 3 renda candidata la riga giusta (con la fase 4 spenta, vedi `deps`); questo
+ * guarda che, riaccesa, la fase 4 la prenda davvero. Senza, tutta la fase 6
+ * girerebbe a vuoto: righe pronte che nessuno vede mai.
+ */
+describe("dalla riga candidata alla proposta in inbox", () => {
+  it("una riga pronta diventa una proposta nello STESSO giro", async () => {
+    const projectId = await seedProject("Acme");
+    await db
+      .insert(projectEmailRoutes)
+      .values({ projectId, kind: "sender_domain", value: "cliente.com" });
+    const account = await seedAccount();
+    const calendar = fakeCalendar([{ events: [event({ id: "e1" })], nextSyncToken: "tok-1" }]);
+
+    const stats = await pollGoogleOnce(deps(account, calendar, { proposeMaxPerTick: 20 }));
+
+    expect(stats).toMatchObject({ calendarReady: 1, proposed: 1 });
+    const [row] = await rows();
+    // Non è più candidata proprio perché è stata proposta: è il contratto che
+    // si chiude, non una riga persa.
+    expect(isReadyForProposal(row!)).toBe(false);
+    const cards = await db.select().from(notifications);
+    expect(cards).toHaveLength(1);
+    expect(cards[0]?.kind).toBe("google.proposal");
+    // ⚠️ Audience `mailbox_owner`: la vede solo chi ha collegato la casella.
+    expect(cards[0]?.userId).toBe(account.userId);
+    expect(row!.proposalNotificationId).toBe(cards[0]?.id);
   });
 });

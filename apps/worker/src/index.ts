@@ -609,8 +609,11 @@ startBriefPoller({
 // Gmail in incrementale (History API, con resync per query quando la history è
 // scaduta), PRE-FILTRA sui soli metadati con le regole di routing di tutti i
 // progetti e scarica il corpo solo dei messaggi in perimetro; poi classifica i
-// messaggi `new` con un run di solo testo (nessun tool, dir vuota) che li
-// trasforma in proposte. Nessun mirror e NESSUN serializer per-progetto: i run
+// messaggi `new` con un run di solo testo (nessun tool, dir vuota), traccia gli
+// eventi del calendario e infine PUBBLICA le proposte: una card in inbox per il
+// SOLO proprietario della casella (audience `mailbox_owner`, mai gli admin),
+// scritta nella stessa transazione che chiude la riga d'origine.
+// Nessun mirror e NESSUN serializer per-progetto: i run
 // di classificazione non toccano un worktree. È BEST-EFFORT (non fa mai
 // crashare il worker) e NON tocca il lock/heartbeat dei job. Si ferma sullo
 // stesso AbortSignal. GMAIL_POLL_MINUTES=0 non avvia nulla: è il rollback.

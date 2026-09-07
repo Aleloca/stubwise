@@ -36,8 +36,10 @@ import {
   type SnoozeUntil,
 } from "@stubwise/notifications";
 import {
+  inboxGoogleSchema,
   inboxPulseSchema,
   inboxQuestionSchema,
+  type InboxGoogle,
   type InboxPulse,
   type InboxQuestion,
 } from "@stubwise/shared";
@@ -555,6 +557,13 @@ export interface InboxItem {
    * {@link readPulse}.
    */
   pulse?: InboxPulse;
+  /**
+   * Il contorno della proposta Google (mittente, oggetto, data, segnale, tipi
+   * delle azioni), sul solo kind `google.proposal`. ASSENTE se il payload non
+   * lo porta in forma leggibile, o se le azioni non sono ALLINEATE alle
+   * opzioni — vedi {@link readGoogle}.
+   */
+  google?: InboxGoogle;
   projectId: string | null;
   ticketId: string | null;
   jobId: string | null;
@@ -744,13 +753,22 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
  * `pulseId` in un secondo campo dell'evento lascerebbe due verità da tenere
  * allineate.
  */
+const QUESTION_ID_FIELD: Partial<Record<NotificationKind, string>> = {
+  // Il pulse non ha una riga `agent_questions`: la sua ancora è il `pulseId`.
+  "project.pulse": "pulseId",
+  // La proposta dalla posta nemmeno: la sua è il `proposalId`, che ha lo stesso
+  // ruolo — identifica QUESTA proposta fra tutte le copie e fa rimontare il
+  // pannello quando la proposta cambia sotto le stesse opzioni.
+  "google.proposal": "proposalId",
+};
+
 function readQuestion(
   rawEvent: Record<string, unknown>,
   kind: NotificationKind,
 ): InboxQuestion | undefined {
   if (!KINDS_WITH_OPTIONS.has(kind)) return undefined;
-  const candidate =
-    kind === "project.pulse" ? { ...rawEvent, questionId: rawEvent.pulseId } : rawEvent;
+  const idField = QUESTION_ID_FIELD[kind];
+  const candidate = idField ? { ...rawEvent, questionId: rawEvent[idField] } : rawEvent;
   const parsed = inboxQuestionSchema.safeParse(candidate);
   return parsed.success ? parsed.data : undefined;
 }
@@ -791,6 +809,42 @@ function readPulse(
 }
 
 /**
+ * Estrae dal payload grezzo IL CONTORNO DELLA PROPOSTA GOOGLE — mittente,
+ * oggetto, data, segnale e il TIPO di ciascuna azione — per il solo kind che ne
+ * ha uno. Gemella di {@link readPulse}, con la stessa disciplina e per la
+ * stessa ragione.
+ *
+ * ⚠️ L'ALLINEAMENTO È IL PUNTO, e qui più che sul pulse. L'indice che l'utente
+ * conferma viaggia su `question.options` (è la lista che la card disegna) e
+ * agisce su `actions` (è la lista che il servizio indicizza per sapere COSA
+ * eseguire). Le due nascono allineate in `buildProposalEvent`, ma qui arrivano
+ * da un jsonb scritto chissà quando: se le lunghezze non coincidono il blocco
+ * viene OMESSO, perché mostrare "commenta il ticket" sotto un'opzione che crea
+ * una milestone è peggio che non mostrare niente. La card resta confermabile —
+ * il servizio rivalida comunque l'indice sulle azioni persistite — e semplicemente
+ * senza contorno.
+ *
+ * NON LANCIA MAI: `safeParse` su ogni pezzo, `undefined` a ogni dubbio. È il
+ * requisito di tutto ciò che legge `notifications.event`, che è un jsonb senza
+ * nessun CHECK sulla forma.
+ */
+function readGoogle(
+  rawEvent: Record<string, unknown>,
+  kind: NotificationKind,
+  question: InboxQuestion | undefined,
+): InboxGoogle | undefined {
+  if (kind !== "google.proposal") return undefined;
+  // Senza domanda leggibile non c'è nessuna lista di opzioni con cui
+  // allinearsi, e la card non offre scelte: il contorno non avrebbe a cosa
+  // riferirsi.
+  if (!question) return undefined;
+  const parsed = inboxGoogleSchema.safeParse(rawEvent);
+  if (!parsed.success) return undefined;
+  if (parsed.data.actions.length !== question.options.length) return undefined;
+  return parsed.data;
+}
+
+/**
  * RECINTO attorno alla resa del singolo item.
  *
  * `notifications.event` è un jsonb scritto da chi ha pubblicato l'evento, anche
@@ -822,12 +876,17 @@ function renderItem(
   rawEvent: Record<string, unknown>,
   kind: NotificationKind,
   lang: Language,
-): { text: string; url?: string; question?: InboxQuestion; pulse?: InboxPulse } {
+): { text: string; url?: string; question?: InboxQuestion; pulse?: InboxPulse; google?: InboxGoogle } {
   const question = readQuestion(rawEvent, kind);
   const pulse = readPulse(rawEvent, kind, question);
-  // I due blocchi opzionali della card, insieme: entrambi degradano ad assenti
-  // e nessuno dei due deve poter far saltare la resa del testo.
-  const optionsPart = { ...(question ? { question } : {}), ...(pulse ? { pulse } : {}) };
+  const google = readGoogle(rawEvent, kind, question);
+  // I blocchi opzionali della card, insieme: degradano tutti ad assenti e
+  // nessuno di loro deve poter far saltare la resa del testo.
+  const optionsPart = {
+    ...(question ? { question } : {}),
+    ...(pulse ? { pulse } : {}),
+    ...(google ? { google } : {}),
+  };
   try {
     const event = rawEvent as unknown as NotificationEvent;
     const text = formatNotificationText(event, lang);

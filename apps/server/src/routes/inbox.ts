@@ -96,6 +96,10 @@ function toInboxItemView(item: ServiceInboxItem): InboxItem {
     // Assente (non null) su tutti i kind che non sono il pulse, e sui pulse il
     // cui payload non è leggibile o non è allineato alle opzioni.
     ...(item.pulse === undefined ? {} : { pulse: item.pulse }),
+    // Assente (non null) su tutti i kind che non sono la proposta Google, e
+    // sulle proposte il cui payload non è leggibile o non è allineato alle
+    // opzioni (vedi `readGoogle`).
+    ...(item.google === undefined ? {} : { google: item.google }),
     projectId: item.projectId,
     ticketId: item.ticketId,
     jobId: item.jobId,

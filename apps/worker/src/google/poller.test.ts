@@ -3,6 +3,7 @@ import {
   emailMessages,
   googleAccounts,
   googleWorkspaces,
+  notifications,
   projectEmailRoutes,
   projects,
   users,
@@ -931,5 +932,159 @@ describe("fase 2: classificazione dentro il tick", () => {
     expect(reloaded.disabledAt).toBeNull();
     expect(reloaded.syncAttempts).toBe(0);
     expect(reloaded.gmailHistoryId).toBe("1010");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fase 4 — proposte
+// ---------------------------------------------------------------------------
+
+/**
+ * ⚠️ È LA FASE CHE RENDE VISIBILE TUTTO IL RESTO. Senza di lei l'intera fase 6
+ * gira a vuoto: i messaggi si classificano, gli eventi si tracciano, e nessuno
+ * vede niente. Il legame fra le righe e l'inbox non ha un altro guardiano —
+ * `proposal.test.ts` copre la costruzione e la transazione, questi test coprono
+ * il fatto che il tick le CHIAMI.
+ */
+describe("fase 4 — le righe pronte diventano proposte", () => {
+  /** Un messaggio già classificato dal giro precedente, in attesa di proposta. */
+  async function seedClassified(accountId: string, projectId: string): Promise<string> {
+    const [row] = await db
+      .insert(emailMessages)
+      .values({
+        accountId,
+        gmailMessageId: `m-${randomUUID()}`,
+        threadId: `t-${randomUUID()}`,
+        fromAddress: "cliente@cliente.com",
+        receivedAt: new Date("2026-09-07T08:00:00.000Z"),
+        projectId,
+        status: "classified",
+        signal: "request",
+        classification: {
+          signal: "request",
+          summary: "Chiede l'export.",
+          recommendedIndex: 0,
+          proposals: [
+            {
+              type: "create_backlog_item",
+              projectId,
+              title: "Export CSV",
+              consequence: "Entra nel backlog.",
+            },
+          ],
+        },
+      })
+      .returning({ id: emailMessages.id });
+    return row!.id;
+  }
+
+  it("un messaggio classificato diventa una notifica per il proprietario della casella", async () => {
+    const projectId = await seedProject("negozio");
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    const messageId = await seedClassified(account.id, projectId);
+
+    const stats = await pollGoogleOnce(deps(account, fakeGmail({ listed: [] })));
+
+    expect(stats.proposed).toBe(1);
+    const rows = await db.select().from(notifications);
+    expect(rows).toHaveLength(1);
+    // ⚠️ Audience `mailbox_owner`: la card è del proprietario della casella e
+    // di nessun altro — l'invariante di privacy della fase.
+    expect(rows[0]?.userId).toBe(account.userId);
+    expect(rows[0]?.kind).toBe("google.proposal");
+    const [message] = await db
+      .select()
+      .from(emailMessages)
+      .where(eq(emailMessages.id, messageId));
+    expect(message?.status).toBe("proposed");
+    expect(message?.proposalNotificationId).toBe(rows[0]?.id);
+  });
+
+  it("un secondo giro non ripropone lo stesso messaggio", async () => {
+    // Senza il claim, ogni tick pubblicherebbe una card nuova sulla stessa
+    // email: una ogni cinque minuti, per sempre.
+    const projectId = await seedProject("negozio");
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    await seedClassified(account.id, projectId);
+
+    await pollGoogleOnce(deps(account, fakeGmail({ listed: [] })));
+    await db
+      .update(googleAccounts)
+      .set({ nextSyncAt: new Date(Date.now() - 60_000) })
+      .where(eq(googleAccounts.id, account.id));
+    const second = await pollGoogleOnce(deps(account, fakeGmail({ listed: [] })));
+
+    expect(second.proposed).toBe(0);
+    expect(await db.select().from(notifications)).toHaveLength(1);
+  });
+
+  it("una classificazione da cui non resta niente chiude la riga invece di ripescarla", async () => {
+    // `classified` senza nessuna azione eseguibile resterebbe candidata a ogni
+    // tick per sempre, occupando uno slot del tetto. `ignored` la chiude senza
+    // inventare una proposta che non c'è.
+    const projectId = await seedProject("negozio");
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    const [row] = await db
+      .insert(emailMessages)
+      .values({
+        accountId: account.id,
+        gmailMessageId: `m-${randomUUID()}`,
+        threadId: `t-${randomUUID()}`,
+        fromAddress: "cliente@cliente.com",
+        receivedAt: new Date("2026-09-07T08:00:00.000Z"),
+        projectId,
+        status: "classified",
+        classification: { signal: "none", recommendedIndex: 0, proposals: [] },
+      })
+      .returning({ id: emailMessages.id });
+
+    const stats = await pollGoogleOnce(deps(account, fakeGmail({ listed: [] })));
+
+    expect(stats.proposed).toBe(0);
+    expect(await db.select().from(notifications)).toHaveLength(0);
+    const [after] = await db.select().from(emailMessages).where(eq(emailMessages.id, row!.id));
+    expect(after?.status).toBe("ignored");
+  });
+
+  it("`proposeMaxPerTick: 0` spegne la sola pubblicazione, le righe restano pronte", async () => {
+    const projectId = await seedProject("negozio");
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    const messageId = await seedClassified(account.id, projectId);
+
+    const stats = await pollGoogleOnce(
+      deps(account, fakeGmail({ listed: [] }), { proposeMaxPerTick: 0 }),
+    );
+
+    expect(stats.proposed).toBe(0);
+    expect(await db.select().from(notifications)).toHaveLength(0);
+    const [message] = await db
+      .select()
+      .from(emailMessages)
+      .where(eq(emailMessages.id, messageId));
+    // La riga NON viene toccata: al primo tick con la fase riaccesa riparte.
+    expect(message?.status).toBe("classified");
+  });
+
+  it("un guasto della fase 4 non mette la casella in backoff", async () => {
+    // Il gestore d'errore del tick legge ogni eccezione come un verdetto sulla
+    // CASELLA. Qui il guasto è nostro, non di Google: farlo salire spegnerebbe
+    // la posta di una persona per un bug del publisher.
+    const projectId = await seedProject("negozio");
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    await seedClassified(account.id, projectId);
+
+    const stats = await pollGoogleOnce(
+      deps(account, fakeGmail({ listed: [] }), {
+        publish: () => {
+          throw new Error("publish esplosa");
+        },
+      }),
+    );
+
+    expect(stats.proposed).toBe(0);
+    expect(stats.disabled).toBe(0);
+    const reloaded = await reload(account.id);
+    expect(reloaded.syncAttempts).toBe(0);
+    expect(reloaded.disabledAt).toBeNull();
   });
 });

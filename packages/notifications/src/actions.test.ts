@@ -259,6 +259,15 @@ describe("`answer` per kind", () => {
     // comunque — lo stato che conta è quello della NOTIFICA, e lo verifica il
     // servizio che esegue l'azione, non il catalogo.
     { kind: "project.pulse", jobStatus: null, attese: ["answer", "open", "snooze", "handled"] },
+    // Proposta dalla posta: stessa forma del pulse — nessun job dietro, quindi
+    // `answer` c'è comunque — ma il pubblico è UNO SOLO (audience
+    // `mailbox_owner`). Archiviabile: non dare seguito a una email è una
+    // risposta legittima, e dietro non c'è nessun job fermo ad aspettare.
+    {
+      kind: "google.proposal",
+      jobStatus: null,
+      attese: ["answer", "open", "snooze", "handled"],
+    },
     // Brief: nessun job e nessuna decisione — solo l'igiene dell'inbox.
     { kind: "project.brief", jobStatus: null, attese: ["open", "snooze", "handled"] },
     // Kind senza opzioni: `answer` non compare in nessuno stato.
@@ -285,12 +294,29 @@ describe("`answer` per kind", () => {
     }
   });
 
+  it("la proposta dalla posta la offre al destinatario, che admin non è", () => {
+    // ⚠️ Il destinatario di `google.proposal` è UNO: il proprietario della
+    // casella (audience `mailbox_owner`), che quasi sempre è un operatore.
+    // Chiedere il ruolo admin toglierebbe la proposta proprio all'unica persona
+    // a cui è rivolta — e la darebbe a nessun altro, perché nessun altro la
+    // riceve. Il controllo che conta ("questa riga è tua") è il `WHERE`
+    // sull'utente in `executeAction`.
+    const proposta = { kind: "google.proposal", requestedByUserId: null } as const;
+    for (const actor of [maintainer, operator, estraneo]) {
+      expect(actionsFor(proposta, null, actor)).toEqual(["answer", "open", "snooze", "handled"]);
+      expect(actorAllows(proposta, "answer", actor)).toBe(true);
+    }
+  });
+
   it("stateAllows: solo la domanda dell'agente guarda lo stato del job", () => {
     expect(stateAllows("job.awaiting_input", "answer", "awaiting_input")).toBe(true);
     expect(stateAllows("job.awaiting_input", "answer", "fixing")).toBe(false);
     expect(stateAllows("job.awaiting_input", "answer", null)).toBe(false);
     // Il pulse passa sempre: non c'è nessun job di cui leggere lo stato.
     expect(stateAllows("project.pulse", "answer", null)).toBe(true);
+    // E la proposta dalla posta pure, per la stessa ragione: sono i due kind
+    // di `KINDS_WITHOUT_JOB`. Ciò che deve essere ancora aperto è la RIGA.
+    expect(stateAllows("google.proposal", "answer", null)).toBe(true);
     // Le altre azioni non cambiano comportamento col kind.
     expect(stateAllows("project.pulse", "relaunch", "queued")).toBe(false);
     expect(stateAllows("job.plan_review", "approve_plan", "awaiting_plan_approval")).toBe(true);

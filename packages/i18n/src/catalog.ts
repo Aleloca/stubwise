@@ -334,6 +334,31 @@ export const en: Catalog = {
   // nessun run del modello, la proposta è un template interpolato.
   "email.calendar.milestone": "{title} by {date}",
 
+  // --- email.proposal.* — LA PROPOSTA come la legge una persona (fase 6, Task
+  // 10). Testi FINALI, mai istruzioni a un agente: la domanda e le etichette
+  // delle opzioni le compone il worker interpolando qui dati GIÀ RIVALIDATI
+  // (titolo di una voce, numero di un ticket aperto, nome di un progetto). Il
+  // modello scrive una cosa sola di quello che si legge sulla card: la
+  // `consequence` di ciascuna proposta. ---
+  //
+  // ⚠️ `{from}` e `{subject}` li scrive CHI HA MANDATO LA EMAIL: sono testo non
+  // fidato che entra nella domanda, ed è per questo che stanno in
+  // `UNTRUSTED_SLACK_PARAMS` (vedi `packages/notifications/src/format.ts`).
+  "email.proposal.question": "{from} wrote about “{subject}”. How do we follow up?",
+  "email.proposal.calendarQuestion":
+    "“{subject}” is on the calendar for {date}. Do we track it as a milestone?",
+  "email.proposal.createBacklogItem": "Open a backlog entry: {title}",
+  "email.proposal.createMilestone": "Create the milestone “{name}”",
+  "email.proposal.updateTicket": "Update ticket #{ticket}",
+  "email.proposal.commentTicket": "Comment on ticket #{ticket}",
+  "email.proposal.recordDecision": "Record the decision: {title}",
+  "email.proposal.chooseProject": "It belongs to {project}",
+  "email.proposal.chooseProjectConsequence":
+    "The message moves to {project} and is analysed again, with proposals on that project.",
+  "email.proposal.calendarConsequence": "A milestone due {date} is created on {project}.",
+  "email.proposal.ignore": "Do nothing",
+  "email.proposal.ignoreConsequence": "The message is left as it is, with no proposal.",
+
   // --- decision.* — REGISTRO DECISIONI di progetto (fase 5, Task 13).
   //
   // ⚠️ Queste stringhe esistono perché il registro NON È MAI SCRITTO DALL'AI.
@@ -576,6 +601,23 @@ export const it: Catalog = {
   "email.input.truncated":
     "Il testo dell'email è stato troncato per lunghezza: non considerare fatti assenti quelli mancanti.",
   "email.calendar.milestone": "{title} entro il {date}",
+
+  // --- email.proposal.* (vedi la nota nel catalogo `en`: testi FINALI; del
+  // testo della card il modello scrive solo la `consequence` di ogni proposta) ---
+  "email.proposal.question": "{from} scrive a proposito di «{subject}». Come diamo seguito?",
+  "email.proposal.calendarQuestion":
+    "«{subject}» è in calendario per il {date}. Lo seguiamo come milestone?",
+  "email.proposal.createBacklogItem": "Apri una voce di backlog: {title}",
+  "email.proposal.createMilestone": "Crea la milestone «{name}»",
+  "email.proposal.updateTicket": "Aggiorna il ticket #{ticket}",
+  "email.proposal.commentTicket": "Commenta il ticket #{ticket}",
+  "email.proposal.recordDecision": "Registra la decisione: {title}",
+  "email.proposal.chooseProject": "Riguarda {project}",
+  "email.proposal.chooseProjectConsequence":
+    "Il messaggio passa a {project} e viene rianalizzato, con proposte su quel progetto.",
+  "email.proposal.calendarConsequence": "Nasce una milestone con scadenza {date} su {project}.",
+  "email.proposal.ignore": "Non fare nulla",
+  "email.proposal.ignoreConsequence": "Il messaggio resta com'è, senza nessuna proposta.",
 
   // --- decision.* (vedi la nota nel catalogo `en`: testi FINALI, mai istruzioni
   // a un agente — il registro decisioni non è mai scritto dall'AI) ---
