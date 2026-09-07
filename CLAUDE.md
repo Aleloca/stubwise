@@ -21,9 +21,11 @@ repo, ricerca vettoriale e chat RAG.
 - `packages/*` — `api-client` (client HTTP tipato verso l'API server, condiviso
   da `apps/web` — dependency, non devDependency: vedi il commento in
   `Dockerfile.caddy` — e da `apps/mobile`), `db` (Drizzle + Postgres/pgvector),
-  `docs-engine`, `embeddings`, `git`, `i18n`, `notifications`, `sdk`, `shared`,
-  `widget` (bundle embeddabile del customer service, servito come `/widget.js`
-  da caddy).
+  `docs-engine`, `embeddings`, `git`, `google` (client HTTP puro OAuth/Gmail/
+  Calendar, `fetch` iniettabile, condiviso da server e worker — fase 6, nessuna
+  API Google chiamata da nessun altro punto del monorepo), `i18n`,
+  `notifications`, `sdk`, `shared`, `widget` (bundle embeddabile del customer
+  service, servito come `/widget.js` da caddy).
   `notifications` ospita anche i moduli **puri e condivisi fra server e
   worker** che leggono lo stato di un progetto: `project-signals.ts` (i
   segnali del pulse) e, dalla fase 5, `project-timeline.ts` — l'unione degli
@@ -418,6 +420,54 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   mai stato nella *risposta*, nemmeno prima, quindi nessuna rotta smette di
   serializzare — verificato leggendo lo schema di risposta su `main`, non
   assunto.)
+- **Fase 6 (Gmail e Calendar)**: rebuild **server+worker+caddy insieme**
+  (migrazione 0069 all'avvio del server — nuovo valore `google.proposal`
+  sull'enum `notification_kind` **in uno statement a sé**, come
+  `project.pulse` in fase 2 e `project.brief` in fase 5 (vedi la trappola
+  delle migrazioni batch qui sotto), sei tabelle NUOVE (`google_workspaces`,
+  `google_accounts`, `oauth_states`, `project_email_routes`,
+  `email_messages`, `calendar_events`), colonna
+  `notification_settings.notify_google_proposal` (default `true`), colonna
+  `agent_runs.email_message_id` col check allargato a
+  `num_nonnulls(job_id, pr_review_id, email_message_id) = 1`, e il CHECK di
+  `project_decisions.source` allargato a `email`; il worker nuovo è l'unico
+  che ha il poller per-casella che sincronizza Gmail e Calendar, classifica i
+  segnali e pubblica le proposte, il server nuovo l'unico che espone il
+  registro Workspace, l'OAuth delle caselle, il routing per progetto e la
+  pagina Posta, il bundle nuovo l'unico che disegna Impostazioni → Google,
+  Account → Caselle Google, la sezione «Posta» del progetto e `/mail`). Env
+  nuove sul worker: `GMAIL_POLL_MINUTES` (default 5, **0 = spento — è il
+  rollback innocuo**: nessuna casella viene più sincronizzata),
+  `GMAIL_MODEL` (default `haiku` — la classificazione è un run di solo
+  testo, senza tool, su una directory vuota: il modello piccolo basta),
+  `GMAIL_RETENTION_DAYS` (default 90, giorni di conservazione dei messaggi in
+  stato TERMINALE — `actioned`/`ignored`/`failed` — oltre i quali il poller
+  li cancella; `proposed` non si tocca mai, è una card ancora aperta in una
+  inbox; 0 = nessuna potatura) e `GMAIL_MAX_PER_TICK` (default 20, tetto di
+  messaggi classificati per casella per giro — il tetto di spesa). **Nessun
+  toggle per progetto per Google in sé**: un admin deve registrare almeno un
+  Google Workspace (Impostazioni → Google) prima che chiunque possa
+  collegare una casella; le regole di routing per progetto (sezione «Posta»
+  nel dettaglio progetto) sono opt-in per costruzione — **nessuna regola =
+  nessun messaggio in perimetro per quel progetto**, il pre-filtro scarta il
+  messaggio prima ancora di scaricarne il corpo. **Rollback — due livelli,
+  come le fasi 2 e 5**: (1) `GMAIL_POLL_MINUTES=0` ferma la sincronizzazione
+  senza toccare schema né immagini — è la strada innocua, e le caselle
+  restano collegate, pronte a ripartire da dove erano; (2) *scendere di
+  immagine sul server* **NON è sicuro** finché in `notifications` esiste
+  anche UNA riga con `kind='google.proposal'`, **incluse quelle già
+  gestite**: stesso identico problema di `project.pulse` in fase 2 e
+  `project.brief` in fase 5 — `notificationKindSchema` è un enum chiuso, il
+  binario vecchio non conosce quel valore, `inboxPageSchema` fa fallire la
+  serializzazione e salta **tutta `/api/inbox` con un 500**, non una card
+  degradata. Va eliminata prima (`delete from notifications where
+  kind='google.proposal';`, o spostata in una tabella d'appoggio — segnarla
+  gestita NON basta, la tab "Gestite" le rilegge tutte). **Post-deploy
+  (maintainer)**: creare l'app OAuth interna in ogni Google Workspace
+  dell'organizzazione (guida utente in `apps/docs`, «Integrations → Google
+  Workspace»), registrarla in Impostazioni → Google, poi ogni utente collega
+  la propria casella da Account → Caselle Google e un maintainer di progetto
+  configura le regole di routing sui progetti che devono ricevere posta.
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
@@ -592,6 +642,60 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   sbagliato, non codice che esplode** — prima di concludere «il test non
   discrimina» su una mutazione rimasta verde, verifica che non stia
   fallendo per conto suo.
+- **L'audience `mailbox_owner` non include MAI gli admin.** È un'audience a
+  sé nell'enum di `routing.ts` (`packages/notifications/src/routing.ts`),
+  non un caso speciale di `requester` (che invece gli admin li include
+  sempre): `recipientsFor` per `mailbox_owner` restituisce **un solo**
+  destinatario, `ctx.mailboxOwner`, risolto da chi pubblica
+  (`PublishOpts.mailboxOwnerUserId`) — senza quel valore non c'è nessun
+  destinatario, non un fallback sugli admin. È la stessa privacy-by-
+  construction della fase 6: una proposta nata dalla casella di qualcuno la
+  vede SOLO quel qualcuno. Verificato in
+  `packages/notifications/src/routing.test.ts` (un caso con un admin E un
+  follower presenti nel contesto, per essere sicuri che nessuno dei due
+  compaia). Chi aggiunge un'audience nuova non la faccia ereditare da
+  `requester` "per comodità": se deve escludere gli admin, è un caso a sé
+  come questo.
+- **La classificazione dei segnali email gira con la stessa dottrina
+  dell'intake, non un'eccezione per la posta.**
+  `apps/worker/src/google/classify.ts` chiama `runAgentText` con
+  `permissionMode: "default"` (MAI `"plan"`, che è la modalità di
+  esplorazione read-only e invita l'agente a guardare il filesystem del
+  container), una directory temporanea VUOTA come cwd e nessun tool: il
+  testo di un'email lo scrive chi vuole, compreso chi vuole male, e il run
+  non deve avere niente da toccare né niente da leggere oltre al messaggio
+  stesso. La difesa vera però non è il prompt: è la RIVALIDAZIONE nel
+  codice di ogni referente che il modello nomina (`projectId` dev'essere fra
+  i candidati del routing, `ticketNumber` fra i ticket aperti di quel
+  progetto, `dueDate` nel futuro) — un'azione che perde un referente
+  sparisce, e se non ne resta nessuna il messaggio diventa `ignored` senza
+  proposta. Stessa forma di `apps/worker/src/backlog/prompts.ts` per
+  l'intake: chi aggiunge un nuovo punto che manda testo non fidato al
+  modello copi questa dottrina, non la reinventi.
+- **Il modulo che scrive nel registro decisioni non importa MAI un esecutore
+  AI — vale anche per `google-proposal.ts`.** La conferma di una proposta
+  email o calendario registra una decisione con `source: "email"` e un testo
+  da template i18n (`decision.email.*`), mai dall'output della
+  classificazione: la classificazione ha già fatto il suo lavoro a monte
+  (proporre), la decisione la prende la persona col tap, e il registro
+  annota IL TAP, non il ragionamento del modello che l'ha preceduto. È la
+  stessa regola della fase 5, estesa:
+  `apps/server/src/services/decisions-never-ai.test.ts` include
+  `google-proposal.ts` fra i moduli che non devono nominare alcun esecutore
+  di agenti, sia a runtime (spie sull'SDK Anthropic a zero mentre il writer
+  scrive davvero su un Postgres vero) sia sul sorgente.
+- **Il poller Google non usa il serializer di progetto.**
+  `apps/worker/src/google/poller.ts` è un poller PER-CASELLA, con un claim
+  su `google_accounts.next_sync_at` e nessun lock né heartbeat di job:
+  stessa famiglia di `rollupDevSummaries`
+  (`apps/worker/src/notify/daily-report-poller.ts`), non quella dei fix o
+  della generazione Docs, che invece serializzano per progetto perché
+  toccano un worktree. I tre giri di un tick — sync Gmail, classificazione,
+  sync Calendar — non prendono mai il lock di un progetto: un fix in corso
+  su un progetto e la sincronizzazione di una casella che quel progetto la
+  osserva nel routing procedono in parallelo senza contendersi nulla. Chi
+  tocca `runAccountTick` non ci infili un accodamento per-progetto "per
+  sicurezza": romperebbe l'indipendenza che il poller ha di proposito.
 
 ## Integrazione Claude Code (MCP)
 
