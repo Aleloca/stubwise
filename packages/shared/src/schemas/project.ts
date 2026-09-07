@@ -108,7 +108,18 @@ export const projectSchema = z.object({
   // INDIPENDENTE dal backlog, al contrario del pulse: il brief racconta quello
   // che è già successo (report, ticket, PR, decisioni), e ha qualcosa da dire
   // anche su un progetto senza backlog di discovery.
-  weeklyBriefEnabled: z.boolean(),
+  //
+  // `.default(false)` NON è una comodità: è la compatibilità verso l'app già
+  // installata. Questo schema (via `projectListItemSchema`) è quello con cui
+  // `@stubwise/api-client` valida `GET /api/projects` DENTRO l'app mobile, che
+  // si aggiorna dagli store e non dai nostri deploy. Contro un server senza
+  // fase 5 — un rollback, o un'istanza self-hosted non aggiornata: l'app è UNA
+  // per tutte — il campo semplicemente non arriva, e `readerSchema` non copre
+  // questo caso (apre gli enum, non i campi mancanti). Obbligatorio, avrebbe
+  // fatto fallire il parse dell'INTERA lista → tab Progetti vuota su ogni
+  // telefono. Il server continua a emetterlo sempre; il default serve al
+  // lettore. Vedi `project.test.ts` qui accanto.
+  weeklyBriefEnabled: z.boolean().default(false),
   // Chiave di ingestion del progetto: gli SDK la usano per inviare errori e
   // feedback (l'ingestion è di prodotto, non di repo — Fase 3).
   ingestionKey: z.string().min(1),

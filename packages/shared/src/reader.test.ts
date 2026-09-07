@@ -97,6 +97,25 @@ describe("readerSchema", () => {
     });
   });
 
+  /**
+   * `.default()` è il modo in cui un campo nuovo entra in uno schema che l'app
+   * già installata LEGGE (vedi `schemas/project.test.ts`): senza attraversarlo,
+   * il guardiano dei tipi di nodo diventerebbe rosso a ogni campo aggiunto così
+   * — e, peggio, un enum sotto un default resterebbe CHIUSO.
+   */
+  it("attraversa i default: applica il valore quando il campo manca e apre gli enum sotto", () => {
+    const schema = z.object({
+      flag: z.boolean().default(false),
+      kind: z.enum(["x"]).default("x"),
+    });
+    expect(readerSchema(schema).parse({})).toEqual({ flag: false, kind: "x" });
+    expect(readerSchema(schema).parse({ flag: true, kind: "nuovo" })).toEqual({
+      flag: true,
+      kind: UNKNOWN,
+    });
+    expect(unsupportedNodeKinds(schema)).toEqual([]);
+  });
+
   it("apre i literal di STRINGA ma lascia stare quelli che stringhe non sono", () => {
     expect(readerSchema(z.literal("code")).parse("docs")).toBe(UNKNOWN);
     // `z.literal(true)` non ha un segnaposto sensato: resta rigido, e `Reader<T>`

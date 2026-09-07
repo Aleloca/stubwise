@@ -342,8 +342,11 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   (`weekly_brief_enabled`, default `false`) e `notification_settings`
   (`notify_brief`, default `true` — è il toggle d'istanza del kind, in
   Impostazioni → Notifiche, non una preferenza per utente: `notificationPrefs`
-  **non cambia**, quindi qui non si ripresenta la trappola della fase 4
-  sull'app mobile già installata), un `DROP NOT NULL` su
+  **non cambia**, quindi da lì la trappola della fase 4 sull'app mobile non
+  passa — ci passava però da un'altra porta, `weeklyBriefEnabled` in
+  `projectSchema`, che la review ha colto obbligatorio e che ora è
+  `.default(false)`: vedi la regola generale in "Invarianti e trappole"), un
+  `DROP NOT NULL` su
   `milestones.repository_id` (la milestone è di progetto: il repo d'origine è
   un dettaglio, e la creazione dalla UI non lo manda più) e due tabelle NUOVE
   `project_briefs` e `project_decisions`; il worker nuovo è
@@ -442,6 +445,21 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   campi opzionali, gli assenti restano invariati (è la ragione per cui quella
   rotta è un `PATCH` e non un `PUT`, vedi il docblock in
   `apps/server/src/routes/me-prefs.ts`).
+
+  **Regola operativa che ne discende, senza eccezioni**: ogni campo NUOVO in
+  uno schema di risposta che l'app legge nasce `.default()`, `.optional()` o
+  `.nullable()` — mai obbligatorio — e arriva con un test che parsa una
+  risposta **senza** quel campo. Il motivo è che la simmetria non è ovvia:
+  «aggiungere un campo è sicuro» vale per il client vecchio che riceve un
+  campo IN PIÙ, non per il client nuovo che riceve un campo in MENO da un
+  server più vecchio — un rollback, o un'istanza self-hosted non aggiornata,
+  e l'app è UNA per tutte. `readerSchema` non copre questo caso: apre gli
+  enum, non i campi mancanti. È già stato colto due volte in review
+  (`notificationPrefsViewSchema.push` in fase 4, `weeklyBriefEnabled` in fase
+  5, `packages/shared/src/schemas/project.ts` — il test è
+  `project.test.ts` accanto), e `readerSchema` attraversa i `.default()`
+  apposta perché usare la forma giusta non costi la chiusura degli enum
+  sottostanti.
 - **Trappola di routing Fastify — rotta parametrica registrata prima di una
   letterale sullo stesso prefisso.** `GET /api/projects/pulse` e
   `GET /api/projects/:projectId` condividono il prefisso `/api/projects`:

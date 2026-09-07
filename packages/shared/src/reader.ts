@@ -94,6 +94,7 @@ export const READER_NODE_KINDS = [
   "array",
   "optional",
   "nullable",
+  "default",
   "union",
   "enum",
   "literal",
@@ -228,6 +229,22 @@ function derive(schema: z.ZodType, trace: Trace): z.ZodType {
   if (schema instanceof z.ZodNullable) {
     noteRebuild(schema, "nullable", trace);
     return derive(child(schema.unwrap()), trace).nullable();
+  }
+  /**
+   * `.default()` è il modo in cui un campo NUOVO entra in uno schema che l'app
+   * già installata legge: obbligatorio romperebbe il parse dell'intera risposta
+   * contro un server che ancora non lo emette (vedi `schemas/project.ts`,
+   * `weeklyBriefEnabled`). Va quindi attraversato come optional e nullable —
+   * altrimenti il guardiano dei tipi di nodo diventa rosso a ogni campo
+   * aggiunto così, e soprattutto un enum SOTTO un default resterebbe chiuso,
+   * che è esattamente il bug che questo file esiste per impedire.
+   *
+   * Il default si riapplica DOPO la derivazione: l'ordine conta, perché il
+   * valore di default deve poter passare per il nodo aperto e non viceversa.
+   */
+  if (schema instanceof z.ZodDefault) {
+    noteRebuild(schema, "default", trace);
+    return derive(child(schema.unwrap()), trace).default(schema.def.defaultValue as never);
   }
 
   // Foglia (string/number/boolean/unknown) o nodo non gestito: invariata, e
