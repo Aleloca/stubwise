@@ -555,6 +555,13 @@ export type DecisionDraft = z.infer<typeof decisionDraftSchema>;
  * campi assenti restano invariati, così un client vecchio non azzera ciò che
  * non conosce. `supersededById` è nullable perché "non è più superata" è una
  * correzione legittima quanto "ora lo è".
+ *
+ * ⚠️ I quattro campi di TESTO valgono solo per le voci `manual`: su una voce
+ * automatica il server risponde 403 `decision_immutable` (vedi `patchDecision`
+ * in `apps/server/src/services/project-decisions.ts`). Lo schema non lo può
+ * esprimere — la forma ammessa dipende dalla riga che si sta modificando, non
+ * dal body — e restano quindi opzionali qui, con il server come unico arbitro.
+ * Su una voce automatica l'unico campo che passa è `supersededById`.
  */
 export const decisionPatchSchema = z.object({
   title: z.string().min(1).max(300).optional(),

@@ -1086,9 +1086,13 @@ describe("registro decisioni", () => {
   });
 
   describe("PATCH /api/projects/:projectId/decisions/:decisionId", () => {
-    it("l'autore corregge la propria decisione", async () => {
+    it("l'autore corregge la propria decisione MANUALE", async () => {
       const { projectId } = await seedRepository(testDb.db);
-      const id = await seedDecision(projectId, { decidedByUserId: memberId });
+      const id = await seedDecision(projectId, {
+        decidedByUserId: memberId,
+        source: "manual",
+        sourceKey: `manual:${randomBytes(8).toString("hex")}`,
+      });
       await testDb.db.insert(projectFollows).values({ projectId, userId: memberId });
 
       const res = await app.inject({
@@ -1102,6 +1106,81 @@ describe("registro decisioni", () => {
       expect(res.json()).toMatchObject({ decision: "CSV, con separatore ;" });
       // I campi non passati restano invariati (semantica PATCH).
       expect(res.json().consequences).toBe("Nessuna dipendenza nuova");
+    });
+
+    /**
+     * IMMUTABILITÀ DELLE VOCI AUTOMATICHE — è l'invariante della fase 5, non
+     * una regola di permessi.
+     *
+     * Il registro decisioni è FATTO: si cita senza riverificarlo, e il brief
+     * settimanale (che è narrativa generata) regge proprio perché si appoggia
+     * a qualcosa che non è a sua volta prosa riscrivibile. Una voce `ask_user`
+     * dice "a questa domanda, questa persona ha risposto questo": lasciarne
+     * riscrivere il testo — foss'anche a chi ha risposto — la trasforma in
+     * un'opinione aggiornabile, e il registro in un wiki.
+     *
+     * Quello che resta ammesso è `supersededById`: "questa scelta è stata
+     * superata" è un fatto NUOVO che si aggiunge, non una riscrittura di
+     * quello vecchio, ed è per questo che la voce superata resta in elenco.
+     */
+    it("il testo di una voce AUTOMATICA non si riscrive, nemmeno da chi l'ha decisa", async () => {
+      const { projectId } = await seedRepository(testDb.db);
+      const id = await seedDecision(projectId, { decidedByUserId: memberId });
+      await testDb.db.insert(projectFollows).values({ projectId, userId: memberId });
+
+      for (const payload of [
+        { decision: "in realtà avevo detto JSON" },
+        { title: "un altro titolo" },
+        { context: "un contesto riscritto" },
+        { consequences: "conseguenze diverse" },
+      ]) {
+        const res = await app.inject({
+          method: "PATCH",
+          url: `/api/projects/${projectId}/decisions/${id}`,
+          headers: { cookie: memberCookie },
+          payload,
+        });
+        expect(res.statusCode, JSON.stringify(payload)).toBe(403);
+        expect(res.json().code).toBe("decision_immutable");
+      }
+
+      // E il fatto è ancora quello di prima: il 403 non ha scritto a metà.
+      const after = await app.inject({
+        method: "GET",
+        url: `/api/projects/${projectId}/decisions`,
+        headers: { cookie: memberCookie },
+      });
+      expect(after.json()[0]).toMatchObject({ decision: "CSV", title: "Domanda dell'agente: quale formato?" });
+    });
+
+    it("nemmeno un maintainer riscrive una voce automatica: non è una questione di ruolo", async () => {
+      const { projectId } = await seedRepository(testDb.db);
+      const id = await seedDecision(projectId);
+
+      const res = await app.inject({
+        method: "PATCH",
+        url: `/api/projects/${projectId}/decisions/${id}`,
+        headers: { cookie: adminCookie },
+        payload: { decision: "riscrivo io" },
+      });
+      expect(res.statusCode).toBe(403);
+      expect(res.json().code).toBe("decision_immutable");
+    });
+
+    it("su una voce automatica `supersededById` resta ammesso: è un fatto nuovo, non una riscrittura", async () => {
+      const { projectId } = await seedRepository(testDb.db);
+      const id = await seedDecision(projectId, { decidedByUserId: memberId });
+      const newer = await seedDecision(projectId, { title: "La scelta nuova" });
+      await testDb.db.insert(projectFollows).values({ projectId, userId: memberId });
+
+      const res = await app.inject({
+        method: "PATCH",
+        url: `/api/projects/${projectId}/decisions/${id}`,
+        headers: { cookie: memberCookie },
+        payload: { supersededById: newer },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().supersededById).toBe(newer);
     });
 
     it("chi non è né autore né maintainer: 403", async () => {

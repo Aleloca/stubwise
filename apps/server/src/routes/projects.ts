@@ -610,6 +610,16 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
           "Only the author or a maintainer can edit this decision",
         );
       }
+      // Il testo di una voce automatica non si riscrive: è un fatto, non una
+      // nota. Resta ammesso `supersededById` (vedi `patchDecision`).
+      if (result.error === "decision_immutable") {
+        return apiError(
+          reply,
+          403,
+          "decision_immutable",
+          "The text of an automatic decision cannot be edited; it can only be superseded",
+        );
+      }
       return apiError(
         reply,
         400,

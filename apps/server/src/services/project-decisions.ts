@@ -180,7 +180,14 @@ export function canEditDecision(
 }
 
 /** Esito tipizzato di {@link patchDecision}, mappato a HTTP dalla rotta. */
-export type PatchDecisionError = "not_found" | "forbidden" | "invalid_supersede";
+export type PatchDecisionError =
+  | "not_found"
+  | "forbidden"
+  | "invalid_supersede"
+  | "decision_immutable";
+
+/** I campi di TESTO di una decisione: quelli che solo una voce `manual` espone. */
+const TEXT_FIELDS = ["title", "decision", "context", "consequences"] as const;
 
 export type PatchDecisionResult =
   | { ok: true; decision: ProjectDecision }
@@ -212,6 +219,31 @@ export async function patchDecision(
   if (!canEditDecision(current, input.actor)) return { ok: false, error: "forbidden" };
 
   const { patch } = input;
+
+  /**
+   * IMMUTABILITÀ DEL TESTO DELLE VOCI AUTOMATICHE — invariante, non permesso.
+   *
+   * Il registro decisioni è la parte FATTUALE della fase 5: il brief
+   * settimanale e i riassunti "in breve" sono narrativa (generata,
+   * rigenerabile, sbagliabile), il registro è ciò che si cita senza
+   * riverificarlo — ed è per questo che il brief regge, perché non si appoggia
+   * a sua volta su prosa riscrivibile. Una voce automatica dice "a QUESTA
+   * domanda, QUESTA persona ha risposto QUESTO": il suo testo viene da un
+   * template i18n su un evento realmente accaduto, e riscriverlo — foss'anche
+   * da parte di chi ha risposto — non corregge un fatto, lo sostituisce.
+   *
+   * Il controllo è quindi sul `source` e NON sul ruolo: nemmeno un maintainer
+   * riscrive un `ask_user`. Quello che resta ammesso a tutti quelli che
+   * passano `canEditDecision` è `supersededById`, perché "questa scelta è
+   * stata superata" è un fatto NUOVO che si aggiunge — e infatti la voce
+   * superata resta in elenco, marcata, invece di sparire.
+   *
+   * Chi vuole raccontare una decisione con parole proprie apre una voce
+   * `manual`: quelle sì, sono sue e le corregge.
+   */
+  if (current.source !== "manual" && TEXT_FIELDS.some((field) => patch[field] !== undefined)) {
+    return { ok: false, error: "decision_immutable" };
+  }
   if (patch.supersededById !== undefined && patch.supersededById !== null) {
     if (patch.supersededById === input.decisionId) {
       return { ok: false, error: "invalid_supersede" };
