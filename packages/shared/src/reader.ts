@@ -70,9 +70,10 @@ export type Reader<T> = T extends string
 /**
  * I tipi di nodo Zod che {@link readerSchema} sa attraversare.
  *
- * `object`/`array`/`optional`/`nullable`/`union` sono ricostruiti scendendo nei
- * figli; `enum` e `literal` di stringa sono APERTI; il resto sono foglie che
- * passano invariate. Qualunque altro tipo di nodo (`record`, `tuple`,
+ * `object`/`array`/`optional`/`nullable`/`default`/`catch`/`union` sono
+ * ricostruiti scendendo nei figli; `enum` e `literal` di stringa sono
+ * APERTI; il resto sono foglie che passano invariate. Qualunque altro tipo
+ * di nodo (`record`, `tuple`,
  * `discriminatedUnion`, `intersection`, `lazy`, …) passerebbe invariato pure
  * lui — comportamento SICURO, perché equivale a com'era prima — ma gli enum
  * eventualmente contenuti resterebbero chiusi, cioè il problema tornerebbe in
@@ -95,6 +96,7 @@ export const READER_NODE_KINDS = [
   "optional",
   "nullable",
   "default",
+  "catch",
   "union",
   "enum",
   "literal",
@@ -245,6 +247,20 @@ function derive(schema: z.ZodType, trace: Trace): z.ZodType {
   if (schema instanceof z.ZodDefault) {
     noteRebuild(schema, "default", trace);
     return derive(child(schema.unwrap()), trace).default(schema.def.defaultValue as never);
+  }
+  /**
+   * `.catch(fallback)` è come `receivedAt` in `inboxGoogleSchema` sopravvive a
+   * un payload scritto da una versione precedente del codice: un valore
+   * illeggibile costa il solo campo, non l'intero blocco. Stessa ragione di
+   * `.default()` sopra — attraversarlo come foglia lascerebbe chiuso
+   * qualunque enum sotto un `.catch()`, di nuovo il buco che questo file
+   * esiste per chiudere — e stessa forma: si ricostruisce sull'inner type e
+   * si riapplica `.catch()` con la stessa funzione di fallback (`def.catchValue`
+   * è già `(ctx) => valore`, la firma che `.catch()` accetta).
+   */
+  if (schema instanceof z.ZodCatch) {
+    noteRebuild(schema, "catch", trace);
+    return derive(child(schema.unwrap()), trace).catch(schema.def.catchValue as never);
   }
 
   // Foglia (string/number/boolean/unknown) o nodo non gestito: invariata, e
