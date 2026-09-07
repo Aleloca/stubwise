@@ -13,6 +13,7 @@ import { GoogleApiError, MAX_TEXT_LENGTH, TEXT_TRUNCATION_MARKER } from "@stubwi
 import type { GoogleAccountCredentials } from "@stubwise/google/credentials";
 import { and, eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import type { AgentRunOptions, AgentRunResult, AgentRunner } from "../agent/runner.js";
 import {
   claimDueAccounts,
   pollGoogleOnce,
@@ -780,5 +781,144 @@ describe("più caselle nello stesso tick", () => {
       .from(emailMessages)
       .where(and(eq(emailMessages.accountId, healthy.id), eq(emailMessages.status, "new")));
     expect(rows).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fase 2 del tick: la classificazione
+// ---------------------------------------------------------------------------
+
+/** Runner finto: il contenuto del run è affare di classify.test.ts, qui conta
+ * solo che il tick lo chiami (e quante volte). */
+function fakeRunner(reply: string | Error): AgentRunner & { calls: AgentRunOptions[] } {
+  const calls: AgentRunOptions[] = [];
+  return {
+    calls,
+    async run(opts: AgentRunOptions): Promise<AgentRunResult> {
+      calls.push(opts);
+      if (reply instanceof Error) throw reply;
+      return { output: reply, exitCode: 0 };
+    },
+  };
+}
+
+const IGNORED_OUTPUT = JSON.stringify({
+  signal: "none",
+  summary: "Niente da fare.",
+  proposals: [],
+  recommendedIndex: 0,
+});
+
+describe("fase 2: classificazione dentro il tick", () => {
+  it("classifica i messaggi ingeriti e li conta nelle statistiche", async () => {
+    const projectId = await seedProject("Acme");
+    await db
+      .insert(projectEmailRoutes)
+      .values({ projectId, kind: "sender_domain", value: "cliente.com" });
+    const account = await seedAccount({
+      nextSyncAt: new Date(Date.now() - 60_000),
+      gmailHistoryId: "1000",
+    });
+    const gmail = fakeGmail({
+      history: { addedMessageIds: ["m1"], historyId: "1010" },
+      messages: { m1: message({ id: "m1" }) },
+    });
+    const runner = fakeRunner(IGNORED_OUTPUT);
+
+    const stats = await pollGoogleOnce({ ...deps(account, gmail), runner, gmailModel: "haiku" });
+
+    expect(stats.ingested).toBe(1);
+    expect(stats.ignoredMessages).toBe(1);
+    expect(runner.calls).toHaveLength(1);
+    expect(runner.calls[0]!.model).toBe("haiku");
+    const [row] = await db
+      .select()
+      .from(emailMessages)
+      .where(eq(emailMessages.accountId, account.id));
+    expect(row!.status).toBe("ignored");
+  });
+
+  it("senza runner la fase 2 non gira: i messaggi restano `new`", async () => {
+    const projectId = await seedProject("Acme");
+    await db
+      .insert(projectEmailRoutes)
+      .values({ projectId, kind: "sender_domain", value: "cliente.com" });
+    const account = await seedAccount({
+      nextSyncAt: new Date(Date.now() - 60_000),
+      gmailHistoryId: "1000",
+    });
+    const gmail = fakeGmail({
+      history: { addedMessageIds: ["m1"], historyId: "1010" },
+      messages: { m1: message({ id: "m1" }) },
+    });
+
+    const stats = await pollGoogleOnce(deps(account, gmail));
+
+    expect(stats.ignoredMessages).toBe(0);
+    const [row] = await db
+      .select()
+      .from(emailMessages)
+      .where(eq(emailMessages.accountId, account.id));
+    expect(row!.status).toBe("new");
+  });
+
+  it("rispetta GMAIL_MAX_PER_TICK e riprende dal più vecchio al giro dopo", async () => {
+    const projectId = await seedProject("Acme");
+    await db
+      .insert(projectEmailRoutes)
+      .values({ projectId, kind: "sender_domain", value: "cliente.com" });
+    const account = await seedAccount({
+      nextSyncAt: new Date(Date.now() - 60_000),
+      gmailHistoryId: "1000",
+    });
+    const gmail = fakeGmail({
+      history: { addedMessageIds: ["m1", "m2"], historyId: "1010" },
+      messages: { m1: message({ id: "m1" }), m2: message({ id: "m2" }) },
+    });
+    const runner = fakeRunner(IGNORED_OUTPUT);
+
+    const stats = await pollGoogleOnce({
+      ...deps(account, gmail),
+      runner,
+      classifyMaxPerTick: 1,
+    });
+
+    expect(stats.ingested).toBe(2);
+    expect(stats.ignoredMessages).toBe(1);
+    expect(runner.calls).toHaveLength(1);
+    const remaining = await db
+      .select()
+      .from(emailMessages)
+      .where(and(eq(emailMessages.accountId, account.id), eq(emailMessages.status, "new")));
+    expect(remaining).toHaveLength(1);
+  });
+
+  it("un run di classificazione che esplode NON disabilita la casella", async () => {
+    const projectId = await seedProject("Acme");
+    await db
+      .insert(projectEmailRoutes)
+      .values({ projectId, kind: "sender_domain", value: "cliente.com" });
+    const account = await seedAccount({
+      nextSyncAt: new Date(Date.now() - 60_000),
+      gmailHistoryId: "1000",
+    });
+    const gmail = fakeGmail({
+      history: { addedMessageIds: ["m1"], historyId: "1010" },
+      messages: { m1: message({ id: "m1" }) },
+    });
+
+    const stats = await pollGoogleOnce({
+      ...deps(account, gmail),
+      runner: fakeRunner(new Error("CLI non disponibile")),
+    });
+
+    expect(stats.failedMessages).toBe(1);
+    expect(stats.disabled).toBe(0);
+    // Il giro di Gmail è comunque andato a buon fine: cursore salvato,
+    // tentativi azzerati, nessun backoff.
+    const reloaded = await reload(account.id);
+    expect(reloaded.disabledAt).toBeNull();
+    expect(reloaded.syncAttempts).toBe(0);
+    expect(reloaded.gmailHistoryId).toBe("1010");
   });
 });

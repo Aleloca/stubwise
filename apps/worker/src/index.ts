@@ -608,8 +608,10 @@ startBriefPoller({
 // disabilitata) rinnova l'access token dal refresh token cifrato, sincronizza
 // Gmail in incrementale (History API, con resync per query quando la history è
 // scaduta), PRE-FILTRA sui soli metadati con le regole di routing di tutti i
-// progetti e scarica il corpo solo dei messaggi in perimetro. Nessun agente e
-// nessun mirror: NON usa il serializer per-progetto. È BEST-EFFORT (non fa mai
+// progetti e scarica il corpo solo dei messaggi in perimetro; poi classifica i
+// messaggi `new` con un run di solo testo (nessun tool, dir vuota) che li
+// trasforma in proposte. Nessun mirror e NESSUN serializer per-progetto: i run
+// di classificazione non toccano un worktree. È BEST-EFFORT (non fa mai
 // crashare il worker) e NON tocca il lock/heartbeat dei job. Si ferma sullo
 // stesso AbortSignal. GMAIL_POLL_MINUTES=0 non avvia nulla: è il rollback.
 startGooglePoller({
@@ -618,6 +620,11 @@ startGooglePoller({
   intervalMinutes: config.gmailPollMinutes,
   retentionDays: config.gmailRetentionDays,
   classifyMaxPerTick: config.gmailMaxPerTick,
+  // Fase 2 del tick: la classificazione dei segnali. Stesso runner CLI del
+  // resto del worker, ma un run senza tool su una dir temporanea vuota (il
+  // testo di un'email non è fidato: vedi google/classify.ts).
+  runner,
+  gmailModel: config.gmailModel,
   signal: controller.signal,
 });
 

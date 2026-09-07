@@ -7,7 +7,13 @@ export { createDb, runMigrations, type Db, type DbHandle } from "./client.js";
 export { decrypt, encrypt } from "./secrets.js";
 // Helper di lettura costo (somma agent_runs.cost_usd per ticket / per mese
 // corrente): importati da worker e server per i gate di budget.
-export { monthlyCostUsd, ticketCostUsd } from "./cost.js";
+export {
+  AGENT_RUN_PHASES,
+  monthlyCostByPhase,
+  monthlyCostUsd,
+  ticketCostUsd,
+  type AgentRunPhase,
+} from "./cost.js";
 // Retrieval ibrido (semantico pgvector + full-text) sui Docs: vive qui perché
 // serve sia al server (ricerca, chat RAG) sia al worker (intake del backlog di
 // discovery + similarity search). L'embedder è un tipo strutturale locale

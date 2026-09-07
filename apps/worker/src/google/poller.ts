@@ -15,6 +15,13 @@ import {
 } from "@stubwise/google/credentials";
 import { matchRoutes, type EmailRoute } from "@stubwise/notifications";
 import { and, eq, inArray, sql } from "drizzle-orm";
+import type { AgentRunner } from "../agent/runner.js";
+import type { loadProviderChain } from "../providers/chain.js";
+import {
+  classifyNewMessages,
+  DEFAULT_CLASSIFY_MAX_PER_TICK,
+  type ClassifyBatchStats,
+} from "./classify.js";
 import {
   buildEmailMessageInsert,
   disabledReasonFor,
@@ -37,7 +44,7 @@ import {
  * POLLER DELLE CASELLE GOOGLE (fase 6): task SEPARATO dal loop dei job, sul
  * proprio intervallo (`GMAIL_POLL_MINUTES`, default 5, 0 = spento).
  *
- * ## Il tick, in tre fasi — e due non sono ancora qui
+ * ## Il tick, in tre fasi — e una non è ancora qui
  *
  * Il giro di UNA casella è diviso in fasi indipendenti, ognuna con il suo
  * innesto, dentro {@link runAccountTick}:
@@ -45,8 +52,7 @@ import {
  *  1. **Gmail** (questo task): sincronizzazione incrementale e ingestione dei
  *     soli messaggi in perimetro → {@link syncGmail}.
  *  2. **Classificazione** (Task 8): i messaggi `new` di questa casella passano
- *     dal modello e diventano proposte. Il punto d'innesto è marcato in
- *     {@link runAccountTick}.
+ *     dal modello e diventano proposte → {@link classifyNewMessages}.
  *  3. **Calendar** (Task 9): eventi del calendario `primary` → proposte di
  *     milestone. Stesso punto d'innesto, subito dopo.
  *
@@ -137,12 +143,21 @@ export interface GooglePollerDeps {
   /** Giorni di conservazione dei messaggi in stato terminale. ≤ 0 = nessuna potatura. */
   retentionDays: number;
   /**
-   * Messaggi che la FASE 2 (classificazione, Task 8) può mandare al modello in
-   * un tick — `GMAIL_MAX_PER_TICK`. Il poller di questo task non lo legge: è
-   * cablato qui perché la fase 2 si innesti senza toccare né la config né
-   * `index.ts`.
+   * Messaggi che la FASE 2 (classificazione) manda al modello in un tick —
+   * `GMAIL_MAX_PER_TICK`. Assente = {@link DEFAULT_CLASSIFY_MAX_PER_TICK};
+   * `0` spegne la sola classificazione (l'ingestione continua).
    */
   classifyMaxPerTick?: number;
+  /**
+   * Runner dell'agente per la classificazione. ASSENTE = fase 2 SPENTA: il
+   * tick ingerisce e basta, i messaggi restano `new`. È così che i test del
+   * Task 7 continuano a valere senza conoscere la fase 2.
+   */
+  runner?: AgentRunner;
+  /** Modello della classificazione (`GMAIL_MODEL`); omesso = default del CLI. */
+  gmailModel?: string;
+  /** Caricatore della catena di provider AI (iniettabile nei test). */
+  loadProviderChainFn?: typeof loadProviderChain;
   /** Caselle reclamate per tick. Default {@link DEFAULT_ACCOUNT_BATCH}. */
   accountBatch?: number;
   /** Stop cooperativo: interrompe il giro fra una casella e l'altra. */
@@ -164,6 +179,12 @@ export interface GoogleTickStats {
   disabled: number;
   /** Righe cancellate dalla retention. */
   pruned: number;
+  /** Messaggi che la fase 2 ha trasformato in proposte (`classified`). */
+  classified: number;
+  /** Messaggi che la fase 2 ha chiuso senza proposta (`ignored`). */
+  ignoredMessages: number;
+  /** Messaggi che la fase 2 non è riuscita a classificare (`failed`). */
+  failedMessages: number;
 }
 
 /** Contesto condiviso dalle tre fasi del giro di una casella. */
@@ -480,28 +501,83 @@ async function syncGmail(
   return { ingested, historyId, clearCursor: batch.resynced && historyId === null };
 }
 
+/** Cosa ha prodotto il giro di UNA casella (null = giro saltato). */
+interface AccountTickResult {
+  ingested: number;
+  historyId: string | null;
+  clearCursor: boolean;
+  classify: ClassifyBatchStats;
+}
+
+/**
+ * FASE 2 del giro: i messaggi `new` di questa casella diventano proposte.
+ *
+ * ⚠️ **Non lascia MAI salire un'eccezione**, ed è una scelta con due ragioni
+ * distinte. La prima: il gestore d'errore del chiamante legge ogni eccezione
+ * come un verdetto sulla CASELLA (backoff, e dopo abbastanza tentativi
+ * `sync_failed`), mentre qui i guasti possibili — il CLI, il provider AI, una
+ * riga malformata — non dicono niente su Gmail. La seconda: se l'eccezione
+ * salisse, `applySuccess` non girerebbe e il cursore appena guadagnato dalla
+ * fase 1 andrebbe perso, facendo riscaricare gli stessi messaggi al giro dopo.
+ *
+ * `classifyEmail` chiude già ogni messaggio su uno stato; questo catch copre
+ * ciò che sta INTORNO ai messaggi (la query dei pendenti, la catena di
+ * provider, la lingua).
+ */
+async function runClassifyPhase(
+  deps: GooglePollerDeps,
+  account: ClaimedAccount,
+): Promise<ClassifyBatchStats> {
+  const logger = deps.logger ?? defaultLogger;
+  const empty: ClassifyBatchStats = { classified: 0, ignored: 0, failed: 0 };
+  // Nessun runner = fase 2 spenta (vedi GooglePollerDeps.runner).
+  if (!deps.runner) return empty;
+  try {
+    return await classifyNewMessages(
+      {
+        db: deps.db,
+        runner: deps.runner,
+        encryptionKey: deps.encryptionKey,
+        maxPerTick: deps.classifyMaxPerTick ?? DEFAULT_CLASSIFY_MAX_PER_TICK,
+        ...(deps.gmailModel !== undefined ? { model: deps.gmailModel } : {}),
+        ...(deps.loadProviderChainFn !== undefined
+          ? { loadProviderChainFn: deps.loadProviderChainFn }
+          : {}),
+        ...(deps.logger !== undefined ? { logger: deps.logger } : {}),
+        ...(deps.signal !== undefined ? { signal: deps.signal } : {}),
+        ...(deps.now !== undefined ? { now: deps.now } : {}),
+      },
+      account.id,
+    );
+  } catch (err) {
+    logger.error(
+      `google: classificazione della posta di ${account.email} interrotta: ${errText(err)}`,
+    );
+    return empty;
+  }
+}
+
 /**
  * Il giro di UNA casella: credenziali → access token → le fasi.
  *
- * ⚠️ **Punto d'innesto delle fasi 2 e 3.** Le due fasi mancanti vanno QUI,
- * dopo `syncGmail` e dentro lo stesso try del chiamante, così condividono
- * `ctx` (credenziali + access token già ottenuti) e il gestore d'errore
- * (un fatale sollevato da loro disabilita la casella come uno di Gmail):
+ * ⚠️ **Punto d'innesto della fase 3.** La fase mancante va QUI, dopo la
+ * classificazione e dentro lo stesso try del chiamante, così condivide `ctx`
+ * (credenziali + access token già ottenuti) e il gestore d'errore (un fatale
+ * sollevato da lei disabilita la casella come uno di Gmail):
  *
- *  - **Task 8** — classificazione dei messaggi `new` di questa casella, al
- *    massimo `deps.classifyMaxPerTick`;
  *  - **Task 9** — sincronizzazione del calendario `primary` da
  *    `ctx.credentials.calendarSyncToken`, con lo stesso pre-filtro di routing.
  *
- * Nessuna delle due tocca il cursore di Gmail: `applySuccess` resta l'ultima
- * cosa che il chiamante fa, e le fasi nuove si limitano a leggere e scrivere le
- * proprie tabelle.
+ * La fase 3, a differenza della 2, PARLA con Google: le sue eccezioni devono
+ * salire fino a `applyFailure` (è il punto del gestore condiviso), quindi non
+ * va avvolta in un catch come {@link runClassifyPhase}. Non tocca però il
+ * cursore di Gmail: `applySuccess` resta l'ultima cosa che il chiamante fa.
  */
 async function runAccountTick(
   deps: GooglePollerDeps,
   account: ClaimedAccount,
   routes: EmailRoute[],
-): Promise<{ ingested: number; historyId: string | null; clearCursor: boolean } | null> {
+): Promise<AccountTickResult | null> {
   const logger = deps.logger ?? defaultLogger;
   const load = deps.loadCredentials ?? loadGoogleAccountCredentials;
   const gmail = deps.gmail ?? realGmailClient;
@@ -526,10 +602,13 @@ async function runAccountTick(
   // Fase 1 — Gmail.
   const gmailResult = await syncGmail(deps, ctx, account);
 
-  // Task 8: qui va la FASE 2 (classificazione dei messaggi `new`).
+  // Fase 2 — classificazione dei messaggi `new` (compresi quelli rimasti
+  // indietro dai giri precedenti, non solo quelli appena ingeriti).
+  const classify = await runClassifyPhase(deps, account);
+
   // Task 9: qui va la FASE 3 (calendario `primary` → proposte di milestone).
 
-  return gmailResult;
+  return { ...gmailResult, classify };
 }
 
 /**
@@ -567,7 +646,15 @@ export async function pruneOldEmails(db: Db, retentionDays: number): Promise<num
  */
 export async function pollGoogleOnce(deps: GooglePollerDeps): Promise<GoogleTickStats> {
   const logger = deps.logger ?? defaultLogger;
-  const stats: GoogleTickStats = { accounts: 0, ingested: 0, disabled: 0, pruned: 0 };
+  const stats: GoogleTickStats = {
+    accounts: 0,
+    ingested: 0,
+    disabled: 0,
+    pruned: 0,
+    classified: 0,
+    ignoredMessages: 0,
+    failedMessages: 0,
+  };
 
   // La potatura gira SEMPRE, anche quando nessuna casella è dovuta: è
   // manutenzione della tabella, non parte del giro di una casella.
@@ -605,6 +692,9 @@ export async function pollGoogleOnce(deps: GooglePollerDeps): Promise<GoogleTick
       const result = await runAccountTick(deps, account, routes);
       if (!result) continue;
       stats.ingested += result.ingested;
+      stats.classified += result.classify.classified;
+      stats.ignoredMessages += result.classify.ignored;
+      stats.failedMessages += result.classify.failed;
       await applySuccess(deps, account, result);
     } catch (err) {
       try {
@@ -650,7 +740,9 @@ export function startGooglePoller(opts: StartGooglePollerOptions): () => void {
       const stats = await pollGoogleOnce({ ...deps, signal });
       if (stats.accounts > 0 || stats.ingested > 0 || stats.pruned > 0) {
         logger.info(
-          `google: tick ${stats.accounts} casella/e, ${stats.ingested} messaggi ingeriti, ${stats.disabled} disabilitate, ${stats.pruned} potati`,
+          `google: tick ${stats.accounts} casella/e, ${stats.ingested} messaggi ingeriti, ` +
+            `${stats.classified} classificati, ${stats.ignoredMessages} ignorati, ` +
+            `${stats.failedMessages} falliti, ${stats.disabled} disabilitate, ${stats.pruned} potati`,
         );
       }
     } catch (err) {
