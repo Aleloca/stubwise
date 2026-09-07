@@ -1,6 +1,6 @@
 {
   "name": "@stubwise/api-client",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Typed HTTP client for the Stubwise API, shared by the web SPA and the mobile app.",
   "private": true,
   "type": "module",
