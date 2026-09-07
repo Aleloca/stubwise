@@ -19,6 +19,7 @@ import {
   pollGoogleOnce,
   pruneOldEmails,
   startGooglePoller,
+  type CalendarClient,
   type GmailClient,
   type GooglePollerDeps,
 } from "./poller.js";
@@ -223,6 +224,15 @@ function fakeGmail(setup: {
   return client as unknown as GmailClient & { calls: string[]; listQueries: string[] };
 }
 
+/**
+ * Calendar finto MUTO: la fase 3 ha il suo file di test
+ * (`calendar.test.ts`), qui serve solo che non parli con la rete e non
+ * sporchi le sequenze di chiamate che questi test verificano su `gmail.calls`.
+ */
+const quietCalendar: CalendarClient = {
+  listEvents: async () => ({ events: [], nextPageToken: null, nextSyncToken: null }),
+};
+
 function deps(
   account: typeof googleAccounts.$inferSelect,
   gmail: GmailClient,
@@ -233,6 +243,7 @@ function deps(
     encryptionKey: ENCRYPTION_KEY,
     logger: { info: () => {}, warn: () => {}, error: () => {} },
     gmail,
+    calendar: quietCalendar,
     loadCredentials: async () => credentialsFor(account),
     intervalMinutes: 5,
     retentionDays: 90,

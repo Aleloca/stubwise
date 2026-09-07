@@ -1,22 +1,46 @@
-import { emailMessages, googleAccounts, projectEmailRoutes, type Db } from "@stubwise/db";
+import {
+  calendarEvents as calendarEventsTable,
+  emailMessages,
+  googleAccounts,
+  projectEmailRoutes,
+  type Db,
+} from "@stubwise/db";
 import {
   extractText,
   getMessageFull,
   getMessageMetadata,
   GoogleApiError,
+  listEvents,
   listHistory,
   listMessages,
   refreshAccessToken,
   type GmailMessage,
+  type GoogleCalendarEvent,
 } from "@stubwise/google";
 import {
   loadGoogleAccountCredentials,
   type GoogleAccountCredentials,
 } from "@stubwise/google/credentials";
+import type { Language } from "@stubwise/i18n";
 import { matchRoutes, type EmailRoute } from "@stubwise/notifications";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { AgentRunner } from "../agent/runner.js";
 import type { loadProviderChain } from "../providers/chain.js";
+import { getContentLanguage } from "../settings.js";
+import {
+  buildMilestoneProposal,
+  CALENDAR_CANCELLED_OUTCOME,
+  CALENDAR_MAX_PAGES,
+  CALENDAR_PAGE_SIZE,
+  CALENDAR_WINDOW_DAYS,
+  calendarWindow,
+  computeFingerprint,
+  duplicateOutcome,
+  isCancelled,
+  isSyncTokenExpired,
+  normalizeStatus,
+  routeEvent,
+} from "./calendar.js";
 import {
   classifyNewMessages,
   DEFAULT_CLASSIFY_MAX_PER_TICK,
@@ -44,23 +68,46 @@ import {
  * POLLER DELLE CASELLE GOOGLE (fase 6): task SEPARATO dal loop dei job, sul
  * proprio intervallo (`GMAIL_POLL_MINUTES`, default 5, 0 = spento).
  *
- * ## Il tick, in tre fasi — e una non è ancora qui
+ * ## Il tick, in tre fasi
  *
  * Il giro di UNA casella è diviso in fasi indipendenti, ognuna con il suo
  * innesto, dentro {@link runAccountTick}:
  *
- *  1. **Gmail** (questo task): sincronizzazione incrementale e ingestione dei
- *     soli messaggi in perimetro → {@link syncGmail}.
- *  2. **Classificazione** (Task 8): i messaggi `new` di questa casella passano
- *     dal modello e diventano proposte → {@link classifyNewMessages}.
- *  3. **Calendar** (Task 9): eventi del calendario `primary` → proposte di
- *     milestone. Stesso punto d'innesto, subito dopo.
+ *  1. **Gmail**: sincronizzazione incrementale e ingestione dei soli messaggi
+ *     in perimetro → {@link syncGmail}.
+ *  2. **Classificazione**: i messaggi `new` di questa casella passano dal
+ *     modello e diventano proposte → {@link classifyNewMessages}.
+ *  3. **Calendar**: gli eventi del calendario `primary` in perimetro
+ *     diventano righe candidate a una proposta di milestone →
+ *     {@link syncCalendar}. Qui NON c'è nessun run del modello.
  *
  * Le tre fasi condividono UN access token e UNA riga di credenziali
  * ({@link AccountContext}), ottenuti una volta sola all'inizio del giro: è la
  * ragione per cui il refresh sta in `runAccountTick` e non dentro `syncGmail`.
  * Condividono anche il gestore d'errore: un `invalid_grant` sollevato dalla
  * fase 3 disabilita la casella esattamente come uno della fase 1.
+ *
+ * ## DUE cursori, e due scritture separate — non un `applySuccess` unico
+ *
+ * Gmail e Calendar hanno punti di ripartenza distinti (`gmail_history_id` e
+ * `calendar_sync_token`) e possono fallire uno senza l'altro. Se ci fosse una
+ * sola scrittura finale, un guasto del calendario — che DEVE salire fino a
+ * {@link applyFailure}, perché è un verdetto su quella casella esattamente
+ * come un guasto di Gmail — porterebbe via con sé anche il cursore che la fase
+ * 1 si era appena guadagnata, e il tick dopo riscaricherebbe gli stessi
+ * messaggi. Da qui la forma attuale:
+ *
+ *  - {@link applyGmailCursor} scrive il SOLO `gmail_history_id`, subito dopo
+ *    la fase 1, prima che qualunque fase successiva possa lanciare;
+ *  - {@link applyCalendarCursor} scrive il SOLO `calendar_sync_token`, subito
+ *    dopo la fase 3;
+ *  - {@link applySuccess} non tocca più nessun cursore: chiude il giro
+ *    (`last_sync_at`, `sync_attempts = 0`, `next_sync_at`) e gira solo se
+ *    NESSUNA fase ha lanciato.
+ *
+ * Il successo parziale — Gmail andato, Calendar no — è quindi rappresentabile:
+ * cursore della posta avanzato, cursore del calendario fermo, casella in
+ * backoff. È la ragione della divisione, non un dettaglio d'implementazione.
  *
  * ## Perché il claim pre-schedula
  *
@@ -126,6 +173,13 @@ const realGmailClient: GmailClient = {
   getMessageFull,
 };
 
+/** La parte Calendar del client Google, iniettabile come {@link GmailClient}. */
+export interface CalendarClient {
+  listEvents: typeof listEvents;
+}
+
+const realCalendarClient: CalendarClient = { listEvents };
+
 /** Caricamento delle credenziali di una casella (default: quello di `@stubwise/google`). */
 export type LoadCredentialsFn = typeof loadGoogleAccountCredentials;
 
@@ -136,6 +190,14 @@ export interface GooglePollerDeps {
   logger?: GoogleLogger;
   /** Client Google iniettabile nei test. Default: rete vera. */
   gmail?: GmailClient;
+  /** Client Calendar iniettabile nei test. Default: rete vera. */
+  calendar?: CalendarClient;
+  /**
+   * Lingua dei contenuti dell'istanza: la fase 3 la usa per il nome della
+   * milestone proposta. Assente = letta una volta per casella dalle
+   * impostazioni (`getContentLanguage`).
+   */
+  lang?: Language;
   /** Caricamento credenziali iniettabile nei test. Default: `loadGoogleAccountCredentials`. */
   loadCredentials?: LoadCredentialsFn;
   /** Cadenza nominale della sincronizzazione: è il `next_sync_at` di un giro riuscito. */
@@ -185,6 +247,19 @@ export interface GoogleTickStats {
   ignoredMessages: number;
   /** Messaggi che la fase 2 non è riuscita a classificare (`failed`). */
   failedMessages: number;
+  /** Righe di `calendar_events` scritte o aggiornate dalla fase 3. */
+  calendarEvents: number;
+  /** Righe che la fase 3 ha reso CANDIDATE a una proposta di milestone. */
+  calendarReady: number;
+  /** Righe chiuse perché l'appuntamento è stato cancellato su Google. */
+  calendarCancelled: number;
+}
+
+/** Cosa ha prodotto la fase 3 nel giro di una casella. */
+interface CalendarPhaseStats {
+  events: number;
+  ready: number;
+  cancelled: number;
 }
 
 /** Contesto condiviso dalle tre fasi del giro di una casella. */
@@ -306,29 +381,63 @@ async function applyFailure(
 }
 
 /**
- * Chiude un giro RIUSCITO: cursore nuovo, contatore azzerato, prossimo giro
- * all'intervallo.
+ * Salva il cursore della FASE 1, e nient'altro.
+ *
+ * Si chiama subito dopo Gmail e prima delle fasi che possono lanciare (vedi
+ * "DUE cursori" nel docblock del modulo): quello che la posta si è guadagnato
+ * non deve poter essere annullato da un guasto del calendario.
  *
  * Il cursore si tocca in due casi e in nessun altro: c'è un `historyId` nuovo
  * (lo si scrive), oppure il resync ha appena dimostrato che quello vecchio è
  * SCADUTO e non ne ha prodotto uno nuovo (lo si azzera). Il secondo caso non è
  * cosmetico: lasciando lì un cursore che Gmail rifiuta, OGNI tick successivo
- * pagherebbe un 404 prima di ricadere sulla query — per sempre.
+ * pagherebbe un 404 prima di ricadere sulla query — per sempre. Quando non c'è
+ * niente da scrivere non parte nemmeno l'UPDATE.
  */
-async function applySuccess(
+async function applyGmailCursor(
   deps: GooglePollerDeps,
   account: ClaimedAccount,
   cursor: { historyId: string | null; clearCursor: boolean },
 ): Promise<void> {
+  if (!cursor.historyId && !cursor.clearCursor) return;
+  await deps.db
+    .update(googleAccounts)
+    .set({ gmailHistoryId: cursor.historyId ?? null })
+    .where(eq(googleAccounts.id, account.id));
+}
+
+/**
+ * Salva il cursore della FASE 3, e nient'altro.
+ *
+ * `null` = questo giro non ha prodotto un punto di ripartenza (tetto di pagine
+ * raggiunto, o una pagina finale senza `nextSyncToken`): il cursore resta
+ * com'era e il giro dopo rilegge. L'azzeramento del token SCADUTO non passa da
+ * qui ma da {@link collectCalendarEvents}, che lo fa appena scopre il 410 —
+ * vedi il commento lì.
+ */
+async function applyCalendarCursor(
+  deps: GooglePollerDeps,
+  account: ClaimedAccount,
+  syncToken: string | null,
+): Promise<void> {
+  if (!syncToken) return;
+  await deps.db
+    .update(googleAccounts)
+    .set({ calendarSyncToken: syncToken })
+    .where(eq(googleAccounts.id, account.id));
+}
+
+/**
+ * Chiude un giro RIUSCITO: contatore azzerato, prossimo giro all'intervallo.
+ *
+ * NON tocca nessun cursore — li hanno già scritti le rispettive fasi — e gira
+ * solo se nessuna di loro ha lanciato.
+ */
+async function applySuccess(deps: GooglePollerDeps, account: ClaimedAccount): Promise<void> {
   const intervalSeconds = Math.max(1, Math.round(deps.intervalMinutes * 60));
   await deps.db
     .update(googleAccounts)
     .set({
-      ...(cursor.historyId
-        ? { gmailHistoryId: cursor.historyId }
-        : cursor.clearCursor
-          ? { gmailHistoryId: null }
-          : {}),
       lastSyncAt: sql`now()`,
       syncAttempts: 0,
       nextSyncAt: sql`now() + make_interval(secs => ${intervalSeconds})`,
@@ -504,9 +613,8 @@ async function syncGmail(
 /** Cosa ha prodotto il giro di UNA casella (null = giro saltato). */
 interface AccountTickResult {
   ingested: number;
-  historyId: string | null;
-  clearCursor: boolean;
   classify: ClassifyBatchStats;
+  calendar: CalendarPhaseStats;
 }
 
 /**
@@ -557,21 +665,286 @@ async function runClassifyPhase(
   }
 }
 
+/** Una pagina dopo l'altra, fino all'ultima o al tetto. */
+async function drainCalendarPages(
+  deps: GooglePollerDeps,
+  account: ClaimedAccount,
+  base: { accessToken: string; syncToken?: string; timeMin?: Date; timeMax?: Date; showDeleted: boolean },
+): Promise<{ events: GoogleCalendarEvent[]; syncToken: string | null }> {
+  const calendar = deps.calendar ?? realCalendarClient;
+  const logger = deps.logger ?? defaultLogger;
+  const events: GoogleCalendarEvent[] = [];
+  let pageToken: string | null = null;
+
+  for (let page = 0; page < CALENDAR_MAX_PAGES; page += 1) {
+    const result = await calendar.listEvents({
+      ...base,
+      pageToken,
+      maxResults: CALENDAR_PAGE_SIZE,
+    });
+    events.push(...result.events);
+    pageToken = result.nextPageToken;
+    // `nextSyncToken` arriva SOLO sull'ultima pagina: se il ciclo si ferma
+    // prima, non c'è nessun punto di ripartenza da salvare — ed è giusto così,
+    // salvarne uno a metà elenco perderebbe gli eventi non ancora letti.
+    if (!pageToken) return { events, syncToken: result.nextSyncToken };
+  }
+
+  logger.warn(
+    `google: calendario di ${account.email} oltre ${CALENDAR_MAX_PAGES} pagine, cursore non avanzato`,
+  );
+  return { events, syncToken: null };
+}
+
+/**
+ * Cosa è cambiato sul calendario `primary` dopo l'ultimo giro.
+ *
+ * Incrementale se c'è un `calendar_sync_token`, per finestra (da adesso a
+ * {@link CALENDAR_WINDOW_DAYS} giorni) al primo giro o quando il token è
+ * scaduto. Come per Gmail, il fallback NON è un errore e non conta un
+ * tentativo.
+ *
+ * ⚠️ Il token scaduto si AZZERA subito, prima del resync, e non a fine giro
+ * come fa Gmail con `clearCursor`. La differenza è voluta: qui il resync che
+ * segue può lanciare (rete, quota), e se il 410 fosse ancora "da smaltire" il
+ * tick successivo pagherebbe di nuovo un 410 prima di ricadere sulla finestra
+ * — ogni volta, finché la casella non ha un giro perfetto. Azzerandolo appena
+ * si sa che è morto, quel costo si paga una volta sola.
+ *
+ * `showDeleted` è acceso solo in incrementale: è così che arrivano gli eventi
+ * `cancelled`, che servono a chiudere le righe già viste. In un resync per
+ * finestra un evento cancellato non ha nulla da chiudere e sarebbe solo rumore.
+ */
+async function collectCalendarEvents(
+  deps: GooglePollerDeps,
+  ctx: AccountContext,
+  account: ClaimedAccount,
+): Promise<{ events: GoogleCalendarEvent[]; syncToken: string | null }> {
+  const logger = deps.logger ?? defaultLogger;
+  const now = deps.now ?? (() => new Date());
+
+  if (account.calendarSyncToken) {
+    try {
+      return await drainCalendarPages(deps, account, {
+        accessToken: ctx.accessToken,
+        syncToken: account.calendarSyncToken,
+        showDeleted: true,
+      });
+    } catch (err) {
+      if (!isSyncTokenExpired(err)) throw err;
+      logger.info(
+        `google: syncToken del calendario scaduto per ${account.email}, resync su ${CALENDAR_WINDOW_DAYS} giorni`,
+      );
+      await deps.db
+        .update(googleAccounts)
+        .set({ calendarSyncToken: null })
+        .where(eq(googleAccounts.id, account.id));
+    }
+  }
+
+  const { timeMin, timeMax } = calendarWindow(now());
+  return drainCalendarPages(deps, account, {
+    accessToken: ctx.accessToken,
+    timeMin,
+    timeMax,
+    showDeleted: false,
+  });
+}
+
+/**
+ * Chiude le righe degli appuntamenti CANCELLATI, e non fa nient'altro.
+ *
+ * Un evento cancellato che non abbiamo mai visto non produce nessuna riga: la
+ * `where` semplicemente non trova niente. E un `outcome` già scritto non viene
+ * sovrascritto (`coalesce`): se la fase D aveva già eseguito la proposta, il
+ * suo esito — la milestone creata — è la storia di quella riga e cancellare
+ * l'appuntamento dopo non la riscrive.
+ */
+async function closeCancelledEvents(
+  db: Db,
+  accountId: string,
+  googleEventIds: string[],
+): Promise<number> {
+  if (googleEventIds.length === 0) return 0;
+  const closed = await db
+    .update(calendarEventsTable)
+    .set({
+      status: "cancelled",
+      outcome: sql`coalesce(${calendarEventsTable.outcome}, ${JSON.stringify(CALENDAR_CANCELLED_OUTCOME)}::jsonb)`,
+    })
+    .where(
+      and(
+        eq(calendarEventsTable.accountId, accountId),
+        inArray(calendarEventsTable.googleEventId, googleEventIds),
+      ),
+    )
+    .returning({ id: calendarEventsTable.id });
+  return closed.length;
+}
+
+/**
+ * FASE 3 del giro: dal calendario `primary` alle righe di `calendar_events`.
+ *
+ * ⚠️ **Lascia salire le proprie eccezioni**, al contrario di
+ * {@link runClassifyPhase}. Non è un'incoerenza: la fase 2 fallisce per colpa
+ * del CLI o del provider AI, che non dicono niente sulla casella; la fase 3
+ * fallisce per colpa di Google — token, permessi, quota, rete — ed è
+ * esattamente il tipo di verdetto che `applyFailure` sa trattare (backoff,
+ * fatale, `sync_failed`). Il cursore di Gmail è già al sicuro: l'ha scritto
+ * {@link applyGmailCursor} prima che questa fase partisse.
+ *
+ * ## Cosa NON diventa una riga
+ *
+ * Un evento fuori perimetro, uno senza data d'inizio e uno senza titolo non
+ * producono nulla. Gli ultimi due perché {@link buildMilestoneProposal}
+ * tornerebbe `null` e la riga nascerebbe già incapace di diventare una
+ * proposta: scriverla vorrebbe dire riempire la tabella di appuntamenti che
+ * nessuno vedrà mai.
+ *
+ * ## Cosa NON si tocca su una riga che esiste già
+ *
+ * `proposal_notification_id` e `outcome` non vengono mai sovrascritti da qui:
+ * sono la storia della fase D. `project_id` si aggiorna solo finché la riga è
+ * ancora aperta — dopo, cambiare progetto a una proposta già pubblicata
+ * significherebbe farla puntare altrove sotto le dita di chi la sta leggendo.
+ */
+async function syncCalendar(
+  deps: GooglePollerDeps,
+  ctx: AccountContext,
+  account: ClaimedAccount,
+): Promise<{ syncToken: string | null; stats: CalendarPhaseStats }> {
+  const stats: CalendarPhaseStats = { events: 0, ready: 0, cancelled: 0 };
+  const { events, syncToken } = await collectCalendarEvents(deps, ctx, account);
+  if (events.length === 0) return { syncToken, stats };
+
+  stats.cancelled = await closeCancelledEvents(
+    deps.db,
+    account.id,
+    events.filter(isCancelled).map((event) => event.id),
+  );
+
+  const lang = deps.lang ?? (await getContentLanguage(deps.db));
+
+  // Un evento può comparire più volte in un resync paginato: vince l'ultima
+  // versione letta, che è anche la più recente. `startsAt` viaggia a parte
+  // perché qui è garantito non nullo e il tipo di Google non lo sa.
+  const live = new Map<string, { event: GoogleCalendarEvent; startsAt: Date; fingerprint: string }>();
+  for (const event of events) {
+    if (isCancelled(event)) continue;
+    const startsAt = event.startsAt;
+    if (!startsAt) continue;
+    if (!buildMilestoneProposal(lang, event)) continue;
+    if (!routeEvent(event, ctx.routes).inScope) continue;
+    live.set(event.id, { event, startsAt, fingerprint: computeFingerprint(event.title, startsAt) });
+  }
+  if (live.size === 0) return { syncToken, stats };
+
+  const ids = [...live.keys()];
+  const fingerprints = [...live.values()].map((entry) => entry.fingerprint);
+
+  // Due letture per tutto il lotto, non due per evento: quello che serve è
+  // "questa riga esiste già?" e "questo appuntamento è già tracciato sotto un
+  // altro id?", e sono entrambe una `in (…)`.
+  const known = await deps.db
+    .select({
+      googleEventId: calendarEventsTable.googleEventId,
+      proposalNotificationId: calendarEventsTable.proposalNotificationId,
+      outcome: calendarEventsTable.outcome,
+    })
+    .from(calendarEventsTable)
+    .where(
+      and(
+        eq(calendarEventsTable.accountId, account.id),
+        inArray(calendarEventsTable.googleEventId, ids),
+      ),
+    );
+  const byEventId = new Map(known.map((row) => [row.googleEventId, row]));
+
+  const sameFingerprint = await deps.db
+    .select({
+      googleEventId: calendarEventsTable.googleEventId,
+      fingerprint: calendarEventsTable.fingerprint,
+    })
+    .from(calendarEventsTable)
+    .where(
+      and(
+        eq(calendarEventsTable.accountId, account.id),
+        inArray(calendarEventsTable.fingerprint, fingerprints),
+      ),
+    );
+  const ownerOfFingerprint = new Map<string, string>();
+  for (const row of sameFingerprint) {
+    if (!ownerOfFingerprint.has(row.fingerprint)) {
+      ownerOfFingerprint.set(row.fingerprint, row.googleEventId);
+    }
+  }
+
+  for (const { event, startsAt, fingerprint } of live.values()) {
+    if (deps.signal?.aborted) break;
+    const resolved = routeEvent(event, ctx.routes);
+    const fresh = {
+      title: event.title.trim(),
+      startsAt,
+      endsAt: event.endsAt,
+      allDay: event.allDay,
+      attendees: event.attendees,
+      organizer: event.organizer,
+      status: normalizeStatus(event.status),
+      fingerprint,
+    };
+
+    const existing = byEventId.get(event.id);
+    if (existing) {
+      const stillOpen = existing.proposalNotificationId === null && existing.outcome === null;
+      await deps.db
+        .update(calendarEventsTable)
+        .set(stillOpen ? { ...fresh, projectId: resolved.projectId } : fresh)
+        .where(
+          and(
+            eq(calendarEventsTable.accountId, account.id),
+            eq(calendarEventsTable.googleEventId, event.id),
+          ),
+        );
+      stats.events += 1;
+      continue;
+    }
+
+    // Stesso giorno e stesso titolo sotto un altro id: è l'appuntamento che
+    // stiamo già seguendo, ricreato. Si scrive la riga (tracciabilità) con un
+    // esito che la esclude dalle candidate.
+    const owner = ownerOfFingerprint.get(fingerprint);
+    const duplicate = owner !== undefined && owner !== event.id;
+    const inserted = await deps.db
+      .insert(calendarEventsTable)
+      .values({
+        accountId: account.id,
+        googleEventId: event.id,
+        projectId: resolved.projectId,
+        outcome: duplicate ? duplicateOutcome(owner) : null,
+        ...fresh,
+      })
+      // L'unique `(account_id, google_event_id)` è l'idempotenza della fase 3.
+      .onConflictDoNothing()
+      .returning({ id: calendarEventsTable.id });
+    if (inserted.length === 0) continue;
+
+    stats.events += 1;
+    if (!duplicate && resolved.projectId !== null) stats.ready += 1;
+    // Un secondo evento con la stessa impronta nello STESSO lotto è già un
+    // duplicato di questo: senza questa riga se ne proporrebbero due.
+    if (!ownerOfFingerprint.has(fingerprint)) ownerOfFingerprint.set(fingerprint, event.id);
+  }
+
+  return { syncToken, stats };
+}
+
 /**
  * Il giro di UNA casella: credenziali → access token → le fasi.
  *
- * ⚠️ **Punto d'innesto della fase 3.** La fase mancante va QUI, dopo la
- * classificazione e dentro lo stesso try del chiamante, così condivide `ctx`
- * (credenziali + access token già ottenuti) e il gestore d'errore (un fatale
- * sollevato da lei disabilita la casella come uno di Gmail):
- *
- *  - **Task 9** — sincronizzazione del calendario `primary` da
- *    `ctx.credentials.calendarSyncToken`, con lo stesso pre-filtro di routing.
- *
- * La fase 3, a differenza della 2, PARLA con Google: le sue eccezioni devono
- * salire fino a `applyFailure` (è il punto del gestore condiviso), quindi non
- * va avvolta in un catch come {@link runClassifyPhase}. Non tocca però il
- * cursore di Gmail: `applySuccess` resta l'ultima cosa che il chiamante fa.
+ * L'ORDINE delle scritture qui dentro è la parte che si sbaglia: il cursore di
+ * Gmail si salva SUBITO dopo la fase 1, perché la fase 3 può lanciare e le sue
+ * eccezioni devono arrivare fino ad `applyFailure` senza portarsi via il
+ * lavoro già fatto. Vedi "DUE cursori" nel docblock del modulo.
  */
 async function runAccountTick(
   deps: GooglePollerDeps,
@@ -599,16 +972,21 @@ async function runAccountTick(
   });
   const ctx: AccountContext = { credentials, accessToken: tokens.accessToken, routes };
 
-  // Fase 1 — Gmail.
+  // Fase 1 — Gmail, e il suo cursore messo al sicuro prima di tutto il resto.
   const gmailResult = await syncGmail(deps, ctx, account);
+  await applyGmailCursor(deps, account, gmailResult);
 
   // Fase 2 — classificazione dei messaggi `new` (compresi quelli rimasti
   // indietro dai giri precedenti, non solo quelli appena ingeriti).
   const classify = await runClassifyPhase(deps, account);
 
-  // Task 9: qui va la FASE 3 (calendario `primary` → proposte di milestone).
+  // Fase 3 — calendario `primary` → righe candidate a una proposta di
+  // milestone. Se lancia, il chiamante mette la casella in backoff e il
+  // cursore del calendario resta dov'era: la posta ha già il suo.
+  const calendar = await syncCalendar(deps, ctx, account);
+  await applyCalendarCursor(deps, account, calendar.syncToken);
 
-  return { ...gmailResult, classify };
+  return { ingested: gmailResult.ingested, classify, calendar: calendar.stats };
 }
 
 /**
@@ -654,6 +1032,9 @@ export async function pollGoogleOnce(deps: GooglePollerDeps): Promise<GoogleTick
     classified: 0,
     ignoredMessages: 0,
     failedMessages: 0,
+    calendarEvents: 0,
+    calendarReady: 0,
+    calendarCancelled: 0,
   };
 
   // La potatura gira SEMPRE, anche quando nessuna casella è dovuta: è
@@ -695,7 +1076,10 @@ export async function pollGoogleOnce(deps: GooglePollerDeps): Promise<GoogleTick
       stats.classified += result.classify.classified;
       stats.ignoredMessages += result.classify.ignored;
       stats.failedMessages += result.classify.failed;
-      await applySuccess(deps, account, result);
+      stats.calendarEvents += result.calendar.events;
+      stats.calendarReady += result.calendar.ready;
+      stats.calendarCancelled += result.calendar.cancelled;
+      await applySuccess(deps, account);
     } catch (err) {
       try {
         if (await applyFailure(deps, account, err)) stats.disabled += 1;
@@ -742,7 +1126,9 @@ export function startGooglePoller(opts: StartGooglePollerOptions): () => void {
         logger.info(
           `google: tick ${stats.accounts} casella/e, ${stats.ingested} messaggi ingeriti, ` +
             `${stats.classified} classificati, ${stats.ignoredMessages} ignorati, ` +
-            `${stats.failedMessages} falliti, ${stats.disabled} disabilitate, ${stats.pruned} potati`,
+            `${stats.failedMessages} falliti, ${stats.calendarEvents} eventi ` +
+            `(${stats.calendarReady} da proporre, ${stats.calendarCancelled} cancellati), ` +
+            `${stats.disabled} disabilitate, ${stats.pruned} potati`,
         );
       }
     } catch (err) {

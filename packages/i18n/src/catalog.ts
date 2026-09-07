@@ -329,6 +329,10 @@ export const en: Catalog = {
   "email.input.none": "none",
   "email.input.truncated":
     "The email text was truncated for length: do not treat the missing part as absent facts.",
+  // Nome della milestone proposta da un appuntamento (fase 6, Task 9). È un
+  // testo FINALE, non un'istruzione a un agente: il calendario non passa da
+  // nessun run del modello, la proposta è un template interpolato.
+  "email.calendar.milestone": "{title} by {date}",
 
   // --- decision.* — REGISTRO DECISIONI di progetto (fase 5, Task 13).
   //
@@ -571,6 +575,7 @@ export const it: Catalog = {
   "email.input.none": "nessuno",
   "email.input.truncated":
     "Il testo dell'email è stato troncato per lunghezza: non considerare fatti assenti quelli mancanti.",
+  "email.calendar.milestone": "{title} entro il {date}",
 
   // --- decision.* (vedi la nota nel catalogo `en`: testi FINALI, mai istruzioni
   // a un agente — il registro decisioni non è mai scritto dall'AI) ---
