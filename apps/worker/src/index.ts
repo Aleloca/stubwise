@@ -25,7 +25,7 @@ import { PUSH_RELAY_TIMEOUT_MS, startDeliveriesPoller } from "./notify/deliverie
 import { startPluginPoller } from "./plugins/poller.js";
 import { startMonitorRollupPoller } from "./monitor/rollup.js";
 import { startLimitResumePoller } from "./providers/limit-resume-poller.js";
-import { DEFAULT_BRIEF_STALE_MINUTES, startBriefPoller } from "./briefs/poller.js";
+import { startBriefPoller } from "./briefs/poller.js";
 import { startPulsePoller } from "./pulse/poller.js";
 import { startDailyReportPoller } from "./reports/daily-report-poller.js";
 import { DEFAULT_FIX_PLAN_TIMEOUT_MS, DEFAULT_FIX_TIMEOUT_MS } from "./pipeline/fix.js";
@@ -598,7 +598,6 @@ startBriefPoller({
   },
   model: config.summaryModel,
   agentTimeoutMs: config.prReviewTimeoutMs,
-  staleMinutes: DEFAULT_BRIEF_STALE_MINUTES,
   intervalMinutes: config.briefPollMinutes,
   signal: controller.signal,
 });

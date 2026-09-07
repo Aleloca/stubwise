@@ -143,6 +143,42 @@ describe("collectBriefInput", () => {
     // seconda, che è l'unica che può sbloccare lui.
     expect(input.blocks.join("\n")).toContain("job_in_flight");
     expect(input.blocks.join("\n")).toContain("open_question");
+    // ...ma solo il primo dei due è "in corso": la domanda aperta aspetta
+    // davvero qualcuno, e non deve portare la glossa che disinnesca `<<NEED>>`.
+    expect(input.blocks.find((entry) => entry.includes("open_question"))).not.toContain(
+      "no action needed",
+    );
+  });
+
+  /**
+   * «C'è un job in volo» NON è qualcosa che il lettore del brief possa
+   * sbloccare: è la pipeline che lavora. La sezione dei blocchi alimenta
+   * `<<NEED>>` («cosa serve da voi»), e un segnale che non richiede nessuno
+   * invita l'agente a inventare un intervento — la forma di narrativa
+   * sbagliata più facile da produrre. Resta nell'elenco, perché sapere che
+   * qualcosa è in corso serve, ma dichiarato per quello che è.
+   */
+  it("`job_in_flight` è glossato come «nessuna azione richiesta»: non è un blocco per il lettore", async () => {
+    const { projectId } = await seedRepository(db);
+    const [ticket] = await db
+      .insert(tickets)
+      .values({
+        projectId,
+        number: 1,
+        title: "Un ticket in lavorazione",
+        body: "b",
+        type: "bug",
+        priority: "medium",
+        source: "manual",
+        status: "in_progress",
+      })
+      .returning();
+    await db.insert(aiJobs).values({ ticketId: ticket!.id, status: "fixing" });
+
+    const input = await collectBriefInput(db, projectId, PERIOD);
+    const line = input.blocks.find((entry) => entry.includes("job_in_flight"));
+    expect(line).toBeDefined();
+    expect(line).toContain("no action needed");
   });
 
   it("progetto senza niente: tutte le sezioni vuote, nessun errore", async () => {

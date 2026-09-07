@@ -17,6 +17,7 @@ import { BRIEF_MARKERS, parseBriefOutput } from "./prompt.js";
 import {
   BRIEF_EVENT_SUMMARY_MAX_CHARS,
   BRIEF_MAX_ATTEMPTS,
+  briefStaleMinutes,
   isInBriefWindow,
   pollBriefsOnce,
   previousWeekPeriod,
@@ -380,6 +381,46 @@ describe("notifica project.brief", () => {
     expect(await briefRows(projectId)).toHaveLength(1);
   });
 
+  /**
+   * RUN FANTASMA: il recovery degli orfani ha già riportato questo brief in
+   * coda e un ALTRO tick se l'è preso, mentre il primo run stava ancora
+   * girando. Quando il primo run finisce non deve scrivere né pubblicare
+   * niente: senza guardia si otterrebbero due `done` e DUE notifiche per lo
+   * stesso brief — lo stesso brief annunciato due volte a tutti.
+   *
+   * La guardia è sul `attempts` del proprio claim, non sul solo stato: fra il
+   * recovery e il ri-claim la riga torna `running`, quindi `status` da solo
+   * non distingue il proprio run da quello di un altro.
+   */
+  it("un run FANTASMA non pubblica: se un altro tick ha ri-claimato, il primo tace", async () => {
+    const adminId = await seedAdmin();
+    const projectId = await enabledProject();
+
+    // Il runner finge il tempo che passa: mentre "genera", un altro worker
+    // recupera l'orfano e se lo prende (attempts avanza).
+    const runner = {
+      calls: 0,
+      async run() {
+        runner.calls++;
+        await db
+          .update(projectBriefs)
+          .set({ status: "running", attempts: 99 })
+          .where(eq(projectBriefs.projectId, projectId));
+        return { output: AGENT_OUTPUT, exitCode: 0 };
+      },
+    } as unknown as AgentRunner & { calls: number };
+
+    expect(await pollBriefsOnce(deps({ runner }))).toBe(0);
+
+    // Nessuna notifica: l'annuncio spetta a chi possiede il brief adesso.
+    expect(await db.select().from(notifications).where(eq(notifications.userId, adminId))).toEqual(
+      [],
+    );
+    // E la riga è ancora quella dell'altro tick, non sovrascritta dal fantasma.
+    const [row] = await briefRows(projectId);
+    expect(row).toMatchObject({ status: "running", attempts: 99 });
+  });
+
   it("zero destinatari NON è un errore: il brief resta `done`, senza notifica", async () => {
     // Nessun admin, nessun follower.
     const projectId = await enabledProject();
@@ -430,6 +471,31 @@ describe("notifica project.brief", () => {
     // condiviso, non un caso del brief — qui si sorveglia solo che il brief non
     // ne inventi uno per conto suo.
     expect(await db.select().from(notificationDeliveries)).toEqual([]);
+  });
+});
+
+/**
+ * La finestra degli orfani deve stare SOPRA il tempo massimo che un run
+ * legittimo può impiegare, altrimenti il recovery riporta `queued` un brief che
+ * è ancora in corso: un altro tick lo ri-claima, il primo run finisce lo stesso
+ * e si ottengono due `done` e DUE notifiche per lo stesso brief. È la stessa
+ * invariante di `WORKER_STALE_MINUTES` sui job, su una coda più piccola.
+ */
+describe("briefStaleMinutes", () => {
+  it("col timeout di default (15\') resta la mezz'ora storica", () => {
+    expect(briefStaleMinutes(15 * 60_000)).toBe(30);
+  });
+
+  it("un timeout PIÙ LUNGO della mezz'ora la porta con sé, al doppio", () => {
+    expect(briefStaleMinutes(40 * 60_000)).toBe(80);
+  });
+
+  it("non scende mai sotto la mezz'ora, nemmeno con un timeout minuscolo", () => {
+    expect(briefStaleMinutes(60_000)).toBe(30);
+  });
+
+  it("arrotonda per ECCESSO: un timeout non intero in minuti non accorcia la finestra", () => {
+    expect(briefStaleMinutes(20.5 * 60_000)).toBe(42);
   });
 });
 

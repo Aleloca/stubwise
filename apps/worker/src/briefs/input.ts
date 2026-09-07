@@ -87,7 +87,14 @@ export interface BriefInput {
  * riga perché sia sempre chiaro da quale segnale viene.
  */
 const BLOCKER_GLOSS: Record<IdleBlocker, string> = {
-  job_in_flight: "the automation is working on a ticket right now",
+  // ⚠️ L'UNICO segnale che non aspetta nessuno: è la pipeline che lavora.
+  // Questa sezione alimenta `<<NEED>>` («cosa serve da voi»), e un elemento
+  // che non richiede un intervento invita l'agente a inventarne uno — la forma
+  // di narrativa sbagliata più facile da produrre, e la più dannosa, perché
+  // chiede al lettore di fare qualcosa che non serve. Resta nell'elenco,
+  // perché sapere che qualcosa è in corso serve a "dove siamo", ma dichiarato
+  // per quello che è. Gli altri cinque aspettano davvero qualcuno.
+  job_in_flight: "the automation is working on a ticket right now — in progress, no action needed",
   job_held: "a job is parked waiting for a maintainer (usage limit, budget or approval gate)",
   open_question: "the agent asked a question and nobody answered yet",
   open_pr: "a pull request is open and waiting for a review",

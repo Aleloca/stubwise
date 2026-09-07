@@ -64,6 +64,26 @@ export const BRIEF_MAX_ATTEMPTS = 3;
 export const DEFAULT_BRIEF_STALE_MINUTES = 30;
 
 /**
+ * La finestra degli orfani a partire dal timeout REALE del run.
+ *
+ * L'invariante è la stessa di `WORKER_STALE_MINUTES` sui job, su una coda più
+ * piccola: la soglia deve stare SOPRA il tempo massimo che un run legittimo può
+ * impiegare. Una mezz'ora fissa lo garantiva finché il run durava al massimo i
+ * 15' di default, ma `PR_REVIEW_TIMEOUT_MINUTES` è configurabile e lo stesso
+ * valore governa il brief: portato a 40', un brief ancora in corso veniva
+ * dichiarato orfano, riportato `queued`, ri-claimato da un altro tick — e il
+ * primo run finiva comunque. Due `done` e DUE notifiche per lo stesso brief.
+ *
+ * Il doppio del timeout è lo stesso margine grossolano che il worker usa per i
+ * job (il tempo non-agentico qui è trascurabile: nessun clone, nessun push), e
+ * la mezz'ora resta come pavimento perché su timeout molto corti la finestra
+ * non deve stringersi.
+ */
+export function briefStaleMinutes(agentTimeoutMs: number): number {
+  return Math.max(DEFAULT_BRIEF_STALE_MINUTES, Math.ceil(agentTimeoutMs / 60_000) * 2);
+}
+
+/**
  * Quanto del brief viaggia dentro la notifica. 3000 è il tetto della `section`
  * mrkdwn di Slack: oltre, non se ne vedrebbe un carattere in più, e il payload
  * è copiato su OGNI riga d'inbox (una per destinatario). Chi vuole il brief
@@ -308,7 +328,11 @@ async function enqueueDueBriefs(deps: BriefPollerDeps, now: Date, logger: BriefL
  * Ritorna false se qualcun altro l'ha preso nel frattempo o se i tentativi sono
  * esauriti.
  */
-async function claimBrief(deps: BriefPollerDeps, briefId: string, now: Date): Promise<boolean> {
+async function claimBrief(
+  deps: BriefPollerDeps,
+  briefId: string,
+  now: Date,
+): Promise<number | null> {
   const claimed = await deps.db
     .update(projectBriefs)
     .set({
@@ -324,8 +348,11 @@ async function claimBrief(deps: BriefPollerDeps, briefId: string, now: Date): Pr
         sql`${projectBriefs.attempts} < ${BRIEF_MAX_ATTEMPTS}`,
       ),
     )
-    .returning({ id: projectBriefs.id });
-  return claimed.length > 0;
+    // Il numero di tentativo diventa il TOKEN del proprio claim: chi chiude la
+    // riga dimostra con quello di essere ancora il proprietario del run, e non
+    // un run fantasma che un recovery ha già rimpiazzato (vedi `pollBriefsOnce`).
+    .returning({ attempts: projectBriefs.attempts });
+  return claimed[0]?.attempts ?? null;
 }
 
 /** Esito di un tentativo di generazione, per decidere come chiudere la riga. */
@@ -508,14 +535,29 @@ export async function pollBriefsOnce(deps: BriefPollerDeps): Promise<number> {
   let done = 0;
   for (const brief of queued) {
     try {
-      if (!(await claimBrief(deps, brief.id, now))) continue;
+      const claim = await claimBrief(deps, brief.id, now);
+      if (claim === null) continue;
       const outcome = await generateBrief(deps, brief);
       if (!outcome.ok) {
         await failBrief(deps, brief, now, outcome.error);
         logger.error(`brief: generazione del progetto ${brief.projectId} fallita: ${outcome.error}`);
         continue;
       }
-      await deps.db
+      /**
+       * CHIUSURA GUARDATA — la riga si chiude solo se è ancora la NOSTRA.
+       *
+       * Un run lungo può essere stato dichiarato orfano nel frattempo e
+       * ri-claimato da un altro tick: il recovery lo riporta `queued`, l'altro
+       * tick lo riprende, e questo run — che non è morto, solo lento — arriva
+       * qui con un risultato valido ma non più suo. Senza guardia scriverebbe
+       * `done` sopra il lavoro dell'altro e pubblicherebbe: due `done` e DUE
+       * notifiche dello stesso brief a tutti i destinatari.
+       *
+       * La guardia è sul numero di tentativo del proprio claim e NON sul solo
+       * `status`: dopo il ri-claim la riga è di nuovo `running`, quindi lo
+       * stato da solo non distingue il proprio run da quello di un altro.
+       */
+      const closed = await deps.db
         .update(projectBriefs)
         .set({
           status: "done",
@@ -525,7 +567,21 @@ export async function pollBriefsOnce(deps: BriefPollerDeps): Promise<number> {
           lastActivityAt: now,
           finishedAt: now,
         })
-        .where(eq(projectBriefs.id, brief.id));
+        .where(
+          and(
+            eq(projectBriefs.id, brief.id),
+            eq(projectBriefs.status, "running"),
+            eq(projectBriefs.attempts, claim),
+          ),
+        )
+        .returning({ id: projectBriefs.id });
+      if (closed.length === 0) {
+        // Nessun errore: l'annuncio spetta a chi possiede il brief adesso.
+        logger.info(
+          `brief: run del progetto ${brief.projectId} scartato, la riga è già di un altro tick`,
+        );
+        continue;
+      }
       done++;
 
       // La notifica arriva DOPO il commit del brief, mai dentro: chi la riceve
@@ -542,7 +598,15 @@ export async function pollBriefsOnce(deps: BriefPollerDeps): Promise<number> {
   return done;
 }
 
-export interface StartBriefPollerOptions extends BriefPollerDeps {
+/**
+ * `staleMinutes` NON è nelle opzioni: lo calcola {@link startBriefPoller} da
+ * `agentTimeoutMs` con {@link briefStaleMinutes}. Restava un valore che il
+ * chiamante poteva passare incoerente col timeout — ed è esattamente così che
+ * la finestra degli orfani finiva sotto la durata di un run legittimo. Chi
+ * costruisce le deps a mano (i test) lo passa ancora; chi avvia il poller
+ * davvero non ha più modo di sbagliarlo.
+ */
+export interface StartBriefPollerOptions extends Omit<BriefPollerDeps, "staleMinutes"> {
   /** Intervallo di poll in minuti. ≤ 0 = disabilitato (non avvia nulla). */
   intervalMinutes: number;
   signal: AbortSignal;
@@ -558,7 +622,8 @@ export function startBriefPoller(opts: StartBriefPollerOptions): () => void {
   if (opts.intervalMinutes <= 0) {
     return () => {};
   }
-  const { intervalMinutes, signal, ...deps } = opts;
+  const { intervalMinutes, signal, ...rest } = opts;
+  const deps: BriefPollerDeps = { ...rest, staleMinutes: briefStaleMinutes(rest.agentTimeoutMs) };
   let running = false;
 
   const tick = async (): Promise<void> => {
