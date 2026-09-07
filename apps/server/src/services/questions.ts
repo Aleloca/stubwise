@@ -29,7 +29,16 @@
  * alimentato dalla fonte di verità. Il commento serve al FEED umano — nomina chi
  * ha risposto e cita la risposta — non al prompt.
  */
-import { agentQuestions, aiJobs, comments, notifications, users, type Db } from "@stubwise/db";
+import {
+  agentQuestions,
+  aiJobs,
+  comments,
+  notifications,
+  recordDecision,
+  tickets,
+  users,
+  type Db,
+} from "@stubwise/db";
 import { t } from "@stubwise/i18n";
 import { actorAllows, stateAllows } from "@stubwise/notifications";
 import {
@@ -158,8 +167,12 @@ export async function answerQuestion(
       status: aiJobs.status,
       ticketId: aiJobs.ticketId,
       requestedByUserId: aiJobs.requestedByUserId,
+      // Il progetto serve al registro decisioni (fase 5): una decisione è
+      // ancorata al PROGETTO, il ticket è il dettaglio d'origine.
+      projectId: tickets.projectId,
     })
     .from(aiJobs)
+    .innerJoin(tickets, eq(tickets.id, aiJobs.ticketId))
     .where(eq(aiJobs.id, jobId));
   if (!job) return { ok: false, error: "not_found" };
 
@@ -179,6 +192,8 @@ export async function answerQuestion(
     .select({
       id: agentQuestions.id,
       round: agentQuestions.round,
+      // Il TESTO della domanda: è il titolo della voce nel registro decisioni.
+      question: agentQuestions.question,
       options: agentQuestions.options,
       allowFreeText: agentQuestions.allowFreeText,
     })
@@ -251,6 +266,29 @@ export async function answerQuestion(
       if (resumed.length === 0) throw new JobMovedError();
 
       await tx.insert(comments).values({ ticketId: job.ticketId, authorType: "system", body });
+
+      // REGISTRO DECISIONI (fase 5). Nella stessa transazione della risposta:
+      // una decisione sopravvissuta al rollback qui sopra racconterebbe una
+      // scelta che nessuno ha fatto (il job era già uscito da `awaiting_input`).
+      //
+      // ⚠️ Nessuna AI tocca questi testi. Il titolo è un template i18n
+      // interpolato con la domanda PERSISTITA, la decisione è l'etichetta
+      // dell'opzione scelta (o il testo che ha scritto la persona) e le
+      // conseguenze sono la `consequence` che l'agente aveva dichiarato PRIMA,
+      // insieme alle opzioni. `renderAnswer` qui NON si usa: fonde etichetta e
+      // conseguenza in una riga sola per il commento e per Slack, mentre qui i
+      // due pezzi vanno in due colonne diverse.
+      await recordDecision(tx, {
+        projectId: job.projectId,
+        source: "ask_user",
+        sourceKey: `question:${question.id}`,
+        sourceRef: { questionId: question.id, jobId, round: question.round },
+        ticketId: job.ticketId,
+        title: t(lang, "decision.askUser.title", { question: question.question }),
+        decision: decisionText(answer, question.options),
+        consequences: decisionConsequence(answer, question.options),
+        decidedByUserId: actor.id,
+      });
       return true;
     });
   } catch (err) {
@@ -284,6 +322,35 @@ export async function answerQuestion(
 
 /** Sentinella interna: il job non è più `awaiting_input` → rollback. */
 class JobMovedError extends Error {}
+
+/**
+ * LA DECISIONE, per il registro: l'etichetta dell'opzione scelta oppure il testo
+ * libero. Senza la conseguenza — che nel registro ha una colonna sua — e senza
+ * il ripiego `#n` di {@link renderAnswer}: un indice fuori dalle opzioni qui non
+ * può capitare (`normalizeAnswer` lo rifiuta prima), e se capitasse la voce
+ * giusta è quella che dice almeno il numero della scelta.
+ */
+function decisionText(
+  answer: AgentQuestionAnswer,
+  options: { label: string; consequence?: string }[],
+): string {
+  if ("text" in answer) return answer.text;
+  return options[answer.optionIndex]?.label ?? `#${answer.optionIndex + 1}`;
+}
+
+/**
+ * COSA COMPORTA la scelta, secondo l'agente che aveva proposto le opzioni. Non
+ * esiste per il testo libero: chi scrive una risposta sua non dichiara una
+ * conseguenza, e inventargliene una sarebbe esattamente la narrativa che il
+ * registro non deve contenere.
+ */
+function decisionConsequence(
+  answer: AgentQuestionAnswer,
+  options: { label: string; consequence?: string }[],
+): string | null {
+  if ("text" in answer) return null;
+  return options[answer.optionIndex]?.consequence ?? null;
+}
 
 /**
  * A COSA si sta rispondendo: il job da riprendere e, quando l'ancora è una riga

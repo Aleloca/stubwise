@@ -79,5 +79,10 @@ export const aiJobSchema = z.object({
   // domanda dell'agente (il richiedente, più i maintainer) — la stessa regola
   // che `actorAllows` applica lato server, dove resta l'autorità.
   requestedByUserId: z.uuid().nullable(),
+  // Riassunto "in breve" del piano parcheggiato su QUESTO job (fase 5). Null
+  // quando il job non ha piano, o quando il riassunto non è stato generato;
+  // azzerato insieme a `planText` quando il piano viene rifiutato. Opzionale
+  // oltre che nullable per non rompere i client già installati.
+  planSummary: z.string().nullable().optional(),
 });
 export type AiJob = z.infer<typeof aiJobSchema>;

@@ -405,6 +405,11 @@ describe("createHandler", () => {
       mirrors,
       encryptionKey: ENCRYPTION_KEY,
       getProviderFn: () => ({ openPullRequest }) as never,
+      // Riassunto "in breve" del piano SPENTO: questa ripresa finisce in
+      // `awaiting_plan_approval`, quindi il riassunto girerebbe e aggiungerebbe
+      // un run. Qui si sta contando che NON ci sia il triage, e il conteggio
+      // deve restare leggibile per quello.
+      fix: { summariesEnabled: false },
     });
 
     const job = await claim(db);

@@ -37,6 +37,7 @@ export {
   buildQuestionBlocks,
   inboxBlockId,
   parseInboxBlockId,
+  truncateText,
   type InboxBlocksInput,
   type QuestionBlocksInput,
   type SlackBlock,
@@ -121,7 +122,14 @@ export {
 } from "./push/config.js";
 
 export {
+  briefHeadline,
+  buildProjectTimeline,
+  type TimelineWindow,
+} from "./project-timeline.js";
+
+export {
   escapeSlackMrkdwn,
+  eventSummary,
   formatNotification,
   formatNotificationText,
   sampleEvents,
@@ -139,6 +147,7 @@ export {
   type NotificationFormat,
   type NotificationKind,
   type PrOpenedEvent,
+  type ProjectBriefEvent,
   type ProjectPulseEvent,
   type PulseProposal,
   type PulseUrgency,

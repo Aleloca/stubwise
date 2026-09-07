@@ -1,4 +1,12 @@
-import { automationRules, backlogJobs, comments, projects, tickets, type Db } from "@stubwise/db";
+import {
+  automationRules,
+  backlogJobs,
+  comments,
+  projects,
+  recordTicketStatusChange,
+  tickets,
+  type Db,
+} from "@stubwise/db";
 import { t } from "@stubwise/i18n";
 import type { TicketType } from "@stubwise/shared";
 import { and, desc, eq, ne } from "drizzle-orm";
@@ -378,7 +386,20 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
             threshold: effectiveRule.maxEffort,
           }),
         });
+        const [before] = await tx
+          .select({ status: tickets.status })
+          .from(tickets)
+          .where(eq(tickets.id, ticket.id));
         await tx.update(tickets).set({ status: "triaged" }).where(eq(tickets.id, ticket.id));
+        // Audit della transizione: actorId null, il triage non è una persona.
+        if (before) {
+          await recordTicketStatusChange(tx, {
+            ticketId: ticket.id,
+            from: before.status,
+            to: "triaged",
+            actorId: null,
+          });
+        }
       });
       const held = await holdJob(db, job.id, {
         log: `[triage] decisione: fix, ma automazione in attesa (tipo=${decision.type}, effort=${decision.effort}/5, soglia=${effectiveRule.maxEffort}, auto-fix=${effectiveRule.autoFix})`,
@@ -441,7 +462,19 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
           authorType: "ai",
           body: t(lang, "comment.triageDuplicate", { number: target.number, title: target.title }),
         });
+        const [before] = await tx
+          .select({ status: tickets.status })
+          .from(tickets)
+          .where(eq(tickets.id, ticket.id));
         await tx.update(tickets).set({ status: "closed" }).where(eq(tickets.id, ticket.id));
+        if (before) {
+          await recordTicketStatusChange(tx, {
+            ticketId: ticket.id,
+            from: before.status,
+            to: "closed",
+            actorId: null,
+          });
+        }
       });
       const closed = await completeJob(db, job.id, {
         status: "skipped",

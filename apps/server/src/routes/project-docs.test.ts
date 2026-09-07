@@ -12,6 +12,7 @@ import {
   docGenerations,
   docPages,
   gitAccounts,
+  projectDecisions,
   projects,
   repoGraphs,
   repositories,
@@ -361,6 +362,55 @@ describe("GET /api/projects/:projectId/docs/highlights", () => {
     expect(body.countsByKind.releases).toBe(0);
     expect(body.topViewed).toEqual([]);
     expect(body.latestReleases).toEqual([]);
+  });
+
+  it("porta le ultime decisioni del registro, con l'autore e il flag di superata", async () => {
+    const projectId = await seedProject(testDb.db);
+    const [older] = await testDb.db
+      .insert(projectDecisions)
+      .values({
+        projectId,
+        source: "manual",
+        sourceKey: `manual:${randomUUID()}`,
+        title: "Scelta superata",
+        decision: "Il vecchio modo",
+        decidedAt: new Date("2026-01-01T00:00:00Z"),
+      })
+      .returning({ id: projectDecisions.id });
+    const [newer] = await testDb.db
+      .insert(projectDecisions)
+      .values({
+        projectId,
+        source: "plan_review",
+        sourceKey: `plan_review:${randomUUID()}:1`,
+        title: "Scelta corrente",
+        decision: "Il nuovo modo",
+        decidedAt: new Date("2026-02-01T00:00:00Z"),
+      })
+      .returning({ id: projectDecisions.id });
+    await testDb.db
+      .update(projectDecisions)
+      .set({ supersededById: newer!.id })
+      .where(eq(projectDecisions.id, older!.id));
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/docs/highlights`,
+      headers: { cookie: memberCookie },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const decisions = res.json().latestDecisions as {
+      title: string;
+      superseded: boolean;
+      decidedByEmail: string | null;
+    }[];
+    // Dalla più recente.
+    expect(decisions.map((d) => d.title)).toEqual(["Scelta corrente", "Scelta superata"]);
+    expect(decisions[0]!.superseded).toBe(false);
+    expect(decisions[1]!.superseded).toBe(true);
+    // Autore assente (writer di sistema o utente cancellato): null, non un errore.
+    expect(decisions[0]!.decidedByEmail).toBeNull();
   });
 
   it("progetto inesistente: 404", async () => {

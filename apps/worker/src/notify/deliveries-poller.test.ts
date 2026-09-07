@@ -552,6 +552,24 @@ describe("canale slack_dm", () => {
     expect(slack.posted[0]!.blocks!.filter((b) => b.type === "section")).toHaveLength(1);
   });
 
+  it("il riassunto in breve dell'evento diventa una section sua nel DM", async () => {
+    const slack = fakeSlack();
+    await insertSlackDelivery("slack_dm", {
+      role: "admin",
+      event: {
+        ...planReviewEvent(),
+        summary: "Il conto delle somme torna corretto.",
+      } as NotificationEvent,
+      jobStatus: "awaiting_plan_approval",
+    });
+
+    await processDeliveriesOnce(slackDeps(slack));
+
+    const sections = slack.posted[0]!.blocks!.filter((b) => b.type === "section");
+    expect(sections).toHaveLength(2);
+    expect(JSON.stringify(sections[1])).toContain("Il conto delle somme torna corretto.");
+  });
+
   it("il testo segue la lingua del DESTINATARIO", async () => {
     const slack = fakeSlack();
     await insertSlackDelivery("slack_dm", { language: "en" });

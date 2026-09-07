@@ -57,6 +57,100 @@ describe("buildInboxBlocks", () => {
     });
   });
 
+  it("il riassunto in breve è una section SUA, fra il testo e le azioni", () => {
+    const blocks = buildInboxBlocks({
+      text: "📝 Piano da approvare per *#42*",
+      summary: "Il conto delle somme torna corretto.",
+      actions: ["approve_plan", "reject_plan"],
+      notificationId: NOTIFICATION_ID,
+      lang: "it",
+    });
+
+    expect(blocks).toHaveLength(3);
+    expect(blocks[1]).toEqual({
+      type: "section",
+      text: { type: "mrkdwn", text: "Il conto delle somme torna corretto." },
+    });
+    expect(blocks[2]!.type).toBe("actions");
+  });
+
+  it("il riassunto è testo GENERATO su input non fidato: `<`, `>` e `&` vengono escapati", () => {
+    const blocks = buildInboxBlocks({
+      text: "Piano da approvare",
+      summary: "Tocca <config> & la home > profilo.",
+      actions: [],
+      notificationId: NOTIFICATION_ID,
+      lang: "it",
+    });
+
+    expect(blocks[1]).toEqual({
+      type: "section",
+      text: { type: "mrkdwn", text: "Tocca &lt;config&gt; &amp; la home &gt; profilo." },
+    });
+  });
+
+  /**
+   * L'ORDINE fra escape e troncamento non è un dettaglio di stile: l'escape
+   * ALLUNGA il testo (`&` → `&amp;`, cinque caratteri per uno), quindi
+   * troncare prima e escapare dopo può riportare la `section` sopra i 3000
+   * caratteri che Slack accetta. Il brief pubblicato è già tagliato a
+   * ESATTAMENTE 3000 (`BRIEF_EVENT_SUMMARY_MAX_CHARS`), quindi non serve un
+   * caso di laboratorio: basta un `&` o un `->` in un brief lungo e Slack
+   * risponde `invalid_blocks` — la consegna fallisce del tutto, non si degrada.
+   */
+  it("un riassunto al limite e pieno di `&<>` resta dentro i 3000 caratteri della section", () => {
+    const blocks = buildInboxBlocks({
+      text: "Brief settimanale",
+      summary: "&<>".repeat(1000),
+      actions: [],
+      notificationId: NOTIFICATION_ID,
+      lang: "it",
+    });
+
+    const section = blocks[1] as { text: { text: string } };
+    expect(section.text.text.length).toBeLessThanOrEqual(3000);
+    // E deve essere escapato davvero: dentro il limite non resta un `<` nudo.
+    expect(section.text.text).not.toMatch(/[<>&](?!amp;|lt;|gt;)/);
+  });
+
+  it("il troncamento non spezza una coppia di surrogati (emoji a cavallo del limite)", () => {
+    const blocks = buildInboxBlocks({
+      text: "Brief settimanale",
+      summary: `${"a".repeat(2999)}${"🚀".repeat(20)}`,
+      actions: [],
+      notificationId: NOTIFICATION_ID,
+      lang: "it",
+    });
+
+    const section = blocks[1] as { text: { text: string } };
+    expect(section.text.text.length).toBeLessThanOrEqual(3000);
+    expect(Buffer.from(section.text.text, "utf8").toString()).toBe(section.text.text);
+  });
+
+  it("riassunto assente o vuoto → nessuna section in più", () => {
+    // `handled` rende sempre un bottone (a differenza di `open`, che senza url
+    // non produce elementi): così la lunghezza attesa isola davvero il blocco
+    // del riassunto e non un blocco `actions` mancante.
+    const senza = buildInboxBlocks({
+      text: "Piano da approvare",
+      actions: ["handled"],
+      notificationId: NOTIFICATION_ID,
+      lang: "it",
+    });
+    expect(senza).toHaveLength(2);
+    expect(senza[1]!.type).toBe("actions");
+
+    const vuoto = buildInboxBlocks({
+      text: "Piano da approvare",
+      summary: "   ",
+      actions: ["handled"],
+      notificationId: NOTIFICATION_ID,
+      lang: "it",
+    });
+    expect(vuoto).toHaveLength(2);
+    expect(vuoto[1]!.type).toBe("actions");
+  });
+
   it("le azioni dell'admin su un piano in attesa: approva (primary), rifiuta (danger), apri, snooze, gestita", () => {
     const actions = actionsFor(
       { kind: "job.plan_review", requestedByUserId: null },
@@ -335,6 +429,21 @@ describe("buildQuestionBlocks", () => {
     expect(optionsText(blocks).length).toBeLessThanOrEqual(3000);
   });
 
+  /**
+   * Stesso ordine sbagliato del riassunto, sull'altro punto che tronca testo
+   * dell'agente: una conseguenza tagliata a 240 e POI escapata può arrivare a
+   * 240 + 4×(numero di `&`) caratteri. Qui il tetto è nostro (leggibilità) e
+   * non di Slack, quindi non fa fallire la consegna — ma è la stessa svista, e
+   * lasciarne una in giro è come si reintroduce l'altra.
+   */
+  it("una conseguenza piena di `&` resta dentro il suo tetto anche dopo l'escape", () => {
+    const blocks = questionBlocks({
+      options: [{ label: "Sì", consequence: "&".repeat(400) }],
+    });
+    const consequenceLine = optionsText(blocks).split("\n")[1]!;
+    expect(consequenceLine.length).toBeLessThanOrEqual(240);
+  });
+
   it("testo dell'agente non fidato: nessun markup Slack iniettabile dalle etichette", () => {
     const blocks = questionBlocks({
       options: [
@@ -515,5 +624,42 @@ describe("buildQuestionBlocks", () => {
   it("payload senza opzioni ma con testo libero: resta il solo Altro…", () => {
     const blocks = questionBlocks({ options: [], recommendedIndex: undefined });
     expect(ids(blocks)).toEqual(["inbox:answer_free", "inbox:open", "inbox:snooze"]);
+  });
+});
+
+describe("buildInboxBlocks — brief settimanale", () => {
+  /**
+   * Il DM del brief (fase 5): il markdown del brief sta in una `section` SUA,
+   * fra il testo della notifica e i bottoni. È lo stesso meccanismo del
+   * riassunto "in breve" di piani e PR — il brief non ha bisogno di un
+   * renderer dedicato, e non doveva averne uno.
+   */
+  it("il markdown del brief è una section a sé, e il bottone Apri resta", () => {
+    const blocks = buildInboxBlocks({
+      text: "🗞️ Brief settimanale di webapp (2026-08-31 → 2026-09-06): ok <https://x|Roadmap>",
+      actions: ["open", "snooze", "handled"],
+      notificationId: "11111111-1111-4111-8111-111111111111",
+      url: "https://app.example.com/projects/p1/roadmap",
+      lang: "it",
+      summary: "## Dove siamo\n\nIl progetto è a metà del lavoro sul login.",
+    });
+    const sections = blocks.filter((b) => b.type === "section");
+    expect(sections).toHaveLength(2);
+    expect(JSON.stringify(sections[1])).toContain("Dove siamo");
+    const actions = blocks.find((b) => b.type === "actions") as Record<string, unknown>;
+    expect(JSON.stringify(actions)).toContain("https://app.example.com/projects/p1/roadmap");
+  });
+
+  it("il markdown del brief è ESCAPATO: è testo AI su input non fidato", () => {
+    const blocks = buildInboxBlocks({
+      text: "testo",
+      actions: ["open"],
+      notificationId: "11111111-1111-4111-8111-111111111111",
+      lang: "it",
+      summary: "Il ticket <https://evil.example|Fidati> & altro",
+    });
+    const rendered = JSON.stringify(blocks);
+    expect(rendered).toContain("&lt;https://evil.example|Fidati&gt; &amp; altro");
+    expect(rendered).not.toContain("<https://evil.example|Fidati>");
   });
 });

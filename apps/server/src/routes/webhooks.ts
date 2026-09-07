@@ -15,6 +15,7 @@ import {
   prReviewJobs,
   prReviews,
   projects,
+  recordTicketStatusChange,
   repositories,
   ticketRepositories,
   tickets,
@@ -406,6 +407,14 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
           ) {
             const lang = await getContentLanguage(instance.db);
             await instance.db.transaction(async (tx) => {
+              const nextStatus = event.kind === "merged" ? "done" : "closed";
+              // Lo stato PRECEDENTE si rilegge DENTRO la transazione: quello
+              // letto fuori serviva solo al fast-path, e l'audit deve dire da
+              // dove il ticket è partito davvero.
+              const [before] = await tx
+                .select({ status: tickets.status })
+                .from(tickets)
+                .where(eq(tickets.id, reviewTicket.id));
               // Il predicato sullo status rende chiusura+commento atomici: due
               // consegne CONCORRENTI leggono entrambe lo status "aperto" fuori
               // transazione, ma solo quella il cui UPDATE tocca davvero la riga
@@ -413,7 +422,7 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
               // sistema — mai duplicati.
               const updated = await tx
                 .update(tickets)
-                .set({ status: event.kind === "merged" ? "done" : "closed" })
+                .set({ status: nextStatus })
                 .where(
                   and(
                     eq(tickets.id, reviewTicket.id),
@@ -431,6 +440,17 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
                     { url: event.prUrl },
                   ),
                 });
+                // Audit della transizione: nessun umano dietro (actorId null).
+                // Sta dentro lo stesso `updated.length > 0` del commento, così
+                // una ri-consegna che non tocca la riga non lascia un evento.
+                if (before) {
+                  await recordTicketStatusChange(tx, {
+                    ticketId: reviewTicket.id,
+                    from: before.status,
+                    to: nextStatus,
+                    actorId: null,
+                  });
+                }
               }
             });
           }
@@ -548,7 +568,23 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
           const allMerged = (pending?.value ?? 0) === 0;
           if (!allMerged) return;
 
+          const [beforeDone] = await tx
+            .select({ status: tickets.status })
+            .from(tickets)
+            .where(eq(tickets.id, ticket.id));
           await tx.update(tickets).set({ status: "done" }).where(eq(tickets.id, ticket.id));
+          // Audit della chiusura: è l'evento DATATO su cui si appoggia la
+          // timeline di progetto per "ticket chiuso" — `updated_at` direbbe
+          // solo quando la riga è cambiata l'ultima volta. actorId null: la
+          // decisione è del merge, non di una persona.
+          if (beforeDone) {
+            await recordTicketStatusChange(tx, {
+              ticketId: ticket.id,
+              from: beforeDone.status,
+              to: "done",
+              actorId: null,
+            });
+          }
           // Allinea il job AI alla realtà: la PR aperta dalla pipeline è stata
           // mergiata. Si tocca SOLO il job in stato `pr_opened` (al più uno per
           // ticket), così una ri-consegna del webhook trova zero righe da
@@ -598,6 +634,14 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
             ),
           );
         await tx.update(tickets).set({ status: "triaged" }).where(eq(tickets.id, ticket.id));
+        // Audit della riapertura. Qui lo stato precedente è certo: il ramo è
+        // guardato da `ticket.status !== "in_review"` poche righe sopra.
+        await recordTicketStatusChange(tx, {
+          ticketId: ticket.id,
+          from: "in_review",
+          to: "triaged",
+          actorId: null,
+        });
         await tx.insert(comments).values({
           ticketId: ticket.id,
           authorType: "system",

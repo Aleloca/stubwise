@@ -66,6 +66,7 @@ const initial: {
   backlogEnabled: boolean;
   pulseEnabled: boolean;
   pulseEveryDays: number;
+  weeklyBriefEnabled: boolean;
 } = {
   name: "Acme Platform",
   description: null,
@@ -75,6 +76,7 @@ const initial: {
   backlogEnabled: false,
   pulseEnabled: false,
   pulseEveryDays: 3,
+  weeklyBriefEnabled: false,
 };
 
 function mockProviders() {

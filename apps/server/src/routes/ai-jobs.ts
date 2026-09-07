@@ -59,6 +59,10 @@ function toPublicAiJob(row: AiJobRow): z.infer<typeof aiJobSchema> {
     providerLabel: row.provider?.label ?? null,
     providerKind: row.provider?.kind ?? null,
     requestedByUserId: row.requestedByUserId,
+    // Riassunto "in breve" del piano parcheggiato su questo job (fase 5):
+    // azzerato insieme a `planText` quando il piano viene rifiutato, quindi non
+    // sopravvive mai al piano che descrive.
+    planSummary: row.planSummary,
   };
 }
 

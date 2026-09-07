@@ -60,6 +60,8 @@ function makeClient(overrides: {
   get?: jest.Mock;
   jobs?: jest.Mock;
   questions?: jest.Mock;
+  activity?: jest.Mock;
+  reviews?: jest.Mock;
   approvePlan?: jest.Mock;
   rejectPlan?: jest.Mock;
 } = {}): StubwiseClient {
@@ -68,9 +70,11 @@ function makeClient(overrides: {
       get: overrides.get ?? jest.fn().mockResolvedValue(ticket()),
       jobs: overrides.jobs ?? jest.fn().mockResolvedValue([]),
       questions: overrides.questions ?? jest.fn().mockResolvedValue([] as Reader<TicketQuestion>[]),
+      activity: overrides.activity ?? jest.fn().mockResolvedValue([]),
       approvePlan: overrides.approvePlan ?? jest.fn().mockResolvedValue({ jobId: JOB_ID }),
       rejectPlan: overrides.rejectPlan ?? jest.fn().mockResolvedValue({ jobId: JOB_ID }),
     },
+    projects: { reviews: overrides.reviews ?? jest.fn().mockResolvedValue([]) },
   } as unknown as StubwiseClient;
 }
 
@@ -214,5 +218,96 @@ describe("WorkScreen — ruolo e gate di approvazione", () => {
     });
     await renderScreen(client, "admin");
     await waitFor(() => expect(screen.getByText("stubwise/fix-245-image-cache")).toBeTruthy());
+  });
+});
+
+/**
+ * Fase 5, ondata 2: la schermata legge i tre campi nuovi — il riassunto "in
+ * breve" del piano, le date reali dei passi dagli eventi del ticket, il
+ * verdetto della review dalle review di progetto.
+ */
+describe("WorkScreen — i campi della fase 5", () => {
+  test("il riassunto del piano arriva a PlanSection: si legge quello, non il piano tecnico", async () => {
+    const client = makeClient({
+      get: jest.fn().mockResolvedValue(
+        ticket({
+          implementationPlan: "Passo 1: aggiungere un indice sul listino.",
+          planSummary: "Gli ordini si potranno scaricare in CSV. Non tocca i pagamenti.",
+        }),
+      ),
+    });
+    await renderScreen(client);
+    await waitFor(() => expect(screen.getByTestId("plan-section-summary")).toBeTruthy());
+    expect(screen.getByText(/Gli ordini si potranno scaricare in CSV/)).toBeTruthy();
+    expect(screen.queryByText(/Passo 1: aggiungere un indice/)).toBeNull();
+  });
+
+  test("le date dei passi 'piano approvato' e 'PR e review' vengono dagli eventi del ticket", async () => {
+    const activity = jest.fn().mockResolvedValue([
+      {
+        kind: "event",
+        id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        eventKind: "status_changed",
+        payload: { from: "triaged", to: "in_progress" },
+        createdAt: "2026-08-12T12:00:00.000Z",
+      },
+      {
+        kind: "event",
+        id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        eventKind: "status_changed",
+        payload: { from: "in_progress", to: "in_review" },
+        createdAt: "2026-08-12T14:00:00.000Z",
+      },
+    ]);
+    const client = makeClient({
+      activity,
+      jobs: jest.fn().mockResolvedValue([job({ status: "pr_opened", startedAt: "2026-08-12T10:00:00.000Z" })]),
+    });
+    await renderScreen(client);
+    await waitFor(() => expect(activity).toHaveBeenCalledWith(TICKET_ID));
+    await waitFor(() => expect(screen.getByTestId("timeline-step-planApproved-at")).toBeTruthy());
+    expect(screen.getByTestId("timeline-step-prReview-at")).toBeTruthy();
+  });
+
+  test("il verdetto della review del PROGETTO compare sul passo 'PR e review'", async () => {
+    const reviews = jest.fn().mockResolvedValue([
+      {
+        id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        repositoryId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+        repositoryName: "shop",
+        ticketId: TICKET_ID,
+        prNumber: 12,
+        prUrl: "https://example.com/pr/12",
+        prTitle: "Export CSV",
+        status: "completed",
+        verdict: "approve",
+        prSummary: null,
+        createdAt: "2026-08-12T15:00:00.000Z",
+        finishedAt: "2026-08-12T15:10:00.000Z",
+      },
+    ]);
+    const client = makeClient({ reviews, jobs: jest.fn().mockResolvedValue([job({ status: "pr_opened" })]) });
+    await renderScreen(client);
+    await waitFor(() => expect(reviews).toHaveBeenCalledWith("proj-1"));
+    await waitFor(() => expect(screen.getByText("approvata")).toBeTruthy());
+  });
+
+  /**
+   * Le due query nuove sono DECORAZIONE: datano dei passi e aggiungono un
+   * verdetto. Un loro guasto non deve portarsi via la schermata — che il
+   * ticket, i job e le domande hanno già caricato.
+   */
+  test("eventi e review che falliscono: la schermata resta viva, senza date né verdetto", async () => {
+    const client = makeClient({
+      activity: jest.fn().mockRejectedValue(new Error("down")),
+      reviews: jest.fn().mockRejectedValue(new Error("down")),
+      jobs: jest.fn().mockResolvedValue([job({ status: "pr_opened" })]),
+    });
+    await renderScreen(client);
+    await waitFor(() => expect(screen.getByText("Export CSV degli ordini")).toBeTruthy());
+    expect(screen.queryByTestId("work-error")).toBeNull();
+    expect(screen.getByTestId("timeline")).toBeTruthy();
+    expect(screen.queryByTestId("timeline-step-planApproved-at")).toBeNull();
+    expect(screen.queryByTestId("timeline-step-prReview-verdict")).toBeNull();
   });
 });

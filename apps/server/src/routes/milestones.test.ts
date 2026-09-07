@@ -39,9 +39,9 @@ const repoForProject = new Map<string, string>();
 
 /**
  * Crea un progetto (gruppo) con un repository sotto e restituisce l'id del
- * GRUPPO (usato come `projectId` dalle milestone). Le milestone sono
- * product-level ma in Fase 1 richiedono un `repositoryId` d'origine, iniettato
- * da {@link createMilestone} dal repository di default del progetto.
+ * GRUPPO (usato come `projectId` dalle milestone). Il repository serve solo ai
+ * test che verificano il vincolo di appartenenza: dalla fase 5 la milestone si
+ * crea SENZA repository, ed è così che la chiama la web app.
  */
 async function createProject(): Promise<string> {
   const { projectId: pid, repositoryId } = await seedRepository(testDb.db);
@@ -49,16 +49,18 @@ async function createProject(): Promise<string> {
   return pid;
 }
 
+/**
+ * POST /api/milestones col payload dato, VERBATIM: nessun campo iniettato.
+ * Il wrapper che aggiungeva `repositoryId` mascherava il bug della creazione
+ * dalla UI (che quel campo non lo manda) — i test devono chiamare la rotta
+ * esattamente come la chiama il browser.
+ */
 function createMilestone(payload: Record<string, unknown>, cookie = users.memberCookie) {
-  const withRepo =
-    payload.repositoryId === undefined && typeof payload.projectId === "string"
-      ? { ...payload, repositoryId: repoForProject.get(payload.projectId) }
-      : payload;
   return app.inject({
     method: "POST",
     url: "/api/milestones",
     headers: { cookie },
-    payload: withRepo,
+    payload,
   });
 }
 
@@ -107,6 +109,8 @@ interface MilestoneBody {
   dueDate: string | null;
   status: string;
   createdAt: string;
+  description: string | null;
+  closedAt: string | null;
   counts?: {
     total: number;
     completed: number;
@@ -123,10 +127,30 @@ describe("POST /api/milestones", () => {
       id: expect.any(String),
       projectId,
       name: "v1.0",
+      description: null,
       dueDate: "2026-12-31T00:00:00.000Z",
       status: "open",
+      closedAt: null,
       createdAt: expect.any(String),
     });
+  });
+
+  it("si crea SENZA repositoryId, come fa la web app", async () => {
+    // È il bug che questa fase ripara: la UI non manda `repositoryId` e il
+    // server lo esigeva, quindi la creazione dalla web app falliva sempre.
+    const res = await createMilestone({ projectId, name: "senza-repo" });
+    expect(res.statusCode).toBe(201);
+    expect((res.json() as MilestoneBody).projectId).toBe(projectId);
+  });
+
+  it("description opzionale: se data, torna nella proiezione", async () => {
+    const res = await createMilestone({
+      projectId,
+      name: "con-descrizione",
+      description: "La prima release pubblica",
+    });
+    expect(res.statusCode).toBe(201);
+    expect((res.json() as MilestoneBody).description).toBe("La prima release pubblica");
   });
 
   it("dueDate opzionale (null di default)", async () => {
@@ -322,6 +346,45 @@ describe("PATCH /api/milestones/:id", () => {
     expect(body.dueDate).toBe("2026-06-30T00:00:00.000Z");
     expect(body.status).toBe("closed");
     expect(body.counts).toBeDefined();
+  });
+
+  it("chiudere una milestone data closedAt; riaprirla lo azzera", async () => {
+    const ms = (await createMilestone({ projectId, name: "patch-closedat" })).json() as MilestoneBody;
+    expect(ms.closedAt).toBeNull();
+
+    const closed = await patchMilestone(ms.id, { status: "closed" });
+    expect(closed.statusCode).toBe(200);
+    const closedBody = closed.json() as MilestoneBody;
+    expect(closedBody.status).toBe("closed");
+    // `status` dice CHE è chiusa, `closedAt` QUANDO: senza data la timeline di
+    // progetto non saprebbe dove collocare l'evento.
+    expect(closedBody.closedAt).toEqual(expect.any(String));
+
+    const reopened = await patchMilestone(ms.id, { status: "open" });
+    expect(reopened.statusCode).toBe(200);
+    expect((reopened.json() as MilestoneBody).closedAt).toBeNull();
+  });
+
+  it("una PATCH che non tocca lo status lascia closedAt com'è", async () => {
+    const ms = (await createMilestone({ projectId, name: "patch-keep-closedat" })).json() as MilestoneBody;
+    const closedAt = ((await patchMilestone(ms.id, { status: "closed" })).json() as MilestoneBody)
+      .closedAt;
+    expect(closedAt).toEqual(expect.any(String));
+
+    const renamed = await patchMilestone(ms.id, { name: "patch-keep-closedat-2" });
+    expect((renamed.json() as MilestoneBody).closedAt).toBe(closedAt);
+  });
+
+  it("aggiorna la description e la azzera con null", async () => {
+    const ms = (
+      await createMilestone({ projectId, name: "patch-desc", description: "prima" })
+    ).json() as MilestoneBody;
+
+    const updated = await patchMilestone(ms.id, { description: "dopo" });
+    expect((updated.json() as MilestoneBody).description).toBe("dopo");
+
+    const cleared = await patchMilestone(ms.id, { description: null });
+    expect((cleared.json() as MilestoneBody).description).toBeNull();
   });
 
   it("azzera dueDate (null)", async () => {

@@ -262,6 +262,62 @@ describe("pagina /inbox", () => {
     expect(know.getByRole("button", { name: "Handled" })).toBeInTheDocument();
   });
 
+  it("il riassunto in breve del piano sta SOPRA i bottoni di decisione", async () => {
+    mockApi(
+      baseApi({
+        "GET /api/inbox": () =>
+          jsonResponse(200, {
+            items: [
+              { ...DECIDE, summary: "Il conto delle somme torna corretto." },
+              { ...KNOW, summary: "La PR sistema il login." },
+            ],
+            nextCursor: null,
+          }),
+      }),
+    );
+    renderInbox();
+    await screen.findByRole("heading", { name: "Inbox" });
+
+    const decide = card("Plan awaiting approval for TCK-1");
+    const riassunto = within(decide).getByText("Il conto delle somme torna corretto.");
+    expect(riassunto).toBeInTheDocument();
+    // Il riassunto precede Approva/Rifiuta nel documento: si legge PRIMA di
+    // decidere, non dopo aver già visto i bottoni.
+    const approva = within(decide).getByRole("button", { name: "Approve plan" });
+    expect(riassunto.compareDocumentPosition(approva)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+  });
+
+  it("il riassunto della PR sta SOTTO il testo della card", async () => {
+    mockApi(
+      baseApi({
+        "GET /api/inbox": () =>
+          jsonResponse(200, {
+            items: [{ ...KNOW, summary: "La PR sistema il login." }],
+            nextCursor: null,
+          }),
+      }),
+    );
+    renderInbox();
+    await screen.findByRole("heading", { name: "Inbox" });
+
+    const know = card("PR opened for TCK-2");
+    const testo = within(know).getByText("PR opened for TCK-2");
+    const riassunto = within(know).getByText("La PR sistema il login.");
+    expect(testo.compareDocumentPosition(riassunto)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  it("senza riassunto la card resta quella di prima (solo il testo)", async () => {
+    mockApi(baseApi());
+    renderInbox();
+    await screen.findByRole("heading", { name: "Inbox" });
+
+    const decide = card("Plan awaiting approval for TCK-1");
+    expect(within(decide).getByText("Plan awaiting approval for TCK-1")).toBeInTheDocument();
+    expect(within(decide).queryByText(/In breve|In brief/)).toBeNull();
+  });
+
   it("approva il piano: la riga passa a gestita e perde i bottoni PRIMA del refetch", async () => {
     let approved = false;
     const calls: string[] = [];

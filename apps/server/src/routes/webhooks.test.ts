@@ -18,6 +18,7 @@ import {
   prReviews,
   projects,
   repositories,
+  ticketEvents,
   ticketRepositories,
   tickets,
 } from "@stubwise/db";
@@ -413,6 +414,19 @@ async function ticketStatus(ticketId: string): Promise<string> {
   return row!.status;
 }
 
+/**
+ * Eventi di audit del ticket, in ordine cronologico. Servono a verificare che
+ * le transizioni fatte dal WEBHOOK (nessun umano dietro) lascino traccia: prima
+ * della fase 5 solo il PATCH della rotta ticket ne scriveva.
+ */
+async function ticketStatusEvents(ticketId: string) {
+  return testDb.db
+    .select()
+    .from(ticketEvents)
+    .where(and(eq(ticketEvents.ticketId, ticketId), eq(ticketEvents.kind, "status_changed")))
+    .orderBy(asc(ticketEvents.createdAt), asc(ticketEvents.id));
+}
+
 async function ticketComments(ticketId: string) {
   return testDb.db
     .select()
@@ -459,6 +473,13 @@ describe("POST /webhooks/git/:projectSlug", () => {
     const job = await jobById(jobId);
     expect(job.status).toBe("pr_merged");
     expect(job.finishedAt).not.toBeNull();
+    // AUDIT: la transizione del webhook lascia un evento, con actor NULL —
+    // nessuna persona l'ha decisa. È il dato datato su cui si appoggia la
+    // timeline di progetto ("ticket chiuso"), che `updated_at` non sa dare.
+    const events = await ticketStatusEvents(ticketId);
+    expect(events).toHaveLength(1);
+    expect(events[0]!.payload).toEqual({ from: "in_review", to: "done" });
+    expect(events[0]!.actorId).toBeNull();
   });
 
   it("content_language='en' (default): il commento di sistema del merge è in inglese", async () => {
@@ -728,6 +749,9 @@ describe("POST /webhooks/git/:projectSlug", () => {
     expect(res.statusCode).toBe(204);
     expect(await ticketStatus(ticketId)).toBe("done");
     expect(await ticketComments(ticketId)).toHaveLength(0);
+    // Il gate `alreadyMerged` protegge anche l'audit: nessun evento da una
+    // ri-consegna su un ticket già chiuso.
+    expect(await ticketStatusEvents(ticketId)).toHaveLength(0);
   });
 
   it("merge poi ri-consegna: job pr_merged una volta sola, no errori, altri stati intatti", async () => {
@@ -888,6 +912,11 @@ describe("POST /webhooks/git/:projectSlug", () => {
     const job = await jobById(jobId);
     expect(job.status).toBe("pr_closed");
     expect(job.finishedAt).not.toBeNull();
+    // AUDIT: anche la RIAPERTURA è una transizione di sistema tracciata.
+    const events = await ticketStatusEvents(ticketId);
+    expect(events).toHaveLength(1);
+    expect(events[0]!.payload).toEqual({ from: "in_review", to: "triaged" });
+    expect(events[0]!.actorId).toBeNull();
   });
 
   it("PR chiusa senza merge su ticket in_review → job.pr_closed pubblicato in inbox e in outbox", async () => {

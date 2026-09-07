@@ -68,11 +68,37 @@ export const projectReleaseRefSchema = releaseRefSchema.extend({
   repositoryName: z.string(),
 });
 
+/**
+ * Riferimento a una DECISIONE nel registro di progetto (Fase 5), come compare
+ * nella home Docs accanto a "Novità".
+ *
+ * Solo il necessario a orientarsi e a decidere se aprire la pagina completa:
+ * chi ha deciso è un'email, non l'oggetto attore intero — nella home la riga è
+ * una sola, e il resto sta in `/api/projects/:id/decisions`.
+ */
+export const decisionHighlightRefSchema = z.object({
+  id: z.uuid(),
+  source: z.enum(["ask_user", "plan_review", "pulse", "manual"]),
+  title: z.string(),
+  decision: z.string(),
+  decidedByEmail: z.string().nullable(),
+  decidedAt: z.string(),
+  superseded: z.boolean(),
+});
+
 /** Highlights aggregate di progetto (changelog cross-repo + pagine top). */
 export const projectHighlightsSchema = z.object({
   countsByKind: countsByKindSchema,
   topViewed: z.array(projectHighlightRefSchema),
   latestReleases: z.array(projectReleaseRefSchema),
+  /**
+   * Le ultime decisioni registrate sul progetto.
+   *
+   * `.optional()` come ogni campo nuovo di una risposta esistente: un client
+   * compilato prima della fase 5 non lo conosce, e un server sceso di immagine
+   * non lo produce. Chi lo legge tratta l'assenza come "nessuna decisione".
+   */
+  latestDecisions: z.array(decisionHighlightRefSchema).optional(),
 });
 
 /** Quante voci al massimo per lista, per scope. */
@@ -82,4 +108,5 @@ export const HIGHLIGHT_LIMITS = {
   repoReleases: 5,
   projectTopViewed: 8,
   projectReleases: 10,
+  projectDecisions: 5,
 } as const;

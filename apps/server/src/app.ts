@@ -44,6 +44,7 @@ import { monitorRoutes } from "./routes/monitor.js";
 import { milestoneRoutes } from "./routes/milestones.js";
 import { projectDocsRoutes } from "./routes/project-docs.js";
 import { projectEnvFileRoutes } from "./routes/project-env-files.js";
+import { briefRoutes } from "./routes/briefs.js";
 import { projectRoutes } from "./routes/projects.js";
 import { repositoryRoutes } from "./routes/repositories.js";
 import { repoGraphRoutes } from "./routes/repo-graph.js";
@@ -432,6 +433,10 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // Progetti (gruppi): CRUD del raggruppamento product-level (ticket/milestone)
   // con le impostazioni di prodotto (provider AI, auto-update docs).
   void app.register(projectRoutes, { prefix: "/api/projects" });
+  // Brief settimanali per ID (Fase 5). Rotta di PRIMO LIVELLO e non annidata
+  // sotto il progetto: il brief ha un link proprio, che la notifica, il
+  // separatore della roadmap e il tool MCP indirizzano per id.
+  void app.register(briefRoutes, { prefix: "/api/briefs" });
   // CRUD dei widget di assistenza e viewer conversazioni, per progetto (API
   // interna della SPA, distinta dalla superficie pubblica /widget). Sotto
   // /api/projects/:projectId.

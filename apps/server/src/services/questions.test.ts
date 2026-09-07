@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   agentQuestions,
@@ -7,6 +7,7 @@ import {
   comments,
   notificationDeliveries,
   notifications,
+  projectDecisions,
   users,
   type Db,
 } from "@stubwise/db";
@@ -844,5 +845,84 @@ describe("answerQuestion — nota del DM", () => {
     // Troncata: la coda non c'è, e la nota finisce col carattere di ellissi.
     expect(note).not.toContain("yyyyy");
     expect(note).toContain("…");
+  });
+});
+
+describe("answerQuestion — registro decisioni", () => {
+  /** Decisioni del progetto di test, dalla più recente. */
+  async function readDecisions() {
+    return db
+      .select()
+      .from(projectDecisions)
+      .where(eq(projectDecisions.projectId, projectId))
+      .orderBy(desc(projectDecisions.createdAt));
+  }
+
+  it("una risposta a scelta multipla lascia una decisione con attore e conseguenze", async () => {
+    // Risponde l'OPERATORE che ha chiesto il run: l'attore della decisione è
+    // chi ha deciso, non chi ha i permessi più larghi.
+    const parked = await seedParkedJob({ requestedByUserId: operator.id });
+    const before = (await readDecisions()).length;
+
+    const result = await answerQuestion(db, {
+      jobId: parked.jobId,
+      questionId: parked.questionId!,
+      actor: operator,
+      answer: { optionIndex: 0 },
+    });
+    expect(result.ok).toBe(true);
+
+    const rows = await readDecisions();
+    expect(rows).toHaveLength(before + 1);
+    const decision = rows[0]!;
+    expect(decision.source).toBe("ask_user");
+    expect(decision.sourceKey).toBe(`question:${parked.questionId}`);
+    expect(decision.sourceRef).toMatchObject({
+      questionId: parked.questionId,
+      jobId: parked.jobId,
+    });
+    expect(decision.ticketId).toBe(parked.ticketId);
+    // Titolo = la domanda dell'agente, dentro il template i18n.
+    expect(decision.title).toContain("Quali colonne deve avere il CSV?");
+    // Decisione = l'ETICHETTA scelta, non la riga "etichetta — conseguenza".
+    expect(decision.decision).toBe("Colonne vecchie");
+    expect(decision.consequences).toBe("Nessuna migrazione");
+    expect(decision.decidedByUserId).toBe(operator.id);
+  });
+
+  it("una risposta in testo libero è la decisione, e non ha conseguenze dichiarate", async () => {
+    const parked = await seedParkedJob();
+
+    expect(
+      (
+        await answerQuestion(db, {
+          jobId: parked.jobId,
+          questionId: parked.questionId!,
+          actor: maintainer,
+          answer: { text: "Le colonne del vecchio export, più `stato`." },
+        })
+      ).ok,
+    ).toBe(true);
+
+    const decision = (await readDecisions())[0]!;
+    expect(decision.decision).toBe("Le colonne del vecchio export, più `stato`.");
+    expect(decision.consequences).toBeNull();
+  });
+
+  it("una risposta annullata (job uscito da awaiting_input) non lascia decisioni", async () => {
+    const parked = await seedParkedJob();
+    const before = (await readDecisions()).length;
+    // Il job cambia stato dopo la lettura: l'UPDATE guardato dentro la
+    // transazione trova 0 righe e fa rollback di tutto, decisione compresa.
+    await db.update(aiJobs).set({ status: "fixing" }).where(eq(aiJobs.id, parked.jobId));
+
+    const result = await answerQuestion(db, {
+      jobId: parked.jobId,
+      questionId: parked.questionId!,
+      actor: maintainer,
+      answer: { optionIndex: 0 },
+    });
+    expect(result.ok).toBe(false);
+    expect(await readDecisions()).toHaveLength(before);
   });
 });

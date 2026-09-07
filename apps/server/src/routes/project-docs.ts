@@ -33,19 +33,18 @@ import {
   docChatSessions,
   docGenerations,
   docPages,
+  projectDecisions,
   projects,
   repositories,
+  users,
 } from "@stubwise/db";
 import { apiError } from "../errors.js";
 import { chatQuerySchema, loadHistory, streamChatResponse } from "./docs-chat-core.js";
-import {
-  emptyCountsByKind,
-  HIGHLIGHT_LIMITS,
-  projectHighlightsSchema,
-} from "./docs-highlights.js";
+import { emptyCountsByKind, HIGHLIGHT_LIMITS, projectHighlightsSchema } from "./docs-highlights.js";
 import { buildCitations, buildDocsSystemPrompt } from "./docs-rag.js";
 import { retrieveChunksForProject } from "./docs-retrieval.js";
 import { appendGraphContext, retrieveGraphContextForProject } from "../graph-chat/context.js";
+import { appendDecisionContext, retrieveDecisionContext } from "../graph-chat/decisions.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 const projectIdParamsSchema = z.object({ projectId: z.uuid() });
@@ -209,7 +208,7 @@ export async function projectDocsRoutes(instance: FastifyInstance): Promise<void
         repositoryName: repositories.name,
       };
 
-      const [counts, topViewed, releases] = await Promise.all([
+      const [counts, topViewed, releases, decisions] = await Promise.all([
         app.db
           .select({ kind: docPages.kind, count: sql<number>`count(*)::int` })
           .from(docPages)
@@ -238,6 +237,25 @@ export async function projectDocsRoutes(instance: FastifyInstance): Promise<void
           .where(and(eq(repositories.projectId, projectId), eq(docPages.kind, "releases")))
           .orderBy(desc(docPages.createdAt))
           .limit(HIGHLIGHT_LIMITS.projectReleases),
+        // Le ultime decisioni del progetto (Fase 5). LEFT JOIN sull'autore:
+        // `decided_by_user_id` è ON DELETE SET NULL perché la decisione deve
+        // sopravvivere a chi l'ha presa, e un inner join la farebbe sparire
+        // proprio nel caso in cui lo storico serve di più.
+        app.db
+          .select({
+            id: projectDecisions.id,
+            source: projectDecisions.source,
+            title: projectDecisions.title,
+            decision: projectDecisions.decision,
+            decidedByEmail: users.email,
+            decidedAt: projectDecisions.decidedAt,
+            supersededById: projectDecisions.supersededById,
+          })
+          .from(projectDecisions)
+          .leftJoin(users, eq(users.id, projectDecisions.decidedByUserId))
+          .where(eq(projectDecisions.projectId, projectId))
+          .orderBy(desc(projectDecisions.decidedAt), desc(projectDecisions.id))
+          .limit(HIGHLIGHT_LIMITS.projectDecisions),
       ]);
 
       const countsByKind = emptyCountsByKind();
@@ -251,6 +269,17 @@ export async function projectDocsRoutes(instance: FastifyInstance): Promise<void
           createdAt: r.createdAt.toISOString(),
           // Le release sono persistenti: non appartengono a una generazione.
           commitSha: null,
+        })),
+        latestDecisions: decisions.map((d) => ({
+          id: d.id,
+          source: d.source,
+          title: d.title,
+          decision: d.decision,
+          decidedByEmail: d.decidedByEmail,
+          decidedAt: d.decidedAt.toISOString(),
+          // La home non ha spazio per dire DA QUALE decisione è stata superata:
+          // le basta sapere che lo è, per non presentarla come corrente.
+          superseded: d.supersededById !== null,
         })),
       };
     },
@@ -417,7 +446,11 @@ export async function projectDocsRoutes(instance: FastifyInstance): Promise<void
       // IN PARALLELO il retrieval strutturale dai knowledge graph del progetto
       // (fase 2b): un blocco per repository col grafo pronto, budget diviso fra
       // loro. Fail-open totale — `null` = system identico a prima.
-      const [chunks, graphBlock] = await Promise.all([
+      // Nella stessa Promise.all anche il REGISTRO DECISIONI (fase 5): le
+      // scelte già prese dal team su questo progetto, che il modello deve
+      // rispettare invece di riproporre le alternative scartate. Fail-open
+      // come il grafo — `null` = system identico a prima.
+      const [chunks, graphBlock, decisionBlock] = await Promise.all([
         retrieveChunksForProject(app.db, app.embeddingClient, projectId, message, {
           logger: request.log,
         }),
@@ -425,9 +458,15 @@ export async function projectDocsRoutes(instance: FastifyInstance): Promise<void
           { db: app.db, logger: request.log, ...app.graphChat },
           { projectId, question: message },
         ),
+        retrieveDecisionContext(app.db, { projectId, question: message }, request.log),
       ]);
       const citations = buildCitations(chunks);
-      const system = appendGraphContext(buildDocsSystemPrompt(chunks), graphBlock);
+      // Le decisioni per ULTIME: sono vincoli che valgono nonostante ciò che
+      // le fonti descrittive dicono (vedi `appendDecisionContext`).
+      const system = appendDecisionContext(
+        appendGraphContext(buildDocsSystemPrompt(chunks), graphBlock),
+        decisionBlock,
+      );
       const history = await loadHistory(app.db, resolvedSessionId);
 
       // Streaming SSE (o risposta JSON unica con ?stream=false, fase 4 mobile) +

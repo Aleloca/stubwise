@@ -390,6 +390,11 @@ export const projects = pgTable(
     // stessa transazione in cui pubblica la notifica, così due tick concorrenti
     // non mandano due volte lo stesso ping.
     pulseLastSentAt: timestamp("pulse_last_sent_at", { withTimezone: true }),
+    // Brief settimanale (Fase 5): un resoconto per non-tecnici, generato dal
+    // poller una volta a settimana. Default false, opt-in esplicito. NON
+    // dipende dal backlog (a differenza del pulse): un progetto ha sempre
+    // qualcosa da raccontare, anche senza voci da proporre.
+    weeklyBriefEnabled: boolean("weekly_brief_enabled").notNull().default(false),
   },
   () => [
     // Sotto 1 giorno il pulse diventerebbe un ping continuo, sopra 30 un
@@ -470,14 +475,22 @@ export const milestones = pgTable(
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
     // Repository d'origine della milestone (ex project_id, ora → repositories).
-    // Tenuto per continuità con i dati esistenti; in Fase 1 sempre valorizzato.
-    repositoryId: uuid("repository_id")
-      .notNull()
-      .references(() => repositories.id, { onDelete: "cascade" }),
+    // NULLABLE dalla fase 5: una milestone appartiene al PROGETTO, il repo è un
+    // dettaglio d'origine che la UI non ha mai chiesto (ed è per questo che la
+    // creazione dalla web app era rotta). Le righe storiche restano valorizzate.
+    repositoryId: uuid("repository_id").references(() => repositories.id, {
+      onDelete: "cascade",
+    }),
     name: text("name").notNull(),
+    // Descrizione libera della milestone: null = nessuna.
+    description: text("description"),
     // Scadenza opzionale della milestone: null = nessuna data.
     dueDate: timestamp("due_date", { withTimezone: true }),
     status: milestoneStatus("status").notNull().default("open"),
+    // Quando la milestone è stata chiusa; null se aperta (riaprirla lo azzera).
+    // `status` dice CHE è chiusa, questo QUANDO: senza data la timeline di
+    // progetto non saprebbe dove collocare l'evento.
+    closedAt: timestamp("closed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -724,6 +737,11 @@ export const aiJobs = pgTable(
     // Piano prodotto dalla fase di pianificazione, persistito tra il parcheggio
     // in awaiting_plan_approval e la ripresa in esecuzione (resume_mode="execute").
     planText: text("plan_text"),
+    // Riassunto "in breve" del piano per non-tecnici (fase 5). Vive e muore con
+    // `plan_text`: lo scrive lo STESSO UPDATE guardato che parcheggia il job
+    // sul gate, e il rifiuto del piano azzera entrambi. Null = riassunto non
+    // generato (run fallito o riassunti spenti); il gate funziona lo stesso.
+    planSummary: text("plan_summary"),
     // Sessione del claude CLI dell'ultimo run di pianificazione, salvata al
     // parcheggio in awaiting_input per riprenderla con `--resume` quando la
     // domanda riceve risposta. Null quando non c'è nulla da riprendere (run mai
@@ -935,6 +953,9 @@ export const notificationKind = pgEnum("notification_kind", [
   // Fase 2: il pulse proattivo su un progetto fermo, con le proposte prese dal
   // backlog. Ancorato al PROGETTO: non ha né ticket né job dietro.
   "project.pulse",
+  // Fase 5: il brief settimanale del progetto, scritto per non-tecnici.
+  // Ancorato al PROGETTO come il pulse: né ticket né job dietro.
+  "project.brief",
 ]);
 
 // Stato di una notifica nell'inbox del destinatario: `open` (da smaltire),
@@ -1004,6 +1025,8 @@ export const notificationSettings = pgTable("notification_settings", {
   notifyAwaitingInput: boolean("notify_awaiting_input").notNull().default(true),
   // Notifica del pulse proattivo su un progetto fermo (`project.pulse`).
   notifyPulse: boolean("notify_pulse").notNull().default(true),
+  // Notifica del brief settimanale di un progetto (`project.brief`).
+  notifyBrief: boolean("notify_brief").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
@@ -1332,6 +1355,10 @@ export const prReviews = pgTable(
     verdict: prReviewVerdict("verdict"),
     // Analisi in markdown prodotta dall'agente (null finché running/failed).
     summary: text("summary"),
+    // Riassunto "in breve" della PR per non-tecnici (fase 5), scritto nella
+    // stessa transazione di `verdict`/`summary`. Null = review scartata dal cap
+    // di costo o run di sintesi fallito.
+    prSummary: text("pr_summary"),
     error: text("error"),
     lastActivityAt: timestamp("last_activity_at", { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -2816,3 +2843,134 @@ export type PluginRow = typeof plugins.$inferSelect;
 export type PluginJob = typeof pluginJobs.$inferSelect;
 /** Riga di `project_plugins`: l'abilitazione di un plugin su un progetto. */
 export type ProjectPluginRow = typeof projectPlugins.$inferSelect;
+
+/**
+ * BRIEF SETTIMANALE di un progetto (Fase 5): il resoconto per non-tecnici che
+ * un poller genera una volta a settimana, sotto il toggle
+ * `projects.weeklyBriefEnabled`.
+ *
+ * Nome distinto dal *project brief* della documentazione (jsonb su
+ * `doc_generations`, tab `/docs/$projectId/brief`): sono due cose diverse che
+ * condividono solo la parola.
+ *
+ * `periodStart`/`periodEnd` sono DATE, non istanti: la settimana è un
+ * intervallo di giorni di calendario nel fuso d'invio. L'unique
+ * `(project_id, period_start)` è il gate di idempotenza del poller — due tick
+ * concorrenti non generano due brief della stessa settimana.
+ *
+ * `status` è text con CHECK (non un enum Postgres) perché sostituire un CHECK
+ * si fa dentro la migrazione che serve, mentre un valore di enum ne richiede
+ * una separata dal batch. `attempts` + `lastActivityAt` sono il recovery degli
+ * orfani, come per i report giornalieri: un `running` la cui attività è vecchia
+ * torna `queued`, fino a un massimo di tentativi.
+ */
+export const projectBriefs = pgTable(
+  "project_briefs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    periodStart: date("period_start").notNull(),
+    periodEnd: date("period_end").notNull(),
+    status: text("status").$type<"queued" | "running" | "done" | "failed">().notNull().default("queued"),
+    error: text("error"),
+    // Brief completo in markdown. Null finché non generato, e anche a
+    // generazione `done` se il provider AI mancava: come per il report
+    // giornaliero, meglio una riga senza testo che una generazione fallita.
+    summary: text("summary"),
+    // Le quattro sezioni separate (`whereWeAre`, `whatChanged`, `whatBlocks`,
+    // `whatWeNeed`), estratte dai marcatori dell'output. Null se non parsate.
+    sections: jsonb("sections").$type<Record<string, string>>(),
+    // La notifica `project.brief` pubblicata per questo brief. SET NULL:
+    // archiviare o cancellare la notifica non deve portarsi via il brief.
+    notificationId: uuid("notification_id").references(() => notifications.id, {
+      onDelete: "set null",
+    }),
+    attempts: integer("attempts").notNull().default(0),
+    lastActivityAt: timestamp("last_activity_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("project_briefs_project_period_unique").on(table.projectId, table.periodStart),
+    // I brief si leggono per progetto, dal periodo più recente.
+    index("project_briefs_project_period_idx").on(table.projectId, table.periodStart.desc()),
+    check(
+      "project_briefs_status_chk",
+      sql`status in ('queued', 'running', 'done', 'failed')`,
+    ),
+  ],
+);
+
+/**
+ * REGISTRO DELLE DECISIONI di un progetto (Fase 5).
+ *
+ * ⚠️ INVARIANTE: questo registro non è MAI scritto dall'AI. I writer automatici
+ * (risposta a una domanda `ask_user`, approvazione/rifiuto di un piano,
+ * "Procedi" del pulse) compongono i testi da template i18n nella lingua dei
+ * contenuti; le voci manuali le scrive una persona. Il brief e i riassunti
+ * "in breve" sono narrativa generata, questo è il FATTO: chi tocca i writer non
+ * ci innesti una generazione di testo.
+ *
+ * `sourceKey` è la chiave di IDEMPOTENZA della voce (es. `question:<id>`,
+ * `plan_review:<jobId>:<n>`, `pulse:<notificationId>`): l'unique con
+ * `projectId` fa sì che un replay del writer non aggiunga una seconda riga —
+ * `onConflictDoNothing` sull'unique è il contratto di `recordDecision`.
+ *
+ * `ticketId` e `decidedByUserId` sono ON DELETE SET NULL: cancellare il ticket
+ * o l'utente non cancella la decisione, che è proprio lo storico da preservare.
+ * `supersededById` marca una decisione superata da un'altra senza cancellare la
+ * prima (una decisione revocata resta un fatto accaduto).
+ */
+export const projectDecisions = pgTable(
+  "project_decisions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    source: text("source")
+      .$type<"ask_user" | "plan_review" | "pulse" | "manual">()
+      .notNull(),
+    sourceKey: text("source_key").notNull(),
+    // Gli id d'origine in forma strutturata (questionId, jobId, notificationId…),
+    // per risalire all'evento senza dover parsare `sourceKey`.
+    sourceRef: jsonb("source_ref").$type<Record<string, unknown>>(),
+    ticketId: uuid("ticket_id").references(() => tickets.id, { onDelete: "set null" }),
+    title: text("title").notNull(),
+    // Il contesto in cui la decisione è stata presa (es. le alternative
+    // scartate del pulse). Null = nessun contesto registrato.
+    context: text("context"),
+    decision: text("decision").notNull(),
+    // Cosa comporta la decisione presa (es. la `consequence` dell'opzione
+    // scelta in una domanda dell'agente). Null = nessuna conseguenza dichiarata.
+    consequences: text("consequences"),
+    decidedByUserId: uuid("decided_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    decidedAt: timestamp("decided_at", { withTimezone: true }).notNull().defaultNow(),
+    // Self-reference: la FK esiste in migrazione (ON DELETE SET NULL) ma non è
+    // dichiarata qui, come per `doc_pages.parentId` — drizzle non ammette un
+    // riferimento alla tabella in corso di definizione.
+    supersededById: uuid("superseded_by_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("project_decisions_project_source_key_unique").on(
+      table.projectId,
+      table.sourceKey,
+    ),
+    // Le decisioni si leggono sempre per progetto, dalla più recente.
+    index("project_decisions_project_decided_idx").on(table.projectId, table.decidedAt.desc()),
+    check(
+      "project_decisions_source_chk",
+      sql`source in ('ask_user', 'plan_review', 'pulse', 'manual')`,
+    ),
+  ],
+);
+
+/** Riga di `project_briefs`: il brief settimanale di un progetto. */
+export type ProjectBriefRow = typeof projectBriefs.$inferSelect;
+/** Riga di `project_decisions`: una decisione registrata su un progetto. */
+export type ProjectDecisionRow = typeof projectDecisions.$inferSelect;

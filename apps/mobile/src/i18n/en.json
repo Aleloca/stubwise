@@ -89,6 +89,7 @@
         "monitorRecovered": "Monitor recovered",
         "awaitingInput": "Agent question",
         "pulse": "Pulse proposal",
+        "brief": "Weekly brief",
         "unknown": "Update"
       },
       "actions": {
@@ -220,6 +221,13 @@
           "loading": "loading the summary…",
           "empty": "No summary for this day.",
           "loadError": "Can't load the report."
+        },
+        "brief": {
+          "title": "Weekly brief",
+          "loading": "loading the brief…",
+          "empty": "No brief yet.",
+          "failed": "This week's brief was not generated.",
+          "loadError": "Can't load the brief."
         }
       }
     },
@@ -265,7 +273,10 @@
         "planApproved": "Plan approved",
         "working": "Running",
         "prReview": "PR & review",
-        "release": "Release"
+        "release": "Release",
+        "verdictApprove": "approved",
+        "verdictRequestChanges": "changes requested",
+        "verdictUnknown": "review completed"
       },
       "plan": {
         "title": "The plan, in short",
@@ -277,7 +288,8 @@
         "approveConfirmQuestion": "Confirm?",
         "approveConfirm": "Yes, approve",
         "cancel": "Cancel",
-        "rejectWithInstructions": "Reject with instructions"
+        "rejectWithInstructions": "Reject with instructions",
+        "summaryFallback": "No summary available: the technical plan is below."
       },
       "techLevel": {
         "title": "Technical level · maintainer only",

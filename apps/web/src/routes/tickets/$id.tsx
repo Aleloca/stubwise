@@ -544,6 +544,21 @@ export function TicketDetailPage() {
                 />
               )}
             </div>
+            {/*
+              RIASSUNTO "IN BREVE" (fase 5): le stesse frasi non tecniche che la
+              card d'inbox mostra sopra Approva/Rifiuta, qui sopra il piano.
+              Viene dall'ULTIMO job del ticket e vive quanto il suo piano (il
+              rifiuto azzera entrambi), quindi non resta mai a descrivere un
+              piano che non c'è più. Assente ⇒ la sezione è quella di prima.
+            */}
+            {ticket.planSummary != null && ticket.planSummary !== "" && (
+              <div className="mb-3 border-l-2 border-line-strong pl-3">
+                <p className="font-mono text-[11px] tracking-[0.08em] text-fg-faint uppercase">
+                  {t("tickets:detail.planSummary")}
+                </p>
+                <p className="mt-1 text-sm text-fg-muted">{ticket.planSummary}</p>
+              </div>
+            )}
             {ticket.implementationPlan === null ? (
               <p className="font-mono text-[12px] text-fg-faint">{t("tickets:detail.noPlan")}</p>
             ) : (

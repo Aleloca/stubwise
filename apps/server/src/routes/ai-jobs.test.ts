@@ -117,6 +117,7 @@ describe("GET /api/tickets/:ticketId/jobs", () => {
       providerLabel: null,
       providerKind: null,
       requestedByUserId: null,
+      planSummary: null,
     });
     expect(body[1]).toEqual({
       id: opened!.id,
@@ -131,6 +132,7 @@ describe("GET /api/tickets/:ticketId/jobs", () => {
       providerLabel: null,
       providerKind: null,
       requestedByUserId: null,
+      planSummary: null,
     });
     expect(body[2]).toMatchObject({
       id: queued!.id,
@@ -143,6 +145,27 @@ describe("GET /api/tickets/:ticketId/jobs", () => {
       providerLabel: null,
       providerKind: null,
     });
+  });
+
+  it("il job parcheggiato sul piano espone il suo planSummary", async () => {
+    const [parked] = await app.db
+      .insert(aiJobs)
+      .values({
+        ticketId,
+        status: "awaiting_plan_approval",
+        planText: "1. Passo A",
+        planSummary: "Il conto delle somme torna corretto.",
+      })
+      .returning();
+
+    const res = await listJobs(ticketId, users.memberCookie);
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as Record<string, unknown>[];
+    const job = body.find((row) => row["id"] === parked!.id);
+    expect(job).toMatchObject({ planSummary: "Il conto delle somme torna corretto." });
+    // Gli altri job restano a null: il riassunto è del singolo job, non del ticket.
+    expect(body.filter((row) => row["planSummary"] !== null)).toHaveLength(1);
   });
 
   it("job con provider collegato: espone providerLabel e providerKind", async () => {

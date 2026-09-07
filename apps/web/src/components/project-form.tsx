@@ -21,6 +21,8 @@ interface ProjectInitialValues {
   pulseEnabled: boolean;
   /** Cadenza minima fra due pulse dello stesso progetto, in giorni (1..30). */
   pulseEveryDays: number;
+  /** Se true, una volta a settimana il worker scrive il brief del progetto. */
+  weeklyBriefEnabled: boolean;
 }
 
 /** Estremi della cadenza del pulse: gli stessi del CHECK sul DB. */
@@ -66,6 +68,7 @@ export function ProjectForm({ initial, onSubmit }: ProjectFormProps) {
   // saprebbe rappresentare il momento in cui il campo è vuoto (o a metà di
   // "15"). La conversione — e il range — si applicano all'invio.
   const [pulseEveryDays, setPulseEveryDays] = useState(String(initial.pulseEveryDays));
+  const [weeklyBriefEnabled, setWeeklyBriefEnabled] = useState(initial.weeklyBriefEnabled);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
@@ -113,6 +116,8 @@ export function ProjectForm({ initial, onSubmit }: ProjectFormProps) {
         // Solo se valida: coi controlli disabilitati può essere rimasta a metà,
         // e non si manda al server un valore che il CHECK rifiuterebbe.
         ...(daysValid && days !== initial.pulseEveryDays && { pulseEveryDays: days }),
+        // Brief settimanale: incluso solo se cambiato, per un PATCH minimo.
+        ...(weeklyBriefEnabled !== initial.weeklyBriefEnabled && { weeklyBriefEnabled }),
       });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : t("common:unexpectedError"));
@@ -285,6 +290,31 @@ export function ProjectForm({ initial, onSubmit }: ProjectFormProps) {
             {t("projects:form.pulseNeedsBacklog")}
           </p>
         )}
+      </div>
+
+      {/*
+        Brief settimanale: toggle (default off). A differenza del pulse NON
+        dipende dal backlog e non ha nessun controllo disabilitato — il brief
+        racconta quello che è già successo (report, ticket, PR, decisioni), e ha
+        qualcosa da dire anche su un progetto senza backlog di discovery.
+      */}
+      <div className="flex flex-col gap-1.5 rounded-sm border border-line bg-ink-900 px-3 py-3">
+        <div className="flex items-center gap-2.5">
+          <input
+            id="project-weekly-brief"
+            type="checkbox"
+            checked={weeklyBriefEnabled}
+            onChange={(event) => setWeeklyBriefEnabled(event.target.checked)}
+            className="h-4 w-4 shrink-0 accent-signal"
+          />
+          <label
+            htmlFor="project-weekly-brief"
+            className="font-mono text-[11px] font-medium tracking-[0.14em] text-fg-muted uppercase"
+          >
+            {t("projects:form.weeklyBrief")}
+          </label>
+        </div>
+        <p className="font-mono text-[11px] text-fg-faint">{t("projects:form.weeklyBriefHint")}</p>
       </div>
 
       <FormError message={error} />

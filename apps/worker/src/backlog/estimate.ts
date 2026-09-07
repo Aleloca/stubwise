@@ -7,7 +7,7 @@ import {
 } from "@stubwise/shared";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
-import type { AgentRunResult } from "../agent/runner.js";
+import { outputOrThrow, parseAgentJson } from "../agent/text.js";
 import { loadProjectAiProviderId, resolveBacklogProvider } from "./provider.js";
 import { buildEstimatePrompt } from "./prompts.js";
 import type { BacklogDeps, BacklogJob } from "./poller.js";
@@ -39,43 +39,6 @@ const estimateOutputSchema = z.object({
   urgency: backlogUrgencySchema,
 });
 type EstimateOutput = z.infer<typeof estimateOutputSchema>;
-
-/**
- * Estrae e parsa l'oggetto JSON dall'output dell'agente in modo DIFENSIVO (mirror
- * di parseAgentJson nell'intake/deep dive): tollera un fence ```json … ``` e un
- * pre/postambolo attorno all'oggetto, poi valida contro `schema`. Null se non
- * parsabile/non conforme.
- */
-function parseAgentJson<T>(raw: string, schema: z.ZodType<T>): T | null {
-  let text = raw.trim();
-  const fence = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(text);
-  if (fence) text = fence[1]!.trim();
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    const start = text.indexOf("{");
-    const end = text.lastIndexOf("}");
-    if (start === -1 || end <= start) return null;
-    try {
-      parsed = JSON.parse(text.slice(start, end + 1));
-    } catch {
-      return null;
-    }
-  }
-  const result = schema.safeParse(parsed);
-  return result.success ? result.data : null;
-}
-
-/** Testo utile da un run: throw se exit ≠ 0 (runner.run RISOLVE anche su exit
- * non-zero → niente output da un run crashato). */
-function outputOrThrow(result: AgentRunResult): string {
-  if (result.exitCode !== 0) {
-    throw new Error(`estimate: agente uscito con exit ${result.exitCode}`);
-  }
-  return result.output;
-}
 
 /**
  * Esegue l'estimate di un job del backlog (già reclamato). Vedi il commento di
@@ -125,7 +88,7 @@ export async function runEstimate(
   });
 
   // 5. Parse difensivo: exit ≠ 0 o output non conforme → throw (retry).
-  const parsed: EstimateOutput | null = parseAgentJson(outputOrThrow(result), estimateOutputSchema);
+  const parsed: EstimateOutput | null = parseAgentJson(estimateOutputSchema, outputOrThrow(result, "estimate"));
   if (!parsed) throw new Error("estimate: output dell'agente non parsabile");
 
   // 6. Scrive SOLO i metadati diretti + embedding; document e title INVARIATI.

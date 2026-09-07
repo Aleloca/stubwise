@@ -35,6 +35,7 @@ export function MilestoneManager({ projectId }: MilestoneManagerProps) {
     queryClient.invalidateQueries({ queryKey: milestonesQueryOptions(projectId).queryKey });
 
   const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [createError, setCreateError] = useState<string | null>(null);
 
@@ -43,12 +44,15 @@ export function MilestoneManager({ projectId }: MilestoneManagerProps) {
       createMilestone({
         projectId,
         name: name.trim(),
+        // Vuoto → null: "nessuna descrizione" è un valore, non un campo assente.
+        description: description.trim() === "" ? null : description.trim(),
         // L'input date dà "YYYY-MM-DD": lo si normalizza a ISO a mezzogiorno
         // UTC per evitare slittamenti di giorno per fuso; vuoto → null.
         dueDate: dueDate ? new Date(`${dueDate}T12:00:00.000Z`).toISOString() : null,
       }),
     onSuccess: async () => {
       setName("");
+      setDescription("");
       setDueDate("");
       setCreateError(null);
       await invalidate();
@@ -88,6 +92,18 @@ export function MilestoneManager({ projectId }: MilestoneManagerProps) {
             value={name}
             onChange={(event) => setName(event.target.value)}
             placeholder={t("milestones:namePlaceholder")}
+            className="rounded-sm border border-line-strong bg-ink-950/70 px-3 py-2 text-[15px] text-fg placeholder:text-fg-faint transition-colors hover:border-ink-700 focus-visible:border-signal-dim"
+          />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="milestone-description" className={labelClass}>
+            {t("milestones:description")}
+          </label>
+          <input
+            id="milestone-description"
+            value={description}
+            onChange={(event) => setDescription(event.target.value)}
+            placeholder={t("milestones:descriptionPlaceholder")}
             className="rounded-sm border border-line-strong bg-ink-950/70 px-3 py-2 text-[15px] text-fg placeholder:text-fg-faint transition-colors hover:border-ink-700 focus-visible:border-signal-dim"
           />
         </div>

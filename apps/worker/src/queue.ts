@@ -262,6 +262,18 @@ export async function holdJob(db: Db, jobId: string, input: HoldJobInput): Promi
 
 export interface ParkForPlanApprovalInput {
   planText: string;
+  /**
+   * Riassunto "in breve" del piano per chi non legge codice (fase 5), già
+   * generato dal chiamante PRIMA di chiamare qui. Assente/null = generazione
+   * saltata o fallita: la colonna resta NULL e il piano si parcheggia comunque.
+   *
+   * Sta in QUESTO input — e non in una UPDATE successiva — di proposito: la
+   * scrittura deve passare dallo STESSO guard sulla ownership del parcheggio.
+   * Una seconda query potrebbe atterrare su un job nel frattempo riaccodato e
+   * reclamato da un altro worker, scrivendogli addosso il riassunto di un piano
+   * che non è più il suo.
+   */
+  planSummary?: string | null;
   log: string;
 }
 
@@ -283,6 +295,7 @@ export async function parkForPlanApproval(
     .set({
       status: "awaiting_plan_approval",
       planText: input.planText,
+      planSummary: input.planSummary ?? null,
       log: sql`${aiJobs.log} || ${`${input.log}\n`}`,
       lastActivityAt: sql`now()`,
     })

@@ -25,7 +25,10 @@ export interface PrReadyCardProps {
  * server — `packages/notifications/src/actions.ts`). Il rilascio di una PR va
  * ancora fatto dal provider git; questa card resta **informativa**: mostra
  * `item.text` (che include già l'esito della review — vedi
- * `notify.reviewCompleted`) e i soli bottoni che `actions` offre davvero
+ * `notify.reviewCompleted`), il riassunto "in breve" della PR quando c'è
+ * (fase 5: `item.summary`, due frasi su cosa fa la PR e come è andata la
+ * review, SOTTO il testo perché lo approfondisce e non lo sostituisce) e i
+ * soli bottoni che `actions` offre davvero
  * (`open`/`snooze`/`handled`). Aggiungere "Rilascia" richiederebbe
  * un'estensione additiva del contratto — vedi il report del Task 14.
  */
@@ -75,6 +78,11 @@ export function PrReadyCard({ item, projectName }: PrReadyCardProps) {
       testID="pr-ready-card"
     >
       <Text style={styles.text}>{item.text}</Text>
+      {item.summary !== undefined && (
+        <Text style={styles.summary} testID="pr-ready-card-summary">
+          {item.summary}
+        </Text>
+      )}
 
       <SnoozeSheet
         visible={snoozeOpen}
@@ -94,5 +102,11 @@ const styles = StyleSheet.create({
     color: colors.fg,
     fontSize: 15,
     lineHeight: 21,
+  },
+  summary: {
+    color: colors.muted,
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: 8,
   },
 });

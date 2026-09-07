@@ -15,7 +15,8 @@ import {
 import { and, eq, gte, inArray, isNotNull, lt, lte, sql } from "drizzle-orm";
 import { tmpdir } from "node:os";
 import { z } from "zod";
-import type { AgentRunner, AgentRunResult } from "../agent/runner.js";
+import type { AgentRunner } from "../agent/runner.js";
+import { runAgentText } from "../agent/text.js";
 import type { MirrorManager, MirrorProject, RangeCommit } from "../git/mirrors.js";
 import type { ProjectSerializer } from "../handler.js";
 import {
@@ -76,18 +77,6 @@ const DEV_SUMMARY_MAX_TURNS = 3;
  * proprio quando un resoconto servirebbe di più. Meglio un elenco troncato con
  * marcatore esplicito che nessun riassunto. */
 export const SUMMARY_INPUT_MAX_CHARS = 80_000;
-
-/**
- * Testo utile da un run dell'agente: l'output trimmato se il processo è uscito
- * con exit 0 e ha prodotto qualcosa, altrimenti null. `runner.run` RISOLVE anche
- * su exit non-zero (è un risultato, non un errore): un exit ≠ 0 → nessun testo
- * (niente descrizioni da un output parziale). Condiviso dal loop per-commit e
- * dal blocco del riassunto. */
-function textFromRun(result: AgentRunResult): string | null {
-  if (result.exitCode !== 0) return null;
-  const out = result.output.trim();
-  return out.length > 0 ? out : null;
-}
 
 /** Forma attesa delle credenziali git decifrate (mirror di run-review.ts). */
 const credentialsSchema = z.object({
@@ -534,18 +523,16 @@ async function generateForProject(
           }
           if (diff.length > 0) {
             try {
-              const result = await deps.runner.run({
+              // Run crashato (exit ≠ 0) o senza output: nessuna descrizione da
+              // un output parziale — la regola vive in runAgentText.
+              aiDescription = await runAgentText(deps.runner, {
                 cwd,
                 prompt: buildCommitDescriptionPrompt(c, diff),
                 ...(deps.model !== undefined ? { model: deps.model } : {}),
-                permissionMode: "plan",
                 maxTurns: COMMIT_DESC_MAX_TURNS,
                 timeoutMs: deps.agentTimeoutMs,
                 provider,
               });
-              // Run crashato (exit ≠ 0): nessuna descrizione da un output
-              // parziale. runner.run RISOLVE anche su exit non-zero.
-              aiDescription = textFromRun(result);
             } catch (err) {
               // Best-effort: un run fallito (timeout, limite, spawn) → null.
               console.error(
@@ -578,23 +565,18 @@ async function generateForProject(
     let summary: string | null = null;
     if (provider && cwd && rows.length > 0) {
       try {
-        const result = await deps.runner.run({
+        // Run crashato (exit ≠ 0): nessun riassunto da un output parziale.
+        summary = await runAgentText(deps.runner, {
           cwd,
           prompt: buildProjectSummaryPrompt(
             projectRow.name,
             rows.map((r) => ({ subject: r.subject, description: r.aiDescription })),
           ),
           ...(deps.model !== undefined ? { model: deps.model } : {}),
-          permissionMode: "plan",
           maxTurns: PROJECT_SUMMARY_MAX_TURNS,
           timeoutMs: deps.agentTimeoutMs,
           provider,
         });
-        // Run crashato (exit ≠ 0): nessun riassunto da un output parziale.
-        if (result.exitCode === 0) {
-          const out = result.output.trim();
-          summary = out.length > 0 ? out : null;
-        }
       } catch (err) {
         // Best-effort: un run fallito (timeout, limite, spawn) → summary null.
         console.error(
@@ -776,16 +758,14 @@ async function rollupDevSummaries(deps: PollDailyReportsDeps): Promise<void> {
           if (alreadyDone) continue;
           let summary: string | null = null;
           try {
-            const result = await deps.runner.run({
+            summary = await runAgentText(deps.runner, {
               cwd,
               prompt: buildDevSummaryPrompt(group.commits),
               ...(deps.model !== undefined ? { model: deps.model } : {}),
-              permissionMode: "plan",
               maxTurns: DEV_SUMMARY_MAX_TURNS,
               timeoutMs: deps.agentTimeoutMs,
               provider,
             });
-            summary = textFromRun(result);
           } catch (err) {
             console.error(
               `[stubwise-worker] daily-report: riassunto dello sviluppatore ${group.userId ?? group.gitEmail} (${date}) fallito (${errText(err)})`,

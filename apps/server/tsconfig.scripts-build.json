@@ -1,0 +1,29 @@
+// Build degli script operativi (`scripts/*.ts`) DENTRO l'immagine del server.
+//
+// Perché esiste un secondo tsconfig invece di allargare `tsconfig.build.json`:
+// quello ha `rootDir: "src"` e `outDir: "dist"`, e il CMD dell'immagine è
+// `node dist/index.js`. Aggiungere `scripts` all'include costringerebbe
+// `rootDir` a `.`, spostando TUTTO l'output in `dist/src/` e rompendo il CMD,
+// il Dockerfile e i path delle migrazioni. Un config separato emette i soli
+// script in `dist/scripts/` e lascia il resto dov'era.
+//
+// Perché compilarli affatto: l'immagine di runtime è un `pnpm deploy --prod`,
+// quindi NON contiene `tsx` (devDependency) né pnpm, e il Postgres del compose
+// non pubblica porte sull'host — un backfill non è lanciabile né con `pnpm
+// backfill:...` dentro il container né dal checkout sull'host. Compilato, gira
+// con il solo `node` già presente:
+//
+//   docker compose exec server node dist/scripts/backfill-ticket-done-events.js --dry-run
+//
+// Gli script importano solo dipendenze di PRODUZIONE (`@stubwise/db`,
+// `drizzle-orm`, builtin di node): chi ne aggiunge uno che tira una devDep
+// spezza l'immagine, non questo build.
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "scripts",
+    "outDir": "dist/scripts"
+  },
+  "include": ["scripts"],
+  "exclude": ["scripts/**/*.test.ts", "dist"]
+}

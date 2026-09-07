@@ -53,6 +53,7 @@ export interface NotificationSettingsRow {
   notifyMonitor: boolean;
   notifyAwaitingInput: boolean;
   notifyPulse: boolean;
+  notifyBrief: boolean;
 }
 
 /**
@@ -88,6 +89,7 @@ const TOGGLE_FOR_KIND: Record<NotificationKind, keyof NotificationSettingsRow> =
   "monitor.recovered": "notifyMonitor",
   "job.awaiting_input": "notifyAwaitingInput",
   "project.pulse": "notifyPulse",
+  "project.brief": "notifyBrief",
 };
 
 /**
@@ -120,6 +122,7 @@ export async function loadSettings(db: DbOrTx): Promise<NotificationSettingsRow 
       notifyMonitor: notificationSettings.notifyMonitor,
       notifyAwaitingInput: notificationSettings.notifyAwaitingInput,
       notifyPulse: notificationSettings.notifyPulse,
+      notifyBrief: notificationSettings.notifyBrief,
     })
     .from(notificationSettings)
     .limit(1);

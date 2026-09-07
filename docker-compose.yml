@@ -240,6 +240,34 @@ services:
       - PULSE_TIMEZONE=${PULSE_TIMEZONE:-UTC}
       - PULSE_SEND_HOUR=${PULSE_SEND_HOUR:-9}
       - PULSE_WEEKDAYS_ONLY=${PULSE_WEEKDAYS_ONLY:-true}
+      # --- Riassunti "in breve" di piani e PR (fase 5) ---
+      # Due o tre frasi in linguaggio non tecnico su cosa un piano cambia o su
+      # cosa fa una PR, generate col piano/la review e scritte nella STESSA
+      # transazione (mai da un poller a parte). false = nessun run di riassunto:
+      # plan_summary/pr_summary restano NULL e le card mostrano quello che
+      # mostravano prima. È il ROLLBACK innocuo della sola generazione, senza
+      # toccare schema né immagini.
+      - SUMMARIES_ENABLED=${SUMMARIES_ENABLED:-true}
+      # Modello dei run di riassunto. VUOTO/assente = lo stesso di
+      # PR_REVIEW_MODEL: è lo stesso profilo di run (solo testo, read-only,
+      # breve) e non ha senso tenerne allineati due.
+      - SUMMARY_MODEL=${SUMMARY_MODEL:-}
+      # --- Brief settimanale per progetto (fase 5) ---
+      # Poller separato dal loop dei job: dentro la finestra settimanale genera
+      # il brief della settimana appena chiusa per ogni progetto con
+      # `weeklyBriefEnabled` (toggle per progetto, default OFF), e in ogni tick
+      # lavora i brief accodati a mano dalla UI. 0 = disabilitato (nessun brief
+      # nasce più, nemmeno quelli richiesti a mano): è il ROLLBACK innocuo della
+      # feature. Default 15', più corto della finestra (un'ora) perché la
+      # finestra venga incontrata anche se un tick salta.
+      - BRIEF_POLL_MINUTES=${BRIEF_POLL_MINUTES:-15}
+      # Giorno ISO della finestra d'invio (1 = lunedì … 7 = domenica) e ora
+      # LOCALE di apertura della finestra [ora, ora+1). Il fuso è PULSE_TIMEZONE
+      # qui sopra: è l'UNICO fuso dell'istanza, non se ne aggiunge un secondo.
+      # Il PERIODO segue il giorno: spostando BRIEF_WEEKDAY al venerdì il brief
+      # copre venerdì→giovedì, senza altra configurazione.
+      - BRIEF_WEEKDAY=${BRIEF_WEEKDAY:-1}
+      - BRIEF_SEND_HOUR=${BRIEF_SEND_HOUR:-9}
       # --- Backlog di discovery (poller separato dal loop dei job) ---
       # Reclama i job backlog_jobs (intake + deep dive) ed esegue gli agenti nella
       # catena PER-PROGETTO. Soglie del dedup semantico: merge (fusione automatica)

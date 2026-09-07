@@ -12,7 +12,13 @@ sincronizzati backlog e ticket con il lavoro di design e implementazione.
 
 Lettura: `list_projects`, `list_backlog`, `get_backlog_item`, `list_tickets`,
 `get_ticket`, `list_proposals` (le proposte aperte del pulse per l'utente del
-token, vedi § 10). `get_backlog_item`/`get_ticket` mostrano anche
+token, vedi § 10), `get_project_brief` (l'ultimo brief settimanale di un
+progetto: il resoconto in markdown per chi non legge codice — dove siamo, cosa
+è cambiato, cosa è fermo, cosa serve. Serve a SAPERE come sta un progetto senza
+scorrere ticket e PR, e a riusarne il testo; un brief assente o ancora in coda
+è una risposta esplicita, non un errore), `list_decisions` (il registro delle
+decisioni già prese su un progetto, vedi § 11).
+`get_backlog_item`/`get_ticket` mostrano anche
 `implementationPlan` (il piano salvato) e `originContent` (il corpo/feedback
 originale, se il design ha sostituito il corpo principale).
 
@@ -314,3 +320,33 @@ Come usarlo:
   dopo l'approvazione).
 - Se una proposta ti interessa, il `backlogItemId` è quello giusto da passare a
   `get_backlog_item` per leggerne il documento prima di consigliare l'utente.
+
+### 11. Decisioni già prese (`list_decisions`)
+
+Stubwise tiene un **registro decisioni** per progetto: le risposte alle domande
+dell'agente, i piani approvati o rifiutati con indicazioni, le proposte del
+pulse accettate e le voci registrate a mano dal team.
+
+**`list_decisions`** le elenca con origine, attore, contesto, conseguenze e
+l'eventuale ticket collegato. Tutti gli argomenti sono opzionali: `project`
+(slug — se omesso usa il progetto collegato al repo corrente, come gli altri
+tool), `source` (`ask_user`, `plan_review`, `pulse`, `manual`) e `limit`
+(default 20). Una decisione **superata** resta
+nell'elenco, marcata come tale (e con il rimando a quella che l'ha sostituita);
+un registro vuoto è una risposta esplicita, non un errore.
+
+Come usarlo:
+
+- **Prima di proporre un'alternativa di design**, su un progetto che non
+  conosci a fondo, chiama `list_decisions`: serve esattamente a non riproporre
+  una strada che il team ha già valutato e scartato — e a citare il *perché*
+  quando la riproponi comunque, con un motivo nuovo.
+- Il registro è **fatto, non narrativa**: ogni riga automatica nasce da un
+  template, nessuna è scritta da un modello. Puoi citarla senza riverificarla —
+  al contrario del brief di `get_project_brief`, che è un testo generato e come
+  tale va presentato ("il brief della settimana dice che…").
+- Una decisione **superata** non va nascosta all'utente: dire "questa strada era
+  stata scartata a marzo, poi la decisione è stata superata" è più utile che
+  ignorare entrambe le righe.
+- Serve a **sapere**. Le decisioni si registrano dalla web app: non c'è un tool
+  MCP che ne scriva una.

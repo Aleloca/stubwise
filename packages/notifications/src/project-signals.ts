@@ -103,6 +103,18 @@ export interface ProjectIdleness {
   /** Il PRIMO segnale acceso, nell'ordine di dichiarazione. Null se fermo. */
   blocker: IdleBlocker | null;
   /**
+   * TUTTI i segnali accesi, nello stesso ordine. Il pulse guarda solo il primo
+   * — gli basta sapere *se* tacere e *perché*, in una riga di log — ma il brief
+   * settimanale (fase 5) deve elencare al lettore ogni cosa che è ferma: dire
+   * "l'automazione sta lavorando" mentre una domanda dell'agente aspetta da tre
+   * giorni sarebbe la mezza verità peggiore, perché è proprio quella domanda
+   * l'unica cosa che il lettore può sbloccare.
+   *
+   * NON costa una query in più: i sei `EXISTS` sono già tutti nella stessa
+   * riga di risultato, e prima venivano semplicemente buttati dopo il primo.
+   */
+  blockers: IdleBlocker[];
+  /**
    * Ultima attività di un job AI del progetto (`ai_jobs.last_activity_at`, il
    * heartbeat del worker), o null se nessun job è mai girato: è la base di
    * `idleDays`. Vedi `idleDaysFrom` nel poller (e la sua sorella in
@@ -250,25 +262,23 @@ export async function isProjectIdle(db: Db, projectId: string): Promise<ProjectI
 
   // Progetto sparito fra la lista e il segnale (cancellato da un'altra
   // sessione): non è fermo, non esiste. Nessun pulse.
-  if (!row) return { idle: false, blocker: null, lastJobActivityAt: null };
+  if (!row) return { idle: false, blocker: null, blockers: [], lastJobActivityAt: null };
 
-  const blocker: IdleBlocker | null = row.jobsInFlight
-    ? "job_in_flight"
-    : row.jobHeld
-      ? "job_held"
-      : row.openQuestion
-        ? "open_question"
-        : row.openPr
-          ? "open_pr"
-          : row.activeBacklogJob
-            ? "backlog_job"
-            : row.activeCodeSession
-              ? "code_session"
-              : null;
+  // L'ordine di questa lista È la precedenza del `blocker` singolo: chi la
+  // riordina cambia anche la riga di log del pulse.
+  const blockers: IdleBlocker[] = [];
+  if (row.jobsInFlight) blockers.push("job_in_flight");
+  if (row.jobHeld) blockers.push("job_held");
+  if (row.openQuestion) blockers.push("open_question");
+  if (row.openPr) blockers.push("open_pr");
+  if (row.activeBacklogJob) blockers.push("backlog_job");
+  if (row.activeCodeSession) blockers.push("code_session");
+  const blocker: IdleBlocker | null = blockers[0] ?? null;
 
   return {
     idle: blocker === null,
     blocker,
+    blockers,
     // postgres-js rende `timestamptz` come Date, ma il `max()` di zero righe è
     // null: il tipo lo dichiara e il chiamante lo gestisce.
     lastJobActivityAt: row.lastJobActivityAt ? new Date(row.lastJobActivityAt) : null,

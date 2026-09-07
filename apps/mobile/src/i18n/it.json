@@ -89,6 +89,7 @@
         "monitorRecovered": "Monitor ripristinato",
         "awaitingInput": "Domanda dell'agente",
         "pulse": "Proposta del pulse",
+        "brief": "Brief settimanale",
         "unknown": "Aggiornamento"
       },
       "actions": {
@@ -220,6 +221,13 @@
           "loading": "carico il riassunto…",
           "empty": "Nessun riassunto per questo giorno.",
           "loadError": "Non riesco a caricare il report."
+        },
+        "brief": {
+          "title": "Brief settimanale",
+          "loading": "carico il brief…",
+          "empty": "Nessun brief ancora.",
+          "failed": "Il brief di questa settimana non è stato generato.",
+          "loadError": "Non riesco a caricare il brief."
         }
       }
     },
@@ -265,7 +273,10 @@
         "planApproved": "Piano approvato",
         "working": "In esecuzione",
         "prReview": "PR e review",
-        "release": "Rilascio"
+        "release": "Rilascio",
+        "verdictApprove": "approvata",
+        "verdictRequestChanges": "modifiche richieste",
+        "verdictUnknown": "review completata"
       },
       "plan": {
         "title": "Il piano, in breve",
@@ -277,7 +288,8 @@
         "approveConfirmQuestion": "Confermi?",
         "approveConfirm": "Sì, approva",
         "cancel": "Annulla",
-        "rejectWithInstructions": "Rifiuta con istruzioni"
+        "rejectWithInstructions": "Rifiuta con istruzioni",
+        "summaryFallback": "Riassunto non disponibile: qui sotto il piano tecnico."
       },
       "techLevel": {
         "title": "Livello tecnico · solo maintainer",

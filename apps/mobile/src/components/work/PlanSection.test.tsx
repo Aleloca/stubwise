@@ -31,7 +31,14 @@ async function renderSection(props: Partial<ComponentProps<typeof PlanSection>>,
   return render(
     <QueryClientProvider client={queryClient}>
       <AuthContext.Provider value={authValue}>
-        <PlanSection ticketId={TICKET_ID} ticketTitle="Cache delle immagini prodotto" plan={null} canDecide={false} {...props} />
+        <PlanSection
+          ticketId={TICKET_ID}
+          ticketTitle="Cache delle immagini prodotto"
+          plan={null}
+          planSummary={null}
+          canDecide={false}
+          {...props}
+        />
       </AuthContext.Provider>
     </QueryClientProvider>,
   );
@@ -104,5 +111,61 @@ describe("PlanSection — canDecide true", () => {
     await waitFor(() =>
       expect(rejectPlan).toHaveBeenCalledWith(TICKET_ID, { instructions: "Usa la CDN che abbiamo già" }),
     );
+  });
+});
+
+/**
+ * Fase 5: il worker genera un riassunto "in breve" del piano (`plan_summary`)
+ * per chi non legge codice. La card lo preferisce SEMPRE al piano tecnico
+ * troncato — che resta il fallback, dichiarato come tale — e "Leggi il piano
+ * completo" continua ad aprire il piano VERO, non il riassunto.
+ */
+describe("PlanSection — riassunto in breve", () => {
+  test("con riassunto: mostra il riassunto, non il piano tecnico, e nessuna nota di fallback", async () => {
+    await renderSection(
+      {
+        plan: "Passo 1: aggiungere l'indice. Passo 2: migrare i dati.",
+        planSummary: "Le immagini dei prodotti si caricheranno subito. Tocca solo il listino, non il checkout.",
+      },
+      makeClient(),
+    );
+    expect(screen.getByText(/Le immagini dei prodotti si caricheranno subito/)).toBeTruthy();
+    expect(screen.queryByText(/Passo 1: aggiungere l'indice/)).toBeNull();
+    expect(screen.queryByTestId("plan-section-summary-fallback")).toBeNull();
+  });
+
+  test("con riassunto: 'Leggi il piano completo' apre comunque il PIANO, non il riassunto", async () => {
+    await renderSection(
+      { plan: "Passo 1: aggiungere un indice sul listino.", planSummary: "Le immagini si caricheranno subito." },
+      makeClient(),
+    );
+    await fireEvent.press(screen.getByText("Leggi il piano completo →"));
+    const modal = within(screen.getByTestId("plan-section-modal"));
+    await waitFor(() => expect(modal.getByText(/Passo 1: aggiungere un indice sul listino/)).toBeTruthy());
+  });
+
+  test("senza riassunto: ricade sul piano troncato E lo dichiara", async () => {
+    await renderSection({ plan: "Passo 1: aggiungere l'indice.", planSummary: null }, makeClient());
+    expect(screen.getByText(/Passo 1: aggiungere l'indice/)).toBeTruthy();
+    expect(screen.getByText("Riassunto non disponibile: qui sotto il piano tecnico.")).toBeTruthy();
+  });
+
+  test("nessun piano e nessun riassunto: resta l'empty state, nessuna nota di fallback", async () => {
+    await renderSection({ plan: null, planSummary: null }, makeClient());
+    expect(screen.getByText("Nessun piano collegato.")).toBeTruthy();
+    expect(screen.queryByTestId("plan-section-summary-fallback")).toBeNull();
+  });
+
+  /**
+   * Difensivo: `plan_summary` vive e muore con `plan_text` (il rifiuto del
+   * piano azzera entrambi nello stesso UPDATE), quindi un riassunto senza
+   * piano non dovrebbe esistere. Se una risposta lo portasse comunque, si
+   * mostra ciò che c'è invece dell'empty state — senza offrire un link a un
+   * piano che non c'è.
+   */
+  test("riassunto senza piano: mostra il riassunto, ma nessun 'Leggi il piano completo'", async () => {
+    await renderSection({ plan: null, planSummary: "Il listino si carica subito." }, makeClient());
+    expect(screen.getByText("Il listino si carica subito.")).toBeTruthy();
+    expect(screen.queryByText("Leggi il piano completo →")).toBeNull();
   });
 });

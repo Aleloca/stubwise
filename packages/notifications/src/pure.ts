@@ -25,7 +25,7 @@
 export type * from "./format.js";
 export type * from "./actions.js";
 
-export { formatNotification, formatNotificationText, sampleEvents } from "./format.js";
+export { eventSummary, formatNotification, formatNotificationText, sampleEvents } from "./format.js";
 
 export {
   actionsFor,

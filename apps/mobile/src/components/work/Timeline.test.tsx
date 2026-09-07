@@ -1,3 +1,4 @@
+import { UNKNOWN } from "@stubwise/shared";
 import type { WorkStep } from "../../lib/timeline";
 import { render, screen } from "@testing-library/react-native";
 import "../../i18n";
@@ -16,7 +17,12 @@ function steps(overrides: Partial<Record<WorkStep["id"], WorkStep["status"]>> = 
     id,
     status: overrides[id] ?? defaults[id],
     at: null,
+    verdict: null,
   }));
+}
+
+function withVerdict(verdict: WorkStep["verdict"]): WorkStep[] {
+  return steps({ prReview: "done" }).map((step) => (step.id === "prReview" ? { ...step, verdict } : step));
 }
 
 describe("Timeline", () => {
@@ -53,5 +59,32 @@ describe("Timeline", () => {
   test("un passo future senza 'at' non mostra alcuna data", async () => {
     await render(<Timeline steps={steps()} />);
     expect(screen.queryByTestId("timeline-step-release-at")).toBeNull();
+  });
+
+  test("il verdetto della review compare in parole accanto a 'PR e review'", async () => {
+    await render(<Timeline steps={withVerdict("approve")} />);
+    expect(screen.getByTestId("timeline-step-prReview-verdict")).toBeTruthy();
+    expect(screen.getByText("approvata")).toBeTruthy();
+  });
+
+  test("verdetto 'request_changes': le parole della review, non il valore grezzo", async () => {
+    await render(<Timeline steps={withVerdict("request_changes")} />);
+    expect(screen.getByText("modifiche richieste")).toBeTruthy();
+    expect(screen.queryByText("request_changes")).toBeNull();
+  });
+
+  test("nessun verdetto: nessuna etichetta in più sul passo", async () => {
+    await render(<Timeline steps={withVerdict(null)} />);
+    expect(screen.queryByTestId("timeline-step-prReview-verdict")).toBeNull();
+  });
+
+  /**
+   * Un verdetto che questa build non conosce (server più nuovo, `readerSchema`)
+   * non deve né sparire in silenzio né mostrare la stringa grezza: si dice che
+   * una review c'è stata, senza pretendere di saperne l'esito.
+   */
+  test("verdetto UNKNOWN: etichetta generica, mai il valore grezzo", async () => {
+    await render(<Timeline steps={withVerdict(UNKNOWN)} />);
+    expect(screen.getByText("review completata")).toBeTruthy();
   });
 });

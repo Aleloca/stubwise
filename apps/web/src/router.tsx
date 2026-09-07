@@ -28,6 +28,7 @@ import {
   inboxQueryOptions,
   instanceSettingsQueryOptions,
   invitesQueryOptions,
+  briefQueryOptions,
   milestonesQueryOptions,
   myFollowsQueryOptions,
   notificationPrefsQueryOptions,
@@ -70,6 +71,9 @@ import { LoginPage } from "./routes/login";
 import { MonitorListPage } from "./routes/monitor/index";
 import { ServerDetailPage } from "./routes/monitor/server-detail";
 import { ProjectDetailPage } from "./routes/projects/$projectId";
+import { BriefPage } from "./routes/briefs/$id";
+import { ProjectDecisionsPage } from "./routes/docs/project.$projectId.decisions";
+import { ProjectRoadmapPage } from "./routes/projects/$projectId.roadmap";
 import { ProjectsPage } from "./routes/projects/index";
 import {
   widgetConversationsSearchSchema,
@@ -94,11 +98,7 @@ import { SettingsUsagePage } from "./routes/settings/usage";
 import { SetupPage } from "./routes/setup";
 import { TeamPage } from "./routes/team";
 import { TicketDetailPage } from "./routes/tickets/$id";
-import {
-  effectiveTicketFilters,
-  ticketSearchSchema,
-  TicketsPage,
-} from "./routes/tickets/index";
+import { effectiveTicketFilters, ticketSearchSchema, TicketsPage } from "./routes/tickets/index";
 
 /*
  * Routing code-based (createRoute, niente plugin file-router): l'albero è
@@ -291,6 +291,40 @@ const projectDetailRoute = createRoute({
 });
 
 /**
+ * Roadmap del progetto (Fase 5): milestone aperte con avanzamento e timeline
+ * degli ultimi eventi, in sola lettura. Prefetch di progetto e milestone (le
+ * `useSuspenseQuery` della pagina non devono attendere); la timeline resta
+ * fuori dal loader perché dipende dai filtri, che sono stato del componente.
+ */
+const projectRoadmapRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/projects/$projectId/roadmap",
+  loader: async ({ context, params }) => {
+    const project = await context.queryClient.ensureQueryData(
+      projectQueryOptions(params.projectId),
+    );
+    await context.queryClient.ensureQueryData(milestonesQueryOptions(project.id));
+  },
+  component: ProjectRoadmapPage,
+});
+
+/**
+ * UN brief settimanale (Fase 5). Rotta di PRIMO LIVELLO come il suo endpoint:
+ * il link al brief viaggia dentro la notifica `project.brief`, sul separatore
+ * della roadmap e nel tool MCP, e nessuno di quei tre porta con sé il progetto.
+ * Il loader prefetcha il brief; il progetto lo carica la pagina (serve il
+ * `projectId`, che è nel brief).
+ */
+const briefRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/briefs/$id",
+  loader: async ({ context, params }) => {
+    await context.queryClient.ensureQueryData(briefQueryOptions(params.id));
+  },
+  component: BriefPage,
+});
+
+/**
  * Viewer read-only delle conversazioni del widget di un progetto: lista +
  * pannello dettaglio. `?ticketId` (link "Vedi conversazione" dal ticket) filtra
  * la lista e auto-seleziona la conversazione. Prefetch best-effort dell'elenco
@@ -415,6 +449,22 @@ const projectDocsRoute = createRoute({
       context.queryClient.ensureQueryData(projectDocSpacesQueryOptions(params.projectId)),
     ]),
   component: ProjectDocsLanding,
+});
+
+/**
+ * REGISTRO DECISIONI del progetto (`/docs/project/$projectId/decisions`, Fase 5).
+ *
+ * Rotta PIATTA sotto `authedRoute` come `projectDocsRoute`, di cui è la
+ * sotto-pagina logica: la landing dei Docs di progetto non è un layout con
+ * `Outlet` (non ha figli), quindi annidarcela sotto la trasformerebbe in uno —
+ * un cambio strutturale che nessuna delle due pagine chiede.
+ */
+const projectDecisionsRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/docs/project/$projectId/decisions",
+  loader: ({ context, params }) =>
+    context.queryClient.ensureQueryData(projectQueryOptions(params.projectId)),
+  component: ProjectDecisionsPage,
 });
 
 /**
@@ -650,7 +700,9 @@ const settingsAutomationRoute = createRoute({
   beforeLoad: ({ context }) => requireAdmin(context.user.role),
   // Prefetch best-effort: la sezione monta senza attese; un errore non blocca.
   loader: async ({ context }) => {
-    await context.queryClient.ensureQueryData(automationSettingsQueryOptions).catch(() => undefined);
+    await context.queryClient
+      .ensureQueryData(automationSettingsQueryOptions)
+      .catch(() => undefined);
   },
   component: SettingsAutomationPage,
 });
@@ -660,7 +712,9 @@ const settingsNotificationsRoute = createRoute({
   path: "/notifications",
   beforeLoad: ({ context }) => requireAdmin(context.user.role),
   loader: async ({ context }) => {
-    await context.queryClient.ensureQueryData(notificationSettingsQueryOptions).catch(() => undefined);
+    await context.queryClient
+      .ensureQueryData(notificationSettingsQueryOptions)
+      .catch(() => undefined);
   },
   component: SettingsNotificationsPage,
 });
@@ -739,6 +793,8 @@ const routeTree = rootRoute.addChildren([
     backlogDetailRoute,
     projectsRoute,
     projectDetailRoute,
+    projectRoadmapRoute,
+    briefRoute,
     widgetConversationsRoute,
     repositoryNewRoute,
     repositoriesIndexRoute,
@@ -746,6 +802,7 @@ const routeTree = rootRoute.addChildren([
     repositoryDetailRoute,
     docsRoute,
     projectDocsRoute,
+    projectDecisionsRoute,
     docsSpaceRoute.addChildren([
       docsSpaceIndexRoute,
       docsManualNewRoute,

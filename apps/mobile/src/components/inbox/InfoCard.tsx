@@ -23,6 +23,10 @@ const KIND_META: Record<string, { i18nKey: string; tone: ColorToken }> = {
   "review.completed": { i18nKey: "mobile.inbox.kinds.reviewCompleted", tone: "muted" },
   "job.awaiting_input": { i18nKey: "mobile.inbox.kinds.awaitingInput", tone: "signal" },
   "project.pulse": { i18nKey: "mobile.inbox.kinds.pulse", tone: "signal" },
+  // Fase 5: informativo (nessuna decisione), tono neutro come gli altri
+  // aggiornamenti dai progetti. Su un'app PRECEDENTE alla fase questo kind è
+  // `UNKNOWN` e ricade sull'etichetta generica: previsto, e coperto da un test.
+  "project.brief": { i18nKey: "mobile.inbox.kinds.brief", tone: "muted" },
 };
 
 export interface InfoCardProps {

@@ -22,6 +22,12 @@ export interface PlanReviewCardProps {
  * un'esecuzione): il bottone si trasforma in "Confermi? · Sì, approva /
  * Annulla" invece di eseguire subito. "Rifiuta con istruzioni" apre lo sheet
  * di rifiuto — il rifiuto non è un vicolo cieco, rigenera il piano.
+ *
+ * Fase 5: sotto il testo della notifica compare il riassunto "in breve" del
+ * piano (`item.summary`), quando il worker l'ha generato — tre frasi su cosa
+ * cambia per chi usa il prodotto. Sta SOPRA i bottoni di proposito: è ciò su
+ * cui la decisione si prende, e chi approva deve averlo letto prima di
+ * arrivare ad "Approva".
  */
 export function PlanReviewCard({ item, projectName }: PlanReviewCardProps) {
   const { t } = useTranslation();
@@ -62,6 +68,11 @@ export function PlanReviewCard({ item, projectName }: PlanReviewCardProps) {
       testID="plan-review-card"
     >
       <Text style={styles.text}>{item.text}</Text>
+      {item.summary !== undefined && (
+        <Text style={styles.summary} testID="plan-review-card-summary">
+          {item.summary}
+        </Text>
+      )}
 
       {(can(item, "approve_plan") || can(item, "reject_plan")) && (
         <View style={styles.actions}>
@@ -144,6 +155,12 @@ const styles = StyleSheet.create({
     color: colors.fg,
     fontSize: 15,
     lineHeight: 21,
+  },
+  summary: {
+    color: colors.muted,
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: 8,
   },
   actions: {
     flexDirection: "row",
