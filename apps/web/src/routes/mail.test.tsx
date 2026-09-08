@@ -50,6 +50,7 @@ const EMAIL_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const CALENDAR_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 const PROJECT_ID_2 = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
 const EMAIL_ID_2 = "ffffffff-ffff-4fff-8fff-ffffffffffff";
+const TRIAGE_ID = "99999999-9999-4999-8999-999999999999";
 
 const PROJECTS = [{ id: PROJECT_ID, name: "Apollo", slug: "apollo" }];
 
@@ -70,6 +71,7 @@ const GOOGLE_ACCOUNTS = [
 
 function mailItem(overrides: Partial<MailItem> & Pick<MailItem, "id" | "source">): MailItem {
   return {
+    kind: "proposal",
     accountId: ACCOUNT_ID,
     accountEmail: "mailbox@acme.test",
     projectId: PROJECT_ID,
@@ -97,6 +99,7 @@ const EMAIL_ITEM = mailItem({
 const CALENDAR_ITEM = mailItem({
   id: CALENDAR_ID,
   source: "calendar",
+  kind: "calendar",
   title: "Demo col cliente",
   from: "laura@cliente.test",
   url: "https://calendar.google.com/calendar/u/mailbox@acme.test/r/day/2026/9/20",
@@ -342,5 +345,83 @@ describe("pagina /mail", () => {
     await userEvent.click(screen.getByRole("button", { name: "Retry" }));
 
     expect(await screen.findByText(/Ship next week\?/)).toBeInTheDocument();
+  });
+
+  describe("fase 6c (fix di review Task 3): righe di smistamento", () => {
+    it("una riga triage ATTIVA non ha badge di progetto ma l'etichetta «da smistare»", async () => {
+      const triageItem = mailItem({
+        id: TRIAGE_ID,
+        source: "email",
+        kind: "triage",
+        title: "Rinnovo contratto?",
+        projectId: null,
+        projectName: null,
+        status: "classified",
+      });
+      mockApi(baseApi({ "GET /api/me/mail": () => jsonResponse(200, { items: [triageItem], nextCursor: null }) }));
+      renderMail();
+      await screen.findByRole("heading", { name: "Mail" });
+
+      expect(await screen.findByText(/Rinnovo contratto\?/)).toBeInTheDocument();
+      expect(screen.getByTestId("mail-triage-badge")).toBeInTheDocument();
+      // Nessun badge di progetto sulla riga (a differenza di EMAIL_ITEM/CALENDAR_ITEM).
+      expect(screen.queryByText("Apollo", { selector: "span" })).toBeNull();
+    });
+
+    it("una riga triage CHIUSA con «nessuno di questi» mostra l'esito leggibile, non il generico ignored", async () => {
+      const dismissedItem = mailItem({
+        id: TRIAGE_ID,
+        source: "email",
+        kind: "triage",
+        title: "Rinnovo contratto?",
+        projectId: null,
+        projectName: null,
+        status: "ignored",
+        outcome: { type: "triage_dismissed" },
+        reproposable: true,
+      });
+      mockApi(baseApi({ "GET /api/me/mail": () => jsonResponse(200, { items: [dismissedItem], nextCursor: null }) }));
+      renderMail();
+      await screen.findByRole("heading", { name: "Mail" });
+
+      expect(
+        await screen.findByText("Sorted — none of the suggested projects matched"),
+      ).toBeInTheDocument();
+      // Il bottone Riproponi compare comunque, come per failed/ignored delle altre fonti.
+      expect(screen.getByRole("button", { name: "Repropose" })).toBeInTheDocument();
+    });
+
+    it("riproponi una riga triage: chiama /api/me/mail/email_triage/:id/repropose", async () => {
+      let called: { url: string } | null = null;
+      const dismissedItem = mailItem({
+        id: TRIAGE_ID,
+        source: "email",
+        kind: "triage",
+        title: "Rinnovo contratto?",
+        projectId: null,
+        projectName: null,
+        status: "ignored",
+        outcome: { type: "triage_dismissed" },
+        reproposable: true,
+      });
+      mockApi(
+        baseApi({
+          "GET /api/me/mail": () => jsonResponse(200, { items: [dismissedItem], nextCursor: null }),
+          [`POST /api/me/mail/email_triage/${TRIAGE_ID}/repropose`]: (url) => {
+            called = { url: url.pathname };
+            return jsonResponse(200, { ok: true });
+          },
+        }),
+      );
+      renderMail();
+      await screen.findByRole("heading", { name: "Mail" });
+
+      await userEvent.click(screen.getByRole("button", { name: "Repropose" }));
+
+      await waitFor(() =>
+        expect(called).toEqual({ url: `/api/me/mail/email_triage/${TRIAGE_ID}/repropose` }),
+      );
+      expect(await screen.findByText("Reproposed — check the inbox for the new proposal")).toBeInTheDocument();
+    });
   });
 });

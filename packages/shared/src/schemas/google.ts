@@ -368,6 +368,22 @@ export const mailSourceSchema = z.enum(["email", "calendar"]);
 export type MailSource = z.infer<typeof mailSourceSchema>;
 
 /**
+ * Fase 6c (fix di review, Task 3): CHE COSA rappresenta la riga, ortogonale a
+ * {@link mailSourceSchema} — che dice solo DA QUALE TABELLA fisica viene la
+ * riga (email vs calendario), non se è già attribuita a un progetto.
+ * `"proposal"` è una proposta NORMALE con un progetto risolto
+ * (`email_proposals`, o un evento di calendario); `"calendar"` è un evento
+ * di calendario (ridondante con `source: "calendar"`, ma esplicito, per
+ * simmetria); `"triage"` è una proposta di SMISTAMENTO (`classify.ts`,
+ * `EmailTriageClassification` — un padre `email_messages` SENZA figli, con
+ * `projectId`/`projectName` sempre `null`): la UI la rende diversamente
+ * (nessun badge di progetto, un'etichetta «da smistare», l'esito «nessuno di
+ * questi» leggibile invece del generico "ignored").
+ */
+export const mailItemKindSchema = z.enum(["proposal", "triage", "calendar"]);
+export type MailItemKind = z.infer<typeof mailItemKindSchema>;
+
+/**
  * Stato NORMALIZZATO di una riga della pagina Posta, uguale per le due
  * sorgenti anche se le colonne sottostanti non lo sono: `email_messages.status`
  * ha esattamente questi valori, `calendar_events` non ha una colonna di
@@ -417,10 +433,30 @@ export type MailSignal = z.infer<typeof mailSignalSchema>;
  * nessun figlio. Accettata perché la pagina Posta è stata deployata lo
  * stesso giorno di questo cambio e nessun client si è ancora costruito
  * sopra un `id` che significasse "messaggio" per l'email.
+ *
+ * ⚠️ Fase 6c (fix di review, Task 3) — un TERZO spazio di `id` per
+ * `source: "email"`: quando `kind: "triage"`, `id` è `email_messages.id` (il
+ * PADRE stesso, nessun figlio per costruzione — vedi
+ * {@link mailItemKindSchema}), non `email_proposals.id`. La rotta di
+ * repropose lo disambigua nel PATH (`source: "email_triage"`, un terzo
+ * valore accettato SOLO da `POST /:source/:id/repropose`, non da
+ * `mailSourceSchema`/questo campo `source`): un `id` da solo non basta a
+ * scegliere la tabella giusta (sono UUID indipendenti), e il path elimina
+ * per costruzione l'errore di mandare l'id giusto col `source` sbagliato —
+ * stessa ragione della scelta fra `/email/:id` e `/calendar/:id` qui sopra.
  */
 export const mailItemSchema = z.object({
   id: z.uuid(),
   source: mailSourceSchema,
+  /**
+   * Fase 6c (fix di review, Task 3): che TIPO di riga è, non da quale
+   * TABELLA viene (`source` sopra). `.default("proposal")` — il valore
+   * storico, prima che questo campo esistesse — per reggere una risposta
+   * scritta da un server più vecchio (vedi CLAUDE.md, "Invarianti e
+   * trappole": ogni campo nuovo di risposta nasce opzionale/default, mai
+   * obbligatorio).
+   */
+  kind: mailItemKindSchema.optional().default("proposal"),
   accountId: z.uuid(),
   /** L'email della casella Google da cui la riga è arrivata. */
   accountEmail: z.string(),

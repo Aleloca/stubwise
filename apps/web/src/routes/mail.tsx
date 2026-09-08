@@ -1,4 +1,4 @@
-import type { MailItem, MailItemStatus } from "@stubwise/shared";
+import type { MailItem, MailItemStatus, MailSource } from "@stubwise/shared";
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -29,6 +29,22 @@ import {
  * «Riproponi» agisce sempre e solo sulla riga cliccata, mai sulle sorelle
  * dello stesso messaggio. Nessun cambiamento per il calendario, ancora uno a
  * uno.
+ *
+ * Fase 6c (fix di review, Task 3): una TERZA specie di riga, `item.kind ===
+ * "triage"` — un messaggio «da smistare» (`classify.ts`,
+ * `EmailTriageClassification`): NESSUN progetto risolto (`projectId`/
+ * `projectName` sempre `null`), quindi `MailRow` non mostra il badge di
+ * progetto ma un'etichetta «da smistare», e se l'esito è
+ * `outcome.type === "triage_dismissed"` («nessuno di questi») lo rende
+ * leggibile invece del generico stato "Ignored". `item.source` resta
+ * `"email"` (la riga viene comunque da Gmail, il badge sorgente e il link al
+ * thread non cambiano): è `kind`, non `source`, a distinguerla. La rotta di
+ * repropose la disambigua invece nel PATH — `"email_triage"`, un terzo
+ * valore che SOLO quella rotta accetta (vedi `postMailRepropose` e il
+ * docblock di `mailItemSchema` in `@stubwise/shared`): l'`id` di una riga
+ * `triage` è `email_messages.id` (il PADRE), non `email_proposals.id` come
+ * per una proposta normale — un `source` sbagliato nel path la cercherebbe
+ * nella tabella sbagliata.
  */
 const STATUS_OPTIONS: MailItemStatus[] = [
   "new",
@@ -157,14 +173,40 @@ interface MailRowProps {
   filters: MailFilters;
 }
 
+/**
+ * Fase 6c (fix di review, Task 3): «nessuno di questi» — l'esito che
+ * `google-proposal.ts` scrive SOLO per uno smistamento chiuso senza scelta
+ * (`outcome: { type: "triage_dismissed" }`), distinto da un `ignored`
+ * generico (`outcome: null`, nessun segnale). `item.outcome` è un
+ * `Record<string, unknown> | null` non tipizzato più a fondo dallo schema
+ * (è testo NON FIDATO scritto dal server, ma la FORMA del campo `type` è
+ * quella che il server stesso garantisce per questo esito): il controllo
+ * qui è la lettura TOLLERANTE gemella di quella lato server.
+ */
+function isTriageDismissed(outcome: MailItem["outcome"]): boolean {
+  return (
+    typeof outcome === "object" &&
+    outcome !== null &&
+    (outcome as Record<string, unknown>).type === "triage_dismissed"
+  );
+}
+
 function MailRow({ item, projectName, filters }: MailRowProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const listKey = mailKeys.list(filters);
+  const isTriage = item.kind === "triage";
 
   const repropose = useMutation({
-    mutationFn: () => postMailRepropose(item.source, item.id),
+    // Fase 6c: una riga `triage` vive su `email_messages` (il PADRE), non su
+    // `email_proposals` — la rotta la disambigua con un TERZO valore di
+    // `source` nel path, solo per questa mutazione (vedi il docblock del
+    // modulo). `item.source` resta `"email"`: il cast riflette che
+    // `postMailRepropose` conosce solo i due valori "fisici" storici, non
+    // il terzo che esiste solo lato rotta di repropose.
+    mutationFn: () =>
+      postMailRepropose(isTriage ? ("email_triage" as MailSource) : item.source, item.id),
     onMutate: () => setError(null),
     onSuccess: () => {
       // La riga esce dalla lista (torna `new`, non più `failed`/`ignored`
@@ -186,16 +228,32 @@ function MailRow({ item, projectName, filters }: MailRowProps) {
           {t(`mail:source.${item.source}`)}
         </span>
         {/*
-         * Fase 6b: il badge di progetto è ciò che distingue righe altrimenti
-         * identiche (stesso mittente, stesso oggetto) quando lo stesso
-         * messaggio genera più proposte — bordato come il badge `source`
-         * qui sopra, non più un semplice testo, perché ora è lui a
-         * rispondere alla domanda «di quale progetto è questa riga?».
+         * Fase 6c: uno smistamento non ha MAI un progetto — mostra
+         * un'etichetta «da smistare» al posto del badge di progetto, non
+         * nessun badge: senza progetto risolto, "questa riga chiede di
+         * scegliere" è l'informazione che manca a chi scorre la lista.
          */}
-        {projectName !== undefined && (
-          <span className="rounded-sm border border-signal-dim/50 bg-ink-850 px-1.5 py-0.5 text-signal">
-            {projectName}
+        {isTriage ? (
+          <span
+            data-testid="mail-triage-badge"
+            className="rounded-sm border border-line bg-ink-850 px-1.5 py-0.5 text-fg-muted"
+          >
+            {t("mail:triage.badge", "To sort")}
           </span>
+        ) : (
+          /*
+           * Fase 6b: il badge di progetto è ciò che distingue righe
+           * altrimenti identiche (stesso mittente, stesso oggetto) quando
+           * lo stesso messaggio genera più proposte — bordato come il
+           * badge `source` qui sopra, non più un semplice testo, perché
+           * ora è lui a rispondere alla domanda «di quale progetto è
+           * questa riga?».
+           */
+          projectName !== undefined && (
+            <span className="rounded-sm border border-signal-dim/50 bg-ink-850 px-1.5 py-0.5 text-signal">
+              {projectName}
+            </span>
+          )
         )}
         {item.signal !== null && <SignalBadge signal={item.signal} />}
         <span className={STATUS_CLASS[item.status]}>{t(`mail:status.${item.status}`)}</span>
@@ -211,6 +269,18 @@ function MailRow({ item, projectName, filters }: MailRowProps) {
           <span className="text-fg-faint"> {t("mail:noSubject")}</span>
         )}
       </p>
+
+      {/*
+       * Fase 6c: «nessuno di questi» leggibile invece del generico stato
+       * "Ignored" — distingue uno smistamento CHIUSO senza scelta da un
+       * `ignored` per assenza di segnale (`outcome: null`), che non mostra
+       * questa riga.
+       */}
+      {isTriage && isTriageDismissed(item.outcome) && (
+        <p className="mt-1 font-mono text-[11px] text-fg-faint">
+          {t("mail:triage.dismissedOutcome", "Sorted — none of the suggested projects matched")}
+        </p>
+      )}
 
       {item.error !== null && (
         <p className="mt-1 font-mono text-[11px] text-danger">{item.error}</p>

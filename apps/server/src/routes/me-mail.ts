@@ -11,7 +11,6 @@ import {
   mailItemStatusSchema,
   mailPageSchema,
   mailReproposeResultSchema,
-  mailSourceSchema,
   mailSummarySchema,
   type MailItem,
   type MailItemStatus,
@@ -38,15 +37,31 @@ import { authErrorResponses, errorSchema } from "./shared.js";
  * `account`/`project` che non è il suo — produce una pagina vuota o un 404,
  * mai 403 (non si conferma che l'id esiste).
  *
- * ## Lista UNIFICATA, non due liste
+ * ## Lista UNIFICATA, non tre liste
  *
- * `GET /` fonde le proposte email e gli eventi di calendario in UNA lista
- * ordinata per data, con un campo `source` a distinguerle — è la lettura più
- * fedele del design (§5, "Pagina Posta": *"elenco di messaggi ed eventi
- * trattati"*, non due elenchi separati). La fusione è in MEMORIA (una query
- * per sorgente, come `buildProjectTimeline` in `@stubwise/notifications`):
- * niente UNION SQL, che costringerebbe le due tabelle — colonne, filtri e
- * stato diversi — a una forma comune fatta di `null`.
+ * `GET /` fonde le proposte email, gli eventi di calendario E (fase 6c, fix
+ * di review Task 3) i messaggi «da smistare» in UNA lista ordinata per data,
+ * con un campo `source` a distinguerle e — da questo task — un campo `kind`
+ * a distinguere il RUOLO della riga (proposta normale con progetto risolto,
+ * smistamento senza progetto, calendario: vedi `mailItemKindSchema` in
+ * `@stubwise/shared`) — è la lettura più fedele del design (§5, "Pagina
+ * Posta": *"elenco di messaggi ed eventi trattati"*, non elenchi separati).
+ * La fusione è in MEMORIA (una query per sorgente, come `buildProjectTimeline`
+ * in `@stubwise/notifications`): niente UNION SQL, che costringerebbe le
+ * tabelle — colonne, filtri e stato diversi — a una forma comune fatta di
+ * `null`.
+ *
+ * ## Fase 6c (fix di review, Task 3) — i messaggi «da smistare» ora compaiono
+ *
+ * Prima di questo task `GET /` leggeva solo `email_proposals` (il FIGLIO) per
+ * il lato email: un messaggio in stato «da smistare» (fase 6c, Task 5 —
+ * `classification.triage: true`, NESSUN figlio per costruzione) non
+ * comparirebbe mai, mentre il contatore `openProposals` di `/summary` lo
+ * conta già (è una notifica `google.proposal` come le altre). Il risultato
+ * era il badge che diceva "una proposta aperta" con la lista vuota — vedi
+ * {@link queryTriageCandidates} per la terza fonte che chiude il buco, e il
+ * ramo `email_triage` di `POST /:source/:id/repropose` per come si riapre
+ * uno smistamento chiuso con «nessuno di questi».
  *
  * ## Fase 6b — una riga per PROPOSTA, non per messaggio
  *
@@ -83,7 +98,19 @@ import { authErrorResponses, errorSchema } from "./shared.js";
  * l'uno sull'altro apposta).
  */
 
-const sourceParamsSchema = z.object({ source: mailSourceSchema, id: z.uuid() });
+/**
+ * Fase 6c (fix di review, Task 3): TRE valori, non due — un terzo SOLO per
+ * questa rotta (repropose), mai per `mailItemSchema.source` (che resta
+ * `mailSourceSchema`, due valori). `"email_triage"` seleziona la riga PADRE
+ * `email_messages` (una proposta di smistamento, {@link queryTriageCandidates}),
+ * a differenza di `"email"` che seleziona il FIGLIO `email_proposals`: un
+ * `id` da solo non basta a scegliere la tabella giusta (sono UUID
+ * indipendenti, la collisione non è impossibile), quindi il path lo dice
+ * per costruzione — vedi il docblock di `mailItemSchema` in
+ * `@stubwise/shared`.
+ */
+const reproposeSourceSchema = z.enum(["email", "calendar", "email_triage"]);
+const sourceParamsSchema = z.object({ source: reproposeSourceSchema, id: z.uuid() });
 
 /** Quante righe per pagina se il chiamante non lo dice, e il tetto massimo — come `/api/inbox`. */
 const DEFAULT_LIMIT = 50;
@@ -229,6 +256,7 @@ async function queryEmailCandidates(db: Db, input: ListMailInput): Promise<MailI
   return rows.map((row) => ({
     id: row.id,
     source: "email",
+    kind: "proposal",
     accountId: row.accountId,
     accountEmail: row.accountEmail,
     projectId: row.projectId,
@@ -242,6 +270,118 @@ async function queryEmailCandidates(db: Db, input: ListMailInput): Promise<MailI
     error: row.error,
     url: gmailThreadUrl(row.accountEmail, row.threadId),
     reproposable: row.status === "failed" || row.status === "ignored",
+  }));
+}
+
+/**
+ * Fase 6c (fix di review, Task 3): legge i PADRI `email_messages` in stato
+ * «da smistare» (fase 6c, Task 5, `classify.ts`/`EmailTriageClassification`)
+ * — la TERZA fonte della lista, oltre alle proposte normali
+ * ({@link queryEmailCandidates}) e al calendario ({@link queryCalendarCandidates}).
+ * Un padre di smistamento non ha MAI un figlio (`writeClassification` non ne
+ * crea per questo ramo): `projectId`/`projectName` sono quindi SEMPRE `null`
+ * — è esattamente ciò che la card chiede di risolvere — e `kind: "triage"`
+ * la distingue da una proposta normale.
+ *
+ * Righe incluse: ATTIVE (`classification->>'triage' = 'true'` E
+ * `status` `classified`/`proposed`/`failed` — prima e dopo la pubblicazione
+ * della notifica, e anche su un fallimento del dispatch, es. `target_gone`
+ * su `choose_project` con un progetto suggerito cancellato, che
+ * `markSourceFailed` in `google-proposal.ts` scrive come `status: 'failed'`)
+ * oppure CHIUSE con «nessuno di questi»
+ * (`outcome->>'type' = 'triage_dismissed'` — per costruzione `status:
+ * 'ignored'`, vedi il case `"ignore"` di `dispatchAction` in
+ * `google-proposal.ts`, che per `source: "email_triage"` scrive SEMPRE
+ * quell'esito, mai un `ignored` generico).
+ *
+ * ⚠️ `status: 'new'` NON compare qui anche quando `classification.triage`
+ * porta ancora il marcatore STANTIO di una classificazione precedente: è il
+ * caso del `choose_project` VIVO su una proposta di smistamento (fase 6c,
+ * ramo 1 del case `choose_project` in `google-proposal.ts`), che riaccoda il
+ * messaggio per la riclassificazione del prossimo tick SENZA cancellare
+ * `classification`. Quel messaggio non è più «da smistare»: sta per
+ * ridiventare una proposta normale (o tornare `ignored` se il segnale non
+ * regge più) — includerlo qui mostrerebbe una card fantasma fra un tick e
+ * l'altro del poller.
+ */
+async function queryTriageCandidates(db: Db, input: ListMailInput): Promise<MailItem[]> {
+  // Una riga di smistamento non ha MAI un progetto: un filtro per progetto
+  // non può mai combaciare con questa fonte.
+  if (input.project) return [];
+  const TRIAGE_VISIBLE_STATUSES = new Set<MailItemStatus>(["classified", "proposed", "failed", "ignored"]);
+  if (input.status && !TRIAGE_VISIBLE_STATUSES.has(input.status)) return [];
+  const conditions = [
+    eq(googleAccounts.userId, input.userId),
+    // La riga è di smistamento SE: (a) porta ancora il marcatore ed è in uno
+    // stato non ancora riaccodato/chiuso ("attiva o fallita"), OPPURE (b) è
+    // stata chiusa con «nessuno di questi». Le due metà sono a somma
+    // esclusiva per costruzione (vedi il docblock sopra): nessuna riga può
+    // soddisfarle entrambe.
+    sql`(
+      (${emailMessages.classification}->>'triage' = 'true' and ${emailMessages.status} in ('classified', 'proposed', 'failed'))
+      or ${emailMessages.outcome}->>'type' = 'triage_dismissed'
+    )`,
+  ];
+  if (input.account) conditions.push(eq(emailMessages.accountId, input.account));
+  // Il guardrail sopra (`TRIAGE_VISIBLE_STATUSES`) ha già escluso `new` e
+  // `cancelled`: qui `input.status` è per costruzione uno dei quattro valori
+  // che la colonna conosce, ma TypeScript non lo deduce da un `Set.has`.
+  if (input.status) {
+    conditions.push(eq(emailMessages.status, input.status as "classified" | "proposed" | "failed" | "ignored"));
+  }
+  if (input.cursor) {
+    conditions.push(
+      sql`(${emailMessages.receivedAt}, ${emailMessages.id}) < (${input.cursor.date}::timestamptz, ${input.cursor.id}::uuid)`,
+    );
+  }
+  const rows = await db
+    .select({
+      id: emailMessages.id,
+      accountId: emailMessages.accountId,
+      accountEmail: googleAccounts.email,
+      title: emailMessages.subject,
+      from: emailMessages.fromAddress,
+      threadId: emailMessages.threadId,
+      date: emailMessages.receivedAt,
+      status: emailMessages.status,
+      signal: emailMessages.signal,
+      outcome: emailMessages.outcome,
+      error: emailMessages.error,
+    })
+    .from(emailMessages)
+    .innerJoin(googleAccounts, eq(googleAccounts.id, emailMessages.accountId))
+    .where(and(...conditions))
+    .orderBy(desc(emailMessages.receivedAt), desc(emailMessages.id))
+    .limit(input.limit + 1);
+
+  return rows.map((row) => ({
+    id: row.id,
+    source: "email",
+    kind: "triage",
+    accountId: row.accountId,
+    accountEmail: row.accountEmail,
+    projectId: null,
+    projectName: null,
+    title: row.title,
+    from: row.from,
+    date: row.date.toISOString(),
+    status: row.status,
+    signal: row.signal,
+    outcome: row.outcome,
+    error: row.error,
+    url: gmailThreadUrl(row.accountEmail, row.threadId),
+    // Riproponibile SOLO da uno smistamento CHIUSO con «nessuno di questi»
+    // — non un `ignored` qualsiasi, che qui per costruzione non esiste (vedi
+    // il docblock sopra), e MAI da `failed` (a differenza delle altre due
+    // fonti): riproporre un dispatch fallito su una scelta specifica
+    // (`choose_project`/`target_gone`) rientrerebbe dalla stessa card che ha
+    // già fallito, non da questa rotta — vedi il docblock della rotta di
+    // repropose più sotto.
+    reproposable:
+      row.status === "ignored" &&
+      typeof row.outcome === "object" &&
+      row.outcome !== null &&
+      (row.outcome as Record<string, unknown>).type === "triage_dismissed",
   }));
 }
 
@@ -288,6 +428,7 @@ async function queryCalendarCandidates(db: Db, input: ListMailInput): Promise<Ma
     return {
       id: row.id,
       source: "calendar",
+      kind: "calendar",
       accountId: row.accountId,
       accountEmail: row.accountEmail,
       projectId: row.projectId,
@@ -305,13 +446,20 @@ async function queryCalendarCandidates(db: Db, input: ListMailInput): Promise<Ma
   });
 }
 
-/** Fonde due pool GIÀ ordinati desc (date, id) e ne restituisce la pagina + il prossimo cursore. */
+/**
+ * Fonde N pool GIÀ ordinati desc (date, id) e ne restituisce la pagina + il
+ * prossimo cursore. Fase 6c (fix di review, Task 3): da DUE a TRE pool
+ * (proposte, calendario, smistamento) — la proprietà di k-way merge del
+ * docblock del modulo (ogni sorgente fornisce `limit + 1` righe filtrate dal
+ * cursore, quindi il pool basta a produrre una pagina corretta) non dipende
+ * dal numero di sorgenti, solo dal fatto che ognuna sia già ordinata e
+ * filtrata: vale identica con tre pool come con due.
+ */
 function mergePages(
-  a: MailItem[],
-  b: MailItem[],
+  pools: MailItem[][],
   limit: number,
 ): { items: MailItem[]; nextCursor: string | null } {
-  const merged = [...a, ...b].sort((x, y) => {
+  const merged = pools.flat().sort((x, y) => {
     if (x.date !== y.date) return x.date < y.date ? 1 : -1;
     return x.id < y.id ? 1 : -1;
   });
@@ -354,11 +502,12 @@ export async function meMailRoutes(instance: FastifyInstance): Promise<void> {
         ...(project ? { project } : {}),
         ...(cursor ? { cursor } : {}),
       };
-      const [emailCandidates, calendarCandidates] = await Promise.all([
+      const [emailCandidates, calendarCandidates, triageCandidates] = await Promise.all([
         queryEmailCandidates(app.db, input),
         queryCalendarCandidates(app.db, input),
+        queryTriageCandidates(app.db, input),
       ]);
-      return mergePages(emailCandidates, calendarCandidates, limit);
+      return mergePages([emailCandidates, calendarCandidates, triageCandidates], limit);
     },
   );
 
@@ -366,9 +515,20 @@ export async function meMailRoutes(instance: FastifyInstance): Promise<void> {
    * Contatori per il badge di nav e l'intestazione: `openProposals` sulle
    * NOTIFICHE (`google.proposal` ancora `open` di questo utente — l'audience
    * `mailbox_owner` garantisce che sia l'unico destinatario), `failed`/
-   * `ignored` sulle RIGHE (posta + calendario, stato normalizzato). Fase 6b:
-   * il lato email conta i FIGLI `email_proposals`, non più i messaggi — un
-   * messaggio con due proposte `failed` (progetti diversi) conta per due.
+   * `ignored` sulle RIGHE (posta + calendario + smistamento, stato
+   * normalizzato). Fase 6b: il lato email conta i FIGLI `email_proposals`,
+   * non più i messaggi — un messaggio con due proposte `failed` (progetti
+   * diversi) conta per due.
+   *
+   * Fase 6c (fix di review, Task 3): `openProposals` include GIÀ una
+   * proposta di smistamento ATTIVA senza bisogno di una query in più — è una
+   * notifica `google.proposal` come le altre (vedi `buildTriageProposalEvent`
+   * in `apps/worker/src/google/proposal.ts`), quindi la query sopra la conta
+   * per costruzione. `failed`/`ignored` invece PRIMA di questo task
+   * ignoravano lo smistamento (nessuna riga per lui): due query in più,
+   * simmetriche a quelle del calendario, così il totale torna a coincidere
+   * ESATTAMENTE con ciò che {@link queryTriageCandidates} mostra come
+   * `failed`/`ignored`.
    */
   app.get(
     "/summary",
@@ -380,49 +540,73 @@ export async function meMailRoutes(instance: FastifyInstance): Promise<void> {
     },
     async (request) => {
       const userId = request.user!.id;
-      const [[openRow], [emailFailedRow], [emailIgnoredRow], [calFailedRow], [calIgnoredRow]] =
-        await Promise.all([
-          app.db
-            .select({ count: sql<number>`count(*)::int` })
-            .from(notifications)
-            .where(
-              and(
-                eq(notifications.userId, userId),
-                eq(notifications.kind, "google.proposal"),
-                eq(notifications.status, "open"),
-              ),
+      const [
+        [openRow],
+        [emailFailedRow],
+        [emailIgnoredRow],
+        [calFailedRow],
+        [calIgnoredRow],
+        [triageFailedRow],
+        [triageIgnoredRow],
+      ] = await Promise.all([
+        app.db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(notifications)
+          .where(
+            and(
+              eq(notifications.userId, userId),
+              eq(notifications.kind, "google.proposal"),
+              eq(notifications.status, "open"),
             ),
-          app.db
-            .select({ count: sql<number>`count(*)::int` })
-            .from(emailProposals)
-            .innerJoin(emailMessages, eq(emailMessages.id, emailProposals.emailMessageId))
-            .innerJoin(googleAccounts, eq(googleAccounts.id, emailMessages.accountId))
-            .where(and(eq(googleAccounts.userId, userId), eq(emailProposals.status, "failed"))),
-          app.db
-            .select({ count: sql<number>`count(*)::int` })
-            .from(emailProposals)
-            .innerJoin(emailMessages, eq(emailMessages.id, emailProposals.emailMessageId))
-            .innerJoin(googleAccounts, eq(googleAccounts.id, emailMessages.accountId))
-            .where(and(eq(googleAccounts.userId, userId), eq(emailProposals.status, "ignored"))),
-          app.db
-            .select({ count: sql<number>`count(*)::int` })
-            .from(calendarEvents)
-            .innerJoin(googleAccounts, eq(googleAccounts.id, calendarEvents.accountId))
-            .where(
-              and(eq(googleAccounts.userId, userId), sql`${calendarEvents.outcome}->>'type' = 'failed'`),
+          ),
+        app.db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(emailProposals)
+          .innerJoin(emailMessages, eq(emailMessages.id, emailProposals.emailMessageId))
+          .innerJoin(googleAccounts, eq(googleAccounts.id, emailMessages.accountId))
+          .where(and(eq(googleAccounts.userId, userId), eq(emailProposals.status, "failed"))),
+        app.db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(emailProposals)
+          .innerJoin(emailMessages, eq(emailMessages.id, emailProposals.emailMessageId))
+          .innerJoin(googleAccounts, eq(googleAccounts.id, emailMessages.accountId))
+          .where(and(eq(googleAccounts.userId, userId), eq(emailProposals.status, "ignored"))),
+        app.db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(calendarEvents)
+          .innerJoin(googleAccounts, eq(googleAccounts.id, calendarEvents.accountId))
+          .where(
+            and(eq(googleAccounts.userId, userId), sql`${calendarEvents.outcome}->>'type' = 'failed'`),
+          ),
+        app.db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(calendarEvents)
+          .innerJoin(googleAccounts, eq(googleAccounts.id, calendarEvents.accountId))
+          .where(
+            and(eq(googleAccounts.userId, userId), sql`${calendarEvents.outcome}->>'type' = 'ignored'`),
+          ),
+        app.db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(emailMessages)
+          .innerJoin(googleAccounts, eq(googleAccounts.id, emailMessages.accountId))
+          .where(
+            and(
+              eq(googleAccounts.userId, userId),
+              sql`${emailMessages.classification}->>'triage' = 'true' and ${emailMessages.status} = 'failed'`,
             ),
-          app.db
-            .select({ count: sql<number>`count(*)::int` })
-            .from(calendarEvents)
-            .innerJoin(googleAccounts, eq(googleAccounts.id, calendarEvents.accountId))
-            .where(
-              and(eq(googleAccounts.userId, userId), sql`${calendarEvents.outcome}->>'type' = 'ignored'`),
-            ),
-        ]);
+          ),
+        app.db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(emailMessages)
+          .innerJoin(googleAccounts, eq(googleAccounts.id, emailMessages.accountId))
+          .where(
+            and(eq(googleAccounts.userId, userId), sql`${emailMessages.outcome}->>'type' = 'triage_dismissed'`),
+          ),
+      ]);
       return {
         openProposals: openRow?.count ?? 0,
-        failed: (emailFailedRow?.count ?? 0) + (calFailedRow?.count ?? 0),
-        ignored: (emailIgnoredRow?.count ?? 0) + (calIgnoredRow?.count ?? 0),
+        failed: (emailFailedRow?.count ?? 0) + (calFailedRow?.count ?? 0) + (triageFailedRow?.count ?? 0),
+        ignored: (emailIgnoredRow?.count ?? 0) + (calIgnoredRow?.count ?? 0) + (triageIgnoredRow?.count ?? 0),
       };
     },
   );
@@ -451,6 +635,25 @@ export async function meMailRoutes(instance: FastifyInstance): Promise<void> {
    * collisione fra le due non è impossibile), e un campo nel body per una
    * mutazione così piccola aggiungerebbe un modo di sbagliare (mandare l'id
    * giusto col `source` sbagliato) che il path elimina per costruzione.
+   *
+   * Fase 6c (fix di review, Task 3) — TERZA sorgente, `source: "email_triage"`:
+   * `:id` è `email_messages.id` (il PADRE della proposta di smistamento,
+   * NESSUN figlio da cui distinguerlo — vedi {@link queryTriageCandidates}).
+   * Riproponibile SOLO da uno smistamento CHIUSO con «nessuno di questi»
+   * (`status: 'ignored'` E `outcome.type === 'triage_dismissed'`) — non un
+   * `ignored` qualsiasi: qui, a differenza delle altre due sorgenti, non
+   * esiste un `ignored` "generico" (vedi il docblock di
+   * `queryTriageCandidates`), e riproporre un `failed` (un dispatch fallito
+   * su una scelta specifica) non avrebbe senso — l'utente rivede la STESSA
+   * card e sceglie di nuovo, non una nuova classificazione. Reset a
+   * `classified` con `outcome`/`error`/`proposal_notification_id` azzerati —
+   * verificato in `google-proposal.ts` che la chiusura per «nessuno di
+   * questi» (`markSourceOutcome`, ramo `"email_triage"`) NON tocca
+   * `proposal_notification_id`, che quindi resta ancora quello della
+   * notifica appena chiusa: va azzerato QUI, esplicitamente, come per le
+   * altre due sorgenti, perché la condizione di claim del poller (`status =
+   * 'classified' AND proposal_notification_id IS NULL`, `publishProposal`)
+   * torni vera e la riga sia riselezionabile al prossimo tick.
    */
   app.post(
     "/:source/:id/repropose",
@@ -480,6 +683,28 @@ export async function meMailRoutes(instance: FastifyInstance): Promise<void> {
           .update(emailProposals)
           .set({ status: "classified", error: null, outcome: null, proposalNotificationId: null })
           .where(eq(emailProposals.id, id));
+        return { ok: true as const };
+      }
+
+      if (source === "email_triage") {
+        const [row] = await app.db
+          .select({ id: emailMessages.id, status: emailMessages.status, outcome: emailMessages.outcome })
+          .from(emailMessages)
+          .innerJoin(googleAccounts, eq(googleAccounts.id, emailMessages.accountId))
+          .where(and(eq(emailMessages.id, id), eq(googleAccounts.userId, userId)));
+        if (!row) return apiError(reply, 404, "not_found", "Proposal not found");
+        const dismissed =
+          row.status === "ignored" &&
+          typeof row.outcome === "object" &&
+          row.outcome !== null &&
+          (row.outcome as Record<string, unknown>).type === "triage_dismissed";
+        if (!dismissed) {
+          return apiError(reply, 409, "not_reproposable", "This proposal cannot be reproposed");
+        }
+        await app.db
+          .update(emailMessages)
+          .set({ status: "classified", error: null, outcome: null, proposalNotificationId: null })
+          .where(eq(emailMessages.id, id));
         return { ok: true as const };
       }
 
