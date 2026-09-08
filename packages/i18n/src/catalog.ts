@@ -351,6 +351,17 @@ export const en: Catalog = {
   // fidato che entra nella domanda, ed è per questo che stanno in
   // `UNTRUSTED_SLACK_PARAMS` (vedi `packages/notifications/src/format.ts`).
   "email.proposal.question": "{from} wrote about “{subject}”. How do we follow up?",
+  // Fase 6b: la domanda della card quando il progetto è CERTO (una riga
+  // figlia `email_proposals`, una per progetto del perimetro). `{project}`
+  // nomina il progetto perché con N card sullo stesso messaggio mittente e
+  // oggetto sono identici — senza il nome, indistinguibili in inbox e su
+  // Slack. Chiave `google.proposal.*` e non `email.proposal.*` di proposito:
+  // la sceglie `buildEmailProposalEvent` SEMPRE che l'evento porti un
+  // `projectName` (ogni proposta nuova ce l'ha, essendo costruita dalla riga
+  // figlia); `email.proposal.question` resta per le card storiche senza
+  // progetto.
+  "google.proposal.question.withProject":
+    "{from} wrote to {project} about “{subject}”. How do we follow up?",
   "email.proposal.calendarQuestion":
     "“{subject}” is on the calendar for {date}. Do we track it as a milestone?",
   "email.proposal.createBacklogItem": "Open a backlog entry: {title}",
@@ -627,6 +638,10 @@ export const it: Catalog = {
   // --- email.proposal.* (vedi la nota nel catalogo `en`: testi FINALI; del
   // testo della card il modello scrive solo la `consequence` di ogni proposta) ---
   "email.proposal.question": "{from} scrive a proposito di «{subject}». Come diamo seguito?",
+  // Fase 6b: vedi la nota nel catalogo `en` — usata quando il progetto è
+  // certo (riga figlia `email_proposals`), SEMPRE per le proposte nuove.
+  "google.proposal.question.withProject":
+    "{from} scrive a {project} a proposito di «{subject}». Come diamo seguito?",
   "email.proposal.calendarQuestion":
     "«{subject}» è in calendario per il {date}. Lo seguiamo come milestone?",
   "email.proposal.createBacklogItem": "Apri una voce di backlog: {title}",

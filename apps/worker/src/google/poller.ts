@@ -1,6 +1,7 @@
 import {
   calendarEvents as calendarEventsTable,
   emailMessages,
+  emailProposals,
   googleAccounts,
   projectEmailRoutes,
   projects,
@@ -226,6 +227,12 @@ export interface GooglePollerDeps {
   runner?: AgentRunner;
   /** Modello della classificazione (`GMAIL_MODEL`); omesso = default del CLI. */
   gmailModel?: string;
+  /**
+   * Fase 6b: tetto sul FAN-OUT di un messaggio (`GMAIL_MAX_PROJECTS_PER_MESSAGE`),
+   * passato alla classificazione. Assente = il default di `classify.ts`
+   * ({@link GMAIL_MAX_PROJECTS_PER_MESSAGE} lì).
+   */
+  maxProjectsPerMessage?: number;
   /** Caricatore della catena di provider AI (iniettabile nei test). */
   loadProviderChainFn?: typeof loadProviderChain;
   /**
@@ -703,6 +710,9 @@ async function runClassifyPhase(
         encryptionKey: deps.encryptionKey,
         maxPerTick: deps.classifyMaxPerTick ?? DEFAULT_CLASSIFY_MAX_PER_TICK,
         ...(deps.gmailModel !== undefined ? { model: deps.gmailModel } : {}),
+        ...(deps.maxProjectsPerMessage !== undefined
+          ? { maxProjectsPerMessage: deps.maxProjectsPerMessage }
+          : {}),
         ...(deps.loadProviderChainFn !== undefined
           ? { loadProviderChainFn: deps.loadProviderChainFn }
           : {}),
@@ -1002,7 +1012,15 @@ async function syncCalendar(
   return { syncToken, stats };
 }
 
-/** Nomi dei progetti nominati dalle righe del lotto, in UNA query. */
+/**
+ * Nomi dei progetti nominati dalle righe del lotto, in UNA query.
+ *
+ * Fase 6b: per la posta gli id vengono dai FIGLI (`email_proposals.project_id`,
+ * uno certo per riga), non più dal solo `email_messages.project_id` — il
+ * fan-out ha già risolto quale progetto ciascuna proposta riguarda, quindi
+ * qui non servono più i `candidateProjectIds` del padre (erano le opzioni
+ * «Riguarda …» di `choose_project`, non più generate).
+ */
 async function projectNamesOf(db: Db, ids: (string | null)[]): Promise<Map<string, string>> {
   const unique = [...new Set(ids.filter((id): id is string => id !== null))];
   const names = new Map<string, string>();
@@ -1036,6 +1054,15 @@ async function projectNamesOf(db: Db, ids: (string | null)[]): Promise<Map<strin
  * `publishProposal` è già atomica riga per riga (notifica + chiusura della riga
  * nella stessa transazione): un errore su un messaggio non compromette quelli
  * già proposti, e quello fallito resta esattamente dov'era.
+ *
+ * Fase 6b: la selezione per la posta è un JOIN fra i FIGLI `classified` senza
+ * notifica (`email_proposals`) e il loro padre (`email_messages`, per
+ * mittente/oggetto/thread/data — comuni a tutti i figli dello stesso
+ * messaggio), filtrato per casella. Il tetto per tick conta **proposte**
+ * (righe `email_proposals`), non messaggi: un messaggio con tre figli vale
+ * tre verso il tetto, non uno — senza questo, il tetto sul FAN-OUT
+ * (`GMAIL_MAX_PROJECTS_PER_MESSAGE`) potrebbe comunque far pubblicare più
+ * card di quante il tetto per tick intendesse.
  */
 async function runProposePhase(
   deps: GooglePollerDeps,
@@ -1049,28 +1076,32 @@ async function runProposePhase(
     const lang = deps.lang ?? (await getContentLanguage(deps.db));
     let published = 0;
 
-    // --- Posta: i messaggi classificati e non ancora proposti, dai più vecchi.
-    const messages = await deps.db
+    // --- Posta: le proposte FIGLIE classificate e non ancora proposte, dal
+    // padre più vecchio. Un JOIN e non due query separate: il padre porta
+    // mittente/oggetto/thread/data, comuni a ogni figlio dello stesso
+    // messaggio, e non li ripetiamo su `email_proposals`.
+    const proposalRows = await deps.db
       .select({
-        id: emailMessages.id,
+        proposalId: emailProposals.id,
+        proposalProjectId: emailProposals.projectId,
+        proposalClassification: emailProposals.classification,
+        messageId: emailMessages.id,
         threadId: emailMessages.threadId,
         fromAddress: emailMessages.fromAddress,
         fromName: emailMessages.fromName,
         subject: emailMessages.subject,
         receivedAt: emailMessages.receivedAt,
-        projectId: emailMessages.projectId,
-        candidateProjectIds: emailMessages.candidateProjectIds,
-        classification: emailMessages.classification,
       })
-      .from(emailMessages)
+      .from(emailProposals)
+      .innerJoin(emailMessages, eq(emailProposals.emailMessageId, emailMessages.id))
       .where(
         and(
           eq(emailMessages.accountId, account.id),
-          eq(emailMessages.status, "classified"),
-          isNull(emailMessages.proposalNotificationId),
+          eq(emailProposals.status, "classified"),
+          isNull(emailProposals.proposalNotificationId),
         ),
       )
-      .orderBy(asc(emailMessages.receivedAt), asc(emailMessages.id))
+      .orderBy(asc(emailMessages.receivedAt), asc(emailProposals.id))
       .limit(limit);
 
     // --- Calendario: la `where` è, alla lettera, il contratto documentato su
@@ -1099,46 +1130,56 @@ async function runProposePhase(
       .orderBy(asc(calendarEventsTable.startsAt), asc(calendarEventsTable.id))
       .limit(limit);
 
-    if (messages.length === 0 && events.length === 0) return 0;
+    if (proposalRows.length === 0 && events.length === 0) return 0;
 
     // Una query sola per i nomi di TUTTI i progetti nominati dal lotto: il
-    // risolto di ogni riga più i candidati, che diventano le opzioni
-    // «Riguarda …» dei messaggi ambigui.
+    // progetto CERTO di ciascun figlio più quello di ciascun evento di
+    // calendario. Niente più candidati: `choose_project` non si genera più
+    // (vedi il docblock di `buildEmailProposalEvent`).
     const projectNames = await projectNamesOf(deps.db, [
-      ...messages.flatMap((message) => [message.projectId, ...message.candidateProjectIds]),
+      ...proposalRows.map((row) => row.proposalProjectId),
       ...events.map((event) => event.projectId),
     ]);
 
-    for (const message of messages) {
+    for (const row of proposalRows) {
       if (deps.signal?.aborted) return published;
       const event = buildEmailProposalEvent({
         lang,
-        message,
+        message: {
+          threadId: row.threadId,
+          fromAddress: row.fromAddress,
+          fromName: row.fromName,
+          subject: row.subject,
+          receivedAt: row.receivedAt,
+        },
+        proposal: { projectId: row.proposalProjectId, classification: row.proposalClassification },
         mailboxEmail: account.email,
         projectNames,
       });
       if (!event) {
-        // Niente da proporre da una classificazione che non regge più: la riga
-        // resta `classified` e verrebbe ripescata a ogni tick per sempre.
-        // `ignored` la chiude senza inventare una proposta.
+        // Niente da proporre da una classificazione che non regge più (o un
+        // nome di progetto che non si risolve più): il FIGLIO resta
+        // `classified` e verrebbe ripescato a ogni tick per sempre. `ignored`
+        // lo chiude senza inventare una proposta — il PADRE non si tocca qui.
         await deps.db
-          .update(emailMessages)
+          .update(emailProposals)
           .set({ status: "ignored" })
-          .where(eq(emailMessages.id, message.id));
+          .where(eq(emailProposals.id, row.proposalId));
         continue;
       }
       const result = await publishProposal(deps.db, {
         event,
         source: "email",
-        rowId: message.id,
+        rowId: row.proposalId,
         mailboxOwnerUserId: account.userId,
-        ...(message.projectId ? { projectId: message.projectId } : {}),
+        projectId: row.proposalProjectId,
         ...(deps.publish !== undefined ? { publish: deps.publish } : {}),
       });
       if (result.ok) published += 1;
       else if (result.reason !== "not_claimable") {
         logger.warn(
-          `google: proposta non pubblicata per il messaggio ${message.id} (${result.reason})`,
+          `google: proposta non pubblicata per il messaggio ${row.messageId} ` +
+            `(progetto ${row.proposalProjectId}, ${result.reason})`,
         );
       }
     }

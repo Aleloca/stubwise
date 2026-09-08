@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
 import {
   calendarEvents as calendarEventsTable,
-  emailMessages,
+  emailProposals,
   notifications,
   type Db,
+  type EmailProposalRow,
 } from "@stubwise/db";
 import { t, type Language } from "@stubwise/i18n";
 import { publishNotification, type GoogleProposalAction, type GoogleProposalEvent } from "@stubwise/notifications";
@@ -14,9 +15,10 @@ import { buildMilestoneProposal, isReadyForProposal, isoDay } from "./calendar.j
 import { EMAIL_PROPOSAL_TYPES, EMAIL_SIGNALS } from "./classify.js";
 
 /**
- * FASE D (fase 6, Task 10): da una riga già trattata — un messaggio
- * `classified` o un evento di calendario pronto — alla **proposta** che finisce
- * nell'inbox del proprietario della casella.
+ * FASE D (fase 6, Task 10; ripartita per progetto in fase 6b, Task 5): da una
+ * riga già trattata — una proposta figlia `classified` (`email_proposals`,
+ * UN progetto certo) o un evento di calendario pronto — alla **proposta** che
+ * finisce nell'inbox del proprietario della casella.
  *
  * ## Due metà, e stanno insieme di proposito
  *
@@ -214,6 +216,7 @@ function assembleEvent(args: {
   proposalId: string;
   source: "email" | "calendar";
   messageUrl: string;
+  projectId?: string;
   projectName?: string;
   signal: GoogleProposalEvent["signal"];
   from: string;
@@ -228,6 +231,7 @@ function assembleEvent(args: {
     proposalId: args.proposalId,
     source: args.source,
     messageUrl: args.messageUrl,
+    ...(args.projectId ? { projectId: args.projectId } : {}),
     ...(args.projectName ? { projectName: args.projectName } : {}),
     signal: args.signal,
     from: args.from,
@@ -244,37 +248,48 @@ function assembleEvent(args: {
   };
 }
 
-/** Il minimo di `email_messages` che serve a comporre una proposta. */
-export interface EmailProposalRow {
-  id: string;
+/**
+ * Il minimo del PADRE (`email_messages`) che serve a comporre una proposta:
+ * mittente, oggetto, thread, data — comuni a OGNI figlio dello stesso
+ * messaggio (fase 6b). Non porta più `projectId`/`candidateProjectIds`: il
+ * progetto della proposta lo dice la riga figlia, non il messaggio.
+ */
+export interface EmailProposalMessageRow {
   threadId: string;
   fromAddress: string;
   fromName: string | null;
   subject: string | null;
   receivedAt: Date;
-  projectId: string | null;
-  candidateProjectIds: string[];
-  classification: Record<string, unknown> | null;
 }
 
 export interface BuildEmailProposalArgs {
   lang: Language;
-  message: EmailProposalRow;
+  /** Il messaggio PADRE: mittente, oggetto, thread, data. */
+  message: EmailProposalMessageRow;
+  /**
+   * La riga FIGLIA (`email_proposals`, fase 6b): il progetto è CERTO, non più
+   * da risolvere qui. Bastano `projectId` e `classification`; gli altri campi
+   * della riga (stato, esito…) non servono alla costruzione pura dell'evento.
+   */
+  proposal: Pick<EmailProposalRow, "projectId" | "classification">;
   /** Indirizzo della casella: entra nel permalink Gmail (vedi {@link gmailThreadUrl}). */
   mailboxEmail: string;
-  /** Nome di ogni progetto nominabile (risolto e candidati), per id. */
+  /** Nome di ogni progetto nominabile, per id — qui serve solo quello del figlio. */
   projectNames: Map<string, string>;
   /** UUID della proposta. Iniettabile: è l'ancora, e i test devono poterla fissare. */
   proposalId?: string;
 }
 
 /**
- * L'evento `google.proposal` di UN messaggio classificato, o `null` se non c'è
- * niente da proporre.
+ * L'evento `google.proposal` di UNA proposta figlia (`email_proposals`, fase
+ * 6b — un progetto, un messaggio), o `null` se non c'è niente da proporre.
  *
  * `null` non è un errore: una classificazione da cui non sopravvive nessuna
  * azione produrrebbe una card con la sola opzione «Non fare nulla», cioè una
  * notifica che chiede di archiviare qualcosa che nessuno ha chiesto di aprire.
+ * È `null` anche quando il nome del progetto non si risolve (`projectNames`
+ * non lo contiene): senza un nome la domanda non può nominarlo, e la card
+ * sarebbe indistinguibile dalle sorelle sullo stesso messaggio.
  *
  * ## `recommendedIndex` viene RIMAPPATO, non copiato
  *
@@ -285,49 +300,42 @@ export interface BuildEmailProposalArgs {
  * segue quindi la proposta consigliata mentre si filtra, e se non sopravvive si
  * ricade su `0`: la prima è comunque quella che il modello ha messo per prima.
  *
- * ## `choose_project` c'è solo quando serve DAVVERO
+ * ## `choose_project` NON si genera più
  *
- * Un messaggio in perimetro ma AMBIGUO (parità di regole, `project_id` nullo,
- * più candidati) ha un problema che nessuna delle altre azioni risolve: non si
- * sa a chi appartiene. Lì — e solo lì — si aggiunge un'opzione per candidato,
- * che riassegna il messaggio e lo rimanda alla classificazione. Su un messaggio
- * con progetto certo sarebbe rumore: la domanda è già risposta.
+ * Prima della fase 6b, un messaggio in perimetro ma AMBIGUO (parità di
+ * regole, nessun progetto risolto, più candidati) offriva un'opzione
+ * «Riguarda …» per candidato. Dalla fase 6b l'ambiguità non esiste più a
+ * questo livello: il FAN-OUT (`classify.ts`/`writeClassification`) crea una
+ * riga figlia per OGNI progetto del perimetro che ha prodotto almeno una
+ * proposta valida, quindi il progetto di QUESTA proposta è già certo — è
+ * `proposal.projectId`, non qualcosa da chiedere. `choose_project` resta
+ * un'azione valida nell'unione (`@stubwise/notifications`) e nell'esecutore,
+ * ma solo per le card pubblicate PRIMA di questa fase: vedi il commento di
+ * deprecazione sul tipo.
  */
 export function buildEmailProposalEvent(args: BuildEmailProposalArgs): GoogleProposalEvent | null {
-  const { lang, message } = args;
-  const parsed = storedClassificationSchema.safeParse(message.classification ?? {});
+  const { lang, message, proposal } = args;
+  const parsed = storedClassificationSchema.safeParse(proposal.classification ?? {});
   if (!parsed.success) return null;
   const stored = parsed.data;
+
+  const projectName = args.projectNames.get(proposal.projectId);
+  if (!projectName) return null;
 
   const options: OptionWithAction[] = [];
   let recommendedIndex = 0;
   for (const [index, raw] of stored.proposals.entries()) {
     if (options.length >= MAX_PROPOSAL_OPTIONS) break;
-    const proposal = storedProposalSchema.safeParse(raw);
-    if (!proposal.success) continue;
-    const action = actionForProposal(proposal.data);
+    const parsedProposal = storedProposalSchema.safeParse(raw);
+    if (!parsedProposal.success) continue;
+    const action = actionForProposal(parsedProposal.data);
     if (!action) continue;
     if (index === stored.recommendedIndex) recommendedIndex = options.length;
     options.push({
-      label: labelForProposal(lang, proposal.data),
-      consequence: proposal.data.consequence,
+      label: labelForProposal(lang, parsedProposal.data),
+      consequence: parsedProposal.data.consequence,
       action,
     });
-  }
-
-  // Progetto ambiguo: si chiede a chi appartiene. Un solo candidato non è
-  // un'ambiguità (il routing lo avrebbe risolto), quindi non produce opzioni.
-  if (message.projectId === null && message.candidateProjectIds.length > 1) {
-    for (const candidateId of message.candidateProjectIds) {
-      if (options.length >= MAX_PROPOSAL_OPTIONS) break;
-      const name = args.projectNames.get(candidateId);
-      if (!name) continue;
-      options.push({
-        label: t(lang, "email.proposal.chooseProject", { project: name }),
-        consequence: t(lang, "email.proposal.chooseProjectConsequence", { project: name }),
-        action: { type: "choose_project", projectId: candidateId },
-      });
-    }
   }
 
   if (options.length === 0) return null;
@@ -335,18 +343,21 @@ export function buildEmailProposalEvent(args: BuildEmailProposalArgs): GooglePro
 
   const from = message.fromName ? `${message.fromName} <${message.fromAddress}>` : message.fromAddress;
   const subject = message.subject?.trim() || t(lang, "email.input.none");
-  const projectName = message.projectId ? args.projectNames.get(message.projectId) : undefined;
 
   return assembleEvent({
     proposalId: args.proposalId ?? randomUUID(),
     source: "email",
     messageUrl: gmailThreadUrl(args.mailboxEmail, message.threadId),
-    ...(projectName ? { projectName } : {}),
+    projectId: proposal.projectId,
+    projectName,
     signal: stored.signal,
     from,
     subject,
     receivedAt: message.receivedAt,
-    question: t(lang, "email.proposal.question", { from, subject }),
+    // Il progetto è SEMPRE certo qui (riga figlia): sempre il template che lo
+    // nomina, mai `email.proposal.question` (quello resta per rileggere le
+    // card storiche, non per costruirne di nuove).
+    question: t(lang, "google.proposal.question.withProject", { project: projectName, from, subject }),
     options: [...options, ignoreOption(lang)],
     recommendedIndex,
   });
@@ -404,6 +415,7 @@ export function buildCalendarProposalEvent(
     proposalId: args.proposalId ?? randomUUID(),
     source: "calendar",
     messageUrl: calendarDayUrl(args.mailboxEmail, event.startsAt),
+    projectId,
     projectName,
     signal: "deadline",
     from: event.organizer ?? args.mailboxEmail,
@@ -464,7 +476,11 @@ export interface PublishProposalArgs {
   event: GoogleProposalEvent;
   /** Quale tabella tiene la riga d'origine: decide la scrittura di chiusura. */
   source: "email" | "calendar";
-  /** `email_messages.id` o `calendar_events.id`. */
+  /**
+   * `email_proposals.id` (la riga FIGLIA, fase 6b — non più
+   * `email_messages.id`: il padre non si claima più qui, vedi il docblock
+   * della funzione) o `calendar_events.id`.
+   */
   rowId: string;
   /** L'UNICO destinatario: `google_accounts.user_id` (audience `mailbox_owner`). */
   mailboxOwnerUserId: string;
@@ -527,6 +543,17 @@ class ProposalAborted extends Error {
  * e allargarne il contratto per un solo chiamante costerebbe più di questa
  * query — che è esatta perché l'audience `mailbox_owner` scrive una riga sola.
  *
+ * ## Fase 6b: il claim è sulla riga FIGLIA, mai sul padre
+ *
+ * Per `source: "email"` il claim guardato è su `email_proposals` (l'indice
+ * parziale `email_proposals_claim_idx`, `WHERE status='classified' AND
+ * proposal_notification_id IS NULL`), non più su `email_messages`. Questa
+ * funzione NON TOCCA MAI `email_messages`: lo stato aggregato del padre si
+ * calcola in LETTURA altrove (Task 6/8), non si persiste qui. È così che due
+ * proposte dello stesso messaggio — due figli, due progetti — si pubblicano
+ * in parallelo (due chiamate concorrenti a questa funzione) senza contendersi
+ * nessuna riga: ciascuna claima solo il proprio figlio.
+ *
  * NON LANCIA per gli esiti previsti (li porta in `reason`); lascia salire solo
  * gli errori veri del database, che il chiamante tratta come tali.
  */
@@ -562,16 +589,16 @@ export async function publishProposal(
       const claimed =
         args.source === "email"
           ? await tx
-              .update(emailMessages)
+              .update(emailProposals)
               .set({ status: "proposed", proposalNotificationId: row.id })
               .where(
                 and(
-                  eq(emailMessages.id, args.rowId),
-                  eq(emailMessages.status, "classified"),
-                  isNull(emailMessages.proposalNotificationId),
+                  eq(emailProposals.id, args.rowId),
+                  eq(emailProposals.status, "classified"),
+                  isNull(emailProposals.proposalNotificationId),
                 ),
               )
-              .returning({ id: emailMessages.id })
+              .returning({ id: emailProposals.id })
           : await tx
               .update(calendarEventsTable)
               .set({ proposalNotificationId: row.id })
