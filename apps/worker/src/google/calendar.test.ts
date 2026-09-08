@@ -127,6 +127,7 @@ function credentialsFor(account: typeof googleAccounts.$inferSelect): GoogleAcco
     refreshToken: "refresh",
     clientId: "client-id",
     clientSecret: "client-secret",
+    domains: ["acme.com"],
     scopes: [],
     proposalsEnabled: account.proposalsEnabled,
     gmailHistoryId: account.gmailHistoryId,

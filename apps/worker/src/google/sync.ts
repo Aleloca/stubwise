@@ -196,11 +196,20 @@ export function isFromMailbox(message: GmailMessage, mailboxEmail: string): bool
 }
 
 /**
- * Il messaggio nella forma che il routing legge.
+ * Il messaggio nella forma che routing e ammissione leggono.
  *
  * `text` è opzionale ed è l'INTERO punto della funzione: al pre-filtro non c'è
  * (si hanno solo header ed etichette, e scaricare il corpo è ciò che si sta
  * cercando di evitare), alla risoluzione definitiva sì.
+ *
+ * `headers` (fase 6c) porta TUTTI gli header che il client ha richiesto
+ * (`DEFAULT_METADATA_HEADERS` in `@stubwise/google/gmail.ts`), non solo
+ * quelli che questa funzione già usa per `from`/`to`/`cc`/`subject`: è ciò
+ * che serve ad `admit` per riconoscere la posta automatica
+ * (`List-Unsubscribe`, `List-Id`, `Precedence`, `Auto-Submitted`). Le chiavi
+ * sono già in minuscolo — `message.headers` le normalizza così a monte, in
+ * `toMessage` di `gmail.ts` — quindi si passa l'oggetto direttamente, senza
+ * ricostruirlo.
  */
 export function messageToRouting(message: GmailMessage, text?: string): EmailForRouting {
   const routing: EmailForRouting = {
@@ -209,6 +218,7 @@ export function messageToRouting(message: GmailMessage, text?: string): EmailFor
     ccAddresses: parseAddressList(message.headers["cc"]),
     labels: message.labelIds,
     subject: message.headers["subject"] ?? "",
+    headers: message.headers,
   };
   if (text !== undefined) routing.text = text;
   return routing;

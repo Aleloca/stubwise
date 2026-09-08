@@ -25,8 +25,26 @@ export const MAX_TEXT_LENGTH = 20_000;
 /** Marcatore in coda al testo troncato. */
 export const TEXT_TRUNCATION_MARKER = "… [troncato]";
 
-/** Header che servono al routing e alla scheda del messaggio. */
-export const DEFAULT_METADATA_HEADERS = ["From", "To", "Cc", "Subject", "Date", "Message-Id"] as const;
+/**
+ * Header che servono al routing e alla scheda del messaggio, più — dalla
+ * fase 6c — quelli che {@link looksAutomated}/`admit` in
+ * `@stubwise/notifications` usano per riconoscere la posta automatica
+ * (`List-Unsubscribe`, `List-Id`, `Precedence`, `Auto-Submitted`). Non è una
+ * chiamata in più: `getMessageMetadata` chiede questi header nella STESSA
+ * risposta `format=metadata`.
+ */
+export const DEFAULT_METADATA_HEADERS = [
+  "From",
+  "To",
+  "Cc",
+  "Subject",
+  "Date",
+  "Message-Id",
+  "List-Unsubscribe",
+  "List-Id",
+  "Precedence",
+  "Auto-Submitted",
+] as const;
 
 /** Nodo dell'albero MIME come lo restituisce Gmail. */
 export interface GmailPayload {

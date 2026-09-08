@@ -47,6 +47,17 @@ export interface GoogleAccountCredentials {
   /** Credenziali dell'app OAuth interna del Workspace, decifrate. */
   clientId: string;
   clientSecret: string;
+  /**
+   * `google_workspaces.domains` del Workspace di QUESTA casella — stessa riga
+   * del join già fatto per `clientId`/`clientSecret`, zero query aggiuntive.
+   * Non è il perimetro dell'ammissione (fase 6c): quello vuole i domini di
+   * TUTTI i Workspace registrati, non solo di quello della casella, e si
+   * legge con una query dedicata (vedi `apps/worker/src/google/poller.ts`).
+   * Questo campo resta comunque parte delle credenziali della casella perché
+   * è la stessa riga già in mano — un consumatore che ha bisogno solo del
+   * proprio Workspace non deve rifare il join.
+   */
+  domains: string[];
   scopes: string[];
   proposalsEnabled: boolean;
   /** Cursore della History API di Gmail (null = primo giro). */
@@ -94,6 +105,7 @@ export async function loadGoogleAccountCredentials(
       disabledAt: googleAccounts.disabledAt,
       clientId: googleWorkspaces.clientId,
       clientSecretEncrypted: googleWorkspaces.clientSecretEncrypted,
+      domains: googleWorkspaces.domains,
     })
     .from(googleAccounts)
     .innerJoin(googleWorkspaces, eq(googleWorkspaces.id, googleAccounts.workspaceId))
@@ -113,6 +125,7 @@ export async function loadGoogleAccountCredentials(
       refreshToken: decrypt(row.refreshTokenEncrypted, encryptionKey),
       clientId: row.clientId,
       clientSecret: decrypt(row.clientSecretEncrypted, encryptionKey),
+      domains: row.domains,
       scopes: row.scopes,
       proposalsEnabled: row.proposalsEnabled,
       gmailHistoryId: row.gmailHistoryId,

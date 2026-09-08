@@ -3,6 +3,8 @@ import {
   emailMessages,
   emailProposals,
   googleAccounts,
+  googleWorkspaces,
+  instanceSettings,
   notifications,
   projectEmailRoutes,
   projects,
@@ -25,7 +27,7 @@ import {
   type GoogleAccountCredentials,
 } from "@stubwise/google/credentials";
 import type { Language } from "@stubwise/i18n";
-import { matchRoutes, type EmailRoute } from "@stubwise/notifications";
+import { admit, matchRoutes, type AdmissionConfig, type EmailRoute } from "@stubwise/notifications";
 import {
   and,
   asc,
@@ -305,6 +307,15 @@ interface AccountContext {
   accessToken: string;
   /** Le regole di TUTTI i progetti, caricate una volta per tick. */
   routes: EmailRoute[];
+  /**
+   * Configurazione dell'AMMISSIONE (fase 6c), caricata una volta per tick
+   * accanto a `routes` — vedi {@link loadAdmissionConfig}. Usata dal
+   * pre-filtro sui metadati in {@link syncGmail}, prima ancora di scaricare
+   * il corpo; `routes` qui sopra resta usata ANCHE da sola per
+   * l'attribuzione (`matchRoutes`) dopo il download e per il routing del
+   * calendario, che non ha ammissione.
+   */
+  admission: AdmissionConfig;
 }
 
 /**
@@ -353,6 +364,68 @@ export async function loadAllRoutes(db: Db): Promise<EmailRoute[]> {
       value: projectEmailRoutes.value,
     })
     .from(projectEmailRoutes);
+}
+
+/**
+ * TUTTI i domini di TUTTI i `google_workspaces` REGISTRATI — non solo quelli
+ * delle caselle attive in questo tick.
+ *
+ * Deriva apposta dai `GoogleAccountCredentials` caricati per casella non
+ * basterebbe: un Workspace registrato in Impostazioni → Google ma senza
+ * ancora nessuna casella collegata (l'admin lo registra, nessuno ha ancora
+ * fatto l'OAuth) avrebbe comunque i suoi domini nel perimetro
+ * dell'ammissione — vedi il docblock di {@link AdmissionConfig.workspaceDomains}
+ * in `@stubwise/notifications`: "TUTTI i Workspace registrati", non "con
+ * casella collegata". Una query dedicata (per tick, non per casella) è
+ * l'unico modo di coprire anche quel caso.
+ */
+export async function loadAllWorkspaceDomains(db: Db): Promise<string[]> {
+  const rows = await db.select({ domains: googleWorkspaces.domains }).from(googleWorkspaces);
+  return rows.flatMap((row) => row.domains);
+}
+
+/**
+ * Configurazione D'ISTANZA dell'ammissione (fase 6c, `instance_settings`
+ * singleton id=1), letta una volta per tick — stesso pattern di
+ * `getContentLanguage` in `../settings.js`. Default difensivo se la riga
+ * manca (DB ripristinato senza seed): identico a `loadMailAdmission` in
+ * `apps/server/src/routes/settings.ts`, che serve la stessa configurazione
+ * alla UI — le due letture non devono divergere sui default.
+ */
+async function loadInstanceAdmissionSettings(
+  db: Db,
+): Promise<Pick<AdmissionConfig, "admitWorkspaceDomains" | "denyLabels" | "denyAutomated">> {
+  const [row] = await db
+    .select({
+      admitWorkspaceDomains: instanceSettings.emailAdmitWorkspaceDomains,
+      denyLabels: instanceSettings.emailAdmissionDenyLabels,
+      denyAutomated: instanceSettings.emailAdmissionDenyAutomated,
+    })
+    .from(instanceSettings)
+    .where(eq(instanceSettings.id, 1));
+  return {
+    admitWorkspaceDomains: row?.admitWorkspaceDomains ?? true,
+    denyLabels: row?.denyLabels ?? ["CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL", "SPAM"],
+    denyAutomated: row?.denyAutomated ?? true,
+  };
+}
+
+/**
+ * La {@link AdmissionConfig} completa per il tick: configurazione
+ * d'istanza + domini Workspace + `routes` (RIUSATE, non ricaricate —
+ * `routes` è già la stessa variabile che {@link loadAllRoutes} produce e che
+ * `matchRoutes` usa per l'attribuzione dopo il download).
+ *
+ * Due query indipendenti (`instance_settings`, `google_workspaces`), lanciate
+ * in parallelo: nessuna delle due dipende dall'altra, e sono comunque una
+ * frazione del costo di un giro che poi scarica messaggi per più caselle.
+ */
+export async function loadAdmissionConfig(db: Db, routes: EmailRoute[]): Promise<AdmissionConfig> {
+  const [settings, workspaceDomains] = await Promise.all([
+    loadInstanceAdmissionSettings(db),
+    loadAllWorkspaceDomains(db),
+  ]);
+  return { ...settings, workspaceDomains, routes };
 }
 
 /** Chiude una casella: `disabled_at` + motivo, e da lì il claim non la vede più. */
@@ -587,13 +660,18 @@ async function filterAlreadyIngested(db: Db, accountId: string, ids: string[]): 
  * L'ordine dei tre filtri è la spesa del tick, e non è negoziabile:
  *  1. **già ingerito** — nessuna chiamata a Google;
  *  2. **`format=metadata`** — header ed etichette, non il corpo;
- *  3. **routing sui soli metadati** — fuori perimetro qui significa nessun
- *     `messages.get full` e nessuna riga scritta. Una casella rumorosa costa
- *     quindi una `metadata` per messaggio, non un corpo per messaggio.
+ *  3. **ammissione sui soli metadati** (fase 6c, `admit`) — fuori perimetro
+ *     qui significa nessun `messages.get full` e nessuna riga scritta. Una
+ *     casella rumorosa costa quindi una `metadata` per messaggio, non un
+ *     corpo per messaggio. Non è più `matchRoutes.inScope`: un messaggio può
+ *     essere ammesso (dominio Workspace, o una regola di progetto) senza che
+ *     nessuna regola di progetto combaci — vedi `matchRoutes` più sotto.
  *
- * Il secondo `matchRoutes` — quello col testo — non decide più se scaricare
- * (il corpo è già in mano) ma può risolvere un progetto che sui soli metadati
- * era ambiguo, perché una keyword del corpo aggiunge un match.
+ * `matchRoutes` dopo il download resta l'ATTRIBUZIONE (di quale progetto
+ * parla), invariata: non decide più se scaricare, ma risolve `scope_project_ids`
+ * — che ora può tornare vuoto su un messaggio comunque ammesso — e può
+ * risolvere un progetto che sui soli metadati era ambiguo, perché una keyword
+ * del corpo aggiunge un match.
  */
 async function syncGmail(
   deps: GooglePollerDeps,
@@ -642,8 +720,8 @@ async function syncGmail(
 
     if (isFromMailbox(metadata, ctx.credentials.email)) continue;
 
-    const preFilter = matchRoutes(messageToRouting(metadata), ctx.routes);
-    if (!preFilter.inScope) continue;
+    const admission = admit(messageToRouting(metadata), ctx.admission);
+    if (!admission.admitted) continue;
 
     const full = await gmail.getMessageFull({ accessToken: ctx.accessToken, id });
     const text = full.payload ? extractText(full.payload) : "";
@@ -1242,6 +1320,7 @@ async function runAccountTick(
   deps: GooglePollerDeps,
   account: ClaimedAccount,
   routes: EmailRoute[],
+  admission: AdmissionConfig,
 ): Promise<AccountTickResult | null> {
   const logger = deps.logger ?? defaultLogger;
   const load = deps.loadCredentials ?? loadGoogleAccountCredentials;
@@ -1262,7 +1341,7 @@ async function runAccountTick(
     clientSecret: credentials.clientSecret,
     refreshToken: credentials.refreshToken,
   });
-  const ctx: AccountContext = { credentials, accessToken: tokens.accessToken, routes };
+  const ctx: AccountContext = { credentials, accessToken: tokens.accessToken, routes, admission };
 
   // Fase 1 — Gmail, e il suo cursore messo al sicuro prima di tutto il resto.
   const gmailResult = await syncGmail(deps, ctx, account);
@@ -1427,10 +1506,18 @@ export async function pollGoogleOnce(deps: GooglePollerDeps): Promise<GoogleTick
     return stats;
   }
 
+  let admission: AdmissionConfig;
+  try {
+    admission = await loadAdmissionConfig(deps.db, routes);
+  } catch (err) {
+    logger.error(`google: lettura della configurazione di ammissione fallita: ${errText(err)}`);
+    return stats;
+  }
+
   for (const account of accounts) {
     if (deps.signal?.aborted) break;
     try {
-      const result = await runAccountTick(deps, account, routes);
+      const result = await runAccountTick(deps, account, routes, admission);
       if (!result) continue;
       stats.ingested += result.ingested;
       stats.classified += result.classify.classified;

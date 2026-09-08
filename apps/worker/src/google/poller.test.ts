@@ -5,6 +5,7 @@ import {
   emailProposals,
   googleAccounts,
   googleWorkspaces,
+  instanceSettings,
   notifications,
   projectEmailRoutes,
   projects,
@@ -74,6 +75,9 @@ afterEach(async () => {
   await db.delete(projectEmailRoutes);
   await db.delete(projects);
   await db.delete(users);
+  // Singleton (id=1): senza questa riga un test che tocca l'ammissione
+  // lascerebbe la configurazione sporca per quelli dopo.
+  await db.delete(instanceSettings);
   vi.restoreAllMocks();
 });
 
@@ -138,6 +142,7 @@ function credentialsFor(account: typeof googleAccounts.$inferSelect): GoogleAcco
     refreshToken: "refresh",
     clientId: "client-id",
     clientSecret: "client-secret",
+    domains: ["acme.com"],
     scopes: [],
     proposalsEnabled: account.proposalsEnabled,
     gmailHistoryId: account.gmailHistoryId,
@@ -712,6 +717,138 @@ describe("sincronizzazione Gmail", () => {
       .from(emailMessages)
       .where(eq(emailMessages.accountId, account.id));
     expect(allRows.map((row) => row.gmailMessageId).sort()).toEqual(["m1", "m2", "m3"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Ammissione (fase 6c) — Task 3: il pre-filtro AMMETTE, non attribuisce più.
+// ---------------------------------------------------------------------------
+
+describe("ammissione (fase 6c)", () => {
+  it("dominio Workspace REGISTRATO, senza nessuna regola di progetto: ingerito con scope_project_ids vuoto", async () => {
+    // Nessun progetto, nessuna regola: prima di questa fase questo messaggio
+    // sarebbe rimasto fuori perimetro e non sarebbe mai stato scaricato.
+    const account = await seedAccount({
+      nextSyncAt: new Date(Date.now() - 60_000),
+      gmailHistoryId: "1000",
+    });
+    const gmail = fakeGmail({
+      history: { addedMessageIds: ["m1"], historyId: "1010" },
+      // Un collega sullo STESSO dominio Workspace (acme.com) della casella,
+      // non la casella stessa: `isFromMailbox` non lo scarta.
+      messages: { m1: message({ id: "m1", from: "collega@acme.com" }) },
+    });
+
+    const stats = await pollGoogleOnce(deps(account, gmail));
+
+    expect(stats.ingested).toBe(1);
+    // Ammesso ⇒ il corpo viene scaricato, come per qualunque messaggio ammesso.
+    expect(gmail.calls).toContain("full:m1");
+    const [row] = await db.select().from(emailMessages);
+    expect(row).toMatchObject({
+      fromAddress: "collega@acme.com",
+      // Nessuna regola di progetto combacia: perimetro vuoto, non "fuori".
+      projectId: null,
+      candidateProjectIds: [],
+      scopeProjectIds: [],
+      status: "new",
+    });
+  });
+
+  it("un Workspace REGISTRATO ma SENZA nessuna casella collegata ammette comunque (query dedicata, non derivata dalle credenziali della casella)", async () => {
+    // Se `workspaceDomains` venisse derivato solo dalle `GoogleAccountCredentials`
+    // caricate per le caselle di questo tick, i domini di un Workspace SENZA
+    // nessuna casella collegata non comparirebbero mai: `loadAllWorkspaceDomains`
+    // interroga `google_workspaces` direttamente, non le caselle attive.
+    await db.insert(googleWorkspaces).values({
+      name: "Filiale",
+      domains: ["filiale.acme.com"],
+      clientId: "altro-client-id",
+      clientSecretEncrypted: "blob",
+    });
+    const account = await seedAccount({
+      nextSyncAt: new Date(Date.now() - 60_000),
+      gmailHistoryId: "1000",
+    });
+    const gmail = fakeGmail({
+      history: { addedMessageIds: ["m1"], historyId: "1010" },
+      messages: { m1: message({ id: "m1", from: "socio@filiale.acme.com" }) },
+    });
+
+    const stats = await pollGoogleOnce(deps(account, gmail));
+
+    expect(stats.ingested).toBe(1);
+  });
+
+  it("etichetta esclusa (denyLabels di default): NESSUN download, anche se una regola di progetto combacerebbe", async () => {
+    const projectId = await seedProject("Acme");
+    await db
+      .insert(projectEmailRoutes)
+      .values({ projectId, kind: "sender_domain", value: "cliente.com" });
+    const account = await seedAccount({
+      nextSyncAt: new Date(Date.now() - 60_000),
+      gmailHistoryId: "1000",
+    });
+    const gmail = fakeGmail({
+      history: { addedMessageIds: ["m1"], historyId: "1010" },
+      messages: {
+        m1: message({
+          id: "m1",
+          from: "cliente@cliente.com",
+          labels: ["INBOX", "CATEGORY_PROMOTIONS"],
+        }),
+      },
+    });
+
+    const stats = await pollGoogleOnce(deps(account, gmail));
+
+    expect(stats.ingested).toBe(0);
+    // Nessun `full:m1`: la deny label ha bloccato PRIMA del download, sui
+    // soli metadati — è la garanzia di privacy/costo di questo task.
+    expect(gmail.calls).toEqual(["refresh", "history", "metadata:m1"]);
+    expect(await db.select().from(emailMessages)).toEqual([]);
+  });
+
+  it("interruttore admitWorkspaceDomains spento: un dominio Workspace senza regola NON ammette più (comportamento della fase 6)", async () => {
+    await db.insert(instanceSettings).values({ id: 1, emailAdmitWorkspaceDomains: false });
+    const account = await seedAccount({
+      nextSyncAt: new Date(Date.now() - 60_000),
+      gmailHistoryId: "1000",
+    });
+    const gmail = fakeGmail({
+      history: { addedMessageIds: ["m1"], historyId: "1010" },
+      // Stesso messaggio del primo test di questo blocco: con l'interruttore
+      // spento NON basta più il dominio Workspace, serve una regola.
+      messages: { m1: message({ id: "m1", from: "collega@acme.com" }) },
+    });
+
+    const stats = await pollGoogleOnce(deps(account, gmail));
+
+    expect(stats.ingested).toBe(0);
+    expect(gmail.calls).toEqual(["refresh", "history", "metadata:m1"]);
+    expect(await db.select().from(emailMessages)).toEqual([]);
+  });
+
+  it("interruttore admitWorkspaceDomains spento MA una regola di progetto combacia: ammesso come prima", async () => {
+    await db.insert(instanceSettings).values({ id: 1, emailAdmitWorkspaceDomains: false });
+    const projectId = await seedProject("Acme");
+    await db
+      .insert(projectEmailRoutes)
+      .values({ projectId, kind: "sender_domain", value: "cliente.com" });
+    const account = await seedAccount({
+      nextSyncAt: new Date(Date.now() - 60_000),
+      gmailHistoryId: "1000",
+    });
+    const gmail = fakeGmail({
+      history: { addedMessageIds: ["m1"], historyId: "1010" },
+      messages: { m1: message({ id: "m1", from: "cliente@cliente.com" }) },
+    });
+
+    const stats = await pollGoogleOnce(deps(account, gmail));
+
+    expect(stats.ingested).toBe(1);
+    const [row] = await db.select().from(emailMessages);
+    expect(row!.projectId).toBe(projectId);
   });
 });
 
