@@ -724,7 +724,7 @@
       },
       "googleAccounts": {
         "title": "Caselle Google",
-        "subtitle": "// Gmail e Calendar in sola lettura. Stubwise legge solo la posta che le regole di routing dei progetti riconoscono.",
+        "subtitle": "// Gmail e Calendar in sola lettura. Quale posta viene ammessa si configura a livello d'istanza in Impostazioni → Google.",
         "connect": "Collega una casella",
         "empty": "// nessuna casella collegata",
         "workspace": "Workspace",

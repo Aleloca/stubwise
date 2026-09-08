@@ -724,7 +724,7 @@
       },
       "googleAccounts": {
         "title": "Google mailboxes",
-        "subtitle": "// Gmail and Calendar, read-only. Stubwise reads only mail your projects' routing rules match.",
+        "subtitle": "// Gmail and Calendar, read-only. Which mail is admitted is configured instance-wide in Settings → Google.",
         "connect": "Connect a mailbox",
         "empty": "// no mailbox connected",
         "workspace": "Workspace",
