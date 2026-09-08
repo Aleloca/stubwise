@@ -2,6 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import {
   calendarEvents,
   emailMessages,
+  emailProposals,
   googleAccounts,
   googleWorkspaces,
   notifications,
@@ -64,6 +65,8 @@ beforeAll(async () => {
 }, 120_000);
 
 afterEach(async () => {
+  await db.delete(notifications);
+  await db.delete(emailProposals);
   await db.delete(emailMessages);
   await db.delete(calendarEvents);
   await db.delete(googleAccounts);
@@ -485,6 +488,7 @@ describe("sincronizzazione Gmail", () => {
       labels: ["INBOX"],
       projectId,
       candidateProjectIds: [],
+      scopeProjectIds: [projectId],
       status: "new",
     });
     expect(row!.textExcerpt).toHaveLength(MAX_TEXT_LENGTH);
@@ -517,6 +521,48 @@ describe("sincronizzazione Gmail", () => {
     const [row] = await db.select().from(emailMessages);
     expect(row!.projectId).toBeNull();
     expect(row!.candidateProjectIds.sort()).toEqual([first, second].sort());
+  });
+
+  it("tre progetti in perimetro: scope_project_ids elenca tutti e tre, il vincitore ne soddisfa di più", async () => {
+    const winner = await seedProject("Acme");
+    const second = await seedProject("Beta");
+    const third = await seedProject("Gamma");
+    // winner: 2 regole soddisfatte; second e third: 1 ciascuno.
+    await db.insert(projectEmailRoutes).values([
+      { projectId: winner, kind: "sender_domain", value: "cliente.com" },
+      { projectId: winner, kind: "keyword", value: "preventivo" },
+      { projectId: second, kind: "keyword", value: "portale" },
+      { projectId: third, kind: "keyword", value: "urgente" },
+    ]);
+    const account = await seedAccount({
+      nextSyncAt: new Date(Date.now() - 60_000),
+      gmailHistoryId: "1000",
+    });
+    const gmail = fakeGmail({
+      history: { addedMessageIds: ["m1"], historyId: "1010" },
+      messages: {
+        m1: message({
+          id: "m1",
+          from: "cliente@cliente.com",
+          subject: "Preventivo portale urgente",
+        }),
+      },
+    });
+
+    await pollGoogleOnce(deps(account, gmail));
+
+    const [row] = await db.select().from(emailMessages);
+    expect(row!.projectId).toBe(winner);
+    expect(row!.candidateProjectIds).toEqual([]);
+    // Il valore persistito viene direttamente da `matchRoutes` (Task 2), non
+    // solo dal vincitore: tutti e tre i progetti, col vincitore per primo
+    // (conteggio 2 contro 1). L'ordine fra `second` e `third` (entrambi a 1)
+    // dipende dal loro id — non lo prediciamo qui, lo verifica già
+    // `email-routing.test.ts` — quindi si controlla solo l'insieme e la
+    // posizione del vincitore.
+    expect(row!.scopeProjectIds).toHaveLength(3);
+    expect(row!.scopeProjectIds[0]).toBe(winner);
+    expect(new Set(row!.scopeProjectIds)).toEqual(new Set([winner, second, third]));
   });
 
   it("rieseguire lo stesso giro non scrive righe nuove", async () => {
@@ -781,10 +827,66 @@ describe("classificazione degli errori", () => {
 // ---------------------------------------------------------------------------
 
 describe("retention", () => {
-  it("cancella solo gli stati terminali oltre la soglia", async () => {
+  const old = new Date(Date.now() - 120 * 24 * 60 * 60 * 1000);
+  const recent = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+  /** Un padre VECCHIO, pronto per gli scenari con figli. */
+  async function seedOldMessage(
+    account: typeof googleAccounts.$inferSelect,
+    overrides: Partial<typeof emailMessages.$inferInsert> = {},
+  ): Promise<string> {
+    const [row] = await db
+      .insert(emailMessages)
+      .values({
+        accountId: account.id,
+        gmailMessageId: `m-${randomUUID()}`,
+        threadId: "t",
+        fromAddress: "cliente@cliente.com",
+        receivedAt: old,
+        updatedAt: old,
+        status: "classified",
+        ...overrides,
+      })
+      .returning({ id: emailMessages.id });
+    return row!.id;
+  }
+
+  /** Una riga FIGLIA di UN progetto, per il messaggio dato (fase 6b). */
+  async function seedChild(
+    messageId: string,
+    projectId: string,
+    overrides: Partial<typeof emailProposals.$inferInsert> = {},
+  ): Promise<string> {
+    const [row] = await db
+      .insert(emailProposals)
+      .values({
+        emailMessageId: messageId,
+        projectId,
+        status: "classified",
+        classification: { signal: "none", proposals: [], recommendedIndex: 0 },
+        ...overrides,
+      })
+      .returning({ id: emailProposals.id });
+    return row!.id;
+  }
+
+  /** Una notifica `google.proposal`, nello stato indicato. */
+  async function seedNotification(userId: string, status: "open" | "handled"): Promise<string> {
+    const [row] = await db
+      .insert(notifications)
+      .values({
+        userId,
+        kind: "google.proposal",
+        status,
+        ...(status === "handled" ? { handledAt: new Date() } : {}),
+        event: {},
+      })
+      .returning({ id: notifications.id });
+    return row!.id;
+  }
+
+  it("cancella i messaggi SENZA figli, già trattati e oltre la soglia", async () => {
     const account = await seedAccount();
-    const old = new Date(Date.now() - 120 * 24 * 60 * 60 * 1000);
-    const recent = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const base = {
       accountId: account.id,
       threadId: "t",
@@ -795,8 +897,8 @@ describe("retention", () => {
       { ...base, gmailMessageId: "vecchio-actioned", status: "actioned", updatedAt: old },
       { ...base, gmailMessageId: "vecchio-ignored", status: "ignored", updatedAt: old },
       { ...base, gmailMessageId: "vecchio-failed", status: "failed", updatedAt: old },
-      // Vecchio ma NON terminale: è una card ancora aperta in una inbox.
-      { ...base, gmailMessageId: "vecchio-proposed", status: "proposed", updatedAt: old },
+      // Mai classificato: nessun figlio da aspettare (l'insieme è vuoto), ma
+      // non è mai stato nemmeno guardato — non si pota.
       { ...base, gmailMessageId: "vecchio-new", status: "new", updatedAt: old },
       // Terminale ma recente.
       { ...base, gmailMessageId: "recente-actioned", status: "actioned", updatedAt: recent },
@@ -805,7 +907,55 @@ describe("retention", () => {
     expect(await pruneOldEmails(db, 90)).toBe(3);
 
     const left = (await db.select().from(emailMessages)).map((row) => row.gmailMessageId).sort();
-    expect(left).toEqual(["recente-actioned", "vecchio-new", "vecchio-proposed"]);
+    expect(left).toEqual(["recente-actioned", "vecchio-new"]);
+  });
+
+  it("un figlio ancora `classified` blocca la potatura", async () => {
+    const account = await seedAccount();
+    const projectId = await seedProject("acme");
+    const messageId = await seedOldMessage(account);
+    await seedChild(messageId, projectId, { status: "classified" });
+
+    expect(await pruneOldEmails(db, 90)).toBe(0);
+    expect(await db.select().from(emailMessages)).toHaveLength(1);
+  });
+
+  it("un figlio terminale ma con la notifica ancora aperta blocca la potatura", async () => {
+    const account = await seedAccount();
+    const projectId = await seedProject("acme");
+    const messageId = await seedOldMessage(account);
+    const notificationId = await seedNotification(account.userId, "open");
+    // Stato "rotto" ad arte: un figlio TERMINALE la cui notifica è ancora
+    // aperta. L'invariante garantita da `google-proposal.ts` (claim PRIMA
+    // dello stato terminale) direbbe che non può succedere — ma il controllo
+    // non si fida di quell'invariante, la riverifica riga per riga (difesa in
+    // profondità).
+    await seedChild(messageId, projectId, { status: "actioned", proposalNotificationId: notificationId });
+
+    expect(await pruneOldEmails(db, 90)).toBe(0);
+    expect(await db.select().from(emailMessages)).toHaveLength(1);
+  });
+
+  it("tutti i figli terminali e nessuna notifica aperta → potato, figli in cascata", async () => {
+    const account = await seedAccount();
+    const projectA = await seedProject("acme");
+    const projectB = await seedProject("beta");
+    const messageId = await seedOldMessage(account);
+    const handledNotificationId = await seedNotification(account.userId, "handled");
+    await seedChild(messageId, projectA, {
+      status: "actioned",
+      proposalNotificationId: handledNotificationId,
+    });
+    // Figlio senza notifica collegata (mai pubblicato, o pubblicazione
+    // fallita dopo la classificazione): terminale comunque.
+    await seedChild(messageId, projectB, { status: "ignored" });
+
+    expect(await pruneOldEmails(db, 90)).toBe(1);
+    expect(await db.select().from(emailMessages)).toHaveLength(0);
+    // Cascata: i figli spariscono col padre, nessuna azione applicativa in più.
+    expect(
+      await db.select().from(emailProposals).where(eq(emailProposals.emailMessageId, messageId)),
+    ).toEqual([]);
   });
 
   it("retentionDays = 0 non cancella nulla", async () => {
@@ -1059,6 +1209,53 @@ describe("fase 2: classificazione dentro il tick", () => {
     expect(reloaded.syncAttempts).toBe(0);
     expect(reloaded.gmailHistoryId).toBe("1010");
   });
+
+  it("collega `maxProjectsPerMessage` alla classificazione: il tetto sul fan-out arriva dal poller", async () => {
+    // `GMAIL_MAX_PROJECTS_PER_MESSAGE` (config) non era ancora collegato dal
+    // poller alla classificazione: senza il filo, `classifyEmail` userebbe
+    // sempre il default (5) di `classify.ts`, e con 3 soli progetti in
+    // perimetro il tetto non taglierebbe mai niente. Qui il tetto passato è
+    // 1: se il filo manca, sopravvivono i 3 progetti; se il filo c'è, ne
+    // sopravvive UNO solo.
+    const p1 = await seedProject("Uno");
+    const p2 = await seedProject("Due");
+    const p3 = await seedProject("Tre");
+    for (const projectId of [p1, p2, p3]) {
+      await db
+        .insert(projectEmailRoutes)
+        .values({ projectId, kind: "sender_domain", value: "cliente.com" });
+    }
+    const account = await seedAccount({
+      nextSyncAt: new Date(Date.now() - 60_000),
+      gmailHistoryId: "1000",
+    });
+    const gmail = fakeGmail({
+      history: { addedMessageIds: ["m1"], historyId: "1010" },
+      messages: { m1: message({ id: "m1" }) },
+    });
+    const reply = JSON.stringify({
+      signal: "request",
+      summary: "Chiede una mano.",
+      recommendedIndex: 0,
+      proposals: [p1, p2, p3].map((projectId, index) => ({
+        type: "create_backlog_item",
+        projectId,
+        title: `Voce ${index}`,
+        consequence: "Entra nel backlog.",
+      })),
+    });
+    const runner = fakeRunner(reply);
+
+    const stats = await pollGoogleOnce({
+      ...deps(account, gmail),
+      runner,
+      maxProjectsPerMessage: 1,
+    });
+
+    expect(stats.classified).toBe(1);
+    const children = await db.select().from(emailProposals);
+    expect(children).toHaveLength(1);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1071,11 +1268,18 @@ describe("fase 2: classificazione dentro il tick", () => {
  * vede niente. Il legame fra le righe e l'inbox non ha un altro guardiano —
  * `proposal.test.ts` copre la costruzione e la transazione, questi test coprono
  * il fatto che il tick le CHIAMI.
+ *
+ * Fase 6b: la selezione è sui FIGLI (`email_proposals`), non più sul padre
+ * `email_messages` — `seedClassified` seed un padre PIÙ un figlio, e i test
+ * leggono lo stato dal figlio (il padre non viene più toccato dalla publish).
  */
 describe("fase 4 — le righe pronte diventano proposte", () => {
-  /** Un messaggio già classificato dal giro precedente, in attesa di proposta. */
-  async function seedClassified(accountId: string, projectId: string): Promise<string> {
-    const [row] = await db
+  /** Un messaggio già classificato dal giro precedente, con UN figlio in attesa di proposta. */
+  async function seedClassified(
+    accountId: string,
+    projectId: string,
+  ): Promise<{ messageId: string; childId: string }> {
+    const [message] = await db
       .insert(emailMessages)
       .values({
         accountId,
@@ -1101,13 +1305,33 @@ describe("fase 4 — le righe pronte diventano proposte", () => {
         },
       })
       .returning({ id: emailMessages.id });
-    return row!.id;
+    const [child] = await db
+      .insert(emailProposals)
+      .values({
+        emailMessageId: message!.id,
+        projectId,
+        status: "classified",
+        classification: {
+          signal: "request",
+          recommendedIndex: 0,
+          proposals: [
+            {
+              type: "create_backlog_item",
+              projectId,
+              title: "Export CSV",
+              consequence: "Entra nel backlog.",
+            },
+          ],
+        },
+      })
+      .returning({ id: emailProposals.id });
+    return { messageId: message!.id, childId: child!.id };
   }
 
-  it("un messaggio classificato diventa una notifica per il proprietario della casella", async () => {
+  it("un figlio classificato diventa una notifica per il proprietario della casella", async () => {
     const projectId = await seedProject("negozio");
     const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
-    const messageId = await seedClassified(account.id, projectId);
+    const { messageId, childId } = await seedClassified(account.id, projectId);
 
     const stats = await pollGoogleOnce(deps(account, fakeGmail({ listed: [] })));
 
@@ -1118,15 +1342,81 @@ describe("fase 4 — le righe pronte diventano proposte", () => {
     // di nessun altro — l'invariante di privacy della fase.
     expect(rows[0]?.userId).toBe(account.userId);
     expect(rows[0]?.kind).toBe("google.proposal");
-    const [message] = await db
-      .select()
-      .from(emailMessages)
-      .where(eq(emailMessages.id, messageId));
-    expect(message?.status).toBe("proposed");
-    expect(message?.proposalNotificationId).toBe(rows[0]?.id);
+    const [child] = await db.select().from(emailProposals).where(eq(emailProposals.id, childId));
+    expect(child?.status).toBe("proposed");
+    expect(child?.proposalNotificationId).toBe(rows[0]?.id);
+    // Fase 6b: il PADRE non viene mai toccato dalla publish — resta come la
+    // classificazione l'ha lasciato.
+    const [message] = await db.select().from(emailMessages).where(eq(emailMessages.id, messageId));
+    expect(message?.status).toBe("classified");
+    expect(message?.proposalNotificationId).toBeNull();
   });
 
-  it("un secondo giro non ripropone lo stesso messaggio", async () => {
+  it("due figli dello stesso messaggio (progetti diversi) diventano DUE notifiche", async () => {
+    // Il caso che il fan-out introduce: stesso mittente/oggetto, due progetti
+    // del perimetro → due card, ciascuna col proprio figlio.
+    const projectA = await seedProject("negozio");
+    const projectB = await seedProject("portale");
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    const [message] = await db
+      .insert(emailMessages)
+      .values({
+        accountId: account.id,
+        gmailMessageId: `m-${randomUUID()}`,
+        threadId: `t-${randomUUID()}`,
+        fromAddress: "cliente@cliente.com",
+        receivedAt: new Date("2026-09-07T08:00:00.000Z"),
+        status: "classified",
+      })
+      .returning({ id: emailMessages.id });
+    const childClassification = (projectId: string) => ({
+      signal: "request",
+      recommendedIndex: 0,
+      proposals: [
+        {
+          type: "create_backlog_item",
+          projectId,
+          title: "Export CSV",
+          consequence: "Entra nel backlog.",
+        },
+      ],
+    });
+    const [childA] = await db
+      .insert(emailProposals)
+      .values({
+        emailMessageId: message!.id,
+        projectId: projectA,
+        status: "classified",
+        classification: childClassification(projectA),
+      })
+      .returning({ id: emailProposals.id });
+    const [childB] = await db
+      .insert(emailProposals)
+      .values({
+        emailMessageId: message!.id,
+        projectId: projectB,
+        status: "classified",
+        classification: childClassification(projectB),
+      })
+      .returning({ id: emailProposals.id });
+
+    const stats = await pollGoogleOnce(deps(account, fakeGmail({ listed: [] })));
+
+    expect(stats.proposed).toBe(2);
+    const rows = await db.select().from(notifications);
+    expect(rows).toHaveLength(2);
+    // Domande DIVERSE: nominano progetti diversi, quindi le card si
+    // distinguono anche se mittente e oggetto sono identici.
+    const questions = rows.map((r) => (r.event as { question: string }).question);
+    expect(new Set(questions).size).toBe(2);
+    const [after1] = await db.select().from(emailProposals).where(eq(emailProposals.id, childA!.id));
+    const [after2] = await db.select().from(emailProposals).where(eq(emailProposals.id, childB!.id));
+    expect(after1?.status).toBe("proposed");
+    expect(after2?.status).toBe("proposed");
+    expect(after1?.proposalNotificationId).not.toBe(after2?.proposalNotificationId);
+  });
+
+  it("un secondo giro non ripropone lo stesso figlio", async () => {
     // Senza il claim, ogni tick pubblicherebbe una card nuova sulla stessa
     // email: una ogni cinque minuti, per sempre.
     const projectId = await seedProject("negozio");
@@ -1144,13 +1434,13 @@ describe("fase 4 — le righe pronte diventano proposte", () => {
     expect(await db.select().from(notifications)).toHaveLength(1);
   });
 
-  it("una classificazione da cui non resta niente chiude la riga invece di ripescarla", async () => {
-    // `classified` senza nessuna azione eseguibile resterebbe candidata a ogni
-    // tick per sempre, occupando uno slot del tetto. `ignored` la chiude senza
-    // inventare una proposta che non c'è.
+  it("un figlio da cui non resta niente chiude la riga invece di ripescarla", async () => {
+    // `classified` senza nessuna azione eseguibile resterebbe candidato a ogni
+    // tick per sempre, occupando uno slot del tetto. `ignored` lo chiude senza
+    // inventare una proposta che non c'è — il PADRE non si tocca.
     const projectId = await seedProject("negozio");
     const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
-    const [row] = await db
+    const [message] = await db
       .insert(emailMessages)
       .values({
         accountId: account.id,
@@ -1160,22 +1450,35 @@ describe("fase 4 — le righe pronte diventano proposte", () => {
         receivedAt: new Date("2026-09-07T08:00:00.000Z"),
         projectId,
         status: "classified",
-        classification: { signal: "none", recommendedIndex: 0, proposals: [] },
       })
       .returning({ id: emailMessages.id });
+    const [child] = await db
+      .insert(emailProposals)
+      .values({
+        emailMessageId: message!.id,
+        projectId,
+        status: "classified",
+        classification: { signal: "none", recommendedIndex: 0, proposals: [] },
+      })
+      .returning({ id: emailProposals.id });
 
     const stats = await pollGoogleOnce(deps(account, fakeGmail({ listed: [] })));
 
     expect(stats.proposed).toBe(0);
     expect(await db.select().from(notifications)).toHaveLength(0);
-    const [after] = await db.select().from(emailMessages).where(eq(emailMessages.id, row!.id));
+    const [after] = await db.select().from(emailProposals).where(eq(emailProposals.id, child!.id));
     expect(after?.status).toBe("ignored");
+    const [messageAfter] = await db
+      .select()
+      .from(emailMessages)
+      .where(eq(emailMessages.id, message!.id));
+    expect(messageAfter?.status).toBe("classified");
   });
 
   it("`proposeMaxPerTick: 0` spegne la sola pubblicazione, le righe restano pronte", async () => {
     const projectId = await seedProject("negozio");
     const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
-    const messageId = await seedClassified(account.id, projectId);
+    const { childId } = await seedClassified(account.id, projectId);
 
     const stats = await pollGoogleOnce(
       deps(account, fakeGmail({ listed: [] }), { proposeMaxPerTick: 0 }),
@@ -1183,12 +1486,71 @@ describe("fase 4 — le righe pronte diventano proposte", () => {
 
     expect(stats.proposed).toBe(0);
     expect(await db.select().from(notifications)).toHaveLength(0);
-    const [message] = await db
-      .select()
-      .from(emailMessages)
-      .where(eq(emailMessages.id, messageId));
+    const [child] = await db.select().from(emailProposals).where(eq(emailProposals.id, childId));
     // La riga NON viene toccata: al primo tick con la fase riaccesa riparte.
-    expect(message?.status).toBe("classified");
+    expect(child?.status).toBe("classified");
+  });
+
+  it("il tetto per tick conta PROPOSTE, non messaggi: due figli dello stesso messaggio contano due", async () => {
+    // Prima della fase 6b un messaggio produceva al più una card, quindi
+    // `limit` messaggi = al più `limit` card. Col fan-out un messaggio può
+    // produrre più figli: il tetto deve contarli come proposte separate,
+    // altrimenti `proposeMaxPerTick: 1` lascerebbe passare comunque le due
+    // card dello stesso messaggio.
+    const projectA = await seedProject("negozio");
+    const projectB = await seedProject("portale");
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    const [message] = await db
+      .insert(emailMessages)
+      .values({
+        accountId: account.id,
+        gmailMessageId: `m-${randomUUID()}`,
+        threadId: `t-${randomUUID()}`,
+        fromAddress: "cliente@cliente.com",
+        receivedAt: new Date("2026-09-07T08:00:00.000Z"),
+        status: "classified",
+      })
+      .returning({ id: emailMessages.id });
+    const childClassification = (projectId: string) => ({
+      signal: "request",
+      recommendedIndex: 0,
+      proposals: [
+        {
+          type: "create_backlog_item",
+          projectId,
+          title: "Export CSV",
+          consequence: "Entra nel backlog.",
+        },
+      ],
+    });
+    await db.insert(emailProposals).values([
+      {
+        emailMessageId: message!.id,
+        projectId: projectA,
+        status: "classified",
+        classification: childClassification(projectA),
+      },
+      {
+        emailMessageId: message!.id,
+        projectId: projectB,
+        status: "classified",
+        classification: childClassification(projectB),
+      },
+    ]);
+
+    const stats = await pollGoogleOnce(
+      deps(account, fakeGmail({ listed: [] }), { proposeMaxPerTick: 1 }),
+    );
+
+    // Solo UNA proposta pubblicata: il tetto ha fermato la selezione a UNA
+    // riga `email_proposals`, non a un messaggio intero.
+    expect(stats.proposed).toBe(1);
+    expect(await db.select().from(notifications)).toHaveLength(1);
+    const remaining = await db
+      .select()
+      .from(emailProposals)
+      .where(eq(emailProposals.status, "classified"));
+    expect(remaining).toHaveLength(1);
   });
 
   it("un guasto della fase 4 non mette la casella in backoff", async () => {

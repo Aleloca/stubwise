@@ -212,6 +212,7 @@ const GOOGLE_PROPOSAL: NotificationEvent = {
   proposalId: "0f5c9d31-6666-4777-8888-999900001111",
   source: "email",
   messageUrl: "https://mail.google.com/mail/u/laura%40acme.test/#all/18f3a9c0d1e2f345",
+  projectId: "aa11bb22-1111-4222-8333-444455556666",
   projectName: "webapp",
   signal: "request",
   from: "<https://evil.test|Direzione> & C.",
@@ -996,6 +997,8 @@ describe("google.proposal", () => {
     expect(body.source).toBe("email");
     expect(body.signal).toBe("request");
     expect(body.receivedAt).toBe("2026-09-07T08:14:00.000Z");
+    expect(body.projectId).toBe("aa11bb22-1111-4222-8333-444455556666");
+    expect(body.projectName).toBe("webapp");
     expect(body.options).toHaveLength(2);
     expect(body.recommendedIndex).toBe(0);
     // ⚠️ Le azioni NON escono dal webhook: una proposta si conferma dall'inbox,
@@ -1011,6 +1014,24 @@ describe("google.proposal", () => {
     // Nessuna entità HTML: l'escape è SOLO di Slack, e applicarlo qui
     // renderebbe illeggibile la card web.
     expect(text).not.toContain("&amp;");
+  });
+
+  it("un evento SENZA `projectId`/`projectName` continua a parsare (card storiche, fase 6b)", () => {
+    // Ogni card scritta prima della fase 6b (fan-out per progetto) non ha
+    // questi due campi: `format.ts` deve continuare a produrre un body valido
+    // in ogni formato, senza lanciare e senza inventarsi un progetto.
+    const legacy: NotificationEvent = { ...GOOGLE_PROPOSAL };
+    delete (legacy as { projectId?: string }).projectId;
+    delete (legacy as { projectName?: string }).projectName;
+
+    for (const format of ["slack", "discord", "generic"] as NotificationFormat[]) {
+      expect(() => formatNotification(legacy, format)).not.toThrow();
+    }
+    expect(() => formatNotificationText(legacy, "en")).not.toThrow();
+
+    const body = formatNotification(legacy, "generic", "en").body as Record<string, unknown>;
+    expect(body.projectId).toBeUndefined();
+    expect(body.projectName).toBeUndefined();
   });
 });
 
@@ -1067,6 +1088,9 @@ describe("sampleEvents", () => {
     expect(event.actions.at(-1)).toEqual({ type: "ignore" });
     expect(event.allowFreeText).toBe(false);
     expect(event.recommendedIndex).toBeLessThan(event.options.length);
+    // Un evento nuovo porta SEMPRE `projectId` accanto a `projectName`.
+    expect(event.projectId).toBeTruthy();
+    expect(event.projectName).toBeTruthy();
   });
 
   it("ogni esempio si formatta in tutti i formati senza errori", () => {

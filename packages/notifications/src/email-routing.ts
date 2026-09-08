@@ -90,6 +90,17 @@ export interface EmailRoutingResult {
    * soddisfatte non compaiono.
    */
   matchedRuleCount: Record<string, number>;
+  /**
+   * TUTTI i progetti con almeno una regola soddisfatta (`matchedRuleCount[id]
+   * > 0`), non solo il vincitore: è il PERIMETRO ammesso alla classificazione
+   * (fase 6b) — un'email può parlare di più progetti insieme. Ordinato per
+   * conteggio DECRESCENTE e, a parità, per `projectId` CRESCENTE (ordine
+   * deterministico, non quello di lettura delle regole dal DB). Include
+   * sempre `projectId` (il vincitore) quando risolto, e anche i progetti che
+   * NON entrano in `candidateProjectIds` (i pari merito minori del vertice).
+   * Vuoto quando il messaggio è fuori perimetro.
+   */
+  scopeProjectIds: string[];
 }
 
 /**
@@ -270,8 +281,18 @@ export function matchRoutes(message: EmailForRouting, routes: EmailRoute[]): Ema
   }
 
   const entries = Object.entries(matchedRuleCount);
+  // Il perimetro: tutti i progetti con almeno un match, per conteggio
+  // decrescente e poi per id crescente — deterministico indipendentemente
+  // dall'ordine di iterazione dell'oggetto `matchedRuleCount`.
+  const scopeProjectIds = [...entries]
+    .sort(([aId, aCount], [bId, bCount]) => {
+      if (aCount !== bCount) return bCount - aCount;
+      return aId < bId ? -1 : aId > bId ? 1 : 0;
+    })
+    .map(([projectId]) => projectId);
+
   if (entries.length === 0) {
-    return { inScope: false, projectId: null, candidateProjectIds: [], matchedRuleCount };
+    return { inScope: false, projectId: null, candidateProjectIds: [], matchedRuleCount, scopeProjectIds };
   }
 
   const best = Math.max(...entries.map(([, count]) => count));
@@ -283,7 +304,19 @@ export function matchRoutes(message: EmailForRouting, routes: EmailRoute[]): Ema
     .sort();
 
   if (winners.length === 1) {
-    return { inScope: true, projectId: winners[0]!, candidateProjectIds: [], matchedRuleCount };
+    return {
+      inScope: true,
+      projectId: winners[0]!,
+      candidateProjectIds: [],
+      matchedRuleCount,
+      scopeProjectIds,
+    };
   }
-  return { inScope: true, projectId: null, candidateProjectIds: winners, matchedRuleCount };
+  return {
+    inScope: true,
+    projectId: null,
+    candidateProjectIds: winners,
+    matchedRuleCount,
+    scopeProjectIds,
+  };
 }

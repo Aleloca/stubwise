@@ -385,6 +385,15 @@ export type GoogleProposalAction =
    * l'unica cosa sensata da chiedere è a quale progetto appartiene. Eseguirla
    * riassegna il messaggio e lo rimanda alla classificazione, che produrrà una
    * proposta nuova con referenti certi.
+   *
+   * DEPRECATA in generazione dalla fase 6b — resta eseguibile solo per le
+   * card pubblicate prima. Il fan-out per progetto (`email_proposals`, una
+   * riga per progetto del perimetro) risponde già alla domanda «di quale
+   * progetto è questa mail»: se il perimetro ne contiene più d'uno, nascono
+   * più proposte, ciascuna col suo progetto certo — non serve più chiederlo.
+   * `apps/worker/src/google/proposal.ts` non la genera più; l'esecutore
+   * (`apps/server/src/services/google-proposal.ts`) la esegue ancora, per le
+   * card nate prima di questa fase.
    */
   | { type: "choose_project"; projectId: string }
   | { type: "ignore" };
@@ -425,7 +434,16 @@ export interface GoogleProposalEvent {
   source: "email" | "calendar";
   /** Thread Gmail o evento del calendario: è dove porta "Apri". */
   messageUrl: string;
-  /** Progetto risolto dalle regole di routing. Assente = ancora da scegliere. */
+  /**
+   * Id del progetto risolto. OPZIONALE per RETRO-COMPATIBILITÀ: gli eventi
+   * scritti prima della fase 6b (fan-out per progetto) non ce l'hanno —
+   * `format.ts` deve continuare a parsare/formattare quelle card storiche
+   * senza errori. Un evento nuovo lo porta SEMPRE, insieme a `projectName`:
+   * nasce dalla riga figlia (`email_proposals`), dove il progetto è certo.
+   */
+  projectId?: string;
+  /** Progetto risolto dalle regole di routing. Assente = ancora da scegliere
+   * (solo per le card storiche: un evento nuovo lo porta sempre). */
   projectName?: string;
   /** Il segnale riconosciuto nel messaggio. */
   signal: "decision" | "request" | "deadline" | "blocker" | "none";
@@ -934,6 +952,7 @@ function formatGeneric(event: NotificationEvent, lang: Language): Record<string,
         from: event.from,
         subject: event.subject,
         ...(event.receivedAt ? { receivedAt: event.receivedAt } : {}),
+        ...(event.projectId ? { projectId: event.projectId } : {}),
         ...(event.projectName ? { projectName: event.projectName } : {}),
         message: formatNotificationText(event, lang),
         messageUrl: event.messageUrl,
@@ -1195,6 +1214,7 @@ export function sampleEvents(baseUrl: string): NotificationEvent[] {
       proposalId: "9e4b1a72-5555-4666-8777-888899990000",
       source: "email",
       messageUrl: "https://mail.google.com/mail/u/0/#inbox/18f3a9c0d1e2f345",
+      projectId: "2e5a8c4b-9999-4aaa-8bbb-ccccddddeeee",
       projectName: "negozio-web",
       signal: "request",
       from: "laura@cliente.test",

@@ -853,6 +853,20 @@ const envSchema = z.object({
       .min(1, "deve essere un intero ≥ 1 (es. 20)")
       .default(20),
   ),
+  // Fase 6b: tetto sul FAN-OUT di un singolo messaggio, applicato DOPO la
+  // partizione per progetto — senza, un'email in copia a dieci progetti
+  // genererebbe dieci card. Sopravvivono i progetti con PIÙ proposte valide.
+  // Stesso default della costante `GMAIL_MAX_PROJECTS_PER_MESSAGE` in
+  // `apps/worker/src/google/classify.ts` (non ancora letta da qui: il filo
+  // fino al poller è compito di un task successivo).
+  GMAIL_MAX_PROJECTS_PER_MESSAGE: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 1 (es. 5)" })
+      .int("deve essere un intero ≥ 1 (es. 5)")
+      .min(1, "deve essere un intero ≥ 1 (es. 5)")
+      .default(5),
+  ),
 }).refine(
   (env) => env.BACKLOG_SIMILAR_THRESHOLD <= env.BACKLOG_MERGE_THRESHOLD,
   {
@@ -1053,6 +1067,11 @@ export interface WorkerConfig {
    * (default 20). */
   gmailMaxPerTick: number;
   /**
+   * Fase 6b: tetto sul fan-out di UN messaggio — quanti progetti diversi
+   * possono ricevere una proposta dallo stesso messaggio (default 5).
+   */
+  gmailMaxProjectsPerMessage: number;
+  /**
    * Relay a cui spedire le notifiche push, o `null` = PUSH SPENTE.
    *
    * Le tre forme di `PUSH_RELAY_URL` (assente = relay pubblico, vuota = spente,
@@ -1161,6 +1180,7 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     gmailModel: parsed.GMAIL_MODEL,
     gmailRetentionDays: parsed.GMAIL_RETENTION_DAYS,
     gmailMaxPerTick: parsed.GMAIL_MAX_PER_TICK,
+    gmailMaxProjectsPerMessage: parsed.GMAIL_MAX_PROJECTS_PER_MESSAGE,
     // Letta dall'env GREZZO, non da `parsed`: `envSchema` non la conosce (e non
     // deve, vedi il campo `push` di WorkerConfig). LANCIA su un valore
     // inutilizzabile — un relay in chiaro o con credenziali — così il worker

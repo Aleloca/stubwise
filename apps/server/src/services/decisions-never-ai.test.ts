@@ -8,6 +8,7 @@ import {
   aiJobs,
   backlogItems,
   emailMessages,
+  emailProposals,
   googleAccounts,
   googleWorkspaces,
   notifications,
@@ -224,6 +225,18 @@ describe("il registro decisioni non è mai scritto dall'AI — a runtime", () =>
         status: "proposed",
       })
       .returning({ id: emailMessages.id });
+    // Fase 6b: `answerGoogleProposal` legge/scrive ormai sul FIGLIO
+    // (`email_proposals`), mai più su `email_messages` — vedi
+    // `google-proposal.test.ts`. `proposal_notification_id` vive qui.
+    const [emailProposal] = await db
+      .insert(emailProposals)
+      .values({
+        emailMessageId: message!.id,
+        projectId,
+        status: "proposed",
+        classification: { summary: "test", proposals: [], recommendedIndex: 0 },
+      })
+      .returning({ id: emailProposals.id });
 
     const proposalId = randomUUID();
     const [notification] = await db
@@ -264,9 +277,9 @@ describe("il registro decisioni non è mai scritto dall'AI — a runtime", () =>
       })
       .returning({ id: notifications.id });
     await db
-      .update(emailMessages)
+      .update(emailProposals)
       .set({ proposalNotificationId: notification!.id })
-      .where(eq(emailMessages.id, message!.id));
+      .where(eq(emailProposals.id, emailProposal!.id));
 
     const result = await answerGoogleProposal(db, {
       notificationId: notification!.id,

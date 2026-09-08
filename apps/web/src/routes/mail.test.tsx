@@ -48,6 +48,8 @@ const PROJECT_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const ACCOUNT_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const EMAIL_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const CALENDAR_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+const PROJECT_ID_2 = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+const EMAIL_ID_2 = "ffffffff-ffff-4fff-8fff-ffffffffffff";
 
 const PROJECTS = [{ id: PROJECT_ID, name: "Apollo", slug: "apollo" }];
 
@@ -266,6 +268,60 @@ describe("pagina /mail", () => {
     await screen.findByRole("heading", { name: "Mail" });
 
     expect(await screen.findByText("// no mail")).toBeInTheDocument();
+  });
+
+  it("fase 6b: un messaggio con due proposte (progetti diversi) produce due righe indipendenti", async () => {
+    const siblingA = mailItem({
+      id: EMAIL_ID,
+      source: "email",
+      title: "Recap multi-progetto",
+      from: "laura@cliente.test",
+      projectId: PROJECT_ID,
+      projectName: "Apollo",
+      status: "failed",
+      error: "boom",
+      reproposable: true,
+    });
+    const siblingB = mailItem({
+      id: EMAIL_ID_2,
+      source: "email",
+      title: "Recap multi-progetto",
+      from: "laura@cliente.test",
+      projectId: PROJECT_ID_2,
+      projectName: "Borealis",
+      status: "proposed",
+      reproposable: false,
+    });
+    let called: { url: string } | null = null;
+    mockApi(
+      baseApi({
+        "GET /api/projects": () =>
+          jsonResponse(200, [...PROJECTS, { id: PROJECT_ID_2, name: "Borealis", slug: "borealis" }]),
+        "GET /api/me/mail": () => jsonResponse(200, { items: [siblingA, siblingB], nextCursor: null }),
+        [`POST /api/me/mail/email/${EMAIL_ID}/repropose`]: (url) => {
+          called = { url: url.pathname };
+          return jsonResponse(200, { ok: true });
+        },
+      }),
+    );
+    renderMail();
+    await screen.findByRole("heading", { name: "Mail" });
+
+    // Stesso mittente/oggetto, due righe distinte con un progetto diverso.
+    expect(screen.getAllByText(/Recap multi-progetto/)).toHaveLength(2);
+    expect(screen.getByText("Apollo", { selector: "span" })).toBeInTheDocument();
+    expect(screen.getByText("Borealis", { selector: "span" })).toBeInTheDocument();
+
+    // Solo la riga `failed` (Apollo) ha «Repropose»: la sorella `proposed` no.
+    const buttons = screen.getAllByRole("button", { name: "Repropose" });
+    expect(buttons).toHaveLength(1);
+
+    await userEvent.click(buttons[0]!);
+    await waitFor(() =>
+      expect(called).toEqual({ url: `/api/me/mail/email/${EMAIL_ID}/repropose` }),
+    );
+    // La riga sorella resta a schermo, invariata.
+    expect(screen.getByText("Borealis", { selector: "span" })).toBeInTheDocument();
   });
 
   it("errore di caricamento: messaggio e retry", async () => {

@@ -628,6 +628,10 @@ startGooglePoller({
   // testo di un'email non è fidato: vedi google/classify.ts).
   runner,
   gmailModel: config.gmailModel,
+  // Fase 6b (Task 5): il tetto sul FAN-OUT di un messaggio, collegato qui —
+  // senza questo filo la classificazione userebbe sempre il default di
+  // `classify.ts` e l'env `GMAIL_MAX_PROJECTS_PER_MESSAGE` sarebbe inerte.
+  maxProjectsPerMessage: config.gmailMaxProjectsPerMessage,
   signal: controller.signal,
 });
 

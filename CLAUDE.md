@@ -468,6 +468,76 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   Workspace»), registrarla in Impostazioni → Google, poi ogni utente collega
   la propria casella da Account → Caselle Google e un maintainer di progetto
   configura le regole di routing sui progetti che devono ricevere posta.
+- **Fase 6b (un'email, più progetti)**: rebuild **server+worker+caddy
+  insieme** (migrazione 0070 all'avvio del server — una tabella NUOVA
+  `email_proposals` (stato e claim PER RIGA, unique `(email_message_id,
+  project_id)`), colonna `email_messages.scope_project_ids uuid[]` NOT NULL
+  default `{}` (il perimetro completo dei progetti che combaciano, non solo
+  il vincitore), backfill nella stessa migrazione delle righe esistenti in
+  `classified`/`proposed` con `project_id` non nullo verso una riga figlia
+  equivalente — in prod oggi zero messaggi ingeriti, ma la migrazione resta
+  corretta per il caso con dati; nessun enum nuovo, un solo batch. Il worker
+  nuovo è l'unico che scrive/legge i figli e applica il tetto sul fan-out, il
+  server nuovo l'unico che sa eseguire una proposta per riga figlia (claim
+  indipendente) e servire la pagina Posta per proposta). **Modello
+  cambiato**: un'email che tocca N progetti (il PERIMETRO completo del
+  routing — `scopeProjectIds` in
+  `packages/notifications/src/email-routing.ts`, tutti i progetti con
+  `matchedRuleCount > 0`, non solo il vincitore né solo i pari merito) genera
+  N proposte INDIPENDENTI, una per progetto (`email_proposals`), ciascuna col
+  proprio ciclo di conferma — non più una sola proposta sul "vincitore", con
+  tutto il resto perso in silenzio. Il **calendario resta uno a uno**: un
+  evento produce sempre e solo una proposta (`calendar_events`, non toccata
+  da questa fase, ancora vincitore/parità → progetto ambiguo). Env nuova sul
+  worker: `GMAIL_MAX_PROJECTS_PER_MESSAGE` (default **5**,
+  `apps/worker/src/config.ts`, tetto sul fan-out applicato DOPO la
+  partizione per progetto — senza, una mail in copia a dieci progetti
+  genererebbe dieci card; sopravvivono i progetti con più proposte valide).
+  **Retention consapevole dei figli** (`pruneOldEmails`,
+  `apps/worker/src/google/poller.ts`): un messaggio è potabile solo quando
+  (1) è stato almeno classificato (`status <> 'new'`: un messaggio mai
+  guardato non ha mai potuto avere figli), (2) OGNI figlio è terminale
+  (`actioned`/`ignored`/`failed`, e l'insieme vuoto — nessun figlio —
+  soddisfa banalmente la condizione) e (3) NESSUN figlio ha una notifica
+  ancora aperta (`status <> 'handled'`) — quest'ultima è difesa in
+  profondità, non un controllo ridondante: non si fida dell'ordine con cui
+  `dispatchAction` chiude la notifica prima di scrivere lo stato terminale
+  sul figlio, lo riverifica riga per riga. La soglia resta su `updated_at`
+  DEL PADRE (toccato a ogni chiusura di un figlio); la cascata (`ON DELETE
+  CASCADE` su `email_proposals.email_message_id`) pota i figli insieme al
+  padre, nessuna azione applicativa in più. **`choose_project` deprecata in
+  generazione**: il fan-out risponde già alla domanda "di quale progetto è
+  questa mail", quindi non è più prodotta per le proposte nuove; resta
+  ESEGUIBILE solo sulle card pubblicate PRIMA di questa fase
+  (`apps/server/src/services/google-proposal.ts`, caso `"choose_project"` in
+  `dispatchAction`) — confermarla chiude il figlio corrente (quello del
+  progetto ambiguo/sbagliato) con un outcome `reassigned_project`, ma
+  **deliberatamente NON sposta** `email_proposals.project_id` sul progetto
+  scelto (violerebbe l'unique `(email_message_id, project_id)` se il fan-out
+  ha già creato quella riga) e **deliberatamente NON tocca più**
+  `email_messages.status`: la versione pre-6b lo rimetteva a `'new'`,
+  riclassificando l'intero messaggio e azzerando le proposte sorelle ancora
+  aperte — esattamente ciò che questa fase impedisce a tutte le altre azioni
+  terminali. **Rollback**: nessun kind di notifica nuovo, nessun valore
+  aggiunto a un enum esistente — la 6b non aggrava il problema già noto di
+  `google.proposal` (fase 6 qui sopra: la riga va sempre svuotata prima di
+  scendere di immagine sul server). C'è però un problema NUOVO e specifico
+  alla 6b, verificato leggendo `findSourceRow` in entrambe le versioni (prima
+  e dopo il commit che introduce `email_proposals`): per una proposta EMAIL
+  pubblicata DOPO il deploy della 6b, il binario vecchio cerca la notifica su
+  `email_messages.proposal_notification_id` — colonna che il codice nuovo
+  lascia NULL per un messaggio con figli (la scrive solo su
+  `email_proposals.proposal_notification_id`, sul figlio) — non trova nulla,
+  e `answerGoogleProposal` risponde `proposal_stale`, la stessa risposta di
+  una proposta già presa da qualcun altro: nessun crash, nessun 500, solo una
+  card che il binario vecchio non sa più confermare finché non si torna
+  avanti (vanno chiuse a mano o si accetta di perderle). La lista/lettura
+  (`GET /api/inbox`, `/mail`) non ne risente: lo schema dell'evento non è
+  `.strict()`, il campo `projectId` in più che la 6b aggiunge al payload
+  viene semplicemente ignorato dal binario vecchio. Il **calendario non è
+  toccato** da questo problema: `calendar_events` scrive ancora
+  `proposalNotificationId` direttamente sulla riga, identico prima e dopo la
+  6b.
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
@@ -710,6 +780,32 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   osserva nel routing procedono in parallelo senza contendersi nulla. Chi
   tocca `runAccountTick` non ci infili un accodamento per-progetto "per
   sicurezza": romperebbe l'indipendenza che il poller ha di proposito.
+- **Confermare una proposta non chiude le sorelle.** Dalla fase 6b un
+  messaggio email può avere PIÙ proposte aperte contemporaneamente, una per
+  progetto del perimetro (`email_proposals`): il claim di conferma
+  (`propagateHandled`, poi lo stato terminale) è per RIGA FIGLIA, non per
+  messaggio. `markSourceOutcome`/`markSourceFailed`
+  (`apps/server/src/services/google-proposal.ts`) scrivono lo stato, l'esito
+  e l'errore SOLO sul figlio (`source.rowId` in `email_proposals`) e toccano
+  il padre (`email_messages`) unicamente per `updated_at` (serve alla
+  retention, vedi sopra) — mai `status`, mai `proposal_notification_id`, mai
+  `outcome`/`error` del padre. Confermare, ignorare o far fallire una
+  proposta non cambia lo stato di nessun'altra proposta sullo stesso
+  messaggio: è la proprietà verificata da
+  `apps/worker/src/google/proposal.test.ts` (due proposte dallo stesso
+  messaggio pubblicate indipendentemente, notifiche distinte),
+  `apps/server/src/services/google-proposal.test.ts` (confermarne una non
+  tocca le altre) e `apps/worker/src/google/poller.test.ts` (un figlio ancora
+  aperto blocca la retention dell'intero messaggio). ⚠️ Insidia per chi tocca
+  questo codice in futuro: dalla classificazione in poi
+  `email_messages.status`, `.proposal_notification_id`, `.outcome` ed
+  `.error` sul padre **non sono più la fonte di verità per l'email** —
+  restano scritti (e vanno letti) solo per il **calendario**, che è rimasto
+  uno-a-uno e non ha un figlio, e per le righe **legacy pre-6b** senza una
+  riga `email_proposals` equivalente. Chi ha bisogno dello stato di UNA
+  proposta email guarda `email_proposals`, mai il padre; lo stato
+  "aggregato" del messaggio (es. per la pagina Posta) si CALCOLA in lettura
+  dai suoi figli, non si persiste da nessuna parte.
 
 ## Integrazione Claude Code (MCP)
 

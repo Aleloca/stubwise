@@ -67,6 +67,7 @@
 import {
   calendarEvents,
   emailMessages,
+  emailProposals,
   googleAccounts,
   notifications,
   projects,
@@ -187,10 +188,26 @@ const storedEventSchema = z.object({
   actions: z.array(z.unknown()).min(1),
 });
 
-/** Dove sta la riga d'origine, e quanto serve a chiuderla o a costruire la sourceKey/il link. */
+/**
+ * Dove sta la riga d'origine, e quanto serve a chiuderla o a costruire la
+ * sourceKey/il link.
+ *
+ * Fase 6b: per l'email, `rowId` è ormai l'id del FIGLIO (`email_proposals`),
+ * non più del messaggio — è la riga che le azioni chiudono. `emailMessageId`
+ * porta l'id del PADRE (`email_messages`), che serve solo a toccarne
+ * `updated_at` (vedi {@link markSourceOutcome}/{@link markSourceFailed}), mai
+ * a scriverne lo stato. `projectId` è il progetto della proposta: quello del
+ * figlio per l'email, quello dell'evento per il calendario (che resta
+ * uno-a-uno, quindi non ha bisogno di un figlio).
+ */
 interface ProposalSource {
   source: "email" | "calendar";
+  /** `email_proposals.id` per l'email, `calendar_events.id` per il calendario. */
   rowId: string;
+  /** Solo per `source: "email"`: `email_messages.id`, il PADRE del figlio sopra. */
+  emailMessageId: string | null;
+  /** Il progetto della proposta (figlio per l'email, evento per il calendario). */
+  projectId: string | null;
   gmailMessageId: string | null;
   /** Solo per `source: "email"`: serve al permalink del thread (vedi {@link gmailThreadUrl}). */
   threadId: string | null;
@@ -200,27 +217,36 @@ interface ProposalSource {
 }
 
 /**
- * Ritrova la riga d'origine dalla notifica: `email_messages` o
- * `calendar_events`, chiunque porti `proposal_notification_id` uguale a
- * questa notifica. Le due tabelle sono a somma esclusiva per costruzione
- * (`publishProposal` ne chiude sempre e solo una, nella stessa transazione
- * della publish): al più una delle due SELECT torna una riga.
+ * Ritrova la riga d'origine dalla notifica: prima il FIGLIO `email_proposals`
+ * (fase 6b: è lì che vive `proposal_notification_id` per l'email, ormai per
+ * ogni riga — anche quelle nate PRIMA di questa fase, che il backfill della
+ * migrazione 0070 ha già coperto con una riga figlia equivalente, ereditando
+ * lo stesso `proposal_notification_id` dal padre), poi `calendar_events` (il
+ * calendario resta uno a uno, invariato: nessun figlio per lui). Le due
+ * tabelle sono a somma esclusiva per costruzione (`publishProposal` ne lega
+ * sempre e solo una, nella stessa transazione della publish): al più una
+ * delle due SELECT torna una riga.
  */
 async function findSourceRow(db: DbOrTx, notificationId: string): Promise<ProposalSource | null> {
   const [emailRow] = await db
     .select({
-      id: emailMessages.id,
+      id: emailProposals.id,
+      emailMessageId: emailProposals.emailMessageId,
+      projectId: emailProposals.projectId,
       gmailMessageId: emailMessages.gmailMessageId,
       threadId: emailMessages.threadId,
       mailboxEmail: googleAccounts.email,
     })
-    .from(emailMessages)
+    .from(emailProposals)
+    .innerJoin(emailMessages, eq(emailMessages.id, emailProposals.emailMessageId))
     .innerJoin(googleAccounts, eq(googleAccounts.id, emailMessages.accountId))
-    .where(eq(emailMessages.proposalNotificationId, notificationId));
+    .where(eq(emailProposals.proposalNotificationId, notificationId));
   if (emailRow) {
     return {
       source: "email",
       rowId: emailRow.id,
+      emailMessageId: emailRow.emailMessageId,
+      projectId: emailRow.projectId,
       gmailMessageId: emailRow.gmailMessageId,
       threadId: emailRow.threadId,
       mailboxEmail: emailRow.mailboxEmail,
@@ -228,13 +254,15 @@ async function findSourceRow(db: DbOrTx, notificationId: string): Promise<Propos
     };
   }
   const [calendarRow] = await db
-    .select({ id: calendarEvents.id, googleEventId: calendarEvents.googleEventId })
+    .select({ id: calendarEvents.id, googleEventId: calendarEvents.googleEventId, projectId: calendarEvents.projectId })
     .from(calendarEvents)
     .where(eq(calendarEvents.proposalNotificationId, notificationId));
   if (calendarRow) {
     return {
       source: "calendar",
       rowId: calendarRow.id,
+      emailMessageId: null,
+      projectId: calendarRow.projectId,
       gmailMessageId: null,
       threadId: null,
       mailboxEmail: null,
@@ -261,12 +289,21 @@ function gmailThreadUrl(mailboxEmail: string, threadId: string): string {
 /**
  * Chiude la riga sorgente con un ESITO riuscito (o ignorato).
  *
- * `email_messages.status` è la colonna di WORKFLOW (`new` → … → `actioned` /
- * `ignored` / `failed`); `calendar_events` non ne ha una gemella — la sua
- * `status` è quella di GOOGLE (`confirmed`/`tentative`/`cancelled`, sotto un
- * CHECK che rifiuterebbe `actioned`) — quindi lì il solo `outcome` jsonb
- * distingue "ancora da proporre" (`null`, vedi `isReadyForProposal`) da
- * "chiusa".
+ * Fase 6b: per l'email la scrittura è ormai sul FIGLIO (`email_proposals`,
+ * `source.rowId`) — non più sul messaggio: è così che confermare UNA
+ * proposta non chiude più le sue sorelle sullo stesso messaggio. Nella
+ * STESSA transazione (`tx` è già quella di {@link dispatchAction}, o quella
+ * aperta da {@link markSourceFailed} per il ramo fallito) il padre
+ * (`email_messages`) viene toccato SOLO per aggiornare `updated_at` — serve
+ * alla retention (Task 7), che misura la potabilità su quella colonna; nessun
+ * altro campo del padre si scrive qui, lo stato aggregato si calcola in
+ * lettura altrove.
+ *
+ * `calendar_events` resta uno a uno e invariato: non ha un figlio, quindi
+ * niente updated_at-only-sul-padre da fare per lui. La sua `status` è quella
+ * di GOOGLE (`confirmed`/`tentative`/`cancelled`, sotto un CHECK che
+ * rifiuterebbe `actioned`) — quindi lì il solo `outcome` jsonb distingue
+ * "ancora da proporre" (`null`, vedi `isReadyForProposal`) da "chiusa".
  */
 async function markSourceOutcome(
   tx: DbOrTx,
@@ -275,9 +312,11 @@ async function markSourceOutcome(
 ): Promise<void> {
   if (source.source === "email") {
     await tx
-      .update(emailMessages)
+      .update(emailProposals)
       .set({ status: outcome.status, outcome: outcome.detail, error: null })
-      .where(eq(emailMessages.id, source.rowId));
+      .where(eq(emailProposals.id, source.rowId));
+    // Solo `updated_at`: nessun altro campo del padre cambia qui (vedi il docblock sopra).
+    await tx.update(emailMessages).set({ updatedAt: new Date() }).where(eq(emailMessages.id, source.emailMessageId!));
     return;
   }
   await tx.update(calendarEvents).set({ outcome: outcome.detail }).where(eq(calendarEvents.id, source.rowId));
@@ -292,14 +331,26 @@ function errorMessage(err: unknown): string {
   return message.length > MAX_ERROR_CHARS ? `${message.slice(0, MAX_ERROR_CHARS)}…` : message;
 }
 
-/** Chiude la riga sorgente su un FALLIMENTO (dopo il claim): riproponibile. */
+/**
+ * Chiude la riga sorgente su un FALLIMENTO (dopo il claim): riproponibile.
+ *
+ * Come {@link markSourceOutcome}, per l'email scrive sul FIGLIO
+ * (`email_proposals`) e tocca SOLO `updated_at` del padre, nella STESSA
+ * transazione (qui aperta da questa funzione: a differenza di
+ * `markSourceOutcome`, che riceve la `tx` già aperta di {@link dispatchAction},
+ * questa è chiamata FUORI da quella transazione — dopo un `target_gone` o
+ * un'eccezione — quindi ne serve una propria).
+ */
 async function markSourceFailed(db: Db, source: ProposalSource, error: string): Promise<void> {
   const truncated = errorMessage(error);
   if (source.source === "email") {
-    await db
-      .update(emailMessages)
-      .set({ status: "failed", error: truncated })
-      .where(eq(emailMessages.id, source.rowId));
+    await db.transaction(async (tx) => {
+      await tx
+        .update(emailProposals)
+        .set({ status: "failed", error: truncated })
+        .where(eq(emailProposals.id, source.rowId));
+      await tx.update(emailMessages).set({ updatedAt: new Date() }).where(eq(emailMessages.id, source.emailMessageId!));
+    });
     return;
   }
   await db
@@ -457,23 +508,36 @@ async function dispatchAction(
         }
         const [project] = await tx.select({ id: projects.id }).from(projects).where(eq(projects.id, args.action.projectId));
         if (!project) return { ok: false, error: "target_gone" };
-        // Riassegnazione: `status: "new"` riporta il messaggio al primo giro
-        // del poller, che lo riclassifica col progetto giusto. `classification`
-        // NON va toccata: il poller la SOVRASCRIVE incondizionatamente a ogni
-        // riclassificazione (`classify.ts`, righe attorno a `revalidateClassification`),
-        // quindi lasciarla lì fino ad allora è innocuo — nessuno la rilegge
-        // prima che venga rimpiazzata. `proposalNotificationId`, invece, VA
-        // azzerato: è l'ancora della proposta appena chiusa e sia la selezione
-        // del poller (`status = 'classified' AND proposal_notification_id IS
-        // NULL`) sia il claim di `publishProposal` lo esigono NULL — senza
-        // questo azzeramento il messaggio torna `classified` dopo la
-        // riclassificazione ma resta invisibile per sempre: nessuna nuova
-        // card, e «Riproponi» in UI è ammesso solo su `failed`/`ignored`, non
-        // su `classified`.
-        await tx
-          .update(emailMessages)
-          .set({ projectId: args.action.projectId, status: "new", proposalNotificationId: null })
-          .where(eq(emailMessages.id, args.source.rowId));
+        // ⚠️ DEPRECATA in generazione dalla fase 6b (Task 5): il fan-out
+        // ormai genera già una proposta per CIASCUN progetto del perimetro
+        // del messaggio, quindi non serve più "spostare" un messaggio
+        // ambiguo su un progetto — l'ambiguità che questa azione risolveva
+        // non esiste più per le proposte nuove. Resta ESEGUIBILE solo per le
+        // card pubblicate prima di questa fase (retro-compatibilità).
+        //
+        // Comportamento scelto per il caso storico (documentato: la review
+        // potrebbe avere feedback, vedi il report del Task 6): si CHIUDE il
+        // figlio corrente — quello del progetto ambiguo/sbagliato — con un
+        // outcome che riflette la riassegnazione, esattamente come le altre
+        // azioni terminali (`markSourceOutcome`, che tocca anche `updated_at`
+        // del padre). Deliberatamente NON si sposta `email_proposals.project_id`
+        // sul nuovo progetto: quel campo fa parte dell'unique
+        // `(email_message_id, project_id)`, e se esistesse già un'altra riga
+        // figlia per quella stessa coppia (il fan-out l'avrebbe già creata,
+        // se il progetto scelto è nel perimetro) lo spostamento la
+        // violerebbe — spostare introdurrebbe un caso di errore in più senza
+        // guadagnare nulla, dato che la proposta per il progetto scelto o
+        // esiste già (creata dal fan-out) o nascerà al prossimo giro di
+        // classificazione, come riga a sé. E deliberatamente NON si tocca lo
+        // stato del padre (`email_messages.status`) oltre a `updated_at`
+        // (via `markSourceOutcome`): mai `status: 'new'` come faceva la
+        // versione pre-6b, perché rimetterebbe l'INTERO messaggio in
+        // classificazione, azzerando/sovrascrivendo le proposte sorelle
+        // ancora aperte — esattamente ciò che questo task deve impedire.
+        await markSourceOutcome(tx, args.source, {
+          status: "actioned",
+          detail: { type: "reassigned_project", projectId: args.action.projectId },
+        });
         return { ok: true };
       }
       case "ignore": {

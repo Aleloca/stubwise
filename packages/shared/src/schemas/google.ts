@@ -358,6 +358,17 @@ export type MailSignal = z.infer<typeof mailSignalSchema>;
  * `reproposable` è calcolato dal server (stesso criterio di
  * `POST /api/me/mail/:source/:id/repropose`: `status` `failed` o `ignored`) —
  * la UI non lo deduce da `status` per non duplicare quella regola.
+ *
+ * ⚠️ Fase 6b — rottura di contratto DICHIARATA nel design (§6, "Pagina
+ * Posta"): per `source: "email"`, `id` è ormai `email_proposals.id` (il
+ * FIGLIO, una riga per progetto), **non più** `email_messages.id`. Un
+ * messaggio con tre proposte produce tre righe con lo stesso mittente e lo
+ * stesso oggetto e TRE `id` diversi — è quella riga, non il messaggio, che
+ * `POST /:source/:id/repropose` chiude. Per `source: "calendar"`, invece,
+ * `id` resta `calendar_events.id`: il calendario è rimasto uno a uno,
+ * nessun figlio. Accettata perché la pagina Posta è stata deployata lo
+ * stesso giorno di questo cambio e nessun client si è ancora costruito
+ * sopra un `id` che significasse "messaggio" per l'email.
  */
 export const mailItemSchema = z.object({
   id: z.uuid(),
@@ -365,6 +376,13 @@ export const mailItemSchema = z.object({
   accountId: z.uuid(),
   /** L'email della casella Google da cui la riga è arrivata. */
   accountEmail: z.string(),
+  /**
+   * Il progetto della riga. Fase 6b: per `source: "email"` è ora SEMPRE
+   * valorizzato (una riga `email_proposals` ha `project_id NOT NULL` — è il
+   * progetto di QUESTA proposta, non più «il vincitore del routing, se
+   * risolto»); resta `.nullable()` per compatibilità di schema e per il
+   * calendario, dove un evento può restare senza progetto risolto.
+   */
   projectId: z.uuid().nullable(),
   /** Nome del progetto, per non costringere la UI a una seconda chiamata. `null` = non risolto. */
   projectName: z.string().nullable().default(null),

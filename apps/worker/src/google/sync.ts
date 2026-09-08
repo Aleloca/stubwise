@@ -49,13 +49,38 @@ export const GMAIL_RESYNC_QUERY = "newer_than:7d -from:me";
 export const GMAIL_RESYNC_MAX_MESSAGES = 200;
 
 /**
- * Stati TERMINALI di `email_messages`: la retention cancella solo questi.
+ * Stati TERMINALI di `email_messages`.
  *
  * `new`, `classified` e `proposed` sono lavoro in corso o una proposta ancora
  * aperta nella inbox di qualcuno: cancellarli farebbe sparire una card sotto le
  * dita del destinatario.
+ *
+ * ⚠️ Fase 6b: questa lista NON basta più, da sola, a decidere la potabilità di
+ * un messaggio (`pruneOldEmails` in `poller.ts`). Dalla classificazione in poi
+ * il padre non avanza più il proprio `status` a `actioned` — quello lo fanno
+ * solo i FIGLI (`email_proposals`, {@link TERMINAL_EMAIL_PROPOSAL_STATUSES}),
+ * uno per progetto — quindi un messaggio con figli resta `classified` per
+ * sempre, anche quando ogni figlio è chiuso. La retention usa perciò `status
+ * <> 'new'` come guardia minima sul padre (un messaggio mai classificato non
+ * ha mai avuto la possibilità di generare figli) più la condizione sui figli.
+ * Questa costante resta comunque il riferimento per gli stati "chiusi" del
+ * padre nelle righe SENZA figli (legacy pre-6b, o classificazioni senza
+ * candidati validi).
  */
 export const TERMINAL_EMAIL_STATUSES = ["actioned", "ignored", "failed"] as const;
+
+/**
+ * Stati TERMINALI di `email_proposals` (fase 6b): il figlio non ha più niente
+ * da fare — `classified` è una proposta non ancora pubblicata, `proposed` una
+ * card ancora aperta nella inbox del proprietario della casella.
+ *
+ * I valori letterali coincidono con {@link TERMINAL_EMAIL_STATUSES} — stesso
+ * significato, "questa riga non genera più nessuna azione" — ma è una
+ * costante A SÉ perché vive su un'altra tabella e un altro tipo union
+ * (`email_proposals.status` non conosce `new`, che non esiste per un figlio:
+ * una riga nasce già `classified`).
+ */
+export const TERMINAL_EMAIL_PROPOSAL_STATUSES = ["actioned", "ignored", "failed"] as const;
 
 /** I motivi ammessi da `google_accounts.disabled_reason` (CHECK in schema). */
 export type GoogleDisabledReason =
@@ -203,6 +228,7 @@ export interface EmailMessageInsert {
   textExcerpt: string | null;
   projectId: string | null;
   candidateProjectIds: string[];
+  scopeProjectIds: string[];
   status: "new";
 }
 
@@ -221,6 +247,7 @@ export function buildEmailMessageInsert(input: {
   text: string;
   projectId: string | null;
   candidateProjectIds: string[];
+  scopeProjectIds: string[];
   now: Date;
 }): EmailMessageInsert {
   const { message } = input;
@@ -238,6 +265,7 @@ export function buildEmailMessageInsert(input: {
     textExcerpt: input.text.trim() === "" ? null : input.text,
     projectId: input.projectId,
     candidateProjectIds: input.candidateProjectIds,
+    scopeProjectIds: input.scopeProjectIds,
     status: "new",
   };
 }
