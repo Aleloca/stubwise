@@ -3213,6 +3213,14 @@ export const emailMessages = pgTable(
     textExcerpt: text("text_excerpt"),
     projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
     candidateProjectIds: uuid("candidate_project_ids").array().notNull().default([]),
+    /**
+     * Fase 6b: TUTTI i progetti a cui questo messaggio è visibile — non solo
+     * `projectId` (il risolto) ma anche i `candidateProjectIds` che non hanno
+     * vinto il routing. Popolato dal backfill della 0070 per le righe
+     * preesistenti e da chi risolve il routing per quelle nuove; le proposte
+     * per-progetto in `email_proposals` vivono per ognuno di questi id.
+     */
+    scopeProjectIds: uuid("scope_project_ids").array().notNull().default([]),
     status: text("status")
       .$type<"new" | "classified" | "proposed" | "actioned" | "ignored" | "failed">()
       .notNull()
@@ -3302,6 +3310,71 @@ export const calendarEvents = pgTable(
   ],
 );
 
+/**
+ * PROPOSTA per-progetto di un messaggio email (fase 6b — multi-progetto).
+ * `email_messages` resta il messaggio grezzo con un solo esito legacy; questa
+ * tabella è la riga FIGLIA, una per ogni progetto nello `scopeProjectIds` del
+ * messaggio che ha almeno una proposta: ogni progetto vede, approva e ignora
+ * le SUE proposte indipendentemente dagli altri.
+ *
+ * `classification` è NOT NULL (a differenza di quella, nullable, del
+ * messaggio): una riga qui esiste solo quando la classificazione per QUEL
+ * progetto è già stata prodotta. `status` e le colonne di esito rispecchiano
+ * `email_messages` ma sono per-progetto: la stessa email può essere
+ * `actioned` per un progetto e ancora `classified` per un altro.
+ *
+ * L'unique `(email_message_id, project_id)` è l'idempotenza di chi crea le
+ * righe figlie (una sola proposta per coppia messaggio/progetto); il cascade
+ * su entrambe le FK segue lo stesso principio di `email_messages`: cancellare
+ * il messaggio o il progetto non deve lasciare proposte orfane.
+ */
+export const emailProposals = pgTable(
+  "email_proposals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    emailMessageId: uuid("email_message_id")
+      .notNull()
+      .references(() => emailMessages.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    status: text("status")
+      .$type<"classified" | "proposed" | "actioned" | "ignored" | "failed">()
+      .notNull()
+      .default("classified"),
+    /** {summary, proposals[], recommendedIndex} DI QUESTO progetto. */
+    classification: jsonb("classification").$type<Record<string, unknown>>().notNull(),
+    proposalNotificationId: uuid("proposal_notification_id").references(() => notifications.id, {
+      onDelete: "set null",
+    }),
+    outcome: jsonb("outcome").$type<Record<string, unknown>>(),
+    error: text("error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex("email_proposals_email_message_id_project_id_unique").on(
+      table.emailMessageId,
+      table.projectId,
+    ),
+    // Claim di una proposta non ancora pubblicata: le sole righe classificate
+    // e senza notifica sono candidate al prossimo giro del poller. Parziale
+    // (e non su tutto `email_message_id`) perché è lo stesso claim di
+    // `email_messages` prima della fase 6b — un progetto alla volta, non
+    // l'intera coda.
+    index("email_proposals_claim_idx")
+      .on(table.emailMessageId)
+      .where(sql`status = 'classified' and proposal_notification_id is null`),
+    check(
+      "email_proposals_status_chk",
+      sql`status in ('classified', 'proposed', 'actioned', 'ignored', 'failed')`,
+    ),
+  ],
+);
+
 /** Riga di `google_workspaces`: un Workspace con la sua app OAuth interna. */
 export type GoogleWorkspaceRow = typeof googleWorkspaces.$inferSelect;
 /** Riga di `google_accounts`: una casella Google collegata da un utente. */
@@ -3314,3 +3387,5 @@ export type ProjectEmailRouteRow = typeof projectEmailRoutes.$inferSelect;
 export type EmailMessageRow = typeof emailMessages.$inferSelect;
 /** Riga di `calendar_events`: un evento di calendario in perimetro. */
 export type CalendarEventRow = typeof calendarEvents.$inferSelect;
+/** Riga di `email_proposals`: la proposta di UN messaggio per UN progetto. */
+export type EmailProposalRow = typeof emailProposals.$inferSelect;
