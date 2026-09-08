@@ -80,10 +80,12 @@ Three kinds of rule, any of which can match:
 design, and this is the actual perimeter of what Stubwise reads from anyone's
 mailbox, not just a label used afterwards.
 
-When two or more projects could claim the same message, the one satisfying
-**the most rules** wins. A tie resolves to no project and the message becomes
-an *ambiguous* proposal, listing the tied candidates — Stubwise would rather
-ask than guess.
+A message can be in scope for more than one project at once, and each project
+that matches gets its **own, independent proposal** — see [One email, several
+projects](#one-email-several-projects) below. This makes putting the same
+domain, label or keyword on more than one project a genuinely sensible thing
+to do: every project it matches gets a proposal, instead of the rules simply
+competing for a single winner.
 
 :::note[A keyword only in the body doesn't pull a message into scope]
 Downloading a message body is the expensive part of the sync, so Stubwise
@@ -113,22 +115,48 @@ keyword alone, make sure it also appears in the subject.
    itself — the most it produces is a suggestion, which Stubwise's own code
    then double-checks against real data (is that ticket actually open? is
    that project actually a candidate?) before it's ever shown to anyone.
-4. **A proposal in your inbox.** If something useful comes out, a card
-   appears — **only for the mailbox owner** — showing the sender or event,
-   a short recognized signal (decision, request, deadline, blocker), and a
-   short list of options plus **Ignore**. One tap confirms; nothing happens
-   until you do.
+4. **A proposal in your inbox — one per matching project.** If something
+   useful comes out, a card appears — **only for the mailbox owner** — for
+   *each* project the message is in scope for, showing the project's name,
+   the sender or event, a short recognized signal (decision, request,
+   deadline, blocker), and a short list of options plus **Ignore**. One tap
+   confirms; nothing happens until you do.
 5. **Calendar, without AI.** Events on your primary calendar go through the
    same routing rules (attendee domains, keywords in the title) but skip the
    model entirely: an in-scope event deterministically proposes creating a
    milestone named after the event, due on the event's date. The same event
    is never proposed twice, and a cancelled event is simply marked as such —
-   no mutation.
+   no mutation. Unlike email, a calendar event always resolves to **at most
+   one** project — see below.
 
 Every proposal, confirmed or not, appears on your personal **Mail** page
 (`/mail`), with a link back to the original Gmail thread or calendar event,
 and a **Repropose** action for anything that failed or was ignored by
-mistake.
+mistake. A message that produced more than one proposal shows up as more
+than one row — same sender, same subject, a project badge telling them
+apart.
+
+## One email, several projects
+
+A single email often isn't about just one project — the recap of an internal
+meeting that covers progress and next steps on two or three initiatives at
+once is the common case in an instance with a dozen projects. Stubwise
+classifies that message **once per matching project**, using only that
+project's own context (its open tickets, its backlog titles), and produces a
+**separate proposal for each one** — each with its own options, its own
+**Ignore**, and its own confirmation. Confirming, ignoring, or reproposing one
+of them never touches the others: they're independent from the moment they're
+created.
+
+There's a cap on how many projects a single message can fan out to
+(`GMAIL_MAX_PROJECTS_PER_MESSAGE`, self-hosting only, default 5) so that one
+message copied to a large number of projects doesn't flood everyone's inbox
+at once; the projects with the strongest match survive the cap.
+
+The calendar is deliberately **not** part of this: an event still resolves to
+a single project (or none, if the routing rules tie), exactly as before this
+capability was added — a meeting invite doesn't need to become several
+milestones just because several projects are represented.
 
 ## Privacy
 
