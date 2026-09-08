@@ -461,7 +461,7 @@ describe("classifyEmail: rivalidazione dei referenti", () => {
     expect(proposals.map((p) => p.projectId)).toEqual([projectId]);
   });
 
-  it("NON completa il projectId mancante quando il progetto è ambiguo", async () => {
+  it("NON completa il projectId mancante quando il progetto è ambiguo — fase 6c: diventa «da smistare», non ignored", async () => {
     const account = await seedAccount();
     const a = await seedProject("Alfa");
     const b = await seedProject("Beta");
@@ -476,8 +476,14 @@ describe("classifyEmail: rivalidazione dei referenti", () => {
     ]);
 
     // Indovinare fra due progetti è esattamente ciò che il routing si rifiuta
-    // di fare: l'azione senza progetto sparisce, e non resta nulla da proporre.
-    expect(await classifyEmail(deps(runner), message)).toBe("ignored");
+    // di fare: l'azione senza progetto sparisce. Prima del Task 5 questo
+    // degradava a `ignored`; ora — nessun vincitore, nessun figlio — è
+    // esattamente il caso «da smistare»: il messaggio resta `classified` in
+    // attesa della proposta di smistamento (vedi il describe dedicato).
+    const outcome = await classifyEmail(deps(runner), message);
+    expect(outcome).toBe("classified");
+    const row = await reload(message.id);
+    expect(row.classification).toMatchObject({ triage: true });
   });
 
   it("accetta un projectId fra i CANDIDATI quando il routing non ha risolto", async () => {
@@ -1164,9 +1170,10 @@ describe("classifyEmail: perimetro vuoto → tutti i progetti dell'istanza (fase
     expect(row.signal).toBe("none");
   });
 
-  it("perimetro vuoto + segnale ma nessuna proposta valida sopravvive alla rivalidazione → ignored (senza proposta)", async () => {
-    // Questo è il ramo che il Task 5 sostituirà con la proposta di smistamento:
-    // qui deve restare `ignored`, senza nessuna azione aggiuntiva.
+  it("perimetro vuoto + segnale ma nessuna proposta valida sopravvive alla rivalidazione → resta classified, «da smistare» (fase 6c, Task 5)", async () => {
+    // Prima del Task 5 questo ramo degradava a `ignored`: ora è il caso NUOVO
+    // della proposta di smistamento — vedi `classify.test.ts`, il describe
+    // dedicato più sotto, per la copertura completa della forma "da smistare".
     const account = await seedAccount();
     await seedProject("Alfa");
     const message = await seedMessage(account.id, { projectId: null, candidateProjectIds: [] });
@@ -1180,8 +1187,11 @@ describe("classifyEmail: perimetro vuoto → tutti i progetti dell'istanza (fase
 
     const outcome = await classifyEmail(deps(runner), message);
 
-    expect(outcome).toBe("ignored");
-    expect((await reload(message.id)).status).toBe("ignored");
+    expect(outcome).toBe("classified");
+    const row = await reload(message.id);
+    expect(row.status).toBe("classified");
+    expect(row.signal).toBe("request");
+    expect(row.classification).toMatchObject({ triage: true, signal: "request" });
   });
 
   it("perimetro davvero vuoto (istanza SENZA progetti) resta ignored senza run, come prima", async () => {
@@ -1241,6 +1251,181 @@ describe("classifyEmail: perimetro vuoto → tutti i progetti dell'istanza (fase
       .proposals;
     const survivingProjects = new Set(proposals.map((p) => p.projectId));
     expect(survivingProjects.size).toBe(GMAIL_MAX_PROJECTS_PER_MESSAGE);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fase 6c — Task 5: la proposta di SMISTAMENTO, forma «da smistare» sul padre
+// ---------------------------------------------------------------------------
+
+describe("classifyEmail: proposta di smistamento — forma «da smistare» sul padre (fase 6c, Task 5)", () => {
+  it("nessun progetto nominato dal modello → suggestedProjectIds VUOTO, non un elenco arbitrario", async () => {
+    const account = await seedAccount();
+    await seedProject("Alfa");
+    await seedProject("Beta");
+    const message = await seedMessage(account.id, { projectId: null, candidateProjectIds: [] });
+    const runner = new FakeRunner([
+      modelOutput({
+        signal: "decision",
+        summary: "Qualcuno ha deciso qualcosa, ma non è chiaro cosa fare.",
+        // Nessun `projectId` da nessuna parte: il modello ha visto un segnale
+        // ma non ha saputo formulare un'azione.
+        proposals: [],
+      }),
+    ]);
+
+    const outcome = await classifyEmail(deps(runner), message);
+
+    expect(outcome).toBe("classified");
+    const row = await reload(message.id);
+    expect(row.status).toBe("classified");
+    expect(row.signal).toBe("decision");
+    expect(row.classification).toMatchObject({
+      triage: true,
+      signal: "decision",
+      summary: "Qualcuno ha deciso qualcosa, ma non è chiaro cosa fare.",
+      suggestedProjectIds: [],
+    });
+  });
+
+  it("i progetti SUGGERITI sono quelli che le proposte SCARTATE nominavano, nell'ordine, senza doppioni", async () => {
+    const account = await seedAccount();
+    const alfa = await seedProject("Alfa");
+    const beta = await seedProject("Beta");
+    const message = await seedMessage(account.id, { projectId: null, candidateProjectIds: [] });
+    const runner = new FakeRunner([
+      modelOutput({
+        signal: "deadline",
+        proposals: [
+          // Nomina Beta ma manca `name`: create_milestone la scarta comunque.
+          { type: "create_milestone", projectId: beta, consequence: "Crea milestone" },
+          // Nomina Alfa ma il ticket non esiste: update_ticket la scarta.
+          { type: "update_ticket", projectId: alfa, ticketNumber: 999, status: "in_progress", consequence: "Aggiorna" },
+          // Beta di nuovo: non deve comparire due volte fra i suggeriti.
+          { type: "comment_ticket", projectId: beta, ticketNumber: 999, body: "x", consequence: "Commenta" },
+        ],
+      }),
+    ]);
+
+    const outcome = await classifyEmail(deps(runner), message);
+
+    expect(outcome).toBe("classified");
+    const row = await reload(message.id);
+    expect(row.classification).toMatchObject({
+      triage: true,
+      // Nell'ordine di PRIMA citazione: Beta (proposta 0) prima di Alfa (proposta 1).
+      suggestedProjectIds: [beta, alfa],
+    });
+  });
+
+  it("un projectId INVENTATO (non fra i candidati) non entra fra i suggeriti", async () => {
+    const account = await seedAccount();
+    const alfa = await seedProject("Alfa");
+    const message = await seedMessage(account.id, { projectId: null, candidateProjectIds: [] });
+    const ghostProjectId = randomUUID();
+    const runner = new FakeRunner([
+      modelOutput({
+        signal: "request",
+        proposals: [
+          // Progetto inventato: nessun nome da mostrare, mai suggerito.
+          { type: "create_backlog_item", projectId: ghostProjectId, title: "T", consequence: "Crea" },
+        ],
+      }),
+    ]);
+
+    const outcome = await classifyEmail(deps(runner), message);
+
+    expect(outcome).toBe("classified");
+    const row = await reload(message.id);
+    expect(row.classification).toMatchObject({ triage: true, suggestedProjectIds: [] });
+    expect(alfa).toBeTruthy(); // Alfa esiste ma non è mai stato nominato: correttamente assente.
+  });
+
+  it("il tetto TRIAGE_MAX_SUGGESTED_PROJECTS si applica anche ai progetti suggeriti", async () => {
+    const account = await seedAccount();
+    const projectIds: string[] = [];
+    for (let i = 0; i < 5; i++) projectIds.push(await seedProject(`P${i}`));
+    const message = await seedMessage(account.id, { projectId: null, candidateProjectIds: [] });
+    const runner = new FakeRunner([
+      modelOutput({
+        signal: "request",
+        // Ogni proposta nomina un progetto diverso ma referenzia un ticket
+        // inesistente: tutte scartate, tutti i cinque projectId sono "nominati".
+        proposals: projectIds.map((id, i) => ({
+          type: "update_ticket",
+          projectId: id,
+          ticketNumber: 900 + i,
+          status: "in_progress",
+          consequence: "Aggiorna",
+        })),
+      }),
+    ]);
+
+    const outcome = await classifyEmail(deps(runner), message);
+
+    expect(outcome).toBe("classified");
+    const row = await reload(message.id);
+    const classification = row.classification as { suggestedProjectIds: string[] };
+    expect(classification.suggestedProjectIds).toHaveLength(3);
+    expect(classification.suggestedProjectIds).toEqual(projectIds.slice(0, 3));
+  });
+
+  it("un messaggio CON figli (già esistenti) non entra MAI in forma «da smistare», anche con segnale e zero proposte nuove", async () => {
+    const account = await seedAccount();
+    const a = await seedProject("Alfa");
+    const message = await seedMessage(account.id, { projectId: a, scopeProjectIds: [a] });
+    // Un figlio già esistente (da un giro precedente), qualunque sia il suo stato.
+    await seedProposal(message.id, a, { status: "proposed" });
+    const runner = new FakeRunner([
+      modelOutput({
+        signal: "request",
+        // Nessuna proposta nuova sopravvive (ticket inesistente).
+        proposals: [{ type: "update_ticket", ticketNumber: 999, status: "in_progress", consequence: "Aggiorna" }],
+      }),
+    ]);
+
+    const outcome = await classifyEmail(deps(runner), message);
+
+    // Il figlio esistente basta a mantenere il padre `classified` nella forma
+    // NORMALE (non «da smistare»): `writeClassification` conta i figli
+    // RIMANENTI (qualunque stato), non solo le proposte di QUESTO giro.
+    expect(outcome).toBe("classified");
+    const row = await reload(message.id);
+    expect(row.classification).not.toMatchObject({ triage: true });
+  });
+
+  it("integrazione: dopo `choose_project` sul padre (riaccodato con projectId+scopeProjectIds), il giro successivo produce un figlio NORMALE per quel progetto", async () => {
+    // Riproduce lo stato che `apps/server/src/services/google-proposal.ts`
+    // scrive nel case `choose_project` per `source: "email_triage"` — senza
+    // importare quel modulo (il server non è una dipendenza del worker): lo
+    // stato è quello, non il codice che lo produce.
+    const account = await seedAccount();
+    const chosen = await seedProject("Scelto");
+    const message = await seedMessage(account.id, {
+      status: "new",
+      projectId: chosen,
+      scopeProjectIds: [chosen],
+      proposalNotificationId: null,
+      classification: { triage: true, signal: "request", summary: "s", suggestedProjectIds: [] },
+    });
+    // Con UN SOLO progetto nel perimetro, il prompt esenta il modello dal
+    // ripetere `projectId`: `ctx.resolvedProjectId` (da `message.projectId`,
+    // ORA valorizzato) lo completa da sé.
+    const runner = new FakeRunner([
+      modelOutput({
+        signal: "request",
+        proposals: [{ type: "create_backlog_item", title: "Idea per Scelto", body: "x", consequence: "Crea" }],
+      }),
+    ]);
+
+    const outcome = await classifyEmail(deps(runner), message);
+
+    expect(outcome).toBe("classified");
+    const children = await reloadProposals(message.id);
+    expect(children).toHaveLength(1);
+    expect(children[0]!.projectId).toBe(chosen);
+    const row = await reload(message.id);
+    expect(row.classification).not.toMatchObject({ triage: true });
   });
 });
 

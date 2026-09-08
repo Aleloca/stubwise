@@ -217,11 +217,18 @@ function proposalEvent(
  * Fase 6b: per `source: "email"`, `sourceId` è ormai l'id del FIGLIO
  * (`email_proposals.id`, da `seedEmailProposalRow`) — è lì che vive
  * `proposal_notification_id`, mai più su `email_messages`.
+ *
+ * Fase 6c (Task 5): `source: "email_triage"` è un TERZO caso — la proposta di
+ * SMISTAMENTO, che lega la notifica DIRETTAMENTE al PADRE
+ * (`email_messages.proposal_notification_id`, `sourceId` = `email_messages.id`).
+ * `event.source` (il campo DENTRO l'evento, che `buildTriageProposalEvent`
+ * scrive sempre `"email"` — nasce comunque da un'email) resta `"email"` anche
+ * qui: è un concetto diverso da QUALE tabella il test lega alla notifica.
  */
 async function seedProposal(args: {
   ownerId: string;
   sourceId: string;
-  source: "email" | "calendar";
+  source: "email" | "calendar" | "email_triage";
   actions: GoogleProposalAction[];
   options?: { label: string }[];
   status?: "open" | "handled" | "snoozed";
@@ -229,6 +236,7 @@ async function seedProposal(args: {
   const proposalId = randomUUID();
   const options = args.options ?? args.actions.map((a) => ({ label: a.type }));
   const status = args.status ?? "open";
+  const eventSource = args.source === "calendar" ? "calendar" : "email";
   const [row] = await db
     .insert(notifications)
     .values({
@@ -236,7 +244,7 @@ async function seedProposal(args: {
       kind: "google.proposal",
       status,
       handledAt: status === "handled" ? new Date() : null,
-      event: proposalEvent(proposalId, args.source, options, args.actions) as unknown as Record<string, unknown>,
+      event: proposalEvent(proposalId, eventSource, options, args.actions) as unknown as Record<string, unknown>,
     })
     .returning({ id: notifications.id });
   if (args.source === "email") {
@@ -244,6 +252,11 @@ async function seedProposal(args: {
       .update(emailProposals)
       .set({ proposalNotificationId: row!.id })
       .where(eq(emailProposals.id, args.sourceId));
+  } else if (args.source === "email_triage") {
+    await db
+      .update(emailMessages)
+      .set({ proposalNotificationId: row!.id })
+      .where(eq(emailMessages.id, args.sourceId));
   } else {
     await db
       .update(calendarEvents)
@@ -251,6 +264,37 @@ async function seedProposal(args: {
       .where(eq(calendarEvents.id, args.sourceId));
   }
   return { notificationId: row!.id, proposalId };
+}
+
+/**
+ * Riga `email_messages` «da smistare» (fase 6c): nessun `projectId`, nessuna
+ * riga `email_proposals` figlia — esattamente ciò che `writeClassification`
+ * produce quando nessun progetto è attribuibile. `status: "classified"` come
+ * lo lascia la classificazione, PRIMA che il poller pubblichi la proposta.
+ */
+async function seedTriageEmailRow(
+  accountId: string,
+  overrides: Partial<typeof emailMessages.$inferInsert> = {},
+): Promise<{ id: string; gmailMessageId: string; threadId: string }> {
+  const gmailMessageId = `m-${randomUUID()}`;
+  const threadId = `t-${randomUUID()}`;
+  const [row] = await db
+    .insert(emailMessages)
+    .values({
+      accountId,
+      gmailMessageId,
+      threadId,
+      fromAddress: "laura@cliente.test",
+      fromName: "Laura",
+      subject: "Serve una mano",
+      receivedAt: new Date("2026-09-07T08:14:00.000Z"),
+      status: "classified",
+      signal: "request",
+      classification: { triage: true, signal: "request", summary: "s", suggestedProjectIds: [] },
+      ...overrides,
+    })
+    .returning({ id: emailMessages.id, gmailMessageId: emailMessages.gmailMessageId, threadId: emailMessages.threadId });
+  return row!;
 }
 
 async function readNotification(id: string) {
@@ -998,5 +1042,170 @@ describe("answerGoogleProposal — sorelle sullo stesso messaggio (fase 6b, Task
     // del registro è `(project_id, source_key)`, quindi non collidono.
     expect(rowsA[0]!.sourceKey).toBe(`email:${email.gmailMessageId}`);
     expect(rowsB[0]!.sourceKey).toBe(rowsA[0]!.sourceKey);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fase 6c (Task 5) — choose_project SUL PADRE: la proposta di smistamento
+// ---------------------------------------------------------------------------
+
+describe("answerGoogleProposal — choose_project sulla proposta di SMISTAMENTO (fase 6c, VIVA)", () => {
+  it("attribuisce il progetto, riassegna il perimetro e RIACCODA il messaggio in classificazione", async () => {
+    const { owner, accountId } = await seedOwner();
+    const { projectId: chosenProjectId } = await seedRepository(db);
+    const triage = await seedTriageEmailRow(accountId);
+    const { notificationId } = await seedProposal({
+      ownerId: owner.id,
+      sourceId: triage.id,
+      source: "email_triage",
+      actions: [
+        { type: "choose_project", projectId: chosenProjectId },
+        { type: "ignore" },
+      ],
+    });
+
+    const result = await answerGoogleProposal(db, { notificationId, actor: owner, optionIndex: 0 });
+    expect(result.ok).toBe(true);
+
+    const message = await readEmailMessage(triage.id);
+    // Riaccodato, non "chiuso": lo status è quello che il poller riclassifica.
+    expect(message!.status).toBe("new");
+    expect(message!.projectId).toBe(chosenProjectId);
+    expect(message!.scopeProjectIds).toEqual([chosenProjectId]);
+    expect(message!.proposalNotificationId).toBeNull();
+    // La notifica è comunque chiusa (claim avvenuto): la card non resta aperta.
+    expect((await readNotification(notificationId))!.status).toBe("handled");
+  });
+
+  it("progetto scelto sparito → target_gone, il padre diventa `failed` (riproponibile), non torna `new`", async () => {
+    const { owner, accountId } = await seedOwner();
+    const ghostProjectId = randomUUID();
+    const triage = await seedTriageEmailRow(accountId);
+    const { notificationId } = await seedProposal({
+      ownerId: owner.id,
+      sourceId: triage.id,
+      source: "email_triage",
+      actions: [{ type: "choose_project", projectId: ghostProjectId }],
+    });
+
+    const result = await answerGoogleProposal(db, { notificationId, actor: owner, optionIndex: 0 });
+    expect(result).toEqual({ ok: false, error: "target_gone" });
+
+    // `target_gone` esce PRIMA di ogni mutazione DENTRO `dispatchAction`
+    // (nessun riaccodamento scritto), ma `answerGoogleProposal` marca
+    // comunque la riga `failed` FUORI da quella transazione — stesso
+    // percorso di ogni altra azione con `target_gone` (vedi il test gemello
+    // sul figlio storico qui sopra). La riga NON torna `new` — non è stata
+    // riaccodata — e resta riproponibile dalla pagina Posta.
+    const message = await readEmailMessage(triage.id);
+    expect(message!.status).toBe("failed");
+    expect(message!.scopeProjectIds).toEqual([]);
+  });
+
+  it("«nessuno di questi» chiude il messaggio come ignored con un esito DISTINGUIBILE (`triage_dismissed`, non genericamente ignored)", async () => {
+    const { owner, accountId } = await seedOwner();
+    const triage = await seedTriageEmailRow(accountId);
+    const { notificationId } = await seedProposal({
+      ownerId: owner.id,
+      sourceId: triage.id,
+      source: "email_triage",
+      actions: [{ type: "ignore" }],
+    });
+
+    const result = await answerGoogleProposal(db, { notificationId, actor: owner, optionIndex: 0 });
+    expect(result.ok).toBe(true);
+
+    const message = await readEmailMessage(triage.id);
+    expect(message!.status).toBe("ignored");
+    expect(message!.outcome).toMatchObject({ type: "triage_dismissed" });
+    expect(message!.error).toBeNull();
+  });
+
+  it("una proposta di smistamento su un messaggio NON interferisce con i figli/proposte di un ALTRO messaggio", async () => {
+    const { owner, projectId, accountId } = await seedOwner();
+    const { projectId: chosenProjectId } = await seedRepository(db);
+    // Un ALTRO messaggio, con una proposta-figlia NORMALE, aperta.
+    const otherEmail = await seedEmailRow(accountId, projectId);
+    const otherChild = await seedEmailProposalRow(otherEmail.id, projectId);
+    const { notificationId: otherNotificationId } = await seedProposal({
+      ownerId: owner.id,
+      sourceId: otherChild.id,
+      source: "email",
+      actions: [{ type: "ignore" }],
+    });
+
+    const triage = await seedTriageEmailRow(accountId);
+    const { notificationId } = await seedProposal({
+      ownerId: owner.id,
+      sourceId: triage.id,
+      source: "email_triage",
+      actions: [{ type: "choose_project", projectId: chosenProjectId }, { type: "ignore" }],
+    });
+
+    const result = await answerGoogleProposal(db, { notificationId, actor: owner, optionIndex: 0 });
+    expect(result.ok).toBe(true);
+
+    // Il messaggio "da smistare" è stato riaccodato...
+    expect((await readEmailMessage(triage.id))!.status).toBe("new");
+    // ...l'ALTRO messaggio e la sua proposta-figlia restano ESATTAMENTE come
+    // prima: nessuna colonna toccata, la notifica ancora aperta.
+    const otherMessage = await readEmailMessage(otherEmail.id);
+    expect(otherMessage!.status).toBe("proposed");
+    const otherChildAfter = await readEmailProposal(otherChild.id);
+    expect(otherChildAfter!.status).toBe("classified");
+    expect(otherChildAfter!.outcome).toBeNull();
+    expect((await readNotification(otherNotificationId))!.status).toBe("open");
+  });
+
+  it("choose_project sul PADRE e choose_project su un FIGLIO storico producono esiti DIVERSI, per contrasto", async () => {
+    const { owner, projectId: originalProjectId, accountId } = await seedOwner();
+    const { projectId: chosenProjectId } = await seedRepository(db);
+
+    // ARM 1: proposta di smistamento SUL PADRE (fase 6c, VIVA).
+    const triage = await seedTriageEmailRow(accountId);
+    const { notificationId: triageNotificationId } = await seedProposal({
+      ownerId: owner.id,
+      sourceId: triage.id,
+      source: "email_triage",
+      actions: [{ type: "choose_project", projectId: chosenProjectId }],
+    });
+
+    // ARM 2: proposta STORICA su un FIGLIO (fase 6b, DEPRECATA in generazione).
+    const legacyEmail = await seedEmailRow(accountId, originalProjectId);
+    const legacyChild = await seedEmailProposalRow(legacyEmail.id, originalProjectId);
+    const { notificationId: legacyNotificationId } = await seedProposal({
+      ownerId: owner.id,
+      sourceId: legacyChild.id,
+      source: "email",
+      actions: [{ type: "choose_project", projectId: chosenProjectId }],
+    });
+
+    const resultTriage = await answerGoogleProposal(db, {
+      notificationId: triageNotificationId,
+      actor: owner,
+      optionIndex: 0,
+    });
+    const resultLegacy = await answerGoogleProposal(db, {
+      notificationId: legacyNotificationId,
+      actor: owner,
+      optionIndex: 0,
+    });
+    expect(resultTriage.ok).toBe(true);
+    expect(resultLegacy.ok).toBe(true);
+
+    // ARM 1 — il PADRE torna ATTIVO (`new`), col progetto scelto attribuito.
+    const triageAfter = await readEmailMessage(triage.id);
+    expect(triageAfter!.status).toBe("new");
+    expect(triageAfter!.projectId).toBe(chosenProjectId);
+
+    // ARM 2 — il FIGLIO storico è CHIUSO (`actioned`), il padre non torna
+    // MAI `new` e il progetto del figlio non si sposta.
+    const legacyChildAfter = await readEmailProposal(legacyChild.id);
+    expect(legacyChildAfter!.status).toBe("actioned");
+    expect(legacyChildAfter!.projectId).toBe(originalProjectId);
+    expect(legacyChildAfter!.outcome).toMatchObject({ type: "reassigned_project", projectId: chosenProjectId });
+    const legacyMessageAfter = await readEmailMessage(legacyEmail.id);
+    expect(legacyMessageAfter!.status).not.toBe("new");
+    expect(legacyMessageAfter!.projectId).toBe(originalProjectId);
   });
 });

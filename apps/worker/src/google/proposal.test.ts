@@ -16,6 +16,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import {
   buildCalendarProposalEvent,
   buildEmailProposalEvent,
+  buildTriageProposalEvent,
   calendarDayUrl,
   gmailThreadUrl,
   googleProposalEventSchema,
@@ -422,6 +423,91 @@ describe("buildCalendarProposalEvent", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Fase 6c — Task 5: la proposta di SMISTAMENTO, sul PADRE
+// ---------------------------------------------------------------------------
+
+function triageClassification(overrides: Record<string, unknown> = {}) {
+  return {
+    triage: true,
+    signal: "request",
+    summary: "Il cliente chiede qualcosa, ma non è chiaro per quale progetto.",
+    suggestedProjectIds: [PROJECT_A, PROJECT_B],
+    ...overrides,
+  };
+}
+
+function buildTriage(
+  classificationOverrides: Record<string, unknown> = {},
+  messageOverrides: Record<string, unknown> = {},
+) {
+  return buildTriageProposalEvent({
+    lang: "it",
+    message: { ...messageRow(), classification: triageClassification(classificationOverrides), ...messageOverrides },
+    mailboxEmail: MAILBOX,
+    projectNames: NAMES,
+  });
+}
+
+describe("buildTriageProposalEvent", () => {
+  it("un'opzione choose_project PER progetto suggerito, più «Nessuno di questi» per ultima", () => {
+    const event = buildTriage();
+    expect(event?.source).toBe("email");
+    expect(event?.signal).toBe("request");
+    // NIENTE projectId/projectName: qui il progetto è ciò che manca.
+    expect(event?.projectId).toBeUndefined();
+    expect(event?.projectName).toBeUndefined();
+    expect(event?.options).toHaveLength(3);
+    expect(event?.actions).toEqual([
+      { type: "choose_project", projectId: PROJECT_A },
+      { type: "choose_project", projectId: PROJECT_B },
+      { type: "ignore" },
+    ]);
+    // L'etichetta dell'ultima opzione NON è il generico "Non fare nulla":
+    // è dedicata alla proposta di smistamento.
+    expect(event?.options[2]?.label).not.toBe(event?.options[0]?.label);
+  });
+
+  it("la domanda riassume il segnale, NON nomina un progetto (a differenza di buildEmailProposalEvent)", () => {
+    const event = buildTriage();
+    expect(event?.question).not.toBe("");
+    expect(event?.question).not.toContain(NAMES.get(PROJECT_A));
+    expect(event?.question).not.toContain(NAMES.get(PROJECT_B));
+  });
+
+  it("suggestedProjectIds VUOTO → nasce comunque la card, con la sola opzione «Nessuno di questi»", () => {
+    const event = buildTriage({ suggestedProjectIds: [] });
+    expect(event).not.toBeNull();
+    expect(event?.options).toHaveLength(1);
+    expect(event?.actions).toEqual([{ type: "ignore" }]);
+  });
+
+  it("un progetto suggerito il cui nome non si risolve più si salta, senza invalidare l'evento", () => {
+    const ghostProjectId = randomUUID();
+    const event = buildTriage({ suggestedProjectIds: [ghostProjectId, PROJECT_A] });
+    expect(event).not.toBeNull();
+    expect(event?.actions).toEqual([
+      { type: "choose_project", projectId: PROJECT_A },
+      { type: "ignore" },
+    ]);
+  });
+
+  it("`triage` non booleano (jsonb malformato) → null", () => {
+    expect(buildTriage({ triage: "true" })).toBeNull();
+  });
+
+  it("marcatore assente (non è una classificazione «da smistare») → null", () => {
+    expect(
+      buildTriageProposalEvent({
+        lang: "it",
+        message: { ...messageRow(), classification: { signal: "request", proposals: [] } },
+        mailboxEmail: MAILBOX,
+        projectNames: NAMES,
+      }),
+    ).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Il cancello prima della publish
 // ---------------------------------------------------------------------------
 
@@ -775,5 +861,103 @@ describe("publishProposal", () => {
     expect(after?.proposalNotificationId).toBe(notification?.id);
     // L'appuntamento non ha un esito: quello lo scrive chi ESEGUE la proposta.
     expect(after?.outcome).toBeNull();
+  });
+
+  // -------------------------------------------------------------------------
+  // Fase 6c — Task 5: `source: "email_triage"` claima il PADRE, non un figlio
+  // -------------------------------------------------------------------------
+
+  it("email_triage: notifica e chiusura del PADRE nascono INSIEME — nessun figlio coinvolto", async () => {
+    const { userId, accountId } = await seedOwner();
+    const projectId = await seedProject("negozio-web");
+    const messageId = await seedMessage(accountId);
+    const event = buildTriageProposalEvent({
+      lang: "it",
+      message: { ...messageRow(), classification: triageClassification({ suggestedProjectIds: [projectId] }) },
+      mailboxEmail: MAILBOX,
+      projectNames: new Map([[projectId, "negozio-web"]]),
+    });
+    if (!event) throw new Error("evento non costruito");
+
+    const result = await publishProposal(db, {
+      event,
+      source: "email_triage",
+      rowId: messageId,
+      mailboxOwnerUserId: userId,
+      // Niente `projectId`: qui non c'è ancora un progetto risolto.
+    });
+
+    expect(result.ok).toBe(true);
+    const rows = await db.select().from(notifications);
+    expect(rows).toHaveLength(1);
+    const [message] = await db.select().from(emailMessages).where(eq(emailMessages.id, messageId));
+    expect(message?.status).toBe("proposed");
+    expect(message?.proposalNotificationId).toBe(rows[0]?.id);
+    // Nessun figlio è mai stato toccato: non ce n'era nessuno da chiudere.
+    expect(await db.select().from(emailProposals)).toEqual([]);
+  });
+
+  it("email_triage: una seconda pubblicazione sullo STESSO padre non passa, e NON lascia una notifica orfana", async () => {
+    const { userId, accountId } = await seedOwner();
+    const messageId = await seedMessage(accountId);
+    const eventFor2 = () =>
+      buildTriageProposalEvent({
+        lang: "it",
+        message: { ...messageRow(), classification: triageClassification({ suggestedProjectIds: [] }) },
+        mailboxEmail: MAILBOX,
+        projectNames: NAMES,
+      })!;
+
+    expect(
+      (
+        await publishProposal(db, {
+          event: eventFor2(),
+          source: "email_triage",
+          rowId: messageId,
+          mailboxOwnerUserId: userId,
+        })
+      ).ok,
+    ).toBe(true);
+
+    const second = await publishProposal(db, {
+      event: eventFor2(),
+      source: "email_triage",
+      rowId: messageId,
+      mailboxOwnerUserId: userId,
+    });
+
+    expect(second).toEqual({ ok: false, reason: "not_claimable" });
+    // Una sola notifica, non due: il perdente non lascia orfani.
+    expect(await db.select().from(notifications)).toHaveLength(1);
+  });
+
+  it("email_triage: un padre già `proposed` (non più `classified`) non è claimabile", async () => {
+    const { userId, accountId } = await seedOwner();
+    const [row] = await db
+      .insert(emailMessages)
+      .values({
+        accountId,
+        gmailMessageId: `m-${randomUUID()}`,
+        threadId: `t-${randomUUID()}`,
+        fromAddress: "laura@cliente.test",
+        receivedAt: new Date("2026-09-07T08:14:00.000Z"),
+        status: "proposed", // già pubblicata da qualcun altro (o da un giro precedente)
+      })
+      .returning({ id: emailMessages.id });
+    const event = buildTriageProposalEvent({
+      lang: "it",
+      message: { ...messageRow(), classification: triageClassification({ suggestedProjectIds: [] }) },
+      mailboxEmail: MAILBOX,
+      projectNames: NAMES,
+    })!;
+
+    const result = await publishProposal(db, {
+      event,
+      source: "email_triage",
+      rowId: row!.id,
+      mailboxOwnerUserId: userId,
+    });
+
+    expect(result).toEqual({ ok: false, reason: "not_claimable" });
   });
 });

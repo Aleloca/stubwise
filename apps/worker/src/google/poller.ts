@@ -65,6 +65,7 @@ import {
 import {
   buildCalendarProposalEvent,
   buildEmailProposalEvent,
+  buildTriageProposalEvent,
   DEFAULT_PROPOSE_MAX_PER_TICK,
   publishProposal,
   type PublishFn,
@@ -1109,7 +1110,10 @@ async function syncCalendar(
  * uno certo per riga), non più dal solo `email_messages.project_id` — il
  * fan-out ha già risolto quale progetto ciascuna proposta riguarda, quindi
  * qui non servono più i `candidateProjectIds` del padre (erano le opzioni
- * «Riguarda …» di `choose_project`, non più generate).
+ * «Riguarda …» di `choose_project`, non più generate). Fase 6c: gli id
+ * SUGGERITI dei messaggi «da smistare» ({@link suggestedProjectIdsOf}) sono
+ * un terzo insieme che passa dalla stessa query — nessun progetto è certo lì,
+ * ma servono comunque i loro nomi per le etichette delle opzioni.
  */
 async function projectNamesOf(db: Db, ids: (string | null)[]): Promise<Map<string, string>> {
   const unique = [...new Set(ids.filter((id): id is string => id !== null))];
@@ -1121,6 +1125,20 @@ async function projectNamesOf(db: Db, ids: (string | null)[]): Promise<Map<strin
     .where(inArray(projects.id, unique));
   for (const row of rows) names.set(row.id, row.name);
   return names;
+}
+
+/**
+ * Lettura TOLLERANTE del solo `suggestedProjectIds` della classificazione «da
+ * smistare» di un padre (fase 6c) — qui serve solo a raccogliere gli id per
+ * {@link projectNamesOf}, la validazione VERA (forma completa, `catch` per
+ * ogni campo) è quella di `buildTriageProposalEvent` in `./proposal.ts`: una
+ * sovra-inclusione qui (un id raccolto che poi risulta non valido) costa solo
+ * una riga in più nella query dei nomi, mai un evento costruito male.
+ */
+function suggestedProjectIdsOf(classification: unknown): string[] {
+  if (!classification || typeof classification !== "object") return [];
+  const raw = (classification as Record<string, unknown>).suggestedProjectIds;
+  return Array.isArray(raw) ? raw.filter((id): id is string => typeof id === "string") : [];
 }
 
 /**
@@ -1153,6 +1171,16 @@ async function projectNamesOf(db: Db, ids: (string | null)[]): Promise<Map<strin
  * tre verso il tetto, non uno — senza questo, il tetto sul FAN-OUT
  * (`GMAIL_MAX_PROJECTS_PER_MESSAGE`) potrebbe comunque far pubblicare più
  * card di quante il tetto per tick intendesse.
+ *
+ * Fase 6c (Task 5): una TERZA selezione, sui PADRI `classified` «da
+ * smistare» (`email_messages.classification->>'triage' = 'true'`, nessun
+ * figlio — vedi `classify.ts`), pubblica la proposta di SMISTAMENTO. È un
+ * canale SEPARATO da quello dei figli qui sopra, mai lo stesso: un messaggio
+ * con figli non ha MAI il marcatore `triage` (per costruzione, vedi
+ * `writeClassification`), e la selezione sui padri porta comunque un
+ * `NOT EXISTS` su `email_proposals` come difesa in profondità — stesso stile
+ * di `pruneOldEmails` più sotto. Ogni proposta di smistamento pubblicata
+ * conta **una** verso lo stesso tetto per tick delle altre due selezioni.
  */
 async function runProposePhase(
   deps: GooglePollerDeps,
@@ -1220,15 +1248,55 @@ async function runProposePhase(
       .orderBy(asc(calendarEventsTable.startsAt), asc(calendarEventsTable.id))
       .limit(limit);
 
-    if (proposalRows.length === 0 && events.length === 0) return 0;
+    // --- Smistamento (fase 6c, Task 5): i PADRI `classified` «da smistare»
+    // — nessun figlio, il marcatore `triage: true` nella loro
+    // `classification` (vedi `classify.ts`). Il `NOT EXISTS` su
+    // `email_proposals` è difesa in profondità (il marcatore da solo basta
+    // per costruzione), non un controllo ridondante inutile: stesso stile
+    // paranoico di `pruneOldEmails` più sotto — un messaggio CON figli non
+    // deve MAI ricevere anche una proposta di smistamento.
+    const triageRows = await deps.db
+      .select({
+        id: emailMessages.id,
+        threadId: emailMessages.threadId,
+        fromAddress: emailMessages.fromAddress,
+        fromName: emailMessages.fromName,
+        subject: emailMessages.subject,
+        receivedAt: emailMessages.receivedAt,
+        classification: emailMessages.classification,
+      })
+      .from(emailMessages)
+      .where(
+        and(
+          eq(emailMessages.accountId, account.id),
+          eq(emailMessages.status, "classified"),
+          isNull(emailMessages.proposalNotificationId),
+          sql`${emailMessages.classification} ->> 'triage' = 'true'`,
+          notExists(
+            deps.db
+              .select({ id: emailProposals.id })
+              .from(emailProposals)
+              .where(eq(emailProposals.emailMessageId, emailMessages.id)),
+          ),
+        ),
+      )
+      .orderBy(asc(emailMessages.receivedAt), asc(emailMessages.id))
+      .limit(limit);
+
+    if (proposalRows.length === 0 && events.length === 0 && triageRows.length === 0) return 0;
 
     // Una query sola per i nomi di TUTTI i progetti nominati dal lotto: il
-    // progetto CERTO di ciascun figlio più quello di ciascun evento di
-    // calendario. Niente più candidati: `choose_project` non si genera più
-    // (vedi il docblock di `buildEmailProposalEvent`).
+    // progetto CERTO di ciascun figlio, quello di ciascun evento di
+    // calendario, e i progetti SUGGERITI di ciascun messaggio «da smistare»
+    // (fase 6c — nessuno di questi è certo, ma serve comunque il nome per
+    // l'etichetta dell'opzione). Niente più candidati del padre per i figli:
+    // `choose_project` non si genera più lì (vedi il docblock di
+    // `buildEmailProposalEvent`) — la genera solo `buildTriageProposalEvent`,
+    // per un progetto SUGGERITO, non un candidato del vecchio routing.
     const projectNames = await projectNamesOf(deps.db, [
       ...proposalRows.map((row) => row.proposalProjectId),
       ...events.map((event) => event.projectId),
+      ...triageRows.flatMap((row) => suggestedProjectIdsOf(row.classification)),
     ]);
 
     for (const row of proposalRows) {
@@ -1295,6 +1363,52 @@ async function runProposePhase(
       else if (result.reason !== "not_claimable") {
         logger.warn(
           `google: proposta non pubblicata per l'evento ${row.id} (${result.reason})`,
+        );
+      }
+    }
+
+    // --- Smistamento (fase 6c, Task 5): il claim è sul PADRE stesso
+    // (`source: "email_triage"`), non su un figlio — non ce n'è nessuno.
+    for (const row of triageRows) {
+      if (deps.signal?.aborted) return published;
+      const event = buildTriageProposalEvent({
+        lang,
+        message: {
+          threadId: row.threadId,
+          fromAddress: row.fromAddress,
+          fromName: row.fromName,
+          subject: row.subject,
+          receivedAt: row.receivedAt,
+          classification: row.classification,
+        },
+        mailboxEmail: account.email,
+        projectNames,
+      });
+      if (!event) {
+        // Classificazione «da smistare» che non regge più la validazione
+        // (jsonb scritto da una versione precedente, o comunque non nella
+        // forma attesa): il PADRE resta `classified` e verrebbe ripescato a
+        // ogni tick per sempre. `ignored` lo chiude senza inventare una
+        // card, stesso trattamento dei figli senza proposta qui sopra.
+        await deps.db
+          .update(emailMessages)
+          .set({ status: "ignored" })
+          .where(eq(emailMessages.id, row.id));
+        continue;
+      }
+      const result = await publishProposal(deps.db, {
+        event,
+        source: "email_triage",
+        rowId: row.id,
+        mailboxOwnerUserId: account.userId,
+        // NIENTE projectId: qui non c'è un progetto risolto, è ciò che la
+        // proposta chiede.
+        ...(deps.publish !== undefined ? { publish: deps.publish } : {}),
+      });
+      if (result.ok) published += 1;
+      else if (result.reason !== "not_claimable") {
+        logger.warn(
+          `google: proposta di smistamento non pubblicata per il messaggio ${row.id} (${result.reason})`,
         );
       }
     }
@@ -1376,7 +1490,7 @@ async function runAccountTick(
  * ignorati o falliscono indipendentemente l'uno dall'altro — vedi
  * `classify.ts` (scrittura sui figli) e `google-proposal.ts`
  * (`markSourceOutcome`/`markSourceFailed`, che scrivono SOLO sul figlio).
- * Un messaggio è quindi potabile solo quando TUTTE e tre le condizioni
+ * Un messaggio è quindi potabile solo quando TUTTE e quattro le condizioni
  * valgono:
  *
  *  1. **è stato almeno classificato** (`status <> 'new'`): un messaggio
@@ -1397,7 +1511,20 @@ async function runAccountTick(
  *     `google-proposal.ts` chiama `propagateHandled` (claim: chiude la
  *     notifica) PRIMA di scrivere lo stato terminale sul figlio, sempre già
  *     la sua notifica chiusa — ma questa condizione non si fida di
- *     quell'ordine, lo riverifica riga per riga.
+ *     quell'ordine, lo riverifica riga per riga;
+ *  4. **la notifica del PADRE stesso, se ne ha una, non è più aperta**
+ *     (fase 6c, Task 5). È la condizione NUOVA di questo task, e non è
+ *     ridondante con la 3: la proposta di SMISTAMENTO vive SUL PADRE
+ *     (`email_messages.proposal_notification_id`), senza nessun figlio che la
+ *     specchi — a differenza di ogni riga LEGACY pre-6b, dove il backfill
+ *     della migrazione 0070 ha sempre accoppiato quella stessa colonna a un
+ *     figlio equivalente con lo stesso id di notifica (vedi il docblock di
+ *     `findSourceRow` in `apps/server/src/services/google-proposal.ts`). Senza
+ *     questa condizione, un messaggio «da smistare» con la card ancora aperta
+ *     in inbox verrebbe potato lo stesso non appena `updated_at` fosse
+ *     abbastanza vecchio — `updated_at` che, per un padre così, non si
+ *     aggiorna più da nessuno finché la proposta non viene confermata o
+ *     scartata.
  *
  * La soglia resta su `updated_at` DEL PADRE, e non su `received_at`: è la
  * colonna che `markSourceOutcome`/`markSourceFailed` toccano a ogni chiusura
@@ -1439,6 +1566,18 @@ export async function pruneOldEmails(db: Db, retentionDays: number): Promise<num
       and(eq(emailProposals.emailMessageId, emailMessages.id), ne(notifications.status, "handled")),
     );
 
+  // Condizione 4 (fase 6c, Task 5): la notifica DEL PADRE stesso — la
+  // proposta di smistamento, che vive lì e non su un figlio (vedi il
+  // docblock sopra). Correlata su `emailMessages.proposalNotificationId`: se
+  // è `null` la subquery non trova mai una riga (nessun join possibile), che
+  // è esattamente "nessuna notifica da aspettare".
+  const openParentNotification = db
+    .select({ id: notifications.id })
+    .from(notifications)
+    .where(
+      and(eq(notifications.id, emailMessages.proposalNotificationId), ne(notifications.status, "handled")),
+    );
+
   const deleted = await db
     .delete(emailMessages)
     .where(
@@ -1447,6 +1586,7 @@ export async function pruneOldEmails(db: Db, retentionDays: number): Promise<num
         sql`${emailMessages.updatedAt} < now() - make_interval(days => ${Math.round(retentionDays)})`,
         notExists(openChild),
         notExists(openNotifiedChild),
+        notExists(openParentNotification),
       ),
     )
     .returning({ id: emailMessages.id });

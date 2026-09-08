@@ -207,6 +207,47 @@ export interface EmailClassification {
 }
 
 /**
+ * Fase 6c — Task 5: ciò che finisce in `email_messages.classification` per un
+ * messaggio «da smistare» — un SEGNALE reale (`signal !== 'none'`) ma NESSUNA
+ * proposta sopravvissuta alla rivalidazione per NESSUN progetto, e quindi
+ * NESSUN figlio creato (vedi {@link writeClassification}).
+ *
+ * FORMA DIVERSA da {@link EmailClassification} DI PROPOSITO — non è
+ * un'estensione, è un'unione discriminata sullo stesso campo jsonb: il
+ * marcatore `triage: true` è ciò che distingue questo padre (nessun figlio,
+ * in attesa di una proposta di SMISTAMENTO — Task 5, `proposal.ts`) da un
+ * padre `classified` CON figli (dove `classification` resta nella forma
+ * "normale", con `proposals[]`). Nessuno stato nuovo, nessuna tabella nuova:
+ * solo una forma diversa dello stesso campo. Chi rilegge questo jsonb
+ * (`apps/worker/src/google/poller.ts`, `apps/worker/src/google/proposal.ts`)
+ * lo fa in modo TOLLERANTE (zod `.catch`/`.safeParse`), come ogni altra
+ * lettura di un jsonb scritto da una fase precedente.
+ */
+export interface EmailTriageClassification {
+  /** Il marcatore. SEMPRE `true` qui — mai scritto `false`, l'assenza del campo è il "no". */
+  triage: true;
+  signal: EmailSignal;
+  summary: string;
+  /**
+   * I progetti che le proposte SCARTATE nominavano (fino a
+   * {@link TRIAGE_MAX_SUGGESTED_PROJECTS}), non un elenco arbitrario — vedi
+   * {@link extractSuggestedProjectIds}. Può essere VUOTO: il modello ha visto
+   * un segnale ma non ha nominato nessun progetto specifico, e la proposta di
+   * smistamento nascerà con la sola opzione «Nessuno di questi».
+   */
+  suggestedProjectIds: string[];
+}
+
+/**
+ * Fase 6c: quanti progetti suggeriti porta al massimo una proposta di
+ * smistamento — stesso tetto di {@link MAX_PROPOSAL_OPTIONS} in
+ * `./proposal.ts` (non importato da lì per non introdurre una dipendenza
+ * ciclica fra i due moduli: sono la stessa costante per ragioni diverse, e
+ * tenerle allineate è responsabilità di chi le tocca).
+ */
+export const TRIAGE_MAX_SUGGESTED_PROJECTS = 3;
+
+/**
  * L'input del prompt: tutto ciò che l'agente vede, fidato e non.
  *
  * Fase 6b: `projects` non è più una lista di soli id fra cui scegliere, ma
@@ -756,6 +797,37 @@ async function markFailed(db: Db, messageId: string, reason: string): Promise<vo
     .where(eq(emailMessages.id, messageId));
 }
 
+/** Lettura TOLLERANTE del solo `projectId` di UNA proposta grezza (fase 6c). */
+const rawProposalProjectIdSchema = z.object({ projectId: z.string().min(1).optional() }).loose();
+
+/**
+ * Fase 6c: i progetti che le proposte SCARTATE nominavano — non un elenco
+ * arbitrario. Guarda l'output GREZZO del modello (`raw`, PRIMA della
+ * rivalidazione: quando questa funzione serve, ZERO proposte sono
+ * sopravvissute, quindi ogni proposta qui dentro è per forza una proposta
+ * scartata), nell'ordine in cui il modello le ha scritte, e tiene solo gli id
+ * che sono REALMENTE nel perimetro allargato (`allowedProjectIds`) — un id
+ * che il modello ha inventato non ha un nome da mostrare su un'opzione, e
+ * mostrarlo comunque sarebbe un'opzione rotta, non "generosa". Senza
+ * doppioni, fino a `cap`.
+ */
+export function extractSuggestedProjectIds(
+  raw: unknown[],
+  allowedProjectIds: Set<string>,
+  cap: number = TRIAGE_MAX_SUGGESTED_PROJECTS,
+): string[] {
+  const found: string[] = [];
+  for (const item of raw) {
+    if (found.length >= cap) break;
+    const parsed = rawProposalProjectIdSchema.safeParse(item);
+    if (!parsed.success || !parsed.data.projectId) continue;
+    const projectId = parsed.data.projectId;
+    if (!allowedProjectIds.has(projectId) || found.includes(projectId)) continue;
+    found.push(projectId);
+  }
+  return found;
+}
+
 /**
  * Fase 6b — Task 4: scrive l'esito della classificazione sui FIGLI
  * (`email_proposals`), un upsert PER PROGETTO, non più un unico UPDATE sul
@@ -775,12 +847,11 @@ async function markFailed(db: Db, messageId: string, reason: string): Promise<vo
  *     `status` derivato da "esiste almeno un figlio (qualunque stato) per
  *     questo messaggio, dopo i passi 1-2" — non dalla sola nuova partizione,
  *     perché un figlio `proposed` più vecchio, lasciato intatto dal passo 1,
- *     conta comunque come "il messaggio ha prodotto qualcosa". `error` è
- *     sempre `null`: la classificazione è riuscita anche quando tutto è
- *     stato scartato (→ nessun figlio → `ignored`, non un errore).
- *     `classification` resta scritta anche sul padre come vista COMBINATA
- *     (tutti i progetti insieme): utile per il debug, ma non è più l'ancora
- *     della pubblicazione — quella si sposta sui figli.
+ *     conta comunque come "il messaggio ha prodotto qualcosa". Quando NESSUN
+ *     figlio resta (fase 6c, Task 5), lo `status` NON è più sempre `ignored`:
+ *     si biforca su `classification.signal` — vedi sotto. `error` è sempre
+ *     `null`: la classificazione è riuscita anche quando tutto è stato
+ *     scartato.
  *
  * `notInArray` con un array VUOTO genera `sql\`true\`` in drizzle-orm (non un
  * `NOT IN ()` letterale, che sarebbe un errore di sintassi Postgres —
@@ -788,12 +859,61 @@ async function markFailed(db: Db, messageId: string, reason: string): Promise<vo
  * partizione vuota il passo 2 elimina correttamente TUTTI i figli
  * `classified` rimasti, che è l'esito voluto quando nessuna proposta è
  * sopravvissuta per nessun progetto.
+ *
+ * ## Fase 6c — Task 5: il terzo esito, quando NESSUN figlio resta
+ *
+ * Prima di questo task, "zero figli" degradava SEMPRE a `ignored` — vedi il
+ * design §4, "Tre esiti". Ora si biforca su `classification.signal` E su
+ * `resolvedProjectId`:
+ *
+ *  - `signal === 'none'`: **invariato**, `ignored` — nessun segnale, niente
+ *    da smistare;
+ *  - `signal !== 'none'` MA `resolvedProjectId !== null` (un progetto era
+ *    già risolto dal routing, senza ambiguità): **invariato**, `ignored` —
+ *    zero proposte sopravvissute qui non è "nessun progetto attribuibile",
+ *    è "nessuna azione utile per un progetto che già conoscevamo con
+ *    certezza" (un ticket citato che non esiste, una data già passata…).
+ *    ⚠️ **DEVIAZIONE deliberata dal testo del piano**, che non distingue
+ *    esplicitamente questo caso: proporre "a quale progetto appartiene?"
+ *    quando il progetto è GIÀ certo produrrebbe una card senza senso — la
+ *    domanda che la proposta di smistamento fa è letteralmente quella a cui
+ *    si sa già la risposta. Verificato che i tre test preesistenti che
+ *    rientrano in questo ramo (progetto risolto, referente non di progetto
+ *    che fallisce) si aspettavano `ignored`: è la lettura coerente col resto
+ *    del sistema, non solo con quei test;
+ *  - `signal !== 'none'` E `resolvedProjectId === null` (nessun vincitore:
+ *    perimetro vuoto da ammissione senza regole — Task 4 — O regole in
+ *    PARITÀ, candidati multipli senza vincitore — il caso ambiguo che la
+ *    fase 6 ORIGINALE risolveva con «Riguarda …», poi deprecato in
+ *    generazione dalla 6b): **nuovo**, resta `classified` — nessuna proposta
+ *    ha superato la rivalidazione per NESSUN progetto, e senza un vincitore
+ *    non c'è modo di completare un `projectId` mancante (vedi
+ *    `revalidateProposal`). Il padre porta la forma
+ *    {@link EmailTriageClassification} (marcatore `triage: true`) invece
+ *    della {@link EmailClassification} normale: NESSUN figlio viene creato
+ *    qui (il fan-out ha già scritto zero righe, ai passi 1-2 sopra — questo
+ *    branch non fa altro che scegliere la FORMA del padre), e il messaggio
+ *    resta `classified` apposta perché il poller
+ *    (`apps/worker/src/google/poller.ts`, `runProposePhase`) lo selezioni al
+ *    giro successivo e costruisca la proposta di SMISTAMENTO
+ *    (`./proposal.ts`, `buildTriageProposalEvent`) — che vive SUL PADRE,
+ *    riusando `email_messages.proposal_notification_id`.
  */
 async function writeClassification(
   db: Db,
   messageId: string,
   classification: EmailClassification,
   now: Date,
+  /** Fase 6c: l'output GREZZO del modello (prima della rivalidazione) e il
+   * perimetro allargato, per calcolare {@link EmailTriageClassification.suggestedProjectIds}
+   * SOLO quando serve (nel branch "zero figli, signal !== 'none', nessun
+   * vincitore"). */
+  rawProposals: unknown[],
+  allowedProjectIds: Set<string>,
+  /** Fase 6c: il progetto RISOLTO dal routing (`ClassifyContext.resolvedProjectId`),
+   * o `null` se ambiguo/assente — decide se "zero figli" è `ignored` o «da
+   * smistare» (vedi il docblock qui sopra). */
+  resolvedProjectId: string | null,
 ): Promise<ClassifyOutcome> {
   // Ripartiziona la lista piatta per progetto (`proposal.projectId` è sempre
   // definito su ogni proposta sopravvissuta, vedi il docblock di
@@ -855,14 +975,42 @@ async function writeClassification(
       .from(emailProposals)
       .where(eq(emailProposals.emailMessageId, messageId))
       .limit(1);
-    const parentStatus: ClassifyOutcome = remainingChildren.length > 0 ? "classified" : "ignored";
+
+    // Fase 6c — Task 5: il terzo esito (vedi il docblock qui sopra). Con
+    // figli il padre resta `classified` come sempre; senza figli si biforca
+    // su `signal` E su `resolvedProjectId` invece di degradare sempre a
+    // `ignored`.
+    let parentStatus: ClassifyOutcome;
+    let parentClassification: Record<string, unknown>;
+    if (remainingChildren.length > 0) {
+      parentStatus = "classified";
+      parentClassification = classification as unknown as Record<string, unknown>;
+    } else if (classification.signal === "none" || resolvedProjectId !== null) {
+      // Invariato: nessun segnale, O un progetto era già risolto (nessuna
+      // ambiguità da smistare) — vedi il docblock, "DEVIAZIONE deliberata".
+      parentStatus = "ignored";
+      parentClassification = classification as unknown as Record<string, unknown>;
+    } else {
+      // NUOVO: segnale reale, nessun vincitore, nessuna proposta attribuita
+      // a nessun progetto. Il padre resta `classified` — SENZA figli —
+      // apposta perché il poller lo selezioni per la proposta di
+      // smistamento (`proposal.ts`).
+      parentStatus = "classified";
+      const triage: EmailTriageClassification = {
+        triage: true,
+        signal: classification.signal,
+        summary: classification.summary,
+        suggestedProjectIds: extractSuggestedProjectIds(rawProposals, allowedProjectIds),
+      };
+      parentClassification = triage as unknown as Record<string, unknown>;
+    }
 
     await tx
       .update(emailMessages)
       .set({
         status: parentStatus,
         signal: classification.signal,
-        classification: classification as unknown as Record<string, unknown>,
+        classification: parentClassification,
         error: null,
       })
       .where(eq(emailMessages.id, messageId));
@@ -974,7 +1122,15 @@ export async function classifyEmail(
       now,
       deps.maxProjectsPerMessage ?? GMAIL_MAX_PROJECTS_PER_MESSAGE,
     );
-    return await writeClassification(deps.db, message.id, classification, now);
+    return await writeClassification(
+      deps.db,
+      message.id,
+      classification,
+      now,
+      parsed.proposals,
+      ctx.allowedProjectIds,
+      ctx.resolvedProjectId,
+    );
   } catch (err) {
     // Timeout, spawn fallito, limite del provider, errore di scrittura: è un
     // problema di QUESTO messaggio, non della casella.
