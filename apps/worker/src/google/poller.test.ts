@@ -156,6 +156,7 @@ function message(input: {
   id: string;
   from?: string;
   to?: string;
+  cc?: string;
   subject?: string;
   labels?: string[];
   body?: string;
@@ -166,6 +167,10 @@ function message(input: {
     to: input.to ?? MAILBOX,
     subject: input.subject ?? "Una richiesta",
   };
+  // Il Cc è opzionale (fase 6c Task 2): assente per la maggior parte dei
+  // test, che non lo esercitano — `parseAddressList` su un header mancante
+  // torna comunque una lista vuota, comportamento invariato.
+  if (input.cc !== undefined) headers.cc = input.cc;
   return {
     id: input.id,
     threadId: `thread-${input.id}`,
@@ -880,6 +885,155 @@ describe("ammissione (fase 6c)", () => {
     expect(stats.ingested).toBe(1);
     const [row] = await db.select().from(emailMessages);
     expect(row!.projectId).toBe(projectId);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Ammissione (fase 6c) — Task 2: un secondo dominio di lavoro fra i
+// destinatari ammette, `to` o `cc` indifferentemente — ESCLUSO il dominio
+// della casella che riceve (`account.email`, passato come `receivingDomain`
+// ad `admit()`). La tabella dei casi è quella del maintainer, verbatim.
+//
+// Questi test provano anche che il poller passa DAVVERO `receivingDomain` ad
+// `admit`: se `runAccountTick`/`syncGmail` lo lasciassero vuoto (o sbagliato),
+// il primo test qui sotto ammetterebbe per errore (il dominio della casella
+// stessa, non escluso, comparirebbe come "secondo dominio di lavoro").
+// ---------------------------------------------------------------------------
+
+describe("ammissione (fase 6c, Task 2) — dominio di lavoro fra i destinatari", () => {
+  /** Registra i due Workspace usati dalla tabella del maintainer. */
+  async function seedFarmakomAndTheCove(): Promise<void> {
+    await db.insert(googleWorkspaces).values([
+      {
+        name: "Farmakom",
+        domains: ["farmakom.it"],
+        clientId: "farmakom-client-id",
+        clientSecretEncrypted: "blob",
+      },
+      {
+        name: "The Cove",
+        domains: ["thecove.it"],
+        clientId: "thecove-client-id",
+        clientSecretEncrypted: "blob",
+      },
+    ]);
+  }
+
+  it("cliente esterno → solo la casella ricevente (it@farmakom.it) fra i destinatari: NON ammessa (nessun secondo dominio di lavoro coinvolto)", async () => {
+    await seedFarmakomAndTheCove();
+    const account = await seedAccount({
+      email: "it@farmakom.it",
+      nextSyncAt: new Date(Date.now() - 60_000),
+      gmailHistoryId: "1000",
+    });
+    const gmail = fakeGmail({
+      history: { addedMessageIds: ["m1"], historyId: "1010" },
+      messages: {
+        m1: message({ id: "m1", from: "cliente@esterno.org", to: "it@farmakom.it" }),
+      },
+    });
+
+    const stats = await pollGoogleOnce(deps(account, gmail));
+
+    expect(stats.ingested).toBe(0);
+    expect(await db.select().from(emailMessages)).toEqual([]);
+  });
+
+  it("cliente esterno → it@farmakom.it con a.locatelli@thecove.it IN COPIA: AMMESSA", async () => {
+    await seedFarmakomAndTheCove();
+    const account = await seedAccount({
+      email: "it@farmakom.it",
+      nextSyncAt: new Date(Date.now() - 60_000),
+      gmailHistoryId: "1000",
+    });
+    const gmail = fakeGmail({
+      history: { addedMessageIds: ["m1"], historyId: "1010" },
+      messages: {
+        m1: message({
+          id: "m1",
+          from: "cliente@esterno.org",
+          to: "it@farmakom.it",
+          cc: "a.locatelli@thecove.it",
+        }),
+      },
+    });
+
+    const stats = await pollGoogleOnce(deps(account, gmail));
+
+    expect(stats.ingested).toBe(1);
+    expect(gmail.calls).toContain("full:m1");
+  });
+
+  it("cliente esterno → entrambi fra i destinatari DIRETTI (to): AMMESSA — è il caso che prima falliva", async () => {
+    await seedFarmakomAndTheCove();
+    const account = await seedAccount({
+      email: "it@farmakom.it",
+      nextSyncAt: new Date(Date.now() - 60_000),
+      gmailHistoryId: "1000",
+    });
+    const gmail = fakeGmail({
+      history: { addedMessageIds: ["m1"], historyId: "1010" },
+      messages: {
+        m1: message({
+          id: "m1",
+          from: "cliente@esterno.org",
+          to: "it@farmakom.it, a.locatelli@thecove.it",
+        }),
+      },
+    });
+
+    const stats = await pollGoogleOnce(deps(account, gmail));
+
+    expect(stats.ingested).toBe(1);
+    expect(gmail.calls).toContain("full:m1");
+  });
+
+  it("due indirizzi ENTRAMBI del dominio della casella ricevente (to + cc): NON ammessa (nessun secondo dominio di lavoro coinvolto)", async () => {
+    await seedFarmakomAndTheCove();
+    const account = await seedAccount({
+      email: "it@farmakom.it",
+      nextSyncAt: new Date(Date.now() - 60_000),
+      gmailHistoryId: "1000",
+    });
+    const gmail = fakeGmail({
+      history: { addedMessageIds: ["m1"], historyId: "1010" },
+      messages: {
+        m1: message({
+          id: "m1",
+          from: "cliente@esterno.org",
+          to: "it@farmakom.it",
+          cc: "altro@farmakom.it",
+        }),
+      },
+    });
+
+    const stats = await pollGoogleOnce(deps(account, gmail));
+
+    expect(stats.ingested).toBe(0);
+    expect(await db.select().from(emailMessages)).toEqual([]);
+  });
+
+  it("mittente di un dominio di lavoro: ammette comunque, indipendentemente dai destinatari (invariato)", async () => {
+    await seedFarmakomAndTheCove();
+    const account = await seedAccount({
+      email: "it@farmakom.it",
+      nextSyncAt: new Date(Date.now() - 60_000),
+      gmailHistoryId: "1000",
+    });
+    const gmail = fakeGmail({
+      history: { addedMessageIds: ["m1"], historyId: "1010" },
+      messages: {
+        m1: message({
+          id: "m1",
+          from: "collega@thecove.it",
+          to: "it@farmakom.it",
+        }),
+      },
+    });
+
+    const stats = await pollGoogleOnce(deps(account, gmail));
+
+    expect(stats.ingested).toBe(1);
   });
 });
 

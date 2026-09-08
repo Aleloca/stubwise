@@ -1104,8 +1104,9 @@ export const instanceSettings = pgTable("instance_settings", {
   // dall'ATTRIBUZIONE (project_email_routes, fase 6, invariata). I default
   // sono un ALLARGAMENTO del perimetro di oggi, mai un restringimento: chi ha
   // già regole di progetto continua ad ammettere esattamente come prima.
-  // I mittenti (o destinatari in copia) dei domini di un Google Workspace
-  // registrato ammettono senza bisogno di una regola di progetto.
+  // I mittenti — o un SECONDO dominio di lavoro fra i destinatari, `to` o
+  // `cc` indifferentemente (Task 2, fase 6c) — dei domini di un Google
+  // Workspace registrato ammettono senza bisogno di una regola di progetto.
   emailAdmitWorkspaceDomains: boolean("email_admit_workspace_domains").notNull().default(true),
   // Etichette Gmail che escludono la posta ammessa per DOMINIO DI LAVORO
   // (colonna sopra): una regola di progetto è una scelta deliberata

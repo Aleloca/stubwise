@@ -430,10 +430,24 @@ function looksAutomated(headers: Record<string, string> | undefined): boolean {
  *    {@link matchRoutes}) rifiuta SUBITO.
  * 3. Se `denyAutomated`: gli header della posta automatica (vedi
  *    {@link looksAutomated}) rifiutano.
- * 4. Se `admitWorkspaceDomains`: il dominio del mittente O di un
- *    destinatario in COPIA (`ccAddresses` — non `toAddresses`: è la scelta
- *    del design, "il mittente o un destinatario in copia") in
- *    `workspaceDomains` ammette.
+ * 4. Se `admitWorkspaceDomains`: il dominio del **mittente**, O quello di
+ *    QUALUNQUE destinatario (`toAddresses` **o** `ccAddresses`,
+ *    indifferentemente — Task 2, 8 set 2026: l'esito non deve dipendere da
+ *    come il mittente ha compilato i campi, un'email che coinvolge due
+ *    identità aziendali diverse è lavoro sia che la seconda sia in copia
+ *    sia che sia fra i destinatari diretti) DIVERSO dal dominio di
+ *    `receivingDomain` (la casella che sta ricevendo), in `workspaceDomains`
+ *    ammette. Il confronto è sul DOMINIO, non sull'indirizzo: la casella
+ *    ricevente è nota (`account.email` nel poller) e si esclude a priori —
+ *    altrimenti OGNI email diretta a quella casella ammetterebbe per il solo
+ *    fatto che la casella stessa compare fra i suoi destinatari (è sempre
+ *    così: è lei che la riceve), il motivo preciso per cui `toAddresses` non
+ *    c'era affatto prima di questo task. La fix corretta non è "includere
+ *    `toAddresses` sempre", è "includere `to`+`cc` ESCLUDENDO il dominio
+ *    della casella ricevente": ciò che resta, se non vuoto, è un SECONDO
+ *    dominio di lavoro coinvolto nella conversazione — e la posta ordinaria
+ *    diretta a una sola casella non entra da questo criterio (per quella
+ *    restano le regole di progetto del passo 1).
  * 5. Altrimenti, rifiutato `no_match`.
  *
  * Con `admitWorkspaceDomains: false` il passo 4 si salta interamente. Per un
@@ -443,8 +457,22 @@ function looksAutomated(headers: Record<string, string> | undefined): boolean {
  * esclusa o un header automatico differisce ora da `inScope` per
  * costruzione quando nessuna regola di progetto combacia: `inScope` di
  * `matchRoutes` non conosce le esclusioni, `admit` sì.
+ *
+ * @param receivingDomain il dominio (non l'indirizzo) della casella che ha
+ *   ricevuto il messaggio — `domainOf(account.email)` nel poller. È un
+ *   PARAMETRO A SÉ e non un campo di {@link AdmissionConfig} perché
+ *   `AdmissionConfig` è caricata UNA volta per tick (`loadAdmissionConfig`)
+ *   e riusata per OGNI casella di quel tick, mentre questo valore cambia per
+ *   casella: infilarlo in `AdmissionConfig` avrebbe richiesto ricostruire
+ *   l'oggetto a ogni casella per un campo che, concettualmente, non è
+ *   configurazione d'istanza. Ogni chiamata reale (dal poller) ce l'ha
+ *   sempre disponibile da `account.email`: non è opzionale.
  */
-export function admit(message: EmailForRouting, config: AdmissionConfig): AdmissionResult {
+export function admit(
+  message: EmailForRouting,
+  config: AdmissionConfig,
+  receivingDomain: string,
+): AdmissionResult {
   // Passo 1 — vedi il docblock sopra per il PERCHÉ: `matchRoutes` è calcolata
   // una volta sola qui, e se combacia si ammette SENZA guardare le
   // esclusioni. Una regola di progetto non passa mai dai passi 2-4.
@@ -470,11 +498,18 @@ export function admit(message: EmailForRouting, config: AdmissionConfig): Admiss
     const workspaceDomains = new Set(
       config.workspaceDomains.map((domain) => domain.trim().toLowerCase()).filter((domain) => domain !== ""),
     );
+    const normalizedReceivingDomain = receivingDomain.trim().toLowerCase();
     const senderDomain = domainOf(normalizeAddress(message.fromAddress));
-    const ccDomains = (message.ccAddresses ?? []).map((address) => domainOf(normalizeAddress(address)));
+    // to + cc, ESCLUSO il dominio della casella ricevente — vedi il docblock
+    // sopra per il perché dell'esclusione (senza, ogni email diretta alla
+    // casella ammetterebbe da sola, visto che la casella è sempre fra i suoi
+    // stessi destinatari).
+    const recipientDomains = [...message.toAddresses, ...(message.ccAddresses ?? [])]
+      .map((address) => domainOf(normalizeAddress(address)))
+      .filter((domain) => domain !== "" && domain !== normalizedReceivingDomain);
     const fromWorkspace =
       (senderDomain !== "" && workspaceDomains.has(senderDomain)) ||
-      ccDomains.some((domain) => domain !== "" && workspaceDomains.has(domain));
+      recipientDomains.some((domain) => workspaceDomains.has(domain));
     if (fromWorkspace) {
       return { admitted: true, reason: "workspace_domain" };
     }

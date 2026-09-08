@@ -27,7 +27,13 @@ import {
   type GoogleAccountCredentials,
 } from "@stubwise/google/credentials";
 import type { Language } from "@stubwise/i18n";
-import { admit, matchRoutes, type AdmissionConfig, type EmailRoute } from "@stubwise/notifications";
+import {
+  admit,
+  matchRoutes,
+  normalizeAddress,
+  type AdmissionConfig,
+  type EmailRoute,
+} from "@stubwise/notifications";
 import {
   and,
   asc,
@@ -330,6 +336,35 @@ interface AccountContext {
    * calendario, che non ha ammissione.
    */
   admission: AdmissionConfig;
+  /**
+   * Il dominio della casella CHE RICEVE, fase 6c Task 2 — `domainOf(account.email)`,
+   * calcolato una volta per casella in {@link runAccountTick}. Passato ad
+   * {@link admit} come terzo argomento (non dentro `admission`, che è
+   * condivisa fra TUTTE le caselle del tick: infilarci un valore che cambia
+   * per casella avrebbe richiesto ricostruire l'oggetto a ogni giro). Serve
+   * a riconoscere un SECONDO dominio di lavoro fra i destinatari (`to` o
+   * `cc`) escludendo il proprio — vedi il docblock di `admit` in
+   * `@stubwise/notifications`.
+   */
+  receivingDomain: string;
+}
+
+/**
+ * Il dominio (dopo l'ultima chiocciola) di un indirizzo email, o stringa
+ * vuota — fase 6c Task 2.
+ *
+ * Serve a ricavare il dominio della casella RICEVENTE da `account.email`, da
+ * passare ad `admit` come `receivingDomain` (vedi {@link AccountContext.receivingDomain}).
+ * Non è importata da `@stubwise/notifications`: lì `domainOf` è un dettaglio
+ * PRIVATO di `email-routing.ts` (non fa parte dell'API pubblica del
+ * package — solo `normalizeAddress`, `admit`, `matchRoutes` e poche altre lo
+ * sono), e una riga non vale un'esportazione nuova. `normalizeAddress` (già
+ * pubblica, già importata qui) fa la stessa normalizzazione di indirizzo che
+ * ogni altro dominio confrontato da `admit` riceve.
+ */
+function domainOf(address: string): string {
+  const at = address.lastIndexOf("@");
+  return at === -1 ? "" : address.slice(at + 1);
 }
 
 /**
@@ -734,7 +769,7 @@ async function syncGmail(
 
     if (isFromMailbox(metadata, ctx.credentials.email)) continue;
 
-    const admission = admit(messageToRouting(metadata), ctx.admission);
+    const admission = admit(messageToRouting(metadata), ctx.admission, ctx.receivingDomain);
     if (!admission.admitted) continue;
 
     const full = await gmail.getMessageFull({ accessToken: ctx.accessToken, id });
@@ -1472,7 +1507,18 @@ async function runAccountTick(
     clientSecret: credentials.clientSecret,
     refreshToken: credentials.refreshToken,
   });
-  const ctx: AccountContext = { credentials, accessToken: tokens.accessToken, routes, admission };
+  const ctx: AccountContext = {
+    credentials,
+    accessToken: tokens.accessToken,
+    routes,
+    admission,
+    // Fase 6c Task 2: il dominio della casella che riceve, sempre disponibile
+    // da `account.email` — vedi il docblock di `AccountContext.receivingDomain`.
+    // `normalizeAddress` prima di `domainOf`: stessa normalizzazione di ogni
+    // altro indirizzo che `admit`/`matchRoutes` confrontano, per sicurezza
+    // anche se `account.email` non arriva mai con un nome visualizzato.
+    receivingDomain: domainOf(normalizeAddress(account.email)),
+  };
 
   // Fase 1 — Gmail, e il suo cursore messo al sicuro prima di tutto il resto.
   const gmailResult = await syncGmail(deps, ctx, account);
