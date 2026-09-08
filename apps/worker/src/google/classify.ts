@@ -4,6 +4,7 @@ import { join } from "node:path";
 import {
   backlogItems,
   emailMessages,
+  emailProposals,
   projects,
   tickets,
   type Db,
@@ -731,6 +732,121 @@ async function markFailed(db: Db, messageId: string, reason: string): Promise<vo
 }
 
 /**
+ * Fase 6b — Task 4: scrive l'esito della classificazione sui FIGLI
+ * (`email_proposals`), un upsert PER PROGETTO, non più un unico UPDATE sul
+ * padre. Tutto in UNA transazione, in tre passi:
+ *
+ *  1. **upsert per progetto**, guardato su `status = 'classified'`: l'`ON
+ *     CONFLICT` trova comunque la riga esistente (serve per il match), ma la
+ *     clausola `setWhere` blocca l'UPDATE se quella riga non è più
+ *     `classified` — una riclassificazione non deve MAI toccare un figlio
+ *     già `proposed`, `actioned`, `ignored` o `failed` (l'utente ha già
+ *     agito, o la card è già aperta in una inbox);
+ *  2. **delete dei soli figli `classified` non più nella nuova partizione**:
+ *     MAI un `DELETE` totale (senza il filtro su `status`), che
+ *     cancellerebbe anche una card `proposed`/`actioned` lasciando la sua
+ *     notifica orfana — è esattamente l'anti-pattern che questa fase vieta;
+ *  3. **il padre**: `signal` sempre aggiornato (proprietà del messaggio),
+ *     `status` derivato da "esiste almeno un figlio (qualunque stato) per
+ *     questo messaggio, dopo i passi 1-2" — non dalla sola nuova partizione,
+ *     perché un figlio `proposed` più vecchio, lasciato intatto dal passo 1,
+ *     conta comunque come "il messaggio ha prodotto qualcosa". `error` è
+ *     sempre `null`: la classificazione è riuscita anche quando tutto è
+ *     stato scartato (→ nessun figlio → `ignored`, non un errore).
+ *     `classification` resta scritta anche sul padre come vista COMBINATA
+ *     (tutti i progetti insieme): utile per il debug, ma non è più l'ancora
+ *     della pubblicazione — quella si sposta sui figli.
+ *
+ * `notInArray` con un array VUOTO genera `sql\`true\`` in drizzle-orm (non un
+ * `NOT IN ()` letterale, che sarebbe un errore di sintassi Postgres —
+ * verificato nel sorgente installato, non assunto): con una nuova
+ * partizione vuota il passo 2 elimina correttamente TUTTI i figli
+ * `classified` rimasti, che è l'esito voluto quando nessuna proposta è
+ * sopravvissuta per nessun progetto.
+ */
+async function writeClassification(
+  db: Db,
+  messageId: string,
+  classification: EmailClassification,
+  now: Date,
+): Promise<ClassifyOutcome> {
+  // Ripartiziona la lista piatta per progetto (`proposal.projectId` è sempre
+  // definito su ogni proposta sopravvissuta, vedi il docblock di
+  // `revalidateClassification`).
+  const byProject = new Map<string, RevalidatedProposal[]>();
+  for (const proposal of classification.proposals) {
+    const projectId = proposal.projectId!;
+    const list = byProject.get(projectId) ?? [];
+    list.push(proposal);
+    byProject.set(projectId, list);
+  }
+  // L'opzione CONSIGLIATA dal modello (se ce n'è una), per rimappare
+  // `recommendedIndex` dentro il sottoinsieme di CIASCUN figlio.
+  const recommended =
+    classification.proposals.length > 0 ? classification.proposals[classification.recommendedIndex] : undefined;
+
+  return db.transaction(async (tx) => {
+    const keptProjectIds = [...byProject.keys()];
+
+    for (const projectId of keptProjectIds) {
+      const proposals = byProject.get(projectId)!;
+      const localRecommendedIndex = recommended ? Math.max(proposals.indexOf(recommended), 0) : 0;
+      const childClassification: EmailClassification = {
+        signal: classification.signal,
+        summary: classification.summary,
+        proposals,
+        recommendedIndex: localRecommendedIndex,
+      };
+      await tx
+        .insert(emailProposals)
+        .values({
+          emailMessageId: messageId,
+          projectId,
+          status: "classified",
+          classification: childClassification as unknown as Record<string, unknown>,
+        })
+        .onConflictDoUpdate({
+          target: [emailProposals.emailMessageId, emailProposals.projectId],
+          set: {
+            classification: childClassification as unknown as Record<string, unknown>,
+            updatedAt: now,
+          },
+          setWhere: eq(emailProposals.status, "classified"),
+        });
+    }
+
+    await tx
+      .delete(emailProposals)
+      .where(
+        and(
+          eq(emailProposals.emailMessageId, messageId),
+          eq(emailProposals.status, "classified"),
+          notInArray(emailProposals.projectId, keptProjectIds),
+        ),
+      );
+
+    const remainingChildren = await tx
+      .select({ id: emailProposals.id })
+      .from(emailProposals)
+      .where(eq(emailProposals.emailMessageId, messageId))
+      .limit(1);
+    const parentStatus: ClassifyOutcome = remainingChildren.length > 0 ? "classified" : "ignored";
+
+    await tx
+      .update(emailMessages)
+      .set({
+        status: parentStatus,
+        signal: classification.signal,
+        classification: classification as unknown as Record<string, unknown>,
+        error: null,
+      })
+      .where(eq(emailMessages.id, messageId));
+
+    return parentStatus;
+  });
+}
+
+/**
  * Classifica UN messaggio e ne scrive l'esito. Non lancia mai (vedi il
  * docblock del modulo): ogni strada finisce in uno stato scritto sulla riga.
  */
@@ -833,18 +949,7 @@ export async function classifyEmail(
       now,
       deps.maxProjectsPerMessage ?? GMAIL_MAX_PROJECTS_PER_MESSAGE,
     );
-    const status: ClassifyOutcome =
-      classification.proposals.length > 0 ? "classified" : "ignored";
-    await deps.db
-      .update(emailMessages)
-      .set({
-        status,
-        signal: classification.signal,
-        classification: classification as unknown as Record<string, unknown>,
-        error: null,
-      })
-      .where(eq(emailMessages.id, message.id));
-    return status;
+    return await writeClassification(deps.db, message.id, classification, now);
   } catch (err) {
     // Timeout, spawn fallito, limite del provider, errore di scrittura: è un
     // problema di QUESTO messaggio, non della casella.

@@ -3,12 +3,14 @@ import {
   agentRuns,
   backlogItems,
   emailMessages,
+  emailProposals,
   googleAccounts,
   googleWorkspaces,
   projects,
   tickets,
   users,
   type Db,
+  type EmailProposalRow,
 } from "@stubwise/db";
 import { startTestDb, type TestDb } from "@stubwise/db/testing";
 import { and, eq } from "drizzle-orm";
@@ -58,6 +60,7 @@ beforeAll(async () => {
 
 afterEach(async () => {
   await db.delete(agentRuns);
+  await db.delete(emailProposals);
   await db.delete(emailMessages);
   await db.delete(googleAccounts);
   await db.delete(googleWorkspaces);
@@ -198,6 +201,30 @@ function deps(
 
 async function reload(id: string): Promise<typeof emailMessages.$inferSelect> {
   const [row] = await db.select().from(emailMessages).where(eq(emailMessages.id, id));
+  return row!;
+}
+
+/** Tutti i figli (`email_proposals`) di UN messaggio, in nessun ordine garantito. */
+async function reloadProposals(messageId: string): Promise<EmailProposalRow[]> {
+  return db.select().from(emailProposals).where(eq(emailProposals.emailMessageId, messageId));
+}
+
+/** Semina un figlio `email_proposals` a mano, per i test di riclassificazione. */
+async function seedProposal(
+  messageId: string,
+  projectId: string,
+  overrides: Partial<typeof emailProposals.$inferInsert> = {},
+): Promise<EmailProposalRow> {
+  const [row] = await db
+    .insert(emailProposals)
+    .values({
+      emailMessageId: messageId,
+      projectId,
+      status: "classified",
+      classification: { signal: "request", summary: "s", proposals: [], recommendedIndex: 0 },
+      ...overrides,
+    })
+    .returning();
   return row!;
 }
 
@@ -1066,5 +1093,150 @@ describe("classifyEmail: perimetro multi-progetto (fase 6b)", () => {
     expect(prompt).toContain("Voce di Beta");
     expect(prompt).toContain("Ticket di Alfa");
     expect(prompt).toContain("Ticket di Beta");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fase 6b — le proposte vivono sui FIGLI (Task 4)
+// ---------------------------------------------------------------------------
+
+describe("classifyEmail: scrittura sui figli e riclassificazione sicura (fase 6b)", () => {
+  it("una riclassificazione non tocca MAI un figlio già `proposed`", async () => {
+    const account = await seedAccount();
+    const a = await seedProject("Alfa");
+    const message = await seedMessage(account.id, { projectId: a, scopeProjectIds: [a] });
+    const existing = await seedProposal(message.id, a, {
+      status: "proposed",
+      classification: {
+        signal: "request",
+        summary: "vecchio",
+        proposals: [{ type: "create_backlog_item", projectId: a, title: "Vecchia proposta", consequence: "x" }],
+        recommendedIndex: 0,
+      },
+    });
+
+    const runner = new FakeRunner([
+      modelOutput({
+        proposals: [
+          { type: "create_backlog_item", projectId: a, title: "Nuova proposta", body: "x", consequence: "Crea" },
+        ],
+      }),
+    ]);
+
+    const outcome = await classifyEmail(deps(runner), message);
+
+    expect(outcome).toBe("classified");
+    const proposalRows = await reloadProposals(message.id);
+    expect(proposalRows).toHaveLength(1);
+    expect(proposalRows[0]!.id).toBe(existing.id);
+    expect(proposalRows[0]!.status).toBe("proposed");
+    // L'upsert non ha toccato la classification: la guardia ha bloccato l'UPDATE.
+    expect((proposalRows[0]!.classification as { summary: string }).summary).toBe("vecchio");
+  });
+
+  it("un figlio `classified` che non è più nella nuova partizione viene eliminato", async () => {
+    const account = await seedAccount();
+    const a = await seedProject("Alfa");
+    const b = await seedProject("Beta");
+    const message = await seedMessage(account.id, { projectId: a, scopeProjectIds: [a, b] });
+    const staleB = await seedProposal(message.id, b, { status: "classified" });
+
+    const runner = new FakeRunner([
+      modelOutput({
+        proposals: [
+          { type: "create_backlog_item", projectId: a, title: "Solo Alfa ora", body: "x", consequence: "Crea" },
+        ],
+      }),
+    ]);
+
+    await classifyEmail(deps(runner), message);
+
+    const proposalRows = await reloadProposals(message.id);
+    expect(proposalRows.map((p) => p.projectId)).toEqual([a]);
+    expect(proposalRows.some((p) => p.id === staleB.id)).toBe(false);
+  });
+
+  it("un progetto NUOVO nella partizione (nessun figlio preesistente) fa nascere una riga", async () => {
+    const account = await seedAccount();
+    const a = await seedProject("Alfa");
+    const message = await seedMessage(account.id, { projectId: a, scopeProjectIds: [a] });
+    expect(await reloadProposals(message.id)).toHaveLength(0);
+
+    const runner = new FakeRunner([
+      modelOutput({
+        proposals: [
+          { type: "create_backlog_item", projectId: a, title: "Prima proposta", body: "x", consequence: "Crea" },
+        ],
+      }),
+    ]);
+
+    await classifyEmail(deps(runner), message);
+
+    const proposalRows = await reloadProposals(message.id);
+    expect(proposalRows).toHaveLength(1);
+    expect(proposalRows[0]!.projectId).toBe(a);
+    expect(proposalRows[0]!.status).toBe("classified");
+  });
+
+  it("mai un DELETE totale: un figlio `proposed` sopravvive, uno `classified` obsoleto sparisce, uno nuovo nasce", async () => {
+    const account = await seedAccount();
+    const a = await seedProject("Alfa");
+    const b = await seedProject("Beta");
+    const c = await seedProject("Gamma");
+    const message = await seedMessage(account.id, { projectId: a, scopeProjectIds: [a, b, c] });
+    const proposedA = await seedProposal(message.id, a, { status: "proposed" });
+    const staleB = await seedProposal(message.id, b, { status: "classified" });
+    // Nessun figlio preesistente per Gamma.
+
+    const runner = new FakeRunner([
+      modelOutput({
+        proposals: [
+          { type: "create_backlog_item", projectId: a, title: "Ignorata (Alfa è proposed)", body: "x", consequence: "Crea" },
+          { type: "create_backlog_item", projectId: c, title: "Nuova per Gamma", body: "x", consequence: "Crea" },
+        ],
+      }),
+    ]);
+
+    await classifyEmail(deps(runner), message);
+
+    const proposalRows = await reloadProposals(message.id);
+    // MAI zero (un DELETE totale) e mai più delle due righe attese.
+    expect(proposalRows).toHaveLength(2);
+    const byProject = new Map(proposalRows.map((p) => [p.projectId, p]));
+    expect(byProject.get(a)!.id).toBe(proposedA.id);
+    expect(byProject.get(a)!.status).toBe("proposed");
+    expect(byProject.has(b)).toBe(false);
+    expect(byProject.get(b)?.id).not.toBe(staleB.id);
+    expect(byProject.get(c)!.status).toBe("classified");
+  });
+
+  it("il padre resta coerente: status derivato dai figli rimasti, signal sempre aggiornato, error sempre null", async () => {
+    const account = await seedAccount();
+    const a = await seedProject("Alfa");
+    const message = await seedMessage(account.id, { projectId: a, scopeProjectIds: [a] });
+    const runner = new FakeRunner([
+      modelOutput({
+        signal: "deadline",
+        proposals: [{ type: "create_backlog_item", projectId: a, title: "x", body: "y", consequence: "z" }],
+      }),
+    ]);
+
+    expect(await classifyEmail(deps(runner), message)).toBe("classified");
+    let parent = await reload(message.id);
+    expect(parent.status).toBe("classified");
+    expect(parent.signal).toBe("deadline");
+    expect(parent.error).toBeNull();
+
+    // Riclassificazione con segnale 'none': nessuna proposta sopravvive, il
+    // figlio nato dal primo giro (ancora `classified`) diventa obsoleto e
+    // viene eliminato → il padre torna `ignored`, MAI un errore.
+    const runner2 = new FakeRunner([modelOutput({ signal: "none", proposals: [] })]);
+    expect(await classifyEmail(deps(runner2), message)).toBe("ignored");
+
+    parent = await reload(message.id);
+    expect(parent.status).toBe("ignored");
+    expect(parent.signal).toBe("none");
+    expect(parent.error).toBeNull();
+    expect(await reloadProposals(message.id)).toHaveLength(0);
   });
 });
