@@ -14,12 +14,13 @@ import { translateApiError } from "../lib/translate-api-error";
  * Sezione «Posta» del dettaglio progetto (Fase 6): le regole che decidono quali
  * email parlano di questo progetto.
  *
- * ⚠️ Non è una preferenza di comodo: un messaggio che nessuna regola riconosce
- * non viene nemmeno scaricato da Gmail, quindi queste caselle sono il perimetro
- * di ciò che Stubwise legge della posta di chi ha collegato una casella. Per
- * questo la scrittura è solo admin (il server risponde 403 a un member) mentre
- * la lettura è di chiunque veda il progetto: sapere cosa viene letto non è un
- * privilegio da maintainer.
+ * ⚠️ Dalla fase 6c queste regole NON decidono più se un'email entra in
+ * Stubwise: decidono solo A QUALE PROGETTO va un'email GIÀ AMMESSA.
+ * L'ammissione (quali email entrano nella pipeline) è configurazione
+ * d'istanza, in Impostazioni → Google → «Posta ammessa» — non una regola di
+ * progetto. Per questo la scrittura resta solo admin (il server risponde 403
+ * a un member) mentre la lettura è di chiunque veda il progetto: sapere a
+ * quale progetto va la posta ammessa non è un privilegio da maintainer.
  *
  * Sezione SECONDARIA: `useQuery` (non suspense) e loading/errore inline, così
  * un suo fallimento degrada solo qui (pattern di `ProjectPluginsSection`).

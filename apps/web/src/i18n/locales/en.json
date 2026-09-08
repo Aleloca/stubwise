@@ -951,7 +951,20 @@
       "scopes": "Scopes",
       "internalHint": "Create the OAuth consent screen as an Internal app: it stays inside your organization and needs no Google verification.",
       "apisHint": "Enable the Gmail API and the Google Calendar API on the same project, then paste the client ID and the client secret here.",
-      "guideHint": "// step-by-step guide: user docs, Integrations → Google Workspace."
+      "guideHint": "// step-by-step guide: user docs, Integrations → Google Workspace.",
+      "mailAdmission": {
+        "title": "Admitted mail",
+        "subtitle": "// which emails enter Stubwise at all, instance-wide. Project rules below only decide where an admitted email goes.",
+        "admitWorkspaceDomainsLabel": "Admit mail from registered Workspace domains",
+        "admitWorkspaceDomainsHint": "// senders (or CC'd recipients) on a domain from a registered Google Workspace are admitted automatically, even without a project rule.",
+        "domainsTitle": "Domains that would be admitted",
+        "domainsLoading": "// loading domains…",
+        "domainsEmpty": "// no Google Workspace registered yet",
+        "denyLabelsLabel": "Always exclude these Gmail labels",
+        "denyLabelsHint": "// mail carrying one of these labels is discarded even if it would otherwise be admitted.",
+        "denyAutomatedLabel": "Discard automated mail",
+        "denyAutomatedHint": "// newsletters and automatic notifications (unsubscribe links, bulk senders, auto-replies) are dropped before they ever reach a project."
+      }
     },
     "aiProviders": {
       "title": "AI providers",
@@ -1555,8 +1568,8 @@
     },
     "email": {
       "title": "Mail",
-      "subtitle": "// which emails are about this project. At least one rule is needed: with none, no message comes in.",
-      "perimeterWarning": "A message no rule recognises is not even downloaded from Gmail. These rules are the perimeter of what Stubwise reads of the mail of whoever connected a mailbox.",
+      "subtitle": "// which emails attach to this project. Rules here decide attribution only; whether an email enters Stubwise at all is set in Settings → Google.",
+      "perimeterWarning": "These rules decide which project an email already admitted to the system goes to. Admission — which emails come in at all — is configured in Settings → Google.",
       "empty": "// no rules: this project's mail is not read",
       "loading": "// loading rules…",
       "error": "// could not load the mail routing rules",

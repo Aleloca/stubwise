@@ -11,6 +11,7 @@ import {
   getInbox,
   getInboxUnreadCount,
   getMail,
+  getMailAdmission,
   getMailSummary,
   getGoogleWorkspaces,
   getMyGoogleAccounts,
@@ -471,6 +472,20 @@ export const instanceSettingsQueryOptions = queryOptions({
 export const googleWorkspacesQueryOptions = queryOptions({
   queryKey: ["settings", "google-workspaces"],
   queryFn: getGoogleWorkspaces,
+  staleTime: 30_000,
+});
+
+/**
+ * Configurazione d'istanza dell'AMMISSIONE della posta (fase 6c). Lettura
+ * aperta a ogni utente autenticato (a differenza di
+ * `googleWorkspacesQueryOptions`, solo admin), quindi chiave a sé sotto
+ * "settings" anche se la rotta vive nello stesso file server: la GET è
+ * leggibile da chiunque, la PATCH resta admin (vedi
+ * `mail-admission-section.tsx`).
+ */
+export const mailAdmissionQueryOptions = queryOptions({
+  queryKey: ["settings", "mail-admission"],
+  queryFn: getMailAdmission,
   staleTime: 30_000,
 });
 

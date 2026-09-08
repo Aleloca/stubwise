@@ -30,6 +30,7 @@ import {
   instanceSettingsQueryOptions,
   invitesQueryOptions,
   briefQueryOptions,
+  mailAdmissionQueryOptions,
   mailQueryOptions,
   mailSummaryQueryOptions,
   milestonesQueryOptions,
@@ -789,16 +790,25 @@ const settingsSlackRoute = createRoute({
 });
 
 /**
- * Registro dei Google Workspace (solo admin, fase 6): le app OAuth interne su
- * cui gli operatori collegano le proprie caselle. Prefetch best-effort come le
- * altre sotto-rotte admin.
+ * Il registro dei Google Workspace (fase 6) e, dalla fase 6c, la sezione
+ * «Posta ammessa» (`GET /api/settings/mail-admission`, aperta a OGNI utente
+ * autenticato — vedi il commento sulla rotta lato server). NIENTE
+ * `beforeLoad: requireAdmin` qui, a differenza delle altre sotto-rotte admin
+ * di questo file: un member deve poter atterrare su questa pagina per
+ * vedere (in sola lettura) l'ammissione della posta. `SettingsGooglePage`
+ * decide da sé, col ruolo, se montare `GoogleWorkspacesSection` (quella sì
+ * solo admin, la rotta `google-workspaces` risponde 403 a un member).
+ * Prefetch best-effort di entrambe: quello dei Workspace fallisce in
+ * silenzio per un member (403 atteso, non un errore da propagare).
  */
 const settingsGoogleRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: "/google",
-  beforeLoad: ({ context }) => requireAdmin(context.user.role),
   loader: async ({ context }) => {
-    await context.queryClient.ensureQueryData(googleWorkspacesQueryOptions).catch(() => undefined);
+    await Promise.all([
+      context.queryClient.ensureQueryData(googleWorkspacesQueryOptions).catch(() => undefined),
+      context.queryClient.ensureQueryData(mailAdmissionQueryOptions).catch(() => undefined),
+    ]);
   },
   component: SettingsGooglePage,
 });
