@@ -21,6 +21,14 @@ import {
  * personale ed effimera, nessuna vista da condividere via link). «Riproponi»
  * su `failed`/`ignored` resetta lo stato: il PROSSIMO tick del poller genera
  * una proposta NUOVA (non ripubblica da qui — vedi `postMailRepropose`).
+ *
+ * Fase 6b: una riga email è ormai una PROPOSTA (`email_proposals`), non un
+ * messaggio — un messaggio con più proposte produce più righe consecutive con
+ * lo stesso mittente e lo stesso oggetto, distinte dal BADGE di progetto
+ * (`MailRow`) e da stato/esito propri. `item.id` è quello della proposta:
+ * «Riproponi» agisce sempre e solo sulla riga cliccata, mai sulle sorelle
+ * dello stesso messaggio. Nessun cambiamento per il calendario, ancora uno a
+ * uno.
  */
 const STATUS_OPTIONS: MailItemStatus[] = [
   "new",
@@ -177,7 +185,18 @@ function MailRow({ item, projectName, filters }: MailRowProps) {
         <span className="rounded-sm border border-line bg-ink-850 px-1.5 py-0.5 text-fg-muted">
           {t(`mail:source.${item.source}`)}
         </span>
-        {projectName !== undefined && <span className="text-fg-muted">{projectName}</span>}
+        {/*
+         * Fase 6b: il badge di progetto è ciò che distingue righe altrimenti
+         * identiche (stesso mittente, stesso oggetto) quando lo stesso
+         * messaggio genera più proposte — bordato come il badge `source`
+         * qui sopra, non più un semplice testo, perché ora è lui a
+         * rispondere alla domanda «di quale progetto è questa riga?».
+         */}
+        {projectName !== undefined && (
+          <span className="rounded-sm border border-signal-dim/50 bg-ink-850 px-1.5 py-0.5 text-signal">
+            {projectName}
+          </span>
+        )}
         {item.signal !== null && <SignalBadge signal={item.signal} />}
         <span className={STATUS_CLASS[item.status]}>{t(`mail:status.${item.status}`)}</span>
         <time dateTime={item.date} title={item.date}>

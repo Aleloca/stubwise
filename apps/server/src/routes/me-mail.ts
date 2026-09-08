@@ -1,6 +1,7 @@
 import {
   calendarEvents,
   emailMessages,
+  emailProposals,
   googleAccounts,
   notifications,
   projects,
@@ -14,6 +15,7 @@ import {
   mailSummarySchema,
   type MailItem,
   type MailItemStatus,
+  type MailSignal,
 } from "@stubwise/shared";
 import { and, desc, eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
@@ -24,10 +26,10 @@ import { apiError } from "../errors.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 /**
- * PAGINA POSTA (fase 6, Task 12), sotto `/api/me/mail`: i messaggi Gmail e gli
- * eventi di calendario TRATTATI dal poller — non la posta grezza, quella non
- * lascia mai `email_messages`/`calendar_events` se è fuori dal perimetro di
- * routing di nessun progetto.
+ * PAGINA POSTA (fase 6, Task 12; fase 6b, Task 8), sotto `/api/me/mail`: i
+ * messaggi Gmail e gli eventi di calendario TRATTATI dal poller — non la
+ * posta grezza, quella non lascia mai `email_messages`/`calendar_events` se è
+ * fuori dal perimetro di routing di nessun progetto.
  *
  * ⚠️ Come `/api/me/google` (vedi il docblock di `me-google.ts`): **`user_id` è
  * SEMPRE nel WHERE**, via il JOIN su `google_accounts` filtrato per
@@ -38,13 +40,28 @@ import { authErrorResponses, errorSchema } from "./shared.js";
  *
  * ## Lista UNIFICATA, non due liste
  *
- * `GET /` fonde `email_messages` e `calendar_events` in UNA lista ordinata per
- * data, con un campo `source` a distinguerle — è la lettura più fedele del
- * design (§5, "Pagina Posta": *"elenco di messaggi ed eventi trattati"*, non
- * due elenchi separati). La fusione è in MEMORIA (una query per sorgente,
- * come `buildProjectTimeline` in `@stubwise/notifications`): niente UNION SQL,
- * che costringerebbe le due tabelle — colonne, filtri e stato diversi — a una
- * forma comune fatta di `null`.
+ * `GET /` fonde le proposte email e gli eventi di calendario in UNA lista
+ * ordinata per data, con un campo `source` a distinguerle — è la lettura più
+ * fedele del design (§5, "Pagina Posta": *"elenco di messaggi ed eventi
+ * trattati"*, non due elenchi separati). La fusione è in MEMORIA (una query
+ * per sorgente, come `buildProjectTimeline` in `@stubwise/notifications`):
+ * niente UNION SQL, che costringerebbe le due tabelle — colonne, filtri e
+ * stato diversi — a una forma comune fatta di `null`.
+ *
+ * ## Fase 6b — una riga per PROPOSTA, non per messaggio
+ *
+ * Il lato email non legge più `email_messages` da sola: legge `email_proposals`
+ * (il FIGLIO, una riga per progetto nello `scopeProjectIds` del messaggio) con
+ * un JOIN al padre per mittente/oggetto/thread/casella. Un messaggio con tre
+ * proposte produce TRE righe — mittente e oggetto ripetuti, distinte dal
+ * `projectId`/`projectName`, che per una riga email è ora SEMPRE valorizzato
+ * (`email_proposals.project_id` è `NOT NULL`). `MailItem.id` è quindi
+ * `email_proposals.id` per una riga email — **non più** `email_messages.id` —
+ * ed è la riga che «Riproponi» chiude; il calendario resta uno a uno,
+ * invariato (`calendar_events.id`). I FIGLI `classified`/`proposed`/
+ * `actioned`/`ignored`/`failed` non conoscono lo stato `new` (una proposta
+ * nasce già `classified`): un filtro `?status=new` sul lato email torna
+ * sempre vuoto, come `cancelled` (solo del calendario).
  *
  * Paginazione: **keyset in memoria** sulla coppia `(date, id)` DESC (`date` è
  * `receivedAt` per la posta, `startsAt` per il calendario). Ogni sorgente
@@ -158,40 +175,55 @@ interface ListMailInput {
   limit: number;
 }
 
+/**
+ * Fase 6b: legge i FIGLI `email_proposals`, con un JOIN al padre
+ * `email_messages` per mittente/oggetto/thread/casella e uno a `projects`
+ * (INNER: `email_proposals.project_id` è `NOT NULL`, una riga qui esiste solo
+ * per un progetto che esiste — il cascade della FK garantisce che non
+ * sopravviva a un progetto cancellato).
+ */
 async function queryEmailCandidates(db: Db, input: ListMailInput): Promise<MailItem[]> {
-  // `status: "cancelled"` non esiste MAI sulla posta (fuori dal CHECK della
-  // colonna): la query tornerebbe comunque vuota, ma si evita di lanciarla.
-  if (input.status === "cancelled") return [];
+  // `status: "cancelled"` non esiste MAI sulla posta (solo il calendario ce
+  // l'ha), e `status: "new"` non esiste più per un FIGLIO (una proposta nasce
+  // già `classified`, mai `new`): la query tornerebbe comunque vuota per
+  // entrambi, ma si evita di lanciarla — e di forzare un cast di tipo, dato
+  // che `emailProposals.status` non contempla né l'uno né l'altro.
+  if (input.status === "cancelled" || input.status === "new") return [];
   const conditions = [eq(googleAccounts.userId, input.userId)];
   if (input.account) conditions.push(eq(emailMessages.accountId, input.account));
-  if (input.project) conditions.push(eq(emailMessages.projectId, input.project));
-  if (input.status) conditions.push(eq(emailMessages.status, input.status));
+  if (input.project) conditions.push(eq(emailProposals.projectId, input.project));
+  if (input.status) conditions.push(eq(emailProposals.status, input.status));
   if (input.cursor) {
     conditions.push(
-      sql`(${emailMessages.receivedAt}, ${emailMessages.id}) < (${input.cursor.date}::timestamptz, ${input.cursor.id}::uuid)`,
+      sql`(${emailMessages.receivedAt}, ${emailProposals.id}) < (${input.cursor.date}::timestamptz, ${input.cursor.id}::uuid)`,
     );
   }
   const rows = await db
     .select({
-      id: emailMessages.id,
+      id: emailProposals.id,
       accountId: emailMessages.accountId,
       accountEmail: googleAccounts.email,
-      projectId: emailMessages.projectId,
+      projectId: emailProposals.projectId,
       projectName: projects.name,
       title: emailMessages.subject,
       from: emailMessages.fromAddress,
       threadId: emailMessages.threadId,
       date: emailMessages.receivedAt,
-      status: emailMessages.status,
-      signal: emailMessages.signal,
-      outcome: emailMessages.outcome,
-      error: emailMessages.error,
+      status: emailProposals.status,
+      // Il segnale vive nella `classification` DEL FIGLIO (stesso valore per
+      // ogni figlio dello stesso messaggio, scritto da `writeClassification`
+      // in `apps/worker/src/google/classify.ts`): non c'è una colonna a sé,
+      // com'era su `email_messages.signal` prima della fase 6b.
+      signal: sql<MailSignal | null>`(${emailProposals.classification}->>'signal')`,
+      outcome: emailProposals.outcome,
+      error: emailProposals.error,
     })
-    .from(emailMessages)
+    .from(emailProposals)
+    .innerJoin(emailMessages, eq(emailMessages.id, emailProposals.emailMessageId))
     .innerJoin(googleAccounts, eq(googleAccounts.id, emailMessages.accountId))
-    .leftJoin(projects, eq(projects.id, emailMessages.projectId))
+    .innerJoin(projects, eq(projects.id, emailProposals.projectId))
     .where(and(...conditions))
-    .orderBy(desc(emailMessages.receivedAt), desc(emailMessages.id))
+    .orderBy(desc(emailMessages.receivedAt), desc(emailProposals.id))
     .limit(input.limit + 1);
 
   return rows.map((row) => ({
@@ -334,7 +366,9 @@ export async function meMailRoutes(instance: FastifyInstance): Promise<void> {
    * Contatori per il badge di nav e l'intestazione: `openProposals` sulle
    * NOTIFICHE (`google.proposal` ancora `open` di questo utente — l'audience
    * `mailbox_owner` garantisce che sia l'unico destinatario), `failed`/
-   * `ignored` sulle RIGHE (posta + calendario, stato normalizzato).
+   * `ignored` sulle RIGHE (posta + calendario, stato normalizzato). Fase 6b:
+   * il lato email conta i FIGLI `email_proposals`, non più i messaggi — un
+   * messaggio con due proposte `failed` (progetti diversi) conta per due.
    */
   app.get(
     "/summary",
@@ -360,14 +394,16 @@ export async function meMailRoutes(instance: FastifyInstance): Promise<void> {
             ),
           app.db
             .select({ count: sql<number>`count(*)::int` })
-            .from(emailMessages)
+            .from(emailProposals)
+            .innerJoin(emailMessages, eq(emailMessages.id, emailProposals.emailMessageId))
             .innerJoin(googleAccounts, eq(googleAccounts.id, emailMessages.accountId))
-            .where(and(eq(googleAccounts.userId, userId), eq(emailMessages.status, "failed"))),
+            .where(and(eq(googleAccounts.userId, userId), eq(emailProposals.status, "failed"))),
           app.db
             .select({ count: sql<number>`count(*)::int` })
-            .from(emailMessages)
+            .from(emailProposals)
+            .innerJoin(emailMessages, eq(emailMessages.id, emailProposals.emailMessageId))
             .innerJoin(googleAccounts, eq(googleAccounts.id, emailMessages.accountId))
-            .where(and(eq(googleAccounts.userId, userId), eq(emailMessages.status, "ignored"))),
+            .where(and(eq(googleAccounts.userId, userId), eq(emailProposals.status, "ignored"))),
           app.db
             .select({ count: sql<number>`count(*)::int` })
             .from(calendarEvents)
@@ -399,6 +435,16 @@ export async function meMailRoutes(instance: FastifyInstance): Promise<void> {
    * `handled` per sempre: non si riapre mai una notifica chiusa, nasce una
    * proposta nuova.
    *
+   * Fase 6b: per l'email `:id` è ora `email_proposals.id` (il FIGLIO), non
+   * più `email_messages.id` — l'azione tocca SOLO quella riga: le eventuali
+   * proposte sorelle dello stesso messaggio (altri progetti) restano
+   * invariate, `status` compreso. Reset a `classified` (non `new`, che per
+   * `email_proposals` non esiste: una proposta nasce già classificata) con
+   * `error`/`outcome`/`proposal_notification_id` azzerati, così la condizione
+   * di claim del poller (`status = 'classified' AND
+   * proposal_notification_id IS NULL`, vedi il Task 5) torna vera per QUESTA
+   * riga sola.
+   *
    * Due rotte per sorgente (`/email/:id` e `/calendar/:id`) invece di
    * un'unica `/:id` con prefisso o campo `source` nel body: l'id da solo non
    * basta a distinguere le due tabelle (sono UUID indipendenti, una
@@ -421,18 +467,19 @@ export async function meMailRoutes(instance: FastifyInstance): Promise<void> {
 
       if (source === "email") {
         const [row] = await app.db
-          .select({ id: emailMessages.id, status: emailMessages.status })
-          .from(emailMessages)
+          .select({ id: emailProposals.id, status: emailProposals.status })
+          .from(emailProposals)
+          .innerJoin(emailMessages, eq(emailMessages.id, emailProposals.emailMessageId))
           .innerJoin(googleAccounts, eq(googleAccounts.id, emailMessages.accountId))
-          .where(and(eq(emailMessages.id, id), eq(googleAccounts.userId, userId)));
-        if (!row) return apiError(reply, 404, "not_found", "Message not found");
+          .where(and(eq(emailProposals.id, id), eq(googleAccounts.userId, userId)));
+        if (!row) return apiError(reply, 404, "not_found", "Proposal not found");
         if (row.status !== "failed" && row.status !== "ignored") {
-          return apiError(reply, 409, "not_reproposable", "This message cannot be reproposed");
+          return apiError(reply, 409, "not_reproposable", "This proposal cannot be reproposed");
         }
         await app.db
-          .update(emailMessages)
-          .set({ status: "new", error: null })
-          .where(eq(emailMessages.id, id));
+          .update(emailProposals)
+          .set({ status: "classified", error: null, outcome: null, proposalNotificationId: null })
+          .where(eq(emailProposals.id, id));
         return { ok: true as const };
       }
 
