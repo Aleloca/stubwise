@@ -432,6 +432,16 @@ export interface ClassifyContext {
  * ticket CITATI nel messaggio (`#N`): senza di loro, rispondere a un'email
  * che parla del ticket #3 di sei mesi fa produrrebbe sempre e solo proposte
  * scartate.
+ *
+ * Fase 6c: se il perimetro derivato (`scopeProjectIds`/fallback) è VUOTO —
+ * un messaggio ammesso per dominio Workspace senza nessuna regola di
+ * progetto — non si degrada più subito a "niente da proporre": i candidati
+ * diventano TUTTI i progetti dell'istanza. Il messaggio è «da attribuire»,
+ * non «non è lavoro», e solo l'analisi (col contesto, ancora capato a
+ * {@link CLASSIFY_CONTEXT_ROWS} per progetto) può dirlo. Un'istanza SENZA
+ * alcun progetto resta comunque vuota: non c'è niente su cui attribuire
+ * nulla, e {@link classifyEmail} continua a ignorare senza chiamare il
+ * modello.
  */
 async function loadContext(
   db: Db,
@@ -441,14 +451,34 @@ async function loadContext(
   // (sempre un array, mai null/undefined), ma può essere VUOTO per i
   // messaggi ingeriti prima che il routing lo popolasse. In quel caso si
   // ricade sul comportamento precedente: il progetto risolto, o i candidati.
-  const allowed =
+  const derivedAllowed =
     message.scopeProjectIds.length > 0
       ? message.scopeProjectIds
       : message.projectId
         ? [message.projectId]
         : message.candidateProjectIds;
-  const allowedProjectIds = new Set(allowed);
   const cited = citedTicketNumbers(`${message.subject ?? ""}\n${message.textExcerpt ?? ""}`);
+
+  // Perimetro vuoto (fase 6c): i candidati diventano tutti i progetti
+  // dell'istanza. Nessun filtro su stato/archiviazione — lo schema non ne ha
+  // uno (verificato su `projects`, come già fanno il pulse e la `GET
+  // /api/projects/pulse`, che leggono l'istanza intera senza un filtro
+  // "attivo"). Ordinati per data di creazione: stesso ordine di `GET
+  // /api/projects`, e dà al tie-break del tetto sul fan-out
+  // (`perimeterOrder`, vedi {@link revalidateClassification}) un ordine
+  // deterministico anche in questo caso.
+  const projectRows =
+    derivedAllowed.length > 0
+      ? await db
+          .select({ id: projects.id, name: projects.name, description: projects.description })
+          .from(projects)
+          .where(inArray(projects.id, derivedAllowed))
+      : await db
+          .select({ id: projects.id, name: projects.name, description: projects.description })
+          .from(projects)
+          .orderBy(asc(projects.createdAt));
+  const allowed = derivedAllowed.length > 0 ? derivedAllowed : projectRows.map((p) => p.id);
+  const allowedProjectIds = new Set(allowed);
 
   if (allowed.length === 0) {
     return {
@@ -460,11 +490,6 @@ async function loadContext(
       citedTicketNumbers: cited,
     };
   }
-
-  const projectRows = await db
-    .select({ id: projects.id, name: projects.name, description: projects.description })
-    .from(projects)
-    .where(inArray(projects.id, allowed));
 
   const contextByProject = new Map<string, ProjectContext>();
   for (const id of allowed) contextByProject.set(id, { openTickets: new Map(), backlogTitles: [] });

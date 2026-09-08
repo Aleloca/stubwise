@@ -21,8 +21,10 @@ import {
   citedTicketNumbers,
   classifyEmail,
   classifyNewMessages,
+  CLASSIFY_CONTEXT_ROWS,
   EMAIL_DELIMITER_END,
   EMAIL_DELIMITER_START,
+  GMAIL_MAX_PROJECTS_PER_MESSAGE,
   type ClassifyEmailDeps,
 } from "./classify.js";
 
@@ -1093,6 +1095,152 @@ describe("classifyEmail: perimetro multi-progetto (fase 6b)", () => {
     expect(prompt).toContain("Voce di Beta");
     expect(prompt).toContain("Ticket di Alfa");
     expect(prompt).toContain("Ticket di Beta");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fase 6c — perimetro vuoto: senza regole di progetto, l'analisi decide su
+// TUTTI i progetti dell'istanza (Task 4)
+// ---------------------------------------------------------------------------
+
+describe("classifyEmail: perimetro vuoto → tutti i progetti dell'istanza (fase 6c)", () => {
+  it("perimetro vuoto: TUTTI i progetti dell'istanza entrano nel prompt come candidati", async () => {
+    const account = await seedAccount();
+    const a = await seedProject("Alfa");
+    const b = await seedProject("Beta");
+    // Nessuna regola di progetto ha ammesso/attribuito il messaggio: né un
+    // progetto risolto, né candidati, né un perimetro (`scopeProjectIds`).
+    const message = await seedMessage(account.id, { projectId: null, candidateProjectIds: [] });
+    const runner = new FakeRunner([modelOutput({ signal: "none" })]);
+
+    await classifyEmail(deps(runner), message);
+
+    expect(runner.calls).toHaveLength(1); // il modello VIENE chiamato: non si degrada subito
+    const prompt = runner.calls[0]!.prompt;
+    expect(prompt).toContain(a);
+    expect(prompt).toContain(b);
+    expect(prompt).toContain("Alfa");
+    expect(prompt).toContain("Beta");
+  });
+
+  it("perimetro vuoto: una proposta su un progetto QUALSIASI dell'istanza viene accettata dalla rivalidazione", async () => {
+    const account = await seedAccount();
+    const a = await seedProject("Alfa");
+    const b = await seedProject("Beta");
+    const message = await seedMessage(account.id, { projectId: null, candidateProjectIds: [] });
+    const runner = new FakeRunner([
+      modelOutput({
+        // Il modello sceglie Beta: non è "vicino" al messaggio in alcun modo
+        // (nessuna regola lo indicava), ma è un progetto reale dell'istanza.
+        proposals: [
+          { type: "create_backlog_item", projectId: b, title: "Idea per Beta", body: "x", consequence: "Crea" },
+        ],
+      }),
+    ]);
+
+    const outcome = await classifyEmail(deps(runner), message);
+
+    expect(outcome).toBe("classified");
+    const proposals = ((await reload(message.id)).classification as { proposals: { projectId: string }[] })
+      .proposals;
+    expect(proposals.map((p) => p.projectId)).toEqual([b]);
+    // Alfa era comunque fra i candidati (il perimetro era TUTTA l'istanza, non
+    // solo Beta): la scelta era del modello, non un vincolo del codice.
+    expect(runner.calls[0]!.prompt).toContain(a);
+  });
+
+  it("perimetro vuoto + nessun segnale → ignored, esattamente come prima", async () => {
+    const account = await seedAccount();
+    await seedProject("Alfa");
+    await seedProject("Beta");
+    const message = await seedMessage(account.id, { projectId: null, candidateProjectIds: [] });
+    const runner = new FakeRunner([modelOutput({ signal: "none", proposals: [] })]);
+
+    const outcome = await classifyEmail(deps(runner), message);
+
+    expect(outcome).toBe("ignored");
+    const row = await reload(message.id);
+    expect(row.status).toBe("ignored");
+    expect(row.signal).toBe("none");
+  });
+
+  it("perimetro vuoto + segnale ma nessuna proposta valida sopravvive alla rivalidazione → ignored (senza proposta)", async () => {
+    // Questo è il ramo che il Task 5 sostituirà con la proposta di smistamento:
+    // qui deve restare `ignored`, senza nessuna azione aggiuntiva.
+    const account = await seedAccount();
+    await seedProject("Alfa");
+    const message = await seedMessage(account.id, { projectId: null, candidateProjectIds: [] });
+    const runner = new FakeRunner([
+      modelOutput({
+        signal: "request",
+        // Un ticket che non esiste in nessun progetto: la rivalidazione la scarta.
+        proposals: [{ type: "update_ticket", ticketNumber: 999, status: "in_progress", consequence: "Aggiorna" }],
+      }),
+    ]);
+
+    const outcome = await classifyEmail(deps(runner), message);
+
+    expect(outcome).toBe("ignored");
+    expect((await reload(message.id)).status).toBe("ignored");
+  });
+
+  it("perimetro davvero vuoto (istanza SENZA progetti) resta ignored senza run, come prima", async () => {
+    const account = await seedAccount();
+    const message = await seedMessage(account.id, { projectId: null, candidateProjectIds: [] });
+    const runner = new FakeRunner([]);
+
+    const outcome = await classifyEmail(deps(runner), message);
+
+    expect(runner.calls).toHaveLength(0);
+    expect(outcome).toBe("ignored");
+    expect((await reload(message.id)).status).toBe("ignored");
+  });
+
+  it("il contesto resta capato a CLASSIFY_CONTEXT_ROWS PER PROGETTO anche con l'insieme allargato a tutti i progetti", async () => {
+    const account = await seedAccount();
+    const a = await seedProject("Alfa");
+    const b = await seedProject("Beta");
+    for (let i = 0; i < CLASSIFY_CONTEXT_ROWS + 5; i++) {
+      await db.insert(backlogItems).values({
+        projectId: a,
+        title: `Voce ${i}`,
+        document: "doc",
+        source: "manual",
+      });
+    }
+    await db.insert(backlogItems).values({ projectId: b, title: "Voce di Beta", document: "doc", source: "manual" });
+    const message = await seedMessage(account.id, { projectId: null, candidateProjectIds: [] });
+    const runner = new FakeRunner([modelOutput({ signal: "none" })]);
+
+    await classifyEmail(deps(runner), message);
+
+    const prompt = runner.calls[0]!.prompt;
+    const matches = prompt.match(/Voce \d+/g) ?? [];
+    // Capato a CLASSIFY_CONTEXT_ROWS per Alfa, NON 10×2 spalmato sul totale.
+    expect(matches).toHaveLength(CLASSIFY_CONTEXT_ROWS);
+    expect(prompt).toContain("Voce di Beta");
+  });
+
+  it("il tetto GMAIL_MAX_PROJECTS_PER_MESSAGE si applica anche col perimetro allargato a tutti i progetti", async () => {
+    const account = await seedAccount();
+    const projectIds: string[] = [];
+    for (let i = 0; i < 7; i++) projectIds.push(await seedProject(`P${i}`));
+    const message = await seedMessage(account.id, { projectId: null, candidateProjectIds: [] });
+    const proposalsInput = projectIds.map((id, i) => ({
+      type: "create_backlog_item",
+      projectId: id,
+      title: `T${i}`,
+      body: "x",
+      consequence: "Crea",
+    }));
+    const runner = new FakeRunner([modelOutput({ proposals: proposalsInput })]);
+
+    await classifyEmail(deps(runner), message);
+
+    const proposals = ((await reload(message.id)).classification as { proposals: { projectId: string }[] })
+      .proposals;
+    const survivingProjects = new Set(proposals.map((p) => p.projectId));
+    expect(survivingProjects.size).toBe(GMAIL_MAX_PROJECTS_PER_MESSAGE);
   });
 });
 
