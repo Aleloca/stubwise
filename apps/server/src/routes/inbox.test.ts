@@ -8,6 +8,7 @@ import {
   backlogItems,
   comments,
   emailMessages,
+  emailProposals,
   googleAccounts,
   googleWorkspaces,
   notifications,
@@ -1013,6 +1014,17 @@ describe("POST /api/inbox/:id/actions/answer — la proposta Google (fase 6, Tas
         status: "proposed",
       })
       .returning({ id: emailMessages.id });
+    // Fase 6b: la notifica si lega ormai al FIGLIO (`email_proposals`), non
+    // più al messaggio padre — vedi `google-proposal.test.ts`.
+    const [emailProposal] = await db
+      .insert(emailProposals)
+      .values({
+        emailMessageId: message!.id,
+        projectId,
+        status: "proposed",
+        classification: { summary: "test", proposals: [], recommendedIndex: 0 },
+      })
+      .returning({ id: emailProposals.id });
     const notificationId = await seedNotification({
       userId: seeded.memberId,
       kind: "google.proposal",
@@ -1031,9 +1043,9 @@ describe("POST /api/inbox/:id/actions/answer — la proposta Google (fase 6, Tas
       } as NotificationEvent,
     });
     await db
-      .update(emailMessages)
+      .update(emailProposals)
       .set({ proposalNotificationId: notificationId })
-      .where(eq(emailMessages.id, message!.id));
+      .where(eq(emailProposals.id, emailProposal!.id));
     return { notificationId, emailMessageId: message!.id };
   }
 
