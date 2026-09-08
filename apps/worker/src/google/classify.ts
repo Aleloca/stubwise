@@ -88,11 +88,27 @@ export const DEFAULT_CLASSIFY_MAX_PER_TICK = 20;
 /** Caratteri del corpo email che entrano nel prompt (il resto è troncato). */
 export const CLASSIFY_TEXT_MAX_CHARS = 8_000;
 
-/** Titoli di backlog e ticket aperti passati come contesto (design: 20). */
-export const CLASSIFY_CONTEXT_ROWS = 20;
+/**
+ * Titoli di backlog e ticket aperti passati come contesto, PER PROGETTO
+ * (design: 10, ridotto da 20 in fase 6b perché il contesto ora cresce in
+ * modo lineare col numero di progetti del perimetro).
+ */
+export const CLASSIFY_CONTEXT_ROWS = 10;
 
-/** Proposte tenute dopo la rivalidazione (design: 1..3). */
+/** Proposte tenute dopo la rivalidazione, PER PROGETTO (design: 1..3). */
 export const CLASSIFY_MAX_PROPOSALS = 3;
+
+/**
+ * Fase 6b: tetto sul FAN-OUT di un messaggio. Senza questo limite, una mail
+ * in copia a dieci progetti genererebbe dieci card. Applicato DOPO la
+ * partizione per progetto: se i progetti con almeno una proposta valida sono
+ * più di questo numero, sopravvivono quelli con PIÙ proposte (a parità,
+ * decide l'ordine del perimetro — `scopeProjectIds`/`allowed` — per
+ * determinismo). Valore di default; `GMAIL_MAX_PROJECTS_PER_MESSAGE` in
+ * `apps/worker/src/config.ts` porta lo stesso default e sarà il punto da cui
+ * il poller lo passerà (Task 5).
+ */
+export const GMAIL_MAX_PROJECTS_PER_MESSAGE = 5;
 
 /** I tipi di azione che una proposta può avere. `choose_project` e `ignore`
  * NON sono qui: non li propone il modello, li aggiunge la fase D in modo
@@ -189,18 +205,29 @@ export interface EmailClassification {
   recommendedIndex: number;
 }
 
-/** L'input del prompt: tutto ciò che l'agente vede, fidato e non. */
+/**
+ * L'input del prompt: tutto ciò che l'agente vede, fidato e non.
+ *
+ * Fase 6b: `projects` non è più una lista di soli id fra cui scegliere, ma
+ * porta con sé il contesto (backlog, ticket aperti) DI CIASCUN progetto del
+ * perimetro — il prompt lo stampa sotto intestazioni separate, una per
+ * progetto.
+ */
 export interface EmailSignalsInput {
   fromAddress: string;
   fromName: string | null;
   subject: string | null;
   text: string;
-  /** Progetti fra cui l'agente può scegliere: il risolto, o i candidati. */
-  projects: { id: string; name: string; description: string | null }[];
-  /** Titoli delle voci di backlog aperte del progetto risolto. */
-  backlogTitles: string[];
-  /** Ticket APERTI del progetto risolto. */
-  openTickets: { number: number; title: string; status: string }[];
+  /** Progetti del PERIMETRO (`scopeProjectIds`), ciascuno col suo contesto. */
+  projects: {
+    id: string;
+    name: string;
+    description: string | null;
+    /** Titoli delle voci di backlog aperte DI QUESTO progetto. */
+    backlogTitles: string[];
+    /** Ticket APERTI DI QUESTO progetto. */
+    openTickets: { number: number; title: string; status: string }[];
+  }[];
   /** Numeri `#N` citati nel messaggio. */
   citedTicketNumbers: number[];
   /** Il testo è stato troncato per lunghezza. */
@@ -226,6 +253,11 @@ export interface ClassifyEmailDeps {
   logger?: ClassifyLogger;
   /** "Adesso" iniettabile: decide quali `dueDate` sono future. */
   now?: () => Date;
+  /**
+   * Tetto sul fan-out (`GMAIL_MAX_PROJECTS_PER_MESSAGE`); omesso =
+   * {@link GMAIL_MAX_PROJECTS_PER_MESSAGE}.
+   */
+  maxProjectsPerMessage?: number;
 }
 
 /** Esito della classificazione di UN messaggio. */
@@ -293,32 +325,37 @@ export function citedTicketNumbers(text: string): number[] {
  * dall'alto incontra la regola prima del tentativo di iniezione.
  */
 export function buildEmailSignalsPrompt(lang: Language, input: EmailSignalsInput): string {
-  const projectLines =
+  // Fase 6b: un blocco PER PROGETTO del perimetro, con intestazione propria
+  // (nome + id, così il modello sa quale id usare in `proposals[].projectId`)
+  // e sotto il SUO contesto — non un'unica lista condivisa.
+  const projectBlocks: string[] =
     input.projects.length > 0
-      ? input.projects.map((p) => `- ${p.id} — ${p.name}${p.description ? `: ${p.description}` : ""}`)
-      : [`- ${t(lang, "email.input.none")}`];
-  const backlogLines =
-    input.backlogTitles.length > 0
-      ? input.backlogTitles.map((title) => `- ${title}`)
-      : [`- ${t(lang, "email.input.none")}`];
-  const ticketLines =
-    input.openTickets.length > 0
-      ? input.openTickets.map((ticket) => `- #${ticket.number} (${ticket.status}) ${ticket.title}`)
-      : [`- ${t(lang, "email.input.none")}`];
+      ? input.projects.flatMap((p) => {
+          const backlogLines =
+            p.backlogTitles.length > 0
+              ? p.backlogTitles.map((title) => `- ${title}`)
+              : [`- ${t(lang, "email.input.none")}`];
+          const ticketLines =
+            p.openTickets.length > 0
+              ? p.openTickets.map((ticket) => `- #${ticket.number} (${ticket.status}) ${ticket.title}`)
+              : [`- ${t(lang, "email.input.none")}`];
+          return [
+            "",
+            t(lang, "email.input.projectHeading", { name: p.name, id: p.id }),
+            ...(p.description ? [p.description] : []),
+            `${t(lang, "email.input.backlog")}:`,
+            ...backlogLines,
+            `${t(lang, "email.input.tickets")}:`,
+            ...ticketLines,
+          ];
+        })
+      : ["", `- ${t(lang, "email.input.none")}`];
 
   const lines: string[] = [
     t(lang, "email.signals.instructions"),
     "",
     `OUTPUT (JSON only): ${OUTPUT_SHAPE}`,
-    "",
-    `${t(lang, "email.input.projects")}:`,
-    ...projectLines,
-    "",
-    `${t(lang, "email.input.backlog")}:`,
-    ...backlogLines,
-    "",
-    `${t(lang, "email.input.tickets")}:`,
-    ...ticketLines,
+    ...projectBlocks,
     "",
     `${t(lang, "email.input.cited")}: ${
       input.citedTicketNumbers.length > 0
@@ -349,50 +386,76 @@ const OUTPUT_SHAPE =
   '"ticketNumber":123,"status":"open|triaged|in_progress|in_review|done|closed",' +
   '"priority":"low|medium|high|urgent","decision":"…","consequence":"…"}],"recommendedIndex":0}';
 
+/** Il contesto DI UN progetto: ticket aperti (per numero) e titoli di backlog. */
+interface ProjectContext {
+  openTickets: Map<number, { id: string; title: string; status: string }>;
+  backlogTitles: string[];
+}
+
 /** Il contesto con cui i referenti dell'agente vengono riconfrontati. */
 export interface ClassifyContext {
-  /** Progetti su cui una proposta può insistere: il risolto, o i candidati. */
+  /** Progetti su cui una proposta può insistere: il PERIMETRO del messaggio. */
   allowedProjectIds: Set<string>;
   /**
-   * Il progetto RISOLTO dal routing, o `null` se il messaggio è ambiguo
-   * (parità di regole). Serve a completare un'azione a cui il modello ha
-   * scordato il `projectId`: quando il progetto è uno solo il referente non è
-   * un'informazione che il modello debba indovinare, lo sappiamo già noi.
+   * L'ordine del perimetro (`scopeProjectIds`/`allowed`), per il tie-break
+   * deterministico del tetto sul fan-out (`GMAIL_MAX_PROJECTS_PER_MESSAGE`).
+   */
+  perimeterOrder: string[];
+  /**
+   * Il progetto RISOLTO dal routing (il vincitore), o `null` se il messaggio
+   * è ambiguo (parità di regole, nessun vincitore). Serve a completare
+   * un'azione a cui il modello ha scordato il `projectId`: quando esiste un
+   * vincitore il referente non è un'informazione che il modello debba
+   * indovinare, lo sappiamo già noi.
    */
   resolvedProjectId: string | null;
   projects: { id: string; name: string; description: string | null }[];
-  /** Ticket APERTI del progetto risolto, per numero. Vuoto se non risolto. */
-  openTickets: Map<number, { id: string; title: string; status: string }>;
-  backlogTitles: string[];
+  /**
+   * Contesto (ticket aperti, titoli di backlog) PER OGNI progetto del
+   * perimetro — fase 6b: prima c'era un solo contesto (quello del progetto
+   * risolto), ora ce n'è uno per ciascun progetto ammesso, chiavato per id.
+   */
+  contextByProject: Map<string, ProjectContext>;
   citedTicketNumbers: number[];
 }
 
 /**
- * Carica il contesto di UN messaggio.
+ * Carica il contesto di UN messaggio: ticket aperti e titoli di backlog PER
+ * CIASCUN progetto del PERIMETRO (`allowed` = `scopeProjectIds`, con
+ * fallback per le righe pre fase 6b — vedi sotto), non solo del progetto
+ * risolto. Due query totali (una per i ticket, una per il backlog) con un
+ * `WHERE project_id IN (...)`, non una per progetto in un loop: il risultato
+ * si raggruppa poi in memoria.
  *
- * I ticket aperti sono quelli del PROGETTO RISOLTO e basta: con un progetto
- * ambiguo (parità di regole) non esiste una lista sensata di ticket da citare,
- * e infatti ogni azione che ne cita uno verrà scartata dalla rivalidazione.
- *
- * Ai 20 più recenti si aggiungono i ticket CITATI nel messaggio (`#N`): senza
- * di loro, rispondere a un'email che parla del ticket #3 di sei mesi fa
- * produrrebbe sempre e solo proposte scartate.
+ * Ai {@link CLASSIFY_CONTEXT_ROWS} più recenti PER PROGETTO si aggiungono i
+ * ticket CITATI nel messaggio (`#N`): senza di loro, rispondere a un'email
+ * che parla del ticket #3 di sei mesi fa produrrebbe sempre e solo proposte
+ * scartate.
  */
 async function loadContext(
   db: Db,
   message: EmailMessageRow,
 ): Promise<ClassifyContext> {
-  const allowed = message.projectId ? [message.projectId] : message.candidateProjectIds;
+  // Fallback per le righe pre fase 6b: `scopeProjectIds` ha default `'{}'`
+  // (sempre un array, mai null/undefined), ma può essere VUOTO per i
+  // messaggi ingeriti prima che il routing lo popolasse. In quel caso si
+  // ricade sul comportamento precedente: il progetto risolto, o i candidati.
+  const allowed =
+    message.scopeProjectIds.length > 0
+      ? message.scopeProjectIds
+      : message.projectId
+        ? [message.projectId]
+        : message.candidateProjectIds;
   const allowedProjectIds = new Set(allowed);
   const cited = citedTicketNumbers(`${message.subject ?? ""}\n${message.textExcerpt ?? ""}`);
 
   if (allowed.length === 0) {
     return {
       allowedProjectIds,
+      perimeterOrder: allowed,
       resolvedProjectId: message.projectId,
       projects: [],
-      openTickets: new Map(),
-      backlogTitles: [],
+      contextByProject: new Map(),
       citedTicketNumbers: cited,
     };
   }
@@ -402,49 +465,41 @@ async function loadContext(
     .from(projects)
     .where(inArray(projects.id, allowed));
 
-  if (!message.projectId) {
-    return {
-      allowedProjectIds,
-      resolvedProjectId: null,
-      projects: projectRows,
-      openTickets: new Map(),
-      backlogTitles: [],
-      citedTicketNumbers: cited,
-    };
-  }
+  const contextByProject = new Map<string, ProjectContext>();
+  for (const id of allowed) contextByProject.set(id, { openTickets: new Map(), backlogTitles: [] });
 
   const backlogRows = await db
-    .select({ title: backlogItems.title })
+    .select({ projectId: backlogItems.projectId, title: backlogItems.title })
     .from(backlogItems)
     .where(
       and(
-        eq(backlogItems.projectId, message.projectId),
+        inArray(backlogItems.projectId, allowed),
         notInArray(backlogItems.status, ["converted", "archived"]),
       ),
     )
-    .orderBy(desc(backlogItems.updatedAt))
-    .limit(CLASSIFY_CONTEXT_ROWS);
+    .orderBy(desc(backlogItems.updatedAt));
 
   const openWhere = and(
-    eq(tickets.projectId, message.projectId),
+    inArray(tickets.projectId, allowed),
     notInArray(tickets.status, ["done", "closed"]),
   );
   const recentTickets = await db
     .select({
       id: tickets.id,
+      projectId: tickets.projectId,
       number: tickets.number,
       title: tickets.title,
       status: tickets.status,
     })
     .from(tickets)
     .where(openWhere)
-    .orderBy(desc(tickets.number))
-    .limit(CLASSIFY_CONTEXT_ROWS);
+    .orderBy(desc(tickets.number));
   const citedTickets =
     cited.length > 0
       ? await db
           .select({
             id: tickets.id,
+            projectId: tickets.projectId,
             number: tickets.number,
             title: tickets.title,
             status: tickets.status,
@@ -453,17 +508,43 @@ async function loadContext(
           .where(and(openWhere, inArray(tickets.number, cited)))
       : [];
 
-  const openTickets = new Map<number, { id: string; title: string; status: string }>();
-  for (const row of [...recentTickets, ...citedTickets]) {
-    openTickets.set(row.number, { id: row.id, title: row.title, status: row.status });
+  // Cap PER PROGETTO: la query è globale (ordinata per data/numero decrescente
+  // su TUTTO il perimetro), ma per ogni projectId la sotto-sequenza filtrata
+  // resta nello stesso ordine — un semplice contatore per progetto basta a
+  // tenere solo i CLASSIFY_CONTEXT_ROWS più recenti di ciascuno.
+  const backlogCount = new Map<string, number>();
+  for (const row of backlogRows) {
+    const ctx = contextByProject.get(row.projectId);
+    if (!ctx) continue;
+    const count = backlogCount.get(row.projectId) ?? 0;
+    if (count >= CLASSIFY_CONTEXT_ROWS) continue;
+    ctx.backlogTitles.push(row.title);
+    backlogCount.set(row.projectId, count + 1);
+  }
+
+  const ticketCount = new Map<string, number>();
+  for (const row of recentTickets) {
+    const ctx = contextByProject.get(row.projectId);
+    if (!ctx) continue;
+    const count = ticketCount.get(row.projectId) ?? 0;
+    if (count >= CLASSIFY_CONTEXT_ROWS) continue;
+    ctx.openTickets.set(row.number, { id: row.id, title: row.title, status: row.status });
+    ticketCount.set(row.projectId, count + 1);
+  }
+  // I ticket CITATI entrano sempre, anche oltre il cap: sono la ragione
+  // stessa per cui esistono (vedi il docblock).
+  for (const row of citedTickets) {
+    const ctx = contextByProject.get(row.projectId);
+    if (!ctx) continue;
+    ctx.openTickets.set(row.number, { id: row.id, title: row.title, status: row.status });
   }
 
   return {
     allowedProjectIds,
+    perimeterOrder: allowed,
     resolvedProjectId: message.projectId,
     projects: projectRows,
-    openTickets,
-    backlogTitles: backlogRows.map((row) => row.title),
+    contextByProject,
     citedTicketNumbers: cited,
   };
 }
@@ -500,18 +581,22 @@ export function revalidateProposal(
   if (!parsed.success) return null;
   const input = parsed.data;
 
-  // Progetto: se c'è, deve essere uno di quelli che gli abbiamo passato. Se
-  // NON c'è e il routing ne ha risolto uno solo, lo mettiamo noi: è un dato
-  // che sappiamo, non una lacuna da punire scartando l'azione. Con un
-  // messaggio ambiguo, invece, l'omissione resta tale — indovinare fra due
+  // Progetto: se c'è, deve essere uno di quelli del PERIMETRO. Se NON c'è e il
+  // routing ha risolto un vincitore, lo mettiamo noi: è un dato che sappiamo,
+  // non una lacuna da punire scartando l'azione. Con un messaggio ambiguo
+  // (nessun vincitore), invece, l'omissione resta tale — indovinare fra più
   // progetti è esattamente ciò che il routing si rifiuta di fare.
   const projectId = input.projectId ?? ctx.resolvedProjectId ?? undefined;
   if (projectId !== undefined && !ctx.allowedProjectIds.has(projectId)) return null;
 
-  // Ticket: se c'è, deve essere un ticket APERTO del progetto risolto.
+  // Ticket: se c'è, deve essere un ticket APERTO del progetto DELLA PROPOSTA
+  // (fase 6b), non di un ipotetico "progetto risolto" unico — la mappa dei
+  // ticket è ora chiavata per progetto. Senza un progetto risolvibile non
+  // c'è un insieme di ticket contro cui validare, quindi l'azione se ne va.
   let ticketId: string | undefined;
   if (input.ticketNumber !== undefined) {
-    const ticket = ctx.openTickets.get(input.ticketNumber);
+    if (projectId === undefined) return null;
+    const ticket = ctx.contextByProject.get(projectId)?.openTickets.get(input.ticketNumber);
     if (!ticket) return null;
     ticketId = ticket.id;
   }
@@ -553,25 +638,82 @@ export function revalidateProposal(
 }
 
 /**
- * Rivalida l'intero output: tiene le prime {@link CLASSIFY_MAX_PROPOSALS}
- * proposte sopravvissute e rimappa `recommendedIndex` su di esse (se la
- * consigliata è stata scartata, si consiglia la prima rimasta: un indice che
- * punta al vuoto farebbe evidenziare l'opzione sbagliata).
+ * Rivalida l'intero output e lo PARTIZIONA per progetto (fase 6b), tutto nel
+ * CODICE — il protocollo di output del modello non cambia, ogni proposta
+ * porta già il proprio `projectId` (rivalidato da {@link revalidateProposal},
+ * che lo garantisce SEMPRE presente su ogni proposta sopravvissuta: ogni
+ * ramo del suo `switch` finale richiede `proposal.ticketId` — che a sua volta
+ * richiede un `projectId` risolto — o `proposal.projectId` direttamente).
+ *
+ * Tre passi, in ordine:
+ *  1. rivalida ogni proposta grezza, nell'ordine del modello;
+ *  2. cap PER PROGETTO: le prime {@link CLASSIFY_MAX_PROPOSALS} sopravvissute
+ *     di ciascun progetto (non dell'intero messaggio);
+ *  3. tetto sul FAN-OUT (`maxProjectsPerMessage`): se i progetti con almeno
+ *     una proposta valida sono più del tetto, sopravvivono quelli con PIÙ
+ *     proposte — a parità decide l'ordine del perimetro, per determinismo.
+ *
+ * Il risultato resta un'unica lista PIATTA (proposte di progetti diversi
+ * mescolate, ciascuna col suo `projectId`): è la fase D (Task 4) a
+ * ripartizionarla per la scrittura sui figli. `recommendedIndex` è rimappato
+ * su questa lista finale (se la consigliata è stata scartata — dalla
+ * rivalidazione, dal cap o dal tetto — si consiglia la prima rimasta: un
+ * indice che punta al vuoto farebbe evidenziare l'opzione sbagliata).
  */
 export function revalidateClassification(
   output: EmailSignalsOutput,
   ctx: ClassifyContext,
   now: Date,
+  maxProjectsPerMessage: number = GMAIL_MAX_PROJECTS_PER_MESSAGE,
 ): EmailClassification {
+  // Passo 1: rivalidazione, nell'ordine originale del modello.
+  const validated: { proposal: RevalidatedProposal; originalIndex: number }[] = [];
+  for (const [index, raw] of output.proposals.entries()) {
+    const proposal = revalidateProposal(raw, ctx, now);
+    if (proposal) validated.push({ proposal, originalIndex: index });
+  }
+
+  // Passo 2: cap PER PROGETTO. `proposal.projectId` è sempre definito qui
+  // (vedi il docblock), quindi il `!` è sicuro.
+  const byProject = new Map<string, (typeof validated)[number][]>();
+  for (const entry of validated) {
+    const projectId = entry.proposal.projectId!;
+    const list = byProject.get(projectId) ?? [];
+    if (list.length >= CLASSIFY_MAX_PROPOSALS) continue;
+    list.push(entry);
+    byProject.set(projectId, list);
+  }
+
+  // Passo 3: tetto sul fan-out, tenendo i progetti con più proposte valide.
+  let projectIds = [...byProject.keys()];
+  if (projectIds.length > maxProjectsPerMessage) {
+    const perimeterIndex = new Map(ctx.perimeterOrder.map((id, i) => [id, i]));
+    projectIds = [...projectIds]
+      .sort((a, b) => {
+        const byCount = byProject.get(b)!.length - byProject.get(a)!.length;
+        if (byCount !== 0) return byCount;
+        return (perimeterIndex.get(a) ?? 0) - (perimeterIndex.get(b) ?? 0);
+      })
+      .slice(0, maxProjectsPerMessage);
+  }
+  const keptProjectIds = new Set(projectIds);
+  const keptEntries = new Set(
+    [...byProject.entries()]
+      .filter(([projectId]) => keptProjectIds.has(projectId))
+      .flatMap(([, list]) => list),
+  );
+
+  // Riappiattisce, nell'ordine ORIGINALE del modello (non raggruppato per
+  // progetto): è ciò che rende `recommendedIndex` rimappabile in modo
+  // coerente con l'indice che il modello aveva scelto.
   const kept: RevalidatedProposal[] = [];
   let recommendedIndex = 0;
-  for (const [index, raw] of output.proposals.entries()) {
-    if (kept.length >= CLASSIFY_MAX_PROPOSALS) break;
-    const proposal = revalidateProposal(raw, ctx, now);
-    if (!proposal) continue;
-    if (index === output.recommendedIndex) recommendedIndex = kept.length;
-    kept.push(proposal);
+  for (const entry of validated) {
+    if (!keptEntries.has(entry)) continue;
+    if (entry.originalIndex === output.recommendedIndex) recommendedIndex = kept.length;
+    kept.push(entry.proposal);
   }
+
   return {
     signal: output.signal,
     summary: output.summary,
@@ -620,13 +762,21 @@ export async function classifyEmail(
       fromName: message.fromName,
       subject: message.subject,
       text,
-      projects: ctx.projects,
-      backlogTitles: ctx.backlogTitles,
-      openTickets: [...ctx.openTickets.entries()].map(([number, ticket]) => ({
-        number,
-        title: ticket.title,
-        status: ticket.status,
-      })),
+      // Fase 6b: un blocco di contesto PER OGNI progetto del perimetro.
+      projects: ctx.projects.map((p) => {
+        const projectCtx = ctx.contextByProject.get(p.id);
+        return {
+          id: p.id,
+          name: p.name,
+          description: p.description,
+          backlogTitles: projectCtx?.backlogTitles ?? [],
+          openTickets: [...(projectCtx?.openTickets.entries() ?? [])].map(([number, ticket]) => ({
+            number,
+            title: ticket.title,
+            status: ticket.status,
+          })),
+        };
+      }),
       citedTicketNumbers: ctx.citedTicketNumbers,
       truncated,
     });
@@ -677,7 +827,12 @@ export async function classifyEmail(
       return "failed";
     }
 
-    const classification = revalidateClassification(parsed, ctx, now);
+    const classification = revalidateClassification(
+      parsed,
+      ctx,
+      now,
+      deps.maxProjectsPerMessage ?? GMAIL_MAX_PROJECTS_PER_MESSAGE,
+    );
     const status: ClassifyOutcome =
       classification.proposals.length > 0 ? "classified" : "ignored";
     await deps.db
@@ -750,6 +905,9 @@ export async function classifyNewMessages(
         ...(provider !== undefined ? { provider } : {}),
         ...(deps.logger !== undefined ? { logger: deps.logger } : {}),
         ...(deps.now !== undefined ? { now: deps.now } : {}),
+        ...(deps.maxProjectsPerMessage !== undefined
+          ? { maxProjectsPerMessage: deps.maxProjectsPerMessage }
+          : {}),
       },
       message,
     );
