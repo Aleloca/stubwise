@@ -76,9 +76,14 @@ Three kinds of rule, any of which can match:
   a picker suggests labels already observed on messages Stubwise has seen.
 - **Keywords** — matched in the subject and the body.
 
-**No rule at all means no mail for that project** — routing is opt-in by
-design, and this is the actual perimeter of what Stubwise reads from anyone's
-mailbox, not just a label used afterwards.
+These rules decide **where** an email that has already entered Stubwise
+goes, not **whether** it enters at all — that's a separate, instance-wide
+gate, described in [Admitted mail](#admitted-mail) below. A project with no
+rule that matches a given message gets no proposal from it directly, but see
+[When no project matches](#when-no-project-matches): if *no* project's rules
+match an admitted message, Stubwise still considers every project a
+candidate and lets the classifier — and, failing that, a human — decide,
+rather than dropping the message.
 
 A message can be in scope for more than one project at once, and each project
 that matches gets its **own, independent proposal** — see [One email, several
@@ -89,12 +94,46 @@ competing for a single winner.
 
 :::note[A keyword only in the body doesn't pull a message into scope]
 Downloading a message body is the expensive part of the sync, so Stubwise
-checks routing **twice**: first on headers and labels alone (cheap), and only
-downloads the body if that already puts the message in scope. A keyword rule
-that matches solely inside the body — not the subject — never gets the chance
-to be evaluated, because the body isn't fetched yet. To catch a message on a
-keyword alone, make sure it also appears in the subject.
+checks admission and routing **twice**: first on headers and labels alone
+(cheap) to decide whether to download the body at all, then again — routing
+only, now with the full text — once it has. A keyword rule that matches
+solely inside the body — not the subject — never gets the chance to admit a
+message on its own, because the body isn't fetched yet; it can still resolve
+*which* project an already-admitted message belongs to, once the body is in.
+To catch a message on a keyword alone, make sure it also appears in the
+subject.
 :::
+
+## Admitted mail
+
+Before any project routing rule is even consulted, Stubwise decides whether a
+message is worth looking at *at all* — this is **admission**, configured
+instance-wide by an admin under **Settings → Google → Admitted mail**, and it
+answers a different question than routing does: not "which project is this
+about" but "is this work, or not worth reading".
+
+- **Admit mail from registered Workspace domains** (on by default). A sender
+  — or a recipient CC'd — on a domain belonging to any registered Google
+  Workspace is admitted automatically, with **no project rule needed at
+  all**. This is the whole point: before this existed, admitting your own
+  organization's mail meant writing the same domain as a routing rule on
+  every single project that should see it — four domains repeated across a
+  dozen projects. Turning this off falls back to the older behavior, where
+  only a matching project rule (see above) admits a message; domains outside
+  your Workspaces (a client's, a partner's) still admit exactly as before,
+  through a project rule.
+- **Always exclude these Gmail labels** (defaults to Promotions, Social and
+  Spam). A message carrying one of these labels is discarded even if it
+  would otherwise be admitted by a Workspace domain or a project rule —
+  exclusions always win.
+- **Discard automated mail** (on by default). Newsletters, mailing lists and
+  automatic notifications — detected from standard headers
+  (`List-Unsubscribe`, `List-Id`, bulk `Precedence`, `Auto-Submitted`) — are
+  dropped before they ever reach a project, on the same principle.
+
+The settings page also lists, read-only, every domain that would currently be
+admitted — the union of all registered Workspaces' domains — so an admin can
+check the effect of the toggle without guessing.
 
 ## What happens to your email
 
@@ -102,25 +141,29 @@ keyword alone, make sure it also appears in the subject.
    mailbox on its own schedule and fetches only what changed since the last
    check (Gmail's History API) — not a fresh scan of the whole inbox every
    time.
-2. **Pre-filter before any download.** Sender, recipients and labels are
-   checked against every project's routing rules using only message
-   *metadata*. A message that matches nothing is discarded right there — its
-   body is never downloaded, and no trace of it is stored in Stubwise.
+2. **Pre-filter before any download.** Sender, recipients, labels and a few
+   headers are checked against the [admission rules](#admitted-mail) above —
+   a Workspace domain, an exclusion, or (if no Workspace domain applies) a
+   matching project routing rule. A message that isn't admitted is discarded
+   right there — its body is never downloaded, and no trace of it is stored
+   in Stubwise.
 3. **Classification, on text alone.** Only messages that passed the filter
    have their body fetched and handed to a language model — and *only* the
    model, nothing else. The run has **no filesystem access and no tools**: it
-   reads the sender, subject and text you'd expect, plus a short list of the
-   project's open tickets and backlog titles for context, and proposes an
+   reads the sender, subject and text you'd expect, plus a short list of open
+   tickets and backlog titles for context — for each project a routing rule
+   already matched, or, if none did, for every project on the instance (see
+   [When no project matches](#when-no-project-matches)) — and proposes an
    action. It cannot browse anything, run anything, or take any action by
    itself — the most it produces is a suggestion, which Stubwise's own code
    then double-checks against real data (is that ticket actually open? is
    that project actually a candidate?) before it's ever shown to anyone.
 4. **A proposal in your inbox — one per matching project.** If something
    useful comes out, a card appears — **only for the mailbox owner** — for
-   *each* project the message is in scope for, showing the project's name,
-   the sender or event, a short recognized signal (decision, request,
-   deadline, blocker), and a short list of options plus **Ignore**. One tap
-   confirms; nothing happens until you do.
+   *each* project the message is confidently attributed to, showing the
+   project's name, the sender or event, a short recognized signal (decision,
+   request, deadline, blocker), and a short list of options plus **Ignore**.
+   One tap confirms; nothing happens until you do.
 5. **Calendar, without AI.** Events on your primary calendar go through the
    same routing rules (attendee domains, keywords in the title) but skip the
    model entirely: an in-scope event deterministically proposes creating a
@@ -157,6 +200,34 @@ The calendar is deliberately **not** part of this: an event still resolves to
 a single project (or none, if the routing rules tie), exactly as before this
 capability was added — a meeting invite doesn't need to become several
 milestones just because several projects are represented.
+
+## When no project matches
+
+An email can be [admitted](#admitted-mail) — a Workspace domain vouches for
+it — without any project's routing rules matching it at all: this is exactly
+the case admission by domain was built for, since it removes the need to
+repeat the same rule on every project. When that happens, Stubwise doesn't
+just drop the message: it classifies it against **every project on the
+instance**, not just the ones a rule already pointed to.
+
+- If the model finds no real signal, the message is simply ignored, same as
+  always.
+- If it finds a signal and can confidently name the project it's about, a
+  normal proposal is created for that project — no different from one that
+  arrived through a routing rule.
+- If it finds a signal but **can't** confidently attribute it to a project,
+  a different kind of card appears: *"it looks like work, but it's not clear
+  which project — which one does this belong to?"*, with up to three
+  suggested projects to pick from plus **None of these**. Picking a project
+  attributes the message and sends it back through classification, now with
+  that project resolved — the normal proposal(s) that follow are indistinguishable
+  from any other. **None of these** archives the message with an outcome
+  that says it was triaged and dismissed, so it doesn't read as "no signal
+  found" on your Mail page.
+
+This only ever happens for a message that matched **no** project's routing
+rules — as soon as at least one rule matches, the candidate set narrows back
+down to the matching projects, same as before this existed.
 
 ## Privacy
 

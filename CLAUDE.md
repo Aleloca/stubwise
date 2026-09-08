@@ -538,6 +538,129 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   toccato** da questo problema: `calendar_events` scrive ancora
   `proposalNotificationId` direttamente sulla riga, identico prima e dopo la
   6b.
+- **Fase 6c (ammissione della posta separata dall'attribuzione)**: rebuild
+  **server+worker+caddy insieme** (migrazione 0071 all'avvio del server —
+  TRE colonne nuove sul singleton `instance_settings`, tutte con default,
+  nessun enum e nessuna tabella, un solo batch:
+  `email_admit_workspace_domains boolean` default `true`,
+  `email_admission_deny_labels text[]` default
+  `{CATEGORY_PROMOTIONS,CATEGORY_SOCIAL,SPAM}`,
+  `email_admission_deny_automated boolean` default `true`; il worker nuovo è
+  l'unico che chiama `admit()` nel poller e passa il perimetro vuoto a tutti
+  i progetti in classificazione, il server nuovo l'unico che espone `GET`/
+  `PATCH /api/settings/mail-admission`, il bundle nuovo l'unico che disegna
+  la sezione «Posta ammessa» in Impostazioni → Google e la copy corretta
+  nella sezione Posta del progetto). **Modello cambiato**: l'ingresso di
+  un'email nel sistema (**ammissione**, a livello di istanza — «è lavoro?»)
+  è ora separato da dove va (**attribuzione**, a livello di progetto — «di
+  quale progetto parla?»). `admit()` è una funzione pura nuova
+  (`packages/notifications/src/email-routing.ts`); `matchRoutes` è
+  **invariata** e resta la sola attribuzione. `inScope` (il campo che prima
+  faceva da ammissione, `EmailRoutingResult.inScope`) è marcato
+  `@deprecated` nel docblock ma **non rimosso**: lo usa ancora il
+  **calendario** (`apps/worker/src/google/poller.ts`, che non ha
+  ammissione, solo attribuzione) — verificato leggendo il sorgente, non
+  assunto. Nel poller, il pre-filtro sui metadati chiama `admit(...)` invece
+  di guardare `matchRoutes(...).inScope`; `matchRoutes` resta dov'era, dopo
+  il download del corpo. L'ordine di `admit()`: le esclusioni (etichetta in
+  `denyLabels`, poi — se `denyAutomated` — gli header `List-Unsubscribe`/
+  `List-Id`/`Precedence: bulk|list|junk`/`Auto-Submitted` diverso da `no`)
+  vincono SEMPRE; poi, se `admitWorkspaceDomains`, il dominio del mittente O
+  di un destinatario in **copia** (non `to`) su un Workspace registrato
+  ammette; altrimenti una regola di progetto che combacia ammette come
+  prima della fase (i domini dei clienti esterni continuano a funzionare
+  invariati); altrimenti `no_match`.
+  **Il caso nuovo — proposta di smistamento** (Task 5, il più delicato):
+  quando un messaggio è ammesso ma il perimetro derivato da `matchRoutes`
+  è VUOTO, `classify.ts`/`loadContext` non degrada più a "niente da
+  proporre": i candidati diventano TUTTI i progetti dell'istanza (col
+  contesto capato alle stesse righe per progetto di sempre) e la
+  classificazione decide. Verificato leggendo `writeClassification`: **non
+  sono due esiti, sono TRE, e la biforcazione non è semplicemente "perimetro
+  vuoto"** — è una DEVIAZIONE deliberata dal testo del piano originale,
+  documentata nel codice stesso:
+  1. `classification.signal === 'none'` → `ignored`, invariato;
+  2. `signal !== 'none'` ma un progetto era GIÀ risolto da `matchRoutes`
+     senza ambiguità (`resolvedProjectId !== null`) e zero proposte
+     sopravvivono alla rivalidazione → **`ignored`, non smistamento**: la
+     proposta di smistamento chiederebbe "a quale progetto appartiene?"
+     quando la risposta è già certa, il che non avrebbe senso — è lo stesso
+     esito di prima della fase, solo la motivazione a valle è diversa (un
+     ticket citato inesistente, una data già passata…);
+  3. `signal !== 'none'` E nessun vincitore (`resolvedProjectId === null`:
+     perimetro vuoto da ammissione senza regole, O regole in parità) →
+     **nuovo**: il padre resta `classified` **senza creare nessun figlio**
+     (`email_proposals`), con `email_messages.classification` in una forma
+     DIVERSA — un'unione discriminata sullo stesso campo jsonb — marcata dal
+     campo `triage: true` (`EmailTriageClassification` in `classify.ts`,
+     verbatim: non è un valore di enum né uno stato nuovo, solo una forma
+     diversa dello stesso jsonb, letta in modo tollerante da chi la
+     rilegge). Porta `suggestedProjectIds` (fino a 3, i progetti che le
+     proposte SCARTATE nominavano — può essere vuoto). Il poller
+     (`runProposePhase`) seleziona questi padri al giro successivo e
+     costruisce la proposta di smistamento (`buildTriageProposalEvent` in
+     `apps/worker/src/google/proposal.ts`) **sul messaggio padre**, riusando
+     `email_messages.proposal_notification_id` (rimasto libero per la posta
+     dopo il fan-out della 6b): fino a 3 progetti suggeriti più «nessuno di
+     questi». Scegliere «nessuno di questi» non è un `ignored` generico:
+     l'`outcome` del padre porta `{ type: "triage_dismissed" }`, distinguibile
+     in lettura da un `ignored` per mancanza di segnale (`outcome: null`).
+  **`choose_project` — due semantiche DIVERSE, verificate leggendo
+  `apps/server/src/services/google-proposal.ts` (il case `choose_project`
+  in `dispatchAction`, e `ProposalSource.source`, un'unione a tre valori
+  `"email" | "calendar" | "email_triage"`, non due)**:
+  - `source.source === "email_triage"` (la proposta di smistamento, il
+    PADRE) — **VIVA**: attribuisce il messaggio (`projectId` **e**
+    `scopeProjectIds = [projectId]`, un perimetro di UN solo progetto) e lo
+    **rimette in coda** (`status: "new"`, `proposal_notification_id: null`),
+    NON lo chiude con `markSourceOutcome` — il prossimo tick lo riclassifica
+    con un vincitore risolto, e da lì nascono le proposte vere (fase 6b);
+  - `source.source === "email"` (una proposta FIGLIA, fase 6b, storica) —
+    resta **DEPRECATA in generazione** come deciso in 6b: comportamento
+    INVARIATO, chiude solo il figlio corrente con l'esito
+    `reassigned_project`, non sposta `email_proposals.project_id`, non
+    tocca `email_messages.status`. Eseguibile solo su card pubblicate PRIMA
+    della 6b.
+  - `source.source === "calendar"` non genera mai questa azione: lanciare
+    lì sarebbe un'anomalia, non un `target_gone`.
+  **Le tre difese di costo** (Task 6, `apps/worker/src/google/classify.ts`,
+  funzione `classifyNewMessages`, in quest'ordine): (1) **`GMAIL_MAX_PER_DAY`**
+  (default 200, per casella, 0 = nessun tetto) — contato dai run
+  `agent_runs` (`email_classify`) delle ultime 24 ore per quella casella,
+  un controllo UNA VOLTA prima di guardare qualunque messaggio: raggiunto,
+  la classificazione si ferma per quella casella con una riga di log, i
+  messaggi `new` restano `new` e sono ripresi il giorno dopo; (2) il **gate di budget
+  mensile** — la STESSA verifica già usata dai fix
+  (`instance_settings.monthly_budget_usd`, `monthlyCostUsd` di
+  `@stubwise/db`), applicata ORA anche alla classificazione email: chiude un
+  difetto preesistente per cui la posta erodeva il budget dei fix senza
+  esserne mai frenata; (3) **`GMAIL_THREAD_COOLDOWN_MINUTES`** (default 60,
+  0 = disattivato) — un controllo PER MESSAGGIO dentro il loop: un thread
+  già classificato nella finestra viene saltato (resta `new`) e il ciclo
+  passa al successivo, così un thread attivo non blocca la coda.
+  **Rollback**: `PATCH /api/settings/mail-admission` (admin) con
+  `admitWorkspaceDomains: false` riporta l'ammissione al comportamento
+  della fase 6/6b (solo le regole di progetto ammettono) senza toccare
+  schema né immagini — è la strada innocua, verificata in
+  `admit()`/`settings.test.ts` ("interruttore spento"). **Scendere di
+  immagine sul server ha un rischio NUOVO e specifico alla 6c**, verificato
+  leggendo `findSourceRow` prima e dopo il commit che introduce il Task 5
+  (non assunto): quella funzione, per una proposta di smistamento
+  (`source: "email_triage"`) pubblicata DOPO il deploy della 6c, aggiunge
+  una SECONDA query — assente in ogni binario precedente, 6b incluso — che
+  cerca la riga su `email_messages.proposal_notification_id`. Un binario
+  pre-6c prova solo `email_proposals` (vuota: il padre di uno smistamento
+  non ha figli) e poi `calendar_events` (vuota), non trova nulla, e
+  `answerGoogleProposal` risponde `proposal_stale` — la stessa risposta di
+  una proposta già presa da qualcun altro: nessun crash, nessun 500, solo
+  una card di smistamento che il binario vecchio non sa più confermare
+  finché non si torna avanti. È la STESSA famiglia di trappola della
+  `proposal_stale` già documentata in fase 6b, con la stessa causa di fondo
+  (una query nuova che il binario vecchio non ha) ma un punto di innesco
+  diverso (qui è la SECONDA query di `findSourceRow`, non la prima). Il
+  **calendario non è toccato**: `calendar_events` scrive ancora
+  `proposalNotificationId` direttamente sulla riga, identico a prima della
+  6c.
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
@@ -805,7 +928,39 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   riga `email_proposals` equivalente. Chi ha bisogno dello stato di UNA
   proposta email guarda `email_proposals`, mai il padre; lo stato
   "aggregato" del messaggio (es. per la pagina Posta) si CALCOLA in lettura
-  dai suoi figli, non si persiste da nessuna parte.
+  dai suoi figli, non si persiste da nessuna parte. ⚠️ **Aggiornamento dalla
+  fase 6c**: questo paragrafo, scritto in 6b, non è più letteralmente
+  esatto — la fase 6c aggiunge un TERZO caso, oltre al calendario e alle
+  righe legacy pre-6b, in cui `email_messages.status`/
+  `.proposal_notification_id`/`.outcome`/`.error` sul padre TORNANO a
+  essere la fonte di verità: la proposta di **smistamento**
+  (`source: "email_triage"`, vedi "Fase 6c" più sopra) vive SUL PADRE per
+  costruzione — non ha figli — quindi per quel caso specifico è corretto
+  che `markSourceOutcome`/`markSourceFailed` scrivano direttamente lì. Il
+  principio resta valido per ogni riga CON figli (`email_proposals`); non
+  vale più come regola assoluta per ogni riga di `email_messages`.
+- **`choose_project` ha DUE semantiche diverse, sul padre e sui figli — mai
+  unificarle.** Dalla fase 6c la stessa azione (`choose_project`, l'unione
+  che il server e il worker si scambiano) si comporta in modo opposto a
+  seconda di cosa `ProposalSource.source` vale
+  (`apps/server/src/services/google-proposal.ts`, case `choose_project` in
+  `dispatchAction`): su `"email_triage"` (il PADRE, la proposta di
+  smistamento) è **viva** — attribuisce il messaggio e lo **rimette in
+  coda** di classificazione (`status: "new"`, niente
+  `markSourceOutcome`, il messaggio resta ATTIVO); su `"email"` (un FIGLIO,
+  una proposta della fase 6b) resta **deprecata in generazione** e
+  **chiude** il figlio con l'esito `reassigned_project`, comportamento
+  storico invariato. Il motivo per cui `choose_project` non è mai stata
+  rimossa dall'unione, solo deprecata in generazione per i figli in 6b, è
+  esattamente questo: la 6c aveva già bisogno della stessa azione con
+  un'altra semantica sul padre. Chi tocca questo case può condividere la
+  validazione comune (il progetto scelto deve esistere ancora) ma **non**
+  ne unifichi i due rami: sono percorsi indipendenti con effetti opposti
+  (chiude vs. riapre), e un refactor "per non ripetersi" che li facesse
+  convergere romperebbe uno dei due silenziosamente. Verificato leggendo il
+  commento esplicito sopra quel case nel sorgente e i test
+  `apps/server/src/services/google-proposal.test.ts` (entrambi i rami,
+  con asserzioni opposte su `email_messages.status` ed `email_proposals`).
 
 ## Integrazione Claude Code (MCP)
 
