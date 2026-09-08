@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  admit,
   containsWholeWord,
   matchRoutes,
   normalizeAddress,
   normalizeRouteValue,
   parseAddressList,
+  type AdmissionConfig,
   type EmailForRouting,
   type EmailRoute,
 } from "./email-routing.js";
@@ -327,5 +329,198 @@ describe("containsWholeWord", () => {
 
   it("una needle vuota non combacia mai (niente 'combacia con tutto')", () => {
     expect(containsWholeWord("qualunque cosa", "")).toBe(false);
+  });
+});
+
+describe("admit", () => {
+  function admissionConfig(overrides: Partial<AdmissionConfig> = {}): AdmissionConfig {
+    return {
+      admitWorkspaceDomains: true,
+      workspaceDomains: [],
+      denyLabels: ["CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL", "SPAM"],
+      denyAutomated: true,
+      routes: [],
+      ...overrides,
+    };
+  }
+
+  it("mittente di un dominio Workspace registrato: ammesso workspace_domain", () => {
+    const result = admit(
+      message({ fromAddress: "Anna <anna@nostroworkspace.com>" }),
+      admissionConfig({ workspaceDomains: ["nostroworkspace.com"] }),
+    );
+    expect(result).toEqual({ admitted: true, reason: "workspace_domain" });
+  });
+
+  it("dominio Workspace in copia (Cc), non in To: ammesso workspace_domain", () => {
+    const result = admit(
+      message({
+        fromAddress: "cliente@esterno.org",
+        toAddresses: ["x@esterno.org"],
+        ccAddresses: ["Anna <anna@nostroworkspace.com>"],
+      }),
+      admissionConfig({ workspaceDomains: ["nostroworkspace.com"] }),
+    );
+    expect(result).toEqual({ admitted: true, reason: "workspace_domain" });
+  });
+
+  it("il dominio Workspace in To (non in copia) NON ammette da solo: serve una regola di progetto", () => {
+    const result = admit(
+      message({
+        fromAddress: "cliente@esterno.org",
+        toAddresses: ["Anna <anna@nostroworkspace.com>"],
+      }),
+      admissionConfig({ workspaceDomains: ["nostroworkspace.com"] }),
+    );
+    expect(result).toEqual({ admitted: false, reason: "no_match" });
+  });
+
+  it("regola di progetto che combacia, senza che il dominio sia un dominio Workspace: ammesso project_rule", () => {
+    const result = admit(
+      message({ fromAddress: "cliente@acme.com" }),
+      admissionConfig({
+        workspaceDomains: ["nostroworkspace.com"],
+        routes: [route(PROJECT_A, "sender_domain", "acme.com")],
+      }),
+    );
+    expect(result).toEqual({ admitted: true, reason: "project_rule" });
+  });
+
+  it("etichetta esclusa: rifiutato ANCHE SE una regola di progetto combacerebbe (le esclusioni vincono)", () => {
+    const result = admit(
+      message({ fromAddress: "cliente@acme.com", labels: ["CATEGORY_PROMOTIONS"] }),
+      admissionConfig({
+        workspaceDomains: ["acme.com"],
+        routes: [route(PROJECT_A, "sender_domain", "acme.com")],
+      }),
+    );
+    expect(result).toEqual({ admitted: false, reason: "denied_label" });
+  });
+
+  it("il confronto sulle etichette escluse non distingue le maiuscole", () => {
+    const result = admit(
+      message({ fromAddress: "cliente@acme.com", labels: ["category_promotions"] }),
+      admissionConfig({ denyLabels: ["CATEGORY_PROMOTIONS"] }),
+    );
+    expect(result).toEqual({ admitted: false, reason: "denied_label" });
+  });
+
+  it("List-Unsubscribe presente (anche vuoto): rifiutato automated", () => {
+    const result = admit(
+      message({
+        fromAddress: "anna@nostroworkspace.com",
+        headers: { "list-unsubscribe": "" },
+      }),
+      admissionConfig({ workspaceDomains: ["nostroworkspace.com"] }),
+    );
+    expect(result).toEqual({ admitted: false, reason: "automated" });
+  });
+
+  it("List-Id presente: rifiutato automated", () => {
+    const result = admit(
+      message({
+        fromAddress: "anna@nostroworkspace.com",
+        headers: { "list-id": "<newsletter.acme.com>" },
+      }),
+      admissionConfig({ workspaceDomains: ["nostroworkspace.com"] }),
+    );
+    expect(result).toEqual({ admitted: false, reason: "automated" });
+  });
+
+  it("Precedence: bulk (case-insensitive): rifiutato automated", () => {
+    const result = admit(
+      message({
+        fromAddress: "anna@nostroworkspace.com",
+        headers: { precedence: "Bulk" },
+      }),
+      admissionConfig({ workspaceDomains: ["nostroworkspace.com"] }),
+    );
+    expect(result).toEqual({ admitted: false, reason: "automated" });
+  });
+
+  it.each(["bulk", "list", "junk"])("Precedence: %s rifiuta automated", (value) => {
+    const result = admit(
+      message({ fromAddress: "anna@nostroworkspace.com", headers: { precedence: value } }),
+      admissionConfig({ workspaceDomains: ["nostroworkspace.com"] }),
+    );
+    expect(result).toEqual({ admitted: false, reason: "automated" });
+  });
+
+  it("Auto-Submitted: no NON rifiuta (deve passare oltre a quel controllo)", () => {
+    const result = admit(
+      message({
+        fromAddress: "anna@nostroworkspace.com",
+        headers: { "auto-submitted": "no" },
+      }),
+      admissionConfig({ workspaceDomains: ["nostroworkspace.com"] }),
+    );
+    expect(result).toEqual({ admitted: true, reason: "workspace_domain" });
+  });
+
+  it("Auto-Submitted diverso da no rifiuta automated", () => {
+    const result = admit(
+      message({
+        fromAddress: "anna@nostroworkspace.com",
+        headers: { "auto-submitted": "auto-generated" },
+      }),
+      admissionConfig({ workspaceDomains: ["nostroworkspace.com"] }),
+    );
+    expect(result).toEqual({ admitted: false, reason: "automated" });
+  });
+
+  it("nessun header automatico presente: non rifiuta per quel motivo", () => {
+    const result = admit(
+      message({ fromAddress: "anna@nostroworkspace.com", headers: {} }),
+      admissionConfig({ workspaceDomains: ["nostroworkspace.com"] }),
+    );
+    expect(result).toEqual({ admitted: true, reason: "workspace_domain" });
+  });
+
+  it("headers assente (chiamante che non lo passa): denyAutomated acceso non rifiuta", () => {
+    const result = admit(
+      message({ fromAddress: "anna@nostroworkspace.com" }),
+      admissionConfig({ workspaceDomains: ["nostroworkspace.com"] }),
+    );
+    expect(result).toEqual({ admitted: true, reason: "workspace_domain" });
+  });
+
+  it("denyAutomated spento: gli header automatici non rifiutano più", () => {
+    const result = admit(
+      message({
+        fromAddress: "anna@nostroworkspace.com",
+        headers: { "list-unsubscribe": "<https://example.org>" },
+      }),
+      admissionConfig({ workspaceDomains: ["nostroworkspace.com"], denyAutomated: false }),
+    );
+    expect(result).toEqual({ admitted: true, reason: "workspace_domain" });
+  });
+
+  it("nessun dominio Workspace, nessuna regola: rifiutato no_match", () => {
+    const result = admit(message({ fromAddress: "chiunque@altro.org" }), admissionConfig());
+    expect(result).toEqual({ admitted: false, reason: "no_match" });
+  });
+
+  it("interruttore admitWorkspaceDomains spento: coincide con inScope di matchRoutes sullo stesso messaggio/regole", () => {
+    const routes = [route(PROJECT_A, "sender_domain", "acme.com")];
+    const config = admissionConfig({
+      admitWorkspaceDomains: false,
+      workspaceDomains: ["nostroworkspace.com"],
+      routes,
+    });
+
+    // Un dominio Workspace da solo, senza regola di progetto, NON ammette più
+    // con l'interruttore spento: identico a inScope di oggi.
+    const workspaceOnly = message({ fromAddress: "anna@nostroworkspace.com" });
+    expect(admit(workspaceOnly, config).admitted).toBe(matchRoutes(workspaceOnly, routes).inScope);
+    expect(admit(workspaceOnly, config)).toEqual({ admitted: false, reason: "no_match" });
+
+    // Una regola di progetto continua ad ammettere, identica a inScope.
+    const ruleMatch = message({ fromAddress: "cliente@acme.com" });
+    expect(admit(ruleMatch, config).admitted).toBe(matchRoutes(ruleMatch, routes).inScope);
+    expect(admit(ruleMatch, config)).toEqual({ admitted: true, reason: "project_rule" });
+
+    // Nessuna regola, nessun match: entrambi fuori.
+    const noMatch = message({ fromAddress: "chiunque@altro.org" });
+    expect(admit(noMatch, config).admitted).toBe(matchRoutes(noMatch, routes).inScope);
   });
 });

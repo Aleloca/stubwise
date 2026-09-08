@@ -63,11 +63,26 @@ export interface EmailForRouting {
   subject: string;
   /** Testo del corpo già estratto. Assente al pre-filtro sui metadati. */
   text?: string;
+  /**
+   * Gli header usati dall'ammissione (fase 6c) per riconoscere la posta
+   * automatica: `List-Unsubscribe`, `List-Id`, `Precedence`, `Auto-Submitted`.
+   * Chiavi già in minuscolo, come le normalizza `packages/google/src/gmail.ts`
+   * (`headers[header.name.toLowerCase()] = header.value`). **Opzionale**: un
+   * chiamante che non lo passa (es. codice scritto prima della fase 6c) non
+   * rompe nulla — {@link admit} con `denyAutomated` acceso si comporta come
+   * "nessun header automatico presente", cioè non rifiuta per quel motivo.
+   */
+  headers?: Record<string, string>;
 }
 
 /** L'esito del routing di un messaggio. */
 export interface EmailRoutingResult {
   /**
+   * @deprecated dalla fase 6c: l'ingresso di un'email nel sistema è deciso da
+   * {@link admit}, non più da `inScope`. Questo campo resta SOLO perché il
+   * calendario (`apps/worker/src/google/calendar.ts` e dintorni, che non ha
+   * ammissione, solo attribuzione) lo usa ancora — non rimuoverlo.
+   *
    * `true` se ALMENO una regola di ALMENO un progetto combacia. È questo — e
    * non `projectId !== null` — il criterio di "in perimetro": un messaggio può
    * essere in perimetro e insieme ambiguo.
@@ -319,4 +334,137 @@ export function matchRoutes(message: EmailForRouting, routes: EmailRoute[]): Ema
     matchedRuleCount,
     scopeProjectIds,
   };
+}
+
+// ---------------------------------------------------------------------------
+// AMMISSIONE (Fase 6c) — separata dall'attribuzione qui sopra.
+//
+// `matchRoutes` risponde "di quale progetto parla questa email?". `admit`
+// risponde a una domanda diversa e PRECEDENTE: "questa email è lavoro, o va
+// nemmeno guardata?". Prima della fase 6c le due domande condividevano lo
+// stesso meccanismo (`inScope` di `matchRoutes`), il che costringeva a
+// scrivere una regola `sender_domain` per ogni dominio dei propri Workspace
+// su OGNI progetto — quattro domini, dodici progetti, quarantotto regole per
+// esprimere quattro fatti. Qui i due passi sono separati: `admit` decide se
+// il messaggio entra, `matchRoutes` (invariata sopra, usata anche da `admit`
+// per il fallback `project_rule`) decide dove.
+// ---------------------------------------------------------------------------
+
+/**
+ * Configurazione d'istanza per {@link admit}, letta una volta per tick del
+ * poller accanto alle regole di progetto (vedi `apps/worker/src/google/poller.ts`).
+ */
+export interface AdmissionConfig {
+  /** `instance_settings.email_admit_workspace_domains`. */
+  admitWorkspaceDomains: boolean;
+  /**
+   * TUTTI i domini di TUTTI i Workspace registrati — non solo quello della
+   * casella che ha ricevuto il messaggio: un'email ammette per QUALUNQUE
+   * Workspace dell'istanza, non solo per il proprio (`google_workspaces.domains`
+   * di ogni riga, unite).
+   */
+  workspaceDomains: string[];
+  /** `instance_settings.email_admission_deny_labels`. */
+  denyLabels: string[];
+  /** `instance_settings.email_admission_deny_automated`. */
+  denyAutomated: boolean;
+  /**
+   * Le stesse regole di TUTTI i progetti che userebbe {@link matchRoutes}:
+   * `admit` le usa internamente come fallback `project_rule` (i domini dei
+   * clienti esterni, che non sono un Workspace registrato, continuano ad
+   * ammettere esattamente come oggi).
+   */
+  routes: EmailRoute[];
+}
+
+/** L'esito dell'ammissione di un messaggio: entra nel sistema, o no e perché. */
+export type AdmissionResult =
+  | { admitted: true; reason: "workspace_domain" | "project_rule" }
+  | { admitted: false; reason: "denied_label" | "automated" | "no_match" };
+
+/** Il valore di un header, cercato senza distinzione di maiuscole/minuscole. */
+function headerValue(headers: Record<string, string> | undefined, name: string): string | undefined {
+  if (!headers) return undefined;
+  return headers[name.toLowerCase()];
+}
+
+/**
+ * Un messaggio ha l'aria di posta automatica? Vedi il docblock di
+ * {@link AdmissionConfig.denyAutomated} per l'elenco degli header e i valori
+ * che scattano. Nessun header presente (`headers` assente o vuoto) → `false`:
+ * un chiamante che non passa ancora `headers` non deve vedersi rifiutare
+ * nulla per questo motivo.
+ */
+function looksAutomated(headers: Record<string, string> | undefined): boolean {
+  if (headerValue(headers, "List-Unsubscribe") !== undefined) return true;
+  if (headerValue(headers, "List-Id") !== undefined) return true;
+  const precedence = headerValue(headers, "Precedence")?.trim().toLowerCase();
+  if (precedence === "bulk" || precedence === "list" || precedence === "junk") return true;
+  const autoSubmitted = headerValue(headers, "Auto-Submitted")?.trim().toLowerCase();
+  if (autoSubmitted !== undefined && autoSubmitted !== "no") return true;
+  return false;
+}
+
+/**
+ * Un'email entra nel sistema, o no? A differenza di {@link matchRoutes} (di
+ * quale progetto parla), questa è la domanda "è lavoro?", decisa a livello di
+ * istanza. In ordine:
+ *
+ * 1. **Le esclusioni vincono sempre**: un'etichetta in `denyLabels`
+ *    (confronto case-insensitive, stesso stile della regola `gmail_label` di
+ *    {@link matchRoutes}) rifiuta SUBITO, prima di ogni altro controllo —
+ *    anche un mittente di un dominio Workspace o che soddisfa una regola di
+ *    progetto viene scartato.
+ * 2. Se `denyAutomated`: gli header della posta automatica (vedi
+ *    {@link looksAutomated}) rifiutano.
+ * 3. Se `admitWorkspaceDomains`: il dominio del mittente O di un
+ *    destinatario in COPIA (`ccAddresses` — non `toAddresses`: è la scelta
+ *    del design, "il mittente o un destinatario in copia") in
+ *    `workspaceDomains` ammette.
+ * 4. Altrimenti, una regola di progetto che combacia (riusa la stessa logica
+ *    di match di {@link matchRoutes}, chiamata qui internamente: nessuna
+ *    duplicazione delle regole `sender_domain`/`sender_address`/
+ *    `gmail_label`/`keyword`) ammette — così i domini dei clienti esterni,
+ *    che non sono un Workspace registrato, continuano ad ammettere come
+ *    prima della fase 6c.
+ * 5. Altrimenti, rifiutato `no_match`.
+ *
+ * Con `admitWorkspaceDomains: false` il passo 3 si salta interamente e
+ * l'esito coincide con `matchRoutes(message, routes).inScope` di prima della
+ * fase 6c (vedi il test "interruttore spento").
+ */
+export function admit(message: EmailForRouting, config: AdmissionConfig): AdmissionResult {
+  const labels = new Set(
+    message.labels.map((label) => label.trim().toLowerCase()).filter((label) => label !== ""),
+  );
+  const denyLabels = config.denyLabels
+    .map((label) => label.trim().toLowerCase())
+    .filter((label) => label !== "");
+  if (denyLabels.some((label) => labels.has(label))) {
+    return { admitted: false, reason: "denied_label" };
+  }
+
+  if (config.denyAutomated && looksAutomated(message.headers)) {
+    return { admitted: false, reason: "automated" };
+  }
+
+  if (config.admitWorkspaceDomains) {
+    const workspaceDomains = new Set(
+      config.workspaceDomains.map((domain) => domain.trim().toLowerCase()).filter((domain) => domain !== ""),
+    );
+    const senderDomain = domainOf(normalizeAddress(message.fromAddress));
+    const ccDomains = (message.ccAddresses ?? []).map((address) => domainOf(normalizeAddress(address)));
+    const fromWorkspace =
+      (senderDomain !== "" && workspaceDomains.has(senderDomain)) ||
+      ccDomains.some((domain) => domain !== "" && workspaceDomains.has(domain));
+    if (fromWorkspace) {
+      return { admitted: true, reason: "workspace_domain" };
+    }
+  }
+
+  if (matchRoutes(message, config.routes).inScope) {
+    return { admitted: true, reason: "project_rule" };
+  }
+
+  return { admitted: false, reason: "no_match" };
 }
