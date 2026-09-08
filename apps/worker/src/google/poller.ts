@@ -3,6 +3,7 @@ import {
   emailMessages,
   emailProposals,
   googleAccounts,
+  notifications,
   projectEmailRoutes,
   projects,
   type Db,
@@ -25,7 +26,18 @@ import {
 } from "@stubwise/google/credentials";
 import type { Language } from "@stubwise/i18n";
 import { matchRoutes, type EmailRoute } from "@stubwise/notifications";
-import { and, asc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  ne,
+  notExists,
+  notInArray,
+  sql,
+} from "drizzle-orm";
 import type { AgentRunner } from "../agent/runner.js";
 import type { loadProviderChain } from "../providers/chain.js";
 import { getContentLanguage } from "../settings.js";
@@ -69,7 +81,7 @@ import {
   nextSyncDelayMs,
   SYNC_BACKOFF_BASE_SECONDS,
   SYNC_BACKOFF_MAX_EXPONENT,
-  TERMINAL_EMAIL_STATUSES,
+  TERMINAL_EMAIL_PROPOSAL_STATUSES,
   type GoogleDisabledReason,
 } from "./sync.js";
 
@@ -1275,25 +1287,87 @@ async function runAccountTick(
 }
 
 /**
- * RETENTION: i messaggi in stato terminale più vecchi di `retentionDays`.
+ * RETENTION: i messaggi VECCHI la cui storia è DAVVERO chiusa.
  *
- * La soglia è su `updated_at` e non su `received_at` di proposito: conta da
- * quando la storia si è CHIUSA (proposta eseguita, ignorata, fallita), non da
- * quando l'email è arrivata — altrimenti un messaggio vecchio appena trattato
- * sparirebbe il giorno dopo, portandosi via la tracciabilità di ciò che si è
- * appena fatto. Gli stati non terminali non si toccano mai: `proposed` è una
- * card ancora aperta nella inbox di qualcuno.
+ * Fase 6b: `email_messages.status` (il padre) non racconta più da solo
+ * l'esito di un messaggio. Dalla classificazione in poi il lavoro vive sui
+ * FIGLI (`email_proposals`, uno per progetto in `scopeProjectIds`): il padre
+ * resta `classified` (o, per righe legacy pre-6b senza figlio equivalente,
+ * `proposed`/`actioned`) MENTRE i suoi figli vengono pubblicati, confermati,
+ * ignorati o falliscono indipendentemente l'uno dall'altro — vedi
+ * `classify.ts` (scrittura sui figli) e `google-proposal.ts`
+ * (`markSourceOutcome`/`markSourceFailed`, che scrivono SOLO sul figlio).
+ * Un messaggio è quindi potabile solo quando TUTTE e tre le condizioni
+ * valgono:
+ *
+ *  1. **è stato almeno classificato** (`status <> 'new'`): un messaggio
+ *     ancora `new` non è mai stato nemmeno guardato — e per costruzione non
+ *     ha figli finché resta tale — indipendentemente da quanto sia vecchio;
+ *  2. **ogni figlio è TERMINALE** ({@link TERMINAL_EMAIL_PROPOSAL_STATUSES}):
+ *     un `NOT EXISTS` su un figlio non-terminale, vero anche quando il
+ *     messaggio non ha (o non ha più) nessun figlio — nessuna proposta valida
+ *     dalla classificazione, un crash prima di scriverne una, o l'ultimo
+ *     progetto del perimetro cancellato: l'insieme vuoto soddisfa banalmente
+ *     "tutti terminali", ed è la stessa logica di prima (nessun figlio da
+ *     aspettare) ora espressa sui figli invece che sullo stato del padre;
+ *  3. **nessun figlio ha una notifica ancora APERTA** (`status <> 'handled'`,
+ *     stesso significato di "aperta" del pulse — vedi
+ *     `ne(notifications.status, "handled")` in `pulse/poller.ts`). È DIFESA
+ *     IN PROFONDITÀ e non un controllo ridondante per costruzione: un figlio
+ *     TERMINALE ha, per l'ordine con cui `dispatchAction` in
+ *     `google-proposal.ts` chiama `propagateHandled` (claim: chiude la
+ *     notifica) PRIMA di scrivere lo stato terminale sul figlio, sempre già
+ *     la sua notifica chiusa — ma questa condizione non si fida di
+ *     quell'ordine, lo riverifica riga per riga.
+ *
+ * La soglia resta su `updated_at` DEL PADRE, e non su `received_at`: è la
+ * colonna che `markSourceOutcome`/`markSourceFailed` toccano a ogni chiusura
+ * di UN figlio (mai nient'altro del padre, vedi il loro docblock), quindi
+ * misura "da quando la storia si è chiusa per l'ultima volta", non "da
+ * quando l'email è arrivata" — altrimenti un messaggio vecchio appena
+ * trattato sparirebbe il giorno dopo, portandosi via la tracciabilità di ciò
+ * che si è appena fatto.
+ *
+ * La CASCATA sui figli (`email_proposals.email_message_id` con `ON DELETE
+ * CASCADE`, Task 1) fa il resto da sola: nessuna azione applicativa in più
+ * qui per portarli via col padre.
  *
  * `retentionDays ≤ 0` = nessuna potatura (i messaggi restano per sempre).
  */
 export async function pruneOldEmails(db: Db, retentionDays: number): Promise<number> {
   if (retentionDays <= 0) return 0;
+
+  // Condizione 2: un figlio di QUESTO messaggio ancora non terminale.
+  const openChild = db
+    .select({ id: emailProposals.id })
+    .from(emailProposals)
+    .where(
+      and(
+        eq(emailProposals.emailMessageId, emailMessages.id),
+        notInArray(emailProposals.status, [...TERMINAL_EMAIL_PROPOSAL_STATUSES]),
+      ),
+    );
+
+  // Condizione 3: un figlio di QUESTO messaggio la cui notifica è ancora
+  // aperta. L'INNER JOIN già filtra su `proposalNotificationId IS NOT NULL`
+  // (una FK nulla non produce nessuna riga di join): niente `isNotNull`
+  // esplicito in più.
+  const openNotifiedChild = db
+    .select({ id: emailProposals.id })
+    .from(emailProposals)
+    .innerJoin(notifications, eq(notifications.id, emailProposals.proposalNotificationId))
+    .where(
+      and(eq(emailProposals.emailMessageId, emailMessages.id), ne(notifications.status, "handled")),
+    );
+
   const deleted = await db
     .delete(emailMessages)
     .where(
       and(
-        inArray(emailMessages.status, [...TERMINAL_EMAIL_STATUSES]),
+        ne(emailMessages.status, "new"),
         sql`${emailMessages.updatedAt} < now() - make_interval(days => ${Math.round(retentionDays)})`,
+        notExists(openChild),
+        notExists(openNotifiedChild),
       ),
     )
     .returning({ id: emailMessages.id });

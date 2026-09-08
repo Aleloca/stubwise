@@ -65,6 +65,7 @@ beforeAll(async () => {
 }, 120_000);
 
 afterEach(async () => {
+  await db.delete(notifications);
   await db.delete(emailProposals);
   await db.delete(emailMessages);
   await db.delete(calendarEvents);
@@ -826,10 +827,66 @@ describe("classificazione degli errori", () => {
 // ---------------------------------------------------------------------------
 
 describe("retention", () => {
-  it("cancella solo gli stati terminali oltre la soglia", async () => {
+  const old = new Date(Date.now() - 120 * 24 * 60 * 60 * 1000);
+  const recent = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+  /** Un padre VECCHIO, pronto per gli scenari con figli. */
+  async function seedOldMessage(
+    account: typeof googleAccounts.$inferSelect,
+    overrides: Partial<typeof emailMessages.$inferInsert> = {},
+  ): Promise<string> {
+    const [row] = await db
+      .insert(emailMessages)
+      .values({
+        accountId: account.id,
+        gmailMessageId: `m-${randomUUID()}`,
+        threadId: "t",
+        fromAddress: "cliente@cliente.com",
+        receivedAt: old,
+        updatedAt: old,
+        status: "classified",
+        ...overrides,
+      })
+      .returning({ id: emailMessages.id });
+    return row!.id;
+  }
+
+  /** Una riga FIGLIA di UN progetto, per il messaggio dato (fase 6b). */
+  async function seedChild(
+    messageId: string,
+    projectId: string,
+    overrides: Partial<typeof emailProposals.$inferInsert> = {},
+  ): Promise<string> {
+    const [row] = await db
+      .insert(emailProposals)
+      .values({
+        emailMessageId: messageId,
+        projectId,
+        status: "classified",
+        classification: { signal: "none", proposals: [], recommendedIndex: 0 },
+        ...overrides,
+      })
+      .returning({ id: emailProposals.id });
+    return row!.id;
+  }
+
+  /** Una notifica `google.proposal`, nello stato indicato. */
+  async function seedNotification(userId: string, status: "open" | "handled"): Promise<string> {
+    const [row] = await db
+      .insert(notifications)
+      .values({
+        userId,
+        kind: "google.proposal",
+        status,
+        ...(status === "handled" ? { handledAt: new Date() } : {}),
+        event: {},
+      })
+      .returning({ id: notifications.id });
+    return row!.id;
+  }
+
+  it("cancella i messaggi SENZA figli, già trattati e oltre la soglia", async () => {
     const account = await seedAccount();
-    const old = new Date(Date.now() - 120 * 24 * 60 * 60 * 1000);
-    const recent = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const base = {
       accountId: account.id,
       threadId: "t",
@@ -840,8 +897,8 @@ describe("retention", () => {
       { ...base, gmailMessageId: "vecchio-actioned", status: "actioned", updatedAt: old },
       { ...base, gmailMessageId: "vecchio-ignored", status: "ignored", updatedAt: old },
       { ...base, gmailMessageId: "vecchio-failed", status: "failed", updatedAt: old },
-      // Vecchio ma NON terminale: è una card ancora aperta in una inbox.
-      { ...base, gmailMessageId: "vecchio-proposed", status: "proposed", updatedAt: old },
+      // Mai classificato: nessun figlio da aspettare (l'insieme è vuoto), ma
+      // non è mai stato nemmeno guardato — non si pota.
       { ...base, gmailMessageId: "vecchio-new", status: "new", updatedAt: old },
       // Terminale ma recente.
       { ...base, gmailMessageId: "recente-actioned", status: "actioned", updatedAt: recent },
@@ -850,7 +907,55 @@ describe("retention", () => {
     expect(await pruneOldEmails(db, 90)).toBe(3);
 
     const left = (await db.select().from(emailMessages)).map((row) => row.gmailMessageId).sort();
-    expect(left).toEqual(["recente-actioned", "vecchio-new", "vecchio-proposed"]);
+    expect(left).toEqual(["recente-actioned", "vecchio-new"]);
+  });
+
+  it("un figlio ancora `classified` blocca la potatura", async () => {
+    const account = await seedAccount();
+    const projectId = await seedProject("acme");
+    const messageId = await seedOldMessage(account);
+    await seedChild(messageId, projectId, { status: "classified" });
+
+    expect(await pruneOldEmails(db, 90)).toBe(0);
+    expect(await db.select().from(emailMessages)).toHaveLength(1);
+  });
+
+  it("un figlio terminale ma con la notifica ancora aperta blocca la potatura", async () => {
+    const account = await seedAccount();
+    const projectId = await seedProject("acme");
+    const messageId = await seedOldMessage(account);
+    const notificationId = await seedNotification(account.userId, "open");
+    // Stato "rotto" ad arte: un figlio TERMINALE la cui notifica è ancora
+    // aperta. L'invariante garantita da `google-proposal.ts` (claim PRIMA
+    // dello stato terminale) direbbe che non può succedere — ma il controllo
+    // non si fida di quell'invariante, la riverifica riga per riga (difesa in
+    // profondità).
+    await seedChild(messageId, projectId, { status: "actioned", proposalNotificationId: notificationId });
+
+    expect(await pruneOldEmails(db, 90)).toBe(0);
+    expect(await db.select().from(emailMessages)).toHaveLength(1);
+  });
+
+  it("tutti i figli terminali e nessuna notifica aperta → potato, figli in cascata", async () => {
+    const account = await seedAccount();
+    const projectA = await seedProject("acme");
+    const projectB = await seedProject("beta");
+    const messageId = await seedOldMessage(account);
+    const handledNotificationId = await seedNotification(account.userId, "handled");
+    await seedChild(messageId, projectA, {
+      status: "actioned",
+      proposalNotificationId: handledNotificationId,
+    });
+    // Figlio senza notifica collegata (mai pubblicato, o pubblicazione
+    // fallita dopo la classificazione): terminale comunque.
+    await seedChild(messageId, projectB, { status: "ignored" });
+
+    expect(await pruneOldEmails(db, 90)).toBe(1);
+    expect(await db.select().from(emailMessages)).toHaveLength(0);
+    // Cascata: i figli spariscono col padre, nessuna azione applicativa in più.
+    expect(
+      await db.select().from(emailProposals).where(eq(emailProposals.emailMessageId, messageId)),
+    ).toEqual([]);
   });
 
   it("retentionDays = 0 non cancella nulla", async () => {
