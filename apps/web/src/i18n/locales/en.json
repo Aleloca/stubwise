@@ -2314,6 +2314,10 @@
     "empty": "// no mail",
     "loadMore": "Load more",
     "loadingMore": "Loading…",
-    "loadError": "Could not load Mail."
+    "loadError": "Could not load Mail.",
+    "triage": {
+      "badge": "To sort",
+      "dismissedOutcome": "Sorted — none of the suggested projects matched"
+    }
   }
 }

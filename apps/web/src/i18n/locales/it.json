@@ -2314,6 +2314,10 @@
     "empty": "// nessuna posta",
     "loadMore": "Carica altre",
     "loadingMore": "Carico…",
-    "loadError": "Non è stato possibile caricare la Posta."
+    "loadError": "Non è stato possibile caricare la Posta.",
+    "triage": {
+      "badge": "Da smistare",
+      "dismissedOutcome": "Smistato — nessuno dei progetti suggeriti era quello giusto"
+    }
   }
 }
