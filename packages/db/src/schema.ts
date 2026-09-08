@@ -1107,8 +1107,10 @@ export const instanceSettings = pgTable("instance_settings", {
   // I mittenti (o destinatari in copia) dei domini di un Google Workspace
   // registrato ammettono senza bisogno di una regola di progetto.
   emailAdmitWorkspaceDomains: boolean("email_admit_workspace_domains").notNull().default(true),
-  // Etichette Gmail che escludono SEMPRE, anche quando una regola di progetto
-  // o il dominio del Workspace ammetterebbero: le esclusioni vincono sempre.
+  // Etichette Gmail che escludono la posta ammessa per DOMINIO DI LAVORO
+  // (colonna sopra): una regola di progetto è una scelta deliberata
+  // dell'admin su un mittente preciso e ammette SEMPRE, esclusioni comprese
+  // — vedi `admit()` in packages/notifications/src/email-routing.ts.
   emailAdmissionDenyLabels: text("email_admission_deny_labels")
     .array()
     .notNull()

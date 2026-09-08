@@ -410,30 +410,48 @@ function looksAutomated(headers: Record<string, string> | undefined): boolean {
  * quale progetto parla), questa è la domanda "è lavoro?", decisa a livello di
  * istanza. In ordine:
  *
- * 1. **Le esclusioni vincono sempre**: un'etichetta in `denyLabels`
+ * 1. **Una regola di progetto che combacia ammette SUBITO, esclusioni
+ *    comprese** (riusa la stessa logica di match di {@link matchRoutes},
+ *    chiamata qui internamente UNA volta sola — nessuna duplicazione delle
+ *    regole `sender_domain`/`sender_address`/`gmail_label`/`keyword`, e il
+ *    risultato è quello che rende ammessi i domini dei clienti esterni, che
+ *    non sono un Workspace registrato, esattamente come prima della fase
+ *    6c). **Decisione del maintainer (8 set 2026), esplicita**: una regola
+ *    di progetto è una scelta DELIBERATA dell'admin su un mittente preciso —
+ *    non un'ammissione LARGA come quella per dominio di lavoro al passo 3 —
+ *    e deve ammettere SEMPRE. Le esclusioni (`denyLabels`, `denyAutomated`)
+ *    esistono per CONTENERE l'ammissione larga per dominio di lavoro, non
+ *    per limitare quella MIRATA: un'email che una regola di progetto ammette
+ *    e che porta `List-Unsubscribe` (comune in notifiche di CRM, ticketing o
+ *    piattaforme aziendali legittime) o l'etichetta `CATEGORY_PROMOTIONS`
+ *    resta ammessa.
+ * 2. Altrimenti, **le esclusioni vincono**: un'etichetta in `denyLabels`
  *    (confronto case-insensitive, stesso stile della regola `gmail_label` di
- *    {@link matchRoutes}) rifiuta SUBITO, prima di ogni altro controllo —
- *    anche un mittente di un dominio Workspace o che soddisfa una regola di
- *    progetto viene scartato.
- * 2. Se `denyAutomated`: gli header della posta automatica (vedi
+ *    {@link matchRoutes}) rifiuta SUBITO.
+ * 3. Se `denyAutomated`: gli header della posta automatica (vedi
  *    {@link looksAutomated}) rifiutano.
- * 3. Se `admitWorkspaceDomains`: il dominio del mittente O di un
+ * 4. Se `admitWorkspaceDomains`: il dominio del mittente O di un
  *    destinatario in COPIA (`ccAddresses` — non `toAddresses`: è la scelta
  *    del design, "il mittente o un destinatario in copia") in
  *    `workspaceDomains` ammette.
- * 4. Altrimenti, una regola di progetto che combacia (riusa la stessa logica
- *    di match di {@link matchRoutes}, chiamata qui internamente: nessuna
- *    duplicazione delle regole `sender_domain`/`sender_address`/
- *    `gmail_label`/`keyword`) ammette — così i domini dei clienti esterni,
- *    che non sono un Workspace registrato, continuano ad ammettere come
- *    prima della fase 6c.
  * 5. Altrimenti, rifiutato `no_match`.
  *
- * Con `admitWorkspaceDomains: false` il passo 3 si salta interamente e
- * l'esito coincide con `matchRoutes(message, routes).inScope` di prima della
- * fase 6c (vedi il test "interruttore spento").
+ * Con `admitWorkspaceDomains: false` il passo 4 si salta interamente. Per un
+ * messaggio SENZA etichette escluse né header automatici l'esito coincide
+ * ancora con `matchRoutes(message, routes).inScope` di prima della fase 6c
+ * (vedi il test "interruttore spento") — ma un messaggio CON un'etichetta
+ * esclusa o un header automatico differisce ora da `inScope` per
+ * costruzione quando nessuna regola di progetto combacia: `inScope` di
+ * `matchRoutes` non conosce le esclusioni, `admit` sì.
  */
 export function admit(message: EmailForRouting, config: AdmissionConfig): AdmissionResult {
+  // Passo 1 — vedi il docblock sopra per il PERCHÉ: `matchRoutes` è calcolata
+  // una volta sola qui, e se combacia si ammette SENZA guardare le
+  // esclusioni. Una regola di progetto non passa mai dai passi 2-4.
+  if (matchRoutes(message, config.routes).inScope) {
+    return { admitted: true, reason: "project_rule" };
+  }
+
   const labels = new Set(
     message.labels.map((label) => label.trim().toLowerCase()).filter((label) => label !== ""),
   );
@@ -460,10 +478,6 @@ export function admit(message: EmailForRouting, config: AdmissionConfig): Admiss
     if (fromWorkspace) {
       return { admitted: true, reason: "workspace_domain" };
     }
-  }
-
-  if (matchRoutes(message, config.routes).inScope) {
-    return { admitted: true, reason: "project_rule" };
   }
 
   return { admitted: false, reason: "no_match" };

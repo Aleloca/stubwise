@@ -15,8 +15,10 @@ ALTER TABLE "instance_settings"
   -- registrato ammettono la posta anche senza una regola di progetto. Default
   -- true: è un allargamento, non un restringimento, dell'ammissione di oggi.
   ADD COLUMN "email_admit_workspace_domains" boolean DEFAULT true NOT NULL,
-  -- Etichette Gmail che escludono SEMPRE, anche se una regola di progetto o il
-  -- dominio del Workspace ammetterebbero: le esclusioni vincono sempre.
+  -- Etichette Gmail che escludono la posta ammessa per DOMINIO DI LAVORO
+  -- (colonna sopra): una regola di progetto è una scelta deliberata
+  -- dell'admin su un mittente preciso e ammette SEMPRE, esclusioni comprese
+  -- — vedi `admit()` in packages/notifications/src/email-routing.ts.
   ADD COLUMN "email_admission_deny_labels" text[] DEFAULT '{CATEGORY_PROMOTIONS,CATEGORY_SOCIAL,SPAM}' NOT NULL,
   -- Scarta la posta automatica (List-Unsubscribe, List-Id, Precedence: bulk,
   -- Auto-Submitted diverso da "no"). Default true: prima di questa fase il

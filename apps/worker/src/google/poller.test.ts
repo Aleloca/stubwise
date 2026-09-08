@@ -780,7 +780,11 @@ describe("ammissione (fase 6c)", () => {
     expect(stats.ingested).toBe(1);
   });
 
-  it("etichetta esclusa (denyLabels di default): NESSUN download, anche se una regola di progetto combacerebbe", async () => {
+  it("regola di progetto che combacia AMMETTE anche con un'etichetta esclusa (Task 1, fase 6c): il corpo viene scaricato", async () => {
+    // Decisione del maintainer (8 set 2026): una regola di progetto è una
+    // scelta deliberata su un mittente preciso e ammette SEMPRE, esclusioni
+    // comprese — le esclusioni servono a contenere l'ammissione LARGA per
+    // dominio di lavoro, non a limitare quella MIRATA.
     const projectId = await seedProject("Acme");
     await db
       .insert(projectEmailRoutes)
@@ -795,6 +799,33 @@ describe("ammissione (fase 6c)", () => {
         m1: message({
           id: "m1",
           from: "cliente@cliente.com",
+          labels: ["INBOX", "CATEGORY_PROMOTIONS"],
+        }),
+      },
+    });
+
+    const stats = await pollGoogleOnce(deps(account, gmail));
+
+    expect(stats.ingested).toBe(1);
+    expect(gmail.calls).toContain("full:m1");
+    const [row] = await db.select().from(emailMessages);
+    expect(row).toMatchObject({ fromAddress: "cliente@cliente.com", projectId });
+  });
+
+  it("dominio Workspace SENZA regola di progetto che combaci + etichetta esclusa: NESSUN download (le esclusioni restano attive sull'ammissione larga)", async () => {
+    const account = await seedAccount({
+      nextSyncAt: new Date(Date.now() - 60_000),
+      gmailHistoryId: "1000",
+    });
+    const gmail = fakeGmail({
+      history: { addedMessageIds: ["m1"], historyId: "1010" },
+      messages: {
+        m1: message({
+          id: "m1",
+          // Dominio Workspace della casella (acme.com), nessuna regola di
+          // progetto configurata: qui l'ammissione passa SOLO dal dominio di
+          // lavoro, dove le esclusioni si applicano.
+          from: "collega@acme.com",
           labels: ["INBOX", "CATEGORY_PROMOTIONS"],
         }),
       },

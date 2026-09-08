@@ -386,13 +386,41 @@ describe("admit", () => {
     expect(result).toEqual({ admitted: true, reason: "project_rule" });
   });
 
-  it("etichetta esclusa: rifiutato ANCHE SE una regola di progetto combacerebbe (le esclusioni vincono)", () => {
+  // --- Task 1 (8 set 2026): le esclusioni valgono SOLO per l'ammissione per
+  // dominio di lavoro. Una regola di progetto è una scelta deliberata su un
+  // mittente preciso e ammette SEMPRE, esclusioni comprese. ---
+
+  it("regola di progetto + CATEGORY_PROMOTIONS: AMMESSA (le esclusioni non limitano una regola di progetto)", () => {
+    const result = admit(
+      message({ fromAddress: "cliente@cliente.com", labels: ["CATEGORY_PROMOTIONS"] }),
+      admissionConfig({
+        // Un dominio Workspace DIVERSO da quello del mittente: qui ammette
+        // solo la regola di progetto, non il dominio di lavoro.
+        workspaceDomains: ["nostroworkspace.com"],
+        routes: [route(PROJECT_A, "sender_domain", "cliente.com")],
+      }),
+    );
+    expect(result).toEqual({ admitted: true, reason: "project_rule" });
+  });
+
+  it("regola di progetto + List-Unsubscribe: AMMESSA (le esclusioni non limitano una regola di progetto)", () => {
+    const result = admit(
+      message({
+        fromAddress: "cliente@cliente.com",
+        headers: { "list-unsubscribe": "<https://example.org/unsub>" },
+      }),
+      admissionConfig({
+        workspaceDomains: ["nostroworkspace.com"],
+        routes: [route(PROJECT_A, "sender_domain", "cliente.com")],
+      }),
+    );
+    expect(result).toEqual({ admitted: true, reason: "project_rule" });
+  });
+
+  it("dominio di lavoro (SENZA regola di progetto che combaci) + CATEGORY_PROMOTIONS: rifiutata (le esclusioni valgono per l'ammissione larga)", () => {
     const result = admit(
       message({ fromAddress: "cliente@acme.com", labels: ["CATEGORY_PROMOTIONS"] }),
-      admissionConfig({
-        workspaceDomains: ["acme.com"],
-        routes: [route(PROJECT_A, "sender_domain", "acme.com")],
-      }),
+      admissionConfig({ workspaceDomains: ["acme.com"] }),
     );
     expect(result).toEqual({ admitted: false, reason: "denied_label" });
   });
@@ -522,5 +550,42 @@ describe("admit", () => {
     // Nessuna regola, nessun match: entrambi fuori.
     const noMatch = message({ fromAddress: "chiunque@altro.org" });
     expect(admit(noMatch, config).admitted).toBe(matchRoutes(noMatch, routes).inScope);
+
+    // Rinforzo (Task 1): i tre messaggi sopra sono tutti "puliti" — nessuna
+    // etichetta esclusa, nessun header automatico — quindi non esercitano
+    // MAI il codice delle esclusioni, e l'equivalenza con `inScope` sarebbe
+    // vera anche con un `admit` scritto male. Qui invece sì.
+
+    // Una regola di progetto combacia ANCHE con un'etichetta esclusa e un
+    // header automatico: ammette lo stesso (Task 1), esattamente come
+    // `inScope` di `matchRoutes` — che le esclusioni non le conosce affatto.
+    const ruleMatchWithExclusions = message({
+      fromAddress: "cliente@acme.com",
+      labels: ["CATEGORY_PROMOTIONS"],
+      headers: { "list-unsubscribe": "<https://example.org/unsub>" },
+    });
+    expect(admit(ruleMatchWithExclusions, config).admitted).toBe(
+      matchRoutes(ruleMatchWithExclusions, routes).inScope,
+    );
+    expect(admit(ruleMatchWithExclusions, config)).toEqual({
+      admitted: true,
+      reason: "project_rule",
+    });
+
+    // Nessuna regola di progetto E un'etichetta esclusa: `admitted` resta
+    // `false` come `inScope`, ma stavolta il motivo passa DAVVERO dal ramo
+    // delle esclusioni (`denied_label`), non solo da `no_match` per
+    // l'assenza di qualunque match.
+    const noMatchWithDenyLabel = message({
+      fromAddress: "chiunque@altro.org",
+      labels: ["CATEGORY_PROMOTIONS"],
+    });
+    expect(admit(noMatchWithDenyLabel, config).admitted).toBe(
+      matchRoutes(noMatchWithDenyLabel, routes).inScope,
+    );
+    expect(admit(noMatchWithDenyLabel, config)).toEqual({
+      admitted: false,
+      reason: "denied_label",
+    });
   });
 });
