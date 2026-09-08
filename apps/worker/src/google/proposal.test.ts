@@ -11,6 +11,7 @@ import {
   type Db,
 } from "@stubwise/db";
 import { startTestDb, type TestDb } from "@stubwise/db/testing";
+import { t } from "@stubwise/i18n";
 import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
@@ -474,11 +475,25 @@ describe("buildTriageProposalEvent", () => {
     expect(event?.question).not.toContain(NAMES.get(PROJECT_B));
   });
 
-  it("suggestedProjectIds VUOTO → nasce comunque la card, con la sola opzione «Nessuno di questi»", () => {
+  it("smistamento senza suggerimenti: nasce comunque con la sola opzione 'nessuno di questi' — è VOLUTO, non un bug da correggere", () => {
+    // Task 5 (fase 6c, rifinitura): `buildTriageProposalEvent` produce un
+    // evento anche quando `suggestedProjectIds` è vuoto — nessun progetto
+    // suggeribile, non solo nessun nome risolto. La card resta con la sola
+    // opzione «Nessuno di questi»: è l'unico caso in cui una notifica
+    // azionabile non offre azioni utili oltre ad archiviare, ed è
+    // DELIBERATO — il maintainer vuole comunque sapere di un'email che ha
+    // un segnale reale ma parla di un progetto non ancora in Stubwise. Chi
+    // legge questo test in futuro non "corregga" il caso vuoto: la card a
+    // una sola opzione è l'esito atteso, non un difetto della funzione.
     const event = buildTriage({ suggestedProjectIds: [] });
     expect(event).not.toBeNull();
     expect(event?.options).toHaveLength(1);
+    expect(event?.options[0]?.label).toBe(t("it", "email.proposal.triageIgnore"));
+    expect(event?.actions).toHaveLength(1);
     expect(event?.actions).toEqual([{ type: "ignore" }]);
+    // La domanda riassume comunque il segnale, non resta vuota: la card
+    // spiega perché è nata anche senza un progetto da nominare.
+    expect(event?.question).not.toBe("");
   });
 
   it("un progetto suggerito il cui nome non si risolve più si salta, senza invalidare l'evento", () => {

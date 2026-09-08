@@ -288,7 +288,7 @@ export function matchRoutes(message: EmailForRouting, routes: EmailRoute[]): Ema
     // Una regola vuota non è "combacia con tutto": è una riga senza contenuto,
     // e con `includes("")` farebbe entrare in perimetro l'intera casella.
     if (value === "") continue;
-    const key = `${rule.projectId} ${rule.kind} ${value}`;
+    const key = `${rule.projectId}\x1f${rule.kind}\x1f${value}`;
     if (seenRules.has(key)) continue;
     seenRules.add(key);
     if (!ruleMatches(rule.kind, value, addresses, domains, labels, haystack)) continue;
