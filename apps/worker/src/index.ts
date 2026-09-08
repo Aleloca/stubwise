@@ -26,6 +26,7 @@ import { startPluginPoller } from "./plugins/poller.js";
 import { startMonitorRollupPoller } from "./monitor/rollup.js";
 import { startLimitResumePoller } from "./providers/limit-resume-poller.js";
 import { startBriefPoller } from "./briefs/poller.js";
+import { startGooglePoller } from "./google/poller.js";
 import { startPulsePoller } from "./pulse/poller.js";
 import { startDailyReportPoller } from "./reports/daily-report-poller.js";
 import { DEFAULT_FIX_PLAN_TIMEOUT_MS, DEFAULT_FIX_TIMEOUT_MS } from "./pipeline/fix.js";
@@ -602,6 +603,34 @@ startBriefPoller({
   signal: controller.signal,
 });
 
+// Poller delle CASELLE GOOGLE (fase 6): task SEPARATO dal loop dei job, sul
+// proprio intervallo. Per ogni casella dovuta (proposte accese, non
+// disabilitata) rinnova l'access token dal refresh token cifrato, sincronizza
+// Gmail in incrementale (History API, con resync per query quando la history è
+// scaduta), PRE-FILTRA sui soli metadati con le regole di routing di tutti i
+// progetti e scarica il corpo solo dei messaggi in perimetro; poi classifica i
+// messaggi `new` con un run di solo testo (nessun tool, dir vuota), traccia gli
+// eventi del calendario e infine PUBBLICA le proposte: una card in inbox per il
+// SOLO proprietario della casella (audience `mailbox_owner`, mai gli admin),
+// scritta nella stessa transazione che chiude la riga d'origine.
+// Nessun mirror e NESSUN serializer per-progetto: i run
+// di classificazione non toccano un worktree. È BEST-EFFORT (non fa mai
+// crashare il worker) e NON tocca il lock/heartbeat dei job. Si ferma sullo
+// stesso AbortSignal. GMAIL_POLL_MINUTES=0 non avvia nulla: è il rollback.
+startGooglePoller({
+  db,
+  encryptionKey: config.encryptionKey,
+  intervalMinutes: config.gmailPollMinutes,
+  retentionDays: config.gmailRetentionDays,
+  classifyMaxPerTick: config.gmailMaxPerTick,
+  // Fase 2 del tick: la classificazione dei segnali. Stesso runner CLI del
+  // resto del worker, ma un run senza tool su una dir temporanea vuota (il
+  // testo di un'email non è fidato: vedi google/classify.ts).
+  runner,
+  gmailModel: config.gmailModel,
+  signal: controller.signal,
+});
+
 console.error(
   `[stubwise-worker] avviato (concurrency ${config.concurrency}, db-pool ${config.databasePoolMax}, mirrors in ${config.mirrorsDir}` +
     `, usage-poll ${config.usagePollMinutes > 0 ? `ogni ${config.usagePollMinutes}'` : "disabilitato"}` +
@@ -618,6 +647,7 @@ console.error(
     `, monitor-alert ${config.monitorAlertIntervalMinutes > 0 ? `ogni ${config.monitorAlertIntervalMinutes}'` : "disabilitato"}` +
     `, pulse ${config.pulsePollMinutes > 0 ? `ogni ${config.pulsePollMinutes}' (finestra ${config.pulseSendHour}:00 ${config.pulseTimezone}${config.pulseWeekdaysOnly ? ", feriali" : ""})` : "disabilitato"}` +
     `, brief ${config.briefPollMinutes > 0 ? `ogni ${config.briefPollMinutes}' (finestra giorno ${config.briefWeekday} ${config.briefSendHour}:00 ${config.pulseTimezone})` : "disabilitato"}` +
+    `, google ${config.gmailPollMinutes > 0 ? `ogni ${config.gmailPollMinutes}' (retention ${config.gmailRetentionDays > 0 ? `${config.gmailRetentionDays}gg` : "nessuna"}, modello ${config.gmailModel})` : "disabilitato"}` +
     `, push ${config.push ? `relay ${config.push.relayUrl}` : "spente (PUSH_RELAY_URL vuota)"})`,
 );
 // POLITICA DI PRIORITÀ doc vs fix (Task 5.4): i fix hanno la precedenza. Il

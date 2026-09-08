@@ -5,6 +5,7 @@ import {
   buildTestEvent,
   dispatchNotification,
   sendTest,
+  shouldSendWebhook,
   type NotificationSettingsRow,
 } from "./dispatch.js";
 import { type NotificationEvent } from "./format.js";
@@ -34,6 +35,7 @@ const BASE_ROW: NotificationSettingsRow = {
   notifyAwaitingInput: true,
   notifyPulse: true,
   notifyBrief: true,
+  notifyGoogleProposal: true,
 };
 
 /**
@@ -215,6 +217,23 @@ const MONITOR_RECOVERED: NotificationEvent = {
   url: "https://app.example.com/monitor/servers/s1",
 };
 
+const GOOGLE_PROPOSAL: NotificationEvent = {
+  kind: "google.proposal",
+  proposalId: "9e4b1a72-1111-4222-8333-444455556666",
+  source: "email",
+  messageUrl: "https://mail.google.com/mail/u/laura%40acme.test/#all/18f3a9c0",
+  projectName: "webapp",
+  signal: "request",
+  from: "laura@cliente.test",
+  subject: "Export degli ordini",
+  receivedAt: "2026-09-07T08:14:00.000Z",
+  question: "Come diamo seguito?",
+  options: [{ label: "Apri una voce di backlog" }, { label: "Non fare nulla" }],
+  actions: [{ type: "ignore" }],
+  recommendedIndex: 0,
+  allowFreeText: false,
+};
+
 function okFetch() {
   return vi.fn().mockResolvedValue(new Response("ok", { status: 200 }));
 }
@@ -223,6 +242,42 @@ async function bodyOf(fetchImpl: ReturnType<typeof vi.fn>): Promise<unknown> {
   const [, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
   return JSON.parse(String(init.body));
 }
+
+describe("shouldSendWebhook — privacy by construction per l'audience mailbox_owner", () => {
+  // Task 4 (fase 6, fix di review): `google.proposal` ha audience
+  // `mailbox_owner` (routing.ts) — un canale webhook d'istanza è condiviso,
+  // quindi non deve MAI riceverlo, indipendentemente dal toggle
+  // `notifyGoogleProposal`, dall'interruttore generale o dall'URL configurato.
+
+  it("è false anche con webhook configurato, enabled e il toggle esplicitamente acceso", () => {
+    expect(shouldSendWebhook(BASE_ROW, "google.proposal")).toBe(false);
+  });
+
+  it("resta false col toggle esplicitamente spento (nessuna differenza: la guardia vince prima)", () => {
+    expect(shouldSendWebhook({ ...BASE_ROW, notifyGoogleProposal: false }, "google.proposal")).toBe(
+      false,
+    );
+  });
+
+  it("resta false anche senza alcuna riga di configurazione", () => {
+    expect(shouldSendWebhook(null, "google.proposal")).toBe(false);
+  });
+
+  it("non tocca gli altri kind: ticket.created resta governato dal toggle come prima", () => {
+    expect(shouldSendWebhook(BASE_ROW, "ticket.created")).toBe(true);
+    expect(shouldSendWebhook({ ...BASE_ROW, notifyTicketCreated: false }, "ticket.created")).toBe(
+      false,
+    );
+  });
+});
+
+describe("dispatchNotification — google.proposal non posta mai sul webhook", () => {
+  it("il percorso legacy sincrono non posta google.proposal, anche col toggle acceso", async () => {
+    const fetchImpl = okFetch();
+    await dispatchNotification(fakeDb(BASE_ROW), GOOGLE_PROPOSAL, { fetchImpl });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});
 
 describe("dispatchNotification — gating", () => {
   it("non posta nulla se non c'è una riga di configurazione", async () => {

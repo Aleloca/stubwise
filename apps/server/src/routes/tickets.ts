@@ -29,7 +29,6 @@ import {
   aiJobs,
   comments,
   commentAuthorType,
-  milestones,
   ticketEventKind,
   ticketEvents,
   ticketLinkKind,
@@ -45,6 +44,7 @@ import { createTicket, ProjectNotFoundError, type Ticket } from "../db/tickets.j
 import { apiError } from "../errors.js";
 import { resolvePlan, startRun, type ResolvePlanResult } from "../services/jobs.js";
 import { answerQuestion, type AnswerQuestionResult } from "../services/questions.js";
+import { diffTicketEvents, patchTicket, userExists } from "../services/tickets.js";
 import {
   authErrorResponses,
   errorSchema,
@@ -367,80 +367,6 @@ function decodeCursor(raw: string): Cursor | null {
   if (!match || !isPlausibleTimestamp(match)) return null;
   if (!z.uuid().safeParse(id).success) return null;
   return { createdAt, id };
-}
-
-/** True se l'id corrisponde a un utente esistente (per validare assigneeId). */
-async function userExists(db: Db, userId: string): Promise<boolean> {
-  const [row] = await db.select({ id: users.id }).from(users).where(eq(users.id, userId));
-  return row !== undefined;
-}
-
-/** Forma minimale dell'evento da inserire, prima di aggiungere ticketId/actorId. */
-type PendingEvent = Pick<typeof ticketEvents.$inferInsert, "kind" | "payload">;
-
-/**
- * True se due liste di label rappresentano lo stesso insieme: l'ordine non
- * conta (riordinare le label in un PATCH non è una modifica reale), ma i
- * duplicati sì — confronto come multiset ordinato.
- */
-function sameLabels(a: string[], b: string[]): boolean {
-  if (a.length !== b.length) return false;
-  const sa = [...a].sort();
-  const sb = [...b].sort();
-  return sa.every((value, index) => value === sb[index]);
-}
-
-/**
- * Diffa i campi richiesti nel PATCH contro la riga corrente e produce un
- * evento `ticket_events` per OGNI campo effettivamente cambiato. I payload
- * restano piccoli: per title/body si segna solo che è cambiato (mai il testo
- * lungo), per gli altri si tiene { from, to }.
- */
-function diffTicketEvents(current: Ticket, updates: Partial<Ticket>): PendingEvent[] {
-  const events: PendingEvent[] = [];
-  if (updates.title !== undefined && updates.title !== current.title) {
-    events.push({ kind: "title_changed", payload: { changed: true } });
-  }
-  if (updates.body !== undefined && updates.body !== current.body) {
-    events.push({ kind: "body_changed", payload: { changed: true } });
-  }
-  if (updates.type !== undefined && updates.type !== current.type) {
-    events.push({ kind: "type_changed", payload: { from: current.type, to: updates.type } });
-  }
-  if (updates.priority !== undefined && updates.priority !== current.priority) {
-    events.push({
-      kind: "priority_changed",
-      payload: { from: current.priority, to: updates.priority },
-    });
-  }
-  // NB: la transizione di stato NON passa da `recordTicketStatusChange`
-  // (`@stubwise/db`), che è l'helper delle transizioni di SISTEMA (webhook e
-  // worker, `actorId: null`). Qui l'evento nasce dentro un diff multi-campo che
-  // finisce in UN solo INSERT con l'attore umano: spezzarlo in due scritture
-  // per riusare l'helper renderebbe il codice peggiore, non migliore. Il
-  // payload è identico — `{ from, to }` — ed è quello su cui la timeline conta.
-  if (updates.status !== undefined && updates.status !== current.status) {
-    events.push({ kind: "status_changed", payload: { from: current.status, to: updates.status } });
-  }
-  if (updates.assigneeId !== undefined && updates.assigneeId !== current.assigneeId) {
-    events.push({
-      kind: "assignee_changed",
-      payload: { from: current.assigneeId, to: updates.assigneeId },
-    });
-  }
-  if (updates.labels !== undefined && !sameLabels(updates.labels, current.labels)) {
-    events.push({
-      kind: "labels_changed",
-      payload: { from: current.labels, to: updates.labels },
-    });
-  }
-  if (updates.milestoneId !== undefined && updates.milestoneId !== current.milestoneId) {
-    events.push({
-      kind: "milestone_changed",
-      payload: { from: current.milestoneId, to: updates.milestoneId },
-    });
-  }
-  return events;
 }
 
 /**
@@ -1149,69 +1075,22 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const { title, body, type, priority, status, assigneeId, milestoneId, labels } = request.body;
-      if (typeof assigneeId === "string" && !(await userExists(app.db, assigneeId))) {
-        return apiError(reply, 400, "assignee_not_found", "Assignee not found");
-      }
-
-      const updates: Partial<Ticket> = {};
-      if (title !== undefined) updates.title = title;
-      if (body !== undefined) updates.body = body;
-      if (type !== undefined) updates.type = type;
-      if (priority !== undefined) updates.priority = priority;
-      if (status !== undefined) updates.status = status;
-      if (assigneeId !== undefined) updates.assigneeId = assigneeId;
-      if (milestoneId !== undefined) updates.milestoneId = milestoneId;
-      if (labels !== undefined) updates.labels = labels;
-
       const id = request.params.id;
       try {
-        // Tutto in una transazione: SELECT della riga corrente, validazione
-        // della milestone, diff degli eventi, UPDATE e INSERT degli eventi
-        // devono essere atomici e consistenti. Una PATCH vuota resta una pura
-        // lettura (no update, no eventi); un PATCH che non cambia nulla produce
-        // 0 eventi. crossProject segnala una milestone di un altro progetto:
-        // si traduce in 400 fuori dalla transazione (così la si annulla).
-        let crossProject = false;
-        const row = await app.db.transaction(async (tx) => {
-          const [current] = await tx.select().from(tickets).where(eq(tickets.id, id));
-          if (!current) return null;
-
-          // Una milestone non-null deve esistere ed appartenere allo STESSO
-          // progetto del ticket: assegnare ticket a milestone di altri progetti
-          // romperebbe l'avanzamento (counts per progetto). Azzerare (null) è
-          // sempre lecito.
-          if (milestoneId !== undefined && milestoneId !== null) {
-            const [ms] = await tx
-              .select({ projectId: milestones.projectId })
-              .from(milestones)
-              .where(eq(milestones.id, milestoneId));
-            if (!ms || ms.projectId !== current.projectId) {
-              crossProject = true;
-              return current;
-            }
+        // La mutazione vive in `services/tickets.ts`: qui restano la
+        // transazione (SELECT della riga corrente, validazione della milestone,
+        // diff, UPDATE e INSERT degli eventi devono essere atomici) e la
+        // traduzione degli errori tipizzati in risposte HTTP.
+        const result = await app.db.transaction(async (tx) =>
+          patchTicket(tx, { ticketId: id, actorId: request.user!.id, patch: request.body }),
+        );
+        if (!result.ok) {
+          if (result.error === "assignee_not_found") {
+            return apiError(reply, 400, "assignee_not_found", "Assignee not found");
           }
-
-          if (Object.keys(updates).length === 0) return current;
-
-          const events = diffTicketEvents(current, updates);
-
-          const [updated] = await tx
-            .update(tickets)
-            .set(updates)
-            .where(eq(tickets.id, id))
-            .returning();
-          // L'id è già stato verificato dalla SELECT in transazione: l'update
-          // tocca sempre la riga.
-          if (events.length > 0) {
-            await tx
-              .insert(ticketEvents)
-              .values(events.map((event) => ({ ...event, ticketId: id, actorId: request.user!.id })));
+          if (result.error === "ticket_not_found") {
+            return apiError(reply, 404, "ticket_not_found", "Ticket not found");
           }
-          return updated!;
-        });
-        if (!row) return apiError(reply, 404, "ticket_not_found", "Ticket not found");
-        if (crossProject) {
           return apiError(
             reply,
             400,
@@ -1219,10 +1098,12 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
             "Milestone belongs to a different project",
           );
         }
-        return toPublicTicket(row);
+        return toPublicTicket(result.ticket);
       } catch (error) {
-        // Finestra TOCTOU: l'utente verificato sopra può sparire prima
-        // dell'update; la FK su assignee_id lo segnala a posteriori.
+        // Finestra TOCTOU: l'utente verificato dal servizio può sparire prima
+        // dell'update; la FK su assignee_id lo segnala a posteriori. Va
+        // catturato QUI, fuori dalla transazione: l'errore Postgres l'ha già
+        // abortita, quindi il servizio non poteva farci niente.
         if (isForeignKeyViolation(error)) {
           return apiError(reply, 400, "assignee_not_found", "Assignee not found");
         }

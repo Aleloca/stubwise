@@ -248,6 +248,9 @@ importers:
       '@stubwise/git':
         specifier: workspace:*
         version: link:../../packages/git
+      '@stubwise/google':
+        specifier: workspace:*
+        version: link:../../packages/google
       '@stubwise/i18n':
         specifier: workspace:*
         version: link:../../packages/i18n
@@ -421,6 +424,9 @@ importers:
       '@stubwise/git':
         specifier: workspace:*
         version: link:../../packages/git
+      '@stubwise/google':
+        specifier: workspace:*
+        version: link:../../packages/google
       '@stubwise/i18n':
         specifier: workspace:*
         version: link:../../packages/i18n
@@ -570,6 +576,28 @@ importers:
       '@stubwise/shared':
         specifier: workspace:*
         version: link:../shared
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.20
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.0
+        version: 3.2.6(@types/debug@4.1.13)(@types/node@22.19.20)(happy-dom@20.10.2)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.51.2)(tsx@4.22.4)(yaml@2.9.0)
+
+  packages/google:
+    dependencies:
+      '@stubwise/db':
+        specifier: workspace:*
+        version: link:../db
+      drizzle-orm:
+        specifier: ^0.45.2
+        version: 0.45.2(mysql2@3.22.6(@types/node@22.19.20))(postgres@3.4.9)
+      zod:
+        specifier: ^4.1.5
+        version: 4.4.3
     devDependencies:
       '@types/node':
         specifier: ^22.0.0

@@ -1766,3 +1766,192 @@ describe("project.pulse — kind con opzioni senza job dietro", () => {
     expect((await readNotification(id))?.status).toBe("handled");
   });
 });
+
+/**
+ * La PROPOSTA dalla posta (fase 6) è il terzo kind con opzioni. Come il pulse
+ * non ha ticket né job, e come lui porta un blocco di contorno allineato alle
+ * opzioni — ma qui il contorno dice COSA succede confermando, e mostrarlo
+ * disallineato sarebbe peggio che non mostrarlo.
+ */
+describe("google.proposal — contorno della proposta dalla posta", () => {
+  const PROPOSAL_ID = "0f5c9d31-6666-4777-8888-999900001111";
+
+  /** Evento `google.proposal` realistico (payload che scrive il worker). */
+  function googleEvent(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      kind: "google.proposal",
+      proposalId: PROPOSAL_ID,
+      source: "email",
+      messageUrl: "https://mail.google.com/mail/u/io%40acme.test/#all/18f3a9c0",
+      projectName: "negozio-web",
+      signal: "request",
+      from: "Laura <laura@cliente.test>",
+      subject: "Export degli ordini in CSV",
+      receivedAt: "2026-09-07T08:14:00.000Z",
+      question: "Laura scrive a proposito di «Export degli ordini in CSV». Come diamo seguito?",
+      options: [
+        { label: "Apri una voce di backlog: Export CSV", consequence: "Entra nel backlog." },
+        { label: "Non fare nulla", consequence: "Il messaggio resta com'è." },
+      ],
+      actions: [
+        {
+          type: "create_backlog_item",
+          projectId: "aa11bb22-1111-4222-8333-444455556666",
+          title: "Export CSV",
+        },
+        { type: "ignore" },
+      ],
+      recommendedIndex: 0,
+      allowFreeText: false,
+      ...overrides,
+    };
+  }
+
+  it("la card porta la domanda, con `questionId` = `proposalId`", async () => {
+    const user = await seedUser("member");
+    const id = await seedRawNotification({
+      userId: user.id,
+      kind: "google.proposal",
+      event: googleEvent(),
+    });
+
+    const { items } = await listInbox(db, { userId: user.id, lang: "it" });
+    const item = items.find((i) => i.id === id);
+    // Nessuna riga `agent_questions` dietro: l'identità della scelta è il
+    // `proposalId`, che è anche ciò che fa rimontare `QuestionPanel` quando
+    // una proposta nuova rimpiazza la precedente agli stessi indici.
+    expect(item?.question?.questionId).toBe(PROPOSAL_ID);
+    expect(item?.question?.options).toHaveLength(2);
+    expect(item?.question?.allowFreeText).toBe(false);
+    // Senza job dietro `answer` c'è comunque (KINDS_WITHOUT_JOB), e la card è
+    // archiviabile: non dare seguito a una email è una risposta legittima.
+    expect(item?.actions).toEqual(["answer", "open", "snooze", "handled"]);
+    // "Apri" porta ALLA FONTE, non a una pagina di Stubwise.
+    expect(item?.url).toBe("https://mail.google.com/mail/u/io%40acme.test/#all/18f3a9c0");
+  });
+
+  it("la card porta il blocco `google`, allineato indice per indice alle opzioni", async () => {
+    const user = await seedUser("member");
+    const id = await seedRawNotification({
+      userId: user.id,
+      kind: "google.proposal",
+      event: googleEvent(),
+    });
+
+    const { items } = await listInbox(db, { userId: user.id, lang: "it" });
+    const item = items.find((i) => i.id === id);
+    expect(item?.google).toEqual({
+      source: "email",
+      from: "Laura <laura@cliente.test>",
+      subject: "Export degli ordini in CSV",
+      receivedAt: "2026-09-07T08:14:00.000Z",
+      signal: "request",
+      actions: [{ type: "create_backlog_item" }, { type: "ignore" }],
+    });
+    // Del payload delle azioni esce SOLO il tipo: progetto e titolo restano
+    // dentro, dove il server li rilegge quando l'utente conferma.
+    expect(JSON.stringify(item?.google)).not.toContain("aa11bb22");
+    // L'INVARIANTE, asserita: l'indice che l'utente conferma viaggia su
+    // `options` e agisce su `actions`.
+    expect(item?.google?.actions).toHaveLength(item?.question?.options.length ?? -1);
+  });
+
+  it("azioni e opzioni di lunghezza diversa → niente blocco `google`", async () => {
+    const user = await seedUser("member");
+    const id = await seedRawNotification({
+      userId: user.id,
+      kind: "google.proposal",
+      // Un'azione in più delle opzioni: il payload non può più dire cosa
+      // succede scegliendo la prima, e dirlo a caso farebbe eseguire altro.
+      event: googleEvent({ options: [{ label: "Apri una voce di backlog" }] }),
+    });
+
+    const { items } = await listInbox(db, { userId: user.id, lang: "it" });
+    const item = items.find((i) => i.id === id);
+    expect(item?.google).toBeUndefined();
+    // La card resta intera e confermabile: le opzioni sono ancora quelle
+    // persistite, ed è su quelle che il servizio valida l'indice.
+    expect(item?.question?.options).toHaveLength(1);
+    expect(item?.actions).toContain("answer");
+  });
+
+  it("azioni illeggibili → niente blocco `google`, la domanda resta", async () => {
+    const user = await seedUser("member");
+    const id = await seedRawNotification({
+      userId: user.id,
+      kind: "google.proposal",
+      // Payload di una versione precedente: le azioni erano stringhe.
+      event: googleEvent({ actions: ["create_backlog_item", "ignore"] }),
+    });
+
+    const { items } = await listInbox(db, { userId: user.id, lang: "it" });
+    const item = items.find((i) => i.id === id);
+    expect(item?.google).toBeUndefined();
+    expect(item?.question?.options).toHaveLength(2);
+  });
+
+  it("il blocco `google` è SOLO della proposta: il pulse non lo porta", async () => {
+    const user = await seedUser("admin");
+    // Stesso payload, altro kind: il blocco si aggancia alla COLONNA `kind`,
+    // non alla forma del jsonb — che qui sarebbe pure leggibile.
+    const id = await seedRawNotification({
+      userId: user.id,
+      kind: "project.pulse",
+      event: googleEvent({ kind: "project.pulse" }),
+    });
+
+    const { items } = await listInbox(db, { userId: user.id, lang: "it" });
+    expect(items.find((i) => i.id === id)?.google).toBeUndefined();
+  });
+
+  it("payload marcio → la card degrada a testo, la lista regge", async () => {
+    const user = await seedUser("admin");
+    const marcia = await seedRawNotification({
+      userId: user.id,
+      kind: "google.proposal",
+      event: googleEvent({ proposalId: "non-un-uuid", options: ["Apri", "Ignora"] }),
+    });
+
+    const { items } = await listInbox(db, { userId: user.id, lang: "it" });
+    const item = items.find((i) => i.id === marcia);
+    expect(item).toBeDefined();
+    expect(item?.question).toBeUndefined();
+    expect(item?.google).toBeUndefined();
+    // Le azioni non dipendono dal jsonb: si calcolano dalla colonna `kind`.
+    expect(item?.actions).toContain("answer");
+    expect(item?.actions).toContain("handled");
+  });
+
+  it("la proposta di un ALTRO utente resta invisibile: not_found", async () => {
+    // ⚠️ È il perno della privacy della fase 6 sul lato azione: `actorAllows`
+    // sulla proposta dice sempre sì (il destinatario è uno solo, e il ruolo non
+    // c'entra), quindi l'unico controllo è l'ownership della RIGA in
+    // `executeAction`. Se saltasse, un admin potrebbe agire sulla posta altrui.
+    const proprietario = await seedUser("member");
+    const admin = await seedUser("admin");
+    const id = await seedRawNotification({
+      userId: proprietario.id,
+      kind: "google.proposal",
+      event: googleEvent(),
+    });
+    expect(
+      await executeAction(db, {
+        notificationId: id,
+        action: "handled",
+        actor: admin,
+      }),
+    ).toEqual({ ok: false, error: "not_found" });
+  });
+
+  it("`handled` chiude la proposta (non dare seguito è una risposta)", async () => {
+    const user = await seedUser("member");
+    const id = await seedRawNotification({
+      userId: user.id,
+      kind: "google.proposal",
+      event: googleEvent(),
+    });
+    const result = await executeAction(db, { notificationId: id, action: "handled", actor: user });
+    expect(result.ok).toBe(true);
+    expect((await readNotification(id))?.status).toBe("handled");
+  });
+});

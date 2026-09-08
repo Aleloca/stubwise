@@ -33,6 +33,12 @@ COPY packages/api-client/package.json packages/api-client/package.json
 COPY packages/db/package.json packages/db/package.json
 COPY packages/shared/package.json packages/shared/package.json
 COPY packages/git/package.json packages/git/package.json
+# `@stubwise/google` entra qui dalla PORTA DI SERVIZIO: non è una dipendenza di
+# apps/web, ma lo è del server, e il `@stubwise/server^...` più sotto (che
+# builda le deps del server per il prebuild della spec OpenAPI) la include.
+# Senza questo manifest le sue deps esterne (zod, drizzle-orm) non vengono
+# installate e quel build fallisce.
+COPY packages/google/package.json packages/google/package.json
 COPY packages/sdk/package.json packages/sdk/package.json
 COPY packages/notifications/package.json packages/notifications/package.json
 COPY packages/i18n/package.json packages/i18n/package.json

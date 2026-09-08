@@ -175,6 +175,30 @@ describe("publishNotification", () => {
     ],
   };
 
+  const googleProposal: NotificationEvent = {
+    kind: "google.proposal",
+    proposalId: "9e4b1a72-1111-4222-8333-444455556666",
+    source: "email",
+    messageUrl: "https://mail.google.com/mail/u/laura%40acme.test/#all/18f3a9c0",
+    projectName: "Progetto di test",
+    signal: "request",
+    from: "laura@cliente.test",
+    subject: "Export degli ordini",
+    receivedAt: "2026-09-07T08:14:00.000Z",
+    question: "Come diamo seguito?",
+    options: [{ label: "Apri una voce di backlog" }, { label: "Non fare nulla" }],
+    actions: [
+      {
+        type: "create_backlog_item",
+        projectId: "aa11bb22-1111-4222-8333-444455556666",
+        title: "Export CSV",
+      },
+      { type: "ignore" },
+    ],
+    recommendedIndex: 0,
+    allowFreeText: false,
+  };
+
   it("scrive una notifica per admin e follower, con evento e riferimenti", async () => {
     const { projectId, ticketId, adminId, followerId, outsiderId } = await seedScenario();
 
@@ -454,6 +478,89 @@ describe("publishNotification", () => {
       expect(row.ticketId).toBeNull();
       expect(row.jobId).toBeNull();
     }
+  });
+
+  it("manda google.proposal SOLO al proprietario della casella, mai agli admin", async () => {
+    // ⚠️ L'INVARIANTE DI PRIVACY DELLA FASE 6, verificata dove ha effetto: non
+    // basta che `recipientsFor` lo dica (lo copre `routing.test.ts`), perché
+    // qui in mezzo c'è `resolveRoutingContext` — che per ogni altro pubblico
+    // CARICA gli admin. Se un domani quel ramo cadesse nel default, gli admin
+    // si vedrebbero comparire in inbox la posta di un collega e nessun test
+    // puro se ne accorgerebbe.
+    const { projectId, ticketId, adminId, followerId, outsiderId } = await seedScenario();
+    await db.update(tickets).set({ assigneeId: followerId }).where(eq(tickets.id, ticketId));
+
+    const result = await publishNotification(db, googleProposal, {
+      projectId,
+      mailboxOwnerUserId: outsiderId,
+    });
+
+    expect(result).toEqual({ published: 1 });
+    const rows = await db.select().from(notifications);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.userId).toBe(outsiderId);
+    expect(rows.map((row) => row.userId)).not.toContain(adminId);
+    expect(rows.map((row) => row.userId)).not.toContain(followerId);
+    expect(rows[0]?.kind).toBe("google.proposal");
+    expect(rows[0]?.event).toEqual(googleProposal);
+    expect(rows[0]?.projectId).toBe(projectId);
+    expect(rows[0]?.ticketId).toBeNull();
+    expect(rows[0]?.jobId).toBeNull();
+  });
+
+  it("senza proprietario risolto la proposta non raggiunge NESSUNO", async () => {
+    // Il degrado giusto: meglio nessuna notifica che una alla persona
+    // sbagliata. Con gli admin in tabella, un ramo che li caricasse "per non
+    // perdere l'evento" si vedrebbe qui.
+    await seedScenario();
+
+    expect(await publishNotification(db, googleProposal, {})).toEqual({ published: 0 });
+    expect(await db.select().from(notifications)).toHaveLength(0);
+  });
+
+  it("google.proposal non genera MAI una consegna webhook, anche col webhook configurato e il toggle acceso", async () => {
+    // Task 4 (fase 6, fix di review): il webhook d'istanza è un canale
+    // condiviso (in prod un canale Slack/Discord dell'intero team) — vederci
+    // comparire `from`/`subject`/`question` della casella di un collega
+    // contraddirebbe l'unico destinatario dell'audience `mailbox_owner`. La
+    // guardia vince ANCHE col toggle esplicitamente acceso: non è un default,
+    // è privacy by construction.
+    const { projectId, outsiderId } = await seedScenario();
+    await db
+      .update(notificationSettings)
+      .set({ webhookUrl: "https://hooks.example.com/abc", notifyGoogleProposal: true });
+
+    const result = await publishNotification(db, googleProposal, {
+      projectId,
+      mailboxOwnerUserId: outsiderId,
+    });
+
+    // Il proprietario della casella riceve comunque la sua notifica in inbox:
+    // la guardia esclude SOLO il webhook, non le altre vie di consegna.
+    expect(result).toEqual({ published: 1 });
+    expect(
+      await db
+        .select()
+        .from(notificationDeliveries)
+        .where(eq(notificationDeliveries.channel, "webhook")),
+    ).toHaveLength(0);
+  });
+
+  it("google.proposal con 0 destinatari e webhook configurato: zero delivery IN ASSOLUTO, non solo zero webhook", async () => {
+    // Prima del fix, `withWebhook` restava vero anche con `recipients.length
+    // === 0`: la riga in inbox non nasceva, ma la consegna webhook sì —
+    // esattamente il caso "0 destinatari" del finding. Qui verifichiamo che
+    // non nasca NESSUNA riga, in nessuna tabella dell'outbox.
+    await seedScenario();
+    await db
+      .update(notificationSettings)
+      .set({ webhookUrl: "https://hooks.example.com/abc", notifyGoogleProposal: true });
+
+    const result = await publishNotification(db, googleProposal, {});
+
+    expect(result).toEqual({ published: 0 });
+    expect(await db.select().from(notifications)).toHaveLength(0);
+    expect(await db.select().from(notificationDeliveries)).toHaveLength(0);
   });
 
   it("inserisce DENTRO la transazione ricevuta (il rollback annulla tutto)", async () => {

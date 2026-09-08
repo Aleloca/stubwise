@@ -116,6 +116,32 @@ describe("readerSchema", () => {
     expect(unsupportedNodeKinds(schema)).toEqual([]);
   });
 
+  /**
+   * `.catch(fallback)` è il caso di `inboxGoogleSchema.receivedAt` (fase 6): un
+   * blocco che sopravvive con un valore di ripiego a un payload scritto da una
+   * versione precedente. Un enum SOTTO quel `.catch()` deve aprirsi come
+   * ovunque altro — non far scattare il fallback solo perché il valore è
+   * ignoto — ma il fallback resta vivo e vero per un guasto che non è l'enum:
+   * qui un altro campo dello stesso blocco di tipo sbagliato.
+   */
+  it("attraversa i .catch(): apre l'enum sotto invece di far scattare il fallback, che resta applicabile per un guasto diverso", () => {
+    const fallback = { kind: "x" as const, count: 0 };
+    const schema = z.object({ kind: z.enum(["x", "y"]), count: z.number() }).catch(fallback);
+
+    // Enum ignoto ma il resto del blocco valido: si apre a UNKNOWN, il
+    // fallback dell'INTERO blocco non scatta per questo motivo.
+    expect(readerSchema(schema).parse({ kind: "nuovo", count: 3 })).toEqual({
+      kind: UNKNOWN,
+      count: 3,
+    });
+    // Valore noto: passa invariato.
+    expect(readerSchema(schema).parse({ kind: "x", count: 1 })).toEqual({ kind: "x", count: 1 });
+    // Un guasto che NON è l'enum (tipo sbagliato su `count`): qui il
+    // `.catch()` dell'intero blocco scatta come previsto.
+    expect(readerSchema(schema).parse({ kind: "x", count: "non un numero" })).toEqual(fallback);
+    expect(unsupportedNodeKinds(schema)).toEqual([]);
+  });
+
   it("apre i literal di STRINGA ma lascia stare quelli che stringhe non sono", () => {
     expect(readerSchema(z.literal("code")).parse("docs")).toBe(UNKNOWN);
     // `z.literal(true)` non ha un segnaposto sensato: resta rigido, e `Reader<T>`

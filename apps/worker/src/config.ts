@@ -808,6 +808,51 @@ const envSchema = z.object({
       .max(23, "deve essere un intero tra 0 e 23 (es. 9)")
       .default(9),
   ),
+  // --- Caselle Google (fase 6): un solo posto dove le env di Gmail e Calendar
+  // sono elencate, anche quelle che la fase in corso non legge ancora.
+  //
+  // Intervallo in minuti del poller delle caselle Google (google/poller.ts):
+  // per ogni casella attiva sincronizza Gmail in incrementale, pre-filtra col
+  // routing dei progetti e ingerisce i soli messaggi in perimetro.
+  // 0 = disabilitato (nessuna casella viene più sincronizzata): è il ROLLBACK
+  // innocuo della feature. Default 5'.
+  GMAIL_POLL_MINUTES: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 0 in minuti (es. 5; 0 = disabilitato)" })
+      .int("deve essere un intero ≥ 0 in minuti (es. 5; 0 = disabilitato)")
+      .min(0, "deve essere un intero ≥ 0 in minuti (es. 5; 0 = disabilitato)")
+      .default(5),
+  ),
+  // Modello della CLASSIFICAZIONE della posta: un run di solo testo, senza
+  // tool e su una directory vuota, quindi il modello piccolo basta.
+  GMAIL_MODEL: z.preprocess(
+    emptyAsUndefined,
+    z.string({ error: "deve essere il nome di un modello (es. haiku)" }).min(1).default("haiku"),
+  ),
+  // Giorni di conservazione dei messaggi in stato TERMINALE (actioned,
+  // ignored, failed): oltre, il poller li cancella. Gli stati non terminali
+  // non si toccano mai — `proposed` è una card ancora aperta in una inbox.
+  // 0 = nessuna potatura. Default 90.
+  GMAIL_RETENTION_DAYS: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 0 in giorni (es. 90; 0 = nessuna potatura)" })
+      .int("deve essere un intero ≥ 0 in giorni (es. 90; 0 = nessuna potatura)")
+      .min(0, "deve essere un intero ≥ 0 in giorni (es. 90; 0 = nessuna potatura)")
+      .default(90),
+  ),
+  // Messaggi che la fase di CLASSIFICAZIONE manda al modello in un tick: è il
+  // tetto di spesa per casella per giro. L'ingestione non ne ha bisogno (ha il
+  // proprio tetto di 200 messaggi per resync).
+  GMAIL_MAX_PER_TICK: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 1 (es. 20)" })
+      .int("deve essere un intero ≥ 1 (es. 20)")
+      .min(1, "deve essere un intero ≥ 1 (es. 20)")
+      .default(20),
+  ),
 }).refine(
   (env) => env.BACKLOG_SIMILAR_THRESHOLD <= env.BACKLOG_MERGE_THRESHOLD,
   {
@@ -996,6 +1041,17 @@ export interface WorkerConfig {
   /** Ora locale (0..23) di apertura della finestra d'invio del brief. Il FUSO è
    * `pulseTimezone`: l'istanza ne ha uno solo. */
   briefSendHour: number;
+  /** Intervallo in minuti del poller delle caselle Google (default 5;
+   * 0 = disabilitato, ed è il rollback della feature). */
+  gmailPollMinutes: number;
+  /** Modello della classificazione della posta (default "haiku"). */
+  gmailModel: string;
+  /** Giorni di conservazione dei messaggi in stato terminale (default 90;
+   * 0 = nessuna potatura). */
+  gmailRetentionDays: number;
+  /** Messaggi per casella che la classificazione manda al modello in un tick
+   * (default 20). */
+  gmailMaxPerTick: number;
   /**
    * Relay a cui spedire le notifiche push, o `null` = PUSH SPENTE.
    *
@@ -1101,6 +1157,10 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     briefPollMinutes: parsed.BRIEF_POLL_MINUTES,
     briefWeekday: parsed.BRIEF_WEEKDAY,
     briefSendHour: parsed.BRIEF_SEND_HOUR,
+    gmailPollMinutes: parsed.GMAIL_POLL_MINUTES,
+    gmailModel: parsed.GMAIL_MODEL,
+    gmailRetentionDays: parsed.GMAIL_RETENTION_DAYS,
+    gmailMaxPerTick: parsed.GMAIL_MAX_PER_TICK,
     // Letta dall'env GREZZO, non da `parsed`: `envSchema` non la conosce (e non
     // deve, vedi il campo `push` di WorkerConfig). LANCIA su un valore
     // inutilizzabile — un relay in chiaro o con credenziali — così il worker

@@ -10,6 +10,11 @@ import {
   getGitAccounts,
   getInbox,
   getInboxUnreadCount,
+  getMail,
+  getMailSummary,
+  getGoogleWorkspaces,
+  getMyGoogleAccounts,
+  getMyGoogleWorkspaceOptions,
   getInstanceSettings,
   getInvites,
   getMyFollows,
@@ -19,6 +24,8 @@ import {
   getPlugins,
   listPats,
   getProject,
+  getProjectEmailLabels,
+  getProjectEmailRoutes,
   getProjectPlugins,
   getBrief,
   getProjectDecisions,
@@ -55,6 +62,7 @@ import {
   type AIJobStatus,
   type BacklogFilters,
   type InboxFilters,
+  type MailFilters,
   type PluginRegistry,
   type DecisionSource,
   type ProjectTimelineKind,
@@ -456,6 +464,36 @@ export const instanceSettingsQueryOptions = queryOptions({
 });
 
 /**
+ * Registro dei Google Workspace (solo admin, fase 6): le app OAuth interne su
+ * cui si appoggiano le caselle degli operatori. Chiave sotto "settings" come le
+ * altre voci d'istanza; ogni create/patch/delete la invalida.
+ */
+export const googleWorkspacesQueryOptions = queryOptions({
+  queryKey: ["settings", "google-workspaces"],
+  queryFn: getGoogleWorkspaces,
+  staleTime: 30_000,
+});
+
+/**
+ * Le caselle Google dell'utente corrente (fase 6) e i Workspace fra cui
+ * sceglierne uno nuovo. Chiave sotto "me" come le altre risorse PERSONALI
+ * (follows, preferenze): il soggetto è chi chiama, non l'istanza — e questo è
+ * anche il motivo per cui non riusano `googleWorkspacesQueryOptions`, che
+ * punta a una rotta solo admin.
+ */
+export const myGoogleAccountsQueryOptions = queryOptions({
+  queryKey: ["me", "google-accounts"],
+  queryFn: getMyGoogleAccounts,
+  staleTime: 30_000,
+});
+
+export const myGoogleWorkspaceOptionsQueryOptions = queryOptions({
+  queryKey: ["me", "google-workspace-options"],
+  queryFn: getMyGoogleWorkspaceOptions,
+  staleTime: 30_000,
+});
+
+/**
  * Provider AI configurati (solo admin), ordinati per position di failover. La
  * pagina Settings la abilita in base al ruolo; chiave radice ["ai-providers"]:
  * ogni create/update/delete/reorder la invalida così la catena resta
@@ -625,6 +663,31 @@ export function projectPluginsQueryOptions(projectId: string) {
     queryKey: ["projects", "detail", projectId, "plugins"],
     queryFn: () => getProjectPlugins(projectId),
     staleTime: 30_000,
+  });
+}
+
+/**
+ * Regole di routing della posta di un progetto (Fase 6). Lettura per chi vede
+ * il progetto; il PUT è solo admin e riconcilia la cache con la foto salvata.
+ */
+export function projectEmailRoutesQueryOptions(projectId: string) {
+  return queryOptions({
+    queryKey: ["projects", "detail", projectId, "email-routes"],
+    queryFn: () => getProjectEmailRoutes(projectId),
+    staleTime: 30_000,
+  });
+}
+
+/**
+ * Etichette Gmail già osservate nella posta di chi guarda: suggerimenti per il
+ * picker delle regole `gmail_label`. `staleTime` lungo — è una lista che cambia
+ * al ritmo con cui si etichetta la posta, non a quello della pagina.
+ */
+export function projectEmailLabelsQueryOptions(projectId: string) {
+  return queryOptions({
+    queryKey: ["projects", "detail", projectId, "email-labels"],
+    queryFn: () => getProjectEmailLabels(projectId),
+    staleTime: 5 * 60_000,
   });
 }
 
@@ -1123,4 +1186,43 @@ export const notificationPrefsQueryOptions = queryOptions({
   queryKey: mePrefsKeys.notifications(),
   queryFn: getNotificationPrefs,
   staleTime: 60_000,
+});
+
+/**
+ * Chiavi della PAGINA POSTA (fase 6, Task 12): `lists()` matcha ogni lista
+ * filtrata (da invalidare dopo un "Riproponi", che cambia lo stato di una
+ * riga), `summary()` i contatori del badge di nav — separato perché ha un
+ * consumatore diverso (la sidebar, montata anche fuori dalla pagina).
+ */
+export const mailKeys = {
+  all: ["mail"] as const,
+  lists: () => [...mailKeys.all, "list"] as const,
+  list: (filters: MailFilters) => [...mailKeys.lists(), filters] as const,
+  summary: () => [...mailKeys.all, "summary"] as const,
+};
+
+/**
+ * Pagina della Posta per i filtri dati. Stessa forma di `inboxQueryOptions`:
+ * i filtri nella chiave (ogni combinazione è una lista a sé), `staleTime`
+ * breve perché lo stato di una riga cambia anche da un tick del poller, non
+ * solo da un'azione dell'utente.
+ */
+export function mailQueryOptions(filters: MailFilters = {}) {
+  return queryOptions({
+    queryKey: mailKeys.list(filters),
+    queryFn: () => getMail(filters),
+    staleTime: 10_000,
+  });
+}
+
+/**
+ * Contatori per il badge di nav e l'intestazione: `staleTime` più largo
+ * dell'inbox (niente polling costante — la Posta non ha una campanella che
+ * deve accorgersi in tempo reale di un evento nuovo, il numero si allinea
+ * quando si visita la pagina o si naviga altrove e si torna).
+ */
+export const mailSummaryQueryOptions = queryOptions({
+  queryKey: mailKeys.summary(),
+  queryFn: getMailSummary,
+  staleTime: 30_000,
 });

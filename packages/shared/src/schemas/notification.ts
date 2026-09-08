@@ -38,6 +38,7 @@ export const notificationKindSchema = z.enum([
   "job.awaiting_input",
   "project.pulse",
   "project.brief",
+  "google.proposal",
 ]);
 
 /**
@@ -194,6 +195,79 @@ export const inboxPulseSchema = z.object({
 export type InboxPulse = z.infer<typeof inboxPulseSchema>;
 
 /**
+ * Il TIPO di un'azione dietro un'opzione di una proposta Google (fase 6).
+ * Speculare all'unione `GoogleProposalAction` di `@stubwise/notifications`,
+ * ridichiarato per la stessa ragione di {@link notificationKindSchema}:
+ * `@stubwise/shared` finisce nel bundle browser e dipende dal solo `zod`.
+ */
+export const inboxGoogleActionTypeSchema = z.enum([
+  "create_backlog_item",
+  "create_milestone",
+  "update_ticket",
+  "comment_ticket",
+  "record_decision",
+  "choose_project",
+  "ignore",
+]);
+export type InboxGoogleActionType = z.infer<typeof inboxGoogleActionTypeSchema>;
+
+/**
+ * UNA azione della proposta come la vede la UI: **solo il tipo**, cioè una
+ * DESCRIZIONE, non qualcosa da eseguire.
+ *
+ * ⚠️ Il payload dell'azione (progetto, ticket, titolo, testo del commento) NON
+ * esce mai da qui, e non è una dimenticanza: quei campi servono al server, che
+ * li rilegge dal jsonb della notifica quando l'utente conferma. Mandarli al
+ * client vorrebbe dire che una superficie potrebbe rimandarli modificati — e a
+ * quel punto la conferma non sarebbe più "esegui la proposta che hai letto" ma
+ * "esegui quello che il client dice". L'indice scelto è l'unico dato che
+ * viaggia verso il server, esattamente come per la domanda dell'agente.
+ *
+ * Lo schema è `z.object`, quindi STRIPPA i campi in più: un payload che ne
+ * contenesse resta valido e la UI ne vede solo il tipo.
+ */
+export const inboxGoogleActionSchema = z.object({ type: inboxGoogleActionTypeSchema });
+export type InboxGoogleAction = z.infer<typeof inboxGoogleActionSchema>;
+
+/**
+ * IL CONTORNO DELLA PROPOSTA GOOGLE: ciò che la sua card deve poter dire e che
+ * {@link inboxQuestionSchema} non porta — da chi arriva, con che oggetto,
+ * quando, che segnale il worker ci ha riconosciuto e che tipo di azione sta
+ * dietro ciascuna opzione.
+ *
+ * Stessa forma e stessa disciplina di {@link inboxPulseSchema}: blocco a parte
+ * invece di campi sparsi su {@link inboxItemSchema} (un kind solo su quindici
+ * li valorizza), e **`actions[i]` DESCRIVE `question.options[i]`** — chi popola
+ * il blocco verifica l'allineamento e in caso di dubbio lo OMETTE, invece di
+ * accostare l'i-esima azione all'i-esima opzione. Qui il prezzo di sbagliare è
+ * più alto che sul pulse: la card direbbe "commenta il ticket" su un'opzione
+ * che ne crea una milestone.
+ *
+ * `from` e `subject` sono TESTO NON FIDATO (li scrive chi ha mandato la email):
+ * chi li rende su una superficie con markup li escapa.
+ */
+export const inboxGoogleSchema = z.object({
+  /** Da dove nasce la proposta: una email in perimetro o un evento del calendario. */
+  source: z.enum(["email", "calendar"]),
+  /** Mittente della email o organizzatore dell'evento. NON FIDATO. */
+  from: z.string(),
+  /** Oggetto della email o titolo dell'evento. NON FIDATO. */
+  subject: z.string(),
+  /**
+   * Quando la email è arrivata (o quando comincia l'appuntamento).
+   *
+   * `.catch(undefined)` e non un semplice `.optional()`: una data illeggibile
+   * in un payload scritto da una versione precedente deve costare il solo
+   * campo, non l'INTERO blocco di contorno.
+   */
+  receivedAt: z.iso.datetime().optional().catch(undefined),
+  /** Il segnale che la classificazione ha riconosciuto nel messaggio. */
+  signal: z.enum(["decision", "request", "deadline", "blocker", "none"]),
+  actions: z.array(inboxGoogleActionSchema),
+});
+export type InboxGoogle = z.infer<typeof inboxGoogleSchema>;
+
+/**
  * La risposta umana COME VIENE PERSISTITA in `agent_questions.answer`: l'indice
  * dell'opzione scelta, oppure il testo libero. È la forma canonica del dato —
  * `packages/db` ci tipa la colonna jsonb e il worker ci rilegge la decisione per
@@ -297,6 +371,19 @@ export const inboxItemSchema = z.object({
    * ALLINEATO a `question.options` — vedi {@link inboxPulseSchema}.
    */
   pulse: inboxPulseSchema.optional(),
+  /**
+   * Il contorno della proposta Google (mittente, oggetto, data, segnale, tipi
+   * delle azioni): presente solo sul kind `google.proposal`, e solo se il
+   * payload è leggibile e ALLINEATO a `question.options` — vedi
+   * {@link inboxGoogleSchema}.
+   *
+   * `.optional()` come `question` e `pulse`, e qui la regola non è stilistica:
+   * è l'invariante «verso l'app mobile solo cambi additivi». Un campo nuovo e
+   * obbligatorio in questa risposta romperebbe il parse su ogni telefono che
+   * parla con un server più vecchio (rollback, istanza self-hosted non
+   * aggiornata) — vedi il test che parsa un item SENZA questo blocco.
+   */
+  google: inboxGoogleSchema.optional(),
   /**
    * Riassunto "in breve" (fase 5): due o tre frasi in linguaggio non tecnico su
    * cosa il piano cambia o su cosa fa la PR. Presente solo sui kind che ne

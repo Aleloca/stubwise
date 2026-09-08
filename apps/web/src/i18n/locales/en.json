@@ -25,7 +25,8 @@
       "settings": "Settings",
       "docs": "Documentation",
       "label": "Navigation",
-      "open": "Open navigation"
+      "open": "Open navigation",
+      "mail": "Mail"
     },
     "on": "on",
     "off": "off"
@@ -694,6 +695,7 @@
         "gitAccounts": "Git accounts",
         "storage": "Storage",
         "slack": "Slack",
+        "google": "Google",
         "aiProviders": "AI providers",
         "plugins": "Plugins"
       }
@@ -719,6 +721,39 @@
         "slackNotLinked": "Link your Slack account first (ask a maintainer in /team).",
         "push": "Get push notifications on the mobile app",
         "pushHint": "Applies to every device where you signed in from the app."
+      },
+      "googleAccounts": {
+        "title": "Google mailboxes",
+        "subtitle": "// Gmail and Calendar, read-only. Stubwise reads only mail your projects' routing rules match.",
+        "connect": "Connect a mailbox",
+        "empty": "// no mailbox connected",
+        "workspace": "Workspace",
+        "authorize": "Continue on Google",
+        "noWorkspace": "No Google Workspace is configured on this instance yet. Ask a maintainer to add one in Settings → Google Workspace.",
+        "active": "Active",
+        "disabled": "Disabled",
+        "reconnect": "Reconnect",
+        "disconnect": "Disconnect",
+        "confirmDisconnect": "Confirm",
+        "proposalsEnabled": "Proposals on for this mailbox",
+        "lastSync": "last sync {{date}}",
+        "neverSynced": "never synced",
+        "outcome": {
+          "ok": "Mailbox connected.",
+          "domain_mismatch": "That Google account is not on a domain of the chosen Workspace. Pick the mailbox of your organization.",
+          "no_refresh_token": "Google did not send a durable authorization. Revoke Stubwise's access at myaccount.google.com/permissions, then try again.",
+          "insufficient_scope": "Some permissions were left out. Try again and keep every requested permission ticked.",
+          "email_not_verified": "Google could not confirm that email address is verified. Verify it on your Google account, then try again.",
+          "mailbox_owned_by_other": "That mailbox is already connected to a different Stubwise account. Ask that person to disconnect it first, or connect a mailbox of your own.",
+          "error": "Connection failed. Try again; if it keeps failing, ask a maintainer to check the Workspace settings."
+        },
+        "reason": {
+          "revoked": "access revoked on Google",
+          "invalid_grant": "authorization no longer valid: reconnect",
+          "insufficient_scope": "missing permissions: reconnect",
+          "workspace_removed": "the Workspace was removed",
+          "sync_failed": "too many sync failures in a row"
+        }
       }
     },
     "accessTokens": {
@@ -881,6 +916,42 @@
       "save": "Save",
       "saving": "Saving…",
       "saved": "Saved"
+    },
+    "google": {
+      "title": "Google Workspace",
+      "subtitle": "Internal OAuth apps that let the team connect their Gmail and Calendar mailboxes.",
+      "newWorkspace": "New Workspace",
+      "empty": "No Google Workspace configured",
+      "name": "Name",
+      "namePlaceholder": "Acme",
+      "domains": "Email domains",
+      "domainsPlaceholder": "acme.com, sub.acme.com",
+      "domainsHint": "// comma- or space-separated. A mailbox whose domain is not listed here is rejected when connecting.",
+      "clientId": "Client ID",
+      "clientIdPlaceholder": "123456.apps.googleusercontent.com",
+      "clientSecret": "Client secret",
+      "secretPlaceholder": "Paste the value here",
+      "secretSetPlaceholder": "•••• (set)",
+      "secretHint": "// the client secret is encrypted at rest and never shown again. Leave empty to keep the stored one.",
+      "removeClientSecret": "Remove stored client secret",
+      "secretSetBadge": "Secret set",
+      "secretMissingBadge": "Secret missing",
+      "accounts": "Connected mailboxes: {{count}}",
+      "createdAt": "created {{date}}",
+      "create": "Create Workspace",
+      "creating": "Creating…",
+      "save": "Save",
+      "saving": "Saving…",
+      "edit": "Edit",
+      "delete": "Delete",
+      "confirm": "Confirm",
+      "inUse": "This Workspace still has connected mailboxes: their owners must disconnect them first.",
+      "consoleTitle": "Paste into the Google Cloud Console",
+      "redirectUri": "Authorized redirect URI",
+      "scopes": "Scopes",
+      "internalHint": "Create the OAuth consent screen as an Internal app: it stays inside your organization and needs no Google verification.",
+      "apisHint": "Enable the Gmail API and the Google Calendar API on the same project, then paste the client ID and the client secret here.",
+      "guideHint": "// step-by-step guide: user docs, Integrations → Google Workspace."
     },
     "aiProviders": {
       "title": "AI providers",
@@ -1109,7 +1180,8 @@
       "monitorRecovered": "Recovered",
       "awaitingInput": "Question to answer",
       "pulse": "Proposal",
-      "brief": "Weekly brief"
+      "brief": "Weekly brief",
+      "googleProposal": "Mailbox proposal"
     },
     "actions": {
       "approvePlan": "Approve plan",
@@ -1169,6 +1241,22 @@
       "forbidden": "Maintainers only",
       "invalidAction": "This action is not available on this notification",
       "generic": "Action failed"
+    },
+    "google": {
+      "unknownSender": "Unknown sender",
+      "confirm": "Confirm",
+      "openThread": "Open the thread",
+      "openEvent": "Open the event",
+      "errors": {
+        "stale": "This proposal is no longer available",
+        "alreadyTaken": "Already handled by {{email}}",
+        "alreadyTakenUnknown": "Already handled by someone else",
+        "targetGone": "The target of this action no longer exists — you can retry it from the Mail page",
+        "actionFailed": "This action could not be completed — you can retry it from the Mail page",
+        "invalidChoice": "This proposal is no longer available",
+        "forbidden": "You cannot confirm this proposal",
+        "generic": "Could not confirm the proposal"
+      }
     }
   },
   "question": {
@@ -1294,7 +1382,14 @@
     },
     "priorityTitle": "Priority: {{label}}",
     "sourceTitle": "Source: {{label}}",
-    "effortTitle": "Effort: {{label}} ({{value}}/5)"
+    "effortTitle": "Effort: {{label}} ({{value}}/5)",
+    "signal": {
+      "decision": "Decision",
+      "request": "Request",
+      "deadline": "Deadline",
+      "blocker": "Blocker",
+      "none": "Other"
+    }
   },
   "projects": {
     "list": {
@@ -1457,6 +1552,28 @@
       "pending": "// the brief is being written: it will be here in a few minutes.",
       "failed": "// generating the brief failed. Regenerate it to try again.",
       "noText": "// this brief has no text: the instance has no usable AI provider to generate it."
+    },
+    "email": {
+      "title": "Mail",
+      "subtitle": "// which emails are about this project. At least one rule is needed: with none, no message comes in.",
+      "perimeterWarning": "A message no rule recognises is not even downloaded from Gmail. These rules are the perimeter of what Stubwise reads of the mail of whoever connected a mailbox.",
+      "empty": "// no rules: this project's mail is not read",
+      "loading": "// loading rules…",
+      "error": "// could not load the mail routing rules",
+      "senders": "Senders and recipients",
+      "sendersHint": "// a domain (acme.com) or a single address (mario@acme.com). Matches From, To and Cc.",
+      "labels": "Gmail labels",
+      "labelsHint": "// the label you put on this project's mail in your mailbox.",
+      "keywords": "Keywords",
+      "keywordsHint": "// searched in subject and body. Only the ones in the subject are enough to have the message downloaded.",
+      "pickLabel": "Pick from observed labels",
+      "pickLabelPlaceholder": "Search a label…",
+      "labelNoResults": "// no label matches",
+      "labelMoreResults": "+{{count}} more",
+      "noObservedLabels": "// no label observed yet: type it by hand in the field above.",
+      "loadingLabels": "// loading labels…",
+      "useTypedLabel": "Use \"{{value}}\"",
+      "cancel": "Cancel"
     }
   },
   "repositories": {
@@ -2146,5 +2263,42 @@
       "done": "Done",
       "failed": "Failed"
     }
+  },
+  "mail": {
+    "title": "Mail",
+    "subtitle": "Messages and calendar events handled by Stubwise, and what happened to them.",
+    "filters": {
+      "account": "Mailbox",
+      "allAccounts": "All mailboxes",
+      "status": "Status",
+      "allStatuses": "All statuses",
+      "project": "Project",
+      "allProjects": "All projects"
+    },
+    "status": {
+      "new": "New",
+      "classified": "Classified",
+      "proposed": "Proposed",
+      "actioned": "Actioned",
+      "ignored": "Ignored",
+      "failed": "Failed",
+      "cancelled": "Cancelled"
+    },
+    "source": {
+      "email": "Email",
+      "calendar": "Calendar"
+    },
+    "noProject": "No project",
+    "noSubject": "(no subject)",
+    "open": "Open",
+    "repropose": "Repropose",
+    "reproposing": "Reproposing…",
+    "reproposed": "Reproposed — check the inbox for the new proposal",
+    "reproposeError": "Could not repropose this item",
+    "openProposalsBadge": "{{count}} open",
+    "empty": "// no mail",
+    "loadMore": "Load more",
+    "loadingMore": "Loading…",
+    "loadError": "Could not load Mail."
   }
 }

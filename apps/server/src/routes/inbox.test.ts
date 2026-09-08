@@ -2,7 +2,17 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { and, desc, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { agentQuestions, aiJobs, backlogItems, comments, notifications, users } from "@stubwise/db";
+import {
+  agentQuestions,
+  aiJobs,
+  backlogItems,
+  comments,
+  emailMessages,
+  googleAccounts,
+  googleWorkspaces,
+  notifications,
+  users,
+} from "@stubwise/db";
 import type { Db } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
@@ -963,5 +973,123 @@ describe("POST /api/inbox/:id/actions/answer — il pulse", () => {
     const body = res.json() as { code: string; ticketId?: string };
     expect(body.code).toBe("proposal_stale");
     expect(body.ticketId).toBeUndefined();
+  });
+});
+
+describe("POST /api/inbox/:id/actions/answer — la proposta Google (fase 6, Task 11)", () => {
+  /**
+   * Wiring HTTP: le regole vere (claim, dispatch, errori) sono già coperte da
+   * `services/google-proposal.test.ts` — qui si verifica solo che la rotta
+   * arrivi al servizio giusto e traduca i suoi esiti nello status atteso.
+   * Il MEMBER è il proprietario della casella (audience `mailbox_owner`, mai
+   * un admin): si usa `seeded.memberCookie`/`memberId` di proposito.
+   */
+  async function seedGoogleProposal(
+    actions: { type: string; [key: string]: unknown }[],
+  ): Promise<{ notificationId: string; emailMessageId: string }> {
+    const [workspace] = await db
+      .insert(googleWorkspaces)
+      .values({ name: "Acme", domains: ["acme.test"], clientId: "client-id", clientSecretEncrypted: "blob" })
+      .returning({ id: googleWorkspaces.id });
+    const [account] = await db
+      .insert(googleAccounts)
+      .values({
+        userId: seeded.memberId,
+        workspaceId: workspace!.id,
+        email: `mailbox-${randomUUID()}@acme.test`,
+        googleSub: `sub-${randomUUID()}`,
+        refreshTokenEncrypted: "blob",
+      })
+      .returning({ id: googleAccounts.id });
+    const [message] = await db
+      .insert(emailMessages)
+      .values({
+        accountId: account!.id,
+        gmailMessageId: `m-${randomUUID()}`,
+        threadId: `t-${randomUUID()}`,
+        fromAddress: "laura@cliente.test",
+        receivedAt: new Date(),
+        projectId,
+        status: "proposed",
+      })
+      .returning({ id: emailMessages.id });
+    const notificationId = await seedNotification({
+      userId: seeded.memberId,
+      kind: "google.proposal",
+      event: {
+        kind: "google.proposal",
+        proposalId: randomUUID(),
+        source: "email",
+        messageUrl: "https://mail.google.com/mail/u/x/#all/t",
+        signal: "request",
+        from: "Laura <laura@cliente.test>",
+        subject: "Rinviamo il rilascio?",
+        question: "Laura scrive a proposito di «Rinviamo il rilascio?». Come diamo seguito?",
+        options: actions.map((a) => ({ label: a.type })),
+        actions,
+        allowFreeText: false,
+      } as NotificationEvent,
+    });
+    await db
+      .update(emailMessages)
+      .set({ proposalNotificationId: notificationId })
+      .where(eq(emailMessages.id, message!.id));
+    return { notificationId, emailMessageId: message!.id };
+  }
+
+  it("200: ignore chiude la riga e riferisce le copie cambiate", async () => {
+    const { notificationId } = await seedGoogleProposal([{ type: "ignore" }]);
+    const res = await post(`/api/inbox/${notificationId}/actions/answer`, seeded.memberCookie, {
+      optionIndex: 0,
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { kind: string; changedNotificationIds: string[] };
+    expect(body.kind).toBe("google.proposal");
+    expect(body.changedNotificationIds).toEqual([notificationId]);
+  });
+
+  it("404: un admin che NON è il proprietario della casella non vede la notifica (mai 403)", async () => {
+    const { notificationId } = await seedGoogleProposal([{ type: "ignore" }]);
+    const res = await post(`/api/inbox/${notificationId}/actions/answer`, seeded.adminCookie, {
+      optionIndex: 0,
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("400 invalid_answer: indice fuori dalle azioni persistite", async () => {
+    const { notificationId } = await seedGoogleProposal([{ type: "ignore" }]);
+    const res = await post(`/api/inbox/${notificationId}/actions/answer`, seeded.memberCookie, {
+      optionIndex: 3,
+    });
+    expect(res.statusCode).toBe(400);
+    expect((res.json() as { code: string }).code).toBe("invalid_answer");
+  });
+
+  it("409 target_gone: il progetto dietro create_backlog_item non esiste più", async () => {
+    const { notificationId } = await seedGoogleProposal([
+      { type: "create_backlog_item", projectId: randomUUID(), title: "X" },
+    ]);
+    const res = await post(`/api/inbox/${notificationId}/actions/answer`, seeded.memberCookie, {
+      optionIndex: 0,
+    });
+    expect(res.statusCode).toBe(409);
+    expect((res.json() as { code: string }).code).toBe("target_gone");
+  });
+
+  it("409 already_handled con handledBy, sulla seconda conferma", async () => {
+    const { notificationId } = await seedGoogleProposal([{ type: "ignore" }]);
+    const first = await post(`/api/inbox/${notificationId}/actions/answer`, seeded.memberCookie, {
+      optionIndex: 0,
+    });
+    expect(first.statusCode).toBe(200);
+
+    const second = await post(`/api/inbox/${notificationId}/actions/answer`, seeded.memberCookie, {
+      optionIndex: 0,
+    });
+    expect(second.statusCode).toBe(409);
+    expect(second.json()).toMatchObject({
+      code: "already_handled",
+      handledBy: { id: seeded.memberId },
+    });
   });
 });

@@ -90,7 +90,8 @@
         "awaitingInput": "Domanda dell'agente",
         "pulse": "Proposta del pulse",
         "brief": "Brief settimanale",
-        "unknown": "Aggiornamento"
+        "unknown": "Aggiornamento",
+        "googleProposal": "Proposta dalla posta"
       },
       "actions": {
         "respond": "Rispondi",

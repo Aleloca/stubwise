@@ -6,10 +6,14 @@ import { buildApp } from "../app.js";
 import {
   aiJobs,
   aiProviders,
+  emailMessages,
+  googleAccounts,
+  googleWorkspaces,
   notifications,
   prReviews,
   projectBriefs,
   projectDecisions,
+  projectEmailRoutes,
   projectFollows,
   tickets,
 } from "@stubwise/db";
@@ -1244,6 +1248,265 @@ describe("registro decisioni", () => {
         payload: { supersededById: foreign },
       });
       expect(res.statusCode).toBe(400);
+    });
+  });
+});
+
+/**
+ * REGOLE DI ROUTING DELLA POSTA (Fase 6, Task 6).
+ *
+ * Le tre rotte hanno suffisso letterale su `/:projectId` e sono registrate
+ * PRIMA della parametrica: il caso "un member non segue il progetto" qui sotto
+ * risponde 404 dall'handler giusto, non dalla validazione UUID di
+ * `GET /:projectId` (che darebbe 400 e nasconderebbe il bug di ordine).
+ */
+describe("regole di routing della posta", () => {
+  async function routesOf(projectId: string): Promise<{ kind: string; value: string }[]> {
+    return testDb.db
+      .select({ kind: projectEmailRoutes.kind, value: projectEmailRoutes.value })
+      .from(projectEmailRoutes)
+      .where(eq(projectEmailRoutes.projectId, projectId));
+  }
+
+  function putRoutes(projectId: string, routes: unknown, cookie = adminCookie) {
+    return app.inject({
+      method: "PUT",
+      url: `/api/projects/${projectId}/email-routes`,
+      headers: { cookie },
+      payload: { routes },
+    });
+  }
+
+  describe("GET /api/projects/:projectId/email-routes", () => {
+    it("un progetto senza regole risponde con un insieme vuoto, non 404", async () => {
+      const { projectId } = await seedRepository(testDb.db);
+      const res = await app.inject({
+        method: "GET",
+        url: `/api/projects/${projectId}/email-routes`,
+        headers: { cookie: adminCookie },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ routes: [] });
+    });
+
+    it("un member che non segue il progetto: 404 (dall'handler, non dalla validazione)", async () => {
+      const { projectId } = await seedRepository(testDb.db);
+      const res = await app.inject({
+        method: "GET",
+        url: `/api/projects/${projectId}/email-routes`,
+        headers: { cookie: memberCookie },
+      });
+      expect(res.statusCode).toBe(404);
+      expect(res.json().code).toBe("project_not_found");
+    });
+
+    it("un member che segue il progetto legge le regole", async () => {
+      const { projectId } = await seedRepository(testDb.db);
+      await testDb.db.insert(projectFollows).values({ projectId, userId: memberId });
+      await putRoutes(projectId, [{ kind: "keyword", value: "portale" }]);
+
+      const res = await app.inject({
+        method: "GET",
+        url: `/api/projects/${projectId}/email-routes`,
+        headers: { cookie: memberCookie },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().routes).toEqual([{ kind: "keyword", value: "portale" }]);
+    });
+  });
+
+  describe("PUT /api/projects/:projectId/email-routes", () => {
+    it("normalizza i valori come li normalizzerà il poller", async () => {
+      const { projectId } = await seedRepository(testDb.db);
+      const res = await putRoutes(projectId, [
+        { kind: "sender_domain", value: "@Acme.COM" },
+        { kind: "sender_address", value: "Mario Rossi <Mario@Acme.com>" },
+        { kind: "gmail_label", value: " Clienti " },
+        { kind: "keyword", value: "Portale Clienti" },
+      ]);
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json().routes).toEqual([
+        { kind: "gmail_label", value: "clienti" },
+        { kind: "keyword", value: "portale clienti" },
+        { kind: "sender_address", value: "mario@acme.com" },
+        { kind: "sender_domain", value: "acme.com" },
+      ]);
+    });
+
+    it("SOSTITUISCE l'insieme: le regole assenti dal corpo spariscono", async () => {
+      const { projectId } = await seedRepository(testDb.db);
+      await putRoutes(projectId, [
+        { kind: "keyword", value: "vecchia" },
+        { kind: "gmail_label", value: "clienti" },
+      ]);
+
+      const res = await putRoutes(projectId, [{ kind: "keyword", value: "nuova" }]);
+      expect(res.statusCode).toBe(200);
+      expect(await routesOf(projectId)).toEqual([{ kind: "keyword", value: "nuova" }]);
+    });
+
+    it("un insieme vuoto cancella tutte le regole", async () => {
+      const { projectId } = await seedRepository(testDb.db);
+      await putRoutes(projectId, [{ kind: "keyword", value: "portale" }]);
+      const res = await putRoutes(projectId, []);
+      expect(res.statusCode).toBe(200);
+      expect(await routesOf(projectId)).toEqual([]);
+    });
+
+    it("due grafie della stessa regola diventano una riga sola (unique)", async () => {
+      const { projectId } = await seedRepository(testDb.db);
+      const res = await putRoutes(projectId, [
+        { kind: "sender_domain", value: "acme.com" },
+        { kind: "sender_domain", value: "ACME.com" },
+      ]);
+      expect(res.statusCode).toBe(200);
+      expect(await routesOf(projectId)).toEqual([{ kind: "sender_domain", value: "acme.com" }]);
+    });
+
+    it("le regole di un progetto NON toccano quelle di un altro", async () => {
+      const a = await seedRepository(testDb.db);
+      const b = await seedRepository(testDb.db);
+      await putRoutes(a.projectId, [{ kind: "keyword", value: "alfa" }]);
+      await putRoutes(b.projectId, [{ kind: "keyword", value: "beta" }]);
+
+      await putRoutes(a.projectId, []);
+      expect(await routesOf(b.projectId)).toEqual([{ kind: "keyword", value: "beta" }]);
+    });
+
+    it("un valore che si normalizza a vuoto: 400, e le regole di prima restano", async () => {
+      const { projectId } = await seedRepository(testDb.db);
+      await putRoutes(projectId, [{ kind: "keyword", value: "portale" }]);
+
+      const res = await putRoutes(projectId, [{ kind: "sender_domain", value: "@" }]);
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe("invalid_route_value");
+      expect(await routesOf(projectId)).toEqual([{ kind: "keyword", value: "portale" }]);
+    });
+
+    it("una keyword più corta di 3 caratteri: 400, e le regole di prima restano", async () => {
+      const { projectId } = await seedRepository(testDb.db);
+      await putRoutes(projectId, [{ kind: "keyword", value: "portale" }]);
+
+      const res = await putRoutes(projectId, [{ kind: "keyword", value: "IT" }]);
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe("keyword_too_short");
+      expect(await routesOf(projectId)).toEqual([{ kind: "keyword", value: "portale" }]);
+    });
+
+    it("una keyword di ESATTAMENTE 3 caratteri (dopo normalizzazione) è accettata", async () => {
+      const { projectId } = await seedRepository(testDb.db);
+      const res = await putRoutes(projectId, [{ kind: "keyword", value: " Api " }]);
+      expect(res.statusCode).toBe(200);
+      expect(await routesOf(projectId)).toEqual([{ kind: "keyword", value: "api" }]);
+    });
+
+    it("un criterio sconosciuto: 400 dalla validazione del corpo", async () => {
+      const { projectId } = await seedRepository(testDb.db);
+      const res = await putRoutes(projectId, [{ kind: "subject", value: "x" }]);
+      expect(res.statusCode).toBe(400);
+    });
+
+    it("un member NON puo scrivere le regole, nemmeno se segue il progetto: 403", async () => {
+      const { projectId } = await seedRepository(testDb.db);
+      await testDb.db.insert(projectFollows).values({ projectId, userId: memberId });
+      const res = await putRoutes(projectId, [{ kind: "keyword", value: "x" }], memberCookie);
+      expect(res.statusCode).toBe(403);
+      expect(await routesOf(projectId)).toEqual([]);
+    });
+
+    it("progetto inesistente: 404", async () => {
+      const res = await putRoutes("00000000-0000-4000-8000-000000000000", []);
+      expect(res.statusCode).toBe(404);
+    });
+  });
+
+  describe("GET /api/projects/:projectId/email-labels", () => {
+    it("senza posta ingerita risponde con una lista vuota", async () => {
+      const { projectId } = await seedRepository(testDb.db);
+      const res = await app.inject({
+        method: "GET",
+        url: `/api/projects/${projectId}/email-labels`,
+        headers: { cookie: adminCookie },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ labels: [] });
+    });
+
+    it("elenca le etichette DISTINTE della posta di chi chiede, non quelle altrui", async () => {
+      const { projectId } = await seedRepository(testDb.db);
+      const suffix = randomBytes(6).toString("hex");
+      const [workspace] = await testDb.db
+        .insert(googleWorkspaces)
+        .values({
+          name: `Acme ${suffix}`,
+          domains: ["acme.com"],
+          clientId: `client-${suffix}`,
+          clientSecretEncrypted: "cifrato",
+        })
+        .returning({ id: googleWorkspaces.id });
+
+      async function seedAccount(userId: string, email: string): Promise<string> {
+        const [account] = await testDb.db
+          .insert(googleAccounts)
+          .values({
+            userId,
+            workspaceId: workspace!.id,
+            email,
+            googleSub: `sub-${email}`,
+            refreshTokenEncrypted: "cifrato",
+          })
+          .returning({ id: googleAccounts.id });
+        return account!.id;
+      }
+
+      const mine = await seedAccount(adminId, `admin-${suffix}@acme.com`);
+      const others = await seedAccount(memberId, `member-${suffix}@acme.com`);
+
+      await testDb.db.insert(emailMessages).values([
+        {
+          accountId: mine,
+          gmailMessageId: `m1-${suffix}`,
+          threadId: `t1-${suffix}`,
+          fromAddress: "cliente@acme.com",
+          receivedAt: new Date(),
+          labels: ["INBOX", "Label_clienti"],
+        },
+        {
+          accountId: mine,
+          gmailMessageId: `m2-${suffix}`,
+          threadId: `t2-${suffix}`,
+          fromAddress: "cliente@acme.com",
+          receivedAt: new Date(),
+          labels: ["INBOX"],
+        },
+        {
+          accountId: others,
+          gmailMessageId: `m3-${suffix}`,
+          threadId: `t3-${suffix}`,
+          fromAddress: "cliente@acme.com",
+          receivedAt: new Date(),
+          labels: ["Label_segreta"],
+        },
+      ]);
+
+      const res = await app.inject({
+        method: "GET",
+        url: `/api/projects/${projectId}/email-labels`,
+        headers: { cookie: adminCookie },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().labels).toEqual(["INBOX", "Label_clienti"]);
+    });
+
+    it("un member che non segue il progetto: 404", async () => {
+      const { projectId } = await seedRepository(testDb.db);
+      const res = await app.inject({
+        method: "GET",
+        url: `/api/projects/${projectId}/email-labels`,
+        headers: { cookie: memberCookie },
+      });
+      expect(res.statusCode).toBe(404);
     });
   });
 });

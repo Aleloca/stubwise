@@ -11,12 +11,32 @@ import { requeueStaleNodes as requeueStaleNodesImpl } from "./docs/nodes.js";
 
 export type AiJob = typeof aiJobs.$inferSelect;
 
-export interface RecordAgentRunInput {
-  jobId: string;
-  phase: "triage" | "fix";
-  /** Consumi del run, se presenti: niente usage → nessuna riga registrata. */
-  usage?: AgentRunUsage;
-}
+/**
+ * L'OWNER del run, che è anche ciò che ne decide la fase.
+ *
+ * `agent_runs` ammette esattamente un owner fra `job_id`, `pr_review_id` ed
+ * `email_message_id` (check `num_nonnulls(...) = 1` in schema.ts). Qui ne
+ * viaggiano due dei tre: il job (triage/fix) e — dalla fase 6 — il messaggio
+ * di posta classificato. La review ha una sua funzione in `run-review.ts`,
+ * perché scrive dentro la transazione della review.
+ *
+ * L'unione è DISCRIMINATA sull'owner e non un oggetto con tre campi opzionali:
+ * così è il compilatore, e non una guardia a runtime, a impedire una riga con
+ * due owner o con nessuno.
+ */
+export type RecordAgentRunInput =
+  | {
+      jobId: string;
+      phase: "triage" | "fix";
+      /** Consumi del run, se presenti: niente usage → nessuna riga registrata. */
+      usage?: AgentRunUsage;
+    }
+  | {
+      /** Messaggio di posta classificato (fase 6). */
+      emailMessageId: string;
+      phase: "email_classify";
+      usage?: AgentRunUsage;
+    };
 
 /**
  * Registra i consumi di un run dell'agente: una riga `agent_runs` per ciascun
@@ -33,9 +53,11 @@ export async function recordAgentRun(db: Db, input: RecordAgentRunInput): Promis
   try {
     const models = input.usage?.models ?? [];
     if (models.length === 0) return;
+    const owner =
+      "jobId" in input ? { jobId: input.jobId } : { emailMessageId: input.emailMessageId };
     await db.insert(agentRuns).values(
       models.map((m) => ({
-        jobId: input.jobId,
+        ...owner,
         phase: input.phase,
         model: m.model,
         inputTokens: Math.trunc(m.inputTokens) || 0,

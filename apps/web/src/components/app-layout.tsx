@@ -1,9 +1,10 @@
-import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { postLogout } from "../lib/api";
 import { meQueryOptions } from "../lib/auth";
+import { mailSummaryQueryOptions } from "../lib/queries";
 import { useCloseOnRouteChange } from "../lib/use-close-on-route-change";
 import { Avatar } from "./avatar";
 import { Drawer } from "./drawer";
@@ -27,6 +28,9 @@ const NAV_ITEMS = [
   // L'inbox è la prima voce perché è la home operativa: quello che aspetta una
   // decisione viene prima di qualunque elenco da sfogliare.
   { to: "/inbox", labelKey: "common:nav.inbox", code: "INB" },
+  // Posta (fase 6): dopo l'inbox, prima dei ticket — è anch'essa personale
+  // (la propria posta trattata), non un elenco di lavoro condiviso.
+  { to: "/mail", labelKey: "common:nav.mail", code: "MAL" },
   { to: "/tickets", labelKey: "common:nav.tickets", code: "TKT" },
   { to: "/board", labelKey: "common:nav.board", code: "BRD" },
   { to: "/backlog", labelKey: "common:nav.backlog", code: "BLG" },
@@ -46,6 +50,11 @@ const NAV_ITEMS = [
  */
 function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   const { t } = useTranslation();
+  // Contatore delle proposte aperte (fase 6): SOLO per la voce "Posta", come
+  // il numero della campanella per "Inbox" — ma senza polling (vedi
+  // `mailSummaryQueryOptions`, `staleTime` largo): non è una notifica che
+  // deve accorgersi in tempo reale, si allinea navigando.
+  const { data: mailSummary } = useQuery(mailSummaryQueryOptions);
   return (
     <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-3">
       {NAV_ITEMS.map((item) => (
@@ -67,6 +76,11 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
             {item.code}
           </span>
           {t(item.labelKey)}
+          {item.to === "/mail" && mailSummary !== undefined && mailSummary.openProposals > 0 && (
+            <span className="ml-auto rounded-sm bg-signal px-1.5 py-0.5 font-mono text-[10px] text-ink-950">
+              {mailSummary.openProposals}
+            </span>
+          )}
         </Link>
       ))}
     </nav>

@@ -96,6 +96,33 @@ describe("recordDecision", () => {
     expect(rows[0]?.decision).toBe("Piano approvato");
   });
 
+  it("accetta la sorgente `email` (fase 6), con la sua chiave idempotente", async () => {
+    // La conferma di una proposta nata dalla posta è una decisione come le
+    // altre: il CHECK `project_decisions_source_chk` la ammette dalla 0069, e
+    // `sourceKey` è `email:<messageId>` — un secondo tap sulla stessa proposta
+    // (o un replay del servizio) non aggiunge una riga.
+    const { projectId } = await seedTicket(db, { number: 6 });
+    const sourceKey = `email:${randomUUID()}`;
+
+    const first = await recordDecision(db, {
+      projectId,
+      source: "email",
+      sourceKey,
+      title: "Export CSV richiesto da laura@cliente.test",
+      decision: "Aperta una voce di backlog",
+    });
+    const replay = await recordDecision(db, {
+      projectId,
+      source: "email",
+      sourceKey,
+      title: "Export CSV richiesto da laura@cliente.test",
+      decision: "Aperta una voce di backlog",
+    });
+
+    expect(first?.source).toBe("email");
+    expect(replay).toBeNull();
+  });
+
   it("la stessa sourceKey su progetti diversi sono due decisioni distinte", async () => {
     const a = await seedTicket(db, { number: 3 });
     const b = await seedTicket(db, { number: 4 });

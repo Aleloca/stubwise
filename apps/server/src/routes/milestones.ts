@@ -12,9 +12,10 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { requireAuth } from "../auth/session.js";
 import type { Db } from "@stubwise/db";
-import { milestones, projects, repositories, tickets } from "@stubwise/db";
+import { milestones, tickets } from "@stubwise/db";
 import { apiError } from "../errors.js";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
+import { createMilestone } from "../services/milestones.js";
 
 /**
  * Stato terminale "completato" di un ticket ai fini dell'avanzamento di una
@@ -126,23 +127,14 @@ export async function milestoneRoutes(instance: FastifyInstance): Promise<void> 
       },
     },
     async (request, reply) => {
-      const { projectId, repositoryId, name, description, dueDate, status } = request.body;
-
-      const [project] = await app.db
-        .select({ id: projects.id })
-        .from(projects)
-        .where(eq(projects.id, projectId));
-      if (!project) return apiError(reply, 404, "project_not_found", "Project not found");
-
-      // Il repository d'origine è OPZIONALE (la milestone è del progetto, e la
-      // web app non lo manda). Se c'è, deve appartenere al progetto: 400
-      // altrimenti — un repo altrui resta un errore, non un campo ignorato.
-      if (repositoryId !== undefined) {
-        const [repository] = await app.db
-          .select({ id: repositories.id })
-          .from(repositories)
-          .where(and(eq(repositories.id, repositoryId), eq(repositories.projectId, projectId)));
-        if (!repository) {
+      // La mutazione vive in `services/milestones.ts`: qui resta solo la
+      // traduzione degli errori tipizzati in risposte HTTP.
+      const result = await createMilestone(app.db, request.body);
+      if (!result.ok) {
+        if (result.error === "project_not_found") {
+          return apiError(reply, 404, "project_not_found", "Project not found");
+        }
+        if (result.error === "repository_not_in_project") {
           return apiError(
             reply,
             400,
@@ -150,31 +142,14 @@ export async function milestoneRoutes(instance: FastifyInstance): Promise<void> 
             "Repository not found in this project",
           );
         }
+        return apiError(
+          reply,
+          409,
+          "milestone_exists",
+          "A milestone with this name already exists in the project",
+        );
       }
-
-      try {
-        const [created] = await app.db
-          .insert(milestones)
-          .values({
-            projectId,
-            repositoryId: repositoryId ?? null,
-            name,
-            description: description ?? null,
-            dueDate: dueDate !== undefined && dueDate !== null ? new Date(dueDate) : null,
-            ...(status !== undefined ? { status } : {}),
-            // `closedAt` coerente con lo stato fin dalla nascita: una milestone
-            // creata già chiusa ha una data di chiusura.
-            ...(status === "closed" ? { closedAt: new Date() } : {}),
-          })
-          .returning();
-        if (!created) throw new Error("insert della milestone non ha restituito la riga");
-        return await reply.code(201).send(toPublicMilestone(created));
-      } catch (error) {
-        if (isUniqueViolation(error)) {
-          return apiError(reply, 409, "milestone_exists", "A milestone with this name already exists in the project");
-        }
-        throw error;
-      }
+      return await reply.code(201).send(toPublicMilestone(result.milestone));
     },
   );
 

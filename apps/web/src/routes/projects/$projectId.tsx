@@ -6,6 +6,7 @@ import { ProviderBadge } from "../../components/badges";
 import { IntegrationPanel } from "../../components/integration-panel";
 import { MilestoneManager } from "../../components/milestone-manager";
 import { ProjectForm } from "../../components/project-form";
+import { ProjectEmailRoutesSection } from "../../components/project-email-routes-section";
 import { ProjectPluginsSection } from "../../components/project-plugins-section";
 import { ProjectServersSection } from "../../components/project-servers-section";
 import { WidgetsSection } from "../../components/widgets-section";
@@ -237,6 +238,23 @@ export function ProjectDetailPage() {
           projectName={project.name}
           isAdmin={isAdmin}
         />
+      </section>
+
+      {/*
+        Posta (Fase 6): le regole che decidono quali email parlano di questo
+        progetto. LETTURA per tutti — sapere cosa Stubwise legge della posta
+        altrui non è un privilegio da maintainer — e SCRITTURA solo admin,
+        arbitrata dal server (403 a un member): allargare quel perimetro è una
+        decisione, non un'impostazione di comodo.
+      */}
+      <section aria-label={t("projects:email.title")} className="mt-8 border-t border-line pt-6">
+        <div className="mb-3">
+          <h2 className={sectionTitleClass + " mb-0"}>{t("projects:email.title")}</h2>
+          <p className="mt-1 font-mono text-[11px] text-fg-faint">
+            {t("projects:email.subtitle")}
+          </p>
+        </div>
+        <ProjectEmailRoutesSection projectId={project.id} isAdmin={isAdmin} />
       </section>
 
       {/*

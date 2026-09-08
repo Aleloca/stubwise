@@ -236,7 +236,11 @@ export async function proceedWithProposal(
     };
   }
 
-  const changedNotificationIds = await propagateHandled(db, { pulseId }, actor.id);
+  const changedNotificationIds = await propagateHandled(
+    db,
+    { eventKey: { kind: "pulse", field: "pulseId", value: pulseId } },
+    actor.id,
+  );
   // Claim perso: qualcun altro ha deciso questo pulse fra il pre-check e ora.
   if (changedNotificationIds.length === 0) {
     return {

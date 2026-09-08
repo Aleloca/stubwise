@@ -3,6 +3,9 @@ import {
   decisionDraftSchema,
   decisionPatchSchema,
   decisionSourceSchema,
+  emailLabelsSchema,
+  emailRoutesPutSchema,
+  emailRoutesSchema,
   prReviewSummarySchema,
   projectDecisionSchema,
   projectDetailSchema,
@@ -41,6 +44,11 @@ import {
   listProjectDecisions,
   patchDecision,
 } from "../services/project-decisions.js";
+import {
+  listEmailRoutes,
+  listObservedEmailLabels,
+  putEmailRoutes,
+} from "../services/email-routes.js";
 
 /**
  * Tentativi massimi di insert prima di arrendersi sulla generazione dello
@@ -279,6 +287,114 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
       ).filter((summary): summary is ProjectPulseSummary => summary !== null);
 
       return summaries.sort(pulseOrder);
+    },
+  );
+
+  /**
+   * LE REGOLE DI ROUTING DELLA POSTA (Fase 6): quali email parlano di questo
+   * progetto — dominio o indirizzo del mittente/destinatario, etichetta Gmail,
+   * parola chiave. Un messaggio che nessuna regola riconosce non viene nemmeno
+   * scaricato dal poller, quindi questa è, di fatto, la superficie che decide
+   * cosa Stubwise legge della posta di chi ha collegato una casella.
+   *
+   * ⚠️ Registrata PRIMA di `/:projectId`, come ogni rotta con suffisso
+   * letterale su questo prefisso (vedi il commento su `/pulse`).
+   *
+   * ACL di LETTURA come timeline, brief e decisioni: un member vede solo i
+   * progetti che segue, un admin tutti; "non seguito" e "inesistente"
+   * rispondono entrambi 404.
+   */
+  app.get(
+    "/:projectId/email-routes",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: idParamsSchema,
+        response: { 200: emailRoutesSchema, 404: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const viewer = { userId: request.user!.id, role: request.user!.role };
+      if (!(await canViewProject(app.db, request.params.projectId, viewer))) {
+        return apiError(reply, 404, "project_not_found", "Project not found");
+      }
+      return { routes: await listEmailRoutes(app.db, request.params.projectId) };
+    },
+  );
+
+  /**
+   * SOSTITUISCE l'insieme completo delle regole (le assenti spariscono), come
+   * il PUT delle abilitazioni dei plugin: la UI ha davanti tutte le regole del
+   * progetto e salva la foto intera.
+   *
+   * Solo admin: allargare il perimetro di lettura della posta altrui è una
+   * decisione da maintainer, non un'impostazione di comodo.
+   *
+   * ⚠️ Registrata PRIMA di `/:projectId` (vedi il commento su `/pulse`).
+   */
+  app.put(
+    "/:projectId/email-routes",
+    {
+      preHandler: requireAdmin,
+      schema: {
+        params: idParamsSchema,
+        body: emailRoutesPutSchema,
+        response: {
+          200: emailRoutesSchema,
+          400: errorSchema,
+          404: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const viewer = { userId: request.user!.id, role: request.user!.role };
+      const { projectId } = request.params;
+      if (!(await canViewProject(app.db, projectId, viewer))) {
+        return apiError(reply, 404, "project_not_found", "Project not found");
+      }
+      const result = await putEmailRoutes(app.db, projectId, request.body.routes);
+      if (!result.ok) {
+        // 400 e non una riga salvata in silenzio: un valore che si normalizza a
+        // vuoto ("@", "<>") non filtrerebbe nulla, ma nell'elenco della UI
+        // sembrerebbe una regola attiva.
+        return apiError(
+          reply,
+          400,
+          result.error,
+          `Not a usable routing value: ${JSON.stringify(result.detail)}`,
+        );
+      }
+      return { routes: result.routes };
+    },
+  );
+
+  /**
+   * Le ETICHETTE GMAIL già osservate nella posta delle caselle di chi chiede:
+   * alimentano il picker delle regole `gmail_label`, così una regola si sceglie
+   * da un elenco invece di indovinare il nome esatto di una label.
+   *
+   * Sono le etichette dell'UTENTE, non del progetto (vedi il docblock di
+   * `listObservedEmailLabels`): finché il poller non ha ingerito nulla la
+   * risposta è `[]`, ed è una risposta valida — il picker resta a testo libero.
+   *
+   * ⚠️ Registrata PRIMA di `/:projectId` (vedi il commento su `/pulse`).
+   */
+  app.get(
+    "/:projectId/email-labels",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: idParamsSchema,
+        response: { 200: emailLabelsSchema, 404: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const viewer = { userId: request.user!.id, role: request.user!.role };
+      if (!(await canViewProject(app.db, request.params.projectId, viewer))) {
+        return apiError(reply, 404, "project_not_found", "Project not found");
+      }
+      return { labels: await listObservedEmailLabels(app.db, viewer.userId) };
     },
   );
 

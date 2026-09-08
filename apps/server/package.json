@@ -11,7 +11,7 @@
     "start": "node dist/index.js",
     "backfill:ticket-events": "tsx scripts/backfill-ticket-done-events.ts",
     "build": "tsc -p tsconfig.build.json && tsc -p tsconfig.scripts-build.json",
-    "test": "pnpm --filter @stubwise/sdk... --filter @stubwise/db... --filter @stubwise/embeddings... --filter @stubwise/notifications... --filter @stubwise/agent... build && vitest run",
+    "test": "pnpm --filter @stubwise/sdk... --filter @stubwise/db... --filter @stubwise/google... --filter @stubwise/embeddings... --filter @stubwise/notifications... --filter @stubwise/agent... build && vitest run",
     "typecheck": "tsc --noEmit && tsc -p scripts/tsconfig.json"
   },
   "dependencies": {
@@ -27,6 +27,7 @@
     "@stubwise/db": "workspace:*",
     "@stubwise/embeddings": "workspace:*",
     "@stubwise/git": "workspace:*",
+    "@stubwise/google": "workspace:*",
     "@stubwise/i18n": "workspace:*",
     "@stubwise/notifications": "workspace:*",
     "@stubwise/shared": "workspace:*",

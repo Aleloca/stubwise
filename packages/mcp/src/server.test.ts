@@ -42,6 +42,7 @@ describe("buildServer", () => {
       "list_tickets",
       "get_ticket",
       "list_proposals",
+      "list_mail_proposals",
       "get_project_brief",
       "list_decisions",
       "create_ticket",

@@ -39,6 +39,7 @@ import {
 } from "@stubwise/db";
 import { requireAdmin, requireAuth } from "../auth/session.js";
 import { convertBacklogItem } from "../services/backlog.js";
+import { enqueueBacklogIntake } from "../services/backlog-intake.js";
 import { apiError } from "../errors.js";
 import { getContentLanguage } from "../settings.js";
 import {
@@ -850,17 +851,9 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
     },
     async (request, reply) => {
       const { projectId, title, body } = request.body;
-      const [project] = await app.db
-        .select({ id: projects.id })
-        .from(projects)
-        .where(eq(projects.id, projectId));
-      if (!project) return apiError(reply, 404, "project_not_found", "Project not found");
-
-      const [job] = await app.db
-        .insert(backlogJobs)
-        .values({ projectId, kind: "intake", payload: { title, body } })
-        .returning({ id: backlogJobs.id });
-      return reply.code(202).send({ queued: true, jobId: job!.id });
+      const result = await enqueueBacklogIntake(app.db, { projectId, title, body });
+      if (!result.ok) return apiError(reply, 404, "project_not_found", "Project not found");
+      return reply.code(202).send({ queued: true, jobId: result.jobId });
     },
   );
 

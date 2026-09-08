@@ -19,6 +19,7 @@ import {
 } from "../lib/api";
 import { formatDateTime, formatRelativeTime } from "../lib/format";
 import { inboxKeys } from "../lib/queries";
+import { SignalBadge } from "./badges";
 import { answerErrorMessage, QuestionPanel } from "./question-panel";
 
 /**
@@ -45,6 +46,7 @@ export const INBOX_KIND_LABEL_KEYS: Record<InboxItem["kind"], string> = {
   "job.awaiting_input": "inbox:kinds.awaitingInput",
   "project.pulse": "inbox:kinds.pulse",
   "project.brief": "inbox:kinds.brief",
+  "google.proposal": "inbox:kinds.googleProposal",
 };
 
 /**
@@ -157,6 +159,12 @@ export function InboxItemCard({
   // Il PULSE è l'altro kind con opzioni, ma non è una domanda: si sceglie una
   // proposta e parte un lavoro. Cambiano le parole, non il pannello.
   const isPulse = item.kind === "project.pulse";
+  // LA PROPOSTA GOOGLE (fase 6) è un terzo kind con opzioni: qui si CONFERMA
+  // un'azione già decisa dal classificatore, non si risponde a una domanda né
+  // si avvia un lavoro. `item.google` porta il contorno (mittente, oggetto,
+  // data, segnale); assente quando il payload non è leggibile o non è
+  // allineato alle opzioni — la card resta comunque intera, solo senza contorno.
+  const isGoogle = item.kind === "google.proposal";
   // Nome del progetto: quello risolto dalla pagina, o — se la lista dei progetti
   // non lo conosce — quello che il pulse si porta nel payload.
   const displayProjectName = projectName ?? item.pulse?.projectName;
@@ -219,6 +227,37 @@ export function InboxItemCard({
         return t("inbox:errors.forbidden");
       default:
         return t("inbox:pulse.errors.generic");
+    }
+  }
+
+  /**
+   * Messaggio d'errore della CONFERMA di una proposta Google. Stessi codici del
+   * pulse più i due nuovi del Task 11 (`target_gone`, `action_failed`): un
+   * fallimento DOPO il claim (il referente è sparito, o un imprevisto) — la
+   * riga sorgente è `failed` e resta riproponibile dalla pagina Posta, quindi
+   * il messaggio lo dice invece di suonare come un errore generico e basta.
+   */
+  function googleErrorMessage(cause: unknown): string {
+    if (!(cause instanceof ApiError)) return t("inbox:google.errors.generic");
+    switch (cause.code) {
+      case "proposal_stale":
+        return t("inbox:google.errors.stale");
+      case "already_handled": {
+        const by = handledByFromError(cause);
+        return by
+          ? t("inbox:google.errors.alreadyTaken", { email: by.email })
+          : t("inbox:google.errors.alreadyTakenUnknown");
+      }
+      case "target_gone":
+        return t("inbox:google.errors.targetGone");
+      case "action_failed":
+        return t("inbox:google.errors.actionFailed");
+      case "invalid_answer":
+        return t("inbox:google.errors.invalidChoice");
+      case "forbidden":
+        return t("inbox:google.errors.forbidden");
+      default:
+        return t("inbox:google.errors.generic");
     }
   }
 
@@ -289,7 +328,9 @@ export function InboxItemCard({
         message: isAnswer
           ? isPulse
             ? pulseErrorMessage(cause)
-            : answerErrorMessage(cause, t)
+            : isGoogle
+              ? googleErrorMessage(cause)
+              : answerErrorMessage(cause, t)
           : messageForError(cause),
         onPanel: isAnswer,
       });
@@ -381,6 +422,31 @@ export function InboxItemCard({
       <p className="mt-2 text-sm text-fg">{item.text}</p>
 
       {/*
+        CONTORNO DELLA PROPOSTA GOOGLE (fase 6): mittente, oggetto, data e
+        segnale — quello che `item.text` non ripete per intero. Assente
+        quando il payload non è leggibile (`item.google === undefined`): la
+        card resta comunque intera, solo senza questa riga.
+      */}
+      {item.google !== undefined && (
+        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-fg-muted">
+          <span className="max-w-[240px] truncate" title={item.google.from}>
+            {item.google.from || t("inbox:google.unknownSender")}
+          </span>
+          {item.google.subject !== "" && (
+            <span className="max-w-[320px] truncate text-fg-faint" title={item.google.subject}>
+              — {item.google.subject}
+            </span>
+          )}
+          {item.google.receivedAt !== undefined && (
+            <time dateTime={item.google.receivedAt} title={item.google.receivedAt}>
+              {formatRelativeTime(item.google.receivedAt)}
+            </time>
+          )}
+          <SignalBadge signal={item.google.signal} />
+        </div>
+      )}
+
+      {/*
         RIASSUNTO "IN BREVE" (fase 5): due o tre frasi non tecniche su cosa il
         piano cambia o cosa fa la PR. Sta SUBITO SOTTO IL TESTO, che è anche
         subito SOPRA i bottoni: sulla card del piano si legge quindi prima di
@@ -456,8 +522,15 @@ export function InboxItemCard({
           showQuestionText={false}
           // Sul pulse confermare non manda una risposta a nessuno: fa partire
           // un lavoro. La conferma a due passi resta (è la differenza voluta
-          // rispetto a Slack, dove il click esegue subito).
-          {...(isPulse ? { submitLabel: t("inbox:pulse.start") } : {})}
+          // rispetto a Slack, dove il click esegue subito). Sulla proposta
+          // Google confermare esegue direttamente l'azione scelta (backlog,
+          // milestone, ticket, decisione): "Conferma" e non "Rispondi", per lo
+          // stesso motivo.
+          {...(isPulse
+            ? { submitLabel: t("inbox:pulse.start") }
+            : isGoogle
+              ? { submitLabel: t("inbox:google.confirm") }
+              : {})}
           pending={busy}
           error={error !== null && error.onPanel ? error.message : null}
           onSubmit={(answer) => decide.mutate({ action: "answer", body: answer })}
@@ -501,12 +574,33 @@ export function InboxItemCard({
             // Link esterno-al-router: `url` arriva dal server (può puntare a
             // Bitbucket/GitHub tanto quanto a una rotta della SPA), quindi è un
             // `<a>` e non un `<Link>` tipato.
-            <a href={item.url} className={secondaryButton}>
+            //
+            // Sulla proposta Google `url` è il thread Gmail o l'evento del
+            // calendario (`messageUrl`): sempre una scheda NUOVA
+            // (`target="_blank"`, `rel="noopener noreferrer"`) — a differenza
+            // degli altri "Apri" della card, che restano nella stessa scheda,
+            // qui l'utente sta confermando una proposta e non deve perdere il
+            // pannello per guardare il thread.
+            <a
+              href={item.url}
+              className={secondaryButton}
+              {...(isGoogle ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+            >
               {/*
                 Il pulse non è ancorato a un ticket: "Apri" porta dove si vedono
-                TUTTE le proposte, cioè il backlog del progetto, e lo dice.
+                TUTTE le proposte, cioè il backlog del progetto, e lo dice. La
+                proposta Google porta al thread (email) o all'evento
+                (calendario): due parole diverse per lo stesso bottone.
               */}
-              {t(isPulse ? "inbox:pulse.openBacklog" : "inbox:actions.open")}
+              {t(
+                isPulse
+                  ? "inbox:pulse.openBacklog"
+                  : isGoogle
+                    ? item.google?.source === "calendar"
+                      ? "inbox:google.openEvent"
+                      : "inbox:google.openThread"
+                    : "inbox:actions.open",
+              )}
             </a>
           )}
           {can("snooze") && (

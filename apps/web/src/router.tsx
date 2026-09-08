@@ -25,12 +25,16 @@ import {
   docSpacesQueryOptions,
   docTreeQueryOptions,
   gitAccountsQueryOptions,
+  googleWorkspacesQueryOptions,
   inboxQueryOptions,
   instanceSettingsQueryOptions,
   invitesQueryOptions,
   briefQueryOptions,
+  mailQueryOptions,
+  mailSummaryQueryOptions,
   milestonesQueryOptions,
   myFollowsQueryOptions,
+  myGoogleAccountsQueryOptions,
   notificationPrefsQueryOptions,
   notificationSettingsQueryOptions,
   patsQueryOptions,
@@ -67,6 +71,7 @@ import { DocsGraphView } from "./routes/docs/graph.$projectId";
 import { DocsPage } from "./routes/docs/index";
 import { ProjectDocsLanding } from "./routes/docs/project.$projectId";
 import { InboxPage } from "./routes/inbox";
+import { MailPage } from "./routes/mail";
 import { LoginPage } from "./routes/login";
 import { MonitorListPage } from "./routes/monitor/index";
 import { ServerDetailPage } from "./routes/monitor/server-detail";
@@ -85,10 +90,11 @@ import { NewRepositoryPage } from "./routes/repositories/new";
 import { NewRepositoryStandalonePage } from "./routes/repositories/new-standalone";
 import { registerSearchSchema, RegisterPage } from "./routes/register";
 import { SettingsAccessTokensPage } from "./routes/settings/access-tokens";
-import { SettingsAccountPage } from "./routes/settings/account";
+import { SettingsAccountPage, settingsAccountSearchSchema } from "./routes/settings/account";
 import { SettingsAiProvidersPage } from "./routes/settings/ai-providers";
 import { SettingsAutomationPage } from "./routes/settings/automation";
 import { SettingsGitAccountsPage } from "./routes/settings/git-accounts";
+import { SettingsGooglePage } from "./routes/settings/google";
 import { SettingsLayout } from "./routes/settings/layout";
 import { SettingsNotificationsPage } from "./routes/settings/notifications";
 import { SettingsPluginsPage } from "./routes/settings/plugins";
@@ -604,6 +610,27 @@ const inboxRoute = createRoute({
 });
 
 /**
+ * Pagina Posta (fase 6, Task 12): messaggi ed eventi TRATTATI dal poller
+ * Google, per l'utente autenticato. `projects` e `myGoogleAccounts`
+ * alimentano i select dei filtri (`useSuspenseQuery`, non catturati); la lista
+ * e il contatore sono best-effort come l'inbox — la pagina ha un proprio
+ * stato d'errore con retry.
+ */
+const mailRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/mail",
+  loader: async ({ context }) => {
+    await Promise.all([
+      context.queryClient.ensureQueryData(mailQueryOptions({})).catch(() => undefined),
+      context.queryClient.ensureQueryData(mailSummaryQueryOptions).catch(() => undefined),
+      context.queryClient.ensureQueryData(projectsQueryOptions),
+      context.queryClient.ensureQueryData(myGoogleAccountsQueryOptions),
+    ]);
+  },
+  component: MailPage,
+});
+
+/**
  * Sezione Attività (standup giornaliero), visibile a ogni membro. Prefetch
  * best-effort del report di IERI (default del componente): la data vive nello
  * stato del componente, quindi il loader può solo precaricare il default; il
@@ -659,14 +686,19 @@ const settingsIndexRoute = createRoute({
 const settingsAccountRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: "/account",
-  // Progetti seguiti e preferenze di notifica sono sezioni della pagina: si
-  // precaricano qui insieme alla lista progetti (che alimenta le checkbox), così
-  // le useSuspenseQuery della pagina non attendono.
+  // `?google=<esito>`: è qui che il callback OAuth del server rimanda dopo il
+  // consenso. Lo schema lo accetta anche sbagliato (`.catch(undefined)`) — la
+  // barra degli indirizzi non deve poter rompere la pagina.
+  validateSearch: (search) => settingsAccountSearchSchema.parse(search),
+  // Progetti seguiti, preferenze di notifica e caselle Google sono sezioni
+  // della pagina: si precaricano qui insieme alla lista progetti (che alimenta
+  // le checkbox), così le useSuspenseQuery della pagina non attendono.
   loader: async ({ context }) => {
     await Promise.all([
       context.queryClient.ensureQueryData(projectsQueryOptions),
       context.queryClient.ensureQueryData(myFollowsQueryOptions),
       context.queryClient.ensureQueryData(notificationPrefsQueryOptions),
+      context.queryClient.ensureQueryData(myGoogleAccountsQueryOptions),
     ]);
   },
   component: SettingsAccountPage,
@@ -756,6 +788,21 @@ const settingsSlackRoute = createRoute({
   component: SettingsSlackPage,
 });
 
+/**
+ * Registro dei Google Workspace (solo admin, fase 6): le app OAuth interne su
+ * cui gli operatori collegano le proprie caselle. Prefetch best-effort come le
+ * altre sotto-rotte admin.
+ */
+const settingsGoogleRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "/google",
+  beforeLoad: ({ context }) => requireAdmin(context.user.role),
+  loader: async ({ context }) => {
+    await context.queryClient.ensureQueryData(googleWorkspacesQueryOptions).catch(() => undefined);
+  },
+  component: SettingsGooglePage,
+});
+
 const settingsAiProvidersRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: "/ai-providers",
@@ -815,6 +862,7 @@ const routeTree = rootRoute.addChildren([
     serverDetailRoute,
     activityRoute,
     inboxRoute,
+    mailRoute,
     teamRoute,
     settingsRoute.addChildren([
       settingsIndexRoute,
@@ -826,6 +874,7 @@ const routeTree = rootRoute.addChildren([
       settingsGitAccountsRoute,
       settingsStorageRoute,
       settingsSlackRoute,
+      settingsGoogleRoute,
       settingsAiProvidersRoute,
       settingsPluginsRoute,
     ]),

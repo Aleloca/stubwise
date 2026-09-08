@@ -488,16 +488,28 @@ export type ProjectBriefWeekly = z.infer<typeof projectBriefWeeklySchema>;
 // --- Registro decisioni di progetto (Fase 5) ---------------------------------
 
 /**
- * Da dove viene una decisione. Le prime tre sono scritte dai writer automatici
- * nella stessa transazione dell'evento che le origina; `manual` è la voce che
- * una persona aggiunge a mano dai Docs del progetto.
+ * Da dove viene una decisione. Tutte tranne `manual` sono scritte dai writer
+ * automatici nella stessa transazione dell'evento che le origina; `manual` è la
+ * voce che una persona aggiunge a mano dai Docs del progetto. `email` (fase 6)
+ * è la conferma di una proposta nata dalla posta o dal calendario.
  *
  * ⚠️ Non esiste — e non deve esistere — una sorgente "ai": il registro è la
  * fonte di verità sui fatti decisi da PERSONE, e i writer automatici compongono
  * i testi da template i18n. Il brief settimanale e i riassunti "in breve" sono
- * la narrativa generata; questo è il fatto.
+ * la narrativa generata; questo è il fatto. Vale identico per `email`: il testo
+ * viene dal template, non dalla classificazione del messaggio.
+ *
+ * Un valore in più su un enum di RISPOSTA è additivo anche verso l'app mobile
+ * installata: i client passano da `readerSchema`, che apre gli enum e riporta
+ * l'ignoto come `UNKNOWN` (vedi CLAUDE.md, "Invarianti e trappole").
  */
-export const decisionSourceSchema = z.enum(["ask_user", "plan_review", "pulse", "manual"]);
+export const decisionSourceSchema = z.enum([
+  "ask_user",
+  "plan_review",
+  "pulse",
+  "manual",
+  "email",
+]);
 export type DecisionSource = z.infer<typeof decisionSourceSchema>;
 
 /**

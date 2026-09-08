@@ -15,6 +15,8 @@ import {
 import { createRequire } from "node:module";
 import type { Db } from "@stubwise/db";
 import { createEmbeddingClient, type EmbeddingClient } from "@stubwise/embeddings";
+import type { FetchImpl as GoogleFetchImpl } from "@stubwise/google";
+import { GOOGLE_OAUTH_CALLBACK_PATH } from "@stubwise/shared";
 import { aiJobRoutes, ticketUsageRoutes } from "./routes/ai-jobs.js";
 import { aiProviderRoutes } from "./routes/ai-providers.js";
 import { aiUsageCostsRoutes } from "./routes/usage-costs.js";
@@ -33,6 +35,9 @@ import { docsChatRoutes } from "./routes/docs-chat.js";
 import { docsRoutes } from "./routes/docs.js";
 import { gitAccountRoutes } from "./routes/git-accounts.js";
 import { gitIdentityRoutes } from "./routes/git-identity-routes.js";
+import { googleWorkspaceRoutes } from "./routes/google-workspaces.js";
+import { meGoogleRoutes } from "./routes/me-google.js";
+import { meMailRoutes } from "./routes/me-mail.js";
 import { activityRoutes } from "./routes/activity-routes.js";
 import { backlogRoutes } from "./routes/backlog.js";
 import { inboundRoutes } from "./routes/inbound.js";
@@ -107,6 +112,73 @@ declare module "fastify" {
   }
 }
 
+/**
+ * LOG DELLA RICHIESTA E CALLBACK OAUTH GOOGLE (fase 6, Task 5a).
+ *
+ * `logger: true` (index.ts, prod) usa il serializer `req` di default di
+ * Fastify/pino, che logga `request.url` per intero — query string inclusa.
+ * `GET /api/me/google/callback?code=…&state=…` finirebbe quindi nei log di
+ * prod con un codice di autorizzazione ancora spendibile per ~10' se lo
+ * scambio con Google fallisce dopo che la riga "incoming request" è già
+ * stata scritta (la riga parte PRIMA dell'handler: vedi `route.js` di
+ * Fastify, `childLogger.info({ req: request }, 'incoming request')`).
+ *
+ * La difesa è un serializer `req` custom, non un `disableRequestLogging` per
+ * rotta: Fastify lo supporta a runtime ma non lo tipizza su
+ * `RouteShorthandOptions` (verificato sui `.d.ts` della versione installata),
+ * quindi passarlo alla rotta del callback significherebbe uscire dai tipi.
+ * Un serializer, invece, è già tipizzato su `FastifyLoggerOptions` e tocca
+ * SOLO l'URL — il resto della richiesta resta loggato per debug — e SOLO
+ * questo path esatto: sulle altre rotte la query resta intera.
+ */
+export function redactGoogleOauthCallbackUrl(url: string): string {
+  const queryIndex = url.indexOf("?");
+  if (queryIndex === -1) return url;
+  const path = url.slice(0, queryIndex);
+  if (path !== GOOGLE_OAUTH_CALLBACK_PATH) return url;
+
+  const params = new URLSearchParams(url.slice(queryIndex + 1));
+  const hadCode = params.has("code");
+  const hadState = params.has("state");
+  if (!hadCode && !hadState) return url;
+  params.delete("code");
+  params.delete("state");
+
+  const redactedKeys = [hadCode ? "code" : null, hadState ? "state" : null]
+    .filter((key): key is string => key !== null)
+    .join(",");
+  const rest = params.toString();
+  return `${path}?${rest ? `${rest}&` : ""}redacted=${redactedKeys}`;
+}
+
+/**
+ * Applica {@link redactGoogleOauthCallbackUrl} al `logger` passato a
+ * `buildApp`, senza toccare nient'altro della configurazione (livello,
+ * stream, eventuali serializer già presenti su `res`/`err`). `false`/`undefined`
+ * restano tali e basta: senza logging non c'è niente da redigere.
+ */
+function withRedactedRequestLog(
+  logger: FastifyServerOptions["logger"],
+): FastifyServerOptions["logger"] {
+  if (!logger) return logger;
+  const base = logger === true ? {} : logger;
+  return {
+    ...base,
+    serializers: {
+      ...base.serializers,
+      req(req) {
+        return {
+          method: req.method,
+          url: redactGoogleOauthCallbackUrl(req.url),
+          host: req.host,
+          remoteAddress: req.ip,
+          remotePort: req.socket?.remotePort,
+        };
+      },
+    },
+  };
+}
+
 export interface BuildAppOptions {
   logger?: FastifyServerOptions["logger"];
   db?: Db;
@@ -135,6 +207,12 @@ export interface BuildAppOptions {
    * Override pensato per i test; default 10 richieste al minuto.
    */
   authRateLimit?: RateLimitConfig;
+  /**
+   * `fetch` usato per parlare con Google (token endpoint, userinfo, revoca) nel
+   * flusso OAuth delle caselle. Default: il fetch globale. Override pensato per
+   * i test, che non devono toccare la rete di Google.
+   */
+  googleFetch?: GoogleFetchImpl;
   /**
    * Fidarsi degli header X-Forwarded-* del reverse proxy (Caddy nel deploy
    * Docker). Va abilitato dietro un proxy affinché `secure: "auto"` sul cookie
@@ -245,7 +323,10 @@ export interface BuildAppOptions {
  * così i test possono usare `app.inject` senza variabili d'ambiente.
  */
 export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
-  const app = Fastify({ logger: opts.logger ?? false, trustProxy: opts.trustProxy ?? false });
+  const app = Fastify({
+    logger: withRedactedRequestLog(opts.logger ?? false),
+    trustProxy: opts.trustProxy ?? false,
+  });
 
   // Validazione e serializzazione via Zod su tutta l'app: gli schemi delle
   // route sono oggetti Zod e (Task 9) diventeranno la fonte dell'OpenAPI.
@@ -499,6 +580,11 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   void app.register(patRoutes, { prefix: "/api/pats" });
   // Impostazioni di automazione AI (regole per tipo): solo admin.
   void app.register(settingsRoutes, { prefix: "/api/settings" });
+  // Registro dei Google Workspace (fase 6): app OAuth interne con client secret
+  // cifrato write-only e domini ammessi. Solo admin. Prefix sotto /api/settings
+  // ma plugin a sé: `settingsRoutes` è il singleton d'istanza, questo è un CRUD
+  // di N righe.
+  void app.register(googleWorkspaceRoutes, { prefix: "/api/settings/google-workspaces" });
   // Provider AI (credenziali del worker, secret cifrata write-only): solo admin.
   void app.register(aiProviderRoutes, { prefix: "/api/ai-providers" });
   // Registro plugin d'istanza (fase 3): metadati e job: i file stanno sul volume
@@ -598,6 +684,26 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // Preferenze PERSONALI: progetti seguiti e canali di notifica. Sotto /api/me
   // perché il soggetto è sempre chi chiama, non un utente amministrato.
   void app.register(mePrefsRoutes, { prefix: "/api/me" });
+  // Caselle Google PERSONALI e flusso OAuth. Prefisso a sé (`/api/me/google`)
+  // e non dentro mePrefsRoutes perché una sola delle sue rotte — il callback —
+  // è pubblica e ha un rate limit, e mescolarla con le preferenze significherebbe
+  // dover ricordare quale rotta di quel file è autenticata e quale no.
+  //
+  // Il tetto del callback è lo STESSO PRESET del login (non lo stesso bucket:
+  // sono due superfici diverse, e il commento su `credentialsRateLimit` in
+  // routes/auth.ts spiega perché un bucket condiviso si monta a mano e non con
+  // `config.rateLimit`). Il callback non prova credenziali, ma è l'unica porta
+  // di `/api/me` che uno sconosciuto può bussare.
+  void app.register(meGoogleRoutes, {
+    prefix: "/api/me/google",
+    rateLimit: opts.authRateLimit ?? { max: 10, timeWindow: "1 minute" },
+    ...(opts.googleFetch ? { fetchImpl: opts.googleFetch } : {}),
+  });
+  // Pagina Posta (Task 12): messaggi ed eventi TRATTATI dal poller Google,
+  // per utente — sempre filtrati per `userId` via il JOIN su google_accounts
+  // (vedi il docblock del modulo). Prefisso a sé come meGoogleRoutes, per
+  // la stessa ragione di leggibilità (un file, un pezzo di superficie).
+  void app.register(meMailRoutes, { prefix: "/api/me/mail" });
 
   app.get("/health", async () => ({ status: "ok" }));
 

@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   deviceDeletionSchema,
   deviceRegistrationSchema,
+  inboxGoogleSchema,
+  inboxItemSchema,
   inboxQuestionSchema,
   ticketQuestionSchema,
 } from "./notification.js";
@@ -61,6 +63,82 @@ describe("ticketQuestionSchema — round di nuovo obbligatorio", () => {
  * del codice sono solo commenti — il tetto in BYTE e lo strip (voluto) del
  * campo sconosciuto.
  */
+/**
+ * Il blocco `google` è il campo NUOVO della fase 6 su una risposta che l'app
+ * mobile legge già (`GET /api/inbox`). L'invariante «solo cambi additivi» dice
+ * che deve nascere opzionale, e la ragione non è ovvia: «aggiungere un campo è
+ * sicuro» vale per il client VECCHIO che ne riceve uno in più, non per il
+ * client NUOVO che ne riceve uno in meno da un server più vecchio (un
+ * rollback, un'istanza self-hosted non aggiornata) — e l'app è UNA per tutte.
+ */
+describe("inboxItemSchema — il blocco google è additivo", () => {
+  const item = {
+    id: "1c9e4f70-5555-4666-8777-888899990000",
+    kind: "google.proposal",
+    status: "open",
+    text: "Nuova proposta da laura@cliente.test — Export ordini.",
+    actions: ["answer", "open", "snooze", "handled"],
+    projectId: null,
+    ticketId: null,
+    jobId: null,
+    createdAt: "2026-09-07T08:14:00.000Z",
+    readAt: null,
+    snoozedUntil: null,
+    handledAt: null,
+    handledBy: null,
+  };
+
+  const google = {
+    source: "email",
+    from: "laura@cliente.test",
+    subject: "Export degli ordini",
+    receivedAt: "2026-09-07T08:14:00.000Z",
+    signal: "request",
+    actions: [{ type: "create_backlog_item" }, { type: "ignore" }],
+  };
+
+  it("parsa un item SENZA il blocco (server più vecchio, o kind che non ne ha)", () => {
+    const parsed = inboxItemSchema.safeParse(item);
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && "google" in parsed.data).toBe(false);
+  });
+
+  it("parsa e conserva il blocco quando c'è", () => {
+    const parsed = inboxItemSchema.safeParse({ ...item, google });
+    expect(parsed.success && parsed.data.google?.source).toBe("email");
+    expect(parsed.success && parsed.data.google?.actions).toEqual([
+      { type: "create_backlog_item" },
+      { type: "ignore" },
+    ]);
+  });
+
+  it("delle azioni tiene SOLO il tipo: il payload non esce dal server", () => {
+    // Se `projectId`/`title` uscissero, una superficie potrebbe rimandarli
+    // modificati e la conferma non sarebbe più «esegui la proposta che hai
+    // letto». Lo strip di `z.object` è la difesa, ed è qui che si vede.
+    const parsed = inboxGoogleSchema.safeParse({
+      ...google,
+      actions: [{ type: "create_backlog_item", projectId: "p1", title: "iniettato" }],
+    });
+    expect(parsed.success && parsed.data.actions).toEqual([{ type: "create_backlog_item" }]);
+  });
+
+  it("una data illeggibile costa il campo, non l'intero blocco", () => {
+    const parsed = inboxGoogleSchema.safeParse({ ...google, receivedAt: "ieri mattina" });
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data.receivedAt).toBeUndefined();
+    expect(parsed.success && parsed.data.subject).toBe("Export degli ordini");
+  });
+
+  it("un tipo d'azione sconosciuto invalida il blocco (la card degrada)", () => {
+    // Meglio nessun contorno che un contorno che dice «esegui qualcosa» senza
+    // saper dire cosa: chi legge omette il blocco e la card resta confermabile.
+    expect(
+      inboxGoogleSchema.safeParse({ ...google, actions: [{ type: "svuota_il_backlog" }] }).success,
+    ).toBe(false);
+  });
+});
+
 describe("deviceRegistrationSchema", () => {
   const valido = { platform: "ios" as const, token: "tok-1" };
 

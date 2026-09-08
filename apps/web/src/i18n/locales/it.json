@@ -25,7 +25,8 @@
       "settings": "Impostazioni",
       "docs": "Documentazione",
       "label": "Navigazione",
-      "open": "Apri navigazione"
+      "open": "Apri navigazione",
+      "mail": "Posta"
     },
     "on": "attivo",
     "off": "disattivato"
@@ -694,6 +695,7 @@
         "gitAccounts": "Account Git",
         "storage": "Storage",
         "slack": "Slack",
+        "google": "Google",
         "aiProviders": "Provider AI",
         "plugins": "Plugin"
       }
@@ -719,6 +721,39 @@
         "slackNotLinked": "Collega prima il tuo account Slack (chiedi a un maintainer da /team).",
         "push": "Ricevi le notifiche push sull'app mobile",
         "pushHint": "Vale per tutti i dispositivi su cui hai fatto l'accesso dall'app."
+      },
+      "googleAccounts": {
+        "title": "Caselle Google",
+        "subtitle": "// Gmail e Calendar in sola lettura. Stubwise legge solo la posta che le regole di routing dei progetti riconoscono.",
+        "connect": "Collega una casella",
+        "empty": "// nessuna casella collegata",
+        "workspace": "Workspace",
+        "authorize": "Continua su Google",
+        "noWorkspace": "Su questa istanza non è ancora configurato nessun Google Workspace. Chiedi a un maintainer di aggiungerne uno da Impostazioni → Google Workspace.",
+        "active": "Attiva",
+        "disabled": "Disabilitata",
+        "reconnect": "Ricollega",
+        "disconnect": "Scollega",
+        "confirmDisconnect": "Conferma",
+        "proposalsEnabled": "Proposte attive per questa casella",
+        "lastSync": "ultima sync {{date}}",
+        "neverSynced": "mai sincronizzata",
+        "outcome": {
+          "ok": "Casella collegata.",
+          "domain_mismatch": "Quell'account Google non è su un dominio del Workspace scelto. Scegli la casella della tua organizzazione.",
+          "no_refresh_token": "Google non ha rilasciato un'autorizzazione duratura. Revoca l'accesso di Stubwise da myaccount.google.com/permissions e riprova.",
+          "insufficient_scope": "Alcune autorizzazioni sono state escluse. Riprova lasciando spuntate tutte quelle richieste.",
+          "email_not_verified": "Google non conferma che quell'indirizzo email sia verificato. Verificalo sul tuo account Google, poi riprova.",
+          "mailbox_owned_by_other": "Quella casella è già collegata a un altro account Stubwise. Chiedi a quella persona di scollegarla prima, oppure collega una casella tua.",
+          "error": "Collegamento non riuscito. Riprova; se continua a fallire, chiedi a un maintainer di controllare le impostazioni del Workspace."
+        },
+        "reason": {
+          "revoked": "accesso revocato su Google",
+          "invalid_grant": "autorizzazione non più valida: ricollega",
+          "insufficient_scope": "autorizzazioni mancanti: ricollega",
+          "workspace_removed": "il Workspace è stato rimosso",
+          "sync_failed": "troppi errori di sincronizzazione consecutivi"
+        }
       }
     },
     "accessTokens": {
@@ -881,6 +916,42 @@
       "save": "Salva",
       "saving": "Salvataggio…",
       "saved": "Salvato"
+    },
+    "google": {
+      "title": "Google Workspace",
+      "subtitle": "Le app OAuth interne su cui il team collega le proprie caselle Gmail e Calendar.",
+      "newWorkspace": "Nuovo Workspace",
+      "empty": "Nessun Google Workspace configurato",
+      "name": "Nome",
+      "namePlaceholder": "Acme",
+      "domains": "Domini email",
+      "domainsPlaceholder": "acme.com, sub.acme.com",
+      "domainsHint": "// separati da virgola o spazio. Una casella il cui dominio non è elencato qui viene rifiutata al collegamento.",
+      "clientId": "Client ID",
+      "clientIdPlaceholder": "123456.apps.googleusercontent.com",
+      "clientSecret": "Client secret",
+      "secretPlaceholder": "Incolla qui il valore",
+      "secretSetPlaceholder": "•••• (impostato)",
+      "secretHint": "// il client secret è cifrato at rest e non viene più mostrato. Lascia vuoto per mantenere quello salvato.",
+      "removeClientSecret": "Rimuovi il client secret salvato",
+      "secretSetBadge": "Secret impostato",
+      "secretMissingBadge": "Secret mancante",
+      "accounts": "Caselle collegate: {{count}}",
+      "createdAt": "creato il {{date}}",
+      "create": "Crea Workspace",
+      "creating": "Creazione…",
+      "save": "Salva",
+      "saving": "Salvataggio…",
+      "edit": "Modifica",
+      "delete": "Elimina",
+      "confirm": "Conferma",
+      "inUse": "Questo Workspace ha ancora caselle collegate: devono scollegarle i rispettivi proprietari.",
+      "consoleTitle": "Da incollare nella Google Cloud Console",
+      "redirectUri": "URI di reindirizzamento autorizzato",
+      "scopes": "Scope",
+      "internalHint": "Crea la schermata di consenso OAuth come app Interna: resta dentro l'organizzazione e non richiede la verifica di Google.",
+      "apisHint": "Abilita l'API Gmail e l'API Google Calendar sullo stesso progetto, poi incolla qui client ID e client secret.",
+      "guideHint": "// guida passo-passo: documentazione utente, Integrazioni → Google Workspace."
     },
     "aiProviders": {
       "title": "Provider AI",
@@ -1109,7 +1180,8 @@
       "monitorRecovered": "Rientrato",
       "awaitingInput": "Domanda a cui rispondere",
       "pulse": "Proposta",
-      "brief": "Brief settimanale"
+      "brief": "Brief settimanale",
+      "googleProposal": "Proposta dalla posta"
     },
     "actions": {
       "approvePlan": "Approva piano",
@@ -1169,6 +1241,22 @@
       "forbidden": "Azione riservata ai maintainer",
       "invalidAction": "Azione non disponibile su questa notifica",
       "generic": "Azione non riuscita"
+    },
+    "google": {
+      "unknownSender": "Mittente sconosciuto",
+      "confirm": "Conferma",
+      "openThread": "Apri il thread",
+      "openEvent": "Apri l'evento",
+      "errors": {
+        "stale": "Questa proposta non è più disponibile",
+        "alreadyTaken": "Già gestita da {{email}}",
+        "alreadyTakenUnknown": "Già gestita da qualcun altro",
+        "targetGone": "Il bersaglio di questa azione non esiste più — puoi riproporla dalla pagina Posta",
+        "actionFailed": "Questa azione non è riuscita — puoi riproporla dalla pagina Posta",
+        "invalidChoice": "Questa proposta non è più disponibile",
+        "forbidden": "Non puoi confermare questa proposta",
+        "generic": "Conferma della proposta non riuscita"
+      }
     }
   },
   "question": {
@@ -1294,7 +1382,14 @@
     },
     "priorityTitle": "Priorità: {{label}}",
     "sourceTitle": "Origine: {{label}}",
-    "effortTitle": "Sforzo: {{label}} ({{value}}/5)"
+    "effortTitle": "Sforzo: {{label}} ({{value}}/5)",
+    "signal": {
+      "decision": "Decisione",
+      "request": "Richiesta",
+      "deadline": "Scadenza",
+      "blocker": "Blocco",
+      "none": "Altro"
+    }
   },
   "projects": {
     "list": {
@@ -1457,6 +1552,28 @@
       "pending": "// il brief è in corso di scrittura: arriva fra qualche minuto.",
       "failed": "// la generazione del brief è fallita. Rigenerala per riprovare.",
       "noText": "// questo brief non ha nessun testo: l'istanza non ha un provider AI utilizzabile per generarlo."
+    },
+    "email": {
+      "title": "Posta",
+      "subtitle": "// quali email parlano di questo progetto. Ne serve almeno una: senza regole, nessun messaggio entra.",
+      "perimeterWarning": "Un messaggio che nessuna regola riconosce non viene nemmeno scaricato da Gmail. Queste regole sono il perimetro di ciò che Stubwise legge della posta di chi ha collegato una casella.",
+      "empty": "// nessuna regola: la posta di questo progetto non viene letta",
+      "loading": "// caricamento regole…",
+      "error": "// impossibile caricare le regole di routing della posta",
+      "senders": "Mittenti e destinatari",
+      "sendersHint": "// un dominio (acme.com) o un singolo indirizzo (mario@acme.com). Vale su Da, A e Cc.",
+      "labels": "Etichette Gmail",
+      "labelsHint": "// l'etichetta con cui marchi la posta di questo progetto nella tua casella.",
+      "keywords": "Parole chiave",
+      "keywordsHint": "// cercate nell'oggetto e nel testo. Solo quelle nell'oggetto bastano a far scaricare il messaggio.",
+      "pickLabel": "Scegli fra le etichette viste",
+      "pickLabelPlaceholder": "Cerca un'etichetta…",
+      "labelNoResults": "// nessuna etichetta corrisponde",
+      "labelMoreResults": "+{{count}} altre",
+      "noObservedLabels": "// nessuna etichetta osservata: scrivila a mano nel campo qui sopra.",
+      "loadingLabels": "// caricamento etichette…",
+      "useTypedLabel": "Usa \"{{value}}\"",
+      "cancel": "Annulla"
     }
   },
   "repositories": {
@@ -2146,5 +2263,42 @@
       "done": "Completato",
       "failed": "Fallito"
     }
+  },
+  "mail": {
+    "title": "Posta",
+    "subtitle": "Messaggi ed eventi di calendario trattati da Stubwise, e cosa ne è stato fatto.",
+    "filters": {
+      "account": "Casella",
+      "allAccounts": "Tutte le caselle",
+      "status": "Stato",
+      "allStatuses": "Tutti gli stati",
+      "project": "Progetto",
+      "allProjects": "Tutti i progetti"
+    },
+    "status": {
+      "new": "Nuovo",
+      "classified": "Classificato",
+      "proposed": "Proposto",
+      "actioned": "Eseguito",
+      "ignored": "Ignorato",
+      "failed": "Fallito",
+      "cancelled": "Annullato"
+    },
+    "source": {
+      "email": "Email",
+      "calendar": "Calendario"
+    },
+    "noProject": "Nessun progetto",
+    "noSubject": "(nessun oggetto)",
+    "open": "Apri",
+    "repropose": "Riproponi",
+    "reproposing": "Riproponendo…",
+    "reproposed": "Riproposto — la nuova proposta arriverà in inbox a breve",
+    "reproposeError": "Non è stato possibile riproporre questa voce",
+    "openProposalsBadge": "{{count}} aperte",
+    "empty": "// nessuna posta",
+    "loadMore": "Carica altre",
+    "loadingMore": "Carico…",
+    "loadError": "Non è stato possibile caricare la Posta."
   }
 }

@@ -1,8 +1,16 @@
+import { randomUUID } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Db } from "./client.js";
-import { monthlyCostUsd, ticketCostUsd } from "./cost.js";
-import { agentRuns, aiJobs } from "./schema.js";
+import { monthlyCostByPhase, monthlyCostUsd, ticketCostUsd } from "./cost.js";
+import {
+  agentRuns,
+  aiJobs,
+  emailMessages,
+  googleAccounts,
+  googleWorkspaces,
+  users,
+} from "./schema.js";
 import { seedTicket as seedTicketRow, startTestDb, type TestDb } from "./testing.js";
 
 /**
@@ -11,7 +19,7 @@ import { seedTicket as seedTicketRow, startTestDb, type TestDb } from "./testing
  * e la finestra del mese corrente (date_trunc('month', now())) che esclude i
  * run del mese scorso.
  */
-describe("cost: ticketCostUsd e monthlyCostUsd", () => {
+describe("cost: ticketCostUsd, monthlyCostUsd e monthlyCostByPhase", () => {
   let testDb: TestDb;
   let db: Db;
   let ticketCounter = 0;
@@ -97,5 +105,83 @@ describe("cost: ticketCostUsd e monthlyCostUsd", () => {
     // Solo il run corrente (0.5) deve incrementare il totale; i 9.0 del mese
     // scorso restano fuori.
     expect(after - before).toBeCloseTo(0.5, 6);
+  });
+
+  /**
+   * Un run di CLASSIFICAZIONE DELLA POSTA (fase 6): owner `email_message_id`,
+   * nessun job. Serve una casella vera perché la FK e il check a tre owner
+   * sono nel DB, non nel codice.
+   */
+  async function seedEmailRun(costUsd: string): Promise<string> {
+    const [user] = await db
+      .insert(users)
+      .values({
+        email: `cost-${randomUUID()}@acme.com`,
+        passwordHash: "x",
+        role: "member",
+      })
+      .returning({ id: users.id });
+    const [workspace] = await db
+      .insert(googleWorkspaces)
+      .values({
+        name: "Acme",
+        domains: ["acme.com"],
+        clientId: "client-id",
+        clientSecretEncrypted: "blob",
+      })
+      .returning({ id: googleWorkspaces.id });
+    const [account] = await db
+      .insert(googleAccounts)
+      .values({
+        userId: user!.id,
+        workspaceId: workspace!.id,
+        email: `casella-${randomUUID()}@acme.com`,
+        googleSub: `sub-${randomUUID()}`,
+        refreshTokenEncrypted: "blob",
+      })
+      .returning({ id: googleAccounts.id });
+    const [message] = await db
+      .insert(emailMessages)
+      .values({
+        accountId: account!.id,
+        gmailMessageId: `gm-${randomUUID()}`,
+        threadId: `th-${randomUUID()}`,
+        fromAddress: "cliente@cliente.com",
+        receivedAt: new Date(),
+      })
+      .returning({ id: emailMessages.id });
+    await db.insert(agentRuns).values({
+      emailMessageId: message!.id,
+      phase: "email_classify",
+      model: "haiku",
+      costUsd,
+    });
+    return message!.id;
+  }
+
+  it("monthlyCostUsd conta anche la POSTA, che non passa da un job", async () => {
+    const before = await monthlyCostUsd(db);
+
+    await seedEmailRun("0.030000");
+
+    // Se qui ci fosse un join con ai_jobs — come nella dashboard consumi — la
+    // classificazione della posta sarebbe una spesa invisibile al budget.
+    expect((await monthlyCostUsd(db)) - before).toBeCloseTo(0.03, 6);
+  });
+
+  it("monthlyCostByPhase separa la voce della posta dalle altre fasi", async () => {
+    const before = await monthlyCostByPhase(db);
+
+    const ticket = await seedTicket();
+    const job = await seedJob(ticket);
+    await seedRun(job, "0.700000");
+    await seedEmailRun("0.040000");
+
+    const after = await monthlyCostByPhase(db);
+    expect(after.fix - before.fix).toBeCloseTo(0.7, 6);
+    expect(after.email_classify - before.email_classify).toBeCloseTo(0.04, 6);
+    // Le fasi senza run ci sono comunque, a 0: nessuna chiave assente.
+    expect(after.review).toBe(0);
+    expect(after.triage).toBe(0);
   });
 });

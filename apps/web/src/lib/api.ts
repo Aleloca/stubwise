@@ -23,7 +23,13 @@ import type {
   CreateCheckInput,
   CreatePluginInput,
   DiscoveredService,
+  EmailRoute,
   GitProviderKind,
+  GoogleAccount,
+  GoogleWorkspace,
+  GoogleWorkspaceDraft,
+  GoogleWorkspaceOption,
+  GoogleWorkspacePatch,
   HandledBy,
   InboxAction,
   InboxActionResult,
@@ -33,6 +39,10 @@ import type {
   InboxQuestion,
   InboxStatus,
   Language,
+  MailItemStatus,
+  MailPage,
+  MailSource,
+  MailSummary,
   NotificationPrefsUpdate,
   NotificationPrefsView,
   PatView,
@@ -118,6 +128,11 @@ export type {
 export type {
   AgentQuestionOption,
   AnswerBody,
+  GoogleAccount,
+  GoogleWorkspace,
+  GoogleWorkspaceDraft,
+  GoogleWorkspaceOption,
+  GoogleWorkspacePatch,
   HandledBy,
   InboxAction,
   InboxActionResult,
@@ -1733,6 +1748,104 @@ export function putProjectPlugins(
   return api.put(`/api/projects/${encodeURIComponent(projectId)}/plugins`, { plugins });
 }
 
+// --- Regole di routing della posta su un progetto (Fase 6) ---
+
+/**
+ * I tipi delle regole vengono da `@stubwise/shared`, come per i plugin: il
+ * criterio è lo stesso valore che il DB vincola col CHECK e che il poller
+ * confronta, e ridichiararlo qui sarebbe una terza copia da tenere allineata.
+ */
+export type { EmailRoute, EmailRouteKind } from "@stubwise/shared";
+
+/** L'insieme delle regole di un progetto: stessa forma del body del PUT. */
+export interface ProjectEmailRoutes {
+  routes: EmailRoute[];
+}
+
+/** Le regole del progetto. 404 se non esiste o se un member non lo segue. */
+export function getProjectEmailRoutes(projectId: string): Promise<ProjectEmailRoutes> {
+  return api.get(`/api/projects/${encodeURIComponent(projectId)}/email-routes`);
+}
+
+/**
+ * SOSTITUISCE l'insieme completo delle regole e restituisce la foto salvata,
+ * coi valori NORMALIZZATI dal server (minuscolo, indirizzo estratto dal nome
+ * visualizzato, dominio senza `@`): la risposta è la verità, non il body che
+ * si è mandato. Solo admin (403 a un member).
+ *
+ * 400 `invalid_route_value` se un valore, normalizzato, resta vuoto.
+ */
+export function putProjectEmailRoutes(
+  projectId: string,
+  routes: EmailRoute[],
+): Promise<ProjectEmailRoutes> {
+  return api.put(`/api/projects/${encodeURIComponent(projectId)}/email-routes`, { routes });
+}
+
+/**
+ * Le etichette Gmail già osservate nella posta delle caselle di CHI CHIEDE:
+ * suggerimenti per il picker delle regole `gmail_label`. Vuota finché il poller
+ * non ha ingerito nulla, ed è una risposta valida.
+ */
+export function getProjectEmailLabels(projectId: string): Promise<{ labels: string[] }> {
+  return api.get(`/api/projects/${encodeURIComponent(projectId)}/email-labels`);
+}
+
+// --- Pagina Posta, per utente (Fase 6, Task 12) ---
+
+export type {
+  MailItem,
+  MailItemStatus,
+  MailPage,
+  MailSignal,
+  MailSource,
+  MailSummary,
+} from "@stubwise/shared";
+
+/** Filtri della lista Posta: tutti opzionali, ognuno è un AND coi gli altri. */
+export interface MailFilters {
+  account?: string;
+  status?: MailItemStatus;
+  project?: string;
+}
+
+/**
+ * Pagina della Posta dell'utente autenticato: messaggi Gmail ed eventi di
+ * calendario TRATTATI, fusi in una lista sola ordinata per data (`source`
+ * distingue le due). Sempre filtrata per `userId` sul server — non esiste un
+ * modo di vedere la posta di un altro, admin compreso.
+ */
+export function getMail(
+  filters: MailFilters = {},
+  cursor?: string,
+  limit?: number,
+): Promise<MailPage> {
+  const params = new URLSearchParams();
+  if (filters.account) params.set("account", filters.account);
+  if (filters.status) params.set("status", filters.status);
+  if (filters.project) params.set("project", filters.project);
+  if (cursor) params.set("cursor", cursor);
+  if (limit !== undefined) params.set("limit", String(limit));
+  const query = params.toString();
+  return api.get(`/api/me/mail${query ? `?${query}` : ""}`);
+}
+
+/** Contatori per il badge di nav e l'intestazione della pagina Posta. */
+export function getMailSummary(): Promise<MailSummary> {
+  return api.get("/api/me/mail/summary");
+}
+
+/**
+ * Riproponi una riga `failed`/`ignored`: resetta lo stato perché il PROSSIMO
+ * tick del poller la riprenda e generi una proposta NUOVA (non ripubblica da
+ * qui). 409 `not_reproposable` se lo stato attuale non è fra quelli
+ * riproponibili — la UI non dovrebbe mostrare il bottone in quel caso, ma la
+ * rotta lo verifica comunque.
+ */
+export function postMailRepropose(source: MailSource, id: string): Promise<{ ok: true }> {
+  return api.post(`/api/me/mail/${source}/${encodeURIComponent(id)}/repropose`);
+}
+
 /**
  * Verifica REPO-SPECIFICA delle credenziali dell'account su un repo scelto
  * (solo admin): sonda i tre check che richiedono un repo reale — push git,
@@ -1863,6 +1976,13 @@ export interface NotificationSettings {
   notifyPulse: boolean;
   /** Brief settimanale: il resoconto per non-tecnici del progetto (fase 5). */
   notifyBrief: boolean;
+  // NIENTE notifyGoogleProposal qui, di proposito (fase 6, Task 4 del piano
+  // di fix di review): il campo è stato rimosso dalla rotta perché
+  // controllava SOLO il webhook d'istanza, che non deve mai vedere la posta
+  // di un collega (audience `mailbox_owner`) — vedi `shouldSendWebhook` in
+  // `packages/notifications/src/dispatch.ts`. La proposta continua ad
+  // arrivare SEMPRE in inbox, DM Slack e push al proprietario della casella,
+  // senza toggle: non c'è più nulla da spegnere qui.
 }
 
 /** Esito dell'invio di una notifica di test (lo restituisce l'endpoint /test). */
@@ -1906,6 +2026,8 @@ export function putNotificationSettings(
     notifyPulse: settings.notifyPulse,
     // Idem: default server true, va inviato sempre.
     notifyBrief: settings.notifyBrief,
+    // Niente notifyGoogleProposal: campo rimosso dal body (vedi il commento
+    // sull'interfaccia `NotificationSettings` sopra).
   });
 }
 
@@ -1988,6 +2110,77 @@ export function getInstanceSettings(): Promise<InstanceSettings> {
  */
 export function putInstanceSettings(patch: InstanceSettingsPatch): Promise<InstanceSettings> {
   return api.put("/api/settings/instance", patch);
+}
+
+// --- Google Workspace (fase 6) ---
+
+/**
+ * Registro dei Google Workspace (solo admin): l'app OAuth interna di una
+ * organizzazione. Il `clientSecret` NON torna mai dal server — c'è solo il
+ * flag `clientSecretSet` — e `redirectUri` è la stringa da incollare nella
+ * Google Cloud Console, composta dal server sul suo URL pubblico.
+ */
+export function getGoogleWorkspaces(): Promise<GoogleWorkspace[]> {
+  return api.get("/api/settings/google-workspaces");
+}
+
+export function postGoogleWorkspace(draft: GoogleWorkspaceDraft): Promise<GoogleWorkspace> {
+  return api.post("/api/settings/google-workspaces", draft);
+}
+
+/**
+ * Modifica di un Workspace. Il `clientSecret` è write-only: **omesso** lascia
+ * intatto quello salvato, `""` lo azzera. La UI non deve mai inviare stringa
+ * vuota per "non ho digitato nulla".
+ */
+export function patchGoogleWorkspace(
+  id: string,
+  patch: GoogleWorkspacePatch,
+): Promise<GoogleWorkspace> {
+  return api.patch(`/api/settings/google-workspaces/${encodeURIComponent(id)}`, patch);
+}
+
+/** Elimina un Workspace (solo admin): 409 `workspace_in_use` se ha caselle. */
+export function deleteGoogleWorkspace(id: string): Promise<void> {
+  return request("DELETE", `/api/settings/google-workspaces/${encodeURIComponent(id)}`);
+}
+
+// --- Caselle Google dell'utente (fase 6) ---
+
+/**
+ * I Workspace fra cui scegliere per collegare una casella. Rotta a sé rispetto
+ * al registro `/api/settings/google-workspaces`, che è solo admin: qui ci passa
+ * anche un operatore, e ottiene il minimo che serve alla select.
+ */
+export function getMyGoogleWorkspaceOptions(): Promise<GoogleWorkspaceOption[]> {
+  return api.get("/api/me/google/workspaces");
+}
+
+/** Le MIE caselle collegate. Nessun campo porta mai il refresh token. */
+export function getMyGoogleAccounts(): Promise<GoogleAccount[]> {
+  return api.get("/api/me/google/accounts");
+}
+
+/**
+ * Avvia il consenso: il server risponde con la URL di Google, su cui il
+ * chiamante deve NAVIGARE (`window.location.href`). Non è un redirect HTTP
+ * perché una `fetch` lo seguirebbe in background, senza mostrare nulla.
+ */
+export function postMyGoogleConnect(workspaceId: string): Promise<{ authorizeUrl: string }> {
+  return api.post("/api/me/google/connect", { workspaceId });
+}
+
+/** L'unica modifica possibile su una casella: il toggle delle proposte. */
+export function patchMyGoogleAccount(
+  id: string,
+  patch: { proposalsEnabled: boolean },
+): Promise<GoogleAccount> {
+  return api.patch(`/api/me/google/accounts/${encodeURIComponent(id)}`, patch);
+}
+
+/** Scollega: il server revoca su Google (best-effort) e cancella la riga. */
+export function deleteMyGoogleAccount(id: string): Promise<void> {
+  return request("DELETE", `/api/me/google/accounts/${encodeURIComponent(id)}`);
 }
 
 // --- Dashboard consumi AI (costi/token) ---

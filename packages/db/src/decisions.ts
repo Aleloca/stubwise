@@ -4,8 +4,13 @@ import { projectDecisions, type ProjectDecisionRow } from "./schema.js";
 /** `Db` o una transazione drizzle: la decisione va scritta dove sta l'evento. */
 type DbOrTx = Db | Parameters<Parameters<Db["transaction"]>[0]>[0];
 
-/** Le quattro sorgenti ammesse dal CHECK `project_decisions_source_chk`. */
-export type DecisionSource = "ask_user" | "plan_review" | "pulse" | "manual";
+/**
+ * Le sorgenti ammesse dal CHECK `project_decisions_source_chk`. `email` (fase
+ * 6) è la conferma di una proposta nata dalla posta o dal calendario: come le
+ * altre automatiche, i suoi testi vengono da template i18n — mai da un run del
+ * modello (vedi l'invariante nel docblock di {@link recordDecision}).
+ */
+export type DecisionSource = "ask_user" | "plan_review" | "pulse" | "manual" | "email";
 
 export interface RecordDecisionParams {
   projectId: string;

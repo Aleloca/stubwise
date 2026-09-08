@@ -212,6 +212,14 @@ export function inboxErrorText(
     case "run_not_started":
       // Riuscita a metà: il ticket c'è, il run va lanciato a mano dal ticket.
       return t(lang, "notify.inbox.errRunNotStarted");
+    case "target_gone":
+      // Proposta Google (fase 6, Task 11): il progetto o il ticket dietro
+      // l'azione confermata non esiste più.
+      return t(lang, "notify.inbox.errTargetGone");
+    case "action_failed":
+      // Imprevisto DOPO il claim: la riga sorgente resta `failed`,
+      // riproponibile dalla pagina Posta.
+      return t(lang, "notify.inbox.errActionFailed");
   }
 }
 
