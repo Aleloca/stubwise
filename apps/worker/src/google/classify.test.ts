@@ -6,6 +6,7 @@ import {
   emailProposals,
   googleAccounts,
   googleWorkspaces,
+  instanceSettings,
   projects,
   tickets,
   users,
@@ -70,6 +71,9 @@ afterEach(async () => {
   await db.delete(tickets);
   await db.delete(projects);
   await db.delete(users);
+  // Il tetto di budget mensile (Task 6) vive sul singleton seedato dalle
+  // migrazioni: chi lo tocca lo rimette a `null` (nessun tetto), il default.
+  await db.update(instanceSettings).set({ monthlyBudgetUsd: null }).where(eq(instanceSettings.id, 1));
   vi.restoreAllMocks();
 });
 
@@ -837,6 +841,221 @@ describe("classifyNewMessages", () => {
 
     expect(stats.ignored).toBe(1);
     expect(runner.calls).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Difese di costo (fase 6c, Task 6): tetto giornaliero, gate di budget,
+// cooldown per thread
+// ---------------------------------------------------------------------------
+
+describe("classifyNewMessages: difese di costo (fase 6c, Task 6)", () => {
+  /** Logger che registra i messaggi invece di scartarli, per asserire sulle righe di log. */
+  function captureLogger(): {
+    logger: { info: (m: string) => void; warn: (m: string) => void; error: (m: string) => void };
+    warns: string[];
+    infos: string[];
+  } {
+    const warns: string[] = [];
+    const infos: string[] = [];
+    return {
+      logger: {
+        info: (m) => infos.push(m),
+        warn: (m) => warns.push(m),
+        error: () => {},
+      },
+      warns,
+      infos,
+    };
+  }
+
+  /** Semina un run `email_classify` a mano, per simulare classificazioni già avvenute senza rilanciare il runner finto. */
+  async function seedClassifyRun(messageId: string): Promise<void> {
+    await db.insert(agentRuns).values({
+      emailMessageId: messageId,
+      phase: "email_classify",
+      model: "haiku",
+    });
+  }
+
+  it("tetto giornaliero raggiunto → nessun run, riga di log, i messaggi restano `new`", async () => {
+    const account = await seedAccount();
+    const projectId = await seedProject("Portale");
+    // Due classificazioni "già avvenute" nella casella, che saturano un tetto di 2.
+    const alreadyOne = await seedMessage(account.id, { projectId, status: "ignored" });
+    const alreadyTwo = await seedMessage(account.id, { projectId, status: "ignored" });
+    await seedClassifyRun(alreadyOne.id);
+    await seedClassifyRun(alreadyTwo.id);
+    const pending = await seedMessage(account.id, { projectId });
+    const runner = new FakeRunner([]);
+    const { logger, warns } = captureLogger();
+
+    const stats = await classifyNewMessages(
+      { ...deps(runner, { logger }), maxPerTick: 20, encryptionKey: ENCRYPTION_KEY, maxPerDay: 2 },
+      account.id,
+    );
+
+    expect(stats).toEqual({ classified: 0, ignored: 0, failed: 0 });
+    expect(runner.calls).toHaveLength(0);
+    expect(warns.some((w) => w.includes("tetto giornaliero"))).toBe(true);
+    expect((await reload(pending.id)).status).toBe("new");
+  });
+
+  it("tetto giornaliero a 0 → nessun limite (comportamento di prima)", async () => {
+    const account = await seedAccount();
+    const projectId = await seedProject("Portale");
+    const already = await seedMessage(account.id, { projectId, status: "ignored" });
+    await seedClassifyRun(already.id);
+    await seedClassifyRun(already.id);
+    await seedClassifyRun(already.id);
+    const pending = await seedMessage(account.id, { projectId });
+    const runner = new FakeRunner([modelOutput({ signal: "none" })]);
+
+    const stats = await classifyNewMessages(
+      { ...deps(runner), maxPerTick: 20, encryptionKey: ENCRYPTION_KEY, maxPerDay: 0 },
+      account.id,
+    );
+
+    expect(stats).toEqual({ classified: 0, ignored: 1, failed: 0 });
+    expect(runner.calls).toHaveLength(1);
+    expect((await reload(pending.id)).status).toBe("ignored");
+  });
+
+  it("budget mensile superato → nessuna classificazione, riga di log col motivo esplicito", async () => {
+    const account = await seedAccount();
+    const projectId = await seedProject("Portale");
+    const message = await seedMessage(account.id, { projectId });
+    await db
+      .update(instanceSettings)
+      .set({ monthlyBudgetUsd: "10" })
+      .where(eq(instanceSettings.id, 1));
+    const runner = new FakeRunner([]);
+    const { logger, warns } = captureLogger();
+
+    const stats = await classifyNewMessages(
+      {
+        ...deps(runner, { logger }),
+        maxPerTick: 20,
+        encryptionKey: ENCRYPTION_KEY,
+        monthlyCostUsdFn: async () => 12,
+      },
+      account.id,
+    );
+
+    expect(stats).toEqual({ classified: 0, ignored: 0, failed: 0 });
+    expect(runner.calls).toHaveLength(0);
+    expect(warns.some((w) => w.includes("budget mensile superato"))).toBe(true);
+    expect((await reload(message.id)).status).toBe("new");
+  });
+
+  it("budget mensile NON configurato (null) → nessun limite", async () => {
+    const account = await seedAccount();
+    const projectId = await seedProject("Portale");
+    const message = await seedMessage(account.id, { projectId });
+    const runner = new FakeRunner([modelOutput({ signal: "none" })]);
+
+    const stats = await classifyNewMessages(
+      {
+        ...deps(runner),
+        maxPerTick: 20,
+        encryptionKey: ENCRYPTION_KEY,
+        monthlyCostUsdFn: async () => 999_999,
+      },
+      account.id,
+    );
+
+    expect(stats).toEqual({ classified: 0, ignored: 1, failed: 0 });
+    expect((await reload(message.id)).status).toBe("ignored");
+  });
+
+  it("due messaggi dello stesso thread nella finestra di cooldown → uno solo viene classificato, l'altro resta `new`", async () => {
+    const account = await seedAccount();
+    const projectId = await seedProject("Portale");
+    const threadId = `th-${randomUUID()}`;
+    const first = await seedMessage(account.id, {
+      projectId,
+      threadId,
+      receivedAt: new Date("2026-09-01T08:00:00.000Z"),
+    });
+    const second = await seedMessage(account.id, {
+      projectId,
+      threadId,
+      receivedAt: new Date("2026-09-02T08:00:00.000Z"),
+    });
+    const runner = new FakeRunner([modelOutput({ signal: "none" })]);
+
+    const stats = await classifyNewMessages(
+      { ...deps(runner), maxPerTick: 20, encryptionKey: ENCRYPTION_KEY, threadCooldownMinutes: 60 },
+      account.id,
+    );
+
+    expect(stats).toEqual({ classified: 0, ignored: 1, failed: 0 });
+    expect(runner.calls).toHaveLength(1);
+    expect((await reload(first.id)).status).toBe("ignored");
+    expect((await reload(second.id)).status).toBe("new");
+  });
+
+  it("cooldown a 0 → disattivato, entrambi i messaggi dello stesso thread vengono classificati", async () => {
+    const account = await seedAccount();
+    const projectId = await seedProject("Portale");
+    const threadId = `th-${randomUUID()}`;
+    const first = await seedMessage(account.id, {
+      projectId,
+      threadId,
+      receivedAt: new Date("2026-09-01T08:00:00.000Z"),
+    });
+    const second = await seedMessage(account.id, {
+      projectId,
+      threadId,
+      receivedAt: new Date("2026-09-02T08:00:00.000Z"),
+    });
+    const runner = new FakeRunner([modelOutput({ signal: "none" }), modelOutput({ signal: "none" })]);
+
+    const stats = await classifyNewMessages(
+      { ...deps(runner), maxPerTick: 20, encryptionKey: ENCRYPTION_KEY, threadCooldownMinutes: 0 },
+      account.id,
+    );
+
+    expect(stats).toEqual({ classified: 0, ignored: 2, failed: 0 });
+    expect(runner.calls).toHaveLength(2);
+    expect((await reload(first.id)).status).toBe("ignored");
+    expect((await reload(second.id)).status).toBe("ignored");
+  });
+
+  it("un thread in cooldown non blocca la coda: il messaggio successivo non correlato riceve comunque un run nello stesso tick", async () => {
+    const account = await seedAccount();
+    const projectId = await seedProject("Portale");
+    const threadId = `th-${randomUUID()}`;
+    const firstOfThread = await seedMessage(account.id, {
+      projectId,
+      threadId,
+      receivedAt: new Date("2026-09-01T08:00:00.000Z"),
+    });
+    const secondOfThread = await seedMessage(account.id, {
+      projectId,
+      threadId,
+      receivedAt: new Date("2026-09-02T08:00:00.000Z"),
+    });
+    const unrelated = await seedMessage(account.id, {
+      projectId,
+      receivedAt: new Date("2026-09-03T08:00:00.000Z"),
+    });
+    const runner = new FakeRunner([modelOutput({ signal: "none" }), modelOutput({ signal: "none" })]);
+    const { logger, infos } = captureLogger();
+
+    const stats = await classifyNewMessages(
+      { ...deps(runner, { logger }), maxPerTick: 20, encryptionKey: ENCRYPTION_KEY, threadCooldownMinutes: 60 },
+      account.id,
+    );
+
+    expect(stats).toEqual({ classified: 0, ignored: 2, failed: 0 });
+    expect(runner.calls).toHaveLength(2);
+    expect((await reload(firstOfThread.id)).status).toBe("ignored");
+    expect((await reload(secondOfThread.id)).status).toBe("new");
+    expect((await reload(unrelated.id)).status).toBe("ignored");
+    // Il log del salto nomina il messaggio saltato (il secondo del thread),
+    // non uno dei due che sono stati davvero classificati.
+    expect(infos.some((m) => m.includes(secondOfThread.id))).toBe(true);
   });
 });
 

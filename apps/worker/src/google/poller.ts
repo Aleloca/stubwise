@@ -248,6 +248,19 @@ export interface GooglePollerDeps {
    * ({@link GMAIL_MAX_PROJECTS_PER_MESSAGE} lì).
    */
   maxProjectsPerMessage?: number;
+  /**
+   * Fase 6c — Task 6: tetto giornaliero di classificazioni PER CASELLA
+   * (`GMAIL_MAX_PER_DAY`). Assente = il default di `classify.ts`
+   * ({@link DEFAULT_GMAIL_MAX_PER_DAY} lì). `0` = nessun tetto.
+   */
+  gmailMaxPerDay?: number;
+  /**
+   * Fase 6c — Task 6: cooldown in minuti fra due classificazioni dello
+   * STESSO thread (`GMAIL_THREAD_COOLDOWN_MINUTES`). Assente = il default di
+   * `classify.ts` ({@link DEFAULT_GMAIL_THREAD_COOLDOWN_MINUTES} lì). `0` =
+   * disattivato.
+   */
+  gmailThreadCooldownMinutes?: number;
   /** Caricatore della catena di provider AI (iniettabile nei test). */
   loadProviderChainFn?: typeof loadProviderChain;
   /**
@@ -803,6 +816,10 @@ async function runClassifyPhase(
         ...(deps.gmailModel !== undefined ? { model: deps.gmailModel } : {}),
         ...(deps.maxProjectsPerMessage !== undefined
           ? { maxProjectsPerMessage: deps.maxProjectsPerMessage }
+          : {}),
+        ...(deps.gmailMaxPerDay !== undefined ? { maxPerDay: deps.gmailMaxPerDay } : {}),
+        ...(deps.gmailThreadCooldownMinutes !== undefined
+          ? { threadCooldownMinutes: deps.gmailThreadCooldownMinutes }
           : {}),
         ...(deps.loadProviderChainFn !== undefined
           ? { loadProviderChainFn: deps.loadProviderChainFn }

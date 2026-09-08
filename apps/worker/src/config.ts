@@ -867,6 +867,32 @@ const envSchema = z.object({
       .min(1, "deve essere un intero ≥ 1 (es. 5)")
       .default(5),
   ),
+  // Fase 6c — Task 6: tetto giornaliero di classificazioni PER CASELLA,
+  // contato dai run `agent_runs` (phase='email_classify') delle ultime 24
+  // ore per quella casella. Raggiunto, la classificazione si ferma per quella
+  // casella: nessun run, i messaggi `new` restano `new` e sono ripresi il
+  // giorno dopo. 0 = nessun tetto. Default 200.
+  GMAIL_MAX_PER_DAY: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 0 (es. 200; 0 = nessun tetto)" })
+      .int("deve essere un intero ≥ 0 (es. 200; 0 = nessun tetto)")
+      .min(0, "deve essere un intero ≥ 0 (es. 200; 0 = nessun tetto)")
+      .default(200),
+  ),
+  // Fase 6c — Task 6: cooldown in minuti fra due classificazioni dello STESSO
+  // thread — un messaggio il cui thread ha già avuto una classificazione
+  // nella finestra viene saltato (resta `new`) e il ciclo passa al
+  // successivo, così un thread attivo non blocca la coda. 0 = disattivato.
+  // Default 60.
+  GMAIL_THREAD_COOLDOWN_MINUTES: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 0 in minuti (es. 60; 0 = disattivato)" })
+      .int("deve essere un intero ≥ 0 in minuti (es. 60; 0 = disattivato)")
+      .min(0, "deve essere un intero ≥ 0 in minuti (es. 60; 0 = disattivato)")
+      .default(60),
+  ),
 }).refine(
   (env) => env.BACKLOG_SIMILAR_THRESHOLD <= env.BACKLOG_MERGE_THRESHOLD,
   {
@@ -1072,6 +1098,16 @@ export interface WorkerConfig {
    */
   gmailMaxProjectsPerMessage: number;
   /**
+   * Fase 6c — Task 6: tetto giornaliero di classificazioni PER CASELLA
+   * (default 200; 0 = nessun tetto).
+   */
+  gmailMaxPerDay: number;
+  /**
+   * Fase 6c — Task 6: cooldown in minuti fra due classificazioni dello
+   * STESSO thread (default 60; 0 = disattivato).
+   */
+  gmailThreadCooldownMinutes: number;
+  /**
    * Relay a cui spedire le notifiche push, o `null` = PUSH SPENTE.
    *
    * Le tre forme di `PUSH_RELAY_URL` (assente = relay pubblico, vuota = spente,
@@ -1181,6 +1217,8 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     gmailRetentionDays: parsed.GMAIL_RETENTION_DAYS,
     gmailMaxPerTick: parsed.GMAIL_MAX_PER_TICK,
     gmailMaxProjectsPerMessage: parsed.GMAIL_MAX_PROJECTS_PER_MESSAGE,
+    gmailMaxPerDay: parsed.GMAIL_MAX_PER_DAY,
+    gmailThreadCooldownMinutes: parsed.GMAIL_THREAD_COOLDOWN_MINUTES,
     // Letta dall'env GREZZO, non da `parsed`: `envSchema` non la conosce (e non
     // deve, vedi il campo `push` di WorkerConfig). LANCIA su un valore
     // inutilizzabile — un relay in chiaro o con credenziali — così il worker

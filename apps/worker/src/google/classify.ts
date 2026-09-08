@@ -2,9 +2,13 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  agentRuns,
   backlogItems,
   emailMessages,
   emailProposals,
+  googleAccounts,
+  instanceSettings,
+  monthlyCostUsd,
   projects,
   tickets,
   type Db,
@@ -16,7 +20,7 @@ import {
   type TicketPriority,
   type TicketStatus,
 } from "@stubwise/shared";
-import { and, asc, desc, eq, inArray, notInArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { AgentRunner } from "../agent/runner.js";
 import { capText, parseAgentJson, textFromRun } from "../agent/text.js";
@@ -85,6 +89,21 @@ export const CLASSIFY_TIMEOUT_MS = 90_000;
 
 /** Messaggi classificati per tick quando `maxPerTick` non è passato. */
 export const DEFAULT_CLASSIFY_MAX_PER_TICK = 20;
+
+/**
+ * Fase 6c — Task 6: tetto giornaliero di classificazioni PER CASELLA
+ * (`GMAIL_MAX_PER_DAY`), usato quando {@link ClassifyBatchDeps.maxPerDay} non
+ * è passato. `0` = nessun tetto.
+ */
+export const DEFAULT_GMAIL_MAX_PER_DAY = 200;
+
+/**
+ * Fase 6c — Task 6: cooldown in minuti fra due classificazioni dello STESSO
+ * thread (`GMAIL_THREAD_COOLDOWN_MINUTES`), usato quando
+ * {@link ClassifyBatchDeps.threadCooldownMinutes} non è passato. `0` =
+ * disattivato.
+ */
+export const DEFAULT_GMAIL_THREAD_COOLDOWN_MINUTES = 60;
 
 /** Caratteri del corpo email che entrano nel prompt (il resto è troncato). */
 export const CLASSIFY_TEXT_MAX_CHARS = 8_000;
@@ -316,6 +335,32 @@ export interface ClassifyBatchDeps extends Omit<ClassifyEmailDeps, "lang"> {
   signal?: AbortSignal;
   /** Caricatore della catena di provider (iniettabile nei test). */
   loadProviderChainFn?: typeof loadProviderChain;
+  /**
+   * Fase 6c — Task 6: tetto giornaliero di classificazioni per questa casella
+   * (`GMAIL_MAX_PER_DAY`); omesso = {@link DEFAULT_GMAIL_MAX_PER_DAY}. `0` =
+   * nessun tetto. Contato dai run `agent_runs` con `phase = 'email_classify'`
+   * il cui `email_message_id` appartiene a questa casella, nelle ultime 24
+   * ore da `now`.
+   */
+  maxPerDay?: number;
+  /**
+   * Fase 6c — Task 6: cooldown in minuti fra due classificazioni dello STESSO
+   * thread (`GMAIL_THREAD_COOLDOWN_MINUTES`); omesso =
+   * {@link DEFAULT_GMAIL_THREAD_COOLDOWN_MINUTES}. `0` = disattivato. Un
+   * messaggio `new` il cui thread ha già avuto una classificazione entro
+   * questa finestra viene SALTATO (resta `new`, nessun run) e il ciclo passa
+   * al successivo — un thread attivo non deve bloccare la coda.
+   */
+  threadCooldownMinutes?: number;
+  /**
+   * Fase 6c — Task 6: iniettabile per i test, stesso ruolo di
+   * `monthlyCostUsdFn` in `apps/worker/src/pipeline/fix.ts` — default
+   * `monthlyCostUsd` da `@stubwise/db`. Usato dal gate del budget mensile,
+   * la STESSA verifica che usano i fix (stesso tetto, letto da
+   * `instance_settings.monthly_budget_usd`): la posta non deve poter erodere
+   * il budget senza esserne frenata.
+   */
+  monthlyCostUsdFn?: (db: Db) => Promise<number>;
 }
 
 /** Quanti messaggi ha prodotto ciascun esito nel tick di una casella. */
@@ -1146,6 +1191,90 @@ export async function classifyEmail(
   }
 }
 
+/** Formatta un importo USD come `fix.ts` (4 decimali) — stesso stile del log del budget dei fix. */
+function fmtUsd(n: number): string {
+  return n.toFixed(4);
+}
+
+/**
+ * L'email di una casella, per i log dei tetti (Task 6): quelli guardano una
+ * casella, non un id opaco. `accountId` come fallback SOLO se la riga è
+ * sparita fra il claim e questo controllo (caso limite, mai visto in pratica).
+ */
+async function loadAccountEmail(db: Db, accountId: string): Promise<string> {
+  const [row] = await db
+    .select({ email: googleAccounts.email })
+    .from(googleAccounts)
+    .where(eq(googleAccounts.id, accountId));
+  return row?.email ?? accountId;
+}
+
+/**
+ * Fase 6c — Task 6: quante classificazioni (`agent_runs.phase =
+ * 'email_classify'`) ha fatto QUESTA casella nelle ultime `hours` ore — un
+ * JOIN su `email_messages` per risalire alla casella, dato che `agent_runs`
+ * non porta `account_id` direttamente.
+ *
+ * La finestra usa `now()` DI POSTGRES, non un `now` iniettato: le righe che
+ * conta sono scritte da `recordAgentRun` con `created_at` a `defaultNow()`
+ * (il timestamp REALE del DB), quindi confrontarle con un orologio finto
+ * romperebbe il confronto — stessa scelta di {@link monthlyCostUsd} (mese
+ * corrente via `date_trunc('month', now())`) e di `pruneOldEmails` in
+ * `poller.ts` (`make_interval`).
+ */
+async function countClassifyRunsSince(db: Db, accountId: string, hours: number): Promise<number> {
+  const [row] = await db
+    .select({ count: sql<string>`count(*)` })
+    .from(agentRuns)
+    .innerJoin(emailMessages, eq(agentRuns.emailMessageId, emailMessages.id))
+    .where(
+      and(
+        eq(agentRuns.phase, "email_classify"),
+        eq(emailMessages.accountId, accountId),
+        sql`${agentRuns.createdAt} >= now() - make_interval(hours => ${Math.trunc(hours)})`,
+      ),
+    );
+  return Number(row?.count ?? 0);
+}
+
+/**
+ * Fase 6c — Task 6: il THREAD di un messaggio ha già avuto una
+ * classificazione entro `minutes` minuti da adesso? Stesso JOIN e stessa
+ * scelta di `now()` DI POSTGRES di {@link countClassifyRunsSince} — vedi lì
+ * il motivo.
+ */
+async function threadClassifiedRecently(db: Db, threadId: string, minutes: number): Promise<boolean> {
+  const [row] = await db
+    .select({ id: agentRuns.id })
+    .from(agentRuns)
+    .innerJoin(emailMessages, eq(agentRuns.emailMessageId, emailMessages.id))
+    .where(
+      and(
+        eq(agentRuns.phase, "email_classify"),
+        eq(emailMessages.threadId, threadId),
+        sql`${agentRuns.createdAt} >= now() - make_interval(mins => ${Math.trunc(minutes)})`,
+      ),
+    )
+    .limit(1);
+  return row !== undefined;
+}
+
+/**
+ * Fase 6c — Task 6: il tetto di budget MENSILE d'istanza, la STESSA colonna
+ * che legge `apps/worker/src/pipeline/fix.ts` prima di un fix
+ * (`instance_settings.monthly_budget_usd`, singleton id=1). `null` = nessun
+ * tetto configurato. I numeric di Postgres arrivano come stringa.
+ */
+async function loadMonthlyBudgetUsd(db: Db): Promise<number | null> {
+  const [row] = await db
+    .select({ monthlyBudgetUsd: instanceSettings.monthlyBudgetUsd })
+    .from(instanceSettings)
+    .where(eq(instanceSettings.id, 1));
+  return row?.monthlyBudgetUsd != null && row.monthlyBudgetUsd !== ""
+    ? Number(row.monthlyBudgetUsd)
+    : null;
+}
+
 /**
  * FASE 2 del tick di UNA casella: i messaggi `new`, dai più vecchi, fino al
  * tetto per tick.
@@ -1157,6 +1286,27 @@ export async function classifyEmail(
  * La lingua e il provider si risolvono UNA volta per casella, non per
  * messaggio: sono due query che non cambierebbero risposta venti volte di
  * fila. Non lancia mai — `classifyEmail` chiude ogni strada su una riga.
+ *
+ * ## Fase 6c — Task 6: tre difese di costo, in ordine di granularità decrescente
+ *
+ * 1. **Tetto giornaliero PER CASELLA** (`maxPerDay`/`GMAIL_MAX_PER_DAY`): un
+ *    controllo UNA VOLTA, prima di guardare qualunque messaggio. Raggiunto,
+ *    la classificazione si ferma qui: nessun run, nessuna query dei
+ *    pendenti, i messaggi `new` restano `new` e vengono ripresi al giro (o
+ *    al giorno) dopo.
+ * 2. **Gate del budget MENSILE** (`instance_settings.monthly_budget_usd`, la
+ *    STESSA verifica dei fix): anche questo un controllo UNA VOLTA, subito
+ *    dopo il tetto giornaliero. È per-ISTANZA, non per-casella — ma essendo
+ *    verificato a ogni chiamata di questa funzione (una per casella per
+ *    tick) e la spesa non potendo MAI diminuire durante un tick, un budget
+ *    già sforato blocca automaticamente anche le caselle ancora da
+ *    processare in questo giro, senza bisogno di un controllo separato a
+ *    monte del loop sulle caselle (`pollGoogleOnce`).
+ * 3. **Cooldown PER THREAD** (`threadCooldownMinutes`/
+ *    `GMAIL_THREAD_COOLDOWN_MINUTES`): un controllo PER MESSAGGIO, dentro il
+ *    loop. Un thread già classificato nella finestra viene saltato (resta
+ *    `new`, nessun run) e il ciclo passa al successivo — un thread attivo
+ *    non deve bloccare il resto della coda.
  */
 export async function classifyNewMessages(
   deps: ClassifyBatchDeps,
@@ -1164,6 +1314,35 @@ export async function classifyNewMessages(
 ): Promise<ClassifyBatchStats> {
   const stats: ClassifyBatchStats = { classified: 0, ignored: 0, failed: 0 };
   if (deps.maxPerTick <= 0) return stats;
+
+  const logger = deps.logger ?? defaultLogger;
+
+  // 1. Tetto giornaliero per casella (0 = nessun tetto: comportamento di prima).
+  const maxPerDay = deps.maxPerDay ?? DEFAULT_GMAIL_MAX_PER_DAY;
+  if (maxPerDay > 0) {
+    const runsToday = await countClassifyRunsSince(deps.db, accountId, 24);
+    if (runsToday >= maxPerDay) {
+      const email = await loadAccountEmail(deps.db, accountId);
+      logger.warn(
+        `google: casella ${email}: tetto giornaliero di classificazione raggiunto (${runsToday}/${maxPerDay}), riprendo domani`,
+      );
+      return stats;
+    }
+  }
+
+  // 2. Gate del budget mensile d'istanza (la stessa verifica dei fix).
+  const monthlyCostUsdFn = deps.monthlyCostUsdFn ?? monthlyCostUsd;
+  const monthlyBudgetUsd = await loadMonthlyBudgetUsd(deps.db);
+  if (monthlyBudgetUsd != null) {
+    const monthlySpent = await monthlyCostUsdFn(deps.db);
+    if (monthlySpent >= monthlyBudgetUsd) {
+      const email = await loadAccountEmail(deps.db, accountId);
+      logger.warn(
+        `google: casella ${email}: budget mensile superato ($${fmtUsd(monthlySpent)}/$${fmtUsd(monthlyBudgetUsd)}), classificazione sospesa per questo tick`,
+      );
+      return stats;
+    }
+  }
 
   const pending = await deps.db
     .select()
@@ -1180,8 +1359,26 @@ export async function classifyNewMessages(
     provider = (await loadChain(deps.db, deps.encryptionKey))[0];
   }
 
+  // 3. Cooldown per thread (0 = disattivato: comportamento di prima).
+  const threadCooldownMinutes = deps.threadCooldownMinutes ?? DEFAULT_GMAIL_THREAD_COOLDOWN_MINUTES;
+
   for (const message of pending) {
     if (deps.signal?.aborted) break;
+
+    if (threadCooldownMinutes > 0) {
+      const inCooldown = await threadClassifiedRecently(
+        deps.db,
+        message.threadId,
+        threadCooldownMinutes,
+      );
+      if (inCooldown) {
+        logger.info(
+          `google: messaggio ${message.id} saltato (thread ${message.threadId} classificato meno di ${threadCooldownMinutes}' fa), riprovo al prossimo giro`,
+        );
+        continue;
+      }
+    }
+
     const outcome = await classifyEmail(
       {
         db: deps.db,
