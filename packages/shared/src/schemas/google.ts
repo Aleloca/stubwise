@@ -312,6 +312,54 @@ export const emailLabelsSchema = z.object({ labels: z.array(z.string()).default(
 export type EmailLabels = z.infer<typeof emailLabelsSchema>;
 
 // ---------------------------------------------------------------------------
+// Ammissione della posta (fase 6c): configurazione D'ISTANZA, separata
+// dall'attribuzione per progetto (le regole sopra, invariate).
+// ---------------------------------------------------------------------------
+
+/**
+ * Configurazione d'istanza dell'AMMISSIONE della posta: decide SE un
+ * messaggio entra nella pipeline, non A QUALE progetto va (quello resta
+ * `project_email_routes`, sopra). È la risposta di `GET
+ * /api/settings/mail-admission` e la forma "vista" di
+ * `PATCH /api/settings/mail-admission`.
+ *
+ * Ogni campo è `.default()`: sono TRE campi nuovi su una risposta — nessuna
+ * app mobile la consuma oggi (questa rotta non è fra quelle lette dal client
+ * mobile), ma la convenzione del repo per campi nuovi in uno schema di
+ * risposta è comunque senza eccezioni, vedi CLAUDE.md.
+ */
+export const mailAdmissionSchema = z.object({
+  // I mittenti (o destinatari in copia) dei domini di un Google Workspace
+  // registrato ammettono la posta senza bisogno di una regola di progetto.
+  // Default true: allarga il perimetro di oggi, non lo restringe — una
+  // regola di progetto che già ammette un messaggio continua ad ammetterlo.
+  admitWorkspaceDomains: z.boolean().default(true),
+  // Etichette Gmail che escludono SEMPRE, anche quando una regola di
+  // progetto o il dominio del Workspace ammetterebbero.
+  denyLabels: z
+    .array(z.string())
+    .default(["CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL", "SPAM"]),
+  // Scarta la posta automatica (List-Unsubscribe, List-Id, Precedence: bulk,
+  // Auto-Submitted diverso da "no").
+  denyAutomated: z.boolean().default(true),
+});
+export type MailAdmission = z.infer<typeof mailAdmissionSchema>;
+
+/**
+ * Corpo del PATCH: semantica patch, non put — campo ASSENTE = non toccato,
+ * come `PATCH /api/me/notification-prefs` (vedi il docblock in
+ * `apps/server/src/routes/me-prefs.ts`). Tutti e tre i campi sono nuovi:
+ * renderli obbligatori romperebbe qualunque chiamante che non li conosce
+ * ancora, esattamente il caso descritto in CLAUDE.md per un body che cresce.
+ */
+export const mailAdmissionPatchSchema = z.object({
+  admitWorkspaceDomains: z.boolean().optional(),
+  denyLabels: z.array(z.string()).max(50).optional(),
+  denyAutomated: z.boolean().optional(),
+});
+export type MailAdmissionPatch = z.input<typeof mailAdmissionPatchSchema>;
+
+// ---------------------------------------------------------------------------
 // Pagina Posta (Task 12): messaggi ed eventi TRATTATI, per utente
 // ---------------------------------------------------------------------------
 

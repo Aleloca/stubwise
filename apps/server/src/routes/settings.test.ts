@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { mailAdmissionSchema } from "@stubwise/shared";
 import { buildApp } from "../app.js";
 import { automationRules, decrypt, instanceSettings, notificationSettings } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
@@ -1238,5 +1239,137 @@ describe("GET /api/settings/instance — credenziali Slack", () => {
       { contentLanguage: "en", slackSigningSecret: "", slackBotToken: "" },
       users.adminCookie,
     );
+  });
+});
+
+// --- Ammissione della posta (fase 6c) ---
+
+function getMailAdmission(cookie?: string) {
+  return app.inject({
+    method: "GET",
+    url: "/api/settings/mail-admission",
+    headers: cookie ? { cookie } : {},
+  });
+}
+
+function patchMailAdmission(payload: Record<string, unknown>, cookie?: string) {
+  return app.inject({
+    method: "PATCH",
+    url: "/api/settings/mail-admission",
+    headers: cookie ? { cookie } : {},
+    payload,
+  });
+}
+
+interface MailAdmission {
+  admitWorkspaceDomains: boolean;
+  denyLabels: string[];
+  denyAutomated: boolean;
+}
+
+const DEFAULT_MAIL_ADMISSION = {
+  admitWorkspaceDomains: true,
+  denyLabels: ["CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL", "SPAM"],
+  denyAutomated: true,
+} satisfies MailAdmission;
+
+describe("GET /api/settings/mail-admission", () => {
+  afterEach(async () => {
+    // Ripristina il default per non sporcare gli altri test di questo file.
+    await patchMailAdmission(DEFAULT_MAIL_ADMISSION, users.adminCookie);
+  });
+
+  it("senza sessione: 401", async () => {
+    expect((await getMailAdmission()).statusCode).toBe(401);
+  });
+
+  it("member: 200 — a differenza delle altre GET di questo file, la lettura non è admin-only", async () => {
+    const res = await getMailAdmission(users.memberCookie);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual(DEFAULT_MAIL_ADMISSION);
+  });
+
+  it("admin: restituisce i default seedati (allargano il perimetro, non lo restringono)", async () => {
+    const res = await getMailAdmission(users.adminCookie);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual(DEFAULT_MAIL_ADMISSION);
+  });
+
+  it("una risposta senza questi tre campi resta parsabile (invariante mobile, per uniformità)", () => {
+    // Questa rotta non è oggi consumata dall'app mobile, ma lo schema è
+    // comunque costruito coi default di CLAUDE.md: un client che legge una
+    // vecchia risposta senza questi campi li ricostruisce.
+    const legacyResponse = {};
+    expect(mailAdmissionSchema.parse(legacyResponse)).toEqual(DEFAULT_MAIL_ADMISSION);
+  });
+});
+
+describe("PATCH /api/settings/mail-admission", () => {
+  afterEach(async () => {
+    await patchMailAdmission(DEFAULT_MAIL_ADMISSION, users.adminCookie);
+  });
+
+  it("senza sessione: 401", async () => {
+    expect((await patchMailAdmission({ admitWorkspaceDomains: false })).statusCode).toBe(401);
+  });
+
+  it("member: 403 — la scrittura resta riservata agli admin, come le regole di progetto", async () => {
+    const res = await patchMailAdmission({ admitWorkspaceDomains: false }, users.memberCookie);
+    expect(res.statusCode).toBe(403);
+    // E non ha toccato la riga.
+    const [row] = await testDb.db.select().from(instanceSettings);
+    expect(row?.emailAdmitWorkspaceDomains).toBe(true);
+  });
+
+  it("admin: aggiorna i tre campi e persiste", async () => {
+    const res = await patchMailAdmission(
+      {
+        admitWorkspaceDomains: false,
+        denyLabels: ["SPAM"],
+        denyAutomated: false,
+      },
+      users.adminCookie,
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      admitWorkspaceDomains: false,
+      denyLabels: ["SPAM"],
+      denyAutomated: false,
+    });
+
+    const getRes = await getMailAdmission(users.adminCookie);
+    expect(getRes.json()).toEqual({
+      admitWorkspaceDomains: false,
+      denyLabels: ["SPAM"],
+      denyAutomated: false,
+    });
+  });
+
+  it("un body vuoto non tocca nessuno dei tre campi (semantica PATCH)", async () => {
+    await patchMailAdmission({ admitWorkspaceDomains: false }, users.adminCookie);
+    const res = await patchMailAdmission({}, users.adminCookie);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      admitWorkspaceDomains: false,
+      denyLabels: ["CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL", "SPAM"],
+      denyAutomated: true,
+    });
+  });
+
+  it("un PATCH con solo denyLabels lascia invariati gli altri due campi", async () => {
+    await patchMailAdmission({ admitWorkspaceDomains: false, denyAutomated: false }, users.adminCookie);
+    const res = await patchMailAdmission({ denyLabels: ["SPAM", "CATEGORY_SOCIAL"] }, users.adminCookie);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      admitWorkspaceDomains: false,
+      denyLabels: ["SPAM", "CATEGORY_SOCIAL"],
+      denyAutomated: false,
+    });
+  });
+
+  it("più di 50 etichette → 400", async () => {
+    const denyLabels = Array.from({ length: 51 }, (_, i) => `L${i}`);
+    const res = await patchMailAdmission({ denyLabels }, users.adminCookie);
+    expect(res.statusCode).toBe(400);
   });
 });

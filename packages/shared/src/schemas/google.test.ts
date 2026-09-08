@@ -10,6 +10,8 @@ import {
   googleWorkspaceDraftSchema,
   googleWorkspacePatchSchema,
   googleWorkspaceSchema,
+  mailAdmissionPatchSchema,
+  mailAdmissionSchema,
 } from "./google.js";
 
 describe("googleWorkspaceDraftSchema", () => {
@@ -243,5 +245,41 @@ describe("emailRoutesSchema / emailLabelsSchema", () => {
   it("fa round-trip col corpo del PUT", () => {
     const body = { routes: [{ kind: "gmail_label" as const, value: "clienti" }] };
     expect(emailRoutesSchema.parse(emailRoutesPutSchema.parse(body))).toEqual(body);
+  });
+});
+
+describe("mailAdmissionSchema (fase 6c)", () => {
+  it("una risposta senza nessuno dei tre campi resta parsabile con i default", () => {
+    expect(mailAdmissionSchema.parse({})).toEqual({
+      admitWorkspaceDomains: true,
+      denyLabels: ["CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL", "SPAM"],
+      denyAutomated: true,
+    });
+  });
+
+  it("accetta valori espliciti", () => {
+    const body = {
+      admitWorkspaceDomains: false,
+      denyLabels: ["SPAM"],
+      denyAutomated: false,
+    };
+    expect(mailAdmissionSchema.parse(body)).toEqual(body);
+  });
+});
+
+describe("mailAdmissionPatchSchema", () => {
+  it("un body vuoto è valido: assente = non toccare, semantica PATCH", () => {
+    expect(mailAdmissionPatchSchema.parse({})).toEqual({});
+  });
+
+  it("accetta un sottoinsieme dei campi", () => {
+    expect(mailAdmissionPatchSchema.parse({ admitWorkspaceDomains: false })).toEqual({
+      admitWorkspaceDomains: false,
+    });
+  });
+
+  it("rifiuta più di 50 etichette", () => {
+    const denyLabels = Array.from({ length: 51 }, (_, i) => `L${i}`);
+    expect(mailAdmissionPatchSchema.safeParse({ denyLabels }).success).toBe(false);
   });
 });

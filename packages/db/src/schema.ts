@@ -1100,6 +1100,23 @@ export const instanceSettings = pgTable("instance_settings", {
   // in chiaro dall'API.
   slackSigningSecretEncrypted: text("slack_signing_secret_encrypted"),
   slackBotTokenEncrypted: text("slack_bot_token_encrypted"),
+  // Configurazione d'istanza dell'AMMISSIONE della posta (fase 6c), separata
+  // dall'ATTRIBUZIONE (project_email_routes, fase 6, invariata). I default
+  // sono un ALLARGAMENTO del perimetro di oggi, mai un restringimento: chi ha
+  // già regole di progetto continua ad ammettere esattamente come prima.
+  // I mittenti (o destinatari in copia) dei domini di un Google Workspace
+  // registrato ammettono senza bisogno di una regola di progetto.
+  emailAdmitWorkspaceDomains: boolean("email_admit_workspace_domains").notNull().default(true),
+  // Etichette Gmail che escludono SEMPRE, anche quando una regola di progetto
+  // o il dominio del Workspace ammetterebbero: le esclusioni vincono sempre.
+  emailAdmissionDenyLabels: text("email_admission_deny_labels")
+    .array()
+    .notNull()
+    .default(["CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL", "SPAM"]),
+  // Scarta la posta automatica (List-Unsubscribe, List-Id, Precedence: bulk,
+  // Auto-Submitted diverso da "no"). Default true: prima di questa fase il
+  // poller non aveva alcuna difesa contro mailing list e notifiche automatiche.
+  emailAdmissionDenyAutomated: boolean("email_admission_deny_automated").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
