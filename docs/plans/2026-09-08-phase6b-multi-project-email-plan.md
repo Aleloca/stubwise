@@ -5,6 +5,7 @@ design: 2026-09-08-phase6b-multi-project-email-design.md
 stubwise:
   project: stubwise
   backlog: 7053e669-10f0-4f61-8895-929e560024f4
+  ticket: https://stubwise.thecove.it/tickets/6c50ef02-486f-465b-ad80-766557783d76
 ---
 
 # Fase 6b — Un'email, più progetti: piano di implementazione
