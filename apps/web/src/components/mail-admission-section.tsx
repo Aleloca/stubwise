@@ -71,6 +71,14 @@ export function MailAdmissionSection({ isAdmin }: { isAdmin: boolean }) {
       </header>
 
       <div className="flex flex-col gap-5 px-4 py-4">
+        {/* Consenso informato, non una rifinitura estetica: prima di
+            toccare l'interruttore dei domini di lavoro, chi legge deve
+            sapere che ammissione = oggetto e corpo inviati fuori
+            Stubwise, al provider AI di classificazione. */}
+        <p className="rounded-sm border border-line-strong bg-ink-900 px-3 py-2.5 font-mono text-[11px] leading-relaxed text-fg-muted">
+          {t("settings:google.mailAdmission.dataUsageNotice")}
+        </p>
+
         <div>
           <label className="flex items-center gap-2 text-sm text-fg">
             <input

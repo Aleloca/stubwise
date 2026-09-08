@@ -67,6 +67,18 @@ export function GoogleAccountsSection({ outcome: rawOutcome }: { outcome?: strin
         )}
       </header>
 
+      {/* Consenso informato, sempre nel DOM in cima alla sezione — quindi
+          visto PRIMA di poter cliccare «Collega una casella», non dopo:
+          è qui che si dà il consenso effettivo (vedi il docblock del
+          componente), prima ancora di sapere se l'ammissione per dominio
+          è attiva. */}
+      <p
+        role="note"
+        className="mx-4 mt-4 rounded-sm border border-line-strong bg-ink-950/40 px-3 py-2.5 font-mono text-[11px] leading-relaxed text-fg-muted"
+      >
+        {t("settings:account.googleAccounts.consentNotice")}
+      </p>
+
       {outcome && <OutcomeBanner outcome={outcome} />}
 
       {connecting && <ConnectPicker onCancel={() => setConnecting(false)} />}

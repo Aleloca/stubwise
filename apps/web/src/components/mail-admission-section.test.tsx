@@ -90,6 +90,20 @@ function renderSection(isAdmin = true) {
 }
 
 describe("MailAdmissionSection", () => {
+  it("dichiara che di ogni email ammessa si leggono oggetto e corpo, inviati al provider di analisi", async () => {
+    mockApi({
+      [`GET ${ADMISSION_PATH}`]: () => jsonResponse(200, makeAdmission()),
+      [`GET ${WORKSPACES_PATH}`]: () => jsonResponse(200, []),
+    });
+    renderSection();
+
+    expect(
+      await screen.findByText(
+        /the subject and body are downloaded and sent to the ai analysis provider configured on this instance/i,
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("mostra lo stato attuale dell'ammissione", async () => {
     mockApi({
       [`GET ${ADMISSION_PATH}`]: () => jsonResponse(200, makeAdmission()),

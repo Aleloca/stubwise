@@ -148,9 +148,10 @@ check the effect of the toggle without guessing.
    right there — its body is never downloaded, and no trace of it is stored
    in Stubwise.
 3. **Classification, on text alone.** Only messages that passed the filter
-   have their body fetched and handed to a language model — and *only* the
-   model, nothing else. The run has **no filesystem access and no tools**: it
-   reads the sender, subject and text you'd expect, plus a short list of open
+   have their **subject and body downloaded and sent to the AI analysis
+   provider this instance is configured to use** — and *only* that provider,
+   nothing else. The run has **no filesystem access and no tools**: it reads
+   the sender, subject and text you'd expect, plus a short list of open
    tickets and backlog titles for context — for each project a routing rule
    already matched, or, if none did, for every project on the instance (see
    [When no project matches](#when-no-project-matches)) — and proposes an
@@ -231,6 +232,13 @@ down to the matching projects, same as before this existed.
 
 ## Privacy
 
+- **The subject and body of every admitted email leave Stubwise, for
+  classification.** They are sent to the AI analysis provider this instance
+  is configured to use (**Settings → AI providers**), and to nothing else —
+  this is exactly what [admission](#admitted-mail) decides you're consenting
+  to. Connecting a mailbox, or turning on **Admit mail from registered
+  Workspace domains**, means agreeing to this for every message that gets
+  admitted from then on.
 - **Only the mailbox owner sees a mailbox's proposals.** Not an admin, not a
   project maintainer, not anyone else — this is enforced the same way for
   every proposal a mailbox produces, with no exception.

@@ -131,6 +131,21 @@ describe("caselle Google: elenco", () => {
     expect(await screen.findByText("// no mailbox connected")).toBeInTheDocument();
   });
 
+  it("dichiara il consenso PRIMA che l'utente clicchi Collega una casella", async () => {
+    mockApi();
+    renderSection();
+
+    // Il pulsante è ancora visibile e non è stato cliccato: l'avviso deve
+    // già essere nel DOM in questo momento, non solo dopo l'apertura del
+    // flusso di collegamento.
+    expect(await screen.findByRole("button", { name: "Connect a mailbox" })).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /stubwise will read the subject and body of every admitted email and send them to the ai analysis provider configured on this instance/i,
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("mostra email, Workspace, stato attivo e scope in forma corta", async () => {
     mockApi({ accounts: [makeAccount()] });
     renderSection();

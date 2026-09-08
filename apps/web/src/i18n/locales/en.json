@@ -725,6 +725,7 @@
       "googleAccounts": {
         "title": "Google mailboxes",
         "subtitle": "// Gmail and Calendar, read-only. Which mail is admitted is configured instance-wide in Settings → Google.",
+        "consentNotice": "By connecting a mailbox, Stubwise will read the subject and body of every admitted email and send them to the AI analysis provider configured on this instance, to propose actions.",
         "connect": "Connect a mailbox",
         "empty": "// no mailbox connected",
         "workspace": "Workspace",
@@ -955,6 +956,7 @@
       "mailAdmission": {
         "title": "Admitted mail",
         "subtitle": "// which emails enter Stubwise at all, instance-wide. Project rules below only decide where an admitted email goes.",
+        "dataUsageNotice": "Of every admitted email, the subject and body are downloaded and sent to the AI analysis provider configured on this instance, for classification.",
         "admitWorkspaceDomainsLabel": "Admit mail from registered Workspace domains",
         "admitWorkspaceDomainsHint": "// senders (or CC'd recipients) on a domain from a registered Google Workspace are admitted automatically, even without a project rule.",
         "domainsTitle": "Domains that would be admitted",
@@ -1578,7 +1580,7 @@
       "labels": "Gmail labels",
       "labelsHint": "// the label you put on this project's mail in your mailbox.",
       "keywords": "Keywords",
-      "keywordsHint": "// searched in subject and body. Only the ones in the subject are enough to have the message downloaded.",
+      "keywordsHint": "// searched in subject and body. A keyword in the subject alone attributes the email to this project, even before its body is read.",
       "pickLabel": "Pick from observed labels",
       "pickLabelPlaceholder": "Search a label…",
       "labelNoResults": "// no label matches",
