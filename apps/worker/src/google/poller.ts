@@ -639,6 +639,7 @@ async function syncGmail(
           text,
           projectId: resolved.projectId,
           candidateProjectIds: resolved.candidateProjectIds,
+          scopeProjectIds: resolved.scopeProjectIds,
           now: now(),
         }),
       )

@@ -485,6 +485,7 @@ describe("sincronizzazione Gmail", () => {
       labels: ["INBOX"],
       projectId,
       candidateProjectIds: [],
+      scopeProjectIds: [projectId],
       status: "new",
     });
     expect(row!.textExcerpt).toHaveLength(MAX_TEXT_LENGTH);
@@ -517,6 +518,48 @@ describe("sincronizzazione Gmail", () => {
     const [row] = await db.select().from(emailMessages);
     expect(row!.projectId).toBeNull();
     expect(row!.candidateProjectIds.sort()).toEqual([first, second].sort());
+  });
+
+  it("tre progetti in perimetro: scope_project_ids elenca tutti e tre, il vincitore ne soddisfa di più", async () => {
+    const winner = await seedProject("Acme");
+    const second = await seedProject("Beta");
+    const third = await seedProject("Gamma");
+    // winner: 2 regole soddisfatte; second e third: 1 ciascuno.
+    await db.insert(projectEmailRoutes).values([
+      { projectId: winner, kind: "sender_domain", value: "cliente.com" },
+      { projectId: winner, kind: "keyword", value: "preventivo" },
+      { projectId: second, kind: "keyword", value: "portale" },
+      { projectId: third, kind: "keyword", value: "urgente" },
+    ]);
+    const account = await seedAccount({
+      nextSyncAt: new Date(Date.now() - 60_000),
+      gmailHistoryId: "1000",
+    });
+    const gmail = fakeGmail({
+      history: { addedMessageIds: ["m1"], historyId: "1010" },
+      messages: {
+        m1: message({
+          id: "m1",
+          from: "cliente@cliente.com",
+          subject: "Preventivo portale urgente",
+        }),
+      },
+    });
+
+    await pollGoogleOnce(deps(account, gmail));
+
+    const [row] = await db.select().from(emailMessages);
+    expect(row!.projectId).toBe(winner);
+    expect(row!.candidateProjectIds).toEqual([]);
+    // Il valore persistito viene direttamente da `matchRoutes` (Task 2), non
+    // solo dal vincitore: tutti e tre i progetti, col vincitore per primo
+    // (conteggio 2 contro 1). L'ordine fra `second` e `third` (entrambi a 1)
+    // dipende dal loro id — non lo prediciamo qui, lo verifica già
+    // `email-routing.test.ts` — quindi si controlla solo l'insieme e la
+    // posizione del vincitore.
+    expect(row!.scopeProjectIds).toHaveLength(3);
+    expect(row!.scopeProjectIds[0]).toBe(winner);
+    expect(new Set(row!.scopeProjectIds)).toEqual(new Set([winner, second, third]));
   });
 
   it("rieseguire lo stesso giro non scrive righe nuove", async () => {

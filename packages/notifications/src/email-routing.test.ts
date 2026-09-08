@@ -11,6 +11,7 @@ import {
 
 const PROJECT_A = "11111111-1111-4111-8111-111111111111";
 const PROJECT_B = "22222222-2222-4222-8222-222222222222";
+const PROJECT_C = "33333333-3333-4333-8333-333333333333";
 
 /** Un messaggio "neutro": nessun campo che possa combaciare per caso. */
 function message(overrides: Partial<EmailForRouting> = {}): EmailForRouting {
@@ -82,16 +83,18 @@ describe("matchRoutes", () => {
       projectId: null,
       candidateProjectIds: [],
       matchedRuleCount: {},
+      scopeProjectIds: [],
     });
   });
 
-  it("nessuna regola combacia: fuori perimetro (niente progetto, niente candidati)", () => {
+  it("nessuna regola combacia: fuori perimetro (niente progetto, niente candidati, perimetro vuoto)", () => {
     const result = matchRoutes(message({ fromAddress: "a@altro.org" }), [
       route(PROJECT_A, "sender_domain", "acme.com"),
     ]);
     expect(result.inScope).toBe(false);
     expect(result.projectId).toBeNull();
     expect(result.candidateProjectIds).toEqual([]);
+    expect(result.scopeProjectIds).toEqual([]);
   });
 
   it("dominio del mittente (From)", () => {
@@ -211,6 +214,47 @@ describe("matchRoutes", () => {
     expect(result.projectId).toBeNull();
     expect(result.candidateProjectIds).toEqual([PROJECT_A, PROJECT_B].sort());
     expect(result.matchedRuleCount).toEqual({ [PROJECT_A]: 1, [PROJECT_B]: 1 });
+  });
+
+  it("scopeProjectIds elenca TUTTI i progetti con almeno un match, non solo il vincitore", () => {
+    // PROJECT_A soddisfa 2 regole, PROJECT_B e PROJECT_C una sola: il
+    // vincitore resta PROJECT_A, ma il perimetro include anche B e C.
+    const result = matchRoutes(
+      message({ fromAddress: "cliente@acme.com", subject: "Preventivo portale urgente" }),
+      [
+        route(PROJECT_A, "sender_domain", "acme.com"),
+        route(PROJECT_A, "keyword", "preventivo"),
+        route(PROJECT_B, "keyword", "portale"),
+        route(PROJECT_C, "keyword", "urgente"),
+      ],
+    );
+    expect(result.inScope).toBe(true);
+    expect(result.projectId).toBe(PROJECT_A);
+    expect(result.candidateProjectIds).toEqual([]);
+    expect(result.matchedRuleCount).toEqual({ [PROJECT_A]: 2, [PROJECT_B]: 1, [PROJECT_C]: 1 });
+    // Ordinato per conteggio decrescente, poi per id crescente a parità.
+    expect(result.scopeProjectIds).toEqual([PROJECT_A, PROJECT_B, PROJECT_C]);
+  });
+
+  it("parità al vertice: candidateProjectIds resta solo i pari merito in testa, scopeProjectIds include anche un terzo progetto minore", () => {
+    // PROJECT_A e PROJECT_B soddisfano 2 regole ciascuno (parità al vertice),
+    // PROJECT_C ne soddisfa una sola: entra in scopeProjectIds ma non in
+    // candidateProjectIds, che resta il comportamento INVARIATO della parità.
+    const result = matchRoutes(
+      message({ fromAddress: "cliente@acme.com", subject: "Preventivo portale urgente" }),
+      [
+        route(PROJECT_A, "sender_domain", "acme.com"),
+        route(PROJECT_A, "keyword", "preventivo"),
+        route(PROJECT_B, "sender_address", "cliente@acme.com"),
+        route(PROJECT_B, "keyword", "portale"),
+        route(PROJECT_C, "keyword", "urgente"),
+      ],
+    );
+    expect(result.inScope).toBe(true);
+    expect(result.projectId).toBeNull();
+    expect(result.candidateProjectIds).toEqual([PROJECT_A, PROJECT_B]);
+    expect(result.matchedRuleCount).toEqual({ [PROJECT_A]: 2, [PROJECT_B]: 2, [PROJECT_C]: 1 });
+    expect(result.scopeProjectIds).toEqual([PROJECT_A, PROJECT_B, PROJECT_C]);
   });
 
   it("i candidati in parità sono ordinati in modo stabile, qualunque sia l'ordine delle regole", () => {

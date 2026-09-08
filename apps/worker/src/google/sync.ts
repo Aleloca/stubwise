@@ -203,6 +203,7 @@ export interface EmailMessageInsert {
   textExcerpt: string | null;
   projectId: string | null;
   candidateProjectIds: string[];
+  scopeProjectIds: string[];
   status: "new";
 }
 
@@ -221,6 +222,7 @@ export function buildEmailMessageInsert(input: {
   text: string;
   projectId: string | null;
   candidateProjectIds: string[];
+  scopeProjectIds: string[];
   now: Date;
 }): EmailMessageInsert {
   const { message } = input;
@@ -238,6 +240,7 @@ export function buildEmailMessageInsert(input: {
     textExcerpt: input.text.trim() === "" ? null : input.text,
     projectId: input.projectId,
     candidateProjectIds: input.candidateProjectIds,
+    scopeProjectIds: input.scopeProjectIds,
     status: "new",
   };
 }
