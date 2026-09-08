@@ -5,6 +5,7 @@ design: 2026-09-08-phase6c-mail-admission-design.md
 stubwise:
   project: stubwise
   backlog: 868cdecc-a4ed-4d87-9b4e-94a7dd9a1faa
+  ticket: https://stubwise.thecove.it/tickets/cf529316-863c-48e9-bb53-e718d885f580
 ---
 
 # Fase 6c — Ammissione della posta: piano di implementazione
