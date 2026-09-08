@@ -8,6 +8,12 @@ import { meQueryOptions } from "../../lib/auth";
  * un member non deve vedere: per loro resta solo "Account". Le rotte admin sono
  * comunque protette dalla guardia del router (vedi router.tsx) e dagli endpoint
  * lato server. La `labelKey` punta a `settings:layout.nav.*`.
+ *
+ * ⚠️ "google" NON è `adminOnly` dalla fase 6c: la pagina porta la sezione
+ * «Posta ammessa», visibile a ogni utente (scrittura solo admin, gestita
+ * dentro la pagina — vedi `settings/google.tsx`), oltre al registro dei
+ * Google Workspace che resta solo admin. Un member deve poter arrivarci dal
+ * link di navigazione, non solo digitando l'URL.
  */
 const SETTINGS_NAV = [
   { to: "/settings/account", labelKey: "account", adminOnly: false },
@@ -18,7 +24,7 @@ const SETTINGS_NAV = [
   { to: "/settings/git-accounts", labelKey: "gitAccounts", adminOnly: true },
   { to: "/settings/storage", labelKey: "storage", adminOnly: true },
   { to: "/settings/slack", labelKey: "slack", adminOnly: true },
-  { to: "/settings/google", labelKey: "google", adminOnly: true },
+  { to: "/settings/google", labelKey: "google", adminOnly: false },
   { to: "/settings/ai-providers", labelKey: "aiProviders", adminOnly: true },
   { to: "/settings/plugins", labelKey: "plugins", adminOnly: true },
 ] as const;

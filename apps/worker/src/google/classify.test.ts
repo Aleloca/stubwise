@@ -6,6 +6,7 @@ import {
   emailProposals,
   googleAccounts,
   googleWorkspaces,
+  instanceSettings,
   projects,
   tickets,
   users,
@@ -21,8 +22,10 @@ import {
   citedTicketNumbers,
   classifyEmail,
   classifyNewMessages,
+  CLASSIFY_CONTEXT_ROWS,
   EMAIL_DELIMITER_END,
   EMAIL_DELIMITER_START,
+  GMAIL_MAX_PROJECTS_PER_MESSAGE,
   type ClassifyEmailDeps,
 } from "./classify.js";
 
@@ -68,6 +71,9 @@ afterEach(async () => {
   await db.delete(tickets);
   await db.delete(projects);
   await db.delete(users);
+  // Il tetto di budget mensile (Task 6) vive sul singleton seedato dalle
+  // migrazioni: chi lo tocca lo rimette a `null` (nessun tetto), il default.
+  await db.update(instanceSettings).set({ monthlyBudgetUsd: null }).where(eq(instanceSettings.id, 1));
   vi.restoreAllMocks();
 });
 
@@ -459,7 +465,7 @@ describe("classifyEmail: rivalidazione dei referenti", () => {
     expect(proposals.map((p) => p.projectId)).toEqual([projectId]);
   });
 
-  it("NON completa il projectId mancante quando il progetto è ambiguo", async () => {
+  it("NON completa il projectId mancante quando il progetto è ambiguo — fase 6c: diventa «da smistare», non ignored", async () => {
     const account = await seedAccount();
     const a = await seedProject("Alfa");
     const b = await seedProject("Beta");
@@ -474,8 +480,14 @@ describe("classifyEmail: rivalidazione dei referenti", () => {
     ]);
 
     // Indovinare fra due progetti è esattamente ciò che il routing si rifiuta
-    // di fare: l'azione senza progetto sparisce, e non resta nulla da proporre.
-    expect(await classifyEmail(deps(runner), message)).toBe("ignored");
+    // di fare: l'azione senza progetto sparisce. Prima del Task 5 questo
+    // degradava a `ignored`; ora — nessun vincitore, nessun figlio — è
+    // esattamente il caso «da smistare»: il messaggio resta `classified` in
+    // attesa della proposta di smistamento (vedi il describe dedicato).
+    const outcome = await classifyEmail(deps(runner), message);
+    expect(outcome).toBe("classified");
+    const row = await reload(message.id);
+    expect(row.classification).toMatchObject({ triage: true });
   });
 
   it("accetta un projectId fra i CANDIDATI quando il routing non ha risolto", async () => {
@@ -833,6 +845,221 @@ describe("classifyNewMessages", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Difese di costo (fase 6c, Task 6): tetto giornaliero, gate di budget,
+// cooldown per thread
+// ---------------------------------------------------------------------------
+
+describe("classifyNewMessages: difese di costo (fase 6c, Task 6)", () => {
+  /** Logger che registra i messaggi invece di scartarli, per asserire sulle righe di log. */
+  function captureLogger(): {
+    logger: { info: (m: string) => void; warn: (m: string) => void; error: (m: string) => void };
+    warns: string[];
+    infos: string[];
+  } {
+    const warns: string[] = [];
+    const infos: string[] = [];
+    return {
+      logger: {
+        info: (m) => infos.push(m),
+        warn: (m) => warns.push(m),
+        error: () => {},
+      },
+      warns,
+      infos,
+    };
+  }
+
+  /** Semina un run `email_classify` a mano, per simulare classificazioni già avvenute senza rilanciare il runner finto. */
+  async function seedClassifyRun(messageId: string): Promise<void> {
+    await db.insert(agentRuns).values({
+      emailMessageId: messageId,
+      phase: "email_classify",
+      model: "haiku",
+    });
+  }
+
+  it("tetto giornaliero raggiunto → nessun run, riga di log, i messaggi restano `new`", async () => {
+    const account = await seedAccount();
+    const projectId = await seedProject("Portale");
+    // Due classificazioni "già avvenute" nella casella, che saturano un tetto di 2.
+    const alreadyOne = await seedMessage(account.id, { projectId, status: "ignored" });
+    const alreadyTwo = await seedMessage(account.id, { projectId, status: "ignored" });
+    await seedClassifyRun(alreadyOne.id);
+    await seedClassifyRun(alreadyTwo.id);
+    const pending = await seedMessage(account.id, { projectId });
+    const runner = new FakeRunner([]);
+    const { logger, warns } = captureLogger();
+
+    const stats = await classifyNewMessages(
+      { ...deps(runner, { logger }), maxPerTick: 20, encryptionKey: ENCRYPTION_KEY, maxPerDay: 2 },
+      account.id,
+    );
+
+    expect(stats).toEqual({ classified: 0, ignored: 0, failed: 0 });
+    expect(runner.calls).toHaveLength(0);
+    expect(warns.some((w) => w.includes("tetto giornaliero"))).toBe(true);
+    expect((await reload(pending.id)).status).toBe("new");
+  });
+
+  it("tetto giornaliero a 0 → nessun limite (comportamento di prima)", async () => {
+    const account = await seedAccount();
+    const projectId = await seedProject("Portale");
+    const already = await seedMessage(account.id, { projectId, status: "ignored" });
+    await seedClassifyRun(already.id);
+    await seedClassifyRun(already.id);
+    await seedClassifyRun(already.id);
+    const pending = await seedMessage(account.id, { projectId });
+    const runner = new FakeRunner([modelOutput({ signal: "none" })]);
+
+    const stats = await classifyNewMessages(
+      { ...deps(runner), maxPerTick: 20, encryptionKey: ENCRYPTION_KEY, maxPerDay: 0 },
+      account.id,
+    );
+
+    expect(stats).toEqual({ classified: 0, ignored: 1, failed: 0 });
+    expect(runner.calls).toHaveLength(1);
+    expect((await reload(pending.id)).status).toBe("ignored");
+  });
+
+  it("budget mensile superato → nessuna classificazione, riga di log col motivo esplicito", async () => {
+    const account = await seedAccount();
+    const projectId = await seedProject("Portale");
+    const message = await seedMessage(account.id, { projectId });
+    await db
+      .update(instanceSettings)
+      .set({ monthlyBudgetUsd: "10" })
+      .where(eq(instanceSettings.id, 1));
+    const runner = new FakeRunner([]);
+    const { logger, warns } = captureLogger();
+
+    const stats = await classifyNewMessages(
+      {
+        ...deps(runner, { logger }),
+        maxPerTick: 20,
+        encryptionKey: ENCRYPTION_KEY,
+        monthlyCostUsdFn: async () => 12,
+      },
+      account.id,
+    );
+
+    expect(stats).toEqual({ classified: 0, ignored: 0, failed: 0 });
+    expect(runner.calls).toHaveLength(0);
+    expect(warns.some((w) => w.includes("budget mensile superato"))).toBe(true);
+    expect((await reload(message.id)).status).toBe("new");
+  });
+
+  it("budget mensile NON configurato (null) → nessun limite", async () => {
+    const account = await seedAccount();
+    const projectId = await seedProject("Portale");
+    const message = await seedMessage(account.id, { projectId });
+    const runner = new FakeRunner([modelOutput({ signal: "none" })]);
+
+    const stats = await classifyNewMessages(
+      {
+        ...deps(runner),
+        maxPerTick: 20,
+        encryptionKey: ENCRYPTION_KEY,
+        monthlyCostUsdFn: async () => 999_999,
+      },
+      account.id,
+    );
+
+    expect(stats).toEqual({ classified: 0, ignored: 1, failed: 0 });
+    expect((await reload(message.id)).status).toBe("ignored");
+  });
+
+  it("due messaggi dello stesso thread nella finestra di cooldown → uno solo viene classificato, l'altro resta `new`", async () => {
+    const account = await seedAccount();
+    const projectId = await seedProject("Portale");
+    const threadId = `th-${randomUUID()}`;
+    const first = await seedMessage(account.id, {
+      projectId,
+      threadId,
+      receivedAt: new Date("2026-09-01T08:00:00.000Z"),
+    });
+    const second = await seedMessage(account.id, {
+      projectId,
+      threadId,
+      receivedAt: new Date("2026-09-02T08:00:00.000Z"),
+    });
+    const runner = new FakeRunner([modelOutput({ signal: "none" })]);
+
+    const stats = await classifyNewMessages(
+      { ...deps(runner), maxPerTick: 20, encryptionKey: ENCRYPTION_KEY, threadCooldownMinutes: 60 },
+      account.id,
+    );
+
+    expect(stats).toEqual({ classified: 0, ignored: 1, failed: 0 });
+    expect(runner.calls).toHaveLength(1);
+    expect((await reload(first.id)).status).toBe("ignored");
+    expect((await reload(second.id)).status).toBe("new");
+  });
+
+  it("cooldown a 0 → disattivato, entrambi i messaggi dello stesso thread vengono classificati", async () => {
+    const account = await seedAccount();
+    const projectId = await seedProject("Portale");
+    const threadId = `th-${randomUUID()}`;
+    const first = await seedMessage(account.id, {
+      projectId,
+      threadId,
+      receivedAt: new Date("2026-09-01T08:00:00.000Z"),
+    });
+    const second = await seedMessage(account.id, {
+      projectId,
+      threadId,
+      receivedAt: new Date("2026-09-02T08:00:00.000Z"),
+    });
+    const runner = new FakeRunner([modelOutput({ signal: "none" }), modelOutput({ signal: "none" })]);
+
+    const stats = await classifyNewMessages(
+      { ...deps(runner), maxPerTick: 20, encryptionKey: ENCRYPTION_KEY, threadCooldownMinutes: 0 },
+      account.id,
+    );
+
+    expect(stats).toEqual({ classified: 0, ignored: 2, failed: 0 });
+    expect(runner.calls).toHaveLength(2);
+    expect((await reload(first.id)).status).toBe("ignored");
+    expect((await reload(second.id)).status).toBe("ignored");
+  });
+
+  it("un thread in cooldown non blocca la coda: il messaggio successivo non correlato riceve comunque un run nello stesso tick", async () => {
+    const account = await seedAccount();
+    const projectId = await seedProject("Portale");
+    const threadId = `th-${randomUUID()}`;
+    const firstOfThread = await seedMessage(account.id, {
+      projectId,
+      threadId,
+      receivedAt: new Date("2026-09-01T08:00:00.000Z"),
+    });
+    const secondOfThread = await seedMessage(account.id, {
+      projectId,
+      threadId,
+      receivedAt: new Date("2026-09-02T08:00:00.000Z"),
+    });
+    const unrelated = await seedMessage(account.id, {
+      projectId,
+      receivedAt: new Date("2026-09-03T08:00:00.000Z"),
+    });
+    const runner = new FakeRunner([modelOutput({ signal: "none" }), modelOutput({ signal: "none" })]);
+    const { logger, infos } = captureLogger();
+
+    const stats = await classifyNewMessages(
+      { ...deps(runner, { logger }), maxPerTick: 20, encryptionKey: ENCRYPTION_KEY, threadCooldownMinutes: 60 },
+      account.id,
+    );
+
+    expect(stats).toEqual({ classified: 0, ignored: 2, failed: 0 });
+    expect(runner.calls).toHaveLength(2);
+    expect((await reload(firstOfThread.id)).status).toBe("ignored");
+    expect((await reload(secondOfThread.id)).status).toBe("new");
+    expect((await reload(unrelated.id)).status).toBe("ignored");
+    // Il log del salto nomina il messaggio saltato (il secondo del thread),
+    // non uno dei due che sono stati davvero classificati.
+    expect(infos.some((m) => m.includes(secondOfThread.id))).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Isolamento fra caselle e progetti
 // ---------------------------------------------------------------------------
 
@@ -1093,6 +1320,331 @@ describe("classifyEmail: perimetro multi-progetto (fase 6b)", () => {
     expect(prompt).toContain("Voce di Beta");
     expect(prompt).toContain("Ticket di Alfa");
     expect(prompt).toContain("Ticket di Beta");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fase 6c — perimetro vuoto: senza regole di progetto, l'analisi decide su
+// TUTTI i progetti dell'istanza (Task 4)
+// ---------------------------------------------------------------------------
+
+describe("classifyEmail: perimetro vuoto → tutti i progetti dell'istanza (fase 6c)", () => {
+  it("perimetro vuoto: TUTTI i progetti dell'istanza entrano nel prompt come candidati", async () => {
+    const account = await seedAccount();
+    const a = await seedProject("Alfa");
+    const b = await seedProject("Beta");
+    // Nessuna regola di progetto ha ammesso/attribuito il messaggio: né un
+    // progetto risolto, né candidati, né un perimetro (`scopeProjectIds`).
+    const message = await seedMessage(account.id, { projectId: null, candidateProjectIds: [] });
+    const runner = new FakeRunner([modelOutput({ signal: "none" })]);
+
+    await classifyEmail(deps(runner), message);
+
+    expect(runner.calls).toHaveLength(1); // il modello VIENE chiamato: non si degrada subito
+    const prompt = runner.calls[0]!.prompt;
+    expect(prompt).toContain(a);
+    expect(prompt).toContain(b);
+    expect(prompt).toContain("Alfa");
+    expect(prompt).toContain("Beta");
+  });
+
+  it("perimetro vuoto: una proposta su un progetto QUALSIASI dell'istanza viene accettata dalla rivalidazione", async () => {
+    const account = await seedAccount();
+    const a = await seedProject("Alfa");
+    const b = await seedProject("Beta");
+    const message = await seedMessage(account.id, { projectId: null, candidateProjectIds: [] });
+    const runner = new FakeRunner([
+      modelOutput({
+        // Il modello sceglie Beta: non è "vicino" al messaggio in alcun modo
+        // (nessuna regola lo indicava), ma è un progetto reale dell'istanza.
+        proposals: [
+          { type: "create_backlog_item", projectId: b, title: "Idea per Beta", body: "x", consequence: "Crea" },
+        ],
+      }),
+    ]);
+
+    const outcome = await classifyEmail(deps(runner), message);
+
+    expect(outcome).toBe("classified");
+    const proposals = ((await reload(message.id)).classification as { proposals: { projectId: string }[] })
+      .proposals;
+    expect(proposals.map((p) => p.projectId)).toEqual([b]);
+    // Alfa era comunque fra i candidati (il perimetro era TUTTA l'istanza, non
+    // solo Beta): la scelta era del modello, non un vincolo del codice.
+    expect(runner.calls[0]!.prompt).toContain(a);
+  });
+
+  it("perimetro vuoto + nessun segnale → ignored, esattamente come prima", async () => {
+    const account = await seedAccount();
+    await seedProject("Alfa");
+    await seedProject("Beta");
+    const message = await seedMessage(account.id, { projectId: null, candidateProjectIds: [] });
+    const runner = new FakeRunner([modelOutput({ signal: "none", proposals: [] })]);
+
+    const outcome = await classifyEmail(deps(runner), message);
+
+    expect(outcome).toBe("ignored");
+    const row = await reload(message.id);
+    expect(row.status).toBe("ignored");
+    expect(row.signal).toBe("none");
+  });
+
+  it("perimetro vuoto + segnale ma nessuna proposta valida sopravvive alla rivalidazione → resta classified, «da smistare» (fase 6c, Task 5)", async () => {
+    // Prima del Task 5 questo ramo degradava a `ignored`: ora è il caso NUOVO
+    // della proposta di smistamento — vedi `classify.test.ts`, il describe
+    // dedicato più sotto, per la copertura completa della forma "da smistare".
+    const account = await seedAccount();
+    await seedProject("Alfa");
+    const message = await seedMessage(account.id, { projectId: null, candidateProjectIds: [] });
+    const runner = new FakeRunner([
+      modelOutput({
+        signal: "request",
+        // Un ticket che non esiste in nessun progetto: la rivalidazione la scarta.
+        proposals: [{ type: "update_ticket", ticketNumber: 999, status: "in_progress", consequence: "Aggiorna" }],
+      }),
+    ]);
+
+    const outcome = await classifyEmail(deps(runner), message);
+
+    expect(outcome).toBe("classified");
+    const row = await reload(message.id);
+    expect(row.status).toBe("classified");
+    expect(row.signal).toBe("request");
+    expect(row.classification).toMatchObject({ triage: true, signal: "request" });
+  });
+
+  it("perimetro davvero vuoto (istanza SENZA progetti) resta ignored senza run, come prima", async () => {
+    const account = await seedAccount();
+    const message = await seedMessage(account.id, { projectId: null, candidateProjectIds: [] });
+    const runner = new FakeRunner([]);
+
+    const outcome = await classifyEmail(deps(runner), message);
+
+    expect(runner.calls).toHaveLength(0);
+    expect(outcome).toBe("ignored");
+    expect((await reload(message.id)).status).toBe("ignored");
+  });
+
+  it("il contesto resta capato a CLASSIFY_CONTEXT_ROWS PER PROGETTO anche con l'insieme allargato a tutti i progetti", async () => {
+    const account = await seedAccount();
+    const a = await seedProject("Alfa");
+    const b = await seedProject("Beta");
+    for (let i = 0; i < CLASSIFY_CONTEXT_ROWS + 5; i++) {
+      await db.insert(backlogItems).values({
+        projectId: a,
+        title: `Voce ${i}`,
+        document: "doc",
+        source: "manual",
+      });
+    }
+    await db.insert(backlogItems).values({ projectId: b, title: "Voce di Beta", document: "doc", source: "manual" });
+    const message = await seedMessage(account.id, { projectId: null, candidateProjectIds: [] });
+    const runner = new FakeRunner([modelOutput({ signal: "none" })]);
+
+    await classifyEmail(deps(runner), message);
+
+    const prompt = runner.calls[0]!.prompt;
+    const matches = prompt.match(/Voce \d+/g) ?? [];
+    // Capato a CLASSIFY_CONTEXT_ROWS per Alfa, NON 10×2 spalmato sul totale.
+    expect(matches).toHaveLength(CLASSIFY_CONTEXT_ROWS);
+    expect(prompt).toContain("Voce di Beta");
+  });
+
+  it("il tetto GMAIL_MAX_PROJECTS_PER_MESSAGE si applica anche col perimetro allargato a tutti i progetti", async () => {
+    const account = await seedAccount();
+    const projectIds: string[] = [];
+    for (let i = 0; i < 7; i++) projectIds.push(await seedProject(`P${i}`));
+    const message = await seedMessage(account.id, { projectId: null, candidateProjectIds: [] });
+    const proposalsInput = projectIds.map((id, i) => ({
+      type: "create_backlog_item",
+      projectId: id,
+      title: `T${i}`,
+      body: "x",
+      consequence: "Crea",
+    }));
+    const runner = new FakeRunner([modelOutput({ proposals: proposalsInput })]);
+
+    await classifyEmail(deps(runner), message);
+
+    const proposals = ((await reload(message.id)).classification as { proposals: { projectId: string }[] })
+      .proposals;
+    const survivingProjects = new Set(proposals.map((p) => p.projectId));
+    expect(survivingProjects.size).toBe(GMAIL_MAX_PROJECTS_PER_MESSAGE);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fase 6c — Task 5: la proposta di SMISTAMENTO, forma «da smistare» sul padre
+// ---------------------------------------------------------------------------
+
+describe("classifyEmail: proposta di smistamento — forma «da smistare» sul padre (fase 6c, Task 5)", () => {
+  it("nessun progetto nominato dal modello → suggestedProjectIds VUOTO, non un elenco arbitrario", async () => {
+    const account = await seedAccount();
+    await seedProject("Alfa");
+    await seedProject("Beta");
+    const message = await seedMessage(account.id, { projectId: null, candidateProjectIds: [] });
+    const runner = new FakeRunner([
+      modelOutput({
+        signal: "decision",
+        summary: "Qualcuno ha deciso qualcosa, ma non è chiaro cosa fare.",
+        // Nessun `projectId` da nessuna parte: il modello ha visto un segnale
+        // ma non ha saputo formulare un'azione.
+        proposals: [],
+      }),
+    ]);
+
+    const outcome = await classifyEmail(deps(runner), message);
+
+    expect(outcome).toBe("classified");
+    const row = await reload(message.id);
+    expect(row.status).toBe("classified");
+    expect(row.signal).toBe("decision");
+    expect(row.classification).toMatchObject({
+      triage: true,
+      signal: "decision",
+      summary: "Qualcuno ha deciso qualcosa, ma non è chiaro cosa fare.",
+      suggestedProjectIds: [],
+    });
+  });
+
+  it("i progetti SUGGERITI sono quelli che le proposte SCARTATE nominavano, nell'ordine, senza doppioni", async () => {
+    const account = await seedAccount();
+    const alfa = await seedProject("Alfa");
+    const beta = await seedProject("Beta");
+    const message = await seedMessage(account.id, { projectId: null, candidateProjectIds: [] });
+    const runner = new FakeRunner([
+      modelOutput({
+        signal: "deadline",
+        proposals: [
+          // Nomina Beta ma manca `name`: create_milestone la scarta comunque.
+          { type: "create_milestone", projectId: beta, consequence: "Crea milestone" },
+          // Nomina Alfa ma il ticket non esiste: update_ticket la scarta.
+          { type: "update_ticket", projectId: alfa, ticketNumber: 999, status: "in_progress", consequence: "Aggiorna" },
+          // Beta di nuovo: non deve comparire due volte fra i suggeriti.
+          { type: "comment_ticket", projectId: beta, ticketNumber: 999, body: "x", consequence: "Commenta" },
+        ],
+      }),
+    ]);
+
+    const outcome = await classifyEmail(deps(runner), message);
+
+    expect(outcome).toBe("classified");
+    const row = await reload(message.id);
+    expect(row.classification).toMatchObject({
+      triage: true,
+      // Nell'ordine di PRIMA citazione: Beta (proposta 0) prima di Alfa (proposta 1).
+      suggestedProjectIds: [beta, alfa],
+    });
+  });
+
+  it("un projectId INVENTATO (non fra i candidati) non entra fra i suggeriti", async () => {
+    const account = await seedAccount();
+    const alfa = await seedProject("Alfa");
+    const message = await seedMessage(account.id, { projectId: null, candidateProjectIds: [] });
+    const ghostProjectId = randomUUID();
+    const runner = new FakeRunner([
+      modelOutput({
+        signal: "request",
+        proposals: [
+          // Progetto inventato: nessun nome da mostrare, mai suggerito.
+          { type: "create_backlog_item", projectId: ghostProjectId, title: "T", consequence: "Crea" },
+        ],
+      }),
+    ]);
+
+    const outcome = await classifyEmail(deps(runner), message);
+
+    expect(outcome).toBe("classified");
+    const row = await reload(message.id);
+    expect(row.classification).toMatchObject({ triage: true, suggestedProjectIds: [] });
+    expect(alfa).toBeTruthy(); // Alfa esiste ma non è mai stato nominato: correttamente assente.
+  });
+
+  it("il tetto TRIAGE_MAX_SUGGESTED_PROJECTS si applica anche ai progetti suggeriti", async () => {
+    const account = await seedAccount();
+    const projectIds: string[] = [];
+    for (let i = 0; i < 5; i++) projectIds.push(await seedProject(`P${i}`));
+    const message = await seedMessage(account.id, { projectId: null, candidateProjectIds: [] });
+    const runner = new FakeRunner([
+      modelOutput({
+        signal: "request",
+        // Ogni proposta nomina un progetto diverso ma referenzia un ticket
+        // inesistente: tutte scartate, tutti i cinque projectId sono "nominati".
+        proposals: projectIds.map((id, i) => ({
+          type: "update_ticket",
+          projectId: id,
+          ticketNumber: 900 + i,
+          status: "in_progress",
+          consequence: "Aggiorna",
+        })),
+      }),
+    ]);
+
+    const outcome = await classifyEmail(deps(runner), message);
+
+    expect(outcome).toBe("classified");
+    const row = await reload(message.id);
+    const classification = row.classification as { suggestedProjectIds: string[] };
+    expect(classification.suggestedProjectIds).toHaveLength(3);
+    expect(classification.suggestedProjectIds).toEqual(projectIds.slice(0, 3));
+  });
+
+  it("un messaggio CON figli (già esistenti) non entra MAI in forma «da smistare», anche con segnale e zero proposte nuove", async () => {
+    const account = await seedAccount();
+    const a = await seedProject("Alfa");
+    const message = await seedMessage(account.id, { projectId: a, scopeProjectIds: [a] });
+    // Un figlio già esistente (da un giro precedente), qualunque sia il suo stato.
+    await seedProposal(message.id, a, { status: "proposed" });
+    const runner = new FakeRunner([
+      modelOutput({
+        signal: "request",
+        // Nessuna proposta nuova sopravvive (ticket inesistente).
+        proposals: [{ type: "update_ticket", ticketNumber: 999, status: "in_progress", consequence: "Aggiorna" }],
+      }),
+    ]);
+
+    const outcome = await classifyEmail(deps(runner), message);
+
+    // Il figlio esistente basta a mantenere il padre `classified` nella forma
+    // NORMALE (non «da smistare»): `writeClassification` conta i figli
+    // RIMANENTI (qualunque stato), non solo le proposte di QUESTO giro.
+    expect(outcome).toBe("classified");
+    const row = await reload(message.id);
+    expect(row.classification).not.toMatchObject({ triage: true });
+  });
+
+  it("integrazione: dopo `choose_project` sul padre (riaccodato con projectId+scopeProjectIds), il giro successivo produce un figlio NORMALE per quel progetto", async () => {
+    // Riproduce lo stato che `apps/server/src/services/google-proposal.ts`
+    // scrive nel case `choose_project` per `source: "email_triage"` — senza
+    // importare quel modulo (il server non è una dipendenza del worker): lo
+    // stato è quello, non il codice che lo produce.
+    const account = await seedAccount();
+    const chosen = await seedProject("Scelto");
+    const message = await seedMessage(account.id, {
+      status: "new",
+      projectId: chosen,
+      scopeProjectIds: [chosen],
+      proposalNotificationId: null,
+      classification: { triage: true, signal: "request", summary: "s", suggestedProjectIds: [] },
+    });
+    // Con UN SOLO progetto nel perimetro, il prompt esenta il modello dal
+    // ripetere `projectId`: `ctx.resolvedProjectId` (da `message.projectId`,
+    // ORA valorizzato) lo completa da sé.
+    const runner = new FakeRunner([
+      modelOutput({
+        signal: "request",
+        proposals: [{ type: "create_backlog_item", title: "Idea per Scelto", body: "x", consequence: "Crea" }],
+      }),
+    ]);
+
+    const outcome = await classifyEmail(deps(runner), message);
+
+    expect(outcome).toBe("classified");
+    const children = await reloadProposals(message.id);
+    expect(children).toHaveLength(1);
+    expect(children[0]!.projectId).toBe(chosen);
+    const row = await reload(message.id);
+    expect(row.classification).not.toMatchObject({ triage: true });
   });
 });
 

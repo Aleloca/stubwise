@@ -724,7 +724,8 @@
       },
       "googleAccounts": {
         "title": "Google mailboxes",
-        "subtitle": "// Gmail and Calendar, read-only. Stubwise reads only mail your projects' routing rules match.",
+        "subtitle": "// Gmail and Calendar, read-only. Which mail is admitted is configured instance-wide in Settings → Google.",
+        "consentNotice": "By connecting a mailbox, Stubwise will read the subject and body of every admitted email and send them to the AI analysis provider configured on this instance, to propose actions.",
         "connect": "Connect a mailbox",
         "empty": "// no mailbox connected",
         "workspace": "Workspace",
@@ -951,7 +952,21 @@
       "scopes": "Scopes",
       "internalHint": "Create the OAuth consent screen as an Internal app: it stays inside your organization and needs no Google verification.",
       "apisHint": "Enable the Gmail API and the Google Calendar API on the same project, then paste the client ID and the client secret here.",
-      "guideHint": "// step-by-step guide: user docs, Integrations → Google Workspace."
+      "guideHint": "// step-by-step guide: user docs, Integrations → Google Workspace.",
+      "mailAdmission": {
+        "title": "Admitted mail",
+        "subtitle": "// which emails enter Stubwise at all, instance-wide. Project rules below only decide where an admitted email goes.",
+        "dataUsageNotice": "Of every admitted email, the subject and body are downloaded and sent to the AI analysis provider configured on this instance, for classification.",
+        "admitWorkspaceDomainsLabel": "Admit mail from registered Workspace domains",
+        "admitWorkspaceDomainsHint": "// senders (or CC'd recipients) on a domain from a registered Google Workspace are admitted automatically, even without a project rule.",
+        "domainsTitle": "Domains that would be admitted",
+        "domainsLoading": "// loading domains…",
+        "domainsEmpty": "// no Google Workspace registered yet",
+        "denyLabelsLabel": "Always exclude these Gmail labels",
+        "denyLabelsHint": "// mail carrying one of these labels is discarded even if it would otherwise be admitted.",
+        "denyAutomatedLabel": "Discard automated mail",
+        "denyAutomatedHint": "// newsletters and automatic notifications (unsubscribe links, bulk senders, auto-replies) are dropped before they ever reach a project."
+      }
     },
     "aiProviders": {
       "title": "AI providers",
@@ -1555,8 +1570,8 @@
     },
     "email": {
       "title": "Mail",
-      "subtitle": "// which emails are about this project. At least one rule is needed: with none, no message comes in.",
-      "perimeterWarning": "A message no rule recognises is not even downloaded from Gmail. These rules are the perimeter of what Stubwise reads of the mail of whoever connected a mailbox.",
+      "subtitle": "// which emails attach to this project. Rules here decide attribution only; whether an email enters Stubwise at all is set in Settings → Google.",
+      "perimeterWarning": "These rules decide which project an email already admitted to the system goes to. Admission — which emails come in at all — is configured in Settings → Google.",
       "empty": "// no rules: this project's mail is not read",
       "loading": "// loading rules…",
       "error": "// could not load the mail routing rules",
@@ -1565,7 +1580,7 @@
       "labels": "Gmail labels",
       "labelsHint": "// the label you put on this project's mail in your mailbox.",
       "keywords": "Keywords",
-      "keywordsHint": "// searched in subject and body. Only the ones in the subject are enough to have the message downloaded.",
+      "keywordsHint": "// searched in subject and body. A keyword in the subject alone attributes the email to this project, even before its body is read.",
       "pickLabel": "Pick from observed labels",
       "pickLabelPlaceholder": "Search a label…",
       "labelNoResults": "// no label matches",
@@ -2299,6 +2314,10 @@
     "empty": "// no mail",
     "loadMore": "Load more",
     "loadingMore": "Loading…",
-    "loadError": "Could not load Mail."
+    "loadError": "Could not load Mail.",
+    "triage": {
+      "badge": "To sort",
+      "dismissedOutcome": "Sorted — none of the suggested projects matched"
+    }
   }
 }

@@ -77,11 +77,13 @@ async function addChipIn(groupLabel: RegExp, value: string) {
 }
 
 describe("ProjectEmailRoutesSection", () => {
-  it("avvisa che le regole sono il perimetro di ciò che viene letto", async () => {
+  it("avvisa che le regole attribuiscono, non ammettono (fase 6c)", async () => {
     mockApi({ [`GET ${ROUTES_PATH}`]: () => jsonResponse(200, { routes: [] }) });
     renderSection();
 
-    expect(await screen.findByText(/not even downloaded from Gmail/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/already admitted to the system/i),
+    ).toBeInTheDocument();
   });
 
   it("un progetto senza regole lo dice invece di sembrare configurato", async () => {

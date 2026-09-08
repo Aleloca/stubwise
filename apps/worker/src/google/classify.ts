@@ -2,9 +2,13 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  agentRuns,
   backlogItems,
   emailMessages,
   emailProposals,
+  googleAccounts,
+  instanceSettings,
+  monthlyCostUsd,
   projects,
   tickets,
   type Db,
@@ -16,7 +20,7 @@ import {
   type TicketPriority,
   type TicketStatus,
 } from "@stubwise/shared";
-import { and, asc, desc, eq, inArray, notInArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { AgentRunner } from "../agent/runner.js";
 import { capText, parseAgentJson, textFromRun } from "../agent/text.js";
@@ -85,6 +89,21 @@ export const CLASSIFY_TIMEOUT_MS = 90_000;
 
 /** Messaggi classificati per tick quando `maxPerTick` non è passato. */
 export const DEFAULT_CLASSIFY_MAX_PER_TICK = 20;
+
+/**
+ * Fase 6c — Task 6: tetto giornaliero di classificazioni PER CASELLA
+ * (`GMAIL_MAX_PER_DAY`), usato quando {@link ClassifyBatchDeps.maxPerDay} non
+ * è passato. `0` = nessun tetto.
+ */
+export const DEFAULT_GMAIL_MAX_PER_DAY = 200;
+
+/**
+ * Fase 6c — Task 6: cooldown in minuti fra due classificazioni dello STESSO
+ * thread (`GMAIL_THREAD_COOLDOWN_MINUTES`), usato quando
+ * {@link ClassifyBatchDeps.threadCooldownMinutes} non è passato. `0` =
+ * disattivato.
+ */
+export const DEFAULT_GMAIL_THREAD_COOLDOWN_MINUTES = 60;
 
 /** Caratteri del corpo email che entrano nel prompt (il resto è troncato). */
 export const CLASSIFY_TEXT_MAX_CHARS = 8_000;
@@ -207,6 +226,47 @@ export interface EmailClassification {
 }
 
 /**
+ * Fase 6c — Task 5: ciò che finisce in `email_messages.classification` per un
+ * messaggio «da smistare» — un SEGNALE reale (`signal !== 'none'`) ma NESSUNA
+ * proposta sopravvissuta alla rivalidazione per NESSUN progetto, e quindi
+ * NESSUN figlio creato (vedi {@link writeClassification}).
+ *
+ * FORMA DIVERSA da {@link EmailClassification} DI PROPOSITO — non è
+ * un'estensione, è un'unione discriminata sullo stesso campo jsonb: il
+ * marcatore `triage: true` è ciò che distingue questo padre (nessun figlio,
+ * in attesa di una proposta di SMISTAMENTO — Task 5, `proposal.ts`) da un
+ * padre `classified` CON figli (dove `classification` resta nella forma
+ * "normale", con `proposals[]`). Nessuno stato nuovo, nessuna tabella nuova:
+ * solo una forma diversa dello stesso campo. Chi rilegge questo jsonb
+ * (`apps/worker/src/google/poller.ts`, `apps/worker/src/google/proposal.ts`)
+ * lo fa in modo TOLLERANTE (zod `.catch`/`.safeParse`), come ogni altra
+ * lettura di un jsonb scritto da una fase precedente.
+ */
+export interface EmailTriageClassification {
+  /** Il marcatore. SEMPRE `true` qui — mai scritto `false`, l'assenza del campo è il "no". */
+  triage: true;
+  signal: EmailSignal;
+  summary: string;
+  /**
+   * I progetti che le proposte SCARTATE nominavano (fino a
+   * {@link TRIAGE_MAX_SUGGESTED_PROJECTS}), non un elenco arbitrario — vedi
+   * {@link extractSuggestedProjectIds}. Può essere VUOTO: il modello ha visto
+   * un segnale ma non ha nominato nessun progetto specifico, e la proposta di
+   * smistamento nascerà con la sola opzione «Nessuno di questi».
+   */
+  suggestedProjectIds: string[];
+}
+
+/**
+ * Fase 6c: quanti progetti suggeriti porta al massimo una proposta di
+ * smistamento — stesso tetto di {@link MAX_PROPOSAL_OPTIONS} in
+ * `./proposal.ts` (non importato da lì per non introdurre una dipendenza
+ * ciclica fra i due moduli: sono la stessa costante per ragioni diverse, e
+ * tenerle allineate è responsabilità di chi le tocca).
+ */
+export const TRIAGE_MAX_SUGGESTED_PROJECTS = 3;
+
+/**
  * L'input del prompt: tutto ciò che l'agente vede, fidato e non.
  *
  * Fase 6b: `projects` non è più una lista di soli id fra cui scegliere, ma
@@ -275,6 +335,32 @@ export interface ClassifyBatchDeps extends Omit<ClassifyEmailDeps, "lang"> {
   signal?: AbortSignal;
   /** Caricatore della catena di provider (iniettabile nei test). */
   loadProviderChainFn?: typeof loadProviderChain;
+  /**
+   * Fase 6c — Task 6: tetto giornaliero di classificazioni per questa casella
+   * (`GMAIL_MAX_PER_DAY`); omesso = {@link DEFAULT_GMAIL_MAX_PER_DAY}. `0` =
+   * nessun tetto. Contato dai run `agent_runs` con `phase = 'email_classify'`
+   * il cui `email_message_id` appartiene a questa casella, nelle ultime 24
+   * ore da `now`.
+   */
+  maxPerDay?: number;
+  /**
+   * Fase 6c — Task 6: cooldown in minuti fra due classificazioni dello STESSO
+   * thread (`GMAIL_THREAD_COOLDOWN_MINUTES`); omesso =
+   * {@link DEFAULT_GMAIL_THREAD_COOLDOWN_MINUTES}. `0` = disattivato. Un
+   * messaggio `new` il cui thread ha già avuto una classificazione entro
+   * questa finestra viene SALTATO (resta `new`, nessun run) e il ciclo passa
+   * al successivo — un thread attivo non deve bloccare la coda.
+   */
+  threadCooldownMinutes?: number;
+  /**
+   * Fase 6c — Task 6: iniettabile per i test, stesso ruolo di
+   * `monthlyCostUsdFn` in `apps/worker/src/pipeline/fix.ts` — default
+   * `monthlyCostUsd` da `@stubwise/db`. Usato dal gate del budget mensile,
+   * la STESSA verifica che usano i fix (stesso tetto, letto da
+   * `instance_settings.monthly_budget_usd`): la posta non deve poter erodere
+   * il budget senza esserne frenata.
+   */
+  monthlyCostUsdFn?: (db: Db) => Promise<number>;
 }
 
 /** Quanti messaggi ha prodotto ciascun esito nel tick di una casella. */
@@ -432,6 +518,16 @@ export interface ClassifyContext {
  * ticket CITATI nel messaggio (`#N`): senza di loro, rispondere a un'email
  * che parla del ticket #3 di sei mesi fa produrrebbe sempre e solo proposte
  * scartate.
+ *
+ * Fase 6c: se il perimetro derivato (`scopeProjectIds`/fallback) è VUOTO —
+ * un messaggio ammesso per dominio Workspace senza nessuna regola di
+ * progetto — non si degrada più subito a "niente da proporre": i candidati
+ * diventano TUTTI i progetti dell'istanza. Il messaggio è «da attribuire»,
+ * non «non è lavoro», e solo l'analisi (col contesto, ancora capato a
+ * {@link CLASSIFY_CONTEXT_ROWS} per progetto) può dirlo. Un'istanza SENZA
+ * alcun progetto resta comunque vuota: non c'è niente su cui attribuire
+ * nulla, e {@link classifyEmail} continua a ignorare senza chiamare il
+ * modello.
  */
 async function loadContext(
   db: Db,
@@ -441,14 +537,34 @@ async function loadContext(
   // (sempre un array, mai null/undefined), ma può essere VUOTO per i
   // messaggi ingeriti prima che il routing lo popolasse. In quel caso si
   // ricade sul comportamento precedente: il progetto risolto, o i candidati.
-  const allowed =
+  const derivedAllowed =
     message.scopeProjectIds.length > 0
       ? message.scopeProjectIds
       : message.projectId
         ? [message.projectId]
         : message.candidateProjectIds;
-  const allowedProjectIds = new Set(allowed);
   const cited = citedTicketNumbers(`${message.subject ?? ""}\n${message.textExcerpt ?? ""}`);
+
+  // Perimetro vuoto (fase 6c): i candidati diventano tutti i progetti
+  // dell'istanza. Nessun filtro su stato/archiviazione — lo schema non ne ha
+  // uno (verificato su `projects`, come già fanno il pulse e la `GET
+  // /api/projects/pulse`, che leggono l'istanza intera senza un filtro
+  // "attivo"). Ordinati per data di creazione: stesso ordine di `GET
+  // /api/projects`, e dà al tie-break del tetto sul fan-out
+  // (`perimeterOrder`, vedi {@link revalidateClassification}) un ordine
+  // deterministico anche in questo caso.
+  const projectRows =
+    derivedAllowed.length > 0
+      ? await db
+          .select({ id: projects.id, name: projects.name, description: projects.description })
+          .from(projects)
+          .where(inArray(projects.id, derivedAllowed))
+      : await db
+          .select({ id: projects.id, name: projects.name, description: projects.description })
+          .from(projects)
+          .orderBy(asc(projects.createdAt));
+  const allowed = derivedAllowed.length > 0 ? derivedAllowed : projectRows.map((p) => p.id);
+  const allowedProjectIds = new Set(allowed);
 
   if (allowed.length === 0) {
     return {
@@ -460,11 +576,6 @@ async function loadContext(
       citedTicketNumbers: cited,
     };
   }
-
-  const projectRows = await db
-    .select({ id: projects.id, name: projects.name, description: projects.description })
-    .from(projects)
-    .where(inArray(projects.id, allowed));
 
   const contextByProject = new Map<string, ProjectContext>();
   for (const id of allowed) contextByProject.set(id, { openTickets: new Map(), backlogTitles: [] });
@@ -731,6 +842,37 @@ async function markFailed(db: Db, messageId: string, reason: string): Promise<vo
     .where(eq(emailMessages.id, messageId));
 }
 
+/** Lettura TOLLERANTE del solo `projectId` di UNA proposta grezza (fase 6c). */
+const rawProposalProjectIdSchema = z.object({ projectId: z.string().min(1).optional() }).loose();
+
+/**
+ * Fase 6c: i progetti che le proposte SCARTATE nominavano — non un elenco
+ * arbitrario. Guarda l'output GREZZO del modello (`raw`, PRIMA della
+ * rivalidazione: quando questa funzione serve, ZERO proposte sono
+ * sopravvissute, quindi ogni proposta qui dentro è per forza una proposta
+ * scartata), nell'ordine in cui il modello le ha scritte, e tiene solo gli id
+ * che sono REALMENTE nel perimetro allargato (`allowedProjectIds`) — un id
+ * che il modello ha inventato non ha un nome da mostrare su un'opzione, e
+ * mostrarlo comunque sarebbe un'opzione rotta, non "generosa". Senza
+ * doppioni, fino a `cap`.
+ */
+export function extractSuggestedProjectIds(
+  raw: unknown[],
+  allowedProjectIds: Set<string>,
+  cap: number = TRIAGE_MAX_SUGGESTED_PROJECTS,
+): string[] {
+  const found: string[] = [];
+  for (const item of raw) {
+    if (found.length >= cap) break;
+    const parsed = rawProposalProjectIdSchema.safeParse(item);
+    if (!parsed.success || !parsed.data.projectId) continue;
+    const projectId = parsed.data.projectId;
+    if (!allowedProjectIds.has(projectId) || found.includes(projectId)) continue;
+    found.push(projectId);
+  }
+  return found;
+}
+
 /**
  * Fase 6b — Task 4: scrive l'esito della classificazione sui FIGLI
  * (`email_proposals`), un upsert PER PROGETTO, non più un unico UPDATE sul
@@ -750,12 +892,11 @@ async function markFailed(db: Db, messageId: string, reason: string): Promise<vo
  *     `status` derivato da "esiste almeno un figlio (qualunque stato) per
  *     questo messaggio, dopo i passi 1-2" — non dalla sola nuova partizione,
  *     perché un figlio `proposed` più vecchio, lasciato intatto dal passo 1,
- *     conta comunque come "il messaggio ha prodotto qualcosa". `error` è
- *     sempre `null`: la classificazione è riuscita anche quando tutto è
- *     stato scartato (→ nessun figlio → `ignored`, non un errore).
- *     `classification` resta scritta anche sul padre come vista COMBINATA
- *     (tutti i progetti insieme): utile per il debug, ma non è più l'ancora
- *     della pubblicazione — quella si sposta sui figli.
+ *     conta comunque come "il messaggio ha prodotto qualcosa". Quando NESSUN
+ *     figlio resta (fase 6c, Task 5), lo `status` NON è più sempre `ignored`:
+ *     si biforca su `classification.signal` — vedi sotto. `error` è sempre
+ *     `null`: la classificazione è riuscita anche quando tutto è stato
+ *     scartato.
  *
  * `notInArray` con un array VUOTO genera `sql\`true\`` in drizzle-orm (non un
  * `NOT IN ()` letterale, che sarebbe un errore di sintassi Postgres —
@@ -763,12 +904,61 @@ async function markFailed(db: Db, messageId: string, reason: string): Promise<vo
  * partizione vuota il passo 2 elimina correttamente TUTTI i figli
  * `classified` rimasti, che è l'esito voluto quando nessuna proposta è
  * sopravvissuta per nessun progetto.
+ *
+ * ## Fase 6c — Task 5: il terzo esito, quando NESSUN figlio resta
+ *
+ * Prima di questo task, "zero figli" degradava SEMPRE a `ignored` — vedi il
+ * design §4, "Tre esiti". Ora si biforca su `classification.signal` E su
+ * `resolvedProjectId`:
+ *
+ *  - `signal === 'none'`: **invariato**, `ignored` — nessun segnale, niente
+ *    da smistare;
+ *  - `signal !== 'none'` MA `resolvedProjectId !== null` (un progetto era
+ *    già risolto dal routing, senza ambiguità): **invariato**, `ignored` —
+ *    zero proposte sopravvissute qui non è "nessun progetto attribuibile",
+ *    è "nessuna azione utile per un progetto che già conoscevamo con
+ *    certezza" (un ticket citato che non esiste, una data già passata…).
+ *    ⚠️ **DEVIAZIONE deliberata dal testo del piano**, che non distingue
+ *    esplicitamente questo caso: proporre "a quale progetto appartiene?"
+ *    quando il progetto è GIÀ certo produrrebbe una card senza senso — la
+ *    domanda che la proposta di smistamento fa è letteralmente quella a cui
+ *    si sa già la risposta. Verificato che i tre test preesistenti che
+ *    rientrano in questo ramo (progetto risolto, referente non di progetto
+ *    che fallisce) si aspettavano `ignored`: è la lettura coerente col resto
+ *    del sistema, non solo con quei test;
+ *  - `signal !== 'none'` E `resolvedProjectId === null` (nessun vincitore:
+ *    perimetro vuoto da ammissione senza regole — Task 4 — O regole in
+ *    PARITÀ, candidati multipli senza vincitore — il caso ambiguo che la
+ *    fase 6 ORIGINALE risolveva con «Riguarda …», poi deprecato in
+ *    generazione dalla 6b): **nuovo**, resta `classified` — nessuna proposta
+ *    ha superato la rivalidazione per NESSUN progetto, e senza un vincitore
+ *    non c'è modo di completare un `projectId` mancante (vedi
+ *    `revalidateProposal`). Il padre porta la forma
+ *    {@link EmailTriageClassification} (marcatore `triage: true`) invece
+ *    della {@link EmailClassification} normale: NESSUN figlio viene creato
+ *    qui (il fan-out ha già scritto zero righe, ai passi 1-2 sopra — questo
+ *    branch non fa altro che scegliere la FORMA del padre), e il messaggio
+ *    resta `classified` apposta perché il poller
+ *    (`apps/worker/src/google/poller.ts`, `runProposePhase`) lo selezioni al
+ *    giro successivo e costruisca la proposta di SMISTAMENTO
+ *    (`./proposal.ts`, `buildTriageProposalEvent`) — che vive SUL PADRE,
+ *    riusando `email_messages.proposal_notification_id`.
  */
 async function writeClassification(
   db: Db,
   messageId: string,
   classification: EmailClassification,
   now: Date,
+  /** Fase 6c: l'output GREZZO del modello (prima della rivalidazione) e il
+   * perimetro allargato, per calcolare {@link EmailTriageClassification.suggestedProjectIds}
+   * SOLO quando serve (nel branch "zero figli, signal !== 'none', nessun
+   * vincitore"). */
+  rawProposals: unknown[],
+  allowedProjectIds: Set<string>,
+  /** Fase 6c: il progetto RISOLTO dal routing (`ClassifyContext.resolvedProjectId`),
+   * o `null` se ambiguo/assente — decide se "zero figli" è `ignored` o «da
+   * smistare» (vedi il docblock qui sopra). */
+  resolvedProjectId: string | null,
 ): Promise<ClassifyOutcome> {
   // Ripartiziona la lista piatta per progetto (`proposal.projectId` è sempre
   // definito su ogni proposta sopravvissuta, vedi il docblock di
@@ -830,14 +1020,42 @@ async function writeClassification(
       .from(emailProposals)
       .where(eq(emailProposals.emailMessageId, messageId))
       .limit(1);
-    const parentStatus: ClassifyOutcome = remainingChildren.length > 0 ? "classified" : "ignored";
+
+    // Fase 6c — Task 5: il terzo esito (vedi il docblock qui sopra). Con
+    // figli il padre resta `classified` come sempre; senza figli si biforca
+    // su `signal` E su `resolvedProjectId` invece di degradare sempre a
+    // `ignored`.
+    let parentStatus: ClassifyOutcome;
+    let parentClassification: Record<string, unknown>;
+    if (remainingChildren.length > 0) {
+      parentStatus = "classified";
+      parentClassification = classification as unknown as Record<string, unknown>;
+    } else if (classification.signal === "none" || resolvedProjectId !== null) {
+      // Invariato: nessun segnale, O un progetto era già risolto (nessuna
+      // ambiguità da smistare) — vedi il docblock, "DEVIAZIONE deliberata".
+      parentStatus = "ignored";
+      parentClassification = classification as unknown as Record<string, unknown>;
+    } else {
+      // NUOVO: segnale reale, nessun vincitore, nessuna proposta attribuita
+      // a nessun progetto. Il padre resta `classified` — SENZA figli —
+      // apposta perché il poller lo selezioni per la proposta di
+      // smistamento (`proposal.ts`).
+      parentStatus = "classified";
+      const triage: EmailTriageClassification = {
+        triage: true,
+        signal: classification.signal,
+        summary: classification.summary,
+        suggestedProjectIds: extractSuggestedProjectIds(rawProposals, allowedProjectIds),
+      };
+      parentClassification = triage as unknown as Record<string, unknown>;
+    }
 
     await tx
       .update(emailMessages)
       .set({
         status: parentStatus,
         signal: classification.signal,
-        classification: classification as unknown as Record<string, unknown>,
+        classification: parentClassification,
         error: null,
       })
       .where(eq(emailMessages.id, messageId));
@@ -949,7 +1167,15 @@ export async function classifyEmail(
       now,
       deps.maxProjectsPerMessage ?? GMAIL_MAX_PROJECTS_PER_MESSAGE,
     );
-    return await writeClassification(deps.db, message.id, classification, now);
+    return await writeClassification(
+      deps.db,
+      message.id,
+      classification,
+      now,
+      parsed.proposals,
+      ctx.allowedProjectIds,
+      ctx.resolvedProjectId,
+    );
   } catch (err) {
     // Timeout, spawn fallito, limite del provider, errore di scrittura: è un
     // problema di QUESTO messaggio, non della casella.
@@ -965,6 +1191,90 @@ export async function classifyEmail(
   }
 }
 
+/** Formatta un importo USD come `fix.ts` (4 decimali) — stesso stile del log del budget dei fix. */
+function fmtUsd(n: number): string {
+  return n.toFixed(4);
+}
+
+/**
+ * L'email di una casella, per i log dei tetti (Task 6): quelli guardano una
+ * casella, non un id opaco. `accountId` come fallback SOLO se la riga è
+ * sparita fra il claim e questo controllo (caso limite, mai visto in pratica).
+ */
+async function loadAccountEmail(db: Db, accountId: string): Promise<string> {
+  const [row] = await db
+    .select({ email: googleAccounts.email })
+    .from(googleAccounts)
+    .where(eq(googleAccounts.id, accountId));
+  return row?.email ?? accountId;
+}
+
+/**
+ * Fase 6c — Task 6: quante classificazioni (`agent_runs.phase =
+ * 'email_classify'`) ha fatto QUESTA casella nelle ultime `hours` ore — un
+ * JOIN su `email_messages` per risalire alla casella, dato che `agent_runs`
+ * non porta `account_id` direttamente.
+ *
+ * La finestra usa `now()` DI POSTGRES, non un `now` iniettato: le righe che
+ * conta sono scritte da `recordAgentRun` con `created_at` a `defaultNow()`
+ * (il timestamp REALE del DB), quindi confrontarle con un orologio finto
+ * romperebbe il confronto — stessa scelta di {@link monthlyCostUsd} (mese
+ * corrente via `date_trunc('month', now())`) e di `pruneOldEmails` in
+ * `poller.ts` (`make_interval`).
+ */
+async function countClassifyRunsSince(db: Db, accountId: string, hours: number): Promise<number> {
+  const [row] = await db
+    .select({ count: sql<string>`count(*)` })
+    .from(agentRuns)
+    .innerJoin(emailMessages, eq(agentRuns.emailMessageId, emailMessages.id))
+    .where(
+      and(
+        eq(agentRuns.phase, "email_classify"),
+        eq(emailMessages.accountId, accountId),
+        sql`${agentRuns.createdAt} >= now() - make_interval(hours => ${Math.trunc(hours)})`,
+      ),
+    );
+  return Number(row?.count ?? 0);
+}
+
+/**
+ * Fase 6c — Task 6: il THREAD di un messaggio ha già avuto una
+ * classificazione entro `minutes` minuti da adesso? Stesso JOIN e stessa
+ * scelta di `now()` DI POSTGRES di {@link countClassifyRunsSince} — vedi lì
+ * il motivo.
+ */
+async function threadClassifiedRecently(db: Db, threadId: string, minutes: number): Promise<boolean> {
+  const [row] = await db
+    .select({ id: agentRuns.id })
+    .from(agentRuns)
+    .innerJoin(emailMessages, eq(agentRuns.emailMessageId, emailMessages.id))
+    .where(
+      and(
+        eq(agentRuns.phase, "email_classify"),
+        eq(emailMessages.threadId, threadId),
+        sql`${agentRuns.createdAt} >= now() - make_interval(mins => ${Math.trunc(minutes)})`,
+      ),
+    )
+    .limit(1);
+  return row !== undefined;
+}
+
+/**
+ * Fase 6c — Task 6: il tetto di budget MENSILE d'istanza, la STESSA colonna
+ * che legge `apps/worker/src/pipeline/fix.ts` prima di un fix
+ * (`instance_settings.monthly_budget_usd`, singleton id=1). `null` = nessun
+ * tetto configurato. I numeric di Postgres arrivano come stringa.
+ */
+async function loadMonthlyBudgetUsd(db: Db): Promise<number | null> {
+  const [row] = await db
+    .select({ monthlyBudgetUsd: instanceSettings.monthlyBudgetUsd })
+    .from(instanceSettings)
+    .where(eq(instanceSettings.id, 1));
+  return row?.monthlyBudgetUsd != null && row.monthlyBudgetUsd !== ""
+    ? Number(row.monthlyBudgetUsd)
+    : null;
+}
+
 /**
  * FASE 2 del tick di UNA casella: i messaggi `new`, dai più vecchi, fino al
  * tetto per tick.
@@ -976,6 +1286,27 @@ export async function classifyEmail(
  * La lingua e il provider si risolvono UNA volta per casella, non per
  * messaggio: sono due query che non cambierebbero risposta venti volte di
  * fila. Non lancia mai — `classifyEmail` chiude ogni strada su una riga.
+ *
+ * ## Fase 6c — Task 6: tre difese di costo, in ordine di granularità decrescente
+ *
+ * 1. **Tetto giornaliero PER CASELLA** (`maxPerDay`/`GMAIL_MAX_PER_DAY`): un
+ *    controllo UNA VOLTA, prima di guardare qualunque messaggio. Raggiunto,
+ *    la classificazione si ferma qui: nessun run, nessuna query dei
+ *    pendenti, i messaggi `new` restano `new` e vengono ripresi al giro (o
+ *    al giorno) dopo.
+ * 2. **Gate del budget MENSILE** (`instance_settings.monthly_budget_usd`, la
+ *    STESSA verifica dei fix): anche questo un controllo UNA VOLTA, subito
+ *    dopo il tetto giornaliero. È per-ISTANZA, non per-casella — ma essendo
+ *    verificato a ogni chiamata di questa funzione (una per casella per
+ *    tick) e la spesa non potendo MAI diminuire durante un tick, un budget
+ *    già sforato blocca automaticamente anche le caselle ancora da
+ *    processare in questo giro, senza bisogno di un controllo separato a
+ *    monte del loop sulle caselle (`pollGoogleOnce`).
+ * 3. **Cooldown PER THREAD** (`threadCooldownMinutes`/
+ *    `GMAIL_THREAD_COOLDOWN_MINUTES`): un controllo PER MESSAGGIO, dentro il
+ *    loop. Un thread già classificato nella finestra viene saltato (resta
+ *    `new`, nessun run) e il ciclo passa al successivo — un thread attivo
+ *    non deve bloccare il resto della coda.
  */
 export async function classifyNewMessages(
   deps: ClassifyBatchDeps,
@@ -983,6 +1314,35 @@ export async function classifyNewMessages(
 ): Promise<ClassifyBatchStats> {
   const stats: ClassifyBatchStats = { classified: 0, ignored: 0, failed: 0 };
   if (deps.maxPerTick <= 0) return stats;
+
+  const logger = deps.logger ?? defaultLogger;
+
+  // 1. Tetto giornaliero per casella (0 = nessun tetto: comportamento di prima).
+  const maxPerDay = deps.maxPerDay ?? DEFAULT_GMAIL_MAX_PER_DAY;
+  if (maxPerDay > 0) {
+    const runsToday = await countClassifyRunsSince(deps.db, accountId, 24);
+    if (runsToday >= maxPerDay) {
+      const email = await loadAccountEmail(deps.db, accountId);
+      logger.warn(
+        `google: casella ${email}: tetto giornaliero di classificazione raggiunto (${runsToday}/${maxPerDay}), riprendo domani`,
+      );
+      return stats;
+    }
+  }
+
+  // 2. Gate del budget mensile d'istanza (la stessa verifica dei fix).
+  const monthlyCostUsdFn = deps.monthlyCostUsdFn ?? monthlyCostUsd;
+  const monthlyBudgetUsd = await loadMonthlyBudgetUsd(deps.db);
+  if (monthlyBudgetUsd != null) {
+    const monthlySpent = await monthlyCostUsdFn(deps.db);
+    if (monthlySpent >= monthlyBudgetUsd) {
+      const email = await loadAccountEmail(deps.db, accountId);
+      logger.warn(
+        `google: casella ${email}: budget mensile superato ($${fmtUsd(monthlySpent)}/$${fmtUsd(monthlyBudgetUsd)}), classificazione sospesa per questo tick`,
+      );
+      return stats;
+    }
+  }
 
   const pending = await deps.db
     .select()
@@ -999,8 +1359,26 @@ export async function classifyNewMessages(
     provider = (await loadChain(deps.db, deps.encryptionKey))[0];
   }
 
+  // 3. Cooldown per thread (0 = disattivato: comportamento di prima).
+  const threadCooldownMinutes = deps.threadCooldownMinutes ?? DEFAULT_GMAIL_THREAD_COOLDOWN_MINUTES;
+
   for (const message of pending) {
     if (deps.signal?.aborted) break;
+
+    if (threadCooldownMinutes > 0) {
+      const inCooldown = await threadClassifiedRecently(
+        deps.db,
+        message.threadId,
+        threadCooldownMinutes,
+      );
+      if (inCooldown) {
+        logger.info(
+          `google: messaggio ${message.id} saltato (thread ${message.threadId} classificato meno di ${threadCooldownMinutes}' fa), riprovo al prossimo giro`,
+        );
+        continue;
+      }
+    }
+
     const outcome = await classifyEmail(
       {
         db: deps.db,

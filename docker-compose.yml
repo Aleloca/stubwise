@@ -287,6 +287,15 @@ services:
       # Messaggi per casella che la classificazione manda al modello in un tick:
       # è il tetto di spesa per giro.
       - GMAIL_MAX_PER_TICK=${GMAIL_MAX_PER_TICK:-20}
+      # Fase 6c (Task 6, difese di costo): tetto giornaliero di classificazioni
+      # PER CASELLA, contato dai run delle ultime 24 ore. Raggiunto, la
+      # classificazione si ferma per quella casella (i messaggi restano `new`,
+      # ripresi il giorno dopo). 0 = nessun tetto.
+      - GMAIL_MAX_PER_DAY=${GMAIL_MAX_PER_DAY:-200}
+      # Fase 6c (Task 6): cooldown in minuti fra due classificazioni dello
+      # STESSO thread — un thread già classificato nella finestra viene saltato
+      # (resta `new`) senza bloccare il resto della coda. 0 = disattivato.
+      - GMAIL_THREAD_COOLDOWN_MINUTES=${GMAIL_THREAD_COOLDOWN_MINUTES:-60}
       # --- Backlog di discovery (poller separato dal loop dei job) ---
       # Reclama i job backlog_jobs (intake + deep dive) ed esegue gli agenti nella
       # catena PER-PROGETTO. Soglie del dedup semantico: merge (fusione automatica)

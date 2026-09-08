@@ -1,12 +1,19 @@
 import { eq } from "drizzle-orm";
-import { effortSchema, languageSchema, ticketTypeSchema, type TicketType } from "@stubwise/shared";
+import {
+  effortSchema,
+  languageSchema,
+  mailAdmissionPatchSchema,
+  mailAdmissionSchema,
+  ticketTypeSchema,
+  type TicketType,
+} from "@stubwise/shared";
 import { sendTest } from "@stubwise/notifications";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import type { Db } from "@stubwise/db";
 import { automationRules, encrypt, instanceSettings, notificationSettings } from "@stubwise/db";
-import { requireAdmin } from "../auth/session.js";
+import { requireAdmin, requireAuth } from "../auth/session.js";
 import { s3ConfigFromSettings } from "../storage/index.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
@@ -342,8 +349,37 @@ async function loadPrReviewSettings(db: Db): Promise<z.infer<typeof prReviewSett
 }
 
 /**
- * Route delle impostazioni, registrate sotto /api/settings. Solo admin:
- * l'automazione AI tocca quota e PR, è una scelta di amministrazione.
+ * Configurazione d'istanza dell'AMMISSIONE della posta (fase 6c, singleton
+ * instance_settings). Legge il default difensivo se la riga manca (DB
+ * ripristinato senza seed), come `loadInstanceSettings`.
+ */
+async function loadMailAdmission(db: Db): Promise<z.infer<typeof mailAdmissionSchema>> {
+  const [row] = await db
+    .select({
+      admitWorkspaceDomains: instanceSettings.emailAdmitWorkspaceDomains,
+      denyLabels: instanceSettings.emailAdmissionDenyLabels,
+      denyAutomated: instanceSettings.emailAdmissionDenyAutomated,
+    })
+    .from(instanceSettings)
+    .where(eq(instanceSettings.id, 1));
+  return {
+    admitWorkspaceDomains: row?.admitWorkspaceDomains ?? true,
+    denyLabels: row?.denyLabels ?? ["CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL", "SPAM"],
+    denyAutomated: row?.denyAutomated ?? true,
+  };
+}
+
+/**
+ * Route delle impostazioni, registrate sotto /api/settings. Per lo più solo
+ * admin: l'automazione AI tocca quota e PR, è una scelta di amministrazione.
+ *
+ * Eccezione: `GET /mail-admission` è leggibile da OGNI utente autenticato,
+ * come `GET /:projectId/email-routes` in `projects.ts` — l'ammissione
+ * d'istanza e l'attribuzione per progetto condividono lo stesso perimetro di
+ * lettura, e nascondere all'operatore la ragione per cui un messaggio non
+ * arriva mai (perché non è ammesso, non perché nessuna regola combacia)
+ * renderebbe la sezione "Posta" del progetto incomprensibile a chi non è
+ * admin. La scrittura resta `requireAdmin`, come per le regole di progetto.
  */
 export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
@@ -598,6 +634,75 @@ export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
           },
         });
       return loadInstanceSettings(app.db, app.encryptionKey);
+    },
+  );
+
+  app.get(
+    "/mail-admission",
+    {
+      // Vedi il commento sul docblock di settingsRoutes: unica GET del file
+      // aperta a tutti gli autenticati, non solo agli admin.
+      preHandler: requireAuth,
+      schema: {
+        response: { 200: mailAdmissionSchema, ...authErrorResponses },
+      },
+    },
+    async () => {
+      return loadMailAdmission(app.db);
+    },
+  );
+
+  app.patch(
+    "/mail-admission",
+    {
+      preHandler: requireAdmin,
+      schema: {
+        body: mailAdmissionPatchSchema,
+        response: {
+          200: mailAdmissionSchema,
+          400: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request) => {
+      const body = request.body;
+      // Semantica PATCH: campo assente → colonna invariata. Raccolto in `set`
+      // solo se presente nel body, come i campi S3 non-secret sopra — nessuna
+      // di queste tre colonne è nullable, quindi "invariato" va costruito
+      // così e non con `?? undefined`.
+      const set: {
+        emailAdmitWorkspaceDomains?: boolean;
+        emailAdmissionDenyLabels?: string[];
+        emailAdmissionDenyAutomated?: boolean;
+      } = {};
+      if (body.admitWorkspaceDomains !== undefined) {
+        set.emailAdmitWorkspaceDomains = body.admitWorkspaceDomains;
+      }
+      if (body.denyLabels !== undefined) {
+        set.emailAdmissionDenyLabels = body.denyLabels;
+      }
+      if (body.denyAutomated !== undefined) {
+        set.emailAdmissionDenyAutomated = body.denyAutomated;
+      }
+
+      // Upsert sul singleton (id=1): la migrazione non seeda righe nuove (solo
+      // colonne con default su una riga che già esiste), ma onConflict rende
+      // la rotta robusta anche su un DB ripristinato senza la riga id=1.
+      await app.db
+        .insert(instanceSettings)
+        .values({
+          id: 1,
+          emailAdmitWorkspaceDomains: set.emailAdmitWorkspaceDomains ?? true,
+          emailAdmissionDenyLabels:
+            set.emailAdmissionDenyLabels ?? ["CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL", "SPAM"],
+          emailAdmissionDenyAutomated: set.emailAdmissionDenyAutomated ?? true,
+        })
+        .onConflictDoUpdate({
+          target: instanceSettings.id,
+          set: { ...set, updatedAt: new Date() },
+        });
+      return loadMailAdmission(app.db);
     },
   );
 }

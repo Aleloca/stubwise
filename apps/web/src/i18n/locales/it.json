@@ -724,7 +724,8 @@
       },
       "googleAccounts": {
         "title": "Caselle Google",
-        "subtitle": "// Gmail e Calendar in sola lettura. Stubwise legge solo la posta che le regole di routing dei progetti riconoscono.",
+        "subtitle": "// Gmail e Calendar in sola lettura. Quale posta viene ammessa si configura a livello d'istanza in Impostazioni → Google.",
+        "consentNotice": "Collegando una casella, Stubwise leggerà oggetto e corpo di ogni email ammessa e li invierà al provider di analisi AI configurato su questa istanza, per proporre azioni.",
         "connect": "Collega una casella",
         "empty": "// nessuna casella collegata",
         "workspace": "Workspace",
@@ -951,7 +952,21 @@
       "scopes": "Scope",
       "internalHint": "Crea la schermata di consenso OAuth come app Interna: resta dentro l'organizzazione e non richiede la verifica di Google.",
       "apisHint": "Abilita l'API Gmail e l'API Google Calendar sullo stesso progetto, poi incolla qui client ID e client secret.",
-      "guideHint": "// guida passo-passo: documentazione utente, Integrazioni → Google Workspace."
+      "guideHint": "// guida passo-passo: documentazione utente, Integrazioni → Google Workspace.",
+      "mailAdmission": {
+        "title": "Posta ammessa",
+        "subtitle": "// quali email entrano in Stubwise, a livello d'istanza. Le regole di progetto qui sotto decidono solo a quale progetto va un'email già ammessa.",
+        "dataUsageNotice": "Di ogni email ammessa vengono scaricati oggetto e corpo, inviati al provider di analisi AI configurato su questa istanza, per la classificazione.",
+        "admitWorkspaceDomainsLabel": "Ammetti la posta dai domini dei Workspace registrati",
+        "admitWorkspaceDomainsHint": "// i mittenti (o i destinatari in copia) di un dominio di un Google Workspace registrato vengono ammessi automaticamente, anche senza una regola di progetto.",
+        "domainsTitle": "Domini che verrebbero ammessi",
+        "domainsLoading": "// caricamento domini…",
+        "domainsEmpty": "// nessun Google Workspace ancora registrato",
+        "denyLabelsLabel": "Escludi sempre queste etichette Gmail",
+        "denyLabelsHint": "// la posta con una di queste etichette viene scartata anche se sarebbe altrimenti ammessa.",
+        "denyAutomatedLabel": "Scarta la posta automatica",
+        "denyAutomatedHint": "// newsletter e notifiche automatiche (link di disiscrizione, mittenti massivi, risposte automatiche) vengono scartate prima di arrivare a un progetto."
+      }
     },
     "aiProviders": {
       "title": "Provider AI",
@@ -1555,8 +1570,8 @@
     },
     "email": {
       "title": "Posta",
-      "subtitle": "// quali email parlano di questo progetto. Ne serve almeno una: senza regole, nessun messaggio entra.",
-      "perimeterWarning": "Un messaggio che nessuna regola riconosce non viene nemmeno scaricato da Gmail. Queste regole sono il perimetro di ciò che Stubwise legge della posta di chi ha collegato una casella.",
+      "subtitle": "// quali email si legano a questo progetto. Le regole qui decidono solo l'attribuzione; se un'email entra in Stubwise si decide in Impostazioni → Google.",
+      "perimeterWarning": "Queste regole decidono a quale progetto va un'email già ammessa nel sistema. L'ammissione — quali email entrano — si configura in Impostazioni → Google.",
       "empty": "// nessuna regola: la posta di questo progetto non viene letta",
       "loading": "// caricamento regole…",
       "error": "// impossibile caricare le regole di routing della posta",
@@ -1565,7 +1580,7 @@
       "labels": "Etichette Gmail",
       "labelsHint": "// l'etichetta con cui marchi la posta di questo progetto nella tua casella.",
       "keywords": "Parole chiave",
-      "keywordsHint": "// cercate nell'oggetto e nel testo. Solo quelle nell'oggetto bastano a far scaricare il messaggio.",
+      "keywordsHint": "// cercate nell'oggetto e nel testo. Una parola chiave nell'oggetto attribuisce l'email a questo progetto, anche prima di leggerne il corpo.",
       "pickLabel": "Scegli fra le etichette viste",
       "pickLabelPlaceholder": "Cerca un'etichetta…",
       "labelNoResults": "// nessuna etichetta corrisponde",
@@ -2299,6 +2314,10 @@
     "empty": "// nessuna posta",
     "loadMore": "Carica altre",
     "loadingMore": "Carico…",
-    "loadError": "Non è stato possibile caricare la Posta."
+    "loadError": "Non è stato possibile caricare la Posta.",
+    "triage": {
+      "badge": "Da smistare",
+      "dismissedOutcome": "Smistato — nessuno dei progetti suggeriti era quello giusto"
+    }
   }
 }

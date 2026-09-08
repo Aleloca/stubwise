@@ -103,10 +103,13 @@ export {
 // WORKER (poller Gmail, Task 7) per applicarle a ogni messaggio. Una sola
 // implementazione perché le due normalizzazioni non possano divergere.
 export {
+  admit,
   matchRoutes,
   normalizeAddress,
   normalizeRouteValue,
   parseAddressList,
+  type AdmissionConfig,
+  type AdmissionResult,
   type EmailForRouting,
   type EmailRoute,
   type EmailRouteKind,

@@ -39,6 +39,8 @@ import type {
   InboxQuestion,
   InboxStatus,
   Language,
+  MailAdmission,
+  MailAdmissionPatch,
   MailItemStatus,
   MailPage,
   MailSource,
@@ -141,6 +143,8 @@ export type {
   InboxPage,
   InboxQuestion,
   InboxStatus,
+  MailAdmission,
+  MailAdmissionPatch,
   NotificationPrefsUpdate,
   NotificationPrefsView,
   PrReviewSummary,
@@ -2143,6 +2147,26 @@ export function patchGoogleWorkspace(
 /** Elimina un Workspace (solo admin): 409 `workspace_in_use` se ha caselle. */
 export function deleteGoogleWorkspace(id: string): Promise<void> {
   return request("DELETE", `/api/settings/google-workspaces/${encodeURIComponent(id)}`);
+}
+
+// --- Ammissione della posta (fase 6c) ---
+
+/**
+ * Configurazione d'istanza dell'AMMISSIONE della posta: decide SE un
+ * messaggio entra nella pipeline, non a quale progetto va (quello resta
+ * `getProjectEmailRoutes`/`putProjectEmailRoutes`). Lettura aperta a ogni
+ * utente autenticato — vedi il commento sulla rotta lato server.
+ */
+export function getMailAdmission(): Promise<MailAdmission> {
+  return api.get("/api/settings/mail-admission");
+}
+
+/**
+ * Modifica dell'ammissione (solo admin): semantica PATCH, campo assente =
+ * invariato. Ritorna lo stato aggiornato, come `patchGoogleWorkspace`.
+ */
+export function patchMailAdmission(patch: MailAdmissionPatch): Promise<MailAdmission> {
+  return api.patch("/api/settings/mail-admission", patch);
 }
 
 // --- Caselle Google dell'utente (fase 6) ---

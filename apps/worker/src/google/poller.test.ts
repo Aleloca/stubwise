@@ -5,6 +5,7 @@ import {
   emailProposals,
   googleAccounts,
   googleWorkspaces,
+  instanceSettings,
   notifications,
   projectEmailRoutes,
   projects,
@@ -74,6 +75,9 @@ afterEach(async () => {
   await db.delete(projectEmailRoutes);
   await db.delete(projects);
   await db.delete(users);
+  // Singleton (id=1): senza questa riga un test che tocca l'ammissione
+  // lascerebbe la configurazione sporca per quelli dopo.
+  await db.delete(instanceSettings);
   vi.restoreAllMocks();
 });
 
@@ -138,6 +142,7 @@ function credentialsFor(account: typeof googleAccounts.$inferSelect): GoogleAcco
     refreshToken: "refresh",
     clientId: "client-id",
     clientSecret: "client-secret",
+    domains: ["acme.com"],
     scopes: [],
     proposalsEnabled: account.proposalsEnabled,
     gmailHistoryId: account.gmailHistoryId,
@@ -151,6 +156,7 @@ function message(input: {
   id: string;
   from?: string;
   to?: string;
+  cc?: string;
   subject?: string;
   labels?: string[];
   body?: string;
@@ -161,6 +167,10 @@ function message(input: {
     to: input.to ?? MAILBOX,
     subject: input.subject ?? "Una richiesta",
   };
+  // Il Cc è opzionale (fase 6c Task 2): assente per la maggior parte dei
+  // test, che non lo esercitano — `parseAddressList` su un header mancante
+  // torna comunque una lista vuota, comportamento invariato.
+  if (input.cc !== undefined) headers.cc = input.cc;
   return {
     id: input.id,
     threadId: `thread-${input.id}`,
@@ -716,6 +726,318 @@ describe("sincronizzazione Gmail", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Ammissione (fase 6c) — Task 3: il pre-filtro AMMETTE, non attribuisce più.
+// ---------------------------------------------------------------------------
+
+describe("ammissione (fase 6c)", () => {
+  it("dominio Workspace REGISTRATO, senza nessuna regola di progetto: ingerito con scope_project_ids vuoto", async () => {
+    // Nessun progetto, nessuna regola: prima di questa fase questo messaggio
+    // sarebbe rimasto fuori perimetro e non sarebbe mai stato scaricato.
+    const account = await seedAccount({
+      nextSyncAt: new Date(Date.now() - 60_000),
+      gmailHistoryId: "1000",
+    });
+    const gmail = fakeGmail({
+      history: { addedMessageIds: ["m1"], historyId: "1010" },
+      // Un collega sullo STESSO dominio Workspace (acme.com) della casella,
+      // non la casella stessa: `isFromMailbox` non lo scarta.
+      messages: { m1: message({ id: "m1", from: "collega@acme.com" }) },
+    });
+
+    const stats = await pollGoogleOnce(deps(account, gmail));
+
+    expect(stats.ingested).toBe(1);
+    // Ammesso ⇒ il corpo viene scaricato, come per qualunque messaggio ammesso.
+    expect(gmail.calls).toContain("full:m1");
+    const [row] = await db.select().from(emailMessages);
+    expect(row).toMatchObject({
+      fromAddress: "collega@acme.com",
+      // Nessuna regola di progetto combacia: perimetro vuoto, non "fuori".
+      projectId: null,
+      candidateProjectIds: [],
+      scopeProjectIds: [],
+      status: "new",
+    });
+  });
+
+  it("un Workspace REGISTRATO ma SENZA nessuna casella collegata ammette comunque (query dedicata, non derivata dalle credenziali della casella)", async () => {
+    // Se `workspaceDomains` venisse derivato solo dalle `GoogleAccountCredentials`
+    // caricate per le caselle di questo tick, i domini di un Workspace SENZA
+    // nessuna casella collegata non comparirebbero mai: `loadAllWorkspaceDomains`
+    // interroga `google_workspaces` direttamente, non le caselle attive.
+    await db.insert(googleWorkspaces).values({
+      name: "Filiale",
+      domains: ["filiale.acme.com"],
+      clientId: "altro-client-id",
+      clientSecretEncrypted: "blob",
+    });
+    const account = await seedAccount({
+      nextSyncAt: new Date(Date.now() - 60_000),
+      gmailHistoryId: "1000",
+    });
+    const gmail = fakeGmail({
+      history: { addedMessageIds: ["m1"], historyId: "1010" },
+      messages: { m1: message({ id: "m1", from: "socio@filiale.acme.com" }) },
+    });
+
+    const stats = await pollGoogleOnce(deps(account, gmail));
+
+    expect(stats.ingested).toBe(1);
+  });
+
+  it("regola di progetto che combacia AMMETTE anche con un'etichetta esclusa (Task 1, fase 6c): il corpo viene scaricato", async () => {
+    // Decisione del maintainer (8 set 2026): una regola di progetto è una
+    // scelta deliberata su un mittente preciso e ammette SEMPRE, esclusioni
+    // comprese — le esclusioni servono a contenere l'ammissione LARGA per
+    // dominio di lavoro, non a limitare quella MIRATA.
+    const projectId = await seedProject("Acme");
+    await db
+      .insert(projectEmailRoutes)
+      .values({ projectId, kind: "sender_domain", value: "cliente.com" });
+    const account = await seedAccount({
+      nextSyncAt: new Date(Date.now() - 60_000),
+      gmailHistoryId: "1000",
+    });
+    const gmail = fakeGmail({
+      history: { addedMessageIds: ["m1"], historyId: "1010" },
+      messages: {
+        m1: message({
+          id: "m1",
+          from: "cliente@cliente.com",
+          labels: ["INBOX", "CATEGORY_PROMOTIONS"],
+        }),
+      },
+    });
+
+    const stats = await pollGoogleOnce(deps(account, gmail));
+
+    expect(stats.ingested).toBe(1);
+    expect(gmail.calls).toContain("full:m1");
+    const [row] = await db.select().from(emailMessages);
+    expect(row).toMatchObject({ fromAddress: "cliente@cliente.com", projectId });
+  });
+
+  it("dominio Workspace SENZA regola di progetto che combaci + etichetta esclusa: NESSUN download (le esclusioni restano attive sull'ammissione larga)", async () => {
+    const account = await seedAccount({
+      nextSyncAt: new Date(Date.now() - 60_000),
+      gmailHistoryId: "1000",
+    });
+    const gmail = fakeGmail({
+      history: { addedMessageIds: ["m1"], historyId: "1010" },
+      messages: {
+        m1: message({
+          id: "m1",
+          // Dominio Workspace della casella (acme.com), nessuna regola di
+          // progetto configurata: qui l'ammissione passa SOLO dal dominio di
+          // lavoro, dove le esclusioni si applicano.
+          from: "collega@acme.com",
+          labels: ["INBOX", "CATEGORY_PROMOTIONS"],
+        }),
+      },
+    });
+
+    const stats = await pollGoogleOnce(deps(account, gmail));
+
+    expect(stats.ingested).toBe(0);
+    // Nessun `full:m1`: la deny label ha bloccato PRIMA del download, sui
+    // soli metadati — è la garanzia di privacy/costo di questo task.
+    expect(gmail.calls).toEqual(["refresh", "history", "metadata:m1"]);
+    expect(await db.select().from(emailMessages)).toEqual([]);
+  });
+
+  it("interruttore admitWorkspaceDomains spento: un dominio Workspace senza regola NON ammette più (comportamento della fase 6)", async () => {
+    await db.insert(instanceSettings).values({ id: 1, emailAdmitWorkspaceDomains: false });
+    const account = await seedAccount({
+      nextSyncAt: new Date(Date.now() - 60_000),
+      gmailHistoryId: "1000",
+    });
+    const gmail = fakeGmail({
+      history: { addedMessageIds: ["m1"], historyId: "1010" },
+      // Stesso messaggio del primo test di questo blocco: con l'interruttore
+      // spento NON basta più il dominio Workspace, serve una regola.
+      messages: { m1: message({ id: "m1", from: "collega@acme.com" }) },
+    });
+
+    const stats = await pollGoogleOnce(deps(account, gmail));
+
+    expect(stats.ingested).toBe(0);
+    expect(gmail.calls).toEqual(["refresh", "history", "metadata:m1"]);
+    expect(await db.select().from(emailMessages)).toEqual([]);
+  });
+
+  it("interruttore admitWorkspaceDomains spento MA una regola di progetto combacia: ammesso come prima", async () => {
+    await db.insert(instanceSettings).values({ id: 1, emailAdmitWorkspaceDomains: false });
+    const projectId = await seedProject("Acme");
+    await db
+      .insert(projectEmailRoutes)
+      .values({ projectId, kind: "sender_domain", value: "cliente.com" });
+    const account = await seedAccount({
+      nextSyncAt: new Date(Date.now() - 60_000),
+      gmailHistoryId: "1000",
+    });
+    const gmail = fakeGmail({
+      history: { addedMessageIds: ["m1"], historyId: "1010" },
+      messages: { m1: message({ id: "m1", from: "cliente@cliente.com" }) },
+    });
+
+    const stats = await pollGoogleOnce(deps(account, gmail));
+
+    expect(stats.ingested).toBe(1);
+    const [row] = await db.select().from(emailMessages);
+    expect(row!.projectId).toBe(projectId);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Ammissione (fase 6c) — Task 2: un secondo dominio di lavoro fra i
+// destinatari ammette, `to` o `cc` indifferentemente — ESCLUSO il dominio
+// della casella che riceve (`account.email`, passato come `receivingDomain`
+// ad `admit()`). La tabella dei casi è quella del maintainer, verbatim.
+//
+// Questi test provano anche che il poller passa DAVVERO `receivingDomain` ad
+// `admit`: se `runAccountTick`/`syncGmail` lo lasciassero vuoto (o sbagliato),
+// il primo test qui sotto ammetterebbe per errore (il dominio della casella
+// stessa, non escluso, comparirebbe come "secondo dominio di lavoro").
+// ---------------------------------------------------------------------------
+
+describe("ammissione (fase 6c, Task 2) — dominio di lavoro fra i destinatari", () => {
+  /** Registra i due Workspace usati dalla tabella del maintainer. */
+  async function seedFarmakomAndTheCove(): Promise<void> {
+    await db.insert(googleWorkspaces).values([
+      {
+        name: "Farmakom",
+        domains: ["farmakom.it"],
+        clientId: "farmakom-client-id",
+        clientSecretEncrypted: "blob",
+      },
+      {
+        name: "The Cove",
+        domains: ["thecove.it"],
+        clientId: "thecove-client-id",
+        clientSecretEncrypted: "blob",
+      },
+    ]);
+  }
+
+  it("cliente esterno → solo la casella ricevente (it@farmakom.it) fra i destinatari: NON ammessa (nessun secondo dominio di lavoro coinvolto)", async () => {
+    await seedFarmakomAndTheCove();
+    const account = await seedAccount({
+      email: "it@farmakom.it",
+      nextSyncAt: new Date(Date.now() - 60_000),
+      gmailHistoryId: "1000",
+    });
+    const gmail = fakeGmail({
+      history: { addedMessageIds: ["m1"], historyId: "1010" },
+      messages: {
+        m1: message({ id: "m1", from: "cliente@esterno.org", to: "it@farmakom.it" }),
+      },
+    });
+
+    const stats = await pollGoogleOnce(deps(account, gmail));
+
+    expect(stats.ingested).toBe(0);
+    expect(await db.select().from(emailMessages)).toEqual([]);
+  });
+
+  it("cliente esterno → it@farmakom.it con a.locatelli@thecove.it IN COPIA: AMMESSA", async () => {
+    await seedFarmakomAndTheCove();
+    const account = await seedAccount({
+      email: "it@farmakom.it",
+      nextSyncAt: new Date(Date.now() - 60_000),
+      gmailHistoryId: "1000",
+    });
+    const gmail = fakeGmail({
+      history: { addedMessageIds: ["m1"], historyId: "1010" },
+      messages: {
+        m1: message({
+          id: "m1",
+          from: "cliente@esterno.org",
+          to: "it@farmakom.it",
+          cc: "a.locatelli@thecove.it",
+        }),
+      },
+    });
+
+    const stats = await pollGoogleOnce(deps(account, gmail));
+
+    expect(stats.ingested).toBe(1);
+    expect(gmail.calls).toContain("full:m1");
+  });
+
+  it("cliente esterno → entrambi fra i destinatari DIRETTI (to): AMMESSA — è il caso che prima falliva", async () => {
+    await seedFarmakomAndTheCove();
+    const account = await seedAccount({
+      email: "it@farmakom.it",
+      nextSyncAt: new Date(Date.now() - 60_000),
+      gmailHistoryId: "1000",
+    });
+    const gmail = fakeGmail({
+      history: { addedMessageIds: ["m1"], historyId: "1010" },
+      messages: {
+        m1: message({
+          id: "m1",
+          from: "cliente@esterno.org",
+          to: "it@farmakom.it, a.locatelli@thecove.it",
+        }),
+      },
+    });
+
+    const stats = await pollGoogleOnce(deps(account, gmail));
+
+    expect(stats.ingested).toBe(1);
+    expect(gmail.calls).toContain("full:m1");
+  });
+
+  it("due indirizzi ENTRAMBI del dominio della casella ricevente (to + cc): NON ammessa (nessun secondo dominio di lavoro coinvolto)", async () => {
+    await seedFarmakomAndTheCove();
+    const account = await seedAccount({
+      email: "it@farmakom.it",
+      nextSyncAt: new Date(Date.now() - 60_000),
+      gmailHistoryId: "1000",
+    });
+    const gmail = fakeGmail({
+      history: { addedMessageIds: ["m1"], historyId: "1010" },
+      messages: {
+        m1: message({
+          id: "m1",
+          from: "cliente@esterno.org",
+          to: "it@farmakom.it",
+          cc: "altro@farmakom.it",
+        }),
+      },
+    });
+
+    const stats = await pollGoogleOnce(deps(account, gmail));
+
+    expect(stats.ingested).toBe(0);
+    expect(await db.select().from(emailMessages)).toEqual([]);
+  });
+
+  it("mittente di un dominio di lavoro: ammette comunque, indipendentemente dai destinatari (invariato)", async () => {
+    await seedFarmakomAndTheCove();
+    const account = await seedAccount({
+      email: "it@farmakom.it",
+      nextSyncAt: new Date(Date.now() - 60_000),
+      gmailHistoryId: "1000",
+    });
+    const gmail = fakeGmail({
+      history: { addedMessageIds: ["m1"], historyId: "1010" },
+      messages: {
+        m1: message({
+          id: "m1",
+          from: "collega@thecove.it",
+          to: "it@farmakom.it",
+        }),
+      },
+    });
+
+    const stats = await pollGoogleOnce(deps(account, gmail));
+
+    expect(stats.ingested).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Errori
 // ---------------------------------------------------------------------------
 
@@ -989,6 +1311,38 @@ describe("retention", () => {
     const stats = await pollGoogleOnce(deps(account, fakeGmail({})));
 
     expect(stats).toMatchObject({ accounts: 0, pruned: 1 });
+  });
+
+  // -------------------------------------------------------------------------
+  // Fase 6c (Task 5): la notifica di SMISTAMENTO vive SUL PADRE — condizione
+  // 4, nuova, senza figlio equivalente che la specchi.
+  // -------------------------------------------------------------------------
+
+  it("una proposta di smistamento ANCORA APERTA sul padre blocca la potatura, anche senza nessun figlio", async () => {
+    const account = await seedAccount();
+    const notificationId = await seedNotification(account.userId, "open");
+    await seedOldMessage(account, {
+      status: "proposed",
+      proposalNotificationId: notificationId,
+      classification: { triage: true, signal: "request", summary: "s", suggestedProjectIds: [] },
+    });
+
+    expect(await pruneOldEmails(db, 90)).toBe(0);
+    expect(await db.select().from(emailMessages)).toHaveLength(1);
+  });
+
+  it("una proposta di smistamento GESTITA (notifica `handled`) non blocca più la potatura", async () => {
+    const account = await seedAccount();
+    const notificationId = await seedNotification(account.userId, "handled");
+    await seedOldMessage(account, {
+      status: "ignored", // «nessuno di questi»: chiusa come ignored, con l'esito.
+      proposalNotificationId: notificationId,
+      outcome: { type: "triage_dismissed" },
+      classification: { triage: true, signal: "request", summary: "s", suggestedProjectIds: [] },
+    });
+
+    expect(await pruneOldEmails(db, 90)).toBe(1);
+    expect(await db.select().from(emailMessages)).toHaveLength(0);
   });
 });
 
@@ -1574,6 +1928,148 @@ describe("fase 4 — le righe pronte diventano proposte", () => {
     const reloaded = await reload(account.id);
     expect(reloaded.syncAttempts).toBe(0);
     expect(reloaded.disabledAt).toBeNull();
+  });
+
+  // -------------------------------------------------------------------------
+  // Fase 6c (Task 5): la proposta di SMISTAMENTO, canale di selezione SEPARATO
+  // -------------------------------------------------------------------------
+
+  /** Un padre «da smistare»: segnale reale, nessun figlio, marcatore `triage`. */
+  async function seedTriage(
+    accountId: string,
+    suggestedProjectIds: string[] = [],
+  ): Promise<{ messageId: string }> {
+    const [message] = await db
+      .insert(emailMessages)
+      .values({
+        accountId,
+        gmailMessageId: `m-${randomUUID()}`,
+        threadId: `t-${randomUUID()}`,
+        fromAddress: "cliente@cliente.com",
+        subject: "Serve una mano",
+        receivedAt: new Date("2026-09-07T08:00:00.000Z"),
+        status: "classified",
+        signal: "request",
+        classification: {
+          triage: true,
+          signal: "request",
+          summary: "Il cliente chiede qualcosa, ma non è chiaro per quale progetto.",
+          suggestedProjectIds,
+        },
+      })
+      .returning({ id: emailMessages.id });
+    return { messageId: message!.id };
+  }
+
+  it("un messaggio «da smistare» diventa una proposta di smistamento per il proprietario", async () => {
+    const projectId = await seedProject("negozio");
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    const { messageId } = await seedTriage(account.id, [projectId]);
+
+    const stats = await pollGoogleOnce(deps(account, fakeGmail({ listed: [] })));
+
+    expect(stats.proposed).toBe(1);
+    const rows = await db.select().from(notifications);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.userId).toBe(account.userId);
+    expect(rows[0]?.kind).toBe("google.proposal");
+    const event = rows[0]?.event as { actions: { type: string }[]; options: { label: string }[] };
+    // Un progetto suggerito + «nessuno di questi»: due opzioni, due azioni.
+    expect(event.actions.map((a) => a.type)).toEqual(["choose_project", "ignore"]);
+    expect(event.options).toHaveLength(2);
+    const [message] = await db.select().from(emailMessages).where(eq(emailMessages.id, messageId));
+    expect(message?.status).toBe("proposed");
+    expect(message?.proposalNotificationId).toBe(rows[0]?.id);
+  });
+
+  it("un secondo giro non ripropone lo stesso padre «da smistare»", async () => {
+    const projectId = await seedProject("negozio");
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    await seedTriage(account.id, [projectId]);
+
+    await pollGoogleOnce(deps(account, fakeGmail({ listed: [] })));
+    await db
+      .update(googleAccounts)
+      .set({ nextSyncAt: new Date(Date.now() - 60_000) })
+      .where(eq(googleAccounts.id, account.id));
+    const second = await pollGoogleOnce(deps(account, fakeGmail({ listed: [] })));
+
+    expect(second.proposed).toBe(0);
+    expect(await db.select().from(notifications)).toHaveLength(1);
+  });
+
+  it("un messaggio con FIGLI non riceve MAI una proposta di smistamento, anche se qualcosa gli scrivesse (per errore) il marcatore `triage`", async () => {
+    // Difesa in profondità: il marcatore da solo basterebbe (per costruzione
+    // `writeClassification` non lo scrive mai insieme a dei figli), ma il
+    // `NOT EXISTS` nella selezione del poller non si fida solo di quello.
+    const projectId = await seedProject("negozio");
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    const [message] = await db
+      .insert(emailMessages)
+      .values({
+        accountId: account.id,
+        gmailMessageId: `m-${randomUUID()}`,
+        threadId: `t-${randomUUID()}`,
+        fromAddress: "cliente@cliente.com",
+        receivedAt: new Date("2026-09-07T08:00:00.000Z"),
+        status: "classified",
+        // Marcatore incongruente col fatto che ha un figlio (non dovrebbe mai
+        // accadere per costruzione — qui lo forziamo per testare la difesa).
+        classification: { triage: true, signal: "request", summary: "s", suggestedProjectIds: [] },
+      })
+      .returning({ id: emailMessages.id });
+    await db.insert(emailProposals).values({
+      emailMessageId: message!.id,
+      projectId,
+      status: "classified",
+      classification: {
+        signal: "request",
+        recommendedIndex: 0,
+        proposals: [
+          { type: "create_backlog_item", projectId, title: "Export CSV", consequence: "Entra nel backlog." },
+        ],
+      },
+    });
+
+    const stats = await pollGoogleOnce(deps(account, fakeGmail({ listed: [] })));
+
+    // Una sola proposta pubblicata: quella del FIGLIO. Nessuna di smistamento.
+    expect(stats.proposed).toBe(1);
+    const rows = await db.select().from(notifications);
+    expect(rows).toHaveLength(1);
+    const [messageAfter] = await db.select().from(emailMessages).where(eq(emailMessages.id, message!.id));
+    // Il padre non ha ricevuto una notifica propria: quella pubblicata è del figlio.
+    expect(messageAfter?.proposalNotificationId).toBeNull();
+  });
+
+  it("una classificazione «da smistare» che non regge più la validazione chiude il padre come ignored, senza inventare una card", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    const [message] = await db
+      .insert(emailMessages)
+      .values({
+        accountId: account.id,
+        gmailMessageId: `m-${randomUUID()}`,
+        threadId: `t-${randomUUID()}`,
+        fromAddress: "cliente@cliente.com",
+        receivedAt: new Date("2026-09-07T08:00:00.000Z"),
+        status: "classified",
+        // `triage` come STRINGA e non booleano: `classification->>'triage'`
+        // (confronto testuale, SQL) vale comunque `'true'` — la riga viene
+        // SELEZIONATA — ma `storedTriageClassificationSchema` (zod, in
+        // `buildTriageProposalEvent`) richiede il letterale booleano `true` e
+        // scarta l'intero oggetto: è esattamente il jsonb "malformato" che il
+        // gate SQL da solo non intercetta, e per cui serve la rivalidazione a
+        // valle.
+        classification: { triage: "true" },
+      })
+      .returning({ id: emailMessages.id });
+
+    const stats = await pollGoogleOnce(deps(account, fakeGmail({ listed: [] })));
+
+    expect(stats.proposed).toBe(0);
+    expect(await db.select().from(notifications)).toHaveLength(0);
+    const [after] = await db.select().from(emailMessages).where(eq(emailMessages.id, message!.id));
+    expect(after?.status).toBe("ignored");
   });
 });
 

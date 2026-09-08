@@ -93,6 +93,14 @@ describe("getMessageMetadata", () => {
     expect(calls[0]?.params.get("format")).toBe("metadata");
     expect(calls[0]?.params.getAll("metadataHeaders")).toContain("From");
     expect(calls[0]?.params.getAll("metadataHeaders")).toContain("Cc");
+    // Fase 6c: gli header della posta automatica sono richiesti nella STESSA
+    // chiamata `format=metadata` — nessuna richiesta in più (un'unica
+    // chiamata a `fetch`, verificato sotto).
+    expect(calls[0]?.params.getAll("metadataHeaders")).toContain("List-Unsubscribe");
+    expect(calls[0]?.params.getAll("metadataHeaders")).toContain("List-Id");
+    expect(calls[0]?.params.getAll("metadataHeaders")).toContain("Precedence");
+    expect(calls[0]?.params.getAll("metadataHeaders")).toContain("Auto-Submitted");
+    expect(calls).toHaveLength(1);
     expect(message.id).toBe("m1");
     expect(message.threadId).toBe("t1");
     expect(message.labelIds).toEqual(["INBOX", "Label_7"]);

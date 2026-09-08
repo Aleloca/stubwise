@@ -10,6 +10,9 @@ import {
   googleWorkspaceDraftSchema,
   googleWorkspacePatchSchema,
   googleWorkspaceSchema,
+  mailAdmissionPatchSchema,
+  mailAdmissionSchema,
+  mailItemSchema,
 } from "./google.js";
 
 describe("googleWorkspaceDraftSchema", () => {
@@ -243,5 +246,68 @@ describe("emailRoutesSchema / emailLabelsSchema", () => {
   it("fa round-trip col corpo del PUT", () => {
     const body = { routes: [{ kind: "gmail_label" as const, value: "clienti" }] };
     expect(emailRoutesSchema.parse(emailRoutesPutSchema.parse(body))).toEqual(body);
+  });
+});
+
+describe("mailAdmissionSchema (fase 6c)", () => {
+  it("una risposta senza nessuno dei tre campi resta parsabile con i default", () => {
+    expect(mailAdmissionSchema.parse({})).toEqual({
+      admitWorkspaceDomains: true,
+      denyLabels: ["CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL", "SPAM"],
+      denyAutomated: true,
+    });
+  });
+
+  it("accetta valori espliciti", () => {
+    const body = {
+      admitWorkspaceDomains: false,
+      denyLabels: ["SPAM"],
+      denyAutomated: false,
+    };
+    expect(mailAdmissionSchema.parse(body)).toEqual(body);
+  });
+});
+
+describe("mailAdmissionPatchSchema", () => {
+  it("un body vuoto è valido: assente = non toccare, semantica PATCH", () => {
+    expect(mailAdmissionPatchSchema.parse({})).toEqual({});
+  });
+
+  it("accetta un sottoinsieme dei campi", () => {
+    expect(mailAdmissionPatchSchema.parse({ admitWorkspaceDomains: false })).toEqual({
+      admitWorkspaceDomains: false,
+    });
+  });
+
+  it("rifiuta più di 50 etichette", () => {
+    const denyLabels = Array.from({ length: 51 }, (_, i) => `L${i}`);
+    expect(mailAdmissionPatchSchema.safeParse({ denyLabels }).success).toBe(false);
+  });
+});
+
+describe("mailItemSchema.kind (fase 6c, fix di review Task 3)", () => {
+  const base = {
+    id: "11111111-1111-4111-8111-111111111111",
+    source: "email" as const,
+    accountId: "22222222-2222-4222-8222-222222222222",
+    accountEmail: "mailbox@acme.test",
+    projectId: null,
+    date: "2026-09-07T08:14:00.000Z",
+    status: "classified" as const,
+  };
+
+  it("un campo nuovo di risposta: assente → default 'proposal' (compatibilità client vecchio)", () => {
+    expect(mailItemSchema.parse(base).kind).toBe("proposal");
+  });
+
+  it("regge una riga di SMISTAMENTO: kind 'triage', nessun progetto", () => {
+    const parsed = mailItemSchema.parse({ ...base, kind: "triage", projectId: null, projectName: null });
+    expect(parsed.kind).toBe("triage");
+    expect(parsed.projectId).toBeNull();
+    expect(parsed.projectName).toBeNull();
+  });
+
+  it("rifiuta un kind fuori vocabolario", () => {
+    expect(mailItemSchema.safeParse({ ...base, kind: "bogus" }).success).toBe(false);
   });
 });

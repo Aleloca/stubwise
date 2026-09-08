@@ -15,6 +15,13 @@
  * `createMilestone`, `patchTicket`, `addSystemComment`) o a `recordDecision`
  * (esistente, mai un nuovo scrittore del registro).
  *
+ * ⚠️ Fase 6c (Task 5): `GoogleProposalAction` guadagna un uso NUOVO di
+ * `choose_project` — la proposta di SMISTAMENTO, che vive sul PADRE
+ * (`email_messages`, non su un figlio: non ce n'è nessuno). La stessa azione
+ * ha quindi DUE esiti diversi a seconda di dove viene confermata: vedi il
+ * commento sopra il case `"choose_project"` in {@link dispatchAction}, che li
+ * documenta entrambi fianco a fianco apposta.
+ *
  * ⚠️ QUESTO MODULO NON IMPORTA ESECUTORI AI, e non deve MAI farlo: la
  * conferma è di una persona, e il testo che finisce in `project_decisions` è
  * un TEMPLATE i18n (`decision.email.*`) interpolato con `from`/`subject` (non
@@ -192,40 +199,61 @@ const storedEventSchema = z.object({
  * Dove sta la riga d'origine, e quanto serve a chiuderla o a costruire la
  * sourceKey/il link.
  *
- * Fase 6b: per l'email, `rowId` è ormai l'id del FIGLIO (`email_proposals`),
- * non più del messaggio — è la riga che le azioni chiudono. `emailMessageId`
- * porta l'id del PADRE (`email_messages`), che serve solo a toccarne
- * `updated_at` (vedi {@link markSourceOutcome}/{@link markSourceFailed}), mai
- * a scriverne lo stato. `projectId` è il progetto della proposta: quello del
- * figlio per l'email, quello dell'evento per il calendario (che resta
- * uno-a-uno, quindi non ha bisogno di un figlio).
+ * Fase 6b: per l'email NORMALE, `rowId` è ormai l'id del FIGLIO
+ * (`email_proposals`), non più del messaggio — è la riga che le azioni
+ * chiudono. `emailMessageId` porta l'id del PADRE (`email_messages`), che
+ * serve solo a toccarne `updated_at` (vedi {@link markSourceOutcome}/
+ * {@link markSourceFailed}), mai a scriverne lo stato. `projectId` è il
+ * progetto della proposta: quello del figlio per l'email, quello dell'evento
+ * per il calendario (che resta uno-a-uno, quindi non ha bisogno di un
+ * figlio).
+ *
+ * Fase 6c (Task 5): `source: "email_triage"` è un TERZO valore — la proposta
+ * di SMISTAMENTO, che vive SUL PADRE (non c'è nessun figlio, per
+ * costruzione). Qui `rowId` **e** `emailMessageId` puntano alla STESSA riga
+ * (`email_messages.id`): la riga sorgente È il padre. Il distinguo da
+ * `source: "email"` non è cosmetico — {@link markSourceOutcome} e
+ * {@link markSourceFailed} scrivono su tabelle DIVERSE a seconda del valore
+ * (email_proposals+padre per `"email"`, solo il padre per
+ * `"email_triage"`), e il case `"choose_project"` di {@link dispatchAction}
+ * ha un comportamento DIVERSO sui due — vedi il commento sopra quel case.
  */
 interface ProposalSource {
-  source: "email" | "calendar";
-  /** `email_proposals.id` per l'email, `calendar_events.id` per il calendario. */
+  source: "email" | "calendar" | "email_triage";
+  /**
+   * `email_proposals.id` per `"email"`, `calendar_events.id` per
+   * `"calendar"`, `email_messages.id` (il PADRE) per `"email_triage"`.
+   */
   rowId: string;
-  /** Solo per `source: "email"`: `email_messages.id`, il PADRE del figlio sopra. */
+  /**
+   * Per `source: "email"`: `email_messages.id`, il PADRE del figlio sopra.
+   * Per `source: "email_triage"`: lo STESSO valore di `rowId` (la riga
+   * sorgente È il padre). `null` solo per `"calendar"`.
+   */
   emailMessageId: string | null;
-  /** Il progetto della proposta (figlio per l'email, evento per il calendario). */
+  /** Il progetto della proposta (figlio per l'email, evento per il calendario; `null` per lo smistamento — è ciò che manca). */
   projectId: string | null;
   gmailMessageId: string | null;
-  /** Solo per `source: "email"`: serve al permalink del thread (vedi {@link gmailThreadUrl}). */
+  /** Per `"email"`/`"email_triage"`: serve al permalink del thread (vedi {@link gmailThreadUrl}). */
   threadId: string | null;
-  /** Solo per `source: "email"`: `google_accounts.email` della casella, idem. */
+  /** Per `"email"`/`"email_triage"`: `google_accounts.email` della casella, idem. */
   mailboxEmail: string | null;
   googleEventId: string | null;
 }
 
 /**
  * Ritrova la riga d'origine dalla notifica: prima il FIGLIO `email_proposals`
- * (fase 6b: è lì che vive `proposal_notification_id` per l'email, ormai per
- * ogni riga — anche quelle nate PRIMA di questa fase, che il backfill della
- * migrazione 0070 ha già coperto con una riga figlia equivalente, ereditando
- * lo stesso `proposal_notification_id` dal padre), poi `calendar_events` (il
- * calendario resta uno a uno, invariato: nessun figlio per lui). Le due
- * tabelle sono a somma esclusiva per costruzione (`publishProposal` ne lega
- * sempre e solo una, nella stessa transazione della publish): al più una
- * delle due SELECT torna una riga.
+ * (fase 6b: è lì che vive `proposal_notification_id` per l'email NORMALE,
+ * ormai per ogni riga di quel tipo — anche quelle nate PRIMA di questa fase,
+ * che il backfill della migrazione 0070 ha già coperto con una riga figlia
+ * equivalente, ereditando lo stesso `proposal_notification_id` dal padre),
+ * poi il PADRE `email_messages` (fase 6c, Task 5: la proposta di
+ * SMISTAMENTO, che quella colonna la scrive di nuovo — solo per questo caso,
+ * vedi `apps/worker/src/google/classify.ts`), infine `calendar_events` (il
+ * calendario resta uno a uno, invariato: nessun figlio per lui). Le tre
+ * tabelle/condizioni sono a somma esclusiva per costruzione
+ * (`publishProposal` lega la notifica a UNA sola riga, nella stessa
+ * transazione della publish): al più una delle tre SELECT torna una riga.
  */
 async function findSourceRow(db: DbOrTx, notificationId: string): Promise<ProposalSource | null> {
   const [emailRow] = await db
@@ -253,6 +281,31 @@ async function findSourceRow(db: DbOrTx, notificationId: string): Promise<Propos
       googleEventId: null,
     };
   }
+
+  const [triageRow] = await db
+    .select({
+      id: emailMessages.id,
+      projectId: emailMessages.projectId,
+      gmailMessageId: emailMessages.gmailMessageId,
+      threadId: emailMessages.threadId,
+      mailboxEmail: googleAccounts.email,
+    })
+    .from(emailMessages)
+    .innerJoin(googleAccounts, eq(googleAccounts.id, emailMessages.accountId))
+    .where(eq(emailMessages.proposalNotificationId, notificationId));
+  if (triageRow) {
+    return {
+      source: "email_triage",
+      rowId: triageRow.id,
+      emailMessageId: triageRow.id,
+      projectId: triageRow.projectId,
+      gmailMessageId: triageRow.gmailMessageId,
+      threadId: triageRow.threadId,
+      mailboxEmail: triageRow.mailboxEmail,
+      googleEventId: null,
+    };
+  }
+
   const [calendarRow] = await db
     .select({ id: calendarEvents.id, googleEventId: calendarEvents.googleEventId, projectId: calendarEvents.projectId })
     .from(calendarEvents)
@@ -289,15 +342,23 @@ function gmailThreadUrl(mailboxEmail: string, threadId: string): string {
 /**
  * Chiude la riga sorgente con un ESITO riuscito (o ignorato).
  *
- * Fase 6b: per l'email la scrittura è ormai sul FIGLIO (`email_proposals`,
- * `source.rowId`) — non più sul messaggio: è così che confermare UNA
- * proposta non chiude più le sue sorelle sullo stesso messaggio. Nella
- * STESSA transazione (`tx` è già quella di {@link dispatchAction}, o quella
- * aperta da {@link markSourceFailed} per il ramo fallito) il padre
- * (`email_messages`) viene toccato SOLO per aggiornare `updated_at` — serve
- * alla retention (Task 7), che misura la potabilità su quella colonna; nessun
- * altro campo del padre si scrive qui, lo stato aggregato si calcola in
- * lettura altrove.
+ * Fase 6b: per l'email NORMALE (`source: "email"`) la scrittura è ormai sul
+ * FIGLIO (`email_proposals`, `source.rowId`) — non più sul messaggio: è così
+ * che confermare UNA proposta non chiude più le sue sorelle sullo stesso
+ * messaggio. Nella STESSA transazione (`tx` è già quella di
+ * {@link dispatchAction}, o quella aperta da {@link markSourceFailed} per il
+ * ramo fallito) il padre (`email_messages`) viene toccato SOLO per
+ * aggiornare `updated_at` — serve alla retention, che misura la potabilità su
+ * quella colonna; nessun altro campo del padre si scrive qui, lo stato
+ * aggregato si calcola in lettura altrove.
+ *
+ * Fase 6c (Task 5): per `source: "email_triage"` NON c'è un figlio da
+ * chiudere — la riga sorgente È GIÀ il padre (`source.rowId ===
+ * source.emailMessageId`). Si scrive quindi DIRETTAMENTE su
+ * `email_messages`: `status` prende lo stesso valore di `outcome.status`
+ * (mai 'proposed'/'classified'/'new': la proposta di smistamento è chiusa),
+ * `outcome` porta l'esito. Non serve un secondo UPDATE per `updated_at` come
+ * nel ramo `"email"` sopra — è già la stessa riga che si sta scrivendo qui.
  *
  * `calendar_events` resta uno a uno e invariato: non ha un figlio, quindi
  * niente updated_at-only-sul-padre da fare per lui. La sua `status` è quella
@@ -319,6 +380,13 @@ async function markSourceOutcome(
     await tx.update(emailMessages).set({ updatedAt: new Date() }).where(eq(emailMessages.id, source.emailMessageId!));
     return;
   }
+  if (source.source === "email_triage") {
+    await tx
+      .update(emailMessages)
+      .set({ status: outcome.status, outcome: outcome.detail, error: null })
+      .where(eq(emailMessages.id, source.rowId));
+    return;
+  }
   await tx.update(calendarEvents).set({ outcome: outcome.detail }).where(eq(calendarEvents.id, source.rowId));
 }
 
@@ -334,12 +402,14 @@ function errorMessage(err: unknown): string {
 /**
  * Chiude la riga sorgente su un FALLIMENTO (dopo il claim): riproponibile.
  *
- * Come {@link markSourceOutcome}, per l'email scrive sul FIGLIO
+ * Come {@link markSourceOutcome}: per `source: "email"` scrive sul FIGLIO
  * (`email_proposals`) e tocca SOLO `updated_at` del padre, nella STESSA
  * transazione (qui aperta da questa funzione: a differenza di
  * `markSourceOutcome`, che riceve la `tx` già aperta di {@link dispatchAction},
  * questa è chiamata FUORI da quella transazione — dopo un `target_gone` o
- * un'eccezione — quindi ne serve una propria).
+ * un'eccezione — quindi ne serve una propria); per `source: "email_triage"`
+ * (fase 6c) scrive DIRETTAMENTE su `email_messages` — la riga sorgente È il
+ * padre, nessun figlio da chiudere né updated_at-a-parte da toccare.
  */
 async function markSourceFailed(db: Db, source: ProposalSource, error: string): Promise<void> {
   const truncated = errorMessage(error);
@@ -351,6 +421,13 @@ async function markSourceFailed(db: Db, source: ProposalSource, error: string): 
         .where(eq(emailProposals.id, source.rowId));
       await tx.update(emailMessages).set({ updatedAt: new Date() }).where(eq(emailMessages.id, source.emailMessageId!));
     });
+    return;
+  }
+  if (source.source === "email_triage") {
+    await db
+      .update(emailMessages)
+      .set({ status: "failed", error: truncated })
+      .where(eq(emailMessages.id, source.rowId));
     return;
   }
   await db
@@ -498,42 +575,81 @@ async function dispatchAction(
         return { ok: true };
       }
       case "choose_project": {
-        // Il worker non genera MAI questa azione per un evento di calendario
-        // (`buildCalendarProposalEvent` propone solo `create_milestone` e
-        // `ignore`): un jsonb che la persistisse lì sopra sarebbe
-        // un'anomalia, non un `target_gone` — si lascia rientrare la
-        // transazione con un'eccezione, che il chiamante marca `action_failed`.
-        if (args.source.source !== "email") {
+        // ⚠️ DUE SEMANTICHE DIVERSE PER LA STESSA AZIONE, e COESISTONO DI
+        // PROPOSITO (fase 6c, Task 5) — è la ragione per cui `choose_project`
+        // non è mai stata rimossa dall'unione (`@stubwise/notifications`),
+        // solo deprecata in GENERAZIONE per i figli (fase 6b):
+        //
+        //  1. **`source.source === "email_triage"` (il PADRE, proposta di
+        //     SMISTAMENTO — fase 6c, VIVA)**: il messaggio non ha NESSUN
+        //     progetto attribuito, è esattamente ciò che questa proposta
+        //     chiede. Scegliere un'opzione ASSEGNA il perimetro
+        //     (`scope_project_ids = [projectId]`, un perimetro di UN SOLO
+        //     progetto: quello scelto — non un candidato in più, la scelta
+        //     dell'utente decide) **e ANCHE `project_id`** — non solo il
+        //     perimetro: `classify.ts`/`loadContext` legge
+        //     `resolvedProjectId` da `email_messages.project_id`, e con un
+        //     perimetro di UN SOLO progetto le istruzioni del prompt
+        //     ESENTANO il modello dal ripetere `projectId` su ogni proposta
+        //     ("non ometterlo mai quando i progetti elencati sono più di
+        //     uno" implica che con UNO solo può ometterlo). Senza
+        //     `resolvedProjectId` risolto, `revalidateProposal` non
+        //     potrebbe completare un `projectId` omesso e la riclassificazione
+        //     ricadrebbe di nuovo in smistamento — un loop che vanifica la
+        //     scelta appena fatta — e RIMETTE IL MESSAGGIO IN CODA di
+        //     classificazione (`status = 'new'`, `proposal_notification_id
+        //     = NULL`). Il prossimo tick lo riclassifica con un perimetro
+        //     NON vuoto e un vincitore risolto, e la classificazione normale
+        //     (fase 6b) crea il figlio per quel progetto — da lì nascono le
+        //     proposte vere. Questo ramo NON passa da `markSourceOutcome`: il
+        //     messaggio non viene "chiuso" (`actioned`/`ignored`), torna
+        //     ATTIVO.
+        //
+        //  2. **`source.source === "email"` (un FIGLIO, proposta STORICA,
+        //     fase 6b commit 72803b8, DEPRECATA in generazione)**:
+        //     comportamento INVARIATO da prima di questo task — chiude SOLO
+        //     il figlio corrente con l'outcome `reassigned_project`, NON
+        //     sposta `email_proposals.project_id`, NON tocca
+        //     `email_messages.status` oltre `updated_at` (via
+        //     `markSourceOutcome`). Resta eseguibile solo per le card
+        //     pubblicate PRIMA della fase 6b — vedi il docblock del tipo in
+        //     `@stubwise/notifications/format.ts`. NON TOCCARE questo ramo
+        //     per il ramo 1: sono percorsi indipendenti, la sola cosa in
+        //     comune è il controllo che il progetto esista ancora.
+        //
+        // Il worker non genera MAI questa azione per un evento di
+        // calendario (`buildCalendarProposalEvent` propone solo
+        // `create_milestone` e `ignore`): un jsonb che la persistisse lì
+        // sopra sarebbe un'anomalia, non un `target_gone` — si lascia
+        // rientrare la transazione con un'eccezione, che il chiamante marca
+        // `action_failed`.
+        if (args.source.source === "calendar") {
           throw new Error("choose_project non è prevista su una proposta da calendario");
         }
         const [project] = await tx.select({ id: projects.id }).from(projects).where(eq(projects.id, args.action.projectId));
         if (!project) return { ok: false, error: "target_gone" };
-        // ⚠️ DEPRECATA in generazione dalla fase 6b (Task 5): il fan-out
-        // ormai genera già una proposta per CIASCUN progetto del perimetro
-        // del messaggio, quindi non serve più "spostare" un messaggio
-        // ambiguo su un progetto — l'ambiguità che questa azione risolveva
-        // non esiste più per le proposte nuove. Resta ESEGUIBILE solo per le
-        // card pubblicate prima di questa fase (retro-compatibilità).
-        //
-        // Comportamento scelto per il caso storico (documentato: la review
-        // potrebbe avere feedback, vedi il report del Task 6): si CHIUDE il
-        // figlio corrente — quello del progetto ambiguo/sbagliato — con un
-        // outcome che riflette la riassegnazione, esattamente come le altre
-        // azioni terminali (`markSourceOutcome`, che tocca anche `updated_at`
-        // del padre). Deliberatamente NON si sposta `email_proposals.project_id`
-        // sul nuovo progetto: quel campo fa parte dell'unique
-        // `(email_message_id, project_id)`, e se esistesse già un'altra riga
-        // figlia per quella stessa coppia (il fan-out l'avrebbe già creata,
-        // se il progetto scelto è nel perimetro) lo spostamento la
-        // violerebbe — spostare introdurrebbe un caso di errore in più senza
-        // guadagnare nulla, dato che la proposta per il progetto scelto o
-        // esiste già (creata dal fan-out) o nascerà al prossimo giro di
-        // classificazione, come riga a sé. E deliberatamente NON si tocca lo
-        // stato del padre (`email_messages.status`) oltre a `updated_at`
-        // (via `markSourceOutcome`): mai `status: 'new'` come faceva la
-        // versione pre-6b, perché rimetterebbe l'INTERO messaggio in
-        // classificazione, azzerando/sovrascrivendo le proposte sorelle
-        // ancora aperte — esattamente ciò che questo task deve impedire.
+
+        if (args.source.source === "email_triage") {
+          // Ramo 1 — vedi il commento sopra. Riaccoda il PADRE, non lo
+          // "chiude": nessuna scrittura tramite `markSourceOutcome`.
+          // `projectId` E `scopeProjectIds` insieme: il primo risolve
+          // `resolvedProjectId` alla riclassificazione, il secondo è il
+          // perimetro che porta il candidato a `loadContext`.
+          await tx
+            .update(emailMessages)
+            .set({
+              status: "new",
+              projectId: args.action.projectId,
+              scopeProjectIds: [args.action.projectId],
+              proposalNotificationId: null,
+              error: null,
+            })
+            .where(eq(emailMessages.id, args.source.rowId));
+          return { ok: true };
+        }
+
+        // Ramo 2 — `args.source.source === "email"`: comportamento STORICO,
+        // deprecato in generazione, INVARIATO da prima di questo task.
         await markSourceOutcome(tx, args.source, {
           status: "actioned",
           detail: { type: "reassigned_project", projectId: args.action.projectId },
@@ -541,7 +657,18 @@ async function dispatchAction(
         return { ok: true };
       }
       case "ignore": {
-        await markSourceOutcome(tx, args.source, { status: "ignored", detail: { type: "ignored" } });
+        // Fase 6c: sulla proposta di SMISTAMENTO (`source: "email_triage"`)
+        // «Nessuno di questi» non è un `ignored` generico — registra
+        // ESPLICITAMENTE che il messaggio è stato smistato e SCARTATO (nessun
+        // progetto suggerito era quello giusto), distinguibile in lettura da
+        // un `ignored` per assenza di segnale (`outcome` resta `null` in
+        // quel caso, vedi `classify.ts`). Sulle altre sorgenti l'esito resta
+        // quello generico di sempre.
+        const detail =
+          args.source.source === "email_triage"
+            ? { type: "triage_dismissed" as const }
+            : { type: "ignored" as const };
+        await markSourceOutcome(tx, args.source, { status: "ignored", detail });
         return { ok: true };
       }
     }

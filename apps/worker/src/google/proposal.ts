@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   calendarEvents as calendarEventsTable,
+  emailMessages,
   emailProposals,
   notifications,
   type Db,
@@ -312,6 +313,15 @@ export interface BuildEmailProposalArgs {
  * un'azione valida nell'unione (`@stubwise/notifications`) e nell'esecutore,
  * ma solo per le card pubblicate PRIMA di questa fase: vedi il commento di
  * deprecazione sul tipo.
+ *
+ * ⚠️ Fase 6c (Task 5): `choose_project` torna a essere GENERATA — ma non qui.
+ * {@link buildTriageProposalEvent}, subito sotto, la genera per un caso
+ * DIVERSO: un messaggio PADRE senza NESSUN figlio (nessun progetto
+ * attribuibile, non "più d'uno ambiguo" come nel caso pre-6b sopra). Le due
+ * proposte non si confondono — questa funzione resta per i figli, quella per
+ * il padre — e la stessa azione ha due ESITI diversi a seconda di dove viene
+ * confermata: vedi il commento sopra il case `"choose_project"` in
+ * `apps/server/src/services/google-proposal.ts`.
  */
 export function buildEmailProposalEvent(args: BuildEmailProposalArgs): GoogleProposalEvent | null {
   const { lang, message, proposal } = args;
@@ -360,6 +370,122 @@ export function buildEmailProposalEvent(args: BuildEmailProposalArgs): GooglePro
     question: t(lang, "google.proposal.question.withProject", { project: projectName, from, subject }),
     options: [...options, ignoreOption(lang)],
     recommendedIndex,
+  });
+}
+
+/**
+ * Lettura TOLLERANTE della classificazione «da smistare» del padre (fase 6c,
+ * `classify.ts`, {@link EmailTriageClassification}) — stessa ragione di
+ * {@link storedClassificationSchema}: un jsonb scritto da una versione
+ * precedente del codice non deve far esplodere questa lettura, deve solo
+ * produrre un evento più povero (o `null`, vedi {@link buildTriageProposalEvent}).
+ */
+const storedTriageClassificationSchema = z.object({
+  triage: z.literal(true),
+  signal: z.enum(EMAIL_SIGNALS).catch("none"),
+  summary: z.string().catch(""),
+  suggestedProjectIds: z.array(z.string()).catch([]),
+});
+
+/**
+ * L'ultima opzione della proposta di SMISTAMENTO: «Nessuno di questi». Non è
+ * la stessa {@link ignoreOption} delle altre proposte — stessa AZIONE
+ * (`{ type: "ignore" }`, nessun payload nuovo da inventare) ma un'etichetta e
+ * una conseguenza DIVERSE, perché qui "non fare nulla" significa "smistato e
+ * scartato" (nessuno dei progetti suggeriti è quello giusto), non "va bene
+ * così com'è" — vedi `apps/server/src/services/google-proposal.ts`, il ramo
+ * `email_triage` di `markSourceOutcome`, per l'esito che questo distinguo
+ * abilita in lettura.
+ */
+function triageIgnoreOption(lang: Language): OptionWithAction {
+  return {
+    label: t(lang, "email.proposal.triageIgnore"),
+    consequence: t(lang, "email.proposal.triageIgnoreConsequence"),
+    action: { type: "ignore" },
+  };
+}
+
+/**
+ * Il minimo del PADRE (`email_messages`) in stato «da smistare» che serve a
+ * comporre la proposta di smistamento: stessi campi comuni di
+ * {@link EmailProposalMessageRow} (mittente, oggetto, thread, data) più la
+ * SUA `classification` — qui nella forma {@link EmailTriageClassification},
+ * non quella con `proposals[]` delle proposte figlie.
+ */
+export interface TriageProposalMessageRow extends EmailProposalMessageRow {
+  classification: Record<string, unknown> | null;
+}
+
+export interface BuildTriageProposalArgs {
+  lang: Language;
+  /** Il messaggio PADRE «da smistare»: nessun figlio, per costruzione. */
+  message: TriageProposalMessageRow;
+  mailboxEmail: string;
+  /** Nome di ogni progetto SUGGERITO nominabile, per id. */
+  projectNames: Map<string, string>;
+  proposalId?: string;
+}
+
+/**
+ * L'evento `google.proposal` DELLA PROPOSTA DI SMISTAMENTO (fase 6c, Task 5):
+ * un segnale reale ma NESSUN progetto attribuito con successo — il TERZO
+ * esito del design (§4), gemello di {@link buildEmailProposalEvent} ma per il
+ * caso opposto: lì il progetto è certo e le azioni sono quelle proposte dal
+ * modello; qui il progetto è esattamente ciò che MANCA, e le uniche azioni
+ * possibili sono «di quale progetto si tratta» (`choose_project`, una per
+ * progetto suggerito) e «nessuno di questi» (`ignore`).
+ *
+ * Vive sul PADRE — non c'è nessun figlio da cui costruirla, per costruzione
+ * (`classify.ts`/`writeClassification` non ne crea in questo ramo) — quindi
+ * NON porta `projectId`/`projectName` nell'evento: a differenza di
+ * {@link buildEmailProposalEvent}, dove il progetto è già certo, qui non c'è
+ * niente da nominare finché qualcuno non sceglie.
+ *
+ * `null` solo quando la classificazione persistita non regge la validazione
+ * (jsonb malformato: il padre resta `classified` e il tick successivo
+ * riprova) — MAI quando `suggestedProjectIds` è vuoto: un elenco vuoto è
+ * legittimo (il modello non ha nominato nessun progetto specifico) e la card
+ * nasce comunque, con la sola opzione «Nessuno di questi». Un progetto
+ * suggerito il cui nome non si risolve più (cancellato fra la
+ * classificazione e la pubblicazione) si salta SENZA invalidare l'intero
+ * evento — le altre opzioni restano valide, esattamente come
+ * {@link buildEmailProposalEvent} salta una singola proposta il cui nome di
+ * progetto non si risolve.
+ */
+export function buildTriageProposalEvent(args: BuildTriageProposalArgs): GoogleProposalEvent | null {
+  const { lang, message } = args;
+  const parsed = storedTriageClassificationSchema.safeParse(message.classification ?? {});
+  if (!parsed.success) return null;
+  const stored = parsed.data;
+
+  const options: OptionWithAction[] = [];
+  for (const projectId of stored.suggestedProjectIds) {
+    if (options.length >= MAX_PROPOSAL_OPTIONS) break;
+    const projectName = args.projectNames.get(projectId);
+    if (!projectName) continue;
+    options.push({
+      label: t(lang, "email.proposal.chooseProject", { project: projectName }),
+      consequence: t(lang, "email.proposal.chooseProjectConsequence", { project: projectName }),
+      action: { type: "choose_project", projectId },
+    });
+  }
+
+  const from = message.fromName ? `${message.fromName} <${message.fromAddress}>` : message.fromAddress;
+  const subject = message.subject?.trim() || t(lang, "email.input.none");
+
+  return assembleEvent({
+    proposalId: args.proposalId ?? randomUUID(),
+    source: "email",
+    messageUrl: gmailThreadUrl(args.mailboxEmail, message.threadId),
+    // NIENTE projectId/projectName: qui il progetto è ciò che manca, non un
+    // dato già certo (a differenza di buildEmailProposalEvent).
+    signal: stored.signal,
+    from,
+    subject,
+    receivedAt: message.receivedAt,
+    question: t(lang, "google.proposal.question.triage", { from, subject }),
+    options: [...options, triageIgnoreOption(lang)],
+    recommendedIndex: 0,
   });
 }
 
@@ -474,12 +600,20 @@ export type PublishFn = typeof publishNotification;
 
 export interface PublishProposalArgs {
   event: GoogleProposalEvent;
-  /** Quale tabella tiene la riga d'origine: decide la scrittura di chiusura. */
-  source: "email" | "calendar";
   /**
-   * `email_proposals.id` (la riga FIGLIA, fase 6b — non più
-   * `email_messages.id`: il padre non si claima più qui, vedi il docblock
-   * della funzione) o `calendar_events.id`.
+   * Quale RIGA D'ORIGINE chiudere dopo la publish — NON "che tipo di evento
+   * è" (quello lo dice `event.source`, sempre `"email" | "calendar"`, anche
+   * per una proposta di smistamento: nasce comunque da un'email). Fase 6c:
+   * `"email_triage"` è un TERZO caso — la proposta di smistamento (Task 5),
+   * dove il claim avviene sul PADRE (`email_messages`), non su un figlio: non
+   * ce n'è nessuno, per costruzione (`classify.ts`/`writeClassification`).
+   */
+  source: "email" | "calendar" | "email_triage";
+  /**
+   * `email_proposals.id` per `"email"` (la riga FIGLIA, fase 6b — non più
+   * `email_messages.id`: il padre non si claima più qui in QUESTO caso, vedi
+   * il docblock della funzione), `calendar_events.id` per `"calendar"`, o
+   * `email_messages.id` (il PADRE stesso) per `"email_triage"`.
    */
   rowId: string;
   /** L'UNICO destinatario: `google_accounts.user_id` (audience `mailbox_owner`). */
@@ -543,16 +677,29 @@ class ProposalAborted extends Error {
  * e allargarne il contratto per un solo chiamante costerebbe più di questa
  * query — che è esatta perché l'audience `mailbox_owner` scrive una riga sola.
  *
- * ## Fase 6b: il claim è sulla riga FIGLIA, mai sul padre
+ * ## Fase 6b: il claim è sulla riga FIGLIA, mai sul padre — per `source: "email"`
  *
  * Per `source: "email"` il claim guardato è su `email_proposals` (l'indice
  * parziale `email_proposals_claim_idx`, `WHERE status='classified' AND
  * proposal_notification_id IS NULL`), non più su `email_messages`. Questa
- * funzione NON TOCCA MAI `email_messages`: lo stato aggregato del padre si
- * calcola in LETTURA altrove (Task 6/8), non si persiste qui. È così che due
- * proposte dello stesso messaggio — due figli, due progetti — si pubblicano
- * in parallelo (due chiamate concorrenti a questa funzione) senza contendersi
- * nessuna riga: ciascuna claima solo il proprio figlio.
+ * funzione NON TOCCA MAI `email_messages` in questo ramo: lo stato aggregato
+ * del padre si calcola in LETTURA altrove (Task 6/8), non si persiste qui. È
+ * così che due proposte dello stesso messaggio — due figli, due progetti — si
+ * pubblicano in parallelo (due chiamate concorrenti a questa funzione) senza
+ * contendersi nessuna riga: ciascuna claima solo il proprio figlio.
+ *
+ * ## Fase 6c: `source: "email_triage"` claima il PADRE — non è un'eccezione,
+ * è il caso per cui il padre NON ha nessun figlio
+ *
+ * La proposta di smistamento (Task 5) non ha una riga figlia da cui nascere
+ * (`writeClassification` non ne crea per questo messaggio): il claim guardato
+ * torna quindi a essere su `email_messages` — `WHERE status = 'classified'
+ * AND proposal_notification_id IS NULL`, lo stesso pattern della fase 6
+ * ORIGINALE, prima del fan-out — perché per QUESTO messaggio è la riga
+ * d'origine vera, non un ripiego. Nessuna contesa possibile con la fase 6b
+ * qui sopra: un messaggio con figli non è mai anche «da smistare» (i due
+ * canali di selezione, nel poller, non si sovrappongono — vedi
+ * `runProposePhase`).
  *
  * NON LANCIA per gli esiti previsti (li porta in `reason`); lascia salire solo
  * gli errori veri del database, che il chiamante tratta come tali.
@@ -599,17 +746,29 @@ export async function publishProposal(
                 ),
               )
               .returning({ id: emailProposals.id })
-          : await tx
-              .update(calendarEventsTable)
-              .set({ proposalNotificationId: row.id })
-              .where(
-                and(
-                  eq(calendarEventsTable.id, args.rowId),
-                  isNull(calendarEventsTable.proposalNotificationId),
-                  isNull(calendarEventsTable.outcome),
-                ),
-              )
-              .returning({ id: calendarEventsTable.id });
+          : args.source === "email_triage"
+            ? await tx
+                .update(emailMessages)
+                .set({ status: "proposed", proposalNotificationId: row.id })
+                .where(
+                  and(
+                    eq(emailMessages.id, args.rowId),
+                    eq(emailMessages.status, "classified"),
+                    isNull(emailMessages.proposalNotificationId),
+                  ),
+                )
+                .returning({ id: emailMessages.id })
+            : await tx
+                .update(calendarEventsTable)
+                .set({ proposalNotificationId: row.id })
+                .where(
+                  and(
+                    eq(calendarEventsTable.id, args.rowId),
+                    isNull(calendarEventsTable.proposalNotificationId),
+                    isNull(calendarEventsTable.outcome),
+                  ),
+                )
+                .returning({ id: calendarEventsTable.id });
       if (claimed.length === 0) throw new ProposalAborted("not_claimable");
 
       return { ok: true as const, notificationId: row.id, published };

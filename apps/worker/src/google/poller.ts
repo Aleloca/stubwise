@@ -3,6 +3,8 @@ import {
   emailMessages,
   emailProposals,
   googleAccounts,
+  googleWorkspaces,
+  instanceSettings,
   notifications,
   projectEmailRoutes,
   projects,
@@ -25,7 +27,13 @@ import {
   type GoogleAccountCredentials,
 } from "@stubwise/google/credentials";
 import type { Language } from "@stubwise/i18n";
-import { matchRoutes, type EmailRoute } from "@stubwise/notifications";
+import {
+  admit,
+  matchRoutes,
+  normalizeAddress,
+  type AdmissionConfig,
+  type EmailRoute,
+} from "@stubwise/notifications";
 import {
   and,
   asc,
@@ -63,6 +71,7 @@ import {
 import {
   buildCalendarProposalEvent,
   buildEmailProposalEvent,
+  buildTriageProposalEvent,
   DEFAULT_PROPOSE_MAX_PER_TICK,
   publishProposal,
   type PublishFn,
@@ -245,6 +254,19 @@ export interface GooglePollerDeps {
    * ({@link GMAIL_MAX_PROJECTS_PER_MESSAGE} lì).
    */
   maxProjectsPerMessage?: number;
+  /**
+   * Fase 6c — Task 6: tetto giornaliero di classificazioni PER CASELLA
+   * (`GMAIL_MAX_PER_DAY`). Assente = il default di `classify.ts`
+   * ({@link DEFAULT_GMAIL_MAX_PER_DAY} lì). `0` = nessun tetto.
+   */
+  gmailMaxPerDay?: number;
+  /**
+   * Fase 6c — Task 6: cooldown in minuti fra due classificazioni dello
+   * STESSO thread (`GMAIL_THREAD_COOLDOWN_MINUTES`). Assente = il default di
+   * `classify.ts` ({@link DEFAULT_GMAIL_THREAD_COOLDOWN_MINUTES} lì). `0` =
+   * disattivato.
+   */
+  gmailThreadCooldownMinutes?: number;
   /** Caricatore della catena di provider AI (iniettabile nei test). */
   loadProviderChainFn?: typeof loadProviderChain;
   /**
@@ -305,6 +327,44 @@ interface AccountContext {
   accessToken: string;
   /** Le regole di TUTTI i progetti, caricate una volta per tick. */
   routes: EmailRoute[];
+  /**
+   * Configurazione dell'AMMISSIONE (fase 6c), caricata una volta per tick
+   * accanto a `routes` — vedi {@link loadAdmissionConfig}. Usata dal
+   * pre-filtro sui metadati in {@link syncGmail}, prima ancora di scaricare
+   * il corpo; `routes` qui sopra resta usata ANCHE da sola per
+   * l'attribuzione (`matchRoutes`) dopo il download e per il routing del
+   * calendario, che non ha ammissione.
+   */
+  admission: AdmissionConfig;
+  /**
+   * Il dominio della casella CHE RICEVE, fase 6c Task 2 — `domainOf(account.email)`,
+   * calcolato una volta per casella in {@link runAccountTick}. Passato ad
+   * {@link admit} come terzo argomento (non dentro `admission`, che è
+   * condivisa fra TUTTE le caselle del tick: infilarci un valore che cambia
+   * per casella avrebbe richiesto ricostruire l'oggetto a ogni giro). Serve
+   * a riconoscere un SECONDO dominio di lavoro fra i destinatari (`to` o
+   * `cc`) escludendo il proprio — vedi il docblock di `admit` in
+   * `@stubwise/notifications`.
+   */
+  receivingDomain: string;
+}
+
+/**
+ * Il dominio (dopo l'ultima chiocciola) di un indirizzo email, o stringa
+ * vuota — fase 6c Task 2.
+ *
+ * Serve a ricavare il dominio della casella RICEVENTE da `account.email`, da
+ * passare ad `admit` come `receivingDomain` (vedi {@link AccountContext.receivingDomain}).
+ * Non è importata da `@stubwise/notifications`: lì `domainOf` è un dettaglio
+ * PRIVATO di `email-routing.ts` (non fa parte dell'API pubblica del
+ * package — solo `normalizeAddress`, `admit`, `matchRoutes` e poche altre lo
+ * sono), e una riga non vale un'esportazione nuova. `normalizeAddress` (già
+ * pubblica, già importata qui) fa la stessa normalizzazione di indirizzo che
+ * ogni altro dominio confrontato da `admit` riceve.
+ */
+function domainOf(address: string): string {
+  const at = address.lastIndexOf("@");
+  return at === -1 ? "" : address.slice(at + 1);
 }
 
 /**
@@ -353,6 +413,68 @@ export async function loadAllRoutes(db: Db): Promise<EmailRoute[]> {
       value: projectEmailRoutes.value,
     })
     .from(projectEmailRoutes);
+}
+
+/**
+ * TUTTI i domini di TUTTI i `google_workspaces` REGISTRATI — non solo quelli
+ * delle caselle attive in questo tick.
+ *
+ * Deriva apposta dai `GoogleAccountCredentials` caricati per casella non
+ * basterebbe: un Workspace registrato in Impostazioni → Google ma senza
+ * ancora nessuna casella collegata (l'admin lo registra, nessuno ha ancora
+ * fatto l'OAuth) avrebbe comunque i suoi domini nel perimetro
+ * dell'ammissione — vedi il docblock di {@link AdmissionConfig.workspaceDomains}
+ * in `@stubwise/notifications`: "TUTTI i Workspace registrati", non "con
+ * casella collegata". Una query dedicata (per tick, non per casella) è
+ * l'unico modo di coprire anche quel caso.
+ */
+export async function loadAllWorkspaceDomains(db: Db): Promise<string[]> {
+  const rows = await db.select({ domains: googleWorkspaces.domains }).from(googleWorkspaces);
+  return rows.flatMap((row) => row.domains);
+}
+
+/**
+ * Configurazione D'ISTANZA dell'ammissione (fase 6c, `instance_settings`
+ * singleton id=1), letta una volta per tick — stesso pattern di
+ * `getContentLanguage` in `../settings.js`. Default difensivo se la riga
+ * manca (DB ripristinato senza seed): identico a `loadMailAdmission` in
+ * `apps/server/src/routes/settings.ts`, che serve la stessa configurazione
+ * alla UI — le due letture non devono divergere sui default.
+ */
+async function loadInstanceAdmissionSettings(
+  db: Db,
+): Promise<Pick<AdmissionConfig, "admitWorkspaceDomains" | "denyLabels" | "denyAutomated">> {
+  const [row] = await db
+    .select({
+      admitWorkspaceDomains: instanceSettings.emailAdmitWorkspaceDomains,
+      denyLabels: instanceSettings.emailAdmissionDenyLabels,
+      denyAutomated: instanceSettings.emailAdmissionDenyAutomated,
+    })
+    .from(instanceSettings)
+    .where(eq(instanceSettings.id, 1));
+  return {
+    admitWorkspaceDomains: row?.admitWorkspaceDomains ?? true,
+    denyLabels: row?.denyLabels ?? ["CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL", "SPAM"],
+    denyAutomated: row?.denyAutomated ?? true,
+  };
+}
+
+/**
+ * La {@link AdmissionConfig} completa per il tick: configurazione
+ * d'istanza + domini Workspace + `routes` (RIUSATE, non ricaricate —
+ * `routes` è già la stessa variabile che {@link loadAllRoutes} produce e che
+ * `matchRoutes` usa per l'attribuzione dopo il download).
+ *
+ * Due query indipendenti (`instance_settings`, `google_workspaces`), lanciate
+ * in parallelo: nessuna delle due dipende dall'altra, e sono comunque una
+ * frazione del costo di un giro che poi scarica messaggi per più caselle.
+ */
+export async function loadAdmissionConfig(db: Db, routes: EmailRoute[]): Promise<AdmissionConfig> {
+  const [settings, workspaceDomains] = await Promise.all([
+    loadInstanceAdmissionSettings(db),
+    loadAllWorkspaceDomains(db),
+  ]);
+  return { ...settings, workspaceDomains, routes };
 }
 
 /** Chiude una casella: `disabled_at` + motivo, e da lì il claim non la vede più. */
@@ -587,13 +709,18 @@ async function filterAlreadyIngested(db: Db, accountId: string, ids: string[]): 
  * L'ordine dei tre filtri è la spesa del tick, e non è negoziabile:
  *  1. **già ingerito** — nessuna chiamata a Google;
  *  2. **`format=metadata`** — header ed etichette, non il corpo;
- *  3. **routing sui soli metadati** — fuori perimetro qui significa nessun
- *     `messages.get full` e nessuna riga scritta. Una casella rumorosa costa
- *     quindi una `metadata` per messaggio, non un corpo per messaggio.
+ *  3. **ammissione sui soli metadati** (fase 6c, `admit`) — fuori perimetro
+ *     qui significa nessun `messages.get full` e nessuna riga scritta. Una
+ *     casella rumorosa costa quindi una `metadata` per messaggio, non un
+ *     corpo per messaggio. Non è più `matchRoutes.inScope`: un messaggio può
+ *     essere ammesso (dominio Workspace, o una regola di progetto) senza che
+ *     nessuna regola di progetto combaci — vedi `matchRoutes` più sotto.
  *
- * Il secondo `matchRoutes` — quello col testo — non decide più se scaricare
- * (il corpo è già in mano) ma può risolvere un progetto che sui soli metadati
- * era ambiguo, perché una keyword del corpo aggiunge un match.
+ * `matchRoutes` dopo il download resta l'ATTRIBUZIONE (di quale progetto
+ * parla), invariata: non decide più se scaricare, ma risolve `scope_project_ids`
+ * — che ora può tornare vuoto su un messaggio comunque ammesso — e può
+ * risolvere un progetto che sui soli metadati era ambiguo, perché una keyword
+ * del corpo aggiunge un match.
  */
 async function syncGmail(
   deps: GooglePollerDeps,
@@ -642,8 +769,8 @@ async function syncGmail(
 
     if (isFromMailbox(metadata, ctx.credentials.email)) continue;
 
-    const preFilter = matchRoutes(messageToRouting(metadata), ctx.routes);
-    if (!preFilter.inScope) continue;
+    const admission = admit(messageToRouting(metadata), ctx.admission, ctx.receivingDomain);
+    if (!admission.admitted) continue;
 
     const full = await gmail.getMessageFull({ accessToken: ctx.accessToken, id });
     const text = full.payload ? extractText(full.payload) : "";
@@ -724,6 +851,10 @@ async function runClassifyPhase(
         ...(deps.gmailModel !== undefined ? { model: deps.gmailModel } : {}),
         ...(deps.maxProjectsPerMessage !== undefined
           ? { maxProjectsPerMessage: deps.maxProjectsPerMessage }
+          : {}),
+        ...(deps.gmailMaxPerDay !== undefined ? { maxPerDay: deps.gmailMaxPerDay } : {}),
+        ...(deps.gmailThreadCooldownMinutes !== undefined
+          ? { threadCooldownMinutes: deps.gmailThreadCooldownMinutes }
           : {}),
         ...(deps.loadProviderChainFn !== undefined
           ? { loadProviderChainFn: deps.loadProviderChainFn }
@@ -1031,7 +1162,10 @@ async function syncCalendar(
  * uno certo per riga), non più dal solo `email_messages.project_id` — il
  * fan-out ha già risolto quale progetto ciascuna proposta riguarda, quindi
  * qui non servono più i `candidateProjectIds` del padre (erano le opzioni
- * «Riguarda …» di `choose_project`, non più generate).
+ * «Riguarda …» di `choose_project`, non più generate). Fase 6c: gli id
+ * SUGGERITI dei messaggi «da smistare» ({@link suggestedProjectIdsOf}) sono
+ * un terzo insieme che passa dalla stessa query — nessun progetto è certo lì,
+ * ma servono comunque i loro nomi per le etichette delle opzioni.
  */
 async function projectNamesOf(db: Db, ids: (string | null)[]): Promise<Map<string, string>> {
   const unique = [...new Set(ids.filter((id): id is string => id !== null))];
@@ -1043,6 +1177,20 @@ async function projectNamesOf(db: Db, ids: (string | null)[]): Promise<Map<strin
     .where(inArray(projects.id, unique));
   for (const row of rows) names.set(row.id, row.name);
   return names;
+}
+
+/**
+ * Lettura TOLLERANTE del solo `suggestedProjectIds` della classificazione «da
+ * smistare» di un padre (fase 6c) — qui serve solo a raccogliere gli id per
+ * {@link projectNamesOf}, la validazione VERA (forma completa, `catch` per
+ * ogni campo) è quella di `buildTriageProposalEvent` in `./proposal.ts`: una
+ * sovra-inclusione qui (un id raccolto che poi risulta non valido) costa solo
+ * una riga in più nella query dei nomi, mai un evento costruito male.
+ */
+function suggestedProjectIdsOf(classification: unknown): string[] {
+  if (!classification || typeof classification !== "object") return [];
+  const raw = (classification as Record<string, unknown>).suggestedProjectIds;
+  return Array.isArray(raw) ? raw.filter((id): id is string => typeof id === "string") : [];
 }
 
 /**
@@ -1075,6 +1223,16 @@ async function projectNamesOf(db: Db, ids: (string | null)[]): Promise<Map<strin
  * tre verso il tetto, non uno — senza questo, il tetto sul FAN-OUT
  * (`GMAIL_MAX_PROJECTS_PER_MESSAGE`) potrebbe comunque far pubblicare più
  * card di quante il tetto per tick intendesse.
+ *
+ * Fase 6c (Task 5): una TERZA selezione, sui PADRI `classified` «da
+ * smistare» (`email_messages.classification->>'triage' = 'true'`, nessun
+ * figlio — vedi `classify.ts`), pubblica la proposta di SMISTAMENTO. È un
+ * canale SEPARATO da quello dei figli qui sopra, mai lo stesso: un messaggio
+ * con figli non ha MAI il marcatore `triage` (per costruzione, vedi
+ * `writeClassification`), e la selezione sui padri porta comunque un
+ * `NOT EXISTS` su `email_proposals` come difesa in profondità — stesso stile
+ * di `pruneOldEmails` più sotto. Ogni proposta di smistamento pubblicata
+ * conta **una** verso lo stesso tetto per tick delle altre due selezioni.
  */
 async function runProposePhase(
   deps: GooglePollerDeps,
@@ -1142,15 +1300,55 @@ async function runProposePhase(
       .orderBy(asc(calendarEventsTable.startsAt), asc(calendarEventsTable.id))
       .limit(limit);
 
-    if (proposalRows.length === 0 && events.length === 0) return 0;
+    // --- Smistamento (fase 6c, Task 5): i PADRI `classified` «da smistare»
+    // — nessun figlio, il marcatore `triage: true` nella loro
+    // `classification` (vedi `classify.ts`). Il `NOT EXISTS` su
+    // `email_proposals` è difesa in profondità (il marcatore da solo basta
+    // per costruzione), non un controllo ridondante inutile: stesso stile
+    // paranoico di `pruneOldEmails` più sotto — un messaggio CON figli non
+    // deve MAI ricevere anche una proposta di smistamento.
+    const triageRows = await deps.db
+      .select({
+        id: emailMessages.id,
+        threadId: emailMessages.threadId,
+        fromAddress: emailMessages.fromAddress,
+        fromName: emailMessages.fromName,
+        subject: emailMessages.subject,
+        receivedAt: emailMessages.receivedAt,
+        classification: emailMessages.classification,
+      })
+      .from(emailMessages)
+      .where(
+        and(
+          eq(emailMessages.accountId, account.id),
+          eq(emailMessages.status, "classified"),
+          isNull(emailMessages.proposalNotificationId),
+          sql`${emailMessages.classification} ->> 'triage' = 'true'`,
+          notExists(
+            deps.db
+              .select({ id: emailProposals.id })
+              .from(emailProposals)
+              .where(eq(emailProposals.emailMessageId, emailMessages.id)),
+          ),
+        ),
+      )
+      .orderBy(asc(emailMessages.receivedAt), asc(emailMessages.id))
+      .limit(limit);
+
+    if (proposalRows.length === 0 && events.length === 0 && triageRows.length === 0) return 0;
 
     // Una query sola per i nomi di TUTTI i progetti nominati dal lotto: il
-    // progetto CERTO di ciascun figlio più quello di ciascun evento di
-    // calendario. Niente più candidati: `choose_project` non si genera più
-    // (vedi il docblock di `buildEmailProposalEvent`).
+    // progetto CERTO di ciascun figlio, quello di ciascun evento di
+    // calendario, e i progetti SUGGERITI di ciascun messaggio «da smistare»
+    // (fase 6c — nessuno di questi è certo, ma serve comunque il nome per
+    // l'etichetta dell'opzione). Niente più candidati del padre per i figli:
+    // `choose_project` non si genera più lì (vedi il docblock di
+    // `buildEmailProposalEvent`) — la genera solo `buildTriageProposalEvent`,
+    // per un progetto SUGGERITO, non un candidato del vecchio routing.
     const projectNames = await projectNamesOf(deps.db, [
       ...proposalRows.map((row) => row.proposalProjectId),
       ...events.map((event) => event.projectId),
+      ...triageRows.flatMap((row) => suggestedProjectIdsOf(row.classification)),
     ]);
 
     for (const row of proposalRows) {
@@ -1221,6 +1419,52 @@ async function runProposePhase(
       }
     }
 
+    // --- Smistamento (fase 6c, Task 5): il claim è sul PADRE stesso
+    // (`source: "email_triage"`), non su un figlio — non ce n'è nessuno.
+    for (const row of triageRows) {
+      if (deps.signal?.aborted) return published;
+      const event = buildTriageProposalEvent({
+        lang,
+        message: {
+          threadId: row.threadId,
+          fromAddress: row.fromAddress,
+          fromName: row.fromName,
+          subject: row.subject,
+          receivedAt: row.receivedAt,
+          classification: row.classification,
+        },
+        mailboxEmail: account.email,
+        projectNames,
+      });
+      if (!event) {
+        // Classificazione «da smistare» che non regge più la validazione
+        // (jsonb scritto da una versione precedente, o comunque non nella
+        // forma attesa): il PADRE resta `classified` e verrebbe ripescato a
+        // ogni tick per sempre. `ignored` lo chiude senza inventare una
+        // card, stesso trattamento dei figli senza proposta qui sopra.
+        await deps.db
+          .update(emailMessages)
+          .set({ status: "ignored" })
+          .where(eq(emailMessages.id, row.id));
+        continue;
+      }
+      const result = await publishProposal(deps.db, {
+        event,
+        source: "email_triage",
+        rowId: row.id,
+        mailboxOwnerUserId: account.userId,
+        // NIENTE projectId: qui non c'è un progetto risolto, è ciò che la
+        // proposta chiede.
+        ...(deps.publish !== undefined ? { publish: deps.publish } : {}),
+      });
+      if (result.ok) published += 1;
+      else if (result.reason !== "not_claimable") {
+        logger.warn(
+          `google: proposta di smistamento non pubblicata per il messaggio ${row.id} (${result.reason})`,
+        );
+      }
+    }
+
     return published;
   } catch (err) {
     logger.error(
@@ -1242,6 +1486,7 @@ async function runAccountTick(
   deps: GooglePollerDeps,
   account: ClaimedAccount,
   routes: EmailRoute[],
+  admission: AdmissionConfig,
 ): Promise<AccountTickResult | null> {
   const logger = deps.logger ?? defaultLogger;
   const load = deps.loadCredentials ?? loadGoogleAccountCredentials;
@@ -1262,7 +1507,18 @@ async function runAccountTick(
     clientSecret: credentials.clientSecret,
     refreshToken: credentials.refreshToken,
   });
-  const ctx: AccountContext = { credentials, accessToken: tokens.accessToken, routes };
+  const ctx: AccountContext = {
+    credentials,
+    accessToken: tokens.accessToken,
+    routes,
+    admission,
+    // Fase 6c Task 2: il dominio della casella che riceve, sempre disponibile
+    // da `account.email` — vedi il docblock di `AccountContext.receivingDomain`.
+    // `normalizeAddress` prima di `domainOf`: stessa normalizzazione di ogni
+    // altro indirizzo che `admit`/`matchRoutes` confrontano, per sicurezza
+    // anche se `account.email` non arriva mai con un nome visualizzato.
+    receivingDomain: domainOf(normalizeAddress(account.email)),
+  };
 
   // Fase 1 — Gmail, e il suo cursore messo al sicuro prima di tutto il resto.
   const gmailResult = await syncGmail(deps, ctx, account);
@@ -1297,7 +1553,7 @@ async function runAccountTick(
  * ignorati o falliscono indipendentemente l'uno dall'altro — vedi
  * `classify.ts` (scrittura sui figli) e `google-proposal.ts`
  * (`markSourceOutcome`/`markSourceFailed`, che scrivono SOLO sul figlio).
- * Un messaggio è quindi potabile solo quando TUTTE e tre le condizioni
+ * Un messaggio è quindi potabile solo quando TUTTE e quattro le condizioni
  * valgono:
  *
  *  1. **è stato almeno classificato** (`status <> 'new'`): un messaggio
@@ -1318,7 +1574,20 @@ async function runAccountTick(
  *     `google-proposal.ts` chiama `propagateHandled` (claim: chiude la
  *     notifica) PRIMA di scrivere lo stato terminale sul figlio, sempre già
  *     la sua notifica chiusa — ma questa condizione non si fida di
- *     quell'ordine, lo riverifica riga per riga.
+ *     quell'ordine, lo riverifica riga per riga;
+ *  4. **la notifica del PADRE stesso, se ne ha una, non è più aperta**
+ *     (fase 6c, Task 5). È la condizione NUOVA di questo task, e non è
+ *     ridondante con la 3: la proposta di SMISTAMENTO vive SUL PADRE
+ *     (`email_messages.proposal_notification_id`), senza nessun figlio che la
+ *     specchi — a differenza di ogni riga LEGACY pre-6b, dove il backfill
+ *     della migrazione 0070 ha sempre accoppiato quella stessa colonna a un
+ *     figlio equivalente con lo stesso id di notifica (vedi il docblock di
+ *     `findSourceRow` in `apps/server/src/services/google-proposal.ts`). Senza
+ *     questa condizione, un messaggio «da smistare» con la card ancora aperta
+ *     in inbox verrebbe potato lo stesso non appena `updated_at` fosse
+ *     abbastanza vecchio — `updated_at` che, per un padre così, non si
+ *     aggiorna più da nessuno finché la proposta non viene confermata o
+ *     scartata.
  *
  * La soglia resta su `updated_at` DEL PADRE, e non su `received_at`: è la
  * colonna che `markSourceOutcome`/`markSourceFailed` toccano a ogni chiusura
@@ -1360,6 +1629,18 @@ export async function pruneOldEmails(db: Db, retentionDays: number): Promise<num
       and(eq(emailProposals.emailMessageId, emailMessages.id), ne(notifications.status, "handled")),
     );
 
+  // Condizione 4 (fase 6c, Task 5): la notifica DEL PADRE stesso — la
+  // proposta di smistamento, che vive lì e non su un figlio (vedi il
+  // docblock sopra). Correlata su `emailMessages.proposalNotificationId`: se
+  // è `null` la subquery non trova mai una riga (nessun join possibile), che
+  // è esattamente "nessuna notifica da aspettare".
+  const openParentNotification = db
+    .select({ id: notifications.id })
+    .from(notifications)
+    .where(
+      and(eq(notifications.id, emailMessages.proposalNotificationId), ne(notifications.status, "handled")),
+    );
+
   const deleted = await db
     .delete(emailMessages)
     .where(
@@ -1368,6 +1649,7 @@ export async function pruneOldEmails(db: Db, retentionDays: number): Promise<num
         sql`${emailMessages.updatedAt} < now() - make_interval(days => ${Math.round(retentionDays)})`,
         notExists(openChild),
         notExists(openNotifiedChild),
+        notExists(openParentNotification),
       ),
     )
     .returning({ id: emailMessages.id });
@@ -1427,10 +1709,18 @@ export async function pollGoogleOnce(deps: GooglePollerDeps): Promise<GoogleTick
     return stats;
   }
 
+  let admission: AdmissionConfig;
+  try {
+    admission = await loadAdmissionConfig(deps.db, routes);
+  } catch (err) {
+    logger.error(`google: lettura della configurazione di ammissione fallita: ${errText(err)}`);
+    return stats;
+  }
+
   for (const account of accounts) {
     if (deps.signal?.aborted) break;
     try {
-      const result = await runAccountTick(deps, account, routes);
+      const result = await runAccountTick(deps, account, routes, admission);
       if (!result) continue;
       stats.ingested += result.ingested;
       stats.classified += result.classify.classified;

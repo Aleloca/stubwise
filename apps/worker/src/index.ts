@@ -632,6 +632,12 @@ startGooglePoller({
   // senza questo filo la classificazione userebbe sempre il default di
   // `classify.ts` e l'env `GMAIL_MAX_PROJECTS_PER_MESSAGE` sarebbe inerte.
   maxProjectsPerMessage: config.gmailMaxProjectsPerMessage,
+  // Fase 6c (Task 6): tetto giornaliero per casella e cooldown per thread,
+  // collegati qui — senza questo filo `GMAIL_MAX_PER_DAY` e
+  // `GMAIL_THREAD_COOLDOWN_MINUTES` sarebbero inerti (userebbero sempre i
+  // default di `classify.ts`).
+  gmailMaxPerDay: config.gmailMaxPerDay,
+  gmailThreadCooldownMinutes: config.gmailThreadCooldownMinutes,
   signal: controller.signal,
 });
 

@@ -312,12 +312,76 @@ export const emailLabelsSchema = z.object({ labels: z.array(z.string()).default(
 export type EmailLabels = z.infer<typeof emailLabelsSchema>;
 
 // ---------------------------------------------------------------------------
+// Ammissione della posta (fase 6c): configurazione D'ISTANZA, separata
+// dall'attribuzione per progetto (le regole sopra, invariate).
+// ---------------------------------------------------------------------------
+
+/**
+ * Configurazione d'istanza dell'AMMISSIONE della posta: decide SE un
+ * messaggio entra nella pipeline, non A QUALE progetto va (quello resta
+ * `project_email_routes`, sopra). È la risposta di `GET
+ * /api/settings/mail-admission` e la forma "vista" di
+ * `PATCH /api/settings/mail-admission`.
+ *
+ * Ogni campo è `.default()`: sono TRE campi nuovi su una risposta — nessuna
+ * app mobile la consuma oggi (questa rotta non è fra quelle lette dal client
+ * mobile), ma la convenzione del repo per campi nuovi in uno schema di
+ * risposta è comunque senza eccezioni, vedi CLAUDE.md.
+ */
+export const mailAdmissionSchema = z.object({
+  // I mittenti (o destinatari in copia) dei domini di un Google Workspace
+  // registrato ammettono la posta senza bisogno di una regola di progetto.
+  // Default true: allarga il perimetro di oggi, non lo restringe — una
+  // regola di progetto che già ammette un messaggio continua ad ammetterlo.
+  admitWorkspaceDomains: z.boolean().default(true),
+  // Etichette Gmail che escludono SEMPRE, anche quando una regola di
+  // progetto o il dominio del Workspace ammetterebbero.
+  denyLabels: z
+    .array(z.string())
+    .default(["CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL", "SPAM"]),
+  // Scarta la posta automatica (List-Unsubscribe, List-Id, Precedence: bulk,
+  // Auto-Submitted diverso da "no").
+  denyAutomated: z.boolean().default(true),
+});
+export type MailAdmission = z.infer<typeof mailAdmissionSchema>;
+
+/**
+ * Corpo del PATCH: semantica patch, non put — campo ASSENTE = non toccato,
+ * come `PATCH /api/me/notification-prefs` (vedi il docblock in
+ * `apps/server/src/routes/me-prefs.ts`). Tutti e tre i campi sono nuovi:
+ * renderli obbligatori romperebbe qualunque chiamante che non li conosce
+ * ancora, esattamente il caso descritto in CLAUDE.md per un body che cresce.
+ */
+export const mailAdmissionPatchSchema = z.object({
+  admitWorkspaceDomains: z.boolean().optional(),
+  denyLabels: z.array(z.string()).max(50).optional(),
+  denyAutomated: z.boolean().optional(),
+});
+export type MailAdmissionPatch = z.input<typeof mailAdmissionPatchSchema>;
+
+// ---------------------------------------------------------------------------
 // Pagina Posta (Task 12): messaggi ed eventi TRATTATI, per utente
 // ---------------------------------------------------------------------------
 
 /** Da dove nasce la riga: una email o un evento di calendario. */
 export const mailSourceSchema = z.enum(["email", "calendar"]);
 export type MailSource = z.infer<typeof mailSourceSchema>;
+
+/**
+ * Fase 6c (fix di review, Task 3): CHE COSA rappresenta la riga, ortogonale a
+ * {@link mailSourceSchema} — che dice solo DA QUALE TABELLA fisica viene la
+ * riga (email vs calendario), non se è già attribuita a un progetto.
+ * `"proposal"` è una proposta NORMALE con un progetto risolto
+ * (`email_proposals`, o un evento di calendario); `"calendar"` è un evento
+ * di calendario (ridondante con `source: "calendar"`, ma esplicito, per
+ * simmetria); `"triage"` è una proposta di SMISTAMENTO (`classify.ts`,
+ * `EmailTriageClassification` — un padre `email_messages` SENZA figli, con
+ * `projectId`/`projectName` sempre `null`): la UI la rende diversamente
+ * (nessun badge di progetto, un'etichetta «da smistare», l'esito «nessuno di
+ * questi» leggibile invece del generico "ignored").
+ */
+export const mailItemKindSchema = z.enum(["proposal", "triage", "calendar"]);
+export type MailItemKind = z.infer<typeof mailItemKindSchema>;
 
 /**
  * Stato NORMALIZZATO di una riga della pagina Posta, uguale per le due
@@ -369,10 +433,30 @@ export type MailSignal = z.infer<typeof mailSignalSchema>;
  * nessun figlio. Accettata perché la pagina Posta è stata deployata lo
  * stesso giorno di questo cambio e nessun client si è ancora costruito
  * sopra un `id` che significasse "messaggio" per l'email.
+ *
+ * ⚠️ Fase 6c (fix di review, Task 3) — un TERZO spazio di `id` per
+ * `source: "email"`: quando `kind: "triage"`, `id` è `email_messages.id` (il
+ * PADRE stesso, nessun figlio per costruzione — vedi
+ * {@link mailItemKindSchema}), non `email_proposals.id`. La rotta di
+ * repropose lo disambigua nel PATH (`source: "email_triage"`, un terzo
+ * valore accettato SOLO da `POST /:source/:id/repropose`, non da
+ * `mailSourceSchema`/questo campo `source`): un `id` da solo non basta a
+ * scegliere la tabella giusta (sono UUID indipendenti), e il path elimina
+ * per costruzione l'errore di mandare l'id giusto col `source` sbagliato —
+ * stessa ragione della scelta fra `/email/:id` e `/calendar/:id` qui sopra.
  */
 export const mailItemSchema = z.object({
   id: z.uuid(),
   source: mailSourceSchema,
+  /**
+   * Fase 6c (fix di review, Task 3): che TIPO di riga è, non da quale
+   * TABELLA viene (`source` sopra). `.default("proposal")` — il valore
+   * storico, prima che questo campo esistesse — per reggere una risposta
+   * scritta da un server più vecchio (vedi CLAUDE.md, "Invarianti e
+   * trappole": ogni campo nuovo di risposta nasce opzionale/default, mai
+   * obbligatorio).
+   */
+  kind: mailItemKindSchema.optional().default("proposal"),
   accountId: z.uuid(),
   /** L'email della casella Google da cui la riga è arrivata. */
   accountEmail: z.string(),

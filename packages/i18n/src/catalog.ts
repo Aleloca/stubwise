@@ -362,6 +362,10 @@ export const en: Catalog = {
   // progetto.
   "google.proposal.question.withProject":
     "{from} wrote to {project} about “{subject}”. How do we follow up?",
+  // Fase 6c (Task 5): the TRIAGE proposal's question — a real signal, but no
+  // project was attributed. `{from}`/`{subject}` are NOT trusted (see above).
+  "google.proposal.question.triage":
+    "{from} wrote about “{subject}”: it looks like work, but it is not clear which project. Which one does this belong to?",
   "email.proposal.calendarQuestion":
     "“{subject}” is on the calendar for {date}. Do we track it as a milestone?",
   "email.proposal.createBacklogItem": "Open a backlog entry: {title}",
@@ -369,12 +373,26 @@ export const en: Catalog = {
   "email.proposal.updateTicket": "Update ticket #{ticket}",
   "email.proposal.commentTicket": "Comment on ticket #{ticket}",
   "email.proposal.recordDecision": "Record the decision: {title}",
+  // Fase 6: written for the pre-6b "ambiguous project" card, then unused once
+  // 6b stopped generating `choose_project` for the children. Fase 6c REUSES
+  // them, unchanged, as the option label/consequence of the TRIAGE proposal
+  // (`buildTriageProposalEvent`, `apps/worker/src/google/proposal.ts`): the
+  // wording — "it belongs to X", "moves to X and is analysed again" — fits
+  // that case exactly, since choosing it does exactly that.
   "email.proposal.chooseProject": "It belongs to {project}",
   "email.proposal.chooseProjectConsequence":
     "The message moves to {project} and is analysed again, with proposals on that project.",
   "email.proposal.calendarConsequence": "A milestone due {date} is created on {project}.",
   "email.proposal.ignore": "Do nothing",
   "email.proposal.ignoreConsequence": "The message is left as it is, with no proposal.",
+  // Fase 6c (Task 5): the LAST option of the triage proposal only — "none of
+  // these [suggested projects]", distinct from the generic `ignore` above:
+  // it archives the message with an outcome that says it was triaged and
+  // dismissed, not just "no signal" (see `google-proposal.ts`, the
+  // `email_triage` branch of `markSourceOutcome`).
+  "email.proposal.triageIgnore": "None of these",
+  "email.proposal.triageIgnoreConsequence":
+    "The message is archived without being assigned to a project.",
 
   // --- email.execution.* — testi scritti quando una proposta è CONFERMATA
   // (fase 6, Task 11). `{link}` è il permalink al thread Gmail sorgente.
@@ -642,6 +660,10 @@ export const it: Catalog = {
   // certo (riga figlia `email_proposals`), SEMPRE per le proposte nuove.
   "google.proposal.question.withProject":
     "{from} scrive a {project} a proposito di «{subject}». Come diamo seguito?",
+  // Fase 6c (Task 5): la domanda della proposta di SMISTAMENTO — un segnale
+  // reale, ma nessun progetto attribuito. `{from}`/`{subject}` NON fidati.
+  "google.proposal.question.triage":
+    "{from} scrive a proposito di «{subject}»: sembra lavoro, ma non è chiaro per quale progetto. A quale di questi appartiene?",
   "email.proposal.calendarQuestion":
     "«{subject}» è in calendario per il {date}. Lo seguiamo come milestone?",
   "email.proposal.createBacklogItem": "Apri una voce di backlog: {title}",
@@ -649,12 +671,27 @@ export const it: Catalog = {
   "email.proposal.updateTicket": "Aggiorna il ticket #{ticket}",
   "email.proposal.commentTicket": "Commenta il ticket #{ticket}",
   "email.proposal.recordDecision": "Registra la decisione: {title}",
+  // Fase 6: scritte per la card "progetto ambiguo" pre-6b, poi inutilizzate
+  // da quando la 6b ha smesso di generare `choose_project` per i figli. La
+  // fase 6c le RIUSA, invariate, come etichetta/conseguenza dell'opzione
+  // della proposta di SMISTAMENTO (`buildTriageProposalEvent`,
+  // `apps/worker/src/google/proposal.ts`): il testo — "riguarda X", "passa a
+  // X e viene rianalizzato" — calza esattamente, perché sceglierla fa proprio
+  // questo.
   "email.proposal.chooseProject": "Riguarda {project}",
   "email.proposal.chooseProjectConsequence":
     "Il messaggio passa a {project} e viene rianalizzato, con proposte su quel progetto.",
   "email.proposal.calendarConsequence": "Nasce una milestone con scadenza {date} su {project}.",
   "email.proposal.ignore": "Non fare nulla",
   "email.proposal.ignoreConsequence": "Il messaggio resta com'è, senza nessuna proposta.",
+  // Fase 6c (Task 5): l'ULTIMA opzione della SOLA proposta di smistamento —
+  // "nessuno di questi [progetti suggeriti]", distinta dal generico `ignore`
+  // qui sopra: archivia il messaggio con un esito che dice che è stato
+  // smistato e scartato, non genericamente "nessun segnale" (vedi
+  // `google-proposal.ts`, il ramo `email_triage` di `markSourceOutcome`).
+  "email.proposal.triageIgnore": "Nessuno di questi",
+  "email.proposal.triageIgnoreConsequence":
+    "Il messaggio viene archiviato senza essere assegnato a un progetto.",
 
   // --- email.execution.* (vedi la nota nel catalogo `en`) ---
   "email.execution.commentBody": "{body}\n\n— da un'email, vedi {link}",

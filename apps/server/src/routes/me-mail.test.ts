@@ -154,6 +154,28 @@ async function seedCalendar(
   return row!.id;
 }
 
+/**
+ * Fase 6c (fix di review, Task 3): un padre `email_messages` in stato «da
+ * smistare» (`classify.ts`, `EmailTriageClassification` — marcatore
+ * `triage: true`, NESSUN figlio in `email_proposals`). Di default ATTIVO
+ * (`status: 'classified'`, come appena scritto da `writeClassification`,
+ * prima che il poller pubblichi la notifica): gli `overrides` coprono anche
+ * lo stato PUBBLICATO (`status: 'proposed'`, `proposalNotificationId`
+ * valorizzato) e quello CHIUSO con «nessuno di questi» (`status: 'ignored'`,
+ * `outcome: { type: 'triage_dismissed' }`).
+ */
+async function seedTriage(
+  accountId: string,
+  overrides: Partial<typeof emailMessages.$inferInsert> = {},
+): Promise<string> {
+  return seedEmail(accountId, {
+    status: "classified",
+    signal: "decision",
+    classification: { triage: true, signal: "decision", summary: "riassunto", suggestedProjectIds: [] },
+    ...overrides,
+  });
+}
+
 function getMail(cookie: string, query = "") {
   return app.inject({ method: "GET", url: `/api/me/mail${query}`, headers: { cookie } });
 }
@@ -162,7 +184,7 @@ function getSummary(cookie: string) {
   return app.inject({ method: "GET", url: "/api/me/mail/summary", headers: { cookie } });
 }
 
-function repropose(cookie: string, source: "email" | "calendar", id: string) {
+function repropose(cookie: string, source: "email" | "calendar" | "email_triage", id: string) {
   return app.inject({
     method: "POST",
     url: `/api/me/mail/${source}/${id}/repropose`,
@@ -349,6 +371,114 @@ describe("GET /api/me/mail", () => {
   });
 });
 
+describe("GET /api/me/mail — smistamento (fase 6c, fix di review Task 3)", () => {
+  it("un messaggio in smistamento ATTIVO compare con kind 'triage', nessun progetto", async () => {
+    const { accountId } = await seedAccount(adminId);
+    const messageId = await seedTriage(accountId, { subject: "Rinnovo contratto?" });
+
+    const res = await getMail(adminCookie);
+    expect(res.statusCode).toBe(200);
+    const items = (res.json() as { items: Record<string, unknown>[] }).items;
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      id: messageId,
+      source: "email",
+      kind: "triage",
+      projectId: null,
+      projectName: null,
+      status: "classified",
+      signal: "decision",
+    });
+  });
+
+  it("un messaggio in smistamento PUBBLICATO (status: proposed) compare comunque", async () => {
+    const { accountId } = await seedAccount(adminId);
+    const [notification] = await db
+      .insert(notifications)
+      .values({
+        userId: adminId,
+        kind: "google.proposal",
+        status: "open",
+        event: { kind: "google.proposal", proposalId: randomUUID() },
+      })
+      .returning({ id: notifications.id });
+    await seedTriage(accountId, { status: "proposed", proposalNotificationId: notification!.id });
+
+    const res = await getMail(adminCookie);
+    const items = (res.json() as { items: { kind: string; status: string }[] }).items;
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ kind: "triage", status: "proposed" });
+  });
+
+  it("un messaggio riaccodato da choose_project (status: new) NON compare, anche con classification.triage stantia", async () => {
+    const { accountId } = await seedAccount(adminId);
+    const projectId = await seedProject();
+    await seedTriage(accountId, {
+      status: "new",
+      projectId,
+      scopeProjectIds: [projectId],
+      proposalNotificationId: null,
+    });
+
+    const res = await getMail(adminCookie);
+    const items = (res.json() as { items: unknown[] }).items;
+    expect(items).toEqual([]);
+  });
+
+  it("uno smistamento CHIUSO con «nessuno di questi» compare (stato archiviato)", async () => {
+    const { accountId } = await seedAccount(adminId);
+    await seedTriage(accountId, { status: "ignored", outcome: { type: "triage_dismissed" } });
+
+    const res = await getMail(adminCookie);
+    const items = (res.json() as { items: { kind: string; status: string; outcome: unknown }[] }).items;
+    expect(items).toHaveLength(1);
+    expect(items[0]!.kind).toBe("triage");
+    expect(items[0]!.status).toBe("ignored");
+    expect(items[0]!.outcome).toEqual({ type: "triage_dismissed" });
+  });
+
+  it("un ignored GENERICO (nessun segnale, non smistamento) non compare come triage", async () => {
+    const { accountId } = await seedAccount(adminId);
+    await seedTriage(accountId, {
+      status: "ignored",
+      classification: { signal: "none", summary: "nulla di rilevante", proposals: [], recommendedIndex: 0 },
+      outcome: null,
+    });
+
+    const res = await getMail(adminCookie);
+    const items = (res.json() as { items: unknown[] }).items;
+    expect(items).toEqual([]);
+  });
+
+  it("filtro project: uno smistamento non ha mai progetto, quindi non compare mai", async () => {
+    const { accountId } = await seedAccount(adminId);
+    const projectId = await seedProject();
+    await seedTriage(accountId);
+
+    const res = await getMail(adminCookie, `?project=${projectId}`);
+    const items = (res.json() as { items: { kind: string }[] }).items;
+    expect(items.filter((i) => i.kind === "triage")).toEqual([]);
+  });
+
+  it("un altro utente non vede lo smistamento di qualcun altro (ACL invariata)", async () => {
+    const { accountId } = await seedAccount(memberId);
+    await seedTriage(accountId);
+
+    const res = await getMail(adminCookie);
+    expect((res.json() as { items: unknown[] }).items).toEqual([]);
+  });
+
+  it("il calendario resta esattamente come prima: nessuna riga di calendario diventa 'triage'", async () => {
+    const { accountId } = await seedAccount(adminId);
+    await seedCalendar(accountId);
+
+    const res = await getMail(adminCookie);
+    const items = (res.json() as { items: { source: string; kind: string }[] }).items;
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ source: "calendar", kind: "calendar" });
+  });
+});
+
 describe("GET /api/me/mail/summary", () => {
   it("senza sessione: 401", async () => {
     expect((await getSummary("")).statusCode).toBe(401);
@@ -399,6 +529,59 @@ describe("GET /api/me/mail/summary", () => {
     const res = await getSummary(adminCookie);
     const body = res.json() as { failed: number };
     expect(body.failed).toBe(0);
+  });
+
+  describe("fase 6c (fix di review Task 3): coerenza col contenuto della lista", () => {
+    it("il contatore openProposals coincide con la riga di smistamento ATTIVA mostrata dalla lista", async () => {
+      const { accountId } = await seedAccount(adminId);
+      const [notification] = await db
+        .insert(notifications)
+        .values({
+          userId: adminId,
+          kind: "google.proposal",
+          status: "open",
+          event: { kind: "google.proposal", proposalId: randomUUID() },
+        })
+        .returning({ id: notifications.id });
+      await seedTriage(accountId, { status: "proposed", proposalNotificationId: notification!.id });
+
+      const [summaryRes, mailRes] = await Promise.all([getSummary(adminCookie), getMail(adminCookie)]);
+      const summary = summaryRes.json() as { openProposals: number };
+      const items = (mailRes.json() as { items: { kind: string; status: string }[] }).items;
+      expect(summary.openProposals).toBe(1);
+      expect(items.filter((i) => i.kind === "triage" && i.status === "proposed")).toHaveLength(1);
+    });
+
+    it("failed conta anche uno smistamento FALLITO", async () => {
+      const { accountId } = await seedAccount(adminId);
+      await seedTriage(accountId, { status: "failed", error: "target_gone" });
+
+      const res = await getSummary(adminCookie);
+      const body = res.json() as { failed: number };
+      expect(body.failed).toBe(1);
+    });
+
+    it("ignored conta anche uno smistamento CHIUSO con «nessuno di questi»", async () => {
+      const { accountId } = await seedAccount(adminId);
+      await seedTriage(accountId, { status: "ignored", outcome: { type: "triage_dismissed" } });
+
+      const res = await getSummary(adminCookie);
+      const body = res.json() as { ignored: number };
+      expect(body.ignored).toBe(1);
+    });
+
+    it("un ignored generico (nessun segnale) non gonfia il contatore di smistamento", async () => {
+      const { accountId } = await seedAccount(adminId);
+      await seedTriage(accountId, {
+        status: "ignored",
+        classification: { signal: "none", summary: "nulla", proposals: [], recommendedIndex: 0 },
+        outcome: null,
+      });
+
+      const res = await getSummary(adminCookie);
+      const body = res.json() as { ignored: number };
+      expect(body.ignored).toBe(0);
+    });
   });
 });
 
@@ -502,6 +685,91 @@ describe("POST /api/me/mail/:source/:id/repropose", () => {
 
   it("id inesistente: 404", async () => {
     const res = await repropose(adminCookie, "email", randomUUID());
+    expect(res.statusCode).toBe(404);
+  });
+});
+
+describe("POST /api/me/mail/email_triage/:id/repropose (fase 6c, fix di review Task 3)", () => {
+  it("uno smistamento CHIUSO con «nessuno di questi» → torna classified, outcome/errore azzerati, notifica non riaperta", async () => {
+    const { accountId } = await seedAccount(adminId);
+    const [notification] = await db
+      .insert(notifications)
+      .values({
+        userId: adminId,
+        kind: "google.proposal",
+        status: "handled",
+        handledAt: new Date(),
+        event: { kind: "google.proposal", proposalId: randomUUID() },
+      })
+      .returning({ id: notifications.id });
+    const messageId = await seedTriage(accountId, {
+      status: "ignored",
+      outcome: { type: "triage_dismissed" },
+      proposalNotificationId: notification!.id,
+    });
+
+    const res = await repropose(adminCookie, "email_triage", messageId);
+    expect(res.statusCode).toBe(200);
+
+    const [row] = await db.select().from(emailMessages).where(eq(emailMessages.id, messageId));
+    expect(row!.status).toBe("classified");
+    expect(row!.outcome).toBeNull();
+    expect(row!.error).toBeNull();
+    // Il prossimo tick del poller deve poter riclamare la riga: la
+    // condizione di claim (`status = 'classified' AND
+    // proposal_notification_id IS NULL`) deve tornare vera.
+    expect(row!.proposalNotificationId).toBeNull();
+
+    const [notificationRow] = await db
+      .select()
+      .from(notifications)
+      .where(eq(notifications.id, notification!.id));
+    expect(notificationRow!.status).toBe("handled");
+  });
+
+  it("uno smistamento ATTIVO (classified/proposed) → 409, non riproponibile", async () => {
+    const { accountId } = await seedAccount(adminId);
+    const messageId = await seedTriage(accountId, { status: "classified" });
+
+    const res = await repropose(adminCookie, "email_triage", messageId);
+    expect(res.statusCode).toBe(409);
+    const [row] = await db.select().from(emailMessages).where(eq(emailMessages.id, messageId));
+    expect(row!.status).toBe("classified");
+  });
+
+  it("uno smistamento FALLITO (status: failed) → 409, riproponibile solo se dismissed", async () => {
+    const { accountId } = await seedAccount(adminId);
+    const messageId = await seedTriage(accountId, { status: "failed", error: "target_gone" });
+
+    const res = await repropose(adminCookie, "email_triage", messageId);
+    expect(res.statusCode).toBe(409);
+  });
+
+  it("un ignored generico (nessun triage_dismissed) → 409: non è uno smistamento chiuso", async () => {
+    const { accountId } = await seedAccount(adminId);
+    const messageId = await seedTriage(accountId, {
+      status: "ignored",
+      classification: { signal: "none", summary: "nulla", proposals: [], recommendedIndex: 0 },
+      outcome: null,
+    });
+
+    const res = await repropose(adminCookie, "email_triage", messageId);
+    expect(res.statusCode).toBe(409);
+  });
+
+  it("id di un altro utente (admin compreso): 404, nessuna riga toccata", async () => {
+    const { accountId } = await seedAccount(memberId);
+    const messageId = await seedTriage(accountId, { status: "ignored", outcome: { type: "triage_dismissed" } });
+
+    const res = await repropose(adminCookie, "email_triage", messageId);
+    expect(res.statusCode).toBe(404);
+
+    const [row] = await db.select().from(emailMessages).where(eq(emailMessages.id, messageId));
+    expect(row!.status).toBe("ignored");
+  });
+
+  it("id inesistente: 404", async () => {
+    const res = await repropose(adminCookie, "email_triage", randomUUID());
     expect(res.statusCode).toBe(404);
   });
 });
