@@ -10,7 +10,7 @@ import {
 } from "@stubwise/db";
 import { t } from "@stubwise/i18n";
 import type { AgentQuestionAnswer, BacklogChatTurnPayload, Language } from "@stubwise/shared";
-import { and, asc, count, eq } from "drizzle-orm";
+import { and, asc, count, eq, sql } from "drizzle-orm";
 import { mkdir, rm } from "node:fs/promises";
 import { z } from "zod";
 import type { AgentRunner } from "../agent/runner.js";
@@ -561,29 +561,51 @@ export async function runChatTurn(
     );
   }
 
-  // Se l'agente ha posto una domanda, PROVA a scriverla: l'unique parziale
-  // (`backlog_questions_open_item_unique`) può rifiutarla se — per una corsa
-  // genuinamente possibile, i turni sono serializzati per-item ma non lo sono
-  // rispetto a una risposta/dismiss appena arrivata sulla STESSA voce da
-  // un'altra strada — c'è già una domanda aperta. In quel caso si degrada
-  // come un file-bridge malformato: si prosegue in prosa con `output` (che
-  // qui è quasi certamente vuoto, perché l'agente ha già terminato il turno
-  // per la domanda scartata).
+  // Se l'agente ha posto una domanda, PROVA a scriverla — con DUE motivi
+  // possibili di scarto, entrambi degradati allo stesso modo (prosa, riga di
+  // log, il turno NON esplode):
+  //  1. l'unique parziale (`backlog_questions_open_item_unique`) la rifiuta
+  //     se c'è già una domanda aperta (corsa genuinamente possibile: i turni
+  //     sono serializzati per-item ma non rispetto a una risposta/dismiss
+  //     appena arrivata sulla STESSA voce da un'altra strada);
+  //  2. la voce non è più aperta (archiviata o convertita MENTRE il turno
+  //     girava — un turno dura minuti, non istanti). Lo stato è già stato
+  //     controllato a inizio funzione, ma quel controllo è ormai vecchio di
+  //     minuti: riverificarlo qui con un SELECT separato e poi scrivere
+  //     sarebbe di nuovo un controllo-poi-scrivi con la stessa finestra di
+  //     corsa. L'INSERT...SELECT...WHERE EXISTS sotto è UNA sola istruzione
+  //     atomica: la condizione sullo stato la valuta Postgres nello stesso
+  //     momento in cui scrive (o non scrive) la riga.
   let questionMessageContent = output;
   if (capturedQuestion !== null) {
     try {
-      await db.transaction((tx) =>
-        tx.insert(backlogQuestions).values({
-          backlogItemId: payload.itemId,
-          question: capturedQuestion!.question,
-          options: capturedQuestion!.options,
-          ...(capturedQuestion!.recommendedIndex !== undefined
-            ? { recommendedIndex: capturedQuestion!.recommendedIndex }
-            : {}),
-          allowFreeText: capturedQuestion!.allowFreeText,
-        }),
-      );
-      questionMessageContent = renderQuestionAsMessage(capturedQuestion.question, capturedQuestion.options);
+      const inserted = await db.execute<{ id: string }>(sql`
+        INSERT INTO ${backlogQuestions}
+          (backlog_item_id, question, options, recommended_index, allow_free_text)
+        SELECT
+          ${payload.itemId},
+          ${capturedQuestion.question},
+          ${JSON.stringify(capturedQuestion.options)}::jsonb,
+          ${capturedQuestion.recommendedIndex ?? null},
+          ${capturedQuestion.allowFreeText}
+        WHERE EXISTS (
+          SELECT 1 FROM ${backlogItems}
+          WHERE ${backlogItems.id} = ${payload.itemId}
+            AND ${backlogItems.status} NOT IN ('archived', 'converted')
+        )
+        RETURNING id
+      `);
+      if (inserted.length === 0) {
+        deps.logger.warn(
+          { jobId: job.id, itemId: payload.itemId },
+          "[backlog] chat turn: la voce non è più aperta (archiviata o convertita durante il turno), la domanda non è stata scritta: proseguo in prosa",
+        );
+      } else {
+        questionMessageContent = renderQuestionAsMessage(
+          capturedQuestion.question,
+          capturedQuestion.options,
+        );
+      }
     } catch (err) {
       if (!isUniqueViolation(err)) throw err;
       deps.logger.warn(

@@ -79,6 +79,14 @@ export interface AskedBacklogQuestion {
  * L'unicità "una sola domanda aperta per voce" è un vincolo del DB (indice
  * parziale): un secondo INSERT con una domanda già aperta lancia (23505), il
  * chiamante lo cattura o lo previene rileggendo prima.
+ *
+ * **Nessuna domanda nasce su una voce già chiusa** (fase 7): l'INSERT è
+ * condizionato con un `WHERE EXISTS` sullo stato della voce — UNA sola
+ * istruzione atomica, non un controllo-poi-scrivi. Un turno può durare
+ * minuti: se lo stato venisse letto separatamente all'inizio della funzione
+ * e poi scritto, un'archiviazione o conversione arrivata nel frattempo
+ * troverebbe comunque la domanda inserita DOPO. Qui invece Postgres valuta
+ * la condizione nello stesso momento in cui scrive (o non scrive) la riga.
  */
 export async function askBacklogQuestion(
   tx: Parameters<Parameters<Db["transaction"]>[0]>[0],
@@ -87,17 +95,24 @@ export async function askBacklogQuestion(
   if (input.options.length < 2 || input.options.length > 4) return null;
   if (input.options.some((option) => option.label.trim() === "")) return null;
 
-  const [row] = await tx
-    .insert(backlogQuestions)
-    .values({
-      backlogItemId: input.backlogItemId,
-      question: input.question,
-      options: input.options,
-      ...(input.recommendedIndex !== undefined ? { recommendedIndex: input.recommendedIndex } : {}),
-      ...(input.allowFreeText !== undefined ? { allowFreeText: input.allowFreeText } : {}),
-    })
-    .returning({ id: backlogQuestions.id, askedAt: backlogQuestions.askedAt });
-  return row ?? null;
+  const rows = await tx.execute<{ id: string; asked_at: Date }>(sql`
+    INSERT INTO ${backlogQuestions}
+      (backlog_item_id, question, options, recommended_index, allow_free_text)
+    SELECT
+      ${input.backlogItemId},
+      ${input.question},
+      ${JSON.stringify(input.options)}::jsonb,
+      ${input.recommendedIndex ?? null},
+      ${input.allowFreeText ?? true}
+    WHERE EXISTS (
+      SELECT 1 FROM ${backlogItems}
+      WHERE ${backlogItems.id} = ${input.backlogItemId}
+        AND ${backlogItems.status} NOT IN ('archived', 'converted')
+    )
+    RETURNING id, asked_at
+  `);
+  const row = rows[0];
+  return row ? { id: row.id, askedAt: row.asked_at } : null;
 }
 
 /**

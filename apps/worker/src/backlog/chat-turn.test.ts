@@ -822,6 +822,43 @@ describe("runChatTurn — tool ask_user (fase 7, Task 6)", () => {
     expect(msgs.filter((m) => m.role === "assistant")).toHaveLength(1);
   });
 
+  it("voce archiviata MENTRE il turno gira: nessuna domanda scritta, il turno non esplode (fase 7)", async () => {
+    const db = testDb.db;
+    const { projectId, repositoryId } = await createProjectWithRepo(db);
+    const itemId = await createItem(db, projectId);
+    const sessionId = await createSession(db, itemId, repositoryId);
+    const userMessageId = await addUserMessage(db, itemId, "Come dovremmo importare gli ordini?");
+    const chatJob = job(projectId, { itemId, userMessageId, sessionId });
+    // Lo stato è OPEN al controllo di inizio funzione (il turno non farebbe
+    // no-op), ma cambia MENTRE l'agente "gira" — simula un'archiviazione
+    // arrivata da un'altra richiesta nel mezzo dei minuti di un turno, la
+    // stessa forma della corsa già testata per l'ownership in triage.test.ts.
+    const runner = new FakeAgentRunner({
+      script: async () => {
+        await db.update(backlogItems).set({ status: "archived" }).where(eq(backlogItems.id, itemId));
+        await writeFile(
+          join(planParentDir(chatJob.id), ASK_USER_FILENAME),
+          JSON.stringify(QUESTION),
+        );
+        return { output: "", exitCode: 0, sessionId: "cli-q1" };
+      },
+    });
+
+    await runChatTurn(
+      makeDeps(db, { runner, askUserServerPath: await fakeAskUserEntry() }),
+      chatJob,
+      { itemId, userMessageId, sessionId },
+    );
+
+    // Nessuna riga in backlog_questions: l'INSERT...WHERE EXISTS non ha
+    // scritto nulla perché la voce non era più aperta AL MOMENTO dell'insert.
+    expect(await questionsOf(db, itemId)).toHaveLength(0);
+    // Il turno non fallisce: si scrive comunque il messaggio (prosa, non la
+    // domanda scartata).
+    const msgs = await messagesOf(db, itemId);
+    expect(msgs.filter((m) => m.role === "assistant")).toHaveLength(1);
+  });
+
   it("il round cablato riflette le domande già poste sulla voce (round 2 dopo una prima)", async () => {
     const db = testDb.db;
     const { projectId, repositoryId } = await createProjectWithRepo(db);

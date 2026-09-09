@@ -127,6 +127,40 @@ describe("askBacklogQuestion", () => {
     }
     expect(isUniqueViolation(caught)).toBe(true);
   });
+
+  it("nessuna domanda nasce su una voce archiviata (fase 7): nessuna riga inserita", async () => {
+    const itemId = await seedItem();
+    await db.update(backlogItems).set({ status: "archived" }).where(eq(backlogItems.id, itemId));
+
+    const asked = await db.transaction((tx) =>
+      askBacklogQuestion(tx, {
+        backlogItemId: itemId,
+        question: "Import CSV o form manuale?",
+        options: [{ label: "Import CSV" }, { label: "Form manuale" }],
+      }),
+    );
+
+    expect(asked).toBeNull();
+    const rows = await db.select().from(backlogQuestions).where(eq(backlogQuestions.backlogItemId, itemId));
+    expect(rows).toHaveLength(0);
+  });
+
+  it("nessuna domanda nasce su una voce convertita (fase 7): nessuna riga inserita", async () => {
+    const itemId = await seedItem();
+    await db.update(backlogItems).set({ status: "converted" }).where(eq(backlogItems.id, itemId));
+
+    const asked = await db.transaction((tx) =>
+      askBacklogQuestion(tx, {
+        backlogItemId: itemId,
+        question: "Import CSV o form manuale?",
+        options: [{ label: "Import CSV" }, { label: "Form manuale" }],
+      }),
+    );
+
+    expect(asked).toBeNull();
+    const rows = await db.select().from(backlogQuestions).where(eq(backlogQuestions.backlogItemId, itemId));
+    expect(rows).toHaveLength(0);
+  });
 });
 
 describe("answerBacklogQuestion", () => {
