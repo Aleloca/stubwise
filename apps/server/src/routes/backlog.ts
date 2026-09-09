@@ -1337,6 +1337,13 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
           role: "system",
           content: t(lang, "backlog.codeSessionClosed"),
         });
+        // Fermare la sessione è un'uscita come archiviazione, merge e
+        // conversione (fase 7): senza questo, una domanda rimasta aperta
+        // riporta la chat in DOCS col testo libero ancora bloccato
+        // (`sendDisabled` include `openQuestion !== null` a prescindere dalla
+        // modalità) — e il pannello/«non ora» non sono più raggiungibili una
+        // volta tornati in DOCS.
+        await closeOpenBacklogQuestion(tx, id);
         return true;
       });
 

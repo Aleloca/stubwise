@@ -1718,6 +1718,47 @@ describe("DELETE /api/backlog/:id/code-session", () => {
     expect(messages[0]!.content).toContain("Code analysis session closed");
   });
 
+  it("chiude senza risposta l'eventuale domanda ancora aperta (fase 7): fermare la sessione è un'uscita come le altre", async () => {
+    const item = await insertItem();
+    const repoId = await seedRepositoryInProject(testDb.db, projectId);
+    await testDb.db.insert(backlogCodeSessions).values({ itemId: item.id, repositoryId: repoId });
+    const [question] = await testDb.db
+      .insert(backlogQuestions)
+      .values({
+        backlogItemId: item.id,
+        question: "Quale coda uso per i job del grafo?",
+        options: [{ label: "Una coda nuova" }, { label: "Quella esistente" }],
+      })
+      .returning({ id: backlogQuestions.id });
+
+    const res = await app.inject({
+      method: "DELETE",
+      url: `/api/backlog/${item.id}/code-session`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+
+    const [row] = await testDb.db
+      .select()
+      .from(backlogQuestions)
+      .where(eq(backlogQuestions.id, question!.id));
+    expect(row!.dismissedAt).not.toBeNull();
+    expect(row!.answeredAt).toBeNull();
+  });
+
+  it("stop senza domanda aperta: invariato, nessun errore", async () => {
+    const item = await insertItem();
+    const repoId = await seedRepositoryInProject(testDb.db, projectId);
+    await testDb.db.insert(backlogCodeSessions).values({ itemId: item.id, repositoryId: repoId });
+
+    const res = await app.inject({
+      method: "DELETE",
+      url: `/api/backlog/${item.id}/code-session`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
   it("404 se non c'è alcuna sessione active", async () => {
     const item = await insertItem();
     const res = await app.inject({
