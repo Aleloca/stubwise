@@ -425,6 +425,75 @@ describe("buildCalendarProposalEvent", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Fase 7b, Task 5: l'azione di una serie — backlog_item, milestone, reminder
+// — e il percorso `auto`.
+// ---------------------------------------------------------------------------
+
+function buildSeriesCalendar(
+  seriesOverrides: Partial<{ enabled: boolean; leadDays: number; action: "backlog_item" | "milestone" | "reminder"; auto: boolean }>,
+  rowOverrides: Record<string, unknown> = {},
+) {
+  const now = new Date("2026-09-28T00:00:00.000Z");
+  return buildCalendarProposalEvent({
+    lang: "it",
+    event: calendarRow({ recurringEventId: "serie-1", ...rowOverrides }),
+    mailboxEmail: MAILBOX,
+    projectNames: NAMES,
+    seriesContext: {
+      now,
+      series: { enabled: true, leadDays: 5, action: "milestone", auto: false, ...seriesOverrides },
+      hasOpenSeriesProposal: false,
+    },
+  });
+}
+
+describe("buildCalendarProposalEvent — azione di serie (fase 7b, Task 5)", () => {
+  it("action: milestone — stessa opzione di un evento singolo", () => {
+    const event = buildSeriesCalendar({ action: "milestone" });
+    expect(event?.actions[0]).toEqual({
+      type: "create_milestone",
+      projectId: PROJECT_A,
+      name: "Consegna al cliente entro il 2026-09-30",
+      dueDate: "2026-09-30",
+    });
+    expect(event?.actions[1]).toEqual({ type: "ignore" });
+  });
+
+  it("action: backlog_item — un'unica opzione che apre una voce di backlog", () => {
+    const event = buildSeriesCalendar({ action: "backlog_item" });
+    expect(event?.actions[0]).toEqual({
+      type: "create_backlog_item",
+      projectId: PROJECT_A,
+      title: "Consegna al cliente entro il 2026-09-30",
+    });
+    expect(event?.actions[1]).toEqual({ type: "ignore" });
+    expect(event?.options).toHaveLength(2);
+  });
+
+  it("action: reminder — nessun oggetto creato, solo l'acknowledge", () => {
+    const event = buildSeriesCalendar({ action: "reminder" });
+    expect(event?.actions[0]).toEqual({ type: "acknowledge_reminder" });
+    expect(event?.actions[1]).toEqual({ type: "ignore" });
+  });
+
+  it("auto: true — la card AFFERMA (non chiede) e porta auto: true", () => {
+    const event = buildSeriesCalendar({ action: "milestone", auto: true });
+    expect(event?.auto).toBe(true);
+    expect(event?.question).not.toMatch(/\?/);
+  });
+
+  it("auto: false (default) — nessun campo `auto` sull'evento (compat con gli eventi storici)", () => {
+    const event = buildSeriesCalendar({ action: "milestone", auto: false });
+    expect(event?.auto).toBeUndefined();
+  });
+
+  it("un evento SINGOLO (nessuna serie) resta sempre su milestone, invariato", () => {
+    // Nessun seriesContext: è esattamente `buildCalendar()` della describe sopra.
+    expect(buildCalendar()?.actions[0]?.type).toBe("create_milestone");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Fase 6c — Task 5: la proposta di SMISTAMENTO, sul PADRE
 // ---------------------------------------------------------------------------
 

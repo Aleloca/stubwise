@@ -1847,6 +1847,9 @@ describe("google.proposal — contorno della proposta dalla posta", () => {
       receivedAt: "2026-09-07T08:14:00.000Z",
       signal: "request",
       actions: [{ type: "create_backlog_item" }, { type: "ignore" }],
+      // Fase 7b: `.default(false)` — assente sul payload scritto da questo
+      // fixture (precede il campo), lo schema lo riempie.
+      auto: false,
     });
     // Del payload delle azioni esce SOLO il tipo: progetto e titolo restano
     // dentro, dove il server li rilegge quando l'utente conferma.

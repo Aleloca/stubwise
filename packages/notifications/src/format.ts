@@ -396,6 +396,14 @@ export type GoogleProposalAction =
    * card nate prima di questa fase.
    */
   | { type: "choose_project"; projectId: string }
+  /**
+   * Fase 7b: l'occorrenza di una serie configurata con `action: "reminder"`.
+   * Nessun payload: non crea nessun oggetto — la card STESSA è il promemoria,
+   * confermarla la archivia con un esito distinguibile da un `ignore`
+   * generico (l'utente ha detto "sì, ricordamelo", non "questo non mi
+   * interessa").
+   */
+  | { type: "acknowledge_reminder" }
   | { type: "ignore" };
 
 /** Il discriminante di {@link GoogleProposalAction}, per chi deve enumerarlo. */
@@ -476,6 +484,13 @@ export interface GoogleProposalEvent {
   recommendedIndex?: number;
   /** Sempre `false`: da una proposta si conferma, non si scrive. */
   allowFreeText: false;
+  /**
+   * Fase 7b: `true` quando questa proposta viene da una serie configurata
+   * con `auto: true` — l'azione è GIÀ ESEGUITA, la card lo dice invece di
+   * chiedere. OPZIONALE: assente su ogni evento scritto prima di questo
+   * campo (equivale a `false`), come `projectId`/`receivedAt` qui sopra.
+   */
+  auto?: boolean;
 }
 
 /** Unione tipata di tutti gli eventi che generano una notifica. */

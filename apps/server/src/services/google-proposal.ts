@@ -174,6 +174,8 @@ const storedActionSchema = z.discriminatedUnion("type", [
     decision: z.string().min(1),
   }),
   z.object({ type: z.literal("choose_project"), projectId: z.string().min(1) }),
+  /** Fase 7b: l'occorrenza di una serie con `action: "reminder"`. Nessun payload. */
+  z.object({ type: z.literal("acknowledge_reminder") }),
   z.object({ type: z.literal("ignore") }),
 ]);
 type StoredAction = z.infer<typeof storedActionSchema>;
@@ -618,10 +620,12 @@ async function dispatchAction(
         //     comune è il controllo che il progetto esista ancora.
         //
         // Il worker non genera MAI questa azione per un evento di
-        // calendario (`buildCalendarProposalEvent` propone solo
-        // `create_milestone` e `ignore`): un jsonb che la persistisse lì
-        // sopra sarebbe un'anomalia, non un `target_gone` — si lascia
-        // rientrare la transazione con un'eccezione, che il chiamante marca
+        // calendario (`buildCalendarProposalEvent` propone SOLO l'azione
+        // configurata sulla serie — `create_backlog_item`, `create_milestone`
+        // o `acknowledge_reminder`, fase 7b — più `ignore`, mai
+        // `choose_project`): un jsonb che la persistisse lì sopra sarebbe
+        // un'anomalia, non un `target_gone` — si lascia rientrare la
+        // transazione con un'eccezione, che il chiamante marca
         // `action_failed`.
         if (args.source.source === "calendar") {
           throw new Error("choose_project non è prevista su una proposta da calendario");
@@ -669,6 +673,15 @@ async function dispatchAction(
             ? { type: "triage_dismissed" as const }
             : { type: "ignored" as const };
         await markSourceOutcome(tx, args.source, { status: "ignored", detail });
+        return { ok: true };
+      }
+      case "acknowledge_reminder": {
+        // Fase 7b: l'occorrenza di una serie con `action: "reminder"`. Nessun
+        // oggetto creato — la card STESSA è il promemoria — quindi nessun
+        // servizio da chiamare: solo l'esito, distinguibile in lettura da un
+        // `ignore` generico (l'utente ha detto "sì, ricordamelo", non
+        // "questo non mi interessa").
+        await markSourceOutcome(tx, args.source, { status: "actioned", detail: { type: "reminder" } });
         return { ok: true };
       }
     }

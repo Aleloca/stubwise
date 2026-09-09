@@ -65,6 +65,7 @@ import {
   routeEvent,
   type CalendarSeriesProposalContext,
 } from "./calendar.js";
+import { executeAutoCalendarAction } from "./calendar-auto.js";
 import {
   classifyNewMessages,
   DEFAULT_CLASSIFY_MAX_PER_TICK,
@@ -1319,6 +1320,8 @@ async function runProposePhase(
         recurringEventId: calendarEventsTable.recurringEventId,
         seriesEnabled: calendarSeriesTable.enabled,
         seriesLeadDays: calendarSeriesTable.leadDays,
+        seriesAction: calendarSeriesTable.action,
+        seriesAuto: calendarSeriesTable.auto,
       })
       .from(calendarEventsTable)
       .leftJoin(
@@ -1468,7 +1471,15 @@ async function runProposePhase(
           ? undefined
           : {
               now,
-              series: row.seriesEnabled === null ? null : { enabled: row.seriesEnabled, leadDays: row.seriesLeadDays! },
+              series:
+                row.seriesEnabled === null
+                  ? null
+                  : {
+                      enabled: row.seriesEnabled,
+                      leadDays: row.seriesLeadDays!,
+                      action: row.seriesAction!,
+                      auto: row.seriesAuto!,
+                    },
               hasOpenSeriesProposal: false,
             };
       if (recurringEventId !== null) seriesAttemptedThisTick.add(recurringEventId);
@@ -1494,6 +1505,36 @@ async function runProposePhase(
         logger.warn(
           `google: proposta non pubblicata per l'evento ${row.id} (${result.reason})`,
         );
+      }
+
+      // Fase 7b (Task 5): la serie `auto: true` esegue SUBITO dopo la
+      // publish, mai prima — costruire ed eventualmente scartare l'evento
+      // (allineamento, progetto risolto…) resta lo stesso identico percorso
+      // di una proposta manuale; solo qui, con la card già pubblicata,
+      // l'azione parte senza aspettare un tap e la notifica si marca
+      // `handled` all'istante, così la card resta visibile (chi ha la
+      // casella deve sapere cosa è stato fatto a suo nome) ma non è più
+      // rispondibile: un tap tardivo su una notifica non `open` è già
+      // `proposal_stale` in `answerGoogleProposal`, quindi non può mai
+      // ESEGUIRE una seconda volta ciò che qui è già stato fatto.
+      if (result.ok && seriesContext?.series?.auto === true && row.projectId) {
+        const milestone = buildMilestoneProposal(lang, row);
+        if (milestone) {
+          const outcome = await executeAutoCalendarAction(deps.db, {
+            action: seriesContext.series.action,
+            projectId: row.projectId,
+            name: milestone.name,
+            dueDate: milestone.dueDate,
+          });
+          await deps.db
+            .update(calendarEventsTable)
+            .set({ outcome })
+            .where(and(eq(calendarEventsTable.id, row.id), isNull(calendarEventsTable.outcome)));
+          await deps.db
+            .update(notifications)
+            .set({ status: "handled", handledAt: new Date() })
+            .where(and(eq(notifications.id, result.notificationId), eq(notifications.status, "open")));
+        }
       }
     }
 

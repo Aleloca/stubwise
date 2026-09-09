@@ -209,6 +209,8 @@ export const inboxGoogleActionTypeSchema = z.enum([
   "comment_ticket",
   "record_decision",
   "choose_project",
+  /** Fase 7b: l'occorrenza di una serie con `action: "reminder"` — nessun oggetto creato. */
+  "acknowledge_reminder",
   "ignore",
 ]);
 export type InboxGoogleActionType = z.infer<typeof inboxGoogleActionTypeSchema>;
@@ -266,6 +268,12 @@ export const inboxGoogleSchema = z.object({
   /** Il segnale che la classificazione ha riconosciuto nel messaggio. */
   signal: z.enum(["decision", "request", "deadline", "blocker", "none"]),
   actions: z.array(inboxGoogleActionSchema),
+  /**
+   * Fase 7b: `true` quando l'azione è già stata eseguita da una serie
+   * `auto: true` — la card lo dice, invece di chiedere. Campo nuovo,
+   * `.default(false)`: un payload scritto prima di questa fase non ce l'ha.
+   */
+  auto: z.boolean().optional().default(false),
 });
 export type InboxGoogle = z.infer<typeof inboxGoogleSchema>;
 

@@ -569,6 +569,33 @@ describe("answerGoogleProposal — create_milestone", () => {
 });
 
 // ---------------------------------------------------------------------------
+// acknowledge_reminder (fase 7b, Task 5)
+// ---------------------------------------------------------------------------
+
+describe("answerGoogleProposal — acknowledge_reminder", () => {
+  it("chiude l'outcome con {type: 'reminder'} — nessun oggetto creato, nessun servizio chiamato", async () => {
+    const { owner, projectId, accountId } = await seedOwner();
+    const event = await seedCalendarRow(accountId, projectId);
+    const { notificationId } = await seedProposal({
+      ownerId: owner.id,
+      sourceId: event.id,
+      source: "calendar",
+      actions: [{ type: "acknowledge_reminder" }, { type: "ignore" }],
+    });
+
+    const result = await answerGoogleProposal(db, { notificationId, actor: owner, optionIndex: 0 });
+    expect(result.ok).toBe(true);
+
+    const row = await readCalendarEvent(event.id);
+    expect(row!.outcome).toEqual({ type: "reminder" });
+    // Distinguibile da un `ignore` generico: l'utente ha detto "sì,
+    // ricordamelo", non "questo non mi interessa".
+    expect(row!.outcome).not.toEqual({ type: "ignored" });
+    expect(await db.select().from(milestones).where(eq(milestones.projectId, projectId))).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // update_ticket
 // ---------------------------------------------------------------------------
 

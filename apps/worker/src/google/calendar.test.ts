@@ -346,14 +346,18 @@ describe("impronta e proposta (funzioni pure)", () => {
       expect(
         isReadyForProposal(openSeriesRow, {
           now,
-          series: { enabled: false, leadDays: 2 },
+          series: { enabled: false, leadDays: 2, action: "milestone", auto: false },
           hasOpenSeriesProposal: false,
         }),
       ).toBe(false);
     });
 
     it("serie accesa, lead_days: 2 — niente a 5 giorni, pronta a 2", () => {
-      const context = { now, series: { enabled: true, leadDays: 2 }, hasOpenSeriesProposal: false };
+      const context = {
+        now,
+        series: { enabled: true, leadDays: 2, action: "milestone" as const, auto: false },
+        hasOpenSeriesProposal: false,
+      };
       expect(
         isReadyForProposal({ ...openSeriesRow, startsAt: new Date("2026-09-14T00:00:00.000Z") }, context),
       ).toBe(false); // fra 5 giorni
@@ -366,7 +370,7 @@ describe("impronta e proposta (funzioni pure)", () => {
       expect(
         isReadyForProposal(
           { ...openSeriesRow, startsAt: new Date("2026-09-08T00:00:00.000Z") },
-          { now, series: { enabled: true, leadDays: 2 }, hasOpenSeriesProposal: false },
+          { now, series: { enabled: true, leadDays: 2, action: "milestone", auto: false }, hasOpenSeriesProposal: false },
         ),
       ).toBe(false);
     });
@@ -375,7 +379,7 @@ describe("impronta e proposta (funzioni pure)", () => {
       expect(
         isReadyForProposal(openSeriesRow, {
           now,
-          series: { enabled: true, leadDays: 2 },
+          series: { enabled: true, leadDays: 2, action: "milestone", auto: false },
           hasOpenSeriesProposal: true,
         }),
       ).toBe(false);

@@ -260,6 +260,16 @@ export function buildMilestoneProposal(
 export interface CalendarSeriesConfig {
   enabled: boolean;
   leadDays: number;
+  /**
+   * Fase 7b (Task 5): CHE azione la serie propone — `isReadyForProposal` non
+   * la legge (il cancello di timing non dipende da cosa si propone), ma
+   * viaggia nello stesso oggetto perché chi legge il contesto di una serie
+   * (il propose phase) ne ha sempre bisogno insieme al resto, in un solo
+   * LEFT JOIN.
+   */
+  action: "backlog_item" | "milestone" | "reminder";
+  /** `false` = propone e aspetta un tap; `true` = esegue e lo rende visibile. MAI un job AI. */
+  auto: boolean;
 }
 
 /** Il contesto che SOLO un'occorrenza di serie consulta — ignorato per un evento singolo. */
