@@ -6,6 +6,7 @@ program: 2026-08-31-stubwise-nerve-center-program-design.md
 stubwise:
   project: stubwise
   backlog: 6b49f888-ecc6-413d-ac58-5b4da8cc2411
+  ticket: https://stubwise.thecove.it/tickets/0804eba7-2b09-4faf-bbb7-ebe33eee2a28
 ---
 
 # Fase 7 — Workflow guidato web per non-tecnici
