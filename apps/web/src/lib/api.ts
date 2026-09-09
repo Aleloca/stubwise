@@ -57,6 +57,7 @@ import type {
   ProjectDecision,
   ProjectFollows,
   ProjectPlugin,
+  ProjectPulseSummary,
   ProjectTimeline,
   ProjectTimelineEntry,
   ProjectTimelineKind,
@@ -1344,6 +1345,17 @@ export function getProject(projectId: string): Promise<ProjectDetail> {
 export function postProject(draft: ProjectDraft): Promise<Project> {
   return api.post("/api/projects", draft);
 }
+
+/**
+ * Polso di ogni progetto per il viewer che chiama (fase 7, Task 10): un
+ * `member` vede solo i progetti che segue, un `admin` li vede tutti (lo
+ * decide il server). Alimenta la vista «cosa aspetta me» sulla lista
+ * progetti — vedi `lib/pulse-line.ts` per il testo da questo array.
+ */
+export function getProjectsPulse(): Promise<ProjectPulseSummary[]> {
+  return api.get("/api/projects/pulse");
+}
+export type { ProjectPulseSummary };
 
 /**
  * Timeline di progetto (Fase 5): milestone, ticket, PR, report giornalieri,

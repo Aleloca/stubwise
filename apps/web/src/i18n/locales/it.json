@@ -1446,6 +1446,19 @@
       "repositoryCount_one": "{{count}} repository",
       "createdAt": "creato {{date}}"
     },
+    "pulse": {
+      "waitingQuestion_one": "aspetta te — {{count}} domanda dell'agente",
+      "waitingQuestion_other": "aspetta te — {{count}} domande dell'agente",
+      "waitingPlan_one": "aspetta te — {{count}} piano da approvare",
+      "waitingPlan_other": "aspetta te — {{count}} piani da approvare",
+      "waitingMixed_one": "aspetta te — {{count}} decisione",
+      "waitingMixed_other": "aspetta te — {{count}} decisioni",
+      "runningOne": "sta lavorando — {{title}}",
+      "runningMany_other": "sta lavorando — {{count}} lavori in corso",
+      "idle_one": "fermo da {{count}} giorno",
+      "idle_other": "fermo da {{count}} giorni",
+      "ok": "tutto tranquillo"
+    },
     "detail": {
       "back": "← Tutti i progetti",
       "createdAt": "creato",

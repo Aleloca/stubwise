@@ -32,6 +32,7 @@ import {
   getProjectDecisions,
   getProjectTimeline,
   getProjects,
+  getProjectsPulse,
   getRepoGraph,
   getRepoGraphReport,
   getRepositories,
@@ -376,6 +377,20 @@ export const projectsQueryOptions = queryOptions({
   queryKey: ["projects"],
   queryFn: getProjects,
   staleTime: 60_000,
+});
+
+/**
+ * Polso di ogni progetto per il viewer corrente (fase 7, Task 10): la vista
+ * «cosa aspetta me» sulla lista progetti. Chiave a sé (["projects",
+ * "pulse"]), non sotto ["projects"]: il polso cambia molto più spesso
+ * dell'elenco dei progetti (segue job/notifiche, non create/update/delete di
+ * progetti) e invalidarli insieme rifetcherebbe l'elenco senza motivo.
+ * `staleTime` corto: è uno stato "adesso", non un dato anagrafico.
+ */
+export const projectsPulseQueryOptions = queryOptions({
+  queryKey: ["projects", "pulse"],
+  queryFn: getProjectsPulse,
+  staleTime: 15_000,
 });
 
 /**

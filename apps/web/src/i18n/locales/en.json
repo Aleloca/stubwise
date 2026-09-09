@@ -1446,6 +1446,19 @@
       "repositoryCount_one": "{{count}} repository",
       "createdAt": "created {{date}}"
     },
+    "pulse": {
+      "waitingQuestion_one": "needs you — {{count}} agent question",
+      "waitingQuestion_other": "needs you — {{count}} agent questions",
+      "waitingPlan_one": "needs you — {{count}} plan to approve",
+      "waitingPlan_other": "needs you — {{count}} plans to approve",
+      "waitingMixed_one": "needs you — {{count}} decision",
+      "waitingMixed_other": "needs you — {{count}} decisions",
+      "runningOne": "working — {{title}}",
+      "runningMany_other": "working — {{count}} jobs running",
+      "idle_one": "idle for {{count}} day",
+      "idle_other": "idle for {{count}} days",
+      "ok": "all quiet"
+    },
     "detail": {
       "back": "← All projects",
       "createdAt": "created",

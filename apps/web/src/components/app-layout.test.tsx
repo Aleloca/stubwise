@@ -44,14 +44,13 @@ function mockApi(handlers: Record<string, Handler>) {
   });
 }
 
-function meHandler(): Handler {
-  return () =>
-    jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role: "member" } });
+function meHandler(role: "admin" | "member" = "member"): Handler {
+  return () => jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role } });
 }
 
-function baseApi(): Record<string, Handler> {
+function baseApi(role: "admin" | "member" = "member"): Record<string, Handler> {
   return {
-    "GET /api/auth/me": meHandler(),
+    "GET /api/auth/me": meHandler(role),
     // Le rotte montano l'app-shell; mocka i fetch tipici delle pagine landing.
     // L'hub Docs raggruppa per progetto: serve anche progetti + repository.
     "GET /api/docs/spaces": () => jsonResponse(200, []),
@@ -98,7 +97,9 @@ describe("app-shell responsive", () => {
   });
 
   it("rende le NAV_ITEMS sia in sidebar sia nel drawer (stessa sorgente)", async () => {
-    mockApi(baseApi());
+    // Admin: vede TUTTE le voci, incluse quelle filtrate per un member
+    // (Repositories, Monitor — vedi il describe "navigazione filtrata per ruolo").
+    mockApi(baseApi("admin"));
     renderApp("/docs");
     await screen.findByRole("heading", { name: "Documentation" });
 
@@ -158,8 +159,8 @@ describe("app-shell responsive", () => {
     expect(bells.some((bell) => topBar.contains(bell))).toBe(true);
   });
 
-  it("la voce Repositories in sidebar linka a /repositories", async () => {
-    mockApi(baseApi());
+  it("la voce Repositories in sidebar linka a /repositories (admin: unica voce che la vede)", async () => {
+    mockApi(baseApi("admin"));
     renderApp("/docs");
     await screen.findByRole("heading", { name: "Documentation" });
 
@@ -243,6 +244,88 @@ describe("app-shell responsive", () => {
       expect(dialog.closest("[aria-hidden]")).toHaveAttribute("aria-hidden", "true"),
     );
     expect(hamburger).toHaveAttribute("aria-expanded", "false");
+  });
+});
+
+/**
+ * Navigazione filtrata per ruolo (fase 7, Task 10): Repository e Monitor sono
+ * contenuto d'infrastruttura che un operatore non tecnico (`member`) non usa
+ * mai — fuori dal menu per lui, ma non per un admin. Impostazioni resta
+ * visibile a entrambi di proposito: la sua sotto-nav filtra già da sé (vedi
+ * `routes/settings/layout.tsx`), quindi la voce non porta a "porte chiuse".
+ */
+describe("navigazione filtrata per ruolo", () => {
+  it("un member NON vede Repositories né Monitor, ma vede le voci personali (Settings, Team, Docs)", async () => {
+    mockApi(baseApi("member"));
+    renderApp("/docs");
+    await screen.findByRole("heading", { name: "Documentation" });
+
+    const aside = document.querySelector("aside") as HTMLElement;
+    const drawerPanel = document.querySelector('[role="dialog"]') as HTMLElement;
+
+    for (const label of ["Repositories", "Monitor"]) {
+      expect(
+        within(aside)
+          .getAllByRole("link", { hidden: true })
+          .find((el) => el.textContent?.endsWith(label)),
+        `${label} nella sidebar`,
+      ).toBeUndefined();
+      expect(
+        within(drawerPanel)
+          .getAllByRole("link", { hidden: true })
+          .find((el) => el.textContent?.endsWith(label)),
+        `${label} nel drawer`,
+      ).toBeUndefined();
+    }
+
+    for (const label of ["Settings", "Team", "Documentation", "Inbox"]) {
+      expect(
+        within(aside)
+          .getAllByRole("link", { hidden: true })
+          .find((el) => el.textContent?.endsWith(label)),
+        `${label} nella sidebar`,
+      ).toBeDefined();
+    }
+  });
+
+  it("un admin vede Repositories e Monitor", async () => {
+    mockApi(baseApi("admin"));
+    renderApp("/docs");
+    await screen.findByRole("heading", { name: "Documentation" });
+
+    const aside = document.querySelector("aside") as HTMLElement;
+    for (const label of ["Repositories", "Monitor"]) {
+      expect(
+        within(aside)
+          .getAllByRole("link", { hidden: true })
+          .find((el) => el.textContent?.endsWith(label)),
+        `${label} nella sidebar`,
+      ).toBeDefined();
+    }
+  });
+
+  // Nascosto dal MENU ≠ inaccessibile: il problema che questa fase risolve è
+  // rumore visivo (non inciampare in una voce che è un vicolo cieco), non un
+  // problema di superficie. Un member che arriva su /repositories o /monitor
+  // per URL diretto — un link mandato da un collega, un segnalibro — vede
+  // ancora la pagina, in sola lettura (nessuna guardia beforeLoad: solo le
+  // AZIONI di scrittura restano protette, es. /repositories/new).
+  it("un member che apre /repositories per URL diretto la vede comunque, in sola lettura", async () => {
+    mockApi(baseApi("member"));
+    const router = renderApp("/repositories");
+
+    await screen.findByRole("heading", { name: "Repositories" });
+    expect(router.state.location.pathname).toBe("/repositories");
+    expect(screen.queryByRole("link", { name: "Add repository" })).not.toBeInTheDocument();
+  });
+
+  it("un member che apre /monitor per URL diretto la vede comunque, in sola lettura", async () => {
+    mockApi({ ...baseApi("member"), "GET /api/servers": () => jsonResponse(200, []) });
+    const router = renderApp("/monitor");
+
+    await screen.findByText("// no servers");
+    expect(router.state.location.pathname).toBe("/monitor");
+    expect(screen.queryByRole("button", { name: "New server" })).not.toBeInTheDocument();
   });
 });
 
