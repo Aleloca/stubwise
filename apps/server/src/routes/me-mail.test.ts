@@ -1,8 +1,9 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import {
   calendarEvents,
   emailMessages,
   emailProposals,
+  encrypt,
   googleAccounts,
   googleWorkspaces,
   notifications,
@@ -11,11 +12,13 @@ import {
 } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
+import { GoogleApiError } from "@stubwise/google";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
-import { seedUsers } from "../test/fixtures.js";
+import { seedUsers, sessionCookie } from "../test/fixtures.js";
+import type { MailOriginalClient } from "./me-mail.js";
 
 /**
  * PAGINA POSTA (fase 6, Task 12; fase 6b, Task 8): `GET /api/me/mail` (lista
@@ -33,19 +36,21 @@ import { seedUsers } from "../test/fixtures.js";
  */
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
+const ENCRYPTION_KEY = randomBytes(32);
 
 let testDb: TestDb;
 let db: Db;
 let app: FastifyInstance;
 let adminCookie: string;
+let memberCookie: string;
 let adminId: string;
 let memberId: string;
 
 beforeAll(async () => {
   testDb = await startTestDb();
   db = testDb.db;
-  app = buildApp({ db, sessionSecret: SESSION_SECRET, encryptionKey: Buffer.alloc(32, 7).toString("base64") });
-  ({ adminCookie, adminId, memberId } = await seedUsers(app));
+  app = buildApp({ db, sessionSecret: SESSION_SECRET, encryptionKey: ENCRYPTION_KEY.toString("base64") });
+  ({ adminCookie, memberCookie, adminId, memberId } = await seedUsers(app));
 }, 120_000);
 
 afterEach(async () => {
@@ -67,7 +72,12 @@ afterAll(async () => {
 async function seedAccount(userId: string): Promise<{ accountId: string; email: string }> {
   const [workspace] = await db
     .insert(googleWorkspaces)
-    .values({ name: "Acme", domains: ["acme.test"], clientId: "client-id", clientSecretEncrypted: "blob" })
+    .values({
+      name: "Acme",
+      domains: ["acme.test"],
+      clientId: "client-id",
+      clientSecretEncrypted: encrypt("client-secret", ENCRYPTION_KEY),
+    })
     .returning({ id: googleWorkspaces.id });
   const email = `mailbox-${randomUUID()}@acme.test`;
   const [account] = await db
@@ -77,7 +87,7 @@ async function seedAccount(userId: string): Promise<{ accountId: string; email: 
       workspaceId: workspace!.id,
       email,
       googleSub: `sub-${randomUUID()}`,
-      refreshTokenEncrypted: "blob",
+      refreshTokenEncrypted: encrypt("refresh-token", ENCRYPTION_KEY),
     })
     .returning({ id: googleAccounts.id });
   return { accountId: account!.id, email };
@@ -771,5 +781,248 @@ describe("POST /api/me/mail/email_triage/:id/repropose (fase 6c, fix di review T
   it("id inesistente: 404", async () => {
     const res = await repropose(adminCookie, "email_triage", randomUUID());
     expect(res.statusCode).toBe(404);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fase 7b, Task 6-7: il dettaglio di un'email e la rilettura dell'originale.
+// ---------------------------------------------------------------------------
+
+/** Un GmailMessage finto, con corpo e allegati a scelta. */
+function fakeGmailMessage(
+  overrides: {
+    headers?: Record<string, string>;
+    text?: string;
+    html?: string;
+    attachments?: { filename: string; mimeType: string }[];
+  } = {},
+) {
+  const parts: { mimeType: string; filename?: string; body: { data?: string; attachmentId?: string; size?: number } }[] = [];
+  if (overrides.text) parts.push({ mimeType: "text/plain", body: { data: Buffer.from(overrides.text).toString("base64url") } });
+  if (overrides.html) parts.push({ mimeType: "text/html", body: { data: Buffer.from(overrides.html).toString("base64url") } });
+  for (const attachment of overrides.attachments ?? []) {
+    parts.push({ mimeType: attachment.mimeType, filename: attachment.filename, body: { attachmentId: "a1", size: 1000 } });
+  }
+  return {
+    id: "gmail-msg-1",
+    threadId: "t1",
+    labelIds: [],
+    snippet: "",
+    historyId: null,
+    internalDate: null,
+    headers: { from: "laura@cliente.test", to: "me@acme.test", subject: "Oggetto originale", ...overrides.headers },
+    payload: { mimeType: "multipart/mixed", parts },
+  };
+}
+
+const FAKE_TOKENS = { accessToken: "at", expiresInSeconds: 3600, refreshToken: null, scopes: [], tokenType: "Bearer", idToken: null };
+
+describe("GET /api/me/mail/:source/:id (fase 7b, Task 6)", () => {
+  function getDetail(cookie: string, source: "email" | "email_triage", id: string) {
+    return app.inject({ method: "GET", url: `/api/me/mail/${source}/${id}`, headers: { cookie } });
+  }
+
+  it("senza sessione: 401", async () => {
+    expect((await getDetail("", "email", randomUUID())).statusCode).toBe(401);
+  });
+
+  it("source: email — l'estratto viene dal PADRE, condiviso fra proposte sorelle", async () => {
+    const { accountId, email } = await seedAccount(memberId);
+    const projectId = await seedProject();
+    const messageId = await seedEmail(accountId, {
+      subject: "Rinviamo il rilascio?",
+      fromAddress: "laura@cliente.test",
+      fromName: "Laura",
+      toAddresses: ["me@acme.test"],
+      textExcerpt: "Possiamo spostare il rilascio di una settimana?",
+    });
+    const proposalId = await seedProposal(messageId, projectId);
+
+    const res = await getDetail(memberCookie, "email", proposalId);
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body).toMatchObject({
+      id: proposalId,
+      source: "email",
+      accountId,
+      accountEmail: email,
+      from: "Laura <laura@cliente.test>",
+      subject: "Rinviamo il rilascio?",
+      textExcerpt: "Possiamo spostare il rilascio di una settimana?",
+    });
+    expect(body.url).toContain(encodeURIComponent(email));
+  });
+
+  it("un messaggio senza text_excerpt (NULL) non rompe la risposta", async () => {
+    const { accountId } = await seedAccount(memberId);
+    const projectId = await seedProject();
+    const messageId = await seedEmail(accountId, { textExcerpt: null });
+    const proposalId = await seedProposal(messageId, projectId);
+
+    const res = await getDetail(memberCookie, "email", proposalId);
+    expect(res.statusCode).toBe(200);
+    expect(res.json().textExcerpt).toBeNull();
+  });
+
+  it("source: email_triage — l'id è già email_messages.id, nessun figlio", async () => {
+    const { accountId } = await seedAccount(memberId);
+    const messageId = await seedTriage(accountId, { subject: "Rinnovo contratto?" });
+
+    const res = await getDetail(memberCookie, "email_triage", messageId);
+    expect(res.statusCode).toBe(200);
+    expect(res.json().subject).toBe("Rinnovo contratto?");
+  });
+
+  it("ACL: un admin non vede il dettaglio della posta di un member (404, non 403)", async () => {
+    const { accountId } = await seedAccount(memberId);
+    const projectId = await seedProject();
+    const messageId = await seedEmail(accountId);
+    const proposalId = await seedProposal(messageId, projectId);
+
+    const res = await getDetail(adminCookie, "email", proposalId);
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("id inesistente: 404", async () => {
+    expect((await getDetail(memberCookie, "email", randomUUID())).statusCode).toBe(404);
+  });
+});
+
+describe("GET /api/me/mail/:source/:id/original (fase 7b, Task 7)", () => {
+  const fakeGoogleClient: MailOriginalClient = {
+    refreshAccessToken: async () => FAKE_TOKENS,
+    getMessageFull: async () => fakeGmailMessage(),
+  };
+  let appOriginal: FastifyInstance;
+  let memberCookieOriginal: string;
+  let adminCookieOriginal: string;
+
+  // Nessun `seedUsers(appOriginal)`: il setup dell'admin è un passo UNA
+  // TANTUM a livello di database (`instance_settings`), già consumato dal
+  // `beforeAll` in cima al file — sullo STESSO `db`. Qui basta un login coi
+  // due utenti già creati, per un cookie valido su QUESTA app.
+  beforeAll(async () => {
+    appOriginal = buildApp({
+      db,
+      sessionSecret: SESSION_SECRET,
+      encryptionKey: ENCRYPTION_KEY.toString("base64"),
+      mailGoogleClient: fakeGoogleClient,
+    });
+    const memberLogin = await appOriginal.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      payload: { email: "member@example.com", password: "password-member" },
+    });
+    memberCookieOriginal = sessionCookie(memberLogin);
+    const adminLogin = await appOriginal.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      payload: { email: "admin@example.com", password: "password-sicura" },
+    });
+    adminCookieOriginal = sessionCookie(adminLogin);
+  }, 60_000);
+
+  afterAll(async () => {
+    await appOriginal.close();
+  });
+
+  // Ogni test riparte dal client finto DI DEFAULT: senza questo, un test che
+  // fa fallire `refreshAccessToken`/`getMessageFull` lascerebbe quella
+  // funzione rotta anche per il test successivo (`fakeGoogleClient` è UN
+  // oggetto condiviso, mutato in place — non ricreato a ogni `it`).
+  beforeEach(() => {
+    fakeGoogleClient.refreshAccessToken = async () => FAKE_TOKENS;
+    fakeGoogleClient.getMessageFull = async () => fakeGmailMessage();
+  });
+
+  function getOriginal(cookie: string, source: "email" | "email_triage", id: string) {
+    return appOriginal.inject({ method: "GET", url: `/api/me/mail/${source}/${id}/original`, headers: { cookie } });
+  }
+
+  it("senza sessione: 401", async () => {
+    expect((await getOriginal("", "email", randomUUID())).statusCode).toBe(401);
+  });
+
+  it("successo: corpo grezzo (non ripulito) e allegati, niente persistito", async () => {
+    const { accountId } = await seedAccount(memberId);
+    const projectId = await seedProject();
+    const messageId = await seedEmail(accountId, { subject: "Rinviamo il rilascio?" });
+    const proposalId = await seedProposal(messageId, projectId);
+    fakeGoogleClient.getMessageFull = async () =>
+      fakeGmailMessage({
+        text: "Corpo completo.\n--\nLaura, Cliente SRL",
+        attachments: [{ filename: "contratto.pdf", mimeType: "application/pdf" }],
+      });
+
+    const res = await getOriginal(memberCookieOriginal, "email", proposalId);
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.bodyText).toContain("Laura, Cliente SRL");
+    expect(body.attachments).toEqual([{ filename: "contratto.pdf", mimeType: "application/pdf" }]);
+
+    // Non si persiste nulla di ciò che si rilegge.
+    const [row] = await db.select().from(emailMessages).where(eq(emailMessages.id, messageId));
+    expect(row?.textExcerpt ?? "").not.toContain("Laura, Cliente SRL");
+  });
+
+  it("messaggio cancellato su Gmail (404/410): 409 message_gone, l'estratto resta intatto", async () => {
+    const { accountId } = await seedAccount(memberId);
+    const projectId = await seedProject();
+    const messageId = await seedEmail(accountId, { textExcerpt: "estratto originale" });
+    const proposalId = await seedProposal(messageId, projectId);
+    fakeGoogleClient.getMessageFull = async () => {
+      throw new GoogleApiError({ api: "gmail.messages.get.full", status: 404, code: "not_found", reason: "notFound" });
+    };
+
+    const res = await getOriginal(memberCookieOriginal, "email", proposalId);
+    expect(res.statusCode).toBe(409);
+    expect(res.json().code).toBe("message_gone");
+
+    const [row] = await db.select().from(emailMessages).where(eq(emailMessages.id, messageId));
+    expect(row!.textExcerpt).toBe("estratto originale");
+  });
+
+  it("token scaduto (invalid_grant sul refresh): 409 token_expired", async () => {
+    const { accountId } = await seedAccount(memberId);
+    const projectId = await seedProject();
+    const messageId = await seedEmail(accountId);
+    const proposalId = await seedProposal(messageId, projectId);
+    fakeGoogleClient.refreshAccessToken = async () => {
+      throw new GoogleApiError({ api: "oauth.token.refresh_token", status: 400, code: "invalid_grant", reason: "invalid_grant" });
+    };
+
+    const res = await getOriginal(memberCookieOriginal, "email", proposalId);
+    expect(res.statusCode).toBe(409);
+    expect(res.json().code).toBe("token_expired");
+  });
+
+  it("Google irraggiungibile: 502 google_unavailable", async () => {
+    const { accountId } = await seedAccount(memberId);
+    const projectId = await seedProject();
+    const messageId = await seedEmail(accountId);
+    const proposalId = await seedProposal(messageId, projectId);
+    fakeGoogleClient.getMessageFull = async () => {
+      throw new Error("network unreachable");
+    };
+
+    const res = await getOriginal(memberCookieOriginal, "email", proposalId);
+    expect(res.statusCode).toBe(502);
+    expect(res.json().code).toBe("google_unavailable");
+  });
+
+  it("ACL: un admin non può rileggere la posta di un member (404 prima di qualunque chiamata a Google)", async () => {
+    const { accountId } = await seedAccount(memberId);
+    const projectId = await seedProject();
+    const messageId = await seedEmail(accountId);
+    const proposalId = await seedProposal(messageId, projectId);
+    let called = false;
+    fakeGoogleClient.getMessageFull = async () => {
+      called = true;
+      return fakeGmailMessage();
+    };
+
+    const res = await getOriginal(adminCookieOriginal, "email", proposalId);
+    expect(res.statusCode).toBe(404);
+    expect(called).toBe(false);
   });
 });

@@ -38,7 +38,7 @@ import { gitIdentityRoutes } from "./routes/git-identity-routes.js";
 import { googleWorkspaceRoutes } from "./routes/google-workspaces.js";
 import { meGoogleRoutes } from "./routes/me-google.js";
 import { meCalendarRoutes } from "./routes/me-calendar.js";
-import { meMailRoutes } from "./routes/me-mail.js";
+import { meMailRoutes, type MailOriginalClient } from "./routes/me-mail.js";
 import { activityRoutes } from "./routes/activity-routes.js";
 import { backlogRoutes } from "./routes/backlog.js";
 import { inboundRoutes } from "./routes/inbound.js";
@@ -214,6 +214,14 @@ export interface BuildAppOptions {
    * i test, che non devono toccare la rete di Google.
    */
   googleFetch?: GoogleFetchImpl;
+  /**
+   * Client Google usato da `GET /api/me/mail/:source/:id/original` per
+   * rileggere un messaggio (fase 7b, Task 7). Default: le funzioni vere di
+   * `@stubwise/google`. Override pensato per i test — un finto con firma
+   * identica, non un `fetch`: niente risposte HTTP di Gmail da fabbricare a
+   * mano.
+   */
+  mailGoogleClient?: MailOriginalClient;
   /**
    * Fidarsi degli header X-Forwarded-* del reverse proxy (Caddy nel deploy
    * Docker). Va abilitato dietro un proxy affinché `secure: "auto"` sul cookie
@@ -704,7 +712,10 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // per utente — sempre filtrati per `userId` via il JOIN su google_accounts
   // (vedi il docblock del modulo). Prefisso a sé come meGoogleRoutes, per
   // la stessa ragione di leggibilità (un file, un pezzo di superficie).
-  void app.register(meMailRoutes, { prefix: "/api/me/mail" });
+  void app.register(meMailRoutes, {
+    prefix: "/api/me/mail",
+    ...(opts.mailGoogleClient ? { googleClient: opts.mailGoogleClient } : {}),
+  });
   void app.register(meCalendarRoutes, { prefix: "/api/me/calendar" });
 
   app.get("/health", async () => ({ status: "ok" }));

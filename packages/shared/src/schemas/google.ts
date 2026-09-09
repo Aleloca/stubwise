@@ -515,6 +515,58 @@ export const mailReproposeResultSchema = z.object({ ok: z.literal(true) });
 export type MailReproposeResult = z.infer<typeof mailReproposeResultSchema>;
 
 // ---------------------------------------------------------------------------
+// Il dettaglio di un'email (fase 7b, Task 6-7)
+// ---------------------------------------------------------------------------
+
+/**
+ * `GET /api/me/mail/:source/:id`: il dettaglio di un messaggio, dall'estratto
+ * GIÀ in database — nessuna chiamata a Google, funziona anche a token scaduto
+ * o con Google irraggiungibile (design fase 7b §3).
+ *
+ * `textExcerpt` DICHIARA di essere un estratto: testo ripulito, senza
+ * citazioni, firma né allegati — è il testo che ha visto il classificatore,
+ * non il messaggio. `null` quando il poller non l'ha salvato (un messaggio
+ * più vecchio della fase 6, o senza corpo estraibile): non è un errore, la
+ * UI mostra che l'estratto non è disponibile invece di un campo vuoto.
+ * NON FIDATO come `subject`/`from`: lo scrive chi ha mandato l'email.
+ */
+export const mailDetailSchema = z.object({
+  id: z.uuid(),
+  source: mailSourceSchema,
+  accountId: z.uuid(),
+  accountEmail: z.string(),
+  from: z.string(),
+  to: z.array(z.string()).default([]),
+  subject: z.string().nullable(),
+  receivedAt: z.iso.datetime(),
+  labels: z.array(z.string()).default([]),
+  textExcerpt: z.string().nullable(),
+  /** Link al thread Gmail: è dove porta «Apri su Gmail». */
+  url: z.string(),
+});
+export type MailDetail = z.infer<typeof mailDetailSchema>;
+
+/**
+ * `GET /api/me/mail/:source/:id/original`: il messaggio riletto da Gmail SU
+ * RICHIESTA (design fase 7b §3, punto 2) — non si persiste nulla di questo:
+ * è una finestra su Gmail, non una copia. `bodyText`/`bodyHtml` sono
+ * ALTERNATIVI (mai entrambi assenti se `ok: true`): Gmail manda quello che
+ * ha, e il client sceglie cosa rendere.
+ */
+export const mailOriginalSchema = z.object({
+  subject: z.string().nullable(),
+  from: z.string(),
+  to: z.array(z.string()).default([]),
+  cc: z.array(z.string()).default([]),
+  bodyText: z.string().nullable(),
+  bodyHtml: z.string().nullable(),
+  attachments: z
+    .array(z.object({ filename: z.string(), mimeType: z.string().nullable() }))
+    .default([]),
+});
+export type MailOriginal = z.infer<typeof mailOriginalSchema>;
+
+// ---------------------------------------------------------------------------
 // Sezione Calendario (fase 7b): superficie dedicata, con la stessa ACL della
 // Posta (`user_id` sempre nel WHERE). `GET /api/me/calendar` mostra GLI
 // APPUNTAMENTI VISTI (una riga per occorrenza, come la posta); `GET

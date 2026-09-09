@@ -429,3 +429,46 @@ export function extractText(payload: GmailPayload, options: ExtractTextOptions =
   if (!raw.trim()) return "";
   return capText(stripQuotedAndSignature(raw), options.maxLength ?? MAX_TEXT_LENGTH);
 }
+
+/**
+ * Il corpo GREZZO del messaggio (fase 7b, Task 7): plain e/o html, decodificati
+ * ma NON ripuliti — a differenza di {@link extractText}, che toglie citazioni
+ * e firma per la classificazione. La rilettura su richiesta esiste apposta
+ * per mostrare quello che l'estratto NON contiene (design fase 7b §3): tagliare
+ * di nuovo citazioni e firma vorrebbe dire non mostrare niente in più.
+ * `null` quando quella parte non c'è (mai stringa vuota): il chiamante sceglie
+ * cosa rendere fra le due, non deve distinguere "assente" da "vuoto".
+ */
+export function extractRawBody(payload: GmailPayload): { text: string | null; html: string | null } {
+  const plain: string[] = [];
+  const html: string[] = [];
+  collectTextParts(payload, plain, html);
+  return {
+    text: plain.length > 0 ? plain.join("\n") : null,
+    html: html.length > 0 ? html.join("\n") : null,
+  };
+}
+
+/** UN allegato del messaggio, come lo dichiara Gmail sul nodo MIME. */
+export interface GmailAttachment {
+  filename: string;
+  mimeType: string | null;
+}
+
+/**
+ * Gli allegati del messaggio (fase 7b, Task 7): ricorsiva come
+ * {@link collectTextParts}, ma prende l'opposto — ogni nodo CON `filename`,
+ * che è esattamente ciò che {@link collectTextParts} scarta. Non scarica
+ * nessun byte (`attachmentId` resta sulla riga, non richiesto qui): la
+ * rilettura mostra CHE allegati ci sono, non li porta dentro (design fase
+ * 7b §7 — fuori da questa fase).
+ */
+export function listAttachments(payload: GmailPayload): GmailAttachment[] {
+  const found: GmailAttachment[] = [];
+  const walk = (node: GmailPayload): void => {
+    for (const part of node.parts ?? []) walk(part);
+    if (node.filename) found.push({ filename: node.filename, mimeType: node.mimeType ?? null });
+  };
+  walk(payload);
+  return found;
+}

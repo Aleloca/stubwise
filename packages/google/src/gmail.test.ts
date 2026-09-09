@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { GoogleApiError, isFatalGoogleError } from "./errors.js";
 import {
+  extractRawBody,
   extractText,
   getMessageFull,
   getMessageMetadata,
+  listAttachments,
   listHistory,
   listMessages,
   MAX_TEXT_LENGTH,
@@ -231,5 +233,72 @@ describe("extractText", () => {
       "",
     );
     expect(extractText({})).toBe("");
+  });
+});
+
+describe("extractRawBody (fase 7b, Task 7)", () => {
+  it("NON strippa citazioni/firma, a differenza di extractText — è il punto della rilettura", () => {
+    const body = [
+      "Confermiamo per il 12 marzo.",
+      "--",
+      "Ada, Acme Inc.",
+      "Il 5 marzo Bob ha scritto: possiamo spostare?",
+    ].join("\n");
+    const payload: GmailPayload = { mimeType: "text/plain", body: { data: b64url(body) } };
+    expect(extractText(payload)).not.toContain("Ada, Acme Inc.");
+    const raw = extractRawBody(payload);
+    expect(raw.text).toContain("Ada, Acme Inc.");
+    expect(raw.text).toContain("possiamo spostare");
+  });
+
+  it("plain e html: entrambi tornano, nessuna preferenza (a differenza di extractText)", () => {
+    const raw = extractRawBody({
+      mimeType: "multipart/alternative",
+      parts: [
+        { mimeType: "text/plain", body: { data: b64url("Versione testo") } },
+        { mimeType: "text/html", body: { data: b64url("<p>Versione HTML</p>") } },
+      ],
+    });
+    expect(raw.text).toBe("Versione testo");
+    expect(raw.html).toBe("<p>Versione HTML</p>");
+  });
+
+  it("una parte assente è `null`, mai stringa vuota", () => {
+    expect(extractRawBody({ mimeType: "text/plain", body: { data: b64url("solo testo") } }).html).toBeNull();
+    expect(extractRawBody({})).toEqual({ text: null, html: null });
+  });
+});
+
+describe("listAttachments (fase 7b, Task 7)", () => {
+  it("elenca i nodi con filename, anche annidati, ignorando le parti testuali", () => {
+    const attachments = listAttachments({
+      mimeType: "multipart/mixed",
+      parts: [
+        {
+          mimeType: "multipart/alternative",
+          parts: [{ mimeType: "text/plain", body: { data: b64url("corpo") } }],
+        },
+        { mimeType: "application/pdf", filename: "contratto.pdf", body: { attachmentId: "a1", size: 1000 } },
+        { mimeType: "image/png", filename: "screenshot.png", body: { attachmentId: "a2", size: 500 } },
+      ],
+    });
+    expect(attachments).toEqual([
+      { filename: "contratto.pdf", mimeType: "application/pdf" },
+      { filename: "screenshot.png", mimeType: "image/png" },
+    ]);
+  });
+
+  it("nessun allegato → lista vuota, non undefined", () => {
+    expect(listAttachments({ mimeType: "text/plain", body: { data: b64url("x") } })).toEqual([]);
+    expect(listAttachments({})).toEqual([]);
+  });
+
+  it("non scarica nessun byte: attachmentId non richiesto, solo dichiarato", () => {
+    const [attachment] = listAttachments({
+      mimeType: "application/pdf",
+      filename: "grande.pdf",
+      body: { attachmentId: "huge", size: 50_000_000 },
+    });
+    expect(attachment).toEqual({ filename: "grande.pdf", mimeType: "application/pdf" });
   });
 });
