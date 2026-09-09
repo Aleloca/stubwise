@@ -322,6 +322,74 @@ describe("impronta e proposta (funzioni pure)", () => {
     expect(isReadyForProposal({ ...open, proposalNotificationId: "n1" })).toBe(false);
     expect(isReadyForProposal({ ...open, outcome: { type: "cancelled" } })).toBe(false);
   });
+
+  // -------------------------------------------------------------------------
+  // Fase 7b (Task 4): un'occorrenza di SERIE ha un cancello in più.
+  // -------------------------------------------------------------------------
+
+  describe("isReadyForProposal — cancello di serie (fase 7b)", () => {
+    const now = new Date("2026-09-09T00:00:00.000Z");
+    const openSeriesRow = {
+      status: "confirmed",
+      projectId: "p1",
+      proposalNotificationId: null,
+      outcome: null,
+      recurringEventId: "serie-1",
+      startsAt: new Date("2026-09-11T00:00:00.000Z"), // fra 2 giorni
+    };
+
+    it("una serie MAI configurata (nessun contesto passato) non è mai pronta", () => {
+      expect(isReadyForProposal(openSeriesRow)).toBe(false);
+    });
+
+    it("una serie configurata ma SPENTA non è mai pronta", () => {
+      expect(
+        isReadyForProposal(openSeriesRow, {
+          now,
+          series: { enabled: false, leadDays: 2 },
+          hasOpenSeriesProposal: false,
+        }),
+      ).toBe(false);
+    });
+
+    it("serie accesa, lead_days: 2 — niente a 5 giorni, pronta a 2", () => {
+      const context = { now, series: { enabled: true, leadDays: 2 }, hasOpenSeriesProposal: false };
+      expect(
+        isReadyForProposal({ ...openSeriesRow, startsAt: new Date("2026-09-14T00:00:00.000Z") }, context),
+      ).toBe(false); // fra 5 giorni
+      expect(
+        isReadyForProposal({ ...openSeriesRow, startsAt: new Date("2026-09-11T00:00:00.000Z") }, context),
+      ).toBe(true); // fra 2 giorni
+    });
+
+    it("un'occorrenza già passata non propone", () => {
+      expect(
+        isReadyForProposal(
+          { ...openSeriesRow, startsAt: new Date("2026-09-08T00:00:00.000Z") },
+          { now, series: { enabled: true, leadDays: 2 }, hasOpenSeriesProposal: false },
+        ),
+      ).toBe(false);
+    });
+
+    it("un'altra occorrenza della stessa serie ha già una proposta aperta: mai pronta", () => {
+      expect(
+        isReadyForProposal(openSeriesRow, {
+          now,
+          series: { enabled: true, leadDays: 2 },
+          hasOpenSeriesProposal: true,
+        }),
+      ).toBe(false);
+    });
+
+    it("un evento SINGOLO (recurringEventId null) ignora il contesto di serie: comportamento invariato", () => {
+      expect(
+        isReadyForProposal(
+          { ...openSeriesRow, recurringEventId: null, startsAt: new Date("2035-01-01T00:00:00.000Z") },
+          { now, series: null, hasOpenSeriesProposal: true },
+        ),
+      ).toBe(true);
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -462,7 +530,7 @@ describe("non riproporre lo stesso appuntamento", () => {
     const stats = await pollGoogleOnce(deps(account, calendar));
 
     expect(stats).toMatchObject({ calendarEvents: 2, calendarReady: 1 });
-    expect((await rows()).filter(isReadyForProposal)).toHaveLength(1);
+    expect((await rows()).filter((row) => isReadyForProposal(row))).toHaveLength(1);
   });
 
   it("stesso evento spostato di qualche ora: dati freschi, nessuna riga nuova", async () => {

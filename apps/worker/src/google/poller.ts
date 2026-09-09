@@ -1,5 +1,6 @@
 import {
   calendarEvents as calendarEventsTable,
+  calendarSeries as calendarSeriesTable,
   emailMessages,
   emailProposals,
   googleAccounts,
@@ -62,6 +63,7 @@ import {
   isSyncTokenExpired,
   normalizeStatus,
   routeEvent,
+  type CalendarSeriesProposalContext,
 } from "./calendar.js";
 import {
   classifyNewMessages,
@@ -1292,6 +1294,18 @@ async function runProposePhase(
 
     // --- Calendario: la `where` è, alla lettera, il contratto documentato su
     // `isReadyForProposal` (che `buildCalendarProposalEvent` riapplica).
+    //
+    // Fase 7b (Task 4): un evento SINGOLO (`recurring_event_id is null`) resta
+    // eleggibile come prima; un'occorrenza di SERIE lo è SOLO se la serie è
+    // accesa (`calendar_series`, LEFT JOIN — nessuna riga = mai eleggibile),
+    // è nella finestra di anticipo (`now` .. `now + lead_days`), e NESSUN'ALTRA
+    // occorrenza della stessa serie ha già una proposta APERTA: è la rete di
+    // sicurezza dell'incidente del 9 settembre 2026, la STESSA condizione che
+    // `isReadyForProposal` riverifica riga per riga. Il dedup PER TICK (una
+    // sola occorrenza per serie anche quando più di una passa questo filtro
+    // nella stessa query) è nel loop sotto, non qui: la `where` da sola non
+    // può saperlo finché non si comincia a pubblicare.
+    const now = deps.now ? deps.now() : new Date();
     const events = await deps.db
       .select({
         id: calendarEventsTable.id,
@@ -1302,8 +1316,18 @@ async function runProposePhase(
         projectId: calendarEventsTable.projectId,
         proposalNotificationId: calendarEventsTable.proposalNotificationId,
         outcome: calendarEventsTable.outcome,
+        recurringEventId: calendarEventsTable.recurringEventId,
+        seriesEnabled: calendarSeriesTable.enabled,
+        seriesLeadDays: calendarSeriesTable.leadDays,
       })
       .from(calendarEventsTable)
+      .leftJoin(
+        calendarSeriesTable,
+        and(
+          eq(calendarSeriesTable.accountId, calendarEventsTable.accountId),
+          eq(calendarSeriesTable.recurringEventId, calendarEventsTable.recurringEventId),
+        ),
+      )
       .where(
         and(
           eq(calendarEventsTable.accountId, account.id),
@@ -1311,6 +1335,21 @@ async function runProposePhase(
           isNotNull(calendarEventsTable.projectId),
           isNull(calendarEventsTable.proposalNotificationId),
           isNull(calendarEventsTable.outcome),
+          sql`(
+            ${calendarEventsTable.recurringEventId} is null
+            or (
+              ${calendarSeriesTable.enabled} is true
+              and ${calendarEventsTable.startsAt} >= ${now.toISOString()}::timestamptz
+              and ${calendarEventsTable.startsAt} <= ${now.toISOString()}::timestamptz + (${calendarSeriesTable.leadDays}::text || ' days')::interval
+              and not exists (
+                select 1 from calendar_events sibling
+                where sibling.account_id = ${calendarEventsTable.accountId}
+                  and sibling.recurring_event_id = ${calendarEventsTable.recurringEventId}
+                  and sibling.proposal_notification_id is not null
+                  and sibling.outcome is null
+              )
+            )
+          )`,
         ),
       )
       .orderBy(asc(calendarEventsTable.startsAt), asc(calendarEventsTable.id))
@@ -1410,13 +1449,36 @@ async function runProposePhase(
       }
     }
 
+    // Fase 7b (Task 4): dedup PER TICK — al massimo UN'occorrenza per serie è
+    // TENTATA in questo giro, anche se la query sopra ne ha lasciate passare
+    // altre (righe già lette prima che la prima pubblicazione scrivesse
+    // `proposal_notification_id`, quindi il `NOT EXISTS` della query non
+    // poteva ancora vederle). È il secondo strato della stessa rete di
+    // sicurezza: una serie con cento occorrenze pronte in un solo giro produce
+    // comunque UNA proposta, mai cento.
+    const seriesAttemptedThisTick = new Set<string>();
+
     for (const row of events) {
       if (deps.signal?.aborted) return published;
+      const recurringEventId = row.recurringEventId;
+      if (recurringEventId !== null && seriesAttemptedThisTick.has(recurringEventId)) continue;
+
+      const seriesContext: CalendarSeriesProposalContext | undefined =
+        recurringEventId === null
+          ? undefined
+          : {
+              now,
+              series: row.seriesEnabled === null ? null : { enabled: row.seriesEnabled, leadDays: row.seriesLeadDays! },
+              hasOpenSeriesProposal: false,
+            };
+      if (recurringEventId !== null) seriesAttemptedThisTick.add(recurringEventId);
+
       const event = buildCalendarProposalEvent({
         lang,
         event: row,
         mailboxEmail: account.email,
         projectNames,
+        ...(seriesContext ? { seriesContext } : {}),
       });
       if (!event) continue;
       const result = await publishProposal(deps.db, {

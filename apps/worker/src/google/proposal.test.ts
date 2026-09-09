@@ -365,6 +365,7 @@ function calendarRow(overrides: Record<string, unknown> = {}) {
     projectId: PROJECT_A as string | null,
     proposalNotificationId: null as string | null,
     outcome: null as Record<string, unknown> | null,
+    recurringEventId: null as string | null,
     ...overrides,
   };
 }

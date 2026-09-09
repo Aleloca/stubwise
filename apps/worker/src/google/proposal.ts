@@ -12,7 +12,12 @@ import { publishNotification, type GoogleProposalAction, type GoogleProposalEven
 import { ticketPrioritySchema, ticketStatusSchema } from "@stubwise/shared";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
-import { buildMilestoneProposal, isReadyForProposal, isoDay } from "./calendar.js";
+import {
+  buildMilestoneProposal,
+  isReadyForProposal,
+  isoDay,
+  type CalendarSeriesProposalContext,
+} from "./calendar.js";
 import { EMAIL_PROPOSAL_TYPES, EMAIL_SIGNALS } from "./classify.js";
 
 /**
@@ -499,6 +504,8 @@ export interface CalendarProposalRow {
   projectId: string | null;
   proposalNotificationId: string | null;
   outcome: Record<string, unknown> | null;
+  /** Fase 7b: `null` per un evento singolo, l'id della serie altrimenti. */
+  recurringEventId: string | null;
 }
 
 export interface BuildCalendarProposalArgs {
@@ -507,6 +514,14 @@ export interface BuildCalendarProposalArgs {
   mailboxEmail: string;
   projectNames: Map<string, string>;
   proposalId?: string;
+  /**
+   * Fase 7b: il contesto di serie per il cancello di {@link isReadyForProposal}
+   * — SOLO per un'occorrenza di serie (`event.recurringEventId !== null`),
+   * ignorato altrimenti. Assente = trattata come serie non configurata
+   * (spenta): un chiamante che dimentica di passarlo per un'occorrenza di
+   * serie ottiene `null` qui, non una proposta silenziosamente sbagliata.
+   */
+  seriesContext?: CalendarSeriesProposalContext;
 }
 
 /**
@@ -526,7 +541,7 @@ export function buildCalendarProposalEvent(
   args: BuildCalendarProposalArgs,
 ): GoogleProposalEvent | null {
   const { lang, event } = args;
-  if (!isReadyForProposal(event)) return null;
+  if (!isReadyForProposal(event, args.seriesContext)) return null;
   const milestone = buildMilestoneProposal(lang, event);
   if (!milestone) return null;
   // `isReadyForProposal` garantisce già che ci sia; la const lo dice anche al

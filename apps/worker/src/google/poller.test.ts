@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import {
   calendarEvents,
+  calendarSeries,
   emailMessages,
   emailProposals,
   googleAccounts,
@@ -69,6 +70,7 @@ afterEach(async () => {
   await db.delete(notifications);
   await db.delete(emailProposals);
   await db.delete(emailMessages);
+  await db.delete(calendarSeries);
   await db.delete(calendarEvents);
   await db.delete(googleAccounts);
   await db.delete(googleWorkspaces);
@@ -2290,5 +2292,150 @@ describe("fase 7b — la finestra dei 60 giorni vale anche in scrittura", () => 
 
     const rows = await calendarRows();
     expect(rows.map((row) => row.googleEventId)).toEqual(["serie_2026"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fase 7b, Task 4: il poller propone SOLO se la serie è accesa, con
+// l'anticipo scelto — e mai più di una proposta alla volta per serie. Le
+// righe sono seminate DIRETTAMENTE (non attraverso `syncCalendar`): qui si
+// testa la fase di proposta in isolamento, non la sincronizzazione.
+// ---------------------------------------------------------------------------
+
+describe("fase 7b — una serie propone solo se accesa, e con l'anticipo scelto", () => {
+  const NOW = new Date("2026-09-09T00:00:00.000Z");
+
+  async function seedOccurrence(
+    accountId: string,
+    projectId: string,
+    overrides: Partial<typeof calendarEvents.$inferInsert> = {},
+  ): Promise<void> {
+    await db.insert(calendarEvents).values({
+      accountId,
+      googleEventId: `occ-${randomUUID()}`,
+      recurringEventId: "serie-1",
+      title: "Pianificazione task",
+      startsAt: NOW,
+      status: "confirmed",
+      projectId,
+      fingerprint: `f-${randomUUID()}`,
+      ...overrides,
+    });
+  }
+
+  it("serie MAI configurata: nessuna proposta, anche con un'occorrenza nella finestra", async () => {
+    const projectId = await seedProject("Acme");
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    await seedOccurrence(account.id, projectId, { startsAt: new Date("2026-09-10T00:00:00.000Z") });
+
+    const stats = await pollGoogleOnce(deps(account, fakeGmail({ listed: [] }), { now: () => NOW }));
+
+    expect(stats.proposed).toBe(0);
+    expect(await db.select().from(notifications)).toHaveLength(0);
+  });
+
+  it("serie SPENTA esplicitamente: nessuna proposta", async () => {
+    const projectId = await seedProject("Acme");
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    await db.insert(calendarSeries).values({
+      accountId: account.id,
+      recurringEventId: "serie-1",
+      enabled: false,
+      projectId,
+      leadDays: 2,
+    });
+    await seedOccurrence(account.id, projectId, { startsAt: new Date("2026-09-10T00:00:00.000Z") });
+
+    const stats = await pollGoogleOnce(deps(account, fakeGmail({ listed: [] }), { now: () => NOW }));
+
+    expect(stats.proposed).toBe(0);
+    expect(await db.select().from(notifications)).toHaveLength(0);
+  });
+
+  it("serie accesa, lead_days: 2 — niente a 5 giorni, proposta a 2", async () => {
+    const projectId = await seedProject("Acme");
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    await db.insert(calendarSeries).values({
+      accountId: account.id,
+      recurringEventId: "serie-1",
+      enabled: true,
+      projectId,
+      leadDays: 2,
+    });
+    await seedOccurrence(account.id, projectId, { startsAt: new Date("2026-09-14T00:00:00.000Z") }); // fra 5 giorni
+
+    const early = await pollGoogleOnce(deps(account, fakeGmail({ listed: [] }), { now: () => NOW }));
+    expect(early.proposed).toBe(0);
+
+    await db
+      .update(calendarEvents)
+      .set({ startsAt: new Date("2026-09-11T00:00:00.000Z") }) // fra 2 giorni
+      .where(eq(calendarEvents.accountId, account.id));
+    await db
+      .update(googleAccounts)
+      .set({ nextSyncAt: new Date(Date.now() - 60_000) })
+      .where(eq(googleAccounts.id, account.id));
+    const onTime = await pollGoogleOnce(deps(await reload(account.id), fakeGmail({ listed: [] }), { now: () => NOW }));
+    expect(onTime.proposed).toBe(1);
+  });
+
+  it("un'occorrenza già passata non propone, anche con la serie accesa", async () => {
+    const projectId = await seedProject("Acme");
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    await db.insert(calendarSeries).values({
+      accountId: account.id,
+      recurringEventId: "serie-1",
+      enabled: true,
+      projectId,
+      leadDays: 2,
+    });
+    await seedOccurrence(account.id, projectId, { startsAt: new Date("2026-09-08T00:00:00.000Z") }); // ieri
+
+    const stats = await pollGoogleOnce(deps(account, fakeGmail({ listed: [] }), { now: () => NOW }));
+
+    expect(stats.proposed).toBe(0);
+    expect(await db.select().from(notifications)).toHaveLength(0);
+  });
+
+  it("una serie accesa con 100 occorrenze future produce una proposta PER VOLTA, non 100 — la rete di sicurezza dell'incidente del 9 settembre 2026", async () => {
+    const projectId = await seedProject("Acme");
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    await db.insert(calendarSeries).values({
+      accountId: account.id,
+      recurringEventId: "serie-1",
+      enabled: true,
+      projectId,
+      leadDays: 30,
+    });
+    // 100 occorrenze, una al giorno per i prossimi 100 giorni: con
+    // lead_days: 30, circa 30 di queste sono "pronte" per la timing gate da
+    // sole — è ESATTAMENTE il caso che il dedup per tick e il NOT EXISTS
+    // sulle proposte aperte devono impedire di esplodere in massa.
+    await db.insert(calendarEvents).values(
+      Array.from({ length: 100 }, (_, i) => ({
+        accountId: account.id,
+        googleEventId: `occ-${i}`,
+        recurringEventId: "serie-1",
+        title: "Pianificazione task",
+        startsAt: new Date(NOW.getTime() + (i + 1) * 24 * 60 * 60 * 1000),
+        status: "confirmed" as const,
+        projectId,
+        fingerprint: `f-${i}`,
+      })),
+    );
+
+    const first = await pollGoogleOnce(deps(account, fakeGmail({ listed: [] }), { now: () => NOW }));
+    expect(first.proposed).toBe(1);
+    expect(await db.select().from(notifications)).toHaveLength(1);
+
+    // Un secondo giro, senza che nessuno abbia risposto alla proposta: resta
+    // aperta, quindi il NOT EXISTS blocca ANCHE la prossima occorrenza pronta.
+    await db
+      .update(googleAccounts)
+      .set({ nextSyncAt: new Date(Date.now() - 60_000) })
+      .where(eq(googleAccounts.id, account.id));
+    const second = await pollGoogleOnce(deps(await reload(account.id), fakeGmail({ listed: [] }), { now: () => NOW }));
+    expect(second.proposed).toBe(0);
+    expect(await db.select().from(notifications)).toHaveLength(1);
   });
 });

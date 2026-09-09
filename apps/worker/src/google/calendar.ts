@@ -237,17 +237,69 @@ export function buildMilestoneProposal(
  * L'equivalente SQL, per chi scriverà quella query:
  * `where status is distinct from 'cancelled' and project_id is not null
  *  and proposal_notification_id is null and outcome is null`.
+ *
+ * ## Fase 7b (Task 4): un'occorrenza di SERIE ha un cancello in PIÙ
+ *
+ * Un evento SINGOLO (`recurringEventId: null`, la maggioranza) non cambia:
+ * il comportamento sopra resta identico. Un'occorrenza di una SERIE, invece,
+ * non è mai pronta a meno che:
+ *
+ *  - la serie sia CONFIGURATA e ACCESA (`seriesContext.series !== null &&
+ *    series.enabled`) — il default è spenta (design fase 7b §4: "una serie
+ *    non produce nulla finché non la si accende"), quindi una serie mai
+ *    configurata non è mai pronta, MAI un caso limite da gestire a parte;
+ *  - NESSUN'ALTRA occorrenza della STESSA serie abbia già una proposta
+ *    APERTA (`seriesContext.hasOpenSeriesProposal`) — è la rete di sicurezza
+ *    dell'incidente del 9 settembre 2026: una serie con cento occorrenze
+ *    future propone UNA occorrenza alla volta, mai cento, indipendentemente
+ *    da quante cadano nella finestra di anticipo;
+ *  - l'occorrenza sia nella finestra di anticipo della serie:
+ *    `now <= startsAt <= now + leadDays giorni`. Un'occorrenza già passata
+ *    non propone (il tap non avrebbe senso), una lontana aspetta il suo giro.
  */
-export function isReadyForProposal(row: {
-  status: string | null;
-  projectId: string | null;
-  proposalNotificationId: string | null;
-  outcome: Record<string, unknown> | null;
-}): boolean {
-  return (
+export interface CalendarSeriesConfig {
+  enabled: boolean;
+  leadDays: number;
+}
+
+/** Il contesto che SOLO un'occorrenza di serie consulta — ignorato per un evento singolo. */
+export interface CalendarSeriesProposalContext {
+  now: Date;
+  /** `null` = serie mai configurata, equivalente a "spenta" per `isReadyForProposal`. */
+  series: CalendarSeriesConfig | null;
+  /** Un'altra occorrenza della stessa serie ha già una proposta aperta (pubblicata, non ancora chiusa)? */
+  hasOpenSeriesProposal: boolean;
+}
+
+export function isReadyForProposal(
+  row: {
+    status: string | null;
+    projectId: string | null;
+    proposalNotificationId: string | null;
+    outcome: Record<string, unknown> | null;
+    /** Assente o `null` = evento singolo: il cancello di serie qui sotto non si applica. */
+    recurringEventId?: string | null;
+    /** Necessario SOLO per un'occorrenza di serie (vedi sopra). */
+    startsAt?: Date | null;
+  },
+  seriesContext?: CalendarSeriesProposalContext,
+): boolean {
+  const baseReady =
     row.status !== "cancelled" &&
     row.projectId !== null &&
     row.proposalNotificationId === null &&
-    row.outcome === null
-  );
+    row.outcome === null;
+  if (!baseReady) return false;
+
+  const recurringEventId = row.recurringEventId ?? null;
+  if (recurringEventId === null) return true;
+
+  const context = seriesContext ?? { now: new Date(), series: null, hasOpenSeriesProposal: false };
+  if (context.series === null || !context.series.enabled) return false;
+  if (context.hasOpenSeriesProposal) return false;
+  if (!row.startsAt) return false;
+
+  const leadMs = context.series.leadDays * 24 * 60 * 60 * 1000;
+  const delta = row.startsAt.getTime() - context.now.getTime();
+  return delta >= 0 && delta <= leadMs;
 }
