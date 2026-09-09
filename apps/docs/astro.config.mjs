@@ -157,6 +157,10 @@ export default defineConfig({
         {
           label: "Team & planning",
           items: [
+            {
+              label: "Working without writing code",
+              slug: "team/no-code-workflow",
+            },
             { label: "Backlog discovery", slug: "team/backlog" },
             { label: "Daily activity reports", slug: "team/activity" },
             {
