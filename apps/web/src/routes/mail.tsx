@@ -1,5 +1,6 @@
 import type { MailItem, MailItemStatus, MailSource } from "@stubwise/shared";
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { SignalBadge } from "../components/badges";
@@ -269,6 +270,25 @@ function MailRow({ item, projectName, filters }: MailRowProps) {
           <span className="text-fg-faint"> {t("mail:noSubject")}</span>
         )}
       </p>
+
+      {/*
+       * Fase 7b, Task 8: dalla riga si entra nel dettaglio (l'estratto già in
+       * database, e la rilettura dell'originale su richiesta) — SOLO per la
+       * posta: il calendario non ha un dettaglio a sé (`/calendar`, Task 9,
+       * mostra già tutto quello che una riga di calendario ha). `item.id` è
+       * `email_proposals.id` per una proposta normale, `email_messages.id`
+       * (il PADRE) per una riga `triage` — la rotta lo disambigua nel PATH,
+       * come `POST .../repropose`.
+       */}
+      {item.source === "email" && (
+        <Link
+          to="/mail/$source/$id"
+          params={{ source: isTriage ? "email_triage" : "email", id: item.id }}
+          className="mt-1 inline-flex font-mono text-[11px] tracking-[0.1em] text-signal uppercase transition-colors hover:text-signal-bright"
+        >
+          {t("mail:detail.readInStubwise")}
+        </Link>
+      )}
 
       {/*
        * Fase 6c: «nessuno di questi» leggibile invece del generico stato

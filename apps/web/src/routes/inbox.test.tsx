@@ -193,6 +193,7 @@ const GOOGLE = item({
     receivedAt: "2026-08-31T09:00:00.000Z",
     signal: "decision",
     actions: [{ type: "create_backlog_item" }, { type: "ignore" }],
+    auto: false,
   },
 });
 

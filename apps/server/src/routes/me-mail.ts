@@ -10,6 +10,7 @@ import {
 import {
   extractRawBody,
   getMessageFull,
+  htmlToText,
   listAttachments,
   refreshAccessToken,
   GoogleApiError,
@@ -886,8 +887,11 @@ export async function meMailRoutes(
           from: full.headers.from ?? message.fromAddress,
           to: full.headers.to ? full.headers.to.split(",").map((addr) => addr.trim()) : message.toAddresses,
           cc: full.headers.cc ? full.headers.cc.split(",").map((addr) => addr.trim()) : [],
-          bodyText: body.text,
-          bodyHtml: body.html,
+          // MAI l'HTML grezzo verso il client (vedi il docblock di
+          // `mailOriginalSchema`): con `text/plain` presente lo usa com'è,
+          // altrimenti converte l'HTML in testo qui — non lo manda mai oltre
+          // questa rotta.
+          bodyText: body.text ?? (body.html ? htmlToText(body.html) : null),
           attachments,
         };
       } catch (error) {

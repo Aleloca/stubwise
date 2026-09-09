@@ -549,9 +549,15 @@ export type MailDetail = z.infer<typeof mailDetailSchema>;
 /**
  * `GET /api/me/mail/:source/:id/original`: il messaggio riletto da Gmail SU
  * RICHIESTA (design fase 7b §3, punto 2) — non si persiste nulla di questo:
- * è una finestra su Gmail, non una copia. `bodyText`/`bodyHtml` sono
- * ALTERNATIVI (mai entrambi assenti se `ok: true`): Gmail manda quello che
- * ha, e il client sceglie cosa rendere.
+ * è una finestra su Gmail, non una copia.
+ *
+ * ⚠️ **Solo `bodyText`, MAI l'HTML originale**: il corpo di un'email è testo
+ * NON FIDATO scritto da chi vuole, e un client web non deve mai iniettarlo
+ * come markup (`dangerouslySetInnerHTML` su un'email è un vettore XSS
+ * diretto — script inline, `onerror` su un'immagine, ecc.). Il server
+ * converte l'HTML in testo quando manca il `text/plain` (stessa funzione
+ * `htmlToText` di `@stubwise/google` usata per l'estratto): `bodyText` è
+ * quindi `null` SOLO se il messaggio non aveva proprio corpo.
  */
 export const mailOriginalSchema = z.object({
   subject: z.string().nullable(),
@@ -559,7 +565,6 @@ export const mailOriginalSchema = z.object({
   to: z.array(z.string()).default([]),
   cc: z.array(z.string()).default([]),
   bodyText: z.string().nullable(),
-  bodyHtml: z.string().nullable(),
   attachments: z
     .array(z.object({ filename: z.string(), mimeType: z.string().nullable() }))
     .default([]),

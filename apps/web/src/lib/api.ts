@@ -40,9 +40,14 @@ import type {
   InboxQuestion,
   InboxStatus,
   Language,
+  CalendarEventPage,
+  CalendarSeriesList,
+  CalendarSeriesPatch,
   MailAdmission,
   MailAdmissionPatch,
+  MailDetail,
   MailItemStatus,
+  MailOriginal,
   MailPage,
   MailSource,
   MailSummary,
@@ -1878,6 +1883,80 @@ export function getMailSummary(): Promise<MailSummary> {
  */
 export function postMailRepropose(source: MailSource, id: string): Promise<{ ok: true }> {
   return api.post(`/api/me/mail/${source}/${encodeURIComponent(id)}/repropose`);
+}
+
+export type { MailDetail, MailOriginal } from "@stubwise/shared";
+
+/** Il dettaglio di un'email dall'estratto già in database — nessuna chiamata a Google (fase 7b, Task 6). */
+export function getMailDetail(
+  source: "email" | "email_triage",
+  id: string,
+): Promise<MailDetail> {
+  return api.get(`/api/me/mail/${source}/${encodeURIComponent(id)}`);
+}
+
+/**
+ * Rilegge il messaggio ORIGINALE da Gmail (fase 7b, Task 7): una chiamata di
+ * rete vera, non un dato già pronto. `ApiError.code` distingue
+ * `message_gone`/`token_expired`/`google_unavailable` — la UI li traduce in
+ * tre frasi diverse, mai un generico "errore".
+ */
+export function getMailOriginal(
+  source: "email" | "email_triage",
+  id: string,
+): Promise<MailOriginal> {
+  return api.get(`/api/me/mail/${source}/${encodeURIComponent(id)}/original`);
+}
+
+// --- Sezione Calendario, per utente (Fase 7b, Task 9) ---
+
+export type {
+  CalendarEventItem,
+  CalendarEventPage,
+  CalendarSeriesAction,
+  CalendarSeriesItem,
+  CalendarSeriesList,
+  CalendarSeriesPatch,
+} from "@stubwise/shared";
+
+/** Filtri di "gli appuntamenti visti": stessa forma di `MailFilters`, senza `project` (il calendario resta uno-a-uno per progetto sulla riga). */
+export interface CalendarFilters {
+  account?: string;
+  status?: MailItemStatus;
+}
+
+/** "Gli appuntamenti visti" (design fase 7b §4): stessa ACL e stesso keyset della Posta, ma solo il calendario. */
+export function getCalendarEvents(
+  filters: CalendarFilters = {},
+  cursor?: string,
+): Promise<CalendarEventPage> {
+  const params = new URLSearchParams();
+  if (filters.account) params.set("account", filters.account);
+  if (filters.status) params.set("status", filters.status);
+  if (cursor) params.set("cursor", cursor);
+  const query = params.toString();
+  return api.get(`/api/me/calendar${query ? `?${query}` : ""}`);
+}
+
+/** Le serie ricorrenti riconosciute, con la loro configurazione (o i default, se mai configurate — cioè spente). */
+export function getCalendarSeries(account?: string): Promise<CalendarSeriesList> {
+  const query = account ? `?account=${encodeURIComponent(account)}` : "";
+  return api.get(`/api/me/calendar/series${query}`);
+}
+
+/** Attiva/configura una serie. `enabled: true` senza `projectId` è rifiutato dal server (400): il progetto si fissa, non si ri-deduce. */
+export function putCalendarSeries(
+  recurringEventId: string,
+  patch: CalendarSeriesPatch,
+): Promise<{ ok: true }> {
+  return api.put(`/api/me/calendar/series/${encodeURIComponent(recurringEventId)}`, patch);
+}
+
+/** Spegne una serie: la configurazione torna ai default (spenta). */
+export function deleteCalendarSeries(recurringEventId: string, account: string): Promise<{ ok: true }> {
+  return api.delete(
+    `/api/me/calendar/series/${encodeURIComponent(recurringEventId)}?account=${encodeURIComponent(account)}`,
+  );
 }
 
 /**

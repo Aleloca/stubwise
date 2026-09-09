@@ -153,6 +153,16 @@ describe("pagina /mail", () => {
     expect(screen.getByText("Failed", { selector: "span" })).toBeInTheDocument();
   });
 
+  it("fase 7b, Task 8: la riga email porta un link al dettaglio, il calendario no", async () => {
+    mockApi(baseApi());
+    renderMail();
+    await screen.findByRole("heading", { name: "Mail" });
+
+    const detailLinks = screen.getAllByRole("link", { name: "Read in Stubwise" });
+    expect(detailLinks).toHaveLength(1);
+    expect(detailLinks[0]).toHaveAttribute("href", `/mail/email/${EMAIL_ID}`);
+  });
+
   it("il link 'Open' apre in una scheda nuova", async () => {
     mockApi(baseApi());
     renderMail();

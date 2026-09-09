@@ -26,10 +26,12 @@
       "docs": "Documentation",
       "label": "Navigation",
       "open": "Open navigation",
-      "mail": "Mail"
+      "mail": "Mail",
+      "calendar": "Calendar"
     },
     "on": "on",
-    "off": "off"
+    "off": "off",
+    "saving": "Saving…"
   },
   "monitor": {
     "list": {
@@ -2354,6 +2356,61 @@
     "triage": {
       "badge": "To sort",
       "dismissedOutcome": "Sorted — none of the suggested projects matched"
+    },
+    "detail": {
+      "back": "Back to Mail",
+      "readInStubwise": "Read in Stubwise",
+      "excerptNotice": "Cleaned extract — no quotes, signature or attachments. This is the text the classifier saw.",
+      "noExcerpt": "No extract saved for this message.",
+      "readOriginal": "Read original on Gmail",
+      "readingOriginal": "Fetching from Google…",
+      "originalNotice": "Asking Google for this message now — nothing is saved.",
+      "originalError": {
+        "messageGone": "This message no longer exists on Gmail.",
+        "tokenExpired": "This Google account needs to be reconnected.",
+        "googleUnavailable": "Could not reach Google. Try again in a moment."
+      },
+      "attachments": "Attachments",
+      "retentionNotice": "Messages older than 90 days are removed from Stubwise and can no longer be read here.",
+      "loadError": "Could not load this message.",
+      "notFound": "This message was not found."
+    }
+  },
+  "calendar": {
+    "title": "Calendar",
+    "subtitle": "Appointments seen and recurring series, from the mailboxes you connected.",
+    "series": {
+      "heading": "Recurring series",
+      "subtitle": "A series is off by default: it produces nothing until you turn it on here.",
+      "empty": "No recurring series seen yet.",
+      "occurrenceCount_one": "{{count}} occurrence tracked",
+      "occurrenceCount_other": "{{count}} occurrences tracked",
+      "next": "next {{when}}",
+      "noneUpcoming": "nothing upcoming",
+      "on": "On",
+      "off": "Off",
+      "configure": "Configure",
+      "enable": "Turn on",
+      "disable": "Turn off",
+      "enableLabel": "Enabled",
+      "offByDefaultHint": "Off by default — turning this on lets Stubwise act on every future occurrence of this series, not just this one.",
+      "project": "Project",
+      "action": "Action",
+      "actionOption": {
+        "milestone": "Create a milestone",
+        "backlog_item": "Open a backlog item",
+        "reminder": "Just remind me"
+      },
+      "leadDays": "Days of lead time",
+      "autoLabel": "Act automatically",
+      "autoHint": "Off: Stubwise proposes and waits for a tap. On: Stubwise acts right away and shows you what it did — it never starts an AI job either way.",
+      "projectRequired": "Choose a project before turning this series on.",
+      "saveError": "Could not save this series."
+    },
+    "events": {
+      "heading": "Appointments seen",
+      "empty": "// no appointments",
+      "loadError": "Could not load the calendar."
     }
   }
 }
