@@ -345,6 +345,13 @@ export const backlogItemDetailSchema = backlogItemBaseSchema.extend({
   // True se esiste un job chat_turn queued/running per la voce (UI: "sta
   // investigando nel codice…" con polling).
   pendingTurn: z.boolean(),
+  // Domanda a bottoni ANCORA APERTA (fase 7), o null. Incorporata qui — non
+  // in una query a parte — perché il dettaglio è già polled adattivamente
+  // (`pendingTurn`): un turno che pone una domanda la fa comparire senza una
+  // seconda fonte da tenere sincronizzata. `.optional()` come `planSummary`
+  // nel dettaglio ticket: compatibilità verso un client compilato contro un
+  // server senza questa fase.
+  openQuestion: backlogQuestionSchema.nullable().optional(),
 });
 export type BacklogItemDetail = z.infer<typeof backlogItemDetailSchema>;
 

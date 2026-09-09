@@ -14,6 +14,7 @@ import type {
   BacklogItemStatus,
   BacklogLinkedTicket,
   BacklogMessage,
+  BacklogQuestion,
   BacklogRisk,
   BacklogSimilarRef,
   BacklogSuggested,
@@ -162,7 +163,7 @@ export type {
 };
 // Ri-esportata dal binding locale (usata anche nelle interfacce del backlog qui
 // sotto): i consumatori la importano da "./api" come gli altri tipi di dominio.
-export type { BacklogSuggested };
+export type { BacklogSuggested, BacklogQuestion };
 
 /**
  * Il client HTTP della SPA: il trasporto vive in `@stubwise/api-client`, che la
@@ -3084,6 +3085,38 @@ export function mergeBacklogItem(id: string, targetId: string): Promise<BacklogI
 /** Accoda un deep dive sul repository scelto (202); 409 se già in corso. */
 export function requestDeepDive(id: string, repositoryId: string): Promise<{ queued: true }> {
   return api.post(`/api/backlog/${encodeURIComponent(id)}/deep-dive`, { repositoryId });
+}
+
+/**
+ * Q&A della chat del backlog (fase 7), in ordine cronologico: la domanda
+ * APERTA (a cui `QuestionPanel` risponde, dentro la conversazione) e quelle
+ * già chiuse — risposte o "non ora" (`dismissedAt`). Gemella di
+ * `getTicketQuestions`.
+ */
+export function getBacklogQuestions(id: string): Promise<BacklogQuestion[]> {
+  return api.get(`/api/backlog/${encodeURIComponent(id)}/questions`);
+}
+
+/**
+ * Risposta a una domanda della chat del backlog. A differenza del gemello sul
+ * ticket non torna un `jobId`: qui non c'è nulla da riprendere da QUESTA
+ * chiamata — il turno di ripresa (se la voce ha ancora una sessione di
+ * analisi attiva) lo accoda il server, il worker lo esegue da sé.
+ */
+export function answerBacklogQuestion(
+  id: string,
+  questionId: string,
+  answer: AnswerBody,
+): Promise<{ backlogItemId: string }> {
+  return api.post(`/api/backlog/${encodeURIComponent(id)}/questions/${encodeURIComponent(questionId)}/answer`, answer);
+}
+
+/** "Non ora": chiude la domanda SENZA rispondere, lasciando la conversazione libera. */
+export function dismissBacklogQuestion(
+  id: string,
+  questionId: string,
+): Promise<{ backlogItemId: string }> {
+  return api.post(`/api/backlog/${encodeURIComponent(id)}/questions/${encodeURIComponent(questionId)}/dismiss`);
 }
 
 /** Sintetizza la chat nel documento della voce (one-shot). */

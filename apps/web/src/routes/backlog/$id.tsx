@@ -23,6 +23,7 @@ import { ComboboxPicker } from "../../components/combobox-picker";
 import { ConfirmDeleteButton } from "../../components/confirm-delete-button";
 import { SelectField } from "../../components/field";
 import { Markdown } from "../../components/markdown";
+import { WorkNextStep } from "../../components/work-next-step";
 import {
   acceptSuggested,
   ApiError,
@@ -85,6 +86,10 @@ export function BacklogDetailPage() {
   const isConverted = item.status === "converted";
   const isArchived = item.status === "archived";
   const isLocked = isConverted || isArchived;
+  // Il ticket nato dalla conversione (al più uno): alimenta la riga del passo
+  // successivo (fase 7). Le altre voci `origin` (feedback confluiti qui) non
+  // sono "il" ticket della voce, quindi non contano.
+  const convertedTicket = item.tickets.find((ticket) => ticket.role === "converted_to") ?? null;
 
   // Le mutazioni tornano la forma BASE (senza tickets/messages/deepDivePending):
   // si fonde nel dettaglio in cache conservando quei campi, poi si invalida per
@@ -300,6 +305,15 @@ export function BacklogDetailPage() {
         )}
       </header>
 
+      {/* Il passo successivo (fase 7): deterministico, sopra la
+          conversazione — dove sei e cosa puoi fare adesso. */}
+      <WorkNextStep
+        itemId={id}
+        itemStatus={item.status}
+        ticketId={convertedTicket?.id ?? null}
+        ticketNumber={convertedTicket?.number ?? null}
+      />
+
       {/* Banner suggeriti + avviso analisi: a tutta larghezza, subito sotto
           l'header (shrink-0, non entrano nello scroll dei pannelli). */}
       {!isLocked && item.suggested && (
@@ -429,6 +443,7 @@ export function BacklogDetailPage() {
           onExchangeComplete={invalidateDetail}
           codeSession={item.codeSession}
           pendingTurn={item.pendingTurn}
+          openQuestion={item.openQuestion ?? null}
           repos={chatRepos}
           onStartSession={(repositoryId) => startSessionMutation.mutate(repositoryId)}
           onStopSession={() => stopSessionMutation.mutate()}

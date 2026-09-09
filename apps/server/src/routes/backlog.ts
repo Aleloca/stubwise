@@ -1,4 +1,5 @@
 import {
+  agentQuestionAnswerSchema,
   answerBodySchema,
   backlogCodeSessionSchema,
   backlogItemBaseSchema,
@@ -6,6 +7,7 @@ import {
   backlogChatAcceptedSchema,
   backlogPageSchema,
   backlogQuestionActionResultSchema,
+  backlogQuestionSchema,
   convertBacklogResultSchema,
   createBacklogResultSchema,
   backlogItemStatusSchema,
@@ -35,9 +37,11 @@ import {
   backlogItems,
   backlogItemTickets,
   backlogJobs,
+  backlogQuestions,
   projects,
   repositories,
   tickets,
+  users,
 } from "@stubwise/db";
 import { requireAuth } from "../auth/session.js";
 import { convertBacklogItem } from "../services/backlog.js";
@@ -161,6 +165,14 @@ function hasActionableSuggested(
   suggested: BacklogSuggested | null | undefined,
 ): suggested is BacklogSuggested {
   return suggested != null && ACTIONABLE_SUGGESTED_KEYS.some((k) => suggested[k] !== undefined);
+}
+
+/** Ri-valida la risposta jsonb di `backlog_questions` prima di uscire su
+ * `GET /:id/questions`: gemella di `parseStoredAnswer` in `routes/tickets.ts`. */
+function parseStoredBacklogAnswer(answer: unknown): z.infer<typeof agentQuestionAnswerSchema> | null {
+  if (answer == null) return null;
+  const parsed = agentQuestionAnswerSchema.safeParse(answer);
+  return parsed.success ? parsed.data : null;
 }
 
 /** Risolve il riferimento `similarTo` di una singola voce (una query se presente). */
@@ -385,6 +397,51 @@ async function loadActiveCodeSession(
   return { status: row.status, repositoryId: row.repositoryId, startedAt: row.startedAt.toISOString() };
 }
 
+/**
+ * Domanda APERTA della voce (fase 7), o `null`. Incorporata nel dettaglio
+ * invece di lasciarla a una query a parte: il polling adattivo esiste già qui
+ * (`pendingTurn`/`deepDivePending`), quindi un turno che pone una domanda la fa
+ * comparire senza una seconda fonte di verità da tenere sincronizzata col
+ * client. `GET /:id/questions` resta per lo storico (risposte passate, "non
+ * ora"), che il dettaglio non porta.
+ */
+async function loadOpenBacklogQuestion(
+  db: Db,
+  itemId: string,
+): Promise<z.infer<typeof backlogQuestionSchema> | null> {
+  const [row] = await db
+    .select({
+      id: backlogQuestions.id,
+      question: backlogQuestions.question,
+      options: backlogQuestions.options,
+      recommendedIndex: backlogQuestions.recommendedIndex,
+      allowFreeText: backlogQuestions.allowFreeText,
+      askedAt: backlogQuestions.askedAt,
+    })
+    .from(backlogQuestions)
+    .where(
+      and(
+        eq(backlogQuestions.backlogItemId, itemId),
+        sql`${backlogQuestions.answeredAt} IS NULL AND ${backlogQuestions.dismissedAt} IS NULL`,
+      ),
+    )
+    .limit(1);
+  if (!row) return null;
+  return {
+    questionId: row.id,
+    backlogItemId: itemId,
+    question: row.question,
+    options: row.options,
+    ...(row.recommendedIndex === null ? {} : { recommendedIndex: row.recommendedIndex }),
+    allowFreeText: row.allowFreeText,
+    askedAt: row.askedAt.toISOString(),
+    answer: null,
+    answeredAt: null,
+    answeredBy: null,
+    dismissedAt: null,
+  };
+}
+
 /** Accumula lo stream one-shot dell'LLM in una stringa (nessun SSE). */
 async function collectStream(
   chatLlm: FastifyInstance["chatLlm"],
@@ -566,7 +623,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
       const base = await loadBaseItem(app.db, id);
       if (!base) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
 
-      const [ticketRows, messageRows, deepDivePending, codeSession, pendingTurn] = await Promise.all([
+      const [ticketRows, messageRows, deepDivePending, codeSession, pendingTurn, openQuestion] = await Promise.all([
         app.db
           .select({
             id: tickets.id,
@@ -586,6 +643,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
         hasPendingDeepDive(app.db, id),
         loadActiveCodeSession(app.db, id),
         hasPendingChatTurn(app.db, id),
+        loadOpenBacklogQuestion(app.db, id),
       ]);
 
       return {
@@ -601,6 +659,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
         deepDivePending,
         codeSession,
         pendingTurn,
+        openQuestion,
       };
     },
   );
@@ -1594,6 +1653,76 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
 
   // --- Domande a bottoni sulla voce (fase 7) --------------------------------
   //
+  // Storico Q&A della voce (gemella di `GET /api/tickets/:id/questions`): la
+  // domanda APERTA (a cui `QuestionPanel` risponde, dentro la chat — Task 7)
+  // e quelle già chiuse, risposte o "non ora". Sola LETTURA, aperta a
+  // chiunque sia autenticato: la Q&A è contenuto della voce, come `/activity`
+  // lo è del ticket. Il permesso di RISPONDERE vive in `answerBacklogQuestion`.
+  app.get(
+    "/:id/questions",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: idParamsSchema,
+        response: {
+          200: z.array(backlogQuestionSchema),
+          404: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params;
+      const [item] = await app.db.select({ id: backlogItems.id }).from(backlogItems).where(eq(backlogItems.id, id));
+      if (!item) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
+
+      const rows = await app.db
+        .select({
+          id: backlogQuestions.id,
+          question: backlogQuestions.question,
+          options: backlogQuestions.options,
+          recommendedIndex: backlogQuestions.recommendedIndex,
+          allowFreeText: backlogQuestions.allowFreeText,
+          askedAt: backlogQuestions.askedAt,
+          answer: backlogQuestions.answer,
+          answeredAt: backlogQuestions.answeredAt,
+          dismissedAt: backlogQuestions.dismissedAt,
+          answeredById: users.id,
+          answeredByEmail: users.email,
+        })
+        .from(backlogQuestions)
+        // LEFT JOIN: `answered_by_user_id` è ON DELETE SET NULL, una risposta
+        // di un utente cancellato resta una risposta — solo senza un nome.
+        .leftJoin(users, eq(users.id, backlogQuestions.answeredByUserId))
+        .where(eq(backlogQuestions.backlogItemId, id))
+        .orderBy(asc(backlogQuestions.askedAt));
+
+      return rows.map((row) => ({
+        // `questionId` e non `id`: stessa forma di `inboxQuestionSchema`, che
+        // `backlogQuestionSchema` estende (vedi packages/shared) così
+        // `QuestionPanel` la consuma senza adattatori.
+        questionId: row.id,
+        backlogItemId: id,
+        question: row.question,
+        options: row.options,
+        ...(row.recommendedIndex === null ? {} : { recommendedIndex: row.recommendedIndex }),
+        allowFreeText: row.allowFreeText,
+        askedAt: row.askedAt.toISOString(),
+        // Il jsonb viene ri-validato prima di uscire (come il gemello sul
+        // ticket): la colonna è tipata sulla union ma il DB non la fa
+        // rispettare, e una riga di una versione precedente non deve poter
+        // far fallire la serializzazione dell'intera lista.
+        answer: parseStoredBacklogAnswer(row.answer),
+        answeredAt: row.answeredAt?.toISOString() ?? null,
+        answeredBy:
+          row.answeredById && row.answeredByEmail
+            ? { id: row.answeredById, email: row.answeredByEmail }
+            : null,
+        dismissedAt: row.dismissedAt?.toISOString() ?? null,
+      }));
+    },
+  );
+
   // Risposta e "non ora" alla domanda APERTA di una voce (`backlog_questions`,
   // gemella di `agent_questions` — vedi services/backlog-questions.ts). Aperte
   // a chiunque sia autenticato: rispondere in chat è lavoro quotidiano, non un

@@ -686,7 +686,21 @@
       "startAnalysis": "Avvia sessione",
       "cancel": "Annulla",
       "noRepos": "Questo progetto non ha repository da analizzare.",
-      "sessionError": "Impossibile aggiornare la sessione di analisi. Riprova."
+      "sessionError": "Impossibile aggiornare la sessione di analisi. Riprova.",
+      "notNow": "Non ora",
+      "dismissingQuestion": "Rimando…"
+    },
+    "nextStep": {
+      "clarify": "Idea da chiarire — continua la conversazione.",
+      "readyToConvert": "Pronta: la converto in un lavoro?",
+      "convertedNoJob": "Lavoro creato — avvialo dal ticket.",
+      "preparingPlan": "Lavoro avviato, sto preparando il piano…",
+      "awaitingApproval": "Piano pronto, serve l'ok di un maintainer.",
+      "executing": "In esecuzione.",
+      "prReady": "Modifica pronta, il rilascio spetta a un maintainer.",
+      "done": "Fatto — la modifica è stata rilasciata.",
+      "needsAttention": "C'è qualcosa che aspetta attenzione.",
+      "goToTicket": "Vai al ticket"
     }
   },
   "settings": {

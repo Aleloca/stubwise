@@ -686,7 +686,21 @@
       "startAnalysis": "Start session",
       "cancel": "Cancel",
       "noRepos": "This project has no repositories to analyze.",
-      "sessionError": "Could not update the analysis session. Try again."
+      "sessionError": "Could not update the analysis session. Try again.",
+      "notNow": "Not now",
+      "dismissingQuestion": "Dismissing…"
+    },
+    "nextStep": {
+      "clarify": "Idea to clarify — keep the conversation going.",
+      "readyToConvert": "Ready: shall I turn it into a task?",
+      "convertedNoJob": "Task created — start the fix from there.",
+      "preparingPlan": "Work started, preparing the plan…",
+      "awaitingApproval": "Plan ready, waiting for a maintainer to approve it.",
+      "executing": "In progress.",
+      "prReady": "Change ready — releasing it is up to a maintainer.",
+      "done": "Done — the change has been released.",
+      "needsAttention": "Something here needs attention.",
+      "goToTicket": "Go to ticket"
     }
   },
   "settings": {
