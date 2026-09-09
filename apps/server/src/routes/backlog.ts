@@ -37,7 +37,7 @@ import {
   repositories,
   tickets,
 } from "@stubwise/db";
-import { requireAdmin, requireAuth } from "../auth/session.js";
+import { requireAuth } from "../auth/session.js";
 import { convertBacklogItem } from "../services/backlog.js";
 import { enqueueBacklogIntake } from "../services/backlog-intake.js";
 import { apiError } from "../errors.js";
@@ -604,7 +604,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
   app.patch(
     "/:id",
     {
-      preHandler: requireAdmin,
+      preHandler: requireAuth,
       schema: {
         params: idParamsSchema,
         body: updateBacklogItemSchema,
@@ -902,7 +902,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:id/suggested/accept",
     {
-      preHandler: requireAdmin,
+      preHandler: requireAuth,
       schema: {
         params: idParamsSchema,
         response: {
@@ -946,7 +946,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:id/suggested/dismiss",
     {
-      preHandler: requireAdmin,
+      preHandler: requireAuth,
       schema: {
         params: idParamsSchema,
         response: {
@@ -1278,7 +1278,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:id/refresh-document",
     {
-      preHandler: requireAdmin,
+      preHandler: requireAuth,
       schema: {
         params: idParamsSchema,
         response: {
@@ -1418,7 +1418,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:id/merge",
     {
-      preHandler: requireAdmin,
+      preHandler: requireAuth,
       schema: {
         params: idParamsSchema,
         body: mergeBodySchema,
@@ -1523,7 +1523,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:id/deep-dive",
     {
-      preHandler: requireAdmin,
+      preHandler: requireAuth,
       schema: {
         params: idParamsSchema,
         body: deepDiveBodySchema,

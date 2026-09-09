@@ -336,7 +336,7 @@ describe("GET /api/backlog/:id", () => {
 });
 
 describe("PATCH /api/backlog/:id", () => {
-  it("member (non admin) → 403", async () => {
+  it("member (non admin) può modificare i metadati", async () => {
     const item = await insertItem();
     const res = await app.inject({
       method: "PATCH",
@@ -344,7 +344,8 @@ describe("PATCH /api/backlog/:id", () => {
       headers: { cookie: memberCookie },
       payload: { title: "nuovo" },
     });
-    expect(res.statusCode).toBe(403);
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { title: string }).title).toBe("nuovo");
   });
 
   it("404 se inesistente", async () => {
@@ -675,14 +676,15 @@ describe("GET /api/backlog/jobs/:jobId", () => {
 });
 
 describe("POST /api/backlog/:id/suggested/accept", () => {
-  it("member (non admin) → 403", async () => {
+  it("member (non admin) può accettare i valori suggeriti", async () => {
     const item = await insertItem({ suggested: { effort: 4 } });
     const res = await app.inject({
       method: "POST",
       url: `/api/backlog/${item.id}/suggested/accept`,
       headers: { cookie: memberCookie },
     });
-    expect(res.statusCode).toBe(403);
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { effort: number }).effort).toBe(4);
   });
 
   it("404 se inesistente", async () => {
@@ -742,14 +744,15 @@ describe("POST /api/backlog/:id/suggested/accept", () => {
 });
 
 describe("POST /api/backlog/:id/suggested/dismiss", () => {
-  it("member (non admin) → 403", async () => {
+  it("member (non admin) può scartare i valori suggeriti", async () => {
     const item = await insertItem({ suggested: { effort: 4 } });
     const res = await app.inject({
       method: "POST",
       url: `/api/backlog/${item.id}/suggested/dismiss`,
       headers: { cookie: memberCookie },
     });
-    expect(res.statusCode).toBe(403);
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { suggested: unknown }).suggested).toBeNull();
   });
 
   it("409 se suggested è null", async () => {
@@ -1149,7 +1152,7 @@ describe("GET /api/backlog/:id espone implementationPlan e originContent", () =>
 });
 
 describe("POST /api/backlog/:id/merge", () => {
-  it("member (non admin) → 403", async () => {
+  it("member (non admin) può fondere due voci", async () => {
     const a = await insertItem();
     const b = await insertItem();
     const res = await app.inject({
@@ -1158,7 +1161,8 @@ describe("POST /api/backlog/:id/merge", () => {
       headers: { cookie: memberCookie },
       payload: { targetId: b.id },
     });
-    expect(res.statusCode).toBe(403);
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { id: string }).id).toBe(b.id);
   });
 
   it("400 se id === targetId", async () => {
@@ -1284,16 +1288,16 @@ describe("POST /api/backlog/:id/merge", () => {
 });
 
 describe("POST /api/backlog/:id/deep-dive", () => {
-  it("member (non admin) → 403", async () => {
+  it("member (non admin) può avviare l'analisi approfondita", async () => {
     const item = await insertItem();
-    const { repositoryId } = await seedRepository(testDb.db);
+    const repoId = await seedRepositoryInProject(testDb.db, projectId);
     const res = await app.inject({
       method: "POST",
       url: `/api/backlog/${item.id}/deep-dive`,
       headers: { cookie: memberCookie },
-      payload: { repositoryId },
+      payload: { repositoryId: repoId },
     });
-    expect(res.statusCode).toBe(403);
+    expect(res.statusCode).toBe(202);
   });
 
   it("404 se la voce non esiste", async () => {

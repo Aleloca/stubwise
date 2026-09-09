@@ -41,7 +41,6 @@ import {
   type BacklogItemDetail,
   type BacklogSuggested,
 } from "../../lib/api";
-import { meQueryOptions } from "../../lib/auth";
 import {
   backlogItemQueryOptions,
   backlogKeys,
@@ -82,9 +81,6 @@ export function BacklogDetailPage() {
 
   const { data: item } = useSuspenseQuery(backlogItemQueryOptions(id));
   const { data: projects } = useSuspenseQuery(projectsQueryOptions);
-  const { data: me } = useSuspenseQuery(meQueryOptions);
-  const isAdmin = me.user.role === "admin";
-
   const projectName = projects.find((project) => project.id === item.projectId)?.name ?? "—";
   const isConverted = item.status === "converted";
   const isArchived = item.status === "archived";
@@ -147,7 +143,7 @@ export function BacklogDetailPage() {
     onSuccess: applyBase,
   });
 
-  const metaDisabled = !isAdmin || isLocked || patchMutation.isPending;
+  const metaDisabled = isLocked || patchMutation.isPending;
 
   return (
     // `.page` per il padding standard; su `lg+` diventa una colonna a piena
@@ -280,15 +276,13 @@ export function BacklogDetailPage() {
             rimonta il componente pagina — senza key ActionsPanel conserverebbe
             i suoi notice locali (e la chat la storia della voce precedente).
           */}
-          {isAdmin && (
-            <ActionsPanel
-              key={`actions-${id}`}
-              item={item}
-              projectName={projectName}
-              onApply={applyBase}
-              navigate={navigate}
-            />
-          )}
+          <ActionsPanel
+            key={`actions-${id}`}
+            item={item}
+            projectName={projectName}
+            onApply={applyBase}
+            navigate={navigate}
+          />
         </div>
 
         {isLocked && (
@@ -308,7 +302,7 @@ export function BacklogDetailPage() {
 
       {/* Banner suggeriti + avviso analisi: a tutta larghezza, subito sotto
           l'header (shrink-0, non entrano nello scroll dei pannelli). */}
-      {isAdmin && !isLocked && item.suggested && (
+      {!isLocked && item.suggested && (
         <div className="mt-4 shrink-0">
           <SuggestedBanner item={item} onApply={applyBase} />
         </div>
@@ -533,7 +527,8 @@ function RiskNoteField({
 /**
  * Banner dei metadati suggeriti dall'AI: mostra i campi proposti col valore
  * attuale a confronto ("effort 4 (era 2)") più l'eventuale motivazione, con
- * Accetta tutti / Ignora. Reso solo all'admin quando la voce è editabile.
+ * Accetta tutti / Ignora. Reso a chiunque sia autenticato quando la voce è
+ * editabile (fase 7: le rotte sotto sono `requireAuth`, non più admin).
  */
 function SuggestedBanner({
   item,
@@ -632,9 +627,11 @@ function SuggestedBanner({
 }
 
 /**
- * Barra azioni (solo admin): aggiorna documento, analisi approfondita, esporta,
- * converti, fondi, archivia/riapri. Le azioni di modifica sono nascoste quando
- * la voce è bloccata (converted/archived); archived espone comunque "Riapri".
+ * Barra azioni (fase 7: aperta a chiunque sia autenticato, non più solo
+ * admin — le rotte sotto sono `requireAuth`): aggiorna documento, analisi
+ * approfondita, esporta, converti, fondi, archivia/riapri. Le azioni di
+ * modifica sono nascoste quando la voce è bloccata (converted/archived);
+ * archived espone comunque "Riapri".
  */
 function ActionsPanel({
   item,
