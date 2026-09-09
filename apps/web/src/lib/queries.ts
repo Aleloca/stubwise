@@ -32,6 +32,7 @@ import {
   getProjectDecisions,
   getProjectTimeline,
   getProjects,
+  getProjectsPulse,
   getRepoGraph,
   getRepoGraphReport,
   getRepositories,
@@ -376,6 +377,28 @@ export const projectsQueryOptions = queryOptions({
   queryKey: ["projects"],
   queryFn: getProjects,
   staleTime: 60_000,
+});
+
+/**
+ * Polso di ogni progetto per il viewer corrente (fase 7, Task 10): la vista
+ * «cosa aspetta me» sulla lista progetti. `["projects", "pulse"]` è per
+ * PREFISSO un FIGLIO di `["projects"]` in TanStack Query (`invalidateQueries`
+ * senza `exact: true` su `["projects"]` rifetcherebbe anche questa) — non una
+ * chiave indipendente. La separazione dalla chiave semplice
+ * `["projects"]` di `projectsQueryOptions` sopra serve solo a non far
+ * ATTENDERE l'elenco dei progetti (`useSuspenseQuery`) al polso, che è
+ * best-effort (`useQuery` non-suspense) e cambia molto più spesso (segue
+ * job/notifiche, non create/update/delete di progetti — da cui lo
+ * `staleTime` corto: è uno stato "adesso", non un dato anagrafico). L'unico
+ * `invalidateQueries` esistente su `["projects"]` (creazione progetto in
+ * `ProjectsPage`) usa `exact: true` apposta, quindi oggi non rifetcha il
+ * polso — ma un futuro `invalidateQueries({ queryKey: ["projects"] })` senza
+ * `exact` lo farebbe, innocuamente.
+ */
+export const projectsPulseQueryOptions = queryOptions({
+  queryKey: ["projects", "pulse"],
+  queryFn: getProjectsPulse,
+  staleTime: 15_000,
 });
 
 /**

@@ -13,6 +13,7 @@ import {
   googleWorkspaces,
   notifications,
   projectDecisions,
+  tickets,
   users,
   type Db,
 } from "@stubwise/db";
@@ -60,7 +61,7 @@ vi.mock("@anthropic-ai/sdk", () => ({
 }));
 
 import { answerGoogleProposal } from "./google-proposal.js";
-import { resolvePlan, type Actor } from "./jobs.js";
+import { preApprovePlan, resolvePlan, type Actor } from "./jobs.js";
 import { proceedWithProposal } from "./pulse.js";
 import { answerQuestion } from "./questions.js";
 
@@ -149,6 +150,16 @@ describe("il registro decisioni non è mai scritto dall'AI — a runtime", () =>
     expect(rows).toHaveLength(1);
     // La prova che il riassunto generato non è entrato nel fatto registrato.
     expect(JSON.stringify(rows[0])).not.toContain("Riassunto scritto da un agente");
+    expectNoAgentCalled();
+  });
+
+  it("la pre-approvazione del piano scrive la decisione senza chiamare nessun agente (fase 7, Task 3)", async () => {
+    const ticketId = await seedTicket("Ticket col piano da pre-approvare");
+    await db.update(tickets).set({ implementationPlan: "## Piano\n1. Passo" }).where(eq(tickets.id, ticketId));
+
+    expect((await preApprovePlan(db, { ticketId, actor: maintainer })).ok).toBe(true);
+
+    expect(await decisionsOf(ticketId)).toHaveLength(1);
     expectNoAgentCalled();
   });
 

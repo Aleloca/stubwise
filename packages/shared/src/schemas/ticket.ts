@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { handledBySchema } from "./actor.js";
 
 export const ticketStatusSchema = z.enum([
   "open",
@@ -123,6 +124,30 @@ export const ticketDetailSchema = ticketSchema.extend({
    * nuovo la romperebbe se il server tornasse a un'immagine precedente.
    */
   planSummary: z.string().nullable().optional(),
+  /**
+   * Pre-approvazione del piano (fase 7): un maintainer può approvare in
+   * anticipo il piano CORRENTE, così un operatore (member) può far partire il
+   * fix senza fermarsi sul gate — vedi `startRun` in
+   * `apps/server/src/services/jobs.ts`. Tutti e tre OPZIONALI/nullable, come
+   * `planSummary`: l'app mobile installata valida questa stessa risposta con
+   * lo schema compilato dentro di sé, e un campo obbligatorio nuovo la
+   * romperebbe se il server tornasse a un'immagine precedente.
+   *
+   * `planApprovedAt`/`planApprovedBy` restano valorizzati anche quando
+   * l'approvazione è SCADUTA (il piano è stato riscritto dopo): raccontano
+   * "quando e da chi", non "è ancora valida" — quello lo dice
+   * `planApprovalStale`. Null = il piano corrente non è mai stato approvato.
+   */
+  planApprovedAt: z.iso.datetime().nullable().optional(),
+  planApprovedBy: handledBySchema.nullable().optional(),
+  /**
+   * True quando l'approvazione esiste ma il piano è cambiato da allora (il
+   * digest non combacia più): "serve un nuovo via libera". False sia quando
+   * l'approvazione è ancora valida sia quando il piano non è mai stato
+   * approvato (in quel caso `planApprovedAt` è null e la UI non deve
+   * comunque parlare di "scaduta").
+   */
+  planApprovalStale: z.boolean().optional(),
   repositories: z.array(ticketRepositorySchema),
 });
 export type TicketDetail = z.infer<typeof ticketDetailSchema>;

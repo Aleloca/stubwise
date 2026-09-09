@@ -63,6 +63,10 @@ function toPublicAiJob(row: AiJobRow): z.infer<typeof aiJobSchema> {
     // azzerato insieme a `planText` quando il piano viene rifiutato, quindi non
     // sopravvive mai al piano che descrive.
     planSummary: row.planSummary,
+    // Riassunto "in breve" del perché il job è fallito (fase 7): scritto DOPO
+    // la notifica `job.failed`, best-effort — può restare null anche su un job
+    // fallito (generazione spenta, in errore, o non ancora arrivata).
+    failureSummary: row.failureSummary,
   };
 }
 

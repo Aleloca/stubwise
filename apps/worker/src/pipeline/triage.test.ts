@@ -117,7 +117,18 @@ async function getTicket(db: Db, id: string): Promise<Ticket> {
 }
 
 function makeDeps(runner: FakeAgentRunner, overrides: Partial<TriageDeps> = {}): TriageDeps {
-  return { db: testDb.db, runner, workDir, ...overrides };
+  return {
+    db: testDb.db,
+    runner,
+    workDir,
+    // Riassunto "in breve" del fallimento (fase 7) SPENTO di default nei
+    // test: è un run in più dell'agente (sullo STESSO runner iniettato) e
+    // falserebbe i `runner.calls` di ogni test sui percorsi di fallimento.
+    // Stesso pattern di `pipeline/fix.test.ts` per `summariesEnabled`. I
+    // test che lo riguardano lo riaccendono con override.
+    summariesEnabled: false,
+    ...overrides,
+  };
 }
 
 function minutesAgo(minutes: number): Date {
@@ -738,6 +749,58 @@ describe("runTriage", () => {
     // L'exit code di ogni tentativo è osservabile nel log.
     expect(after.log).toContain("(tentativo 1, exit 0)");
     expect(after.log).toContain("(tentativo 2, exit 1)");
+  });
+
+  it("riassunto del fallimento (fase 7, Task 9): generato DOPO la notifica, scritto sul job", async () => {
+    const { db } = testDb;
+    const ticket = await createTicket(db);
+    const job = await createTriagingJob(db, ticket.id);
+    // 2 output invalidi consumati dal triage (retry poi failed), un 3° dal
+    // run del riassunto del fallimento — SEMPRE lo stesso runner iniettato.
+    const runner = new FakeAgentRunner({
+      results: [
+        { output: "output spazzatura 1", exitCode: 0 },
+        { output: "output spazzatura 2", exitCode: 0 },
+        { output: "  Il triage non ha capito la risposta dell'agente.  ", exitCode: 0 },
+      ],
+    });
+    const notifyOrder: string[] = [];
+
+    const outcome = await runTriage(
+      makeDeps(runner, {
+        summariesEnabled: true,
+        publish: async (_db, event) => {
+          notifyOrder.push(`notify:${(event as { kind: string }).kind}`);
+          return { published: 1 };
+        },
+      }),
+      job,
+    );
+
+    expect(outcome).toBe("failed");
+    // ORDINE: la notifica è già pubblicata prima che il run del riassunto (la
+    // 3ª chiamata al runner) cominci.
+    expect(notifyOrder).toEqual(["notify:job.failed"]);
+    expect(runner.calls).toHaveLength(3);
+    expect(runner.calls[2]?.permissionMode).toBe("plan");
+
+    const after = await getJob(db, job.id);
+    expect(after.failureSummary).toBe("Il triage non ha capito la risposta dell'agente.");
+  });
+
+  it("riassunto del fallimento spento di default → nessun run in più, failureSummary NULL", async () => {
+    const { db } = testDb;
+    const ticket = await createTicket(db);
+    const job = await createTriagingJob(db, ticket.id);
+    const runner = new FakeAgentRunner({
+      script: () => ({ output: "output spazzatura", exitCode: 0 }),
+    });
+
+    const outcome = await runTriage(makeDeps(runner), job);
+
+    expect(outcome).toBe("failed");
+    expect(runner.calls).toHaveLength(2);
+    expect((await getJob(db, job.id)).failureSummary).toBeNull();
   });
 
   it("duplicate verso un numero inesistente → trattato come output non valido (retry, poi failed)", async () => {

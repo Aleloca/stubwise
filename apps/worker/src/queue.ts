@@ -235,6 +235,33 @@ export async function failJob(db: Db, jobId: string, input: FailJobInput): Promi
 }
 
 /**
+ * Scrive il riassunto "in breve" del fallimento (fase 7, Task 9), generato
+ * DOPO che `failJob` e la notifica `job.failed` sono già passati — vedi il
+ * docblock di `summaries/failure-summary.ts` per il perché del disaccoppiamento.
+ * Guardata su `status = 'failed'`: un job `failed` è terminale (fuori da
+ * ACTIVE_STATUSES, mai riaccodato), quindi qui non serve — e non c'è — la
+ * guardia sull'ownership che ha `failJob`; la guardia sullo stato è solo
+ * difesa in profondità contro un chiamante che la invocasse su un job che
+ * fallito non lo è (mai, nei call-site attuali).
+ */
+export async function writeFailureSummary(db: Db, jobId: string, summary: string): Promise<void> {
+  await db
+    .update(aiJobs)
+    .set({ failureSummary: summary })
+    .where(and(eq(aiJobs.id, jobId), eq(aiJobs.status, "failed")));
+}
+
+/**
+ * Legge il log COMMITTATO del job, per il riassunto del fallimento: `failJob`
+ * lo scrive con una concatenazione SQL (`log || ...`), quindi il testo finale
+ * lo si legge da qui, non lo si ricostruisce lato applicativo.
+ */
+export async function getJobLog(db: Db, jobId: string): Promise<string> {
+  const [row] = await db.select({ log: aiJobs.log }).from(aiJobs).where(eq(aiJobs.id, jobId));
+  return row?.log ?? "";
+}
+
+/**
  * Transizione triage → fix: il triage ha deciso che il bug è aggredibile.
  * Restituisce false se la ownership è persa (job requeued e reclamato da
  * un altro worker): il chiamante non deve iniziare la fase di fix.

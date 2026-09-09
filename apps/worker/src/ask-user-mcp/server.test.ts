@@ -161,7 +161,7 @@ describe("handleAskUser — tetto e idempotenza", () => {
     const result = await handleAskUser(validArgs(), config({ round: 6, maxRounds: 5 }));
 
     expect(textOf(result)).toBe(
-      "Tetto di domande raggiunto (5): scegli tu l'opzione più ragionevole e documenta la scelta nella sezione 'Decisioni e assunzioni' del piano.",
+      "Tetto di domande raggiunto (5): scegli tu l'opzione più ragionevole, documenta la scelta nella tua risposta e prosegui.",
     );
     await expect(readFile(filePath, "utf8")).rejects.toThrow();
   });

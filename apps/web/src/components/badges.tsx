@@ -8,6 +8,7 @@ import type {
   TicketSource,
   TicketStatus,
   TicketType,
+  WorkState,
 } from "@stubwise/shared";
 import { useTranslation } from "react-i18next";
 
@@ -284,3 +285,69 @@ export function PrStateBadge({ state }: { state: PrState }) {
     </span>
   );
 }
+
+/**
+ * Vocabolario "in parole" dello stato di un job AI (fase 7, Task 8): lo
+ * stesso `WorkState` che `workStateFor` (`@stubwise/shared`) già usava solo
+ * nell'app mobile — qui il web lo adotta, invece di mostrare i nomi interni
+ * della coda (`triaging`, `pr_opened`…). Le chiavi i18n sono PORTATE da
+ * `apps/mobile/src/i18n/{en,it}.json` (`work.status.*`), stesso testo, stessi
+ * nomi di chiave: un domani un cambio di vocabolario si fa in un posto,
+ * verificato dalla parità di `apps/web/src/i18n/parity.test.ts`.
+ *
+ * `Record` esaustivo sull'enum, non uno `switch`: uno `WorkState` nuovo (cioè
+ * un `AiJobStatus` nuovo, dato che `workStateFor` è totale) fa fallire la
+ * COMPILAZIONE qui invece di scivolare in un fallback silenzioso.
+ *
+ * I chiamanti passano già `workStateFor(job.status)`: questo file non importa
+ * `AiJobStatus` apposta, la classificazione resta un'unica funzione pura in
+ * `@stubwise/shared`, non ridichiarata qui.
+ */
+export const WORK_STATE_LABEL_KEYS: Record<WorkState, string> = {
+  proposed: "workState:proposed",
+  planning: "workState:planning",
+  working: "workState:working",
+  held: "workState:held",
+  waiting_answer: "workState:waitingAnswer",
+  waiting_approval: "workState:waitingApproval",
+  pr_ready: "workState:prReady",
+  done: "workState:done",
+  failed: "workState:failed",
+  skipped: "workState:skipped",
+  rejected: "workState:rejected",
+};
+
+/** Colore-testo per stato del lavoro. */
+export const WORK_STATE_TEXT_CLASS: Record<WorkState, string> = {
+  proposed: "text-fg-muted",
+  planning: "text-sky-400",
+  working: "text-sky-400",
+  held: "text-signal",
+  waiting_answer: "text-signal",
+  waiting_approval: "text-signal",
+  pr_ready: "text-ok",
+  done: "text-ok",
+  failed: "text-danger",
+  skipped: "text-fg-faint",
+  rejected: "text-fg-faint",
+};
+
+/** Colore-stato per il pallino della rotaia della timeline (`ai-job-timeline.tsx`). */
+export const WORK_STATE_DOT_CLASS: Record<WorkState, string> = {
+  proposed: "bg-fg-faint",
+  planning: "bg-sky-400 animate-blink",
+  working: "bg-sky-400 animate-blink",
+  held: "bg-signal",
+  // In attesa della risposta a una domanda: il job è vivo e riparte da solo
+  // appena qualcuno risponde — il pallino PULSA, a differenza degli altri
+  // stati d'attesa (fermi finché qualcuno non agisce).
+  waiting_answer: "bg-signal animate-blink",
+  waiting_approval: "bg-signal",
+  pr_ready: "bg-ok",
+  done: "bg-ok",
+  failed: "bg-danger",
+  skipped: "bg-fg-faint",
+  // PR chiusa senza merge: esito terminale negativo, ma non un errore di
+  // sistema come "failed" → neutro spento.
+  rejected: "bg-fg-faint",
+};

@@ -2,6 +2,7 @@ import {
   backlogChatMessages,
   backlogCodeSessions,
   backlogItems,
+  backlogQuestions,
   encrypt,
   gitAccounts,
   plugins,
@@ -20,6 +21,7 @@ import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { FakeAgentRunner } from "../agent/fake.js";
 import { AgentTimeoutError, type AgentRunResult, type AgentRunner } from "../agent/runner.js";
+import { ASK_USER_FILENAME, planParentDir } from "../pipeline/ask-user.js";
 import { basePluginPath } from "../plugins/base.js";
 import type { ResolvedProvider } from "../providers/chain.js";
 import { runChatTurn, type ChatTurnDeps } from "./chat-turn.js";
@@ -244,7 +246,57 @@ async function messagesOf(db: Db, itemId: string) {
     .orderBy(asc(backlogChatMessages.createdAt), asc(backlogChatMessages.id));
 }
 
-function job(projectId: string, payload: { itemId: string; userMessageId: string; sessionId: string }): BacklogJob {
+/**
+ * Entry FINTA del server MCP `ask_user`: al worker basta che il file ESISTA
+ * per cablare il tool (non lo esegue mai qui — è il claude CLI a lanciarlo, e
+ * nei test il runner è finto). Gemella di `fakeAskUserEntry` in
+ * `pipeline/fix.test.ts`.
+ */
+async function fakeAskUserEntry(): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), "ask-user-entry-backlog-"));
+  cleanups.push(() => rm(dir, { recursive: true, force: true }));
+  const entry = join(dir, "index.js");
+  await writeFile(entry, "// server MCP finto\n");
+  return entry;
+}
+
+/**
+ * Runner che si comporta come il CLI quando il modello chiama `ask_user`:
+ * scrive il file-bridge nel path ESATTO che il worker gli comunica via env
+ * (indipendente dalla cwd del run — a differenza del fix, qui cwd è il
+ * worktree della sessione, non la parent dir del bridge), e ritorna
+ * output/sessionId dati.
+ */
+function questionRunner(
+  jobId: string,
+  content: string | object,
+  result: { output?: string; sessionId?: string } = {},
+): FakeAgentRunner {
+  return new FakeAgentRunner({
+    script: async () => {
+      await writeFile(
+        join(planParentDir(jobId), ASK_USER_FILENAME),
+        typeof content === "string" ? content : JSON.stringify(content),
+      );
+      return {
+        output: result.output ?? "",
+        exitCode: 0,
+        ...(result.sessionId !== undefined ? { sessionId: result.sessionId } : {}),
+      };
+    },
+  });
+}
+
+async function questionsOf(db: Db, itemId: string) {
+  return db.select().from(backlogQuestions).where(eq(backlogQuestions.backlogItemId, itemId));
+}
+
+function job(
+  projectId: string,
+  payload:
+    | { itemId: string; userMessageId: string; sessionId: string }
+    | { itemId: string; answeredQuestionId: string; sessionId: string },
+): BacklogJob {
   return {
     id: randomUUID(),
     projectId,
@@ -619,5 +671,294 @@ describe("runChatTurn — fallback session_id assente", () => {
     expect(mirrors.opens).toBe(1);
     expect(runner.calls[1]!.resumeSessionId).toBeUndefined();
     expect(runner.calls[1]!.prompt).toContain("DOC");
+  });
+});
+
+describe("runChatTurn — tool ask_user (fase 7, Task 6)", () => {
+  const QUESTION = {
+    question: "Import CSV o form manuale?",
+    options: [
+      { label: "Import CSV", consequence: "Serve un file già pronto" },
+      { label: "Form manuale" },
+    ],
+    recommendedIndex: 0,
+    allowFreeText: true,
+  };
+
+  it("turno che pone una domanda: riga in backlog_questions + messaggio in chat, nessuna risposta in prosa", async () => {
+    const db = testDb.db;
+    const { projectId, repositoryId } = await createProjectWithRepo(db);
+    const itemId = await createItem(db, projectId);
+    const sessionId = await createSession(db, itemId, repositoryId);
+    const userMessageId = await addUserMessage(db, itemId, "Come dovremmo importare gli ordini?");
+    const chatJob = job(projectId, { itemId, userMessageId, sessionId });
+    const runner = questionRunner(chatJob.id, QUESTION, { sessionId: "cli-q1" });
+
+    await runChatTurn(
+      makeDeps(db, { runner, askUserServerPath: await fakeAskUserEntry() }),
+      chatJob,
+      { itemId, userMessageId, sessionId },
+    );
+
+    // Il tool era cablato: mcpConfig con l'env del round/tetto.
+    const call = runner.calls[0]!;
+    expect(call.mcpConfig?.servers.stubwise_ask?.env?.ASK_USER_ROUND).toBe("1");
+    expect(call.allowedTools).toContain("mcp__stubwise_ask__ask_user");
+
+    const questions = await questionsOf(db, itemId);
+    expect(questions).toHaveLength(1);
+    expect(questions[0]?.question).toBe(QUESTION.question);
+    expect(questions[0]?.options).toEqual(QUESTION.options);
+    expect(questions[0]?.recommendedIndex).toBe(0);
+    expect(questions[0]?.answeredAt).toBeNull();
+    expect(questions[0]?.dismissedAt).toBeNull();
+
+    // Il messaggio in chat la referenzia (testo della domanda + opzioni),
+    // NON una risposta in prosa generica.
+    const msgs = await messagesOf(db, itemId);
+    const assistantMsg = msgs.find((m) => m.role === "assistant");
+    expect(assistantMsg?.content).toContain(QUESTION.question);
+    expect(assistantMsg?.content).toContain("Import CSV");
+
+    // La sessione CLI resta viva per la ripresa.
+    const [session] = await db.select().from(backlogCodeSessions).where(eq(backlogCodeSessions.id, sessionId));
+    expect(session!.cliSessionId).toBe("cli-q1");
+  });
+
+  it("domanda + testo nello stesso turno: vince la domanda, il testo viene scartato", async () => {
+    const db = testDb.db;
+    const { projectId, repositoryId } = await createProjectWithRepo(db);
+    const itemId = await createItem(db, projectId);
+    const sessionId = await createSession(db, itemId, repositoryId);
+    const userMessageId = await addUserMessage(db, itemId, "?");
+    const chatJob = job(projectId, { itemId, userMessageId, sessionId });
+    const runner = questionRunner(chatJob.id, QUESTION, { output: "Un testo scritto per errore insieme alla domanda" });
+
+    await runChatTurn(
+      makeDeps(db, { runner, askUserServerPath: await fakeAskUserEntry() }),
+      chatJob,
+      { itemId, userMessageId, sessionId },
+    );
+
+    const questions = await questionsOf(db, itemId);
+    expect(questions).toHaveLength(1);
+    const msgs = await messagesOf(db, itemId);
+    const assistantMsg = msgs.find((m) => m.role === "assistant");
+    expect(assistantMsg?.content).not.toContain("Un testo scritto per errore");
+    expect(assistantMsg?.content).toContain(QUESTION.question);
+  });
+
+  it("domanda malformata (schema violato): si prosegue in prosa, nessuna riga in backlog_questions", async () => {
+    const db = testDb.db;
+    const { projectId, repositoryId } = await createProjectWithRepo(db);
+    const itemId = await createItem(db, projectId);
+    const sessionId = await createSession(db, itemId, repositoryId);
+    const userMessageId = await addUserMessage(db, itemId, "?");
+    const chatJob = job(projectId, { itemId, userMessageId, sessionId });
+    // Payload SCHEMA-INVALIDO: options con una sola voce (ne servono 2-4).
+    const runner = questionRunner(
+      chatJob.id,
+      { question: "?", options: [{ label: "Solo una" }] },
+      { output: "Risposta normale in prosa" },
+    );
+
+    await runChatTurn(
+      makeDeps(db, { runner, askUserServerPath: await fakeAskUserEntry() }),
+      chatJob,
+      { itemId, userMessageId, sessionId },
+    );
+
+    expect(await questionsOf(db, itemId)).toHaveLength(0);
+    const msgs = await messagesOf(db, itemId);
+    expect(msgs.find((m) => m.role === "assistant")?.content).toBe("Risposta normale in prosa");
+  });
+
+  it("nessuna domanda nel file-bridge (assente): comportamento identico a prima, prosa normale", async () => {
+    const db = testDb.db;
+    const { projectId, repositoryId } = await createProjectWithRepo(db);
+    const itemId = await createItem(db, projectId);
+    const sessionId = await createSession(db, itemId, repositoryId);
+    const userMessageId = await addUserMessage(db, itemId, "?");
+    const runner = new FakeAgentRunner({ results: [{ output: "Risposta senza domande", exitCode: 0 }] });
+
+    await runChatTurn(
+      makeDeps(db, { runner, askUserServerPath: await fakeAskUserEntry() }),
+      job(projectId, { itemId, userMessageId, sessionId }),
+      { itemId, userMessageId, sessionId },
+    );
+
+    expect(await questionsOf(db, itemId)).toHaveLength(0);
+    const msgs = await messagesOf(db, itemId);
+    expect(msgs.find((m) => m.role === "assistant")?.content).toBe("Risposta senza domande");
+  });
+
+  it("una domanda già aperta sulla voce: la nuova viene scartata, si prosegue in prosa", async () => {
+    const db = testDb.db;
+    const { projectId, repositoryId } = await createProjectWithRepo(db);
+    const itemId = await createItem(db, projectId);
+    const sessionId = await createSession(db, itemId, repositoryId);
+    // Domanda GIÀ aperta sulla voce (es. posta da un turno precedente, non
+    // ancora risposta né "non ora").
+    await db.insert(backlogQuestions).values({
+      backlogItemId: itemId,
+      question: "Domanda già in piedi",
+      options: [{ label: "A" }, { label: "B" }],
+    });
+    const userMessageId = await addUserMessage(db, itemId, "Un nuovo messaggio nel frattempo");
+    const chatJob = job(projectId, { itemId, userMessageId, sessionId });
+    const runner = questionRunner(chatJob.id, QUESTION, { output: "" });
+
+    await runChatTurn(
+      makeDeps(db, { runner, askUserServerPath: await fakeAskUserEntry() }),
+      chatJob,
+      { itemId, userMessageId, sessionId },
+    );
+
+    // Ancora UNA sola domanda aperta: quella nuova non è passata.
+    expect(await questionsOf(db, itemId)).toHaveLength(1);
+    // Il turno non fallisce, ma non scrive una bolla assistant VUOTA (fase 7,
+    // review): il modello aveva già chiuso il turno per la domanda scartata,
+    // non per una risposta in prosa — niente da mostrare.
+    const msgs = await messagesOf(db, itemId);
+    expect(msgs.filter((m) => m.role === "assistant")).toHaveLength(0);
+  });
+
+  it("voce archiviata MENTRE il turno gira: nessuna domanda scritta, il turno non esplode (fase 7)", async () => {
+    const db = testDb.db;
+    const { projectId, repositoryId } = await createProjectWithRepo(db);
+    const itemId = await createItem(db, projectId);
+    const sessionId = await createSession(db, itemId, repositoryId);
+    const userMessageId = await addUserMessage(db, itemId, "Come dovremmo importare gli ordini?");
+    const chatJob = job(projectId, { itemId, userMessageId, sessionId });
+    // Lo stato è OPEN al controllo di inizio funzione (il turno non farebbe
+    // no-op), ma cambia MENTRE l'agente "gira" — simula un'archiviazione
+    // arrivata da un'altra richiesta nel mezzo dei minuti di un turno, la
+    // stessa forma della corsa già testata per l'ownership in triage.test.ts.
+    const runner = new FakeAgentRunner({
+      script: async () => {
+        await db.update(backlogItems).set({ status: "archived" }).where(eq(backlogItems.id, itemId));
+        await writeFile(
+          join(planParentDir(chatJob.id), ASK_USER_FILENAME),
+          JSON.stringify(QUESTION),
+        );
+        return { output: "", exitCode: 0, sessionId: "cli-q1" };
+      },
+    });
+
+    await runChatTurn(
+      makeDeps(db, { runner, askUserServerPath: await fakeAskUserEntry() }),
+      chatJob,
+      { itemId, userMessageId, sessionId },
+    );
+
+    // Nessuna riga in backlog_questions: l'INSERT...WHERE EXISTS non ha
+    // scritto nulla perché la voce non era più aperta AL MOMENTO dell'insert.
+    expect(await questionsOf(db, itemId)).toHaveLength(0);
+    // Il turno non fallisce, ma non scrive una bolla assistant VUOTA (fase 7,
+    // review): niente da mostrare, la domanda è stata scartata e l'agente
+    // non ha lasciato prosa.
+    const msgs = await messagesOf(db, itemId);
+    expect(msgs.filter((m) => m.role === "assistant")).toHaveLength(0);
+  });
+
+  it("il round cablato riflette le domande già poste sulla voce (round 2 dopo una prima)", async () => {
+    const db = testDb.db;
+    const { projectId, repositoryId } = await createProjectWithRepo(db);
+    const itemId = await createItem(db, projectId);
+    const sessionId = await createSession(db, itemId, repositoryId);
+    // Una domanda già risposta in precedenza: conta comunque per il round.
+    await db.insert(backlogQuestions).values({
+      backlogItemId: itemId,
+      question: "Prima domanda",
+      options: [{ label: "A" }, { label: "B" }],
+      answer: { optionIndex: 0 },
+      answeredAt: new Date(),
+    });
+    const userMessageId = await addUserMessage(db, itemId, "Seconda domanda del turno");
+    const chatJob = job(projectId, { itemId, userMessageId, sessionId });
+    const runner = new FakeAgentRunner({ results: [{ output: "ok", exitCode: 0 }] });
+
+    await runChatTurn(
+      makeDeps(db, { runner, askUserServerPath: await fakeAskUserEntry(), questionMaxRounds: 3 }),
+      chatJob,
+      { itemId, userMessageId, sessionId },
+    );
+
+    const call = runner.calls[0]!;
+    expect(call.mcpConfig?.servers.stubwise_ask?.env?.ASK_USER_ROUND).toBe("2");
+    expect(call.mcpConfig?.servers.stubwise_ask?.env?.ASK_USER_MAX_ROUNDS).toBe("3");
+  });
+
+  it("risposta a una domanda: il turno di ripresa usa --resume e porta la scelta nel prompt", async () => {
+    const db = testDb.db;
+    const { projectId, repositoryId } = await createProjectWithRepo(db);
+    const itemId = await createItem(db, projectId, { document: "## Contesto\nDOC" });
+    const sessionId = await createSession(db, itemId, repositoryId);
+    const mirrors = fakeMirrors();
+    const registry = createCodeSessionRegistry();
+
+    // Primo turno: pone la domanda e apre la sessione CLI.
+    const um1 = await addUserMessage(db, itemId, "Come dovremmo procedere?");
+    const firstJob = job(projectId, { itemId, userMessageId: um1, sessionId });
+    const askRunner = questionRunner(firstJob.id, QUESTION, { sessionId: "cli-open" });
+    const deps = makeDeps(db, { runner: askRunner, mirrors, registry, askUserServerPath: await fakeAskUserEntry() });
+    await runChatTurn(deps, firstJob, { itemId, userMessageId: um1, sessionId });
+    const [asked] = await questionsOf(db, itemId);
+
+    // La domanda viene risposta (come farebbe answerBacklogQuestion).
+    await db
+      .update(backlogQuestions)
+      .set({ answer: { optionIndex: 0 }, answeredAt: new Date() })
+      .where(eq(backlogQuestions.id, asked!.id));
+
+    // Turno di RIPRESA: payload con answeredQuestionId, non userMessageId.
+    const resumeRunner = new FakeAgentRunner({ results: [{ output: "Procedo con l'import CSV", exitCode: 0 }] });
+    const resumeDeps = makeDeps(db, { runner: resumeRunner, mirrors, registry, askUserServerPath: await fakeAskUserEntry() });
+    const resumeJob = job(projectId, { itemId, answeredQuestionId: asked!.id, sessionId });
+    await runChatTurn(resumeDeps, resumeJob, { itemId, answeredQuestionId: asked!.id, sessionId });
+
+    expect(mirrors.opens).toBe(1); // worktree riusato
+    const call = resumeRunner.calls[0]!;
+    expect(call.resumeSessionId).toBe("cli-open");
+    expect(call.prompt).toContain(QUESTION.question);
+    expect(call.prompt).toContain("Import CSV"); // l'etichetta scelta
+    expect(call.prompt).toContain("decisione CHIUSA");
+
+    const msgs = await messagesOf(db, itemId);
+    expect(msgs.some((m) => m.role === "assistant" && m.content === "Procedo con l'import CSV")).toBe(true);
+  });
+
+  it("risposta con ribootstrap (nessuna sessione CLI da riprendere): priming pieno con la Q&A come domanda corrente", async () => {
+    const db = testDb.db;
+    const { projectId, repositoryId } = await createProjectWithRepo(db);
+    const itemId = await createItem(db, projectId, { document: "## Contesto\nDOC_RIBOOT" });
+    const sessionId = await createSession(db, itemId, repositoryId);
+    // Domanda già posta e risposta, ma NESSUNA sessione CLI viva nel registro
+    // (come dopo un riavvio del worker: il worktree e la sessione sono persi).
+    const [asked] = await db
+      .insert(backlogQuestions)
+      .values({
+        backlogItemId: itemId,
+        question: "Serve un rollback?",
+        options: [{ label: "Sì" }, { label: "No" }],
+        answer: { optionIndex: 1 },
+        answeredAt: new Date(),
+      })
+      .returning();
+
+    const runner = new FakeAgentRunner({ results: [{ output: "Procedo senza rollback", exitCode: 0 }] });
+    const resumeJob = job(projectId, { itemId, answeredQuestionId: asked!.id, sessionId });
+
+    await runChatTurn(
+      makeDeps(db, { runner, registry: createCodeSessionRegistry() }),
+      resumeJob,
+      { itemId, answeredQuestionId: asked!.id, sessionId },
+    );
+
+    const call = runner.calls[0]!;
+    expect(call.resumeSessionId).toBeUndefined(); // priming pieno, non resume
+    expect(call.prompt).toContain("DOC_RIBOOT"); // contesto della voce incluso
+    expect(call.prompt).toContain("Serve un rollback?");
+    expect(call.prompt).toContain("No"); // l'etichetta scelta
   });
 });

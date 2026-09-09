@@ -33,6 +33,7 @@ import { mirrorSlug, MirrorManager, type MirrorProject } from "../git/mirrors.js
 import { GRAPHIFY_AGENT_ALLOWED_TOOLS, resolveRepoGraphJson } from "../graph/agent-hint.js";
 import type { ResolvedProvider } from "../providers/chain.js";
 import { isLimitError, ProviderLimitError } from "../providers/limit.js";
+import { generateFailureSummary } from "../summaries/failure-summary.js";
 import { generatePlanSummary } from "../summaries/plan-summary.js";
 import { openRunPlugins } from "../plugins/materialize-run.js";
 import {
@@ -40,11 +41,13 @@ import {
   clearCliSessionId,
   completeJob,
   failJob,
+  getJobLog,
   holdJob,
   parkForInput,
   parkForPlanApproval,
   recordAgentRun,
   touchJob,
+  writeFailureSummary,
   type AiJob,
 } from "../queue.js";
 import { getContentLanguage } from "../settings.js";
@@ -780,9 +783,17 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
   /** Riferimenti comuni a TUTTE le notifiche di questa fase: il fix conosce
    * progetto, ticket e job del run, e li porta su ogni evento. */
   const notifyRefs = { projectId: ticket.projectId, ticketId: ticket.id, jobId: job.id };
-  /** Notifica job.failed best-effort dopo il failJob (lo stato è già committato). */
-  const notifyFailed = (error: string): Promise<void> =>
-    notify(
+  /**
+   * Notifica job.failed best-effort dopo il failJob (lo stato è già
+   * committato), poi — SEMPRE DOPO, mai prima — il riassunto "in breve" del
+   * fallimento (fase 7, Task 9): best-effort quanto la notifica, e capace di
+   * girare per decine di secondi senza mai ritardarla, perché la notifica è
+   * già stata pubblicata quando il run del riassunto comincia. Vedi il
+   * docblock di `summaries/failure-summary.ts` per il perché del
+   * disaccoppiamento dalla forma di `plan_summary`/`pr_summary`.
+   */
+  const notifyFailed = async (error: string): Promise<void> => {
+    await notify(
       notifyDeps,
       db,
       {
@@ -795,6 +806,24 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
       },
       notifyRefs,
     );
+    try {
+      const log = await getJobLog(db, job.id);
+      const summary = await generateFailureSummary(
+        {
+          runner: deps.runner,
+          timeoutMs: deps.summaryTimeoutMs ?? DEFAULT_SUMMARY_TIMEOUT_MS,
+          ...(deps.summaryModel !== undefined ? { model: deps.summaryModel } : {}),
+          ...(deps.provider !== undefined ? { provider: deps.provider } : {}),
+          ...(deps.summariesEnabled !== undefined ? { enabled: deps.summariesEnabled } : {}),
+        },
+        { lang, ticketTitle: ticket.title, error, log },
+      );
+      if (summary) await writeFailureSummary(db, job.id, summary);
+    } catch {
+      // Best-effort: un riassunto (o la sua scrittura) che fallisce non deve
+      // mai propagare da qui — il fallimento è già registrato e notificato.
+    }
+  };
 
   /**
    * Percorso budget-held (Task 6): il job ha sforato un tetto di spesa e va

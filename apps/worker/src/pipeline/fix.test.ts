@@ -2065,6 +2065,88 @@ describe("runFix — notifiche", () => {
     expect(typeof calls[0]!.event.error).toBe("string");
   });
 
+  it("riassunto del fallimento (fase 7, Task 9): generato DOPO la notifica, scritto sul job", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    const ticket = await createTicket(db, fixture);
+    const job = await createFixingJob(db, ticket.id);
+    // 1° risultato consumato dal run del fix (nessuna fileChange → NoChangesError);
+    // 2° risultato consumato dal run del riassunto del fallimento, sullo STESSO
+    // runner iniettato — è il punto della fase 7: nessun secondo AgentRunner.
+    const runner = new FakeAgentRunner({
+      results: [
+        { output: "FAKE OK", exitCode: 0 },
+        { output: "  L'agente non ha trovato nulla da modificare.  ", exitCode: 0 },
+      ],
+    });
+    const provider = makeProvider();
+    const notifyOrder: string[] = [];
+
+    const outcome = await runFix(
+      makeDeps(fixture, runner, provider, {
+        twoPhase: false,
+        summariesEnabled: true,
+        publish: async (_db, event) => {
+          notifyOrder.push(`notify:${(event as { kind: string }).kind}`);
+          return { published: 1 };
+        },
+      }),
+      job,
+    );
+
+    expect(outcome).toBe("failed");
+    // ORDINE: la notifica job.failed è già stata pubblicata PRIMA che il run
+    // del riassunto (la 2ª chiamata al runner) cominci — è il motivo per cui
+    // un riassunto lento non ritarda mai la notifica.
+    expect(notifyOrder).toEqual(["notify:job.failed"]);
+    expect(runner.calls).toHaveLength(2);
+    expect(runner.calls[1]?.permissionMode).toBe("plan");
+
+    const jobAfter = await getJob(db, job.id);
+    expect(jobAfter.failureSummary).toBe("L'agente non ha trovato nulla da modificare.");
+  });
+
+  it("riassunto del fallimento spento di default → nessun run in più, failureSummary NULL", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    const ticket = await createTicket(db, fixture);
+    const job = await createFixingJob(db, ticket.id);
+    const runner = new FakeAgentRunner();
+    const provider = makeProvider();
+
+    const outcome = await runFix(makeDeps(fixture, runner, provider, { twoPhase: false }), job);
+
+    expect(outcome).toBe("failed");
+    expect(runner.calls).toHaveLength(1);
+    expect((await getJob(db, job.id)).failureSummary).toBeNull();
+  });
+
+  it("riassunto del fallimento: il runner lancia (timeout) → failureSummary NULL, il fallimento resta registrato", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    const ticket = await createTicket(db, fixture);
+    const job = await createFixingJob(db, ticket.id);
+    let call = 0;
+    const runner = new FakeAgentRunner({
+      script: () => {
+        call++;
+        if (call === 1) return { output: "FAKE OK", exitCode: 0 };
+        throw new AgentTimeoutError(120_000, "timeout del riassunto");
+      },
+    });
+    const provider = makeProvider();
+
+    const outcome = await runFix(
+      makeDeps(fixture, runner, provider, { twoPhase: false, summariesEnabled: true }),
+      job,
+    );
+
+    expect(outcome).toBe("failed");
+    const jobAfter = await getJob(db, job.id);
+    expect(jobAfter.status).toBe("failed");
+    expect(jobAfter.failureSummary).toBeNull();
+  });
+
   it("una publish che lancia non altera l'esito (best-effort)", async () => {
     const { db } = testDb;
     const fixture = await makeFixture();
@@ -2185,6 +2267,37 @@ describe("runFix — budget di costo (Task 6)", () => {
     expect(calls[0]!.event.limitUsd).toBe(10);
     expect(calls[0]!.event.spentUsd).toBe(12);
     expect(calls[0]!.event.ticketUrl).toBe(`https://stubwise.example.com/tickets/${ticket.id}`);
+  });
+
+  it("budget sforato CON riassunti accesi: nessun run del riassunto (held ≠ failed, notifyFailed non è mai chiamato)", async () => {
+    // Task 9: il caso che il riassunto del fallimento non deve MAI toccare —
+    // strutturalmente, non per un controllo esplicito che lo escluda: budgetHeld
+    // porta a `held`, non passa mai da `failJob`/`notifyFailed`. Qui lo si
+    // verifica con `summariesEnabled: true` (di norma spento nei test), per
+    // provare l'assenza del caso e non solo l'assenza del suo effetto.
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    await db
+      .update(instanceSettings)
+      .set({ monthlyBudgetUsd: "10" })
+      .where(eq(instanceSettings.id, 1));
+    const ticket = await createTicket(db, fixture, { type: "bug" });
+    const job = await createFixingJob(db, ticket.id);
+    const runner = new FakeAgentRunner({ fileChanges: fixChanges(fixture) });
+    const provider = makeProvider();
+
+    const outcome = await runFix(
+      makeDeps(fixture, runner, provider, {
+        summariesEnabled: true,
+        monthlyCostUsdFn: async () => 12,
+        ticketCostUsdFn: async () => 0,
+      }),
+      job,
+    );
+
+    expect(outcome).toBe("held");
+    expect(runner.calls).toHaveLength(0);
+    expect((await getJob(db, job.id)).failureSummary).toBeNull();
   });
 
   it("pre-fix oltre il tetto-TICKET → job held, notifica scope ticket, niente run né PR", async () => {

@@ -508,14 +508,19 @@ describe("POST /api/backlog/:id/refresh-document", () => {
     await testDb.db.insert(backlogChatMessages).values({ itemId, role: "user", content });
   }
 
-  it("member (non admin) → 403", async () => {
+  it("member (non admin) può consolidare la chat nel documento", async () => {
     const item = await insertItem();
+    await seedUserMessage(item.id);
+    streamOverride = async function* () {
+      yield okJson;
+    };
     const res = await app.inject({
       method: "POST",
       url: `/api/backlog/${item.id}/refresh-document`,
       headers: { cookie: memberCookie },
     });
-    expect(res.statusCode).toBe(403);
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { document: string }).document).toContain("Documento aggiornato");
   });
 
   it("404 se la voce non esiste", async () => {

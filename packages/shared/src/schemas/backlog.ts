@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { handledBySchema } from "./actor.js";
+import { agentQuestionAnswerSchema, inboxQuestionSchema } from "./notification.js";
 import { effortSchema, ticketPrioritySchema } from "./ticket.js";
 
 /**
@@ -77,16 +79,35 @@ export const backlogDeepDivePayloadSchema = z
 export type BacklogDeepDivePayload = z.infer<typeof backlogDeepDivePayloadSchema>;
 
 /**
- * Payload di un job `chat_turn`: la voce, l'id del messaggio utente che ha
- * innescato il turno e la SESSIONE di analisi in cui è stato posto. Il worker
- * risponde in QUELLA sessione (repo, cli_session_id), non nell'eventuale
- * sessione attiva al momento del dequeue: una chiusura+riapertura su un altro
- * repo nel frattempo non devia la risposta. Il CONTENUTO della domanda vive nel
- * messaggio persistito (`backlog_chat_messages`), non nel payload.
+ * Payload di un job `chat_turn`: DUE forme, per i due modi in cui un turno può
+ * nascere (fase 7). In entrambe, la voce e la SESSIONE di analisi in cui il
+ * worker deve rispondere (repo, cli_session_id) — non l'eventuale sessione
+ * attiva al momento del dequeue: una chiusura+riapertura su un altro repo nel
+ * frattempo non devia la risposta.
+ *
+ * - `userMessageId`: un nuovo messaggio dell'umano ha innescato il turno. Il
+ *   CONTENUTO vive nel messaggio persistito (`backlog_chat_messages`), non qui.
+ * - `answeredQuestionId`: l'umano ha risposto a una domanda che l'agente aveva
+ *   posto in un turno precedente (`backlog_questions`); il turno RIPRENDE la
+ *   sessione CLI portando la risposta, come `runPlanResume` fa per il fix
+ *   (`apps/worker/src/pipeline/fix.ts`). Nessun nuovo messaggio utente: la
+ *   domanda è già in chat (chi l'ha posta) e la risposta pure (chi l'ha data,
+ *   scritta da `answerBacklogQuestion`).
  */
-export const backlogChatTurnPayloadSchema = z
+export const backlogChatTurnUserPayloadSchema = z
   .object({ itemId: z.uuid(), userMessageId: z.uuid(), sessionId: z.uuid() })
   .strict();
+export type BacklogChatTurnUserPayload = z.infer<typeof backlogChatTurnUserPayloadSchema>;
+
+export const backlogChatTurnAnswerPayloadSchema = z
+  .object({ itemId: z.uuid(), answeredQuestionId: z.uuid(), sessionId: z.uuid() })
+  .strict();
+export type BacklogChatTurnAnswerPayload = z.infer<typeof backlogChatTurnAnswerPayloadSchema>;
+
+export const backlogChatTurnPayloadSchema = z.union([
+  backlogChatTurnUserPayloadSchema,
+  backlogChatTurnAnswerPayloadSchema,
+]);
 export type BacklogChatTurnPayload = z.infer<typeof backlogChatTurnPayloadSchema>;
 
 /** Payload di un job `estimate`: la voce di backlog da stimare a partire dal design. */
@@ -99,8 +120,10 @@ export type BacklogEstimatePayload = z.infer<typeof backlogEstimatePayloadSchema
  * colonna `payload` di `backlog_jobs` e validata al dequeue dal worker (un
  * payload che non combacia con nessuna forma → job fallito subito, senza retry).
  * La discriminazione resta per FORMA, non per `kind`: `deep_dive` è
- * `{itemId, repositoryId}` e `chat_turn` è `{itemId, userMessageId, sessionId}`,
- * forme distinte grazie a `.strict()`.
+ * `{itemId, repositoryId}` e `chat_turn` è l'union di
+ * `{itemId, userMessageId, sessionId}` (nuovo messaggio) e
+ * `{itemId, answeredQuestionId, sessionId}` (ripresa dopo una risposta, fase
+ * 7), tutte forme distinte grazie a `.strict()`.
  */
 export const backlogJobPayloadSchema = z.union([
   backlogIntakeFromTicketPayloadSchema,
@@ -286,6 +309,28 @@ export const backlogCodeSessionSchema = z.object({
 export type BacklogCodeSession = z.infer<typeof backlogCodeSessionSchema>;
 
 /**
+ * Domanda a bottoni sulla voce di backlog (fase 7), GEMELLA di
+ * `ticketQuestionSchema` (`notification.ts`) ma ancorata a `backlogItemId`
+ * invece che a `jobId`. Riusa la forma di {@link inboxQuestionSchema}
+ * (`questionId`, `question`, `options`, `recommendedIndex`, `allowFreeText`)
+ * PER COSTRUZIONE: è ciò che permette a `QuestionPanel` — già scritto per
+ * ospitare quella forma — di consumarla senza adattatori, dentro la bolla
+ * della chat del backlog invece che nella card d'inbox o nella pagina ticket.
+ *
+ * `dismissedAt` è l'unica aggiunta senza equivalente in `ticketQuestionSchema`:
+ * qui l'uscita "non ora" è un'uscita in più rispetto alla sola risposta.
+ */
+export const backlogQuestionSchema = inboxQuestionSchema.extend({
+  backlogItemId: z.uuid(),
+  askedAt: z.iso.datetime(),
+  answer: agentQuestionAnswerSchema.nullable(),
+  answeredAt: z.iso.datetime().nullable(),
+  answeredBy: handledBySchema.nullable(),
+  dismissedAt: z.iso.datetime().nullable(),
+});
+export type BacklogQuestion = z.infer<typeof backlogQuestionSchema>;
+
+/**
  * DETTAGLIO di una voce: la forma base più i ticket collegati, i messaggi di
  * chat e i flag di lavorazione in corso.
  */
@@ -300,6 +345,13 @@ export const backlogItemDetailSchema = backlogItemBaseSchema.extend({
   // True se esiste un job chat_turn queued/running per la voce (UI: "sta
   // investigando nel codice…" con polling).
   pendingTurn: z.boolean(),
+  // Domanda a bottoni ANCORA APERTA (fase 7), o null. Incorporata qui — non
+  // in una query a parte — perché il dettaglio è già polled adattivamente
+  // (`pendingTurn`): un turno che pone una domanda la fa comparire senza una
+  // seconda fonte da tenere sincronizzata. `.optional()` come `planSummary`
+  // nel dettaglio ticket: compatibilità verso un client compilato contro un
+  // server senza questa fase.
+  openQuestion: backlogQuestionSchema.nullable().optional(),
 });
 export type BacklogItemDetail = z.infer<typeof backlogItemDetailSchema>;
 
@@ -328,6 +380,17 @@ export const convertBacklogResultSchema = z.object({
   ticketNumber: z.number().int(),
 });
 export type ConvertBacklogResult = z.infer<typeof convertBacklogResultSchema>;
+
+/**
+ * Esito di `POST /api/backlog/:id/questions/:questionId/answer` e `/dismiss`:
+ * solo la voce toccata. A differenza del gemello sul ticket
+ * (`answerQuestionResultSchema`, che porta `jobId` perché la risposta rimette
+ * un job in coda) qui non c'è nulla da riprendere — il turno successivo della
+ * chat (Task 6) parte quando il worker rilegge la risposta, non da questa
+ * chiamata — quindi il client ha solo bisogno di sapere quale voce invalidare.
+ */
+export const backlogQuestionActionResultSchema = z.object({ backlogItemId: z.uuid() });
+export type BacklogQuestionActionResult = z.infer<typeof backlogQuestionActionResultSchema>;
 
 /**
  * Esito (202) di un turno di chat CON una sessione di analisi sul codice

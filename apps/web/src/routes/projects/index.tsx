@@ -1,12 +1,30 @@
 import { useState } from "react";
-import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
-import { postProject, type ProjectDraft } from "../../lib/api";
+import { postProject, type ProjectDraft, type ProjectPulseSummary } from "../../lib/api";
 import { meQueryOptions } from "../../lib/auth";
 import { formatRelativeTime } from "../../lib/format";
-import { projectQueryOptions, projectsQueryOptions } from "../../lib/queries";
+import { projectQueryOptions, projectsPulseQueryOptions, projectsQueryOptions } from "../../lib/queries";
 import { FormError, SubmitButton, TextField } from "../../components/field";
+import { PULSE_TONE_CLASS, pulseLineFor } from "../../lib/pulse-line";
+
+/**
+ * Riga di polso di un progetto (fase 7, Task 10): «cosa aspetta me» — la
+ * stessa sintesi che l'app mobile già mostra, qui in coda alla riga esistente
+ * del progetto, non al suo posto. Assente finché il polso non è arrivato (la
+ * query è best-effort, `useQuery` non-suspense: un errore o una latenza non
+ * deve bloccare né rompere la lista progetti, che è il dato che conta).
+ */
+function ProjectPulseLine({ summary }: { summary: ProjectPulseSummary }) {
+  const { t } = useTranslation();
+  const line = pulseLineFor(summary);
+  return (
+    <span className={`font-mono text-[11px] whitespace-nowrap ${PULSE_TONE_CLASS[line.tone]}`}>
+      {t(line.key, line.params)}
+    </span>
+  );
+}
 
 /**
  * Lista dei progetti (gruppi). Ogni progetto raggruppa uno o più repository; la
@@ -21,6 +39,11 @@ export function ProjectsPage() {
   const { data: projects } = useSuspenseQuery(projectsQueryOptions);
   const { data: me } = useSuspenseQuery(meQueryOptions);
   const isAdmin = me.user.role === "admin";
+  // Polso per progetto (fase 7, Task 10): best-effort, `undefined` finché non
+  // è arrivato o se la query fallisce — la riga di polso semplicemente non
+  // compare, la lista progetti resta comunque utilizzabile.
+  const { data: pulseSummaries } = useQuery(projectsPulseQueryOptions);
+  const pulseByProjectId = new Map((pulseSummaries ?? []).map((summary) => [summary.projectId, summary]));
 
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
@@ -126,6 +149,9 @@ export function ProjectsPage() {
                 <span className="font-mono text-[11px] tracking-[0.12em] text-fg-muted uppercase">
                   {t("projects:list.repositoryCount", { count: project.repositoryCount })}
                 </span>
+                {pulseByProjectId.has(project.id) && (
+                  <ProjectPulseLine summary={pulseByProjectId.get(project.id)!} />
+                )}
                 <span className="min-w-0 flex-1 truncate text-right font-mono text-[12px] text-fg-muted">
                   {project.description ?? ""}
                 </span>

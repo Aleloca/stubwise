@@ -46,7 +46,9 @@ import {
   patchTicket,
   postComment,
   postRunAi,
+  preApprovePlan,
   rejectPlan,
+  revokePlanApproval,
   type AnswerBody,
   type Ticket,
   type TicketPatch,
@@ -234,6 +236,24 @@ export function TicketDetailPage() {
     onSuccess: applyDetail,
   });
 
+  // Pre-approvazione del piano (fase 7): solo maintainer (il server risponde
+  // 403 a un operatore, come approve/reject-plan). Tornano il dettaglio
+  // completo — stessa forma del GET — quindi si scrive direttamente in cache
+  // con `applyDetail`, senza un refetch a parte per vedere "approvato da…".
+  const preApprovePlanMutation = useMutation({
+    mutationFn: () => preApprovePlan(id),
+    onSuccess: applyDetail,
+  });
+  const revokePlanApprovalMutation = useMutation({
+    mutationFn: () => revokePlanApproval(id),
+    onSuccess: applyDetail,
+  });
+  // Approvazione VALIDA in questo momento: c'è stata un'approvazione e il
+  // piano non è cambiato da allora (digest ancora combaciante — lo dice il
+  // server con `planApprovalStale`). Una voce mai approvata (`planApprovedAt`
+  // null) non è mai "scaduta": è solo assente.
+  const isPlanPreApproved = ticket.planApprovedAt != null && ticket.planApprovalStale !== true;
+
   const commentMutation = useMutation({
     mutationFn: (body: string) => postComment(id, body),
     onSuccess: () => {
@@ -419,7 +439,12 @@ export function TicketDetailPage() {
     <>
       {!isAdmin && (
         <p className="font-mono text-[11px] text-fg-muted">
-          {t("tickets:detail.memberRunHint")}
+          {/* Fase 7: con un piano pre-approvato dal maintainer il run di un
+              operatore non si ferma più sul gate — l'avviso lo dice, invece
+              di ripetere un blocco che non ci sarà. */}
+          {isPlanPreApproved
+            ? t("tickets:detail.memberRunHintPreApproved")
+            : t("tickets:detail.memberRunHint")}
         </p>
       )}
       {runAiMutation.data?.status === "awaiting_plan_approval" && (
@@ -534,16 +559,66 @@ export function TicketDetailPage() {
           <section aria-label={t("tickets:detail.plan")}>
             <div className="mb-3 flex items-center justify-between gap-3">
               <h2 className={sectionTitleBase}>{t("tickets:detail.plan")}</h2>
-              {!isClosed && ticket.implementationPlan !== null && (
-                <ConfirmDeleteButton
-                  label={t("tickets:detail.deletePlan")}
-                  confirmLabel={t("tickets:detail.confirmRemove")}
-                  confirmAria={t("tickets:detail.deletePlanConfirmAria")}
-                  pending={deletePlanMutation.isPending}
-                  onConfirm={() => deletePlanMutation.mutate()}
-                />
-              )}
+              <div className="flex items-center gap-3">
+                {/* Pre-approvazione del piano (fase 7): solo maintainer, solo
+                    con un piano presente. "Approva in anticipo" quando non
+                    c'è un'approvazione valida in questo momento (mai
+                    approvato, o approvato ma poi scaduto perché il piano è
+                    cambiato); "Revoca" quando ce n'è una. Le due azioni sono
+                    mutuamente esclusive per costruzione (isPlanPreApproved). */}
+                {isAdmin && !isClosed && ticket.implementationPlan !== null && (
+                  <button
+                    type="button"
+                    disabled={preApprovePlanMutation.isPending || revokePlanApprovalMutation.isPending}
+                    onClick={() =>
+                      isPlanPreApproved
+                        ? revokePlanApprovalMutation.mutate()
+                        : preApprovePlanMutation.mutate()
+                    }
+                    className="rounded-sm border border-line-strong px-2.5 py-1 font-mono text-[11px] tracking-[0.08em] text-fg-muted uppercase transition-colors hover:text-fg disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {isPlanPreApproved
+                      ? revokePlanApprovalMutation.isPending
+                        ? t("tickets:detail.revokingPreApproval")
+                        : t("tickets:detail.revokePreApproval")
+                      : preApprovePlanMutation.isPending
+                        ? t("tickets:detail.preApprovingPlan")
+                        : t("tickets:detail.preApprovePlan")}
+                  </button>
+                )}
+                {!isClosed && ticket.implementationPlan !== null && (
+                  <ConfirmDeleteButton
+                    label={t("tickets:detail.deletePlan")}
+                    confirmLabel={t("tickets:detail.confirmRemove")}
+                    confirmAria={t("tickets:detail.deletePlanConfirmAria")}
+                    pending={deletePlanMutation.isPending}
+                    onConfirm={() => deletePlanMutation.mutate()}
+                  />
+                )}
+              </div>
             </div>
+            {/* Stato della pre-approvazione: visibile a chiunque (anche
+                l'operatore, a cui dice se il SUO run partirà davvero), non
+                solo al maintainer che la concede. Nessuna riga se il piano
+                non è mai stato approvato — "assente" non è "scaduto". */}
+            {ticket.planApprovedAt != null && (
+              <p className="mb-3 font-mono text-[11px] text-fg-muted">
+                {isPlanPreApproved
+                  ? t("tickets:detail.planApprovedStatus", {
+                      name: ticket.planApprovedBy?.email ?? t("tickets:detail.planApprovedByUnknown"),
+                      date: formatDateTime(ticket.planApprovedAt),
+                    })
+                  : t("tickets:detail.planApprovalStaleStatus")}
+              </p>
+            )}
+            {(preApprovePlanMutation.isError || revokePlanApprovalMutation.isError) && (
+              <p role="alert" className="mb-3 font-mono text-[11px] text-danger">
+                {translateApiError(
+                  (preApprovePlanMutation.error ?? revokePlanApprovalMutation.error)!,
+                  t,
+                )}
+              </p>
+            )}
             {/*
               RIASSUNTO "IN BREVE" (fase 5): le stesse frasi non tecniche che la
               card d'inbox mostra sopra Approva/Rifiuta, qui sopra il piano.

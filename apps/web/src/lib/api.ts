@@ -14,6 +14,7 @@ import type {
   BacklogItemStatus,
   BacklogLinkedTicket,
   BacklogMessage,
+  BacklogQuestion,
   BacklogRisk,
   BacklogSimilarRef,
   BacklogSuggested,
@@ -56,6 +57,7 @@ import type {
   ProjectDecision,
   ProjectFollows,
   ProjectPlugin,
+  ProjectPulseSummary,
   ProjectTimeline,
   ProjectTimelineEntry,
   ProjectTimelineKind,
@@ -162,7 +164,7 @@ export type {
 };
 // Ri-esportata dal binding locale (usata anche nelle interfacce del backlog qui
 // sotto): i consumatori la importano da "./api" come gli altri tipi di dominio.
-export type { BacklogSuggested };
+export type { BacklogSuggested, BacklogQuestion };
 
 /**
  * Il client HTTP della SPA: il trasporto vive in `@stubwise/api-client`, che la
@@ -730,6 +732,23 @@ export function rejectPlan(
   body?: { instructions?: string },
 ): Promise<{ jobId: string }> {
   return api.post(`/api/tickets/${ticketId}/reject-plan`, body);
+}
+
+/**
+ * Approva IN ANTICIPO il piano CORRENTE del ticket (fase 7): da qui in poi un
+ * operatore (member) può farlo partire senza fermarsi sul gate — finché il
+ * piano non cambia (il digest approvato decade da solo). Solo maintainer.
+ * 409 `no_plan` se il ticket non ha un piano da approvare. Torna il dettaglio
+ * ticket aggiornato (stessa forma del GET), così la UI non deve rifare il
+ * fetch per mostrare "approvato da {nome} il {data}".
+ */
+export function preApprovePlan(ticketId: string): Promise<Ticket> {
+  return api.post(`/api/tickets/${ticketId}/pre-approve-plan`);
+}
+
+/** Revoca la pre-approvazione del piano. Idempotente. Solo maintainer. */
+export function revokePlanApproval(ticketId: string): Promise<Ticket> {
+  return api.delete(`/api/tickets/${ticketId}/pre-approve-plan`);
 }
 
 /** Consumo aggregato di un singolo modello sui job AI del ticket. */
@@ -1326,6 +1345,17 @@ export function getProject(projectId: string): Promise<ProjectDetail> {
 export function postProject(draft: ProjectDraft): Promise<Project> {
   return api.post("/api/projects", draft);
 }
+
+/**
+ * Polso di ogni progetto per il viewer che chiama (fase 7, Task 10): un
+ * `member` vede solo i progetti che segue, un `admin` li vede tutti (lo
+ * decide il server). Alimenta la vista «cosa aspetta me» sulla lista
+ * progetti — vedi `lib/pulse-line.ts` per il testo da questo array.
+ */
+export function getProjectsPulse(): Promise<ProjectPulseSummary[]> {
+  return api.get("/api/projects/pulse");
+}
+export type { ProjectPulseSummary };
 
 /**
  * Timeline di progetto (Fase 5): milestone, ticket, PR, report giornalieri,
@@ -3067,6 +3097,38 @@ export function mergeBacklogItem(id: string, targetId: string): Promise<BacklogI
 /** Accoda un deep dive sul repository scelto (202); 409 se già in corso. */
 export function requestDeepDive(id: string, repositoryId: string): Promise<{ queued: true }> {
   return api.post(`/api/backlog/${encodeURIComponent(id)}/deep-dive`, { repositoryId });
+}
+
+/**
+ * Q&A della chat del backlog (fase 7), in ordine cronologico: la domanda
+ * APERTA (a cui `QuestionPanel` risponde, dentro la conversazione) e quelle
+ * già chiuse — risposte o "non ora" (`dismissedAt`). Gemella di
+ * `getTicketQuestions`.
+ */
+export function getBacklogQuestions(id: string): Promise<BacklogQuestion[]> {
+  return api.get(`/api/backlog/${encodeURIComponent(id)}/questions`);
+}
+
+/**
+ * Risposta a una domanda della chat del backlog. A differenza del gemello sul
+ * ticket non torna un `jobId`: qui non c'è nulla da riprendere da QUESTA
+ * chiamata — il turno di ripresa (se la voce ha ancora una sessione di
+ * analisi attiva) lo accoda il server, il worker lo esegue da sé.
+ */
+export function answerBacklogQuestion(
+  id: string,
+  questionId: string,
+  answer: AnswerBody,
+): Promise<{ backlogItemId: string }> {
+  return api.post(`/api/backlog/${encodeURIComponent(id)}/questions/${encodeURIComponent(questionId)}/answer`, answer);
+}
+
+/** "Non ora": chiude la domanda SENZA rispondere, lasciando la conversazione libera. */
+export function dismissBacklogQuestion(
+  id: string,
+  questionId: string,
+): Promise<{ backlogItemId: string }> {
+  return api.post(`/api/backlog/${encodeURIComponent(id)}/questions/${encodeURIComponent(questionId)}/dismiss`);
 }
 
 /** Sintetizza la chat nel documento della voce (one-shot). */

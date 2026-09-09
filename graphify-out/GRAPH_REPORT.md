@@ -1,27 +1,27 @@
-# Graph Report - phase6c-mail-admission  (2026-09-08)
+# Graph Report - phase7-guided-workflow  (2026-09-09)
 
 ## Corpus Check
-- 1370 files · ~2,073,353 words
+- 1392 files · ~2,109,291 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 11384 nodes · 20666 edges · 553 communities (490 shown, 63 thin omitted)
+- 11555 nodes · 20997 edges · 561 communities (501 shown, 60 thin omitted)
 - Extraction: 99% EXTRACTED · 1% INFERRED · 0% AMBIGUOUS · INFERRED: 273 edges (avg confidence: 0.75)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `dd711104`
+- Built from commit: `ebf76d23`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
 ## Community Hubs (Navigation)
-- app.ts
+- fixtures.ts
 - tokens.ts
 - activity.tsx
 - src/provider.ts
-- activity-feed.tsx
-- zod
-- backlog/poller.ts
+- backlog-chat.tsx
+- app.ts
+- chat-turn.ts
 - mobile/src/i18n/index.ts
 - router.tsx
 - orient-handler.ts
@@ -31,21 +31,21 @@
 - field.tsx
 - lib/api.ts
 - runner.ts
-- chat-turn.ts
+- intake.ts
 - fix.ts
-- routes.test.ts
+- attachment-list.tsx
 - schema.ts
-- limit-resume-poller.ts
+- worker/src/index.ts
 - backlog/$id.tsx
 - server-admin.tsx
-- product-handler.ts
+- processor.ts
 - widgets-section.tsx
 - smoke.ts
 - briefs/poller.ts
 - routes/projects.ts
 - docs/package.json
 - webhooks.test.ts
-- repository-form.test.tsx
+- deep-dive.ts
 - routes/widget.test.ts
 - questions.ts
 - google.ts
@@ -54,10 +54,10 @@
 - schema.test.ts
 - schemas/server.ts
 - pulse/poller.ts
-- services/plugins.ts
+- isUniqueViolation
 - api-client/src/client.ts
 - devDependencies
-- fetch.ts
+- app-layout.tsx
 - contract.ts
 - run-review.ts
 - fix.test.ts
@@ -65,22 +65,22 @@
 - MirrorManager
 - main.ts
 - grow.ts
-- auto-update.ts
+- auto-update.test.ts
 - node.ts
-- web/src/lib/format.ts
+- usage.tsx
 - browser.ts
 - dependencies
 - mail.tsx
 - alerts.ts
-- src/docs-retrieval.ts
+- db/src/index.ts
 - devDependencies
 - brief.ts
-- roadmap-schema.test.ts
+- Db
 - core/client.ts
 - docs-space.test.tsx
 - docs/$projectId.tsx
 - proposal.ts
-- widget-conversations.tsx
+- projects/$projectId.tsx
 - dependencies
 - google-proposal.ts
 - deliveries-poller.ts
@@ -91,7 +91,7 @@
 - devDependencies
 - mcp/package.json
 - routes/docs.ts
-- graph-chat/client.ts
+- graph-chat/client.test.ts
 - Fase 4 — Worker AI
 - graph.$projectId.tsx
 - StubwiseClient
@@ -121,7 +121,7 @@
 - schemas/docs.ts
 - AgentRunner
 - routes/settings.ts
-- projects/$projectId.tsx
+- web/src/lib/format.ts
 - write.ts
 - routes/tickets.test.ts
 - Stubwise
@@ -140,12 +140,12 @@
 - src/dispatch.test.ts
 - shared/package.json
 - widget/package.json
-- testing.ts
+- docs-schema.test.ts
 - slack-client.ts
 - server-detail.test.tsx
 - Motore documentazione ricorsivo a DAG — Implementation Plan
-- LoginScreen.tsx
-- usage-poller.ts
+- docs-tree.tsx
+- usage-parser.ts
 - docker.ts
 - Fase 3 — Registro plugin/skill — Piano di implementazione
 - ticket.ts
@@ -155,20 +155,20 @@
 - services/inbox.ts
 - activity.test.tsx
 - plugin.ts
-- board.test.tsx
+- docs-chat.tsx
 - setup-pr.test.ts
 - notification.ts
 - docs-engine/package.json
 - embeddings/package.json
 - src/format.test.ts
 - widget.tsx
-- notifications-section.tsx
+- plugins-section.tsx
 - Redesign UX/UI della sezione Docs — Piano di implementazione
 - graph/poller.test.ts
 - write.test.ts
 - sdk/package.json
 - sse.ts
-- project-plugins-section.tsx
+- blast-radius.ts
 - usage-costs.ts
 - Brief per Claude Design — app mobile Stubwise
 - db/package.json
@@ -183,7 +183,7 @@
 - s3.test.ts
 - web/package.json
 - navigation.tsx
-- worker/src/index.ts
+- $slug.tsx
 - Loop di feedback AI — Implementation Plan
 - providers.tsx
 - disk.ts
@@ -194,15 +194,15 @@
 - lib/push.ts
 - project-docs.test.tsx
 - widget-conversations.test.tsx
-- db/src/index.ts
-- db/tickets.ts
+- backlog-questions.ts
+- schemas/ingest.ts
 - dotenv.ts
 - shared/src/index.ts
 - chat.tsx
 - ask-user-mcp/server.ts
-- Timeline.tsx
+- WorkScreen.tsx
 - docs.test.tsx
-- repositories.test.tsx
+- projects.test.tsx
 - Fase 6b — Un'email, più progetti: piano di implementazione
 - RingBuffer
 - ingest-client.test.ts
@@ -312,7 +312,7 @@
 - main.test.ts
 - Fase 2 — Pulse proattivo
 - @stubwise/worker
-- slack-section.test.tsx
+- auto-update.ts
 - Stubwise
 - Feature 5 — Allegati (S3) + screenshot SDK — Implementation Plan
 - Identità Slack sui membri + avatar + invito da Slack — Implementation Plan
@@ -357,7 +357,7 @@
 - backlog.md
 - server/package.json
 - materialize-run.ts
-- docs-repo-overview.tsx
+- questions.test.ts
 - Feature 1 — Activity feed + audit — Implementation Plan
 - Feature 3 — Ricerca full-text — Implementation Plan
 - Auto-aggiornamento Docs — Fase 2 (Rigenerazione mirata) — Piano
@@ -400,34 +400,34 @@
 - api-client/package.json
 - @stubwise/mobile
 - src/project-timeline.ts
-- app-layout.tsx
+- global-search-palette.tsx
 - @fastify/multipart
 - project-pulse-summary.ts
 - read.test.ts
 - fflate
-- useAuth
+- work-mutations.ts
 - @stubwise/db
 - roadmap-briefs-decisions.md
 - relay-client.ts
 - .changeset/README.md
 - extraction-spec.md
-- plugins-section.tsx
+- pulse.test.ts
 - push/config.ts
 - ASK_USER_MCP_SERVER_KEY
 - apns.ts
-- plugins/queue.test.ts
+- Fase 7 — fix di review prima del merge
 - routes/tickets.ts
-- google.test.ts
+- webhooks.ts
 - src/reader.ts
 - DocsScreen.tsx
-- pulse-line.ts
+- mobile/src/lib/pulse-line.ts
 - push-relay/src/server.test.ts
 - materialize-run.test.ts
 - Fase 4 — fix di review prima del merge
 - google-workspaces-section.tsx
 - pure.test.ts
 - uplot-chart.tsx
-- inbox-sections.test.ts
+- InboxScreen.tsx
 - backlog/index.test.tsx
 - brief.$projectId.tsx
 - computeTotal
@@ -458,15 +458,15 @@
 - Fase 4 — App mobile (React Native bare)
 - scripts
 - fcm.test.ts
-- isUniqueViolation
-- usage-snapshots.ts
+- schemas/activity.ts
+- fastify
 - google-schema.test.ts
 - MainActivity
 - saved-views.tsx
 - metro.config.js
 - publish.test.ts
 - me-mail.ts
-- push-relay/src/config.test.ts
+- Fase 7 — Workflow guidato: piano di implementazione
 - Fase 6 — fix di review prima del merge
 - MainApplication
 - mobile/package.json
@@ -474,7 +474,6 @@
 - react-native-markdown-display
 - auth.test.ts
 - mobile-app.md
-- @fastify/swagger
 - google/poller.test.ts
 - execa
 - gradlew
@@ -483,13 +482,12 @@
 - react-native-markdown-display.d.ts
 - @stubwise/api-client
 - react-native-keychain
-- @fontsource/ibm-plex-mono
-- questions.test.ts
+- docs-summary.ts
 - email-routing.ts
-- services/inbox.test.ts
+- web/src/lib/pulse-line.ts
 - google/calendar.test.ts
-- google-proposal.test.ts
-- @fontsource-variable/ibm-plex-sans
+- createTicket
+- servers-checks.ts
 - mail.test.tsx
 - affected-pages.ts
 - docs-editing.test.tsx
@@ -499,7 +497,7 @@
 - @stubwise/shared
 - devDependencies
 - google-workspace.md
-- @testing-library/react
+- metrics-charts.tsx
 - Fase 6b — Un'email, più progetti
 - Fase 5 — fix di review prima del merge
 - plugins-section.test.tsx
@@ -508,10 +506,12 @@
 - releases.ts
 - Fase 6 — Gmail e Calendar
 - google-accounts-section.test.tsx
+- repositories-new-standalone.test.tsx
 - Fase 6c — Ammissione separata dall'attribuzione
+- repositories.test.tsx
 - gmail-calendar.md
 - @react-navigation/native
-- fastify
+- projects/index.test.tsx
 - worker/package.json
 - @stubwise/mobile
 - @stubwise/push-relay
@@ -527,29 +527,36 @@
 - @react-native-community/cli
 - @react-native-community/cli-platform-android
 - @types/jest
+- errText
 - @modelcontextprotocol/sdk
 - @stubwise/git
 - @stubwise/google
 - zod
-- account.test.tsx
 - @modelcontextprotocol/sdk
 - node-pty
 - @stubwise/i18n
 - @stubwise/shared
 - zod
-- schemas/activity.ts
+- embed.ts
+- Fase 6c — fix di review prima del merge
 - Http2StreamLike
+- no-code-workflow.md
+- use-view-ping.ts
+- project-servers.test.tsx
+- Fase 7 — Workflow guidato web per non-tecnici
+- docs-summary.test.ts
+- argon2
 
 ## God Nodes (most connected - your core abstractions)
-1. `zod` - 112 edges
+1. `zod` - 113 edges
 2. `buildApp()` - 101 edges
 3. `apiError()` - 91 edges
-4. `requireAuth()` - 64 edges
-5. `AgentRunner` - 63 edges
-6. `createAppRouter()` - 59 edges
+4. `AgentRunner` - 65 edges
+5. `requireAuth()` - 64 edges
+6. `createAppRouter()` - 61 edges
 7. `MirrorManager` - 56 edges
-8. `ResolvedProvider` - 50 edges
-9. `requireAdmin()` - 49 edges
+8. `ResolvedProvider` - 52 edges
+9. `requireAdmin()` - 47 edges
 10. `colors` - 46 edges
 
 ## Surprising Connections (you probably didn't know these)
@@ -567,107 +574,107 @@
 ## Import Cycles
 - None detected.
 
-## Communities (553 total, 63 thin omitted)
+## Communities (561 total, 60 thin omitted)
 
-### Community 0 - "app.ts"
+### Community 0 - "fixtures.ts"
 Cohesion: 0.01
-Nodes (85): app, here, outPath, spec, buildApp(), fastify, redactGoogleOauthCallbackUrl(), capturingApp() (+77 more)
+Nodes (67): GraphMcpClientOptions, GraphMcpLogger, QueryGraphParams, ENCRYPTION_KEY, basePayload, ENCRYPTION_KEY, ENCRYPTION_KEY, exportUrl() (+59 more)
 
 ### Community 1 - "tokens.ts"
 Cohesion: 0.06
-Nodes (72): BacklogStackParamList, ProjectsStackParamList, GhostButton(), styles, isUsable(), QuestionSheet(), QuestionSheetProps, styles (+64 more)
+Nodes (70): AuthStackParamList, BacklogStackParamList, ProjectsStackParamList, GhostButton(), styles, isUsable(), QuestionSheet(), QuestionSheetProps (+62 more)
 
 ### Community 2 - "activity.tsx"
 Cohesion: 0.03
-Nodes (59): ComboboxPicker(), PickerFreeText, PickerLabels, classifySender(), ObservedLabelsPicker(), ProjectEmailRoutesSection(), fetchMock, Handler (+51 more)
+Nodes (57): ComboboxPicker(), PickerFreeText, PickerLabels, classifySender(), ObservedLabelsPicker(), ProjectEmailRoutesSection(), fetchMock, Handler (+49 more)
 
 ### Community 3 - "src/provider.ts"
 Cohesion: 0.06
 Nodes (35): BitbucketProvider, BitbucketPrResponse, account, config, credentials, prResponseBody, GitHubProvider, account (+27 more)
 
-### Community 4 - "activity-feed.tsx"
-Cohesion: 0.04
-Nodes (64): ActivityFeedProps, actorName(), AiJobItem(), AuthorInfo, CommentItem(), describeEvent(), EventItem(), fromTo() (+56 more)
+### Community 4 - "backlog-chat.tsx"
+Cohesion: 0.07
+Nodes (37): BacklogChat(), ChatBubble, ChatMessage, fromHistory(), fromServerMessage(), isReconciliation(), parseSourceTitles(), SignalBadge() (+29 more)
 
-### Community 5 - "zod"
+### Community 5 - "app.ts"
 Cohesion: 0.02
-Nodes (182): hashPassword(), verifyPassword(), createSession(), deleteSession(), fastify, FastifyRequest, findPatUser(), findSessionUser() (+174 more)
+Nodes (203): app, here, outPath, spec, buildApp(), fastify, redactGoogleOauthCallbackUrl(), capturingApp() (+195 more)
 
-### Community 6 - "backlog/poller.ts"
-Cohesion: 0.04
-Nodes (55): ChatTurnPollerDeps, chatTurnStaleMinutes(), completeChatTurnJob(), errText(), failChatTurnJob(), pollChatTurnsOnce(), processChatTurnJob(), recoverStaleChatTurnJobs() (+47 more)
+### Community 6 - "chat-turn.ts"
+Cohesion: 0.03
+Nodes (94): credentialsSchema, insertErrorMessage(), isUniqueViolation(), loadMirrorProject(), loadRecentHistory(), ChatTurnPollerDeps, chatTurnStaleMinutes(), completeChatTurnJob() (+86 more)
 
 ### Community 7 - "mobile/src/i18n/index.ts"
 Cohesion: 0.04
-Nodes (33): AuthContext, AuthContextValue, AuthState, AuthStatus, QUESTION, ITEM_A, ITEM_B, StoredSession (+25 more)
+Nodes (37): AuthContext, AuthContextValue, AuthState, AuthStatus, QUESTION, mergeBacklogPages(), ITEM_A, ITEM_B (+29 more)
 
 ### Community 8 - "router.tsx"
-Cohesion: 0.02
-Nodes (86): GitAccountsSection(), RouteError(), renderWithFailingLoader(), getRepositories(), setupStatusQueryOptions, DocSpace, backlogInfiniteQueryOptions(), boardTicketsQueryOptions() (+78 more)
+Cohesion: 0.03
+Nodes (94): AuthShell(), AuthShellProps, RouteError(), renderWithFailingLoader(), Wordmark(), getMe(), getRepositories(), getSetupStatus() (+86 more)
 
 ### Community 9 - "orient-handler.ts"
 Cohesion: 0.04
-Nodes (56): DeepDiveContext, ProjectContext, GenerationWorktree, openGenerationWorktree(), resolveHeadSha(), cleanups, git(), makeUpstream() (+48 more)
+Nodes (69): DeepDiveContext, ProjectContext, GenerationWorktree, openGenerationWorktree(), resolveHeadSha(), cleanups, git(), makeUpstream() (+61 more)
 
 ### Community 10 - "google/src/index.ts"
-Cohesion: 0.08
-Nodes (54): CalendarEventsPage, dateSchema, eventSchema, eventsListSchema, GoogleCalendarEvent, listEvents(), ListEventsInput, toDate() (+46 more)
+Cohesion: 0.06
+Nodes (74): CalendarEventsPage, dateSchema, eventSchema, eventsListSchema, GoogleCalendarEvent, listEvents(), ListEventsInput, EMPTY (+66 more)
 
 ### Community 11 - "project-docs.ts"
 Cohesion: 0.04
-Nodes (82): BuildAppOptions, FastifyInstance, GraphMcpClient, appendGraphContext(), blockForRepo(), buildGraphContextBlock(), fenceFor(), GRAPHABLE_COLUMNS (+74 more)
+Nodes (71): FastifyInstance, GraphMcpClient, appendGraphContext(), blockForRepo(), buildGraphContextBlock(), fenceFor(), GRAPHABLE_COLUMNS, GraphableRepo (+63 more)
 
 ### Community 12 - "badges.tsx"
 Cohesion: 0.03
-Nodes (66): BACKLOG_RISK_CLASS, BACKLOG_RISK_LABEL_KEYS, BACKLOG_STATUS_DOT, BACKLOG_STATUS_LABEL_KEYS, BacklogEffortBadge(), BacklogRiskBadge(), BacklogStatusBadge(), PR_STATE_CLASS (+58 more)
+Nodes (81): BACKLOG_RISK_CLASS, BACKLOG_RISK_LABEL_KEYS, BACKLOG_STATUS_DOT, BACKLOG_STATUS_LABEL_KEYS, BacklogEffortBadge(), BacklogRiskBadge(), BacklogStatusBadge(), PR_STATE_CLASS (+73 more)
 
 ### Community 13 - "field.tsx"
 Cohesion: 0.03
-Nodes (88): ACCEPT, AttachmentUpload(), AttachmentUploadProps, AuthShell(), AuthShellProps, PROVIDER_LABELS, ProviderBadge(), BranchSelect() (+80 more)
+Nodes (87): PROVIDER_LABELS, BranchSelect(), BranchSelectProps, fetchMock, Handler, buildCredentials(), CredentialChecks(), CredentialFields() (+79 more)
 
 ### Community 14 - "lib/api.ts"
 Cohesion: 0.02
-Nodes (139): ActivityFeed(), answerErrorMessage(), CREATABLE_KINDS, LinkPicker(), RELATION_LABEL_KEYS, TicketLinks(), TicketLinksProps, AccountBranches (+131 more)
+Nodes (133): ActivityFeed(), ConfirmDeleteButton(), CREATABLE_KINDS, LinkPicker(), RELATION_LABEL_KEYS, TicketLinks(), TicketLinksProps, AccountBranches (+125 more)
 
 ### Community 15 - "runner.ts"
 Cohesion: 0.05
-Nodes (41): asRecord(), buildAgentEnv(), ClaudeCliRunner, ClaudeCliRunnerOptions, ENV_ALLOWLIST, ENV_ALLOWLIST_PREFIXES, ENV_DENYLIST, extractUsage() (+33 more)
+Nodes (42): asRecord(), buildAgentEnv(), ClaudeCliRunner, ClaudeCliRunnerOptions, ENV_ALLOWLIST, ENV_ALLOWLIST_PREFIXES, ENV_DENYLIST, extractUsage() (+34 more)
 
-### Community 16 - "chat-turn.ts"
-Cohesion: 0.03
-Nodes (73): loadRuntime(), credentialsSchema, insertErrorMessage(), loadMirrorProject(), loadRecentHistory(), runChatTurn(), applyDeepDive(), credentialsSchema (+65 more)
+### Community 16 - "intake.ts"
+Cohesion: 0.05
+Nodes (54): capText(), outputOrThrow(), parseAgentJson(), runAgentText(), RunAgentTextOptions, textFromRun(), EstimateOutput, estimateOutputSchema (+46 more)
 
 ### Community 17 - "fix.ts"
-Cohesion: 0.03
-Nodes (114): AgentRunError, AskUserPayload, holdAllProvidersLimited(), holdJobWithReason(), processJob(), runJobWithProvider(), askUserServerPath(), readAskUserQuestion() (+106 more)
+Cohesion: 0.04
+Nodes (81): AskUserPayload, HandlerDeps, holdAllProvidersLimited(), holdJobWithReason(), processJob(), runJobWithProvider(), LoadedEnvFile, loadProjectEnvFiles() (+73 more)
 
-### Community 18 - "routes.test.ts"
-Cohesion: 0.05
-Nodes (22): BuildDocsQueryModalInput, DOCS_ACTION_IDS, DOCS_BLOCK_IDS, DocsModalProject, createGitAccount(), createProject(), createProjectGroup(), createRepoInProject() (+14 more)
+### Community 18 - "attachment-list.tsx"
+Cohesion: 0.08
+Nodes (22): AttachmentCard(), AttachmentList(), AttachmentListProps, fileExtension(), fetchMock, imageAttachment, pdfAttachment, ACCEPT (+14 more)
 
 ### Community 19 - "schema.ts"
 Cohesion: 0.03
 Nodes (78): activityReportStatus, AgentQuestion, aiJobStatus, aiProviderKind, aiProviderTestStatus, aiUsageSource, backlogChatMessages, backlogCodeSessions (+70 more)
 
-### Community 20 - "limit-resume-poller.ts"
-Cohesion: 0.14
-Nodes (10): buildSnapshotIndex(), errText(), hasHeadroom(), LatestSnapshot, parseWindow(), pollLimitResumeOnce(), startLimitResumePoller(), StartLimitResumePollerOptions (+2 more)
+### Community 20 - "worker/src/index.ts"
+Cohesion: 0.05
+Nodes (34): envSchema, loadWorkerConfig(), VALID, WorkerConfig, resumeGeneration(), backlogLogger, backlogWorkDir, codeSessionRegistry (+26 more)
 
 ### Community 21 - "backlog/$id.tsx"
-Cohesion: 0.08
-Nodes (29): ConfirmDeleteButton(), acceptSuggested(), api, convertBacklogItem(), deleteBacklogDesign(), deleteBacklogPlan(), dismissSuggested(), getBacklogItem() (+21 more)
+Cohesion: 0.07
+Nodes (36): deriveNextStep(), NEXT_STEP_BY_WORK_STATE, NextStepInput, NextStepKind, fetchMock, jsonResponse(), mockApi(), WorkNextStep() (+28 more)
 
 ### Community 22 - "server-admin.tsx"
-Cohesion: 0.04
-Nodes (68): Drawer(), DrawerProps, ProjectServersSection(), ServerCard(), STATUS_DOT, createPat(), createServer(), createServerCheck() (+60 more)
+Cohesion: 0.05
+Nodes (57): Drawer(), DrawerProps, ProjectServersSection(), ServerCard(), STATUS_DOT, createPat(), createServer(), createServerCheck() (+49 more)
 
-### Community 23 - "product-handler.ts"
-Cohesion: 0.12
-Nodes (24): AgentTimeoutError, auditPageBody(), AuditResult, bumpGenerationCost(), bumpNodeCost(), eligibleSurfaces(), functionalNodeCovers(), functionalNodesFor() (+16 more)
+### Community 23 - "processor.ts"
+Cohesion: 0.05
+Nodes (60): maybeEnqueueBacklogIntake(), fingerprint(), FingerprintInput, normalizeMessage(), parseFrame(), ALLOWED_IMAGE_MIME_TYPES, createExternalTicket(), DecodedScreenshot (+52 more)
 
 ### Community 24 - "widgets-section.tsx"
-Cohesion: 0.11
-Nodes (29): CopyButton(), CopyButtonProps, IntegrationPanelProps, SdkGuideActions(), buildSnippet(), NEW_WIDGET_FORM, omitKey(), RepositoryOption (+21 more)
+Cohesion: 0.10
+Nodes (29): IntegrationPanel(), IntegrationPanelProps, SdkGuideActions(), props, buildSnippet(), NEW_WIDGET_FORM, omitKey(), RepositoryOption (+21 more)
 
 ### Community 25 - "smoke.ts"
 Cohesion: 0.11
@@ -675,7 +682,7 @@ Nodes (27): Args, CapturedPr, checkClaude(), ClaudeStatus, git(), log(), main(),
 
 ### Community 26 - "briefs/poller.ts"
 Cohesion: 0.07
-Nodes (48): BLOCKER_GLOSS, BriefInput, BriefPeriod, Budget, capBlock(), collectBriefInput(), day(), renderDecision() (+40 more)
+Nodes (47): BLOCKER_GLOSS, BriefInput, BriefPeriod, Budget, capBlock(), collectBriefInput(), day(), renderDecision() (+39 more)
 
 ### Community 27 - "routes/projects.ts"
 Cohesion: 0.09
@@ -689,33 +696,33 @@ Nodes (31): dependencies, astro, @astrojs/starlight, @fontsource/ibm-plex-mono, 
 Cohesion: 0.05
 Nodes (10): CreatedProject, ENCRYPTION_KEY, githubClosedUnmergedPayload(), githubPayload(), postClosedUnmerged(), postGithubClosure(), postGithubPr(), postMerge() (+2 more)
 
-### Community 30 - "repository-form.test.tsx"
-Cohesion: 0.12
-Nodes (11): fetchMock, Handler, ACCOUNT_A, ACCOUNT_B, fetchMock, Handler, initial, jsonResponse() (+3 more)
+### Community 30 - "deep-dive.ts"
+Cohesion: 0.11
+Nodes (20): applyDeepDive(), credentialsSchema, DeepDiveOutput, deepDiveOutputSchema, loadDeepDiveContext(), normalizeAnalysisHeadings(), outputOrThrow(), parseAgentJson() (+12 more)
 
 ### Community 31 - "routes/widget.test.ts"
 Cohesion: 0.03
-Nodes (45): embeddingClient, ENCRYPTION_KEY, FAKE_DELTAS, fakeChatLlm, fakeGraphClient, ENCRYPTION_KEY, fakeChatLlm, ChatAvailability (+37 more)
+Nodes (47): embeddingClient, ENCRYPTION_KEY, FAKE_DELTAS, fakeChatLlm, fakeGraphClient, ENCRYPTION_KEY, fakeChatLlm, ChatAvailability (+39 more)
 
 ### Community 32 - "questions.ts"
-Cohesion: 0.09
-Nodes (30): ExecuteActionInput, ExecuteActionResult, Anchor, AnsweredBy, AnsweredQuestion, answeredQuestionOf(), AnswerInput, answerQuestion() (+22 more)
+Cohesion: 0.18
+Nodes (15): Anchor, AnsweredBy, AnsweredQuestion, answeredQuestionOf(), answerQuestion(), AnswerQuestionError, AnswerQuestionResult, decisionConsequence() (+7 more)
 
 ### Community 33 - "google.ts"
 Cohesion: 0.05
-Nodes (38): EmailLabels, EmailRoute, EmailRouteKind, emailRouteKindSchema, EmailRoutes, EmailRoutesPut, GoogleAccount, GoogleAccountPatch (+30 more)
+Nodes (51): EmailLabels, emailLabelsSchema, EmailRoute, EmailRouteKind, emailRouteKindSchema, EmailRoutes, emailRouteSchema, EmailRoutesPut (+43 more)
 
 ### Community 34 - "schemas/backlog.ts"
 Cohesion: 0.03
-Nodes (64): BacklogChatAccepted, backlogChatAcceptedSchema, BacklogChatTurnPayload, backlogChatTurnPayloadSchema, BacklogCodeSession, backlogCodeSessionSchema, BacklogCodeSessionStatus, backlogCodeSessionStatusSchema (+56 more)
+Nodes (72): BacklogChatAccepted, backlogChatAcceptedSchema, BacklogChatTurnAnswerPayload, backlogChatTurnAnswerPayloadSchema, BacklogChatTurnPayload, backlogChatTurnPayloadSchema, BacklogChatTurnUserPayload, backlogChatTurnUserPayloadSchema (+64 more)
 
 ### Community 35 - "ai-providers-section.tsx"
 Cohesion: 0.07
 Nodes (27): AiProvidersSection(), NewProviderForm(), ProviderRow(), accountOnly(), fetchMock, Handler, jsonResponse(), makeProvider() (+19 more)
 
 ### Community 36 - "schema.test.ts"
-Cohesion: 0.08
-Nodes (22): activityCommits, activityDayRollups, activityDevSummaries, activityRecountJobs, activityReports, aiProviders, aiUsageSnapshots, attachments (+14 more)
+Cohesion: 0.06
+Nodes (35): activityCommits, activityDayRollups, activityDevSummaries, activityRecountJobs, activityReports, aiProviders, aiUsageSnapshots, attachments (+27 more)
 
 ### Community 37 - "schemas/server.ts"
 Cohesion: 0.07
@@ -725,37 +732,37 @@ Nodes (35): AgentCheckConfig, agentCheckConfigSchema, AgentConfig, agentConfigSc
 Cohesion: 0.08
 Nodes (29): buildPulseEvent(), BuildPulseEventArgs, cadenceCutoff(), defaultLogger, enqueueReplacedNotes(), errText(), idleDaysFrom(), isInSendWindow() (+21 more)
 
-### Community 39 - "services/plugins.ts"
-Cohesion: 0.10
-Nodes (31): idParamsSchema, pluginRoutes(), registrySchema, createPlugin(), ENCRYPTION_KEY, post(), toPublicPlugin(), paramsSchema (+23 more)
+### Community 39 - "isUniqueViolation"
+Cohesion: 0.06
+Nodes (48): Counts, countsForMilestone(), emptyCounts(), idParamsSchema, listMilestonesQuerySchema, loadMilestoneWithCounts(), milestoneRoutes(), MilestoneRow (+40 more)
 
 ### Community 40 - "api-client/src/client.ts"
-Cohesion: 0.06
-Nodes (50): ApiRequest, createEndpoints(), createStubwiseClient(), FetchInit, HttpMethod, StubwiseClient, StubwiseClientOptions, clientWith() (+42 more)
+Cohesion: 0.05
+Nodes (51): ApiRequest, createEndpoints(), createStubwiseClient(), FetchInit, HttpMethod, StubwiseClient, StubwiseClientOptions, clientWith() (+43 more)
 
 ### Community 41 - "devDependencies"
 Cohesion: 0.22
 Nodes (9): devDependencies, happy-dom, @types/node, typescript, vitest, happy-dom, @types/node, typescript (+1 more)
 
-### Community 42 - "fetch.ts"
-Cohesion: 0.15
-Nodes (20): EMPTY, FATAL_GOOGLE_CODES, GoogleApiError, GoogleApiErrorInit, isFatalGoogleError(), CODE_ALIASES, codeForStatus(), errorFromResponse() (+12 more)
+### Community 42 - "app-layout.tsx"
+Cohesion: 0.10
+Nodes (19): AppLayout(), NAV_ITEMS, Avatar(), colorForLabel(), initials(), PALETTE, InboxBell(), fetchMock (+11 more)
 
 ### Community 43 - "contract.ts"
 Cohesion: 0.12
 Nodes (25): baseSlug(), isMetaSummary(), makeUniqueSlug(), parseDelimitedBody(), BodyRejection, briefContextSection(), ChildListResult, parseChildBlock() (+17 more)
 
 ### Community 44 - "run-review.ts"
-Cohesion: 0.05
-Nodes (64): BlastRadius, BlastRadiusCaps, BlastRadiusCommunity, BlastRadiusGodNode, computeBlastRadius(), ComputeBlastRadiusInput, isEmpty(), parseChangedFiles() (+56 more)
+Cohesion: 0.07
+Nodes (37): loadGraphContext(), GraphHintEntry, GRAPHIFY_AGENT_ALLOWED_TOOLS, renderGraphHint(), resolveRepoGraphJson(), BlastRadius, parseChangedFiles(), ticketUrl() (+29 more)
 
 ### Community 45 - "fix.test.ts"
-Cohesion: 0.07
-Nodes (22): DEFAULT_FIX_ALLOWED_TOOLS, appOnlyChanges(), BudgetDispatched, cleanups, createTicket(), Dispatched, ENCRYPTION_KEY, FakeProvider (+14 more)
+Cohesion: 0.05
+Nodes (56): DEFAULT_FIX_ALLOWED_TOOLS, appOnlyChanges(), BudgetDispatched, cleanups, createTicket(), Dispatched, ENCRYPTION_KEY, FakeProvider (+48 more)
 
 ### Community 46 - "backlog-chat.test.tsx"
-Cohesion: 0.17
-Nodes (8): ACTIVE_SESSION, ChatProps, postBacklogChatStream, postBacklogChatTurn, REPOS, BacklogChatHandlers, postBacklogChatStream(), fetchMock
+Cohesion: 0.14
+Nodes (11): ACTIVE_SESSION, answerBacklogQuestion, ChatProps, dismissBacklogQuestion, OPEN_QUESTION, postBacklogChatStream, postBacklogChatTurn, REPOS (+3 more)
 
 ### Community 47 - "MirrorManager"
 Cohesion: 0.07
@@ -769,17 +776,17 @@ Nodes (20): bootstrap(), pruneCheckState(), chunk(), consoleLogger, errorMessage
 Cohesion: 0.17
 Nodes (18): aggregateNewAreas(), AggregateOptions, buildGrowOrientPrompt(), consolidateSmallSiblings(), covers(), dirOf(), GrowExistingPage, GrowKind (+10 more)
 
-### Community 50 - "auto-update.ts"
-Cohesion: 0.04
-Nodes (61): applyGrowStats(), AutoUpdateJob, buildRelatedLinks(), credentialsSchema, errText(), GenerationStats, growNewAreaPages(), GrowResult (+53 more)
+### Community 50 - "auto-update.test.ts"
+Cohesion: 0.08
+Nodes (18): AUDIT_CLEAN, AUDIT_VIOLATION, cleanups, ENCRYPTION_KEY, git(), growScript(), GUIDE_BODY_NO_NAV, isExplorePrompt() (+10 more)
 
 ### Community 51 - "node.ts"
 Cohesion: 0.15
 Nodes (23): ClientOptions, activeClient(), addBreadcrumb(), captureError(), captureFeedback(), createTicket(), expressErrorHandler(), fastifyErrorHandler() (+15 more)
 
-### Community 52 - "web/src/lib/format.ts"
-Cohesion: 0.05
-Nodes (43): AttachmentCard(), AttachmentList(), AttachmentListProps, fileExtension(), fetchMock, imageAttachment, pdfAttachment, createdAttachment (+35 more)
+### Community 52 - "usage.tsx"
+Cohesion: 0.11
+Nodes (21): UsagePanel(), AiUsageByDay, AiUsageByModel, AiUsageByProject, AiUsageByProvider, TicketUsage, formatCostUsd(), formatTokens() (+13 more)
 
 ### Community 53 - "browser.ts"
 Cohesion: 0.17
@@ -787,7 +794,7 @@ Nodes (24): activeClient(), addBreadcrumb(), BrowserOptions, captureError(), cap
 
 ### Community 54 - "dependencies"
 Cohesion: 0.11
-Nodes (19): @anthropic-ai/sdk, dependencies, @anthropic-ai/sdk, argon2, @aws-sdk/client-s3, @aws-sdk/s3-request-presigner, @fastify/cookie, @fastify/rate-limit (+11 more)
+Nodes (19): @anthropic-ai/sdk, dependencies, @anthropic-ai/sdk, @aws-sdk/client-s3, @aws-sdk/s3-request-presigner, @fastify/cookie, @fastify/rate-limit, @fastify/swagger (+11 more)
 
 ### Community 55 - "mail.tsx"
 Cohesion: 0.10
@@ -797,49 +804,49 @@ Nodes (20): AccountRow(), ConnectPicker(), GoogleAccountsSection(), toOutcome(),
 Cohesion: 0.11
 Nodes (24): errText(), evaluateCheck(), EvaluateMonitorAlertsDeps, evaluateMonitorAlertsOnce(), evaluateServerStatus(), lazyServerRefs(), loadWindowSamples(), parseThresholds() (+16 more)
 
-### Community 57 - "src/docs-retrieval.ts"
-Cohesion: 0.11
-Nodes (20): crossRepoScopePredicate(), EmbeddingProvider, escapeLikePrefix(), pageMembershipPredicate(), RepoInfo, repoScopePredicate(), RepositoryFilter, RetrievalLogger (+12 more)
+### Community 57 - "db/src/index.ts"
+Cohesion: 0.08
+Nodes (31): DbHandle, DbOrTx, DecisionSource, recordDecision(), RecordDecisionParams, crossRepoScopePredicate(), EmbeddingProvider, escapeLikePrefix() (+23 more)
 
 ### Community 59 - "devDependencies"
-Cohesion: 0.06
-Nodes (31): devDependencies, happy-dom, @playwright/test, tailwindcss, @tailwindcss/vite, @testcontainers/postgresql, @testing-library/jest-dom, @testing-library/user-event (+23 more)
+Cohesion: 0.05
+Nodes (37): devDependencies, @fontsource/ibm-plex-mono, @fontsource-variable/ibm-plex-sans, happy-dom, @playwright/test, tailwindcss, @tailwindcss/vite, @testcontainers/postgresql (+29 more)
 
 ### Community 60 - "brief.ts"
 Cohesion: 0.19
 Nodes (25): line(), BriefActor, BriefContextOptions, BriefGlossaryEntry, briefPromptContext(), buildBriefPrompt(), BuildBriefPromptInput, INTERNAL_FALSE (+17 more)
 
-### Community 61 - "roadmap-schema.test.ts"
-Cohesion: 0.12
-Nodes (14): aiJobs, deviceTokens, milestones, notificationDeliveries, notifications, notificationSettings, personalAccessTokens, pluginJobs (+6 more)
+### Community 61 - "Db"
+Cohesion: 0.09
+Nodes (27): seedAwaitingJob(), seedBacklogItem(), Db, runMigrations(), agentQuestions, aiJobs, backlogItems, backlogQuestions (+19 more)
 
 ### Community 62 - "core/client.ts"
 Cohesion: 0.11
 Nodes (9): BreadcrumbBuffer, captureScreenshot(), Client, Html2Canvas, NormalizedError, normalizeError(), FetchMock, warnEmptyInput() (+1 more)
 
 ### Community 63 - "docs-space.test.tsx"
-Cohesion: 0.07
-Nodes (24): postDocChat, postProjectDocChat, DocsManualFormProps, DocPage, detailFixture(), fetchMock, jsonResponse(), mockDetailApi() (+16 more)
+Cohesion: 0.10
+Nodes (20): detailFixture(), fetchMock, jsonResponse(), mockDetailApi(), MockState, projectsFixture(), renderDetail(), renderApp() (+12 more)
 
 ### Community 64 - "docs/$projectId.tsx"
-Cohesion: 0.05
-Nodes (47): BacklogChat(), ChatBubble, ChatMessage, fromHistory(), fromServerMessage(), isReconciliation(), parseSourceTitles(), ChatEvent (+39 more)
+Cohesion: 0.12
+Nodes (16): deleteManualPage(), DocPageLink, getDocTree(), getRepoHighlights(), docRepoHighlightsQueryOptions(), docTreeQueryOptions(), Probe(), useCloseOnRouteChange() (+8 more)
 
 ### Community 65 - "proposal.ts"
 Cohesion: 0.08
-Nodes (38): EMAIL_PROPOSAL_TYPES, EMAIL_SIGNALS, actionForProposal(), assembleEvent(), BuildCalendarProposalArgs, buildCalendarProposalEvent(), BuildEmailProposalArgs, buildEmailProposalEvent() (+30 more)
+Nodes (36): EMAIL_PROPOSAL_TYPES, EMAIL_SIGNALS, actionForProposal(), assembleEvent(), BuildCalendarProposalArgs, BuildEmailProposalArgs, buildEmailProposalEvent(), BuildTriageProposalArgs (+28 more)
 
-### Community 66 - "widget-conversations.tsx"
-Cohesion: 0.10
-Nodes (23): createWidget, deleteWidget, getDocTree, renderSection(), repositories, updateWidget, WidgetsSection(), getWidgetConversationMessages() (+15 more)
+### Community 66 - "projects/$projectId.tsx"
+Cohesion: 0.04
+Nodes (55): MilestoneManager(), MilestoneManagerProps, MilestoneRow(), fetchMock, installMock(), jsonResponse(), makeMilestone(), MockState (+47 more)
 
 ### Community 67 - "dependencies"
 Cohesion: 0.06
 Nodes (31): dependencies, @dnd-kit/core, @dnd-kit/sortable, @dnd-kit/utilities, i18next, marked, react, react-dom (+23 more)
 
 ### Community 68 - "google-proposal.ts"
-Cohesion: 0.07
-Nodes (38): DbOrTx, enqueueBacklogIntake(), EnqueueBacklogIntakeInput, EnqueueBacklogIntakeResult, addComment(), AddCommentInput, addSystemComment(), CommentRow (+30 more)
+Cohesion: 0.11
+Nodes (24): addComment(), AddCommentInput, addSystemComment(), CommentRow, DbOrTx, seedTicket(), answerGoogleProposal(), AnswerGoogleProposalError (+16 more)
 
 ### Community 69 - "deliveries-poller.ts"
 Cohesion: 0.06
@@ -859,7 +866,7 @@ Nodes (23): cmdlineToString(), computeRate(), deadline(), DeadlineError, DeltaSa
 
 ### Community 73 - "db/src/client.ts"
 Cohesion: 0.08
-Nodes (9): createDb(), DbHandle, MIGRATIONS_FOLDER, DRIZZLE_DIR, DRIZZLE_DIR, DRIZZLE_DIR, ticketEvents, DbOrTx (+1 more)
+Nodes (8): createDb(), MIGRATIONS_FOLDER, DRIZZLE_DIR, DRIZZLE_DIR, DRIZZLE_DIR, ticketEvents, DbOrTx, recordTicketStatusChange()
 
 ### Community 74 - "devDependencies"
 Cohesion: 0.15
@@ -873,9 +880,9 @@ Nodes (31): bin, stubwise-mcp, dependencies, @modelcontextprotocol/sdk, zod, des
 Cohesion: 0.07
 Nodes (38): createManualSchema, DocGenerationJobRow, DocGenerationRow, DocPageRow, docsRoutes(), buildDocsExportZip(), buildForest(), collectFiles() (+30 more)
 
-### Community 77 - "graph-chat/client.ts"
-Cohesion: 0.12
-Nodes (12): createGraphMcpClient(), GraphMcpClientOptions, GraphMcpLogger, QueryGraphParams, buildFakeServer(), cleanups, closedPortUrl(), FakeGraphify (+4 more)
+### Community 77 - "graph-chat/client.test.ts"
+Cohesion: 0.27
+Nodes (7): buildFakeServer(), cleanups, closedPortUrl(), FakeGraphify, FakeState, query, startFakeGraphify()
 
 ### Community 78 - "Fase 4 — Worker AI"
 Cohesion: 0.05
@@ -894,12 +901,12 @@ Cohesion: 0.12
 Nodes (15): access, baseBranch, changelog, commit, fixed, ignore, linked, $schema (+7 more)
 
 ### Community 83 - "widget-section-filter.tsx"
-Cohesion: 0.07
-Nodes (29): DocsSearchTrigger(), DocsSidebar(), buildForest(), categoryStorageKey(), collectActiveAncestors(), collectParentIds(), DocsTree(), DocsTreeGroup() (+21 more)
+Cohesion: 0.12
+Nodes (17): buildForest(), collectDescendants(), filterExposesInternalDocs(), FilterNodes(), flattenForest(), GROUP_LABEL_KEY, GROUP_ORDER, INTERNAL_KINDS (+9 more)
 
 ### Community 84 - "createAppRouter"
-Cohesion: 0.05
-Nodes (30): ProjectDetail, ProjectListItem, createAppRouter(), fetchMock, renderApp(), detail(), fetchMock, Handler (+22 more)
+Cohesion: 0.09
+Nodes (15): createAppRouter(), fetchMock, renderApp(), fetchMock, Handler, renderApp(), AccountMockState, fetchMock (+7 more)
 
 ### Community 85 - "tickets/$id.test.tsx"
 Cohesion: 0.08
@@ -938,16 +945,16 @@ Cohesion: 0.07
 Nodes (24): InboxItemSummary, InboxPulseProposal, ProjectBriefSummary, ProjectDecisionSummary, Urgency, DECISION_SOURCE_LABEL, getBacklogItem, getBacklogItemInput (+16 more)
 
 ### Community 94 - "Transport"
-Cohesion: 0.13
-Nodes (9): event(), byteLength(), ParsedDsn, parseDsn(), SendOutcome, splitForKeepalive(), FetchMock, Transport (+1 more)
+Cohesion: 0.14
+Nodes (8): byteLength(), ParsedDsn, parseDsn(), SendOutcome, splitForKeepalive(), FetchMock, Transport, TransportOptions
 
 ### Community 95 - "schemas/search.ts"
-Cohesion: 0.09
-Nodes (21): group(), RecordSearchHistoryBody, recordSearchHistoryBodySchema, SearchDocHit, searchDocHitSchema, SearchDocSemanticHit, searchDocSemanticHitSchema, SearchDocsSemanticResults (+13 more)
+Cohesion: 0.10
+Nodes (20): RecordSearchHistoryBody, recordSearchHistoryBodySchema, SearchDocHit, searchDocHitSchema, SearchDocSemanticHit, searchDocSemanticHitSchema, SearchDocsSemanticResults, searchDocsSemanticResultsSchema (+12 more)
 
 ### Community 96 - "node-dispatch.ts"
-Cohesion: 0.04
-Nodes (81): ACTIVE_STATUSES, ChildSpec, ClaimedNode, claimNextNode(), completeNode(), createChildren(), DbOrTx, DocNode (+73 more)
+Cohesion: 0.03
+Nodes (99): ACTIVE_STATUSES, ChildSpec, ClaimedNode, claimNextNode(), completeNode(), createChildren(), DbOrTx, DocNode (+91 more)
 
 ### Community 97 - "notifications-propagation.ts"
 Cohesion: 0.16
@@ -983,15 +990,15 @@ Nodes (34): DocChatMessage, docChatMessageSchema, DocChatSession, docChatSession
 
 ### Community 105 - "AgentRunner"
 Cohesion: 0.05
-Nodes (66): AgentRunner, capText(), outputOrThrow(), parseAgentJson(), runAgentText(), RunAgentTextOptions, textFromRun(), ChatTurnDeps (+58 more)
+Nodes (63): AgentRunner, RunLlm, buildRunLlmFromChain(), errText(), pollOneAccount(), PollUsageDeps, pollUsageOnce(), startUsagePoller() (+55 more)
 
 ### Community 106 - "routes/settings.ts"
-Cohesion: 0.06
-Nodes (28): createBacklogProject(), createProject(), DispatchedEvent, AutomationRule, automationRuleSchema, automationSettingsSchema, DEFAULT_RULE, defaultRuleFor() (+20 more)
+Cohesion: 0.05
+Nodes (34): BuildAppOptions, createBacklogProject(), createProject(), DispatchedEvent, AttachmentBody, multipartBody(), pngFile, uploadAttachment() (+26 more)
 
-### Community 107 - "projects/$projectId.tsx"
+### Community 107 - "web/src/lib/format.ts"
 Cohesion: 0.03
-Nodes (74): IntegrationPanel(), props, MilestoneManager(), MilestoneManagerProps, MilestoneRow(), fetchMock, installMock(), jsonResponse() (+66 more)
+Nodes (80): ActivityFeedProps, actorName(), AiJobItem(), AuthorInfo, CommentItem(), describeEvent(), EventItem(), fromTo() (+72 more)
 
 ### Community 108 - "write.ts"
 Cohesion: 0.09
@@ -999,7 +1006,7 @@ Nodes (23): errorResult(), ProjectResolution, resolveProject(), runTool(), textR
 
 ### Community 109 - "routes/tickets.test.ts"
 Cohesion: 0.09
-Nodes (8): ActivityItem, freshTicket(), ListBody, postTicket(), QuestionBody, repoForProject, seedOpenQuestion(), TicketBody
+Nodes (9): ActivityItem, freshTicket(), ListBody, postTicket(), QuestionBody, repoForProject, seedOpenQuestion(), TicketBody (+1 more)
 
 ### Community 110 - "Stubwise"
 Cohesion: 0.06
@@ -1007,7 +1014,7 @@ Nodes (33): Aggiungere un nuovo GitProvider, Aprire una Pull Request, Build, lin
 
 ### Community 111 - "inbox-mutations.ts"
 Cohesion: 0.07
-Nodes (60): CardFooter(), CardShell(), CardShellProps, FooterButtonSpec, footerButtonStyles, styles, FailedCard(), FailedCardProps (+52 more)
+Nodes (56): CardFooter(), CardShell(), CardShellProps, FooterButtonSpec, footerButtonStyles, styles, FailedCard(), FailedCardProps (+48 more)
 
 ### Community 112 - "settings.test.tsx"
 Cohesion: 0.14
@@ -1065,9 +1072,9 @@ Nodes (39): bugs, url, dependencies, zod, description, devDependencies, @types/n
 Cohesion: 0.07
 Nodes (27): dependencies, preact, devDependencies, happy-dom, @preact/preset-vite, typescript, vite, vitest (+19 more)
 
-### Community 126 - "testing.ts"
-Cohesion: 0.09
-Nodes (29): seedAwaitingJob(), Db, runMigrations(), seedProject(), seedProject(), agentQuestions, docChatSessions, docChunks (+21 more)
+### Community 126 - "docs-schema.test.ts"
+Cohesion: 0.20
+Nodes (7): seedProject(), seedProject(), docChatSessions, docChunks, docGenerations, docNodes, searchHistory
 
 ### Community 127 - "slack-client.ts"
 Cohesion: 0.07
@@ -1081,13 +1088,13 @@ Nodes (14): ServerMetricsResponse, check(), detail(), fetchMock, Handler, jsonRe
 Cohesion: 0.06
 Nodes (30): Milestone 1 — DB: `doc_nodes` + `doc_pages.links` + enum shared, Milestone 2 — docs-engine: prompt + parser dell'output strutturato (puro, TDD), Milestone 3 — docs-engine: helper DAG puri (TDD), Milestone 4 — worker/db: coda dei job-nodo + join atomico (TDD), Milestone 5 — worker: handler orientamento + explore + synthesize (TDD), Milestone 6 — worker: finalizzazione (cross-link → proiezione → embed → swap), Milestone 7 — worker: dispatch + rimozione vecchio motore, Milestone 8 — server/web: cross-link UI + verifica albero profondo (+22 more)
 
-### Community 130 - "LoginScreen.tsx"
-Cohesion: 0.13
-Nodes (9): AuthStackParamList, Wordmark(), LoginScreen(), LoginState, styles, fakeNavigation, fakeRoute, navigate (+1 more)
-
-### Community 131 - "usage-poller.ts"
+### Community 130 - "docs-tree.tsx"
 Cohesion: 0.12
-Nodes (26): buildLlmPrompt(), clampPercent(), llmSnapshotSchema, llmWindowSchema, matchPercentUsed(), matchResetsLabel(), parseUsage(), parseUsageDeterministic() (+18 more)
+Nodes (14): DocsReleases(), RELEASES, DocsSearchTrigger(), DocsSidebar(), categoryStorageKey(), collectActiveAncestors(), collectParentIds(), DocsTree() (+6 more)
+
+### Community 131 - "usage-parser.ts"
+Cohesion: 0.20
+Nodes (16): buildLlmPrompt(), clampPercent(), llmSnapshotSchema, llmWindowSchema, matchPercentUsed(), matchResetsLabel(), parseUsage(), parseUsageDeterministic() (+8 more)
 
 ### Community 132 - "docker.ts"
 Cohesion: 0.18
@@ -1098,8 +1105,8 @@ Cohesion: 0.11
 Nodes (17): Fase 3 — Registro plugin/skill — Piano di implementazione, Fase A — Dati e plugin base, Fase B — Worker: materializzazione, inventario, smoke, copia filtrata, Fase C — Server e UI, Fase D — Golden, docs, chiusura, Task 10: UI sezione Plugin nella pagina progetto, Task 11: Scenari golden (manuali) e documentazione, Task 12: Verifica finale e note di deploy (+9 more)
 
 ### Community 134 - "ticket.ts"
-Cohesion: 0.05
-Nodes (41): Breadcrumb, breadcrumbSchema, ErrorEvent, errorEventSchema, FeedbackEvent, feedbackEventSchema, IngestBatch, ingestBatchSchema (+33 more)
+Cohesion: 0.07
+Nodes (27): AnswerQuestionResult, answerQuestionResultSchema, Effort, EFFORT_LABELS, effortSchema, PlanDecisionResult, planDecisionResultSchema, PrState (+19 more)
 
 ### Community 135 - "Monitoraggio server — Piano di implementazione"
 Cohesion: 0.07
@@ -1110,12 +1117,12 @@ Cohesion: 0.18
 Nodes (10): 1. Stato di partenza (fatti verificati), 2. Ruoli e permessi, 3. Inbox: modello dati e routing, 4. Azioni, API e UI web, 5. Slack interattivo, 6. `run_ticket` e `/stubwise:run`, 7. Test, 8. Deploy e rollback (+2 more)
 
 ### Community 137 - "routes/backlog.ts"
-Cohesion: 0.09
-Nodes (35): ACTIONABLE_SUGGESTED_KEYS, ACTIVE_JOB_STATUSES, backlogRoutes(), baseColumns, chatBodySchema, collectStream(), Cursor, decodeCursor() (+27 more)
+Cohesion: 0.07
+Nodes (42): ACTIONABLE_SUGGESTED_KEYS, ACTIVE_JOB_STATUSES, backlogRoutes(), baseColumns, chatBodySchema, collectStream(), Cursor, decodeCursor() (+34 more)
 
 ### Community 138 - "services/inbox.ts"
-Cohesion: 0.12
-Nodes (27): alreadyHandled(), Cursor, decodeCursor(), encodeCursor(), executeAction(), ExecuteActionError, HandledBy, handledByOf() (+19 more)
+Cohesion: 0.07
+Nodes (33): alreadyHandled(), Cursor, decodeCursor(), encodeCursor(), executeAction(), ExecuteActionError, ExecuteActionInput, HandledBy (+25 more)
 
 ### Community 139 - "activity.test.tsx"
 Cohesion: 0.13
@@ -1125,9 +1132,9 @@ Nodes (12): ADMIN, EMPTY_REPORT, fetchMock, Handler, MEMBER, MEMBERS, QUEUED_REP
 Cohesion: 0.08
 Nodes (29): CreatePluginInput, createPluginSchema, namedEntrySchema, Plugin, PluginHook, pluginHookSchema, PluginInventory, pluginInventorySchema (+21 more)
 
-### Community 141 - "board.test.tsx"
-Cohesion: 0.14
-Nodes (12): allTickets, baseHandlers, crash, exportCsv, fetchMock, Handler, jsonResponse(), onboarding (+4 more)
+### Community 141 - "docs-chat.tsx"
+Cohesion: 0.11
+Nodes (11): ChatEvent, ChatMessage, DocsChat(), isCitation(), KIND_LABEL_KEY, parseCitations(), postDocChat, postProjectDocChat (+3 more)
 
 ### Community 142 - "setup-pr.test.ts"
 Cohesion: 0.20
@@ -1135,7 +1142,7 @@ Nodes (11): claimedJob(), createRepo(), ENCRYPTION_KEY, fakeGit(), fakeGraphify(
 
 ### Community 143 - "notification.ts"
 Cohesion: 0.04
-Nodes (55): AgentQuestionAnswer, agentQuestionAnswerSchema, AgentQuestionOption, agentQuestionOptionSchema, AnswerBody, answerBodySchema, DeviceDeletion, deviceDeletionSchema (+47 more)
+Nodes (56): HandledBy, handledBySchema, AgentQuestionAnswer, agentQuestionAnswerSchema, AgentQuestionOption, agentQuestionOptionSchema, AnswerBody, answerBodySchema (+48 more)
 
 ### Community 144 - "docs-engine/package.json"
 Cohesion: 0.10
@@ -1153,9 +1160,9 @@ Nodes (27): costParam(), formatDiscord(), formatGeneric(), formatNotification(),
 Cohesion: 0.25
 Nodes (10): WidgetConfig, clearConversationId(), getConversationId(), setConversationId(), storageKey(), getStrings(), widgetStyles(), ActiveConfig (+2 more)
 
-### Community 148 - "notifications-section.tsx"
-Cohesion: 0.10
-Nodes (15): CollapsibleSection(), CollapsibleSectionProps, EVENT_TOGGLES, FORMAT_OPTIONS, GENERIC_FIELDS, NotificationsSection(), SAMPLE_LABELS, URL_PLACEHOLDER (+7 more)
+### Community 148 - "plugins-section.tsx"
+Cohesion: 0.05
+Nodes (41): CollapsibleSection(), CollapsibleSectionProps, EVENT_TOGGLES, FORMAT_OPTIONS, GENERIC_FIELDS, NotificationsSection(), SAMPLE_LABELS, URL_PLACEHOLDER (+33 more)
 
 ### Community 149 - "Redesign UX/UI della sezione Docs — Piano di implementazione"
 Cohesion: 0.07
@@ -1177,13 +1184,13 @@ Nodes (13): bugs, url, description, files, homepage, dist, license, name (+5 mor
 Cohesion: 0.23
 Nodes (9): parseSseStream(), collect(), responseFromChunks(), toEvent(), WidgetSseEvent, WidgetTicketProposal, badgeLabel(), TicketCard() (+1 more)
 
-### Community 154 - "project-plugins-section.tsx"
-Cohesion: 0.22
-Nodes (13): HookCommand(), InventoryGroup(), isStaleRegistryError(), PluginRow(), presetSkills(), ProjectPluginsSection(), rowOf(), saveErrorMessage() (+5 more)
+### Community 154 - "blast-radius.ts"
+Cohesion: 0.17
+Nodes (14): BlastRadiusCaps, BlastRadiusCommunity, BlastRadiusGodNode, ComputeBlastRadiusInput, isEmpty(), parseDiffHeader(), renderBlastRadiusPromptBlock(), renderBlastRadiusSection() (+6 more)
 
 ### Community 155 - "usage-costs.ts"
-Cohesion: 0.19
-Nodes (12): aggregate(), AiUsageCosts, aiUsageCostsRoutes(), aiUsageCostsSchema, byDaySchema, byModelSchema, byProjectSchema, byProviderSchema (+4 more)
+Cohesion: 0.18
+Nodes (11): aggregate(), AiUsageCosts, aiUsageCostsSchema, byDaySchema, byModelSchema, byProjectSchema, byProviderSchema, querySchema (+3 more)
 
 ### Community 156 - "Brief per Claude Design — app mobile Stubwise"
 Cohesion: 0.22
@@ -1207,15 +1214,15 @@ Nodes (30): dependencies, drizzle-orm, @stubwise/db, @stubwise/i18n, @stubwise/s
 
 ### Community 161 - "project.ts"
 Cohesion: 0.04
-Nodes (52): handledBySchema, CreateProjectInput, createProjectSchema, DecisionDraft, decisionDraftSchema, DecisionPatch, decisionPatchSchema, DecisionSource (+44 more)
+Nodes (51): CreateProjectInput, createProjectSchema, DecisionDraft, decisionDraftSchema, DecisionPatch, decisionPatchSchema, DecisionSource, decisionSourceSchema (+43 more)
 
 ### Community 162 - "What You Must Do When Invoked"
 Cohesion: 0.08
 Nodes (24): For /graphify add and --watch, For /graphify query, For the commit hook and native CLAUDE.md integration, For --update and --cluster-only, /graphify, Honesty Rules, Interpreter guard for subcommands, Part A - Structural extraction for code files (+16 more)
 
 ### Community 163 - "routes.ts"
-Cohesion: 0.09
-Nodes (34): resolveReporter(), resolveReporterBySlackId(), DocsGraphDeps, buildDocsQueryModal(), inboxErrorText(), parseInboxActionId(), resolveSlackActor(), runInboxAction() (+26 more)
+Cohesion: 0.03
+Nodes (67): resolveReporter(), resolveReporterBySlackId(), DocsGraphDeps, renderAnswer(), buildDocsQueryModal(), BuildDocsQueryModalInput, DOCS_ACTION_IDS, DOCS_BLOCK_IDS (+59 more)
 
 ### Community 164 - "Fase 3 — Registro plugin/skill"
 Cohesion: 0.13
@@ -1234,12 +1241,12 @@ Cohesion: 0.17
 Nodes (11): name, private, scripts, build, dev, e2e, preview, test (+3 more)
 
 ### Community 168 - "navigation.tsx"
-Cohesion: 0.07
-Nodes (27): buildLinking(), DeepLinkArea, DeepLinkTarget, getPendingDeepLink(), resolveDeepLinkTarget(), setPendingDeepLink(), AuthStack, BacklogStack (+19 more)
+Cohesion: 0.04
+Nodes (56): useAuth(), buildLinking(), DeepLinkArea, DeepLinkTarget, getPendingDeepLink(), resolveDeepLinkTarget(), setPendingDeepLink(), AuthStack (+48 more)
 
-### Community 169 - "worker/src/index.ts"
-Cohesion: 0.05
-Nodes (41): errText(), RunCredentialTestsDeps, runCredentialTestsOnce(), sanitize(), startCredentialTester(), StartCredentialTesterOptions, ENCRYPTION_KEY, testOne() (+33 more)
+### Community 169 - "$slug.tsx"
+Cohesion: 0.09
+Nodes (23): ProviderBadge(), FileRow(), NewFileForm(), ProjectEnvFilesSection(), fetchMock, Handler, VarRow(), createEnvFile() (+15 more)
 
 ### Community 170 - "Loop di feedback AI — Implementation Plan"
 Cohesion: 0.08
@@ -1281,13 +1288,13 @@ Nodes (7): briefHandler(), fetchMock, Handler, highlightsHandler(), jsonResponse
 Cohesion: 0.20
 Nodes (5): fetchMock, Handler, jsonResponse(), meHandler(), renderApp()
 
-### Community 180 - "db/src/index.ts"
-Cohesion: 0.16
-Nodes (15): AgentRunPhase, monthlyCostByPhase(), monthlyCostUsd(), ticketCostUsd(), DbOrTx, DecisionSource, recordDecision(), RecordDecisionParams (+7 more)
+### Community 180 - "backlog-questions.ts"
+Cohesion: 0.14
+Nodes (15): answerBacklogQuestion(), AnswerBacklogQuestionError, AnswerBacklogQuestionResult, askBacklogQuestion(), AskBacklogQuestionInput, AskedBacklogQuestion, BacklogAnswerInput, BacklogQuestionOption (+7 more)
 
-### Community 181 - "db/tickets.ts"
-Cohesion: 0.11
-Nodes (5): CreateTicketInput, ProjectNotFoundError, Ticket, IN_FLIGHT, seedTicket()
+### Community 181 - "schemas/ingest.ts"
+Cohesion: 0.15
+Nodes (14): Breadcrumb, breadcrumbSchema, ErrorEvent, errorEventSchema, FeedbackEvent, feedbackEventSchema, IngestBatch, ingestBatchSchema (+6 more)
 
 ### Community 182 - "dotenv.ts"
 Cohesion: 0.35
@@ -1305,17 +1312,17 @@ Nodes (8): WidgetApiBase, DICTIONARIES, en, it, WidgetStrings, ChatItem, ChatPro
 Cohesion: 0.17
 Nodes (15): main(), AskUserConfig, askUserInputShape, askUserSchema, AskUserToolResult, buildAskUserServer(), cappedMessage(), createExclusiveAtomic() (+7 more)
 
-### Community 186 - "Timeline.tsx"
-Cohesion: 0.08
-Nodes (26): LABEL_KEY, STEP_TONE, styles, steps(), withVerdict(), Timeline(), toneFor(), verdictKey() (+18 more)
+### Community 186 - "WorkScreen.tsx"
+Cohesion: 0.07
+Nodes (33): STATUS_META, StatusBadge(), StatusBadgeProps, styles, lastLines(), styles, TechLevel(), TechLevelProps (+25 more)
 
 ### Community 187 - "docs.test.tsx"
 Cohesion: 0.22
 Nodes (5): fetchMock, Handler, jsonResponse(), meHandler(), renderApp()
 
-### Community 188 - "repositories.test.tsx"
-Cohesion: 0.12
-Nodes (16): Repository, fetchMock, Handler, jsonResponse(), meHandler(), mockApi(), renderApp(), repo() (+8 more)
+### Community 188 - "projects.test.tsx"
+Cohesion: 0.13
+Nodes (14): ProjectListItem, fetchMock, Handler, jsonResponse(), meHandler(), mockApi(), renderApp(), fetchMock (+6 more)
 
 ### Community 189 - "Fase 6b — Un'email, più progetti: piano di implementazione"
 Cohesion: 0.12
@@ -1374,8 +1381,8 @@ Cohesion: 0.09
 Nodes (21): Fase 1 — App-shell responsive + quick win, Fase 2 — Docs space responsive, Fase 3 — Polish, Milestone 0 — Primitivi condivisi, Mobile responsive — Implementation Plan (3 fasi), Note di deploy, Ordine di esecuzione consigliato, Task 0.1: `useMediaQuery` hook (+13 more)
 
 ### Community 204 - "docs-api.ts"
-Cohesion: 0.07
-Nodes (29): ACTIVE_JOB_STATUSES, DocsGenerationPanel(), JOB_STATUS_KEY, statusRefetchInterval(), DocBriefGeneration, DocChatMessage, DocChatSession, DocCountsByKind (+21 more)
+Cohesion: 0.06
+Nodes (34): DocsManualForm(), DocsManualFormProps, CATEGORY_LABEL_KEY, CATEGORY_ORDER, DocsRepoOverview(), firstPageOfKind(), BRIEF, HIGHLIGHTS (+26 more)
 
 ### Community 205 - "orient.ts"
 Cohesion: 0.33
@@ -1550,8 +1557,8 @@ Cohesion: 0.21
 Nodes (12): ALLOWED_ATTACHMENT_MIME_TYPES, allowedMimeSet, attachmentParamsSchema, AttachmentRow, attachmentSchema, attachmentWithUrlSchema, isFileTooLarge(), sanitizeForKey() (+4 more)
 
 ### Community 252 - "plugins/poller.ts"
-Cohesion: 0.19
-Nodes (20): assertNoSymlinks(), assertSafeSegment(), assertSafeSubdir(), createClaudeValidator(), dispatchPluginJob(), enqueueSmoke(), isDirectory(), loadPlugin() (+12 more)
+Cohesion: 0.12
+Nodes (28): assertNoSymlinks(), assertSafeSegment(), assertSafeSubdir(), createClaudeValidator(), dispatchPluginJob(), enqueueSmoke(), errText(), isDirectory() (+20 more)
 
 ### Community 253 - "Stubwise — Affidabilità AI: Self-repair + Budget di costo (design)"
 Cohesion: 0.15
@@ -1599,7 +1606,7 @@ Nodes (11): Alpine, Getting the key, Install Docker, Prerequisites, RHEL / CentO
 
 ### Community 269 - "google/poller.ts"
 Cohesion: 0.07
-Nodes (50): ClassifyBatchStats, AccountContext, AccountTickResult, applyCalendarCursor(), applyFailure(), applyGmailCursor(), applySuccess(), CalendarPhaseStats (+42 more)
+Nodes (55): CALENDAR_CANCELLED_OUTCOME, calendarWindow(), isSyncTokenExpired(), ClassifyBatchStats, AccountContext, AccountTickResult, applyCalendarCursor(), applyFailure() (+47 more)
 
 ### Community 270 - "inbox.test.tsx"
 Cohesion: 0.13
@@ -1713,9 +1720,9 @@ Nodes (11): 10. Fuori scopo (v2+), 1. Stato di partenza (fatti verificati), 2. "
 Cohesion: 0.20
 Nodes (9): Auth del CLI claude, Configurazione (variabili d'ambiente), Cosa fa, Eseguire in locale, `--local` (default), Prompt tuning notes, `--remote`, Smoke test della pipeline reale (+1 more)
 
-### Community 311 - "slack-section.test.tsx"
-Cohesion: 0.13
-Nodes (5): fetchMock, Handler, fetchMock, Handler, InstanceSettings
+### Community 311 - "auto-update.ts"
+Cohesion: 0.17
+Nodes (19): buildRelatedLinks(), credentialsSchema, GenerationStats, GrowResult, isNoise(), loadConfidentialFacts(), loadExistingPages(), loadPagesWithRefs() (+11 more)
 
 ### Community 312 - "Stubwise"
 Cohesion: 0.18
@@ -1889,9 +1896,9 @@ Nodes (6): exports, ./app, name, private, type, version
 Cohesion: 0.18
 Nodes (19): assertSafeSegment(), buildFilteredHooks(), CopyStats, copyTree(), EnabledPlugin, isDirectory(), isRecord(), isRegularFile() (+11 more)
 
-### Community 356 - "docs-repo-overview.tsx"
-Cohesion: 0.18
-Nodes (8): CATEGORY_LABEL_KEY, CATEGORY_ORDER, DocsRepoOverview(), firstPageOfKind(), BRIEF, HIGHLIGHTS, TREE, DocHighlights
+### Community 356 - "questions.test.ts"
+Cohesion: 0.19
+Nodes (6): awaitingInputEvent(), OPTIONS, seedNotification(), seedOrphanState(), seedParkedJob(), seedTicket()
 
 ### Community 357 - "Feature 1 — Activity feed + audit — Implementation Plan"
 Cohesion: 0.29
@@ -2045,17 +2052,17 @@ Nodes (23): Android: keystore, build di release, distribuzione interna, Comandi,
 Cohesion: 0.21
 Nodes (13): briefHeadline(), buildProjectTimeline(), inWindow(), isoDay(), ReviewByPrUrl, reviewsByPrUrl(), ago(), isoDay() (+5 more)
 
-### Community 399 - "app-layout.tsx"
-Cohesion: 0.04
-Nodes (47): AppLayout(), NAV_ITEMS, Avatar(), colorForLabel(), initials(), PALETTE, GlobalSearchPalette(), KIND_LABEL_KEY (+39 more)
+### Community 399 - "global-search-palette.tsx"
+Cohesion: 0.07
+Nodes (27): GlobalSearchPalette(), KIND_LABEL_KEY, MergedDoc, mergeDocs(), PaletteItem, PaletteRow(), plainTextPreview(), RecentsSection() (+19 more)
 
 ### Community 401 - "project-pulse-summary.ts"
 Cohesion: 0.12
 Nodes (16): ActorRole, idleDaysFrom(), isRunningStatus(), isWaitingStatus(), loadNotificationIds(), ProjectPulseSummary, PulseRunningItem, PulseViewer (+8 more)
 
-### Community 404 - "useAuth"
-Cohesion: 0.08
-Nodes (34): useAuth(), PlanSection(), BACKLOG_STATUS_LABEL_KEYS, BACKLOG_STATUS_TONE, BacklogActionMutation, BacklogChip, backlogKeys, BacklogMetaPart (+26 more)
+### Community 404 - "work-mutations.ts"
+Cohesion: 0.31
+Nodes (7): PlanSection(), useIsOnline(), PlanDecisionMutation, useApprovePlan(), usePlanDecision(), useRejectPlan(), workKeys
 
 ### Community 406 - "roadmap-briefs-decisions.md"
 Cohesion: 0.22
@@ -2065,9 +2072,9 @@ Nodes (8): Configuration, Enabling it, "In brief" summaries, Reading and regener
 Cohesion: 0.12
 Nodes (11): createPushRelayClient(), PushRelayClient, PushRelayClientOptions, PushRelayRejected, PushRelayUnavailable, RETRYABLE_STATUSES, Call, fakeFetch() (+3 more)
 
-### Community 412 - "plugins-section.tsx"
-Cohesion: 0.16
-Nodes (11): creationErrorMessage(), diffInventories(), InventoryDiff, NewPluginForm(), PluginRow(), useInventoryDiff(), RowButton(), createPlugin() (+3 more)
+### Community 412 - "pulse.test.ts"
+Cohesion: 0.22
+Nodes (3): pulseEvent(), seedPulse(), state
 
 ### Community 413 - "push/config.ts"
 Cohesion: 0.53
@@ -2077,29 +2084,29 @@ Nodes (4): loadPushConfig(), LOOPBACK_HOSTS, PushConfig, errorFor()
 Cohesion: 0.12
 Nodes (13): ApnsClient, ApnsClientOptions, createApnsClient(), ENVIRONMENT_SENSITIVE_REASONS, Http2ConnectLike, Http2SessionLike, PERMANENT_REASONS, build() (+5 more)
 
-### Community 417 - "plugins/queue.test.ts"
-Cohesion: 0.23
-Nodes (10): errText(), processPluginJobsOnce(), claimNextPluginJob(), completePluginJob(), failPluginJob(), markPluginFailure(), recoverStalePluginJobs(), sanitizePluginError() (+2 more)
+### Community 417 - "Fase 7 — fix di review prima del merge"
+Cohesion: 0.22
+Nodes (8): Fase 7 — fix di review prima del merge, Fuori da questo piano (backlog, non ora), Task 1: fermare la sessione chiude la domanda aperta, Task 2: nessuna domanda nasce su una voce già chiusa, Task 3: i due divieti hanno la prova end-to-end che meritano, Task 4: tre rifiniture, Task 5: changeset per `@stubwise/shared`, Task 6: push, CI verde, report
 
 ### Community 418 - "routes/tickets.ts"
-Cohesion: 0.04
-Nodes (78): maybeEnqueueBacklogIntake(), createTicket(), fingerprint(), FingerprintInput, normalizeMessage(), parseFrame(), ALLOWED_IMAGE_MIME_TYPES, createExternalTicket() (+70 more)
+Cohesion: 0.07
+Nodes (43): Ticket, activityAiJobSchema, activityCommentSchema, activityEventSchema, ActivityItem, activityResponseSchema, bodyTextSchema, createLinkBodySchema (+35 more)
 
-### Community 419 - "google.test.ts"
-Cohesion: 0.14
-Nodes (13): emailLabelsSchema, emailRouteSchema, emailRoutesPutSchema, emailRoutesSchema, googleAccountSchema, googleCallbackOutcomes, googleOauthScopes, googleWorkspaceDraftSchema (+5 more)
+### Community 419 - "webhooks.ts"
+Cohesion: 0.43
+Nodes (6): enqueueGraphBuildOnPush(), fastify, FastifyRequest, normalizeHeaders(), ticketUrl(), webhookRoutes()
 
 ### Community 420 - "src/reader.ts"
 Cohesion: 0.20
 Nodes (16): cache, child(), derive(), isUnknown(), noteRebuild(), openValues(), Reader, READER_NODE_KINDS (+8 more)
 
 ### Community 421 - "DocsScreen.tsx"
-Cohesion: 0.09
-Nodes (24): DocsStackParamList, describeDocsError(), DocsActionMutation, docsKeys, DocsKindGroup, docsKindLabelKey(), DocsReleaseGroup, groupTreeByKind() (+16 more)
+Cohesion: 0.11
+Nodes (20): DocsStackParamList, describeDocsError(), DocsActionMutation, docsKeys, DocsKindGroup, docsKindLabelKey(), DocsReleaseGroup, groupTreeByKind() (+12 more)
 
-### Community 422 - "pulse-line.ts"
-Cohesion: 0.17
-Nodes (12): PulseLine, pulseLineFor(), PulseTone, RunningItem, runningLine(), Summary, PLAN, QUESTION (+4 more)
+### Community 422 - "mobile/src/lib/pulse-line.ts"
+Cohesion: 0.15
+Nodes (11): PulseLine, PulseTone, RunningItem, runningLine(), Summary, PLAN, QUESTION, RUNNING (+3 more)
 
 ### Community 423 - "push-relay/src/server.test.ts"
 Cohesion: 0.18
@@ -2125,9 +2132,9 @@ Nodes (10): loadNodePtySpawner(), pnpm, onlyBuiltDependencies, ALLOWED_BARE, NOT
 Cohesion: 0.23
 Nodes (8): uplot, formatTime(), formatValue(), lastFiniteValue(), { setData, destroy, setSize }, UPlotChart(), UPlotChartProps, uplot
 
-### Community 429 - "inbox-sections.test.ts"
-Cohesion: 0.12
-Nodes (14): ADMIN, BRIEF, BUDGET_AS_ADMIN, BUDGET_AS_MEMBER, FAILED, HANDLED_ITEM, MEMBER, PLAN_AS_ADMIN (+6 more)
+### Community 429 - "InboxScreen.tsx"
+Cohesion: 0.09
+Nodes (21): sectionize(), ADMIN, BRIEF, BUDGET_AS_ADMIN, BUDGET_AS_MEMBER, FAILED, HANDLED_ITEM, MEMBER (+13 more)
 
 ### Community 430 - "backlog/index.test.tsx"
 Cohesion: 0.25
@@ -2162,8 +2169,8 @@ Cohesion: 0.25
 Nodes (7): Come sono verificati (e perché non «dai tool usati nel log»), Gli scenari, Leggere l'esito, Prerequisiti, Quando lanciarli, Scenari golden del registro plugin (manuali), Uso
 
 ### Community 438 - "ai-job.ts"
-Cohesion: 0.22
-Nodes (11): AiJob, aiJobSchema, AiJobStatus, aiJobStatusSchema, AiProviderKind, aiProviderKindSchema, TABLE, WORK_STATE_BY_JOB_STATUS (+3 more)
+Cohesion: 0.19
+Nodes (12): AiJob, aiJobSchema, AiJobStatus, aiJobStatusSchema, AiProviderKind, aiProviderKindSchema, BASE, TABLE (+4 more)
 
 ### Community 439 - "schemas/push.ts"
 Cohesion: 0.12
@@ -2178,8 +2185,8 @@ Cohesion: 0.23
 Nodes (8): extractCode(), FcmClientOptions, PERMANENT_CODES, PushSendResult, reasonCode(), sharesRunWithToken(), generate(), pick()
 
 ### Community 442 - "jobs.ts"
-Cohesion: 0.07
-Nodes (29): convertBacklogItem(), ConvertBacklogItemInput, ConvertBacklogItemResult, actor, anthropicSpies, seedTicket(), AnswerGoogleProposalInput, runDecision() (+21 more)
+Cohesion: 0.09
+Nodes (31): convertBacklogItem(), ConvertBacklogItemInput, ConvertBacklogItemResult, AnswerBacklogQuestionInput, closeOpenBacklogQuestion(), actor, anthropicSpies, seedTicket() (+23 more)
 
 ### Community 443 - "devDependencies"
 Cohesion: 0.18
@@ -2202,8 +2209,8 @@ Cohesion: 0.28
 Nodes (7): fetchMock, Handler, jsonResponse(), meHandler(), renderApp(), server(), serverWithKey()
 
 ### Community 457 - "push-relay/src/config.ts"
-Cohesion: 0.27
-Nodes (9): ApnsCredentials, decodeBase64(), Env, exactBoolean(), loadRelayConfig(), positiveInt(), required(), app (+1 more)
+Cohesion: 0.20
+Nodes (13): ApnsCredentials, decodeBase64(), Env, exactBoolean(), loadRelayConfig(), positiveInt(), required(), apnsEnv() (+5 more)
 
 ### Community 458 - "backfill-ticket-done-events.ts"
 Cohesion: 0.38
@@ -2225,17 +2232,13 @@ Nodes (9): scripts, android, build, ios, lint, start, test, typecheck (+1 more)
 Cohesion: 0.28
 Nodes (6): createFcmClient(), build(), PAYLOAD, RecordedCall, sendWith(), SERVICE_ACCOUNT
 
-### Community 463 - "isUniqueViolation"
-Cohesion: 0.07
-Nodes (37): Counts, countsForMilestone(), emptyCounts(), idParamsSchema, listMilestonesQuerySchema, loadMilestoneWithCounts(), milestoneRoutes(), MilestoneRow (+29 more)
-
-### Community 464 - "usage-snapshots.ts"
-Cohesion: 0.33
-Nodes (6): AiUsageSnapshot, aiUsageSnapshotsRoutes(), aiUsageSnapshotsSchema, normalizeWindow(), snapshotItemSchema, usageWindowSchema
+### Community 463 - "schemas/activity.ts"
+Cohesion: 0.40
+Nodes (4): ActivityForDate, activityForDateSchema, ActivityReportProject, activityReportProjectSchema
 
 ### Community 465 - "google-schema.test.ts"
-Cohesion: 0.14
-Nodes (10): seedAccount(), seedUser(), seedWorkspace(), agentRuns, calendarEvents, emailMessages, googleAccounts, googleWorkspaces (+2 more)
+Cohesion: 0.12
+Nodes (15): AgentRunPhase, monthlyCostByPhase(), monthlyCostUsd(), ticketCostUsd(), seedAccount(), seedUser(), seedWorkspace(), agentRunPhase (+7 more)
 
 ### Community 466 - "MainActivity"
 Cohesion: 0.25
@@ -2257,9 +2260,9 @@ Nodes (4): insert(), seedDevice(), seedScenario(), seedUser()
 Cohesion: 0.21
 Nodes (16): calendarDayUrl(), calendarReproposableSql(), calendarStatusCaseSql(), decodeCursor(), encodeCursor(), gmailThreadUrl(), isoDay(), ListMailInput (+8 more)
 
-### Community 471 - "push-relay/src/config.test.ts"
-Cohesion: 0.70
-Nodes (4): apnsEnv(), baseEnv(), p8Base64(), serviceAccountBase64()
+### Community 471 - "Fase 7 — Workflow guidato: piano di implementazione"
+Cohesion: 0.11
+Nodes (17): Fase 7 — Workflow guidato: piano di implementazione, Fase A — Permessi e pre-approvazione, Fase B — Conversazione guidata, Fase C — Linguaggio, Fase D — Consegna, Rischi e decisioni prese nel piano, Task 10: navigazione filtrata e vista «cosa aspetta me», Task 11: documentazione e consegna (+9 more)
 
 ### Community 472 - "Fase 6 — fix di review prima del merge"
 Cohesion: 0.20
@@ -2278,16 +2281,16 @@ Cohesion: 0.17
 Nodes (10): errText(), rollupMonitorOnce(), startMonitorRollupPoller(), StartMonitorRollupPollerOptions, CUTOFF_48H, inOldBucket(), MetricOverrides, NOW (+2 more)
 
 ### Community 477 - "auth.test.ts"
-Cohesion: 0.12
-Nodes (7): limitedApp(), enqueueGraphBuildOnPush(), fastify, FastifyRequest, normalizeHeaders(), ticketUrl(), webhookRoutes()
+Cohesion: 0.08
+Nodes (6): limitedApp(), ENCRYPTION_KEY, getUserProfile, listWorkspaceUsers, profileToReturn, workspaceToReturn
 
 ### Community 478 - "mobile-app.md"
 Cohesion: 0.40
 Nodes (4): Installing, Logging in, Notifications, What you can do from the app
 
 ### Community 480 - "google/poller.test.ts"
-Cohesion: 0.09
-Nodes (8): GooglePollerDeps, credentialsFor(), deps(), ENCRYPTION_KEY, FakeListEventsCall, IGNORED_OUTPUT, quietCalendar, PublishFn
+Cohesion: 0.08
+Nodes (10): CalendarClient, GmailClient, GooglePollerDeps, credentialsFor(), deps(), ENCRYPTION_KEY, FakeListEventsCall, IGNORED_OUTPUT (+2 more)
 
 ### Community 482 - "gradlew"
 Cohesion: 0.83
@@ -2297,25 +2300,29 @@ Nodes (3): gradlew script, die(), warn()
 Cohesion: 0.50
 Nodes (3): Attivare il relay push (solo sul nostro VPS), `caddy.d/` — blocchi di sito aggiuntivi, Perché un glob e non una variabile d'ambiente
 
-### Community 489 - "questions.test.ts"
-Cohesion: 0.19
-Nodes (6): awaitingInputEvent(), OPTIONS, seedNotification(), seedOrphanState(), seedParkedJob(), seedTicket()
+### Community 488 - "docs-summary.ts"
+Cohesion: 0.21
+Nodes (15): computeBlastRadius(), CommunitySummary, DocsGraphMapCaps, GodNodeSummary, plural(), summarizeCommunities(), summarizeGodNodes(), summarizeGraphForDocs() (+7 more)
 
 ### Community 490 - "email-routing.ts"
 Cohesion: 0.19
 Nodes (17): AdmissionConfig, AdmissionResult, admit(), containsWholeWord(), domainOf(), EmailForRouting, EmailRoute, EmailRouteKind (+9 more)
 
-### Community 491 - "services/inbox.test.ts"
-Cohesion: 0.18
-Nodes (3): seedJob(), seedQuestion(), seedTicket()
+### Community 491 - "web/src/lib/pulse-line.ts"
+Cohesion: 0.16
+Nodes (13): PULSE_TONE_CLASS, PulseLine, pulseLineFor(), PulseTone, RunningItem, runningLine(), PLAN, QUESTION (+5 more)
 
 ### Community 492 - "google/calendar.test.ts"
-Cohesion: 0.10
-Nodes (26): buildMilestoneProposal(), CALENDAR_CANCELLED_OUTCOME, CalendarMilestoneProposal, calendarWindow(), computeFingerprint(), duplicateOutcome(), eventToRouting(), isCancelled() (+18 more)
+Cohesion: 0.12
+Nodes (21): buildMilestoneProposal(), CalendarMilestoneProposal, computeFingerprint(), duplicateOutcome(), eventToRouting(), isCancelled(), isoDay(), isReadyForProposal() (+13 more)
 
-### Community 493 - "google-proposal.test.ts"
-Cohesion: 0.14
-Nodes (3): proposalEvent(), seedProposal(), seedTicket()
+### Community 493 - "createTicket"
+Cohesion: 0.07
+Nodes (9): createTicket(), CreateTicketInput, ProjectNotFoundError, proposalEvent(), seedProposal(), seedTicket(), IN_FLIGHT, revokePlanApproval() (+1 more)
+
+### Community 494 - "servers-checks.ts"
+Cohesion: 0.11
+Nodes (14): checkParamsSchema, CheckRow, CheckView, checkViewSchema, idParamsSchema, isDbCheckType(), metricsQuerySchema, metricsResponseSchema (+6 more)
 
 ### Community 495 - "mail.test.tsx"
 Cohesion: 0.18
@@ -2326,8 +2333,8 @@ Cohesion: 0.31
 Nodes (8): AffectedPagesResult, CONFIG_BASENAME_PATTERNS, CONFIG_BASENAMES, isConfigLike(), mapAffectedPages(), PageRef, segmentCount(), Selected
 
 ### Community 498 - "docs-editing.test.tsx"
-Cohesion: 0.18
-Nodes (8): baseHandlers(), fetchMock, Handler, jsonResponse(), MANUAL_PAGE, meHandler(), TECH_PAGE, TREE
+Cohesion: 0.12
+Nodes (17): ACTIVE_JOB_STATUSES, DocsGenerationPanel(), JOB_STATUS_KEY, statusRefetchInterval(), DocStatus, generateDocs(), getDocStatus(), resumeDocs() (+9 more)
 
 ### Community 503 - "devDependencies"
 Cohesion: 0.18
@@ -2336,6 +2343,10 @@ Nodes (11): devDependencies, @testcontainers/postgresql, tsx, @types/node, types
 ### Community 504 - "google-workspace.md"
 Cohesion: 0.20
 Nodes (9): 1. Create (or pick) a Google Cloud project, 2. Enable the Gmail and Calendar APIs, 3. Configure the OAuth consent screen as *Internal*, 4. Create the OAuth client, 5. Register the Workspace in Stubwise, 6. Let members connect their mailbox, Maintenance, Security notes (+1 more)
+
+### Community 505 - "metrics-charts.tsx"
+Cohesion: 0.23
+Nodes (9): CheckLatencyChart(), FMT_GB(), FMT_INT(), FMT_PCT(), LOAD_AXIS, MetricsCharts(), Panel, toSeconds() (+1 more)
 
 ### Community 506 - "Fase 6b — Un'email, più progetti"
 Cohesion: 0.22
@@ -2346,8 +2357,8 @@ Cohesion: 0.22
 Nodes (8): Fase 5 — fix di review prima del merge, Fuori da questo piano (backlog, non ora), Task 1: `weeklyBriefEnabled` non deve rompere l'app contro un server senza fase 5, Task 2: Slack — escape PRIMA del troncamento nelle `section` del riassunto, Task 3: registro decisioni — le voci automatiche sono immutabili nel testo, Task 4: toggle `notifyBrief` esposto in Impostazioni → Notifiche (o CLAUDE.md corretto), Task 5: finestra degli orfani del brief coerente col timeout del run, Task 6: push, CI verde, report
 
 ### Community 508 - "plugins-section.test.tsx"
-Cohesion: 0.17
-Nodes (6): PluginsSection(), fetchMock, Handler, makeInventory(), makePlugin(), SettingsPluginsPage()
+Cohesion: 0.22
+Nodes (4): fetchMock, Handler, makeInventory(), makePlugin()
 
 ### Community 510 - "scripts"
 Cohesion: 0.25
@@ -2365,13 +2376,25 @@ Nodes (7): 1. Stato di partenza (fatti verificati), 2. Perimetro (deciso), 3. Wo
 Cohesion: 0.32
 Nodes (6): fetchMock, Handler, jsonResponse(), makeAccount(), mockApi(), MockState
 
+### Community 522 - "repositories-new-standalone.test.tsx"
+Cohesion: 0.24
+Nodes (7): ACCOUNT, fetchMock, Handler, jsonResponse(), meHandler(), mockApi(), renderApp()
+
 ### Community 523 - "Fase 6c — Ammissione separata dall'attribuzione"
 Cohesion: 0.25
 Nodes (7): 1. Stato di partenza (fatti verificati), 2. Perimetro (deciso), 3. Ammissione, 4. Attribuzione e smistamento, 5. Difese di costo, 6. Interfaccia, privacy, test e deploy, Fase 6c — Ammissione separata dall'attribuzione
 
+### Community 524 - "repositories.test.tsx"
+Cohesion: 0.22
+Nodes (9): Repository, ACCOUNT, ACCOUNT_B, fetchMock, Handler, jsonResponse(), meHandler(), mockApi() (+1 more)
+
 ### Community 525 - "gmail-calendar.md"
 Cohesion: 0.22
 Nodes (8): Admitted mail, For a project maintainer, For the admin, For the user, One email, several projects, Privacy, What happens to your email, When no project matches
+
+### Community 528 - "projects/index.test.tsx"
+Cohesion: 0.31
+Nodes (7): baseApi(), fetchMock, Handler, jsonResponse(), project(), pulseSummaries(), renderApp()
 
 ### Community 529 - "worker/package.json"
 Cohesion: 0.40
@@ -2405,33 +2428,57 @@ Nodes (5): 0.1.1, 0.1.2, Patch Changes, Patch Changes, @stubwise/i18n
 Cohesion: 0.33
 Nodes (5): 0.1.1, 0.1.2, Patch Changes, Patch Changes, @stubwise/notifications
 
-### Community 549 - "account.test.tsx"
+### Community 544 - "errText"
 Cohesion: 0.33
-Nodes (6): AccountMockState, fetchMock, Handler, jsonResponse(), mockAccountApi(), renderAccount()
+Nodes (9): applyGrowStats(), errText(), growNewAreaPages(), guardRefreshedProductBody(), loadGrowTreeContext(), loadPageBody(), looksLikeProductGuide(), refreshAffectedPagesInWorktree() (+1 more)
 
-### Community 556 - "schemas/activity.ts"
-Cohesion: 0.40
-Nodes (4): ActivityForDate, activityForDateSchema, ActivityReportProject, activityReportProjectSchema
+### Community 555 - "embed.ts"
+Cohesion: 0.28
+Nodes (8): batched(), DbOrTx, embedAndStoreChunks(), EmbedAndStoreInput, EmbedAndStoreResult, EmbeddablePage, meanVector(), PageChunk
+
+### Community 556 - "Fase 6c — fix di review prima del merge"
+Cohesion: 0.22
+Nodes (8): Fase 6c — fix di review prima del merge, Fuori da questo piano (backlog, non ora), Task 1: le esclusioni valgono solo per l'ammissione dai domini di lavoro, Task 2: un dominio di lavoro fra i destinatari ammette, in copia o meno, Task 3: la pagina Posta mostra i messaggi in smistamento, Task 4: dire all'utente cosa viene letto, Task 5: due rifiniture, Task 6: push, CI verde, report
+
+### Community 559 - "no-code-workflow.md"
+Cohesion: 0.25
+Nodes (7): Finding your way around, Pre-approved plans, The line that always tells you what's next, The path, start to finish, Two things only a maintainer does, When something needs a maintainer, When the agent asks you something
+
+### Community 560 - "use-view-ping.ts"
+Cohesion: 0.33
+Nodes (7): pingPageView(), lastPingAt, resetViewPings(), pingPageView, Probe(), useViewPing(), DocsPageView()
+
+### Community 561 - "project-servers.test.tsx"
+Cohesion: 0.32
+Nodes (6): detail(), fetchMock, Handler, jsonResponse(), mockApi(), renderApp()
+
+### Community 563 - "Fase 7 — Workflow guidato web per non-tecnici"
+Cohesion: 0.25
+Nodes (7): 1. Stato di partenza (fatti verificati), 2. Perimetro (deciso), 3. Permessi e piano pre-approvato, 4. Conversazione guidata, 5. Linguaggio e leggibilità, 6. Test e deploy, Fase 7 — Workflow guidato web per non-tecnici
+
+### Community 566 - "docs-summary.test.ts"
+Cohesion: 0.50
+Nodes (3): FixtureNode, writeGraph(), writeReferenceGraph()
 
 ## Knowledge Gaps
-- **4468 isolated node(s):** `$schema`, `changelog`, `commit`, `fixed`, `linked` (+4463 more)
+- **4539 isolated node(s):** `$schema`, `changelog`, `commit`, `fixed`, `linked` (+4534 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **63 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **60 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `zod` connect `zod` to `usage-poller.ts`, `activity-feed.tsx`, `ticket.ts`, `routes/backlog.ts`, `orient-handler.ts`, `project-docs.ts`, `badges.tsx`, `field.tsx`, `google/src/index.ts`, `notification.ts`, `chat-turn.ts`, `fix.ts`, `plugin.ts`, `write.test.ts`, `routes/projects.ts`, `usage-costs.ts`, `google.ts`, `routes/tickets.ts`, `schemas/backlog.ts`, `src/reader.ts`, `project.ts`, `schemas/server.ts`, `services/plugins.ts`, `api-client/src/client.ts`, `worker/src/index.ts`, `fetch.ts`, `run-review.ts`, `schemas/activity.ts`, `server/src/index.ts`, `auto-update.ts`, `ai-job.ts`, `shared/src/index.ts`, `schemas/push.ts`, `ask-user-mcp/server.ts`, `jobs.ts`, `proposal.ts`, `widget-conversations.tsx`, `google-proposal.ts`, `classify.ts`, `routes/docs.ts`, `graph-chat/client.ts`, `isUniqueViolation`, `usage-snapshots.ts`, `me-mail.ts`, `schemas/widget.ts`, `build.ts`, `mcp/src/client.ts`, `read.ts`, `schemas/search.ts`, `milestone.ts`, `schemas/docs.ts`, `AgentRunner`, `routes/settings.ts`, `projects/$projectId.tsx`, `write.ts`, `mcp/src/config.ts`, `attachments.ts`, `shared/package.json`?**
-  _High betweenness centrality (0.316) - this node is a cross-community bridge._
-- **Why does `retrieveWithScope()` connect `src/docs-retrieval.ts` to `src/provider.ts`?**
-  _High betweenness centrality (0.036) - this node is a cross-community bridge._
+- **Why does `zod` connect `app.ts` to `usage-parser.ts`, `chat-turn.ts`, `ticket.ts`, `router.tsx`, `routes/backlog.ts`, `orient-handler.ts`, `project-docs.ts`, `badges.tsx`, `google/src/index.ts`, `plugin.ts`, `notification.ts`, `intake.ts`, `fix.ts`, `worker/src/index.ts`, `processor.ts`, `write.test.ts`, `routes/projects.ts`, `usage-costs.ts`, `deep-dive.ts`, `google.ts`, `routes/tickets.ts`, `schemas/backlog.ts`, `src/reader.ts`, `project.ts`, `schemas/server.ts`, `isUniqueViolation`, `api-client/src/client.ts`, `run-review.ts`, `fix.test.ts`, `server/src/index.ts`, `schemas/ingest.ts`, `ai-job.ts`, `auto-update.ts`, `shared/src/index.ts`, `ask-user-mcp/server.ts`, `jobs.ts`, `schemas/push.ts`, `proposal.ts`, `projects/$projectId.tsx`, `google-proposal.ts`, `classify.ts`, `routes/docs.ts`, `graph-chat/client.test.ts`, `schemas/activity.ts`, `me-mail.ts`, `schemas/widget.ts`, `build.ts`, `mcp/src/client.ts`, `read.ts`, `schemas/search.ts`, `milestone.ts`, `schemas/docs.ts`, `AgentRunner`, `routes/settings.ts`, `web/src/lib/format.ts`, `write.ts`, `servers-checks.ts`, `mcp/src/config.ts`, `attachments.ts`, `shared/package.json`?**
+  _High betweenness centrality (0.306) - this node is a cross-community bridge._
 - **Why does `createStubwiseClient()` connect `api-client/src/client.ts` to `src/provider.ts`?**
-  _High betweenness centrality (0.034) - this node is a cross-community bridge._
+  _High betweenness centrality (0.028) - this node is a cross-community bridge._
+- **Why does `UPlotChart()` connect `uplot-chart.tsx` to `metrics-charts.tsx`?**
+  _High betweenness centrality (0.018) - this node is a cross-community bridge._
 - **Are the 45 inferred relationships involving `buildApp()` (e.g. with `activityRoutes()` and `aiJobRoutes()`) actually correct?**
   _`buildApp()` has 45 INFERRED edges - model-reasoned connections that need verification._
 - **Are the 30 inferred relationships involving `requireAuth()` (e.g. with `activityRoutes()` and `aiJobRoutes()`) actually correct?**
   _`requireAuth()` has 30 INFERRED edges - model-reasoned connections that need verification._
 - **What connects `$schema`, `changelog`, `commit` to the rest of the system?**
-  _4468 weakly-connected nodes found - possible documentation gaps or missing edges._
-- **Should `app.ts` be split into smaller, more focused modules?**
-  _Cohesion score 0.013773222293401666 - nodes in this community are weakly interconnected._
+  _4539 weakly-connected nodes found - possible documentation gaps or missing edges._
+- **Should `fixtures.ts` be split into smaller, more focused modules?**
+  _Cohesion score 0.013226784238082117 - nodes in this community are weakly interconnected._

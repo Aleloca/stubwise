@@ -1,7 +1,8 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { BacklogCodeSession, BacklogMessage } from "../lib/api";
+import type { BacklogCodeSession, BacklogMessage, BacklogQuestion } from "../lib/api";
 import { ApiError } from "../lib/api";
 import type { BacklogChatHandlers } from "../lib/backlog-chat-api";
 import { setMatchMedia } from "../test/setup";
@@ -38,11 +39,15 @@ vi.mock("../lib/backlog-chat-api", () => ({
 }));
 
 const postBacklogChatTurn = vi.fn();
+const answerBacklogQuestion = vi.fn();
+const dismissBacklogQuestion = vi.fn();
 vi.mock("../lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../lib/api")>();
   return {
     ...actual,
     postBacklogChatTurn: (...args: unknown[]) => postBacklogChatTurn(...args),
+    answerBacklogQuestion: (...args: unknown[]) => answerBacklogQuestion(...args),
+    dismissBacklogQuestion: (...args: unknown[]) => dismissBacklogQuestion(...args),
   };
 });
 
@@ -54,6 +59,8 @@ beforeEach(() => {
 afterEach(() => {
   postBacklogChatStream.mockReset();
   postBacklogChatTurn.mockReset();
+  answerBacklogQuestion.mockReset();
+  dismissBacklogQuestion.mockReset();
 });
 
 interface ChatProps {
@@ -61,6 +68,7 @@ interface ChatProps {
   onExchangeComplete?: ReturnType<typeof vi.fn>;
   codeSession?: BacklogCodeSession | null;
   pendingTurn?: boolean;
+  openQuestion?: BacklogQuestion | null;
   repos?: { id: string; name: string }[];
   onStartSession?: ReturnType<typeof vi.fn>;
   onStopSession?: ReturnType<typeof vi.fn>;
@@ -68,25 +76,47 @@ interface ChatProps {
   sessionError?: string | null;
 }
 
+/** Domanda aperta di prova (fase 7): due opzioni, consigliata la prima. */
+const OPEN_QUESTION: BacklogQuestion = {
+  questionId: "99999999-9999-4999-8999-999999999999",
+  backlogItemId: ITEM_ID,
+  question: "Import CSV o form manuale?",
+  options: [
+    { label: "Import CSV", consequence: "Serve un file già pronto" },
+    { label: "Form manuale" },
+  ],
+  recommendedIndex: 0,
+  allowFreeText: true,
+  askedAt: "2026-07-21T10:00:00.000Z",
+  answer: null,
+  answeredAt: null,
+  answeredBy: null,
+  dismissedAt: null,
+};
+
 function renderChat(props: ChatProps = {}) {
   const onExchangeComplete = props.onExchangeComplete ?? vi.fn();
   const onStartSession = props.onStartSession ?? vi.fn();
   const onStopSession = props.onStopSession ?? vi.fn();
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const view = render(
-    <BacklogChat
-      itemId={ITEM_ID}
-      serverMessages={props.serverMessages ?? []}
-      onExchangeComplete={onExchangeComplete}
-      codeSession={props.codeSession ?? null}
-      pendingTurn={props.pendingTurn ?? false}
-      repos={props.repos ?? REPOS}
-      onStartSession={onStartSession}
-      onStopSession={onStopSession}
-      sessionPending={props.sessionPending ?? false}
-      sessionError={props.sessionError ?? null}
-    />,
+    <QueryClientProvider client={queryClient}>
+      <BacklogChat
+        itemId={ITEM_ID}
+        serverMessages={props.serverMessages ?? []}
+        onExchangeComplete={onExchangeComplete}
+        codeSession={props.codeSession ?? null}
+        pendingTurn={props.pendingTurn ?? false}
+        openQuestion={props.openQuestion ?? null}
+        repos={props.repos ?? REPOS}
+        onStartSession={onStartSession}
+        onStopSession={onStopSession}
+        sessionPending={props.sessionPending ?? false}
+        sessionError={props.sessionError ?? null}
+      />
+    </QueryClientProvider>,
   );
-  return { onExchangeComplete, onStartSession, onStopSession, view };
+  return { onExchangeComplete, onStartSession, onStopSession, view, queryClient };
 }
 
 async function ask(user: ReturnType<typeof userEvent.setup>, text: string) {
@@ -229,22 +259,25 @@ describe("BacklogChat", () => {
   });
 
   it("badge modalità: DOCS senza sessione, CODE — repo con sessione attiva", () => {
-    const { view } = renderChat();
+    const { view, queryClient } = renderChat();
     expect(screen.getByText("DOCS")).toBeInTheDocument();
     expect(screen.queryByText(/CODE/)).not.toBeInTheDocument();
 
     view.rerender(
-      <BacklogChat
-        itemId={ITEM_ID}
-        serverMessages={[]}
-        onExchangeComplete={vi.fn()}
-        codeSession={ACTIVE_SESSION}
-        pendingTurn={false}
-        repos={REPOS}
-        onStartSession={vi.fn()}
-        onStopSession={vi.fn()}
-        sessionPending={false}
-      />,
+      <QueryClientProvider client={queryClient}>
+        <BacklogChat
+          itemId={ITEM_ID}
+          serverMessages={[]}
+          onExchangeComplete={vi.fn()}
+          codeSession={ACTIVE_SESSION}
+          pendingTurn={false}
+          openQuestion={null}
+          repos={REPOS}
+          onStartSession={vi.fn()}
+          onStopSession={vi.fn()}
+          sessionPending={false}
+        />
+      </QueryClientProvider>,
     );
     expect(screen.getByText("CODE — Repo A")).toBeInTheDocument();
     expect(screen.queryByText("DOCS")).not.toBeInTheDocument();
@@ -289,7 +322,7 @@ describe("BacklogChat", () => {
     postBacklogChatTurn.mockResolvedValue({ mode: "code", userMessageId: serverUserId });
 
     const user = userEvent.setup();
-    const { view } = renderChat({ codeSession: ACTIVE_SESSION, serverMessages: [] });
+    const { view, queryClient } = renderChat({ codeSession: ACTIVE_SESSION, serverMessages: [] });
 
     await ask(user, "come funziona il login?");
 
@@ -319,17 +352,20 @@ describe("BacklogChat", () => {
       },
     ];
     view.rerender(
-      <BacklogChat
-        itemId={ITEM_ID}
-        serverMessages={merged}
-        onExchangeComplete={vi.fn()}
-        codeSession={ACTIVE_SESSION}
-        pendingTurn={false}
-        repos={REPOS}
-        onStartSession={vi.fn()}
-        onStopSession={vi.fn()}
-        sessionPending={false}
-      />,
+      <QueryClientProvider client={queryClient}>
+        <BacklogChat
+          itemId={ITEM_ID}
+          serverMessages={merged}
+          onExchangeComplete={vi.fn()}
+          codeSession={ACTIVE_SESSION}
+          pendingTurn={false}
+          openQuestion={null}
+          repos={REPOS}
+          onStartSession={vi.fn()}
+          onStopSession={vi.fn()}
+          sessionPending={false}
+        />
+      </QueryClientProvider>,
     );
 
     // La risposta compare e il placeholder sparisce.
@@ -342,7 +378,7 @@ describe("BacklogChat", () => {
   });
 
   it("merge: un messaggio system nuovo dal server compare una sola volta", () => {
-    const { view } = renderChat({ codeSession: ACTIVE_SESSION, serverMessages: [] });
+    const { view, queryClient } = renderChat({ codeSession: ACTIVE_SESSION, serverMessages: [] });
 
     const system: BacklogMessage = {
       id: "bbbbbbbb-0000-4000-8000-000000000002",
@@ -353,17 +389,20 @@ describe("BacklogChat", () => {
     };
     const rerenderWith = (messages: BacklogMessage[]) =>
       view.rerender(
-        <BacklogChat
-          itemId={ITEM_ID}
-          serverMessages={messages}
-          onExchangeComplete={vi.fn()}
-          codeSession={ACTIVE_SESSION}
-          pendingTurn={false}
-          repos={REPOS}
-          onStartSession={vi.fn()}
-          onStopSession={vi.fn()}
-          sessionPending={false}
-        />,
+        <QueryClientProvider client={queryClient}>
+          <BacklogChat
+            itemId={ITEM_ID}
+            serverMessages={messages}
+            onExchangeComplete={vi.fn()}
+            codeSession={ACTIVE_SESSION}
+            pendingTurn={false}
+            openQuestion={null}
+            repos={REPOS}
+            onStartSession={vi.fn()}
+            onStopSession={vi.fn()}
+            sessionPending={false}
+          />
+        </QueryClientProvider>,
       );
 
     rerenderWith([system]);
@@ -382,24 +421,27 @@ describe("BacklogChat", () => {
     });
 
     const user = userEvent.setup();
-    const { view } = renderChat({ codeSession: ACTIVE_SESSION, serverMessages: [] });
+    const { view, queryClient } = renderChat({ codeSession: ACTIVE_SESSION, serverMessages: [] });
 
     await ask(user, "domanda lunga");
     expect(await screen.findByText(/investigating the code/i)).toBeInTheDocument();
 
     // La sessione viene chiusa mentre il turno è ancora in volo.
     view.rerender(
-      <BacklogChat
-        itemId={ITEM_ID}
-        serverMessages={[]}
-        onExchangeComplete={vi.fn()}
-        codeSession={null}
-        pendingTurn={false}
-        repos={REPOS}
-        onStartSession={vi.fn()}
-        onStopSession={vi.fn()}
-        sessionPending={false}
-      />,
+      <QueryClientProvider client={queryClient}>
+        <BacklogChat
+          itemId={ITEM_ID}
+          serverMessages={[]}
+          onExchangeComplete={vi.fn()}
+          codeSession={null}
+          pendingTurn={false}
+          openQuestion={null}
+          repos={REPOS}
+          onStartSession={vi.fn()}
+          onStopSession={vi.fn()}
+          sessionPending={false}
+        />
+      </QueryClientProvider>,
     );
 
     await waitFor(() =>
@@ -419,7 +461,7 @@ describe("BacklogChat", () => {
     );
 
     const user = userEvent.setup();
-    const { view } = renderChat({ serverMessages: [] });
+    const { view, queryClient } = renderChat({ serverMessages: [] });
     await ask(user, "come funziona il login?");
     expect(await screen.findByText("Il login usa i cookie.")).toBeInTheDocument();
 
@@ -442,17 +484,20 @@ describe("BacklogChat", () => {
       },
     ];
     view.rerender(
-      <BacklogChat
-        itemId={ITEM_ID}
-        serverMessages={persisted}
-        onExchangeComplete={vi.fn()}
-        codeSession={null}
-        pendingTurn={false}
-        repos={REPOS}
-        onStartSession={vi.fn()}
-        onStopSession={vi.fn()}
-        sessionPending={false}
-      />,
+      <QueryClientProvider client={queryClient}>
+        <BacklogChat
+          itemId={ITEM_ID}
+          serverMessages={persisted}
+          onExchangeComplete={vi.fn()}
+          codeSession={null}
+          pendingTurn={false}
+          openQuestion={null}
+          repos={REPOS}
+          onStartSession={vi.fn()}
+          onStopSession={vi.fn()}
+          sessionPending={false}
+        />
+      </QueryClientProvider>,
     );
 
     expect(screen.getAllByText("Il login usa i cookie.")).toHaveLength(1);
@@ -468,7 +513,7 @@ describe("BacklogChat", () => {
     );
 
     const user = userEvent.setup();
-    const { view } = renderChat({ serverMessages: [] });
+    const { view, queryClient } = renderChat({ serverMessages: [] });
     await ask(user, "domanda");
     expect(await screen.findByText("Risposta parziale")).toBeInTheDocument();
 
@@ -491,17 +536,20 @@ describe("BacklogChat", () => {
       },
     ];
     view.rerender(
-      <BacklogChat
-        itemId={ITEM_ID}
-        serverMessages={persisted}
-        onExchangeComplete={vi.fn()}
-        codeSession={null}
-        pendingTurn={false}
-        repos={REPOS}
-        onStartSession={vi.fn()}
-        onStopSession={vi.fn()}
-        sessionPending={false}
-      />,
+      <QueryClientProvider client={queryClient}>
+        <BacklogChat
+          itemId={ITEM_ID}
+          serverMessages={persisted}
+          onExchangeComplete={vi.fn()}
+          codeSession={null}
+          pendingTurn={false}
+          openQuestion={null}
+          repos={REPOS}
+          onStartSession={vi.fn()}
+          onStopSession={vi.fn()}
+          sessionPending={false}
+        />
+      </QueryClientProvider>,
     );
 
     // Una sola bolla assistant: il testo streamato non è duplicato dal persistito.
@@ -524,5 +572,89 @@ describe("BacklogChat", () => {
     });
     expect(screen.getByText("domanda in corso")).toBeInTheDocument();
     expect(screen.getByText(/investigating the code/i)).toBeInTheDocument();
+  });
+});
+
+describe("BacklogChat — domanda a bottoni (fase 7)", () => {
+  it("la domanda aperta compare in fondo alla conversazione con le opzioni", () => {
+    renderChat({ codeSession: ACTIVE_SESSION, openQuestion: OPEN_QUESTION });
+
+    expect(screen.getByText("Import CSV o form manuale?")).toBeInTheDocument();
+    expect(screen.getByText("Import CSV")).toBeInTheDocument();
+    expect(screen.getByText("Serve un file già pronto")).toBeInTheDocument();
+    expect(screen.getByText("Form manuale")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send answer" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Not now" })).toBeInTheDocument();
+  });
+
+  it("senza una domanda aperta: nessun pannello, nessun bottone 'non ora'", () => {
+    renderChat({ codeSession: ACTIVE_SESSION, openQuestion: null });
+    expect(screen.queryByRole("button", { name: "Not now" })).not.toBeInTheDocument();
+  });
+
+  it("il testo libero si ferma finché la domanda è aperta", () => {
+    renderChat({ codeSession: ACTIVE_SESSION, openQuestion: OPEN_QUESTION });
+    expect(screen.getByLabelText(/ask or refine/i)).toBeDisabled();
+  });
+
+  it("scegliere un'opzione e inviare chiama answerBacklogQuestion con l'indice", async () => {
+    answerBacklogQuestion.mockResolvedValue({ backlogItemId: ITEM_ID });
+    const user = userEvent.setup();
+    const { onExchangeComplete } = renderChat({
+      codeSession: ACTIVE_SESSION,
+      openQuestion: OPEN_QUESTION,
+    });
+
+    await user.click(screen.getByRole("radio", { name: /form manuale/i }));
+    await user.click(screen.getByRole("button", { name: "Send answer" }));
+
+    await waitFor(() =>
+      expect(answerBacklogQuestion).toHaveBeenCalledWith(ITEM_ID, OPEN_QUESTION.questionId, {
+        optionIndex: 1,
+      }),
+    );
+    await waitFor(() => expect(onExchangeComplete).toHaveBeenCalled());
+  });
+
+  it("'non ora' chiama dismissBacklogQuestion", async () => {
+    dismissBacklogQuestion.mockResolvedValue({ backlogItemId: ITEM_ID });
+    const user = userEvent.setup();
+    const { onExchangeComplete } = renderChat({
+      codeSession: ACTIVE_SESSION,
+      openQuestion: OPEN_QUESTION,
+    });
+
+    await user.click(screen.getByRole("button", { name: "Not now" }));
+
+    await waitFor(() =>
+      expect(dismissBacklogQuestion).toHaveBeenCalledWith(ITEM_ID, OPEN_QUESTION.questionId),
+    );
+    await waitFor(() => expect(onExchangeComplete).toHaveBeenCalled());
+    expect(answerBacklogQuestion).not.toHaveBeenCalled();
+  });
+
+  it("errore sulla risposta: messaggio localizzato dal code, la domanda resta aperta", async () => {
+    answerBacklogQuestion.mockRejectedValue(new ApiError(409, "already handled", "already_handled"));
+    const user = userEvent.setup();
+    renderChat({ codeSession: ACTIVE_SESSION, openQuestion: OPEN_QUESTION });
+
+    await user.click(screen.getByRole("radio", { name: /import csv/i }));
+    await user.click(screen.getByRole("button", { name: "Send answer" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/already answered/i);
+    // Il pannello resta: la domanda non è stata chiusa lato client.
+    expect(screen.getByText("Import CSV o form manuale?")).toBeInTheDocument();
+  });
+
+  it("errore su 'non ora' non tocca la risposta", async () => {
+    dismissBacklogQuestion.mockRejectedValue(
+      new ApiError(409, "not pending", "question_not_pending"),
+    );
+    const user = userEvent.setup();
+    renderChat({ codeSession: ACTIVE_SESSION, openQuestion: OPEN_QUESTION });
+
+    await user.click(screen.getByRole("button", { name: "Not now" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/no longer waiting for an answer/i);
   });
 });

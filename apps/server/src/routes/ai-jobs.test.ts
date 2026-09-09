@@ -118,6 +118,7 @@ describe("GET /api/tickets/:ticketId/jobs", () => {
       providerKind: null,
       requestedByUserId: null,
       planSummary: null,
+      failureSummary: null,
     });
     expect(body[1]).toEqual({
       id: opened!.id,
@@ -133,6 +134,7 @@ describe("GET /api/tickets/:ticketId/jobs", () => {
       providerKind: null,
       requestedByUserId: null,
       planSummary: null,
+      failureSummary: null,
     });
     expect(body[2]).toMatchObject({
       id: queued!.id,

@@ -20,6 +20,7 @@ import { t } from "@stubwise/i18n";
 import { and, eq, sql } from "drizzle-orm";
 import { createTicket } from "../db/tickets.js";
 import { getContentLanguage } from "../settings.js";
+import { closeOpenBacklogQuestion } from "./backlog-questions.js";
 import type { Actor } from "./jobs.js";
 
 export interface ConvertBacklogItemInput {
@@ -112,6 +113,11 @@ export async function convertBacklogItem(
     await tx
       .insert(backlogItemTickets)
       .values({ itemId: id, ticketId: ticket.id, role: "converted_to" });
+    // Una conversione chiude anche l'eventuale domanda ancora aperta della
+    // voce (fase 7, design §4): nella STESSA transazione del claim, non
+    // dopo — la voce sta per sparire dal flusso normale, e una domanda senza
+    // via d'uscita non deve restare a chiedere una risposta che nessuno vedrà.
+    await closeOpenBacklogQuestion(tx, id);
     // Una conversione CHIUDE l'eventuale sessione di analisi sul codice
     // active: la voce è ormai un ticket, non ha più senso investigarla in
     // chat. Il worker (sweep/turno) rimuoverà il worktree in-memoria alla

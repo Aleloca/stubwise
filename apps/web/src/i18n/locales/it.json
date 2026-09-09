@@ -366,6 +366,7 @@
       "labels": "Label",
       "lastSeenAt": "Ultimo visto",
       "memberRunHint": "Il run si fermerà sul piano: dovrà approvarlo un maintainer.",
+      "memberRunHintPreApproved": "Il piano è già approvato: il lavoro partirà davvero.",
       "milestone": "Milestone",
       "noDescription": "// nessuna descrizione",
       "noMilestone": "Nessuna",
@@ -375,7 +376,12 @@
       "originalRequest": "Richiesta originale",
       "pastQuestions": "Domande passate",
       "plan": "Piano di implementazione",
+      "planApprovalStaleStatus": "Piano modificato dopo l'approvazione: serve un nuovo via libera.",
+      "planApprovedByUnknown": "un maintainer",
+      "planApprovedStatus": "Piano approvato da {{name}} il {{date}}, pronto per partire.",
       "planSummary": "In breve",
+      "preApprovePlan": "Approva il piano in anticipo",
+      "preApprovingPlan": "Approvazione…",
       "priority": "Priorità",
       "questionAnswerUnreadable": "La risposta non è più leggibile.",
       "questionAnsweredBy": "Ha risposto {{email}}",
@@ -389,6 +395,8 @@
       "rejectSubmit": "Rifiuta il piano",
       "rejecting": "Rifiuto…",
       "relaunchWithInstructions": "Rilancia con istruzioni",
+      "revokePreApproval": "Revoca approvazione",
+      "revokingPreApproval": "Revoca…",
       "runAwaitingApproval": "Avviato: il piano ora attende l'approvazione di un maintainer.",
       "startFix": "Avvia fix AI",
       "startingFix": "Avvio…",
@@ -413,7 +421,8 @@
       "providerKind": {
         "account": "account",
         "api_key": "API key"
-      }
+      },
+      "failureSummary": "In breve"
     },
     "activity": {
       "title": "Attività",
@@ -678,7 +687,21 @@
       "startAnalysis": "Avvia sessione",
       "cancel": "Annulla",
       "noRepos": "Questo progetto non ha repository da analizzare.",
-      "sessionError": "Impossibile aggiornare la sessione di analisi. Riprova."
+      "sessionError": "Impossibile aggiornare la sessione di analisi. Riprova.",
+      "notNow": "Non ora",
+      "dismissingQuestion": "Rimando…"
+    },
+    "nextStep": {
+      "clarify": "Idea da chiarire — continua la conversazione.",
+      "readyToConvert": "Pronta: la converto in un lavoro?",
+      "convertedNoJob": "Lavoro creato — avvialo dal ticket.",
+      "preparingPlan": "Lavoro avviato, sto preparando il piano…",
+      "awaitingApproval": "Piano pronto, serve l'ok di un maintainer.",
+      "executing": "In esecuzione.",
+      "prReady": "Modifica pronta, il rilascio spetta a un maintainer.",
+      "done": "Fatto — la modifica è stata rilasciata.",
+      "needsAttention": "C'è qualcosa che aspetta attenzione.",
+      "goToTicket": "Vai al ticket"
     }
   },
   "settings": {
@@ -1423,6 +1446,19 @@
       "repositoryCount_one": "{{count}} repository",
       "createdAt": "creato {{date}}"
     },
+    "pulse": {
+      "waitingQuestion_one": "aspetta te — {{count}} domanda dell'agente",
+      "waitingQuestion_other": "aspetta te — {{count}} domande dell'agente",
+      "waitingPlan_one": "aspetta te — {{count}} piano da approvare",
+      "waitingPlan_other": "aspetta te — {{count}} piani da approvare",
+      "waitingMixed_one": "aspetta te — {{count}} decisione",
+      "waitingMixed_other": "aspetta te — {{count}} decisioni",
+      "runningOne": "sta lavorando — {{title}}",
+      "runningMany_other": "sta lavorando — {{count}} lavori in corso",
+      "idle_one": "fermo da {{count}} giorno",
+      "idle_other": "fermo da {{count}} giorni",
+      "ok": "tutto tranquillo"
+    },
     "detail": {
       "back": "← Tutti i progetti",
       "createdAt": "creato",
@@ -1723,24 +1759,24 @@
     "configureFailed": "Configurazione del webhook fallita"
   },
   "jobStatus": {
-    "labels": {
-      "queued": "In coda",
-      "triaging": "Triage",
-      "fixing": "Fix in corso",
-      "held": "In attesa",
-      "pr_opened": "PR aperta",
-      "pr_merged": "PR mergiata",
-      "failed": "Fallito",
-      "skipped": "Saltato",
-      "pr_closed": "PR chiusa",
-      "awaiting_plan_approval": "Piano da approvare",
-      "awaiting_input": "Domanda in attesa"
-    },
     "notes": {
       "held": "Automazione non avviata: serve un avvio manuale del fix.",
       "awaiting_plan_approval": "Il piano supera la soglia di effort: approvalo o rifiutalo per procedere.",
       "awaiting_input": "L'AI ha fatto una domanda e aspetta: rispondi per far proseguire il piano."
     }
+  },
+  "workState": {
+    "proposed": "In coda",
+    "planning": "In analisi",
+    "working": "In esecuzione",
+    "held": "In attesa di avvio",
+    "waitingAnswer": "In attesa di risposta",
+    "waitingApproval": "Piano da approvare",
+    "prReady": "PR aperta",
+    "done": "Rilasciato",
+    "failed": "Fallito",
+    "skipped": "Saltato",
+    "rejected": "PR chiusa"
   },
   "milestones": {
     "title": "Milestone",

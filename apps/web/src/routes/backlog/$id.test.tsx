@@ -735,19 +735,20 @@ describe("dettaglio backlog", () => {
     expect(screen.queryByText(/Nothing new to synthesize/i)).not.toBeInTheDocument();
   });
 
-  it("member: niente banner suggeriti né barra azioni, metadati disabilitati", async () => {
+  it("member (fase 7): banner suggeriti, barra azioni e metadati sono le stesse dell'admin", async () => {
     mockDetailApi({ role: "member", item: detailFixture({ suggested: { effort: 4 } }) });
     renderDetail();
 
     await screen.findByRole("heading", { name: "Export massivo ordini" });
-    expect(screen.queryByRole("region", { name: "AI suggestions" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Convert to task" })).not.toBeInTheDocument();
-    // I metadati restano visibili ma DISABILITATI: la PATCH server è
-    // admin-only e un 403 dal select sarebbe solo confuso.
-    expect(screen.getByLabelText("Status")).toBeDisabled();
-    expect(screen.getByLabelText("Effort")).toBeDisabled();
-    expect(screen.getByLabelText("Risk")).toBeDisabled();
-    expect(screen.getByLabelText("Urgency")).toBeDisabled();
-    expect(screen.getByLabelText("Risk note")).toBeDisabled();
+    // Le cinque aperture della fase 7: le rotte sotto sono `requireAuth`, non
+    // più admin, quindi un member vede lo stesso banner e la stessa barra
+    // azioni di un maintainer.
+    expect(screen.getByRole("region", { name: "AI suggestions" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Convert to task" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Status")).not.toBeDisabled();
+    expect(screen.getByLabelText("Effort")).not.toBeDisabled();
+    expect(screen.getByLabelText("Risk")).not.toBeDisabled();
+    expect(screen.getByLabelText("Urgency")).not.toBeDisabled();
+    expect(screen.getByLabelText("Risk note")).not.toBeDisabled();
   });
 });

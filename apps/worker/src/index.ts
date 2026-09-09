@@ -150,6 +150,13 @@ const handler = createHandler(
     pluginsDir: config.pluginsDir,
     // URL pubblico per i link nelle notifiche webhook (vuoto = solo path).
     publicUrl: config.publicUrl,
+    triage: {
+      // Riassunto "in breve" del fallimento (fase 7, Task 9): stesso
+      // interruttore/modello del riassunto del piano qui sotto — un job può
+      // fallire già in triage (output non valido, timeout), non solo nel fix.
+      summariesEnabled: config.summariesEnabled,
+      summaryModel: config.summaryModel,
+    },
     fix: {
       twoPhase: config.fixTwoPhase,
       planModel: config.fixPlanModel,
@@ -461,6 +468,9 @@ startChatTurnPoller({
   maxTurns: config.backlogChatTurnMaxTurns,
   timeoutMs: config.backlogChatTurnTimeoutMs,
   intervalSeconds: config.backlogChatTurnPollSeconds,
+  // Tool ask_user (fase 7, Task 6): stesso budget per-round del fix, un solo
+  // env per "quante domande può fare l'agente" invece di due manopole.
+  questionMaxRounds: config.agentQuestionMaxRounds,
   signal: controller.signal,
 });
 // Sweep TTL su un intervallo fisso (60s): scala robusta rispetto al TTL (30' di

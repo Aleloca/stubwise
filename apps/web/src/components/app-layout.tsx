@@ -27,37 +27,49 @@ function isDocsSpacePath(pathname: string): boolean {
 const NAV_ITEMS = [
   // L'inbox è la prima voce perché è la home operativa: quello che aspetta una
   // decisione viene prima di qualunque elenco da sfogliare.
-  { to: "/inbox", labelKey: "common:nav.inbox", code: "INB" },
+  { to: "/inbox", labelKey: "common:nav.inbox", code: "INB", memberVisible: true },
   // Posta (fase 6): dopo l'inbox, prima dei ticket — è anch'essa personale
   // (la propria posta trattata), non un elenco di lavoro condiviso.
-  { to: "/mail", labelKey: "common:nav.mail", code: "MAL" },
-  { to: "/tickets", labelKey: "common:nav.tickets", code: "TKT" },
-  { to: "/board", labelKey: "common:nav.board", code: "BRD" },
-  { to: "/backlog", labelKey: "common:nav.backlog", code: "BLG" },
-  { to: "/projects", labelKey: "common:nav.projects", code: "PRJ" },
-  { to: "/repositories", labelKey: "common:nav.repositories", code: "REP" },
-  { to: "/monitor", labelKey: "common:nav.monitor", code: "MON" },
-  { to: "/activity", labelKey: "common:nav.activity", code: "ACT" },
-  { to: "/docs", labelKey: "common:nav.docs", code: "DOC" },
-  { to: "/team", labelKey: "common:nav.team", code: "TEA" },
-  { to: "/settings", labelKey: "common:nav.settings", code: "SET" },
+  { to: "/mail", labelKey: "common:nav.mail", code: "MAL", memberVisible: true },
+  { to: "/tickets", labelKey: "common:nav.tickets", code: "TKT", memberVisible: true },
+  { to: "/board", labelKey: "common:nav.board", code: "BRD", memberVisible: true },
+  { to: "/backlog", labelKey: "common:nav.backlog", code: "BLG", memberVisible: true },
+  { to: "/projects", labelKey: "common:nav.projects", code: "PRJ", memberVisible: true },
+  // Repository e Monitor (fase 7, Task 10): contenuto d'infrastruttura — git,
+  // mirror, server monitorati — che un operatore non tecnico non usa mai.
+  // Entrambe le pagine si degradano già bene per un member (i bottoni
+  // admin-only sono `isAdmin && ...`), ma tenerle fuori dal menu evita di
+  // presentare come "cose da guardare" pagine che non gli servono. Vedi
+  // CLAUDE.md per il perché "Impostazioni" NON è in questo elenco.
+  { to: "/repositories", labelKey: "common:nav.repositories", code: "REP", memberVisible: false },
+  { to: "/monitor", labelKey: "common:nav.monitor", code: "MON", memberVisible: false },
+  { to: "/activity", labelKey: "common:nav.activity", code: "ACT", memberVisible: true },
+  { to: "/docs", labelKey: "common:nav.docs", code: "DOC", memberVisible: true },
+  { to: "/team", labelKey: "common:nav.team", code: "TEA", memberVisible: true },
+  // Impostazioni resta visibile: la sotto-nav (`SettingsLayout`) filtra già
+  // per ruolo (un member vede solo Account/Access tokens/Google), quindi la
+  // voce non porta a "porte chiuse" — è l'unico punto d'accesso a quelle tre
+  // pagine personali, non c'è un menu utente alternativo.
+  { to: "/settings", labelKey: "common:nav.settings", code: "SET", memberVisible: true },
 ] as const;
 
 /**
  * Lista dei link di navigazione: unica sorgente di `NAV_ITEMS`, riusata dalla
  * sidebar desktop e dal drawer mobile. `onNavigate` permette al drawer di
- * chiudersi quando si tocca una voce.
+ * chiudersi quando si tocca una voce. `role` filtra le voci `memberVisible:
+ * false` per un `member` (fase 7, Task 10) — un admin le vede sempre tutte.
  */
-function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
+function NavLinks({ role, onNavigate }: { role: "admin" | "member"; onNavigate?: () => void }) {
   const { t } = useTranslation();
   // Contatore delle proposte aperte (fase 6): SOLO per la voce "Posta", come
   // il numero della campanella per "Inbox" — ma senza polling (vedi
   // `mailSummaryQueryOptions`, `staleTime` largo): non è una notifica che
   // deve accorgersi in tempo reale, si allinea navigando.
   const { data: mailSummary } = useQuery(mailSummaryQueryOptions);
+  const items = NAV_ITEMS.filter((item) => role === "admin" || item.memberVisible);
   return (
     <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-3">
-      {NAV_ITEMS.map((item) => (
+      {items.map((item) => (
         <Link
           key={item.to}
           to={item.to}
@@ -243,7 +255,7 @@ export function AppLayout() {
           <SearchAffordance label={t("search:trigger")} onOpen={() => setSearchOpen(true)} />
         </div>
 
-        <NavLinks />
+        <NavLinks role={data.user.role} />
 
         <div className="border-t border-line p-3">
           <div className="flex items-center gap-2 px-3 pb-2" title={data.user.email}>
@@ -274,7 +286,7 @@ export function AppLayout() {
               <Wordmark className="text-base" />
             </Link>
           </div>
-          <NavLinks onNavigate={() => setNavOpen(false)} />
+          <NavLinks role={data.user.role} onNavigate={() => setNavOpen(false)} />
         </div>
       </Drawer>
 

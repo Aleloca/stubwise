@@ -661,12 +661,112 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   **calendario non è toccato**: `calendar_events` scrive ancora
   `proposalNotificationId` direttamente sulla riga, identico a prima della
   6c.
+- **Fase 7 (workflow guidato web per non-tecnici)**: rebuild
+  **server+worker+caddy insieme** (migrazione 0072 all'avvio del server —
+  additiva, **nessun enum nuovo**, un solo batch: tre colonne su `tickets`
+  (`plan_approved_at`, `plan_approved_by_user_id` FK→users ON DELETE SET
+  NULL, `plan_approved_digest`), una colonna nullable su `ai_jobs`
+  (`failure_summary`), una tabella NUOVA `backlog_questions` con indice
+  unico parziale sulla domanda APERTA per voce (`answered_at IS NULL AND
+  dismissed_at IS NULL`) e un CHECK che lega `answer`/`answered_at`; il
+  worker nuovo è l'unico che sa parcheggiare/riprendere un turno di chat sul
+  backlog fermo su una domanda `ask_user` e generare il riassunto di un job
+  fallito, il server nuovo l'unico che espone le rotte di pre-approvazione e
+  le domande di backlog — e l'unico a cui sei rotte del backlog (viste,
+  refresh, deep dive, merge, suggeriti) rispondono per un `member`, non solo
+  per un admin —, il bundle nuovo l'unico che disegna il bottone
+  "Approva in anticipo", il pannello a bottoni nella chat del backlog, la
+  riga "passo successivo" e la vista polso in `/projects`). **Nessuna env
+  nuova**: il riassunto del fallimento riusa `SUMMARIES_ENABLED`/
+  `SUMMARY_MODEL` (stesso interruttore di `plan_summary`), e il tetto di
+  domande per turno riusa `AGENT_QUESTION_MAX_ROUNDS` (fase 1) — contato
+  però sulle domande della VOCE di backlog, non del job (qui il job cambia a
+  ogni turno di chat, contarci sopra darebbe sempre 1).
+  **Pre-approvazione del piano**: un maintainer approva in anticipo il piano
+  CORRENTE di un ticket (`POST`/`DELETE /api/tickets/:id/pre-approve-plan`),
+  così un operatore può far partire il fix senza fermarsi sul gate. **Non è
+  un interruttore**: `plan_approved_digest` è lo SHA-256 del piano al
+  momento dell'approvazione (`planDigest`, `packages/db/src/plan-digest.ts`)
+  e il gate (`jobs.ts`, `needsApproval = (actor.role === "member" &&
+  !planPreApproved) || input.requirePlanApproval === true`) confronta quel
+  digest col piano ATTUALE — qualunque riscrittura del piano (rifiuto,
+  rilancio con istruzioni, ripianificazione) fa decadere l'approvazione da
+  sola, senza bisogno di azzerarla esplicitamente. `requirePlanApproval`
+  (i run nati da una proposta pulse) vince SEMPRE, anche su un piano
+  pre-approvato: chi clicca "Procedi" non ha letto un piano specifico.
+  **Domande a bottoni ancorate alla voce di backlog**: `backlog_questions`
+  è un GEMELLO deliberato di `agent_questions` (fase 1), non condiviso —
+  niente `job_id`/`ticket_id` NOT NULL, perché una voce non convertita non
+  ha né l'uno né l'altro — con un'uscita in PIÙ: `dismissed_at` ("non ora"),
+  perché qui una domanda può chiudersi SENZA risposta, cosa che
+  `agent_questions` non prevede. Solo la modalità **CODE** della chat del
+  backlog pone domande a bottoni (ha già l'infrastruttura MCP `ask_user`);
+  la modalità DOCS resta testo libero — richiederebbe di cambiare il
+  trasporto SSE, rinviato. Le domande si chiudono automaticamente (nessuna
+  resta aperta a orfana) alla conversione in ticket e all'archiviazione
+  della voce.
+  **Il passo successivo è DETERMINISTICO, mai generato**: la riga "cosa fare
+  adesso" sotto la voce di backlog convertita (`work-next-step.tsx`,
+  `deriveNextStep`) è una funzione pura sullo stato di item/job — un
+  `Record` esaustivo, non un prompt. Una frase sbagliata su cosa fare dopo è
+  peggio di nessuna frase.
+  **Navigazione filtrata per ruolo**: Monitor e Repository sono fuori dal
+  MENU per un `member` (`app-layout.tsx`, `NAV_ITEMS[].memberVisible`) —
+  contenuto d'infrastruttura che un operatore non tecnico non usa mai.
+  **Nascosto dal menu ≠ inaccessibile**: nessuna guardia `beforeLoad` sulle
+  due rotte indice — un member che ci arriva per URL diretto (un link
+  mandato da un collega, quello che le notifiche di monitoraggio emettono
+  verso `/monitor/servers/:id`) le vede ancora, in sola lettura, come prima
+  di questa fase. Il problema che questa fase risolve è rumore visivo (non
+  far inciampare in una voce che è un vicolo cieco), non un problema di
+  superficie — solo le AZIONI di scrittura restano guardate
+  (`/repositories/new`, preesistente). **Impostazioni resta visibile a un
+  member**, apposta: la sua sotto-nav (`routes/settings/layout.tsx`) filtra
+  già per ruolo (un member vede solo Account/Access tokens/Google, tre
+  pagine PERSONALI — preferenze di notifica, PAT, casella Google), e non
+  esiste un altro punto d'accesso nella UI (l'Avatar in sidebar è
+  decorativo). Toglierla avrebbe reso irraggiungibile roba che serve a un
+  member quanto a un admin: il criterio non era "meno voci ai member", era
+  "niente porte chiuse".
+  **Rollback — sicuro**: nessun `notification_kind` nuovo e nessun valore
+  aggiunto a un enum esistente (a differenza di `project.pulse`,
+  `project.brief`, `google.proposal` nelle fasi 2/5/6), quindi scendere di
+  immagine sul server non richiede di ripulire righe prima. Una domanda di
+  backlog rimasta aperta (`backlog_questions`) su un binario vecchio
+  semplicemente non verrebbe più mostrata né risposta — inerte, non un 500
+  — finché non si torna avanti; un piano pre-approvato resta tale in
+  colonna, ma un binario vecchio non lo consulta né lo mostra.
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
 
 ## Invarianti e trappole
 
+- **I due divieti dell'operatore (fase 7) — invarianti, nessuna apertura
+  della fase li tocca.** Un `member` non può approvare un piano da sé, e
+  non può mandare nulla in produzione.
+  1. *Approvazione del piano*: il gate è UNA riga in
+     `apps/server/src/services/jobs.ts` — `needsApproval = (actor.role ===
+     "member" && !planPreApproved) || input.requirePlanApproval === true`
+     — e le tre funzioni che decidono su un piano (`resolvePlan`,
+     `preApprovePlan`, `revokePlanApproval`, stesso file) iniziano tutte con
+     `if (actor.role !== "admin") return { ok: false, error: "forbidden" }`.
+     La pre-approvazione (vedi "Fase 7" sopra) NON è un'eccezione: allarga
+     COSA un maintainer può approvare in anticipo, mai CHI approva. Verificato
+     **negativamente**: `resolvePlan`/`preApprovePlan`/`revokePlanApproval`
+     hanno ciascuna un test `member → forbidden` (`jobs.test.ts`,
+     `tickets.test.ts` — 4 casi: approve, reject, pre-approve, revoke) che
+     asserisce SIA il 403/`forbidden` SIA che lo stato in colonna non sia
+     cambiato, non solo il codice di risposta.
+  2. *Rilascio in produzione*: non è un permesso da negare, è un'azione che
+     **non esiste** — in nessuna rotta server, per nessun ruolo. Stubwise
+     apre PR (`GitProvider.openPullRequest`), non le merge mai: mergiare e
+     deployare restano fuori dall'app, dietro le credenziali git/infra di un
+     umano. Verificato leggendo le rotte: nessun `mergePullRequest` né rotta
+     di deploy in `apps/server/src/routes`, nessun auto-merge configurabile.
+     Chi in futuro aggiunge un'integrazione che TOCCA la produzione (un
+     deploy trigger, un merge automatico) rompe questa frase, non solo il
+     codice: è un cambio di prodotto, non un dettaglio implementativo.
 - **Verso l'app mobile, solo cambi ADDITIVI — alle risposte E alle
   richieste.** L'app si aggiorna dagli store, non dai nostri deploy: per
   settimane un server nuovo parla a client vecchi. Aggiungere un campo è

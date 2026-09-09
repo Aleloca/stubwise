@@ -43,13 +43,13 @@ describe("AIJobTimeline", () => {
     );
 
     expect(screen.getByText("Queued")).toBeInTheDocument();
-    expect(screen.getByText("Fixing")).toBeInTheDocument();
-    expect(screen.getByText("PR opened")).toBeInTheDocument();
+    expect(screen.getByText("Running")).toBeInTheDocument();
+    expect(screen.getByText("PR open")).toBeInTheDocument();
     expect(screen.getByText("Failed")).toBeInTheDocument();
     expect(screen.getByText("Skipped")).toBeInTheDocument();
   });
 
-  it("job con PR mergiata: etichetta PR merged e link alla PR visibile", () => {
+  it("job con PR mergiata: etichetta Released e link alla PR visibile", () => {
     render(
       <AIJobTimeline
         jobs={[
@@ -62,7 +62,7 @@ describe("AIJobTimeline", () => {
       />,
     );
 
-    expect(screen.getByText("PR merged")).toBeInTheDocument();
+    expect(screen.getByText("Released")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /view pr/i })).toHaveAttribute(
       "href",
       "https://github.com/acme/repo/pull/7",
@@ -88,10 +88,10 @@ describe("AIJobTimeline", () => {
     );
   });
 
-  it("job 'held': etichetta On hold e nota esplicativa", () => {
+  it("job 'held': etichetta Waiting to start e nota esplicativa", () => {
     render(<AIJobTimeline jobs={[makeJob({ id: "j1", status: "held" })]} />);
 
-    expect(screen.getByText("On hold")).toBeInTheDocument();
+    expect(screen.getByText("Waiting to start")).toBeInTheDocument();
     expect(screen.getByText(/Automation not started/i)).toBeInTheDocument();
   });
 
@@ -108,12 +108,12 @@ describe("AIJobTimeline", () => {
     expect(screen.getByText(/approve or reject it/i)).toBeInTheDocument();
   });
 
-  it("job 'awaiting_input': etichetta Question pending e nota esplicativa", () => {
+  it("job 'awaiting_input': etichetta Waiting for an answer e nota esplicativa", () => {
     // Il job è fermo perché l'agente ha chiesto qualcosa: la nota è ciò che
     // spiega a chi guarda PERCHÉ non si muove nulla.
     render(<AIJobTimeline jobs={[makeJob({ id: "j1", status: "awaiting_input" })]} />);
 
-    expect(screen.getByText("Question pending")).toBeInTheDocument();
+    expect(screen.getByText("Waiting for an answer")).toBeInTheDocument();
     expect(screen.getByText(/asked a question/i)).toBeInTheDocument();
   });
 
@@ -124,6 +124,37 @@ describe("AIJobTimeline", () => {
       />,
     );
 
+    expect(screen.getByText("git clone: timeout")).toBeInTheDocument();
+  });
+
+  it("job fallito con riassunto (fase 7, Task 9): mostrato PRIMA dell'errore tecnico", () => {
+    render(
+      <AIJobTimeline
+        jobs={[
+          makeJob({
+            id: "j1",
+            status: "failed",
+            error: "git clone: timeout",
+            failureSummary: "L'agente non è riuscito a scaricare il repository.",
+          }),
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("In brief")).toBeInTheDocument();
+    const summary = screen.getByText("L'agente non è riuscito a scaricare il repository.");
+    const error = screen.getByText("git clone: timeout");
+    expect(summary.compareDocumentPosition(error) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("job fallito SENZA riassunto (non ancora generato): solo l'errore tecnico, come prima della fase 7", () => {
+    render(
+      <AIJobTimeline
+        jobs={[makeJob({ id: "j1", status: "failed", error: "git clone: timeout" })]}
+      />,
+    );
+
+    expect(screen.queryByText("In brief")).not.toBeInTheDocument();
     expect(screen.getByText("git clone: timeout")).toBeInTheDocument();
   });
 

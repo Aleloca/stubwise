@@ -84,5 +84,11 @@ export const aiJobSchema = z.object({
   // azzerato insieme a `planText` quando il piano viene rifiutato. Opzionale
   // oltre che nullable per non rompere i client già installati.
   planSummary: z.string().nullable().optional(),
+  // Riassunto "in breve" del perché il job è FALLITO (fase 7). Null quando il
+  // job non è fallito, o quando il riassunto non è stato generato (run
+  // spento, in errore o non ancora arrivato — è scritto DOPO la notifica del
+  // fallimento, best-effort: vedi il docblock di `ai_jobs.failure_summary`).
+  // Opzionale oltre che nullable per non rompere i client già installati.
+  failureSummary: z.string().nullable().optional(),
 });
 export type AiJob = z.infer<typeof aiJobSchema>;

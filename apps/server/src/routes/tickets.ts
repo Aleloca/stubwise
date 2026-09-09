@@ -29,6 +29,7 @@ import {
   aiJobs,
   comments,
   commentAuthorType,
+  planDigest,
   ticketEventKind,
   ticketEvents,
   ticketLinkKind,
@@ -42,7 +43,13 @@ import { maybeEnqueueBacklogIntake } from "../backlog/enqueue.js";
 import { publicUrlOrUndefined } from "../ingest/shared.js";
 import { createTicket, ProjectNotFoundError, type Ticket } from "../db/tickets.js";
 import { apiError } from "../errors.js";
-import { resolvePlan, startRun, type ResolvePlanResult } from "../services/jobs.js";
+import {
+  preApprovePlan,
+  resolvePlan,
+  revokePlanApproval,
+  startRun,
+  type ResolvePlanResult,
+} from "../services/jobs.js";
 import { answerQuestion, type AnswerQuestionResult } from "../services/questions.js";
 import { diffTicketEvents, patchTicket, userExists } from "../services/tickets.js";
 import {
@@ -394,11 +401,33 @@ async function ticketDetailResponse(
     .where(eq(aiJobs.ticketId, row.id))
     .orderBy(desc(aiJobs.createdAt), desc(aiJobs.id))
     .limit(1);
+  // Pre-approvazione del piano (fase 7): chi l'ha approvato, se qualcuno l'ha
+  // fatto. `LEFT JOIN` (non required): `planApprovedByUserId` è ON DELETE SET
+  // NULL, quindi un'approvazione può sopravvivere a chi l'ha data.
+  const planApprovedBy =
+    row.planApprovedByUserId === null
+      ? null
+      : ((
+          await db
+            .select({ id: users.id, email: users.email })
+            .from(users)
+            .where(eq(users.id, row.planApprovedByUserId))
+        )[0] ?? null);
+  // "Scaduta": approvata ma il piano è cambiato da allora (digest diverso), o
+  // il piano non esiste più. Mai vero se non è mai stata approvata — quello
+  // lo dice `planApprovedAt` null, non questo campo.
+  const planApprovalStale =
+    row.planApprovedAt !== null &&
+    (row.implementationPlan === null ||
+      row.planApprovedDigest !== planDigest(row.implementationPlan));
   return {
     ...toPublicTicket(row),
     implementationPlan: row.implementationPlan,
     originContent: row.originContent,
     planSummary: latestJob?.planSummary ?? null,
+    planApprovedAt: row.planApprovedAt?.toISOString() ?? null,
+    planApprovedBy,
+    planApprovalStale,
     repositories: repositoriesState,
   };
 }
@@ -1395,6 +1424,75 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         instructions: request.body?.instructions,
       });
       return sendResolvePlan(reply, result);
+    },
+  );
+
+  // Pre-approvazione del piano (fase 7): un maintainer approva IN ANTICIPO il
+  // piano CORRENTE, così un operator può farlo partire senza fermarsi sul gate
+  // (`startRun` confronta il digest appena scritto qui — vedi jobs.ts). Solo
+  // admin. 409 `no_plan` se il ticket non ha un piano da approvare.
+  app.post(
+    "/:id/pre-approve-plan",
+    {
+      preHandler: requireAdmin,
+      schema: {
+        params: idParamsSchema,
+        response: {
+          200: ticketDetailSchema,
+          404: errorSchema,
+          409: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const result = await preApprovePlan(app.db, {
+        ticketId: request.params.id,
+        actor: request.user!,
+      });
+      if (!result.ok) {
+        switch (result.error) {
+          case "ticket_not_found":
+            return apiError(reply, 404, "ticket_not_found", "Ticket not found");
+          case "no_plan":
+            return apiError(reply, 409, "no_plan", "This ticket has no plan to pre-approve");
+          case "forbidden":
+            // Irraggiungibile dietro requireAdmin: difesa in profondità.
+            return apiError(reply, 403, "forbidden", "Administrators only");
+        }
+      }
+      const [row] = await app.db.select().from(tickets).where(eq(tickets.id, request.params.id));
+      return ticketDetailResponse(app.db, row!);
+    },
+  );
+
+  // Revoca la pre-approvazione: azzera i tre campi. Idempotente (revocare un
+  // ticket mai approvato è un no-op), nessuna voce nel registro decisioni (il
+  // fatto degno di nota era l'approvazione, non la sua revoca).
+  app.delete(
+    "/:id/pre-approve-plan",
+    {
+      preHandler: requireAdmin,
+      schema: {
+        params: idParamsSchema,
+        response: { 200: ticketDetailSchema, 404: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const result = await revokePlanApproval(app.db, {
+        ticketId: request.params.id,
+        actor: request.user!,
+      });
+      if (!result.ok) {
+        switch (result.error) {
+          case "ticket_not_found":
+            return apiError(reply, 404, "ticket_not_found", "Ticket not found");
+          case "forbidden":
+            return apiError(reply, 403, "forbidden", "Administrators only");
+        }
+      }
+      const [row] = await app.db.select().from(tickets).where(eq(tickets.id, request.params.id));
+      return ticketDetailResponse(app.db, row!);
     },
   );
 }

@@ -41,6 +41,7 @@ import {
   patsQueryOptions,
   projectDocSpacesQueryOptions,
   projectQueryOptions,
+  projectsPulseQueryOptions,
   projectsQueryOptions,
   repositoriesQueryOptions,
   repositoryQueryOptions,
@@ -275,7 +276,12 @@ const backlogDetailRoute = createRoute({
 const projectsRoute = createRoute({
   getParentRoute: () => authedRoute,
   path: "/projects",
-  loader: ({ context }) => context.queryClient.ensureQueryData(projectsQueryOptions),
+  loader: async ({ context }) => {
+    await context.queryClient.ensureQueryData(projectsQueryOptions);
+    // Polso (fase 7, Task 10): best-effort, non blocca la pagina — è
+    // un'annotazione per riga, non il dato che decide cosa renderizzare.
+    await context.queryClient.ensureQueryData(projectsPulseQueryOptions).catch(() => undefined);
+  },
   component: ProjectsPage,
 });
 
@@ -379,6 +385,16 @@ const repositoryNewRoute = createRoute({
  * Elenco di TUTTI i repository collegati (voce di primo livello in sidebar),
  * raggruppati per progetto. Prefetch di repository + progetti prima del render:
  * le useSuspenseQuery del componente non attendono.
+ *
+ * Fase 7, Task 10: fuori dal MENU per un `member` (contenuto d'infrastruttura,
+ * non serve a un operatore non tecnico — vedi `app-layout.tsx`), ma NON dietro
+ * una guardia: nascosto dal menu ≠ inaccessibile. Il problema che questa fase
+ * risolve è rumore visivo — non inciampare in una voce che poi si rivela
+ * un vicolo cieco —, non un problema di superficie: la pagina si degrada già
+ * bene per un member (`isAdmin && ...` nasconde solo i bottoni di creazione),
+ * il contenuto (nomi di repository, stato) non è sensibile, e un link diretto
+ * mandato da un collega deve continuare a funzionare. Solo le AZIONI DI
+ * SCRITTURA restano guardate (`/repositories/new`, sotto).
  */
 const repositoriesIndexRoute = createRoute({
   getParentRoute: () => authedRoute,
@@ -559,6 +575,12 @@ const docsPageRoute = createRoute({
  * Sezione Monitor: lista dei server monitorati. Prefetch best-effort della lista
  * prima del render, così la useSuspenseQuery del componente non attende; un
  * errore non blocca la pagina (la query lo ripropone col retry/refetch).
+ *
+ * Fase 7, Task 10: fuori dal MENU per un `member` (contenuto d'infrastruttura,
+ * stessa ragione di `/repositories` sopra), ma NON dietro una guardia —
+ * nascosto dal menu ≠ inaccessibile: il link che le notifiche di monitoraggio
+ * emettono verso `/monitor/servers/$serverId` deve continuare a funzionare, e
+ * la pagina si degrada già bene per un member (`isAdmin && ...`).
  */
 const monitorRoute = createRoute({
   getParentRoute: () => authedRoute,

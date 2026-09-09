@@ -276,6 +276,10 @@ interface MockState {
   designDeletes: number;
   /** Quante volte è stato chiamato DELETE /plan. */
   planDeletes: number;
+  /** Quante volte è stato chiamato POST /pre-approve-plan. */
+  preApproveCalls: number;
+  /** Quante volte è stato chiamato DELETE /pre-approve-plan. */
+  revokeApprovalCalls: number;
   /** Q&A dell'agente sul ticket (GET /questions). */
   questions: TicketQuestion[];
   /** Body inviati a POST /questions/answer. */
@@ -348,6 +352,8 @@ function mockDetailApi(
     deletedLinks: [],
     designDeletes: 0,
     planDeletes: 0,
+    preApproveCalls: 0,
+    revokeApprovalCalls: 0,
     questions: overrides.questions ?? [],
     answerBodies: [],
   };
@@ -466,6 +472,26 @@ function mockDetailApi(
     [`DELETE /api/tickets/${TICKET_ID}/plan`]: () => {
       state.planDeletes += 1;
       state.ticket = { ...state.ticket, implementationPlan: null };
+      return jsonResponse(200, state.ticket);
+    },
+    [`POST /api/tickets/${TICKET_ID}/pre-approve-plan`]: () => {
+      state.preApproveCalls += 1;
+      state.ticket = {
+        ...state.ticket,
+        planApprovedAt: "2026-06-09T12:30:00.000Z",
+        planApprovedBy: { id: ADMIN_ID, email: "ada@example.com" },
+        planApprovalStale: false,
+      };
+      return jsonResponse(200, state.ticket);
+    },
+    [`DELETE /api/tickets/${TICKET_ID}/pre-approve-plan`]: () => {
+      state.revokeApprovalCalls += 1;
+      state.ticket = {
+        ...state.ticket,
+        planApprovedAt: null,
+        planApprovedBy: null,
+        planApprovalStale: false,
+      };
       return jsonResponse(200, state.ticket);
     },
     [`GET /api/tickets/${TICKET_ID}/questions`]: () => jsonResponse(200, state.questions),
@@ -881,6 +907,126 @@ describe("dettaglio ticket", () => {
     expect(screen.queryByRole("button", { name: "Remove plan" })).not.toBeInTheDocument();
   });
 
+  it("pre-approvazione: assente quando non c'è un piano", async () => {
+    mockDetailApi();
+    renderDetail();
+
+    await screen.findByRole("heading", { name: "TypeError al checkout" });
+    expect(screen.queryByRole("button", { name: "Approve plan in advance" })).not.toBeInTheDocument();
+  });
+
+  it("pre-approvazione: il maintainer approva, la riga di stato compare con nome e data", async () => {
+    const state = mockDetailApi({
+      ticket: { ...ticketFixture, implementationPlan: "1. Fai questo." },
+    });
+    renderDetail();
+
+    const approve = await screen.findByRole("button", { name: "Approve plan in advance" });
+    await userEvent.click(approve);
+
+    await waitFor(() => expect(state.preApproveCalls).toBe(1));
+    expect(
+      await screen.findByText(/plan approved by ada@example\.com on .+, ready to start/i),
+    ).toBeInTheDocument();
+    // Il bottone diventa "Revoke": approvare di nuovo non ha senso finché lo è.
+    expect(screen.queryByRole("button", { name: "Approve plan in advance" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Revoke approval" })).toBeInTheDocument();
+  });
+
+  it("pre-approvazione: piano già approvato, il bottone Revoke la azzera", async () => {
+    const state = mockDetailApi({
+      ticket: {
+        ...ticketFixture,
+        implementationPlan: "1. Fai questo.",
+        planApprovedAt: "2026-06-09T12:00:00.000Z",
+        planApprovedBy: { id: ADMIN_ID, email: "ada@example.com" },
+        planApprovalStale: false,
+      },
+    });
+    renderDetail();
+
+    expect(await screen.findByText(/plan approved by ada@example\.com/i)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Revoke approval" }));
+
+    await waitFor(() => expect(state.revokeApprovalCalls).toBe(1));
+    await waitFor(() =>
+      expect(screen.queryByText(/plan approved by ada@example\.com/i)).not.toBeInTheDocument(),
+    );
+    expect(await screen.findByRole("button", { name: "Approve plan in advance" })).toBeInTheDocument();
+  });
+
+  it("pre-approvazione SCADUTA (piano cambiato dopo l'approvazione): frase dedicata, non 'approvato da'", async () => {
+    mockDetailApi({
+      ticket: {
+        ...ticketFixture,
+        implementationPlan: "1. Piano nuovo, diverso da quello approvato.",
+        planApprovedAt: "2026-06-09T12:00:00.000Z",
+        planApprovedBy: { id: ADMIN_ID, email: "ada@example.com" },
+        planApprovalStale: true,
+      },
+    });
+    renderDetail();
+
+    expect(
+      await screen.findByText(/plan changed after approval: it needs a new go-ahead/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/ready to start/i)).not.toBeInTheDocument();
+    // Scaduta ⇒ come "mai approvata" agli occhi del bottone: si può riapprovare.
+    expect(screen.getByRole("button", { name: "Approve plan in advance" })).toBeInTheDocument();
+  });
+
+  it("pre-approvazione: nessuna riga di stato se il piano non è mai stato approvato", async () => {
+    mockDetailApi({
+      ticket: { ...ticketFixture, implementationPlan: "1. Fai questo." },
+    });
+    renderDetail();
+
+    await screen.findByRole("heading", { name: "TypeError al checkout" });
+    expect(screen.queryByText(/ready to start/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/needs a new go-ahead/i)).not.toBeInTheDocument();
+  });
+
+  it("pre-approvazione: un operatore non vede i bottoni (il server risponderebbe 403)", async () => {
+    mockDetailApi({
+      ticket: { ...ticketFixture, implementationPlan: "1. Fai questo." },
+      role: "member",
+    });
+    renderDetail();
+
+    await screen.findByRole("heading", { name: "TypeError al checkout" });
+    expect(screen.queryByRole("button", { name: "Approve plan in advance" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Revoke approval" })).not.toBeInTheDocument();
+  });
+
+  it("pre-approvazione: nessun bottone su un ticket chiuso", async () => {
+    mockDetailApi({
+      ticket: { ...ticketFixture, status: "closed", implementationPlan: "1. Fai questo." },
+    });
+    renderDetail();
+
+    await screen.findByRole("heading", { name: "TypeError al checkout" });
+    expect(screen.queryByRole("button", { name: "Approve plan in advance" })).not.toBeInTheDocument();
+  });
+
+  it("operatore: con un piano pre-approvato l'avviso dice che il run partirà davvero", async () => {
+    mockDetailApi({
+      jobs: [heldJobFixture],
+      role: "member",
+      ticket: {
+        ...ticketFixture,
+        implementationPlan: "1. Fai questo.",
+        planApprovedAt: "2026-06-09T12:00:00.000Z",
+        planApprovedBy: { id: ADMIN_ID, email: "ada@example.com" },
+        planApprovalStale: false,
+      },
+    });
+    renderDetail();
+
+    await screen.findByRole("button", { name: "Start AI fix" });
+    expect(screen.getByText(/the plan is already approved: the run will actually start/i)).toBeInTheDocument();
+    expect(screen.queryByText(/the run will stop on the plan/i)).not.toBeInTheDocument();
+  });
+
   it("sezione Repository/PR: elenca repo, stato PR e link alla PR (fix eseguito)", async () => {
     mockDetailApi({ ticket: { ...ticketFixture, repositories: ticketRepositoriesFixture } });
     renderDetail();
@@ -927,7 +1073,7 @@ describe("dettaglio ticket", () => {
 
     // Stato held reso nel pannello "AI activity" (lo stato compare anche nel feed).
     const panel = await screen.findByRole("region", { name: "AI activity" });
-    expect(within(panel).getByText("On hold")).toBeInTheDocument();
+    expect(within(panel).getByText("Waiting to start")).toBeInTheDocument();
 
     const button = screen.getByRole("button", { name: "Start AI fix" });
     await userEvent.click(button);
@@ -1250,7 +1396,7 @@ describe("dettaglio ticket", () => {
     // I marker di stato compaiono sia nel feed che nel pannello "AI activity":
     // si scopa il pannello, che è quello col dettaglio tecnico (errore, log).
     const panel = await screen.findByRole("region", { name: "AI activity" });
-    expect(within(panel).getByText("PR opened")).toBeInTheDocument();
+    expect(within(panel).getByText("PR open")).toBeInTheDocument();
     expect(within(panel).getByText("Failed")).toBeInTheDocument();
     expect(within(panel).getByRole("link", { name: /view pr/i })).toHaveAttribute(
       "href",
@@ -1451,7 +1597,7 @@ describe("dettaglio ticket", () => {
       within(feed).getByText("ada@example.com changed status: Open → In progress"),
     ).toBeInTheDocument();
     // ai_job kind: marker di stato del job
-    expect(within(feed).getByText("PR opened")).toBeInTheDocument();
+    expect(within(feed).getByText("PR open")).toBeInTheDocument();
   });
 
   it("feed Attività: un cambio stato genera una riga di audit nel feed", async () => {
@@ -1579,7 +1725,7 @@ describe("dettaglio ticket — domanda dell'agente", () => {
     renderDetail();
 
     const panel = await screen.findByRole("region", { name: "AI activity" });
-    expect(within(panel).getByText("Question pending")).toBeInTheDocument();
+    expect(within(panel).getByText("Waiting for an answer")).toBeInTheDocument();
     // La domanda si legge per intero: sulla pagina ticket non c'è il testo
     // localizzato della notifica a ripeterla.
     expect(within(panel).getByText("Quale coda uso per i job del grafo?")).toBeInTheDocument();
@@ -1659,8 +1805,14 @@ describe("dettaglio ticket — domanda dell'agente", () => {
         { optionIndex: 0, questionId: openQuestionFixture.questionId },
       ]),
     );
-    // Nessuna riga informativa: chi può rispondere ha il pannello, non l'avviso.
-    expect(screen.queryByText(/waiting for an answer/i)).not.toBeInTheDocument();
+    // Nessuna riga informativa: chi può rispondere ha il pannello, non
+    // l'avviso (`awaitingAnswerFrom`/`awaitingAnswerUnknown`). Non basta
+    // cercare "waiting for an answer": dalla fase 7 quella stessa frase è
+    // anche l'etichetta di stato del job nel pannello, che qui è presente
+    // di proposito.
+    expect(
+      screen.queryByText(/waiting for an answer from|waiting for a maintainer to answer the ai's question/i),
+    ).not.toBeInTheDocument();
   });
 
   it("409 già risposta: il pannello dice chi ha risposto", async () => {

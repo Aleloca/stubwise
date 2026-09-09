@@ -9,6 +9,7 @@ import {
   backlogItems,
   backlogItemTickets,
   backlogJobs,
+  backlogQuestions,
   projects,
   tickets,
 } from "@stubwise/db";
@@ -333,10 +334,64 @@ describe("GET /api/backlog/:id", () => {
     expect(body.messages.map((m) => m.content)).toEqual(["primo", "secondo"]);
     expect(body.messages[1]!.citations).toEqual([{ title: "doc", url: "/x" }]);
   });
+
+  it("openQuestion: null senza domande aperte", async () => {
+    const item = await insertItem();
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/backlog/${item.id}`,
+      headers: { cookie: memberCookie },
+    });
+    expect((res.json() as { openQuestion: unknown }).openQuestion).toBeNull();
+  });
+
+  it("openQuestion: la domanda aperta, forma di inboxQuestionSchema", async () => {
+    const item = await insertItem();
+    const [question] = await testDb.db
+      .insert(backlogQuestions)
+      .values({
+        backlogItemId: item.id,
+        question: "Import CSV o form manuale?",
+        options: [{ label: "Import CSV" }, { label: "Form manuale" }],
+        recommendedIndex: 1,
+      })
+      .returning({ id: backlogQuestions.id });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/backlog/${item.id}`,
+      headers: { cookie: memberCookie },
+    });
+    const body = res.json() as { openQuestion: Record<string, unknown> | null };
+    expect(body.openQuestion).toMatchObject({
+      questionId: question!.id,
+      question: "Import CSV o form manuale?",
+      recommendedIndex: 1,
+      allowFreeText: true,
+    });
+  });
+
+  it("openQuestion: null se la domanda è già risposta o 'non ora'", async () => {
+    const item = await insertItem();
+    await testDb.db.insert(backlogQuestions).values({
+      backlogItemId: item.id,
+      question: "Già risposta",
+      options: [{ label: "A" }, { label: "B" }],
+      answer: { optionIndex: 0 },
+      answeredAt: new Date(),
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/backlog/${item.id}`,
+      headers: { cookie: memberCookie },
+    });
+    expect((res.json() as { openQuestion: unknown }).openQuestion).toBeNull();
+  });
 });
 
 describe("PATCH /api/backlog/:id", () => {
-  it("member (non admin) → 403", async () => {
+  it("member (non admin) può modificare i metadati", async () => {
     const item = await insertItem();
     const res = await app.inject({
       method: "PATCH",
@@ -344,7 +399,8 @@ describe("PATCH /api/backlog/:id", () => {
       headers: { cookie: memberCookie },
       payload: { title: "nuovo" },
     });
-    expect(res.statusCode).toBe(403);
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { title: string }).title).toBe("nuovo");
   });
 
   it("404 se inesistente", async () => {
@@ -469,6 +525,32 @@ describe("PATCH /api/backlog/:id", () => {
     });
     expect(res.statusCode).toBe(200);
     expect((res.json() as { status: string }).status).toBe("archived");
+  });
+
+  it("archiviare chiude senza risposta l'eventuale domanda ancora aperta (fase 7)", async () => {
+    const item = await insertItem({ status: "new" });
+    const [question] = await testDb.db
+      .insert(backlogQuestions)
+      .values({
+        backlogItemId: item.id,
+        question: "Procedo così?",
+        options: [{ label: "Sì" }, { label: "No" }],
+      })
+      .returning({ id: backlogQuestions.id });
+
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/backlog/${item.id}`,
+      headers: { cookie: adminCookie },
+      payload: { status: "archived" },
+    });
+    expect(res.statusCode).toBe(200);
+
+    const [row] = await testDb.db
+      .select()
+      .from(backlogQuestions)
+      .where(eq(backlogQuestions.id, question!.id));
+    expect(row!.dismissedAt).not.toBeNull();
   });
 });
 
@@ -675,14 +757,15 @@ describe("GET /api/backlog/jobs/:jobId", () => {
 });
 
 describe("POST /api/backlog/:id/suggested/accept", () => {
-  it("member (non admin) → 403", async () => {
+  it("member (non admin) può accettare i valori suggeriti", async () => {
     const item = await insertItem({ suggested: { effort: 4 } });
     const res = await app.inject({
       method: "POST",
       url: `/api/backlog/${item.id}/suggested/accept`,
       headers: { cookie: memberCookie },
     });
-    expect(res.statusCode).toBe(403);
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { effort: number }).effort).toBe(4);
   });
 
   it("404 se inesistente", async () => {
@@ -742,14 +825,15 @@ describe("POST /api/backlog/:id/suggested/accept", () => {
 });
 
 describe("POST /api/backlog/:id/suggested/dismiss", () => {
-  it("member (non admin) → 403", async () => {
+  it("member (non admin) può scartare i valori suggeriti", async () => {
     const item = await insertItem({ suggested: { effort: 4 } });
     const res = await app.inject({
       method: "POST",
       url: `/api/backlog/${item.id}/suggested/dismiss`,
       headers: { cookie: memberCookie },
     });
-    expect(res.statusCode).toBe(403);
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { suggested: unknown }).suggested).toBeNull();
   });
 
   it("409 se suggested è null", async () => {
@@ -918,6 +1002,32 @@ describe("POST /api/backlog/:id/convert", () => {
     const body = res.json() as { ticketId: string };
     const [ticket] = await testDb.db.select().from(tickets).where(eq(tickets.id, body.ticketId));
     expect(ticket!.priority).toBe("medium");
+  });
+
+  it("chiude senza risposta l'eventuale domanda ancora aperta (fase 7)", async () => {
+    const item = await insertItem({ status: "ready" });
+    const [question] = await testDb.db
+      .insert(backlogQuestions)
+      .values({
+        backlogItemId: item.id,
+        question: "Import CSV o form manuale?",
+        options: [{ label: "Import CSV" }, { label: "Form manuale" }],
+      })
+      .returning({ id: backlogQuestions.id });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/convert`,
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(200);
+
+    const [row] = await testDb.db
+      .select()
+      .from(backlogQuestions)
+      .where(eq(backlogQuestions.id, question!.id));
+    expect(row!.dismissedAt).not.toBeNull();
+    expect(row!.answer).toBeNull();
   });
 
   it("member (operator) → 200: convertire è lavoro quotidiano, non un privilegio admin", async () => {
@@ -1149,7 +1259,7 @@ describe("GET /api/backlog/:id espone implementationPlan e originContent", () =>
 });
 
 describe("POST /api/backlog/:id/merge", () => {
-  it("member (non admin) → 403", async () => {
+  it("member (non admin) può fondere due voci", async () => {
     const a = await insertItem();
     const b = await insertItem();
     const res = await app.inject({
@@ -1158,7 +1268,8 @@ describe("POST /api/backlog/:id/merge", () => {
       headers: { cookie: memberCookie },
       payload: { targetId: b.id },
     });
-    expect(res.statusCode).toBe(403);
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { id: string }).id).toBe(b.id);
   });
 
   it("400 se id === targetId", async () => {
@@ -1281,19 +1392,47 @@ describe("POST /api/backlog/:id/merge", () => {
       .where(eq(backlogChatMessages.itemId, absorbed.id));
     expect(absorbedMsgs.some((m) => m.role === "system" && m.content.includes("Fuso in"))).toBe(true);
   });
+
+  it("archivia l'assorbita: chiude senza risposta la sua domanda ancora aperta (fase 7)", async () => {
+    const absorbed = await insertItem({ title: "Assorbito" });
+    const target = await insertItem({ title: "Destinazione" });
+    const [question] = await testDb.db
+      .insert(backlogQuestions)
+      .values({
+        backlogItemId: absorbed.id,
+        question: "Domanda dell'assorbita",
+        options: [{ label: "A" }, { label: "B" }],
+      })
+      .returning({ id: backlogQuestions.id });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${absorbed.id}/merge`,
+      headers: { cookie: adminCookie },
+      payload: { targetId: target.id },
+    });
+    expect(res.statusCode).toBe(200);
+
+    const [row] = await testDb.db
+      .select()
+      .from(backlogQuestions)
+      .where(eq(backlogQuestions.id, question!.id));
+    expect(row!.dismissedAt).not.toBeNull();
+    expect(row!.answer).toBeNull();
+  });
 });
 
 describe("POST /api/backlog/:id/deep-dive", () => {
-  it("member (non admin) → 403", async () => {
+  it("member (non admin) può avviare l'analisi approfondita", async () => {
     const item = await insertItem();
-    const { repositoryId } = await seedRepository(testDb.db);
+    const repoId = await seedRepositoryInProject(testDb.db, projectId);
     const res = await app.inject({
       method: "POST",
       url: `/api/backlog/${item.id}/deep-dive`,
       headers: { cookie: memberCookie },
-      payload: { repositoryId },
+      payload: { repositoryId: repoId },
     });
-    expect(res.statusCode).toBe(403);
+    expect(res.statusCode).toBe(202);
   });
 
   it("404 se la voce non esiste", async () => {
@@ -1579,6 +1718,47 @@ describe("DELETE /api/backlog/:id/code-session", () => {
     expect(messages[0]!.content).toContain("Code analysis session closed");
   });
 
+  it("chiude senza risposta l'eventuale domanda ancora aperta (fase 7): fermare la sessione è un'uscita come le altre", async () => {
+    const item = await insertItem();
+    const repoId = await seedRepositoryInProject(testDb.db, projectId);
+    await testDb.db.insert(backlogCodeSessions).values({ itemId: item.id, repositoryId: repoId });
+    const [question] = await testDb.db
+      .insert(backlogQuestions)
+      .values({
+        backlogItemId: item.id,
+        question: "Quale coda uso per i job del grafo?",
+        options: [{ label: "Una coda nuova" }, { label: "Quella esistente" }],
+      })
+      .returning({ id: backlogQuestions.id });
+
+    const res = await app.inject({
+      method: "DELETE",
+      url: `/api/backlog/${item.id}/code-session`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+
+    const [row] = await testDb.db
+      .select()
+      .from(backlogQuestions)
+      .where(eq(backlogQuestions.id, question!.id));
+    expect(row!.dismissedAt).not.toBeNull();
+    expect(row!.answeredAt).toBeNull();
+  });
+
+  it("stop senza domanda aperta: invariato, nessun errore", async () => {
+    const item = await insertItem();
+    const repoId = await seedRepositoryInProject(testDb.db, projectId);
+    await testDb.db.insert(backlogCodeSessions).values({ itemId: item.id, repositoryId: repoId });
+
+    const res = await app.inject({
+      method: "DELETE",
+      url: `/api/backlog/${item.id}/code-session`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
   it("404 se non c'è alcuna sessione active", async () => {
     const item = await insertItem();
     const res = await app.inject({
@@ -1691,5 +1871,307 @@ describe("GET /api/backlog/:id codeSession + pendingTurn", () => {
       headers: { cookie: memberCookie },
     });
     expect((res.json() as { pendingTurn: boolean }).pendingTurn).toBe(false);
+  });
+});
+
+describe("GET /api/backlog/:id/questions", () => {
+  it("senza sessione → 401", async () => {
+    const item = await insertItem();
+    const res = await app.inject({ method: "GET", url: `/api/backlog/${item.id}/questions` });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("404 se la voce non esiste", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/backlog/${crypto.randomUUID()}/questions`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("lista vuota senza domande", async () => {
+    const item = await insertItem();
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/backlog/${item.id}/questions`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual([]);
+  });
+
+  it("una domanda aperta: forma di inboxQuestionSchema + backlogItemId, answeredBy null", async () => {
+    const item = await insertItem();
+    await testDb.db.insert(backlogQuestions).values({
+      backlogItemId: item.id,
+      question: "Import CSV o form manuale?",
+      options: [{ label: "Import CSV", consequence: "Serve un file già pronto" }, { label: "Form manuale" }],
+      recommendedIndex: 0,
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/backlog/${item.id}/questions`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as Array<Record<string, unknown>>;
+    expect(body).toHaveLength(1);
+    expect(body[0]).toMatchObject({
+      backlogItemId: item.id,
+      question: "Import CSV o form manuale?",
+      recommendedIndex: 0,
+      allowFreeText: true,
+      answer: null,
+      answeredAt: null,
+      answeredBy: null,
+      dismissedAt: null,
+    });
+    expect(typeof body[0]!.questionId).toBe("string");
+  });
+
+  it("domanda risposta: answer/answeredAt/answeredBy valorizzati", async () => {
+    const item = await insertItem();
+    const res1 = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/questions/${crypto.randomUUID()}/answer`,
+      headers: { cookie: memberCookie },
+      payload: { optionIndex: 0 },
+    });
+    expect(res1.statusCode).toBe(404); // domanda inesistente: solo per sanity sull'endpoint
+
+    const [question] = await testDb.db
+      .insert(backlogQuestions)
+      .values({ backlogItemId: item.id, question: "?", options: [{ label: "A" }, { label: "B" }] })
+      .returning({ id: backlogQuestions.id });
+    const answered = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/questions/${question!.id}/answer`,
+      headers: { cookie: memberCookie },
+      payload: { optionIndex: 1 },
+    });
+    expect(answered.statusCode).toBe(200);
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/backlog/${item.id}/questions`,
+      headers: { cookie: memberCookie },
+    });
+    const body = res.json() as Array<Record<string, unknown>>;
+    expect(body[0]).toMatchObject({ answer: { optionIndex: 1 }, dismissedAt: null });
+    expect(body[0]!.answeredAt).not.toBeNull();
+    expect((body[0]!.answeredBy as { email: string }).email).toBe("member@example.com");
+  });
+
+  it("domanda 'non ora': dismissedAt valorizzato, answer resta null", async () => {
+    const item = await insertItem();
+    const [question] = await testDb.db
+      .insert(backlogQuestions)
+      .values({ backlogItemId: item.id, question: "?", options: [{ label: "A" }, { label: "B" }] })
+      .returning({ id: backlogQuestions.id });
+    await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/questions/${question!.id}/dismiss`,
+      headers: { cookie: memberCookie },
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/backlog/${item.id}/questions`,
+      headers: { cookie: memberCookie },
+    });
+    const body = res.json() as Array<Record<string, unknown>>;
+    expect(body[0]!.dismissedAt).not.toBeNull();
+    expect(body[0]!.answer).toBeNull();
+  });
+
+  it("più domande nel tempo: ordinate per askedAt crescente", async () => {
+    const item = await insertItem();
+    const [first] = await testDb.db
+      .insert(backlogQuestions)
+      .values({
+        backlogItemId: item.id,
+        question: "Prima",
+        options: [{ label: "A" }, { label: "B" }],
+        askedAt: new Date("2026-06-01T10:00:00.000Z"),
+        dismissedAt: new Date("2026-06-01T10:05:00.000Z"),
+      })
+      .returning({ id: backlogQuestions.id });
+    await testDb.db.insert(backlogQuestions).values({
+      backlogItemId: item.id,
+      question: "Seconda",
+      options: [{ label: "A" }, { label: "B" }],
+      askedAt: new Date("2026-06-02T10:00:00.000Z"),
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/backlog/${item.id}/questions`,
+      headers: { cookie: memberCookie },
+    });
+    const body = res.json() as Array<{ question: string; questionId: string }>;
+    expect(body.map((q) => q.question)).toEqual(["Prima", "Seconda"]);
+    expect(body[0]!.questionId).toBe(first!.id);
+  });
+});
+
+describe("POST /api/backlog/:id/questions/:questionId/answer|dismiss", () => {
+  async function insertQuestion(itemId: string) {
+    const [row] = await testDb.db
+      .insert(backlogQuestions)
+      .values({
+        backlogItemId: itemId,
+        question: "Import CSV o form manuale?",
+        options: [{ label: "Import CSV" }, { label: "Form manuale" }],
+      })
+      .returning();
+    return row!;
+  }
+
+  it("member (non admin) può rispondere: lavoro quotidiano, non un privilegio admin", async () => {
+    const item = await insertItem();
+    const question = await insertQuestion(item.id);
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/questions/${question.id}/answer`,
+      headers: { cookie: memberCookie },
+      payload: { optionIndex: 0 },
+    });
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { backlogItemId: string }).backlogItemId).toBe(item.id);
+
+    const [row] = await testDb.db
+      .select()
+      .from(backlogQuestions)
+      .where(eq(backlogQuestions.id, question.id));
+    expect(row!.answer).toEqual({ optionIndex: 0 });
+
+    const messages = await testDb.db
+      .select()
+      .from(backlogChatMessages)
+      .where(eq(backlogChatMessages.itemId, item.id));
+    expect(messages.some((m) => m.role === "system" && m.content.includes("Import CSV"))).toBe(true);
+  });
+
+  it("indice fuori range → 400 invalid_answer", async () => {
+    const item = await insertItem();
+    const question = await insertQuestion(item.id);
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/questions/${question.id}/answer`,
+      headers: { cookie: memberCookie },
+      payload: { optionIndex: 5 },
+    });
+    expect(res.statusCode).toBe(400);
+    expect((res.json() as { code: string }).code).toBe("invalid_answer");
+  });
+
+  it("domanda inesistente → 404", async () => {
+    const item = await insertItem();
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/questions/${crypto.randomUUID()}/answer`,
+      headers: { cookie: memberCookie },
+      payload: { optionIndex: 0 },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("questionId di un'altra voce nell'URL → 404 (lo scoping è verificato)", async () => {
+    const item = await insertItem();
+    const other = await insertItem();
+    const question = await insertQuestion(other.id);
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/questions/${question.id}/answer`,
+      headers: { cookie: memberCookie },
+      payload: { optionIndex: 0 },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("già risposta → 409 already_answered", async () => {
+    const item = await insertItem();
+    const question = await insertQuestion(item.id);
+    await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/questions/${question.id}/answer`,
+      headers: { cookie: memberCookie },
+      payload: { optionIndex: 0 },
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/questions/${question.id}/answer`,
+      headers: { cookie: memberCookie },
+      payload: { optionIndex: 1 },
+    });
+    expect(res.statusCode).toBe(409);
+    expect((res.json() as { code: string }).code).toBe("already_answered");
+  });
+
+  it("'non ora': 200, chiude senza rispondere, nessun messaggio in chat", async () => {
+    const item = await insertItem();
+    const question = await insertQuestion(item.id);
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/questions/${question.id}/dismiss`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+
+    const [row] = await testDb.db
+      .select()
+      .from(backlogQuestions)
+      .where(eq(backlogQuestions.id, question.id));
+    expect(row!.dismissedAt).not.toBeNull();
+    expect(row!.answer).toBeNull();
+
+    const messages = await testDb.db
+      .select()
+      .from(backlogChatMessages)
+      .where(eq(backlogChatMessages.itemId, item.id));
+    expect(messages).toHaveLength(0);
+  });
+
+  it("'non ora' due volte → la seconda 409 question_not_pending", async () => {
+    const item = await insertItem();
+    const question = await insertQuestion(item.id);
+    await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/questions/${question.id}/dismiss`,
+      headers: { cookie: memberCookie },
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/questions/${question.id}/dismiss`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(409);
+    expect((res.json() as { code: string }).code).toBe("question_not_pending");
+  });
+
+  it("senza sessione → 401 su entrambe", async () => {
+    const item = await insertItem();
+    const question = await insertQuestion(item.id);
+
+    const answer = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/questions/${question.id}/answer`,
+      payload: { optionIndex: 0 },
+    });
+    expect(answer.statusCode).toBe(401);
+
+    const dismiss = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/questions/${question.id}/dismiss`,
+    });
+    expect(dismiss.statusCode).toBe(401);
   });
 });

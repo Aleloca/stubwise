@@ -366,6 +366,7 @@
       "labels": "Labels",
       "lastSeenAt": "Last seen",
       "memberRunHint": "The run will stop on the plan: a maintainer has to approve it.",
+      "memberRunHintPreApproved": "The plan is already approved: the run will actually start.",
       "milestone": "Milestone",
       "noDescription": "// no description",
       "noMilestone": "None",
@@ -375,7 +376,12 @@
       "originalRequest": "Original request",
       "pastQuestions": "Past questions",
       "plan": "Implementation plan",
+      "planApprovalStaleStatus": "Plan changed after approval: it needs a new go-ahead.",
+      "planApprovedByUnknown": "a maintainer",
+      "planApprovedStatus": "Plan approved by {{name}} on {{date}}, ready to start.",
       "planSummary": "In brief",
+      "preApprovePlan": "Approve plan in advance",
+      "preApprovingPlan": "Approving…",
       "priority": "Priority",
       "questionAnswerUnreadable": "The answer is no longer readable.",
       "questionAnsweredBy": "Answered by {{email}}",
@@ -389,6 +395,8 @@
       "rejectSubmit": "Reject plan",
       "rejecting": "Rejecting…",
       "relaunchWithInstructions": "Relaunch with instructions",
+      "revokePreApproval": "Revoke approval",
+      "revokingPreApproval": "Revoking…",
       "runAwaitingApproval": "Started: the plan is now waiting for a maintainer to approve it.",
       "startFix": "Start AI fix",
       "startingFix": "Starting…",
@@ -413,7 +421,8 @@
       "providerKind": {
         "account": "account",
         "api_key": "API key"
-      }
+      },
+      "failureSummary": "In brief"
     },
     "activity": {
       "title": "Activity",
@@ -678,7 +687,21 @@
       "startAnalysis": "Start session",
       "cancel": "Cancel",
       "noRepos": "This project has no repositories to analyze.",
-      "sessionError": "Could not update the analysis session. Try again."
+      "sessionError": "Could not update the analysis session. Try again.",
+      "notNow": "Not now",
+      "dismissingQuestion": "Dismissing…"
+    },
+    "nextStep": {
+      "clarify": "Idea to clarify — keep the conversation going.",
+      "readyToConvert": "Ready: shall I turn it into a task?",
+      "convertedNoJob": "Task created — start the fix from there.",
+      "preparingPlan": "Work started, preparing the plan…",
+      "awaitingApproval": "Plan ready, waiting for a maintainer to approve it.",
+      "executing": "In progress.",
+      "prReady": "Change ready — releasing it is up to a maintainer.",
+      "done": "Done — the change has been released.",
+      "needsAttention": "Something here needs attention.",
+      "goToTicket": "Go to ticket"
     }
   },
   "settings": {
@@ -1423,6 +1446,19 @@
       "repositoryCount_one": "{{count}} repository",
       "createdAt": "created {{date}}"
     },
+    "pulse": {
+      "waitingQuestion_one": "needs you — {{count}} agent question",
+      "waitingQuestion_other": "needs you — {{count}} agent questions",
+      "waitingPlan_one": "needs you — {{count}} plan to approve",
+      "waitingPlan_other": "needs you — {{count}} plans to approve",
+      "waitingMixed_one": "needs you — {{count}} decision",
+      "waitingMixed_other": "needs you — {{count}} decisions",
+      "runningOne": "working — {{title}}",
+      "runningMany_other": "working — {{count}} jobs running",
+      "idle_one": "idle for {{count}} day",
+      "idle_other": "idle for {{count}} days",
+      "ok": "all quiet"
+    },
     "detail": {
       "back": "← All projects",
       "createdAt": "created",
@@ -1723,24 +1759,24 @@
     "configureFailed": "Webhook configuration failed"
   },
   "jobStatus": {
-    "labels": {
-      "queued": "Queued",
-      "triaging": "Triaging",
-      "fixing": "Fixing",
-      "held": "On hold",
-      "pr_opened": "PR opened",
-      "pr_merged": "PR merged",
-      "failed": "Failed",
-      "skipped": "Skipped",
-      "pr_closed": "PR closed",
-      "awaiting_plan_approval": "Plan to approve",
-      "awaiting_input": "Question pending"
-    },
     "notes": {
       "held": "Automation not started: a manual fix start is required.",
       "awaiting_plan_approval": "The plan exceeds the effort threshold: approve or reject it to proceed.",
       "awaiting_input": "The AI asked a question and is waiting: answer it to let the plan continue."
     }
+  },
+  "workState": {
+    "proposed": "Queued",
+    "planning": "Analyzing",
+    "working": "Running",
+    "held": "Waiting to start",
+    "waitingAnswer": "Waiting for an answer",
+    "waitingApproval": "Plan to approve",
+    "prReady": "PR open",
+    "done": "Released",
+    "failed": "Failed",
+    "skipped": "Skipped",
+    "rejected": "PR closed"
   },
   "milestones": {
     "title": "Milestones",

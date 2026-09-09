@@ -1,10 +1,17 @@
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { memo, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ApiError } from "../lib/api";
-import type { BacklogCodeSession, BacklogMessage } from "../lib/api";
+import type { AnswerBody, BacklogCodeSession, BacklogMessage, BacklogQuestion } from "../lib/api";
+import {
+  answerBacklogQuestion,
+  dismissBacklogQuestion,
+  postBacklogChatTurn,
+} from "../lib/api";
 import { postBacklogChatStream } from "../lib/backlog-chat-api";
-import { postBacklogChatTurn } from "../lib/api";
+import { backlogKeys } from "../lib/queries";
 import { useMediaQuery } from "../lib/use-media-query";
+import { answerErrorMessage, QuestionPanel } from "./question-panel";
 import { Drawer } from "./drawer";
 import { Markdown } from "./markdown";
 
@@ -51,6 +58,15 @@ import { Markdown } from "./markdown";
  * (ancorata a uno spazio) qui la voce non è legata a un singolo spazio doc, per
  * cui le rendiamo in forma SEMPLIFICATA — la sola lista dei titoli, senza link
  * (scelta documentata): estraiamo i `title` stringa e scartiamo il resto.
+ *
+ * DOMANDA A BOTTONI (fase 7, in modalità CODE): quando `openQuestion` non è
+ * null, `QuestionPanel` compare in fondo alla conversazione — l'ultima cosa
+ * che l'agente ha detto — con "non ora" come uscita SEMPRE disponibile
+ * accanto. Il testo libero si ferma finché la domanda non è chiusa (risposta
+ * o "non ora"): le due sorgenti di bottoni del design (passi del percorso,
+ * domande dell'agente) non si accavallano con la prosa. Rispondere scrive un
+ * messaggio `system` in chat (lato server, `answerBacklogQuestion`) — è così
+ * che "la scelta fatta resta scritta nella conversazione".
  */
 
 /** Un messaggio della conversazione lato client (storia iniziale + append). */
@@ -126,6 +142,7 @@ export function BacklogChat({
   onExchangeComplete,
   codeSession,
   pendingTurn,
+  openQuestion,
   repos,
   onStartSession,
   onStopSession,
@@ -145,6 +162,9 @@ export function BacklogChat({
   codeSession: BacklogCodeSession | null;
   /** True mentre un turno di analisi è in corso lato worker. */
   pendingTurn: boolean;
+  /** Domanda a bottoni ANCORA APERTA (fase 7), o null: resa in fondo alla
+   * conversazione, come l'ultima cosa che l'agente ha detto. */
+  openQuestion: BacklogQuestion | null;
   /** Repository del progetto (per il nome nel badge e il picker di avvio). */
   repos: { id: string; name: string }[];
   /** Avvia una sessione sul repo scelto (mutazione gestita dal chiamante). */
@@ -157,6 +177,7 @@ export function BacklogChat({
   sessionError?: string | null;
 }) {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
   const isDesktop = useMediaQuery("(min-width: 1024px)");
   const [open, setOpen] = useState(false);
   // Storia iniziale copiata UNA volta: gli append vivono qui. Le novità dal
@@ -183,6 +204,41 @@ export function BacklogChat({
   // Turno in corso: c'è un placeholder locale (appena inviato) o il server
   // segnala `pendingTurn` (es. pagina ricaricata a turno in volo).
   const turnInFlight = inCodeMode && (pendingTurn || hasPlaceholder);
+
+  // Risposta/"non ora" alla domanda aperta (fase 7): invalidano il dettaglio
+  // (via `onExchangeComplete`, stesso canale della fine di uno scambio) così
+  // `openQuestion` sparisce e il messaggio system della risposta (scritto dal
+  // server) compare nella conversazione al prossimo refetch.
+  const answerMutation = useMutation({
+    mutationFn: (answer: AnswerBody) => {
+      if (!openQuestion) throw new Error("nessuna domanda aperta");
+      return answerBacklogQuestion(itemId, openQuestion.questionId, answer);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: backlogKeys.detail(itemId) });
+      onExchangeComplete();
+    },
+  });
+  const dismissMutation = useMutation({
+    mutationFn: () => {
+      if (!openQuestion) throw new Error("nessuna domanda aperta");
+      return dismissBacklogQuestion(itemId, openQuestion.questionId);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: backlogKeys.detail(itemId) });
+      onExchangeComplete();
+    },
+  });
+  // Una domanda diversa (risposta arrivata, "non ora" da un'altra scheda):
+  // l'errore della domanda precedente non deve sopravvivere. Stesso pattern
+  // di `resetRunAi` nella pagina ticket: si passano i `.reset` stabili, non
+  // gli oggetti mutation interi.
+  const resetAnswer = answerMutation.reset;
+  const resetDismiss = dismissMutation.reset;
+  useEffect(() => {
+    resetAnswer();
+    resetDismiss();
+  }, [resetAnswer, resetDismiss, openQuestion?.questionId]);
 
   // Riconciliazione: integra i messaggi server non ancora visti (vedi doc in
   // testa al file). Gira a ogni cambiamento della lista server (refetch).
@@ -384,7 +440,10 @@ export function BacklogChat({
         ]
       : messages;
 
-  const sendDisabled = sending || turnInFlight || input.trim().length === 0;
+  // Con una domanda aperta il testo libero si ferma: prima si risponde o si
+  // dice "non ora" (design fase 7 — le due sorgenti di bottoni non si
+  // accavallano con la prosa libera).
+  const sendDisabled = sending || turnInFlight || openQuestion !== null || input.trim().length === 0;
 
   const body = (
     <div className="flex h-full min-h-0 flex-col">
@@ -451,7 +510,7 @@ export function BacklogChat({
         onScroll={handleScroll}
         className="min-h-0 flex-1 overflow-y-auto px-4 py-3"
       >
-        {displayMessages.length === 0 ? (
+        {displayMessages.length === 0 && openQuestion === null ? (
           <div className="grid h-full place-items-center text-center">
             <div>
               <p className="font-mono text-[11px] tracking-[0.12em] text-fg-faint uppercase">
@@ -465,6 +524,48 @@ export function BacklogChat({
             {displayMessages.map((message) => (
               <ChatBubble key={message.id} message={message} />
             ))}
+            {/*
+              La domanda a bottoni (fase 7): l'ultima cosa che l'agente ha
+              detto, in fondo alla conversazione — non dentro una bolla
+              PASSATA (nessun FK fra messaggio e domanda: la voce ha al più
+              una domanda aperta alla volta, ed è sempre l'ultima). "Non ora"
+              è l'uscita SEMPRE disponibile, resa come azione secondaria fuori
+              dal pannello di risposta.
+            */}
+            {openQuestion && (
+              <li className="flex flex-col gap-1.5">
+                <span className="font-mono text-[10px] tracking-[0.12em] text-fg-faint uppercase">
+                  {t("backlog:chat.assistant")}
+                </span>
+                <div className="rounded-sm border border-signal-dim/40 bg-ink-925 px-3 py-2">
+                  <QuestionPanel
+                    question={openQuestion}
+                    pending={answerMutation.isPending || dismissMutation.isPending}
+                    error={
+                      answerMutation.isError ? answerErrorMessage(answerMutation.error, t) : null
+                    }
+                    onSubmit={(answer) => answerMutation.mutate(answer)}
+                  />
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={answerMutation.isPending || dismissMutation.isPending}
+                      onClick={() => dismissMutation.mutate()}
+                      className="rounded-sm border border-line-strong px-2.5 py-1 font-mono text-[10px] tracking-[0.08em] text-fg-muted uppercase transition-colors hover:text-fg disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {dismissMutation.isPending
+                        ? t("backlog:chat.dismissingQuestion")
+                        : t("backlog:chat.notNow")}
+                    </button>
+                    {dismissMutation.isError && (
+                      <span role="alert" className="font-mono text-[11px] text-danger">
+                        {answerErrorMessage(dismissMutation.error, t)}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </li>
+            )}
           </ul>
         )}
       </div>
@@ -495,9 +596,10 @@ export function BacklogChat({
               }
             }}
             rows={2}
+            disabled={openQuestion !== null}
             placeholder={t("backlog:chat.placeholder")}
             aria-label={t("backlog:chat.placeholder")}
-            className="min-w-0 flex-1 resize-none rounded-sm border border-line-strong bg-ink-950/70 px-3 py-2 text-[13px] text-fg placeholder:text-fg-faint transition-colors hover:border-ink-700 focus-visible:border-signal-dim"
+            className="min-w-0 flex-1 resize-none rounded-sm border border-line-strong bg-ink-950/70 px-3 py-2 text-[13px] text-fg placeholder:text-fg-faint transition-colors hover:border-ink-700 focus-visible:border-signal-dim disabled:cursor-not-allowed disabled:opacity-50"
           />
           <button
             type="submit"

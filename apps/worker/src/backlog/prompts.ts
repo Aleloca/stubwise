@@ -216,6 +216,38 @@ export interface CodeChatMessage {
   content: string;
 }
 
+/**
+ * Budget e round correnti del tool `ask_user` (fase 7): quando presente, i
+ * prompt del turno di chat appendono il blocco di istruzioni
+ * ({@link renderChatAskUserBlock}). Stessa forma di `AskUserRunConfig.promptOpt`
+ * (`apps/worker/src/pipeline/ask-user.ts`), ridichiarata qui perché questo
+ * modulo non deve dipendere dalla pipeline del fix.
+ */
+export interface ChatAskUserPromptInput {
+  round: number;
+  maxRounds: number;
+}
+
+/**
+ * Blocco di istruzioni sul tool `ask_user`, da appendere a OGNI prompt del
+ * turno — priming, followup e ripresa dopo una risposta — quando il tool è
+ * cablato sul run: **non persiste nella sessione CLI**, un run in `--resume`
+ * che lo omettesse perderebbe il tool a metà conversazione senza che nulla
+ * fallisca (l'agente tornerebbe semplicemente a rispondere in prosa). Vuoto
+ * quando `askUser` è assente (tool non disponibile per questo run).
+ */
+function renderChatAskUserBlock(askUser: ChatAskUserPromptInput | undefined): string {
+  if (!askUser) return "";
+  const { round, maxRounds } = askUser;
+  const left = Math.max(0, maxRounds - round + 1);
+  return [
+    "",
+    "",
+    "Se l'indagine apre un bivio con conseguenze materialmente diverse per il team (non una tua preferenza tecnica reversibile — quella la decidi tu), puoi FERMARTI e chiedere con lo strumento `ask_user`: da 2 a 4 opzioni concrete e reciprocamente esclusive, ciascuna con la sua conseguenza in una riga, e una `recommendedIndex` se ne hai una (segnalata, mai preselezionata). Dopo averlo chiamato TERMINA SUBITO il turno senza scrivere altro: un umano risponderà in un turno successivo, e una risposta in prosa scritta nello stesso turno viene scartata.",
+    `Budget: ${maxRounds} domande per questa sessione di analisi. Questa sarebbe la domanda numero ${round} (ne restano ${left}). Oltre il budget lo strumento non registra più nulla: decidi tu e documenta la scelta nella risposta.`,
+  ].join("\n");
+}
+
 /** Voce del backlog + conversazione in ingresso al PRIMO turno della sessione di
  * analisi sul codice (priming). I turni successivi passano la sola domanda. */
 export interface CodeChatPrimingInput {
@@ -227,13 +259,18 @@ export interface CodeChatPrimingInput {
   /** Ultimi messaggi della chat (esclusa la domanda corrente), già capati dal
    * chiamante. In ordine cronologico. */
   history: CodeChatMessage[];
-  /** La domanda corrente (l'ultimo messaggio utente che ha innescato il turno). */
+  /** La domanda corrente (l'ultimo messaggio utente che ha innescato il turno,
+   * o — sul ribootstrap dopo una risposta — il testo reso da
+   * {@link renderAnsweredBacklogQuestion}). */
   question: string;
   /** graph.json del knowledge graph del repo sul volume, quando esiste (vedi
    * graph/agent-hint.ts): attiva il blocco GRAFO DEL CODICE nel priming. */
   graphJsonPath?: string;
   /** Lingua in cui rispondere (contenuti d'istanza). */
   language: Language;
+  /** Tool `ask_user` cablato su questo run (fase 7): appende il blocco di
+   * istruzioni. Assente = tool non disponibile per questo run. */
+  askUser?: ChatAskUserPromptInput;
 }
 
 /**
@@ -275,15 +312,54 @@ export function buildCodeChatPrimingPrompt(input: CodeChatPrimingInput): string 
     `--- CONVERSAZIONE FINORA ---\n${history}`,
     "",
     `--- DOMANDA CORRENTE ---\n${input.question}`,
-  ].join("\n");
+  ].join("\n") + renderChatAskUserBlock(input.askUser);
 }
 
 /**
  * Prompt dei turni SUCCESSIVI (la sessione CLI è ripresa con `--resume`, quindi
  * il modello ha già in memoria il contesto e ciò che ha esplorato): passa la
- * sola nuova domanda. Funzione minimale, esplicita per simmetria col priming e
- * per un unico punto in cui evolvere il formato del turno.
+ * sola nuova domanda, più — quando il tool è cablato — il blocco di
+ * istruzioni `ask_user`, RIPASSATO a ogni turno perché non persiste nella
+ * sessione (vedi {@link renderChatAskUserBlock}).
  */
-export function buildCodeChatFollowupPrompt(question: string): string {
-  return question;
+export function buildCodeChatFollowupPrompt(
+  question: string,
+  askUser?: ChatAskUserPromptInput,
+): string {
+  return question + renderChatAskUserBlock(askUser);
+}
+
+/**
+ * Rende in un blocco leggibile la domanda che l'agente aveva posto e la
+ * risposta appena arrivata (fase 7, Task 6): riusato sia dal prompt di
+ * RIPRESA ({@link buildCodeChatAnswerPrompt}) sia, sul ribootstrap dopo un
+ * riavvio del worker, come `question` del priming pieno — in quel caso la
+ * sessione CLI precedente è persa, ma la voce del PERCHÉ si sta rispondendo
+ * resta, perché la Q&A è già nella storia della chat che il priming include.
+ */
+export function renderAnsweredBacklogQuestion(question: string, answer: string): string {
+  return [
+    "L'umano ha risposto alla domanda che avevi posto.",
+    "",
+    `Domanda: ${question}`,
+    `Risposta: ${answer}`,
+    "",
+    "È una decisione CHIUSA, non un'opinione da soppesare: continua l'indagine tenendone conto, senza rimetterla in discussione.",
+  ].join("\n");
+}
+
+/**
+ * Prompt del turno di RIPRESA dopo la risposta a una domanda dell'agente
+ * (fase 7, Task 6): gemello di `buildFixPlanContinuePrompt`
+ * (`apps/worker/src/pipeline/prompts.ts`) per il contesto della chat del
+ * backlog, dove non c'è un piano da produrre — solo l'indagine da continuare.
+ * Usato SOLO quando la sessione CLI è davvero riprendibile (`--resume`); sul
+ * ribootstrap si usa invece {@link renderAnsweredBacklogQuestion} come
+ * `question` del priming pieno.
+ */
+export function buildCodeChatAnswerPrompt(
+  input: { question: string; answer: string },
+  askUser?: ChatAskUserPromptInput,
+): string {
+  return renderAnsweredBacklogQuestion(input.question, input.answer) + renderChatAskUserBlock(askUser);
 }
