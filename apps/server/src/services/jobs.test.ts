@@ -17,7 +17,7 @@ import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { t } from "@stubwise/i18n";
 import { createTicket } from "../db/tickets.js";
-import { IN_FLIGHT, resolvePlan, startRun, type Actor } from "./jobs.js";
+import { IN_FLIGHT, resolvePlan, revokePlanApproval, startRun, type Actor } from "./jobs.js";
 
 let testDb: TestDb;
 let db: Db;
@@ -485,6 +485,29 @@ describe("startRun — pre-approvazione del piano (fase 7)", () => {
     // Era già "queued" senza gate per un maintainer: la pre-approvazione non
     // introduce differenze osservabili sul suo percorso.
     expect(job?.planApprovalRequired).toBe(false);
+  });
+
+  it("member + piano revocato → il gate torna a chiudersi (fase 7, Task 3: seconda strada d'uscita)", async () => {
+    // La prima strada (piano riscritto → digest che non torna) è già coperta
+    // sopra. Questa è la seconda: la pre-approvazione revocata ESPLICITAMENTE
+    // da un maintainer, piano invariato — il digest ci sarebbe ancora, ma
+    // `planApprovedAt` è tornato null e basta a riattivare il gate.
+    const piano = "## Piano pre-approvato poi revocato\n1. Passo A";
+    const ticketId = await seedTicket(piano);
+    await approvePlan(ticketId, piano);
+
+    const revoked = await revokePlanApproval(db, { ticketId, actor: maintainer });
+    expect(revoked).toEqual({ ok: true });
+
+    const result = await startRun(db, { ticketId, actor: operator });
+    expect(result).toEqual({
+      ok: true,
+      jobId: expect.any(String),
+      status: "awaiting_plan_approval",
+    });
+    const job = await readJob(result.ok ? result.jobId : "");
+    expect(job?.planText).toBe(piano);
+    expect(job?.planApprovalRequired).toBe(true);
   });
 
   it("member + piano pre-approvato ma mode:ai_plan → il gate torna attivo (si pianifica da capo)", async () => {
