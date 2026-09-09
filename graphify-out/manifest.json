@@ -3970,8 +3970,8 @@
     "semantic_hash": ""
   },
   "CLAUDE.md": {
-    "mtime": 1788975010.0046644,
-    "ast_hash": "fd7160bc86f4fb2502c33627f107a7e1",
+    "mtime": 1788983300.0991638,
+    "ast_hash": "656e4daebfd887793765b85195683143",
     "semantic_hash": ""
   },
   "CONTRIBUTING.md": {
@@ -4780,8 +4780,8 @@
     "semantic_hash": ""
   },
   "apps/server/src/services/inbox.test.ts": {
-    "mtime": 1788972982.9020228,
-    "ast_hash": "cf284afdf699066ee554ba7a940d9d42",
+    "mtime": 1788983624.0651925,
+    "ast_hash": "c90d487ef4e5ad84ca7204a4a59a8f30",
     "semantic_hash": ""
   },
   "apps/server/src/services/inbox.ts": {
@@ -4820,13 +4820,13 @@
     "semantic_hash": ""
   },
   "apps/web/src/components/inbox-item.tsx": {
-    "mtime": 1788969946.7820897,
-    "ast_hash": "0130a20ff0f9ba2fc6dc4d8afc3e9c1c",
+    "mtime": 1788983023.4683442,
+    "ast_hash": "7dd1cd6b05d4ba73cdc076084c307eba",
     "semantic_hash": ""
   },
   "apps/web/src/routes/inbox.test.tsx": {
-    "mtime": 1788974377.7800415,
-    "ast_hash": "7651f07c6c7beb5cdfa6214716a49b6a",
+    "mtime": 1788983225.0998342,
+    "ast_hash": "543dcef8677b27a6ccda75c5ffc94235",
     "semantic_hash": ""
   },
   "apps/web/src/routes/inbox.tsx": {
@@ -4915,8 +4915,8 @@
     "semantic_hash": ""
   },
   "packages/shared/src/schemas/notification.ts": {
-    "mtime": 1788972121.479434,
-    "ast_hash": "c6302e8e715c6f9e85a86fa11f0b1850",
+    "mtime": 1788983034.4969563,
+    "ast_hash": "e6f80a6cf73554846caf03cb7f9a7e1d",
     "semantic_hash": ""
   },
   ".claude/commands/stubwise/run.md": {
@@ -6760,13 +6760,13 @@
     "semantic_hash": ""
   },
   "apps/worker/src/google/calendar.test.ts": {
-    "mtime": 1788972228.042442,
-    "ast_hash": "c7cd3715e249bb8a699b9c3062c3e54d",
+    "mtime": 1788982908.3189652,
+    "ast_hash": "2b1caae91297df78f992451e56ba488c",
     "semantic_hash": ""
   },
   "apps/worker/src/google/calendar.ts": {
-    "mtime": 1788972151.7436104,
-    "ast_hash": "ccdf4c6d183889847f8a2a065d9bd9c9",
+    "mtime": 1788982857.6673596,
+    "ast_hash": "761db6d2d20ac58c5006c292c02865a2",
     "semantic_hash": ""
   },
   "apps/worker/src/google/classify.test.ts": {
@@ -6785,18 +6785,18 @@
     "semantic_hash": ""
   },
   "apps/worker/src/google/poller.ts": {
-    "mtime": 1788972327.292904,
-    "ast_hash": "3e84afcf1dce35c518c74dd8d518bdb3",
+    "mtime": 1788982879.6497378,
+    "ast_hash": "a9ef04968a8be026122cd5c1158758f3",
     "semantic_hash": ""
   },
   "apps/worker/src/google/proposal.test.ts": {
-    "mtime": 1788972442.6485436,
-    "ast_hash": "2c70adabae400aeb65882393b3ad178b",
+    "mtime": 1788982898.1344545,
+    "ast_hash": "6da29a008e831d5bf80027ff8e7fe6fc",
     "semantic_hash": ""
   },
   "apps/worker/src/google/proposal.ts": {
-    "mtime": 1788972199.345581,
-    "ast_hash": "73c976fe25b4d011e0d3d543de006418",
+    "mtime": 1788982338.2674537,
+    "ast_hash": "fa30f29d673c5123c0eec39fa44bb112",
     "semantic_hash": ""
   },
   "apps/worker/src/google/sync.ts": {
@@ -7255,23 +7255,23 @@
     "semantic_hash": ""
   },
   "apps/web/src/routes/mail.$source.$id.test.tsx": {
-    "mtime": 1788974440.079422,
-    "ast_hash": "2d92c9609cc2a4049836b32ccc22c969",
+    "mtime": 1788982993.4475725,
+    "ast_hash": "7b8c31dc0d5d6dfa657a111b53aec65d",
     "semantic_hash": ""
   },
   "apps/web/src/routes/mail.$source.$id.tsx": {
-    "mtime": 1788974329.2861307,
-    "ast_hash": "e25c3a86ea99b4e823f392630df7fd98",
+    "mtime": 1788982977.3618257,
+    "ast_hash": "ed5eaa144747e2c38350fab9c5e66143",
     "semantic_hash": ""
   },
   "apps/worker/src/google/calendar-auto.test.ts": {
-    "mtime": 1788972493.1512613,
-    "ast_hash": "b45e2d2ff73247d042fc495e28734d32",
+    "mtime": 1788982742.8844259,
+    "ast_hash": "531cfd29b83b463cb9120b1a4305f093",
     "semantic_hash": ""
   },
   "apps/worker/src/google/calendar-auto.ts": {
-    "mtime": 1788972305.5667024,
-    "ast_hash": "d8511390022b871220390e6983a7ccd6",
+    "mtime": 1788982709.747808,
+    "ast_hash": "470e0aad39023f4f5e434c814660a2a3",
     "semantic_hash": ""
   },
   "packages/db/drizzle/0073_calendar_series.sql": {
@@ -7287,6 +7287,11 @@
   "docs/plans/2026-09-09-phase7b-mail-calendar-surface-plan.md": {
     "mtime": 1788969946.9623988,
     "ast_hash": "106f5fe533224daa6c586894a3ab7b36",
+    "semantic_hash": ""
+  },
+  "docs/plans/2026-09-09-phase7b-review-fixes-plan.md": {
+    "mtime": 1788982200.5485864,
+    "ast_hash": "0a0e7660f41bda413deb218e3e9cac29",
     "semantic_hash": ""
   }
 }
