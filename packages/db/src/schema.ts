@@ -559,6 +559,23 @@ export const tickets = pgTable(
       (): SQL =>
         sql`to_tsvector('english', coalesce(${tickets.title}, '') || ' ' || coalesce(${tickets.body}, ''))`,
     ),
+    // Pre-approvazione del piano (fase 7): un maintainer può approvare in
+    // anticipo il piano CORRENTE di un ticket, così un operatore (member) può
+    // far partire il fix senza fermarsi sul gate. `planApprovedDigest` è lo
+    // SHA-256 del testo del piano al momento dell'approvazione (planDigest,
+    // packages/db/src/plan-digest.ts): il gate confronta il digest con quello
+    // del piano ATTUALE, non si fida solo di `planApprovedAt`. L'approvazione
+    // DECADE DA SOLA a ogni riscrittura del piano (MCP set_plan, PUT /plan,
+    // riscrittura del worker) perché il digest smette di combaciare — più
+    // robusto che azzerare il campo a ogni scrittura, perché non dipende dal
+    // ricordarsi di farlo in ogni percorso che tocca il piano.
+    planApprovedAt: timestamp("plan_approved_at", { withTimezone: true }),
+    // ON DELETE SET NULL: l'approvazione (e il suo digest) restano leggibili
+    // anche se il maintainer che l'ha data viene eliminato.
+    planApprovedByUserId: uuid("plan_approved_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    planApprovedDigest: text("plan_approved_digest"),
   },
   (table) => [
     uniqueIndex("tickets_project_id_number_unique").on(table.projectId, table.number),
@@ -773,6 +790,15 @@ export const aiJobs = pgTable(
     // partire un fix senza che il piano sia approvato. Default false: i job
     // esistenti e quelli automatici mantengono il comportamento di oggi.
     planApprovalRequired: boolean("plan_approval_required").notNull().default(false),
+    // Riassunto in italiano/inglese del perché il job è fallito (fase 7):
+    // cosa si stava facendo, cosa non ha funzionato, cosa si può fare adesso —
+    // e se serve un maintainer. Generato best-effort quando il job entra in
+    // `failed` (stessa forma di `planSummary`/`prSummary`, ma FUORI dalla
+    // transazione che scrive lo stato: un riassunto fallito non deve mai far
+    // fallire la registrazione del fallimento stesso). Null = non generato
+    // (run non fallito, generazione fallita o riassunti spenti): la card
+    // degrada al log tecnico come prima di questa fase.
+    failureSummary: text("failure_summary"),
   },
   (table) => [
     // Lookup dei job di un ticket (storico e dettaglio).
@@ -2380,6 +2406,71 @@ export const backlogCodeSessions = pgTable(
       .where(sql`status = 'active'`),
   ],
 );
+
+/**
+ * Domande a bottoni poste dall'agente durante un turno CODE della chat di
+ * raffinamento del backlog (fase 7): GEMELLA di `agentQuestions`, ma ancorata
+ * a `backlog_item_id` invece che a un job/ticket — una voce di backlog non ha
+ * né l'uno né l'altro finché non viene convertita. Stessa forma di `options`/
+ * `answer` (riusa {@link AgentQuestionAnswer}) e stessa disciplina di
+ * unicità della risposta (UPDATE guardato su `answered_at IS NULL`), ma
+ * aggiunge `dismissedAt`: qui l'uscita "non ora" è OBBLIGATORIA (il sistema
+ * ha già pagato il prezzo di domande senza via d'uscita, vedi
+ * `agent_questions` e la nota in `actions.ts`), quindi una domanda si chiude
+ * anche senza risposta. Nessun `round`: la chat del backlog non ha round
+ * numerati come `ask_user` nel fix, è una domanda alla volta nel flusso
+ * naturale della conversazione.
+ */
+export const backlogQuestions = pgTable(
+  "backlog_questions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    backlogItemId: uuid("backlog_item_id")
+      .notNull()
+      .references(() => backlogItems.id, { onDelete: "cascade" }),
+    question: text("question").notNull(),
+    // Le alternative proposte dall'agente (2..4), ognuna con la sua etichetta e
+    // l'eventuale conseguenza mostrata sotto il bottone. Stessa forma di
+    // `agentQuestions.options`, validata dal servizio (non dal DB).
+    options: jsonb("options").$type<{ label: string; consequence?: string }[]>().notNull(),
+    // Indice dell'opzione consigliata dall'agente, se ne ha una. Marcata nella
+    // UI ma MAI preselezionata: la scelta resta dell'umano.
+    recommendedIndex: integer("recommended_index"),
+    // L'agente accetta anche una risposta in testo libero ("Altro…").
+    allowFreeText: boolean("allow_free_text").notNull().default(true),
+    askedAt: timestamp("asked_at", { withTimezone: true }).notNull().defaultNow(),
+    // Risposta umana: `{ optionIndex }` per una delle opzioni, `{ text }` per il
+    // testo libero. Null finché la domanda è aperta (né risposta né "non ora").
+    answer: jsonb("answer").$type<AgentQuestionAnswer>(),
+    answeredAt: timestamp("answered_at", { withTimezone: true }),
+    // Chi ha risposto. ON DELETE SET NULL: lo storico della domanda sopravvive
+    // all'utente.
+    answeredByUserId: uuid("answered_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    // "Non ora": chiude la domanda SENZA rispondere, lasciando la conversazione
+    // libera. Anche la conversione della voce in ticket e la sua archiviazione
+    // chiudono così — nella stessa transazione — un'eventuale domanda ancora
+    // aperta: nessuna domanda può restare aperta senza via d'uscita.
+    dismissedAt: timestamp("dismissed_at", { withTimezone: true }),
+  },
+  (table) => [
+    // Una sola domanda APERTA per voce: né risposta né "non ora". Indice unico
+    // PARZIALE — le domande chiuse (in un modo o nell'altro) non vi
+    // partecipano, quindi la conversazione può accumulare più domande nel
+    // tempo, mai due aperte insieme.
+    uniqueIndex("backlog_questions_open_item_unique")
+      .on(table.backlogItemId)
+      .where(sql`answered_at IS NULL AND dismissed_at IS NULL`),
+    index("backlog_questions_item_idx").on(table.backlogItemId, table.askedAt),
+    // Una domanda è risposta se e solo se ha una risposta (indipendente da
+    // dismissedAt: "non ora" non è una risposta, answer resta null).
+    check("backlog_questions_answer_chk", sql`(answer IS NULL) = (answered_at IS NULL)`),
+  ],
+);
+
+/** Riga di `backlog_questions`: una domanda a bottoni sulla voce di backlog. */
+export type BacklogQuestion = typeof backlogQuestions.$inferSelect;
 
 /**
  * Metadati del knowledge graph di un repository (integrazione graphify). I file
