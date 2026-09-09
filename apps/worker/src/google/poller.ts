@@ -1042,6 +1042,20 @@ async function syncCalendar(
 
   const lang = deps.lang ?? (await getContentLanguage(deps.db));
 
+  // La finestra dei 60 giorni vale anche IN SCRITTURA, non solo per comporre
+  // la richiesta a Google. `calendarWindow` serve altrimenti SOLO a
+  // {@link collectCalendarEvents} per il resync per finestra: con un
+  // `syncToken` la finestra non si può nemmeno mandare a Google (l'API la
+  // rifiuterebbe, vedi il docblock di `listEvents`), quindi un giro
+  // incrementale riceve TUTTO ciò che è cambiato — comprese occorrenze fra
+  // cinque anni di una serie ricorrente espansa da Google. Questo è l'UNICO
+  // punto in cui la finestra esiste per lo scopo: senza, un solo appuntamento
+  // ricorrente può produrre centinaia di righe candidate a una proposta — è il
+  // difetto che da solo ha causato 728 delle 730 notifiche del 9 settembre
+  // 2026 (design fase 7b §5a).
+  const now = deps.now ?? (() => new Date());
+  const { timeMin, timeMax } = calendarWindow(now());
+
   // Un evento può comparire più volte in un resync paginato: vince l'ultima
   // versione letta, che è anche la più recente. `startsAt` viaggia a parte
   // perché qui è garantito non nullo e il tipo di Google non lo sa.
@@ -1050,6 +1064,7 @@ async function syncCalendar(
     if (isCancelled(event)) continue;
     const startsAt = event.startsAt;
     if (!startsAt) continue;
+    if (startsAt < timeMin || startsAt > timeMax) continue;
     if (!buildMilestoneProposal(lang, event)) continue;
     if (!routeEvent(event, ctx.routes).inScope) continue;
     live.set(event.id, { event, startsAt, fingerprint: computeFingerprint(event.title, startsAt) });

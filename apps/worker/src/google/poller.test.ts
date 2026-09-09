@@ -2243,3 +2243,52 @@ describe("fase 7b — la serie ricorrente entra nel modello", () => {
     expect(singolo.recurringEventId).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Fase 7b, Task 2: la finestra dei 60 giorni vale anche in scrittura — la rete
+// di sicurezza dell'incidente del 9 settembre 2026 (design fase 7b §5a).
+// ---------------------------------------------------------------------------
+
+describe("fase 7b — la finestra dei 60 giorni vale anche in scrittura", () => {
+  it("un'occorrenza fra cinque anni non scrive nessuna riga; una dentro i 60 giorni sì", async () => {
+    const projectId = await seedProject("Acme");
+    await db
+      .insert(projectEmailRoutes)
+      .values({ projectId, kind: "sender_domain", value: "cliente.com" });
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+
+    // Simula esattamente l'incidente: un giro incrementale (con syncToken, la
+    // finestra non è nemmeno mandabile a Google) che riceve un mix di
+    // occorrenze passate, vicine e lontanissime della stessa serie espansa.
+    await db
+      .update(googleAccounts)
+      .set({ calendarSyncToken: "tok-precedente" })
+      .where(eq(googleAccounts.id, account.id));
+
+    await pollGoogleOnce(
+      deps(await reload(account.id), fakeGmail({ listed: [] }), {
+        now: () => new Date("2026-09-09T00:00:00.000Z"),
+        calendar: fakeCalendarSequence([
+          {
+            events: [
+              calendarEvent({
+                id: "serie_2035",
+                startsAt: new Date("2035-09-10T09:00:00.000Z"),
+                recurringEventId: "serie",
+              }),
+              calendarEvent({
+                id: "serie_2026",
+                startsAt: new Date("2026-09-20T09:00:00.000Z"),
+                recurringEventId: "serie",
+              }),
+            ],
+            nextSyncToken: "tok-2",
+          },
+        ]),
+      }),
+    );
+
+    const rows = await calendarRows();
+    expect(rows.map((row) => row.googleEventId)).toEqual(["serie_2026"]);
+  });
+});
