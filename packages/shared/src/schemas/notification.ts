@@ -274,6 +274,16 @@ export const inboxGoogleSchema = z.object({
    * `.default(false)`: un payload scritto prima di questa fase non ce l'ha.
    */
   auto: z.boolean().optional().default(false),
+  /**
+   * Fase 7b (fix di review, Task 4): l'id con cui la card apre il dettaglio
+   * `/mail/:source/:id` — SOLO per `source: "email"`, dove è
+   * `email_proposals.id`. Per `"calendar"` è un `randomUUID()` senza
+   * significato (`GoogleProposalEvent.proposalId`, `apps/worker/src/google/
+   * proposal.ts`): un client lo ignora per quella sorgente, mai un link
+   * costruito su un id casuale. `.optional()`: un payload scritto prima di
+   * questo campo non ce l'ha.
+   */
+  proposalId: z.string().optional(),
 });
 export type InboxGoogle = z.infer<typeof inboxGoogleSchema>;
 

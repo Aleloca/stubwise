@@ -95,18 +95,26 @@ export function MailDetailPage() {
           </section>
 
           <section className="mt-6 border-t border-line pt-4">
+            {/*
+             * Fix di review: la nota va accanto al COMANDO, sempre — non solo
+             * mentre la richiesta è in corso (cioè dopo il click). Il design
+             * §3 vuole che sia il comando a dichiarare cosa sta per fare
+             * PRIMA che lo si prema, non a metà dell'attesa: l'etichetta del
+             * bottone da sola dice solo "su Gmail", che è metà
+             * dell'informazione.
+             */}
             {!original.isSuccess && (
-              <button
-                type="button"
-                disabled={original.isPending}
-                onClick={() => original.mutate()}
-                className="inline-flex min-h-9 items-center rounded-sm border border-line-strong px-3 font-mono text-[11px] tracking-[0.12em] text-fg-muted uppercase transition-colors hover:border-signal-dim hover:text-fg disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {original.isPending ? t("mail:detail.readingOriginal") : t("mail:detail.readOriginal")}
-              </button>
-            )}
-            {original.isPending && (
-              <p className="mt-2 font-mono text-[11px] text-fg-faint">{t("mail:detail.originalNotice")}</p>
+              <>
+                <button
+                  type="button"
+                  disabled={original.isPending}
+                  onClick={() => original.mutate()}
+                  className="inline-flex min-h-9 items-center rounded-sm border border-line-strong px-3 font-mono text-[11px] tracking-[0.12em] text-fg-muted uppercase transition-colors hover:border-signal-dim hover:text-fg disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {original.isPending ? t("mail:detail.readingOriginal") : t("mail:detail.readOriginal")}
+                </button>
+                <p className="mt-2 font-mono text-[11px] text-fg-faint">{t("mail:detail.originalNotice")}</p>
+              </>
             )}
             {original.isError && (
               <p role="alert" className="mt-2 font-mono text-[11px] text-danger">

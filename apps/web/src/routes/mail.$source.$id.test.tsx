@@ -109,6 +109,19 @@ describe("pagina /mail/:source/:id", () => {
     await screen.findByText("This message was not found.");
   });
 
+  it("fix di review: la nota sulla rilettura si legge PRIMA del click, accanto al bottone", async () => {
+    mockApi(baseApi());
+    renderDetail();
+
+    await screen.findByRole("heading", { name: "Ship next week?" });
+    // Prima di qualunque click: il bottone c'è E la nota anche, non solo
+    // l'etichetta "su Gmail" del bottone da sola.
+    expect(screen.getByRole("button", { name: "Read original on Gmail" })).toBeInTheDocument();
+    expect(
+      screen.getByText("Asking Google for this message now — nothing is saved."),
+    ).toBeInTheDocument();
+  });
+
   it("'Read original' rilegge da Gmail su richiesta e mostra il corpo grezzo", async () => {
     mockApi(
       baseApi({
