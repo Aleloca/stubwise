@@ -1745,24 +1745,24 @@
     "configureFailed": "Configurazione del webhook fallita"
   },
   "jobStatus": {
-    "labels": {
-      "queued": "In coda",
-      "triaging": "Triage",
-      "fixing": "Fix in corso",
-      "held": "In attesa",
-      "pr_opened": "PR aperta",
-      "pr_merged": "PR mergiata",
-      "failed": "Fallito",
-      "skipped": "Saltato",
-      "pr_closed": "PR chiusa",
-      "awaiting_plan_approval": "Piano da approvare",
-      "awaiting_input": "Domanda in attesa"
-    },
     "notes": {
       "held": "Automazione non avviata: serve un avvio manuale del fix.",
       "awaiting_plan_approval": "Il piano supera la soglia di effort: approvalo o rifiutalo per procedere.",
       "awaiting_input": "L'AI ha fatto una domanda e aspetta: rispondi per far proseguire il piano."
     }
+  },
+  "workState": {
+    "proposed": "In coda",
+    "planning": "In analisi",
+    "working": "In esecuzione",
+    "held": "In attesa di avvio",
+    "waitingAnswer": "In attesa di risposta",
+    "waitingApproval": "Piano da approvare",
+    "prReady": "PR aperta",
+    "done": "Rilasciato",
+    "failed": "Fallito",
+    "skipped": "Saltato",
+    "rejected": "PR chiusa"
   },
   "milestones": {
     "title": "Milestone",

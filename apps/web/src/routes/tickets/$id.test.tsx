@@ -1073,7 +1073,7 @@ describe("dettaglio ticket", () => {
 
     // Stato held reso nel pannello "AI activity" (lo stato compare anche nel feed).
     const panel = await screen.findByRole("region", { name: "AI activity" });
-    expect(within(panel).getByText("On hold")).toBeInTheDocument();
+    expect(within(panel).getByText("Waiting to start")).toBeInTheDocument();
 
     const button = screen.getByRole("button", { name: "Start AI fix" });
     await userEvent.click(button);
@@ -1396,7 +1396,7 @@ describe("dettaglio ticket", () => {
     // I marker di stato compaiono sia nel feed che nel pannello "AI activity":
     // si scopa il pannello, che è quello col dettaglio tecnico (errore, log).
     const panel = await screen.findByRole("region", { name: "AI activity" });
-    expect(within(panel).getByText("PR opened")).toBeInTheDocument();
+    expect(within(panel).getByText("PR open")).toBeInTheDocument();
     expect(within(panel).getByText("Failed")).toBeInTheDocument();
     expect(within(panel).getByRole("link", { name: /view pr/i })).toHaveAttribute(
       "href",
@@ -1597,7 +1597,7 @@ describe("dettaglio ticket", () => {
       within(feed).getByText("ada@example.com changed status: Open → In progress"),
     ).toBeInTheDocument();
     // ai_job kind: marker di stato del job
-    expect(within(feed).getByText("PR opened")).toBeInTheDocument();
+    expect(within(feed).getByText("PR open")).toBeInTheDocument();
   });
 
   it("feed Attività: un cambio stato genera una riga di audit nel feed", async () => {
@@ -1725,7 +1725,7 @@ describe("dettaglio ticket — domanda dell'agente", () => {
     renderDetail();
 
     const panel = await screen.findByRole("region", { name: "AI activity" });
-    expect(within(panel).getByText("Question pending")).toBeInTheDocument();
+    expect(within(panel).getByText("Waiting for an answer")).toBeInTheDocument();
     // La domanda si legge per intero: sulla pagina ticket non c'è il testo
     // localizzato della notifica a ripeterla.
     expect(within(panel).getByText("Quale coda uso per i job del grafo?")).toBeInTheDocument();
@@ -1805,8 +1805,14 @@ describe("dettaglio ticket — domanda dell'agente", () => {
         { optionIndex: 0, questionId: openQuestionFixture.questionId },
       ]),
     );
-    // Nessuna riga informativa: chi può rispondere ha il pannello, non l'avviso.
-    expect(screen.queryByText(/waiting for an answer/i)).not.toBeInTheDocument();
+    // Nessuna riga informativa: chi può rispondere ha il pannello, non
+    // l'avviso (`awaitingAnswerFrom`/`awaitingAnswerUnknown`). Non basta
+    // cercare "waiting for an answer": dalla fase 7 quella stessa frase è
+    // anche l'etichetta di stato del job nel pannello, che qui è presente
+    // di proposito.
+    expect(
+      screen.queryByText(/waiting for an answer from|waiting for a maintainer to answer the ai's question/i),
+    ).not.toBeInTheDocument();
   });
 
   it("409 già risposta: il pannello dice chi ha risposto", async () => {

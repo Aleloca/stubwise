@@ -1,42 +1,9 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { workStateFor } from "@stubwise/shared";
+import { WORK_STATE_DOT_CLASS, WORK_STATE_LABEL_KEYS, WORK_STATE_TEXT_CLASS } from "./badges";
 import type { AIJob, AIJobStatus } from "../lib/api";
 import { formatDateTime, formatRelativeTime } from "../lib/format";
-
-/** Colore del pallino di stato sulla rotaia della timeline. */
-const JOB_STATUS_DOT: Record<AIJobStatus, string> = {
-  queued: "bg-fg-faint",
-  triaging: "bg-sky-400 animate-blink",
-  fixing: "bg-sky-400 animate-blink",
-  held: "bg-signal",
-  pr_opened: "bg-ok",
-  pr_merged: "bg-ok",
-  failed: "bg-danger",
-  skipped: "bg-fg-faint",
-  // PR chiusa senza merge: esito terminale negativo, ma non un errore di
-  // sistema come "failed" → neutro spento.
-  pr_closed: "bg-fg-faint",
-  // In attesa di una decisione umana sul piano: stesso ambra del gate "held".
-  awaiting_plan_approval: "bg-signal",
-  // In attesa della risposta a una domanda: stesso ambra degli altri stati che
-  // aspettano una persona, ma il pallino PULSA — il job non è concluso, è vivo
-  // e riparte da solo appena qualcuno risponde.
-  awaiting_input: "bg-signal animate-blink",
-};
-
-const JOB_STATUS_TEXT: Record<AIJobStatus, string> = {
-  queued: "text-fg-muted",
-  triaging: "text-sky-400",
-  fixing: "text-sky-400",
-  held: "text-signal",
-  pr_opened: "text-ok",
-  pr_merged: "text-ok",
-  failed: "text-danger",
-  skipped: "text-fg-faint",
-  pr_closed: "text-fg-faint",
-  awaiting_plan_approval: "text-signal",
-  awaiting_input: "text-signal",
-};
 
 /**
  * Stati con una nota esplicativa sotto l'etichetta. Il testo vive nel
@@ -82,14 +49,14 @@ function JobEntry({ job, last }: { job: AIJob; last: boolean }) {
       {!last && <span aria-hidden className="absolute top-3 left-[5px] h-full w-px bg-line" />}
       <span
         aria-hidden
-        className={`absolute top-1.5 left-0 size-[11px] rounded-full border-2 border-ink-900 ${JOB_STATUS_DOT[job.status]}`}
+        className={`absolute top-1.5 left-0 size-[11px] rounded-full border-2 border-ink-900 ${WORK_STATE_DOT_CLASS[workStateFor(job.status)]}`}
       />
 
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <span
-          className={`font-mono text-[12px] font-medium tracking-[0.08em] uppercase ${JOB_STATUS_TEXT[job.status]}`}
+          className={`font-mono text-[12px] font-medium tracking-[0.08em] uppercase ${WORK_STATE_TEXT_CLASS[workStateFor(job.status)]}`}
         >
-          {t(`jobStatus:labels.${job.status}`)}
+          {t(WORK_STATE_LABEL_KEYS[workStateFor(job.status)])}
         </span>
         <time
           dateTime={job.createdAt}

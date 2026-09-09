@@ -1745,24 +1745,24 @@
     "configureFailed": "Webhook configuration failed"
   },
   "jobStatus": {
-    "labels": {
-      "queued": "Queued",
-      "triaging": "Triaging",
-      "fixing": "Fixing",
-      "held": "On hold",
-      "pr_opened": "PR opened",
-      "pr_merged": "PR merged",
-      "failed": "Failed",
-      "skipped": "Skipped",
-      "pr_closed": "PR closed",
-      "awaiting_plan_approval": "Plan to approve",
-      "awaiting_input": "Question pending"
-    },
     "notes": {
       "held": "Automation not started: a manual fix start is required.",
       "awaiting_plan_approval": "The plan exceeds the effort threshold: approve or reject it to proceed.",
       "awaiting_input": "The AI asked a question and is waiting: answer it to let the plan continue."
     }
+  },
+  "workState": {
+    "proposed": "Queued",
+    "planning": "Analyzing",
+    "working": "Running",
+    "held": "Waiting to start",
+    "waitingAnswer": "Waiting for an answer",
+    "waitingApproval": "Plan to approve",
+    "prReady": "PR open",
+    "done": "Released",
+    "failed": "Failed",
+    "skipped": "Skipped",
+    "rejected": "PR closed"
   },
   "milestones": {
     "title": "Milestones",

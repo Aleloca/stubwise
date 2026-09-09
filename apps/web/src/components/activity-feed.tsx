@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { useSuspenseQuery } from "@tanstack/react-query";
+import { workStateFor } from "@stubwise/shared";
 import type {
   ActivityComment,
   ActivityEvent,
@@ -13,6 +14,8 @@ import {
   PRIORITY_LABEL_KEYS,
   STATUS_LABEL_KEYS,
   TYPE_LABEL_KEYS,
+  WORK_STATE_LABEL_KEYS,
+  WORK_STATE_TEXT_CLASS,
 } from "./badges";
 import { Avatar } from "./avatar";
 import { FormError } from "./field";
@@ -381,8 +384,8 @@ function AiJobItem({ job }: { job: ActivityAiJob }) {
       <span aria-hidden className="text-line-strong">
         ·
       </span>
-      <span className={`tracking-[0.08em] uppercase ${JOB_STATUS_TEXT[job.status]}`}>
-        {t(`jobStatus:labels.${job.status}`)}
+      <span className={`tracking-[0.08em] uppercase ${WORK_STATE_TEXT_CLASS[workStateFor(job.status)]}`}>
+        {t(WORK_STATE_LABEL_KEYS[workStateFor(job.status)])}
       </span>
       <time
         dateTime={job.createdAt}
@@ -404,18 +407,3 @@ function AiJobItem({ job }: { job: ActivityAiJob }) {
     </li>
   );
 }
-
-/** Colore-testo per stato job (gemello di quello in ai-job-timeline). */
-const JOB_STATUS_TEXT: Record<ActivityAiJob["status"], string> = {
-  queued: "text-fg-muted",
-  triaging: "text-sky-400",
-  fixing: "text-sky-400",
-  held: "text-signal",
-  pr_opened: "text-ok",
-  pr_merged: "text-ok",
-  failed: "text-danger",
-  skipped: "text-fg-faint",
-  pr_closed: "text-fg-faint",
-  awaiting_plan_approval: "text-signal",
-  awaiting_input: "text-signal",
-};
