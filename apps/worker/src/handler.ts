@@ -58,8 +58,16 @@ export interface HandlerDeps {
    * al fix, che ci prepara la copia filtrata dei plugin abilitati sul progetto.
    * Assente = nessun plugin nei run (argv storico). */
   pluginsDir?: string;
-  /** Override delle opzioni di triage (model/maxTurns/timeoutMs). */
-  triage?: { model?: string; maxTurns?: number; timeoutMs?: number };
+  /** Override delle opzioni di triage (model/maxTurns/timeoutMs), più il
+   * riassunto del fallimento (fase 7, Task 9: SUMMARIES_ENABLED/SUMMARY_MODEL,
+   * lo stesso interruttore già usato dal riassunto del piano nel fix). */
+  triage?: {
+    model?: string;
+    maxTurns?: number;
+    timeoutMs?: number;
+    summariesEnabled?: boolean;
+    summaryModel?: string;
+  };
   /** Override delle opzioni di fix (modelli, due fasi, timeout, allowedTools,
    * self-repair, tetto di domande). */
   fix?: {

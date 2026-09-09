@@ -421,7 +421,8 @@
       "providerKind": {
         "account": "account",
         "api_key": "API key"
-      }
+      },
+      "failureSummary": "In breve"
     },
     "activity": {
       "title": "Attività",

@@ -20,15 +20,18 @@ import {
   appendLog,
   completeJob,
   failJob,
+  getJobLog,
   holdJob,
   markFixing,
   recordAgentRun,
+  writeFailureSummary,
   type AiJob,
 } from "../queue.js";
 import type { ResolvedProvider } from "../providers/chain.js";
 import { isLimitError, ProviderLimitError } from "../providers/limit.js";
 import { getContentLanguage } from "../settings.js";
 import { notify, ticketUrl, type NotifyDeps } from "./notify.js";
+import { generateFailureSummary } from "../summaries/failure-summary.js";
 import { buildTriagePrompt, parseTriageDecision, type TriageDecision } from "./prompts.js";
 
 /**
@@ -75,6 +78,14 @@ export interface TriageDeps extends NotifyDeps {
    * passata a ogni runner.run per l'iniezione dell'auth. Assente = auth storica
    * (env del container / OAuth del volume). */
   provider?: ResolvedProvider;
+  /** Riassunto "in breve" del fallimento (fase 7, Task 9): false = nessun run,
+   * `failure_summary` resta NULL. Default true (SUMMARIES_ENABLED), stesso
+   * interruttore di `plan_summary`/`pr_summary`. */
+  summariesEnabled?: boolean;
+  /** Modello del run di riassunto (default: quello della PR review). */
+  summaryModel?: string;
+  /** Timeout del run di riassunto in ms (default DEFAULT_SUMMARY_TIMEOUT_MS). */
+  summaryTimeoutMs?: number;
 }
 
 export type TriageOutcome =
@@ -93,6 +104,11 @@ const RECENT_TICKETS_LIMIT = 30;
 
 /** Tetto per gli output dell'agente accodati al log del job. */
 const LOG_OUTPUT_MAX_CHARS = 4000;
+
+/** Timeout del run di riassunto del fallimento (fase 7, Task 9). Stesso
+ * valore di `pipeline/fix.ts`: un run di solo testo, senza tool, che gira
+ * DOPO la notifica del fallimento — corto per non trattenere il worker. */
+const DEFAULT_SUMMARY_TIMEOUT_MS = 120_000;
 
 function truncateForLog(output: string): string {
   return output.length > LOG_OUTPUT_MAX_CHARS
@@ -141,9 +157,14 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
   /** Riferimenti comuni a TUTTE le notifiche di questa fase: il triage conosce
    * progetto, ticket e job del run, e li porta su ogni evento. */
   const notifyRefs = { projectId: ticket.projectId, ticketId: ticket.id, jobId: job.id };
-  /** Notifica job.failed best-effort dopo il failJob (stato già committato). */
-  const notifyFailed = (error: string): Promise<void> =>
-    notify(
+  /**
+   * Notifica job.failed best-effort dopo il failJob (stato già committato),
+   * poi — SEMPRE DOPO — il riassunto del fallimento (fase 7, Task 9): stessa
+   * forma di `pipeline/fix.ts`, vedi il docblock di
+   * `summaries/failure-summary.ts` per il perché del disaccoppiamento.
+   */
+  const notifyFailed = async (error: string): Promise<void> => {
+    await notify(
       notifyDeps,
       db,
       {
@@ -156,6 +177,23 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
       },
       notifyRefs,
     );
+    try {
+      const log = await getJobLog(db, job.id);
+      const summary = await generateFailureSummary(
+        {
+          runner: deps.runner,
+          timeoutMs: deps.summaryTimeoutMs ?? DEFAULT_SUMMARY_TIMEOUT_MS,
+          ...(deps.summaryModel !== undefined ? { model: deps.summaryModel } : {}),
+          ...(deps.provider !== undefined ? { provider: deps.provider } : {}),
+          ...(deps.summariesEnabled !== undefined ? { enabled: deps.summariesEnabled } : {}),
+        },
+        { lang, ticketTitle: ticket.title, error, log },
+      );
+      if (summary) await writeFailureSummary(db, job.id, summary);
+    } catch {
+      // Best-effort: vedi il docblock sopra.
+    }
+  };
 
   const recentTickets = await db
     .select({ number: tickets.number, title: tickets.title, status: tickets.status })

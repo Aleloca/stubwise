@@ -127,6 +127,37 @@ describe("AIJobTimeline", () => {
     expect(screen.getByText("git clone: timeout")).toBeInTheDocument();
   });
 
+  it("job fallito con riassunto (fase 7, Task 9): mostrato PRIMA dell'errore tecnico", () => {
+    render(
+      <AIJobTimeline
+        jobs={[
+          makeJob({
+            id: "j1",
+            status: "failed",
+            error: "git clone: timeout",
+            failureSummary: "L'agente non è riuscito a scaricare il repository.",
+          }),
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("In brief")).toBeInTheDocument();
+    const summary = screen.getByText("L'agente non è riuscito a scaricare il repository.");
+    const error = screen.getByText("git clone: timeout");
+    expect(summary.compareDocumentPosition(error) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("job fallito SENZA riassunto (non ancora generato): solo l'errore tecnico, come prima della fase 7", () => {
+    render(
+      <AIJobTimeline
+        jobs={[makeJob({ id: "j1", status: "failed", error: "git clone: timeout" })]}
+      />,
+    );
+
+    expect(screen.queryByText("In brief")).not.toBeInTheDocument();
+    expect(screen.getByText("git clone: timeout")).toBeInTheDocument();
+  });
+
   it("il log è collassato di default e si apre al click", async () => {
     render(
       <AIJobTimeline

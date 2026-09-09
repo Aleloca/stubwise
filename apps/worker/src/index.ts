@@ -150,6 +150,13 @@ const handler = createHandler(
     pluginsDir: config.pluginsDir,
     // URL pubblico per i link nelle notifiche webhook (vuoto = solo path).
     publicUrl: config.publicUrl,
+    triage: {
+      // Riassunto "in breve" del fallimento (fase 7, Task 9): stesso
+      // interruttore/modello del riassunto del piano qui sotto — un job può
+      // fallire già in triage (output non valido, timeout), non solo nel fix.
+      summariesEnabled: config.summariesEnabled,
+      summaryModel: config.summaryModel,
+    },
     fix: {
       twoPhase: config.fixTwoPhase,
       planModel: config.fixPlanModel,

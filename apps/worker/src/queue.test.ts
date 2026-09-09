@@ -7,6 +7,7 @@ import {
   claimNextJob,
   completeJob,
   failJob,
+  getJobLog,
   holdJob,
   markFixing,
   parkForInput,
@@ -14,6 +15,7 @@ import {
   requeueStale,
   runWorker,
   touchJob,
+  writeFailureSummary,
   type AiJob,
 } from "./queue.js";
 
@@ -194,6 +196,45 @@ describe("transizioni di stato", () => {
     expect(persisted.error).toBe("clone fallito");
     expect(persisted.log).toContain("stacktrace del fallimento");
     expect(persisted.finishedAt).not.toBeNull();
+  });
+
+  it("getJobLog legge il log COMMITTATO (la concatenazione SQL di failJob)", async () => {
+    const { db } = testDb;
+    const job = await enqueueJob(db);
+    await claimNextJob(db);
+    await failJob(db, job.id, { log: "riga di log del fallimento", error: "boom" });
+
+    expect(await getJobLog(db, job.id)).toContain("riga di log del fallimento");
+  });
+
+  it("getJobLog su un job senza log accodato: stringa vuota, non null/undefined", async () => {
+    const { db } = testDb;
+    const job = await enqueueJob(db);
+
+    expect(await getJobLog(db, job.id)).toBe("");
+  });
+
+  it("writeFailureSummary scrive il riassunto su un job failed", async () => {
+    const { db } = testDb;
+    const job = await enqueueJob(db);
+    await claimNextJob(db);
+    await failJob(db, job.id, { log: "log", error: "boom" });
+
+    await writeFailureSummary(db, job.id, "L'agente non è riuscito a completare il fix.");
+
+    const persisted = await getJob(db, job.id);
+    expect(persisted.failureSummary).toBe("L'agente non è riuscito a completare il fix.");
+  });
+
+  it("writeFailureSummary NON scrive su un job che non è failed (guardia di stato)", async () => {
+    const { db } = testDb;
+    const job = await enqueueJob(db);
+    // Nessun failJob: il job è ancora `queued`.
+
+    await writeFailureSummary(db, job.id, "riassunto che non dovrebbe atterrare");
+
+    const persisted = await getJob(db, job.id);
+    expect(persisted.failureSummary).toBeNull();
   });
 
   it("markFixing porta il job da triaging a fixing", async () => {

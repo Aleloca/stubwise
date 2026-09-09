@@ -96,6 +96,23 @@ function JobEntry({ job, last }: { job: AIJob; last: boolean }) {
         </p>
       )}
 
+      {/*
+        Riassunto "in breve" del fallimento (fase 7, Task 9): quando c'è, PRIMA
+        del messaggio d'errore tecnico — è la lettura per chi non legge codice,
+        non una sostituzione del log. Può mancare anche su un job fallito
+        (generazione spenta, in errore, o non ancora arrivata: è scritta DOPO
+        la notifica, best-effort): in quel caso resta solo l'errore tecnico
+        sotto, come prima di questa fase.
+      */}
+      {job.failureSummary && (
+        <div className="mt-1.5 border-l-2 border-line-strong pl-2.5">
+          <p className="font-mono text-[10px] tracking-[0.08em] text-fg-faint uppercase">
+            {t("tickets:timeline.failureSummary")}
+          </p>
+          <p className="mt-0.5 font-mono text-[12px] text-fg-muted">{job.failureSummary}</p>
+        </div>
+      )}
+
       {job.error && (
         <p className="mt-1.5 rounded-sm border border-danger/30 bg-danger/10 px-2.5 py-1.5 font-mono text-[12px] text-danger">
           {job.error}

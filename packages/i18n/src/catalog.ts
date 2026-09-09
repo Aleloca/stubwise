@@ -288,6 +288,11 @@ export const en: Catalog = {
     "Write exactly THREE sentences in English, for a person who does NOT read code: (1) what changes for whoever uses the product, (2) which parts of the product it touches, (3) what stays out of scope. No code, no file names, no technical jargon. Reply with the three sentences only, no preamble and no title.",
   "summary.pr.instructions":
     "Write exactly TWO sentences in English, for a person who does NOT read code: the first says what this pull request does for whoever uses the product, the second says in plain words what the automatic review concluded. No code, no file names, no technical jargon, and do not repeat the verdict keyword as-is. Reply with the two sentences only, no preamble and no title.",
+  // Fase 7, Task 9: riassunto di un job FALLITO, per chi non legge codice.
+  // Best-effort e generato DOPO la notifica del fallimento (mai prima: vedi il
+  // docblock di `ai_jobs.failure_summary` in packages/db/src/schema.ts).
+  "summary.failure.instructions":
+    "Write exactly THREE sentences in English, for a person who does NOT read code: (1) what the AI was trying to do, (2) what went wrong, in plain words, (3) what can be done now, and whether a maintainer is needed. No code, no file names, no stack traces, no technical jargon. Reply with the three sentences only, no preamble and no title.",
   "summary.truncated": "[input truncated for length]",
 
   // --- brief.* — brief SETTIMANALE di progetto (fase 5, Task 10).
@@ -622,6 +627,8 @@ export const it: Catalog = {
     "Scrivi esattamente TRE frasi in ITALIANO, per una persona che NON legge codice: (1) cosa cambia per chi usa il prodotto, (2) quali parti del prodotto tocca, (3) cosa resta fuori. Niente codice, niente nomi di file, niente gergo tecnico. Rispondi SOLO con le tre frasi, senza preamboli e senza titolo.",
   "summary.pr.instructions":
     "Scrivi esattamente DUE frasi in ITALIANO, per una persona che NON legge codice: la prima dice cosa fa questa pull request per chi usa il prodotto, la seconda dice a parole cosa ha concluso la review automatica. Niente codice, niente nomi di file, niente gergo tecnico, e non ripetere la parola chiave del verdetto così com'è. Rispondi SOLO con le due frasi, senza preamboli e senza titolo.",
+  "summary.failure.instructions":
+    "Scrivi esattamente TRE frasi in ITALIANO, per una persona che NON legge codice: (1) cosa stava provando a fare l'AI, (2) cosa non ha funzionato, a parole semplici, (3) cosa si può fare adesso, e se serve un maintainer. Niente codice, niente nomi di file, niente stack trace, niente gergo tecnico. Rispondi SOLO con le tre frasi, senza preamboli e senza titolo.",
   "summary.truncated": "[input troncato per lunghezza]",
 
   // --- brief.* (vedi la nota nel catalogo `en`; i marcatori NON si traducono) ---
