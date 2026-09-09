@@ -736,6 +736,34 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   semplicemente non verrebbe più mostrata né risposta — inerte, non un 500
   — finché non si torna avanti; un piano pre-approvato resta tale in
   colonna, ma un binario vecchio non lo consulta né lo mostra.
+- **Fase 7b (Posta e Calendario dentro la piattaforma)**: rebuild
+  **server+worker+caddy insieme** (migrazione 0073 all'avvio del server —
+  additiva, **nessun `ALTER TYPE`**, un solo batch: colonna
+  `calendar_events.recurring_event_id` nullable e tabella NUOVA
+  `calendar_series`, chiave `(account_id, recurring_event_id)`, `enabled`
+  default `false`; il worker nuovo è l'unico che riconosce le serie
+  (`recurringEventId`/`originalStartTime` ora nella normalizzazione di
+  `@stubwise/google`), applica anche in SCRITTURA la finestra dei 60 giorni
+  (non solo in lettura — è il fix dell'incidente), fa rispettare la
+  configurazione della serie a `isReadyForProposal` e — per una serie
+  `auto: true` — esegue l'azione subito dopo la publish
+  (`apps/worker/src/google/calendar-auto.ts`); il server nuovo l'unico che
+  espone `/api/me/calendar` (appuntamenti visti, serie, PUT/DELETE di
+  configurazione) e le due rotte nuove di `/api/me/mail`
+  (`GET /:source/:id` per il dettaglio dall'estratto, `GET
+  /:source/:id/original` per la rilettura da Gmail); il bundle nuovo l'unico
+  che disegna `/calendar` e `/mail/:source/:id`. **Nessuna env nuova**.
+  **Nessun kind di notifica nuovo e nessun valore nuovo in
+  `ProposalSource.source`** (le proposte di serie riusano `google.proposal`
+  con `source: "calendar"`, l'azione la dice `calendar_series.action` letta
+  dalla riga): a differenza delle fasi 2/5/6, scendere di immagine sul
+  server non richiede di ripulire righe prima, nessuna trappola del 500 su
+  `/api/inbox`. **Rollback**: la strada innocua per fermare le serie è
+  spegnerle dalla UI — sono comunque spente di default al deploy, quindi
+  nessuna serie esistente si accende da sola scendendo o salendo
+  d'immagine. `GET /api/me/mail/:source/:id/original` che fallisce
+  (token scaduto, messaggio cancellato, Google irraggiungibile) non tocca
+  mai l'estratto già in database: resta leggibile in ogni caso.
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
@@ -1061,6 +1089,23 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   commento esplicito sopra quel case nel sorgente e i test
   `apps/server/src/services/google-proposal.test.ts` (entrambi i rami,
   con asserzioni opposte su `email_messages.status` ed `email_proposals`).
+- **Una serie ricorrente è spenta di default, e la sua azione automatica non
+  avvia MAI lavoro.** È la lezione diretta dell'incidente del 9 settembre
+  2026 (fase 7b, design §1): `calendar_series.enabled` nasce `false` — senza
+  configurazione una serie è un gruppo di righe inerte in `calendar_events`,
+  mai candidata da `isReadyForProposal` (`apps/worker/src/google/calendar.ts`).
+  Il percorso `auto: true` (`apps/worker/src/google/calendar-auto.ts`,
+  chiamato da `runProposePhase` subito DOPO la publish, mai prima) scrive
+  DIRETTAMENTE la milestone o la voce di backlog — **mai** attraverso
+  `enqueueBacklogIntake` del server, che per il backlog avvierebbe un job
+  d'intake: è esattamente il tipo di lavoro che un'automazione ricorrente non
+  deve poter far partire da sola, perché il suo costo si moltiplica per il
+  numero di occorrenze. Verificato con un test esplicito
+  (`apps/worker/src/google/poller.test.ts`, "il percorso auto non fa MAI
+  partire un job AI") che conta le righe di `ai_jobs`/`backlog_jobs` dopo il
+  percorso automatico per tutte e tre le azioni: deve restare zero. Chi
+  aggiunge una quarta azione a una serie (`calendar_series.action`) faccia
+  passare anche lei da `calendar-auto.ts`, non da un servizio del server.
 
 ## Integrazione Claude Code (MCP)
 
