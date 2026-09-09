@@ -1,5 +1,13 @@
 # @stubwise/mobile
 
+## 0.1.3
+
+### Patch Changes
+
+- Updated dependencies [ebf76d2]
+  - @stubwise/shared@0.5.0
+  - @stubwise/api-client@0.1.3
+
 ## 0.1.2
 
 ### Patch Changes
