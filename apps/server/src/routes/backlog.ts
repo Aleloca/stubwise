@@ -1,9 +1,11 @@
 import {
+  answerBodySchema,
   backlogCodeSessionSchema,
   backlogItemBaseSchema,
   backlogItemDetailSchema,
   backlogChatAcceptedSchema,
   backlogPageSchema,
+  backlogQuestionActionResultSchema,
   convertBacklogResultSchema,
   createBacklogResultSchema,
   backlogItemStatusSchema,
@@ -40,6 +42,11 @@ import {
 import { requireAuth } from "../auth/session.js";
 import { convertBacklogItem } from "../services/backlog.js";
 import { enqueueBacklogIntake } from "../services/backlog-intake.js";
+import {
+  answerBacklogQuestion,
+  closeOpenBacklogQuestion,
+  dismissBacklogQuestion,
+} from "../services/backlog-questions.js";
 import { apiError } from "../errors.js";
 import { getContentLanguage } from "../settings.js";
 import {
@@ -81,6 +88,9 @@ const listQuerySchema = z.object({
 });
 
 const idParamsSchema = z.object({ id: z.uuid() });
+
+/** Parametri di `POST /:id/questions/:questionId/answer` e `/dismiss`. */
+const questionParamsSchema = z.object({ id: z.uuid(), questionId: z.uuid() });
 
 /** Body della chat di raffinamento: un messaggio non vuoto. */
 const chatBodySchema = z.object({ message: z.string().min(1).max(8000) });
@@ -664,7 +674,18 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
       }
 
       if (Object.keys(updates).length > 0) {
-        await app.db.update(backlogItems).set(updates).where(eq(backlogItems.id, id));
+        // Archiviare chiude anche l'eventuale domanda ancora aperta della
+        // voce, nella STESSA transazione: un'uscita automatica, non
+        // best-effort (design fase 7 §4). Le altre transizioni non toccano
+        // `backlog_questions` e restano un UPDATE semplice, senza transazione.
+        if (updates.status === "archived") {
+          await app.db.transaction(async (tx) => {
+            await tx.update(backlogItems).set(updates).where(eq(backlogItems.id, id));
+            await closeOpenBacklogQuestion(tx, id);
+          });
+        } else {
+          await app.db.update(backlogItems).set(updates).where(eq(backlogItems.id, id));
+        }
       }
       const updated = await loadBaseItem(app.db, id);
       // La voce può sparire tra l'update e la rilettura (race con una delete).
@@ -1501,6 +1522,9 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
           .update(backlogItems)
           .set({ status: "archived", mergedIntoId: targetId })
           .where(eq(backlogItems.id, id));
+        // Anche qui è un'archiviazione: chiude l'eventuale domanda ancora
+        // aperta dell'assorbita, nella stessa transazione (design fase 7 §4).
+        await closeOpenBacklogQuestion(tx, id);
 
         // Messaggi "ponte" sulle due chat.
         await tx.insert(backlogChatMessages).values([
@@ -1565,6 +1589,92 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
         payload: { itemId: id, repositoryId },
       });
       return reply.code(202).send({ queued: true });
+    },
+  );
+
+  // --- Domande a bottoni sulla voce (fase 7) --------------------------------
+  //
+  // Risposta e "non ora" alla domanda APERTA di una voce (`backlog_questions`,
+  // gemella di `agent_questions` — vedi services/backlog-questions.ts). Aperte
+  // a chiunque sia autenticato: rispondere in chat è lavoro quotidiano, non un
+  // privilegio admin, e la voce non ha un "richiedente" a cui ancorare un
+  // permesso più stretto (a differenza della domanda sul fix, fase 1).
+  app.post(
+    "/:id/questions/:questionId/answer",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: questionParamsSchema,
+        body: answerBodySchema,
+        response: {
+          200: backlogQuestionActionResultSchema,
+          400: errorSchema,
+          404: errorSchema,
+          409: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id, questionId } = request.params;
+      const result = await answerBacklogQuestion(app.db, {
+        backlogItemId: id,
+        questionId,
+        actor: request.user!,
+        answer: request.body,
+      });
+      if (!result.ok) {
+        switch (result.error) {
+          case "not_found":
+            return apiError(reply, 404, "question_not_found", "Question not found");
+          case "invalid_answer":
+            return apiError(reply, 400, "invalid_answer", "The answer does not match the question");
+          case "already_answered":
+            return apiError(reply, 409, "already_answered", "This question already has an answer");
+          case "question_not_pending":
+            return apiError(reply, 409, "question_not_pending", "This question is no longer open");
+        }
+      }
+      return { backlogItemId: result.backlogItemId };
+    },
+  );
+
+  // "Non ora": chiude la domanda SENZA rispondere. Uscita SEMPRE disponibile
+  // (design fase 7 §4): il sistema ha già pagato il prezzo di domande senza
+  // via d'uscita (vedi il commento su `archivable: false` in
+  // `packages/notifications/src/actions.ts`).
+  app.post(
+    "/:id/questions/:questionId/dismiss",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: questionParamsSchema,
+        response: {
+          200: backlogQuestionActionResultSchema,
+          404: errorSchema,
+          409: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id, questionId } = request.params;
+      const result = await dismissBacklogQuestion(app.db, {
+        backlogItemId: id,
+        questionId,
+        actor: request.user!,
+      });
+      if (!result.ok) {
+        switch (result.error) {
+          case "not_found":
+            return apiError(reply, 404, "question_not_found", "Question not found");
+          case "already_answered":
+            return apiError(reply, 409, "already_answered", "This question already has an answer");
+          case "question_not_pending":
+            return apiError(reply, 409, "question_not_pending", "This question is no longer open");
+        }
+      }
+      return { backlogItemId: result.backlogItemId };
     },
   );
 }

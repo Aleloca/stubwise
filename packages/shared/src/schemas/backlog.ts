@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { handledBySchema } from "./actor.js";
+import { agentQuestionAnswerSchema, inboxQuestionSchema } from "./notification.js";
 import { effortSchema, ticketPrioritySchema } from "./ticket.js";
 
 /**
@@ -286,6 +288,28 @@ export const backlogCodeSessionSchema = z.object({
 export type BacklogCodeSession = z.infer<typeof backlogCodeSessionSchema>;
 
 /**
+ * Domanda a bottoni sulla voce di backlog (fase 7), GEMELLA di
+ * `ticketQuestionSchema` (`notification.ts`) ma ancorata a `backlogItemId`
+ * invece che a `jobId`. Riusa la forma di {@link inboxQuestionSchema}
+ * (`questionId`, `question`, `options`, `recommendedIndex`, `allowFreeText`)
+ * PER COSTRUZIONE: è ciò che permette a `QuestionPanel` — già scritto per
+ * ospitare quella forma — di consumarla senza adattatori, dentro la bolla
+ * della chat del backlog invece che nella card d'inbox o nella pagina ticket.
+ *
+ * `dismissedAt` è l'unica aggiunta senza equivalente in `ticketQuestionSchema`:
+ * qui l'uscita "non ora" è un'uscita in più rispetto alla sola risposta.
+ */
+export const backlogQuestionSchema = inboxQuestionSchema.extend({
+  backlogItemId: z.uuid(),
+  askedAt: z.iso.datetime(),
+  answer: agentQuestionAnswerSchema.nullable(),
+  answeredAt: z.iso.datetime().nullable(),
+  answeredBy: handledBySchema.nullable(),
+  dismissedAt: z.iso.datetime().nullable(),
+});
+export type BacklogQuestion = z.infer<typeof backlogQuestionSchema>;
+
+/**
  * DETTAGLIO di una voce: la forma base più i ticket collegati, i messaggi di
  * chat e i flag di lavorazione in corso.
  */
@@ -328,6 +352,17 @@ export const convertBacklogResultSchema = z.object({
   ticketNumber: z.number().int(),
 });
 export type ConvertBacklogResult = z.infer<typeof convertBacklogResultSchema>;
+
+/**
+ * Esito di `POST /api/backlog/:id/questions/:questionId/answer` e `/dismiss`:
+ * solo la voce toccata. A differenza del gemello sul ticket
+ * (`answerQuestionResultSchema`, che porta `jobId` perché la risposta rimette
+ * un job in coda) qui non c'è nulla da riprendere — il turno successivo della
+ * chat (Task 6) parte quando il worker rilegge la risposta, non da questa
+ * chiamata — quindi il client ha solo bisogno di sapere quale voce invalidare.
+ */
+export const backlogQuestionActionResultSchema = z.object({ backlogItemId: z.uuid() });
+export type BacklogQuestionActionResult = z.infer<typeof backlogQuestionActionResultSchema>;
 
 /**
  * Esito (202) di un turno di chat CON una sessione di analisi sul codice
