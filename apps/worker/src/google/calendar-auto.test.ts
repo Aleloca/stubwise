@@ -116,6 +116,38 @@ describe("executeAutoCalendarAction — backlog_item", () => {
   });
 });
 
+describe("executeAutoCalendarAction — dentro una transazione (fix di review, Task 2)", () => {
+  it("accetta una tx aperta dal chiamante, e un errore SUCCESSIVO nella stessa transazione fa sparire l'oggetto appena creato", async () => {
+    // Riproduce esattamente il pattern del poller (fase 7b, Task 2):
+    // executeAutoCalendarAction dentro `db.transaction`, seguito da altre
+    // scritture nella STESSA transazione. Se una di quelle scritture
+    // fallisce, l'intera transazione va indietro — la voce di backlog
+    // appena creata non deve sopravvivere: è la garanzia che protegge da
+    // un crash del worker fra la creazione e i due UPDATE che il poller fa
+    // subito dopo (calendar_events.outcome, notifications.status).
+    const projectId = await seedProject();
+    const attempt = db
+      .transaction(async (tx) => {
+        await executeAutoCalendarAction(tx, {
+          action: "backlog_item",
+          projectId,
+          name: "Pianificazione task entro il 2026-09-14",
+          dueDate: "2026-09-14",
+        });
+        // Il "crash" simulato: una scrittura successiva nella stessa
+        // transazione che fallisce — esattamente la posizione dei due
+        // UPDATE del poller rispetto alla creazione.
+        throw new Error("simulato: crash prima degli UPDATE che seguono");
+      })
+      .catch((err: unknown) => err);
+    const error = await attempt;
+    expect(error).toBeInstanceOf(Error);
+
+    const rows = await db.select().from(backlogItems).where(eqBacklogProject(projectId));
+    expect(rows).toHaveLength(0);
+  });
+});
+
 describe("executeAutoCalendarAction — reminder", () => {
   it("non crea NULLA: nessuna milestone, nessuna voce di backlog, nessun job", async () => {
     const projectId = await seedProject();

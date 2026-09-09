@@ -25,6 +25,19 @@
 import { backlogItems, milestones, type Db } from "@stubwise/db";
 import { and, eq } from "drizzle-orm";
 
+/**
+ * `Db` o una transazione drizzle già aperta dal chiamante — fix di review
+ * (Task 2): il poller passa una `tx` qui dentro perché la creazione e i due
+ * UPDATE che seguono (`calendar_events.outcome`, `notifications.status`)
+ * devono essere ATOMICI. Senza, un crash del worker fra la creazione e gli
+ * UPDATE lascia l'oggetto creato con `outcome` ancora nullo: un tap
+ * successivo (o il prossimo tick) lo rieseguirebbe — quasi innocuo per
+ * `milestone` (il pre-check per nome lo intercetta), non per `backlog_item`
+ * (nasce una seconda voce). Stesso pattern di `DbOrTx` in
+ * `apps/server/src/services/milestones.ts`.
+ */
+type DbOrTx = Db | Parameters<Parameters<Db["transaction"]>[0]>[0];
+
 export interface AutoCalendarActionInput {
   action: "backlog_item" | "milestone" | "reminder";
   projectId: string;
@@ -50,7 +63,7 @@ export type AutoCalendarActionOutcome =
  * ha un utente a cui rispondere "non è più possibile").
  */
 export async function executeAutoCalendarAction(
-  db: Db,
+  db: DbOrTx,
   input: AutoCalendarActionInput,
 ): Promise<AutoCalendarActionOutcome> {
   if (input.action === "reminder") return { type: "reminder" };

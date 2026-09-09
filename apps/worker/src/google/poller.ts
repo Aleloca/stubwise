@@ -1539,23 +1539,31 @@ async function runProposePhase(
       // `already_handled` in `answerGoogleProposal`, quindi non può mai
       // ESEGUIRE una seconda volta ciò che qui è già stato fatto.
       //
+      // Fix di review (Task 2): creazione + i due UPDATE nella STESSA
+      // transazione. Senza, un crash del worker in mezzo lascia l'oggetto
+      // creato con `outcome` ancora nullo — un tap tardivo, o il prossimo
+      // tick, lo rieseguirebbe (per `backlog_item`, una seconda voce).
       if (result.ok && seriesContext?.series?.auto === true && effectiveProjectId) {
         const milestone = buildMilestoneProposal(lang, row);
         if (milestone) {
-          const outcome = await executeAutoCalendarAction(deps.db, {
-            action: seriesContext.series.action,
-            projectId: effectiveProjectId,
-            name: milestone.name,
-            dueDate: milestone.dueDate,
+          const action = seriesContext.series.action;
+          const notificationId = result.notificationId;
+          await deps.db.transaction(async (tx) => {
+            const outcome = await executeAutoCalendarAction(tx, {
+              action,
+              projectId: effectiveProjectId,
+              name: milestone.name,
+              dueDate: milestone.dueDate,
+            });
+            await tx
+              .update(calendarEventsTable)
+              .set({ outcome })
+              .where(and(eq(calendarEventsTable.id, row.id), isNull(calendarEventsTable.outcome)));
+            await tx
+              .update(notifications)
+              .set({ status: "handled", handledAt: new Date() })
+              .where(and(eq(notifications.id, notificationId), eq(notifications.status, "open")));
           });
-          await deps.db
-            .update(calendarEventsTable)
-            .set({ outcome })
-            .where(and(eq(calendarEventsTable.id, row.id), isNull(calendarEventsTable.outcome)));
-          await deps.db
-            .update(notifications)
-            .set({ status: "handled", handledAt: new Date() })
-            .where(and(eq(notifications.id, result.notificationId), eq(notifications.status, "open")));
         }
       }
     }
