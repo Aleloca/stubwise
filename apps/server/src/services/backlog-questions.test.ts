@@ -1,8 +1,16 @@
 import { randomUUID } from "node:crypto";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { backlogChatMessages, backlogItems, backlogQuestions, users, type Db } from "@stubwise/db";
-import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
+import {
+  backlogChatMessages,
+  backlogCodeSessions,
+  backlogItems,
+  backlogJobs,
+  backlogQuestions,
+  users,
+  type Db,
+} from "@stubwise/db";
+import { seedRepository, seedRepositoryInProject, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { isUniqueViolation } from "../routes/shared.js";
 import type { Actor } from "./jobs.js";
 import {
@@ -58,6 +66,14 @@ async function seedQuestion(
   );
   if (!asked) throw new Error("askBacklogQuestion non ha restituito la domanda");
   return asked.id;
+}
+
+/** I job accodati per QUESTA voce (i test condividono `projectId`, non i job). */
+async function jobsForItem(itemId: string) {
+  return db
+    .select()
+    .from(backlogJobs)
+    .where(sql`${backlogJobs.payload}->>'itemId' = ${itemId}`);
 }
 
 describe("askBacklogQuestion", () => {
@@ -140,6 +156,59 @@ describe("answerBacklogQuestion", () => {
     expect(messages[0]?.role).toBe("system");
     expect(messages[0]?.content).toContain("Import CSV");
     expect(messages[0]?.content).toContain("Serve un file già pronto");
+  });
+
+  it("con una sessione di analisi active: accoda il turno di ripresa (fase 7, Task 6)", async () => {
+    const itemId = await seedItem();
+    const questionId = await seedQuestion(itemId);
+    const actor = await seedActor();
+    const repoId = await seedRepositoryInProject(db, projectId);
+    const [session] = await db
+      .insert(backlogCodeSessions)
+      .values({ itemId, repositoryId: repoId })
+      .returning({ id: backlogCodeSessions.id });
+
+    await answerBacklogQuestion(db, { backlogItemId: itemId, questionId, actor, answer: { optionIndex: 0 } });
+
+    const jobs = await jobsForItem(itemId);
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]?.kind).toBe("chat_turn");
+    expect(jobs[0]?.payload).toEqual({
+      itemId,
+      sessionId: session!.id,
+      answeredQuestionId: questionId,
+    });
+  });
+
+  it("senza sessione active: nessun turno di ripresa accodato (degrado morbido)", async () => {
+    const itemId = await seedItem();
+    const questionId = await seedQuestion(itemId);
+    const actor = await seedActor();
+
+    const result = await answerBacklogQuestion(db, {
+      backlogItemId: itemId,
+      questionId,
+      actor,
+      answer: { optionIndex: 0 },
+    });
+    expect(result).toEqual({ ok: true, backlogItemId: itemId });
+
+    const jobs = await jobsForItem(itemId);
+    expect(jobs).toHaveLength(0);
+  });
+
+  it("con una sessione active di UN'ALTRA voce: nessun turno accodato", async () => {
+    const itemId = await seedItem();
+    const otherId = await seedItem();
+    const questionId = await seedQuestion(itemId);
+    const actor = await seedActor();
+    const repoId = await seedRepositoryInProject(db, projectId);
+    await db.insert(backlogCodeSessions).values({ itemId: otherId, repositoryId: repoId });
+
+    await answerBacklogQuestion(db, { backlogItemId: itemId, questionId, actor, answer: { optionIndex: 0 } });
+
+    const jobs = await jobsForItem(itemId);
+    expect(jobs).toHaveLength(0);
   });
 
   it("risponde con testo libero quando la domanda lo ammette", async () => {

@@ -11,9 +11,13 @@
  *     backlog è lavoro quotidiano (`requireAuth`, non ristretto al
  *     richiedente/maintainer come `answerQuestion`) — la voce non ha un
  *     "richiedente" del run a cui ancorare il permesso.
- *  2. Nessun job da riprendere: qui la risposta non rimette in coda nulla (la
- *     ripresa della sessione CLI è compito del Task 6, `chat-turn.ts`, che
- *     lancia il turno successivo leggendo la risposta scritta qui).
+ *  2. Il job da riprendere non è quello che ha posto la domanda (qui non c'è
+ *     un job "fermo"): `answerBacklogQuestion` ACCODA un nuovo `backlog_jobs`
+ *     `chat_turn` con `answeredQuestionId`, che il worker (Task 6,
+ *     `chat-turn.ts`) userà per riprendere la sessione CLI con `--resume`,
+ *     portando la risposta — solo se la voce ha ancora una sessione di analisi
+ *     `active` (altrimenti la risposta resta scritta, senza continuazione:
+ *     stesso degrado morbido di `POST /:id/chat` su una sessione chiusa).
  *  3. **Un'uscita in più**: `dismissBacklogQuestion` ("non ora") chiude la
  *     domanda SENZA rispondere. Il sistema ha già pagato una volta il prezzo
  *     di domande senza via d'uscita (`agent_questions`, vedi il commento in
@@ -22,6 +26,9 @@
  */
 import {
   backlogChatMessages,
+  backlogCodeSessions,
+  backlogItems,
+  backlogJobs,
   backlogQuestions,
   users,
   type Db,
@@ -195,6 +202,33 @@ export async function answerBacklogQuestion(
       role: "system",
       content: `${actorRow?.email ?? "—"}: ${rendered}`,
     });
+
+    // Accoda il turno di RIPRESA (fase 7, Task 6): solo se la voce ha ancora
+    // una sessione di analisi `active` — è lì che l'agente aveva posto la
+    // domanda, ed è lì che deve riprendere. Nessuna sessione attiva (chiusa
+    // nel frattempo) → la risposta resta scritta ma senza continuazione,
+    // stesso degrado morbido di `POST /:id/chat` su una sessione chiusa.
+    const [session] = await tx
+      .select({ id: backlogCodeSessions.id, projectId: backlogItems.projectId })
+      .from(backlogCodeSessions)
+      .innerJoin(backlogItems, eq(backlogItems.id, backlogCodeSessions.itemId))
+      .where(
+        and(
+          eq(backlogCodeSessions.itemId, question.backlogItemId),
+          eq(backlogCodeSessions.status, "active"),
+        ),
+      );
+    if (session) {
+      await tx.insert(backlogJobs).values({
+        projectId: session.projectId,
+        kind: "chat_turn",
+        payload: {
+          itemId: question.backlogItemId,
+          sessionId: session.id,
+          answeredQuestionId: questionId,
+        },
+      });
+    }
     return true;
   });
   if (!written) {

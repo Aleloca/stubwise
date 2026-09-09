@@ -461,6 +461,9 @@ startChatTurnPoller({
   maxTurns: config.backlogChatTurnMaxTurns,
   timeoutMs: config.backlogChatTurnTimeoutMs,
   intervalSeconds: config.backlogChatTurnPollSeconds,
+  // Tool ask_user (fase 7, Task 6): stesso budget per-round del fix, un solo
+  // env per "quante domande può fare l'agente" invece di due manopole.
+  questionMaxRounds: config.agentQuestionMaxRounds,
   signal: controller.signal,
 });
 // Sweep TTL su un intervallo fisso (60s): scala robusta rispetto al TTL (30' di
