@@ -448,7 +448,6 @@ function buildSeriesCalendar(
     seriesContext: {
       now,
       series: { enabled: true, leadDays: 5, action: "milestone", auto: false, projectId: PROJECT_A, ...seriesOverrides },
-      hasOpenSeriesProposal: false,
     },
   });
 }

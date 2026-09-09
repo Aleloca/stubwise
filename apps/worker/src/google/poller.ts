@@ -1294,15 +1294,20 @@ async function runProposePhase(
       .limit(limit);
 
     // --- Calendario: la `where` è, alla lettera, il contratto documentato su
-    // `isReadyForProposal` (che `buildCalendarProposalEvent` riapplica).
+    // `isReadyForProposal` (che `buildCalendarProposalEvent` riapplica) PER
+    // IL TIMING E IL PROGETTO. "Una proposta alla volta per serie" invece
+    // vive SOLO qui (il NOT EXISTS sotto) e nel dedup per-tick del loop più
+    // in basso — `isReadyForProposal` non la riverifica: wirare un terzo
+    // strato lì avrebbe richiesto ri-fare questa stessa query una volta per
+    // riga candidata (N query invece di una), quindi non esiste — vedi il
+    // docblock di `CalendarSeriesProposalContext` in `calendar.ts`.
     //
     // Fase 7b (Task 4): un evento SINGOLO (`recurring_event_id is null`) resta
     // eleggibile come prima; un'occorrenza di SERIE lo è SOLO se la serie è
     // accesa (`calendar_series`, LEFT JOIN — nessuna riga = mai eleggibile),
     // è nella finestra di anticipo (`now` .. `now + lead_days`), e NESSUN'ALTRA
     // occorrenza della stessa serie ha già una proposta APERTA: è la rete di
-    // sicurezza dell'incidente del 9 settembre 2026, la STESSA condizione che
-    // `isReadyForProposal` riverifica riga per riga. Il dedup PER TICK (una
+    // sicurezza dell'incidente del 9 settembre 2026. Il dedup PER TICK (una
     // sola occorrenza per serie anche quando più di una passa questo filtro
     // nella stessa query) è nel loop sotto, non qui: la `where` da sola non
     // può saperlo finché non si comincia a pubblicare.
@@ -1494,7 +1499,6 @@ async function runProposePhase(
                       auto: row.seriesAuto!,
                       projectId: row.seriesProjectId,
                     },
-              hasOpenSeriesProposal: false,
             };
       if (recurringEventId !== null) seriesAttemptedThisTick.add(recurringEventId);
 

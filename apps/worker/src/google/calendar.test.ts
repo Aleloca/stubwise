@@ -348,7 +348,6 @@ describe("impronta e proposta (funzioni pure)", () => {
         isReadyForProposal(openSeriesRow, {
           now,
           series: { enabled: false, leadDays: 2, action: "milestone", auto: false, projectId: "p1" },
-          hasOpenSeriesProposal: false,
         }),
       ).toBe(false);
     });
@@ -357,7 +356,6 @@ describe("impronta e proposta (funzioni pure)", () => {
       const context = {
         now,
         series: { enabled: true, leadDays: 2, action: "milestone" as const, auto: false, projectId: "p1" },
-        hasOpenSeriesProposal: false,
       };
       expect(
         isReadyForProposal({ ...openSeriesRow, startsAt: new Date("2026-09-14T00:00:00.000Z") }, context),
@@ -371,26 +369,21 @@ describe("impronta e proposta (funzioni pure)", () => {
       expect(
         isReadyForProposal(
           { ...openSeriesRow, startsAt: new Date("2026-09-08T00:00:00.000Z") },
-          { now, series: { enabled: true, leadDays: 2, action: "milestone", auto: false, projectId: "p1" }, hasOpenSeriesProposal: false },
+          { now, series: { enabled: true, leadDays: 2, action: "milestone", auto: false, projectId: "p1" } },
         ),
       ).toBe(false);
     });
 
-    it("un'altra occorrenza della stessa serie ha già una proposta aperta: mai pronta", () => {
-      expect(
-        isReadyForProposal(openSeriesRow, {
-          now,
-          series: { enabled: true, leadDays: 2, action: "milestone", auto: false, projectId: "p1" },
-          hasOpenSeriesProposal: true,
-        }),
-      ).toBe(false);
-    });
+    // "Una proposta alla volta per serie" NON è un cancello di
+    // `isReadyForProposal`: vive nel propose phase del poller (NOT EXISTS +
+    // dedup per-tick, vedi `poller.test.ts`), non qui — fix di review, vedi
+    // il docblock di `CalendarSeriesProposalContext`.
 
     it("un evento SINGOLO (recurringEventId null) ignora il contesto di serie: comportamento invariato", () => {
       expect(
         isReadyForProposal(
           { ...openSeriesRow, recurringEventId: null, startsAt: new Date("2035-01-01T00:00:00.000Z") },
-          { now, series: null, hasOpenSeriesProposal: true },
+          { now, series: null },
         ),
       ).toBe(true);
     });
@@ -406,7 +399,6 @@ describe("impronta e proposta (funzioni pure)", () => {
       const context = {
         now,
         series: { enabled: true, leadDays: 2, action: "milestone" as const, auto: false, projectId: "p-fissato" },
-        hasOpenSeriesProposal: false,
       };
       expect(isReadyForProposal(rowRoutedToQ, context)).toBe(true);
       // Non basta essere "pronta": deve essere pronta sul progetto GIUSTO.
@@ -418,7 +410,6 @@ describe("impronta e proposta (funzioni pure)", () => {
       const context = {
         now,
         series: { enabled: true, leadDays: 2, action: "milestone" as const, auto: false, projectId: "p-fissato" },
-        hasOpenSeriesProposal: false,
       };
       expect(isReadyForProposal(rowUnrouted, context)).toBe(true);
       expect(resolveCalendarProjectId(rowUnrouted, context)).toBe("p-fissato");
@@ -428,7 +419,6 @@ describe("impronta e proposta (funzioni pure)", () => {
       const context = {
         now,
         series: { enabled: true, leadDays: 2, action: "milestone" as const, auto: false, projectId: null },
-        hasOpenSeriesProposal: false,
       };
       // `openSeriesRow.projectId` è "p1", non nullo: se ci fosse un fallback
       // sul routing questo tornerebbe pronta. Non deve.
@@ -443,7 +433,6 @@ describe("impronta e proposta (funzioni pure)", () => {
         resolveCalendarProjectId(singleRow, {
           now,
           series: { enabled: true, leadDays: 2, action: "milestone", auto: false, projectId: "p-fissato" },
-          hasOpenSeriesProposal: false,
         }),
       ).toBe("q-routing");
     });

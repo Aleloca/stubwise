@@ -248,14 +248,27 @@ export function buildMilestoneProposal(
  *    series.enabled`) — il default è spenta (design fase 7b §4: "una serie
  *    non produce nulla finché non la si accende"), quindi una serie mai
  *    configurata non è mai pronta, MAI un caso limite da gestire a parte;
- *  - NESSUN'ALTRA occorrenza della STESSA serie abbia già una proposta
- *    APERTA (`seriesContext.hasOpenSeriesProposal`) — è la rete di sicurezza
- *    dell'incidente del 9 settembre 2026: una serie con cento occorrenze
- *    future propone UNA occorrenza alla volta, mai cento, indipendentemente
- *    da quante cadano nella finestra di anticipo;
  *  - l'occorrenza sia nella finestra di anticipo della serie:
  *    `now <= startsAt <= now + leadDays giorni`. Un'occorrenza già passata
  *    non propone (il tap non avrebbe senso), una lontana aspetta il suo giro.
+ *
+ * ⚠️ **"Una proposta alla volta per serie" — la rete di sicurezza
+ * dell'incidente del 9 settembre 2026 — NON è un terzo cancello qui
+ * dentro.** Sono DUE strati, entrambi nel propose phase del poller
+ * (`apps/worker/src/google/poller.ts`), non in questa funzione: il `NOT
+ * EXISTS` nella `WHERE` della query (nessun'altra occorrenza della stessa
+ * serie ha già `proposal_notification_id` valorizzato) copre FRA i tick, il
+ * dedup per-tick (un `Set` di `recurringEventId` già tentati in questo
+ * giro) copre DENTRO lo stesso tick — necessario perché righe lette prima
+ * che la prima pubblicazione scrivesse `proposal_notification_id` il `NOT
+ * EXISTS` non poteva ancora vederle. Una versione precedente di questo
+ * file dichiarava un terzo strato qui (`hasOpenSeriesProposal`) che nessun
+ * chiamante di produzione valorizzava mai a `true`: wirarlo per davvero
+ * avrebbe richiesto ri-fare la stessa query `NOT EXISTS` una volta per
+ * riga candidata (N query invece di una — l'esatto pattern che questo
+ * codebase evita altrove, vedi il commento su `known`/`sameFingerprint` in
+ * `syncCalendar`), quindi è stato tolto invece di far finta di difendere
+ * quello che i due strati veri già difendono.
  */
 export interface CalendarSeriesConfig {
   enabled: boolean;
@@ -291,8 +304,6 @@ export interface CalendarSeriesProposalContext {
   now: Date;
   /** `null` = serie mai configurata, equivalente a "spenta" per `isReadyForProposal`. */
   series: CalendarSeriesConfig | null;
-  /** Un'altra occorrenza della stessa serie ha già una proposta aperta (pubblicata, non ancora chiusa)? */
-  hasOpenSeriesProposal: boolean;
 }
 
 /** Il minimo di riga su cui {@link resolveCalendarProjectId} e {@link isReadyForProposal} operano. */
@@ -355,9 +366,11 @@ export function isReadyForProposal(
 
   // `resolveCalendarProjectId` sopra è già tornato non-null, quindi la serie
   // è per costruzione configurata e accesa: `context.series` non è `null`.
-  const context = seriesContext ?? { now: new Date(), series: null, hasOpenSeriesProposal: false };
+  // "Una proposta alla volta per serie" NON è un cancello qui: vive nel
+  // propose phase del poller (NOT EXISTS in SQL + dedup per-tick), vedi il
+  // docblock sopra.
+  const context = seriesContext ?? { now: new Date(), series: null };
   const series = context.series!;
-  if (context.hasOpenSeriesProposal) return false;
   if (!row.startsAt) return false;
 
   const leadMs = series.leadDays * 24 * 60 * 60 * 1000;
