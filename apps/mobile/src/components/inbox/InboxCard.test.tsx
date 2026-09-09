@@ -572,6 +572,7 @@ describe("InboxCard — proposta Google (fase 6)", () => {
       subject: "Rinviamo il rilascio?",
       signal: "decision",
       actions: [{ type: "create_backlog_item" }, { type: "ignore" }],
+      auto: false,
     },
   });
 
