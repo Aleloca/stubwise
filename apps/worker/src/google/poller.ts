@@ -1108,6 +1108,7 @@ async function syncCalendar(
       organizer: event.organizer,
       status: normalizeStatus(event.status),
       fingerprint,
+      recurringEventId: event.recurringEventId,
     };
 
     const existing = byEventId.get(event.id);

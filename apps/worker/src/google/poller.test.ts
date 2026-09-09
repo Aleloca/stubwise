@@ -2091,6 +2091,8 @@ function calendarEvent(input: Partial<GoogleCalendarEvent> & { id: string }): Go
     organizer: MAILBOX,
     htmlLink: null,
     updatedAt: null,
+    recurringEventId: null,
+    originalStartTime: null,
     ...input,
   };
 }
@@ -2199,5 +2201,45 @@ describe("il resync del calendario dopo un 410 vede anche le cancellazioni", () 
     // Non è più candidata a una proposta: il proprietario non la rivedrà.
     expect(row!.proposalNotificationId).not.toBeNull();
     expect((await reload(account.id)).calendarSyncToken).toBe("tok-2");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fase 7b, Task 1: la serie ricorrente entra nel modello.
+// ---------------------------------------------------------------------------
+
+describe("fase 7b — la serie ricorrente entra nel modello", () => {
+  it("un'occorrenza con recurringEventId scrive la colonna; un evento singolo la lascia null", async () => {
+    const projectId = await seedProject("Acme");
+    await db
+      .insert(projectEmailRoutes)
+      .values({ projectId, kind: "sender_domain", value: "cliente.com" });
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+
+    await pollGoogleOnce(
+      deps(account, fakeGmail({ listed: [] }), {
+        now: () => new Date("2026-09-09T00:00:00.000Z"),
+        calendar: fakeCalendarSequence([
+          {
+            events: [
+              calendarEvent({
+                id: "serie_20260910",
+                startsAt: new Date("2026-09-10T09:00:00.000Z"),
+                endsAt: new Date("2026-09-10T10:00:00.000Z"),
+                recurringEventId: "serie",
+              }),
+              calendarEvent({ id: "singolo", startsAt: new Date("2026-09-15T09:00:00.000Z") }),
+            ],
+            nextSyncToken: "tok-1",
+          },
+        ]),
+      }),
+    );
+
+    const rows = await calendarRows();
+    const occorrenza = rows.find((row) => row.googleEventId === "serie_20260910")!;
+    const singolo = rows.find((row) => row.googleEventId === "singolo")!;
+    expect(occorrenza.recurringEventId).toBe("serie");
+    expect(singolo.recurringEventId).toBeNull();
   });
 });

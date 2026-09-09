@@ -149,6 +149,8 @@ function event(input: Partial<GoogleCalendarEvent> & { id: string }): GoogleCale
     organizer: MAILBOX,
     htmlLink: null,
     updatedAt: null,
+    recurringEventId: null,
+    originalStartTime: null,
     ...input,
   };
 }

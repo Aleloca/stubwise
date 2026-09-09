@@ -3403,6 +3403,13 @@ export const calendarEvents = pgTable(
     }),
     outcome: jsonb("outcome").$type<Record<string, unknown>>(),
     fingerprint: text("fingerprint").notNull(),
+    /**
+     * L'id dell'evento PADRE su Google se questa occorrenza appartiene a una
+     * serie ricorrente (fase 7b). `null` per un evento singolo — la
+     * maggioranza. È la chiave con cui {@link calendarSeries} riconosce la
+     * serie, insieme ad `accountId`.
+     */
+    recurringEventId: text("recurring_event_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
@@ -3414,9 +3421,61 @@ export const calendarEvents = pgTable(
     // "Questo appuntamento l'abbiamo già trattato?": la lettura per fingerprint
     // dentro la casella, fatta per ogni evento di ogni ciclo.
     index("calendar_events_account_fingerprint_idx").on(table.accountId, table.fingerprint),
+    // "Le occorrenze di questa serie": la fase D ("gli appuntamenti visti" per
+    // serie) e il propose phase (isReadyForProposal consapevole della serie).
+    index("calendar_events_account_recurring_idx").on(table.accountId, table.recurringEventId),
     check(
       "calendar_events_status_chk",
       sql`status is null or status in ('confirmed', 'tentative', 'cancelled')`,
+    ),
+  ],
+);
+
+/**
+ * CONFIGURAZIONE di una serie ricorrente riconosciuta (fase 7b).
+ *
+ * Chiavata su `(account_id, recurring_event_id)`: lo stesso
+ * `recurring_event_id` che Google mette su ogni occorrenza. Una riga qui non
+ * nasce mai da sola — la crea la prima volta che l'utente configura la serie
+ * dalla sezione Calendario (`PUT /me/calendar/series/:recurringEventId`); fino
+ * ad allora la serie esiste solo come gruppo di righe in `calendar_events`,
+ * spenta per definizione (nessuna configurazione = non pronta, vedi
+ * `isReadyForProposal` in `apps/worker/src/google/calendar.ts`).
+ *
+ * `enabled` default `false`: è la lezione delle 730 notifiche del 9 settembre
+ * 2026 (design §4) — una serie nuova non deve poter fare niente da sola.
+ * `projectId` si FISSA all'attivazione (SET NULL se il progetto viene
+ * cancellato: la serie torna a non avere un progetto, e quindi non pronta) e
+ * non si ri-deduce mai a ogni occorrenza, a differenza del routing della
+ * posta: lo stesso appuntamento ricorrente non deve poter finire su progetti
+ * diversi a seconda di chi era invitato quella volta.
+ */
+export const calendarSeries = pgTable(
+  "calendar_series",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => googleAccounts.id, { onDelete: "cascade" }),
+    recurringEventId: text("recurring_event_id").notNull(),
+    enabled: boolean("enabled").notNull().default(false),
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
+    action: text("action").$type<"backlog_item" | "milestone" | "reminder">().notNull().default("milestone"),
+    leadDays: integer("lead_days").notNull().default(2),
+    /** `false` = propone e aspetta un tap; `true` = esegue e lo rende visibile (design §4: MAI un job AI). */
+    auto: boolean("auto").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex("calendar_series_account_recurring_unique").on(table.accountId, table.recurringEventId),
+    check("calendar_series_lead_days_chk", sql`lead_days between 0 and 30`),
+    check(
+      "calendar_series_action_chk",
+      sql`action in ('backlog_item', 'milestone', 'reminder')`,
     ),
   ],
 );
@@ -3498,5 +3557,7 @@ export type ProjectEmailRouteRow = typeof projectEmailRoutes.$inferSelect;
 export type EmailMessageRow = typeof emailMessages.$inferSelect;
 /** Riga di `calendar_events`: un evento di calendario in perimetro. */
 export type CalendarEventRow = typeof calendarEvents.$inferSelect;
+/** Riga di `calendar_series`: la configurazione di una serie ricorrente riconosciuta. */
+export type CalendarSeriesRow = typeof calendarSeries.$inferSelect;
 /** Riga di `email_proposals`: la proposta di UN messaggio per UN progetto. */
 export type EmailProposalRow = typeof emailProposals.$inferSelect;
