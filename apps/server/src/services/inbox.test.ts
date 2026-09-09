@@ -1850,6 +1850,11 @@ describe("google.proposal — contorno della proposta dalla posta", () => {
       // Fase 7b: `.default(false)` — assente sul payload scritto da questo
       // fixture (precede il campo), lo schema lo riempie.
       auto: false,
+      // Fix di review: `proposalId` è lo stesso `PROPOSAL_ID` del payload
+      // (il fixture lo scrive già in cima all'evento, per `questionId`) — è
+      // ciò che permette al link "Read in Stubwise" della card di puntare al
+      // messaggio giusto.
+      proposalId: PROPOSAL_ID,
     });
     // Del payload delle azioni esce SOLO il tipo: progetto e titolo restano
     // dentro, dove il server li rilegge quando l'utente conferma.
