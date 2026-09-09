@@ -89,7 +89,8 @@ mano con «non ora», quindi non bloccante, ma la promessa è scritta.
 
 ### Task 3: i due divieti hanno la prova end-to-end che meritano
 
-Tre buchi di copertura sull'invariante di prodotto della fase. Il codice è
+Due buchi di copertura sull'invariante di prodotto della fase (il terzo è
+stato ritirato in corso d'opera, vedi sotto). Il codice è
 corretto — l'ho verificato di persona — ma è garantito dalla lettura, non da
 un test, e questa è l'unica parte della fase che non deve poter regredire.
 
@@ -99,11 +100,18 @@ un test, e questa è l'unica parte della fase che non deve poter regredire.
    `awaiting_plan_approval`. È la seconda delle due strade di uscita dalla
    pre-approvazione (l'altra — piano modificato, digest che non torna — è già
    coperta): va coperta anche questa. → `apps/server/src/services/jobs.test.ts`
-2. **`proceedWithProposal` su un ticket pre-approvato.** `pulse.ts:325` passa
-   `requirePlanApproval: true` esplicito e per costruzione vince sull'OR, ma
-   nessun test esercita l'incrocio fra le due feature. Un test che parta da un
-   ticket **con** piano pre-approvato e asserisca `awaiting_plan_approval`. →
-   `apps/server/src/services/pulse.test.ts`
+2. ~~**`proceedWithProposal` su un ticket pre-approvato.**~~ **RITIRATO
+   (9 set 2026).** Il finding era mal posto: `proceedWithProposal` crea il
+   ticket **ex novo** dentro la stessa chiamata (`convertBacklogItem` →
+   `createTicket` con il piano copiato dalla voce), quindi quando `startRun`
+   gira il ticket non può avere `planApprovedAt` valorizzato — l'incrocio non
+   è costruibile, non è scoperto. E la proprietà è **già coperta dalla
+   composizione di due test esistenti**: `pulse.test.ts:298` prova che un
+   **admin** che clicca «Procedi» ottiene comunque `awaiting_plan_approval`
+   con `planApprovalRequired: true` (quindi il flag è passato e batte il
+   ruolo), e `jobs.test.ts:462` prova che `requirePlanApproval` vince SEMPRE
+   sulla pre-approvazione, anche per un member. Nessun test da aggiungere.
+
 3. **`decisions-never-ai.test.ts`, giro runtime.** Il controllo sul sorgente
    copre già `preApprovePlan` (sta in `jobs.ts`, già nell'elenco `MODULES`), ma
    il giro **runtime** — le spie sull'SDK Anthropic a zero mentre i writer
@@ -112,10 +120,10 @@ un test, e questa è l'unica parte della fase che non deve poter regredire.
    `preApprovePlan`. L'invariante promette due piani, il writer nuovo ne ha
    uno. Cinque righe. → `apps/server/src/services/decisions-never-ai.test.ts`
 
-**Step 1: i tre test, rossi o verdi che siano** (i primi due dovrebbero
-nascere verdi: stanno fissando un comportamento già corretto — verifica che
-falliscano se **inverti** la condizione nel sorgente, altrimenti non
-discriminano; vedi la trappola del mutation testing in CLAUDE.md).
+**Step 1: i due test, rossi o verdi che siano** (il primo nasce verde: fissa
+un comportamento già corretto — verifica che fallisca se **inverti** la
+condizione nel sorgente, altrimenti non discrimina; vedi la trappola del
+mutation testing in CLAUDE.md).
 **Step 2: Commit** `test(fase7): i due divieti dell'operatore hanno una prova end-to-end`.
 
 ### Task 4: tre rifiniture
