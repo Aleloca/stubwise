@@ -64,9 +64,19 @@ export const REGISTERED_MESSAGE =
 /** Risposta al modello quando una domanda è già stata registrata in questo turno. */
 export const ALREADY_ASKED_MESSAGE = "Hai già una domanda registrata: termina il turno.";
 
-/** Risposta al modello quando il tetto di round è stato superato. */
+/**
+ * Risposta al modello quando il tetto di round è stato superato.
+ *
+ * NEUTRA rispetto al deliverable (fase 7, review): questo server è condiviso
+ * fra la pianificazione del fix — dove "documenta la scelta nella sezione
+ * 'Decisioni e assunzioni' del piano" ha senso, quella sezione esiste — e la
+ * chat di analisi del backlog, che non produce un piano. Nessun campo in
+ * `AskUserConfig` distingue i due usi (un solo tool, un solo call-site), e
+ * duplicare il messaggio per un contesto che il config non porta sarebbe più
+ * fragile che scrivere una frase che va bene in entrambi.
+ */
 export function cappedMessage(maxRounds: number): string {
-  return `Tetto di domande raggiunto (${maxRounds}): scegli tu l'opzione più ragionevole e documenta la scelta nella sezione 'Decisioni e assunzioni' del piano.`;
+  return `Tetto di domande raggiunto (${maxRounds}): scegli tu l'opzione più ragionevole, documenta la scelta nella tua risposta e prosegui.`;
 }
 
 /**

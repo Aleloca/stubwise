@@ -816,10 +816,11 @@ describe("runChatTurn — tool ask_user (fase 7, Task 6)", () => {
 
     // Ancora UNA sola domanda aperta: quella nuova non è passata.
     expect(await questionsOf(db, itemId)).toHaveLength(1);
-    // Il turno non fallisce: si scrive comunque il messaggio (qui vuoto, il
-    // modello aveva già terminato il turno per la domanda scartata).
+    // Il turno non fallisce, ma non scrive una bolla assistant VUOTA (fase 7,
+    // review): il modello aveva già chiuso il turno per la domanda scartata,
+    // non per una risposta in prosa — niente da mostrare.
     const msgs = await messagesOf(db, itemId);
-    expect(msgs.filter((m) => m.role === "assistant")).toHaveLength(1);
+    expect(msgs.filter((m) => m.role === "assistant")).toHaveLength(0);
   });
 
   it("voce archiviata MENTRE il turno gira: nessuna domanda scritta, il turno non esplode (fase 7)", async () => {
@@ -853,10 +854,11 @@ describe("runChatTurn — tool ask_user (fase 7, Task 6)", () => {
     // Nessuna riga in backlog_questions: l'INSERT...WHERE EXISTS non ha
     // scritto nulla perché la voce non era più aperta AL MOMENTO dell'insert.
     expect(await questionsOf(db, itemId)).toHaveLength(0);
-    // Il turno non fallisce: si scrive comunque il messaggio (prosa, non la
-    // domanda scartata).
+    // Il turno non fallisce, ma non scrive una bolla assistant VUOTA (fase 7,
+    // review): niente da mostrare, la domanda è stata scartata e l'agente
+    // non ha lasciato prosa.
     const msgs = await messagesOf(db, itemId);
-    expect(msgs.filter((m) => m.role === "assistant")).toHaveLength(1);
+    expect(msgs.filter((m) => m.role === "assistant")).toHaveLength(0);
   });
 
   it("il round cablato riflette le domande già poste sulla voce (round 2 dopo una prima)", async () => {

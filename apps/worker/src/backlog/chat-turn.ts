@@ -576,7 +576,9 @@ export async function runChatTurn(
   //     corsa. L'INSERT...SELECT...WHERE EXISTS sotto è UNA sola istruzione
   //     atomica: la condizione sullo stato la valuta Postgres nello stesso
   //     momento in cui scrive (o non scrive) la riga.
-  let questionMessageContent = output;
+  // `null` = nessun messaggio da scrivere (vedi sotto: una domanda scartata
+  // con l'agente che aveva già chiuso il turno non lascia niente da dire).
+  let questionMessageContent: string | null = output;
   if (capturedQuestion !== null) {
     try {
       const inserted = await db.execute<{ id: string }>(sql`
@@ -613,18 +615,29 @@ export async function runChatTurn(
         "[backlog] chat turn: la voce ha già una domanda aperta, quella nuova è stata scartata: proseguo in prosa",
       );
     }
+    // La domanda scartata (unique o voce chiusa) NON è passata in
+    // `questionMessageContent` sopra: resta `output`, che qui è quasi sempre
+    // vuoto — l'agente aveva già chiuso il turno per la domanda scartata,
+    // non per scrivere una risposta in prosa. Una bolla `assistant` vuota
+    // sarebbe un buco senza spiegazione per chi legge la cronologia; meglio
+    // NON scrivere nulla che scrivere il nulla (fase 7, review): il pannello
+    // — quando la domanda ORIGINALE è ancora aperta — resta comunque
+    // l'unica cosa che l'operatore deve guardare.
+    if (questionMessageContent.trim() === "") questionMessageContent = null;
   }
 
   await db.transaction(async (tx) => {
-    await tx.insert(backlogChatMessages).values({
-      itemId: payload.itemId,
-      // La domanda dell'agente arriva come `assistant`, stessa forma della
-      // risposta in prosa: chi legge la cronologia vede comunque "cosa ha
-      // detto l'agente". Il pannello a bottoni (Task 7) si aggancia alla
-      // domanda ANCORA APERTA della voce, non a un campo su questo messaggio.
-      role: "assistant",
-      content: questionMessageContent,
-    });
+    if (questionMessageContent !== null) {
+      await tx.insert(backlogChatMessages).values({
+        itemId: payload.itemId,
+        // La domanda dell'agente arriva come `assistant`, stessa forma della
+        // risposta in prosa: chi legge la cronologia vede comunque "cosa ha
+        // detto l'agente". Il pannello a bottoni (Task 7) si aggancia alla
+        // domanda ANCORA APERTA della voce, non a un campo su questo messaggio.
+        role: "assistant",
+        content: questionMessageContent,
+      });
+    }
     // cli_session_id + last_activity_at, status-guarded su active: se la sessione
     // è stata chiusa durante il run (DELETE), l'UPDATE tocca 0 righe (la risposta
     // resta comunque in chat).
