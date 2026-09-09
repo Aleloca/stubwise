@@ -16,6 +16,7 @@ import {
   buildMilestoneProposal,
   isReadyForProposal,
   isoDay,
+  resolveCalendarProjectId,
   type CalendarMilestoneProposal,
   type CalendarSeriesProposalContext,
 } from "./calendar.js";
@@ -581,9 +582,13 @@ export function buildCalendarProposalEvent(
   if (!isReadyForProposal(event, args.seriesContext)) return null;
   const milestone = buildMilestoneProposal(lang, event);
   if (!milestone) return null;
-  // `isReadyForProposal` garantisce già che ci sia; la const lo dice anche al
-  // compilatore, che quel cancello non lo sa leggere.
-  const projectId = event.projectId;
+  // Fix di review: MAI `event.projectId` da solo — per un'occorrenza di
+  // serie è il progetto FISSATO sulla serie, non quello ri-dedotto dal
+  // routing su questa riga (vedi `resolveCalendarProjectId`, lo stesso
+  // calcolo che `isReadyForProposal` ha già fatto per il cancello: qui va
+  // ripetuto perché la card deve sapere QUALE progetto, non solo che uno
+  // c'è).
+  const projectId = resolveCalendarProjectId(event, args.seriesContext);
   if (!projectId) return null;
   const projectName = args.projectNames.get(projectId);
   if (!projectName) return null;

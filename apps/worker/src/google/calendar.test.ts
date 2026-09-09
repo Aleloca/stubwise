@@ -20,6 +20,7 @@ import {
   computeFingerprint,
   eventToRouting,
   isReadyForProposal,
+  resolveCalendarProjectId,
   routeEvent,
 } from "./calendar.js";
 import { pollGoogleOnce, type CalendarClient, type GmailClient, type GooglePollerDeps } from "./poller.js";
@@ -346,7 +347,7 @@ describe("impronta e proposta (funzioni pure)", () => {
       expect(
         isReadyForProposal(openSeriesRow, {
           now,
-          series: { enabled: false, leadDays: 2, action: "milestone", auto: false },
+          series: { enabled: false, leadDays: 2, action: "milestone", auto: false, projectId: "p1" },
           hasOpenSeriesProposal: false,
         }),
       ).toBe(false);
@@ -355,7 +356,7 @@ describe("impronta e proposta (funzioni pure)", () => {
     it("serie accesa, lead_days: 2 — niente a 5 giorni, pronta a 2", () => {
       const context = {
         now,
-        series: { enabled: true, leadDays: 2, action: "milestone" as const, auto: false },
+        series: { enabled: true, leadDays: 2, action: "milestone" as const, auto: false, projectId: "p1" },
         hasOpenSeriesProposal: false,
       };
       expect(
@@ -370,7 +371,7 @@ describe("impronta e proposta (funzioni pure)", () => {
       expect(
         isReadyForProposal(
           { ...openSeriesRow, startsAt: new Date("2026-09-08T00:00:00.000Z") },
-          { now, series: { enabled: true, leadDays: 2, action: "milestone", auto: false }, hasOpenSeriesProposal: false },
+          { now, series: { enabled: true, leadDays: 2, action: "milestone", auto: false, projectId: "p1" }, hasOpenSeriesProposal: false },
         ),
       ).toBe(false);
     });
@@ -379,7 +380,7 @@ describe("impronta e proposta (funzioni pure)", () => {
       expect(
         isReadyForProposal(openSeriesRow, {
           now,
-          series: { enabled: true, leadDays: 2, action: "milestone", auto: false },
+          series: { enabled: true, leadDays: 2, action: "milestone", auto: false, projectId: "p1" },
           hasOpenSeriesProposal: true,
         }),
       ).toBe(false);
@@ -392,6 +393,59 @@ describe("impronta e proposta (funzioni pure)", () => {
           { now, series: null, hasOpenSeriesProposal: true },
         ),
       ).toBe(true);
+    });
+
+    // -----------------------------------------------------------------------
+    // Fix di review: il progetto di un'occorrenza di serie è quello FISSATO
+    // sulla serie, mai quello ri-dedotto dal routing su quella riga — il
+    // finding che conta di questo giro.
+    // -----------------------------------------------------------------------
+
+    it("serie accesa con progetto fissato P: pronta anche se il routing su QUESTA riga ha risolto Q", () => {
+      const rowRoutedToQ = { ...openSeriesRow, projectId: "q-diverso" };
+      const context = {
+        now,
+        series: { enabled: true, leadDays: 2, action: "milestone" as const, auto: false, projectId: "p-fissato" },
+        hasOpenSeriesProposal: false,
+      };
+      expect(isReadyForProposal(rowRoutedToQ, context)).toBe(true);
+      // Non basta essere "pronta": deve essere pronta sul progetto GIUSTO.
+      expect(resolveCalendarProjectId(rowRoutedToQ, context)).toBe("p-fissato");
+    });
+
+    it("serie accesa con progetto fissato P: pronta anche se il routing su questa riga non ha risolto NULLA", () => {
+      const rowUnrouted = { ...openSeriesRow, projectId: null };
+      const context = {
+        now,
+        series: { enabled: true, leadDays: 2, action: "milestone" as const, auto: false, projectId: "p-fissato" },
+        hasOpenSeriesProposal: false,
+      };
+      expect(isReadyForProposal(rowUnrouted, context)).toBe(true);
+      expect(resolveCalendarProjectId(rowUnrouted, context)).toBe("p-fissato");
+    });
+
+    it("serie accesa ma senza progetto fissato (non dovrebbe succedere: enabled:true lo richiede) — mai pronta, mai un fallback sul routing", () => {
+      const context = {
+        now,
+        series: { enabled: true, leadDays: 2, action: "milestone" as const, auto: false, projectId: null },
+        hasOpenSeriesProposal: false,
+      };
+      // `openSeriesRow.projectId` è "p1", non nullo: se ci fosse un fallback
+      // sul routing questo tornerebbe pronta. Non deve.
+      expect(isReadyForProposal(openSeriesRow, context)).toBe(false);
+      expect(resolveCalendarProjectId(openSeriesRow, context)).toBeNull();
+    });
+
+    it("un evento SINGOLO usa sempre il progetto ri-dedotto dal routing sulla riga, mai un contesto di serie", () => {
+      const singleRow = { ...openSeriesRow, recurringEventId: null, projectId: "q-routing" };
+      expect(resolveCalendarProjectId(singleRow)).toBe("q-routing");
+      expect(
+        resolveCalendarProjectId(singleRow, {
+          now,
+          series: { enabled: true, leadDays: 2, action: "milestone", auto: false, projectId: "p-fissato" },
+          hasOpenSeriesProposal: false,
+        }),
+      ).toBe("q-routing");
     });
   });
 });

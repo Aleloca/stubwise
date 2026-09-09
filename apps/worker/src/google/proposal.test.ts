@@ -430,7 +430,13 @@ describe("buildCalendarProposalEvent", () => {
 // ---------------------------------------------------------------------------
 
 function buildSeriesCalendar(
-  seriesOverrides: Partial<{ enabled: boolean; leadDays: number; action: "backlog_item" | "milestone" | "reminder"; auto: boolean }>,
+  seriesOverrides: Partial<{
+    enabled: boolean;
+    leadDays: number;
+    action: "backlog_item" | "milestone" | "reminder";
+    auto: boolean;
+    projectId: string | null;
+  }>,
   rowOverrides: Record<string, unknown> = {},
 ) {
   const now = new Date("2026-09-28T00:00:00.000Z");
@@ -441,7 +447,7 @@ function buildSeriesCalendar(
     projectNames: NAMES,
     seriesContext: {
       now,
-      series: { enabled: true, leadDays: 5, action: "milestone", auto: false, ...seriesOverrides },
+      series: { enabled: true, leadDays: 5, action: "milestone", auto: false, projectId: PROJECT_A, ...seriesOverrides },
       hasOpenSeriesProposal: false,
     },
   });
@@ -490,6 +496,25 @@ describe("buildCalendarProposalEvent — azione di serie (fase 7b, Task 5)", () 
   it("un evento SINGOLO (nessuna serie) resta sempre su milestone, invariato", () => {
     // Nessun seriesContext: è esattamente `buildCalendar()` della describe sopra.
     expect(buildCalendar()?.actions[0]?.type).toBe("create_milestone");
+  });
+
+  // Fix di review: il finding che conta. La card — non solo il cancello di
+  // `isReadyForProposal` — deve usare il progetto FISSATO sulla serie, mai
+  // quello che il routing ha ri-dedotto su QUESTA occorrenza: prima di
+  // questo fix l'azione (e con `auto: true`, l'oggetto creato) nasceva sul
+  // progetto sbagliato senza che nessuno se ne accorgesse.
+  it("il progetto della card è quello fissato sulla serie, anche quando il routing su questa riga ha risolto un progetto diverso", () => {
+    const event = buildSeriesCalendar(
+      { action: "milestone", projectId: PROJECT_A },
+      { projectId: PROJECT_B }, // la RIGA è "risolta" su PROJECT_B dal routing
+    );
+    expect(event?.projectId).toBe(PROJECT_A);
+    expect(event?.actions[0]).toMatchObject({ type: "create_milestone", projectId: PROJECT_A });
+  });
+
+  it("il progetto della card è quello fissato sulla serie anche quando il routing su questa riga non ha risolto nulla", () => {
+    const event = buildSeriesCalendar({ action: "milestone", projectId: PROJECT_A }, { projectId: null });
+    expect(event?.projectId).toBe(PROJECT_A);
   });
 });
 

@@ -40,7 +40,6 @@ import {
   asc,
   eq,
   inArray,
-  isNotNull,
   isNull,
   ne,
   notExists,
@@ -62,6 +61,7 @@ import {
   isCancelled,
   isSyncTokenExpired,
   normalizeStatus,
+  resolveCalendarProjectId,
   routeEvent,
   type CalendarSeriesProposalContext,
 } from "./calendar.js";
@@ -1322,6 +1322,7 @@ async function runProposePhase(
         seriesLeadDays: calendarSeriesTable.leadDays,
         seriesAction: calendarSeriesTable.action,
         seriesAuto: calendarSeriesTable.auto,
+        seriesProjectId: calendarSeriesTable.projectId,
       })
       .from(calendarEventsTable)
       .leftJoin(
@@ -1335,9 +1336,21 @@ async function runProposePhase(
         and(
           eq(calendarEventsTable.accountId, account.id),
           sql`${calendarEventsTable.status} is distinct from 'cancelled'`,
-          isNotNull(calendarEventsTable.projectId),
           isNull(calendarEventsTable.proposalNotificationId),
           isNull(calendarEventsTable.outcome),
+          // Fix di review: il progetto CERTO è quello ri-dedotto dal routing
+          // SOLO per un evento singolo (prima riga), quello FISSATO sulla
+          // serie SOLO per un'occorrenza che ne appartiene una (seconda
+          // riga) — mai l'uno per l'altro. Stessa regola di
+          // `resolveCalendarProjectId` in `calendar.ts`, ripetuta qui in SQL
+          // per non selezionare righe che quella funzione scarterebbe
+          // comunque: prima di questo la riga passava con
+          // `calendar_events.project_id` anche per un'occorrenza di serie,
+          // che poteva essere un progetto DIVERSO da quello scelto in UI.
+          sql`(
+            (${calendarEventsTable.recurringEventId} is null and ${calendarEventsTable.projectId} is not null)
+            or (${calendarEventsTable.recurringEventId} is not null and ${calendarSeriesTable.projectId} is not null)
+          )`,
           sql`(
             ${calendarEventsTable.recurringEventId} is null
             or (
@@ -1479,10 +1492,18 @@ async function runProposePhase(
                       leadDays: row.seriesLeadDays!,
                       action: row.seriesAction!,
                       auto: row.seriesAuto!,
+                      projectId: row.seriesProjectId,
                     },
               hasOpenSeriesProposal: false,
             };
       if (recurringEventId !== null) seriesAttemptedThisTick.add(recurringEventId);
+
+      // Fix di review: IL progetto di questa riga — il fissato sulla serie
+      // per un'occorrenza che ne appartiene una, il ri-dedotto dal routing
+      // altrimenti. Usato SEMPRE da qui in poi, mai più `row.projectId` da
+      // solo (era il bug: l'azione automatica nasceva sul progetto ri-dedotto
+      // anche per una serie, che poteva essere diverso da quello scelto in UI).
+      const effectiveProjectId = resolveCalendarProjectId(row, seriesContext);
 
       const event = buildCalendarProposalEvent({
         lang,
@@ -1497,7 +1518,7 @@ async function runProposePhase(
         source: "calendar",
         rowId: row.id,
         mailboxOwnerUserId: account.userId,
-        ...(row.projectId ? { projectId: row.projectId } : {}),
+        ...(effectiveProjectId ? { projectId: effectiveProjectId } : {}),
         ...(deps.publish !== undefined ? { publish: deps.publish } : {}),
       });
       if (result.ok) published += 1;
@@ -1515,14 +1536,15 @@ async function runProposePhase(
       // `handled` all'istante, così la card resta visibile (chi ha la
       // casella deve sapere cosa è stato fatto a suo nome) ma non è più
       // rispondibile: un tap tardivo su una notifica non `open` è già
-      // `proposal_stale` in `answerGoogleProposal`, quindi non può mai
+      // `already_handled` in `answerGoogleProposal`, quindi non può mai
       // ESEGUIRE una seconda volta ciò che qui è già stato fatto.
-      if (result.ok && seriesContext?.series?.auto === true && row.projectId) {
+      //
+      if (result.ok && seriesContext?.series?.auto === true && effectiveProjectId) {
         const milestone = buildMilestoneProposal(lang, row);
         if (milestone) {
           const outcome = await executeAutoCalendarAction(deps.db, {
             action: seriesContext.series.action,
-            projectId: row.projectId,
+            projectId: effectiveProjectId,
             name: milestone.name,
             dueDate: milestone.dueDate,
           });

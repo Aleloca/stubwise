@@ -270,6 +270,20 @@ export interface CalendarSeriesConfig {
   action: "backlog_item" | "milestone" | "reminder";
   /** `false` = propone e aspetta un tap; `true` = esegue e lo rende visibile. MAI un job AI. */
   auto: boolean;
+  /**
+   * Il progetto FISSATO all'attivazione della serie (design §4). Fix di
+   * review: prima di questo campo, il propose phase e l'esecuzione
+   * automatica usavano `calendar_events.project_id` — il progetto
+   * RI-DEDOTTO dal routing su QUESTA occorrenza — anche per un'occorrenza
+   * di serie, contraddicendo il design alla lettera. Il caso grave non era
+   * la serie che diventa inerte (routing che non risolve più → innocuo):
+   * era il routing che risolve un progetto DIVERSO da quello scelto in UI,
+   * con l'azione creata lì — e con `auto: true`, senza che nessuno la
+   * vedesse prima. `null` qui non dovrebbe succedere per una serie
+   * `enabled: true` (il PUT lo impedisce), ma `resolveCalendarProjectId`
+   * lo tratta comunque come "non pronta", mai come "usa l'altro".
+   */
+  projectId: string | null;
 }
 
 /** Il contesto che SOLO un'occorrenza di serie consulta — ignorato per un evento singolo. */
@@ -279,6 +293,39 @@ export interface CalendarSeriesProposalContext {
   series: CalendarSeriesConfig | null;
   /** Un'altra occorrenza della stessa serie ha già una proposta aperta (pubblicata, non ancora chiusa)? */
   hasOpenSeriesProposal: boolean;
+}
+
+/** Il minimo di riga su cui {@link resolveCalendarProjectId} e {@link isReadyForProposal} operano. */
+interface CalendarProjectRow {
+  projectId: string | null;
+  recurringEventId?: string | null;
+}
+
+/**
+ * IL progetto di un'occorrenza — un solo punto per una domanda che
+ * `isReadyForProposal`, `buildCalendarProposalEvent`
+ * (`apps/worker/src/google/proposal.ts`) e l'esecuzione automatica del
+ * poller devono rispondere ALLO STESSO MODO: fix di review, prima
+ * rispondevano in tre modi leggermente diversi (o meglio, solo questa
+ * funzione non esisteva e tutti e tre leggevano `row.projectId` — il bug).
+ *
+ * Un evento SINGOLO (nessuna serie) usa il progetto ri-dedotto dal routing
+ * su quella riga — invariato, è la maggioranza degli appuntamenti.
+ * Un'occorrenza di una serie CONFIGURATA e ACCESA usa il progetto FISSATO
+ * sulla serie, MAI quello della riga: è la lettera del design §4, "il
+ * progetto si fissa, non si ri-deduce". Una serie non configurata o spenta
+ * non ha un progetto qui — `null`, mai un fallback sul routing dell'
+ * occorrenza, che sarebbe esattamente il bug corretto da questa funzione.
+ */
+export function resolveCalendarProjectId(
+  row: CalendarProjectRow,
+  seriesContext?: CalendarSeriesProposalContext,
+): string | null {
+  const recurringEventId = row.recurringEventId ?? null;
+  if (recurringEventId === null) return row.projectId;
+  const series = seriesContext?.series;
+  if (!series || !series.enabled) return null;
+  return series.projectId;
 }
 
 export function isReadyForProposal(
@@ -295,21 +342,25 @@ export function isReadyForProposal(
   seriesContext?: CalendarSeriesProposalContext,
 ): boolean {
   const baseReady =
-    row.status !== "cancelled" &&
-    row.projectId !== null &&
-    row.proposalNotificationId === null &&
-    row.outcome === null;
+    row.status !== "cancelled" && row.proposalNotificationId === null && row.outcome === null;
   if (!baseReady) return false;
+
+  // Il progetto CERTO — mai `row.projectId` da solo: per un'occorrenza di
+  // serie è `resolveCalendarProjectId` a decidere fra il routing e il
+  // fissato, mai un OR fra i due (vedi il docblock della funzione).
+  if (resolveCalendarProjectId(row, seriesContext) === null) return false;
 
   const recurringEventId = row.recurringEventId ?? null;
   if (recurringEventId === null) return true;
 
+  // `resolveCalendarProjectId` sopra è già tornato non-null, quindi la serie
+  // è per costruzione configurata e accesa: `context.series` non è `null`.
   const context = seriesContext ?? { now: new Date(), series: null, hasOpenSeriesProposal: false };
-  if (context.series === null || !context.series.enabled) return false;
+  const series = context.series!;
   if (context.hasOpenSeriesProposal) return false;
   if (!row.startsAt) return false;
 
-  const leadMs = context.series.leadDays * 24 * 60 * 60 * 1000;
+  const leadMs = series.leadDays * 24 * 60 * 60 * 1000;
   const delta = row.startsAt.getTime() - context.now.getTime();
   return delta >= 0 && delta <= leadMs;
 }
