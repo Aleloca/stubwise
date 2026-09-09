@@ -250,13 +250,13 @@
     "semantic_hash": "db3ae69a83d3d76c3208ebe294aea068"
   },
   "apps/server/src/routes/backlog.test.ts": {
-    "mtime": 1788950547.8657343,
-    "ast_hash": "2c5c43d72023fd2afe57489e1c0b843d",
+    "mtime": 1788959304.0969083,
+    "ast_hash": "f38b968d2a1f961bb00ff58548a24678",
     "semantic_hash": ""
   },
   "apps/server/src/routes/backlog.ts": {
-    "mtime": 1788950498.4536643,
-    "ast_hash": "f959f993dea2f8d30a5cc9a026945771",
+    "mtime": 1788959322.5517912,
+    "ast_hash": "bd2e2e8b6baf841f7e17ad491f1d0f54",
     "semantic_hash": ""
   },
   "apps/server/src/routes/chat-llm.ts": {
@@ -1280,8 +1280,8 @@
     "semantic_hash": ""
   },
   "apps/web/src/lib/queries.ts": {
-    "mtime": 1788955520.960265,
-    "ast_hash": "4ed98403eb3db0c71e977154cab9f046",
+    "mtime": 1788960288.320575,
+    "ast_hash": "aa641ff1b660a69cd6c8ee0f29238e2e",
     "semantic_hash": ""
   },
   "apps/web/src/lib/sdk-install-guide.test.ts": {
@@ -1790,13 +1790,13 @@
     "semantic_hash": "e08ae9063050d7e01a0a533f8597eecd"
   },
   "apps/worker/src/backlog/chat-turn.test.ts": {
-    "mtime": 1788949810.7134929,
-    "ast_hash": "c9465cf9286b9bfcd61c773b437ca5ce",
+    "mtime": 1788960194.0460787,
+    "ast_hash": "5b8d4e3f16ef7fd6913c2d1ecf3fa2f4",
     "semantic_hash": ""
   },
   "apps/worker/src/backlog/chat-turn.ts": {
-    "mtime": 1788949739.2990036,
-    "ast_hash": "6c1f0ff526838313b8c815c2e14d242c",
+    "mtime": 1788960177.9021528,
+    "ast_hash": "482fbd333f55e0b55d02988009665c41",
     "semantic_hash": ""
   },
   "apps/worker/src/backlog/code-session.test.ts": {
@@ -4790,12 +4790,12 @@
     "semantic_hash": ""
   },
   "apps/server/src/services/jobs.test.ts": {
-    "mtime": 1788945984.883232,
-    "ast_hash": "495a5c0c5aa0cfa095ff36c2a06a1b8b",
+    "mtime": 1788959721.4217167,
+    "ast_hash": "84d9d0b588a8fd8724c3f5aceafa70b8",
     "semantic_hash": ""
   },
   "apps/server/src/services/jobs.ts": {
-    "mtime": 1788946229.4096544,
+    "mtime": 1788959811.4421127,
     "ast_hash": "2e818e4d0cba6d04fa2b3c2563777d5c",
     "semantic_hash": ""
   },
@@ -4960,13 +4960,13 @@
     "semantic_hash": ""
   },
   "apps/worker/src/ask-user-mcp/server.test.ts": {
-    "mtime": 1788944163.9344304,
-    "ast_hash": "43290d2a9d3938222da5ea756877ae86",
+    "mtime": 1788960258.4378984,
+    "ast_hash": "cd2420798659cd28a34017fff60b93da",
     "semantic_hash": ""
   },
   "apps/worker/src/ask-user-mcp/server.ts": {
-    "mtime": 1788944163.9347136,
-    "ast_hash": "bf075e21876d338875f13814f9340f9d",
+    "mtime": 1788960246.4856648,
+    "ast_hash": "edd782debdd00dcc5f13ce4624b95e93",
     "semantic_hash": ""
   },
   "apps/worker/src/pipeline/ask-user.test.ts": {
@@ -6420,8 +6420,8 @@
     "semantic_hash": ""
   },
   "apps/server/src/services/decisions-never-ai.test.ts": {
-    "mtime": 1788944163.85842,
-    "ast_hash": "b21d37ef1b8af6ec31205426e2dc1c90",
+    "mtime": 1788960050.1562517,
+    "ast_hash": "da00ccabf29cf4c565c580be5678475e",
     "semantic_hash": ""
   },
   "apps/server/src/services/project-briefs.ts": {
@@ -7125,13 +7125,13 @@
     "semantic_hash": ""
   },
   "apps/server/src/services/backlog-questions.test.ts": {
-    "mtime": 1788949288.7552304,
-    "ast_hash": "93d2ecd4cb932f2fd2d65b5fddffa476",
+    "mtime": 1788959560.4806788,
+    "ast_hash": "88a48b8de9a0d2838aa368510d81dadd",
     "semantic_hash": ""
   },
   "apps/server/src/services/backlog-questions.ts": {
-    "mtime": 1788949147.2279515,
-    "ast_hash": "b7ece63bf14eab3673ea78509e4b5b17",
+    "mtime": 1788959546.5363348,
+    "ast_hash": "42f6e1cf1790394b7972a0bde9196bea",
     "semantic_hash": ""
   },
   "apps/web/src/components/work-next-step.test.tsx": {
@@ -7222,6 +7222,16 @@
   "docs/plans/2026-09-09-phase7-guided-workflow-plan.md": {
     "mtime": 1788944164.0018642,
     "ast_hash": "cd6baa77901f28253dfbc93928e29278",
+    "semantic_hash": ""
+  },
+  ".changeset/shared-phase7-guided-workflow.md": {
+    "mtime": 1788960365.0536003,
+    "ast_hash": "10a09920985db4a9da9a8c3371cfa555",
+    "semantic_hash": ""
+  },
+  "docs/plans/2026-09-09-phase7-review-fixes-plan.md": {
+    "mtime": 1788959977.1048315,
+    "ast_hash": "dd37f0df1ab3cf3962f9f41811fdd4f5",
     "semantic_hash": ""
   }
 }
