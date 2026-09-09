@@ -732,6 +732,23 @@ export function rejectPlan(
   return api.post(`/api/tickets/${ticketId}/reject-plan`, body);
 }
 
+/**
+ * Approva IN ANTICIPO il piano CORRENTE del ticket (fase 7): da qui in poi un
+ * operatore (member) può farlo partire senza fermarsi sul gate — finché il
+ * piano non cambia (il digest approvato decade da solo). Solo maintainer.
+ * 409 `no_plan` se il ticket non ha un piano da approvare. Torna il dettaglio
+ * ticket aggiornato (stessa forma del GET), così la UI non deve rifare il
+ * fetch per mostrare "approvato da {nome} il {data}".
+ */
+export function preApprovePlan(ticketId: string): Promise<Ticket> {
+  return api.post(`/api/tickets/${ticketId}/pre-approve-plan`);
+}
+
+/** Revoca la pre-approvazione del piano. Idempotente. Solo maintainer. */
+export function revokePlanApproval(ticketId: string): Promise<Ticket> {
+  return api.delete(`/api/tickets/${ticketId}/pre-approve-plan`);
+}
+
 /** Consumo aggregato di un singolo modello sui job AI del ticket. */
 export interface UsageByModel {
   model: string;
