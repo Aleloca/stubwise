@@ -410,6 +410,11 @@ export const en: Catalog = {
   "decision.askUser.title": "Agent question: {question}",
   "decision.plan.approved": "Plan approved: execution can start.",
   "decision.plan.rejected": "Plan rejected, replanning with these instructions: {instructions}",
+  // Pre-approvazione (fase 7): un maintainer approva in anticipo il piano
+  // corrente, così un operator può far partire il fix senza fermarsi sul
+  // gate. Decade da sola se il piano cambia — non serve dirlo qui, lo dice
+  // già la UI quando succede.
+  "decision.plan.preApproved": "Plan pre-approved: an operator can now start it directly.",
   "decision.pulse.proceed": "Proceed with: {title}",
   "decision.pulse.alternatives": "Discarded alternatives: {alternatives}",
   // Proposta Google confermata (fase 6, Task 11): il testo è composto SOLO da
@@ -702,6 +707,7 @@ export const it: Catalog = {
   "decision.plan.approved": "Piano approvato: l'esecuzione può partire.",
   "decision.plan.rejected":
     "Piano rifiutato, si ripianifica con queste indicazioni: {instructions}",
+  "decision.plan.preApproved": "Piano approvato in anticipo: un operatore può ora avviarlo direttamente.",
   "decision.pulse.proceed": "Si procede con: {title}",
   "decision.pulse.alternatives": "Alternative scartate: {alternatives}",
   // Proposta Google confermata (vedi la nota nel catalogo `en`).

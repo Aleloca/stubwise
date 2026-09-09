@@ -7,7 +7,9 @@ import {
   instanceSettings,
   notificationDeliveries,
   notifications,
+  planDigest,
   projectDecisions,
+  tickets,
   users,
   type Db,
 } from "@stubwise/db";
@@ -401,6 +403,101 @@ describe("startRun", () => {
 
     const jobs = await db.select().from(aiJobs).where(eq(aiJobs.ticketId, ticketId));
     expect(jobs).toHaveLength(1);
+  });
+});
+
+describe("startRun — pre-approvazione del piano (fase 7)", () => {
+  /** Approva IN DB il piano corrente del ticket, come farebbe la rotta di pre-approvazione. */
+  async function approvePlan(ticketId: string, plan: string, byUserId = maintainer.id): Promise<void> {
+    await db
+      .update(tickets)
+      .set({
+        planApprovedAt: new Date(),
+        planApprovedByUserId: byUserId,
+        planApprovedDigest: planDigest(plan),
+      })
+      .where(eq(tickets.id, ticketId));
+  }
+
+  it("member + piano pre-approvato → job queued in execute diretto (nessun parcheggio)", async () => {
+    const piano = "## Piano approvato in anticipo\n1. Passo A";
+    const ticketId = await seedTicket(piano);
+    await approvePlan(ticketId, piano);
+
+    const result = await startRun(db, { ticketId, actor: operator });
+    expect(result).toEqual({ ok: true, jobId: expect.any(String), status: "queued" });
+
+    const job = await readJob(result.ok ? result.jobId : "");
+    expect(job?.status).toBe("queued");
+    expect(job?.resumeMode).toBe("execute");
+    expect(job?.planText).toBe(piano);
+    expect(job?.planApprovalRequired).toBe(false);
+
+    // Nessuna richiesta di approvazione: il piano era già stato letto.
+    const rows = await db.select().from(notifications).where(eq(notifications.jobId, job!.id));
+    expect(rows).toHaveLength(0);
+  });
+
+  it("member + piano modificato DOPO l'approvazione → il digest non combacia più, torna sul gate", async () => {
+    const pianoApprovato = "## Piano approvato\n1. Passo A";
+    const ticketId = await seedTicket(pianoApprovato);
+    await approvePlan(ticketId, pianoApprovato);
+
+    // Il piano viene riscritto (MCP set_plan / PUT /plan / worker): il digest
+    // approvato resta quello del testo VECCHIO.
+    const pianoModificato = "## Piano approvato\n1. Passo A\n2. Passo B in più";
+    await db.update(tickets).set({ implementationPlan: pianoModificato }).where(eq(tickets.id, ticketId));
+
+    const result = await startRun(db, { ticketId, actor: operator });
+    expect(result).toEqual({
+      ok: true,
+      jobId: expect.any(String),
+      status: "awaiting_plan_approval",
+    });
+    const job = await readJob(result.ok ? result.jobId : "");
+    expect(job?.planText).toBe(pianoModificato);
+    expect(job?.planApprovalRequired).toBe(true);
+  });
+
+  it("requirePlanApproval vince SEMPRE sulla pre-approvazione (anche per un member)", async () => {
+    const piano = "## Piano di una proposta del sistema\n1. Passo A";
+    const ticketId = await seedTicket(piano);
+    await approvePlan(ticketId, piano);
+
+    const result = await startRun(db, { ticketId, actor: operator, requirePlanApproval: true });
+    expect(result).toEqual({
+      ok: true,
+      jobId: expect.any(String),
+      status: "awaiting_plan_approval",
+    });
+    const job = await readJob(result.ok ? result.jobId : "");
+    expect(job?.planApprovalRequired).toBe(true);
+  });
+
+  it("un maintainer non cambia comportamento: la pre-approvazione riguarda solo il gate del member", async () => {
+    const piano = "## Piano\n1. Passo A";
+    const ticketId = await seedTicket(piano);
+    await approvePlan(ticketId, piano);
+
+    const result = await startRun(db, { ticketId, actor: maintainer });
+    expect(result).toEqual({ ok: true, jobId: expect.any(String), status: "queued" });
+    const job = await readJob(result.ok ? result.jobId : "");
+    // Era già "queued" senza gate per un maintainer: la pre-approvazione non
+    // introduce differenze osservabili sul suo percorso.
+    expect(job?.planApprovalRequired).toBe(false);
+  });
+
+  it("member + piano pre-approvato ma mode:ai_plan → il gate torna attivo (si pianifica da capo)", async () => {
+    const piano = "## Piano da NON eseguire (mode:ai_plan chiede una pianificazione nuova)";
+    const ticketId = await seedTicket(piano);
+    await approvePlan(ticketId, piano);
+
+    const result = await startRun(db, { ticketId, actor: operator, mode: "ai_plan" });
+    expect(result).toEqual({ ok: true, jobId: expect.any(String), status: "queued" });
+    const job = await readJob(result.ok ? result.jobId : "");
+    expect(job?.planApprovalRequired).toBe(true);
+    expect(job?.resumeMode).toBeNull();
+    expect(job?.planText).toBeNull();
   });
 });
 

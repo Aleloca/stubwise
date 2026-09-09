@@ -11,6 +11,8 @@ import {
   comments,
   notificationDeliveries,
   notifications,
+  planDigest,
+  projectDecisions,
   projects,
   ticketEvents,
   ticketLinks,
@@ -2293,6 +2295,157 @@ describe("POST /api/tickets/:id/reject-plan", () => {
     expect(team?.body).toBe("Ripianifica senza toccare lo schema del DB.");
     expect(team?.authorId).toBe(users.adminId);
     expect(cmts.some((c) => c.authorType === "system")).toBe(true);
+  });
+});
+
+describe("POST/DELETE /api/tickets/:id/pre-approve-plan", () => {
+  async function ticketWithPlan(plan = "## Piano da approvare\n1. Passo A"): Promise<string> {
+    const created = (
+      await postTicket({ projectId, title: "Pre-approve", type: "bug" })
+    ).json() as { id: string };
+    await testDb.db
+      .update(tickets)
+      .set({ implementationPlan: plan })
+      .where(eq(tickets.id, created.id));
+    return created.id;
+  }
+
+  it("member (operator) → 403: pre-approvare è del maintainer", async () => {
+    const ticketId = await ticketWithPlan();
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${ticketId}/pre-approve-plan`,
+      headers: { cookie: users.memberCookie },
+    });
+    expect(res.statusCode).toBe(403);
+
+    const [row] = await testDb.db.select().from(tickets).where(eq(tickets.id, ticketId));
+    expect(row?.planApprovedAt).toBeNull();
+  });
+
+  it("ticket inesistente → 404", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${randomUUID()}/pre-approve-plan`,
+      headers: { cookie: users.adminCookie },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("senza piano → 409 no_plan", async () => {
+    const created = (
+      await postTicket({ projectId, title: "Senza piano", type: "bug" })
+    ).json() as { id: string };
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${created.id}/pre-approve-plan`,
+      headers: { cookie: users.adminCookie },
+    });
+    expect(res.statusCode).toBe(409);
+    expect((res.json() as { code: string }).code).toBe("no_plan");
+  });
+
+  it("approva: 200 con planApprovedAt/planApprovedBy, digest scritto, decisione registrata", async () => {
+    const plan = "## Piano da approvare\n1. Passo A";
+    const ticketId = await ticketWithPlan(plan);
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${ticketId}/pre-approve-plan`,
+      headers: { cookie: users.adminCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as {
+      planApprovedAt: string | null;
+      planApprovedBy: { id: string; email: string } | null;
+      planApprovalStale: boolean;
+    };
+    expect(body.planApprovedAt).not.toBeNull();
+    expect(body.planApprovedBy?.id).toBe(users.adminId);
+    expect(body.planApprovalStale).toBe(false);
+
+    const [row] = await testDb.db.select().from(tickets).where(eq(tickets.id, ticketId));
+    expect(row?.planApprovedDigest).toBe(planDigest(plan));
+    expect(row?.planApprovedByUserId).toBe(users.adminId);
+
+    const decisions = await testDb.db
+      .select()
+      .from(projectDecisions)
+      .where(eq(projectDecisions.sourceKey, `plan_review:pre_approve:${ticketId}:${planDigest(plan)}`));
+    expect(decisions).toHaveLength(1);
+    expect(decisions[0]?.source).toBe("plan_review");
+    expect(decisions[0]?.decidedByUserId).toBe(users.adminId);
+  });
+
+  it("due pre-approvazioni concorrenti sullo stesso piano → una sola decisione registrata", async () => {
+    const plan = "## Piano conteso\n1. Passo A";
+    const ticketId = await ticketWithPlan(plan);
+
+    const [first, second] = await Promise.all([
+      app.inject({
+        method: "POST",
+        url: `/api/tickets/${ticketId}/pre-approve-plan`,
+        headers: { cookie: users.adminCookie },
+      }),
+      app.inject({
+        method: "POST",
+        url: `/api/tickets/${ticketId}/pre-approve-plan`,
+        headers: { cookie: users.adminCookie },
+      }),
+    ]);
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(200);
+
+    const decisions = await testDb.db
+      .select()
+      .from(projectDecisions)
+      .where(eq(projectDecisions.sourceKey, `plan_review:pre_approve:${ticketId}:${planDigest(plan)}`));
+    expect(decisions).toHaveLength(1);
+  });
+
+  it("revoca: azzera i tre campi, 200, idempotente su un ticket mai approvato", async () => {
+    const plan = "## Piano da revocare\n1. Passo A";
+    const ticketId = await ticketWithPlan(plan);
+    await app.inject({
+      method: "POST",
+      url: `/api/tickets/${ticketId}/pre-approve-plan`,
+      headers: { cookie: users.adminCookie },
+    });
+
+    const res = await app.inject({
+      method: "DELETE",
+      url: `/api/tickets/${ticketId}/pre-approve-plan`,
+      headers: { cookie: users.adminCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { planApprovedAt: string | null; planApprovedBy: unknown };
+    expect(body.planApprovedAt).toBeNull();
+    expect(body.planApprovedBy).toBeNull();
+
+    const [row] = await testDb.db.select().from(tickets).where(eq(tickets.id, ticketId));
+    expect(row?.planApprovedAt).toBeNull();
+    expect(row?.planApprovedByUserId).toBeNull();
+    expect(row?.planApprovedDigest).toBeNull();
+
+    // Idempotente: un secondo giro (già revocato) resta 200, non un errore.
+    const again = await app.inject({
+      method: "DELETE",
+      url: `/api/tickets/${ticketId}/pre-approve-plan`,
+      headers: { cookie: users.adminCookie },
+    });
+    expect(again.statusCode).toBe(200);
+  });
+
+  it("member (operator) → 403 su DELETE: la revoca è del maintainer", async () => {
+    const ticketId = await ticketWithPlan();
+    const res = await app.inject({
+      method: "DELETE",
+      url: `/api/tickets/${ticketId}/pre-approve-plan`,
+      headers: { cookie: users.memberCookie },
+    });
+    expect(res.statusCode).toBe(403);
   });
 });
 

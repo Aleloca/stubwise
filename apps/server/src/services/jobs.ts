@@ -8,11 +8,19 @@
  * Modello dei ruoli (Fase 0), sull'enum globale `user_role`:
  *  - `admin`  = MAINTAINER: approva i piani e può far partire il fix diretto;
  *  - `member` = OPERATOR: propone il lavoro, ma non lo approva. Ogni run che
- *    chiede si ferma sul gate del piano prima di toccare il codice.
+ *    chiede si ferma sul gate del piano prima di toccare il codice — SALVO
+ *    che un maintainer abbia pre-approvato in anticipo il piano CORRENTE del
+ *    ticket (fase 7, `POST /tickets/:id/pre-approve-plan`): `startRun` legge
+ *    `planPreApproved` confrontando `tickets.plan_approved_digest` col
+ *    digest del piano attuale (`planDigest`, `@stubwise/db`) — un'eventuale
+ *    riscrittura del piano lo fa decadere da solo. `requirePlanApproval`
+ *    (i run nati da una proposta del sistema) vince SEMPRE sulla
+ *    pre-approvazione, anche per un maintainer.
  */
 import {
   aiJobs,
   comments,
+  planDigest,
   projectDecisions,
   projects,
   recordDecision,
@@ -114,6 +122,10 @@ export async function startRun(db: Db, input: StartRunInput): Promise<StartRunRe
     .select({
       id: tickets.id,
       implementationPlan: tickets.implementationPlan,
+      // Pre-approvazione del piano (fase 7): letta qui, non altrove, perché
+      // decide se un member scavalca il gate. Vedi `planPreApproved` sotto.
+      planApprovedAt: tickets.planApprovedAt,
+      planApprovedDigest: tickets.planApprovedDigest,
       // Il resto serve alla notifica del ramo parcheggiato (vedi in fondo).
       number: tickets.number,
       title: tickets.title,
@@ -133,10 +145,25 @@ export async function startRun(db: Db, input: StartRunInput): Promise<StartRunRe
   // piano residuo di un run precedente non deve sopravvivere al re-triage).
   const planText = useSavedPlan ? ticket.implementationPlan : null;
 
-  // Passa dal gate chi non può approvare da sé (operator) e chiunque, ruolo a
-  // parte, avvii un run che il chiamante ha marcato come da approvare
-  // (`requirePlanApproval`).
-  const needsApproval = actor.role === "member" || input.requirePlanApproval === true;
+  // Pre-approvazione del piano (fase 7): un maintainer può approvare in
+  // anticipo il piano CORRENTE del ticket (`POST /tickets/:id/pre-approve-plan`).
+  // Vale SOLO quando questo run eseguirà davvero quel piano (`useSavedPlan`):
+  // con `mode: "ai_plan"` il member sta chiedendo una pianificazione NUOVA, e
+  // il digest approvato — per quanto combaci col testo salvato — non descrive
+  // ciò che sta per girare. Il confronto è sul digest, non solo su
+  // `planApprovedAt`: qualunque riscrittura del piano lo fa decadere da solo
+  // (vedi `planDigest` in `@stubwise/db`).
+  const planPreApproved =
+    useSavedPlan &&
+    ticket.planApprovedAt !== null &&
+    ticket.planApprovedDigest === planDigest(ticket.implementationPlan!);
+
+  // Passa dal gate chi non può approvare da sé (operator) SENZA un piano già
+  // pre-approvato, e chiunque, ruolo a parte, avvii un run che il chiamante ha
+  // marcato come da approvare (`requirePlanApproval` vince SEMPRE: chi clicca
+  // "Procedi" su una proposta del sistema non ha letto un piano).
+  const needsApproval =
+    (actor.role === "member" && !planPreApproved) || input.requirePlanApproval === true;
   const status = needsApproval && useSavedPlan ? "awaiting_plan_approval" : "queued";
   const values = {
     status,
@@ -386,6 +413,109 @@ export async function resolvePlan(db: Db, input: ResolvePlanInput): Promise<Reso
     actorId: actor.id,
   });
   return { ok: true, jobId: resolved.id, changedNotificationIds };
+}
+
+export type PreApprovePlanResult =
+  | {
+      ok: true;
+      planApprovedAt: Date;
+      planApprovedByUserId: string;
+      planApprovedDigest: string;
+    }
+  | { ok: false; error: "ticket_not_found" | "no_plan" | "forbidden" };
+
+/**
+ * Approva IN ANTICIPO il piano CORRENTE di un ticket (fase 7): un maintainer
+ * legge il piano una volta e un operatore (member) può poi farlo partire
+ * senza fermarsi sul gate (`startRun` confronta `planPreApproved` col digest
+ * appena scritto qui). Solo admin: `requireAdmin` sulla rotta, ripetuto qui
+ * come difesa in profondità — stesso pattern di `resolvePlan`.
+ *
+ * 409 `no_plan` se il ticket non ha (ancora) un `implementationPlan`: non ha
+ * senso approvare in anticipo il nulla.
+ *
+ * IDEMPOTENTE per costruzione: la `sourceKey` della decisione include il
+ * digest, quindi due maintainer che approvano lo STESSO piano concorrentemente
+ * scrivono lo stesso UPDATE (innocuo, l'ultimo vince ma il risultato è
+ * identico) e `recordDecision` ne registra una sola (unique su
+ * `(project_id, source_key)`, `onConflictDoNothing`).
+ */
+export async function preApprovePlan(db: Db, input: {
+  ticketId: string;
+  actor: Actor;
+}): Promise<PreApprovePlanResult> {
+  const { ticketId, actor } = input;
+  if (actor.role !== "admin") return { ok: false, error: "forbidden" };
+
+  const [ticket] = await db
+    .select({
+      id: tickets.id,
+      title: tickets.title,
+      projectId: tickets.projectId,
+      implementationPlan: tickets.implementationPlan,
+    })
+    .from(tickets)
+    .where(eq(tickets.id, ticketId));
+  if (!ticket) return { ok: false, error: "ticket_not_found" };
+  if (ticket.implementationPlan === null) return { ok: false, error: "no_plan" };
+
+  const digest = planDigest(ticket.implementationPlan);
+  const approvedAt = new Date();
+  const lang = await getContentLanguage(db);
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(tickets)
+      .set({
+        planApprovedAt: approvedAt,
+        planApprovedByUserId: actor.id,
+        planApprovedDigest: digest,
+      })
+      .where(eq(tickets.id, ticketId));
+
+    // ⚠️ Testo da template i18n, MAI dall'AI (stessa disciplina di
+    // `resolvePlan`): la pre-approvazione è un fatto (un maintainer ha letto
+    // QUESTO piano), non una narrativa da generare.
+    await recordDecision(tx, {
+      projectId: ticket.projectId,
+      source: "plan_review",
+      sourceKey: `plan_review:pre_approve:${ticketId}:${digest}`,
+      sourceRef: { ticketId, digest },
+      ticketId,
+      title: ticket.title,
+      decision: t(lang, "decision.plan.preApproved"),
+      decidedByUserId: actor.id,
+    });
+  });
+
+  return { ok: true, planApprovedAt: approvedAt, planApprovedByUserId: actor.id, planApprovedDigest: digest };
+}
+
+export type RevokePlanApprovalResult =
+  | { ok: true }
+  | { ok: false; error: "ticket_not_found" | "forbidden" };
+
+/**
+ * Revoca la pre-approvazione del piano di un ticket (fase 7): azzera i tre
+ * campi. Idempotente (revocare un ticket mai approvato è un no-op che
+ * comunque ritorna `ok`) e senza voce nel registro decisioni: la revoca non è
+ * il fatto degno di nota, lo era l'approvazione — e chi la revoca di solito lo
+ * fa perché sta per approvarne una diversa, che scriverà la propria voce.
+ */
+export async function revokePlanApproval(
+  db: Db,
+  input: { ticketId: string; actor: Actor },
+): Promise<RevokePlanApprovalResult> {
+  const { ticketId, actor } = input;
+  if (actor.role !== "admin") return { ok: false, error: "forbidden" };
+
+  const updated = await db
+    .update(tickets)
+    .set({ planApprovedAt: null, planApprovedByUserId: null, planApprovedDigest: null })
+    .where(eq(tickets.id, ticketId))
+    .returning({ id: tickets.id });
+  if (updated.length === 0) return { ok: false, error: "ticket_not_found" };
+  return { ok: true };
 }
 
 /**

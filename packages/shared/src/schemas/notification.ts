@@ -1,4 +1,8 @@
 import { z } from "zod";
+// Vive in `actor.ts` (per evitare un import circolare con `ticket.ts`, che ne
+// ha bisogno per `planApprovedBy` della fase 7); ri-esportato più sotto perché
+// questo file continua a usarlo anche internamente.
+import { handledBySchema, type HandledBy } from "./actor.js";
 import { ticketPrioritySchema } from "./ticket.js";
 
 /**
@@ -86,9 +90,7 @@ export type InboxDecisionAction = z.infer<typeof inboxDecisionActionSchema>;
 export const snoozeUntilSchema = z.enum(["1h", "tomorrow", "3d"]);
 export type SnoozeUntil = z.infer<typeof snoozeUntilSchema>;
 
-/** Chi ha chiuso una notifica: l'id per la UI, l'email per dirlo a parole. */
-export const handledBySchema = z.object({ id: z.uuid(), email: z.string() });
-export type HandledBy = z.infer<typeof handledBySchema>;
+export { handledBySchema, type HandledBy };
 
 /**
  * Una delle alternative proposte dall'agente con `ask_user`: l'etichetta del
