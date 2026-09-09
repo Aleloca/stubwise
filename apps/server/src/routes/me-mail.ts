@@ -22,6 +22,7 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { requireAuth } from "../auth/session.js";
 import { apiError } from "../errors.js";
+import { calendarDayUrl, calendarReproposableSql, calendarStatusCaseSql } from "./calendar-status.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 /**
@@ -140,55 +141,18 @@ function decodeCursor(raw: string): MailCursor | null {
   return { date, id };
 }
 
-// --- Stato normalizzato del calendario, in SQL ------------------------------
-
-/**
- * La stessa regola espressa due volte (nella proiezione e nel filtro
- * `status`): Postgres non permette di riferire un alias di SELECT nel WHERE
- * della stessa query, quindi la CASE si ripete. Restituisce una NUOVA
- * espressione a ogni chiamata (il builder `sql` non è riusabile fra due punti
- * della stessa query).
- */
-function calendarStatusCaseSql() {
-  return sql<string>`case
-    when ${calendarEvents.status} = 'cancelled' then 'cancelled'
-    when ${calendarEvents.outcome} is null and ${calendarEvents.proposalNotificationId} is null then 'new'
-    when ${calendarEvents.outcome} is null then 'proposed'
-    when ${calendarEvents.outcome}->>'type' = 'failed' then 'failed'
-    when ${calendarEvents.outcome}->>'type' = 'ignored' then 'ignored'
-    when ${calendarEvents.outcome}->>'type' = 'cancelled' then 'cancelled'
-    else 'actioned'
-  end`;
-}
-
-/**
- * Riproponibile: SOLO `failed`/`ignored`, come `isReadyForProposal` per il
- * resto del cancello. `coalesce(..., false)`: `outcome->>'type' in (...)` è
- * SQL a tre valori — con `outcome` `NULL` (nessuna azione ancora presa) il
- * confronto vale `NULL`, non `false`, e senza il coalesce lo schema di
- * risposta (`reproposable: z.boolean()`) rifiuterebbe la riga.
- */
-function calendarReproposableSql() {
-  return sql<boolean>`coalesce(${calendarEvents.outcome}->>'type' in ('failed', 'ignored'), false)`;
-}
-
-// --- Link al thread Gmail / alla giornata del calendario --------------------
+// --- Link al thread Gmail -----------------------------------------------
 //
-// Duplicati (non importati) da `apps/worker/src/google/proposal.ts`: il
-// server non dipende dal worker, e sono funzioni pure di poche righe — vedi
-// la stessa scelta in `services/google-proposal.ts` (`gmailThreadUrl`).
+// Duplicato (non importato) da `apps/worker/src/google/proposal.ts`: il
+// server non dipende dal worker, ed è una funzione pura di poche righe —
+// vedi la stessa scelta in `services/google-proposal.ts` (`gmailThreadUrl`).
+// Lo stato normalizzato del calendario e il link alla giornata, invece, sono
+// condivisi con `me-calendar.ts` via `./calendar-status.js`: qui il confine
+// non è di pacchetto/deploy, e duplicarli aprirebbe la stessa deriva che il
+// docblock di `calendarStatusCaseSql` mette in guardia.
 
 function gmailThreadUrl(mailboxEmail: string, threadId: string): string {
   return `https://mail.google.com/mail/u/${encodeURIComponent(mailboxEmail)}/#all/${threadId}`;
-}
-
-function isoDay(date: Date): string {
-  return date.toISOString().slice(0, 10);
-}
-
-function calendarDayUrl(mailboxEmail: string, startsAt: Date): string {
-  const [year, month, day] = isoDay(startsAt).split("-");
-  return `https://calendar.google.com/calendar/u/${encodeURIComponent(mailboxEmail)}/r/day/${year}/${Number(month)}/${Number(day)}`;
 }
 
 // --- Lettura ----------------------------------------------------------------

@@ -37,6 +37,7 @@ import { gitAccountRoutes } from "./routes/git-accounts.js";
 import { gitIdentityRoutes } from "./routes/git-identity-routes.js";
 import { googleWorkspaceRoutes } from "./routes/google-workspaces.js";
 import { meGoogleRoutes } from "./routes/me-google.js";
+import { meCalendarRoutes } from "./routes/me-calendar.js";
 import { meMailRoutes } from "./routes/me-mail.js";
 import { activityRoutes } from "./routes/activity-routes.js";
 import { backlogRoutes } from "./routes/backlog.js";
@@ -704,6 +705,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // (vedi il docblock del modulo). Prefisso a sé come meGoogleRoutes, per
   // la stessa ragione di leggibilità (un file, un pezzo di superficie).
   void app.register(meMailRoutes, { prefix: "/api/me/mail" });
+  void app.register(meCalendarRoutes, { prefix: "/api/me/calendar" });
 
   app.get("/health", async () => ({ status: "ok" }));
 

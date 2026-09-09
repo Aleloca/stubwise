@@ -513,3 +513,117 @@ export type MailSummary = z.infer<typeof mailSummarySchema>;
 /** Risposta di `POST /api/me/mail/:source/:id/repropose`: nessun dato oltre l'esito. */
 export const mailReproposeResultSchema = z.object({ ok: z.literal(true) });
 export type MailReproposeResult = z.infer<typeof mailReproposeResultSchema>;
+
+// ---------------------------------------------------------------------------
+// Sezione Calendario (fase 7b): superficie dedicata, con la stessa ACL della
+// Posta (`user_id` sempre nel WHERE). `GET /api/me/calendar` mostra GLI
+// APPUNTAMENTI VISTI (una riga per occorrenza, come la posta); `GET
+// /api/me/calendar/series` mostra LE SERIE RICONOSCIUTE con la loro
+// configurazione — design fase 7b §4.
+// ---------------------------------------------------------------------------
+
+/**
+ * L'azione che una serie configurata produce (design fase 7b §4). Riusa
+ * `google.proposal` con `source: "calendar"` — nessun kind di notifica nuovo
+ * e nessun valore nuovo in `ProposalSource.source` (vedi CLAUDE.md): quale
+ * azione eseguire lo dice questa colonna, letta dalla riga, non il payload.
+ */
+export const calendarSeriesActionSchema = z.enum(["backlog_item", "milestone", "reminder"]);
+export type CalendarSeriesAction = z.infer<typeof calendarSeriesActionSchema>;
+
+/**
+ * UN appuntamento visto: un'occorrenza di `calendar_events`, con lo stato
+ * NORMALIZZATO della proposta che ne è nata (vocabolario condiviso con
+ * `mailItemStatusSchema` — stessa CASE, vedi `calendar-status.ts` sul
+ * server) e il suo esito.
+ *
+ * `recurringEventId` (fase 7b, Task 1) è `null` per un evento singolo — la
+ * maggioranza — e collega la riga alla SUA serie in
+ * {@link calendarSeriesItemSchema}. `title`/`organizer` sono testo NON
+ * FIDATO (li scrive chi ha creato l'evento): chi li rende su una superficie
+ * con markup li escapa, come `title`/`from` di {@link mailItemSchema}.
+ */
+export const calendarEventItemSchema = z.object({
+  id: z.uuid(),
+  accountId: z.uuid(),
+  accountEmail: z.string(),
+  recurringEventId: z.string().nullable().default(null),
+  projectId: z.uuid().nullable(),
+  projectName: z.string().nullable().default(null),
+  title: z.string().nullable().default(null),
+  organizer: z.string().nullable().default(null),
+  startsAt: z.iso.datetime(),
+  status: mailItemStatusSchema,
+  outcome: z.record(z.string(), z.unknown()).nullable().default(null),
+  error: z.string().nullable().default(null),
+  /** Link alla giornata sul calendario Google della casella. `null` se non ricostruibile. */
+  url: z.string().nullable().default(null),
+  reproposable: z.boolean().default(false),
+});
+export type CalendarEventItem = z.infer<typeof calendarEventItemSchema>;
+
+/** Pagina di `GET /api/me/calendar`: `nextCursor` null quando non c'è altro da leggere. */
+export const calendarEventPageSchema = z.object({
+  items: z.array(calendarEventItemSchema),
+  nextCursor: z.string().nullable(),
+});
+export type CalendarEventPage = z.infer<typeof calendarEventPageSchema>;
+
+/**
+ * UNA serie ricorrente riconosciuta: derivata raggruppando `calendar_events`
+ * per `(account_id, recurring_event_id)`, con la configurazione di
+ * {@link CalendarSeriesRow} se esiste (altrimenti i default — una serie non
+ * configurata è una serie SPENTA, mai un errore: design fase 7b §4, "Default
+ * spento, e non è un dettaglio di prudenza").
+ *
+ * `occurrenceCount`/`nextOccurrenceAt` vengono dalle occorrenze GIÀ tracciate
+ * (dentro la finestra dei 60 giorni, dopo il fix del Task 2): le 730
+ * occorrenze passate del 9 settembre 2026 compaiono come una serie con
+ * `nextOccurrenceAt: null` — spenta, senza nulla in arrivo — che il
+ * maintainer può comunque accendere se vuole.
+ */
+export const calendarSeriesItemSchema = z.object({
+  accountId: z.uuid(),
+  accountEmail: z.string(),
+  recurringEventId: z.string(),
+  /** Il titolo dell'occorrenza più recente vista. NON FIDATO. */
+  title: z.string().nullable().default(null),
+  occurrenceCount: z.number().int().min(0).default(0),
+  /** La prossima occorrenza NON ANCORA passata, o `null` se non ce n'è nessuna tracciata. */
+  nextOccurrenceAt: z.iso.datetime().nullable().default(null),
+  enabled: z.boolean().default(false),
+  projectId: z.uuid().nullable().default(null),
+  projectName: z.string().nullable().default(null),
+  action: calendarSeriesActionSchema.default("milestone"),
+  leadDays: z.number().int().min(0).max(30).default(2),
+  /** `false` = propone e aspetta un tap; `true` = esegue e lo rende visibile. MAI un job AI. */
+  auto: z.boolean().default(false),
+});
+export type CalendarSeriesItem = z.infer<typeof calendarSeriesItemSchema>;
+
+/** Risposta di `GET /api/me/calendar/series`. */
+export const calendarSeriesListSchema = z.object({ items: z.array(calendarSeriesItemSchema) });
+export type CalendarSeriesList = z.infer<typeof calendarSeriesListSchema>;
+
+/**
+ * Corpo di `PUT /api/me/calendar/series/:recurringEventId`: sostituisce
+ * l'INTERA configurazione della serie (come `PUT /api/projects/:id/plugins`,
+ * non una patch parziale — qui non c'è un client mobile che scrive questo
+ * corpo, quindi non vale l'invariante "solo PATCH" di `me-prefs.ts`).
+ * `accountId` è necessario perché `recurringEventId` da solo non è unico:
+ * la stessa serie di due caselle diverse dello stesso utente avrebbe lo
+ * stesso id lato Google.
+ *
+ * Il server rifiuta `enabled: true` senza `projectId`: design fase 7b §4,
+ * "Il progetto si fissa, non si ri-deduce" — non esiste una serie accesa
+ * senza un progetto.
+ */
+export const calendarSeriesPatchSchema = z.object({
+  accountId: z.uuid(),
+  enabled: z.boolean(),
+  projectId: z.uuid().nullable(),
+  action: calendarSeriesActionSchema.default("milestone"),
+  leadDays: z.number().int().min(0).max(30).default(2),
+  auto: z.boolean().default(false),
+});
+export type CalendarSeriesPatch = z.input<typeof calendarSeriesPatchSchema>;
