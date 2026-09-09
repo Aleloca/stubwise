@@ -763,7 +763,21 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   nessuna serie esistente si accende da sola scendendo o salendo
   d'immagine. `GET /api/me/mail/:source/:id/original` che fallisce
   (token scaduto, messaggio cancellato, Google irraggiungibile) non tocca
-  mai l'estratto già in database: resta leggibile in ogni caso.
+  mai l'estratto già in database: resta leggibile in ogni caso. ⚠️ Questo
+  non significa che nessun enum sia cambiato: `acknowledge_reminder` è un
+  valore NUOVO su due enum chiusi minori, gemelli fra loro —
+  `inboxGoogleActionTypeSchema` (`packages/shared/src/schemas/
+  notification.ts:213`) e `storedActionSchema`
+  (`apps/server/src/services/google-proposal.ts:178`) — stessa famiglia di
+  trappola di `choose_project`/`triage_dismissed` nelle fasi 6b/6c, ma **non**
+  la classe del 500 su `/api/inbox`: entrambi i punti di lettura degradano
+  con `safeParse`. Una proposta di serie con `action: "reminder"` pubblicata
+  DOPO il deploy, letta da un binario PRE-7b: `readGoogle`
+  (`apps/server/src/services/inbox.ts`) torna `undefined` sul blocco di
+  dettaglio (la card resta visibile, solo senza contorno) e
+  `answerGoogleProposal` risponde `proposal_stale` alla conferma — nessun
+  crash, ma quelle card vanno chiuse a mano o si accetta di perderle finché
+  non si torna avanti.
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
