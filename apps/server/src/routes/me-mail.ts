@@ -8,7 +8,18 @@ import {
   type Db,
 } from "@stubwise/db";
 import {
+  extractRawBody,
+  getMessageFull,
+  htmlToText,
+  listAttachments,
+  refreshAccessToken,
+  GoogleApiError,
+} from "@stubwise/google";
+import { loadGoogleAccountCredentials } from "@stubwise/google/credentials";
+import {
+  mailDetailSchema,
   mailItemStatusSchema,
+  mailOriginalSchema,
   mailPageSchema,
   mailReproposeResultSchema,
   mailSummarySchema,
@@ -22,7 +33,26 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { requireAuth } from "../auth/session.js";
 import { apiError } from "../errors.js";
+import { calendarDayUrl, calendarReproposableSql, calendarStatusCaseSql } from "./calendar-status.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
+
+/**
+ * Il client Google iniettabile di questo file (fase 7b, Task 7): SOLO le due
+ * chiamate che servono a rileggere un messaggio — il refresh del token e il
+ * messaggio completo. Stessa forma di `GmailClient`/`CalendarClient` nel
+ * worker (`apps/worker/src/google/poller.ts`): un test può sostituirlo con
+ * un finto senza toccare la rete, senza dover mockare `fetch`.
+ */
+export interface MailOriginalClient {
+  refreshAccessToken: typeof refreshAccessToken;
+  getMessageFull: typeof getMessageFull;
+}
+
+const defaultGoogleClient: MailOriginalClient = { refreshAccessToken, getMessageFull };
+
+export interface MeMailRoutesOptions {
+  googleClient?: MailOriginalClient;
+}
 
 /**
  * PAGINA POSTA (fase 6, Task 12; fase 6b, Task 8), sotto `/api/me/mail`: i
@@ -112,6 +142,15 @@ import { authErrorResponses, errorSchema } from "./shared.js";
 const reproposeSourceSchema = z.enum(["email", "calendar", "email_triage"]);
 const sourceParamsSchema = z.object({ source: reproposeSourceSchema, id: z.uuid() });
 
+/**
+ * Fase 7b (Task 6-7): il dettaglio e la rilettura esistono SOLO per la posta
+ * — un evento di calendario non ha un "estratto" né un messaggio Gmail da
+ * rileggere, i suoi campi sono già tutti nella riga. `"email_triage"` regge
+ * lo stesso spazio di id di `sourceParamsSchema`: il PADRE, senza figli.
+ */
+const mailDetailSourceSchema = z.enum(["email", "email_triage"]);
+const mailDetailParamsSchema = z.object({ source: mailDetailSourceSchema, id: z.uuid() });
+
 /** Quante righe per pagina se il chiamante non lo dice, e il tetto massimo — come `/api/inbox`. */
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
@@ -140,55 +179,18 @@ function decodeCursor(raw: string): MailCursor | null {
   return { date, id };
 }
 
-// --- Stato normalizzato del calendario, in SQL ------------------------------
-
-/**
- * La stessa regola espressa due volte (nella proiezione e nel filtro
- * `status`): Postgres non permette di riferire un alias di SELECT nel WHERE
- * della stessa query, quindi la CASE si ripete. Restituisce una NUOVA
- * espressione a ogni chiamata (il builder `sql` non è riusabile fra due punti
- * della stessa query).
- */
-function calendarStatusCaseSql() {
-  return sql<string>`case
-    when ${calendarEvents.status} = 'cancelled' then 'cancelled'
-    when ${calendarEvents.outcome} is null and ${calendarEvents.proposalNotificationId} is null then 'new'
-    when ${calendarEvents.outcome} is null then 'proposed'
-    when ${calendarEvents.outcome}->>'type' = 'failed' then 'failed'
-    when ${calendarEvents.outcome}->>'type' = 'ignored' then 'ignored'
-    when ${calendarEvents.outcome}->>'type' = 'cancelled' then 'cancelled'
-    else 'actioned'
-  end`;
-}
-
-/**
- * Riproponibile: SOLO `failed`/`ignored`, come `isReadyForProposal` per il
- * resto del cancello. `coalesce(..., false)`: `outcome->>'type' in (...)` è
- * SQL a tre valori — con `outcome` `NULL` (nessuna azione ancora presa) il
- * confronto vale `NULL`, non `false`, e senza il coalesce lo schema di
- * risposta (`reproposable: z.boolean()`) rifiuterebbe la riga.
- */
-function calendarReproposableSql() {
-  return sql<boolean>`coalesce(${calendarEvents.outcome}->>'type' in ('failed', 'ignored'), false)`;
-}
-
-// --- Link al thread Gmail / alla giornata del calendario --------------------
+// --- Link al thread Gmail -----------------------------------------------
 //
-// Duplicati (non importati) da `apps/worker/src/google/proposal.ts`: il
-// server non dipende dal worker, e sono funzioni pure di poche righe — vedi
-// la stessa scelta in `services/google-proposal.ts` (`gmailThreadUrl`).
+// Duplicato (non importato) da `apps/worker/src/google/proposal.ts`: il
+// server non dipende dal worker, ed è una funzione pura di poche righe —
+// vedi la stessa scelta in `services/google-proposal.ts` (`gmailThreadUrl`).
+// Lo stato normalizzato del calendario e il link alla giornata, invece, sono
+// condivisi con `me-calendar.ts` via `./calendar-status.js`: qui il confine
+// non è di pacchetto/deploy, e duplicarli aprirebbe la stessa deriva che il
+// docblock di `calendarStatusCaseSql` mette in guardia.
 
 function gmailThreadUrl(mailboxEmail: string, threadId: string): string {
   return `https://mail.google.com/mail/u/${encodeURIComponent(mailboxEmail)}/#all/${threadId}`;
-}
-
-function isoDay(date: Date): string {
-  return date.toISOString().slice(0, 10);
-}
-
-function calendarDayUrl(mailboxEmail: string, startsAt: Date): string {
-  const [year, month, day] = isoDay(startsAt).split("-");
-  return `https://calendar.google.com/calendar/u/${encodeURIComponent(mailboxEmail)}/r/day/${year}/${Number(month)}/${Number(day)}`;
 }
 
 // --- Lettura ----------------------------------------------------------------
@@ -470,8 +472,74 @@ function mergePages(
   return { items: page, nextCursor };
 }
 
-export async function meMailRoutes(instance: FastifyInstance): Promise<void> {
+// --- Dettaglio email (fase 7b, Task 6-7) ------------------------------------
+
+interface ResolvedEmailMessage {
+  accountId: string;
+  accountEmail: string;
+  gmailMessageId: string;
+  threadId: string;
+  fromAddress: string;
+  fromName: string | null;
+  toAddresses: string[];
+  subject: string | null;
+  receivedAt: Date;
+  labels: string[];
+  textExcerpt: string | null;
+}
+
+/** Le colonne del PADRE che servono al dettaglio e alla rilettura, comuni a `"email"`/`"email_triage"`. */
+const EMAIL_MESSAGE_COLUMNS = {
+  accountId: emailMessages.accountId,
+  accountEmail: googleAccounts.email,
+  gmailMessageId: emailMessages.gmailMessageId,
+  threadId: emailMessages.threadId,
+  fromAddress: emailMessages.fromAddress,
+  fromName: emailMessages.fromName,
+  toAddresses: emailMessages.toAddresses,
+  subject: emailMessages.subject,
+  receivedAt: emailMessages.receivedAt,
+  labels: emailMessages.labels,
+  textExcerpt: emailMessages.textExcerpt,
+};
+
+/**
+ * Il messaggio dietro `source`/`id`, con la STESSA ACL delle altre rotte
+ * (`user_id` nel WHERE via il JOIN). Per `"email"` l'`id` è
+ * `email_proposals.id` (il FIGLIO, fase 6b) e il contenuto viene dal PADRE
+ * (`email_messages`): il testo di un'email non cambia da un figlio all'altro
+ * dello stesso messaggio. Per `"email_triage"` l'`id` è già
+ * `email_messages.id` — nessun figlio, per costruzione.
+ */
+async function resolveEmailMessage(
+  db: Db,
+  userId: string,
+  source: z.infer<typeof mailDetailSourceSchema>,
+  id: string,
+): Promise<ResolvedEmailMessage | null> {
+  if (source === "email") {
+    const [row] = await db
+      .select(EMAIL_MESSAGE_COLUMNS)
+      .from(emailProposals)
+      .innerJoin(emailMessages, eq(emailMessages.id, emailProposals.emailMessageId))
+      .innerJoin(googleAccounts, eq(googleAccounts.id, emailMessages.accountId))
+      .where(and(eq(emailProposals.id, id), eq(googleAccounts.userId, userId)));
+    return row ?? null;
+  }
+  const [row] = await db
+    .select(EMAIL_MESSAGE_COLUMNS)
+    .from(emailMessages)
+    .innerJoin(googleAccounts, eq(googleAccounts.id, emailMessages.accountId))
+    .where(and(eq(emailMessages.id, id), eq(googleAccounts.userId, userId)));
+  return row ?? null;
+}
+
+export async function meMailRoutes(
+  instance: FastifyInstance,
+  opts: MeMailRoutesOptions = {},
+): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
+  const googleClient = opts.googleClient ?? defaultGoogleClient;
 
   app.get(
     "/",
@@ -725,6 +793,119 @@ export async function meMailRoutes(instance: FastifyInstance): Promise<void> {
         .set({ outcome: null, proposalNotificationId: null })
         .where(eq(calendarEvents.id, id));
       return { ok: true as const };
+    },
+  );
+
+  /**
+   * Fase 7b, Task 6: il dettaglio di un'email, dall'ESTRATTO già in
+   * database — nessuna chiamata a Google (design §3, punto 1). Stessa ACL
+   * delle altre rotte: `user_id` nel WHERE via `resolveEmailMessage`, una
+   * riga altrui dà 404, mai 403.
+   */
+  app.get(
+    "/:source/:id",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: mailDetailParamsSchema,
+        response: { 200: mailDetailSchema, 404: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const { source, id } = request.params;
+      const message = await resolveEmailMessage(app.db, request.user!.id, source, id);
+      if (!message) return apiError(reply, 404, "not_found", "Message not found");
+      return {
+        id,
+        source: "email" as const,
+        accountId: message.accountId,
+        accountEmail: message.accountEmail,
+        from: message.fromName ? `${message.fromName} <${message.fromAddress}>` : message.fromAddress,
+        to: message.toAddresses,
+        subject: message.subject,
+        receivedAt: message.receivedAt.toISOString(),
+        labels: message.labels,
+        textExcerpt: message.textExcerpt,
+        url: gmailThreadUrl(message.accountEmail, message.threadId),
+      };
+    },
+  );
+
+  /**
+   * Fase 7b, Task 7: il messaggio ORIGINALE, riletto da Gmail SU RICHIESTA
+   * (design §3, punto 2) — non si persiste nulla di questo: è una finestra
+   * su Gmail, non una copia. Stessa ACL: `resolveEmailMessage` prima di
+   * qualunque chiamata di rete, così un id altrui non arriva nemmeno a
+   * consumare un token.
+   *
+   * Errori VERI, non solo il caso felice (design §3): il messaggio è
+   * `410`/`404` su Gmail (cancellato, spostato) → `message_gone`; il token è
+   * scaduto/revocato (`invalid_grant`) → `token_expired`; Google
+   * irraggiungibile o un altro errore del provider → `google_unavailable`.
+   * In OGNI caso l'estratto resta leggibile dall'altra rotta: questa è solo
+   * un supplemento.
+   */
+  app.get(
+    "/:source/:id/original",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: mailDetailParamsSchema,
+        response: {
+          200: mailOriginalSchema,
+          404: errorSchema,
+          409: errorSchema,
+          502: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { source, id } = request.params;
+      const message = await resolveEmailMessage(app.db, request.user!.id, source, id);
+      if (!message) return apiError(reply, 404, "not_found", "Message not found");
+
+      const credentials = await loadGoogleAccountCredentials(app.db, app.encryptionKey, message.accountId);
+      if (!credentials) {
+        return apiError(reply, 409, "account_unavailable", "Google account credentials are not usable");
+      }
+
+      try {
+        const tokens = await googleClient.refreshAccessToken({
+          clientId: credentials.clientId,
+          clientSecret: credentials.clientSecret,
+          refreshToken: credentials.refreshToken,
+        });
+        const full = await googleClient.getMessageFull({
+          accessToken: tokens.accessToken,
+          id: message.gmailMessageId,
+        });
+        const body = full.payload ? extractRawBody(full.payload) : { text: null, html: null };
+        const attachments = full.payload ? listAttachments(full.payload) : [];
+        return {
+          subject: full.headers.subject ?? message.subject,
+          from: full.headers.from ?? message.fromAddress,
+          to: full.headers.to ? full.headers.to.split(",").map((addr) => addr.trim()) : message.toAddresses,
+          cc: full.headers.cc ? full.headers.cc.split(",").map((addr) => addr.trim()) : [],
+          // MAI l'HTML grezzo verso il client (vedi il docblock di
+          // `mailOriginalSchema`): con `text/plain` presente lo usa com'è,
+          // altrimenti converte l'HTML in testo qui — non lo manda mai oltre
+          // questa rotta.
+          bodyText: body.text ?? (body.html ? htmlToText(body.html) : null),
+          attachments,
+        };
+      } catch (error) {
+        if (error instanceof GoogleApiError) {
+          if (error.status === 404 || error.status === 410) {
+            return apiError(reply, 409, "message_gone", "This message no longer exists on Gmail");
+          }
+          if (error.code === "invalid_grant" || error.status === 401) {
+            return apiError(reply, 409, "token_expired", "The Google account needs to be reconnected");
+          }
+        }
+        request.log.warn({ err: error, accountId: message.accountId }, "rilettura del messaggio originale fallita");
+        return apiError(reply, 502, "google_unavailable", "Could not reach Google");
+      }
     },
   );
 }

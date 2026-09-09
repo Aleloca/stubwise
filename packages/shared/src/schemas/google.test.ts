@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  calendarEventItemSchema,
+  calendarSeriesItemSchema,
+  calendarSeriesPatchSchema,
   emailLabelsSchema,
   emailRouteSchema,
   emailRoutesPutSchema,
@@ -309,5 +312,59 @@ describe("mailItemSchema.kind (fase 6c, fix di review Task 3)", () => {
 
   it("rifiuta un kind fuori vocabolario", () => {
     expect(mailItemSchema.safeParse({ ...base, kind: "bogus" }).success).toBe(false);
+  });
+});
+
+describe("calendarEventItemSchema / calendarSeriesItemSchema (fase 7b)", () => {
+  const eventBase = {
+    id: "11111111-1111-4111-8111-111111111111",
+    accountId: "22222222-2222-4222-8222-222222222222",
+    accountEmail: "mailbox@acme.test",
+    projectId: null,
+    startsAt: "2026-09-20T10:00:00.000Z",
+    status: "new" as const,
+  };
+
+  it("un evento senza recurringEventId/outcome/reproposable (server più vecchio): default null/false", () => {
+    const parsed = calendarEventItemSchema.parse(eventBase);
+    expect(parsed.recurringEventId).toBeNull();
+    expect(parsed.outcome).toBeNull();
+    expect(parsed.error).toBeNull();
+    expect(parsed.reproposable).toBe(false);
+  });
+
+  it("porta recurringEventId quando l'occorrenza appartiene a una serie", () => {
+    expect(calendarEventItemSchema.parse({ ...eventBase, recurringEventId: "serie-1" }).recurringEventId).toBe(
+      "serie-1",
+    );
+  });
+
+  const seriesBase = {
+    accountId: "22222222-2222-4222-8222-222222222222",
+    accountEmail: "mailbox@acme.test",
+    recurringEventId: "serie-1",
+  };
+
+  it("una serie senza configurazione (mai attivata): spenta, default milestone/2 giorni", () => {
+    const parsed = calendarSeriesItemSchema.parse(seriesBase);
+    expect(parsed.enabled).toBe(false);
+    expect(parsed.projectId).toBeNull();
+    expect(parsed.action).toBe("milestone");
+    expect(parsed.leadDays).toBe(2);
+    expect(parsed.auto).toBe(false);
+  });
+
+  it("calendarSeriesPatchSchema rifiuta un lead_days fuori 0..30", () => {
+    const patch = { accountId: seriesBase.accountId, enabled: false, projectId: null, leadDays: 31 };
+    expect(calendarSeriesPatchSchema.safeParse(patch).success).toBe(false);
+  });
+
+  it("calendarSeriesPatchSchema applica i default (action/leadDays/auto) se assenti", () => {
+    const parsed = calendarSeriesPatchSchema.parse({
+      accountId: seriesBase.accountId,
+      enabled: false,
+      projectId: null,
+    });
+    expect(parsed).toMatchObject({ action: "milestone", leadDays: 2, auto: false });
   });
 });

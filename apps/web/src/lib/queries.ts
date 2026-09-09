@@ -5,6 +5,8 @@ import {
   getAiUsageCosts,
   getAiUsageSnapshots,
   getBacklogItem,
+  getCalendarEvents,
+  getCalendarSeries,
   getComments,
   getGitAccount,
   getGitAccounts,
@@ -12,6 +14,7 @@ import {
   getInboxUnreadCount,
   getMail,
   getMailAdmission,
+  getMailDetail,
   getMailSummary,
   getGoogleWorkspaces,
   getMyGoogleAccounts,
@@ -63,6 +66,7 @@ import {
   type AIJob,
   type AIJobStatus,
   type BacklogFilters,
+  type CalendarFilters,
   type InboxFilters,
   type MailFilters,
   type PluginRegistry,
@@ -1237,6 +1241,8 @@ export const mailKeys = {
   lists: () => [...mailKeys.all, "list"] as const,
   list: (filters: MailFilters) => [...mailKeys.lists(), filters] as const,
   summary: () => [...mailKeys.all, "summary"] as const,
+  /** Fase 7b, Task 6: il dettaglio di un'email, per source+id. */
+  detail: (source: "email" | "email_triage", id: string) => [...mailKeys.all, "detail", source, id] as const,
 };
 
 /**
@@ -1264,3 +1270,48 @@ export const mailSummaryQueryOptions = queryOptions({
   queryFn: getMailSummary,
   staleTime: 30_000,
 });
+
+/**
+ * Il dettaglio di un'email (fase 7b, Task 6): dall'estratto già in
+ * database, nessuna chiamata a Google. `staleTime` largo — l'estratto non
+ * cambia dopo che il poller l'ha scritto.
+ */
+export function mailDetailQueryOptions(source: "email" | "email_triage", id: string) {
+  return queryOptions({
+    queryKey: mailKeys.detail(source, id),
+    queryFn: () => getMailDetail(source, id),
+    staleTime: 60_000,
+  });
+}
+
+/**
+ * Chiavi della SEZIONE CALENDARIO (fase 7b, Task 9): `events()` la lista
+ * degli appuntamenti visti, `series()` le serie riconosciute — separate
+ * perché un cambio di configurazione di una serie invalida SOLO `series()`,
+ * non la lista (che non cambia finché il poller non ripassa).
+ */
+export const calendarKeys = {
+  all: ["calendar"] as const,
+  events: () => [...calendarKeys.all, "events"] as const,
+  eventsList: (filters: CalendarFilters) => [...calendarKeys.events(), filters] as const,
+  series: () => [...calendarKeys.all, "series"] as const,
+  seriesList: (account?: string) => [...calendarKeys.series(), account ?? null] as const,
+};
+
+/** "Gli appuntamenti visti", per i filtri dati. Stessa forma di `mailQueryOptions`. */
+export function calendarEventsQueryOptions(filters: CalendarFilters = {}) {
+  return queryOptions({
+    queryKey: calendarKeys.eventsList(filters),
+    queryFn: () => getCalendarEvents(filters),
+    staleTime: 10_000,
+  });
+}
+
+/** Le serie riconosciute con la loro configurazione (o i default — spenta). */
+export function calendarSeriesQueryOptions(account?: string) {
+  return queryOptions({
+    queryKey: calendarKeys.seriesList(account),
+    queryFn: () => getCalendarSeries(account),
+    staleTime: 10_000,
+  });
+}

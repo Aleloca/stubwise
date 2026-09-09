@@ -26,10 +26,12 @@
       "docs": "Documentazione",
       "label": "Navigazione",
       "open": "Apri navigazione",
-      "mail": "Posta"
+      "mail": "Posta",
+      "calendar": "Calendario"
     },
     "on": "attivo",
-    "off": "disattivato"
+    "off": "disattivato",
+    "saving": "Salvataggio…"
   },
   "monitor": {
     "list": {
@@ -2354,6 +2356,61 @@
     "triage": {
       "badge": "Da smistare",
       "dismissedOutcome": "Smistato — nessuno dei progetti suggeriti era quello giusto"
+    },
+    "detail": {
+      "back": "Torna a Posta",
+      "readInStubwise": "Leggi in Stubwise",
+      "excerptNotice": "Estratto ripulito — senza citazioni, firma o allegati. È il testo che ha visto il classificatore.",
+      "noExcerpt": "Nessun estratto salvato per questo messaggio.",
+      "readOriginal": "Leggi l'originale su Gmail",
+      "readingOriginal": "Richiesta a Google in corso…",
+      "originalNotice": "Sto chiedendo questo messaggio a Google adesso — non viene salvato nulla.",
+      "originalError": {
+        "messageGone": "Questo messaggio non esiste più su Gmail.",
+        "tokenExpired": "Questa casella Google va ricollegata.",
+        "googleUnavailable": "Impossibile raggiungere Google. Riprova fra poco."
+      },
+      "attachments": "Allegati",
+      "retentionNotice": "I messaggi più vecchi di 90 giorni vengono rimossi da Stubwise e qui non sono più leggibili.",
+      "loadError": "Impossibile caricare questo messaggio.",
+      "notFound": "Questo messaggio non è stato trovato."
+    }
+  },
+  "calendar": {
+    "title": "Calendario",
+    "subtitle": "Appuntamenti visti e serie ricorrenti, dalle caselle che hai collegato.",
+    "series": {
+      "heading": "Serie ricorrenti",
+      "subtitle": "Una serie è spenta di default: non produce nulla finché non la accendi qui.",
+      "empty": "Nessuna serie ricorrente vista finora.",
+      "occurrenceCount_one": "{{count}} occorrenza tracciata",
+      "occurrenceCount_other": "{{count}} occorrenze tracciate",
+      "next": "prossima {{when}}",
+      "noneUpcoming": "niente in arrivo",
+      "on": "Accesa",
+      "off": "Spenta",
+      "configure": "Configura",
+      "enable": "Accendi",
+      "disable": "Spegni",
+      "enableLabel": "Accesa",
+      "offByDefaultHint": "Spenta di default — accenderla permette a Stubwise di agire su OGNI occorrenza futura di questa serie, non solo su questa.",
+      "project": "Progetto",
+      "action": "Azione",
+      "actionOption": {
+        "milestone": "Crea una milestone",
+        "backlog_item": "Apri una voce di backlog",
+        "reminder": "Ricordamelo soltanto"
+      },
+      "leadDays": "Giorni di anticipo",
+      "autoLabel": "Esegui automaticamente",
+      "autoHint": "Spento: Stubwise propone e aspetta un tap. Acceso: Stubwise esegue subito e ti dice cosa ha fatto — in nessun caso avvia un job AI.",
+      "projectRequired": "Scegli un progetto prima di accendere questa serie.",
+      "saveError": "Impossibile salvare questa serie."
+    },
+    "events": {
+      "heading": "Appuntamenti visti",
+      "empty": "// nessun appuntamento",
+      "loadError": "Impossibile caricare il calendario."
     }
   }
 }

@@ -167,11 +167,13 @@ check the effect of the toggle without guessing.
    One tap confirms; nothing happens until you do.
 5. **Calendar, without AI.** Events on your primary calendar go through the
    same routing rules (attendee domains, keywords in the title) but skip the
-   model entirely: an in-scope event deterministically proposes creating a
-   milestone named after the event, due on the event's date. The same event
-   is never proposed twice, and a cancelled event is simply marked as such —
-   no mutation. Unlike email, a calendar event always resolves to **at most
-   one** project — see below.
+   model entirely: an in-scope event deterministically proposes an action —
+   see [The Calendar page](#the-calendar-page) below for what that action is
+   and how a recurring meeting is handled. The same event is never proposed
+   twice, and a cancelled event is simply marked as such — no mutation.
+   Unlike email, a calendar event always resolves to **at most one**
+   project — see [One email, several projects](#one-email-several-projects)
+   below.
 
 Every proposal, confirmed or not, appears on your personal **Mail** page
 (`/mail`), with a link back to the original Gmail thread or calendar event,
@@ -179,6 +181,73 @@ and a **Repropose** action for anything that failed or was ignored by
 mistake. A message that produced more than one proposal shows up as more
 than one row — same sender, same subject, a project badge telling them
 apart.
+
+## Reading your mail
+
+Every email row on your Mail page links to a **detail view**
+(`/mail/email/…`) with two, deliberately distinct, sources:
+
+- **The extract**, shown immediately — no request to Google, so it works
+  even if your mailbox's connection has expired or Google is unreachable
+  right now. This is the cleaned text (quotes, signature and attachments
+  stripped) that the classifier itself read to produce the proposal, so it
+  doubles as "see exactly what Stubwise saw." A message stored before this
+  extract existed, or one whose body couldn't be extracted, shows a plain
+  notice instead of a blank space.
+- **The original message**, fetched from Gmail only when you click **Read
+  original on Gmail** — a real network request, made right then, not
+  something pre-loaded. It's what gets you the full formatting, Cc list and
+  a list of attachment names that the extract doesn't carry (Stubwise
+  doesn't download or store attachment contents). Nothing from this reread
+  is saved anywhere; ask again and it asks Google again. A message deleted
+  on Gmail, an expired connection, or Google being briefly unreachable each
+  produce a distinct, readable error — the extract stays visible regardless.
+
+Messages older than the retention window (see [Privacy](#privacy) below) are
+removed entirely, extract included: past that point there's nothing left to
+show, on this page or on Gmail's own reread.
+
+## The Calendar page
+
+The **Calendar** page (`/calendar`) is the calendar's equivalent of the Mail
+page — appointments Stubwise has seen, and, new here, the **recurring
+series** it has recognized among them.
+
+A recurring meeting — the same invite, repeated weekly or daily — shares one
+series identifier across every occurrence. Stubwise tracks that identifier
+but, by design, **a series does nothing on its own**: every series starts
+**off**, and stays off, until you configure it here. Turning one on, later,
+means picking:
+
+- **A project** — fixed once, when you turn the series on, not re-decided
+  per occurrence. A weekly standup shouldn't land on a different project
+  depending on who happened to be invited that particular week.
+- **An action** — create a milestone (the default), open a backlog item, or
+  just a reminder with nothing created at all — the proposal card itself
+  *is* the reminder in that case.
+- **How many days ahead** (0–30, default 2) the proposal should appear
+  before each occurrence — not the moment the occurrence exists, the moment
+  it's actually coming up.
+- **Propose, or act automatically.** Left off (the default), each upcoming
+  occurrence produces a proposal you confirm with a tap, same as everything
+  else in your inbox. Turned on, Stubwise creates the milestone or backlog
+  item **right away** and simply shows you what it did — still visible, but
+  nothing left to tap. Either way, a series **never** starts an AI job by
+  itself: at most one action (a milestone, a backlog item, or nothing at
+  all for a reminder), never a fix, a plan, or any other agent run.
+
+However many occurrences a series has queued up, only **one proposal is ever
+open for that series at a time** — confirming or ignoring it is what lets
+the next one appear. A series you enable today, with months of upcoming
+occurrences already synced, will not flood your inbox: this one-at-a-time
+rule, together with the lead-time window above, is what a single recurring
+appointment can no longer do by accident.
+
+Occurrences further out than 60 days are simply not tracked yet — they
+appear once they enter that window, which keeps a series with a very long
+future from ever needing to be pruned. Past occurrences stay visible on this
+page (a series with a long history behind it just shows a longer list) but,
+same as a cancelled event, produce nothing new.
 
 ## One email, several projects
 

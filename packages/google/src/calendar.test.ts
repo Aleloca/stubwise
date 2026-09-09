@@ -103,6 +103,38 @@ describe("listEvents", () => {
     expect(event.endsAt?.toISOString()).toBe("2026-09-13T00:00:00.000Z");
   });
 
+  it("un'occorrenza di una serie ricorrente porta recurringEventId e originalStartTime (fase 7b)", async () => {
+    const { impl } = fakeFetch([
+      jsonResponse({
+        items: [
+          {
+            id: "e4_20260910",
+            status: "confirmed",
+            summary: "Pianificazione task",
+            start: { dateTime: "2026-09-10T09:00:00+02:00" },
+            end: { dateTime: "2026-09-10T10:00:00+02:00" },
+            recurringEventId: "e4",
+            originalStartTime: { dateTime: "2026-09-10T09:00:00+02:00" },
+          },
+        ],
+      }),
+    ]);
+    const page = await listEvents({ accessToken: "at" }, { fetchImpl: impl });
+    const event = page.events[0]!;
+    expect(event.recurringEventId).toBe("e4");
+    expect(event.originalStartTime?.toISOString()).toBe("2026-09-10T07:00:00.000Z");
+  });
+
+  it("un evento singolo (non ricorrente) non ha recurringEventId né originalStartTime", async () => {
+    const { impl } = fakeFetch([
+      jsonResponse({ items: [{ id: "e5", status: "confirmed", summary: "Singolo", start: { dateTime: "2026-09-10T09:00:00Z" } }] }),
+    ]);
+    const page = await listEvents({ accessToken: "at" }, { fetchImpl: impl });
+    const event = page.events[0]!;
+    expect(event.recurringEventId).toBeNull();
+    expect(event.originalStartTime).toBeNull();
+  });
+
   it("un evento cancellato arriva con status cancelled e senza orari", async () => {
     const { impl } = fakeFetch([jsonResponse({ items: [{ id: "e3", status: "cancelled" }], nextSyncToken: "s3" })]);
     const page = await listEvents({ accessToken: "at", syncToken: "s2" }, { fetchImpl: impl });

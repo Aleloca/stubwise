@@ -29,6 +29,18 @@ export interface GoogleCalendarEvent {
   organizer: string | null;
   htmlLink: string | null;
   updatedAt: Date | null;
+  /**
+   * L'id dell'evento PADRE della serie, se questa occorrenza appartiene a una
+   * ricorrenza (fase 7b). `null` per un evento singolo — la maggioranza.
+   * Google lo manda su ogni istanza perché la richiesta è sempre
+   * `singleEvents=true` (vedi il docblock del modulo).
+   */
+  recurringEventId: string | null;
+  /**
+   * L'orario ORIGINALE di questa occorrenza prima di eventuali spostamenti
+   * manuali (fase 7b). `null` per un evento singolo.
+   */
+  originalStartTime: Date | null;
 }
 
 /** Una pagina di `events.list`. */
@@ -52,6 +64,8 @@ const eventSchema = z.object({
   organizer: z.object({ email: z.string().optional() }).optional(),
   htmlLink: z.string().optional(),
   updated: z.string().optional(),
+  recurringEventId: z.string().optional(),
+  originalStartTime: dateSchema.optional(),
 });
 
 const eventsListSchema = z.object({
@@ -75,6 +89,13 @@ function toDate(value: string | undefined): Date | null {
  * timestamptz e serve UN istante — la scelta è dichiarata qui invece di
  * lasciarla al fuso della macchina che esegue il worker, che varierebbe.
  */
+/** Converte un `dateSchema` (Google) in Date, con la stessa regola "tutto il giorno" di `start`/`end`. */
+function toDateValue(value: z.infer<typeof dateSchema> | undefined): Date | null {
+  if (!value) return null;
+  const allDay = Boolean(value.date && !value.dateTime);
+  return allDay ? toDate(`${value.date}T00:00:00.000Z`) : toDate(value.dateTime);
+}
+
 function toEvent(raw: z.infer<typeof eventSchema>): GoogleCalendarEvent {
   const allDay = Boolean(raw.start?.date && !raw.start.dateTime);
   const startsAt = allDay ? toDate(`${raw.start?.date}T00:00:00.000Z`) : toDate(raw.start?.dateTime);
@@ -93,6 +114,8 @@ function toEvent(raw: z.infer<typeof eventSchema>): GoogleCalendarEvent {
     organizer: raw.organizer?.email?.toLowerCase() ?? null,
     htmlLink: raw.htmlLink ?? null,
     updatedAt: toDate(raw.updated),
+    recurringEventId: raw.recurringEventId ?? null,
+    originalStartTime: toDateValue(raw.originalStartTime),
   };
 }
 

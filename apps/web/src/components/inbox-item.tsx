@@ -447,6 +447,26 @@ export function InboxItemCard({
       )}
 
       {/*
+        Fix di review (fase 7b, Task 8): dalla card si entra nel dettaglio
+        dell'email — l'estratto già in database, la rilettura da Gmail su
+        richiesta. SOLO per `source: "email"`: `proposalId` per una
+        proposta di calendario o di smistamento è un `randomUUID()` senza
+        significato (`apps/worker/src/google/proposal.ts`), un link
+        costruito su quello porterebbe a un 404. `proposalId` è opzionale
+        sullo schema (compat con un payload scritto prima di questo
+        campo): assente ⇒ nessun link, la card resta comunque intera.
+      */}
+      {item.google !== undefined && item.google.source === "email" && item.google.proposalId !== undefined && (
+        <Link
+          to="/mail/$source/$id"
+          params={{ source: "email", id: item.google.proposalId }}
+          className="mt-1 inline-flex font-mono text-[11px] tracking-[0.1em] text-signal uppercase transition-colors hover:text-signal-bright"
+        >
+          {t("mail:detail.readInStubwise")}
+        </Link>
+      )}
+
+      {/*
         RIASSUNTO "IN BREVE" (fase 5): due o tre frasi non tecniche su cosa il
         piano cambia o cosa fa la PR. Sta SUBITO SOTTO IL TESTO, che è anche
         subito SOPRA i bottoni: sulla card del piano si legge quindi prima di

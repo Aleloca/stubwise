@@ -1,11 +1,16 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import {
+  aiJobs,
+  backlogItems,
+  backlogJobs,
   calendarEvents,
+  calendarSeries,
   emailMessages,
   emailProposals,
   googleAccounts,
   googleWorkspaces,
   instanceSettings,
+  milestones,
   notifications,
   projectEmailRoutes,
   projects,
@@ -69,6 +74,7 @@ afterEach(async () => {
   await db.delete(notifications);
   await db.delete(emailProposals);
   await db.delete(emailMessages);
+  await db.delete(calendarSeries);
   await db.delete(calendarEvents);
   await db.delete(googleAccounts);
   await db.delete(googleWorkspaces);
@@ -2091,6 +2097,8 @@ function calendarEvent(input: Partial<GoogleCalendarEvent> & { id: string }): Go
     organizer: MAILBOX,
     htmlLink: null,
     updatedAt: null,
+    recurringEventId: null,
+    originalStartTime: null,
     ...input,
   };
 }
@@ -2199,5 +2207,360 @@ describe("il resync del calendario dopo un 410 vede anche le cancellazioni", () 
     // Non è più candidata a una proposta: il proprietario non la rivedrà.
     expect(row!.proposalNotificationId).not.toBeNull();
     expect((await reload(account.id)).calendarSyncToken).toBe("tok-2");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fase 7b, Task 1: la serie ricorrente entra nel modello.
+// ---------------------------------------------------------------------------
+
+describe("fase 7b — la serie ricorrente entra nel modello", () => {
+  it("un'occorrenza con recurringEventId scrive la colonna; un evento singolo la lascia null", async () => {
+    const projectId = await seedProject("Acme");
+    await db
+      .insert(projectEmailRoutes)
+      .values({ projectId, kind: "sender_domain", value: "cliente.com" });
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+
+    await pollGoogleOnce(
+      deps(account, fakeGmail({ listed: [] }), {
+        now: () => new Date("2026-09-09T00:00:00.000Z"),
+        calendar: fakeCalendarSequence([
+          {
+            events: [
+              calendarEvent({
+                id: "serie_20260910",
+                startsAt: new Date("2026-09-10T09:00:00.000Z"),
+                endsAt: new Date("2026-09-10T10:00:00.000Z"),
+                recurringEventId: "serie",
+              }),
+              calendarEvent({ id: "singolo", startsAt: new Date("2026-09-15T09:00:00.000Z") }),
+            ],
+            nextSyncToken: "tok-1",
+          },
+        ]),
+      }),
+    );
+
+    const rows = await calendarRows();
+    const occorrenza = rows.find((row) => row.googleEventId === "serie_20260910")!;
+    const singolo = rows.find((row) => row.googleEventId === "singolo")!;
+    expect(occorrenza.recurringEventId).toBe("serie");
+    expect(singolo.recurringEventId).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fase 7b, Task 2: la finestra dei 60 giorni vale anche in scrittura — la rete
+// di sicurezza dell'incidente del 9 settembre 2026 (design fase 7b §5a).
+// ---------------------------------------------------------------------------
+
+describe("fase 7b — la finestra dei 60 giorni vale anche in scrittura", () => {
+  it("un'occorrenza fra cinque anni non scrive nessuna riga; una dentro i 60 giorni sì", async () => {
+    const projectId = await seedProject("Acme");
+    await db
+      .insert(projectEmailRoutes)
+      .values({ projectId, kind: "sender_domain", value: "cliente.com" });
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+
+    // Simula esattamente l'incidente: un giro incrementale (con syncToken, la
+    // finestra non è nemmeno mandabile a Google) che riceve un mix di
+    // occorrenze passate, vicine e lontanissime della stessa serie espansa.
+    await db
+      .update(googleAccounts)
+      .set({ calendarSyncToken: "tok-precedente" })
+      .where(eq(googleAccounts.id, account.id));
+
+    await pollGoogleOnce(
+      deps(await reload(account.id), fakeGmail({ listed: [] }), {
+        now: () => new Date("2026-09-09T00:00:00.000Z"),
+        calendar: fakeCalendarSequence([
+          {
+            events: [
+              calendarEvent({
+                id: "serie_2035",
+                startsAt: new Date("2035-09-10T09:00:00.000Z"),
+                recurringEventId: "serie",
+              }),
+              calendarEvent({
+                id: "serie_2026",
+                startsAt: new Date("2026-09-20T09:00:00.000Z"),
+                recurringEventId: "serie",
+              }),
+            ],
+            nextSyncToken: "tok-2",
+          },
+        ]),
+      }),
+    );
+
+    const rows = await calendarRows();
+    expect(rows.map((row) => row.googleEventId)).toEqual(["serie_2026"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fase 7b, Task 4: il poller propone SOLO se la serie è accesa, con
+// l'anticipo scelto — e mai più di una proposta alla volta per serie. Le
+// righe sono seminate DIRETTAMENTE (non attraverso `syncCalendar`): qui si
+// testa la fase di proposta in isolamento, non la sincronizzazione.
+// ---------------------------------------------------------------------------
+
+describe("fase 7b — una serie propone solo se accesa, e con l'anticipo scelto", () => {
+  const NOW = new Date("2026-09-09T00:00:00.000Z");
+
+  async function seedOccurrence(
+    accountId: string,
+    projectId: string,
+    overrides: Partial<typeof calendarEvents.$inferInsert> = {},
+  ): Promise<void> {
+    await db.insert(calendarEvents).values({
+      accountId,
+      googleEventId: `occ-${randomUUID()}`,
+      recurringEventId: "serie-1",
+      title: "Pianificazione task",
+      startsAt: NOW,
+      status: "confirmed",
+      projectId,
+      fingerprint: `f-${randomUUID()}`,
+      ...overrides,
+    });
+  }
+
+  it("serie MAI configurata: nessuna proposta, anche con un'occorrenza nella finestra", async () => {
+    const projectId = await seedProject("Acme");
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    await seedOccurrence(account.id, projectId, { startsAt: new Date("2026-09-10T00:00:00.000Z") });
+
+    const stats = await pollGoogleOnce(deps(account, fakeGmail({ listed: [] }), { now: () => NOW }));
+
+    expect(stats.proposed).toBe(0);
+    expect(await db.select().from(notifications)).toHaveLength(0);
+  });
+
+  it("serie SPENTA esplicitamente: nessuna proposta", async () => {
+    const projectId = await seedProject("Acme");
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    await db.insert(calendarSeries).values({
+      accountId: account.id,
+      recurringEventId: "serie-1",
+      enabled: false,
+      projectId,
+      leadDays: 2,
+    });
+    await seedOccurrence(account.id, projectId, { startsAt: new Date("2026-09-10T00:00:00.000Z") });
+
+    const stats = await pollGoogleOnce(deps(account, fakeGmail({ listed: [] }), { now: () => NOW }));
+
+    expect(stats.proposed).toBe(0);
+    expect(await db.select().from(notifications)).toHaveLength(0);
+  });
+
+  it("serie accesa, lead_days: 2 — niente a 5 giorni, proposta a 2", async () => {
+    const projectId = await seedProject("Acme");
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    await db.insert(calendarSeries).values({
+      accountId: account.id,
+      recurringEventId: "serie-1",
+      enabled: true,
+      projectId,
+      leadDays: 2,
+    });
+    await seedOccurrence(account.id, projectId, { startsAt: new Date("2026-09-14T00:00:00.000Z") }); // fra 5 giorni
+
+    const early = await pollGoogleOnce(deps(account, fakeGmail({ listed: [] }), { now: () => NOW }));
+    expect(early.proposed).toBe(0);
+
+    await db
+      .update(calendarEvents)
+      .set({ startsAt: new Date("2026-09-11T00:00:00.000Z") }) // fra 2 giorni
+      .where(eq(calendarEvents.accountId, account.id));
+    await db
+      .update(googleAccounts)
+      .set({ nextSyncAt: new Date(Date.now() - 60_000) })
+      .where(eq(googleAccounts.id, account.id));
+    const onTime = await pollGoogleOnce(deps(await reload(account.id), fakeGmail({ listed: [] }), { now: () => NOW }));
+    expect(onTime.proposed).toBe(1);
+  });
+
+  it("un'occorrenza già passata non propone, anche con la serie accesa", async () => {
+    const projectId = await seedProject("Acme");
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    await db.insert(calendarSeries).values({
+      accountId: account.id,
+      recurringEventId: "serie-1",
+      enabled: true,
+      projectId,
+      leadDays: 2,
+    });
+    await seedOccurrence(account.id, projectId, { startsAt: new Date("2026-09-08T00:00:00.000Z") }); // ieri
+
+    const stats = await pollGoogleOnce(deps(account, fakeGmail({ listed: [] }), { now: () => NOW }));
+
+    expect(stats.proposed).toBe(0);
+    expect(await db.select().from(notifications)).toHaveLength(0);
+  });
+
+  it("una serie accesa con 100 occorrenze future produce una proposta PER VOLTA, non 100 — la rete di sicurezza dell'incidente del 9 settembre 2026", async () => {
+    const projectId = await seedProject("Acme");
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    await db.insert(calendarSeries).values({
+      accountId: account.id,
+      recurringEventId: "serie-1",
+      enabled: true,
+      projectId,
+      leadDays: 30,
+    });
+    // 100 occorrenze, una al giorno per i prossimi 100 giorni: con
+    // lead_days: 30, circa 30 di queste sono "pronte" per la timing gate da
+    // sole — è ESATTAMENTE il caso che il dedup per tick e il NOT EXISTS
+    // sulle proposte aperte devono impedire di esplodere in massa.
+    await db.insert(calendarEvents).values(
+      Array.from({ length: 100 }, (_, i) => ({
+        accountId: account.id,
+        googleEventId: `occ-${i}`,
+        recurringEventId: "serie-1",
+        title: "Pianificazione task",
+        startsAt: new Date(NOW.getTime() + (i + 1) * 24 * 60 * 60 * 1000),
+        status: "confirmed" as const,
+        projectId,
+        fingerprint: `f-${i}`,
+      })),
+    );
+
+    const first = await pollGoogleOnce(deps(account, fakeGmail({ listed: [] }), { now: () => NOW }));
+    expect(first.proposed).toBe(1);
+    expect(await db.select().from(notifications)).toHaveLength(1);
+
+    // Un secondo giro, senza che nessuno abbia risposto alla proposta: resta
+    // aperta, quindi il NOT EXISTS blocca ANCHE la prossima occorrenza pronta.
+    await db
+      .update(googleAccounts)
+      .set({ nextSyncAt: new Date(Date.now() - 60_000) })
+      .where(eq(googleAccounts.id, account.id));
+    const second = await pollGoogleOnce(deps(await reload(account.id), fakeGmail({ listed: [] }), { now: () => NOW }));
+    expect(second.proposed).toBe(0);
+    expect(await db.select().from(notifications)).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fase 7b, Task 5: le tre azioni di una serie, e il percorso `auto`.
+// ---------------------------------------------------------------------------
+
+describe("fase 7b — voce di backlog, milestone o promemoria, proposte o automatiche", () => {
+  const NOW = new Date("2026-09-09T00:00:00.000Z");
+
+  async function seedOccurrence(
+    accountId: string,
+    projectId: string,
+    overrides: Partial<typeof calendarEvents.$inferInsert> = {},
+  ): Promise<void> {
+    await db.insert(calendarEvents).values({
+      accountId,
+      googleEventId: `occ-${randomUUID()}`,
+      recurringEventId: "serie-1",
+      title: "Pianificazione task",
+      startsAt: new Date("2026-09-11T00:00:00.000Z"), // fra 2 giorni
+      status: "confirmed",
+      projectId,
+      fingerprint: `f-${randomUUID()}`,
+      ...overrides,
+    });
+  }
+
+  it("action: backlog_item, proposta (non auto) — la card propone, non crea nulla da sola", async () => {
+    const projectId = await seedProject("Acme");
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    await db
+      .insert(calendarSeries)
+      .values({ accountId: account.id, recurringEventId: "serie-1", enabled: true, projectId, action: "backlog_item", leadDays: 2, auto: false });
+    await seedOccurrence(account.id, projectId);
+
+    const stats = await pollGoogleOnce(deps(account, fakeGmail({ listed: [] }), { now: () => NOW }));
+
+    expect(stats.proposed).toBe(1);
+    expect(await db.select().from(backlogItems)).toHaveLength(0);
+    const [notif] = await db.select().from(notifications);
+    expect(notif!.status).toBe("open");
+    expect((notif!.event as { actions: { type: string }[] }).actions[0]!.type).toBe("create_backlog_item");
+  });
+
+  it("action: reminder, proposta (non auto) — la card È il promemoria", async () => {
+    const projectId = await seedProject("Acme");
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    await db
+      .insert(calendarSeries)
+      .values({ accountId: account.id, recurringEventId: "serie-1", enabled: true, projectId, action: "reminder", leadDays: 2, auto: false });
+    await seedOccurrence(account.id, projectId);
+
+    const stats = await pollGoogleOnce(deps(account, fakeGmail({ listed: [] }), { now: () => NOW }));
+
+    expect(stats.proposed).toBe(1);
+    const [notif] = await db.select().from(notifications);
+    expect((notif!.event as { actions: { type: string }[] }).actions[0]!.type).toBe("acknowledge_reminder");
+  });
+
+  it("auto: true, action: milestone — crea l'oggetto SENZA chiedere e lo rende visibile (notifica già 'handled')", async () => {
+    const projectId = await seedProject("Acme");
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    await db
+      .insert(calendarSeries)
+      .values({ accountId: account.id, recurringEventId: "serie-1", enabled: true, projectId, action: "milestone", leadDays: 2, auto: true });
+    await seedOccurrence(account.id, projectId);
+
+    const stats = await pollGoogleOnce(deps(account, fakeGmail({ listed: [] }), { now: () => NOW }));
+
+    expect(stats.proposed).toBe(1);
+    // L'oggetto esiste già, senza nessun tap.
+    const createdMilestones = await db.select().from(milestones);
+    expect(createdMilestones).toHaveLength(1);
+    expect(createdMilestones[0]!.name).toContain("Pianificazione task");
+    // La riga di calendario porta già l'esito.
+    const [row] = await calendarRows();
+    expect(row!.outcome).toMatchObject({ type: "milestone" });
+    // La notifica è visibile ma GIÀ gestita: nessun tap può rieseguire nulla
+    // (answerGoogleProposal risponde `proposal_stale` a una non `open`, vedi
+    // `apps/server/src/services/google-proposal.ts`).
+    const [notif] = await db.select().from(notifications);
+    expect(notif!.status).toBe("handled");
+    expect(notif!.handledAt).not.toBeNull();
+    expect((notif!.event as { auto?: boolean }).auto).toBe(true);
+  });
+
+  it("auto: true, action: backlog_item — crea la voce di backlog senza chiedere, MAI un job AI", async () => {
+    const projectId = await seedProject("Acme");
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    await db
+      .insert(calendarSeries)
+      .values({ accountId: account.id, recurringEventId: "serie-1", enabled: true, projectId, action: "backlog_item", leadDays: 2, auto: true });
+    await seedOccurrence(account.id, projectId);
+
+    await pollGoogleOnce(deps(account, fakeGmail({ listed: [] }), { now: () => NOW }));
+
+    const created = await db.select().from(backlogItems);
+    expect(created).toHaveLength(1);
+    expect(created[0]!.source).toBe("manual");
+    const [notif] = await db.select().from(notifications);
+    expect(notif!.status).toBe("handled");
+  });
+
+  it("il percorso `auto` non fa MAI partire un job AI — rete di sicurezza esplicita, per tutte e tre le azioni", async () => {
+    const projectId = await seedProject("Acme");
+    for (const action of ["backlog_item", "milestone", "reminder"] as const) {
+      const account = await seedAccount({
+        email: `mailbox-${randomUUID()}@acme.com`,
+        nextSyncAt: new Date(Date.now() - 60_000),
+      });
+      await db
+        .insert(calendarSeries)
+        .values({ accountId: account.id, recurringEventId: "serie-1", enabled: true, projectId, action, leadDays: 2, auto: true });
+      await seedOccurrence(account.id, projectId);
+
+      await pollGoogleOnce(deps(account, fakeGmail({ listed: [] }), { now: () => NOW }));
+    }
+
+    expect(await db.select().from(aiJobs)).toHaveLength(0);
+    expect(await db.select().from(backlogJobs)).toHaveLength(0);
   });
 });

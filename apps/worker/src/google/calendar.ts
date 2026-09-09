@@ -237,17 +237,143 @@ export function buildMilestoneProposal(
  * L'equivalente SQL, per chi scriverà quella query:
  * `where status is distinct from 'cancelled' and project_id is not null
  *  and proposal_notification_id is null and outcome is null`.
+ *
+ * ## Fase 7b (Task 4): un'occorrenza di SERIE ha un cancello in PIÙ
+ *
+ * Un evento SINGOLO (`recurringEventId: null`, la maggioranza) non cambia:
+ * il comportamento sopra resta identico. Un'occorrenza di una SERIE, invece,
+ * non è mai pronta a meno che:
+ *
+ *  - la serie sia CONFIGURATA e ACCESA (`seriesContext.series !== null &&
+ *    series.enabled`) — il default è spenta (design fase 7b §4: "una serie
+ *    non produce nulla finché non la si accende"), quindi una serie mai
+ *    configurata non è mai pronta, MAI un caso limite da gestire a parte;
+ *  - l'occorrenza sia nella finestra di anticipo della serie:
+ *    `now <= startsAt <= now + leadDays giorni`. Un'occorrenza già passata
+ *    non propone (il tap non avrebbe senso), una lontana aspetta il suo giro.
+ *
+ * ⚠️ **"Una proposta alla volta per serie" — la rete di sicurezza
+ * dell'incidente del 9 settembre 2026 — NON è un terzo cancello qui
+ * dentro.** Sono DUE strati, entrambi nel propose phase del poller
+ * (`apps/worker/src/google/poller.ts`), non in questa funzione: il `NOT
+ * EXISTS` nella `WHERE` della query (nessun'altra occorrenza della stessa
+ * serie ha già `proposal_notification_id` valorizzato) copre FRA i tick, il
+ * dedup per-tick (un `Set` di `recurringEventId` già tentati in questo
+ * giro) copre DENTRO lo stesso tick — necessario perché righe lette prima
+ * che la prima pubblicazione scrivesse `proposal_notification_id` il `NOT
+ * EXISTS` non poteva ancora vederle. Una versione precedente di questo
+ * file dichiarava un terzo strato qui (`hasOpenSeriesProposal`) che nessun
+ * chiamante di produzione valorizzava mai a `true`: wirarlo per davvero
+ * avrebbe richiesto ri-fare la stessa query `NOT EXISTS` una volta per
+ * riga candidata (N query invece di una — l'esatto pattern che questo
+ * codebase evita altrove, vedi il commento su `known`/`sameFingerprint` in
+ * `syncCalendar`), quindi è stato tolto invece di far finta di difendere
+ * quello che i due strati veri già difendono.
  */
-export function isReadyForProposal(row: {
-  status: string | null;
+export interface CalendarSeriesConfig {
+  enabled: boolean;
+  leadDays: number;
+  /**
+   * Fase 7b (Task 5): CHE azione la serie propone — `isReadyForProposal` non
+   * la legge (il cancello di timing non dipende da cosa si propone), ma
+   * viaggia nello stesso oggetto perché chi legge il contesto di una serie
+   * (il propose phase) ne ha sempre bisogno insieme al resto, in un solo
+   * LEFT JOIN.
+   */
+  action: "backlog_item" | "milestone" | "reminder";
+  /** `false` = propone e aspetta un tap; `true` = esegue e lo rende visibile. MAI un job AI. */
+  auto: boolean;
+  /**
+   * Il progetto FISSATO all'attivazione della serie (design §4). Fix di
+   * review: prima di questo campo, il propose phase e l'esecuzione
+   * automatica usavano `calendar_events.project_id` — il progetto
+   * RI-DEDOTTO dal routing su QUESTA occorrenza — anche per un'occorrenza
+   * di serie, contraddicendo il design alla lettera. Il caso grave non era
+   * la serie che diventa inerte (routing che non risolve più → innocuo):
+   * era il routing che risolve un progetto DIVERSO da quello scelto in UI,
+   * con l'azione creata lì — e con `auto: true`, senza che nessuno la
+   * vedesse prima. `null` qui non dovrebbe succedere per una serie
+   * `enabled: true` (il PUT lo impedisce), ma `resolveCalendarProjectId`
+   * lo tratta comunque come "non pronta", mai come "usa l'altro".
+   */
   projectId: string | null;
-  proposalNotificationId: string | null;
-  outcome: Record<string, unknown> | null;
-}): boolean {
-  return (
-    row.status !== "cancelled" &&
-    row.projectId !== null &&
-    row.proposalNotificationId === null &&
-    row.outcome === null
-  );
+}
+
+/** Il contesto che SOLO un'occorrenza di serie consulta — ignorato per un evento singolo. */
+export interface CalendarSeriesProposalContext {
+  now: Date;
+  /** `null` = serie mai configurata, equivalente a "spenta" per `isReadyForProposal`. */
+  series: CalendarSeriesConfig | null;
+}
+
+/** Il minimo di riga su cui {@link resolveCalendarProjectId} e {@link isReadyForProposal} operano. */
+interface CalendarProjectRow {
+  projectId: string | null;
+  recurringEventId?: string | null;
+}
+
+/**
+ * IL progetto di un'occorrenza — un solo punto per una domanda che
+ * `isReadyForProposal`, `buildCalendarProposalEvent`
+ * (`apps/worker/src/google/proposal.ts`) e l'esecuzione automatica del
+ * poller devono rispondere ALLO STESSO MODO: fix di review, prima
+ * rispondevano in tre modi leggermente diversi (o meglio, solo questa
+ * funzione non esisteva e tutti e tre leggevano `row.projectId` — il bug).
+ *
+ * Un evento SINGOLO (nessuna serie) usa il progetto ri-dedotto dal routing
+ * su quella riga — invariato, è la maggioranza degli appuntamenti.
+ * Un'occorrenza di una serie CONFIGURATA e ACCESA usa il progetto FISSATO
+ * sulla serie, MAI quello della riga: è la lettera del design §4, "il
+ * progetto si fissa, non si ri-deduce". Una serie non configurata o spenta
+ * non ha un progetto qui — `null`, mai un fallback sul routing dell'
+ * occorrenza, che sarebbe esattamente il bug corretto da questa funzione.
+ */
+export function resolveCalendarProjectId(
+  row: CalendarProjectRow,
+  seriesContext?: CalendarSeriesProposalContext,
+): string | null {
+  const recurringEventId = row.recurringEventId ?? null;
+  if (recurringEventId === null) return row.projectId;
+  const series = seriesContext?.series;
+  if (!series || !series.enabled) return null;
+  return series.projectId;
+}
+
+export function isReadyForProposal(
+  row: {
+    status: string | null;
+    projectId: string | null;
+    proposalNotificationId: string | null;
+    outcome: Record<string, unknown> | null;
+    /** Assente o `null` = evento singolo: il cancello di serie qui sotto non si applica. */
+    recurringEventId?: string | null;
+    /** Necessario SOLO per un'occorrenza di serie (vedi sopra). */
+    startsAt?: Date | null;
+  },
+  seriesContext?: CalendarSeriesProposalContext,
+): boolean {
+  const baseReady =
+    row.status !== "cancelled" && row.proposalNotificationId === null && row.outcome === null;
+  if (!baseReady) return false;
+
+  // Il progetto CERTO — mai `row.projectId` da solo: per un'occorrenza di
+  // serie è `resolveCalendarProjectId` a decidere fra il routing e il
+  // fissato, mai un OR fra i due (vedi il docblock della funzione).
+  if (resolveCalendarProjectId(row, seriesContext) === null) return false;
+
+  const recurringEventId = row.recurringEventId ?? null;
+  if (recurringEventId === null) return true;
+
+  // `resolveCalendarProjectId` sopra è già tornato non-null, quindi la serie
+  // è per costruzione configurata e accesa: `context.series` non è `null`.
+  // "Una proposta alla volta per serie" NON è un cancello qui: vive nel
+  // propose phase del poller (NOT EXISTS in SQL + dedup per-tick), vedi il
+  // docblock sopra.
+  const context = seriesContext ?? { now: new Date(), series: null };
+  const series = context.series!;
+  if (!row.startsAt) return false;
+
+  const leadMs = series.leadDays * 24 * 60 * 60 * 1000;
+  const delta = row.startsAt.getTime() - context.now.getTime();
+  return delta >= 0 && delta <= leadMs;
 }

@@ -20,6 +20,8 @@ import {
   backlogItemQueryOptions,
   automationSettingsQueryOptions,
   boardTicketsQueryOptions,
+  calendarEventsQueryOptions,
+  calendarSeriesQueryOptions,
   commentsQueryOptions,
   docPageQueryOptions,
   docSpacesQueryOptions,
@@ -73,7 +75,9 @@ import { DocsGraphView } from "./routes/docs/graph.$projectId";
 import { DocsPage } from "./routes/docs/index";
 import { ProjectDocsLanding } from "./routes/docs/project.$projectId";
 import { InboxPage } from "./routes/inbox";
+import { CalendarPage } from "./routes/calendar";
 import { MailPage } from "./routes/mail";
+import { MailDetailPage } from "./routes/mail.$source.$id";
 import { LoginPage } from "./routes/login";
 import { MonitorListPage } from "./routes/monitor/index";
 import { ServerDetailPage } from "./routes/monitor/server-detail";
@@ -654,6 +658,39 @@ const mailRoute = createRoute({
 });
 
 /**
+ * Sezione Calendario (fase 7b, Task 9): le serie ricorrenti riconosciute (con
+ * la loro configurazione, spente di default) e gli appuntamenti visti —
+ * l'equivalente della pagina Posta per il calendario, che finora non aveva
+ * nessuna superficie (design §1). `myGoogleAccounts` e `projects` alimentano
+ * il filtro casella e il picker di progetto del form di serie.
+ */
+const calendarRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/calendar",
+  loader: async ({ context }) => {
+    await Promise.all([
+      context.queryClient.ensureQueryData(calendarEventsQueryOptions({})).catch(() => undefined),
+      context.queryClient.ensureQueryData(calendarSeriesQueryOptions()).catch(() => undefined),
+      context.queryClient.ensureQueryData(projectsQueryOptions),
+      context.queryClient.ensureQueryData(myGoogleAccountsQueryOptions),
+    ]);
+  },
+  component: CalendarPage,
+});
+
+/**
+ * Dettaglio di un'email (fase 7b, Task 8): l'estratto già in database, senza
+ * prefetch nel loader — a differenza della lista, il dettaglio non serve
+ * finché non si clicca una riga, e prefetchare ogni riga della lista
+ * sarebbe N chiamate per una pagina che ne mostra una sola.
+ */
+const mailDetailRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/mail/$source/$id",
+  component: MailDetailPage,
+});
+
+/**
  * Sezione Attività (standup giornaliero), visibile a ogni membro. Prefetch
  * best-effort del report di IERI (default del componente): la data vive nello
  * stato del componente, quindi il loader può solo precaricare il default; il
@@ -895,6 +932,8 @@ const routeTree = rootRoute.addChildren([
     activityRoute,
     inboxRoute,
     mailRoute,
+    mailDetailRoute,
+    calendarRoute,
     teamRoute,
     settingsRoute.addChildren([
       settingsIndexRoute,

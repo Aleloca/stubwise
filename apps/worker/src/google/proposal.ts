@@ -12,7 +12,14 @@ import { publishNotification, type GoogleProposalAction, type GoogleProposalEven
 import { ticketPrioritySchema, ticketStatusSchema } from "@stubwise/shared";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
-import { buildMilestoneProposal, isReadyForProposal, isoDay } from "./calendar.js";
+import {
+  buildMilestoneProposal,
+  isReadyForProposal,
+  isoDay,
+  resolveCalendarProjectId,
+  type CalendarMilestoneProposal,
+  type CalendarSeriesProposalContext,
+} from "./calendar.js";
 import { EMAIL_PROPOSAL_TYPES, EMAIL_SIGNALS } from "./classify.js";
 
 /**
@@ -226,6 +233,8 @@ function assembleEvent(args: {
   question: string;
   options: OptionWithAction[];
   recommendedIndex: number;
+  /** Fase 7b: `true` per una serie `auto: true` — l'azione è già eseguita. */
+  auto?: boolean;
 }): GoogleProposalEvent {
   return {
     kind: "google.proposal",
@@ -246,6 +255,7 @@ function assembleEvent(args: {
     actions: args.options.map((option) => option.action),
     recommendedIndex: args.recommendedIndex,
     allowFreeText: false,
+    ...(args.auto ? { auto: true } : {}),
   };
 }
 
@@ -499,6 +509,8 @@ export interface CalendarProposalRow {
   projectId: string | null;
   proposalNotificationId: string | null;
   outcome: Record<string, unknown> | null;
+  /** Fase 7b: `null` per un evento singolo, l'id della serie altrimenti. */
+  recurringEventId: string | null;
 }
 
 export interface BuildCalendarProposalArgs {
@@ -507,6 +519,14 @@ export interface BuildCalendarProposalArgs {
   mailboxEmail: string;
   projectNames: Map<string, string>;
   proposalId?: string;
+  /**
+   * Fase 7b: il contesto di serie per il cancello di {@link isReadyForProposal}
+   * — SOLO per un'occorrenza di serie (`event.recurringEventId !== null`),
+   * ignorato altrimenti. Assente = trattata come serie non configurata
+   * (spenta): un chiamante che dimentica di passarlo per un'occorrenza di
+   * serie ottiene `null` qui, non una proposta silenziosamente sbagliata.
+   */
+  seriesContext?: CalendarSeriesProposalContext;
 }
 
 /**
@@ -522,19 +542,65 @@ export interface BuildCalendarProposalArgs {
  * nella `where` di chi legge: è il contratto fra la fase 3 e questa, e un
  * chiamante nuovo non deve poterlo aggirare scrivendosi una query sua.
  */
+/**
+ * L'UNICA opzione di una proposta di calendario, secondo l'azione configurata
+ * sulla serie (design fase 7b §4). Un evento SINGOLO (nessuna serie) non ha
+ * mai un'azione diversa da `"milestone"`: è il comportamento storico,
+ * invariato — {@link buildCalendarProposalEvent} lo passa di default.
+ */
+function calendarPrimaryOption(
+  lang: Language,
+  seriesAction: "backlog_item" | "milestone" | "reminder",
+  args: { projectId: string; projectName: string; milestone: CalendarMilestoneProposal },
+): OptionWithAction {
+  const { projectId, projectName, milestone } = args;
+  if (seriesAction === "backlog_item") {
+    return {
+      label: t(lang, "email.proposal.createBacklogItem", { title: milestone.name }),
+      consequence: t(lang, "email.proposal.calendarBacklogConsequence", { project: projectName }),
+      action: { type: "create_backlog_item", projectId, title: milestone.name },
+    };
+  }
+  if (seriesAction === "reminder") {
+    return {
+      label: t(lang, "email.proposal.calendarReminder"),
+      consequence: t(lang, "email.proposal.calendarReminderConsequence"),
+      action: { type: "acknowledge_reminder" },
+    };
+  }
+  return {
+    label: t(lang, "email.proposal.createMilestone", { name: milestone.name }),
+    consequence: t(lang, "email.proposal.calendarConsequence", { date: milestone.dueDate, project: projectName }),
+    action: { type: "create_milestone", projectId, name: milestone.name, dueDate: milestone.dueDate },
+  };
+}
+
 export function buildCalendarProposalEvent(
   args: BuildCalendarProposalArgs,
 ): GoogleProposalEvent | null {
   const { lang, event } = args;
-  if (!isReadyForProposal(event)) return null;
+  if (!isReadyForProposal(event, args.seriesContext)) return null;
   const milestone = buildMilestoneProposal(lang, event);
   if (!milestone) return null;
-  // `isReadyForProposal` garantisce già che ci sia; la const lo dice anche al
-  // compilatore, che quel cancello non lo sa leggere.
-  const projectId = event.projectId;
+  // Fix di review: MAI `event.projectId` da solo — per un'occorrenza di
+  // serie è il progetto FISSATO sulla serie, non quello ri-dedotto dal
+  // routing su questa riga (vedi `resolveCalendarProjectId`, lo stesso
+  // calcolo che `isReadyForProposal` ha già fatto per il cancello: qui va
+  // ripetuto perché la card deve sapere QUALE progetto, non solo che uno
+  // c'è).
+  const projectId = resolveCalendarProjectId(event, args.seriesContext);
   if (!projectId) return null;
   const projectName = args.projectNames.get(projectId);
   if (!projectName) return null;
+
+  // Fase 7b (Task 5): un evento SINGOLO (nessuna serie, `seriesContext`
+  // assente) resta sul comportamento storico — sempre "milestone". Solo
+  // un'occorrenza di serie CONFIGURATA sceglie l'azione: a questo punto
+  // `isReadyForProposal` garantisce già che la serie sia accesa, quindi
+  // `series` non è `null`.
+  const series = args.seriesContext?.series;
+  const seriesAction = series?.action ?? "milestone";
+  const auto = series?.auto ?? false;
 
   const subject = (event.title ?? "").trim();
   return assembleEvent({
@@ -547,24 +613,15 @@ export function buildCalendarProposalEvent(
     from: event.organizer ?? args.mailboxEmail,
     subject,
     receivedAt: event.startsAt,
-    question: t(lang, "email.proposal.calendarQuestion", { subject, date: milestone.dueDate }),
-    options: [
-      {
-        label: t(lang, "email.proposal.createMilestone", { name: milestone.name }),
-        consequence: t(lang, "email.proposal.calendarConsequence", {
-          date: milestone.dueDate,
-          project: projectName,
-        }),
-        action: {
-          type: "create_milestone",
-          projectId,
-          name: milestone.name,
-          dueDate: milestone.dueDate,
-        },
-      },
-      ignoreOption(lang),
-    ],
+    // Fase 7b: se la serie è `auto`, l'azione è GIÀ eseguita (il chiamante la
+    // esegue subito dopo la publish, vedi il poller) — la card lo AFFERMA,
+    // non lo chiede.
+    question: auto
+      ? t(lang, "email.proposal.calendarAutoQuestion", { subject, date: milestone.dueDate })
+      : t(lang, "email.proposal.calendarQuestion", { subject, date: milestone.dueDate }),
+    options: [calendarPrimaryOption(lang, seriesAction, { projectId, projectName, milestone }), ignoreOption(lang)],
     recommendedIndex: 0,
+    auto,
   });
 }
 

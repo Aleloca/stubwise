@@ -1,5 +1,6 @@
 import {
   calendarEvents as calendarEventsTable,
+  calendarSeries as calendarSeriesTable,
   emailMessages,
   emailProposals,
   googleAccounts,
@@ -39,7 +40,6 @@ import {
   asc,
   eq,
   inArray,
-  isNotNull,
   isNull,
   ne,
   notExists,
@@ -61,8 +61,11 @@ import {
   isCancelled,
   isSyncTokenExpired,
   normalizeStatus,
+  resolveCalendarProjectId,
   routeEvent,
+  type CalendarSeriesProposalContext,
 } from "./calendar.js";
+import { executeAutoCalendarAction } from "./calendar-auto.js";
 import {
   classifyNewMessages,
   DEFAULT_CLASSIFY_MAX_PER_TICK,
@@ -1042,6 +1045,20 @@ async function syncCalendar(
 
   const lang = deps.lang ?? (await getContentLanguage(deps.db));
 
+  // La finestra dei 60 giorni vale anche IN SCRITTURA, non solo per comporre
+  // la richiesta a Google. `calendarWindow` serve altrimenti SOLO a
+  // {@link collectCalendarEvents} per il resync per finestra: con un
+  // `syncToken` la finestra non si può nemmeno mandare a Google (l'API la
+  // rifiuterebbe, vedi il docblock di `listEvents`), quindi un giro
+  // incrementale riceve TUTTO ciò che è cambiato — comprese occorrenze fra
+  // cinque anni di una serie ricorrente espansa da Google. Questo è l'UNICO
+  // punto in cui la finestra esiste per lo scopo: senza, un solo appuntamento
+  // ricorrente può produrre centinaia di righe candidate a una proposta — è il
+  // difetto che da solo ha causato 728 delle 730 notifiche del 9 settembre
+  // 2026 (design fase 7b §5a).
+  const now = deps.now ?? (() => new Date());
+  const { timeMin, timeMax } = calendarWindow(now());
+
   // Un evento può comparire più volte in un resync paginato: vince l'ultima
   // versione letta, che è anche la più recente. `startsAt` viaggia a parte
   // perché qui è garantito non nullo e il tipo di Google non lo sa.
@@ -1050,6 +1067,7 @@ async function syncCalendar(
     if (isCancelled(event)) continue;
     const startsAt = event.startsAt;
     if (!startsAt) continue;
+    if (startsAt < timeMin || startsAt > timeMax) continue;
     if (!buildMilestoneProposal(lang, event)) continue;
     if (!routeEvent(event, ctx.routes).inScope) continue;
     live.set(event.id, { event, startsAt, fingerprint: computeFingerprint(event.title, startsAt) });
@@ -1108,6 +1126,7 @@ async function syncCalendar(
       organizer: event.organizer,
       status: normalizeStatus(event.status),
       fingerprint,
+      recurringEventId: event.recurringEventId,
     };
 
     const existing = byEventId.get(event.id);
@@ -1275,7 +1294,24 @@ async function runProposePhase(
       .limit(limit);
 
     // --- Calendario: la `where` è, alla lettera, il contratto documentato su
-    // `isReadyForProposal` (che `buildCalendarProposalEvent` riapplica).
+    // `isReadyForProposal` (che `buildCalendarProposalEvent` riapplica) PER
+    // IL TIMING E IL PROGETTO. "Una proposta alla volta per serie" invece
+    // vive SOLO qui (il NOT EXISTS sotto) e nel dedup per-tick del loop più
+    // in basso — `isReadyForProposal` non la riverifica: wirare un terzo
+    // strato lì avrebbe richiesto ri-fare questa stessa query una volta per
+    // riga candidata (N query invece di una), quindi non esiste — vedi il
+    // docblock di `CalendarSeriesProposalContext` in `calendar.ts`.
+    //
+    // Fase 7b (Task 4): un evento SINGOLO (`recurring_event_id is null`) resta
+    // eleggibile come prima; un'occorrenza di SERIE lo è SOLO se la serie è
+    // accesa (`calendar_series`, LEFT JOIN — nessuna riga = mai eleggibile),
+    // è nella finestra di anticipo (`now` .. `now + lead_days`), e NESSUN'ALTRA
+    // occorrenza della stessa serie ha già una proposta APERTA: è la rete di
+    // sicurezza dell'incidente del 9 settembre 2026. Il dedup PER TICK (una
+    // sola occorrenza per serie anche quando più di una passa questo filtro
+    // nella stessa query) è nel loop sotto, non qui: la `where` da sola non
+    // può saperlo finché non si comincia a pubblicare.
+    const now = deps.now ? deps.now() : new Date();
     const events = await deps.db
       .select({
         id: calendarEventsTable.id,
@@ -1286,15 +1322,55 @@ async function runProposePhase(
         projectId: calendarEventsTable.projectId,
         proposalNotificationId: calendarEventsTable.proposalNotificationId,
         outcome: calendarEventsTable.outcome,
+        recurringEventId: calendarEventsTable.recurringEventId,
+        seriesEnabled: calendarSeriesTable.enabled,
+        seriesLeadDays: calendarSeriesTable.leadDays,
+        seriesAction: calendarSeriesTable.action,
+        seriesAuto: calendarSeriesTable.auto,
+        seriesProjectId: calendarSeriesTable.projectId,
       })
       .from(calendarEventsTable)
+      .leftJoin(
+        calendarSeriesTable,
+        and(
+          eq(calendarSeriesTable.accountId, calendarEventsTable.accountId),
+          eq(calendarSeriesTable.recurringEventId, calendarEventsTable.recurringEventId),
+        ),
+      )
       .where(
         and(
           eq(calendarEventsTable.accountId, account.id),
           sql`${calendarEventsTable.status} is distinct from 'cancelled'`,
-          isNotNull(calendarEventsTable.projectId),
           isNull(calendarEventsTable.proposalNotificationId),
           isNull(calendarEventsTable.outcome),
+          // Fix di review: il progetto CERTO è quello ri-dedotto dal routing
+          // SOLO per un evento singolo (prima riga), quello FISSATO sulla
+          // serie SOLO per un'occorrenza che ne appartiene una (seconda
+          // riga) — mai l'uno per l'altro. Stessa regola di
+          // `resolveCalendarProjectId` in `calendar.ts`, ripetuta qui in SQL
+          // per non selezionare righe che quella funzione scarterebbe
+          // comunque: prima di questo la riga passava con
+          // `calendar_events.project_id` anche per un'occorrenza di serie,
+          // che poteva essere un progetto DIVERSO da quello scelto in UI.
+          sql`(
+            (${calendarEventsTable.recurringEventId} is null and ${calendarEventsTable.projectId} is not null)
+            or (${calendarEventsTable.recurringEventId} is not null and ${calendarSeriesTable.projectId} is not null)
+          )`,
+          sql`(
+            ${calendarEventsTable.recurringEventId} is null
+            or (
+              ${calendarSeriesTable.enabled} is true
+              and ${calendarEventsTable.startsAt} >= ${now.toISOString()}::timestamptz
+              and ${calendarEventsTable.startsAt} <= ${now.toISOString()}::timestamptz + (${calendarSeriesTable.leadDays}::text || ' days')::interval
+              and not exists (
+                select 1 from calendar_events sibling
+                where sibling.account_id = ${calendarEventsTable.accountId}
+                  and sibling.recurring_event_id = ${calendarEventsTable.recurringEventId}
+                  and sibling.proposal_notification_id is not null
+                  and sibling.outcome is null
+              )
+            )
+          )`,
         ),
       )
       .orderBy(asc(calendarEventsTable.startsAt), asc(calendarEventsTable.id))
@@ -1394,13 +1470,51 @@ async function runProposePhase(
       }
     }
 
+    // Fase 7b (Task 4): dedup PER TICK — al massimo UN'occorrenza per serie è
+    // TENTATA in questo giro, anche se la query sopra ne ha lasciate passare
+    // altre (righe già lette prima che la prima pubblicazione scrivesse
+    // `proposal_notification_id`, quindi il `NOT EXISTS` della query non
+    // poteva ancora vederle). È il secondo strato della stessa rete di
+    // sicurezza: una serie con cento occorrenze pronte in un solo giro produce
+    // comunque UNA proposta, mai cento.
+    const seriesAttemptedThisTick = new Set<string>();
+
     for (const row of events) {
       if (deps.signal?.aborted) return published;
+      const recurringEventId = row.recurringEventId;
+      if (recurringEventId !== null && seriesAttemptedThisTick.has(recurringEventId)) continue;
+
+      const seriesContext: CalendarSeriesProposalContext | undefined =
+        recurringEventId === null
+          ? undefined
+          : {
+              now,
+              series:
+                row.seriesEnabled === null
+                  ? null
+                  : {
+                      enabled: row.seriesEnabled,
+                      leadDays: row.seriesLeadDays!,
+                      action: row.seriesAction!,
+                      auto: row.seriesAuto!,
+                      projectId: row.seriesProjectId,
+                    },
+            };
+      if (recurringEventId !== null) seriesAttemptedThisTick.add(recurringEventId);
+
+      // Fix di review: IL progetto di questa riga — il fissato sulla serie
+      // per un'occorrenza che ne appartiene una, il ri-dedotto dal routing
+      // altrimenti. Usato SEMPRE da qui in poi, mai più `row.projectId` da
+      // solo (era il bug: l'azione automatica nasceva sul progetto ri-dedotto
+      // anche per una serie, che poteva essere diverso da quello scelto in UI).
+      const effectiveProjectId = resolveCalendarProjectId(row, seriesContext);
+
       const event = buildCalendarProposalEvent({
         lang,
         event: row,
         mailboxEmail: account.email,
         projectNames,
+        ...(seriesContext ? { seriesContext } : {}),
       });
       if (!event) continue;
       const result = await publishProposal(deps.db, {
@@ -1408,7 +1522,7 @@ async function runProposePhase(
         source: "calendar",
         rowId: row.id,
         mailboxOwnerUserId: account.userId,
-        ...(row.projectId ? { projectId: row.projectId } : {}),
+        ...(effectiveProjectId ? { projectId: effectiveProjectId } : {}),
         ...(deps.publish !== undefined ? { publish: deps.publish } : {}),
       });
       if (result.ok) published += 1;
@@ -1416,6 +1530,45 @@ async function runProposePhase(
         logger.warn(
           `google: proposta non pubblicata per l'evento ${row.id} (${result.reason})`,
         );
+      }
+
+      // Fase 7b (Task 5): la serie `auto: true` esegue SUBITO dopo la
+      // publish, mai prima — costruire ed eventualmente scartare l'evento
+      // (allineamento, progetto risolto…) resta lo stesso identico percorso
+      // di una proposta manuale; solo qui, con la card già pubblicata,
+      // l'azione parte senza aspettare un tap e la notifica si marca
+      // `handled` all'istante, così la card resta visibile (chi ha la
+      // casella deve sapere cosa è stato fatto a suo nome) ma non è più
+      // rispondibile: un tap tardivo su una notifica non `open` è già
+      // `already_handled` in `answerGoogleProposal`, quindi non può mai
+      // ESEGUIRE una seconda volta ciò che qui è già stato fatto.
+      //
+      // Fix di review (Task 2): creazione + i due UPDATE nella STESSA
+      // transazione. Senza, un crash del worker in mezzo lascia l'oggetto
+      // creato con `outcome` ancora nullo — un tap tardivo, o il prossimo
+      // tick, lo rieseguirebbe (per `backlog_item`, una seconda voce).
+      if (result.ok && seriesContext?.series?.auto === true && effectiveProjectId) {
+        const milestone = buildMilestoneProposal(lang, row);
+        if (milestone) {
+          const action = seriesContext.series.action;
+          const notificationId = result.notificationId;
+          await deps.db.transaction(async (tx) => {
+            const outcome = await executeAutoCalendarAction(tx, {
+              action,
+              projectId: effectiveProjectId,
+              name: milestone.name,
+              dueDate: milestone.dueDate,
+            });
+            await tx
+              .update(calendarEventsTable)
+              .set({ outcome })
+              .where(and(eq(calendarEventsTable.id, row.id), isNull(calendarEventsTable.outcome)));
+            await tx
+              .update(notifications)
+              .set({ status: "handled", handledAt: new Date() })
+              .where(and(eq(notifications.id, notificationId), eq(notifications.status, "open")));
+          });
+        }
       }
     }
 

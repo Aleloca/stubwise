@@ -35,6 +35,16 @@ export const NAMESPACES = [
   "search",
   "widget",
   "activity",
+  // Mancava da questo array (bug preesistente, scoperto in fase 7b, Task 8):
+  // "mail" ha sempre avuto le sue chiavi risolte comunque, perché
+  // `i18n.init` con `resources` inline carica ogni bundle di risorsa a
+  // prescindere da questo array — ma `hasResourceBundle` (e la registrazione
+  // "ufficiale" del namespace) dipendono da `ns`, quindi l'omissione era
+  // comunque un difetto, non solo cosmetico. "calendar" (fase 7b, Task 9) si
+  // aggiunge qui FIN DALL'INIZIO, non dopo: è la trappola che questa
+  // correzione stessa dimostra.
+  "mail",
+  "calendar",
 ] as const;
 
 /**

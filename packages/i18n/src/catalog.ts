@@ -373,6 +373,10 @@ export const en: Catalog = {
     "{from} wrote about “{subject}”: it looks like work, but it is not clear which project. Which one does this belong to?",
   "email.proposal.calendarQuestion":
     "“{subject}” is on the calendar for {date}. Do we track it as a milestone?",
+  // Fase 7b: the question for a SERIES occurrence configured with
+  // `auto: true` — the action already happened, so this is a statement, not
+  // a question, matching the single option that follows (see calendar.ts).
+  "email.proposal.calendarAutoQuestion": "Done automatically: “{subject}” on {date}.",
   "email.proposal.createBacklogItem": "Open a backlog entry: {title}",
   "email.proposal.createMilestone": "Create the milestone “{name}”",
   "email.proposal.updateTicket": "Update ticket #{ticket}",
@@ -388,6 +392,11 @@ export const en: Catalog = {
   "email.proposal.chooseProjectConsequence":
     "The message moves to {project} and is analysed again, with proposals on that project.",
   "email.proposal.calendarConsequence": "A milestone due {date} is created on {project}.",
+  // Fase 7b: the SERIES actions, when `calendar_series.action` is
+  // "backlog_item" or "reminder" instead of the default "milestone".
+  "email.proposal.calendarBacklogConsequence": "A backlog entry is added to {project}.",
+  "email.proposal.calendarReminder": "Just remind me",
+  "email.proposal.calendarReminderConsequence": "Nothing is created — this card is the reminder.",
   "email.proposal.ignore": "Do nothing",
   "email.proposal.ignoreConsequence": "The message is left as it is, with no proposal.",
   // Fase 6c (Task 5): the LAST option of the triage proposal only — "none of
@@ -678,6 +687,10 @@ export const it: Catalog = {
     "{from} scrive a proposito di «{subject}»: sembra lavoro, ma non è chiaro per quale progetto. A quale di questi appartiene?",
   "email.proposal.calendarQuestion":
     "«{subject}» è in calendario per il {date}. Lo seguiamo come milestone?",
+  // Fase 7b: la domanda per un'occorrenza di SERIE configurata con
+  // `auto: true` — l'azione è già avvenuta, quindi è un'affermazione, non
+  // una domanda, coerente con l'unica opzione che segue (vedi calendar.ts).
+  "email.proposal.calendarAutoQuestion": "Fatto automaticamente: «{subject}» il {date}.",
   "email.proposal.createBacklogItem": "Apri una voce di backlog: {title}",
   "email.proposal.createMilestone": "Crea la milestone «{name}»",
   "email.proposal.updateTicket": "Aggiorna il ticket #{ticket}",
@@ -694,6 +707,11 @@ export const it: Catalog = {
   "email.proposal.chooseProjectConsequence":
     "Il messaggio passa a {project} e viene rianalizzato, con proposte su quel progetto.",
   "email.proposal.calendarConsequence": "Nasce una milestone con scadenza {date} su {project}.",
+  // Fase 7b: le azioni di SERIE, quando `calendar_series.action` è
+  // "backlog_item" o "reminder" invece del default "milestone".
+  "email.proposal.calendarBacklogConsequence": "Nasce una voce di backlog su {project}.",
+  "email.proposal.calendarReminder": "Ricordamelo soltanto",
+  "email.proposal.calendarReminderConsequence": "Non nasce nulla — questa card è il promemoria.",
   "email.proposal.ignore": "Non fare nulla",
   "email.proposal.ignoreConsequence": "Il messaggio resta com'è, senza nessuna proposta.",
   // Fase 6c (Task 5): l'ULTIMA opzione della SOLA proposta di smistamento —

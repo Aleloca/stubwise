@@ -20,6 +20,7 @@ import {
   computeFingerprint,
   eventToRouting,
   isReadyForProposal,
+  resolveCalendarProjectId,
   routeEvent,
 } from "./calendar.js";
 import { pollGoogleOnce, type CalendarClient, type GmailClient, type GooglePollerDeps } from "./poller.js";
@@ -149,6 +150,8 @@ function event(input: Partial<GoogleCalendarEvent> & { id: string }): GoogleCale
     organizer: MAILBOX,
     htmlLink: null,
     updatedAt: null,
+    recurringEventId: null,
+    originalStartTime: null,
     ...input,
   };
 }
@@ -320,6 +323,120 @@ describe("impronta e proposta (funzioni pure)", () => {
     expect(isReadyForProposal({ ...open, proposalNotificationId: "n1" })).toBe(false);
     expect(isReadyForProposal({ ...open, outcome: { type: "cancelled" } })).toBe(false);
   });
+
+  // -------------------------------------------------------------------------
+  // Fase 7b (Task 4): un'occorrenza di SERIE ha un cancello in più.
+  // -------------------------------------------------------------------------
+
+  describe("isReadyForProposal — cancello di serie (fase 7b)", () => {
+    const now = new Date("2026-09-09T00:00:00.000Z");
+    const openSeriesRow = {
+      status: "confirmed",
+      projectId: "p1",
+      proposalNotificationId: null,
+      outcome: null,
+      recurringEventId: "serie-1",
+      startsAt: new Date("2026-09-11T00:00:00.000Z"), // fra 2 giorni
+    };
+
+    it("una serie MAI configurata (nessun contesto passato) non è mai pronta", () => {
+      expect(isReadyForProposal(openSeriesRow)).toBe(false);
+    });
+
+    it("una serie configurata ma SPENTA non è mai pronta", () => {
+      expect(
+        isReadyForProposal(openSeriesRow, {
+          now,
+          series: { enabled: false, leadDays: 2, action: "milestone", auto: false, projectId: "p1" },
+        }),
+      ).toBe(false);
+    });
+
+    it("serie accesa, lead_days: 2 — niente a 5 giorni, pronta a 2", () => {
+      const context = {
+        now,
+        series: { enabled: true, leadDays: 2, action: "milestone" as const, auto: false, projectId: "p1" },
+      };
+      expect(
+        isReadyForProposal({ ...openSeriesRow, startsAt: new Date("2026-09-14T00:00:00.000Z") }, context),
+      ).toBe(false); // fra 5 giorni
+      expect(
+        isReadyForProposal({ ...openSeriesRow, startsAt: new Date("2026-09-11T00:00:00.000Z") }, context),
+      ).toBe(true); // fra 2 giorni
+    });
+
+    it("un'occorrenza già passata non propone", () => {
+      expect(
+        isReadyForProposal(
+          { ...openSeriesRow, startsAt: new Date("2026-09-08T00:00:00.000Z") },
+          { now, series: { enabled: true, leadDays: 2, action: "milestone", auto: false, projectId: "p1" } },
+        ),
+      ).toBe(false);
+    });
+
+    // "Una proposta alla volta per serie" NON è un cancello di
+    // `isReadyForProposal`: vive nel propose phase del poller (NOT EXISTS +
+    // dedup per-tick, vedi `poller.test.ts`), non qui — fix di review, vedi
+    // il docblock di `CalendarSeriesProposalContext`.
+
+    it("un evento SINGOLO (recurringEventId null) ignora il contesto di serie: comportamento invariato", () => {
+      expect(
+        isReadyForProposal(
+          { ...openSeriesRow, recurringEventId: null, startsAt: new Date("2035-01-01T00:00:00.000Z") },
+          { now, series: null },
+        ),
+      ).toBe(true);
+    });
+
+    // -----------------------------------------------------------------------
+    // Fix di review: il progetto di un'occorrenza di serie è quello FISSATO
+    // sulla serie, mai quello ri-dedotto dal routing su quella riga — il
+    // finding che conta di questo giro.
+    // -----------------------------------------------------------------------
+
+    it("serie accesa con progetto fissato P: pronta anche se il routing su QUESTA riga ha risolto Q", () => {
+      const rowRoutedToQ = { ...openSeriesRow, projectId: "q-diverso" };
+      const context = {
+        now,
+        series: { enabled: true, leadDays: 2, action: "milestone" as const, auto: false, projectId: "p-fissato" },
+      };
+      expect(isReadyForProposal(rowRoutedToQ, context)).toBe(true);
+      // Non basta essere "pronta": deve essere pronta sul progetto GIUSTO.
+      expect(resolveCalendarProjectId(rowRoutedToQ, context)).toBe("p-fissato");
+    });
+
+    it("serie accesa con progetto fissato P: pronta anche se il routing su questa riga non ha risolto NULLA", () => {
+      const rowUnrouted = { ...openSeriesRow, projectId: null };
+      const context = {
+        now,
+        series: { enabled: true, leadDays: 2, action: "milestone" as const, auto: false, projectId: "p-fissato" },
+      };
+      expect(isReadyForProposal(rowUnrouted, context)).toBe(true);
+      expect(resolveCalendarProjectId(rowUnrouted, context)).toBe("p-fissato");
+    });
+
+    it("serie accesa ma senza progetto fissato (non dovrebbe succedere: enabled:true lo richiede) — mai pronta, mai un fallback sul routing", () => {
+      const context = {
+        now,
+        series: { enabled: true, leadDays: 2, action: "milestone" as const, auto: false, projectId: null },
+      };
+      // `openSeriesRow.projectId` è "p1", non nullo: se ci fosse un fallback
+      // sul routing questo tornerebbe pronta. Non deve.
+      expect(isReadyForProposal(openSeriesRow, context)).toBe(false);
+      expect(resolveCalendarProjectId(openSeriesRow, context)).toBeNull();
+    });
+
+    it("un evento SINGOLO usa sempre il progetto ri-dedotto dal routing sulla riga, mai un contesto di serie", () => {
+      const singleRow = { ...openSeriesRow, recurringEventId: null, projectId: "q-routing" };
+      expect(resolveCalendarProjectId(singleRow)).toBe("q-routing");
+      expect(
+        resolveCalendarProjectId(singleRow, {
+          now,
+          series: { enabled: true, leadDays: 2, action: "milestone", auto: false, projectId: "p-fissato" },
+        }),
+      ).toBe("q-routing");
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -460,7 +577,7 @@ describe("non riproporre lo stesso appuntamento", () => {
     const stats = await pollGoogleOnce(deps(account, calendar));
 
     expect(stats).toMatchObject({ calendarEvents: 2, calendarReady: 1 });
-    expect((await rows()).filter(isReadyForProposal)).toHaveLength(1);
+    expect((await rows()).filter((row) => isReadyForProposal(row))).toHaveLength(1);
   });
 
   it("stesso evento spostato di qualche ora: dati freschi, nessuna riga nuova", async () => {

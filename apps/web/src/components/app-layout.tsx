@@ -31,6 +31,9 @@ const NAV_ITEMS = [
   // Posta (fase 6): dopo l'inbox, prima dei ticket — è anch'essa personale
   // (la propria posta trattata), non un elenco di lavoro condiviso.
   { to: "/mail", labelKey: "common:nav.mail", code: "MAL", memberVisible: true },
+  // Calendario (fase 7b, Task 9): stessa natura personale della Posta, subito
+  // dopo — appuntamenti visti e serie ricorrenti dalle proprie caselle.
+  { to: "/calendar", labelKey: "common:nav.calendar", code: "CAL", memberVisible: true },
   { to: "/tickets", labelKey: "common:nav.tickets", code: "TKT", memberVisible: true },
   { to: "/board", labelKey: "common:nav.board", code: "BRD", memberVisible: true },
   { to: "/backlog", labelKey: "common:nav.backlog", code: "BLG", memberVisible: true },

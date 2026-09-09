@@ -193,6 +193,8 @@ const GOOGLE = item({
     receivedAt: "2026-08-31T09:00:00.000Z",
     signal: "decision",
     actions: [{ type: "create_backlog_item" }, { type: "ignore" }],
+    auto: false,
+    proposalId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
   },
 });
 
@@ -948,6 +950,51 @@ describe("pagina /inbox", () => {
     expect(
       within(section("To decide")).getByRole("link", { name: "Open the event" }),
     ).toBeInTheDocument();
+  });
+
+  it("fix di review: la proposta Google di un'email porta un link 'Read in Stubwise' verso il dettaglio", async () => {
+    mockApi(
+      baseApi({ "GET /api/inbox": () => jsonResponse(200, { items: [GOOGLE], nextCursor: null }) }),
+    );
+    renderInbox();
+    await screen.findByRole("heading", { name: "Inbox" });
+
+    const link = within(section("To decide")).getByRole("link", { name: "Read in Stubwise" });
+    expect(link).toHaveAttribute("href", `/mail/email/${GOOGLE.google!.proposalId}`);
+  });
+
+  it("fix di review: nessun link 'Read in Stubwise' su una proposta di CALENDARIO (proposalId è casuale, non un id di email)", async () => {
+    const calendarProposal: InboxItem = {
+      ...GOOGLE,
+      google: { ...GOOGLE.google!, source: "calendar" },
+    };
+    mockApi(
+      baseApi({
+        "GET /api/inbox": () => jsonResponse(200, { items: [calendarProposal], nextCursor: null }),
+      }),
+    );
+    renderInbox();
+    await screen.findByRole("heading", { name: "Inbox" });
+
+    expect(
+      within(section("To decide")).queryByRole("link", { name: "Read in Stubwise" }),
+    ).toBeNull();
+  });
+
+  it("fix di review: nessun link 'Read in Stubwise' senza proposalId (payload di una versione precedente)", async () => {
+    const withoutProposalId: InboxItem = { ...GOOGLE, google: { ...GOOGLE.google! } };
+    delete withoutProposalId.google!.proposalId;
+    mockApi(
+      baseApi({
+        "GET /api/inbox": () => jsonResponse(200, { items: [withoutProposalId], nextCursor: null }),
+      }),
+    );
+    renderInbox();
+    await screen.findByRole("heading", { name: "Inbox" });
+
+    expect(
+      within(section("To decide")).queryByRole("link", { name: "Read in Stubwise" }),
+    ).toBeNull();
   });
 
   it("409 target_gone su una proposta Google: messaggio dedicato, non generico", async () => {
