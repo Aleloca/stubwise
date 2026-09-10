@@ -41,11 +41,26 @@ import {
 } from "@stubwise/notifications";
 
 /**
- * Ampiezza della finestra del PRIMO giro (e di ogni resync): 60 giorni avanti,
- * come il design. Non si guarda indietro di proposito — un appuntamento già
- * passato non produce una scadenza da proporre.
+ * Ampiezza della finestra del PRIMO giro (e di ogni resync) IN AVANTI: 60
+ * giorni, come il design. Il tetto in avanti resta — un appuntamento troppo
+ * lontano nel futuro non è ancora una scadenza utile da proporre.
  */
 export const CALENDAR_WINDOW_DAYS = 60;
+
+/**
+ * Quanto indietro guarda la stessa finestra (fase 9, Task 1). Fino alla fase
+ * 9 `timeMin` era `now` — nessuno sguardo all'indietro — perché la finestra
+ * serviva SOLO a decidere cosa proporre, e un appuntamento passato non
+ * produce più una scadenza. La griglia del calendario (fase 9) le dà un
+ * secondo uso — mostrare cosa è successo — e con `timeMin = now` una griglia
+ * con le frecce avanti/indietro premerebbe "indietro" e non troverebbe mai
+ * niente, per sempre. 30 giorni: non tocca i filtri di ammissione né cosa è
+ * proposto (quella logica guarda solo eventi futuri), cambia solo quanto
+ * passato resta interrogabile. Il filtro in SCRITTURA del poller
+ * (`poller.ts`, `startsAt < timeMin || startsAt > timeMax`) usa la STESSA
+ * finestra: si allarga insieme, per costruzione — vedi il test dedicato.
+ */
+export const CALENDAR_LOOKBACK_DAYS = 30;
 
 /** Eventi chiesti per pagina a `events.list`. */
 export const CALENDAR_PAGE_SIZE = 250;
@@ -114,10 +129,13 @@ export function isSyncTokenExpired(error: unknown): boolean {
   return error instanceof GoogleApiError && error.code === "sync_token_expired";
 }
 
-/** La finestra del primo giro / del resync: da adesso a {@link CALENDAR_WINDOW_DAYS}. */
+/**
+ * La finestra del primo giro / del resync: da {@link CALENDAR_LOOKBACK_DAYS}
+ * indietro a {@link CALENDAR_WINDOW_DAYS} avanti.
+ */
 export function calendarWindow(now: Date): { timeMin: Date; timeMax: Date } {
   return {
-    timeMin: now,
+    timeMin: new Date(now.getTime() - CALENDAR_LOOKBACK_DAYS * 24 * 60 * 60 * 1000),
     timeMax: new Date(now.getTime() + CALENDAR_WINDOW_DAYS * 24 * 60 * 60 * 1000),
   };
 }

@@ -16,6 +16,8 @@ import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   buildMilestoneProposal,
+  calendarWindow,
+  CALENDAR_LOOKBACK_DAYS,
   CALENDAR_WINDOW_DAYS,
   computeFingerprint,
   eventToRouting,
@@ -269,6 +271,16 @@ async function reload(id: string): Promise<typeof googleAccounts.$inferSelect> {
 // ---------------------------------------------------------------------------
 
 describe("impronta e proposta (funzioni pure)", () => {
+  it("la finestra copre 30 giorni indietro e 60 avanti (fase 9, Task 1)", () => {
+    const now = new Date("2026-09-10T12:00:00Z");
+    const { timeMin, timeMax } = calendarWindow(now);
+
+    const backDays = (now.getTime() - timeMin.getTime()) / 86_400_000;
+    const forwardDays = (timeMax.getTime() - now.getTime()) / 86_400_000;
+    expect(backDays).toBe(CALENDAR_LOOKBACK_DAYS);
+    expect(forwardDays).toBe(CALENDAR_WINDOW_DAYS);
+  });
+
   it("l'impronta è giorno + titolo normalizzato, non l'orario", () => {
     const morning = computeFingerprint("  Revisione   Portale ", new Date("2026-10-12T09:00:00Z"));
     const evening = computeFingerprint("revisione portale", new Date("2026-10-12T18:30:00Z"));
@@ -492,6 +504,32 @@ describe("pre-filtro degli eventi", () => {
     expect(isReadyForProposal(row!)).toBe(true);
   });
 
+  it("un evento di tre settimane fa viene scritto, uno di sei mesi fa no (fase 9, Task 1)", async () => {
+    const projectId = await seedProject("Acme");
+    await db
+      .insert(projectEmailRoutes)
+      .values({ projectId, kind: "sender_domain", value: "cliente.com" });
+    const account = await seedAccount();
+    const now = new Date("2026-09-10T12:00:00Z");
+    const threeWeeksAgo = new Date("2026-08-20T09:00:00Z"); // dentro i 30 gg indietro
+    const sixMonthsAgo = new Date("2026-03-10T09:00:00Z"); // fuori
+    const calendar = fakeCalendar([
+      {
+        events: [
+          event({ id: "recente", startsAt: threeWeeksAgo }),
+          event({ id: "vecchio", startsAt: sixMonthsAgo }),
+        ],
+        nextSyncToken: "tok-1",
+      },
+    ]);
+
+    const stats = await pollGoogleOnce(deps(account, calendar, { now: () => now }));
+
+    expect(stats).toMatchObject({ calendarEvents: 1, calendarReady: 1 });
+    const all = await rows();
+    expect(all.map((r) => r.googleEventId)).toEqual(["recente"]);
+  });
+
   it("un evento che nessuna regola riconosce non produce nessuna riga", async () => {
     await seedProject("Acme");
     const account = await seedAccount();
@@ -701,8 +739,10 @@ describe("cursore del calendario", () => {
     // `collectCalendarEvents` in poller.ts, e la describe dedicata in
     // poller.test.ts).
     expect(first.showDeleted).toBe(true);
+    // Fase 9, Task 1: la finestra ora guarda anche indietro — lo span totale
+    // è avanti + indietro, non solo CALENDAR_WINDOW_DAYS.
     const spanDays = (first.timeMax!.getTime() - first.timeMin!.getTime()) / 86_400_000;
-    expect(Math.round(spanDays)).toBe(CALENDAR_WINDOW_DAYS);
+    expect(Math.round(spanDays)).toBe(CALENDAR_WINDOW_DAYS + CALENDAR_LOOKBACK_DAYS);
     expect((await reload(account.id)).calendarSyncToken).toBe("tok-1");
 
     await db
