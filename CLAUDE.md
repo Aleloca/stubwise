@@ -778,6 +778,67 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   `answerGoogleProposal` risponde `proposal_stale` alla conferma — nessun
   crash, ma quelle card vanno chiuse a mano o si accetta di perderle finché
   non si torna avanti.
+- **Fase 8 (ambienti e coda di rilascio)**: rebuild **server+worker+caddy
+  insieme** (migrazione 0074 all'avvio del server — additiva, **nessun
+  `ALTER TYPE`**, un solo batch, ma **CON BACKFILL**, non cosmetica: tabella
+  NUOVA `project_environments` (`kind` CHECK `test|staging|production`, un
+  CHECK e non un pgEnum per restare in un solo batch — stesso pattern di
+  `calendar_series.action` in fase 7b) più un ambiente `test` inserito per
+  OGNI progetto esistente; colonna `project_env_files.environment_id`
+  (FK cascade, NOT NULL dopo un secondo backfill che collega ogni riga
+  esistente all'ambiente `test` del progetto del proprio repository — sono
+  le 20 repository con `.env` già popolati che la pipeline di fix legge a
+  ogni run: senza il backfill resterebbero orfane e i fix inizierebbero a
+  fallire per variabili mancanti), unique index cambiato in
+  `(repository_id, environment_id, path)`; due colonne nullable su
+  `ticket_repositories` — `test_status` (CHECK `passed|failed|skipped`) e
+  `risk`/`risk_reason` (CHECK `low|medium|high`). Il worker nuovo è l'unico
+  che sa scrivere `test_status`/`risk` all'apertura di una PR e l'unico il
+  cui `loadProjectEnvFiles` accetta un ambiente (tipato sul solo letterale
+  `"test"`, e riverificato a runtime); il server nuovo l'unico che espone
+  `/api/projects/:id/environments` (CRUD, letture per ogni utente
+  autenticato — non sono un segreto, a differenza dei valori dei file
+  d'ambiente — scritture `requireAdmin`), `GET /api/release-queue` e
+  `POST /api/tickets/:id/repositories/:repositoryId/release`; il bundle
+  nuovo l'unico che disegna la sezione ambienti del progetto e `/release`.
+  **Nessuna env nuova**. **Nessun kind di notifica nuovo**: `/release` non è
+  raggiunta da inbox — vedi il Task 10 più sotto — quindi non esiste
+  l'equivalente del 500 su `/api/inbox` delle fasi 2/5/6/6c.
+  **Questa fase costruisce la capacità di mergiare, che prima non esisteva**:
+  vedi "I due divieti dell'operatore" più sotto, punto 2 — non è più vero
+  per ASSENZA di funzionalità, ora è un cancello vero (`requireAdmin` sulla
+  rotta di rilascio E ricontrollato dentro `releasePullRequest`, difesa in
+  profondità come `preApprovePlan`). **Stubwise non fa deploy, in nessun
+  caso**: l'unica azione è il merge della PR; ambienti e "già su staging"
+  restano pura anagrafica, mai eseguita (vedi l'invariante nuova più sotto).
+  Dopo un merge, `releasePullRequest` **non tocca `ticket_repositories`**:
+  il webhook del provider (fase 3, preesistente) chiude già il ticket e
+  pubblica `job.pr_closed`, la stessa strada di un merge fatto a mano —
+  scriverlo anche qui aprirebbe una corsa fra due writer indipendenti.
+  **"Già su staging?" (`deployedOn`) è una euristica volutamente
+  conservativa**: confronta l'head sha della PR (`pr_reviews.headSha`) col
+  commit che l'agente di monitoraggio riporta come in esecuzione
+  sull'ambiente (match SOLO per prefisso esatto); un mancato match significa
+  "non risulta", mai "sicuramente non rilasciato" — l'assenza è un array
+  vuoto, mai un booleano che afferma un negativo che Stubwise non può
+  verificare. **Post-deploy**: nessun passo obbligatorio — al deploy ogni
+  progetto esistente riceve solo il suo ambiente `test` (dal backfill), e la
+  coda parte vuota finché non ci sono PR aperte; un admin aggiunge
+  `staging`/`production` dalla sezione ambienti del progetto quando vuole
+  che Stubwise sappia dove sono (mai che li esegua). **Rollback — sicuro sul
+  server, ATTENZIONE sul worker**: (1) scendere di immagine sul server è
+  innocuo per `/api/inbox` (nessun kind nuovo) ma **rompe `/release` e la
+  sezione ambienti** (404 sulle rotte nuove) — va sceso insieme al caddy,
+  come sempre; le righe di `project_environments`/`ticket_repositories.risk`/
+  `.test_status` sopravvivono, innocue, e il migratore ignora la 0074 già
+  applicata. (2) scendere di immagine sul **worker** è più delicato di una
+  fase additiva qualunque: un worker vecchio non conosce l'ambiente come
+  parametro di `loadProjectEnvFiles` e la sua build precedente non ha
+  l'invariante "solo `test`" — ma dato che quell'invariante è imposta dal
+  TIPO più un controllo a runtime nello stesso file, e la funzione non è
+  mai stata chiamata con altro che `"test"` prima di questa fase, un worker
+  precedente continua semplicemente a comportarsi come prima (nessuna
+  regressione, solo assenza della funzionalità nuova).
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
@@ -800,15 +861,27 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
      `tickets.test.ts` — 4 casi: approve, reject, pre-approve, revoke) che
      asserisce SIA il 403/`forbidden` SIA che lo stato in colonna non sia
      cambiato, non solo il codice di risposta.
-  2. *Rilascio in produzione*: non è un permesso da negare, è un'azione che
-     **non esiste** — in nessuna rotta server, per nessun ruolo. Stubwise
-     apre PR (`GitProvider.openPullRequest`), non le merge mai: mergiare e
-     deployare restano fuori dall'app, dietro le credenziali git/infra di un
-     umano. Verificato leggendo le rotte: nessun `mergePullRequest` né rotta
-     di deploy in `apps/server/src/routes`, nessun auto-merge configurabile.
-     Chi in futuro aggiunge un'integrazione che TOCCA la produzione (un
-     deploy trigger, un merge automatico) rompe questa frase, non solo il
-     codice: è un cambio di prodotto, non un dettaglio implementativo.
+  2. *Rilascio in produzione*: fino alla fase 8 non era un permesso da
+     negare, era un'azione che **non esisteva** — in nessuna rotta server,
+     per nessun ruolo. **Dalla fase 8 la capacità di mergiare esiste**
+     (`POST /api/tickets/:id/repositories/:repositoryId/release`,
+     `releasePullRequest` in `apps/server/src/services/release.ts`), e il
+     divieto non è più vero per assenza di funzionalità: è un cancello
+     verificato allo stesso modo del punto 1 — `preHandler: requireAdmin`
+     sulla rotta **e** `if (actor.role !== "admin") return { ok: false,
+     error: "forbidden" }` **ridondante dentro il servizio**, difesa in
+     profondità come `preApprovePlan`. Verificato **negativamente**
+     (`release.test.ts`): un `member` riceve 403 **e** nessun merge parte —
+     l'asserzione non è solo sullo status. Quello che resta vero è il
+     confine di prodotto, non l'assenza di codice: **l'unica azione che
+     questa capacità offre è il merge esplicito di una PR già aperta**, mai
+     un deploy, mai un'esecuzione di ambiente — Stubwise apre PR
+     (`GitProvider.openPullRequest`) e ora può mergiarle
+     (`GitProvider.mergePullRequest`), ma non esegue né rilascia un
+     ambiente in nessun punto del codice (vedi l'invariante dedicata più
+     sotto). Chi in futuro aggiunge un'integrazione che esegue un DEPLOY
+     (non un merge) rompe questa frase, non solo il codice: è un cambio di
+     prodotto, non un dettaglio implementativo.
 - **Verso l'app mobile, solo cambi ADDITIVI — alle risposte E alle
   richieste.** L'app si aggiorna dagli store, non dai nostri deploy: per
   settimane un server nuovo parla a client vecchi. Aggiungere un campo è
@@ -1120,6 +1193,38 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   percorso automatico per tutte e tre le azioni: deve restare zero. Chi
   aggiunge una quarta azione a una serie (`calendar_series.action`) faccia
   passare anche lei da `calendar-auto.ts`, non da un servizio del server.
+- **Solo l'ambiente `test` entra in un worktree (fase 8).** Reso impossibile
+  per COSTRUZIONE, non solo per convenzione: `loadProjectEnvFiles`
+  (`apps/worker/src/pipeline/env-files.ts`) prende `environment` tipato sul
+  solo letterale `"test"` — nessun chiamante scritto a mano può passargli
+  altro senza un cast esplicito — e lo riverifica **a runtime**, lanciando
+  su qualunque altro valore. Non è ridondante col safeguard anti-leak
+  preesistente (l'esclusione dei file d'ambiente da ogni `git add`, "File
+  `.env` per progetto" più sopra): quel safeguard protegge dal **commit** di
+  una variabile, non dal resto — il giorno in cui una variabile di
+  `staging`/`production` entrasse in un worktree, sarebbe già entrata in un
+  log, in un prompt dell'agente o nell'ambiente di un sottoprocesso, prima
+  ancora di un `git add`. Le variabili di `staging`/`production` esistono in
+  Stubwise perché una persona le legga e le confronti (sezione ambienti del
+  progetto), mai perché la pipeline le usi. Chi tocca questa funzione non
+  allarghi il tipo del parametro "per generalità": un secondo chiamante che
+  volesse un ambiente diverso da `test` starebbe chiedendo la cosa sbagliata.
+- **Stubwise non fa deploy: il merge è il confine (fase 8).** Scritto perché
+  non lo si superi "tanto manca poco". La coda di rilascio
+  (`/release`, `apps/server/src/services/release.ts`) offre **un'unica
+  azione**: il merge esplicito di una PR già aperta, con conferma a due
+  click nella UI. Non esiste — e non va aggiunto senza che sia una
+  decisione di prodotto nuova, non un dettaglio implementativo — nessun
+  codice che esegua un `docker compose up`, un riavvio di servizio, uno
+  script di deploy o qualunque azione sull'ambiente stesso: gli ambienti
+  (`project_environments`) sono **pura anagrafica** — dove sta un ambiente,
+  cosa ci gira secondo l'ultimo campione dell'agente di monitoraggio (Task
+  4) — mai un bersaglio che Stubwise esegue. "Già su staging?"
+  (`deployedOn` in `listReleaseQueue`) **legge**, non agisce: confronta
+  l'head sha della PR col commit che l'agente riporta, e un mancato match è
+  "non risulta", mai un'affermazione che Stubwise avrebbe potuto rendere
+  vera. Chi in futuro collega un ambiente a un'azione che lo TOCCA (un
+  trigger di deploy, un rollout) rompe questa frase, non solo il codice.
 
 ## Integrazione Claude Code (MCP)
 
