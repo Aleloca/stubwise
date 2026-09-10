@@ -71,7 +71,14 @@ function ReleaseRow({ item }: { item: ReleaseQueueItem }) {
   const checksLabel =
     item.checks.status === "no_checks"
       ? t("release:checks.noChecks")
-      : t(`release:checks.${item.checks.status}`);
+      : item.checks.status === "unknown"
+        ? t("release:checks.unknown")
+        : t(`release:checks.${item.checks.status}`);
+  // Una PR esterna non ha MAI test interno né rischio: sono strutturalmente
+  // assenti (Stubwise non ha mai eseguito nulla su di lei), non "ancora da
+  // calcolare" come per una riga storica pre-fase-8 — l'etichetta lo dice
+  // esplicitamente invece di mostrare "Unknown" per entrambi i casi.
+  const isExternal = item.origin === "external";
 
   return (
     <li className="px-4 py-4">
@@ -88,6 +95,14 @@ function ReleaseRow({ item }: { item: ReleaseQueueItem }) {
             <span className="font-mono text-[11px] text-fg-faint">
               {item.projectName} / {item.repositoryName}
             </span>
+            {isExternal && (
+              <span
+                className="rounded-sm border border-line-strong px-1.5 py-0.5 font-mono text-[10px] tracking-[0.08em] text-fg-faint uppercase"
+                title={t("release:externalHint")}
+              >
+                {t("release:external")}
+              </span>
+            )}
           </div>
           <a
             href={item.prUrl}
@@ -148,16 +163,34 @@ function ReleaseRow({ item }: { item: ReleaseQueueItem }) {
         <ColumnBadge
           label={t("release:columns.checks")}
           value={checksLabel}
-          tone={item.checks.status === "success" ? "good" : item.checks.status === "failure" ? "bad" : "neutral"}
+          tone={
+            item.checks.status === "success"
+              ? "good"
+              : item.checks.status === "failure" || item.checks.status === "unknown"
+                ? "bad"
+                : "neutral"
+          }
         />
         <ColumnBadge
           label={t("release:columns.testStatus")}
-          value={item.testStatus ? t(`release:testStatus.${item.testStatus}`) : t("release:testStatus.none")}
+          value={
+            item.testStatus
+              ? t(`release:testStatus.${item.testStatus}`)
+              : isExternal
+                ? t("release:testStatus.notRunByStubwise")
+                : t("release:testStatus.none")
+          }
           tone={item.testStatus === "passed" ? "good" : item.testStatus === "failed" ? "bad" : "neutral"}
         />
         <ColumnBadge
           label={t("release:columns.risk")}
-          value={item.risk ? t(`release:risk.${item.risk}`) : t("release:risk.none")}
+          value={
+            item.risk
+              ? t(`release:risk.${item.risk}`)
+              : isExternal
+                ? t("release:risk.notRunByStubwise")
+                : t("release:risk.none")
+          }
           tone={item.risk === "low" ? "good" : item.risk === "high" ? "bad" : "neutral"}
           title={item.riskReason ?? undefined}
         />
@@ -190,6 +223,8 @@ function releaseErrorMessage(error: unknown, t: (key: string) => string): string
         return t("release:errors.alreadyClosed");
       case "checks_failed":
         return t("release:errors.checksFailed");
+      case "checks_unreadable":
+        return t("release:errors.checksUnreadable");
       case "not_mergeable":
         return t("release:errors.notMergeable");
       case "merge_forbidden":

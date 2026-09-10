@@ -50,4 +50,19 @@ describe("releaseQueueItemSchema", () => {
     const parsed = releaseQueueItemSchema.parse({ ...BASE, prNumber: null });
     expect(parsed.prNumber).toBeNull();
   });
+
+  it("`origin` assente (BASE non lo porta: client compilato prima del review fix Task 1) → default 'stubwise'", () => {
+    const parsed = releaseQueueItemSchema.parse(BASE);
+    expect(parsed.origin).toBe("stubwise");
+  });
+
+  it("`origin: 'external'` parsa (PR aperta fuori da Stubwise, review fix Task 1)", () => {
+    const parsed = releaseQueueItemSchema.parse({ ...BASE, origin: "external" });
+    expect(parsed.origin).toBe("external");
+  });
+
+  it("checks.status 'unknown' parsa, DIVERSO da 'no_checks' (review fix Task 2)", () => {
+    const parsed = releaseQueueItemSchema.parse({ ...BASE, checks: { status: "unknown", checks: [] } });
+    expect(parsed.checks.status).toBe("unknown");
+  });
 });

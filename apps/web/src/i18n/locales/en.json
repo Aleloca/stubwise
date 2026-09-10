@@ -2464,19 +2464,22 @@
       "success": "Green",
       "failure": "Red",
       "pending": "Running",
-      "noChecks": "No checks configured"
+      "noChecks": "No checks configured",
+      "unknown": "Unreadable"
     },
     "testStatus": {
       "passed": "Passed",
       "failed": "Failed",
       "skipped": "Skipped",
-      "none": "Unknown"
+      "none": "Unknown",
+      "notRunByStubwise": "Not run by Stubwise"
     },
     "risk": {
       "low": "Low",
       "medium": "Medium",
       "high": "High",
-      "none": "Unknown"
+      "none": "Unknown",
+      "notRunByStubwise": "Not run by Stubwise"
     },
     "errors": {
       "alreadyClosed": "This PR is no longer open.",
@@ -2484,7 +2487,10 @@
       "notMergeable": "The provider refused to merge this PR (conflicts or unmet branch rules).",
       "mergeForbidden": "The stored git credentials do not have permission to merge this PR.",
       "notFound": "This PR could not be found.",
-      "generic": "Something went wrong while releasing this PR."
-    }
+      "generic": "Something went wrong while releasing this PR.",
+      "checksUnreadable": "The provider's checks could not be read — try again once they're readable."
+    },
+    "external": "External",
+    "externalHint": "Opened outside Stubwise — reviewed automatically, but never built or tested by Stubwise's own pipeline."
   }
 }

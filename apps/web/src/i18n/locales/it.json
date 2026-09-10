@@ -2464,19 +2464,22 @@
       "success": "Verdi",
       "failure": "Rossi",
       "pending": "In corso",
-      "noChecks": "Nessun check configurato"
+      "noChecks": "Nessun check configurato",
+      "unknown": "Non leggibili"
     },
     "testStatus": {
       "passed": "Superati",
       "failed": "Falliti",
       "skipped": "Saltati",
-      "none": "Sconosciuto"
+      "none": "Sconosciuto",
+      "notRunByStubwise": "Non eseguito da Stubwise"
     },
     "risk": {
       "low": "Basso",
       "medium": "Medio",
       "high": "Alto",
-      "none": "Sconosciuto"
+      "none": "Sconosciuto",
+      "notRunByStubwise": "Non eseguito da Stubwise"
     },
     "errors": {
       "alreadyClosed": "Questa PR non è più aperta.",
@@ -2484,7 +2487,10 @@
       "notMergeable": "Il provider ha rifiutato il merge (conflitti o regole del branch non soddisfatte).",
       "mergeForbidden": "Le credenziali git salvate non hanno il permesso di mergiare questa PR.",
       "notFound": "Questa PR non è stata trovata.",
-      "generic": "Qualcosa è andato storto durante il rilascio di questa PR."
-    }
+      "generic": "Qualcosa è andato storto durante il rilascio di questa PR.",
+      "checksUnreadable": "Non è stato possibile leggere i check del provider — riprova quando saranno leggibili."
+    },
+    "external": "Esterna",
+    "externalHint": "Aperta fuori da Stubwise — rivista automaticamente, ma mai costruita né testata dalla pipeline di Stubwise."
   }
 }

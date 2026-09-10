@@ -45,6 +45,7 @@ const TICKET_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const REPOSITORY_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 
 const ITEM = {
+  origin: "stubwise",
   ticketId: TICKET_ID,
   ticketNumber: 42,
   ticketTitle: "Fix the bug",
@@ -117,6 +118,32 @@ describe("/release — lista", () => {
     await waitFor(() => expect(router.state.location.pathname).toBe("/settings/account"));
     expect(screen.queryByText(/Fix the bug/)).not.toBeInTheDocument();
   });
+
+  it("una PR esterna mostra il tag External e 'Not run by Stubwise', non 'Unknown' (review fix Task 1)", async () => {
+    const externalItem = {
+      ...ITEM,
+      origin: "external",
+      ticketTitle: "Fix esterno",
+      testStatus: null,
+      risk: null,
+      riskReason: null,
+    };
+    mockApi(baseApi({ "GET /api/release-queue": () => jsonResponse(200, { items: [externalItem] }) }));
+    renderRelease();
+
+    await screen.findByText(/Fix esterno/);
+    expect(screen.getByText("External")).toBeInTheDocument();
+    expect(screen.getAllByText(/Not run by Stubwise/)).toHaveLength(2);
+  });
+
+  it("check 'unknown' si legge 'Unreadable', DIVERSO da 'No checks configured' (review fix Task 2)", async () => {
+    const unreadableItem = { ...ITEM, checks: { status: "unknown", checks: [] } };
+    mockApi(baseApi({ "GET /api/release-queue": () => jsonResponse(200, { items: [unreadableItem] }) }));
+    renderRelease();
+
+    await screen.findByText(/Fix the bug/);
+    expect(screen.getByText(/Unreadable/)).toBeInTheDocument();
+  });
 });
 
 describe("/release — rilascia", () => {
@@ -160,6 +187,23 @@ describe("/release — rilascia", () => {
     await user.click(screen.getByRole("button", { name: "Confirm merge" }));
 
     await screen.findByText(/cannot be released/i);
+  });
+
+  it("check illeggibili: messaggio dedicato, DIVERSO da 'check rossi' (review fix Task 2)", async () => {
+    const user = userEvent.setup();
+    mockApi(
+      baseApi({
+        [`POST /api/tickets/${TICKET_ID}/repositories/${REPOSITORY_ID}/release`]: () =>
+          jsonResponse(409, { code: "checks_unreadable", message: "network error" }),
+      }),
+    );
+    renderRelease();
+
+    await screen.findByText(/Fix the bug/);
+    await user.click(screen.getByRole("button", { name: "Release" }));
+    await user.click(screen.getByRole("button", { name: "Confirm merge" }));
+
+    await screen.findByText(/could not be read/i);
   });
 
   it("annullare la conferma non invia nulla", async () => {

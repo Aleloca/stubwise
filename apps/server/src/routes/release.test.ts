@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../app.js";
-import { encrypt, gitAccounts, repositories, ticketRepositories } from "@stubwise/db";
+import { encrypt, gitAccounts, prReviews, repositories, ticketRepositories, tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, seedTicket, startTestDb } from "@stubwise/db/testing";
 import { seedUsers } from "../test/fixtures.js";
@@ -83,6 +83,47 @@ async function seedOpenPr(overrides: { testStatus?: "passed" | "failed" | "skipp
   return { ticketId, repositoryId, trId: tr!.id };
 }
 
+/**
+ * Repository + account con credenziali vere e un ticket, ma NESSUNA riga
+ * `ticket_repositories` — solo una review completata (review fix Task 1):
+ * rappresenta una PR aperta a mano fuori da Stubwise, che riceve verdetto e
+ * riassunto dalla PR review automatica ma nessun test interno né rischio.
+ */
+async function seedExternalPr(
+  overrides: { prUrl?: string; prNumber?: number; verdict?: "approve" | "request_changes" | null } = {},
+) {
+  const [account] = await testDb.db
+    .insert(gitAccounts)
+    .values({
+      name: "Account esterno di test",
+      provider: "github",
+      encryptedCredentials: encrypt(JSON.stringify({ token: PLAINTEXT_TOKEN }), ENCRYPTION_KEY),
+    })
+    .returning();
+  const { repositoryId, projectId } = await seedRepository(testDb.db, { provider: "github" });
+  await testDb.db
+    .update(repositories)
+    .set({ gitAccountId: account!.id, repoUrl: "https://github.com/acme/demo-shop" })
+    .where(eq(repositories.id, repositoryId));
+
+  const { ticketId } = await seedTicket(testDb.db, { projectId, repositoryId });
+  const prNumber = overrides.prNumber ?? 77;
+  const prUrl = overrides.prUrl ?? `https://github.com/acme/demo-shop/pull/${prNumber}`;
+  await testDb.db.insert(prReviews).values({
+    repositoryId,
+    ticketId,
+    prNumber,
+    prUrl,
+    prTitle: "Fix esterno",
+    headSha: "extsha123",
+    status: "completed",
+    verdict: overrides.verdict === undefined ? "approve" : overrides.verdict,
+    prSummary: "Cambia solo un typo.",
+  });
+
+  return { ticketId, repositoryId, prNumber, prUrl };
+}
+
 function release(ticketId: string, repositoryId: string, cookie: string) {
   return app.inject({
     method: "POST",
@@ -98,7 +139,7 @@ function greenFetch() {
     const method = init?.method ?? "GET";
     if (url === PR_DETAIL_URL && method === "GET") {
       return Promise.resolve(
-        new Response(JSON.stringify({ head: { sha: "headsha123" } }), { status: 200 }),
+        new Response(JSON.stringify({ state: "open", head: { sha: "headsha123" } }), { status: 200 }),
       );
     }
     if (url === CHECK_RUNS_URL && method === "GET") {
@@ -214,13 +255,19 @@ describe("POST /api/tickets/:id/repositories/:repositoryId/release", () => {
     expect(res.statusCode).toBe(404);
   });
 
-  it("il provider rifiuta il merge (405 → not_mergeable): 409, esito NON scritto localmente", async () => {
+  it("il provider rifiuta il merge (405) e la rilettura conferma la PR ancora APERTA → 409 not_mergeable", async () => {
     const { ticketId, repositoryId } = await seedOpenPr();
+    // PR_DETAIL_URL è chiamata DUE volte: dentro getPullRequestChecks (per
+    // headSha/check-runs) e di nuovo dentro la rilettura post-405 (per lo
+    // stato) — entrambe con `state: "open"`, quindi la rilettura CONFERMA
+    // che non era una PR già chiusa da qualcun altro.
     const fetchMock = vi.fn((input: string | URL, init?: RequestInit) => {
       const url = String(input);
       const method = init?.method ?? "GET";
       if (url === PR_DETAIL_URL && method === "GET") {
-        return Promise.resolve(new Response(JSON.stringify({ head: { sha: "headsha123" } }), { status: 200 }));
+        return Promise.resolve(
+          new Response(JSON.stringify({ state: "open", head: { sha: "headsha123" } }), { status: 200 }),
+        );
       }
       if (url === CHECK_RUNS_URL && method === "GET") {
         return Promise.resolve(new Response(JSON.stringify({ check_runs: [] }), { status: 200 }));
@@ -241,6 +288,123 @@ describe("POST /api/tickets/:id/repositories/:repositoryId/release", () => {
       .from(ticketRepositories)
       .where(eq(ticketRepositories.ticketId, ticketId));
     expect(row?.prState).toBe("open");
+  });
+
+  it("il provider rifiuta il merge (405) ma la rilettura dice CHIUSA → 409 already_closed, non not_mergeable (review fix Task 4)", async () => {
+    const { ticketId, repositoryId } = await seedOpenPr();
+    const fetchMock = vi.fn((input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url === PR_DETAIL_URL && method === "GET") {
+        // Ogni MergeFailureReason ("not_mergeable" incluso) copre sia
+        // conflitti reali sia una PR già mergiata da qualcun altro — GitHub
+        // e Bitbucket non li distinguono nello status HTTP del fallimento
+        // del merge. La rilettura live qui è quella che decide davvero.
+        return Promise.resolve(
+          new Response(JSON.stringify({ state: "closed", head: { sha: "headsha123" } }), { status: 200 }),
+        );
+      }
+      if (url === CHECK_RUNS_URL && method === "GET") {
+        return Promise.resolve(new Response(JSON.stringify({ check_runs: [] }), { status: 200 }));
+      }
+      if (url === MERGE_URL && method === "PUT") {
+        return Promise.resolve(new Response("not mergeable", { status: 405 }));
+      }
+      return Promise.resolve(new Response("", { status: 404 }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const res = await release(ticketId, repositoryId, adminCookie);
+
+    expect(res.statusCode).toBe(409);
+    expect((res.json() as { code: string }).code).toBe("already_closed");
+  });
+
+  it("check illeggibili (errore di rete): 409 checks_unreadable, NESSUNA chiamata di merge (review fix Task 2)", async () => {
+    const { ticketId, repositoryId } = await seedOpenPr();
+    const fetchMock = vi.fn((input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url === PR_DETAIL_URL && method === "GET") {
+        // La PR si risolve, ma i check-runs falliscono: `unknown`, MAI
+        // `no_checks` — un errore di lettura non è un'assenza di check.
+        return Promise.resolve(
+          new Response(JSON.stringify({ state: "open", head: { sha: "headsha123" } }), { status: 200 }),
+        );
+      }
+      if (url === CHECK_RUNS_URL && method === "GET") {
+        return Promise.reject(new Error("network down"));
+      }
+      return Promise.resolve(new Response("", { status: 404 }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const res = await release(ticketId, repositoryId, adminCookie);
+
+    expect(res.statusCode).toBe(409);
+    expect((res.json() as { code: string }).code).toBe("checks_unreadable");
+    expect(fetchMock.mock.calls.some((c) => c[0] === MERGE_URL)).toBe(false);
+  });
+
+  it("PR esterna (nessuna riga ticket_repositories, solo una review): l'admin la rilascia lo stesso (review fix Task 1)", async () => {
+    const { ticketId, repositoryId, prNumber } = await seedExternalPr();
+    const detailUrl = `https://api.github.com/repos/acme/demo-shop/pulls/${prNumber}`;
+    const checksUrl = `https://api.github.com/repos/acme/demo-shop/commits/extheadsha/check-runs?per_page=100`;
+    const mergeUrl = `https://api.github.com/repos/acme/demo-shop/pulls/${prNumber}/merge`;
+    const fetchMock = vi.fn((input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url === detailUrl && method === "GET") {
+        return Promise.resolve(
+          new Response(JSON.stringify({ state: "open", head: { sha: "extheadsha" } }), { status: 200 }),
+        );
+      }
+      if (url === checksUrl && method === "GET") {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ check_runs: [{ name: "ci", status: "completed", conclusion: "success" }] }),
+            { status: 200 },
+          ),
+        );
+      }
+      if (url === mergeUrl && method === "PUT") {
+        return Promise.resolve(new Response(JSON.stringify({ merged: true, sha: "extdeadbeef" }), { status: 200 }));
+      }
+      return Promise.resolve(new Response("", { status: 404 }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const res = await release(ticketId, repositoryId, adminCookie);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ merged: true, sha: "extdeadbeef" });
+  });
+
+  it("PR esterna già chiusa sul provider: 409 already_closed, nessuna chiamata di merge", async () => {
+    const { ticketId, repositoryId, prNumber } = await seedExternalPr({ prNumber: 78 });
+    const detailUrl = `https://api.github.com/repos/acme/demo-shop/pulls/${prNumber}`;
+    const fetchMock = vi.fn((input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url === detailUrl && method === "GET") {
+        return Promise.resolve(new Response(JSON.stringify({ state: "closed" }), { status: 200 }));
+      }
+      return Promise.resolve(new Response("", { status: 404 }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const res = await release(ticketId, repositoryId, adminCookie);
+
+    expect(res.statusCode).toBe(409);
+    expect((res.json() as { code: string }).code).toBe("already_closed");
+    expect(fetchMock.mock.calls.some((c) => String(c[0]).endsWith("/merge"))).toBe(false);
+  });
+
+  it("nessuna riga in NESSUNA delle due sorgenti per (ticket, repo): 404", async () => {
+    const { ticketId } = await seedTicket(testDb.db);
+    const { repositoryId } = await seedRepository(testDb.db);
+    const res = await release(ticketId, repositoryId, adminCookie);
+    expect(res.statusCode).toBe(404);
   });
 });
 
@@ -310,5 +474,131 @@ describe("GET /api/release-queue", () => {
     // possono legittimamente far scattare fetch: l'assenza di chiamata è
     // una proprietà DI QUESTA riga, non del mock globale).
     expect(item!.checks.status).toBe("no_checks");
+  });
+
+  // Review fix Task 1: "la coda mostra davvero tutte le PR aperte".
+  // Le righe seminate da test PRECEDENTI in questo stesso file restano nel
+  // DB condiviso: i loro ticket non sono mai stati chiusi (releasePullRequest
+  // non scrive prState/status in locale, per design — vedi il docblock del
+  // servizio), quindi possono comparire come candidati esterni "forse
+  // aperti" e far scattare fetch verso URL non mockate qui, che 404 e
+  // vengono scartate in silenzio: non è un problema per questi test, che
+  // verificano solo presenza/assenza di righe specifiche per ticketId, mai
+  // la lunghezza dell'array.
+
+  it("una PR SOLO esterna compare in coda con origin: external, testStatus/risk NULL (non 'da calcolare')", async () => {
+    const { ticketId, repositoryId, prNumber } = await seedExternalPr({ prNumber: 201 });
+    const detailUrl = `https://api.github.com/repos/acme/demo-shop/pulls/${prNumber}`;
+    const checksUrl = `https://api.github.com/repos/acme/demo-shop/commits/extheadsha/check-runs?per_page=100`;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = init?.method ?? "GET";
+        if (url === detailUrl && method === "GET") {
+          return Promise.resolve(
+            new Response(JSON.stringify({ state: "open", head: { sha: "extheadsha" } }), { status: 200 }),
+          );
+        }
+        if (url === checksUrl && method === "GET") {
+          return Promise.resolve(new Response(JSON.stringify({ check_runs: [] }), { status: 200 }));
+        }
+        return Promise.resolve(new Response("", { status: 404 }));
+      }),
+    );
+
+    const res = await app.inject({ method: "GET", url: "/api/release-queue", headers: { cookie: adminCookie } });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as {
+      items: {
+        ticketId: string;
+        origin: string;
+        testStatus: string | null;
+        risk: string | null;
+        reviewVerdict: string | null;
+        repositoryId: string;
+      }[];
+    };
+    const item = body.items.find((i) => i.ticketId === ticketId && i.repositoryId === repositoryId);
+    expect(item).toBeDefined();
+    expect(item!.origin).toBe("external");
+    expect(item!.testStatus).toBeNull();
+    expect(item!.risk).toBeNull();
+    expect(item!.reviewVerdict).toBe("approve");
+  });
+
+  it("una PR presente in ENTRAMBE le sorgenti (stesso repository+numero PR) → una riga sola, origin stubwise", async () => {
+    const { ticketId, repositoryId, trId } = await seedOpenPr({ testStatus: "passed" });
+    await testDb.db
+      .update(ticketRepositories)
+      .set({ risk: "low", riskReason: "nessun file sensibile, un solo repository" })
+      .where(eq(ticketRepositories.id, trId));
+    // STESSO repository, STESSO numero PR (42, da PR_URL): la review
+    // automatica gira anche sulle PR di Stubwise, non solo su quelle esterne.
+    await testDb.db.insert(prReviews).values({
+      repositoryId,
+      ticketId,
+      prNumber: 42,
+      prUrl: PR_URL,
+      prTitle: "Fix the bug",
+      headSha: "headsha123",
+      status: "completed",
+      verdict: "approve",
+      prSummary: "Cambia solo la formula del totale.",
+    });
+    vi.stubGlobal("fetch", greenFetch());
+
+    const res = await app.inject({ method: "GET", url: "/api/release-queue", headers: { cookie: adminCookie } });
+
+    const body = res.json() as {
+      items: { ticketId: string; repositoryId: string; origin: string; testStatus: string | null }[];
+    };
+    const matches = body.items.filter((i) => i.ticketId === ticketId && i.repositoryId === repositoryId);
+    expect(matches).toHaveLength(1);
+    expect(matches[0]!.origin).toBe("stubwise");
+    expect(matches[0]!.testStatus).toBe("passed");
+  });
+
+  it("una PR esterna chiusa sul provider non compare in coda", async () => {
+    const { ticketId, repositoryId, prNumber } = await seedExternalPr({ prNumber: 202 });
+    const detailUrl = `https://api.github.com/repos/acme/demo-shop/pulls/${prNumber}`;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = init?.method ?? "GET";
+        if (url === detailUrl && method === "GET") {
+          return Promise.resolve(new Response(JSON.stringify({ state: "closed" }), { status: 200 }));
+        }
+        return Promise.resolve(new Response("", { status: 404 }));
+      }),
+    );
+
+    const res = await app.inject({ method: "GET", url: "/api/release-queue", headers: { cookie: adminCookie } });
+
+    const body = res.json() as { items: { ticketId: string; repositoryId: string }[] };
+    expect(body.items.some((i) => i.ticketId === ticketId && i.repositoryId === repositoryId)).toBe(false);
+  });
+
+  it("un ticket di review già 'done': candidato scartato SENZA chiamare il provider per lui (filtro economico)", async () => {
+    const { ticketId, repositoryId, prNumber } = await seedExternalPr({ prNumber: 203 });
+    await testDb.db.update(tickets).set({ status: "done" }).where(eq(tickets.id, ticketId));
+    const detailUrl = `https://api.github.com/repos/acme/demo-shop/pulls/${prNumber}`;
+    const calledForThisPr: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL) => {
+        const url = String(input);
+        if (url === detailUrl) calledForThisPr.push(url);
+        return Promise.resolve(new Response("", { status: 404 }));
+      }),
+    );
+
+    const res = await app.inject({ method: "GET", url: "/api/release-queue", headers: { cookie: adminCookie } });
+
+    const body = res.json() as { items: { ticketId: string; repositoryId: string }[] };
+    expect(body.items.some((i) => i.ticketId === ticketId && i.repositoryId === repositoryId)).toBe(false);
+    expect(calledForThisPr).toHaveLength(0);
   });
 });

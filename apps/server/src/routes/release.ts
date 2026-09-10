@@ -72,6 +72,16 @@ export async function releaseRoutes(instance: FastifyInstance): Promise<void> {
             "checks_failed",
             "The provider's checks are failing on this PR — it cannot be released",
           );
+        case "checks_unreadable":
+          // Review fix Task 2: un errore di lettura NON è un'assenza di
+          // check — mai confuso con "checks_failed" (che dice qualcosa di
+          // preciso: sono rossi) né con un rilascio silenzioso.
+          return apiError(
+            reply,
+            409,
+            "checks_unreadable",
+            "Could not read this PR's checks from the provider — it cannot be released until they can be read",
+          );
         case "not_mergeable":
           return apiError(
             reply,
