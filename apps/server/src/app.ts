@@ -51,6 +51,7 @@ import { milestoneRoutes } from "./routes/milestones.js";
 import { projectDocsRoutes } from "./routes/project-docs.js";
 import { projectEnvFileRoutes } from "./routes/project-env-files.js";
 import { projectEnvironmentRoutes } from "./routes/project-environments.js";
+import { releaseRoutes } from "./routes/release.js";
 import { briefRoutes } from "./routes/briefs.js";
 import { projectRoutes } from "./routes/projects.js";
 import { repositoryRoutes } from "./routes/repositories.js";
@@ -542,6 +543,9 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // dimensione su cui i file d'ambiente ora si organizzano. Project-level,
   // sotto /api/projects/:projectId.
   void app.register(projectEnvironmentRoutes, { prefix: "/api/projects" });
+  // Coda di rilascio (fase 8): lista + azione di merge, entrambe requireAdmin
+  // ("una pagina sola, per il maintainer", design §4).
+  void app.register(releaseRoutes, { prefix: "/api" });
   // Knowledge graph del repository (graphify): stato/azioni + contenuti letti dal
   // volume condiviso `graphs` (montato read-only sul server). Stesso prefisso dei
   // repository, `:id` = repositoryId.

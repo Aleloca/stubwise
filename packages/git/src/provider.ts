@@ -428,6 +428,19 @@ export function parseRepoUrl(repoUrl: string): ParsedRepoUrl {
   return { host: url.host, owner, repo };
 }
 
+/**
+ * Estrae il numero della PR dal suo URL (fase 8, Task 9): GitHub
+ * `.../pull/N`, Bitbucket `.../pull-requests/N`. `null` se il formato non è
+ * riconosciuto — MAI lancia: chi lo chiama (la coda di rilascio) legge un URL
+ * salvato da un run precedente e non deve rompersi su un formato imprevisto.
+ */
+export function parsePrNumberFromUrl(prUrl: string): number | null {
+  const match = /\/pull(?:-requests)?\/(\d+)\b/.exec(prUrl);
+  if (!match) return null;
+  const n = Number(match[1]);
+  return Number.isInteger(n) ? n : null;
+}
+
 /** Reads a header value case-insensitively. */
 export function getHeader(headers: Record<string, string>, name: string): string | undefined {
   const lower = name.toLowerCase();

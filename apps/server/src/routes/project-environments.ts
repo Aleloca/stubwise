@@ -1,4 +1,4 @@
-import { projectEnvironments, projects, serverMetrics, servers, type Db } from "@stubwise/db";
+import { projectEnvironments, projects, servers } from "@stubwise/db";
 import {
   createEnvironmentSchema,
   patchEnvironmentSchema,
@@ -6,39 +6,19 @@ import {
   type DiscoveredService,
   type ProjectEnvironment,
 } from "@stubwise/shared";
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { requireAdmin, requireAuth } from "../auth/session.js";
 import { apiError } from "../errors.js";
+import { loadLatestServicesByServer } from "../services/server-samples.js";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
 
 const projectParamsSchema = z.object({ projectId: z.uuid() });
 const environmentParamsSchema = z.object({ projectId: z.uuid(), environmentId: z.uuid() });
 
 type EnvironmentRow = typeof projectEnvironments.$inferSelect;
-
-/**
- * Servizi scoperti dall'ULTIMO campione di ciascun server, uno solo per
- * `serverId` (query batch, niente N+1): il DISTINCT ON tiene la prima riga
- * per server nell'ordine dato — `serverId`, `ts desc` — cioè l'ultima.
- */
-async function loadLatestServicesByServer(
-  db: Db,
-  serverIds: string[],
-): Promise<Map<string, DiscoveredService[]>> {
-  if (serverIds.length === 0) return new Map();
-  const rows = await db
-    .selectDistinctOn([serverMetrics.serverId], {
-      serverId: serverMetrics.serverId,
-      services: serverMetrics.services,
-    })
-    .from(serverMetrics)
-    .where(inArray(serverMetrics.serverId, serverIds))
-    .orderBy(serverMetrics.serverId, desc(serverMetrics.ts));
-  return new Map(rows.map((r) => [r.serverId, r.services]));
-}
 
 /**
  * Un ambiente collegato a un server sa dire cosa gira lì SOLO per

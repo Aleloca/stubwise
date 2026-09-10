@@ -24,3 +24,4 @@ export * from "./reader.js";
 export * from "./schemas/milestone.js";
 export * from "./schemas/google.js";
 export * from "./schemas/environment.js";
+export * from "./schemas/release.js";
