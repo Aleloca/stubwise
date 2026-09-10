@@ -8,6 +8,7 @@ import { MilestoneManager } from "../../components/milestone-manager";
 import { ProjectForm } from "../../components/project-form";
 import { ProjectEmailRoutesSection } from "../../components/project-email-routes-section";
 import { ProjectPluginsSection } from "../../components/project-plugins-section";
+import { ProjectEnvironmentsSection } from "../../components/project-environments-section";
 import { ProjectServersSection } from "../../components/project-servers-section";
 import { WidgetsSection } from "../../components/widgets-section";
 import { deleteProject, patchProject, putMyFollows, type ProjectPatch } from "../../lib/api";
@@ -265,6 +266,20 @@ export function ProjectDetailPage() {
       <section aria-label={t("projects:detail.servers")} className="mt-8 border-t border-line pt-6">
         <h2 className={sectionTitleClass}>{t("projects:detail.servers")}</h2>
         <ProjectServersSection projectId={project.id} />
+      </section>
+
+      {/*
+        Ambienti del progetto (fase 8): test|staging|production, pura
+        anagrafica — Stubwise non li esegue né li rilascia mai. Lettura per
+        tutti (come i server), scrittura solo admin (isAdmin controlla i
+        controlli CRUD dentro la sezione, non la sua visibilità).
+      */}
+      <section
+        aria-label={t("projects:detail.environmentsTitle")}
+        className="mt-8 border-t border-line pt-6"
+      >
+        <h2 className={sectionTitleClass}>{t("projects:detail.environmentsTitle")}</h2>
+        <ProjectEnvironmentsSection projectId={project.id} isAdmin={isAdmin} />
       </section>
 
       {/*

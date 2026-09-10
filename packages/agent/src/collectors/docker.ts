@@ -30,10 +30,29 @@ const STATS_CONCURRENCY = 8;
 /** Max service name length accepted by the ingest contract (discoveredServiceSchema). */
 const MAX_NAME_LENGTH = 200;
 
+/** Max length for `image`/`commitSha`, matching discoveredServiceSchema. */
+const MAX_IMAGE_LENGTH = 500;
+const MAX_COMMIT_SHA_LENGTH = 100;
+
+/**
+ * OCI label carrying the commit the image was built from — set by the
+ * customer's own build pipeline, not something the agent or Stubwise controls.
+ * https://github.com/opencontainers/image-spec/blob/main/annotations.md
+ */
+const OCI_REVISION_LABEL = "org.opencontainers.image.revision";
+
 interface ContainerSummary {
   Id?: string;
   Names?: string[];
   State?: string;
+  /**
+   * Phase 8, Task 4: already present in `/containers/json`'s response — this
+   * is a mapping change, not a new capability or permission. `Image` is the
+   * tag Docker resolved the container from; `Labels` may carry the OCI
+   * revision label if the customer's build sets it.
+   */
+  Image?: string;
+  Labels?: Record<string, string>;
 }
 
 interface DockerStats {
@@ -141,6 +160,24 @@ function normalizeName(names: string[] | undefined): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+/** `Image` capped at the ingest contract's max length. `undefined` if absent. */
+function normalizeImage(image: string | undefined): string | undefined {
+  if (!image) return undefined;
+  const trimmed = image.slice(0, MAX_IMAGE_LENGTH);
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+/**
+ * The OCI revision label, if the customer's build pipeline sets it —
+ * `undefined` for the (common) case where it doesn't.
+ */
+function extractCommitSha(labels: Record<string, string> | undefined): string | undefined {
+  const value = labels?.[OCI_REVISION_LABEL];
+  if (!value) return undefined;
+  const trimmed = value.slice(0, MAX_COMMIT_SHA_LENGTH);
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
 /**
  * Discover running Docker containers with a CPU/RAM sample each. Returns [] on
  * any top-level failure (socket missing, list request failed, malformed list).
@@ -164,7 +201,13 @@ export async function collectDockerServices(
       const id = raw.Id;
       if (!name || !id) return []; // unusable entry
       return [
-        { id, name, state: typeof raw.State === "string" ? raw.State : "running" },
+        {
+          id,
+          name,
+          state: typeof raw.State === "string" ? raw.State : "running",
+          image: normalizeImage(raw.Image),
+          commitSha: extractCommitSha(raw.Labels),
+        },
       ];
     });
 
@@ -190,6 +233,8 @@ export async function collectDockerServices(
           cpuPct: stats ? computeCpuPct(stats) : null,
           memBytes: stats ? computeMemBytes(stats) : null,
           restarts: null, // Docker does not expose a restart count here
+          image: container.image,
+          commitSha: container.commitSha,
         });
       });
     }

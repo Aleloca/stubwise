@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { BitbucketProvider } from "./bitbucket.js";
 import { GitHubProvider } from "./github.js";
-import { commitWebUrl, getProvider, parseRepoUrl } from "./index.js";
+import { commitWebUrl, getProvider, parsePrNumberFromUrl, parseRepoUrl } from "./index.js";
 
 describe("getProvider", () => {
   it("returns the Bitbucket implementation for 'bitbucket'", () => {
@@ -14,6 +14,24 @@ describe("getProvider", () => {
 
   it("throws on unknown provider kinds", () => {
     expect(() => getProvider("gitlab" as never)).toThrow(/gitlab/);
+  });
+});
+
+describe("parsePrNumberFromUrl", () => {
+  it("estrae il numero da un URL GitHub", () => {
+    expect(parsePrNumberFromUrl("https://github.com/octo/repo/pull/42")).toBe(42);
+  });
+
+  it("estrae il numero da un URL Bitbucket", () => {
+    expect(parsePrNumberFromUrl("https://bitbucket.org/myws/myrepo/pull-requests/7")).toBe(7);
+  });
+
+  it("ignora suffissi dopo il numero (es. #comment)", () => {
+    expect(parsePrNumberFromUrl("https://github.com/octo/repo/pull/42#issuecomment-1")).toBe(42);
+  });
+
+  it("null su un URL non riconosciuto — mai lancia", () => {
+    expect(parsePrNumberFromUrl("https://example.com/not-a-pr")).toBeNull();
   });
 });
 

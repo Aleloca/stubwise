@@ -42,6 +42,9 @@ function mockApi(handlers: Record<string, Handler>) {
     // La sezione Server legge i server associati al progetto: vuota di default
     // (il riuso della ServerCard e il filtro per progetto vivono in un test a parte).
     "GET /api/servers": () => jsonResponse(200, []),
+    // Fase 8: la sezione Ambienti legge gli ambienti del progetto: vuota di
+    // default (CRUD e copy vivono in project-environments-section.test.tsx).
+    [`GET /api/projects/${PROJECT_ID}/environments`]: () => jsonResponse(200, []),
     // Il bottone Segui dell'header legge i progetti seguiti: nessuno di default.
     "GET /api/me/follows": () => jsonResponse(200, { projectIds: [] }),
     ...handlers,

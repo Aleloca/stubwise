@@ -27,11 +27,13 @@
       "label": "Navigation",
       "open": "Open navigation",
       "mail": "Mail",
-      "calendar": "Calendar"
+      "calendar": "Calendar",
+      "release": "Release"
     },
     "on": "on",
     "off": "off",
-    "saving": "Saving…"
+    "saving": "Saving…",
+    "edit": "Edit"
   },
   "monitor": {
     "list": {
@@ -1489,7 +1491,31 @@
       "deleting": "Deleting…",
       "cancel": "Cancel",
       "follow": "Follow",
-      "unfollow": "Unfollow"
+      "unfollow": "Unfollow",
+      "environmentsLoading": "// loading environments…",
+      "environmentsError": "// could not load the environments for this project",
+      "environmentsHint": "Stubwise only KNOWS these environments — it never runs or deploys to them. Only the test environment's variables are read by the fix pipeline; staging/production variables are stored so people can read and compare them, never used automatically.",
+      "noEnvironments": "// no environments",
+      "addEnvironment": "Add environment",
+      "environmentName": "Name",
+      "environmentNamePlaceholder": "E.g. staging",
+      "environmentKind": "Type",
+      "environmentKindOptions": {
+        "test": "Test",
+        "staging": "Staging",
+        "production": "Production"
+      },
+      "environmentUrl": "URL",
+      "environmentServer": "Connected server",
+      "environmentServerNone": "— none —",
+      "environmentRunningOn": "running on {{server}}",
+      "createEnvironment": "Create environment",
+      "creatingEnvironment": "Creating…",
+      "deleteEnvironment": "Delete",
+      "testEnvironmentProtected": "The test environment cannot be deleted — it is the only one the fix pipeline can read.",
+      "environmentsTitle": "Environments",
+      "environmentRunningVersion": "{{image}} @ {{commit}}",
+      "environmentRunningVersionHint": "Reported by the monitoring agent on the connected server — matched by a service with the same name as this environment"
     },
     "form": {
       "name": "Name",
@@ -1850,7 +1876,9 @@
     "remove": "Remove",
     "value": "Value",
     "valuePlaceholder": "New value (write-only)",
-    "saving": "Saving…"
+    "saving": "Saving…",
+    "usedByPipeline": "// the fix pipeline reads these variables in every run",
+    "notUsedByPipeline": "// stored for people to read and compare — never used automatically by the fix pipeline"
   },
   "docs": {
     "hub": {
@@ -2412,5 +2440,57 @@
       "empty": "// no appointments",
       "loadError": "Could not load the calendar."
     }
+  },
+  "release": {
+    "title": "Release queue",
+    "subtitle": "Every open PR on connected repositories — Stubwise only merges on explicit request, and never deploys.",
+    "empty": "// no open PRs",
+    "release": "Release",
+    "confirm": "Confirm merge",
+    "releasing": "Merging…",
+    "columns": {
+      "review": "Review",
+      "checks": "Checks",
+      "testStatus": "Test",
+      "risk": "Risk",
+      "deployedOn": "Already on"
+    },
+    "review": {
+      "approve": "Approved",
+      "request_changes": "Changes requested",
+      "none": "No review yet"
+    },
+    "checks": {
+      "success": "Green",
+      "failure": "Red",
+      "pending": "Running",
+      "noChecks": "No checks configured",
+      "unknown": "Unreadable"
+    },
+    "testStatus": {
+      "passed": "Passed",
+      "failed": "Failed",
+      "skipped": "Skipped",
+      "none": "Unknown",
+      "notRunByStubwise": "Not run by Stubwise"
+    },
+    "risk": {
+      "low": "Low",
+      "medium": "Medium",
+      "high": "High",
+      "none": "Unknown",
+      "notRunByStubwise": "Not run by Stubwise"
+    },
+    "errors": {
+      "alreadyClosed": "This PR is no longer open.",
+      "checksFailed": "The provider's checks are failing on this PR — it cannot be released.",
+      "notMergeable": "The provider refused to merge this PR (conflicts or unmet branch rules).",
+      "mergeForbidden": "The stored git credentials do not have permission to merge this PR.",
+      "notFound": "This PR could not be found.",
+      "generic": "Something went wrong while releasing this PR.",
+      "checksUnreadable": "The provider's checks could not be read — try again once they're readable."
+    },
+    "external": "External",
+    "externalHint": "Opened outside Stubwise — reviewed automatically, but never built or tested by Stubwise's own pipeline."
   }
 }

@@ -1,7 +1,12 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { BitbucketProvider } from "./bitbucket.js";
-import { GitProviderError, type AccountCredentials, type ProjectGitConfig } from "./provider.js";
+import {
+  GitProviderError,
+  MergeNotAllowedError,
+  type AccountCredentials,
+  type ProjectGitConfig,
+} from "./provider.js";
 
 const config: ProjectGitConfig = {
   repoUrl: "https://bitbucket.org/myws/myrepo",
@@ -239,6 +244,205 @@ describe("BitbucketProvider.getPullRequestState", () => {
 
     expect(error).toBeInstanceOf(GitProviderError);
     expect((error as GitProviderError).status).toBe(404);
+  });
+});
+
+describe("BitbucketProvider.getPullRequestChecks", () => {
+  /** PR risolta con successo (source.commit.hash) prima della lettura degli statuses. */
+  function prResponse(headSha = "abc123", branchName?: string): Response {
+    return jsonResponse(
+      { source: { commit: { hash: headSha }, ...(branchName ? { branch: { name: branchName } } : {}) } },
+      200
+    );
+  }
+
+  function fetchSequence(pr: Response, statuses: Response) {
+    const fetchImpl = vi.fn();
+    fetchImpl.mockResolvedValueOnce(pr).mockResolvedValueOnce(statuses);
+    return fetchImpl;
+  }
+
+  it("tutti verdi → status success, con headSha risolto dalla PR", async () => {
+    const fetchImpl = fetchSequence(
+      prResponse(),
+      jsonResponse(
+        {
+          values: [
+            { key: "build", name: "build", state: "SUCCESSFUL" },
+            { key: "test", name: "test", state: "SUCCESSFUL" },
+          ],
+        },
+        200
+      )
+    );
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    const result = await provider.getPullRequestChecks(config, 7);
+
+    expect(result).toEqual({
+      status: "success",
+      checks: [
+        { name: "build", status: "success" },
+        { name: "test", status: "success" },
+      ],
+      headSha: "abc123",
+    });
+    expect(fetchImpl).toHaveBeenNthCalledWith(
+      1,
+      "https://api.bitbucket.org/2.0/repositories/myws/myrepo/pullrequests/7",
+      expect.objectContaining({ method: "GET" })
+    );
+    expect(fetchImpl).toHaveBeenNthCalledWith(
+      2,
+      "https://api.bitbucket.org/2.0/repositories/myws/myrepo/pullrequests/7/statuses?pagelen=100",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("uno FAILED → status failure", async () => {
+    const fetchImpl = fetchSequence(
+      prResponse(),
+      jsonResponse(
+        {
+          values: [
+            { key: "build", name: "build", state: "SUCCESSFUL" },
+            { key: "test", name: "test", state: "FAILED" },
+          ],
+        },
+        200
+      )
+    );
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    const result = await provider.getPullRequestChecks(config, 7);
+    expect(result.status).toBe("failure");
+  });
+
+  it("INPROGRESS → status pending", async () => {
+    const fetchImpl = fetchSequence(
+      prResponse(),
+      jsonResponse({ values: [{ key: "build", name: "build", state: "INPROGRESS" }] }, 200)
+    );
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    const result = await provider.getPullRequestChecks(config, 7);
+    expect(result).toEqual({
+      status: "pending",
+      checks: [{ name: "build", status: "pending" }],
+      headSha: "abc123",
+    });
+  });
+
+  it("nessun check configurato → 'no_checks', DIVERSO da 'failure' e da 'unknown'", async () => {
+    const fetchImpl = fetchSequence(prResponse(), jsonResponse({ values: [] }, 200));
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    const result = await provider.getPullRequestChecks(config, 7);
+    expect(result).toEqual({ status: "no_checks", checks: [], headSha: "abc123" });
+  });
+
+  it("errore di rete: non lancia, ricade su 'unknown' — DIVERSO da 'no_checks' (review fix Task 2)", async () => {
+    const fetchImpl = vi.fn().mockRejectedValue(new Error("network down"));
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    const result = await provider.getPullRequestChecks(config, 7);
+    expect(result).toEqual({ status: "unknown", checks: [] });
+  });
+
+  it("non-2xx sul fetch della PR: non lancia, ricade su 'unknown', senza headSha", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("nope", { status: 404 }));
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    const result = await provider.getPullRequestChecks(config, 7);
+    expect(result).toEqual({ status: "unknown", checks: [] });
+  });
+
+  it("non-2xx sul fetch degli statuses (PR già risolta): 'unknown' CON headSha", async () => {
+    const fetchImpl = fetchSequence(prResponse(), new Response("nope", { status: 500 }));
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    const result = await provider.getPullRequestChecks(config, 7);
+    expect(result).toEqual({ status: "unknown", checks: [], headSha: "abc123" });
+  });
+
+  it("source.branch.name della PR → headRef (review fix Task 1, etichetta della coda per le PR esterne)", async () => {
+    const fetchImpl = fetchSequence(
+      prResponse("abc123", "fix/typo-in-readme"),
+      jsonResponse({ values: [] }, 200)
+    );
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    const result = await provider.getPullRequestChecks(config, 7);
+    expect(result.headRef).toBe("fix/typo-in-readme");
+  });
+});
+
+describe("BitbucketProvider.mergePullRequest", () => {
+  it("POST .../merge con merge_strategy: 'merge_commit' → { merged: true, sha }", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ merge_commit: { hash: "deadbeef" } }, 200));
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    const result = await provider.mergePullRequest(config, 7);
+
+    expect(result).toEqual({ merged: true, sha: "deadbeef" });
+    const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://api.bitbucket.org/2.0/repositories/myws/myrepo/pullrequests/7/merge");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({ merge_strategy: "merge_commit" });
+  });
+
+  it.each([400, 409])("%i → MergeNotAllowedError con reason 'not_mergeable'", async (status) => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("blocked", { status }));
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    const error = await provider
+      .mergePullRequest(config, 7)
+      .then(() => null)
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(MergeNotAllowedError);
+    expect((error as MergeNotAllowedError).reason).toBe("not_mergeable");
+  });
+
+  it.each([403, 404])("%i → MergeNotAllowedError con reason 'forbidden'", async (status) => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("nope", { status }));
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    const error = await provider
+      .mergePullRequest(config, 7)
+      .then(() => null)
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(MergeNotAllowedError);
+    expect((error as MergeNotAllowedError).reason).toBe("forbidden");
+  });
+
+  it("status non riconosciuto → MergeNotAllowedError con reason 'unknown'", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("boom", { status: 500 }));
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    const error = await provider
+      .mergePullRequest(config, 7)
+      .then(() => null)
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(MergeNotAllowedError);
+    expect((error as MergeNotAllowedError).reason).toBe("unknown");
+  });
+
+  it("2xx senza merge_commit.hash → MergeNotAllowedError con reason 'unknown'", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({}, 200));
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    const error = await provider
+      .mergePullRequest(config, 7)
+      .then(() => null)
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(MergeNotAllowedError);
+    expect((error as MergeNotAllowedError).reason).toBe("unknown");
   });
 });
 
@@ -599,32 +803,41 @@ describe("BitbucketProvider.validateCredentials", () => {
   const GIT_URL = "https://bitbucket.org/myws/myrepo.git/info/refs?service=git-receive-pack";
   const REST_URL = "https://api.bitbucket.org/2.0/repositories/myws/myrepo/pullrequests?pagelen=1";
   const HOOKS_URL = "https://api.bitbucket.org/2.0/repositories/myws/myrepo/hooks?pagelen=1";
+  const MERGE_URL = `https://api.bitbucket.org/2.0/user/permissions/repositories?q=${encodeURIComponent('repository.full_name="myws/myrepo"')}`;
 
-  /** Mock che risponde in base all'URL chiamato (git vs REST vs hooks). */
-  function routedFetch(map: { git?: () => Response; rest?: () => Response; hooks?: () => Response }) {
+  /** Mock che risponde in base all'URL chiamato (git vs REST vs hooks vs merge). */
+  function routedFetch(map: {
+    git?: () => Response;
+    rest?: () => Response;
+    hooks?: () => Response;
+    merge?: () => Response;
+  }) {
     return vi.fn((input: string | URL) => {
       const url = String(input);
       if (url === GIT_URL) return Promise.resolve(map.git?.() ?? new Response("", { status: 500 }));
       if (url === REST_URL) return Promise.resolve(map.rest?.() ?? new Response("", { status: 500 }));
       if (url === HOOKS_URL) return Promise.resolve(map.hooks?.() ?? new Response("", { status: 500 }));
+      if (url === MERGE_URL) return Promise.resolve(map.merge?.() ?? new Response("", { status: 500 }));
       return Promise.resolve(new Response("", { status: 404 }));
     });
   }
 
-  it("tutto ok: i tre check passano e usano le identità corrette", async () => {
+  it("tutto ok: i quattro check passano e usano le identità corrette", async () => {
     const fetchImpl = routedFetch({
       git: () => new Response("", { status: 200 }),
       rest: () => new Response("{}", { status: 200 }),
       hooks: () => new Response("{}", { status: 200 }),
+      merge: () => jsonResponse({ values: [{ permission: "write" }] }, 200),
     });
     const provider = new BitbucketProvider();
     const checks = await provider.validateCredentials(apiConfig, { fetchImpl });
 
-    expect(checks).toHaveLength(3);
+    expect(checks).toHaveLength(4);
     expect(checks.every((c) => c.ok)).toBe(true);
     expect(checks[0]!.name).toBe("Accesso git (push)");
     expect(checks[1]!.name).toBe("Accesso REST API (PR)");
     expect(checks[2]!.name).toBe("Accesso webhook (config automatica)");
+    expect(checks[3]!.name).toBe("Permesso di merge");
 
     // git usa username:token
     const gitCall = fetchImpl.mock.calls.find((c) => c[0] === GIT_URL) as unknown as [string, RequestInit];
@@ -643,16 +856,75 @@ describe("BitbucketProvider.validateCredentials", () => {
     );
   });
 
+  it("permesso 'read' soltanto: merge ok:false, distinto da 'nessun permesso'", async () => {
+    const fetchImpl = routedFetch({
+      git: () => new Response("", { status: 200 }),
+      rest: () => new Response("{}", { status: 200 }),
+      hooks: () => new Response("{}", { status: 200 }),
+      merge: () => jsonResponse({ values: [{ permission: "read" }] }, 200),
+    });
+    const provider = new BitbucketProvider();
+    const checks = await provider.validateCredentials(apiConfig, { fetchImpl });
+
+    const merge = checks.find((c) => c.name === "Permesso di merge")!;
+    expect(merge.ok).toBe(false);
+    expect(merge.detail).toMatch(/lettura/i);
+  });
+
+  it("nessun permesso trovato (values vuoto): merge ok:false", async () => {
+    const fetchImpl = routedFetch({
+      git: () => new Response("", { status: 200 }),
+      rest: () => new Response("{}", { status: 200 }),
+      hooks: () => new Response("{}", { status: 200 }),
+      merge: () => jsonResponse({ values: [] }, 200),
+    });
+    const provider = new BitbucketProvider();
+    const checks = await provider.validateCredentials(apiConfig, { fetchImpl });
+
+    const merge = checks.find((c) => c.name === "Permesso di merge")!;
+    expect(merge.ok).toBe(false);
+  });
+
+  it("permesso 'admin': merge ok:true", async () => {
+    const fetchImpl = routedFetch({
+      git: () => new Response("", { status: 200 }),
+      rest: () => new Response("{}", { status: 200 }),
+      hooks: () => new Response("{}", { status: 200 }),
+      merge: () => jsonResponse({ values: [{ permission: "admin" }] }, 200),
+    });
+    const provider = new BitbucketProvider();
+    const checks = await provider.validateCredentials(apiConfig, { fetchImpl });
+
+    const merge = checks.find((c) => c.name === "Permesso di merge")!;
+    expect(merge.ok).toBe(true);
+  });
+
+  it("merge 401: detail parla di autenticazione", async () => {
+    const fetchImpl = routedFetch({
+      git: () => new Response("", { status: 200 }),
+      rest: () => new Response("{}", { status: 200 }),
+      hooks: () => new Response("{}", { status: 200 }),
+      merge: () => new Response("", { status: 401 }),
+    });
+    const provider = new BitbucketProvider();
+    const checks = await provider.validateCredentials(apiConfig, { fetchImpl });
+
+    const merge = checks.find((c) => c.name === "Permesso di merge")!;
+    expect(merge.ok).toBe(false);
+    expect(merge.detail).toMatch(/autenticazione/i);
+  });
+
   it("hooks 403: check webhook ok:false con guida sullo scope, ma advisory", async () => {
     const fetchImpl = routedFetch({
       git: () => new Response("", { status: 200 }),
       rest: () => new Response("{}", { status: 200 }),
       hooks: () => new Response("", { status: 403 }),
+      merge: () => jsonResponse({ values: [{ permission: "write" }] }, 200),
     });
     const provider = new BitbucketProvider();
     const checks = await provider.validateCredentials(apiConfig, { fetchImpl });
 
-    expect(checks).toHaveLength(3);
+    expect(checks).toHaveLength(4);
     const webhook = checks.find((c) => c.name === "Accesso webhook (config automatica)")!;
     expect(webhook.ok).toBe(false);
     expect(webhook.detail).toMatch(/webhook/i);
@@ -709,7 +981,7 @@ describe("BitbucketProvider.validateCredentials", () => {
     const provider = new BitbucketProvider();
     const checks = await provider.validateCredentials(apiConfig, { fetchImpl });
 
-    expect(checks).toHaveLength(3);
+    expect(checks).toHaveLength(4);
     expect(checks.every((c) => !c.ok)).toBe(true);
     expect(checks[0]!.detail).toMatch(/ECONNREFUSED/);
   });

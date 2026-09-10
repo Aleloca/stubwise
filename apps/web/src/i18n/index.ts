@@ -45,6 +45,7 @@ export const NAMESPACES = [
   // correzione stessa dimostra.
   "mail",
   "calendar",
+  "release",
 ] as const;
 
 /**

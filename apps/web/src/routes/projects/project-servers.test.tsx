@@ -44,6 +44,7 @@ function mockApi(handlers: Record<string, Handler>) {
     "GET /api/ai-providers": () => jsonResponse(200, []),
     "GET /api/milestones": () => jsonResponse(200, []),
     [`GET /api/projects/${PROJECT_ID}/widgets`]: () => jsonResponse(200, { widgets: [] }),
+    [`GET /api/projects/${PROJECT_ID}/environments`]: () => jsonResponse(200, []),
     [`GET /api/projects/${PROJECT_ID}`]: () => jsonResponse(200, detail()),
     ...handlers,
   };

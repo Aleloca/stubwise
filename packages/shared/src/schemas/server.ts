@@ -59,6 +59,21 @@ export const discoveredServiceSchema = z.object({
   cpuPct: z.number().min(0).nullable(),
   memBytes: z.number().int().min(0).nullable(),
   restarts: z.number().int().min(0).nullable(), // solo PM2
+  /**
+   * Fase 8, Task 4: `Image` del container Docker (es. `acme/web:1.2.3`),
+   * dalla stessa risposta `/containers/json` che il collector legge già —
+   * non un permesso in più. `.optional()`: solo Docker la porta (mai PM2), e
+   * un agente vecchio che non la manda deve continuare a funzionare (l'app
+   * non c'entra qui, ma gli host NON si auto-aggiornano — CLAUDE.md — quindi
+   * la stessa regola vale per il server verso un agente più vecchio).
+   */
+  image: z.string().max(500).optional(),
+  /**
+   * Fase 8, Task 4: label OCI `org.opencontainers.image.revision` del
+   * container, quando il buildchain del cliente la imposta — tipicamente lo
+   * sha del commit rilasciato. `.optional()`: molte immagini non la portano.
+   */
+  commitSha: z.string().max(100).optional(),
 });
 export type DiscoveredService = z.infer<typeof discoveredServiceSchema>;
 

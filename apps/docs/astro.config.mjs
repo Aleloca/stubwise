@@ -167,6 +167,10 @@ export default defineConfig({
               label: "Roadmap, brief and decisions",
               slug: "team/roadmap-briefs-decisions",
             },
+            {
+              label: "Environments and the release queue",
+              slug: "team/release-queue",
+            },
           ],
         },
         {

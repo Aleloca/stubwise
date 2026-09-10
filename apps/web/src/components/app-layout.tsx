@@ -46,6 +46,12 @@ const NAV_ITEMS = [
   // CLAUDE.md per il perché "Impostazioni" NON è in questo elenco.
   { to: "/repositories", labelKey: "common:nav.repositories", code: "REP", memberVisible: false },
   { to: "/monitor", labelKey: "common:nav.monitor", code: "MON", memberVisible: false },
+  // Coda di rilascio (fase 8): a differenza di Repository/Monitor, questa NON
+  // si degrada per un member — la rotta server è requireAdmin su lista E
+  // azione (design §4, "una pagina sola, per il maintainer"). Nasconderla dal
+  // menu qui è coerente con quella scelta, non solo con l'igiene visiva delle
+  // altre due.
+  { to: "/release", labelKey: "common:nav.release", code: "REL", memberVisible: false },
   { to: "/activity", labelKey: "common:nav.activity", code: "ACT", memberVisible: true },
   { to: "/docs", labelKey: "common:nav.docs", code: "DOC", memberVisible: true },
   { to: "/team", labelKey: "common:nav.team", code: "TEA", memberVisible: true },

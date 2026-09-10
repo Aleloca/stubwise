@@ -171,6 +171,33 @@ describe("discoveredServiceSchema", () => {
       }),
     ).toThrow();
   });
+
+  it("fase 8: accetta image/commitSha quando presenti (agente nuovo, container Docker con label OCI)", () => {
+    const parsed = discoveredServiceSchema.parse({
+      source: "docker",
+      name: "web",
+      state: "running",
+      cpuPct: 2.1,
+      memBytes: 100_000_000,
+      restarts: null,
+      image: "acme/web:1.2.3",
+      commitSha: "abc1234",
+    });
+    expect(parsed).toMatchObject({ image: "acme/web:1.2.3", commitSha: "abc1234" });
+  });
+
+  it("fase 8: parsa SENZA image/commitSha — un agente vecchio che non li manda non deve rompere il server", () => {
+    const parsed = discoveredServiceSchema.parse({
+      source: "docker",
+      name: "web",
+      state: "running",
+      cpuPct: null,
+      memBytes: null,
+      restarts: null,
+    });
+    expect(parsed.image).toBeUndefined();
+    expect(parsed.commitSha).toBeUndefined();
+  });
 });
 
 describe("checkResultSchema", () => {

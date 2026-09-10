@@ -798,6 +798,36 @@ describe("runFix", () => {
     const runs = await db.select().from(agentRuns).where(eq(agentRuns.jobId, job.id));
     const fixRuns = runs.filter((r) => r.phase === "fix");
     expect(fixRuns.map((r) => r.model).sort()).toEqual(["opus", "sonnet"]);
+    // Fase 8, Task 7: app.js soltanto, un solo repo → rischio "low".
+    const [tr] = await db.select().from(ticketRepositories).where(eq(ticketRepositories.ticketId, ticket.id));
+    expect(tr?.risk).toBe("low");
+    expect(tr?.riskReason).toBeTruthy();
+  });
+
+  it("rischio del rilascio (Task 7): un file sensibile alza il rischio ad 'high', con la ragione che lo nomina", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    const ticket = await createTicket(db, fixture);
+    const job = await createFixingJob(db, ticket.id);
+    const runner = new FakeAgentRunner({
+      fileChanges: {
+        [`${repoDir(fixture)}/app.js`]: "exports.sum = (a, b) => a + b;\n",
+        [`${repoDir(fixture)}/pnpm-lock.yaml`]: "lockfileVersion: 9\n",
+        "STUBWISE_REPORT.md": REPORT,
+      },
+      results: [
+        { output: "PIANO", exitCode: 0 },
+        { output: "fix", exitCode: 0 },
+      ],
+    });
+    const provider = makeProvider();
+
+    const outcome = await runFix(makeDeps(fixture, runner, provider), job);
+
+    expect(outcome).toBe("pr_opened");
+    const [tr] = await db.select().from(ticketRepositories).where(eq(ticketRepositories.ticketId, ticket.id));
+    expect(tr?.risk).toBe("high");
+    expect(tr?.riskReason).toContain("lockfile");
   });
 
   it("con content_language='it': prompt, commento AI e footer PR in italiano", async () => {
@@ -1624,6 +1654,10 @@ describe("runFix — self-repair (Task 5)", () => {
     expect(files).not.toContain("STUBWISE_REPORT.md");
     const jobAfter = await getJob(db, job.id);
     expect(jobAfter.status).toBe("pr_opened");
+    // Fase 8, Task 6: il test è girato rosso poi verde — l'esito scritto è
+    // quello dell'ULTIMO giro (quello che ha davvero aperto la PR): passed.
+    const [tr] = await db.select().from(ticketRepositories).where(eq(ticketRepositories.ticketId, ticket.id));
+    expect(tr?.testStatus).toBe("passed");
   });
 
   it("exhausted: test sempre rossi → dopo selfRepairMaxAttempts riparazioni → failed, niente PR, output test nel log", async () => {
@@ -1700,6 +1734,10 @@ describe("runFix — self-repair (Task 5)", () => {
     const files = await git(["ls-tree", "-r", "--name-only", branch], fixture.upstreamDir);
     expect(files).toContain("app.js");
     expect(files).not.toContain("STUBWISE_REPORT.md");
+    // Fase 8, Task 6: nessun comando di test risolvibile → "skipped", non
+    // "passed" — un test mai eseguito non ha "superato" nulla.
+    const [tr] = await db.select().from(ticketRepositories).where(eq(ticketRepositories.ticketId, ticket.id));
+    expect(tr?.testStatus).toBe("skipped");
   });
 
   it("selfRepairMaxAttempts=0: nessun loop, comportamento attuale anche con testCmd risolto", async () => {
@@ -1729,6 +1767,11 @@ describe("runFix — self-repair (Task 5)", () => {
     expect(outcome).toBe("pr_opened");
     expect(runTestCommand).not.toHaveBeenCalled();
     expect(runner.calls).toHaveLength(2);
+    // Fase 8, Task 6: self-repair spento → nessun test è MAI girato, anche se
+    // un comando sarebbe risolvibile — "skipped", coerente col fatto che
+    // runTestCommand non è mai stato chiamato.
+    const [tr] = await db.select().from(ticketRepositories).where(eq(ticketRepositories.ticketId, ticket.id));
+    expect(tr?.testStatus).toBe("skipped");
   });
 
   it("diff vuoto dopo l'esecuzione (solo report) → NoChangesError, niente esecuzione test né PR", async () => {
@@ -2477,10 +2520,11 @@ describe("runFix — file d'ambiente per progetto (Task 5 wiring)", () => {
       order.push("install");
       return { exitCode: 0, output: "ok" };
     });
+    const loadEnvFilesFn = vi.fn(async () => []);
 
     const outcome = await runFix(
       makeDeps(fixture, runner, provider, {
-        loadEnvFilesFn: async () => [],
+        loadEnvFilesFn,
         materializeEnvFilesFn,
         resolveInstallCommandFn: async () => INSTALL_CMD,
         runInstallCommand,
@@ -2492,6 +2536,13 @@ describe("runFix — file d'ambiente per progetto (Task 5 wiring)", () => {
     expect(materializeEnvFilesFn).toHaveBeenCalledTimes(1);
     expect(order[0]).toBe("env");
     expect(order.indexOf("env")).toBeLessThan(order.indexOf("install"));
+    // Fase 8: la pipeline chiede SEMPRE l'ambiente "test", mai altro.
+    expect(loadEnvFilesFn).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.any(String),
+      expect.anything(),
+      "test",
+    );
     expect(order.indexOf("install")).toBeLessThan(order.indexOf("agent"));
   });
 
@@ -2993,6 +3044,10 @@ describe("runFix — multi-repository (Fase 3)", () => {
     expect(new Set(rows.map((r) => r.repositoryId))).toEqual(
       new Set([repoA.repositoryId, repoB.repositoryId]),
     );
+    // Fase 8, Task 7: due repo toccati → rischio "medium" su ENTRAMBE le
+    // righe, stessa valutazione (il rischio è del fix, non del singolo repo).
+    expect(rows.every((r) => r.risk === "medium")).toBe(true);
+    expect(rows[0]?.riskReason).toContain("2 repository");
     const branch = `stubwise/ticket-${ticket.number}`;
     expect(await git(["branch", "--list", branch], repoA.upstreamDir)).toContain(branch);
     expect(await git(["branch", "--list", branch], repoB.upstreamDir)).toContain(branch);

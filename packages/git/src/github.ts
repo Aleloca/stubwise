@@ -8,15 +8,19 @@ import {
   parseNextLink,
   parseRepoUrl,
   readJsonResponse,
+  rollupCheckStatus,
   verifyHmacSignature,
+  MergeNotAllowedError,
   type AccountConfig,
   type AccountCredentials,
+  type CheckOutcomeStatus,
   type CredentialCheck,
   type FetchLike,
   type GitProvider,
   type GitProviderOptions,
   type PrActivityEvent,
   type ProjectGitConfig,
+  type PullRequestChecks,
   type PushWebhookEvent,
   type RepoSummary,
   type WebhookEvent,
@@ -100,6 +104,150 @@ export class GitHubProvider implements GitProvider {
     await ensureOkResponse(response, "GitHub");
     const data = (await readJsonResponse(response, "GitHub")) as { state?: unknown };
     return data.state === "open" ? "open" : "closed";
+  }
+
+  /**
+   * Check-run di GitHub Actions sull'ULTIMO commit della PR (`head.sha`, letto
+   * dalla stessa risposta di `getPullRequestState`, una richiesta in più per
+   * la resa: la lista dei check-run vive per commit, non per PR). Mai lancia:
+   * un errore prima di aver risolto la PR (rete, 401, PR non trovata) ricade
+   * su `{ status: "unknown", checks: [] }` (fase 8, review fix Task 2) — un
+   * corpo malformato SUL check-runs, dopo aver risolto la PR, ricade sullo
+   * stesso `unknown` ma con `headSha` già valorizzato. `headSha` (fase 8,
+   * review fix Task 4) è la stessa risoluzione, riusata dal chiamante per
+   * "questa PR è già su un ambiente?" senza una chiamata in più.
+   */
+  async getPullRequestChecks(
+    p: ProjectGitConfig,
+    prNumber: number,
+    opts: { fetchImpl?: FetchLike } = {}
+  ): Promise<PullRequestChecks> {
+    const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
+    const { owner, repo } = parseRepoUrl(p.repoUrl);
+    const headers = {
+      Authorization: `Bearer ${p.credentials.token}`,
+      Accept: "application/vnd.github+json",
+    };
+    let headSha: string | undefined;
+    let headRef: string | undefined;
+    try {
+      const prResponse = await fetchImpl(`${API_BASE}/repos/${owner}/${repo}/pulls/${prNumber}`, {
+        method: "GET",
+        headers,
+      });
+      await ensureOkResponse(prResponse, "GitHub");
+      const pr = (await readJsonResponse(prResponse, "GitHub")) as {
+        head?: { sha?: unknown; ref?: unknown };
+      };
+      const resolvedHeadSha = pr.head?.sha;
+      if (typeof resolvedHeadSha !== "string") return { status: "unknown", checks: [] };
+      headSha = resolvedHeadSha;
+      if (typeof pr.head?.ref === "string") headRef = pr.head.ref;
+      const extra = { headSha, ...(headRef !== undefined ? { headRef } : {}) };
+
+      const checksResponse = await fetchImpl(
+        `${API_BASE}/repos/${owner}/${repo}/commits/${headSha}/check-runs?per_page=100`,
+        { method: "GET", headers }
+      );
+      await ensureOkResponse(checksResponse, "GitHub");
+      const data = (await readJsonResponse(checksResponse, "GitHub")) as {
+        check_runs?: { name?: unknown; status?: unknown; conclusion?: unknown }[];
+      };
+      const runs = Array.isArray(data.check_runs) ? data.check_runs : [];
+      if (runs.length === 0) return { status: "no_checks", checks: [], ...extra };
+
+      const checks = runs.map((run) => ({
+        name: typeof run.name === "string" ? run.name : "check",
+        status: githubCheckStatus(run.status, run.conclusion),
+      }));
+      return { status: rollupCheckStatus(checks), checks, ...extra };
+    } catch {
+      return {
+        status: "unknown",
+        checks: [],
+        ...(headSha !== undefined ? { headSha } : {}),
+        ...(headRef !== undefined ? { headRef } : {}),
+      };
+    }
+  }
+
+  /**
+   * Mergia la PR (fase 8, Task 8). `PUT .../merge` con `merge_method: "merge"`
+   * (merge commit — nessuna riscrittura di storia sul branch dell'utente).
+   * Mappa gli status di errore reali dell'API GitHub: 405 = non mergiabile
+   * (branch protection, review mancanti); 409 = testa cambiata dopo l'ultimo
+   * check (conflitto/stale, l'utente riprova); 403/404 = permesso mancante o
+   * PR inaccessibile.
+   */
+  async mergePullRequest(
+    p: ProjectGitConfig,
+    prNumber: number,
+    opts: { fetchImpl?: FetchLike } = {}
+  ): Promise<{ merged: true; sha: string }> {
+    const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
+    const { owner, repo } = parseRepoUrl(p.repoUrl);
+    const response = await fetchImpl(`${API_BASE}/repos/${owner}/${repo}/pulls/${prNumber}/merge`, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${p.credentials.token}`,
+        Accept: "application/vnd.github+json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ merge_method: "merge" }),
+    });
+
+    if (response.ok) {
+      const data = (await readJsonResponse(response, "GitHub")) as { sha?: unknown; merged?: unknown };
+      if (data.merged === true && typeof data.sha === "string") {
+        return { merged: true, sha: data.sha };
+      }
+      throw new MergeNotAllowedError(
+        "unknown",
+        "GitHub merge response is missing sha/merged=true",
+        response.status,
+        JSON.stringify(data).slice(0, 500)
+      );
+    }
+
+    const bodyText = await response.text().catch(() => "");
+    if (response.status === 405) {
+      throw new MergeNotAllowedError(
+        "not_mergeable",
+        "GitHub: la PR non è mergiabile (conflitti o regole del branch non soddisfatte)",
+        405,
+        bodyText.slice(0, 500)
+      );
+    }
+    if (response.status === 409) {
+      throw new MergeNotAllowedError(
+        "not_mergeable",
+        "GitHub: il ramo di base è cambiato dopo l'ultimo controllo, riprova",
+        409,
+        bodyText.slice(0, 500)
+      );
+    }
+    if (response.status === 403) {
+      throw new MergeNotAllowedError(
+        "forbidden",
+        "GitHub: il token non ha il permesso di mergiare questa PR",
+        403,
+        bodyText.slice(0, 500)
+      );
+    }
+    if (response.status === 404) {
+      throw new MergeNotAllowedError(
+        "forbidden",
+        "GitHub: PR non trovata o non accessibile con queste credenziali",
+        404,
+        bodyText.slice(0, 500)
+      );
+    }
+    throw new MergeNotAllowedError(
+      "unknown",
+      `GitHub merge fallito con status ${response.status}`,
+      response.status,
+      bodyText.slice(0, 500)
+    );
   }
 
   /**
@@ -279,7 +427,10 @@ export class GitHubProvider implements GitProvider {
 
     // Check 2 — accesso al repo via REST + permessi di scrittura. Un 200 con
     // permissions.push === true conferma l'accesso e la scrittura; il permesso
-    // di aprire PR discende da push + lo scope Pull requests del PAT.
+    // di aprire PR E DI MERGIARLE (fase 8, Task 8) discendono ENTRAMBI da push +
+    // lo scope Pull requests del PAT — GitHub non espone un bit "merge" a sé:
+    // è lo stesso segnale, dichiarato per intero invece di lasciarlo scoperto
+    // ("senza questo, lo scopriresti al primo tentativo", design fase 8 §4).
     const prCheck = await this.probe(async () => {
       const r = await fetchWithTimeout(fetchImpl, `${API_BASE}/repos/${owner}/${repo}`, {
         headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" },
@@ -287,30 +438,39 @@ export class GitHubProvider implements GitProvider {
       if (r.status === 200) {
         const body = (await r.json().catch(() => null)) as { permissions?: { push?: unknown } } | null;
         if (body?.permissions?.push === true) {
-          return { name: "Permessi repository (PR)", ok: true, detail: "accesso al repo e permessi di scrittura ok" };
+          return {
+            name: "Permessi repository (PR e merge)",
+            ok: true,
+            // Dice cosa è stato VERIFICATO, non cosa GARANTISCE (fase 8,
+            // review fix Task 4): push:true è necessario per mergiare ma non
+            // basta — branch protection, review obbligatorie e required
+            // checks possono ancora bloccare un merge specifico, e questo
+            // check non li vede (GitHub non li espone su questo endpoint).
+            detail: "accesso al repo e permessi di scrittura ok — branch protection e review obbligatorie, se presenti, si verificano solo al momento del merge",
+          };
         }
         return {
-          name: "Permessi repository (PR)",
+          name: "Permessi repository (PR e merge)",
           ok: false,
-          detail: "il token non ha permessi di scrittura sul repository",
+          detail: "il token non ha permessi di scrittura sul repository (serve anche per mergiare le PR)",
         };
       }
       if (r.status === 401) {
-        return { name: "Permessi repository (PR)", ok: false, detail: "token non valido (401)" };
+        return { name: "Permessi repository (PR e merge)", ok: false, detail: "token non valido (401)" };
       }
       if (r.status === 403 || r.status === 404) {
         return {
-          name: "Permessi repository (PR)",
+          name: "Permessi repository (PR e merge)",
           ok: false,
           detail: `accesso al repository negato (status ${r.status}): verifica il token e che abbia accesso a questo repo`,
         };
       }
       return {
-        name: "Permessi repository (PR)",
+        name: "Permessi repository (PR e merge)",
         ok: false,
         detail: `risposta inattesa dalla REST API (status ${r.status})`,
       };
-    }, "Permessi repository (PR)");
+    }, "Permessi repository (PR e merge)");
 
     // Check 3 — accesso ai webhook (config automatica). Conferma almeno la
     // lettura della lista hook (Bearer): scrivere richiede admin:repo_hook /
@@ -545,4 +705,20 @@ export class GitHubProvider implements GitProvider {
       return { name, ok: false, detail: `errore di rete: ${message}` };
     }
   }
+}
+
+/**
+ * Mappa `status`/`conclusion` di un check-run GitHub sul rollup a tre stati
+ * condiviso. `status !== "completed"` (queued/in_progress) è sempre
+ * `pending`: non c'è ancora un verdetto, a prescindere da `conclusion`
+ * (assente finché il check non finisce). `neutral`/`skipped`/`stale` NON
+ * bloccano: sono conclusioni "il check ha scelto di non esprimersi", non un
+ * fallimento — solo `failure`/`timed_out`/`cancelled`/`action_required` lo sono.
+ */
+function githubCheckStatus(status: unknown, conclusion: unknown): CheckOutcomeStatus {
+  if (status !== "completed") return "pending";
+  if (conclusion === "success" || conclusion === "neutral" || conclusion === "skipped") {
+    return "success";
+  }
+  return "failure";
 }

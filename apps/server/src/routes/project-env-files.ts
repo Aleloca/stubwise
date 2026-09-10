@@ -1,4 +1,10 @@
-import { encrypt, projectEnvFiles, projectEnvVars, repositories } from "@stubwise/db";
+import {
+  projectEnvironments,
+  encrypt,
+  projectEnvFiles,
+  projectEnvVars,
+  repositories,
+} from "@stubwise/db";
 import { isSafeRelPath, isValidEnvKey, parseDotenv } from "@stubwise/shared";
 import { and, asc, eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
@@ -8,7 +14,7 @@ import { requireAdmin } from "../auth/session.js";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
 import { apiError } from "../errors.js";
 
-const createFileSchema = z.object({ path: z.string() });
+const createFileSchema = z.object({ path: z.string(), environmentId: z.uuid() });
 const importSchema = z.object({ content: z.string() });
 const putVarSchema = z.object({ value: z.string() });
 
@@ -23,9 +29,15 @@ const varParamsSchema = z.object({ id: z.uuid(), fileId: z.uuid(), key: z.string
  */
 const publicVarSchema = z.object({ key: z.string(), valueSet: z.literal(true) });
 
-/** Proiezione pubblica di un file env: id, path e l'elenco delle sue var. */
+/**
+ * Proiezione pubblica di un file env: id, ambiente, path e l'elenco delle sue
+ * var. `environmentId` (fase 8) è ciò su cui la SPA raggruppa la sezione
+ * variabili per ambiente (Task 3) — GET restituisce i file di TUTTI gli
+ * ambienti del repository, non solo `test`.
+ */
 const publicFileSchema = z.object({
   id: z.uuid(),
+  environmentId: z.uuid(),
   path: z.string(),
   vars: z.array(publicVarSchema),
 });
@@ -89,24 +101,38 @@ export async function projectEnvFileRoutes(instance: FastifyInstance): Promise<v
     },
     async (request, reply) => {
       const { id: repositoryId } = request.params;
-      const { path } = request.body;
+      const { path, environmentId } = request.body;
       if (!isSafeRelPath(path)) {
         return apiError(reply, 400, "invalid_env_path", "Env file path is not a safe relative path");
       }
 
       const [repository] = await app.db
-        .select({ id: repositories.id })
+        .select({ id: repositories.id, projectId: repositories.projectId })
         .from(repositories)
         .where(eq(repositories.id, repositoryId));
       if (!repository) return apiError(reply, 404, "repository_not_found", "Repository not found");
 
+      // L'ambiente deve esistere ED essere del PROGETTO di questo repository:
+      // senza questo controllo un id d'ambiente di un altro progetto (indovinato
+      // o riusato) legherebbe un file al posto sbagliato, invisibile a chi
+      // guarda "gli ambienti di questo progetto".
+      const [environment] = await app.db
+        .select({ id: projectEnvironments.id })
+        .from(projectEnvironments)
+        .where(
+          and(eq(projectEnvironments.id, environmentId), eq(projectEnvironments.projectId, repository.projectId)),
+        );
+      if (!environment) return apiError(reply, 404, "environment_not_found", "Environment not found");
+
       try {
         const [created] = await app.db
           .insert(projectEnvFiles)
-          .values({ repositoryId, path })
+          .values({ repositoryId, environmentId, path })
           .returning();
         if (!created) throw new Error("insert del file env non ha restituito la riga");
-        return await reply.code(201).send({ id: created.id, path: created.path, vars: [] });
+        return await reply
+          .code(201)
+          .send({ id: created.id, environmentId: created.environmentId, path: created.path, vars: [] });
       } catch (error) {
         if (isUniqueViolation(error)) {
           return apiError(reply, 409, "env_path_conflict", "An env file with this path already exists");
@@ -139,7 +165,12 @@ export async function projectEnvFileRoutes(instance: FastifyInstance): Promise<v
         .where(eq(projectEnvFiles.repositoryId, repositoryId))
         .orderBy(asc(projectEnvFiles.path));
       return Promise.all(
-        files.map(async (f) => ({ id: f.id, path: f.path, vars: await publicVarsOf(f.id) })),
+        files.map(async (f) => ({
+          id: f.id,
+          environmentId: f.environmentId,
+          path: f.path,
+          vars: await publicVarsOf(f.id),
+        })),
       );
     },
   );

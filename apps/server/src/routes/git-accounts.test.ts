@@ -359,7 +359,7 @@ describe("GET /api/git-accounts/:id/validate-repo", () => {
     vi.unstubAllGlobals();
   });
 
-  it("restituisce i 3 check repo-specifici per il repo dato (rete mockata)", async () => {
+  it("restituisce i 4 check repo-specifici per il repo dato, incluso il permesso di merge (rete mockata)", async () => {
     const created = await createAccount({
       name: "RepoValidabile",
       provider: "bitbucket",
@@ -367,6 +367,14 @@ describe("GET /api/git-accounts/:id/validate-repo", () => {
     });
     const id = (created.json() as { id: string }).id;
     const fetchMock = vi.fn((input: string) => {
+      // Il check "Permesso di merge" (fase 8, Task 8) legge
+      // /user/permissions/repositories: un match più specifico deve
+      // precedere il fallback generico su api.bitbucket.org sotto.
+      if (input.includes("/user/permissions/repositories")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ values: [{ permission: "write" }] }), { status: 200 }),
+        );
+      }
       if (input.includes("api.bitbucket.org")) return Promise.resolve(new Response("{}", { status: 200 }));
       if (input.includes("info/refs")) return Promise.resolve(new Response("", { status: 200 }));
       return Promise.resolve(new Response("", { status: 404 }));
@@ -379,11 +387,12 @@ describe("GET /api/git-accounts/:id/validate-repo", () => {
     });
     expect(res.statusCode).toBe(200);
     const body = res.json() as { ok: boolean; checks: { name: string }[] };
-    expect(body.checks).toHaveLength(3);
+    expect(body.checks).toHaveLength(4);
     expect(body.checks.map((c) => c.name)).toEqual([
       "Accesso git (push)",
       "Accesso REST API (PR)",
       "Accesso webhook (config automatica)",
+      "Permesso di merge",
     ]);
     // Il repoUrl ricostruito deve contenere il fullName richiesto.
     expect(

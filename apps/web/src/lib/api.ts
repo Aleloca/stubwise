@@ -22,6 +22,7 @@ import type {
   CheckType,
   CreateBacklogItemInput,
   CreateCheckInput,
+  CreateEnvironmentInput,
   CreatePluginInput,
   DiscoveredService,
   EmailRoute,
@@ -53,6 +54,7 @@ import type {
   MailSummary,
   NotificationPrefsUpdate,
   NotificationPrefsView,
+  PatchEnvironmentInput,
   PatView,
   PatWithToken,
   PrReviewSummary,
@@ -60,12 +62,15 @@ import type {
   ProjectBriefWeekly,
   PluginRecommendations,
   ProjectDecision,
+  ProjectEnvironment,
   ProjectFollows,
   ProjectPlugin,
   ProjectPulseSummary,
   ProjectTimeline,
   ProjectTimelineEntry,
   ProjectTimelineKind,
+  ReleaseQueue,
+  ReleaseResult,
   RecordSearchHistoryBody,
   SearchDocsSemanticResults,
   SearchEntityType,
@@ -1451,9 +1456,12 @@ export interface ProjectEnvVar {
 /**
  * File d'ambiente di un repository (solo admin): un percorso (es. `.env.local`)
  * con l'elenco delle sue variabili. I valori non transitano mai in lettura.
+ * `environmentId` (fase 8): a quale ambiente del progetto appartiene — GET
+ * restituisce i file di TUTTI gli ambienti, la UI li raggruppa per ambiente.
  */
 export interface ProjectEnvFile {
   id: string;
+  environmentId: string;
   path: string;
   vars: ProjectEnvVar[];
 }
@@ -1469,9 +1477,65 @@ export function listEnvFiles(repositoryId: string): Promise<ProjectEnvFile[]> {
   return api.get(`/api/repositories/${encodeURIComponent(repositoryId)}/env-files`);
 }
 
-/** Crea un file d'ambiente (solo admin): 400 path non valido, 409 duplicato. */
-export function createEnvFile(repositoryId: string, path: string): Promise<ProjectEnvFile> {
-  return api.post(`/api/repositories/${encodeURIComponent(repositoryId)}/env-files`, { path });
+/** Crea un file d'ambiente in un ambiente specifico (solo admin): 400 path non valido, 404 ambiente inesistente, 409 duplicato. */
+export function createEnvFile(
+  repositoryId: string,
+  environmentId: string,
+  path: string,
+): Promise<ProjectEnvFile> {
+  return api.post(`/api/repositories/${encodeURIComponent(repositoryId)}/env-files`, {
+    environmentId,
+    path,
+  });
+}
+
+// --- Ambienti di progetto (fase 8) ---
+
+/** Ambienti di un progetto (solo admin): 403 per i member. */
+export function listEnvironments(projectId: string): Promise<ProjectEnvironment[]> {
+  return api.get(`/api/projects/${encodeURIComponent(projectId)}/environments`);
+}
+
+/** Crea un ambiente (solo admin): 409 nome duplicato nello stesso progetto. */
+export function createEnvironment(
+  projectId: string,
+  input: CreateEnvironmentInput,
+): Promise<ProjectEnvironment> {
+  return api.post(`/api/projects/${encodeURIComponent(projectId)}/environments`, input);
+}
+
+/** Modifica nome/url/server di un ambiente (solo admin). `kind` non è modificabile. */
+export function patchEnvironment(
+  projectId: string,
+  environmentId: string,
+  patch: PatchEnvironmentInput,
+): Promise<ProjectEnvironment> {
+  return api.patch(
+    `/api/projects/${encodeURIComponent(projectId)}/environments/${encodeURIComponent(environmentId)}`,
+    patch,
+  );
+}
+
+/** Elimina un ambiente (solo admin): 409 se è l'ambiente `test` (non cancellabile). */
+export function deleteEnvironment(projectId: string, environmentId: string): Promise<void> {
+  return request(
+    "DELETE",
+    `/api/projects/${encodeURIComponent(projectId)}/environments/${encodeURIComponent(environmentId)}`,
+  );
+}
+
+// --- Coda di rilascio (fase 8) ---
+
+/** Tutte le PR aperte sui repository collegati (solo admin): 403 per i member. */
+export function listReleaseQueue(): Promise<ReleaseQueue> {
+  return api.get("/api/release-queue");
+}
+
+/** Rilascia (mergia) una PR (solo admin). */
+export function releasePullRequest(ticketId: string, repositoryId: string): Promise<ReleaseResult> {
+  return api.post(
+    `/api/tickets/${encodeURIComponent(ticketId)}/repositories/${encodeURIComponent(repositoryId)}/release`,
+  );
 }
 
 /**

@@ -97,6 +97,29 @@ export function isUniqueViolation(error: unknown): boolean {
 }
 
 /**
+ * Nome del vincolo unique violato (23505), quando una tabella ne ha PIÙ di
+ * uno e i rami vanno distinti — es. `project_environments` ha sia
+ * `(project_id, name)` sia l'indice parziale "un solo `test`" (fase 8,
+ * review fix Task 3): confonderli darebbe un messaggio sbagliato ("nome già
+ * in uso" su un nome nuovo). `undefined` se l'errore non è una violazione
+ * unique o il driver non espone `.constraint`.
+ */
+export function uniqueViolationConstraint(error: unknown): string | undefined {
+  let current: unknown = error;
+  while (current instanceof Error) {
+    // `postgres` (porsager/postgres, il driver di questo repo) espone il
+    // campo Postgres `constraint` come `constraint_name` (snake_case, come
+    // il resto dei campi d'errore del driver — vedi `connection.js`), non
+    // `constraint`: un nome sbagliato qui farebbe SEMPRE fallire il branch
+    // specifico e degradare silenziosamente al messaggio generico.
+    const err = current as Error & { code?: unknown; constraint_name?: unknown };
+    if (err.code === "23505" && typeof err.constraint_name === "string") return err.constraint_name;
+    current = current.cause;
+  }
+  return undefined;
+}
+
+/**
  * Riconosce una violazione di foreign key di Postgres (codice 23503),
  * stessa risalita della catena dei `cause` di isUniqueViolation.
  */

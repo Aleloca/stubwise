@@ -27,11 +27,13 @@
       "label": "Navigazione",
       "open": "Apri navigazione",
       "mail": "Posta",
-      "calendar": "Calendario"
+      "calendar": "Calendario",
+      "release": "Rilascio"
     },
     "on": "attivo",
     "off": "disattivato",
-    "saving": "Salvataggio…"
+    "saving": "Salvataggio…",
+    "edit": "Modifica"
   },
   "monitor": {
     "list": {
@@ -1489,7 +1491,31 @@
       "deleting": "Eliminazione…",
       "cancel": "Annulla",
       "follow": "Segui",
-      "unfollow": "Smetti di seguire"
+      "unfollow": "Smetti di seguire",
+      "environmentsLoading": "// caricamento ambienti…",
+      "environmentsError": "// impossibile caricare gli ambienti di questo progetto",
+      "environmentsHint": "Stubwise si limita a CONOSCERE questi ambienti: non li esegue e non li rilascia mai. Solo le variabili dell'ambiente test vengono lette dalla pipeline di fix; quelle di staging/produzione sono conservate perché una persona le legga e le confronti, mai usate automaticamente.",
+      "noEnvironments": "// nessun ambiente",
+      "addEnvironment": "Aggiungi ambiente",
+      "environmentName": "Nome",
+      "environmentNamePlaceholder": "Es. staging",
+      "environmentKind": "Tipo",
+      "environmentKindOptions": {
+        "test": "Test",
+        "staging": "Staging",
+        "production": "Produzione"
+      },
+      "environmentUrl": "URL",
+      "environmentServer": "Server collegato",
+      "environmentServerNone": "— nessuno —",
+      "environmentRunningOn": "in esecuzione su {{server}}",
+      "createEnvironment": "Crea ambiente",
+      "creatingEnvironment": "Creazione…",
+      "deleteEnvironment": "Elimina",
+      "testEnvironmentProtected": "L'ambiente test non è cancellabile: è l'unico che la pipeline di fix può leggere.",
+      "environmentsTitle": "Ambienti",
+      "environmentRunningVersion": "{{image}} @ {{commit}}",
+      "environmentRunningVersionHint": "Riportato dall'agente di monitoraggio sul server collegato — combacia con un servizio dello stesso nome di questo ambiente"
     },
     "form": {
       "name": "Nome",
@@ -1850,7 +1876,9 @@
     "remove": "Rimuovi",
     "value": "Valore",
     "valuePlaceholder": "Nuovo valore (scrittura sola)",
-    "saving": "Salvataggio…"
+    "saving": "Salvataggio…",
+    "usedByPipeline": "// la pipeline di fix legge queste variabili a ogni run",
+    "notUsedByPipeline": "// conservate perché una persona le legga e le confronti — mai usate automaticamente dalla pipeline di fix"
   },
   "docs": {
     "hub": {
@@ -2412,5 +2440,57 @@
       "empty": "// nessun appuntamento",
       "loadError": "Impossibile caricare il calendario."
     }
+  },
+  "release": {
+    "title": "Coda di rilascio",
+    "subtitle": "Tutte le PR aperte sui repository collegati — Stubwise mergia solo su richiesta esplicita, e non rilascia mai da sé.",
+    "empty": "// nessuna PR aperta",
+    "release": "Rilascia",
+    "confirm": "Conferma il merge",
+    "releasing": "Merge in corso…",
+    "columns": {
+      "review": "Review",
+      "checks": "Check",
+      "testStatus": "Test",
+      "risk": "Rischio",
+      "deployedOn": "Già su"
+    },
+    "review": {
+      "approve": "Approvata",
+      "request_changes": "Modifiche richieste",
+      "none": "Nessuna review ancora"
+    },
+    "checks": {
+      "success": "Verdi",
+      "failure": "Rossi",
+      "pending": "In corso",
+      "noChecks": "Nessun check configurato",
+      "unknown": "Non leggibili"
+    },
+    "testStatus": {
+      "passed": "Superati",
+      "failed": "Falliti",
+      "skipped": "Saltati",
+      "none": "Sconosciuto",
+      "notRunByStubwise": "Non eseguito da Stubwise"
+    },
+    "risk": {
+      "low": "Basso",
+      "medium": "Medio",
+      "high": "Alto",
+      "none": "Sconosciuto",
+      "notRunByStubwise": "Non eseguito da Stubwise"
+    },
+    "errors": {
+      "alreadyClosed": "Questa PR non è più aperta.",
+      "checksFailed": "I check del provider sono rossi su questa PR — non si può rilasciare.",
+      "notMergeable": "Il provider ha rifiutato il merge (conflitti o regole del branch non soddisfatte).",
+      "mergeForbidden": "Le credenziali git salvate non hanno il permesso di mergiare questa PR.",
+      "notFound": "Questa PR non è stata trovata.",
+      "generic": "Qualcosa è andato storto durante il rilascio di questa PR.",
+      "checksUnreadable": "Non è stato possibile leggere i check del provider — riprova quando saranno leggibili."
+    },
+    "external": "Esterna",
+    "externalHint": "Aperta fuori da Stubwise — rivista automaticamente, ma mai costruita né testata dalla pipeline di Stubwise."
   }
 }

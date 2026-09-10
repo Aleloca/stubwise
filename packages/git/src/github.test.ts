@@ -1,7 +1,12 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { GitHubProvider } from "./github.js";
-import { GitProviderError, type AccountCredentials, type ProjectGitConfig } from "./provider.js";
+import {
+  GitProviderError,
+  MergeNotAllowedError,
+  type AccountCredentials,
+  type ProjectGitConfig,
+} from "./provider.js";
 
 const config: ProjectGitConfig = {
   repoUrl: "https://github.com/octo/repo",
@@ -169,6 +174,243 @@ describe("GitHubProvider.getPullRequestState", () => {
 
     expect(error).toBeInstanceOf(GitProviderError);
     expect((error as GitProviderError).status).toBe(404);
+  });
+});
+
+describe("GitHubProvider.getPullRequestChecks", () => {
+  function fetchSequence(prResponse: Response, checksResponse: Response) {
+    const fetchImpl = vi.fn();
+    fetchImpl.mockResolvedValueOnce(prResponse).mockResolvedValueOnce(checksResponse);
+    return fetchImpl;
+  }
+
+  it("tutti verdi → status success", async () => {
+    const fetchImpl = fetchSequence(
+      jsonResponse({ head: { sha: "abc123" } }, 200),
+      jsonResponse(
+        {
+          check_runs: [
+            { name: "build", status: "completed", conclusion: "success" },
+            { name: "test", status: "completed", conclusion: "success" },
+          ],
+        },
+        200
+      )
+    );
+    const provider = new GitHubProvider({ fetchImpl });
+
+    const result = await provider.getPullRequestChecks(config, 42);
+
+    expect(result).toEqual({
+      status: "success",
+      checks: [
+        { name: "build", status: "success" },
+        { name: "test", status: "success" },
+      ],
+      headSha: "abc123",
+    });
+    expect(fetchImpl).toHaveBeenNthCalledWith(
+      2,
+      "https://api.github.com/repos/octo/repo/commits/abc123/check-runs?per_page=100",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("un check rosso → status failure, anche se gli altri sono verdi", async () => {
+    const fetchImpl = fetchSequence(
+      jsonResponse({ head: { sha: "abc123" } }, 200),
+      jsonResponse(
+        {
+          check_runs: [
+            { name: "build", status: "completed", conclusion: "success" },
+            { name: "test", status: "completed", conclusion: "failure" },
+          ],
+        },
+        200
+      )
+    );
+    const provider = new GitHubProvider({ fetchImpl });
+
+    const result = await provider.getPullRequestChecks(config, 42);
+    expect(result.status).toBe("failure");
+    expect(result.checks).toContainEqual({ name: "test", status: "failure" });
+  });
+
+  it("un check ancora in corso (non completed) → status pending", async () => {
+    const fetchImpl = fetchSequence(
+      jsonResponse({ head: { sha: "abc123" } }, 200),
+      jsonResponse({ check_runs: [{ name: "build", status: "in_progress", conclusion: null }] }, 200)
+    );
+    const provider = new GitHubProvider({ fetchImpl });
+
+    const result = await provider.getPullRequestChecks(config, 42);
+    expect(result).toEqual({
+      status: "pending",
+      checks: [{ name: "build", status: "pending" }],
+      headSha: "abc123",
+    });
+  });
+
+  it("nessun check configurato → 'no_checks', DIVERSO da 'failure' e da 'unknown'", async () => {
+    const fetchImpl = fetchSequence(
+      jsonResponse({ head: { sha: "abc123" } }, 200),
+      jsonResponse({ check_runs: [] }, 200)
+    );
+    const provider = new GitHubProvider({ fetchImpl });
+
+    const result = await provider.getPullRequestChecks(config, 42);
+    expect(result).toEqual({ status: "no_checks", checks: [], headSha: "abc123" });
+  });
+
+  it("errore di rete: non lancia, ricade su 'unknown' — DIVERSO da 'no_checks' (review fix Task 2)", async () => {
+    const fetchImpl = vi.fn().mockRejectedValue(new Error("network down"));
+    const provider = new GitHubProvider({ fetchImpl });
+
+    const result = await provider.getPullRequestChecks(config, 42);
+    expect(result).toEqual({ status: "unknown", checks: [] });
+  });
+
+  it("PR inesistente (404 sul fetch della PR): non lancia, ricade su 'unknown', senza headSha", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("nope", { status: 404 }));
+    const provider = new GitHubProvider({ fetchImpl });
+
+    const result = await provider.getPullRequestChecks(config, 42);
+    expect(result).toEqual({ status: "unknown", checks: [] });
+  });
+
+  it("401 sul fetch dei check-run (PR già risolta): 'unknown' CON headSha", async () => {
+    const fetchImpl = fetchSequence(
+      jsonResponse({ head: { sha: "abc123" } }, 200),
+      new Response("unauthorized", { status: 401 })
+    );
+    const provider = new GitHubProvider({ fetchImpl });
+
+    const result = await provider.getPullRequestChecks(config, 42);
+    expect(result).toEqual({ status: "unknown", checks: [], headSha: "abc123" });
+  });
+
+  it("neutral/skipped non bloccano il rollup", async () => {
+    const fetchImpl = fetchSequence(
+      jsonResponse({ head: { sha: "abc123" } }, 200),
+      jsonResponse(
+        {
+          check_runs: [
+            { name: "lint", status: "completed", conclusion: "neutral" },
+            { name: "build", status: "completed", conclusion: "success" },
+          ],
+        },
+        200
+      )
+    );
+    const provider = new GitHubProvider({ fetchImpl });
+
+    const result = await provider.getPullRequestChecks(config, 42);
+    expect(result.status).toBe("success");
+    expect(result.headSha).toBe("abc123");
+  });
+
+  it("head.ref della PR → headRef (review fix Task 1, etichetta della coda per le PR esterne)", async () => {
+    const fetchImpl = fetchSequence(
+      jsonResponse({ head: { sha: "abc123", ref: "fix/typo-in-readme" } }, 200),
+      jsonResponse({ check_runs: [] }, 200)
+    );
+    const provider = new GitHubProvider({ fetchImpl });
+
+    const result = await provider.getPullRequestChecks(config, 42);
+    expect(result.headRef).toBe("fix/typo-in-readme");
+  });
+});
+
+describe("GitHubProvider.mergePullRequest", () => {
+  it("PUT .../merge con merge_method: 'merge' → { merged: true, sha }", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ merged: true, sha: "deadbeef" }, 200));
+    const provider = new GitHubProvider({ fetchImpl });
+
+    const result = await provider.mergePullRequest(config, 42);
+
+    expect(result).toEqual({ merged: true, sha: "deadbeef" });
+    const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://api.github.com/repos/octo/repo/pulls/42/merge");
+    expect(init.method).toBe("PUT");
+    expect(JSON.parse(init.body as string)).toEqual({ merge_method: "merge" });
+  });
+
+  it("405 → MergeNotAllowedError con reason 'not_mergeable'", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("blocked", { status: 405 }));
+    const provider = new GitHubProvider({ fetchImpl });
+
+    const error = await provider
+      .mergePullRequest(config, 42)
+      .then(() => null)
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(MergeNotAllowedError);
+    expect((error as MergeNotAllowedError).reason).toBe("not_mergeable");
+  });
+
+  it("409 (testa cambiata) → MergeNotAllowedError con reason 'not_mergeable'", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("stale", { status: 409 }));
+    const provider = new GitHubProvider({ fetchImpl });
+
+    const error = await provider
+      .mergePullRequest(config, 42)
+      .then(() => null)
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(MergeNotAllowedError);
+    expect((error as MergeNotAllowedError).reason).toBe("not_mergeable");
+  });
+
+  it("403 → MergeNotAllowedError con reason 'forbidden'", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("nope", { status: 403 }));
+    const provider = new GitHubProvider({ fetchImpl });
+
+    const error = await provider
+      .mergePullRequest(config, 42)
+      .then(() => null)
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(MergeNotAllowedError);
+    expect((error as MergeNotAllowedError).reason).toBe("forbidden");
+  });
+
+  it("404 → MergeNotAllowedError con reason 'forbidden'", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("nope", { status: 404 }));
+    const provider = new GitHubProvider({ fetchImpl });
+
+    const error = await provider
+      .mergePullRequest(config, 42)
+      .then(() => null)
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(MergeNotAllowedError);
+    expect((error as MergeNotAllowedError).reason).toBe("forbidden");
+  });
+
+  it("status non riconosciuto → MergeNotAllowedError con reason 'unknown'", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("boom", { status: 500 }));
+    const provider = new GitHubProvider({ fetchImpl });
+
+    const error = await provider
+      .mergePullRequest(config, 42)
+      .then(() => null)
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(MergeNotAllowedError);
+    expect((error as MergeNotAllowedError).reason).toBe("unknown");
+  });
+
+  it("2xx senza merged:true/sha → MergeNotAllowedError con reason 'unknown' (mai lancia un tipo diverso)", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ merged: false }, 200));
+    const provider = new GitHubProvider({ fetchImpl });
+
+    const error = await provider
+      .mergePullRequest(config, 42)
+      .then(() => null)
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(MergeNotAllowedError);
+    expect((error as MergeNotAllowedError).reason).toBe("unknown");
   });
 });
 
@@ -494,7 +736,7 @@ describe("GitHubProvider.validateCredentials", () => {
     expect(checks).toHaveLength(3);
     expect(checks.every((c) => c.ok)).toBe(true);
     expect(checks[0]!.name).toBe("Accesso git (push)");
-    expect(checks[1]!.name).toBe("Permessi repository (PR)");
+    expect(checks[1]!.name).toBe("Permessi repository (PR e merge)");
     expect(checks[2]!.name).toBe("Accesso webhook (config automatica)");
 
     const hooksCall = fetchImpl.mock.calls.find((c) => c[0] === HOOKS_URL) as unknown as [string, RequestInit];
@@ -517,7 +759,7 @@ describe("GitHubProvider.validateCredentials", () => {
     const provider = new GitHubProvider();
     const checks = await provider.validateCredentials(config, { fetchImpl });
 
-    const pr = checks.find((c) => c.name === "Permessi repository (PR)")!;
+    const pr = checks.find((c) => c.name === "Permessi repository (PR e merge)")!;
     expect(pr.ok).toBe(false);
     expect(pr.detail).toMatch(/scrittura/i);
   });

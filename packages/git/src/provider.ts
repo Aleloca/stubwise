@@ -145,6 +145,67 @@ export interface WebhookResult {
 }
 
 /**
+ * Esito di UN check del provider (GitHub Actions check run / Bitbucket build
+ * status). `pending` copre sia "in corso" sia "in coda" — nessuna delle due
+ * è ancora un verdetto.
+ */
+export type CheckOutcomeStatus = "success" | "failure" | "pending";
+
+/** Un singolo check con nome ed esito, per il dettaglio nella coda di rilascio. */
+export interface PullRequestCheck {
+  name: string;
+  status: CheckOutcomeStatus;
+}
+
+/**
+ * Rollup dei check di una PR (fase 8, Task 5; `unknown` fase 8, review
+ * fix Task 2). `no_checks` è un caso a SÉ, non "success": una PR senza CI
+ * configurata non ha dimostrato nulla, e confonderla con una PR verde
+ * nasconderebbe l'assenza di verifica. `unknown` è un caso ANCORA diverso
+ * da `no_checks`: non è "non c'è CI configurata", è "non sono riuscito a
+ * leggere se c'è" (rete, 401, corpo malformato) — confonderlo con
+ * `no_checks` (che NON blocca il rilascio) aprirebbe il cancello proprio
+ * quando la lettura fallisce nell'istante sbagliato, cioè quando una PR ha
+ * i check rossi ma la risposta del provider non è arrivata. Il rollup dei
+ * check singoli resta: qualunque `failure` → `failure`; nessun `failure` ma
+ * qualche `pending` → `pending`; tutti `success` → `success`; nessun check
+ * → `no_checks`; qualunque errore di lettura → `unknown` (mai `no_checks`).
+ */
+export interface PullRequestChecks {
+  status: CheckOutcomeStatus | "no_checks" | "unknown";
+  checks: PullRequestCheck[];
+  /**
+   * Head sha della PR AL MOMENTO di questa lettura (fase 8, review fix
+   * Task 4) — risolto dalla STESSA chiamata che legge i check, mai da un
+   * artefatto di un'altra automazione (`pr_reviews.headSha`, scritto solo
+   * se la PR review è accesa e per QUESTA PR è già girata). Assente quando
+   * la lettura è fallita prima di risolvere la PR (`status: "unknown"`
+   * senza aver mai visto la risposta) — mai un valore stantio.
+   */
+  headSha?: string;
+  /**
+   * Nome del branch sorgente, dalla STESSA risposta di `headSha` (fase 8,
+   * review fix Task 1): serve alla coda di rilascio per etichettare una PR
+   * aperta fuori da Stubwise, che non ha un branch `stubwise/ticket-N` noto
+   * da nessun'altra parte. Stessa regola di assenza di `headSha`.
+   */
+  headRef?: string;
+}
+
+/**
+ * Rollup condiviso fra GitHub e Bitbucket (vedi {@link PullRequestChecks}):
+ * un solo `failure` decide, poi un `pending` non ancora concluso, altrimenti
+ * tutti `success`. Il caso "nessun check" è deciso dal CHIAMANTE (lista
+ * vuota), non da questa funzione — che quindi non va mai invocata su un
+ * array vuoto: chi la chiama controlla `checks.length === 0` prima.
+ */
+export function rollupCheckStatus(checks: PullRequestCheck[]): CheckOutcomeStatus {
+  if (checks.some((c) => c.status === "failure")) return "failure";
+  if (checks.some((c) => c.status === "pending")) return "pending";
+  return "success";
+}
+
+/**
  * Provider abstraction over Bitbucket Cloud and GitHub.
  *
  * Webhook contract (Task 25 server route):
@@ -185,6 +246,37 @@ export interface GitProvider {
     prNumber: number,
     opts?: { fetchImpl?: FetchLike }
   ): Promise<"open" | "closed">;
+  /**
+   * Stato dei check del provider (fase 8, Task 5) — GitHub Actions check-run
+   * sull'ultimo commit della PR, Bitbucket build status. **È la colonna che
+   * conta** per la coda di rilascio (design §4): il test interno è ciò che la
+   * pipeline ha eseguito nel proprio container PRIMA di aprire la PR, questo è
+   * ciò che decide se il provider considera la PR mergiabile. Sola lettura,
+   * non lancia mai: un errore di rete/parsing torna `{ status: "unknown",
+   * checks: [] }` — un caso DIVERSO da "nessuna CI configurata"
+   * (`no_checks`), che il chiamante deve poter distinguere (fase 8, review
+   * fix Task 2): confondere "non sono riuscito a leggere" con "non c'è
+   * niente da leggere" aprirebbe il cancello di rilascio proprio quando la
+   * lettura fallisce su una PR che in realtà ha i check rossi.
+   */
+  getPullRequestChecks(
+    p: ProjectGitConfig,
+    prNumber: number,
+    opts?: { fetchImpl?: FetchLike }
+  ): Promise<PullRequestChecks>;
+  /**
+   * Mergia una PR sul provider (fase 8, Task 8) — l'UNICA scrittura verso
+   * produzione che Stubwise fa mai, e SOLO su chiamata esplicita (mai
+   * auto-merge, design §1/§4). Lancia sempre e solo
+   * {@link MergeNotAllowedError} quando il merge non va a buon fine — mai il
+   * caso felice silenzioso: il chiamante (la rotta di rilascio, requireAdmin)
+   * distingue i rami d'errore per `reason`, non per uno status HTTP.
+   */
+  mergePullRequest(
+    p: ProjectGitConfig,
+    prNumber: number,
+    opts?: { fetchImpl?: FetchLike }
+  ): Promise<{ merged: true; sha: string }>;
   /**
    * Crea o aggiorna il commento "sticky" della review sulla PR: se esiste già
    * un commento che contiene `marker` lo aggiorna, altrimenti ne crea uno.
@@ -277,6 +369,27 @@ export interface GitProvider {
   ): Promise<{ branches: string[]; defaultBranch: string | null }>;
 }
 
+/**
+ * Perché `mergePullRequest` si è rifiutato di mergiare (fase 8, Task 8). Non
+ * il solo caso felice: `not_mergeable` copre conflitti E check obbligatori
+ * non passati (i provider non li distinguono sempre nello status HTTP),
+ * `forbidden` il permesso mancante, `unknown` qualunque altra risposta non
+ * riconosciuta.
+ *
+ * ⚠️ **Non esiste un `"already_merged"` qui, ed è deliberato** (fase 8,
+ * review fix Task 4): nessuno dei due provider lo lanciava mai — GitHub e
+ * Bitbucket rispondono allo stesso modo (405/400/409, mappati su
+ * `not_mergeable`) sia per conflitti reali sia per una PR già mergiata da
+ * qualcun altro, e nessuno dei due corpi risposta distingue i due casi in
+ * modo affidabile. Un ramo dichiarato e irraggiungibile è peggio di uno
+ * assente. La distinzione, quando serve, la fa il CHIAMANTE con un dato
+ * verificato — non inferito dallo status HTTP del fallimento —: su
+ * `not_mergeable` la rotta di rilascio rilegge `getPullRequestState` e
+ * riclassifica come "già chiusa" solo se il provider lo conferma
+ * (`apps/server/src/services/release.ts`).
+ */
+export type MergeFailureReason = "not_mergeable" | "forbidden" | "unknown";
+
 export class GitProviderError extends Error {
   readonly status: number;
   /** Response body, truncated to 500 characters. */
@@ -287,6 +400,20 @@ export class GitProviderError extends Error {
     this.name = "GitProviderError";
     this.status = status;
     this.responseText = responseText;
+  }
+}
+
+/**
+ * Lanciato SOLO da `mergePullRequest`, mai `GitProviderError` direttamente:
+ * il chiamante (la rotta di rilascio) ha un solo tipo da distinguere per
+ * `reason`, non uno status HTTP da reinterpretare.
+ */
+export class MergeNotAllowedError extends GitProviderError {
+  readonly reason: MergeFailureReason;
+  constructor(reason: MergeFailureReason, message: string, status: number, responseText: string) {
+    super(message, status, responseText);
+    this.name = "MergeNotAllowedError";
+    this.reason = reason;
   }
 }
 
@@ -330,6 +457,19 @@ export function parseRepoUrl(repoUrl: string): ParsedRepoUrl {
     throw new Error(`Unparsable repo URL: "${repoUrl}" (expected https://host/owner/repo)`);
   }
   return { host: url.host, owner, repo };
+}
+
+/**
+ * Estrae il numero della PR dal suo URL (fase 8, Task 9): GitHub
+ * `.../pull/N`, Bitbucket `.../pull-requests/N`. `null` se il formato non è
+ * riconosciuto — MAI lancia: chi lo chiama (la coda di rilascio) legge un URL
+ * salvato da un run precedente e non deve rompersi su un formato imprevisto.
+ */
+export function parsePrNumberFromUrl(prUrl: string): number | null {
+  const match = /\/pull(?:-requests)?\/(\d+)\b/.exec(prUrl);
+  if (!match) return null;
+  const n = Number(match[1]);
+  return Number.isInteger(n) ? n : null;
 }
 
 /** Reads a header value case-insensitively. */
