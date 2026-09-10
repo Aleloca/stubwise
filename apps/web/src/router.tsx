@@ -45,6 +45,7 @@ import {
   projectQueryOptions,
   projectsPulseQueryOptions,
   projectsQueryOptions,
+  releaseQueueQueryOptions,
   repositoriesQueryOptions,
   repositoryQueryOptions,
   serverDetailQueryOptions,
@@ -77,6 +78,7 @@ import { ProjectDocsLanding } from "./routes/docs/project.$projectId";
 import { InboxPage } from "./routes/inbox";
 import { CalendarPage } from "./routes/calendar";
 import { MailPage } from "./routes/mail";
+import { ReleaseQueuePage } from "./routes/release";
 import { MailDetailPage } from "./routes/mail.$source.$id";
 import { LoginPage } from "./routes/login";
 import { MonitorListPage } from "./routes/monitor/index";
@@ -679,6 +681,23 @@ const calendarRoute = createRoute({
 });
 
 /**
+ * Coda di rilascio (fase 8, Task 9-10): "una pagina sola, per il maintainer"
+ * (design §4) — admin-only anche lato rotta server (403 per un member, non
+ * solo bottoni degradati come per gli ambienti), quindi `requireAdmin` qui
+ * evita di far vedere a un member uno stato di errore invece di reindirizzarlo
+ * subito.
+ */
+const releaseQueueRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/release",
+  beforeLoad: ({ context }) => requireAdmin(context.user.role),
+  loader: async ({ context }) => {
+    await context.queryClient.ensureQueryData(releaseQueueQueryOptions).catch(() => undefined);
+  },
+  component: ReleaseQueuePage,
+});
+
+/**
  * Dettaglio di un'email (fase 7b, Task 8): l'estratto già in database, senza
  * prefetch nel loader — a differenza della lista, il dettaglio non serve
  * finché non si clicca una riga, e prefetchare ogni riga della lista
@@ -934,6 +953,7 @@ const routeTree = rootRoute.addChildren([
     mailRoute,
     mailDetailRoute,
     calendarRoute,
+    releaseQueueRoute,
     teamRoute,
     settingsRoute.addChildren([
       settingsIndexRoute,

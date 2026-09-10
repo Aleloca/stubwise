@@ -27,7 +27,8 @@
       "label": "Navigation",
       "open": "Open navigation",
       "mail": "Mail",
-      "calendar": "Calendar"
+      "calendar": "Calendar",
+      "release": "Release"
     },
     "on": "on",
     "off": "off",
@@ -2438,6 +2439,52 @@
       "heading": "Appointments seen",
       "empty": "// no appointments",
       "loadError": "Could not load the calendar."
+    }
+  },
+  "release": {
+    "title": "Release queue",
+    "subtitle": "Every open PR on connected repositories — Stubwise only merges on explicit request, and never deploys.",
+    "empty": "// no open PRs",
+    "release": "Release",
+    "confirm": "Confirm merge",
+    "releasing": "Merging…",
+    "columns": {
+      "review": "Review",
+      "checks": "Checks",
+      "testStatus": "Test",
+      "risk": "Risk",
+      "deployedOn": "Already on"
+    },
+    "review": {
+      "approve": "Approved",
+      "request_changes": "Changes requested",
+      "none": "No review yet"
+    },
+    "checks": {
+      "success": "Green",
+      "failure": "Red",
+      "pending": "Running",
+      "noChecks": "No checks configured"
+    },
+    "testStatus": {
+      "passed": "Passed",
+      "failed": "Failed",
+      "skipped": "Skipped",
+      "none": "Unknown"
+    },
+    "risk": {
+      "low": "Low",
+      "medium": "Medium",
+      "high": "High",
+      "none": "Unknown"
+    },
+    "errors": {
+      "alreadyClosed": "This PR is no longer open.",
+      "checksFailed": "The provider's checks are failing on this PR — it cannot be released.",
+      "notMergeable": "The provider refused to merge this PR (conflicts or unmet branch rules).",
+      "mergeForbidden": "The stored git credentials do not have permission to merge this PR.",
+      "notFound": "This PR could not be found.",
+      "generic": "Something went wrong while releasing this PR."
     }
   }
 }

@@ -43,6 +43,7 @@ import {
   getRepositoryWebhook,
   listEnvFiles,
   listEnvironments,
+  listReleaseQueue,
   getServer,
   getServerMetrics,
   getSlackWorkspaceUsers,
@@ -817,6 +818,19 @@ export function projectEnvironmentsQueryOptions(projectId: string) {
     staleTime: 30_000,
   });
 }
+
+/**
+ * Coda di rilascio (fase 8, solo admin): tutte le PR aperte sui repository
+ * collegati. I check del provider sono letti LIVE a ogni richiesta (mai
+ * persistiti) — `staleTime` breve, non zero: evita una richiesta doppia al
+ * primo render (mount + eventuale re-render) senza far sembrare la pagina
+ * "in tempo reale" quando non lo è.
+ */
+export const releaseQueueQueryOptions = queryOptions({
+  queryKey: ["release-queue"],
+  queryFn: () => listReleaseQueue(),
+  staleTime: 5_000,
+});
 
 /**
  * Account git riutilizzabili: lista visibile a ogni utente autenticato (serve

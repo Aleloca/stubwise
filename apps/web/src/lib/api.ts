@@ -69,6 +69,8 @@ import type {
   ProjectTimeline,
   ProjectTimelineEntry,
   ProjectTimelineKind,
+  ReleaseQueue,
+  ReleaseResult,
   RecordSearchHistoryBody,
   SearchDocsSemanticResults,
   SearchEntityType,
@@ -1519,6 +1521,20 @@ export function deleteEnvironment(projectId: string, environmentId: string): Pro
   return request(
     "DELETE",
     `/api/projects/${encodeURIComponent(projectId)}/environments/${encodeURIComponent(environmentId)}`,
+  );
+}
+
+// --- Coda di rilascio (fase 8) ---
+
+/** Tutte le PR aperte sui repository collegati (solo admin): 403 per i member. */
+export function listReleaseQueue(): Promise<ReleaseQueue> {
+  return api.get("/api/release-queue");
+}
+
+/** Rilascia (mergia) una PR (solo admin). */
+export function releasePullRequest(ticketId: string, repositoryId: string): Promise<ReleaseResult> {
+  return api.post(
+    `/api/tickets/${encodeURIComponent(ticketId)}/repositories/${encodeURIComponent(repositoryId)}/release`,
   );
 }
 

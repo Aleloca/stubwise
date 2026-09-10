@@ -27,7 +27,8 @@
       "label": "Navigazione",
       "open": "Apri navigazione",
       "mail": "Posta",
-      "calendar": "Calendario"
+      "calendar": "Calendario",
+      "release": "Rilascio"
     },
     "on": "attivo",
     "off": "disattivato",
@@ -2438,6 +2439,52 @@
       "heading": "Appuntamenti visti",
       "empty": "// nessun appuntamento",
       "loadError": "Impossibile caricare il calendario."
+    }
+  },
+  "release": {
+    "title": "Coda di rilascio",
+    "subtitle": "Tutte le PR aperte sui repository collegati — Stubwise mergia solo su richiesta esplicita, e non rilascia mai da sé.",
+    "empty": "// nessuna PR aperta",
+    "release": "Rilascia",
+    "confirm": "Conferma il merge",
+    "releasing": "Merge in corso…",
+    "columns": {
+      "review": "Review",
+      "checks": "Check",
+      "testStatus": "Test",
+      "risk": "Rischio",
+      "deployedOn": "Già su"
+    },
+    "review": {
+      "approve": "Approvata",
+      "request_changes": "Modifiche richieste",
+      "none": "Nessuna review ancora"
+    },
+    "checks": {
+      "success": "Verdi",
+      "failure": "Rossi",
+      "pending": "In corso",
+      "noChecks": "Nessun check configurato"
+    },
+    "testStatus": {
+      "passed": "Superati",
+      "failed": "Falliti",
+      "skipped": "Saltati",
+      "none": "Sconosciuto"
+    },
+    "risk": {
+      "low": "Basso",
+      "medium": "Medio",
+      "high": "Alto",
+      "none": "Sconosciuto"
+    },
+    "errors": {
+      "alreadyClosed": "Questa PR non è più aperta.",
+      "checksFailed": "I check del provider sono rossi su questa PR — non si può rilasciare.",
+      "notMergeable": "Il provider ha rifiutato il merge (conflitti o regole del branch non soddisfatte).",
+      "mergeForbidden": "Le credenziali git salvate non hanno il permesso di mergiare questa PR.",
+      "notFound": "Questa PR non è stata trovata.",
+      "generic": "Qualcosa è andato storto durante il rilascio di questa PR."
     }
   }
 }
