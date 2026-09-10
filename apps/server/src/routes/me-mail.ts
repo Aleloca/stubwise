@@ -13,6 +13,7 @@ import {
   htmlToText,
   listAttachments,
   refreshAccessToken,
+  sanitizeEmailHtml,
   GoogleApiError,
 } from "@stubwise/google";
 import { loadGoogleAccountCredentials } from "@stubwise/google/credentials";
@@ -838,6 +839,14 @@ export async function meMailRoutes(
    * qualunque chiamata di rete, così un id altrui non arriva nemmeno a
    * consumare un token.
    *
+   * Fase 9, Task 4: il corpo HTML si legge sanificato, MAI conservato — si
+   * rilegge da Gmail e si sanifica per QUESTA risposta, ogni volta
+   * (`sanitizeEmailHtml`, `@stubwise/google`). Non è "rimettere `bodyHtml`":
+   * nella 7b era stato tolto perché renderlo grezzo con
+   * `dangerouslySetInnerHTML` sarebbe un XSS diretto sul testo di
+   * un'email — qui torna solo perché arriva con due difese indipendenti
+   * (allowlist server-side, iframe in sandbox lato client).
+   *
    * Errori VERI, non solo il caso felice (design §3): il messaggio è
    * `410`/`404` su Gmail (cancellato, spostato) → `message_gone`; il token è
    * scaduto/revocato (`invalid_grant`) → `token_expired`; Google
@@ -887,11 +896,15 @@ export async function meMailRoutes(
           from: full.headers.from ?? message.fromAddress,
           to: full.headers.to ? full.headers.to.split(",").map((addr) => addr.trim()) : message.toAddresses,
           cc: full.headers.cc ? full.headers.cc.split(",").map((addr) => addr.trim()) : [],
-          // MAI l'HTML grezzo verso il client (vedi il docblock di
-          // `mailOriginalSchema`): con `text/plain` presente lo usa com'è,
-          // altrimenti converte l'HTML in testo qui — non lo manda mai oltre
-          // questa rotta.
+          // `text/plain` se c'è, altrimenti l'HTML convertito in testo — per
+          // chi non vuole (o non può) il corpo formattato.
           bodyText: body.text ?? (body.html ? htmlToText(body.html) : null),
+          // MAI l'HTML grezzo verso il client (fase 9, Task 4): sanificato
+          // QUI, lato server, prima di lasciare questa rotta —
+          // `sanitizeEmailHtml` (allowlist, mai denylist; immagini remote
+          // neutralizzate). Il client lo rende in un iframe in sandbox come
+          // SECONDA difesa indipendente, non l'unica.
+          bodyHtml: body.html ? sanitizeEmailHtml(body.html) : null,
           attachments,
         };
       } catch (error) {

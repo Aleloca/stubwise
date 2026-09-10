@@ -551,13 +551,17 @@ export type MailDetail = z.infer<typeof mailDetailSchema>;
  * RICHIESTA (design fase 7b §3, punto 2) — non si persiste nulla di questo:
  * è una finestra su Gmail, non una copia.
  *
- * ⚠️ **Solo `bodyText`, MAI l'HTML originale**: il corpo di un'email è testo
- * NON FIDATO scritto da chi vuole, e un client web non deve mai iniettarlo
- * come markup (`dangerouslySetInnerHTML` su un'email è un vettore XSS
- * diretto — script inline, `onerror` su un'immagine, ecc.). Il server
- * converte l'HTML in testo quando manca il `text/plain` (stessa funzione
- * `htmlToText` di `@stubwise/google` usata per l'estratto): `bodyText` è
- * quindi `null` SOLO se il messaggio non aveva proprio corpo.
+ * `bodyHtml` (fase 9, Task 4): il server lo manda SOLO dopo averlo
+ * sanificato (`sanitizeEmailHtml`, `@stubwise/google`) — allowlist di tag e
+ * attributi, mai una denylist. **Non basta da sola**: il client (Task 5) lo
+ * rende in un `<iframe sandbox>` senza `allow-scripts` né
+ * `allow-same-origin`, seconda difesa indipendente nel caso la prima abbia
+ * un buco. `null` quando il messaggio non aveva un corpo HTML (solo
+ * `text/plain`, o nessun corpo) — MAI una stringa vuota che il client
+ * dovrebbe interpretare a sé. `bodyText` resta com'era in fase 7b: il
+ * corpo convertito in testo quando manca il `text/plain`, per chi non
+ * vuole (o non può, es. lettori di schermo dentro l'iframe) il corpo
+ * formattato.
  */
 export const mailOriginalSchema = z.object({
   subject: z.string().nullable(),
@@ -565,6 +569,7 @@ export const mailOriginalSchema = z.object({
   to: z.array(z.string()).default([]),
   cc: z.array(z.string()).default([]),
   bodyText: z.string().nullable(),
+  bodyHtml: z.string().nullable().default(null),
   attachments: z
     .array(z.object({ filename: z.string(), mimeType: z.string().nullable() }))
     .default([]),

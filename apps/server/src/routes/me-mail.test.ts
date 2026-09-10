@@ -965,6 +965,37 @@ describe("GET /api/me/mail/:source/:id/original (fase 7b, Task 7)", () => {
     expect(row?.textExcerpt ?? "").not.toContain("Laura, Cliente SRL");
   });
 
+  it("il corpo HTML si legge SANIFICATO — <script> sparisce, la formattazione resta (fase 9, Task 4)", async () => {
+    const { accountId } = await seedAccount(memberId);
+    const projectId = await seedProject();
+    const messageId = await seedEmail(accountId);
+    const proposalId = await seedProposal(messageId, projectId);
+    fakeGoogleClient.getMessageFull = async () =>
+      fakeGmailMessage({
+        html: '<p><b>Ciao</b></p><script>alert(document.cookie)</script><img src="https://tracker.example/pixel.gif" onerror="alert(1)">',
+      });
+
+    const res = await getOriginal(memberCookieOriginal, "email", proposalId);
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.bodyHtml).toContain("<b>Ciao</b>");
+    expect(body.bodyHtml).not.toContain("<script");
+    expect(body.bodyHtml).not.toContain("onerror");
+    // L'immagine remota non deve partire da sola.
+    expect(body.bodyHtml).not.toMatch(/\ssrc="https:\/\/tracker\.example/);
+  });
+
+  it("nessuna parte HTML nel messaggio: bodyHtml null, mai una stringa vuota", async () => {
+    const { accountId } = await seedAccount(memberId);
+    const projectId = await seedProject();
+    const messageId = await seedEmail(accountId);
+    const proposalId = await seedProposal(messageId, projectId);
+    fakeGoogleClient.getMessageFull = async () => fakeGmailMessage({ text: "Solo testo." });
+
+    const res = await getOriginal(memberCookieOriginal, "email", proposalId);
+    expect(res.json().bodyHtml).toBeNull();
+  });
+
   it("messaggio cancellato su Gmail (404/410): 409 message_gone, l'estratto resta intatto", async () => {
     const { accountId } = await seedAccount(memberId);
     const projectId = await seedProject();

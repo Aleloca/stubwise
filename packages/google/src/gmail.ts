@@ -8,6 +8,7 @@
  * precedente. Passare quella roba al modello significa classificare dieci volte
  * la stessa conversazione e pagarla ogni volta.
  */
+import sanitizeHtml from "sanitize-html";
 import { z } from "zod";
 import { buildUrl, parseGoogleJson, requestGoogle, type GoogleClientOptions } from "./fetch.js";
 
@@ -471,4 +472,98 @@ export function listAttachments(payload: GmailPayload): GmailAttachment[] {
   };
   walk(payload);
   return found;
+}
+
+/** Solo http/https: qualunque altro schema (`javascript:`, `data:`, ...) è scartato. */
+function isSafeRemoteUrl(value: string | undefined): value is string {
+  return value !== undefined && /^https?:\/\//i.test(value.trim());
+}
+
+/**
+ * Sanificazione lato server dell'HTML di un'email (fase 9, Task 4 — la parte
+ * più delicata della fase, design §4). ALLOWLIST di tag e attributi, MAI una
+ * denylist: una denylist si aggira (un tag scritto in modo strano, un
+ * attributo che non ci si aspettava). `sanitize-html` lavora sul parser
+ * (`htmlparser2`), non su un DOM vero — nessun rischio che il parsing stesso
+ * esegua qualcosa.
+ *
+ * Difesa a strati, indipendenti l'una dall'altra:
+ *  1. **Tag**: solo quelli della formattazione base di un'email. `<script>`,
+ *     `<iframe>`, `<object>`, `<embed>`, `<form>`, `<style>` non sono in
+ *     lista — spariscono col loro contenuto, non solo "svuotati".
+ *  2. **Attributi**: allowlist PER TAG. Nessun `on*` è mai concesso su
+ *     nessun tag, quindi non serve enumerare gli handler da togliere.
+ *  3. **Schemi degli URL**: `allowedSchemes` accetta solo http/https/mailto
+ *     — `javascript:`, `data:` e simili non sopravvivono in `href`.
+ *  4. **CSS**: `allowedStyles` è un'allowlist di PROPRIETÀ con un pattern di
+ *     valore ammesso, non uno stile libero — `expression(...)` (il vettore
+ *     storico di IE) non combacia con nessun pattern e sparisce da solo,
+ *     senza bisogno di riconoscerlo per nome. `background`/`background-image`
+ *     non sono nella lista: un CSS-tracking-pixel via `background: url(...)`
+ *     non ha modo di entrare.
+ *  5. **Immagini remote NEUTRALIZZATE** (design §4, punto 3): il vero URL di
+ *     un `<img>` non finisce mai in `src` — sparisce del tutto se non è
+ *     http/https, altrimenti va in `data-src` e la richiesta non parte MAI
+ *     lato server. È il client (Task 5) a offrire "mostra immagini" e a
+ *     spostare `data-src` in `src` su richiesta esplicita: qui l'unica
+ *     garanzia è che senza quel tap non parte nessuna richiesta — sono i
+ *     pixel di tracciamento a dipendere da quella richiesta per sapere
+ *     quando (e quante volte) l'email è stata aperta.
+ *  6. `target="_blank"` guadagna `rel="noopener noreferrer"` sempre,
+ *     indipendentemente da cosa dichiara l'email: difesa dal reverse
+ *     tabnabbing anche se un domani il rendering lato client concedesse
+ *     `allow-popups` sull'iframe in sandbox.
+ */
+export function sanitizeEmailHtml(html: string): string {
+  return sanitizeHtml(html, {
+    allowedTags: [
+      "p", "div", "span", "br", "hr",
+      "b", "strong", "i", "em", "u", "s", "strike", "small", "sub", "sup", "font",
+      "a", "ul", "ol", "li", "blockquote", "pre", "code",
+      "table", "thead", "tbody", "tfoot", "tr", "td", "th",
+      "h1", "h2", "h3", "h4", "h5", "h6",
+      "img",
+    ],
+    allowedAttributes: {
+      a: ["href", "title", "target", "rel"],
+      font: ["color", "face", "size"],
+      td: ["colspan", "rowspan", "align"],
+      th: ["colspan", "rowspan", "align"],
+      img: ["alt", "width", "height", "data-src"], // MAI "src": vedi transformTags.img sotto.
+      "*": ["style"],
+    },
+    allowedSchemes: ["http", "https", "mailto"],
+    allowedStyles: {
+      "*": {
+        color: [/^#[0-9a-f]{3,8}$/i, /^rgb\([\d\s,]+\)$/i, /^[a-z]+$/i],
+        "background-color": [/^#[0-9a-f]{3,8}$/i, /^rgb\([\d\s,]+\)$/i, /^[a-z]+$/i],
+        "font-weight": [/^(normal|bold|[1-9]00)$/],
+        "font-style": [/^(normal|italic)$/],
+        "text-align": [/^(left|right|center|justify)$/],
+        "text-decoration": [/^(none|underline|line-through)$/],
+      },
+    },
+    // Nessuna delle due proprietà pericolose (background-image, url()
+    // arbitrari) è nell'allowlist sopra: non serve una regola a parte per
+    // `expression()`, semplicemente non esiste un pattern con cui combacia.
+    transformTags: {
+      img: (_tagName, attribs) => {
+        const safeSrc = isSafeRemoteUrl(attribs.src) ? attribs.src : undefined;
+        return {
+          tagName: "img",
+          attribs: {
+            ...(attribs.alt !== undefined ? { alt: attribs.alt } : {}),
+            ...(safeSrc ? { "data-src": safeSrc } : {}),
+          },
+        };
+      },
+      a: (_tagName, attribs) => ({
+        tagName: "a",
+        attribs: {
+          ...attribs,
+          ...(attribs.target === "_blank" ? { rel: "noopener noreferrer" } : {}),
+        },
+      }),
+    },
+  });
 }

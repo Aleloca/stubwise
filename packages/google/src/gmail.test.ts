@@ -9,10 +9,114 @@ import {
   listHistory,
   listMessages,
   MAX_TEXT_LENGTH,
+  sanitizeEmailHtml,
   TEXT_TRUNCATION_MARKER,
   type GmailPayload,
 } from "./gmail.js";
 import { b64url, fakeFetch, jsonResponse } from "./test-support.js";
+
+/**
+ * Sanificazione dell'HTML di un'email (fase 9, Task 4) — la parte più
+ * delicata della fase: allowlist di tag e attributi, MAI una denylist (una
+ * denylist si aggira). Scritto PRIMA dell'implementazione (design §4): è
+ * la difesa, non un dettaglio da verificare dopo.
+ */
+describe("sanitizeEmailHtml", () => {
+  it("<script> sparisce del tutto, contenuto incluso", () => {
+    const out = sanitizeEmailHtml('<p>Ciao</p><script>alert(document.cookie)</script>');
+    expect(out).not.toContain("<script");
+    expect(out).not.toContain("alert(document.cookie)");
+    expect(out).toContain("Ciao");
+  });
+
+  it("<img onerror=...> perde l'handler ma tiene l'immagine (src remoto neutralizzato)", () => {
+    const out = sanitizeEmailHtml('<img src="https://tracker.example/pixel.gif" onerror="alert(1)">');
+    expect(out).not.toContain("onerror");
+    expect(out).not.toContain("alert(1)");
+    // L'src remoto non deve MAI comparire come src reale (partirebbe da solo).
+    expect(out).not.toMatch(/\ssrc="https:\/\/tracker\.example/);
+  });
+
+  it('<a href="javascript:...">: lo scheme non passa', () => {
+    const out = sanitizeEmailHtml('<a href="javascript:alert(1)">clicca</a>');
+    expect(out).not.toContain("javascript:");
+  });
+
+  it("<iframe>/<object>/<embed>/<form> spariscono del tutto", () => {
+    const out = sanitizeEmailHtml(
+      '<iframe src="https://evil.example"></iframe>' +
+        '<object data="https://evil.example"></object>' +
+        '<embed src="https://evil.example">' +
+        '<form action="https://evil.example"><input></form>',
+    );
+    expect(out).not.toContain("<iframe");
+    expect(out).not.toContain("<object");
+    expect(out).not.toContain("<embed");
+    expect(out).not.toContain("<form");
+    expect(out).not.toContain("evil.example");
+  });
+
+  it("CSS con expression() nello style non passa", () => {
+    const out = sanitizeEmailHtml(
+      '<p style="width: expression(alert(1)); color: red;">testo</p>',
+    );
+    expect(out).not.toContain("expression");
+    // Una proprietà innocua nello stesso attributo può restare.
+    expect(out).toContain("color");
+  });
+
+  it("un <img> remoto: il vero URL non è mai in `src` (nessuna richiesta di rete automatica — pixel di tracciamento)", () => {
+    const out = sanitizeEmailHtml('<img src="https://tracker.example/open.gif" alt="">');
+    // Il browser non deve poter risolvere il vero URL come `src`.
+    expect(out).not.toMatch(/<img[^>]*\ssrc="https:\/\/tracker\.example/);
+  });
+
+  it("gli attributi on* spariscono su QUALUNQUE tag, non solo img (allowlist, non denylist)", () => {
+    const out = sanitizeEmailHtml('<p onclick="alert(1)" onmouseover="alert(2)">testo</p>');
+    expect(out).not.toContain("onclick");
+    expect(out).not.toContain("onmouseover");
+  });
+
+  it("formattazione semplice (grassetto, link https, tabella) sopravvive", () => {
+    const out = sanitizeEmailHtml(
+      '<p><b>Ciao</b>, guarda <a href="https://acme.test/doc">questo</a></p>' +
+        "<table><tr><td>A</td></tr></table>",
+    );
+    expect(out).toContain("<b>Ciao</b>");
+    expect(out).toContain('href="https://acme.test/doc"');
+    expect(out).toContain("<table>");
+  });
+
+  it("un link https guadagna rel=noopener noreferrer (difesa dal reverse tabnabbing)", () => {
+    const out = sanitizeEmailHtml('<a href="https://acme.test" target="_blank">apri</a>');
+    expect(out).toMatch(/rel="[^"]*noopener[^"]*noreferrer[^"]*"/);
+  });
+
+  it("un data: URI su href non passa (non è http/https)", () => {
+    const out = sanitizeEmailHtml('<a href="data:text/html,<script>alert(1)</script>">clicca</a>');
+    expect(out).not.toContain("data:text/html");
+  });
+
+  it('alt="" (immagine decorativa) sopravvive: non è "assente"', () => {
+    const out = sanitizeEmailHtml('<img src="https://acme.test/logo.png" alt="">');
+    expect(out).toContain('alt=""');
+  });
+
+  it("<style> sparisce del tutto: nessun CSS a livello di pagina dall'email", () => {
+    const out = sanitizeEmailHtml("<style>body { display: none; }</style><p>Ciao</p>");
+    expect(out).not.toContain("<style");
+    expect(out).toContain("Ciao");
+  });
+
+  it("background/background-image nello style non passano (pixel di tracciamento via CSS)", () => {
+    const out = sanitizeEmailHtml(
+      '<div style="background-image: url(https://tracker.example/pixel.gif); color: blue;">x</div>',
+    );
+    expect(out).not.toContain("tracker.example");
+    expect(out).not.toContain("background");
+    expect(out).toContain("color");
+  });
+});
 
 describe("listHistory", () => {
   it("chiede la history da startHistoryId e raccoglie gli id dei messaggi aggiunti senza duplicati", async () => {

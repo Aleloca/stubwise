@@ -16,6 +16,7 @@ import {
   mailAdmissionPatchSchema,
   mailAdmissionSchema,
   mailItemSchema,
+  mailOriginalSchema,
 } from "./google.js";
 
 describe("googleWorkspaceDraftSchema", () => {
@@ -312,6 +313,19 @@ describe("mailItemSchema.kind (fase 6c, fix di review Task 3)", () => {
 
   it("rifiuta un kind fuori vocabolario", () => {
     expect(mailItemSchema.safeParse({ ...base, kind: "bogus" }).success).toBe(false);
+  });
+});
+
+describe("mailOriginalSchema", () => {
+  const base = { subject: "Ciao", from: "a@acme.test", bodyText: "Ciao!" };
+
+  it("senza bodyHtml (server pre-fase-9): default null (fase 9, Task 4)", () => {
+    expect(mailOriginalSchema.parse(base).bodyHtml).toBeNull();
+  });
+
+  it("porta l'HTML già sanificato dal server", () => {
+    const parsed = mailOriginalSchema.parse({ ...base, bodyHtml: "<p>Ciao</p>" });
+    expect(parsed.bodyHtml).toBe("<p>Ciao</p>");
   });
 });
 
