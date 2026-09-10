@@ -592,6 +592,9 @@ importers:
       '@stubwise/db':
         specifier: workspace:*
         version: link:../db
+      '@stubwise/shared':
+        specifier: workspace:*
+        version: link:../shared
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(mysql2@3.22.6(@types/node@22.19.20))(postgres@3.4.9)

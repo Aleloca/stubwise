@@ -187,7 +187,9 @@ export function computeFingerprint(title: string | null | undefined, startsAt: D
 export function eventToRouting(event: GoogleCalendarEvent): EmailForRouting {
   return {
     fromAddress: event.organizer ?? "",
-    toAddresses: event.attendees,
+    // Fase 9, Task 2: `attendees` porta anche lo stato di risposta — il
+    // routing continua a leggere solo l'email, come prima.
+    toAddresses: event.attendees.map((attendee) => attendee.email),
     labels: [],
     subject: event.title,
   };

@@ -7,7 +7,23 @@
  * tap.
  */
 import { z } from "zod";
+import type { CalendarAttendee, CalendarAttendeeResponseStatus } from "@stubwise/shared";
 import { buildUrl, parseGoogleJson, requestGoogle, type GoogleClientOptions } from "./fetch.js";
+
+/** I soli valori che `calendarAttendeeResponseStatusSchema` accetta. */
+const KNOWN_RESPONSE_STATUSES = new Set<CalendarAttendeeResponseStatus>([
+  "needsAction",
+  "declined",
+  "tentative",
+  "accepted",
+]);
+
+/** Lo stato di risposta di Google normalizzato sul vocabolario condiviso (ignoto → `null`). */
+function normalizeResponseStatus(value: string | undefined): CalendarAttendeeResponseStatus | null {
+  return value !== undefined && KNOWN_RESPONSE_STATUSES.has(value as CalendarAttendeeResponseStatus)
+    ? (value as CalendarAttendeeResponseStatus)
+    : null;
+}
 
 /** Base delle API Calendar. */
 export const CALENDAR_API_BASE = "https://www.googleapis.com/calendar/v3/calendars";
@@ -24,8 +40,12 @@ export interface GoogleCalendarEvent {
   allDay: boolean;
   startsAt: Date | null;
   endsAt: Date | null;
-  /** Email dei partecipanti, in minuscolo: sono ciò su cui il routing fa match. */
-  attendees: string[];
+  /**
+   * Partecipanti, con lo stato di risposta (fase 9, Task 2 — prima erano un
+   * `string[]` di sole email e lo stato veniva scartato). `email` è in
+   * minuscolo: è ciò su cui il routing fa match.
+   */
+  attendees: CalendarAttendee[];
   organizer: string | null;
   htmlLink: string | null;
   updatedAt: Date | null;
@@ -60,7 +80,9 @@ const eventSchema = z.object({
   description: z.string().optional(),
   start: dateSchema.optional(),
   end: dateSchema.optional(),
-  attendees: z.array(z.object({ email: z.string().optional() })).optional(),
+  attendees: z
+    .array(z.object({ email: z.string().optional(), responseStatus: z.string().optional() }))
+    .optional(),
   organizer: z.object({ email: z.string().optional() }).optional(),
   htmlLink: z.string().optional(),
   updated: z.string().optional(),
@@ -109,8 +131,11 @@ function toEvent(raw: z.infer<typeof eventSchema>): GoogleCalendarEvent {
     startsAt,
     endsAt,
     attendees: (raw.attendees ?? [])
-      .map((attendee) => attendee.email?.toLowerCase())
-      .filter((email): email is string => Boolean(email)),
+      .filter((attendee): attendee is { email: string; responseStatus?: string } => Boolean(attendee.email))
+      .map((attendee) => ({
+        email: attendee.email.toLowerCase(),
+        responseStatus: normalizeResponseStatus(attendee.responseStatus),
+      })),
     organizer: raw.organizer?.email?.toLowerCase() ?? null,
     htmlLink: raw.htmlLink ?? null,
     updatedAt: toDate(raw.updated),

@@ -1124,6 +1124,8 @@ async function syncCalendar(
       allDay: event.allDay,
       attendees: event.attendees,
       organizer: event.organizer,
+      // Fase 9, Task 2: link diretto all'evento, dalla stessa normalizzazione.
+      htmlLink: event.htmlLink,
       status: normalizeStatus(event.status),
       fingerprint,
       recurringEventId: event.recurringEventId,

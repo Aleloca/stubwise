@@ -589,6 +589,38 @@ export const calendarSeriesActionSchema = z.enum(["backlog_item", "milestone", "
 export type CalendarSeriesAction = z.infer<typeof calendarSeriesActionSchema>;
 
 /**
+ * Come un partecipante ha risposto all'invito — i soli 4 valori che Google
+ * manda (fase 9, Task 2). Un valore che Google cambiasse o un partecipante
+ * anonimo (nessuna risposta ancora, o un campo assente) restano `null`, mai
+ * un quinto valore inventato: chi legge distingue "non ha ancora risposto"
+ * da "non sappiamo leggere questo campo" solo se il secondo caso non si
+ * traveste da un valore del vocabolario.
+ */
+export const calendarAttendeeResponseStatusSchema = z.enum([
+  "needsAction",
+  "declined",
+  "tentative",
+  "accepted",
+]);
+export type CalendarAttendeeResponseStatus = z.infer<typeof calendarAttendeeResponseStatusSchema>;
+
+/**
+ * UN partecipante di un evento (fase 9, Task 2) — la forma unica che
+ * `calendar_events.attendees` (jsonb, `packages/db`) e
+ * `GoogleCalendarEvent.attendees` (`packages/google`) condividono: prima
+ * della fase 9 erano un `text[]` di sole email, e lo stato di risposta che
+ * Google manda già veniva scartato. Definita qui (non in `packages/db` né in
+ * `packages/google`, che dipendono entrambi da questo package) perché sia
+ * DAVVERO una sola fonte di verità, non due dichiarazioni identiche per
+ * caso.
+ */
+export const calendarAttendeeSchema = z.object({
+  email: z.string(),
+  responseStatus: calendarAttendeeResponseStatusSchema.nullable(),
+});
+export type CalendarAttendee = z.infer<typeof calendarAttendeeSchema>;
+
+/**
  * UN appuntamento visto: un'occorrenza di `calendar_events`, con lo stato
  * NORMALIZZATO della proposta che ne è nata (vocabolario condiviso con
  * `mailItemStatusSchema` — stessa CASE, vedi `calendar-status.ts` sul

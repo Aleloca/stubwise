@@ -3,6 +3,7 @@ import {
   type AlertThresholds,
   type BacklogJobPayload,
   type BacklogSuggested,
+  type CalendarAttendee,
   type DiscoveredService,
   type PluginInventory,
   aiJobStatusSchema,
@@ -3495,8 +3496,17 @@ export const calendarEvents = pgTable(
     startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
     endsAt: timestamp("ends_at", { withTimezone: true }),
     allDay: boolean("all_day").notNull().default(false),
-    attendees: text("attendees").array().notNull().default([]),
+    /**
+     * Partecipanti CON lo stato di risposta (fase 9, Task 2 — migrazione
+     * 0075 con backfill: prima un `text[]` di sole email, lo stato che
+     * Google manda veniva scartato). Forma condivisa con
+     * `GoogleCalendarEvent.attendees` (`packages/google`) — vedi
+     * `CalendarAttendee` in `@stubwise/shared`, la SOLA fonte di verità.
+     */
+    attendees: jsonb("attendees").$type<CalendarAttendee[]>().notNull().default([]),
     organizer: text("organizer"),
+    /** Link diretto all'evento su Google Calendar (fase 9, Task 2). `null` se Google non lo manda. */
+    htmlLink: text("html_link"),
     status: text("status").$type<"confirmed" | "tentative" | "cancelled">(),
     projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
     proposalNotificationId: uuid("proposal_notification_id").references(() => notifications.id, {

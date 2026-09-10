@@ -65,6 +65,11 @@ let db: Db;
 const ENCRYPTION_KEY = randomBytes(32);
 const MAILBOX = "operatore@acme.com";
 
+/** Un partecipante SENZA stato di risposta noto (fase 9, Task 2). */
+function att(email: string): { email: string; responseStatus: null } {
+  return { email, responseStatus: null };
+}
+
 beforeAll(async () => {
   testDb = await startTestDb();
   db = testDb.db;
@@ -2093,7 +2098,7 @@ function calendarEvent(input: Partial<GoogleCalendarEvent> & { id: string }): Go
     allDay: false,
     startsAt: new Date("2026-10-12T09:00:00.000Z"),
     endsAt: new Date("2026-10-12T10:00:00.000Z"),
-    attendees: ["cliente@cliente.com", MAILBOX],
+    attendees: [att("cliente@cliente.com"), att(MAILBOX)],
     organizer: MAILBOX,
     htmlLink: null,
     updatedAt: null,

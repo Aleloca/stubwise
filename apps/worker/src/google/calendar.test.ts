@@ -53,6 +53,11 @@ let db: Db;
 const ENCRYPTION_KEY = randomBytes(32);
 const MAILBOX = "operatore@acme.com";
 
+/** Un partecipante SENZA stato di risposta noto (fase 9, Task 2). */
+function att(email: string): { email: string; responseStatus: null } {
+  return { email, responseStatus: null };
+}
+
 beforeAll(async () => {
   testDb = await startTestDb();
   db = testDb.db;
@@ -148,7 +153,7 @@ function event(input: Partial<GoogleCalendarEvent> & { id: string }): GoogleCale
     allDay: false,
     startsAt: new Date("2026-10-12T09:00:00.000Z"),
     endsAt: new Date("2026-10-12T10:00:00.000Z"),
-    attendees: ["cliente@cliente.com", MAILBOX],
+    attendees: [att("cliente@cliente.com"), att(MAILBOX)],
     organizer: MAILBOX,
     htmlLink: null,
     updatedAt: null,
@@ -473,7 +478,7 @@ describe("pre-filtro degli eventi", () => {
       googleEventId: "e1",
       title: "Revisione portale",
       allDay: false,
-      attendees: ["cliente@cliente.com", MAILBOX],
+      attendees: [att("cliente@cliente.com"), att(MAILBOX)],
       organizer: MAILBOX,
       status: "confirmed",
       projectId,
@@ -486,13 +491,47 @@ describe("pre-filtro degli eventi", () => {
     expect((await reload(account.id)).calendarSyncToken).toBe("tok-1");
   });
 
+  it("lo stato di risposta e il link diretto si scrivono (fase 9, Task 2)", async () => {
+    const projectId = await seedProject("Acme");
+    await db
+      .insert(projectEmailRoutes)
+      .values({ projectId, kind: "sender_domain", value: "cliente.com" });
+    const account = await seedAccount();
+    const calendar = fakeCalendar([
+      {
+        events: [
+          event({
+            id: "e1",
+            attendees: [
+              { email: "cliente@cliente.com", responseStatus: "accepted" },
+              { email: MAILBOX, responseStatus: "needsAction" },
+            ],
+            htmlLink: "https://calendar.google.test/e1",
+          }),
+        ],
+        nextSyncToken: "tok-1",
+      },
+    ]);
+
+    await pollGoogleOnce(deps(account, calendar));
+
+    const [row] = await rows();
+    expect(row!.attendees).toEqual([
+      { email: "cliente@cliente.com", responseStatus: "accepted" },
+      { email: MAILBOX, responseStatus: "needsAction" },
+    ]);
+    expect(row!.htmlLink).toBe("https://calendar.google.test/e1");
+    // L'attribuzione continua a leggere solo l'email, invariata.
+    expect(row!.projectId).toBe(projectId);
+  });
+
   it("una parola chiave nel titolo basta a risolvere il progetto", async () => {
     const projectId = await seedProject("Acme");
     await db.insert(projectEmailRoutes).values({ projectId, kind: "keyword", value: "portale" });
     const account = await seedAccount();
     const calendar = fakeCalendar([
       {
-        events: [event({ id: "e1", attendees: ["esterno@altro.example"], organizer: null })],
+        events: [event({ id: "e1", attendees: [att("esterno@altro.example")], organizer: null })],
         nextSyncToken: "tok-1",
       },
     ]);
@@ -649,7 +688,7 @@ describe("non riproporre lo stesso appuntamento", () => {
             id: "e1",
             startsAt: new Date("2026-10-12T15:00:00.000Z"),
             endsAt: new Date("2026-10-12T16:00:00.000Z"),
-            attendees: ["cliente@cliente.com", MAILBOX, "nuovo@cliente.com"],
+            attendees: [att("cliente@cliente.com"), att(MAILBOX), att("nuovo@cliente.com")],
           }),
         ],
         nextSyncToken: "tok-2",
@@ -662,7 +701,7 @@ describe("non riproporre lo stesso appuntamento", () => {
     expect(all).toHaveLength(1);
     // Dati freschi…
     expect(all[0]!.startsAt.toISOString()).toBe("2026-10-12T15:00:00.000Z");
-    expect(all[0]!.attendees).toContain("nuovo@cliente.com");
+    expect(all[0]!.attendees.map((a) => a.email)).toContain("nuovo@cliente.com");
     // …ma la proposta già pubblicata non si tocca: nessuna seconda proposta.
     expect(all[0]!.proposalNotificationId).toBe(notification!.id);
     expect(isReadyForProposal(all[0]!)).toBe(false);
