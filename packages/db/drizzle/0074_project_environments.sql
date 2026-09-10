@@ -54,4 +54,11 @@ WHERE "r"."id" = "f"."repository_id";
 
 ALTER TABLE "project_env_files" ALTER COLUMN "environment_id" SET NOT NULL;--> statement-breakpoint
 ALTER TABLE "project_env_files" ADD CONSTRAINT "project_env_files_environment_id_project_environments_id_fk" FOREIGN KEY ("environment_id") REFERENCES "public"."project_environments"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-CREATE UNIQUE INDEX "project_env_files_repository_environment_path_unique" ON "project_env_files" USING btree ("repository_id","environment_id","path");
+CREATE UNIQUE INDEX "project_env_files_repository_environment_path_unique" ON "project_env_files" USING btree ("repository_id","environment_id","path");--> statement-breakpoint
+
+-- Task 6 (coda di rilascio): l'esito del test interno diventa un dato sulla
+-- riga che è già la fonte di verità di pr_url/pr_state per repo. NULLABLE:
+-- le righe storiche non hanno mai avuto questo dato, e non è cosmetico
+-- fingerne uno — restano NULL, "sconosciuto", non 'skipped'.
+ALTER TABLE "ticket_repositories" ADD COLUMN "test_status" text;--> statement-breakpoint
+ALTER TABLE "ticket_repositories" ADD CONSTRAINT "ticket_repositories_test_status_chk" CHECK ("test_status" is null or "test_status" in ('passed', 'failed', 'skipped'));

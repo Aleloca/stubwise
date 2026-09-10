@@ -2014,6 +2014,42 @@ describe("schema: fix multi-repo (progetto: ingestion/numerazione, error_groups,
     expect(read?.createdAt).toBeInstanceOf(Date);
   });
 
+  it("fase 8, Task 6: test_status nasce NULL (riga storica, 'sconosciuto'), e accetta passed/failed/skipped", async () => {
+    const { projectId, repositoryId } = await seedRepository(db);
+    const { ticketId } = await seedTicketRow(db, { projectId, repositoryId });
+
+    const [defaulted] = await db
+      .insert(ticketRepositories)
+      .values({ ticketId, repositoryId, branch: "stubwise/ticket-teststatus" })
+      .returning();
+    expect(defaulted?.testStatus).toBeNull();
+
+    for (const status of ["passed", "failed", "skipped"] as const) {
+      const otherRepoId = await seedRepositoryInProject(db, projectId);
+      const [row] = await db
+        .insert(ticketRepositories)
+        .values({ ticketId, repositoryId: otherRepoId, branch: `stubwise/ticket-${status}`, testStatus: status })
+        .returning();
+      expect(row?.testStatus).toBe(status);
+    }
+  });
+
+  it("fase 8, Task 6: il CHECK su test_status rifiuta un valore fuori dall'insieme", async () => {
+    const { projectId, repositoryId } = await seedRepository(db);
+    const { ticketId } = await seedTicketRow(db, { projectId, repositoryId });
+
+    await expect(
+      db
+        .insert(ticketRepositories)
+        .values({
+          ticketId,
+          repositoryId,
+          branch: "stubwise/ticket-badstatus",
+          testStatus: "flaky" as never,
+        }),
+    ).rejects.toThrow();
+  });
+
   it("accetta prState merged/closed_unmerged e un pr_url valorizzato", async () => {
     const { projectId, repositoryId } = await seedRepository(db);
     const { ticketId } = await seedTicketRow(db, { projectId, repositoryId });

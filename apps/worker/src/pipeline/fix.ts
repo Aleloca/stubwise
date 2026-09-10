@@ -1160,6 +1160,16 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     repositoryId: string;
     name: string;
     mirrorProject: MirrorProject;
+    /**
+     * Fase 8, Task 6: l'esito dei test PRIMA dell'apertura della PR di questo
+     * repo — "passed" solo se un comando di test si è risolto E ha girato
+     * verde (self-repair compreso); "skipped" se non c'era un comando
+     * risolvibile o il self-repair è disattivato. Mai "failed" qui: un test
+     * rosso non arriva mai a questo punto (la PR non si apre, vedi
+     * SelfRepairFailedError sopra) — il campo esiste per rendere
+     * INTERROGABILE ciò che finiva solo nel log del job come testo.
+     */
+    testStatus: "passed" | "skipped";
   }
   // Esito della callback withProjectWorktrees, discriminato sulla modalità: in
   // plan-only la callback produce SOLO il piano (niente report/commit/push); in
@@ -1638,13 +1648,24 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
           // null = tutti verdi O nessun repo con test risolvibile (→ commit diretto).
           const runRepoTests = async (
             changed: RepoState[],
-          ): Promise<{ redOutput: string | null }> => {
+          ): Promise<{
+            redOutput: string | null;
+            // Fase 8, Task 6: costruita man mano — "passed"/"skipped" per i
+            // repo già superati in QUESTO giro; vuota/parziale se il giro si
+            // ferma su un rosso (scartata dal chiamante in quel caso, si
+            // riparte da capo al prossimo tentativo).
+            statuses: Map<string, "passed" | "skipped">;
+          }> => {
+            const statuses = new Map<string, "passed" | "skipped">();
             for (const state of changed) {
               const testCmd = await resolveTestCommandFn(
                 { testCommand: state.prepared.testCommand },
                 state.dir,
               );
-              if (!testCmd) continue;
+              if (!testCmd) {
+                statuses.set(state.prepared.repositoryId, "skipped");
+                continue;
+              }
               const test = await runTestCommand(
                 testCmd,
                 state.dir,
@@ -1659,20 +1680,24 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
                 // Log best-effort.
               });
               if (test.exitCode !== 0) {
-                return { redOutput: `[${state.prepared.name}]\n${test.output}` };
+                return { redOutput: `[${state.prepared.name}]\n${test.output}`, statuses };
               }
+              statuses.set(state.prepared.repositoryId, "passed");
             }
-            return { redOutput: null };
+            return { redOutput: null, statuses };
           };
 
           let changedRepoStates: RepoState[];
+          // Fase 8, Task 6: l'esito per repo, popolato SOLO sul percorso che
+          // arriva davvero all'apertura della PR (vedi ChangedRepo.testStatus).
+          let testStatusByRepo = new Map<string, "passed" | "skipped">();
           if (selfRepairMaxAttempts > 0) {
             for (let attempt = 0; ; attempt++) {
               const changed = await stageAndDetectChanged();
               // Nessun repo modificato → NoChangesError (come oggi il caso a 1 repo).
               if (changed.length === 0) throw new NoChangesError(output);
 
-              const { redOutput } = await runRepoTests(changed);
+              const { redOutput, statuses } = await runRepoTests(changed);
               await appendLog(
                 db,
                 job.id,
@@ -1682,6 +1707,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
               });
               if (redOutput === null) {
                 changedRepoStates = changed;
+                testStatusByRepo = statuses;
                 break; // Tutti verdi → commit/push.
               }
               if (attempt >= selfRepairMaxAttempts) {
@@ -1722,6 +1748,11 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
             // detect una sola volta, come oggi il flusso senza self-repair.
             changedRepoStates = await stageAndDetectChanged();
             if (changedRepoStates.length === 0) throw new NoChangesError(output);
+            // Nessun test è girato per nessuno di questi repo: tutti "skipped",
+            // non "passed" — la distinzione è il punto del Task 6.
+            testStatusByRepo = new Map(
+              changedRepoStates.map((state) => [state.prepared.repositoryId, "skipped" as const]),
+            );
           }
 
           // Test verdi (o nessun test): legge+rimuove il report e committa+pusha
@@ -1746,6 +1777,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
               repositoryId: state.prepared.repositoryId,
               name: state.prepared.name,
               mirrorProject: state.prepared.mirrorProject,
+              testStatus: testStatusByRepo.get(state.prepared.repositoryId) ?? "skipped",
             });
           }
           return { kind: "executed", report: reportContent, agentOutput: output, changedRepos };
@@ -2005,10 +2037,17 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     // repositoryId) così un re-run del fix aggiorna la riga invece di duplicarla.
     await db
       .insert(ticketRepositories)
-      .values({ ticketId: ticket.id, repositoryId: repo.repositoryId, branch, prUrl, prState: "open" })
+      .values({
+        ticketId: ticket.id,
+        repositoryId: repo.repositoryId,
+        branch,
+        prUrl,
+        prState: "open",
+        testStatus: repo.testStatus,
+      })
       .onConflictDoUpdate({
         target: [ticketRepositories.ticketId, ticketRepositories.repositoryId],
-        set: { branch, prUrl, prState: "open" },
+        set: { branch, prUrl, prState: "open", testStatus: repo.testStatus },
       });
     openedPrs.push({ name: repo.name, prUrl });
     logLines.push(`[fix] '${repo.name}': PR aperta: ${prUrl}`);

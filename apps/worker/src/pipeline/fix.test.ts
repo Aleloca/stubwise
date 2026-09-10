@@ -1624,6 +1624,10 @@ describe("runFix — self-repair (Task 5)", () => {
     expect(files).not.toContain("STUBWISE_REPORT.md");
     const jobAfter = await getJob(db, job.id);
     expect(jobAfter.status).toBe("pr_opened");
+    // Fase 8, Task 6: il test è girato rosso poi verde — l'esito scritto è
+    // quello dell'ULTIMO giro (quello che ha davvero aperto la PR): passed.
+    const [tr] = await db.select().from(ticketRepositories).where(eq(ticketRepositories.ticketId, ticket.id));
+    expect(tr?.testStatus).toBe("passed");
   });
 
   it("exhausted: test sempre rossi → dopo selfRepairMaxAttempts riparazioni → failed, niente PR, output test nel log", async () => {
@@ -1700,6 +1704,10 @@ describe("runFix — self-repair (Task 5)", () => {
     const files = await git(["ls-tree", "-r", "--name-only", branch], fixture.upstreamDir);
     expect(files).toContain("app.js");
     expect(files).not.toContain("STUBWISE_REPORT.md");
+    // Fase 8, Task 6: nessun comando di test risolvibile → "skipped", non
+    // "passed" — un test mai eseguito non ha "superato" nulla.
+    const [tr] = await db.select().from(ticketRepositories).where(eq(ticketRepositories.ticketId, ticket.id));
+    expect(tr?.testStatus).toBe("skipped");
   });
 
   it("selfRepairMaxAttempts=0: nessun loop, comportamento attuale anche con testCmd risolto", async () => {
@@ -1729,6 +1737,11 @@ describe("runFix — self-repair (Task 5)", () => {
     expect(outcome).toBe("pr_opened");
     expect(runTestCommand).not.toHaveBeenCalled();
     expect(runner.calls).toHaveLength(2);
+    // Fase 8, Task 6: self-repair spento → nessun test è MAI girato, anche se
+    // un comando sarebbe risolvibile — "skipped", coerente col fatto che
+    // runTestCommand non è mai stato chiamato.
+    const [tr] = await db.select().from(ticketRepositories).where(eq(ticketRepositories.ticketId, ticket.id));
+    expect(tr?.testStatus).toBe("skipped");
   });
 
   it("diff vuoto dopo l'esecuzione (solo report) → NoChangesError, niente esecuzione test né PR", async () => {

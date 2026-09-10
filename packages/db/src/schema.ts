@@ -644,6 +644,18 @@ export const ticketRepositories = pgTable(
     // URL della PR aperta su questo repo; null finché non è stata aperta.
     prUrl: text("pr_url"),
     prState: prState("pr_state").notNull().default("open"),
+    /**
+     * Fase 8, Task 6: l'esito del test INTERNO (quello che la pipeline di fix
+     * esegue nel proprio container prima di aprire la PR) — prima solo testo
+     * nel log del job, ora un dato interrogabile per la coda di rilascio.
+     * `null` = riga scritta prima di questa fase (storica, nessun dato) O un
+     * fix senza self-repair/test risolvibile che non ha mai girato nulla
+     * PRIMA di questa fase. Il writer (fix.ts) scrive solo 'passed'/'skipped'
+     * — non apre mai una PR su un test rosso — ma il CHECK ammette anche
+     * 'failed' per non restringere un domani in cui una riga viene
+     * riverificata dopo l'apertura.
+     */
+    testStatus: text("test_status").$type<"passed" | "failed" | "skipped">(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -654,6 +666,10 @@ export const ticketRepositories = pgTable(
     ),
     // Lo stato per-repo si legge sempre per ticket (dettaglio, gate aggregato).
     index("ticket_repositories_ticket_id_idx").on(table.ticketId),
+    check(
+      "ticket_repositories_test_status_chk",
+      sql`test_status is null or test_status in ('passed', 'failed', 'skipped')`,
+    ),
   ],
 );
 
