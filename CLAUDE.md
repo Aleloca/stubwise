@@ -839,6 +839,64 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   mai stata chiamata con altro che `"test"` prima di questa fase, un worker
   precedente continua semplicemente a comportarsi come prima (nessuna
   regressione, solo assenza della funzionalità nuova).
+- **Fase 9 (Posta e Calendario che si guardano volentieri)**: rebuild
+  **server+worker+caddy insieme** (migrazione 0075 all'avvio del server —
+  additiva, **nessun `ALTER TYPE`**, un solo batch, ma **CON BACKFILL e con
+  un vero cambio di tipo** su una colonna esistente, non solo un'aggiunta:
+  `calendar_events.attendees` passa da `text[]` (sole email) a `jsonb`
+  (`{email, responseStatus}[]`) sulle 1553 righe di produzione — stesso
+  modello nullable→backfill→NOT NULL della 0074, ma con drop della colonna
+  vecchia e rename della nuova alla fine, perché qui la FORMA cambia, non
+  solo il vincolo; `responseStatus` backfillato a `NULL` per ogni riga
+  storica (mai stato conservato, non ricostruibile); più una colonna nuova
+  nullable `html_link`, additiva). Il worker nuovo è l'unico che riconosce
+  `responseStatus`/`htmlLink` nella normalizzazione di `@stubwise/google` e
+  li scrive nell'upsert di `calendar_events`
+  (`apps/worker/src/google/poller.ts`), guarda **anche 30 giorni indietro**
+  oltre ai 60 avanti (`CALENDAR_LOOKBACK_DAYS`, `apps/worker/src/google/
+  calendar.ts`) sia in lettura sia nel calcolo della finestra di poll; il
+  server nuovo l'unico che espone `GET /api/me/calendar/range` (un
+  intervallo `[from,to)` con tetto `MAX_RANGE_DAYS=100`,
+  `apps/server/src/routes/me-calendar.ts`) e che sanifica lato server il
+  corpo HTML di un'estratto email (`sanitizeEmailHtml`, `@stubwise/google`,
+  su `GET /api/me/mail/:source/:id/original` — **calcolato per quella sola
+  risposta e mai scritto su una riga**, verificato leggendo la rotta: nessun
+  `UPDATE`/`INSERT` lo tocca); il bundle nuovo l'unico che disegna la posta
+  a tre colonne e la griglia giorno/settimana/mese di `/calendar`, col
+  pannello di dettaglio (partecipanti con stato di risposta, link
+  all'evento, e — se l'appuntamento appartiene a una serie — la
+  configurazione della serie, spostata lì dall'elenco separato della 7b).
+  **Nessuna env nuova**. **Nessun kind di notifica nuovo e nessun valore
+  nuovo in un enum esistente**: le proposte di serie continuano a riusare
+  `google.proposal`/`source: "calendar"` come dalla 7b, quindi — a
+  differenza delle fasi 2/5/6/6c — non c'è l'equivalente del 500 su
+  `/api/inbox`. **Il task che avrebbe spostato `inScope` dall'ingestione
+  alla proposta è stato RITIRATO in corso di progettazione** (era il task
+  più rischioso: avrebbe potuto trasformare ogni appuntamento personale in
+  una proposta, la stessa famiglia dell'incidente del 9 settembre 2026) —
+  l'ingestione del calendario resta quella della 7b, non toccata da questa
+  fase.
+  **Rollback — un rischio NUOVO rispetto a ogni fase additiva precedente,
+  proprio per il cambio di tipo su `attendees`**: scendere di immagine sul
+  **worker** dopo la 0075 non è sicuro come nelle fasi puramente additive —
+  un worker precedente scrive ancora `attendees` come se fosse `text[]`
+  (email semplici), e quella colonna ora è `jsonb`: il suo upsert su
+  `calendar_events` (`apps/worker/src/google/poller.ts`) smette di produrre
+  la forma che la colonna si aspetta, e un binario ancora più vecchio che
+  la LEGGA (`apps/worker/src/google/calendar.ts`,
+  `apps/server/src/routes/me-calendar.ts`) riceve oggetti `{email,
+  responseStatus}` dove il suo codice si aspetta stringhe — non un crash
+  garantito, ma un uso scorretto del dato (routing calcolato su un valore
+  che non è più l'indirizzo email). Non è la stessa classe di rischio delle
+  fasi 2/5/6/6c (nessun 500 su `/api/inbox`), ma è comunque un motivo per
+  **non** scendere di immagine sul worker dopo questa fase senza accettare
+  che la sincronizzazione del calendario resti ferma o produca dati
+  scorretti finché non si torna avanti. Scendere di immagine sul **server**
+  resta sicuro per `/api/inbox` (nessun enum toccato) ma perde `/calendar`
+  e `/mail` nuove (rotte 404) — va sceso insieme al caddy, come sempre. La
+  colonna `html_link` e il campo `bodyHtml` (aggiunto a
+  `mailOriginalSchema`, `.nullable().default(null)`) sono invece
+  puramente additivi, nessun rischio.
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
@@ -1225,6 +1283,40 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   "non risulta", mai un'affermazione che Stubwise avrebbe potuto rendere
   vera. Chi in futuro collega un ambiente a un'azione che lo TOCCA (un
   trigger di deploy, un rollout) rompe questa frase, non solo il codice.
+- **Il corpo HTML di un'email non si conserva mai (fase 9).** A differenza
+  del corpo TESTO estratto al momento della classificazione (conservato,
+  `email_messages`), l'HTML originale non entra mai in una riga: la rotta
+  `GET /api/me/mail/:source/:id/original`
+  (`apps/server/src/routes/me-mail.ts`) lo rilegge da Gmail, lo sanifica con
+  `sanitizeEmailHtml` (allowlist di tag/attributi, mai denylist —
+  `packages/google/src/gmail.ts`) e lo restituisce **per quella sola
+  risposta**: nessun `UPDATE`/`INSERT` lo scrive da nessuna parte. Si rende
+  in un `<iframe sandbox>` (`apps/web/src/components/mail-reading-pane.tsx`)
+  **senza** `allow-scripts` né `allow-same-origin` — i due permessi che
+  farebbero uscire il documento dal suo recinto — con le immagini remote
+  neutralizzate di default (spostate in `data-src`, mai in `src`: sono il
+  vettore classico dei pixel di tracciamento) finché chi legge non chiede
+  esplicitamente di mostrarle. Chi tocca questa rotta non aggiunga una
+  colonna per "conservare l'HTML già sanificato, tanto è pulito": il punto
+  non è la sicurezza del testo salvato, è che un estratto persistito è
+  un'affermazione implicita "questo è ciò che Stubwise ha letto", e per
+  l'HTML — a differenza del testo usato dalla classificazione — non è vero:
+  nessun codice lo legge se non la persona che clicca «Leggi l'originale».
+- **Una serie senza occorrenze nella finestra visibile non è raggiungibile
+  dalla UI (fase 9, limite noto).** Dalla 7b la configurazione di una serie
+  ricorrente viveva in un elenco a sé, che la mostrava anche a zero
+  occorrenze future (il caso esatto delle 730 righe dell'incidente del 9
+  settembre 2026). Dalla fase 9 quella sezione non esiste più: la
+  configurazione si raggiunge SOLO dal pannello di dettaglio di
+  un'occorrenza vista nella griglia (design §3, deciso dal maintainer), e la
+  griglia guarda solo 30 giorni indietro e 60 avanti
+  (`CALENDAR_LOOKBACK_DAYS`/`CALENDAR_WINDOW_DAYS`). Una serie SPENTA la cui
+  ultima occorrenza è più vecchia di 30 giorni (o la cui prossima è oltre i
+  60) non ha più un punto d'accesso nella UI finché una sua occorrenza non
+  rientra in quella finestra. È un compromesso accettato in fase di design,
+  non un bug: se in futuro serve gestire una serie "spenta e fuori
+  finestra", va riletta la decisione del design §3, non aggiunta una
+  scorciatoia diretta sul database.
 
 ## Integrazione Claude Code (MCP)
 

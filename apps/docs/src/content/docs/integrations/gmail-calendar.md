@@ -184,8 +184,10 @@ apart.
 
 ## Reading your mail
 
-Every email row on your Mail page links to a **detail view**
-(`/mail/email/…`) with two, deliberately distinct, sources:
+The Mail page (`/mail`) is a three-column reading view: your filters and the
+message list on the left, the selected message's **detail** on the right —
+without leaving the list, the way an email client works. Every row shows two,
+deliberately distinct, sources:
 
 - **The extract**, shown immediately — no request to Google, so it works
   even if your mailbox's connection has expired or Google is unreachable
@@ -197,11 +199,36 @@ Every email row on your Mail page links to a **detail view**
 - **The original message**, fetched from Gmail only when you click **Read
   original on Gmail** — a real network request, made right then, not
   something pre-loaded. It's what gets you the full formatting, Cc list and
-  a list of attachment names that the extract doesn't carry (Stubwise
-  doesn't download or store attachment contents). Nothing from this reread
-  is saved anywhere; ask again and it asks Google again. A message deleted
-  on Gmail, an expired connection, or Google being briefly unreachable each
-  produce a distinct, readable error — the extract stays visible regardless.
+  a list of attachment names that the extract doesn't carry. Nothing from
+  this reread is saved anywhere; ask again and it asks Google again. A
+  message deleted on Gmail, an expired connection, or Google being briefly
+  unreachable each produce a distinct, readable error — the extract stays
+  visible regardless.
+
+When the original has an HTML body, it's rendered — formatting, tables,
+links — inside a sandboxed frame with a light background of its own,
+deliberately different from the rest of Stubwise: it's someone else's
+document, not a Stubwise page, the same way a PDF preview looks unlike the
+app around it. Two independent defenses apply every time, and neither is
+optional:
+
+- **The HTML is cleaned on an allowlist**, never a denylist: only a fixed set
+  of formatting tags and attributes survives — scripts, embedded objects,
+  forms, inline event handlers and `javascript:`/`data:` links are all
+  stripped outright, whatever the message contains. The frame that renders
+  what's left carries no permission to run scripts and no access to
+  Stubwise's own page — a hostile message can, at most, draw something ugly
+  inside its own box.
+- **Remote images stay off until you ask.** A sender who embeds a
+  single-pixel image can otherwise tell the moment you open a message
+  simply from the request it triggers — so no image loads until you click
+  **Show images** on that message; nothing is fetched, and nothing is
+  reported back to the sender, before you do. This is a per-message choice,
+  not a setting: reopening a different message with images starts blocked
+  again.
+
+Nothing from this reread — HTML included — is ever saved: it's cleaned and
+rendered fresh for that one response, never stored in Stubwise.
 
 Messages older than the retention window (see [Privacy](#privacy) below) are
 removed entirely, extract included: past that point there's nothing left to
@@ -209,15 +236,36 @@ show, on this page or on Gmail's own reread.
 
 ## The Calendar page
 
-The **Calendar** page (`/calendar`) is the calendar's equivalent of the Mail
-page — appointments Stubwise has seen, and, new here, the **recurring
-series** it has recognized among them.
+The **Calendar** page (`/calendar`) shows appointments Stubwise has seen as a
+real day/week/month grid, not a flat list — pick a view from the toolbar,
+jump to any date from the mini-calendar on the left, or use **Today** and the
+arrows next to it. Each connected mailbox gets its own shade of the same
+amber accent, so appointments from different calendars stay visually
+distinct without the page borrowing a color it doesn't otherwise use.
+
+The grid is **sparse by construction**: it only ever shows appointments that
+matched a project's routing rules (the same rules described
+[above](#for-a-project-maintainer)) — most of what's actually on your Google
+Calendar never enters Stubwise at all, on purpose, since only work-related
+events are worth tracking here. An empty day or week is normal, not a sign
+something is broken; the page says so directly and points to where those
+rules are configured, in case what you expected to see isn't there.
+
+Selecting any appointment opens its detail on the right: when it is, who's
+attending and whether each of them has accepted, declined or not answered
+yet, and a link to open it on Google Calendar. Stubwise never syncs *every*
+appointment on your calendar — only ones a routing rule matches — and it
+looks both **30 days back and 60 days ahead** from today, so a week you step
+back into isn't empty just because the window used to start at "now."
+
+### Recurring series
 
 A recurring meeting — the same invite, repeated weekly or daily — shares one
 series identifier across every occurrence. Stubwise tracks that identifier
 but, by design, **a series does nothing on its own**: every series starts
-**off**, and stays off, until you configure it here. Turning one on, later,
-means picking:
+**off**, and stays off, until you configure it. That configuration lives in
+the detail panel above — select any occurrence that belongs to a series, and
+a **Recurring series** section appears there, letting you pick:
 
 - **A project** — fixed once, when you turn the series on, not re-decided
   per occurrence. A weekly standup shouldn't land on a different project
@@ -243,11 +291,13 @@ occurrences already synced, will not flood your inbox: this one-at-a-time
 rule, together with the lead-time window above, is what a single recurring
 appointment can no longer do by accident.
 
-Occurrences further out than 60 days are simply not tracked yet — they
-appear once they enter that window, which keeps a series with a very long
-future from ever needing to be pruned. Past occurrences stay visible on this
-page (a series with a long history behind it just shows a longer list) but,
-same as a cancelled event, produce nothing new.
+Occurrences further out than 60 days ahead, or more than 30 days in the
+past, are simply not tracked — they appear once they enter that window,
+which keeps a series with a very long future (or a very long history) from
+ever needing to be pruned. A series with no occurrence currently in that
+90-day window isn't reachable from the grid until one of its occurrences is
+— there's no separate list of every series ever seen, unlike before this
+page became a grid.
 
 ## One email, several projects
 
