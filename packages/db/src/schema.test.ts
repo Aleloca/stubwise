@@ -1681,6 +1681,32 @@ describe("schema: project_environments", () => {
     ).rejects.toThrow();
   });
 
+  it("vieta un secondo ambiente kind='test' sullo stesso progetto, anche con nome diverso (review fix Task 3)", async () => {
+    const { projectId } = await seedRepository(db);
+    await db.insert(projectEnvironments).values({ projectId, name: "test", kind: "test" });
+
+    // Nome DIVERSO ("test-2"): l'unique su (project_id, name) non lo
+    // vieterebbe. È l'indice parziale su (project_id) WHERE kind = 'test' a
+    // doverlo bloccare — senza, `loadProjectEnvFiles` (che seleziona per
+    // kind, non per ambiente) fonderebbe i file di entrambi con un
+    // vincitore non deterministico.
+    await expect(
+      db.insert(projectEnvironments).values({ projectId, name: "test-2", kind: "test" }),
+    ).rejects.toThrow();
+  });
+
+  it("due ambienti 'test' su progetti diversi restano ammessi", async () => {
+    const { projectId: p1 } = await seedRepository(db);
+    const { projectId: p2 } = await seedRepository(db);
+    await db.insert(projectEnvironments).values({ projectId: p1, name: "test", kind: "test" });
+
+    const [env2] = await db
+      .insert(projectEnvironments)
+      .values({ projectId: p2, name: "test", kind: "test" })
+      .returning();
+    expect(env2?.projectId).toBe(p2);
+  });
+
   it("cancella in cascata gli ambienti quando il progetto viene eliminato", async () => {
     const { projectId } = await seedRepository(db);
     const environmentId = await seedEnvironment(db, projectId);

@@ -23,6 +23,13 @@ CREATE TABLE "project_environments" (
 ALTER TABLE "project_environments" ADD CONSTRAINT "project_environments_project_id_projects_id_fk" FOREIGN KEY ("project_id") REFERENCES "public"."projects"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "project_environments" ADD CONSTRAINT "project_environments_server_id_servers_id_fk" FOREIGN KEY ("server_id") REFERENCES "public"."servers"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 CREATE UNIQUE INDEX "project_environments_project_id_name_unique" ON "project_environments" USING btree ("project_id","name");--> statement-breakpoint
+-- Al più un ambiente `kind = 'test'` per progetto (review fix Task 3): senza
+-- questo, `loadProjectEnvFiles` (che seleziona per `kind`, non per ambiente)
+-- fonderebbe i file di due ambienti `test` omonimi con un vincitore non
+-- deterministico. Applicato QUI, prima del backfill sotto, perché il
+-- backfill stesso inserisce l'ambiente `test` di ogni progetto e deve
+-- rispettare il vincolo come qualunque altra scrittura.
+CREATE UNIQUE INDEX "project_environments_project_id_test_unique" ON "project_environments" USING btree ("project_id") WHERE "kind" = 'test';--> statement-breakpoint
 
 -- Backfill 1/2: un ambiente `test` per OGNI progetto esistente. Non
 -- opt-in — è la destinazione di ogni file d'ambiente già configurato, e un

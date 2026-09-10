@@ -1295,6 +1295,20 @@ export const projectEnvironments = pgTable(
     // Nome univoco per progetto (es. due "staging" nello stesso progetto non
     // avrebbero senso: quale dei due leggerebbe la pipeline?).
     uniqueIndex("project_environments_project_id_name_unique").on(table.projectId, table.name),
+    // Al più UN ambiente `kind = 'test'` per progetto (fase 8, review fix
+    // Task 3, trovato indipendentemente da due revisori su tre): l'unique
+    // sopra è su (project_id, name), quindi non impedisce {name: "test-2",
+    // kind: "test"}. `loadProjectEnvFiles` (apps/worker/src/pipeline/
+    // env-files.ts) seleziona i file per `kind = 'test'`, NON per un
+    // ambiente specifico — con due ambienti `test` i file di ENTRAMBI
+    // entrerebbero nello stesso worktree, e siccome l'unique dei file
+    // ammette lo stesso path in ambienti diversi (è "il caso normale", vedi
+    // il docblock di `projectEnvFiles`), due `.env` omonimi si fonderebbero
+    // con un vincitore NON deterministico. L'indice parziale rende
+    // l'unicità vera nello schema, non solo nella query di lettura.
+    uniqueIndex("project_environments_project_id_test_unique")
+      .on(table.projectId)
+      .where(sql`kind = 'test'`),
     check(
       "project_environments_kind_chk",
       sql`kind in ('test', 'staging', 'production')`,

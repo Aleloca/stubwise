@@ -235,6 +235,23 @@ describe("POST /api/projects/:projectId/environments", () => {
     expect(again.statusCode).toBe(409);
   });
 
+  it("un secondo ambiente kind='test', anche con nome diverso: 409 test_environment_exists — non 'nome già in uso' (review fix Task 3)", async () => {
+    // Progetto isolato: gli altri test di questo blocco condividono
+    // `projectId` e un kind='test' lì resterebbe per il resto del file.
+    const { projectId: freshProjectId } = await seedRepository(testDb.db);
+    const first = await createEnvironment({ name: "test", kind: "test" }, adminCookie, freshProjectId);
+    expect(first.statusCode).toBe(201);
+
+    // Nome DIVERSO: l'unique su (project_id, name) non lo vieterebbe da solo.
+    const second = await createEnvironment(
+      { name: "test-secondario", kind: "test" },
+      adminCookie,
+      freshProjectId,
+    );
+    expect(second.statusCode).toBe(409);
+    expect(second.json()).toMatchObject({ code: "test_environment_exists" });
+  });
+
   it("kind fuori enum: 400 (validazione Zod)", async () => {
     const res = await createEnvironment({ name: "canary", kind: "canary" });
     expect(res.statusCode).toBe(400);

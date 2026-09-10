@@ -13,7 +13,7 @@ import { z } from "zod";
 import { requireAdmin, requireAuth } from "../auth/session.js";
 import { apiError } from "../errors.js";
 import { loadLatestServicesByServer } from "../services/server-samples.js";
-import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
+import { authErrorResponses, errorSchema, isUniqueViolation, uniqueViolationConstraint } from "./shared.js";
 
 const projectParamsSchema = z.object({ projectId: z.uuid() });
 const environmentParamsSchema = z.object({ projectId: z.uuid(), environmentId: z.uuid() });
@@ -144,6 +144,22 @@ export async function projectEnvironmentRoutes(instance: FastifyInstance): Promi
         if (!created) throw new Error("insert dell'ambiente non ha restituito la riga");
         return await reply.code(201).send(toPublic(created));
       } catch (error) {
+        // Due vincoli unique distinti su questa tabella (fase 8, review fix
+        // Task 3): il nome per progetto, e — solo per kind='test' — al più
+        // UN ambiente di quel kind per progetto. Un client che manda un
+        // nome nuovo ma kind='test' su un progetto che ce l'ha già
+        // riceverebbe "nome già in uso" dal ramo generico sotto, che è
+        // semplicemente falso: distinguere per nome del vincolo dà il
+        // messaggio giusto invece di lasciare che una violazione di indice
+        // emerga con un errore che mente sulla causa.
+        if (uniqueViolationConstraint(error) === "project_environments_project_id_test_unique") {
+          return apiError(
+            reply,
+            409,
+            "test_environment_exists",
+            "This project already has a test environment — only one is allowed",
+          );
+        }
         if (isUniqueViolation(error)) {
           return apiError(
             reply,
