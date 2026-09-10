@@ -1,8 +1,15 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join, resolve, sep } from "node:path";
-import { decrypt, projectEnvFiles, projectEnvVars, type Db } from "@stubwise/db";
+import {
+  decrypt,
+  projectEnvFiles,
+  projectEnvVars,
+  projectEnvironments,
+  repositories,
+  type Db,
+} from "@stubwise/db";
 import { isSafeRelPath, serializeDotenv } from "@stubwise/shared";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 
 /**
  * File d'ambiente di un repository già caricato e DECIFRATO, pronto per essere
@@ -20,6 +27,22 @@ export interface LoadedEnvFile {
  * decifrando ciascun valore. I file sono ordinati per `path` (deterministico:
  * stabilisce la precedenza last-wins in materializeEnvFiles).
  *
+ * **L'invariante della fase 8**: `environment` è tipato sul solo letterale
+ * `"test"` — nessun chiamante scritto a mano può passare altro senza un cast
+ * esplicito — e la funzione lo riverifica A RUNTIME, lanciando su qualunque
+ * altro valore. Non è ridondante: il safeguard anti-leak esistente
+ * (`fix.ts`, l'esclusione dei file d'ambiente da ogni `git add`) protegge dal
+ * COMMIT di una variabile, non dal resto — il giorno in cui una variabile di
+ * `staging`/`production` entra in un worktree, è già entrata in un log, in un
+ * prompt dell'agente o nell'ambiente di un sottoprocesso. Le variabili di
+ * `staging`/`production` esistono in Stubwise perché una persona le legga e le
+ * confronti, mai perché la pipeline le usi.
+ *
+ * Risolve l'ambiente `test` del PROGETTO del repository (non del repository
+ * stesso: gli ambienti sono di progetto) e carica solo i file collegati a
+ * quello — un repository con file su `staging`/`production` (creati dalla
+ * sezione ambienti, Task 3) non li vede mai qui.
+ *
  * Robustezza (best-effort, come loadProviderChain): una variabile il cui valore
  * non si decifra (ENCRYPTION_KEY errata o payload manomesso) viene SCARTATA con
  * un warning — NON blocca le altre né il caricamento del file. Il warning nomina
@@ -29,11 +52,29 @@ export async function loadProjectEnvFiles(
   db: Db,
   repositoryId: string,
   encryptionKey: Buffer,
+  environment: "test",
 ): Promise<LoadedEnvFile[]> {
+  if (environment !== "test") {
+    throw new Error(
+      `loadProjectEnvFiles: ambiente '${String(environment)}' non ammesso in un worktree — solo 'test' può essere materializzato dalla pipeline di fix`,
+    );
+  }
+
   const fileRows = await db
     .select({ id: projectEnvFiles.id, path: projectEnvFiles.path })
     .from(projectEnvFiles)
-    .where(eq(projectEnvFiles.repositoryId, repositoryId))
+    .innerJoin(projectEnvironments, eq(projectEnvFiles.environmentId, projectEnvironments.id))
+    .innerJoin(repositories, eq(projectEnvFiles.repositoryId, repositories.id))
+    .where(
+      and(
+        eq(projectEnvFiles.repositoryId, repositoryId),
+        eq(projectEnvironments.kind, "test"),
+        // Difensivo: l'ambiente deve appartenere allo STESSO progetto del
+        // repository. Vero per costruzione se la scrittura (Task 3) rispetta
+        // l'invariante, ma questo loader non se lo assume.
+        eq(projectEnvironments.projectId, repositories.projectId),
+      ),
+    )
     .orderBy(asc(projectEnvFiles.path));
 
   const result: LoadedEnvFile[] = [];

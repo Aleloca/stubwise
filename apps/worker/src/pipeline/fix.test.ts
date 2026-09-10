@@ -2477,10 +2477,11 @@ describe("runFix — file d'ambiente per progetto (Task 5 wiring)", () => {
       order.push("install");
       return { exitCode: 0, output: "ok" };
     });
+    const loadEnvFilesFn = vi.fn(async () => []);
 
     const outcome = await runFix(
       makeDeps(fixture, runner, provider, {
-        loadEnvFilesFn: async () => [],
+        loadEnvFilesFn,
         materializeEnvFilesFn,
         resolveInstallCommandFn: async () => INSTALL_CMD,
         runInstallCommand,
@@ -2492,6 +2493,13 @@ describe("runFix — file d'ambiente per progetto (Task 5 wiring)", () => {
     expect(materializeEnvFilesFn).toHaveBeenCalledTimes(1);
     expect(order[0]).toBe("env");
     expect(order.indexOf("env")).toBeLessThan(order.indexOf("install"));
+    // Fase 8: la pipeline chiede SEMPRE l'ambiente "test", mai altro.
+    expect(loadEnvFilesFn).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.any(String),
+      expect.anything(),
+      "test",
+    );
     expect(order.indexOf("install")).toBeLessThan(order.indexOf("agent"));
   });
 

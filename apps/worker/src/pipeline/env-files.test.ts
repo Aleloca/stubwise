@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { encrypt, projectEnvFiles, projectEnvVars } from "@stubwise/db";
-import { startTestDb, seedRepository, type TestDb } from "@stubwise/db/testing";
+import { startTestDb, seedEnvironment, seedRepository, type TestDb } from "@stubwise/db/testing";
 import { parseDotenv } from "@stubwise/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
@@ -26,19 +26,21 @@ afterAll(async () => {
   await t?.stop();
 });
 
-async function seedRepositoryRow(): Promise<string> {
-  const { repositoryId } = await seedRepository(t.db);
-  return repositoryId;
+async function seedRepositoryRow(): Promise<{ repositoryId: string; environmentId: string }> {
+  const { projectId, repositoryId } = await seedRepository(t.db);
+  const environmentId = await seedEnvironment(t.db, projectId);
+  return { repositoryId, environmentId };
 }
 
 async function seedFile(
   repositoryId: string,
+  environmentId: string,
   path: string,
   vars: { key: string; valueEncrypted: string }[],
 ): Promise<void> {
   const [file] = await t.db
     .insert(projectEnvFiles)
-    .values({ repositoryId, path })
+    .values({ repositoryId, environmentId, path })
     .returning();
   if (!file) throw new Error("insert del file env di test non ha restituito la riga");
   if (vars.length > 0) {
@@ -50,16 +52,16 @@ async function seedFile(
 
 describe("loadProjectEnvFiles", () => {
   it("decifra correttamente le variabili di tutti i file, ordinati per path", async () => {
-    const repositoryId = await seedRepositoryRow();
-    await seedFile(repositoryId, "apps/web/.env", [
+    const { repositoryId, environmentId } = await seedRepositoryRow();
+    await seedFile(repositoryId, environmentId, "apps/web/.env", [
       { key: "API_URL", valueEncrypted: encrypt("https://api.example.com", KEY) },
     ]);
-    await seedFile(repositoryId, ".env", [
+    await seedFile(repositoryId, environmentId, ".env", [
       { key: "DATABASE_URL", valueEncrypted: encrypt("postgres://x", KEY) },
       { key: "SECRET", valueEncrypted: encrypt("s3cr3t", KEY) },
     ]);
 
-    const loaded = await loadProjectEnvFiles(t.db, repositoryId, KEY);
+    const loaded = await loadProjectEnvFiles(t.db, repositoryId, KEY, "test");
 
     // Ordinati per path: ".env" prima di "apps/web/.env".
     expect(loaded.map((f) => f.path)).toEqual([".env", "apps/web/.env"]);
@@ -71,15 +73,15 @@ describe("loadProjectEnvFiles", () => {
   });
 
   it("salta una var non decifrabile e tiene le altre, senza lanciare", async () => {
-    const repositoryId = await seedRepositoryRow();
-    await seedFile(repositoryId, ".env", [
+    const { repositoryId, environmentId } = await seedRepositoryRow();
+    await seedFile(repositoryId, environmentId, ".env", [
       { key: "OK", valueEncrypted: encrypt("buono", KEY) },
       // Cifrata con un'altra chiave: la decifratura con KEY fallisce.
       { key: "BAD", valueEncrypted: encrypt("cattivo", OTHER_KEY) },
       { key: "OK2", valueEncrypted: encrypt("buono2", KEY) },
     ]);
 
-    const loaded = await loadProjectEnvFiles(t.db, repositoryId, KEY);
+    const loaded = await loadProjectEnvFiles(t.db, repositoryId, KEY, "test");
 
     expect(loaded).toHaveLength(1);
     expect(loaded[0]?.vars).toEqual([
@@ -89,9 +91,36 @@ describe("loadProjectEnvFiles", () => {
   });
 
   it("ritorna [] per un progetto senza file env", async () => {
-    const repositoryId = await seedRepositoryRow();
-    const loaded = await loadProjectEnvFiles(t.db, repositoryId, KEY);
+    const { repositoryId } = await seedRepositoryRow();
+    const loaded = await loadProjectEnvFiles(t.db, repositoryId, KEY, "test");
     expect(loaded).toEqual([]);
+  });
+
+  it("ignora i file di un ambiente DIVERSO da test (staging/production non entrano mai in un worktree)", async () => {
+    const { projectId, repositoryId } = await seedRepository(t.db);
+    const stagingId = await seedEnvironment(t.db, projectId, { name: "staging", kind: "staging" });
+    const testId = await seedEnvironment(t.db, projectId, { name: "test", kind: "test" });
+    await seedFile(repositoryId, stagingId, ".env", [
+      { key: "PROD_SECRET", valueEncrypted: encrypt("non-deve-uscire", KEY) },
+    ]);
+    await seedFile(repositoryId, testId, ".env", [
+      { key: "TEST_VAR", valueEncrypted: encrypt("ok", KEY) },
+    ]);
+
+    const loaded = await loadProjectEnvFiles(t.db, repositoryId, KEY, "test");
+
+    expect(loaded).toHaveLength(1);
+    expect(loaded[0]?.vars).toEqual([{ key: "TEST_VAR", value: "ok" }]);
+  });
+
+  it("L'INVARIANTE della fase 8: chiedere staging o production fallisce (cast esplicito, come dovrebbe farlo solo codice scorretto)", async () => {
+    const { repositoryId } = await seedRepositoryRow();
+    await expect(
+      loadProjectEnvFiles(t.db, repositoryId, KEY, "staging" as "test"),
+    ).rejects.toThrow(/ambiente 'staging' non ammesso/);
+    await expect(
+      loadProjectEnvFiles(t.db, repositoryId, KEY, "production" as "test"),
+    ).rejects.toThrow(/ambiente 'production' non ammesso/);
   });
 });
 

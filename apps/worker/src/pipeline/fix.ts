@@ -304,11 +304,14 @@ export interface FixDeps extends NotifyDeps {
   /** Timeout dell'install delle dipendenze (default 600000 = 10'). */
   installTimeoutMs?: number;
   /** Carica i file d'ambiente del repository decifrati (iniettabile nei test).
-   * Default: loadProjectEnvFiles da ./env-files.js. */
+   * Default: loadProjectEnvFiles da ./env-files.js. `environment` è fisso su
+   * "test": la pipeline di fix non materializza MAI staging/produzione
+   * (l'invariante della fase 8, vedi il docblock di loadProjectEnvFiles). */
   loadEnvFilesFn?: (
     db: Db,
     repositoryId: string,
     encryptionKey: Buffer,
+    environment: "test",
   ) => Promise<LoadedEnvFile[]>;
   /** Materializza i file d'ambiente nel worktree e costruisce la mappa env
    * (iniettabile nei test). Default: materializeEnvFiles da ./env-files.js. */
@@ -1435,6 +1438,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
                   db,
                   state.prepared.repositoryId,
                   deps.encryptionKey,
+                  "test",
                 );
                 const { writtenPaths, env } = await materializeEnvFilesFn(state.dir, files);
                 state.envProcessEnv = env;
