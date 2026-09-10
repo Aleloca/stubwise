@@ -100,6 +100,32 @@ describe("ProjectEnvironmentsSection — lista", () => {
     );
   });
 
+  it("fase 8, Task 4: mostra immagine e commit quando l'agente li riporta", async () => {
+    mockApi(
+      baseHandlers([
+        makeEnvironment({
+          id: STAGING_ENV_ID,
+          name: "staging",
+          kind: "staging",
+          serverId: "ssssssss-ssss-4sss-8sss-ssssssssssss",
+          runningImage: "acme/web:2.0.0",
+          runningCommitSha: "def5678",
+        }),
+      ]),
+    );
+    renderSection();
+
+    expect(await screen.findByText("acme/web:2.0.0 @ def5678")).toBeInTheDocument();
+  });
+
+  it("nessuna versione riportata: nessuna riga in più, nessun errore", async () => {
+    mockApi(baseHandlers());
+    renderSection();
+
+    await screen.findByText("test");
+    expect(screen.queryByText(/@/)).not.toBeInTheDocument();
+  });
+
   it("l'ambiente test è marcato non cancellabile, staging no", async () => {
     mockApi(
       baseHandlers([

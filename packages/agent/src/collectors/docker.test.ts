@@ -84,6 +84,10 @@ describe("collectDockerServices", () => {
     expect(srv!.cpuPct).toBeCloseTo(40, 6);
     // mem = usage 1073741824 - inactive_file 73741824 = 1000000000
     expect(srv!.memBytes).toBe(1000000000);
+    // Fase 8, Task 4: Image + la label OCI di revisione, dalla stessa risposta
+    // già letta — nessuna chiamata in più.
+    expect(srv!.image).toBe("acme/stubwise-server:1.4.2");
+    expect(srv!.commitSha).toBe("abc1234");
 
     // Second container: stats endpoint 500 → present but null metrics.
     const worker = services.find((s) => s.name === "stubwise-worker");
@@ -91,6 +95,32 @@ describe("collectDockerServices", () => {
     expect(worker!.cpuPct).toBeNull();
     expect(worker!.memBytes).toBeNull();
     expect(worker!.state).toBe("running");
+    // Nessun Image/Labels nel fixture di questo container: entrambi assenti,
+    // non un errore né un valore fasullo.
+    expect(worker!.image).toBeUndefined();
+    expect(worker!.commitSha).toBeUndefined();
+  });
+
+  it("un container con Labels ma SENZA la label OCI di revisione: image presente, commitSha assente", async () => {
+    const fake = startFakeDocker(
+      JSON.stringify([
+        {
+          Id: "dddd4444",
+          Names: ["/no-revision-label"],
+          State: "running",
+          Image: "acme/other:latest",
+          Labels: { "com.docker.compose.project": "stubwise" },
+        },
+      ]),
+    );
+    cleanup = fake.close;
+    await fake.ready;
+
+    const services = await collectDockerServices({ socketPath: fake.socketPath });
+
+    expect(services).toHaveLength(1);
+    expect(services[0]!.image).toBe("acme/other:latest");
+    expect(services[0]!.commitSha).toBeUndefined();
   });
 
   it("truncates names longer than the 200-char ingest contract", async () => {

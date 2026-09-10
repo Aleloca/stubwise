@@ -1512,7 +1512,9 @@
       "creatingEnvironment": "Creazione…",
       "deleteEnvironment": "Elimina",
       "testEnvironmentProtected": "L'ambiente test non è cancellabile: è l'unico che la pipeline di fix può leggere.",
-      "environmentsTitle": "Ambienti"
+      "environmentsTitle": "Ambienti",
+      "environmentRunningVersion": "{{image}} @ {{commit}}",
+      "environmentRunningVersionHint": "Riportato dall'agente di monitoraggio sul server collegato — combacia con un servizio dello stesso nome di questo ambiente"
     },
     "form": {
       "name": "Nome",

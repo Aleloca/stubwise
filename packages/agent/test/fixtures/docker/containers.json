@@ -2,7 +2,12 @@
   {
     "Id": "aaaa1111",
     "Names": ["/stubwise-server"],
-    "State": "running"
+    "State": "running",
+    "Image": "acme/stubwise-server:1.4.2",
+    "Labels": {
+      "org.opencontainers.image.revision": "abc1234",
+      "com.docker.compose.project": "stubwise"
+    }
   },
   {
     "Id": "bbbb2222",

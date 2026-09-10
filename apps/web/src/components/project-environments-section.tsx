@@ -258,6 +258,19 @@ function EnvironmentRow({
             {t("projects:detail.environmentRunningOn", { server: serverName })}
           </span>
         )}
+        {environment.runningImage && (
+          <span
+            className="font-mono text-[11px] text-fg-faint"
+            title={t("projects:detail.environmentRunningVersionHint")}
+          >
+            {environment.runningCommitSha
+              ? t("projects:detail.environmentRunningVersion", {
+                  image: environment.runningImage,
+                  commit: environment.runningCommitSha,
+                })
+              : environment.runningImage}
+          </span>
+        )}
         {isAdmin && (
           <div className="ml-auto flex flex-wrap items-center gap-2">
             {!editing && !confirmingDelete && (

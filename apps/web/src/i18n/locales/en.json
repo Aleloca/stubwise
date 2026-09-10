@@ -1512,7 +1512,9 @@
       "creatingEnvironment": "Creating…",
       "deleteEnvironment": "Delete",
       "testEnvironmentProtected": "The test environment cannot be deleted — it is the only one the fix pipeline can read.",
-      "environmentsTitle": "Environments"
+      "environmentsTitle": "Environments",
+      "environmentRunningVersion": "{{image}} @ {{commit}}",
+      "environmentRunningVersionHint": "Reported by the monitoring agent on the connected server — matched by a service with the same name as this environment"
     },
     "form": {
       "name": "Name",

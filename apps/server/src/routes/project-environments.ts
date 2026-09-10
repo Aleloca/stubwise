@@ -1,11 +1,12 @@
-import { projectEnvironments, projects, servers } from "@stubwise/db";
+import { projectEnvironments, projects, serverMetrics, servers, type Db } from "@stubwise/db";
 import {
   createEnvironmentSchema,
   patchEnvironmentSchema,
   projectEnvironmentSchema,
+  type DiscoveredService,
   type ProjectEnvironment,
 } from "@stubwise/shared";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -18,7 +19,42 @@ const environmentParamsSchema = z.object({ projectId: z.uuid(), environmentId: z
 
 type EnvironmentRow = typeof projectEnvironments.$inferSelect;
 
-function toPublic(row: EnvironmentRow): ProjectEnvironment {
+/**
+ * Servizi scoperti dall'ULTIMO campione di ciascun server, uno solo per
+ * `serverId` (query batch, niente N+1): il DISTINCT ON tiene la prima riga
+ * per server nell'ordine dato — `serverId`, `ts desc` — cioè l'ultima.
+ */
+async function loadLatestServicesByServer(
+  db: Db,
+  serverIds: string[],
+): Promise<Map<string, DiscoveredService[]>> {
+  if (serverIds.length === 0) return new Map();
+  const rows = await db
+    .selectDistinctOn([serverMetrics.serverId], {
+      serverId: serverMetrics.serverId,
+      services: serverMetrics.services,
+    })
+    .from(serverMetrics)
+    .where(inArray(serverMetrics.serverId, serverIds))
+    .orderBy(serverMetrics.serverId, desc(serverMetrics.ts));
+  return new Map(rows.map((r) => [r.serverId, r.services]));
+}
+
+/**
+ * Un ambiente collegato a un server sa dire cosa gira lì SOLO per
+ * convenzione: il servizio (container Docker/processo PM2) con lo STESSO
+ * nome dell'ambiente. Non è un accoppiamento che Stubwise impone — è il
+ * pattern naturale di chi chiama il proprio servizio "staging"/"production"
+ * come l'ambiente in cui gira; senza quel match, i due campi restano assenti
+ * (mai un errore, mai un dato indovinato).
+ */
+function toPublic(
+  row: EnvironmentRow,
+  servicesByServer: Map<string, DiscoveredService[]> = new Map(),
+): ProjectEnvironment {
+  const running = row.serverId
+    ? servicesByServer.get(row.serverId)?.find((s) => s.name === row.name)
+    : undefined;
   return {
     id: row.id,
     projectId: row.projectId,
@@ -28,9 +64,8 @@ function toPublic(row: EnvironmentRow): ProjectEnvironment {
     serverId: row.serverId,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
-    // Task 4 collega qui il campione dell'agente (immagine/commit del server
-    // collegato); finché non è cablato, i due campi restano assenti — sono
-    // `.optional()` proprio per questo, non un errore di lettura.
+    ...(running?.image !== undefined ? { runningImage: running.image } : {}),
+    ...(running?.commitSha !== undefined ? { runningCommitSha: running.commitSha } : {}),
   };
 }
 
@@ -89,7 +124,10 @@ export async function projectEnvironmentRoutes(instance: FastifyInstance): Promi
         .from(projectEnvironments)
         .where(eq(projectEnvironments.projectId, projectId))
         .orderBy(asc(projectEnvironments.name));
-      return rows.map(toPublic);
+
+      const serverIds = [...new Set(rows.flatMap((r) => (r.serverId ? [r.serverId] : [])))];
+      const servicesByServer = await loadLatestServicesByServer(app.db, serverIds);
+      return rows.map((row) => toPublic(row, servicesByServer));
     },
   );
 

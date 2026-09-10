@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
-import { projectEnvironments, servers } from "@stubwise/db";
+import { projectEnvironments, serverMetrics, servers } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedEnvironment, seedRepository, startTestDb } from "@stubwise/db/testing";
 import { seedUsers } from "../test/fixtures.js";
@@ -85,6 +85,112 @@ describe("GET /api/projects/:projectId/environments", () => {
       headers: { cookie: adminCookie },
     });
     expect(res.statusCode).toBe(404);
+  });
+});
+
+describe("GET /api/projects/:projectId/environments — cosa gira (fase 8, Task 4)", () => {
+  it("ambiente collegato a un server con un servizio OMONIMO: runningImage/runningCommitSha valorizzati", async () => {
+    const [server] = await testDb.db
+      .insert(servers)
+      .values({ name: "vps-running", keyHash: `hash-${crypto.randomUUID()}` })
+      .returning();
+    const created = await createEnvironment({ name: "staging-running", kind: "staging", serverId: server!.id });
+    const environmentId = (created.json() as { id: string }).id;
+
+    await testDb.db.insert(serverMetrics).values({
+      serverId: server!.id,
+      ts: new Date(),
+      cpuPct: 1,
+      load1m: 0.1,
+      memUsedBytes: 1000,
+      memTotalBytes: 2000,
+      swapUsedBytes: 0,
+      diskUsedBytes: 1000,
+      diskTotalBytes: 2000,
+      netRxBytes: 0,
+      netTxBytes: 0,
+      services: [
+        {
+          source: "docker",
+          // STESSO nome dell'ambiente: è la convenzione di matching.
+          name: "staging-running",
+          state: "running",
+          cpuPct: 1,
+          memBytes: 1000,
+          restarts: null,
+          image: "acme/web:2.0.0",
+          commitSha: "def5678",
+        },
+        {
+          source: "docker",
+          name: "un-altro-servizio",
+          state: "running",
+          cpuPct: 1,
+          memBytes: 1000,
+          restarts: null,
+          image: "acme/other:1.0.0",
+        },
+      ],
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/environments`,
+      headers: { cookie: adminCookie },
+    });
+    const found = (res.json() as { id: string; runningImage?: string; runningCommitSha?: string }[]).find(
+      (e) => e.id === environmentId,
+    );
+    expect(found).toMatchObject({ runningImage: "acme/web:2.0.0", runningCommitSha: "def5678" });
+  });
+
+  it("nessun servizio con quel nome sul server: i campi restano ASSENTI, non un errore", async () => {
+    const [server] = await testDb.db
+      .insert(servers)
+      .values({ name: "vps-no-match", keyHash: `hash-${crypto.randomUUID()}` })
+      .returning();
+    const created = await createEnvironment({ name: "prod-no-match", kind: "production", serverId: server!.id });
+    const environmentId = (created.json() as { id: string }).id;
+
+    await testDb.db.insert(serverMetrics).values({
+      serverId: server!.id,
+      ts: new Date(),
+      cpuPct: 1,
+      load1m: 0.1,
+      memUsedBytes: 1000,
+      memTotalBytes: 2000,
+      swapUsedBytes: 0,
+      diskUsedBytes: 1000,
+      diskTotalBytes: 2000,
+      netRxBytes: 0,
+      netTxBytes: 0,
+      services: [{ source: "docker", name: "nome-diverso", state: "running", cpuPct: 1, memBytes: 1000, restarts: null }],
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/environments`,
+      headers: { cookie: adminCookie },
+    });
+    const found = (res.json() as { id: string; runningImage?: string; runningCommitSha?: string }[]).find(
+      (e) => e.id === environmentId,
+    );
+    expect(found).toBeDefined();
+    expect(found).not.toHaveProperty("runningImage");
+    expect(found).not.toHaveProperty("runningCommitSha");
+  });
+
+  it("nessun server collegato: i campi restano ASSENTI (nessuna query di servizio nemmeno tentata)", async () => {
+    const created = await createEnvironment({ name: "staging-no-server", kind: "staging" });
+    const environmentId = (created.json() as { id: string }).id;
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/environments`,
+      headers: { cookie: adminCookie },
+    });
+    const found = (res.json() as { id: string; runningImage?: string }[]).find((e) => e.id === environmentId);
+    expect(found?.runningImage).toBeUndefined();
   });
 });
 
