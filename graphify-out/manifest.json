@@ -520,9 +520,9 @@
     "semantic_hash": "a7d24797b58149251b482133daff89e5"
   },
   "apps/server/src/routes/shared.ts": {
-    "mtime": 1789032507.4865131,
-    "ast_hash": "b722c595bdd67145c85144773c52a953",
-    "semantic_hash": "b722c595bdd67145c85144773c52a953"
+    "mtime": 1789041888.625081,
+    "ast_hash": "eb666375025d5b6cb65712309151558f",
+    "semantic_hash": ""
   },
   "apps/server/src/routes/tickets.test.ts": {
     "mtime": 1789032507.4875429,
@@ -1210,13 +1210,13 @@
     "semantic_hash": ""
   },
   "apps/web/src/i18n/locales/en.json": {
-    "mtime": 1789037333.7238095,
-    "ast_hash": "1c0846d2454d08b925690620b5e11117",
+    "mtime": 1789042517.2528906,
+    "ast_hash": "2fc242a533b8940933b112b810bfde22",
     "semantic_hash": ""
   },
   "apps/web/src/i18n/locales/it.json": {
-    "mtime": 1789037333.7268977,
-    "ast_hash": "024977d0c2b4ebedc0eda09927e92067",
+    "mtime": 1789042517.257974,
+    "ast_hash": "b21ebbce6fbe939f37d11c1a07a4a451",
     "semantic_hash": ""
   },
   "apps/web/src/i18n/parity.test.ts": {
@@ -3155,13 +3155,13 @@
     "semantic_hash": "7090b8aa1bd10ebf4374a406fb727619"
   },
   "packages/db/src/schema.test.ts": {
-    "mtime": 1789034954.2290878,
-    "ast_hash": "9fdfbd49d19b37916900ef0a61a411e6",
+    "mtime": 1789041732.6152792,
+    "ast_hash": "010ed856f4ad0a17a6761487bb81a6de",
     "semantic_hash": ""
   },
   "packages/db/src/schema.ts": {
-    "mtime": 1789035586.432863,
-    "ast_hash": "90e12f48818b85086fc8378ed38e553c",
+    "mtime": 1789041690.441632,
+    "ast_hash": "11338f8ac945660956d7a31cdc9e286a",
     "semantic_hash": ""
   },
   "packages/db/src/secrets.test.ts": {
@@ -3375,23 +3375,23 @@
     "semantic_hash": "d7a00169042b74d265e0ec1bae7b8940"
   },
   "packages/git/src/bitbucket.test.ts": {
-    "mtime": 1789036221.6854594,
-    "ast_hash": "ecd29c360271a99ab3ba750bb5a37c25",
+    "mtime": 1789042088.4542232,
+    "ast_hash": "45701dba20e3a85847591634067502c0",
     "semantic_hash": ""
   },
   "packages/git/src/bitbucket.ts": {
-    "mtime": 1789036127.5099628,
-    "ast_hash": "30dd15a71e9586279fb2658a280135e0",
+    "mtime": 1789042078.2535806,
+    "ast_hash": "b3ee40550b1ca7e9a8ecad5e51f944ef",
     "semantic_hash": ""
   },
   "packages/git/src/github.test.ts": {
-    "mtime": 1789036205.2730238,
-    "ast_hash": "c8389f3ae7626c39136fce8becc5a040",
+    "mtime": 1789042067.4759755,
+    "ast_hash": "810ee33efe3b8037cbf1cee2bb23df54",
     "semantic_hash": ""
   },
   "packages/git/src/github.ts": {
-    "mtime": 1789036085.7549932,
-    "ast_hash": "752080ba2ef217364901fd314b42205b",
+    "mtime": 1789042054.7546856,
+    "ast_hash": "4ae279ce81ef51a015e68743a329979f",
     "semantic_hash": ""
   },
   "packages/git/src/index.ts": {
@@ -3405,8 +3405,8 @@
     "semantic_hash": ""
   },
   "packages/git/src/provider.ts": {
-    "mtime": 1789036417.9681098,
-    "ast_hash": "c23e5aa10fb7bfe3ad214a5ceaaaa441",
+    "mtime": 1789042044.2301898,
+    "ast_hash": "0c3142a896096726de4c5620e5f4cea5",
     "semantic_hash": ""
   },
   "packages/i18n/package.json": {
@@ -7295,28 +7295,28 @@
     "semantic_hash": ""
   },
   "apps/server/src/routes/project-environments.test.ts": {
-    "mtime": 1789034667.1837122,
-    "ast_hash": "bab9b54d3e8983c714635d5b4065027b",
+    "mtime": 1789041858.872883,
+    "ast_hash": "fa7b19b8c5b0790ef927a888cd83f000",
     "semantic_hash": ""
   },
   "apps/server/src/routes/project-environments.ts": {
-    "mtime": 1789036605.7129045,
-    "ast_hash": "da7eae7349d40abe8f78613f65078a36",
+    "mtime": 1789041822.600082,
+    "ast_hash": "c67e58f888330df1c83d406769146cf3",
     "semantic_hash": ""
   },
   "apps/server/src/routes/release.test.ts": {
-    "mtime": 1789036968.1733334,
-    "ast_hash": "f6a51186f60e1a2a68b314f34e03dee5",
+    "mtime": 1789042403.9234312,
+    "ast_hash": "38ea812b240a945143da98015989fa77",
     "semantic_hash": ""
   },
   "apps/server/src/routes/release.ts": {
-    "mtime": 1789036753.7843115,
-    "ast_hash": "a195eac6cf34b999fa2ef70a51b81ed4",
+    "mtime": 1789042453.7738087,
+    "ast_hash": "8f57a0f5c9e4fc326795b3252131def8",
     "semantic_hash": ""
   },
   "apps/server/src/services/release.ts": {
-    "mtime": 1789036675.2709467,
-    "ast_hash": "29ac06837de974c661cfc9c8ceebeefa",
+    "mtime": 1789042683.759703,
+    "ast_hash": "02985d2daedf6bec55917f1f566be670",
     "semantic_hash": ""
   },
   "apps/server/src/services/server-samples.ts": {
@@ -7335,13 +7335,13 @@
     "semantic_hash": ""
   },
   "apps/web/src/routes/release.test.tsx": {
-    "mtime": 1789037410.6036975,
-    "ast_hash": "cac3855955cd53dc40f657470e268729",
+    "mtime": 1789042588.3685427,
+    "ast_hash": "87cc77f436c2c24c8bcca9c738735be7",
     "semantic_hash": ""
   },
   "apps/web/src/routes/release.tsx": {
-    "mtime": 1789037261.3489788,
-    "ast_hash": "fbe2b892430d064014ed79505420c8bd",
+    "mtime": 1789042505.3094513,
+    "ast_hash": "105cc2b07892fe9ea88b26d640a41723",
     "semantic_hash": ""
   },
   "apps/worker/src/pipeline/release-risk.test.ts": {
@@ -7355,8 +7355,8 @@
     "semantic_hash": ""
   },
   "packages/db/drizzle/0074_project_environments.sql": {
-    "mtime": 1789035592.5900838,
-    "ast_hash": "eaa0d64fde4bc9480156dcf87bf327ca",
+    "mtime": 1789041700.5078623,
+    "ast_hash": "6b0fe0babf5122c6d23de4ba5a24572d",
     "semantic_hash": ""
   },
   "packages/db/src/migration-0074.test.ts": {
@@ -7375,13 +7375,13 @@
     "semantic_hash": ""
   },
   "packages/shared/src/schemas/release.test.ts": {
-    "mtime": 1789036496.9633992,
-    "ast_hash": "cea0911238f13b237de8d05602e5f864",
+    "mtime": 1789042030.4037998,
+    "ast_hash": "a56254af441c927d566e67ccf7cca3f5",
     "semantic_hash": ""
   },
   "packages/shared/src/schemas/release.ts": {
-    "mtime": 1789036481.5184724,
-    "ast_hash": "e1d0c749330bf503758d0039ac9b519b",
+    "mtime": 1789042011.0498757,
+    "ast_hash": "c5e60d4ae86d8293eec70cd41a0e234c",
     "semantic_hash": ""
   },
   "apps/docs/src/content/docs/team/release-queue.md": {
@@ -7402,6 +7402,11 @@
   "apps/web/public/icon-1024x1024.svg": {
     "mtime": 1789032507.5092375,
     "ast_hash": "9acfc86df356d6497bb8fa2adea55362",
+    "semantic_hash": ""
+  },
+  "docs/plans/2026-09-10-phase8-review-fixes-plan.md": {
+    "mtime": 1789041214.9047153,
+    "ast_hash": "e915ae5c471b70ff6e8c98a8f4266955",
     "semantic_hash": ""
   }
 }
