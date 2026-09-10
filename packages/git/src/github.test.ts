@@ -1,7 +1,12 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { GitHubProvider } from "./github.js";
-import { GitProviderError, type AccountCredentials, type ProjectGitConfig } from "./provider.js";
+import {
+  GitProviderError,
+  MergeNotAllowedError,
+  type AccountCredentials,
+  type ProjectGitConfig,
+} from "./provider.js";
 
 const config: ProjectGitConfig = {
   repoUrl: "https://github.com/octo/repo",
@@ -285,6 +290,99 @@ describe("GitHubProvider.getPullRequestChecks", () => {
 
     const result = await provider.getPullRequestChecks(config, 42);
     expect(result.status).toBe("success");
+  });
+});
+
+describe("GitHubProvider.mergePullRequest", () => {
+  it("PUT .../merge con merge_method: 'merge' → { merged: true, sha }", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ merged: true, sha: "deadbeef" }, 200));
+    const provider = new GitHubProvider({ fetchImpl });
+
+    const result = await provider.mergePullRequest(config, 42);
+
+    expect(result).toEqual({ merged: true, sha: "deadbeef" });
+    const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://api.github.com/repos/octo/repo/pulls/42/merge");
+    expect(init.method).toBe("PUT");
+    expect(JSON.parse(init.body as string)).toEqual({ merge_method: "merge" });
+  });
+
+  it("405 → MergeNotAllowedError con reason 'not_mergeable'", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("blocked", { status: 405 }));
+    const provider = new GitHubProvider({ fetchImpl });
+
+    const error = await provider
+      .mergePullRequest(config, 42)
+      .then(() => null)
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(MergeNotAllowedError);
+    expect((error as MergeNotAllowedError).reason).toBe("not_mergeable");
+  });
+
+  it("409 (testa cambiata) → MergeNotAllowedError con reason 'not_mergeable'", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("stale", { status: 409 }));
+    const provider = new GitHubProvider({ fetchImpl });
+
+    const error = await provider
+      .mergePullRequest(config, 42)
+      .then(() => null)
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(MergeNotAllowedError);
+    expect((error as MergeNotAllowedError).reason).toBe("not_mergeable");
+  });
+
+  it("403 → MergeNotAllowedError con reason 'forbidden'", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("nope", { status: 403 }));
+    const provider = new GitHubProvider({ fetchImpl });
+
+    const error = await provider
+      .mergePullRequest(config, 42)
+      .then(() => null)
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(MergeNotAllowedError);
+    expect((error as MergeNotAllowedError).reason).toBe("forbidden");
+  });
+
+  it("404 → MergeNotAllowedError con reason 'forbidden'", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("nope", { status: 404 }));
+    const provider = new GitHubProvider({ fetchImpl });
+
+    const error = await provider
+      .mergePullRequest(config, 42)
+      .then(() => null)
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(MergeNotAllowedError);
+    expect((error as MergeNotAllowedError).reason).toBe("forbidden");
+  });
+
+  it("status non riconosciuto → MergeNotAllowedError con reason 'unknown'", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("boom", { status: 500 }));
+    const provider = new GitHubProvider({ fetchImpl });
+
+    const error = await provider
+      .mergePullRequest(config, 42)
+      .then(() => null)
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(MergeNotAllowedError);
+    expect((error as MergeNotAllowedError).reason).toBe("unknown");
+  });
+
+  it("2xx senza merged:true/sha → MergeNotAllowedError con reason 'unknown' (mai lancia un tipo diverso)", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ merged: false }, 200));
+    const provider = new GitHubProvider({ fetchImpl });
+
+    const error = await provider
+      .mergePullRequest(config, 42)
+      .then(() => null)
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(MergeNotAllowedError);
+    expect((error as MergeNotAllowedError).reason).toBe("unknown");
   });
 });
 
@@ -610,7 +708,7 @@ describe("GitHubProvider.validateCredentials", () => {
     expect(checks).toHaveLength(3);
     expect(checks.every((c) => c.ok)).toBe(true);
     expect(checks[0]!.name).toBe("Accesso git (push)");
-    expect(checks[1]!.name).toBe("Permessi repository (PR)");
+    expect(checks[1]!.name).toBe("Permessi repository (PR e merge)");
     expect(checks[2]!.name).toBe("Accesso webhook (config automatica)");
 
     const hooksCall = fetchImpl.mock.calls.find((c) => c[0] === HOOKS_URL) as unknown as [string, RequestInit];
@@ -633,7 +731,7 @@ describe("GitHubProvider.validateCredentials", () => {
     const provider = new GitHubProvider();
     const checks = await provider.validateCredentials(config, { fetchImpl });
 
-    const pr = checks.find((c) => c.name === "Permessi repository (PR)")!;
+    const pr = checks.find((c) => c.name === "Permessi repository (PR e merge)")!;
     expect(pr.ok).toBe(false);
     expect(pr.detail).toMatch(/scrittura/i);
   });

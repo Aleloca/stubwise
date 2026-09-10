@@ -9,6 +9,7 @@ import {
   readJsonResponse,
   rollupCheckStatus,
   verifyHmacSignature,
+  MergeNotAllowedError,
   type AccountConfig,
   type AccountCredentials,
   type CheckOutcomeStatus,
@@ -143,6 +144,79 @@ export class BitbucketProvider implements GitProvider {
     } catch {
       return { status: "no_checks", checks: [] };
     }
+  }
+
+  /**
+   * Mergia la PR (fase 8, Task 8): merge commit (nessuna riscrittura di
+   * storia). Bitbucket non ha uno status dedicato "non mergiabile" come il
+   * 405 di GitHub: 400 e 409 coprono entrambi conflitti/regole non
+   * soddisfatte a seconda della versione dell'API, quindi li mappiamo
+   * entrambi su `not_mergeable`.
+   */
+  async mergePullRequest(
+    p: ProjectGitConfig,
+    prNumber: number,
+    opts: { fetchImpl?: FetchLike } = {}
+  ): Promise<{ merged: true; sha: string }> {
+    const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
+    const { owner, repo } = parseRepoUrl(p.repoUrl);
+    const response = await fetchImpl(
+      `${API_BASE}/repositories/${owner}/${repo}/pullrequests/${prNumber}/merge`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: this.projectRestAuthHeader(p),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ merge_strategy: "merge_commit" }),
+      }
+    );
+
+    if (response.ok) {
+      const data = (await readJsonResponse(response, "Bitbucket")) as {
+        merge_commit?: { hash?: unknown };
+      };
+      const sha = data.merge_commit?.hash;
+      if (typeof sha === "string") return { merged: true, sha };
+      throw new MergeNotAllowedError(
+        "unknown",
+        "Bitbucket merge response is missing merge_commit.hash",
+        response.status,
+        JSON.stringify(data).slice(0, 500)
+      );
+    }
+
+    const bodyText = await response.text().catch(() => "");
+    if (response.status === 400 || response.status === 409) {
+      throw new MergeNotAllowedError(
+        "not_mergeable",
+        "Bitbucket: la PR non è mergiabile (conflitti o regole del branch non soddisfatte)",
+        response.status,
+        bodyText.slice(0, 500)
+      );
+    }
+    if (response.status === 403) {
+      throw new MergeNotAllowedError(
+        "forbidden",
+        "Bitbucket: il token non ha il permesso di mergiare questa PR",
+        403,
+        bodyText.slice(0, 500)
+      );
+    }
+    if (response.status === 404) {
+      throw new MergeNotAllowedError(
+        "forbidden",
+        "Bitbucket: PR non trovata o non accessibile con queste credenziali",
+        404,
+        bodyText.slice(0, 500)
+      );
+    }
+    throw new MergeNotAllowedError(
+      "unknown",
+      `Bitbucket merge fallito con status ${response.status}`,
+      response.status,
+      bodyText.slice(0, 500)
+    );
   }
 
   /**
@@ -423,7 +497,53 @@ export class BitbucketProvider implements GitProvider {
           };
         });
 
-    return [gitCheck, restCheck, webhookCheck];
+    // Check 4 — permesso di MERGE (fase 8, Task 8). A differenza di GitHub,
+    // dove push discende dallo stesso bit usato per PR/merge, su Bitbucket la
+    // lettura della lista PR (Check 2) NON implica scrittura: serve
+    // interrogare esplicitamente il permesso dell'utente sul repository.
+    // "write" o "admin" bastano a mergiare; "read" no — senza questo check
+    // lo si scopriva solo al primo tentativo di merge (design fase 8 §4).
+    const mergeCheck: CredentialCheck = !restUser
+      ? {
+          name: "Permesso di merge",
+          ok: false,
+          detail: "email Atlassian (o username legacy) mancante: serve come identità per la REST API",
+        }
+      : await this.probe("Permesso di merge", async () => {
+          const query = encodeURIComponent(`repository.full_name="${owner}/${repo}"`);
+          const r = await fetchWithTimeout(
+            fetchImpl,
+            `${API_BASE}/user/permissions/repositories?q=${query}`,
+            { headers: { Authorization: basicAuthHeader(restUser, token) } }
+          );
+          if (r.status === 200) {
+            const body = (await r.json().catch(() => null)) as {
+              values?: { permission?: unknown }[];
+            } | null;
+            const permission = body?.values?.[0]?.permission;
+            if (permission === "write" || permission === "admin") {
+              return { name: "Permesso di merge", ok: true, detail: `permesso "${permission}" sul repository` };
+            }
+            return {
+              name: "Permesso di merge",
+              ok: false,
+              detail:
+                permission === "read"
+                  ? "il token ha solo accesso in lettura: mergiare richiede write o admin"
+                  : "nessun permesso trovato sul repository per questo token",
+            };
+          }
+          if (r.status === 401) {
+            return { name: "Permesso di merge", ok: false, detail: "autenticazione fallita (401)" };
+          }
+          return {
+            name: "Permesso di merge",
+            ok: false,
+            detail: `risposta inattesa dall'endpoint dei permessi (status ${r.status})`,
+          };
+        });
+
+    return [gitCheck, restCheck, webhookCheck, mergeCheck];
   }
 
   async validateAccount(

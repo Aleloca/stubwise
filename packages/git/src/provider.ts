@@ -241,6 +241,19 @@ export interface GitProvider {
     opts?: { fetchImpl?: FetchLike }
   ): Promise<PullRequestChecks>;
   /**
+   * Mergia una PR sul provider (fase 8, Task 8) — l'UNICA scrittura verso
+   * produzione che Stubwise fa mai, e SOLO su chiamata esplicita (mai
+   * auto-merge, design §1/§4). Lancia sempre e solo
+   * {@link MergeNotAllowedError} quando il merge non va a buon fine — mai il
+   * caso felice silenzioso: il chiamante (la rotta di rilascio, requireAdmin)
+   * distingue i rami d'errore per `reason`, non per uno status HTTP.
+   */
+  mergePullRequest(
+    p: ProjectGitConfig,
+    prNumber: number,
+    opts?: { fetchImpl?: FetchLike }
+  ): Promise<{ merged: true; sha: string }>;
+  /**
    * Crea o aggiorna il commento "sticky" della review sulla PR: se esiste già
    * un commento che contiene `marker` lo aggiorna, altrimenti ne crea uno.
    */
@@ -332,6 +345,20 @@ export interface GitProvider {
   ): Promise<{ branches: string[]; defaultBranch: string | null }>;
 }
 
+/**
+ * Perché `mergePullRequest` si è rifiutato di mergiare (fase 8, Task 8). Non
+ * il solo caso felice: `not_mergeable` copre conflitti E check obbligatori
+ * non passati (i provider non li distinguono sempre nello status HTTP),
+ * `forbidden` il permesso mancante, `already_merged` una PR già chiusa da
+ * qualcun altro (non un errore per chi la richiama — la PR è comunque
+ * risolta), `unknown` qualunque altra risposta non riconosciuta.
+ */
+export type MergeFailureReason =
+  | "not_mergeable"
+  | "forbidden"
+  | "already_merged"
+  | "unknown";
+
 export class GitProviderError extends Error {
   readonly status: number;
   /** Response body, truncated to 500 characters. */
@@ -342,6 +369,20 @@ export class GitProviderError extends Error {
     this.name = "GitProviderError";
     this.status = status;
     this.responseText = responseText;
+  }
+}
+
+/**
+ * Lanciato SOLO da `mergePullRequest`, mai `GitProviderError` direttamente:
+ * il chiamante (la rotta di rilascio) ha un solo tipo da distinguere per
+ * `reason`, non uno status HTTP da reinterpretare.
+ */
+export class MergeNotAllowedError extends GitProviderError {
+  readonly reason: MergeFailureReason;
+  constructor(reason: MergeFailureReason, message: string, status: number, responseText: string) {
+    super(message, status, responseText);
+    this.name = "MergeNotAllowedError";
+    this.reason = reason;
   }
 }
 
