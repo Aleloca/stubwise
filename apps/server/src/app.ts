@@ -50,6 +50,7 @@ import { monitorRoutes } from "./routes/monitor.js";
 import { milestoneRoutes } from "./routes/milestones.js";
 import { projectDocsRoutes } from "./routes/project-docs.js";
 import { projectEnvFileRoutes } from "./routes/project-env-files.js";
+import { projectEnvironmentRoutes } from "./routes/project-environments.js";
 import { briefRoutes } from "./routes/briefs.js";
 import { projectRoutes } from "./routes/projects.js";
 import { repositoryRoutes } from "./routes/repositories.js";
@@ -537,6 +538,10 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // File d'ambiente, materializzati nel worktree del repo: sono repository-level
   // (il parametro :id dell'URL è il repositoryId).
   void app.register(projectEnvFileRoutes, { prefix: "/api/repositories" });
+  // Ambienti di progetto (fase 8): anagrafica test|staging|production, la
+  // dimensione su cui i file d'ambiente ora si organizzano. Project-level,
+  // sotto /api/projects/:projectId.
+  void app.register(projectEnvironmentRoutes, { prefix: "/api/projects" });
   // Knowledge graph del repository (graphify): stato/azioni + contenuti letti dal
   // volume condiviso `graphs` (montato read-only sul server). Stesso prefisso dei
   // repository, `:id` = repositoryId.

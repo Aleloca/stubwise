@@ -188,7 +188,7 @@ export function RepositoryDetailPage() {
       {isAdmin && (
         <section aria-label={t("envFiles:title")} className="mt-8 border-t border-line pt-6">
           <h2 className={sectionTitleClass}>{t("envFiles:title")}</h2>
-          <ProjectEnvFilesSection projectId={repository.id} />
+          <ProjectEnvFilesSection repositoryId={repository.id} projectId={repository.projectId} />
         </section>
       )}
     </div>

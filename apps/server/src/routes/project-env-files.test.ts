@@ -3,9 +3,9 @@ import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
-import { decrypt, projectEnvVars } from "@stubwise/db";
+import { decrypt, projectEnvVars, repositories } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
-import { seedRepository, startTestDb } from "@stubwise/db/testing";
+import { seedEnvironment, seedRepository, startTestDb } from "@stubwise/db/testing";
 import { seedUsers } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
@@ -16,6 +16,8 @@ let app: FastifyInstance;
 let adminCookie: string;
 let memberCookie: string;
 let projectId: string;
+/** Ambiente `test` del progetto seedato: quello che i file creano di default. */
+let environmentId: string;
 
 beforeAll(async () => {
   testDb = await startTestDb();
@@ -28,9 +30,11 @@ beforeAll(async () => {
   ({ adminCookie, memberCookie } = await seedUsers(app));
 
   // I file d'ambiente sono repository-level: `projectId` qui è il repositoryId
-  // usato dalle route /api/repositories/:id/env-files.
-  const { repositoryId } = await seedRepository(testDb.db);
+  // usato dalle route /api/repositories/:id/env-files. `environmentId` è
+  // l'ambiente (fase 8) del PROGETTO di quel repository.
+  const { projectId: ownerProjectId, repositoryId } = await seedRepository(testDb.db);
   projectId = repositoryId;
+  environmentId = await seedEnvironment(testDb.db, ownerProjectId);
 }, 120_000);
 
 afterAll(async () => {
@@ -38,23 +42,24 @@ afterAll(async () => {
   await testDb.stop();
 });
 
-function createEnvFile(path: string, cookie = adminCookie, pid = projectId) {
+function createEnvFile(path: string, cookie = adminCookie, pid = projectId, envId = environmentId) {
   return app.inject({
     method: "POST",
     url: `/api/repositories/${pid}/env-files`,
     headers: { cookie },
-    payload: { path },
+    payload: { path, environmentId: envId },
   });
 }
 
 const MISSING_UUID = "00000000-0000-0000-0000-000000000000";
 
 describe("POST /api/repositories/:id/env-files", () => {
-  it("l'admin crea un file env: 201 con { id, path, vars: [] }", async () => {
+  it("l'admin crea un file env: 201 con { id, environmentId, path, vars: [] }", async () => {
     const res = await createEnvFile(".env");
     expect(res.statusCode).toBe(201);
     expect(res.json()).toEqual({
       id: expect.any(String),
+      environmentId,
       path: ".env",
       vars: [],
     });
@@ -77,10 +82,36 @@ describe("POST /api/repositories/:id/env-files", () => {
     expect(res.statusCode).toBe(404);
   });
 
+  it("ambiente inesistente: 404", async () => {
+    const res = await createEnvFile(".env.badenv", adminCookie, projectId, MISSING_UUID);
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("ambiente di un ALTRO progetto: 404 (non lega un file al posto sbagliato)", async () => {
+    const other = await seedRepository(testDb.db);
+    const otherEnvironmentId = await seedEnvironment(testDb.db, other.projectId);
+    const res = await createEnvFile(".env.crossproject", adminCookie, projectId, otherEnvironmentId);
+    expect(res.statusCode).toBe(404);
+  });
+
   it("path duplicato sullo stesso progetto: 409", async () => {
     await createEnvFile(".env.dup");
     const again = await createEnvFile(".env.dup");
     expect(again.statusCode).toBe(409);
+  });
+
+  it("stesso path in un ambiente DIVERSO dello stesso repository: ammesso", async () => {
+    await createEnvFile(".env.multi");
+    const [row] = await testDb.db
+      .select({ projectId: repositories.projectId })
+      .from(repositories)
+      .where(eq(repositories.id, projectId));
+    const stagingEnvironmentId = await seedEnvironment(testDb.db, row!.projectId, {
+      name: `staging-${Date.now()}`,
+      kind: "staging",
+    });
+    const res = await createEnvFile(".env.multi", adminCookie, projectId, stagingEnvironmentId);
+    expect(res.statusCode).toBe(201);
   });
 
   it("un member non può creare: 403", async () => {
@@ -91,7 +122,7 @@ describe("POST /api/repositories/:id/env-files", () => {
     const res = await app.inject({
       method: "POST",
       url: `/api/repositories/${projectId}/env-files`,
-      payload: { path: ".env.anon" },
+      payload: { path: ".env.anon", environmentId },
     });
     expect(res.statusCode).toBe(401);
   });
@@ -204,9 +235,15 @@ describe("GET /api/repositories/:id/env-files", () => {
     expect(res.body).not.toContain("valore-super-segreto");
     expect(res.body).not.toContain("value_encrypted");
 
-    const body = res.json() as { id: string; path: string; vars: { key: string; valueSet: boolean }[] }[];
+    const body = res.json() as {
+      id: string;
+      environmentId: string;
+      path: string;
+      vars: { key: string; valueSet: boolean }[];
+    }[];
     const found = body.find((f) => f.id === fileId);
     expect(found).toBeDefined();
+    expect(found!.environmentId).toBe(environmentId);
     expect(found!.path).toBe(".env.list");
     expect(found!.vars).toEqual([{ key: "SECRET", valueSet: true }]);
   });

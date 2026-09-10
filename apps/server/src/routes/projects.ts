@@ -23,7 +23,7 @@ import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { requireAdmin, requireAuth } from "../auth/session.js";
-import { aiProviders, projectFollows, projects, repositories } from "@stubwise/db";
+import { aiProviders, projectEnvironments, projectFollows, projects, repositories } from "@stubwise/db";
 import {
   authErrorResponses,
   errorSchema,
@@ -214,6 +214,16 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
             })
             .returning();
           if (!created) throw new Error("insert del progetto non ha restituito la riga");
+          // Fase 8: ogni progetto ha SEMPRE un ambiente `test` — è l'invariante
+          // che la migrazione 0074 stabilisce per i progetti esistenti col
+          // backfill, e che qui si mantiene per ogni progetto NUOVO creato dopo
+          // di essa. Senza questo, un progetto nato oggi non avrebbe un target
+          // valido per i file d'ambiente finché un admin non ne crea uno a mano.
+          await app.db.insert(projectEnvironments).values({
+            projectId: created.id,
+            name: "test",
+            kind: "test",
+          });
           return await reply.code(201).send(toPublicProject(created));
         } catch (error) {
           if (!isUniqueViolation(error)) throw error;

@@ -36,6 +36,9 @@ type Handler = (url: URL, init?: RequestInit) => Response;
 function mockApi(handlers: Record<string, Handler>) {
   const withDefaults: Record<string, Handler> = {
     "GET /api/ai-providers": () => jsonResponse(200, []),
+    // Fase 8: la sezione file d'ambiente carica anche gli ambienti del
+    // progetto — default vuoto, nessun test qui asserisce sul loro contenuto.
+    [`GET /api/projects/${PROJECT_ID}/environments`]: () => jsonResponse(200, []),
     ...handlers,
   };
   fetchMock.mockImplementation((input, init) => {

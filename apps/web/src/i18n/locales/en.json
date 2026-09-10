@@ -31,7 +31,8 @@
     },
     "on": "on",
     "off": "off",
-    "saving": "Saving…"
+    "saving": "Saving…",
+    "edit": "Edit"
   },
   "monitor": {
     "list": {
@@ -1489,7 +1490,29 @@
       "deleting": "Deleting…",
       "cancel": "Cancel",
       "follow": "Follow",
-      "unfollow": "Unfollow"
+      "unfollow": "Unfollow",
+      "environmentsLoading": "// loading environments…",
+      "environmentsError": "// could not load the environments for this project",
+      "environmentsHint": "Stubwise only KNOWS these environments — it never runs or deploys to them. Only the test environment's variables are read by the fix pipeline; staging/production variables are stored so people can read and compare them, never used automatically.",
+      "noEnvironments": "// no environments",
+      "addEnvironment": "Add environment",
+      "environmentName": "Name",
+      "environmentNamePlaceholder": "E.g. staging",
+      "environmentKind": "Type",
+      "environmentKindOptions": {
+        "test": "Test",
+        "staging": "Staging",
+        "production": "Production"
+      },
+      "environmentUrl": "URL",
+      "environmentServer": "Connected server",
+      "environmentServerNone": "— none —",
+      "environmentRunningOn": "running on {{server}}",
+      "createEnvironment": "Create environment",
+      "creatingEnvironment": "Creating…",
+      "deleteEnvironment": "Delete",
+      "testEnvironmentProtected": "The test environment cannot be deleted — it is the only one the fix pipeline can read.",
+      "environmentsTitle": "Environments"
     },
     "form": {
       "name": "Name",
@@ -1850,7 +1873,9 @@
     "remove": "Remove",
     "value": "Value",
     "valuePlaceholder": "New value (write-only)",
-    "saving": "Saving…"
+    "saving": "Saving…",
+    "usedByPipeline": "// the fix pipeline reads these variables in every run",
+    "notUsedByPipeline": "// stored for people to read and compare — never used automatically by the fix pipeline"
   },
   "docs": {
     "hub": {

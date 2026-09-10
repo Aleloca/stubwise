@@ -42,6 +42,7 @@ import {
   getRepository,
   getRepositoryWebhook,
   listEnvFiles,
+  listEnvironments,
   getServer,
   getServerMetrics,
   getSlackWorkspaceUsers,
@@ -801,6 +802,18 @@ export function projectEnvFilesQueryOptions(repositoryId: string) {
   return queryOptions({
     queryKey: ["repositories", "env-files", repositoryId],
     queryFn: () => listEnvFiles(repositoryId),
+    staleTime: 30_000,
+  });
+}
+
+/**
+ * Ambienti di un progetto (fase 8, solo admin): test|staging|production.
+ * Chiave figlia del progetto: create/patch/delete la invalidano.
+ */
+export function projectEnvironmentsQueryOptions(projectId: string) {
+  return queryOptions({
+    queryKey: ["projects", "environments", projectId],
+    queryFn: () => listEnvironments(projectId),
     staleTime: 30_000,
   });
 }

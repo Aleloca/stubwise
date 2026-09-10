@@ -91,6 +91,21 @@ describe("POST /api/projects", () => {
     });
   });
 
+  it("fase 8: il progetto nasce con l'ambiente `test` già presente", async () => {
+    const created = await createProject({ name: "Con Ambiente Test" });
+    const projectId = (created.json() as { id: string }).id;
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/environments`,
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const environments = res.json() as { name: string; kind: string }[];
+    expect(environments).toHaveLength(1);
+    expect(environments[0]).toMatchObject({ name: "test", kind: "test" });
+  });
+
   it("due progetti ricevono ingestionKey diverse (uniche)", async () => {
     const a = await createProject({ name: "Ingest A" });
     const b = await createProject({ name: "Ingest B" });
