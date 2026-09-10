@@ -2401,7 +2401,11 @@
       "attachments": "Attachments",
       "retentionNotice": "Messages older than 90 days are removed from Stubwise and can no longer be read here.",
       "loadError": "Could not load this message.",
-      "notFound": "This message was not found."
+      "notFound": "This message was not found.",
+      "selectPrompt": "Select a message on the left to read it here.",
+      "imagesBlockedNotice": "Remote images are blocked by default — they're a common way senders track when an email is opened.",
+      "showImages": "Show images",
+      "bodyFrameTitle": "Message body"
     }
   },
   "calendar": {

@@ -698,14 +698,27 @@ const releaseQueueRoute = createRoute({
 });
 
 /**
- * Dettaglio di un'email (fase 7b, Task 8): l'estratto già in database, senza
- * prefetch nel loader — a differenza della lista, il dettaglio non serve
- * finché non si clicca una riga, e prefetchare ogni riga della lista
- * sarebbe N chiamate per una pagina che ne mostra una sola.
+ * Dettaglio di un'email (fase 7b, Task 8) — dalla fase 9, Task 5, la STESSA
+ * pagina a tre colonne di `/mail` (`MailWorkspace`) con questo messaggio già
+ * selezionato: il loader precarica quindi le STESSE query di `mailRoute`
+ * (la lista resta visibile al centro, non solo il pannello di lettura),
+ * così le `useSuspenseQuery` del componente non attendono. Il dettaglio del
+ * SINGOLO messaggio (`mailDetailQueryOptions`) resta senza prefetch: a
+ * differenza della lista, non serve finché non si arriva su una riga
+ * precisa, e prefetchare ogni riga della lista sarebbe N chiamate per una
+ * pagina che ne mostra una sola alla volta.
  */
 const mailDetailRoute = createRoute({
   getParentRoute: () => authedRoute,
   path: "/mail/$source/$id",
+  loader: async ({ context }) => {
+    await Promise.all([
+      context.queryClient.ensureQueryData(mailQueryOptions({})).catch(() => undefined),
+      context.queryClient.ensureQueryData(mailSummaryQueryOptions).catch(() => undefined),
+      context.queryClient.ensureQueryData(projectsQueryOptions),
+      context.queryClient.ensureQueryData(myGoogleAccountsQueryOptions),
+    ]);
+  },
   component: MailDetailPage,
 });
 

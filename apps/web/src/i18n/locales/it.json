@@ -2401,7 +2401,11 @@
       "attachments": "Allegati",
       "retentionNotice": "I messaggi più vecchi di 90 giorni vengono rimossi da Stubwise e qui non sono più leggibili.",
       "loadError": "Impossibile caricare questo messaggio.",
-      "notFound": "Questo messaggio non è stato trovato."
+      "notFound": "Questo messaggio non è stato trovato.",
+      "selectPrompt": "Seleziona un messaggio a sinistra per leggerlo qui.",
+      "imagesBlockedNotice": "Le immagini remote sono bloccate di default — sono un modo comune per il mittente di sapere quando un'email viene aperta.",
+      "showImages": "Mostra immagini",
+      "bodyFrameTitle": "Corpo del messaggio"
     }
   },
   "calendar": {
