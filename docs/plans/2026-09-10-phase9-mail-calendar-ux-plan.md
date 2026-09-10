@@ -21,45 +21,41 @@ stubwise:
 > `--workspace-concurrency=1`. Il design è la fonte: dove piano e design
 > divergono, vince il design — e segnalalo.
 
-**Leggi il §3 del design prima di toccare il poller.** Il rischio numero uno di
-questa fase è trasformare ogni appuntamento personale in una proposta di
-milestone.
+**Leggi il §3 del design prima di toccare il poller.** Conteneva il rischio
+numero uno di questa fase — trasformare ogni appuntamento personale in una
+proposta di milestone — ed è stato **ritirato dal maintainer**: l'ingestione del
+calendario NON cambia. Se leggi da qualche parte che va spostato `inScope`,
+quella parte è vecchia.
 
 ---
 
-## Fase A — il calendario diventa un calendario (Task 1-3)
+## Fase A — il calendario (Task 1-3)
 
-### Task 1: si ingerisce tutto, si propone solo ciò che è in perimetro
+### Task 1: la finestra guarda anche indietro, e il vuoto si spiega
 
-**⚠️ IL TASK PIÙ PERICOLOSO DEL PIANO. Le due modifiche stanno nello stesso
-commit, mai in due.**
+**Il task originale — spostare `inScope` dall'ingestione alla proposta — È
+STATO RITIRATO** (design §3, decisione del maintainer cambiata in corsa
+il 10 set 2026): l'ingestione non cambia, gli appuntamenti fuori perimetro non
+entrano nel database. Con esso cade il rischio più grande che questa fase
+avrebbe avuto. **Non farlo, e non reintrodurlo di iniziativa.**
 
-Oggi `apps/worker/src/google/poller.ts:1072`
-(`if (!routeEvent(event, ctx.routes).inScope) continue;`) fa **due lavori in
-uno**: decide cosa si scrive e, di conseguenza, cosa può diventare una
-proposta. Toglierlo dall'ingestione senza metterlo in proposta significa che
-ogni appuntamento personale — il dentista, la cena — diventa una proposta di
-milestone: l'incidente del 9 settembre moltiplicato per la vita privata di chi
-ha collegato la casella.
+Resta la conseguenza (b) del design §3: `calendarWindow`
+(`apps/worker/src/google/calendar.ts:118`) è `now → now + 60 giorni`, quindi su
+una griglia con le frecce si preme indietro e non c'è mai niente, per sempre.
 
 **Files:**
-- Modify: `apps/worker/src/google/poller.ts` — l'`inScope` esce dal ciclo di
-  ingestione (`:1049-1072`) ed entra nella condizione di **proposta**
-  (`runProposePhase`), accanto alle condizioni che la 7b ha già messo lì (serie
-  configurata e accesa, anticipo, progetto fissato). Il filtro della finestra
-  dei 60 giorni in scrittura **resta dov'è**: è la difesa della 7b
-- Il perché va scritto nel codice, non solo qui: chi legge fra sei mesi deve
-  capire che sono due domande diverse (design §3), non un controllo spostato
-  per comodità
-- Test, e sono la rete di sicurezza di questa fase:
-  - un evento **fuori perimetro** dentro la finestra → **scritto** in
-    `calendar_events` e **mai** proposto (asserisci su entrambe le cose)
-  - un evento **in perimetro** → scritto e proposto come prima
-  - un evento fuori finestra → non scritto, come la 7b
-  - **una casella con 50 appuntamenti personali produce ZERO proposte**
+- Modify: `apps/worker/src/google/calendar.ts:118` — `timeMin` diventa
+  `now - CALENDAR_LOOKBACK_DAYS` (30). Non tocca i filtri e non cambia cosa è
+  ammesso: cambia solo quanto passato si conserva. Il tetto in avanti resta
+- ⚠️ Il filtro in scrittura della 7b (`poller.ts:1070`,
+  `startsAt < timeMin || startsAt > timeMax`) usa la **stessa** finestra: si
+  allarga insieme, per costruzione. Verifica che sia così e non due valori da
+  tenere allineati a mano
+- Test: `calendar.test.ts` (la finestra copre 30 giorni indietro e 60 avanti);
+  `poller.test.ts` (un evento di tre settimane fa **viene scritto**; uno di sei
+  mesi fa no)
 
-**Step 1: test rosso** → **Step 2–4**: rosso → fix → verde.
-**Step 5: Commit** `feat(calendar): si vede tutto, si propone solo il lavoro in perimetro`.
+**Commit** `feat(calendar): la finestra guarda anche indietro di 30 giorni`.
 
 ### Task 2: i partecipanti hanno uno stato, l'evento ha un link
 
@@ -154,8 +150,12 @@ intervallo.
   (vedi il commento in `apps/worker/src/google/calendar.ts` su `isoDay`). Una
   griglia sbaglia riga se confonde i due — scegli come rendi e **scrivi la
   scelta**
+- ⚠️ **Lo stato vuoto è parte del lavoro, non un ripiego** (design §3a): la
+  griglia è sparsa per costruzione e una settimana vuota è normale. Il vuoto non
+  dice «nessun evento»: dice che qui si vedono solo gli appuntamenti che
+  combaciano con le regole dei progetti, e indica dove si cambiano
 - Test: web (un evento a cavallo di mezzanotte; un evento «tutto il giorno»;
-  una settimana vuota); parità i18n
+  **una settimana vuota che spiega perché**); parità i18n
 
 **Commit** `feat(web): la griglia del calendario, giorno settimana mese`.
 

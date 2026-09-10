@@ -55,34 +55,40 @@ corpo HTML è stato **tolto apposta** nella fase 7b (renderlo con
 scritto da chiunque); rispondere richiede lo scope `gmail.send`, un consenso
 nuovo, ed è fuori perimetro.
 
-## 3. Il calendario diventa un calendario
+## 3. Il calendario mostra il lavoro, non la settimana
 
-**Si ingerisce tutto ciò che cade nella finestra dei 60 giorni**, non solo ciò
-che combacia con una regola.
+**Decisione del maintainer, cambiata in corsa (10 set 2026): l'ingestione NON
+cambia.** Si continua a scrivere solo ciò che passa i filtri di routing
+(`poller.ts:1072`); gli appuntamenti personali non entrano nel database di
+Stubwise.
 
-È la stessa distinzione della fase 6c, applicata al calendario: **ciò che si
-VEDE** e **ciò che PRODUCE proposte** sono due domande diverse. Un appuntamento
-fuori perimetro si vede nella griglia e non fa nient'altro: nessuna proposta,
-nessuna analisi, nessun costo di AI.
+È la scelta più conservativa sulla riservatezza, e fa cadere il task più
+pericoloso che questa fase avrebbe avuto: spostare `inScope` dall'ingestione
+alla proposta. Quel filtro oggi fa due lavori in uno, e separarli senza sbagliare
+avrebbe significato rischiare che ogni appuntamento personale diventasse una
+proposta di milestone — l'incidente del 9 settembre moltiplicato per la vita
+privata di chi ha collegato la casella. Non facendolo, quel rischio non esiste.
 
-### ⚠️ L'invariante di questa fase, e il modo in cui può andare male
+### Le due conseguenze, che vanno rese visibili e non subite
 
-`poller.ts:1072` oggi fa **due lavori in uno**: decide cosa si scrive E, di
-conseguenza, cosa può diventare una proposta. Togliendolo dall'ingestione senza
-metterlo in proposta, **ogni appuntamento personale diventa una proposta di
-milestone** — il dentista, la cena, il compleanno.
+**(a) La griglia è sparsa per costruzione.** Mostra gli appuntamenti di lavoro
+riconosciuti — oggi in produzione due o tre serie ricorrenti — non la settimana
+dell'utente. Martedì sarà vuoto anche se ci sono state quattro riunioni.
 
-Sarebbe l'incidente del 9 settembre 2026 (730 notifiche da una serie
-ricorrente) moltiplicato per la vita privata di chi ha collegato la casella. Il
-filtro non si sposta «in un secondo momento»: si sposta **nello stesso commit**,
-e serve un test che parta da un evento fuori perimetro e verifichi che sia
-**scritto** e **mai proposto**.
+Non è un difetto: è ciò che si è scelto di far vedere. Ma **una griglia vuota
+deve spiegarsi da sola**, altrimenti chi la guarda pensa che sia rotta. Lo stato
+vuoto non dice «nessun evento»: dice che qui si vedono solo gli appuntamenti che
+combaciano con le regole dei progetti, e indica dove si cambiano quelle regole.
 
-Le due condizioni finali sono quindi:
-- **ingestione**: dentro la finestra dei 60 giorni (la difesa aggiunta nella
-  7b, che resta);
-- **proposta**: `inScope` — più tutto ciò che la 7b ha aggiunto (serie
-  configurata e accesa, anticipo, progetto fissato).
+**(b) Non si può guardare indietro.** `calendarWindow`
+(`apps/worker/src/google/calendar.ts:118`) è `now → now + 60 giorni`: `timeMin`
+è **adesso**, nessuno sguardo all'indietro. Su una griglia con le frecce
+avanti/indietro è un comportamento strano — si preme indietro e non c'è mai
+niente, per sempre.
+
+**Si sposta `timeMin` a `now - 30 giorni`.** Non tocca i filtri e non cambia
+cosa è ammesso: cambia solo quanto passato si conserva, così la griglia ha un
+«prima» da mostrare. Il tetto sui 60 giorni in avanti resta.
 
 ### Il dettaglio dell'evento
 
@@ -156,11 +162,11 @@ stesso commit**. Alla fine deve esserci **una sola** fonte di verità, non una
 colonna nuova accanto a una vecchia.
 
 **Rollback**: nessun kind di notifica nuovo, nessun valore nuovo in un enum
-esistente. Ma attenzione a una cosa che le fasi precedenti non avevano: dopo
-questa fase il database contiene **tutti** gli appuntamenti della finestra.
-Tornare indietro sull'ingestione non cancella ciò che è già stato scritto — e
-quelle righe, per un binario che non ha il filtro in proposta, sarebbero
-proponibili. Chi scende di immagine sul worker deve saperlo.
+esistente, e — dopo il cambio di decisione del §3 — **nessun cambiamento a cosa
+entra nel database** se non l'allungamento della finestra all'indietro. Un
+binario precedente ignora `html_link` e legge i partecipanti nella forma
+vecchia solo se la migrazione non è stata applicata; applicata, la forma nuova
+è l'unica. Il caddy va sceso insieme al server, come sempre.
 
 ## 7. Cosa NON entra
 
@@ -170,4 +176,6 @@ proponibili. Chi scende di immagine sul worker deve saperlo.
 - **Cambiare il linguaggio visivo dell'app** (§1), né un tema chiaro accanto a
   quello scuro.
 - **Il calendario multi-progetto**: resta uno-a-uno.
+- **Ingerire gli appuntamenti fuori perimetro** (§3): scelta esplicita del
+  maintainer, non un rinvio.
 - **L'app mobile**: le sue viste non cambiano in questa fase.
