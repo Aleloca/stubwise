@@ -798,6 +798,36 @@ describe("runFix", () => {
     const runs = await db.select().from(agentRuns).where(eq(agentRuns.jobId, job.id));
     const fixRuns = runs.filter((r) => r.phase === "fix");
     expect(fixRuns.map((r) => r.model).sort()).toEqual(["opus", "sonnet"]);
+    // Fase 8, Task 7: app.js soltanto, un solo repo → rischio "low".
+    const [tr] = await db.select().from(ticketRepositories).where(eq(ticketRepositories.ticketId, ticket.id));
+    expect(tr?.risk).toBe("low");
+    expect(tr?.riskReason).toBeTruthy();
+  });
+
+  it("rischio del rilascio (Task 7): un file sensibile alza il rischio ad 'high', con la ragione che lo nomina", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    const ticket = await createTicket(db, fixture);
+    const job = await createFixingJob(db, ticket.id);
+    const runner = new FakeAgentRunner({
+      fileChanges: {
+        [`${repoDir(fixture)}/app.js`]: "exports.sum = (a, b) => a + b;\n",
+        [`${repoDir(fixture)}/pnpm-lock.yaml`]: "lockfileVersion: 9\n",
+        "STUBWISE_REPORT.md": REPORT,
+      },
+      results: [
+        { output: "PIANO", exitCode: 0 },
+        { output: "fix", exitCode: 0 },
+      ],
+    });
+    const provider = makeProvider();
+
+    const outcome = await runFix(makeDeps(fixture, runner, provider), job);
+
+    expect(outcome).toBe("pr_opened");
+    const [tr] = await db.select().from(ticketRepositories).where(eq(ticketRepositories.ticketId, ticket.id));
+    expect(tr?.risk).toBe("high");
+    expect(tr?.riskReason).toContain("lockfile");
   });
 
   it("con content_language='it': prompt, commento AI e footer PR in italiano", async () => {
@@ -3014,6 +3044,10 @@ describe("runFix — multi-repository (Fase 3)", () => {
     expect(new Set(rows.map((r) => r.repositoryId))).toEqual(
       new Set([repoA.repositoryId, repoB.repositoryId]),
     );
+    // Fase 8, Task 7: due repo toccati → rischio "medium" su ENTRAMBE le
+    // righe, stessa valutazione (il rischio è del fix, non del singolo repo).
+    expect(rows.every((r) => r.risk === "medium")).toBe(true);
+    expect(rows[0]?.riskReason).toContain("2 repository");
     const branch = `stubwise/ticket-${ticket.number}`;
     expect(await git(["branch", "--list", branch], repoA.upstreamDir)).toContain(branch);
     expect(await git(["branch", "--list", branch], repoB.upstreamDir)).toContain(branch);

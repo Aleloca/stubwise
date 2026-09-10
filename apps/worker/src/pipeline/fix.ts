@@ -75,6 +75,7 @@ import {
   materializeEnvFiles,
   type LoadedEnvFile,
 } from "./env-files.js";
+import { computeReleaseRisk } from "./release-risk.js";
 
 /**
  * Fase 2 della pipeline: il fix, PER PROGETTO (Fase 3). Il job è già in stato
@@ -468,6 +469,28 @@ function truncateForLog(output: string): string {
   return output.length > LOG_OUTPUT_MAX_CHARS
     ? `${output.slice(0, LOG_OUTPUT_MAX_CHARS)}\n[output troncato]`
     : output;
+}
+
+/**
+ * Fase 8, Task 7: estrae i path da `git status --porcelain` (formato NON -z,
+ * coerente col resto di questo file). Ogni riga è `XY path` — due caratteri
+ * di stato, uno spazio, il path; una rinomina è `XY vecchio -> nuovo`, di cui
+ * prendiamo solo il nuovo path (quello che esiste davvero nel diff). Best-
+ * effort: alimenta solo l'euristica del rischio (Task 7), non una decisione
+ * di sicurezza — un path che sfugge al parsing abbassa il rischio percepito,
+ * mai lo confonde con un file diverso.
+ */
+function parsePorcelainPaths(status: string): string[] {
+  return status
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .filter((line) => line.length > 3)
+    .map((line) => {
+      const rest = line.slice(3);
+      const arrowIdx = rest.indexOf(" -> ");
+      const path = arrowIdx === -1 ? rest : rest.slice(arrowIdx + 4);
+      return path.replace(/^"(.*)"$/, "$1");
+    });
 }
 
 /** L'agente ha terminato ma non ha prodotto nessuna modifica committabile. */
@@ -1170,6 +1193,8 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
      * INTERROGABILE ciò che finiva solo nel log del job come testo.
      */
     testStatus: "passed" | "skipped";
+    /** Fase 8, Task 7: i path modificati in questo repo — l'input del rischio. */
+    changedFiles: string[];
   }
   // Esito della callback withProjectWorktrees, discriminato sulla modalità: in
   // plan-only la callback produce SOLO il piano (niente report/commit/push); in
@@ -1424,6 +1449,13 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
           envExcludePathspecs: string[];
           /** Mappa env del repo da iniettare in install/test (mai loggata). */
           envProcessEnv: Record<string, string>;
+          /**
+           * Fase 8, Task 7: i path modificati in QUESTO repo secondo l'ultimo
+           * `git status --porcelain` (stageAndDetectChanged li scrive qui) —
+           * l'input del calcolo del rischio. Vuoto finché non è ancora stato
+           * rilevato un diff.
+           */
+          changedFiles: string[];
         }
         const repoStates: RepoState[] = worktrees.map(({ project: mp, dir }) => {
           const prepared = repoByUrl.get(mp.repoUrl);
@@ -1432,7 +1464,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
             // che gli passiamo. Un mismatch è un errore di programmazione.
             throw new Error(`worktree senza repo preparato per ${mp.repoUrl}`);
           }
-          return { prepared, dir, envExcludePathspecs: [], envProcessEnv: {} };
+          return { prepared, dir, envExcludePathspecs: [], envProcessEnv: {}, changedFiles: [] };
         });
         try {
           // FILE D'AMBIENTE + INSTALL, PER OGNI REPO, PRIMA dell'agente. SALTATI in
@@ -1630,7 +1662,10 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
                 `:(exclude)${REPORT_FILENAME}`,
                 ...state.envExcludePathspecs,
               ]);
-              if (status.trim() !== "") changed.push(state);
+              if (status.trim() !== "") {
+                state.changedFiles = parsePorcelainPaths(status);
+                changed.push(state);
+              }
             }
             return changed;
           };
@@ -1778,6 +1813,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
               name: state.prepared.name,
               mirrorProject: state.prepared.mirrorProject,
               testStatus: testStatusByRepo.get(state.prepared.repositoryId) ?? "skipped",
+              changedFiles: state.changedFiles,
             });
           }
           return { kind: "executed", report: reportContent, agentOutput: output, changedRepos };
@@ -2009,6 +2045,15 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
   // nomina branch/upstream per il recupero manuale. `ticket_repositories` viene
   // popolata mano a mano: le righe dei repo già andati a buon fine restano (utili a
   // capire quali PR esistono già in caso di re-run manuale).
+  //
+  // RISCHIO (fase 8, Task 7): calcolato UNA VOLTA per l'intero fix, sull'unione
+  // dei file cambiati in TUTTI i repo toccati — è un rischio del FIX (un fix
+  // multi-repo porta il suo rischio di coordinamento a prescindere dal diff),
+  // non del singolo repo, e la STESSA valutazione finisce su ogni riga aperta.
+  const risk = computeReleaseRisk(
+    changedRepos.flatMap((r) => r.changedFiles),
+    changedRepos.length,
+  );
   const openedPrs: { name: string; prUrl: string }[] = [];
   for (const repo of changedRepos) {
     let prUrl: string;
@@ -2044,10 +2089,19 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
         prUrl,
         prState: "open",
         testStatus: repo.testStatus,
+        risk: risk.level,
+        riskReason: risk.reason,
       })
       .onConflictDoUpdate({
         target: [ticketRepositories.ticketId, ticketRepositories.repositoryId],
-        set: { branch, prUrl, prState: "open", testStatus: repo.testStatus },
+        set: {
+          branch,
+          prUrl,
+          prState: "open",
+          testStatus: repo.testStatus,
+          risk: risk.level,
+          riskReason: risk.reason,
+        },
       });
     openedPrs.push({ name: repo.name, prUrl });
     logLines.push(`[fix] '${repo.name}': PR aperta: ${prUrl}`);

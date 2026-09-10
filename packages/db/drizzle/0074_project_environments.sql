@@ -61,4 +61,11 @@ CREATE UNIQUE INDEX "project_env_files_repository_environment_path_unique" ON "p
 -- le righe storiche non hanno mai avuto questo dato, e non è cosmetico
 -- fingerne uno — restano NULL, "sconosciuto", non 'skipped'.
 ALTER TABLE "ticket_repositories" ADD COLUMN "test_status" text;--> statement-breakpoint
-ALTER TABLE "ticket_repositories" ADD CONSTRAINT "ticket_repositories_test_status_chk" CHECK ("test_status" is null or "test_status" in ('passed', 'failed', 'skipped'));
+ALTER TABLE "ticket_repositories" ADD CONSTRAINT "ticket_repositories_test_status_chk" CHECK ("test_status" is null or "test_status" in ('passed', 'failed', 'skipped'));--> statement-breakpoint
+
+-- Task 7 (coda di rilascio): il rischio del fix, una REGOLA calcolata al
+-- momento dell'apertura, mai un giudizio del modello. NULLABLE per lo stesso
+-- motivo di test_status: le righe storiche non hanno mai avuto questo dato.
+ALTER TABLE "ticket_repositories" ADD COLUMN "risk" text;--> statement-breakpoint
+ALTER TABLE "ticket_repositories" ADD COLUMN "risk_reason" text;--> statement-breakpoint
+ALTER TABLE "ticket_repositories" ADD CONSTRAINT "ticket_repositories_risk_chk" CHECK ("risk" is null or "risk" in ('low', 'medium', 'high'));

@@ -656,6 +656,16 @@ export const ticketRepositories = pgTable(
      * riverificata dopo l'apertura.
      */
     testStatus: text("test_status").$type<"passed" | "failed" | "skipped">(),
+    /**
+     * Fase 8, Task 7: il rischio del FIX che ha aperto questa PR — una
+     * REGOLA (`apps/worker/src/pipeline/release-risk.ts`), mai un giudizio
+     * del modello (CLAUDE.md, l'invariante del registro decisioni). Scritto
+     * una volta all'apertura, insieme a `riskReason` (la spiegazione in una
+     * riga che la UI mostra verbatim). `null` = riga storica, prima di
+     * questa fase.
+     */
+    risk: text("risk").$type<"low" | "medium" | "high">(),
+    riskReason: text("risk_reason"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -670,6 +680,7 @@ export const ticketRepositories = pgTable(
       "ticket_repositories_test_status_chk",
       sql`test_status is null or test_status in ('passed', 'failed', 'skipped')`,
     ),
+    check("ticket_repositories_risk_chk", sql`risk is null or risk in ('low', 'medium', 'high')`),
   ],
 );
 
