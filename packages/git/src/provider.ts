@@ -158,16 +158,38 @@ export interface PullRequestCheck {
 }
 
 /**
- * Rollup dei check di una PR (fase 8, Task 5). `no_checks` è un caso a SÉ,
- * non "success": una PR senza CI configurata non ha dimostrato nulla, e
- * confonderla con una PR verde nasconderebbe l'assenza di verifica. Il
- * rollup è: qualunque check `failure` → `failure`; nessun `failure` ma
+ * Rollup dei check di una PR (fase 8, Task 5; `unknown` fase 8, review
+ * fix Task 2). `no_checks` è un caso a SÉ, non "success": una PR senza CI
+ * configurata non ha dimostrato nulla, e confonderla con una PR verde
+ * nasconderebbe l'assenza di verifica. `unknown` è un caso ANCORA diverso
+ * da `no_checks`: non è "non c'è CI configurata", è "non sono riuscito a
+ * leggere se c'è" (rete, 401, corpo malformato) — confonderlo con
+ * `no_checks` (che NON blocca il rilascio) aprirebbe il cancello proprio
+ * quando la lettura fallisce nell'istante sbagliato, cioè quando una PR ha
+ * i check rossi ma la risposta del provider non è arrivata. Il rollup dei
+ * check singoli resta: qualunque `failure` → `failure`; nessun `failure` ma
  * qualche `pending` → `pending`; tutti `success` → `success`; nessun check
- * → `no_checks`.
+ * → `no_checks`; qualunque errore di lettura → `unknown` (mai `no_checks`).
  */
 export interface PullRequestChecks {
-  status: CheckOutcomeStatus | "no_checks";
+  status: CheckOutcomeStatus | "no_checks" | "unknown";
   checks: PullRequestCheck[];
+  /**
+   * Head sha della PR AL MOMENTO di questa lettura (fase 8, review fix
+   * Task 4) — risolto dalla STESSA chiamata che legge i check, mai da un
+   * artefatto di un'altra automazione (`pr_reviews.headSha`, scritto solo
+   * se la PR review è accesa e per QUESTA PR è già girata). Assente quando
+   * la lettura è fallita prima di risolvere la PR (`status: "unknown"`
+   * senza aver mai visto la risposta) — mai un valore stantio.
+   */
+  headSha?: string;
+  /**
+   * Nome del branch sorgente, dalla STESSA risposta di `headSha` (fase 8,
+   * review fix Task 1): serve alla coda di rilascio per etichettare una PR
+   * aperta fuori da Stubwise, che non ha un branch `stubwise/ticket-N` noto
+   * da nessun'altra parte. Stessa regola di assenza di `headSha`.
+   */
+  headRef?: string;
 }
 
 /**
@@ -230,10 +252,12 @@ export interface GitProvider {
    * conta** per la coda di rilascio (design §4): il test interno è ciò che la
    * pipeline ha eseguito nel proprio container PRIMA di aprire la PR, questo è
    * ciò che decide se il provider considera la PR mergiabile. Sola lettura,
-   * non lancia mai: un errore di rete/parsing torna `{ status: "no_checks",
-   * checks: [] }`, indistinguibile da "nessuna CI configurata" — il chiamante
-   * non ha modo di sapere quale dei due sia successo, e trattarli uguale è la
-   * scelta sicura (mai un semaforo verde falso).
+   * non lancia mai: un errore di rete/parsing torna `{ status: "unknown",
+   * checks: [] }` — un caso DIVERSO da "nessuna CI configurata"
+   * (`no_checks`), che il chiamante deve poter distinguere (fase 8, review
+   * fix Task 2): confondere "non sono riuscito a leggere" con "non c'è
+   * niente da leggere" aprirebbe il cancello di rilascio proprio quando la
+   * lettura fallisce su una PR che in realtà ha i check rossi.
    */
   getPullRequestChecks(
     p: ProjectGitConfig,
@@ -349,15 +373,22 @@ export interface GitProvider {
  * Perché `mergePullRequest` si è rifiutato di mergiare (fase 8, Task 8). Non
  * il solo caso felice: `not_mergeable` copre conflitti E check obbligatori
  * non passati (i provider non li distinguono sempre nello status HTTP),
- * `forbidden` il permesso mancante, `already_merged` una PR già chiusa da
- * qualcun altro (non un errore per chi la richiama — la PR è comunque
- * risolta), `unknown` qualunque altra risposta non riconosciuta.
+ * `forbidden` il permesso mancante, `unknown` qualunque altra risposta non
+ * riconosciuta.
+ *
+ * ⚠️ **Non esiste un `"already_merged"` qui, ed è deliberato** (fase 8,
+ * review fix Task 4): nessuno dei due provider lo lanciava mai — GitHub e
+ * Bitbucket rispondono allo stesso modo (405/400/409, mappati su
+ * `not_mergeable`) sia per conflitti reali sia per una PR già mergiata da
+ * qualcun altro, e nessuno dei due corpi risposta distingue i due casi in
+ * modo affidabile. Un ramo dichiarato e irraggiungibile è peggio di uno
+ * assente. La distinzione, quando serve, la fa il CHIAMANTE con un dato
+ * verificato — non inferito dallo status HTTP del fallimento —: su
+ * `not_mergeable` la rotta di rilascio rilegge `getPullRequestState` e
+ * riclassifica come "già chiusa" solo se il provider lo conferma
+ * (`apps/server/src/services/release.ts`).
  */
-export type MergeFailureReason =
-  | "not_mergeable"
-  | "forbidden"
-  | "already_merged"
-  | "unknown";
+export type MergeFailureReason = "not_mergeable" | "forbidden" | "unknown";
 
 export class GitProviderError extends Error {
   readonly status: number;

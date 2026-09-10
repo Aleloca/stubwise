@@ -248,8 +248,23 @@ describe("BitbucketProvider.getPullRequestState", () => {
 });
 
 describe("BitbucketProvider.getPullRequestChecks", () => {
-  it("tutti verdi → status success", async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(
+  /** PR risolta con successo (source.commit.hash) prima della lettura degli statuses. */
+  function prResponse(headSha = "abc123", branchName?: string): Response {
+    return jsonResponse(
+      { source: { commit: { hash: headSha }, ...(branchName ? { branch: { name: branchName } } : {}) } },
+      200
+    );
+  }
+
+  function fetchSequence(pr: Response, statuses: Response) {
+    const fetchImpl = vi.fn();
+    fetchImpl.mockResolvedValueOnce(pr).mockResolvedValueOnce(statuses);
+    return fetchImpl;
+  }
+
+  it("tutti verdi → status success, con headSha risolto dalla PR", async () => {
+    const fetchImpl = fetchSequence(
+      prResponse(),
       jsonResponse(
         {
           values: [
@@ -270,15 +285,23 @@ describe("BitbucketProvider.getPullRequestChecks", () => {
         { name: "build", status: "success" },
         { name: "test", status: "success" },
       ],
+      headSha: "abc123",
     });
-    expect(fetchImpl).toHaveBeenCalledWith(
+    expect(fetchImpl).toHaveBeenNthCalledWith(
+      1,
+      "https://api.bitbucket.org/2.0/repositories/myws/myrepo/pullrequests/7",
+      expect.objectContaining({ method: "GET" })
+    );
+    expect(fetchImpl).toHaveBeenNthCalledWith(
+      2,
       "https://api.bitbucket.org/2.0/repositories/myws/myrepo/pullrequests/7/statuses?pagelen=100",
       expect.objectContaining({ method: "GET" })
     );
   });
 
   it("uno FAILED → status failure", async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(
+    const fetchImpl = fetchSequence(
+      prResponse(),
       jsonResponse(
         {
           values: [
@@ -296,37 +319,61 @@ describe("BitbucketProvider.getPullRequestChecks", () => {
   });
 
   it("INPROGRESS → status pending", async () => {
-    const fetchImpl = vi
-      .fn()
-      .mockResolvedValue(jsonResponse({ values: [{ key: "build", name: "build", state: "INPROGRESS" }] }, 200));
+    const fetchImpl = fetchSequence(
+      prResponse(),
+      jsonResponse({ values: [{ key: "build", name: "build", state: "INPROGRESS" }] }, 200)
+    );
     const provider = new BitbucketProvider({ fetchImpl });
 
     const result = await provider.getPullRequestChecks(config, 7);
-    expect(result).toEqual({ status: "pending", checks: [{ name: "build", status: "pending" }] });
+    expect(result).toEqual({
+      status: "pending",
+      checks: [{ name: "build", status: "pending" }],
+      headSha: "abc123",
+    });
   });
 
-  it("nessun check configurato → 'no_checks', DIVERSO da 'failure'", async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ values: [] }, 200));
+  it("nessun check configurato → 'no_checks', DIVERSO da 'failure' e da 'unknown'", async () => {
+    const fetchImpl = fetchSequence(prResponse(), jsonResponse({ values: [] }, 200));
     const provider = new BitbucketProvider({ fetchImpl });
 
     const result = await provider.getPullRequestChecks(config, 7);
-    expect(result).toEqual({ status: "no_checks", checks: [] });
+    expect(result).toEqual({ status: "no_checks", checks: [], headSha: "abc123" });
   });
 
-  it("errore di rete: non lancia, ricade su no_checks", async () => {
+  it("errore di rete: non lancia, ricade su 'unknown' — DIVERSO da 'no_checks' (review fix Task 2)", async () => {
     const fetchImpl = vi.fn().mockRejectedValue(new Error("network down"));
     const provider = new BitbucketProvider({ fetchImpl });
 
     const result = await provider.getPullRequestChecks(config, 7);
-    expect(result).toEqual({ status: "no_checks", checks: [] });
+    expect(result).toEqual({ status: "unknown", checks: [] });
   });
 
-  it("non-2xx: non lancia, ricade su no_checks", async () => {
+  it("non-2xx sul fetch della PR: non lancia, ricade su 'unknown', senza headSha", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(new Response("nope", { status: 404 }));
     const provider = new BitbucketProvider({ fetchImpl });
 
     const result = await provider.getPullRequestChecks(config, 7);
-    expect(result).toEqual({ status: "no_checks", checks: [] });
+    expect(result).toEqual({ status: "unknown", checks: [] });
+  });
+
+  it("non-2xx sul fetch degli statuses (PR già risolta): 'unknown' CON headSha", async () => {
+    const fetchImpl = fetchSequence(prResponse(), new Response("nope", { status: 500 }));
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    const result = await provider.getPullRequestChecks(config, 7);
+    expect(result).toEqual({ status: "unknown", checks: [], headSha: "abc123" });
+  });
+
+  it("source.branch.name della PR → headRef (review fix Task 1, etichetta della coda per le PR esterne)", async () => {
+    const fetchImpl = fetchSequence(
+      prResponse("abc123", "fix/typo-in-readme"),
+      jsonResponse({ values: [] }, 200)
+    );
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    const result = await provider.getPullRequestChecks(config, 7);
+    expect(result.headRef).toBe("fix/typo-in-readme");
   });
 });
 

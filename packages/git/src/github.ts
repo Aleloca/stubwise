@@ -110,8 +110,12 @@ export class GitHubProvider implements GitProvider {
    * Check-run di GitHub Actions sull'ULTIMO commit della PR (`head.sha`, letto
    * dalla stessa risposta di `getPullRequestState`, una richiesta in più per
    * la resa: la lista dei check-run vive per commit, non per PR). Mai lancia:
-   * qualunque errore (rete, PR non trovata, risposta malformata) ricade su
-   * `{ status: "no_checks", checks: [] }`.
+   * un errore prima di aver risolto la PR (rete, 401, PR non trovata) ricade
+   * su `{ status: "unknown", checks: [] }` (fase 8, review fix Task 2) — un
+   * corpo malformato SUL check-runs, dopo aver risolto la PR, ricade sullo
+   * stesso `unknown` ma con `headSha` già valorizzato. `headSha` (fase 8,
+   * review fix Task 4) è la stessa risoluzione, riusata dal chiamante per
+   * "questa PR è già su un ambiente?" senza una chiamata in più.
    */
   async getPullRequestChecks(
     p: ProjectGitConfig,
@@ -124,15 +128,22 @@ export class GitHubProvider implements GitProvider {
       Authorization: `Bearer ${p.credentials.token}`,
       Accept: "application/vnd.github+json",
     };
+    let headSha: string | undefined;
+    let headRef: string | undefined;
     try {
       const prResponse = await fetchImpl(`${API_BASE}/repos/${owner}/${repo}/pulls/${prNumber}`, {
         method: "GET",
         headers,
       });
       await ensureOkResponse(prResponse, "GitHub");
-      const pr = (await readJsonResponse(prResponse, "GitHub")) as { head?: { sha?: unknown } };
-      const headSha = pr.head?.sha;
-      if (typeof headSha !== "string") return { status: "no_checks", checks: [] };
+      const pr = (await readJsonResponse(prResponse, "GitHub")) as {
+        head?: { sha?: unknown; ref?: unknown };
+      };
+      const resolvedHeadSha = pr.head?.sha;
+      if (typeof resolvedHeadSha !== "string") return { status: "unknown", checks: [] };
+      headSha = resolvedHeadSha;
+      if (typeof pr.head?.ref === "string") headRef = pr.head.ref;
+      const extra = { headSha, ...(headRef !== undefined ? { headRef } : {}) };
 
       const checksResponse = await fetchImpl(
         `${API_BASE}/repos/${owner}/${repo}/commits/${headSha}/check-runs?per_page=100`,
@@ -143,15 +154,20 @@ export class GitHubProvider implements GitProvider {
         check_runs?: { name?: unknown; status?: unknown; conclusion?: unknown }[];
       };
       const runs = Array.isArray(data.check_runs) ? data.check_runs : [];
-      if (runs.length === 0) return { status: "no_checks", checks: [] };
+      if (runs.length === 0) return { status: "no_checks", checks: [], ...extra };
 
       const checks = runs.map((run) => ({
         name: typeof run.name === "string" ? run.name : "check",
         status: githubCheckStatus(run.status, run.conclusion),
       }));
-      return { status: rollupCheckStatus(checks), checks };
+      return { status: rollupCheckStatus(checks), checks, ...extra };
     } catch {
-      return { status: "no_checks", checks: [] };
+      return {
+        status: "unknown",
+        checks: [],
+        ...(headSha !== undefined ? { headSha } : {}),
+        ...(headRef !== undefined ? { headRef } : {}),
+      };
     }
   }
 
@@ -425,7 +441,12 @@ export class GitHubProvider implements GitProvider {
           return {
             name: "Permessi repository (PR e merge)",
             ok: true,
-            detail: "accesso al repo, permessi di scrittura e merge ok",
+            // Dice cosa è stato VERIFICATO, non cosa GARANTISCE (fase 8,
+            // review fix Task 4): push:true è necessario per mergiare ma non
+            // basta — branch protection, review obbligatorie e required
+            // checks possono ancora bloccare un merge specifico, e questo
+            // check non li vede (GitHub non li espone su questo endpoint).
+            detail: "accesso al repo e permessi di scrittura ok — branch protection e review obbligatorie, se presenti, si verificano solo al momento del merge",
           };
         }
         return {

@@ -113,8 +113,16 @@ export class BitbucketProvider implements GitProvider {
   /**
    * Build status della PR via REST: una pagina da 100 (come il commento
    * sticky) — l'endpoint elenca i report su TUTTI i commit della PR, non
-   * serve risolvere lo sha a parte come su GitHub. Mai lancia: qualunque
-   * errore ricade su `{ status: "no_checks", checks: [] }`.
+   * serve risolvere lo sha per LEGGERLI. Lo si risolve comunque con una
+   * richiesta in più (fase 8, review fix Task 4), lo stesso oggetto PR di
+   * `getPullRequestState`: `headSha` lo riusa il chiamante per "questa PR è
+   * già su un ambiente?" senza una chiamata a parte, e senza fidarsi
+   * dell'artefatto di un'altra automazione (`pr_reviews.headSha`, assente se
+   * la review non è mai girata su questa PR). Mai lancia: un errore prima di
+   * aver risolto la PR ricade su `{ status: "unknown", checks: [] }` (fase 8,
+   * review fix Task 2) — un corpo malformato sulle statuses, dopo aver
+   * risolto la PR, ricade sullo stesso `unknown` ma con `headSha` già
+   * valorizzato.
    */
   async getPullRequestChecks(
     p: ProjectGitConfig,
@@ -124,7 +132,25 @@ export class BitbucketProvider implements GitProvider {
     const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
     const { owner, repo } = parseRepoUrl(p.repoUrl);
     const auth = this.projectRestAuthHeader(p);
+    let headSha: string | undefined;
+    let headRef: string | undefined;
     try {
+      const prResponse = await fetchImpl(
+        `${API_BASE}/repositories/${owner}/${repo}/pullrequests/${prNumber}`,
+        { method: "GET", headers: { Authorization: auth } }
+      );
+      await ensureOkResponse(prResponse, "Bitbucket");
+      const pr = (await readJsonResponse(prResponse, "Bitbucket")) as {
+        source?: { commit?: { hash?: unknown }; branch?: { name?: unknown } };
+      };
+      const resolvedHeadSha = pr.source?.commit?.hash;
+      if (typeof resolvedHeadSha === "string") headSha = resolvedHeadSha;
+      if (typeof pr.source?.branch?.name === "string") headRef = pr.source.branch.name;
+      const extra = {
+        ...(headSha !== undefined ? { headSha } : {}),
+        ...(headRef !== undefined ? { headRef } : {}),
+      };
+
       const response = await fetchImpl(
         `${API_BASE}/repositories/${owner}/${repo}/pullrequests/${prNumber}/statuses?pagelen=100`,
         { method: "GET", headers: { Authorization: auth } }
@@ -134,15 +160,20 @@ export class BitbucketProvider implements GitProvider {
         values?: { name?: unknown; key?: unknown; state?: unknown }[];
       };
       const values = Array.isArray(data.values) ? data.values : [];
-      if (values.length === 0) return { status: "no_checks", checks: [] };
+      if (values.length === 0) return { status: "no_checks", checks: [], ...extra };
 
       const checks = values.map((v) => ({
         name: typeof v.name === "string" ? v.name : typeof v.key === "string" ? v.key : "check",
         status: bitbucketCheckStatus(v.state),
       }));
-      return { status: rollupCheckStatus(checks), checks };
+      return { status: rollupCheckStatus(checks), checks, ...extra };
     } catch {
-      return { status: "no_checks", checks: [] };
+      return {
+        status: "unknown",
+        checks: [],
+        ...(headSha !== undefined ? { headSha } : {}),
+        ...(headRef !== undefined ? { headRef } : {}),
+      };
     }
   }
 

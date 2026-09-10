@@ -207,6 +207,7 @@ describe("GitHubProvider.getPullRequestChecks", () => {
         { name: "build", status: "success" },
         { name: "test", status: "success" },
       ],
+      headSha: "abc123",
     });
     expect(fetchImpl).toHaveBeenNthCalledWith(
       2,
@@ -243,10 +244,14 @@ describe("GitHubProvider.getPullRequestChecks", () => {
     const provider = new GitHubProvider({ fetchImpl });
 
     const result = await provider.getPullRequestChecks(config, 42);
-    expect(result).toEqual({ status: "pending", checks: [{ name: "build", status: "pending" }] });
+    expect(result).toEqual({
+      status: "pending",
+      checks: [{ name: "build", status: "pending" }],
+      headSha: "abc123",
+    });
   });
 
-  it("nessun check configurato → 'no_checks', DIVERSO da 'failure'", async () => {
+  it("nessun check configurato → 'no_checks', DIVERSO da 'failure' e da 'unknown'", async () => {
     const fetchImpl = fetchSequence(
       jsonResponse({ head: { sha: "abc123" } }, 200),
       jsonResponse({ check_runs: [] }, 200)
@@ -254,23 +259,34 @@ describe("GitHubProvider.getPullRequestChecks", () => {
     const provider = new GitHubProvider({ fetchImpl });
 
     const result = await provider.getPullRequestChecks(config, 42);
-    expect(result).toEqual({ status: "no_checks", checks: [] });
+    expect(result).toEqual({ status: "no_checks", checks: [], headSha: "abc123" });
   });
 
-  it("errore di rete: non lancia, ricade su no_checks", async () => {
+  it("errore di rete: non lancia, ricade su 'unknown' — DIVERSO da 'no_checks' (review fix Task 2)", async () => {
     const fetchImpl = vi.fn().mockRejectedValue(new Error("network down"));
     const provider = new GitHubProvider({ fetchImpl });
 
     const result = await provider.getPullRequestChecks(config, 42);
-    expect(result).toEqual({ status: "no_checks", checks: [] });
+    expect(result).toEqual({ status: "unknown", checks: [] });
   });
 
-  it("PR inesistente (404 sul fetch della PR): non lancia, ricade su no_checks", async () => {
+  it("PR inesistente (404 sul fetch della PR): non lancia, ricade su 'unknown', senza headSha", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(new Response("nope", { status: 404 }));
     const provider = new GitHubProvider({ fetchImpl });
 
     const result = await provider.getPullRequestChecks(config, 42);
-    expect(result).toEqual({ status: "no_checks", checks: [] });
+    expect(result).toEqual({ status: "unknown", checks: [] });
+  });
+
+  it("401 sul fetch dei check-run (PR già risolta): 'unknown' CON headSha", async () => {
+    const fetchImpl = fetchSequence(
+      jsonResponse({ head: { sha: "abc123" } }, 200),
+      new Response("unauthorized", { status: 401 })
+    );
+    const provider = new GitHubProvider({ fetchImpl });
+
+    const result = await provider.getPullRequestChecks(config, 42);
+    expect(result).toEqual({ status: "unknown", checks: [], headSha: "abc123" });
   });
 
   it("neutral/skipped non bloccano il rollup", async () => {
@@ -290,6 +306,18 @@ describe("GitHubProvider.getPullRequestChecks", () => {
 
     const result = await provider.getPullRequestChecks(config, 42);
     expect(result.status).toBe("success");
+    expect(result.headSha).toBe("abc123");
+  });
+
+  it("head.ref della PR → headRef (review fix Task 1, etichetta della coda per le PR esterne)", async () => {
+    const fetchImpl = fetchSequence(
+      jsonResponse({ head: { sha: "abc123", ref: "fix/typo-in-readme" } }, 200),
+      jsonResponse({ check_runs: [] }, 200)
+    );
+    const provider = new GitHubProvider({ fetchImpl });
+
+    const result = await provider.getPullRequestChecks(config, 42);
+    expect(result.headRef).toBe("fix/typo-in-readme");
   });
 });
 
