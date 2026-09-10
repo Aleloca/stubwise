@@ -242,6 +242,89 @@ describe("BitbucketProvider.getPullRequestState", () => {
   });
 });
 
+describe("BitbucketProvider.getPullRequestChecks", () => {
+  it("tutti verdi → status success", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse(
+        {
+          values: [
+            { key: "build", name: "build", state: "SUCCESSFUL" },
+            { key: "test", name: "test", state: "SUCCESSFUL" },
+          ],
+        },
+        200
+      )
+    );
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    const result = await provider.getPullRequestChecks(config, 7);
+
+    expect(result).toEqual({
+      status: "success",
+      checks: [
+        { name: "build", status: "success" },
+        { name: "test", status: "success" },
+      ],
+    });
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://api.bitbucket.org/2.0/repositories/myws/myrepo/pullrequests/7/statuses?pagelen=100",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("uno FAILED → status failure", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse(
+        {
+          values: [
+            { key: "build", name: "build", state: "SUCCESSFUL" },
+            { key: "test", name: "test", state: "FAILED" },
+          ],
+        },
+        200
+      )
+    );
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    const result = await provider.getPullRequestChecks(config, 7);
+    expect(result.status).toBe("failure");
+  });
+
+  it("INPROGRESS → status pending", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ values: [{ key: "build", name: "build", state: "INPROGRESS" }] }, 200));
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    const result = await provider.getPullRequestChecks(config, 7);
+    expect(result).toEqual({ status: "pending", checks: [{ name: "build", status: "pending" }] });
+  });
+
+  it("nessun check configurato → 'no_checks', DIVERSO da 'failure'", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ values: [] }, 200));
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    const result = await provider.getPullRequestChecks(config, 7);
+    expect(result).toEqual({ status: "no_checks", checks: [] });
+  });
+
+  it("errore di rete: non lancia, ricade su no_checks", async () => {
+    const fetchImpl = vi.fn().mockRejectedValue(new Error("network down"));
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    const result = await provider.getPullRequestChecks(config, 7);
+    expect(result).toEqual({ status: "no_checks", checks: [] });
+  });
+
+  it("non-2xx: non lancia, ricade su no_checks", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("nope", { status: 404 }));
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    const result = await provider.getPullRequestChecks(config, 7);
+    expect(result).toEqual({ status: "no_checks", checks: [] });
+  });
+});
+
 describe("BitbucketProvider.upsertPrComment", () => {
   const MARKER = "<!-- stubwise-pr-review -->";
 

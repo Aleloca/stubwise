@@ -145,6 +145,45 @@ export interface WebhookResult {
 }
 
 /**
+ * Esito di UN check del provider (GitHub Actions check run / Bitbucket build
+ * status). `pending` copre sia "in corso" sia "in coda" — nessuna delle due
+ * è ancora un verdetto.
+ */
+export type CheckOutcomeStatus = "success" | "failure" | "pending";
+
+/** Un singolo check con nome ed esito, per il dettaglio nella coda di rilascio. */
+export interface PullRequestCheck {
+  name: string;
+  status: CheckOutcomeStatus;
+}
+
+/**
+ * Rollup dei check di una PR (fase 8, Task 5). `no_checks` è un caso a SÉ,
+ * non "success": una PR senza CI configurata non ha dimostrato nulla, e
+ * confonderla con una PR verde nasconderebbe l'assenza di verifica. Il
+ * rollup è: qualunque check `failure` → `failure`; nessun `failure` ma
+ * qualche `pending` → `pending`; tutti `success` → `success`; nessun check
+ * → `no_checks`.
+ */
+export interface PullRequestChecks {
+  status: CheckOutcomeStatus | "no_checks";
+  checks: PullRequestCheck[];
+}
+
+/**
+ * Rollup condiviso fra GitHub e Bitbucket (vedi {@link PullRequestChecks}):
+ * un solo `failure` decide, poi un `pending` non ancora concluso, altrimenti
+ * tutti `success`. Il caso "nessun check" è deciso dal CHIAMANTE (lista
+ * vuota), non da questa funzione — che quindi non va mai invocata su un
+ * array vuoto: chi la chiama controlla `checks.length === 0` prima.
+ */
+export function rollupCheckStatus(checks: PullRequestCheck[]): CheckOutcomeStatus {
+  if (checks.some((c) => c.status === "failure")) return "failure";
+  if (checks.some((c) => c.status === "pending")) return "pending";
+  return "success";
+}
+
+/**
  * Provider abstraction over Bitbucket Cloud and GitHub.
  *
  * Webhook contract (Task 25 server route):
@@ -185,6 +224,22 @@ export interface GitProvider {
     prNumber: number,
     opts?: { fetchImpl?: FetchLike }
   ): Promise<"open" | "closed">;
+  /**
+   * Stato dei check del provider (fase 8, Task 5) — GitHub Actions check-run
+   * sull'ultimo commit della PR, Bitbucket build status. **È la colonna che
+   * conta** per la coda di rilascio (design §4): il test interno è ciò che la
+   * pipeline ha eseguito nel proprio container PRIMA di aprire la PR, questo è
+   * ciò che decide se il provider considera la PR mergiabile. Sola lettura,
+   * non lancia mai: un errore di rete/parsing torna `{ status: "no_checks",
+   * checks: [] }`, indistinguibile da "nessuna CI configurata" — il chiamante
+   * non ha modo di sapere quale dei due sia successo, e trattarli uguale è la
+   * scelta sicura (mai un semaforo verde falso).
+   */
+  getPullRequestChecks(
+    p: ProjectGitConfig,
+    prNumber: number,
+    opts?: { fetchImpl?: FetchLike }
+  ): Promise<PullRequestChecks>;
   /**
    * Crea o aggiorna il commento "sticky" della review sulla PR: se esiste già
    * un commento che contiene `marker` lo aggiorna, altrimenti ne crea uno.

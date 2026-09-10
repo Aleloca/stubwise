@@ -7,15 +7,18 @@ import {
   GitProviderError,
   parseRepoUrl,
   readJsonResponse,
+  rollupCheckStatus,
   verifyHmacSignature,
   type AccountConfig,
   type AccountCredentials,
+  type CheckOutcomeStatus,
   type CredentialCheck,
   type FetchLike,
   type GitProvider,
   type GitProviderOptions,
   type PrActivityEvent,
   type ProjectGitConfig,
+  type PullRequestChecks,
   type PushWebhookEvent,
   type RepoSummary,
   type WebhookEvent,
@@ -104,6 +107,42 @@ export class BitbucketProvider implements GitProvider {
     await ensureOkResponse(response, "Bitbucket");
     const data = (await readJsonResponse(response, "Bitbucket")) as { state?: unknown };
     return data.state === "OPEN" ? "open" : "closed";
+  }
+
+  /**
+   * Build status della PR via REST: una pagina da 100 (come il commento
+   * sticky) — l'endpoint elenca i report su TUTTI i commit della PR, non
+   * serve risolvere lo sha a parte come su GitHub. Mai lancia: qualunque
+   * errore ricade su `{ status: "no_checks", checks: [] }`.
+   */
+  async getPullRequestChecks(
+    p: ProjectGitConfig,
+    prNumber: number,
+    opts: { fetchImpl?: FetchLike } = {}
+  ): Promise<PullRequestChecks> {
+    const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
+    const { owner, repo } = parseRepoUrl(p.repoUrl);
+    const auth = this.projectRestAuthHeader(p);
+    try {
+      const response = await fetchImpl(
+        `${API_BASE}/repositories/${owner}/${repo}/pullrequests/${prNumber}/statuses?pagelen=100`,
+        { method: "GET", headers: { Authorization: auth } }
+      );
+      await ensureOkResponse(response, "Bitbucket");
+      const data = (await readJsonResponse(response, "Bitbucket")) as {
+        values?: { name?: unknown; key?: unknown; state?: unknown }[];
+      };
+      const values = Array.isArray(data.values) ? data.values : [];
+      if (values.length === 0) return { status: "no_checks", checks: [] };
+
+      const checks = values.map((v) => ({
+        name: typeof v.name === "string" ? v.name : typeof v.key === "string" ? v.key : "check",
+        status: bitbucketCheckStatus(v.state),
+      }));
+      return { status: rollupCheckStatus(checks), checks };
+    } catch {
+      return { status: "no_checks", checks: [] };
+    }
   }
 
   /**
@@ -715,4 +754,11 @@ export class BitbucketProvider implements GitProvider {
     }
     return { username, token };
   }
+}
+
+/** Mappa `state` di un build status Bitbucket sul rollup a tre stati condiviso. */
+function bitbucketCheckStatus(state: unknown): CheckOutcomeStatus {
+  if (state === "SUCCESSFUL") return "success";
+  if (state === "INPROGRESS") return "pending";
+  return "failure"; // FAILED, STOPPED, o qualunque valore non riconosciuto.
 }

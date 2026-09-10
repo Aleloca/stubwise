@@ -8,15 +8,18 @@ import {
   parseNextLink,
   parseRepoUrl,
   readJsonResponse,
+  rollupCheckStatus,
   verifyHmacSignature,
   type AccountConfig,
   type AccountCredentials,
+  type CheckOutcomeStatus,
   type CredentialCheck,
   type FetchLike,
   type GitProvider,
   type GitProviderOptions,
   type PrActivityEvent,
   type ProjectGitConfig,
+  type PullRequestChecks,
   type PushWebhookEvent,
   type RepoSummary,
   type WebhookEvent,
@@ -100,6 +103,55 @@ export class GitHubProvider implements GitProvider {
     await ensureOkResponse(response, "GitHub");
     const data = (await readJsonResponse(response, "GitHub")) as { state?: unknown };
     return data.state === "open" ? "open" : "closed";
+  }
+
+  /**
+   * Check-run di GitHub Actions sull'ULTIMO commit della PR (`head.sha`, letto
+   * dalla stessa risposta di `getPullRequestState`, una richiesta in più per
+   * la resa: la lista dei check-run vive per commit, non per PR). Mai lancia:
+   * qualunque errore (rete, PR non trovata, risposta malformata) ricade su
+   * `{ status: "no_checks", checks: [] }`.
+   */
+  async getPullRequestChecks(
+    p: ProjectGitConfig,
+    prNumber: number,
+    opts: { fetchImpl?: FetchLike } = {}
+  ): Promise<PullRequestChecks> {
+    const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
+    const { owner, repo } = parseRepoUrl(p.repoUrl);
+    const headers = {
+      Authorization: `Bearer ${p.credentials.token}`,
+      Accept: "application/vnd.github+json",
+    };
+    try {
+      const prResponse = await fetchImpl(`${API_BASE}/repos/${owner}/${repo}/pulls/${prNumber}`, {
+        method: "GET",
+        headers,
+      });
+      await ensureOkResponse(prResponse, "GitHub");
+      const pr = (await readJsonResponse(prResponse, "GitHub")) as { head?: { sha?: unknown } };
+      const headSha = pr.head?.sha;
+      if (typeof headSha !== "string") return { status: "no_checks", checks: [] };
+
+      const checksResponse = await fetchImpl(
+        `${API_BASE}/repos/${owner}/${repo}/commits/${headSha}/check-runs?per_page=100`,
+        { method: "GET", headers }
+      );
+      await ensureOkResponse(checksResponse, "GitHub");
+      const data = (await readJsonResponse(checksResponse, "GitHub")) as {
+        check_runs?: { name?: unknown; status?: unknown; conclusion?: unknown }[];
+      };
+      const runs = Array.isArray(data.check_runs) ? data.check_runs : [];
+      if (runs.length === 0) return { status: "no_checks", checks: [] };
+
+      const checks = runs.map((run) => ({
+        name: typeof run.name === "string" ? run.name : "check",
+        status: githubCheckStatus(run.status, run.conclusion),
+      }));
+      return { status: rollupCheckStatus(checks), checks };
+    } catch {
+      return { status: "no_checks", checks: [] };
+    }
   }
 
   /**
@@ -545,4 +597,20 @@ export class GitHubProvider implements GitProvider {
       return { name, ok: false, detail: `errore di rete: ${message}` };
     }
   }
+}
+
+/**
+ * Mappa `status`/`conclusion` di un check-run GitHub sul rollup a tre stati
+ * condiviso. `status !== "completed"` (queued/in_progress) è sempre
+ * `pending`: non c'è ancora un verdetto, a prescindere da `conclusion`
+ * (assente finché il check non finisce). `neutral`/`skipped`/`stale` NON
+ * bloccano: sono conclusioni "il check ha scelto di non esprimersi", non un
+ * fallimento — solo `failure`/`timed_out`/`cancelled`/`action_required` lo sono.
+ */
+function githubCheckStatus(status: unknown, conclusion: unknown): CheckOutcomeStatus {
+  if (status !== "completed") return "pending";
+  if (conclusion === "success" || conclusion === "neutral" || conclusion === "skipped") {
+    return "success";
+  }
+  return "failure";
 }

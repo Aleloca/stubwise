@@ -172,6 +172,122 @@ describe("GitHubProvider.getPullRequestState", () => {
   });
 });
 
+describe("GitHubProvider.getPullRequestChecks", () => {
+  function fetchSequence(prResponse: Response, checksResponse: Response) {
+    const fetchImpl = vi.fn();
+    fetchImpl.mockResolvedValueOnce(prResponse).mockResolvedValueOnce(checksResponse);
+    return fetchImpl;
+  }
+
+  it("tutti verdi → status success", async () => {
+    const fetchImpl = fetchSequence(
+      jsonResponse({ head: { sha: "abc123" } }, 200),
+      jsonResponse(
+        {
+          check_runs: [
+            { name: "build", status: "completed", conclusion: "success" },
+            { name: "test", status: "completed", conclusion: "success" },
+          ],
+        },
+        200
+      )
+    );
+    const provider = new GitHubProvider({ fetchImpl });
+
+    const result = await provider.getPullRequestChecks(config, 42);
+
+    expect(result).toEqual({
+      status: "success",
+      checks: [
+        { name: "build", status: "success" },
+        { name: "test", status: "success" },
+      ],
+    });
+    expect(fetchImpl).toHaveBeenNthCalledWith(
+      2,
+      "https://api.github.com/repos/octo/repo/commits/abc123/check-runs?per_page=100",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("un check rosso → status failure, anche se gli altri sono verdi", async () => {
+    const fetchImpl = fetchSequence(
+      jsonResponse({ head: { sha: "abc123" } }, 200),
+      jsonResponse(
+        {
+          check_runs: [
+            { name: "build", status: "completed", conclusion: "success" },
+            { name: "test", status: "completed", conclusion: "failure" },
+          ],
+        },
+        200
+      )
+    );
+    const provider = new GitHubProvider({ fetchImpl });
+
+    const result = await provider.getPullRequestChecks(config, 42);
+    expect(result.status).toBe("failure");
+    expect(result.checks).toContainEqual({ name: "test", status: "failure" });
+  });
+
+  it("un check ancora in corso (non completed) → status pending", async () => {
+    const fetchImpl = fetchSequence(
+      jsonResponse({ head: { sha: "abc123" } }, 200),
+      jsonResponse({ check_runs: [{ name: "build", status: "in_progress", conclusion: null }] }, 200)
+    );
+    const provider = new GitHubProvider({ fetchImpl });
+
+    const result = await provider.getPullRequestChecks(config, 42);
+    expect(result).toEqual({ status: "pending", checks: [{ name: "build", status: "pending" }] });
+  });
+
+  it("nessun check configurato → 'no_checks', DIVERSO da 'failure'", async () => {
+    const fetchImpl = fetchSequence(
+      jsonResponse({ head: { sha: "abc123" } }, 200),
+      jsonResponse({ check_runs: [] }, 200)
+    );
+    const provider = new GitHubProvider({ fetchImpl });
+
+    const result = await provider.getPullRequestChecks(config, 42);
+    expect(result).toEqual({ status: "no_checks", checks: [] });
+  });
+
+  it("errore di rete: non lancia, ricade su no_checks", async () => {
+    const fetchImpl = vi.fn().mockRejectedValue(new Error("network down"));
+    const provider = new GitHubProvider({ fetchImpl });
+
+    const result = await provider.getPullRequestChecks(config, 42);
+    expect(result).toEqual({ status: "no_checks", checks: [] });
+  });
+
+  it("PR inesistente (404 sul fetch della PR): non lancia, ricade su no_checks", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("nope", { status: 404 }));
+    const provider = new GitHubProvider({ fetchImpl });
+
+    const result = await provider.getPullRequestChecks(config, 42);
+    expect(result).toEqual({ status: "no_checks", checks: [] });
+  });
+
+  it("neutral/skipped non bloccano il rollup", async () => {
+    const fetchImpl = fetchSequence(
+      jsonResponse({ head: { sha: "abc123" } }, 200),
+      jsonResponse(
+        {
+          check_runs: [
+            { name: "lint", status: "completed", conclusion: "neutral" },
+            { name: "build", status: "completed", conclusion: "success" },
+          ],
+        },
+        200
+      )
+    );
+    const provider = new GitHubProvider({ fetchImpl });
+
+    const result = await provider.getPullRequestChecks(config, 42);
+    expect(result.status).toBe("success");
+  });
+});
+
 describe("GitHubProvider.upsertPrComment", () => {
   const MARKER = "<!-- stubwise-pr-review -->";
 
