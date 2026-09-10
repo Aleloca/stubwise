@@ -1230,12 +1230,63 @@ export const savedViews = pgTable(
 );
 
 /**
+ * AMBIENTE di un progetto (fase 8): `test` | `staging` | `production`, con URL
+ * facoltativo e collegamento facoltativo a un server già monitorato
+ * (`servers.id`, SET NULL: scollegare/cancellare il server non cancella
+ * l'ambiente, lo lascia solo senza il campione «cosa gira lì»).
+ *
+ * Ogni progetto riceve un ambiente `test` dalla migrazione 0074 (backfill):
+ * non è opzionale, è la destinazione di ogni riga di `projectEnvFiles`
+ * esistente prima di questa fase. Gli ambienti `staging`/`production` sono
+ * opt-in, creati dal maintainer.
+ *
+ * **Stubwise non esegue né rilascia ambienti** (design §1/§6): questa riga è
+ * solo un'ANAGRAFICA — nome, tipo, dove sta, cosa ci gira (letto
+ * dall'agente di monitoraggio via `serverId`, fase 8 §3). L'unico ambiente
+ * che la pipeline di fix può mai leggere è `test`, e non per questa tabella
+ * ma per il controllo in `apps/worker/src/pipeline/env-files.ts`
+ * (`loadProjectEnvFiles`, invariante della fase).
+ */
+export const projectEnvironments = pgTable(
+  "project_environments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    kind: text("kind").$type<"test" | "staging" | "production">().notNull(),
+    url: text("url"),
+    serverId: uuid("server_id").references(() => servers.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    // Nome univoco per progetto (es. due "staging" nello stesso progetto non
+    // avrebbero senso: quale dei due leggerebbe la pipeline?).
+    uniqueIndex("project_environments_project_id_name_unique").on(table.projectId, table.name),
+    check(
+      "project_environments_kind_chk",
+      sql`kind in ('test', 'staging', 'production')`,
+    ),
+  ],
+);
+
+/**
  * File d'ambiente configurato per un progetto (es. ".env", ".env.local"): un
  * percorso relativo nel worktree in cui il worker materializza le variabili
  * cifrate prima della fase di fix/verifica. `path` è il percorso relativo del
- * file. Cancellato in cascata col progetto. L'unique (project_id, path) vieta
- * due file omonimi nello stesso progetto, ma ammette lo stesso path in progetti
- * diversi.
+ * file. Cancellato in cascata col progetto.
+ *
+ * `environmentId` (fase 8): la chiave guadagna la dimensione AMBIENTE — non è
+ * più "il .env del repository", è "il .env del repository IN QUELL'ambiente".
+ * L'unique (repository, ambiente, path) vieta due file omonimi nello stesso
+ * ambiente dello stesso repository, ma ammette lo stesso path in ambienti (o
+ * repository) diversi — uno `staging/.env` e un `production/.env` con le
+ * stesse chiavi e valori diversi sono il caso normale, non un conflitto.
  */
 export const projectEnvFiles = pgTable(
   "project_env_files",
@@ -1244,6 +1295,9 @@ export const projectEnvFiles = pgTable(
     repositoryId: uuid("repository_id")
       .notNull()
       .references(() => repositories.id, { onDelete: "cascade" }),
+    environmentId: uuid("environment_id")
+      .notNull()
+      .references(() => projectEnvironments.id, { onDelete: "cascade" }),
     path: text("path").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true })
@@ -1252,8 +1306,12 @@ export const projectEnvFiles = pgTable(
       .$onUpdate(() => new Date()),
   },
   (table) => [
-    // Percorso univoco per repository.
-    uniqueIndex("project_env_files_project_id_path_unique").on(table.repositoryId, table.path),
+    // Percorso univoco per repository E ambiente.
+    uniqueIndex("project_env_files_repository_environment_path_unique").on(
+      table.repositoryId,
+      table.environmentId,
+      table.path,
+    ),
   ],
 );
 

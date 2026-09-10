@@ -6,7 +6,14 @@ import type { GitProviderKind } from "@stubwise/shared";
 import type postgres from "postgres";
 import { randomUUID } from "node:crypto";
 import { createDb, runMigrations, type Db } from "./client.js";
-import { gitAccounts, projects, repositories, ticketRepositories, tickets } from "./schema.js";
+import {
+  gitAccounts,
+  projectEnvironments,
+  projects,
+  repositories,
+  ticketRepositories,
+  tickets,
+} from "./schema.js";
 
 export interface TestDb {
   db: Db;
@@ -135,6 +142,33 @@ export async function seedRepositoryInProject(
     .returning();
   if (!repository) throw new Error("insert del repository di test non ha restituito la riga");
   return repository.id;
+}
+
+let environmentSeq = 0;
+
+/**
+ * Crea un ambiente per un progetto esistente e ne restituisce l'id (fase 8):
+ * comodo nei test di `project_env_files`, che dalla migrazione 0074 richiedono
+ * un `environmentId`. Nome univoco per chiamata (l'unique è per progetto), e
+ * `kind: "test"` di default — è l'unico tipo che la pipeline di fix può mai
+ * materializzare in un worktree (`loadProjectEnvFiles`).
+ */
+export async function seedEnvironment(
+  db: Db,
+  projectId: string,
+  opts: { name?: string; kind?: "test" | "staging" | "production" } = {},
+): Promise<string> {
+  environmentSeq++;
+  const [row] = await db
+    .insert(projectEnvironments)
+    .values({
+      projectId,
+      name: opts.name ?? `ambiente-di-test-${environmentSeq}`,
+      kind: opts.kind ?? "test",
+    })
+    .returning();
+  if (!row) throw new Error("insert dell'ambiente di test non ha restituito la riga");
+  return row.id;
 }
 
 /**

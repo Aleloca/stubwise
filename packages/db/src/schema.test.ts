@@ -28,9 +28,11 @@ import {
   personalAccessTokens,
   projectEnvFiles,
   projectEnvVars,
+  projectEnvironments,
   projects,
   repositories,
   savedViews,
+  servers,
   ticketEvents,
   ticketLinks,
   ticketRepositories,
@@ -38,6 +40,7 @@ import {
   users,
 } from "./schema.js";
 import {
+  seedEnvironment,
   seedGitAccount,
   seedRepository,
   seedRepositoryInProject,
@@ -1625,11 +1628,102 @@ describe("schema: ai_providers + ai_usage_snapshots + ai_jobs.providerId", () =>
 });
 
 /**
+ * Verifica `project_environments` (fase 8): l'anagrafica test|staging|
+ * production di un progetto. Unique (project_id, name), CHECK su kind,
+ * cascata dal progetto, SET NULL dal server collegato.
+ */
+describe("schema: project_environments", () => {
+  let testDb: TestDb;
+  let db: Db;
+
+  beforeAll(async () => {
+    testDb = await startTestDb();
+    db = testDb.db;
+  });
+
+  afterAll(async () => {
+    await testDb.stop();
+  });
+
+  it("persiste nome/tipo/url e li rilegge", async () => {
+    const { projectId } = await seedRepository(db);
+    const [env] = await db
+      .insert(projectEnvironments)
+      .values({ projectId, name: "staging", kind: "staging", url: "https://staging.acme.test" })
+      .returning();
+    expect(env?.projectId).toBe(projectId);
+    expect(env?.name).toBe("staging");
+    expect(env?.kind).toBe("staging");
+    expect(env?.url).toBe("https://staging.acme.test");
+    expect(env?.serverId).toBeNull();
+  });
+
+  it("vieta due ambienti con lo stesso nome nello stesso progetto, ammette lo stesso nome in progetti diversi", async () => {
+    const { projectId: p1 } = await seedRepository(db);
+    const { projectId: p2 } = await seedRepository(db);
+    await db.insert(projectEnvironments).values({ projectId: p1, name: "staging", kind: "staging" });
+
+    await expect(
+      db.insert(projectEnvironments).values({ projectId: p1, name: "staging", kind: "production" }),
+    ).rejects.toThrow();
+
+    const [other] = await db
+      .insert(projectEnvironments)
+      .values({ projectId: p2, name: "staging", kind: "staging" })
+      .returning();
+    expect(other?.projectId).toBe(p2);
+  });
+
+  it("il CHECK su kind rifiuta un valore fuori da test|staging|production", async () => {
+    const { projectId } = await seedRepository(db);
+    await expect(
+      db.insert(projectEnvironments).values({ projectId, name: "x", kind: "canary" as never }),
+    ).rejects.toThrow();
+  });
+
+  it("cancella in cascata gli ambienti quando il progetto viene eliminato", async () => {
+    const { projectId } = await seedRepository(db);
+    const environmentId = await seedEnvironment(db, projectId);
+
+    await db.delete(projects).where(eq(projects.id, projectId));
+
+    const rows = await db
+      .select()
+      .from(projectEnvironments)
+      .where(eq(projectEnvironments.id, environmentId));
+    expect(rows.length).toBe(0);
+  });
+
+  it("un server collegato: SET NULL alla cancellazione (l'ambiente sopravvive)", async () => {
+    const { projectId } = await seedRepository(db);
+    const [server] = await db
+      .insert(servers)
+      .values({ name: "vps-1", keyHash: `hash-${randomUUID()}` })
+      .returning();
+    if (!server) throw new Error("insert del server di test non ha restituito la riga");
+
+    const [env] = await db
+      .insert(projectEnvironments)
+      .values({ projectId, name: "staging", kind: "staging", serverId: server.id })
+      .returning();
+    expect(env?.serverId).toBe(server.id);
+
+    await db.delete(servers).where(eq(servers.id, server.id));
+
+    const [reread] = await db
+      .select()
+      .from(projectEnvironments)
+      .where(eq(projectEnvironments.id, env!.id));
+    expect(reread?.serverId).toBeNull();
+  });
+});
+
+/**
  * Verifica le tabelle dei file d'ambiente per progetto: project_env_files
- * (path, unique per (project_id, path)) e project_env_vars (key +
- * value_encrypted, unique per (file_id, key)). In particolare la cancellazione
- * in cascata: eliminando un file spariscono le sue variabili; eliminando il
- * progetto spariscono file e variabili.
+ * (path, unique per (repository_id, environment_id, path)) e project_env_vars
+ * (key + value_encrypted, unique per (file_id, key)). In particolare la
+ * cancellazione in cascata: eliminando un file spariscono le sue variabili;
+ * eliminando il progetto spariscono ambiente, file e variabili.
  */
 describe("schema: project_env_files + project_env_vars", () => {
   let testDb: TestDb;
@@ -1644,19 +1738,32 @@ describe("schema: project_env_files + project_env_vars", () => {
     await testDb.stop();
   });
 
-  async function seedProject(): Promise<{ projectId: string; repositoryId: string }> {
-    return seedRepository(db);
+  async function seedProject(): Promise<{
+    projectId: string;
+    repositoryId: string;
+    environmentId: string;
+  }> {
+    const { projectId, repositoryId } = await seedRepository(db);
+    const environmentId = await seedEnvironment(db, projectId);
+    return { projectId, repositoryId, environmentId };
   }
 
-  async function seedEnvFile(repositoryId: string, path = ".env"): Promise<string> {
-    const [file] = await db.insert(projectEnvFiles).values({ repositoryId, path }).returning();
+  async function seedEnvFile(
+    repositoryId: string,
+    environmentId: string,
+    path = ".env",
+  ): Promise<string> {
+    const [file] = await db
+      .insert(projectEnvFiles)
+      .values({ repositoryId, environmentId, path })
+      .returning();
     if (!file) throw new Error("insert del file env non ha restituito la riga");
     return file.id;
   }
 
   it("persiste un file con due variabili e le rilegge", async () => {
-    const { repositoryId } = await seedProject();
-    const fileId = await seedEnvFile(repositoryId, ".env");
+    const { repositoryId, environmentId } = await seedProject();
+    const fileId = await seedEnvFile(repositoryId, environmentId, ".env");
 
     const [file] = await db.select().from(projectEnvFiles).where(eq(projectEnvFiles.id, fileId));
     expect(file?.repositoryId).toBe(repositoryId);
@@ -1677,8 +1784,8 @@ describe("schema: project_env_files + project_env_vars", () => {
   });
 
   it("cancella in cascata le variabili quando il file viene eliminato", async () => {
-    const { repositoryId } = await seedProject();
-    const fileId = await seedEnvFile(repositoryId);
+    const { repositoryId, environmentId } = await seedProject();
+    const fileId = await seedEnvFile(repositoryId, environmentId);
     await db.insert(projectEnvVars).values({ fileId, key: "FOO", valueEncrypted: "x" });
 
     const before = await db.select().from(projectEnvVars).where(eq(projectEnvVars.fileId, fileId));
@@ -1691,8 +1798,8 @@ describe("schema: project_env_files + project_env_vars", () => {
   });
 
   it("cancella in cascata file e variabili quando il progetto viene eliminato", async () => {
-    const { projectId, repositoryId } = await seedProject();
-    const fileId = await seedEnvFile(repositoryId);
+    const { projectId, repositoryId, environmentId } = await seedProject();
+    const fileId = await seedEnvFile(repositoryId, environmentId);
     await db.insert(projectEnvVars).values({ fileId, key: "BAR", valueEncrypted: "y" });
 
     await db.delete(projects).where(eq(projects.id, projectId));
@@ -1706,27 +1813,43 @@ describe("schema: project_env_files + project_env_vars", () => {
     expect(vars.length).toBe(0);
   });
 
-  it("vieta due file con lo stesso (repository_id, path), ammette stesso path in repository diversi", async () => {
+  it("vieta due file con lo stesso (repository, ambiente, path); ammette stesso path in repository diversi O in ambienti diversi dello STESSO repository", async () => {
     const a = await seedProject();
     const b = await seedProject();
-    await db.insert(projectEnvFiles).values({ repositoryId: a.repositoryId, path: ".env" });
+    await db
+      .insert(projectEnvFiles)
+      .values({ repositoryId: a.repositoryId, environmentId: a.environmentId, path: ".env" });
 
+    // Stesso repository, stesso ambiente, stesso path: vietato.
     await expect(
-      db.insert(projectEnvFiles).values({ repositoryId: a.repositoryId, path: ".env" }),
+      db
+        .insert(projectEnvFiles)
+        .values({ repositoryId: a.repositoryId, environmentId: a.environmentId, path: ".env" }),
     ).rejects.toThrow();
 
+    // Stesso repository, ambiente DIVERSO (fase 8: staging accanto a test),
+    // stesso path: ammesso — è il caso normale, non un conflitto.
+    const stagingId = await seedEnvironment(db, a.projectId, { name: "staging", kind: "staging" });
+    const [inStaging] = await db
+      .insert(projectEnvFiles)
+      .values({ repositoryId: a.repositoryId, environmentId: stagingId, path: ".env" })
+      .returning();
+    expect(inStaging?.repositoryId).toBe(a.repositoryId);
+    expect(inStaging?.environmentId).toBe(stagingId);
+
+    // Repository diverso, stesso path: ammesso, come prima della fase 8.
     const [other] = await db
       .insert(projectEnvFiles)
-      .values({ repositoryId: b.repositoryId, path: ".env" })
+      .values({ repositoryId: b.repositoryId, environmentId: b.environmentId, path: ".env" })
       .returning();
     expect(other?.repositoryId).toBe(b.repositoryId);
     expect(other?.path).toBe(".env");
   });
 
   it("vieta due variabili con la stessa (file_id, key), ammette stessa key in file diversi", async () => {
-    const { repositoryId } = await seedProject();
-    const fileA = await seedEnvFile(repositoryId, ".env");
-    const fileB = await seedEnvFile(repositoryId, ".env.local");
+    const { repositoryId, environmentId } = await seedProject();
+    const fileA = await seedEnvFile(repositoryId, environmentId, ".env");
+    const fileB = await seedEnvFile(repositoryId, environmentId, ".env.local");
     await db.insert(projectEnvVars).values({ fileId: fileA, key: "TOKEN", valueEncrypted: "a" });
 
     await expect(
