@@ -177,14 +177,14 @@ intervallo.
 
 ### Task 8: documentazione
 
-- `CLAUDE.md`: voce «Fase 9» (rebuild, migrazione 0075 **con dati**, rollback) e
-  l'invariante nuovo: **il calendario ingerisce tutto, propone solo ciò che è in
-  perimetro** — col puntatore alla riga. ⚠️ Scrivi anche l'avvertenza di
-  rollback del design §6: dopo questa fase il database contiene tutti gli
-  appuntamenti, e per un binario senza il filtro in proposta sarebbero
-  proponibili
-- `apps/docs`: guida utente — cosa si vede nel calendario e perché non tutto
-  produce proposte; come si legge un'email e perché le immagini sono bloccate
+- `CLAUDE.md`: voce «Fase 9» (rebuild, migrazione 0075 **con dati**, finestra
+  del calendario allargata all'indietro, rollback) e l'invariante nuovo:
+  **il corpo HTML di un'email non si conserva mai** — si rilegge e si sanifica
+  per la singola risposta, e si rende in un iframe in sandbox. Col puntatore
+  alla riga
+- `apps/docs`: guida utente — **perché il calendario mostra solo alcuni
+  appuntamenti** e dove si cambiano le regole che lo decidono; come si legge
+  un'email e perché le immagini remote sono bloccate
 - ⚠️ Verifica ogni affermazione contro il codice, non contro il piano
 
 **Commit** `docs(fase9): CLAUDE.md e guida utente`.
