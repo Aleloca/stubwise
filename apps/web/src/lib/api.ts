@@ -2002,6 +2002,26 @@ export function getCalendarEvents(
   return api.get(`/api/me/calendar${query ? `?${query}` : ""}`);
 }
 
+/** Un intervallo `[from, to)` per la griglia (fase 9, Task 6) — vedi `MAX_RANGE_DAYS` lato server. */
+export interface CalendarRangeFilters {
+  from: string;
+  to: string;
+  account?: string;
+}
+
+/**
+ * "Gli eventi di un intervallo" (fase 9, Task 3/6): quello che vuole una
+ * griglia, a differenza del keyset di `getCalendarEvents` sopra — porta
+ * anche i campi che il pannello di dettaglio chiede (`endsAt`, `allDay`,
+ * `attendees`, `eventUrl`). Nessun `nextCursor`: l'ampiezza dell'intervallo
+ * è già limitata lato server.
+ */
+export function getCalendarRange(filters: CalendarRangeFilters): Promise<CalendarEventPage> {
+  const params = new URLSearchParams({ from: filters.from, to: filters.to });
+  if (filters.account) params.set("account", filters.account);
+  return api.get(`/api/me/calendar/range?${params.toString()}`);
+}
+
 /** Le serie ricorrenti riconosciute, con la loro configurazione (o i default, se mai configurate — cioè spente). */
 export function getCalendarSeries(account?: string): Promise<CalendarSeriesList> {
   const query = account ? `?account=${encodeURIComponent(account)}` : "";

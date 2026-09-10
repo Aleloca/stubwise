@@ -2411,6 +2411,35 @@
   "calendar": {
     "title": "Calendar",
     "subtitle": "Appointments seen and recurring series, from the mailboxes you connected.",
+    "view": {
+      "day": "Day",
+      "week": "Week",
+      "month": "Month",
+      "today": "Today",
+      "previous": "Previous",
+      "next": "Next"
+    },
+    "accounts": {
+      "heading": "Mailboxes"
+    },
+    "detail": {
+      "selectPrompt": "Select an appointment to see its details here.",
+      "openInGoogle": "Open in Google Calendar",
+      "attendees": "Attendees",
+      "allDayOn": "All day, {{date}}"
+    },
+    "attendeeStatus": {
+      "accepted": "Accepted",
+      "declined": "Declined",
+      "tentative": "Maybe",
+      "needsAction": "No reply yet",
+      "unknown": "Unknown"
+    },
+    "empty": {
+      "heading": "// nothing here",
+      "body": "The calendar only shows appointments that match a project's mail routing rules — an empty week is normal, not a bug.",
+      "linkHint": "Change which appointments show up"
+    },
     "series": {
       "heading": "Recurring series",
       "subtitle": "A series is off by default: it produces nothing until you turn it on here.",

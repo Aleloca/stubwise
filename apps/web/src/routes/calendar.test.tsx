@@ -1,14 +1,31 @@
+import type { CalendarEventItem } from "@stubwise/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, RouterProvider } from "@tanstack/react-router";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createAppRouter } from "../router";
 
 /**
- * `/calendar` (fase 7b, Task 9): serie ricorrenti (spente di default) +
- * appuntamenti visti. Stesso stile di `mail.test.tsx`.
+ * `/calendar` (fase 9, Task 6/7, design §4): la griglia giorno/settimana/mese
+ * al posto dell'elenco piatto della 7b. I tre casi che il piano chiede
+ * esplicitamente: un evento a cavallo di mezzanotte, un evento «tutto il
+ * giorno», e una settimana vuota che SPIEGA perché (non sembra rotta).
+ *
+ * `TZ` fissato a UTC (non a un fuso negativo come in `calendar-grid.test.ts`,
+ * che copre già quell'estremo): qui l'obiettivo è la resa a schermo, non i
+ * fusi — fissarlo evita solo che l'ambiente CI e quello locale vedano
+ * settimane diverse.
  */
+const ORIGINAL_TZ = process.env.TZ;
+
+beforeAll(() => {
+  process.env.TZ = "UTC";
+});
+
+afterAll(() => {
+  process.env.TZ = ORIGINAL_TZ;
+});
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(status === 204 ? null : JSON.stringify(body), {
@@ -21,10 +38,15 @@ const fetchMock = vi.fn<typeof fetch>();
 
 beforeEach(() => {
   vi.stubGlobal("fetch", fetchMock);
+  // Sabato 12 settembre 2026, mezzogiorno UTC: dentro la settimana lunedì
+  // 7 - domenica 13, la vista di default della pagina.
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  vi.setSystemTime(new Date("2026-09-12T12:00:00.000Z"));
 });
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.useRealTimers();
   fetchMock.mockReset();
 });
 
@@ -60,37 +82,27 @@ const GOOGLE_ACCOUNTS = [
   },
 ];
 
-const OFF_SERIES = {
-  accountId: ACCOUNT_ID,
-  accountEmail: "mailbox@acme.test",
-  recurringEventId: "serie-1",
-  title: "Pianificazione task",
-  occurrenceCount: 730,
-  nextOccurrenceAt: null,
-  enabled: false,
-  projectId: null,
-  projectName: null,
-  action: "milestone",
-  leadDays: 2,
-  auto: false,
-};
-
-const EVENT = {
-  id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
-  accountId: ACCOUNT_ID,
-  accountEmail: "mailbox@acme.test",
-  recurringEventId: null,
-  projectId: PROJECT_ID,
-  projectName: "Apollo",
-  title: "Demo col cliente",
-  organizer: "laura@cliente.test",
-  startsAt: "2026-09-20T10:00:00.000Z",
-  status: "new",
-  outcome: null,
-  error: null,
-  url: "https://calendar.google.com/calendar/u/mailbox@acme.test/r/day/2026/9/20",
-  reproposable: false,
-};
+function event(overrides: Partial<CalendarEventItem> & Pick<CalendarEventItem, "id" | "startsAt">): CalendarEventItem {
+  return {
+    accountId: ACCOUNT_ID,
+    accountEmail: "mailbox@acme.test",
+    recurringEventId: null,
+    projectId: PROJECT_ID,
+    projectName: "Apollo",
+    title: "Evento",
+    organizer: "laura@cliente.test",
+    attendees: [],
+    endsAt: null,
+    allDay: false,
+    status: "new",
+    outcome: null,
+    error: null,
+    url: "https://calendar.google.com/calendar/u/mailbox@acme.test/r/day/2026/9/12",
+    eventUrl: null,
+    reproposable: false,
+    ...overrides,
+  };
+}
 
 function baseApi(overrides: Record<string, Handler> = {}): Record<string, Handler> {
   return {
@@ -99,13 +111,13 @@ function baseApi(overrides: Record<string, Handler> = {}): Record<string, Handle
     "GET /api/projects": () => jsonResponse(200, PROJECTS),
     "GET /api/inbox/unread-count": () => jsonResponse(200, { count: 0 }),
     "GET /api/me/google/accounts": () => jsonResponse(200, GOOGLE_ACCOUNTS),
-    "GET /api/me/calendar/series": () => jsonResponse(200, { items: [OFF_SERIES] }),
-    "GET /api/me/calendar": () => jsonResponse(200, { items: [EVENT], nextCursor: null }),
+    "GET /api/me/calendar/series": () => jsonResponse(200, { items: [] }),
+    "GET /api/me/calendar/range": () => jsonResponse(200, { items: [], nextCursor: null }),
     ...overrides,
   };
 }
 
-function renderCalendar() {
+async function renderCalendar() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
@@ -114,79 +126,117 @@ function renderCalendar() {
       />
     </QueryClientProvider>,
   );
+  await screen.findByRole("heading", { name: "Calendar" });
   return queryClient;
 }
 
-describe("pagina /calendar", () => {
-  it("elenca serie e appuntamenti; una serie mai accesa mostra 'Off'", async () => {
-    mockApi(baseApi());
-    renderCalendar();
+describe("pagina /calendar — la griglia (fase 9)", () => {
+  it("un evento a cavallo di mezzanotte compare in ENTRAMBE le colonne dei giorni che tocca", async () => {
+    const spanning = event({
+      id: "e-midnight",
+      title: "Notte fonda",
+      startsAt: "2026-09-11T23:00:00.000Z",
+      endsAt: "2026-09-12T01:00:00.000Z",
+    });
+    mockApi(baseApi({ "GET /api/me/calendar/range": () => jsonResponse(200, { items: [spanning], nextCursor: null }) }));
+    await renderCalendar();
 
-    await screen.findByRole("heading", { name: "Calendar" });
-    expect(screen.getByText("Pianificazione task")).toBeInTheDocument();
-    expect(screen.getByText("Off")).toBeInTheDocument();
-    expect(screen.getByText(/Demo col cliente/)).toBeInTheDocument();
+    expect(await screen.findAllByText("Notte fonda")).toHaveLength(2);
   });
 
-  it("le 730 occorrenze passate compaiono come una serie spenta, non un fantasma", async () => {
-    mockApi(baseApi());
-    renderCalendar();
+  it("un evento tutto il giorno compare nella riga dedicata, non nella griglia oraria", async () => {
+    const allDay = event({
+      id: "e-allday",
+      title: "Ferie",
+      startsAt: "2026-09-10T00:00:00.000Z",
+      allDay: true,
+    });
+    mockApi(baseApi({ "GET /api/me/calendar/range": () => jsonResponse(200, { items: [allDay], nextCursor: null }) }));
+    await renderCalendar();
 
-    await screen.findByText("Pianificazione task");
-    expect(screen.getByTestId("series-meta")).toHaveTextContent("730 occurrences tracked · nothing upcoming");
+    expect(await screen.findByText("Ferie")).toBeInTheDocument();
   });
 
-  it("accendere una serie senza progetto è rifiutato lato client, prima di chiamare il server", async () => {
+  it("una settimana vuota SPIEGA perché — non sembra rotta", async () => {
     mockApi(baseApi());
-    renderCalendar();
-    await screen.findByText("Pianificazione task");
+    await renderCalendar();
 
-    await userEvent.click(screen.getByRole("button", { name: "Turn on" }));
-    await userEvent.click(screen.getByRole("checkbox", { name: "Enabled" }));
-    await userEvent.click(screen.getByRole("button", { name: "Save" }));
-
-    await screen.findByText("Choose a project before turning this series on.");
-    expect(fetchMock.mock.calls.some((call) => String(call[0]).includes("/series/serie-1"))).toBe(false);
+    expect(await screen.findByText(/only shows appointments that match a project's mail routing rules/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Change which appointments show up" })).toBeInTheDocument();
   });
 
-  it("accendere una serie con progetto scelto: PUT con enabled true e il progetto", async () => {
-    let putBody: unknown;
+  it("selezionare un evento apre il pannello di dettaglio con partecipanti e link a Google Calendar", async () => {
+    const withGuests = event({
+      id: "e-detail",
+      title: "Demo col cliente",
+      organizer: "organizer@cliente.test",
+      startsAt: "2026-09-08T10:00:00.000Z",
+      endsAt: "2026-09-08T11:00:00.000Z",
+      eventUrl: "https://calendar.google.com/event?eid=abc",
+      attendees: [{ email: "laura@cliente.test", responseStatus: "accepted" }],
+    });
+    mockApi(baseApi({ "GET /api/me/calendar/range": () => jsonResponse(200, { items: [withGuests], nextCursor: null }) }));
+    await renderCalendar();
+
+    await userEvent.click(await screen.findByText("Demo col cliente"));
+
+    expect(await screen.findByText("laura@cliente.test")).toBeInTheDocument();
+    expect(screen.getByText("Accepted")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open in Google Calendar" })).toHaveAttribute(
+      "href",
+      "https://calendar.google.com/event?eid=abc",
+    );
+  });
+
+  it("un evento SENZA serie non mostra la configurazione della serie nel dettaglio", async () => {
+    const standalone = event({ id: "e-standalone", startsAt: "2026-09-08T10:00:00.000Z" });
+    mockApi(baseApi({ "GET /api/me/calendar/range": () => jsonResponse(200, { items: [standalone], nextCursor: null }) }));
+    await renderCalendar();
+
+    await userEvent.click(await screen.findByText("Evento"));
+
+    expect(screen.queryByText("Recurring series")).not.toBeInTheDocument();
+  });
+
+  it("un evento DI UNA serie mostra la configurazione, raggiungibile solo da lì", async () => {
+    const recurring = event({ id: "e-recurring", startsAt: "2026-09-08T10:00:00.000Z", recurringEventId: "serie-1" });
     mockApi(
       baseApi({
-        "PUT /api/me/calendar/series/serie-1": (_url, init) => {
-          putBody = JSON.parse(String(init?.body));
-          return jsonResponse(200, { ok: true });
-        },
+        "GET /api/me/calendar/range": () => jsonResponse(200, { items: [recurring], nextCursor: null }),
+        "GET /api/me/calendar/series": () =>
+          jsonResponse(200, {
+            items: [
+              {
+                accountId: ACCOUNT_ID,
+                accountEmail: "mailbox@acme.test",
+                recurringEventId: "serie-1",
+                title: "Evento",
+                occurrenceCount: 5,
+                nextOccurrenceAt: "2026-09-15T10:00:00.000Z",
+                enabled: false,
+                projectId: null,
+                projectName: null,
+                action: "milestone",
+                leadDays: 2,
+                auto: false,
+              },
+            ],
+          }),
       }),
     );
-    renderCalendar();
-    await screen.findByText("Pianificazione task");
+    await renderCalendar();
 
-    await userEvent.click(screen.getByRole("button", { name: "Turn on" }));
-    const panel = screen.getByText("Enabled").closest("div")!.parentElement!;
-    await userEvent.click(screen.getByRole("checkbox", { name: "Enabled" }));
-    await userEvent.selectOptions(within(panel).getByLabelText("Project"), "Apollo");
-    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    await userEvent.click(await screen.findByText("Evento"));
 
-    expect(putBody).toMatchObject({ accountId: ACCOUNT_ID, enabled: true, projectId: PROJECT_ID });
+    expect(await screen.findByText("Recurring series")).toBeInTheDocument();
   });
 
-  it("la copy dice esplicitamente che una serie è spenta di default e perché", async () => {
+  it("il cambio vista (Giorno/Settimana/Mese) resta sulla pagina e aggiorna l'etichetta dell'intervallo", async () => {
     mockApi(baseApi());
-    renderCalendar();
-    await screen.findByText("Pianificazione task");
-    await userEvent.click(screen.getByRole("button", { name: "Turn on" }));
+    await renderCalendar();
 
-    expect(
-      screen.getByText(/Off by default — turning this on lets Stubwise act on every future occurrence/),
-    ).toBeInTheDocument();
-  });
-
-  it("nessuna serie: messaggio esplicito, non una lista vuota silenziosa", async () => {
-    mockApi(baseApi({ "GET /api/me/calendar/series": () => jsonResponse(200, { items: [] }) }));
-    renderCalendar();
-
-    await screen.findByRole("heading", { name: "Calendar" });
-    await screen.findByText("No recurring series seen yet.");
+    expect(screen.getByText(/Sep 7.*Sep 13/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Month" }));
+    expect(screen.getAllByText("September 2026").length).toBeGreaterThan(0);
   });
 });
