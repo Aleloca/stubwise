@@ -44,7 +44,11 @@ SELECT "id", 'test', 'test' FROM "projects";
 -- tolto PRIMA del nuovo, perché insistono sullo stesso repository_id/path e
 -- il nuovo li estende con l'ambiente.
 ALTER TABLE "project_env_files" ADD COLUMN "environment_id" uuid;--> statement-breakpoint
-DROP INDEX "project_env_files_project_id_path_unique";--> statement-breakpoint
+-- IF EXISTS (review fix Task 5, nit): il nome legacy è verificato coerente
+-- con quanto la fase precedente ha lasciato in produzione, quindi il rischio
+-- è basso — ma senza IF EXISTS un indice divergente farebbe fallire l'intero
+-- batch (una transazione sola) e il server non partirebbe. Costa una parola.
+DROP INDEX IF EXISTS "project_env_files_project_id_path_unique";--> statement-breakpoint
 
 -- Backfill 2/2: ogni riga esistente si collega all'ambiente `test` del
 -- progetto DEL PROPRIO repository (project_env_files -> repositories ->

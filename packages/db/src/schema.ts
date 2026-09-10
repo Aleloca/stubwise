@@ -1317,10 +1317,12 @@ export const projectEnvironments = pgTable(
 );
 
 /**
- * File d'ambiente configurato per un progetto (es. ".env", ".env.local"): un
+ * File d'ambiente configurato per un REPOSITORY (es. ".env", ".env.local"): un
  * percorso relativo nel worktree in cui il worker materializza le variabili
  * cifrate prima della fase di fix/verifica. `path` è il percorso relativo del
- * file. Cancellato in cascata col progetto.
+ * file. Cancellato in cascata sia dal repository sia dall'ambiente (fase 8,
+ * review fix Task 5 — questa frase è rimasta indietro dalla fase 8: parlava
+ * ancora di "progetto", il paragrafo sotto dice già la cosa giusta).
  *
  * `environmentId` (fase 8): la chiave guadagna la dimensione AMBIENTE — non è
  * più "il .env del repository", è "il .env del repository IN QUELL'ambiente".
