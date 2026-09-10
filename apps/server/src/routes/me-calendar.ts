@@ -38,6 +38,15 @@ import { authErrorResponses, errorSchema } from "./shared.js";
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
 
+/**
+ * Tetto dell'intervallo richiedibile da `GET /range` (fase 9, Task 3): una
+ * vista mese (con i giorni di contorno per riempire le settimane) è al più
+ * ~6 settimane; 100 giorni dà margine a un client che pre-carica un po'
+ * intorno all'intervallo visibile, senza permettere "dal 2021 al 2035" —
+ * che senza tetto leggerebbe l'intera tabella.
+ */
+const MAX_RANGE_DAYS = 100;
+
 // --- Cursore keyset in memoria, sulla coppia (startsAt, id) DESC -----------
 // Stessa forma di `me-mail.ts`: `date` qui è sempre `calendar_events.starts_at`
 // (un'unica sorgente, a differenza della pagina Posta che ne fonde tre).
@@ -106,6 +115,55 @@ export async function meCalendarRoutes(instance: FastifyInstance): Promise<void>
       const nextCursor =
         items.length > limit && last ? encodeCursor({ date: last.startsAt, id: last.id }) : null;
       return { items: page, nextCursor };
+    },
+  );
+
+  /**
+   * "Gli eventi di un intervallo" (fase 9, Task 3, design §5): la griglia
+   * (giorno/settimana/mese) vuole un `[from, to)`, non un keyset — a
+   * differenza di `GET /` (fase 7b), che resta per chi la usa ancora.
+   * Porta i campi in più che il pannello di dettaglio chiede: `endsAt`,
+   * `allDay`, `attendees` (con lo stato di risposta), `eventUrl` (il link
+   * DIRETTO, non quello alla sola giornata). Nessuna paginazione: l'ampiezza
+   * dell'intervallo è già limitata da {@link MAX_RANGE_DAYS}.
+   */
+  app.get(
+    "/range",
+    {
+      preHandler: requireAuth,
+      schema: {
+        querystring: z.object({
+          from: z.iso.datetime(),
+          to: z.iso.datetime(),
+          account: z.uuid().optional(),
+        }),
+        response: { 200: calendarEventPageSchema, 400: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const { from, to, account } = request.query;
+      const fromDate = new Date(from);
+      const toDate = new Date(to);
+      if (toDate <= fromDate) {
+        return apiError(reply, 400, "invalid_range", "'to' must be after 'from'");
+      }
+      const spanDays = (toDate.getTime() - fromDate.getTime()) / 86_400_000;
+      if (spanDays > MAX_RANGE_DAYS) {
+        return apiError(
+          reply,
+          400,
+          "range_too_wide",
+          `The requested range cannot span more than ${MAX_RANGE_DAYS} days`,
+        );
+      }
+
+      const items = await queryCalendarEventsInRange(app.db, {
+        userId: request.user!.id,
+        from: fromDate,
+        to: toDate,
+        ...(account ? { account } : {}),
+      });
+      return { items, nextCursor: null };
     },
   );
 
@@ -324,9 +382,13 @@ async function queryCalendarEvents(db: Db, input: ListCalendarInput): Promise<Ca
       projectName: projects.name,
       title: calendarEvents.title,
       organizer: calendarEvents.organizer,
+      attendees: calendarEvents.attendees,
       startsAt: calendarEvents.startsAt,
+      endsAt: calendarEvents.endsAt,
+      allDay: calendarEvents.allDay,
       status: calendarStatusCaseSql().as("normalized_status"),
       outcome: calendarEvents.outcome,
+      htmlLink: calendarEvents.htmlLink,
       reproposable: calendarReproposableSql().as("reproposable"),
     })
     .from(calendarEvents)
@@ -336,27 +398,104 @@ async function queryCalendarEvents(db: Db, input: ListCalendarInput): Promise<Ca
     .orderBy(desc(calendarEvents.startsAt), desc(calendarEvents.id))
     .limit(input.limit + 1);
 
-  return rows.map((row) => {
-    const outcome = row.outcome;
-    const error =
-      outcome && typeof outcome === "object" && typeof (outcome as Record<string, unknown>).error === "string"
-        ? ((outcome as Record<string, unknown>).error as string)
-        : null;
-    return {
-      id: row.id,
-      accountId: row.accountId,
-      accountEmail: row.accountEmail,
-      recurringEventId: row.recurringEventId,
-      projectId: row.projectId,
-      projectName: row.projectName,
-      title: row.title,
-      organizer: row.organizer,
-      startsAt: row.startsAt.toISOString(),
-      status: row.status as MailItemStatus,
-      outcome: row.outcome,
-      error,
-      url: calendarDayUrl(row.accountEmail, row.startsAt),
-      reproposable: row.reproposable,
-    };
-  });
+  return rows.map((row) => ({
+    id: row.id,
+    accountId: row.accountId,
+    accountEmail: row.accountEmail,
+    recurringEventId: row.recurringEventId,
+    projectId: row.projectId,
+    projectName: row.projectName,
+    title: row.title,
+    organizer: row.organizer,
+    // Fase 9, Task 3: questa lista (fase 7b) guadagna gli stessi campi del
+    // pannello di dettaglio per gratis — stessa tabella, nessun costo in
+    // più — invece di avere due forme divergenti di CalendarEventItem.
+    attendees: row.attendees,
+    startsAt: row.startsAt.toISOString(),
+    endsAt: row.endsAt ? row.endsAt.toISOString() : null,
+    allDay: row.allDay,
+    status: row.status as MailItemStatus,
+    outcome: row.outcome,
+    error: extractError(row.outcome),
+    url: calendarDayUrl(row.accountEmail, row.startsAt),
+    eventUrl: row.htmlLink,
+    reproposable: row.reproposable,
+  }));
+}
+
+/** `outcome.error`, quando l'esito è un fallimento — condiviso dalle due query. */
+function extractError(outcome: unknown): string | null {
+  return outcome && typeof outcome === "object" && typeof (outcome as Record<string, unknown>).error === "string"
+    ? ((outcome as Record<string, unknown>).error as string)
+    : null;
+}
+
+interface RangeCalendarInput {
+  userId: string;
+  from: Date;
+  to: Date;
+  account?: string;
+}
+
+/**
+ * "Gli eventi di un intervallo" (fase 9, Task 3): a differenza del keyset
+ * qui sopra, un evento entra se SI SOVRAPPONE all'intervallo — non solo se
+ * `startsAt` ci cade dentro — perché un evento a cavallo di mezzanotte (o
+ * comunque più lungo di un giorno) deve comparire su OGNI cella di griglia
+ * che tocca, non solo su quella del suo inizio. `coalesce(endsAt, startsAt)`
+ * copre le righe storiche senza `endsAt`.
+ */
+async function queryCalendarEventsInRange(db: Db, input: RangeCalendarInput): Promise<CalendarEventItem[]> {
+  const conditions = [
+    eq(googleAccounts.userId, input.userId),
+    sql`${calendarEvents.startsAt} < ${input.to.toISOString()}::timestamptz`,
+    sql`coalesce(${calendarEvents.endsAt}, ${calendarEvents.startsAt}) >= ${input.from.toISOString()}::timestamptz`,
+  ];
+  if (input.account) conditions.push(eq(calendarEvents.accountId, input.account));
+
+  const rows = await db
+    .select({
+      id: calendarEvents.id,
+      accountId: calendarEvents.accountId,
+      accountEmail: googleAccounts.email,
+      recurringEventId: calendarEvents.recurringEventId,
+      projectId: calendarEvents.projectId,
+      projectName: projects.name,
+      title: calendarEvents.title,
+      organizer: calendarEvents.organizer,
+      attendees: calendarEvents.attendees,
+      startsAt: calendarEvents.startsAt,
+      endsAt: calendarEvents.endsAt,
+      allDay: calendarEvents.allDay,
+      status: calendarStatusCaseSql().as("normalized_status"),
+      outcome: calendarEvents.outcome,
+      htmlLink: calendarEvents.htmlLink,
+      reproposable: calendarReproposableSql().as("reproposable"),
+    })
+    .from(calendarEvents)
+    .innerJoin(googleAccounts, eq(googleAccounts.id, calendarEvents.accountId))
+    .leftJoin(projects, eq(projects.id, calendarEvents.projectId))
+    .where(and(...conditions))
+    .orderBy(asc(calendarEvents.startsAt), asc(calendarEvents.id));
+
+  return rows.map((row) => ({
+    id: row.id,
+    accountId: row.accountId,
+    accountEmail: row.accountEmail,
+    recurringEventId: row.recurringEventId,
+    projectId: row.projectId,
+    projectName: row.projectName,
+    title: row.title,
+    organizer: row.organizer,
+    attendees: row.attendees,
+    startsAt: row.startsAt.toISOString(),
+    endsAt: row.endsAt ? row.endsAt.toISOString() : null,
+    allDay: row.allDay,
+    status: row.status as MailItemStatus,
+    outcome: row.outcome,
+    error: extractError(row.outcome),
+    url: calendarDayUrl(row.accountEmail, row.startsAt),
+    eventUrl: row.htmlLink,
+    reproposable: row.reproposable,
+  }));
 }

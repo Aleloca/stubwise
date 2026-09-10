@@ -339,6 +339,22 @@ describe("calendarEventItemSchema / calendarSeriesItemSchema (fase 7b)", () => {
     );
   });
 
+  it("senza endsAt/allDay/attendees/eventUrl (server pre-fase-9): default null/false/[] (fase 9, Task 3)", () => {
+    const parsed = calendarEventItemSchema.parse(eventBase);
+    expect(parsed.endsAt).toBeNull();
+    expect(parsed.allDay).toBe(false);
+    expect(parsed.attendees).toEqual([]);
+    expect(parsed.eventUrl).toBeNull();
+  });
+
+  it("porta i partecipanti con lo stato di risposta", () => {
+    const parsed = calendarEventItemSchema.parse({
+      ...eventBase,
+      attendees: [{ email: "cliente@acme.test", responseStatus: "accepted" }],
+    });
+    expect(parsed.attendees).toEqual([{ email: "cliente@acme.test", responseStatus: "accepted" }]);
+  });
+
   const seriesBase = {
     accountId: "22222222-2222-4222-8222-222222222222",
     accountEmail: "mailbox@acme.test",

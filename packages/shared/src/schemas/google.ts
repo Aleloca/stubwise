@@ -631,6 +631,15 @@ export type CalendarAttendee = z.infer<typeof calendarAttendeeSchema>;
  * {@link calendarSeriesItemSchema}. `title`/`organizer` sono testo NON
  * FIDATO (li scrive chi ha creato l'evento): chi li rende su una superficie
  * con markup li escapa, come `title`/`from` di {@link mailItemSchema}.
+ *
+ * `endsAt`/`allDay`/`attendees`/`eventUrl` (fase 9, Task 3) servono al
+ * pannello di dettaglio e alla griglia — assenti dalla lista keyset di fase
+ * 7b, che non ne aveva bisogno: `.nullable()`/`.default()` come ogni campo
+ * nuovo di una risposta, con un test che parsa senza. `eventUrl` è il link
+ * DIRETTO all'evento (`calendar_events.html_link`, fase 9) — DIVERSO da
+ * `url` qui sotto, che resta il link alla sola GIORNATA e non cambia: righe
+ * storiche o senza `html_link` da Google restano `eventUrl: null`, il
+ * pannello ricade su `url`.
  */
 export const calendarEventItemSchema = z.object({
   id: z.uuid(),
@@ -641,12 +650,17 @@ export const calendarEventItemSchema = z.object({
   projectName: z.string().nullable().default(null),
   title: z.string().nullable().default(null),
   organizer: z.string().nullable().default(null),
+  attendees: z.array(calendarAttendeeSchema).default([]),
   startsAt: z.iso.datetime(),
+  endsAt: z.iso.datetime().nullable().default(null),
+  allDay: z.boolean().default(false),
   status: mailItemStatusSchema,
   outcome: z.record(z.string(), z.unknown()).nullable().default(null),
   error: z.string().nullable().default(null),
   /** Link alla giornata sul calendario Google della casella. `null` se non ricostruibile. */
   url: z.string().nullable().default(null),
+  /** Link diretto all'evento (fase 9). `null` su righe storiche o se Google non lo manda. */
+  eventUrl: z.string().nullable().default(null),
   reproposable: z.boolean().default(false),
 });
 export type CalendarEventItem = z.infer<typeof calendarEventItemSchema>;
