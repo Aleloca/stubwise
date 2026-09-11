@@ -18,6 +18,10 @@
 		908C65B02D8947DCB2A8B9B6 /* IBMPlexMono-SemiBold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = FC67BA99D12542F794E9E88E /* IBMPlexMono-SemiBold.ttf */; };
 		AD8FAAFD79E846AA802FF2EC /* IBMPlexMono-Bold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = BA7899AAF0B54E60A8C3ECB7 /* IBMPlexMono-Bold.ttf */; };
 		EAAED9265619495787C9A50F /* IBMPlexMono-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = E83C443982544D59B1480CA2 /* IBMPlexMono-Medium.ttf */; };
+		E99BC253F1AB4CE4A8691258 /* IBMPlexSans-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 9210068D0BF941E79BFDED5F /* IBMPlexSans-Medium.ttf */; };
+		6058CC9AA263423AB31A0EA0 /* IBMPlexSans-SemiBold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = B7C78B21942C4DE28FBFD815 /* IBMPlexSans-SemiBold.ttf */; };
+		F05AFF7A61FF4337AB014420 /* IBMPlexSans-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = ED56071FF4AD480EA1D041B1 /* IBMPlexSans-Regular.ttf */; };
+		1F643AAA7A05413BA5BC91BB /* IBMPlexSans-Bold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = A1F36AB7314843E8B8D4B1FF /* IBMPlexSans-Bold.ttf */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -37,6 +41,10 @@
 		E83C443982544D59B1480CA2 /* IBMPlexMono-Medium.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = "IBMPlexMono-Medium.ttf"; path = "../assets/fonts/IBMPlexMono-Medium.ttf"; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 		FC67BA99D12542F794E9E88E /* IBMPlexMono-SemiBold.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = "IBMPlexMono-SemiBold.ttf"; path = "../assets/fonts/IBMPlexMono-SemiBold.ttf"; sourceTree = "<group>"; };
+		9210068D0BF941E79BFDED5F /* IBMPlexSans-Medium.ttf */ = {isa = PBXFileReference; name = "IBMPlexSans-Medium.ttf"; path = "../assets/fonts/IBMPlexSans-Medium.ttf"; sourceTree = "<group>"; fileEncoding = undefined; lastKnownFileType = unknown; explicitFileType = undefined; includeInIndex = 0; };
+		B7C78B21942C4DE28FBFD815 /* IBMPlexSans-SemiBold.ttf */ = {isa = PBXFileReference; name = "IBMPlexSans-SemiBold.ttf"; path = "../assets/fonts/IBMPlexSans-SemiBold.ttf"; sourceTree = "<group>"; fileEncoding = undefined; lastKnownFileType = unknown; explicitFileType = undefined; includeInIndex = 0; };
+		ED56071FF4AD480EA1D041B1 /* IBMPlexSans-Regular.ttf */ = {isa = PBXFileReference; name = "IBMPlexSans-Regular.ttf"; path = "../assets/fonts/IBMPlexSans-Regular.ttf"; sourceTree = "<group>"; fileEncoding = undefined; lastKnownFileType = unknown; explicitFileType = undefined; includeInIndex = 0; };
+		A1F36AB7314843E8B8D4B1FF /* IBMPlexSans-Bold.ttf */ = {isa = PBXFileReference; name = "IBMPlexSans-Bold.ttf"; path = "../assets/fonts/IBMPlexSans-Bold.ttf"; sourceTree = "<group>"; fileEncoding = undefined; lastKnownFileType = unknown; explicitFileType = undefined; includeInIndex = 0; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -81,6 +89,10 @@
 				531F3FA724034E2A99B2AE3D /* IBMPlexMono-Regular.ttf */,
 				FC67BA99D12542F794E9E88E /* IBMPlexMono-SemiBold.ttf */,
 				91C9B0037C4341A8A72C32B0 /* OFL.txt */,
+				9210068D0BF941E79BFDED5F /* IBMPlexSans-Medium.ttf */,
+				B7C78B21942C4DE28FBFD815 /* IBMPlexSans-SemiBold.ttf */,
+				ED56071FF4AD480EA1D041B1 /* IBMPlexSans-Regular.ttf */,
+				A1F36AB7314843E8B8D4B1FF /* IBMPlexSans-Bold.ttf */,
 			);
 			name = Resources;
 			sourceTree = "<group>";
@@ -194,6 +206,10 @@
 				0909512CFF4949B0B3755E4F /* IBMPlexMono-Regular.ttf in Resources */,
 				908C65B02D8947DCB2A8B9B6 /* IBMPlexMono-SemiBold.ttf in Resources */,
 				106D8F780EFE47F987AD2407 /* OFL.txt in Resources */,
+				E99BC253F1AB4CE4A8691258 /* IBMPlexSans-Medium.ttf in Resources */,
+				6058CC9AA263423AB31A0EA0 /* IBMPlexSans-SemiBold.ttf in Resources */,
+				F05AFF7A61FF4337AB014420 /* IBMPlexSans-Regular.ttf in Resources */,
+				1F643AAA7A05413BA5BC91BB /* IBMPlexSans-Bold.ttf in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

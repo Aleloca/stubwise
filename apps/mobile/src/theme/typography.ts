@@ -2,33 +2,38 @@
  * Font del design: IBM Plex Sans (corpo, titoli) e IBM Plex Mono (etichette
  * maiuscole, wordmark, badge, cifre) — vedi il canvas.
  *
- * ⚠️ GAP NOTO, VERIFICATO — non un dettaglio dimenticato:
+ * Entrambe le famiglie sono build STATICHE vere, non fabbricate — scaricate
+ * dal servizio di download ufficiale di Google Fonts
+ * (`fonts.google.com/download?family=…`, OFL-1.1, licenza in
+ * `assets/fonts/OFL.txt`), che genera un'istanza statica per peso a partire
+ * dal font variabile sorgente. PostScript name verificato con `fontTools`
+ * prima di committare: `IBMPlexSans-Regular`, `-Medium`, `-SemiBold`,
+ * `-Bold` (e i quattro pesi gemelli di Mono), tutti distinti — è la stringa
+ * che va in `fontFamily`. Cablati in iOS e Android con `npx
+ * react-native-asset` (vedi `react-native.config.js`).
  *
- * - **Mono**: i `.ttf` in `apps/mobile/assets/fonts/` sono VERI, non
- *   fabbricati — scaricati dal mirror ufficiale di Google Fonts
- *   (`github.com/google/fonts`, OFL-1.1, licenza in `assets/fonts/OFL.txt`),
- *   che per IBM Plex Mono pubblica ancora build STATICHE per peso (a
- *   differenza del pacchetto npm `@ibm/plex-mono`, che spedisce solo
- *   `.woff`/`.woff2` — verificato scompattando il tarball). PostScript name
- *   verificato con `fontTools` prima di committare: `IBMPlexMono-Regular`,
- *   `-Medium`, `-SemiBold`, `-Bold`, tutti distinti — è la stringa che va in
- *   `fontFamily`.
- * - **Sans**: Google Fonts distribuisce IBM Plex Sans SOLO come font
- *   variabile (`IBMPlexSans[wdth,wght].ttf`, un solo file con asse `wght`),
- *   e non esiste un pacchetto npm con build statiche vere (verificato:
- *   `@ibm/plex-mono`/`@ibm/plex` spediscono solo woff; il repo sorgente
- *   `github.com/IBM/plex` non committa binari, li genera con una toolchain).
- *   Estrarre un'istanza statica con `fonttools varLib.instancer` è FATTIBILE
- *   ma introdurrebbe un font MAI verificato su un build nativo reale, per un
- *   dettaglio tipografico — non ne vale il rischio ora. Si usa perciò il sans
- *   di SISTEMA (San Francisco su iOS, Roboto su Android): `fontFamily:
- *   undefined` lascia scegliere alla piattaforma, e `fontWeight` continua a
- *   funzionare nativamente. Debito noto: se in futuro arriva una build
- *   statica affidabile di IBM Plex Sans, questo è l'unico file da toccare.
+ * App M1 (11 set 2026): fino a questo task il Sans NON c'era — solo i
+ * quattro pesi Mono, e il corpo del testo usava il sans di SISTEMA. Il
+ * motivo, verificato allora: il repo sorgente di Google Fonts
+ * (`github.com/google/fonts`) per IBM Plex Sans pubblica SOLO il font
+ * variabile (`IBMPlexSans[wdth,wght].ttf`), non build statiche per peso —
+ * a differenza di Mono, che le pubblica entrambe. **Quello che mancava non
+ * era il font, era il posto giusto dove cercarlo**: il SERVIZIO di download
+ * di Google Fonts (diverso dal repo sorgente) genera lui stesso le istanze
+ * statiche per peso da quel font variabile — lo stesso file che scaricherebbe
+ * chi preme "Download family" sul sito — ed è quello usato qui. Verificato
+ * scaricando i quattro pesi e leggendone il nome PostScript con `fontTools`
+ * prima di committarli, non assunto.
+ *
+ * ⚠️ Nessuna build nativa gira in questa sessione: la resa reale del font va
+ * verificata sul telefono del maintainer (vedi l'elenco di verifica in
+ * `README.md`).
  */
 export const fontFamily = {
-  /** Sans di sistema: nessun file custom, vedi il commento sopra. */
-  sans: undefined,
+  sans: "IBMPlexSans-Regular",
+  sansMedium: "IBMPlexSans-Medium",
+  sansSemiBold: "IBMPlexSans-SemiBold",
+  sansBold: "IBMPlexSans-Bold",
   mono: "IBMPlexMono-Regular",
   monoMedium: "IBMPlexMono-Medium",
   monoSemiBold: "IBMPlexMono-SemiBold",

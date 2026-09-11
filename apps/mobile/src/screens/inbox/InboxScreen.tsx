@@ -203,6 +203,10 @@ const styles = StyleSheet.create({
   },
   title: {
     color: colors.fg,
+    // App M1: primo uso reale di IBM Plex Sans in una schermata — verifica
+    // qui, sul telefono, che il titolo non sia più il sans di sistema
+    // (vedi l'elenco di verifica in README.md).
+    fontFamily: fontFamily.sansBold,
     fontSize: fontSize.title,
     fontWeight: "700",
     letterSpacing: -0.3,
