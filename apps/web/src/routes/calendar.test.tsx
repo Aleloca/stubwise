@@ -253,6 +253,71 @@ describe("pagina /calendar — la griglia (fase 9)", () => {
     expect(await within(screen.getByRole("article")).findByText("Recurring series")).toBeInTheDocument();
   });
 
+  it("passando dalla serie A alla serie B il pannello mostra B, non lo stato stantio di A (bug bloccante trovato dalla review Stubwise)", async () => {
+    const eventA = event({
+      id: "e-serie-a",
+      title: "Standup A",
+      startsAt: "2026-09-08T09:00:00.000Z",
+      recurringEventId: "serie-A",
+    });
+    const eventB = event({
+      id: "e-serie-b",
+      title: "Retro B",
+      startsAt: "2026-09-09T09:00:00.000Z",
+      recurringEventId: "serie-B",
+    });
+    mockApi(
+      baseApi({
+        "GET /api/me/calendar/range": () => jsonResponse(200, { items: [eventA, eventB], nextCursor: null }),
+        "GET /api/me/calendar/series": () =>
+          jsonResponse(200, {
+            items: [
+              {
+                accountId: ACCOUNT_ID,
+                accountEmail: "mailbox@acme.test",
+                recurringEventId: "serie-A",
+                title: "Standup A",
+                occurrenceCount: 10,
+                nextOccurrenceAt: "2026-09-15T09:00:00.000Z",
+                enabled: true,
+                projectId: PROJECT_ID,
+                projectName: "Apollo",
+                action: "milestone",
+                leadDays: 3,
+                auto: true,
+              },
+              {
+                accountId: ACCOUNT_ID,
+                accountEmail: "mailbox@acme.test",
+                recurringEventId: "serie-B",
+                title: "Retro B",
+                occurrenceCount: 4,
+                nextOccurrenceAt: "2026-09-16T09:00:00.000Z",
+                enabled: false,
+                projectId: null,
+                projectName: null,
+                action: "reminder",
+                leadDays: 2,
+                auto: false,
+              },
+            ],
+          }),
+      }),
+    );
+    await renderCalendar();
+
+    await userEvent.click(await screen.findByText("Standup A"));
+    // Serie A: accesa e con azione automatica.
+    expect(await screen.findByRole("checkbox", { name: "Enabled" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /automatically/i })).toBeChecked();
+
+    await userEvent.click(screen.getByText("Retro B"));
+    // Serie B: spenta. Se il pannello mostrasse ancora lo stato di A qui,
+    // "Enabled" risulterebbe erroneamente ancora spuntata.
+    expect(await screen.findByRole("checkbox", { name: "Enabled" })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /automatically/i })).not.toBeChecked();
+  });
+
   it("una serie senza occorrenze in finestra è elencata e configurabile dalla sidebar (fix di review, fase 9 Task 2)", async () => {
     let putBody: unknown;
     mockApi(

@@ -166,7 +166,17 @@ export function MailWorkspace({ selected }: { selected: MailSelection | null }) 
         {/* Colonna destra: la lettura. */}
         <div className="min-w-0 rounded-sm border border-line bg-ink-900 p-4 lg:sticky lg:top-4 lg:self-start">
           {selected ? (
-            <MailReadingPane source={selected.source} id={selected.id} />
+            // Fix di review (bloccante, stessa classe del bug trovato in
+            // `CalendarDetailPanel`): `/mail` e `/mail/:source/:id`
+            // condividono la STESSA istanza di `MailWorkspace` fra un
+            // messaggio e l'altro (nessun remount di route), quindi senza
+            // `key` lo stato locale di `MailReadingPane` — in particolare la
+            // `useMutation` di "Read original on Gmail" — resterebbe quello
+            // del messaggio precedente: passando a un messaggio nuovo si
+            // vedrebbe ancora il corpo riletto di quello vecchio, col
+            // comando "Read original" già "consumato". La `key` forza il
+            // remount a ogni cambio di messaggio.
+            <MailReadingPane key={`${selected.source}-${selected.id}`} source={selected.source} id={selected.id} />
           ) : (
             <div className="flex h-full min-h-[200px] items-center justify-center rounded-sm border border-dashed border-line-strong px-4 py-12 text-center">
               <p className="font-mono text-[12px] text-fg-faint">{t("mail:detail.selectPrompt")}</p>

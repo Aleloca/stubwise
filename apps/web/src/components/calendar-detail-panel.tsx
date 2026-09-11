@@ -75,6 +75,18 @@ export function CalendarDetailPanel({
             {t("calendar:series.heading")}
           </p>
           <SeriesConfig
+            // Fix di review (bloccante, trovato dalla review Stubwise sulla
+            // PR): senza `key`, selezionare un evento della serie A e poi uno
+            // della serie B riusa la STESSA istanza — il flag `initialized`
+            // dentro `SeriesConfig` scatta una volta sola, quindi lo stato
+            // locale resta quello di A mentre `recurringEventId` è già B, e
+            // «Salva» scriverebbe la configurazione di A (compreso
+            // `auto: true`) sulla serie B. La `key` forza React a smontare e
+            // rimontare `SeriesConfig` da zero a ogni cambio di serie, così
+            // lo stato locale nasce sempre insieme alla serie a cui si
+            // riferisce — esattamente come già fa `SeriesSidebarRow` in
+            // `calendar-series-sidebar.tsx`, keyata per la stessa coppia.
+            key={`${event.accountId}-${event.recurringEventId}`}
             accountId={event.accountId}
             recurringEventId={event.recurringEventId}
             projects={projects}

@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, RouterProvider } from "@tanstack/react-router";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createAppRouter } from "../router";
@@ -283,5 +283,98 @@ describe("pagina /mail/:source/:id", () => {
     await userEvent.click(screen.getByRole("button", { name: "Read original on Gmail" }));
 
     await screen.findByText(expected);
+  });
+
+  it("passando da un messaggio all'altro, l'originale riletto NON resta stantio (bug bloccante trovato dalla review Stubwise)", async () => {
+    const EMAIL_ID_2 = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+    const DETAIL_2 = {
+      id: EMAIL_ID_2,
+      source: "email" as const,
+      accountId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      accountEmail: "mailbox@acme.test",
+      from: "Marco <marco@cliente.test>",
+      to: ["me@acme.test"],
+      subject: "Fattura di settembre",
+      receivedAt: "2026-09-01T09:00:00.000Z",
+      labels: [],
+      textExcerpt: "In allegato la fattura.",
+      url: "https://mail.google.com/mail/u/mailbox@acme.test/#all/t2",
+    };
+    mockApi(
+      baseApi({
+        "GET /api/me/mail": () =>
+          jsonResponse(200, {
+            items: [
+              {
+                kind: "proposal",
+                id: EMAIL_ID,
+                source: "email",
+                accountId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+                accountEmail: "mailbox@acme.test",
+                projectId: null,
+                projectName: null,
+                title: "Ship next week?",
+                from: "laura@cliente.test",
+                date: "2026-08-31T09:00:00.000Z",
+                status: "classified",
+                signal: null,
+                outcome: null,
+                error: null,
+                url: "https://mail.google.com/mail/u/mailbox@acme.test/#all/t1",
+                reproposable: false,
+              },
+              {
+                kind: "proposal",
+                id: EMAIL_ID_2,
+                source: "email",
+                accountId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+                accountEmail: "mailbox@acme.test",
+                projectId: null,
+                projectName: null,
+                title: "Fattura di settembre",
+                from: "marco@cliente.test",
+                date: "2026-09-01T09:00:00.000Z",
+                status: "classified",
+                signal: null,
+                outcome: null,
+                error: null,
+                url: "https://mail.google.com/mail/u/mailbox@acme.test/#all/t2",
+                reproposable: false,
+              },
+            ],
+            nextCursor: null,
+          }),
+        [`GET /api/me/mail/email/${EMAIL_ID_2}`]: () => jsonResponse(200, DETAIL_2),
+        [`GET /api/me/mail/email/${EMAIL_ID}/original`]: () =>
+          jsonResponse(200, {
+            subject: "Ship next week?",
+            from: "Laura <laura@cliente.test>",
+            to: ["me@acme.test"],
+            cc: [],
+            bodyText: "Corpo del primo messaggio.",
+            attachments: [],
+          }),
+      }),
+    );
+    renderDetail();
+    await screen.findByRole("heading", { name: "Ship next week?" });
+
+    await userEvent.click(screen.getByRole("button", { name: "Read original on Gmail" }));
+    await screen.findByText("Corpo del primo messaggio.");
+
+    // Passa al secondo messaggio SENZA aver chiuso/ricaricato la pagina —
+    // esattamente lo scenario del bug: stesso componente, prop `id` cambiata.
+    // La riga della lista non è linkata sull'oggetto, ma su "Read in
+    // Stubwise": scoped alla riga per non ambiguità con quella del primo
+    // messaggio, che porta lo stesso testo.
+    const secondRow = screen.getByText(/Fattura di settembre/).closest("article")!;
+    await userEvent.click(within(secondRow).getByRole("link", { name: "Read in Stubwise" }));
+
+    await screen.findByRole("heading", { name: "Fattura di settembre" });
+    // Il corpo del PRIMO messaggio non deve restare in vista...
+    expect(screen.queryByText("Corpo del primo messaggio.")).not.toBeInTheDocument();
+    // ...e il comando di rilettura deve ripresentarsi per il messaggio nuovo,
+    // non restare "già letto" per via dello stato mai resettato.
+    expect(await screen.findByRole("button", { name: "Read original on Gmail" })).toBeInTheDocument();
   });
 });
