@@ -664,25 +664,33 @@ esiti attesi sono diversi e ENTRAMBI vanno bene, vedi sotto.
       eccessivo. Ripeti su Backlog (lista voci) e, se ci sono abbastanza
       progetti, su Progetti.
 
-### 2. Chrome globale: avatar e banner offline (Task 7)
+### 2. Chrome globale: avatar e banner offline (Task 7 + fix di review Task 2)
 
-- [ ] All'apertura di un tab (Inbox/Progetti/Backlog/Docs), l'**avatar**
-      (cerchio con l'iniziale dell'email, in alto a destra dell'header) è
-      visibile SENZA scorrere.
+Fix di review (11 set 2026): l'avatar NON scorre più via col contenuto —
+ogni schermata post-login (le due chat comprese) usa `stickyHeaderIndices`
+(o un header fisso, per le chat) così le Impostazioni restano a un gesto da
+qualunque posizione di scorrimento. Verifica che sia vero davvero, non solo
+a teoria:
+
+- [ ] All'apertura di un tab (Inbox/Progetti/Backlog/Docs) O di una
+      schermata di dettaglio (Dettaglio progetto, Lavoro, Pagina Docs,
+      Dettaglio voce di backlog, Card d'inbox), l'**avatar** (cerchio con
+      l'iniziale dell'email) è visibile SENZA scorrere.
 - [ ] Tocca l'avatar: si apre la sheet **Impostazioni**, con "Esci" raggiungibile.
-- [ ] **Scorri una lista lunga** (Inbox con molte card) fino in fondo, poi
-      prova a raggiungere le Impostazioni: l'avatar è scorso via con il
-      titolo e NON è più a vista. **Questo è un tradeoff noto e accettato,
-      non un bug da segnalare** — ma conferma che corrisponde davvero
-      all'esperienza descritta nel codice (`app/providers.tsx`): se risulta
-      più scomodo del previsto, è il primo punto da rivedere in un task
-      successivo.
+- [ ] **Scorri una lista/pagina lunga** (Inbox con molte card, o una pagina
+      Docs lunga) fino in fondo: l'avatar deve **restare visibile** (ancorato
+      in cima, il resto scorre sotto) — non deve sparire scorrendo. Se in un
+      punto qualunque risultasse scorso via, è una regressione, non un
+      tradeoff accettato.
+- [ ] **Le due chat** (Chiedi al progetto, Raffina in chat): l'header con
+      l'avatar è fisso fin dall'apertura (non serve nemmeno scorrere per
+      verificarlo) — controlla comunque che sia lì.
 - [ ] **Banner offline**: disattiva la rete (modalità aereo). Il banner
       "Offline" compare ANCORATO in cima allo schermo, sopra tutto il resto
       — e resta fermo se scorri il contenuto sotto (non scompare scorrendo).
       Riattiva la rete: il banner sparisce.
 
-### 3. Font (Task 2 + Task 7)
+### 3. Font (Task 2 + Task 7 + fix di review Task 1)
 
 Su OGNI schermata elencata sotto, il **titolo grande** deve essere IBM Plex
 Sans **Bold** — visibilmente più squadrato/moderno del sans di sistema
@@ -697,8 +705,19 @@ Sans **Bold** — visibilmente più squadrato/moderno del sans di sistema
 - [ ] Dettaglio voce di backlog — titolo della voce
 - [ ] Pagina Docs — titolo della pagina
 
-Le **sigle mono** (badge, etichette maiuscole, sigle tab) restano nel font
-Mono di prima — non devono essere cambiate.
+Fix di review (11 set 2026): prima il Sans copriva solo questi otto titoli,
+il resto del testo restava nel sans di sistema. Ora anche il **testo lungo**
+deve essere IBM Plex Sans, verificalo su almeno questi tre — il caso peggiore
+segnalato in review era `theme/markdown.ts`:
+
+- [ ] Un **brief/documento Docs** aperto (testo lungo, non solo il titolo).
+- [ ] Un **documento di una voce di backlog** (Dettaglio voce di backlog).
+- [ ] Una **risposta della chat** ("Chiedi al progetto" o "Raffina in chat"),
+      inclusi eventuali blocchi di codice inline nella risposta — ora Mono
+      apposta, a differenza del resto del testo.
+
+Le **sigle mono** (badge, etichette maiuscole, sigle tab, metadati) restano
+nel font Mono di prima — non devono essere cambiate.
 
 ### 4. Profondità delle superfici (Task 1)
 
@@ -725,6 +744,29 @@ Mono di prima — non devono essere cambiate.
       bordi e testo restano nella stessa palette scura del resto dell'app
       (nessuna sorpresa attesa qui: è un refactor a valore invariato, ma è
       l'unica verifica reale che il token giusto sia finito nel posto giusto).
+
+### 7. Rischi noti SOLO su Android (Task 6 — fix di review Task 5)
+
+Due cose che il Task 6 (tab bar nativa + `AppTheme` passato a Material3) può
+rompere silenziosamente solo su Android e che nessun test automatico copre —
+**non correggerle alla cieca**: verifica prima se il problema si presenta
+davvero, sul device reale, prima di cambiare codice.
+
+- [ ] **Lo `Switch` nativo** (Impostazioni → notifiche push): `AppTheme` è
+      passato da `Theme.AppCompat.DayNight.NoActionBar` a
+      `Theme.Material3.DayNight.NoActionBar` (Task 6) per la tab bar nuova —
+      e quel tema è quello dell'intera Activity, quindi lo `Switch` di React
+      Native (che delega allo stile nativo) può cambiare aspetto (track/thumb
+      Material3 invece di AppCompat). Verifica solo che resti leggibile e
+      coerente con la palette scura dell'app — un aspetto diverso ma pulito
+      NON è un difetto.
+- [ ] **Le icone SVG della tab bar su Android**: Metro tratta `.svg` come
+      asset immagine (non markup, vedi `types/svg-assets.d.ts`), e
+      `react-native-bottom-tabs` le decodifica via Coil-svg. Verifica che le
+      quattro icone (Inbox/Progetti/Backlog/Docs) siano davvero icone
+      renderizzate — non un riquadro vuoto o un placeholder rotto: sarebbe il
+      caso in cui la rasterizzazione SVG fallisse silenziosamente su un
+      device/versione Android specifica, senza errore visibile altrove.
 
 ## Troubleshooting
 
