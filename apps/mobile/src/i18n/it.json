@@ -290,7 +290,15 @@
         "approveConfirm": "Sì, approva",
         "cancel": "Annulla",
         "rejectWithInstructions": "Rifiuta con istruzioni",
-        "summaryFallback": "Riassunto non disponibile: qui sotto il piano tecnico."
+        "summaryFallback": "Riassunto non disponibile: qui sotto il piano tecnico.",
+        "preApprovePlan": "Approva il piano in anticipo",
+        "revokePreApproval": "Revoca approvazione",
+        "preApprovingPlan": "Approvazione…",
+        "revokingPreApproval": "Revoca…",
+        "approvedBy": "Piano approvato da {{name}}, {{time}} — pronto per partire.",
+        "approvedByUnknown": "un maintainer",
+        "approvalStale": "Piano modificato dopo l'approvazione: serve un nuovo via libera.",
+        "timeAgo": "{{time}} fa"
       },
       "techLevel": {
         "title": "Livello tecnico · solo maintainer",

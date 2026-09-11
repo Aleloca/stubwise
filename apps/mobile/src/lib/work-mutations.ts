@@ -80,7 +80,13 @@ function usePlanDecision<TInput>(mutationFn: (client: NonNullable<ReturnType<typ
     disabled: !online || mutation.isPending,
     online,
     errorMessage: mutation.error ? describeInboxError(mutation.error, t) : null,
-    reset: () => mutation.reset(),
+    // Il metodo di `useMutation`, già stabile — NON `() => mutation.reset()`,
+    // che ricrea una funzione nuova a ogni render: innocuo qui (nessun
+    // effetto lo mette in un dep array oggi), ma è lo stesso difetto latente
+    // chiuso in `lib/backlog-mutations.ts` (App M3 Fase A, Task 2) dopo che
+    // ci aveva prodotto un loop di render infinito — fix preventivo qui,
+    // stessa causa possibile.
+    reset: mutation.reset,
   };
 }
 
@@ -95,4 +101,21 @@ export function useRejectPlan(ticketId: string): PlanDecisionMutation<string | u
     (client, instructions) => client.tickets.rejectPlan(ticketId, instructions ? { instructions } : undefined),
     ticketId,
   );
+}
+
+/**
+ * Pre-approva IN ANTICIPO il piano CORRENTE (fase 7, App M3 Fase B): un
+ * operatore può far partire il fix senza fermarsi sul gate. Stesso
+ * `usePlanDecision` di approva/rifiuta — invalida `workKeys.all(ticketId)`
+ * al successo, e su un 409 (`no_plan`, il piano è sparito nel frattempo).
+ * Solo maintainer lato UI — il server lo impone comunque (`requireAdmin` +
+ * ricontrollo nel servizio).
+ */
+export function usePreApprovePlan(ticketId: string): PlanDecisionMutation<void> {
+  return usePlanDecision<void>((client) => client.tickets.preApprovePlan(ticketId), ticketId);
+}
+
+/** Revoca la pre-approvazione: idempotente lato server, stessa mutazione. */
+export function useRevokePlanApproval(ticketId: string): PlanDecisionMutation<void> {
+  return usePlanDecision<void>((client) => client.tickets.revokePlanApproval(ticketId), ticketId);
 }

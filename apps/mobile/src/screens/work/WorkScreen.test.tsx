@@ -81,6 +81,8 @@ function makeClient(overrides: {
   reviews?: jest.Mock;
   approvePlan?: jest.Mock;
   rejectPlan?: jest.Mock;
+  preApprovePlan?: jest.Mock;
+  revokePlanApproval?: jest.Mock;
 } = {}): StubwiseClient {
   return {
     tickets: {
@@ -90,6 +92,8 @@ function makeClient(overrides: {
       activity: overrides.activity ?? jest.fn().mockResolvedValue([]),
       approvePlan: overrides.approvePlan ?? jest.fn().mockResolvedValue({ jobId: JOB_ID }),
       rejectPlan: overrides.rejectPlan ?? jest.fn().mockResolvedValue({ jobId: JOB_ID }),
+      preApprovePlan: overrides.preApprovePlan ?? jest.fn().mockResolvedValue(ticket()),
+      revokePlanApproval: overrides.revokePlanApproval ?? jest.fn().mockResolvedValue(ticket()),
     },
     projects: { reviews: overrides.reviews ?? jest.fn().mockResolvedValue([]) },
   } as unknown as StubwiseClient;
@@ -353,5 +357,48 @@ describe("WorkScreen — i campi della fase 5", () => {
     expect(screen.getByTestId("timeline")).toBeTruthy();
     expect(screen.queryByTestId("timeline-step-planApproved-at")).toBeNull();
     expect(screen.queryByTestId("timeline-step-prReview-verdict")).toBeNull();
+  });
+});
+
+/**
+ * Pre-approvazione del piano (fase 7, App M3 Fase B): qui si verifica solo
+ * il CABLAGGIO da `ticket` a `PlanSection` (i tre campi, `isAdmin`,
+ * `isClosed`) — gli stati e le loro regole sono già coperti a fondo in
+ * `PlanSection.test.tsx`.
+ */
+describe("WorkScreen — pre-approvazione del piano", () => {
+  test("la riga di stato arriva ANCHE all'operatore (member), non solo al maintainer", async () => {
+    const client = makeClient({
+      get: jest.fn().mockResolvedValue(
+        ticket({
+          implementationPlan: "Piano",
+          planApprovedAt: "2026-08-12T09:00:00.000Z",
+          planApprovedBy: { id: "u-admin", email: "maintainer@example.com" },
+          planApprovalStale: false,
+        }),
+      ),
+    });
+    await renderScreen(client, "member");
+    await waitFor(() => expect(screen.getByTestId("plan-section-approval-status")).toBeTruthy());
+    expect(screen.getByText(/Piano approvato da maintainer@example\.com/)).toBeTruthy();
+    // Il bottone resta del maintainer, anche se la riga si vede.
+    expect(screen.queryByTestId("plan-section-pre-approve")).toBeNull();
+  });
+
+  test("il bottone di pre-approvazione arriva al maintainer con un piano presente", async () => {
+    const client = makeClient({
+      get: jest.fn().mockResolvedValue(ticket({ implementationPlan: "Piano", planApprovedAt: null })),
+    });
+    await renderScreen(client, "admin");
+    await waitFor(() => expect(screen.getByTestId("plan-section-pre-approve")).toBeTruthy());
+  });
+
+  test("un ticket chiuso: `isClosed` arriva a PlanSection, niente bottone anche per il maintainer", async () => {
+    const client = makeClient({
+      get: jest.fn().mockResolvedValue(ticket({ implementationPlan: "Piano", status: "closed", planApprovedAt: null })),
+    });
+    await renderScreen(client, "admin");
+    await waitFor(() => expect(screen.getByText("Export CSV degli ordini")).toBeTruthy());
+    expect(screen.queryByTestId("plan-section-pre-approve")).toBeNull();
   });
 });

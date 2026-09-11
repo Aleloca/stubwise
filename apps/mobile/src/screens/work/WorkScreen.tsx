@@ -234,6 +234,11 @@ function WorkBody({
           plan={ticket.implementationPlan}
           planSummary={ticket.planSummary ?? null}
           canDecide={canDecide}
+          isAdmin={isAdmin}
+          isClosed={ticket.status === "closed"}
+          planApprovedAt={ticket.planApprovedAt ?? null}
+          planApprovedBy={ticket.planApprovedBy ?? null}
+          planApprovalStale={ticket.planApprovalStale ?? false}
         />
       </View>
 
