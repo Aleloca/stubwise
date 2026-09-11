@@ -157,6 +157,83 @@ describe("GET /api/me/calendar", () => {
   });
 });
 
+describe("GET /api/me/calendar/range (fase 9, Task 3)", () => {
+  function getRange(cookie: string, from: string, to: string, extra = "") {
+    return app.inject({
+      method: "GET",
+      url: `/api/me/calendar/range?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}${extra}`,
+      headers: { cookie },
+    });
+  }
+
+  it("senza sessione: 401", async () => {
+    expect((await getRange("", "2026-09-01T00:00:00.000Z", "2026-09-08T00:00:00.000Z")).statusCode).toBe(401);
+  });
+
+  it("un evento DENTRO l'intervallo compare, uno FUORI no", async () => {
+    const { accountId } = await seedAccount(memberId);
+    await seedCalendarEvent(accountId, { title: "Dentro", startsAt: new Date("2026-09-15T09:00:00.000Z") });
+    await seedCalendarEvent(accountId, { title: "Fuori", startsAt: new Date("2026-10-15T09:00:00.000Z") });
+
+    const res = await getRange(memberCookie, "2026-09-01T00:00:00.000Z", "2026-09-30T00:00:00.000Z");
+    expect(res.statusCode).toBe(200);
+    const titles = res.json().items.map((item: { title: string }) => item.title);
+    expect(titles).toEqual(["Dentro"]);
+  });
+
+  it("un evento che INIZIA prima dell'intervallo ma finisce dentro compare (sovrapposizione, non solo startsAt)", async () => {
+    const { accountId } = await seedAccount(memberId);
+    await seedCalendarEvent(accountId, {
+      title: "A cavallo",
+      startsAt: new Date("2026-08-31T23:00:00.000Z"),
+      endsAt: new Date("2026-09-01T01:00:00.000Z"),
+    });
+
+    const res = await getRange(memberCookie, "2026-09-01T00:00:00.000Z", "2026-09-30T00:00:00.000Z");
+    expect(res.json().items.map((item: { title: string }) => item.title)).toEqual(["A cavallo"]);
+  });
+
+  it("porta attendees/endsAt/allDay/eventUrl", async () => {
+    const { accountId } = await seedAccount(memberId);
+    await seedCalendarEvent(accountId, {
+      title: "Con dettagli",
+      startsAt: new Date("2026-09-15T09:00:00.000Z"),
+      endsAt: new Date("2026-09-15T10:00:00.000Z"),
+      allDay: false,
+      attendees: [{ email: "cliente@acme.test", responseStatus: "accepted" }],
+      htmlLink: "https://calendar.google.test/e1",
+    });
+
+    const res = await getRange(memberCookie, "2026-09-01T00:00:00.000Z", "2026-09-30T00:00:00.000Z");
+    const [item] = res.json().items;
+    expect(item.attendees).toEqual([{ email: "cliente@acme.test", responseStatus: "accepted" }]);
+    expect(item.endsAt).toBe("2026-09-15T10:00:00.000Z");
+    expect(item.allDay).toBe(false);
+    expect(item.eventUrl).toBe("https://calendar.google.test/e1");
+  });
+
+  it("ACL: un admin non vede gli eventi di un member", async () => {
+    const { accountId } = await seedAccount(memberId);
+    await seedCalendarEvent(accountId, { startsAt: new Date("2026-09-15T09:00:00.000Z") });
+
+    const res = await getRange(adminCookie, "2026-09-01T00:00:00.000Z", "2026-09-30T00:00:00.000Z");
+    expect(res.statusCode).toBe(200);
+    expect(res.json().items).toEqual([]);
+  });
+
+  it("'to' <= 'from': 400 invalid_range", async () => {
+    const res = await getRange(memberCookie, "2026-09-10T00:00:00.000Z", "2026-09-01T00:00:00.000Z");
+    expect(res.statusCode).toBe(400);
+    expect(res.json().code).toBe("invalid_range");
+  });
+
+  it("intervallo più largo del tetto: 400 range_too_wide (non legge tutta la tabella)", async () => {
+    const res = await getRange(memberCookie, "2021-01-01T00:00:00.000Z", "2035-01-01T00:00:00.000Z");
+    expect(res.statusCode).toBe(400);
+    expect(res.json().code).toBe("range_too_wide");
+  });
+});
+
 describe("GET /api/me/calendar/series", () => {
   it("senza sessione: 401", async () => {
     expect((await getSeries("")).statusCode).toBe(401);

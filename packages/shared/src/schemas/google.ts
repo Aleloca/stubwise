@@ -551,13 +551,17 @@ export type MailDetail = z.infer<typeof mailDetailSchema>;
  * RICHIESTA (design fase 7b §3, punto 2) — non si persiste nulla di questo:
  * è una finestra su Gmail, non una copia.
  *
- * ⚠️ **Solo `bodyText`, MAI l'HTML originale**: il corpo di un'email è testo
- * NON FIDATO scritto da chi vuole, e un client web non deve mai iniettarlo
- * come markup (`dangerouslySetInnerHTML` su un'email è un vettore XSS
- * diretto — script inline, `onerror` su un'immagine, ecc.). Il server
- * converte l'HTML in testo quando manca il `text/plain` (stessa funzione
- * `htmlToText` di `@stubwise/google` usata per l'estratto): `bodyText` è
- * quindi `null` SOLO se il messaggio non aveva proprio corpo.
+ * `bodyHtml` (fase 9, Task 4): il server lo manda SOLO dopo averlo
+ * sanificato (`sanitizeEmailHtml`, `@stubwise/google`) — allowlist di tag e
+ * attributi, mai una denylist. **Non basta da sola**: il client (Task 5) lo
+ * rende in un `<iframe sandbox>` senza `allow-scripts` né
+ * `allow-same-origin`, seconda difesa indipendente nel caso la prima abbia
+ * un buco. `null` quando il messaggio non aveva un corpo HTML (solo
+ * `text/plain`, o nessun corpo) — MAI una stringa vuota che il client
+ * dovrebbe interpretare a sé. `bodyText` resta com'era in fase 7b: il
+ * corpo convertito in testo quando manca il `text/plain`, per chi non
+ * vuole (o non può, es. lettori di schermo dentro l'iframe) il corpo
+ * formattato.
  */
 export const mailOriginalSchema = z.object({
   subject: z.string().nullable(),
@@ -565,6 +569,7 @@ export const mailOriginalSchema = z.object({
   to: z.array(z.string()).default([]),
   cc: z.array(z.string()).default([]),
   bodyText: z.string().nullable(),
+  bodyHtml: z.string().nullable().default(null),
   attachments: z
     .array(z.object({ filename: z.string(), mimeType: z.string().nullable() }))
     .default([]),
@@ -589,6 +594,38 @@ export const calendarSeriesActionSchema = z.enum(["backlog_item", "milestone", "
 export type CalendarSeriesAction = z.infer<typeof calendarSeriesActionSchema>;
 
 /**
+ * Come un partecipante ha risposto all'invito — i soli 4 valori che Google
+ * manda (fase 9, Task 2). Un valore che Google cambiasse o un partecipante
+ * anonimo (nessuna risposta ancora, o un campo assente) restano `null`, mai
+ * un quinto valore inventato: chi legge distingue "non ha ancora risposto"
+ * da "non sappiamo leggere questo campo" solo se il secondo caso non si
+ * traveste da un valore del vocabolario.
+ */
+export const calendarAttendeeResponseStatusSchema = z.enum([
+  "needsAction",
+  "declined",
+  "tentative",
+  "accepted",
+]);
+export type CalendarAttendeeResponseStatus = z.infer<typeof calendarAttendeeResponseStatusSchema>;
+
+/**
+ * UN partecipante di un evento (fase 9, Task 2) — la forma unica che
+ * `calendar_events.attendees` (jsonb, `packages/db`) e
+ * `GoogleCalendarEvent.attendees` (`packages/google`) condividono: prima
+ * della fase 9 erano un `text[]` di sole email, e lo stato di risposta che
+ * Google manda già veniva scartato. Definita qui (non in `packages/db` né in
+ * `packages/google`, che dipendono entrambi da questo package) perché sia
+ * DAVVERO una sola fonte di verità, non due dichiarazioni identiche per
+ * caso.
+ */
+export const calendarAttendeeSchema = z.object({
+  email: z.string(),
+  responseStatus: calendarAttendeeResponseStatusSchema.nullable(),
+});
+export type CalendarAttendee = z.infer<typeof calendarAttendeeSchema>;
+
+/**
  * UN appuntamento visto: un'occorrenza di `calendar_events`, con lo stato
  * NORMALIZZATO della proposta che ne è nata (vocabolario condiviso con
  * `mailItemStatusSchema` — stessa CASE, vedi `calendar-status.ts` sul
@@ -599,6 +636,15 @@ export type CalendarSeriesAction = z.infer<typeof calendarSeriesActionSchema>;
  * {@link calendarSeriesItemSchema}. `title`/`organizer` sono testo NON
  * FIDATO (li scrive chi ha creato l'evento): chi li rende su una superficie
  * con markup li escapa, come `title`/`from` di {@link mailItemSchema}.
+ *
+ * `endsAt`/`allDay`/`attendees`/`eventUrl` (fase 9, Task 3) servono al
+ * pannello di dettaglio e alla griglia — assenti dalla lista keyset di fase
+ * 7b, che non ne aveva bisogno: `.nullable()`/`.default()` come ogni campo
+ * nuovo di una risposta, con un test che parsa senza. `eventUrl` è il link
+ * DIRETTO all'evento (`calendar_events.html_link`, fase 9) — DIVERSO da
+ * `url` qui sotto, che resta il link alla sola GIORNATA e non cambia: righe
+ * storiche o senza `html_link` da Google restano `eventUrl: null`, il
+ * pannello ricade su `url`.
  */
 export const calendarEventItemSchema = z.object({
   id: z.uuid(),
@@ -609,12 +655,17 @@ export const calendarEventItemSchema = z.object({
   projectName: z.string().nullable().default(null),
   title: z.string().nullable().default(null),
   organizer: z.string().nullable().default(null),
+  attendees: z.array(calendarAttendeeSchema).default([]),
   startsAt: z.iso.datetime(),
+  endsAt: z.iso.datetime().nullable().default(null),
+  allDay: z.boolean().default(false),
   status: mailItemStatusSchema,
   outcome: z.record(z.string(), z.unknown()).nullable().default(null),
   error: z.string().nullable().default(null),
   /** Link alla giornata sul calendario Google della casella. `null` se non ricostruibile. */
   url: z.string().nullable().default(null),
+  /** Link diretto all'evento (fase 9). `null` su righe storiche o se Google non lo manda. */
+  eventUrl: z.string().nullable().default(null),
   reproposable: z.boolean().default(false),
 });
 export type CalendarEventItem = z.infer<typeof calendarEventItemSchema>;

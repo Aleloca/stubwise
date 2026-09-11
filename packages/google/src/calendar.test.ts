@@ -63,7 +63,11 @@ describe("listEvents", () => {
             description: "Avvio",
             start: { dateTime: "2026-09-10T09:00:00+02:00" },
             end: { dateTime: "2026-09-10T10:00:00+02:00" },
-            attendees: [{ email: "Ada@ACME.test" }, { email: "bob@acme.test" }, { displayName: "senza email" }],
+            attendees: [
+              { email: "Ada@ACME.test", responseStatus: "accepted" },
+              { email: "bob@acme.test", responseStatus: "needsAction" },
+              { displayName: "senza email" },
+            ],
             organizer: { email: "Ada@ACME.test" },
             htmlLink: "https://calendar.google.test/e1",
             updated: "2026-09-01T08:00:00.000Z",
@@ -85,9 +89,37 @@ describe("listEvents", () => {
     expect(event.allDay).toBe(false);
     expect(event.startsAt?.toISOString()).toBe("2026-09-10T07:00:00.000Z");
     expect(event.endsAt?.toISOString()).toBe("2026-09-10T08:00:00.000Z");
-    expect(event.attendees).toEqual(["ada@acme.test", "bob@acme.test"]);
+    expect(event.attendees).toEqual([
+      { email: "ada@acme.test", responseStatus: "accepted" },
+      { email: "bob@acme.test", responseStatus: "needsAction" },
+    ]);
     expect(event.organizer).toBe("ada@acme.test");
     expect(event.htmlLink).toBe("https://calendar.google.test/e1");
+  });
+
+  it("responseStatus assente o non riconosciuto → null, mai un valore inventato (fase 9, Task 2)", async () => {
+    const { impl } = fakeFetch([
+      jsonResponse({
+        items: [
+          {
+            id: "e3",
+            status: "confirmed",
+            summary: "Revisione",
+            start: { dateTime: "2026-09-10T09:00:00+02:00" },
+            end: { dateTime: "2026-09-10T10:00:00+02:00" },
+            attendees: [
+              { email: "senza-stato@acme.test" },
+              { email: "stato-ignoto@acme.test", responseStatus: "maybe" },
+            ],
+          },
+        ],
+      }),
+    ]);
+    const page = await listEvents({ accessToken: "at" }, { fetchImpl: impl });
+    expect(page.events[0]!.attendees).toEqual([
+      { email: "senza-stato@acme.test", responseStatus: null },
+      { email: "stato-ignoto@acme.test", responseStatus: null },
+    ]);
   });
 
   it("un evento tutto il giorno ha allDay true e la mezzanotte UTC come inizio", async () => {

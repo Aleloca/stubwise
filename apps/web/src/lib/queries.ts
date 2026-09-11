@@ -6,6 +6,7 @@ import {
   getAiUsageSnapshots,
   getBacklogItem,
   getCalendarEvents,
+  getCalendarRange,
   getCalendarSeries,
   getComments,
   getGitAccount,
@@ -69,6 +70,7 @@ import {
   type AIJobStatus,
   type BacklogFilters,
   type CalendarFilters,
+  type CalendarRangeFilters,
   type InboxFilters,
   type MailFilters,
   type PluginRegistry,
@@ -1321,6 +1323,8 @@ export const calendarKeys = {
   all: ["calendar"] as const,
   events: () => [...calendarKeys.all, "events"] as const,
   eventsList: (filters: CalendarFilters) => [...calendarKeys.events(), filters] as const,
+  range: () => [...calendarKeys.all, "range"] as const,
+  rangeList: (filters: CalendarRangeFilters) => [...calendarKeys.range(), filters] as const,
   series: () => [...calendarKeys.all, "series"] as const,
   seriesList: (account?: string) => [...calendarKeys.series(), account ?? null] as const,
 };
@@ -1330,6 +1334,15 @@ export function calendarEventsQueryOptions(filters: CalendarFilters = {}) {
   return queryOptions({
     queryKey: calendarKeys.eventsList(filters),
     queryFn: () => getCalendarEvents(filters),
+    staleTime: 10_000,
+  });
+}
+
+/** Gli eventi dell'intervallo corrente della griglia (fase 9, Task 6). */
+export function calendarRangeQueryOptions(filters: CalendarRangeFilters) {
+  return queryOptions({
+    queryKey: calendarKeys.rangeList(filters),
+    queryFn: () => getCalendarRange(filters),
     staleTime: 10_000,
   });
 }

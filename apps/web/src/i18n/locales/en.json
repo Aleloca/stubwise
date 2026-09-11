@@ -2401,12 +2401,45 @@
       "attachments": "Attachments",
       "retentionNotice": "Messages older than 90 days are removed from Stubwise and can no longer be read here.",
       "loadError": "Could not load this message.",
-      "notFound": "This message was not found."
+      "notFound": "This message was not found.",
+      "selectPrompt": "Select a message on the left to read it here.",
+      "imagesBlockedNotice": "Remote images are blocked by default — they're a common way senders track when an email is opened.",
+      "showImages": "Show images",
+      "bodyFrameTitle": "Message body"
     }
   },
   "calendar": {
     "title": "Calendar",
     "subtitle": "Appointments seen and recurring series, from the mailboxes you connected.",
+    "view": {
+      "day": "Day",
+      "week": "Week",
+      "month": "Month",
+      "today": "Today",
+      "previous": "Previous",
+      "next": "Next"
+    },
+    "accounts": {
+      "heading": "Mailboxes"
+    },
+    "detail": {
+      "selectPrompt": "Select an appointment to see its details here.",
+      "openInGoogle": "Open in Google Calendar",
+      "attendees": "Attendees",
+      "allDayOn": "All day, {{date}}"
+    },
+    "attendeeStatus": {
+      "accepted": "Accepted",
+      "declined": "Declined",
+      "tentative": "Maybe",
+      "needsAction": "No reply yet",
+      "unknown": "Unknown"
+    },
+    "empty": {
+      "heading": "// nothing here",
+      "body": "The calendar only shows appointments that match a project's mail routing rules — an empty week is normal, not a bug.",
+      "linkHint": "Change which appointments show up"
+    },
     "series": {
       "heading": "Recurring series",
       "subtitle": "A series is off by default: it produces nothing until you turn it on here.",

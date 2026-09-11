@@ -16,6 +16,7 @@ import {
   mailAdmissionPatchSchema,
   mailAdmissionSchema,
   mailItemSchema,
+  mailOriginalSchema,
 } from "./google.js";
 
 describe("googleWorkspaceDraftSchema", () => {
@@ -315,6 +316,19 @@ describe("mailItemSchema.kind (fase 6c, fix di review Task 3)", () => {
   });
 });
 
+describe("mailOriginalSchema", () => {
+  const base = { subject: "Ciao", from: "a@acme.test", bodyText: "Ciao!" };
+
+  it("senza bodyHtml (server pre-fase-9): default null (fase 9, Task 4)", () => {
+    expect(mailOriginalSchema.parse(base).bodyHtml).toBeNull();
+  });
+
+  it("porta l'HTML già sanificato dal server", () => {
+    const parsed = mailOriginalSchema.parse({ ...base, bodyHtml: "<p>Ciao</p>" });
+    expect(parsed.bodyHtml).toBe("<p>Ciao</p>");
+  });
+});
+
 describe("calendarEventItemSchema / calendarSeriesItemSchema (fase 7b)", () => {
   const eventBase = {
     id: "11111111-1111-4111-8111-111111111111",
@@ -337,6 +351,22 @@ describe("calendarEventItemSchema / calendarSeriesItemSchema (fase 7b)", () => {
     expect(calendarEventItemSchema.parse({ ...eventBase, recurringEventId: "serie-1" }).recurringEventId).toBe(
       "serie-1",
     );
+  });
+
+  it("senza endsAt/allDay/attendees/eventUrl (server pre-fase-9): default null/false/[] (fase 9, Task 3)", () => {
+    const parsed = calendarEventItemSchema.parse(eventBase);
+    expect(parsed.endsAt).toBeNull();
+    expect(parsed.allDay).toBe(false);
+    expect(parsed.attendees).toEqual([]);
+    expect(parsed.eventUrl).toBeNull();
+  });
+
+  it("porta i partecipanti con lo stato di risposta", () => {
+    const parsed = calendarEventItemSchema.parse({
+      ...eventBase,
+      attendees: [{ email: "cliente@acme.test", responseStatus: "accepted" }],
+    });
+    expect(parsed.attendees).toEqual([{ email: "cliente@acme.test", responseStatus: "accepted" }]);
   });
 
   const seriesBase = {

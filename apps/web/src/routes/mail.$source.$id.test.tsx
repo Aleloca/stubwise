@@ -1,14 +1,19 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, RouterProvider } from "@tanstack/react-router";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createAppRouter } from "../router";
 
 /**
- * `/mail/:source/:id` (fase 7b, Task 8): il dettaglio di un'email — l'estratto
- * subito, l'originale su richiesta. Stesso stile di `mail.test.tsx`: router
- * reale + memory history, API mockata via fetch.
+ * `/mail/:source/:id` (fase 7b, Task 8; fase 9, Task 5): il dettaglio di
+ * un'email — l'estratto subito, l'originale su richiesta — dentro la STESSA
+ * pagina a tre colonne di `/mail` (`MailWorkspace`): la lista al centro
+ * resta visibile, non si naviga più via da lei. `baseApi()` per questo
+ * mocka anche le rotte della lista/filtri (progetti, caselle, riepilogo,
+ * lista posta), non solo il dettaglio: senza, le `useSuspenseQuery`
+ * condivise con `/mail` non avrebbero una risposta. Stesso stile di
+ * `mail.test.tsx`: router reale + memory history, API mockata via fetch.
  */
 
 function jsonResponse(status: number, body: unknown): Response {
@@ -63,6 +68,36 @@ function baseApi(overrides: Record<string, Handler> = {}): Record<string, Handle
     "GET /api/auth/me": () =>
       jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role: "admin", language: "en" } }),
     "GET /api/inbox/unread-count": () => jsonResponse(200, { count: 0 }),
+    // La stessa pagina a tre colonne di `/mail` (fase 9, Task 5): queste
+    // rotte alimentano la colonna sinistra (filtri) e quella centrale
+    // (lista), visibili ANCHE quando si arriva già su un messaggio preciso.
+    "GET /api/projects": () => jsonResponse(200, []),
+    "GET /api/me/google/accounts": () => jsonResponse(200, []),
+    "GET /api/me/mail/summary": () => jsonResponse(200, { openProposals: 0, failed: 0, ignored: 0 }),
+    "GET /api/me/mail": () =>
+      jsonResponse(200, {
+        items: [
+          {
+            kind: "proposal",
+            id: EMAIL_ID,
+            source: "email",
+            accountId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            accountEmail: "mailbox@acme.test",
+            projectId: null,
+            projectName: null,
+            title: "Ship next week?",
+            from: "laura@cliente.test",
+            date: "2026-08-31T09:00:00.000Z",
+            status: "classified",
+            signal: null,
+            outcome: null,
+            error: null,
+            url: "https://mail.google.com/mail/u/mailbox@acme.test/#all/t1",
+            reproposable: false,
+          },
+        ],
+        nextCursor: null,
+      }),
     [`GET /api/me/mail/email/${EMAIL_ID}`]: () => jsonResponse(200, DETAIL),
     ...overrides,
   };
@@ -81,6 +116,18 @@ function renderDetail(source: "email" | "email_triage" = "email", id: string = E
 }
 
 describe("pagina /mail/:source/:id", () => {
+  it("la lista resta visibile ACCANTO al dettaglio (tre colonne, fase 9, Task 5)", async () => {
+    mockApi(baseApi());
+    renderDetail();
+
+    await screen.findByRole("heading", { name: "Ship next week?" });
+    // La riga della lista (colonna centrale) è ANCORA a schermo, non
+    // sostituita dal dettaglio: è la differenza rispetto alla vecchia
+    // pagina separata.
+    expect(screen.getByRole("link", { name: "Read in Stubwise" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Mailbox")).toBeInTheDocument();
+  });
+
   it("mostra l'estratto subito, senza chiamare Gmail", async () => {
     mockApi(baseApi());
     renderDetail();
@@ -145,6 +192,81 @@ describe("pagina /mail/:source/:id", () => {
     expect(screen.getByText("contratto.pdf")).toBeInTheDocument();
   });
 
+  it("con bodyHtml: rende un iframe in sandbox, senza allow-scripts né allow-same-origin (fase 9, Task 5)", async () => {
+    mockApi(
+      baseApi({
+        [`GET /api/me/mail/email/${EMAIL_ID}/original`]: () =>
+          jsonResponse(200, {
+            subject: "Ship next week?",
+            from: "Laura <laura@cliente.test>",
+            to: ["me@acme.test"],
+            cc: [],
+            bodyText: "Corpo completo.",
+            bodyHtml: '<p><b>Ciao</b></p><img alt="" data-src="https://tracker.example/pixel.gif">',
+            attachments: [],
+          }),
+      }),
+    );
+    renderDetail();
+    await screen.findByRole("heading", { name: "Ship next week?" });
+
+    await userEvent.click(screen.getByRole("button", { name: "Read original on Gmail" }));
+
+    const frame = await screen.findByTitle("Message body");
+    const sandbox = frame.getAttribute("sandbox") ?? "";
+    expect(sandbox).not.toContain("allow-scripts");
+    expect(sandbox).not.toContain("allow-same-origin");
+    // L'immagine remota è bloccata di default: il bottone "mostra immagini" c'è.
+    expect(screen.getByRole("button", { name: "Show images" })).toBeInTheDocument();
+  });
+
+  it("'mostra immagini': il comando sparisce dopo il click (le immagini restano bloccate finché non lo premi)", async () => {
+    mockApi(
+      baseApi({
+        [`GET /api/me/mail/email/${EMAIL_ID}/original`]: () =>
+          jsonResponse(200, {
+            subject: "Ship next week?",
+            from: "Laura <laura@cliente.test>",
+            to: [],
+            cc: [],
+            bodyText: null,
+            bodyHtml: '<img alt="" data-src="https://tracker.example/pixel.gif">',
+            attachments: [],
+          }),
+      }),
+    );
+    renderDetail();
+    await screen.findByRole("heading", { name: "Ship next week?" });
+    await userEvent.click(screen.getByRole("button", { name: "Read original on Gmail" }));
+
+    await userEvent.click(await screen.findByRole("button", { name: "Show images" }));
+
+    expect(screen.queryByRole("button", { name: "Show images" })).toBeNull();
+  });
+
+  it("senza bodyHtml (solo testo): niente iframe, il corpo grezzo in <pre>", async () => {
+    mockApi(
+      baseApi({
+        [`GET /api/me/mail/email/${EMAIL_ID}/original`]: () =>
+          jsonResponse(200, {
+            subject: "Ship next week?",
+            from: "Laura <laura@cliente.test>",
+            to: [],
+            cc: [],
+            bodyText: "Solo testo.",
+            bodyHtml: null,
+            attachments: [],
+          }),
+      }),
+    );
+    renderDetail();
+    await screen.findByRole("heading", { name: "Ship next week?" });
+    await userEvent.click(screen.getByRole("button", { name: "Read original on Gmail" }));
+
+    await screen.findByText("Solo testo.");
+    expect(screen.queryByTitle("Message body")).toBeNull();
+  });
+
   it.each([
     ["message_gone", 409, "This message no longer exists on Gmail."],
     ["token_expired", 409, "This Google account needs to be reconnected."],
@@ -161,5 +283,98 @@ describe("pagina /mail/:source/:id", () => {
     await userEvent.click(screen.getByRole("button", { name: "Read original on Gmail" }));
 
     await screen.findByText(expected);
+  });
+
+  it("passando da un messaggio all'altro, l'originale riletto NON resta stantio (bug bloccante trovato dalla review Stubwise)", async () => {
+    const EMAIL_ID_2 = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+    const DETAIL_2 = {
+      id: EMAIL_ID_2,
+      source: "email" as const,
+      accountId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      accountEmail: "mailbox@acme.test",
+      from: "Marco <marco@cliente.test>",
+      to: ["me@acme.test"],
+      subject: "Fattura di settembre",
+      receivedAt: "2026-09-01T09:00:00.000Z",
+      labels: [],
+      textExcerpt: "In allegato la fattura.",
+      url: "https://mail.google.com/mail/u/mailbox@acme.test/#all/t2",
+    };
+    mockApi(
+      baseApi({
+        "GET /api/me/mail": () =>
+          jsonResponse(200, {
+            items: [
+              {
+                kind: "proposal",
+                id: EMAIL_ID,
+                source: "email",
+                accountId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+                accountEmail: "mailbox@acme.test",
+                projectId: null,
+                projectName: null,
+                title: "Ship next week?",
+                from: "laura@cliente.test",
+                date: "2026-08-31T09:00:00.000Z",
+                status: "classified",
+                signal: null,
+                outcome: null,
+                error: null,
+                url: "https://mail.google.com/mail/u/mailbox@acme.test/#all/t1",
+                reproposable: false,
+              },
+              {
+                kind: "proposal",
+                id: EMAIL_ID_2,
+                source: "email",
+                accountId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+                accountEmail: "mailbox@acme.test",
+                projectId: null,
+                projectName: null,
+                title: "Fattura di settembre",
+                from: "marco@cliente.test",
+                date: "2026-09-01T09:00:00.000Z",
+                status: "classified",
+                signal: null,
+                outcome: null,
+                error: null,
+                url: "https://mail.google.com/mail/u/mailbox@acme.test/#all/t2",
+                reproposable: false,
+              },
+            ],
+            nextCursor: null,
+          }),
+        [`GET /api/me/mail/email/${EMAIL_ID_2}`]: () => jsonResponse(200, DETAIL_2),
+        [`GET /api/me/mail/email/${EMAIL_ID}/original`]: () =>
+          jsonResponse(200, {
+            subject: "Ship next week?",
+            from: "Laura <laura@cliente.test>",
+            to: ["me@acme.test"],
+            cc: [],
+            bodyText: "Corpo del primo messaggio.",
+            attachments: [],
+          }),
+      }),
+    );
+    renderDetail();
+    await screen.findByRole("heading", { name: "Ship next week?" });
+
+    await userEvent.click(screen.getByRole("button", { name: "Read original on Gmail" }));
+    await screen.findByText("Corpo del primo messaggio.");
+
+    // Passa al secondo messaggio SENZA aver chiuso/ricaricato la pagina —
+    // esattamente lo scenario del bug: stesso componente, prop `id` cambiata.
+    // La riga della lista non è linkata sull'oggetto, ma su "Read in
+    // Stubwise": scoped alla riga per non ambiguità con quella del primo
+    // messaggio, che porta lo stesso testo.
+    const secondRow = screen.getByText(/Fattura di settembre/).closest("article")!;
+    await userEvent.click(within(secondRow).getByRole("link", { name: "Read in Stubwise" }));
+
+    await screen.findByRole("heading", { name: "Fattura di settembre" });
+    // Il corpo del PRIMO messaggio non deve restare in vista...
+    expect(screen.queryByText("Corpo del primo messaggio.")).not.toBeInTheDocument();
+    // ...e il comando di rilettura deve ripresentarsi per il messaggio nuovo,
+    // non restare "già letto" per via dello stato mai resettato.
+    expect(await screen.findByRole("button", { name: "Read original on Gmail" })).toBeInTheDocument();
   });
 });

@@ -2401,12 +2401,45 @@
       "attachments": "Allegati",
       "retentionNotice": "I messaggi più vecchi di 90 giorni vengono rimossi da Stubwise e qui non sono più leggibili.",
       "loadError": "Impossibile caricare questo messaggio.",
-      "notFound": "Questo messaggio non è stato trovato."
+      "notFound": "Questo messaggio non è stato trovato.",
+      "selectPrompt": "Seleziona un messaggio a sinistra per leggerlo qui.",
+      "imagesBlockedNotice": "Le immagini remote sono bloccate di default — sono un modo comune per il mittente di sapere quando un'email viene aperta.",
+      "showImages": "Mostra immagini",
+      "bodyFrameTitle": "Corpo del messaggio"
     }
   },
   "calendar": {
     "title": "Calendario",
     "subtitle": "Appuntamenti visti e serie ricorrenti, dalle caselle che hai collegato.",
+    "view": {
+      "day": "Giorno",
+      "week": "Settimana",
+      "month": "Mese",
+      "today": "Oggi",
+      "previous": "Precedente",
+      "next": "Successivo"
+    },
+    "accounts": {
+      "heading": "Caselle"
+    },
+    "detail": {
+      "selectPrompt": "Seleziona un appuntamento per vederne il dettaglio qui.",
+      "openInGoogle": "Apri in Google Calendar",
+      "attendees": "Partecipanti",
+      "allDayOn": "Tutto il giorno, {{date}}"
+    },
+    "attendeeStatus": {
+      "accepted": "Accettato",
+      "declined": "Rifiutato",
+      "tentative": "Forse",
+      "needsAction": "Nessuna risposta",
+      "unknown": "Sconosciuto"
+    },
+    "empty": {
+      "heading": "// niente qui",
+      "body": "Il calendario mostra solo gli appuntamenti che combaciano con le regole di smistamento della posta di un progetto — una settimana vuota è normale, non un guasto.",
+      "linkHint": "Cambia quali appuntamenti compaiono"
+    },
     "series": {
       "heading": "Serie ricorrenti",
       "subtitle": "Una serie è spenta di default: non produce nulla finché non la accendi qui.",

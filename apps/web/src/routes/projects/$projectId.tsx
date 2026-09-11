@@ -248,7 +248,12 @@ export function ProjectDetailPage() {
         arbitrata dal server (403 a un member): allargare quel perimetro è una
         decisione, non un'impostazione di comodo.
       */}
-      <section aria-label={t("projects:email.title")} className="mt-8 border-t border-line pt-6">
+      {/*
+        `id="mail"` (fix di review, fase 9 Task 3): ancora di deep-link per
+        lo stato vuoto del calendario, che punta qui — non solo all'elenco
+        progetti — quando c'è un solo progetto a cui puntare.
+      */}
+      <section id="mail" aria-label={t("projects:email.title")} className="mt-8 border-t border-line pt-6">
         <div className="mb-3">
           <h2 className={sectionTitleClass + " mb-0"}>{t("projects:email.title")}</h2>
           <p className="mt-1 font-mono text-[11px] text-fg-faint">

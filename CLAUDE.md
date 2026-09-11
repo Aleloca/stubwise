@@ -839,6 +839,76 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   mai stata chiamata con altro che `"test"` prima di questa fase, un worker
   precedente continua semplicemente a comportarsi come prima (nessuna
   regressione, solo assenza della funzionalità nuova).
+- **Fase 9 (Posta e Calendario che si guardano volentieri)**: rebuild
+  **server+worker+caddy insieme** (migrazione 0075 all'avvio del server —
+  additiva, **nessun `ALTER TYPE`**, un solo batch, ma **CON BACKFILL e con
+  un vero cambio di tipo** su una colonna esistente, non solo un'aggiunta:
+  `calendar_events.attendees` passa da `text[]` (sole email) a `jsonb`
+  (`{email, responseStatus}[]`) sulle 1553 righe di produzione — stesso
+  modello nullable→backfill→NOT NULL della 0074, ma con drop della colonna
+  vecchia e rename della nuova alla fine, perché qui la FORMA cambia, non
+  solo il vincolo; `responseStatus` backfillato a `NULL` per ogni riga
+  storica (mai stato conservato, non ricostruibile); più una colonna nuova
+  nullable `html_link`, additiva). Il worker nuovo è l'unico che riconosce
+  `responseStatus`/`htmlLink` nella normalizzazione di `@stubwise/google` e
+  li scrive nell'upsert di `calendar_events`
+  (`apps/worker/src/google/poller.ts`), guarda **anche 30 giorni indietro**
+  oltre ai 60 avanti (`CALENDAR_LOOKBACK_DAYS`, `apps/worker/src/google/
+  calendar.ts`) sia in lettura sia nel calcolo della finestra di poll; il
+  server nuovo l'unico che espone `GET /api/me/calendar/range` (un
+  intervallo `[from,to)` con tetto `MAX_RANGE_DAYS=100`,
+  `apps/server/src/routes/me-calendar.ts`) e che sanifica lato server il
+  corpo HTML di un'estratto email (`sanitizeEmailHtml`, `@stubwise/google`,
+  su `GET /api/me/mail/:source/:id/original` — **calcolato per quella sola
+  risposta e mai scritto su una riga**, verificato leggendo la rotta: nessun
+  `UPDATE`/`INSERT` lo tocca); il bundle nuovo l'unico che disegna la posta
+  a tre colonne e la griglia giorno/settimana/mese di `/calendar`, col
+  pannello di dettaglio (partecipanti con stato di risposta, link
+  all'evento, e — se l'appuntamento appartiene a una serie — la
+  configurazione della serie, spostata lì dall'elenco separato della 7b).
+  **Nessuna env nuova**. **Nessun kind di notifica nuovo e nessun valore
+  nuovo in un enum esistente**: le proposte di serie continuano a riusare
+  `google.proposal`/`source: "calendar"` come dalla 7b, quindi — a
+  differenza delle fasi 2/5/6/6c — non c'è l'equivalente del 500 su
+  `/api/inbox`. **Il task che avrebbe spostato `inScope` dall'ingestione
+  alla proposta è stato RITIRATO in corso di progettazione** (era il task
+  più rischioso: avrebbe potuto trasformare ogni appuntamento personale in
+  una proposta, la stessa famiglia dell'incidente del 9 settembre 2026) —
+  l'ingestione del calendario resta quella della 7b, non toccata da questa
+  fase.
+  **Rollback — un rischio NUOVO rispetto a ogni fase additiva precedente,
+  proprio per il cambio di tipo su `attendees`, e per la PRIMA VOLTA nel
+  programma una migrazione che DROPPA una colonna**: scendere di immagine
+  sul **worker** dopo la 0075 non è sicuro come nelle fasi puramente
+  additive — un worker precedente dichiara ancora `attendees` come
+  `text().array()` (via drizzle), e quella colonna ora è `jsonb`. **In
+  SCRITTURA il fallimento è RUMOROSO, ed è la notizia buona**: l'upsert su
+  `calendar_events` (`apps/worker/src/google/poller.ts`) fallisce con un
+  errore Postgres esplicito (`column "attendees" is of type jsonb but
+  expression is of type text[]`) — Postgres non offre un cast implicito fra
+  array e jsonb — quindi la sincronizzazione del calendario si ferma con un
+  errore in log, non scrive mai dati nel formato sbagliato. **In LETTURA**
+  la descrizione precedente resta esatta: un binario vecchio che LEGGA la
+  colonna (`apps/worker/src/google/calendar.ts`,
+  `apps/server/src/routes/me-calendar.ts`) riceve oggetti `{email,
+  responseStatus}` dove il suo codice si aspetta stringhe — un uso scorretto
+  del dato (routing calcolato su un valore che non è più l'indirizzo email),
+  non un crash. Non è la stessa classe di rischio delle fasi 2/5/6/6c
+  (nessun 500 su `/api/inbox`), ma resta un motivo per **non** scendere di
+  immagine sul worker dopo questa fase: la sincronizzazione del calendario
+  si ferma (rumorosamente) finché non si torna avanti. **Deploy PARZIALE —
+  per la prima volta nel programma, non è solo incompletezza, è
+  correttezza**: "server+worker+caddy insieme" nelle fasi additive
+  precedenti significava "funzionalità nuova incompleta se dispari"; QUI
+  significa che un deploy del **solo server** lascia il worker VECCHIO in
+  esecuzione contro uno schema che quel worker non sa più scrivere — lo
+  rompe attivamente, rumorosamente, dal momento in cui la 0075 viene
+  applicata, non da un futuro rollback. Scendere di immagine sul **server**
+  resta sicuro per `/api/inbox` (nessun enum toccato) ma perde `/calendar`
+  e `/mail` nuove (rotte 404) — va sceso insieme al caddy, come sempre. La
+  colonna `html_link` e il campo `bodyHtml` (aggiunto a
+  `mailOriginalSchema`, `.nullable().default(null)`) sono invece
+  puramente additivi, nessun rischio.
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
@@ -1193,6 +1263,27 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   percorso automatico per tutte e tre le azioni: deve restare zero. Chi
   aggiunge una quarta azione a una serie (`calendar_series.action`) faccia
   passare anche lei da `calendar-auto.ts`, non da un servizio del server.
+- **Un appuntamento passato non diventa MAI una proposta (fase 9, fix di
+  review).** `isReadyForProposal` (`apps/worker/src/google/calendar.ts`)
+  richiede `startsAt >= now` per un evento SINGOLO esattamente come per
+  un'occorrenza di serie — non solo quest'ultima, come prima del fix. Il
+  motivo è la stessa lezione dell'incidente del 9 settembre da una porta
+  nuova: prima della fase 9 il controllo era ridondante (la finestra di
+  ingestione partiva da `now`, un evento passato non entrava mai), ma il
+  Task 1 della fase 9 allarga la finestra a `now - 30gg`
+  (`CALENDAR_LOOKBACK_DAYS`) — senza il controllo, ogni riunione di lavoro
+  dell'ultimo mese sarebbe diventata una proposta di milestone con scadenza
+  già passata, tutte insieme al primo tick. **Tre punti devono restare
+  d'accordo**, verificato a fix fatto con un grep mirato dopo ogni modifica
+  futura a questa regola: `isReadyForProposal` (il cancello vero), la query
+  del propose phase in `apps/worker/src/google/poller.ts` (che lo replica in
+  SQL — le due DEVONO dire la stessa cosa o il difetto torna dall'altra
+  porta) e il conteggio `stats.ready` calcolato in fase di ingestione
+  (stesso file, poco sotto: è ciò che il log espone come «N da proporre» e
+  ciò che i test leggono come `calendarReady`). Un test esplicito fissa il
+  caso che ha reso visibile il difetto: `apps/worker/src/google/
+  calendar.test.ts`, "trenta riunioni di lavoro del mese scorso: zero
+  proposte" — conta zero notifiche pubblicate.
 - **Solo l'ambiente `test` entra in un worktree (fase 8).** Reso impossibile
   per COSTRUZIONE, non solo per convenzione: `loadProjectEnvFiles`
   (`apps/worker/src/pipeline/env-files.ts`) prende `environment` tipato sul
@@ -1225,6 +1316,40 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   "non risulta", mai un'affermazione che Stubwise avrebbe potuto rendere
   vera. Chi in futuro collega un ambiente a un'azione che lo TOCCA (un
   trigger di deploy, un rollout) rompe questa frase, non solo il codice.
+- **Il corpo HTML di un'email non si conserva mai (fase 9).** A differenza
+  del corpo TESTO estratto al momento della classificazione (conservato,
+  `email_messages`), l'HTML originale non entra mai in una riga: la rotta
+  `GET /api/me/mail/:source/:id/original`
+  (`apps/server/src/routes/me-mail.ts`) lo rilegge da Gmail, lo sanifica con
+  `sanitizeEmailHtml` (allowlist di tag/attributi, mai denylist —
+  `packages/google/src/gmail.ts`) e lo restituisce **per quella sola
+  risposta**: nessun `UPDATE`/`INSERT` lo scrive da nessuna parte. Si rende
+  in un `<iframe sandbox>` (`apps/web/src/components/mail-reading-pane.tsx`)
+  **senza** `allow-scripts` né `allow-same-origin` — i due permessi che
+  farebbero uscire il documento dal suo recinto — con le immagini remote
+  neutralizzate di default (spostate in `data-src`, mai in `src`: sono il
+  vettore classico dei pixel di tracciamento) finché chi legge non chiede
+  esplicitamente di mostrarle. Chi tocca questa rotta non aggiunga una
+  colonna per "conservare l'HTML già sanificato, tanto è pulito": il punto
+  non è la sicurezza del testo salvato, è che un estratto persistito è
+  un'affermazione implicita "questo è ciò che Stubwise ha letto", e per
+  l'HTML — a differenza del testo usato dalla classificazione — non è vero:
+  nessun codice lo legge se non la persona che clicca «Leggi l'originale».
+- **Una serie resta raggiungibile anche senza occorrenze nella finestra
+  visibile (fase 9, fix di review).** Spostando la configurazione di una
+  serie nel pannello di dettaglio (design §3, Task 7), una serie le cui
+  occorrenze cadono tutte fuori da [-30gg, +60gg]
+  (`CALENDAR_LOOKBACK_DAYS`/`CALENDAR_WINDOW_DAYS`) sarebbe stata
+  irraggiungibile da nessuna vista — il caso esatto delle 730 righe
+  dell'incidente del 9 settembre 2026, e peggio: non sarebbe stata
+  SPEGNIBILE se accesa con `auto: true`. Corretto prima del merge: la
+  sidebar `CalendarSeriesSidebar` (`apps/web/src/components/
+  calendar-series-sidebar.tsx`) elenca TUTTE le serie viste, senza filtro di
+  finestra (stesso `GET /series` della 7b, che non ha mai filtrato per
+  finestra — il buco era solo nella UI), richiudibile e chiusa di default
+  per non costare un blocco fisso in una colonna stretta. Chi tocca la
+  pagina calendario non rimuova questa sidebar "per pulizia": è l'unico
+  punto d'accesso per una serie fuori dalla finestra della griglia.
 
 ## Integrazione Claude Code (MCP)
 

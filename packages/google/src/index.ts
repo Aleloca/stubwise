@@ -63,6 +63,7 @@ export {
   listHistory,
   listMessages,
   MAX_TEXT_LENGTH,
+  sanitizeEmailHtml,
   stripQuotedAndSignature,
   TEXT_TRUNCATION_MARKER,
   type ExtractTextOptions,
