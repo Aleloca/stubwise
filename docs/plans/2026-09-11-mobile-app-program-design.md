@@ -33,9 +33,16 @@ React Native. Ma nemmeno le **decisioni** sono condivise:
 
 - `deriveNextStep` (fase 7 — qual è il prossimo passo di una voce di lavoro)
   vive solo nel web (`apps/web/src/components/work-next-step.tsx:66`).
-- `actionsFor` esiste già in `packages/notifications/pure` e dice quali bottoni
-  mostrare per ogni tipo di notifica: **lo importa solo il web**. L'app riscrive
-  quelle regole per conto proprio, e ogni kind nuovo va aggiornato in due posti.
+- ~~`actionsFor` … l'app riscrive quelle regole per conto proprio~~ —
+  **AFFERMAZIONE SBAGLIATA, corretta l'11 set 2026.** L'app **non** duplica il
+  catalogo: ogni card dell'inbox chiama `can(item, "<azione>")`, cioè legge
+  `item.actions`, l'elenco che **calcola il server**
+  (`apps/mobile/src/components/inbox/FailedCard.tsx:29` e gemelle). L'avevo
+  dedotto dall'assenza di un import invece di guardare come le card decidono.
+  L'unica duplicazione vera era un insieme di due nomi di kind usato per
+  raggruppare l'inbox, ora collegato al catalogo condiviso. **Regola che ne
+  discende**: un'assenza di import non è una prova di duplicazione — la prova è
+  leggere chi decide.
 - `workStateFor` (`packages/shared/src/work-state.ts`) è invece **già condiviso**
   e usato da entrambi: è il precedente che dimostra che la strada funziona.
 
