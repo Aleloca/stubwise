@@ -195,7 +195,7 @@ const styles = StyleSheet.create({
   },
   handle: {
     alignSelf: "center",
-    backgroundColor: "#2c3641",
+    backgroundColor: colors.lineStrong,
     borderRadius: 2,
     height: 4,
     marginBottom: 16,
@@ -208,7 +208,7 @@ const styles = StyleSheet.create({
     lineHeight: 26,
   },
   option: {
-    borderColor: "#2c3641",
+    borderColor: colors.lineStrong,
     borderRadius: radii.control,
     borderWidth: 1,
     marginTop: 8,
@@ -254,7 +254,7 @@ const styles = StyleSheet.create({
   },
   freeInput: {
     backgroundColor: "rgba(10,13,16,0.7)",
-    borderColor: "#2c3641",
+    borderColor: colors.lineStrong,
     borderRadius: radii.control,
     borderWidth: 1,
     color: colors.fg,

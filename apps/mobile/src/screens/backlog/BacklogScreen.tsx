@@ -259,7 +259,7 @@ const styles = StyleSheet.create({
   },
   addButton: {
     alignItems: "center",
-    borderColor: "#b97d1a",
+    borderColor: colors.signalDim,
     borderRadius: radii.control,
     borderWidth: 1,
     height: 32,
@@ -283,14 +283,14 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   chip: {
-    borderColor: "#2c3641",
+    borderColor: colors.lineStrong,
     borderRadius: 16,
     borderWidth: 1,
     paddingHorizontal: 12,
     paddingVertical: 5,
   },
   chipActive: {
-    borderColor: "#b97d1a",
+    borderColor: colors.signalDim,
   },
   chipLabel: {
     color: colors.muted,

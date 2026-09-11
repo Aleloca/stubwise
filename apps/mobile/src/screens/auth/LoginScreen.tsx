@@ -214,7 +214,7 @@ const styles = StyleSheet.create({
   },
   input: {
     backgroundColor: "rgba(10,13,16,0.7)",
-    borderColor: "#2c3641",
+    borderColor: colors.lineStrong,
     borderRadius: 8,
     borderWidth: 1,
     color: colors.fg,

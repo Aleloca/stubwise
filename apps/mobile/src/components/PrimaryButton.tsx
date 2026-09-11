@@ -41,8 +41,10 @@ const styles = StyleSheet.create({
     height: 50,
     justifyContent: "center",
   },
+  // App M1: stesso stato "premuto" del sito (`active:bg-signal-dim`) — un
+  // colore vero, non solo un'opacità abbassata sullo stesso ambra.
   pressed: {
-    opacity: 0.85,
+    backgroundColor: colors.signalDim,
   },
   disabled: {
     opacity: 0.5,

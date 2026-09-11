@@ -197,7 +197,7 @@ const styles = StyleSheet.create({
   },
   handle: {
     alignSelf: "center",
-    backgroundColor: "#2c3641",
+    backgroundColor: colors.lineStrong,
     borderRadius: 2,
     height: 4,
     marginBottom: 16,
@@ -214,7 +214,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   projectPill: {
-    borderColor: "#2c3641",
+    borderColor: colors.lineStrong,
     borderRadius: 16,
     borderWidth: 1,
     paddingHorizontal: 12,
@@ -245,7 +245,7 @@ const styles = StyleSheet.create({
   },
   input: {
     backgroundColor: "rgba(10,13,16,0.7)",
-    borderColor: "#b97d1a",
+    borderColor: colors.signalDim,
     borderRadius: radii.control,
     borderWidth: 1,
     color: colors.fg,

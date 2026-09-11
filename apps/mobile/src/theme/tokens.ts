@@ -1,30 +1,56 @@
+import { designColors, designRadii } from "@stubwise/shared";
+
 /**
  * Token di colore e raggio del design (canvas Claude Design "Stubwise
  * Mobile", `designs/app-design.zip`): gli stessi valori della web app — v1 è
  * SOLO dark, non c'è un tema chiaro da switchare (vedi §2 del design doc di
  * fase 4).
+ *
+ * App M1 (11 set 2026): i valori vengono ora da `@stubwise/shared`
+ * (`designColors`), che li tiene allineati a `apps/web/src/styles.css` con
+ * un test di parità (`apps/web/src/theme-parity.test.ts`) — prima venivano
+ * ricopiati qui a mano, e ne mancavano cinque: `ink850`, `ink700`,
+ * `lineStrong`, `signalBright`, `signalDim`. Sono quelli che sul sito creano
+ * la profondità (superfici rialzate, bordi degli elementi interattivi,
+ * l'ambra viva contro quella spenta) e ora l'app li ha, usati in
+ * `GhostButton`, `CardShell`/`CardFooter`, `PrimaryButton` e altrove — vedi
+ * i commenti su ciascun uso.
  */
 export const colors = {
   /** Sfondo primario (schermo). */
-  ink950: "#0a0d10",
+  ink950: designColors["ink-950"],
   /** Sfondo delle card e delle superfici rialzate. */
-  ink900: "#0f1318",
-  /** Sfondo rialzato di un livello ulteriore (es. header di sezione). */
-  ink800: "#181f28",
+  ink900: designColors["ink-900"],
+  /** Sfondo rialzato di un livello ulteriore (riga premuta/selezionata). */
+  ink850: designColors["ink-850"],
+  /** Sfondo rialzato di un livello ulteriore ancora. */
+  ink800: designColors["ink-800"],
+  /** Bordo di un elemento interattivo in evidenza. */
+  ink700: designColors["ink-700"],
   /** Bordi e separatori. */
-  line: "#1d242d",
+  line: designColors.line,
+  /** Bordo "forte", per gli elementi interattivi (bottoni, campi). */
+  lineStrong: designColors["line-strong"],
   /** Testo primario. */
-  fg: "#e9e6df",
+  fg: designColors.fg,
   /** Testo secondario. */
-  muted: "#98a1ac",
+  muted: designColors["fg-muted"],
   /** Testo terziario / annotazioni mono (`// commenti`). */
-  faint: "#5c6671",
+  faint: designColors["fg-faint"],
   /** Colore di richiamo: cursore del wordmark, bottoni primari, badge. */
-  signal: "#f5a623",
+  signal: designColors.signal,
+  /** Ambra viva — variante "attiva" di un elemento di segnale (senza hover su touch, riservata a usi futuri). */
+  signalBright: designColors["signal-bright"],
+  /** Ambra spenta — bordo/sfondo tenue di un elemento di segnale, e stato "premuto" di un bottone pieno. */
+  signalDim: designColors["signal-dim"],
   /** Errori, card "lavoro fallito". */
-  danger: "#ff6b6e",
+  danger: designColors.danger,
   /** Successo, PR pronta, rilasciato. */
-  ok: "#4ad295",
+  ok: designColors.ok,
+  // I due seguenti NON sono sul tema del sito (nessun --color-sky/--color-
+  // violet in styles.css, quindi fuori da `designColors` e dal test di
+  // parità): riprendono Tailwind sky-400/violet-400 per convenzione, solo
+  // per i badge di stato dei job (in esecuzione / in review) di questa app.
   /** Job in esecuzione. */
   sky: "#38bdf8",
   /** Job in review. */
@@ -34,7 +60,4 @@ export const colors = {
 export type ColorToken = keyof typeof colors;
 
 /** Raggi degli angoli: 8 per i controlli, 10 per le card. */
-export const radii = {
-  control: 8,
-  card: 10,
-} as const;
+export const radii = designRadii;

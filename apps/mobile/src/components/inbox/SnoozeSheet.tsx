@@ -86,7 +86,7 @@ const styles = StyleSheet.create({
   },
   option: {
     alignItems: "center",
-    borderColor: "#2c3641",
+    borderColor: colors.lineStrong,
     borderRadius: radii.control,
     borderWidth: 1,
     flex: 1,

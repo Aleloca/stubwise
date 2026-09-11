@@ -264,7 +264,7 @@ const styles = StyleSheet.create({
   bubbleUser: {
     alignSelf: "flex-end",
     backgroundColor: "rgba(245,166,35,0.08)",
-    borderColor: "#b97d1a",
+    borderColor: colors.signalDim,
   },
   bubbleLabel: {
     color: colors.faint,
@@ -306,7 +306,7 @@ const styles = StyleSheet.create({
   },
   input: {
     backgroundColor: "rgba(10,13,16,0.7)",
-    borderColor: "#2c3641",
+    borderColor: colors.lineStrong,
     borderRadius: 20,
     borderWidth: 1,
     color: colors.fg,

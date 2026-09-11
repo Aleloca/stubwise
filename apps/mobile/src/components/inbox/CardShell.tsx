@@ -192,8 +192,11 @@ const footerButtonStyles = StyleSheet.create({
     borderLeftColor: colors.line,
     borderLeftWidth: 1,
   },
+  // App M1: superficie rialzata di un livello, non un velo bianco
+  // traslucido — lo stesso principio del sito, dove premere/passare sopra
+  // una riga la porta a `ink-850`.
   pressed: {
-    backgroundColor: "rgba(255,255,255,0.04)",
+    backgroundColor: colors.ink850,
   },
   disabled: {
     opacity: 0.45,

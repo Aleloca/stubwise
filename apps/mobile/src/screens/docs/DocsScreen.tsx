@@ -391,7 +391,7 @@ const styles = StyleSheet.create({
     letterSpacing: -0.3,
   },
   projectPill: {
-    borderColor: "#2c3641",
+    borderColor: colors.lineStrong,
     borderRadius: 16,
     borderWidth: 1,
     paddingHorizontal: 12,
@@ -423,7 +423,7 @@ const styles = StyleSheet.create({
   searchBox: {
     alignItems: "center",
     backgroundColor: "rgba(10,13,16,0.7)",
-    borderColor: "#2c3641",
+    borderColor: colors.lineStrong,
     borderRadius: radii.control,
     borderWidth: 1,
     flexDirection: "row",
@@ -467,7 +467,7 @@ const styles = StyleSheet.create({
   },
   askEntry: {
     backgroundColor: colors.ink900,
-    borderColor: "#b97d1a",
+    borderColor: colors.signalDim,
     borderRadius: radii.card,
     borderWidth: 1,
     marginBottom: 16,

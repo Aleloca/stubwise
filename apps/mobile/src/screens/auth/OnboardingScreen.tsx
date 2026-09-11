@@ -125,7 +125,7 @@ export function OnboardingScreen() {
                   accessibilityLabel={project.name}
                   onValueChange={() => toggle(project.id)}
                   thumbColor={colors.ink950}
-                  trackColor={{ false: "#242d38", true: colors.signal }}
+                  trackColor={{ false: colors.ink700, true: colors.signal }}
                   value={selected.has(project.id)}
                 />
               </View>

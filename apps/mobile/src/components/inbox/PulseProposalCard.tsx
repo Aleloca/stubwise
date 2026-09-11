@@ -198,7 +198,7 @@ const styles = StyleSheet.create({
   },
   optionRow: {
     alignItems: "center",
-    borderColor: "#2c3641",
+    borderColor: colors.lineStrong,
     borderRadius: radii.control,
     borderWidth: 1,
     flexDirection: "row",

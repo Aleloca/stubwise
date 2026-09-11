@@ -35,7 +35,7 @@ const styles = StyleSheet.create({
   pill: {
     alignItems: "center",
     alignSelf: "flex-start",
-    borderColor: "#b97d1a",
+    borderColor: colors.signalDim,
     borderRadius: 4,
     borderWidth: 1,
     flexDirection: "row",
