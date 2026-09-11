@@ -6,10 +6,12 @@ import { fontFamily } from "../theme/typography";
 /**
  * Pillola mono per una cifra o una sigla breve: il conteggio non letto sul
  * tab Inbox (badge sul tab INB) e — riuso dello stesso linguaggio visivo —
- * le sigle `INB`/`PRJ`/`BLG`/`DOC` della tab bar quando serve renderle fuori
- * da `@react-navigation/bottom-tabs` (che ha il proprio meccanismo nativo di
- * badge). Non è quel meccanismo nativo: è la versione "disegnata a mano" per
- * dove serve un badge dentro il flusso normale del layout.
+ * le sigle `INB`/`PRJ`/`BLG`/`DOC` quando serve renderle fuori dalla tab bar
+ * nativa (App M1+M2, Task 6: `react-native-bottom-tabs` +
+ * `@bottom-tabs/react-navigation`, che ha il proprio meccanismo nativo sia
+ * di badge — `tabBarBadge` — sia di etichetta — `tabBarLabel`, dove le
+ * sigle vivono ora). Non è quel meccanismo nativo: è la versione "disegnata
+ * a mano" per dove serve un badge dentro il flusso normale del layout.
  */
 export function MonoBadge({
   children,
