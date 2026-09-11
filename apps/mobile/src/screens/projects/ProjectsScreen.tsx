@@ -128,6 +128,7 @@ const styles = StyleSheet.create({
   },
   errorTitle: {
     color: colors.fg,
+    fontFamily: fontFamily.sansSemiBold,
     fontSize: 15,
     fontWeight: "600",
     textAlign: "center",
@@ -152,12 +153,14 @@ const styles = StyleSheet.create({
   },
   emptyTitle: {
     color: colors.fg,
+    fontFamily: fontFamily.sansSemiBold,
     fontSize: 17,
     fontWeight: "600",
     marginTop: 12,
   },
   emptyBody: {
     color: colors.muted,
+    fontFamily: fontFamily.sans,
     fontSize: 14,
     lineHeight: 20,
     marginTop: 6,

@@ -193,6 +193,7 @@ const styles = StyleSheet.create({
   },
   text: {
     color: colors.fg,
+    fontFamily: fontFamily.sans,
     fontSize: 15,
     lineHeight: 21,
   },
@@ -223,6 +224,7 @@ const styles = StyleSheet.create({
   optionTitle: {
     color: colors.fg,
     flex: 1,
+    fontFamily: fontFamily.sansSemiBold,
     fontSize: 14,
     fontWeight: "600",
   },
@@ -237,6 +239,7 @@ const styles = StyleSheet.create({
   },
   error: {
     color: colors.danger,
+    fontFamily: fontFamily.sans,
     fontSize: 13,
     marginTop: 8,
   },

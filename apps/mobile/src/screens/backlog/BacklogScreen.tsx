@@ -330,18 +330,21 @@ const styles = StyleSheet.create({
   },
   errorTitle: {
     color: colors.fg,
+    fontFamily: fontFamily.sansSemiBold,
     fontSize: 15,
     fontWeight: "600",
     textAlign: "center",
   },
   emptyTitle: {
     color: colors.fg,
+    fontFamily: fontFamily.sansSemiBold,
     fontSize: 15,
     fontWeight: "600",
     textAlign: "center",
   },
   emptyBody: {
     color: colors.muted,
+    fontFamily: fontFamily.sans,
     fontSize: 14,
     lineHeight: 20,
     textAlign: "center",
@@ -367,6 +370,7 @@ const styles = StyleSheet.create({
   cardTitle: {
     color: colors.fg,
     flexShrink: 1,
+    fontFamily: fontFamily.sansSemiBold,
     fontSize: 15,
     fontWeight: "600",
   },
@@ -389,6 +393,7 @@ const styles = StyleSheet.create({
   },
   convertError: {
     color: colors.danger,
+    fontFamily: fontFamily.sans,
     fontSize: 13,
     marginHorizontal: 20,
     marginTop: 4,

@@ -8,6 +8,7 @@ import { can, hasDecisionAction, isAdminGatedKind } from "../../lib/inbox-sectio
 import { useHandled, useRelaunch, useSnooze } from "../../lib/inbox-mutations";
 import type { ColorToken } from "../../theme/tokens";
 import { colors } from "../../theme/tokens";
+import { fontFamily } from "../../theme/typography";
 
 /** Etichetta e tono per ogni kind SENZA una variante bespoke — fallback per un kind ignoto (`Reader<>`). */
 const KIND_META: Record<string, { i18nKey: string; tone: ColorToken }> = {
@@ -136,11 +137,13 @@ export function InfoCard({ item, projectName }: InfoCardProps) {
 const styles = StyleSheet.create({
   text: {
     color: colors.fg,
+    fontFamily: fontFamily.sans,
     fontSize: 15,
     lineHeight: 21,
   },
   waiting: {
     color: colors.muted,
+    fontFamily: fontFamily.sans,
     fontSize: 13,
     marginTop: 6,
   },

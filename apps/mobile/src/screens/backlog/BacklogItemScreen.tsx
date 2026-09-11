@@ -209,12 +209,14 @@ const styles = StyleSheet.create({
   },
   errorTitle: {
     color: colors.fg,
+    fontFamily: fontFamily.sansSemiBold,
     fontSize: 15,
     fontWeight: "600",
     textAlign: "center",
   },
   errorBody: {
     color: colors.muted,
+    fontFamily: fontFamily.sans,
     fontSize: 14,
     textAlign: "center",
   },
@@ -237,6 +239,7 @@ const styles = StyleSheet.create({
   },
   document: {
     color: colors.muted,
+    fontFamily: fontFamily.sans,
     fontSize: fontSize.body,
     lineHeight: 20,
     marginTop: 14,
@@ -254,6 +257,7 @@ const styles = StyleSheet.create({
   },
   errorText: {
     color: colors.danger,
+    fontFamily: fontFamily.sans,
     fontSize: 13,
     marginTop: 10,
   },
@@ -288,6 +292,7 @@ const styles = StyleSheet.create({
   ticketTitle: {
     color: colors.fg,
     flexShrink: 1,
+    fontFamily: fontFamily.sans,
     fontSize: 14,
   },
 });

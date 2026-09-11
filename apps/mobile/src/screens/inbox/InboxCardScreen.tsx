@@ -10,7 +10,7 @@ import { InboxCard } from "../../components/inbox/InboxCard";
 import { Skeleton } from "../../components/Skeleton";
 import { inboxKeys } from "../../lib/inbox-mutations";
 import { colors } from "../../theme/tokens";
-import { fontSize } from "../../theme/typography";
+import { fontFamily, fontSize } from "../../theme/typography";
 
 /** Vedi `InboxScreen.tsx` per il perché di una costante invece di leggere `styles.content.padding`. */
 const CONTENT_BASE_BOTTOM_PADDING = 16;
@@ -132,11 +132,13 @@ const styles = StyleSheet.create({
   },
   notFoundTitle: {
     color: colors.fg,
+    fontFamily: fontFamily.sansSemiBold,
     fontSize: fontSize.body + 2,
     fontWeight: "600",
   },
   notFoundBody: {
     color: colors.muted,
+    fontFamily: fontFamily.sans,
     fontSize: 13,
     marginTop: 6,
     textAlign: "center",

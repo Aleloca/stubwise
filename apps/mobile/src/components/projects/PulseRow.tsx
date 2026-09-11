@@ -5,6 +5,7 @@ import { CountsLine } from "./CountsLine";
 import { PulseIndicator } from "../PulseIndicator";
 import { pulseLineFor } from "../../lib/pulse-line";
 import { colors, radii } from "../../theme/tokens";
+import { fontFamily } from "../../theme/typography";
 
 /**
  * UNA riga della lista Progetti (canvas `2a`): nome, il polso in una riga
@@ -63,6 +64,7 @@ const styles = StyleSheet.create({
   },
   title: {
     color: colors.fg,
+    fontFamily: fontFamily.sansSemiBold,
     fontSize: 17,
     fontWeight: "600",
   },

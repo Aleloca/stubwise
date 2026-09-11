@@ -55,18 +55,27 @@ export const fontSize = {
 } as const;
 
 /**
- * Preset di stile testo condivisi (Task 7, App M1+M2, 11 set 2026).
+ * Preset di stile testo condivisi (Task 7, App M1+M2, 11 set 2026; estesi al
+ * corpo del testo nel fix di review dello stesso giorno,
+ * `docs/plans/2026-09-11-app-m1-m2-review-fixes-plan.md`, Task 1).
  *
  * Nascono da un'istruzione esplicita del maintainer dopo il Task 2: applicare
  * il Sans a un solo titolo era la scelta prudente per quel task, ma senza una
  * struttura il problema "quaranta `fontFamily` sparsi, uno sbagliato a mano"
  * si sarebbe ripresentato quando il Task 7 lo estende a ogni schermata — "è
- * la struttura che impedisce al problema di tornare". Un piccolo insieme, non
- * un sistema tipografico: SOLO ciò che `ScreenHeader` (e finché resta
- * l'unico bisogno, nient'altro) usa davvero. `screenTitle` è esattamente lo
- * stile che aveva `InboxScreen.tsx` prima di questo task — nessuna resa
- * cambia per l'Inbox, cambia solo che ora è un preset condiviso invece di
- * essere l'unica copia manuale.
+ * la struttura che impedisce al problema di tornare". `screenTitle` è
+ * esattamente lo stile che aveva `InboxScreen.tsx` prima del Task 7 —
+ * nessuna resa cambia per l'Inbox, cambia solo che ora è un preset condiviso.
+ *
+ * `body`/`bodyMedium`/`bodySemiBold`/`bodyBold` portano SOLO `fontFamily`
+ * (non colore/dimensione: sono usati su testi di colore e taglia troppo
+ * diversi — `fg`/`muted`/`faint`/`danger`, 11-20px — perché una singola
+ * combinazione fissa avesse senso), il peso giusto per il `fontWeight` che
+ * il chiamante già dichiara: React Native NON sintetizza i pesi su un font
+ * statico custom, un `fontWeight: "600"` da solo non sposta `sans` (Regular)
+ * verso `sansSemiBold` — va nominato. Il **mono resta dov'è di proposito**
+ * (sigle, metadati, badge, wordmark): sono l'identità del prodotto, non una
+ * dimenticanza — non convertirli con questi preset.
  */
 export const textStyles = {
   screenTitle: {
@@ -80,5 +89,21 @@ export const textStyles = {
     color: colors.faint,
     fontFamily: fontFamily.mono,
     fontSize: 12,
+  },
+  /** Corpo, peso Regular — il caso più comune: paragrafi, descrizioni, testo normale. */
+  body: {
+    fontFamily: fontFamily.sans,
+  },
+  /** Corpo, peso Medium — per un `fontWeight: "500"` esistente. */
+  bodyMedium: {
+    fontFamily: fontFamily.sansMedium,
+  },
+  /** Corpo, peso SemiBold — per un `fontWeight: "600"` esistente (titoli di card, enfasi). */
+  bodySemiBold: {
+    fontFamily: fontFamily.sansSemiBold,
+  },
+  /** Corpo, peso Bold — per un `fontWeight: "700"` esistente, fuori dai titoli di schermata. */
+  bodyBold: {
+    fontFamily: fontFamily.sansBold,
   },
 } as const;

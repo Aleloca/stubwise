@@ -334,12 +334,14 @@ const styles = StyleSheet.create({
   },
   errorTitle: {
     color: colors.fg,
+    fontFamily: fontFamily.sansSemiBold,
     fontSize: 15,
     fontWeight: "600",
     textAlign: "center",
   },
   notFoundBody: {
     color: colors.muted,
+    fontFamily: fontFamily.sans,
     fontSize: 14,
     textAlign: "center",
   },
@@ -371,6 +373,7 @@ const styles = StyleSheet.create({
   },
   reportTitle: {
     color: colors.muted,
+    fontFamily: fontFamily.sans,
     fontSize: 14,
   },
   reportBody: {
@@ -380,6 +383,7 @@ const styles = StyleSheet.create({
   },
   reportSummary: {
     color: colors.fg,
+    fontFamily: fontFamily.sans,
     fontSize: 14,
     lineHeight: 20,
   },

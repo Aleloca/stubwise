@@ -76,6 +76,7 @@ const styles = StyleSheet.create({
   },
   title: {
     color: colors.fg,
+    fontFamily: fontFamily.sansBold,
     fontSize: 16,
     fontWeight: "700",
     marginBottom: 12,

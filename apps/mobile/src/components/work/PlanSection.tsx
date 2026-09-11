@@ -193,6 +193,7 @@ const styles = StyleSheet.create({
   },
   excerpt: {
     color: colors.fg,
+    fontFamily: fontFamily.sans,
     fontSize: fontSize.body,
     lineHeight: 20,
     marginTop: 8,
@@ -225,6 +226,7 @@ const styles = StyleSheet.create({
   },
   confirmQuestion: {
     color: colors.muted,
+    fontFamily: fontFamily.sans,
     fontSize: 13,
     marginBottom: 8,
   },
@@ -240,6 +242,7 @@ const styles = StyleSheet.create({
   },
   errorText: {
     color: colors.danger,
+    fontFamily: fontFamily.sans,
     fontSize: 13,
     marginTop: 8,
   },
@@ -259,6 +262,7 @@ const styles = StyleSheet.create({
   },
   modalTitle: {
     color: colors.fg,
+    fontFamily: fontFamily.sansBold,
     fontSize: 18,
     fontWeight: "700",
   },

@@ -421,6 +421,7 @@ const styles = StyleSheet.create({
   },
   projectOptionLabel: {
     color: colors.fg,
+    fontFamily: fontFamily.sans,
     fontSize: 14,
   },
   searchBox: {
@@ -438,6 +439,7 @@ const styles = StyleSheet.create({
   searchInput: {
     color: colors.fg,
     flex: 1,
+    fontFamily: fontFamily.sans,
     fontSize: fontSize.input,
   },
   centered: {
@@ -449,12 +451,14 @@ const styles = StyleSheet.create({
   },
   emptyTitle: {
     color: colors.fg,
+    fontFamily: fontFamily.sansSemiBold,
     fontSize: 15,
     fontWeight: "600",
     textAlign: "center",
   },
   emptyBody: {
     color: colors.muted,
+    fontFamily: fontFamily.sans,
     fontSize: 14,
     lineHeight: 20,
     textAlign: "center",
@@ -478,6 +482,7 @@ const styles = StyleSheet.create({
   },
   askHint: {
     color: colors.fg,
+    fontFamily: fontFamily.sans,
     fontSize: 14,
     marginTop: 6,
   },
@@ -506,6 +511,7 @@ const styles = StyleSheet.create({
   browseRowLabel: {
     color: colors.fg,
     flex: 1,
+    fontFamily: fontFamily.sans,
     fontSize: 14,
   },
   browseRowMeta: {
@@ -519,6 +525,7 @@ const styles = StyleSheet.create({
   },
   browseEmpty: {
     color: colors.faint,
+    fontFamily: fontFamily.sans,
     fontSize: 13,
     paddingHorizontal: 16,
     paddingVertical: 8,
@@ -531,6 +538,7 @@ const styles = StyleSheet.create({
   },
   browsePageTitle: {
     color: colors.muted,
+    fontFamily: fontFamily.sans,
     fontSize: 13,
   },
   searchResults: {
@@ -545,11 +553,13 @@ const styles = StyleSheet.create({
   },
   searchResultTitle: {
     color: colors.fg,
+    fontFamily: fontFamily.sansSemiBold,
     fontSize: 14,
     fontWeight: "600",
   },
   searchResultSnippet: {
     color: colors.faint,
+    fontFamily: fontFamily.sans,
     fontSize: 12,
     marginTop: 4,
   },

@@ -203,6 +203,7 @@ const styles = StyleSheet.create({
   },
   question: {
     color: colors.fg,
+    fontFamily: fontFamily.sansBold,
     fontSize: 20,
     fontWeight: "700",
     lineHeight: 26,
@@ -232,11 +233,13 @@ const styles = StyleSheet.create({
   },
   optionLabel: {
     color: colors.fg,
+    fontFamily: fontFamily.sansSemiBold,
     fontSize: 16,
     fontWeight: "600",
   },
   optionConsequence: {
     color: colors.muted,
+    fontFamily: fontFamily.sans,
     fontSize: 13,
     lineHeight: 18,
     marginTop: 2,
@@ -258,6 +261,7 @@ const styles = StyleSheet.create({
     borderRadius: radii.control,
     borderWidth: 1,
     color: colors.fg,
+    fontFamily: fontFamily.sans,
     fontSize: fontSize.input,
     minHeight: 80,
     padding: 14,
@@ -271,6 +275,7 @@ const styles = StyleSheet.create({
   },
   errorText: {
     color: colors.danger,
+    fontFamily: fontFamily.sans,
     fontSize: 13,
     marginTop: 12,
   },

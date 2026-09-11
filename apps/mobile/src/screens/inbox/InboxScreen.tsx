@@ -238,6 +238,7 @@ const styles = StyleSheet.create({
   },
   errorTitle: {
     color: colors.fg,
+    fontFamily: fontFamily.sansSemiBold,
     fontSize: 15,
     fontWeight: "600",
     textAlign: "center",
@@ -259,12 +260,14 @@ const styles = StyleSheet.create({
   },
   notifTitle: {
     color: colors.fg,
+    fontFamily: fontFamily.sansSemiBold,
     fontSize: 15,
     fontWeight: "600",
     marginTop: 6,
   },
   notifBody: {
     color: colors.muted,
+    fontFamily: fontFamily.sans,
     fontSize: 13,
     lineHeight: 18,
     marginTop: 4,
@@ -283,12 +286,14 @@ const styles = StyleSheet.create({
   },
   emptyTitle: {
     color: colors.fg,
+    fontFamily: fontFamily.sansSemiBold,
     fontSize: 17,
     fontWeight: "600",
     marginTop: 16,
   },
   emptyBody: {
     color: colors.muted,
+    fontFamily: fontFamily.sans,
     fontSize: 14,
     marginTop: 6,
     textAlign: "center",

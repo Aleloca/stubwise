@@ -162,6 +162,7 @@ const styles = StyleSheet.create({
   },
   title: {
     color: colors.fg,
+    fontFamily: fontFamily.sansBold,
     fontSize: 18,
     fontWeight: "700",
   },
@@ -177,6 +178,7 @@ const styles = StyleSheet.create({
     borderRadius: radii.control,
     borderWidth: 1,
     color: colors.fg,
+    fontFamily: fontFamily.sans,
     fontSize: fontSize.input,
     marginTop: 14,
     minHeight: 88,
@@ -209,6 +211,7 @@ const styles = StyleSheet.create({
   },
   errorText: {
     color: colors.danger,
+    fontFamily: fontFamily.sans,
     fontSize: 13,
     marginTop: 12,
   },

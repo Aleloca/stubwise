@@ -192,6 +192,7 @@ const styles = StyleSheet.create({
   },
   title: {
     color: colors.fg,
+    fontFamily: fontFamily.sansBold,
     fontSize: 20,
     fontWeight: "700",
     lineHeight: 25,
@@ -216,6 +217,7 @@ const styles = StyleSheet.create({
   },
   emptyHint: {
     color: colors.faint,
+    fontFamily: fontFamily.sans,
     fontSize: 13,
     lineHeight: 19,
     paddingHorizontal: 4,
@@ -238,6 +240,7 @@ const styles = StyleSheet.create({
   },
   bubbleText: {
     color: colors.fg,
+    fontFamily: fontFamily.sans,
     fontSize: 14,
     lineHeight: 20,
   },
@@ -272,6 +275,7 @@ const styles = StyleSheet.create({
   },
   errorText: {
     color: colors.danger,
+    fontFamily: fontFamily.sans,
     fontSize: 13,
     marginHorizontal: 16,
   },
@@ -292,6 +296,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     color: colors.fg,
     flex: 1,
+    fontFamily: fontFamily.sans,
     fontSize: fontSize.input,
     paddingHorizontal: 16,
     paddingVertical: 10,

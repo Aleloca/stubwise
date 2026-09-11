@@ -268,12 +268,14 @@ const styles = StyleSheet.create({
   },
   errorTitle: {
     color: colors.fg,
+    fontFamily: fontFamily.sansSemiBold,
     fontSize: 15,
     fontWeight: "600",
     textAlign: "center",
   },
   notFoundBody: {
     color: colors.muted,
+    fontFamily: fontFamily.sans,
     fontSize: 14,
     textAlign: "center",
   },
@@ -296,6 +298,7 @@ const styles = StyleSheet.create({
   },
   description: {
     color: colors.muted,
+    fontFamily: fontFamily.sans,
     fontSize: fontSize.body,
     lineHeight: 20,
     marginTop: 10,
