@@ -50,6 +50,33 @@ pnpm --filter @stubwise/shared build
 pnpm --filter @stubwise/mobile start --reset-cache
 ```
 
+## Una dipendenza nativa nuova non è verificata finché non compila su un device
+
+**La CI verde di questa app NON copre una build nativa.** `pnpm -r build/
+typecheck/lint/test` gira su TypeScript e Jest: non invoca mai `pod install`
+né Xcode, né Gradle. Una dipendenza con codice nativo (iOS/Android) può
+avere il `package.json` corretto, il typecheck verde, i test verdi — e
+comunque non compilare affatto su un device reale, perché l'integrazione
+nativa (`Podfile`/`Podfile.lock`/`project.pbxproj` per iOS,
+`android/app/build.gradle` per Android) è un livello che nessun comando di
+CI tocca.
+
+**È già successo**: `react-native-bottom-tabs` (Task 6, App M1+M2) è stato
+mergiato su `main` con CI verde, ma **`main` non compilava per iOS** — la
+libreria importa un header con un percorso relativo che, con
+`use_frameworks! :linkage => :static` (obbligatorio qui per Firebase, vedi
+sopra), non è raggiungibile senza un `post_install` dedicato nel `Podfile`
+(vedi il commento lì, e la sezione "Verifica manuale sul telefono" sotto).
+Nessuno se n'era accorto perché nessuna build nativa era girata prima del
+merge.
+
+**Regola operativa**: quando aggiungi una dipendenza con codice nativo,
+prima di aprire la PR fai almeno una build Release **su un device fisico**
+(non basta il simulatore per tutto — vedi "Verifica manuale sul telefono").
+Se non hai accesso a un device in quel momento, dillo esplicitamente nella
+PR ("non verificato su device nativo") invece di lasciare che la CI verde
+implichi il contrario.
+
 ## Font (IBM Plex Sans/Mono) e tab bar nativa
 
 App M1+M2 (11 set 2026): due font e una dipendenza nativa nuova.
