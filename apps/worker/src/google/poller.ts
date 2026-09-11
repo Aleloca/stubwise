@@ -1167,7 +1167,16 @@ async function syncCalendar(
     if (inserted.length === 0) continue;
 
     stats.events += 1;
-    if (!duplicate && resolved.projectId !== null) stats.ready += 1;
+    // Fix di review (fase 9, Task 1): questo conteggio è ciò che il log e i
+    // test leggono come «pronta a una proposta» — deve restare d'accordo con
+    // `isReadyForProposal`, non solo con la query del propose phase. Per un
+    // evento SINGOLO senza questo controllo un appuntamento passato veniva
+    // contato "pronto" anche qui. Le occorrenze di serie non sono toccate:
+    // questo conteggio non considerava già la finestra di anticipo prima
+    // della fase 9 (è un'approssimazione dell'ingest, non il cancello vero —
+    // quello resta `isReadyForProposal` più la query del propose phase).
+    const pastSingleEvent = event.recurringEventId === null && startsAt.getTime() < now().getTime();
+    if (!duplicate && resolved.projectId !== null && !pastSingleEvent) stats.ready += 1;
     // Un secondo evento con la stessa impronta nello STESSO lotto è già un
     // duplicato di questo: senza questa riga se ne proporrebbero due.
     if (!ownerOfFingerprint.has(fingerprint)) ownerOfFingerprint.set(fingerprint, event.id);
@@ -1313,6 +1322,16 @@ async function runProposePhase(
     // sola occorrenza per serie anche quando più di una passa questo filtro
     // nella stessa query) è nel loop sotto, non qui: la `where` da sola non
     // può saperlo finché non si comincia a pubblicare.
+    //
+    // Fix di review (fase 9, Task 1): l'evento SINGOLO aveva SOLO il
+    // controllo `is null` sopra, nessun vincolo su `startsAt` — invisibile
+    // finché `timeMin` era `now` (un evento passato non entrava mai), scoperto
+    // dal Task 1 della fase 9 che allarga l'ingestione a `now - 30gg`. Senza
+    // il vincolo aggiunto qui, ogni riunione di lavoro dell'ultimo mese
+    // diventerebbe una proposta di milestone con scadenza già passata, tutte
+    // insieme al primo tick. Stessa regola di `isReadyForProposal` in
+    // `calendar.ts`, ripetuta qui in SQL: le due DEVONO restare d'accordo, o
+    // il difetto torna da una delle due porte.
     const now = deps.now ? deps.now() : new Date();
     const events = await deps.db
       .select({
@@ -1359,9 +1378,13 @@ async function runProposePhase(
             or (${calendarEventsTable.recurringEventId} is not null and ${calendarSeriesTable.projectId} is not null)
           )`,
           sql`(
-            ${calendarEventsTable.recurringEventId} is null
+            (
+              ${calendarEventsTable.recurringEventId} is null
+              and ${calendarEventsTable.startsAt} >= ${now.toISOString()}::timestamptz
+            )
             or (
-              ${calendarSeriesTable.enabled} is true
+              ${calendarEventsTable.recurringEventId} is not null
+              and ${calendarSeriesTable.enabled} is true
               and ${calendarEventsTable.startsAt} >= ${now.toISOString()}::timestamptz
               and ${calendarEventsTable.startsAt} <= ${now.toISOString()}::timestamptz + (${calendarSeriesTable.leadDays}::text || ' days')::interval
               and not exists (

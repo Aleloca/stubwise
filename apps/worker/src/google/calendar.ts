@@ -319,7 +319,13 @@ export interface CalendarSeriesConfig {
   projectId: string | null;
 }
 
-/** Il contesto che SOLO un'occorrenza di serie consulta — ignorato per un evento singolo. */
+/**
+ * `series` lo consulta SOLO un'occorrenza di serie — ignorato per un evento
+ * singolo. `now`, invece, dal fix di review della fase 9 (Task 1) serve a
+ * ENTRAMBI: prima serviva solo al cancello di serie, ma un evento singolo ha
+ * bisogno dello stesso orologio per non proporre un appuntamento già passato
+ * (vedi {@link isReadyForProposal}).
+ */
 export interface CalendarSeriesProposalContext {
   now: Date;
   /** `null` = serie mai configurata, equivalente a "spenta" per `isReadyForProposal`. */
@@ -365,9 +371,9 @@ export function isReadyForProposal(
     projectId: string | null;
     proposalNotificationId: string | null;
     outcome: Record<string, unknown> | null;
-    /** Assente o `null` = evento singolo: il cancello di serie qui sotto non si applica. */
+    /** Assente o `null` = evento singolo: il cancello di SERIE (lead time, dedup) qui sotto non si applica — ma il cancello temporale sì, per entrambi. */
     recurringEventId?: string | null;
-    /** Necessario SOLO per un'occorrenza di serie (vedi sopra). */
+    /** Necessario per ENTRAMBI i rami: un evento senza data non è mai pronto. */
     startsAt?: Date | null;
   },
   seriesContext?: CalendarSeriesProposalContext,
@@ -381,15 +387,29 @@ export function isReadyForProposal(
   // fissato, mai un OR fra i due (vedi il docblock della funzione).
   if (resolveCalendarProjectId(row, seriesContext) === null) return false;
 
+  // `now` non è più un dettaglio di sola serie (vedi il docblock di
+  // `CalendarSeriesProposalContext`): senza `seriesContext` (il caso di un
+  // evento singolo, l'unico che il poller passa così) si ricava sul colpo.
+  const now = seriesContext?.now ?? new Date();
   const recurringEventId = row.recurringEventId ?? null;
-  if (recurringEventId === null) return true;
+  if (recurringEventId === null) {
+    // Fix di review (fase 9, Task 1): fino a questa fase la finestra di
+    // ingestione partiva da `now`, quindi un evento singolo passato non
+    // entrava mai — questo controllo era ridondante e per questo assente.
+    // Il Task 1 allarga la finestra a `now - 30gg`: senza questo controllo,
+    // ogni appuntamento del mese scorso diventerebbe una proposta di
+    // milestone con scadenza già passata. Un appuntamento passato non
+    // diventa MAI una scadenza da rispettare.
+    if (!row.startsAt) return false;
+    return row.startsAt.getTime() >= now.getTime();
+  }
 
   // `resolveCalendarProjectId` sopra è già tornato non-null, quindi la serie
   // è per costruzione configurata e accesa: `context.series` non è `null`.
   // "Una proposta alla volta per serie" NON è un cancello qui: vive nel
   // propose phase del poller (NOT EXISTS in SQL + dedup per-tick), vedi il
   // docblock sopra.
-  const context = seriesContext ?? { now: new Date(), series: null };
+  const context = seriesContext ?? { now, series: null };
   const series = context.series!;
   if (!row.startsAt) return false;
 

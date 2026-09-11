@@ -332,6 +332,10 @@ describe("impronta e proposta (funzioni pure)", () => {
       projectId: "p1",
       proposalNotificationId: null,
       outcome: null,
+      // Futuro apposta: questo test guarda SOLO il gate di
+      // stato/progetto/notifica/esito, non quello temporale (che ha un suo
+      // test dedicato subito sotto).
+      startsAt: new Date("2099-01-01T00:00:00.000Z"),
     };
 
     expect(isReadyForProposal(open)).toBe(true);
@@ -339,6 +343,21 @@ describe("impronta e proposta (funzioni pure)", () => {
     expect(isReadyForProposal({ ...open, status: "cancelled" })).toBe(false);
     expect(isReadyForProposal({ ...open, proposalNotificationId: "n1" })).toBe(false);
     expect(isReadyForProposal({ ...open, outcome: { type: "cancelled" } })).toBe(false);
+  });
+
+  it("un evento SINGOLO (nessuna serie) passato non è mai pronto — fix di review, fase 9 Task 1", () => {
+    const open = {
+      status: "confirmed",
+      projectId: "p1",
+      proposalNotificationId: null,
+      outcome: null,
+    };
+
+    expect(isReadyForProposal({ ...open, startsAt: new Date("2020-01-01T00:00:00.000Z") })).toBe(false);
+    expect(isReadyForProposal({ ...open, startsAt: new Date("2099-01-01T00:00:00.000Z") })).toBe(true);
+    // Senza data non è mai pronta, mai un `true` per assenza di informazione.
+    expect(isReadyForProposal({ ...open, startsAt: null })).toBe(false);
+    expect(isReadyForProposal(open)).toBe(false);
   });
 
   // -------------------------------------------------------------------------
@@ -543,20 +562,22 @@ describe("pre-filtro degli eventi", () => {
     expect(isReadyForProposal(row!)).toBe(true);
   });
 
-  it("un evento di tre settimane fa viene scritto, uno di sei mesi fa no (fase 9, Task 1)", async () => {
+  it("un evento di tre settimane fa viene scritto ma NON è pronto per una proposta; uno di sei mesi fa non entra nemmeno (fix di review, fase 9)", async () => {
     const projectId = await seedProject("Acme");
     await db
       .insert(projectEmailRoutes)
       .values({ projectId, kind: "sender_domain", value: "cliente.com" });
     const account = await seedAccount();
     const now = new Date("2026-09-10T12:00:00Z");
-    const threeWeeksAgo = new Date("2026-08-20T09:00:00Z"); // dentro i 30 gg indietro
-    const sixMonthsAgo = new Date("2026-03-10T09:00:00Z"); // fuori
+    const threeWeeksAgo = new Date("2026-08-20T09:00:00Z"); // dentro i 30 gg indietro, ma nel PASSATO
+    const sixMonthsAgo = new Date("2026-03-10T09:00:00Z"); // fuori dalla finestra di ingestione
+    const nextWeek = new Date("2026-09-17T09:00:00Z"); // futuro: proposta come sempre
     const calendar = fakeCalendar([
       {
         events: [
           event({ id: "recente", startsAt: threeWeeksAgo }),
           event({ id: "vecchio", startsAt: sixMonthsAgo }),
+          event({ id: "futuro", startsAt: nextWeek }),
         ],
         nextSyncToken: "tok-1",
       },
@@ -564,9 +585,16 @@ describe("pre-filtro degli eventi", () => {
 
     const stats = await pollGoogleOnce(deps(account, calendar, { now: () => now }));
 
-    expect(stats).toMatchObject({ calendarEvents: 1, calendarReady: 1 });
+    // "vecchio" non entra affatto (fuori dai 30gg indietro); "recente" ed
+    // "futuro" entrano entrambi, ma SOLO "futuro" è pronto — la lezione della
+    // fase 9: un appuntamento passato non diventa mai una scadenza scaduta.
+    expect(stats).toMatchObject({ calendarEvents: 2, calendarReady: 1 });
     const all = await rows();
-    expect(all.map((r) => r.googleEventId)).toEqual(["recente"]);
+    expect(all.map((r) => r.googleEventId).sort()).toEqual(["futuro", "recente"]);
+    const recentRow = all.find((r) => r.googleEventId === "recente")!;
+    const futureRow = all.find((r) => r.googleEventId === "futuro")!;
+    expect(isReadyForProposal(recentRow)).toBe(false);
+    expect(isReadyForProposal(futureRow)).toBe(true);
   });
 
   it("un evento che nessuna regola riconosce non produce nessuna riga", async () => {
@@ -944,5 +972,30 @@ describe("dalla riga candidata alla proposta in inbox", () => {
     // ⚠️ Audience `mailbox_owner`: la vede solo chi ha collegato la casella.
     expect(cards[0]?.userId).toBe(account.userId);
     expect(row!.proposalNotificationId).toBe(cards[0]?.id);
+  });
+
+  it("trenta riunioni di lavoro del mese scorso: zero proposte (fix di review, fase 9 — l'incidente da una porta nuova)", async () => {
+    const projectId = await seedProject("Acme");
+    await db
+      .insert(projectEmailRoutes)
+      .values({ projectId, kind: "sender_domain", value: "cliente.com" });
+    const account = await seedAccount();
+    const now = new Date("2026-09-10T12:00:00Z");
+    // Trenta riunioni di lavoro, ognuna in un giorno diverso dell'ultimo
+    // mese: tutte dentro i 30gg indietro del Task 1, tutte nel PASSATO.
+    const events = Array.from({ length: 30 }, (_, i) =>
+      event({ id: `m${i}`, startsAt: new Date(now.getTime() - (i + 1) * 24 * 60 * 60 * 1000) }),
+    );
+    const calendar = fakeCalendar([{ events, nextSyncToken: "tok-1" }]);
+
+    const stats = await pollGoogleOnce(
+      deps(account, calendar, { now: () => now, proposeMaxPerTick: 40 }),
+    );
+
+    // Prima del fix questo era esattamente l'incidente del 9 settembre da
+    // una porta nuova: 30 proposte di milestone con scadenza già passata,
+    // ordinate dalla più vecchia, pubblicate tutte nello stesso tick.
+    expect(stats).toMatchObject({ calendarEvents: 30, calendarReady: 0, proposed: 0 });
+    expect(await db.select().from(notifications)).toHaveLength(0);
   });
 });
