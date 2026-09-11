@@ -114,22 +114,51 @@ Arrivando a un ticket da una notifica, indietro torna all'inbox; arrivandoci da
 un progetto, torna al progetto. È il comportamento che gli stack di
 `@react-navigation` danno gratis e che si perde solo forzandolo.
 
-## 6. Cosa questo documento NON decide
+## 6. Le tre scelte aperte, decise dal maintainer (11 set 2026)
 
-- **La sigla e l'icona della quinta scheda.** Vanno scelte come le altre
-  quattro: tre lettere mono, e due icone **verificate per piattaforma** — il
-  docblock a `navigation.tsx:133-149` documenta che quelle attuali sono state
-  controllate contro `sf-symbols-typescript` e le Material Design Icons, ed è la
-  disciplina da ripetere.
-- **La forma del calendario su un telefono.** Sul sito è una griglia
-  giorno/settimana/mese; su uno schermo stretto probabilmente è un'agenda per
-  giorni. ⚠️ La logica della griglia (`apps/web/src/lib/calendar-grid.ts`) è
-  **TypeScript puro senza DOM**: è condivisibile come `workStateFor` e
-  `deriveNextStep`, qualunque forma si scelga. L'app oggi non ha **nessuna**
-  vista temporale e nessuna formattazione di data oltre a
-  `relativeTimeCompact` (`apps/mobile/src/lib/format.ts:16-20`).
-- **Quali schermate di un progetto sono a loro volta schede interne** (il
-  dettaglio progetto oggi è una schermata sola che scorre).
+**(a) La quinta scheda è `MBX` — Mailbox.** Nomina la **sorgente**, che è il
+principio che tiene insieme posta e calendario: entrambe arrivano dalla casella,
+entrambe sono personali e non di un progetto, entrambe hanno la stessa privacy.
+Scartate `SIG` (astratta: chi apre l'app non sa cosa aspettarsi) e `GGL` (lega
+una scheda del prodotto al nome di un fornitore, e diventerebbe bugiarda con una
+sorgente diversa).
+
+Icona: busta su iOS, equivalente Material su Android. ⚠️ Vanno **verificate per
+piattaforma** come le altre quattro — il docblock a
+`apps/mobile/src/app/navigation.tsx:133-149` documenta il controllo contro
+`sf-symbols-typescript` e le Material Design Icons, ed è la disciplina da
+ripetere, non un dettaglio.
+
+**(b) Il calendario è una griglia MENSILE con i puntini, e il giorno scelto
+sotto.** Il modello del Calendario di iOS. Riusa `monthGridDays` da
+`apps/web/src/lib/calendar-grid.ts`, che è TypeScript puro senza DOM: la
+condivisione paga davvero.
+
+⚠️ **Conseguenza da gestire, non da subire.** La finestra di ingestione è
+`now − 30 giorni → now + 60` (`apps/worker/src/google/calendar.ts`,
+`CALENDAR_LOOKBACK_DAYS`). Sfogliando i mesi si arriva presto a mesi
+**completamente vuoti** — non perché non ci fossero impegni, ma perché lì
+Stubwise non guarda. Su un'agenda non si sarebbe visto; su una griglia mensile
+sì, e sembrerebbe un guasto. **La navigazione fra i mesi si ferma ai bordi della
+finestra**, e al bordo la pagina dice perché. Un limite dichiarato è meglio di
+mesi vuoti inspiegati.
+
+E vale qui la regola già scritta per il web: una griglia sparsa è normale — il
+calendario mostra **il lavoro riconosciuto**, non la settimana — e lo stato
+vuoto deve dirlo, indicando dove si cambiano le regole che lo decidono.
+
+**(c) Il dettaglio di un progetto si divide in schede interne**: Stato, Roadmap,
+Decisioni, Ambienti.
+
+⚠️ **Non possono essere una seconda barra in basso.** Con la tab bar nativa di
+sistema già lì, due barre nella stessa posizione tolgono all'utente il senso di
+dove si trova. Le schede interne vanno **in alto**, come controllo segmentato
+sotto il titolo del progetto — una forma visivamente diversa, non una ripetizione
+della stessa.
+
+⚠️ E su un progetto scarno tre schede su quattro sarebbero vuote: **ogni scheda
+interna vuota deve spiegarsi**, come lo stato vuoto del calendario. «Nessuna
+milestone» non basta: va detto cosa comparirà lì e da dove nasce.
 
 ## 7. Il confine tecnico da conoscere
 
