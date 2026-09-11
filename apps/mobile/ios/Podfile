@@ -49,5 +49,42 @@ target 'StubwiseMobile' do
       :mac_catalyst_enabled => false,
       # :ccache_enabled => true
     )
+
+    # Fix post-merge PR #21 (app M2, 11 set 2026): il main non compilava per
+    # iOS — nessuna build nativa gira in CI, quindi la CI verde di quella PR
+    # non copre questo caso (vedi apps/mobile/README.md, sezione "Verifica
+    # manuale sul telefono"). `react-native-bottom-tabs` importa
+    # `#import "RCTConversions.h"` fra virgolette (import relativo), ma
+    # questo Podfile usa `use_frameworks! :linkage => :static` (righe sopra,
+    # obbligatorio per Firebase) — e con quel linkage l'header di React-Core
+    # vive DENTRO `React.framework/Headers`, raggiungibile solo come
+    # `<React/RCTConversions.h>`, non con un percorso relativo. Errore senza
+    # questo fix: `fatal error: 'RCTConversions.h' file not found` in
+    # `RCTTabViewComponentView.mm:21`.
+    #
+    # ⚠️ FRAGILE, di proposito segnalato: il percorso qui sotto
+    # (`React.xcframework/ios-arm64/...`) è un dettaglio INTERNO del
+    # framework prebuilt di React Native 0.87, non un'API pubblica — un
+    # aggiornamento di React Native che cambi come React-Core-prebuilt
+    # organizza i suoi header (o l'architettura del device, es. build per
+    # simulatore invece di device fisico: qui è cablato `ios-arm64`) può
+    # rompere silenziosamente questo hook senza toccare nessun'altra riga
+    # del progetto. Se un aggiornamento di RN o `react-native-bottom-tabs`
+    # smette di compilare con lo stesso errore, guarda qui per primo prima
+    # di rincollare lo stesso fix: la strada alternativa valutata è sostituire
+    # `react-native-bottom-tabs` con una tab bar disegnata in JS (vedi
+    # `@callstack/liquid-glass`, usato da un altro progetto dello stesso
+    # maintainer proprio per evitare questa classe di problema).
+    installer.pods_project.targets.each do |t|
+      next unless t.name == 'react-native-bottom-tabs'
+      t.build_configurations.each do |cfg|
+        cfg.build_settings['HEADER_SEARCH_PATHS'] ||= '$(inherited)'
+        cfg.build_settings['HEADER_SEARCH_PATHS'] = [
+          cfg.build_settings['HEADER_SEARCH_PATHS'],
+          '"$(PODS_ROOT)/React-Core-prebuilt/React.xcframework/ios-arm64/React.framework/Headers"',
+          '"$(PODS_ROOT)/React-RCTFabric"',
+        ].join(' ')
+      end
+    end
   end
 end
