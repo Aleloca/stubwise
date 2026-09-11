@@ -48,7 +48,26 @@ repo, ricerca vettoriale e chat RAG.
 - `pnpm lint` — ESLint. **La CI fallisce su lint anche con typecheck+test verdi:
   lancialo SEMPRE prima del merge.**
 - `pnpm build` — build di tutti i package.
-- Per un singolo package: `pnpm --filter @stubwise/<nome> <script>`.
+- Per un singolo package: `pnpm --filter @stubwise/<nome> <script>`. **Per un
+  build standalone** (senza aver già girato `pnpm -r build`): serve
+  `pnpm --filter @stubwise/<nome>... build` (**con i tre puntini** — "il
+  package e le sue dipendenze", le costruisce prima nell'ordine giusto), non
+  `pnpm --filter @stubwise/<nome> build` da solo, che fallisce con `Cannot
+  find module '@stubwise/db'`/`'@stubwise/shared'` se quei package non sono
+  già buildati (i loro `dist/` sono gitignorati). Prima (fino all'11 set
+  2026) `notifications`/`google`/`push-relay` avevano lo script `build`
+  stesso che rifaceva questo lavoro con una `pnpm --filter ... build`
+  **annidata** — tolta apposta: sotto `pnpm -r build`, che ordina già
+  topologicamente, quella chiamata annidata ricostruiva `packages/db`/
+  `packages/shared` una SECONDA volta, e due package annidati che la
+  rifacevano insieme (`notifications` e `google`, entrambi con `db` fra le
+  dipendenze) lanciavano due `tsc` concorrenti che scrivevano nella stessa
+  `dist/` — la CI del workflow Release ne ha preso uno intermittente
+  (`Module '@stubwise/db' has no exported member 'tickets'`, un `tsc` che
+  leggeva `dist/index.d.ts` mentre l'altro lo stava ancora riscrivendo).
+  `pnpm -r build`/`pnpm build` non ne risentono (l'ordinamento topologico
+  del root basta da solo): il rischio esisteva solo nella chiamata annidata
+  dentro lo script `build` dei tre package.
 - I test E2E Playwright (`apps/web/e2e`) NON girano in `pnpm -r test` (solo in CI):
   eseguili a mano per modifiche UI rilevanti.
 

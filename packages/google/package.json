@@ -14,7 +14,7 @@
     }
   },
   "scripts": {
-    "build": "pnpm --filter @stubwise/db... --filter @stubwise/shared... build && tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
