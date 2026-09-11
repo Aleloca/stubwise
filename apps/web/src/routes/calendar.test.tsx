@@ -1,7 +1,7 @@
 import type { CalendarEventItem } from "@stubwise/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, RouterProvider } from "@tanstack/react-router";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createAppRouter } from "../router";
@@ -195,7 +195,10 @@ describe("pagina /calendar — la griglia (fase 9)", () => {
 
     await userEvent.click(await screen.findByText("Evento"));
 
-    expect(screen.queryByText("Recurring series")).not.toBeInTheDocument();
+    // Scoped al pannello di dettaglio: dal fix di review (Task 2) esiste
+    // ANCHE una sezione «Recurring series» nella sidebar, sempre presente —
+    // qui si guarda solo che il DETTAGLIO non la mostri per un evento senza serie.
+    expect(within(screen.getByRole("article")).queryByText("Recurring series")).not.toBeInTheDocument();
   });
 
   it("un evento DI UNA serie mostra la configurazione, raggiungibile solo da lì", async () => {
@@ -228,7 +231,55 @@ describe("pagina /calendar — la griglia (fase 9)", () => {
 
     await userEvent.click(await screen.findByText("Evento"));
 
-    expect(await screen.findByText("Recurring series")).toBeInTheDocument();
+    expect(await within(screen.getByRole("article")).findByText("Recurring series")).toBeInTheDocument();
+  });
+
+  it("una serie senza occorrenze in finestra è elencata e configurabile dalla sidebar (fix di review, fase 9 Task 2)", async () => {
+    let putBody: unknown;
+    mockApi(
+      baseApi({
+        "GET /api/me/calendar/range": () => jsonResponse(200, { items: [], nextCursor: null }),
+        "GET /api/me/calendar/series": () =>
+          jsonResponse(200, {
+            items: [
+              {
+                accountId: ACCOUNT_ID,
+                accountEmail: "mailbox@acme.test",
+                recurringEventId: "serie-spenta",
+                title: "Standup settimanale",
+                occurrenceCount: 12,
+                // Fuori dalla finestra [-30gg, +60gg]: nessuna occorrenza in vista.
+                nextOccurrenceAt: null,
+                enabled: false,
+                projectId: null,
+                projectName: null,
+                action: "milestone",
+                leadDays: 2,
+                auto: false,
+              },
+            ],
+          }),
+        "PUT /api/me/calendar/series/serie-spenta": (_url, init) => {
+          putBody = JSON.parse(String(init?.body));
+          return jsonResponse(200, { ok: true });
+        },
+      }),
+    );
+    await renderCalendar();
+
+    // La griglia è vuota, ma la serie resta raggiungibile dalla sidebar —
+    // prima di questo fix non lo era da nessuna parte.
+    await screen.findByText(/only shows appointments that match/);
+
+    // Il nome accessibile del bottone include il conteggio come suffisso
+    // (`CollapsibleSection`'s `meta`), quindi un prefisso basta.
+    await userEvent.click(screen.getByRole("button", { name: /^Recurring series/ }));
+    await userEvent.click(await screen.findByText("Standup settimanale"));
+    await userEvent.click(screen.getByRole("checkbox", { name: "Enabled" }));
+    await userEvent.selectOptions(screen.getByLabelText("Project"), "Apollo");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(putBody).toMatchObject({ accountId: ACCOUNT_ID, enabled: true, projectId: PROJECT_ID });
   });
 
   it("il cambio vista (Giorno/Settimana/Mese) resta sulla pagina e aggiorna l'etichetta dell'intervallo", async () => {

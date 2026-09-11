@@ -129,8 +129,14 @@ const LEAD_DAYS_MAX = 30;
  * La configurazione di una serie, spostata qui dall'elenco separato della
  * 7b (design §3, fase 9 Task 7). Stesso comportamento: un `PUT` esplicito
  * («Salva»), mai un salvataggio a ogni tasto.
+ *
+ * Esportato (fix di review, fase 9 Task 2): raggiungibile anche dal
+ * pannello «Serie ricorrenti» nella sidebar (`calendar-series-sidebar.tsx`),
+ * per una serie che non ha nessuna occorrenza nella finestra visibile della
+ * griglia — altrimenti non sarebbe configurabile da nessuna parte, e
+ * peggio: non sarebbe SPEGNIBILE se accesa con `auto: true`.
  */
-function SeriesConfig({
+export function SeriesConfig({
   accountId,
   recurringEventId,
   projects,

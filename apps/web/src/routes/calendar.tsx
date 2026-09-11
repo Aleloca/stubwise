@@ -15,6 +15,7 @@ import {
 import { calendarRangeQueryOptions, myGoogleAccountsQueryOptions, projectsQueryOptions } from "../lib/queries";
 import { CalendarDetailPanel } from "../components/calendar-detail-panel";
 import { CalendarEmptyState, CalendarGridView } from "../components/calendar-grid-view";
+import { CalendarSeriesSidebar } from "../components/calendar-series-sidebar";
 
 /**
  * Pagina `/calendar` (fase 9, Task 6/7, design §4): una griglia vera —
@@ -23,9 +24,13 @@ import { CalendarEmptyState, CalendarGridView } from "../components/calendar-gri
  * vivono nei moduli che questa pagina compone (`calendar-grid.ts` per i
  * fusi, `CalendarEmptyState` per il vuoto che spiega).
  *
- * La configurazione delle serie ricorrenti (la 7b) NON ha più una sezione
- * propria: si raggiunge dal pannello di dettaglio, guardando un appuntamento
- * che appartiene a una serie (`calendar-detail-panel.tsx`, design §3).
+ * La configurazione delle serie ricorrenti (la 7b) si raggiunge dal
+ * pannello di dettaglio, guardando un appuntamento che appartiene a una
+ * serie (`calendar-detail-panel.tsx`, design §3) — MA (fix di review, fase
+ * 9 Task 2) anche da `CalendarSeriesSidebar`, richiudibile nella colonna
+ * sinistra: senza, una serie senza occorrenze nella finestra visibile
+ * ([-30gg, +60gg]) non sarebbe raggiungibile da nessuna vista, e peggio,
+ * non sarebbe SPEGNIBILE se accesa con `auto: true`.
  */
 const VIEWS: CalendarView[] = ["day", "week", "month"];
 
@@ -137,6 +142,8 @@ export function CalendarPage() {
           </section>
 
           <MiniCalendar anchor={anchor} onSelect={setAnchor} />
+
+          <CalendarSeriesSidebar projects={projects} />
         </aside>
 
         <main className="min-h-0 min-w-0 overflow-hidden">
