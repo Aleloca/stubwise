@@ -877,21 +877,33 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   l'ingestione del calendario resta quella della 7b, non toccata da questa
   fase.
   **Rollback — un rischio NUOVO rispetto a ogni fase additiva precedente,
-  proprio per il cambio di tipo su `attendees`**: scendere di immagine sul
-  **worker** dopo la 0075 non è sicuro come nelle fasi puramente additive —
-  un worker precedente scrive ancora `attendees` come se fosse `text[]`
-  (email semplici), e quella colonna ora è `jsonb`: il suo upsert su
-  `calendar_events` (`apps/worker/src/google/poller.ts`) smette di produrre
-  la forma che la colonna si aspetta, e un binario ancora più vecchio che
-  la LEGGA (`apps/worker/src/google/calendar.ts`,
+  proprio per il cambio di tipo su `attendees`, e per la PRIMA VOLTA nel
+  programma una migrazione che DROPPA una colonna**: scendere di immagine
+  sul **worker** dopo la 0075 non è sicuro come nelle fasi puramente
+  additive — un worker precedente dichiara ancora `attendees` come
+  `text().array()` (via drizzle), e quella colonna ora è `jsonb`. **In
+  SCRITTURA il fallimento è RUMOROSO, ed è la notizia buona**: l'upsert su
+  `calendar_events` (`apps/worker/src/google/poller.ts`) fallisce con un
+  errore Postgres esplicito (`column "attendees" is of type jsonb but
+  expression is of type text[]`) — Postgres non offre un cast implicito fra
+  array e jsonb — quindi la sincronizzazione del calendario si ferma con un
+  errore in log, non scrive mai dati nel formato sbagliato. **In LETTURA**
+  la descrizione precedente resta esatta: un binario vecchio che LEGGA la
+  colonna (`apps/worker/src/google/calendar.ts`,
   `apps/server/src/routes/me-calendar.ts`) riceve oggetti `{email,
-  responseStatus}` dove il suo codice si aspetta stringhe — non un crash
-  garantito, ma un uso scorretto del dato (routing calcolato su un valore
-  che non è più l'indirizzo email). Non è la stessa classe di rischio delle
-  fasi 2/5/6/6c (nessun 500 su `/api/inbox`), ma è comunque un motivo per
-  **non** scendere di immagine sul worker dopo questa fase senza accettare
-  che la sincronizzazione del calendario resti ferma o produca dati
-  scorretti finché non si torna avanti. Scendere di immagine sul **server**
+  responseStatus}` dove il suo codice si aspetta stringhe — un uso scorretto
+  del dato (routing calcolato su un valore che non è più l'indirizzo email),
+  non un crash. Non è la stessa classe di rischio delle fasi 2/5/6/6c
+  (nessun 500 su `/api/inbox`), ma resta un motivo per **non** scendere di
+  immagine sul worker dopo questa fase: la sincronizzazione del calendario
+  si ferma (rumorosamente) finché non si torna avanti. **Deploy PARZIALE —
+  per la prima volta nel programma, non è solo incompletezza, è
+  correttezza**: "server+worker+caddy insieme" nelle fasi additive
+  precedenti significava "funzionalità nuova incompleta se dispari"; QUI
+  significa che un deploy del **solo server** lascia il worker VECCHIO in
+  esecuzione contro uno schema che quel worker non sa più scrivere — lo
+  rompe attivamente, rumorosamente, dal momento in cui la 0075 viene
+  applicata, non da un futuro rollback. Scendere di immagine sul **server**
   resta sicuro per `/api/inbox` (nessun enum toccato) ma perde `/calendar`
   e `/mail` nuove (rotte 404) — va sceso insieme al caddy, come sempre. La
   colonna `html_link` e il campo `bodyHtml` (aggiunto a
@@ -1251,6 +1263,27 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   percorso automatico per tutte e tre le azioni: deve restare zero. Chi
   aggiunge una quarta azione a una serie (`calendar_series.action`) faccia
   passare anche lei da `calendar-auto.ts`, non da un servizio del server.
+- **Un appuntamento passato non diventa MAI una proposta (fase 9, fix di
+  review).** `isReadyForProposal` (`apps/worker/src/google/calendar.ts`)
+  richiede `startsAt >= now` per un evento SINGOLO esattamente come per
+  un'occorrenza di serie — non solo quest'ultima, come prima del fix. Il
+  motivo è la stessa lezione dell'incidente del 9 settembre da una porta
+  nuova: prima della fase 9 il controllo era ridondante (la finestra di
+  ingestione partiva da `now`, un evento passato non entrava mai), ma il
+  Task 1 della fase 9 allarga la finestra a `now - 30gg`
+  (`CALENDAR_LOOKBACK_DAYS`) — senza il controllo, ogni riunione di lavoro
+  dell'ultimo mese sarebbe diventata una proposta di milestone con scadenza
+  già passata, tutte insieme al primo tick. **Tre punti devono restare
+  d'accordo**, verificato a fix fatto con un grep mirato dopo ogni modifica
+  futura a questa regola: `isReadyForProposal` (il cancello vero), la query
+  del propose phase in `apps/worker/src/google/poller.ts` (che lo replica in
+  SQL — le due DEVONO dire la stessa cosa o il difetto torna dall'altra
+  porta) e il conteggio `stats.ready` calcolato in fase di ingestione
+  (stesso file, poco sotto: è ciò che il log espone come «N da proporre» e
+  ciò che i test leggono come `calendarReady`). Un test esplicito fissa il
+  caso che ha reso visibile il difetto: `apps/worker/src/google/
+  calendar.test.ts`, "trenta riunioni di lavoro del mese scorso: zero
+  proposte" — conta zero notifiche pubblicate.
 - **Solo l'ambiente `test` entra in un worktree (fase 8).** Reso impossibile
   per COSTRUZIONE, non solo per convenzione: `loadProjectEnvFiles`
   (`apps/worker/src/pipeline/env-files.ts`) prende `environment` tipato sul
@@ -1302,21 +1335,21 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   un'affermazione implicita "questo è ciò che Stubwise ha letto", e per
   l'HTML — a differenza del testo usato dalla classificazione — non è vero:
   nessun codice lo legge se non la persona che clicca «Leggi l'originale».
-- **Una serie senza occorrenze nella finestra visibile non è raggiungibile
-  dalla UI (fase 9, limite noto).** Dalla 7b la configurazione di una serie
-  ricorrente viveva in un elenco a sé, che la mostrava anche a zero
-  occorrenze future (il caso esatto delle 730 righe dell'incidente del 9
-  settembre 2026). Dalla fase 9 quella sezione non esiste più: la
-  configurazione si raggiunge SOLO dal pannello di dettaglio di
-  un'occorrenza vista nella griglia (design §3, deciso dal maintainer), e la
-  griglia guarda solo 30 giorni indietro e 60 avanti
-  (`CALENDAR_LOOKBACK_DAYS`/`CALENDAR_WINDOW_DAYS`). Una serie SPENTA la cui
-  ultima occorrenza è più vecchia di 30 giorni (o la cui prossima è oltre i
-  60) non ha più un punto d'accesso nella UI finché una sua occorrenza non
-  rientra in quella finestra. È un compromesso accettato in fase di design,
-  non un bug: se in futuro serve gestire una serie "spenta e fuori
-  finestra", va riletta la decisione del design §3, non aggiunta una
-  scorciatoia diretta sul database.
+- **Una serie resta raggiungibile anche senza occorrenze nella finestra
+  visibile (fase 9, fix di review).** Spostando la configurazione di una
+  serie nel pannello di dettaglio (design §3, Task 7), una serie le cui
+  occorrenze cadono tutte fuori da [-30gg, +60gg]
+  (`CALENDAR_LOOKBACK_DAYS`/`CALENDAR_WINDOW_DAYS`) sarebbe stata
+  irraggiungibile da nessuna vista — il caso esatto delle 730 righe
+  dell'incidente del 9 settembre 2026, e peggio: non sarebbe stata
+  SPEGNIBILE se accesa con `auto: true`. Corretto prima del merge: la
+  sidebar `CalendarSeriesSidebar` (`apps/web/src/components/
+  calendar-series-sidebar.tsx`) elenca TUTTE le serie viste, senza filtro di
+  finestra (stesso `GET /series` della 7b, che non ha mai filtrato per
+  finestra — il buco era solo nella UI), richiudibile e chiusa di default
+  per non costare un blocco fisso in una colonna stretta. Chi tocca la
+  pagina calendario non rimuova questa sidebar "per pulizia": è l'unico
+  punto d'accesso per una serie fuori dalla finestra della griglia.
 
 ## Integrazione Claude Code (MCP)
 
