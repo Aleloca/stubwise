@@ -123,6 +123,53 @@ describe("sanitizeEmailHtml", () => {
     expect(out).not.toContain("background");
     expect(out).toContain("color");
   });
+
+  // ---------------------------------------------------------------------
+  // Fix di review (fase 9, Task 5): un revisore ha ESEGUITO 25 payload
+  // ostili — maiuscole miste, tabulazioni, entità HTML, `<svg><script>`,
+  // `srcdoc`, `formaction`, `xlink:href` — e sono tutti neutralizzati, ma
+  // dalla LIBRERIA (`sanitize-html`), non da una regola del repo: senza
+  // questi test, un cambio di libreria o di opzioni potrebbe far regredire
+  // silenziosamente il comportamento e la suite resterebbe verde. Sei casi
+  // fissano le forme offuscate più comuni.
+  // ---------------------------------------------------------------------
+
+  it("un tag/attributo in maiuscolo o misto viene trattato come il suo equivalente minuscolo", () => {
+    const out = sanitizeEmailHtml('<IMG SRC="https://tracker.example/x.gif" ONERROR="alert(1)">');
+    expect(out).not.toContain("ONERROR");
+    expect(out).not.toContain("onerror");
+    expect(out).not.toContain("alert(1)");
+  });
+
+  it('<ScRiPt> in maiuscolo misto sparisce come "<script>"', () => {
+    const out = sanitizeEmailHtml("<ScRiPt>alert(document.cookie)</sCrIpT><p>Ciao</p>");
+    expect(out.toLowerCase()).not.toContain("<script");
+    expect(out).not.toContain("alert(document.cookie)");
+    expect(out).toContain("Ciao");
+  });
+
+  it("javascript: con maiuscole miste non passa", () => {
+    const out = sanitizeEmailHtml('<a href="JaVaScRipT:alert(1)">clicca</a>');
+    expect(out.toLowerCase()).not.toContain("javascript:");
+  });
+
+  it("javascript: con una tabulazione infilata nello scheme non passa", () => {
+    const out = sanitizeEmailHtml('<a href="java\tscript:alert(1)">clicca</a>');
+    expect(out).not.toMatch(/href="java\s*script:/i);
+  });
+
+  it("javascript: con la 'j' come entità HTML numerica non passa", () => {
+    const out = sanitizeEmailHtml('<a href="&#106;avascript:alert(1)">clicca</a>');
+    expect(out.toLowerCase()).not.toContain("javascript:");
+  });
+
+  it("<svg><script> annidato sparisce: né l'svg (non in allowlist) né lo script sopravvivono", () => {
+    const out = sanitizeEmailHtml('<svg><script>alert(1)</script></svg><p>Ciao</p>');
+    expect(out).not.toContain("<svg");
+    expect(out).not.toContain("<script");
+    expect(out).not.toContain("alert(1)");
+    expect(out).toContain("Ciao");
+  });
 });
 
 describe("listHistory", () => {

@@ -490,7 +490,12 @@ function isSafeRemoteUrl(value: string | undefined): value is string {
  * Difesa a strati, indipendenti l'una dall'altra:
  *  1. **Tag**: solo quelli della formattazione base di un'email. `<script>`,
  *     `<iframe>`, `<object>`, `<embed>`, `<form>`, `<style>` non sono in
- *     lista — spariscono col loro contenuto, non solo "svuotati".
+ *     lista. Fix di review (fase 9): il tag stesso sparisce sempre, ma
+ *     "col contenuto" è vero solo per `<script>`/`<style>` — gli unici in
+ *     `nonTextTags` di default di `sanitize-html` —, non per gli altri
+ *     quattro: `<iframe>TESTO</iframe>` toglie `<iframe>` e lascia `TESTO`
+ *     come testo inerte. Innocuo (non è markup, non esegue nulla), ma non è
+ *     la garanzia che il resto di questo commento suggeriva.
  *  2. **Attributi**: allowlist PER TAG. Nessun `on*` è mai concesso su
  *     nessun tag, quindi non serve enumerare gli handler da togliere.
  *  3. **Schemi degli URL**: `allowedSchemes` accetta solo http/https/mailto
