@@ -553,6 +553,14 @@ export function sanitizeEmailHtml(html: string): string {
           tagName: "img",
           attribs: {
             ...(attribs.alt !== undefined ? { alt: attribs.alt } : {}),
+            // Fix di review (fase 9): questo transform ricostruisce gli
+            // attributi da zero, quindi `width`/`height` — pure in
+            // `allowedAttributes.img` — sparivano comunque, mai passati
+            // qui. Conseguenza visiva: senza le dimensioni dichiarate, il
+            // testo intorno all'immagine salta quando "mostra immagini" la
+            // carica, perché il browser non sa quanto spazio riservarle.
+            ...(attribs.width !== undefined ? { width: attribs.width } : {}),
+            ...(attribs.height !== undefined ? { height: attribs.height } : {}),
             ...(safeSrc ? { "data-src": safeSrc } : {}),
           },
         };

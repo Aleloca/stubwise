@@ -157,12 +157,31 @@ describe("pagina /calendar — la griglia (fase 9)", () => {
     expect(await screen.findByText("Ferie")).toBeInTheDocument();
   });
 
-  it("una settimana vuota SPIEGA perché — non sembra rotta", async () => {
+  it("una settimana vuota SPIEGA perché — non sembra rotta, e con un solo progetto punta DRITTO alla sua sezione Posta", async () => {
     mockApi(baseApi());
     await renderCalendar();
 
     expect(await screen.findByText(/only shows appointments that match a project's mail routing rules/)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Change which appointments show up" })).toBeInTheDocument();
+    // Fix di review (fase 9, Task 3): con un solo progetto sull'istanza
+    // (il caso di `baseApi()`) il link punta DIRETTAMENTE alla sua sezione
+    // Posta, non all'elenco progetti — "il posto quasi giusto" del finding.
+    const link = screen.getByRole("link", { name: "Change which appointments show up" });
+    expect(link).toHaveAttribute("href", `/projects/${PROJECT_ID}#mail`);
+  });
+
+  it("con più progetti lo stato vuoto non può indovinare quale: resta l'elenco progetti", async () => {
+    const SECOND_PROJECT_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+    mockApi(
+      baseApi({
+        "GET /api/projects": () =>
+          jsonResponse(200, [...PROJECTS, { id: SECOND_PROJECT_ID, name: "Beta", slug: "beta" }]),
+      }),
+    );
+    await renderCalendar();
+
+    await screen.findByText(/only shows appointments that match a project's mail routing rules/);
+    const link = screen.getByRole("link", { name: "Change which appointments show up" });
+    expect(link).toHaveAttribute("href", "/projects");
   });
 
   it("selezionare un evento apre il pannello di dettaglio con partecipanti e link a Google Calendar", async () => {

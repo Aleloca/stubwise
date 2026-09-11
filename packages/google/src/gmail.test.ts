@@ -71,6 +71,13 @@ describe("sanitizeEmailHtml", () => {
     expect(out).not.toMatch(/<img[^>]*\ssrc="https:\/\/tracker\.example/);
   });
 
+  it("un <img> con width/height le conserva — senza, il testo salta quando l'immagine carica (fix di review, fase 9)", () => {
+    const out = sanitizeEmailHtml('<img src="https://tracker.example/logo.png" alt="Logo" width="120" height="40">');
+    expect(out).toContain('width="120"');
+    expect(out).toContain('height="40"');
+    expect(out).toContain('data-src="https://tracker.example/logo.png"');
+  });
+
   it("gli attributi on* spariscono su QUALUNQUE tag, non solo img (allowlist, non denylist)", () => {
     const out = sanitizeEmailHtml('<p onclick="alert(1)" onmouseover="alert(2)">testo</p>');
     expect(out).not.toContain("onclick");

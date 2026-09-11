@@ -233,19 +233,37 @@ function eventLabel(event: CalendarEventItem): string {
  * COSTRUZIONE (solo gli appuntamenti che combaciano con le regole di
  * smistamento di un progetto entrano qui), quindi una vista senza eventi
  * deve dirlo — mai sembrare rotta.
+ *
+ * Fix di review (fase 9, Task 3): il link portava all'elenco progetti, "il
+ * posto quasi giusto" — non alla sezione Posta del progetto, dove le regole
+ * stanno DAVVERO. Con un solo progetto sull'istanza non c'è ambiguità: si
+ * punta lì direttamente (`#mail`, l'ancora sulla sezione). Con più progetti
+ * non si può indovinare quale, quindi resta l'elenco.
  */
-export function CalendarEmptyState() {
+export function CalendarEmptyState({ projects }: { projects: { id: string; name: string }[] }) {
   const { t } = useTranslation();
+  const singleProject = projects.length === 1 ? projects[0] : null;
   return (
     <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
       <p className="font-mono text-[12px] tracking-[0.12em] text-fg-faint uppercase">{t("calendar:empty.heading")}</p>
       <p className="max-w-sm text-sm text-fg-muted">{t("calendar:empty.body")}</p>
-      <Link
-        to="/projects"
-        className="mt-1 inline-flex min-h-9 items-center rounded-sm border border-line-strong px-3 font-mono text-[11px] tracking-[0.12em] text-fg-muted uppercase transition-colors hover:border-signal-dim hover:text-fg"
-      >
-        {t("calendar:empty.linkHint")}
-      </Link>
+      {singleProject ? (
+        <Link
+          to="/projects/$projectId"
+          params={{ projectId: singleProject.id }}
+          hash="mail"
+          className="mt-1 inline-flex min-h-9 items-center rounded-sm border border-line-strong px-3 font-mono text-[11px] tracking-[0.12em] text-fg-muted uppercase transition-colors hover:border-signal-dim hover:text-fg"
+        >
+          {t("calendar:empty.linkHint")}
+        </Link>
+      ) : (
+        <Link
+          to="/projects"
+          className="mt-1 inline-flex min-h-9 items-center rounded-sm border border-line-strong px-3 font-mono text-[11px] tracking-[0.12em] text-fg-muted uppercase transition-colors hover:border-signal-dim hover:text-fg"
+        >
+          {t("calendar:empty.linkHint")}
+        </Link>
+      )}
     </div>
   );
 }

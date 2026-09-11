@@ -152,7 +152,7 @@ export function CalendarPage() {
           ) : rangeQuery.isError ? (
             <p className="grid h-full place-items-center text-sm text-fg-muted">{t("calendar:events.loadError")}</p>
           ) : events.length === 0 ? (
-            <CalendarEmptyState />
+            <CalendarEmptyState projects={projects} />
           ) : (
             <CalendarGridView
               view={view}
