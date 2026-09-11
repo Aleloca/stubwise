@@ -179,13 +179,33 @@ describe("readerSchema", () => {
     expect(readerSchema(schema)).toBe(readerSchema(schema));
   });
 
-  it("segnala i nodi che non sa attraversare invece di aprirli a metà", () => {
-    // Un `record` passa invariato — comportamento sicuro — ma l'enum che
-    // contiene resterebbe CHIUSO: è esattamente il buco silenzioso che il
-    // guardiano sui tipi di nodo deve far emergere.
+  // Fix di review (App M3, Fase C, Task 6, 11 set 2026): `z.record` era senza
+  // ramo dedicato, e finiva nel ramo foglia — attraversato invariato
+  // (comportamento sicuro) ma con l'enum che il VALORE conteneva rimasto
+  // CHIUSO, esattamente il buco silenzioso che questo file esiste per
+  // chiudere. Scoperto da `mailItemSchema.outcome`
+  // (`z.record(z.string(), z.unknown())`, portato da `mail.list` sul client)
+  // che il guardiano di `@stubwise/api-client` segnalava come "non gestito".
+  // Ora `record` è un nodo GESTITO: si ricostruisce derivando chiave e
+  // valore, come `array`/`object`.
+  it("attraversa i `record`: apre l'enum nel VALORE invece di lasciarlo chiuso", () => {
     const schema = z.object({ mappa: z.record(z.string(), z.enum(["a"])) });
-    expect(unsupportedNodeKinds(schema)).toEqual(["record"]);
-    expect(() => readerSchema(schema).parse({ mappa: { k: "ignoto" } })).toThrow();
+    expect(unsupportedNodeKinds(schema)).toEqual([]);
+    // Prima del fix: un valore ignoto dentro la mappa faceva fallire l'intero
+    // parse. Ora si apre come qualunque altro enum: UNKNOWN, non un'eccezione.
+    expect(readerSchema(schema).parse({ mappa: { k: "ignoto" } })).toEqual({ mappa: { k: UNKNOWN } });
+    expect(readerSchema(schema).parse({ mappa: { k: "a" } })).toEqual({ mappa: { k: "a" } });
+  });
+
+  // Un valore `unknown()` (il caso reale di `mailItemSchema.outcome`) non ha
+  // nessun enum da aprire: il `record` resta comunque un nodo GESTITO — non
+  // è più segnalato solo perché "non c'è niente di pericoloso stavolta".
+  it("un `record` con valore `unknown()` resta gestito anche senza un enum da aprire", () => {
+    const schema = z.object({ outcome: z.record(z.string(), z.unknown()).nullable() });
+    expect(unsupportedNodeKinds(schema)).toEqual([]);
+    expect(readerSchema(schema).parse({ outcome: { anything: [1, "x", null] } })).toEqual({
+      outcome: { anything: [1, "x", null] },
+    });
   });
 
   it("segnala un oggetto con catchall, che la ricostruzione appiattirebbe", () => {

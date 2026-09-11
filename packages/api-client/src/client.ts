@@ -7,6 +7,7 @@ import { createAuthEndpoints } from "./endpoints/auth.js";
 import { createBacklogEndpoints } from "./endpoints/backlog.js";
 import { createDocsEndpoints } from "./endpoints/docs.js";
 import { createInboxEndpoints } from "./endpoints/inbox.js";
+import { createMailEndpoints } from "./endpoints/mail.js";
 import { createMeEndpoints } from "./endpoints/me.js";
 import { createPatsEndpoints } from "./endpoints/pats.js";
 import { createProjectsEndpoints } from "./endpoints/projects.js";
@@ -113,6 +114,7 @@ export function createEndpoints(request: ApiRequest) {
     docs: createDocsEndpoints(request),
     search: createSearchEndpoints(request),
     activity: createActivityEndpoints(request),
+    mail: createMailEndpoints(request),
   };
 }
 
