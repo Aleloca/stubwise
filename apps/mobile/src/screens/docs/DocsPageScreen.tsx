@@ -9,6 +9,7 @@ import type { DocsStackParamList } from "../../app/navigation";
 import { useAuth } from "../../app/providers";
 import { GhostButton } from "../../components/GhostButton";
 import { SectionLabel } from "../../components/SectionLabel";
+import { SettingsAvatarButton } from "../../components/SettingsAvatarButton";
 import { Skeleton } from "../../components/Skeleton";
 import { docsKeys, docsKindLabelKey } from "../../lib/docs-mutations";
 import { colors } from "../../theme/tokens";
@@ -51,12 +52,21 @@ export function DocsPageScreen({ navigation, route }: NativeStackScreenProps<Doc
 
   // Task 7 (App M1+M2, 11 set 2026): un solo `ScrollView`, il link
   // "indietro" come primo figlio — stesso schema di `InboxScreen.tsx`.
+  // Fix di review (Task 2, 11 set 2026): l'avatar, mancante del tutto su
+  // questo screen, ora c'è sulla stessa riga — ancorata
+  // (`stickyHeaderIndices`, vedi `ScreenHeader.tsx`).
   return (
     <View style={styles.container}>
-      <ScrollView contentContainerStyle={[styles.body, { paddingBottom: CONTENT_BASE_BOTTOM_PADDING + tabBarHeight }]}>
-        <Pressable onPress={() => navigation.goBack()} testID="docs-page-back" style={styles.backRow}>
-          <Text style={styles.back}>{t("mobile.docs.page.back")}</Text>
-        </Pressable>
+      <ScrollView
+        contentContainerStyle={[styles.body, { paddingBottom: CONTENT_BASE_BOTTOM_PADDING + tabBarHeight }]}
+        stickyHeaderIndices={[0]}
+      >
+        <View style={styles.headerRow}>
+          <Pressable onPress={() => navigation.goBack()} testID="docs-page-back" style={styles.backRow}>
+            <Text style={styles.back}>{t("mobile.docs.page.back")}</Text>
+          </Pressable>
+          <SettingsAvatarButton />
+        </View>
 
         {pageQuery.isPending ? (
           <View style={styles.skeletonList} testID="docs-page-skeleton">
@@ -91,8 +101,18 @@ const styles = StyleSheet.create({
     backgroundColor: colors.ink950,
     flex: 1,
   },
-  // Task 7: niente più `paddingHorizontal`/`paddingTop` propri — vivono in
-  // `body` (vedi il commento gemello in `ProjectDetailScreen.tsx`).
+  // Fix di review (Task 2, 11 set 2026): `headerRow` è ora ANCORATA
+  // (`stickyHeaderIndices` sullo `ScrollView` sopra) e porta anche
+  // l'avatar — `backgroundColor` opaco necessario, o il contenuto sotto
+  // l'attraverserebbe scorrendo.
+  headerRow: {
+    alignItems: "center",
+    backgroundColor: colors.ink950,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingBottom: 12,
+    paddingTop: 56,
+  },
   backRow: {},
   back: {
     color: colors.muted,
@@ -127,7 +147,6 @@ const styles = StyleSheet.create({
     gap: 4,
     padding: 20,
     paddingBottom: 40,
-    paddingTop: 56,
   },
   // Solo gli scarti dal preset condiviso (`textStyles.screenTitle` copre
   // colore/font/peso/dimensione) — vedi il commento su `ScreenHeader.tsx`.

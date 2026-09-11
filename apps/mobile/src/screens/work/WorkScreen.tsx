@@ -16,6 +16,7 @@ import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import type { ProjectsStackParamList } from "../../app/navigation";
 import { useAuth } from "../../app/providers";
 import { GhostButton } from "../../components/GhostButton";
+import { SettingsAvatarButton } from "../../components/SettingsAvatarButton";
 import { Skeleton } from "../../components/Skeleton";
 import { PlanSection } from "../../components/work/PlanSection";
 import { StatusBadge } from "../../components/work/StatusBadge";
@@ -135,12 +136,21 @@ export function WorkScreen({ navigation, route }: NativeStackScreenProps<Project
 
   // Task 7 (App M1+M2, 11 set 2026): un solo `ScrollView`, il link
   // "indietro" come primo figlio — stesso schema di `InboxScreen.tsx`.
+  // Fix di review (Task 2, 11 set 2026): l'avatar, mancante del tutto su
+  // questo screen — quello dove si approva un piano — ora c'è sulla
+  // stessa riga, ancorata (`stickyHeaderIndices`, vedi `ScreenHeader.tsx`).
   return (
     <View style={styles.container}>
-      <ScrollView contentContainerStyle={[styles.body, { paddingBottom: CONTENT_BASE_BOTTOM_PADDING + tabBarHeight }]}>
-        <Pressable onPress={() => navigation.goBack()} testID="work-back" style={styles.backRow}>
-          <Text style={styles.back}>{t("mobile.work.back")}</Text>
-        </Pressable>
+      <ScrollView
+        contentContainerStyle={[styles.body, { paddingBottom: CONTENT_BASE_BOTTOM_PADDING + tabBarHeight }]}
+        stickyHeaderIndices={[0]}
+      >
+        <View style={styles.headerRow}>
+          <Pressable onPress={() => navigation.goBack()} testID="work-back" style={styles.backRow}>
+            <Text style={styles.back}>{t("mobile.work.back")}</Text>
+          </Pressable>
+          <SettingsAvatarButton />
+        </View>
 
         {isPending ? (
           <View style={styles.skeletonList} testID="work-skeleton">
@@ -249,6 +259,18 @@ const styles = StyleSheet.create({
   },
   // Task 7: niente più `paddingHorizontal`/`paddingTop` propri — vivono in
   // `body` (vedi il commento gemello in `ProjectDetailScreen.tsx`).
+  // Fix di review (Task 2, 11 set 2026): `headerRow` è ora ANCORATA
+  // (`stickyHeaderIndices` sullo `ScrollView` sopra) e porta anche
+  // l'avatar — `backgroundColor` opaco necessario, o il contenuto sotto
+  // l'attraverserebbe scorrendo.
+  headerRow: {
+    alignItems: "center",
+    backgroundColor: colors.ink950,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingBottom: 12,
+    paddingTop: 56,
+  },
   backRow: {},
   back: {
     color: colors.muted,
@@ -283,7 +305,6 @@ const styles = StyleSheet.create({
     gap: 4,
     padding: 20,
     paddingBottom: 40,
-    paddingTop: 56,
   },
   metaRow: {
     alignItems: "center",

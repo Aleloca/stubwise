@@ -159,7 +159,10 @@ export function DocsScreen({ navigation }: NativeStackScreenProps<DocsStackParam
   // sistemazione del bottone "+" in `BacklogScreen.tsx`.
   return (
     <View style={styles.container}>
-      <ScrollView contentContainerStyle={[styles.body, { paddingBottom: CONTENT_BASE_BOTTOM_PADDING + tabBarHeight }]}>
+      <ScrollView
+        contentContainerStyle={[styles.body, { paddingBottom: CONTENT_BASE_BOTTOM_PADDING + tabBarHeight }]}
+        stickyHeaderIndices={[0]}
+      >
         <ScreenHeader title={t("mobile.docs.title")} />
 
         <View style={styles.toolbar}>

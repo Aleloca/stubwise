@@ -3,10 +3,27 @@ import { ApiError } from "@stubwise/api-client";
 import type { AiJob, TicketDetail, TicketQuestion, Reader } from "@stubwise/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
+import { StyleSheet } from "react-native";
+import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import { AuthContext } from "../../app/auth-context";
 import type { AuthContextValue } from "../../app/providers";
 import "../../i18n";
 import { WorkScreen } from "./WorkScreen";
+
+/** Vedi `InboxScreen.test.tsx` per il perché di questo helper invece di `UNSAFE_getByType` (tolto in RTL v14). */
+function findHostNode(tree: unknown, type: string): { props: Record<string, unknown> } | null {
+  if (tree === null || tree === undefined) return null;
+  if (Array.isArray(tree)) {
+    for (const node of tree) {
+      const found = findHostNode(node, type);
+      if (found) return found;
+    }
+    return null;
+  }
+  const node = tree as { type?: string; children?: unknown; props?: Record<string, unknown> };
+  if (node.type === type) return node as { props: Record<string, unknown> };
+  return findHostNode(node.children, type);
+}
 
 const TICKET_ID = "11111111-1111-4111-8111-111111111111";
 const JOB_ID = "22222222-2222-4222-8222-222222222222";
@@ -129,6 +146,32 @@ describe("WorkScreen — caricamento ed errori", () => {
     await waitFor(() => expect(screen.getByText("Export CSV degli ordini")).toBeTruthy());
     await fireEvent.press(screen.getByTestId("work-back"));
     expect(goBack).toHaveBeenCalled();
+  });
+
+  // Fix di review (App M1+M2, Task 2, 11 set 2026): rete anti-regressione —
+  // l'avatar (unico accesso alle Impostazioni) deve restare raggiungibile su
+  // OGNI schermata post-login, inclusa questa (dove si approva un piano —
+  // prima del fix ne era priva del tutto).
+  test("le Impostazioni sono raggiungibili (avatar presente)", async () => {
+    const client = makeClient();
+    await renderScreen(client);
+    await waitFor(() => expect(screen.getByTestId("settings-avatar-button")).toBeTruthy());
+  });
+
+  // Fix di review (App M1+M2, Task 3, 11 set 2026): rete anti-regressione —
+  // vedi il commento gemello in `InboxScreen.test.tsx` (compreso il perché
+  // di `findHostNode` invece di `UNSAFE_getByType`, tolto in RTL v14).
+  // Seconda schermata diversa, come richiesto dal piano dei fix.
+  test("il margine sotto la barra include l'altezza reale della tab bar", async () => {
+    (useBottomTabBarHeight as jest.Mock).mockReturnValue(80);
+    const client = makeClient();
+    const { rendered } = await renderScreen(client);
+    await waitFor(() => expect(screen.getByText("Export CSV degli ordini")).toBeTruthy());
+    const scrollView = findHostNode(rendered.toJSON(), "RCTScrollView");
+    expect(scrollView).not.toBeNull();
+    const flat = StyleSheet.flatten(scrollView!.props.contentContainerStyle as never);
+    expect(flat.paddingBottom).toBe(40 + 80);
+    (useBottomTabBarHeight as jest.Mock).mockReturnValue(0);
   });
 });
 

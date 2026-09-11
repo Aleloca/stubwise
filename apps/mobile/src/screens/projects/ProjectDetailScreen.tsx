@@ -12,6 +12,7 @@ import { useAuth } from "../../app/providers";
 import { GhostButton } from "../../components/GhostButton";
 import { PulseIndicator } from "../../components/PulseIndicator";
 import { ProjectGroup } from "../../components/projects/ProjectGroup";
+import { SettingsAvatarButton } from "../../components/SettingsAvatarButton";
 import { Skeleton } from "../../components/Skeleton";
 import { pulseLineFor } from "../../lib/pulse-line";
 import { projectsPulseKey } from "./ProjectsScreen";
@@ -72,13 +73,21 @@ export function ProjectDetailScreen({ navigation, route }: NativeStackScreenProp
 
   // Task 7 (App M1+M2, 11 set 2026): un solo `ScrollView`, il link
   // "indietro" come primo figlio — stesso schema di `InboxScreen.tsx`.
-  // Nessun `ScreenHeader`: è uno screen di dettaglio, non un tab root.
+  // Fix di review (Task 2, 11 set 2026): l'avatar, mancante del tutto su
+  // questo screen, ora c'è sulla stessa riga — ancorata
+  // (`stickyHeaderIndices`, vedi `ScreenHeader.tsx`).
   return (
     <View style={styles.container}>
-      <ScrollView contentContainerStyle={[styles.body, { paddingBottom: CONTENT_BASE_BOTTOM_PADDING + tabBarHeight }]}>
-        <Pressable onPress={() => navigation.navigate("List")} testID="project-detail-back" style={styles.backRow}>
-          <Text style={styles.back}>{t("mobile.projects.detail.back")}</Text>
-        </Pressable>
+      <ScrollView
+        contentContainerStyle={[styles.body, { paddingBottom: CONTENT_BASE_BOTTOM_PADDING + tabBarHeight }]}
+        stickyHeaderIndices={[0]}
+      >
+        <View style={styles.headerRow}>
+          <Pressable onPress={() => navigation.navigate("List")} testID="project-detail-back" style={styles.backRow}>
+            <Text style={styles.back}>{t("mobile.projects.detail.back")}</Text>
+          </Pressable>
+          <SettingsAvatarButton />
+        </View>
 
         {query.isPending ? (
           <View style={styles.skeletonList} testID="project-detail-skeleton">
@@ -315,6 +324,18 @@ const styles = StyleSheet.create({
   // avvolge SIA questo link SIA il resto (raddoppiarli qui darebbe un
   // inset doppio, visto che `backRow` non è più fratello del container ma
   // il suo primo figlio).
+  // Fix di review (Task 2, 11 set 2026): `headerRow` è ora ANCORATA
+  // (`stickyHeaderIndices` sullo `ScrollView` sopra) e porta anche
+  // l'avatar — `backgroundColor` opaco necessario, o il contenuto sotto
+  // l'attraverserebbe scorrendo.
+  headerRow: {
+    alignItems: "center",
+    backgroundColor: colors.ink950,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingBottom: 12,
+    paddingTop: 56,
+  },
   backRow: {},
   back: {
     color: colors.muted,
@@ -349,7 +370,6 @@ const styles = StyleSheet.create({
     gap: 8,
     padding: 20,
     paddingBottom: 40,
-    paddingTop: 56,
   },
   pulseRow: {
     marginBottom: 8,

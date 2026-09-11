@@ -8,6 +8,7 @@ import { useAuth } from "../../app/providers";
 import { GhostButton } from "../../components/GhostButton";
 import { InboxCard } from "../../components/inbox/InboxCard";
 import { Skeleton } from "../../components/Skeleton";
+import { SettingsAvatarButton } from "../../components/SettingsAvatarButton";
 import { inboxKeys } from "../../lib/inbox-mutations";
 import { colors } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
@@ -67,13 +68,20 @@ export function InboxCardScreen({ route, navigation }: NativeStackScreenProps<In
 
   // Task 7 (App M1+M2, 11 set 2026): l'header (il bottone "indietro") è
   // dentro lo `ScrollView`, non più fratello — stesso schema di
-  // `InboxScreen.tsx`. Nessun `ScreenHeader` qui: è uno screen di
-  // dettaglio, non un tab root (niente avatar da ripetere).
+  // `InboxScreen.tsx`. Fix di review (Task 2, 11 set 2026): l'avatar,
+  // mancante del tutto su questo screen, ora c'è — sulla STESSA riga del
+  // bottone "indietro" — e la riga è ancorata (`stickyHeaderIndices`,
+  // vedi `ScreenHeader.tsx`) così le Impostazioni restano raggiungibili
+  // anche scorrendo.
   return (
     <View style={styles.container} testID="inbox-card-screen">
-      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: CONTENT_BASE_BOTTOM_PADDING + tabBarHeight }]}>
+      <ScrollView
+        contentContainerStyle={[styles.content, { paddingBottom: CONTENT_BASE_BOTTOM_PADDING + tabBarHeight }]}
+        stickyHeaderIndices={[0]}
+      >
         <View style={styles.header}>
           <GhostButton label={t("mobile.inbox.notFound.back")} onPress={() => navigation.navigate("List")} testID="inbox-card-back" />
+          <SettingsAvatarButton />
         </View>
         {query.isPending ? (
           <View testID="inbox-card-skeleton">
@@ -108,16 +116,23 @@ const styles = StyleSheet.create({
     backgroundColor: colors.ink950,
     flex: 1,
   },
-  // Task 7: niente più `paddingHorizontal`/`paddingTop` propri — `header`
-  // ora è il primo figlio di uno `ScrollView` invece che un fratello del
-  // container, e `content` (il suo `contentContainerStyle`) già dà l'inset
-  // uniforme: raddoppiarlo qui darebbe un margine doppio.
+  // Fix di review (Task 2, 11 set 2026): `header` ora porta ANCHE l'avatar,
+  // sulla stessa riga del bottone "indietro" — `paddingTop`/`backgroundColor`
+  // propri perché la riga è ANCORATA (`stickyHeaderIndices` sullo
+  // `ScrollView` sotto): senza uno sfondo opaco, il contenuto sotto
+  // l'attraverserebbe scorrendo. `content` non porta più `paddingTop`: lo
+  // ha spostato qui `header`, o si sommerebbero (era il bug già preso e
+  // corretto nel Task 7 su altre schermate — vedi `ProjectDetailScreen.tsx`).
   header: {
-    alignItems: "flex-start",
+    alignItems: "center",
+    backgroundColor: colors.ink950,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingBottom: 12,
+    paddingTop: 56,
   },
   content: {
     padding: 16,
-    paddingTop: 56,
   },
   notFound: {
     alignItems: "center",

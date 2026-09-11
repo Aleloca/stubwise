@@ -104,6 +104,7 @@ export function InboxScreen() {
     <View style={styles.container}>
       <ScrollView
         contentContainerStyle={[styles.scrollContent, { paddingBottom: CONTENT_BASE_BOTTOM_PADDING + tabBarHeight }]}
+        stickyHeaderIndices={[0]}
         refreshControl={
           <RefreshControl refreshing={query.isRefetching} onRefresh={() => void query.refetch()} tintColor={colors.signal} />
         }

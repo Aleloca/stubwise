@@ -264,3 +264,11 @@ describe("DocsScreen — «Chiedi al progetto»", () => {
     expect(navigate).toHaveBeenCalledWith("Ask", { projectId: PROJECT.id, projectName: PROJECT.name });
   });
 });
+
+// Fix di review (App M1+M2, Task 2, 11 set 2026): rete anti-regressione —
+// l'avatar (unico accesso alle Impostazioni) deve restare raggiungibile su
+// OGNI schermata post-login, ripetuto file per file (vedi il piano dei fix).
+test("le Impostazioni sono raggiungibili (avatar presente)", async () => {
+  await renderScreen(makeClient());
+  await waitFor(() => expect(screen.getByTestId("settings-avatar-button")).toBeTruthy());
+});

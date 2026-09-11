@@ -86,6 +86,15 @@ describe("DocsPageScreen — caricamento, errori, rendering markdown", () => {
     expect(screen.queryByText(/\*\*/)).toBeNull();
   });
 
+  // Fix di review (App M1+M2, Task 2, 11 set 2026): rete anti-regressione —
+  // l'avatar (unico accesso alle Impostazioni) deve restare raggiungibile su
+  // OGNI schermata post-login, incluse quelle di dettaglio come questa (prima
+  // del fix ne era priva del tutto).
+  test("le Impostazioni sono raggiungibili (avatar presente)", async () => {
+    await renderScreen(makeClient());
+    await waitFor(() => expect(screen.getByTestId("settings-avatar-button")).toBeTruthy());
+  });
+
   test("404 → pagina non trovata (non l'errore generico)", async () => {
     const notFound = jest.fn().mockRejectedValue(new ApiError(404, "Page not found", "page_not_found"));
     await renderScreen(makeClient({ page: notFound }));

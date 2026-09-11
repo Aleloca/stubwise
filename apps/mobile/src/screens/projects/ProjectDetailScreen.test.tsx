@@ -102,6 +102,16 @@ describe("ProjectDetailScreen", () => {
     await waitFor(() => expect(screen.getByTestId("project-detail-not-found")).toBeTruthy());
   });
 
+  // Fix di review (App M1+M2, Task 2, 11 set 2026): rete anti-regressione —
+  // l'avatar (unico accesso alle Impostazioni) deve restare raggiungibile su
+  // OGNI schermata post-login, incluse quelle di dettaglio come questa (prima
+  // del fix ne era priva del tutto).
+  test("le Impostazioni sono raggiungibili (avatar presente)", async () => {
+    const client = makeClient();
+    await renderScreen(client);
+    await waitFor(() => expect(screen.getByTestId("settings-avatar-button")).toBeTruthy());
+  });
+
   test("il tasto indietro naviga a List", async () => {
     const navigate = jest.fn();
     const client = makeClient();

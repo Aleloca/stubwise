@@ -98,6 +98,16 @@ describe("InboxCardScreen", () => {
     expect(screen.queryByTestId("inbox-card-error")).toBeNull();
   });
 
+  // Fix di review (App M1+M2, Task 2, 11 set 2026): rete anti-regressione —
+  // l'avatar (unico accesso alle Impostazioni) deve restare raggiungibile su
+  // OGNI schermata post-login, incluse quelle di dettaglio come questa (prima
+  // del fix ne era priva del tutto).
+  test("le Impostazioni sono raggiungibili (avatar presente)", async () => {
+    const client = makeClient({ list: jest.fn().mockResolvedValue({ items: [QUESTION_ITEM], nextCursor: null }) });
+    await renderScreen(client, "q1");
+    await waitFor(() => expect(screen.getByTestId("settings-avatar-button")).toBeTruthy());
+  });
+
   // Caso 1 dei due richiesti dalla revisione: la query RIESCE ma la riga non
   // c'è più (gestita/rinviata da qualcun altro, o un deep link su un id ormai
   // scaduto) — è cronologia, non un guasto.

@@ -104,6 +104,15 @@ describe("BacklogItemScreen — caricamento ed errori", () => {
     await fireEvent.press(screen.getByTestId("backlog-item-back"));
     expect(goBack).toHaveBeenCalled();
   });
+
+  // Fix di review (App M1+M2, Task 2, 11 set 2026): rete anti-regressione —
+  // l'avatar (unico accesso alle Impostazioni) deve restare raggiungibile su
+  // OGNI schermata post-login, incluse quelle di dettaglio come questa (prima
+  // del fix ne era priva del tutto).
+  test("le Impostazioni sono raggiungibili (avatar presente)", async () => {
+    await renderScreen(makeClient());
+    await waitFor(() => expect(screen.getByTestId("settings-avatar-button")).toBeTruthy());
+  });
 });
 
 describe("BacklogItemScreen — corpo", () => {

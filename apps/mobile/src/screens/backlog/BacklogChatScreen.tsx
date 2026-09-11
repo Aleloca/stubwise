@@ -9,6 +9,7 @@ import type { BacklogStackParamList } from "../../app/navigation";
 import { useAuth } from "../../app/providers";
 import { GhostButton } from "../../components/GhostButton";
 import { PulseIndicator } from "../../components/PulseIndicator";
+import { SettingsAvatarButton } from "../../components/SettingsAvatarButton";
 import { Skeleton } from "../../components/Skeleton";
 import { backlogKeys, useSendBacklogChatMessage } from "../../lib/backlog-mutations";
 import { colors, radii } from "../../theme/tokens";
@@ -120,11 +121,19 @@ export function BacklogChatScreen({ navigation, route }: NativeStackScreenProps<
   // "header dentro il contenuto scorrevole" — vedi il commento gemello in
   // `AskProjectScreen.tsx`. Il composer recepisce comunque il Task 6
   // (margine reale della tab bar).
+  //
+  // Fix di review (Task 2, 11 set 2026): l'avatar, mancante del tutto su
+  // questo screen, ora c'è sulla stessa riga del bottone "indietro". Qui
+  // NON serve `stickyHeaderIndices`: l'header è già fisso, fratello dello
+  // `ScrollView` dei messaggi — non ci scorre mai via da solo.
   return (
     <View style={styles.container}>
-      <Pressable onPress={() => navigation.goBack()} testID="backlog-chat-back" style={styles.backRow}>
-        <Text style={styles.back}>{t("mobile.backlog.chat.back")}</Text>
-      </Pressable>
+      <View style={styles.headerRow}>
+        <Pressable onPress={() => navigation.goBack()} testID="backlog-chat-back" style={styles.backRow}>
+          <Text style={styles.back}>{t("mobile.backlog.chat.back")}</Text>
+        </Pressable>
+        <SettingsAvatarButton />
+      </View>
 
       {itemQuery.isPending ? (
         <View style={styles.skeletonList} testID="backlog-chat-skeleton">
@@ -211,10 +220,16 @@ const styles = StyleSheet.create({
     backgroundColor: colors.ink950,
     flex: 1,
   },
-  backRow: {
+  // Fix di review (Task 2, 11 set 2026): il padding vive ora su
+  // `headerRow` (che porta anche l'avatar), non più solo sul bottone.
+  headerRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
     paddingHorizontal: 20,
     paddingTop: 56,
   },
+  backRow: {},
   back: {
     color: colors.muted,
     fontFamily: fontFamily.mono,

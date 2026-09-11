@@ -3,10 +3,33 @@ import type { InboxItem, Reader } from "@stubwise/shared";
 import notifee from "@notifee/react-native";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
+import { StyleSheet } from "react-native";
+import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import { AuthContext } from "../../app/auth-context";
 import type { AuthContextValue } from "../../app/providers";
 import "../../i18n";
 import { InboxScreen } from "./InboxScreen";
+
+/**
+ * Cerca il primo nodo HOST di un dato `type` (es. `"RCTScrollView"`)
+ * nell'albero di `rendered.toJSON()` — RTL v14 ha tolto `UNSAFE_getByType`
+ * (risolveva comunque solo componenti host, mai composite: vedi le note di
+ * migrazione v14), quindi si cerca a mano nell'unico output che resta
+ * completo, il JSON dell'albero renderizzato.
+ */
+function findHostNode(tree: unknown, type: string): { props: Record<string, unknown> } | null {
+  if (tree === null || tree === undefined) return null;
+  if (Array.isArray(tree)) {
+    for (const node of tree) {
+      const found = findHostNode(node, type);
+      if (found) return found;
+    }
+    return null;
+  }
+  const node = tree as { type?: string; children?: unknown; props?: Record<string, unknown> };
+  if (node.type === type) return node as { props: Record<string, unknown> };
+  return findHostNode(node.children, type);
+}
 
 function item(overrides: Partial<Reader<InboxItem>> & Pick<InboxItem, "id" | "kind">): Reader<InboxItem> {
   return {
@@ -94,6 +117,36 @@ describe("InboxScreen", () => {
     await renderScreen(client);
     await waitFor(() => expect(screen.getByText("Tutto gestito.")).toBeTruthy());
     expect(screen.getByText("Ti avviso io quando un progetto ha bisogno di te.")).toBeTruthy();
+  });
+
+  // Fix di review (App M1+M2, Task 2, 11 set 2026): rete anti-regressione —
+  // l'avatar (unico accesso alle Impostazioni) deve restare raggiungibile su
+  // OGNI schermata post-login, ripetuto file per file (vedi il piano dei fix).
+  test("le Impostazioni sono raggiungibili (avatar presente)", async () => {
+    const client = makeClient();
+    await renderScreen(client);
+    await waitFor(() => expect(screen.getByTestId("settings-avatar-button")).toBeTruthy());
+  });
+
+  // Fix di review (App M1+M2, Task 3, 11 set 2026): rete anti-regressione —
+  // prima di questo test nessun test discriminava il margine di scorrimento
+  // in fondo (Task 6): il mock globale di `useBottomTabBarHeight` restituisce
+  // `0`, quindi togliere `+ tabBarHeight` dallo `ScrollView` non avrebbe
+  // fatto fallire NIENTE. Qui si sovrascrive il mock con un valore reale e si
+  // verifica che il `paddingBottom` effettivo lo includa davvero — via
+  // `toJSON()` (RTL v14 ha tolto `UNSAFE_getByType`, che risolveva comunque
+  // solo componenti host: `contentContainerStyle` di `ScrollView` finisce sul
+  // nodo host `RCTScrollView`, verificato leggendo l'albero renderizzato).
+  test("il margine sotto la barra include l'altezza reale della tab bar", async () => {
+    (useBottomTabBarHeight as jest.Mock).mockReturnValue(80);
+    const client = makeClient();
+    const rendered = await renderScreen(client);
+    await waitFor(() => expect(screen.getByText("Tutto gestito.")).toBeTruthy());
+    const scrollView = findHostNode(rendered.toJSON(), "RCTScrollView");
+    expect(scrollView).not.toBeNull();
+    const flat = StyleSheet.flatten(scrollView!.props.contentContainerStyle as never);
+    expect(flat.paddingBottom).toBe(40 + 80);
+    (useBottomTabBarHeight as jest.Mock).mockReturnValue(0);
   });
 
   // Il banner offline NON è più responsabilità di questo screen (Task 20:

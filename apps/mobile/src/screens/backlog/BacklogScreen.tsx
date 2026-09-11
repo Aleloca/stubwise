@@ -99,7 +99,10 @@ export function BacklogScreen({ navigation }: NativeStackScreenProps<BacklogStac
   // con l'avatar ora lì, resta sulla riga sotto, insieme ai chip.
   return (
     <View style={styles.container}>
-      <ScrollView contentContainerStyle={[styles.list, { paddingBottom: CONTENT_BASE_BOTTOM_PADDING + tabBarHeight }]}>
+      <ScrollView
+        contentContainerStyle={[styles.list, { paddingBottom: CONTENT_BASE_BOTTOM_PADDING + tabBarHeight }]}
+        stickyHeaderIndices={[0]}
+      >
         <ScreenHeader title={t("mobile.tabs.backlog")} />
 
         <View style={styles.toolbarRow}>

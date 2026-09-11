@@ -58,7 +58,10 @@ export function ProjectsScreen({ navigation }: NativeStackScreenProps<ProjectsSt
   // `ScreenHeader`) come primo figlio — stesso schema di `InboxScreen.tsx`.
   return (
     <View style={styles.container}>
-      <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: CONTENT_BASE_BOTTOM_PADDING + tabBarHeight }]}>
+      <ScrollView
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: CONTENT_BASE_BOTTOM_PADDING + tabBarHeight }]}
+        stickyHeaderIndices={[0]}
+      >
         <ScreenHeader title={t("mobile.tabs.projects")} subtitle={!query.isError ? subtitle : undefined} />
 
         {query.isPending ? (
