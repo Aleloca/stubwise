@@ -51,6 +51,7 @@ async function renderCard(cardItem: Reader<InboxItem>, client: StubwiseClient) {
     justLoggedIn: false,
     login: jest.fn(),
     completeOnboarding: jest.fn(),
+    openSettings: jest.fn(),
   };
   await render(
     <QueryClientProvider client={queryClient}>

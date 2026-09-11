@@ -4,11 +4,13 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import type { BacklogStackParamList } from "../../app/navigation";
 import { useAuth } from "../../app/providers";
 import { GhostButton } from "../../components/GhostButton";
 import { PrimaryButton } from "../../components/PrimaryButton";
 import { PulseIndicator } from "../../components/PulseIndicator";
+import { ScreenHeader } from "../../components/ScreenHeader";
 import { Skeleton } from "../../components/Skeleton";
 import {
   backlogMetaParts,
@@ -22,6 +24,9 @@ import {
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
 import { CaptureSheet } from "./CaptureSheet";
+
+/** Vedi `InboxScreen.tsx` per il perché di una costante invece di leggere `styles.list.paddingBottom`. */
+const CONTENT_BASE_BOTTOM_PADDING = 40;
 
 const CHIPS: { chip: BacklogChip; i18nKey: string }[] = [
   { chip: "active", i18nKey: "mobile.backlog.chips.active" },
@@ -50,6 +55,7 @@ const TOAST_DURATION_MS = 3000;
 export function BacklogScreen({ navigation }: NativeStackScreenProps<BacklogStackParamList, "List">) {
   const { t } = useTranslation();
   const { client } = useAuth();
+  const tabBarHeight = useBottomTabBarHeight();
   const [chip, setChip] = useState<BacklogChip>("active");
   const [captureOpen, setCaptureOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -87,11 +93,33 @@ export function BacklogScreen({ navigation }: NativeStackScreenProps<BacklogStac
   const projects = projectsQuery.data ?? [];
   const items = query.data ?? [];
 
+  // Task 7 (App M1+M2, 11 set 2026): un solo `ScrollView`, header (ora
+  // `ScreenHeader`) come primo figlio — stesso schema di `InboxScreen.tsx`.
+  // Il bottone "+" era sulla STESSA riga del titolo prima di questo task:
+  // con l'avatar ora lì, resta sulla riga sotto, insieme ai chip.
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <View style={styles.headerRow}>
-          <Text style={styles.title}>{t("mobile.tabs.backlog")}</Text>
+      <ScrollView contentContainerStyle={[styles.list, { paddingBottom: CONTENT_BASE_BOTTOM_PADDING + tabBarHeight }]}>
+        <ScreenHeader title={t("mobile.tabs.backlog")} />
+
+        <View style={styles.toolbarRow}>
+          <View style={styles.chipsRow}>
+            {CHIPS.map((option) => {
+              const active = chip === option.chip;
+              return (
+                <Pressable
+                  key={option.chip}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: active }}
+                  onPress={() => setChip(option.chip)}
+                  style={[styles.chip, active && styles.chipActive]}
+                  testID={`backlog-chip-${option.chip}`}
+                >
+                  <Text style={[styles.chipLabel, active && styles.chipLabelActive]}>{t(option.i18nKey)}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={t("mobile.backlog.fab.add")}
@@ -105,50 +133,30 @@ export function BacklogScreen({ navigation }: NativeStackScreenProps<BacklogStac
           </Pressable>
         </View>
 
-        <View style={styles.chipsRow}>
-          {CHIPS.map((option) => {
-            const active = chip === option.chip;
-            return (
-              <Pressable
-                key={option.chip}
-                accessibilityRole="button"
-                accessibilityState={{ selected: active }}
-                onPress={() => setChip(option.chip)}
-                style={[styles.chip, active && styles.chipActive]}
-                testID={`backlog-chip-${option.chip}`}
-              >
-                <Text style={[styles.chipLabel, active && styles.chipLabelActive]}>{t(option.i18nKey)}</Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      </View>
+        {toast !== null && (
+          <View style={styles.toast} testID="backlog-toast">
+            <Text style={styles.toastText}>{toast}</Text>
+          </View>
+        )}
 
-      {toast !== null && (
-        <View style={styles.toast} testID="backlog-toast">
-          <Text style={styles.toastText}>{toast}</Text>
-        </View>
-      )}
-
-      {query.isPending ? (
-        <View style={styles.skeletonList} testID="backlog-skeleton">
-          <Skeleton height={90} />
-          <Skeleton height={90} />
-          <Skeleton height={90} />
-        </View>
-      ) : query.isError ? (
-        <View style={styles.centered}>
-          <Text style={styles.errorTitle}>{t("mobile.backlog.loadError.title")}</Text>
-          <GhostButton label={t("mobile.backlog.loadError.retry")} onPress={() => void query.refetch()} testID="backlog-retry" />
-        </View>
-      ) : items.length === 0 ? (
-        <View style={styles.centered} testID="backlog-empty">
-          <Text style={styles.emptyTitle}>{t("mobile.backlog.empty.title")}</Text>
-          <Text style={styles.emptyBody}>{t("mobile.backlog.empty.body")}</Text>
-        </View>
-      ) : (
-        <ScrollView contentContainerStyle={styles.list}>
-          {items.map((item) => (
+        {query.isPending ? (
+          <View style={styles.skeletonList} testID="backlog-skeleton">
+            <Skeleton height={90} />
+            <Skeleton height={90} />
+            <Skeleton height={90} />
+          </View>
+        ) : query.isError ? (
+          <View style={styles.centered}>
+            <Text style={styles.errorTitle}>{t("mobile.backlog.loadError.title")}</Text>
+            <GhostButton label={t("mobile.backlog.loadError.retry")} onPress={() => void query.refetch()} testID="backlog-retry" />
+          </View>
+        ) : items.length === 0 ? (
+          <View style={styles.centered} testID="backlog-empty">
+            <Text style={styles.emptyTitle}>{t("mobile.backlog.empty.title")}</Text>
+            <Text style={styles.emptyBody}>{t("mobile.backlog.empty.body")}</Text>
+          </View>
+        ) : (
+          items.map((item) => (
             <BacklogListCard
               key={item.id}
               item={item}
@@ -157,15 +165,15 @@ export function BacklogScreen({ navigation }: NativeStackScreenProps<BacklogStac
               onRefine={() => navigation.navigate("Chat", { id: item.id })}
               onOpenDetail={() => navigation.navigate("Item", { id: item.id })}
             />
-          ))}
-        </ScrollView>
-      )}
+          ))
+        )}
 
-      {convert.errorMessage !== null && (
-        <Text accessibilityLiveRegion="polite" style={styles.convertError} testID="backlog-convert-error">
-          {convert.errorMessage}
-        </Text>
-      )}
+        {convert.errorMessage !== null && (
+          <Text accessibilityLiveRegion="polite" style={styles.convertError} testID="backlog-convert-error">
+            {convert.errorMessage}
+          </Text>
+        )}
+      </ScrollView>
 
       <CaptureSheet
         visible={captureOpen}
@@ -242,20 +250,12 @@ const styles = StyleSheet.create({
     backgroundColor: colors.ink950,
     flex: 1,
   },
-  header: {
-    paddingHorizontal: 20,
-    paddingTop: 56,
-  },
-  headerRow: {
+  toolbarRow: {
     alignItems: "center",
     flexDirection: "row",
     justifyContent: "space-between",
-  },
-  title: {
-    color: colors.fg,
-    fontSize: fontSize.title,
-    fontWeight: "700",
-    letterSpacing: -0.3,
+    paddingHorizontal: 20,
+    paddingTop: 12,
   },
   addButton: {
     alignItems: "center",
@@ -280,7 +280,6 @@ const styles = StyleSheet.create({
   chipsRow: {
     flexDirection: "row",
     gap: 8,
-    marginTop: 12,
   },
   chip: {
     borderColor: colors.lineStrong,

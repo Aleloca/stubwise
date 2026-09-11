@@ -1,3 +1,5 @@
+import { colors } from "./tokens";
+
 /**
  * Font del design: IBM Plex Sans (corpo, titoli) e IBM Plex Mono (etichette
  * maiuscole, wordmark, badge, cifre) — vedi il canvas.
@@ -50,4 +52,33 @@ export const fontSize = {
   body: 14,
   input: 15,
   title: 24,
+} as const;
+
+/**
+ * Preset di stile testo condivisi (Task 7, App M1+M2, 11 set 2026).
+ *
+ * Nascono da un'istruzione esplicita del maintainer dopo il Task 2: applicare
+ * il Sans a un solo titolo era la scelta prudente per quel task, ma senza una
+ * struttura il problema "quaranta `fontFamily` sparsi, uno sbagliato a mano"
+ * si sarebbe ripresentato quando il Task 7 lo estende a ogni schermata — "è
+ * la struttura che impedisce al problema di tornare". Un piccolo insieme, non
+ * un sistema tipografico: SOLO ciò che `ScreenHeader` (e finché resta
+ * l'unico bisogno, nient'altro) usa davvero. `screenTitle` è esattamente lo
+ * stile che aveva `InboxScreen.tsx` prima di questo task — nessuna resa
+ * cambia per l'Inbox, cambia solo che ora è un preset condiviso invece di
+ * essere l'unica copia manuale.
+ */
+export const textStyles = {
+  screenTitle: {
+    color: colors.fg,
+    fontFamily: fontFamily.sansBold,
+    fontSize: fontSize.title,
+    fontWeight: "700",
+    letterSpacing: -0.3,
+  },
+  screenSubtitle: {
+    color: colors.faint,
+    fontFamily: fontFamily.mono,
+    fontSize: 12,
+  },
 } as const;

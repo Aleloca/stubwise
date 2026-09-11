@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import type { BacklogStackParamList } from "../../app/navigation";
 import { useAuth } from "../../app/providers";
 import { GhostButton } from "../../components/GhostButton";
@@ -12,6 +13,9 @@ import { Skeleton } from "../../components/Skeleton";
 import { backlogKeys, useSendBacklogChatMessage } from "../../lib/backlog-mutations";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
+
+/** Vedi `InboxScreen.tsx` per il perché di una costante invece di leggere `styles.composer.paddingBottom`. */
+const COMPOSER_BASE_BOTTOM_PADDING = 40;
 
 interface ChatBubble {
   id: string;
@@ -49,6 +53,7 @@ interface ChatBubble {
 export function BacklogChatScreen({ navigation, route }: NativeStackScreenProps<BacklogStackParamList, "Chat">) {
   const { t } = useTranslation();
   const { client } = useAuth();
+  const tabBarHeight = useBottomTabBarHeight();
   const { id } = route.params;
 
   const itemQuery = useQuery({
@@ -111,6 +116,10 @@ export function BacklogChatScreen({ navigation, route }: NativeStackScreenProps<
   const codeSessionActive = itemQuery.data?.codeSession != null;
   const canSend = draft.trim().length > 0 && !send.disabled && !codeSessionActive;
 
+  // Task 7 (App M1+M2, 11 set 2026): ECCEZIONE deliberata allo schema
+  // "header dentro il contenuto scorrevole" — vedi il commento gemello in
+  // `AskProjectScreen.tsx`. Il composer recepisce comunque il Task 6
+  // (margine reale della tab bar).
   return (
     <View style={styles.container}>
       <Pressable onPress={() => navigation.goBack()} testID="backlog-chat-back" style={styles.backRow}>
@@ -168,7 +177,7 @@ export function BacklogChatScreen({ navigation, route }: NativeStackScreenProps<
             </Text>
           )}
 
-          <View style={styles.composer}>
+          <View style={[styles.composer, { paddingBottom: COMPOSER_BASE_BOTTOM_PADDING + tabBarHeight }]}>
             <TextInput
               accessibilityLabel={t("mobile.backlog.chat.placeholder")}
               value={draft}

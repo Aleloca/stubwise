@@ -27,6 +27,7 @@ async function renderSection(props: Partial<ComponentProps<typeof PlanSection>>,
     justLoggedIn: false,
     login: jest.fn(),
     completeOnboarding: jest.fn(),
+    openSettings: jest.fn(),
   };
   return render(
     <QueryClientProvider client={queryClient}>

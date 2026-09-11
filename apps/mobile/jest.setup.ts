@@ -84,3 +84,34 @@ jest.mock("@react-native-firebase/messaging", () => ({
 // SafeAreaProvider }` a named import prenderebbe `undefined` — verificato,
 // era il primo errore ("Element type is invalid") prima di questa riga.
 jest.mock("react-native-safe-area-context", () => require("react-native-safe-area-context/jest/mock").default);
+
+/**
+ * `useBottomTabBarHeight()` (Task 7, App M1+M2, 11 set 2026 — la barra
+ * nativa) LANCIA se chiamato fuori da un discendente montato dentro il
+ * `TabView` reale (`BottomTabBarHeightContext` nasce `undefined` — verificato
+ * leggendo il sorgente del hook, non assunto): ogni test che monta una
+ * schermata DIRETTAMENTE (senza l'albero completo di `RootNavigator`, il caso
+ * comune di questo repo — vedi `InboxScreen.test.tsx` e affini) altrimenti
+ * fallirebbe con "Couldn't find the bottom tab bar height" appena la
+ * schermata chiamasse quel hook per il margine di scorrimento in fondo (Task
+ * 6). Mock PARZIALE (`requireActual` + override del solo hook): il resto del
+ * pacchetto (`TabView`, `SceneMap`, il default export) resta vero, perché
+ * `navigation.test.tsx` monta l'albero reale e ne ha bisogno. Il valore fisso
+ * (0) non pretende di somigliare a un'altezza vera — nessuna build nativa
+ * gira sotto Jest, quindi nessun numero qui sarebbe più "vero" di un altro
+ * (vedi il Task 8, verifica manuale sul telefono).
+ *
+ * ⚠️ `__esModule: true` è OBBLIGATORIO qui (stesso motivo del mock di
+ * `react-native-safe-area-context` sopra): il pacchetto è compilato ESM, il
+ * suo `export default TabView` vive sotto `.default`. Senza questo flag
+ * l'oggetto ritornato dalla factory diventerebbe esso stesso il default
+ * export per l'interop di Babel — `NativeBottomTabView` proverebbe a
+ * renderizzare l'INTERO oggetto del mock come componente ("Element type is
+ * invalid... expected a string or class/function but got: object"),
+ * verificato di persona rompendo `navigation.test.tsx` prima di aggiungerlo.
+ */
+jest.mock("react-native-bottom-tabs", () => ({
+  __esModule: true,
+  ...jest.requireActual("react-native-bottom-tabs"),
+  useBottomTabBarHeight: jest.fn(() => 0),
+}));

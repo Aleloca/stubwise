@@ -3,11 +3,15 @@ import type { DocsChatSource, Reader } from "@stubwise/shared";
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import type { DocsStackParamList } from "../../app/navigation";
 import { PulseIndicator } from "../../components/PulseIndicator";
 import { useAskProjectChat } from "../../lib/docs-mutations";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
+
+/** Vedi `InboxScreen.tsx` per il perché di una costante invece di leggere `styles.composer.paddingBottom`. */
+const COMPOSER_BASE_BOTTOM_PADDING = 40;
 
 interface ChatBubble {
   id: string;
@@ -43,6 +47,7 @@ interface ChatBubble {
  */
 export function AskProjectScreen({ navigation, route }: NativeStackScreenProps<DocsStackParamList, "Ask">) {
   const { t } = useTranslation();
+  const tabBarHeight = useBottomTabBarHeight();
   const { projectId, projectName } = route.params;
 
   const send = useAskProjectChat();
@@ -83,6 +88,16 @@ export function AskProjectScreen({ navigation, route }: NativeStackScreenProps<D
 
   const canSend = draft.trim().length > 0 && !send.disabled;
 
+  // Task 7 (App M1+M2, 11 set 2026): ECCEZIONE deliberata e segnalata
+  // (§9 del piano, "ogni punto in cui ti è sembrato sbagliato") allo schema
+  // "header dentro il contenuto scorrevole" delle altre schermate. Qui
+  // l'header (indietro/titolo/sottotitolo) e il composer restano FERMI: è
+  // una chat con una regione di scroll LIMITATA (i messaggi), non un'unica
+  // pagina che cresce — farlo scorrere via farebbe perdere l'orientamento
+  // (a chi sto chiedendo, come torno indietro) proprio mentre si scorre la
+  // conversazione, il contrario dell'obiettivo del task. Il composer
+  // recepisce comunque il Task 6 (margine reale della tab bar, non più il
+  // `40` fisso di prima).
   return (
     <View style={styles.container}>
       <Pressable onPress={() => navigation.goBack()} testID="ask-project-back" style={styles.backRow}>
@@ -134,7 +149,7 @@ export function AskProjectScreen({ navigation, route }: NativeStackScreenProps<D
         </Text>
       )}
 
-      <View style={styles.composer}>
+      <View style={[styles.composer, { paddingBottom: COMPOSER_BASE_BOTTOM_PADDING + tabBarHeight }]}>
         <TextInput
           accessibilityLabel={t("mobile.docs.ask.placeholder")}
           value={draft}

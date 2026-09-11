@@ -61,6 +61,7 @@ async function renderScreen(client: StubwiseClient) {
     justLoggedIn: false,
     login: jest.fn(),
     completeOnboarding: jest.fn(),
+    openSettings: jest.fn(),
   };
   const navigation = { goBack } as never;
   await render(

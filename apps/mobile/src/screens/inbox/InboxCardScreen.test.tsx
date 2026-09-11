@@ -63,6 +63,7 @@ async function renderScreen(client: StubwiseClient, id = "q1") {
     justLoggedIn: false,
     login: jest.fn(),
     completeOnboarding: jest.fn(),
+    openSettings: jest.fn(),
   };
   const navigate = jest.fn();
   const navigation = { navigate } as unknown as CardScreenProps["navigation"];
