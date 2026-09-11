@@ -366,6 +366,7 @@
         "placeholder": "Or write your own…",
         "send": "Send",
         "codeSessionActive": "A code analysis session is active on this item — continue from web.",
+        "codeSessionActiveWithQuestion": "A code analysis session is active — you can answer the question below, free text stays on web.",
         "notNow": "Not now",
         "dismissingQuestion": "Dismissing…"
       },

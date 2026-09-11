@@ -335,6 +335,9 @@ describe("BacklogChatScreen — domande a bottoni (App M3 Fase A)", () => {
 
     // Il testo libero della chat resta bloccato (guardia `codeSessionActive`)…
     expect(screen.getByTestId("backlog-chat-input").props.editable).toBe(false);
+    // …e l'avviso lo dice, ma non manda più "continua da web": con una
+    // domanda aperta c'è qualcosa da fare qui (Task 3, dopo il Task 2).
+    expect(screen.getByText("Sessione di analisi sul codice attiva — puoi rispondere alla domanda qui sotto, il testo libero resta da web.")).toBeTruthy();
     // …ma la domanda a bottoni si risponde comunque: è la RAGIONE per cui
     // la modalità CODE esiste sull'app (design M3 §3).
     await fireEvent.press(screen.getByTestId("backlog-chat-question-option-0"));

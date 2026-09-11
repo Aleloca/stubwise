@@ -366,6 +366,7 @@
         "placeholder": "Oppure scrivi tu…",
         "send": "Invia",
         "codeSessionActive": "Sessione di analisi sul codice attiva su questa voce — continua da web.",
+        "codeSessionActiveWithQuestion": "Sessione di analisi sul codice attiva — puoi rispondere alla domanda qui sotto, il testo libero resta da web.",
         "notNow": "Non ora",
         "dismissingQuestion": "Rimando…"
       },

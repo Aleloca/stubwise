@@ -47,8 +47,16 @@ function usableOptions(question: InboxQuestion): AgentQuestionOption[] | null {
  * i messaggi del server sono in inglese e non sono contratto, il code sì).
  *
  * Esportata perché la mappatura appartiene al pannello, non alla superficie:
- * card d'inbox e pagina ticket chiamano lo stesso `answerQuestion` e devono
- * dire le stesse parole sugli stessi conflitti.
+ * card d'inbox, pagina ticket E chat del backlog (`backlog-chat.tsx`,
+ * `answerBacklogQuestion`/`dismissBacklogQuestion`) chiamano lo stesso
+ * pannello e devono dire le stesse parole sugli stessi conflitti — anche se
+ * i DUE sistemi gemelli (`agent_questions`/`backlog_questions`) non mandano
+ * lo stesso `code` per "qualcun altro ha già risposto": il primo
+ * `already_handled` (porta anche CHI), il secondo `already_answered` (mai
+ * un `handledBy`, la voce non traccia chi). Fix di review (App M3 Fase A,
+ * Task 3b, 11 set 2026): mancava il secondo — chi perdeva una corsa sulla
+ * chat del backlog vedeva il messaggio generico, non "ha già risposto
+ * qualcun altro".
  */
 export function answerErrorMessage(cause: unknown, t: TFunction): string {
   if (!(cause instanceof ApiError)) return t("question:errors.generic");
@@ -61,6 +69,11 @@ export function answerErrorMessage(cause: unknown, t: TFunction): string {
         ? t("question:errors.alreadyAnswered", { email: by.email })
         : t("question:errors.alreadyAnsweredUnknown");
     }
+    // Gemello di `already_handled` per `backlog_questions`: mai un
+    // `handledBy` (vedi il docblock sopra), quindi sempre la variante senza
+    // nome.
+    case "already_answered":
+      return t("question:errors.alreadyAnsweredUnknown");
     case "question_not_pending":
       return t("question:errors.notPending");
     case "invalid_answer":

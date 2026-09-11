@@ -35,10 +35,7 @@ interface ChatBubble {
  * e una sola risposta intera, non SSE: invia con `client.backlog.chatText`
  * (non `client.backlog.chat`, che il testo del Task 17 cita ma che è la
  * modalità 202/sessione-attiva del pacchetto reale — vedi il commento su
- * `useSendBacklogChatMessage` in `lib/backlog-mutations.ts`). Nessuna UI a
- * scelta multipla (il canvas ne mostra una come esempio, ma la modalità
- * "sessione di analisi sul codice" che la produce non è nello scope di questo
- * task — nessuna schermata mobile la avvia).
+ * `useSendBacklogChatMessage` in `lib/backlog-mutations.ts`).
  *
  * L'indicatore «sta pensando» NON lampeggia (`PulseIndicator`, statico):
  * scelta deliberata, non una svista sul copy del canvas — `Skeleton.tsx`
@@ -46,16 +43,26 @@ interface ChatBubble {
  * decorative» e `WorkingPill.tsx` applica la stessa scelta al pallino "sta
  * lavorando" per non tenere viva la suite Jest con un timer decorativo.
  *
- * ⚠️ GUARDIA `codeSession`: `chatText` fallisce con `invalid_response` se una
- * sessione di analisi sul codice è attiva sulla voce (avviata da web) — è il
- * CHIAMANTE a doverlo sapere PRIMA di scegliere `chatText`, non dopo (vedi il
- * commento su `chatText` in `packages/api-client/src/endpoints/backlog.ts`).
- * `BacklogItemDetail.codeSession` (già nel payload di `client.backlog.get`)
- * dice appunto questo: quando non è `null` il composer si disabilita con un
- * messaggio dedicato invece di lasciar fallire l'invio in modo opaco. Gestire
- * per intero la modalità CODE (bolle a bottoni, turni via job) resta FUORI
- * SCOPE per questo task — nessuna schermata mobile avvia una sessione di
- * analisi — questa è solo la guardia che evita la chiamata sbagliata.
+ * ⚠️ GUARDIA `codeSession` — RISTRETTA al testo libero, non a tutto lo
+ * screen (App M3 Fase A, Task 3, rivista dopo il Task 2). `chatText`
+ * fallisce con `invalid_response` se una sessione di analisi sul codice è
+ * attiva sulla voce (avviata da web) — è il CHIAMANTE a doverlo sapere PRIMA
+ * di scegliere `chatText`, non dopo (vedi il commento su `chatText` in
+ * `packages/api-client/src/endpoints/backlog.ts`). `BacklogItemDetail.
+ * codeSession` (già nel payload di `client.backlog.get`) dice appunto
+ * questo: quando non è `null` il COMPOSER si disabilita con un messaggio
+ * dedicato invece di lasciar fallire l'invio in modo opaco.
+ *
+ * **La domanda a bottoni (`openQuestion`, Task 2) resta rispondibile anche
+ * con una sessione attiva** — è la posizione del design (M3 §3): l'app
+ * RISPONDE a una sessione di analisi già avviata, e NON la avvia né la
+ * ferma. Rispondere passa da `answerQuestion`/`dismissQuestion`, non da
+ * `chatText`: la guardia sopra non li riguarda, e non deve MAI allargarsi a
+ * disabilitare anche loro — le domande a bottoni nascono SOLO in modalità
+ * CODE (vedi il design), quindi bloccarle proprio lì vorrebbe dire
+ * impedire l'unico caso per cui esistono. Avviare o fermare una sessione
+ * resta FUORI SCOPE (nessuna schermata mobile lo fa): quella è una
+ * decisione che si prende davanti al codice, non in fila alle poste.
  */
 export function BacklogChatScreen({ navigation, route }: NativeStackScreenProps<BacklogStackParamList, "Chat">) {
   const { t } = useTranslation();
@@ -279,7 +286,9 @@ export function BacklogChatScreen({ navigation, route }: NativeStackScreenProps<
 
           {codeSessionActive && (
             <Text style={styles.notice} testID="backlog-chat-code-session-notice">
-              {t("mobile.backlog.chat.codeSessionActive")}
+              {openQuestion !== null
+                ? t("mobile.backlog.chat.codeSessionActiveWithQuestion")
+                : t("mobile.backlog.chat.codeSessionActive")}
             </Text>
           )}
 
