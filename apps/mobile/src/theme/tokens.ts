@@ -39,7 +39,17 @@ export const colors = {
   faint: designColors["fg-faint"],
   /** Colore di richiamo: cursore del wordmark, bottoni primari, badge. */
   signal: designColors.signal,
-  /** Ambra viva — variante "attiva" di un elemento di segnale (senza hover su touch, riservata a usi futuri). */
+  /**
+   * Ambra viva. Verificato sul sito (fix di review, Task 4, 11 set 2026 —
+   * la motivazione precedente reggeva solo a metà): OGNI bottone primario di
+   * `apps/web` usa la coppia `hover:bg-signal-bright active:bg-signal-dim`
+   * (grep su ~15 componenti, mai un'eccezione). `signal-bright` è quindi
+   * SEMPRE l'hover, MAI il tap/click attivo — che è `signal-dim`, la stessa
+   * ambra spenta già usata qui per lo stato premuto (`PrimaryButton.tsx`,
+   * `CardShell.tsx`). Il touch non ha hover: non è che l'equivalente
+   * touch-di-hover abbia preso il colore sbagliato — è che `signal-bright`
+   * non ha proprio un equivalente touch, e resta apposta senza uso qui.
+   */
   signalBright: designColors["signal-bright"],
   /** Ambra spenta — bordo/sfondo tenue di un elemento di segnale, e stato "premuto" di un bottone pieno. */
   signalDim: designColors["signal-dim"],
@@ -59,5 +69,5 @@ export const colors = {
 
 export type ColorToken = keyof typeof colors;
 
-/** Raggi degli angoli: 8 per i controlli, 10 per le card. */
+/** Raggi degli angoli: 8 per i controlli, 10 per le card — vedi il docblock su `designRadii` in `@stubwise/shared` per perché NON c'è (ancora) parità col sito. */
 export const radii = designRadii;

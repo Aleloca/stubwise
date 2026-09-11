@@ -54,7 +54,15 @@ export const designColors = {
 
 export type DesignColorKey = keyof typeof designColors;
 
-/** Raggi degli angoli: 8 per i controlli, 10 per le card — stessi valori sul sito e sull'app. */
+/**
+ * Raggi degli angoli: 8 per i controlli, 10 per le card. Fix di review (App
+ * M1+M2, Task 4, 11 set 2026): il docblock precedente diceva «stessi valori
+ * sul sito e sull'app», ma non è vero — `apps/web/src/styles.css` non
+ * definisce nessuna custom property di raggio (usa le utility Tailwind
+ * `rounded-sm` inline, verificato con un grep), quindi non c'è niente con cui
+ * questi due numeri siano allineati né un test che lo verifichi. Sono i
+ * valori del canvas di design dell'app, usati SOLO da `apps/mobile`.
+ */
 export const designRadii = {
   control: 8,
   card: 10,
