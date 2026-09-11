@@ -33,7 +33,13 @@ repo, ricerca vettoriale e chat RAG.
   rotta `GET /api/projects/:projectId/timeline` (server) sia al brief
   settimanale (worker): sta in un package che entrambi hanno già come
   dipendenza proprio per non duplicarne le query in due posti che poi
-  divergono.
+  divergono. `shared` ospita anche `design-tokens.ts` (colori/raggi del
+  design, App M1+M2, 11 set 2026): la fonte VERA resta Tailwind
+  (`apps/web/src/styles.css`, `--color-*`), e `design-tokens.ts` ne è una
+  copia tenuta allineata da un test di parità regex
+  (`apps/web/src/theme-parity.test.ts`, non un passo di codegen — deliberato,
+  per non complicare il build web) — non generarla mai da lì: è `apps/mobile`
+  (`theme/tokens.ts`) a importarla, non il contrario.
 
 ## Comandi (dalla radice)
 

@@ -4,11 +4,13 @@ App React Native **bare** (niente Expo) di Stubwise, per iOS e Android.
 Bundle id iOS e `applicationId` Android: `com.app.aleloca.stubwise`; nome
 visualizzato: **Stubwise**.
 
-Dal Task 13 (fondamenta): tema, i18n, sessione (Keychain), client HTTP verso
-`@stubwise/api-client`, navigazione (`@react-navigation`, deep link
-`stubwise://…`), login e onboarding. `src/app/App.tsx` è la radice; i tab di
-`Main` (Inbox/Progetti/Backlog/Docs) sono ancora placeholder — il contenuto
-vero arriva nei task 14–18.
+Tema, i18n, sessione (Keychain), client HTTP verso `@stubwise/api-client`,
+navigazione (`@react-navigation`, deep link `stubwise://…`), login e
+onboarding, push (Task 19) — `src/app/App.tsx` è la radice. I quattro tab di
+`Main` (Inbox/Progetti/Backlog/Docs, più gli screen di dettaglio raggiunti da
+ciascuno) sono completi, non placeholder — vedi il programma "Stubwise Go"
+(`docs/plans/2026-09-11-mobile-app-program-design.md`) per lo stato corrente
+e cosa resta fuori scope.
 
 ## Prerequisiti
 
@@ -47,6 +49,40 @@ di Metro:
 pnpm --filter @stubwise/shared build
 pnpm --filter @stubwise/mobile start --reset-cache
 ```
+
+## Font (IBM Plex Sans/Mono) e tab bar nativa
+
+App M1+M2 (11 set 2026): due font e una dipendenza nativa nuova.
+
+**Font**: `assets/fonts/` porta 8 file TTF — 4 pesi di IBM Plex Sans
+(Regular/Medium/SemiBold/Bold, `theme/typography.ts` §`fontFamily`) più i 4
+pesi gemelli di Mono, già presenti da prima. Entrambe le famiglie sono build
+STATICHE vere del **servizio di download** di Google Fonts (non del repo
+sorgente `github.com/google/fonts`, che per Sans pubblica solo il font
+variabile — vedi il docblock in `theme/typography.ts` per la verifica),
+cablate in iOS e Android con `npx react-native-asset` (`react-native.config.js`,
+`assets: ["./assets/fonts"]`). Un cambio ai font va rifatto con lo stesso
+comando — **rivedi il diff** dopo: è noto che `react-native-asset` può
+silenziosamente eliminare commenti XML preesistenti in `Info.plist`
+rigenerandolo (successo reale, Task 2: un commento su `UIBackgroundModes`
+sparito e restaurato a mano).
+
+`theme/typography.ts` espone anche `textStyles` — un piccolo insieme di
+preset di stile testo condivisi (`screenTitle`/`screenSubtitle`, usati da
+`components/ScreenHeader.tsx`): è il posto dove `fontFamily` va cablato per
+i titoli di schermata, non ripetuto file per file (la struttura che
+l'applicazione più ampia del font dal Task 7 ha reso necessaria).
+
+**Tab bar nativa** (`react-native-bottom-tabs` + `@bottom-tabs/react-navigation`,
+Task 6): sostituisce il tab navigator JS-rendered di `@react-navigation/bottom-tabs`.
+Nessun passo di build in più oltre al normale `pod install`/Gradle sync — la
+libreria porta i propri pod/dipendenze Android (Material3 arriva
+transitivamente, verificato nel suo `build.gradle`: nessuna dipendenza nativa
+aggiunta a mano). **Richiede Android `AppTheme` su `Theme.Material3.DayNight.NoActionBar`**
+(`android/app/src/main/res/values/styles.xml`, già cambiato in questo lavoro)
+e **Liquid Glass genuino su iOS 26 arriva SOLO compilando con l'SDK iOS 26**
+(nessuna opzione della libreria "abilita il vetro" — è la conseguenza del
+build target, verificato leggendo i sorgenti della libreria, non assunto).
 
 ## Comandi
 
@@ -583,6 +619,112 @@ di UN solo hop davanti a sé per calcolare l'IP del client — se quell'hop non
 è un proxy fidato che annette l'indirizzo reale (come fa Caddy di default),
 un client può scriversi da sé `X-Forwarded-For` e scegliersi un bucket
 diverso a ogni richiesta, aggirando il limite.
+
+## Verifica manuale sul telefono (App M1+M2)
+
+**Nessuna build nativa gira in CI, e nessuna è girata nella sessione che ha
+scritto questo lavoro**: font, profondità della palette, vetro della tab bar,
+contenuto che scorre sotto, e la reale posizione dell'avatar sono cose che
+SOLO un telefono vero può confermare. Questo elenco è parte del lavoro dei
+Task 6/7, non un extra — vedi anche i due tradeoff espliciti segnalati nel
+codice (`app/providers.tsx`, sull'avatar; `screens/docs/AskProjectScreen.tsx`
+e `screens/backlog/BacklogChatScreen.tsx`, sulle due chat) che solo qui si
+possono davvero giudicare.
+
+Installa un build TestFlight/interno **su device fisico** (le push a parte,
+è anche l'unico modo di vedere il vetro reale della tab bar — nessun
+simulatore lo rende) e ripeti quanto segue, **due volte**: su un iPhone con
+iOS 26 e su un iPhone/Android più vecchio, o un Android qualunque — i due
+esiti attesi sono diversi e ENTRAMBI vanno bene, vedi sotto.
+
+### 1. Tab bar (Task 6)
+
+- [ ] **iOS 26**: la barra ha l'aspetto vetro di sistema (Liquid Glass) — non
+      un rettangolo opaco a tinta unita. Le sigle/icone del tab ATTIVO sono
+      nel colore ambra (`colors.signal`); quelle inattive sono qualunque
+      colore il SISTEMA scelga — **non è un bug** se non combacia col resto
+      della palette: è documentato che iOS 26 ignora
+      `tabBarInactiveTintColor` e nel codice si è scelto di non compensare.
+- [ ] **Android / iOS più vecchio**: la barra ha un aspetto Material3
+      "accettabile" (non deve essere vetro — non lo è per costruzione), ma
+      non deve nemmeno sembrare rotta: sfondo coerente, icone leggibili,
+      nessun colore stonato rispetto al resto dell'app.
+- [ ] Le **quattro icone** sono quelle giuste e riconoscibili: Inbox (vassoio),
+      Progetti (cartella), Backlog (checklist), Docs (libro) — SF Symbol su
+      iOS, Material Symbol su Android (icone diverse fra le due piattaforme
+      per lo stesso tab: è previsto, non un difetto).
+- [ ] Le **sigle mono** (INB/PRJ/BLG/DOC) sono ANCORA visibili come etichetta
+      di ogni tab, insieme all'icona — non una al posto dell'altra.
+- [ ] Il **badge dei non letti** sull'Inbox appare quando ci sono voci non
+      lette e sparisce quando la inbox è vuota (non un badge fantasma "0").
+- [ ] **Contenuto sotto la barra**: apri l'Inbox con abbastanza card da
+      riempire lo schermo, scorri fino in fondo — l'**ULTIMA riga** deve
+      diventare completamente visibile (non tagliata a metà dal vetro/dalla
+      barra), e ci deve essere uno spazio ragionevole sotto, non né zero né
+      eccessivo. Ripeti su Backlog (lista voci) e, se ci sono abbastanza
+      progetti, su Progetti.
+
+### 2. Chrome globale: avatar e banner offline (Task 7)
+
+- [ ] All'apertura di un tab (Inbox/Progetti/Backlog/Docs), l'**avatar**
+      (cerchio con l'iniziale dell'email, in alto a destra dell'header) è
+      visibile SENZA scorrere.
+- [ ] Tocca l'avatar: si apre la sheet **Impostazioni**, con "Esci" raggiungibile.
+- [ ] **Scorri una lista lunga** (Inbox con molte card) fino in fondo, poi
+      prova a raggiungere le Impostazioni: l'avatar è scorso via con il
+      titolo e NON è più a vista. **Questo è un tradeoff noto e accettato,
+      non un bug da segnalare** — ma conferma che corrisponde davvero
+      all'esperienza descritta nel codice (`app/providers.tsx`): se risulta
+      più scomodo del previsto, è il primo punto da rivedere in un task
+      successivo.
+- [ ] **Banner offline**: disattiva la rete (modalità aereo). Il banner
+      "Offline" compare ANCORATO in cima allo schermo, sopra tutto il resto
+      — e resta fermo se scorri il contenuto sotto (non scompare scorrendo).
+      Riattiva la rete: il banner sparisce.
+
+### 3. Font (Task 2 + Task 7)
+
+Su OGNI schermata elencata sotto, il **titolo grande** deve essere IBM Plex
+Sans **Bold** — visibilmente più squadrato/moderno del sans di sistema
+(SF Pro su iOS, Roboto su Android), non lo stesso font di prima:
+
+- [ ] Inbox — titolo "Inbox"
+- [ ] Progetti — titolo "Progetti"
+- [ ] Backlog — titolo "Backlog"
+- [ ] Docs — titolo "Documentazione" (o equivalente i18n)
+- [ ] Dettaglio progetto — nome del progetto
+- [ ] Lavoro (ticket) — titolo del ticket
+- [ ] Dettaglio voce di backlog — titolo della voce
+- [ ] Pagina Docs — titolo della pagina
+
+Le **sigle mono** (badge, etichette maiuscole, sigle tab) restano nel font
+Mono di prima — non devono essere cambiate.
+
+### 4. Profondità delle superfici (Task 1)
+
+- [ ] Tieni premuto un bottone footer di una card Inbox (es. "Rinvia"): lo
+      sfondo premuto deve avere una tinta chiaramente più chiara della card
+      (non impercettibile) — è `ink-850`.
+- [ ] Tieni premuto il bottone primario (ambra) di una schermata (es. "Procedi"
+      su una voce di backlog pronta): lo sfondo premuto deve scurirsi verso
+      un ambra spento (`signal-dim`), non restare invariato né sparire del
+      tutto.
+
+### 5. Le due chat (eccezione deliberata, Task 7)
+
+- [ ] Apri "Chiedi al progetto" (da Docs) o "Raffina in chat" (da una voce di
+      Backlog): scorri i messaggi. Header (titolo/indietro) e il campo di
+      scrittura in fondo **restano fermi** mentre scorri — a differenza delle
+      altre schermate. È voluto (vedi il commento nel codice): conferma solo
+      che non sia fastidioso o che il campo di scrittura non finisca
+      nascosto sotto la tab bar.
+
+### 6. Colori base (Task 1, di passaggio)
+
+- [ ] Nessuna schermata ha un colore visibilmente "sbagliato" — sfondo,
+      bordi e testo restano nella stessa palette scura del resto dell'app
+      (nessuna sorpresa attesa qui: è un refactor a valore invariato, ma è
+      l'unica verifica reale che il token giusto sia finito nel posto giusto).
 
 ## Troubleshooting
 
