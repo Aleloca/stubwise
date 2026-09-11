@@ -50,6 +50,49 @@ export const PUSH_TITLE_KEY: Record<NotificationKind, string> = {
 };
 
 /**
+ * Deep link del payload: la RIGA D'INBOX per ogni kind, TRANNE uno.
+ *
+ * `google.proposal` con `source: "email"` E `projectId` risolto è l'eccezione
+ * (App M3, Fase C, Task 7 — architettura di navigazione §5 regola 2: "da una
+ * notifica si arriva all'oggetto, mai a un elenco"): porta DIRETTAMENTE al
+ * dettaglio della email (`stubwise://mail/email/:proposalId`), non alla card
+ * generica d'inbox. Stesso campo che il web usa per lo stesso scopo
+ * (`apps/web/src/components/inbox-item.tsx`, il link "Leggi in Stubwise").
+ *
+ * ⚠️ **`projectId !== undefined` non è un dettaglio, è la guardia che rende
+ * questo link corretto invece che rotto.** `proposalId` è `email_proposals.id`
+ * SOLO per una proposta VERA (`buildEmailProposalEvent`, `apps/worker/src/
+ * google/proposal.ts` — l'unico chiamante che passa `proposalId: row.
+ * proposalId`, un fix di correttezza di questo stesso task: prima non lo
+ * passava, e il campo era un `randomUUID()` senza relazione con
+ * `email_proposals`, esattamente come già documentato per il calendario, ma
+ * MAI corretto per l'email). Per una proposta di **smistamento**
+ * (`buildTriageProposalEvent`) e per il **calendario**
+ * (`buildCalendarProposalEvent`) resta un `randomUUID()` VOLUTO — non c'è un
+ * `email_proposals.id` a cui somigli, perché uno smistamento vive sul PADRE
+ * (nessun figlio) e un evento di calendario non ha un dettaglio dedicato. Le
+ * due proposte VERE si distinguono dallo smistamento per `projectId`: sempre
+ * presente sulle prime (`assembleEvent({ projectId: proposal.projectId,
+ * ... })`, mai opzionale nel percorso nuovo), sempre assente sul secondo
+ * ("NIENTE projectId/projectName: qui il progetto è ciò che manca" — vedi il
+ * docblock di `buildTriageProposalEvent`). Senza questa guardia, la card di
+ * uno smistamento erediterebbe lo stesso link della email vera e punterebbe a
+ * un `id` che non esiste in `email_proposals` — un 404 silenzioso al primo
+ * tap, non un errore che questo file avrebbe mai sollevato da solo.
+ *
+ * Per `source: "calendar"`, per uno smistamento e per ogni altro kind resta
+ * il comportamento di sempre: l'oggetto è la card d'inbox stessa (le azioni
+ * vivono lì, non altrove), e non esiste ancora una schermata calendario da
+ * raggiungere (arriva in Fase D).
+ */
+function deepLinkFor(event: NotificationEvent, ctx: PushPayloadContext): string {
+  if (event.kind === "google.proposal" && event.source === "email" && event.projectId !== undefined) {
+    return `stubwise://mail/email/${event.proposalId}`;
+  }
+  return `stubwise://inbox/${ctx.notificationId}`;
+}
+
+/**
  * Ciò che il payload sa della CONSEGNA e che l'evento non porta: lo sa il
  * poller, che ha davanti la riga di `notifications`.
  */
@@ -108,7 +151,8 @@ export function buildPushPayload(
       kind: event.kind,
       // Il deep link porta alla RIGA D'INBOX, non al ticket: è lì che stanno
       // le azioni (approva, rispondi, rinvia) e da lì si arriva al resto.
-      deepLink: `stubwise://inbox/${ctx.notificationId}`,
+      // Un'eccezione (`google.proposal` da email): vedi {@link deepLinkFor}.
+      deepLink: deepLinkFor(event, ctx),
     },
     badge: ctx.unreadCount,
     // Raggruppamento per progetto sul telefono. Omesso — non `null` — quando la

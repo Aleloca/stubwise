@@ -468,6 +468,76 @@
         "notFound": "Questo progetto non esiste più."
       }
     },
+    "mbx": {
+      "title": "Posta e calendario",
+      "tabs": {
+        "mail": "Posta",
+        "calendar": "Calendario"
+      },
+      "calendarPlaceholder": {
+        "title": "Il calendario arriva presto",
+        "body": "Vedrai qui gli appuntamenti che Stubwise riconosce dalla tua casella Google."
+      },
+      "status": {
+        "new": "Nuova",
+        "classified": "Classificata",
+        "proposed": "In attesa",
+        "actioned": "Gestita",
+        "ignored": "Ignorata",
+        "failed": "Fallita",
+        "cancelled": "Annullata",
+        "unknown": "Stato sconosciuto"
+      },
+      "time": {
+        "now": "adesso",
+        "minutes_one": "{{count}} min",
+        "minutes_other": "{{count}} min",
+        "hours_one": "{{count}} h",
+        "hours_other": "{{count}} h",
+        "days_one": "{{count}} g",
+        "days_other": "{{count}} g"
+      },
+      "errors": {
+        "generic": "Qualcosa è andato storto. Riprova.",
+        "messageGone": "Questo messaggio non esiste più su Gmail.",
+        "tokenExpired": "La casella va ricollegata per rileggere l'originale.",
+        "googleUnavailable": "Google non risponde in questo momento. Riprova.",
+        "notReproposable": "Questa riga non può essere riproposta ora."
+      },
+      "list": {
+        "loading": "Caricamento…",
+        "loadError": {
+          "title": "Non riesco a caricare la posta.",
+          "retry": "Riprova"
+        },
+        "empty": {
+          "title": "Nessuna posta qui",
+          "body": "Entra solo la posta che Stubwise riconosce come lavoro dalla tua casella Google — le regole di smistamento si configurano dal sito."
+        },
+        "noSubject": "(nessun oggetto)",
+        "repropose": "Riproponi",
+        "reproposeSuccess": "Ripresa in coda."
+      },
+      "detail": {
+        "back": "← Posta",
+        "loadError": {
+          "title": "Non riesco a caricare questo messaggio.",
+          "retry": "Riprova"
+        },
+        "to": "A: {{list}}",
+        "cc": "CC: {{list}}",
+        "excerptTitle": "Estratto",
+        "excerptNote": "Solo un estratto: niente citazioni, firma né allegati. È il testo che Stubwise ha letto, non il messaggio intero.",
+        "excerptMissing": "Nessun estratto salvato — questo messaggio è arrivato prima che Stubwise leggesse la posta.",
+        "originalTitle": "Originale",
+        "showOriginal": "Mostra l'originale",
+        "originalNote": "Chiede il messaggio a Google adesso — non salva nulla, è solo una rilettura.",
+        "originalLoading": "Sto chiedendo il messaggio a Google…",
+        "openInGmail": "Apri su Gmail",
+        "attachments_one": "{{count}} allegato: {{names}}",
+        "attachments_other": "{{count}} allegati: {{names}}"
+      }
+    },
     "common": {
       "loading": "Caricamento…",
       "offlineNoSync": "Offline — nessuna sincronizzazione ancora",

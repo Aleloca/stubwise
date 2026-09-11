@@ -1466,6 +1466,20 @@ async function runProposePhase(
         proposal: { projectId: row.proposalProjectId, classification: row.proposalClassification },
         mailboxEmail: account.email,
         projectNames,
+        // App M3, Fase C (Task 7, 11 set 2026, fix di correttezza): SENZA
+        // questo, `assembleEvent` genera un `randomUUID()` — la card
+        // finirebbe con un `proposalId` che non apre nessun dettaglio vero
+        // (`GET /api/me/mail/email/:id` cercherebbe una riga inesistente).
+        // `row.proposalId` è `email_proposals.id`: è quello che
+        // `inboxGoogleSchema.proposalId` promette da `db2e5a3` ("Fase 7b, fix
+        // di review, Task 4" — la card web e questo campo esistono da lì) ma
+        // che qui non era mai stato passato, quindi non era mai stato vero.
+        // NON toccare `buildTriageProposalEvent`/`buildCalendarProposalEvent`
+        // qui sotto: per loro il `proposalId` casuale resta corretto (nessun
+        // oggetto reale a cui una card di smistamento o di calendario possa
+        // linkare), vedi il commento su {@link deepLinkFor} in
+        // `packages/notifications/src/push/payload.ts`.
+        proposalId: row.proposalId,
       });
       if (!event) {
         // Niente da proporre da una classificazione che non regge più (o un

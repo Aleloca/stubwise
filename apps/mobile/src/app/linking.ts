@@ -6,18 +6,27 @@ import { Linking } from "react-native";
 // moduli, a differenza di un import normale.
 import type { RootStackParamList } from "./navigation";
 
-/** Le tre aree che l'app sa aprire da un deep link (`stubwise://<area>/<id>`). */
-export type DeepLinkArea = "inbox" | "tickets" | "projects";
+/** Le quattro aree che l'app sa aprire da un deep link (`stubwise://<area>/<id>`). */
+export type DeepLinkArea = "inbox" | "tickets" | "projects" | "mail";
 
-export interface DeepLinkTarget {
-  area: DeepLinkArea;
-  id: string;
-}
+/**
+ * `mail` è a due segmenti (`mail/email/:id`), non uno: porta DIRETTAMENTE al
+ * dettaglio di una proposta di posta (App M3, Fase C, Task 7 — architettura
+ * §5 regola 2), mai alla lista. Solo `"email"`: è l'unica sorgente con un
+ * `proposalId` che significhi qualcosa fuori dal worker (per `"calendar"` è
+ * un `randomUUID()`, vedi `packages/notifications/src/push/payload.ts`), ed
+ * è la stessa restrizione che il web applica allo stesso link
+ * (`apps/web/src/components/inbox-item.tsx`).
+ */
+export type DeepLinkTarget =
+  | { area: "inbox" | "tickets" | "projects"; id: string }
+  | { area: "mail"; source: "email"; id: string };
 
 const SCHEME_PREFIX = "stubwise://";
 
 /**
- * Parser puro `stubwise://inbox/abc` → `{ area: "inbox", id: "abc" }`.
+ * Parser puro `stubwise://inbox/abc` → `{ area: "inbox", id: "abc" }` (e
+ * `stubwise://mail/email/abc` → `{ area: "mail", source: "email", id: "abc" }`).
  *
  * Scritto a mano invece di far passare l'URL dal parser di react-navigation
  * (`getStateFromPath`) perché deve poter girare ANCHE quando non c'è ancora
@@ -28,9 +37,18 @@ const SCHEME_PREFIX = "stubwise://";
 export function resolveDeepLinkTarget(url: string): DeepLinkTarget | null {
   if (!url.startsWith(SCHEME_PREFIX)) return null;
   const path = url.slice(SCHEME_PREFIX.length).replace(/^\/+|\/+$/, "");
-  const [area, id] = path.split("/");
-  if (!id) return null;
-  if (area === "inbox" || area === "tickets" || area === "projects") return { area, id };
+  const parts = path.split("/");
+  const [area] = parts;
+  if (area === "inbox" || area === "tickets" || area === "projects") {
+    const id = parts[1];
+    if (!id) return null;
+    return { area, id };
+  }
+  if (area === "mail") {
+    const [, source, id] = parts;
+    if (source !== "email" || !id) return null;
+    return { area: "mail", source: "email", id };
+  }
   return null;
 }
 
@@ -107,6 +125,15 @@ export function buildLinking(isAuthenticated: () => boolean): LinkingOptions<Roo
               },
             },
             Docs: "docs",
+            // Task 7 (App M3, Fase C): `MailDetail` è l'unico screen di MBX
+            // raggiungibile da fuori — porta all'oggetto (regola 2), non alla
+            // lista. `List` (il segnaposto posta/calendario) non ha un path:
+            // niente notifica punta oggi a "apri MBX e basta".
+            Mbx: {
+              screens: {
+                MailDetail: "mail/:source/:id",
+              },
+            },
           },
         },
       },

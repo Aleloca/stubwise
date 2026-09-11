@@ -468,6 +468,76 @@
         "notFound": "This project no longer exists."
       }
     },
+    "mbx": {
+      "title": "Mail and calendar",
+      "tabs": {
+        "mail": "Mail",
+        "calendar": "Calendar"
+      },
+      "calendarPlaceholder": {
+        "title": "Calendar is coming soon",
+        "body": "The appointments Stubwise recognizes from your Google mailbox will show up here."
+      },
+      "status": {
+        "new": "New",
+        "classified": "Classified",
+        "proposed": "Pending",
+        "actioned": "Handled",
+        "ignored": "Ignored",
+        "failed": "Failed",
+        "cancelled": "Cancelled",
+        "unknown": "Unknown status"
+      },
+      "time": {
+        "now": "now",
+        "minutes_one": "{{count}} min",
+        "minutes_other": "{{count}} min",
+        "hours_one": "{{count}} h",
+        "hours_other": "{{count}} h",
+        "days_one": "{{count}} d",
+        "days_other": "{{count}} d"
+      },
+      "errors": {
+        "generic": "Something went wrong. Please retry.",
+        "messageGone": "This message no longer exists on Gmail.",
+        "tokenExpired": "The mailbox needs to be reconnected to reread the original.",
+        "googleUnavailable": "Google isn't responding right now. Please retry.",
+        "notReproposable": "This row can't be reproposed right now."
+      },
+      "list": {
+        "loading": "Loading…",
+        "loadError": {
+          "title": "I can't load the mail.",
+          "retry": "Retry"
+        },
+        "empty": {
+          "title": "No mail here",
+          "body": "Only the mail Stubwise recognizes as work from your Google mailbox shows up — routing rules are configured on the site."
+        },
+        "noSubject": "(no subject)",
+        "repropose": "Repropose",
+        "reproposeSuccess": "Back in the queue."
+      },
+      "detail": {
+        "back": "← Mail",
+        "loadError": {
+          "title": "I can't load this message.",
+          "retry": "Retry"
+        },
+        "to": "To: {{list}}",
+        "cc": "CC: {{list}}",
+        "excerptTitle": "Excerpt",
+        "excerptNote": "Just an excerpt: no quotes, signature, or attachments. It's the text Stubwise read, not the whole message.",
+        "excerptMissing": "No excerpt saved — this message arrived before Stubwise started reading mail.",
+        "originalTitle": "Original",
+        "showOriginal": "Show the original",
+        "originalNote": "Asks Google for the message right now — nothing is saved, it's just a reread.",
+        "originalLoading": "Asking Google for the message…",
+        "openInGmail": "Open in Gmail",
+        "attachments_one": "{{count}} attachment: {{names}}",
+        "attachments_other": "{{count}} attachments: {{names}}"
+      }
+    },
     "common": {
       "loading": "Loading…",
       "offlineNoSync": "Offline — no sync yet",

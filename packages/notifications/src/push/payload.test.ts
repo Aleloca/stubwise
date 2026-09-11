@@ -51,10 +51,17 @@ describe("buildPushPayload", () => {
 
       expect(payload.category).toBe(event.kind);
       expect(payload.body).toBe(formatNotificationText(event, lang));
+      // Un solo kind devia dall'ancora generica all'inbox: `google.proposal`
+      // da email porta DIRETTAMENTE al dettaglio (vedi il describe dedicato
+      // più sotto). Tutti gli altri, calendario incluso, restano sull'inbox.
+      const expectedDeepLink =
+        event.kind === "google.proposal" && event.source === "email"
+          ? `stubwise://mail/email/${event.proposalId}`
+          : `stubwise://inbox/${NOTIFICATION_ID}`;
       expect(payload.data).toEqual({
         notificationId: NOTIFICATION_ID,
         kind: event.kind,
-        deepLink: `stubwise://inbox/${NOTIFICATION_ID}`,
+        deepLink: expectedDeepLink,
       });
       expect(payload.collapseId).toBe(NOTIFICATION_ID);
       expect(payload.badge).toBe(3);
@@ -86,6 +93,35 @@ describe("buildPushPayload", () => {
 
   it("il badge è il non-letto del destinatario, zero compreso", () => {
     expect(build(EVENTS[0]!, "it", { unreadCount: 0 }).badge).toBe(0);
+  });
+
+  describe("deep link di google.proposal (App M3, Fase C, Task 7)", () => {
+    const emailProposal = EVENTS.find(
+      (event) => event.kind === "google.proposal" && event.source === "email",
+    )!;
+
+    it("source email: porta DIRETTAMENTE al dettaglio, non alla card d'inbox", () => {
+      const payload = build(emailProposal, "it");
+      expect(payload.data.deepLink).toBe(
+        `stubwise://mail/email/${(emailProposal as { proposalId: string }).proposalId}`,
+      );
+    });
+
+    it("source calendar: resta sull'inbox — nessuna schermata calendario da raggiungere ancora", () => {
+      const calendarProposal = { ...emailProposal, source: "calendar" as const };
+      const payload = build(calendarProposal, "it");
+      expect(payload.data.deepLink).toBe(`stubwise://inbox/${NOTIFICATION_ID}`);
+    });
+
+    it("proposta di SMISTAMENTO (source email, nessun projectId): resta sull'inbox, MAI sul link della email vera", () => {
+      // La guardia `projectId !== undefined` è quella che impedisce a una
+      // card di smistamento di ereditare il link di una proposta vera: il
+      // suo `proposalId` è un `randomUUID()` che non apre nessun dettaglio
+      // — un link costruito su di esso sarebbe un 404 al primo tap.
+      const triageProposal = { ...emailProposal, projectId: undefined, projectName: undefined };
+      const payload = build(triageProposal, "it");
+      expect(payload.data.deepLink).toBe(`stubwise://inbox/${NOTIFICATION_ID}`);
+    });
   });
 });
 

@@ -25,4 +25,5 @@ export { ApiError, errorFromResponse, handledByFromError } from "./errors.js";
 export type { Credentials } from "./endpoints/auth.js";
 export type { BacklogFilters } from "./endpoints/backlog.js";
 export type { InboxActionBody, InboxFilters } from "./endpoints/inbox.js";
+export type { MailDetailSource, MailFilters, MailReproposeSource } from "./endpoints/mail.js";
 export type { TicketFilters } from "./endpoints/tickets.js";

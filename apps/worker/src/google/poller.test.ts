@@ -1717,6 +1717,26 @@ describe("fase 4 — le righe pronte diventano proposte", () => {
     expect(message?.proposalNotificationId).toBeNull();
   });
 
+  it("il `proposalId` dell'evento pubblicato è l'id del FIGLIO, non un randomUUID senza relazione (App M3, Fase C, Task 7, fix di correttezza)", async () => {
+    // Prima di questo fix, `buildEmailProposalEvent` non riceveva
+    // `proposalId` e `assembleEvent` generava un `randomUUID()` — la card
+    // esisteva ma il suo `proposalId` non apriva NESSUN dettaglio vero
+    // (`GET /api/me/mail/email/:id` non trova nessuna riga con quell'id in
+    // `email_proposals`). `inboxGoogleSchema.proposalId` promette
+    // `email_proposals.id` da `db2e5a3` ("Fase 7b, fix di review, Task 4")
+    // e il link "Leggi in Stubwise" del web se ne fida da allora — questo
+    // test fissa che la promessa sia VERA, non solo documentata.
+    const projectId = await seedProject("negozio");
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    const { childId } = await seedClassified(account.id, projectId);
+
+    await pollGoogleOnce(deps(account, fakeGmail({ listed: [] })));
+
+    const [row] = await db.select().from(notifications);
+    const event = row?.event as { proposalId?: string } | undefined;
+    expect(event?.proposalId).toBe(childId);
+  });
+
   it("due figli dello stesso messaggio (progetti diversi) diventano DUE notifiche", async () => {
     // Il caso che il fan-out introduce: stesso mittente/oggetto, due progetti
     // del perimetro → due card, ciascuna col proprio figlio.
