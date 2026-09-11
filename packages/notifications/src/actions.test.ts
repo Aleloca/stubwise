@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   actionsFor,
   actorAllows,
+  isAdminOnlyKind,
   kindOffers,
   KINDS_WITH_OPTIONS,
   openUrl,
@@ -389,5 +390,23 @@ describe("openUrl", () => {
         ],
       }),
     ).toBe("https://stubwise.test/projects/p1/backlog");
+  });
+});
+
+describe("isAdminOnlyKind", () => {
+  it("è true solo per i kind con almeno una decisione adminOnly", () => {
+    // Gli unici due nel catalogo oggi (job.plan_review, job.budget_held) —
+    // scritti qui esplicitamente, non ricavati dal catalogo stesso: un test
+    // che rilegge `CATALOG_FOR_KIND` per costruire la sua stessa aspettativa
+    // non scoprirebbe mai un errore nel catalogo.
+    expect(isAdminOnlyKind("job.plan_review")).toBe(true);
+    expect(isAdminOnlyKind("job.budget_held")).toBe(true);
+    const allKinds = sampleEvents("https://stubwise.test").map((event) => event.kind);
+    const nonAdminKinds = allKinds.filter(
+      (kind) => kind !== "job.plan_review" && kind !== "job.budget_held",
+    );
+    for (const kind of nonAdminKinds) {
+      expect(isAdminOnlyKind(kind)).toBe(false);
+    }
   });
 });

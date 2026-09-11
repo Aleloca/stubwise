@@ -1,5 +1,7 @@
-import { inboxDecisionActionSchema } from "@stubwise/shared";
+import { inboxDecisionActionSchema, isUnknown } from "@stubwise/shared";
 import type { InboxItem, Reader } from "@stubwise/shared";
+import { isAdminOnlyKind } from "@stubwise/notifications/pure";
+import type { NotificationKind } from "@stubwise/notifications/pure";
 
 /** Chi guarda l'inbox: il solo dato che `sectionize` legge di `SessionUser`. */
 export interface InboxViewer {
@@ -15,22 +17,28 @@ export interface InboxViewer {
 const DECISION_ACTIONS = new Set<string>(inboxDecisionActionSchema.options);
 
 /**
- * I kind la cui decisione è riservata a un maintainer — speculare a
- * `adminOnly: true` nel catalogo server (`packages/notifications/src/actions.ts`,
- * `CATALOG_FOR_KIND`). Duplicato qui invece di importato: quel modulo non è nel
- * grafo di `@stubwise/shared` e non deve entrarci solo per due nomi di kind, che
- * cambiano di rado quanto il catalogo stesso.
+ * Il kind ha una decisione riservata a un maintainer? — `isAdminOnlyKind`
+ * del catalogo condiviso (`packages/notifications/src/actions.ts`,
+ * `CATALOG_FOR_KIND`). App M1 (11 set 2026): prima di questo task era un
+ * `Set` di due nomi di kind COPIATO A MANO — la stessa informazione del
+ * catalogo, riscritta qui, che un kind nuovo `adminOnly` avrebbe dovuto
+ * ricordarsi di aggiungere in DUE posti. Ora c'è un solo posto.
+ *
+ * `isUnknown` PRIMA della delega, non dopo: `kind` può essere il segnaposto
+ * di un enum che questa build non conosce ancora (`Reader<InboxItem>`,
+ * `@stubwise/shared`) — un valore che `isAdminOnlyKind` non sa interpretare
+ * (il suo catalogo è chiuso sui kind che il pacchetto CONDIVISO conosce),
+ * quindi non gli arriva mai: un kind sconosciuto non è mai "riservato al
+ * maintainer", è semplicemente informativo (`fromProjects`), la stessa
+ * lettura di prima.
  *
  * Serve a distinguere, a parità di "nessuna azione decisionale disponibile per
- * chi guarda", DUE letture diverse: un kind qui dentro senza decisione è "sta
+ * chi guarda", DUE letture diverse: un kind admin-gated senza decisione è "sta
  * aspettando un maintainer" (`waitingOthers`); un kind fuori da questo elenco
  * senza decisione è solo informativo (`fromProjects`).
  */
-const ADMIN_GATED_KINDS = new Set<string>(["job.plan_review", "job.budget_held"]);
-
-/** Il kind ha una decisione riservata a un maintainer? (vedi {@link ADMIN_GATED_KINDS}). */
 export function isAdminGatedKind(kind: string): boolean {
-  return ADMIN_GATED_KINDS.has(kind);
+  return !isUnknown(kind) && isAdminOnlyKind(kind as NotificationKind);
 }
 
 /**

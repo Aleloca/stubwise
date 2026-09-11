@@ -84,6 +84,9 @@ importers:
       '@stubwise/api-client':
         specifier: workspace:*
         version: link:../../packages/api-client
+      '@stubwise/notifications':
+        specifier: workspace:*
+        version: link:../../packages/notifications
       '@stubwise/shared':
         specifier: workspace:*
         version: link:../../packages/shared
