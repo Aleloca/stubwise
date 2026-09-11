@@ -152,5 +152,27 @@ export function createTicketsEndpoints(request: ApiRequest) {
     rejectPlan(ticketId: string, body?: { instructions?: string }): Promise<Reader<PlanDecisionResult>> {
       return request("POST", `/api/tickets/${seg(ticketId)}/reject-plan`, body, planDecisionResultSchema);
     },
+
+    /**
+     * Pre-approva IN ANTICIPO il piano CORRENTE (fase 7): un operatore può
+     * far partire il fix senza fermarsi sul gate. Solo admin lato server
+     * (`requireAdmin` + ricontrollo dentro il servizio) — questo metodo non
+     * indebolisce né duplica quel divieto, la UI mostra il bottone solo al
+     * maintainer. Risponde con il TICKET intero (non un esito a sé): i tre
+     * campi (`planApprovedAt`/`planApprovedBy`/`planApprovalStale`) sono già
+     * lì. 409 `no_plan` se il ticket non ha un piano da approvare.
+     */
+    preApprovePlan(ticketId: string): Promise<Reader<TicketDetail>> {
+      return request("POST", `/api/tickets/${seg(ticketId)}/pre-approve-plan`, undefined, ticketDetailSchema);
+    },
+
+    /**
+     * Revoca la pre-approvazione: azzera i tre campi. Idempotente (revocare
+     * un ticket mai approvato è un no-op, 200 comunque) — stesso motivo per
+     * cui non c'è un 409 dedicato qui, a differenza di `preApprovePlan`.
+     */
+    revokePlanApproval(ticketId: string): Promise<Reader<TicketDetail>> {
+      return request("DELETE", `/api/tickets/${seg(ticketId)}/pre-approve-plan`, undefined, ticketDetailSchema);
+    },
   };
 }
