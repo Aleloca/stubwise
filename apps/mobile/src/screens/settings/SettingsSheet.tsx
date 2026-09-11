@@ -384,6 +384,7 @@ const styles = StyleSheet.create({
   },
   emailText: {
     color: colors.fg,
+    fontFamily: fontFamily.sansSemiBold,
     fontSize: 15,
     fontWeight: "600",
   },
@@ -426,6 +427,7 @@ const styles = StyleSheet.create({
   rowLabel: {
     color: colors.fg,
     flex: 1,
+    fontFamily: fontFamily.sans,
     fontSize: 15,
     marginRight: 12,
   },
@@ -436,6 +438,7 @@ const styles = StyleSheet.create({
   },
   emptyNote: {
     color: colors.faint,
+    fontFamily: fontFamily.sans,
     fontSize: 13,
     paddingBottom: 12,
   },
@@ -445,6 +448,7 @@ const styles = StyleSheet.create({
   },
   errorText: {
     color: colors.danger,
+    fontFamily: fontFamily.sans,
     fontSize: 13,
   },
   // Sotto una riga già disegnata (switch/chip), non al posto suo — a
@@ -455,6 +459,7 @@ const styles = StyleSheet.create({
   // cosa che spiega perché.
   mutationErrorText: {
     color: colors.danger,
+    fontFamily: fontFamily.sans,
     fontSize: 13,
     paddingBottom: 12,
   },

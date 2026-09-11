@@ -4,15 +4,20 @@ import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import Markdown from "react-native-markdown-display";
+import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import type { DocsStackParamList } from "../../app/navigation";
 import { useAuth } from "../../app/providers";
 import { GhostButton } from "../../components/GhostButton";
 import { SectionLabel } from "../../components/SectionLabel";
+import { SettingsAvatarButton } from "../../components/SettingsAvatarButton";
 import { Skeleton } from "../../components/Skeleton";
 import { docsKeys, docsKindLabelKey } from "../../lib/docs-mutations";
 import { colors } from "../../theme/tokens";
 import { MARKDOWN_STYLE } from "../../theme/markdown";
-import { fontFamily, fontSize } from "../../theme/typography";
+import { fontFamily, textStyles } from "../../theme/typography";
+
+/** Vedi `InboxScreen.tsx` per il perché di una costante invece di leggere `styles.body.paddingBottom`. */
+const CONTENT_BASE_BOTTOM_PADDING = 40;
 
 /**
  * Una pagina di documentazione in markdown (canvas: nessun mockup dedicato —
@@ -30,6 +35,7 @@ import { fontFamily, fontSize } from "../../theme/typography";
 export function DocsPageScreen({ navigation, route }: NativeStackScreenProps<DocsStackParamList, "Page">) {
   const { t } = useTranslation();
   const { client } = useAuth();
+  const tabBarHeight = useBottomTabBarHeight();
   const { repositoryId, slug } = route.params;
 
   const pageQuery = useQuery({
@@ -44,35 +50,48 @@ export function DocsPageScreen({ navigation, route }: NativeStackScreenProps<Doc
 
   const notFound = pageQuery.isError && pageQuery.error instanceof ApiError && pageQuery.error.status === 404;
 
+  // Task 7 (App M1+M2, 11 set 2026): un solo `ScrollView`, il link
+  // "indietro" come primo figlio — stesso schema di `InboxScreen.tsx`.
+  // Fix di review (Task 2, 11 set 2026): l'avatar, mancante del tutto su
+  // questo screen, ora c'è sulla stessa riga — ancorata
+  // (`stickyHeaderIndices`, vedi `ScreenHeader.tsx`).
   return (
     <View style={styles.container}>
-      <Pressable onPress={() => navigation.goBack()} testID="docs-page-back" style={styles.backRow}>
-        <Text style={styles.back}>{t("mobile.docs.page.back")}</Text>
-      </Pressable>
+      <ScrollView
+        contentContainerStyle={[styles.body, { paddingBottom: CONTENT_BASE_BOTTOM_PADDING + tabBarHeight }]}
+        stickyHeaderIndices={[0]}
+      >
+        <View style={styles.headerRow}>
+          <Pressable onPress={() => navigation.goBack()} testID="docs-page-back" style={styles.backRow}>
+            <Text style={styles.back}>{t("mobile.docs.page.back")}</Text>
+          </Pressable>
+          <SettingsAvatarButton />
+        </View>
 
-      {pageQuery.isPending ? (
-        <View style={styles.skeletonList} testID="docs-page-skeleton">
-          <Skeleton height={24} width="60%" />
-          <Skeleton height={100} />
-          <Skeleton height={140} />
-        </View>
-      ) : notFound ? (
-        <View style={styles.centered} testID="docs-page-not-found">
-          <Text style={styles.errorTitle}>{t("mobile.docs.page.notFound.title")}</Text>
-          <Text style={styles.errorBody}>{t("mobile.docs.page.notFound.body")}</Text>
-        </View>
-      ) : pageQuery.isError ? (
-        <View style={styles.centered} testID="docs-page-error">
-          <Text style={styles.errorTitle}>{t("mobile.docs.page.loadError.title")}</Text>
-          <GhostButton label={t("mobile.docs.page.loadError.retry")} onPress={() => void pageQuery.refetch()} testID="docs-page-retry" />
-        </View>
-      ) : (
-        <ScrollView contentContainerStyle={styles.body}>
-          <SectionLabel>{t(docsKindLabelKey(pageQuery.data!.kind))}</SectionLabel>
-          <Text style={styles.title}>{pageQuery.data!.title}</Text>
-          <Markdown style={MARKDOWN_STYLE}>{pageQuery.data!.body}</Markdown>
-        </ScrollView>
-      )}
+        {pageQuery.isPending ? (
+          <View style={styles.skeletonList} testID="docs-page-skeleton">
+            <Skeleton height={24} width="60%" />
+            <Skeleton height={100} />
+            <Skeleton height={140} />
+          </View>
+        ) : notFound ? (
+          <View style={styles.centered} testID="docs-page-not-found">
+            <Text style={styles.errorTitle}>{t("mobile.docs.page.notFound.title")}</Text>
+            <Text style={styles.errorBody}>{t("mobile.docs.page.notFound.body")}</Text>
+          </View>
+        ) : pageQuery.isError ? (
+          <View style={styles.centered} testID="docs-page-error">
+            <Text style={styles.errorTitle}>{t("mobile.docs.page.loadError.title")}</Text>
+            <GhostButton label={t("mobile.docs.page.loadError.retry")} onPress={() => void pageQuery.refetch()} testID="docs-page-retry" />
+          </View>
+        ) : (
+          <>
+            <SectionLabel>{t(docsKindLabelKey(pageQuery.data!.kind))}</SectionLabel>
+            <Text style={[textStyles.screenTitle, styles.title]}>{pageQuery.data!.title}</Text>
+            <Markdown style={MARKDOWN_STYLE}>{pageQuery.data!.body}</Markdown>
+          </>
+        )}
+      </ScrollView>
     </View>
   );
 }
@@ -82,10 +101,19 @@ const styles = StyleSheet.create({
     backgroundColor: colors.ink950,
     flex: 1,
   },
-  backRow: {
-    paddingHorizontal: 20,
+  // Fix di review (Task 2, 11 set 2026): `headerRow` è ora ANCORATA
+  // (`stickyHeaderIndices` sullo `ScrollView` sopra) e porta anche
+  // l'avatar — `backgroundColor` opaco necessario, o il contenuto sotto
+  // l'attraverserebbe scorrendo.
+  headerRow: {
+    alignItems: "center",
+    backgroundColor: colors.ink950,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingBottom: 12,
     paddingTop: 56,
   },
+  backRow: {},
   back: {
     color: colors.muted,
     fontFamily: fontFamily.mono,
@@ -104,12 +132,14 @@ const styles = StyleSheet.create({
   },
   errorTitle: {
     color: colors.fg,
+    fontFamily: fontFamily.sansSemiBold,
     fontSize: 15,
     fontWeight: "600",
     textAlign: "center",
   },
   errorBody: {
     color: colors.muted,
+    fontFamily: fontFamily.sans,
     fontSize: 14,
     textAlign: "center",
   },
@@ -118,10 +148,9 @@ const styles = StyleSheet.create({
     padding: 20,
     paddingBottom: 40,
   },
+  // Solo gli scarti dal preset condiviso (`textStyles.screenTitle` copre
+  // colore/font/peso/dimensione) — vedi il commento su `ScreenHeader.tsx`.
   title: {
-    color: colors.fg,
-    fontSize: fontSize.title,
-    fontWeight: "700",
     marginBottom: 8,
     marginTop: 4,
   },

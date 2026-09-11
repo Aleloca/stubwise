@@ -4,11 +4,13 @@ import type { BacklogItemDetail, Reader } from "@stubwise/shared";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import type { BacklogStackParamList } from "../../app/navigation";
 import { useAuth } from "../../app/providers";
 import { GhostButton } from "../../components/GhostButton";
 import { PrimaryButton } from "../../components/PrimaryButton";
 import { PulseIndicator } from "../../components/PulseIndicator";
+import { SettingsAvatarButton } from "../../components/SettingsAvatarButton";
 import { Skeleton } from "../../components/Skeleton";
 import {
   backlogKeys,
@@ -19,7 +21,10 @@ import {
   useConvertBacklogItem,
 } from "../../lib/backlog-mutations";
 import { colors, radii } from "../../theme/tokens";
-import { fontFamily, fontSize } from "../../theme/typography";
+import { fontFamily, fontSize, textStyles } from "../../theme/typography";
+
+/** Vedi `InboxScreen.tsx` per il perché di una costante invece di leggere `styles.body.paddingBottom`. */
+const CONTENT_BASE_BOTTOM_PADDING = 40;
 
 /**
  * Dettaglio di sola lettura di una voce (canvas: nessun mockup dedicato —
@@ -37,6 +42,7 @@ import { fontFamily, fontSize } from "../../theme/typography";
 export function BacklogItemScreen({ navigation, route }: NativeStackScreenProps<BacklogStackParamList, "Item">) {
   const { t } = useTranslation();
   const { client } = useAuth();
+  const tabBarHeight = useBottomTabBarHeight();
   const { id } = route.params;
 
   const itemQuery = useQuery({
@@ -53,42 +59,55 @@ export function BacklogItemScreen({ navigation, route }: NativeStackScreenProps<
 
   const notFound = itemQuery.isError && itemQuery.error instanceof ApiError && itemQuery.error.status === 404;
 
+  // Task 7 (App M1+M2, 11 set 2026): un solo `ScrollView`, il link
+  // "indietro" come primo figlio — stesso schema di `InboxScreen.tsx`.
+  // Fix di review (Task 2, 11 set 2026): l'avatar, mancante del tutto su
+  // questo screen, ora c'è sulla stessa riga — ancorata
+  // (`stickyHeaderIndices`, vedi `ScreenHeader.tsx`).
   return (
     <View style={styles.container}>
-      <Pressable onPress={() => navigation.goBack()} testID="backlog-item-back" style={styles.backRow}>
-        <Text style={styles.back}>{t("mobile.backlog.item.back")}</Text>
-      </Pressable>
+      <ScrollView
+        contentContainerStyle={[styles.body, { paddingBottom: CONTENT_BASE_BOTTOM_PADDING + tabBarHeight }]}
+        stickyHeaderIndices={[0]}
+      >
+        <View style={styles.headerRow}>
+          <Pressable onPress={() => navigation.goBack()} testID="backlog-item-back" style={styles.backRow}>
+            <Text style={styles.back}>{t("mobile.backlog.item.back")}</Text>
+          </Pressable>
+          <SettingsAvatarButton />
+        </View>
 
-      {itemQuery.isPending ? (
-        <View style={styles.skeletonList} testID="backlog-item-skeleton">
-          <Skeleton height={28} width="70%" />
-          <Skeleton height={90} />
-          <Skeleton height={140} />
-        </View>
-      ) : notFound ? (
-        <View style={styles.centered} testID="backlog-item-not-found">
-          <Text style={styles.errorTitle}>{t("mobile.backlog.item.notFound.title")}</Text>
-          <Text style={styles.errorBody}>{t("mobile.backlog.item.notFound.body")}</Text>
-        </View>
-      ) : itemQuery.isError ? (
-        <View style={styles.centered} testID="backlog-item-error">
-          <Text style={styles.errorTitle}>{t("mobile.backlog.item.loadError.title")}</Text>
-          <GhostButton label={t("mobile.backlog.item.loadError.retry")} onPress={() => void itemQuery.refetch()} testID="backlog-item-retry" />
-        </View>
-      ) : (
-        <ItemBody
-          item={itemQuery.data!}
-          onProceed={() =>
-            convert.mutate(id, {
-              onSuccess: (result) => navigateToTicketWork(navigation, result.ticketId),
-            })
-          }
-          proceedPending={convert.isPending}
-          convertErrorMessage={convert.errorMessage}
-          onRefine={() => navigation.navigate("Chat", { id })}
-          onOpenTicket={(ticketId) => navigateToTicketWork(navigation, ticketId)}
-        />
-      )}
+        {itemQuery.isPending ? (
+          <View style={styles.skeletonList} testID="backlog-item-skeleton">
+            <Skeleton height={28} width="70%" />
+            <Skeleton height={90} />
+            <Skeleton height={140} />
+          </View>
+        ) : notFound ? (
+          <View style={styles.centered} testID="backlog-item-not-found">
+            <Text style={styles.errorTitle}>{t("mobile.backlog.item.notFound.title")}</Text>
+            <Text style={styles.errorBody}>{t("mobile.backlog.item.notFound.body")}</Text>
+          </View>
+        ) : itemQuery.isError ? (
+          <View style={styles.centered} testID="backlog-item-error">
+            <Text style={styles.errorTitle}>{t("mobile.backlog.item.loadError.title")}</Text>
+            <GhostButton label={t("mobile.backlog.item.loadError.retry")} onPress={() => void itemQuery.refetch()} testID="backlog-item-retry" />
+          </View>
+        ) : (
+          <ItemBody
+            item={itemQuery.data!}
+            onProceed={() =>
+              convert.mutate(id, {
+                onSuccess: (result) => navigateToTicketWork(navigation, result.ticketId),
+              })
+            }
+            proceedPending={convert.isPending}
+            convertErrorMessage={convert.errorMessage}
+            onRefine={() => navigation.navigate("Chat", { id })}
+            onOpenTicket={(ticketId) => navigateToTicketWork(navigation, ticketId)}
+          />
+        )}
+      </ScrollView>
     </View>
   );
 }
@@ -118,9 +137,12 @@ function ItemBody({
   const isReady = item.status === "ready";
   const canRefine = item.status !== "converted" && item.status !== "archived";
 
+  // Task 7 (App M1+M2, 11 set 2026): non più il proprio `ScrollView` — è
+  // già dentro quello di `BacklogItemScreen`, che ora avvolge anche il link
+  // "indietro" sopra di lui.
   return (
-    <ScrollView contentContainerStyle={styles.body}>
-      <Text style={styles.title}>{item.title}</Text>
+    <>
+      <Text style={textStyles.screenTitle}>{item.title}</Text>
       <View style={styles.metaRow}>
         <PulseIndicator tone={backlogStatusTone(item.status)} text={t(backlogStatusLabelKey(item.status))} />
         <Text style={styles.meta}>{metaText}</Text>
@@ -167,7 +189,7 @@ function ItemBody({
           ))}
         </View>
       )}
-    </ScrollView>
+    </>
   );
 }
 
@@ -176,10 +198,21 @@ const styles = StyleSheet.create({
     backgroundColor: colors.ink950,
     flex: 1,
   },
-  backRow: {
-    paddingHorizontal: 20,
+  // Task 7: niente più `paddingHorizontal`/`paddingTop` propri — vivono in
+  // `body` (vedi il commento gemello in `ProjectDetailScreen.tsx`).
+  // Fix di review (Task 2, 11 set 2026): `headerRow` è ora ANCORATA
+  // (`stickyHeaderIndices` sullo `ScrollView` sopra) e porta anche
+  // l'avatar — `backgroundColor` opaco necessario, o il contenuto sotto
+  // l'attraverserebbe scorrendo.
+  headerRow: {
+    alignItems: "center",
+    backgroundColor: colors.ink950,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingBottom: 12,
     paddingTop: 56,
   },
+  backRow: {},
   back: {
     color: colors.muted,
     fontFamily: fontFamily.mono,
@@ -198,12 +231,14 @@ const styles = StyleSheet.create({
   },
   errorTitle: {
     color: colors.fg,
+    fontFamily: fontFamily.sansSemiBold,
     fontSize: 15,
     fontWeight: "600",
     textAlign: "center",
   },
   errorBody: {
     color: colors.muted,
+    fontFamily: fontFamily.sans,
     fontSize: 14,
     textAlign: "center",
   },
@@ -211,11 +246,6 @@ const styles = StyleSheet.create({
     gap: 4,
     padding: 20,
     paddingBottom: 40,
-  },
-  title: {
-    color: colors.fg,
-    fontSize: fontSize.title,
-    fontWeight: "700",
   },
   metaRow: {
     alignItems: "center",
@@ -230,6 +260,7 @@ const styles = StyleSheet.create({
   },
   document: {
     color: colors.muted,
+    fontFamily: fontFamily.sans,
     fontSize: fontSize.body,
     lineHeight: 20,
     marginTop: 14,
@@ -247,6 +278,7 @@ const styles = StyleSheet.create({
   },
   errorText: {
     color: colors.danger,
+    fontFamily: fontFamily.sans,
     fontSize: 13,
     marginTop: 10,
   },
@@ -281,6 +313,7 @@ const styles = StyleSheet.create({
   ticketTitle: {
     color: colors.fg,
     flexShrink: 1,
+    fontFamily: fontFamily.sans,
     fontSize: 14,
   },
 });

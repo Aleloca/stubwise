@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { workStateFor, type AiJobStatus, type BacklogItemStatus } from "@stubwise/shared";
+import { deriveNextStep, type BacklogItemStatus } from "@stubwise/shared";
 import { useTranslation } from "react-i18next";
 import { Link } from "@tanstack/react-router";
 import { convertBacklogItem } from "../lib/api";
@@ -13,65 +13,13 @@ import { backlogKeys, ticketJobsQueryOptions, ticketKeys } from "../lib/queries"
  * "Rischi e decisioni prese nel piano"). Chi è tentato di far scrivere questa
  * riga a un agente si fermi e lo scriva a un maintainer prima di procedere.
  *
- * Gli STATI del lavoro (una volta convertita) riusano `workStateFor`
- * (`@stubwise/shared`, fase 8 la porta anche ai badge/timeline): un `Record`
- * esaustivo sull'enum, non uno `switch` con default, perché un valore nuovo in
- * `ai_job_status` deve far fallire la COMPILAZIONE qui, non scivolare in un
- * fallback silenzioso che direbbe la cosa sbagliata.
+ * App M1 (11 set 2026): `deriveNextStep` (con `NextStepKind`/`NextStepInput`)
+ * è SPOSTATA in `@stubwise/shared` (`next-step.ts`) — comportamento
+ * identico, stessi test, spostati anche loro — sullo stesso precedente di
+ * `workStateFor`: logica pura condivisa fra sito e app, non ancora cablata
+ * nell'app (è M3). Qui resta solo il componente React.
  */
-
-export type NextStepKind =
-  | "clarify"
-  | "readyToConvert"
-  | "convertedNoJob"
-  | "preparingPlan"
-  | "awaitingApproval"
-  | "executing"
-  | "prReady"
-  | "done"
-  | "needsAttention";
-
-/** `WorkState` (job) → passo successivo, quando la voce è già convertita. */
-const NEXT_STEP_BY_WORK_STATE: Record<ReturnType<typeof workStateFor>, NextStepKind> = {
-  proposed: "preparingPlan",
-  planning: "preparingPlan",
-  working: "executing",
-  held: "needsAttention",
-  waiting_answer: "needsAttention",
-  waiting_approval: "awaitingApproval",
-  pr_ready: "prReady",
-  done: "done",
-  failed: "needsAttention",
-  skipped: "needsAttention",
-  rejected: "needsAttention",
-};
-
-export interface NextStepInput {
-  itemStatus: BacklogItemStatus;
-  /** Il ticket "converted_to", se la voce è già stata convertita. */
-  ticketId: string | null;
-  /**
-   * Stato dell'ULTIMO job del ticket collegato: `null` finché non è stato
-   * lanciato nessun run (o finché i job non sono ancora arrivati dal server —
-   * il chiamante degrada a "nessuna riga" in quella finestra, non a
-   * `convertedNoJob`, per non lampeggiare uno stato sbagliato).
-   */
-  latestJobStatus: AiJobStatus | null;
-}
-
-/**
- * Deriva il passo successivo. `null` = nessuna riga da mostrare (voce
- * archiviata, o convertita senza che il link al ticket sia ancora arrivato).
- */
-export function deriveNextStep(input: NextStepInput): NextStepKind | null {
-  if (input.itemStatus === "archived") return null;
-  if (input.itemStatus === "new" || input.itemStatus === "refining") return "clarify";
-  if (input.itemStatus === "ready") return "readyToConvert";
-  // "converted": il ticket deve esserci (l'ha creato la conversione stessa).
-  if (input.ticketId === null) return null;
-  if (input.latestJobStatus === null) return "convertedNoJob";
-  return NEXT_STEP_BY_WORK_STATE[workStateFor(input.latestJobStatus)];
-}
+export type { NextStepKind } from "@stubwise/shared";
 
 export function WorkNextStep({
   itemId,

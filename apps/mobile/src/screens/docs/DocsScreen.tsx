@@ -5,14 +5,19 @@ import type { UseQueryResult } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import type { DocsStackParamList } from "../../app/navigation";
 import { useAuth } from "../../app/providers";
+import { ScreenHeader } from "../../components/ScreenHeader";
 import { SectionLabel } from "../../components/SectionLabel";
 import { Skeleton } from "../../components/Skeleton";
 import { docsKeys, groupTreeByKind, mainDocSpace } from "../../lib/docs-mutations";
 import { getLastDocsProjectId, setLastDocsProjectId } from "../../lib/storage";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
+
+/** Vedi `InboxScreen.tsx` per il perché di una costante invece di leggere `styles.body.paddingBottom`. */
+const CONTENT_BASE_BOTTOM_PADDING = 40;
 
 /** Quanto attendere dopo l'ultimo tocco prima di lanciare la ricerca (canvas: "Cerca nella documentazione…"). */
 const SEARCH_DEBOUNCE_MS = 300;
@@ -38,6 +43,7 @@ type BrowseGroupKey = "functional" | "technical" | "releases";
 export function DocsScreen({ navigation }: NativeStackScreenProps<DocsStackParamList, "List">) {
   const { t } = useTranslation();
   const { client } = useAuth();
+  const tabBarHeight = useBottomTabBarHeight();
 
   const [projectId, setProjectId] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -146,123 +152,130 @@ export function DocsScreen({ navigation }: NativeStackScreenProps<DocsStackParam
     (repositoryId !== undefined && treeQuery.isPending);
   const noSpaces = !loading && spacesQuery.isSuccess && (spacesQuery.data ?? []).length === 0;
 
+  // Task 7 (App M1+M2, 11 set 2026): un solo `ScrollView`, header (ora
+  // `ScreenHeader`) come primo figlio — stesso schema di `InboxScreen.tsx`.
+  // Lo switcher progetto e la ricerca erano sulla riga del titolo/dentro
+  // l'header fisso: restano un blocco subito sotto `ScreenHeader`, la stessa
+  // sistemazione del bottone "+" in `BacklogScreen.tsx`.
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <View style={styles.headerRow}>
-          <Text style={styles.title}>{t("mobile.docs.title")}</Text>
+      <ScrollView
+        contentContainerStyle={[styles.body, { paddingBottom: CONTENT_BASE_BOTTOM_PADDING + tabBarHeight }]}
+        stickyHeaderIndices={[0]}
+      >
+        <ScreenHeader title={t("mobile.docs.title")} />
+
+        <View style={styles.toolbar}>
           {projects.length > 0 && (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={t("mobile.docs.project.pickerLabel")}
-              onPress={() => setPickerOpen((open) => !open)}
-              style={styles.projectPill}
-              testID="docs-project-toggle"
-            >
-              <Text style={styles.projectPillLabel}>{selectedProject ? `${selectedProject.name} ▾` : "— ▾"}</Text>
-            </Pressable>
-          )}
-        </View>
-
-        {pickerOpen && (
-          <View style={styles.projectList} testID="docs-project-list">
-            {projects.map((project) => (
+            <View style={styles.toolbarRow}>
               <Pressable
-                key={project.id}
                 accessibilityRole="button"
-                onPress={() => pickProject(project.id)}
-                style={styles.projectOption}
-                testID={`docs-project-${project.id}`}
+                accessibilityLabel={t("mobile.docs.project.pickerLabel")}
+                onPress={() => setPickerOpen((open) => !open)}
+                style={styles.projectPill}
+                testID="docs-project-toggle"
               >
-                <Text style={styles.projectOptionLabel}>{project.name}</Text>
+                <Text style={styles.projectPillLabel}>{selectedProject ? `${selectedProject.name} ▾` : "— ▾"}</Text>
               </Pressable>
-            ))}
-          </View>
-        )}
-
-        {repositoryId && (
-          <View style={styles.searchBox}>
-            <TextInput
-              accessibilityLabel={t("mobile.docs.searchPlaceholder")}
-              value={rawQuery}
-              onChangeText={setRawQuery}
-              placeholder={t("mobile.docs.searchPlaceholder")}
-              placeholderTextColor={colors.faint}
-              style={styles.searchInput}
-              testID="docs-search-input"
-            />
-          </View>
-        )}
-      </View>
-
-      {projects.length === 0 && !projectsQuery.isPending ? (
-        <View style={styles.centered} testID="docs-empty">
-          <Text style={styles.emptyTitle}>{t("mobile.docs.empty.title")}</Text>
-          <Text style={styles.emptyBody}>{t("mobile.docs.project.none")}</Text>
-        </View>
-      ) : loading ? (
-        <View style={styles.skeletonList} testID="docs-skeleton">
-          <Skeleton height={44} />
-          <Skeleton height={90} />
-          <Skeleton height={90} />
-        </View>
-      ) : noSpaces ? (
-        <View style={styles.centered} testID="docs-empty">
-          <Text style={styles.emptyTitle}>{t("mobile.docs.empty.title")}</Text>
-          <Text style={styles.emptyBody}>{t("mobile.docs.empty.body")}</Text>
-        </View>
-      ) : (
-        <ScrollView contentContainerStyle={styles.body}>
-          {isSearching ? (
-            <SearchResultsSection query={searchQuery} onOpenPage={openPage} />
-          ) : (
-            <>
-              <Pressable onPress={openAskProject} style={styles.askEntry} testID="docs-ask-entry">
-                <SectionLabel>{t("mobile.docs.ask.sectionLabel")}</SectionLabel>
-                <Text style={styles.askHint}>{t("mobile.docs.ask.entryHint")}</Text>
-              </Pressable>
-
-              <SectionLabel style={styles.browseLabel}>{t("mobile.docs.browse.label")}</SectionLabel>
-              <View style={styles.browseCard}>
-                <BrowseRow
-                  labelKey="mobile.docs.browse.functional"
-                  countText={pageCountText(groups.functional.count, t)}
-                  count={groups.functional.count}
-                  expanded={expandedGroup === "functional"}
-                  onPress={() => setExpandedGroup((current) => (current === "functional" ? null : "functional"))}
-                  nodes={groups.functional.nodes}
-                  onOpenPage={openPage}
-                  testID="docs-browse-functional"
-                />
-                <BrowseRow
-                  labelKey="mobile.docs.browse.releases"
-                  countText={
-                    groups.releases.latest ? t("mobile.docs.browse.latestRelease", { title: groups.releases.latest.title }) : t("mobile.docs.browse.noReleases")
-                  }
-                  count={groups.releases.count}
-                  expanded={expandedGroup === "releases"}
-                  onPress={() => setExpandedGroup((current) => (current === "releases" ? null : "releases"))}
-                  nodes={groups.releases.nodes}
-                  onOpenPage={openPage}
-                  testID="docs-browse-releases"
-                  last
-                />
-                <BrowseRow
-                  labelKey="mobile.docs.browse.technical"
-                  countText={pageCountText(groups.technical.count, t)}
-                  count={groups.technical.count}
-                  expanded={expandedGroup === "technical"}
-                  onPress={() => setExpandedGroup((current) => (current === "technical" ? null : "technical"))}
-                  nodes={groups.technical.nodes}
-                  onOpenPage={openPage}
-                  testID="docs-browse-technical"
-                  last
-                />
-              </View>
-            </>
+            </View>
           )}
-        </ScrollView>
-      )}
+
+          {pickerOpen && (
+            <View style={styles.projectList} testID="docs-project-list">
+              {projects.map((project) => (
+                <Pressable
+                  key={project.id}
+                  accessibilityRole="button"
+                  onPress={() => pickProject(project.id)}
+                  style={styles.projectOption}
+                  testID={`docs-project-${project.id}`}
+                >
+                  <Text style={styles.projectOptionLabel}>{project.name}</Text>
+                </Pressable>
+              ))}
+            </View>
+          )}
+
+          {repositoryId && (
+            <View style={styles.searchBox}>
+              <TextInput
+                accessibilityLabel={t("mobile.docs.searchPlaceholder")}
+                value={rawQuery}
+                onChangeText={setRawQuery}
+                placeholder={t("mobile.docs.searchPlaceholder")}
+                placeholderTextColor={colors.faint}
+                style={styles.searchInput}
+                testID="docs-search-input"
+              />
+            </View>
+          )}
+        </View>
+
+        {projects.length === 0 && !projectsQuery.isPending ? (
+          <View style={styles.centered} testID="docs-empty">
+            <Text style={styles.emptyTitle}>{t("mobile.docs.empty.title")}</Text>
+            <Text style={styles.emptyBody}>{t("mobile.docs.project.none")}</Text>
+          </View>
+        ) : loading ? (
+          <View style={styles.skeletonList} testID="docs-skeleton">
+            <Skeleton height={44} />
+            <Skeleton height={90} />
+            <Skeleton height={90} />
+          </View>
+        ) : noSpaces ? (
+          <View style={styles.centered} testID="docs-empty">
+            <Text style={styles.emptyTitle}>{t("mobile.docs.empty.title")}</Text>
+            <Text style={styles.emptyBody}>{t("mobile.docs.empty.body")}</Text>
+          </View>
+        ) : isSearching ? (
+          <SearchResultsSection query={searchQuery} onOpenPage={openPage} />
+        ) : (
+          <>
+            <Pressable onPress={openAskProject} style={styles.askEntry} testID="docs-ask-entry">
+              <SectionLabel>{t("mobile.docs.ask.sectionLabel")}</SectionLabel>
+              <Text style={styles.askHint}>{t("mobile.docs.ask.entryHint")}</Text>
+            </Pressable>
+
+            <SectionLabel style={styles.browseLabel}>{t("mobile.docs.browse.label")}</SectionLabel>
+            <View style={styles.browseCard}>
+              <BrowseRow
+                labelKey="mobile.docs.browse.functional"
+                countText={pageCountText(groups.functional.count, t)}
+                count={groups.functional.count}
+                expanded={expandedGroup === "functional"}
+                onPress={() => setExpandedGroup((current) => (current === "functional" ? null : "functional"))}
+                nodes={groups.functional.nodes}
+                onOpenPage={openPage}
+                testID="docs-browse-functional"
+              />
+              <BrowseRow
+                labelKey="mobile.docs.browse.releases"
+                countText={
+                  groups.releases.latest ? t("mobile.docs.browse.latestRelease", { title: groups.releases.latest.title }) : t("mobile.docs.browse.noReleases")
+                }
+                count={groups.releases.count}
+                expanded={expandedGroup === "releases"}
+                onPress={() => setExpandedGroup((current) => (current === "releases" ? null : "releases"))}
+                nodes={groups.releases.nodes}
+                onOpenPage={openPage}
+                testID="docs-browse-releases"
+                last
+              />
+              <BrowseRow
+                labelKey="mobile.docs.browse.technical"
+                countText={pageCountText(groups.technical.count, t)}
+                count={groups.technical.count}
+                expanded={expandedGroup === "technical"}
+                onPress={() => setExpandedGroup((current) => (current === "technical" ? null : "technical"))}
+                nodes={groups.technical.nodes}
+                onOpenPage={openPage}
+                testID="docs-browse-technical"
+                last
+              />
+            </View>
+          </>
+        )}
+      </ScrollView>
     </View>
   );
 }
@@ -375,23 +388,16 @@ const styles = StyleSheet.create({
     backgroundColor: colors.ink950,
     flex: 1,
   },
-  header: {
+  toolbar: {
     paddingHorizontal: 20,
-    paddingTop: 56,
+    paddingTop: 12,
   },
-  headerRow: {
-    alignItems: "center",
+  toolbarRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  title: {
-    color: colors.fg,
-    fontSize: fontSize.title,
-    fontWeight: "700",
-    letterSpacing: -0.3,
+    justifyContent: "flex-end",
   },
   projectPill: {
-    borderColor: "#2c3641",
+    borderColor: colors.lineStrong,
     borderRadius: 16,
     borderWidth: 1,
     paddingHorizontal: 12,
@@ -418,12 +424,13 @@ const styles = StyleSheet.create({
   },
   projectOptionLabel: {
     color: colors.fg,
+    fontFamily: fontFamily.sans,
     fontSize: 14,
   },
   searchBox: {
     alignItems: "center",
     backgroundColor: "rgba(10,13,16,0.7)",
-    borderColor: "#2c3641",
+    borderColor: colors.lineStrong,
     borderRadius: radii.control,
     borderWidth: 1,
     flexDirection: "row",
@@ -435,6 +442,7 @@ const styles = StyleSheet.create({
   searchInput: {
     color: colors.fg,
     flex: 1,
+    fontFamily: fontFamily.sans,
     fontSize: fontSize.input,
   },
   centered: {
@@ -446,12 +454,14 @@ const styles = StyleSheet.create({
   },
   emptyTitle: {
     color: colors.fg,
+    fontFamily: fontFamily.sansSemiBold,
     fontSize: 15,
     fontWeight: "600",
     textAlign: "center",
   },
   emptyBody: {
     color: colors.muted,
+    fontFamily: fontFamily.sans,
     fontSize: 14,
     lineHeight: 20,
     textAlign: "center",
@@ -467,7 +477,7 @@ const styles = StyleSheet.create({
   },
   askEntry: {
     backgroundColor: colors.ink900,
-    borderColor: "#b97d1a",
+    borderColor: colors.signalDim,
     borderRadius: radii.card,
     borderWidth: 1,
     marginBottom: 16,
@@ -475,6 +485,7 @@ const styles = StyleSheet.create({
   },
   askHint: {
     color: colors.fg,
+    fontFamily: fontFamily.sans,
     fontSize: 14,
     marginTop: 6,
   },
@@ -503,6 +514,7 @@ const styles = StyleSheet.create({
   browseRowLabel: {
     color: colors.fg,
     flex: 1,
+    fontFamily: fontFamily.sans,
     fontSize: 14,
   },
   browseRowMeta: {
@@ -516,6 +528,7 @@ const styles = StyleSheet.create({
   },
   browseEmpty: {
     color: colors.faint,
+    fontFamily: fontFamily.sans,
     fontSize: 13,
     paddingHorizontal: 16,
     paddingVertical: 8,
@@ -528,6 +541,7 @@ const styles = StyleSheet.create({
   },
   browsePageTitle: {
     color: colors.muted,
+    fontFamily: fontFamily.sans,
     fontSize: 13,
   },
   searchResults: {
@@ -542,11 +556,13 @@ const styles = StyleSheet.create({
   },
   searchResultTitle: {
     color: colors.fg,
+    fontFamily: fontFamily.sansSemiBold,
     fontSize: 14,
     fontWeight: "600",
   },
   searchResultSnippet: {
     color: colors.faint,
+    fontFamily: fontFamily.sans,
     fontSize: 12,
     marginTop: 4,
   },

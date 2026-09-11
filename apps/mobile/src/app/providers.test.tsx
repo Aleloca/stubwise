@@ -1,12 +1,12 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import notifee from "@notifee/react-native";
 import NetInfo from "@react-native-community/netinfo";
-import { AppState, Text } from "react-native";
+import { AppState, Pressable, Text } from "react-native";
 import "../i18n";
 import { createClient, onSessionExpired } from "../lib/client";
 import { setupPush } from "../lib/push";
 import { getLastSyncAt, loadSession } from "../lib/storage";
-import { AppProviders } from "./providers";
+import { AppProviders, useAuth } from "./providers";
 
 jest.mock("../lib/storage", () => ({
   loadSession: jest.fn(),
@@ -313,51 +313,38 @@ describe("AppProviders — collegamento con setupPush (lib/push.ts)", () => {
   });
 });
 
-describe("AppProviders — chrome globale (Task 20: avatar → Impostazioni, banner offline)", () => {
-  test("il bottone Impostazioni (avatar) compare da autenticato", async () => {
+describe("AppProviders — chrome globale (banner offline ancorato; l'avatar è in ScreenHeader dal Task 7)", () => {
+  /**
+   * Task 7 (App M1+M2, 11 set 2026): l'avatar non è più renderizzato QUI —
+   * è dentro `ScreenHeader`, in cima al contenuto scorrevole di ogni
+   * schermata (copertura sua: `components/ScreenHeader.test.tsx`).
+   * `AppProviders` resta responsabile SOLO di aprire/chiudere `SettingsSheet`
+   * quando `useAuth().openSettings()` viene chiamato — verificato qui con un
+   * consumer minimo del contesto, senza montare uno screen vero.
+   */
+  function OpenSettingsButton() {
+    const { openSettings } = useAuth();
+    return (
+      <Pressable testID="open-settings-probe" onPress={openSettings}>
+        <Text>apri</Text>
+      </Pressable>
+    );
+  }
+
+  test("openSettings() dal contesto apre la sheet Impostazioni (Esci diventa raggiungibile)", async () => {
     mockLoadSession.mockResolvedValue(session);
     mockCreateClient.mockReturnValue(fakeClient());
 
     await render(
       <AppProviders>
-        <Text>ok</Text>
+        <OpenSettingsButton />
       </AppProviders>,
     );
+    await waitFor(() => expect(screen.getByTestId("open-settings-probe")).toBeTruthy());
 
-    await waitFor(() => expect(screen.getByTestId("settings-avatar-button")).toBeTruthy());
-  });
+    await fireEvent.press(screen.getByTestId("open-settings-probe"));
 
-  // Accessibilità: l'avatar è SOLO glifo (l'iniziale dell'email) — senza
-  // `accessibilityLabel` uno screen reader lo leggerebbe come una lettera
-  // sciolta, non come "apri le Impostazioni".
-  test("il bottone Impostazioni ha un accessibilityLabel (è solo glifo: l'iniziale dell'email)", async () => {
-    mockLoadSession.mockResolvedValue(session);
-    mockCreateClient.mockReturnValue(fakeClient());
-
-    await render(
-      <AppProviders>
-        <Text>ok</Text>
-      </AppProviders>,
-    );
-
-    await waitFor(() => {
-      const button = screen.getByTestId("settings-avatar-button");
-      expect(button.props.accessibilityLabel).toBe("Impostazioni");
-      expect(button.props.accessibilityRole).toBe("button");
-    });
-  });
-
-  test("nessun bottone Impostazioni prima del login (non autenticato)", async () => {
-    mockLoadSession.mockResolvedValue(null);
-
-    await render(
-      <AppProviders>
-        <Text>ok</Text>
-      </AppProviders>,
-    );
-    await waitFor(() => expect(mockLoadSession).toHaveBeenCalled());
-
-    expect(screen.queryByTestId("settings-avatar-button")).toBeNull();
+    await waitFor(() => expect(screen.getByTestId("settings-logout-button")).toBeTruthy());
   });
 
   test("il banner offline globale compare quando NetInfo segnala offline, su QUALSIASI schermo (non solo l'Inbox)", async () => {
@@ -373,22 +360,6 @@ describe("AppProviders — chrome globale (Task 20: avatar → Impostazioni, ban
 
     await waitFor(() => expect(screen.getByText(/Offline/)).toBeTruthy());
     (NetInfo.useNetInfo as jest.Mock).mockReturnValue({ isConnected: true, isInternetReachable: true });
-  });
-
-  test("toccare l'avatar apre la sheet Impostazioni (Esci diventa raggiungibile)", async () => {
-    mockLoadSession.mockResolvedValue(session);
-    mockCreateClient.mockReturnValue(fakeClient());
-
-    await render(
-      <AppProviders>
-        <Text>ok</Text>
-      </AppProviders>,
-    );
-    await waitFor(() => expect(screen.getByTestId("settings-avatar-button")).toBeTruthy());
-
-    await fireEvent.press(screen.getByTestId("settings-avatar-button"));
-
-    await waitFor(() => expect(screen.getByTestId("settings-logout-button")).toBeTruthy());
   });
 
   test("lastSyncAt: il banner lo rilegge da AsyncStorage (getLastSyncAt) quando compare offline", async () => {

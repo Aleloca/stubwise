@@ -168,6 +168,21 @@ const CATALOG_FOR_KIND: Record<
 };
 
 /**
+ * Il kind ha almeno una decisione riservata a un maintainer? (`adminOnly`
+ * nel catalogo sopra.) App M1 (11 set 2026): esportata perché l'app mobile
+ * duplicava questa stessa informazione a mano — un `Set` di due nomi di
+ * kind copiati in `apps/mobile/src/lib/inbox-sections.ts`, per la sezione
+ * "In attesa di altri" dell'inbox — invece di leggerla da QUI, l'unico
+ * punto che può cambiare quando un kind nuovo entra nel catalogo. Non
+ * `actionsFor` per intero: quella funzione vuole un attore e lo stato di
+ * un job, che una domanda di sola sezionatura ("è admin-gated, sì o no?")
+ * non ha e non le serve.
+ */
+export function isAdminOnlyKind(kind: NotificationKind): boolean {
+  return CATALOG_FOR_KIND[kind].adminOnly;
+}
+
+/**
  * I kind la cui notifica porta nel payload una DOMANDA A OPZIONI, e che per
  * questo offrono `answer`.
  *

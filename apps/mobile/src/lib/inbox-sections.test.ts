@@ -1,4 +1,5 @@
 import type { InboxItem, Reader } from "@stubwise/shared";
+import { isAdminOnlyKind, sampleEvents } from "@stubwise/notifications/pure";
 import { hasDecisionAction, isAdminGatedKind, sectionize } from "./inbox-sections";
 
 const MEMBER = { role: "member" as const };
@@ -144,5 +145,23 @@ describe("sectionize", () => {
     expect(isAdminGatedKind("job.budget_held")).toBe(true);
     expect(isAdminGatedKind("job.failed")).toBe(false);
     expect(isAdminGatedKind("job.held")).toBe(false);
+  });
+
+  // App M1, Task 3: prima di far seguire a `isAdminGatedKind` il catalogo
+  // condiviso (`isAdminOnlyKind` di `@stubwise/notifications/pure`) invece
+  // del `Set` copiato a mano, questo test prova che il comportamento non
+  // cambia — kind per kind, su TUTTI quelli che il catalogo server conosce
+  // oggi (`sampleEvents` ne porta uno per kind).
+  test("isAdminGatedKind concorda con isAdminOnlyKind del catalogo condiviso, per ogni kind", () => {
+    for (const event of sampleEvents("https://stubwise.test")) {
+      expect(isAdminGatedKind(event.kind)).toBe(isAdminOnlyKind(event.kind));
+    }
+  });
+
+  // Il catalogo condiviso non conosce il segnaposto __unknown__ (il suo
+  // Record è chiuso sui kind reali): senza il controllo `isUnknown` PRIMA
+  // della delega, questa chiamata lancerebbe invece di tornare `false`.
+  test("isAdminGatedKind su un kind sconosciuto è false, non un errore", () => {
+    expect(isAdminGatedKind("__unknown__")).toBe(false);
   });
 });

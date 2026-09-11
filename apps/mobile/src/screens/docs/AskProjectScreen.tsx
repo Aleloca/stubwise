@@ -3,11 +3,16 @@ import type { DocsChatSource, Reader } from "@stubwise/shared";
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import type { DocsStackParamList } from "../../app/navigation";
 import { PulseIndicator } from "../../components/PulseIndicator";
+import { SettingsAvatarButton } from "../../components/SettingsAvatarButton";
 import { useAskProjectChat } from "../../lib/docs-mutations";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
+
+/** Vedi `InboxScreen.tsx` per il perché di una costante invece di leggere `styles.composer.paddingBottom`. */
+const COMPOSER_BASE_BOTTOM_PADDING = 40;
 
 interface ChatBubble {
   id: string;
@@ -43,6 +48,7 @@ interface ChatBubble {
  */
 export function AskProjectScreen({ navigation, route }: NativeStackScreenProps<DocsStackParamList, "Ask">) {
   const { t } = useTranslation();
+  const tabBarHeight = useBottomTabBarHeight();
   const { projectId, projectName } = route.params;
 
   const send = useAskProjectChat();
@@ -83,11 +89,28 @@ export function AskProjectScreen({ navigation, route }: NativeStackScreenProps<D
 
   const canSend = draft.trim().length > 0 && !send.disabled;
 
+  // Task 7 (App M1+M2, 11 set 2026): ECCEZIONE deliberata e segnalata
+  // (§9 del piano, "ogni punto in cui ti è sembrato sbagliato") allo schema
+  // "header dentro il contenuto scorrevole" delle altre schermate. Qui
+  // l'header (indietro/titolo/sottotitolo) e il composer restano FERMI: è
+  // una chat con una regione di scroll LIMITATA (i messaggi), non un'unica
+  // pagina che cresce — farlo scorrere via farebbe perdere l'orientamento
+  // (a chi sto chiedendo, come torno indietro) proprio mentre si scorre la
+  // conversazione, il contrario dell'obiettivo del task. Il composer
+  // recepisce comunque il Task 6 (margine reale della tab bar, non più il
+  // `40` fisso di prima).
+  // Fix di review (Task 2, 11 set 2026): l'avatar, mancante del tutto su
+  // questo screen, ora c'è sulla stessa riga del bottone "indietro". Qui
+  // NON serve `stickyHeaderIndices`: l'header è già fisso, fratello dello
+  // `ScrollView` dei messaggi — non ci scorre mai via da solo.
   return (
     <View style={styles.container}>
-      <Pressable onPress={() => navigation.goBack()} testID="ask-project-back" style={styles.backRow}>
-        <Text style={styles.back}>{t("mobile.docs.ask.back")}</Text>
-      </Pressable>
+      <View style={styles.headerRow}>
+        <Pressable onPress={() => navigation.goBack()} testID="ask-project-back" style={styles.backRow}>
+          <Text style={styles.back}>{t("mobile.docs.ask.back")}</Text>
+        </Pressable>
+        <SettingsAvatarButton />
+      </View>
 
       <Text style={styles.title} numberOfLines={2}>
         {t("mobile.docs.ask.sectionLabel")}
@@ -134,7 +157,7 @@ export function AskProjectScreen({ navigation, route }: NativeStackScreenProps<D
         </Text>
       )}
 
-      <View style={styles.composer}>
+      <View style={[styles.composer, { paddingBottom: COMPOSER_BASE_BOTTOM_PADDING + tabBarHeight }]}>
         <TextInput
           accessibilityLabel={t("mobile.docs.ask.placeholder")}
           value={draft}
@@ -166,10 +189,16 @@ const styles = StyleSheet.create({
     backgroundColor: colors.ink950,
     flex: 1,
   },
-  backRow: {
+  // Fix di review (Task 2, 11 set 2026): il padding vive ora su
+  // `headerRow` (che porta anche l'avatar), non più solo sul bottone.
+  headerRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
     paddingHorizontal: 20,
     paddingTop: 56,
   },
+  backRow: {},
   back: {
     color: colors.muted,
     fontFamily: fontFamily.mono,
@@ -177,6 +206,7 @@ const styles = StyleSheet.create({
   },
   title: {
     color: colors.fg,
+    fontFamily: fontFamily.sansBold,
     fontSize: 20,
     fontWeight: "700",
     lineHeight: 25,
@@ -201,6 +231,7 @@ const styles = StyleSheet.create({
   },
   emptyHint: {
     color: colors.faint,
+    fontFamily: fontFamily.sans,
     fontSize: 13,
     lineHeight: 19,
     paddingHorizontal: 4,
@@ -219,10 +250,11 @@ const styles = StyleSheet.create({
   bubbleUser: {
     alignSelf: "flex-end",
     backgroundColor: "rgba(245,166,35,0.08)",
-    borderColor: "#b97d1a",
+    borderColor: colors.signalDim,
   },
   bubbleText: {
     color: colors.fg,
+    fontFamily: fontFamily.sans,
     fontSize: 14,
     lineHeight: 20,
   },
@@ -257,6 +289,7 @@ const styles = StyleSheet.create({
   },
   errorText: {
     color: colors.danger,
+    fontFamily: fontFamily.sans,
     fontSize: 13,
     marginHorizontal: 16,
   },
@@ -272,11 +305,12 @@ const styles = StyleSheet.create({
   },
   input: {
     backgroundColor: "rgba(10,13,16,0.7)",
-    borderColor: "#2c3641",
+    borderColor: colors.lineStrong,
     borderRadius: 20,
     borderWidth: 1,
     color: colors.fg,
     flex: 1,
+    fontFamily: fontFamily.sans,
     fontSize: fontSize.input,
     paddingHorizontal: 16,
     paddingVertical: 10,

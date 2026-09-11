@@ -154,7 +154,7 @@ const styles = StyleSheet.create({
   },
   handle: {
     alignSelf: "center",
-    backgroundColor: "#2c3641",
+    backgroundColor: colors.lineStrong,
     borderRadius: 2,
     height: 4,
     marginBottom: 16,
@@ -162,6 +162,7 @@ const styles = StyleSheet.create({
   },
   title: {
     color: colors.fg,
+    fontFamily: fontFamily.sansBold,
     fontSize: 18,
     fontWeight: "700",
   },
@@ -173,10 +174,11 @@ const styles = StyleSheet.create({
   },
   input: {
     backgroundColor: "rgba(10,13,16,0.7)",
-    borderColor: "#b97d1a",
+    borderColor: colors.signalDim,
     borderRadius: radii.control,
     borderWidth: 1,
     color: colors.fg,
+    fontFamily: fontFamily.sans,
     fontSize: fontSize.input,
     marginTop: 14,
     minHeight: 88,
@@ -190,7 +192,7 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   chip: {
-    borderColor: "#2c3641",
+    borderColor: colors.lineStrong,
     borderRadius: 16,
     borderWidth: 1,
     paddingHorizontal: 14,
@@ -209,6 +211,7 @@ const styles = StyleSheet.create({
   },
   errorText: {
     color: colors.danger,
+    fontFamily: fontFamily.sans,
     fontSize: 13,
     marginTop: 12,
   },

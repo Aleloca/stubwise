@@ -7,6 +7,7 @@ import { SnoozeSheet } from "./SnoozeSheet";
 import { useHandled, useRelaunch, useSnooze } from "../../lib/inbox-mutations";
 import { can } from "../../lib/inbox-sections";
 import { colors } from "../../theme/tokens";
+import { fontFamily } from "../../theme/typography";
 
 export interface FailedCardProps {
   item: Reader<InboxItem>;
@@ -89,6 +90,7 @@ export function FailedCard({ item, projectName }: FailedCardProps) {
 const styles = StyleSheet.create({
   text: {
     color: colors.fg,
+    fontFamily: fontFamily.sans,
     fontSize: 15,
     lineHeight: 21,
   },

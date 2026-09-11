@@ -116,6 +116,7 @@ export function QuestionCard({ item, projectName }: QuestionCardProps) {
 const styles = StyleSheet.create({
   text: {
     color: colors.fg,
+    fontFamily: fontFamily.sans,
     fontSize: 15,
     lineHeight: 21,
   },

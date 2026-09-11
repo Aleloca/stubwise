@@ -28,6 +28,16 @@ export interface AuthContextValue extends AuthState {
   login: (session: StoredSession) => Promise<void>;
   /** Onboarding finito (attivato o saltato con "Più tardi"): monta `Main`. */
   completeOnboarding: () => void;
+  /**
+   * Apre `SettingsSheet` (Task 7, App M1+M2, 11 set 2026). Prima viveva solo
+   * come stato locale di `AppProviders`, raggiunto da un avatar ANCORATO in
+   * cima allo schermo, fuori dal contenuto scorrevole. Con l'avatar spostato
+   * DENTRO l'header di ogni schermata (`ScreenHeader`, decisione del
+   * maintainer: scorre col contenuto, il banner offline resta ancorato),
+   * ogni schermata deve poter aprire le Impostazioni da sé — da qui
+   * sull'`AuthContext`, già il canale condiviso che ogni schermata importa.
+   */
+  openSettings: () => void;
 }
 
 /**

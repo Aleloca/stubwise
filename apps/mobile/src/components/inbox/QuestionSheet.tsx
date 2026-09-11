@@ -195,7 +195,7 @@ const styles = StyleSheet.create({
   },
   handle: {
     alignSelf: "center",
-    backgroundColor: "#2c3641",
+    backgroundColor: colors.lineStrong,
     borderRadius: 2,
     height: 4,
     marginBottom: 16,
@@ -203,12 +203,13 @@ const styles = StyleSheet.create({
   },
   question: {
     color: colors.fg,
+    fontFamily: fontFamily.sansBold,
     fontSize: 20,
     fontWeight: "700",
     lineHeight: 26,
   },
   option: {
-    borderColor: "#2c3641",
+    borderColor: colors.lineStrong,
     borderRadius: radii.control,
     borderWidth: 1,
     marginTop: 8,
@@ -232,11 +233,13 @@ const styles = StyleSheet.create({
   },
   optionLabel: {
     color: colors.fg,
+    fontFamily: fontFamily.sansSemiBold,
     fontSize: 16,
     fontWeight: "600",
   },
   optionConsequence: {
     color: colors.muted,
+    fontFamily: fontFamily.sans,
     fontSize: 13,
     lineHeight: 18,
     marginTop: 2,
@@ -254,10 +257,11 @@ const styles = StyleSheet.create({
   },
   freeInput: {
     backgroundColor: "rgba(10,13,16,0.7)",
-    borderColor: "#2c3641",
+    borderColor: colors.lineStrong,
     borderRadius: radii.control,
     borderWidth: 1,
     color: colors.fg,
+    fontFamily: fontFamily.sans,
     fontSize: fontSize.input,
     minHeight: 80,
     padding: 14,
@@ -271,6 +275,7 @@ const styles = StyleSheet.create({
   },
   errorText: {
     color: colors.danger,
+    fontFamily: fontFamily.sans,
     fontSize: 13,
     marginTop: 12,
   },

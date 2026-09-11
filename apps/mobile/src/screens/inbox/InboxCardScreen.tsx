@@ -2,14 +2,19 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import type { InboxStackParamList } from "../../app/navigation";
 import { useAuth } from "../../app/providers";
 import { GhostButton } from "../../components/GhostButton";
 import { InboxCard } from "../../components/inbox/InboxCard";
 import { Skeleton } from "../../components/Skeleton";
+import { SettingsAvatarButton } from "../../components/SettingsAvatarButton";
 import { inboxKeys } from "../../lib/inbox-mutations";
 import { colors } from "../../theme/tokens";
-import { fontSize } from "../../theme/typography";
+import { fontFamily, fontSize } from "../../theme/typography";
+
+/** Vedi `InboxScreen.tsx` per il perché di una costante invece di leggere `styles.content.padding`. */
+const CONTENT_BASE_BOTTOM_PADDING = 16;
 
 /**
  * Una card d'inbox da sola, fuori dalla lista: destinazione del deep link
@@ -34,6 +39,7 @@ import { fontSize } from "../../theme/typography";
 export function InboxCardScreen({ route, navigation }: NativeStackScreenProps<InboxStackParamList, "Card">) {
   const { t } = useTranslation();
   const { client } = useAuth();
+  const tabBarHeight = useBottomTabBarHeight();
   const { id } = route.params;
 
   const projectsQuery = useQuery({
@@ -60,12 +66,23 @@ export function InboxCardScreen({ route, navigation }: NativeStackScreenProps<In
   const projectsById = new Map((projectsQuery.data ?? []).map((project) => [project.id, project.name]));
   const projectName = item ? (item.projectId !== null ? projectsById.get(item.projectId) : item.pulse?.projectName) : undefined;
 
+  // Task 7 (App M1+M2, 11 set 2026): l'header (il bottone "indietro") è
+  // dentro lo `ScrollView`, non più fratello — stesso schema di
+  // `InboxScreen.tsx`. Fix di review (Task 2, 11 set 2026): l'avatar,
+  // mancante del tutto su questo screen, ora c'è — sulla STESSA riga del
+  // bottone "indietro" — e la riga è ancorata (`stickyHeaderIndices`,
+  // vedi `ScreenHeader.tsx`) così le Impostazioni restano raggiungibili
+  // anche scorrendo.
   return (
     <View style={styles.container} testID="inbox-card-screen">
-      <View style={styles.header}>
-        <GhostButton label={t("mobile.inbox.notFound.back")} onPress={() => navigation.navigate("List")} testID="inbox-card-back" />
-      </View>
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView
+        contentContainerStyle={[styles.content, { paddingBottom: CONTENT_BASE_BOTTOM_PADDING + tabBarHeight }]}
+        stickyHeaderIndices={[0]}
+      >
+        <View style={styles.header}>
+          <GhostButton label={t("mobile.inbox.notFound.back")} onPress={() => navigation.navigate("List")} testID="inbox-card-back" />
+          <SettingsAvatarButton />
+        </View>
         {query.isPending ? (
           <View testID="inbox-card-skeleton">
             <Skeleton height={180} />
@@ -99,9 +116,19 @@ const styles = StyleSheet.create({
     backgroundColor: colors.ink950,
     flex: 1,
   },
+  // Fix di review (Task 2, 11 set 2026): `header` ora porta ANCHE l'avatar,
+  // sulla stessa riga del bottone "indietro" — `paddingTop`/`backgroundColor`
+  // propri perché la riga è ANCORATA (`stickyHeaderIndices` sullo
+  // `ScrollView` sotto): senza uno sfondo opaco, il contenuto sotto
+  // l'attraverserebbe scorrendo. `content` non porta più `paddingTop`: lo
+  // ha spostato qui `header`, o si sommerebbero (era il bug già preso e
+  // corretto nel Task 7 su altre schermate — vedi `ProjectDetailScreen.tsx`).
   header: {
-    alignItems: "flex-start",
-    paddingHorizontal: 16,
+    alignItems: "center",
+    backgroundColor: colors.ink950,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingBottom: 12,
     paddingTop: 56,
   },
   content: {
@@ -120,11 +147,13 @@ const styles = StyleSheet.create({
   },
   notFoundTitle: {
     color: colors.fg,
+    fontFamily: fontFamily.sansSemiBold,
     fontSize: fontSize.body + 2,
     fontWeight: "600",
   },
   notFoundBody: {
     color: colors.muted,
+    fontFamily: fontFamily.sans,
     fontSize: 13,
     marginTop: 6,
     textAlign: "center",

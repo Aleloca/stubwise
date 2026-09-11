@@ -4,14 +4,19 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import type { BacklogStackParamList } from "../../app/navigation";
 import { useAuth } from "../../app/providers";
 import { GhostButton } from "../../components/GhostButton";
 import { PulseIndicator } from "../../components/PulseIndicator";
+import { SettingsAvatarButton } from "../../components/SettingsAvatarButton";
 import { Skeleton } from "../../components/Skeleton";
 import { backlogKeys, useSendBacklogChatMessage } from "../../lib/backlog-mutations";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
+
+/** Vedi `InboxScreen.tsx` per il perché di una costante invece di leggere `styles.composer.paddingBottom`. */
+const COMPOSER_BASE_BOTTOM_PADDING = 40;
 
 interface ChatBubble {
   id: string;
@@ -49,6 +54,7 @@ interface ChatBubble {
 export function BacklogChatScreen({ navigation, route }: NativeStackScreenProps<BacklogStackParamList, "Chat">) {
   const { t } = useTranslation();
   const { client } = useAuth();
+  const tabBarHeight = useBottomTabBarHeight();
   const { id } = route.params;
 
   const itemQuery = useQuery({
@@ -111,11 +117,23 @@ export function BacklogChatScreen({ navigation, route }: NativeStackScreenProps<
   const codeSessionActive = itemQuery.data?.codeSession != null;
   const canSend = draft.trim().length > 0 && !send.disabled && !codeSessionActive;
 
+  // Task 7 (App M1+M2, 11 set 2026): ECCEZIONE deliberata allo schema
+  // "header dentro il contenuto scorrevole" — vedi il commento gemello in
+  // `AskProjectScreen.tsx`. Il composer recepisce comunque il Task 6
+  // (margine reale della tab bar).
+  //
+  // Fix di review (Task 2, 11 set 2026): l'avatar, mancante del tutto su
+  // questo screen, ora c'è sulla stessa riga del bottone "indietro". Qui
+  // NON serve `stickyHeaderIndices`: l'header è già fisso, fratello dello
+  // `ScrollView` dei messaggi — non ci scorre mai via da solo.
   return (
     <View style={styles.container}>
-      <Pressable onPress={() => navigation.goBack()} testID="backlog-chat-back" style={styles.backRow}>
-        <Text style={styles.back}>{t("mobile.backlog.chat.back")}</Text>
-      </Pressable>
+      <View style={styles.headerRow}>
+        <Pressable onPress={() => navigation.goBack()} testID="backlog-chat-back" style={styles.backRow}>
+          <Text style={styles.back}>{t("mobile.backlog.chat.back")}</Text>
+        </Pressable>
+        <SettingsAvatarButton />
+      </View>
 
       {itemQuery.isPending ? (
         <View style={styles.skeletonList} testID="backlog-chat-skeleton">
@@ -168,7 +186,7 @@ export function BacklogChatScreen({ navigation, route }: NativeStackScreenProps<
             </Text>
           )}
 
-          <View style={styles.composer}>
+          <View style={[styles.composer, { paddingBottom: COMPOSER_BASE_BOTTOM_PADDING + tabBarHeight }]}>
             <TextInput
               accessibilityLabel={t("mobile.backlog.chat.placeholder")}
               value={draft}
@@ -202,10 +220,16 @@ const styles = StyleSheet.create({
     backgroundColor: colors.ink950,
     flex: 1,
   },
-  backRow: {
+  // Fix di review (Task 2, 11 set 2026): il padding vive ora su
+  // `headerRow` (che porta anche l'avatar), non più solo sul bottone.
+  headerRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
     paddingHorizontal: 20,
     paddingTop: 56,
   },
+  backRow: {},
   back: {
     color: colors.muted,
     fontFamily: fontFamily.mono,
@@ -224,17 +248,20 @@ const styles = StyleSheet.create({
   },
   errorTitle: {
     color: colors.fg,
+    fontFamily: fontFamily.sansSemiBold,
     fontSize: 15,
     fontWeight: "600",
     textAlign: "center",
   },
   errorBody: {
     color: colors.muted,
+    fontFamily: fontFamily.sans,
     fontSize: 14,
     textAlign: "center",
   },
   title: {
     color: colors.fg,
+    fontFamily: fontFamily.sansBold,
     fontSize: 20,
     fontWeight: "700",
     lineHeight: 25,
@@ -264,7 +291,7 @@ const styles = StyleSheet.create({
   bubbleUser: {
     alignSelf: "flex-end",
     backgroundColor: "rgba(245,166,35,0.08)",
-    borderColor: "#b97d1a",
+    borderColor: colors.signalDim,
   },
   bubbleLabel: {
     color: colors.faint,
@@ -276,6 +303,7 @@ const styles = StyleSheet.create({
   },
   bubbleText: {
     color: colors.fg,
+    fontFamily: fontFamily.sans,
     fontSize: 14,
     lineHeight: 20,
   },
@@ -284,6 +312,7 @@ const styles = StyleSheet.create({
   },
   errorText: {
     color: colors.danger,
+    fontFamily: fontFamily.sans,
     fontSize: 13,
     marginHorizontal: 16,
   },
@@ -306,11 +335,12 @@ const styles = StyleSheet.create({
   },
   input: {
     backgroundColor: "rgba(10,13,16,0.7)",
-    borderColor: "#2c3641",
+    borderColor: colors.lineStrong,
     borderRadius: 20,
     borderWidth: 1,
     color: colors.fg,
     flex: 1,
+    fontFamily: fontFamily.sans,
     fontSize: fontSize.input,
     paddingHorizontal: 16,
     paddingVertical: 10,

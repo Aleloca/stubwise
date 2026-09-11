@@ -63,6 +63,7 @@ async function renderScreen(client: StubwiseClient, navigate: jest.Mock = jest.f
     justLoggedIn: false,
     login: jest.fn(),
     completeOnboarding: jest.fn(),
+    openSettings: jest.fn(),
   };
   const navigation = { navigate } as never;
   // `await`, non solo `render(...)`: qui `render` può tornare una Promise
@@ -108,6 +109,15 @@ describe("ProjectsScreen", () => {
     await renderScreen(client);
     await waitFor(() => expect(screen.getByText("Scegli cosa seguire")).toBeTruthy());
     expect(screen.getByText("Riceverai decisioni e aggiornamenti solo dei progetti che segui.")).toBeTruthy();
+  });
+
+  // Fix di review (App M1+M2, Task 2, 11 set 2026): rete anti-regressione —
+  // l'avatar (unico accesso alle Impostazioni) deve restare raggiungibile su
+  // OGNI schermata post-login, ripetuto file per file (vedi il piano dei fix).
+  test("le Impostazioni sono raggiungibili (avatar presente)", async () => {
+    const client = makeClient(jest.fn().mockResolvedValue([]));
+    await renderScreen(client);
+    await waitFor(() => expect(screen.getByTestId("settings-avatar-button")).toBeTruthy());
   });
 
   test("lista: nell'ORDINE esatto restituito dal server, senza risistemarla lato client", async () => {

@@ -12,9 +12,11 @@ import type {
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import type { ProjectsStackParamList } from "../../app/navigation";
 import { useAuth } from "../../app/providers";
 import { GhostButton } from "../../components/GhostButton";
+import { SettingsAvatarButton } from "../../components/SettingsAvatarButton";
 import { Skeleton } from "../../components/Skeleton";
 import { PlanSection } from "../../components/work/PlanSection";
 import { StatusBadge } from "../../components/work/StatusBadge";
@@ -24,7 +26,10 @@ import { WorkingPill } from "../../components/work/WorkingPill";
 import { buildTimeline, resolveWorkState } from "../../lib/timeline";
 import { workKeys } from "../../lib/work-mutations";
 import { colors } from "../../theme/tokens";
-import { fontFamily, fontSize } from "../../theme/typography";
+import { fontFamily, fontSize, textStyles } from "../../theme/typography";
+
+/** Vedi `InboxScreen.tsx` per il perché di una costante invece di leggere `styles.body.paddingBottom`. */
+const CONTENT_BASE_BOTTOM_PADDING = 40;
 
 /**
  * Schermata Lavoro (canvas `2c`/`2d`): timeline in parole per tutti, piano +
@@ -60,6 +65,7 @@ import { fontFamily, fontSize } from "../../theme/typography";
 export function WorkScreen({ navigation, route }: NativeStackScreenProps<ProjectsStackParamList, "Ticket">) {
   const { t } = useTranslation();
   const { client, user } = useAuth();
+  const tabBarHeight = useBottomTabBarHeight();
   const { id } = route.params;
 
   const ticketQuery = useQuery({
@@ -128,38 +134,51 @@ export function WorkScreen({ navigation, route }: NativeStackScreenProps<Project
 
   const isAdmin = user !== null && !isUnknown(user.role) && user.role === "admin";
 
+  // Task 7 (App M1+M2, 11 set 2026): un solo `ScrollView`, il link
+  // "indietro" come primo figlio — stesso schema di `InboxScreen.tsx`.
+  // Fix di review (Task 2, 11 set 2026): l'avatar, mancante del tutto su
+  // questo screen — quello dove si approva un piano — ora c'è sulla
+  // stessa riga, ancorata (`stickyHeaderIndices`, vedi `ScreenHeader.tsx`).
   return (
     <View style={styles.container}>
-      <Pressable onPress={() => navigation.goBack()} testID="work-back" style={styles.backRow}>
-        <Text style={styles.back}>{t("mobile.work.back")}</Text>
-      </Pressable>
+      <ScrollView
+        contentContainerStyle={[styles.body, { paddingBottom: CONTENT_BASE_BOTTOM_PADDING + tabBarHeight }]}
+        stickyHeaderIndices={[0]}
+      >
+        <View style={styles.headerRow}>
+          <Pressable onPress={() => navigation.goBack()} testID="work-back" style={styles.backRow}>
+            <Text style={styles.back}>{t("mobile.work.back")}</Text>
+          </Pressable>
+          <SettingsAvatarButton />
+        </View>
 
-      {isPending ? (
-        <View style={styles.skeletonList} testID="work-skeleton">
-          <Skeleton height={28} width="70%" />
-          <Skeleton height={90} />
-          <Skeleton height={160} />
-        </View>
-      ) : notFound ? (
-        <View style={styles.centered} testID="work-not-found">
-          <Text style={styles.errorTitle}>{t("mobile.work.notFound.title")}</Text>
-          <Text style={styles.notFoundBody}>{t("mobile.work.notFound.body")}</Text>
-        </View>
-      ) : isError ? (
-        <View style={styles.centered} testID="work-error">
-          <Text style={styles.errorTitle}>{t("mobile.work.loadError.title")}</Text>
-          <GhostButton label={t("mobile.work.loadError.retry")} onPress={retry} testID="work-retry" />
-        </View>
-      ) : (
-        <WorkBody
-          ticket={ticketQuery.data!}
-          jobs={jobsQuery.data!}
-          questions={questionsQuery.data!}
-          activity={activityQuery.data}
-          reviews={reviewsQuery.data}
-          isAdmin={isAdmin}
-        />
-      )}
+        {isPending ? (
+          <View style={styles.skeletonList} testID="work-skeleton">
+            <Skeleton height={28} width="70%" />
+            <Skeleton height={90} />
+            <Skeleton height={160} />
+          </View>
+        ) : notFound ? (
+          <View style={styles.centered} testID="work-not-found">
+            <Text style={styles.errorTitle}>{t("mobile.work.notFound.title")}</Text>
+            <Text style={styles.notFoundBody}>{t("mobile.work.notFound.body")}</Text>
+          </View>
+        ) : isError ? (
+          <View style={styles.centered} testID="work-error">
+            <Text style={styles.errorTitle}>{t("mobile.work.loadError.title")}</Text>
+            <GhostButton label={t("mobile.work.loadError.retry")} onPress={retry} testID="work-retry" />
+          </View>
+        ) : (
+          <WorkBody
+            ticket={ticketQuery.data!}
+            jobs={jobsQuery.data!}
+            questions={questionsQuery.data!}
+            activity={activityQuery.data}
+            reviews={reviewsQuery.data}
+            isAdmin={isAdmin}
+          />
+        )}
+      </ScrollView>
     </View>
   );
 }
@@ -189,9 +208,12 @@ function WorkBody({
   const isWorking =
     latestJob !== undefined && !isUnknown(latestJob.status) && latestJob.status === "fixing" && latestJob.startedAt !== null;
 
+  // Task 7 (App M1+M2, 11 set 2026): non più il proprio `ScrollView` — è
+  // già dentro quello di `WorkScreen`, che ora avvolge anche il link
+  // "indietro" sopra di lui.
   return (
-    <ScrollView contentContainerStyle={styles.body}>
-      <Text style={styles.title}>{ticket.title}</Text>
+    <>
+      <Text style={textStyles.screenTitle}>{ticket.title}</Text>
       <View style={styles.metaRow}>
         <StatusBadge state={workState} />
         <Text style={styles.ticketNumber}>{t("mobile.work.ticketNumber", { number: ticket.number })}</Text>
@@ -226,7 +248,7 @@ function WorkBody({
           log={latestJob?.log ?? ""}
         />
       )}
-    </ScrollView>
+    </>
   );
 }
 
@@ -235,10 +257,21 @@ const styles = StyleSheet.create({
     backgroundColor: colors.ink950,
     flex: 1,
   },
-  backRow: {
-    paddingHorizontal: 20,
+  // Task 7: niente più `paddingHorizontal`/`paddingTop` propri — vivono in
+  // `body` (vedi il commento gemello in `ProjectDetailScreen.tsx`).
+  // Fix di review (Task 2, 11 set 2026): `headerRow` è ora ANCORATA
+  // (`stickyHeaderIndices` sullo `ScrollView` sopra) e porta anche
+  // l'avatar — `backgroundColor` opaco necessario, o il contenuto sotto
+  // l'attraverserebbe scorrendo.
+  headerRow: {
+    alignItems: "center",
+    backgroundColor: colors.ink950,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingBottom: 12,
     paddingTop: 56,
   },
+  backRow: {},
   back: {
     color: colors.muted,
     fontFamily: fontFamily.mono,
@@ -257,12 +290,14 @@ const styles = StyleSheet.create({
   },
   errorTitle: {
     color: colors.fg,
+    fontFamily: fontFamily.sansSemiBold,
     fontSize: 15,
     fontWeight: "600",
     textAlign: "center",
   },
   notFoundBody: {
     color: colors.muted,
+    fontFamily: fontFamily.sans,
     fontSize: 14,
     textAlign: "center",
   },
@@ -270,11 +305,6 @@ const styles = StyleSheet.create({
     gap: 4,
     padding: 20,
     paddingBottom: 40,
-  },
-  title: {
-    color: colors.fg,
-    fontSize: fontSize.title,
-    fontWeight: "700",
   },
   metaRow: {
     alignItems: "center",
@@ -289,6 +319,7 @@ const styles = StyleSheet.create({
   },
   description: {
     color: colors.muted,
+    fontFamily: fontFamily.sans,
     fontSize: fontSize.body,
     lineHeight: 20,
     marginTop: 10,

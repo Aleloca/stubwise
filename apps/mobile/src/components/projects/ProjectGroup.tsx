@@ -93,6 +93,7 @@ const styles = StyleSheet.create({
   rowTitle: {
     color: colors.fg,
     flex: 1,
+    fontFamily: fontFamily.sans,
     fontSize: 14,
   },
   rowTrailing: {

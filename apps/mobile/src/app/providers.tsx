@@ -7,8 +7,7 @@ import { isUnknown } from "@stubwise/shared";
 import type { Reader, SessionUser } from "@stubwise/shared";
 import notifee from "@notifee/react-native";
 import { useNetInfo } from "@react-native-community/netinfo";
-import { useTranslation } from "react-i18next";
-import { AppState, Pressable, StyleSheet, Text, View, type AppStateStatus } from "react-native";
+import { AppState, StyleSheet, View, type AppStateStatus } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AuthContext, type AuthContextValue, type AuthState } from "./auth-context";
 import { OfflineBanner } from "../components/OfflineBanner";
@@ -19,7 +18,6 @@ import { inboxKeys } from "../lib/query-keys";
 import { getLastSyncAt, loadSession, saveSession, setLastSyncAt, type StoredSession } from "../lib/storage";
 import { SettingsSheet } from "../screens/settings/SettingsSheet";
 import { colors } from "../theme/tokens";
-import { fontFamily } from "../theme/typography";
 
 /**
  * Allinea la lingua dell'app a `user.language` — MA quel campo è
@@ -90,7 +88,6 @@ const FOREGROUND_BADGE_INTERVAL_MS = 60_000;
  * avvio a freddo.
  */
 export function AppProviders({ children }: { children: ReactNode }) {
-  const { t } = useTranslation();
   const [state, setState] = useState<AuthState>({
     status: "loading",
     client: null,
@@ -233,17 +230,36 @@ export function AppProviders({ children }: { children: ReactNode }) {
       completeOnboarding: () => {
         setState((current) => ({ ...current, justLoggedIn: false }));
       },
+      openSettings: () => setSettingsOpen(true),
     }),
     [state],
   );
 
   /**
-   * Chrome globale (banner offline + avatar → Impostazioni, Task 20): visibile
-   * su OGNI tab, non solo l'Inbox — da qui vive in `AppProviders`, l'unico
-   * antenato comune a tutta la navigazione autenticata, invece che duplicato
-   * schermo per schermo. Gate su `authenticated && !justLoggedIn`: lo stesso
-   * di `showMain` in `navigation.tsx` — durante l'Onboarding (`justLoggedIn`)
-   * non c'è ancora nulla da gestire nelle Impostazioni.
+   * Chrome globale (Task 20, ridotta al solo banner offline dal Task 7):
+   * visibile su OGNI tab, non solo l'Inbox — da qui vive in `AppProviders`,
+   * l'unico antenato comune a tutta la navigazione autenticata, invece che
+   * duplicato schermo per schermo. Gate su `authenticated && !justLoggedIn`:
+   * lo stesso di `showMain` in `navigation.tsx` — durante l'Onboarding
+   * (`justLoggedIn`) non c'è ancora nulla da gestire nelle Impostazioni.
+   *
+   * Task 7 (App M1+M2, 11 set 2026): l'AVATAR non vive più qui. Decisione
+   * del maintainer: l'avatar scorre col contenuto (come i titoli grandi di
+   * iOS), il banner offline resta ANCORATO — è uno stato del sistema, non un
+   * pezzo di pagina, e un avviso che scorre via è un avviso che non hai
+   * letto. L'avatar è ora dentro `ScreenHeader`, in cima al contenuto
+   * scorrevole di ogni schermata, e apre le Impostazioni via
+   * `useAuth().openSettings()` invece che da uno stato locale qui.
+   *
+   * ⚠️ TRADEOFF DA VERIFICARE SUL TELEFONO (vedi il Task 8 — elenco di
+   * verifica manuale): l'avatar è l'UNICO accesso alle Impostazioni, e
+   * "scorre col contenuto" significa che su una lista lunga, scesa oltre la
+   * prima schermata, l'avatar non è più a vista — va risalito. Non c'è
+   * un'ancora persistente che lo sostituisca (sarebbe un secondo pezzo di
+   * chrome fisso, esattamente ciò che questo task rimuove): la scelta più
+   * semplice è stata preferita alla più sicura, per restare dentro "poche
+   * righe per schermata". Se sul telefono questo risulta scomodo, è il primo
+   * punto da rivedere.
    *
    * ⚠️ DEBITO NOTO, SEGNALATO IN REVISIONE (Task 20): questo file ha superato
    * la soglia della leggibilità-in-un-colpo-d'occhio (bootstrap sessione,
@@ -266,25 +282,14 @@ export function AppProviders({ children }: { children: ReactNode }) {
     setState({ status: "unauthenticated", client: null, user: null, justLoggedIn: false });
   }
 
-  const avatarInitial = state.user ? state.user.email.charAt(0).toUpperCase() : "";
-
   return (
     <QueryClientProvider client={queryClient}>
       <SafeAreaProvider>
         <AuthContext.Provider value={value}>
           <View style={styles.root}>
-            {showChrome && (
+            {showChrome && !online && (
               <View style={styles.topBar}>
-                <View style={styles.topBarBanner}>{!online && <OfflineBanner lastSyncAt={lastSyncAt} />}</View>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={t("mobile.settings.openLabel")}
-                  onPress={() => setSettingsOpen(true)}
-                  style={styles.avatarButton}
-                  testID="settings-avatar-button"
-                >
-                  <Text style={styles.avatarLabel}>{avatarInitial}</Text>
-                </Pressable>
+                <OfflineBanner lastSyncAt={lastSyncAt} />
               </View>
             )}
             {children}
@@ -309,29 +314,10 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   topBar: {
-    alignItems: "center",
     backgroundColor: colors.ink900,
     borderBottomColor: colors.line,
     borderBottomWidth: 1,
-    flexDirection: "row",
-    gap: 10,
     paddingHorizontal: 16,
     paddingVertical: 8,
-  },
-  topBarBanner: {
-    flex: 1,
-  },
-  avatarButton: {
-    alignItems: "center",
-    backgroundColor: colors.ink800,
-    borderRadius: 16,
-    height: 32,
-    justifyContent: "center",
-    width: 32,
-  },
-  avatarLabel: {
-    color: colors.muted,
-    fontFamily: fontFamily.mono,
-    fontSize: 13,
   },
 });

@@ -6,17 +6,22 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import Markdown from "react-native-markdown-display";
+import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import type { ProjectsStackParamList } from "../../app/navigation";
 import { useAuth } from "../../app/providers";
 import { GhostButton } from "../../components/GhostButton";
 import { PulseIndicator } from "../../components/PulseIndicator";
 import { ProjectGroup } from "../../components/projects/ProjectGroup";
+import { SettingsAvatarButton } from "../../components/SettingsAvatarButton";
 import { Skeleton } from "../../components/Skeleton";
 import { pulseLineFor } from "../../lib/pulse-line";
 import { projectsPulseKey } from "./ProjectsScreen";
 import { MARKDOWN_STYLE } from "../../theme/markdown";
 import { colors, radii } from "../../theme/tokens";
-import { fontFamily, fontSize } from "../../theme/typography";
+import { fontFamily, textStyles } from "../../theme/typography";
+
+/** Vedi `InboxScreen.tsx` per il perché di una costante invece di leggere `styles.body.paddingBottom`. */
+const CONTENT_BASE_BOTTOM_PADDING = 40;
 
 type WaitingForOthersItem = Reader<ProjectPulseSummary>["waitingForOthers"][number];
 
@@ -50,6 +55,7 @@ function whoArrowKey(kind: WaitingForOthersItem["who"]["kind"]): string {
 export function ProjectDetailScreen({ navigation, route }: NativeStackScreenProps<ProjectsStackParamList, "Detail">) {
   const { t } = useTranslation();
   const { client, user } = useAuth();
+  const tabBarHeight = useBottomTabBarHeight();
   const { id } = route.params;
   const viewerId = user?.id ?? "";
 
@@ -65,34 +71,47 @@ export function ProjectDetailScreen({ navigation, route }: NativeStackScreenProp
 
   const summary = query.data?.find((row) => row.projectId === id);
 
+  // Task 7 (App M1+M2, 11 set 2026): un solo `ScrollView`, il link
+  // "indietro" come primo figlio — stesso schema di `InboxScreen.tsx`.
+  // Fix di review (Task 2, 11 set 2026): l'avatar, mancante del tutto su
+  // questo screen, ora c'è sulla stessa riga — ancorata
+  // (`stickyHeaderIndices`, vedi `ScreenHeader.tsx`).
   return (
     <View style={styles.container}>
-      <Pressable onPress={() => navigation.navigate("List")} testID="project-detail-back" style={styles.backRow}>
-        <Text style={styles.back}>{t("mobile.projects.detail.back")}</Text>
-      </Pressable>
+      <ScrollView
+        contentContainerStyle={[styles.body, { paddingBottom: CONTENT_BASE_BOTTOM_PADDING + tabBarHeight }]}
+        stickyHeaderIndices={[0]}
+      >
+        <View style={styles.headerRow}>
+          <Pressable onPress={() => navigation.navigate("List")} testID="project-detail-back" style={styles.backRow}>
+            <Text style={styles.back}>{t("mobile.projects.detail.back")}</Text>
+          </Pressable>
+          <SettingsAvatarButton />
+        </View>
 
-      {query.isPending ? (
-        <View style={styles.skeletonList} testID="project-detail-skeleton">
-          <Skeleton height={28} width="60%" />
-          <Skeleton height={140} />
-        </View>
-      ) : query.isError ? (
-        <View style={styles.centered} testID="project-detail-error">
-          <Text style={styles.errorTitle}>{t("mobile.projects.loadError.title")}</Text>
-          <GhostButton
-            label={t("mobile.projects.loadError.retry")}
-            onPress={() => void query.refetch()}
-            testID="project-detail-retry"
-          />
-        </View>
-      ) : summary === undefined ? (
-        <View style={styles.centered} testID="project-detail-not-found">
-          <Text style={styles.errorTitle}>{t("mobile.projects.detail.notFound.title")}</Text>
-          <Text style={styles.notFoundBody}>{t("mobile.projects.detail.notFound.body")}</Text>
-        </View>
-      ) : (
-        <ProjectDetailBody summary={summary} viewerId={viewerId} navigation={navigation} />
-      )}
+        {query.isPending ? (
+          <View style={styles.skeletonList} testID="project-detail-skeleton">
+            <Skeleton height={28} width="60%" />
+            <Skeleton height={140} />
+          </View>
+        ) : query.isError ? (
+          <View style={styles.centered} testID="project-detail-error">
+            <Text style={styles.errorTitle}>{t("mobile.projects.loadError.title")}</Text>
+            <GhostButton
+              label={t("mobile.projects.loadError.retry")}
+              onPress={() => void query.refetch()}
+              testID="project-detail-retry"
+            />
+          </View>
+        ) : summary === undefined ? (
+          <View style={styles.centered} testID="project-detail-not-found">
+            <Text style={styles.errorTitle}>{t("mobile.projects.detail.notFound.title")}</Text>
+            <Text style={styles.notFoundBody}>{t("mobile.projects.detail.notFound.body")}</Text>
+          </View>
+        ) : (
+          <ProjectDetailBody summary={summary} viewerId={viewerId} navigation={navigation} />
+        )}
+      </ScrollView>
     </View>
   );
 }
@@ -139,9 +158,12 @@ function ProjectDetailBody({
       ? [{ rowKey: "backlog-ready", title: t("mobile.projects.detail.backlogReadySummary", { count: summary.backlogReadyCount }) }]
       : [];
 
+  // Task 7 (App M1+M2, 11 set 2026): non più il proprio `ScrollView` — è
+  // già dentro quello di `ProjectDetailScreen`, che ora avvolge anche il
+  // link "indietro" sopra di lui.
   return (
-    <ScrollView contentContainerStyle={styles.body}>
-      <Text style={styles.title}>{summary.projectName}</Text>
+    <>
+      <Text style={textStyles.screenTitle}>{summary.projectName}</Text>
       <View style={styles.pulseRow}>
         <PulseIndicator tone={line.tone} text={t(line.key, line.params)} />
       </View>
@@ -166,7 +188,7 @@ function ProjectDetailBody({
         <BriefRow projectId={summary.projectId} />
         {summary.lastReportDate !== null && <ReportRow projectId={summary.projectId} date={summary.lastReportDate} />}
       </View>
-    </ScrollView>
+    </>
   );
 }
 
@@ -297,10 +319,24 @@ const styles = StyleSheet.create({
     backgroundColor: colors.ink950,
     flex: 1,
   },
-  backRow: {
-    paddingHorizontal: 20,
+  // Task 7: niente più `paddingHorizontal`/`paddingTop` propri — vivono ora
+  // in `body`, il `contentContainerStyle` dell'unico `ScrollView` che
+  // avvolge SIA questo link SIA il resto (raddoppiarli qui darebbe un
+  // inset doppio, visto che `backRow` non è più fratello del container ma
+  // il suo primo figlio).
+  // Fix di review (Task 2, 11 set 2026): `headerRow` è ora ANCORATA
+  // (`stickyHeaderIndices` sullo `ScrollView` sopra) e porta anche
+  // l'avatar — `backgroundColor` opaco necessario, o il contenuto sotto
+  // l'attraverserebbe scorrendo.
+  headerRow: {
+    alignItems: "center",
+    backgroundColor: colors.ink950,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingBottom: 12,
     paddingTop: 56,
   },
+  backRow: {},
   back: {
     color: colors.muted,
     fontFamily: fontFamily.mono,
@@ -319,12 +355,14 @@ const styles = StyleSheet.create({
   },
   errorTitle: {
     color: colors.fg,
+    fontFamily: fontFamily.sansSemiBold,
     fontSize: 15,
     fontWeight: "600",
     textAlign: "center",
   },
   notFoundBody: {
     color: colors.muted,
+    fontFamily: fontFamily.sans,
     fontSize: 14,
     textAlign: "center",
   },
@@ -332,11 +370,6 @@ const styles = StyleSheet.create({
     gap: 8,
     padding: 20,
     paddingBottom: 40,
-  },
-  title: {
-    color: colors.fg,
-    fontSize: fontSize.title,
-    fontWeight: "700",
   },
   pulseRow: {
     marginBottom: 8,
@@ -360,6 +393,7 @@ const styles = StyleSheet.create({
   },
   reportTitle: {
     color: colors.muted,
+    fontFamily: fontFamily.sans,
     fontSize: 14,
   },
   reportBody: {
@@ -369,6 +403,7 @@ const styles = StyleSheet.create({
   },
   reportSummary: {
     color: colors.fg,
+    fontFamily: fontFamily.sans,
     fontSize: 14,
     lineHeight: 20,
   },

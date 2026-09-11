@@ -214,16 +214,18 @@ const styles = StyleSheet.create({
   },
   input: {
     backgroundColor: "rgba(10,13,16,0.7)",
-    borderColor: "#2c3641",
+    borderColor: colors.lineStrong,
     borderRadius: 8,
     borderWidth: 1,
     color: colors.fg,
+    fontFamily: fontFamily.sans,
     fontSize: fontSize.input,
     paddingHorizontal: 14,
     paddingVertical: 13,
   },
   errorText: {
     color: colors.danger,
+    fontFamily: fontFamily.sans,
     fontSize: 13,
   },
   qrHint: {
@@ -235,12 +237,14 @@ const styles = StyleSheet.create({
   },
   unreachableTitle: {
     color: colors.fg,
+    fontFamily: fontFamily.sansSemiBold,
     fontSize: 15,
     fontWeight: "600",
     marginTop: 10,
   },
   unreachableBody: {
     color: colors.muted,
+    fontFamily: fontFamily.sans,
     fontSize: 14,
     marginTop: 6,
     textAlign: "center",

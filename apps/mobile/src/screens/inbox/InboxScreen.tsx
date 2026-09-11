@@ -5,9 +5,11 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Linking, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import { useAuth } from "../../app/providers";
 import { GhostButton } from "../../components/GhostButton";
 import { InboxCard } from "../../components/inbox/InboxCard";
+import { ScreenHeader } from "../../components/ScreenHeader";
 import { SectionLabel } from "../../components/SectionLabel";
 import { Skeleton } from "../../components/Skeleton";
 import { inboxKeys } from "../../lib/inbox-mutations";
@@ -15,6 +17,17 @@ import type { InboxSections } from "../../lib/inbox-sections";
 import { sectionize } from "../../lib/inbox-sections";
 import { colors } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
+
+/**
+ * Margine di scorrimento in fondo (Task 6, design §"la barra nativa"): oltre
+ * al respiro che il layout aveva già, va aggiunta l'altezza VERA della tab
+ * bar (`useBottomTabBarHeight`, variabile per piattaforma/OS) — senza,
+ * l'ultima riga resta nascosta sotto il vetro. Costante, non letta da
+ * `styles.scrollContent` (`StyleSheet.create` può restituire un riferimento
+ * opaco, non l'oggetto vero, a seconda della piattaforma — leggerne indietro
+ * un campo non è affidabile).
+ */
+const CONTENT_BASE_BOTTOM_PADDING = 40;
 
 /** Ordine di rendering delle quattro sezioni, come nel canvas (`1b`/`1c`). */
 const SECTION_ORDER: { key: keyof InboxSections; labelKey: string; amber: boolean }[] = [
@@ -43,6 +56,7 @@ function resolveProjectName(item: Reader<InboxItem>, projectsById: Map<string, s
 export function InboxScreen() {
   const { t } = useTranslation();
   const { client, user } = useAuth();
+  const tabBarHeight = useBottomTabBarHeight();
   const [notificationsDenied, setNotificationsDenied] = useState(false);
 
   useEffect(() => {
@@ -79,59 +93,69 @@ export function InboxScreen() {
 
   const projectsById = new Map((projectsQuery.data ?? []).map((project) => [project.id, project.name]));
 
+  // Task 7 (App M1+M2, 11 set 2026): un solo `ScrollView` per tutta la
+  // schermata — l'header (ora `ScreenHeader`) è il suo PRIMO figlio, non più
+  // un fratello fermo sopra di lui, e i tre stati (caricamento/errore/dati)
+  // sono contenuto scorrevole, non contenitori alternativi. `paddingBottom`
+  // aggiunge l'altezza della tab bar nativa (Task 6, `useBottomTabBarHeight`)
+  // a quella già prevista dal design: senza, l'ultima riga resta nascosta
+  // sotto il vetro della barra.
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>{t("mobile.tabs.inbox")}</Text>
-        <Text style={styles.subtitle}>
-          {query.isPending
-            ? t("mobile.inbox.header.loading")
-            : query.isError
-              ? ""
-              : subtitleFor(sectionize(query.data.items, { role: viewerRole }), viewerRole, t)}
-        </Text>
-      </View>
-
-      {query.isPending ? (
-        <View style={styles.skeletonList} testID="inbox-skeleton">
-          <Skeleton height={90} width="35%" />
-          <Skeleton height={150} />
-          <Skeleton height={150} />
-          <Skeleton height={150} />
-        </View>
-      ) : query.isError ? (
-        <View style={styles.centered}>
-          <Text style={styles.errorTitle}>{t("mobile.inbox.loadError.title")}</Text>
-          <GhostButton label={t("mobile.inbox.loadError.retry")} onPress={() => void query.refetch()} testID="inbox-retry" />
-        </View>
-      ) : (
-        <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          refreshControl={
-            <RefreshControl refreshing={query.isRefetching} onRefresh={() => void query.refetch()} tintColor={colors.signal} />
+      <ScrollView
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: CONTENT_BASE_BOTTOM_PADDING + tabBarHeight }]}
+        stickyHeaderIndices={[0]}
+        refreshControl={
+          <RefreshControl refreshing={query.isRefetching} onRefresh={() => void query.refetch()} tintColor={colors.signal} />
+        }
+      >
+        <ScreenHeader
+          title={t("mobile.tabs.inbox")}
+          subtitle={
+            query.isPending
+              ? t("mobile.inbox.header.loading")
+              : query.isError
+                ? ""
+                : subtitleFor(sectionize(query.data.items, { role: viewerRole }), viewerRole, t)
           }
-        >
-          {notificationsDenied && (
-            <View style={styles.notifCard} testID="inbox-notifications-denied">
-              <Text style={styles.notifBadge}>{t("mobile.inbox.notifications.badgeLabel")}</Text>
-              <Text style={styles.notifTitle}>{t("mobile.inbox.notifications.title")}</Text>
-              <Text style={styles.notifBody}>{t("mobile.inbox.notifications.body")}</Text>
-              <View style={styles.notifButton}>
-                <GhostButton
-                  label={t("mobile.inbox.notifications.settingsButton")}
-                  onPress={() => void Linking.openSettings()}
-                  testID="inbox-notifications-settings"
-                />
-              </View>
-            </View>
-          )}
+        />
 
-          <InboxSectionsList
-            sections={sectionize(query.data.items, { role: viewerRole })}
-            projectsById={projectsById}
-          />
-        </ScrollView>
-      )}
+        {query.isPending ? (
+          <View style={styles.skeletonList} testID="inbox-skeleton">
+            <Skeleton height={90} width="35%" />
+            <Skeleton height={150} />
+            <Skeleton height={150} />
+            <Skeleton height={150} />
+          </View>
+        ) : query.isError ? (
+          <View style={styles.centered}>
+            <Text style={styles.errorTitle}>{t("mobile.inbox.loadError.title")}</Text>
+            <GhostButton label={t("mobile.inbox.loadError.retry")} onPress={() => void query.refetch()} testID="inbox-retry" />
+          </View>
+        ) : (
+          <>
+            {notificationsDenied && (
+              <View style={styles.notifCard} testID="inbox-notifications-denied">
+                <Text style={styles.notifBadge}>{t("mobile.inbox.notifications.badgeLabel")}</Text>
+                <Text style={styles.notifTitle}>{t("mobile.inbox.notifications.title")}</Text>
+                <Text style={styles.notifBody}>{t("mobile.inbox.notifications.body")}</Text>
+                <View style={styles.notifButton}>
+                  <GhostButton
+                    label={t("mobile.inbox.notifications.settingsButton")}
+                    onPress={() => void Linking.openSettings()}
+                    testID="inbox-notifications-settings"
+                  />
+                </View>
+              </View>
+            )}
+
+            <InboxSectionsList
+              sections={sectionize(query.data.items, { role: viewerRole })}
+              projectsById={projectsById}
+            />
+          </>
+        )}
+      </ScrollView>
     </View>
   );
 }
@@ -197,22 +221,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.ink950,
     flex: 1,
   },
-  header: {
-    paddingHorizontal: 20,
-    paddingTop: 56,
-  },
-  title: {
-    color: colors.fg,
-    fontSize: fontSize.title,
-    fontWeight: "700",
-    letterSpacing: -0.3,
-  },
-  subtitle: {
-    color: colors.faint,
-    fontFamily: fontFamily.mono,
-    fontSize: 12,
-    marginTop: 2,
-  },
   scrollContent: {
     gap: 8,
     padding: 16,
@@ -231,6 +239,7 @@ const styles = StyleSheet.create({
   },
   errorTitle: {
     color: colors.fg,
+    fontFamily: fontFamily.sansSemiBold,
     fontSize: 15,
     fontWeight: "600",
     textAlign: "center",
@@ -252,12 +261,14 @@ const styles = StyleSheet.create({
   },
   notifTitle: {
     color: colors.fg,
+    fontFamily: fontFamily.sansSemiBold,
     fontSize: 15,
     fontWeight: "600",
     marginTop: 6,
   },
   notifBody: {
     color: colors.muted,
+    fontFamily: fontFamily.sans,
     fontSize: 13,
     lineHeight: 18,
     marginTop: 4,
@@ -276,12 +287,14 @@ const styles = StyleSheet.create({
   },
   emptyTitle: {
     color: colors.fg,
+    fontFamily: fontFamily.sansSemiBold,
     fontSize: 17,
     fontWeight: "600",
     marginTop: 16,
   },
   emptyBody: {
     color: colors.muted,
+    fontFamily: fontFamily.sans,
     fontSize: 14,
     marginTop: 6,
     textAlign: "center",

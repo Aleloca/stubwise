@@ -1,11 +1,12 @@
 import { NavigationContainer, useNavigation } from "@react-navigation/native";
 import type { NavigatorScreenParams } from "@react-navigation/native";
-import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
+import { createNativeBottomTabNavigator } from "@bottom-tabs/react-navigation";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useEffect, useMemo } from "react";
-import { useTranslation } from "react-i18next";
-import { StyleSheet, Text, View } from "react-native";
+import type { ImageSourcePropType } from "react-native";
+import { Platform } from "react-native";
+import type { AppleIcon } from "react-native-bottom-tabs";
 import { InboxCardScreen } from "../screens/inbox/InboxCardScreen";
 import { InboxScreen } from "../screens/inbox/InboxScreen";
 import { LoginScreen } from "../screens/auth/LoginScreen";
@@ -22,6 +23,10 @@ import { WorkScreen } from "../screens/work/WorkScreen";
 import { useUnreadCount } from "../lib/inbox-mutations";
 import { colors } from "../theme/tokens";
 import { fontFamily } from "../theme/typography";
+import inboxIcon from "../../assets/icons/inbox.svg";
+import folderIcon from "../../assets/icons/folder.svg";
+import checklistIcon from "../../assets/icons/checklist.svg";
+import menuBookIcon from "../../assets/icons/menu_book.svg";
 import { buildLinking, getPendingDeepLink, resolveDeepLinkTarget, setPendingDeepLink } from "./linking";
 import { useAuth } from "./providers";
 
@@ -84,7 +89,7 @@ const InboxStack = createNativeStackNavigator<InboxStackParamList>();
 const ProjectsStack = createNativeStackNavigator<ProjectsStackParamList>();
 const BacklogStack = createNativeStackNavigator<BacklogStackParamList>();
 const DocsStack = createNativeStackNavigator<DocsStackParamList>();
-const Tab = createBottomTabNavigator<MainTabParamList>();
+const Tab = createNativeBottomTabNavigator<MainTabParamList>();
 
 function InboxNavigator() {
   return (
@@ -125,14 +130,27 @@ function DocsNavigator() {
   );
 }
 
-/** Sigla mono + etichetta della tab bar, nei due stati del canvas (attiva/spenta). */
-function TabGlyph({ code, label, focused }: { code: string; label: string; focused: boolean }) {
-  return (
-    <View style={styles.tabGlyph}>
-      <Text style={[styles.tabCode, { color: focused ? colors.signal : colors.faint }]}>{code}</Text>
-      <Text style={[styles.tabLabel, { color: focused ? colors.fg : colors.muted }]}>{label}</Text>
-    </View>
-  );
+/**
+ * Icona nativa per tab (Task 6, App M1+M2, 11 set 2026): SF Symbol su iOS —
+ * nessuna immagine caricata, resa dal sistema e per questo automaticamente
+ * coerente col Liquid Glass di iOS 26 — Material Symbol (SVG) su Android,
+ * decodificato nativamente dal `TabView` (Coil-svg, verificato nel
+ * `build.gradle` della libreria). Scelti verificando prima l'esistenza di
+ * entrambi, non a memoria: i quattro SF Symbol contro i tipi di
+ * `sf-symbols-typescript` (dipendenza reale di `react-native-bottom-tabs`,
+ * `AppleIcon["sfSymbol"]` qui sotto fa da controllo a compile-time sugli
+ * stessi tipi), i quattro Material Symbol contro il repo ufficiale
+ * `google/material-design-icons` (HTTP 200 su ognuno prima del download).
+ *
+ * Scelta finale (riferita a Fable/maintainer): Inbox → `tray.fill` /
+ * `inbox`, Projects → `folder.fill` / `folder`, Backlog → `checklist` /
+ * `checklist`, Docs → `book.fill` / `menu_book`.
+ */
+function nativeTabIcon(
+  sfSymbol: AppleIcon["sfSymbol"],
+  androidIcon: ImageSourcePropType,
+): AppleIcon | ImageSourcePropType {
+  return Platform.OS === "ios" ? { sfSymbol } : androidIcon;
 }
 
 /**
@@ -150,7 +168,6 @@ function MainNavigator() {
   // uno screen di un navigator FIGLIO da qui, non `.navigate("Inbox", …)`
   // diretto — "Inbox" non è uno screen del RootStack.
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { t } = useTranslation();
   // Il conteggio non letto (campanella web, badge qui): poller di 30s via
   // TanStack Query, vedi `useUnreadCount` in `lib/inbox-mutations.ts`. `0`
   // (o non ancora caricato) non mostra badge — `tabBarBadge` a `0` lo
@@ -175,18 +192,31 @@ function MainNavigator() {
   }, [navigation]);
 
   return (
+    // Task 6: niente più `screenOptions.headerShown`/`tabBarShowLabel` — il
+    // tipo nativo (`NativeBottomTabNavigationOptions`) non li conosce
+    // nemmeno: questo navigator non disegna un header proprio (ogni stack
+    // figlio già lo sopprime da sé, vedi `*Navigator` sopra) e l'etichetta è
+    // SEMPRE nativa, non un'opzione da nascondere. `tabBarInactiveTintColor`
+    // resta impostato: è documentato IGNORATO da iOS ≥26 (Liquid Glass
+    // decide da sé), ma Android lo onora davvero — non è un tentativo di
+    // compensare l'ignoto su iOS, è l'uso previsto della stessa prop sulle
+    // due piattaforme. Deliberatamente NON impostato
+    // `experimental_bakedTintColors`: è il workaround che "cuoce" il colore
+    // nell'icona su iOS 26, con gli effetti collaterali che la libreria
+    // stessa documenta (badge mal posizionati, accessibilità) — la
+    // decisione del maintainer è lasciare che il sistema decida.
     <Tab.Navigator
-      screenOptions={{
-        headerShown: false,
-        tabBarStyle: styles.tabBar,
-        tabBarShowLabel: false,
-      }}
+      tabBarActiveTintColor={colors.signal}
+      tabBarInactiveTintColor={colors.faint}
+      tabBarStyle={{ backgroundColor: colors.ink900 }}
+      tabLabelStyle={{ fontFamily: fontFamily.mono, fontSize: 12 }}
     >
       <Tab.Screen
         name="Inbox"
         component={InboxNavigator}
         options={{
-          tabBarIcon: ({ focused }) => <TabGlyph code="INB" label={t("mobile.tabs.inbox")} focused={focused} />,
+          tabBarLabel: "INB",
+          tabBarIcon: () => nativeTabIcon("tray.fill", inboxIcon),
           tabBarBadge: badge,
         }}
       />
@@ -194,21 +224,24 @@ function MainNavigator() {
         name="Projects"
         component={ProjectsNavigator}
         options={{
-          tabBarIcon: ({ focused }) => <TabGlyph code="PRJ" label={t("mobile.tabs.projects")} focused={focused} />,
+          tabBarLabel: "PRJ",
+          tabBarIcon: () => nativeTabIcon("folder.fill", folderIcon),
         }}
       />
       <Tab.Screen
         name="Backlog"
         component={BacklogNavigator}
         options={{
-          tabBarIcon: ({ focused }) => <TabGlyph code="BLG" label={t("mobile.tabs.backlog")} focused={focused} />,
+          tabBarLabel: "BLG",
+          tabBarIcon: () => nativeTabIcon("checklist", checklistIcon),
         }}
       />
       <Tab.Screen
         name="Docs"
         component={DocsNavigator}
         options={{
-          tabBarIcon: ({ focused }) => <TabGlyph code="DOC" label={t("mobile.tabs.docs")} focused={focused} />,
+          tabBarLabel: "DOC",
+          tabBarIcon: () => nativeTabIcon("book.fill", menuBookIcon),
         }}
       />
     </Tab.Navigator>
@@ -251,23 +284,3 @@ export function RootNavigator() {
     </NavigationContainer>
   );
 }
-
-const styles = StyleSheet.create({
-  tabBar: {
-    backgroundColor: colors.ink900,
-    borderTopColor: colors.line,
-    borderTopWidth: 1,
-  },
-  tabGlyph: {
-    alignItems: "center",
-    gap: 3,
-  },
-  tabCode: {
-    fontFamily: fontFamily.mono,
-    fontSize: 12,
-    letterSpacing: 2,
-  },
-  tabLabel: {
-    fontSize: 10,
-  },
-});

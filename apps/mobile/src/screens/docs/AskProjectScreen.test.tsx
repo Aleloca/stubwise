@@ -58,6 +58,7 @@ async function renderScreen(client: StubwiseClient) {
     justLoggedIn: false,
     login: jest.fn(),
     completeOnboarding: jest.fn(),
+    openSettings: jest.fn(),
   };
   const navigation = { navigate, goBack } as never;
   await render(
@@ -77,6 +78,15 @@ describe("AskProjectScreen — chat di progetto (canvas 3f, «Chiedi al progetto
   test("mostra il nome del progetto in testata", async () => {
     await renderScreen(makeClient());
     expect(screen.getByText("Portale B2B")).toBeTruthy();
+  });
+
+  // Fix di review (App M1+M2, Task 2, 11 set 2026): rete anti-regressione —
+  // l'avatar (unico accesso alle Impostazioni) deve restare raggiungibile su
+  // OGNI schermata post-login, incluse le due chat (prima del fix ne erano
+  // prive del tutto).
+  test("le Impostazioni sono raggiungibili (avatar presente)", async () => {
+    await renderScreen(makeClient());
+    await waitFor(() => expect(screen.getByTestId("settings-avatar-button")).toBeTruthy());
   });
 
   test("invia una domanda → bolla utente + bolla agente con la risposta, sessionId assente al primo turno", async () => {

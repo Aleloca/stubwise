@@ -9,7 +9,7 @@ import { PrimaryButton } from "../../components/PrimaryButton";
 import { SectionLabel } from "../../components/SectionLabel";
 import { getPushToken } from "../../lib/push-token";
 import { colors } from "../../theme/tokens";
-import { fontSize } from "../../theme/typography";
+import { fontFamily, fontSize } from "../../theme/typography";
 
 type LoadState =
   | { kind: "loading" }
@@ -125,7 +125,7 @@ export function OnboardingScreen() {
                   accessibilityLabel={project.name}
                   onValueChange={() => toggle(project.id)}
                   thumbColor={colors.ink950}
-                  trackColor={{ false: "#242d38", true: colors.signal }}
+                  trackColor={{ false: colors.ink700, true: colors.signal }}
                   value={selected.has(project.id)}
                 />
               </View>
@@ -167,12 +167,14 @@ const styles = StyleSheet.create({
   },
   title: {
     color: colors.fg,
+    fontFamily: fontFamily.sansBold,
     fontSize: fontSize.title,
     fontWeight: "700",
     marginTop: 10,
   },
   body: {
     color: colors.muted,
+    fontFamily: fontFamily.sans,
     fontSize: 14,
     lineHeight: 21,
     marginTop: 8,
@@ -202,20 +204,24 @@ const styles = StyleSheet.create({
   },
   projectName: {
     color: colors.fg,
+    fontFamily: fontFamily.sansSemiBold,
     fontSize: 15,
     fontWeight: "600",
   },
   muted: {
     color: colors.muted,
+    fontFamily: fontFamily.sans,
     fontSize: 14,
   },
   settingsHint: {
     color: colors.faint,
+    fontFamily: fontFamily.sans,
     fontSize: 11,
     marginTop: 10,
   },
   errorText: {
     color: colors.danger,
+    fontFamily: fontFamily.sans,
     fontSize: 13,
     marginTop: 20,
   },

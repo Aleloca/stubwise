@@ -34,6 +34,7 @@ function makeWrapper(client: StubwiseClient, queryClient: QueryClient) {
     justLoggedIn: false,
     login: jest.fn(),
     completeOnboarding: jest.fn(),
+    openSettings: jest.fn(),
   };
   return function Wrapper({ children }: { children: ReactNode }) {
     return (

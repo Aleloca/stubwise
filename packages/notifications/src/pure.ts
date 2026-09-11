@@ -30,6 +30,7 @@ export { eventSummary, formatNotification, formatNotificationText, sampleEvents 
 export {
   actionsFor,
   actorAllows,
+  isAdminOnlyKind,
   kindOffers,
   stateAllows,
   KINDS_WITH_OPTIONS,

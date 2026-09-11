@@ -76,6 +76,7 @@ const styles = StyleSheet.create({
   },
   title: {
     color: colors.fg,
+    fontFamily: fontFamily.sansBold,
     fontSize: 16,
     fontWeight: "700",
     marginBottom: 12,
@@ -86,7 +87,7 @@ const styles = StyleSheet.create({
   },
   option: {
     alignItems: "center",
-    borderColor: "#2c3641",
+    borderColor: colors.lineStrong,
     borderRadius: radii.control,
     borderWidth: 1,
     flex: 1,

@@ -7,6 +7,7 @@ import { SnoozeSheet } from "./SnoozeSheet";
 import { useHandled, useSnooze } from "../../lib/inbox-mutations";
 import { can } from "../../lib/inbox-sections";
 import { colors } from "../../theme/tokens";
+import { fontFamily } from "../../theme/typography";
 
 export interface PrReadyCardProps {
   item: Reader<InboxItem>;
@@ -100,11 +101,13 @@ export function PrReadyCard({ item, projectName }: PrReadyCardProps) {
 const styles = StyleSheet.create({
   text: {
     color: colors.fg,
+    fontFamily: fontFamily.sans,
     fontSize: 15,
     lineHeight: 21,
   },
   summary: {
     color: colors.muted,
+    fontFamily: fontFamily.sans,
     fontSize: 14,
     lineHeight: 20,
     marginTop: 8,

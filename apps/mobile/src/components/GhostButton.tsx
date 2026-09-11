@@ -36,7 +36,7 @@ export function GhostButton({
 const styles = StyleSheet.create({
   base: {
     alignItems: "center",
-    borderColor: "#2c3641",
+    borderColor: colors.lineStrong,
     borderRadius: radii.control,
     borderWidth: 1,
     height: 44,
