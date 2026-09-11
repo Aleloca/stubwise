@@ -365,7 +365,9 @@
         "thinking": "Thinking…",
         "placeholder": "Or write your own…",
         "send": "Send",
-        "codeSessionActive": "A code analysis session is active on this item — continue from web."
+        "codeSessionActive": "A code analysis session is active on this item — continue from web.",
+        "notNow": "Not now",
+        "dismissingQuestion": "Dismissing…"
       },
       "item": {
         "back": "‹ Backlog",
@@ -385,7 +387,11 @@
         "notConvertible": "This item can't be converted.",
         "alreadyConverted": "This item has already been converted.",
         "notFound": "This item no longer exists.",
-        "chatUnavailable": "Chat requires an API-key AI provider."
+        "chatUnavailable": "Chat requires an API-key AI provider.",
+        "questionNotFound": "This question no longer exists.",
+        "invalidAnswer": "Invalid answer.",
+        "alreadyAnswered": "Someone else already answered.",
+        "questionNotPending": "This question is no longer open."
       },
       "offlineAction": "Needs a connection"
     },

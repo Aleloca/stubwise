@@ -1,8 +1,10 @@
 import { ApiError } from "@stubwise/api-client";
 import { isUnknown } from "@stubwise/shared";
 import type {
+  AnswerBody,
   BacklogItem,
   BacklogItemStatus,
+  BacklogQuestionActionResult,
   BacklogRisk,
   ConvertBacklogResult,
   CreateBacklogResult,
@@ -210,6 +212,19 @@ export function describeBacklogError(error: unknown, t: TFunction): string {
       return t("mobile.backlog.errors.notFound");
     case "chat_unavailable":
       return t("mobile.backlog.errors.chatUnavailable");
+    // Domande a bottoni (fase 7, App M3 Fase A). `already_answered` è il
+    // code VERO che il server manda per una domanda di backlog già chiusa
+    // (non `already_handled`, quello di `agent_questions` — vedi il difetto
+    // gemello chiuso su `describeInboxError` e su
+    // `apps/web/src/components/question-panel.tsx`, Task 3b).
+    case "question_not_found":
+      return t("mobile.backlog.errors.questionNotFound");
+    case "invalid_answer":
+      return t("mobile.backlog.errors.invalidAnswer");
+    case "already_answered":
+      return t("mobile.backlog.errors.alreadyAnswered");
+    case "question_not_pending":
+      return t("mobile.backlog.errors.questionNotPending");
     default:
       return t("mobile.backlog.errors.generic");
   }
@@ -261,7 +276,7 @@ export function useConvertBacklogItem(): BacklogActionMutation<string, Reader<Co
     disabled: !online || mutation.isPending,
     online,
     errorMessage: mutation.error ? describeBacklogError(mutation.error, t) : null,
-    reset: () => mutation.reset(),
+    reset: mutation.reset,
   };
 }
 
@@ -297,7 +312,7 @@ export function useCreateBacklogItem(): BacklogActionMutation<
     disabled: !online || mutation.isPending,
     online,
     errorMessage: mutation.error ? describeBacklogError(mutation.error, t) : null,
-    reset: () => mutation.reset(),
+    reset: mutation.reset,
   };
 }
 
@@ -329,7 +344,97 @@ export function useSendBacklogChatMessage(): BacklogActionMutation<{ id: string;
     disabled: !online || mutation.isPending,
     online,
     errorMessage: mutation.error ? describeBacklogError(mutation.error, t) : null,
-    reset: () => mutation.reset(),
+    reset: mutation.reset,
+  };
+}
+
+/**
+ * Risponde alla domanda APERTA della voce (fase 7, App M3 Fase A). Al
+ * successo invalida `backlogKeys.item(id)`: il dettaglio si ricarica,
+ * `openQuestion` sparisce e il messaggio `system` che il server scrive per
+ * rendere la risposta permanente (`answerBacklogQuestion`,
+ * `apps/server/src/services/backlog-questions.ts`) compare nella
+ * conversazione al prossimo refetch — `BacklogChatScreen` lo riconcilia da
+ * sé (vedi il commento lì).
+ *
+ * MAI ottimistica, stessa cautela di `useConvertBacklogItem`: un 409
+ * (`already_answered`/`question_not_pending`) significa che qualcun altro ha
+ * già deciso — la UI deve rifletterlo, non promettere una risposta che non è
+ * quella vera.
+ */
+export function useAnswerBacklogQuestion(): BacklogActionMutation<
+  { id: string; questionId: string; answer: AnswerBody },
+  Reader<BacklogQuestionActionResult>
+> {
+  const { client } = useAuth();
+  const queryClient = useQueryClient();
+  const online = useIsOnline();
+  const { t } = useTranslation();
+
+  const mutation = useMutation({
+    mutationFn: (input: { id: string; questionId: string; answer: AnswerBody }) => {
+      if (!client) return Promise.reject(new Error("useAnswerBacklogQuestion richiede un client autenticato"));
+      return client.backlog.answerQuestion(input.id, input.questionId, input.answer);
+    },
+    onSuccess: (_result, input) => {
+      void queryClient.invalidateQueries({ queryKey: backlogKeys.item(input.id) });
+    },
+    onError: (error, input) => {
+      // Stessa strada di useConvertBacklogItem: un 409 (domanda già decisa da
+      // qualcun altro) invalida comunque, così la UI smette di mostrare una
+      // domanda che non è più aperta invece di restare ferma su `staleTime`.
+      if (error instanceof ApiError && error.status === 409) {
+        void queryClient.invalidateQueries({ queryKey: backlogKeys.item(input.id) });
+      }
+    },
+  });
+
+  return {
+    mutate: (input, options) => mutation.mutate(input, options),
+    isPending: mutation.isPending,
+    disabled: !online || mutation.isPending,
+    online,
+    errorMessage: mutation.error ? describeBacklogError(mutation.error, t) : null,
+    reset: mutation.reset,
+  };
+}
+
+/**
+ * "Non ora": chiude la domanda APERTA senza rispondere — l'uscita che il
+ * gemello sul ticket non ha (vedi `backlogQuestionSchema.dismissedAt`).
+ * Stessa invalidazione di {@link useAnswerBacklogQuestion}.
+ */
+export function useDismissBacklogQuestion(): BacklogActionMutation<
+  { id: string; questionId: string },
+  Reader<BacklogQuestionActionResult>
+> {
+  const { client } = useAuth();
+  const queryClient = useQueryClient();
+  const online = useIsOnline();
+  const { t } = useTranslation();
+
+  const mutation = useMutation({
+    mutationFn: (input: { id: string; questionId: string }) => {
+      if (!client) return Promise.reject(new Error("useDismissBacklogQuestion richiede un client autenticato"));
+      return client.backlog.dismissQuestion(input.id, input.questionId);
+    },
+    onSuccess: (_result, input) => {
+      void queryClient.invalidateQueries({ queryKey: backlogKeys.item(input.id) });
+    },
+    onError: (error, input) => {
+      if (error instanceof ApiError && error.status === 409) {
+        void queryClient.invalidateQueries({ queryKey: backlogKeys.item(input.id) });
+      }
+    },
+  });
+
+  return {
+    mutate: (input, options) => mutation.mutate(input, options),
+    isPending: mutation.isPending,
+    disabled: !online || mutation.isPending,
+    online,
+    errorMessage: mutation.error ? describeBacklogError(mutation.error, t) : null,
+    reset: mutation.reset,
   };
 }
 

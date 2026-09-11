@@ -9,9 +9,15 @@ import type { BacklogStackParamList } from "../../app/navigation";
 import { useAuth } from "../../app/providers";
 import { GhostButton } from "../../components/GhostButton";
 import { PulseIndicator } from "../../components/PulseIndicator";
+import { QuestionForm } from "../../components/inbox/QuestionForm";
 import { SettingsAvatarButton } from "../../components/SettingsAvatarButton";
 import { Skeleton } from "../../components/Skeleton";
-import { backlogKeys, useSendBacklogChatMessage } from "../../lib/backlog-mutations";
+import {
+  backlogKeys,
+  useAnswerBacklogQuestion,
+  useDismissBacklogQuestion,
+  useSendBacklogChatMessage,
+} from "../../lib/backlog-mutations";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
 
@@ -20,7 +26,7 @@ const COMPOSER_BASE_BOTTOM_PADDING = 40;
 
 interface ChatBubble {
   id: string;
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "system";
   text: string;
 }
 
@@ -68,16 +74,19 @@ export function BacklogChatScreen({ navigation, route }: NativeStackScreenProps<
   });
 
   const send = useSendBacklogChatMessage();
+  const answerQuestion = useAnswerBacklogQuestion();
+  const dismissQuestion = useDismissBacklogQuestion();
   const [bubbles, setBubbles] = useState<ChatBubble[]>([]);
   const [draft, setDraft] = useState("");
   const seeded = useRef(false);
   const bubbleId = useRef(0);
 
-  // Semina la conversazione con la storia già persistita (`system` esclusi:
-  // sono marker interni, non bolle da mostrare) SOLO la prima volta che il
-  // dettaglio arriva — un refetch successivo (es. dopo l'invalidazione di
-  // `useConvertBacklogItem` altrove) non deve azzerare le bolle già scambiate
-  // in questa sessione di schermata.
+  const openQuestion = itemQuery.data?.openQuestion ?? null;
+
+  // Semina la conversazione con la storia già persistita di utente/agente
+  // SOLO la prima volta che il dettaglio arriva — un refetch successivo (es.
+  // dopo l'invalidazione di `useConvertBacklogItem` altrove) non deve azzerare
+  // le bolle già scambiate in questa sessione di schermata.
   useEffect(() => {
     if (seeded.current || !itemQuery.data) return;
     seeded.current = true;
@@ -91,6 +100,39 @@ export function BacklogChatScreen({ navigation, route }: NativeStackScreenProps<
     );
   }, [itemQuery.data]);
 
+  // I messaggi `system` (fase 7): a differenza di utente/agente, seminati una
+  // volta sola, questi entrano a OGNI refetch — sono il modo in cui il
+  // server rende PERMANENTE nella conversazione la risposta o il "non ora"
+  // a una domanda (`answerBacklogQuestion`/`dismissBacklogQuestion` in
+  // `apps/server/src/services/backlog-questions.ts`), e la mutazione che li
+  // produce invalida `backlogKeys.item(id)` proprio per farli arrivare qui.
+  // Aggiunti in coda (mai riordinati): la voce ha al più una domanda aperta
+  // alla volta, ed è sempre l'ultima cosa detta — stessa proprietà che
+  // `apps/web/src/components/backlog-chat.tsx` documenta per `openQuestion`.
+  useEffect(() => {
+    if (!itemQuery.data) return;
+    const systemMessages = itemQuery.data.messages.filter(
+      (message): message is typeof message & { role: "system" } => message.role === "system",
+    );
+    if (systemMessages.length === 0) return;
+    setBubbles((current) => {
+      const known = new Set(current.map((bubble) => bubble.id));
+      const fresh = systemMessages.filter((message) => !known.has(message.id));
+      if (fresh.length === 0) return current;
+      return [...current, ...fresh.map((message) => ({ id: message.id, role: "system" as const, text: message.content }))];
+    });
+  }, [itemQuery.data]);
+
+  // Una domanda diversa (risposta arrivata, "non ora" da un'altra sessione):
+  // l'errore della domanda precedente non deve sopravvivere — stesso pattern
+  // di `apps/web/src/components/backlog-chat.tsx`.
+  const resetAnswer = answerQuestion.reset;
+  const resetDismiss = dismissQuestion.reset;
+  useEffect(() => {
+    resetAnswer();
+    resetDismiss();
+  }, [resetAnswer, resetDismiss, openQuestion?.questionId]);
+
   function nextLocalId(): string {
     bubbleId.current += 1;
     return `local-${bubbleId.current}`;
@@ -98,7 +140,7 @@ export function BacklogChatScreen({ navigation, route }: NativeStackScreenProps<
 
   function handleSend(): void {
     const trimmed = draft.trim();
-    if (trimmed.length === 0 || send.disabled || codeSessionActive) return;
+    if (trimmed.length === 0 || send.disabled || codeSessionActive || openQuestion !== null) return;
     setBubbles((current) => [...current, { id: nextLocalId(), role: "user", text: trimmed }]);
     setDraft("");
     send.mutate(
@@ -112,10 +154,12 @@ export function BacklogChatScreen({ navigation, route }: NativeStackScreenProps<
   }
 
   const notFound = itemQuery.isError && itemQuery.error instanceof ApiError && itemQuery.error.status === 404;
-  // Sessione di analisi sul codice attiva (avviata da web): niente invio da
-  // qui, vedi il commento in testa al file.
+  // Sessione di analisi sul codice attiva (avviata da web): niente TESTO
+  // LIBERO da qui, vedi il commento in testa al file — ma una domanda
+  // aperta resta rispondibile: è `answerQuestion`/`dismissQuestion`, non
+  // `chatText`, e quella guardia riguarda solo quest'ultima.
   const codeSessionActive = itemQuery.data?.codeSession != null;
-  const canSend = draft.trim().length > 0 && !send.disabled && !codeSessionActive;
+  const canSend = draft.trim().length > 0 && !send.disabled && !codeSessionActive && openQuestion === null;
 
   // Task 7 (App M1+M2, 11 set 2026): ECCEZIONE deliberata allo schema
   // "header dentro il contenuto scorrevole" — vedi il commento gemello in
@@ -157,19 +201,72 @@ export function BacklogChatScreen({ navigation, route }: NativeStackScreenProps<
           </Text>
 
           <ScrollView style={styles.messages} contentContainerStyle={styles.messagesContent}>
-            {bubbles.map((bubble) => (
-              <View
-                key={bubble.id}
-                style={[styles.bubble, bubble.role === "user" ? styles.bubbleUser : styles.bubbleAgent]}
-                testID={`backlog-chat-bubble-${bubble.id}`}
-              >
-                {bubble.role === "assistant" && <Text style={styles.bubbleLabel}>{t("mobile.backlog.chat.agent")}</Text>}
-                <Text style={styles.bubbleText}>{bubble.text}</Text>
-              </View>
-            ))}
+            {bubbles.map((bubble) =>
+              // Un messaggio `system` non è una bolla: divider/nota centrata,
+              // stessa resa di `ChatBubble` in
+              // apps/web/src/components/backlog-chat.tsx.
+              bubble.role === "system" ? (
+                <View key={bubble.id} style={styles.systemRow} testID={`backlog-chat-bubble-${bubble.id}`}>
+                  <View style={styles.systemLine} />
+                  <Text style={styles.systemText}>{bubble.text}</Text>
+                  <View style={styles.systemLine} />
+                </View>
+              ) : (
+                <View
+                  key={bubble.id}
+                  style={[styles.bubble, bubble.role === "user" ? styles.bubbleUser : styles.bubbleAgent]}
+                  testID={`backlog-chat-bubble-${bubble.id}`}
+                >
+                  {bubble.role === "assistant" && <Text style={styles.bubbleLabel}>{t("mobile.backlog.chat.agent")}</Text>}
+                  <Text style={styles.bubbleText}>{bubble.text}</Text>
+                </View>
+              ),
+            )}
             {send.isPending && (
               <View style={styles.thinkingRow} testID="backlog-chat-thinking">
                 <PulseIndicator tone="sky" text={t("mobile.backlog.chat.thinking")} />
+              </View>
+            )}
+
+            {/*
+              La domanda a bottoni (fase 7): l'ultima cosa che l'agente ha
+              detto, in fondo alla conversazione — non dentro una bolla
+              PASSATA (nessun FK fra messaggio e domanda: la voce ha al più
+              una domanda aperta alla volta, ed è sempre l'ultima). "Non ora"
+              è l'uscita SEMPRE disponibile, resa come azione secondaria fuori
+              dal form di risposta — stessa struttura di
+              apps/web/src/components/backlog-chat.tsx.
+            */}
+            {openQuestion !== null && (
+              <View style={styles.questionBlock} testID="backlog-chat-question">
+                <Text style={styles.bubbleLabel}>{t("mobile.backlog.chat.agent")}</Text>
+                <QuestionForm
+                  question={openQuestion}
+                  onSubmit={(answer) => answerQuestion.mutate({ id, questionId: openQuestion.questionId, answer })}
+                  pending={answerQuestion.isPending || dismissQuestion.isPending}
+                  disabled={answerQuestion.disabled || dismissQuestion.isPending}
+                  online={answerQuestion.online}
+                  errorMessage={answerQuestion.errorMessage}
+                  testIDPrefix="backlog-chat-question"
+                />
+                <View style={styles.notNowRow}>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityState={{ disabled: answerQuestion.isPending || dismissQuestion.isPending }}
+                    disabled={answerQuestion.isPending || dismissQuestion.isPending}
+                    onPress={() => dismissQuestion.mutate({ id, questionId: openQuestion.questionId })}
+                    testID="backlog-chat-question-not-now"
+                  >
+                    <Text style={styles.notNowLabel}>
+                      {dismissQuestion.isPending ? t("mobile.backlog.chat.dismissingQuestion") : t("mobile.backlog.chat.notNow")}
+                    </Text>
+                  </Pressable>
+                  {dismissQuestion.errorMessage !== null && (
+                    <Text accessibilityLiveRegion="polite" style={styles.errorText} testID="backlog-chat-question-dismiss-error">
+                      {dismissQuestion.errorMessage}
+                    </Text>
+                  )}
+                </View>
               </View>
             )}
           </ScrollView>
@@ -191,7 +288,7 @@ export function BacklogChatScreen({ navigation, route }: NativeStackScreenProps<
               accessibilityLabel={t("mobile.backlog.chat.placeholder")}
               value={draft}
               onChangeText={setDraft}
-              editable={!send.disabled && !codeSessionActive}
+              editable={!send.disabled && !codeSessionActive && openQuestion === null}
               placeholder={t("mobile.backlog.chat.placeholder")}
               placeholderTextColor={colors.faint}
               style={styles.input}
@@ -306,6 +403,46 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.sans,
     fontSize: 14,
     lineHeight: 20,
+  },
+  // Un messaggio `system` (risposta/"non ora" resa permanente): divider, non
+  // una bolla — vedi il commento sopra la resa.
+  systemRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10,
+    paddingVertical: 4,
+  },
+  systemLine: {
+    backgroundColor: colors.line,
+    flex: 1,
+    height: 1,
+  },
+  systemText: {
+    color: colors.faint,
+    fontFamily: fontFamily.mono,
+    fontSize: 10,
+    letterSpacing: 0.8,
+  },
+  questionBlock: {
+    backgroundColor: colors.ink900,
+    borderColor: colors.signalDim,
+    borderRadius: radii.card,
+    borderWidth: 1,
+    padding: 12,
+  },
+  notNowRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    marginTop: 10,
+  },
+  notNowLabel: {
+    color: colors.muted,
+    fontFamily: fontFamily.mono,
+    fontSize: 11,
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
   },
   thinkingRow: {
     paddingHorizontal: 4,
