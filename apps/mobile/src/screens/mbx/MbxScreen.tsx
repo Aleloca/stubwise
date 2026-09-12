@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import type { MbxStackParamList } from "../../app/navigation";
+import { CalendarPanel } from "../../components/mbx/CalendarPanel";
 import { GhostButton } from "../../components/GhostButton";
 import { PulseIndicator } from "../../components/PulseIndicator";
 import { ScreenHeader } from "../../components/ScreenHeader";
@@ -38,8 +39,9 @@ const TABS: { tab: MbxTab; i18nKey: string }[] = [
  * schermo con uno scambio in alto, non due schede — sono la stessa origine
  * vista da due lati (§3 "Perché Posta e Calendario stanno insieme").
  *
- * Il Calendario è un SEGNAPOSTO in questa fase (arriva in Fase D): lo stato
- * vuoto lo dichiara invece di mostrare una griglia mancante o un errore.
+ * Il Calendario (Fase D, Task 11) è una griglia MENSILE coi puntini sui
+ * giorni pieni e il giorno scelto sotto — `CalendarPanel`, che porta con sé
+ * anche i bordi della finestra di ingestione e lo stato vuoto che si spiega.
  *
  * La lista Posta è corta PER COSTRUZIONE (33 messaggi su quattro caselle in
  * produzione, al momento in cui questo screen è stato scritto — solo la
@@ -80,10 +82,7 @@ export function MbxScreen({ navigation }: NativeStackScreenProps<MbxStackParamLi
         </View>
 
         {tab === "calendar" ? (
-          <View style={styles.emptyState} testID="mbx-calendar-placeholder">
-            <Text style={styles.emptyTitle}>{t("mobile.mbx.calendarPlaceholder.title")}</Text>
-            <Text style={styles.emptyBody}>{t("mobile.mbx.calendarPlaceholder.body")}</Text>
-          </View>
+          <CalendarPanel />
         ) : query.isPending ? (
           <View style={styles.skeletonList} testID="mbx-mail-skeleton">
             <Skeleton height={72} />

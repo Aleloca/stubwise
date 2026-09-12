@@ -35,7 +35,7 @@ function page(items: Reader<MailItem>[]): Reader<MailPage> {
   return { items, nextCursor: null };
 }
 
-function makeClient(overrides: { list?: jest.Mock; repropose?: jest.Mock } = {}): StubwiseClient {
+function makeClient(overrides: { list?: jest.Mock; repropose?: jest.Mock; range?: jest.Mock } = {}): StubwiseClient {
   return {
     mail: {
       list: overrides.list ?? jest.fn().mockResolvedValue(page([])),
@@ -43,6 +43,13 @@ function makeClient(overrides: { list?: jest.Mock; repropose?: jest.Mock } = {})
       get: jest.fn(),
       original: jest.fn(),
       repropose: overrides.repropose ?? jest.fn().mockResolvedValue({ ok: true }),
+    },
+    calendar: {
+      list: jest.fn(),
+      range: overrides.range ?? jest.fn().mockResolvedValue({ items: [], nextCursor: null }),
+      series: jest.fn().mockResolvedValue({ items: [] }),
+      putSeries: jest.fn(),
+      deleteSeries: jest.fn(),
     },
   } as unknown as StubwiseClient;
 }
@@ -78,11 +85,12 @@ describe("MbxScreen — lo scambio Posta/Calendario", () => {
     expect(screen.queryByTestId("mbx-calendar-placeholder")).toBeNull();
   });
 
-  test("passando a Calendario si vede il segnaposto, non un errore o una griglia mancante", async () => {
+  test("passando a Calendario si vede la GRIGLIA (Fase D), non più il segnaposto", async () => {
     await renderScreen(makeClient());
     await waitFor(() => expect(screen.getByTestId("mbx-mail-empty")).toBeTruthy());
     await fireEvent.press(screen.getByTestId("mbx-tab-calendar"));
-    expect(screen.getByTestId("mbx-calendar-placeholder")).toBeTruthy();
+    await waitFor(() => expect(screen.getByTestId("calendar-panel")).toBeTruthy());
+    expect(screen.queryByTestId("mbx-calendar-placeholder")).toBeNull();
     expect(screen.queryByTestId("mbx-mail-empty")).toBeNull();
   });
 });

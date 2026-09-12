@@ -474,10 +474,6 @@
         "mail": "Posta",
         "calendar": "Calendario"
       },
-      "calendarPlaceholder": {
-        "title": "Il calendario arriva presto",
-        "body": "Vedrai qui gli appuntamenti che Stubwise riconosce dalla tua casella Google."
-      },
       "status": {
         "new": "Nuova",
         "classified": "Classificata",
@@ -536,6 +532,61 @@
         "openInGmail": "Apri su Gmail",
         "attachments_one": "{{count}} allegato: {{names}}",
         "attachments_other": "{{count}} allegati: {{names}}"
+      }
+    },
+    "calendar": {
+      "months": {
+        "0": "gennaio",
+        "1": "febbraio",
+        "2": "marzo",
+        "3": "aprile",
+        "4": "maggio",
+        "5": "giugno",
+        "6": "luglio",
+        "7": "agosto",
+        "8": "settembre",
+        "9": "ottobre",
+        "10": "novembre",
+        "11": "dicembre"
+      },
+      "weekdays": {
+        "mon": "L",
+        "tue": "M",
+        "wed": "M",
+        "thu": "G",
+        "fri": "V",
+        "sat": "S",
+        "sun": "D"
+      },
+      "weekdaysLong": {
+        "mon": "Lunedì",
+        "tue": "Martedì",
+        "wed": "Mercoledì",
+        "thu": "Giovedì",
+        "fri": "Venerdì",
+        "sat": "Sabato",
+        "sun": "Domenica"
+      },
+      "allDay": "tutto il g.",
+      "noTitle": "(senza titolo)",
+      "loadError": {
+        "title": "Non riesco a caricare il calendario.",
+        "retry": "Riprova"
+      },
+      "edge": {
+        "start": "Più indietro di qui Stubwise non ha guardato: la sincronizzazione copre dal {{from}} al {{to}}.",
+        "end": "Più avanti di qui Stubwise non guarda ancora: la sincronizzazione copre dal {{from}} al {{to}}.",
+        "both": "Stubwise guarda solo dal {{from}} al {{to}}: fuori da questo periodo non ha ancora niente da mostrare."
+      },
+      "dayEmpty": {
+        "title": "Niente in questo giorno",
+        "body": "Qui compaiono solo gli appuntamenti che combaciano con le regole di smistamento di un progetto — un giorno vuoto è normale. Le regole si cambiano dal sito, nella sezione Posta del progetto."
+      },
+      "errors": {
+        "generic": "Qualcosa è andato storto. Riprova.",
+        "projectRequired": "Scegli un progetto prima di accendere questa serie.",
+        "notFound": "Questa serie non c'è più.",
+        "badRange": "Non riesco a chiedere questo periodo."
       }
     },
     "common": {

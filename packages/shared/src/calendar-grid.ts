@@ -27,6 +27,29 @@ import type { CalendarEventItem } from "./schemas/google.js";
  * toccata.
  */
 
+/**
+ * **La finestra di INGESTIONE del calendario**: da {@link
+ * CALENDAR_LOOKBACK_DAYS} giorni indietro a {@link CALENDAR_WINDOW_DAYS}
+ * giorni avanti rispetto a "adesso". È l'intervallo che il poller chiede a
+ * Google e l'unico dentro cui `calendar_events` può avere righe — fuori non
+ * c'è "niente in programma", c'è un posto dove Stubwise non guarda, e una
+ * griglia che non lo dicesse sembrerebbe guasta.
+ *
+ * App M3, Fase D (Task 11, 12 set 2026): stavano in
+ * `apps/worker/src/google/calendar.ts`, che resta il loro unico USO
+ * operativo (la finestra che il poller interroga, e il filtro in scrittura
+ * che la replica) e le ri-esporta perché nessun import esistente cambi.
+ * Vivono qui perché l'app mobile ferma la navigazione fra i mesi
+ * esattamente a questi bordi, e due numeri che DEVONO restare d'accordo
+ * scritti in due posti sono la divergenza che questo repo evita altrove —
+ * `calendarAttendeeSchema` poco sopra è lo stesso ragionamento, applicato a
+ * una forma invece che a un numero.
+ */
+export const CALENDAR_WINDOW_DAYS = 60;
+
+/** Vedi {@link CALENDAR_WINDOW_DAYS}: quanto indietro guarda la stessa finestra. */
+export const CALENDAR_LOOKBACK_DAYS = 30;
+
 export type CalendarView = "day" | "week" | "month";
 
 /** Chiave di un giorno di calendario (`YYYY-MM-DD`), locale o UTC a seconda di chi la chiama. */
@@ -167,8 +190,20 @@ export function allDayEventsForDay(events: CalendarEventItem[], day: Date): Cale
   return events.filter((event) => event.allDay && eventDayKey(event) === key);
 }
 
-/** Tutti gli eventi (con e senza orario) del giorno locale `day`, per la vista mese. */
-export function eventsForDay(events: CalendarEventItem[], day: Date): CalendarEventItem[] {
+/**
+ * Tutti gli eventi (con e senza orario) del giorno locale `day`, per la
+ * vista mese.
+ *
+ * GENERICA sui soli tre campi che legge (App M3, Fase D, Task 11 — non nel
+ * commit dello spostamento, che non cambiava nulla): l'app mobile passa dei
+ * `Reader<CalendarEventItem>`, cioè la stessa forma con gli enum APERTI, che
+ * non è assegnabile a `CalendarEventItem` e obbligherebbe a un cast. Il tipo
+ * in uscita è quello in entrata, quindi il web non vede alcuna differenza.
+ */
+export function eventsForDay<T extends Pick<CalendarEventItem, "startsAt" | "endsAt" | "allDay">>(
+  events: T[],
+  day: Date,
+): T[] {
   const key = localDayKey(day);
   return events.filter((event) => {
     if (event.allDay) return eventDayKey(event) === key;
