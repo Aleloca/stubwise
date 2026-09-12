@@ -6,11 +6,19 @@ visualizzato: **Stubwise**.
 
 Tema, i18n, sessione (Keychain), client HTTP verso `@stubwise/api-client`,
 navigazione (`@react-navigation`, deep link `stubwise://…`), login e
-onboarding, push (Task 19) — `src/app/App.tsx` è la radice. I quattro tab di
-`Main` (Inbox/Progetti/Backlog/Docs, più gli screen di dettaglio raggiunti da
-ciascuno) sono completi, non placeholder — vedi il programma "Stubwise Go"
+onboarding, push (Task 19) — `src/app/App.tsx` è la radice. I **cinque** tab
+di `Main` (Inbox/Progetti/Backlog/Docs, più **MBX** dalla App M3: posta e
+calendario di una CASELLA, non di un progetto, sotto uno scambio in alto),
+con gli screen di dettaglio raggiunti da ciascuno, sono completi, non
+placeholder — vedi il programma "Stubwise Go"
 (`docs/plans/2026-09-11-mobile-app-program-design.md`) per lo stato corrente
 e cosa resta fuori scope.
+
+Deep link riconosciuti: `stubwise://inbox/:id`, `tickets/:id`,
+`projects/:id`, `mail/email/:id` e — dalla App M3, Fase D —
+`calendar/:giorno[/:idAppuntamento]`. Vale per tutti la regola 2
+dell'architettura di navigazione: da una notifica si arriva all'OGGETTO, mai
+a un elenco.
 
 ## Prerequisiti
 
@@ -794,6 +802,192 @@ davvero, sul device reale, prima di cambiare codice.
       renderizzate — non un riquadro vuoto o un placeholder rotto: sarebbe il
       caso in cui la rasterizzazione SVG fallisse silenziosamente su un
       device/versione Android specifica, senza errore visibile altrove.
+
+## Verifica manuale sul telefono (App M3)
+
+**Stessa premessa della sezione M1+M2 qui sopra, e vale identica**: nessuna
+build nativa gira in CI, e nessuna è girata nelle quattro sessioni che hanno
+scritto M3. Quello che segue è il lavoro, non un extra.
+
+M3 è stata fatta in **quattro fasi**, ognuna con una sessione propria, e le
+quattro liste sotto **si leggono insieme**: A e B completano schermate che
+l'app aveva già (chat del backlog, schermata Lavoro), C e D sono la scheda
+**MBX** nuova. Se hai poco tempo, la D è quella che ha più bisogno di occhi:
+è la parte con i fusi orari e con una configurazione che agisce su ogni
+occorrenza futura di una serie.
+
+Installa un build TestFlight/interno **su device fisico** e tieni a portata
+un'istanza con: una voce di backlog con una **sessione di analisi** avviata
+dal sito, un ticket **con un piano** salvato, una **casella Google
+collegata** con posta ammessa e almeno un appuntamento riconosciuto, e —
+per la D — almeno una **serie ricorrente** vista.
+
+### Fase A — le domande a bottoni nella chat del backlog
+
+Le domande nascono **solo** in modalità CODE (una sessione di analisi sul
+codice). Avviala dal sito: l'app risponde a una sessione già avviata, non la
+avvia né la ferma — è una decisione di design (§3), non una mancanza.
+
+- [ ] Con una domanda aperta, aprendo **Raffina in chat** la domanda compare
+      **in linea, in fondo alla conversazione** — non come foglio modale.
+- [ ] Le opzioni sono bottoni; **nessuna è preselezionata**, nemmeno quella
+      consigliata (se c'è, è solo marcata come tale).
+- [ ] Rispondendo, la risposta compare nella conversazione come messaggio di
+      sistema e la domanda sparisce.
+- [ ] **«Non ora»** chiude la domanda senza rispondere, e la conversazione
+      resta utilizzabile.
+- [ ] Mentre una domanda è aperta, il **campo di scrittura è disabilitato**
+      con una spiegazione — e torna attivo appena la domanda è chiusa.
+- [ ] ⚠️ **Con una sessione di analisi ATTIVA**: il testo libero resta
+      bloccato, ma **rispondere alla domanda deve funzionare**. È il caso per
+      cui la funzionalità esiste: se lì i bottoni fossero disabilitati,
+      sarebbe un difetto, non una protezione.
+- [ ] **Due persone che rispondono insieme**: fai rispondere la stessa
+      domanda dal sito e poi, dall'app, tocca un'opzione. Il messaggio deve
+      dire che **ha già risposto qualcun altro**, non un errore generico.
+
+### Fase B — la pre-approvazione del piano (schermata Lavoro)
+
+Serve un ticket con un piano salvato, e **due account**: un maintainer
+(admin) e un operatore (member).
+
+- [ ] Da **maintainer**, sul ticket compare il bottone **«Approva in
+      anticipo»**; premendolo la schermata mostra la riga «Piano approvato
+      da …, … fa».
+- [ ] Da **operatore**, la **riga di stato si vede lo stesso** (è ciò che gli
+      dice che può partire) ma il **bottone non c'è**. Se comparisse, è un
+      difetto.
+- [ ] Il bottone **non compare** su un ticket chiuso né su uno senza piano.
+- [ ] ⚠️ **L'approvazione decade se il piano cambia**: con un piano
+      pre-approvato, fai riscrivere il piano (rilancio con istruzioni, o
+      ripianificazione). La riga deve dire che **serve un nuovo via libera** —
+      non deve restare «approvato».
+- [ ] Revocando l'approvazione, la riga sparisce.
+
+### Fase C — la scheda MBX e la Posta
+
+- [ ] In fondo c'è una **quinta scheda MBX** con l'icona a **busta** (SF
+      Symbol su iOS, Material su Android: icone diverse fra le piattaforme, è
+      previsto).
+- [ ] Aprendola: in alto uno **scambio Posta/Calendario**, e si nasce su
+      **Posta**.
+- [ ] La lista mostra mittente, oggetto, stato e progetto. È corta per
+      costruzione — se fosse lunghissima, qualcosa è cambiato nel filtro di
+      ammissione lato server, non nell'app.
+- [ ] Un tap su una riga di **posta** apre il dettaglio; un tap su una riga
+      di **calendario** non apre niente (non ha un dettaglio) — e non deve
+      sembrare un tocco ignorato per errore.
+- [ ] Nel dettaglio, l'**estratto** dichiara di essere un estratto (niente
+      citazioni, firma, allegati). Su un messaggio anteriore alla fase 6
+      dichiara di **non esserci**, invece di mostrare un vuoto.
+- [ ] ⚠️ Il corpo è **testo semplice**: asterischi e trattini di un'email
+      devono restare com'erano, **mai** renderizzati come grassetto o elenchi
+      (non passa da markdown, di proposito).
+- [ ] **«Mostra l'originale»** dichiara, PRIMA del tap, che chiederà il
+      messaggio a Google adesso. Premendolo arriva il corpo pieno.
+- [ ] Con la casella scollegata o Google irraggiungibile, «Mostra
+      l'originale» mostra un errore **specifico** (messaggio sparito / casella
+      da ricollegare / Google non risponde) e **l'estratto resta leggibile**.
+- [ ] **«Apri su Gmail»** apre il thread giusto, nella casella giusta.
+- [ ] **«Riproponi»** compare solo sulle righe che lo permettono.
+- [ ] **Deep link**: da una notifica push di una proposta di posta, il tap
+      apre **direttamente il dettaglio del messaggio**, non la lista.
+
+### Fase D — il Calendario
+
+#### Il mese, i puntini, il giorno
+
+- [ ] Lo scambio in alto porta alla **griglia mensile** (nessun segnaposto).
+- [ ] Sette colonne, settimane di contorno incluse (i giorni del mese
+      prima/dopo si vedono attenuati); **oggi** è in ambra.
+- [ ] I giorni con appuntamenti hanno un **puntino**; quelli senza no.
+- [ ] Toccando un giorno, sotto compare la sua **agenda** con l'intestazione
+      per esteso («Giovedì 17 settembre»).
+- [ ] Cambiando mese con le frecce compare un attimo di **skeleton**: è
+      voluto (mostrare i puntini del mese precedente su una griglia nuova
+      sarebbe peggio). Confermare solo che non "lampeggi" in modo fastidioso.
+
+#### Le ore e i fusi — è la parte che solo un telefono conferma
+
+- [ ] Un appuntamento **con orario** mostra l'ora del **tuo** fuso, la stessa
+      che vedi in Google Calendar **sullo stesso telefono**. Se Stubwise dice
+      09:30 e Google dice 11:30, **fermati**: è il difetto che nessun test
+      può cogliere.
+- [ ] Un appuntamento **«tutto il giorno»** mostra «tutto il g.» e **nessuna
+      ora**, e sta sul **giorno giusto** — non su quello prima.
+- [ ] Un appuntamento **a cavallo di mezzanotte** ha il puntino su
+      **entrambi** i giorni.
+
+#### I bordi della finestra di ingestione
+
+Stubwise guarda solo da **30 giorni fa a 60 giorni avanti**. Fuori di lì non
+c'è "niente in programma": c'è un posto dove non ha guardato.
+
+- [ ] Indietro col ←: si ferma al mese di 30 giorni fa, e sopra la griglia
+      compare la riga **«Più indietro di qui Stubwise non ha guardato…»** con
+      date vere e coerenti con oggi.
+- [ ] Avanti col →: si ferma al mese di 60 giorni avanti, con la frase
+      gemella.
+- [ ] Le frecce spente **si vedono spente**, non sembrano premibili a vuoto.
+- [ ] Nei mesi intermedi **nessuna** riga di spiegazione.
+- [ ] Nei mesi di bordo, la **parte di mese fuori finestra è attenuata**
+      (celle più spente delle altre): è metà griglia, e senza quell'indizio
+      leggerebbe come "vuoto" invece che come "non guardiamo qui".
+- [ ] Toccando un giorno **fuori finestra**: il testo dice **«Qui Stubwise
+      non ha guardato»**, e **non** manda a rivedere le regole di smistamento
+      (per un giorno mai letto sarebbe una caccia a vuoto).
+- [ ] Toccando un giorno **dentro** la finestra e vuoto: il testo dice cosa
+      si vede qui e **dove si cambiano le regole**. Non deve leggersi come
+      «il calendario è rotto» — un giorno vuoto è il caso normale.
+
+#### Il foglio di un appuntamento
+
+- [ ] Un tap su una riga dell'agenda apre un **foglio dal basso**: titolo,
+      quando, organizzatore, progetto.
+- [ ] I **partecipanti** mostrano lo stato di risposta; per chi non ce l'ha
+      si legge **«Sconosciuto»**, non «Nessuna risposta» (sono due cose
+      diverse).
+- [ ] **«Apri in Google Calendar»** apre l'evento **giusto** (non la sola
+      giornata, quando l'evento ha il suo link).
+- [ ] Il foglio si chiude con «Chiudi», col tap fuori e col **gesto indietro
+      di Android**.
+
+#### Le serie ricorrenti — da provare con attenzione
+
+- [ ] Su un appuntamento che **non** appartiene a una serie non c'è nessuna
+      configurazione.
+- [ ] Su uno che vi appartiene: la serie è **spenta**, e sopra l'interruttore
+      si legge che accenderla fa agire Stubwise su **ogni occorrenza futura**.
+- [ ] Accendendo **senza scegliere il progetto**: «Salva» resta grigio e il
+      motivo è scritto. Premendolo non deve succedere niente.
+- [ ] Scelto il progetto, cambia azione, alza l'anticipo, accendi «Esegui
+      automaticamente», salva → **riapri il foglio**: i valori devono essere
+      quelli salvati.
+- [ ] ⚠️ **IL CASO CHE È GIÀ STATO UN BUG SUL WEB**: configura la serie A,
+      chiudi, apri un appuntamento di una serie **B diversa**. Il foglio di B
+      deve mostrare la configurazione di **B** (o i default), **mai** quella
+      di A. Se «esegui automaticamente» risulta acceso su B senza che tu
+      l'abbia acceso, **fermati**: è una regressione grave.
+- [ ] **«Spegni»** su una serie accesa: riaprendo il foglio è spenta.
+- [ ] Con la rete spenta i bottoni sono disabilitati; riattivandola tornano
+      attivi.
+
+#### Deep link del calendario
+
+- [ ] Da una notifica push di una **proposta di calendario**, il tap apre la
+      scheda MBX **sul Calendario** (non sulla Posta), sul **mese e giorno**
+      dell'appuntamento, col **foglio dell'appuntamento già aperto**.
+- [ ] Chiudendo quel foglio, **non si riapre** da solo.
+- [ ] Su una notifica **pubblicata prima di M3** (se ne hai una in inbox): il
+      link apre comunque la **giornata giusta**, senza foglio — è la
+      degradazione prevista, non un difetto.
+
+#### Non-regressioni della Posta (la scheda è condivisa)
+
+- [ ] Lo scambio Posta/Calendario va avanti e indietro senza perdere lo stato
+      della lista Posta.
+- [ ] L'**ultima riga** dell'agenda è interamente visibile sopra la tab bar,
+      non tagliata dal vetro.
 
 ## Troubleshooting
 

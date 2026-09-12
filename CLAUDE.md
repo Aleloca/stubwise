@@ -20,7 +20,9 @@ repo, ricerca vettoriale e chat RAG.
   (vedi "Architettura runtime" e "Deploy" sotto).
 - `packages/*` — `api-client` (client HTTP tipato verso l'API server, condiviso
   da `apps/web` — dependency, non devDependency: vedi il commento in
-  `Dockerfile.caddy` — e da `apps/mobile`), `db` (Drizzle + Postgres/pgvector),
+  `Dockerfile.caddy` — e da `apps/mobile`; dalla App M3 copre anche posta e
+  calendario: i gruppi `mail` e `calendar`, verso `/api/me/mail` e
+  `/api/me/calendar`), `db` (Drizzle + Postgres/pgvector),
   `docs-engine`, `embeddings`, `git`, `google` (client HTTP puro OAuth/Gmail/
   Calendar, `fetch` iniettabile, condiviso da server e worker — fase 6, nessuna
   API Google chiamata da nessun altro punto del monorepo), `i18n`,
@@ -40,6 +42,27 @@ repo, ricerca vettoriale e chat RAG.
   (`apps/web/src/theme-parity.test.ts`, non un passo di codegen — deliberato,
   per non complicare il build web) — non generarla mai da lì: è `apps/mobile`
   (`theme/tokens.ts`) a importarla, non il contrario.
+  Dalla **App M3** (12 set 2026) `shared` ospita anche `calendar-grid.ts`: le
+  funzioni PURE della griglia del calendario (celle del mese, eventi di un
+  giorno, posizionamento orario) più le due costanti della **finestra di
+  ingestione** — `CALENDAR_LOOKBACK_DAYS`/`CALENDAR_WINDOW_DAYS`, `now − 30gg
+  → now + 60gg`. Stava in `apps/web/src/lib/`, e le costanti in
+  `apps/worker/src/google/calendar.ts` (che resta il loro unico uso
+  OPERATIVO — la finestra che il poller interroga — e le ri-esporta, così
+  nessun import esistente cambia). Sono qui perché le usano tutte e tre le
+  superfici: il web per la sua griglia, il worker per sapere cosa ingerire,
+  l'app mobile per fermare la navigazione fra i mesi esattamente ai bordi
+  della finestra. Due numeri che DEVONO restare d'accordo scritti in due
+  posti sono la divergenza che questo repo evita altrove (stesso
+  ragionamento di `calendarAttendeeSchema`, dichiarata una volta sola per
+  `packages/db` e `packages/google`).
+  ⚠️ **I fusi orari del calendario sono decisi lì dentro e non si
+  ridecidono**: un evento con orario si legge nel fuso LOCALE di chi guarda,
+  uno «tutto il giorno» con i getter UTC (il worker lo fissa a mezzanotte
+  UTC perché è una DATA, non un istante: leggerlo in locale lo farebbe
+  scivolare al giorno prima per chi sta in un fuso negativo). Il
+  ragionamento è scritto per esteso nel docblock del modulo e i suoi test
+  girano con `TZ` su un fuso negativo apposta.
 
 ## Comandi (dalla radice)
 
