@@ -5,7 +5,12 @@ import {
   type Language,
 } from "@stubwise/shared";
 import { describe, expect, it } from "vitest";
-import { formatNotificationText, sampleEvents, type NotificationEvent } from "../format.js";
+import {
+  formatNotificationText,
+  sampleEvents,
+  type GoogleProposalEvent,
+  type NotificationEvent,
+} from "../format.js";
 import { buildPushPayload, PUSH_TITLE_KEY, type PushPayloadContext } from "./payload.js";
 
 const BASE_URL = "https://stubwise.test";
@@ -96,8 +101,14 @@ describe("buildPushPayload", () => {
   });
 
   describe("deep link di google.proposal (App M3, Fase C, Task 7)", () => {
+    // Il predicato TIPIZZA il risultato: senza, `emailProposal` resta
+    // l'unione `NotificationEvent` e i due spread qui sotto — che
+    // sovrascrivono campi esistenti SOLO su `GoogleProposalEvent` — non
+    // sono assegnabili al parametro di `build` (`projectName` è
+    // obbligatorio su `TicketCreatedEvent`, per dirne una).
     const emailProposal = EVENTS.find(
-      (event) => event.kind === "google.proposal" && event.source === "email",
+      (event): event is GoogleProposalEvent =>
+        event.kind === "google.proposal" && event.source === "email",
     )!;
 
     it("source email: porta DIRETTAMENTE al dettaglio, non alla card d'inbox", () => {
