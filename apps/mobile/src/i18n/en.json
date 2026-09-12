@@ -587,6 +587,40 @@
         "projectRequired": "Pick a project before turning this series on.",
         "notFound": "This series is gone.",
         "badRange": "Can't ask for this period."
+      },
+      "sheet": {
+        "close": "Close",
+        "attendees": "Attendees",
+        "openInGoogle": "Open in Google Calendar",
+        "allDayOn": "All day, {{date}}"
+      },
+      "attendeeStatus": {
+        "accepted": "Accepted",
+        "declined": "Declined",
+        "tentative": "Maybe",
+        "needsAction": "No reply",
+        "unknown": "Unknown"
+      },
+      "series": {
+        "heading": "Recurring series",
+        "loading": "Loading the configuration…",
+        "enableLabel": "On",
+        "offByDefaultHint": "Off by default. Turning it on lets Stubwise act on EVERY future occurrence of this series, not just this one.",
+        "project": "Project",
+        "action": "Action",
+        "actionOption": {
+          "milestone": "Create a milestone",
+          "backlog_item": "Open a backlog item",
+          "reminder": "Just remind me"
+        },
+        "leadDays": "Days ahead",
+        "leadDaysValue_one": "{{count}} day",
+        "leadDaysValue_other": "{{count}} days",
+        "autoLabel": "Run automatically",
+        "autoHint": "Off: Stubwise proposes and waits for a tap. On: Stubwise acts right away and tells you what it did — it never starts an AI job.",
+        "projectRequired": "Pick a project before turning this series on.",
+        "save": "Save",
+        "disable": "Turn off"
       }
     },
     "common": {

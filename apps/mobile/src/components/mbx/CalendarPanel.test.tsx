@@ -56,6 +56,7 @@ function makeClient(range?: jest.Mock): StubwiseClient {
       putSeries: jest.fn(),
       deleteSeries: jest.fn(),
     },
+    projects: { list: jest.fn().mockResolvedValue([]) },
   } as unknown as StubwiseClient;
 }
 
@@ -158,6 +159,30 @@ describe("CalendarPanel — il giorno scelto", () => {
     // Non «nessun evento»: dice PERCHÉ, e dove si cambia.
     expect(screen.getByText(/regole di smistamento/)).toBeTruthy();
     expect(screen.getByText(/sezione Posta del progetto/)).toBeTruthy();
+  });
+});
+
+describe("CalendarPanel — il dettaglio di un evento (Task 12)", () => {
+  test("un tap su un evento apre il foglio col suo dettaglio", async () => {
+    await renderPanel(makeClient(jest.fn().mockResolvedValue({ items: [event()], nextCursor: null })));
+    await waitFor(() => expect(screen.getByTestId("calendar-grid")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("calendar-day-2026-09-17"));
+
+    expect(screen.queryByTestId("event-sheet")).toBeNull();
+    await fireEvent.press(screen.getByTestId(`calendar-event-${ID}`));
+    await waitFor(() => expect(screen.getByTestId("event-sheet")).toBeTruthy());
+  });
+
+  test("chiudendo il foglio si torna alla griglia", async () => {
+    await renderPanel(makeClient(jest.fn().mockResolvedValue({ items: [event()], nextCursor: null })));
+    await waitFor(() => expect(screen.getByTestId("calendar-grid")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("calendar-day-2026-09-17"));
+    await fireEvent.press(screen.getByTestId(`calendar-event-${ID}`));
+    await waitFor(() => expect(screen.getByTestId("event-sheet")).toBeTruthy());
+
+    await fireEvent.press(screen.getByTestId("event-sheet-close"));
+    await waitFor(() => expect(screen.queryByTestId("event-sheet")).toBeNull());
+    expect(screen.getByTestId("calendar-grid")).toBeTruthy();
   });
 });
 

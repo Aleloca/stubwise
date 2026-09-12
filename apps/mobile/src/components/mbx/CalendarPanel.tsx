@@ -14,6 +14,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { SectionLabel } from "../SectionLabel";
 import { Skeleton } from "../Skeleton";
 import { GhostButton } from "../GhostButton";
+import { EventSheet } from "./EventSheet";
 import { useCalendarRange } from "../../lib/calendar-mutations";
 import { canStepMonth, ingestionWindow, monthEdge } from "../../lib/calendar-window";
 import { clockTime } from "../../lib/format";
@@ -53,14 +54,14 @@ const WEEKDAY_KEYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
 export function CalendarPanel({
   /** `now` iniettabile per i test, stesso pattern di `relativeTimeCompact`. */
   now = new Date(),
-  onSelectEvent,
 }: {
   now?: Date;
-  onSelectEvent?: (event: Reader<CalendarEventItem>) => void;
 }) {
   const { t } = useTranslation();
   const [anchor, setAnchor] = useState(() => startOfLocalDay(now));
   const [selectedDay, setSelectedDay] = useState(() => startOfLocalDay(now));
+  // L'evento APERTO nel foglio (Task 12): `null` = foglio chiuso.
+  const [openEvent, setOpenEvent] = useState<Reader<CalendarEventItem> | null>(null);
 
   const range = useMemo(() => {
     const { from, to } = rangeForView("month", anchor);
@@ -173,11 +174,19 @@ export function CalendarPanel({
           </View>
         </View>
       ) : (
-        <DayAgenda
-          day={selectedDay}
-          events={events}
-          loading={query.isPending}
-          {...(onSelectEvent ? { onSelectEvent } : {})}
+        <DayAgenda day={selectedDay} events={events} loading={query.isPending} onSelectEvent={setOpenEvent} />
+      )}
+
+      {openEvent !== null && (
+        // `key` sull'id: il foglio (e con lui la configurazione della serie)
+        // nasce insieme all'evento a cui si riferisce, mai riusato fra due
+        // eventi diversi — vedi il commento su `SeriesConfig` in
+        // `EventSheet.tsx`.
+        <EventSheet
+          key={openEvent.id}
+          event={openEvent}
+          visible
+          onRequestClose={() => setOpenEvent(null)}
         />
       )}
     </View>

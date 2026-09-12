@@ -587,6 +587,40 @@
         "projectRequired": "Scegli un progetto prima di accendere questa serie.",
         "notFound": "Questa serie non c'è più.",
         "badRange": "Non riesco a chiedere questo periodo."
+      },
+      "sheet": {
+        "close": "Chiudi",
+        "attendees": "Partecipanti",
+        "openInGoogle": "Apri in Google Calendar",
+        "allDayOn": "Tutto il giorno, {{date}}"
+      },
+      "attendeeStatus": {
+        "accepted": "Accettato",
+        "declined": "Rifiutato",
+        "tentative": "Forse",
+        "needsAction": "Nessuna risposta",
+        "unknown": "Sconosciuto"
+      },
+      "series": {
+        "heading": "Serie ricorrente",
+        "loading": "Carico la configurazione…",
+        "enableLabel": "Accesa",
+        "offByDefaultHint": "Spenta di default. Accenderla permette a Stubwise di agire su OGNI occorrenza futura di questa serie, non solo su questa.",
+        "project": "Progetto",
+        "action": "Azione",
+        "actionOption": {
+          "milestone": "Crea una milestone",
+          "backlog_item": "Apri una voce di backlog",
+          "reminder": "Ricordamelo soltanto"
+        },
+        "leadDays": "Giorni di anticipo",
+        "leadDaysValue_one": "{{count}} giorno",
+        "leadDaysValue_other": "{{count}} giorni",
+        "autoLabel": "Esegui automaticamente",
+        "autoHint": "Spento: Stubwise propone e aspetta un tap. Acceso: Stubwise esegue subito e ti dice cosa ha fatto — in nessun caso avvia un job AI.",
+        "projectRequired": "Scegli un progetto prima di accendere questa serie.",
+        "save": "Salva",
+        "disable": "Spegni"
       }
     },
     "common": {
