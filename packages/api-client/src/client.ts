@@ -5,6 +5,7 @@ import { ApiError, errorFromResponse } from "./errors.js";
 import { createActivityEndpoints } from "./endpoints/activity.js";
 import { createAuthEndpoints } from "./endpoints/auth.js";
 import { createBacklogEndpoints } from "./endpoints/backlog.js";
+import { createCalendarEndpoints } from "./endpoints/calendar.js";
 import { createDocsEndpoints } from "./endpoints/docs.js";
 import { createInboxEndpoints } from "./endpoints/inbox.js";
 import { createMailEndpoints } from "./endpoints/mail.js";
@@ -115,6 +116,7 @@ export function createEndpoints(request: ApiRequest) {
     search: createSearchEndpoints(request),
     activity: createActivityEndpoints(request),
     mail: createMailEndpoints(request),
+    calendar: createCalendarEndpoints(request),
   };
 }
 

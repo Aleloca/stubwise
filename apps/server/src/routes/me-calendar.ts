@@ -3,6 +3,7 @@ import {
   calendarEventPageSchema,
   calendarSeriesListSchema,
   calendarSeriesPatchSchema,
+  calendarSeriesWriteResultSchema,
   mailItemStatusSchema,
   type CalendarEventItem,
   type MailItemStatus,
@@ -277,7 +278,7 @@ export async function meCalendarRoutes(instance: FastifyInstance): Promise<void>
       schema: {
         params: z.object({ recurringEventId: z.string().min(1) }),
         body: calendarSeriesPatchSchema,
-        response: { 200: z.object({ ok: z.literal(true) }), 400: errorSchema, 404: errorSchema, ...authErrorResponses },
+        response: { 200: calendarSeriesWriteResultSchema, 400: errorSchema, 404: errorSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {
@@ -331,7 +332,7 @@ export async function meCalendarRoutes(instance: FastifyInstance): Promise<void>
       schema: {
         params: z.object({ recurringEventId: z.string().min(1) }),
         querystring: z.object({ account: z.uuid() }),
-        response: { 200: z.object({ ok: z.literal(true) }), 404: errorSchema, ...authErrorResponses },
+        response: { 200: calendarSeriesWriteResultSchema, 404: errorSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {
