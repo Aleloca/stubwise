@@ -1035,6 +1035,42 @@ describe("pagina /inbox", () => {
     );
   });
 
+  it("proposta email vera: il link «Read in Stubwise» c'è", async () => {
+    mockApi(
+      baseApi({
+        "GET /api/inbox": () => jsonResponse(200, { items: [GOOGLE], nextCursor: null }),
+      }),
+    );
+    renderInbox();
+    await screen.findByRole("heading", { name: "Inbox" });
+
+    expect(
+      within(section("To decide")).getByRole("link", { name: "Read in Stubwise" }),
+    ).toBeInTheDocument();
+  });
+
+  it("proposta di SMISTAMENTO: nessun link, il suo proposalId non apre niente", async () => {
+    // Uno smistamento ha `source: "email"` come una proposta vera, ma il suo
+    // `proposalId` è un `randomUUID()` — non esiste nessuna riga
+    // `email_proposals` da cui venga (vive sul messaggio padre). Il discrimine
+    // è `projectId`, che `publishProposal` OMETTE di proposito per lo
+    // smistamento: «qui non c'è un progetto risolto, è ciò che la proposta
+    // CHIEDE». Senza questa guardia il link portava a un 404.
+    const triage: InboxItem = { ...GOOGLE, projectId: null };
+    mockApi(
+      baseApi({
+        "GET /api/inbox": () => jsonResponse(200, { items: [triage], nextCursor: null }),
+      }),
+    );
+    renderInbox();
+    await screen.findByRole("heading", { name: "Inbox" });
+
+    const decide = within(section("To decide"));
+    expect(decide.queryByRole("link", { name: "Read in Stubwise" })).toBeNull();
+    // La card resta intera: si perde il link, non la possibilità di decidere.
+    expect(decide.getByRole("button", { name: "Confirm" })).toBeInTheDocument();
+  });
+
   it("proposta Google senza il blocco `google`: la card resta intera e confermabile, senza contorno", async () => {
     // `google` è opzionale nel contratto (payload di una versione precedente,
     // o azioni non allineate alle opzioni): si perde il contorno, non la card.
