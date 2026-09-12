@@ -1456,6 +1456,14 @@ async function runProposePhase(
       if (deps.signal?.aborted) return published;
       const event = buildEmailProposalEvent({
         lang,
+        // `row.proposalId` è `email_proposals.id`, ed è ciò che
+        // `inboxGoogleSchema.proposalId` promette dal 9 set 2026: senza
+        // passarlo qui, `assembleEvent` ne generava uno CASUALE
+        // (`args.proposalId ?? randomUUID()`) e il link «Leggi in Stubwise»
+        // di ogni proposta email portava a un id inesistente — un 404 al
+        // primo tap. La query lo selezionava già (`proposalId:
+        // emailProposals.id`): mancava solo questa riga.
+        proposalId: row.proposalId,
         message: {
           threadId: row.threadId,
           fromAddress: row.fromAddress,

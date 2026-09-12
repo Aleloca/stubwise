@@ -455,8 +455,20 @@ export function InboxItemCard({
         costruito su quello porterebbe a un 404. `proposalId` è opzionale
         sullo schema (compat con un payload scritto prima di questo
         campo): assente ⇒ nessun link, la card resta comunque intera.
+
+        ⚠️ `source === "email"` NON basta a escludere uno smistamento, che
+        quella stessa sorgente ce l'ha (`buildTriageProposalEvent`,
+        `apps/worker/src/google/proposal.ts`): il commento qui sopra lo
+        diceva già, ma la guardia non lo faceva. Il discrimine è
+        `item.projectId`, che `publishProposal` valorizza per una proposta
+        vera e OMETTE di proposito per uno smistamento — «qui non c'è un
+        progetto risolto, è ciò che la proposta CHIEDE»
+        (`apps/worker/src/google/poller.ts`).
       */}
-      {item.google !== undefined && item.google.source === "email" && item.google.proposalId !== undefined && (
+      {item.google !== undefined &&
+        item.google.source === "email" &&
+        item.google.proposalId !== undefined &&
+        item.projectId !== null && (
         <Link
           to="/mail/$source/$id"
           params={{ source: "email", id: item.google.proposalId }}
