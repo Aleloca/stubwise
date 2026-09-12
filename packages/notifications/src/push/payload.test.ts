@@ -118,10 +118,45 @@ describe("buildPushPayload", () => {
       );
     });
 
-    it("source calendar: resta sull'inbox — nessuna schermata calendario da raggiungere ancora", () => {
-      const calendarProposal = { ...emailProposal, source: "calendar" as const };
+    // ⚠️ CAMBIATO DELIBERATAMENTE (App M3, Fase D), non aggirato. Questo
+    // test fissava «source calendar: resta sull'inbox — nessuna schermata
+    // calendario da raggiungere ancora»: era vero, e ora non lo è più. La
+    // griglia del calendario esiste, quindi l'architettura §5 regola 2 («da
+    // una notifica si arriva all'oggetto») vale anche per questa sorgente.
+    // Quello che il test fissa ADESSO è che il link si costruisca sui due
+    // campi giusti — il giorno da `receivedAt` e `calendarEventId` — e MAI
+    // su `proposalId`, che per il calendario è un `randomUUID()` e deve
+    // restarlo (è la chiave di claim di `propagateHandled`).
+    it("source calendar CON calendarEventId: porta all'appuntamento, giorno + id", () => {
+      const calendarProposal = {
+        ...emailProposal,
+        source: "calendar" as const,
+        receivedAt: "2026-09-17T09:30:00.000Z",
+        calendarEventId: "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+      };
       const payload = build(calendarProposal, "it");
-      expect(payload.data.deepLink).toBe(`stubwise://inbox/${NOTIFICATION_ID}`);
+      expect(payload.data.deepLink).toBe(
+        "stubwise://calendar/2026-09-17/7c9e6679-7425-40de-944b-e07fc1f90ae7",
+      );
+      // La prova che conta: il `proposalId` casuale non compare nel link.
+      expect(payload.data.deepLink).not.toContain(calendarProposal.proposalId);
+    });
+
+    it("source calendar SENZA calendarEventId (card pubblicata prima della fase): il solo giorno", () => {
+      // Nessun backfill: il giorno c'è comunque, perché `receivedAt` per una
+      // proposta di calendario è `calendar_events.starts_at`.
+      const old = {
+        ...emailProposal,
+        source: "calendar" as const,
+        receivedAt: "2026-09-17T09:30:00.000Z",
+      };
+      delete (old as { calendarEventId?: string }).calendarEventId;
+      expect(build(old, "it").data.deepLink).toBe("stubwise://calendar/2026-09-17");
+    });
+
+    it("source calendar senza receivedAt leggibile: si torna sull'inbox, mai un link a metà", () => {
+      const broken = { ...emailProposal, source: "calendar" as const, receivedAt: undefined };
+      expect(build(broken, "it").data.deepLink).toBe(`stubwise://inbox/${NOTIFICATION_ID}`);
     });
 
     it("proposta di SMISTAMENTO (source email, nessun projectId): resta sull'inbox, MAI sul link della email vera", () => {

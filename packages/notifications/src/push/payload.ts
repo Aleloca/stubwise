@@ -80,16 +80,70 @@ export const PUSH_TITLE_KEY: Record<NotificationKind, string> = {
  * un `id` che non esiste in `email_proposals` — un 404 silenzioso al primo
  * tap, non un errore che questo file avrebbe mai sollevato da solo.
  *
- * Per `source: "calendar"`, per uno smistamento e per ogni altro kind resta
- * il comportamento di sempre: l'oggetto è la card d'inbox stessa (le azioni
- * vivono lì, non altrove), e non esiste ancora una schermata calendario da
- * raggiungere (arriva in Fase D).
+ * **`source: "calendar"` è la SECONDA eccezione da App M3, Fase D**, ora che
+ * una schermata calendario esiste: `stubwise://calendar/<YYYY-MM-DD>` porta
+ * alla griglia sul giorno dell'appuntamento, e
+ * `stubwise://calendar/<YYYY-MM-DD>/<calendarEventId>` direttamente
+ * sull'appuntamento.
+ *
+ * Due campi e non uno, e nessuno dei due è `proposalId`:
+ * - il GIORNO viene da `receivedAt`, che per una proposta di calendario È
+ *   `calendar_events.starts_at` (`buildCalendarProposalEvent`). Serve perché
+ *   la griglia carica per INTERVALLO — senza il giorno un client non saprebbe
+ *   nemmeno quale mese chiedere — e c'è su OGNI card, comprese quelle
+ *   pubblicate prima di questa fase: è ciò che rende il link retroattivo
+ *   senza backfill.
+ * - `calendarEventId` (`calendar_events.id`) apre l'appuntamento. Assente —
+ *   una card storica — si apre la sola giornata, che è meno di quanto
+ *   l'architettura §5 chiede ma è la degradazione onesta, la stessa di
+ *   `proposalId` assente sulla posta.
+ *
+ * ⚠️ **`proposalId` NON è servito e non va usato qui**: per il calendario è
+ * un `randomUUID()`, e deve restarlo — è la chiave di claim di
+ * `propagateHandled`, e `publishProposal` ritrova la notifica appena scritta
+ * con `event->>'proposalId' = … limit 1`. Renderlo stabile per riga
+ * romperebbe quella query su un percorso raggiungibile dalla UI («Riproponi»
+ * su un evento di calendario ripubblica per la stessa riga). Chi in futuro
+ * fosse tentato di «semplificare» unificando i due campi legga il docblock
+ * di `inboxGoogleSchema.calendarEventId` in `@stubwise/shared`.
+ *
+ * Per uno smistamento e per ogni altro kind resta il comportamento di
+ * sempre: l'oggetto è la card d'inbox stessa, le azioni vivono lì.
  */
 function deepLinkFor(event: NotificationEvent, ctx: PushPayloadContext): string {
   if (event.kind === "google.proposal" && event.source === "email" && event.projectId !== undefined) {
     return `stubwise://mail/email/${event.proposalId}`;
   }
+  if (event.kind === "google.proposal" && event.source === "calendar") {
+    const day = calendarDayOf(event.receivedAt);
+    if (day !== null) {
+      return event.calendarEventId !== undefined
+        ? `stubwise://calendar/${day}/${event.calendarEventId}`
+        : `stubwise://calendar/${day}`;
+    }
+  }
   return `stubwise://inbox/${ctx.notificationId}`;
+}
+
+/**
+ * Il giorno `YYYY-MM-DD` di un istante ISO, in UTC, o `null` se il campo
+ * manca o non è una data.
+ *
+ * **UTC e non locale**, e qui il fuso non è una svista da correggere: questo
+ * codice gira sul WORKER, il cui fuso non ha niente a che vedere con quello
+ * di chi riceverà la push. Un appuntamento delle 09:00 di Roma è
+ * `07:00Z`, e il giorno UTC è lo stesso — sfasa solo nelle poche ore a
+ * cavallo della mezzanotte, dove il link porta al giorno adiacente e
+ * l'appuntamento è comunque a un tocco (la griglia mostra il mese intero, e
+ * con `calendarEventId` il foglio si apre lo stesso). Calcolarlo nel fuso
+ * del destinatario richiederebbe di conoscerlo: non lo conosciamo, e
+ * inventarlo sarebbe peggio.
+ */
+function calendarDayOf(receivedAt: string | undefined): string | null {
+  if (receivedAt === undefined) return null;
+  const at = new Date(receivedAt);
+  if (Number.isNaN(at.getTime())) return null;
+  return at.toISOString().slice(0, 10);
 }
 
 /**

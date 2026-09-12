@@ -1,7 +1,7 @@
 import type { StubwiseClient } from "@stubwise/api-client";
 import type { CalendarEventItem, CalendarEventPage, Reader } from "@stubwise/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react-native";
 import { AuthContext } from "../../app/auth-context";
 import type { AuthContextValue } from "../../app/providers";
 import "../../i18n";
@@ -72,7 +72,11 @@ async function goToMonth(direction: "prev" | "next") {
   await waitFor(() => expect(screen.getByTestId("calendar-grid")).toBeTruthy());
 }
 
-async function renderPanel(client: StubwiseClient, now: Date = NOW) {
+async function renderPanel(
+  client: StubwiseClient,
+  now: Date = NOW,
+  extra: { initialDay?: string; focusEventId?: string } = {},
+) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const authValue: AuthContextValue = {
     status: "authenticated",
@@ -86,7 +90,7 @@ async function renderPanel(client: StubwiseClient, now: Date = NOW) {
   await render(
     <QueryClientProvider client={queryClient}>
       <AuthContext.Provider value={authValue}>
-        <CalendarPanel now={now} />
+        <CalendarPanel now={now} {...extra} />
       </AuthContext.Provider>
     </QueryClientProvider>,
   );
@@ -291,6 +295,66 @@ describe("CalendarPanel — le celle fuori dalla finestra di ingestione", () => 
     expect(screen.getByTestId("calendar-day-empty")).toBeTruthy();
     expect(screen.queryByTestId("calendar-day-out-of-window")).toBeNull();
     expect(screen.getByText(/sezione Posta del progetto/)).toBeTruthy();
+  });
+});
+
+describe("CalendarPanel — arrivandoci da un deep link (App M3, Fase D)", () => {
+  const range = () => jest.fn().mockResolvedValue({ items: [event()], nextCursor: null });
+
+  test("con un giorno: la griglia nasce su QUEL mese e quel giorno, non su oggi", async () => {
+    await renderPanel(makeClient(range()), NOW, { initialDay: "2026-10-08" });
+    await waitFor(() => expect(screen.getByTestId("calendar-grid")).toBeTruthy());
+
+    expect(screen.getByTestId("calendar-month-label").props.children.join("")).toContain("ottobre");
+    expect(screen.getByTestId("calendar-day-2026-10-08").props.accessibilityState.selected).toBe(true);
+  });
+
+  test("il giorno si legge in LOCALE: `2026-09-17` è il 17, non il 16", async () => {
+    // `new Date("2026-09-17")` sarebbe mezzanotte UTC — il giorno prima per
+    // chi sta a ovest di Greenwich. La griglia ragiona in giorni locali.
+    await renderPanel(makeClient(range()), NOW, { initialDay: "2026-09-17" });
+    await waitFor(() => expect(screen.getByTestId("calendar-grid")).toBeTruthy());
+    expect(screen.getByTestId("calendar-day-2026-09-17").props.accessibilityState.selected).toBe(true);
+  });
+
+  test("con un giorno illeggibile si ricade su oggi, invece di non mostrare niente", async () => {
+    await renderPanel(makeClient(range()), NOW, { initialDay: "domani" });
+    await waitFor(() => expect(screen.getByTestId("calendar-grid")).toBeTruthy());
+    expect(screen.getByTestId("calendar-month-label").props.children.join("")).toContain("settembre");
+  });
+
+  test("con l'id dell'appuntamento: il foglio si apre da solo appena i dati arrivano", async () => {
+    await renderPanel(makeClient(range()), NOW, { initialDay: "2026-09-17", focusEventId: ID });
+    await waitFor(() => expect(screen.getByTestId("event-sheet")).toBeTruthy());
+    // `within` e non `screen`: il titolo compare DUE volte — nella riga
+    // dell'agenda sotto e nel foglio sopra — ed è giusto così. Quello che
+    // questo test verifica è che sia nel FOGLIO.
+    expect(within(screen.getByTestId("event-sheet")).getByText("Riunione settimanale")).toBeTruthy();
+  });
+
+  test("chiuso il foglio NON si riapre: il focus si consuma una volta sola", async () => {
+    // Senza questo, il primo refetch (o un cambio giorno) lo rimetterebbe
+    // davanti a chi l'aveva appena chiuso.
+    await renderPanel(makeClient(range()), NOW, { initialDay: "2026-09-17", focusEventId: ID });
+    await waitFor(() => expect(screen.getByTestId("event-sheet")).toBeTruthy());
+
+    await fireEvent.press(screen.getByTestId("event-sheet-close"));
+    await waitFor(() => expect(screen.queryByTestId("event-sheet")).toBeNull());
+
+    await fireEvent.press(screen.getByTestId("calendar-day-2026-09-18"));
+    expect(screen.queryByTestId("event-sheet")).toBeNull();
+  });
+
+  test("un id che non è fra gli eventi del mese: resta il giorno, nessun foglio vuoto", async () => {
+    // Una card vecchia, o un appuntamento cancellato da Google: il link
+    // porta comunque dove voleva portare, senza aprire un foglio su nulla.
+    await renderPanel(makeClient(range()), NOW, {
+      initialDay: "2026-09-17",
+      focusEventId: "00000000-0000-4000-8000-000000000000",
+    });
+    await waitFor(() => expect(screen.getByTestId("calendar-grid")).toBeTruthy());
+    expect(screen.queryByTestId("event-sheet")).toBeNull();
+    expect(screen.getByTestId("calendar-day-2026-09-17").props.accessibilityState.selected).toBe(true);
   });
 });
 

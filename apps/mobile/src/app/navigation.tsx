@@ -78,13 +78,24 @@ export type DocsStackParamList = {
 /**
  * Stack del tab MBX (Task 7, App M3, Fase C — architettura §3/§6a): posta e
  * calendario, non di un progetto ma di una casella. `List` è lo scambio
- * Posta/Calendario (`MbxScreen.tsx`); `MailDetail` è l'unico screen
- * raggiungibile da un deep link (regola 2: dalla notifica si arriva
- * all'oggetto, mai alla lista) — nessuna area "calendario" qui, arriva in
- * Fase D.
+ * Posta/Calendario (`MbxScreen.tsx`); `MailDetail` porta al dettaglio di una
+ * email (regola 2: dalla notifica si arriva all'oggetto, mai alla lista).
+ *
+ * Fase D: anche il calendario ha un oggetto da raggiungere, e ci si arriva
+ * da `List` con un GIORNO — la griglia carica per intervallo, quindi il
+ * giorno è ciò che le serve per sapere quale mese chiedere; l'id
+ * dell'appuntamento apre il foglio.
  */
 export type MbxStackParamList = {
-  List: undefined;
+  /**
+   * App M3, Fase D: `List` accetta ora dei PARAMETRI, tutti opzionali —
+   * `undefined` resta un valore valido, ed è come ci arriva chi tocca la
+   * scheda MBX dalla tab bar. Li porta solo un deep link di calendario
+   * (`stubwise://calendar/:day[/:eventId]`): `day` dice alla griglia quale
+   * mese caricare e quale giorno aprire, `eventId` quale appuntamento
+   * mostrare nel foglio.
+   */
+  List: { day?: string; eventId?: string } | undefined;
   MailDetail: { source: MailDetailSource; id: string };
 };
 
@@ -190,9 +201,9 @@ function nativeTabIcon(
  * Monta l'app "vera" (autenticata). Al primo render consuma un eventuale
  * deep link rimasto in sospeso da prima del login (vedi
  * `linking.ts`): `Main` è il primo posto in cui gli screen di destinazione
- * (`Inbox/Card`, `Projects/Detail`, `Projects/Ticket`, `Mbx/MailDetail`)
- * esistono davvero nell'albero, quindi è anche il primo momento in cui si
- * può navigarci.
+ * (`Inbox/Card`, `Projects/Detail`, `Projects/Ticket`, `Mbx/MailDetail`,
+ * `Mbx/List` col giorno del calendario) esistono davvero nell'albero, quindi
+ * è anche il primo momento in cui si può navigarci.
  */
 function MainNavigator() {
   // Tipizzato sul RootStack (l'ANTENATO di questo componente: `MainNavigator`
@@ -226,6 +237,14 @@ function MainNavigator() {
       navigation.navigate("Main", {
         screen: "Mbx",
         params: { screen: "MailDetail", params: { source: target.source, id: target.id } },
+      });
+    } else if (target.area === "calendar") {
+      navigation.navigate("Main", {
+        screen: "Mbx",
+        params: {
+          screen: "List",
+          params: { day: target.day, ...(target.eventId ? { eventId: target.eventId } : {}) },
+        },
       });
     }
   }, [navigation]);

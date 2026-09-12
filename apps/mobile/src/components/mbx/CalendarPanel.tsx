@@ -48,20 +48,53 @@ import { fontFamily, fontSize } from "../../theme/typography";
  * è locale apposta e non tocca mai un evento `allDay`.
  */
 
+/**
+ * `YYYY-MM-DD` → mezzanotte LOCALE di quel giorno, o `null` se illeggibile.
+ *
+ * `new Date(y, m - 1, d)` e non `new Date("2026-09-17")`: la seconda forma
+ * la interpreta come mezzanotte UTC, che per chi sta a ovest di Greenwich è
+ * il giorno PRIMA — la griglia lavora in giorni locali (`localDayKey`), e un
+ * deep link aprirebbe il giorno sbagliato per metà del pianeta.
+ */
+function parseDayParam(day: string | undefined): Date | null {
+  if (day === undefined) return null;
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
+  if (!match) return null;
+  const parsed = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 /** Le iniziali dei giorni, lunedì→domenica: l'ordine è quello di `monthGridDays`. */
 const WEEKDAY_KEYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
 
 export function CalendarPanel({
   /** `now` iniettabile per i test, stesso pattern di `relativeTimeCompact`. */
   now = new Date(),
+  initialDay,
+  focusEventId,
 }: {
   now?: Date;
+  /**
+   * Il giorno da aprire, `YYYY-MM-DD`, invece di oggi: lo porta un deep link
+   * di calendario. Letto come giorno LOCALE (`new Date(y, m, d)`, non
+   * `new Date("…")` che sarebbe UTC): la griglia ragiona in giorni locali, e
+   * per chi sta a ovest di Greenwich l'interpretazione UTC aprirebbe il
+   * giorno prima.
+   */
+  initialDay?: string;
+  /** L'appuntamento di cui aprire il foglio appena i dati arrivano. */
+  focusEventId?: string;
 }) {
   const { t } = useTranslation();
-  const [anchor, setAnchor] = useState(() => startOfLocalDay(now));
-  const [selectedDay, setSelectedDay] = useState(() => startOfLocalDay(now));
+  const start = useMemo(() => parseDayParam(initialDay) ?? startOfLocalDay(now), [initialDay, now]);
+  const [anchor, setAnchor] = useState(start);
+  const [selectedDay, setSelectedDay] = useState(start);
   // L'evento APERTO nel foglio (Task 12): `null` = foglio chiuso.
   const [openEvent, setOpenEvent] = useState<Reader<CalendarEventItem> | null>(null);
+  // Il foglio chiesto da un deep link si apre UNA VOLTA SOLA, appena i dati
+  // arrivano: senza questo, chiuderlo lo farebbe riaprire al primo refetch —
+  // e chi ha chiuso un foglio non vuole ritrovarselo davanti.
+  const [focusConsumed, setFocusConsumed] = useState(false);
 
   const range = useMemo(() => {
     const { from, to } = rangeForView("month", anchor);
@@ -71,6 +104,18 @@ export function CalendarPanel({
 
   const events = query.data?.items ?? [];
   const days = useMemo(() => monthGridDays(anchor), [anchor]);
+
+  if (!focusConsumed && focusEventId !== undefined && events.length > 0) {
+    // Durante il render, non in un `useEffect`: è lo stesso schema di
+    // `SeriesConfig` ("inizializza una volta quando il dato arriva"), e
+    // risparmia un render con il foglio chiuso subito seguito da uno con il
+    // foglio aperto. Se l'id non è fra gli eventi del mese — una card
+    // vecchia, un appuntamento cancellato — non si apre nulla e resta il
+    // giorno, che è comunque dove il link voleva portare.
+    const wanted = events.find((event) => event.id === focusEventId);
+    setFocusConsumed(true);
+    if (wanted) setOpenEvent(wanted);
+  }
   const selectedKey = localDayKey(selectedDay);
   const todayKey = localDayKey(now);
   const edge = monthEdge(anchor, now);

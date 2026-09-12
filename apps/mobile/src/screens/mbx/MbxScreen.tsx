@@ -43,16 +43,25 @@ const TABS: { tab: MbxTab; i18nKey: string }[] = [
  * giorni pieni e il giorno scelto sotto — `CalendarPanel`, che porta con sé
  * anche i bordi della finestra di ingestione e lo stato vuoto che si spiega.
  *
+ * Con un `day` nei params (un deep link di calendario) questo screen nasce
+ * sul CALENDARIO e su quel giorno, non sulla Posta: è la regola 2
+ * dell'architettura — da una notifica si arriva all'oggetto — applicata a una
+ * scheda che di oggetti ne mostra due tipi.
+ *
  * La lista Posta è corta PER COSTRUZIONE (33 messaggi su quattro caselle in
  * produzione, al momento in cui questo screen è stato scritto — solo la
  * posta AMMESSA entra): disegnata per venti righe in un unico `ScrollView`,
  * come `BacklogScreen`/`ProjectsScreen`, non per una lista virtualizzata da
  * client di posta.
  */
-export function MbxScreen({ navigation }: NativeStackScreenProps<MbxStackParamList, "List">) {
+export function MbxScreen({ navigation, route }: NativeStackScreenProps<MbxStackParamList, "List">) {
   const { t } = useTranslation();
   const tabBarHeight = useBottomTabBarHeight();
-  const [tab, setTab] = useState<MbxTab>("mail");
+  // Un deep link di calendario (`stubwise://calendar/:day[/:eventId]`) porta
+  // un giorno nei params: allora si nasce sul Calendario, non sulla Posta —
+  // altrimenti chi tocca la notifica di un appuntamento si troverebbe davanti
+  // la lista della posta, e dovrebbe capire da sé di dover cambiare scheda.
+  const [tab, setTab] = useState<MbxTab>(route.params?.day !== undefined ? "calendar" : "mail");
   const query = useMailList();
 
   return (
@@ -82,7 +91,10 @@ export function MbxScreen({ navigation }: NativeStackScreenProps<MbxStackParamLi
         </View>
 
         {tab === "calendar" ? (
-          <CalendarPanel />
+          <CalendarPanel
+            {...(route.params?.day !== undefined ? { initialDay: route.params.day } : {})}
+            {...(route.params?.eventId !== undefined ? { focusEventId: route.params.eventId } : {})}
+          />
         ) : query.isPending ? (
           <View style={styles.skeletonList} testID="mbx-mail-skeleton">
             <Skeleton height={72} />
