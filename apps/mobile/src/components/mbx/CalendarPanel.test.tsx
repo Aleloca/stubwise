@@ -60,6 +60,18 @@ function makeClient(range?: jest.Mock): StubwiseClient {
   } as unknown as StubwiseClient;
 }
 
+/**
+ * Cambia mese e ASPETTA che la griglia torni: la chiave di query cambia con
+ * il mese, quindi `useCalendarRange` riparte da `isPending` e il pannello
+ * mostra di nuovo lo skeleton. Non è un dettaglio del test: è il
+ * comportamento reale, ed è voluto (mostrare i puntini del mese precedente
+ * su una griglia nuova sarebbe peggio di un attimo di attesa).
+ */
+async function goToMonth(direction: "prev" | "next") {
+  await fireEvent.press(screen.getByTestId(`calendar-${direction}-month`));
+  await waitFor(() => expect(screen.getByTestId("calendar-grid")).toBeTruthy());
+}
+
 async function renderPanel(client: StubwiseClient, now: Date = NOW) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const authValue: AuthContextValue = {
@@ -231,6 +243,54 @@ describe("CalendarPanel — i bordi della finestra di ingestione", () => {
     // 15 settembre − 30 giorni = 16 agosto; + 60 = 14 novembre.
     expect(screen.getByText(/16 agosto/)).toBeTruthy();
     expect(screen.getByText(/14 novembre/)).toBeTruthy();
+  });
+});
+
+describe("CalendarPanel — le celle fuori dalla finestra di ingestione", () => {
+  test("nel mese corrente nessuna cella è attenuata: la finestra lo copre tutto", async () => {
+    // Settembre sta interamente dentro [16 ago, 14 nov].
+    await renderPanel(makeClient());
+    await waitFor(() => expect(screen.getByTestId("calendar-grid")).toBeTruthy());
+    expect(screen.queryByTestId("calendar-day-dim-2026-09-20")).toBeNull();
+  });
+
+  test("nel mese di bordo la PARTE fuori finestra è attenuata, il resto no", async () => {
+    await renderPanel(makeClient());
+    await waitFor(() => expect(screen.getByTestId("calendar-grid")).toBeTruthy());
+    await goToMonth("prev"); // agosto
+
+    // La finestra parte il 16 agosto: prima è attenuato, dopo no.
+    expect(screen.getByTestId("calendar-day-dim-2026-08-03")).toBeTruthy();
+    expect(screen.getByTestId("calendar-day-dim-2026-08-15")).toBeTruthy();
+    expect(screen.queryByTestId("calendar-day-dim-2026-08-20")).toBeNull();
+    // Il giorno del bordo è mezzo dentro: si mostra come DENTRO, o gli
+    // appuntamenti di quel pomeriggio sembrerebbero non esistere.
+    expect(screen.queryByTestId("calendar-day-dim-2026-08-16")).toBeNull();
+  });
+
+  test("un giorno fuori finestra dice una frase DIVERSA: non manda a rivedere le regole", async () => {
+    await renderPanel(makeClient());
+    await waitFor(() => expect(screen.getByTestId("calendar-grid")).toBeTruthy());
+    await goToMonth("prev");
+    await fireEvent.press(screen.getByTestId("calendar-day-2026-08-03"));
+
+    expect(screen.getByTestId("calendar-day-out-of-window")).toBeTruthy();
+    expect(screen.queryByTestId("calendar-day-empty")).toBeNull();
+    expect(screen.getByText("Qui Stubwise non ha guardato")).toBeTruthy();
+    // Mandare a rivedere le regole di smistamento per un giorno mai letto
+    // sarebbe una caccia a vuoto: quella frase NON deve comparire qui.
+    expect(screen.queryByText(/sezione Posta del progetto/)).toBeNull();
+  });
+
+  test("un giorno DENTRO la finestra e vuoto dice ancora la frase delle regole", async () => {
+    await renderPanel(makeClient());
+    await waitFor(() => expect(screen.getByTestId("calendar-grid")).toBeTruthy());
+    await goToMonth("prev");
+    await fireEvent.press(screen.getByTestId("calendar-day-2026-08-25"));
+
+    expect(screen.getByTestId("calendar-day-empty")).toBeTruthy();
+    expect(screen.queryByTestId("calendar-day-out-of-window")).toBeNull();
+    expect(screen.getByText(/sezione Posta del progetto/)).toBeTruthy();
   });
 });
 

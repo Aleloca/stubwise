@@ -1,4 +1,4 @@
-import { canStepMonth, ingestionWindow, monthEdge } from "./calendar-window";
+import { canStepMonth, ingestionWindow, isDayInWindow, monthEdge } from "./calendar-window";
 
 /**
  * I bordi della finestra di ingestione (App M3, Fase D, Task 11): il punto
@@ -80,4 +80,31 @@ test("la finestra di oggi è più larga di un mese: per questo `both` non capita
   const { from, to } = ingestionWindow(NOW);
   const spanDays = (to.getTime() - from.getTime()) / 86_400_000;
   expect(spanDays).toBeGreaterThan(31);
+});
+
+describe("isDayInWindow — quali celle si attenuano", () => {
+  test("un giorno nel mezzo della finestra è dentro", () => {
+    expect(isDayInWindow(new Date(2026, 8, 20), NOW)).toBe(true);
+  });
+
+  test("il giorno del BORDO è dentro anche se la finestra ne copre solo una parte", () => {
+    // La finestra parte il 16 agosto a mezzogiorno: la mattina del 16 è
+    // fuori, il pomeriggio dentro. Mostrarlo come fuori nasconderebbe gli
+    // appuntamenti di quel pomeriggio, che ci sono davvero.
+    expect(isDayInWindow(new Date(2026, 7, 16), NOW)).toBe(true);
+    expect(isDayInWindow(new Date(2026, 10, 14), NOW)).toBe(true);
+  });
+
+  test("il giorno PRIMA dell'inizio e quello DOPO la fine sono fuori", () => {
+    expect(isDayInWindow(new Date(2026, 7, 15), NOW)).toBe(false);
+    expect(isDayInWindow(new Date(2026, 10, 15), NOW)).toBe(false);
+  });
+
+  test("nei mesi di bordo una PARTE del mese è fuori: è il caso per cui esiste", () => {
+    // Agosto è raggiungibile (canStepMonth), ma i suoi primi quindici giorni
+    // non possono avere appuntamenti — non perché non ce ne siano.
+    expect(canStepMonth(new Date(2026, 8, 1), -1, NOW)).toBe(true);
+    expect(isDayInWindow(new Date(2026, 7, 3), NOW)).toBe(false);
+    expect(isDayInWindow(new Date(2026, 7, 25), NOW)).toBe(true);
+  });
 });

@@ -582,6 +582,10 @@
         "title": "Niente in questo giorno",
         "body": "Qui compaiono solo gli appuntamenti che combaciano con le regole di smistamento di un progetto — un giorno vuoto è normale. Le regole si cambiano dal sito, nella sezione Posta del progetto."
       },
+      "dayOutOfWindow": {
+        "title": "Qui Stubwise non ha guardato",
+        "body": "La sincronizzazione copre solo gli ultimi 30 giorni e i prossimi 60: fuori da questo periodo non c'è nulla da mostrare, e non significa che non ci siano impegni."
+      },
       "errors": {
         "generic": "Qualcosa è andato storto. Riprova.",
         "projectRequired": "Scegli un progetto prima di accendere questa serie.",

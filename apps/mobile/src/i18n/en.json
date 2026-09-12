@@ -582,6 +582,10 @@
         "title": "Nothing on this day",
         "body": "Only appointments that match a project's mail routing rules show up here — an empty day is normal. The rules are changed on the site, in the project's Mail section."
       },
+      "dayOutOfWindow": {
+        "title": "Stubwise hasn't looked here",
+        "body": "The sync only covers the last 30 days and the next 60: outside that period there is nothing to show, and it doesn't mean there's nothing on."
+      },
       "errors": {
         "generic": "Something went wrong. Try again.",
         "projectRequired": "Pick a project before turning this series on.",

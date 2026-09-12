@@ -16,7 +16,7 @@ import { Skeleton } from "../Skeleton";
 import { GhostButton } from "../GhostButton";
 import { EventSheet } from "./EventSheet";
 import { useCalendarRange } from "../../lib/calendar-mutations";
-import { canStepMonth, ingestionWindow, monthEdge } from "../../lib/calendar-window";
+import { canStepMonth, ingestionWindow, isDayInWindow, monthEdge } from "../../lib/calendar-window";
 import { clockTime } from "../../lib/format";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
@@ -133,6 +133,12 @@ export function CalendarPanel({
           {days.map((day) => {
             const key = localDayKey(day);
             const count = eventsForDay(events, day).length;
+            // Fuori dalla finestra di ingestione una cella NON PUÒ avere
+            // appuntamenti, mai: attenuarla lo dice dove serve — sulla cella
+            // — mentre la riga sopra la griglia lo dice solo per l'intero
+            // mese. Nei mesi di bordo è metà griglia, ed è il caso per cui
+            // questo esiste.
+            const inWindow = isDayInWindow(day, now);
             return (
               <Pressable
                 key={key}
@@ -146,9 +152,11 @@ export function CalendarPanel({
                   style={[
                     styles.cellNumber,
                     day.getMonth() !== anchor.getMonth() && styles.cellOutside,
+                    !inWindow && styles.cellOutOfWindow,
                     key === todayKey && styles.cellToday,
                     key === selectedKey && styles.cellNumberSelected,
                   ]}
+                  testID={inWindow ? undefined : `calendar-day-dim-${key}`}
                 >
                   {day.getDate()}
                 </Text>
@@ -174,7 +182,13 @@ export function CalendarPanel({
           </View>
         </View>
       ) : (
-        <DayAgenda day={selectedDay} events={events} loading={query.isPending} onSelectEvent={setOpenEvent} />
+        <DayAgenda
+          day={selectedDay}
+          events={events}
+          loading={query.isPending}
+          inWindow={isDayInWindow(selectedDay, now)}
+          onSelectEvent={setOpenEvent}
+        />
       )}
 
       {openEvent !== null && (
@@ -222,11 +236,14 @@ function DayAgenda({
   day,
   events,
   loading,
+  inWindow,
   onSelectEvent,
 }: {
   day: Date;
   events: Reader<CalendarEventItem>[];
   loading: boolean;
+  /** Il giorno è dentro la finestra di ingestione? Cambia COSA dice il vuoto. */
+  inWindow: boolean;
   onSelectEvent?: (event: Reader<CalendarEventItem>) => void;
 }) {
   const { t } = useTranslation();
@@ -243,9 +260,19 @@ function DayAgenda({
         // Lo stato vuoto di un giorno è il caso NORMALE (design §6): dice
         // cosa si vede qui e dove si cambiano le regole che lo decidono, mai
         // «nessun evento» — che suonerebbe come un calendario rotto.
-        <View style={styles.emptyDay} testID="calendar-day-empty">
-          <Text style={styles.emptyTitle}>{t("mobile.calendar.dayEmpty.title")}</Text>
-          <Text style={styles.emptyBody}>{t("mobile.calendar.dayEmpty.body")}</Text>
+        //
+        // FUORI dalla finestra di ingestione la frase è un'ALTRA, e dirla
+        // sbagliata sarebbe peggio che tacere: lì il motivo non è che
+        // nessuna regola di smistamento combacia — è che Stubwise non ha
+        // guardato, e mandare qualcuno a rivedere le regole di un progetto
+        // per un giorno che non è mai stato letto è una caccia a vuoto.
+        <View style={styles.emptyDay} testID={inWindow ? "calendar-day-empty" : "calendar-day-out-of-window"}>
+          <Text style={styles.emptyTitle}>
+            {t(inWindow ? "mobile.calendar.dayEmpty.title" : "mobile.calendar.dayOutOfWindow.title")}
+          </Text>
+          <Text style={styles.emptyBody}>
+            {t(inWindow ? "mobile.calendar.dayEmpty.body" : "mobile.calendar.dayOutOfWindow.body")}
+          </Text>
         </View>
       ) : (
         <View style={styles.eventList}>
@@ -394,6 +421,16 @@ const styles = StyleSheet.create({
   },
   cellToday: {
     color: colors.signal,
+  },
+  /**
+   * Fuori dalla finestra di ingestione. Più spento di `cellOutside` (un
+   * giorno di un altro mese, che appuntamenti può averne): qui la cella non
+   * può averne per costruzione, e deve leggersi come "non guardiamo qui",
+   * non come "vuoto".
+   */
+  cellOutOfWindow: {
+    color: colors.faint,
+    opacity: 0.28,
   },
   dot: {
     backgroundColor: "transparent",

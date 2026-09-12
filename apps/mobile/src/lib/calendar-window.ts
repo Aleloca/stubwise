@@ -1,4 +1,9 @@
-import { CALENDAR_LOOKBACK_DAYS, CALENDAR_WINDOW_DAYS, startOfMonth } from "@stubwise/shared";
+import {
+  CALENDAR_LOOKBACK_DAYS,
+  CALENDAR_WINDOW_DAYS,
+  startOfLocalDay,
+  startOfMonth,
+} from "@stubwise/shared";
 
 /**
  * I BORDI della navigazione fra i mesi (App M3, Fase D, Task 11 — design
@@ -57,6 +62,28 @@ export function canStepMonth(anchor: Date, direction: 1 | -1, now: Date = new Da
   return direction === -1
     ? next.getTime() >= startOfMonth(from).getTime()
     : next.getTime() <= startOfMonth(to).getTime();
+}
+
+/**
+ * Il GIORNO `day` cade dentro la finestra di ingestione?
+ *
+ * Confronto per giorno, non per istante, coerente con {@link canStepMonth}:
+ * il giorno è dentro se la sua giornata locale interseca la finestra anche
+ * solo per un minuto. La finestra parte e finisce a un'ora qualunque (è
+ * `now ∓ N giorni`), quindi il giorno del bordo è mezzo dentro e mezzo
+ * fuori — e va mostrato come DENTRO, o gli appuntamenti di quella mezza
+ * giornata sembrerebbero non esistere.
+ *
+ * Serve a due cose in `CalendarPanel`, e sono la stessa: le celle fuori
+ * finestra si attenuano, e il loro giorno vuoto dice una frase DIVERSA — lì
+ * il motivo non è che nessuna regola di smistamento combacia, è che
+ * Stubwise non ha guardato.
+ */
+export function isDayInWindow(day: Date, now: Date = new Date()): boolean {
+  const { from, to } = ingestionWindow(now);
+  const dayStart = startOfLocalDay(day);
+  const dayEnd = new Date(dayStart.getTime() + MS_PER_DAY);
+  return dayEnd > from && dayStart < to;
 }
 
 /**
