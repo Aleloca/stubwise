@@ -452,6 +452,46 @@ function buildSeriesCalendar(
   });
 }
 
+describe("buildCalendarProposalEvent — l'ancora del deep link (App M3, Fase D)", () => {
+  it("`calendarEventId` è l'id della RIGA, e `proposalId` resta un id diverso e casuale", () => {
+    // I due campi rispondono a due domande diverse e NON vanno unificati:
+    // `calendarEventId` apre l'appuntamento, `proposalId` è la chiave di
+    // claim di `propagateHandled` e dev'essere unica PER PUBBLICAZIONE —
+    // `publishProposal` ritrova la notifica appena scritta con
+    // `event->>'proposalId' = … limit 1`, e «Riproponi» su un evento di
+    // calendario ripubblica per la stessa riga.
+    const row = calendarRow();
+    const event = buildCalendarProposalEvent({
+      lang: "it",
+      event: row,
+      mailboxEmail: MAILBOX,
+      projectNames: NAMES,
+    });
+
+    expect(event?.calendarEventId).toBe(row.id);
+    expect(event?.proposalId).not.toBe(row.id);
+  });
+
+  it("due pubblicazioni della STESSA riga: stesso `calendarEventId`, `proposalId` diversi", () => {
+    // È il caso di «Riproponi»: la riga è la stessa, la proposta no.
+    const row = calendarRow();
+    const args = { lang: "it" as const, event: row, mailboxEmail: MAILBOX, projectNames: NAMES };
+    const first = buildCalendarProposalEvent(args);
+    const second = buildCalendarProposalEvent(args);
+
+    expect(first?.calendarEventId).toBe(second?.calendarEventId);
+    expect(first?.proposalId).not.toBe(second?.proposalId);
+  });
+
+  it("`receivedAt` è l'inizio dell'appuntamento: è da lì che il client ricava il giorno", () => {
+    // Il deep link del calendario si costruisce su `receivedAt` +
+    // `calendarEventId` (`deepLinkFor`, `@stubwise/notifications`): questa è
+    // la proprietà da cui dipende, e funziona anche sulle card storiche.
+    const event = buildCalendar();
+    expect(event?.receivedAt).toBe("2026-09-30T09:00:00.000Z");
+  });
+});
+
 describe("buildCalendarProposalEvent — azione di serie (fase 7b, Task 5)", () => {
   it("action: milestone — stessa opzione di un evento singolo", () => {
     const event = buildSeriesCalendar({ action: "milestone" });

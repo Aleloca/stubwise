@@ -33,6 +33,7 @@
 import type { GoogleCalendarEvent } from "@stubwise/google";
 import { GoogleApiError } from "@stubwise/google";
 import { t, type Language } from "@stubwise/i18n";
+import { CALENDAR_LOOKBACK_DAYS, CALENDAR_WINDOW_DAYS } from "@stubwise/shared";
 import {
   matchRoutes,
   type EmailForRouting,
@@ -41,26 +42,27 @@ import {
 } from "@stubwise/notifications";
 
 /**
- * Ampiezza della finestra del PRIMO giro (e di ogni resync) IN AVANTI: 60
- * giorni, come il design. Il tetto in avanti resta — un appuntamento troppo
- * lontano nel futuro non è ancora una scadenza utile da proporre.
+ * Ampiezza della finestra del PRIMO giro (e di ogni resync): da
+ * `CALENDAR_LOOKBACK_DAYS` giorni indietro a `CALENDAR_WINDOW_DAYS` avanti.
+ * Il tetto in avanti (60 giorni, come il design) esiste perché un
+ * appuntamento troppo lontano nel futuro non è ancora una scadenza utile da
+ * proporre; lo sguardo all'indietro (30 giorni, fase 9 Task 1) perché fino
+ * alla fase 9 `timeMin` era `now` e una griglia con le frecce
+ * avanti/indietro avrebbe premuto "indietro" senza trovare mai niente, per
+ * sempre — non tocca i filtri di ammissione né cosa è proposto (quella
+ * logica guarda solo eventi futuri), cambia solo quanto passato resta
+ * interrogabile. Il filtro in SCRITTURA del poller (`poller.ts`, `startsAt
+ * < timeMin || startsAt > timeMax`) usa la STESSA finestra: si allarga
+ * insieme, per costruzione — vedi il test dedicato.
+ *
+ * I due numeri VIVONO in `@stubwise/shared` da App M3 Fase D (Task 11):
+ * l'app mobile ferma lì la navigazione fra i mesi, e tenerne una seconda
+ * copia qui significherebbe due valori da ricordare di cambiare insieme.
+ * Ri-esportati perché ogni import esistente (`poller.ts`,
+ * `calendar.test.ts`) continui a funzionare da qui, dov'è il loro unico uso
+ * operativo.
  */
-export const CALENDAR_WINDOW_DAYS = 60;
-
-/**
- * Quanto indietro guarda la stessa finestra (fase 9, Task 1). Fino alla fase
- * 9 `timeMin` era `now` — nessuno sguardo all'indietro — perché la finestra
- * serviva SOLO a decidere cosa proporre, e un appuntamento passato non
- * produce più una scadenza. La griglia del calendario (fase 9) le dà un
- * secondo uso — mostrare cosa è successo — e con `timeMin = now` una griglia
- * con le frecce avanti/indietro premerebbe "indietro" e non troverebbe mai
- * niente, per sempre. 30 giorni: non tocca i filtri di ammissione né cosa è
- * proposto (quella logica guarda solo eventi futuri), cambia solo quanto
- * passato resta interrogabile. Il filtro in SCRITTURA del poller
- * (`poller.ts`, `startsAt < timeMin || startsAt > timeMax`) usa la STESSA
- * finestra: si allarga insieme, per costruzione — vedi il test dedicato.
- */
-export const CALENDAR_LOOKBACK_DAYS = 30;
+export { CALENDAR_LOOKBACK_DAYS, CALENDAR_WINDOW_DAYS };
 
 /** Eventi chiesti per pagina a `events.list`. */
 export const CALENDAR_PAGE_SIZE = 250;

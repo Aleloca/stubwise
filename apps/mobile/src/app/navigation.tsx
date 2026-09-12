@@ -3,6 +3,7 @@ import type { NavigatorScreenParams } from "@react-navigation/native";
 import { createNativeBottomTabNavigator } from "@bottom-tabs/react-navigation";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import type { MailDetailSource } from "@stubwise/api-client";
 import { useEffect, useMemo } from "react";
 import type { ImageSourcePropType } from "react-native";
 import { Platform } from "react-native";
@@ -19,6 +20,8 @@ import { BacklogScreen } from "../screens/backlog/BacklogScreen";
 import { AskProjectScreen } from "../screens/docs/AskProjectScreen";
 import { DocsPageScreen } from "../screens/docs/DocsPageScreen";
 import { DocsScreen } from "../screens/docs/DocsScreen";
+import { MailDetailScreen } from "../screens/mbx/MailDetailScreen";
+import { MbxScreen } from "../screens/mbx/MbxScreen";
 import { WorkScreen } from "../screens/work/WorkScreen";
 import { useUnreadCount } from "../lib/inbox-mutations";
 import { colors } from "../theme/tokens";
@@ -27,6 +30,7 @@ import inboxIcon from "../../assets/icons/inbox.svg";
 import folderIcon from "../../assets/icons/folder.svg";
 import checklistIcon from "../../assets/icons/checklist.svg";
 import menuBookIcon from "../../assets/icons/menu_book.svg";
+import mailIcon from "../../assets/icons/mail.svg";
 import { buildLinking, getPendingDeepLink, resolveDeepLinkTarget, setPendingDeepLink } from "./linking";
 import { useAuth } from "./providers";
 
@@ -71,11 +75,36 @@ export type DocsStackParamList = {
   Ask: { projectId: string; projectName: string };
 };
 
+/**
+ * Stack del tab MBX (Task 7, App M3, Fase C — architettura §3/§6a): posta e
+ * calendario, non di un progetto ma di una casella. `List` è lo scambio
+ * Posta/Calendario (`MbxScreen.tsx`); `MailDetail` porta al dettaglio di una
+ * email (regola 2: dalla notifica si arriva all'oggetto, mai alla lista).
+ *
+ * Fase D: anche il calendario ha un oggetto da raggiungere, e ci si arriva
+ * da `List` con un GIORNO — la griglia carica per intervallo, quindi il
+ * giorno è ciò che le serve per sapere quale mese chiedere; l'id
+ * dell'appuntamento apre il foglio.
+ */
+export type MbxStackParamList = {
+  /**
+   * App M3, Fase D: `List` accetta ora dei PARAMETRI, tutti opzionali —
+   * `undefined` resta un valore valido, ed è come ci arriva chi tocca la
+   * scheda MBX dalla tab bar. Li porta solo un deep link di calendario
+   * (`stubwise://calendar/:day[/:eventId]`): `day` dice alla griglia quale
+   * mese caricare e quale giorno aprire, `eventId` quale appuntamento
+   * mostrare nel foglio.
+   */
+  List: { day?: string; eventId?: string } | undefined;
+  MailDetail: { source: MailDetailSource; id: string };
+};
+
 export type MainTabParamList = {
   Inbox: NavigatorScreenParams<InboxStackParamList>;
   Projects: NavigatorScreenParams<ProjectsStackParamList>;
   Backlog: NavigatorScreenParams<BacklogStackParamList>;
   Docs: NavigatorScreenParams<DocsStackParamList>;
+  Mbx: NavigatorScreenParams<MbxStackParamList>;
 };
 
 export type RootStackParamList = {
@@ -89,6 +118,7 @@ const InboxStack = createNativeStackNavigator<InboxStackParamList>();
 const ProjectsStack = createNativeStackNavigator<ProjectsStackParamList>();
 const BacklogStack = createNativeStackNavigator<BacklogStackParamList>();
 const DocsStack = createNativeStackNavigator<DocsStackParamList>();
+const MbxStack = createNativeStackNavigator<MbxStackParamList>();
 const Tab = createNativeBottomTabNavigator<MainTabParamList>();
 
 function InboxNavigator() {
@@ -130,6 +160,15 @@ function DocsNavigator() {
   );
 }
 
+function MbxNavigator() {
+  return (
+    <MbxStack.Navigator screenOptions={{ headerShown: false }}>
+      <MbxStack.Screen name="List" component={MbxScreen} />
+      <MbxStack.Screen name="MailDetail" component={MailDetailScreen} />
+    </MbxStack.Navigator>
+  );
+}
+
 /**
  * Icona nativa per tab (Task 6, App M1+M2, 11 set 2026): SF Symbol su iOS —
  * nessuna immagine caricata, resa dal sistema e per questo automaticamente
@@ -144,7 +183,12 @@ function DocsNavigator() {
  *
  * Scelta finale (riferita a Fable/maintainer): Inbox → `tray.fill` /
  * `inbox`, Projects → `folder.fill` / `folder`, Backlog → `checklist` /
- * `checklist`, Docs → `book.fill` / `menu_book`.
+ * `checklist`, Docs → `book.fill` / `menu_book`, **MBX → `envelope.fill` /
+ * `mail`** (Task 7, App M3, Fase C, 11 set 2026 — busta, per l'architettura
+ * §6a: verificato `'envelope.fill'` contro `sf-symbols-typescript@2.2.0`
+ * — presente dalla versione 1.0, la più compatibile — e `mail_fill1_24px.svg`
+ * scaricato da `google/material-design-icons` dopo un HTTP 200, stessa
+ * disciplina delle altre quattro).
  */
 function nativeTabIcon(
   sfSymbol: AppleIcon["sfSymbol"],
@@ -157,8 +201,9 @@ function nativeTabIcon(
  * Monta l'app "vera" (autenticata). Al primo render consuma un eventuale
  * deep link rimasto in sospeso da prima del login (vedi
  * `linking.ts`): `Main` è il primo posto in cui gli screen di destinazione
- * (`Inbox/Card`, `Projects/Detail`, `Projects/Ticket`) esistono davvero
- * nell'albero, quindi è anche il primo momento in cui si può navigarci.
+ * (`Inbox/Card`, `Projects/Detail`, `Projects/Ticket`, `Mbx/MailDetail`,
+ * `Mbx/List` col giorno del calendario) esistono davvero nell'albero, quindi
+ * è anche il primo momento in cui si può navigarci.
  */
 function MainNavigator() {
   // Tipizzato sul RootStack (l'ANTENATO di questo componente: `MainNavigator`
@@ -188,6 +233,19 @@ function MainNavigator() {
       navigation.navigate("Main", { screen: "Projects", params: { screen: "Detail", params: { id: target.id } } });
     } else if (target.area === "tickets") {
       navigation.navigate("Main", { screen: "Projects", params: { screen: "Ticket", params: { id: target.id } } });
+    } else if (target.area === "mail") {
+      navigation.navigate("Main", {
+        screen: "Mbx",
+        params: { screen: "MailDetail", params: { source: target.source, id: target.id } },
+      });
+    } else if (target.area === "calendar") {
+      navigation.navigate("Main", {
+        screen: "Mbx",
+        params: {
+          screen: "List",
+          params: { day: target.day, ...(target.eventId ? { eventId: target.eventId } : {}) },
+        },
+      });
     }
   }, [navigation]);
 
@@ -242,6 +300,14 @@ function MainNavigator() {
         options={{
           tabBarLabel: "DOC",
           tabBarIcon: () => nativeTabIcon("book.fill", menuBookIcon),
+        }}
+      />
+      <Tab.Screen
+        name="Mbx"
+        component={MbxNavigator}
+        options={{
+          tabBarLabel: "MBX",
+          tabBarIcon: () => nativeTabIcon("envelope.fill", mailIcon),
         }}
       />
     </Tab.Navigator>

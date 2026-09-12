@@ -124,6 +124,83 @@ describe("deep link", () => {
   // nell'albero montato (solo `Auth` lo è) — il test sopra lo intercetta
   // già (Login deve comparire, non la card), ma qui verifichiamo anche che
   // NESSUN deep link resti "perso" quando non ce n'è uno.
+  test("stubwise://mail/email/xyz CON sessione: apre DIRETTAMENTE il dettaglio, non la lista Mbx (architettura, regola 2)", async () => {
+    const session = {
+      baseUrl: "https://stubwise.example",
+      token: "stw_pat_existing",
+      patId: "88888888-8888-4888-8888-888888888888",
+      user: successUser,
+    };
+    (Keychain.getGenericPassword as jest.Mock).mockResolvedValue({
+      username: "stubwise-session",
+      password: JSON.stringify(session),
+      service: "com.app.aleloca.stubwise.session",
+      storage: "keychain",
+    });
+    (Linking.getInitialURL as jest.Mock).mockResolvedValue("stubwise://mail/email/xyz");
+    jest.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => routeFetch(input, init));
+
+    await render(
+      <AppProviders>
+        <RootNavigator />
+      </AppProviders>,
+    );
+
+    await waitFor(() => expect(screen.getByTestId("mail-detail-screen")).toBeTruthy());
+    // Non è finito sullo scambio Posta/Calendario di Mbx: il deep link salta
+    // la lista, non ci passa in mezzo.
+    expect(screen.queryByTestId("mbx-switch")).toBeNull();
+  });
+
+  test("stubwise://mail/calendar/xyz: nessuna schermata calendario da raggiungere ancora, il link viene scartato", async () => {
+    (Keychain.getGenericPassword as jest.Mock).mockResolvedValue(false);
+    (Linking.getInitialURL as jest.Mock).mockResolvedValue("stubwise://mail/calendar/xyz");
+    jest.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => routeFetch(input, init));
+
+    await render(
+      <AppProviders>
+        <RootNavigator />
+      </AppProviders>,
+    );
+
+    // Un URL malformato (source non "email") non deve mai far girare a vuoto
+    // il resolver: `resolveDeepLinkTarget` lo scarta (`null`), quindi non
+    // resta nemmeno "in sospeso" — login normale, nessuna sorpresa dopo.
+    await waitFor(() => expect(screen.getByTestId("login-url")).toBeTruthy());
+  });
+
+  test("stubwise://calendar/:day/:id CON sessione: apre MBX sul CALENDARIO, non sulla Posta (App M3, Fase D)", async () => {
+    const session = {
+      baseUrl: "https://stubwise.example",
+      token: "stw_pat_existing",
+      patId: "88888888-8888-4888-8888-888888888888",
+      user: successUser,
+    };
+    (Keychain.getGenericPassword as jest.Mock).mockResolvedValue({
+      username: "stubwise-session",
+      password: JSON.stringify(session),
+      service: "com.app.aleloca.stubwise.session",
+      storage: "keychain",
+    });
+    (Linking.getInitialURL as jest.Mock).mockResolvedValue(
+      "stubwise://calendar/2026-09-17/7c9e6679-7425-40de-944b-e07fc1f90ae7",
+    );
+    jest.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => routeFetch(input, init));
+
+    await render(
+      <AppProviders>
+        <RootNavigator />
+      </AppProviders>,
+    );
+
+    // La scheda MBX mostra due cose: chi tocca la notifica di un
+    // appuntamento deve trovarsi davanti la griglia, non la lista della posta
+    // con una scheda da cambiare a mano.
+    await waitFor(() => expect(screen.getByTestId("calendar-panel")).toBeTruthy());
+    expect(screen.getByTestId("calendar-month-label").props.children.join("")).toContain("settembre");
+    expect(screen.queryByTestId("mbx-mail-list")).toBeNull();
+  });
+
   test("senza deep link in coda, l'onboarding porta a Main pulito (nessuna card)", async () => {
     (Keychain.getGenericPassword as jest.Mock).mockResolvedValue(false);
     (Linking.getInitialURL as jest.Mock).mockResolvedValue(undefined);

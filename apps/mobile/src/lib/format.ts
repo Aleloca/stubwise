@@ -37,3 +37,23 @@ export function relativeTimeCompact(iso: string, now: number = Date.now()): Rela
 export function elapsedMinutes(iso: string, now: number = Date.now()): number {
   return Math.floor(Math.max(0, now - new Date(iso).getTime()) / MINUTE);
 }
+
+/**
+ * L'ora di un istante ISO nel formato `HH:MM`, nel fuso LOCALE di chi
+ * guarda (App M3, Fase D, Task 11).
+ *
+ * ⚠️ **Solo per un evento CON ORARIO.** Un evento "tutto il giorno" è una
+ * DATA, non un istante: il worker lo fissa a mezzanotte UTC e leggerlo con i
+ * getter locali lo farebbe scivolare al giorno prima per chi sta in un fuso
+ * negativo — vedi il docblock di `calendar-grid.ts` in `@stubwise/shared`,
+ * dove quella scelta è presa e motivata. Per quelli non si mostra un'ora
+ * affatto, si dice "tutto il giorno".
+ *
+ * A mano, non con `Intl`/`toLocaleTimeString`: l'app non ne usa in nessun
+ * altro punto (Hermes non garantisce ICU completo su ogni piattaforma), e
+ * qui non serve — `HH:MM` è lo stesso in ogni lingua che l'app parla.
+ */
+export function clockTime(iso: string): string {
+  const at = new Date(iso);
+  return `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`;
+}

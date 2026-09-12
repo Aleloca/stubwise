@@ -223,6 +223,8 @@ function ignoreOption(lang: Language): OptionWithAction {
 function assembleEvent(args: {
   proposalId: string;
   source: "email" | "calendar";
+  /** Solo per il calendario: `calendar_events.id`, l'ancora del deep link. */
+  calendarEventId?: string;
   messageUrl: string;
   projectId?: string;
   projectName?: string;
@@ -240,6 +242,7 @@ function assembleEvent(args: {
     kind: "google.proposal",
     proposalId: args.proposalId,
     source: args.source,
+    ...(args.calendarEventId ? { calendarEventId: args.calendarEventId } : {}),
     messageUrl: args.messageUrl,
     ...(args.projectId ? { projectId: args.projectId } : {}),
     ...(args.projectName ? { projectName: args.projectName } : {}),
@@ -604,8 +607,19 @@ export function buildCalendarProposalEvent(
 
   const subject = (event.title ?? "").trim();
   return assembleEvent({
+    // Resta un `randomUUID()` se il chiamante non ne passa uno, ed è
+    // CORRETTO che lo sia: `proposalId` è la chiave di claim, unica per
+    // pubblicazione (vedi `publishProposal` qui sotto, che ritrova la
+    // notifica appena scritta con `event->>'proposalId' = … limit 1`).
+    // L'ancora per aprire l'appuntamento è `calendarEventId`, un campo a sé.
     proposalId: args.proposalId ?? randomUUID(),
     source: "calendar",
+    // App M3, Fase D: con questo la card porta ALL'APPUNTAMENTO nella
+    // griglia dell'app, non alla sola riga d'inbox (architettura §5 regola
+    // 2). Il GIORNO il client ce l'ha già da `receivedAt` qui sotto, che per
+    // il calendario è `event.startsAt`: per questo il deep link funziona
+    // anche sulle card pubblicate prima di questo campo.
+    calendarEventId: event.id,
     messageUrl: calendarDayUrl(args.mailboxEmail, event.startsAt),
     projectId,
     projectName,

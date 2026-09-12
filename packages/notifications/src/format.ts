@@ -453,6 +453,19 @@ export interface GoogleProposalEvent {
   /** Progetto risolto dalle regole di routing. Assente = ancora da scegliere
    * (solo per le card storiche: un evento nuovo lo porta sempre). */
   projectName?: string;
+  /**
+   * App M3, Fase D: `calendar_events.id`, **solo per `source: "calendar"`**.
+   * È l'ancora con cui un client apre QUELL'appuntamento invece della sola
+   * card d'inbox — vedi {@link deepLinkFor} in `push/payload.ts`.
+   *
+   * Opzionale, e non per pigrizia: le card pubblicate prima di questa fase
+   * non ce l'hanno, e il degrado è quello giusto (si apre la giornata, che
+   * `receivedAt` porta già). NON è `proposalId` riusato: quello è la chiave
+   * di claim di `propagateHandled` e deve restare unico PER PUBBLICAZIONE —
+   * vedi il docblock di `inboxGoogleSchema.calendarEventId` in
+   * `@stubwise/shared`, che spiega cosa si romperebbe.
+   */
+  calendarEventId?: string;
   /** Il segnale riconosciuto nel messaggio. */
   signal: "decision" | "request" | "deadline" | "blocker" | "none";
   /** Mittente (email) o organizzatore dell'evento. NON FIDATO. */

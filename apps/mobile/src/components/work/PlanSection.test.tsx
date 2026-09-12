@@ -9,21 +9,34 @@ import { PlanSection } from "./PlanSection";
 
 const TICKET_ID = "11111111-1111-4111-8111-111111111111";
 
-function makeClient(overrides: { approvePlan?: jest.Mock; rejectPlan?: jest.Mock } = {}): StubwiseClient {
+function makeClient(
+  overrides: {
+    approvePlan?: jest.Mock;
+    rejectPlan?: jest.Mock;
+    preApprovePlan?: jest.Mock;
+    revokePlanApproval?: jest.Mock;
+  } = {},
+): StubwiseClient {
   return {
     tickets: {
       approvePlan: overrides.approvePlan ?? jest.fn().mockResolvedValue({ jobId: "job-1" }),
       rejectPlan: overrides.rejectPlan ?? jest.fn().mockResolvedValue({ jobId: "job-1" }),
+      preApprovePlan: overrides.preApprovePlan ?? jest.fn().mockResolvedValue({}),
+      revokePlanApproval: overrides.revokePlanApproval ?? jest.fn().mockResolvedValue({}),
     },
   } as unknown as StubwiseClient;
 }
 
-async function renderSection(props: Partial<ComponentProps<typeof PlanSection>>, client: StubwiseClient) {
+async function renderSection(
+  props: Partial<ComponentProps<typeof PlanSection>>,
+  client: StubwiseClient,
+  role: "admin" | "member" = "admin",
+) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const authValue: AuthContextValue = {
     status: "authenticated",
     client,
-    user: { id: "u1", email: "a@example.com", role: "admin", language: "it", avatarUrl: null, slackUserId: null },
+    user: { id: "u1", email: "a@example.com", role, language: "it", avatarUrl: null, slackUserId: null },
     justLoggedIn: false,
     login: jest.fn(),
     completeOnboarding: jest.fn(),
@@ -38,6 +51,11 @@ async function renderSection(props: Partial<ComponentProps<typeof PlanSection>>,
           plan={null}
           planSummary={null}
           canDecide={false}
+          isAdmin={role === "admin"}
+          isClosed={false}
+          planApprovedAt={null}
+          planApprovedBy={null}
+          planApprovalStale={false}
           {...props}
         />
       </AuthContext.Provider>
@@ -168,5 +186,95 @@ describe("PlanSection — riassunto in breve", () => {
     await renderSection({ plan: null, planSummary: "Il listino si carica subito." }, makeClient());
     expect(screen.getByText("Il listino si carica subito.")).toBeTruthy();
     expect(screen.queryByText("Leggi il piano completo →")).toBeNull();
+  });
+});
+
+/**
+ * Pre-approvazione del piano (fase 7, App M3 Fase B). Tre stati — non
+ * approvato, approvato, approvazione decaduta — e una regola sola: la riga
+ * di stato la vede ANCHE l'operatore, il bottone SOLO il maintainer.
+ */
+describe("PlanSection — pre-approvazione del piano", () => {
+  test("mai approvato: nessuna riga di stato, il bottone (maintainer) c'è ed è 'Approva in anticipo'", async () => {
+    await renderSection({ plan: "Piano", planApprovedAt: null }, makeClient(), "admin");
+    expect(screen.queryByTestId("plan-section-approval-status")).toBeNull();
+    expect(screen.getByText("Approva il piano in anticipo")).toBeTruthy();
+  });
+
+  test("approvato e valido: la riga di stato dice chi e quando, il bottone diventa 'Revoca'", async () => {
+    await renderSection(
+      {
+        plan: "Piano",
+        planApprovedAt: new Date(Date.now() - 5 * 60_000).toISOString(),
+        planApprovedBy: { id: TICKET_ID, email: "maintainer@example.com" },
+        planApprovalStale: false,
+      },
+      makeClient(),
+      "admin",
+    );
+    expect(screen.getByText(/Piano approvato da maintainer@example\.com, 5 min fa — pronto per partire\./)).toBeTruthy();
+    expect(screen.getByText("Revoca approvazione")).toBeTruthy();
+  });
+
+  test("approvazione DECADUTA (piano riscritto dopo): la riga lo dice, il bottone resta 'Approva in anticipo' (non 'Revoca')", async () => {
+    await renderSection(
+      {
+        plan: "Un piano nuovo, diverso da quello approvato",
+        planApprovedAt: "2026-09-01T00:00:00.000Z",
+        planApprovedBy: { id: TICKET_ID, email: "maintainer@example.com" },
+        planApprovalStale: true,
+      },
+      makeClient(),
+      "admin",
+    );
+    expect(screen.getByText("Piano modificato dopo l'approvazione: serve un nuovo via libera.")).toBeTruthy();
+    // Non è più "valida": il bottone torna a offrire una NUOVA approvazione,
+    // non una revoca di quella scaduta.
+    expect(screen.getByText("Approva il piano in anticipo")).toBeTruthy();
+    expect(screen.queryByText("Revoca approvazione")).toBeNull();
+  });
+
+  test("un operatore (member) vede la riga di stato ma MAI il bottone — il divieto vero resta lato server", async () => {
+    await renderSection(
+      {
+        plan: "Piano",
+        planApprovedAt: new Date(Date.now() - 60_000).toISOString(),
+        planApprovedBy: { id: TICKET_ID, email: "maintainer@example.com" },
+        planApprovalStale: false,
+      },
+      makeClient(),
+      "member",
+    );
+    expect(screen.getByText(/Piano approvato da maintainer@example\.com/)).toBeTruthy();
+    expect(screen.queryByTestId("plan-section-pre-approve")).toBeNull();
+  });
+
+  test("nessun piano: niente bottone di pre-approvazione, anche per un maintainer", async () => {
+    await renderSection({ plan: null }, makeClient(), "admin");
+    expect(screen.queryByTestId("plan-section-pre-approve")).toBeNull();
+  });
+
+  test("un ticket chiuso: niente bottone, non c'è più nulla da far partire", async () => {
+    await renderSection({ plan: "Piano", isClosed: true }, makeClient(), "admin");
+    expect(screen.queryByTestId("plan-section-pre-approve")).toBeNull();
+  });
+
+  test("il bottone chiama preApprovePlan, poi revokePlanApproval quando premuto di nuovo dopo l'approvazione", async () => {
+    const preApprovePlan = jest.fn().mockResolvedValue({});
+    const client = makeClient({ preApprovePlan });
+    await renderSection({ plan: "Piano", planApprovedAt: null }, client, "admin");
+
+    await fireEvent.press(screen.getByTestId("plan-section-pre-approve"));
+    await waitFor(() => expect(preApprovePlan).toHaveBeenCalledWith(TICKET_ID));
+  });
+
+  test("un errore sulla pre-approvazione (409 no_plan) mostra il messaggio, senza toccare canDecide", async () => {
+    const { ApiError } = jest.requireActual("@stubwise/api-client") as typeof import("@stubwise/api-client");
+    const preApprovePlan = jest.fn().mockRejectedValue(new ApiError(409, "no plan", "no_plan"));
+    const client = makeClient({ preApprovePlan });
+    await renderSection({ plan: "Piano", planApprovedAt: null }, client, "admin");
+
+    await fireEvent.press(screen.getByTestId("plan-section-pre-approve"));
+    await waitFor(() => expect(screen.getByTestId("plan-section-pre-approve-error")).toBeTruthy());
   });
 });

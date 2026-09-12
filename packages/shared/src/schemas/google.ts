@@ -716,11 +716,25 @@ export type CalendarSeriesList = z.infer<typeof calendarSeriesListSchema>;
 /**
  * Corpo di `PUT /api/me/calendar/series/:recurringEventId`: sostituisce
  * l'INTERA configurazione della serie (come `PUT /api/projects/:id/plugins`,
- * non una patch parziale — qui non c'è un client mobile che scrive questo
- * corpo, quindi non vale l'invariante "solo PATCH" di `me-prefs.ts`).
- * `accountId` è necessario perché `recurringEventId` da solo non è unico:
- * la stessa serie di due caselle diverse dello stesso utente avrebbe lo
- * stesso id lato Google.
+ * non una patch parziale). `accountId` è necessario perché
+ * `recurringEventId` da solo non è unico: la stessa serie di due caselle
+ * diverse dello stesso utente avrebbe lo stesso id lato Google.
+ *
+ * ⚠️ **Da App M3 Fase D (Task 12, 12 set 2026) un client mobile scrive
+ * davvero questo corpo** — prima non esisteva, ed era la ragione dichiarata
+ * qui per cui l'invariante "solo PATCH" di `me-prefs.ts` non si applicava.
+ * La sostituzione integrale RESTA, ma la ragione ora è un'altra, e va detta
+ * per intero: questo corpo ha tutti i campi `.default()` tranne `accountId`
+ * ed `enabled`, quindi un'app vecchia che non conoscesse un campo futuro
+ * continuerebbe a soddisfarlo — è la forma che l'invariante chiede (nessun
+ * campo NUOVO obbligatorio), ottenuta con i default invece che con
+ * l'opzionalità. Chi aggiunge un campo a questo schema lo faccia
+ * `.default()`/`.optional()` come gli altri: renderlo obbligatorio
+ * romperebbe le app già sugli store, esattamente come `push` in fase 4.
+ * Il rovescio della sostituzione integrale resta vero e va ricordato:
+ * un'app vecchia che non conosce un campo nuovo lo RIAZZERA al default
+ * salvando — qui è accettabile perché la configurazione è corta e la si
+ * rilegge intera nel form prima di salvare, non è un patch cieco.
  *
  * Il server rifiuta `enabled: true` senza `projectId`: design fase 7b §4,
  * "Il progetto si fissa, non si ri-deduce" — non esiste una serie accesa
@@ -735,3 +749,13 @@ export const calendarSeriesPatchSchema = z.object({
   auto: z.boolean().default(false),
 });
 export type CalendarSeriesPatch = z.input<typeof calendarSeriesPatchSchema>;
+
+/**
+ * Risposta di `PUT`/`DELETE /api/me/calendar/series/:recurringEventId`:
+ * nessun dato oltre l'esito, come {@link mailReproposeResultSchema}. Ha un
+ * nome (invece di restare un literal inline nella rotta) da App M3 Fase D,
+ * Task 10: ora la stessa forma la dichiara il server e la verifica il
+ * client condiviso, in un punto solo.
+ */
+export const calendarSeriesWriteResultSchema = z.object({ ok: z.literal(true) });
+export type CalendarSeriesWriteResult = z.infer<typeof calendarSeriesWriteResultSchema>;

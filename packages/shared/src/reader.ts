@@ -93,6 +93,7 @@ export type Reader<T> = T extends string
 export const READER_NODE_KINDS = [
   "object",
   "array",
+  "record",
   "optional",
   "nullable",
   "default",
@@ -223,6 +224,25 @@ function derive(schema: z.ZodType, trace: Trace): z.ZodType {
   if (schema instanceof z.ZodArray) {
     noteRebuild(schema, "array", trace);
     return z.array(derive(child(schema.element), trace));
+  }
+  /**
+   * `z.record(keyType, valueType)` — trovato mancante da App M3 (Task 6):
+   * `mailItemSchema.outcome` (`@stubwise/shared`) è `z.record(z.string(),
+   * z.unknown())`, e finiva nel ramo foglia qui sotto — attraversato
+   * invariato (sicuro, ma segnalato come "non gestito" dal guardiano, perché
+   * un domani un valore diverso da `unknown()` potrebbe nascondere un enum
+   * chiuso senza che nessuno se ne accorga). Si ricostruisce come le altre
+   * collezioni, derivando ANCHE la chiave: `z.record` in Zod v4 accetta solo
+   * chiavi string/number/enum-like, quindi derivarla non è mai un no-op
+   * inutile — se un giorno la chiave fosse un enum, si aprirebbe come
+   * qualunque altro enum.
+   */
+  if (schema instanceof z.ZodRecord) {
+    noteRebuild(schema, "record", trace);
+    return z.record(
+      derive(child(schema.keyType), trace) as z.ZodString,
+      derive(child(schema.valueType), trace),
+    );
   }
   if (schema instanceof z.ZodOptional) {
     noteRebuild(schema, "optional", trace);

@@ -1,8 +1,9 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { ANSWER_TEXT_MAX_CHARS, type InboxQuestion } from "../lib/api";
-import { QuestionPanel } from "./question-panel";
+import i18n from "../i18n";
+import { ANSWER_TEXT_MAX_CHARS, ApiError, type InboxQuestion } from "../lib/api";
+import { answerErrorMessage, QuestionPanel } from "./question-panel";
 
 /**
  * Pannello di risposta a una domanda dell'agente: reso qui isolato dalle due
@@ -233,5 +234,37 @@ describe("QuestionPanel", () => {
 
     rerender(<QuestionPanel question={question()} onSubmit={vi.fn()} showQuestionText={false} />);
     expect(screen.queryByText("Where should the setting live?")).toBeNull();
+  });
+});
+
+describe("answerErrorMessage", () => {
+  // Fix di review (App M3 Fase A, Task 3b, 11 set 2026): i due sistemi
+  // gemelli di domande a bottoni (`agent_questions`/`backlog_questions`)
+  // mandano DUE code diversi per "qualcun altro ha già risposto" — prima
+  // del fix mancava il secondo, e la chat del backlog (che lo usa) mostrava
+  // il messaggio generico invece di dire che la corsa era persa.
+  it("already_handled (agent_questions, card d'inbox/pagina ticket) — con e senza chi ha risposto", () => {
+    const withEmail = new ApiError(409, "…", "already_handled", {
+      details: { message: "…", handledBy: { id: QUESTION_ID, email: "ada@example.com" } },
+    });
+    expect(answerErrorMessage(withEmail, i18n.t)).toBe("Already answered by ada@example.com");
+
+    const withoutEmail = new ApiError(409, "…", "already_handled", { details: { message: "…" } });
+    expect(answerErrorMessage(withoutEmail, i18n.t)).toBe("Already answered by someone else");
+  });
+
+  it("already_answered (backlog_questions, chat del backlog) — mai un `handledBy`, sempre la variante senza nome", () => {
+    const error = new ApiError(409, "…", "already_answered");
+    expect(answerErrorMessage(error, i18n.t)).toBe("Already answered by someone else");
+  });
+
+  it("altri code noti, e il fallback generico per il resto", () => {
+    expect(answerErrorMessage(new ApiError(409, "…", "question_not_pending"), i18n.t)).toBe(
+      "This question is no longer waiting for an answer",
+    );
+    expect(answerErrorMessage(new ApiError(400, "…", "invalid_answer"), i18n.t)).toBe(
+      "This answer does not fit the question",
+    );
+    expect(answerErrorMessage(new Error("boom"), i18n.t)).toBe("Could not send the answer");
   });
 });

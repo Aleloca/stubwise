@@ -2,13 +2,29 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import Markdown from "react-native-markdown-display";
+import type { HandledBy, Reader } from "@stubwise/shared";
+import type { TFunction } from "i18next";
 import { RejectSheet } from "../inbox/RejectSheet";
 import { GhostButton } from "../GhostButton";
 import { PrimaryButton } from "../PrimaryButton";
-import { useApprovePlan, useRejectPlan } from "../../lib/work-mutations";
+import { useApprovePlan, usePreApprovePlan, useRejectPlan, useRevokePlanApproval } from "../../lib/work-mutations";
+import { relativeTimeCompact } from "../../lib/format";
 import { colors, radii } from "../../theme/tokens";
 import { MARKDOWN_STYLE } from "../../theme/markdown";
 import { fontFamily, fontSize } from "../../theme/typography";
+
+/**
+ * "adesso" o "12 min fa"/"1 h fa"/"1 g fa": stesso `mobile.work.time.*` già
+ * usato da `Timeline.tsx` per lo stesso scopo, più la sola parola "fa" che
+ * qui serve perché la riga è una frase intera, non un'etichetta a fianco di
+ * un badge (dove "12 min" da solo basta, come in `CardShell`/`Timeline`).
+ */
+function approvedTimeText(iso: string, t: TFunction): string {
+  const relative = relativeTimeCompact(iso);
+  if (relative.kind === "now") return t("mobile.work.time.now");
+  const compact = t(`mobile.work.time.${relative.kind}`, { count: relative.count });
+  return t("mobile.work.plan.timeAgo", { time: compact });
+}
 
 export interface PlanSectionProps {
   ticketId: string;
@@ -24,6 +40,23 @@ export interface PlanSectionProps {
   planSummary: string | null;
   /** `job.status === "awaiting_plan_approval" && ruolo admin` — decide il chiamante (`WorkScreen`), non questo componente. */
   canDecide: boolean;
+  /**
+   * Pre-approvazione del piano (fase 7, App M3 Fase B). Ruolo admin — SOLO
+   * il bottone dipende da questo, mai la riga di stato qui sotto: quella la
+   * vede anche l'operatore, come sul web, perché è ciò che gli dice se il
+   * suo run partirà davvero. Il divieto vero resta `requireAdmin` lato
+   * server: questo flag non lo indebolisce né lo duplica, decide solo se
+   * MOSTRARE il bottone.
+   */
+  isAdmin: boolean;
+  /** Un ticket chiuso non ha più nulla da far partire: niente bottone di pre-approvazione. */
+  isClosed: boolean;
+  /** `null` = il piano corrente non è mai stato approvato in anticipo — nessuna riga di stato. */
+  planApprovedAt: string | null;
+  /** `null` anche con `planApprovedAt` non nullo: l'utente che approvò può essere stato cancellato. */
+  planApprovedBy: Reader<HandledBy> | null;
+  /** L'approvazione esiste ma il piano è cambiato da allora: serve un nuovo via libera. */
+  planApprovalStale: boolean;
 }
 
 /**
@@ -50,13 +83,31 @@ export interface PlanSectionProps {
  * documento tecnico" è tutta per il lettore a cui questa schermata parla.
  * "Leggi il piano completo" apre sempre il PIANO, mai il riassunto.
  */
-export function PlanSection({ ticketId, ticketTitle, plan, planSummary, canDecide }: PlanSectionProps) {
+export function PlanSection({
+  ticketId,
+  ticketTitle,
+  plan,
+  planSummary,
+  canDecide,
+  isAdmin,
+  isClosed,
+  planApprovedAt,
+  planApprovedBy,
+  planApprovalStale,
+}: PlanSectionProps) {
   const { t } = useTranslation();
   const approve = useApprovePlan(ticketId);
   const reject = useRejectPlan(ticketId);
+  const preApprove = usePreApprovePlan(ticketId);
+  const revokeApproval = useRevokePlanApproval(ticketId);
   const [confirmingApprove, setConfirmingApprove] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
   const [readOpen, setReadOpen] = useState(false);
+
+  // "Approvato" solo se un'approvazione esiste E non è decaduta — stessa
+  // condizione di `isPlanPreApproved` in apps/web/src/routes/tickets/$id.tsx.
+  const isPreApproved = planApprovedAt !== null && !planApprovalStale;
+  const showPreApproveButton = isAdmin && !isClosed && plan !== null;
 
   return (
     <View>
@@ -86,6 +137,52 @@ export function PlanSection({ ticketId, ticketTitle, plan, planSummary, canDecid
           </Pressable>
         )}
       </View>
+
+      {/*
+        Riga di stato della pre-approvazione (fase 7, App M3 Fase B): la vede
+        ANCHE l'operatore, come sul web — sapere che il piano è già approvato
+        è ciò che gli dice che può partire. Nessuna riga se il piano non è
+        mai stato approvato ("assente" non è "scaduto").
+      */}
+      {planApprovedAt !== null && (
+        <Text style={isPreApproved ? styles.approvalStatus : styles.approvalStale} testID="plan-section-approval-status">
+          {isPreApproved
+            ? t("mobile.work.plan.approvedBy", {
+                name: planApprovedBy?.email ?? t("mobile.work.plan.approvedByUnknown"),
+                time: approvedTimeText(planApprovedAt, t),
+              })
+            : t("mobile.work.plan.approvalStale")}
+        </Text>
+      )}
+
+      {/*
+        Il BOTTONE, invece, è solo del maintainer — mai duplicato qui: il
+        divieto vero è `requireAdmin` lato server, questo flag decide solo
+        cosa mostrare.
+      */}
+      {showPreApproveButton && (
+        <View style={styles.preApproveRow}>
+          <GhostButton
+            label={
+              isPreApproved
+                ? revokeApproval.isPending
+                  ? t("mobile.work.plan.revokingPreApproval")
+                  : t("mobile.work.plan.revokePreApproval")
+                : preApprove.isPending
+                  ? t("mobile.work.plan.preApprovingPlan")
+                  : t("mobile.work.plan.preApprovePlan")
+            }
+            onPress={() => (isPreApproved ? revokeApproval.mutate() : preApprove.mutate())}
+            disabled={preApprove.disabled || revokeApproval.disabled}
+            testID="plan-section-pre-approve"
+          />
+          {(preApprove.errorMessage ?? revokeApproval.errorMessage) !== null && (
+            <Text accessibilityLiveRegion="polite" style={styles.errorText} testID="plan-section-pre-approve-error">
+              {preApprove.errorMessage ?? revokeApproval.errorMessage}
+            </Text>
+          )}
+        </View>
+      )}
 
       {canDecide && (
         <View style={styles.actions}>
@@ -208,6 +305,21 @@ const styles = StyleSheet.create({
     color: colors.signal,
     fontFamily: fontFamily.mono,
     fontSize: fontSize.label,
+    marginTop: 8,
+  },
+  approvalStatus: {
+    color: colors.ok,
+    fontFamily: fontFamily.mono,
+    fontSize: fontSize.label,
+    marginTop: 10,
+  },
+  approvalStale: {
+    color: colors.signal,
+    fontFamily: fontFamily.mono,
+    fontSize: fontSize.label,
+    marginTop: 10,
+  },
+  preApproveRow: {
     marginTop: 8,
   },
   actions: {

@@ -6,18 +6,41 @@ import { Linking } from "react-native";
 // moduli, a differenza di un import normale.
 import type { RootStackParamList } from "./navigation";
 
-/** Le tre aree che l'app sa aprire da un deep link (`stubwise://<area>/<id>`). */
-export type DeepLinkArea = "inbox" | "tickets" | "projects";
+/** Le cinque aree che l'app sa aprire da un deep link (`stubwise://<area>/<id>`). */
+export type DeepLinkArea = "inbox" | "tickets" | "projects" | "mail" | "calendar";
 
-export interface DeepLinkTarget {
-  area: DeepLinkArea;
-  id: string;
-}
+/**
+ * `mail` è a due segmenti (`mail/email/:id`), non uno: porta DIRETTAMENTE al
+ * dettaglio di una proposta di posta (App M3, Fase C, Task 7 — architettura
+ * §5 regola 2), mai alla lista. Solo `"email"`: è l'unica sorgente con un
+ * `proposalId` che significhi qualcosa fuori dal worker (per `"calendar"` è
+ * un `randomUUID()`, vedi `packages/notifications/src/push/payload.ts`), ed
+ * è la stessa restrizione che il web applica allo stesso link
+ * (`apps/web/src/components/inbox-item.tsx`).
+ */
+/**
+ * `calendar` è l'unica area a portare una DATA e non (solo) un id, ed è una
+ * conseguenza di come la griglia legge i dati: carica per INTERVALLO, quindi
+ * senza sapere il giorno non saprebbe nemmeno quale mese chiedere. Il giorno
+ * arriva da `receivedAt` della notifica, che per una proposta di calendario è
+ * `calendar_events.starts_at` — quindi c'è anche sulle card pubblicate prima
+ * di questa fase, e il link funziona su quelle senza nessun backfill.
+ *
+ * `eventId` (`calendar_events.id`) è opzionale per la stessa ragione: assente
+ * si apre la giornata e basta. **Non è `proposalId`**, che per il calendario
+ * resta un `randomUUID()` e deve restarlo — vedi il docblock di
+ * `inboxGoogleSchema.calendarEventId` in `@stubwise/shared`.
+ */
+export type DeepLinkTarget =
+  | { area: "inbox" | "tickets" | "projects"; id: string }
+  | { area: "mail"; source: "email"; id: string }
+  | { area: "calendar"; day: string; eventId?: string };
 
 const SCHEME_PREFIX = "stubwise://";
 
 /**
- * Parser puro `stubwise://inbox/abc` → `{ area: "inbox", id: "abc" }`.
+ * Parser puro `stubwise://inbox/abc` → `{ area: "inbox", id: "abc" }` (e
+ * `stubwise://mail/email/abc` → `{ area: "mail", source: "email", id: "abc" }`).
  *
  * Scritto a mano invece di far passare l'URL dal parser di react-navigation
  * (`getStateFromPath`) perché deve poter girare ANCHE quando non c'è ancora
@@ -25,12 +48,40 @@ const SCHEME_PREFIX = "stubwise://";
  * "Main/Inbox/Card" non esiste nell'albero — un caso che il parser di
  * react-navigation non è pensato per gestire (vedi {@link getPendingDeepLink}).
  */
+/** `YYYY-MM-DD`, e una data che esiste davvero (non `2026-02-31`). */
+const DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+function isCalendarDay(value: string): boolean {
+  if (!DAY_PATTERN.test(value)) return false;
+  // `2026-02-31` passa il pattern ma non è un giorno: `Date` lo normalizza al
+  // 3 marzo, quindi il confronto con la stringa di partenza lo scarta.
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
 export function resolveDeepLinkTarget(url: string): DeepLinkTarget | null {
   if (!url.startsWith(SCHEME_PREFIX)) return null;
   const path = url.slice(SCHEME_PREFIX.length).replace(/^\/+|\/+$/, "");
-  const [area, id] = path.split("/");
-  if (!id) return null;
-  if (area === "inbox" || area === "tickets" || area === "projects") return { area, id };
+  const parts = path.split("/");
+  const [area] = parts;
+  if (area === "inbox" || area === "tickets" || area === "projects") {
+    const id = parts[1];
+    if (!id) return null;
+    return { area, id };
+  }
+  if (area === "mail") {
+    const [, source, id] = parts;
+    if (source !== "email" || !id) return null;
+    return { area: "mail", source: "email", id };
+  }
+  if (area === "calendar") {
+    const [, day, eventId] = parts;
+    // Un giorno illeggibile NON degrada a "apri il calendario e basta": la
+    // griglia non saprebbe dove posizionarsi, e aprirla su oggi fingerebbe di
+    // aver capito il link. Meglio nessun target, così il chiamante resta dov'è.
+    if (!day || !isCalendarDay(day)) return null;
+    return eventId ? { area: "calendar", day, eventId } : { area: "calendar", day };
+  }
   return null;
 }
 
@@ -107,6 +158,22 @@ export function buildLinking(isAuthenticated: () => boolean): LinkingOptions<Roo
               },
             },
             Docs: "docs",
+            // Task 7 (App M3, Fase C): `MailDetail` porta all'oggetto
+            // (regola 2), non alla lista. Fase D: anche il calendario ha ora
+            // un oggetto da raggiungere, e ci si arriva da `List` con un
+            // giorno — la griglia carica per intervallo, quindi il giorno è
+            // ciò che le serve per sapere quale mese chiedere.
+            Mbx: {
+              screens: {
+                MailDetail: "mail/:source/:id",
+                // App M3, Fase D: `List` GUADAGNA un path — ma solo la forma
+                // con un giorno (`calendar/2026-09-17`, con l'id
+                // dell'appuntamento facoltativo). Non è "apri MBX e basta":
+                // niente notifica punta lì, e infatti `calendar` senza un
+                // giorno leggibile non risolve (vedi `resolveDeepLinkTarget`).
+                List: "calendar/:day/:eventId?",
+              },
+            },
           },
         },
       },

@@ -290,7 +290,15 @@
         "approveConfirm": "Sì, approva",
         "cancel": "Annulla",
         "rejectWithInstructions": "Rifiuta con istruzioni",
-        "summaryFallback": "Riassunto non disponibile: qui sotto il piano tecnico."
+        "summaryFallback": "Riassunto non disponibile: qui sotto il piano tecnico.",
+        "preApprovePlan": "Approva il piano in anticipo",
+        "revokePreApproval": "Revoca approvazione",
+        "preApprovingPlan": "Approvazione…",
+        "revokingPreApproval": "Revoca…",
+        "approvedBy": "Piano approvato da {{name}}, {{time}} — pronto per partire.",
+        "approvedByUnknown": "un maintainer",
+        "approvalStale": "Piano modificato dopo l'approvazione: serve un nuovo via libera.",
+        "timeAgo": "{{time}} fa"
       },
       "techLevel": {
         "title": "Livello tecnico · solo maintainer",
@@ -365,7 +373,10 @@
         "thinking": "Sta pensando…",
         "placeholder": "Oppure scrivi tu…",
         "send": "Invia",
-        "codeSessionActive": "Sessione di analisi sul codice attiva su questa voce — continua da web."
+        "codeSessionActive": "Sessione di analisi sul codice attiva su questa voce — continua da web.",
+        "codeSessionActiveWithQuestion": "Sessione di analisi sul codice attiva — puoi rispondere alla domanda qui sotto, il testo libero resta da web.",
+        "notNow": "Non ora",
+        "dismissingQuestion": "Rimando…"
       },
       "item": {
         "back": "‹ Backlog",
@@ -385,7 +396,11 @@
         "notConvertible": "Questa voce non può essere convertita.",
         "alreadyConverted": "Questa voce è già stata convertita.",
         "notFound": "Questa voce non esiste più.",
-        "chatUnavailable": "La chat richiede un provider AI con chiave API."
+        "chatUnavailable": "La chat richiede un provider AI con chiave API.",
+        "questionNotFound": "Questa domanda non esiste più.",
+        "invalidAnswer": "Risposta non valida.",
+        "alreadyAnswered": "Ha già risposto qualcun altro.",
+        "questionNotPending": "La domanda non è più aperta."
       },
       "offlineAction": "Serve la rete"
     },
@@ -451,6 +466,165 @@
         "generic": "Qualcosa è andato storto. Riprova.",
         "chatUnavailable": "La chat richiede un provider AI con chiave API.",
         "notFound": "Questo progetto non esiste più."
+      }
+    },
+    "mbx": {
+      "title": "Posta e calendario",
+      "tabs": {
+        "mail": "Posta",
+        "calendar": "Calendario"
+      },
+      "status": {
+        "new": "Nuova",
+        "classified": "Classificata",
+        "proposed": "In attesa",
+        "actioned": "Gestita",
+        "ignored": "Ignorata",
+        "failed": "Fallita",
+        "cancelled": "Annullata",
+        "unknown": "Stato sconosciuto"
+      },
+      "time": {
+        "now": "adesso",
+        "minutes_one": "{{count}} min",
+        "minutes_other": "{{count}} min",
+        "hours_one": "{{count}} h",
+        "hours_other": "{{count}} h",
+        "days_one": "{{count}} g",
+        "days_other": "{{count}} g"
+      },
+      "errors": {
+        "generic": "Qualcosa è andato storto. Riprova.",
+        "messageGone": "Questo messaggio non esiste più su Gmail.",
+        "tokenExpired": "La casella va ricollegata per rileggere l'originale.",
+        "googleUnavailable": "Google non risponde in questo momento. Riprova.",
+        "notReproposable": "Questa riga non può essere riproposta ora."
+      },
+      "list": {
+        "loading": "Caricamento…",
+        "loadError": {
+          "title": "Non riesco a caricare la posta.",
+          "retry": "Riprova"
+        },
+        "empty": {
+          "title": "Nessuna posta qui",
+          "body": "Entra solo la posta che Stubwise riconosce come lavoro dalla tua casella Google — le regole di smistamento si configurano dal sito."
+        },
+        "noSubject": "(nessun oggetto)",
+        "repropose": "Riproponi",
+        "reproposeSuccess": "Ripresa in coda."
+      },
+      "detail": {
+        "back": "← Posta",
+        "loadError": {
+          "title": "Non riesco a caricare questo messaggio.",
+          "retry": "Riprova"
+        },
+        "to": "A: {{list}}",
+        "cc": "CC: {{list}}",
+        "excerptTitle": "Estratto",
+        "excerptNote": "Solo un estratto: niente citazioni, firma né allegati. È il testo che Stubwise ha letto, non il messaggio intero.",
+        "excerptMissing": "Nessun estratto salvato — questo messaggio è arrivato prima che Stubwise leggesse la posta.",
+        "originalTitle": "Originale",
+        "showOriginal": "Mostra l'originale",
+        "originalNote": "Chiede il messaggio a Google adesso — non salva nulla, è solo una rilettura.",
+        "originalLoading": "Sto chiedendo il messaggio a Google…",
+        "openInGmail": "Apri su Gmail",
+        "attachments_one": "{{count}} allegato: {{names}}",
+        "attachments_other": "{{count}} allegati: {{names}}"
+      }
+    },
+    "calendar": {
+      "months": {
+        "0": "gennaio",
+        "1": "febbraio",
+        "2": "marzo",
+        "3": "aprile",
+        "4": "maggio",
+        "5": "giugno",
+        "6": "luglio",
+        "7": "agosto",
+        "8": "settembre",
+        "9": "ottobre",
+        "10": "novembre",
+        "11": "dicembre"
+      },
+      "weekdays": {
+        "mon": "L",
+        "tue": "M",
+        "wed": "M",
+        "thu": "G",
+        "fri": "V",
+        "sat": "S",
+        "sun": "D"
+      },
+      "weekdaysLong": {
+        "mon": "Lunedì",
+        "tue": "Martedì",
+        "wed": "Mercoledì",
+        "thu": "Giovedì",
+        "fri": "Venerdì",
+        "sat": "Sabato",
+        "sun": "Domenica"
+      },
+      "allDay": "tutto il g.",
+      "noTitle": "(senza titolo)",
+      "loadError": {
+        "title": "Non riesco a caricare il calendario.",
+        "retry": "Riprova"
+      },
+      "edge": {
+        "start": "Più indietro di qui Stubwise non ha guardato: la sincronizzazione copre dal {{from}} al {{to}}.",
+        "end": "Più avanti di qui Stubwise non guarda ancora: la sincronizzazione copre dal {{from}} al {{to}}.",
+        "both": "Stubwise guarda solo dal {{from}} al {{to}}: fuori da questo periodo non ha ancora niente da mostrare."
+      },
+      "dayEmpty": {
+        "title": "Niente in questo giorno",
+        "body": "Qui compaiono solo gli appuntamenti che combaciano con le regole di smistamento di un progetto — un giorno vuoto è normale. Le regole si cambiano dal sito, nella sezione Posta del progetto."
+      },
+      "dayOutOfWindow": {
+        "title": "Qui Stubwise non ha guardato",
+        "body": "La sincronizzazione copre solo gli ultimi 30 giorni e i prossimi 60: fuori da questo periodo non c'è nulla da mostrare, e non significa che non ci siano impegni."
+      },
+      "errors": {
+        "generic": "Qualcosa è andato storto. Riprova.",
+        "projectRequired": "Scegli un progetto prima di accendere questa serie.",
+        "notFound": "Questa serie non c'è più.",
+        "badRange": "Non riesco a chiedere questo periodo."
+      },
+      "sheet": {
+        "close": "Chiudi",
+        "attendees": "Partecipanti",
+        "openInGoogle": "Apri in Google Calendar",
+        "allDayOn": "Tutto il giorno, {{date}}"
+      },
+      "attendeeStatus": {
+        "accepted": "Accettato",
+        "declined": "Rifiutato",
+        "tentative": "Forse",
+        "needsAction": "Nessuna risposta",
+        "unknown": "Sconosciuto"
+      },
+      "series": {
+        "heading": "Serie ricorrente",
+        "loading": "Carico la configurazione…",
+        "enableLabel": "Accesa",
+        "offByDefaultHint": "Spenta di default. Accenderla permette a Stubwise di agire su OGNI occorrenza futura di questa serie, non solo su questa.",
+        "project": "Progetto",
+        "action": "Azione",
+        "actionOption": {
+          "milestone": "Crea una milestone",
+          "backlog_item": "Apri una voce di backlog",
+          "reminder": "Ricordamelo soltanto"
+        },
+        "leadDays": "Giorni di anticipo",
+        "leadDaysValue_one": "{{count}} giorno",
+        "leadDaysValue_other": "{{count}} giorni",
+        "autoLabel": "Esegui automaticamente",
+        "autoHint": "Spento: Stubwise propone e aspetta un tap. Acceso: Stubwise esegue subito e ti dice cosa ha fatto — in nessun caso avvia un job AI.",
+        "projectRequired": "Scegli un progetto prima di accendere questa serie.",
+        "save": "Salva",
+        "disable": "Spegni"
       }
     },
     "common": {

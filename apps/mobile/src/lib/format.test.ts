@@ -1,4 +1,4 @@
-import { elapsedMinutes, relativeTimeCompact } from "./format";
+import { clockTime, elapsedMinutes, relativeTimeCompact } from "./format";
 
 const NOW = new Date("2026-09-02T10:00:00.000Z").getTime();
 
@@ -49,5 +49,22 @@ describe("elapsedMinutes", () => {
   test("un timestamp futuro (clock skew) non va mai sotto zero", () => {
     const iso = new Date("2026-09-02T10:05:00.000Z").toISOString();
     expect(elapsedMinutes(iso, NOW)).toBe(0);
+  });
+});
+
+describe("clockTime", () => {
+  test("l'ora è quella LOCALE di chi guarda, non UTC", () => {
+    // Il fuso del runner non è fissato: si verifica la relazione, non una
+    // stringa — è comunque ciò che conta (i getter locali, non gli UTC).
+    const iso = "2026-09-14T09:30:00.000Z";
+    const at = new Date(iso);
+    expect(clockTime(iso)).toBe(
+      `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`,
+    );
+  });
+
+  test("padding a due cifre su ore e minuti", () => {
+    const at = new Date(2026, 8, 14, 7, 5);
+    expect(clockTime(at.toISOString())).toBe("07:05");
   });
 });

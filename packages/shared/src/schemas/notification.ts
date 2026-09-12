@@ -282,8 +282,42 @@ export const inboxGoogleSchema = z.object({
    * proposal.ts`): un client lo ignora per quella sorgente, mai un link
    * costruito su un id casuale. `.optional()`: un payload scritto prima di
    * questo campo non ce l'ha.
+   *
+   * ⚠️ **E `proposalId` deve RESTARE casuale per il calendario**, anche se è
+   * tentante renderlo stabile ora che una schermata calendario esiste (App
+   * M3, Fase D): è la chiave di CLAIM di `propagateHandled`, e
+   * `publishProposal` ritrova la notifica appena scritta proprio con
+   * `event->>'proposalId' = … limit 1`, senza ordinamento. Un id stabile per
+   * riga la romperebbe su un percorso raggiungibile dalla UI — «Riproponi»
+   * su un evento di calendario azzera `proposal_notification_id` e il poller
+   * ripubblica per la STESSA riga, quindi quel `limit 1` potrebbe restituire
+   * la notifica vecchia. Per aprire l'appuntamento c'è
+   * {@link calendarEventId} qui sotto, che è un campo a sé apposta.
    */
   proposalId: z.string().optional(),
+  /**
+   * App M3, Fase D: `calendar_events.id` dell'appuntamento, **solo per
+   * `source: "calendar"`** — l'ancora con cui un client apre QUELL'evento
+   * invece della sola card d'inbox (architettura §5 regola 2, "da una
+   * notifica si arriva all'oggetto").
+   *
+   * `.optional()` come ogni campo nuovo di una risposta che l'app legge, e
+   * qui serve davvero: le card di calendario pubblicate PRIMA di questa fase
+   * non ce l'hanno, e un client che ne costruisse un link userebbe un id che
+   * non esiste. Assente ⇒ si apre la GIORNATA e basta — che il client sa
+   * comunque, perché per una proposta di calendario `receivedAt` è
+   * `calendar_events.starts_at` (`buildCalendarProposalEvent`,
+   * `apps/worker/src/google/proposal.ts`, che lo passa ad `assembleEvent`
+   * come `receivedAt: event.startsAt`). È il motivo per cui il deep link del
+   * calendario funziona anche sulle card storiche, senza nessun backfill:
+   * il giorno c'era già.
+   *
+   * Il nome è `calendarEventId` e non `eventId` di proposito: in questo repo
+   * "event" significa già due cose — l'evento di notifica (`notifications.
+   * event`, il jsonb che contiene proprio questo campo) e l'appuntamento —
+   * e questo schema è letto da due app.
+   */
+  calendarEventId: z.string().optional(),
 });
 export type InboxGoogle = z.infer<typeof inboxGoogleSchema>;
 

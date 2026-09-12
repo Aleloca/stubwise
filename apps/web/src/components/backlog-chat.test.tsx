@@ -634,7 +634,12 @@ describe("BacklogChat — domanda a bottoni (fase 7)", () => {
   });
 
   it("errore sulla risposta: messaggio localizzato dal code, la domanda resta aperta", async () => {
-    answerBacklogQuestion.mockRejectedValue(new ApiError(409, "already handled", "already_handled"));
+    // `already_answered`, non `already_handled` (fix di review, App M3 Fase
+    // A, Task 3b): è il code VERO che `answerBacklogQuestion` manda per una
+    // domanda di backlog già chiusa — prima del fix `answerErrorMessage` non
+    // lo mappava, e questo test lo stava mascherando usando il code
+    // sbagliato (quello di `agent_questions`, mai emesso qui).
+    answerBacklogQuestion.mockRejectedValue(new ApiError(409, "already answered", "already_answered"));
     const user = userEvent.setup();
     renderChat({ codeSession: ACTIVE_SESSION, openQuestion: OPEN_QUESTION });
 
