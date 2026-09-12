@@ -113,13 +113,14 @@ function AttendeeStatusBadge({ status }: { status: CalendarAttendeeResponseStatu
 /**
  * "Quando" leggibile: un istante solo per un evento senza `endsAt`, un
  * intervallo altrimenti; "tutto il giorno" (senza orario, che sarebbe
- * fuorviante — vedi il docblock di `calendar-grid.ts` sul perché è fissato
- * a mezzanotte UTC) per un evento `allDay`.
+ * fuorviante — vedi il docblock di `calendar-grid.ts`, in
+ * `@stubwise/shared`, sul perché è fissato a mezzanotte UTC) per un evento
+ * `allDay`.
  */
 function formatEventWhen(event: CalendarEventItem, t: (key: string, opts?: Record<string, unknown>) => string): string {
   const start = new Date(event.startsAt);
   if (event.allDay) {
-    // Giorno UTC (vedi calendar-grid.ts): è la data che Google intendeva.
+    // Giorno UTC (vedi `calendar-grid.ts` in `@stubwise/shared`): è la data che Google intendeva.
     const day = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()));
     return t("calendar:detail.allDayOn", { date: day.toLocaleDateString(undefined, { dateStyle: "full" } as never) });
   }

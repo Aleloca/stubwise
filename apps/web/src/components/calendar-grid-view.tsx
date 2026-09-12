@@ -1,7 +1,3 @@
-import type { CalendarEventItem } from "@stubwise/shared";
-import { Link } from "@tanstack/react-router";
-import { useTranslation } from "react-i18next";
-import type { AccountColor } from "../lib/account-colors";
 import {
   allDayEventsForDay,
   eventsForDay,
@@ -9,15 +5,20 @@ import {
   monthGridDays,
   timedEventsForDay,
   weekDays,
+  type CalendarEventItem,
   type CalendarView,
-} from "../lib/calendar-grid";
+} from "@stubwise/shared";
+import { Link } from "@tanstack/react-router";
+import { useTranslation } from "react-i18next";
+import type { AccountColor } from "../lib/account-colors";
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 
 /**
  * La griglia giorno/settimana/mese (fase 9, Task 6, design §4). Puramente di
  * presentazione: tutta la logica di posizionamento sta in
- * `lib/calendar-grid.ts` (testata a sé, vedi il suo docblock sui fusi).
+ * `@stubwise/shared` (`calendar-grid.ts`, testata a sé, vedi il suo
+ * docblock sui fusi; spostata lì da App M3, Fase D, Task 9).
  *
  * Un evento è un blocco cliccabile che seleziona l'appuntamento nel pannello
  * di dettaglio a destra — non naviga altrove, la griglia resta al suo posto.

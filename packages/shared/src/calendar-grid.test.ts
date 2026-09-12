@@ -1,4 +1,4 @@
-import type { CalendarEventItem } from "@stubwise/shared";
+import type { CalendarEventItem } from "./schemas/google.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   addDays,
@@ -12,7 +12,7 @@ import {
   stepAnchor,
   timedEventsForDay,
   weekDays,
-} from "./calendar-grid";
+} from "./calendar-grid.js";
 
 /**
  * Funzioni pure della griglia (fase 9, Task 6) — la parte più facile da

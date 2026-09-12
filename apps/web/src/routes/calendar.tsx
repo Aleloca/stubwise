@@ -1,8 +1,3 @@
-import type { CalendarEventItem } from "@stubwise/shared";
-import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
-import { useTranslation } from "react-i18next";
-import { accountColorForIndex } from "../lib/account-colors";
 import {
   addDays,
   localDayKey,
@@ -10,8 +5,13 @@ import {
   rangeForView,
   startOfWeek,
   stepAnchor,
+  type CalendarEventItem,
   type CalendarView,
-} from "../lib/calendar-grid";
+} from "@stubwise/shared";
+import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { accountColorForIndex } from "../lib/account-colors";
 import { calendarRangeQueryOptions, myGoogleAccountsQueryOptions, projectsQueryOptions } from "../lib/queries";
 import { CalendarDetailPanel } from "../components/calendar-detail-panel";
 import { CalendarEmptyState, CalendarGridView } from "../components/calendar-grid-view";
@@ -21,8 +21,9 @@ import { CalendarSeriesSidebar } from "../components/calendar-series-sidebar";
  * Pagina `/calendar` (fase 9, Task 6/7, design §4): una griglia vera —
  * giorno/settimana/mese — al posto dell'elenco piatto della 7b. Il piano
  * chiedeva esplicitamente due cose sullo stato vuoto e sui fusi: entrambe
- * vivono nei moduli che questa pagina compone (`calendar-grid.ts` per i
- * fusi, `CalendarEmptyState` per il vuoto che spiega).
+ * vivono nei moduli che questa pagina compone (`calendar-grid.ts`, in
+ * `@stubwise/shared` da App M3 Fase D, per i fusi; `CalendarEmptyState`
+ * per il vuoto che spiega).
  *
  * La configurazione delle serie ricorrenti (la 7b) si raggiunge dal
  * pannello di dettaglio, guardando un appuntamento che appartiene a una

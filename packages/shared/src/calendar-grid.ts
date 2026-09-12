@@ -1,4 +1,4 @@
-import type { CalendarEventItem } from "@stubwise/shared";
+import type { CalendarEventItem } from "./schemas/google.js";
 
 /**
  * Funzioni PURE della griglia del calendario (fase 9, Task 6). Separate dal
@@ -16,6 +16,15 @@ import type { CalendarEventItem } from "@stubwise/shared";
  * fuso negativo (mezzanotte UTC del 12 è le 20 dell'11 a New York). Per
  * quelli si usano i getter UTC, che recuperano la data ORIGINALE
  * indipendentemente da dove sta guardando chi la legge.
+ *
+ * App M3, Fase D (Task 9, 12 set 2026): SPOSTATE qui da
+ * `apps/web/src/lib/calendar-grid.ts` perché la griglia mensile dell'app
+ * mobile è la stessa logica — `workStateFor` e `deriveNextStep`
+ * (`next-step.ts`) sono i due precedenti che dimostrano che condividere
+ * questa classe di logica fra sito e app funziona. Comportamento IDENTICO,
+ * verificato dagli stessi test (spostati anche loro, invariati) e dai test
+ * della pagina `/calendar` del web, che importa da qui e non è stata
+ * toccata.
  */
 
 export type CalendarView = "day" | "week" | "month";
