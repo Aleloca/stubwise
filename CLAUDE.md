@@ -47,9 +47,11 @@ repo, ricerca vettoriale e chat RAG.
   giorno, posizionamento orario) più le due costanti della **finestra di
   ingestione** — `CALENDAR_LOOKBACK_DAYS`/`CALENDAR_WINDOW_DAYS`, `now − 30gg
   → now + 60gg`. Stava in `apps/web/src/lib/`, e le costanti in
-  `apps/worker/src/google/calendar.ts` (che resta il loro unico uso
-  OPERATIVO — la finestra che il poller interroga — e le ri-esporta, così
-  nessun import esistente cambia). Sono qui perché le usano tutte e tre le
+  `apps/worker/src/google/calendar.ts` (che le ri-esporta, così
+  nessun import esistente cambia, e resta l'unico punto che le usa per
+  DECIDERE COSA INGERIRE — la finestra che il poller interroga; l'app le usa
+  a sua volta operativamente, ma per un'altra domanda: fin dove far navigare
+  la griglia). Sono qui perché le usano tutte e tre le
   superfici: il web per la sua griglia, il worker per sapere cosa ingerire,
   l'app mobile per fermare la navigazione fra i mesi esattamente ai bordi
   della finestra. Due numeri che DEVONO restare d'accordo scritti in due

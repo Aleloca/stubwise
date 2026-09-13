@@ -899,7 +899,13 @@ Serve un ticket con un piano salvato, e **due account**: un maintainer
 
 - [ ] Lo scambio in alto porta alla **griglia mensile** (nessun segnaposto).
 - [ ] Sette colonne, settimane di contorno incluse (i giorni del mese
-      prima/dopo si vedono attenuati); **oggi** è in ambra.
+      prima/dopo si vedono attenuati).
+- [ ] **Oggi è in ambra SOLO quando non è il giorno selezionato.** All'apertura
+      il giorno selezionato È oggi, e lo stile della selezione vince su quello
+      di oggi: la cella si vede rialzata e col numero chiaro, non ambra. Tocca
+      un altro giorno e oggi diventa ambra. È voluto — la selezione marca già
+      la cella — e questa voce esiste perché la versione precedente diceva
+      solo «oggi è in ambra» e avrebbe fatto segnalare un difetto inesistente.
 - [ ] I giorni con appuntamenti hanno un **puntino**; quelli senza no.
 - [ ] Toccando un giorno, sotto compare la sua **agenda** con l'intestazione
       per esteso («Giovedì 17 settembre»).
