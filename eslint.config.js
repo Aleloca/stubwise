@@ -13,6 +13,16 @@ export default tseslint.config(
       // nostro (Xcode, Gradle, Ruby).
       "apps/mobile/ios/",
       "apps/mobile/android/",
+      // I worktree git vivono DENTRO il repo (`git worktree add
+      // .worktrees/<nome>`): senza questa riga `pnpm lint` da qui dentro
+      // lintava anche il checkout di ogni altro branch, e riportava errori
+      // su file che in questo albero non esistono — per giunta in codice
+      // generato dallo scaffold React Native, che nel branch corrente è già
+      // ignorato dalle due righe qui sopra. In CI il problema non si vede
+      // (nessun worktree), quindi il lint locale falliva mentre la CI era
+      // verde: la divergenza peggiore, perché insegna a non fidarsi del
+      // lint locale.
+      ".worktrees/",
     ],
   },
   ...tseslint.configs.recommended,
