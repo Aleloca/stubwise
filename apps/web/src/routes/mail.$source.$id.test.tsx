@@ -74,6 +74,26 @@ function baseApi(overrides: Record<string, Handler> = {}): Record<string, Handle
     "GET /api/projects": () => jsonResponse(200, []),
     "GET /api/me/google/accounts": () => jsonResponse(200, []),
     "GET /api/me/mail/summary": () => jsonResponse(200, { openProposals: 0, failed: 0, ignored: 0 }),
+    // La colonna centrale nasce sulla vista per CONVERSAZIONI (§4): questi
+    // test riguardano il dettaglio di UN messaggio, ma la lista accanto
+    // deve comunque avere qualcosa da mostrare.
+    "GET /api/me/mail/threads": () =>
+      jsonResponse(200, {
+        items: [
+          {
+            threadId: "t1",
+            accountId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            accountEmail: "mailbox@acme.test",
+            subject: "Ship next week?",
+            lastFrom: "laura@cliente.test",
+            lastReceivedAt: "2026-08-31T09:00:00.000Z",
+            messageCount: 1,
+            openProposals: 0,
+            projectNames: [],
+          },
+        ],
+        nextCursor: null,
+      }),
     "GET /api/me/mail": () =>
       jsonResponse(200, {
         items: [
@@ -121,10 +141,14 @@ describe("pagina /mail/:source/:id", () => {
     renderDetail();
 
     await screen.findByRole("heading", { name: "Ship next week?" });
-    // La riga della lista (colonna centrale) è ANCORA a schermo, non
-    // sostituita dal dettaglio: è la differenza rispetto alla vecchia
-    // pagina separata.
-    expect(screen.getByRole("link", { name: "Read in Stubwise" })).toBeInTheDocument();
+    // La colonna centrale è ANCORA a schermo, non sostituita dal dettaglio:
+    // è la differenza rispetto alla vecchia pagina separata.
+    //
+    // ⚠️ Dal 14 set («la posta si legge per conversazione» §4) quella
+    // colonna elenca CONVERSAZIONI, quindi qui non si cerca più la riga per
+    // messaggio: la proprietà che questo test difende è che le tre colonne
+    // convivano, non quale delle due liste sia in vista.
+    expect(await screen.findByTestId("mail-thread-list")).toBeInTheDocument();
     expect(screen.getByLabelText("Mailbox")).toBeInTheDocument();
   });
 
@@ -437,6 +461,10 @@ describe("pagina /mail/:source/:id", () => {
     );
     renderDetail();
     await screen.findByRole("heading", { name: "Ship next week?" });
+    // Si passa alla vista per MESSAGGI: è da lì che si naviga fra due
+    // messaggi restando nella stessa istanza del pannello, cioè lo scenario
+    // esatto del bug. Dal 14 set la vista di default è per conversazioni.
+    await userEvent.click(screen.getByTestId("mail-view-messages"));
 
     await userEvent.click(screen.getByRole("button", { name: "Read original on Gmail" }));
     await screen.findByText("Corpo del primo messaggio.");
