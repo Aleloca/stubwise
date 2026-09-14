@@ -1896,6 +1896,8 @@ export function getProjectEmailLabels(projectId: string): Promise<{ labels: stri
 
 // --- Pagina Posta, per utente (Fase 6, Task 12) ---
 
+import type { MailThreadReproposal } from "@stubwise/shared";
+
 export type {
   MailItem,
   MailItemStatus,
@@ -1922,12 +1924,26 @@ export function getMailSummary(): Promise<MailSummary> {
   return api.get("/api/me/mail/summary");
 }
 
-// ⚠️ `postMailRepropose` non c'è più: «Riproponi» viveva sulla riga della
-// lista per messaggio, ed era un'azione su UN messaggio — cosa che una
-// conversazione non è. Resta sulla card in inbox, e la rotta resta viva per
-// l'app.
+/**
+ * «Riproponi»: rimette in coda una proposta `failed`/`ignored`, o uno
+ * smistamento chiuso con «nessuno di questi». Non pubblica niente da qui —
+ * azzera lo stato, e il prossimo tick del poller la riprende.
+ *
+ * ⚠️ Vive sul singolo MESSAGGIO dentro la conversazione aperta, non sulla
+ * riga della conversazione: una conversazione può contenere più proposte, e
+ * l'azione ha bisogno di sapere quale. La `source` non è `MailSource`: un
+ * appuntamento non sta in un thread di posta, e questa è l'unica superficie
+ * web che chiama la rotta.
+ */
+export function postMailRepropose(
+  source: MailThreadReproposal["source"],
+  id: string,
+): Promise<{ ok: true }> {
+  return api.post(`/api/me/mail/${source}/${encodeURIComponent(id)}/repropose`);
+}
 
 export type { MailDetail, MailOriginal, MailThreadDetail, MailThreadPage } from "@stubwise/shared";
+export type { MailThreadReproposal };
 
 /**
  * La posta per CONVERSAZIONE («la posta si legge per conversazione» §4):

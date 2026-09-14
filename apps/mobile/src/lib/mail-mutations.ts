@@ -38,16 +38,10 @@ export function mailDetailSourceFor(item: Reader<MailItem>): MailDetailSource | 
   return item.kind === "triage" ? "email_triage" : "email";
 }
 
-/**
- * Stessa disambiguazione di {@link mailDetailSourceFor}, per
- * `POST /:source/:id/repropose` (ammette anche `"calendar"`) — `null` solo
- * quando `source` è `UNKNOWN`.
- */
-export function mailReproposeSourceFor(item: Reader<MailItem>): MailReproposeSource | null {
-  if (isUnknown(item.source)) return null;
-  if (item.source === "calendar") return "calendar";
-  return item.kind === "triage" ? "email_triage" : "email";
-}
+// ⚠️ `mailReproposeSourceFor` non c'è più: derivava la sorgente di repropose
+// da una riga `MailItem` della lista per MESSAGGIO, che la MBX non mostra
+// più. Ora la sorgente la dice il SERVER, voce per voce, in
+// `mailThreadMessageSchema.reproposals` — non si deduce più da nessuna parte.
 
 /** Etichetta i18n dello stato di una riga (canvas: Aperta / Gestita / Ignorata / Fallita…). */
 const MAIL_STATUS_LABEL_KEYS: Record<MailItemStatus, string> = {
@@ -165,6 +159,8 @@ export function useMailOriginal(source: MailDetailSource, id: string) {
 export interface MailReproposeMutation {
   mutate: () => void;
   isPending: boolean;
+  /** Serve a dire che è andata: la conversazione si rilegge e l'azione sparisce da sé. */
+  isSuccess: boolean;
   disabled: boolean;
   online: boolean;
   errorMessage: string | null;
@@ -189,6 +185,7 @@ export function useRepropose(source: MailReproposeSource, id: string): MailRepro
   return {
     mutate: () => mutation.mutate(),
     isPending: mutation.isPending,
+    isSuccess: mutation.isSuccess,
     disabled: !online || mutation.isPending,
     online,
     errorMessage: mutation.error ? describeMailError(mutation.error, t) : null,

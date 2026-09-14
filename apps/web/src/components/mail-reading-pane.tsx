@@ -1,10 +1,15 @@
 import { ApiError } from "@stubwise/api-client";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { getMailOriginal, type MailOriginal } from "../lib/api";
+import {
+  getMailOriginal,
+  postMailRepropose,
+  type MailOriginal,
+  type MailThreadReproposal,
+} from "../lib/api";
 import { formatRelativeTime } from "../lib/format";
-import { mailDetailQueryOptions, mailThreadQueryOptions } from "../lib/queries";
+import { mailDetailQueryOptions, mailKeys, mailThreadQueryOptions } from "../lib/queries";
 
 /**
  * Il pannello di LETTURA a destra (fase 9, Task 5, design §5): l'estratto già
@@ -349,6 +354,26 @@ export function MailThreadPane({ threadId, onClose }: { threadId: string; onClos
             ) : (
               <p className="mt-2 font-mono text-[11px] text-fg-faint">{t("mail:detail.noExcerpt")}</p>
             )}
+            {/*
+             * «Riproponi», sul MESSAGGIO e non sulla conversazione: è
+             * l'unica via di recupero da una proposta fallita o ignorata
+             * per sbaglio, e senza un bottone resterebbe raggiungibile solo
+             * con una chiamata HTTP a mano. Il server manda solo le
+             * riproposizioni DAVVERO possibili, quindi qui non si rivaluta
+             * nessuno stato: array vuoto = niente da mostrare, ed è il caso
+             * normale.
+             *
+             * ⚠️ Il `?? []` non è difensivismo: a differenza dell'app, il
+             * web NON valida le risposte con Zod (`api.get` fa un cast),
+             * quindi il `.default([])` dello schema qui non gira mai e un
+             * server che precede questo campo manderebbe `undefined`. Senza,
+             * non sarebbe una riga mancante: salterebbe TUTTO il pannello di
+             * lettura. C'è un test che lo fissa, con una fixture che il
+             * campo non ce l'ha.
+             */}
+            {(message.reproposals ?? []).map((action) => (
+              <ReproposeAction key={`${action.source}-${action.id}`} action={action} threadId={threadId} />
+            ))}
           </li>
         ))}
       </ol>
@@ -362,5 +387,52 @@ export function MailThreadPane({ threadId, onClose }: { threadId: string; onClos
         {t("mail:thread.openInGmail")}
       </a>
     </article>
+  );
+}
+
+/**
+ * Una riproposizione sola. È un componente a sé perché ogni proposta ha la
+ * PROPRIA mutazione: con una sola condivisa, riproporne una lascerebbe
+ * «Riproponendo…» su tutte le altre dello stesso messaggio.
+ *
+ * Il nome del progetto compare solo quando c'è: su uno smistamento non
+ * esiste ancora, ed è esattamente la domanda che quella card fa.
+ */
+function ReproposeAction({ action, threadId }: { action: MailThreadReproposal; threadId: string }) {
+  const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const mutation = useMutation({
+    mutationFn: () => postMailRepropose(action.source, action.id),
+    onSuccess: () => {
+      // La conversazione si rilegge: la riproposizione appena consumata
+      // sparisce da sé, senza che questo componente indovini il nuovo stato.
+      void queryClient.invalidateQueries({ queryKey: mailKeys.thread(threadId) });
+      void queryClient.invalidateQueries({ queryKey: mailKeys.summary() });
+    },
+  });
+
+  if (mutation.isSuccess) {
+    return <p className="mt-2 font-mono text-[11px] text-fg-muted">{t("mail:reproposed")}</p>;
+  }
+
+  return (
+    <div className="mt-2">
+      <button
+        type="button"
+        onClick={() => mutation.mutate()}
+        disabled={mutation.isPending}
+        data-testid={`mail-thread-repropose-${action.id}`}
+        className="inline-flex min-h-8 items-center rounded-sm border border-line-strong px-2 font-mono text-[11px] tracking-[0.12em] text-fg-muted uppercase transition-colors hover:border-ink-700 hover:text-fg disabled:opacity-50"
+      >
+        {mutation.isPending
+          ? t("mail:reproposing")
+          : action.projectName
+            ? `${t("mail:repropose")} · ${action.projectName}`
+            : t("mail:repropose")}
+      </button>
+      {mutation.isError && (
+        <p className="mt-1 font-mono text-[11px] text-danger">{t("mail:reproposeError")}</p>
+      )}
+    </div>
   );
 }

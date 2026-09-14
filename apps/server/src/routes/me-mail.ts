@@ -32,6 +32,7 @@ import {
   type MailItemStatus,
   type MailSignal,
   type MailSource,
+  type MailThreadReproposal,
 } from "@stubwise/shared";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
@@ -573,6 +574,39 @@ const EMAIL_MESSAGE_COLUMNS = {
  * dello stesso messaggio. Per `"email_triage"` l'`id` è già
  * `email_messages.id` — nessun figlio, per costruzione.
  */
+/**
+ * Le riproposizioni possibili su UN messaggio della conversazione: quelle
+ * delle sue proposte figlie (già raccolte dal chiamante) più — se il
+ * messaggio è uno smistamento chiuso con «nessuno di questi» — quella sul
+ * messaggio stesso.
+ *
+ * Lo smistamento è incluso di proposito: è il caso «ignorata per sbaglio»
+ * nella sua forma più letterale, e senza questa voce sarebbe l'unica
+ * chiusura del percorso posta da cui non si torna indietro. La condizione è
+ * copiata NON dal buon senso ma dal ramo `"email_triage"` del cancello di
+ * repropose — `ignored` con un outcome `triage_dismissed`, mai un `failed`
+ * (vedi il docblock di quella rotta per il perché dell'asimmetria).
+ */
+function reproposalsFor(
+  row: { id: string; admitted: boolean; status: string; outcome: unknown },
+  fromProposals: MailThreadReproposal[],
+): MailThreadReproposal[] {
+  // Un messaggio di CONTESTO non è mai stato classificato: non ha figli e
+  // non è uno smistamento. Il controllo è ridondante con le due condizioni
+  // qui sotto, e sta qui lo stesso perché è l'invariante che conta
+  // (CLAUDE.md: «`admitted = false` non diventa mai una card, in nessun
+  // percorso») — chi cambia le righe seguenti non deve poterlo perdere.
+  if (!row.admitted) return [];
+  const dismissed =
+    row.status === "ignored" &&
+    typeof row.outcome === "object" &&
+    row.outcome !== null &&
+    (row.outcome as Record<string, unknown>).type === "triage_dismissed";
+  return dismissed
+    ? [...fromProposals, { source: "email_triage" as const, id: row.id, projectName: null }]
+    : fromProposals;
+}
+
 async function resolveEmailMessage(
   db: Db,
   userId: string,
@@ -918,6 +952,9 @@ export async function meMailRoutes(
           receivedAt: emailMessages.receivedAt,
           textExcerpt: emailMessages.textExcerpt,
           admitted: emailMessages.admitted,
+          // Servono al solo ramo «smistamento» di `reproposals` più sotto.
+          status: emailMessages.status,
+          outcome: emailMessages.outcome,
         })
         .from(emailMessages)
         .innerJoin(googleAccounts, eq(googleAccounts.id, emailMessages.accountId))
@@ -928,8 +965,14 @@ export async function meMailRoutes(
       if (!first) return apiError(reply, 404, "not_found", "Thread not found");
 
       const proposalRows = await app.db
-        .select({ id: emailProposals.id, emailMessageId: emailProposals.emailMessageId })
+        .select({
+          id: emailProposals.id,
+          emailMessageId: emailProposals.emailMessageId,
+          status: emailProposals.status,
+          projectName: projects.name,
+        })
         .from(emailProposals)
+        .innerJoin(projects, eq(projects.id, emailProposals.projectId))
         .where(
           inArray(
             emailProposals.emailMessageId,
@@ -937,10 +980,18 @@ export async function meMailRoutes(
           ),
         );
       const proposalsByMessage = new Map<string, string[]>();
+      const reproposalsByMessage = new Map<string, MailThreadReproposal[]>();
       for (const row of proposalRows) {
         const list = proposalsByMessage.get(row.emailMessageId) ?? [];
         list.push(row.id);
         proposalsByMessage.set(row.emailMessageId, list);
+        // Stessa condizione del cancello della rotta di repropose, ramo
+        // `"email"`: una copia che diverga qui darebbe un bottone da 409.
+        if (row.status === "failed" || row.status === "ignored") {
+          const actions = reproposalsByMessage.get(row.emailMessageId) ?? [];
+          actions.push({ source: "email", id: row.id, projectName: row.projectName });
+          reproposalsByMessage.set(row.emailMessageId, actions);
+        }
       }
 
       const last = rows[rows.length - 1]!;
@@ -961,6 +1012,7 @@ export async function meMailRoutes(
           textExcerpt: row.textExcerpt,
           admitted: row.admitted,
           proposalIds: proposalsByMessage.get(row.id) ?? [],
+          reproposals: reproposalsFor(row, reproposalsByMessage.get(row.id) ?? []),
         })),
       };
     },

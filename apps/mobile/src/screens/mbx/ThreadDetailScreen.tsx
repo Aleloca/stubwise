@@ -9,7 +9,8 @@ import { LinkedText } from "../../components/LinkedText";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { Skeleton } from "../../components/Skeleton";
 import { relativeTimeCompact } from "../../lib/format";
-import { useMailThread } from "../../lib/mail-mutations";
+import type { MailThreadReproposal, Reader } from "@stubwise/shared";
+import { useMailThread, useRepropose } from "../../lib/mail-mutations";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
 
@@ -103,11 +104,66 @@ export function ThreadDetailScreen({
                 ) : (
                   <Text style={styles.missing}>{t("mobile.mbx.detail.excerptMissing")}</Text>
                 )}
+                {/*
+                 * «Riproponi», sul MESSAGGIO: l'unica via di recupero da una
+                 * proposta fallita o ignorata per sbaglio. Quali siano
+                 * possibili lo dice il SERVER — qui non si rivaluta nessuno
+                 * stato, e l'array vuoto (nessuna azione) è il caso normale.
+                 */}
+                {message.reproposals.map((action) => (
+                  <ReproposeButton key={`${action.source}-${action.id}`} action={action} />
+                ))}
               </View>
             ))}
           </>
         )}
       </ScrollView>
+    </View>
+  );
+}
+
+/**
+ * Una riproposizione sola, con la sua PROPRIA mutazione: condividerne una
+ * lascerebbe lo stato «in corso» su tutte le altre dello stesso messaggio.
+ *
+ * `source` arriva da un `Reader`, che gli enum li apre (CLAUDE.md, "solo
+ * cambi additivi"): un valore che questa build non conosce viene dal server
+ * di domani e non si disegna, invece di finire nell'URL di una rotta.
+ */
+function ReproposeButton({ action }: { action: Reader<MailThreadReproposal> }) {
+  const { t } = useTranslation();
+  // La forma stretta serve a TypeScript: con un booleano a parte il tipo di
+  // `action.source` non si restringe, e l'ignoto finirebbe nell'URL.
+  const source = action.source === "email" || action.source === "email_triage" ? action.source : null;
+  // L'hook si chiama SEMPRE (regole dei hook); è il disegno che si ferma.
+  const repropose = useRepropose(source ?? "email", action.id);
+
+  if (source === null) return null;
+
+  // La conversazione si rilegge da sé (la mutazione invalida `mailKeys`) e
+  // l'azione sparisce: senza una riga esplicita il tap non lascerebbe
+  // traccia, e sembrerebbe non aver fatto niente.
+  if (repropose.isSuccess) {
+    return <Text style={styles.reproposeDone}>{t("mobile.mbx.list.reproposeSuccess")}</Text>;
+  }
+
+  return (
+    <View style={styles.reproposeRow}>
+      <GhostButton
+        label={
+          repropose.isPending
+            ? t("mobile.mbx.list.repropose")
+            : action.projectName
+              ? `${t("mobile.mbx.list.repropose")} · ${action.projectName}`
+              : t("mobile.mbx.list.repropose")
+        }
+        onPress={() => repropose.mutate()}
+        disabled={repropose.disabled}
+        testID={`thread-repropose-${action.id}`}
+      />
+      {repropose.errorMessage !== null && (
+        <Text style={styles.reproposeError}>{repropose.errorMessage}</Text>
+      )}
     </View>
   );
 }
@@ -200,5 +256,21 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.sans,
     fontSize: 14,
     marginTop: 10,
+  },
+  reproposeRow: {
+    alignItems: "flex-start",
+    marginTop: 10,
+  },
+  reproposeDone: {
+    color: colors.faint,
+    fontFamily: fontFamily.mono,
+    fontSize: fontSize.label,
+    marginTop: 10,
+  },
+  reproposeError: {
+    color: colors.danger,
+    fontFamily: fontFamily.sans,
+    fontSize: 12,
+    marginTop: 4,
   },
 });

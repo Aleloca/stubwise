@@ -295,14 +295,4 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.mono,
     fontSize: fontSize.label,
   },
-  reproposeRow: {
-    alignItems: "flex-start",
-    marginTop: 6,
-  },
-  reproposeError: {
-    color: colors.danger,
-    fontFamily: fontFamily.sans,
-    fontSize: 12,
-    marginTop: 4,
-  },
 });

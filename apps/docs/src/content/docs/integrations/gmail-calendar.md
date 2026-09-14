@@ -213,6 +213,14 @@ can't tell where one email ends and the previous one begins. Gmail gives us
 the messages already separated, so Stubwise shows them separated; it never
 tries to split a quoted chain by guesswork.
 
+If a proposal failed, or you dismissed one by mistake, the message it came
+from carries a **Repropose** action: it puts that proposal back in the queue,
+and the next poller tick picks it up. It appears only where there is
+something to recover — never on a message whose proposal is still open, and
+never on a context message. When a message produced proposals for several
+projects, there is one action per project, each naming its own, so you are
+never guessing which one you are reopening.
+
 Some of the messages in a conversation are marked as **context**. Those came
 in with the thread of a message that passed the admission gate, and they exist
 to be read: they never produce a proposal of their own, and the page says so

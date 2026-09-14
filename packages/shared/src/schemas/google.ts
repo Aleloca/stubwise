@@ -554,6 +554,25 @@ export type MailThreadPage = z.infer<typeof mailThreadPageSchema>;
  * messaggio che non genera mai una card non deve sembrare uno che non ne ha
  * ancora generata.
  */
+/**
+ * Una riproposizione possibile su un messaggio di una conversazione: i due
+ * parametri della rotta più il nome del progetto, che serve a distinguerle
+ * quando ce n'è più d'una.
+ *
+ * `source` NON include `"calendar"`: un appuntamento non sta in un thread
+ * di posta. Resta un `enum` e non una stringa libera perché è un parametro
+ * di percorso — e verso l'app passa da `readerSchema`, che gli enum li apre
+ * da sé (vedi CLAUDE.md, "solo cambi additivi").
+ */
+export const mailThreadReproposalSchema = z.object({
+  source: z.enum(["email", "email_triage"]),
+  /** `email_proposals.id` per `"email"`, `email_messages.id` per `"email_triage"`. */
+  id: z.uuid(),
+  /** Nome del progetto della proposta. `null` per uno smistamento, che progetto non ne ha ancora. */
+  projectName: z.string().nullable().default(null),
+});
+export type MailThreadReproposal = z.infer<typeof mailThreadReproposalSchema>;
+
 export const mailThreadMessageSchema = z.object({
   id: z.uuid(),
   from: z.string(),
@@ -564,6 +583,24 @@ export const mailThreadMessageSchema = z.object({
   admitted: z.boolean().default(true),
   /** `email_proposals.id` delle proposte nate da QUESTO messaggio, per raggiungerle. */
   proposalIds: z.array(z.uuid()).default([]),
+  /**
+   * Le riproposizioni DISPONIBILI su questo messaggio, già pronte per
+   * `POST /api/me/mail/:source/:id/repropose`: array vuoto = niente da
+   * riproporre, ed è il caso NORMALE (un messaggio di contesto non ne ha
+   * mai, uno con la proposta ancora aperta nemmeno).
+   *
+   * ⚠️ È una LISTA e non un booleano perché dal fan-out della fase 6b un
+   * messaggio può avere PIÙ proposte, una per progetto: un solo bottone
+   * riaprirebbe la domanda «quale delle N?» proprio dove la conversazione
+   * l'aveva chiusa. Con una voce per proposta, `projectName` dice di quale
+   * si parla.
+   *
+   * ⚠️ L'idoneità la calcola il SERVER, con le stesse condizioni del
+   * cancello della rotta di repropose — il client non la rideduce da
+   * `status`: due copie della regola divergono, e la copia sbagliata qui
+   * sarebbe un bottone che dà 409.
+   */
+  reproposals: z.array(mailThreadReproposalSchema).default([]),
 });
 export type MailThreadMessage = z.infer<typeof mailThreadMessageSchema>;
 

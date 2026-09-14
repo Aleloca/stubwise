@@ -13,6 +13,7 @@ import { ThreadDetailScreen } from "./ThreadDetailScreen";
  */
 const AMMESSO = "11111111-1111-4111-8111-111111111111";
 const CONTESTO = "22222222-2222-4222-8222-222222222222";
+const PROPOSTA = "33333333-3333-4333-8333-333333333333";
 
 function detail(overrides: Partial<Reader<MailThreadDetail>> = {}): Reader<MailThreadDetail> {
   return {
@@ -30,6 +31,9 @@ function detail(overrides: Partial<Reader<MailThreadDetail>> = {}): Reader<MailT
         textExcerpt: "La PRIMA email della conversazione",
         admitted: false,
         proposalIds: [],
+        // Un messaggio di CONTESTO non ha proposte, quindi non ha niente da
+        // riproporre: non è «non ancora», è «mai».
+        reproposals: [],
       },
       {
         id: AMMESSO,
@@ -38,16 +42,20 @@ function detail(overrides: Partial<Reader<MailThreadDetail>> = {}): Reader<MailT
         receivedAt: "2026-09-11T09:00:00.000Z",
         textExcerpt: "L'ULTIMA email, con https://esempio.test dentro",
         admitted: true,
-        proposalIds: ["33333333-3333-4333-8333-333333333333"],
+        proposalIds: [PROPOSTA],
+        reproposals: [{ source: "email", id: PROPOSTA, projectName: "Apollo" }],
       },
     ],
     ...overrides,
   } as Reader<MailThreadDetail>;
 }
 
-function makeClient(thread?: jest.Mock): StubwiseClient {
+function makeClient(thread?: jest.Mock, repropose?: jest.Mock): StubwiseClient {
   return {
-    mail: { thread: thread ?? jest.fn().mockResolvedValue(detail()) },
+    mail: {
+      thread: thread ?? jest.fn().mockResolvedValue(detail()),
+      repropose: repropose ?? jest.fn().mockResolvedValue({ ok: true }),
+    },
   } as unknown as StubwiseClient;
 }
 
@@ -108,6 +116,7 @@ describe("ThreadDetailScreen", () => {
             textExcerpt: null,
             admitted: true,
             proposalIds: [],
+            reproposals: [],
           },
         ],
       } as Partial<Reader<MailThreadDetail>>),
@@ -138,6 +147,23 @@ describe("ThreadDetailScreen", () => {
     await waitFor(() => expect(screen.getByTestId("thread-detail-retry")).toBeTruthy());
     await fireEvent.press(screen.getByTestId("thread-detail-retry"));
     await waitFor(() => expect(screen.getByTestId(`thread-message-${AMMESSO}`)).toBeTruthy());
+  });
+
+  test("da una proposta fallita si riparte: «Riproponi» sul messaggio, non sul contesto", async () => {
+    // Lo stato vero da cui si deve poter uscire. Senza questo bottone
+    // l'unica via di recupero sarebbe una chiamata HTTP a mano.
+    const repropose = jest.fn().mockResolvedValue({ ok: true });
+    await renderScreen(makeClient(undefined, repropose));
+    await waitFor(() => expect(screen.getByTestId(`thread-message-${AMMESSO}`)).toBeTruthy());
+
+    // Sul messaggio di CONTESTO l'azione non c'è: proposte non ne ha.
+    expect(screen.queryByTestId(`thread-repropose-${CONTESTO}`)).toBeNull();
+
+    const button = screen.getByTestId(`thread-repropose-${PROPOSTA}`);
+    await fireEvent.press(button);
+
+    // La rotta chiamata è quella della PROPOSTA, con la sua sorgente.
+    await waitFor(() => expect(repropose).toHaveBeenCalledWith("email", PROPOSTA));
   });
 
   test("il tasto indietro chiama goBack", async () => {

@@ -1580,6 +1580,69 @@ describe("GET /api/me/mail/threads/:threadId", () => {
     expect(body.messages.map((m: { id: string }) => m.id)).toEqual([primo, ultimo]);
     expect(body.messages[0]).toMatchObject({ admitted: false, textExcerpt: "Prima email", proposalIds: [] });
     expect(body.messages[1]).toMatchObject({ admitted: true, proposalIds: [proposalId] });
+    // Una proposta ancora APERTA non si ripropone: non c'è niente da cui
+    // ripartire. `reproposals` vuoto è il caso normale, non un difetto.
+    expect(body.messages[0].reproposals).toEqual([]);
+    expect(body.messages[1].reproposals).toEqual([]);
+  });
+
+  it("una proposta FALLITA si può riproporre dal suo messaggio; il contesto no", async () => {
+    // È l'unica via di recupero da un dispatch fallito: senza questa voce,
+    // per chi non apre una console la proposta è persa.
+    const { accountId } = await seedAccount(memberId);
+    const projectId = await seedProject("Apollo");
+    const threadId = `t-${randomUUID()}`;
+    const contesto = await seedEmail(accountId, {
+      threadId,
+      receivedAt: new Date("2026-09-01T08:00:00.000Z"),
+      admitted: false,
+    });
+    const ammesso = await seedEmail(accountId, {
+      threadId,
+      receivedAt: new Date("2026-09-03T08:00:00.000Z"),
+    });
+    const fallita = await seedProposal(ammesso, projectId, { status: "failed", error: "boom" });
+
+    const body = (await getThread(memberCookie, threadId)).json();
+    const byId = new Map<string, { reproposals: unknown[] }>(
+      body.messages.map((m: { id: string; reproposals: unknown[] }) => [m.id, m]),
+    );
+
+    expect(byId.get(contesto)!.reproposals).toEqual([]);
+    // Il nome del progetto c'è: col fan-out della 6b un messaggio può avere
+    // più proposte, e senza il nome non si saprebbe quale si sta riaprendo.
+    expect(byId.get(ammesso)!.reproposals).toEqual([
+      { source: "email", id: fallita, projectName: "Apollo" },
+    ]);
+  });
+
+  it("uno smistamento chiuso con «nessuno di questi» si può riaprire dal messaggio", async () => {
+    // Il messaggio non ha figli: la riproposizione è sul messaggio stesso,
+    // ed è la stessa condizione del ramo `email_triage` della rotta.
+    const { accountId } = await seedAccount(memberId);
+    const threadId = `t-${randomUUID()}`;
+    const scartato = await seedEmail(accountId, {
+      threadId,
+      status: "ignored",
+      outcome: { type: "triage_dismissed" },
+    });
+
+    const body = (await getThread(memberCookie, threadId)).json();
+    expect(body.messages[0].reproposals).toEqual([
+      { source: "email_triage", id: scartato, projectName: null },
+    ]);
+  });
+
+  it("un messaggio ignorato SENZA smistamento non offre niente da riaprire", async () => {
+    // La distinzione che il ramo `email_triage` della rotta fa e che qui
+    // dev'essere identica: `ignored` per mancanza di segnale (`outcome`
+    // nullo) non è uno smistamento scartato, e riaprirlo darebbe 409.
+    const { accountId } = await seedAccount(memberId);
+    const threadId = `t-${randomUUID()}`;
+    await seedEmail(accountId, { threadId, status: "ignored", outcome: null });
+
+    const body = (await getThread(memberCookie, threadId)).json();
+    expect(body.messages[0].reproposals).toEqual([]);
   });
 
   it("ACL: il thread di un altro utente non esiste — 404, non 403", async () => {

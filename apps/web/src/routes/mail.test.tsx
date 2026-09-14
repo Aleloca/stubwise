@@ -264,6 +264,74 @@ describe("pagina /mail — la vista per CONVERSAZIONI (§4)", () => {
     expect(within(pane).getByText(/Context message/)).toBeInTheDocument();
   });
 
+  it("da una proposta fallita si riparte: «Riproponi» sul MESSAGGIO, non sul messaggio di contesto", async () => {
+    // Lo stato vero da cui si deve poter uscire: una proposta `failed`.
+    // Senza questo bottone l'unica via di recupero sarebbe una chiamata
+    // HTTP a mano — che chi userà Stubwise non fa.
+    const PROPOSAL_ID = "77777777-7777-4777-8777-777777777777";
+    const repropose = vi.fn(() => jsonResponse(200, { ok: true }));
+    mockApi(
+      baseApi({
+        "GET /api/me/mail/threads/thread-1": () =>
+          jsonResponse(200, {
+            threadId: "thread-1",
+            accountId: ACCOUNT_ID,
+            accountEmail: "mailbox@acme.test",
+            subject: "Re: Ship next week?",
+            url: "https://mail.google.com/x",
+            messages: [
+              {
+                id: "11111111-1111-4111-8111-111111111111",
+                from: "laura@cliente.test",
+                to: [],
+                receivedAt: "2026-09-07T09:00:00.000Z",
+                textExcerpt: "La PRIMA email della conversazione",
+                admitted: false,
+                proposalIds: [],
+                // Un messaggio di CONTESTO non ha proposte: non ne ha mai
+                // avute e non ne avrà, quindi niente da riproporre.
+                reproposals: [],
+              },
+              {
+                id: "22222222-2222-4222-8222-222222222222",
+                from: "marco@cliente.test",
+                to: [],
+                receivedAt: "2026-09-09T09:00:00.000Z",
+                textExcerpt: "L'ULTIMA email",
+                admitted: true,
+                proposalIds: [PROPOSAL_ID],
+                reproposals: [{ source: "email", id: PROPOSAL_ID, projectName: "Apollo" }],
+              },
+            ],
+          }),
+        [`POST /api/me/mail/email/${PROPOSAL_ID}/repropose`]: repropose,
+      }),
+    );
+    renderMail();
+    await screen.findByTestId("mail-thread-list");
+    await userEvent.click(screen.getByTestId("mail-thread-row-thread-1"));
+
+    const pane = await screen.findByTestId("mail-thread-pane");
+    // L'azione sta sul messaggio che ha la proposta...
+    const contextMessage = within(pane).getByTestId(
+      "mail-thread-message-11111111-1111-4111-8111-111111111111",
+    );
+    expect(within(contextMessage).queryByRole("button", { name: /Repropose/ })).toBeNull();
+    const withProposal = within(pane).getByTestId(
+      "mail-thread-message-22222222-2222-4222-8222-222222222222",
+    );
+    // ...e dice di QUALE proposta si parla, che con il fan-out per progetto
+    // non è una domanda oziosa.
+    const button = within(withProposal).getByTestId(`mail-thread-repropose-${PROPOSAL_ID}`);
+    expect(button).toHaveTextContent("Apollo");
+
+    await userEvent.click(button);
+
+    // La rotta chiamata è quella della PROPOSTA, non quella del messaggio.
+    await waitFor(() => expect(repropose).toHaveBeenCalledTimes(1));
+    expect(await within(pane).findByText(/Reproposed/)).toBeInTheDocument();
+  });
+
   it("chiudendo la conversazione si torna al prompt di selezione", async () => {
     mockApi(
       baseApi({

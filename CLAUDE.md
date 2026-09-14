@@ -983,6 +983,20 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   dai nostri deploy». Chi ripulisce codice morto lato web si fermi al
   confine di `packages/api-client`. Resta viva anche `/mail/:source/:id`,
   dove atterrano una card di notifica e un link condiviso.
+  ⚠️ **«Riproponi» vive sul singolo MESSAGGIO dentro la conversazione
+  aperta** (web e app), ed è l'UNICA via di recupero da una proposta
+  `failed`, da una ignorata per sbaglio e da uno smistamento chiuso con
+  «nessuno di questi»: non esiste da nessun'altra parte nella UI — in
+  particolare **non** sulla card in inbox, dove non c'è mai stata. Chi la
+  toglie da lì non sposta un bottone: lascia quelle proposte raggiungibili
+  solo con una chiamata HTTP a mano. Sta sul messaggio e non sulla riga
+  della conversazione perché dal fan-out della 6b un messaggio può avere più
+  proposte, una per progetto, e l'azione deve sapere quale.
+  **Quali siano possibili lo decide il SERVER**, in
+  `mailThreadMessageSchema.reproposals` (`GET /api/me/mail/threads/:id`),
+  con le STESSE condizioni del cancello di `POST
+  /:source/:id/repropose` — un client che le rideducesse da `status`
+  produrrebbe bottoni da 409 al primo scostamento fra le due copie.
   **Rollback**: scendere di immagine sul server perde le rotte per thread
   (404) — va sceso col caddy, come sempre — e l'originale torna a chiedersi
   a Gmail ogni volta, ignorando `email_bodies`, che resta innocua. Scendere
