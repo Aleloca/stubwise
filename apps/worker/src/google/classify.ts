@@ -9,6 +9,7 @@ import {
   googleAccounts,
   instanceSettings,
   monthlyCostUsd,
+  notifications,
   projects,
   tickets,
   type Db,
@@ -200,11 +201,43 @@ const emailProposalSchema = z.object({
  * `proposals` può essere VUOTO: è il caso `signal: "none"`, dove chiedere al
  * modello almeno una proposta significherebbe chiedergli di inventarne una.
  */
+/**
+ * Che rapporto ha il messaggio nuovo con una proposta GIÀ APERTA sullo stesso
+ * thread (design §3, Task 11).
+ *
+ * A livello di dati sono DUE esiti, non tre: `integrates` e `replaces`
+ * finiscono entrambi in «una sola card, riscritta con l'ultima comprensione»
+ * — la differenza sta in ciò che la card DICE, non in quante ne esistono.
+ * `new_request` è l'unico che ne fa nascere una seconda, ed è deliberato:
+ * sono due cose da fare.
+ *
+ * `.catch("new_request")` NON è il default giusto e infatti non c'è: in
+ * dubbio si tiene tutto, e il default è {@link DEFAULT_THREAD_RELATION}.
+ */
+export const THREAD_RELATIONS = ["integrates", "replaces", "new_request"] as const;
+export type ThreadRelation = (typeof THREAD_RELATIONS)[number];
+
+/**
+ * Cosa si assume quando il modello non lo dice (campo assente, valore fuori
+ * vocabolario): **la richiesta è nuova**, cioè non si chiude niente.
+ *
+ * È la scelta conservativa nell'unica direzione che conta: chiudere una card
+ * che qualcuno stava per usare è un danno che non si vede, tenerne una in più
+ * è un fastidio che si vede subito e si risolve con un tap.
+ */
+export const DEFAULT_THREAD_RELATION: ThreadRelation = "new_request";
+
 export const emailSignalsSchema = z.object({
   signal: z.enum(EMAIL_SIGNALS),
   summary: z.string().max(400).default(""),
   proposals: z.array(z.unknown()).max(20).default([]),
   recommendedIndex: z.number().int().min(0).catch(0).default(0),
+  /**
+   * Design §3: chiesto solo quando il thread ha già una proposta aperta, e
+   * comunque tollerato assente — un modello che non lo manda non deve far
+   * fallire il parse dell'intera classificazione.
+   */
+  threadRelation: z.enum(THREAD_RELATIONS).catch(DEFAULT_THREAD_RELATION).default(DEFAULT_THREAD_RELATION),
 });
 
 export type EmailSignalsOutput = z.infer<typeof emailSignalsSchema>;
@@ -235,6 +268,13 @@ export interface RevalidatedProposal {
 export interface EmailClassification {
   signal: EmailSignal;
   summary: string;
+  /**
+   * Task 12: le proposte che QUESTA supera, quando nasce da una risposta
+   * sullo stesso thread. Assente nel caso normale (una proposta che non
+   * supera niente), così un payload scritto prima di questa fase resta
+   * valido — e chi legge distingue una card riscritta da una nata adesso.
+   */
+  supersedesProposalIds?: string[];
   proposals: RevalidatedProposal[];
   /** Indice (già rimappato sulle proposte sopravvissute) dell'opzione consigliata. */
   recommendedIndex: number;
@@ -315,6 +355,12 @@ export interface EmailSignalsInput {
    * un messaggio solo, che è il caso della grande maggioranza.
    */
   threadMessages?: { fromAddress: string; receivedAt: Date; text: string }[];
+  /**
+   * Le proposte GIÀ APERTE su questo thread (design §3, Task 11): il
+   * modello deve dire che rapporto ha il messaggio nuovo con esse. Assente o
+   * vuoto = non si chiede niente, e il prompt è quello di sempre.
+   */
+  openProposals?: { summary: string; actions: string[] }[];
 }
 
 /** Log minimale, strutturalmente compatibile col `GoogleLogger` del poller. */
@@ -486,6 +532,18 @@ export function buildEmailSignalsPrompt(lang: Language, input: EmailSignalsInput
           ),
         ]
       : []),
+    // La proposta già aperta su questo thread, e la domanda che ne discende
+    // (design §3): il modello non decide se chiudere — dice che RAPPORTO
+    // ha il messaggio nuovo con essa, e la conseguenza la applica il codice.
+    ...(input.openProposals && input.openProposals.length > 0
+      ? [
+          "",
+          `${t(lang, "email.input.openProposals")}:`,
+          ...input.openProposals.map((p) => `- ${p.summary} → ${p.actions.join("; ")}`),
+          "",
+          t(lang, "email.signals.threadRelation"),
+        ]
+      : []),
     "",
     `${t(lang, "email.input.from")}: ${input.fromName ? `${input.fromName} <${input.fromAddress}>` : input.fromAddress}`,
     `${t(lang, "email.input.subject")}: ${input.subject ?? t(lang, "email.input.none")}`,
@@ -581,6 +639,62 @@ export interface ClassifyContext {
  * Il confronto è su `(account_id, thread_id)`: due caselle possono avere lo
  * stesso thread Gmail, e non devono leggersi a vicenda.
  */
+/**
+ * Le proposte APERTE su questo thread, nate da ALTRI messaggi (design §3,
+ * Task 11): quelle a cui il messaggio nuovo può riferirsi.
+ *
+ * «Aperta» = `classified` (non ancora pubblicata) o `proposed` (card viva in
+ * una inbox): sono i due stati in cui una decisione è ancora attesa. Le
+ * terminali non si toccano — una proposta già confermata è un fatto
+ * accaduto, non qualcosa da superare.
+ */
+async function loadOpenThreadProposals(
+  db: Db,
+  message: EmailMessageRow,
+): Promise<
+  {
+    id: string;
+    projectId: string;
+    classification: Record<string, unknown>;
+    proposalNotificationId: string | null;
+  }[]
+> {
+  return db
+    .select({
+      id: emailProposals.id,
+      projectId: emailProposals.projectId,
+      classification: emailProposals.classification,
+      proposalNotificationId: emailProposals.proposalNotificationId,
+    })
+    .from(emailProposals)
+    .innerJoin(emailMessages, eq(emailMessages.id, emailProposals.emailMessageId))
+    .where(
+      and(
+        eq(emailMessages.accountId, message.accountId),
+        eq(emailMessages.threadId, message.threadId),
+        ne(emailProposals.emailMessageId, message.id),
+        inArray(emailProposals.status, ["classified", "proposed"]),
+      ),
+    );
+}
+
+/** Il riassunto e le conseguenze di una proposta aperta, per il prompt. */
+function describeOpenProposal(classification: Record<string, unknown>): {
+  summary: string;
+  actions: string[];
+} {
+  const summary = typeof classification.summary === "string" ? classification.summary : "";
+  const proposals = Array.isArray(classification.proposals) ? classification.proposals : [];
+  const actions = proposals
+    .map((p) =>
+      p !== null && typeof p === "object" && typeof (p as { consequence?: unknown }).consequence === "string"
+        ? ((p as { consequence: string }).consequence)
+        : "",
+    )
+    .filter((a) => a !== "");
+  return { summary, actions };
+}
+
 async function loadThreadContext(
   db: Db,
   message: EmailMessageRow,
@@ -1050,6 +1164,17 @@ async function writeClassification(
    * o `null` se ambiguo/assente — decide se "zero figli" è `ignored` o «da
    * smistare» (vedi il docblock qui sopra). */
   resolvedProjectId: string | null,
+  /**
+   * Design §3, Task 11-12: le proposte APERTE dello stesso thread e che
+   * rapporto ha con esse il messaggio nuovo. Con `integrates`/`replaces` si
+   * chiudono qui, nella STESSA transazione che scrive quelle nuove — mai una
+   * finestra in cui la vecchia è chiusa e la nuova non esiste ancora, o
+   * viceversa.
+   */
+  thread: {
+    relation: ThreadRelation;
+    openProposals: { id: string; proposalNotificationId: string | null }[];
+  } = { relation: DEFAULT_THREAD_RELATION, openProposals: [] },
 ): Promise<ClassifyOutcome> {
   // Ripartiziona la lista piatta per progetto (`proposal.projectId` è sempre
   // definito su ogni proposta sopravvissuta, vedi il docblock di
@@ -1066,6 +1191,15 @@ async function writeClassification(
   const recommended =
     classification.proposals.length > 0 ? classification.proposals[classification.recommendedIndex] : undefined;
 
+  // Design §3: `integrates` e `replaces` finiscono nello stesso posto — una
+  // card sola, riscritta — e sono l'unico caso in cui qualcosa si chiude.
+  // `new_request` (e il default, e qualunque valore inatteso) lascia tutto
+  // aperto: sono due cose da fare.
+  const supersedes =
+    thread.relation === "new_request" || classification.proposals.length === 0
+      ? []
+      : thread.openProposals;
+
   return db.transaction(async (tx) => {
     const keptProjectIds = [...byProject.keys()];
 
@@ -1077,6 +1211,11 @@ async function writeClassification(
         summary: classification.summary,
         proposals,
         recommendedIndex: localRecommendedIndex,
+        // Task 12: la card NUOVA dichiara di venire da lì. Senza, una
+        // proposta riscritta sarebbe indistinguibile da una nata adesso, e
+        // chi la legge non potrebbe accorgersi di un «stessa richiesta»
+        // sbagliato.
+        ...(supersedes.length > 0 ? { supersedesProposalIds: supersedes.map((p) => p.id) } : {}),
       };
       await tx
         .insert(emailProposals)
@@ -1105,6 +1244,33 @@ async function writeClassification(
           notInArray(emailProposals.projectId, keptProjectIds),
         ),
       );
+
+    // Task 12 — LE SUPERATE NON SPARISCONO IN SILENZIO. Si chiudono con un
+    // esito che dice DA COSA sono state superate, restano leggibili fra le
+    // gestite (`ignored`, non cancellate) e la loro card in inbox si chiude
+    // insieme a loro: lasciarla aperta mostrerebbe due card per una cosa
+    // sola, che è il difetto che tutto questo esiste per togliere.
+    //
+    // Nella STESSA transazione che ha scritto le nuove: mai una finestra in
+    // cui la vecchia è chiusa e la nuova non c'è ancora.
+    for (const stale of supersedes) {
+      await tx
+        .update(emailProposals)
+        .set({
+          status: "ignored",
+          outcome: { type: "superseded_by_message", byEmailMessageId: messageId },
+          updatedAt: now,
+        })
+        .where(and(eq(emailProposals.id, stale.id), inArray(emailProposals.status, ["classified", "proposed"])));
+      if (stale.proposalNotificationId !== null) {
+        await tx
+          .update(notifications)
+          .set({ status: "handled", handledAt: now })
+          .where(
+            and(eq(notifications.id, stale.proposalNotificationId), eq(notifications.status, "open")),
+          );
+      }
+    }
 
     const remainingChildren = await tx
       .select({ id: emailProposals.id })
@@ -1179,6 +1345,10 @@ export async function classifyEmail(
       return "ignored";
     }
 
+    // Le proposte già aperte su questo thread (design §3, Task 11): se ce
+    // ne sono, il prompt chiede che rapporto ha il messaggio nuovo con esse.
+    const openThreadProposals = await loadOpenThreadProposals(deps.db, message);
+
     const raw = message.textExcerpt ?? "";
     const truncated = raw.length > CLASSIFY_TEXT_MAX_CHARS;
     const text = capText(raw, CLASSIFY_TEXT_MAX_CHARS, t(deps.lang, "email.input.truncated"));
@@ -1205,6 +1375,7 @@ export async function classifyEmail(
       citedTicketNumbers: ctx.citedTicketNumbers,
       truncated,
       threadMessages: await loadThreadContext(deps.db, message),
+      openProposals: openThreadProposals.map((p) => describeOpenProposal(p.classification)),
     });
 
     // Il run: nessun tool, una cwd temporanea VUOTA (l'agente non deve avere
@@ -1267,6 +1438,13 @@ export async function classifyEmail(
       parsed.proposals,
       ctx.allowedProjectIds,
       ctx.resolvedProjectId,
+      {
+        relation: parsed.threadRelation,
+        openProposals: openThreadProposals.map((p) => ({
+          id: p.id,
+          proposalNotificationId: p.proposalNotificationId,
+        })),
+      },
     );
   } catch (err) {
     // Timeout, spawn fallito, limite del provider, errore di scrittura: è un

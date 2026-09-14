@@ -4,6 +4,7 @@ import {
   backlogItems,
   emailMessages,
   emailProposals,
+  notifications,
   googleAccounts,
   googleWorkspaces,
   instanceSettings,
@@ -240,12 +241,18 @@ function modelOutput(input: {
   summary?: string;
   proposals?: unknown[];
   recommendedIndex?: number;
+  /** Design §3: che rapporto ha il messaggio con una proposta già aperta. */
+  threadRelation?: string;
 }): string {
   return JSON.stringify({
     signal: input.signal ?? "request",
     summary: input.summary ?? "Il cliente chiede il portale entro fine mese.",
     proposals: input.proposals ?? [],
     recommendedIndex: input.recommendedIndex ?? 0,
+    // Assente per default: la stragrande maggioranza dei test non ha un
+    // thread con proposte aperte, e il campo non deve comparire nel JSON —
+    // così questi test verificano anche che il default regga.
+    ...(input.threadRelation !== undefined ? { threadRelation: input.threadRelation } : {}),
   });
 }
 
@@ -1258,7 +1265,7 @@ describe("classifyNewMessages: il thread, non il messaggio", () => {
 
   it("un thread di un'ALTRA casella non entra nel contesto, anche con lo stesso id Gmail", async () => {
     const mia = await seedAccount();
-    const altra = await seedAccount({ email: `altra-${randomUUID()}@acme.com` });
+    const altra = await seedAccount(); // già con un'email propria
     const projectId = await seedProject("Portale");
     const threadId = `th-condiviso-${randomUUID()}`;
     await seedMessage(altra.id, {
@@ -1282,6 +1289,202 @@ describe("classifyNewMessages: il thread, non il messaggio", () => {
     );
 
     expect(runner.calls[0]?.prompt ?? "").not.toContain("SEGRETO di un'altra casella");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// «La posta si legge per conversazione» §3, Task 11-12 — che rapporto ha la
+// risposta con la proposta già aperta, e cosa succede a quella superata
+// ---------------------------------------------------------------------------
+
+describe("classifyEmail: una risposta su un thread che ha già una proposta aperta", () => {
+  /** Una proposta valida per il progetto dato. */
+  function action(projectId: string, title: string) {
+    return {
+      type: "create_backlog_item",
+      projectId,
+      title,
+      body: "Serve questo",
+      consequence: `Crea «${title}» nel backlog`,
+    };
+  }
+
+  /** Un thread con un messaggio già classificato e la sua proposta APERTA. */
+  async function seedThreadWithOpenProposal(accountId: string, projectId: string) {
+    // La notifica ha bisogno di un destinatario vero (`user_id` NOT NULL):
+    // l'audience `mailbox_owner` ne consegna sempre e solo uno.
+    const [owner] = await db
+      .insert(users)
+      .values({ email: `owner-${randomUUID()}@acme.com`, passwordHash: "x", role: "member" })
+      .returning({ id: users.id });
+    const threadId = `th-${randomUUID()}`;
+    const first = await seedMessage(accountId, {
+      projectId,
+      threadId,
+      status: "proposed",
+      receivedAt: new Date("2026-09-01T08:00:00.000Z"),
+      textExcerpt: "Ci servirebbe il portale clienti.",
+    });
+    const [notification] = await db
+      .insert(notifications)
+      .values({ userId: owner!.id, kind: "google.proposal", status: "open", event: {} })
+      .returning({ id: notifications.id });
+    const open = await seedProposal(first.id, projectId, {
+      status: "proposed",
+      proposalNotificationId: notification!.id,
+      classification: {
+        signal: "request",
+        summary: "Il cliente chiede il portale.",
+        proposals: [action(projectId, "Portale clienti")],
+        recommendedIndex: 0,
+      },
+    });
+    const reply = await seedMessage(accountId, {
+      projectId,
+      threadId,
+      receivedAt: new Date("2026-09-02T08:00:00.000Z"),
+      textExcerpt: "Aggiungo: serve anche l'export PDF.",
+    });
+    return { open, reply, notificationId: notification!.id };
+  }
+
+  it("la proposta aperta ARRIVA al modello, con il suo riassunto e le sue conseguenze", async () => {
+    const account = await seedAccount();
+    const projectId = await seedProject("Portale");
+    const { reply } = await seedThreadWithOpenProposal(account.id, projectId);
+    const runner = new FakeRunner([modelOutput({ proposals: [action(projectId, "Export PDF")] })]);
+
+    await classifyEmail(deps(runner), reply);
+
+    const prompt = runner.calls[0]?.prompt ?? "";
+    expect(prompt).toContain("Il cliente chiede il portale.");
+    expect(prompt).toContain("Crea «Portale clienti» nel backlog");
+  });
+
+  it("`integrates`: UNA card sola — la vecchia si chiude dicendo da cosa, la nuova dichiara di venire da lì", async () => {
+    const account = await seedAccount();
+    const projectId = await seedProject("Portale");
+    const { open, reply, notificationId } = await seedThreadWithOpenProposal(account.id, projectId);
+    const runner = new FakeRunner([
+      modelOutput({ threadRelation: "integrates", proposals: [action(projectId, "Portale + export PDF")] }),
+    ]);
+
+    await classifyEmail(deps(runner), reply);
+
+    // La vecchia: chiusa, NON cancellata — resta leggibile fra le gestite.
+    const [stale] = await db.select().from(emailProposals).where(eq(emailProposals.id, open.id));
+    expect(stale?.status).toBe("ignored");
+    expect(stale?.outcome).toEqual({ type: "superseded_by_message", byEmailMessageId: reply.id });
+
+    // La sua card in inbox si chiude con lei: due card per una cosa sola
+    // sarebbero esattamente il difetto da togliere.
+    const [notif] = await db.select().from(notifications).where(eq(notifications.id, notificationId));
+    expect(notif?.status).toBe("handled");
+
+    // La nuova dichiara di venire da lì.
+    const fresh = await reloadProposals(reply.id);
+    expect(fresh).toHaveLength(1);
+    expect((fresh[0]!.classification as { supersedesProposalIds?: string[] }).supersedesProposalIds).toEqual([
+      open.id,
+    ]);
+  });
+
+  it("`replaces`: stesso esito a livello di dati — una card sola", async () => {
+    const account = await seedAccount();
+    const projectId = await seedProject("Portale");
+    const { open, reply } = await seedThreadWithOpenProposal(account.id, projectId);
+    const runner = new FakeRunner([
+      modelOutput({ threadRelation: "replaces", proposals: [action(projectId, "Non più il portale: una landing")] }),
+    ]);
+
+    await classifyEmail(deps(runner), reply);
+
+    const [stale] = await db.select().from(emailProposals).where(eq(emailProposals.id, open.id));
+    expect(stale?.status).toBe("ignored");
+    expect(await reloadProposals(reply.id)).toHaveLength(1);
+  });
+
+  it("`new_request`: DUE card aperte sullo stesso thread, e la prima non si tocca", async () => {
+    const account = await seedAccount();
+    const projectId = await seedProject("Portale");
+    const { open, reply, notificationId } = await seedThreadWithOpenProposal(account.id, projectId);
+    const runner = new FakeRunner([
+      modelOutput({ threadRelation: "new_request", proposals: [action(projectId, "Fattura di settembre")] }),
+    ]);
+
+    await classifyEmail(deps(runner), reply);
+
+    const [untouched] = await db.select().from(emailProposals).where(eq(emailProposals.id, open.id));
+    expect(untouched?.status).toBe("proposed");
+    expect(untouched?.outcome).toBeNull();
+    const [notif] = await db.select().from(notifications).where(eq(notifications.id, notificationId));
+    expect(notif?.status).toBe("open");
+    expect(await reloadProposals(reply.id)).toHaveLength(1);
+  });
+
+  it("SENZA `threadRelation` (modello che non lo manda) non si chiude niente", async () => {
+    // Il default è la scelta conservativa nell'unica direzione che conta:
+    // una card in più costa un tap, una chiusa per sbaglio costa un pezzo di
+    // lavoro che nessuno rivede.
+    const account = await seedAccount();
+    const projectId = await seedProject("Portale");
+    const { open, reply } = await seedThreadWithOpenProposal(account.id, projectId);
+    const runner = new FakeRunner([modelOutput({ proposals: [action(projectId, "Altra cosa")] })]);
+
+    await classifyEmail(deps(runner), reply);
+
+    const [untouched] = await db.select().from(emailProposals).where(eq(emailProposals.id, open.id));
+    expect(untouched?.status).toBe("proposed");
+  });
+
+  it("una proposta GIÀ CONFERMATA non viene mai superata: è un fatto accaduto", async () => {
+    const account = await seedAccount();
+    const projectId = await seedProject("Portale");
+    const threadId = `th-${randomUUID()}`;
+    const first = await seedMessage(account.id, {
+      projectId,
+      threadId,
+      status: "actioned",
+      receivedAt: new Date("2026-09-01T08:00:00.000Z"),
+    });
+    const done = await seedProposal(first.id, projectId, {
+      status: "actioned",
+      outcome: { type: "created_backlog_item" },
+    });
+    const reply = await seedMessage(account.id, {
+      projectId,
+      threadId,
+      receivedAt: new Date("2026-09-02T08:00:00.000Z"),
+    });
+    const runner = new FakeRunner([
+      modelOutput({ threadRelation: "replaces", proposals: [action(projectId, "Qualcos'altro")] }),
+    ]);
+
+    await classifyEmail(deps(runner), reply);
+
+    const [untouched] = await db.select().from(emailProposals).where(eq(emailProposals.id, done.id));
+    expect(untouched?.status).toBe("actioned");
+    expect(untouched?.outcome).toEqual({ type: "created_backlog_item" });
+  });
+
+  it("nessuna proposta nuova sopravvive alla rivalidazione: la vecchia RESTA aperta", async () => {
+    // Chiudere la vecchia senza avere niente da metterci al posto
+    // lascerebbe il thread senza nessuna card, cioè perderebbe la richiesta.
+    const account = await seedAccount();
+    const projectId = await seedProject("Portale");
+    const { open, reply } = await seedThreadWithOpenProposal(account.id, projectId);
+    const runner = new FakeRunner([
+      modelOutput({
+        threadRelation: "replaces",
+        // `projectId` inventato: la rivalidazione la scarta.
+        proposals: [action(randomUUID(), "Non reggerà")],
+      }),
+    ]);
+
+    await classifyEmail(deps(runner), reply);
+
+    const [untouched] = await db.select().from(emailProposals).where(eq(emailProposals.id, open.id));
+    expect(untouched?.status).toBe("proposed");
   });
 });
 
