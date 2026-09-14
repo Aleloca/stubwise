@@ -97,10 +97,19 @@ describe("MailDetailScreen — caricamento ed errori", () => {
     await waitFor(() => expect(screen.getByText("Reso ordine #123")).toBeTruthy());
   });
 
+  test("l'oggetto sta nell'header, insieme all'avatar e all'indietro", async () => {
+    // Prima l'oggetto stava nel corpo che scorre: bastavano due dita di
+    // scorrimento per perdere di vista di cosa si stesse leggendo.
+    await renderScreen(makeClient());
+    await waitFor(() => expect(screen.getByTestId("screen-header-back")).toBeTruthy());
+    expect(screen.getByText("Reso ordine #123")).toBeTruthy();
+    expect(screen.getByTestId("settings-avatar-button")).toBeTruthy();
+  });
+
   test("il tasto indietro chiama goBack", async () => {
     const { goBack } = await renderScreen(makeClient());
     await waitFor(() => expect(screen.getByText("Reso ordine #123")).toBeTruthy());
-    await fireEvent.press(screen.getByTestId("mail-detail-back"));
+    await fireEvent.press(screen.getByTestId("screen-header-back"));
     expect(goBack).toHaveBeenCalled();
   });
 });
@@ -119,12 +128,41 @@ describe("MailDetailScreen — l'estratto è testo, mai markdown", () => {
     expect(screen.queryByText(/Solo un estratto/)).toBeNull();
   });
 
-  test("apri su Gmail: apre l'URL del thread", async () => {
-    const openURL = jest.spyOn(Linking, "openURL").mockResolvedValue(undefined);
+  test("nessun bottone «Apri su Gmail»: si legge qui", async () => {
+    // Rimosso il 13 set 2026 su richiesta del maintainer. Il test resta, al
+    // negativo: chi lo rimettesse lo farebbe di proposito, non per inerzia.
     await renderScreen(makeClient());
-    await waitFor(() => expect(screen.getByTestId("mail-detail-open-gmail")).toBeTruthy());
-    await fireEvent.press(screen.getByTestId("mail-detail-open-gmail"));
-    expect(openURL).toHaveBeenCalledWith("https://mail.google.com/mail/u/0/#inbox/thread-1");
+    await waitFor(() => expect(screen.getByTestId("mail-detail-show-original")).toBeTruthy());
+    expect(screen.queryByTestId("mail-detail-open-gmail")).toBeNull();
+  });
+
+  test("i link dell'estratto si aprono, gli asterischi restano letterali", async () => {
+    const openURL = jest.spyOn(Linking, "openURL").mockResolvedValue(undefined);
+    const client = makeClient({
+      get: jest.fn().mockResolvedValue(detail({ textExcerpt: "Il **modulo** sta su https://esempio.it/modulo." })),
+    });
+    await renderScreen(client);
+    const link = await waitFor(() => screen.getByText("https://esempio.it/modulo"));
+    await fireEvent.press(link);
+    // Il punto che chiude la frase non entra nell'indirizzo.
+    expect(openURL).toHaveBeenCalledWith("https://esempio.it/modulo");
+    // E il grassetto di markdown non e' mai stato interpretato.
+    expect(screen.getByText(/\*\*modulo\*\*/)).toBeTruthy();
+  });
+
+  test("uno schema ostile nel corpo non diventa un link", async () => {
+    // `mockClear`: la spia e' sullo STESSO `Linking.openURL` del test qui
+    // sopra, che l'ha gia' chiamata. Senza azzerarla questo test passerebbe
+    // da solo e fallirebbe in gruppo — che e' il modo peggiore di fallire.
+    const openURL = jest.spyOn(Linking, "openURL").mockResolvedValue(undefined);
+    openURL.mockClear();
+    const client = makeClient({
+      get: jest.fn().mockResolvedValue(detail({ textExcerpt: "Clicca javascript:alert(1) subito" })),
+    });
+    await renderScreen(client);
+    const testo = await waitFor(() => screen.getByText(/javascript:alert\(1\)/));
+    await fireEvent.press(testo);
+    expect(openURL).not.toHaveBeenCalled();
   });
 });
 

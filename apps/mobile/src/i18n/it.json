@@ -529,7 +529,6 @@
         "showOriginal": "Mostra l'originale",
         "originalNote": "Chiede il messaggio a Google adesso — non salva nulla, è solo una rilettura.",
         "originalLoading": "Sto chiedendo il messaggio a Google…",
-        "openInGmail": "Apri su Gmail",
         "attachments_one": "{{count}} allegato: {{names}}",
         "attachments_other": "{{count}} allegati: {{names}}"
       }

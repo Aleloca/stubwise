@@ -1,11 +1,12 @@
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { ApiError } from "@stubwise/api-client";
 import { useTranslation } from "react-i18next";
-import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import type { MbxStackParamList } from "../../app/navigation";
 import { GhostButton } from "../../components/GhostButton";
-import { SettingsAvatarButton } from "../../components/SettingsAvatarButton";
+import { LinkedText } from "../../components/LinkedText";
+import { ScreenHeader } from "../../components/ScreenHeader";
 import { Skeleton } from "../../components/Skeleton";
 import { relativeTimeCompact } from "../../lib/format";
 import { useMailDetail, useMailOriginal } from "../../lib/mail-mutations";
@@ -48,12 +49,12 @@ export function MailDetailScreen({ navigation, route }: NativeStackScreenProps<M
         contentContainerStyle={[styles.body, { paddingBottom: CONTENT_BASE_BOTTOM_PADDING + tabBarHeight }]}
         stickyHeaderIndices={[0]}
       >
-        <View style={styles.headerRow}>
-          <Pressable onPress={() => navigation.goBack()} testID="mail-detail-back">
-            <Text style={styles.back}>{t("mobile.mbx.detail.back")}</Text>
-          </Pressable>
-          <SettingsAvatarButton />
-        </View>
+        <ScreenHeader
+          title={detailQuery.data?.subject ?? t("mobile.mbx.list.noSubject")}
+          onBack={() => navigation.goBack()}
+          backLabel={t("mobile.mbx.detail.back")}
+          titleNumberOfLines={3}
+        />
 
         {detailQuery.isPending ? (
           <View style={styles.skeletonList} testID="mail-detail-skeleton">
@@ -95,7 +96,6 @@ function DetailBody({
 
   return (
     <>
-      <Text style={styles.subject}>{detail.subject ?? t("mobile.mbx.list.noSubject")}</Text>
       <Text style={styles.from}>{detail.from}</Text>
       {detail.to.length > 0 && <Text style={styles.meta}>{t("mobile.mbx.detail.to", { list: detail.to.join(", ") })}</Text>}
       <Text style={styles.time}>{timeText}</Text>
@@ -105,15 +105,11 @@ function DetailBody({
         {detail.textExcerpt !== null ? (
           <>
             <Text style={styles.excerptNote}>{t("mobile.mbx.detail.excerptNote")}</Text>
-            <Text style={styles.excerptText}>{detail.textExcerpt}</Text>
+            <LinkedText style={styles.excerptText} testID="mail-detail-excerpt" text={detail.textExcerpt} />
           </>
         ) : (
           <Text style={styles.excerptMissing}>{t("mobile.mbx.detail.excerptMissing")}</Text>
         )}
-      </View>
-
-      <View style={styles.gmailButton}>
-        <GhostButton label={t("mobile.mbx.detail.openInGmail")} onPress={() => void Linking.openURL(detail.url)} testID="mail-detail-open-gmail" />
       </View>
 
       <View style={styles.section}>
@@ -136,7 +132,11 @@ function DetailBody({
           </View>
         ) : (
           <View testID="mail-detail-original-body">
-            <Text style={styles.originalBody}>{original.data.bodyText ?? t("mobile.mbx.detail.excerptMissing")}</Text>
+            {original.data.bodyText !== null ? (
+              <LinkedText style={styles.originalBody} testID="mail-detail-original-text" text={original.data.bodyText} />
+            ) : (
+              <Text style={styles.originalBody}>{t("mobile.mbx.detail.excerptMissing")}</Text>
+            )}
             {original.data.cc.length > 0 && <Text style={styles.meta}>{t("mobile.mbx.detail.cc", { list: original.data.cc.join(", ") })}</Text>}
             {original.data.attachments.length > 0 && (
               <Text style={styles.meta}>
@@ -166,19 +166,6 @@ const styles = StyleSheet.create({
     padding: 20,
     paddingBottom: 40,
   },
-  headerRow: {
-    alignItems: "center",
-    backgroundColor: colors.ink950,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingBottom: 12,
-    paddingTop: 56,
-  },
-  back: {
-    color: colors.muted,
-    fontFamily: fontFamily.mono,
-    fontSize: 12,
-  },
   skeletonList: {
     gap: 12,
   },
@@ -196,13 +183,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "600",
     textAlign: "center",
-  },
-  subject: {
-    color: colors.fg,
-    fontFamily: fontFamily.sansSemiBold,
-    fontSize: 18,
-    fontWeight: "600",
-    marginTop: 6,
   },
   from: {
     color: colors.muted,
@@ -251,10 +231,6 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.sans,
     fontSize: 14,
     marginTop: 10,
-  },
-  gmailButton: {
-    alignSelf: "flex-start",
-    marginTop: 14,
   },
   showOriginalButton: {
     alignSelf: "flex-start",

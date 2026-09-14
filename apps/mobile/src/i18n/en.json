@@ -529,7 +529,6 @@
         "showOriginal": "Show the original",
         "originalNote": "Asks Google for the message right now — nothing is saved, it's just a reread.",
         "originalLoading": "Asking Google for the message…",
-        "openInGmail": "Open in Gmail",
         "attachments_one": "{{count}} attachment: {{names}}",
         "attachments_other": "{{count}} attachments: {{names}}"
       }

@@ -1,7 +1,7 @@
-import { StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { SettingsAvatarButton } from "./SettingsAvatarButton";
 import { colors } from "../theme/tokens";
-import { textStyles } from "../theme/typography";
+import { fontFamily, textStyles } from "../theme/typography";
 
 /**
  * Intestazione di schermata (Task 7, App M1+M2, 11 set 2026): titolo +
@@ -31,11 +31,46 @@ import { textStyles } from "../theme/typography";
  * necessario per questo: senza, il contenuto sotto lo attraverserebbe
  * visivamente scorrendo.
  */
-export function ScreenHeader({ title, subtitle }: { title: string; subtitle?: string }) {
+/**
+ * `onBack`/`backLabel` (13 set 2026): una schermata di DETTAGLIO — che ha un
+ * indietro — può usare questo stesso header invece di costruirsene uno suo.
+ * Prima le schermate di dettaglio ne avevano uno a mano con solo «indietro»
+ * e l'avatar, e il titolo restava nel corpo che scorre: nel dettaglio di una
+ * email questo voleva dire perdere di vista l'OGGETTO appena si scendeva di
+ * due dita, cioè il pezzo che dice di cosa si sta leggendo.
+ *
+ * `titleNumberOfLines` esiste per lo stesso motivo: un oggetto di email non
+ * è un titolo di schermata scritto da noi, può essere lungo quanto vuole chi
+ * l'ha mandato — si tronca, non si lascia crescere l'header finché copre
+ * mezzo schermo.
+ */
+export function ScreenHeader({
+  title,
+  subtitle,
+  onBack,
+  backLabel,
+  titleNumberOfLines,
+}: {
+  title: string;
+  subtitle?: string;
+  onBack?: () => void;
+  backLabel?: string;
+  titleNumberOfLines?: number;
+}) {
   return (
     <View style={styles.row}>
       <View style={styles.titleBlock}>
-        <Text style={textStyles.screenTitle}>{title}</Text>
+        {onBack !== undefined && (
+          <Pressable accessibilityRole="button" onPress={onBack} testID="screen-header-back">
+            <Text style={styles.back}>{backLabel}</Text>
+          </Pressable>
+        )}
+        <Text
+          style={textStyles.screenTitle}
+          {...(titleNumberOfLines !== undefined ? { numberOfLines: titleNumberOfLines } : {})}
+        >
+          {title}
+        </Text>
         {subtitle !== undefined && <Text style={textStyles.screenSubtitle}>{subtitle}</Text>}
       </View>
       <SettingsAvatarButton />
@@ -64,5 +99,13 @@ const styles = StyleSheet.create({
   },
   titleBlock: {
     flex: 1,
+  },
+  back: {
+    color: colors.muted,
+    fontFamily: fontFamily.mono,
+    fontSize: 12,
+    letterSpacing: 0.6,
+    marginBottom: 6,
+    textTransform: "uppercase",
   },
 });
