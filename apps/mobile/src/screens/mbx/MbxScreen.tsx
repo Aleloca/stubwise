@@ -62,7 +62,16 @@ export function MbxScreen({ navigation, route }: NativeStackScreenProps<MbxStack
   // altrimenti chi tocca la notifica di un appuntamento si troverebbe davanti
   // la lista della posta, e dovrebbe capire da sé di dover cambiare scheda.
   const [tab, setTab] = useState<MbxTab>(route.params?.day !== undefined ? "calendar" : "mail");
-  const query = useMailList();
+  // `source: "email"` — qui il Calendario ha già la sua vista, lo scambio in
+  // alto: un appuntamento nella lista della POSTA era contenuto duplicato, e
+  // per di più impaginato male. La lista è ordinata per data decrescente, ma
+  // «data» vuol dire l'ARRIVO per un'email (sempre nel passato) e l'INIZIO
+  // per un appuntamento (quasi sempre nel futuro): i 25 appuntamenti dei due
+  // mesi a venire finivano quindi SOPRA ogni messaggio, e chi apriva MBX si
+  // trovava davanti venticinque righe di calendario che non si aprono (il
+  // calendario non ha un dettaglio, vedi `mailDetailSourceFor`) prima della
+  // prima email.
+  const query = useMailList({ source: "email" });
 
   return (
     <View style={styles.container}>

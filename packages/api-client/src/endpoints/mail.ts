@@ -12,6 +12,7 @@ import type {
   MailOriginal,
   MailPage,
   MailReproposeResult,
+  MailSource,
   MailSummary,
 } from "@stubwise/shared";
 import type { ApiRequest } from "../client.js";
@@ -20,6 +21,13 @@ import { seg, toQuery } from "../query.js";
 /** Filtri di `GET /api/me/mail`. */
 export interface MailFilters {
   account?: string;
+  /**
+   * Da quale sorgente leggere: `"email"` (posta e smistamenti) o
+   * `"calendar"` (appuntamenti). Assente = entrambe, il comportamento
+   * storico su cui la pagina `/mail` del web si appoggia. Lo usa la scheda
+   * MBX dell'app, dove Posta e Calendario sono due viste distinte.
+   */
+  source?: MailSource;
   status?: MailItemStatus;
   project?: string;
 }
@@ -53,6 +61,7 @@ export function createMailEndpoints(request: ApiRequest) {
     list(filters: MailFilters = {}, cursor?: string, limit?: number): Promise<Reader<MailPage>> {
       const query = toQuery({
         account: filters.account,
+        source: filters.source,
         status: filters.status,
         project: filters.project,
         cursor,

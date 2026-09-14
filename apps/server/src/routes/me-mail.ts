@@ -23,10 +23,12 @@ import {
   mailOriginalSchema,
   mailPageSchema,
   mailReproposeResultSchema,
+  mailSourceSchema,
   mailSummarySchema,
   type MailItem,
   type MailItemStatus,
   type MailSignal,
+  type MailSource,
 } from "@stubwise/shared";
 import { and, desc, eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
@@ -198,6 +200,20 @@ function gmailThreadUrl(mailboxEmail: string, threadId: string): string {
 
 interface ListMailInput {
   userId: string;
+  /**
+   * Da quale TABELLA leggere. Assente = tutte, il comportamento storico —
+   * questo filtro nasce per la scheda MBX dell'app (App M3), dove Posta e
+   * Calendario sono due viste separate e un appuntamento nella lista della
+   * posta è contenuto duplicato: un evento sta quasi sempre nel FUTURO e
+   * un'email sempre nel PASSATO, quindi l'ordinamento per data spingeva ogni
+   * appuntamento sopra ogni messaggio e la posta finiva sotto decine di
+   * righe che non si potevano né aprire né scorrere via.
+   *
+   * `"email"` comprende anche le proposte di SMISTAMENTO (`kind: "triage"`):
+   * vivono su `email_messages`, sono posta, e `mailItemSchema.source` le
+   * marca `"email"` — vedi {@link queryTriageCandidates}.
+   */
+  source?: MailSource;
   account?: string;
   status?: MailItemStatus;
   project?: string;
@@ -549,6 +565,7 @@ export async function meMailRoutes(
       schema: {
         querystring: z.object({
           account: z.uuid().optional(),
+          source: mailSourceSchema.optional(),
           status: mailItemStatusSchema.optional(),
           project: z.uuid().optional(),
           cursor: z.string().optional(),
@@ -558,7 +575,7 @@ export async function meMailRoutes(
       },
     },
     async (request, reply) => {
-      const { account, status, project, cursor: rawCursor, limit } = request.query;
+      const { account, source, status, project, cursor: rawCursor, limit } = request.query;
       const cursor = rawCursor === undefined ? undefined : (decodeCursor(rawCursor) ?? undefined);
       if (rawCursor !== undefined && cursor === undefined) {
         return apiError(reply, 400, "invalid_cursor", "Invalid pagination cursor");
@@ -567,14 +584,21 @@ export async function meMailRoutes(
         userId: request.user!.id,
         limit,
         ...(account ? { account } : {}),
+        ...(source ? { source } : {}),
         ...(status ? { status } : {}),
         ...(project ? { project } : {}),
         ...(cursor ? { cursor } : {}),
       };
+      // Le query saltate tornano un array vuoto senza toccare il database:
+      // `mergePages` fonde tre liste e una lista vuota non cambia né
+      // l'ordine né il cursore (ogni sorgente resta indipendente, vedi il
+      // docblock di `mergePages`).
+      const wantsEmail = input.source !== "calendar";
+      const wantsCalendar = input.source !== "email";
       const [emailCandidates, calendarCandidates, triageCandidates] = await Promise.all([
-        queryEmailCandidates(app.db, input),
-        queryCalendarCandidates(app.db, input),
-        queryTriageCandidates(app.db, input),
+        wantsEmail ? queryEmailCandidates(app.db, input) : Promise.resolve([]),
+        wantsCalendar ? queryCalendarCandidates(app.db, input) : Promise.resolve([]),
+        wantsEmail ? queryTriageCandidates(app.db, input) : Promise.resolve([]),
       ]);
       return mergePages([emailCandidates, calendarCandidates, triageCandidates], limit);
     },

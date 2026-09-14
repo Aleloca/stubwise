@@ -223,6 +223,46 @@ describe("GET /api/me/mail", () => {
     expect(body.items.map((i) => i.source)).toEqual(["email", "calendar", "email"]);
   });
 
+  it("filtro source=email: niente calendario, gli smistamenti restano (sono posta)", async () => {
+    const { accountId } = await seedAccount(adminId);
+    const projectId = await seedProject();
+    const mail = await seedEmail(accountId, { subject: "Una email", receivedAt: new Date("2026-09-01T09:00:00.000Z") });
+    await seedProposal(mail, projectId);
+    await seedTriage(accountId, { subject: "Uno smistamento" });
+    await seedCalendar(accountId, { title: "Un appuntamento", startsAt: new Date("2026-11-30T09:00:00.000Z") });
+
+    const res = await getMail(adminCookie, "?source=email");
+    expect(res.statusCode).toBe(200);
+    const items = (res.json() as { items: { title: string | null; source: string }[] }).items;
+    expect(items.map((i) => i.title).sort()).toEqual(["Una email", "Uno smistamento"]);
+    expect(items.every((i) => i.source === "email")).toBe(true);
+  });
+
+  it("filtro source=calendar: solo appuntamenti, nemmeno gli smistamenti", async () => {
+    const { accountId } = await seedAccount(adminId);
+    const projectId = await seedProject();
+    const mail = await seedEmail(accountId, { subject: "Una email" });
+    await seedProposal(mail, projectId);
+    await seedTriage(accountId, { subject: "Uno smistamento" });
+    await seedCalendar(accountId, { title: "Un appuntamento" });
+
+    const res = await getMail(adminCookie, "?source=calendar");
+    const items = (res.json() as { items: { title: string | null; source: string }[] }).items;
+    expect(items.map((i) => i.title)).toEqual(["Un appuntamento"]);
+  });
+
+  it("senza il filtro la lista resta fusa: il web non cambia comportamento", async () => {
+    const { accountId } = await seedAccount(adminId);
+    const projectId = await seedProject();
+    const mail = await seedEmail(accountId, { subject: "Una email", receivedAt: new Date("2026-09-01T09:00:00.000Z") });
+    await seedProposal(mail, projectId);
+    await seedCalendar(accountId, { title: "Un appuntamento", startsAt: new Date("2026-11-30T09:00:00.000Z") });
+
+    const res = await getMail(adminCookie);
+    const items = (res.json() as { items: { title: string | null }[] }).items;
+    expect(items.map((i) => i.title)).toEqual(["Un appuntamento", "Una email"]);
+  });
+
   it("un messaggio email senza proposte figlie non compare (nessuna riga senza email_proposals)", async () => {
     const { accountId } = await seedAccount(adminId);
     await seedEmail(accountId, { subject: "Ancora da classificare" });
