@@ -327,6 +327,29 @@ describe("mailOriginalSchema", () => {
     const parsed = mailOriginalSchema.parse({ ...base, bodyHtml: "<p>Ciao</p>" });
     expect(parsed.bodyHtml).toBe("<p>Ciao</p>");
   });
+
+  it("senza bodySource/fetchedAt (server pre-0076): default `google` e null", () => {
+    // Il caso vero: l'app è UNA per tutte le istanze, e una self-hosted può
+    // essere indietro. `"google"` non è un ripiego, è la verità per quel
+    // server — prima della cache ogni risposta veniva da Google.
+    const parsed = mailOriginalSchema.parse(base);
+    expect(parsed.bodySource).toBe("google");
+    expect(parsed.fetchedAt).toBeNull();
+  });
+
+  it("servito dalla cache: lo dice, con la data della lettura che l'ha riempita", () => {
+    const parsed = mailOriginalSchema.parse({
+      ...base,
+      bodySource: "cache",
+      fetchedAt: "2026-09-10T09:00:00.000Z",
+    });
+    expect(parsed.bodySource).toBe("cache");
+    expect(parsed.fetchedAt).toBe("2026-09-10T09:00:00.000Z");
+  });
+
+  it("un bodySource fuori vocabolario è rifiutato (il client apre gli enum da sé, via readerSchema)", () => {
+    expect(mailOriginalSchema.safeParse({ ...base, bodySource: "chissà" }).success).toBe(false);
+  });
 });
 
 describe("calendarEventItemSchema / calendarSeriesItemSchema (fase 7b)", () => {

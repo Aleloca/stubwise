@@ -37,6 +37,8 @@ function original(overrides: Partial<Reader<MailOriginal>> = {}): Reader<MailOri
     bodyText: "Vorrei restituire l'articolo, è arrivato rotto.",
     bodyHtml: null,
     attachments: [],
+    bodySource: "google",
+    fetchedAt: new Date().toISOString(),
     ...overrides,
   } as Reader<MailOriginal>;
 }
@@ -101,8 +103,15 @@ describe("MailDetailScreen — caricamento ed errori", () => {
     // Prima l'oggetto stava nel corpo che scorre: bastavano due dita di
     // scorrimento per perdere di vista di cosa si stesse leggendo.
     await renderScreen(makeClient());
-    await waitFor(() => expect(screen.getByTestId("screen-header-back")).toBeTruthy());
-    expect(screen.getByText("Reso ordine #123")).toBeTruthy();
+    // ⚠️ Si aspetta il TESTO, non `screen-header-back`: l'header esiste fin
+    // dal primo render (con «(nessun oggetto)» come titolo), il subject
+    // arriva solo quando la query si risolve. Aspettando l'header il test
+    // guardava un istante in cui l'oggetto non c'era ancora — falliva sul
+    // branch base, prima di questo lavoro, e non per il codice che dichiara
+    // di verificare. Il test qui sotto («il tasto indietro chiama goBack»)
+    // aspettava già la cosa giusta, ed è per quello che passava.
+    await waitFor(() => expect(screen.getByText("Reso ordine #123")).toBeTruthy());
+    expect(screen.getByTestId("screen-header-back")).toBeTruthy();
     expect(screen.getByTestId("settings-avatar-button")).toBeTruthy();
   });
 
@@ -170,7 +179,48 @@ describe("MailDetailScreen — l'originale (rilettura da Gmail, su richiesta)", 
   test("la nota sta accanto al bottone PRIMA del tap, non solo durante l'attesa", async () => {
     await renderScreen(makeClient());
     await waitFor(() => expect(screen.getByTestId("mail-detail-show-original")).toBeTruthy());
-    expect(screen.getByText(/Chiede il messaggio a Google adesso/)).toBeTruthy();
+    // ⚠️ La frase è CAMBIATA con la cache (migrazione 0076), non aggiornata
+    // per farla passare: quella di prima prometteva che il messaggio veniva
+    // chiesto a Google *adesso* e che non si salvava nulla — due cose che
+    // una risposta dalla cache rende false. Prima del tap la provenienza non
+    // si sa, quindi qui si dice solo ciò che vale in entrambi i casi.
+    expect(screen.getByText(/Il messaggio completo, com'è arrivato/)).toBeTruthy();
+    expect(screen.queryByText(/Chiede il messaggio a Google adesso/)).toBeNull();
+  });
+
+  test("servito dalla CACHE: dopo il tap la provenienza è dichiarata, senza promettere Google", async () => {
+    const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
+    const originalFn = jest
+      .fn()
+      .mockResolvedValue(original({ bodySource: "cache", fetchedAt: twoDaysAgo }));
+    await renderScreen(makeClient({ original: originalFn }));
+    await waitFor(() => expect(screen.getByTestId("mail-detail-show-original")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("mail-detail-show-original"));
+
+    await waitFor(() => expect(screen.getByTestId("mail-detail-original-source")).toBeTruthy());
+    expect(screen.getByText(/Copia salvata da Stubwise, letta da Google 2 g fa/)).toBeTruthy();
+    expect(screen.queryByText("Chiesto a Google adesso.")).toBeNull();
+  });
+
+  test("letto da Google adesso: lo dichiara altrettanto esplicitamente", async () => {
+    await renderScreen(makeClient());
+    await waitFor(() => expect(screen.getByTestId("mail-detail-show-original")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("mail-detail-show-original"));
+
+    await waitFor(() => expect(screen.getByTestId("mail-detail-original-source")).toBeTruthy());
+    expect(screen.getByText("Chiesto a Google adesso.")).toBeTruthy();
+  });
+
+  test("un server pre-0076 (nessun fetchedAt) non inventa «adesso»", async () => {
+    // `bodySource` ha il default `google`, ma `fetchedAt` può mancare: la
+    // frase deve reggere l'assenza con una parola onesta.
+    const originalFn = jest.fn().mockResolvedValue(original({ bodySource: "cache", fetchedAt: null }));
+    await renderScreen(makeClient({ original: originalFn }));
+    await waitFor(() => expect(screen.getByTestId("mail-detail-show-original")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("mail-detail-show-original"));
+
+    await waitFor(() => expect(screen.getByTestId("mail-detail-original-source")).toBeTruthy());
+    expect(screen.getByText(/in precedenza/)).toBeTruthy();
   });
 
   test("successo: mostra il corpo dell'originale", async () => {

@@ -1366,25 +1366,48 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   "non risulta", mai un'affermazione che Stubwise avrebbe potuto rendere
   vera. Chi in futuro collega un ambiente a un'azione che lo TOCCA (un
   trigger di deploy, un rollout) rompe questa frase, non solo il codice.
-- **Il corpo HTML di un'email non si conserva mai (fase 9).** A differenza
-  del corpo TESTO estratto al momento della classificazione (conservato,
-  `email_messages`), l'HTML originale non entra mai in una riga: la rotta
-  `GET /api/me/mail/:source/:id/original`
-  (`apps/server/src/routes/me-mail.ts`) lo rilegge da Gmail, lo sanifica con
-  `sanitizeEmailHtml` (allowlist di tag/attributi, mai denylist —
-  `packages/google/src/gmail.ts`) e lo restituisce **per quella sola
-  risposta**: nessun `UPDATE`/`INSERT` lo scrive da nessuna parte. Si rende
-  in un `<iframe sandbox>` (`apps/web/src/components/mail-reading-pane.tsx`)
-  **senza** `allow-scripts` né `allow-same-origin` — i due permessi che
-  farebbero uscire il documento dal suo recinto — con le immagini remote
-  neutralizzate di default (spostate in `data-src`, mai in `src`: sono il
-  vettore classico dei pixel di tracciamento) finché chi legge non chiede
-  esplicitamente di mostrarle. Chi tocca questa rotta non aggiunga una
-  colonna per "conservare l'HTML già sanificato, tanto è pulito": il punto
-  non è la sicurezza del testo salvato, è che un estratto persistito è
-  un'affermazione implicita "questo è ciò che Stubwise ha letto", e per
-  l'HTML — a differenza del testo usato dalla classificazione — non è vero:
-  nessun codice lo legge se non la persona che clicca «Leggi l'originale».
+- **Il corpo HTML di un'email: dove si conserva, e dove no.** ⚠️ Questa
+  invariante diceva «non si conserva mai» (fase 9) ed è stata **riscritta,
+  non cancellata**, dalla migrazione 0076 («la posta si legge per
+  conversazione», 14 set 2026): il motivo che conteneva regge ancora, ed è
+  il motivo per cui la cache sta dove sta.
+  **Cosa è cambiato**: l'HTML originale si conserva in `email_bodies` — una
+  tabella a sé, una riga per messaggio, `ON DELETE CASCADE` dal padre —
+  perché ogni tap su «Mostra l'originale» ri-scaricava il messaggio da
+  Gmail: si usciva dalla schermata, si rientrava, e lo ri-scaricava.
+  **Si conserva GREZZO, e si sanifica a ogni lettura.** `sanitizeEmailHtml`
+  (allowlist di tag/attributi, mai denylist — `packages/google/src/gmail.ts`)
+  resta **nel percorso di RISPOSTA** di `GET
+  /api/me/mail/:source/:id/original` (`apps/server/src/routes/me-mail.ts`) e
+  gira su ogni lettura, da Google o da cache che sia. Chi è tentato di
+  scrivere in colonna il sanificato «tanto è già pulito» faccia il conto
+  dell'alternativa: ogni riga resterebbe congelata alla versione del filtro
+  che l'ha scritta, e correggere il filtro richiederebbe una colonna di
+  versione più un ri-scaricamento da Google per ogni riga. Col grezzo, una
+  correzione vale retroattivamente su tutta la cache, senza migrazioni di
+  dati. Il rischio dell'HTML non è stare in una colonna — lì è dato, non
+  viene eseguito — è cosa esce verso il client.
+  **Cosa NON è cambiato**: tutto il resto della difesa. L'HTML esce sempre
+  sanificato, si rende in un `<iframe sandbox>`
+  (`apps/web/src/components/mail-reading-pane.tsx`) **senza**
+  `allow-scripts` né `allow-same-origin` — i due permessi che farebbero
+  uscire il documento dal suo recinto — con le immagini remote neutralizzate
+  di default (spostate in `data-src`, mai in `src`: sono il vettore classico
+  dei pixel di tracciamento) finché chi legge non chiede di mostrarle.
+  **E soprattutto**: la ragione per cui la cache è una TABELLA A SÉ dal nome
+  esplicito e non una colonna accanto a `email_messages.text_excerpt`. Un
+  corpo persistito lì sarebbe un'affermazione implicita «questo è ciò che
+  Stubwise ha letto», e per l'HTML non è vero — nessun codice lo legge se non
+  la persona che clicca. `text_excerpt` è ciò che la CLASSIFICAZIONE ha letto
+  (il testo su cui il modello ha deciso); `email_bodies` è una copia per CHI
+  LEGGE. I due non vanno sullo stesso piano, e la rilettura dell'originale
+  non tocca `text_excerpt` — c'è un test che lo fissa
+  (`apps/server/src/routes/me-mail.test.ts`).
+  **Nessuna scadenza sulla cache, e non è una svista**: un messaggio Gmail è
+  immutabile, una volta inviato non cambia più. L'unico modo in cui la copia
+  può diventare falsa è che il messaggio sparisca da Gmail — e allora sparisce
+  la riga padre, che si porta dietro questa col CASCADE. Per la stessa ragione
+  la potatura di `email_messages` non va toccata per lei.
 - **Una serie resta raggiungibile anche senza occorrenze nella finestra
   visibile (fase 9, fix di review).** Spostando la configurazione di una
   serie nel pannello di dettaglio (design §3, Task 7), una serie le cui

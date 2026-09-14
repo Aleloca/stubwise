@@ -164,9 +164,14 @@ describe("pagina /mail/:source/:id", () => {
     // Prima di qualunque click: il bottone c'è E la nota anche, non solo
     // l'etichetta "su Gmail" del bottone da sola.
     expect(screen.getByRole("button", { name: "Read original on Gmail" })).toBeInTheDocument();
-    expect(
-      screen.getByText("Asking Google for this message now — nothing is saved."),
-    ).toBeInTheDocument();
+    // ⚠️ La frase è CAMBIATA con la cache (migrazione 0076), non è una
+    // stringa aggiornata per farla passare: quella di prima prometteva che
+    // il messaggio veniva chiesto a Google *adesso* e che non si salvava
+    // nulla — due cose che una risposta dalla cache rende false. Prima del
+    // tap la provenienza non si sa, quindi la nota dice ciò che vale in
+    // entrambi i casi e la provenienza la dichiara la risposta.
+    expect(screen.getByText(/The full message, as it arrived/)).toBeInTheDocument();
+    expect(screen.queryByText(/nothing is saved/)).not.toBeInTheDocument();
   });
 
   it("'Read original' rilegge da Gmail su richiesta e mostra il corpo grezzo", async () => {
@@ -190,6 +195,80 @@ describe("pagina /mail/:source/:id", () => {
 
     await screen.findByText(/Laura, Cliente SRL/);
     expect(screen.getByText("contratto.pdf")).toBeInTheDocument();
+  });
+
+  it("servito dalla CACHE: la risposta lo dichiara, e non promette una chiamata a Google", async () => {
+    // La copy pre-tap non può sapere da dove arriverà il corpo; quella
+    // DOPO sì, e deve dirlo — prima della cache (migrazione 0076) la nota
+    // prometteva che il messaggio veniva chiesto a Google *adesso* e che
+    // non si salvava nulla: entrambe false su una risposta dalla cache.
+    mockApi(
+      baseApi({
+        [`GET /api/me/mail/email/${EMAIL_ID}/original`]: () =>
+          jsonResponse(200, {
+            subject: "Ship next week?",
+            from: "Laura <laura@cliente.test>",
+            to: ["me@acme.test"],
+            cc: [],
+            bodyText: "Corpo completo.",
+            attachments: [],
+            bodySource: "cache",
+            fetchedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+          }),
+      }),
+    );
+    renderDetail();
+    await screen.findByRole("heading", { name: "Ship next week?" });
+    await userEvent.click(screen.getByRole("button", { name: "Read original on Gmail" }));
+
+    await screen.findByText(/Copy stored by Stubwise/);
+    expect(screen.queryByText(/Asked Google just now/)).not.toBeInTheDocument();
+  });
+
+  it("letto da Google adesso: lo dichiara altrettanto esplicitamente", async () => {
+    mockApi(
+      baseApi({
+        [`GET /api/me/mail/email/${EMAIL_ID}/original`]: () =>
+          jsonResponse(200, {
+            subject: "Ship next week?",
+            from: "Laura <laura@cliente.test>",
+            to: ["me@acme.test"],
+            cc: [],
+            bodyText: "Corpo completo.",
+            attachments: [],
+            bodySource: "google",
+            fetchedAt: new Date().toISOString(),
+          }),
+      }),
+    );
+    renderDetail();
+    await screen.findByRole("heading", { name: "Ship next week?" });
+    await userEvent.click(screen.getByRole("button", { name: "Read original on Gmail" }));
+
+    await screen.findByText(/Asked Google just now/);
+  });
+
+  it("un server pre-0076 (nessun bodySource): si comporta come `google`, nessuna riga vuota", async () => {
+    // L'app e il web sono UNO per tutte le istanze, e una self-hosted può
+    // essere indietro: il default dello schema deve reggere da solo.
+    mockApi(
+      baseApi({
+        [`GET /api/me/mail/email/${EMAIL_ID}/original`]: () =>
+          jsonResponse(200, {
+            subject: "Ship next week?",
+            from: "Laura <laura@cliente.test>",
+            to: ["me@acme.test"],
+            cc: [],
+            bodyText: "Corpo completo.",
+            attachments: [],
+          }),
+      }),
+    );
+    renderDetail();
+    await screen.findByRole("heading", { name: "Ship next week?" });
+    await userEvent.click(screen.getByRole("button", { name: "Read original on Gmail" }));
+
+    await screen.findByText(/Asked Google just now/);
   });
 
   it("con bodyHtml: rende un iframe in sandbox, senza allow-scripts né allow-same-origin (fase 9, Task 5)", async () => {

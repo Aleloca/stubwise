@@ -527,8 +527,11 @@
         "excerptMissing": "No excerpt saved — this message arrived before Stubwise started reading mail.",
         "originalTitle": "Original",
         "showOriginal": "Show the original",
-        "originalNote": "Asks Google for the message right now — nothing is saved, it's just a reread.",
-        "originalLoading": "Asking Google for the message…",
+        "originalNote": "The full message, as it arrived — quotes and signature included. If Stubwise doesn't already have a copy, it asks Google for it.",
+        "originalFromGoogle": "Asked Google just now.",
+        "originalFromCache": "Copy stored by Stubwise, read from Google {{when}} ago. A Gmail message never changes after it's sent.",
+        "originalFetchedUnknown": "earlier",
+        "originalLoading": "Loading the message…",
         "attachments_one": "{{count}} attachment: {{names}}",
         "attachments_other": "{{count}} attachments: {{names}}"
       }

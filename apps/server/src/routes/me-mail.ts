@@ -1,5 +1,6 @@
 import {
   calendarEvents,
+  emailBodies,
   emailMessages,
   emailProposals,
   googleAccounts,
@@ -492,6 +493,8 @@ function mergePages(
 // --- Dettaglio email (fase 7b, Task 6-7) ------------------------------------
 
 interface ResolvedEmailMessage {
+  /** `email_messages.id`, non l'id del path — vedi `EMAIL_MESSAGE_COLUMNS`. */
+  id: string;
   accountId: string;
   accountEmail: string;
   gmailMessageId: string;
@@ -507,6 +510,14 @@ interface ResolvedEmailMessage {
 
 /** Le colonne del PADRE che servono al dettaglio e alla rilettura, comuni a `"email"`/`"email_triage"`. */
 const EMAIL_MESSAGE_COLUMNS = {
+  /**
+   * `email_messages.id` — NON l'id del path, che per `source: "email"` è
+   * quello del FIGLIO (`email_proposals.id`, fase 6b). Serve alla cache del
+   * corpo (`email_bodies`, chiavata sul messaggio): due proposte sorelle
+   * dello stesso messaggio condividono la riga di cache, ed è corretto — il
+   * testo di un'email non cambia da un figlio all'altro.
+   */
+  id: emailMessages.id,
   accountId: emailMessages.accountId,
   accountEmail: googleAccounts.email,
   gmailMessageId: emailMessages.gmailMessageId,
@@ -857,11 +868,43 @@ export async function meMailRoutes(
   );
 
   /**
-   * Fase 7b, Task 7: il messaggio ORIGINALE, riletto da Gmail SU RICHIESTA
-   * (design §3, punto 2) — non si persiste nulla di questo: è una finestra
-   * su Gmail, non una copia. Stessa ACL: `resolveEmailMessage` prima di
-   * qualunque chiamata di rete, così un id altrui non arriva nemmeno a
-   * consumare un token.
+   * Fase 7b, Task 7: il messaggio ORIGINALE. Stessa ACL:
+   * `resolveEmailMessage` prima di qualunque chiamata di rete, così un id
+   * altrui non arriva nemmeno a consumare un token.
+   *
+   * ⚠️ «Non si persiste nulla di questo: è una finestra su Gmail, non una
+   * copia» — **non è più vero dalla migrazione 0076** («la posta si legge
+   * per conversazione» §1). Ogni tap su «Mostra l'originale» ri-scaricava il
+   * messaggio: si usciva dalla schermata, si rientrava, e lo ri-scaricava.
+   * Ora il corpo si conserva in `email_bodies` e la seconda lettura non
+   * tocca Google.
+   *
+   * Quello che NON è cambiato, ed è il punto del design: in cache l'HTML sta
+   * GREZZO, e {@link sanitizeEmailHtml} gira QUI, nel percorso di risposta, a
+   * ogni lettura — da Google o da cache che sia. Conservare il sanificato
+   * congelerebbe ogni riga alla versione del filtro che l'ha scritta; così
+   * una correzione al filtro vale retroattivamente su tutta la cache.
+   *
+   * La cache è un'OTTIMIZZAZIONE, non una fonte di verità: se la scrittura
+   * fallisce, il corpo ce l'abbiamo già in mano e si risponde lo stesso —
+   * una riga di log, mai un 502. Nessuna scadenza (un messaggio Gmail è
+   * immutabile) e nessuna potatura dedicata: il CASCADE dal messaggio basta.
+   *
+   * ⚠️ **DUE ERRORI DI PRIMA NON SCATTANO PIÙ QUANDO LA CACHE È PIENA**, ed
+   * è deliberato (confermato in review, 14 set 2026) — vanno detti perché
+   * erano documentati:
+   * - `account_unavailable` (409): una casella DA RICOLLEGARE non impedisce
+   *   più di rileggere un corpo già in cache. È il caso in cui la copia
+   *   serve di più, e le credenziali si caricano infatti solo sul percorso
+   *   che parla con Google.
+   * - `message_gone` (409): un messaggio CANCELLATO da Gmail risponde dalla
+   *   copia finché la riga padre esiste, invece di dire che non c'è più. La
+   *   copia non mente su cosa è — la risposta porta `bodySource: "cache"` e
+   *   la data della lettura — e l'alternativa sarebbe negare a chi legge un
+   *   testo che abbiamo, per un messaggio che qualcuno ha cancellato DOPO
+   *   che era arrivato. Quando il messaggio sparisce davvero dal nostro
+   *   sistema, sparisce anche la copia (CASCADE), e `message_gone` torna a
+   *   scattare per chi non ce l'ha in cache.
    *
    * Fase 9, Task 4: il corpo HTML si legge sanificato, MAI conservato — si
    * rilegge da Gmail e si sanifica per QUESTA risposta, ogni volta
@@ -898,6 +941,36 @@ export async function meMailRoutes(
       const message = await resolveEmailMessage(app.db, request.user!.id, source, id);
       if (!message) return apiError(reply, 404, "not_found", "Message not found");
 
+      // CACHE — si guarda subito dopo l'ACL e PRIMA di ogni altra cosa:
+      // prima delle credenziali, non solo prima del refresh del token.
+      //
+      // ⚠️ L'ordine è il punto, non un dettaglio di efficienza (fix di
+      // review): con le credenziali davanti, una casella DA RICOLLEGARE
+      // (token revocato, blob non decifrabile) faceva rispondere 409
+      // `account_unavailable` anche con il corpo già in cache — cioè
+      // proprio quando la copia serve di più, ed è l'unico caso in cui non
+      // funzionava. Da qui in giù non serve niente di Google: né le
+      // credenziali, né una decifratura, né una chiamata.
+      const [cached] = await app.db
+        .select()
+        .from(emailBodies)
+        .where(eq(emailBodies.emailMessageId, message.id));
+      if (cached) {
+        return {
+          subject: cached.subject ?? message.subject,
+          from: cached.fromAddress ?? message.fromAddress,
+          to: cached.toAddresses ?? message.toAddresses,
+          cc: cached.ccAddresses,
+          bodyText: cached.bodyText ?? (cached.bodyHtml ? htmlToText(cached.bodyHtml) : null),
+          // In cache sta GREZZO: si sanifica adesso, con il filtro di oggi.
+          bodyHtml: cached.bodyHtml ? sanitizeEmailHtml(cached.bodyHtml) : null,
+          attachments: cached.attachments,
+          bodySource: "cache" as const,
+          fetchedAt: cached.fetchedAt.toISOString(),
+        };
+      }
+
+      // Solo ORA servono: da qui in poi si parla con Google davvero.
       const credentials = await loadGoogleAccountCredentials(app.db, app.encryptionKey, message.accountId);
       if (!credentials) {
         return apiError(reply, 409, "account_unavailable", "Google account credentials are not usable");
@@ -915,11 +988,46 @@ export async function meMailRoutes(
         });
         const body = full.payload ? extractRawBody(full.payload) : { text: null, html: null };
         const attachments = full.payload ? listAttachments(full.payload) : [];
+        const headerTo = full.headers.to
+          ? full.headers.to.split(",").map((addr) => addr.trim())
+          : null;
+        const cc = full.headers.cc ? full.headers.cc.split(",").map((addr) => addr.trim()) : [];
+        const fetchedAt = new Date();
+
+        // Si scrive la cache PRIMA di rispondere, ma un suo fallimento non
+        // deve costare la risposta: il corpo è già in mano, e la cache è
+        // un'ottimizzazione. `onConflictDoNothing` perché due letture
+        // simultanee dello stesso messaggio (due proposte sorelle, due
+        // dispositivi) possono arrivare qui insieme — la seconda non deve
+        // far fallire nulla: la riga è identica, il messaggio è immutabile.
+        try {
+          await app.db
+            .insert(emailBodies)
+            .values({
+              emailMessageId: message.id,
+              subject: full.headers.subject ?? null,
+              fromAddress: full.headers.from ?? null,
+              toAddresses: headerTo,
+              ccAddresses: cc,
+              bodyText: body.text,
+              // GREZZO in colonna, sanificato in risposta: vedi il docblock.
+              bodyHtml: body.html,
+              attachments,
+              fetchedAt,
+            })
+            .onConflictDoNothing();
+        } catch (error) {
+          request.log.warn(
+            { err: error, emailMessageId: message.id },
+            "scrittura della cache del corpo fallita: si risponde comunque",
+          );
+        }
+
         return {
           subject: full.headers.subject ?? message.subject,
           from: full.headers.from ?? message.fromAddress,
-          to: full.headers.to ? full.headers.to.split(",").map((addr) => addr.trim()) : message.toAddresses,
-          cc: full.headers.cc ? full.headers.cc.split(",").map((addr) => addr.trim()) : [],
+          to: headerTo ?? message.toAddresses,
+          cc,
           // `text/plain` se c'è, altrimenti l'HTML convertito in testo — per
           // chi non vuole (o non può) il corpo formattato.
           bodyText: body.text ?? (body.html ? htmlToText(body.html) : null),
@@ -930,6 +1038,8 @@ export async function meMailRoutes(
           // SECONDA difesa indipendente, non l'unica.
           bodyHtml: body.html ? sanitizeEmailHtml(body.html) : null,
           attachments,
+          bodySource: "google" as const,
+          fetchedAt: fetchedAt.toISOString(),
         };
       } catch (error) {
         if (error instanceof GoogleApiError) {

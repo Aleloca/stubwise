@@ -2391,8 +2391,11 @@
       "excerptNotice": "Estratto ripulito — senza citazioni, firma o allegati. È il testo che ha visto il classificatore.",
       "noExcerpt": "Nessun estratto salvato per questo messaggio.",
       "readOriginal": "Leggi l'originale su Gmail",
-      "readingOriginal": "Richiesta a Google in corso…",
-      "originalNotice": "Sto chiedendo questo messaggio a Google adesso — non viene salvato nulla.",
+      "readingOriginal": "Carico il messaggio…",
+      "originalNotice": "Il messaggio completo, com'è arrivato — citazioni e firma comprese. Se Stubwise non ne ha già una copia, lo chiede a Google.",
+      "originalFromGoogle": "Chiesto a Google adesso.",
+      "originalFromCache": "Copia salvata da Stubwise, letta da Google {{when}}. Un messaggio Gmail non cambia dopo l'invio.",
+      "originalFetchedUnknown": "in precedenza",
       "originalError": {
         "messageGone": "Questo messaggio non esiste più su Gmail.",
         "tokenExpired": "Questa casella Google va ricollegata.",

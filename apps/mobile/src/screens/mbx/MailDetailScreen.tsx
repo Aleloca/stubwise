@@ -1,5 +1,6 @@
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { ApiError } from "@stubwise/api-client";
+import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { useBottomTabBarHeight } from "react-native-bottom-tabs";
@@ -83,6 +84,20 @@ export function MailDetailScreen({ navigation, route }: NativeStackScreenProps<M
   );
 }
 
+/**
+ * Quando il corpo in cache è stato letto da Gmail, nella stessa forma
+ * relativa che questo screen usa già per la data del messaggio
+ * (`relativeTimeCompact`): "2 g", "adesso". `null` — un server più vecchio
+ * che non manda `fetchedAt` — diventa una parola onesta, non un'invenzione.
+ */
+function fetchedAtLabel(fetchedAt: string | null, t: TFunction): string {
+  if (fetchedAt === null) return t("mobile.mbx.detail.originalFetchedUnknown");
+  const relative = relativeTimeCompact(fetchedAt);
+  return relative.kind === "now"
+    ? t("mobile.mbx.time.now")
+    : t(`mobile.mbx.time.${relative.kind}`, { count: relative.count });
+}
+
 function DetailBody({
   detail,
   original,
@@ -132,6 +147,19 @@ function DetailBody({
           </View>
         ) : (
           <View testID="mail-detail-original-body">
+            {/*
+             * DA DOVE arriva il corpo, dichiarato dopo il tap: prima non si
+             * può sapere (`bodySource` sta nella risposta), e la nota qui
+             * sopra dice per questo solo ciò che è vero in entrambi i casi.
+             * Prima della cache (migrazione 0076) prometteva che il
+             * messaggio sarebbe stato chiesto a Google *adesso* e che non si
+             * salvava nulla: servita dalla cache sarebbe una bugia doppia.
+             */}
+            <Text style={styles.excerptNote} testID="mail-detail-original-source">
+              {original.data.bodySource === "cache"
+                ? t("mobile.mbx.detail.originalFromCache", { when: fetchedAtLabel(original.data.fetchedAt, t) })
+                : t("mobile.mbx.detail.originalFromGoogle")}
+            </Text>
             {original.data.bodyText !== null ? (
               <LinkedText style={styles.originalBody} testID="mail-detail-original-text" text={original.data.bodyText} />
             ) : (

@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import {
   calendarEvents,
+  emailBodies,
   emailMessages,
   emailProposals,
   encrypt,
@@ -983,7 +984,7 @@ describe("GET /api/me/mail/:source/:id/original (fase 7b, Task 7)", () => {
     expect((await getOriginal("", "email", randomUUID())).statusCode).toBe(401);
   });
 
-  it("successo: corpo grezzo (non ripulito) e allegati, niente persistito", async () => {
+  it("successo: corpo grezzo (non ripulito) e allegati, e l'ESTRATTO non si tocca", async () => {
     const { accountId } = await seedAccount(memberId);
     const projectId = await seedProject();
     const messageId = await seedEmail(accountId, { subject: "Rinviamo il rilascio?" });
@@ -1000,7 +1001,10 @@ describe("GET /api/me/mail/:source/:id/original (fase 7b, Task 7)", () => {
     expect(body.bodyText).toContain("Laura, Cliente SRL");
     expect(body.attachments).toEqual([{ filename: "contratto.pdf", mimeType: "application/pdf" }]);
 
-    // Non si persiste nulla di ciò che si rilegge.
+    // Dalla 0076 il corpo SI conserva (in `email_bodies`), ma `text_excerpt`
+    // no: è ciò che la CLASSIFICAZIONE ha letto, e questa rilettura non deve
+    // riscriverlo. I due non vanno sullo stesso piano — è la ragione per cui
+    // la cache vive in una tabella a sé.
     const [row] = await db.select().from(emailMessages).where(eq(emailMessages.id, messageId));
     expect(row?.textExcerpt ?? "").not.toContain("Laura, Cliente SRL");
   });
@@ -1095,5 +1099,337 @@ describe("GET /api/me/mail/:source/:id/original (fase 7b, Task 7)", () => {
     const res = await getOriginal(adminCookieOriginal, "email", proposalId);
     expect(res.statusCode).toBe(404);
     expect(called).toBe(false);
+  });
+});
+
+/**
+ * La CACHE del corpo originale (migrazione 0076, «la posta si legge per
+ * conversazione» §1, Task 2). Il fastidio da cui nasce: ogni tap su «Mostra
+ * l'originale» ri-scaricava il messaggio da Gmail — si usciva dalla
+ * schermata, si rientrava, e lo ri-scaricava.
+ */
+describe("GET /api/me/mail/:source/:id/original — la cache (Task 2)", () => {
+  const fakeGoogleClient: MailOriginalClient = {
+    refreshAccessToken: async () => FAKE_TOKENS,
+    getMessageFull: async () => fakeGmailMessage(),
+  };
+  let appCache: FastifyInstance;
+  let cookie: string;
+
+  beforeAll(async () => {
+    appCache = buildApp({
+      db,
+      sessionSecret: SESSION_SECRET,
+      encryptionKey: ENCRYPTION_KEY.toString("base64"),
+      mailGoogleClient: fakeGoogleClient,
+    });
+    const login = await appCache.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      payload: { email: "member@example.com", password: "password-member" },
+    });
+    cookie = sessionCookie(login);
+  }, 60_000);
+
+  afterAll(async () => {
+    await appCache.close();
+  });
+
+  beforeEach(() => {
+    fakeGoogleClient.refreshAccessToken = async () => FAKE_TOKENS;
+    fakeGoogleClient.getMessageFull = async () => fakeGmailMessage();
+  });
+
+  function getOriginal(id: string) {
+    return appCache.inject({ method: "GET", url: `/api/me/mail/email/${id}/original`, headers: { cookie } });
+  }
+
+  /** Un messaggio con la sua proposta, pronto da rileggere. */
+  async function seedReadable(): Promise<{ messageId: string; proposalId: string }> {
+    const { accountId } = await seedAccount(memberId);
+    const projectId = await seedProject();
+    const messageId = await seedEmail(accountId);
+    const proposalId = await seedProposal(messageId, projectId);
+    return { messageId, proposalId };
+  }
+
+  it("la PRIMA lettura chiama Gmail e scrive la cache; la SECONDA non lo chiama affatto", async () => {
+    const { messageId, proposalId } = await seedReadable();
+    let calls = 0;
+    fakeGoogleClient.getMessageFull = async () => {
+      calls += 1;
+      return fakeGmailMessage({ text: "Corpo completo.", html: "<p>Corpo completo.</p>" });
+    };
+
+    const first = await getOriginal(proposalId);
+    expect(first.statusCode).toBe(200);
+    expect(first.json().bodySource).toBe("google");
+    expect(calls).toBe(1);
+
+    const [cached] = await db
+      .select()
+      .from(emailBodies)
+      .where(eq(emailBodies.emailMessageId, messageId));
+    expect(cached?.bodyText).toBe("Corpo completo.");
+
+    const second = await getOriginal(proposalId);
+    expect(second.statusCode).toBe(200);
+    // La spia resta a 1: la seconda lettura non ha toccato Google.
+    expect(calls).toBe(1);
+    expect(second.json().bodySource).toBe("cache");
+    expect(second.json().bodyText).toBe("Corpo completo.");
+    expect(second.json().fetchedAt).toBe(cached!.fetchedAt.toISOString());
+  });
+
+  it("una lettura servita dalla cache non rinfresca nemmeno il token", async () => {
+    // Il refresh è a monte della chiamata: guardare la cache DOPO averlo
+    // fatto avrebbe risparmiato solo metà del lavoro.
+    const { proposalId } = await seedReadable();
+    await getOriginal(proposalId);
+
+    let refreshes = 0;
+    fakeGoogleClient.refreshAccessToken = async () => {
+      refreshes += 1;
+      return FAKE_TOKENS;
+    };
+    const res = await getOriginal(proposalId);
+    expect(res.statusCode).toBe(200);
+    expect(refreshes).toBe(0);
+  });
+
+  it("in cache l'HTML sta GREZZO, e ne esce SANIFICATO a ogni lettura", async () => {
+    // Il punto del design §1: se si conservasse il sanificato, ogni riga
+    // resterebbe congelata alla versione del filtro che l'ha scritta.
+    const { messageId, proposalId } = await seedReadable();
+    fakeGoogleClient.getMessageFull = async () =>
+      fakeGmailMessage({
+        html: '<p><b>Ciao</b></p><script>alert(document.cookie)</script><img src="https://tracker.example/pixel.gif" onerror="alert(1)">',
+      });
+
+    await getOriginal(proposalId);
+
+    const [cached] = await db
+      .select()
+      .from(emailBodies)
+      .where(eq(emailBodies.emailMessageId, messageId));
+    // GREZZO in colonna: lo `<script>` è ancora lì, ed è voluto.
+    expect(cached?.bodyHtml).toContain("<script>");
+    expect(cached?.bodyHtml).toContain("onerror");
+
+    // SANIFICATO in risposta, sia al primo giro sia servito da cache.
+    const res = await getOriginal(proposalId);
+    expect(res.json().bodySource).toBe("cache");
+    expect(res.json().bodyHtml).toContain("<b>Ciao</b>");
+    expect(res.json().bodyHtml).not.toContain("<script");
+    expect(res.json().bodyHtml).not.toContain("onerror");
+    expect(res.json().bodyHtml).not.toMatch(/\ssrc="https:\/\/tracker\.example/);
+  });
+
+  it("una cache scritta con HTML ostile esce sanificata anche se la riga c'era già", async () => {
+    // La riga può essere stata scritta da una versione precedente del
+    // filtro, o a mano: la difesa non è nel momento della scrittura.
+    const { messageId, proposalId } = await seedReadable();
+    await db.insert(emailBodies).values({
+      emailMessageId: messageId,
+      bodyHtml: '<p>Ciao</p><script>alert(1)</script><a href="javascript:alert(2)">link</a>',
+    });
+
+    const res = await getOriginal(proposalId);
+    expect(res.statusCode).toBe(200);
+    expect(res.json().bodyHtml).toContain("<p>Ciao</p>");
+    expect(res.json().bodyHtml).not.toContain("<script");
+    expect(res.json().bodyHtml).not.toContain("javascript:");
+  });
+
+  it("cancellare il messaggio porta via la cache (CASCADE): la lettura dopo torna a Gmail", async () => {
+    const { messageId, proposalId } = await seedReadable();
+    await getOriginal(proposalId);
+    expect(
+      await db.select().from(emailBodies).where(eq(emailBodies.emailMessageId, messageId)),
+    ).toHaveLength(1);
+
+    await db.delete(emailMessages).where(eq(emailMessages.id, messageId));
+    expect(
+      await db.select().from(emailBodies).where(eq(emailBodies.emailMessageId, messageId)),
+    ).toHaveLength(0);
+  });
+
+  it("una riga di cache già presente vince sulla chiamata a Google", async () => {
+    const { messageId, proposalId } = await seedReadable();
+    await db.insert(emailBodies).values({ emailMessageId: messageId, bodyText: "riga preesistente" });
+
+    let called = false;
+    fakeGoogleClient.getMessageFull = async () => {
+      called = true;
+      return fakeGmailMessage();
+    };
+
+    const res = await getOriginal(proposalId);
+    expect(res.statusCode).toBe(200);
+    expect(res.json().bodyText).toBe("riga preesistente");
+    expect(called).toBe(false);
+  });
+
+  it("se la SCRITTURA in cache FALLISCE, la risposta arriva lo stesso (una riga di log, non un 502)", async () => {
+    // La cache è un'ottimizzazione: a quel punto il corpo è già in mano, e
+    // far fallire la risposta per un problema della copia sarebbe il baratto
+    // sbagliato. Il fallimento si produce DAVVERO — un `db` che rifiuta
+    // l'insert su `email_bodies` e inoltra tutto il resto — invece di
+    // simularlo con un conflitto che `onConflictDoNothing` assorbirebbe
+    // senza mai entrare nel `catch`.
+    const brokenDb = new Proxy(db as object, {
+      get(target, prop, receiver) {
+        if (prop === "insert") {
+          return (table: unknown) => {
+            if (table === emailBodies) {
+              return {
+                values: () => ({
+                  onConflictDoNothing: () => Promise.reject(new Error("disco pieno")),
+                }),
+              };
+            }
+            return (Reflect.get(target, prop, receiver) as (t: unknown) => unknown).call(target, table);
+          };
+        }
+        return Reflect.get(target, prop, receiver);
+      },
+    }) as Db;
+
+    const appBroken = buildApp({
+      db: brokenDb,
+      sessionSecret: SESSION_SECRET,
+      encryptionKey: ENCRYPTION_KEY.toString("base64"),
+      mailGoogleClient: fakeGoogleClient,
+    });
+    try {
+      const login = await appBroken.inject({
+        method: "POST",
+        url: "/api/auth/login",
+        payload: { email: "member@example.com", password: "password-member" },
+      });
+      const brokenCookie = sessionCookie(login);
+      const { messageId, proposalId } = await seedReadable();
+      fakeGoogleClient.getMessageFull = async () => fakeGmailMessage({ text: "Corpo completo." });
+
+      const res = await appBroken.inject({
+        method: "GET",
+        url: `/api/me/mail/email/${proposalId}/original`,
+        headers: { cookie: brokenCookie },
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json().bodyText).toBe("Corpo completo.");
+      // Ha risposto da Google, e la cache è rimasta vuota: la prossima
+      // lettura ritenterà, che è il degrado giusto.
+      expect(res.json().bodySource).toBe("google");
+      expect(
+        await db.select().from(emailBodies).where(eq(emailBodies.emailMessageId, messageId)),
+      ).toHaveLength(0);
+    } finally {
+      await appBroken.close();
+    }
+  });
+
+  it("il messaggio cancellato su Gmail resta un 409, e NON scrive una riga di cache vuota", async () => {
+    const { messageId, proposalId } = await seedReadable();
+    fakeGoogleClient.getMessageFull = async () => {
+      throw new GoogleApiError({ api: "gmail.messages.get.full", status: 404, code: "not_found", reason: "notFound" });
+    };
+
+    const res = await getOriginal(proposalId);
+    expect(res.statusCode).toBe(409);
+    expect(res.json().code).toBe("message_gone");
+    expect(
+      await db.select().from(emailBodies).where(eq(emailBodies.emailMessageId, messageId)),
+    ).toHaveLength(0);
+  });
+
+  it("casella DA RICOLLEGARE con la cache piena: 200 dalla copia, non 409 (fix di review)", async () => {
+    // È il caso in cui la copia serve DI PIÙ, ed era l'unico in cui non
+    // funzionava: la lettura della cache stava dopo
+    // `loadGoogleAccountCredentials`, quindi un token revocato o un blob non
+    // decifrabile faceva rispondere `account_unavailable` anche con il corpo
+    // già in mano. Senza il fix questo test dà 409.
+    const { messageId, proposalId } = await seedReadable();
+    fakeGoogleClient.getMessageFull = async () => fakeGmailMessage({ text: "Corpo completo." });
+    await getOriginal(proposalId); // riempie la cache
+
+    // Ora la casella diventa inutilizzabile: il refresh token non è più
+    // decifrabile con la chiave d'istanza (è ciò che
+    // `loadGoogleAccountCredentials` restituisce `null`).
+    const [row] = await db.select().from(emailMessages).where(eq(emailMessages.id, messageId));
+    await db
+      .update(googleAccounts)
+      .set({ refreshTokenEncrypted: "blob-non-decifrabile" })
+      .where(eq(googleAccounts.id, row!.accountId));
+
+    let called = false;
+    fakeGoogleClient.getMessageFull = async () => {
+      called = true;
+      return fakeGmailMessage();
+    };
+
+    const res = await getOriginal(proposalId);
+    expect(res.statusCode).toBe(200);
+    expect(res.json().bodySource).toBe("cache");
+    expect(res.json().bodyText).toBe("Corpo completo.");
+    expect(called).toBe(false);
+  });
+
+  it("casella da ricollegare SENZA cache: resta 409 account_unavailable", async () => {
+    // L'altra metà del fix: senza una copia da servire, il cancello delle
+    // credenziali è ancora quello di prima.
+    const { messageId, proposalId } = await seedReadable();
+    const [row] = await db.select().from(emailMessages).where(eq(emailMessages.id, messageId));
+    await db
+      .update(googleAccounts)
+      .set({ refreshTokenEncrypted: "blob-non-decifrabile" })
+      .where(eq(googleAccounts.id, row!.accountId));
+
+    const res = await getOriginal(proposalId);
+    expect(res.statusCode).toBe(409);
+    expect(res.json().code).toBe("account_unavailable");
+  });
+
+  it("messaggio CANCELLATO da Gmail con la cache piena: si risponde dalla copia, non `message_gone`", async () => {
+    // Cambio di comportamento DELIBERATO su un errore che era documentato
+    // (vedi il docblock della rotta): la copia non mente su cosa è —
+    // `bodySource: "cache"` e la data — e negare un testo che abbiamo,
+    // perché qualcuno ha cancellato il messaggio DOPO che era arrivato,
+    // sarebbe il baratto sbagliato.
+    const { proposalId } = await seedReadable();
+    fakeGoogleClient.getMessageFull = async () => fakeGmailMessage({ text: "Corpo completo." });
+    await getOriginal(proposalId);
+
+    fakeGoogleClient.getMessageFull = async () => {
+      throw new GoogleApiError({ api: "gmail.messages.get.full", status: 404, code: "not_found", reason: "notFound" });
+    };
+
+    const res = await getOriginal(proposalId);
+    expect(res.statusCode).toBe(200);
+    expect(res.json().bodySource).toBe("cache");
+  });
+
+  it("due proposte SORELLE dello stesso messaggio condividono la cache", async () => {
+    // La chiave è il MESSAGGIO, non la proposta: il testo di un'email non
+    // cambia da un figlio all'altro (fase 6b).
+    const { accountId } = await seedAccount(memberId);
+    const projectA = await seedProject();
+    const projectB = await seedProject();
+    const messageId = await seedEmail(accountId);
+    const first = await seedProposal(messageId, projectA);
+    const second = await seedProposal(messageId, projectB);
+
+    let calls = 0;
+    fakeGoogleClient.getMessageFull = async () => {
+      calls += 1;
+      return fakeGmailMessage({ text: "Una sola lettura." });
+    };
+
+    expect((await getOriginal(first)).json().bodySource).toBe("google");
+    const fromSibling = await getOriginal(second);
+    expect(fromSibling.json().bodySource).toBe("cache");
+    expect(fromSibling.json().bodyText).toBe("Una sola lettura.");
+    expect(calls).toBe(1);
   });
 });

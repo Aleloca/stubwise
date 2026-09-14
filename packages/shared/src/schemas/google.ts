@@ -562,6 +562,15 @@ export type MailDetail = z.infer<typeof mailDetailSchema>;
  * corpo convertito in testo quando manca il `text/plain`, per chi non
  * vuole (o non può, es. lettori di schermo dentro l'iframe) il corpo
  * formattato.
+ *
+ * ⚠️ Il docblock diceva «non si persiste nulla di questo: è una finestra su
+ * Gmail, non una copia». **Dalla migrazione 0076 non è più vero**: il corpo
+ * si conserva in `email_bodies` (una tabella a sé, non una colonna accanto a
+ * `text_excerpt` — vedi l'invariante in CLAUDE.md), e questa risposta può
+ * arrivare da lì senza toccare Google. Ciò che resta vero è che l'HTML che
+ * esce da qui è SEMPRE sanificato al momento della risposta: in cache sta
+ * grezzo, apposta, così una correzione al filtro vale anche sulle righe già
+ * scritte.
  */
 export const mailOriginalSchema = z.object({
   subject: z.string().nullable(),
@@ -573,6 +582,30 @@ export const mailOriginalSchema = z.object({
   attachments: z
     .array(z.object({ filename: z.string(), mimeType: z.string().nullable() }))
     .default([]),
+  /**
+   * DA DOVE arriva questo corpo: `"google"` = letto adesso, `"cache"` =
+   * servito da `email_bodies`.
+   *
+   * Non è un dettaglio diagnostico, è ciò che rende la copy onesta: la nota
+   * accanto al bottone «Mostra l'originale» promette che il messaggio verrà
+   * chiesto a Google *adesso*, e servita dalla cache sarebbe una bugia.
+   *
+   * `.default("google")` e mai obbligatorio: un server più vecchio (o un
+   * rollback) non lo manda, e il default è anche la verità per quel server —
+   * prima della 0076 ogni risposta veniva da Google. Regola di CLAUDE.md,
+   * «verso l'app mobile solo cambi additivi»: l'app è UNA per tutte le
+   * istanze, e una self-hosted può essere indietro.
+   */
+  bodySource: z.enum(["google", "cache"]).default("google"),
+  /**
+   * Quando questo corpo è stato letto da Gmail. Con `bodySource: "cache"` è
+   * la data della lettura che ha riempito la riga — può essere di giorni fa,
+   * ed è corretto: un messaggio Gmail non cambia più dopo l'invio.
+   *
+   * `null` quando non lo sappiamo (un server più vecchio non lo manda):
+   * chi mostra la frase deve reggere l'assenza, non inventare «adesso».
+   */
+  fetchedAt: z.iso.datetime().nullable().default(null),
 });
 export type MailOriginal = z.infer<typeof mailOriginalSchema>;
 

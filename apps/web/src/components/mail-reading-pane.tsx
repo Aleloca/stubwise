@@ -93,6 +93,13 @@ export function MailReadingPane({ source, id }: { source: "email" | "email_triag
          * La nota va accanto al COMANDO, sempre — non solo mentre la
          * richiesta è in corso: il design vuole che sia il comando a
          * dichiarare cosa sta per fare PRIMA che lo si prema.
+         *
+         * ⚠️ Prima della cache (migrazione 0076) questa frase prometteva due
+         * cose che ora sarebbero false: che il messaggio venga chiesto a
+         * Google *adesso*, e che non si salvi nulla. Prima del tap non si
+         * sa da dove arriverà il corpo — quindi la frase dice ciò che è vero
+         * in entrambi i casi, e la PROVENIENZA la dichiara la risposta
+         * (`bodySource`), dopo.
          */}
         {!original.isSuccess && (
           <>
@@ -112,7 +119,21 @@ export function MailReadingPane({ source, id }: { source: "email" | "email_triag
             {originalErrorMessage(t, original.error)}
           </p>
         )}
-        {original.isSuccess && <OriginalMessage original={original.data} />}
+        {original.isSuccess && (
+          <>
+            <p className="font-mono text-[11px] text-fg-faint">
+              {original.data.bodySource === "cache"
+                ? t("mail:detail.originalFromCache", {
+                    when:
+                      original.data.fetchedAt !== null
+                        ? formatRelativeTime(original.data.fetchedAt)
+                        : t("mail:detail.originalFetchedUnknown"),
+                  })
+                : t("mail:detail.originalFromGoogle")}
+            </p>
+            <OriginalMessage original={original.data} />
+          </>
+        )}
       </section>
 
       <p className="mt-6 font-mono text-[11px] text-fg-faint">{t("mail:detail.retentionNotice")}</p>

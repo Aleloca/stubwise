@@ -3472,6 +3472,59 @@ export const emailMessages = pgTable(
 );
 
 /**
+ * CACHE del corpo originale di un messaggio (migrazione 0076, «la posta si
+ * legge per conversazione» §1): una riga per messaggio, `ON DELETE CASCADE`
+ * dal padre.
+ *
+ * Esiste perché ogni tap su «Mostra l'originale» ri-scaricava il messaggio da
+ * Gmail — si usciva dalla schermata, si rientrava, e lo ri-scaricava.
+ *
+ * ⚠️ `bodyHtml` è l'HTML **GREZZO**. `sanitizeEmailHtml` (`@stubwise/google`)
+ * resta nel percorso di RISPOSTA e gira a ogni lettura: conservare il
+ * sanificato congelerebbe ogni riga alla versione del filtro che l'ha
+ * scritta, mentre così una correzione al filtro vale retroattivamente su
+ * tutta la cache, senza migrazioni di dati. Il rischio dell'HTML non è stare
+ * in una colonna (lì è dato, non viene eseguito) — è cosa esce verso il
+ * client, e quello esce sanificato sempre.
+ *
+ * ⚠️ Una TABELLA A SÉ, non una colonna accanto a `emailMessages.textExcerpt`,
+ * ed è una distinzione di significato: l'estratto è ciò che la
+ * CLASSIFICAZIONE ha letto (il testo su cui il modello ha deciso), questa è
+ * una copia per CHI LEGGE che nessun altro codice consulta. Vedi l'invariante
+ * in CLAUDE.md.
+ *
+ * ⚠️ Nessuna scadenza: un messaggio Gmail è immutabile. L'unico modo in cui
+ * questa cache diventa falsa è che il messaggio sparisca da Gmail, e allora
+ * sparisce la riga padre e con lei questa — per questo la potatura di
+ * `email_messages` non va toccata per la cache.
+ */
+export const emailBodies = pgTable("email_bodies", {
+  emailMessageId: uuid("email_message_id")
+    .primaryKey()
+    .references(() => emailMessages.id, { onDelete: "cascade" }),
+  /**
+   * Gli header COME LI HA MANDATI GMAIL. `null` = l'header non c'era, ed è
+   * ciò che fa scattare il fallback sulla riga padre che la rotta fa già
+   * oggi (`full.headers.subject ?? message.subject`).
+   */
+  subject: text("subject"),
+  fromAddress: text("from_address"),
+  toAddresses: text("to_addresses").array(),
+  ccAddresses: text("cc_addresses").array().notNull().default([]),
+  /** `text/plain` se c'era. `null` quando il messaggio aveva solo HTML: la conversione la fa la rotta. */
+  bodyText: text("body_text"),
+  /** HTML GREZZO, vedi il docblock. `null` se non c'era una parte HTML — mai una stringa vuota. */
+  bodyHtml: text("body_html"),
+  /** Metadati degli allegati: il contenuto non si scarica né si conserva. */
+  attachments: jsonb("attachments")
+    .$type<{ filename: string; mimeType: string | null }[]>()
+    .notNull()
+    .default([]),
+  /** Quando è stato letto da Gmail: la risposta lo espone, così la copy dice la verità. */
+  fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
  * EVENTO del calendario `primary` di una casella, in perimetro come la posta
  * (Fase 6).
  *

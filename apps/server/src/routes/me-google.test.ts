@@ -310,9 +310,24 @@ describe("GET /api/me/google/callback — state non spendibile", () => {
   it("400 su firma manomessa, e senza aver chiamato Google", async () => {
     const workspaceId = await createWorkspace();
     const state = await stateFor(workspaceId);
-    // Si altera l'ULTIMO carattere della firma: il payload resta identico, così
-    // il test fallisce solo se la firma non viene verificata davvero.
-    const tampered = state.slice(0, -1) + (state.endsWith("A") ? "B" : "A");
+    // Si altera il PRIMO carattere della firma, non l'ultimo: il payload
+    // resta identico, così il test fallisce solo se la firma non viene
+    // verificata davvero.
+    //
+    // ⚠️ Perché non l'ultimo (com'era fino al 14 set 2026, e perché quel
+    // test era FLAKY): lo state è `<base64url(json)>.<base64url(hmac))>`, e
+    // l'HMAC-SHA256 è di 32 byte = 256 bit, che in base64url sono 43
+    // caratteri da 6 bit = 258. I 2 bit in eccesso sono NON SIGNIFICATIVI,
+    // quindi quattro caratteri finali diversi decodificano agli STESSI byte:
+    // sostituire `A` con `B` in ultima posizione lasciava la firma valida, e
+    // il callback rispondeva 302 invece di 400 — il test falliva senza che
+    // niente fosse rotto, in circa un caso su sedici (dipende dal nonce
+    // casuale). I caratteri interni codificano invece 6 bit significativi
+    // ciascuno: cambiarne uno è sempre una manomissione vera.
+    const dot = state.indexOf(".");
+    const signature = state.slice(dot + 1);
+    const tampered =
+      state.slice(0, dot + 1) + (signature.startsWith("A") ? "B" : "A") + signature.slice(1);
 
     const res = await callback(tampered);
     expect(res.statusCode).toBe(400);

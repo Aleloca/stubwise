@@ -6,6 +6,7 @@ import {
   agentRuns,
   aiJobs,
   calendarEvents,
+  emailBodies,
   emailMessages,
   googleAccounts,
   googleWorkspaces,
@@ -463,6 +464,81 @@ describe("schema: Gmail e Calendar (fase 6)", () => {
       `);
       expect(rows).toHaveLength(1);
       expect(rows[0]?.indexdef).toContain("proposalId");
+    });
+  });
+
+  /**
+   * Migrazione 0076 — la CACHE del corpo originale («la posta si legge per
+   * conversazione» §1). Quello che il codice della rotta dà per vero senza
+   * ricontrollarlo: una riga per messaggio, e la cache che muore col
+   * messaggio senza che nessuna potatura debba occuparsene.
+   */
+  describe("email_bodies (cache del corpo originale)", () => {
+    it("una riga per messaggio: la seconda scrittura sullo stesso id è un conflitto di PK", async () => {
+      const accountId = await seedAccount();
+      const messageId = await seedMessage(accountId);
+      await db.insert(emailBodies).values({ emailMessageId: messageId, bodyText: "primo" });
+
+      await expectSqlState(
+        db.insert(emailBodies).values({ emailMessageId: messageId, bodyText: "secondo" }),
+        "23505",
+      );
+    });
+
+    it("i default: nessun allegato, nessun cc, `fetched_at` scritto da solo", async () => {
+      const accountId = await seedAccount();
+      const messageId = await seedMessage(accountId);
+      await db.insert(emailBodies).values({ emailMessageId: messageId });
+
+      const [row] = await db
+        .select()
+        .from(emailBodies)
+        .where(eq(emailBodies.emailMessageId, messageId));
+      expect(row?.attachments).toEqual([]);
+      expect(row?.ccAddresses).toEqual([]);
+      expect(row?.fetchedAt).toBeInstanceOf(Date);
+      // Gli header assenti restano NULL: è ciò che fa scattare il fallback
+      // sulla riga padre nella rotta, non un valore vuoto da interpretare.
+      expect(row?.subject).toBeNull();
+      expect(row?.fromAddress).toBeNull();
+      expect(row?.toAddresses).toBeNull();
+      expect(row?.bodyHtml).toBeNull();
+    });
+
+    it("cancellare il messaggio porta via la sua cache (CASCADE)", async () => {
+      // È il motivo per cui la cache non ha una scadenza e la potatura di
+      // `email_messages` non va toccata per lei: l'unico modo in cui questa
+      // copia può diventare falsa è che il messaggio sparisca, e allora
+      // sparisce anche lei.
+      const accountId = await seedAccount();
+      const messageId = await seedMessage(accountId);
+      await db.insert(emailBodies).values({ emailMessageId: messageId, bodyHtml: "<p>ciao</p>" });
+
+      await db.delete(emailMessages).where(eq(emailMessages.id, messageId));
+
+      const rows = await db
+        .select()
+        .from(emailBodies)
+        .where(eq(emailBodies.emailMessageId, messageId));
+      expect(rows).toHaveLength(0);
+    });
+
+    it("l'HTML si conserva GREZZO: la colonna non sanifica niente", async () => {
+      // Il punto del design §1: `sanitizeEmailHtml` vive nel percorso di
+      // RISPOSTA, non qui. Se un domani qualcuno scrivesse il sanificato in
+      // questa colonna, ogni riga resterebbe congelata alla versione del
+      // filtro che l'ha scritta — questo test non lo impedisce, ma fissa che
+      // la colonna restituisce ciò che le si dà, byte per byte.
+      const accountId = await seedAccount();
+      const messageId = await seedMessage(accountId);
+      const ostile = '<p>Ciao</p><script>alert(1)</script>';
+      await db.insert(emailBodies).values({ emailMessageId: messageId, bodyHtml: ostile });
+
+      const [row] = await db
+        .select()
+        .from(emailBodies)
+        .where(eq(emailBodies.emailMessageId, messageId));
+      expect(row?.bodyHtml).toBe(ostile);
     });
   });
 });
