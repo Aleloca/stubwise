@@ -1344,6 +1344,72 @@ describe("GET /api/me/mail/:source/:id/original — la cache (Task 2)", () => {
     ).toHaveLength(0);
   });
 
+  it("casella DA RICOLLEGARE con la cache piena: 200 dalla copia, non 409 (fix di review)", async () => {
+    // È il caso in cui la copia serve DI PIÙ, ed era l'unico in cui non
+    // funzionava: la lettura della cache stava dopo
+    // `loadGoogleAccountCredentials`, quindi un token revocato o un blob non
+    // decifrabile faceva rispondere `account_unavailable` anche con il corpo
+    // già in mano. Senza il fix questo test dà 409.
+    const { messageId, proposalId } = await seedReadable();
+    fakeGoogleClient.getMessageFull = async () => fakeGmailMessage({ text: "Corpo completo." });
+    await getOriginal(proposalId); // riempie la cache
+
+    // Ora la casella diventa inutilizzabile: il refresh token non è più
+    // decifrabile con la chiave d'istanza (è ciò che
+    // `loadGoogleAccountCredentials` restituisce `null`).
+    const [row] = await db.select().from(emailMessages).where(eq(emailMessages.id, messageId));
+    await db
+      .update(googleAccounts)
+      .set({ refreshTokenEncrypted: "blob-non-decifrabile" })
+      .where(eq(googleAccounts.id, row!.accountId));
+
+    let called = false;
+    fakeGoogleClient.getMessageFull = async () => {
+      called = true;
+      return fakeGmailMessage();
+    };
+
+    const res = await getOriginal(proposalId);
+    expect(res.statusCode).toBe(200);
+    expect(res.json().bodySource).toBe("cache");
+    expect(res.json().bodyText).toBe("Corpo completo.");
+    expect(called).toBe(false);
+  });
+
+  it("casella da ricollegare SENZA cache: resta 409 account_unavailable", async () => {
+    // L'altra metà del fix: senza una copia da servire, il cancello delle
+    // credenziali è ancora quello di prima.
+    const { messageId, proposalId } = await seedReadable();
+    const [row] = await db.select().from(emailMessages).where(eq(emailMessages.id, messageId));
+    await db
+      .update(googleAccounts)
+      .set({ refreshTokenEncrypted: "blob-non-decifrabile" })
+      .where(eq(googleAccounts.id, row!.accountId));
+
+    const res = await getOriginal(proposalId);
+    expect(res.statusCode).toBe(409);
+    expect(res.json().code).toBe("account_unavailable");
+  });
+
+  it("messaggio CANCELLATO da Gmail con la cache piena: si risponde dalla copia, non `message_gone`", async () => {
+    // Cambio di comportamento DELIBERATO su un errore che era documentato
+    // (vedi il docblock della rotta): la copia non mente su cosa è —
+    // `bodySource: "cache"` e la data — e negare un testo che abbiamo,
+    // perché qualcuno ha cancellato il messaggio DOPO che era arrivato,
+    // sarebbe il baratto sbagliato.
+    const { proposalId } = await seedReadable();
+    fakeGoogleClient.getMessageFull = async () => fakeGmailMessage({ text: "Corpo completo." });
+    await getOriginal(proposalId);
+
+    fakeGoogleClient.getMessageFull = async () => {
+      throw new GoogleApiError({ api: "gmail.messages.get.full", status: 404, code: "not_found", reason: "notFound" });
+    };
+
+    const res = await getOriginal(proposalId);
+    expect(res.statusCode).toBe(200);
+    expect(res.json().bodySource).toBe("cache");
+  });
+
   it("due proposte SORELLE dello stesso messaggio condividono la cache", async () => {
     // La chiave è il MESSAGGIO, non la proposta: il testo di un'email non
     // cambia da un figlio all'altro (fase 6b).

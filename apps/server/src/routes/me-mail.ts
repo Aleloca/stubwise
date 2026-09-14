@@ -890,6 +890,22 @@ export async function meMailRoutes(
    * una riga di log, mai un 502. Nessuna scadenza (un messaggio Gmail è
    * immutabile) e nessuna potatura dedicata: il CASCADE dal messaggio basta.
    *
+   * ⚠️ **DUE ERRORI DI PRIMA NON SCATTANO PIÙ QUANDO LA CACHE È PIENA**, ed
+   * è deliberato (confermato in review, 14 set 2026) — vanno detti perché
+   * erano documentati:
+   * - `account_unavailable` (409): una casella DA RICOLLEGARE non impedisce
+   *   più di rileggere un corpo già in cache. È il caso in cui la copia
+   *   serve di più, e le credenziali si caricano infatti solo sul percorso
+   *   che parla con Google.
+   * - `message_gone` (409): un messaggio CANCELLATO da Gmail risponde dalla
+   *   copia finché la riga padre esiste, invece di dire che non c'è più. La
+   *   copia non mente su cosa è — la risposta porta `bodySource: "cache"` e
+   *   la data della lettura — e l'alternativa sarebbe negare a chi legge un
+   *   testo che abbiamo, per un messaggio che qualcuno ha cancellato DOPO
+   *   che era arrivato. Quando il messaggio sparisce davvero dal nostro
+   *   sistema, sparisce anche la copia (CASCADE), e `message_gone` torna a
+   *   scattare per chi non ce l'ha in cache.
+   *
    * Fase 9, Task 4: il corpo HTML si legge sanificato, MAI conservato — si
    * rilegge da Gmail e si sanifica per QUESTA risposta, ogni volta
    * (`sanitizeEmailHtml`, `@stubwise/google`). Non è "rimettere `bodyHtml`":
@@ -925,13 +941,16 @@ export async function meMailRoutes(
       const message = await resolveEmailMessage(app.db, request.user!.id, source, id);
       if (!message) return apiError(reply, 404, "not_found", "Message not found");
 
-      const credentials = await loadGoogleAccountCredentials(app.db, app.encryptionKey, message.accountId);
-      if (!credentials) {
-        return apiError(reply, 409, "account_unavailable", "Google account credentials are not usable");
-      }
-
-      // CACHE — si guarda PRIMA di rinfrescare il token: una lettura servita
-      // da qui non consuma né una chiamata a Google né un refresh.
+      // CACHE — si guarda subito dopo l'ACL e PRIMA di ogni altra cosa:
+      // prima delle credenziali, non solo prima del refresh del token.
+      //
+      // ⚠️ L'ordine è il punto, non un dettaglio di efficienza (fix di
+      // review): con le credenziali davanti, una casella DA RICOLLEGARE
+      // (token revocato, blob non decifrabile) faceva rispondere 409
+      // `account_unavailable` anche con il corpo già in cache — cioè
+      // proprio quando la copia serve di più, ed è l'unico caso in cui non
+      // funzionava. Da qui in giù non serve niente di Google: né le
+      // credenziali, né una decifratura, né una chiamata.
       const [cached] = await app.db
         .select()
         .from(emailBodies)
@@ -949,6 +968,12 @@ export async function meMailRoutes(
           bodySource: "cache" as const,
           fetchedAt: cached.fetchedAt.toISOString(),
         };
+      }
+
+      // Solo ORA servono: da qui in poi si parla con Google davvero.
+      const credentials = await loadGoogleAccountCredentials(app.db, app.encryptionKey, message.accountId);
+      if (!credentials) {
+        return apiError(reply, 409, "account_unavailable", "Google account credentials are not usable");
       }
 
       try {
