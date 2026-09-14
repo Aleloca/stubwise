@@ -20,6 +20,7 @@ import {
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { seedUsers, sessionCookie } from "../test/fixtures.js";
+import { lastClosedWeek } from "../services/project-briefs.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 const ENCRYPTION_KEY = randomBytes(32);
@@ -749,25 +750,42 @@ describe("GET /api/projects/:projectId/reviews", () => {
 
 describe("brief settimanale", () => {
   /** Un progetto col brief acceso e, opzionalmente, un brief già in tabella. */
+  /**
+   * Il periodo di DEFAULT del brief seminato è quello che
+   * `POST /briefs/generate` prenderebbe di mira ADESSO, non una data fissa.
+   *
+   * Prima era fissa (`2026-08-31 → 2026-09-06`) e i tre test di
+   * rigenerazione sono rimasti verdi finché quella settimana è stata
+   * «l'ultima chiusa» — cioè fino al 13 settembre 2026. Dal giorno dopo
+   * `findTargetBrief` non trovava più la riga seminata (cerca i brief con
+   * `periodEnd >= periodStart` del periodo di mira, e `2026-09-06` era
+   * ormai indietro) e la rotta ne creava una NUOVA: 201 invece di 409/200,
+   * su tre test insieme. Una bomba a orologeria, non una regressione — ed è
+   * il motivo per cui la CI era verde il giorno in cui sono stati scritti.
+   *
+   * I test che alla data ci tengono davvero (l'ordinamento dell'elenco) un
+   * periodo esplicito lo passano e continuano a sovrascrivere questo.
+   */
   async function seedProjectWithBrief(
     brief?: Partial<typeof projectBriefs.$inferInsert>,
-  ): Promise<{ projectId: string; briefId?: string }> {
+  ): Promise<{ projectId: string; briefId?: string; period: ReturnType<typeof lastClosedWeek> }> {
+    const period = lastClosedWeek();
     const created = await createProject({ name: `Brief ${randomBytes(4).toString("hex")}` });
     const projectId = created.json().id as string;
-    if (!brief) return { projectId };
+    if (!brief) return { projectId, period };
     const [row] = await testDb.db
       .insert(projectBriefs)
       .values({
         projectId,
-        periodStart: "2026-08-31",
-        periodEnd: "2026-09-06",
+        periodStart: period.periodStart,
+        periodEnd: period.periodEnd,
         status: "done",
         summary: "## Dove siamo\n\nTutto bene.",
         sections: { whereWeAre: "Tutto bene." },
         ...brief,
       })
       .returning({ id: projectBriefs.id });
-    return { projectId, briefId: row!.id };
+    return { projectId, briefId: row!.id, period };
   }
 
   describe("PATCH weeklyBriefEnabled", () => {
@@ -805,7 +823,7 @@ describe("brief settimanale", () => {
 
   describe("GET /api/projects/:projectId/briefs", () => {
     it("elenca i brief dal periodo più recente, senza mai l'errore interno", async () => {
-      const { projectId } = await seedProjectWithBrief({ error: "/worker/tmp/segreto: boom" });
+      const { projectId, period } = await seedProjectWithBrief({ error: "/worker/tmp/segreto: boom" });
       await testDb.db.insert(projectBriefs).values({
         projectId,
         periodStart: "2026-08-24",
@@ -821,7 +839,10 @@ describe("brief settimanale", () => {
       });
       expect(res.statusCode).toBe(200);
       const rows = res.json() as { periodStart: string; summary: string | null }[];
-      expect(rows.map((r) => r.periodStart)).toEqual(["2026-08-31", "2026-08-24"]);
+      // Il primo è il brief dell'ultima settimana chiusa (seminato di
+      // default), il secondo una settimana vecchia: l'ordine è per periodo
+      // decrescente, e `2026-08-24` resta indietro comunque avanzi il tempo.
+      expect(rows.map((r) => r.periodStart)).toEqual([period.periodStart, "2026-08-24"]);
       expect(JSON.stringify(rows)).not.toContain("segreto");
     });
 
@@ -939,7 +960,7 @@ describe("brief settimanale", () => {
 
   describe("GET /api/briefs/:briefId", () => {
     it("l'admin legge un brief per id", async () => {
-      const { projectId, briefId } = await seedProjectWithBrief({});
+      const { projectId, briefId, period } = await seedProjectWithBrief({});
       const res = await app.inject({
         method: "GET",
         url: `/api/briefs/${briefId}`,
@@ -949,7 +970,7 @@ describe("brief settimanale", () => {
       expect(res.json()).toMatchObject({
         id: briefId,
         projectId,
-        periodStart: "2026-08-31",
+        periodStart: period.periodStart,
         status: "done",
         sections: { whereWeAre: "Tutto bene." },
       });
