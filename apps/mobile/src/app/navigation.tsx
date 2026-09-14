@@ -22,6 +22,7 @@ import { DocsPageScreen } from "../screens/docs/DocsPageScreen";
 import { DocsScreen } from "../screens/docs/DocsScreen";
 import { MailDetailScreen } from "../screens/mbx/MailDetailScreen";
 import { MbxScreen } from "../screens/mbx/MbxScreen";
+import { ThreadDetailScreen } from "../screens/mbx/ThreadDetailScreen";
 import { WorkScreen } from "../screens/work/WorkScreen";
 import { useUnreadCount } from "../lib/inbox-mutations";
 import { colors } from "../theme/tokens";
@@ -97,6 +98,8 @@ export type MbxStackParamList = {
    */
   List: { day?: string; eventId?: string } | undefined;
   MailDetail: { source: MailDetailSource; id: string };
+  /** Una CONVERSAZIONE letta per intero («la posta si legge per conversazione» §4). */
+  ThreadDetail: { threadId: string };
 };
 
 export type MainTabParamList = {
@@ -165,6 +168,7 @@ function MbxNavigator() {
     <MbxStack.Navigator screenOptions={{ headerShown: false }}>
       <MbxStack.Screen name="List" component={MbxScreen} />
       <MbxStack.Screen name="MailDetail" component={MailDetailScreen} />
+      <MbxStack.Screen name="ThreadDetail" component={ThreadDetailScreen} />
     </MbxStack.Navigator>
   );
 }

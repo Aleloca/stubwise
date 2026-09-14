@@ -534,6 +534,20 @@
         "originalLoading": "Loading the message…",
         "attachments_one": "{{count}} attachment: {{names}}",
         "attachments_other": "{{count}} attachments: {{names}}"
+      },
+      "thread": {
+        "messages_one": "{{count}} message",
+        "messages_other": "{{count}} messages",
+        "open_one": "{{count}} open proposal",
+        "open_other": "{{count}} open proposals",
+        "context": "Context message: it came in with the conversation and never produces proposals.",
+        "loadError": {
+          "title": "Can't load this conversation."
+        },
+        "empty": {
+          "title": "No conversations here",
+          "body": "Only the mail Stubwise recognizes as work from your Google mailbox shows up — routing rules are configured on the site."
+        }
       }
     },
     "calendar": {

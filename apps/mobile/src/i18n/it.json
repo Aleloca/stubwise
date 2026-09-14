@@ -534,6 +534,20 @@
         "originalLoading": "Carico il messaggio…",
         "attachments_one": "{{count}} allegato: {{names}}",
         "attachments_other": "{{count}} allegati: {{names}}"
+      },
+      "thread": {
+        "messages_one": "{{count}} messaggio",
+        "messages_other": "{{count}} messaggi",
+        "open_one": "{{count}} proposta aperta",
+        "open_other": "{{count}} proposte aperte",
+        "context": "Messaggio di contesto: entrato con la conversazione, non produce proposte.",
+        "loadError": {
+          "title": "Non riesco a caricare questa conversazione."
+        },
+        "empty": {
+          "title": "Nessuna conversazione qui",
+          "body": "Entra solo la posta che Stubwise riconosce come lavoro dalla tua casella Google — le regole di smistamento si configurano dal sito."
+        }
       }
     },
     "calendar": {

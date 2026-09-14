@@ -1,5 +1,5 @@
 import type { StubwiseClient } from "@stubwise/api-client";
-import type { MailItem, MailPage, Reader } from "@stubwise/shared";
+import type { MailPage, MailThreadItem, Reader } from "@stubwise/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { AuthContext } from "../../app/auth-context";
@@ -7,38 +7,19 @@ import type { AuthContextValue } from "../../app/providers";
 import "../../i18n";
 import { MbxScreen } from "./MbxScreen";
 
-const ID = "11111111-1111-4111-8111-111111111111";
-
-function mailItem(overrides: Partial<Reader<MailItem>> = {}): Reader<MailItem> {
-  return {
-    id: ID,
-    source: "email",
-    kind: "proposal",
-    accountId: "acc-1",
-    accountEmail: "ops@example.com",
-    projectId: "proj-1",
-    projectName: "negozio-web",
-    title: "Reso ordine #123",
-    from: "Cliente <cliente@example.com>",
-    date: "2026-09-11T09:00:00.000Z",
-    status: "proposed",
-    signal: "request",
-    outcome: null,
-    error: null,
-    url: "https://mail.google.com/x",
-    reproposable: false,
-    ...overrides,
-  } as Reader<MailItem>;
-}
-
-function page(items: Reader<MailItem>[]): Reader<MailPage> {
+/** Una pagina vuota per `mail.list`, che il client finto espone ancora. */
+function page(items: never[] = []): Reader<MailPage> {
   return { items, nextCursor: null };
 }
 
-function makeClient(overrides: { list?: jest.Mock; repropose?: jest.Mock; range?: jest.Mock } = {}): StubwiseClient {
+function makeClient(
+  overrides: { list?: jest.Mock; repropose?: jest.Mock; range?: jest.Mock; threads?: jest.Mock } = {},
+): StubwiseClient {
   return {
     mail: {
       list: overrides.list ?? jest.fn().mockResolvedValue(page([])),
+      threads: overrides.threads ?? jest.fn().mockResolvedValue({ items: [], nextCursor: null }),
+      thread: jest.fn(),
       summary: jest.fn(),
       get: jest.fn(),
       original: jest.fn(),
@@ -95,69 +76,84 @@ describe("MbxScreen — lo scambio Posta/Calendario", () => {
   });
 });
 
-describe("MbxScreen — lista", () => {
+/**
+ * ⚠️ La lista della scheda MBX mostra CONVERSAZIONI da «la posta si legge per
+ * conversazione» §4, non più messaggi: i test di prima esercitavano le righe
+ * per messaggio (`mbx-mail-row-*`, «Riproponi», la disambiguazione
+ * email/email_triage/calendar) ed è cambiato il comportamento, non il modo di
+ * verificarlo. La disambiguazione per source resta provata dove vive ora
+ * (`mail-mutations`, e il dettaglio di un messaggio raggiunto da un deep
+ * link); «Riproponi» resta sulla card d'inbox e sulla pagina Posta del sito,
+ * dove agisce su UN messaggio — cosa che una conversazione non è.
+ */
+describe("MbxScreen — la lista per conversazione", () => {
+  function thread(overrides: Partial<Reader<MailThreadItem>> = {}): Reader<MailThreadItem> {
+    return {
+      threadId: "thread-1",
+      accountId: "acc-1",
+      accountEmail: "ops@example.com",
+      subject: "Re: Reso ordine #123",
+      lastFrom: "cliente@example.com",
+      lastReceivedAt: "2026-09-11T09:00:00.000Z",
+      messageCount: 3,
+      openProposals: 1,
+      projectNames: ["negozio-web"],
+      ...overrides,
+    } as Reader<MailThreadItem>;
+  }
+
   test("caricamento: skeleton", async () => {
-    const client = makeClient({ list: jest.fn(() => new Promise(() => {})) });
+    const client = makeClient({ threads: jest.fn(() => new Promise(() => {})) });
     await renderScreen(client);
     expect(screen.getByTestId("mbx-mail-skeleton")).toBeTruthy();
   });
 
   test("errore di caricamento: Riprova ricarica", async () => {
-    const list = jest.fn().mockRejectedValueOnce(new Error("down")).mockResolvedValueOnce(page([mailItem()]));
-    await renderScreen(makeClient({ list }));
+    const threads = jest
+      .fn()
+      .mockRejectedValueOnce(new Error("down"))
+      .mockResolvedValueOnce({ items: [thread()], nextCursor: null });
+    await renderScreen(makeClient({ threads }));
     await waitFor(() => expect(screen.getByTestId("mbx-mail-retry")).toBeTruthy());
     await fireEvent.press(screen.getByTestId("mbx-mail-retry"));
-    await waitFor(() => expect(screen.getByText("Reso ordine #123")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Re: Reso ordine #123")).toBeTruthy());
   });
 
   test("vuota: lo stato si spiega da solo", async () => {
     await renderScreen(makeClient());
     await waitFor(() => expect(screen.getByTestId("mbx-mail-empty")).toBeTruthy());
-    expect(screen.getByText("Nessuna posta qui")).toBeTruthy();
+    expect(screen.getByText("Nessuna conversazione qui")).toBeTruthy();
   });
 
-  test("riga email: un tap naviga al dettaglio con source 'email'", async () => {
-    const client = makeClient({ list: jest.fn().mockResolvedValue(page([mailItem()])) });
-    const { navigate } = await renderScreen(client);
-    await waitFor(() => expect(screen.getByTestId(`mbx-mail-row-${ID}`)).toBeTruthy());
-    await fireEvent.press(screen.getByTestId(`mbx-mail-row-${ID}`));
-    expect(navigate).toHaveBeenCalledWith("MailDetail", { source: "email", id: ID });
+  test("una riga mostra ultimo mittente, oggetto, quanti messaggi e quante proposte aperte", async () => {
+    const client = makeClient({ threads: jest.fn().mockResolvedValue({ items: [thread()], nextCursor: null }) });
+    await renderScreen(client);
+    await waitFor(() => expect(screen.getByTestId("mbx-thread-row-thread-1")).toBeTruthy());
+
+    expect(screen.getByText("cliente@example.com")).toBeTruthy();
+    expect(screen.getByText("Re: Reso ordine #123")).toBeTruthy();
+    expect(screen.getByText("3 messaggi")).toBeTruthy();
+    expect(screen.getByText("1 proposta aperta")).toBeTruthy();
+    expect(screen.getByText("negozio-web")).toBeTruthy();
   });
 
-  test("riga di SMISTAMENTO (kind: triage): un tap naviga con source 'email_triage'", async () => {
-    const client = makeClient({ list: jest.fn().mockResolvedValue(page([mailItem({ kind: "triage", projectName: null })])) });
-    const { navigate } = await renderScreen(client);
-    await waitFor(() => expect(screen.getByTestId(`mbx-mail-row-${ID}`)).toBeTruthy());
-    await fireEvent.press(screen.getByTestId(`mbx-mail-row-${ID}`));
-    expect(navigate).toHaveBeenCalledWith("MailDetail", { source: "email_triage", id: ID });
-  });
-
-  test("riga di CALENDARIO: nessun dettaglio da raggiungere, il tap non naviga", async () => {
+  test("una conversazione di UN messaggio non dice «1 messaggio»: sarebbe rumore", async () => {
     const client = makeClient({
-      list: jest.fn().mockResolvedValue(page([mailItem({ source: "calendar", kind: "calendar", projectName: null })])),
-    });
-    const { navigate } = await renderScreen(client);
-    await waitFor(() => expect(screen.getByTestId(`mbx-mail-row-${ID}`)).toBeTruthy());
-    await fireEvent.press(screen.getByTestId(`mbx-mail-row-${ID}`));
-    expect(navigate).not.toHaveBeenCalled();
-  });
-
-  test("riga riproponibile: il bottone Riproponi chiama repropose col source giusto", async () => {
-    const repropose = jest.fn().mockResolvedValue({ ok: true });
-    const client = makeClient({
-      list: jest.fn().mockResolvedValue(page([mailItem({ status: "failed", reproposable: true })])),
-      repropose,
+      threads: jest.fn().mockResolvedValue({
+        items: [thread({ messageCount: 1, openProposals: 0, projectNames: [] })],
+        nextCursor: null,
+      }),
     });
     await renderScreen(client);
-    await waitFor(() => expect(screen.getByTestId(`mbx-mail-repropose-${ID}`)).toBeTruthy());
-    await fireEvent.press(screen.getByTestId(`mbx-mail-repropose-${ID}`));
-    await waitFor(() => expect(repropose).toHaveBeenCalledWith("email", ID));
+    await waitFor(() => expect(screen.getByTestId("mbx-thread-row-thread-1")).toBeTruthy());
+    expect(screen.queryByText("1 messaggio")).toBeNull();
   });
 
-  test("riga NON riproponibile: nessun bottone Riproponi", async () => {
-    const client = makeClient({ list: jest.fn().mockResolvedValue(page([mailItem({ reproposable: false })])) });
-    await renderScreen(client);
-    await waitFor(() => expect(screen.getByTestId(`mbx-mail-row-${ID}`)).toBeTruthy());
-    expect(screen.queryByTestId(`mbx-mail-repropose-${ID}`)).toBeNull();
+  test("un tap apre la CONVERSAZIONE, non un messaggio", async () => {
+    const client = makeClient({ threads: jest.fn().mockResolvedValue({ items: [thread()], nextCursor: null }) });
+    const { navigate } = await renderScreen(client);
+    await waitFor(() => expect(screen.getByTestId("mbx-thread-row-thread-1")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("mbx-thread-row-thread-1"));
+    expect(navigate).toHaveBeenCalledWith("ThreadDetail", { threadId: "thread-1" });
   });
 });

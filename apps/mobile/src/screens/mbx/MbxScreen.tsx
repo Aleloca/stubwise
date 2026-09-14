@@ -1,5 +1,5 @@
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
-import type { MailItem, Reader } from "@stubwise/shared";
+import type { MailThreadItem, Reader } from "@stubwise/shared";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
@@ -11,14 +11,7 @@ import { PulseIndicator } from "../../components/PulseIndicator";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { Skeleton } from "../../components/Skeleton";
 import { relativeTimeCompact } from "../../lib/format";
-import {
-  mailDetailSourceFor,
-  mailReproposeSourceFor,
-  mailStatusLabelKey,
-  mailStatusTone,
-  useMailList,
-  useRepropose,
-} from "../../lib/mail-mutations";
+import { useMailThreads } from "../../lib/mail-mutations";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
 
@@ -71,7 +64,10 @@ export function MbxScreen({ navigation, route }: NativeStackScreenProps<MbxStack
   // trovava davanti venticinque righe di calendario che non si aprono (il
   // calendario non ha un dettaglio, vedi `mailDetailSourceFor`) prima della
   // prima email.
-  const query = useMailList({ source: "email" });
+  // La posta si legge per CONVERSAZIONE (§4): una riga per thread, non per
+  // messaggio. Il filtro `source=email` non serve più — questa rotta è già
+  // solo posta, e il calendario ha la sua scheda qui accanto.
+  const query = useMailThreads();
 
   return (
     <View style={styles.container}>
@@ -119,19 +115,16 @@ export function MbxScreen({ navigation, route }: NativeStackScreenProps<MbxStack
           </View>
         ) : (query.data?.items.length ?? 0) === 0 ? (
           <View style={styles.emptyState} testID="mbx-mail-empty">
-            <Text style={styles.emptyTitle}>{t("mobile.mbx.list.empty.title")}</Text>
-            <Text style={styles.emptyBody}>{t("mobile.mbx.list.empty.body")}</Text>
+            <Text style={styles.emptyTitle}>{t("mobile.mbx.thread.empty.title")}</Text>
+            <Text style={styles.emptyBody}>{t("mobile.mbx.thread.empty.body")}</Text>
           </View>
         ) : (
           <View style={styles.list} testID="mbx-mail-list">
-            {query.data!.items.map((item) => (
-              <MailRow
-                key={item.id}
-                item={item}
-                onPress={() => {
-                  const source = mailDetailSourceFor(item);
-                  if (source !== null) navigation.navigate("MailDetail", { source, id: item.id });
-                }}
+            {query.data!.items.map((thread) => (
+              <ThreadRow
+                key={`${thread.accountId}-${thread.threadId}`}
+                thread={thread}
+                onPress={() => navigation.navigate("ThreadDetail", { threadId: thread.threadId })}
               />
             ))}
           </View>
@@ -141,58 +134,50 @@ export function MbxScreen({ navigation, route }: NativeStackScreenProps<MbxStack
   );
 }
 
-function MailRow({ item, onPress }: { item: Reader<MailItem>; onPress: () => void }) {
+/**
+ * UNA conversazione nella lista (§4): ultimo mittente, oggetto, quando, e —
+ * quando ce ne sono — quanti messaggi contiene e quante proposte aspettano
+ * una decisione.
+ *
+ * «Riproponi» non c'è più su questa riga: era un'azione su UN messaggio, e
+ * una conversazione ne ha molti. Resta dove ha senso, sulla card in inbox e
+ * sulla pagina Posta del sito.
+ */
+function ThreadRow({ thread, onPress }: { thread: Reader<MailThreadItem>; onPress: () => void }) {
   const { t } = useTranslation();
-  const repropose = useRepropose(mailReproposeSourceFor(item) ?? "email", item.id);
-  const relative = relativeTimeCompact(item.date);
-  const timeText = relative.kind === "now" ? t("mobile.mbx.time.now") : t(`mobile.mbx.time.${relative.kind}`, { count: relative.count });
-  const openable = mailDetailSourceFor(item) !== null;
-  const reproposeSource = mailReproposeSourceFor(item);
+  const relative = relativeTimeCompact(thread.lastReceivedAt);
+  const timeText =
+    relative.kind === "now"
+      ? t("mobile.mbx.time.now")
+      : t(`mobile.mbx.time.${relative.kind}`, { count: relative.count });
 
-  const content = (
-    <>
+  return (
+    <Pressable onPress={onPress} style={styles.row} testID={`mbx-thread-row-${thread.threadId}`}>
       <View style={styles.rowTop}>
         <Text style={styles.rowFrom} numberOfLines={1}>
-          {item.from ?? item.accountEmail}
+          {thread.lastFrom}
         </Text>
         <Text style={styles.rowTime}>{timeText}</Text>
       </View>
       <Text style={styles.rowTitle} numberOfLines={1}>
-        {item.title ?? t("mobile.mbx.list.noSubject")}
+        {thread.subject ?? t("mobile.mbx.list.noSubject")}
       </Text>
       <View style={styles.rowBottom}>
-        <PulseIndicator tone={mailStatusTone(item.status)} text={t(mailStatusLabelKey(item.status))} />
-        {item.projectName !== null && (
-          <Text style={styles.rowProject} numberOfLines={1}>
-            {item.projectName}
-          </Text>
+        {thread.messageCount > 1 && (
+          <Text style={styles.rowMeta}>{t("mobile.mbx.thread.messages", { count: thread.messageCount })}</Text>
         )}
-      </View>
-      {item.reproposable && reproposeSource !== null && (
-        <View style={styles.reproposeRow}>
-          <GhostButton
-            label={t("mobile.mbx.list.repropose")}
-            onPress={repropose.mutate}
-            disabled={repropose.disabled}
-            testID={`mbx-mail-repropose-${item.id}`}
+        {thread.openProposals > 0 && (
+          <PulseIndicator
+            tone="signal"
+            text={t("mobile.mbx.thread.open", { count: thread.openProposals })}
           />
-          {repropose.errorMessage !== null && <Text style={styles.reproposeError}>{repropose.errorMessage}</Text>}
-        </View>
-      )}
-    </>
-  );
-
-  if (!openable) {
-    return (
-      <View style={styles.row} testID={`mbx-mail-row-${item.id}`}>
-        {content}
+        )}
+        {thread.projectNames.map((name) => (
+          <Text key={name} style={styles.rowProject} numberOfLines={1}>
+            {name}
+          </Text>
+        ))}
       </View>
-    );
-  }
-
-  return (
-    <Pressable onPress={onPress} style={styles.row} testID={`mbx-mail-row-${item.id}`}>
-      {content}
     </Pressable>
   );
 }
@@ -298,6 +283,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 10,
     marginTop: 2,
+  },
+  rowMeta: {
+    color: colors.faint,
+    fontFamily: fontFamily.mono,
+    fontSize: fontSize.label,
   },
   rowProject: {
     color: colors.faint,

@@ -13,6 +13,9 @@ export const mailKeys = {
   all: ["mail"] as const,
   list: (filters: MailFilters) => [...mailKeys.all, "list", filters] as const,
   detail: (source: MailDetailSource, id: string) => [...mailKeys.all, "detail", source, id] as const,
+  /** La lista per CONVERSAZIONE, distinta da quella per messaggio. */
+  threads: () => [...mailKeys.all, "threads"] as const,
+  thread: (threadId: string) => [...mailKeys.all, "thread", threadId] as const,
 };
 
 /**
@@ -191,4 +194,40 @@ export function useRepropose(source: MailReproposeSource, id: string): MailRepro
     errorMessage: mutation.error ? describeMailError(mutation.error, t) : null,
     reset: mutation.reset,
   };
+}
+
+
+/**
+ * La posta per CONVERSAZIONE («la posta si legge per conversazione» §4):
+ * una riga per thread invece che una per messaggio.
+ *
+ * Sostituisce {@link useMailList} nella scheda MBX — il filtro
+ * `source=email` che quella aveva non serve più, perché questa rotta è già
+ * solo posta (il calendario un thread non ce l'ha, e ha la sua scheda).
+ */
+export function useMailThreads() {
+  const { client } = useAuth();
+  return useQuery({
+    queryKey: mailKeys.threads(),
+    queryFn: () => {
+      if (!client) throw new Error("useMailThreads richiede un client autenticato");
+      return client.mail.threads();
+    },
+    enabled: client !== null,
+    staleTime: 10_000,
+  });
+}
+
+/** I messaggi di UNA conversazione, in ordine, ciascuno con la sua provenienza. */
+export function useMailThread(threadId: string) {
+  const { client } = useAuth();
+  return useQuery({
+    queryKey: mailKeys.thread(threadId),
+    queryFn: () => {
+      if (!client) throw new Error("useMailThread richiede un client autenticato");
+      return client.mail.thread(threadId);
+    },
+    enabled: client !== null,
+    staleTime: 60_000,
+  });
 }
