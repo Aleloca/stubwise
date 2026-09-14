@@ -496,6 +496,81 @@ export const mailPageSchema = z.object({
 });
 export type MailPage = z.infer<typeof mailPageSchema>;
 
+// ---------------------------------------------------------------------------
+// La posta per CONVERSAZIONE («la posta si legge per conversazione» §4)
+//
+// ⚠️ Queste forme nascono ACCANTO a {@link mailItemSchema}, non al suo posto:
+// `GET /api/me/mail` è letta da un'app GIÀ INSTALLATA e cambiarne la forma la
+// romperebbe (CLAUDE.md, «verso l'app mobile solo cambi additivi»), e la usa
+// anche il calendario, che thread non ne ha.
+// ---------------------------------------------------------------------------
+
+/**
+ * UNA conversazione nella lista: quello che serve a decidere se aprirla.
+ *
+ * `messageCount` conta TUTTI i messaggi del thread, contesto compreso: è la
+ * dimensione della conversazione, non quanti ne hanno prodotto una proposta.
+ * `lastFrom`/`lastReceivedAt` vengono dall'ultimo messaggio, che è quello a
+ * cui si risponde.
+ */
+export const mailThreadItemSchema = z.object({
+  threadId: z.string(),
+  accountId: z.uuid(),
+  accountEmail: z.string(),
+  /** Oggetto dell'ultimo messaggio. NON FIDATO: lo scrive chi manda l'email. */
+  subject: z.string().nullable().default(null),
+  /** Mittente dell'ultimo messaggio. NON FIDATO. */
+  lastFrom: z.string(),
+  lastReceivedAt: z.iso.datetime(),
+  messageCount: z.number().int().min(1).default(1),
+  /** Proposte ancora APERTE su questa conversazione: è ciò che chiede attenzione. */
+  openProposals: z.number().int().min(0).default(0),
+  /** I progetti che la conversazione tocca, per non doverli dedurre dall'oggetto. */
+  projectNames: z.array(z.string()).default([]),
+});
+export type MailThreadItem = z.infer<typeof mailThreadItemSchema>;
+
+/** Pagina della lista per conversazione. */
+export const mailThreadPageSchema = z.object({
+  items: z.array(mailThreadItemSchema),
+  nextCursor: z.string().nullable(),
+});
+export type MailThreadPage = z.infer<typeof mailThreadPageSchema>;
+
+/**
+ * UN messaggio dentro il dettaglio di una conversazione.
+ *
+ * `admitted: false` è un messaggio tirato dentro come CONTESTO del thread
+ * («la posta si legge per conversazione» §2): si legge come gli altri, ma non
+ * ha prodotto né può produrre una proposta. Chi lo rende lo dica — un
+ * messaggio che non genera mai una card non deve sembrare uno che non ne ha
+ * ancora generata.
+ */
+export const mailThreadMessageSchema = z.object({
+  id: z.uuid(),
+  from: z.string(),
+  to: z.array(z.string()).default([]),
+  receivedAt: z.iso.datetime(),
+  /** L'ESTRATTO: niente citazioni, firma o allegati. `null` sui messaggi anteriori alla fase 6. */
+  textExcerpt: z.string().nullable().default(null),
+  admitted: z.boolean().default(true),
+  /** `email_proposals.id` delle proposte nate da QUESTO messaggio, per raggiungerle. */
+  proposalIds: z.array(z.uuid()).default([]),
+});
+export type MailThreadMessage = z.infer<typeof mailThreadMessageSchema>;
+
+/** Il dettaglio di una conversazione: i suoi messaggi in ordine cronologico. */
+export const mailThreadDetailSchema = z.object({
+  threadId: z.string(),
+  accountId: z.uuid(),
+  accountEmail: z.string(),
+  subject: z.string().nullable().default(null),
+  /** Link al thread su Gmail: è dove porta «Apri su Gmail». */
+  url: z.string(),
+  messages: z.array(mailThreadMessageSchema),
+});
+export type MailThreadDetail = z.infer<typeof mailThreadDetailSchema>;
+
 /**
  * Contatori per il badge di nav e l'intestazione della pagina. `openProposals`
  * è quello che alimenta il badge (le proposte APERTE, cioè le notifiche

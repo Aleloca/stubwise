@@ -26,12 +26,14 @@ import {
   mailReproposeResultSchema,
   mailSourceSchema,
   mailSummarySchema,
+  mailThreadDetailSchema,
+  mailThreadPageSchema,
   type MailItem,
   type MailItemStatus,
   type MailSignal,
   type MailSource,
 } from "@stubwise/shared";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -509,6 +511,31 @@ interface ResolvedEmailMessage {
 }
 
 /** Le colonne del PADRE che servono al dettaglio e alla rilettura, comuni a `"email"`/`"email_triage"`. */
+/**
+ * Cursore keyset della lista per CONVERSAZIONE: la coppia (data dell'ultimo
+ * messaggio, threadId), che è anche l'ordinamento. Stessa forma di quello
+ * della lista per messaggio, con il threadId al posto dell'uuid — un thread
+ * Gmail non è un uuid, quindi qui non si valida come tale.
+ */
+interface ThreadCursor {
+  date: string;
+  threadId: string;
+}
+
+function encodeThreadCursor(cursor: ThreadCursor): string {
+  return Buffer.from(`${cursor.date}|${cursor.threadId}`, "utf8").toString("base64url");
+}
+
+function decodeThreadCursor(raw: string): ThreadCursor | null {
+  const decoded = Buffer.from(raw, "base64url").toString("utf8");
+  const separator = decoded.indexOf("|");
+  if (separator === -1) return null;
+  const date = decoded.slice(0, separator);
+  const threadId = decoded.slice(separator + 1);
+  if (threadId === "" || Number.isNaN(Date.parse(date))) return null;
+  return { date, threadId };
+}
+
 const EMAIL_MESSAGE_COLUMNS = {
   /**
    * `email_messages.id` — NON l'id del path, che per `source: "email"` è
@@ -711,6 +738,223 @@ export async function meMailRoutes(
         openProposals: openRow?.count ?? 0,
         failed: (emailFailedRow?.count ?? 0) + (calFailedRow?.count ?? 0) + (triageFailedRow?.count ?? 0),
         ignored: (emailIgnoredRow?.count ?? 0) + (calIgnoredRow?.count ?? 0) + (triageIgnoredRow?.count ?? 0),
+      };
+    },
+  );
+
+  /**
+   * LA POSTA PER CONVERSAZIONE («la posta si legge per conversazione» §4).
+   *
+   * ⚠️ **Registrate PRIMA di `/:source/:id`**, e non è uno stile: su questo
+   * prefisso esiste già una rotta parametrica a due segmenti, quindi
+   * `/threads/<id>` verrebbe letta come `source="threads"` e fallirebbe la
+   * validazione di `mailDetailSourceSchema` invece di arrivare qui. È la
+   * trappola documentata in CLAUDE.md («rotta parametrica registrata prima
+   * di una letterale sullo stesso prefisso»), e vale come per `/summary`
+   * qui sopra: ogni rotta con una parte letterale va PRIMA della `:source`.
+   *
+   * ⚠️ Nascono ACCANTO a `GET /` e non al suo posto: quella lista la legge
+   * un'app GIÀ INSTALLATA (CLAUDE.md, «solo cambi additivi») e la usa anche
+   * il calendario, che thread non ne ha.
+   *
+   * ACL invariata: `user_id` sempre nel WHERE via il JOIN su
+   * `google_accounts`. Un thread di un altro utente non esiste — pagina
+   * vuota o 404, mai 403.
+   */
+  app.get(
+    "/threads",
+    {
+      preHandler: requireAuth,
+      schema: {
+        querystring: z.object({
+          account: z.uuid().optional(),
+          cursor: z.string().optional(),
+          limit: z.coerce.number().int().min(1).max(MAX_LIMIT).default(DEFAULT_LIMIT),
+        }),
+        response: { 200: mailThreadPageSchema, 400: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const { account, cursor: rawCursor, limit } = request.query;
+      const cursor = rawCursor === undefined ? undefined : (decodeThreadCursor(rawCursor) ?? undefined);
+      if (rawCursor !== undefined && cursor === undefined) {
+        return apiError(reply, 400, "invalid_cursor", "Invalid pagination cursor");
+      }
+
+      const conditions = [eq(googleAccounts.userId, request.user!.id)];
+      if (account) conditions.push(eq(emailMessages.accountId, account));
+
+      // Una riga per `(account_id, thread_id)`: il thread è l'unità, e due
+      // caselle con lo stesso thread Gmail restano due conversazioni.
+      const rows = await app.db
+        .select({
+          threadId: emailMessages.threadId,
+          accountId: emailMessages.accountId,
+          accountEmail: googleAccounts.email,
+          lastReceivedAt: sql<Date>`max(${emailMessages.receivedAt})`.as("last_received_at"),
+          messageCount: sql<number>`count(*)::int`,
+          // Dell'ULTIMO messaggio: è quello a cui si risponde.
+          subject: sql<string | null>`(array_agg(${emailMessages.subject} order by ${emailMessages.receivedAt} desc))[1]`,
+          lastFrom: sql<string>`(array_agg(${emailMessages.fromAddress} order by ${emailMessages.receivedAt} desc))[1]`,
+        })
+        .from(emailMessages)
+        .innerJoin(googleAccounts, eq(googleAccounts.id, emailMessages.accountId))
+        .where(and(...conditions))
+        .groupBy(emailMessages.threadId, emailMessages.accountId, googleAccounts.email)
+        .having(
+          cursor
+            ? sql`(max(${emailMessages.receivedAt}), ${emailMessages.threadId}) < (${cursor.date}::timestamptz, ${cursor.threadId})`
+            : sql`true`,
+        )
+        .orderBy(desc(sql`max(${emailMessages.receivedAt})`), desc(emailMessages.threadId))
+        .limit(limit + 1);
+
+      const page = rows.slice(0, limit);
+      const threadIds = page.map((row) => row.threadId);
+
+      // Proposte aperte e progetti toccati, in DUE query per l'intera pagina
+      // (non una per thread).
+      const openByThread = new Map<string, number>();
+      const projectsByThread = new Map<string, string[]>();
+      if (threadIds.length > 0) {
+        const proposalRows = await app.db
+          .select({
+            threadId: emailMessages.threadId,
+            status: emailProposals.status,
+            projectName: projects.name,
+          })
+          .from(emailProposals)
+          .innerJoin(emailMessages, eq(emailMessages.id, emailProposals.emailMessageId))
+          .innerJoin(googleAccounts, eq(googleAccounts.id, emailMessages.accountId))
+          .leftJoin(projects, eq(projects.id, emailProposals.projectId))
+          .where(
+            and(
+              eq(googleAccounts.userId, request.user!.id),
+              inArray(emailMessages.threadId, threadIds),
+            ),
+          );
+        for (const row of proposalRows) {
+          if (row.status === "classified" || row.status === "proposed") {
+            openByThread.set(row.threadId, (openByThread.get(row.threadId) ?? 0) + 1);
+          }
+          if (row.projectName) {
+            const names = projectsByThread.get(row.threadId) ?? [];
+            if (!names.includes(row.projectName)) names.push(row.projectName);
+            projectsByThread.set(row.threadId, names);
+          }
+        }
+      }
+
+      const last = page.at(-1);
+      const nextCursor =
+        rows.length > limit && last
+          ? encodeThreadCursor({
+              date: new Date(last.lastReceivedAt).toISOString(),
+              threadId: last.threadId,
+            })
+          : null;
+
+      return {
+        items: page.map((row) => ({
+          threadId: row.threadId,
+          accountId: row.accountId,
+          accountEmail: row.accountEmail,
+          subject: row.subject,
+          lastFrom: row.lastFrom,
+          lastReceivedAt: new Date(row.lastReceivedAt).toISOString(),
+          messageCount: row.messageCount,
+          openProposals: openByThread.get(row.threadId) ?? 0,
+          projectNames: projectsByThread.get(row.threadId) ?? [],
+        })),
+        nextCursor,
+      };
+    },
+  );
+
+  /**
+   * Il dettaglio di UNA conversazione: i suoi messaggi in ordine
+   * cronologico, ciascuno col suo corpo e la sua PROVENIENZA — ammesso o
+   * contesto (design §4).
+   *
+   * `:threadId` è l'id Gmail del thread, non un uuid: `account` lo accompagna
+   * perché due caselle dello stesso utente possono avere lo stesso thread.
+   */
+  app.get(
+    "/threads/:threadId",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: z.object({ threadId: z.string().min(1).max(200) }),
+        querystring: z.object({ account: z.uuid().optional() }),
+        response: { 200: mailThreadDetailSchema, 404: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const { threadId } = request.params;
+      const { account } = request.query;
+
+      const conditions = [
+        eq(googleAccounts.userId, request.user!.id),
+        eq(emailMessages.threadId, threadId),
+      ];
+      if (account) conditions.push(eq(emailMessages.accountId, account));
+
+      const rows = await app.db
+        .select({
+          id: emailMessages.id,
+          accountId: emailMessages.accountId,
+          accountEmail: googleAccounts.email,
+          fromAddress: emailMessages.fromAddress,
+          fromName: emailMessages.fromName,
+          toAddresses: emailMessages.toAddresses,
+          subject: emailMessages.subject,
+          receivedAt: emailMessages.receivedAt,
+          textExcerpt: emailMessages.textExcerpt,
+          admitted: emailMessages.admitted,
+        })
+        .from(emailMessages)
+        .innerJoin(googleAccounts, eq(googleAccounts.id, emailMessages.accountId))
+        .where(and(...conditions))
+        .orderBy(asc(emailMessages.receivedAt), asc(emailMessages.id));
+
+      const first = rows[0];
+      if (!first) return apiError(reply, 404, "not_found", "Thread not found");
+
+      const proposalRows = await app.db
+        .select({ id: emailProposals.id, emailMessageId: emailProposals.emailMessageId })
+        .from(emailProposals)
+        .where(
+          inArray(
+            emailProposals.emailMessageId,
+            rows.map((row) => row.id),
+          ),
+        );
+      const proposalsByMessage = new Map<string, string[]>();
+      for (const row of proposalRows) {
+        const list = proposalsByMessage.get(row.emailMessageId) ?? [];
+        list.push(row.id);
+        proposalsByMessage.set(row.emailMessageId, list);
+      }
+
+      const last = rows[rows.length - 1]!;
+      return {
+        threadId,
+        accountId: first.accountId,
+        accountEmail: first.accountEmail,
+        // L'oggetto dell'ULTIMO messaggio: è quello che la lista mostra, e
+        // due intestazioni diverse per la stessa conversazione
+        // confonderebbero e basta.
+        subject: last.subject,
+        url: gmailThreadUrl(first.accountEmail, threadId),
+        messages: rows.map((row) => ({
+          id: row.id,
+          from: row.fromName ? `${row.fromName} <${row.fromAddress}>` : row.fromAddress,
+          to: row.toAddresses,
+          receivedAt: row.receivedAt.toISOString(),
+          textExcerpt: row.textExcerpt,
+          admitted: row.admitted,
+          proposalIds: proposalsByMessage.get(row.id) ?? [],
+        })),
       };
     },
   );

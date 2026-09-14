@@ -1433,3 +1433,176 @@ describe("GET /api/me/mail/:source/:id/original — la cache (Task 2)", () => {
     expect(calls).toBe(1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// «La posta si legge per conversazione» §4, Task 13 — le rotte per thread,
+// ACCANTO a quelle per messaggio
+// ---------------------------------------------------------------------------
+
+describe("GET /api/me/mail/threads", () => {
+  function getThreads(cookie: string, query = "") {
+    return app.inject({ method: "GET", url: `/api/me/mail/threads${query}`, headers: { cookie } });
+  }
+
+  it("senza sessione: 401", async () => {
+    expect((await getThreads("")).statusCode).toBe(401);
+  });
+
+  it("una riga per CONVERSAZIONE, con l'ultimo mittente, la sua data e quanti messaggi contiene", async () => {
+    const { accountId, email } = await seedAccount(memberId);
+    const threadId = `t-${randomUUID()}`;
+    await seedEmail(accountId, {
+      threadId,
+      fromAddress: "laura@cliente.test",
+      subject: "Rilascio",
+      receivedAt: new Date("2026-09-01T08:00:00.000Z"),
+    });
+    await seedEmail(accountId, {
+      threadId,
+      fromAddress: "marco@cliente.test",
+      subject: "Re: Rilascio",
+      receivedAt: new Date("2026-09-03T08:00:00.000Z"),
+      admitted: false,
+    });
+
+    const res = await getThreads(memberCookie);
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.items).toHaveLength(1);
+    expect(body.items[0]).toMatchObject({
+      threadId,
+      accountEmail: email,
+      // Dell'ULTIMO messaggio: è quello a cui si risponde.
+      subject: "Re: Rilascio",
+      lastFrom: "marco@cliente.test",
+      lastReceivedAt: "2026-09-03T08:00:00.000Z",
+      // Conta TUTTI i messaggi, contesto compreso: è la dimensione della
+      // conversazione, non quanti hanno prodotto una proposta.
+      messageCount: 2,
+    });
+  });
+
+  it("un messaggio di CONTESTO non è una riga della lista: è dentro la conversazione", async () => {
+    const { accountId } = await seedAccount(memberId);
+    await seedEmail(accountId, { threadId: `t-${randomUUID()}`, admitted: false });
+
+    const res = await getThreads(memberCookie);
+    // Un solo thread, non due righe.
+    expect(res.json().items).toHaveLength(1);
+    expect(res.json().items[0].messageCount).toBe(1);
+  });
+
+  it("le proposte APERTE si contano, quelle chiuse no", async () => {
+    const { accountId } = await seedAccount(memberId);
+    const projectId = await seedProject();
+    const threadId = `t-${randomUUID()}`;
+    const messageId = await seedEmail(accountId, { threadId });
+    await seedProposal(messageId, projectId, { status: "proposed" });
+    const other = await seedProject("Altro progetto");
+    await seedProposal(messageId, other, { status: "actioned" });
+
+    const res = await getThreads(memberCookie);
+    expect(res.json().items[0].openProposals).toBe(1);
+    // I progetti toccati ci sono entrambi: servono a non dedurli dall'oggetto.
+    expect(res.json().items[0].projectNames.sort()).toEqual(["Altro progetto", "Progetto di test"]);
+  });
+
+  it("ACL: un admin non vede i thread di un member", async () => {
+    const { accountId } = await seedAccount(memberId);
+    await seedEmail(accountId, { threadId: `t-${randomUUID()}` });
+
+    expect((await getThreads(adminCookie)).json().items).toHaveLength(0);
+  });
+
+  it("paginazione: ordina per data dell'ULTIMO messaggio, e il cursore non salta né ripete", async () => {
+    const { accountId } = await seedAccount(memberId);
+    // Date MISTE apposta: il thread più vecchio ha il messaggio più recente.
+    const vecchio = `t-vecchio-${randomUUID()}`;
+    const recente = `t-recente-${randomUUID()}`;
+    await seedEmail(accountId, { threadId: vecchio, receivedAt: new Date("2026-01-01T08:00:00.000Z") });
+    await seedEmail(accountId, { threadId: vecchio, receivedAt: new Date("2026-09-10T08:00:00.000Z") });
+    await seedEmail(accountId, { threadId: recente, receivedAt: new Date("2026-09-05T08:00:00.000Z") });
+
+    const first = await getThreads(memberCookie, "?limit=1");
+    expect(first.json().items[0].threadId).toBe(vecchio);
+    expect(first.json().nextCursor).not.toBeNull();
+
+    const second = await getThreads(
+      memberCookie,
+      `?limit=1&cursor=${encodeURIComponent(first.json().nextCursor)}`,
+    );
+    expect(second.json().items[0].threadId).toBe(recente);
+    expect(second.json().nextCursor).toBeNull();
+  });
+
+  it("cursore illeggibile: 400, non una pagina a caso", async () => {
+    const res = await getThreads(memberCookie, "?cursor=non-un-cursore");
+    expect(res.statusCode).toBe(400);
+    expect(res.json().code).toBe("invalid_cursor");
+  });
+});
+
+describe("GET /api/me/mail/threads/:threadId", () => {
+  function getThread(cookie: string, threadId: string) {
+    return app.inject({
+      method: "GET",
+      url: `/api/me/mail/threads/${encodeURIComponent(threadId)}`,
+      headers: { cookie },
+    });
+  }
+
+  it("i messaggi in ORDINE, ciascuno con la sua provenienza — ammesso o contesto", async () => {
+    const { accountId, email } = await seedAccount(memberId);
+    const projectId = await seedProject();
+    const threadId = `t-${randomUUID()}`;
+    const primo = await seedEmail(accountId, {
+      threadId,
+      fromAddress: "laura@cliente.test",
+      textExcerpt: "Prima email",
+      receivedAt: new Date("2026-09-01T08:00:00.000Z"),
+      admitted: false,
+    });
+    const ultimo = await seedEmail(accountId, {
+      threadId,
+      fromAddress: "marco@cliente.test",
+      subject: "Re: Rilascio",
+      textExcerpt: "Ultima email",
+      receivedAt: new Date("2026-09-03T08:00:00.000Z"),
+    });
+    const proposalId = await seedProposal(ultimo, projectId);
+
+    const res = await getThread(memberCookie, threadId);
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.accountEmail).toBe(email);
+    expect(body.subject).toBe("Re: Rilascio");
+    expect(body.url).toContain(encodeURIComponent(email));
+    expect(body.messages.map((m: { id: string }) => m.id)).toEqual([primo, ultimo]);
+    expect(body.messages[0]).toMatchObject({ admitted: false, textExcerpt: "Prima email", proposalIds: [] });
+    expect(body.messages[1]).toMatchObject({ admitted: true, proposalIds: [proposalId] });
+  });
+
+  it("ACL: il thread di un altro utente non esiste — 404, non 403", async () => {
+    const { accountId } = await seedAccount(memberId);
+    const threadId = `t-${randomUUID()}`;
+    await seedEmail(accountId, { threadId });
+
+    expect((await getThread(adminCookie, threadId)).statusCode).toBe(404);
+  });
+
+  it("thread inesistente: 404", async () => {
+    expect((await getThread(memberCookie, "t-che-non-esiste")).statusCode).toBe(404);
+  });
+
+  it("⚠️ `/threads` NON viene catturata da `/:source/:id`: è registrata prima", async () => {
+    // La trappola di CLAUDE.md: con l'ordine sbagliato, "threads" sarebbe
+    // letto come `source` e la risposta sarebbe un errore di validazione.
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/me/mail/threads",
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(Array.isArray(res.json().items)).toBe(true);
+  });
+});
