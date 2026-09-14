@@ -15,6 +15,7 @@ import {
   extractText,
   getMessageFull,
   getMessageMetadata,
+  getThreadFull,
   GoogleApiError,
   listEvents,
   listHistory,
@@ -46,6 +47,7 @@ import {
   notInArray,
   sql,
 } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import type { AgentRunner } from "../agent/runner.js";
 import type { loadProviderChain } from "../providers/chain.js";
 import { getContentLanguage } from "../settings.js";
@@ -196,6 +198,8 @@ export interface GmailClient {
   listMessages: typeof listMessages;
   getMessageMetadata: typeof getMessageMetadata;
   getMessageFull: typeof getMessageFull;
+  /** «La posta si legge per conversazione» §2: il thread di un messaggio ammesso, intero. */
+  getThreadFull: typeof getThreadFull;
 }
 
 const realGmailClient: GmailClient = {
@@ -204,6 +208,7 @@ const realGmailClient: GmailClient = {
   listMessages,
   getMessageMetadata,
   getMessageFull,
+  getThreadFull,
 };
 
 /** La parte Calendar del client Google, iniettabile come {@link GmailClient}. */
@@ -725,6 +730,74 @@ async function filterAlreadyIngested(db: Db, accountId: string, ids: string[]): 
  * risolvere un progetto che sui soli metadati era ambiguo, perché una keyword
  * del corpo aggiunge un match.
  */
+/**
+ * Tira dentro i FRATELLI del thread di un messaggio appena ammesso, come
+ * CONTESTO (design §2, Task 8): `admitted: false`, corpi capati come per
+ * l'ammesso, mai una proposta.
+ *
+ * ⚠️ **Un fallimento qui non deve costare il messaggio ammesso né il
+ * cursore.** L'ammesso è già stato inserito dal chiamante, e il contesto è
+ * un di più: se `threads.get` va storto si logga e si prosegue — il thread
+ * verrà completato al giro dopo, quando un altro messaggio dello stesso
+ * thread sarà ammesso, oppure resterà senza contesto, che è esattamente
+ * com'era prima di questa fase.
+ *
+ * ⚠️ **Un fratello già presente NON si tocca**: `onConflictDoNothing`
+ * sull'unique `(account_id, gmail_message_id)`. Se era entrato come AMMESSO
+ * resta ammesso — riscriverlo a `false` gli toglierebbe la possibilità di
+ * proporre, cioè cancellerebbe una decisione già presa dal cancello.
+ *
+ * I fratelli entrano SENZA attribuzione (nessun progetto, liste vuote):
+ * l'attribuzione serve a decidere dove va una proposta, e un messaggio di
+ * contesto non ne genera nessuna. Il legame col progetto ce l'ha il
+ * messaggio ammesso dello stesso thread.
+ *
+ * Ritorna quanti fratelli ha inserito davvero, per il conteggio del tick.
+ */
+async function ingestThreadContext(
+  deps: GooglePollerDeps,
+  ctx: AccountContext,
+  account: ClaimedAccount,
+  admittedMessage: GmailMessage,
+  now: Date,
+): Promise<number> {
+  const gmail = deps.gmail ?? realGmailClient;
+  const logger = deps.logger ?? defaultLogger;
+  let thread: { id: string; messages: GmailMessage[] };
+  try {
+    thread = await gmail.getThreadFull({ accessToken: ctx.accessToken, id: admittedMessage.threadId });
+  } catch (err) {
+    logger.info(
+      `google: contesto del thread ${admittedMessage.threadId} non recuperato su ${account.email}: ${errText(err)}`,
+    );
+    return 0;
+  }
+
+  let inserted = 0;
+  for (const sibling of thread.messages) {
+    if (sibling.id === admittedMessage.id) continue;
+    const text = sibling.payload ? extractText(sibling.payload) : "";
+    const rows = await deps.db
+      .insert(emailMessages)
+      .values(
+        buildEmailMessageInsert({
+          accountId: account.id,
+          message: sibling,
+          text,
+          projectId: null,
+          candidateProjectIds: [],
+          scopeProjectIds: [],
+          now,
+          admitted: false,
+        }),
+      )
+      .onConflictDoNothing()
+      .returning({ id: emailMessages.id });
+    inserted += rows.length;
+  }
+  return inserted;
+}
+
 async function syncGmail(
   deps: GooglePollerDeps,
   ctx: AccountContext,
@@ -797,6 +870,11 @@ async function syncGmail(
       .onConflictDoNothing()
       .returning({ id: emailMessages.id });
     if (inserted.length > 0) ingested += 1;
+
+    // IL THREAD INTERO («la posta si legge per conversazione» §2, Task 8).
+    // Dopo l'inserimento del messaggio ammesso, non prima: se qui va storto
+    // qualcosa, l'ammesso è già dentro.
+    ingested += await ingestThreadContext(deps, ctx, account, full, now());
   }
 
   // `batch.historyId` — lo stato "adesso" della casella secondo l'ultima
@@ -1788,7 +1866,35 @@ async function runAccountTick(
  * qui per portarli via col padre.
  *
  * `retentionDays ≤ 0` = nessuna potatura (i messaggi restano per sempre).
+ *
+ * ## I messaggi di CONTESTO si potano a parte, e non è una rifinitura
+ *
+ * «La posta si legge per conversazione» §2, Task 9. Un messaggio con
+ * `admitted = false` **non ha figli `email_proposals`** e resta `status =
+ * 'new'` per sempre (non viene mai classificato, per costruzione). Sulle
+ * condizioni qui sopra questo produce due errori opposti, entrambi reali:
+ *  - le condizioni 1-4 le soddisfa BANALMENTE (nessun figlio aperto, nessuna
+ *    notifica) — quindi sarebbe il PRIMO a sparire, portandosi via il
+ *    contesto del thread che stiamo ancora leggendo e lasciando una
+ *    conversazione coi buchi;
+ *  - ma `status <> 'new'` lo escluderebbe SEMPRE — quindi non sparirebbe MAI,
+ *    e il contesto si accumulerebbe senza fine.
+ *
+ * Per questo la potatura è in DUE passi: prima gli AMMESSI, con le regole di
+ * sempre; poi il contesto dei thread in cui non è rimasto nessun messaggio
+ * ammesso. Il secondo passo è la traduzione esatta della regola del design
+ * («un messaggio di contesto è potabile solo quando lo è ogni messaggio
+ * ammesso del suo thread»): se un ammesso non era potabile, il primo passo
+ * non l'ha cancellato, quindi è ancora lì e trattiene il suo contesto.
  */
+/**
+ * `email_messages` vista una seconda volta, per confrontare una riga con i
+ * suoi fratelli di thread dentro la stessa DELETE (passo 2 di
+ * {@link pruneOldEmails}): senza alias, la subquery si riferirebbe alla riga
+ * candidata invece che ai fratelli.
+ */
+const admittedAlias = alias(emailMessages, "admitted_sibling");
+
 export async function pruneOldEmails(db: Db, retentionDays: number): Promise<number> {
   if (retentionDays <= 0) return 0;
 
@@ -1827,19 +1933,56 @@ export async function pruneOldEmails(db: Db, retentionDays: number): Promise<num
       and(eq(notifications.id, emailMessages.proposalNotificationId), ne(notifications.status, "handled")),
     );
 
+  const days = Math.round(retentionDays);
+
+  // PASSO 1 — i messaggi AMMESSI, con le regole di sempre.
   const deleted = await db
     .delete(emailMessages)
     .where(
       and(
+        eq(emailMessages.admitted, true),
         ne(emailMessages.status, "new"),
-        sql`${emailMessages.updatedAt} < now() - make_interval(days => ${Math.round(retentionDays)})`,
+        sql`${emailMessages.updatedAt} < now() - make_interval(days => ${days})`,
         notExists(openChild),
         notExists(openNotifiedChild),
         notExists(openParentNotification),
       ),
     )
     .returning({ id: emailMessages.id });
-  return deleted.length;
+
+  // PASSO 2 — il CONTESTO, dopo. Un messaggio di contesto se ne va solo
+  // quando nel suo thread non è rimasto nessun messaggio ammesso: se un
+  // ammesso non era potabile, il passo 1 non l'ha cancellato ed è ancora qui
+  // a trattenere il contesto che gli dà senso.
+  //
+  // Il confronto è su `(account_id, thread_id)` e non sul solo `thread_id`:
+  // due caselle diverse possono avere lo stesso thread Gmail, e il contesto
+  // di una non deve dipendere da cosa è rimasto nell'altra.
+  const admittedSibling = db
+    .select({ id: sql`1` })
+    .from(admittedAlias)
+    .where(
+      and(
+        eq(admittedAlias.accountId, emailMessages.accountId),
+        eq(admittedAlias.threadId, emailMessages.threadId),
+        eq(admittedAlias.admitted, true),
+      ),
+    );
+
+  const deletedContext = await db
+    .delete(emailMessages)
+    .where(
+      and(
+        eq(emailMessages.admitted, false),
+        // NON `status <> 'new'`: un messaggio di contesto è `new` per
+        // sempre, e quella condizione lo renderebbe immortale.
+        sql`${emailMessages.updatedAt} < now() - make_interval(days => ${days})`,
+        notExists(admittedSibling),
+      ),
+    )
+    .returning({ id: emailMessages.id });
+
+  return deleted.length + deletedContext.length;
 }
 
 /**

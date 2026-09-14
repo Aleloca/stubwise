@@ -240,6 +240,8 @@ export interface EmailMessageInsert {
   candidateProjectIds: string[];
   scopeProjectIds: string[];
   status: "new";
+  /** `false` = tirato dentro come contesto del thread (design §2). */
+  admitted: boolean;
 }
 
 /**
@@ -259,6 +261,13 @@ export function buildEmailMessageInsert(input: {
   candidateProjectIds: string[];
   scopeProjectIds: string[];
   now: Date;
+  /**
+   * `false` per un messaggio tirato dentro come CONTESTO del thread di un
+   * ammesso («la posta si legge per conversazione» §2). Default `true`: chi
+   * non lo passa sta inserendo un messaggio passato dal cancello, che è
+   * quello che facevano tutti i chiamanti prima della parte B.
+   */
+  admitted?: boolean;
 }): EmailMessageInsert {
   const { message } = input;
   const subject = message.headers["subject"]?.trim();
@@ -277,5 +286,6 @@ export function buildEmailMessageInsert(input: {
     candidateProjectIds: input.candidateProjectIds,
     scopeProjectIds: input.scopeProjectIds,
     status: "new",
+    admitted: input.admitted ?? true,
   };
 }

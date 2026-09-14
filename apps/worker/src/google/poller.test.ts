@@ -172,6 +172,8 @@ function message(input: {
   labels?: string[];
   body?: string;
   historyId?: string;
+  /** Per i test del thread: più messaggi nella stessa conversazione. */
+  threadId?: string;
 }) {
   const headers: Record<string, string> = {
     from: input.from ?? "Cliente <cliente@cliente.com>",
@@ -184,7 +186,7 @@ function message(input: {
   if (input.cc !== undefined) headers.cc = input.cc;
   return {
     id: input.id,
-    threadId: `thread-${input.id}`,
+    threadId: input.threadId ?? `thread-${input.id}`,
     labelIds: input.labels ?? ["INBOX"],
     snippet: "",
     historyId: input.historyId ?? null,
@@ -205,6 +207,14 @@ function fakeGmail(setup: {
   messages?: Record<string, ReturnType<typeof message>>;
   refreshError?: unknown;
   metadataError?: unknown;
+  /**
+   * I thread, per id: quello che `getThreadFull` restituisce («la posta si
+   * legge per conversazione» §2). Assente = il thread contiene il solo
+   * messaggio chiesto, che è il caso della stragrande maggioranza dei test
+   * preesistenti e li lascia invariati.
+   */
+  threads?: Record<string, ReturnType<typeof message>[]>;
+  threadError?: unknown;
 }): GmailClient & { calls: string[]; listQueries: string[] } {
   const calls: string[] = [];
   const listQueries: string[] = [];
@@ -251,6 +261,16 @@ function fakeGmail(setup: {
       const found = setup.messages?.[input.id];
       if (!found) throw new Error(`messaggio ${input.id} non previsto dal fake`);
       return found;
+    },
+    getThreadFull: async (input: { id: string }) => {
+      calls.push(`thread:${input.id}`);
+      if (setup.threadError) throw setup.threadError;
+      const found = setup.threads?.[input.id];
+      if (found) return { id: input.id, messages: found };
+      // Nessun thread configurato: la conversazione è il solo messaggio che
+      // la contiene, cioè il comportamento di prima di questa fase.
+      const only = Object.values(setup.messages ?? {}).filter((m) => m.threadId === input.id);
+      return { id: input.id, messages: only };
     },
   };
   return client as unknown as GmailClient & { calls: string[]; listQueries: string[] };
@@ -1355,6 +1375,110 @@ describe("retention", () => {
     expect(await pruneOldEmails(db, 90)).toBe(1);
     expect(await db.select().from(emailMessages)).toHaveLength(0);
   });
+
+  /**
+   * «La posta si legge per conversazione» §2, Task 9 — la potatura legata al
+   * THREAD. Un messaggio di contesto non ha figli `email_proposals` e resta
+   * `status = 'new'` per sempre: sulle regole di prima sarebbe il primo a
+   * sparire (condizioni soddisfatte banalmente) oppure non sparirebbe mai
+   * (`status <> 'new'`). Nessuna delle due è giusta.
+   */
+  describe("i messaggi di CONTESTO seguono il loro thread", () => {
+    /** Un messaggio vecchio nel thread dato, ammesso o di contesto. */
+    async function seedInThread(
+      account: { id: string },
+      threadId: string,
+      values: Partial<typeof emailMessages.$inferInsert>,
+    ): Promise<string> {
+      const [row] = await db
+        .insert(emailMessages)
+        .values({
+          accountId: account.id,
+          gmailMessageId: `gm-${randomUUID()}`,
+          threadId,
+          fromAddress: "cliente@cliente.com",
+          receivedAt: old,
+          updatedAt: old,
+          ...values,
+        })
+        .returning({ id: emailMessages.id });
+      return row!.id;
+    }
+
+    it("un thread con una proposta ancora APERTA non perde i suoi messaggi di contesto", async () => {
+      const account = await seedAccount();
+      const projectId = await seedProject("acme");
+      const ammesso = await seedInThread(account, "t-vivo", { status: "proposed", admitted: true });
+      await seedChild(ammesso, projectId, { status: "classified" }); // figlio aperto
+      await seedInThread(account, "t-vivo", { status: "new", admitted: false });
+      await seedInThread(account, "t-vivo", { status: "new", admitted: false });
+
+      expect(await pruneOldEmails(db, 90)).toBe(0);
+      // Tutti e tre restano: il contesto è ciò che dà senso alla proposta
+      // ancora aperta, e senza sarebbe una conversazione coi buchi.
+      expect(await db.select().from(emailMessages)).toHaveLength(3);
+    });
+
+    it("un thread tutto terminale e vecchio se ne va INTERO, contesto compreso", async () => {
+      const account = await seedAccount();
+      await seedInThread(account, "t-chiuso", { status: "actioned", admitted: true });
+      await seedInThread(account, "t-chiuso", { status: "new", admitted: false });
+      await seedInThread(account, "t-chiuso", { status: "new", admitted: false });
+
+      expect(await pruneOldEmails(db, 90)).toBe(3);
+      expect(await db.select().from(emailMessages)).toHaveLength(0);
+    });
+
+    it("il contesto NON è immortale: `status = 'new'` non lo protegge come protegge un ammesso", async () => {
+      // È l'altra metà del difetto: la condizione `status <> 'new'` esiste
+      // per non potare un messaggio MAI GUARDATO, ma un messaggio di
+      // contesto è `new` per costruzione e non lo sarà mai di meno.
+      const account = await seedAccount();
+      await seedInThread(account, "t-orfano", { status: "new", admitted: false });
+
+      expect(await pruneOldEmails(db, 90)).toBe(1);
+      expect(await db.select().from(emailMessages)).toHaveLength(0);
+    });
+
+    it("un ammesso MAI GUARDATO (`new`) resta, e trattiene il suo contesto", async () => {
+      // La protezione di prima vale ancora dov'era pensata.
+      const account = await seedAccount();
+      await seedInThread(account, "t-nuovo", { status: "new", admitted: true });
+      await seedInThread(account, "t-nuovo", { status: "new", admitted: false });
+
+      expect(await pruneOldEmails(db, 90)).toBe(0);
+      expect(await db.select().from(emailMessages)).toHaveLength(2);
+    });
+
+    it("il contesto RECENTE non si pota, come tutto il resto", async () => {
+      const account = await seedAccount();
+      await seedInThread(account, "t-recente", { status: "new", admitted: false, updatedAt: recent });
+
+      expect(await pruneOldEmails(db, 90)).toBe(0);
+    });
+
+    it("thread con lo stesso id su DUE caselle: il contesto di una non dipende dall'altra", async () => {
+      // Due utenti possono avere lo stesso thread Gmail, e i loro messaggi
+      // sono righe distinte: il confronto è su `(account_id, thread_id)`.
+      const primo = await seedAccount({ email: `casella-a-${randomUUID()}@acme.com` });
+      const secondo = await seedAccount({ email: `casella-b-${randomUUID()}@acme.com` });
+      const projectId = await seedProject("acme");
+
+      // Casella 1: tutto chiuso e vecchio → se ne va tutto.
+      await seedInThread(primo, "t-condiviso", { status: "actioned", admitted: true });
+      await seedInThread(primo, "t-condiviso", { status: "new", admitted: false });
+
+      // Casella 2: una proposta ancora aperta → resta tutto.
+      const vivo = await seedInThread(secondo, "t-condiviso", { status: "proposed", admitted: true });
+      await seedChild(vivo, projectId, { status: "classified" });
+      await seedInThread(secondo, "t-condiviso", { status: "new", admitted: false });
+
+      expect(await pruneOldEmails(db, 90)).toBe(2);
+      const left = await db.select().from(emailMessages);
+      expect(left).toHaveLength(2);
+      expect(left.every((row) => row.accountId === secondo.id)).toBe(true);
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1394,6 +1518,174 @@ describe("startGooglePoller", () => {
       stop();
       stop();
     }).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// «La posta si legge per conversazione» §2, Task 8 — il thread entra intero
+// ---------------------------------------------------------------------------
+
+describe("il thread di un messaggio ammesso entra come contesto", () => {
+  /** Una casella con una regola che ammette il dominio del cliente. */
+  async function seedAdmittingMailbox() {
+    const projectId = await seedProject("Acme");
+    await db
+      .insert(projectEmailRoutes)
+      .values({ projectId, kind: "sender_domain", value: "cliente.com" });
+    const account = await seedAccount({
+      nextSyncAt: new Date(Date.now() - 60_000),
+      gmailHistoryId: "1000",
+    });
+    return { account, projectId };
+  }
+
+  it("un thread da tre con UN solo messaggio ammesso: tre righe, una ammessa e due di contesto", async () => {
+    const { account } = await seedAdmittingMailbox();
+    const ammesso = message({ id: "m2", threadId: "t1", subject: "Rilascio" });
+    const gmail = fakeGmail({
+      history: { addedMessageIds: ["m2"], historyId: "1010" },
+      messages: { m2: ammesso },
+      threads: {
+        t1: [
+          message({ id: "m1", threadId: "t1", subject: "Rilascio", body: "Prima email" }),
+          ammesso,
+          message({ id: "m3", threadId: "t1", subject: "Rilascio", body: "Terza email" }),
+        ],
+      },
+    });
+
+    await pollGoogleOnce(deps(account, gmail));
+
+    const rows = await db.select().from(emailMessages);
+    expect(rows).toHaveLength(3);
+    const byId = new Map(rows.map((row) => [row.gmailMessageId, row]));
+    expect(byId.get("m2")?.admitted).toBe(true);
+    expect(byId.get("m1")?.admitted).toBe(false);
+    expect(byId.get("m3")?.admitted).toBe(false);
+    // I fratelli entrano SENZA attribuzione: quella serve a decidere dove va
+    // una proposta, e un messaggio di contesto non ne genera nessuna.
+    expect(byId.get("m1")?.projectId).toBeNull();
+    expect(byId.get("m1")?.scopeProjectIds).toEqual([]);
+    // Il corpo però c'è: è tutto il senso del contesto.
+    expect(byId.get("m1")?.textExcerpt).toContain("Prima email");
+    // UNA sola chiamata per l'intero thread.
+    expect(gmail.calls.filter((c) => c.startsWith("thread:"))).toEqual(["thread:t1"]);
+  });
+
+  it("rieseguire il tick non duplica niente", async () => {
+    const { account } = await seedAdmittingMailbox();
+    const ammesso = message({ id: "m2", threadId: "t1" });
+    const setup = {
+      history: { addedMessageIds: ["m2"], historyId: "1010" },
+      messages: { m2: ammesso },
+      threads: { t1: [message({ id: "m1", threadId: "t1" }), ammesso] },
+    };
+
+    await pollGoogleOnce(deps(account, fakeGmail(setup)));
+    const first = await db.select().from(emailMessages);
+
+    const again = await seedAccount({
+      nextSyncAt: new Date(Date.now() - 60_000),
+      gmailHistoryId: "1000",
+      email: MAILBOX,
+    }).catch(() => null);
+    // Stessa casella, secondo giro: si riusa la riga già esistente.
+    await db
+      .update(googleAccounts)
+      .set({ nextSyncAt: new Date(Date.now() - 60_000) })
+      .where(eq(googleAccounts.id, account.id));
+    await pollGoogleOnce(deps(account, fakeGmail(setup)));
+
+    expect(again).toBeNull();
+    expect(await db.select().from(emailMessages)).toHaveLength(first.length);
+  });
+
+  it("un fratello GIÀ AMMESSO non viene retrocesso a contesto", async () => {
+    // Riscriverlo a `false` gli toglierebbe la possibilità di proporre: è
+    // cancellare una decisione che il cancello aveva già preso.
+    const { account } = await seedAdmittingMailbox();
+    const primo = message({ id: "m1", threadId: "t1" });
+    const secondo = message({ id: "m2", threadId: "t1" });
+
+    // Primo giro: `m1` è ammesso.
+    await pollGoogleOnce(
+      deps(
+        account,
+        fakeGmail({
+          history: { addedMessageIds: ["m1"], historyId: "1010" },
+          messages: { m1: primo },
+          threads: { t1: [primo] },
+        }),
+      ),
+    );
+    await db
+      .update(googleAccounts)
+      .set({ nextSyncAt: new Date(Date.now() - 60_000) })
+      .where(eq(googleAccounts.id, account.id));
+
+    // Secondo giro: arriva `m2`, e il thread ora contiene anche `m1`.
+    await pollGoogleOnce(
+      deps(
+        account,
+        fakeGmail({
+          history: { addedMessageIds: ["m2"], historyId: "1020" },
+          messages: { m2: secondo },
+          threads: { t1: [primo, secondo] },
+        }),
+      ),
+    );
+
+    const rows = await db.select().from(emailMessages);
+    const byId = new Map(rows.map((row) => [row.gmailMessageId, row]));
+    expect(byId.get("m1")?.admitted).toBe(true);
+    expect(byId.get("m2")?.admitted).toBe(true);
+  });
+
+  it("un `threads.get` che FALLISCE lascia comunque entrare il messaggio ammesso", async () => {
+    // Il contesto è un di più: perdere l'ammesso per un errore su di esso
+    // sarebbe il baratto sbagliato. Il cursore avanza lo stesso.
+    const { account } = await seedAdmittingMailbox();
+    const gmail = fakeGmail({
+      history: { addedMessageIds: ["m2"], historyId: "1010" },
+      messages: { m2: message({ id: "m2", threadId: "t1" }) },
+      threadError: new GoogleApiError({
+        api: "gmail.threads.get.full",
+        status: 500,
+        code: "backend_error",
+        reason: "backendError",
+      }),
+    });
+
+    const stats = await pollGoogleOnce(deps(account, gmail));
+
+    const rows = await db.select().from(emailMessages);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.gmailMessageId).toBe("m2");
+    expect(rows[0]?.admitted).toBe(true);
+    // Il fratello mancante non conta come ingestione, e il tick NON è un
+    // giro fallito: la casella non accumula tentativi e il cursore avanza —
+    // senza, il tick dopo rileggerebbe la stessa history per sempre.
+    expect(stats.ingested).toBe(1);
+    const reloaded = await reload(account.id);
+    expect(reloaded.syncAttempts).toBe(0);
+    expect(reloaded.disabledAt).toBeNull();
+    expect(reloaded.gmailHistoryId).toBe("1010");
+  });
+
+  it("un messaggio NON ammesso non tira dentro nessun thread", async () => {
+    // Il cancello resta il cancello: si allarga a valle di un'ammissione,
+    // non al posto suo.
+    const { account } = await seedAdmittingMailbox();
+    const gmail = fakeGmail({
+      history: { addedMessageIds: ["m9"], historyId: "1010" },
+      messages: { m9: message({ id: "m9", from: "spam@estraneo.test", threadId: "t9" }) },
+      threads: { t9: [message({ id: "m8", threadId: "t9" })] },
+    });
+
+    await pollGoogleOnce(deps(account, gmail));
+
+    expect(await db.select().from(emailMessages)).toHaveLength(0);
+    expect(gmail.calls.some((c) => c.startsWith("thread:"))).toBe(false);
   });
 });
 
