@@ -218,16 +218,18 @@ in with the thread of a message that passed the admission gate, and they exist
 to be read: they never produce a proposal of their own, and the page says so
 on each of them. It is not "no proposal yet" — it is "never".
 
-A **Messages** view is still one click away, on the left. It is the one with
-the per-status and per-project filters (neither means much for a conversation,
-which can touch several projects and hold several states at once) and the only
-one that also lists calendar appointments, which have no thread.
+Conversations are the only list the page has: there is no per-message view
+to switch to, and with it went the per-status and per-project filters (neither
+meant much for a conversation, which can touch several projects and hold
+several states at once) and the mixed list that also showed calendar
+appointments. Appointments have their own page, `/calendar`.
 
 On the phone, the MBX tab works the same way: conversations in the list, and
 the whole exchange when you open one.
 
-When you open a single message — from a notification, or from the Messages
-view — you get two, deliberately distinct, sources:
+A single message still has its own page — it is where a notification card
+and a shared link land — and there you get two, deliberately distinct,
+sources:
 
 - **The extract**, shown immediately — no request to Google, so it works
   even if your mailbox's connection has expired or Google is unreachable

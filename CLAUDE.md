@@ -974,6 +974,15 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   500 su `/api/inbox`, e scendere di immagine sul server non richiede di
   ripulire righe prima. **Parte A deployabile da sola** (la sola cache): è
   stata mergiata e deployata il 14 set, prima della parte B.
+  ⚠️ **Sul web `/mail` elenca SOLO conversazioni** (decisione del maintainer,
+  14 set): la vista per messaggio non c'è più, e con lei i filtri per stato
+  e per progetto e la lista fusa col calendario (gli appuntamenti hanno
+  `/calendar`). **La rotta `GET /api/me/mail` per messaggi NON si tocca**:
+  non ha più un chiamante nel bundle web, ma la legge l'app mobile già
+  installata — è la solita asimmetria «l'app si aggiorna dagli store, non
+  dai nostri deploy». Chi ripulisce codice morto lato web si fermi al
+  confine di `packages/api-client`. Resta viva anche `/mail/:source/:id`,
+  dove atterrano una card di notifica e un link condiviso.
   **Rollback**: scendere di immagine sul server perde le rotte per thread
   (404) — va sceso col caddy, come sempre — e l'originale torna a chiedersi
   a Gmail ogni volta, ignorando `email_bodies`, che resta innocua. Scendere

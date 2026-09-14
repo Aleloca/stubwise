@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, RouterProvider } from "@tanstack/react-router";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createAppRouter } from "../router";
@@ -389,6 +389,13 @@ describe("pagina /mail/:source/:id", () => {
   });
 
   it("passando da un messaggio all'altro, l'originale riletto NON resta stantio (bug bloccante trovato dalla review Stubwise)", async () => {
+    // ⚠️ RISCRITTO il 14 set: prima si navigava cliccando la riga della
+    // lista per messaggio, che il web non ha più. La proprietà che questo
+    // test presidia è VIVA e vale la pena tenerla — la `key` su
+    // `MailReadingPane`, senza cui il corpo riletto del messaggio
+    // precedente resterebbe a schermo — quindi ora il passaggio si fa dove
+    // avviene davvero: cambiando ROTTA, che è come ci si arriva da una
+    // notifica o da un link condiviso.
     const EMAIL_ID_2 = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
     const DETAIL_2 = {
       id: EMAIL_ID_2,
@@ -405,48 +412,6 @@ describe("pagina /mail/:source/:id", () => {
     };
     mockApi(
       baseApi({
-        "GET /api/me/mail": () =>
-          jsonResponse(200, {
-            items: [
-              {
-                kind: "proposal",
-                id: EMAIL_ID,
-                source: "email",
-                accountId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-                accountEmail: "mailbox@acme.test",
-                projectId: null,
-                projectName: null,
-                title: "Ship next week?",
-                from: "laura@cliente.test",
-                date: "2026-08-31T09:00:00.000Z",
-                status: "classified",
-                signal: null,
-                outcome: null,
-                error: null,
-                url: "https://mail.google.com/mail/u/mailbox@acme.test/#all/t1",
-                reproposable: false,
-              },
-              {
-                kind: "proposal",
-                id: EMAIL_ID_2,
-                source: "email",
-                accountId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-                accountEmail: "mailbox@acme.test",
-                projectId: null,
-                projectName: null,
-                title: "Fattura di settembre",
-                from: "marco@cliente.test",
-                date: "2026-09-01T09:00:00.000Z",
-                status: "classified",
-                signal: null,
-                outcome: null,
-                error: null,
-                url: "https://mail.google.com/mail/u/mailbox@acme.test/#all/t2",
-                reproposable: false,
-              },
-            ],
-            nextCursor: null,
-          }),
         [`GET /api/me/mail/email/${EMAIL_ID_2}`]: () => jsonResponse(200, DETAIL_2),
         [`GET /api/me/mail/email/${EMAIL_ID}/original`]: () =>
           jsonResponse(200, {
@@ -459,23 +424,20 @@ describe("pagina /mail/:source/:id", () => {
           }),
       }),
     );
-    renderDetail();
-    await screen.findByRole("heading", { name: "Ship next week?" });
-    // Si passa alla vista per MESSAGGI: è da lì che si naviga fra due
-    // messaggi restando nella stessa istanza del pannello, cioè lo scenario
-    // esatto del bug. Dal 14 set la vista di default è per conversazioni.
-    await userEvent.click(screen.getByTestId("mail-view-messages"));
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const history = createMemoryHistory({ initialEntries: [`/mail/email/${EMAIL_ID}`] });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={createAppRouter(queryClient, history)} />
+      </QueryClientProvider>,
+    );
 
+    await screen.findByRole("heading", { name: "Ship next week?" });
     await userEvent.click(screen.getByRole("button", { name: "Read original on Gmail" }));
     await screen.findByText("Corpo del primo messaggio.");
 
-    // Passa al secondo messaggio SENZA aver chiuso/ricaricato la pagina —
-    // esattamente lo scenario del bug: stesso componente, prop `id` cambiata.
-    // La riga della lista non è linkata sull'oggetto, ma su "Read in
-    // Stubwise": scoped alla riga per non ambiguità con quella del primo
-    // messaggio, che porta lo stesso testo.
-    const secondRow = screen.getByText(/Fattura di settembre/).closest("article")!;
-    await userEvent.click(within(secondRow).getByRole("link", { name: "Read in Stubwise" }));
+    // Stessa istanza del workspace, prop `id` cambiata: lo scenario del bug.
+    history.push(`/mail/email/${EMAIL_ID_2}`);
 
     await screen.findByRole("heading", { name: "Fattura di settembre" });
     // Il corpo del PRIMO messaggio non deve restare in vista...

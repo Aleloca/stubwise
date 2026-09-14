@@ -13,7 +13,6 @@ import {
   getGitAccounts,
   getInbox,
   getInboxUnreadCount,
-  getMail,
   getMailAdmission,
   getMailDetail,
   getMailSummary,
@@ -74,7 +73,6 @@ import {
   type CalendarFilters,
   type CalendarRangeFilters,
   type InboxFilters,
-  type MailFilters,
   type PluginRegistry,
   type DecisionSource,
   type ProjectTimelineKind,
@@ -1269,8 +1267,6 @@ export const notificationPrefsQueryOptions = queryOptions({
  */
 export const mailKeys = {
   all: ["mail"] as const,
-  lists: () => [...mailKeys.all, "list"] as const,
-  list: (filters: MailFilters) => [...mailKeys.lists(), filters] as const,
   summary: () => [...mailKeys.all, "summary"] as const,
   /** Fase 7b, Task 6: il dettaglio di un'email, per source+id. */
   detail: (source: "email" | "email_triage", id: string) => [...mailKeys.all, "detail", source, id] as const,
@@ -1278,20 +1274,6 @@ export const mailKeys = {
   threads: (account?: string) => [...mailKeys.all, "threads", account ?? null] as const,
   thread: (threadId: string) => [...mailKeys.all, "thread", threadId] as const,
 };
-
-/**
- * Pagina della Posta per i filtri dati. Stessa forma di `inboxQueryOptions`:
- * i filtri nella chiave (ogni combinazione è una lista a sé), `staleTime`
- * breve perché lo stato di una riga cambia anche da un tick del poller, non
- * solo da un'azione dell'utente.
- */
-export function mailQueryOptions(filters: MailFilters = {}) {
-  return queryOptions({
-    queryKey: mailKeys.list(filters),
-    queryFn: () => getMail(filters),
-    staleTime: 10_000,
-  });
-}
 
 /**
  * Contatori per il badge di nav e l'intestazione: `staleTime` più largo

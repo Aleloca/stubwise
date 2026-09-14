@@ -51,8 +51,6 @@ import type {
   MailThreadPage,
   MailItemStatus,
   MailOriginal,
-  MailPage,
-  MailSource,
   MailSummary,
   NotificationPrefsUpdate,
   NotificationPrefsView,
@@ -1907,49 +1905,27 @@ export type {
   MailSummary,
 } from "@stubwise/shared";
 
-/** Filtri della lista Posta: tutti opzionali, ognuno è un AND coi gli altri. */
-export interface MailFilters {
-  account?: string;
-  status?: MailItemStatus;
-  project?: string;
-}
+// ⚠️ `MailFilters` non c'è più: i filtri per stato e per progetto erano
+// della lista per MESSAGGIO, e su una conversazione non vogliono dire niente
+// (un thread può toccare più progetti e avere più stati insieme). La rotta
+// per thread accetta la sola casella, che la pagina passa direttamente.
 
-/**
- * Pagina della Posta dell'utente autenticato: messaggi Gmail ed eventi di
- * calendario TRATTATI, fusi in una lista sola ordinata per data (`source`
- * distingue le due). Sempre filtrata per `userId` sul server — non esiste un
- * modo di vedere la posta di un altro, admin compreso.
- */
-export function getMail(
-  filters: MailFilters = {},
-  cursor?: string,
-  limit?: number,
-): Promise<MailPage> {
-  const params = new URLSearchParams();
-  if (filters.account) params.set("account", filters.account);
-  if (filters.status) params.set("status", filters.status);
-  if (filters.project) params.set("project", filters.project);
-  if (cursor) params.set("cursor", cursor);
-  if (limit !== undefined) params.set("limit", String(limit));
-  const query = params.toString();
-  return api.get(`/api/me/mail${query ? `?${query}` : ""}`);
-}
+
+// ⚠️ `getMail` (la lista per MESSAGGIO, `GET /api/me/mail`) non c'è più qui:
+// dal 14 set il web elenca conversazioni e nessuna pagina la chiamava più.
+// **La ROTTA resta**, e non va rimossa dal server: la legge ogni build
+// dell'app già installata su un telefono, e ci passa il calendario — vedi
+// il docblock di `MailWorkspace`.
 
 /** Contatori per il badge di nav e l'intestazione della pagina Posta. */
 export function getMailSummary(): Promise<MailSummary> {
   return api.get("/api/me/mail/summary");
 }
 
-/**
- * Riproponi una riga `failed`/`ignored`: resetta lo stato perché il PROSSIMO
- * tick del poller la riprenda e generi una proposta NUOVA (non ripubblica da
- * qui). 409 `not_reproposable` se lo stato attuale non è fra quelli
- * riproponibili — la UI non dovrebbe mostrare il bottone in quel caso, ma la
- * rotta lo verifica comunque.
- */
-export function postMailRepropose(source: MailSource, id: string): Promise<{ ok: true }> {
-  return api.post(`/api/me/mail/${source}/${encodeURIComponent(id)}/repropose`);
-}
+// ⚠️ `postMailRepropose` non c'è più: «Riproponi» viveva sulla riga della
+// lista per messaggio, ed era un'azione su UN messaggio — cosa che una
+// conversazione non è. Resta sulla card in inbox, e la rotta resta viva per
+// l'app.
 
 export type { MailDetail, MailOriginal, MailThreadDetail, MailThreadPage } from "@stubwise/shared";
 
