@@ -337,6 +337,8 @@ export const en: Catalog = {
   "email.input.from": "From",
   "email.input.subject": "Subject",
   "email.input.text": "Text",
+  "email.input.thread":
+    "Earlier messages in this conversation (context — the message to evaluate is the one below)",
   "email.input.none": "none",
   "email.input.truncated":
     "The email text was truncated for length: do not treat the missing part as absent facts.",
@@ -669,6 +671,8 @@ export const it: Catalog = {
   "email.input.from": "Da",
   "email.input.subject": "Oggetto",
   "email.input.text": "Testo",
+  "email.input.thread":
+    "Messaggi precedenti di questa conversazione (contesto — il messaggio da valutare è quello sotto)",
   "email.input.none": "nessuno",
   "email.input.truncated":
     "Il testo dell'email è stato troncato per lunghezza: non considerare fatti assenti quelli mancanti.",

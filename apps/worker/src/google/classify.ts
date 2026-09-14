@@ -20,7 +20,7 @@ import {
   type TicketPriority,
   type TicketStatus,
 } from "@stubwise/shared";
-import { and, asc, desc, eq, inArray, notInArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, lte, ne, notInArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { AgentRunner } from "../agent/runner.js";
 import { capText, parseAgentJson, textFromRun } from "../agent/text.js";
@@ -114,6 +114,21 @@ export const CLASSIFY_TEXT_MAX_CHARS = 8_000;
  * modo lineare col numero di progetti del perimetro).
  */
 export const CLASSIFY_CONTEXT_ROWS = 10;
+
+/**
+ * Messaggi PRECEDENTI dello stesso thread passati al modello come contesto
+ * («la posta si legge per conversazione» §3, Task 10).
+ *
+ * Il tetto è il punto: **il costo di un run non deve crescere con la
+ * lunghezza della conversazione**. Cinque è quanto serve a capire di cosa si
+ * sta parlando — chi risponde a un thread di venti email risponde comunque
+ * alle ultime — e tiene il prompt della stessa misura di prima anche su uno
+ * scambio lungo.
+ */
+export const CLASSIFY_THREAD_MESSAGES = 5;
+
+/** Caratteri di OGNI messaggio precedente nel contesto del thread: più corti dell'ultimo, che è quello che conta. */
+export const CLASSIFY_THREAD_MESSAGE_CHARS = 1_200;
 
 /** Proposte tenute dopo la rivalidazione, PER PROGETTO (design: 1..3). */
 export const CLASSIFY_MAX_PROPOSALS = 3;
@@ -293,6 +308,13 @@ export interface EmailSignalsInput {
   citedTicketNumbers: number[];
   /** Il testo è stato troncato per lunghezza. */
   truncated: boolean;
+  /**
+   * I messaggi PRECEDENTI dello stesso thread, dal più vecchio al più
+   * recente e cappati a {@link CLASSIFY_THREAD_MESSAGES} (design §3): è la
+   * conversazione in cui l'ultima email va letta. Vuoto quando il thread ha
+   * un messaggio solo, che è il caso della grande maggioranza.
+   */
+  threadMessages?: { fromAddress: string; receivedAt: Date; text: string }[];
 }
 
 /** Log minimale, strutturalmente compatibile col `GoogleLogger` del poller. */
@@ -451,6 +473,20 @@ export function buildEmailSignalsPrompt(lang: Language, input: EmailSignalsInput
     }`,
     "",
     EMAIL_DELIMITER_START,
+    // La CONVERSAZIONE prima dell'ultima email (design §3): sta PRIMA del
+    // messaggio da valutare, così il modello la legge come antefatto e non
+    // la confonde col testo su cui deve decidere — che resta l'ultimo, e
+    // resta dentro i delimitatori.
+    ...(input.threadMessages && input.threadMessages.length > 0
+      ? [
+          "",
+          `${t(lang, "email.input.thread")}:`,
+          ...input.threadMessages.map(
+            (m) => `- [${m.receivedAt.toISOString().slice(0, 10)}] ${m.fromAddress}: ${m.text}`,
+          ),
+        ]
+      : []),
+    "",
     `${t(lang, "email.input.from")}: ${input.fromName ? `${input.fromName} <${input.fromAddress}>` : input.fromAddress}`,
     `${t(lang, "email.input.subject")}: ${input.subject ?? t(lang, "email.input.none")}`,
     `${t(lang, "email.input.text")}:`,
@@ -529,6 +565,61 @@ export interface ClassifyContext {
  * nulla, e {@link classifyEmail} continua a ignorare senza chiamare il
  * modello.
  */
+/**
+ * I messaggi PRECEDENTI dello stesso thread, come contesto per l'ultimo
+ * («la posta si legge per conversazione» §3, Task 10).
+ *
+ * Prende gli ULTIMI {@link CLASSIFY_THREAD_MESSAGES} prima di questo — non i
+ * primi — perché è la coda della conversazione a spiegare l'email che si sta
+ * valutando, e li restituisce dal più vecchio al più recente, che è come si
+ * legge uno scambio.
+ *
+ * ⚠️ Entrano SIA gli ammessi SIA quelli di contesto (`admitted = false`): la
+ * distinzione serve a decidere chi può PROPORRE, non chi può essere letto —
+ * anzi, i messaggi di contesto esistono esattamente per questo.
+ *
+ * Il confronto è su `(account_id, thread_id)`: due caselle possono avere lo
+ * stesso thread Gmail, e non devono leggersi a vicenda.
+ */
+async function loadThreadContext(
+  db: Db,
+  message: EmailMessageRow,
+): Promise<{ fromAddress: string; receivedAt: Date; text: string }[]> {
+  const rows = await db
+    .select({
+      fromAddress: emailMessages.fromAddress,
+      receivedAt: emailMessages.receivedAt,
+      textExcerpt: emailMessages.textExcerpt,
+    })
+    .from(emailMessages)
+    .where(
+      and(
+        eq(emailMessages.accountId, message.accountId),
+        eq(emailMessages.threadId, message.threadId),
+        ne(emailMessages.id, message.id),
+        // `lte` e non un template `sql`: dentro un template il `Date` viene
+        // passato come parametro senza il tipo, e Postgres rifiuta il
+        // confronto con `timestamptz`.
+        lte(emailMessages.receivedAt, message.receivedAt),
+      ),
+    )
+    .orderBy(desc(emailMessages.receivedAt), desc(emailMessages.id))
+    .limit(CLASSIFY_THREAD_MESSAGES);
+
+  return rows
+    .reverse()
+    .map((row) => ({
+      fromAddress: row.fromAddress,
+      receivedAt: row.receivedAt,
+      text: capText(
+        (row.textExcerpt ?? "").trim(),
+        CLASSIFY_THREAD_MESSAGE_CHARS,
+        "…",
+      ),
+    }))
+    .filter((row) => row.text !== "");
+}
+
 async function loadContext(
   db: Db,
   message: EmailMessageRow,
@@ -1113,6 +1204,7 @@ export async function classifyEmail(
       }),
       citedTicketNumbers: ctx.citedTicketNumbers,
       truncated,
+      threadMessages: await loadThreadContext(deps.db, message),
     });
 
     // Il run: nessun tool, una cwd temporanea VUOTA (l'agente non deve avere
@@ -1344,13 +1436,40 @@ export async function classifyNewMessages(
     }
   }
 
-  const pending = await deps.db
+  // ⚠️ `admitted` (Task 10): un messaggio tirato dentro come CONTESTO del
+  // thread non si classifica MAI e non genera mai una proposta, in nessun
+  // percorso. È il limite che rende accettabile l'allargamento del cancello
+  // dell'ammissione (design §2).
+  const candidates = await deps.db
     .select()
     .from(emailMessages)
-    .where(and(eq(emailMessages.accountId, accountId), eq(emailMessages.status, "new")))
+    .where(
+      and(
+        eq(emailMessages.accountId, accountId),
+        eq(emailMessages.status, "new"),
+        eq(emailMessages.admitted, true),
+      ),
+    )
     .orderBy(asc(emailMessages.receivedAt), asc(emailMessages.id))
     .limit(Math.trunc(deps.maxPerTick));
-  if (pending.length === 0) return stats;
+  if (candidates.length === 0) return stats;
+
+  // Di un thread si classifica L'ULTIMO messaggio ammesso, non ognuno
+  // (design §3): «una proposta per RICHIESTA, non per messaggio». I tre
+  // thread con più proposte che erano in produzione al 14 set 2026 sono
+  // esattamente tre messaggi contati come tre richieste.
+  //
+  // Il raggruppamento è in memoria e non in SQL perché la lista è già
+  // capata a `maxPerTick` (20 di default): una `DISTINCT ON` costerebbe una
+  // query più difficile da leggere per ordinare venti righe.
+  const lastByThread = new Map<string, (typeof candidates)[number]>();
+  for (const message of candidates) {
+    // `candidates` è ordinata per `receivedAt` crescente: l'ultimo che
+    // sovrascrive è il più recente del thread.
+    lastByThread.set(message.threadId, message);
+  }
+  const pending = [...lastByThread.values()];
+  const superseded = candidates.filter((m) => lastByThread.get(m.threadId)?.id !== m.id);
 
   const lang = deps.lang ?? (await getContentLanguage(deps.db));
   let provider = deps.provider;
@@ -1395,6 +1514,30 @@ export async function classifyNewMessages(
       message,
     );
     stats[outcome] += 1;
+
+    // I messaggi ammessi PRECEDENTI dello stesso thread non devono restare
+    // `new` — verrebbero ripescati a ogni tick, occupando uno slot del tetto
+    // per sempre — ma nemmeno generare una proposta propria: la loro
+    // richiesta è stata valutata dentro quella dell'ultimo, che li ha letti
+    // come contesto. Si chiudono con un esito che dice DA COSA sono stati
+    // superati, mai in silenzio (design §3).
+    //
+    // Dopo la classificazione e non prima: se questa fallisce, restano
+    // `new` e il giro dopo ci riprova — la selezione li salta comunque,
+    // quindi non c'è nessun ciclo.
+    if (outcome !== "failed") {
+      const sameThread = superseded.filter((m) => m.threadId === message.threadId);
+      for (const older of sameThread) {
+        await deps.db
+          .update(emailMessages)
+          .set({
+            status: "ignored",
+            outcome: { type: "superseded_in_thread", byMessageId: message.id },
+          })
+          .where(eq(emailMessages.id, older.id));
+        stats.ignored += 1;
+      }
+    }
   }
   return stats;
 }

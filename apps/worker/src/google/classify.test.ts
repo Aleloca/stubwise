@@ -968,7 +968,15 @@ describe("classifyNewMessages: difese di costo (fase 6c, Task 6)", () => {
     expect((await reload(message.id)).status).toBe("ignored");
   });
 
-  it("due messaggi dello stesso thread nella finestra di cooldown → uno solo viene classificato, l'altro resta `new`", async () => {
+  // ⚠️ I TRE TEST QUI SOTTO SONO CAMBIATI con «la posta si legge per
+  // conversazione» §3 (Task 10), e il cambiamento è voluto: prima fissavano
+  // che due messaggi dello stesso thread ricevessero DUE run (limitati solo
+  // dal cooldown); ora di un thread si classifica L'ULTIMO messaggio, e i
+  // precedenti si chiudono come superati — «una proposta per RICHIESTA, non
+  // per messaggio». Il cooldown non è sparito: protegge FRA un tick e
+  // l'altro (guarda `agent_runs`), che è il caso per cui esiste — dentro lo
+  // stesso tick ora c'è comunque una classificazione sola per thread.
+  it("due messaggi dello stesso thread: si classifica L'ULTIMO, il precedente si chiude come superato", async () => {
     const account = await seedAccount();
     const projectId = await seedProject("Portale");
     const threadId = `th-${randomUUID()}`;
@@ -989,13 +997,19 @@ describe("classifyNewMessages: difese di costo (fase 6c, Task 6)", () => {
       account.id,
     );
 
-    expect(stats).toEqual({ classified: 0, ignored: 1, failed: 0 });
+    // UN run per il thread, non due.
     expect(runner.calls).toHaveLength(1);
-    expect((await reload(first.id)).status).toBe("ignored");
-    expect((await reload(second.id)).status).toBe("new");
+    // Il più recente è quello valutato.
+    expect((await reload(second.id)).status).toBe("ignored");
+    // Il precedente NON resta `new` (verrebbe ripescato per sempre) e non
+    // genera una proposta propria: si chiude dicendo DA COSA è superato.
+    const older = await reload(first.id);
+    expect(older.status).toBe("ignored");
+    expect(older.outcome).toEqual({ type: "superseded_in_thread", byMessageId: second.id });
+    expect(stats.ignored).toBe(2);
   });
 
-  it("cooldown a 0 → disattivato, entrambi i messaggi dello stesso thread vengono classificati", async () => {
+  it("cooldown a 0: la regola del thread non dipende dal cooldown, resta una classificazione sola", async () => {
     const account = await seedAccount();
     const projectId = await seedProject("Portale");
     const threadId = `th-${randomUUID()}`;
@@ -1009,20 +1023,21 @@ describe("classifyNewMessages: difese di costo (fase 6c, Task 6)", () => {
       threadId,
       receivedAt: new Date("2026-09-02T08:00:00.000Z"),
     });
-    const runner = new FakeRunner([modelOutput({ signal: "none" }), modelOutput({ signal: "none" })]);
+    const runner = new FakeRunner([modelOutput({ signal: "none" })]);
 
-    const stats = await classifyNewMessages(
+    await classifyNewMessages(
       { ...deps(runner), maxPerTick: 20, encryptionKey: ENCRYPTION_KEY, threadCooldownMinutes: 0 },
       account.id,
     );
 
-    expect(stats).toEqual({ classified: 0, ignored: 2, failed: 0 });
-    expect(runner.calls).toHaveLength(2);
-    expect((await reload(first.id)).status).toBe("ignored");
-    expect((await reload(second.id)).status).toBe("ignored");
+    expect(runner.calls).toHaveLength(1);
+    expect((await reload(first.id)).outcome).toEqual({
+      type: "superseded_in_thread",
+      byMessageId: second.id,
+    });
   });
 
-  it("un thread in cooldown non blocca la coda: il messaggio successivo non correlato riceve comunque un run nello stesso tick", async () => {
+  it("un messaggio non correlato riceve comunque il suo run nello stesso tick", async () => {
     const account = await seedAccount();
     const projectId = await seedProject("Portale");
     const threadId = `th-${randomUUID()}`;
@@ -1041,21 +1056,232 @@ describe("classifyNewMessages: difese di costo (fase 6c, Task 6)", () => {
       receivedAt: new Date("2026-09-03T08:00:00.000Z"),
     });
     const runner = new FakeRunner([modelOutput({ signal: "none" }), modelOutput({ signal: "none" })]);
+
+    await classifyNewMessages(
+      { ...deps(runner), maxPerTick: 20, encryptionKey: ENCRYPTION_KEY, threadCooldownMinutes: 60 },
+      account.id,
+    );
+
+    // Due run: l'ultimo del thread, più il messaggio non correlato.
+    expect(runner.calls).toHaveLength(2);
+    expect((await reload(secondOfThread.id)).status).toBe("ignored");
+    expect((await reload(unrelated.id)).status).toBe("ignored");
+    expect((await reload(firstOfThread.id)).outcome).toEqual({
+      type: "superseded_in_thread",
+      byMessageId: secondOfThread.id,
+    });
+  });
+
+  it("il cooldown FRA TICK regge ancora: un thread classificato da poco viene saltato", async () => {
+    // È il caso per cui il cooldown esiste davvero, ora che dentro un tick
+    // la regola del thread fa già il suo: una risposta che arriva dieci
+    // minuti dopo non paga subito un secondo run.
+    const account = await seedAccount();
+    const projectId = await seedProject("Portale");
+    const threadId = `th-${randomUUID()}`;
+    const first = await seedMessage(account.id, {
+      projectId,
+      threadId,
+      receivedAt: new Date("2026-09-01T08:00:00.000Z"),
+    });
+
+    // Primo tick: classifica e lascia una riga in `agent_runs`.
+    await classifyNewMessages(
+      {
+        ...deps(new FakeRunner([modelOutput({ signal: "none" })])),
+        maxPerTick: 20,
+        encryptionKey: ENCRYPTION_KEY,
+        threadCooldownMinutes: 60,
+      },
+      account.id,
+    );
+    expect((await reload(first.id)).status).toBe("ignored");
+
+    // Arriva una risposta sullo stesso thread, subito dopo.
+    const reply = await seedMessage(account.id, {
+      projectId,
+      threadId,
+      receivedAt: new Date("2026-09-01T08:10:00.000Z"),
+    });
+    const runner = new FakeRunner([modelOutput({ signal: "none" })]);
     const { logger, infos } = captureLogger();
 
-    const stats = await classifyNewMessages(
+    await classifyNewMessages(
       { ...deps(runner, { logger }), maxPerTick: 20, encryptionKey: ENCRYPTION_KEY, threadCooldownMinutes: 60 },
       account.id,
     );
 
-    expect(stats).toEqual({ classified: 0, ignored: 2, failed: 0 });
-    expect(runner.calls).toHaveLength(2);
-    expect((await reload(firstOfThread.id)).status).toBe("ignored");
-    expect((await reload(secondOfThread.id)).status).toBe("new");
-    expect((await reload(unrelated.id)).status).toBe("ignored");
-    // Il log del salto nomina il messaggio saltato (il secondo del thread),
-    // non uno dei due che sono stati davvero classificati.
-    expect(infos.some((m) => m.includes(secondOfThread.id))).toBe(true);
+    expect(runner.calls).toHaveLength(0);
+    expect((await reload(reply.id)).status).toBe("new");
+    expect(infos.some((m) => m.includes(reply.id))).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// «La posta si legge per conversazione» §3, Task 10 — il thread si legge
+// intero, e solo l'ultimo propone
+// ---------------------------------------------------------------------------
+
+describe("classifyNewMessages: il thread, non il messaggio", () => {
+  it("un messaggio di CONTESTO (`admitted: false`) non viene MAI classificato", async () => {
+    // È il limite che rende accettabile l'allargamento del cancello
+    // dell'ammissione (design §2): il contesto entra per farsi leggere, non
+    // per proporre.
+    const account = await seedAccount();
+    const projectId = await seedProject("Portale");
+    const contesto = await seedMessage(account.id, { projectId, admitted: false });
+    const runner = new FakeRunner([modelOutput({ signal: "none" })]);
+
+    const stats = await classifyNewMessages(
+      { ...deps(runner), maxPerTick: 20, encryptionKey: ENCRYPTION_KEY },
+      account.id,
+    );
+
+    expect(runner.calls).toHaveLength(0);
+    expect(stats).toEqual({ classified: 0, ignored: 0, failed: 0 });
+    // Resta `new`: non è "ignorato", è che non è affar suo — e la potatura
+    // lo porterà via col suo thread (Task 9).
+    expect((await reload(contesto.id)).status).toBe("new");
+  });
+
+  it("tre messaggi ammessi nello stesso thread producono UNA classificazione, non tre", async () => {
+    const account = await seedAccount();
+    const projectId = await seedProject("Portale");
+    const threadId = `th-${randomUUID()}`;
+    const uno = await seedMessage(account.id, {
+      projectId,
+      threadId,
+      receivedAt: new Date("2026-09-01T08:00:00.000Z"),
+    });
+    const due = await seedMessage(account.id, {
+      projectId,
+      threadId,
+      receivedAt: new Date("2026-09-02T08:00:00.000Z"),
+    });
+    const tre = await seedMessage(account.id, {
+      projectId,
+      threadId,
+      receivedAt: new Date("2026-09-03T08:00:00.000Z"),
+    });
+    const runner = new FakeRunner([modelOutput({ signal: "none" })]);
+
+    await classifyNewMessages(
+      { ...deps(runner), maxPerTick: 20, encryptionKey: ENCRYPTION_KEY, threadCooldownMinutes: 0 },
+      account.id,
+    );
+
+    expect(runner.calls).toHaveLength(1);
+    expect((await reload(tre.id)).status).toBe("ignored");
+    for (const older of [uno, due]) {
+      const row = await reload(older.id);
+      expect(row.outcome).toEqual({ type: "superseded_in_thread", byMessageId: tre.id });
+    }
+  });
+
+  it("il prompt porta i messaggi PRECEDENTI del thread, contesto compreso", async () => {
+    const account = await seedAccount();
+    const projectId = await seedProject("Portale");
+    const threadId = `th-${randomUUID()}`;
+    await seedMessage(account.id, {
+      projectId,
+      threadId,
+      admitted: false,
+      textExcerpt: "PRIMA EMAIL della conversazione",
+      receivedAt: new Date("2026-09-01T08:00:00.000Z"),
+    });
+    await seedMessage(account.id, {
+      projectId,
+      threadId,
+      admitted: false,
+      textExcerpt: "SECONDA email, di contesto",
+      receivedAt: new Date("2026-09-02T08:00:00.000Z"),
+    });
+    await seedMessage(account.id, {
+      projectId,
+      threadId,
+      textExcerpt: "ULTIMA email, quella da valutare",
+      receivedAt: new Date("2026-09-03T08:00:00.000Z"),
+    });
+    const runner = new FakeRunner([modelOutput({ signal: "none" })]);
+
+    await classifyNewMessages(
+      { ...deps(runner), maxPerTick: 20, encryptionKey: ENCRYPTION_KEY, threadCooldownMinutes: 0 },
+      account.id,
+    );
+
+    const prompt = runner.calls[0]?.prompt ?? "";
+    expect(prompt).toContain("PRIMA EMAIL della conversazione");
+    expect(prompt).toContain("SECONDA email, di contesto");
+    expect(prompt).toContain("ULTIMA email, quella da valutare");
+    // I precedenti stanno PRIMA del messaggio da valutare, che resta dentro
+    // i delimitatori: il modello deve sapere su cosa sta decidendo.
+    expect(prompt.indexOf("PRIMA EMAIL")).toBeLessThan(prompt.indexOf("ULTIMA email"));
+  });
+
+  it("il contesto è CAPATO: un thread lungo non fa crescere il prompt all'infinito", async () => {
+    // Il costo di un run non deve crescere con la lunghezza della
+    // conversazione (design §3): `CLASSIFY_THREAD_MESSAGES` è il tetto.
+    const account = await seedAccount();
+    const projectId = await seedProject("Portale");
+    const threadId = `th-${randomUUID()}`;
+    for (let i = 0; i < 12; i += 1) {
+      await seedMessage(account.id, {
+        projectId,
+        threadId,
+        admitted: false,
+        textExcerpt: `messaggio numero ${i}`,
+        receivedAt: new Date(`2026-09-${String(i + 1).padStart(2, "0")}T08:00:00.000Z`),
+      });
+    }
+    await seedMessage(account.id, {
+      projectId,
+      threadId,
+      textExcerpt: "l'ultima",
+      receivedAt: new Date("2026-09-20T08:00:00.000Z"),
+    });
+    const runner = new FakeRunner([modelOutput({ signal: "none" })]);
+
+    await classifyNewMessages(
+      { ...deps(runner), maxPerTick: 20, encryptionKey: ENCRYPTION_KEY, threadCooldownMinutes: 0 },
+      account.id,
+    );
+
+    const prompt = runner.calls[0]?.prompt ?? "";
+    // Gli ULTIMI cinque prima di quello valutato: i numeri 7..11.
+    expect(prompt).toContain("messaggio numero 11");
+    expect(prompt).toContain("messaggio numero 7");
+    // I più vecchi restano fuori: è la coda della conversazione che spiega
+    // l'ultima email, non l'inizio.
+    expect(prompt).not.toContain("messaggio numero 6");
+    expect(prompt).not.toContain("messaggio numero 0");
+  });
+
+  it("un thread di un'ALTRA casella non entra nel contesto, anche con lo stesso id Gmail", async () => {
+    const mia = await seedAccount();
+    const altra = await seedAccount({ email: `altra-${randomUUID()}@acme.com` });
+    const projectId = await seedProject("Portale");
+    const threadId = `th-condiviso-${randomUUID()}`;
+    await seedMessage(altra.id, {
+      projectId,
+      threadId,
+      admitted: false,
+      textExcerpt: "SEGRETO di un'altra casella",
+      receivedAt: new Date("2026-09-01T08:00:00.000Z"),
+    });
+    await seedMessage(mia.id, {
+      projectId,
+      threadId,
+      textExcerpt: "la mia email",
+      receivedAt: new Date("2026-09-02T08:00:00.000Z"),
+    });
+    const runner = new FakeRunner([modelOutput({ signal: "none" })]);
+
+    await classifyNewMessages(
+      { ...deps(runner), maxPerTick: 20, encryptionKey: ENCRYPTION_KEY, threadCooldownMinutes: 0 },
+      mia.id,
+    );
+
+    expect(runner.calls[0]?.prompt ?? "").not.toContain("SEGRETO di un'altra casella");
   });
 });
 
