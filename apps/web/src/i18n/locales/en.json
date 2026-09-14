@@ -2391,8 +2391,11 @@
       "excerptNotice": "Cleaned extract — no quotes, signature or attachments. This is the text the classifier saw.",
       "noExcerpt": "No extract saved for this message.",
       "readOriginal": "Read original on Gmail",
-      "readingOriginal": "Fetching from Google…",
-      "originalNotice": "Asking Google for this message now — nothing is saved.",
+      "readingOriginal": "Loading the message…",
+      "originalNotice": "The full message, as it arrived — quotes and signature included. If Stubwise doesn't already have a copy, it asks Google for it.",
+      "originalFromGoogle": "Asked Google just now.",
+      "originalFromCache": "Copy stored by Stubwise, read from Google {{when}}. A Gmail message never changes after it's sent.",
+      "originalFetchedUnknown": "earlier",
       "originalError": {
         "messageGone": "This message no longer exists on Gmail.",
         "tokenExpired": "This Google account needs to be reconnected.",

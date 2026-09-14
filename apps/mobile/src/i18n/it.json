@@ -527,8 +527,11 @@
         "excerptMissing": "Nessun estratto salvato — questo messaggio è arrivato prima che Stubwise leggesse la posta.",
         "originalTitle": "Originale",
         "showOriginal": "Mostra l'originale",
-        "originalNote": "Chiede il messaggio a Google adesso — non salva nulla, è solo una rilettura.",
-        "originalLoading": "Sto chiedendo il messaggio a Google…",
+        "originalNote": "Il messaggio completo, com'è arrivato — citazioni e firma comprese. Se Stubwise non ne ha già una copia, lo chiede a Google.",
+        "originalFromGoogle": "Chiesto a Google adesso.",
+        "originalFromCache": "Copia salvata da Stubwise, letta da Google {{when}} fa. Un messaggio Gmail non cambia dopo l'invio.",
+        "originalFetchedUnknown": "in precedenza",
+        "originalLoading": "Carico il messaggio…",
         "attachments_one": "{{count}} allegato: {{names}}",
         "attachments_other": "{{count}} allegati: {{names}}"
       }
