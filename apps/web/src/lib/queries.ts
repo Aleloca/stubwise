@@ -17,6 +17,8 @@ import {
   getMailAdmission,
   getMailDetail,
   getMailSummary,
+  getMailThread,
+  getMailThreads,
   getGoogleWorkspaces,
   getMyGoogleAccounts,
   getMyGoogleWorkspaceOptions,
@@ -1272,6 +1274,9 @@ export const mailKeys = {
   summary: () => [...mailKeys.all, "summary"] as const,
   /** Fase 7b, Task 6: il dettaglio di un'email, per source+id. */
   detail: (source: "email" | "email_triage", id: string) => [...mailKeys.all, "detail", source, id] as const,
+  /** La lista per CONVERSAZIONE, distinta da quella per messaggio. */
+  threads: (account?: string) => [...mailKeys.all, "threads", account ?? null] as const,
+  thread: (threadId: string) => [...mailKeys.all, "thread", threadId] as const,
 };
 
 /**
@@ -1294,6 +1299,28 @@ export function mailQueryOptions(filters: MailFilters = {}) {
  * deve accorgersi in tempo reale di un evento nuovo, il numero si allinea
  * quando si visita la pagina o si naviga altrove e si torna).
  */
+/** La lista per conversazione. Stesso `staleTime` di quella per messaggio. */
+export function mailThreadsQueryOptions(account?: string) {
+  return queryOptions({
+    queryKey: mailKeys.threads(account),
+    queryFn: () => getMailThreads(account ? { account } : {}),
+    staleTime: 10_000,
+  });
+}
+
+/**
+ * I messaggi di una conversazione. `staleTime` largo come il dettaglio di un
+ * messaggio: gli estratti non cambiano dopo che il poller li ha scritti, e un
+ * messaggio nuovo del thread arriva col prossimo giro della lista.
+ */
+export function mailThreadQueryOptions(threadId: string) {
+  return queryOptions({
+    queryKey: mailKeys.thread(threadId),
+    queryFn: () => getMailThread(threadId),
+    staleTime: 60_000,
+  });
+}
+
 export const mailSummaryQueryOptions = queryOptions({
   queryKey: mailKeys.summary(),
   queryFn: getMailSummary,

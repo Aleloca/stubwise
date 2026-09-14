@@ -457,6 +457,14 @@ export const mailItemSchema = z.object({
    * obbligatorio).
    */
   kind: mailItemKindSchema.optional().default("proposal"),
+  /**
+   * Il thread Gmail di una riga EMAIL («la posta si legge per conversazione»),
+   * per aprire la conversazione da una riga della lista per messaggio.
+   * `null` per il calendario, che thread non ne ha — e su una risposta
+   * scritta prima di questo campo, dove il default lo rende assente senza
+   * far fallire il parse.
+   */
+  threadId: z.string().nullable().default(null),
   accountId: z.uuid(),
   /** L'email della casella Google da cui la riga è arrivata. */
   accountEmail: z.string(),

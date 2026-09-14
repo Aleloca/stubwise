@@ -1,7 +1,7 @@
 import type { MailItem } from "@stubwise/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, RouterProvider } from "@tanstack/react-router";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createAppRouter } from "../router";
@@ -72,6 +72,7 @@ const GOOGLE_ACCOUNTS = [
 function mailItem(overrides: Partial<MailItem> & Pick<MailItem, "id" | "source">): MailItem {
   return {
     kind: "proposal",
+    threadId: null,
     accountId: ACCOUNT_ID,
     accountEmail: "mailbox@acme.test",
     projectId: PROJECT_ID,
@@ -108,6 +109,19 @@ const CALENDAR_ITEM = mailItem({
   reproposable: true,
 });
 
+/** Una conversazione della lista per thread («la posta si legge per conversazione» §4). */
+const THREAD_ITEM = {
+  threadId: "thread-1",
+  accountId: ACCOUNT_ID,
+  accountEmail: "mailbox@acme.test",
+  subject: "Re: Ship next week?",
+  lastFrom: "marco@cliente.test",
+  lastReceivedAt: "2026-09-09T09:00:00.000Z",
+  messageCount: 3,
+  openProposals: 1,
+  projectNames: ["Apollo"],
+};
+
 function baseApi(overrides: Record<string, Handler> = {}): Record<string, Handler> {
   return {
     "GET /api/auth/me": () =>
@@ -119,6 +133,7 @@ function baseApi(overrides: Record<string, Handler> = {}): Record<string, Handle
     "GET /api/me/google/accounts": () => jsonResponse(200, GOOGLE_ACCOUNTS),
     "GET /api/me/mail/summary": () => jsonResponse(200, { openProposals: 0, failed: 0, ignored: 0 }),
     "GET /api/me/mail": () => jsonResponse(200, { items: [EMAIL_ITEM, CALENDAR_ITEM], nextCursor: null }),
+    "GET /api/me/mail/threads": () => jsonResponse(200, { items: [THREAD_ITEM], nextCursor: null }),
     ...overrides,
   };
 }
@@ -135,11 +150,27 @@ function renderMail() {
   return queryClient;
 }
 
+/**
+ * Rende la pagina e passa alla vista per MESSAGGI.
+ *
+ * ⚠️ Da «la posta si legge per conversazione» §4 la pagina nasce sulla vista
+ * per CONVERSAZIONI, quindi i test che guardano le righe per messaggio — i
+ * filtri per stato e progetto, il calendario nella lista fusa, «Riproponi» —
+ * devono dire esplicitamente quale vista stanno esercitando. Non è un
+ * accorgimento per farli passare: è che ora le viste sono due, e un test che
+ * non dice quale guarda diventerebbe ambiguo al primo cambio di default.
+ */
+async function renderMailMessages() {
+  const queryClient = renderMail();
+  await screen.findByRole("heading", { name: "Mail" });
+  await userEvent.click(screen.getByTestId("mail-view-messages"));
+  return queryClient;
+}
+
 describe("pagina /mail", () => {
   it("elenca posta e calendario, con progetto, segnale e stato", async () => {
     mockApi(baseApi());
-    renderMail();
-    await screen.findByRole("heading", { name: "Mail" });
+    await renderMailMessages();
 
     expect(screen.getByText(/Ship next week\?/)).toBeInTheDocument();
     expect(screen.getByText(/Demo col cliente/)).toBeInTheDocument();
@@ -155,8 +186,7 @@ describe("pagina /mail", () => {
 
   it("fase 7b, Task 8: la riga email porta un link al dettaglio, il calendario no", async () => {
     mockApi(baseApi());
-    renderMail();
-    await screen.findByRole("heading", { name: "Mail" });
+    await renderMailMessages();
 
     const detailLinks = screen.getAllByRole("link", { name: "Read in Stubwise" });
     expect(detailLinks).toHaveLength(1);
@@ -165,8 +195,7 @@ describe("pagina /mail", () => {
 
   it("il link 'Open' apre in una scheda nuova", async () => {
     mockApi(baseApi());
-    renderMail();
-    await screen.findByRole("heading", { name: "Mail" });
+    await renderMailMessages();
 
     const links = screen.getAllByRole("link", { name: "Open" });
     for (const link of links) {
@@ -181,8 +210,7 @@ describe("pagina /mail", () => {
 
   it("'Repropose' compare solo sulla riga failed/ignored", async () => {
     mockApi(baseApi());
-    renderMail();
-    await screen.findByRole("heading", { name: "Mail" });
+    await renderMailMessages();
 
     // Solo una riga (quella failed) ha il bottone.
     expect(screen.getAllByRole("button", { name: "Repropose" })).toHaveLength(1);
@@ -212,8 +240,7 @@ describe("pagina /mail", () => {
           }),
       }),
     );
-    renderMail();
-    await screen.findByRole("heading", { name: "Mail" });
+    await renderMailMessages();
 
     await userEvent.click(screen.getByRole("button", { name: "Repropose" }));
 
@@ -233,8 +260,7 @@ describe("pagina /mail", () => {
           jsonResponse(409, { code: "not_reproposable", message: "Cannot repropose" }),
       }),
     );
-    renderMail();
-    await screen.findByRole("heading", { name: "Mail" });
+    await renderMailMessages();
 
     await userEvent.click(screen.getByRole("button", { name: "Repropose" }));
 
@@ -254,8 +280,7 @@ describe("pagina /mail", () => {
         },
       }),
     );
-    renderMail();
-    await screen.findByRole("heading", { name: "Mail" });
+    await renderMailMessages();
 
     await userEvent.selectOptions(screen.getByLabelText("Project"), "Apollo");
 
@@ -269,16 +294,14 @@ describe("pagina /mail", () => {
           jsonResponse(200, { openProposals: 3, failed: 1, ignored: 0 }),
       }),
     );
-    renderMail();
-    await screen.findByRole("heading", { name: "Mail" });
+    await renderMailMessages();
 
     expect(await screen.findByTestId("mail-open-proposals-badge")).toHaveTextContent("3 open");
   });
 
   it("lista vuota: il vuoto, non un errore", async () => {
     mockApi(baseApi({ "GET /api/me/mail": () => jsonResponse(200, { items: [], nextCursor: null }) }));
-    renderMail();
-    await screen.findByRole("heading", { name: "Mail" });
+    await renderMailMessages();
 
     expect(await screen.findByText("// no mail")).toBeInTheDocument();
   });
@@ -317,8 +340,7 @@ describe("pagina /mail", () => {
         },
       }),
     );
-    renderMail();
-    await screen.findByRole("heading", { name: "Mail" });
+    await renderMailMessages();
 
     // Stesso mittente/oggetto, due righe distinte con un progetto diverso.
     expect(screen.getAllByText(/Recap multi-progetto/)).toHaveLength(2);
@@ -347,7 +369,7 @@ describe("pagina /mail", () => {
             : jsonResponse(200, { items: [EMAIL_ITEM], nextCursor: null }),
       }),
     );
-    renderMail();
+    await renderMailMessages();
 
     expect(await screen.findByText("Could not load Mail.")).toBeInTheDocument();
 
@@ -369,8 +391,7 @@ describe("pagina /mail", () => {
         status: "classified",
       });
       mockApi(baseApi({ "GET /api/me/mail": () => jsonResponse(200, { items: [triageItem], nextCursor: null }) }));
-      renderMail();
-      await screen.findByRole("heading", { name: "Mail" });
+      await renderMailMessages();
 
       expect(await screen.findByText(/Rinnovo contratto\?/)).toBeInTheDocument();
       expect(screen.getByTestId("mail-triage-badge")).toBeInTheDocument();
@@ -391,8 +412,7 @@ describe("pagina /mail", () => {
         reproposable: true,
       });
       mockApi(baseApi({ "GET /api/me/mail": () => jsonResponse(200, { items: [dismissedItem], nextCursor: null }) }));
-      renderMail();
-      await screen.findByRole("heading", { name: "Mail" });
+      await renderMailMessages();
 
       expect(
         await screen.findByText("Sorted — none of the suggested projects matched"),
@@ -423,8 +443,7 @@ describe("pagina /mail", () => {
           },
         }),
       );
-      renderMail();
-      await screen.findByRole("heading", { name: "Mail" });
+      await renderMailMessages();
 
       await userEvent.click(screen.getByRole("button", { name: "Repropose" }));
 
@@ -433,5 +452,89 @@ describe("pagina /mail", () => {
       );
       expect(await screen.findByText("Reproposed — check the inbox for the new proposal")).toBeInTheDocument();
     });
+  });
+});
+
+
+describe("pagina /mail — la vista per CONVERSAZIONI (§4)", () => {
+  it("è la vista di DEFAULT: si aprono conversazioni, non messaggi", async () => {
+    mockApi(baseApi());
+    renderMail();
+    await screen.findByRole("heading", { name: "Mail" });
+
+    expect(await screen.findByTestId("mail-thread-list")).toBeInTheDocument();
+    expect(screen.getByText("Re: Ship next week?")).toBeInTheDocument();
+    expect(screen.getByText("marco@cliente.test")).toBeInTheDocument();
+    // Quanti messaggi contiene e quante proposte aspettano una decisione.
+    expect(screen.getByText("3 messages")).toBeInTheDocument();
+    expect(screen.getByText("1 open proposal")).toBeInTheDocument();
+  });
+
+  it("aprendo una conversazione si leggono i messaggi IN ORDINE, col contesto dichiarato", async () => {
+    mockApi(
+      baseApi({
+        "GET /api/me/mail/threads/thread-1": () =>
+          jsonResponse(200, {
+            threadId: "thread-1",
+            accountId: ACCOUNT_ID,
+            accountEmail: "mailbox@acme.test",
+            subject: "Re: Ship next week?",
+            url: "https://mail.google.com/x",
+            messages: [
+              {
+                id: "11111111-1111-4111-8111-111111111111",
+                from: "laura@cliente.test",
+                to: [],
+                receivedAt: "2026-09-07T09:00:00.000Z",
+                textExcerpt: "La PRIMA email della conversazione",
+                admitted: false,
+                proposalIds: [],
+              },
+              {
+                id: "22222222-2222-4222-8222-222222222222",
+                from: "marco@cliente.test",
+                to: [],
+                receivedAt: "2026-09-09T09:00:00.000Z",
+                textExcerpt: "L'ULTIMA email",
+                admitted: true,
+                proposalIds: [],
+              },
+            ],
+          }),
+      }),
+    );
+    renderMail();
+    await screen.findByTestId("mail-thread-list");
+
+    await userEvent.click(screen.getByTestId("mail-thread-row-thread-1"));
+
+    const pane = await screen.findByTestId("mail-thread-pane");
+    expect(within(pane).getByText("La PRIMA email della conversazione")).toBeInTheDocument();
+    expect(within(pane).getByText("L'ULTIMA email")).toBeInTheDocument();
+    // Un messaggio di CONTESTO si dichiara: non è uno che «non ha ancora»
+    // prodotto una proposta, è uno che non ne produrrà mai.
+    expect(within(pane).getByText(/Context message/)).toBeInTheDocument();
+  });
+
+  it("chiudendo la conversazione si torna al prompt di selezione", async () => {
+    mockApi(
+      baseApi({
+        "GET /api/me/mail/threads/thread-1": () =>
+          jsonResponse(200, {
+            threadId: "thread-1",
+            accountId: ACCOUNT_ID,
+            accountEmail: "mailbox@acme.test",
+            url: "https://mail.google.com/x",
+            messages: [],
+          }),
+      }),
+    );
+    renderMail();
+    await screen.findByTestId("mail-thread-list");
+    await userEvent.click(screen.getByTestId("mail-thread-row-thread-1"));
+    await screen.findByTestId("mail-thread-pane");
+
+    await userEvent.click(screen.getByTestId("mail-thread-close"));
+    await waitFor(() => expect(screen.queryByTestId("mail-thread-pane")).not.toBeInTheDocument());
   });
 });

@@ -47,6 +47,8 @@ import type {
   MailAdmission,
   MailAdmissionPatch,
   MailDetail,
+  MailThreadDetail,
+  MailThreadPage,
   MailItemStatus,
   MailOriginal,
   MailPage,
@@ -1949,7 +1951,25 @@ export function postMailRepropose(source: MailSource, id: string): Promise<{ ok:
   return api.post(`/api/me/mail/${source}/${encodeURIComponent(id)}/repropose`);
 }
 
-export type { MailDetail, MailOriginal } from "@stubwise/shared";
+export type { MailDetail, MailOriginal, MailThreadDetail, MailThreadPage } from "@stubwise/shared";
+
+/**
+ * La posta per CONVERSAZIONE («la posta si legge per conversazione» §4):
+ * una riga per thread. Vive ACCANTO a {@link getMail}, che resta per la
+ * lista fusa con il calendario — quello thread non ne ha.
+ */
+export function getMailThreads(params: { account?: string; cursor?: string } = {}): Promise<MailThreadPage> {
+  const query = new URLSearchParams();
+  if (params.account) query.set("account", params.account);
+  if (params.cursor) query.set("cursor", params.cursor);
+  const qs = query.toString();
+  return api.get(`/api/me/mail/threads${qs ? `?${qs}` : ""}`);
+}
+
+/** I messaggi di UNA conversazione, in ordine, ciascuno con la sua provenienza. */
+export function getMailThread(threadId: string): Promise<MailThreadDetail> {
+  return api.get(`/api/me/mail/threads/${encodeURIComponent(threadId)}`);
+}
 
 /** Il dettaglio di un'email dall'estratto già in database — nessuna chiamata a Google (fase 7b, Task 6). */
 export function getMailDetail(

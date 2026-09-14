@@ -291,6 +291,8 @@ async function queryEmailCandidates(db: Db, input: ListMailInput): Promise<MailI
     outcome: row.outcome,
     error: row.error,
     url: gmailThreadUrl(row.accountEmail, row.threadId),
+    // Per aprire la CONVERSAZIONE da una riga della lista per messaggio.
+    threadId: row.threadId,
     reproposable: row.status === "failed" || row.status === "ignored",
   }));
 }
@@ -392,6 +394,8 @@ async function queryTriageCandidates(db: Db, input: ListMailInput): Promise<Mail
     outcome: row.outcome,
     error: row.error,
     url: gmailThreadUrl(row.accountEmail, row.threadId),
+    // Per aprire la CONVERSAZIONE da una riga della lista per messaggio.
+    threadId: row.threadId,
     // Riproponibile SOLO da uno smistamento CHIUSO con «nessuno di questi»
     // — non un `ignored` qualsiasi, che qui per costruzione non esiste (vedi
     // il docblock sopra), e MAI da `failed` (a differenza delle altre due
@@ -451,6 +455,9 @@ async function queryCalendarCandidates(db: Db, input: ListMailInput): Promise<Ma
       id: row.id,
       source: "calendar",
       kind: "calendar",
+      // Un appuntamento non ha un thread, e questa riga è il motivo per cui
+      // il campo è nullable invece che obbligatorio: la lista è FUSA.
+      threadId: null,
       accountId: row.accountId,
       accountEmail: row.accountEmail,
       projectId: row.projectId,

@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { getMailOriginal, type MailOriginal } from "../lib/api";
 import { formatRelativeTime } from "../lib/format";
-import { mailDetailQueryOptions } from "../lib/queries";
+import { mailDetailQueryOptions, mailThreadQueryOptions } from "../lib/queries";
 
 /**
  * Il pannello di LETTURA a destra (fase 9, Task 5, design §5): l'estratto già
@@ -260,5 +260,107 @@ function OriginalMessage({ original }: { original: MailOriginal }) {
         </div>
       )}
     </div>
+  );
+}
+
+
+/**
+ * Il pannello di lettura di una CONVERSAZIONE («la posta si legge per
+ * conversazione» §4): i messaggi in ordine, ciascuno col suo mittente, la sua
+ * data e il suo corpo.
+ *
+ * È anche ciò che dissolve il terzo sintomo da cui nasce tutto questo: non
+ * serve più indovinare dove finisce un'email dentro un blocco citato, perché
+ * i messaggi separati li dà Gmail, già separati. Per questo qui NON si
+ * spacchetta nessuna catena citata — sarebbe euristica su testo scritto da
+ * chiunque (design, «Cosa NON si fa»).
+ *
+ * Il corpo di ogni messaggio è l'ESTRATTO (`textExcerpt`): il messaggio
+ * originale, con citazioni e allegati, resta a un tap di distanza dalla
+ * vista per messaggio — una conversazione lunga di originali sarebbe di
+ * nuovo il muro di testo che si sta togliendo.
+ */
+export function MailThreadPane({ threadId, onClose }: { threadId: string; onClose: () => void }) {
+  const { t } = useTranslation();
+  const query = useQuery(mailThreadQueryOptions(threadId));
+
+  if (query.isPending) {
+    return (
+      <div aria-hidden="true" className="space-y-2">
+        <div className="h-4 w-2/3 rounded-sm bg-ink-800" />
+        <div className="h-3 w-1/3 rounded-sm bg-ink-800" />
+        <div className="h-24 rounded-sm bg-ink-800" />
+      </div>
+    );
+  }
+
+  if (query.isError || query.data === undefined) {
+    return <p className="text-sm text-fg-muted">{t("mail:detail.loadError")}</p>;
+  }
+
+  const thread = query.data;
+
+  return (
+    <article data-testid="mail-thread-pane">
+      <header className="flex items-start justify-between gap-3 border-b border-line pb-3">
+        <div className="min-w-0">
+          {/* NON FIDATO: React escapa. */}
+          <h2 className="truncate text-base font-semibold">{thread.subject ?? t("mail:noSubject")}</h2>
+          <p className="mt-0.5 font-mono text-[11px] text-fg-faint">
+            {t("mail:thread.messages", { count: thread.messages.length })} · {thread.accountEmail}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          data-testid="mail-thread-close"
+          className="shrink-0 font-mono text-[11px] text-fg-muted hover:text-fg"
+        >
+          {t("common:close")}
+        </button>
+      </header>
+
+      <ol className="mt-3 space-y-3">
+        {thread.messages.map((message) => (
+          <li
+            key={message.id}
+            data-testid={`mail-thread-message-${message.id}`}
+            className="rounded-sm border border-line bg-ink-950/40 p-3"
+          >
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="min-w-0 truncate font-mono text-[12px] text-fg-muted">{message.from}</span>
+              <time dateTime={message.receivedAt} className="shrink-0 font-mono text-[11px] text-fg-faint">
+                {formatRelativeTime(message.receivedAt)}
+              </time>
+            </div>
+            {/*
+             * Un messaggio di CONTESTO si dichiara tale: è entrato col
+             * thread di un ammesso e non produrrà mai una proposta. Senza
+             * questa riga sembrerebbe uno che non ne ha ancora prodotta —
+             * due cose diverse.
+             */}
+            {!message.admitted && (
+              <p className="mt-1 font-mono text-[11px] text-fg-faint">{t("mail:thread.context")}</p>
+            )}
+            {message.textExcerpt !== null ? (
+              <pre className="mt-2 max-h-64 overflow-auto text-sm whitespace-pre-wrap text-fg">
+                {message.textExcerpt}
+              </pre>
+            ) : (
+              <p className="mt-2 font-mono text-[11px] text-fg-faint">{t("mail:detail.noExcerpt")}</p>
+            )}
+          </li>
+        ))}
+      </ol>
+
+      <a
+        href={thread.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="mt-4 inline-flex min-h-9 items-center rounded-sm border border-line-strong px-3 font-mono text-[11px] tracking-[0.12em] text-fg-muted uppercase transition-colors hover:border-ink-700 hover:text-fg"
+      >
+        {t("mail:thread.openInGmail")}
+      </a>
+    </article>
   );
 }

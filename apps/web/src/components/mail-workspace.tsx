@@ -1,16 +1,17 @@
-import type { MailItem, MailItemStatus, MailSource } from "@stubwise/shared";
+import type { MailItem, MailItemStatus, MailSource, MailThreadItem } from "@stubwise/shared";
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { SignalBadge } from "./badges";
-import { MailReadingPane } from "./mail-reading-pane";
+import { MailReadingPane, MailThreadPane } from "./mail-reading-pane";
 import { FilterSelect } from "./ticket-filters";
 import { getMail, postMailRepropose, type MailFilters, type MailPage as MailPageData } from "../lib/api";
 import { formatRelativeTime } from "../lib/format";
 import {
   mailKeys,
   mailQueryOptions,
+  mailThreadsQueryOptions,
   mailSummaryQueryOptions,
   myGoogleAccountsQueryOptions,
   projectsQueryOptions,
@@ -68,6 +69,22 @@ export function MailWorkspace({ selected }: { selected: MailSelection | null }) 
   const [status, setStatus] = useState<MailItemStatus | undefined>(undefined);
   const [projectId, setProjectId] = useState<string | undefined>(undefined);
 
+  // La conversazione aperta nel pannello di lettura («la posta si legge per
+  // conversazione» §4). Convive col `selected` che arriva dalla ROTTA
+  // (`/mail/:source/:id`, il link dall'inbox): chi apre un thread dalla
+  // lista lo vede vincere, chi arriva da una notifica vede il suo
+  // messaggio. Senza questa distinzione il deep link avrebbe sempre la
+  // meglio e la lista non si potrebbe più usare.
+  const [openThread, setOpenThread] = useState<string | null>(null);
+  /**
+   * Conversazioni o messaggi. Il default è CONVERSAZIONI (design §4: «la
+   * lista mostra thread, non messaggi»), ma la vista per messaggio resta —
+   * è l'unica che ha i filtri per stato e per progetto, che su un thread non
+   * vorrebbero dire niente (una conversazione può toccare più progetti e
+   * avere più stati insieme), ed è l'unica che mostra anche il calendario.
+   */
+  const [view, setView] = useState<"threads" | "messages">("threads");
+
   const { data: accounts } = useSuspenseQuery(myGoogleAccountsQueryOptions);
   const { data: projects } = useSuspenseQuery(projectsQueryOptions);
   const { data: summary } = useQuery(mailSummaryQueryOptions);
@@ -79,6 +96,7 @@ export function MailWorkspace({ selected }: { selected: MailSelection | null }) 
   };
   const query = useQuery(mailQueryOptions(filters));
   const items = query.data?.items ?? [];
+  const threadsQuery = useQuery({ ...mailThreadsQueryOptions(account), enabled: view === "threads" });
   const projectNames = new Map(projects.map((project) => [project.id, project.name]));
 
   return (
@@ -99,8 +117,24 @@ export function MailWorkspace({ selected }: { selected: MailSelection | null }) 
       </header>
 
       <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-[200px_380px_1fr]">
-        {/* Colonna sinistra: caselle e filtri. */}
+        {/* Colonna sinistra: vista, caselle e filtri. */}
         <div className="flex flex-col gap-3 lg:border-r lg:border-line lg:pr-4">
+          <div className="flex overflow-hidden rounded-sm border border-line-strong">
+            {(["threads", "messages"] as const).map((v) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => setView(v)}
+                aria-pressed={v === view}
+                data-testid={`mail-view-${v}`}
+                className={`min-h-9 flex-1 px-2 font-mono text-[11px] tracking-[0.08em] uppercase transition-colors ${
+                  v === view ? "bg-signal text-ink-950" : "text-fg-muted hover:bg-ink-850 hover:text-fg"
+                }`}
+              >
+                {t(`mail:view.${v}`)}
+              </button>
+            ))}
+          </div>
           <FilterSelect
             id="mail-filter-account"
             label={t("mail:filters.account")}
@@ -129,7 +163,30 @@ export function MailWorkspace({ selected }: { selected: MailSelection | null }) 
 
         {/* Colonna centrale: la lista. */}
         <div className="min-w-0">
-          {query.isPending ? (
+          {view === "threads" ? (
+            threadsQuery.isPending ? (
+              <MailSkeleton />
+            ) : threadsQuery.isError ? (
+              <div className="rounded-sm border border-dashed border-line-strong px-4 py-12 text-center">
+                <p className="text-sm text-fg-muted">{t("mail:loadError")}</p>
+              </div>
+            ) : (threadsQuery.data?.items.length ?? 0) === 0 ? (
+              <p className="rounded-sm border border-dashed border-line-strong px-4 py-12 text-center font-mono text-[12px] text-fg-faint">
+                {t("mail:empty")}
+              </p>
+            ) : (
+              <div className="rounded-sm border border-line bg-ink-900" data-testid="mail-thread-list">
+                {threadsQuery.data!.items.map((thread) => (
+                  <ThreadRow
+                    key={`${thread.accountId}-${thread.threadId}`}
+                    thread={thread}
+                    selected={openThread === thread.threadId}
+                    onOpen={() => setOpenThread(thread.threadId)}
+                  />
+                ))}
+              </div>
+            )
+          ) : query.isPending ? (
             <MailSkeleton />
           ) : query.isError ? (
             <div className="rounded-sm border border-dashed border-line-strong px-4 py-12 text-center">
@@ -155,17 +212,24 @@ export function MailWorkspace({ selected }: { selected: MailSelection | null }) 
                   projectName={item.projectId ? projectNames.get(item.projectId) : undefined}
                   filters={filters}
                   selected={selected}
+                  {...(item.source === "email" && item.threadId
+                    ? { onOpenThread: () => setOpenThread(item.threadId!) }
+                    : {})}
                 />
               ))}
             </div>
           )}
 
-          {query.data?.nextCursor != null && <LoadMore filters={filters} />}
+          {view === "messages" && query.data?.nextCursor != null && <LoadMore filters={filters} />}
         </div>
 
         {/* Colonna destra: la lettura. */}
         <div className="min-w-0 rounded-sm border border-line bg-ink-900 p-4 lg:sticky lg:top-4 lg:self-start">
-          {selected ? (
+          {openThread !== null ? (
+            // La conversazione vince sul deep link: è stata aperta dopo, ed
+            // è quello che si sta guardando.
+            <MailThreadPane key={openThread} threadId={openThread} onClose={() => setOpenThread(null)} />
+          ) : selected ? (
             // Fix di review (bloccante, stessa classe del bug trovato in
             // `CalendarDetailPanel`): `/mail` e `/mail/:source/:id`
             // condividono la STESSA istanza di `MailWorkspace` fra un
@@ -418,5 +482,60 @@ function MailSkeleton() {
         </div>
       ))}
     </div>
+  );
+}
+
+
+/**
+ * UNA conversazione nella lista (design §4): oggetto, ultimo mittente e data
+ * dell'ultimo messaggio, quanti messaggi contiene, e — quando ce ne sono —
+ * quante proposte aspettano ancora una decisione.
+ *
+ * Un bottone e non un `Link`: la conversazione si apre nel pannello accanto,
+ * senza cambiare rotta. Le rotte `/mail/:source/:id` restano quelle del deep
+ * link da una notifica, che porta a UN messaggio.
+ */
+function ThreadRow({
+  thread,
+  selected,
+  onOpen,
+}: {
+  thread: MailThreadItem;
+  selected: boolean;
+  onOpen: () => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      data-testid={`mail-thread-row-${thread.threadId}`}
+      aria-pressed={selected}
+      className={`block w-full border-b border-line px-4 py-3 text-left last:border-b-0 transition-colors ${
+        selected ? "bg-ink-850" : "hover:bg-ink-850/60"
+      }`}
+    >
+      <div className="flex items-baseline justify-between gap-2">
+        {/* Testo NON FIDATO (lo scrive chi manda l'email): React lo escapa. */}
+        <span className="min-w-0 truncate text-sm font-medium text-fg">{thread.lastFrom}</span>
+        <span className="shrink-0 font-mono text-[11px] text-fg-faint">
+          {formatRelativeTime(thread.lastReceivedAt)}
+        </span>
+      </div>
+      <p className="mt-0.5 truncate text-sm text-fg-muted">
+        {thread.subject ?? t("mail:noSubject")}
+      </p>
+      <div className="mt-1.5 flex flex-wrap items-center gap-2 font-mono text-[11px] text-fg-faint">
+        {thread.messageCount > 1 && <span>{t("mail:thread.messages", { count: thread.messageCount })}</span>}
+        {thread.openProposals > 0 && (
+          <span className="text-signal">{t("mail:thread.open", { count: thread.openProposals })}</span>
+        )}
+        {thread.projectNames.map((name) => (
+          <span key={name} className="truncate">
+            {name}
+          </span>
+        ))}
+      </div>
+    </button>
   );
 }
