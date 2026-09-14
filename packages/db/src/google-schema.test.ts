@@ -468,6 +468,42 @@ describe("schema: Gmail e Calendar (fase 6)", () => {
   });
 
   /**
+   * Migrazione 0077 — la distinzione fra un messaggio AMMESSO e uno di
+   * CONTESTO («la posta si legge per conversazione» §2).
+   */
+  describe("email_messages.admitted (contesto del thread)", () => {
+    it("una riga nasce AMMESSA: è il default, ed è anche il backfill corretto per le righe storiche", async () => {
+      // Prima della 0077 l'unico modo di entrare era passare dal cancello
+      // dell'ammissione: `default true` non è una scelta di comodo, è ciò
+      // che era vero per ogni riga già in tabella.
+      const accountId = await seedAccount();
+      const messageId = await seedMessage(accountId);
+
+      const [row] = await db.select().from(emailMessages).where(eq(emailMessages.id, messageId));
+      expect(row?.admitted).toBe(true);
+    });
+
+    it("un messaggio di CONTESTO si scrive con admitted: false", async () => {
+      const accountId = await seedAccount();
+      const messageId = await seedMessage(accountId, { admitted: false });
+
+      const [row] = await db.select().from(emailMessages).where(eq(emailMessages.id, messageId));
+      expect(row?.admitted).toBe(false);
+    });
+
+    it("l'indice parziale sui soli ammessi esiste: è la query della fase 2 del tick", async () => {
+      // Senza, la selezione dei messaggi da classificare tornerebbe a
+      // scandire anche il contesto, che per definizione non si classifica.
+      const rows = await db.execute<{ indexdef: string }>(sql`
+        select indexdef from pg_indexes
+        where tablename = 'email_messages' and indexname = 'email_messages_admitted_idx'
+      `);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.indexdef).toContain("admitted");
+    });
+  });
+
+  /**
    * Migrazione 0076 — la CACHE del corpo originale («la posta si legge per
    * conversazione» §1). Quello che il codice della rotta dà per vero senza
    * ricontrollarlo: una riga per messaggio, e la cache che muore col

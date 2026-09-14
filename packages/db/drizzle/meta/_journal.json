@@ -540,6 +540,13 @@
       "when": 1785142638676,
       "tag": "0076_email_bodies",
       "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1785142639676,
+      "tag": "0077_email_admitted",
+      "breakpoints": true
     }
   ]
 }
