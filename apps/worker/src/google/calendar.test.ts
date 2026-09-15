@@ -24,6 +24,7 @@ import {
   isReadyForProposal,
   resolveCalendarProjectId,
   routeEvent,
+  type CalendarSeriesProposalContext,
 } from "./calendar.js";
 import { pollGoogleOnce, type CalendarClient, type GmailClient, type GooglePollerDeps } from "./poller.js";
 
@@ -266,6 +267,19 @@ async function rows(): Promise<(typeof calendarEvents.$inferSelect)[]> {
   return db.select().from(calendarEvents).orderBy(calendarEvents.googleEventId);
 }
 
+/**
+ * `isReadyForProposal` su una riga LETTA DAL DB, per conto della casella di
+ * questo file. La riga porta già `attendees` (è una colonna); l'indirizzo
+ * della casella no — viene dall'account, e il cancello del rifiuto (15 set
+ * 2026, §1) li vuole entrambi.
+ */
+function readyForProposal(
+  row: typeof calendarEvents.$inferSelect,
+  context?: CalendarSeriesProposalContext,
+): boolean {
+  return isReadyForProposal({ ...row, mailboxEmail: MAILBOX }, context);
+}
+
 async function reload(id: string): Promise<typeof googleAccounts.$inferSelect> {
   const [row] = await db.select().from(googleAccounts).where(eq(googleAccounts.id, id));
   return row!;
@@ -336,6 +350,8 @@ describe("impronta e proposta (funzioni pure)", () => {
       // stato/progetto/notifica/esito, non quello temporale (che ha un suo
       // test dedicato subito sotto).
       startsAt: new Date("2099-01-01T00:00:00.000Z"),
+      attendees: [],
+      mailboxEmail: MAILBOX,
     };
 
     expect(isReadyForProposal(open)).toBe(true);
@@ -351,6 +367,8 @@ describe("impronta e proposta (funzioni pure)", () => {
       projectId: "p1",
       proposalNotificationId: null,
       outcome: null,
+      attendees: [],
+      mailboxEmail: MAILBOX,
     };
 
     expect(isReadyForProposal({ ...open, startsAt: new Date("2020-01-01T00:00:00.000Z") })).toBe(false);
@@ -358,6 +376,76 @@ describe("impronta e proposta (funzioni pure)", () => {
     // Senza data non è mai pronta, mai un `true` per assenza di informazione.
     expect(isReadyForProposal({ ...open, startsAt: null })).toBe(false);
     expect(isReadyForProposal(open)).toBe(false);
+  });
+
+  // -------------------------------------------------------------------------
+  // 15 set 2026 (§1): il RIFIUTO è un cancello, e vale per entrambi i rami.
+  // -------------------------------------------------------------------------
+
+  describe("isReadyForProposal — il rifiuto (15 set 2026)", () => {
+    const base = {
+      status: "confirmed",
+      projectId: "p1",
+      proposalNotificationId: null,
+      outcome: null,
+      startsAt: new Date("2099-01-01T00:00:00.000Z"),
+      mailboxEmail: MAILBOX,
+    };
+
+    it("un appuntamento che HAI rifiutato non è mai pronto", () => {
+      expect(
+        isReadyForProposal({ ...base, attendees: [{ email: MAILBOX, responseStatus: "declined" }] }),
+      ).toBe(false);
+    });
+
+    it("SOLO `declined` blocca: forse e senza risposta restano pronti", () => {
+      // ⚠️ Decisione del maintainer presa sui dati veri, non prudenza: alle
+      // riunioni ricorrenti quasi nessuno risponde formalmente, e bloccare
+      // `tentative`/`needsAction` toglierebbe di mezzo quasi tutto.
+      for (const status of ["tentative", "needsAction", "accepted"] as const) {
+        expect(isReadyForProposal({ ...base, attendees: [{ email: MAILBOX, responseStatus: status }] })).toBe(
+          true,
+        );
+      }
+    });
+
+    it("il rifiuto di QUALCUN ALTRO non blocca", () => {
+      expect(
+        isReadyForProposal({
+          ...base,
+          attendees: [
+            { email: "cliente@acme.test", responseStatus: "declined" },
+            { email: MAILBOX, responseStatus: "accepted" },
+          ],
+        }),
+      ).toBe(true);
+    });
+
+    it("non essere fra i partecipanti non è un rifiuto", () => {
+      expect(
+        isReadyForProposal({ ...base, attendees: [{ email: "cliente@acme.test", responseStatus: "declined" }] }),
+      ).toBe(true);
+    });
+
+    it("vale anche per un'occorrenza di SERIE accesa e nella finestra", () => {
+      const now = new Date("2026-09-09T00:00:00.000Z");
+      const context = {
+        now,
+        series: { enabled: true, leadDays: 2, action: "milestone" as const, auto: false, projectId: "p1" },
+      };
+      const occurrence = {
+        ...base,
+        recurringEventId: "serie-1",
+        startsAt: new Date("2026-09-11T00:00:00.000Z"),
+      };
+      expect(isReadyForProposal({ ...occurrence, attendees: [] }, context)).toBe(true);
+      expect(
+        isReadyForProposal(
+          { ...occurrence, attendees: [{ email: MAILBOX, responseStatus: "declined" }] },
+          context,
+        ),
+      ).toBe(false);
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -373,6 +461,8 @@ describe("impronta e proposta (funzioni pure)", () => {
       outcome: null,
       recurringEventId: "serie-1",
       startsAt: new Date("2026-09-11T00:00:00.000Z"), // fra 2 giorni
+      attendees: [],
+      mailboxEmail: MAILBOX,
     };
 
     it("una serie MAI configurata (nessun contesto passato) non è mai pronta", () => {
@@ -505,7 +595,7 @@ describe("pre-filtro degli eventi", () => {
       outcome: null,
       fingerprint: "2026-10-12 revisione portale",
     });
-    expect(isReadyForProposal(row!)).toBe(true);
+    expect(readyForProposal(row!)).toBe(true);
     // Il cursore del calendario è avanzato, quello di Gmail è affare suo.
     expect((await reload(account.id)).calendarSyncToken).toBe("tok-1");
   });
@@ -559,7 +649,7 @@ describe("pre-filtro degli eventi", () => {
 
     const [row] = await rows();
     expect(row!.projectId).toBe(projectId);
-    expect(isReadyForProposal(row!)).toBe(true);
+    expect(readyForProposal(row!)).toBe(true);
   });
 
   it("un evento di tre settimane fa viene scritto ma NON è pronto per una proposta; uno di sei mesi fa non entra nemmeno (fix di review, fase 9)", async () => {
@@ -593,8 +683,8 @@ describe("pre-filtro degli eventi", () => {
     expect(all.map((r) => r.googleEventId).sort()).toEqual(["futuro", "recente"]);
     const recentRow = all.find((r) => r.googleEventId === "recente")!;
     const futureRow = all.find((r) => r.googleEventId === "futuro")!;
-    expect(isReadyForProposal(recentRow)).toBe(false);
-    expect(isReadyForProposal(futureRow)).toBe(true);
+    expect(readyForProposal(recentRow)).toBe(false);
+    expect(readyForProposal(futureRow)).toBe(true);
   });
 
   it("un evento che nessuna regola riconosce non produce nessuna riga", async () => {
@@ -625,7 +715,7 @@ describe("pre-filtro degli eventi", () => {
     expect(stats).toMatchObject({ calendarEvents: 1, calendarReady: 0 });
     const [row] = await rows();
     expect(row!.projectId).toBeNull();
-    expect(isReadyForProposal(row!)).toBe(false);
+    expect(readyForProposal(row!)).toBe(false);
   });
 });
 
@@ -658,9 +748,9 @@ describe("non riproporre lo stesso appuntamento", () => {
     const all = await rows();
     expect(all).toHaveLength(2);
     expect(all[1]!.outcome).toEqual({ type: "duplicate", ofGoogleEventId: "e1" });
-    expect(isReadyForProposal(all[1]!)).toBe(false);
+    expect(readyForProposal(all[1]!)).toBe(false);
     // La prima resta candidata: è lei l'appuntamento da proporre.
-    expect(isReadyForProposal(all[0]!)).toBe(true);
+    expect(readyForProposal(all[0]!)).toBe(true);
   });
 
   it("due eventi con la stessa impronta nello STESSO giro: una sola candidata", async () => {
@@ -682,7 +772,7 @@ describe("non riproporre lo stesso appuntamento", () => {
     const stats = await pollGoogleOnce(deps(account, calendar));
 
     expect(stats).toMatchObject({ calendarEvents: 2, calendarReady: 1 });
-    expect((await rows()).filter((row) => isReadyForProposal(row))).toHaveLength(1);
+    expect((await rows()).filter((row) => readyForProposal(row))).toHaveLength(1);
   });
 
   it("stesso evento spostato di qualche ora: dati freschi, nessuna riga nuova", async () => {
@@ -732,7 +822,7 @@ describe("non riproporre lo stesso appuntamento", () => {
     expect(all[0]!.attendees.map((a) => a.email)).toContain("nuovo@cliente.com");
     // …ma la proposta già pubblicata non si tocca: nessuna seconda proposta.
     expect(all[0]!.proposalNotificationId).toBe(notification!.id);
-    expect(isReadyForProposal(all[0]!)).toBe(false);
+    expect(readyForProposal(all[0]!)).toBe(false);
   });
 });
 
@@ -770,7 +860,7 @@ describe("cancellazioni", () => {
     expect(row!.outcome).toEqual({ type: "cancelled" });
     // Il progetto resta (è la storia della riga), ma non è più candidata.
     expect(row!.projectId).toBe(projectId);
-    expect(isReadyForProposal(row!)).toBe(false);
+    expect(readyForProposal(row!)).toBe(false);
   });
 
   it("un evento cancellato mai visto non crea nessuna riga", async () => {
@@ -965,13 +1055,76 @@ describe("dalla riga candidata alla proposta in inbox", () => {
     const [row] = await rows();
     // Non è più candidata proprio perché è stata proposta: è il contratto che
     // si chiude, non una riga persa.
-    expect(isReadyForProposal(row!)).toBe(false);
+    expect(readyForProposal(row!)).toBe(false);
     const cards = await db.select().from(notifications);
     expect(cards).toHaveLength(1);
     expect(cards[0]?.kind).toBe("google.proposal");
     // ⚠️ Audience `mailbox_owner`: la vede solo chi ha collegato la casella.
     expect(cards[0]?.userId).toBe(account.userId);
     expect(row!.proposalNotificationId).toBe(cards[0]?.id);
+  });
+
+  it("un appuntamento RIFIUTATO non diventa mai una proposta, e non è contato pronto (15 set 2026, §1)", async () => {
+    const projectId = await seedProject("Acme");
+    await db
+      .insert(projectEmailRoutes)
+      .values({ projectId, kind: "sender_domain", value: "cliente.com" });
+    const account = await seedAccount();
+    const now = new Date("2026-10-01T12:00:00Z");
+    const calendar = fakeCalendar([
+      {
+        events: [
+          event({
+            id: "rifiutato",
+            attendees: [att("cliente@cliente.com"), { email: MAILBOX, responseStatus: "declined" }],
+          }),
+        ],
+        nextSyncToken: "tok-1",
+      },
+    ]);
+
+    const stats = await pollGoogleOnce(
+      deps(account, calendar, { now: () => now, proposeMaxPerTick: 10 }),
+    );
+
+    // La riga si scrive lo stesso — il rifiutato resta visibile nella
+    // griglia, barrato (Task 3) — ma non è candidata e non è CONTATA come
+    // tale: `calendarReady` è il terzo dei tre punti che devono restare
+    // d'accordo, insieme a `isReadyForProposal` e alla query del propose
+    // phase. Se solo uno dei tre cambiasse, questo test resterebbe verde
+    // per metà e il difetto tornerebbe dall'altra porta.
+    expect(stats).toMatchObject({ calendarEvents: 1, calendarReady: 0, proposed: 0 });
+    expect(await db.select().from(notifications)).toHaveLength(0);
+    const [row] = await rows();
+    expect(row!.googleEventId).toBe("rifiutato");
+    expect(readyForProposal(row!)).toBe(false);
+  });
+
+  it("lo stesso appuntamento con «forse»: una proposta — solo `declined` blocca", async () => {
+    const projectId = await seedProject("Acme");
+    await db
+      .insert(projectEmailRoutes)
+      .values({ projectId, kind: "sender_domain", value: "cliente.com" });
+    const account = await seedAccount();
+    const now = new Date("2026-10-01T12:00:00Z");
+    const calendar = fakeCalendar([
+      {
+        events: [
+          event({
+            id: "forse",
+            attendees: [att("cliente@cliente.com"), { email: MAILBOX, responseStatus: "tentative" }],
+          }),
+        ],
+        nextSyncToken: "tok-1",
+      },
+    ]);
+
+    const stats = await pollGoogleOnce(
+      deps(account, calendar, { now: () => now, proposeMaxPerTick: 10 }),
+    );
+
+    expect(stats).toMatchObject({ calendarEvents: 1, calendarReady: 1, proposed: 1 });
+    expect(await db.select().from(notifications)).toHaveLength(1);
   });
 
   it("trenta riunioni di lavoro del mese scorso: zero proposte (fix di review, fase 9 — l'incidente da una porta nuova)", async () => {

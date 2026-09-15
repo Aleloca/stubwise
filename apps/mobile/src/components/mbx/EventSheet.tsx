@@ -5,7 +5,7 @@ import type {
   CalendarSeriesPatch,
   Reader,
 } from "@stubwise/shared";
-import { isUnknown } from "@stubwise/shared";
+import { attendeeResponseOf, isUnknown } from "@stubwise/shared";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -54,6 +54,11 @@ export function EventSheet({
 }) {
   const { t } = useTranslation();
   const link = event.eventUrl ?? event.url;
+  // La TUA risposta, ricavata in lettura da `attendees` + l'indirizzo della
+  // casella (design 15 set 2026 §1): nessuna colonna nuova, e `null` quando
+  // non c'è una risposta leggibile — non sei fra i partecipanti, oppure
+  // Google non l'ha mandata.
+  const myResponse = attendeeResponseOf(event.attendees, event.accountEmail);
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onRequestClose} testID="event-sheet">
@@ -75,6 +80,26 @@ export function EventSheet({
             <Text style={styles.when}>{whenLabel(event, t)}</Text>
             {event.organizer !== null && <Text style={styles.meta}>{event.organizer}</Text>}
             {event.projectName !== null && <Text style={styles.meta}>{event.projectName}</Text>}
+
+            {/*
+              SEPARATA dall'elenco dei partecipanti, non una riga fra le
+              altre: «ci vado?» è una domanda di un altro ordine rispetto a
+              «chi altro c'è».
+            */}
+            {myResponse !== null && (
+              <View style={styles.section}>
+                <SectionLabel>{t("mobile.calendar.sheet.yourResponse")}</SectionLabel>
+                <Text
+                  style={[styles.yourResponse, myResponse === "declined" && styles.yourResponseDeclined]}
+                  testID="event-sheet-your-response"
+                >
+                  {t(`mobile.calendar.attendeeStatus.${myResponse}`)}
+                </Text>
+                {myResponse === "declined" && (
+                  <Text style={styles.hint}>{t("mobile.calendar.sheet.declinedNotice")}</Text>
+                )}
+              </View>
+            )}
 
             {event.attendees.length > 0 && (
               <View style={styles.section}>
@@ -416,6 +441,15 @@ const styles = StyleSheet.create({
     color: colors.faint,
     fontFamily: fontFamily.mono,
     fontSize: fontSize.label,
+  },
+  yourResponse: {
+    color: colors.fg,
+    fontFamily: fontFamily.mono,
+    fontSize: 14,
+    marginTop: 6,
+  },
+  yourResponseDeclined: {
+    color: colors.danger,
   },
   openButton: {
     alignSelf: "flex-start",

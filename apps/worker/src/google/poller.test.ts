@@ -25,7 +25,7 @@ import {
   type GoogleCalendarEvent,
 } from "@stubwise/google";
 import type { GoogleAccountCredentials } from "@stubwise/google/credentials";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNotNull } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { AgentRunOptions, AgentRunResult, AgentRunner } from "../agent/runner.js";
 import {
@@ -2653,6 +2653,129 @@ describe("fase 7b — una serie propone solo se accesa, e con l'anticipo scelto"
 
     expect(stats.proposed).toBe(0);
     expect(await db.select().from(notifications)).toHaveLength(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // 15 set 2026 (§1): il RIFIUTO è un cancello anche end-to-end, non solo
+  // nella funzione pura. La query SQL del propose phase lo replica: se le
+  // due divergessero, il difetto tornerebbe dalla porta non chiusa.
+  // -------------------------------------------------------------------------
+
+  it("serie accesa, occorrenza RIFIUTATA: zero proposte (15 set 2026, §1)", async () => {
+    const projectId = await seedProject("Acme");
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    await db.insert(calendarSeries).values({
+      accountId: account.id,
+      recurringEventId: "serie-1",
+      enabled: true,
+      projectId,
+      leadDays: 2,
+    });
+    await seedOccurrence(account.id, projectId, {
+      startsAt: new Date(NOW.getTime() + 24 * 60 * 60 * 1000),
+      attendees: [
+        { email: "cliente@acme.com", responseStatus: "accepted" },
+        { email: MAILBOX, responseStatus: "declined" },
+      ],
+    });
+
+    const stats = await pollGoogleOnce(deps(account, fakeGmail({ listed: [] }), { now: () => NOW }));
+
+    expect(stats.proposed).toBe(0);
+    expect(await db.select().from(notifications)).toHaveLength(0);
+  });
+
+  it("la stessa serie SENZA rifiuto: una proposta — la controprova", async () => {
+    const projectId = await seedProject("Acme");
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    await db.insert(calendarSeries).values({
+      accountId: account.id,
+      recurringEventId: "serie-1",
+      enabled: true,
+      projectId,
+      leadDays: 2,
+    });
+    await seedOccurrence(account.id, projectId, {
+      startsAt: new Date(NOW.getTime() + 24 * 60 * 60 * 1000),
+      // Stessa riga del test sopra, `declined` → `tentative`: SOLO `declined`
+      // blocca, e questa è la prova che l'allargamento non c'è.
+      attendees: [
+        { email: "cliente@acme.com", responseStatus: "accepted" },
+        { email: MAILBOX, responseStatus: "tentative" },
+      ],
+    });
+
+    const stats = await pollGoogleOnce(deps(account, fakeGmail({ listed: [] }), { now: () => NOW }));
+
+    expect(stats.proposed).toBe(1);
+    expect(await db.select().from(notifications)).toHaveLength(1);
+  });
+
+  it("un'occorrenza rifiutata non consuma lo slot per-tick: la successiva propone lo stesso", async () => {
+    // ⚠️ Questo è il test che rende la clausola SQL del propose phase
+    // NECESSARIA DA SOLA, e non solo una seconda copia di
+    // `isReadyForProposal`. Senza di essa la riga rifiutata verrebbe
+    // SELEZIONATA (ordinata per `starts_at`, quindi per prima), entrerebbe
+    // nel dedup per-tick `seriesAttemptedThisTick`, e solo DOPO
+    // `buildCalendarProposalEvent` la scarterebbe — bruciando l'unica
+    // occasione della serie in questo giro e lasciando la settimana
+    // successiva, a cui NON hai detto di no, senza proposta.
+    //
+    // In prodotto: rifiutare la riunione di lunedì non deve zittire quella
+    // di giovedì.
+    const projectId = await seedProject("Acme");
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    await db.insert(calendarSeries).values({
+      accountId: account.id,
+      recurringEventId: "serie-1",
+      enabled: true,
+      projectId,
+      leadDays: 7,
+    });
+    await seedOccurrence(account.id, projectId, {
+      googleEventId: "occ-lunedi",
+      title: "Riunione settimanale",
+      startsAt: new Date(NOW.getTime() + 24 * 60 * 60 * 1000),
+      attendees: [{ email: MAILBOX, responseStatus: "declined" }],
+    });
+    await seedOccurrence(account.id, projectId, {
+      googleEventId: "occ-giovedi",
+      title: "Riunione settimanale",
+      startsAt: new Date(NOW.getTime() + 4 * 24 * 60 * 60 * 1000),
+      attendees: [{ email: MAILBOX, responseStatus: "accepted" }],
+    });
+
+    const stats = await pollGoogleOnce(deps(account, fakeGmail({ listed: [] }), { now: () => NOW }));
+
+    expect(stats.proposed).toBe(1);
+    const [proposed] = await db
+      .select()
+      .from(calendarEvents)
+      .where(isNotNull(calendarEvents.proposalNotificationId));
+    expect(proposed!.googleEventId).toBe("occ-giovedi");
+  });
+
+  it("il rifiuto di QUALCUN ALTRO non blocca la serie", async () => {
+    const projectId = await seedProject("Acme");
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    await db.insert(calendarSeries).values({
+      accountId: account.id,
+      recurringEventId: "serie-1",
+      enabled: true,
+      projectId,
+      leadDays: 2,
+    });
+    await seedOccurrence(account.id, projectId, {
+      startsAt: new Date(NOW.getTime() + 24 * 60 * 60 * 1000),
+      attendees: [
+        { email: "cliente@acme.com", responseStatus: "declined" },
+        { email: MAILBOX, responseStatus: "accepted" },
+      ],
+    });
+
+    const stats = await pollGoogleOnce(deps(account, fakeGmail({ listed: [] }), { now: () => NOW }));
+
+    expect(stats.proposed).toBe(1);
   });
 
   it("serie SPENTA esplicitamente: nessuna proposta", async () => {

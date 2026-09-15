@@ -1,5 +1,6 @@
 import {
   eventsForDay,
+  hasDeclinedInvitation,
   localDayKey,
   monthGridDays,
   rangeForView,
@@ -341,15 +342,25 @@ function DayAgenda({
  */
 function EventRow({ event, onPress }: { event: Reader<CalendarEventItem>; onPress?: () => void }) {
   const { t } = useTranslation();
+  // Il rifiuto si vede SENZA aprire il dettaglio (design 15 set 2026 §1):
+  // titolo barrato e sbiadito, come fa Google, più un'etichetta esplicita —
+  // una riga barrata da sola può leggersi come «cancellato», che è un'altra
+  // cosa.
+  const declined = hasDeclinedInvitation(event.attendees, event.accountEmail);
   const content = (
     <>
-      <Text style={styles.eventTime}>
+      <Text style={[styles.eventTime, declined && styles.declinedText]}>
         {event.allDay ? t("mobile.calendar.allDay") : clockTime(event.startsAt)}
       </Text>
       <View style={styles.eventBody}>
-        <Text style={styles.eventTitle} numberOfLines={2}>
+        <Text style={[styles.eventTitle, declined && styles.declinedTitle]} numberOfLines={2}>
           {event.title ?? t("mobile.calendar.noTitle")}
         </Text>
+        {declined && (
+          <Text style={styles.declinedBadge} testID={`calendar-event-declined-${event.id}`}>
+            {t("mobile.calendar.declinedBadge")}
+          </Text>
+        )}
         {event.projectName !== null && (
           <Text style={styles.eventProject} numberOfLines={1}>
             {event.projectName}
@@ -523,6 +534,19 @@ const styles = StyleSheet.create({
   },
   eventProject: {
     color: colors.faint,
+    fontFamily: fontFamily.mono,
+    fontSize: fontSize.label,
+    marginTop: 4,
+  },
+  declinedText: {
+    opacity: 0.5,
+  },
+  declinedTitle: {
+    opacity: 0.5,
+    textDecorationLine: "line-through",
+  },
+  declinedBadge: {
+    color: colors.danger,
     fontFamily: fontFamily.mono,
     fontSize: fontSize.label,
     marginTop: 4,

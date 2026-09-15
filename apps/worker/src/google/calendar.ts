@@ -33,7 +33,7 @@
 import type { GoogleCalendarEvent } from "@stubwise/google";
 import { GoogleApiError } from "@stubwise/google";
 import { t, type Language } from "@stubwise/i18n";
-import { CALENDAR_LOOKBACK_DAYS, CALENDAR_WINDOW_DAYS } from "@stubwise/shared";
+import { CALENDAR_LOOKBACK_DAYS, CALENDAR_WINDOW_DAYS, hasDeclinedInvitation } from "@stubwise/shared";
 import {
   matchRoutes,
   type EmailForRouting,
@@ -377,12 +377,41 @@ export function isReadyForProposal(
     recurringEventId?: string | null;
     /** Necessario per ENTRAMBI i rami: un evento senza data non è mai pronto. */
     startsAt?: Date | null;
+    /**
+     * I partecipanti della riga (`calendar_events.attendees`) e l'indirizzo
+     * della casella da cui la riga è stata letta
+     * (`google_accounts.email`), che insieme rispondono a «l'ho rifiutato
+     * io?» (15 set 2026, §1).
+     *
+     * ⚠️ **Obbligatori, e non per pedanteria**: un cancello che si
+     * disattiva quando un chiamante dimentica un campo non è un cancello.
+     * Facendoli richiedere dal tipo, un chiamante nuovo non può
+     * accidentalmente riaprire la porta — deve decidere cosa passare, e
+     * l'unica risposta sensata è ciò che ha letto dalla riga. L'indirizzo
+     * viaggia QUI e non in un parametro a parte perché una riga di
+     * `calendar_events` appartiene a UNA casella: «è pronta per una
+     * proposta» è sempre una domanda posta per conto di quel proprietario,
+     * mai in astratto.
+     */
+    attendees: readonly { email: string; responseStatus: string | null }[];
+    mailboxEmail: string;
   },
   seriesContext?: CalendarSeriesProposalContext,
 ): boolean {
   const baseReady =
     row.status !== "cancelled" && row.proposalNotificationId === null && row.outcome === null;
   if (!baseReady) return false;
+
+  // Il rifiuto (15 set 2026, §1): un appuntamento a cui hai detto di no non
+  // genera MAI una proposta. Stessa famiglia dell'incidente del 9 settembre
+  // 2026 — lavoro creato da qualcosa che non ti riguarda — e vale per gli
+  // eventi singoli come per le occorrenze di serie, quindi sta qui sopra e
+  // non dentro uno dei due rami.
+  //
+  // ⚠️ SOLO `declined`: `tentative` e `needsAction` non bloccano. Il perché
+  // sta in `hasDeclinedInvitation` (`@stubwise/shared`), che è l'unico posto
+  // in cui quell'elenco è scritto.
+  if (hasDeclinedInvitation(row.attendees, row.mailboxEmail)) return false;
 
   // Il progetto CERTO — mai `row.projectId` da solo: per un'occorrenza di
   // serie è `resolveCalendarProjectId` a decidere fra il routing e il

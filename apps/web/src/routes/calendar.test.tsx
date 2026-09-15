@@ -157,6 +157,153 @@ describe("pagina /calendar — la griglia (fase 9)", () => {
     expect(await screen.findByText("Ferie")).toBeInTheDocument();
   });
 
+  // -------------------------------------------------------------------------
+  // 15 set 2026 (§1): il rifiuto si vede SENZA aprire il dettaglio.
+  // -------------------------------------------------------------------------
+
+  it("nella griglia un appuntamento rifiutato si distingue da uno no, senza aprire nulla", async () => {
+    const declined = event({
+      id: "e-declined",
+      title: "Riunione a cui non vado",
+      startsAt: "2026-09-12T09:00:00.000Z",
+      endsAt: "2026-09-12T10:00:00.000Z",
+      attendees: [
+        { email: "laura@cliente.test", responseStatus: "accepted" },
+        { email: "mailbox@acme.test", responseStatus: "declined" },
+      ],
+    });
+    const going = event({
+      id: "e-going",
+      title: "Riunione a cui vado",
+      startsAt: "2026-09-12T11:00:00.000Z",
+      endsAt: "2026-09-12T12:00:00.000Z",
+      attendees: [{ email: "mailbox@acme.test", responseStatus: "accepted" }],
+    });
+    mockApi(
+      baseApi({
+        "GET /api/me/calendar/range": () =>
+          jsonResponse(200, { items: [declined, going], nextCursor: null }),
+      }),
+    );
+    await renderCalendar();
+
+    // Il blocco nella griglia, non il pannello: il bottone stesso porta il
+    // segno. `line-through` è ciò che distingue i due a colpo d'occhio.
+    const declinedBlock = (await screen.findByText("Riunione a cui non vado")).closest("button");
+    const goingBlock = (await screen.findByText("Riunione a cui vado")).closest("button");
+    expect(declinedBlock?.className).toContain("line-through");
+    expect(goingBlock?.className).not.toContain("line-through");
+    // E il segno ha un nome, non è solo una barratura: una riga barrata da
+    // sola può leggersi come «cancellato», che è un'altra cosa.
+    expect(declinedBlock).toHaveAttribute("title", "Declined by you");
+  });
+
+  it("il rifiuto di qualcun altro NON barra l'appuntamento", async () => {
+    const someoneElseDeclined = event({
+      id: "e-other-declined",
+      title: "Riunione con un assente",
+      startsAt: "2026-09-12T09:00:00.000Z",
+      endsAt: "2026-09-12T10:00:00.000Z",
+      attendees: [
+        { email: "laura@cliente.test", responseStatus: "declined" },
+        { email: "mailbox@acme.test", responseStatus: "accepted" },
+      ],
+    });
+    mockApi(
+      baseApi({
+        "GET /api/me/calendar/range": () =>
+          jsonResponse(200, { items: [someoneElseDeclined], nextCursor: null }),
+      }),
+    );
+    await renderCalendar();
+
+    const block = (await screen.findByText("Riunione con un assente")).closest("button");
+    expect(block?.className).not.toContain("line-through");
+  });
+
+  it("nel dettaglio la TUA risposta è detta SEPARATA dall'elenco dei partecipanti", async () => {
+    const declined = event({
+      id: "e-declined-detail",
+      title: "Riunione a cui non vado",
+      startsAt: "2026-09-12T09:00:00.000Z",
+      endsAt: "2026-09-12T10:00:00.000Z",
+      attendees: [
+        { email: "laura@cliente.test", responseStatus: "accepted" },
+        { email: "mailbox@acme.test", responseStatus: "declined" },
+      ],
+    });
+    mockApi(
+      baseApi({
+        "GET /api/me/calendar/range": () => jsonResponse(200, { items: [declined], nextCursor: null }),
+      }),
+    );
+    await renderCalendar();
+
+    await userEvent.click(await screen.findByText("Riunione a cui non vado"));
+
+    // La sezione «La tua risposta» è a sé, prima dell'elenco.
+    expect(await screen.findByText("Your response")).toBeInTheDocument();
+    expect(
+      screen.getByText("You declined this invitation: Stubwise will not propose anything from it."),
+    ).toBeInTheDocument();
+  });
+
+  it("senza la tua risposta (non sei fra i partecipanti) il dettaglio non ne inventa una", async () => {
+    // Un evento TUO e basta: nessun partecipante. `null`, non un rifiuto.
+    const own = event({
+      id: "e-own",
+      title: "Blocco di lavoro",
+      startsAt: "2026-09-12T09:00:00.000Z",
+      endsAt: "2026-09-12T10:00:00.000Z",
+      attendees: [],
+    });
+    mockApi(
+      baseApi({
+        "GET /api/me/calendar/range": () => jsonResponse(200, { items: [own], nextCursor: null }),
+      }),
+    );
+    await renderCalendar();
+
+    await userEvent.click(await screen.findByText("Blocco di lavoro"));
+
+    // Il pannello è aperto (il link «Apri in Google Calendar» vive solo lì)…
+    expect(await screen.findByRole("link", { name: "Open in Google Calendar" })).toBeInTheDocument();
+    // …e non c'è nessuna «tua risposta» inventata.
+    expect(screen.queryByText("Your response")).not.toBeInTheDocument();
+  });
+
+  it("un evento SENZA `attendees` nella risposta non fa saltare la griglia (la difesa `?? []`)", async () => {
+    // ⚠️ La fixture è VOLUTAMENTE senza `attendees`, e non è una svista da
+    // sistemare: è la prova che la difesa nel punto di lettura c'è. Sul web
+    // `lib/api.ts` fa un CAST e non un `parse`, quindi il `.default([])`
+    // dello schema non gira mai — un server più vecchio (o un rollback) che
+    // non mandasse il campo lascerebbe `undefined`, e un `.find()` su
+    // `undefined` fa smontare a React l'intera griglia, non una riga.
+    // Vedi l'invariante «la regola dei campi opzionali non protegge il web»
+    // in CLAUDE.md.
+    const withAttendees = event({
+      id: "e-no-attendees",
+      title: "Senza partecipanti nel payload",
+      startsAt: "2026-09-12T09:00:00.000Z",
+      endsAt: "2026-09-12T10:00:00.000Z",
+    });
+    const withoutAttendees: Record<string, unknown> = { ...withAttendees };
+    delete withoutAttendees.attendees;
+    mockApi(
+      baseApi({
+        "GET /api/me/calendar/range": () =>
+          jsonResponse(200, { items: [withoutAttendees], nextCursor: null }),
+      }),
+    );
+    await renderCalendar();
+
+    expect(await screen.findByText("Senza partecipanti nel payload")).toBeInTheDocument();
+
+    // E anche il PANNELLO di dettaglio regge: è l'altro punto di lettura.
+    await userEvent.click(screen.getByText("Senza partecipanti nel payload"));
+    expect(await screen.findByRole("link", { name: "Open in Google Calendar" })).toBeInTheDocument();
+  });
+
   it("una settimana vuota SPIEGA perché — non sembra rotta, e con un solo progetto punta DRITTO alla sua sezione Posta", async () => {
     mockApi(baseApi());
     await renderCalendar();

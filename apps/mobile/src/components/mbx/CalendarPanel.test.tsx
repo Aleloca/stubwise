@@ -145,6 +145,41 @@ describe("CalendarPanel — il giorno scelto", () => {
     expect(screen.getByText("negozio-web")).toBeTruthy();
   });
 
+  test("un appuntamento RIFIUTATO si riconosce dall'agenda, senza aprire il foglio (15 set 2026, §1)", async () => {
+    const declined = event({
+      id: "44444444-4444-4444-8444-444444444444",
+      title: "Riunione a cui non vado",
+      attendees: [
+        { email: "capo@example.com", responseStatus: "accepted" },
+        { email: "ops@example.com", responseStatus: "declined" },
+      ],
+    });
+    await renderPanel(makeClient(jest.fn().mockResolvedValue({ items: [declined, event()], nextCursor: null })));
+    await waitFor(() => expect(screen.getByTestId("calendar-grid")).toBeTruthy());
+
+    await fireEvent.press(screen.getByTestId("calendar-day-2026-09-17"));
+
+    // Il rifiutato ha l'etichetta, l'altro no: si distinguono nella LISTA.
+    expect(screen.getByTestId(`calendar-event-declined-${declined.id}`)).toBeTruthy();
+    expect(screen.queryByTestId(`calendar-event-declined-${ID}`)).toBeNull();
+    expect(screen.getByText("Rifiutato da te")).toBeTruthy();
+  });
+
+  test("il rifiuto di QUALCUN ALTRO non marca l'appuntamento", async () => {
+    const other = event({
+      attendees: [
+        { email: "capo@example.com", responseStatus: "declined" },
+        { email: "ops@example.com", responseStatus: "accepted" },
+      ],
+    });
+    await renderPanel(makeClient(jest.fn().mockResolvedValue({ items: [other], nextCursor: null })));
+    await waitFor(() => expect(screen.getByTestId("calendar-grid")).toBeTruthy());
+
+    await fireEvent.press(screen.getByTestId("calendar-day-2026-09-17"));
+
+    expect(screen.queryByTestId(`calendar-event-declined-${ID}`)).toBeNull();
+  });
+
   test("un evento TUTTO IL GIORNO non mostra un'ora, che sarebbe inventata", async () => {
     // Il worker lo fissa a mezzanotte UTC perché è una DATA, non un istante:
     // renderne l'ora locale direbbe "02:00" a chi sta a Roma.

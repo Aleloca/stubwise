@@ -514,6 +514,13 @@ export interface CalendarProposalRow {
   outcome: Record<string, unknown> | null;
   /** Fase 7b: `null` per un evento singolo, l'id della serie altrimenti. */
   recurringEventId: string | null;
+  /**
+   * I partecipanti con lo stato di risposta: servono al cancello del
+   * RIFIUTO (15 set 2026, §1), che {@link isReadyForProposal} applica qui
+   * sotto insieme a `mailboxEmail`. Chi legge righe di `calendar_events` per
+   * comporre una proposta deve selezionare anche questa colonna.
+   */
+  attendees: readonly { email: string; responseStatus: string | null }[];
 }
 
 export interface BuildCalendarProposalArgs {
@@ -582,7 +589,13 @@ export function buildCalendarProposalEvent(
   args: BuildCalendarProposalArgs,
 ): GoogleProposalEvent | null {
   const { lang, event } = args;
-  if (!isReadyForProposal(event, args.seriesContext)) return null;
+  // `mailboxEmail` è già negli argomenti (serve alla card): il cancello lo
+  // vuole INSIEME alla riga, perché «è pronta?» è sempre una domanda posta
+  // per conto del proprietario di QUELLA casella — vedi il docblock di
+  // `isReadyForProposal`.
+  if (!isReadyForProposal({ ...event, mailboxEmail: args.mailboxEmail }, args.seriesContext)) {
+    return null;
+  }
   const milestone = buildMilestoneProposal(lang, event);
   if (!milestone) return null;
   // Fix di review: MAI `event.projectId` da solo — per un'occorrenza di

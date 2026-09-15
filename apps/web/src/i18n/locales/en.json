@@ -2425,7 +2425,9 @@
       "selectPrompt": "Select an appointment to see its details here.",
       "openInGoogle": "Open in Google Calendar",
       "attendees": "Attendees",
-      "allDayOn": "All day, {{date}}"
+      "allDayOn": "All day, {{date}}",
+      "yourResponse": "Your response",
+      "declinedNotice": "You declined this invitation: Stubwise will not propose anything from it."
     },
     "attendeeStatus": {
       "accepted": "Accepted",
@@ -2471,6 +2473,9 @@
       "heading": "Appointments seen",
       "empty": "// no appointments",
       "loadError": "Could not load the calendar."
+    },
+    "grid": {
+      "declinedTitle": "Declined by you"
     }
   },
   "release": {
