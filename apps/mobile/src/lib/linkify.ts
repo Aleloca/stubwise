@@ -18,6 +18,8 @@
  * funzione non offre. `www.` senza schema è ammesso perché è comunissimo, e
  * viene normalizzato a `https://`.
  */
+import { isSafeWebUrl } from "@stubwise/shared";
+
 export type TextSegment = { kind: "text"; text: string } | { kind: "link"; text: string; url: string };
 
 /**
@@ -60,12 +62,23 @@ export function linkify(text: string): TextSegment[] {
   return segments;
 }
 
-/** Un URL è apribile solo se è `http`/`https`: vedi il docblock del modulo. */
-export function isOpenableUrl(url: string): boolean {
-  try {
-    const { protocol } = new URL(url);
-    return protocol === "http:" || protocol === "https:";
-  } catch {
-    return false;
-  }
-}
+/**
+ * Un URL trovato dentro un testo è apribile?
+ *
+ * ⚠️ **La regola non vive più qui** (15 set 2026, fix di review): sta in
+ * `isSafeWebUrl` (`@stubwise/shared`), insieme alla sua gemella
+ * `isSafeJoinUrl`, che ammette in PIÙ `tel:` per i numeri di conferenza di
+ * un appuntamento. Erano tre controlli identici-ma-non-uguali sparsi fra
+ * app e web, ed è esattamente il modo in cui una regola di sicurezza
+ * diverge — con la copia che diverge che è quella che lascia passare.
+ *
+ * Restano DUE regole, consapevolmente: qui il testo lo scrive chiunque e
+ * `tel:` non deve diventare toccabile, là il numero è un campo strutturato
+ * che Google dichiara come telefono. Il perché per esteso è nel docblock di
+ * `safe-url.ts`.
+ *
+ * Il nome locale sopravvive perché dice cosa fa NEL CONTESTO di questo
+ * modulo (un segmento di testo che diventa un link), e i suoi test restano
+ * qui accanto a `linkify`.
+ */
+export const isOpenableUrl = isSafeWebUrl;

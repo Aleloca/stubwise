@@ -21,6 +21,7 @@ export * from "./next-step.js";
 export * from "./calendar-grid.js";
 export * from "./calendar-attendance.js";
 export * from "./calendar-recurrence.js";
+export * from "./safe-url.js";
 export * from "./reader.js";
 // NOTA: `mirror-slug.js` NON è ri-esportato da questo barrel di proposito —
 // importa `node:crypto` e apps/web importa questo index nel bundle browser

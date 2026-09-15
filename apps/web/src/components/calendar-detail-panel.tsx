@@ -1,6 +1,7 @@
 import {
   attendeeResponseOf,
   formatRecurrence,
+  isSafeJoinUrl,
   parseRecurrence,
   type CalendarAttendeeResponseStatus,
   type CalendarEventItem,
@@ -182,25 +183,6 @@ export function CalendarDetailPanel({
   );
 }
 
-/** Gli schemi che un link «per partecipare» può avere senza essere un vettore. */
-const SAFE_JOIN_SCHEMES = ["http:", "https:", "tel:"];
-
-/**
- * Il link è apribile senza rischi?
- *
- * `uri` viene dall'invito, cioè da chiunque: `javascript:` in un `href` è il
- * modo classico di trasformare un link in esecuzione. Allowlist di schemi,
- * mai denylist — stessa dottrina di `sanitizeEmailHtml`. `tel:` c'è perché i
- * numeri di conferenza arrivano proprio così.
- */
-function isSafeJoinUri(uri: string): boolean {
-  try {
-    return SAFE_JOIN_SCHEMES.includes(new URL(uri).protocol);
-  } catch {
-    return false;
-  }
-}
-
 /**
  * «Per partecipare»: il link Meet più gli altri modi (numeri di telefono col
  * PIN, link alternativi). Assente del tutto quando non c'è niente — mai una
@@ -217,9 +199,9 @@ function JoinSection({
   // Il Meet è già fra gli entry point in quasi tutti gli eventi: mostrarlo
   // due volte sarebbe rumore.
   const extra = entryPoints.filter(
-    (point) => isSafeJoinUri(point.uri) && point.uri !== hangoutLink,
+    (point) => isSafeJoinUrl(point.uri) && point.uri !== hangoutLink,
   );
-  const meet = hangoutLink !== null && isSafeJoinUri(hangoutLink) ? hangoutLink : null;
+  const meet = hangoutLink !== null && isSafeJoinUrl(hangoutLink) ? hangoutLink : null;
   if (meet === null && extra.length === 0) return null;
 
   return (

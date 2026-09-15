@@ -5,7 +5,13 @@ import type {
   CalendarSeriesPatch,
   Reader,
 } from "@stubwise/shared";
-import { attendeeResponseOf, formatRecurrence, isUnknown, parseRecurrence } from "@stubwise/shared";
+import {
+  attendeeResponseOf,
+  formatRecurrence,
+  isSafeJoinUrl,
+  isUnknown,
+  parseRecurrence,
+} from "@stubwise/shared";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -206,17 +212,6 @@ function whenLabel(event: Reader<CalendarEventItem>, t: (key: string, opts?: Rec
   return `${day}, ${from} – ${clockTime(event.endsAt)}`;
 }
 
-/** Gli schemi apribili di un link «per partecipare» — allowlist, mai denylist. */
-const SAFE_JOIN_SCHEMES = ["http:", "https:", "tel:"];
-
-function isSafeJoinUri(uri: string): boolean {
-  try {
-    return SAFE_JOIN_SCHEMES.includes(new URL(uri).protocol);
-  } catch {
-    return false;
-  }
-}
-
 /**
  * «Per partecipare»: Meet più gli altri modi. `uri` viene dall'invito, cioè
  * da chiunque, quindi passa dall'allowlist di schemi prima di diventare
@@ -231,11 +226,11 @@ function JoinBlock({
   entryPoints: Reader<CalendarEventItem>["conferenceEntryPoints"];
 }) {
   const { t } = useTranslation();
-  const meet = hangoutLink != null && isSafeJoinUri(hangoutLink) ? hangoutLink : null;
+  const meet = hangoutLink != null && isSafeJoinUrl(hangoutLink) ? hangoutLink : null;
   // Il Meet è già fra gli entry point in quasi tutti gli eventi: due volte
   // sarebbe rumore.
   const extra = (entryPoints ?? []).filter(
-    (point) => isSafeJoinUri(point.uri) && point.uri !== hangoutLink,
+    (point) => isSafeJoinUrl(point.uri) && point.uri !== hangoutLink,
   );
   if (meet === null && extra.length === 0) return null;
 
