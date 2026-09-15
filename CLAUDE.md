@@ -1086,6 +1086,25 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   `project.test.ts` accanto), e `readerSchema` attraversa i `.default()`
   apposta perché usare la forma giusta non costi la chiusura degli enum
   sottostanti.
+
+  ⚠️ **E quella regola NON protegge il web, che è il caso in cui morde più
+  forte.** `apps/web/src/lib/api.ts` non passa uno schema di risposta al
+  client: fa un **cast**, per scelta dichiarata nel docblock del file
+  (accendere `parse` su ~40 rotte trasformerebbe ogni divergenza latente in
+  un'eccezione in faccia a un utente). Quindi sul web il `.default()` **non
+  gira mai**: un campo che il server non manda non diventa `[]` o `false`,
+  resta `undefined`. L'app, che parsa davvero via `packages/api-client`
+  (`readerSchema(schema).parse`), è coperta; la SPA no.
+  **E il modo in cui si rompe non è un campo degradato**: un `undefined` dove
+  il codice chiama `.map()` fa lanciare il render, e React smonta l'intero
+  sottoalbero — nel caso che l'ha fatto scoprire (App «posta per
+  conversazione», 14 set 2026) spariva il pannello di lettura INTERO, non una
+  riga. E i test della SPA non lo scoprono da soli: usano mock, e un mock
+  scritto insieme al campo ce l'ha sempre.
+  **Regola operativa**: un campo nuovo che il WEB legge va difeso nel punto
+  di lettura (`?? []`, `?? false`), non solo nello schema; e la fixture del
+  test che lo copre va lasciata SENZA quel campo apposta — è la prova che la
+  difesa c'è, non una svista da sistemare.
 - **Trappola di routing Fastify — rotta parametrica registrata prima di una
   letterale sullo stesso prefisso.** `GET /api/projects/pulse` e
   `GET /api/projects/:projectId` condividono il prefisso `/api/projects`:
