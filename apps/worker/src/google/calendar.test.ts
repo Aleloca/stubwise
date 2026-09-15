@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import {
   calendarEvents,
+  calendarSeriesRecurrence,
   googleAccounts,
   googleWorkspaces,
   notifications,
@@ -160,6 +161,11 @@ function event(input: Partial<GoogleCalendarEvent> & { id: string }): GoogleCale
     updatedAt: null,
     recurringEventId: null,
     originalStartTime: null,
+    location: null,
+    hangoutLink: null,
+    conferenceEntryPoints: [],
+    reminders: [],
+    remindersUseDefault: false,
     ...input,
   };
 }
@@ -217,11 +223,18 @@ function fakeCalendar(
     | { events: GoogleCalendarEvent[]; nextPageToken?: string | null; nextSyncToken?: string | null }
     | { error: unknown }
   )[],
-): CalendarClient & { calls: ListEventsCall[] } {
+  recurrence: Record<string, string[]> = {},
+): CalendarClient & { calls: ListEventsCall[]; parentCalls: string[] } {
   const calls: ListEventsCall[] = [];
+  // ⚠️ Il conteggio che conta davvero (15 set 2026, §2, Task 7): quante volte
+  // è stato letto il PADRE. Deve restare UNO per serie anche con venti
+  // occorrenze — vedi il test dedicato, che guarda QUESTO array e non il
+  // codice.
+  const parentCalls: string[] = [];
   const queue = [...pages];
   const client = {
     calls,
+    parentCalls,
     listEvents: async (input: ListEventsCall) => {
       calls.push(input);
       const next = queue.shift() ?? { events: [], nextPageToken: null, nextSyncToken: null };
@@ -232,8 +245,12 @@ function fakeCalendar(
         nextSyncToken: next.nextSyncToken ?? null,
       };
     },
+    getEvent: async (input: { eventId: string }) => {
+      parentCalls.push(input.eventId);
+      return { id: input.eventId, recurrence: recurrence[input.eventId] ?? [] };
+    },
   };
-  return client as unknown as CalendarClient & { calls: ListEventsCall[] };
+  return client as unknown as CalendarClient & { calls: ListEventsCall[]; parentCalls: string[] };
 }
 
 function deps(
@@ -1040,6 +1057,153 @@ describe("errori della fase 3 e i due cursori", () => {
  * guarda che, riaccesa, la fase 4 la prenda davvero. Senza, tutta la fase 6
  * girerebbe a vuoto: righe pronte che nessuno vede mai.
  */
+// ---------------------------------------------------------------------------
+// 15 set 2026 (§2, Task 7): la ricorrenza a parole costa UNA chiamata per
+// SERIE. Una per occorrenza è lo stesso moltiplicatore dell'incidente del 9
+// settembre 2026.
+// ---------------------------------------------------------------------------
+
+describe("la regola di ricorrenza: una chiamata per SERIE", () => {
+  it("⚠️ venti occorrenze della stessa serie → UNA sola lettura del padre", async () => {
+    const projectId = await seedProject("Acme");
+    await db
+      .insert(projectEmailRoutes)
+      .values({ projectId, kind: "sender_domain", value: "cliente.com" });
+    const account = await seedAccount();
+
+    // Venti occorrenze, giorni diversi (impronte diverse, così nessuna viene
+    // scartata come duplicata), TUTTE della stessa serie.
+    const events = Array.from({ length: 20 }, (_, i) =>
+      event({
+        id: `occ-${i}`,
+        title: `Riunione settimanale ${i}`,
+        startsAt: new Date(`2026-10-${String(i + 1).padStart(2, "0")}T09:00:00.000Z`),
+        recurringEventId: "serie-1",
+      }),
+    );
+    const calendar = fakeCalendar([{ events, nextSyncToken: "tok-1" }], {
+      "serie-1": ["RRULE:FREQ=WEEKLY;BYDAY=MO"],
+    });
+
+    await pollGoogleOnce(deps(account, calendar));
+
+    // Il conteggio è sul CLIENT FINTO, non su quello che il codice dice di
+    // fare: è l'unica verifica che regge a un refactor.
+    expect(calendar.parentCalls).toEqual(["serie-1"]);
+
+    const [stored] = await db.select().from(calendarSeriesRecurrence);
+    expect(stored!.recurringEventId).toBe("serie-1");
+    expect(stored!.recurrence).toEqual(["RRULE:FREQ=WEEKLY;BYDAY=MO"]);
+  });
+
+  it("serie diverse: una chiamata ciascuna, non una per occorrenza", async () => {
+    const projectId = await seedProject("Acme");
+    await db
+      .insert(projectEmailRoutes)
+      .values({ projectId, kind: "sender_domain", value: "cliente.com" });
+    const account = await seedAccount();
+
+    const events = [
+      event({ id: "a1", title: "A 1", startsAt: new Date("2026-10-01T09:00:00.000Z"), recurringEventId: "serie-a" }),
+      event({ id: "a2", title: "A 2", startsAt: new Date("2026-10-08T09:00:00.000Z"), recurringEventId: "serie-a" }),
+      event({ id: "b1", title: "B 1", startsAt: new Date("2026-10-02T09:00:00.000Z"), recurringEventId: "serie-b" }),
+      event({ id: "s1", title: "Singolo", startsAt: new Date("2026-10-03T09:00:00.000Z") }),
+    ];
+    const calendar = fakeCalendar([{ events, nextSyncToken: "tok-1" }]);
+
+    await pollGoogleOnce(deps(account, calendar));
+
+    // Due serie, due chiamate. L'evento SINGOLO non ne fa nessuna: non ha
+    // un padre da leggere.
+    expect([...calendar.parentCalls].sort()).toEqual(["serie-a", "serie-b"]);
+  });
+
+  it("una serie già nota non si ri-legge al tick dopo", async () => {
+    const projectId = await seedProject("Acme");
+    await db
+      .insert(projectEmailRoutes)
+      .values({ projectId, kind: "sender_domain", value: "cliente.com" });
+    const account = await seedAccount();
+    const occurrence = event({
+      id: "occ-1",
+      startsAt: new Date("2026-10-12T09:00:00.000Z"),
+      recurringEventId: "serie-1",
+    });
+
+    const first = fakeCalendar([{ events: [occurrence], nextSyncToken: "tok-1" }]);
+    await pollGoogleOnce(deps(account, first));
+    expect(first.parentCalls).toHaveLength(1);
+
+    await db
+      .update(googleAccounts)
+      .set({ nextSyncAt: new Date(Date.now() - 60_000) })
+      .where(eq(googleAccounts.id, account.id));
+    const second = fakeCalendar([{ events: [occurrence], nextSyncToken: "tok-2" }]);
+    await pollGoogleOnce(deps(await reload(account.id), second));
+
+    // La regola è già in tabella e non è scaduta: zero chiamate.
+    expect(second.parentCalls).toEqual([]);
+  });
+
+  it("un padre cancellato non fa ritentare all'infinito: regola vuota e basta", async () => {
+    const projectId = await seedProject("Acme");
+    await db
+      .insert(projectEmailRoutes)
+      .values({ projectId, kind: "sender_domain", value: "cliente.com" });
+    const account = await seedAccount();
+    const calendar = fakeCalendar([
+      {
+        events: [
+          event({ id: "occ-1", startsAt: new Date("2026-10-12T09:00:00.000Z"), recurringEventId: "serie-1" }),
+        ],
+        nextSyncToken: "tok-1",
+      },
+    ]);
+    calendar.getEvent = async () => {
+      throw new GoogleApiError({
+        api: "calendar.events.get",
+        status: 404,
+        code: "event_gone",
+        reason: "notFound",
+      });
+    };
+
+    await pollGoogleOnce(deps(account, calendar));
+
+    const [stored] = await db.select().from(calendarSeriesRecurrence);
+    expect(stored!.recurrence).toEqual([]);
+  });
+
+  it("⚠️ un guasto sulla ricorrenza NON ferma l'ingestione: è un ornamento", async () => {
+    const projectId = await seedProject("Acme");
+    await db
+      .insert(projectEmailRoutes)
+      .values({ projectId, kind: "sender_domain", value: "cliente.com" });
+    const account = await seedAccount();
+    const calendar = fakeCalendar([
+      {
+        events: [
+          event({ id: "occ-1", startsAt: new Date("2026-10-12T09:00:00.000Z"), recurringEventId: "serie-1" }),
+        ],
+        nextSyncToken: "tok-1",
+      },
+    ]);
+    calendar.getEvent = async () => {
+      throw new Error("Google giù");
+    };
+
+    const stats = await pollGoogleOnce(deps(account, calendar));
+
+    // L'appuntamento è entrato lo stesso: «ogni lunedì» scritto sotto una
+    // riga è un ornamento, e un ornamento non deve poter fermare
+    // l'ingestione degli appuntamenti.
+    expect(stats.calendarEvents).toBe(1);
+    expect(await rows()).toHaveLength(1);
+    // Nessuna riga di ricorrenza: si riproverà al giro dopo.
+    expect(await db.select().from(calendarSeriesRecurrence)).toHaveLength(0);
+  });
+});
+
 describe("dalla riga candidata alla proposta in inbox", () => {
   it("una riga pronta diventa una proposta nello STESSO giro", async () => {
     const projectId = await seedProject("Acme");

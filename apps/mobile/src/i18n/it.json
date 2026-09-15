@@ -614,7 +614,17 @@
         "openInGoogle": "Apri in Google Calendar",
         "allDayOn": "Tutto il giorno, {{date}}",
         "yourResponse": "La tua risposta",
-        "declinedNotice": "Hai rifiutato questo invito: Stubwise non ne farà nessuna proposta."
+        "declinedNotice": "Hai rifiutato questo invito: Stubwise non ne farà nessuna proposta.",
+        "description": "Descrizione",
+        "location": "Dove",
+        "join": "Per partecipare",
+        "joinMeet": "Apri Google Meet",
+        "reminders": "Promemoria",
+        "remindersOnGoogle": "Impostati su Google: è Google a farli scattare, non Stubwise.",
+        "remindersUseDefault": "Questo appuntamento usa i promemoria predefiniti del tuo calendario Google.",
+        "reminderMinutes_one": "{{count}} minuto prima",
+        "reminderMinutes_other": "{{count}} minuti prima",
+        "recurrence": "Si ripete"
       },
       "attendeeStatus": {
         "accepted": "Accettato",
@@ -644,7 +654,23 @@
         "save": "Salva",
         "disable": "Spegni"
       },
-      "declinedBadge": "Rifiutato da te"
+      "declinedBadge": "Rifiutato da te",
+      "recurrence": {
+        "freq": {
+          "daily_one": "Ogni giorno",
+          "daily_other": "Ogni {{count}} giorni",
+          "weekly_one": "Ogni settimana",
+          "weekly_other": "Ogni {{count}} settimane",
+          "monthly_one": "Ogni mese",
+          "monthly_other": "Ogni {{count}} mesi",
+          "yearly_one": "Ogni anno",
+          "yearly_other": "Ogni {{count}} anni"
+        },
+        "withDays": "{{frequency}}, il {{days}}",
+        "withUntil": "{{recurrence}}, fino al {{date}}",
+        "withCount_one": "{{recurrence}}, {{count}} volta",
+        "withCount_other": "{{recurrence}}, {{count}} volte"
+      }
     },
     "common": {
       "loading": "Caricamento…",

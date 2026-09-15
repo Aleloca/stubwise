@@ -547,6 +547,13 @@
       "when": 1785142639676,
       "tag": "0077_email_admitted",
       "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1789484152939,
+      "tag": "0078_calendar_fields",
+      "breakpoints": true
     }
   ]
 }

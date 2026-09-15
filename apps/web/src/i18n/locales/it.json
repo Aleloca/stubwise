@@ -33,7 +33,11 @@
     "on": "attivo",
     "off": "disattivato",
     "saving": "Salvataggio…",
-    "edit": "Modifica"
+    "edit": "Modifica",
+    "untrustedHtml": {
+      "imagesBlockedNotice": "Le immagini remote sono bloccate di default — sono un modo comune per il mittente di sapere quando un'email viene aperta.",
+      "showImages": "Mostra immagini"
+    }
   },
   "monitor": {
     "list": {
@@ -2394,8 +2398,6 @@
       "loadError": "Impossibile caricare questo messaggio.",
       "notFound": "Questo messaggio non è stato trovato.",
       "selectPrompt": "Seleziona un messaggio a sinistra per leggerlo qui.",
-      "imagesBlockedNotice": "Le immagini remote sono bloccate di default — sono un modo comune per il mittente di sapere quando un'email viene aperta.",
-      "showImages": "Mostra immagini",
       "bodyFrameTitle": "Corpo del messaggio"
     },
     "thread": {
@@ -2427,7 +2429,22 @@
       "attendees": "Partecipanti",
       "allDayOn": "Tutto il giorno, {{date}}",
       "yourResponse": "La tua risposta",
-      "declinedNotice": "Hai rifiutato questo invito: Stubwise non ne farà nessuna proposta."
+      "declinedNotice": "Hai rifiutato questo invito: Stubwise non ne farà nessuna proposta.",
+      "description": "Descrizione",
+      "location": "Dove",
+      "join": "Per partecipare",
+      "joinMeet": "Apri Google Meet",
+      "reminders": "Promemoria",
+      "remindersOnGoogle": "Impostati su Google: è Google a farli scattare, non Stubwise.",
+      "remindersUseDefault": "Questo appuntamento usa i promemoria predefiniti del tuo calendario Google.",
+      "reminderMinutes_one": "{{count}} minuto prima",
+      "reminderMinutes_other": "{{count}} minuti prima",
+      "reminderMethod": {
+        "popup": "notifica",
+        "email": "email"
+      },
+      "recurrence": "Si ripete",
+      "descriptionFrameTitle": "Descrizione dell'appuntamento"
     },
     "attendeeStatus": {
       "accepted": "Accettato",
@@ -2476,6 +2493,22 @@
     },
     "grid": {
       "declinedTitle": "Rifiutato da te"
+    },
+    "recurrence": {
+      "freq": {
+        "daily_one": "Ogni giorno",
+        "daily_other": "Ogni {{count}} giorni",
+        "weekly_one": "Ogni settimana",
+        "weekly_other": "Ogni {{count}} settimane",
+        "monthly_one": "Ogni mese",
+        "monthly_other": "Ogni {{count}} mesi",
+        "yearly_one": "Ogni anno",
+        "yearly_other": "Ogni {{count}} anni"
+      },
+      "withDays": "{{frequency}}, il {{days}}",
+      "withUntil": "{{recurrence}}, fino al {{date}}",
+      "withCount_one": "{{recurrence}}, {{count}} volta",
+      "withCount_other": "{{recurrence}}, {{count}} volte"
     }
   },
   "release": {

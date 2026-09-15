@@ -614,7 +614,17 @@
         "openInGoogle": "Open in Google Calendar",
         "allDayOn": "All day, {{date}}",
         "yourResponse": "Your response",
-        "declinedNotice": "You declined this invitation: Stubwise will not propose anything from it."
+        "declinedNotice": "You declined this invitation: Stubwise will not propose anything from it.",
+        "description": "Description",
+        "location": "Where",
+        "join": "How to join",
+        "joinMeet": "Open Google Meet",
+        "reminders": "Reminders",
+        "remindersOnGoogle": "Set on Google: Google fires them, not Stubwise.",
+        "remindersUseDefault": "This appointment uses your Google calendar's default reminders.",
+        "reminderMinutes_one": "{{count}} minute before",
+        "reminderMinutes_other": "{{count}} minutes before",
+        "recurrence": "Repeats"
       },
       "attendeeStatus": {
         "accepted": "Accepted",
@@ -644,7 +654,23 @@
         "save": "Save",
         "disable": "Turn off"
       },
-      "declinedBadge": "Declined by you"
+      "declinedBadge": "Declined by you",
+      "recurrence": {
+        "freq": {
+          "daily_one": "Every day",
+          "daily_other": "Every {{count}} days",
+          "weekly_one": "Every week",
+          "weekly_other": "Every {{count}} weeks",
+          "monthly_one": "Every month",
+          "monthly_other": "Every {{count}} months",
+          "yearly_one": "Every year",
+          "yearly_other": "Every {{count}} years"
+        },
+        "withDays": "{{frequency}} on {{days}}",
+        "withUntil": "{{recurrence}}, until {{date}}",
+        "withCount_one": "{{recurrence}}, {{count}} time",
+        "withCount_other": "{{recurrence}}, {{count}} times"
+      }
     },
     "common": {
       "loading": "Loading…",

@@ -166,6 +166,84 @@ describe("EventSheet — il dettaglio dell'appuntamento", () => {
     expect(screen.queryByText("La tua risposta")).toBeNull();
   });
 
+  // -------------------------------------------------------------------------
+  // 15 set 2026 (§2): i campi nuovi. Sull'app la descrizione resta TESTO.
+  // -------------------------------------------------------------------------
+
+  test("la descrizione è TESTO coi link toccabili, mai HTML", async () => {
+    const { client } = makeClient();
+    await renderSheet(
+      client,
+      event({
+        recurringEventId: null,
+        descriptionText: "Ordine del giorno: vedi https://example.test/agenda",
+      }),
+    );
+
+    expect(screen.getByText("Descrizione")).toBeTruthy();
+    // `LinkedText` taglia il testo in pezzi: il link diventa un pezzo a sé,
+    // quindi si cerca la porzione di testo, non la stringa intera.
+    expect(screen.getByTestId("event-sheet-description")).toBeTruthy();
+    expect(screen.getByText("https://example.test/agenda")).toBeTruthy();
+  });
+
+  test("luogo, Meet, numero col PIN e promemoria che NOMINANO Google", async () => {
+    const { client } = makeClient();
+    await renderSheet(
+      client,
+      event({
+        recurringEventId: null,
+        location: "Sala Grande",
+        hangoutLink: "https://meet.google.com/abc-defg-hij",
+        conferenceEntryPoints: [
+          { type: "phone", uri: "tel:+39061234567", label: "+39 06 1234567", pin: "998877" },
+        ],
+        reminders: [{ method: "popup", minutes: 10 }],
+      }),
+    );
+
+    expect(screen.getByText("Sala Grande")).toBeTruthy();
+    expect(screen.getByTestId("event-sheet-join-meet")).toBeTruthy();
+    expect(screen.getByTestId("event-sheet-join-phone")).toBeTruthy();
+    expect(screen.getByText("PIN 998877")).toBeTruthy();
+    expect(screen.getByText("10 minuti prima")).toBeTruthy();
+    // ⚠️ La copy nomina Google: Stubwise non li fa scattare.
+    expect(screen.getByText(/è Google a farli scattare, non Stubwise/)).toBeTruthy();
+  });
+
+  test("⚠️ un link «per partecipare» con uno schema pericoloso non diventa toccabile", async () => {
+    const { client } = makeClient();
+    await renderSheet(
+      client,
+      event({
+        recurringEventId: null,
+        hangoutLink: "javascript:alert(1)",
+        conferenceEntryPoints: [{ type: "more", uri: "javascript:alert(2)", label: "Altri modi", pin: null }],
+      }),
+    );
+
+    expect(screen.queryByTestId("event-sheet-join-meet")).toBeNull();
+    expect(screen.queryByText("Altri modi")).toBeNull();
+  });
+
+  test("la ricorrenza si legge a parole", async () => {
+    const { client } = makeClient();
+    await renderSheet(
+      client,
+      event({ recurringEventId: null, recurrence: ["RRULE:FREQ=WEEKLY;BYDAY=MO"] }),
+    );
+    expect(screen.getByTestId("event-sheet-recurrence").props.children).toBe("Ogni settimana, il Lunedì");
+  });
+
+  test("una ricorrenza che non sappiamo dire non produce NESSUNA frase", async () => {
+    // Tacere è la scelta: una frase sbagliata su quando si ripete un
+    // appuntamento è peggio di nessuna frase — chi la legge non ha modo di
+    // accorgersene.
+    const { client } = makeClient();
+    await renderSheet(client, event({ recurringEventId: null, recurrence: ["RRULE:FREQ=HOURLY"] }));
+    expect(screen.queryByTestId("event-sheet-recurrence")).toBeNull();
+  });
+
   test("un evento SENZA serie non mostra nessuna configurazione", async () => {
     const { client } = makeClient();
     await renderSheet(client, event({ recurringEventId: null }));

@@ -7,7 +7,12 @@
  * tap.
  */
 import { z } from "zod";
-import type { CalendarAttendee, CalendarAttendeeResponseStatus } from "@stubwise/shared";
+import type {
+  CalendarAttendee,
+  CalendarAttendeeResponseStatus,
+  CalendarConferenceEntryPoint,
+  CalendarReminder,
+} from "@stubwise/shared";
 import { buildUrl, parseGoogleJson, requestGoogle, type GoogleClientOptions } from "./fetch.js";
 
 /** I soli valori che `calendarAttendeeResponseStatusSchema` accetta. */
@@ -61,6 +66,34 @@ export interface GoogleCalendarEvent {
    * manuali (fase 7b). `null` per un evento singolo.
    */
   originalStartTime: Date | null;
+  /**
+   * Dove si tiene, come l'ha scritto chi ha creato l'invito (15 set 2026,
+   * §2). Testo LIBERO e NON FIDATO: una stanza, un indirizzo, o un link
+   * incollato lì. Chi lo rende su una superficie con markup lo escapa, come
+   * `title`.
+   */
+  location: string | null;
+  /** Il link Meet, quando c'è (`hangoutLink`). `null` per un evento senza videochiamata. */
+  hangoutLink: string | null;
+  /**
+   * Gli altri modi di partecipare (`conferenceData.entryPoints`): numeri di
+   * telefono, PIN, link alternativi. Vuoto per la maggioranza degli eventi.
+   */
+  conferenceEntryPoints: CalendarConferenceEntryPoint[];
+  /**
+   * I promemoria IMPOSTATI SU GOOGLE (`reminders.overrides`). ⚠️ Stubwise non
+   * li fa scattare e non deve sembrare che lo faccia: sono un'informazione
+   * vera su cosa farà Google, non una promessa nostra (design §2).
+   */
+  reminders: CalendarReminder[];
+  /**
+   * `reminders.useDefault`: l'evento usa i promemoria PREDEFINITI del
+   * calendario, che stanno in `calendarList` e qui non li leggiamo. Quando è
+   * `true`, {@link GoogleCalendarEvent.reminders} è vuoto e non significa
+   * «nessun promemoria» — significa «quelli che hai messo tu di default», ed
+   * è tutto ciò che possiamo dire onestamente.
+   */
+  remindersUseDefault: boolean;
 }
 
 /** Una pagina di `events.list`. */
@@ -88,6 +121,36 @@ const eventSchema = z.object({
   updated: z.string().optional(),
   recurringEventId: z.string().optional(),
   originalStartTime: dateSchema.optional(),
+  location: z.string().optional(),
+  hangoutLink: z.string().optional(),
+  conferenceData: z
+    .object({
+      entryPoints: z
+        .array(
+          z.object({
+            entryPointType: z.string().optional(),
+            uri: z.string().optional(),
+            label: z.string().optional(),
+            pin: z.string().optional(),
+          }),
+        )
+        .optional(),
+    })
+    .optional(),
+  reminders: z
+    .object({
+      useDefault: z.boolean().optional(),
+      overrides: z
+        .array(z.object({ method: z.string().optional(), minutes: z.number().optional() }))
+        .optional(),
+    })
+    .optional(),
+  /**
+   * Le regole di ricorrenza (RRULE/EXDATE/RDATE), presenti SOLO sull'evento
+   * PADRE di una serie: con `singleEvents=true` le occorrenze non la portano
+   * (15 set 2026, §2). La legge {@link getEvent}, mai `listEvents`.
+   */
+  recurrence: z.array(z.string()).optional(),
 });
 
 const eventsListSchema = z.object({
@@ -141,7 +204,34 @@ function toEvent(raw: z.infer<typeof eventSchema>): GoogleCalendarEvent {
     updatedAt: toDate(raw.updated),
     recurringEventId: raw.recurringEventId ?? null,
     originalStartTime: toDateValue(raw.originalStartTime),
+    // ⚠️ `null` e non `""` quando Google non manda il campo: la convenzione
+    // del modulo (vedi `extractRawBody` in `gmail.ts`) distingue «non c'era»
+    // da «c'era ed era vuoto», e una stringa vuota farebbe disegnare alla UI
+    // un blocco «Dove» senza niente dentro.
+    location: nonEmpty(raw.location),
+    hangoutLink: nonEmpty(raw.hangoutLink),
+    conferenceEntryPoints: (raw.conferenceData?.entryPoints ?? [])
+      .filter((point): point is { entryPointType?: string; uri: string; label?: string; pin?: string } =>
+        typeof point.uri === "string" && point.uri !== "",
+      )
+      .map((point) => ({
+        type: point.entryPointType ?? "unknown",
+        uri: point.uri,
+        label: nonEmpty(point.label),
+        pin: nonEmpty(point.pin),
+      })),
+    reminders: (raw.reminders?.overrides ?? [])
+      .filter((reminder): reminder is { method?: string; minutes: number } =>
+        typeof reminder.minutes === "number" && Number.isFinite(reminder.minutes),
+      )
+      .map((reminder) => ({ method: reminder.method ?? "unknown", minutes: reminder.minutes })),
+    remindersUseDefault: raw.reminders?.useDefault ?? false,
   };
+}
+
+/** Il valore, oppure `null` se assente o vuoto — vedi il commento in {@link toEvent}. */
+function nonEmpty(value: string | undefined): string | null {
+  return value !== undefined && value.trim() !== "" ? value : null;
 }
 
 /** Argomenti di `events.list`. */
@@ -199,4 +289,68 @@ export async function listEvents(
     nextPageToken: raw.nextPageToken ?? null,
     nextSyncToken: raw.nextSyncToken ?? null,
   };
+}
+
+/** Argomenti di `events.get` — vedi {@link getEvent}. */
+export interface GetEventInput {
+  accessToken: string;
+  /** Calendario da leggere (default `primary`: la casella collegata). */
+  calendarId?: string;
+  /** L'id dell'evento. Per una SERIE è `recurringEventId`, cioè l'id del PADRE. */
+  eventId: string;
+}
+
+/** L'evento PADRE di una serie, nella sola parte che ci serve. */
+export interface GoogleParentEvent {
+  id: string;
+  /**
+   * Le regole di ricorrenza come le manda Google (`RRULE:FREQ=WEEKLY;…`, più
+   * eventuali `EXDATE`/`RDATE`). Vuoto se l'evento non è una serie.
+   */
+  recurrence: string[];
+}
+
+/**
+ * UN evento, letto per id — oggi serve a UNA cosa sola: la **regola di
+ * ricorrenza** di una serie (15 set 2026, §2).
+ *
+ * ⚠️ **UNA CHIAMATA PER SERIE, MAI UNA PER OCCORRENZA.** `listEvents` chiede
+ * `singleEvents=true`, che espande le ricorrenze in occorrenze: le singole
+ * istanze NON portano l'RRULE, che vive sull'evento PADRE. Serve quindi una
+ * lettura in più — ma del padre, una volta, e il risultato si conserva
+ * accanto alla serie (`calendar_series_recurrence`), non ripetuto su ogni
+ * riga.
+ *
+ * Il confine non è un'ottimizzazione: una chiamata per occorrenza su un
+ * calendario ricorrente è esattamente il moltiplicatore che ha prodotto
+ * l'incidente del 9 settembre 2026 — un appuntamento settimanale espanso su
+ * cinque anni sono centinaia di chiamate per un dato che è lo stesso per
+ * tutte. Chi tocca il chiamante (`apps/worker/src/google/poller.ts`) tenga
+ * il conteggio: c'è un test che conta le chiamate del client finto su venti
+ * occorrenze della stessa serie e pretende UNO.
+ *
+ * Un **404** diventa `event_gone` (il padre è stato cancellato mentre le
+ * occorrenze sono ancora in tabella): non è fatale, il chiamante se ne fa
+ * una ragione e prosegue senza la ricorrenza a parole.
+ */
+export async function getEvent(
+  input: GetEventInput,
+  options: GoogleClientOptions = {},
+): Promise<GoogleParentEvent> {
+  const api = "calendar.events.get";
+  const calendarId = input.calendarId ?? "primary";
+  const payload = await requestGoogle(
+    {
+      api,
+      url: buildUrl(
+        `${CALENDAR_API_BASE}/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(input.eventId)}`,
+        {},
+      ),
+      accessToken: input.accessToken,
+      statusCodes: { 404: "event_gone" },
+    },
+    options,
+  );
+  const raw = parseGoogleJson(api, eventSchema, payload);
+  return { id: raw.id, recurrence: raw.recurrence ?? [] };
 }

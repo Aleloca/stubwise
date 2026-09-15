@@ -5,7 +5,7 @@ import type {
   CalendarSeriesPatch,
   Reader,
 } from "@stubwise/shared";
-import { attendeeResponseOf, isUnknown } from "@stubwise/shared";
+import { attendeeResponseOf, formatRecurrence, isUnknown, parseRecurrence } from "@stubwise/shared";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -13,6 +13,7 @@ import { Linking, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "r
 import { useAuth } from "../../app/providers";
 import { GhostButton } from "../GhostButton";
 import { PrimaryButton } from "../PrimaryButton";
+import { LinkedText } from "../LinkedText";
 import { SectionLabel } from "../SectionLabel";
 import { useCalendarSeries, useSeriesMutation } from "../../lib/calendar-mutations";
 import { clockTime } from "../../lib/format";
@@ -115,6 +116,44 @@ export function EventSheet({
               </View>
             )}
 
+            {/*
+              ⚠️ `!= null` (LASCO) e non `!== null` su tutti i campi del 15
+              set 2026: in produzione `packages/api-client` parsa davvero e
+              il `.default()` dello schema li riempie, ma un server più
+              vecchio — o un rollback — manda una risposta SENZA, e allora
+              qui arriva `undefined`. `LinkedText` su `undefined` lancia e
+              React smonta l'intero foglio, non una riga. I test lo fissano
+              con una fixture che quei campi non li ha, apposta.
+            */}
+            {event.location != null && (
+              <View style={styles.section}>
+                <SectionLabel>{t("mobile.calendar.sheet.location")}</SectionLabel>
+                <Text style={styles.body}>{event.location}</Text>
+              </View>
+            )}
+
+            <JoinBlock hangoutLink={event.hangoutLink} entryPoints={event.conferenceEntryPoints} />
+
+            {event.descriptionText != null && (
+              <View style={styles.section}>
+                <SectionLabel>{t("mobile.calendar.sheet.description")}</SectionLabel>
+                {/*
+                  ⚠️ TESTO, non HTML — e non è un ripiego. La descrizione di
+                  un evento è scritta da chiunque abbia creato l'invito:
+                  sul web si rende nell'`<iframe sandbox>`, qui non c'è un
+                  recinto equivalente, quindi si usa il percorso che l'app ha
+                  già per il corpo delle email (`LinkedText`, solo
+                  `http`/`https` toccabili). Il testo arriva dal server, che
+                  lo ricava dalla STESSA colonna con `htmlToText`.
+                */}
+                <LinkedText style={styles.body} text={event.descriptionText} testID="event-sheet-description" />
+              </View>
+            )}
+
+            <RecurrenceBlock recurrence={event.recurrence} />
+
+            <RemindersBlock reminders={event.reminders} useDefault={event.remindersUseDefault} />
+
             {link !== null && (
               <View style={styles.openButton}>
                 <GhostButton
@@ -165,6 +204,124 @@ function whenLabel(event: Reader<CalendarEventItem>, t: (key: string, opts?: Rec
   const from = clockTime(event.startsAt);
   if (event.endsAt === null) return `${day}, ${from}`;
   return `${day}, ${from} – ${clockTime(event.endsAt)}`;
+}
+
+/** Gli schemi apribili di un link «per partecipare» — allowlist, mai denylist. */
+const SAFE_JOIN_SCHEMES = ["http:", "https:", "tel:"];
+
+function isSafeJoinUri(uri: string): boolean {
+  try {
+    return SAFE_JOIN_SCHEMES.includes(new URL(uri).protocol);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * «Per partecipare»: Meet più gli altri modi. `uri` viene dall'invito, cioè
+ * da chiunque, quindi passa dall'allowlist di schemi prima di diventare
+ * toccabile — `javascript:` in un link è il modo classico di trasformare un
+ * tap in esecuzione.
+ */
+function JoinBlock({
+  hangoutLink,
+  entryPoints,
+}: {
+  hangoutLink: string | null | undefined;
+  entryPoints: Reader<CalendarEventItem>["conferenceEntryPoints"];
+}) {
+  const { t } = useTranslation();
+  const meet = hangoutLink != null && isSafeJoinUri(hangoutLink) ? hangoutLink : null;
+  // Il Meet è già fra gli entry point in quasi tutti gli eventi: due volte
+  // sarebbe rumore.
+  const extra = (entryPoints ?? []).filter(
+    (point) => isSafeJoinUri(point.uri) && point.uri !== hangoutLink,
+  );
+  if (meet === null && extra.length === 0) return null;
+
+  return (
+    <View style={styles.section}>
+      <SectionLabel>{t("mobile.calendar.sheet.join")}</SectionLabel>
+      {meet !== null && (
+        <View style={styles.openButton}>
+          <GhostButton
+            label={t("mobile.calendar.sheet.joinMeet")}
+            onPress={() => void Linking.openURL(meet)}
+            testID="event-sheet-join-meet"
+          />
+        </View>
+      )}
+      {extra.map((point) => (
+        <Pressable
+          key={point.uri}
+          accessibilityRole="link"
+          onPress={() => void Linking.openURL(point.uri)}
+          style={styles.joinRow}
+          testID={`event-sheet-join-${point.type}`}
+        >
+          <Text style={styles.joinLabel}>{point.label ?? point.uri}</Text>
+          {point.pin != null && <Text style={styles.meta}>PIN {point.pin}</Text>}
+        </Pressable>
+      ))}
+    </View>
+  );
+}
+
+/**
+ * «Si ripete», o NIENTE: `parseRecurrence` tace su tutto ciò che non sa dire
+ * con certezza, e una frase sbagliata su quando si ripete un appuntamento è
+ * peggio di nessuna frase.
+ */
+function RecurrenceBlock({ recurrence }: { recurrence: Reader<CalendarEventItem>["recurrence"] }) {
+  const { t } = useTranslation();
+  const rule = parseRecurrence(recurrence ?? []);
+  if (rule === null) return null;
+  const label = formatRecurrence(rule, (key, params) =>
+    key.startsWith("weekday.")
+      ? t(`mobile.calendar.weekdaysLong.${key.slice("weekday.".length)}`)
+      : t(`mobile.calendar.recurrence.${key}`, params),
+  );
+  return (
+    <View style={styles.section}>
+      <SectionLabel>{t("mobile.calendar.sheet.recurrence")}</SectionLabel>
+      <Text style={styles.body} testID="event-sheet-recurrence">
+        {label}
+      </Text>
+    </View>
+  );
+}
+
+/**
+ * I promemoria, ATTRIBUITI A GOOGLE (design §2).
+ *
+ * ⚠️ Stubwise non li fa scattare e la copy non deve lasciar credere il
+ * contrario: la riga finale dice che è Google a farli scattare. Chi un
+ * domani volesse farli scattare sta aggiungendo una funzione, non riempiendo
+ * un campo.
+ */
+function RemindersBlock({
+  reminders,
+  useDefault,
+}: {
+  reminders: Reader<CalendarEventItem>["reminders"];
+  useDefault: boolean | undefined;
+}) {
+  const { t } = useTranslation();
+  const list = reminders ?? [];
+  const usesDefault = useDefault === true;
+  if (list.length === 0 && !usesDefault) return null;
+  return (
+    <View style={styles.section} testID="event-sheet-reminders">
+      <SectionLabel>{t("mobile.calendar.sheet.reminders")}</SectionLabel>
+      {list.map((reminder) => (
+        <Text key={`${reminder.method}-${reminder.minutes}`} style={styles.body}>
+          {t("mobile.calendar.sheet.reminderMinutes", { count: reminder.minutes })}
+        </Text>
+      ))}
+      {usesDefault && <Text style={styles.body}>{t("mobile.calendar.sheet.remindersUseDefault")}</Text>}
+      <Text style={styles.hint}>{t("mobile.calendar.sheet.remindersOnGoogle")}</Text>
+    </View>
+  );
 }
 
 function attendeeStatusLabel(
@@ -454,6 +611,23 @@ const styles = StyleSheet.create({
   openButton: {
     alignSelf: "flex-start",
     marginTop: 18,
+  },
+  body: {
+    color: colors.muted,
+    fontFamily: fontFamily.sans,
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: 6,
+  },
+  joinRow: {
+    justifyContent: "center",
+    marginTop: 10,
+    minHeight: 44,
+  },
+  joinLabel: {
+    color: colors.signal,
+    fontFamily: fontFamily.mono,
+    fontSize: fontSize.label,
   },
   seriesBox: {
     borderColor: colors.line,

@@ -779,6 +779,43 @@ export const calendarAttendeeSchema = z.object({
 export type CalendarAttendee = z.infer<typeof calendarAttendeeSchema>;
 
 /**
+ * UN modo di partecipare a un appuntamento (15 set 2026, §2): il link video,
+ * un numero di telefono col suo PIN, una pagina «altri modi».
+ *
+ * `type` è una STRINGA e non un enum: l'elenco di Google
+ * (`video`/`phone`/`sip`/`more`) può crescere, e un valore nuovo non deve
+ * poter far fallire il parse di una risposta — qui non c'è niente da
+ * decidere in base al tipo, solo da mostrare. `uri` è NON FIDATO come ogni
+ * campo che viene dall'invito: chi lo rende come link ne verifica lo schema.
+ *
+ * Dichiarata QUI e non in `packages/db` o `packages/google`, che dipendono
+ * entrambi da questo package: è lo stesso ragionamento di
+ * {@link calendarAttendeeSchema} — una sola fonte di verità, non due
+ * dichiarazioni identiche per caso.
+ */
+export const calendarConferenceEntryPointSchema = z.object({
+  type: z.string(),
+  uri: z.string(),
+  label: z.string().nullable().default(null),
+  pin: z.string().nullable().default(null),
+});
+export type CalendarConferenceEntryPoint = z.infer<typeof calendarConferenceEntryPointSchema>;
+
+/**
+ * UN promemoria impostato SU GOOGLE: quanti minuti prima, e con che mezzo.
+ *
+ * ⚠️ Stubwise non li fa scattare e non deve sembrare che lo faccia (design
+ * §2): si mostrano dicendo che sono impostati su Google — un'informazione
+ * vera su cosa farà Google, non una promessa nostra. Chi un domani volesse
+ * farli scattare sta aggiungendo una funzione, non riempiendo un campo.
+ */
+export const calendarReminderSchema = z.object({
+  method: z.string(),
+  minutes: z.number().int(),
+});
+export type CalendarReminder = z.infer<typeof calendarReminderSchema>;
+
+/**
  * UN appuntamento visto: un'occorrenza di `calendar_events`, con lo stato
  * NORMALIZZATO della proposta che ne è nata (vocabolario condiviso con
  * `mailItemStatusSchema` — stessa CASE, vedi `calendar-status.ts` sul
@@ -820,6 +857,46 @@ export const calendarEventItemSchema = z.object({
   /** Link diretto all'evento (fase 9). `null` su righe storiche o se Google non lo manda. */
   eventUrl: z.string().nullable().default(null),
   reproposable: z.boolean().default(false),
+
+  // --- 15 set 2026 (§2): tutto quello che Google mostra. Ogni campo qui
+  // sotto è `.default()`/`.nullable()`, mai obbligatorio: è la regola per
+  // ogni campo NUOVO in una risposta che l'app legge (CLAUDE.md) — un
+  // server più vecchio che non li manda non deve far fallire il parse su un
+  // telefono già aggiornato. C'è un test che parsa una risposta SENZA.
+
+  /**
+   * La descrizione **SANIFICATA** (`sanitizeEmailHtml`), pronta per un
+   * `<iframe sandbox>`. ⚠️ In colonna sta GREZZA: qui arriva già passata dal
+   * filtro, ricalcolato a ogni lettura — stessa regola del corpo di
+   * un'email, e per lo stesso motivo (una correzione al filtro vale
+   * retroattivamente, senza migrazioni di dati).
+   */
+  descriptionHtml: z.string().nullable().default(null),
+  /**
+   * La stessa descrizione ridotta a TESTO, per chi non può rendere HTML in
+   * sicurezza: l'app la mostra con `LinkedText`, esattamente come
+   * `bodyText` di un'email. Non è una seconda fonte — è la stessa colonna,
+   * letta in un altro modo.
+   */
+  descriptionText: z.string().nullable().default(null),
+  /** Dove si tiene. Testo libero NON FIDATO: chi lo rende con markup lo escapa. */
+  location: z.string().nullable().default(null),
+  /** Il link Meet, quando c'è. */
+  hangoutLink: z.string().nullable().default(null),
+  /** Gli altri modi di partecipare: numeri di telefono, PIN, link alternativi. */
+  conferenceEntryPoints: z.array(calendarConferenceEntryPointSchema).default([]),
+  /** I promemoria IMPOSTATI SU GOOGLE — che Stubwise non fa scattare: la UI lo dice. */
+  reminders: z.array(calendarReminderSchema).default([]),
+  /** L'evento usa i promemoria predefiniti del calendario (che non leggiamo). */
+  remindersUseDefault: z.boolean().default(false),
+  /**
+   * Le righe di ricorrenza GREZZE della serie (`RRULE:…`), quando
+   * l'appuntamento ne fa parte e le abbiamo lette dal padre. A parole le
+   * traduce `parseRecurrence`/`formatRecurrence` (`@stubwise/shared`), sul
+   * client: conservare la traduzione la congelerebbe alla lingua del giorno
+   * in cui è stata scritta.
+   */
+  recurrence: z.array(z.string()).default([]),
 });
 export type CalendarEventItem = z.infer<typeof calendarEventItemSchema>;
 
