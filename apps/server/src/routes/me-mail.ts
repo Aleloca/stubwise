@@ -19,6 +19,7 @@ import {
 } from "@stubwise/google";
 import { loadGoogleAccountCredentials } from "@stubwise/google/credentials";
 import {
+  hasDeclinedInvitation,
   mailDetailSchema,
   mailItemStatusSchema,
   mailOriginalSchema,
@@ -1119,6 +1120,8 @@ export async function meMailRoutes(
         .select({
           id: calendarEvents.id,
           status: calendarStatusCaseSql().as("normalized_status"),
+          attendees: calendarEvents.attendees,
+          mailboxEmail: googleAccounts.email,
         })
         .from(calendarEvents)
         .innerJoin(googleAccounts, eq(googleAccounts.id, calendarEvents.accountId))
@@ -1126,6 +1129,25 @@ export async function meMailRoutes(
       if (!row) return apiError(reply, 404, "not_found", "Event not found");
       if (row.status !== "failed" && row.status !== "ignored") {
         return apiError(reply, 409, "not_reproposable", "This event cannot be reproposed");
+      }
+      // Il RIFIUTO (15 set 2026, §1). Senza questo controllo «Riproponi» su
+      // un appuntamento rifiutato sarebbe un NO-OP SILENZIOSO: la rotta
+      // azzera `outcome`/`proposal_notification_id`, il tick successivo
+      // riapplica il cancello e non propone niente, e la riga resta `new`
+      // per sempre — la UI ha detto ok e non è successo nulla. Meglio un 409
+      // che dice il perché.
+      //
+      // Il caso è stretto ma reale: una riga chiusa PRIMA come
+      // `failed`/`ignored` (quindi ancora riproponibile) e rifiutata DOPO.
+      // Una riga chiusa DAL rifiuto ha `outcome.type = 'declined'` e non
+      // arriva nemmeno qui — `calendarReproposableSql` la esclude già.
+      if (hasDeclinedInvitation(row.attendees, row.mailboxEmail)) {
+        return apiError(
+          reply,
+          409,
+          "not_reproposable",
+          "You declined this invitation: there is nothing to repropose",
+        );
       }
       await app.db
         .update(calendarEvents)

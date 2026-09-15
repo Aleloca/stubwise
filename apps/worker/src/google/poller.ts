@@ -55,6 +55,7 @@ import { getContentLanguage } from "../settings.js";
 import {
   buildMilestoneProposal,
   CALENDAR_CANCELLED_OUTCOME,
+  CALENDAR_DECLINED_OUTCOME,
   CALENDAR_MAX_PAGES,
   CALENDAR_PAGE_SIZE,
   CALENDAR_WINDOW_DAYS,
@@ -1213,6 +1214,46 @@ async function syncCalendar(
     const existing = byEventId.get(event.id);
     if (existing) {
       const stillOpen = existing.proposalNotificationId === null && existing.outcome === null;
+      // Una proposta GIÀ PUBBLICATA e non ancora decisa: è l'unico caso in
+      // cui il rifiuto deve CHIUDERE qualcosa invece di limitarsi a non far
+      // nascere niente (vedi il docblock di `CALENDAR_DECLINED_OUTCOME`).
+      // `outcome === null` è il paletto: una proposta già confermata non si
+      // tocca — la milestone esiste, e cancellarla è un'altra cosa.
+      const openProposal = existing.proposalNotificationId !== null && existing.outcome === null;
+      const declined = hasDeclinedInvitation(event.attendees, account.email);
+
+      if (openProposal && declined) {
+        const notificationId = existing.proposalNotificationId!;
+        // Riga ed esito nella STESSA transazione della chiusura della card:
+        // mai una finestra in cui la card è chiusa e la riga non lo sa (o
+        // viceversa). Stessa forma di `superseded_by_message` in
+        // `classify.ts`.
+        await deps.db.transaction(async (tx) => {
+          await tx
+            .update(calendarEventsTable)
+            .set({ ...fresh, outcome: CALENDAR_DECLINED_OUTCOME })
+            .where(
+              and(
+                eq(calendarEventsTable.accountId, account.id),
+                eq(calendarEventsTable.googleEventId, event.id),
+                // Guardia sul claim: se nel frattempo qualcuno ha risposto
+                // alla card, l'esito è suo e questo UPDATE non fa niente.
+                isNull(calendarEventsTable.outcome),
+              ),
+            );
+          await tx
+            .update(notifications)
+            .set({ status: "handled", handledAt: new Date() })
+            .where(and(eq(notifications.id, notificationId), eq(notifications.status, "open")));
+        });
+        // Mai in silenzio: una card che si chiude da sola lascia una riga.
+        (deps.logger ?? defaultLogger).info(
+          `google: proposta dell'evento ${event.id} chiusa — invito rifiutato da ${account.email}`,
+        );
+        stats.events += 1;
+        continue;
+      }
+
       await deps.db
         .update(calendarEventsTable)
         .set(stillOpen ? { ...fresh, projectId: resolved.projectId } : fresh)

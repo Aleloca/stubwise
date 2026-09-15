@@ -713,6 +713,53 @@ describe("POST /api/me/mail/:source/:id/repropose", () => {
     expect(row!.proposalNotificationId).toBeNull();
   });
 
+  it("calendario RIFIUTATO da te → 409 parlante, non un ok che non fa niente (15 set 2026, §1)", async () => {
+    // ⚠️ Il caso è stretto ma reale: una riga chiusa PRIMA come
+    // `failed`/`ignored` (quindi ancora riproponibile) e rifiutata DOPO su
+    // Google. Senza questo cancello la rotta risponderebbe 200, azzererebbe
+    // `outcome`, e il tick successivo riapplicherebbe il cancello del
+    // rifiuto senza proporre niente: la riga resterebbe `new` per sempre e
+    // la UI avrebbe detto «fatto» senza che succedesse nulla.
+    const { accountId, email } = await seedAccount(adminId);
+    const { projectId } = await seedRepository(db);
+    const id = await seedCalendar(accountId, {
+      projectId,
+      outcome: { type: "failed", error: "boom" },
+      proposalNotificationId: null,
+      attendees: [
+        { email: "cliente@acme.test", responseStatus: "accepted" },
+        { email, responseStatus: "declined" },
+      ],
+    });
+
+    const res = await repropose(adminCookie, "calendar", id);
+    expect(res.statusCode).toBe(409);
+    expect(res.json().code).toBe("not_reproposable");
+    // E l'esito NON è stato azzerato: la richiesta è stata rifiutata, non
+    // eseguita a metà.
+    const [row] = await db.select().from(calendarEvents).where(eq(calendarEvents.id, id));
+    expect(row!.outcome).toEqual({ type: "failed", error: "boom" });
+  });
+
+  it("il rifiuto di QUALCUN ALTRO non blocca «Riproponi»", async () => {
+    const { accountId, email } = await seedAccount(adminId);
+    const { projectId } = await seedRepository(db);
+    const id = await seedCalendar(accountId, {
+      projectId,
+      outcome: { type: "failed", error: "boom" },
+      proposalNotificationId: null,
+      attendees: [
+        { email: "cliente@acme.test", responseStatus: "declined" },
+        { email, responseStatus: "accepted" },
+      ],
+    });
+
+    const res = await repropose(adminCookie, "calendar", id);
+    expect(res.statusCode).toBe(200);
+    const [row] = await db.select().from(calendarEvents).where(eq(calendarEvents.id, id));
+    expect(row!.outcome).toBeNull();
+  });
+
   it("calendario cancellato da Google → non riproponibile, 409", async () => {
     const { accountId } = await seedAccount(adminId);
     const id = await seedCalendar(accountId, { status: "cancelled", outcome: { type: "cancelled" } });

@@ -1127,6 +1127,124 @@ describe("dalla riga candidata alla proposta in inbox", () => {
     expect(await db.select().from(notifications)).toHaveLength(1);
   });
 
+  // -------------------------------------------------------------------------
+  // 15 set 2026 (§1, dubbio 2): il cancello impedisce che una proposta NASCA;
+  // per una GIÀ USCITA serve chiuderla. Decisione del maintainer.
+  // -------------------------------------------------------------------------
+
+  it("rifiutare DOPO che la card è uscita la CHIUDE, dicendo da cosa", async () => {
+    const projectId = await seedProject("Acme");
+    await db
+      .insert(projectEmailRoutes)
+      .values({ projectId, kind: "sender_domain", value: "cliente.com" });
+    const account = await seedAccount();
+
+    // Primo giro: l'appuntamento è normale, la proposta esce.
+    const first = fakeCalendar([{ events: [event({ id: "e1" })], nextSyncToken: "tok-1" }]);
+    expect((await pollGoogleOnce(deps(account, first, { proposeMaxPerTick: 20 }))).proposed).toBe(1);
+    const [card] = await db.select().from(notifications);
+    expect(card!.status).toBe("open");
+
+    // Secondo giro: lo stesso appuntamento, ora rifiutato su Google.
+    await db
+      .update(googleAccounts)
+      .set({ nextSyncAt: new Date(Date.now() - 60_000) })
+      .where(eq(googleAccounts.id, account.id));
+    const second = fakeCalendar([
+      {
+        events: [
+          event({
+            id: "e1",
+            attendees: [att("cliente@cliente.com"), { email: MAILBOX, responseStatus: "declined" }],
+          }),
+        ],
+        nextSyncToken: "tok-2",
+      },
+    ]);
+    await pollGoogleOnce(deps(await reload(account.id), second, { proposeMaxPerTick: 20 }));
+
+    // (a) L'esito dice DA COSA è stata chiusa — non un `ignored` qualunque.
+    const [row] = await rows();
+    expect(row!.outcome).toEqual({ type: "declined" });
+    // (b) La card è chiusa, non sparita: resta leggibile fra le gestite.
+    const [closed] = await db.select().from(notifications);
+    expect(closed!.id).toBe(card!.id);
+    expect(closed!.status).toBe("handled");
+    expect(closed!.handledAt).not.toBeNull();
+    // E non ne nasce una seconda al giro dopo.
+    expect(await db.select().from(notifications)).toHaveLength(1);
+  });
+
+  it("una proposta GIÀ CONFERMATA non si tocca: la milestone esiste", async () => {
+    const projectId = await seedProject("Acme");
+    await db
+      .insert(projectEmailRoutes)
+      .values({ projectId, kind: "sender_domain", value: "cliente.com" });
+    const account = await seedAccount();
+
+    const first = fakeCalendar([{ events: [event({ id: "e1" })], nextSyncToken: "tok-1" }]);
+    await pollGoogleOnce(deps(account, first, { proposeMaxPerTick: 20 }));
+
+    // Qualcuno ha confermato: esito scritto, card gestita. Cancellare quello
+    // che ne è nato è un'altra cosa, che nessuno ha chiesto.
+    const alreadyActioned = { type: "milestone_created", milestoneId: "m1" };
+    await db.update(calendarEvents).set({ outcome: alreadyActioned });
+    await db
+      .update(googleAccounts)
+      .set({ nextSyncAt: new Date(Date.now() - 60_000) })
+      .where(eq(googleAccounts.id, account.id));
+    const second = fakeCalendar([
+      {
+        events: [
+          event({
+            id: "e1",
+            attendees: [att("cliente@cliente.com"), { email: MAILBOX, responseStatus: "declined" }],
+          }),
+        ],
+        nextSyncToken: "tok-2",
+      },
+    ]);
+    await pollGoogleOnce(deps(await reload(account.id), second, { proposeMaxPerTick: 20 }));
+
+    const [row] = await rows();
+    expect(row!.outcome).toEqual(alreadyActioned);
+  });
+
+  it("rifiutare un appuntamento MAI proposto non inventa un esito: resta aperto", async () => {
+    const projectId = await seedProject("Acme");
+    await db
+      .insert(projectEmailRoutes)
+      .values({ projectId, kind: "sender_domain", value: "cliente.com" });
+    const account = await seedAccount();
+    // Fase 4 spenta: la riga nasce candidata ma nessuna card esce.
+    const first = fakeCalendar([{ events: [event({ id: "e1" })], nextSyncToken: "tok-1" }]);
+    await pollGoogleOnce(deps(account, first));
+
+    await db
+      .update(googleAccounts)
+      .set({ nextSyncAt: new Date(Date.now() - 60_000) })
+      .where(eq(googleAccounts.id, account.id));
+    const second = fakeCalendar([
+      {
+        events: [
+          event({
+            id: "e1",
+            attendees: [att("cliente@cliente.com"), { email: MAILBOX, responseStatus: "declined" }],
+          }),
+        ],
+        nextSyncToken: "tok-2",
+      },
+    ]);
+    await pollGoogleOnce(deps(await reload(account.id), second));
+
+    // Nessuna card da chiudere, quindi nessun esito da scrivere: `outcome`
+    // resta null. Non è una dimenticanza — è ciò che permette a un
+    // appuntamento ri-accettato domani di tornare a proporre da solo.
+    const [row] = await rows();
+    expect(row!.outcome).toBeNull();
+    expect(readyForProposal(row!)).toBe(false);
+  });
+
   it("trenta riunioni di lavoro del mese scorso: zero proposte (fix di review, fase 9 — l'incidente da una porta nuova)", async () => {
     const projectId = await seedProject("Acme");
     await db
