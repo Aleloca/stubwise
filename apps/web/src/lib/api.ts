@@ -47,10 +47,10 @@ import type {
   MailAdmission,
   MailAdmissionPatch,
   MailDetail,
+  MailThreadDetail,
+  MailThreadPage,
   MailItemStatus,
   MailOriginal,
-  MailPage,
-  MailSource,
   MailSummary,
   NotificationPrefsUpdate,
   NotificationPrefsView,
@@ -1896,6 +1896,8 @@ export function getProjectEmailLabels(projectId: string): Promise<{ labels: stri
 
 // --- Pagina Posta, per utente (Fase 6, Task 12) ---
 
+import type { MailThreadReproposal } from "@stubwise/shared";
+
 export type {
   MailItem,
   MailItemStatus,
@@ -1905,33 +1907,17 @@ export type {
   MailSummary,
 } from "@stubwise/shared";
 
-/** Filtri della lista Posta: tutti opzionali, ognuno è un AND coi gli altri. */
-export interface MailFilters {
-  account?: string;
-  status?: MailItemStatus;
-  project?: string;
-}
+// ⚠️ `MailFilters` non c'è più: i filtri per stato e per progetto erano
+// della lista per MESSAGGIO, e su una conversazione non vogliono dire niente
+// (un thread può toccare più progetti e avere più stati insieme). La rotta
+// per thread accetta la sola casella, che la pagina passa direttamente.
 
-/**
- * Pagina della Posta dell'utente autenticato: messaggi Gmail ed eventi di
- * calendario TRATTATI, fusi in una lista sola ordinata per data (`source`
- * distingue le due). Sempre filtrata per `userId` sul server — non esiste un
- * modo di vedere la posta di un altro, admin compreso.
- */
-export function getMail(
-  filters: MailFilters = {},
-  cursor?: string,
-  limit?: number,
-): Promise<MailPage> {
-  const params = new URLSearchParams();
-  if (filters.account) params.set("account", filters.account);
-  if (filters.status) params.set("status", filters.status);
-  if (filters.project) params.set("project", filters.project);
-  if (cursor) params.set("cursor", cursor);
-  if (limit !== undefined) params.set("limit", String(limit));
-  const query = params.toString();
-  return api.get(`/api/me/mail${query ? `?${query}` : ""}`);
-}
+
+// ⚠️ `getMail` (la lista per MESSAGGIO, `GET /api/me/mail`) non c'è più qui:
+// dal 14 set il web elenca conversazioni e nessuna pagina la chiamava più.
+// **La ROTTA resta**, e non va rimossa dal server: la legge ogni build
+// dell'app già installata su un telefono, e ci passa il calendario — vedi
+// il docblock di `MailWorkspace`.
 
 /** Contatori per il badge di nav e l'intestazione della pagina Posta. */
 export function getMailSummary(): Promise<MailSummary> {
@@ -1939,17 +1925,43 @@ export function getMailSummary(): Promise<MailSummary> {
 }
 
 /**
- * Riproponi una riga `failed`/`ignored`: resetta lo stato perché il PROSSIMO
- * tick del poller la riprenda e generi una proposta NUOVA (non ripubblica da
- * qui). 409 `not_reproposable` se lo stato attuale non è fra quelli
- * riproponibili — la UI non dovrebbe mostrare il bottone in quel caso, ma la
- * rotta lo verifica comunque.
+ * «Riproponi»: rimette in coda una proposta `failed`/`ignored`, o uno
+ * smistamento chiuso con «nessuno di questi». Non pubblica niente da qui —
+ * azzera lo stato, e il prossimo tick del poller la riprende.
+ *
+ * ⚠️ Vive sul singolo MESSAGGIO dentro la conversazione aperta, non sulla
+ * riga della conversazione: una conversazione può contenere più proposte, e
+ * l'azione ha bisogno di sapere quale. La `source` non è `MailSource`: un
+ * appuntamento non sta in un thread di posta, e questa è l'unica superficie
+ * web che chiama la rotta.
  */
-export function postMailRepropose(source: MailSource, id: string): Promise<{ ok: true }> {
+export function postMailRepropose(
+  source: MailThreadReproposal["source"],
+  id: string,
+): Promise<{ ok: true }> {
   return api.post(`/api/me/mail/${source}/${encodeURIComponent(id)}/repropose`);
 }
 
-export type { MailDetail, MailOriginal } from "@stubwise/shared";
+export type { MailDetail, MailOriginal, MailThreadDetail, MailThreadPage } from "@stubwise/shared";
+export type { MailThreadReproposal };
+
+/**
+ * La posta per CONVERSAZIONE («la posta si legge per conversazione» §4):
+ * una riga per thread. Vive ACCANTO a {@link getMail}, che resta per la
+ * lista fusa con il calendario — quello thread non ne ha.
+ */
+export function getMailThreads(params: { account?: string; cursor?: string } = {}): Promise<MailThreadPage> {
+  const query = new URLSearchParams();
+  if (params.account) query.set("account", params.account);
+  if (params.cursor) query.set("cursor", params.cursor);
+  const qs = query.toString();
+  return api.get(`/api/me/mail/threads${qs ? `?${qs}` : ""}`);
+}
+
+/** I messaggi di UNA conversazione, in ordine, ciascuno con la sua provenienza. */
+export function getMailThread(threadId: string): Promise<MailThreadDetail> {
+  return api.get(`/api/me/mail/threads/${encodeURIComponent(threadId)}`);
+}
 
 /** Il dettaglio di un'email dall'estratto già in database — nessuna chiamata a Google (fase 7b, Task 6). */
 export function getMailDetail(

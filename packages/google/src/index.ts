@@ -57,6 +57,7 @@ export {
   extractText,
   getMessageFull,
   getMessageMetadata,
+  getThreadFull,
   GMAIL_API_BASE,
   htmlToText,
   listAttachments,

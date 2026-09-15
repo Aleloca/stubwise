@@ -959,6 +959,54 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   colonna `html_link` e il campo `bodyHtml` (aggiunto a
   `mailOriginalSchema`, `.nullable().default(null)`) sono invece
   puramente additivi, nessun rischio.
+- **«La posta si legge per conversazione» (14 set 2026)**: rebuild
+  **server + worker + caddy insieme** (migrazioni 0076 e 0077 all'avvio del
+  server — additive, **nessun `ALTER TYPE`**, un solo batch ciascuna e
+  nessun backfill: `email_bodies` (la cache del corpo originale, `ON DELETE
+  CASCADE` dal messaggio) e `email_messages.admitted boolean not null
+  default true`, dove il default È il backfill corretto perché prima ogni
+  riga passava dal cancello. Il worker nuovo è l'unico che tira dentro il
+  thread e classifica per conversazione, il server nuovo l'unico che espone
+  `/api/me/mail/threads*` e serve l'originale dalla cache, il bundle nuovo
+  l'unico che disegna la posta per conversazione). **Nessuna env nuova.**
+  **Nessun kind di notifica nuovo e nessun valore aggiunto a un enum
+  esistente**: a differenza delle fasi 2/5/6/6c non c'è l'equivalente del
+  500 su `/api/inbox`, e scendere di immagine sul server non richiede di
+  ripulire righe prima. **Parte A deployabile da sola** (la sola cache): è
+  stata mergiata e deployata il 14 set, prima della parte B.
+  ⚠️ **Sul web `/mail` elenca SOLO conversazioni** (decisione del maintainer,
+  14 set): la vista per messaggio non c'è più, e con lei i filtri per stato
+  e per progetto e la lista fusa col calendario (gli appuntamenti hanno
+  `/calendar`). **La rotta `GET /api/me/mail` per messaggi NON si tocca**:
+  non ha più un chiamante nel bundle web, ma la legge l'app mobile già
+  installata — è la solita asimmetria «l'app si aggiorna dagli store, non
+  dai nostri deploy». Chi ripulisce codice morto lato web si fermi al
+  confine di `packages/api-client`. Resta viva anche `/mail/:source/:id`,
+  dove atterrano una card di notifica e un link condiviso.
+  ⚠️ **«Riproponi» vive sul singolo MESSAGGIO dentro la conversazione
+  aperta** (web e app), ed è l'UNICA via di recupero da una proposta
+  `failed`, da una ignorata per sbaglio e da uno smistamento chiuso con
+  «nessuno di questi»: non esiste da nessun'altra parte nella UI — in
+  particolare **non** sulla card in inbox, dove non c'è mai stata. Chi la
+  toglie da lì non sposta un bottone: lascia quelle proposte raggiungibili
+  solo con una chiamata HTTP a mano. Sta sul messaggio e non sulla riga
+  della conversazione perché dal fan-out della 6b un messaggio può avere più
+  proposte, una per progetto, e l'azione deve sapere quale.
+  **Quali siano possibili lo decide il SERVER**, in
+  `mailThreadMessageSchema.reproposals` (`GET /api/me/mail/threads/:id`),
+  con le STESSE condizioni del cancello di `POST
+  /:source/:id/repropose` — un client che le rideducesse da `status`
+  produrrebbe bottoni da 409 al primo scostamento fra le due copie.
+  **Rollback**: scendere di immagine sul server perde le rotte per thread
+  (404) — va sceso col caddy, come sempre — e l'originale torna a chiedersi
+  a Gmail ogni volta, ignorando `email_bodies`, che resta innocua. Scendere
+  di immagine sul **worker** riporta la classificazione per messaggio: le
+  righe `admitted = false` già scritte non verrebbero più classificate
+  (l'`admitted` non lo conosce, ma quelle righe hanno `status = 'new'` e
+  nessun figlio, quindi un worker vecchio le CLASSIFICHEREBBE come messaggi
+  normali, producendo le proposte in più che questa fase esiste per
+  togliere). Non è distruttivo, ma è il motivo per non scendere di immagine
+  sul solo worker dopo questa fase.
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
@@ -1238,6 +1286,45 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   osserva nel routing procedono in parallelo senza contendersi nulla. Chi
   tocca `runAccountTick` non ci infili un accodamento per-progetto "per
   sicurezza": romperebbe l'indipendenza che il poller ha di proposito.
+- **UNA PROPOSTA PER RICHIESTA, NON PER MESSAGGIO** («la posta si legge per
+  conversazione», 14 set 2026). Di un thread si classifica **l'ULTIMO**
+  messaggio ammesso, valutando la conversazione, non ognuno: le tre card che
+  in produzione erano tre messaggi dello stesso scambio erano tre messaggi
+  contati come tre richieste. I precedenti si chiudono `ignored` con un
+  outcome che dice da cosa sono superati (`superseded_in_thread`), mai in
+  silenzio e mai lasciati `new` — resterebbero a occupare uno slot del tetto
+  per sempre.
+  Quando il thread ha già una proposta APERTA, la classificazione la riceve
+  e dice che rapporto ha il messaggio nuovo con essa: `integrates` e
+  `replaces` chiudono la vecchia e ne lasciano UNA riscritta, `new_request`
+  ne fa nascere una seconda. **Il default, quando il modello non lo dice, è
+  `new_request`**: una card in più costa un tap, una chiusa per sbaglio costa
+  un pezzo di lavoro che nessuno rivede. E la vecchia si chiude SOLO se dalle
+  nuove è sopravvissuto qualcosa alla rivalidazione della fase 6, che questa
+  aggiunta non scavalca — c'è un test su entrambe le cose
+  (`apps/worker/src/google/classify.test.ts`).
+- **Il cancello dell'ammissione si allarga col THREAD, e il limite che lo
+  rende accettabile è `admitted`.** Quando l'ammissione (fase 6c) fa passare
+  un messaggio, il poller tira dentro TUTTO il suo thread: i fratelli entrano
+  con `email_messages.admitted = false`, cioè come CONTESTO. È una decisione
+  del maintainer e fa entrare anche messaggi che il cancello della 6c
+  avrebbe scartato — quello che la rende accettabile è che **`admitted =
+  false` non diventa mai una card, in nessun percorso**: non viene
+  classificato, non genera proposte, esiste per farsi leggere. Chi aggiunge
+  un percorso che parte da `email_messages` verifichi quel campo, o riapre
+  esattamente il buco che questo limite chiude.
+  Non è un valore di `status` di proposito: lo stato è un PERCORSO (`new →
+  classified → …`) che un messaggio di contesto non fa mai.
+- **La potatura della posta è legata al THREAD, e va in due passi.** Un
+  messaggio di contesto non ha figli `email_proposals` e resta `status =
+  'new'` per sempre: sulle condizioni della fase 6b produce due errori
+  OPPOSTI — le soddisfa banalmente (sarebbe il primo a sparire, lasciando una
+  conversazione coi buchi) ma `status <> 'new'` lo escluderebbe sempre
+  (non sparirebbe mai). `pruneOldEmails` pota quindi prima gli AMMESSI con le
+  regole di sempre, poi il contesto dei thread in cui non è rimasto nessun
+  ammesso — se un ammesso non era potabile è ancora lì e trattiene il suo
+  contesto. Il confronto è su `(account_id, thread_id)`: due caselle possono
+  avere lo stesso thread Gmail.
 - **Confermare una proposta non chiude le sorelle.** Dalla fase 6b un
   messaggio email può avere PIÙ proposte aperte contemporaneamente, una per
   progetto del perimetro (`email_proposals`): il claim di conferma

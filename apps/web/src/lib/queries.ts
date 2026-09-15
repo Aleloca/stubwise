@@ -13,10 +13,11 @@ import {
   getGitAccounts,
   getInbox,
   getInboxUnreadCount,
-  getMail,
   getMailAdmission,
   getMailDetail,
   getMailSummary,
+  getMailThread,
+  getMailThreads,
   getGoogleWorkspaces,
   getMyGoogleAccounts,
   getMyGoogleWorkspaceOptions,
@@ -72,7 +73,6 @@ import {
   type CalendarFilters,
   type CalendarRangeFilters,
   type InboxFilters,
-  type MailFilters,
   type PluginRegistry,
   type DecisionSource,
   type ProjectTimelineKind,
@@ -1267,26 +1267,13 @@ export const notificationPrefsQueryOptions = queryOptions({
  */
 export const mailKeys = {
   all: ["mail"] as const,
-  lists: () => [...mailKeys.all, "list"] as const,
-  list: (filters: MailFilters) => [...mailKeys.lists(), filters] as const,
   summary: () => [...mailKeys.all, "summary"] as const,
   /** Fase 7b, Task 6: il dettaglio di un'email, per source+id. */
   detail: (source: "email" | "email_triage", id: string) => [...mailKeys.all, "detail", source, id] as const,
+  /** La lista per CONVERSAZIONE, distinta da quella per messaggio. */
+  threads: (account?: string) => [...mailKeys.all, "threads", account ?? null] as const,
+  thread: (threadId: string) => [...mailKeys.all, "thread", threadId] as const,
 };
-
-/**
- * Pagina della Posta per i filtri dati. Stessa forma di `inboxQueryOptions`:
- * i filtri nella chiave (ogni combinazione è una lista a sé), `staleTime`
- * breve perché lo stato di una riga cambia anche da un tick del poller, non
- * solo da un'azione dell'utente.
- */
-export function mailQueryOptions(filters: MailFilters = {}) {
-  return queryOptions({
-    queryKey: mailKeys.list(filters),
-    queryFn: () => getMail(filters),
-    staleTime: 10_000,
-  });
-}
 
 /**
  * Contatori per il badge di nav e l'intestazione: `staleTime` più largo
@@ -1294,6 +1281,28 @@ export function mailQueryOptions(filters: MailFilters = {}) {
  * deve accorgersi in tempo reale di un evento nuovo, il numero si allinea
  * quando si visita la pagina o si naviga altrove e si torna).
  */
+/** La lista per conversazione. Stesso `staleTime` di quella per messaggio. */
+export function mailThreadsQueryOptions(account?: string) {
+  return queryOptions({
+    queryKey: mailKeys.threads(account),
+    queryFn: () => getMailThreads(account ? { account } : {}),
+    staleTime: 10_000,
+  });
+}
+
+/**
+ * I messaggi di una conversazione. `staleTime` largo come il dettaglio di un
+ * messaggio: gli estratti non cambiano dopo che il poller li ha scritti, e un
+ * messaggio nuovo del thread arriva col prossimo giro della lista.
+ */
+export function mailThreadQueryOptions(threadId: string) {
+  return queryOptions({
+    queryKey: mailKeys.thread(threadId),
+    queryFn: () => getMailThread(threadId),
+    staleTime: 60_000,
+  });
+}
+
 export const mailSummaryQueryOptions = queryOptions({
   queryKey: mailKeys.summary(),
   queryFn: getMailSummary,

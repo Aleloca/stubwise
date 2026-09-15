@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, RouterProvider } from "@tanstack/react-router";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createAppRouter } from "../router";
@@ -74,6 +74,26 @@ function baseApi(overrides: Record<string, Handler> = {}): Record<string, Handle
     "GET /api/projects": () => jsonResponse(200, []),
     "GET /api/me/google/accounts": () => jsonResponse(200, []),
     "GET /api/me/mail/summary": () => jsonResponse(200, { openProposals: 0, failed: 0, ignored: 0 }),
+    // La colonna centrale nasce sulla vista per CONVERSAZIONI (§4): questi
+    // test riguardano il dettaglio di UN messaggio, ma la lista accanto
+    // deve comunque avere qualcosa da mostrare.
+    "GET /api/me/mail/threads": () =>
+      jsonResponse(200, {
+        items: [
+          {
+            threadId: "t1",
+            accountId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            accountEmail: "mailbox@acme.test",
+            subject: "Ship next week?",
+            lastFrom: "laura@cliente.test",
+            lastReceivedAt: "2026-08-31T09:00:00.000Z",
+            messageCount: 1,
+            openProposals: 0,
+            projectNames: [],
+          },
+        ],
+        nextCursor: null,
+      }),
     "GET /api/me/mail": () =>
       jsonResponse(200, {
         items: [
@@ -121,10 +141,14 @@ describe("pagina /mail/:source/:id", () => {
     renderDetail();
 
     await screen.findByRole("heading", { name: "Ship next week?" });
-    // La riga della lista (colonna centrale) è ANCORA a schermo, non
-    // sostituita dal dettaglio: è la differenza rispetto alla vecchia
-    // pagina separata.
-    expect(screen.getByRole("link", { name: "Read in Stubwise" })).toBeInTheDocument();
+    // La colonna centrale è ANCORA a schermo, non sostituita dal dettaglio:
+    // è la differenza rispetto alla vecchia pagina separata.
+    //
+    // ⚠️ Dal 14 set («la posta si legge per conversazione» §4) quella
+    // colonna elenca CONVERSAZIONI, quindi qui non si cerca più la riga per
+    // messaggio: la proprietà che questo test difende è che le tre colonne
+    // convivano, non quale delle due liste sia in vista.
+    expect(await screen.findByTestId("mail-thread-list")).toBeInTheDocument();
     expect(screen.getByLabelText("Mailbox")).toBeInTheDocument();
   });
 
@@ -365,6 +389,13 @@ describe("pagina /mail/:source/:id", () => {
   });
 
   it("passando da un messaggio all'altro, l'originale riletto NON resta stantio (bug bloccante trovato dalla review Stubwise)", async () => {
+    // ⚠️ RISCRITTO il 14 set: prima si navigava cliccando la riga della
+    // lista per messaggio, che il web non ha più. La proprietà che questo
+    // test presidia è VIVA e vale la pena tenerla — la `key` su
+    // `MailReadingPane`, senza cui il corpo riletto del messaggio
+    // precedente resterebbe a schermo — quindi ora il passaggio si fa dove
+    // avviene davvero: cambiando ROTTA, che è come ci si arriva da una
+    // notifica o da un link condiviso.
     const EMAIL_ID_2 = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
     const DETAIL_2 = {
       id: EMAIL_ID_2,
@@ -381,48 +412,6 @@ describe("pagina /mail/:source/:id", () => {
     };
     mockApi(
       baseApi({
-        "GET /api/me/mail": () =>
-          jsonResponse(200, {
-            items: [
-              {
-                kind: "proposal",
-                id: EMAIL_ID,
-                source: "email",
-                accountId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-                accountEmail: "mailbox@acme.test",
-                projectId: null,
-                projectName: null,
-                title: "Ship next week?",
-                from: "laura@cliente.test",
-                date: "2026-08-31T09:00:00.000Z",
-                status: "classified",
-                signal: null,
-                outcome: null,
-                error: null,
-                url: "https://mail.google.com/mail/u/mailbox@acme.test/#all/t1",
-                reproposable: false,
-              },
-              {
-                kind: "proposal",
-                id: EMAIL_ID_2,
-                source: "email",
-                accountId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-                accountEmail: "mailbox@acme.test",
-                projectId: null,
-                projectName: null,
-                title: "Fattura di settembre",
-                from: "marco@cliente.test",
-                date: "2026-09-01T09:00:00.000Z",
-                status: "classified",
-                signal: null,
-                outcome: null,
-                error: null,
-                url: "https://mail.google.com/mail/u/mailbox@acme.test/#all/t2",
-                reproposable: false,
-              },
-            ],
-            nextCursor: null,
-          }),
         [`GET /api/me/mail/email/${EMAIL_ID_2}`]: () => jsonResponse(200, DETAIL_2),
         [`GET /api/me/mail/email/${EMAIL_ID}/original`]: () =>
           jsonResponse(200, {
@@ -435,19 +424,20 @@ describe("pagina /mail/:source/:id", () => {
           }),
       }),
     );
-    renderDetail();
-    await screen.findByRole("heading", { name: "Ship next week?" });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const history = createMemoryHistory({ initialEntries: [`/mail/email/${EMAIL_ID}`] });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={createAppRouter(queryClient, history)} />
+      </QueryClientProvider>,
+    );
 
+    await screen.findByRole("heading", { name: "Ship next week?" });
     await userEvent.click(screen.getByRole("button", { name: "Read original on Gmail" }));
     await screen.findByText("Corpo del primo messaggio.");
 
-    // Passa al secondo messaggio SENZA aver chiuso/ricaricato la pagina —
-    // esattamente lo scenario del bug: stesso componente, prop `id` cambiata.
-    // La riga della lista non è linkata sull'oggetto, ma su "Read in
-    // Stubwise": scoped alla riga per non ambiguità con quella del primo
-    // messaggio, che porta lo stesso testo.
-    const secondRow = screen.getByText(/Fattura di settembre/).closest("article")!;
-    await userEvent.click(within(secondRow).getByRole("link", { name: "Read in Stubwise" }));
+    // Stessa istanza del workspace, prop `id` cambiata: lo scenario del bug.
+    history.push(`/mail/email/${EMAIL_ID_2}`);
 
     await screen.findByRole("heading", { name: "Fattura di settembre" });
     // Il corpo del PRIMO messaggio non deve restare in vista...

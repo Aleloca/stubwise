@@ -2351,19 +2351,7 @@
     "filters": {
       "account": "Mailbox",
       "allAccounts": "All mailboxes",
-      "status": "Status",
-      "allStatuses": "All statuses",
-      "project": "Project",
       "allProjects": "All projects"
-    },
-    "status": {
-      "new": "New",
-      "classified": "Classified",
-      "proposed": "Proposed",
-      "actioned": "Actioned",
-      "ignored": "Ignored",
-      "failed": "Failed",
-      "cancelled": "Cancelled"
     },
     "source": {
       "email": "Email",
@@ -2409,6 +2397,14 @@
       "imagesBlockedNotice": "Remote images are blocked by default — they're a common way senders track when an email is opened.",
       "showImages": "Show images",
       "bodyFrameTitle": "Message body"
+    },
+    "thread": {
+      "messages_one": "{{count}} message",
+      "messages_other": "{{count}} messages",
+      "open_one": "{{count}} open proposal",
+      "open_other": "{{count}} open proposals",
+      "context": "Context message: it came in with the conversation and never produces proposals.",
+      "openInGmail": "Open the conversation in Gmail"
     }
   },
   "calendar": {

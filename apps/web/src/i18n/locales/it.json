@@ -2351,19 +2351,7 @@
     "filters": {
       "account": "Casella",
       "allAccounts": "Tutte le caselle",
-      "status": "Stato",
-      "allStatuses": "Tutti gli stati",
-      "project": "Progetto",
       "allProjects": "Tutti i progetti"
-    },
-    "status": {
-      "new": "Nuovo",
-      "classified": "Classificato",
-      "proposed": "Proposto",
-      "actioned": "Eseguito",
-      "ignored": "Ignorato",
-      "failed": "Fallito",
-      "cancelled": "Annullato"
     },
     "source": {
       "email": "Email",
@@ -2409,6 +2397,14 @@
       "imagesBlockedNotice": "Le immagini remote sono bloccate di default — sono un modo comune per il mittente di sapere quando un'email viene aperta.",
       "showImages": "Mostra immagini",
       "bodyFrameTitle": "Corpo del messaggio"
+    },
+    "thread": {
+      "messages_one": "{{count}} messaggio",
+      "messages_other": "{{count}} messaggi",
+      "open_one": "{{count}} proposta aperta",
+      "open_other": "{{count}} proposte aperte",
+      "context": "Messaggio di contesto: entrato con la conversazione, non produce proposte.",
+      "openInGmail": "Apri la conversazione su Gmail"
     }
   },
   "calendar": {

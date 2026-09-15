@@ -337,6 +337,11 @@ export const en: Catalog = {
   "email.input.from": "From",
   "email.input.subject": "Subject",
   "email.input.text": "Text",
+  "email.input.thread":
+    "Earlier messages in this conversation (context — the message to evaluate is the one below)",
+  "email.input.openProposals": "Proposals already open on this conversation, still awaiting a decision",
+  "email.signals.threadRelation":
+    "Say how this new message relates to the proposals already open above, in `threadRelation`: `integrates` (same request, this message adds detail — the open proposal is superseded by a better one), `replaces` (same request, but what is being asked has changed), `new_request` (a different thing to do: the open proposal stays as it is). If in doubt answer `new_request`: an extra card costs a tap, a card closed by mistake costs a piece of work nobody sees again.",
   "email.input.none": "none",
   "email.input.truncated":
     "The email text was truncated for length: do not treat the missing part as absent facts.",
@@ -669,6 +674,11 @@ export const it: Catalog = {
   "email.input.from": "Da",
   "email.input.subject": "Oggetto",
   "email.input.text": "Testo",
+  "email.input.thread":
+    "Messaggi precedenti di questa conversazione (contesto — il messaggio da valutare è quello sotto)",
+  "email.input.openProposals": "Proposte già aperte su questa conversazione, ancora in attesa di una decisione",
+  "email.signals.threadRelation":
+    "Di' che rapporto ha questo messaggio nuovo con le proposte già aperte qui sopra, in `threadRelation`: `integrates` (stessa richiesta, questo messaggio aggiunge dettagli — la proposta aperta è superata da una migliore), `replaces` (stessa richiesta, ma ciò che si chiede è cambiato), `new_request` (una cosa diversa da fare: la proposta aperta resta com'è). Nel dubbio rispondi `new_request`: una card in più costa un tap, una card chiusa per sbaglio costa un pezzo di lavoro che nessuno rivede.",
   "email.input.none": "nessuno",
   "email.input.truncated":
     "Il testo dell'email è stato troncato per lunghezza: non considerare fatti assenti quelli mancanti.",

@@ -6,6 +6,7 @@ import {
   emailLabelsSchema,
   emailRouteSchema,
   emailRoutesPutSchema,
+  mailThreadDetailSchema,
   emailRoutesSchema,
   googleAccountSchema,
   googleCallbackOutcomes,
@@ -419,5 +420,54 @@ describe("calendarEventItemSchema / calendarSeriesItemSchema (fase 7b)", () => {
       projectId: null,
     });
     expect(parsed).toMatchObject({ action: "milestone", leadDays: 2, auto: false });
+  });
+});
+
+describe("mailThreadDetailSchema — le riproposizioni di un messaggio", () => {
+  const base = {
+    threadId: "t-1",
+    accountId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    accountEmail: "ops@example.com",
+    subject: "Re: Reso",
+    url: "https://mail.google.com/x",
+  };
+
+  it("una risposta SENZA `reproposals` si parsa lo stesso: array vuoto", () => {
+    // La regola di CLAUDE.md: un campo nuovo di risposta nasce con un
+    // default e arriva con un test che parsa una risposta che non ce l'ha —
+    // un server più vecchio (o un'istanza self-hosted non aggiornata) non
+    // deve svuotare la schermata di un'app già installata.
+    const parsed = mailThreadDetailSchema.parse({
+      ...base,
+      messages: [
+        {
+          id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          from: "cliente@example.com",
+          receivedAt: "2026-09-11T09:00:00.000Z",
+        },
+      ],
+    });
+    expect(parsed.messages[0]!.reproposals).toEqual([]);
+  });
+
+  it("una riproposizione porta sorgente, id e progetto — `projectName` assente diventa null", () => {
+    const parsed = mailThreadDetailSchema.parse({
+      ...base,
+      messages: [
+        {
+          id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          from: "cliente@example.com",
+          receivedAt: "2026-09-11T09:00:00.000Z",
+          reproposals: [
+            { source: "email", id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", projectName: "Apollo" },
+            { source: "email_triage", id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd" },
+          ],
+        },
+      ],
+    });
+    expect(parsed.messages[0]!.reproposals).toEqual([
+      { source: "email", id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", projectName: "Apollo" },
+      { source: "email_triage", id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd", projectName: null },
+    ]);
   });
 });

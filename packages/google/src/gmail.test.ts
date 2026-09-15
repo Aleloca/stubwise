@@ -4,6 +4,7 @@ import {
   extractRawBody,
   extractText,
   getMessageFull,
+  getThreadFull,
   getMessageMetadata,
   listAttachments,
   listHistory,
@@ -285,6 +286,104 @@ describe("getMessageFull", () => {
     expect(calls[0]?.params.get("format")).toBe("full");
     expect(message.payload?.mimeType).toBe("text/plain");
     expect(extractText(message.payload!)).toBe("ciao");
+  });
+});
+
+describe("getThreadFull («la posta si legge per conversazione» §2, Task 6)", () => {
+  it("un thread da tre messaggi: una sola chiamata, tutti e tre normalizzati come gli altri", async () => {
+    const { impl, calls } = fakeFetch([
+      jsonResponse({
+        id: "t1",
+        messages: [
+          {
+            id: "m1",
+            threadId: "t1",
+            labelIds: ["INBOX"],
+            internalDate: "1757246400000",
+            payload: {
+              mimeType: "text/plain",
+              body: { data: b64url("Prima email") },
+              headers: [
+                { name: "From", value: "Ada <ada@acme.test>" },
+                { name: "Subject", value: "Contratto" },
+              ],
+            },
+          },
+          {
+            id: "m2",
+            threadId: "t1",
+            labelIds: ["INBOX"],
+            internalDate: "1757250000000",
+            payload: { mimeType: "text/plain", body: { data: b64url("Risposta") }, headers: [] },
+          },
+          {
+            id: "m3",
+            threadId: "t1",
+            labelIds: [],
+            internalDate: "1757253600000",
+            payload: { mimeType: "text/plain", body: { data: b64url("Ultima") }, headers: [] },
+          },
+        ],
+      }),
+    ]);
+
+    const thread = await getThreadFull({ accessToken: "at", id: "t1" }, { fetchImpl: impl });
+
+    // UNA chiamata per tutto il thread: è la ragione per cui questa funzione
+    // esiste invece di N `messages.get full`.
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.url.startsWith("https://gmail.googleapis.com/gmail/v1/users/me/threads/t1")).toBe(true);
+    expect(calls[0]?.params.get("format")).toBe("full");
+    expect(calls[0]?.headers.authorization).toBe("Bearer at");
+
+    expect(thread.id).toBe("t1");
+    expect(thread.messages.map((m) => m.id)).toEqual(["m1", "m2", "m3"]);
+    // Normalizzati dallo STESSO `toMessage` delle sorelle: header in
+    // minuscolo, `internalDate` come Date, payload intatto.
+    expect(thread.messages[0]?.headers.subject).toBe("Contratto");
+    expect(thread.messages[0]?.headers.from).toBe("Ada <ada@acme.test>");
+    expect(thread.messages[0]?.internalDate?.toISOString()).toBe(new Date(1757246400000).toISOString());
+    expect(extractText(thread.messages[2]!.payload!)).toBe("Ultima");
+  });
+
+  it("l'ordine è quello di Gmail e NON viene riordinato per data", async () => {
+    // A valle «si classifica l'ultimo messaggio del thread» è ben definito
+    // solo se qui l'ordine resta quello che Gmail manda. Le date sono
+    // DECRESCENTI apposta: se un domani qualcuno ordinasse per
+    // `internalDate` «per sicurezza», questo test se ne accorge.
+    const { impl } = fakeFetch([
+      jsonResponse({
+        id: "t1",
+        messages: [
+          { id: "primo", threadId: "t1", internalDate: "1757253600000" },
+          { id: "secondo", threadId: "t1", internalDate: "1757250000000" },
+          { id: "terzo", threadId: "t1", internalDate: "1757246400000" },
+        ],
+      }),
+    ]);
+    const thread = await getThreadFull({ accessToken: "at", id: "t1" }, { fetchImpl: impl });
+    expect(thread.messages.map((m) => m.id)).toEqual(["primo", "secondo", "terzo"]);
+  });
+
+  it("un thread SENZA messaggi (tutti cancellati fra la list e la get): lista vuota, non un errore di parsing", async () => {
+    const { impl } = fakeFetch([jsonResponse({ id: "t1" })]);
+    const thread = await getThreadFull({ accessToken: "at", id: "t1" }, { fetchImpl: impl });
+    expect(thread.messages).toEqual([]);
+  });
+
+  it("thread inesistente: GoogleApiError 404, come le sorelle", async () => {
+    const { impl } = fakeFetch([
+      jsonResponse(
+        { error: { code: 404, message: "Requested entity was not found.", errors: [{ reason: "notFound" }] } },
+        { status: 404 },
+      ),
+    ]);
+    const error = await getThreadFull({ accessToken: "at", id: "assente" }, { fetchImpl: impl }).catch(
+      (e: unknown) => e,
+    );
+    expect(error).toBeInstanceOf(GoogleApiError);
+    expect((error as GoogleApiError).status).toBe(404);
+    expect((error as GoogleApiError).reason).toBe("notFound");
   });
 });
 

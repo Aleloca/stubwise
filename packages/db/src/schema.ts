@@ -3424,6 +3424,24 @@ export const emailMessages = pgTable(
     /** Etichette Gmail del messaggio: le usa il routing (`gmail_label`). */
     labels: text("labels").array().notNull().default([]),
     textExcerpt: text("text_excerpt"),
+    /**
+     * AMMESSO dal cancello dell'ammissione (fase 6c, `admit()`), oppure
+     * tirato dentro come CONTESTO del thread di un messaggio ammesso
+     * («la posta si legge per conversazione» §2, migrazione 0077).
+     *
+     * Da qui discende tutto: solo un messaggio `admitted` può essere
+     * classificato e generare una proposta, e **`admitted = false` non
+     * diventa mai una card, in nessun percorso**. È il limite che rende
+     * accettabile l'allargamento del cancello — vedi CLAUDE.md.
+     *
+     * ⚠️ Non è un valore di `status`, di proposito: lo stato è un PERCORSO
+     * (`new → classified → proposed → …`) che un messaggio di contesto non
+     * fa mai. E la potatura lo tratta a parte: un messaggio di contesto non
+     * ha figli `email_proposals`, quindi soddisferebbe banalmente la
+     * condizione della fase 6b e sarebbe il PRIMO a sparire, lasciando una
+     * conversazione coi buchi (`pruneOldEmails`, Task 9).
+     */
+    admitted: boolean("admitted").notNull().default(true),
     projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
     candidateProjectIds: uuid("candidate_project_ids").array().notNull().default([]),
     /**
@@ -3458,6 +3476,12 @@ export const emailMessages = pgTable(
     uniqueIndex("email_messages_account_message_unique").on(table.accountId, table.gmailMessageId),
     // Fase 2 del tick: i messaggi `new` di una casella, da classificare.
     index("email_messages_account_status_idx").on(table.accountId, table.status),
+    // La stessa query dalla 0077, che ora esclude il contesto: indice
+    // PARZIALE sui soli ammessi invece di allargare quello sopra, che serve
+    // anche a letture che il contesto lo vogliono.
+    index("email_messages_admitted_idx")
+      .on(table.accountId, table.status)
+      .where(sql`${table.admitted}`),
     // La posta di un progetto, dalla più recente (pagina Posta, contesto).
     index("email_messages_project_received_idx").on(table.projectId, table.receivedAt.desc()),
     check(

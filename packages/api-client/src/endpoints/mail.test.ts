@@ -121,6 +121,65 @@ describe("endpoints mail", () => {
     expect(fetchImpl.mock.calls.at(-1)![0]).toBe(`/api/me/mail/email_triage/${ID}/repropose`);
   });
 
+  it("threads: la lista per conversazione, con i filtri opzionali", async () => {
+    const { c, fetchImpl } = clientReturning(200, { items: [], nextCursor: null });
+    await c.mail.threads();
+    expect(fetchImpl.mock.calls.at(-1)![0]).toBe("/api/me/mail/threads");
+
+    await c.mail.threads(ID, "cur", 10);
+    expect(fetchImpl.mock.calls.at(-1)![0]).toBe(`/api/me/mail/threads?account=${ID}&cursor=cur&limit=10`);
+  });
+
+  it("threads: una riga coi soli campi obbligatori si parsa (tutto il resto ha un default)", async () => {
+    const { c } = clientReturning(200, {
+      items: [
+        {
+          threadId: "t1",
+          accountId: ID,
+          accountEmail: "ops@example.com",
+          lastFrom: "cliente@example.com",
+          lastReceivedAt: "2026-09-11T09:00:00.000Z",
+        },
+      ],
+      nextCursor: null,
+    });
+    const page = await c.mail.threads();
+    expect(page.items[0]!.subject).toBeNull();
+    expect(page.items[0]!.messageCount).toBe(1);
+    expect(page.items[0]!.openProposals).toBe(0);
+    expect(page.items[0]!.projectNames).toEqual([]);
+  });
+
+  it("thread: il dettaglio, con il threadId percent-encoded", async () => {
+    const { c, fetchImpl } = clientReturning(200, {
+      threadId: "t1",
+      accountId: ID,
+      accountEmail: "ops@example.com",
+      url: "https://mail.google.com/x",
+      messages: [
+        {
+          id: ID,
+          from: "cliente@example.com",
+          receivedAt: "2026-09-11T09:00:00.000Z",
+          textExcerpt: "Ciao",
+          admitted: false,
+        },
+      ],
+    });
+    const detail = await c.mail.thread("thread/con slash");
+    expect(fetchImpl.mock.calls.at(-1)![0]).toBe("/api/me/mail/threads/thread%2Fcon%20slash");
+    // `admitted: false` = messaggio di contesto: si legge, non propone.
+    expect(detail.messages[0]!.admitted).toBe(false);
+    expect(detail.messages[0]!.proposalIds).toEqual([]);
+    expect(detail.subject).toBeNull();
+  });
+
+  it("thread: 404 su un thread che non è dell'utente (mai 403)", async () => {
+    const { c } = clientReturning(404, { code: "not_found", message: "…" });
+    const error = await c.mail.thread("t1").catch((e: unknown) => e);
+    expect((error as ApiError).status).toBe(404);
+  });
+
   it("repropose: 409 not_reproposable — lo stato non lo permette", async () => {
     const { c } = clientReturning(409, { code: "not_reproposable", message: "…" });
     const error = await c.mail.repropose("email", ID).catch((e: unknown) => e);

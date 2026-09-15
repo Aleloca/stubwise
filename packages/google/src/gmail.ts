@@ -110,6 +110,17 @@ const messagesListSchema = z.object({
   nextPageToken: z.string().optional(),
 });
 
+/**
+ * `threads.get` con `format=full`: la stessa forma di un messaggio, ripetuta.
+ * `messages` opzionale perché Gmail può restituire un thread senza messaggi
+ * visibili (tutti cancellati fra la `list` e questa chiamata): è un thread
+ * vuoto, non un errore di parsing.
+ */
+const threadSchema = z.object({
+  id: z.string(),
+  messages: z.array(messageSchema).optional(),
+});
+
 /** Normalizza un messaggio: header in minuscolo, `internalDate` come Date. */
 function toMessage(api: string, payload: unknown): GmailMessage {
   const raw = parseGoogleJson(api, messageSchema, payload);
@@ -275,6 +286,47 @@ export async function getMessageFull(
     options,
   );
   return toMessage(api, payload);
+}
+
+/**
+ * Il THREAD intero (`threads.get`, `format=full`): TUTTI i suoi messaggi col
+ * corpo, in UNA chiamata sola.
+ *
+ * È il punto di «la posta si legge per conversazione» §2: quando
+ * l'ammissione fa passare un messaggio, il poller tira dentro anche i suoi
+ * fratelli come CONTESTO. Una `messages.get full` per messaggio costerebbe N
+ * chiamate dove Gmail ne offre una, e su un thread lungo sarebbe la
+ * differenza fra un tick e un tick che non finisce.
+ *
+ * Normalizza ogni messaggio con lo STESSO {@link toMessage} delle due
+ * sorelle: header in minuscolo, `internalDate` come `Date`, `payload`
+ * intatto per {@link extractText}/{@link extractRawBody}. Chi consuma un
+ * `GmailMessage` non deve sapere da quale delle tre chiamate è arrivato.
+ *
+ * L'ordine è quello di Gmail (cronologico), e va lasciato tale: è ciò che
+ * rende «l'ultimo messaggio» una nozione ben definita a valle.
+ */
+export async function getThreadFull(
+  input: { accessToken: string; id: string },
+  options: GoogleClientOptions = {},
+): Promise<{ id: string; messages: GmailMessage[] }> {
+  const api = "gmail.threads.get.full";
+  const payload = await requestGoogle(
+    {
+      api,
+      url: buildUrl(`${GMAIL_API_BASE}/threads/${encodeURIComponent(input.id)}`, { format: "full" }),
+      accessToken: input.accessToken,
+    },
+    options,
+  );
+  const raw = parseGoogleJson(api, threadSchema, payload);
+  return {
+    id: raw.id,
+    // Ri-normalizzato uno per uno: `toMessage` riparte da `messageSchema`, che
+    // è lo stesso di cui `threadSchema` si serve — nessuna seconda verità
+    // sulla forma di un messaggio.
+    messages: (raw.messages ?? []).map((message) => toMessage(api, message)),
+  };
 }
 
 /** Decodifica il base64url di Gmail (`-`/`_` al posto di `+`/`/`, padding assente). */

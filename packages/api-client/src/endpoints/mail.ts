@@ -4,6 +4,8 @@ import {
   mailPageSchema,
   mailReproposeResultSchema,
   mailSummarySchema,
+  mailThreadDetailSchema,
+  mailThreadPageSchema,
 } from "@stubwise/shared";
 import type {
   Reader,
@@ -14,6 +16,8 @@ import type {
   MailReproposeResult,
   MailSource,
   MailSummary,
+  MailThreadDetail,
+  MailThreadPage,
 } from "@stubwise/shared";
 import type { ApiRequest } from "../client.js";
 import { seg, toQuery } from "../query.js";
@@ -68,6 +72,37 @@ export function createMailEndpoints(request: ApiRequest) {
         limit,
       });
       return request("GET", `/api/me/mail${query}`, undefined, mailPageSchema);
+    },
+
+    /**
+     * La posta per CONVERSAZIONE («la posta si legge per conversazione» §4):
+     * una riga per thread invece che una per messaggio.
+     *
+     * ⚠️ Vive ACCANTO a {@link list}, non al suo posto: quella la legge
+     * un'app già installata e la usa anche il calendario, che thread non ne
+     * ha. Chi disegna una lista di posta usa questa; chi mostra anche gli
+     * appuntamenti resta su `list`.
+     */
+    threads(account?: string, cursor?: string, limit?: number): Promise<Reader<MailThreadPage>> {
+      const query = toQuery({ account, cursor, limit });
+      return request("GET", `/api/me/mail/threads${query}`, undefined, mailThreadPageSchema);
+    },
+
+    /**
+     * Il dettaglio di una conversazione: i messaggi in ordine, ciascuno con
+     * la sua provenienza — `admitted: false` è un messaggio tirato dentro
+     * come CONTESTO del thread, che si legge ma non produce proposte.
+     *
+     * `threadId` è l'id Gmail del thread, non un uuid. `account` serve solo
+     * quando lo stesso thread è su due caselle dello stesso utente.
+     */
+    thread(threadId: string, account?: string): Promise<Reader<MailThreadDetail>> {
+      return request(
+        "GET",
+        `/api/me/mail/threads/${seg(threadId)}${toQuery({ account })}`,
+        undefined,
+        mailThreadDetailSchema,
+      );
     },
 
     /** Contatori per il badge di nav e l'intestazione della pagina. */

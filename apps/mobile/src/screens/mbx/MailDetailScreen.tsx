@@ -129,7 +129,17 @@ function DetailBody({
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>{t("mobile.mbx.detail.originalTitle")}</Text>
-        <Text style={styles.excerptNote}>{t("mobile.mbx.detail.originalNote")}</Text>
+        {/*
+         * La nota che dice cosa SUCCEDERÀ sta solo PRIMA del tap: una volta
+         * che il corpo è a schermo, la provenienza la dichiara la riga qui
+         * sotto (`mail-detail-original-source`), e tenere entrambe
+         * lascerebbe due frasi su Google nello stesso riquadro — una che
+         * ipotizza, una che constata. Sul web questo era già così
+         * (`mail-reading-pane.tsx`, `!original.isSuccess`); qui no.
+         */}
+        {original.data === null && (
+          <Text style={styles.excerptNote}>{t("mobile.mbx.detail.originalNote")}</Text>
+        )}
 
         {original.data === null ? (
           <View style={styles.showOriginalButton}>

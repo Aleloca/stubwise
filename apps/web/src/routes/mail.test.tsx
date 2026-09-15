@@ -1,7 +1,7 @@
 import type { MailItem } from "@stubwise/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, RouterProvider } from "@tanstack/react-router";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createAppRouter } from "../router";
@@ -48,9 +48,6 @@ const PROJECT_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const ACCOUNT_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const EMAIL_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const CALENDAR_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
-const PROJECT_ID_2 = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
-const EMAIL_ID_2 = "ffffffff-ffff-4fff-8fff-ffffffffffff";
-const TRIAGE_ID = "99999999-9999-4999-8999-999999999999";
 
 const PROJECTS = [{ id: PROJECT_ID, name: "Apollo", slug: "apollo" }];
 
@@ -72,6 +69,7 @@ const GOOGLE_ACCOUNTS = [
 function mailItem(overrides: Partial<MailItem> & Pick<MailItem, "id" | "source">): MailItem {
   return {
     kind: "proposal",
+    threadId: null,
     accountId: ACCOUNT_ID,
     accountEmail: "mailbox@acme.test",
     projectId: PROJECT_ID,
@@ -108,6 +106,19 @@ const CALENDAR_ITEM = mailItem({
   reproposable: true,
 });
 
+/** Una conversazione della lista per thread («la posta si legge per conversazione» §4). */
+const THREAD_ITEM = {
+  threadId: "thread-1",
+  accountId: ACCOUNT_ID,
+  accountEmail: "mailbox@acme.test",
+  subject: "Re: Ship next week?",
+  lastFrom: "marco@cliente.test",
+  lastReceivedAt: "2026-09-09T09:00:00.000Z",
+  messageCount: 3,
+  openProposals: 1,
+  projectNames: ["Apollo"],
+};
+
 function baseApi(overrides: Record<string, Handler> = {}): Record<string, Handler> {
   return {
     "GET /api/auth/me": () =>
@@ -119,6 +130,7 @@ function baseApi(overrides: Record<string, Handler> = {}): Record<string, Handle
     "GET /api/me/google/accounts": () => jsonResponse(200, GOOGLE_ACCOUNTS),
     "GET /api/me/mail/summary": () => jsonResponse(200, { openProposals: 0, failed: 0, ignored: 0 }),
     "GET /api/me/mail": () => jsonResponse(200, { items: [EMAIL_ITEM, CALENDAR_ITEM], nextCursor: null }),
+    "GET /api/me/mail/threads": () => jsonResponse(200, { items: [THREAD_ITEM], nextCursor: null }),
     ...overrides,
   };
 }
@@ -135,133 +147,21 @@ function renderMail() {
   return queryClient;
 }
 
+/**
+ * ⚠️ I test della vista per MESSAGGI sono stati RIMOSSI, non riscritti: dal
+ * 14 set 2026 il web elenca solo conversazioni (decisione del maintainer,
+ * design §4), e con la vista se ne sono andati i filtri per stato e per
+ * progetto, la lista fusa col calendario, «Riproponi» e i badge di riga.
+ * Non c'era niente da adattare — quel comportamento la pagina non ce l'ha
+ * più.
+ *
+ * Quello che resta vero è testato sotto sulla vista nuova (intestazione,
+ * vuoto, errore). Le capacità tolte da QUESTA pagina non sono sparite dal
+ * prodotto: «Riproponi» vive sulla card in inbox e sull'app, il calendario
+ * ha la sua pagina `/calendar`, e `GET /api/me/mail` per messaggio resta
+ * viva sul server per l'app già installata.
+ */
 describe("pagina /mail", () => {
-  it("elenca posta e calendario, con progetto, segnale e stato", async () => {
-    mockApi(baseApi());
-    renderMail();
-    await screen.findByRole("heading", { name: "Mail" });
-
-    expect(screen.getByText(/Ship next week\?/)).toBeInTheDocument();
-    expect(screen.getByText(/Demo col cliente/)).toBeInTheDocument();
-    // "Apollo" compare anche come opzione del filtro progetto: si conta solo
-    // sulle righe (span del nome progetto in ciascuna card).
-    expect(screen.getAllByText("Apollo", { selector: "span" })).toHaveLength(2);
-    expect(screen.getByText("Decision")).toBeInTheDocument();
-    // "Classified"/"Failed" compaiono anche come opzioni del filtro stato: si
-    // scopre solo lo `<span>` della riga.
-    expect(screen.getByText("Classified", { selector: "span" })).toBeInTheDocument();
-    expect(screen.getByText("Failed", { selector: "span" })).toBeInTheDocument();
-  });
-
-  it("fase 7b, Task 8: la riga email porta un link al dettaglio, il calendario no", async () => {
-    mockApi(baseApi());
-    renderMail();
-    await screen.findByRole("heading", { name: "Mail" });
-
-    const detailLinks = screen.getAllByRole("link", { name: "Read in Stubwise" });
-    expect(detailLinks).toHaveLength(1);
-    expect(detailLinks[0]).toHaveAttribute("href", `/mail/email/${EMAIL_ID}`);
-  });
-
-  it("il link 'Open' apre in una scheda nuova", async () => {
-    mockApi(baseApi());
-    renderMail();
-    await screen.findByRole("heading", { name: "Mail" });
-
-    const links = screen.getAllByRole("link", { name: "Open" });
-    for (const link of links) {
-      expect(link).toHaveAttribute("target", "_blank");
-      expect(link).toHaveAttribute("rel", "noopener noreferrer");
-    }
-    expect(links[0]).toHaveAttribute(
-      "href",
-      "https://mail.google.com/mail/u/mailbox@acme.test/#all/t1",
-    );
-  });
-
-  it("'Repropose' compare solo sulla riga failed/ignored", async () => {
-    mockApi(baseApi());
-    renderMail();
-    await screen.findByRole("heading", { name: "Mail" });
-
-    // Solo una riga (quella failed) ha il bottone.
-    expect(screen.getAllByRole("button", { name: "Repropose" })).toHaveLength(1);
-  });
-
-  it("riproponi: chiama la rotta giusta (source/id), esce dai falliti e mostra l'esito", async () => {
-    let called: { method: string; url: string } | null = null;
-    // Il GET rilegge lo stato REALE dopo la POST (come farebbe il server: la
-    // riga torna `new`, non più riproponibile): un mock statico farebbe
-    // ricomparire "Repropose" al refetch che segue l'invalidazione, cosa che
-    // il server vero non farebbe mai.
-    mockApi(
-      baseApi({
-        [`POST /api/me/mail/calendar/${CALENDAR_ID}/repropose`]: (url, init) => {
-          called = { method: init?.method ?? "", url: url.pathname };
-          return jsonResponse(200, { ok: true });
-        },
-        "GET /api/me/mail": () =>
-          jsonResponse(200, {
-            items: [
-              EMAIL_ITEM,
-              called
-                ? { ...CALENDAR_ITEM, status: "new", error: null, reproposable: false }
-                : CALENDAR_ITEM,
-            ],
-            nextCursor: null,
-          }),
-      }),
-    );
-    renderMail();
-    await screen.findByRole("heading", { name: "Mail" });
-
-    await userEvent.click(screen.getByRole("button", { name: "Repropose" }));
-
-    await waitFor(() =>
-      expect(called).toEqual({ method: "POST", url: `/api/me/mail/calendar/${CALENDAR_ID}/repropose` }),
-    );
-    expect(await screen.findByText("Reproposed — check the inbox for the new proposal")).toBeInTheDocument();
-    // La riga resta a schermo (`title` invariato) ma non è più riproponibile.
-    await waitFor(() => expect(screen.queryByRole("button", { name: "Repropose" })).toBeNull());
-    expect(screen.getByText(/Demo col cliente/)).toBeInTheDocument();
-  });
-
-  it("errore di riproposta: messaggio dedicato, la riga resta", async () => {
-    mockApi(
-      baseApi({
-        [`POST /api/me/mail/calendar/${CALENDAR_ID}/repropose`]: () =>
-          jsonResponse(409, { code: "not_reproposable", message: "Cannot repropose" }),
-      }),
-    );
-    renderMail();
-    await screen.findByRole("heading", { name: "Mail" });
-
-    await userEvent.click(screen.getByRole("button", { name: "Repropose" }));
-
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Could not repropose this item",
-    );
-    expect(screen.getByText(/Demo col cliente/)).toBeInTheDocument();
-  });
-
-  it("il filtro progetto invia project= alla query", async () => {
-    const seenUrls: string[] = [];
-    mockApi(
-      baseApi({
-        "GET /api/me/mail": (url) => {
-          seenUrls.push(url.search);
-          return jsonResponse(200, { items: [EMAIL_ITEM, CALENDAR_ITEM], nextCursor: null });
-        },
-      }),
-    );
-    renderMail();
-    await screen.findByRole("heading", { name: "Mail" });
-
-    await userEvent.selectOptions(screen.getByLabelText("Project"), "Apollo");
-
-    await waitFor(() => expect(seenUrls.some((s) => s.includes(`project=${PROJECT_ID}`))).toBe(true));
-  });
-
   it("contatore delle proposte aperte nell'intestazione", async () => {
     mockApi(
       baseApi({
@@ -270,81 +170,27 @@ describe("pagina /mail", () => {
       }),
     );
     renderMail();
-    await screen.findByRole("heading", { name: "Mail" });
 
     expect(await screen.findByTestId("mail-open-proposals-badge")).toHaveTextContent("3 open");
   });
 
-  it("lista vuota: il vuoto, non un errore", async () => {
-    mockApi(baseApi({ "GET /api/me/mail": () => jsonResponse(200, { items: [], nextCursor: null }) }));
+  it("nessuna conversazione: il vuoto, non un errore", async () => {
+    mockApi(
+      baseApi({ "GET /api/me/mail/threads": () => jsonResponse(200, { items: [], nextCursor: null }) }),
+    );
     renderMail();
-    await screen.findByRole("heading", { name: "Mail" });
 
     expect(await screen.findByText("// no mail")).toBeInTheDocument();
-  });
-
-  it("fase 6b: un messaggio con due proposte (progetti diversi) produce due righe indipendenti", async () => {
-    const siblingA = mailItem({
-      id: EMAIL_ID,
-      source: "email",
-      title: "Recap multi-progetto",
-      from: "laura@cliente.test",
-      projectId: PROJECT_ID,
-      projectName: "Apollo",
-      status: "failed",
-      error: "boom",
-      reproposable: true,
-    });
-    const siblingB = mailItem({
-      id: EMAIL_ID_2,
-      source: "email",
-      title: "Recap multi-progetto",
-      from: "laura@cliente.test",
-      projectId: PROJECT_ID_2,
-      projectName: "Borealis",
-      status: "proposed",
-      reproposable: false,
-    });
-    let called: { url: string } | null = null;
-    mockApi(
-      baseApi({
-        "GET /api/projects": () =>
-          jsonResponse(200, [...PROJECTS, { id: PROJECT_ID_2, name: "Borealis", slug: "borealis" }]),
-        "GET /api/me/mail": () => jsonResponse(200, { items: [siblingA, siblingB], nextCursor: null }),
-        [`POST /api/me/mail/email/${EMAIL_ID}/repropose`]: (url) => {
-          called = { url: url.pathname };
-          return jsonResponse(200, { ok: true });
-        },
-      }),
-    );
-    renderMail();
-    await screen.findByRole("heading", { name: "Mail" });
-
-    // Stesso mittente/oggetto, due righe distinte con un progetto diverso.
-    expect(screen.getAllByText(/Recap multi-progetto/)).toHaveLength(2);
-    expect(screen.getByText("Apollo", { selector: "span" })).toBeInTheDocument();
-    expect(screen.getByText("Borealis", { selector: "span" })).toBeInTheDocument();
-
-    // Solo la riga `failed` (Apollo) ha «Repropose»: la sorella `proposed` no.
-    const buttons = screen.getAllByRole("button", { name: "Repropose" });
-    expect(buttons).toHaveLength(1);
-
-    await userEvent.click(buttons[0]!);
-    await waitFor(() =>
-      expect(called).toEqual({ url: `/api/me/mail/email/${EMAIL_ID}/repropose` }),
-    );
-    // La riga sorella resta a schermo, invariata.
-    expect(screen.getByText("Borealis", { selector: "span" })).toBeInTheDocument();
   });
 
   it("errore di caricamento: messaggio e retry", async () => {
     let fail = true;
     mockApi(
       baseApi({
-        "GET /api/me/mail": () =>
+        "GET /api/me/mail/threads": () =>
           fail
             ? jsonResponse(500, { code: "internal", message: "boom" })
-            : jsonResponse(200, { items: [EMAIL_ITEM], nextCursor: null }),
+            : jsonResponse(200, { items: [THREAD_ITEM], nextCursor: null }),
       }),
     );
     renderMail();
@@ -354,84 +200,157 @@ describe("pagina /mail", () => {
     fail = false;
     await userEvent.click(screen.getByRole("button", { name: "Retry" }));
 
-    expect(await screen.findByText(/Ship next week\?/)).toBeInTheDocument();
+    expect(await screen.findByText("Re: Ship next week?")).toBeInTheDocument();
+  });
+});
+
+describe("pagina /mail — la vista per CONVERSAZIONI (§4)", () => {
+  it("è la vista di DEFAULT: si aprono conversazioni, non messaggi", async () => {
+    mockApi(baseApi());
+    renderMail();
+    await screen.findByRole("heading", { name: "Mail" });
+
+    expect(await screen.findByTestId("mail-thread-list")).toBeInTheDocument();
+    expect(screen.getByText("Re: Ship next week?")).toBeInTheDocument();
+    expect(screen.getByText("marco@cliente.test")).toBeInTheDocument();
+    // Quanti messaggi contiene e quante proposte aspettano una decisione.
+    expect(screen.getByText("3 messages")).toBeInTheDocument();
+    expect(screen.getByText("1 open proposal")).toBeInTheDocument();
   });
 
-  describe("fase 6c (fix di review Task 3): righe di smistamento", () => {
-    it("una riga triage ATTIVA non ha badge di progetto ma l'etichetta «da smistare»", async () => {
-      const triageItem = mailItem({
-        id: TRIAGE_ID,
-        source: "email",
-        kind: "triage",
-        title: "Rinnovo contratto?",
-        projectId: null,
-        projectName: null,
-        status: "classified",
-      });
-      mockApi(baseApi({ "GET /api/me/mail": () => jsonResponse(200, { items: [triageItem], nextCursor: null }) }));
-      renderMail();
-      await screen.findByRole("heading", { name: "Mail" });
+  it("aprendo una conversazione si leggono i messaggi IN ORDINE, col contesto dichiarato", async () => {
+    mockApi(
+      baseApi({
+        "GET /api/me/mail/threads/thread-1": () =>
+          jsonResponse(200, {
+            threadId: "thread-1",
+            accountId: ACCOUNT_ID,
+            accountEmail: "mailbox@acme.test",
+            subject: "Re: Ship next week?",
+            url: "https://mail.google.com/x",
+            messages: [
+              {
+                id: "11111111-1111-4111-8111-111111111111",
+                from: "laura@cliente.test",
+                to: [],
+                receivedAt: "2026-09-07T09:00:00.000Z",
+                textExcerpt: "La PRIMA email della conversazione",
+                admitted: false,
+                proposalIds: [],
+              },
+              {
+                id: "22222222-2222-4222-8222-222222222222",
+                from: "marco@cliente.test",
+                to: [],
+                receivedAt: "2026-09-09T09:00:00.000Z",
+                textExcerpt: "L'ULTIMA email",
+                admitted: true,
+                proposalIds: [],
+              },
+            ],
+          }),
+      }),
+    );
+    renderMail();
+    await screen.findByTestId("mail-thread-list");
 
-      expect(await screen.findByText(/Rinnovo contratto\?/)).toBeInTheDocument();
-      expect(screen.getByTestId("mail-triage-badge")).toBeInTheDocument();
-      // Nessun badge di progetto sulla riga (a differenza di EMAIL_ITEM/CALENDAR_ITEM).
-      expect(screen.queryByText("Apollo", { selector: "span" })).toBeNull();
-    });
+    await userEvent.click(screen.getByTestId("mail-thread-row-thread-1"));
 
-    it("una riga triage CHIUSA con «nessuno di questi» mostra l'esito leggibile, non il generico ignored", async () => {
-      const dismissedItem = mailItem({
-        id: TRIAGE_ID,
-        source: "email",
-        kind: "triage",
-        title: "Rinnovo contratto?",
-        projectId: null,
-        projectName: null,
-        status: "ignored",
-        outcome: { type: "triage_dismissed" },
-        reproposable: true,
-      });
-      mockApi(baseApi({ "GET /api/me/mail": () => jsonResponse(200, { items: [dismissedItem], nextCursor: null }) }));
-      renderMail();
-      await screen.findByRole("heading", { name: "Mail" });
+    const pane = await screen.findByTestId("mail-thread-pane");
+    expect(within(pane).getByText("La PRIMA email della conversazione")).toBeInTheDocument();
+    expect(within(pane).getByText("L'ULTIMA email")).toBeInTheDocument();
+    // Un messaggio di CONTESTO si dichiara: non è uno che «non ha ancora»
+    // prodotto una proposta, è uno che non ne produrrà mai.
+    expect(within(pane).getByText(/Context message/)).toBeInTheDocument();
+  });
 
-      expect(
-        await screen.findByText("Sorted — none of the suggested projects matched"),
-      ).toBeInTheDocument();
-      // Il bottone Riproponi compare comunque, come per failed/ignored delle altre fonti.
-      expect(screen.getByRole("button", { name: "Repropose" })).toBeInTheDocument();
-    });
+  it("da una proposta fallita si riparte: «Riproponi» sul MESSAGGIO, non sul messaggio di contesto", async () => {
+    // Lo stato vero da cui si deve poter uscire: una proposta `failed`.
+    // Senza questo bottone l'unica via di recupero sarebbe una chiamata
+    // HTTP a mano — che chi userà Stubwise non fa.
+    const PROPOSAL_ID = "77777777-7777-4777-8777-777777777777";
+    const repropose = vi.fn(() => jsonResponse(200, { ok: true }));
+    mockApi(
+      baseApi({
+        "GET /api/me/mail/threads/thread-1": () =>
+          jsonResponse(200, {
+            threadId: "thread-1",
+            accountId: ACCOUNT_ID,
+            accountEmail: "mailbox@acme.test",
+            subject: "Re: Ship next week?",
+            url: "https://mail.google.com/x",
+            messages: [
+              {
+                id: "11111111-1111-4111-8111-111111111111",
+                from: "laura@cliente.test",
+                to: [],
+                receivedAt: "2026-09-07T09:00:00.000Z",
+                textExcerpt: "La PRIMA email della conversazione",
+                admitted: false,
+                proposalIds: [],
+                // Un messaggio di CONTESTO non ha proposte: non ne ha mai
+                // avute e non ne avrà, quindi niente da riproporre.
+                reproposals: [],
+              },
+              {
+                id: "22222222-2222-4222-8222-222222222222",
+                from: "marco@cliente.test",
+                to: [],
+                receivedAt: "2026-09-09T09:00:00.000Z",
+                textExcerpt: "L'ULTIMA email",
+                admitted: true,
+                proposalIds: [PROPOSAL_ID],
+                reproposals: [{ source: "email", id: PROPOSAL_ID, projectName: "Apollo" }],
+              },
+            ],
+          }),
+        [`POST /api/me/mail/email/${PROPOSAL_ID}/repropose`]: repropose,
+      }),
+    );
+    renderMail();
+    await screen.findByTestId("mail-thread-list");
+    await userEvent.click(screen.getByTestId("mail-thread-row-thread-1"));
 
-    it("riproponi una riga triage: chiama /api/me/mail/email_triage/:id/repropose", async () => {
-      let called: { url: string } | null = null;
-      const dismissedItem = mailItem({
-        id: TRIAGE_ID,
-        source: "email",
-        kind: "triage",
-        title: "Rinnovo contratto?",
-        projectId: null,
-        projectName: null,
-        status: "ignored",
-        outcome: { type: "triage_dismissed" },
-        reproposable: true,
-      });
-      mockApi(
-        baseApi({
-          "GET /api/me/mail": () => jsonResponse(200, { items: [dismissedItem], nextCursor: null }),
-          [`POST /api/me/mail/email_triage/${TRIAGE_ID}/repropose`]: (url) => {
-            called = { url: url.pathname };
-            return jsonResponse(200, { ok: true });
-          },
-        }),
-      );
-      renderMail();
-      await screen.findByRole("heading", { name: "Mail" });
+    const pane = await screen.findByTestId("mail-thread-pane");
+    // L'azione sta sul messaggio che ha la proposta...
+    const contextMessage = within(pane).getByTestId(
+      "mail-thread-message-11111111-1111-4111-8111-111111111111",
+    );
+    expect(within(contextMessage).queryByRole("button", { name: /Repropose/ })).toBeNull();
+    const withProposal = within(pane).getByTestId(
+      "mail-thread-message-22222222-2222-4222-8222-222222222222",
+    );
+    // ...e dice di QUALE proposta si parla, che con il fan-out per progetto
+    // non è una domanda oziosa.
+    const button = within(withProposal).getByTestId(`mail-thread-repropose-${PROPOSAL_ID}`);
+    expect(button).toHaveTextContent("Apollo");
 
-      await userEvent.click(screen.getByRole("button", { name: "Repropose" }));
+    await userEvent.click(button);
 
-      await waitFor(() =>
-        expect(called).toEqual({ url: `/api/me/mail/email_triage/${TRIAGE_ID}/repropose` }),
-      );
-      expect(await screen.findByText("Reproposed — check the inbox for the new proposal")).toBeInTheDocument();
-    });
+    // La rotta chiamata è quella della PROPOSTA, non quella del messaggio.
+    await waitFor(() => expect(repropose).toHaveBeenCalledTimes(1));
+    expect(await within(pane).findByText(/Reproposed/)).toBeInTheDocument();
+  });
+
+  it("chiudendo la conversazione si torna al prompt di selezione", async () => {
+    mockApi(
+      baseApi({
+        "GET /api/me/mail/threads/thread-1": () =>
+          jsonResponse(200, {
+            threadId: "thread-1",
+            accountId: ACCOUNT_ID,
+            accountEmail: "mailbox@acme.test",
+            url: "https://mail.google.com/x",
+            messages: [],
+          }),
+      }),
+    );
+    renderMail();
+    await screen.findByTestId("mail-thread-list");
+    await userEvent.click(screen.getByTestId("mail-thread-row-thread-1"));
+    await screen.findByTestId("mail-thread-pane");
+
+    await userEvent.click(screen.getByTestId("mail-thread-close"));
+    await waitFor(() => expect(screen.queryByTestId("mail-thread-pane")).not.toBeInTheDocument());
   });
 });

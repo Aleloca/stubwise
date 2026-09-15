@@ -147,7 +147,14 @@ check the effect of the toggle without guessing.
    matching project routing rule. A message that isn't admitted is discarded
    right there — its body is never downloaded, and no trace of it is stored
    in Stubwise.
-3. **Classification, on text alone.** Only messages that passed the filter
+3. **The rest of the conversation comes in too.** When a message is admitted,
+   Stubwise also fetches the other messages of its Gmail thread, so the
+   exchange can be read whole and the analysis has the context it needs. Those
+   siblings come in as **context**: they are never classified and never
+   produce a proposal of their own, whatever they contain. This does widen
+   what enters Stubwise beyond the admission rules — deliberately — and that
+   limit is what keeps it reasonable.
+4. **Classification, on text alone.** Only messages that passed the filter
    have their **subject and body downloaded and sent to the AI analysis
    provider this instance is configured to use** — and *only* that provider,
    nothing else. The run has **no filesystem access and no tools**: it reads
@@ -155,17 +162,26 @@ check the effect of the toggle without guessing.
    tickets and backlog titles for context — for each project a routing rule
    already matched, or, if none did, for every project on the instance (see
    [When no project matches](#when-no-project-matches)) — and proposes an
-   action. It cannot browse anything, run anything, or take any action by
+   action. Of a conversation only the **latest** admitted message is analysed
+   — judged against the exchange, with the previous messages as context and a
+   cap on how many of them are included, so a long thread never costs more
+   than a short one. That is why a five-email exchange produces one proposal,
+   not five. When the thread already has a proposal waiting for you and a new
+   reply arrives, the analysis is told about it and says whether the reply is
+   the same request (the open card is rewritten, and the superseded one stays
+   readable among the handled ones, saying what replaced it) or a different
+   one (a second card appears, and the first stays as it is). In doubt, it
+   keeps both. It cannot browse anything, run anything, or take any action by
    itself — the most it produces is a suggestion, which Stubwise's own code
    then double-checks against real data (is that ticket actually open? is
    that project actually a candidate?) before it's ever shown to anyone.
-4. **A proposal in your inbox — one per matching project.** If something
+5. **A proposal in your inbox — one per matching project.** If something
    useful comes out, a card appears — **only for the mailbox owner** — for
    *each* project the message is confidently attributed to, showing the
    project's name, the sender or event, a short recognized signal (decision,
    request, deadline, blocker), and a short list of options plus **Ignore**.
    One tap confirms; nothing happens until you do.
-5. **Calendar, without AI.** Events on your primary calendar go through the
+6. **Calendar, without AI.** Events on your primary calendar go through the
    same routing rules (attendee domains, keywords in the title) but skip the
    model entirely: an in-scope event deterministically proposes an action —
    see [The Calendar page](#the-calendar-page) below for what that action is
@@ -184,10 +200,44 @@ apart.
 
 ## Reading your mail
 
-The Mail page (`/mail`) is a three-column reading view: your filters and the
-message list on the left, the selected message's **detail** on the right —
-without leaving the list, the way an email client works. Every row shows two,
-deliberately distinct, sources:
+The Mail page (`/mail`) is a three-column reading view, and the middle column
+lists **conversations**, not single messages: one row per exchange, with the
+subject and sender of its latest message, how many messages it holds and how
+many proposals are still waiting for you. Open one and you read every message
+in order, each with its own sender, date and text.
+
+That is also what makes a long exchange readable. Before, the only way to see
+the rest of a conversation was "read the original", which returns the raw body
+with the entire quoted chain inside it — correct, but a single block where you
+can't tell where one email ends and the previous one begins. Gmail gives us
+the messages already separated, so Stubwise shows them separated; it never
+tries to split a quoted chain by guesswork.
+
+If a proposal failed, or you dismissed one by mistake, the message it came
+from carries a **Repropose** action: it puts that proposal back in the queue,
+and the next poller tick picks it up. It appears only where there is
+something to recover — never on a message whose proposal is still open, and
+never on a context message. When a message produced proposals for several
+projects, there is one action per project, each naming its own, so you are
+never guessing which one you are reopening.
+
+Some of the messages in a conversation are marked as **context**. Those came
+in with the thread of a message that passed the admission gate, and they exist
+to be read: they never produce a proposal of their own, and the page says so
+on each of them. It is not "no proposal yet" — it is "never".
+
+Conversations are the only list the page has: there is no per-message view
+to switch to, and with it went the per-status and per-project filters (neither
+meant much for a conversation, which can touch several projects and hold
+several states at once) and the mixed list that also showed calendar
+appointments. Appointments have their own page, `/calendar`.
+
+On the phone, the MBX tab works the same way: conversations in the list, and
+the whole exchange when you open one.
+
+A single message still has its own page — it is where a notification card
+and a shared link land — and there you get two, deliberately distinct,
+sources:
 
 - **The extract**, shown immediately — no request to Google, so it works
   even if your mailbox's connection has expired or Google is unreachable
@@ -199,11 +249,17 @@ deliberately distinct, sources:
 - **The original message**, fetched from Gmail only when you click **Read
   original on Gmail** — a real network request, made right then, not
   something pre-loaded. It's what gets you the full formatting, Cc list and
-  a list of attachment names that the extract doesn't carry. Nothing from
-  this reread is saved anywhere; ask again and it asks Google again. A
-  message deleted on Gmail, an expired connection, or Google being briefly
-  unreachable each produce a distinct, readable error — the extract stays
-  visible regardless.
+  a list of attachment names that the extract doesn't carry. The first time
+  you ask, Stubwise fetches it from Gmail and keeps a copy, so asking again
+  — after leaving the page and coming back, say — is instant. The answer
+  always tells you where it came from: asked of Google just now, or a stored
+  copy with the date it was read. A Gmail message never changes after it is
+  sent, which is why the copy needs no expiry; when the message is removed
+  from Stubwise, the copy goes with it.
+  Because of that copy, a message you have already read once stays readable
+  even if your mailbox later needs reconnecting, or if the message is deleted
+  on Gmail afterwards. If there is no copy yet, those situations each produce
+  a distinct, readable error — and the extract stays visible regardless.
 
 When the original has an HTML body, it's rendered — formatting, tables,
 links — inside a sandboxed frame with a light background of its own,

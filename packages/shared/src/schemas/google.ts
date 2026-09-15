@@ -457,6 +457,14 @@ export const mailItemSchema = z.object({
    * obbligatorio).
    */
   kind: mailItemKindSchema.optional().default("proposal"),
+  /**
+   * Il thread Gmail di una riga EMAIL («la posta si legge per conversazione»),
+   * per aprire la conversazione da una riga della lista per messaggio.
+   * `null` per il calendario, che thread non ne ha — e su una risposta
+   * scritta prima di questo campo, dove il default lo rende assente senza
+   * far fallire il parse.
+   */
+  threadId: z.string().nullable().default(null),
   accountId: z.uuid(),
   /** L'email della casella Google da cui la riga è arrivata. */
   accountEmail: z.string(),
@@ -495,6 +503,118 @@ export const mailPageSchema = z.object({
   nextCursor: z.string().nullable(),
 });
 export type MailPage = z.infer<typeof mailPageSchema>;
+
+// ---------------------------------------------------------------------------
+// La posta per CONVERSAZIONE («la posta si legge per conversazione» §4)
+//
+// ⚠️ Queste forme nascono ACCANTO a {@link mailItemSchema}, non al suo posto:
+// `GET /api/me/mail` è letta da un'app GIÀ INSTALLATA e cambiarne la forma la
+// romperebbe (CLAUDE.md, «verso l'app mobile solo cambi additivi»), e la usa
+// anche il calendario, che thread non ne ha.
+// ---------------------------------------------------------------------------
+
+/**
+ * UNA conversazione nella lista: quello che serve a decidere se aprirla.
+ *
+ * `messageCount` conta TUTTI i messaggi del thread, contesto compreso: è la
+ * dimensione della conversazione, non quanti ne hanno prodotto una proposta.
+ * `lastFrom`/`lastReceivedAt` vengono dall'ultimo messaggio, che è quello a
+ * cui si risponde.
+ */
+export const mailThreadItemSchema = z.object({
+  threadId: z.string(),
+  accountId: z.uuid(),
+  accountEmail: z.string(),
+  /** Oggetto dell'ultimo messaggio. NON FIDATO: lo scrive chi manda l'email. */
+  subject: z.string().nullable().default(null),
+  /** Mittente dell'ultimo messaggio. NON FIDATO. */
+  lastFrom: z.string(),
+  lastReceivedAt: z.iso.datetime(),
+  messageCount: z.number().int().min(1).default(1),
+  /** Proposte ancora APERTE su questa conversazione: è ciò che chiede attenzione. */
+  openProposals: z.number().int().min(0).default(0),
+  /** I progetti che la conversazione tocca, per non doverli dedurre dall'oggetto. */
+  projectNames: z.array(z.string()).default([]),
+});
+export type MailThreadItem = z.infer<typeof mailThreadItemSchema>;
+
+/** Pagina della lista per conversazione. */
+export const mailThreadPageSchema = z.object({
+  items: z.array(mailThreadItemSchema),
+  nextCursor: z.string().nullable(),
+});
+export type MailThreadPage = z.infer<typeof mailThreadPageSchema>;
+
+/**
+ * UN messaggio dentro il dettaglio di una conversazione.
+ *
+ * `admitted: false` è un messaggio tirato dentro come CONTESTO del thread
+ * («la posta si legge per conversazione» §2): si legge come gli altri, ma non
+ * ha prodotto né può produrre una proposta. Chi lo rende lo dica — un
+ * messaggio che non genera mai una card non deve sembrare uno che non ne ha
+ * ancora generata.
+ */
+/**
+ * Una riproposizione possibile su un messaggio di una conversazione: i due
+ * parametri della rotta più il nome del progetto, che serve a distinguerle
+ * quando ce n'è più d'una.
+ *
+ * `source` NON include `"calendar"`: un appuntamento non sta in un thread
+ * di posta. Resta un `enum` e non una stringa libera perché è un parametro
+ * di percorso — e verso l'app passa da `readerSchema`, che gli enum li apre
+ * da sé (vedi CLAUDE.md, "solo cambi additivi").
+ */
+export const mailThreadReproposalSchema = z.object({
+  source: z.enum(["email", "email_triage"]),
+  /** `email_proposals.id` per `"email"`, `email_messages.id` per `"email_triage"`. */
+  id: z.uuid(),
+  /** Nome del progetto della proposta. `null` per uno smistamento, che progetto non ne ha ancora. */
+  projectName: z.string().nullable().default(null),
+});
+export type MailThreadReproposal = z.infer<typeof mailThreadReproposalSchema>;
+
+export const mailThreadMessageSchema = z.object({
+  id: z.uuid(),
+  from: z.string(),
+  to: z.array(z.string()).default([]),
+  receivedAt: z.iso.datetime(),
+  /** L'ESTRATTO: niente citazioni, firma o allegati. `null` sui messaggi anteriori alla fase 6. */
+  textExcerpt: z.string().nullable().default(null),
+  admitted: z.boolean().default(true),
+  /** `email_proposals.id` delle proposte nate da QUESTO messaggio, per raggiungerle. */
+  proposalIds: z.array(z.uuid()).default([]),
+  /**
+   * Le riproposizioni DISPONIBILI su questo messaggio, già pronte per
+   * `POST /api/me/mail/:source/:id/repropose`: array vuoto = niente da
+   * riproporre, ed è il caso NORMALE (un messaggio di contesto non ne ha
+   * mai, uno con la proposta ancora aperta nemmeno).
+   *
+   * ⚠️ È una LISTA e non un booleano perché dal fan-out della fase 6b un
+   * messaggio può avere PIÙ proposte, una per progetto: un solo bottone
+   * riaprirebbe la domanda «quale delle N?» proprio dove la conversazione
+   * l'aveva chiusa. Con una voce per proposta, `projectName` dice di quale
+   * si parla.
+   *
+   * ⚠️ L'idoneità la calcola il SERVER, con le stesse condizioni del
+   * cancello della rotta di repropose — il client non la rideduce da
+   * `status`: due copie della regola divergono, e la copia sbagliata qui
+   * sarebbe un bottone che dà 409.
+   */
+  reproposals: z.array(mailThreadReproposalSchema).default([]),
+});
+export type MailThreadMessage = z.infer<typeof mailThreadMessageSchema>;
+
+/** Il dettaglio di una conversazione: i suoi messaggi in ordine cronologico. */
+export const mailThreadDetailSchema = z.object({
+  threadId: z.string(),
+  accountId: z.uuid(),
+  accountEmail: z.string(),
+  subject: z.string().nullable().default(null),
+  /** Link al thread su Gmail: è dove porta «Apri su Gmail». */
+  url: z.string(),
+  messages: z.array(mailThreadMessageSchema),
+});
+export type MailThreadDetail = z.infer<typeof mailThreadDetailSchema>;
 
 /**
  * Contatori per il badge di nav e l'intestazione della pagina. `openProposals`

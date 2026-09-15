@@ -188,6 +188,20 @@ describe("MailDetailScreen — l'originale (rilettura da Gmail, su richiesta)", 
     expect(screen.queryByText(/Chiede il messaggio a Google adesso/)).toBeNull();
   });
 
+  test("dopo il tap la nota che IPOTIZZA sparisce: resta una frase sola su Google", async () => {
+    // Due frasi nello stesso riquadro — una che dice cosa succederà, una che
+    // dice cos'è successo — si leggono come contraddittorie: è il difetto
+    // che il maintainer ha visto per primo sul telefono.
+    await renderScreen(makeClient());
+    await waitFor(() => expect(screen.getByTestId("mail-detail-show-original")).toBeTruthy());
+    expect(screen.getByText(/Il messaggio completo, com'è arrivato/)).toBeTruthy();
+
+    await fireEvent.press(screen.getByTestId("mail-detail-show-original"));
+    await waitFor(() => expect(screen.getByTestId("mail-detail-original-source")).toBeTruthy());
+
+    expect(screen.queryByText(/Il messaggio completo, com'è arrivato/)).toBeNull();
+  });
+
   test("servito dalla CACHE: dopo il tap la provenienza è dichiarata, senza promettere Google", async () => {
     const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
     const originalFn = jest

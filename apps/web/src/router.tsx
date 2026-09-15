@@ -32,7 +32,7 @@ import {
   invitesQueryOptions,
   briefQueryOptions,
   mailAdmissionQueryOptions,
-  mailQueryOptions,
+  mailThreadsQueryOptions,
   mailSummaryQueryOptions,
   milestonesQueryOptions,
   myFollowsQueryOptions,
@@ -649,7 +649,7 @@ const mailRoute = createRoute({
   path: "/mail",
   loader: async ({ context }) => {
     await Promise.all([
-      context.queryClient.ensureQueryData(mailQueryOptions({})).catch(() => undefined),
+      context.queryClient.ensureQueryData(mailThreadsQueryOptions()).catch(() => undefined),
       context.queryClient.ensureQueryData(mailSummaryQueryOptions).catch(() => undefined),
       context.queryClient.ensureQueryData(projectsQueryOptions),
       context.queryClient.ensureQueryData(myGoogleAccountsQueryOptions),
@@ -719,7 +719,7 @@ const mailDetailRoute = createRoute({
   path: "/mail/$source/$id",
   loader: async ({ context }) => {
     await Promise.all([
-      context.queryClient.ensureQueryData(mailQueryOptions({})).catch(() => undefined),
+      context.queryClient.ensureQueryData(mailThreadsQueryOptions()).catch(() => undefined),
       context.queryClient.ensureQueryData(mailSummaryQueryOptions).catch(() => undefined),
       context.queryClient.ensureQueryData(projectsQueryOptions),
       context.queryClient.ensureQueryData(myGoogleAccountsQueryOptions),
