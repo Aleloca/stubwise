@@ -100,6 +100,14 @@ function event(overrides: Partial<CalendarEventItem> & Pick<CalendarEventItem, "
     url: "https://calendar.google.com/calendar/u/mailbox@acme.test/r/day/2026/9/12",
     eventUrl: null,
     reproposable: false,
+    descriptionHtml: null,
+    descriptionText: null,
+    location: null,
+    hangoutLink: null,
+    conferenceEntryPoints: [],
+    reminders: [],
+    remindersUseDefault: false,
+    recurrence: [],
     ...overrides,
   };
 }
@@ -301,6 +309,169 @@ describe("pagina /calendar — la griglia (fase 9)", () => {
 
     // E anche il PANNELLO di dettaglio regge: è l'altro punto di lettura.
     await userEvent.click(screen.getByText("Senza partecipanti nel payload"));
+    expect(await screen.findByRole("link", { name: "Open in Google Calendar" })).toBeInTheDocument();
+  });
+
+  // -------------------------------------------------------------------------
+  // 15 set 2026 (§2): tutto quello che Google mostra.
+  // -------------------------------------------------------------------------
+
+  it("la descrizione si rende nell'IFRAME SANDBOX, senza allow-scripts né allow-same-origin", async () => {
+    const withDescription = event({
+      id: "e-desc",
+      title: "Con descrizione",
+      startsAt: "2026-09-12T09:00:00.000Z",
+      endsAt: "2026-09-12T10:00:00.000Z",
+      descriptionHtml: "<p>Ordine del giorno</p>",
+      descriptionText: "Ordine del giorno",
+    });
+    mockApi(
+      baseApi({
+        "GET /api/me/calendar/range": () => jsonResponse(200, { items: [withDescription], nextCursor: null }),
+      }),
+    );
+    await renderCalendar();
+    await userEvent.click(await screen.findByText("Con descrizione"));
+
+    const frame = await screen.findByTitle("Appointment description");
+    expect(frame.tagName).toBe("IFRAME");
+    // I due permessi che farebbero uscire il documento dal suo recinto non
+    // devono esserci: la descrizione è scritta da chiunque abbia creato
+    // l'invito, ed è la stessa difesa del corpo di un'email.
+    const sandbox = frame.getAttribute("sandbox") ?? "";
+    expect(sandbox).not.toContain("allow-scripts");
+    expect(sandbox).not.toContain("allow-same-origin");
+    expect(frame.getAttribute("srcdoc")).toContain("Ordine del giorno");
+  });
+
+  it("luogo, link per partecipare e promemoria attribuiti a GOOGLE", async () => {
+    const full = event({
+      id: "e-full",
+      title: "Con tutto",
+      startsAt: "2026-09-12T09:00:00.000Z",
+      endsAt: "2026-09-12T10:00:00.000Z",
+      location: "Sala Grande",
+      hangoutLink: "https://meet.google.com/abc-defg-hij",
+      conferenceEntryPoints: [
+        { type: "phone", uri: "tel:+39061234567", label: "+39 06 1234567", pin: "998877" },
+      ],
+      reminders: [{ method: "popup", minutes: 10 }],
+    });
+    mockApi(
+      baseApi({ "GET /api/me/calendar/range": () => jsonResponse(200, { items: [full], nextCursor: null }) }),
+    );
+    await renderCalendar();
+    await userEvent.click(await screen.findByText("Con tutto"));
+
+    expect(await screen.findByText("Sala Grande")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open Google Meet" })).toHaveAttribute(
+      "href",
+      "https://meet.google.com/abc-defg-hij",
+    );
+    expect(screen.getByRole("link", { name: "+39 06 1234567" })).toHaveAttribute("href", "tel:+39061234567");
+    expect(screen.getByText(/PIN 998877/)).toBeInTheDocument();
+    // ⚠️ Il testo dei promemoria NOMINA Google: Stubwise non li fa scattare
+    // e la copy non deve lasciar credere il contrario (design §2).
+    expect(screen.getByText(/Google fires them, not Stubwise/)).toBeInTheDocument();
+  });
+
+  it("⚠️ un link «per partecipare» con uno schema pericoloso non diventa cliccabile", async () => {
+    const hostile = event({
+      id: "e-hostile",
+      title: "Con link ostile",
+      startsAt: "2026-09-12T09:00:00.000Z",
+      endsAt: "2026-09-12T10:00:00.000Z",
+      hangoutLink: "javascript:alert(1)",
+      conferenceEntryPoints: [
+        { type: "more", uri: "javascript:alert(2)", label: "Altri modi", pin: null },
+      ],
+    });
+    mockApi(
+      baseApi({
+        "GET /api/me/calendar/range": () => jsonResponse(200, { items: [hostile], nextCursor: null }),
+      }),
+    );
+    await renderCalendar();
+    await userEvent.click(await screen.findByText("Con link ostile"));
+
+    // `uri` viene dall'invito, cioè da chiunque: l'allowlist di schemi lo
+    // scarta e la sezione non compare affatto. (Il titolo compare due volte
+    // — nella griglia e nel pannello — quindi si aspetta il PANNELLO, non
+    // il titolo.)
+    expect(await screen.findByRole("link", { name: "Open in Google Calendar" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Open Google Meet" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Altri modi")).not.toBeInTheDocument();
+  });
+
+  it("la ricorrenza si legge a parole", async () => {
+    const recurring = event({
+      id: "e-rec",
+      title: "Riunione settimanale",
+      startsAt: "2026-09-12T09:00:00.000Z",
+      endsAt: "2026-09-12T10:00:00.000Z",
+      recurringEventId: "serie-1",
+      recurrence: ["RRULE:FREQ=WEEKLY;BYDAY=MO"],
+    });
+    mockApi(
+      baseApi({
+        "GET /api/me/calendar/range": () => jsonResponse(200, { items: [recurring], nextCursor: null }),
+      }),
+    );
+    await renderCalendar();
+    await userEvent.click(await screen.findByText("Riunione settimanale"));
+
+    expect(await screen.findByText(/Every week on Monday/)).toBeInTheDocument();
+  });
+
+  it("una ricorrenza che non sappiamo dire non produce NESSUNA frase", async () => {
+    const odd = event({
+      id: "e-odd",
+      title: "Strana",
+      startsAt: "2026-09-12T09:00:00.000Z",
+      endsAt: "2026-09-12T10:00:00.000Z",
+      recurringEventId: "serie-2",
+      recurrence: ["RRULE:FREQ=HOURLY;INTERVAL=6"],
+    });
+    mockApi(
+      baseApi({ "GET /api/me/calendar/range": () => jsonResponse(200, { items: [odd], nextCursor: null }) }),
+    );
+    await renderCalendar();
+    await userEvent.click(await screen.findByText("Strana"));
+
+    expect(await screen.findByRole("link", { name: "Open in Google Calendar" })).toBeInTheDocument();
+    expect(screen.queryByText("Repeats")).not.toBeInTheDocument();
+  });
+
+  it("i campi nuovi ASSENTI dalla risposta non fanno saltare il pannello (le difese `?? []`)", async () => {
+    // ⚠️ Fixture volutamente SENZA i campi del 15 set 2026: sul web
+    // `lib/api.ts` fa un CAST e non un `parse`, quindi il `.default()` dello
+    // schema non gira mai e un server più vecchio lascia `undefined`. È la
+    // prova che le difese nel punto di lettura ci sono — non una svista.
+    const complete = event({
+      id: "e-bare",
+      title: "Payload di un server vecchio",
+      startsAt: "2026-09-12T09:00:00.000Z",
+      endsAt: "2026-09-12T10:00:00.000Z",
+    });
+    const bare: Record<string, unknown> = { ...complete };
+    for (const field of [
+      "descriptionHtml",
+      "descriptionText",
+      "location",
+      "hangoutLink",
+      "conferenceEntryPoints",
+      "reminders",
+      "remindersUseDefault",
+      "recurrence",
+    ]) {
+      delete bare[field];
+    }
+    mockApi(
+      baseApi({ "GET /api/me/calendar/range": () => jsonResponse(200, { items: [bare], nextCursor: null }) }),
+    );
+    await renderCalendar();
+    await userEvent.click(await screen.findByText("Payload di un server vecchio"));
+
     expect(await screen.findByRole("link", { name: "Open in Google Calendar" })).toBeInTheDocument();
   });
 

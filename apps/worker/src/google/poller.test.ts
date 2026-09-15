@@ -283,6 +283,7 @@ function fakeGmail(setup: {
  */
 const quietCalendar: CalendarClient = {
   listEvents: async () => ({ events: [], nextPageToken: null, nextSyncToken: null }),
+  getEvent: async (input) => ({ id: input.eventId, recurrence: [] }),
 };
 
 function deps(
@@ -2416,6 +2417,11 @@ function calendarEvent(input: Partial<GoogleCalendarEvent> & { id: string }): Go
     updatedAt: null,
     recurringEventId: null,
     originalStartTime: null,
+    location: null,
+    hangoutLink: null,
+    conferenceEntryPoints: [],
+    reminders: [],
+    remindersUseDefault: false,
     ...input,
   };
 }

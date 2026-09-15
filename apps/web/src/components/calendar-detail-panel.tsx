@@ -1,10 +1,19 @@
-import { attendeeResponseOf, type CalendarAttendeeResponseStatus, type CalendarEventItem, type CalendarSeriesAction } from "@stubwise/shared";
+import {
+  attendeeResponseOf,
+  formatRecurrence,
+  isSafeJoinUrl,
+  parseRecurrence,
+  type CalendarAttendeeResponseStatus,
+  type CalendarEventItem,
+  type CalendarSeriesAction,
+} from "@stubwise/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { deleteCalendarSeries, putCalendarSeries } from "../lib/api";
 import { calendarKeys, calendarSeriesQueryOptions } from "../lib/queries";
 import { FilterSelect } from "./ticket-filters";
+import { UntrustedHtmlFrame } from "./untrusted-html-frame";
 
 /**
  * Il pannello di dettaglio a destra (fase 9, Task 7, design §3): titolo,
@@ -94,6 +103,54 @@ export function CalendarDetailPanel({
         </section>
       )}
 
+      {/*
+        ⚠️ Ogni lettura qui sotto è difesa con `?? []` / `?? null`: sul web
+        `lib/api.ts` fa un CAST e non un `parse`, quindi il `.default()`
+        dello schema NON gira mai (invariante in CLAUDE.md). Sono campi
+        nuovi del 15 set 2026: un server più vecchio — o un rollback — non
+        li manda, e un `undefined` dove il codice chiama `.map()` fa
+        smontare a React l'intero pannello, non una riga.
+      */}
+      {(event.location ?? null) !== null && (
+        <section className="mt-4">
+          <p className="font-mono text-[11px] tracking-[0.12em] text-fg-faint uppercase">
+            {t("calendar:detail.location")}
+          </p>
+          {/* Testo NON FIDATO, come `title`: React lo escapa da sé. */}
+          <p className="mt-1 text-[13px] break-words text-fg-muted">{event.location}</p>
+        </section>
+      )}
+
+      <JoinSection hangoutLink={event.hangoutLink ?? null} entryPoints={event.conferenceEntryPoints ?? []} />
+
+      {(event.descriptionHtml ?? null) !== null && (
+        <section className="mt-4">
+          <p className="font-mono text-[11px] tracking-[0.12em] text-fg-faint uppercase">
+            {t("calendar:detail.description")}
+          </p>
+          <div className="mt-2">
+            {/*
+              LA DESCRIZIONE È HTML NON FIDATO — la scrive chiunque abbia
+              creato l'invito. Stessa strada del corpo di un'email, non una
+              terza: sanificata lato server (`sanitizeEmailHtml`) e resa qui
+              nell'`<iframe sandbox>` SENZA `allow-scripts` né
+              `allow-same-origin`, con le immagini remote neutralizzate.
+            */}
+            <UntrustedHtmlFrame
+              html={event.descriptionHtml!}
+              title={t("calendar:detail.descriptionFrameTitle")}
+            />
+          </div>
+        </section>
+      )}
+
+      <RecurrenceLine recurrence={event.recurrence ?? []} />
+
+      <RemindersSection
+        reminders={event.reminders ?? []}
+        useDefault={event.remindersUseDefault ?? false}
+      />
+
       {event.error !== null && (
         <p className="mt-4 font-mono text-[11px] text-danger">{event.error}</p>
       )}
@@ -123,6 +180,153 @@ export function CalendarDetailPanel({
         </section>
       )}
     </article>
+  );
+}
+
+/**
+ * «Per partecipare»: il link Meet più gli altri modi (numeri di telefono col
+ * PIN, link alternativi). Assente del tutto quando non c'è niente — mai una
+ * sezione vuota.
+ */
+function JoinSection({
+  hangoutLink,
+  entryPoints,
+}: {
+  hangoutLink: string | null;
+  entryPoints: CalendarEventItem["conferenceEntryPoints"];
+}) {
+  const { t } = useTranslation();
+  // Il Meet è già fra gli entry point in quasi tutti gli eventi: mostrarlo
+  // due volte sarebbe rumore.
+  const extra = entryPoints.filter(
+    (point) => isSafeJoinUrl(point.uri) && point.uri !== hangoutLink,
+  );
+  const meet = hangoutLink !== null && isSafeJoinUrl(hangoutLink) ? hangoutLink : null;
+  if (meet === null && extra.length === 0) return null;
+
+  return (
+    <section className="mt-4">
+      <p className="font-mono text-[11px] tracking-[0.12em] text-fg-faint uppercase">
+        {t("calendar:detail.join")}
+      </p>
+      {meet !== null && (
+        <a
+          href={meet}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-2 inline-flex min-h-9 items-center rounded-sm border border-signal-dim/50 px-3 font-mono text-[11px] tracking-[0.12em] text-signal uppercase transition-colors hover:border-signal"
+        >
+          {t("calendar:detail.joinMeet")}
+        </a>
+      )}
+      {extra.length > 0 && (
+        <ul className="mt-2 space-y-1">
+          {extra.map((point) => (
+            <li key={point.uri} className="font-mono text-[12px]">
+              <a
+                href={point.uri}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-fg-muted underline decoration-line-strong underline-offset-2 hover:text-fg"
+              >
+                {point.label ?? point.uri}
+              </a>
+              {point.pin !== null && <span className="ml-2 text-fg-faint">PIN {point.pin}</span>}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/**
+ * «Si ripete»: la regola a parole, o NIENTE.
+ *
+ * `parseRecurrence` torna `null` per tutto ciò che non sa dire con certezza
+ * (vedi il suo docblock): una frase sbagliata su quando si ripete un
+ * appuntamento è peggio di nessuna frase, perché chi la legge non ha modo di
+ * accorgersene.
+ */
+function RecurrenceLine({ recurrence }: { recurrence: string[] }) {
+  const { t } = useTranslation();
+  const rule = parseRecurrence(recurrence);
+  if (rule === null) return null;
+  const label = formatRecurrence(rule, (key, params) =>
+    key.startsWith("weekday.")
+      ? WEEKDAY_LABEL[key.slice("weekday.".length) as keyof typeof WEEKDAY_LABEL]
+      : t(`calendar:recurrence.${key}`, params),
+  );
+  return (
+    <section className="mt-4">
+      <p className="font-mono text-[11px] tracking-[0.12em] text-fg-faint uppercase">
+        {t("calendar:detail.recurrence")}
+      </p>
+      <p className="mt-1 text-[13px] text-fg-muted">{label}</p>
+    </section>
+  );
+}
+
+/**
+ * I nomi dei giorni, dal browser — come già fanno le intestazioni della
+ * griglia (`calendar-grid-view.tsx`), invece di sette chiavi i18n in più per
+ * parole che `Intl` conosce già. Le date sono lunedì 5 gennaio 2026 e i sei
+ * giorni seguenti: servono solo a estrarne il nome.
+ */
+const WEEKDAY_FORMATTER = new Intl.DateTimeFormat(undefined, { weekday: "long" });
+const WEEKDAY_LABEL = {
+  mon: WEEKDAY_FORMATTER.format(new Date(2026, 0, 5)),
+  tue: WEEKDAY_FORMATTER.format(new Date(2026, 0, 6)),
+  wed: WEEKDAY_FORMATTER.format(new Date(2026, 0, 7)),
+  thu: WEEKDAY_FORMATTER.format(new Date(2026, 0, 8)),
+  fri: WEEKDAY_FORMATTER.format(new Date(2026, 0, 9)),
+  sat: WEEKDAY_FORMATTER.format(new Date(2026, 0, 10)),
+  sun: WEEKDAY_FORMATTER.format(new Date(2026, 0, 11)),
+};
+
+/**
+ * I promemoria, ATTRIBUITI A GOOGLE (design §2).
+ *
+ * ⚠️ **Stubwise non li fa scattare, e la copy non deve lasciar credere il
+ * contrario**: si dice che sono impostati SU GOOGLE ed è Google a farli
+ * scattare. È un'informazione vera su cosa farà Google, non una promessa
+ * nostra — chi un domani volesse farli scattare sta aggiungendo una
+ * funzione, non riempiendo un campo.
+ *
+ * `useDefault` non è la stessa cosa di «nessun promemoria»: i predefiniti
+ * stanno in `calendarList`, che non leggiamo, quindi si dice che ci sono
+ * senza fingere di sapere quali.
+ */
+function RemindersSection({
+  reminders,
+  useDefault,
+}: {
+  reminders: CalendarEventItem["reminders"];
+  useDefault: boolean;
+}) {
+  const { t } = useTranslation();
+  if (reminders.length === 0 && !useDefault) return null;
+  return (
+    <section className="mt-4">
+      <p className="font-mono text-[11px] tracking-[0.12em] text-fg-faint uppercase">
+        {t("calendar:detail.reminders")}
+      </p>
+      {reminders.length > 0 && (
+        <ul className="mt-1 space-y-0.5">
+          {reminders.map((reminder) => (
+            <li key={`${reminder.method}-${reminder.minutes}`} className="text-[13px] text-fg-muted">
+              {t("calendar:detail.reminderMinutes", { count: reminder.minutes })}
+              {" · "}
+              {t(`calendar:detail.reminderMethod.${reminder.method}`, { defaultValue: reminder.method })}
+            </li>
+          ))}
+        </ul>
+      )}
+      {useDefault && (
+        <p className="mt-1 text-[12px] text-fg-muted">{t("calendar:detail.remindersUseDefault")}</p>
+      )}
+      <p className="mt-1 font-mono text-[11px] text-fg-faint">{t("calendar:detail.remindersOnGoogle")}</p>
+    </section>
   );
 }
 

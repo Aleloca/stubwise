@@ -79,8 +79,11 @@ export {
 
 export {
   CALENDAR_API_BASE,
+  getEvent,
   listEvents,
   type CalendarEventsPage,
+  type GetEventInput,
   type GoogleCalendarEvent,
+  type GoogleParentEvent,
   type ListEventsInput,
 } from "./calendar.js";

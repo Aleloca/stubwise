@@ -1,6 +1,7 @@
 import {
   calendarEvents as calendarEventsTable,
   calendarSeries as calendarSeriesTable,
+  calendarSeriesRecurrence,
   emailMessages,
   emailProposals,
   googleAccounts,
@@ -14,6 +15,7 @@ import {
 import {
   extractText,
   getMessageFull,
+  getEvent,
   getMessageMetadata,
   getThreadFull,
   GoogleApiError,
@@ -216,9 +218,15 @@ const realGmailClient: GmailClient = {
 /** La parte Calendar del client Google, iniettabile come {@link GmailClient}. */
 export interface CalendarClient {
   listEvents: typeof listEvents;
+  /**
+   * L'evento PADRE di una serie, per la sua REGOLA DI RICORRENZA (15 set
+   * 2026, §2, Task 7). ⚠️ Il chiamante la chiede UNA VOLTA PER SERIE, mai per
+   * occorrenza: vedi {@link syncSeriesRecurrence}.
+   */
+  getEvent: typeof getEvent;
 }
 
-const realCalendarClient: CalendarClient = { listEvents };
+const realCalendarClient: CalendarClient = { listEvents, getEvent };
 
 /** Caricamento delle credenziali di una casella (default: quello di `@stubwise/google`). */
 export type LoadCredentialsFn = typeof loadGoogleAccountCredentials;
@@ -1154,6 +1162,16 @@ async function syncCalendar(
   }
   if (live.size === 0) return { syncToken, stats };
 
+  // La regola di ricorrenza delle serie toccate da questo lotto: UNA
+  // chiamata per SERIE, e solo per quelle che non conosciamo o che sono
+  // scadute. Fail-open — un ornamento non ferma l'ingestione.
+  await syncSeriesRecurrence(
+    deps,
+    ctx,
+    account,
+    [...live.values()].map((entry) => entry.event),
+  );
+
   const ids = [...live.keys()];
   const fingerprints = [...live.values()].map((entry) => entry.fingerprint);
 
@@ -1206,6 +1224,17 @@ async function syncCalendar(
       organizer: event.organizer,
       // Fase 9, Task 2: link diretto all'evento, dalla stessa normalizzazione.
       htmlLink: event.htmlLink,
+      // 15 set 2026 (§2): tutto quello che Google mostra. La richiesta non
+      // limita i campi (`events.list` senza `fields`), quindi ce li manda già
+      // tutti — aggiungerli non costa una chiamata in più, solo spazio.
+      // ⚠️ `description` è HTML NON FIDATO e va in colonna GREZZA: si
+      // sanifica alla LETTURA, come il corpo di un'email.
+      description: event.description,
+      location: event.location,
+      hangoutLink: event.hangoutLink,
+      conferenceEntryPoints: event.conferenceEntryPoints,
+      reminders: event.reminders,
+      remindersUseDefault: event.remindersUseDefault,
       status: normalizeStatus(event.status),
       fingerprint,
       recurringEventId: event.recurringEventId,
@@ -1308,6 +1337,124 @@ async function syncCalendar(
   }
 
   return { syncToken, stats };
+}
+
+/**
+ * Ogni quanto si ri-legge la regola di ricorrenza di una serie già nota.
+ *
+ * Una RRULE cambia di rado (spostare una riunione settimanale al giovedì), ma
+ * cambia: senza una scadenza la regola resterebbe quella del giorno in cui
+ * l'abbiamo letta, per sempre. Un giorno è il compromesso: il costo è UNA
+ * chiamata per serie al giorno — non per occorrenza, non per tick.
+ */
+export const SERIES_RECURRENCE_TTL_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Tetto di letture del PADRE in un solo tick.
+ *
+ * Non è una politica di prodotto, è un tetto di spesa: una casella che
+ * collega per la prima volta un calendario pieno di serie non deve fare
+ * centinaia di chiamate nello stesso giro. Quelle che avanzano le prende il
+ * tick dopo — la ricorrenza a parole è un ornamento, non un cancello, e
+ * arrivare un tick più tardi non rompe niente.
+ */
+export const CALENDAR_MAX_RECURRENCE_FETCHES_PER_TICK = 20;
+
+/**
+ * LA REGOLA DI RICORRENZA delle serie viste in questo lotto (15 set 2026, §2,
+ * Task 7).
+ *
+ * ⚠️ **UNA CHIAMATA PER SERIE, MAI UNA PER OCCORRENZA — è il punto di tutta
+ * la funzione.** `listEvents` chiede `singleEvents=true`, quindi Google
+ * espande le ricorrenze in occorrenze e le singole istanze NON portano
+ * l'RRULE, che vive sull'evento PADRE. Le venti occorrenze di una riunione
+ * settimanale condividono UN padre e UNA regola: leggerla per ognuna
+ * sarebbe venti chiamate per lo stesso dato, ed è esattamente il
+ * moltiplicatore che ha prodotto l'incidente del 9 settembre 2026. Per
+ * questo qui si parte da un `Set` di `recurringEventId`, non dall'elenco
+ * degli eventi.
+ *
+ * C'è un test che lo verifica CONTANDO le chiamate del client finto su venti
+ * occorrenze della stessa serie, non leggendo questo commento.
+ *
+ * ## Fail-open, e non è pigrizia
+ *
+ * Un errore qui NON fa fallire la fase 3, al contrario del resto di
+ * {@link syncCalendar} (che lascia salire apposta, perché un guasto di Google
+ * è un verdetto sulla casella che `applyFailure` sa trattare). La differenza:
+ * questa lettura è un ORNAMENTO — «ogni lunedì» scritto sotto un
+ * appuntamento — e un ornamento non deve poter fermare l'ingestione degli
+ * appuntamenti. Si logga e si prosegue.
+ */
+async function syncSeriesRecurrence(
+  deps: GooglePollerDeps,
+  ctx: AccountContext,
+  account: ClaimedAccount,
+  events: GoogleCalendarEvent[],
+): Promise<number> {
+  const logger = deps.logger ?? defaultLogger;
+  const now = deps.now ? deps.now() : new Date();
+
+  // Il Set è il cuore: da qui in poi si ragiona per SERIE, non per evento.
+  const seriesIds = [...new Set(events.map((event) => event.recurringEventId).filter((id): id is string => id !== null))];
+  if (seriesIds.length === 0) return 0;
+
+  const known = await deps.db
+    .select({
+      recurringEventId: calendarSeriesRecurrence.recurringEventId,
+      fetchedAt: calendarSeriesRecurrence.fetchedAt,
+    })
+    .from(calendarSeriesRecurrence)
+    .where(
+      and(
+        eq(calendarSeriesRecurrence.accountId, account.id),
+        inArray(calendarSeriesRecurrence.recurringEventId, seriesIds),
+      ),
+    );
+  const freshUntil = new Map(known.map((row) => [row.recurringEventId, row.fetchedAt.getTime()]));
+
+  const stale = seriesIds.filter((id) => {
+    const fetchedAt = freshUntil.get(id);
+    return fetchedAt === undefined || now.getTime() - fetchedAt >= SERIES_RECURRENCE_TTL_MS;
+  });
+  if (stale.length === 0) return 0;
+
+  let fetched = 0;
+  for (const recurringEventId of stale.slice(0, CALENDAR_MAX_RECURRENCE_FETCHES_PER_TICK)) {
+    if (deps.signal?.aborted) break;
+    let recurrence: string[];
+    try {
+      const parent = await (deps.calendar ?? realCalendarClient).getEvent({
+        accessToken: ctx.accessToken,
+        eventId: recurringEventId,
+      });
+      recurrence = parent.recurrence;
+    } catch (err) {
+      // Il padre cancellato mentre le occorrenze sono ancora in tabella
+      // (`event_gone`) NON è un caso da riprovare: si scrive una regola
+      // vuota, che vale «non c'è niente da dire a parole» e ferma il
+      // ritentativo per un giorno. Gli altri errori si loggano e basta:
+      // niente riga, quindi si riprova al giro dopo.
+      if (err instanceof GoogleApiError && err.code === "event_gone") {
+        recurrence = [];
+      } else {
+        logger.warn(
+          `google: ricorrenza della serie ${recurringEventId} non letta per ${account.email}: ${String(err)}`,
+        );
+        continue;
+      }
+    }
+
+    await deps.db
+      .insert(calendarSeriesRecurrence)
+      .values({ accountId: account.id, recurringEventId, recurrence, fetchedAt: now })
+      .onConflictDoUpdate({
+        target: [calendarSeriesRecurrence.accountId, calendarSeriesRecurrence.recurringEventId],
+        set: { recurrence, fetchedAt: now },
+      });
+    fetched += 1;
+  }
+  return fetched;
 }
 
 /**

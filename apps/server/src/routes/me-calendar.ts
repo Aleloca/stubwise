@@ -1,11 +1,22 @@
-import { calendarEvents, calendarSeries, googleAccounts, projects, type Db } from "@stubwise/db";
+import {
+  calendarEvents,
+  calendarSeries,
+  calendarSeriesRecurrence,
+  googleAccounts,
+  projects,
+  type Db,
+} from "@stubwise/db";
+import { htmlToText, sanitizeEmailHtml } from "@stubwise/google";
 import {
   calendarEventPageSchema,
   calendarSeriesListSchema,
   calendarSeriesPatchSchema,
   calendarSeriesWriteResultSchema,
   mailItemStatusSchema,
+  type CalendarAttendee,
+  type CalendarConferenceEntryPoint,
   type CalendarEventItem,
+  type CalendarReminder,
   type MailItemStatus,
 } from "@stubwise/shared";
 import { and, asc, desc, eq, isNotNull, sql } from "drizzle-orm";
@@ -391,15 +402,63 @@ async function queryCalendarEvents(db: Db, input: ListCalendarInput): Promise<Ca
       outcome: calendarEvents.outcome,
       htmlLink: calendarEvents.htmlLink,
       reproposable: calendarReproposableSql().as("reproposable"),
+      // 15 set 2026 (§2). `description` esce GREZZA da qui: la sanifica
+      // `toCalendarItem`, nel percorso di RISPOSTA — mai in scrittura.
+      description: calendarEvents.description,
+      location: calendarEvents.location,
+      hangoutLink: calendarEvents.hangoutLink,
+      conferenceEntryPoints: calendarEvents.conferenceEntryPoints,
+      reminders: calendarEvents.reminders,
+      remindersUseDefault: calendarEvents.remindersUseDefault,
+      recurrence: calendarSeriesRecurrence.recurrence,
     })
     .from(calendarEvents)
     .innerJoin(googleAccounts, eq(googleAccounts.id, calendarEvents.accountId))
     .leftJoin(projects, eq(projects.id, calendarEvents.projectId))
+    // La ricorrenza sta accanto alla SERIE, non ripetuta su ogni occorrenza
+    // (15 set 2026, §2, Task 7): un LEFT JOIN la riporta su ogni riga senza
+    // duplicarla in tabella. `null` per un evento singolo, e per una serie
+    // di cui non abbiamo ancora letto il padre.
+    .leftJoin(
+      calendarSeriesRecurrence,
+      and(
+        eq(calendarSeriesRecurrence.accountId, calendarEvents.accountId),
+        eq(calendarSeriesRecurrence.recurringEventId, calendarEvents.recurringEventId),
+      ),
+    )
     .where(and(...conditions))
     .orderBy(desc(calendarEvents.startsAt), desc(calendarEvents.id))
     .limit(input.limit + 1);
 
-  return rows.map((row) => ({
+  return rows.map(toCalendarItem);
+}
+
+/**
+ * Una riga di `calendar_events` nella forma che la UI consuma.
+ *
+ * UNA funzione e non due copie del mapping accanto alle due query (il keyset
+ * e l'intervallo): la lista della 7b e la griglia della fase 9 devono
+ * restituire la STESSA forma di `CalendarEventItem` — averne due significa
+ * che prima o poi una guadagna un campo e l'altra no, ed è esattamente ciò
+ * che è successo quando i campi nuovi del 15 set 2026 sono stati aggiunti a
+ * entrambe a mano.
+ *
+ * ⚠️ **È QUI che la descrizione si sanifica**, nel percorso di RISPOSTA e
+ * mai in scrittura: `sanitizeEmailHtml` gira su ogni lettura, la colonna
+ * resta grezza. Stessa regola del corpo di un'email (invariante in
+ * CLAUDE.md) e per lo stesso motivo — col grezzo in colonna, una correzione
+ * al filtro vale retroattivamente su tutte le righe, senza migrazioni di
+ * dati né una colonna di versione. Il rischio dell'HTML non è stare in una
+ * colonna, è cosa esce verso il client.
+ *
+ * `descriptionText` esce dalla STESSA colonna, ridotta a testo con
+ * `htmlToText` (lo stesso usato per il corpo delle email): serve all'app,
+ * che non rende HTML e lo mostra con `LinkedText`. Non è una seconda fonte
+ * di verità, è la stessa letta in un altro modo.
+ */
+function toCalendarItem(row: CalendarItemRow): CalendarEventItem {
+  const description = row.description !== null && row.description.trim() !== "" ? row.description : null;
+  return {
     id: row.id,
     accountId: row.accountId,
     accountEmail: row.accountEmail,
@@ -408,9 +467,6 @@ async function queryCalendarEvents(db: Db, input: ListCalendarInput): Promise<Ca
     projectName: row.projectName,
     title: row.title,
     organizer: row.organizer,
-    // Fase 9, Task 3: questa lista (fase 7b) guadagna gli stessi campi del
-    // pannello di dettaglio per gratis — stessa tabella, nessun costo in
-    // più — invece di avere due forme divergenti di CalendarEventItem.
     attendees: row.attendees,
     startsAt: row.startsAt.toISOString(),
     endsAt: row.endsAt ? row.endsAt.toISOString() : null,
@@ -421,7 +477,44 @@ async function queryCalendarEvents(db: Db, input: ListCalendarInput): Promise<Ca
     url: calendarDayUrl(row.accountEmail, row.startsAt),
     eventUrl: row.htmlLink,
     reproposable: row.reproposable,
-  }));
+    descriptionHtml: description === null ? null : sanitizeEmailHtml(description),
+    descriptionText: description === null ? null : htmlToText(description),
+    location: row.location,
+    hangoutLink: row.hangoutLink,
+    conferenceEntryPoints: row.conferenceEntryPoints,
+    reminders: row.reminders,
+    remindersUseDefault: row.remindersUseDefault,
+    // `null` dal LEFT JOIN quando l'evento non è di una serie, o quando del
+    // suo padre non abbiamo ancora letto la regola.
+    recurrence: row.recurrence ?? [],
+  };
+}
+
+/** La riga che le due query proiettano — una sola forma, come il mapper. */
+interface CalendarItemRow {
+  id: string;
+  accountId: string;
+  accountEmail: string;
+  recurringEventId: string | null;
+  projectId: string | null;
+  projectName: string | null;
+  title: string | null;
+  organizer: string | null;
+  attendees: CalendarAttendee[];
+  startsAt: Date;
+  endsAt: Date | null;
+  allDay: boolean;
+  status: string;
+  outcome: Record<string, unknown> | null;
+  htmlLink: string | null;
+  reproposable: boolean;
+  description: string | null;
+  location: string | null;
+  hangoutLink: string | null;
+  conferenceEntryPoints: CalendarConferenceEntryPoint[];
+  reminders: CalendarReminder[];
+  remindersUseDefault: boolean;
+  recurrence: string[] | null;
 }
 
 /** `outcome.error`, quando l'esito è un fallimento — condiviso dalle due query. */
@@ -472,31 +565,32 @@ async function queryCalendarEventsInRange(db: Db, input: RangeCalendarInput): Pr
       outcome: calendarEvents.outcome,
       htmlLink: calendarEvents.htmlLink,
       reproposable: calendarReproposableSql().as("reproposable"),
+      // 15 set 2026 (§2). `description` esce GREZZA da qui: la sanifica
+      // `toCalendarItem`, nel percorso di RISPOSTA — mai in scrittura.
+      description: calendarEvents.description,
+      location: calendarEvents.location,
+      hangoutLink: calendarEvents.hangoutLink,
+      conferenceEntryPoints: calendarEvents.conferenceEntryPoints,
+      reminders: calendarEvents.reminders,
+      remindersUseDefault: calendarEvents.remindersUseDefault,
+      recurrence: calendarSeriesRecurrence.recurrence,
     })
     .from(calendarEvents)
     .innerJoin(googleAccounts, eq(googleAccounts.id, calendarEvents.accountId))
     .leftJoin(projects, eq(projects.id, calendarEvents.projectId))
+    // La ricorrenza sta accanto alla SERIE, non ripetuta su ogni occorrenza
+    // (15 set 2026, §2, Task 7): un LEFT JOIN la riporta su ogni riga senza
+    // duplicarla in tabella. `null` per un evento singolo, e per una serie
+    // di cui non abbiamo ancora letto il padre.
+    .leftJoin(
+      calendarSeriesRecurrence,
+      and(
+        eq(calendarSeriesRecurrence.accountId, calendarEvents.accountId),
+        eq(calendarSeriesRecurrence.recurringEventId, calendarEvents.recurringEventId),
+      ),
+    )
     .where(and(...conditions))
     .orderBy(asc(calendarEvents.startsAt), asc(calendarEvents.id));
 
-  return rows.map((row) => ({
-    id: row.id,
-    accountId: row.accountId,
-    accountEmail: row.accountEmail,
-    recurringEventId: row.recurringEventId,
-    projectId: row.projectId,
-    projectName: row.projectName,
-    title: row.title,
-    organizer: row.organizer,
-    attendees: row.attendees,
-    startsAt: row.startsAt.toISOString(),
-    endsAt: row.endsAt ? row.endsAt.toISOString() : null,
-    allDay: row.allDay,
-    status: row.status as MailItemStatus,
-    outcome: row.outcome,
-    error: extractError(row.outcome),
-    url: calendarDayUrl(row.accountEmail, row.startsAt),
-    eventUrl: row.htmlLink,
-    reproposable: row.reproposable,
-  }));
+  return rows.map(toCalendarItem);
 }

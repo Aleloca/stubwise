@@ -1,6 +1,6 @@
 import { ApiError } from "@stubwise/api-client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+
 import { useTranslation } from "react-i18next";
 import {
   getMailOriginal,
@@ -10,6 +10,7 @@ import {
 } from "../lib/api";
 import { formatRelativeTime } from "../lib/format";
 import { mailDetailQueryOptions, mailKeys, mailThreadQueryOptions } from "../lib/queries";
+import { UntrustedHtmlFrame } from "./untrusted-html-frame";
 
 /**
  * Il pannello di LETTURA a destra (fase 9, Task 5, design §5): l'estratto già
@@ -154,86 +155,6 @@ function originalErrorMessage(t: (key: string) => string, error: unknown): strin
   return t("mail:detail.originalError.googleUnavailable");
 }
 
-/**
- * `data-src="URL"` → aggiunge `src="URL"` (STESSO url, già validato
- * http/https da `sanitizeEmailHtml` lato server prima di finire in
- * `data-src`): questo è l'UNICO modo in cui un'immagine remota può caricare,
- * ed è un gesto esplicito dell'utente ("mostra immagini"), mai automatico.
- * Sicuro anche se l'HTML restasse "vivo" più a lungo del previsto: non
- * introduce un tag o un attributo nuovo, copia soltanto un valore che il
- * server ha già accettato.
- */
-function revealImages(html: string): string {
-  return html.replace(/(<img\b[^>]*?)\sdata-src="([^"]*)"/g, (_match, prefix: string, url: string) => {
-    return `${prefix} data-src="${url}" src="${url}"`;
-  });
-}
-
-/** Documento minimo per l'`<iframe srcDoc>`: sfondo CHIARO deliberato, vedi il commento su `EmailBodyFrame`. */
-function wrapEmailDocument(bodyHtml: string): string {
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="color-scheme" content="light"><style>
-    body { margin: 0; padding: 12px; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; font-size: 14px; line-height: 1.5; color: #1a1a1a; background: #ffffff; word-wrap: break-word; }
-    img { max-width: 100%; height: auto; }
-    a { color: #1a56db; }
-  </style></head><body>${bodyHtml}</body></html>`;
-}
-
-/**
- * Il corpo HTML sanificato, in un `<iframe sandbox>` — SECONDA difesa
- * indipendente dalla sanificazione lato server (design §4): anche se questa
- * avesse un buco, il contenuto non ha un'origine da cui fare danni.
- *
- * `sandbox="allow-popups allow-popups-to-escape-sandbox"`: **mai**
- * `allow-scripts` né `allow-same-origin` (i due esplicitamente vietati dal
- * design) — ma senza NESSUN permesso un link cliccato dentro l'iframe non
- * naviga da nessuna parte (il sandbox di default blocca anche l'apertura di
- * popup), il che renderebbe inutile ogni link legittimo nell'email.
- * `allow-popups` lo riabilita; `allow-popups-to-escape-sandbox` fa sì che la
- * scheda aperta sia un browser NORMALE (senza eredita il sandbox, altrimenti
- * il sito di destinazione — che quasi certamente usa JS — non funzionerebbe
- * lì dentro). Nessuna delle due riguarda l'ESECUZIONE dentro QUESTO iframe:
- * il contenuto dell'email resta sempre senza script e senza origine propria.
- *
- * Sfondo CHIARO deliberato (non il tema scuro di Stubwise): il contenuto è
- * di un estraneo, autorato assumendo (quasi sempre) uno sfondo chiaro — un
- * testo nero senza `background` esplicito diventerebbe illeggibile su
- * inchiostro scuro. È la stessa logica di un lettore PDF o di un embed: il
- * documento resta nel SUO aspetto, dentro una cornice che è chiaramente
- * Stubwise (il bordo, il bottone "mostra immagini").
- */
-function EmailBodyFrame({ html }: { html: string }) {
-  const { t } = useTranslation();
-  const [showImages, setShowImages] = useState(false);
-  const hasHiddenImages = useMemo(() => /\sdata-src="/.test(html), [html]);
-  const rendered = useMemo(() => (showImages ? revealImages(html) : html), [html, showImages]);
-  const srcDoc = useMemo(() => wrapEmailDocument(rendered), [rendered]);
-
-  return (
-    <div>
-      {hasHiddenImages && (
-        <div className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-sm border border-line-strong bg-ink-900 px-3 py-2">
-          <p className="font-mono text-[11px] text-fg-faint">{t("mail:detail.imagesBlockedNotice")}</p>
-          {!showImages && (
-            <button
-              type="button"
-              onClick={() => setShowImages(true)}
-              className="inline-flex min-h-8 items-center rounded-sm border border-line-strong px-2 font-mono text-[11px] tracking-[0.1em] text-fg-muted uppercase transition-colors hover:border-signal-dim hover:text-fg"
-            >
-              {t("mail:detail.showImages")}
-            </button>
-          )}
-        </div>
-      )}
-      <iframe
-        title={t("mail:detail.bodyFrameTitle")}
-        srcDoc={srcDoc}
-        sandbox="allow-popups allow-popups-to-escape-sandbox"
-        className="h-[50vh] w-full rounded-sm border border-signal-dim/40 bg-white"
-      />
-    </div>
-  );
-}
-
 function OriginalMessage({ original }: { original: MailOriginal }) {
   const { t } = useTranslation();
   // `original.bodyHtml` può essere `undefined`, non solo `null`: il client
@@ -242,7 +163,7 @@ function OriginalMessage({ original }: { original: MailOriginal }) {
   return (
     <div className="mt-3">
       {original.bodyHtml ? (
-        <EmailBodyFrame html={original.bodyHtml} />
+        <UntrustedHtmlFrame html={original.bodyHtml} title={t("mail:detail.bodyFrameTitle")} />
       ) : original.bodyText !== null ? (
         <pre className="max-h-[50vh] overflow-auto rounded-sm border border-signal-dim/40 bg-ink-900 p-4 text-sm whitespace-pre-wrap text-fg">
           {original.bodyText}
