@@ -42,15 +42,23 @@ const TOAST_DURATION_MS = 3000;
  * sulle voci pronte, "Raffina in chat" ovunque tranne convertite/archiviate, FAB
  * "+" per la cattura rapida.
  *
- * Le card NON sono un `Pressable` unico verso un "dettaglio" (a differenza di
- * `PulseRow`/`WorkScreen`): stesso principio di `CardShell` in
- * `components/inbox/` (che è una `View`, non un `Pressable`, coi bottoni del
- * footer come unica superficie di tap) — annidare un `Pressable` (Procedi/
- * Raffina) dentro un altro non ha precedenti in questa codebase, e la card
- * stessa ha già le sue azioni esplicite. Le uniche card SENZA azioni proprie —
- * `converted`/`archived`, raggiungibili solo dal chip "Tutti" — sono
- * l'eccezione: lì la card intera è cliccabile verso `BacklogItemScreen` (sola
- * lettura, coi ticket collegati).
+ * Le card non sono un `Pressable` UNICO, e la ragione resta quella di sempre:
+ * annidare un `Pressable` (Procedi/Raffina) dentro un altro non ha precedenti
+ * in questa codebase — stesso principio di `CardShell` in
+ * `components/inbox/`.
+ *
+ * ⚠️ **Fino al 15 set 2026 da questo discendeva però che una voce ATTIVA non
+ * si potesse APRIRE affatto**, e non era l'intenzione: nessuno aveva deciso
+ * che le voci di backlog non si leggono. La card mostra il solo titolo su due
+ * righe, mentre `BacklogItemScreen` — che esiste ed è registrata nello stack —
+ * mostra il DOCUMENTO della voce. Sui dati veri del maintainer erano 93 voci
+ * `new`, dentro cui vivono i design doc salvati per intero: leggibili da
+ * nessuna parte sul telefono, con la chat come unica azione offerta.
+ *
+ * Risolto senza annidare niente: la parte ALTA della card (titolo e
+ * metadati) è un `Pressable` verso il dettaglio, e i bottoni restano suoi
+ * FRATELLI, non suoi figli. Le card chiuse (`converted`/`archived`), che
+ * azioni non ne hanno, restano cliccabili per intero come prima.
  */
 export function BacklogScreen({ navigation }: NativeStackScreenProps<BacklogStackParamList, "List">) {
   const { t } = useTranslation();
@@ -204,7 +212,9 @@ function BacklogListCard({ item, proceedPending, onProceed, onRefine, onOpenDeta
   const isReady = item.status === "ready";
   const isClosed = item.status === "converted" || item.status === "archived";
 
-  const content = (
+  // Titolo e metadati: è questa la superficie che apre il dettaglio, e sta
+  // FUORI dal blocco delle azioni — vedi il docblock del modulo.
+  const header = (
     <>
       <View style={styles.cardTop}>
         <Text style={styles.cardTitle} numberOfLines={2}>
@@ -213,37 +223,40 @@ function BacklogListCard({ item, proceedPending, onProceed, onRefine, onOpenDeta
         <PulseIndicator tone={backlogStatusTone(item.status)} text={t(backlogStatusLabelKey(item.status))} />
       </View>
       <Text style={styles.cardMeta}>{metaText}</Text>
-      {!isClosed && (
-        <View style={styles.cardActions}>
-          {isReady && (
-            <View style={styles.proceedButton}>
-              <PrimaryButton
-                label={t("mobile.backlog.actions.proceed")}
-                onPress={onProceed}
-                disabled={proceedPending}
-                testID={`backlog-proceed-${item.id}`}
-              />
-            </View>
-          )}
-          <View style={styles.refineButton}>
-            <GhostButton label={t("mobile.backlog.actions.refineInChat")} onPress={onRefine} testID={`backlog-refine-${item.id}`} />
-          </View>
-        </View>
-      )}
     </>
   );
 
+  // Una card chiusa non ha azioni: cliccabile per intero, nessun annidamento
+  // possibile.
   if (isClosed) {
     return (
       <Pressable onPress={onOpenDetail} style={styles.card} testID={`backlog-card-${item.id}`}>
-        {content}
+        {header}
       </Pressable>
     );
   }
 
   return (
     <View style={styles.card} testID={`backlog-card-${item.id}`}>
-      {content}
+      <Pressable accessibilityRole="button" onPress={onOpenDetail} testID={`backlog-open-${item.id}`}>
+        {header}
+      </Pressable>
+      {/* Qui `isClosed` è già falso: il ramo sopra è uscito. */}
+      <View style={styles.cardActions}>
+        {isReady && (
+          <View style={styles.proceedButton}>
+            <PrimaryButton
+              label={t("mobile.backlog.actions.proceed")}
+              onPress={onProceed}
+              disabled={proceedPending}
+              testID={`backlog-proceed-${item.id}`}
+            />
+          </View>
+        )}
+        <View style={styles.refineButton}>
+          <GhostButton label={t("mobile.backlog.actions.refineInChat")} onPress={onRefine} testID={`backlog-refine-${item.id}`} />
+        </View>
+      </View>
     </View>
   );
 }

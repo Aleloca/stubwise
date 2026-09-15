@@ -189,6 +189,38 @@ describe("BacklogScreen — card: stato in parole e metadati", () => {
     await waitFor(() => expect(screen.getByText("da stimare — l'agente ci sta lavorando")).toBeTruthy());
   });
 
+  test("voce ATTIVA: si apre il dettaglio dal titolo, e le azioni restano al loro posto", async () => {
+    // Fino al 15 set 2026 una voce attiva non si poteva aprire affatto: la
+    // card mostrava il solo titolo su due righe e l'unica azione era la chat,
+    // mentre `BacklogItemScreen` — che esisteva gia' — mostra il DOCUMENTO
+    // della voce. Sui dati veri erano 93 voci illeggibili dal telefono.
+    const client = makeClient({
+      list: jest.fn().mockResolvedValue({ items: [item({ id: "item-new", status: "new" })], nextCursor: null }),
+    });
+    const { navigate } = await renderScreen(client);
+    await waitFor(() => expect(screen.getByTestId("backlog-open-item-new")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("backlog-open-item-new"));
+    expect(navigate).toHaveBeenCalledWith("Item", { id: "item-new" });
+    // Le azioni non sono FIGLIE della superficie che apre il dettaglio: sono
+    // sue sorelle. E' la ragione per cui questo si poteva fare senza annidare
+    // un `Pressable` dentro un altro.
+    expect(screen.getByTestId("backlog-refine-item-new")).toBeTruthy();
+  });
+
+  test("aprire il dettaglio NON fa partire l'azione della card", async () => {
+    // La mutazione che conta: se la superficie del titolo inghiottisse il tap
+    // dei bottoni (o viceversa), questo test lo vedrebbe.
+    const convert = jest.fn().mockResolvedValue({ ticketId: TICKET_ID, ticketNumber: 42 });
+    const client = makeClient({
+      list: jest.fn().mockResolvedValue({ items: [item({ id: "item-new", status: "new" })], nextCursor: null }),
+      convert,
+    });
+    await renderScreen(client);
+    await waitFor(() => expect(screen.getByTestId("backlog-open-item-new")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("backlog-open-item-new"));
+    expect(convert).not.toHaveBeenCalled();
+  });
+
   test("voce convertita: card cliccabile verso il dettaglio, niente Procedi/Raffina", async () => {
     const client = makeClient({
       list: jest.fn().mockResolvedValue({ items: [item({ id: "item-conv", status: "converted" })], nextCursor: null }),
