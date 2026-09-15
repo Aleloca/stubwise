@@ -29,6 +29,7 @@ import {
   type GoogleAccountCredentials,
 } from "@stubwise/google/credentials";
 import type { Language } from "@stubwise/i18n";
+import { hasDeclinedInvitation } from "@stubwise/shared";
 import {
   admit,
   matchRoutes,
@@ -54,6 +55,7 @@ import { getContentLanguage } from "../settings.js";
 import {
   buildMilestoneProposal,
   CALENDAR_CANCELLED_OUTCOME,
+  CALENDAR_DECLINED_OUTCOME,
   CALENDAR_MAX_PAGES,
   CALENDAR_PAGE_SIZE,
   CALENDAR_WINDOW_DAYS,
@@ -1212,6 +1214,46 @@ async function syncCalendar(
     const existing = byEventId.get(event.id);
     if (existing) {
       const stillOpen = existing.proposalNotificationId === null && existing.outcome === null;
+      // Una proposta GIÀ PUBBLICATA e non ancora decisa: è l'unico caso in
+      // cui il rifiuto deve CHIUDERE qualcosa invece di limitarsi a non far
+      // nascere niente (vedi il docblock di `CALENDAR_DECLINED_OUTCOME`).
+      // `outcome === null` è il paletto: una proposta già confermata non si
+      // tocca — la milestone esiste, e cancellarla è un'altra cosa.
+      const openProposal = existing.proposalNotificationId !== null && existing.outcome === null;
+      const declined = hasDeclinedInvitation(event.attendees, account.email);
+
+      if (openProposal && declined) {
+        const notificationId = existing.proposalNotificationId!;
+        // Riga ed esito nella STESSA transazione della chiusura della card:
+        // mai una finestra in cui la card è chiusa e la riga non lo sa (o
+        // viceversa). Stessa forma di `superseded_by_message` in
+        // `classify.ts`.
+        await deps.db.transaction(async (tx) => {
+          await tx
+            .update(calendarEventsTable)
+            .set({ ...fresh, outcome: CALENDAR_DECLINED_OUTCOME })
+            .where(
+              and(
+                eq(calendarEventsTable.accountId, account.id),
+                eq(calendarEventsTable.googleEventId, event.id),
+                // Guardia sul claim: se nel frattempo qualcuno ha risposto
+                // alla card, l'esito è suo e questo UPDATE non fa niente.
+                isNull(calendarEventsTable.outcome),
+              ),
+            );
+          await tx
+            .update(notifications)
+            .set({ status: "handled", handledAt: new Date() })
+            .where(and(eq(notifications.id, notificationId), eq(notifications.status, "open")));
+        });
+        // Mai in silenzio: una card che si chiude da sola lascia una riga.
+        (deps.logger ?? defaultLogger).info(
+          `google: proposta dell'evento ${event.id} chiusa — invito rifiutato da ${account.email}`,
+        );
+        stats.events += 1;
+        continue;
+      }
+
       await deps.db
         .update(calendarEventsTable)
         .set(stillOpen ? { ...fresh, projectId: resolved.projectId } : fresh)
@@ -1254,7 +1296,12 @@ async function syncCalendar(
     // della fase 9 (è un'approssimazione dell'ingest, non il cancello vero —
     // quello resta `isReadyForProposal` più la query del propose phase).
     const pastSingleEvent = event.recurringEventId === null && startsAt.getTime() < now().getTime();
-    if (!duplicate && resolved.projectId !== null && !pastSingleEvent) stats.ready += 1;
+    // Il terzo dei tre punti che devono restare d'accordo sul RIFIUTO (15
+    // set 2026, §1): `isReadyForProposal`, la `where` del propose phase, e
+    // questo conteggio. Un appuntamento che hai rifiutato non è «pronto»
+    // nemmeno nel log che dice «N da proporre».
+    const declined = hasDeclinedInvitation(event.attendees, account.email);
+    if (!duplicate && resolved.projectId !== null && !pastSingleEvent && !declined) stats.ready += 1;
     // Un secondo evento con la stessa impronta nello STESSO lotto è già un
     // duplicato di questo: senza questa riga se ne proporrebbero due.
     if (!ownerOfFingerprint.has(fingerprint)) ownerOfFingerprint.set(fingerprint, event.id);
@@ -1422,6 +1469,11 @@ async function runProposePhase(
         proposalNotificationId: calendarEventsTable.proposalNotificationId,
         outcome: calendarEventsTable.outcome,
         recurringEventId: calendarEventsTable.recurringEventId,
+        // Il cancello del RIFIUTO (15 set 2026, §1) lo applica anche
+        // `isReadyForProposal`, riapplicato da `buildCalendarProposalEvent`:
+        // senza questa colonna nel select quel controllo non avrebbe niente
+        // da leggere e passerebbe sempre.
+        attendees: calendarEventsTable.attendees,
         seriesEnabled: calendarSeriesTable.enabled,
         seriesLeadDays: calendarSeriesTable.leadDays,
         seriesAction: calendarSeriesTable.action,
@@ -1454,6 +1506,30 @@ async function runProposePhase(
           sql`(
             (${calendarEventsTable.recurringEventId} is null and ${calendarEventsTable.projectId} is not null)
             or (${calendarEventsTable.recurringEventId} is not null and ${calendarSeriesTable.projectId} is not null)
+          )`,
+          // Il RIFIUTO (15 set 2026, §1), in SQL: stessa regola di
+          // `hasDeclinedInvitation` (`@stubwise/shared`), applicata qui a
+          // `calendar_events.attendees` (jsonb) contro l'indirizzo della
+          // casella. Vale per gli eventi singoli come per le occorrenze di
+          // serie, quindi è una clausola a sé e non un ramo dei due qui
+          // sotto. ⚠️ **Solo `declined`**: `tentative` e `needsAction` non
+          // bloccano — chi allarga questo confronto allarghi anche
+          // `hasDeclinedInvitation` e il conteggio `stats.ready` in
+          // `syncCalendar`, o i tre punti divergono (è la stessa forma
+          // dell'invariante sull'appuntamento passato, in CLAUDE.md).
+          //
+          // Il `jsonb_typeof` non è pedanteria: `jsonb_array_elements` su un
+          // valore che non è un array fa fallire l'INTERA query, quindi una
+          // sola riga malformata fermerebbe le proposte di tutta la casella.
+          sql`not exists (
+            select 1
+            from jsonb_array_elements(
+              case when jsonb_typeof(${calendarEventsTable.attendees}) = 'array'
+                   then ${calendarEventsTable.attendees}
+                   else '[]'::jsonb end
+            ) as attendee
+            where lower(attendee ->> 'email') = lower(${account.email})
+              and attendee ->> 'responseStatus' = 'declined'
           )`,
           sql`(
             (

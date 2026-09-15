@@ -366,6 +366,9 @@ function calendarRow(overrides: Record<string, unknown> = {}) {
     proposalNotificationId: null as string | null,
     outcome: null as Record<string, unknown> | null,
     recurringEventId: null as string | null,
+    // Nessun rifiuto di default (15 set 2026, §1): i test che lo vogliono
+    // passano `attendees` negli override.
+    attendees: [] as { email: string; responseStatus: string | null }[],
     ...overrides,
   };
 }

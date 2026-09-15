@@ -112,7 +112,10 @@ describe("EventSheet — il dettaglio dell'appuntamento", () => {
     expect(screen.getByText("Riunione settimanale")).toBeTruthy();
     expect(screen.getByText("17 settembre, 09:30 – 10:30")).toBeTruthy();
     expect(screen.getByText("capo@example.com")).toBeTruthy();
-    expect(screen.getByText("Accettato")).toBeTruthy();
+    // Due volte dal 15 set 2026 (§1), e non è un duplicato da togliere: la
+    // riga del partecipante `ops@example.com` (che è la casella) più la
+    // sezione «La tua risposta», che la dice SEPARATA dall'elenco.
+    expect(screen.getAllByText("Accettato")).toHaveLength(2);
     // `responseStatus: null` NON è "non ha risposto": è "non lo sappiamo".
     expect(screen.getByText("Sconosciuto")).toBeTruthy();
     expect(screen.queryByText("Nessuna risposta")).toBeNull();
@@ -125,6 +128,42 @@ describe("EventSheet — il dettaglio dell'appuntamento", () => {
       event({ startsAt: "2026-09-17T00:00:00.000Z", endsAt: null, allDay: true, recurringEventId: null }),
     );
     expect(screen.getByText("Tutto il giorno, 17 settembre")).toBeTruthy();
+  });
+
+  test("la TUA risposta è detta SEPARATA dall'elenco dei partecipanti (15 set 2026, §1)", async () => {
+    const { client } = makeClient();
+    await renderSheet(
+      client,
+      event({
+        recurringEventId: null,
+        attendees: [
+          { email: "capo@example.com", responseStatus: "accepted" },
+          { email: "ops@example.com", responseStatus: "declined" },
+        ],
+      }),
+    );
+
+    expect(screen.getByText("La tua risposta")).toBeTruthy();
+    expect(screen.getByTestId("event-sheet-your-response").props.children).toBe("Rifiutato");
+    // E dice la conseguenza: da un appuntamento rifiutato non nasce niente.
+    expect(
+      screen.getByText("Hai rifiutato questo invito: Stubwise non ne farà nessuna proposta."),
+    ).toBeTruthy();
+  });
+
+  test("se non sei fra i partecipanti la tua risposta NON viene inventata", async () => {
+    const { client } = makeClient();
+    await renderSheet(
+      client,
+      event({
+        recurringEventId: null,
+        attendees: [{ email: "capo@example.com", responseStatus: "declined" }],
+      }),
+    );
+
+    // Il rifiuto di qualcun altro resta nell'elenco, ma «La tua risposta» no.
+    expect(screen.queryByTestId("event-sheet-your-response")).toBeNull();
+    expect(screen.queryByText("La tua risposta")).toBeNull();
   });
 
   test("un evento SENZA serie non mostra nessuna configurazione", async () => {

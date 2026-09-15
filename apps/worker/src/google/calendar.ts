@@ -33,7 +33,7 @@
 import type { GoogleCalendarEvent } from "@stubwise/google";
 import { GoogleApiError } from "@stubwise/google";
 import { t, type Language } from "@stubwise/i18n";
-import { CALENDAR_LOOKBACK_DAYS, CALENDAR_WINDOW_DAYS } from "@stubwise/shared";
+import { CALENDAR_LOOKBACK_DAYS, CALENDAR_WINDOW_DAYS, hasDeclinedInvitation } from "@stubwise/shared";
 import {
   matchRoutes,
   type EmailForRouting,
@@ -89,6 +89,35 @@ export const CALENDAR_CANCELLED_OUTCOME = { type: "cancelled" } as const;
 
 /** Il tipo di `outcome` scritto su una riga duplicata (vedi {@link duplicateOutcome}). */
 export const CALENDAR_DUPLICATE_OUTCOME_TYPE = "duplicate";
+
+/**
+ * L'esito di una proposta APERTA chiusa perché l'appuntamento è stato
+ * RIFIUTATO su Google dopo che la card era già uscita (15 set 2026, §1 —
+ * decisione del maintainer in risposta al dubbio 2).
+ *
+ * ⚠️ Il cancello di {@link isReadyForProposal} impedisce a una proposta di
+ * NASCERE; non fa niente a una già pubblicata. Senza questa chiusura, un
+ * appuntamento proposto lunedì e rifiutato martedì lascerebbe in inbox una
+ * card confermabile che creerebbe una milestone per una riunione a cui non
+ * si va.
+ *
+ * **Perché chiudere qui è legittimo, mentre per la posta serviva più
+ * cautela**: a chiudere è il MAINTAINER, non il modello. Rifiutare un
+ * invito è una sua azione esplicita su Google, e Stubwise smette di
+ * chiedergli una cosa a cui ha già risposto — non è un giudizio automatico
+ * su cosa gli serve.
+ *
+ * Due paletti, entrambi nel codice che lo usa ({@link syncCalendar} in
+ * `poller.ts`):
+ *  - **l'esito dice DA COSA** è stata chiusa, distinguibile in lettura da un
+ *    `ignored` qualunque — stessa forma di `superseded_by_message`
+ *    (`classify.ts`); nessuna card sparisce in silenzio, resta leggibile
+ *    fra le gestite;
+ *  - **vale solo per una proposta ANCORA APERTA**. Una già confermata non si
+ *    tocca: la milestone esiste, e cancellarla è un'altra cosa — che
+ *    nessuno ha chiesto.
+ */
+export const CALENDAR_DECLINED_OUTCOME = { type: "declined" } as const;
 
 /**
  * L'esito di una riga che NON va riproposta perché lo stesso appuntamento —
@@ -377,12 +406,41 @@ export function isReadyForProposal(
     recurringEventId?: string | null;
     /** Necessario per ENTRAMBI i rami: un evento senza data non è mai pronto. */
     startsAt?: Date | null;
+    /**
+     * I partecipanti della riga (`calendar_events.attendees`) e l'indirizzo
+     * della casella da cui la riga è stata letta
+     * (`google_accounts.email`), che insieme rispondono a «l'ho rifiutato
+     * io?» (15 set 2026, §1).
+     *
+     * ⚠️ **Obbligatori, e non per pedanteria**: un cancello che si
+     * disattiva quando un chiamante dimentica un campo non è un cancello.
+     * Facendoli richiedere dal tipo, un chiamante nuovo non può
+     * accidentalmente riaprire la porta — deve decidere cosa passare, e
+     * l'unica risposta sensata è ciò che ha letto dalla riga. L'indirizzo
+     * viaggia QUI e non in un parametro a parte perché una riga di
+     * `calendar_events` appartiene a UNA casella: «è pronta per una
+     * proposta» è sempre una domanda posta per conto di quel proprietario,
+     * mai in astratto.
+     */
+    attendees: readonly { email: string; responseStatus: string | null }[];
+    mailboxEmail: string;
   },
   seriesContext?: CalendarSeriesProposalContext,
 ): boolean {
   const baseReady =
     row.status !== "cancelled" && row.proposalNotificationId === null && row.outcome === null;
   if (!baseReady) return false;
+
+  // Il rifiuto (15 set 2026, §1): un appuntamento a cui hai detto di no non
+  // genera MAI una proposta. Stessa famiglia dell'incidente del 9 settembre
+  // 2026 — lavoro creato da qualcosa che non ti riguarda — e vale per gli
+  // eventi singoli come per le occorrenze di serie, quindi sta qui sopra e
+  // non dentro uno dei due rami.
+  //
+  // ⚠️ SOLO `declined`: `tentative` e `needsAction` non bloccano. Il perché
+  // sta in `hasDeclinedInvitation` (`@stubwise/shared`), che è l'unico posto
+  // in cui quell'elenco è scritto.
+  if (hasDeclinedInvitation(row.attendees, row.mailboxEmail)) return false;
 
   // Il progetto CERTO — mai `row.projectId` da solo: per un'occorrenza di
   // serie è `resolveCalendarProjectId` a decidere fra il routing e il

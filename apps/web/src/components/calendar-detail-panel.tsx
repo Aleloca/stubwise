@@ -1,4 +1,4 @@
-import type { CalendarAttendeeResponseStatus, CalendarEventItem, CalendarSeriesAction } from "@stubwise/shared";
+import { attendeeResponseOf, type CalendarAttendeeResponseStatus, type CalendarEventItem, type CalendarSeriesAction } from "@stubwise/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -26,6 +26,13 @@ export function CalendarDetailPanel({
 }) {
   const { t } = useTranslation();
   const whenLabel = formatEventWhen(event, t);
+  // ⚠️ `?? []` e non `event.attendees` nudo: sul web non gira nessun `parse`
+  // (`lib/api.ts` fa un cast, vedi l'invariante in CLAUDE.md), quindi il
+  // `.default([])` dello schema non produce niente e un server che non
+  // mandasse il campo lascerebbe `undefined` — dove `.find()`/`.map()`
+  // lanciano e React smonta l'INTERO pannello, non una riga.
+  const attendees = event.attendees ?? [];
+  const myResponse = attendeeResponseOf(attendees, event.accountEmail);
 
   return (
     <article>
@@ -49,13 +56,35 @@ export function CalendarDetailPanel({
         )}
       </header>
 
-      {event.attendees.length > 0 && (
+      {/*
+        La TUA risposta è detta SEPARATA dall'elenco (design 15 set 2026 §1):
+        in mezzo agli altri partecipanti sarebbe una riga fra le tante, e la
+        domanda «ci vado?» è di un altro ordine rispetto a «chi altro c'è».
+        Assente quando non c'è una risposta leggibile — non sei fra i
+        partecipanti, o Google non l'ha mandata: inventarne una sarebbe
+        peggio che tacere.
+      */}
+      {myResponse !== null && (
+        <section className="mt-4">
+          <p className="font-mono text-[11px] tracking-[0.12em] text-fg-faint uppercase">
+            {t("calendar:detail.yourResponse")}
+          </p>
+          <p className={`mt-1 font-mono text-[13px] ${ATTENDEE_STATUS_CLASS[myResponse]}`}>
+            {t(`calendar:attendeeStatus.${myResponse}`)}
+          </p>
+          {myResponse === "declined" && (
+            <p className="mt-1 text-[12px] text-fg-muted">{t("calendar:detail.declinedNotice")}</p>
+          )}
+        </section>
+      )}
+
+      {attendees.length > 0 && (
         <section className="mt-4">
           <p className="font-mono text-[11px] tracking-[0.12em] text-fg-faint uppercase">
             {t("calendar:detail.attendees")}
           </p>
           <ul className="mt-2 space-y-1">
-            {event.attendees.map((attendee) => (
+            {attendees.map((attendee) => (
               <li key={attendee.email} className="flex items-center justify-between gap-2 font-mono text-[12px]">
                 <span className="min-w-0 truncate text-fg-muted">{attendee.email}</span>
                 <AttendeeStatusBadge status={attendee.responseStatus} />

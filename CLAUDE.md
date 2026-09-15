@@ -1514,6 +1514,80 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   può diventare falsa è che il messaggio sparisca da Gmail — e allora sparisce
   la riga padre, che si porta dietro questa col CASCADE. Per la stessa ragione
   la potatura di `email_messages` non va toccata per lei.
+- **Un appuntamento che hai RIFIUTATO non diventa mai una proposta, e i punti
+  d'accordo sono TRE — non quattro (15 set 2026, design §1).** Il dato
+  (`attendees[].responseStatus`) c'era dalla fase 9 ed era pure mostrato, ma
+  nessuna condizione lo consultava. Ora il cancello vive in
+  `hasDeclinedInvitation` (`packages/shared/src/calendar-attendance.ts`),
+  l'UNICO posto in cui «quali risposte bloccano» è scritto, ed è applicato
+  nei tre punti che devono restare d'accordo — stessa forma dell'invariante
+  sull'appuntamento passato qui sopra: `isReadyForProposal`
+  (`apps/worker/src/google/calendar.ts`, dove `attendees` e `mailboxEmail`
+  sono OBBLIGATORI nel tipo apposta: un cancello che si spegne quando un
+  chiamante dimentica un campo non è un cancello), la query del propose phase
+  che lo replica in SQL (`apps/worker/src/google/poller.ts`) e il conteggio
+  `stats.ready` poco sopra.
+  ⚠️ **SOLO `declined` blocca.** `tentative` e `needsAction` no, ed è una
+  decisione presa guardando i dati veri del maintainer, non prudenza: alle
+  riunioni di lavoro ricorrenti quasi nessuno risponde formalmente, e
+  allargare toglierebbe di mezzo la maggior parte degli appuntamenti veri —
+  un falso negativo che nessuno noterebbe, perché una proposta che non nasce
+  non lascia traccia. Non essere fra i partecipanti (l'evento è tuo e basta)
+  **non è un rifiuto**: è `null`, e chi legge non deve travestirlo.
+  **La clausola SQL non è una copia decorativa di `isReadyForProposal`, e il
+  test che lo dimostra esiste**: togliendola i test resterebbero quasi tutti
+  verdi (il controllo JS a valle dà lo stesso esito osservabile, zero
+  proposte), TRANNE per una serie — l'occorrenza rifiutata verrebbe comunque
+  SELEZIONATA, entrerebbe nel dedup per-tick `seriesAttemptedThisTick`, e
+  solo dopo verrebbe scartata, bruciando l'unica occasione della serie in
+  quel giro. In prodotto: rifiutare la riunione di lunedì zittirebbe quella
+  di giovedì. Il test è `apps/worker/src/google/poller.test.ts`,
+  «un'occorrenza rifiutata non consuma lo slot per-tick».
+  **Il rifiuto SOPRAVVENUTO chiude la card, non la lascia lì.** Il cancello
+  impedisce a una proposta di NASCERE; per una già pubblicata serve altro, o
+  un appuntamento proposto lunedì e rifiutato martedì resterebbe
+  confermabile, creando una milestone per una riunione a cui non si va.
+  `syncCalendar` la chiude con `CALENDAR_DECLINED_OUTCOME`
+  (`outcome.type = 'declined'`) e marca la notifica `handled`, nella stessa
+  transazione. Due paletti: l'esito dice **da cosa** è stata chiusa
+  (distinguibile da un `ignored` qualunque, stessa forma di
+  `superseded_by_message`) e la card resta leggibile fra le gestite, mai
+  sparita; e vale **solo per una proposta ancora aperta** — una già
+  confermata non si tocca, la milestone esiste e cancellarla è un'altra
+  cosa. Un appuntamento mai proposto non riceve nessun esito, ed è ciò che
+  gli permette di tornare a proporre da solo se lo riaccetti. Chiudere qui è
+  legittimo — mentre per la posta serviva più cautela — perché **l'ha chiuso
+  il maintainer, non il modello**: rifiutare un invito è una sua azione
+  esplicita su Google, e Stubwise smette di chiedergli una cosa a cui ha già
+  risposto.
+- **Lo stato normalizzato del calendario NON sa nulla del rifiuto, ed è
+  deliberato (15 set 2026).** `calendarStatusCaseSql`
+  (`apps/server/src/routes/calendar-status.ts`) dichiara nel suo docblock di
+  replicare `isReadyForProposal`, quindi sembra il QUARTO punto da tenere
+  d'accordo con l'invariante qui sopra. **Non lo è, e non va reso tale**:
+  risponde a un'altra domanda — «in che stato è questa riga da mostrare», non
+  «è pronta a proporre» — e insegnarle il rifiuto vorrebbe dire rifare
+  `hasDeclinedInvitation` in SQL su OGNI lettura di `/mail` e `/calendar`,
+  cioè un quinto posto da tenere allineato per guadagnare un'etichetta.
+  **La conseguenza, da conoscere prima di appoggiarci qualcosa**: un
+  appuntamento rifiutato che non ha mai avuto una proposta resta `new` **per
+  sempre**, e non diventerà mai `proposed`. Va bene perché l'etichetta di
+  quello stato è «Nuova», neutra: non promette «da proporre», quindi non dice
+  una bugia. Ma chi un domani ci appoggia un **filtro** o un **contatore**
+  («quante ne restano da proporre?») starebbe promettendo qualcosa che per
+  quelle righe non succederà mai — e quello sì sarebbe un difetto. Chi ne ha
+  bisogno guardi `attendees` più l'indirizzo della casella con
+  `hasDeclinedInvitation`, mai quello stato. Il rifiuto **sopravvenuto**
+  invece passa di lì, perché scrive un `outcome.type` (`declined`) che quella
+  CASE deve mappare: senza, cadrebbe nell'`else` e la riga si mostrerebbe
+  «Eseguita», che è falso. È mappato su `ignored` e **non** su un valore
+  nuovo di `mailItemStatusSchema`: è un enum che l'app mobile legge, e non lo
+  si paga per un'etichetta.
+  Corollario già chiuso, da non riaprire: «Riproponi» su un appuntamento
+  rifiutato era un **no-op silenzioso** (la rotta azzerava l'esito, il tick
+  dopo riapplicava il cancello, la riga restava `new` dopo che la UI aveva
+  detto ok). Ora `POST /api/me/mail/calendar/:id/repropose` risponde **409
+  `not_reproposable`** dicendo il perché, senza toccare l'esito.
 - **Una serie resta raggiungibile anche senza occorrenze nella finestra
   visibile (fase 9, fix di review).** Spostando la configurazione di una
   serie nel pannello di dettaglio (design §3, Task 7), una serie le cui

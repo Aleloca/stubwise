@@ -612,7 +612,9 @@
         "close": "Close",
         "attendees": "Attendees",
         "openInGoogle": "Open in Google Calendar",
-        "allDayOn": "All day, {{date}}"
+        "allDayOn": "All day, {{date}}",
+        "yourResponse": "Your response",
+        "declinedNotice": "You declined this invitation: Stubwise will not propose anything from it."
       },
       "attendeeStatus": {
         "accepted": "Accepted",
@@ -641,7 +643,8 @@
         "projectRequired": "Pick a project before turning this series on.",
         "save": "Save",
         "disable": "Turn off"
-      }
+      },
+      "declinedBadge": "Declined by you"
     },
     "common": {
       "loading": "Loading…",

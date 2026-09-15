@@ -1,6 +1,7 @@
 import {
   allDayEventsForDay,
   eventsForDay,
+  hasDeclinedInvitation,
   localDayKey,
   monthGridDays,
   timedEventsForDay,
@@ -11,6 +12,20 @@ import {
 import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import type { AccountColor } from "../lib/account-colors";
+
+/**
+ * Il RIFIUTO si vede nella GRIGLIA, non solo nel dettaglio (design 15 set
+ * 2026 §1): se per sapere che non ci vai devi aprire il pannello, la griglia
+ * sta mentendo. Barrato e sbiadito, come fa Google.
+ *
+ * ⚠️ `?? []` e non `event.attendees` nudo: sul web non gira nessun `parse`
+ * (`lib/api.ts` fa un cast — vedi l'invariante in CLAUDE.md), quindi il
+ * `.default([])` dello schema non produce niente, e qui un `undefined`
+ * farebbe lanciare il render dell'intera griglia.
+ */
+function isDeclinedByMe(event: CalendarEventItem): boolean {
+  return hasDeclinedInvitation(event.attendees ?? [], event.accountEmail);
+}
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 
@@ -121,22 +136,15 @@ function TimeGrid({
                   <div key={hour} className="h-12 border-b border-line/60" />
                 ))}
                 {positioned.map(({ event, topPct, heightPct }) => (
-                  <button
+                  <TimedEventBlock
                     key={event.id}
-                    type="button"
-                    onClick={() => onSelect(event)}
-                    style={{
-                      top: `${topPct}%`,
-                      height: `${heightPct}%`,
-                      borderColor: colorFor(event).border,
-                      background: colorFor(event).background,
-                    }}
-                    className={`absolute inset-x-0.5 overflow-hidden rounded-sm border px-1 py-0.5 text-left font-mono text-[10px] leading-tight text-fg transition-[filter] hover:brightness-125 ${
-                      event.id === selectedId ? "ring-1 ring-signal" : ""
-                    }`}
-                  >
-                    <span className="truncate">{eventLabel(event)}</span>
-                  </button>
+                    event={event}
+                    topPct={topPct}
+                    heightPct={heightPct}
+                    color={colorFor(event)}
+                    selected={event.id === selectedId}
+                    onSelect={onSelect}
+                  />
                 ))}
               </div>
             );
@@ -197,6 +205,44 @@ function MonthGrid({
   );
 }
 
+/** Un blocco della colonna oraria (vista giorno/settimana). */
+function TimedEventBlock({
+  event,
+  topPct,
+  heightPct,
+  color,
+  selected,
+  onSelect,
+}: {
+  event: CalendarEventItem;
+  topPct: number;
+  heightPct: number;
+  color: AccountColor;
+  selected: boolean;
+  onSelect: (event: CalendarEventItem) => void;
+}) {
+  const { t } = useTranslation();
+  const declined = isDeclinedByMe(event);
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(event)}
+      title={declined ? t("calendar:grid.declinedTitle") : undefined}
+      style={{
+        top: `${topPct}%`,
+        height: `${heightPct}%`,
+        borderColor: color.border,
+        background: color.background,
+      }}
+      className={`absolute inset-x-0.5 overflow-hidden rounded-sm border px-1 py-0.5 text-left font-mono text-[10px] leading-tight text-fg transition-[filter] hover:brightness-125 ${
+        selected ? "ring-1 ring-signal" : ""
+      } ${declined ? "line-through opacity-50" : ""}`}
+    >
+      <span className="truncate">{eventLabel(event)}</span>
+    </button>
+  );
+}
+
 function EventPill({
   event,
   color,
@@ -210,14 +256,17 @@ function EventPill({
   onSelect: (event: CalendarEventItem) => void;
   compact?: boolean;
 }) {
+  const { t } = useTranslation();
+  const declined = isDeclinedByMe(event);
   return (
     <button
       type="button"
       onClick={() => onSelect(event)}
+      title={declined ? t("calendar:grid.declinedTitle") : undefined}
       style={{ borderColor: color.border, background: color.background }}
       className={`truncate rounded-sm border px-1 text-left font-mono text-[10px] text-fg transition-[filter] hover:brightness-125 ${
         compact ? "py-0" : "py-0.5"
-      } ${selected ? "ring-1 ring-signal" : ""}`}
+      } ${selected ? "ring-1 ring-signal" : ""} ${declined ? "line-through opacity-50" : ""}`}
     >
       {eventLabel(event)}
     </button>

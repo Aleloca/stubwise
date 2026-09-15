@@ -2425,7 +2425,9 @@
       "selectPrompt": "Seleziona un appuntamento per vederne il dettaglio qui.",
       "openInGoogle": "Apri in Google Calendar",
       "attendees": "Partecipanti",
-      "allDayOn": "Tutto il giorno, {{date}}"
+      "allDayOn": "Tutto il giorno, {{date}}",
+      "yourResponse": "La tua risposta",
+      "declinedNotice": "Hai rifiutato questo invito: Stubwise non ne farà nessuna proposta."
     },
     "attendeeStatus": {
       "accepted": "Accettato",
@@ -2471,6 +2473,9 @@
       "heading": "Appuntamenti visti",
       "empty": "// nessun appuntamento",
       "loadError": "Impossibile caricare il calendario."
+    },
+    "grid": {
+      "declinedTitle": "Rifiutato da te"
     }
   },
   "release": {
