@@ -16,7 +16,7 @@ import { createClient, onSessionExpired } from "../lib/client";
 import { setupPush } from "../lib/push";
 import { inboxKeys } from "../lib/query-keys";
 import { getLastSyncAt, loadSession, saveSession, setLastSyncAt, type StoredSession } from "../lib/storage";
-import { SettingsSheet } from "../screens/settings/SettingsSheet";
+import { navigationRef } from "./navigation";
 import { colors } from "../theme/tokens";
 
 /**
@@ -94,7 +94,6 @@ export function AppProviders({ children }: { children: ReactNode }) {
     user: null,
     justLoggedIn: false,
   });
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [lastSyncAt, setLastSyncAtState] = useState<string | null>(null);
 
   // `isConnected !== false`, non `=== true`: stessa regola di `useIsOnline`
@@ -230,7 +229,14 @@ export function AppProviders({ children }: { children: ReactNode }) {
       completeOnboarding: () => {
         setState((current) => ({ ...current, justLoggedIn: false }));
       },
-      openSettings: () => setSettingsOpen(true),
+      // Naviga dal ref e non da un hook: vedi il docblock di `navigationRef`.
+      // `isReady()` copre l'istante fra il mount di `AppProviders` e quello
+      // del contenitore — un tap non è possibile lì dentro, ma un `navigate`
+      // su un contenitore non pronto lancerebbe.
+      openSettings: () => {
+        if (navigationRef.isReady()) navigationRef.navigate("Settings");
+      },
+      loggedOut: handleLoggedOut,
     }),
     [state],
   );
@@ -276,9 +282,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
    */
   const showChrome = state.status === "authenticated" && !state.justLoggedIn && state.client !== null && state.user !== null;
 
-  /** Logout riuscito (best-effort remoto + pulizia locale, vedi `SettingsSheet`): torna a `unauthenticated`. */
+  /** Logout riuscito (best-effort remoto + pulizia locale, vedi `SettingsScreen`): torna a `unauthenticated`. */
   function handleLoggedOut(): void {
-    setSettingsOpen(false);
     setState({ status: "unauthenticated", client: null, user: null, justLoggedIn: false });
   }
 
@@ -293,15 +298,6 @@ export function AppProviders({ children }: { children: ReactNode }) {
               </View>
             )}
             {children}
-            {showChrome && state.client && state.user && (
-              <SettingsSheet
-                visible={settingsOpen}
-                onRequestClose={() => setSettingsOpen(false)}
-                client={state.client}
-                user={state.user}
-                onLoggedOut={handleLoggedOut}
-              />
-            )}
           </View>
         </AuthContext.Provider>
       </SafeAreaProvider>

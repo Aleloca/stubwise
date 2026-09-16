@@ -60,6 +60,7 @@ async function renderScreen(client: StubwiseClient, params: { repositoryId: stri
     login: jest.fn(),
     completeOnboarding: jest.fn(),
     openSettings: jest.fn(),
+    loggedOut: jest.fn(),
   };
   const navigation = { goBack, navigate: jest.fn() } as never;
   await render(

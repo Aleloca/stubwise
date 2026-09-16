@@ -39,6 +39,7 @@ async function renderSheet(
     login: jest.fn(),
     completeOnboarding: jest.fn(),
     openSettings: jest.fn(),
+    loggedOut: jest.fn(),
   };
   await render(
     <QueryClientProvider client={queryClient}>
@@ -77,6 +78,7 @@ describe("CaptureSheet — visibilità e copy", () => {
             login: jest.fn(),
             completeOnboarding: jest.fn(),
             openSettings: jest.fn(),
+    loggedOut: jest.fn(),
           }}
         >
           <CaptureSheet visible={false} onRequestClose={jest.fn()} projects={[PROJECT_A]} onSubmitted={jest.fn()} />

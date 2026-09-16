@@ -64,6 +64,7 @@ async function renderScreen(client: StubwiseClient, navigate: jest.Mock = jest.f
     login: jest.fn(),
     completeOnboarding: jest.fn(),
     openSettings: jest.fn(),
+    loggedOut: jest.fn(),
   };
   const navigation = { navigate } as never;
   // `await`: vedi il commento gemello in `ProjectsScreen.test.tsx`.

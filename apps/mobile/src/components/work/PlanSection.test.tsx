@@ -41,6 +41,7 @@ async function renderSection(
     login: jest.fn(),
     completeOnboarding: jest.fn(),
     openSettings: jest.fn(),
+    loggedOut: jest.fn(),
   };
   return render(
     <QueryClientProvider client={queryClient}>

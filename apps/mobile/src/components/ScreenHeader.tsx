@@ -50,12 +50,20 @@ export function ScreenHeader({
   onBack,
   backLabel,
   titleNumberOfLines,
+  showAvatar = true,
 }: {
   title: string;
   subtitle?: string;
   onBack?: () => void;
   backLabel?: string;
   titleNumberOfLines?: number;
+  /**
+   * `false` SOLO sulla pagina Impostazioni (16 set 2026): lì l'avatar è il
+   * bottone che ci ha portati, e porterebbe a se stessa. Ovunque altro
+   * l'avatar c'è sempre — è l'unico accesso alle Impostazioni, e nasconderlo
+   * altrove renderebbe irraggiungibile una pagina.
+   */
+  showAvatar?: boolean;
 }) {
   return (
     <View style={styles.row}>
@@ -73,7 +81,7 @@ export function ScreenHeader({
         </Text>
         {subtitle !== undefined && <Text style={textStyles.screenSubtitle}>{subtitle}</Text>}
       </View>
-      <SettingsAvatarButton />
+      {showAvatar && <SettingsAvatarButton />}
     </View>
   );
 }

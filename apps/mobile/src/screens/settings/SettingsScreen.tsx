@@ -5,21 +5,22 @@ import { deleteToken, getMessaging } from "@react-native-firebase/messaging";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Modal, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
 import { GhostButton } from "../../components/GhostButton";
+import { ScreenHeader } from "../../components/ScreenHeader";
 import { SectionLabel } from "../../components/SectionLabel";
 import { getPushToken } from "../../lib/push-token";
 import { clearSession, loadSession } from "../../lib/storage";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
 
-export interface SettingsSheetProps {
-  visible: boolean;
-  onRequestClose: () => void;
+export interface SettingsScreenProps {
   client: StubwiseClient;
   user: Reader<SessionUser>;
   /** Chiamato DOPO che il logout (best-effort remoto + pulizia locale) è finito: transiziona l'app a `unauthenticated`. */
   onLoggedOut: () => void;
+  /** Torna indietro: la pagina è sul root stack, sopra le schede. */
+  onBack: () => void;
   testID?: string;
 }
 
@@ -35,9 +36,14 @@ function hostFromBaseUrl(baseUrl: string): string {
 const LANGUAGES: Language[] = ["it", "en"];
 
 /**
- * Sheet Impostazioni (Task 20, canvas `3i`), raggiunta dall'avatar globale
- * (vedi `app/providers.tsx`): profilo, Notifiche (push on/off + progetti
- * seguiti), Istanza (server sola lettura + lingua) ed Esci.
+ * PAGINA Impostazioni: profilo, Notifiche (push on/off + progetti seguiti),
+ * Istanza (server sola lettura + lingua) ed Esci.
+ *
+ * ⚠️ Fino al 16 set 2026 era uno SHEET dal basso (`Modal`) montato in
+ * `app/providers.tsx` e comandato da `useAuth().openSettings()`. Decisione
+ * del maintainer: è una pagina, e vive sul ROOT stack — sopra le schede,
+ * perché non è una sesta destinazione ma un posto in cui si entra e da cui
+ * si torna indietro. Il contenuto è lo stesso: cambia l'involucro.
  *
  * Scope volutamente più STRETTO del canvas: niente "Quiet hours" né "Canali"
  * (email) — nessuno dei due ha un campo lato server (`notificationPrefsSchema`
@@ -45,13 +51,14 @@ const LANGUAGES: Language[] = ["it", "en"];
  * elenca esplicitamente solo push + progetti seguiti. Aggiungerli richiede
  * prima lo schema server, fuori perimetro qui.
  *
- * Ogni query è `enabled: visible`: la sheet resta montata (come `CaptureSheet`)
- * anche a `visible=false`, e senza il gate ripartirebbe una fetch ogni volta
- * che il resto dell'app cambia — oltre a interrogare un client che, prima del
- * login, questo componente non riceve nemmeno (vedi `providers.tsx`, che lo
- * monta solo da autenticato).
+ * ⚠️ Le query non sono più `enabled: visible` (16 set 2026). Quel gate
+ * serviva allo SHEET, che restava montato anche da chiuso: senza, avrebbe
+ * rifatto una fetch a ogni cambiamento altrove nell'app, e avrebbe
+ * interrogato un client che prima del login non esiste. Una PAGINA si monta
+ * quando ci si entra e si smonta quando si esce, quindi il problema non si
+ * pone e il gate sarebbe solo una condizione sempre vera.
  */
-export function SettingsSheet({ visible, onRequestClose, client, user, onLoggedOut, testID }: SettingsSheetProps) {
+export function SettingsScreen({ client, user, onLoggedOut, onBack, testID }: SettingsScreenProps) {
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
   const [baseUrl, setBaseUrl] = useState<string | null>(null);
@@ -62,8 +69,9 @@ export function SettingsSheet({ visible, onRequestClose, client, user, onLoggedO
   // fixture di test che costruisce un `AuthContextValue` a portarsela dietro)
   // — la si legge dalla sessione salvata, la stessa fonte da cui arriva
   // `patId` al momento del logout più sotto.
+  // Niente guardia su `visible` come nello sheet: una PAGINA si monta solo
+  // quando ci si entra, quindi l'effetto parte una volta sola per visita.
   useEffect(() => {
-    if (!visible) return;
     let cancelled = false;
     void loadSession().then((session) => {
       if (!cancelled) setBaseUrl(session?.baseUrl ?? null);
@@ -71,24 +79,21 @@ export function SettingsSheet({ visible, onRequestClose, client, user, onLoggedO
     return () => {
       cancelled = true;
     };
-  }, [visible]);
+  }, []);
 
   const prefsQuery = useQuery({
     queryKey: ["me", "notification-prefs"],
     queryFn: () => client.me.notificationPrefs(),
-    enabled: visible,
   });
 
   const projectsQuery = useQuery({
     queryKey: ["projects", "list"],
     queryFn: () => client.projects.list(),
-    enabled: visible,
   });
 
   const followsQuery = useQuery({
     queryKey: ["me", "follows"],
     queryFn: () => client.me.follows(),
-    enabled: visible,
   });
 
   // Le tre mutazioni di questa sheet: MAI silenziose (stesso principio del
@@ -196,17 +201,19 @@ export function SettingsSheet({ visible, onRequestClose, client, user, onLoggedO
   const roleKey = !isUnknown(user.role) && user.role === "admin" ? "admin" : "member";
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onRequestClose} testID={testID}>
-      <View style={styles.backdrop}>
-        <Pressable
-          style={StyleSheet.absoluteFill}
-          onPress={onRequestClose}
-          accessibilityRole="button"
-          accessibilityLabel={t("mobile.settings.close")}
+    <View style={styles.container} testID={testID}>
+      <ScrollView keyboardShouldPersistTaps="handled" stickyHeaderIndices={[0]} contentContainerStyle={styles.body}>
+        {/*
+          `showAvatar={false}`: l'avatar È il bottone che porta qui, e su
+          questa pagina porterebbe a se stessa. È l'unico punto dell'app in
+          cui l'intestazione non lo mostra.
+        */}
+        <ScreenHeader
+          title={t("mobile.settings.title")}
+          onBack={onBack}
+          backLabel={t("mobile.settings.back")}
+          showAvatar={false}
         />
-        <Pressable style={styles.sheet} onPress={() => {}}>
-          <View style={styles.handle} />
-          <ScrollView keyboardShouldPersistTaps="handled">
             <View style={styles.profileRow}>
               <View style={styles.email}>
                 <Text style={styles.emailText} numberOfLines={1}>
@@ -342,36 +349,19 @@ export function SettingsSheet({ visible, onRequestClose, client, user, onLoggedO
                 testID="settings-logout-button"
               />
             </View>
-          </ScrollView>
-        </Pressable>
-      </View>
-    </Modal>
+      </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
+  container: {
+    backgroundColor: colors.ink950,
     flex: 1,
-    justifyContent: "flex-end",
   },
-  sheet: {
-    backgroundColor: colors.ink900,
-    borderColor: colors.line,
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    borderWidth: 1,
-    maxHeight: "88%",
+  body: {
     paddingBottom: 40,
     paddingHorizontal: 20,
-    paddingTop: 10,
-  },
-  handle: {
-    alignSelf: "center",
-    backgroundColor: colors.line,
-    borderRadius: 2,
-    height: 4,
-    marginBottom: 14,
-    width: 36,
   },
   profileRow: {
     alignItems: "center",

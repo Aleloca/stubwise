@@ -695,8 +695,9 @@
       }
     },
     "settings": {
+      "title": "Settings",
+      "back": "Back",
       "openLabel": "Settings",
-      "close": "Close",
       "notifications": {
         "title": "Notifications",
         "pushLabel": "Push notifications",

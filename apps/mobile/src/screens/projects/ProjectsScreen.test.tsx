@@ -64,6 +64,7 @@ async function renderScreen(client: StubwiseClient, navigate: jest.Mock = jest.f
     login: jest.fn(),
     completeOnboarding: jest.fn(),
     openSettings: jest.fn(),
+    loggedOut: jest.fn(),
   };
   const navigation = { navigate } as never;
   // `await`, non solo `render(...)`: qui `render` può tornare una Promise

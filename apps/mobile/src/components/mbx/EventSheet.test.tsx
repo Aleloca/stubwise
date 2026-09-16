@@ -92,6 +92,7 @@ async function renderSheet(client: StubwiseClient, ev: Reader<CalendarEventItem>
     login: jest.fn(),
     completeOnboarding: jest.fn(),
     openSettings: jest.fn(),
+    loggedOut: jest.fn(),
   };
   const onRequestClose = jest.fn();
   await render(

@@ -6,9 +6,9 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react-nativ
 import i18n from "../../i18n";
 import "../../i18n";
 import { clearSession, loadSession } from "../../lib/storage";
-import { SettingsSheet } from "./SettingsSheet";
+import { SettingsScreen } from "./SettingsScreen";
 
-// Isolato da Keychain/AsyncStorage veri: qui interessa SOLO che `SettingsSheet`
+// Isolato da Keychain/AsyncStorage veri: qui interessa SOLO che `SettingsScreen`
 // chiami `loadSession`/`clearSession` nel modo giusto, non la persistenza
 // reale (già coperta da `lib/storage.test.ts`).
 jest.mock("../../lib/storage", () => ({
@@ -70,23 +70,22 @@ function makeClient(overrides: ClientOverrides = {}): StubwiseClient {
 
 async function renderSheet(
   client: StubwiseClient,
-  opts: { visible?: boolean; user?: Reader<SessionUser>; onRequestClose?: jest.Mock; onLoggedOut?: jest.Mock } = {},
+  opts: { user?: Reader<SessionUser>; onBack?: jest.Mock; onLoggedOut?: jest.Mock } = {},
 ) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const onRequestClose = opts.onRequestClose ?? jest.fn();
+  const onBack = opts.onBack ?? jest.fn();
   const onLoggedOut = opts.onLoggedOut ?? jest.fn();
   const rendered = await render(
     <QueryClientProvider client={queryClient}>
-      <SettingsSheet
-        visible={opts.visible ?? true}
-        onRequestClose={onRequestClose}
+      <SettingsScreen
+        onBack={onBack}
         client={client}
         user={opts.user ?? USER}
         onLoggedOut={onLoggedOut}
       />
     </QueryClientProvider>,
   );
-  return { ...rendered, onRequestClose, onLoggedOut };
+  return { ...rendered, onBack, onLoggedOut };
 }
 
 beforeEach(() => {
@@ -105,12 +104,7 @@ afterEach(async () => {
   await i18n.changeLanguage("it");
 });
 
-describe("SettingsSheet — visibilità e profilo", () => {
-  test("nascosta quando visible=false", async () => {
-    await renderSheet(makeClient(), { visible: false });
-    expect(screen.queryByTestId("settings-logout-button")).toBeNull();
-  });
-
+describe("SettingsScreen — visibilità e profilo", () => {
   test("mostra l'email e il ruolo (Operatore per member)", async () => {
     await renderSheet(makeClient());
     expect(screen.getByText("giulia@farmakom.it")).toBeTruthy();
@@ -122,15 +116,22 @@ describe("SettingsSheet — visibilità e profilo", () => {
     expect(screen.getByText("Admin")).toBeTruthy();
   });
 
-  test("toccare lo sfondo chiama onRequestClose", async () => {
-    const onRequestClose = jest.fn();
-    await renderSheet(makeClient(), { onRequestClose });
-    await fireEvent.press(screen.getByLabelText("Chiudi"));
-    expect(onRequestClose).toHaveBeenCalledTimes(1);
+  test("il tasto indietro dell'intestazione chiama onBack", async () => {
+    // Era «toccare lo sfondo»: una PAGINA non ha uno sfondo da toccare, ha un
+    // indietro — lo stesso `screen-header-back` di ogni altro dettaglio.
+    const onBack = jest.fn();
+    await renderSheet(makeClient(), { onBack });
+    await fireEvent.press(screen.getByTestId("screen-header-back"));
+    expect(onBack).toHaveBeenCalledTimes(1);
+  });
+
+  test("l'avatar NON compare: questa è la pagina a cui l'avatar porta", async () => {
+    await renderSheet(makeClient());
+    expect(screen.queryByTestId("settings-avatar-button")).toBeNull();
   });
 });
 
-describe("SettingsSheet — notifiche push", () => {
+describe("SettingsScreen — notifiche push", () => {
   test("riflette lo stato letto da me.notificationPrefs()", async () => {
     const notificationPrefs = jest.fn().mockResolvedValue({ push: true, slackDm: false, slackLinked: false });
     await renderSheet(makeClient({ notificationPrefs }));
@@ -180,7 +181,7 @@ describe("SettingsSheet — notifiche push", () => {
   });
 });
 
-describe("SettingsSheet — progetti seguiti", () => {
+describe("SettingsScreen — progetti seguiti", () => {
   test("mostra ogni progetto con lo stato di follow corrente", async () => {
     await renderSheet(makeClient());
     await waitFor(() => expect(screen.getByLabelText("Farmakom").props.value).toBe(true));
@@ -233,7 +234,7 @@ describe("SettingsSheet — progetti seguiti", () => {
   });
 });
 
-describe("SettingsSheet — istanza (server + lingua)", () => {
+describe("SettingsScreen — istanza (server + lingua)", () => {
   test("mostra l'host del server, sola lettura", async () => {
     await renderSheet(makeClient());
     await waitFor(() => expect(screen.getByText("stubwise.farmakom.it")).toBeTruthy());
@@ -262,7 +263,7 @@ describe("SettingsSheet — istanza (server + lingua)", () => {
   });
 });
 
-describe("SettingsSheet — Esci (logout)", () => {
+describe("SettingsScreen — Esci (logout)", () => {
   test("felice: revoca device e PAT, invalida il token push, cancella la sessione locale", async () => {
     mockGetToken.mockResolvedValue("fcm-token-1");
     const deleteDevice = jest.fn().mockResolvedValue(undefined);
@@ -385,14 +386,11 @@ describe("SettingsSheet — Esci (logout)", () => {
   });
 });
 
-describe("SettingsSheet — accessibilità", () => {
+describe("SettingsScreen — accessibilità", () => {
   test("i bottoni/controlli con solo glifo hanno un accessibilityLabel", async () => {
     await renderSheet(makeClient());
-    // Avatar-glifo (iniziale email) nel profilo: non presente qui (vive nel
-    // bottone globale di `providers.tsx`) — quel che vive DENTRO la sheet è
-    // il backdrop (nessun testo visibile) e i chip lingua (IT/EN, testo
-    // breve ma comunque etichettati).
-    expect(screen.getByLabelText("Chiudi")).toBeTruthy();
+    // Il backdrop senza testo non c'è più (era della sheet): restano i chip
+    // lingua, testo breve ma comunque etichettati, e il toggle push.
     await waitFor(() => expect(screen.getByTestId("settings-push-switch").props.accessibilityLabel).toBeTruthy());
     expect(screen.getByTestId("settings-language-it").props.accessibilityRole).toBe("radio");
     expect(screen.getByTestId("settings-language-en").props.accessibilityRole).toBe("radio");

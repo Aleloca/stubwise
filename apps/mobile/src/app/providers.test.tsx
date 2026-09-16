@@ -1,12 +1,12 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
+import { act, render, screen, waitFor } from "@testing-library/react-native";
 import notifee from "@notifee/react-native";
 import NetInfo from "@react-native-community/netinfo";
-import { AppState, Pressable, Text } from "react-native";
+import { AppState, Text } from "react-native";
 import "../i18n";
 import { createClient, onSessionExpired } from "../lib/client";
 import { setupPush } from "../lib/push";
 import { getLastSyncAt, loadSession } from "../lib/storage";
-import { AppProviders, useAuth } from "./providers";
+import { AppProviders } from "./providers";
 
 jest.mock("../lib/storage", () => ({
   loadSession: jest.fn(),
@@ -322,30 +322,14 @@ describe("AppProviders — chrome globale (banner offline ancorato; l'avatar è 
    * quando `useAuth().openSettings()` viene chiamato — verificato qui con un
    * consumer minimo del contesto, senza montare uno screen vero.
    */
-  function OpenSettingsButton() {
-    const { openSettings } = useAuth();
-    return (
-      <Pressable testID="open-settings-probe" onPress={openSettings}>
-        <Text>apri</Text>
-      </Pressable>
-    );
-  }
-
-  test("openSettings() dal contesto apre la sheet Impostazioni (Esci diventa raggiungibile)", async () => {
-    mockLoadSession.mockResolvedValue(session);
-    mockCreateClient.mockReturnValue(fakeClient());
-
-    await render(
-      <AppProviders>
-        <OpenSettingsButton />
-      </AppProviders>,
-    );
-    await waitFor(() => expect(screen.getByTestId("open-settings-probe")).toBeTruthy());
-
-    await fireEvent.press(screen.getByTestId("open-settings-probe"));
-
-    await waitFor(() => expect(screen.getByTestId("settings-logout-button")).toBeTruthy());
-  });
+  /**
+   * ⚠️ Qui c'era il test di `openSettings()` che apriva la sheet. Dal 16 set
+   * 2026 le Impostazioni sono una PAGINA sul root stack e l'avatar ci NAVIGA
+   * (`SettingsAvatarButton`): `AppProviders` non monta più nulla di loro, e
+   * non c'e' piu' niente da verificare da questa parte. La copertura vive ora
+   * dove vive il comportamento — `components/ScreenHeader.test.tsx` per il
+   * tap sull'avatar.
+   */
 
   test("il banner offline globale compare quando NetInfo segnala offline, su QUALSIASI schermo (non solo l'Inbox)", async () => {
     (NetInfo.useNetInfo as jest.Mock).mockReturnValue({ isConnected: false, isInternetReachable: false });

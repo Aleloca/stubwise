@@ -1,7 +1,9 @@
-import { NavigationContainer, useNavigation } from "@react-navigation/native";
+import { createNavigationContainerRef, NavigationContainer, useNavigation } from "@react-navigation/native";
 import type { NavigatorScreenParams } from "@react-navigation/native";
 import { createNativeBottomTabNavigator } from "@bottom-tabs/react-navigation";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import type { NativeStackScreenProps } from "@react-navigation/native-stack";
+import { SettingsScreen } from "../screens/settings/SettingsScreen";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { MailDetailSource } from "@stubwise/api-client";
 import { useEffect, useMemo } from "react";
@@ -113,7 +115,29 @@ export type MainTabParamList = {
 export type RootStackParamList = {
   Auth: NavigatorScreenParams<AuthStackParamList>;
   Main: NavigatorScreenParams<MainTabParamList>;
+  /**
+   * Impostazioni: sul ROOT stack e non dentro una scheda (16 set 2026).
+   * L'avatar che ci porta sta nell'intestazione di OGNI schermata, quindi la
+   * pagina dev'essere raggiungibile da qualunque scheda senza finire dentro
+   * la pila di una sola — e non è una sesta destinazione della barra: è un
+   * posto in cui si entra e da cui si torna indietro.
+   */
+  Settings: undefined;
 };
+
+/**
+ * Il riferimento al contenitore, per chi deve navigare da FUORI di un
+ * componente montato dentro un navigatore — oggi solo `AppProviders`, che
+ * espone `openSettings()` sul contesto (16 set 2026).
+ *
+ * ⚠️ Perché non `useNavigation()` dentro `SettingsAvatarButton`, che sarebbe
+ * la strada ovvia: quell'hook pretende un `NavigationContainer` sopra di sé,
+ * e nessun test di schermata ne monta uno — passarci l'avatar ha rotto 174
+ * test su 14 suite in un colpo. Il contesto era già il canale che ogni
+ * schermata importa e che ogni test stubba: cambia cosa fa `openSettings`,
+ * non chi lo chiama.
+ */
+export const navigationRef = createNavigationContainerRef<RootStackParamList>();
 
 const RootStack = createNativeStackNavigator<RootStackParamList>();
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
@@ -343,14 +367,40 @@ export function RootNavigator() {
   const showMain = status === "authenticated" && !justLoggedIn;
 
   return (
-    <NavigationContainer linking={linking}>
+    <NavigationContainer linking={linking} ref={navigationRef}>
       <RootStack.Navigator screenOptions={{ headerShown: false }}>
         {showMain ? (
-          <RootStack.Screen name="Main" component={MainNavigator} />
+          <>
+            <RootStack.Screen name="Main" component={MainNavigator} />
+            <RootStack.Screen name="Settings" component={SettingsRoute} />
+          </>
         ) : (
           <RootStack.Screen name="Auth" component={AuthNavigator} />
         )}
       </RootStack.Navigator>
     </NavigationContainer>
+  );
+}
+
+/**
+ * Le Impostazioni sul root stack: prende dal contesto ciò che la pagina non
+ * può avere dai `route.params` (client, utente, e il modo di dire all'app
+ * che la sessione è finita) e le passa il ritorno indietro.
+ *
+ * Il `null` quando client o utente mancano non è difensivo a caso: questa
+ * rotta esiste solo nel ramo autenticato del root stack, quindi è un caso
+ * che non si verifica — ma renderizzare un componente che li pretende
+ * sarebbe un crash invece di una schermata vuota per un istante.
+ */
+function SettingsRoute({ navigation }: NativeStackScreenProps<RootStackParamList, "Settings">) {
+  const { client, user, loggedOut } = useAuth();
+  if (client === null || user === null) return null;
+  return (
+    <SettingsScreen
+      client={client}
+      user={user}
+      onLoggedOut={loggedOut}
+      onBack={() => navigation.goBack()}
+    />
   );
 }

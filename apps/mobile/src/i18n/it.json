@@ -695,8 +695,9 @@
       }
     },
     "settings": {
+      "title": "Impostazioni",
+      "back": "Indietro",
       "openLabel": "Impostazioni",
-      "close": "Chiudi",
       "notifications": {
         "title": "Notifiche",
         "pushLabel": "Notifiche push",

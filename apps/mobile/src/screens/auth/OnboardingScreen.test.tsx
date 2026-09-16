@@ -43,6 +43,7 @@ async function renderOnboarding(client: StubwiseClient, completeOnboarding = jes
     login: jest.fn(),
     completeOnboarding,
     openSettings: jest.fn(),
+    loggedOut: jest.fn(),
   };
   await render(
     <AuthContext.Provider value={value}>

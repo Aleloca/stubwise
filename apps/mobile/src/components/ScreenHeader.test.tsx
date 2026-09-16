@@ -20,20 +20,28 @@ function authValue(overrides: Partial<AuthContextValue> = {}): AuthContextValue 
     login: jest.fn(),
     completeOnboarding: jest.fn(),
     openSettings: jest.fn(),
+    loggedOut: jest.fn(),
     ...overrides,
   };
 }
 
-async function renderHeader(value: AuthContextValue, title = "Inbox", subtitle?: string) {
+async function renderHeader(
+  value: AuthContextValue,
+  extra: { showAvatar?: boolean; title?: string; subtitle?: string } = {},
+) {
   return await render(
     <AuthContext.Provider value={value}>
-      <ScreenHeader title={title} subtitle={subtitle} />
+      <ScreenHeader
+        title={extra.title ?? "Inbox"}
+        subtitle={extra.subtitle}
+        {...(extra.showAvatar !== undefined ? { showAvatar: extra.showAvatar } : {})}
+      />
     </AuthContext.Provider>,
   );
 }
 
 test("mostra il titolo e, se passato, il sottotitolo", async () => {
-  await renderHeader(authValue(), "Inbox", "3 da decidere");
+  await renderHeader(authValue(), { title: "Inbox", subtitle: "3 da decidere" });
   expect(screen.getByText("Inbox")).toBeTruthy();
   expect(screen.getByText("3 da decidere")).toBeTruthy();
 });
@@ -59,10 +67,19 @@ test("il bottone Impostazioni ha un accessibilityLabel e accessibilityRole", asy
 });
 
 test("toccare l'avatar chiama openSettings() dal contesto", async () => {
+  // `openSettings` dal 16 set 2026 NAVIGA alla pagina invece di aprire uno
+  // sheet, ma il canale resta il contesto: l'avatar non sa (e non deve
+  // sapere) se le Impostazioni siano una pagina o un pannello.
   const openSettings = jest.fn();
   await renderHeader(authValue({ openSettings }));
 
   fireEvent.press(screen.getByTestId("settings-avatar-button"));
 
   expect(openSettings).toHaveBeenCalledTimes(1);
+});
+
+test("l'avatar si può nascondere: è la pagina Impostazioni stessa", async () => {
+  // Unico caso in tutta l'app: lì l'avatar porterebbe a se stesso.
+  await renderHeader(authValue({}), { showAvatar: false });
+  expect(screen.queryByTestId("settings-avatar-button")).toBeNull();
 });

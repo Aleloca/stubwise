@@ -85,6 +85,7 @@ async function renderScreen(client: StubwiseClient, role: "admin" | "member" = "
     login: jest.fn(),
     completeOnboarding: jest.fn(),
     openSettings: jest.fn(),
+    loggedOut: jest.fn(),
   };
   return render(
     <QueryClientProvider client={queryClient}>
