@@ -829,7 +829,14 @@
         "docs": "Documentation",
         "mail": "Mail"
       },
-      "matched": "The matching message"
+      "matched": "The matching message",
+      "filters": {
+        "all": "All · {{count}}",
+        "mail": "Mail · {{count}}",
+        "tickets": "Tickets · {{count}}",
+        "docs": "Docs · {{count}}",
+        "projects": "Projects · {{count}}"
+      }
     }
   }
 }

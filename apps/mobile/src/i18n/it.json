@@ -829,7 +829,14 @@
         "docs": "Documentazione",
         "mail": "Posta"
       },
-      "matched": "Il messaggio trovato"
+      "matched": "Il messaggio trovato",
+      "filters": {
+        "all": "Tutto · {{count}}",
+        "mail": "Posta · {{count}}",
+        "tickets": "Ticket · {{count}}",
+        "docs": "Docs · {{count}}",
+        "projects": "Progetti · {{count}}"
+      }
     }
   }
 }

@@ -138,6 +138,38 @@ describe("GlobalSearchSheet", () => {
     await waitFor(() => expect(global).toHaveBeenCalledWith("fattura"));
   });
 
+  it("le schede filtrano per tipo, e «tutto» le rimette insieme", async () => {
+    // Richiesta del maintainer (16 set 2026). È un filtro sul RISULTATO: il
+    // server cerca sempre ovunque, quindi cambiare scheda non deve produrre
+    // una seconda chiamata — la riga finale lo verifica.
+    const global = jest.fn().mockResolvedValue(results());
+    const view = await renderSheet(global);
+    fireEvent.changeText(view.getByTestId("global-search-input"), "fattura");
+    await view.findByTestId("global-search-ticket-t1");
+
+    await fireEvent.press(view.getByTestId("global-search-filter-mail"));
+    expect(view.getByTestId("global-search-mail-thread-1")).toBeTruthy();
+    // Il NEGATIVO: se il filtro non filtrasse, questa riga troverebbe il
+    // ticket lo stesso.
+    expect(view.queryByTestId("global-search-ticket-t1")).toBeNull();
+
+    await fireEvent.press(view.getByTestId("global-search-filter-all"));
+    expect(view.getByTestId("global-search-ticket-t1")).toBeTruthy();
+    expect(view.getByTestId("global-search-mail-thread-1")).toBeTruthy();
+
+    // Una sola chiamata per l'intera sequenza.
+    await waitFor(() => expect(global).toHaveBeenCalledTimes(1));
+  });
+
+  it("una scheda vuota resta premibile e lo dice, invece di sparire", async () => {
+    // Nasconderla farebbe ballare la riga a ogni carattere digitato.
+    const global = jest.fn().mockResolvedValue(results({ docs: { items: [], hasMore: false } }));
+    const view = await renderSheet(global);
+    fireEvent.changeText(view.getByTestId("global-search-input"), "fattura");
+    await view.findByTestId("global-search-ticket-t1");
+    expect(view.getByTestId("global-search-filter-docs")).toBeTruthy();
+  });
+
   it("⚠️ i REPOSITORY non compaiono: l'app non ha dove portarli", async () => {
     // Una riga che non porta da nessuna parte è peggio di una riga assente —
     // chi la tocca pensa che l'app sia rotta. Stessa regola di `EventRow`.

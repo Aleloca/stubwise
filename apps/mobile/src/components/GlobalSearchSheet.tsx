@@ -54,6 +54,11 @@ export function GlobalSearchSheet({
   const navigation = useNavigation<NavigationProp<RootStackParamList>>();
 
   const [raw, setRaw] = useState("");
+  // La scheda attiva (16 set 2026, richiesta del maintainer): «tutto» e poi
+  // una per tipo. È un filtro sul RISULTATO, non sulla query: il server
+  // cerca sempre ovunque, quindi cambiare scheda non costa una chiamata e i
+  // conteggi restano veri anche mentre guardi un tipo solo.
+  const [filter, setFilter] = useState<SearchFilter>("all");
   const [debounced, setDebounced] = useState("");
 
   useEffect(() => {
@@ -119,7 +124,10 @@ export function GlobalSearchSheet({
           ) : results.isError ? (
             <Text style={styles.hint}>{t("mobile.search.error")}</Text>
           ) : (
-            <Groups data={results.data} onNavigate={go} navigation={navigation} />
+            <>
+              <SearchFilters data={results.data} filter={filter} onChange={setFilter} />
+              <Groups data={results.data} filter={filter} onNavigate={go} navigation={navigation} />
+            </>
           )}
         </ScrollView>
       </View>
@@ -129,10 +137,12 @@ export function GlobalSearchSheet({
 
 function Groups({
   data,
+  filter,
   onNavigate,
   navigation,
 }: {
   data: Reader<SearchResults> | undefined;
+  filter: SearchFilter;
   onNavigate: (run: () => void) => void;
   navigation: NavigationProp<RootStackParamList>;
 }) {
@@ -142,10 +152,11 @@ function Groups({
   // `.default()` girano): il costo è nullo e il giorno in cui questo
   // componente venisse riusato dietro un percorso che non parsa, la difesa
   // c'è già. La fixture dei test lo omette apposta.
-  const tickets = data?.tickets?.items ?? [];
-  const projects = data?.projects?.items ?? [];
-  const docs = data?.docs?.items ?? [];
-  const mail = data?.mail?.items ?? [];
+  const show = (group: SearchFilter) => filter === "all" || filter === group;
+  const tickets = show("tickets") ? (data?.tickets?.items ?? []) : [];
+  const projects = show("projects") ? (data?.projects?.items ?? []) : [];
+  const docs = show("docs") ? (data?.docs?.items ?? []) : [];
+  const mail = show("mail") ? (data?.mail?.items ?? []) : [];
 
   if (tickets.length === 0 && projects.length === 0 && docs.length === 0 && mail.length === 0) {
     return <Text style={styles.hint}>{t("mobile.search.empty")}</Text>;
@@ -279,6 +290,31 @@ function Row({
 }
 
 const styles = StyleSheet.create({
+  filterRow: {
+    flexDirection: "row",
+    gap: 8,
+    paddingBottom: 14,
+  },
+  filterChip: {
+    borderColor: colors.lineStrong,
+    borderRadius: radii.control,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  filterChipActive: {
+    borderColor: colors.signalDim,
+  },
+  filterLabel: {
+    color: colors.muted,
+    fontFamily: fontFamily.mono,
+    fontSize: 12,
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+  },
+  filterLabelActive: {
+    color: colors.signal,
+  },
   screen: {
     backgroundColor: colors.ink950,
     flex: 1,
@@ -350,3 +386,69 @@ const styles = StyleSheet.create({
     marginTop: 3,
   },
 });
+
+/**
+ * Le schede della ricerca: «tutto» e una per tipo (16 set 2026, richiesta del
+ * maintainer).
+ *
+ * ⚠️ Scorrono in ORIZZONTALE e non si stringono per stare in una riga: sono
+ * cinque, e cinque etichette compresse su un telefono diventano illeggibili
+ * prima che una in più le rompa. È lo stesso gesto dei chip del backlog —
+ * quella forma esiste già in quest'app e regge una voce nuova senza
+ * ridisegnare niente.
+ *
+ * Una scheda VUOTA resta premibile e lo dice (`· 0`): nasconderla farebbe
+ * ballare la riga a ogni carattere digitato, e «qui non c'è niente» è
+ * un'informazione, non un motivo per sparire.
+ */
+const SEARCH_FILTERS: SearchFilter[] = ["all", "mail", "tickets", "docs", "projects"];
+
+export type SearchFilter = "all" | "mail" | "tickets" | "docs" | "projects";
+
+function SearchFilters({
+  data,
+  filter,
+  onChange,
+}: {
+  data: Reader<SearchResults> | undefined;
+  filter: SearchFilter;
+  onChange: (filter: SearchFilter) => void;
+}) {
+  const { t } = useTranslation();
+  const counts: Record<SearchFilter, number> = {
+    mail: data?.mail?.items.length ?? 0,
+    tickets: data?.tickets?.items.length ?? 0,
+    docs: data?.docs?.items.length ?? 0,
+    projects: data?.projects?.items.length ?? 0,
+    all: 0,
+  };
+  counts.all = counts.mail + counts.tickets + counts.docs + counts.projects;
+
+  return (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={styles.filterRow}
+      keyboardShouldPersistTaps="handled"
+      testID="global-search-filters"
+    >
+      {SEARCH_FILTERS.map((option) => {
+        const active = option === filter;
+        return (
+          <Pressable
+            key={option}
+            accessibilityRole="button"
+            accessibilityState={{ selected: active }}
+            onPress={() => onChange(option)}
+            style={[styles.filterChip, active && styles.filterChipActive]}
+            testID={`global-search-filter-${option}`}
+          >
+            <Text style={[styles.filterLabel, active && styles.filterLabelActive]}>
+              {t(`mobile.search.filters.${option}`, { count: counts[option] })}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </ScrollView>
+  );
+}
