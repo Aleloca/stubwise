@@ -381,6 +381,7 @@
         "dismissingQuestion": "Rimando…"
       },
       "item": {
+        "fallbackTitle": "Voce di backlog",
         "back": "‹ Backlog",
         "loadError": {
           "title": "Non riesco a caricare la voce.",

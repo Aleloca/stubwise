@@ -381,6 +381,7 @@
         "dismissingQuestion": "Dismissing…"
       },
       "item": {
+        "fallbackTitle": "Backlog item",
         "back": "‹ Backlog",
         "loadError": {
           "title": "Can't load this item.",

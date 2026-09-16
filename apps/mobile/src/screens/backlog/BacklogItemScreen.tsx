@@ -10,8 +10,8 @@ import { useAuth } from "../../app/providers";
 import { GhostButton } from "../../components/GhostButton";
 import { PrimaryButton } from "../../components/PrimaryButton";
 import { PulseIndicator } from "../../components/PulseIndicator";
+import { ScreenHeader } from "../../components/ScreenHeader";
 import { SafeMarkdown } from "../../components/SafeMarkdown";
-import { SettingsAvatarButton } from "../../components/SettingsAvatarButton";
 import { Skeleton } from "../../components/Skeleton";
 import {
   backlogKeys,
@@ -23,7 +23,7 @@ import {
   useConvertBacklogItem,
 } from "../../lib/backlog-mutations";
 import { colors, radii } from "../../theme/tokens";
-import { fontFamily, fontSize, textStyles } from "../../theme/typography";
+import { fontFamily, fontSize } from "../../theme/typography";
 
 /** Vedi `InboxScreen.tsx` per il perché di una costante invece di leggere `styles.body.paddingBottom`. */
 const CONTENT_BASE_BOTTOM_PADDING = 40;
@@ -66,18 +66,24 @@ export function BacklogItemScreen({ navigation, route }: NativeStackScreenProps<
   // Fix di review (Task 2, 11 set 2026): l'avatar, mancante del tutto su
   // questo screen, ora c'è sulla stessa riga — ancorata
   // (`stickyHeaderIndices`, vedi `ScreenHeader.tsx`).
+  //
+  // 16 set 2026: ed è lo STESSO `ScreenHeader` del resto dell'app, col TITOLO
+  // dentro — non più un'intestazione costruita a mano con il solo «indietro»
+  // e l'avatar, col titolo nel corpo che scorre via. Stesso trattamento del
+  // dettaglio di una email: scorrendo un documento lungo si continua a vedere
+  // di quale voce si sta leggendo.
   return (
     <View style={styles.container}>
       <ScrollView
         contentContainerStyle={[styles.body, { paddingBottom: CONTENT_BASE_BOTTOM_PADDING + tabBarHeight }]}
         stickyHeaderIndices={[0]}
       >
-        <View style={styles.headerRow}>
-          <Pressable onPress={() => navigation.goBack()} testID="backlog-item-back" style={styles.backRow}>
-            <Text style={styles.back}>{t("mobile.backlog.item.back")}</Text>
-          </Pressable>
-          <SettingsAvatarButton />
-        </View>
+        <ScreenHeader
+          title={itemQuery.data?.title ?? t("mobile.backlog.item.fallbackTitle")}
+          onBack={() => navigation.goBack()}
+          backLabel={t("mobile.backlog.item.back")}
+          titleNumberOfLines={3}
+        />
 
         {itemQuery.isPending ? (
           <View style={styles.skeletonList} testID="backlog-item-skeleton">
@@ -144,7 +150,6 @@ function ItemBody({
   // "indietro" sopra di lui.
   return (
     <>
-      <Text style={textStyles.screenTitle}>{item.title}</Text>
       {/*
         La pallina dello stato su una riga SUA (16 set 2026): stava accanto ai
         metadati in una riga sola, e il testo le si avvolgeva intorno uscendo

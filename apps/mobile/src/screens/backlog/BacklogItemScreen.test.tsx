@@ -102,7 +102,7 @@ describe("BacklogItemScreen — caricamento ed errori", () => {
   test("il tasto indietro chiama goBack", async () => {
     const { goBack } = await renderScreen(makeClient());
     await waitFor(() => expect(screen.getByText("Accesso clienti con SSO")).toBeTruthy());
-    await fireEvent.press(screen.getByTestId("backlog-item-back"));
+    await fireEvent.press(screen.getByTestId("screen-header-back"));
     expect(goBack).toHaveBeenCalled();
   });
 
@@ -149,6 +149,21 @@ describe("BacklogItemScreen — corpo", () => {
 
     await fireEvent.press(screen.getByText("buono"));
     expect(openURL).toHaveBeenCalledWith("https://esempio.it");
+  });
+
+  test("il titolo sta nell'header ancorato, con indietro e avatar", async () => {
+    // Stesso trattamento del dettaglio di una email (13 set 2026): scorrendo
+    // un documento lungo si continua a vedere di quale voce si sta leggendo.
+    // Prima il titolo stava nel corpo e scorreva via.
+    await renderScreen(makeClient());
+    // ⚠️ Si aspetta il TESTO, non l'header: l'header c'è dal primo render (col
+    // titolo di ripiego), il titolo vero arriva con la query. Aspettare
+    // l'header guarderebbe un istante in cui il titolo non c'è ancora — è la
+    // stessa corsa che avevo scritto nel test del dettaglio email il 13 set
+    // 2026 e che mi era stata corretta.
+    await waitFor(() => expect(screen.getByText("Accesso clienti con SSO")).toBeTruthy());
+    expect(screen.getByTestId("screen-header-back")).toBeTruthy();
+    expect(screen.getByTestId("settings-avatar-button")).toBeTruthy();
   });
 
   test("il documento è RESO come markdown, non mostrato grezzo", async () => {
