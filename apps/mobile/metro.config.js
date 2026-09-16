@@ -19,10 +19,26 @@ const config = {
   // cui arrivano react-native, @babel/runtime e le loro dipendenze. Senza
   // questa riga il bundle fallisce con "Unable to resolve module
   // @babel/runtime/...". I symlink Metro 0.87 li segue da sé (l'opzione
-  // unstable_enableSymlinks non esiste più) e nodeModulesPaths non serve: dal
-  // realpath di packages/shared la lookup gerarchica risale già allo store.
+  // unstable_enableSymlinks non esiste più).
   watchFolders: [root],
   resolver: {
+    // ⚠️ Qui c'era scritto che `nodeModulesPaths` «non serve, dal realpath di
+    // packages/shared la lookup gerarchica risale già allo store». Era vero
+    // solo finché nessun file di un package del workspace aveva bisogno di un
+    // helper di Babel: il 16 set 2026 `packages/shared/dist/
+    // calendar-recurrence.js` ne ha avuto uno e il bundle è fallito con
+    // «Unable to resolve module @babel/runtime/helpers/interopRequireDefault».
+    //
+    // Il motivo è pnpm: `@babel/runtime` lo dichiara `apps/mobile`, quindi sta
+    // in `apps/mobile/node_modules` — e la risalita gerarchica da
+    // `packages/shared` non ci passa mai (sale a `<root>/node_modules`, dove
+    // pnpm non lo espone). Metro trasforma con Babel ANCHE i file fuori dalla
+    // project root, quindi gli helper servono lì quanto qui.
+    //
+    // Questo dice a Metro di cercare, come ultima risorsa, anche nei
+    // node_modules dell'APP: vale per qualunque modulo, non solo per questo —
+    // è la classe di problema che si chiude, non l'istanza.
+    nodeModulesPaths: [path.join(__dirname, "node_modules"), path.join(root, "node_modules")],
     // I git worktree del repo stanno in <root>/.worktrees/ e hanno ognuno il
     // proprio node_modules/.pnpm: senza questo, Metro lanciato dalla checkout
     // principale li crawlerebbe tutti. Il pattern è ancorato a `root` e NON
