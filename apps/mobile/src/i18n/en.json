@@ -192,6 +192,11 @@
           "acknowledge_reminder": "Noted, do nothing",
           "ignore": "Do nothing"
         }
+      },
+      "tabs": {
+        "yours": "Yours · {{count}}",
+        "waiting": "Waiting · {{count}}",
+        "projects": "Projects · {{count}}"
       }
     },
     "projects": {

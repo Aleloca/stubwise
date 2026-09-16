@@ -170,6 +170,31 @@ describe("InboxScreen", () => {
     expect(screen.getByTestId("question-card-respond")).toBeTruthy();
   });
 
+  test("tre schede, e l'altra scheda NON si vede", async () => {
+    // Il punto della divisione (16 set 2026): al momento della scelta, in
+    // produzione, 33 notifiche chiedevano una decisione e 96 non chiedevano
+    // niente — le prime annegavano nelle seconde.
+    const informativa = item({ id: "r1", kind: "review.completed", text: "Review finita su PR #12", actions: ["handled"] });
+    const client = makeClient({
+      list: jest.fn().mockResolvedValue({ items: [QUESTION_ITEM, informativa], nextCursor: null }),
+    });
+    await renderScreen(client);
+
+    await waitFor(() => expect(screen.getByTestId("inbox-tab-yours")).toBeTruthy());
+    expect(screen.getByTestId("inbox-tab-waiting")).toBeTruthy();
+    expect(screen.getByTestId("inbox-tab-projects")).toBeTruthy();
+
+    // Si parte da «Tue»: la domanda c'è, l'informativa no.
+    expect(screen.getByText("Il reso può superare il pagato?")).toBeTruthy();
+    expect(screen.queryByText("Review finita su PR #12")).toBeNull();
+
+    // E cambiando scheda si inverte: se il filtro non funzionasse, questa
+    // riga troverebbe entrambe.
+    await fireEvent.press(screen.getByTestId("inbox-tab-projects"));
+    await waitFor(() => expect(screen.getByText("Review finita su PR #12")).toBeTruthy());
+    expect(screen.queryByText("Il reso può superare il pagato?")).toBeNull();
+  });
+
   test("con righe aperte: divide nelle sezioni e mostra il conteggio", async () => {
     const client = makeClient({ list: jest.fn().mockResolvedValue({ items: [QUESTION_ITEM], nextCursor: null }) });
     await renderScreen(client);

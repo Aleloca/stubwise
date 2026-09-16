@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { InboxStackParamList } from "../../app/navigation";
 import { useTranslation } from "react-i18next";
-import { Linking, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import { useAuth } from "../../app/providers";
 import { GhostButton } from "../../components/GhostButton";
@@ -17,7 +17,7 @@ import { Skeleton } from "../../components/Skeleton";
 import { inboxKeys } from "../../lib/inbox-mutations";
 import type { InboxSections } from "../../lib/inbox-sections";
 import { sectionize } from "../../lib/inbox-sections";
-import { colors } from "../../theme/tokens";
+import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
 
 /**
@@ -39,6 +39,29 @@ const SECTION_ORDER: { key: keyof InboxSections; labelKey: string; amber: boolea
   { key: "fromProjects", labelKey: "mobile.inbox.sections.fromProjects", amber: false },
 ];
 
+/**
+ * LE TRE SCHEDE dell'inbox (16 set 2026, scelta del maintainer, stesso
+ * meccanismo dello scambio in MBX).
+ *
+ * Le sezioni esistevano già tutte e quattro: qui si decide solo QUALI si
+ * vedono insieme. Il motivo sono i numeri veri — al 16 set 2026, 33 notifiche
+ * chiedono una decisione e 96 non chiedono niente: le prime annegavano nelle
+ * seconde in un elenco unico.
+ *
+ * ⚠️ «In attesa di altri» ha una scheda SUA e non sta con le tue: è lavoro
+ * che hai avviato tu e che è fermo da qualcun altro — né azionabile ora, né
+ * una notizia di sfondo. Avevo raccomandato due schede (costa due tap in più
+ * su una sezione spesso vuota); il maintainer ha scelto tre, per non
+ * mescolare «posso agire» con «sto aspettando».
+ */
+const INBOX_TABS: { tab: InboxTab; i18nKey: string; sections: (keyof InboxSections)[] }[] = [
+  { tab: "yours", i18nKey: "mobile.inbox.tabs.yours", sections: ["blocksYou", "onlyYouMaintainer"] },
+  { tab: "waiting", i18nKey: "mobile.inbox.tabs.waiting", sections: ["waitingOthers"] },
+  { tab: "projects", i18nKey: "mobile.inbox.tabs.projects", sections: ["fromProjects"] },
+];
+
+type InboxTab = "yours" | "waiting" | "projects";
+
 /** Nome del progetto della riga: risolto dalla lista progetti, o — solo sul pulse — dal payload dell'evento. */
 function resolveProjectName(item: Reader<InboxItem>, projectsById: Map<string, string>): string | undefined {
   if (item.projectId !== null) return projectsById.get(item.projectId);
@@ -56,6 +79,7 @@ function resolveProjectName(item: Reader<InboxItem>, projectsById: Map<string, s
  * comparirebbe due volte.
  */
 export function InboxScreen({ navigation }: NativeStackScreenProps<InboxStackParamList, "List">) {
+  const [tab, setTab] = useState<InboxTab>("yours");
   const { t } = useTranslation();
   const { client, user } = useAuth();
   const tabBarHeight = useBottomTabBarHeight();
@@ -151,8 +175,15 @@ export function InboxScreen({ navigation }: NativeStackScreenProps<InboxStackPar
               </View>
             )}
 
+            <InboxTabs
+              tab={tab}
+              onChange={setTab}
+              sections={sectionize(query.data.items, { role: viewerRole })}
+            />
+
             <InboxSectionsList
               sections={sectionize(query.data.items, { role: viewerRole })}
+              only={INBOX_TABS.find((option) => option.tab === tab)!.sections}
               projectsById={projectsById}
               onOpenProposal={(id) => navigation.navigate("Proposal", { id })}
             />
@@ -179,16 +210,20 @@ function subtitleFor(
 
 function InboxSectionsList({
   sections,
+  only,
   projectsById,
   onOpenProposal,
 }: {
   sections: InboxSections;
+  /** Le sole sezioni della scheda attiva (16 set 2026). */
+  only: (keyof InboxSections)[];
   projectsById: Map<string, string>;
   /** Apre la pagina della decisione di una proposta Google (16 set 2026). */
   onOpenProposal: (id: string) => void;
 }) {
   const { t } = useTranslation();
-  const isEmpty = SECTION_ORDER.every(({ key }) => sections[key].length === 0);
+  const visible = SECTION_ORDER.filter(({ key }) => only.includes(key));
+  const isEmpty = visible.every(({ key }) => sections[key].length === 0);
 
   if (isEmpty) {
     return (
@@ -202,7 +237,7 @@ function InboxSectionsList({
 
   return (
     <>
-      {SECTION_ORDER.map(({ key, labelKey, amber }) => {
+      {visible.map(({ key, labelKey, amber }) => {
         const items = sections[key];
         if (items.length === 0) return null;
         return (
@@ -228,6 +263,33 @@ function InboxSectionsList({
 }
 
 const styles = StyleSheet.create({
+  // Stessi stili dello scambio di MBX: due estetiche diverse per lo stesso
+  // gesto sarebbero due cose da tenere allineate.
+  switchRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  switchOption: {
+    borderColor: colors.lineStrong,
+    borderRadius: radii.control,
+    borderWidth: 1,
+    flex: 1,
+    paddingVertical: 8,
+  },
+  switchOptionActive: {
+    borderColor: colors.signalDim,
+  },
+  switchLabel: {
+    color: colors.muted,
+    fontFamily: fontFamily.mono,
+    fontSize: 12,
+    letterSpacing: 0.6,
+    textAlign: "center",
+    textTransform: "uppercase",
+  },
+  switchLabelActive: {
+    color: colors.signal,
+  },
   container: {
     backgroundColor: colors.ink950,
     flex: 1,
@@ -320,3 +382,40 @@ const styles = StyleSheet.create({
     gap: 8,
   },
 });
+
+/** Lo scambio fra le tre schede, con quante voci ha ciascuna. */
+function InboxTabs({
+  tab,
+  onChange,
+  sections,
+}: {
+  tab: InboxTab;
+  onChange: (tab: InboxTab) => void;
+  sections: InboxSections;
+}) {
+  const { t } = useTranslation();
+  return (
+    <View style={styles.switchRow} testID="inbox-switch">
+      {INBOX_TABS.map((option) => {
+        const active = option.tab === tab;
+        // Il CONTEGGIO nell'etichetta: è il punto dell'intera divisione —
+        // sapere da che parte sta il lavoro senza cambiare scheda.
+        const count = option.sections.reduce((sum, key) => sum + sections[key].length, 0);
+        return (
+          <Pressable
+            key={option.tab}
+            accessibilityRole="button"
+            accessibilityState={{ selected: active }}
+            onPress={() => onChange(option.tab)}
+            style={[styles.switchOption, active && styles.switchOptionActive]}
+            testID={`inbox-tab-${option.tab}`}
+          >
+            <Text style={[styles.switchLabel, active && styles.switchLabelActive]}>
+              {t(option.i18nKey, { count })}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}

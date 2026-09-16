@@ -192,6 +192,11 @@
           "acknowledge_reminder": "Ho letto, non fare niente",
           "ignore": "Non fare niente"
         }
+      },
+      "tabs": {
+        "yours": "Tue · {{count}}",
+        "waiting": "In attesa · {{count}}",
+        "projects": "Progetti · {{count}}"
       }
     },
     "projects": {
