@@ -397,9 +397,16 @@ const styles = StyleSheet.create({
  * quella forma esiste già in quest'app e regge una voce nuova senza
  * ridisegnare niente.
  *
- * Una scheda VUOTA resta premibile e lo dice (`· 0`): nasconderla farebbe
- * ballare la riga a ogni carattere digitato, e «qui non c'è niente» è
- * un'informazione, non un motivo per sparire.
+ * ⚠️ Una scheda VUOTA non si mostra (richiesta del maintainer, poche ore dopo
+ * la prima stesura). Avevo argomentato il contrario — «nasconderla farebbe
+ * ballare la riga a ogni carattere digitato» — e l'argomento era sbagliato:
+ * i conteggi cambiano solo quando la ricerca si ASSESTA (la query è
+ * `debounced`), non a ogni tasto, quindi la riga si ridisegna poche volte per
+ * ricerca. Restava vero solo il fastidio opposto: «Ticket · 0» è rumore.
+ *
+ * Il caso vero da gestire è un altro, ed è gestito qui sotto: se la scheda
+ * ATTIVA si svuota mentre scrivi, sparirebbe sotto il dito lasciando un
+ * filtro applicato e nessuna scheda accesa. Si ricade su «tutto».
  */
 const SEARCH_FILTERS: SearchFilter[] = ["all", "mail", "tickets", "docs", "projects"];
 
@@ -424,6 +431,15 @@ function SearchFilters({
   };
   counts.all = counts.mail + counts.tickets + counts.docs + counts.projects;
 
+  const visible = SEARCH_FILTERS.filter((option) => option === "all" || counts[option] > 0);
+
+  // La scheda attiva si è svuotata mentre si scriveva: si torna su «tutto»,
+  // altrimenti resterebbe un filtro applicato senza nessuna scheda accesa —
+  // uno schermo vuoto senza un modo ovvio di uscirne.
+  useEffect(() => {
+    if (!visible.includes(filter)) onChange("all");
+  }, [visible, filter, onChange]);
+
   return (
     <ScrollView
       horizontal
@@ -432,7 +448,7 @@ function SearchFilters({
       keyboardShouldPersistTaps="handled"
       testID="global-search-filters"
     >
-      {SEARCH_FILTERS.map((option) => {
+      {visible.map((option) => {
         const active = option === filter;
         return (
           <Pressable

@@ -161,13 +161,38 @@ describe("GlobalSearchSheet", () => {
     await waitFor(() => expect(global).toHaveBeenCalledTimes(1));
   });
 
-  it("una scheda vuota resta premibile e lo dice, invece di sparire", async () => {
-    // Nasconderla farebbe ballare la riga a ogni carattere digitato.
+  it("una scheda senza risultati NON si mostra", async () => {
+    // Richiesta del maintainer: «Ticket · 0» è rumore. La mia obiezione
+    // («la riga ballerebbe a ogni tasto») era sbagliata: i conteggi cambiano
+    // solo quando la ricerca si assesta.
     const global = jest.fn().mockResolvedValue(results({ docs: { items: [], hasMore: false } }));
     const view = await renderSheet(global);
     fireEvent.changeText(view.getByTestId("global-search-input"), "fattura");
     await view.findByTestId("global-search-ticket-t1");
-    expect(view.getByTestId("global-search-filter-docs")).toBeTruthy();
+    expect(view.queryByTestId("global-search-filter-docs")).toBeNull();
+    // «Tutto» c'è sempre, anche quando è l'unica.
+    expect(view.getByTestId("global-search-filter-all")).toBeTruthy();
+  });
+
+  it("se la scheda ATTIVA si svuota, si torna su «tutto» invece di restare a schermo vuoto", async () => {
+    // Il caso vero che nascondere le schede introduce: la scheda sotto il
+    // dito sparisce, e senza questo ripiego resterebbe un filtro applicato
+    // senza nessuna scheda accesa.
+    const conPosta = results();
+    const senzaPosta = results({ mail: { items: [], hasMore: false } });
+    const global = jest.fn().mockResolvedValueOnce(conPosta).mockResolvedValue(senzaPosta);
+    const view = await renderSheet(global);
+
+    fireEvent.changeText(view.getByTestId("global-search-input"), "fattura");
+    await view.findByTestId("global-search-filter-mail");
+    await fireEvent.press(view.getByTestId("global-search-filter-mail"));
+    expect(view.queryByTestId("global-search-ticket-t1")).toBeNull();
+
+    // Ora la posta sparisce dai risultati: la scheda non c'è più, e il
+    // filtro NON deve restare appeso a un tipo che non esiste.
+    fireEvent.changeText(view.getByTestId("global-search-input"), "fatturazione");
+    await waitFor(() => expect(view.queryByTestId("global-search-filter-mail")).toBeNull());
+    await waitFor(() => expect(view.getByTestId("global-search-ticket-t1")).toBeTruthy());
   });
 
   it("⚠️ i REPOSITORY non compaiono: l'app non ha dove portarli", async () => {
