@@ -1,5 +1,5 @@
 import type { Reader, SearchResults } from "@stubwise/shared";
-import { isUnknown } from "@stubwise/shared";
+import { isUnknown, searchSnippetSegments } from "@stubwise/shared";
 import { useNavigation } from "@react-navigation/native";
 import type { NavigationProp } from "@react-navigation/native";
 import { useQuery } from "@tanstack/react-query";
@@ -272,11 +272,38 @@ function Groups({
  * è la parte che non deve muoversi mentre la forma cambia.
  *
  * ⚠️ Tutto ciò che viene dall'email — oggetto, mittente, destinatari, copia —
- * è testo NON FIDATO, e lo `snippet` contiene il markup `<mark>` di
- * `ts_headline`. `<Text>` di React Native non interpreta markup, quindi non
- * c'è niente da escapare: si rende come testo e basta, e non si apre nessuna
- * strada di rendering nuova.
+ * è testo NON FIDATO, e lo `snippet` porta i marcatori **`<b>`** di
+ * `ts_headline` (non `<mark>`: era un errore del design, corretto guardando
+ * cosa arriva davvero) più il markdown del corpo da cui è ritagliato.
+ * `searchSnippetSegments` (`@stubwise/shared`) toglie entrambi e dice quale
+ * pezzo era marcato, così si rende in grassetto invece di stamparlo com'è —
+ * il difetto che il maintainer ha visto il 16 set 2026. `<Text>` di React
+ * Native non interpreta markup, quindi non c'è niente da escapare e non si
+ * apre nessuna strada di rendering nuova.
  */
+
+/**
+ * L'estratto, con in grassetto il pezzo che ha fatto comparire il risultato.
+ *
+ * Il grassetto NON è decorazione: in un elenco dice perché quella riga è lì,
+ * soprattutto quando il termine cercato è sepolto nell'estratto e non sta né
+ * nell'oggetto né nel titolo. La palette del web invece lo appiattisce
+ * (`plainSearchSnippet`), perché lì la riga è una sola.
+ */
+function SnippetText({ snippet }: { snippet: string | null }) {
+  if (snippet === null || snippet === "") return null;
+  const segments = searchSnippetSegments(snippet);
+  if (segments.length === 0) return null;
+  return (
+    <Text style={styles.snippet} numberOfLines={2}>
+      {segments.map((segment, index) => (
+        <Text key={index} style={segment.highlighted ? styles.snippetMatch : undefined}>
+          {segment.text}
+        </Text>
+      ))}
+    </Text>
+  );
+}
 
 /** Il guscio comune: l'area premibile e lo snippet in fondo. Il resto lo mette ogni riga. */
 function RowShell({
@@ -293,11 +320,7 @@ function RowShell({
   return (
     <Pressable accessibilityRole="button" onPress={onPress} style={styles.row} testID={testID}>
       {children}
-      {snippet !== null && snippet !== "" && (
-        <Text style={styles.snippet} numberOfLines={2}>
-          {snippet}
-        </Text>
-      )}
+      <SnippetText snippet={snippet} />
     </Pressable>
   );
 }
@@ -521,6 +544,18 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
     marginTop: 5,
+  },
+  /**
+   * Il pezzo che ha combaciato. Peso E colore: l'estratto è `colors.muted`, e
+   * su un fondo scuro il solo grassetto si distingue poco — portare la parola
+   * trovata al colore del testo pieno la stacca senza aggiungere un accento
+   * che competerebbe con `colors.signal`, che in questa app vuol dire «serve
+   * una tua decisione».
+   */
+  snippetMatch: {
+    color: colors.fg,
+    fontFamily: fontFamily.sansSemiBold,
+    fontWeight: "600",
   },
   mailTop: {
     alignItems: "baseline",

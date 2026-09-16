@@ -6,6 +6,7 @@ import type {
   SearchHistoryItem,
   SearchResults,
 } from "@stubwise/shared";
+import { plainSearchSnippet } from "@stubwise/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -83,27 +84,18 @@ const SLOW_DEBOUNCE_MS = 600;
 const PER_GROUP_VISIBLE = 5;
 
 /**
- * Riduce uno snippet markdown a testo leggibile per l'anteprima: rimuove la
- * sintassi che renderizzata grezza confonde e collassa gli spazi. Non è un parser
- * completo: basta a ripulire i frammenti dei chunk/pagine e gli `<b>` di
- * `ts_headline`.
+ * Riduce uno snippet a testo leggibile per l'anteprima.
+ *
+ * Il corpo di questa funzione viveva qui e SOLO qui, ed è per questo che l'app
+ * mobile mostrava `<b>` scritto in chiaro nelle righe della ricerca (16 set
+ * 2026). Ora la regola sta in `@stubwise/shared`
+ * (`plainSearchSnippet`/`searchSnippetSegments`) e la usano entrambe: il
+ * comportamento del web non cambia di una virgola — questa palette ha righe di
+ * UNA riga sola, dove il grassetto costerebbe più di quanto renda — ma smette
+ * di essere l'unico posto in cui la regola esiste.
  */
 function plainTextPreview(markdown: string): string {
-  return markdown
-    .replace(/<\/?b>/g, "") // <b> di ts_headline (full-text)
-    .replace(/```[\s\S]*?```/g, " ") // blocchi di codice
-    .replace(/`([^`]+)`/g, "$1") // codice inline
-    .replace(/!\[[^\]]*\]\([^)]*\)/g, " ") // immagini
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1") // link → testo
-    .replace(/^#{1,6}\s+/gm, "") // heading
-    .replace(/^\s{0,3}>\s?/gm, "") // citazioni
-    .replace(/^\s*[-*+]\s+/gm, "") // elenchi puntati
-    .replace(/^\s*\d+\.\s+/gm, "") // elenchi numerati
-    .replace(/(\*\*|__)(.*?)\1/g, "$2") // grassetto
-    .replace(/(\*|_)(.*?)\1/g, "$2") // corsivo
-    .replace(/~~(.*?)~~/g, "$2") // barrato
-    .replace(/\s+/g, " ") // collassa spazi/newline
-    .trim();
+  return plainSearchSnippet(markdown);
 }
 
 /** Doc fuso (full-text + semantico) del gruppo Docs. */

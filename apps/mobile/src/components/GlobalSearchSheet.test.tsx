@@ -372,7 +372,42 @@ describe("GlobalSearchSheet", () => {
     await waitFor(() => expect(view.getByTestId("global-search-ticket-t1")).toBeTruthy());
   });
 
-  it("⚠️ i REPOSITORY non compaiono: l'app non ha dove portarli", async () => {
+it("⚠️ i marcatori `<b>` di ts_headline NON finiscono a schermo", async () => {
+    // Il difetto che il maintainer ha visto il 16 set 2026, sul telefono:
+    // «sia nell'anteprima delle mail che qui vedo i tag tipo "<b>"». Il web li
+    // toglieva da sempre, l'app no. Ora il pezzo marcato si rende in grassetto
+    // (`searchSnippetSegments`), e di `<b>` non ne deve restare traccia.
+    const global = jest.fn().mockResolvedValue(
+      results({
+        tickets: {
+          items: [
+            {
+              id: "t1",
+              number: 27,
+              title: "Error: write EPIPE",
+              status: "open",
+              snippet: "durante l'<b>export</b> del CSV corriere",
+              projectId: "p1",
+              projectName: "Trion Labs",
+            },
+          ],
+          hasMore: false,
+        },
+      }),
+    );
+    const view = await renderSheet(global);
+    fireEvent.changeText(view.getByTestId("global-search-input"), "export");
+    await view.findByTestId("global-search-ticket-t1");
+
+    expect(view.queryByText(/<b>/)).toBeNull();
+    // E il testo resta leggibile: la parola evidenziata non si attacca a
+    // quella dopo, che è il modo in cui una pulizia fatta pezzo per pezzo si
+    // rompe.
+    expect(view.getByText("export")).toBeTruthy();
+    expect(view.getByText(" del CSV corriere")).toBeTruthy();
+  });
+
+    it("⚠️ i REPOSITORY non compaiono: l'app non ha dove portarli", async () => {
     // Una riga che non porta da nessuna parte è peggio di una riga assente —
     // chi la tocca pensa che l'app sia rotta. Stessa regola di `EventRow`.
     const global = jest.fn().mockResolvedValue(results());
