@@ -1,24 +1,23 @@
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { ApiError } from "@stubwise/api-client";
-import { isSafeWebUrl } from "@stubwise/shared";
 import type { BacklogItemDetail, Reader } from "@stubwise/shared";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import Markdown from "react-native-markdown-display";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import type { BacklogStackParamList } from "../../app/navigation";
-import { MARKDOWN_STYLE } from "../../theme/markdown";
 import { useAuth } from "../../app/providers";
 import { GhostButton } from "../../components/GhostButton";
 import { PrimaryButton } from "../../components/PrimaryButton";
 import { PulseIndicator } from "../../components/PulseIndicator";
+import { SafeMarkdown } from "../../components/SafeMarkdown";
 import { SettingsAvatarButton } from "../../components/SettingsAvatarButton";
 import { Skeleton } from "../../components/Skeleton";
 import {
   backlogKeys,
   backlogMetaParts,
   backlogStatusLabelKey,
+  backlogDocumentBody,
   backlogStatusTone,
   navigateToTicketWork,
   useConvertBacklogItem,
@@ -146,10 +145,17 @@ function ItemBody({
   return (
     <>
       <Text style={textStyles.screenTitle}>{item.title}</Text>
-      <View style={styles.metaRow}>
+      {/*
+        La pallina dello stato su una riga SUA (16 set 2026): stava accanto ai
+        metadati in una riga sola, e il testo le si avvolgeva intorno uscendo
+        dal bordo destro — «rischio medio» finiva tagliato a metà. Qui lo
+        spazio verticale c'è, e due righe che non si contendono la larghezza
+        si leggono meglio di una che sborda.
+      */}
+      <View style={styles.statusRow}>
         <PulseIndicator tone={backlogStatusTone(item.status)} text={t(backlogStatusLabelKey(item.status))} />
-        <Text style={styles.meta}>{metaText}</Text>
       </View>
+      <Text style={styles.meta}>{metaText}</Text>
 
       {item.document.trim() === "" ? (
         <Text style={styles.document}>{t("mobile.backlog.item.noDocument")}</Text>
@@ -170,16 +176,7 @@ function ItemBody({
          * renderer, lasciato a sé, aprirebbe QUALUNQUE href — e una voce di
          * backlog può nascere anche da testo che non abbiamo scritto noi.
          */
-        <Markdown
-          style={MARKDOWN_STYLE}
-          onLinkPress={(url) => {
-            if (isSafeWebUrl(url)) void Linking.openURL(url);
-            // `false` sempre: l'apertura la decidiamo noi, mai la libreria.
-            return false;
-          }}
-        >
-          {item.document}
-        </Markdown>
+        <SafeMarkdown>{backlogDocumentBody(item.document, item.title)}</SafeMarkdown>
       )}
 
       {(isReady || canRefine) && (
@@ -279,10 +276,9 @@ const styles = StyleSheet.create({
     padding: 20,
     paddingBottom: 40,
   },
-  metaRow: {
-    alignItems: "center",
+  statusRow: {
+    alignItems: "flex-start",
     flexDirection: "row",
-    gap: 10,
     marginTop: 8,
   },
   meta: {

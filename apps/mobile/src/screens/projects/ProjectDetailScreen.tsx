@@ -4,8 +4,8 @@ import type { ProjectPulseSummary, Reader } from "@stubwise/shared";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { SafeMarkdown } from "../../components/SafeMarkdown";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import Markdown from "react-native-markdown-display";
 import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import type { ProjectsStackParamList } from "../../app/navigation";
 import { useAuth } from "../../app/providers";
@@ -16,7 +16,6 @@ import { SettingsAvatarButton } from "../../components/SettingsAvatarButton";
 import { Skeleton } from "../../components/Skeleton";
 import { pulseLineFor } from "../../lib/pulse-line";
 import { projectsPulseKey } from "./ProjectsScreen";
-import { MARKDOWN_STYLE } from "../../theme/markdown";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, textStyles } from "../../theme/typography";
 
@@ -250,7 +249,7 @@ function BriefRow({ projectId }: { projectId: string }) {
             // Markdown come il piano e le pagine Docs: `MARKDOWN_STYLE` è
             // l'unica definizione dello stile, e markdown-it ha `html: false`
             // di default (vedi la nota in `components/work/PlanSection.tsx`).
-            <Markdown style={MARKDOWN_STYLE}>{text}</Markdown>
+            <SafeMarkdown>{text}</SafeMarkdown>
           ) : latest !== undefined && !isUnknown(latest.status) && latest.status === "failed" ? (
             <Text style={styles.reportMeta}>{t("mobile.projects.detail.brief.failed")}</Text>
           ) : (

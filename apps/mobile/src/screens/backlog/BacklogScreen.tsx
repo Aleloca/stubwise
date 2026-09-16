@@ -13,6 +13,7 @@ import { PulseIndicator } from "../../components/PulseIndicator";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { Skeleton } from "../../components/Skeleton";
 import {
+  backlogDatesPart,
   backlogMetaParts,
   backlogStatusLabelKey,
   backlogStatusTone,
@@ -212,9 +213,10 @@ interface BacklogListCardProps {
 
 function BacklogListCard({ item, proceedPending, onProceed, projectName, onOpenDetail }: BacklogListCardProps) {
   const { t } = useTranslation();
-  const metaText = backlogMetaParts(item, projectName)
+  const metaText = backlogMetaParts(item)
     .map((part) => t(part.key, part.params))
     .join(" · ");
+  const datesPart = backlogDatesPart(item);
   const isReady = item.status === "ready";
   const isClosed = item.status === "converted" || item.status === "archived";
 
@@ -227,6 +229,19 @@ function BacklogListCard({ item, proceedPending, onProceed, projectName, onOpenD
           {item.title}
         </Text>
         <PulseIndicator tone={backlogStatusTone(item.status)} text={t(backlogStatusLabelKey(item.status))} />
+      </View>
+      {/*
+        Riga d'IDENTITÀ (16 set 2026): progetto a sinistra, date a destra.
+        Prima progetto, date e stime stavano tutti in UNA riga di metadati
+        indistinta che andava a capo comunque — il peggio dei due mondi. Sono
+        tre domande diverse («di cosa parla», «quando», «quanto lavoro è») e
+        ognuna ha la sua riga, così l'occhio le separa senza leggerle tutte.
+      */}
+      <View style={styles.cardIdentity}>
+        <Text style={styles.cardProject} numberOfLines={1}>
+          {projectName ?? ""}
+        </Text>
+        <Text style={styles.cardDates}>{t(datesPart.key, datesPart.params)}</Text>
       </View>
       <Text style={styles.cardMeta}>{metaText}</Text>
     </>
@@ -400,6 +415,25 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.sansSemiBold,
     fontSize: 15,
     fontWeight: "600",
+  },
+  cardIdentity: {
+    alignItems: "baseline",
+    flexDirection: "row",
+    gap: 10,
+    justifyContent: "space-between",
+    marginTop: 6,
+  },
+  cardProject: {
+    color: colors.fg,
+    flexShrink: 1,
+    fontFamily: fontFamily.sansSemiBold,
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  cardDates: {
+    color: colors.faint,
+    fontFamily: fontFamily.mono,
+    fontSize: fontSize.label,
   },
   cardMeta: {
     color: colors.faint,

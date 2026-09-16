@@ -331,9 +331,8 @@
         "urgent": "urgente"
       },
       "meta": {
-        "project": "{{name}}",
         "created": "creata {{date}}",
-        "updated": "agg. {{date}}",
+        "createdAndUpdated": "creata {{created}} · agg. {{updated}}",
         "effort": "E{{value}}",
         "riskLow": "rischio basso",
         "riskMedium": "rischio medio",

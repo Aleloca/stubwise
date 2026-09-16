@@ -2,8 +2,8 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { ApiError } from "@stubwise/api-client";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
+import { SafeMarkdown } from "../../components/SafeMarkdown";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import Markdown from "react-native-markdown-display";
 import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import type { DocsStackParamList } from "../../app/navigation";
 import { useAuth } from "../../app/providers";
@@ -13,7 +13,6 @@ import { SettingsAvatarButton } from "../../components/SettingsAvatarButton";
 import { Skeleton } from "../../components/Skeleton";
 import { docsKeys, docsKindLabelKey } from "../../lib/docs-mutations";
 import { colors } from "../../theme/tokens";
-import { MARKDOWN_STYLE } from "../../theme/markdown";
 import { fontFamily, textStyles } from "../../theme/typography";
 
 /** Vedi `InboxScreen.tsx` per il perché di una costante invece di leggere `styles.body.paddingBottom`. */
@@ -88,7 +87,7 @@ export function DocsPageScreen({ navigation, route }: NativeStackScreenProps<Doc
           <>
             <SectionLabel>{t(docsKindLabelKey(pageQuery.data!.kind))}</SectionLabel>
             <Text style={[textStyles.screenTitle, styles.title]}>{pageQuery.data!.title}</Text>
-            <Markdown style={MARKDOWN_STYLE}>{pageQuery.data!.body}</Markdown>
+            <SafeMarkdown>{pageQuery.data!.body}</SafeMarkdown>
           </>
         )}
       </ScrollView>

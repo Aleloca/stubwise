@@ -108,24 +108,14 @@ export interface BacklogMetaPart {
  * altrimenti "richiesto N volte" se la voce ha più richiedenti; altrimenti
  * "N ticket collegati" se già linkata a dei ticket; altrimenti nessun extra.
  */
-export function backlogMetaParts(
-  item: {
-    status: BacklogItemStatus | Unknown;
-    urgency: TicketPriority | Unknown | null;
-    effort: number | null;
-    risk: BacklogRisk | Unknown | null;
-    requestCount: number;
-    ticketCount: number;
-    createdAt?: string;
-    updatedAt?: string;
-  },
-  /**
-   * Il NOME del progetto, che la risposta non porta (ha solo `projectId`): lo
-   * risolve il chiamante, che l'elenco progetti ce l'ha già. `undefined` =
-   * non mostrarlo, invece di un id crudo che non dice niente a nessuno.
-   */
-  projectName?: string,
-): BacklogMetaPart[] {
+export function backlogMetaParts(item: {
+  status: BacklogItemStatus | Unknown;
+  urgency: TicketPriority | Unknown | null;
+  effort: number | null;
+  risk: BacklogRisk | Unknown | null;
+  requestCount: number;
+  ticketCount: number;
+}): BacklogMetaPart[] {
   // Un'urgenza/rischio `Unknown` (server più nuovo, valore che questa build
   // non conosce — vedi `packages/shared/src/reader.ts`) si tratta come
   // ASSENTE: mostrare il segnaposto grezzo confonderebbe l'utente più che
@@ -133,27 +123,11 @@ export function backlogMetaParts(
   const urgency = item.urgency !== null && !isUnknown(item.urgency) ? item.urgency : null;
   const risk = item.risk !== null && !isUnknown(item.risk) ? item.risk : null;
 
-  // Il progetto e le date NON dipendono dalla stima: valgono anche per una
-  // voce ancora in intake, ed è anzi lì che servono di più — una voce ferma
-  // da settimane si riconosce da quando è stata toccata l'ultima volta.
-  const identity: BacklogMetaPart[] = [];
-  if (projectName !== undefined) identity.push({ key: "mobile.backlog.meta.project", params: { name: projectName } });
-  if (item.createdAt !== undefined) {
-    identity.push({ key: "mobile.backlog.meta.created", params: { date: shortDate(item.createdAt) } });
-  }
-  // Anche l'aggiornamento in forma BREVE e non in relativo: comporre «2 g fa»
-  // a mano vorrebbe dire scavalcare i plurali dell'i18n, e su una card
-  // accanto a «creata 15/06» due date nella stessa forma si confrontano a
-  // colpo d'occhio — che è la domanda vera («è ferma da quando è nata?»).
-  if (item.updatedAt !== undefined) {
-    identity.push({ key: "mobile.backlog.meta.updated", params: { date: shortDate(item.updatedAt) } });
-  }
-
   if (urgency === null && item.effort === null && risk === null) {
-    return [...identity, { key: "mobile.backlog.meta.estimating" }];
+    return [{ key: "mobile.backlog.meta.estimating" }];
   }
 
-  const parts: BacklogMetaPart[] = [...identity];
+  const parts: BacklogMetaPart[] = [];
   if (urgency !== null) parts.push({ key: URGENCY_LABEL_KEYS[urgency] });
   if (item.effort !== null) parts.push({ key: "mobile.backlog.meta.effort", params: { value: item.effort } });
   if (risk !== null) parts.push({ key: RISK_LABEL_KEYS[risk] });
@@ -487,4 +461,51 @@ export function navigateToTicketWork(navigation: { navigate: (...args: never[]) 
     screen: "Projects",
     params: { screen: "Ticket", params: { id: ticketId } },
   });
+}
+
+/**
+ * Le date di una voce, per la riga d'IDENTITÀ della card (16 set 2026): non
+ * stanno insieme alle stime perché rispondono a un'altra domanda — «quando» e
+ * non «quanto lavoro è».
+ *
+ * ⚠️ L'aggiornamento compare **solo se diverso** dalla creazione. Sui dati
+ * veri del maintainer le due coincidono su quasi ogni voce, e ripeterle due
+ * volte di fila è rumore che occupa la riga senza dire niente: due date uguali
+ * accanto sono peggio di una sola, perché fanno cercare una differenza che non
+ * c'è.
+ *
+ * Senza ANNO sulla card, a differenza del dettaglio: `15/09` basta a
+ * collocare una voce fra quelle che si stanno scorrendo, e i sei caratteri
+ * risparmiati sono quelli che tengono il nome del progetto sulla stessa riga.
+ */
+export function backlogDatesPart(item: { createdAt: string; updatedAt: string }): BacklogMetaPart {
+  const created = shortDate(item.createdAt).slice(0, 5);
+  const updated = shortDate(item.updatedAt).slice(0, 5);
+  return created === updated
+    ? { key: "mobile.backlog.meta.created", params: { date: created } }
+    : { key: "mobile.backlog.meta.createdAndUpdated", params: { created, updated } };
+}
+
+/**
+ * Il documento senza l'`# H1` iniziale, quando quello ripete il TITOLO della
+ * voce (16 set 2026).
+ *
+ * Un design doc salvato con `create_backlog_from_design` comincia quasi
+ * sempre col proprio titolo, che è anche il titolo della voce: reso come
+ * markdown, lo schermo lo mostrava DUE volte di fila, una in piccolo e una
+ * enorme. Non è un problema di stile — è la stessa frase scritta due volte.
+ *
+ * Si toglie SOLO se combacia: un `# Qualcos'altro` resta dov'è, perché lì
+ * l'intestazione è contenuto dell'autore e non una ripetizione. Il confronto
+ * ignora spazi e maiuscole, non la punteggiatura: due titoli che differiscono
+ * per una virgola sono due titoli diversi e li lasciamo entrambi.
+ */
+export function backlogDocumentBody(document: string, title: string): string {
+  const lines = document.split("\n");
+  const first = lines.findIndex((line) => line.trim() !== "");
+  if (first === -1) return document;
+  const heading = /^#\s+(.*)$/.exec(lines[first]!.trim());
+  if (heading === null) return document;
+  const same = heading[1]!.trim().toLowerCase() === title.trim().toLowerCase();
+  return same ? lines.slice(first + 1).join("\n").replace(/^\n+/, "") : document;
 }

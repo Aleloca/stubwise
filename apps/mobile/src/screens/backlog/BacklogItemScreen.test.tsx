@@ -3,6 +3,7 @@ import { ApiError } from "@stubwise/api-client";
 import type { BacklogItemDetail, Reader } from "@stubwise/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
+import { Linking } from "react-native";
 import { AuthContext } from "../../app/auth-context";
 import type { AuthContextValue } from "../../app/providers";
 import "../../i18n";
@@ -120,8 +121,34 @@ describe("BacklogItemScreen — corpo", () => {
     await renderScreen(makeClient());
     await waitFor(() => expect(screen.getByText("Accesso clienti con SSO")).toBeTruthy());
     expect(screen.getByText("Pronto")).toBeTruthy();
-    expect(screen.getByText("creata 01/08/26 · agg. 01/08/26 · alta · E4 · rischio medio")).toBeTruthy();
+    expect(screen.getByText("alta · E4 · rischio medio")).toBeTruthy();
     expect(screen.getByText("I clienti enterprise chiedono il login SSO.")).toBeTruthy();
+  });
+
+  test("un link nel documento passa dall'allowlist: http si apre, javascript no", async () => {
+    // Copre il wiring di `SafeMarkdown` (il componente che raccoglie tema e
+    // guardia per tutte e quattro le schermate che rendono markdown): il
+    // renderer, lasciato a sé, aprirebbe QUALUNQUE href.
+    const openURL = jest.spyOn(Linking, "openURL").mockResolvedValue(undefined);
+    openURL.mockClear();
+    const client = makeClient({
+      get: jest.fn().mockResolvedValue(
+        // ⚠️ Lo schema ostile è `qualcosa://`, non `javascript:`: quest'ultimo
+        // il renderer lo scarta da sé, quindi il link non comparirebbe
+        // affatto e il test passerebbe senza esercitare la guardia. Uno
+        // schema di un'altra app installata invece viene reso — ed è
+        // esattamente il caso che `isSafeWebUrl` deve fermare.
+        item({ document: "Vai su [buono](https://esempio.it) o [cattivo](altraapp://prendimi)." }),
+      ),
+    });
+    await renderScreen(client);
+    await waitFor(() => expect(screen.getByText("buono")).toBeTruthy());
+
+    await fireEvent.press(screen.getByText("cattivo"));
+    expect(openURL).not.toHaveBeenCalled();
+
+    await fireEvent.press(screen.getByText("buono"));
+    expect(openURL).toHaveBeenCalledWith("https://esempio.it");
   });
 
   test("il documento è RESO come markdown, non mostrato grezzo", async () => {

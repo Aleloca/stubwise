@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { SafeMarkdown } from "../SafeMarkdown";
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import Markdown from "react-native-markdown-display";
 import type { HandledBy, Reader } from "@stubwise/shared";
 import type { TFunction } from "i18next";
 import { RejectSheet } from "../inbox/RejectSheet";
@@ -10,7 +10,6 @@ import { PrimaryButton } from "../PrimaryButton";
 import { useApprovePlan, usePreApprovePlan, useRejectPlan, useRevokePlanApproval } from "../../lib/work-mutations";
 import { relativeTimeCompact } from "../../lib/format";
 import { colors, radii } from "../../theme/tokens";
-import { MARKDOWN_STYLE } from "../../theme/markdown";
 import { fontFamily, fontSize } from "../../theme/typography";
 
 /**
@@ -259,7 +258,7 @@ export function PlanSection({
             </Pressable>
           </View>
           <ScrollView contentContainerStyle={styles.modalBody}>
-            {plan !== null && <Markdown style={MARKDOWN_STYLE}>{plan}</Markdown>}
+            {plan !== null && <SafeMarkdown>{plan}</SafeMarkdown>}
           </ScrollView>
         </View>
       </Modal>

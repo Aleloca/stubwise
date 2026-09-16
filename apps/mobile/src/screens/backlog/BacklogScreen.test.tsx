@@ -161,7 +161,12 @@ describe("BacklogScreen — card: stato in parole e metadati", () => {
     await renderScreen(client);
     await waitFor(() => expect(screen.getByText("Export massivo degli ordini")).toBeTruthy());
     expect(screen.getByText("Pronto")).toBeTruthy();
-    expect(screen.getByText("Portale B2B · creata 01/08/26 · agg. 01/08/26 · alta · E3 · rischio basso · richiesto 4 volte")).toBeTruthy();
+    // Tre righe distinte, non una stringa sola: progetto, date, stime.
+    expect(screen.getByText("Portale B2B")).toBeTruthy();
+    // Creata e aggiornata coincidono: si mostra una data sola, non due
+    // uguali di fila.
+    expect(screen.getByText("creata 01/08")).toBeTruthy();
+    expect(screen.getByText("alta · E3 · rischio basso · richiesto 4 volte")).toBeTruthy();
   });
 
   test("voce in raffinamento: 'In raffinamento', niente Procedi, 'chat aperta ›' in coda", async () => {
@@ -173,7 +178,8 @@ describe("BacklogScreen — card: stato in parole e metadati", () => {
     });
     await renderScreen(client);
     await waitFor(() => expect(screen.getByText("In raffinamento")).toBeTruthy());
-    expect(screen.getByText("Portale B2B · creata 01/08/26 · agg. 01/08/26 · media · E3 · chat aperta ›")).toBeTruthy();
+    expect(screen.getByText("Portale B2B")).toBeTruthy();
+    expect(screen.getByText("media · E3 · chat aperta ›")).toBeTruthy();
     expect(screen.queryByTestId("backlog-proceed-item-refining")).toBeNull();
     // Nessun bottone sulla card: né Procedi (non è pronta) né la chat, che
     // dal 16 set 2026 vive nel dettaglio. Resta il titolo, che apre.
@@ -191,7 +197,7 @@ describe("BacklogScreen — card: stato in parole e metadati", () => {
     await renderScreen(client);
     // Il progetto e le date valgono ANCHE per una voce ancora in intake: è lì
     // che servono di più, per riconoscere ciò che è fermo da settimane.
-    await waitFor(() => expect(screen.getByText("Portale B2B · creata 01/08/26 · agg. 01/08/26 · da stimare — l'agente ci sta lavorando")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("da stimare — l'agente ci sta lavorando")).toBeTruthy());
   });
 
   test("voce ATTIVA: si apre il dettaglio dal titolo, e le azioni restano al loro posto", async () => {
