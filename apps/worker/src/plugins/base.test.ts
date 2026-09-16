@@ -108,7 +108,14 @@ describe("manifest del plugin base", () => {
 
   it("lo script dell'hook è eseguibile (il bit sta in git)", () => {
     const mode = statSync(join(pluginDir(), "hooks", "session-start.sh")).mode;
-    expect(mode & 0o111).toBe(0o111);
+    // 0o100, l'OWNER: è l'unico bit che git conserva davvero — un file è
+    // `100644` o `100755`, e al checkout i bit di gruppo e altri li decide
+    // l'**umask** di chi clona. Asserire `0o111` misurava quindi l'umask, non
+    // git, e falliva su ogni worktree creato con `umask 077` (il file esce
+    // `rwx------`) mentre `git status` non vedeva alcuna differenza e la CI
+    // restava verde. Il nome di questo test — «il bit sta in git» — dichiara
+    // già che la cosa da provare è questa.
+    expect(mode & 0o100).toBe(0o100);
   });
 
   it("espone UNA sola skill, con frontmatter name/description", () => {
