@@ -7,6 +7,7 @@ import i18n from "../../i18n";
 import "../../i18n";
 import { clearSession, loadSession } from "../../lib/storage";
 import { SettingsScreen } from "./SettingsScreen";
+import { useLogout } from "./use-logout";
 
 // Isolato da Keychain/AsyncStorage veri: qui interessa SOLO che `SettingsScreen`
 // chiami `loadSession`/`clearSession` nel modo giusto, non la persistenza
@@ -30,7 +31,6 @@ const USER: Reader<SessionUser> = {
   slackUserId: null,
 };
 
-const ADMIN_USER: Reader<SessionUser> = { ...USER, id: "u2", email: "admin@farmakom.it", role: "admin" };
 
 const PROJECT_A = { id: "p1", name: "Farmakom" };
 const PROJECT_B = { id: "p2", name: "Audin" };
@@ -68,24 +68,39 @@ function makeClient(overrides: ClientOverrides = {}): StubwiseClient {
   } as unknown as StubwiseClient;
 }
 
+/**
+ * Monta l'INDICE come lo monta la rotta vera: l'hook del logout fuori, il suo
+ * stato passato alla pagina. Così questi test coprono il wiring che il
+ * maintainer usa davvero, non un bottone scollegato.
+ *
+ * ⚠️ `await render(...)`: in questo progetto va atteso, o l'albero non viene
+ * montato e `screen` resta vuoto.
+ */
+function Host({ client, onLoggedOut }: { client: StubwiseClient; onLoggedOut: () => void }) {
+  const { logout, loggingOut } = useLogout(client, onLoggedOut);
+  return (
+    <SettingsScreen
+      user={USER}
+      onOpenSection={jest.fn()}
+      onBack={jest.fn()}
+      onLogout={logout}
+      loggingOut={loggingOut}
+    />
+  );
+}
+
 async function renderSheet(
   client: StubwiseClient,
-  opts: { user?: Reader<SessionUser>; onBack?: jest.Mock; onLoggedOut?: jest.Mock } = {},
+  opts: { onLoggedOut?: jest.Mock } = {},
 ) {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const onBack = opts.onBack ?? jest.fn();
   const onLoggedOut = opts.onLoggedOut ?? jest.fn();
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const rendered = await render(
     <QueryClientProvider client={queryClient}>
-      <SettingsScreen
-        onBack={onBack}
-        client={client}
-        user={opts.user ?? USER}
-        onLoggedOut={onLoggedOut}
-      />
+      <Host client={client} onLoggedOut={onLoggedOut} />
     </QueryClientProvider>,
   );
-  return { ...rendered, onBack, onLoggedOut };
+  return { ...rendered, onLoggedOut };
 }
 
 beforeEach(() => {
@@ -104,162 +119,38 @@ afterEach(async () => {
   await i18n.changeLanguage("it");
 });
 
-describe("SettingsScreen — visibilità e profilo", () => {
-  test("mostra l'email e il ruolo (Operatore per member)", async () => {
+
+describe("SettingsScreen — indice", () => {
+  test("elenca i gruppi e le voci, con WIP su quelle non ancora fatte", async () => {
     await renderSheet(makeClient());
-    expect(screen.getByText("giulia@farmakom.it")).toBeTruthy();
-    expect(screen.getByText("Operatore")).toBeTruthy();
+    // Una voce pronta e una segnata: il catalogo (`sections.ts`) è l'unica
+    // fonte, quindi basta verificarne due per sapere che l'indice lo legge.
+    expect(screen.getByTestId("settings-row-notifications")).toBeTruthy();
+    expect(screen.getByTestId("settings-row-quietHours")).toBeTruthy();
+    expect(screen.getAllByText("WIP").length).toBeGreaterThan(0);
   });
 
-  test("mostra 'Admin' per un ruolo admin", async () => {
-    await renderSheet(makeClient(), { user: ADMIN_USER });
-    expect(screen.getByText("Admin")).toBeTruthy();
+  test("toccare una riga apre la sua sezione", async () => {
+    const onOpenSection = jest.fn();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    await render(
+      <QueryClientProvider client={queryClient}>
+        <SettingsScreen
+          user={USER}
+          onOpenSection={onOpenSection}
+          onBack={jest.fn()}
+          onLogout={jest.fn()}
+          loggingOut={false}
+        />
+      </QueryClientProvider>,
+    );
+    await fireEvent.press(screen.getByTestId("settings-row-language"));
+    expect(onOpenSection).toHaveBeenCalledWith("language");
   });
 
-  test("il tasto indietro dell'intestazione chiama onBack", async () => {
-    // Era «toccare lo sfondo»: una PAGINA non ha uno sfondo da toccare, ha un
-    // indietro — lo stesso `screen-header-back` di ogni altro dettaglio.
-    const onBack = jest.fn();
-    await renderSheet(makeClient(), { onBack });
-    await fireEvent.press(screen.getByTestId("screen-header-back"));
-    expect(onBack).toHaveBeenCalledTimes(1);
-  });
-
-  test("l'avatar NON compare: questa è la pagina a cui l'avatar porta", async () => {
+  test("«Esci» sta sull'indice, non sepolto in una sezione", async () => {
     await renderSheet(makeClient());
-    expect(screen.queryByTestId("settings-avatar-button")).toBeNull();
-  });
-});
-
-describe("SettingsScreen — notifiche push", () => {
-  test("riflette lo stato letto da me.notificationPrefs()", async () => {
-    const notificationPrefs = jest.fn().mockResolvedValue({ push: true, slackDm: false, slackLinked: false });
-    await renderSheet(makeClient({ notificationPrefs }));
-    await waitFor(() => expect(notificationPrefs).toHaveBeenCalled());
-    await waitFor(() => expect(screen.getByTestId("settings-push-switch").props.value).toBe(true));
-  });
-
-  test("toccare il toggle manda SOLO il campo push (PATCH mirata)", async () => {
-    const setNotificationPrefs = jest.fn().mockResolvedValue(undefined);
-    await renderSheet(makeClient({ setNotificationPrefs }));
-    await waitFor(() => expect(screen.getByTestId("settings-push-switch")).toBeTruthy());
-    await fireEvent(screen.getByTestId("settings-push-switch"), "valueChange", false);
-    await waitFor(() => expect(setNotificationPrefs).toHaveBeenCalledWith({ push: false }));
-  });
-
-  // Query fallita (non la mutazione): niente switch bloccato senza spiegazione
-  // — un messaggio + un modo di riprovare, sullo stesso modello già stabilito
-  // da InboxScreen/ProjectDetailScreen (`isError` → titolo/testo + retry).
-  test("me.notificationPrefs() fallita: messaggio + retry al posto dell'interruttore", async () => {
-    const notificationPrefs = jest.fn().mockRejectedValue(new Error("network down"));
-    await renderSheet(makeClient({ notificationPrefs }));
-
-    await waitFor(() => expect(screen.getByTestId("settings-push-error")).toBeTruthy());
-    expect(screen.queryByTestId("settings-push-switch")).toBeNull();
-
-    notificationPrefs.mockResolvedValue({ push: true, slackDm: false, slackLinked: false });
-    await fireEvent.press(screen.getByTestId("settings-push-retry"));
-    await waitFor(() => expect(screen.getByTestId("settings-push-switch")).toBeTruthy());
-  });
-
-  // Mutazione fallita (non la query): lo switch "scatta indietro" da solo
-  // (pilotato dal valore invariato di `prefsQuery.data`, nessuno stato
-  // ottimistico) — SENZA il testo sotto, l'utente non avrebbe alcun modo di
-  // sapere perché. Stesso principio "mai silenzioso" già applicato al
-  // logout in questo file.
-  test("setNotificationPrefs() fallita: messaggio visibile, il valore resta quello del server", async () => {
-    const setNotificationPrefs = jest.fn().mockRejectedValue(new Error("network down"));
-    await renderSheet(makeClient({ setNotificationPrefs }));
-    await waitFor(() => expect(screen.getByTestId("settings-push-switch")).toBeTruthy());
-
-    await fireEvent(screen.getByTestId("settings-push-switch"), "valueChange", false);
-
-    await waitFor(() => expect(screen.getByTestId("settings-push-mutation-error")).toBeTruthy());
-    // Nessuno stato ottimistico: il valore mostrato resta quello letto dalla
-    // GET (true), non il `false` mai confermato dal server.
-    expect(screen.getByTestId("settings-push-switch").props.value).toBe(true);
-  });
-});
-
-describe("SettingsScreen — progetti seguiti", () => {
-  test("mostra ogni progetto con lo stato di follow corrente", async () => {
-    await renderSheet(makeClient());
-    await waitFor(() => expect(screen.getByLabelText("Farmakom").props.value).toBe(true));
-    expect(screen.getByLabelText("Audin").props.value).toBe(false);
-  });
-
-  test("attivare il follow di un progetto manda l'insieme COMPLETO aggiornato", async () => {
-    const setFollows = jest.fn().mockResolvedValue(undefined);
-    await renderSheet(makeClient({ setFollows }));
-    await waitFor(() => expect(screen.getByLabelText("Audin")).toBeTruthy());
-    await fireEvent(screen.getByLabelText("Audin"), "valueChange", true);
-    await waitFor(() => expect(setFollows).toHaveBeenCalledWith([PROJECT_A.id, PROJECT_B.id]));
-  });
-
-  test("disattivare il follow di un progetto lo toglie dall'insieme mandato", async () => {
-    const setFollows = jest.fn().mockResolvedValue(undefined);
-    await renderSheet(makeClient({ setFollows }));
-    await waitFor(() => expect(screen.getByLabelText("Farmakom")).toBeTruthy());
-    await fireEvent(screen.getByLabelText("Farmakom"), "valueChange", false);
-    await waitFor(() => expect(setFollows).toHaveBeenCalledWith([]));
-  });
-
-  // Query fallita (projects.list): niente elenco muto — messaggio + retry,
-  // che rilancia ENTRAMBE le query della sezione (progetti E follow).
-  test("projects.list() fallita: messaggio + retry al posto dell'elenco", async () => {
-    const projectsList = jest.fn().mockRejectedValue(new Error("network down"));
-    await renderSheet(makeClient({ projectsList }));
-
-    await waitFor(() => expect(screen.getByTestId("settings-projects-error")).toBeTruthy());
-    expect(screen.queryByLabelText("Farmakom")).toBeNull();
-
-    projectsList.mockResolvedValue([PROJECT_A, PROJECT_B]);
-    await fireEvent.press(screen.getByTestId("settings-projects-retry"));
-    await waitFor(() => expect(screen.getByLabelText("Farmakom")).toBeTruthy());
-  });
-
-  // Mutazione fallita: stesso principio del push — il toggle torna da solo
-  // al valore del server, e senza il testo sotto nessuno spiegherebbe perché.
-  test("setFollows() fallita: messaggio visibile, l'insieme resta quello del server", async () => {
-    const setFollows = jest.fn().mockRejectedValue(new Error("network down"));
-    await renderSheet(makeClient({ setFollows }));
-    await waitFor(() => expect(screen.getByLabelText("Audin")).toBeTruthy());
-
-    await fireEvent(screen.getByLabelText("Audin"), "valueChange", true);
-
-    await waitFor(() => expect(screen.getByTestId("settings-follows-mutation-error")).toBeTruthy());
-    // Nessuno stato ottimistico: "Audin" resta non seguito (il PUT non è mai
-    // stato confermato dal server).
-    expect(screen.getByLabelText("Audin").props.value).toBe(false);
-  });
-});
-
-describe("SettingsScreen — istanza (server + lingua)", () => {
-  test("mostra l'host del server, sola lettura", async () => {
-    await renderSheet(makeClient());
-    await waitFor(() => expect(screen.getByText("stubwise.farmakom.it")).toBeTruthy());
-  });
-
-  test("scegliere 'English' persiste la lingua sul server E la applica subito in locale", async () => {
-    const setLanguage = jest.fn().mockResolvedValue({ language: "en" });
-    await renderSheet(makeClient({ setLanguage }));
-    await fireEvent.press(screen.getByTestId("settings-language-en"));
-    await waitFor(() => expect(setLanguage).toHaveBeenCalledWith("en"));
-    await waitFor(() => expect(i18n.language).toBe("en"));
-  });
-
-  // Mutazione fallita: `i18n.changeLanguage` gira SOLO in `onSuccess`, quindi
-  // un fallimento del server non deve MAI applicare la lingua in locale — ma
-  // senza il testo sotto l'utente non avrebbe alcun segnale del perché il
-  // tap su "English" non ha avuto effetto.
-  test("client.auth.setLanguage() fallita: messaggio visibile, la lingua locale NON cambia", async () => {
-    const setLanguage = jest.fn().mockRejectedValue(new Error("network down"));
-    await renderSheet(makeClient({ setLanguage }));
-
-    await fireEvent.press(screen.getByTestId("settings-language-en"));
-
-    await waitFor(() => expect(screen.getByTestId("settings-language-mutation-error")).toBeTruthy());
-    expect(i18n.language).toBe("it");
+    expect(screen.getByTestId("settings-logout-button")).toBeTruthy();
   });
 });
 
@@ -383,16 +274,5 @@ describe("SettingsScreen — Esci (logout)", () => {
 
     await waitFor(() => expect(onLoggedOut).toHaveBeenCalledTimes(1));
     expect(order).toEqual(["deleteDevice:fcm-token-vecchio", "patsRevoke", "deleteToken", "clearSession"]);
-  });
-});
-
-describe("SettingsScreen — accessibilità", () => {
-  test("i bottoni/controlli con solo glifo hanno un accessibilityLabel", async () => {
-    await renderSheet(makeClient());
-    // Il backdrop senza testo non c'è più (era della sheet): restano i chip
-    // lingua, testo breve ma comunque etichettati, e il toggle push.
-    await waitFor(() => expect(screen.getByTestId("settings-push-switch").props.accessibilityLabel).toBeTruthy());
-    expect(screen.getByTestId("settings-language-it").props.accessibilityRole).toBe("radio");
-    expect(screen.getByTestId("settings-language-en").props.accessibilityRole).toBe("radio");
   });
 });

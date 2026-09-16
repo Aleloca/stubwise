@@ -724,7 +724,57 @@
         "member": "Operatore"
       },
       "logout": "Esci",
-      "loggingOut": "Uscita…"
+      "loggingOut": "Uscita…",
+      "groups": {
+        "account": "Account",
+        "notifications": "Notifiche",
+        "app": "App"
+      },
+      "sections": {
+        "profile": {
+          "label": "Profilo",
+          "description": "Chi sei su questa istanza: indirizzo e ruolo."
+        },
+        "mailboxes": {
+          "label": "Caselle Google",
+          "description": "Collegare e scollegare le caselle da cui Stubwise legge posta e calendario. Oggi si fa dal web."
+        },
+        "tokens": {
+          "label": "Token di accesso",
+          "description": "I token personali per gli strumenti da riga di comando. Oggi si creano dal web."
+        },
+        "notifications": {
+          "label": "Push e progetti",
+          "description": "Quali notifiche arrivano su questo telefono e per quali progetti."
+        },
+        "quietHours": {
+          "label": "Ore di silenzio",
+          "description": "Una fascia oraria in cui nessuna notifica squilla. In programma."
+        },
+        "slack": {
+          "label": "DM su Slack",
+          "description": "Ricevere le stesse notifiche come messaggio diretto su Slack. Il server lo supporta già, l'app non lo mostra ancora."
+        },
+        "language": {
+          "label": "Lingua",
+          "description": "La lingua dell'app e dei testi generati per te."
+        },
+        "appearance": {
+          "label": "Aspetto",
+          "description": "Tema e dimensione del testo. In programma."
+        },
+        "instance": {
+          "label": "Istanza",
+          "description": "A quale server Stubwise è collegata questa app."
+        },
+        "about": {
+          "label": "Info",
+          "description": "Versione dell'app e riferimenti."
+        }
+      },
+      "wipBadge": "WIP",
+      "comingSoon": "Non c'è ancora",
+      "comingSoonBody": "Questa impostazione è segnata qui perché sappiamo che ci andrà. Oggi non fa niente."
     }
   }
 }

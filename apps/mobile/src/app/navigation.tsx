@@ -4,6 +4,9 @@ import { createNativeBottomTabNavigator } from "@bottom-tabs/react-navigation";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { SettingsScreen } from "../screens/settings/SettingsScreen";
+import { SettingsSectionScreen } from "../screens/settings/SettingsSectionScreen";
+import type { SettingsSectionKey } from "../screens/settings/sections";
+import { useLogout } from "../screens/settings/use-logout";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { MailDetailSource } from "@stubwise/api-client";
 import { useEffect, useMemo } from "react";
@@ -123,6 +126,12 @@ export type RootStackParamList = {
    * posto in cui si entra e da cui si torna indietro.
    */
   Settings: undefined;
+  /**
+   * UNA sola rotta per tutte le sotto-pagine delle Impostazioni, non una per
+   * sezione: aggiungerne una domani è una riga nel catalogo
+   * (`screens/settings/sections.ts`), non una rotta, un tipo e un import.
+   */
+  SettingsSection: { section: SettingsSectionKey };
 };
 
 /**
@@ -373,6 +382,7 @@ export function RootNavigator() {
           <>
             <RootStack.Screen name="Main" component={MainNavigator} />
             <RootStack.Screen name="Settings" component={SettingsRoute} />
+            <RootStack.Screen name="SettingsSection" component={SettingsSectionRoute} />
           </>
         ) : (
           <RootStack.Screen name="Auth" component={AuthNavigator} />
@@ -394,12 +404,31 @@ export function RootNavigator() {
  */
 function SettingsRoute({ navigation }: NativeStackScreenProps<RootStackParamList, "Settings">) {
   const { client, user, loggedOut } = useAuth();
+  const { logout, loggingOut } = useLogout(client, loggedOut);
   if (client === null || user === null) return null;
   return (
     <SettingsScreen
+      user={user}
+      onOpenSection={(section) => navigation.navigate("SettingsSection", { section })}
+      onBack={() => navigation.goBack()}
+      onLogout={logout}
+      loggingOut={loggingOut}
+    />
+  );
+}
+
+/** Una sotto-pagina delle Impostazioni: quale, lo dice il parametro. */
+function SettingsSectionRoute({
+  navigation,
+  route,
+}: NativeStackScreenProps<RootStackParamList, "SettingsSection">) {
+  const { client, user } = useAuth();
+  if (client === null || user === null) return null;
+  return (
+    <SettingsSectionScreen
+      section={route.params.section}
       client={client}
       user={user}
-      onLoggedOut={loggedOut}
       onBack={() => navigation.goBack()}
     />
   );

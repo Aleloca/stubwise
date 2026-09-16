@@ -724,7 +724,57 @@
         "member": "Operator"
       },
       "logout": "Log out",
-      "loggingOut": "Logging out…"
+      "loggingOut": "Logging out…",
+      "groups": {
+        "account": "Account",
+        "notifications": "Notifications",
+        "app": "App"
+      },
+      "sections": {
+        "profile": {
+          "label": "Profile",
+          "description": "Who you are on this instance: address and role."
+        },
+        "mailboxes": {
+          "label": "Google mailboxes",
+          "description": "Connect and disconnect the mailboxes Stubwise reads mail and calendar from. Today this is done on the web."
+        },
+        "tokens": {
+          "label": "Access tokens",
+          "description": "Personal tokens for command-line tools. Today they are created on the web."
+        },
+        "notifications": {
+          "label": "Push and projects",
+          "description": "Which notifications reach this phone, and for which projects."
+        },
+        "quietHours": {
+          "label": "Quiet hours",
+          "description": "A window when nothing rings. Planned."
+        },
+        "slack": {
+          "label": "Slack DM",
+          "description": "Get the same notifications as a Slack direct message. The server already supports it; the app doesn't show it yet."
+        },
+        "language": {
+          "label": "Language",
+          "description": "The language of the app and of the text written for you."
+        },
+        "appearance": {
+          "label": "Appearance",
+          "description": "Theme and text size. Planned."
+        },
+        "instance": {
+          "label": "Instance",
+          "description": "Which Stubwise server this app is connected to."
+        },
+        "about": {
+          "label": "About",
+          "description": "App version and references."
+        }
+      },
+      "wipBadge": "WIP",
+      "comingSoon": "Not here yet",
+      "comingSoonBody": "This setting is listed because we know it belongs here. Today it does nothing."
     }
   }
 }

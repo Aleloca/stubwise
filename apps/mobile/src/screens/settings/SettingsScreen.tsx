@@ -1,356 +1,131 @@
-import type { StubwiseClient } from "@stubwise/api-client";
+import type { Reader, SessionUser } from "@stubwise/shared";
 import { isUnknown } from "@stubwise/shared";
-import type { Language, Reader, SessionUser } from "@stubwise/shared";
-import { deleteToken, getMessaging } from "@react-native-firebase/messaging";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { GhostButton } from "../../components/GhostButton";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { SectionLabel } from "../../components/SectionLabel";
-import { getPushToken } from "../../lib/push-token";
-import { clearSession, loadSession } from "../../lib/storage";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
+import { SETTINGS_GROUPS, type SettingsSection, type SettingsSectionKey } from "./sections";
 
 export interface SettingsScreenProps {
-  client: StubwiseClient;
   user: Reader<SessionUser>;
-  /** Chiamato DOPO che il logout (best-effort remoto + pulizia locale) è finito: transiziona l'app a `unauthenticated`. */
-  onLoggedOut: () => void;
-  /** Torna indietro: la pagina è sul root stack, sopra le schede. */
+  /** Apre una sotto-pagina: la rotta è UNA sola, parametrica (vedi `sections.ts`). */
+  onOpenSection: (key: SettingsSectionKey) => void;
   onBack: () => void;
+  /** Esce: il logout vero vive nella pagina di sezione «Profilo»? No — resta qui, vedi sotto. */
+  onLogout: () => void;
+  loggingOut: boolean;
   testID?: string;
 }
 
-/** Host della baseUrl salvata (`stubwise.farmakom.it`, senza protocollo, canvas `3i`) — o la stringa grezza se non è un URL valido. */
-function hostFromBaseUrl(baseUrl: string): string {
-  try {
-    return new URL(baseUrl).host;
-  } catch {
-    return baseUrl;
-  }
-}
-
-const LANGUAGES: Language[] = ["it", "en"];
-
 /**
- * PAGINA Impostazioni: profilo, Notifiche (push on/off + progetti seguiti),
- * Istanza (server sola lettura + lingua) ed Esci.
+ * INDICE delle Impostazioni (16 set 2026): gruppi di righe che aprono una
+ * sotto-pagina.
  *
- * ⚠️ Fino al 16 set 2026 era uno SHEET dal basso (`Modal`) montato in
- * `app/providers.tsx` e comandato da `useAuth().openSettings()`. Decisione
- * del maintainer: è una pagina, e vive sul ROOT stack — sopra le schede,
- * perché non è una sesta destinazione ma un posto in cui si entra e da cui
- * si torna indietro. Il contenuto è lo stesso: cambia l'involucro.
+ * La forma è una decisione del maintainer, presa sapendo che qui finiranno
+ * TUTTE le impostazioni future. Fino a oggi era prima uno sheet dal basso, poi
+ * una pagina unica a sezioni: entrambe reggevano finché le voci erano quattro.
  *
- * Scope volutamente più STRETTO del canvas: niente "Quiet hours" né "Canali"
- * (email) — nessuno dei due ha un campo lato server (`notificationPrefsSchema`
- * ha solo `slackDm`/`push`, senza un canale email), e il testo del Task 20
- * elenca esplicitamente solo push + progetti seguiti. Aggiungerli richiede
- * prima lo schema server, fuori perimetro qui.
+ * **«Esci» resta sull'indice**, non dentro «Profilo»: è l'unica azione della
+ * pagina che non è un'impostazione, ed è quella che si cerca con più fretta.
+ * Sepolta in una sotto-pagina sarebbe due tap invece di uno, e nessuno la
+ * cerca lì.
  *
- * ⚠️ Le query non sono più `enabled: visible` (16 set 2026). Quel gate
- * serviva allo SHEET, che restava montato anche da chiuso: senza, avrebbe
- * rifatto una fetch a ogni cambiamento altrove nell'app, e avrebbe
- * interrogato un client che prima del login non esiste. Una PAGINA si monta
- * quando ci si entra e si smonta quando si esce, quindi il problema non si
- * pone e il gate sarebbe solo una condizione sempre vera.
+ * ⚠️ L'indice NON interroga la rete per riempire le righe. Il valore a destra
+ * si mostra solo dove è già noto senza chiedere niente a nessuno (l'indirizzo
+ * dell'utente, che arriva dalla sessione): mettere «Attive»/«Disattivate»
+ * accanto alle notifiche costerebbe una query per disegnare un'etichetta, e
+ * un indice che carica è un indice che sfarfalla.
  */
-export function SettingsScreen({ client, user, onLoggedOut, onBack, testID }: SettingsScreenProps) {
-  const { t, i18n } = useTranslation();
-  const queryClient = useQueryClient();
-  const [baseUrl, setBaseUrl] = useState<string | null>(null);
-  const [loggingOut, setLoggingOut] = useState(false);
-
-  // La baseUrl non vive nello stato di `useAuth()` (vedi il commento su
-  // `AuthState` in `app/auth-context.ts`: aggiungerla lì costringerebbe ogni
-  // fixture di test che costruisce un `AuthContextValue` a portarsela dietro)
-  // — la si legge dalla sessione salvata, la stessa fonte da cui arriva
-  // `patId` al momento del logout più sotto.
-  // Niente guardia su `visible` come nello sheet: una PAGINA si monta solo
-  // quando ci si entra, quindi l'effetto parte una volta sola per visita.
-  useEffect(() => {
-    let cancelled = false;
-    void loadSession().then((session) => {
-      if (!cancelled) setBaseUrl(session?.baseUrl ?? null);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const prefsQuery = useQuery({
-    queryKey: ["me", "notification-prefs"],
-    queryFn: () => client.me.notificationPrefs(),
-  });
-
-  const projectsQuery = useQuery({
-    queryKey: ["projects", "list"],
-    queryFn: () => client.projects.list(),
-  });
-
-  const followsQuery = useQuery({
-    queryKey: ["me", "follows"],
-    queryFn: () => client.me.follows(),
-  });
-
-  // Le tre mutazioni di questa sheet: MAI silenziose (stesso principio del
-  // logout più sotto — vedi il commento lì). Senza `onError`, uno `Switch`
-  // pilotato solo dal valore della query (nessuno stato ottimistico locale
-  // qui: vedi `toggleFollow`) "scatta indietro" da solo quando la mutazione
-  // fallisce — il `value` torna a leggere `prefsQuery.data`/`followsQuery.data`
-  // invariati — senza che NULLA lo spieghi. `console.warn` per chi guarda i
-  // log, il testo sotto la riga (renderizzato da `mutation.isError` nel JSX)
-  // per chi guarda lo schermo.
-  const setPushMutation = useMutation({
-    // PATCH mirata: manda SOLO `push` (vedi il docblock su `setNotificationPrefs`
-    // in `packages/api-client/src/endpoints/me.ts`) — mai l'intero oggetto letto
-    // dalla GET, che vanificherebbe il motivo per cui è una patch.
-    mutationFn: (push: boolean) => client.me.setNotificationPrefs({ push }),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["me", "notification-prefs"] }),
-    onError: (error) => {
-      console.warn("stubwise: impostazioni — aggiornamento della notifica push fallito", error);
-    },
-  });
-
-  const setFollowsMutation = useMutation({
-    mutationFn: (projectIds: string[]) => client.me.setFollows(projectIds),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["me", "follows"] }),
-    onError: (error) => {
-      console.warn("stubwise: impostazioni — aggiornamento dei progetti seguiti fallito", error);
-    },
-  });
-
-  const setLanguageMutation = useMutation({
-    mutationFn: (language: Language) => client.auth.setLanguage(language),
-    onSuccess: (_data, language) => {
-      // Applicata in locale SUBITO (non si aspetta la GET successiva): stesso
-      // principio di `applyUserLanguage` in `providers.tsx` — l'utente ha
-      // appena scelto la lingua, non deve aspettare un altro giro di rete
-      // per vederla cambiata.
-      void i18n.changeLanguage(language);
-    },
-    onError: (error) => {
-      console.warn("stubwise: impostazioni — salvataggio della lingua fallito", error);
-    },
-  });
-
-  function toggleFollow(projectId: string, follow: boolean): void {
-    const current = new Set(followsQuery.data?.projectIds ?? []);
-    if (follow) current.add(projectId);
-    else current.delete(projectId);
-    setFollowsMutation.mutate(Array.from(current));
-  }
-
-  /**
-   * Logout: BEST-EFFORT ma sempre locale. Le tre chiamate remote (device
-   * push, PAT, token FCM) girano in SEQUENZA, non in parallelo (review fase
-   * 4, finding #3): il token corrente si legge UNA volta sola, PRIMA di
-   * qualunque chiamata distruttiva, e SUBITO passato a `deleteDevice`. Farle
-   * in parallelo con `deleteToken` era un bug reale — se `deleteToken`
-   * finiva per primo, un `getToken` letto più tardi (anche solo dentro la
-   * stessa `Promise.allSettled`, senza garanzia d'ordine) poteva restituire
-   * un token NUOVO generato al volo da FCM, e `deleteDevice` avrebbe
-   * cancellato quello SBAGLIATO — lasciando sul server il vecchio, quello
-   * davvero registrato, vivo per sempre.
-   *
-   * Ordine: 1. leggi il token UNA volta; 2. `deleteDevice`; 3. revoca il PAT;
-   * 4. `deleteToken`; 5. `clearSession` + azzeramento cache, SEMPRE. I passi
-   * 2–4 sono in `try/catch` SEPARATI: un fallimento non salta i successivi
-   * (best-effort, mai un `await` che si ferma al primo errore), e il passo 5
-   * gira qualunque sia l'esito dei tre — un'ex istanza non deve poter
-   * continuare a raggiungere questo device (`deleteToken`) né usare il PAT
-   * rubato dal Keychain di un telefono perso, ma nemmeno un errore di rete
-   * deve lasciare l'utente bloccato in una sessione che non riesce a
-   * chiudere da qui.
-   */
-  async function handleLogout(): Promise<void> {
-    setLoggingOut(true);
-    const session = await loadSession().catch(() => null);
-    const pushToken = await getPushToken().catch(() => null);
-
-    try {
-      if (pushToken) await client.me.deleteDevice(pushToken.token);
-    } catch (error) {
-      // Best-effort, mai silenzioso (stesso principio di `lib/push.ts`): un
-      // logout che sembra riuscito ma ha lasciato un device o un PAT vivi
-      // dall'altra parte è il guasto peggiore da diagnosticare più tardi.
-      console.warn("stubwise: logout — cancellazione del device push fallita (best-effort)", error);
-    }
-
-    try {
-      if (session?.patId) await client.pats.revoke(session.patId);
-    } catch (error) {
-      console.warn("stubwise: logout — revoca del PAT fallita (best-effort)", error);
-    }
-
-    try {
-      await deleteToken(getMessaging());
-    } catch (error) {
-      console.warn("stubwise: logout — invalidazione del token FCM fallita (best-effort)", error);
-    }
-
-    await clearSession();
-    queryClient.clear();
-    setLoggingOut(false);
-    onLoggedOut();
-  }
-
+export function SettingsScreen({
+  user,
+  onOpenSection,
+  onBack,
+  onLogout,
+  loggingOut,
+  testID,
+}: SettingsScreenProps) {
+  const { t } = useTranslation();
   const roleKey = !isUnknown(user.role) && user.role === "admin" ? "admin" : "member";
 
   return (
     <View style={styles.container} testID={testID}>
-      <ScrollView keyboardShouldPersistTaps="handled" stickyHeaderIndices={[0]} contentContainerStyle={styles.body}>
-        {/*
-          `showAvatar={false}`: l'avatar È il bottone che porta qui, e su
-          questa pagina porterebbe a se stessa. È l'unico punto dell'app in
-          cui l'intestazione non lo mostra.
-        */}
+      <ScrollView contentContainerStyle={styles.body} stickyHeaderIndices={[0]}>
+        {/* `showAvatar={false}`: l'avatar è il bottone che porta qui. */}
         <ScreenHeader
           title={t("mobile.settings.title")}
           onBack={onBack}
           backLabel={t("mobile.settings.back")}
           showAvatar={false}
         />
-            <View style={styles.profileRow}>
-              <View style={styles.email}>
-                <Text style={styles.emailText} numberOfLines={1}>
-                  {user.email}
-                </Text>
-              </View>
-              <View style={styles.roleBadge}>
-                <Text style={styles.roleBadgeText}>{t(`mobile.settings.role.${roleKey}`)}</Text>
-              </View>
-            </View>
 
-            <SectionLabel style={styles.sectionLabel}>{t("mobile.settings.notifications.title")}</SectionLabel>
+        <View style={styles.profileRow}>
+          <Text style={styles.email} numberOfLines={1}>
+            {user.email}
+          </Text>
+          <View style={styles.roleBadge}>
+            <Text style={styles.roleBadgeText}>{t(`mobile.settings.role.${roleKey}`)}</Text>
+          </View>
+        </View>
+
+        {SETTINGS_GROUPS.map((group) => (
+          <View key={group.labelKey} style={styles.group}>
+            <SectionLabel style={styles.groupLabel}>{t(group.labelKey)}</SectionLabel>
             <View style={styles.card}>
-              {prefsQuery.isError ? (
-                <View style={styles.errorRow} testID="settings-push-error">
-                  <Text style={styles.errorText}>{t("mobile.settings.notifications.pushLoadError")}</Text>
-                  <GhostButton
-                    label={t("mobile.settings.notifications.retry")}
-                    onPress={() => void prefsQuery.refetch()}
-                    testID="settings-push-retry"
-                  />
-                </View>
-              ) : (
-                <View style={styles.row}>
-                  <Text style={styles.rowLabel}>{t("mobile.settings.notifications.pushLabel")}</Text>
-                  <Switch
-                    accessibilityLabel={t("mobile.settings.notifications.pushLabel")}
-                    disabled={!prefsQuery.data || setPushMutation.isPending}
-                    onValueChange={(value) => setPushMutation.mutate(value)}
-                    thumbColor={colors.ink950}
-                    trackColor={{ false: colors.line, true: colors.signal }}
-                    value={prefsQuery.data?.push ?? false}
-                    testID="settings-push-switch"
-                  />
-                </View>
-              )}
-              {setPushMutation.isError && (
-                <Text accessibilityLiveRegion="polite" style={styles.mutationErrorText} testID="settings-push-mutation-error">
-                  {t("mobile.settings.notifications.pushSaveError")}
-                </Text>
-              )}
-
-              <SectionLabel tone="faint" style={styles.subLabel}>
-                {t("mobile.settings.notifications.followedProjectsLabel")}
-              </SectionLabel>
-              {projectsQuery.isError || followsQuery.isError ? (
-                <View style={styles.errorRow} testID="settings-projects-error">
-                  <Text style={styles.errorText}>{t("mobile.settings.notifications.projectsLoadError")}</Text>
-                  <GhostButton
-                    label={t("mobile.settings.notifications.retry")}
-                    onPress={() => {
-                      void projectsQuery.refetch();
-                      void followsQuery.refetch();
-                    }}
-                    testID="settings-projects-retry"
-                  />
-                </View>
-              ) : (
-                <>
-                  {(projectsQuery.data ?? []).map((project) => (
-                    <View key={project.id} style={styles.row}>
-                      <Text style={styles.rowLabel} numberOfLines={1}>
-                        {project.name}
-                      </Text>
-                      <Switch
-                        accessibilityLabel={project.name}
-                        disabled={!followsQuery.data || setFollowsMutation.isPending}
-                        onValueChange={(value) => toggleFollow(project.id, value)}
-                        thumbColor={colors.ink950}
-                        trackColor={{ false: colors.line, true: colors.signal }}
-                        value={(followsQuery.data?.projectIds ?? []).includes(project.id)}
-                        testID={`settings-follow-${project.id}`}
-                      />
-                    </View>
-                  ))}
-                  {projectsQuery.data && projectsQuery.data.length === 0 && (
-                    <Text style={styles.emptyNote}>{t("mobile.settings.notifications.noProjects")}</Text>
-                  )}
-                </>
-              )}
-              {setFollowsMutation.isError && (
-                <Text accessibilityLiveRegion="polite" style={styles.mutationErrorText} testID="settings-follows-mutation-error">
-                  {t("mobile.settings.notifications.followSaveError")}
-                </Text>
-              )}
+              {group.sections.map((item, index) => (
+                <SettingsRow
+                  key={item.key}
+                  section={item}
+                  first={index === 0}
+                  onPress={() => onOpenSection(item.key)}
+                />
+              ))}
             </View>
+          </View>
+        ))}
 
-            <SectionLabel style={styles.sectionLabel}>{t("mobile.settings.instance.title")}</SectionLabel>
-            <View style={styles.card}>
-              <View style={styles.row}>
-                <Text style={styles.rowLabel}>{t("mobile.settings.instance.serverLabel")}</Text>
-                <Text style={styles.rowValue}>{baseUrl ? hostFromBaseUrl(baseUrl) : "—"}</Text>
-              </View>
-              <View style={styles.row}>
-                <Text style={styles.rowLabel}>{t("mobile.settings.instance.languageLabel")}</Text>
-                <View accessibilityRole="radiogroup" style={styles.languageChips}>
-                  {LANGUAGES.map((language) => {
-                    const active = i18n.language === language;
-                    return (
-                      <Pressable
-                        key={language}
-                        accessibilityRole="radio"
-                        accessibilityState={{ selected: active }}
-                        accessibilityLabel={t(`mobile.settings.instance.language.${language}`)}
-                        onPress={() => setLanguageMutation.mutate(language)}
-                        style={[styles.chip, active && styles.chipActive]}
-                        testID={`settings-language-${language}`}
-                      >
-                        <Text style={[styles.chipLabel, active && styles.chipLabelActive]}>
-                          {t(`mobile.settings.instance.language.${language}`)}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
-              </View>
-              {setLanguageMutation.isError && (
-                <Text
-                  accessibilityLiveRegion="polite"
-                  style={styles.mutationErrorText}
-                  testID="settings-language-mutation-error"
-                >
-                  {t("mobile.settings.instance.languageSaveError")}
-                </Text>
-              )}
-            </View>
-
-            <View style={styles.logoutWrap}>
-              <GhostButton
-                label={loggingOut ? t("mobile.settings.loggingOut") : t("mobile.settings.logout")}
-                onPress={() => void handleLogout()}
-                disabled={loggingOut}
-                testID="settings-logout-button"
-              />
-            </View>
+        <View style={styles.logoutWrap}>
+          <GhostButton
+            label={loggingOut ? t("mobile.settings.loggingOut") : t("mobile.settings.logout")}
+            onPress={onLogout}
+            disabled={loggingOut}
+            testID="settings-logout-button"
+          />
+        </View>
       </ScrollView>
     </View>
+  );
+}
+
+function SettingsRow({
+  section,
+  first,
+  onPress,
+}: {
+  section: SettingsSection;
+  first: boolean;
+  onPress: () => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={[styles.row, !first && styles.rowDivided]}
+      testID={`settings-row-${section.key}`}
+    >
+      <Text style={styles.rowLabel} numberOfLines={1}>
+        {t(section.labelKey)}
+      </Text>
+      {section.status === "wip" && (
+        <View style={styles.wipBadge}>
+          <Text style={styles.wipBadgeText}>{t("mobile.settings.wipBadge")}</Text>
+        </View>
+      )}
+      <Text style={styles.chevron}>›</Text>
+    </Pressable>
   );
 }
 
@@ -360,122 +135,86 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   body: {
-    paddingBottom: 40,
-    paddingHorizontal: 20,
+    paddingBottom: 48,
   },
   profileRow: {
     alignItems: "center",
     flexDirection: "row",
-    gap: 12,
+    gap: 10,
+    justifyContent: "space-between",
+    paddingBottom: 8,
+    paddingHorizontal: 20,
   },
   email: {
-    flex: 1,
-    minWidth: 0,
-  },
-  emailText: {
     color: colors.fg,
+    flexShrink: 1,
     fontFamily: fontFamily.sansSemiBold,
     fontSize: 15,
     fontWeight: "600",
   },
   roleBadge: {
-    borderColor: colors.line,
-    borderRadius: 4,
-    borderWidth: 1,
-    paddingHorizontal: 9,
+    backgroundColor: colors.ink800,
+    borderRadius: radii.control,
+    paddingHorizontal: 8,
     paddingVertical: 3,
   },
   roleBadgeText: {
     color: colors.muted,
     fontFamily: fontFamily.mono,
-    fontSize: 11,
-    letterSpacing: 0.8,
-    textTransform: "uppercase",
+    fontSize: fontSize.label,
   },
-  sectionLabel: {
+  group: {
+    marginTop: 22,
+    paddingHorizontal: 20,
+  },
+  groupLabel: {
     marginBottom: 8,
-    marginTop: 16,
-  },
-  subLabel: {
-    marginBottom: 4,
-    marginTop: 4,
   },
   card: {
-    backgroundColor: colors.ink950,
+    backgroundColor: colors.ink900,
     borderColor: colors.line,
-    borderRadius: radii.card,
+    borderRadius: radii.control,
     borderWidth: 1,
     overflow: "hidden",
-    paddingHorizontal: 16,
   },
   row: {
     alignItems: "center",
     flexDirection: "row",
-    justifyContent: "space-between",
-    minHeight: 48,
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+  },
+  rowDivided: {
+    borderTopColor: colors.line,
+    borderTopWidth: 1,
   },
   rowLabel: {
     color: colors.fg,
     flex: 1,
     fontFamily: fontFamily.sans,
     fontSize: 15,
-    marginRight: 12,
   },
-  rowValue: {
-    color: colors.muted,
-    fontFamily: fontFamily.mono,
-    fontSize: 12,
-  },
-  emptyNote: {
-    color: colors.faint,
-    fontFamily: fontFamily.sans,
-    fontSize: 13,
-    paddingBottom: 12,
-  },
-  errorRow: {
-    gap: 8,
-    paddingVertical: 12,
-  },
-  errorText: {
-    color: colors.danger,
-    fontFamily: fontFamily.sans,
-    fontSize: 13,
-  },
-  // Sotto una riga già disegnata (switch/chip), non al posto suo — a
-  // differenza di `errorText` (che sostituisce l'intera sezione quando la
-  // QUERY fallisce), questo si aggiunge quando è la MUTAZIONE a fallire: il
-  // controllo resta a schermo (lo `Switch` è già scattato indietro da solo,
-  // pilotato dal valore invariato della query), e questo testo è l'unica
-  // cosa che spiega perché.
-  mutationErrorText: {
-    color: colors.danger,
-    fontFamily: fontFamily.sans,
-    fontSize: 13,
-    paddingBottom: 12,
-  },
-  languageChips: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  chip: {
-    borderColor: colors.line,
+  wipBadge: {
+    borderColor: colors.lineStrong,
     borderRadius: radii.control,
     borderWidth: 1,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
   },
-  chipActive: {
-    borderColor: colors.signal,
-  },
-  chipLabel: {
-    color: colors.muted,
+  wipBadgeText: {
+    color: colors.faint,
     fontFamily: fontFamily.mono,
-    fontSize: fontSize.label,
+    fontSize: 10,
+    letterSpacing: 0.6,
   },
-  chipLabelActive: {
-    color: colors.signal,
+  chevron: {
+    color: colors.faint,
+    fontFamily: fontFamily.sans,
+    fontSize: 20,
   },
   logoutWrap: {
-    marginTop: 20,
+    alignItems: "center",
+    marginTop: 32,
+    paddingHorizontal: 20,
   },
 });
