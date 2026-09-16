@@ -40,7 +40,22 @@ export interface MailSelection {
   id: string;
 }
 
-export function MailWorkspace({ selected }: { selected: MailSelection | null }) {
+export function MailWorkspace({
+  selected,
+  openThreadId,
+  highlightMessageId,
+}: {
+  selected: MailSelection | null;
+  /**
+   * La conversazione da aprire SUBITO, quando si arriva da `/mail/thread/:id`
+   * (un risultato di ricerca, o un link condiviso). ⚠️ Semina lo stato locale
+   * `openThread`, quindi chi passa questa prop deve KEYARE il componente su
+   * di essa: la rotta lo fa.
+   */
+  openThreadId?: string;
+  /** Il messaggio che ha combaciato con la ricerca, da segnare dentro il thread. */
+  highlightMessageId?: string | null;
+}) {
   const { t } = useTranslation();
   const [account, setAccount] = useState<string | undefined>(undefined);
 
@@ -50,7 +65,7 @@ export function MailWorkspace({ selected }: { selected: MailSelection | null }) 
   // lista lo vede vincere, chi arriva da una notifica vede il suo
   // messaggio. Senza questa distinzione il deep link avrebbe sempre la
   // meglio e la lista non si potrebbe più usare.
-  const [openThread, setOpenThread] = useState<string | null>(null);
+  const [openThread, setOpenThread] = useState<string | null>(openThreadId ?? null);
 
   const { data: accounts } = useSuspenseQuery(myGoogleAccountsQueryOptions);
   const { data: summary } = useQuery(mailSummaryQueryOptions);
@@ -133,7 +148,15 @@ export function MailWorkspace({ selected }: { selected: MailSelection | null }) 
           {openThread !== null ? (
             // La conversazione vince sul deep link: è stata aperta dopo, ed
             // è quello che si sta guardando.
-            <MailThreadPane key={openThread} threadId={openThread} onClose={() => setOpenThread(null)} />
+            <MailThreadPane
+              key={openThread}
+              threadId={openThread}
+              onClose={() => setOpenThread(null)}
+              // Solo per la conversazione che arriva dall'URL: aprendone
+              // un'altra dalla lista, l'evidenziazione del risultato di
+              // ricerca non la segue.
+              highlightMessageId={openThread === openThreadId ? (highlightMessageId ?? null) : null}
+            />
           ) : selected ? (
             // Fix di review (bloccante, stessa classe del bug trovato in
             // `CalendarDetailPanel`): `/mail` e `/mail/:source/:id`

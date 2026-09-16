@@ -405,6 +405,32 @@ This only ever happens for a message that matched **no** project's routing
 rules — as soon as at least one rule matches, the candidate set narrows back
 down to the matching projects, same as before this existed.
 
+## Finding a conversation again
+
+From **15 September 2026** the global search covers your mail too. It's the
+same search that already finds tickets, projects, repositories and
+documentation — on the web, the **Cmd/Ctrl + K** palette; in the app, the
+**Search** button in the header of every screen.
+
+Two things are worth knowing about how it behaves:
+
+- **It finds conversations, not messages.** Three replies in the same exchange
+  are one result, not three — the same way the Mail page lists them. Opening a
+  result takes you to the conversation, with the message that matched marked
+  inside it, so you don't have to re-read the thread to see why it came up.
+- **It searches subject, sender and the text Stubwise read** — the extract the
+  classification worked on. Messages pulled in as *context* (the rest of a
+  thread, see [What happens to your email](#what-happens-to-your-email)) are
+  searchable too: they never become a card, but they are part of the
+  conversation you're reading.
+
+Mail results are **not** kept in the search "recents". That's deliberate: a
+recent entry stores a copy of the title, and a copy of an email subject would
+outlive the message itself once retention deletes it.
+
+**The privacy rule below applies to search with no exception**: you only ever
+find mail from your own mailboxes.
+
 ## Privacy
 
 - **The subject and body of every admitted email leave Stubwise, for
@@ -417,6 +443,9 @@ down to the matching projects, same as before this existed.
 - **Only the mailbox owner sees a mailbox's proposals.** Not an admin, not a
   project maintainer, not anyone else — this is enforced the same way for
   every proposal a mailbox produces, with no exception.
+- **The same is true of search.** Searching mail is filtered on the mailbox
+  owner, so an admin searching for a word that appears only in someone else's
+  message gets nothing back. There is no role that sees another person's mail.
 - **Read-only, always.** The scopes Stubwise requests can only read Gmail and
   Calendar. There is no code path that sends an email, replies, or modifies
   an event.

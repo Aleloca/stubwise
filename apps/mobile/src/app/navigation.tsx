@@ -110,8 +110,14 @@ export type MbxStackParamList = {
    */
   List: { day?: string; eventId?: string } | undefined;
   MailDetail: { source: MailDetailSource; id: string };
-  /** Una CONVERSAZIONE letta per intero («la posta si legge per conversazione» §4). */
-  ThreadDetail: { threadId: string };
+  /**
+   * Una CONVERSAZIONE letta per intero («la posta si legge per conversazione»
+   * §4). `highlightMessageId` (15 set 2026) arriva SOLO dalla ricerca globale
+   * e segna il messaggio che ha combaciato: senza, chi apre un risultato deve
+   * rileggere lo scambio per capire perché è comparso. Opzionale — chi ci
+   * arriva dalla lista o da una notifica non ne ha bisogno.
+   */
+  ThreadDetail: { threadId: string; highlightMessageId?: string };
 };
 
 export type MainTabParamList = {

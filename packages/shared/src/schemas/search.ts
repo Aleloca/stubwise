@@ -6,6 +6,28 @@ import { ticketStatusSchema } from "./ticket.js";
  * Tipo di entità cercabile dalla ricerca globale (spotlight Cmd/K): ticket,
  * progetto, repository o pagina di documentazione. Fonte di verità condivisa
  * tra db (enum `search_entity`), server (validazione) e web (icone/gruppi).
+ *
+ * ⚠️ **La POSTA non è qui, ed è una scelta** (15 set 2026). Questo enum non è
+ * «cosa si può cercare»: è cosa finisce nella CRONOLOGIA dei risultati
+ * cliccati (`search_history`, che lo usa come colonna). Le conversazioni si
+ * cercano — {@link searchMailHitSchema} — ma **non si registrano fra i
+ * recenti**, per due motivi che valgono più della comodità:
+ *
+ *  1. una voce di cronologia porta con sé `title`/`subtitle`
+ *     DENORMALIZZATI: registrare una conversazione significherebbe copiare
+ *     l'oggetto di un'email in una SECONDA tabella, fuori da
+ *     `email_messages` — e quindi fuori dalla potatura di `pruneOldEmails`.
+ *     Un messaggio cancellato da Gmail e potato da noi lascerebbe il suo
+ *     oggetto nei «recenti» per sempre;
+ *  2. aggiungere un valore a questo enum significa un `ALTER TYPE` sul
+ *     `search_entity` del database, cioè la trappola documentata in
+ *     CLAUDE.md — e un binario più vecchio che rileggesse una riga
+ *     `type='mail'` farebbe fallire la serializzazione di
+ *     `/api/search/history`.
+ *
+ * Chi un domani volesse i recenti anche per la posta affronti il punto 1
+ * PRIMA del punto 2: il problema vero è la copia che sopravvive alla
+ * retention, non la migrazione.
  */
 export const searchEntityTypeSchema = z.enum(["ticket", "project", "repository", "doc"]);
 export type SearchEntityType = z.infer<typeof searchEntityTypeSchema>;
@@ -87,6 +109,40 @@ export const searchDocsSemanticResultsSchema = z.array(searchDocSemanticHitSchem
 export type SearchDocsSemanticResults = z.infer<typeof searchDocsSemanticResultsSchema>;
 
 /**
+ * UNA CONVERSAZIONE di posta trovata (15 set 2026, design §3).
+ *
+ * ⚠️ **Si cercano CONVERSAZIONI, non messaggi.** La posta in Stubwise si legge
+ * per conversazione dal 14 settembre: una ricerca che restituisse messaggi
+ * sciolti riporterebbe indietro il modello che abbiamo appena tolto, e tre
+ * righe per tre risposte dello stesso scambio. Un risultato porta alla
+ * conversazione, e `matchedMessageId` dice QUALE messaggio ha combaciato, così
+ * chi arriva non deve rileggere il thread per capire perché è comparso.
+ *
+ * ⚠️ **Questo gruppo è PRIVATO del proprietario della casella.** Il server lo
+ * filtra su `google_accounts.user_id`, e nessun ruolo scavalca — nemmeno un
+ * admin (audience `mailbox_owner`, fase 6). Non è un requisito di questa
+ * fase: è un'invariante esistente che la ricerca non deve poter incrinare.
+ *
+ * `subject`/`from` sono testo NON FIDATO (li scrive chi manda l'email);
+ * `snippet` viene da `ts_headline`, quindi contiene il markup `<mark>` di
+ * Postgres e va reso con le stesse cautele degli altri snippet di questo file.
+ */
+export const searchMailHitSchema = z.object({
+  threadId: z.string(),
+  accountId: z.string(),
+  accountEmail: z.string(),
+  /** Oggetto del messaggio che ha combaciato. NON FIDATO. */
+  subject: z.string().nullable(),
+  /** Mittente del messaggio che ha combaciato. NON FIDATO. */
+  from: z.string(),
+  snippet: z.string(),
+  /** Il messaggio che ha combaciato: serve a evidenziarlo dentro la conversazione. */
+  matchedMessageId: z.string(),
+  receivedAt: z.string(),
+});
+export type SearchMailHit = z.infer<typeof searchMailHitSchema>;
+
+/**
  * Un gruppo di risultati (per tipo): i primi N item e `hasMore` se il full-text
  * ne ha trovati altri oltre la finestra restituita.
  */
@@ -104,6 +160,18 @@ export const searchResultsSchema = z.object({
   projects: group(searchProjectHitSchema),
   repositories: group(searchRepositoryHitSchema),
   docs: group(searchDocHitSchema),
+  /**
+   * La POSTA (15 set 2026, design §3) — conversazioni, non messaggi, e solo
+   * quelle delle caselle di CHI CHIEDE.
+   *
+   * `.default(...)` e non obbligatorio, come ogni campo nuovo in una risposta
+   * che un client può leggere da un server più vecchio (CLAUDE.md, «solo
+   * cambi additivi»). ⚠️ Sul WEB quel default non gira mai — `lib/api.ts` fa
+   * un cast, non un `parse` — quindi il gruppo va difeso anche nel PUNTO DI
+   * LETTURA con `?? []`, e la fixture del test che lo copre va lasciata senza
+   * il campo apposta.
+   */
+  mail: group(searchMailHitSchema).default({ items: [], hasMore: false }),
 });
 export type SearchResults = z.infer<typeof searchResultsSchema>;
 

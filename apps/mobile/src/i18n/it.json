@@ -447,7 +447,7 @@
     },
     "docs": {
       "title": "Docs",
-      "searchPlaceholder": "Cerca nella documentazione…",
+      "searchPlaceholder": "Cerca in questa documentazione…",
       "project": {
         "pickerLabel": "Progetto",
         "none": "Nessun progetto disponibile."
@@ -812,6 +812,24 @@
       "wipBadge": "WIP",
       "comingSoon": "Non c'è ancora",
       "comingSoonBody": "Questa impostazione è segnata qui perché sappiamo che ci andrà. Oggi non fa niente."
+    },
+    "search": {
+      "trigger": "Cerca",
+      "openLabel": "Apri la ricerca",
+      "title": "Cerca",
+      "placeholder": "Ticket, progetti, documentazione, posta…",
+      "close": "Chiudi",
+      "hint": "Scrivi per cercare in tutto Stubwise.",
+      "searching": "Ricerca in corso…",
+      "empty": "Nessun risultato.",
+      "error": "La ricerca non ha risposto. Riprova.",
+      "groups": {
+        "tickets": "Ticket",
+        "projects": "Progetti",
+        "docs": "Documentazione",
+        "mail": "Posta"
+      },
+      "matched": "Il messaggio trovato"
     }
   }
 }

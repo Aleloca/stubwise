@@ -55,6 +55,7 @@ function searchResults(items: Reader<SearchResults>["docs"]["items"] = []): Read
     tickets: { items: [], hasMore: false },
     projects: { items: [], hasMore: false },
     repositories: { items: [], hasMore: false },
+  mail: { items: [], hasMore: false },
     docs: { items, hasMore: false },
   };
 }

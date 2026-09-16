@@ -79,6 +79,7 @@ import { CalendarPage } from "./routes/calendar";
 import { MailPage } from "./routes/mail";
 import { ReleaseQueuePage } from "./routes/release";
 import { MailDetailPage } from "./routes/mail.$source.$id";
+import { MailThreadPage } from "./routes/mail.thread.$threadId";
 import { LoginPage } from "./routes/login";
 import { MonitorListPage } from "./routes/monitor/index";
 import { ServerDetailPage } from "./routes/monitor/server-detail";
@@ -714,6 +715,38 @@ const releaseQueueRoute = createRoute({
  * precisa, e prefetchare ogni riga della lista sarebbe N chiamate per una
  * pagina che ne mostra una sola alla volta.
  */
+/**
+ * Una CONVERSAZIONE aperta dall'URL (15 set 2026, design §3) — la
+ * destinazione di un risultato di ricerca nella posta.
+ *
+ * ⚠️ Registrata PRIMA di `/mail/$source/$id` e con un segmento LETTERALE
+ * (`thread`) su un prefisso che ha già una rotta parametrica: è la stessa
+ * trappola documentata in CLAUDE.md per Fastify. Qui i due percorsi hanno
+ * anche un numero di segmenti diverso (4 contro 3), quindi non collidono —
+ * ma l'ordine resta quello giusto per convenzione, invece di ragionare caso
+ * per caso su quale segmento è ambiguo.
+ *
+ * Stesse query precaricate di `/mail`: la lista resta visibile a sinistra
+ * mentre si legge la conversazione, quindi le sue `useSuspenseQuery` non
+ * devono attendere.
+ */
+const mailThreadRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/mail/thread/$threadId",
+  validateSearch: (search: Record<string, unknown>): { message?: string } => ({
+    message: typeof search.message === "string" && search.message !== "" ? search.message : undefined,
+  }),
+  loader: async ({ context }) => {
+    await Promise.all([
+      context.queryClient.ensureQueryData(mailThreadsQueryOptions()).catch(() => undefined),
+      context.queryClient.ensureQueryData(mailSummaryQueryOptions).catch(() => undefined),
+      context.queryClient.ensureQueryData(projectsQueryOptions),
+      context.queryClient.ensureQueryData(myGoogleAccountsQueryOptions),
+    ]);
+  },
+  component: MailThreadPage,
+});
+
 const mailDetailRoute = createRoute({
   getParentRoute: () => authedRoute,
   path: "/mail/$source/$id",
@@ -970,6 +1003,7 @@ const routeTree = rootRoute.addChildren([
     activityRoute,
     inboxRoute,
     mailRoute,
+    mailThreadRoute,
     mailDetailRoute,
     calendarRoute,
     releaseQueueRoute,

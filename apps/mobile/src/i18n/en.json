@@ -447,7 +447,7 @@
     },
     "docs": {
       "title": "Docs",
-      "searchPlaceholder": "Search the documentation…",
+      "searchPlaceholder": "Search this documentation…",
       "project": {
         "pickerLabel": "Project",
         "none": "No projects available."
@@ -812,6 +812,24 @@
       "wipBadge": "WIP",
       "comingSoon": "Not here yet",
       "comingSoonBody": "This setting is listed because we know it belongs here. Today it does nothing."
+    },
+    "search": {
+      "trigger": "Search",
+      "openLabel": "Open search",
+      "title": "Search",
+      "placeholder": "Tickets, projects, docs, mail…",
+      "close": "Close",
+      "hint": "Type to search across Stubwise.",
+      "searching": "Searching…",
+      "empty": "No results.",
+      "error": "Search did not respond. Try again.",
+      "groups": {
+        "tickets": "Tickets",
+        "projects": "Projects",
+        "docs": "Documentation",
+        "mail": "Mail"
+      },
+      "matched": "The matching message"
     }
   }
 }

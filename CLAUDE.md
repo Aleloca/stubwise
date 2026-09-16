@@ -1588,6 +1588,71 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   dopo riapplicava il cancello, la riga restava `new` dopo che la UI aveva
   detto ok). Ora `POST /api/me/mail/calendar/:id/repropose` risponde **409
   `not_reproposable`** dicendo il perché, senza toccare l'esito.
+- **La ricerca della posta non incrina `mailbox_owner`, e il test che lo
+  verifica è NEGATIVO (15 set 2026, design §3).** `GET /api/search` ha un
+  gruppo `mail` che cerca CONVERSAZIONI (`DISTINCT ON (account_id,
+  thread_id)`, non messaggi: tre risposte dello stesso scambio sono un
+  risultato, come nella pagina Posta). Il filtro è
+  `google_accounts.user_id = utente corrente` dentro l'INNER JOIN, e **nessun
+  ruolo scavalca** — non esiste un ramo `if (admin)` da sbagliare, perché non
+  esiste affatto. È l'invariante `mailbox_owner` della fase 6, non un
+  requisito nuovo: la ricerca non deve poterla incrinare.
+  ⚠️ **Il test che la presidia cerca una parola che esiste SOLO nel messaggio
+  dell'altro utente** (`apps/server/src/routes/search.test.ts`), e verifica
+  ANCHE il verso opposto — che il proprietario quella parola la trovi — così
+  un risultato vuoto non può essere una query che non funziona. Contare i
+  risultati non basterebbe: con due messaggi diversi un conteggio giusto può
+  nascondere la riga sbagliata.
+  Due scelte di quel gruppo che non vanno «semplificate»: la `where` ha un
+  ramo **ILIKE** oltre al full-text perché Postgres tokenizza un indirizzo
+  come UNA parola (`mario@acme.test`), quindi cercare «mario» con
+  `websearch_to_tsquery` non trova niente — e un pezzo di nome è il modo in
+  cui si cerca la posta; e include i messaggi di **contesto**
+  (`admitted = false`), perché quel limite esiste per non farli diventare una
+  CARD, non per impedirne la lettura — e cercare è leggere.
+- **La posta NON entra nella cronologia della ricerca, ed è una scelta di
+  RETENZIONE prima che di enum (15 set 2026).** `searchEntityTypeSchema` non
+  ha il valore `mail` e non va aggiunto senza affrontare prima il motivo
+  vero: una voce di `search_history` porta `title`/`subtitle`
+  **denormalizzati**, quindi registrare una conversazione copierebbe
+  l'oggetto di un'email in una SECONDA tabella — fuori da `pruneOldEmails`.
+  Un messaggio cancellato da Gmail e potato da noi lascerebbe il suo oggetto
+  nei «recenti» per sempre. Il secondo motivo (l'`ALTER TYPE` su
+  `search_entity`, con la trappola delle migrazioni batch e un binario
+  vecchio che non saprebbe serializzare `/api/search/history`) è reale ma
+  viene dopo. Sul web la guardia è `isRecordable` in
+  `global-search-palette.tsx`, con un test che verifica che un ticket invece
+  SÌ si registri: la guardia è sulla posta, non sulla cronologia in generale.
+- **Nell'app la ricerca è un'AZIONE, non una destinazione — e i repository
+  non ci sono (15 set 2026, design §3).** Vive in `ScreenHeader`, quindi è
+  raggiungibile da ogni schermata che lo usa, e **non** aggiunge una sesta
+  scheda: le cinque (INB/PRJ/BLG/DOC/MBX) sono decise per tutte le fasi
+  (`docs/plans/2026-09-11-app-navigation-architecture-design.md`). Il foglio
+  è montato SOLO quando è aperto, e non per performance: usa
+  `useNavigation`, e tenerlo montato significherebbe un `Modal` e un hook di
+  navigazione su ogni schermata dell'app, sempre.
+  **I repository sono l'unico gruppo del web che l'app non mostra**, ed è
+  deliberato: non esiste una schermata dei repository, quindi un risultato lì
+  sarebbe una riga che non porta da nessuna parte — e «premibile solo se c'è
+  davvero un dettaglio da aprire» è già la regola di questa app (vedi
+  `EventRow` in `CalendarPanel`). Chi aggiungesse quella schermata aggiunga
+  anche il gruppo; chi aggiunge il gruppo prima della schermata sta
+  offrendo un tap che non fa niente.
+  La ricerca dentro DOC **resta** ed è un'altra cosa: filtra QUELLA
+  documentazione (passa `repositoryId`), e la copy lo dice («Cerca in questa
+  documentazione…») proprio perché non sembri la globale.
+- **⚠️ Nei test dell'app `render` di `@testing-library/react-native` si
+  ASPETTA** (`await render(...)`), come fa ogni test di questo repo. Non è
+  cosmetica: con React 19 un `render` non atteso torna un oggetto SENZA
+  query, e i sintomi sono fuorvianti — `screen` dice «render function has not
+  been called» e la view non ha `getByText`, come se il componente non fosse
+  mai stato montato, senza nessun errore in console. Costato mezz'ora il 15
+  set 2026.
+  Nella stessa famiglia: un `jest.mock` di `@react-navigation/native` **deve**
+  fare lo spread di `requireActual`. Sostituirlo per intero lascia
+  `undefined` al posto delle export che `app/providers` usa da quel modulo, e
+  il sintomo è lo stesso — un albero che non monta, senza un errore che lo
+  dica.
 - **Una serie resta raggiungibile anche senza occorrenze nella finestra
   visibile (fase 9, fix di review).** Spostando la configurazione di una
   serie nel pannello di dettaglio (design §3, Task 7), una serie le cui
