@@ -162,7 +162,7 @@
       "waitingOnMaintainer": "Waiting on a maintainer.",
       "offlineAction": "Needs network",
       "google": {
-        "openDecision": "See and decide",
+        "openDecision": "Choose",
         "back": "‹ Inbox",
         "backToInbox": "Back to the inbox",
         "fallbackTitle": "Proposal",
