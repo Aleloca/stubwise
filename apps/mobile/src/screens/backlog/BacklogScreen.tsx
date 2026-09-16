@@ -99,6 +99,9 @@ export function BacklogScreen({ navigation }: NativeStackScreenProps<BacklogStac
   }
 
   const projects = projectsQuery.data ?? [];
+  // `projectId → nome`: la risposta del backlog porta solo l'id, e l'elenco
+  // progetti questa schermata ce l'ha già per la cattura rapida.
+  const projectNames = new Map(projects.map((project) => [project.id, project.name]));
   const items = query.data ?? [];
 
   // Task 7 (App M1+M2, 11 set 2026): un solo `ScrollView`, header (ora
@@ -173,7 +176,9 @@ export function BacklogScreen({ navigation }: NativeStackScreenProps<BacklogStac
               item={item}
               proceedPending={convert.isPending}
               onProceed={() => handleProceed(item.id)}
-              onRefine={() => navigation.navigate("Chat", { id: item.id })}
+              {...(projectNames.get(item.projectId) !== undefined
+                ? { projectName: projectNames.get(item.projectId)! }
+                : {})}
               onOpenDetail={() => navigation.navigate("Item", { id: item.id })}
             />
           ))
@@ -200,13 +205,14 @@ interface BacklogListCardProps {
   item: Reader<BacklogItem>;
   proceedPending: boolean;
   onProceed: () => void;
-  onRefine: () => void;
+  /** Il nome del progetto della voce, risolto da chi ha l'elenco progetti. */
+  projectName?: string;
   onOpenDetail: () => void;
 }
 
-function BacklogListCard({ item, proceedPending, onProceed, onRefine, onOpenDetail }: BacklogListCardProps) {
+function BacklogListCard({ item, proceedPending, onProceed, projectName, onOpenDetail }: BacklogListCardProps) {
   const { t } = useTranslation();
-  const metaText = backlogMetaParts(item)
+  const metaText = backlogMetaParts(item, projectName)
     .map((part) => t(part.key, part.params))
     .join(" · ");
   const isReady = item.status === "ready";
@@ -241,9 +247,17 @@ function BacklogListCard({ item, proceedPending, onProceed, onRefine, onOpenDeta
       <Pressable accessibilityRole="button" onPress={onOpenDetail} testID={`backlog-open-${item.id}`}>
         {header}
       </Pressable>
-      {/* Qui `isClosed` è già falso: il ramo sopra è uscito. */}
-      <View style={styles.cardActions}>
-        {isReady && (
+      {/*
+        Qui `isClosed` è già falso: il ramo sopra è uscito.
+
+        ⚠️ «Raffina in chat» NON sta più qui (16 set 2026, richiesta del
+        maintainer): vive nel DETTAGLIO, dove c'è il documento su cui si sta
+        decidendo di aprire una chat. Toglierlo dalla lista non chiude nessuna
+        porta — `BacklogItemScreen` offre già sia la chat sia «Procedi», ed è
+        stato verificato PRIMA di rimuoverlo, non dopo.
+      */}
+      {isReady && (
+        <View style={styles.cardActions}>
           <View style={styles.proceedButton}>
             <PrimaryButton
               label={t("mobile.backlog.actions.proceed")}
@@ -252,11 +266,8 @@ function BacklogListCard({ item, proceedPending, onProceed, onRefine, onOpenDeta
               testID={`backlog-proceed-${item.id}`}
             />
           </View>
-        )}
-        <View style={styles.refineButton}>
-          <GhostButton label={t("mobile.backlog.actions.refineInChat")} onPress={onRefine} testID={`backlog-refine-${item.id}`} />
         </View>
-      </View>
+      )}
     </View>
   );
 }

@@ -1,4 +1,4 @@
-import { clockTime, elapsedMinutes, relativeTimeCompact } from "./format";
+import { clockTime, elapsedMinutes, relativeTimeCompact, shortDate } from "./format";
 
 const NOW = new Date("2026-09-02T10:00:00.000Z").getTime();
 
@@ -66,5 +66,21 @@ describe("clockTime", () => {
   test("padding a due cifre su ore e minuti", () => {
     const at = new Date(2026, 8, 14, 7, 5);
     expect(clockTime(at.toISOString())).toBe("07:05");
+  });
+});
+
+describe("shortDate", () => {
+  it("giorno, mese e anno a due cifre, con lo zero davanti", () => {
+    expect(shortDate("2026-06-05T10:00:00.000Z")).toBe("05/06/26");
+    expect(shortDate("2026-12-31T10:00:00.000Z")).toBe("31/12/26");
+  });
+
+  it("il mese è quello umano, non l'indice da zero di JavaScript", () => {
+    // `getMonth()` torna 0 per gennaio: senza il +1 questa riga direbbe 00.
+    expect(shortDate("2026-01-15T10:00:00.000Z")).toBe("15/01/26");
+  });
+
+  it("anni sotto il 2010: lo zero non si perde", () => {
+    expect(shortDate("2009-03-07T10:00:00.000Z")).toBe("07/03/09");
   });
 });

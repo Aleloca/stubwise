@@ -57,3 +57,24 @@ export function clockTime(iso: string): string {
   const at = new Date(iso);
   return `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`;
 }
+
+/**
+ * Una data in forma breve `GG/MM/AA`, nel fuso LOCALE di chi guarda.
+ *
+ * A mano e non con `Intl`, per la stessa ragione di {@link clockTime}: Hermes
+ * non garantisce un ICU completo su ogni piattaforma, e questa forma è la
+ * stessa in ogni lingua che l'app parla.
+ *
+ * Serve dove conta QUANDO è successo qualcosa e non «quanto tempo fa»: la
+ * data di CREAZIONE di una voce di backlog è un fatto che non cambia, mentre
+ * l'ultimo aggiornamento è freschezza e si legge meglio in relativo
+ * ({@link relativeTimeCompact}). Su una lista lunga le due domande sono
+ * diverse, e mescolarle è il motivo per cui esistono entrambe.
+ */
+export function shortDate(iso: string): string {
+  const at = new Date(iso);
+  const day = String(at.getDate()).padStart(2, "0");
+  const month = String(at.getMonth() + 1).padStart(2, "0");
+  const year = String(at.getFullYear() % 100).padStart(2, "0");
+  return `${day}/${month}/${year}`;
+}

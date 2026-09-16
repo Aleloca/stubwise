@@ -161,7 +161,7 @@ describe("BacklogScreen — card: stato in parole e metadati", () => {
     await renderScreen(client);
     await waitFor(() => expect(screen.getByText("Export massivo degli ordini")).toBeTruthy());
     expect(screen.getByText("Pronto")).toBeTruthy();
-    expect(screen.getByText("alta · E3 · rischio basso · richiesto 4 volte")).toBeTruthy();
+    expect(screen.getByText("Portale B2B · creata 01/08/26 · agg. 01/08/26 · alta · E3 · rischio basso · richiesto 4 volte")).toBeTruthy();
   });
 
   test("voce in raffinamento: 'In raffinamento', niente Procedi, 'chat aperta ›' in coda", async () => {
@@ -173,9 +173,12 @@ describe("BacklogScreen — card: stato in parole e metadati", () => {
     });
     await renderScreen(client);
     await waitFor(() => expect(screen.getByText("In raffinamento")).toBeTruthy());
-    expect(screen.getByText("media · E3 · chat aperta ›")).toBeTruthy();
+    expect(screen.getByText("Portale B2B · creata 01/08/26 · agg. 01/08/26 · media · E3 · chat aperta ›")).toBeTruthy();
     expect(screen.queryByTestId("backlog-proceed-item-refining")).toBeNull();
-    expect(screen.getByTestId("backlog-refine-item-refining")).toBeTruthy();
+    // Nessun bottone sulla card: né Procedi (non è pronta) né la chat, che
+    // dal 16 set 2026 vive nel dettaglio. Resta il titolo, che apre.
+    expect(screen.queryByTestId("backlog-refine-item-refining")).toBeNull();
+    expect(screen.getByTestId("backlog-open-item-refining")).toBeTruthy();
   });
 
   test("voce nuova senza stime: 'da stimare — l'agente ci sta lavorando'", async () => {
@@ -186,7 +189,9 @@ describe("BacklogScreen — card: stato in parole e metadati", () => {
       }),
     });
     await renderScreen(client);
-    await waitFor(() => expect(screen.getByText("da stimare — l'agente ci sta lavorando")).toBeTruthy());
+    // Il progetto e le date valgono ANCHE per una voce ancora in intake: è lì
+    // che servono di più, per riconoscere ciò che è fermo da settimane.
+    await waitFor(() => expect(screen.getByText("Portale B2B · creata 01/08/26 · agg. 01/08/26 · da stimare — l'agente ci sta lavorando")).toBeTruthy());
   });
 
   test("voce ATTIVA: si apre il dettaglio dal titolo, e le azioni restano al loro posto", async () => {
@@ -201,10 +206,6 @@ describe("BacklogScreen — card: stato in parole e metadati", () => {
     await waitFor(() => expect(screen.getByTestId("backlog-open-item-new")).toBeTruthy());
     await fireEvent.press(screen.getByTestId("backlog-open-item-new"));
     expect(navigate).toHaveBeenCalledWith("Item", { id: "item-new" });
-    // Le azioni non sono FIGLIE della superficie che apre il dettaglio: sono
-    // sue sorelle. E' la ragione per cui questo si poteva fare senza annidare
-    // un `Pressable` dentro un altro.
-    expect(screen.getByTestId("backlog-refine-item-new")).toBeTruthy();
   });
 
   test("aprire il dettaglio NON fa partire l'azione della card", async () => {
@@ -250,12 +251,15 @@ describe("BacklogScreen — Procedi e Raffina in chat", () => {
     );
   });
 
-  test("Raffina in chat: naviga alla Chat della voce", async () => {
+  test("«Raffina in chat» NON sta più sulla card: vive nel dettaglio", async () => {
+    // Tolto il 16 set 2026 su richiesta del maintainer. Verificato PRIMA di
+    // toglierlo che `BacklogItemScreen` offra sia la chat sia «Procedi»:
+    // altrimenti sarebbe l'errore di «Riproponi», un'azione rimasta senza
+    // nessun punto d'accesso.
     const client = makeClient({ list: jest.fn().mockResolvedValue({ items: [item()], nextCursor: null }) });
-    const { navigate } = await renderScreen(client);
-    await waitFor(() => expect(screen.getByTestId("backlog-refine-item-1")).toBeTruthy());
-    await fireEvent.press(screen.getByTestId("backlog-refine-item-1"));
-    expect(navigate).toHaveBeenCalledWith("Chat", { id: "item-1" });
+    await renderScreen(client);
+    await waitFor(() => expect(screen.getByTestId("backlog-open-item-1")).toBeTruthy());
+    expect(screen.queryByTestId("backlog-refine-item-1")).toBeNull();
   });
 });
 

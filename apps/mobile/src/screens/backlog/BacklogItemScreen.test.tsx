@@ -120,8 +120,24 @@ describe("BacklogItemScreen — corpo", () => {
     await renderScreen(makeClient());
     await waitFor(() => expect(screen.getByText("Accesso clienti con SSO")).toBeTruthy());
     expect(screen.getByText("Pronto")).toBeTruthy();
-    expect(screen.getByText("alta · E4 · rischio medio")).toBeTruthy();
+    expect(screen.getByText("creata 01/08/26 · agg. 01/08/26 · alta · E4 · rischio medio")).toBeTruthy();
     expect(screen.getByText("I clienti enterprise chiedono il login SSO.")).toBeTruthy();
+  });
+
+  test("il documento è RESO come markdown, non mostrato grezzo", async () => {
+    // Fino al 16 set 2026 arrivava a schermo con cancelletti e asterischi:
+    // dentro una voce di backlog vive spesso un design doc intero, e cosi'
+    // era illeggibile. Il renderer e il tema esistevano gia' — li usano le
+    // pagine Docs e il piano di un ticket — e qui mancavano e basta.
+    const client = makeClient({
+      get: jest.fn().mockResolvedValue(item({ document: "# Titolo\n\nUn **paragrafo**." })),
+    });
+    await renderScreen(client);
+    await waitFor(() => expect(screen.getByText("Titolo")).toBeTruthy());
+    // Il cancelletto e gli asterischi non compaiono da nessuna parte: se il
+    // documento fosse ancora un `<Text>` grezzo, questa riga fallirebbe.
+    expect(screen.queryByText(/# Titolo/)).toBeNull();
+    expect(screen.queryByText(/\*\*paragrafo\*\*/)).toBeNull();
   });
 
   test("voce 'ready': Procedi converte e naviga al Lavoro del ticket creato", async () => {

@@ -1,11 +1,14 @@
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { ApiError } from "@stubwise/api-client";
+import { isSafeWebUrl } from "@stubwise/shared";
 import type { BacklogItemDetail, Reader } from "@stubwise/shared";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import Markdown from "react-native-markdown-display";
 import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import type { BacklogStackParamList } from "../../app/navigation";
+import { MARKDOWN_STYLE } from "../../theme/markdown";
 import { useAuth } from "../../app/providers";
 import { GhostButton } from "../../components/GhostButton";
 import { PrimaryButton } from "../../components/PrimaryButton";
@@ -148,7 +151,36 @@ function ItemBody({
         <Text style={styles.meta}>{metaText}</Text>
       </View>
 
-      <Text style={styles.document}>{item.document.trim() === "" ? t("mobile.backlog.item.noDocument") : item.document}</Text>
+      {item.document.trim() === "" ? (
+        <Text style={styles.document}>{t("mobile.backlog.item.noDocument")}</Text>
+      ) : (
+        /*
+         * Il documento di una voce di backlog È markdown — spesso un design
+         * doc salvato per intero — e fino al 16 set 2026 arrivava a schermo
+         * come testo grezzo, cancelletti e asterischi compresi: illeggibile.
+         * Il renderer e il tema esistono già e li usano le pagine Docs, il
+         * piano di un ticket e il dettaglio progetto; qui mancava e basta.
+         *
+         * ⚠️ Questo NON contraddice la regola del corpo delle email, che
+         * resta testo letterale: lì il markup lo scriverebbe un estraneo e
+         * reinterpretarlo sarebbe sbagliato. Qui il documento è materiale
+         * nostro o passato dall'intake.
+         *
+         * `onLinkPress` con l'allowlist condivisa (`isSafeWebUrl`): il
+         * renderer, lasciato a sé, aprirebbe QUALUNQUE href — e una voce di
+         * backlog può nascere anche da testo che non abbiamo scritto noi.
+         */
+        <Markdown
+          style={MARKDOWN_STYLE}
+          onLinkPress={(url) => {
+            if (isSafeWebUrl(url)) void Linking.openURL(url);
+            // `false` sempre: l'apertura la decidiamo noi, mai la libreria.
+            return false;
+          }}
+        >
+          {item.document}
+        </Markdown>
+      )}
 
       {(isReady || canRefine) && (
         <View style={styles.actions}>
