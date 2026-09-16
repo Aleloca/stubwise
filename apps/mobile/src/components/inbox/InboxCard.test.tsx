@@ -608,6 +608,16 @@ describe("InboxCard — proposta Google (fase 6)", () => {
     expect(Linking.openURL).not.toHaveBeenCalled();
   });
 
+  test("rimanda e archivia restano sulla card: sono igiene, non decisione", async () => {
+    // Richiesta del maintainer dopo la prima passata: la decisione ha bisogno
+    // della pagina, ma rinviare o archiviare non crea niente e non richiede
+    // di leggere la proposta — farle costare un'apertura sarebbe un passo in
+    // piu' per l'azione piu' frequente su 33 proposte aperte.
+    await renderCard(GOOGLE_PROPOSAL, makeClient(), { onOpenProposal: jest.fn() });
+    expect(screen.getByTestId("inbox-snooze-gp1")).toBeTruthy();
+    expect(screen.getByTestId("inbox-handled-gp1")).toBeTruthy();
+  });
+
   test("senza un modo per aprire la pagina resta InfoCard, non un bottone morto", async () => {
     await renderCard(GOOGLE_PROPOSAL, makeClient());
     expect(screen.getByTestId("info-card")).toBeTruthy();

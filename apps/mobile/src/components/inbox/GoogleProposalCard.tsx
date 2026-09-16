@@ -1,6 +1,10 @@
 import type { InboxItem, Reader } from "@stubwise/shared";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, Text } from "react-native";
+import { can } from "../../lib/inbox-sections";
+import { useHandled, useSnooze } from "../../lib/inbox-mutations";
+import { SnoozeSheet } from "./SnoozeSheet";
 import { colors } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
 import { CardFooter, CardShell } from "./CardShell";
@@ -34,6 +38,12 @@ export function GoogleProposalCard({
 }) {
   const { t } = useTranslation();
   const google = item.google;
+  // Rimanda e archivia restano SULLA CARD (richiesta del maintainer): sono
+  // igiene, non decisione — non creano niente e non serve leggere la
+  // proposta per farle. È la decisione vera che ha bisogno della pagina.
+  const snooze = useSnooze();
+  const handled = useHandled();
+  const [snoozeOpen, setSnoozeOpen] = useState(false);
 
   return (
     <CardShell
@@ -55,9 +65,30 @@ export function GoogleProposalCard({
               emphasis: true,
               testID: `inbox-decide-${item.id}`,
             },
+            ...(can(item, "snooze")
+              ? [
+                  {
+                    key: "snooze",
+                    label: t("mobile.inbox.actions.snooze"),
+                    onPress: () => setSnoozeOpen(true),
+                    testID: `inbox-snooze-${item.id}`,
+                  },
+                ]
+              : []),
+            ...(can(item, "handled")
+              ? [
+                  {
+                    key: "handled",
+                    label: t("mobile.inbox.actions.handled"),
+                    onPress: () => handled.mutate({ id: item.id }),
+                    testID: `inbox-handled-${item.id}`,
+                  },
+                ]
+              : []),
           ]}
         />
       }
+      errorMessage={snooze.errorMessage ?? handled.errorMessage}
       testID="google-proposal-card"
     >
       {google !== undefined && (
@@ -71,6 +102,16 @@ export function GoogleProposalCard({
       {google !== undefined && (
         <Text style={styles.signal}>{t(`mobile.inbox.google.signal.${google.signal}`)}</Text>
       )}
+
+      <SnoozeSheet
+        visible={snoozeOpen}
+        onRequestClose={() => setSnoozeOpen(false)}
+        onChoose={(until) => {
+          setSnoozeOpen(false);
+          snooze.mutate({ id: item.id, until });
+        }}
+        testID={`inbox-snooze-sheet-${item.id}`}
+      />
     </CardShell>
   );
 }
