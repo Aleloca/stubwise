@@ -1007,6 +1007,39 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   normali, producendo le proposte in più che questa fase esiste per
   togliere). Non è distruttivo, ma è il motivo per non scendere di immagine
   sul solo worker dopo questa fase.
+- **«Righe di ricerca per tipologia» (16 set 2026)**: rebuild **server +
+  worker + caddy insieme** (migrazione 0079 all'avvio del server — additiva,
+  **nessun `ALTER TYPE`**, un solo batch, nessun backfill nella migrazione:
+  una sola colonna `email_messages.cc_addresses text[]`, **nullable**. Il
+  worker nuovo è l'unico che scrive il `cc` sulle righe nuove, il server nuovo
+  l'unico che espone `to`/`cc` nel gruppo `mail` di `/api/search`, il bundle
+  nuovo… non serve, in realtà: **la palette web non cambia** — riceve i due
+  campi e li ignora, che è ciò che deve fare un client che non li usa. Il
+  caddy si ribuilda comunque per non lasciare il bundle indietro rispetto al
+  server). **Nessuna env nuova. Nessun kind di notifica nuovo e nessun valore
+  aggiunto a un enum esistente**, quindi niente della famiglia del 500 su
+  `/api/inbox` delle fasi 2/5/6.
+  **Nessuna chiamata nuova a Gmail**: l'header `Cc` era GIÀ in
+  `DEFAULT_METADATA_HEADERS` e arrivava nella stessa risposta
+  `format=metadata` — l'ammissione della 6c lo guardava già. Il worker
+  smetteva solo di scriverlo, per mancanza di una colonna.
+  **⚠️ Passo manuale post-deploy — il recupero delle righe storiche.** Il
+  `cc` dei messaggi già ingeriti (163 in prod al 16 set, dal 4 agosto) non è
+  ricostruibile dal database: sta solo su Gmail. Sul VPS, **dentro il
+  container server**, prima in prova e poi davvero:
+  `docker compose exec server node dist/scripts/backfill-email-cc.js
+  --dry-run`, poi lo stesso senza `--dry-run`. Come il backfill della fase 5
+  si lancia col **`node` compilato** e non con `pnpm` (l'immagine è un `pnpm
+  deploy --prod`: niente `tsx`, niente pnpm, e il Postgres del compose non
+  pubblica porte sull'host). ⚠️ Serve anche `ENCRYPTION_KEY` nell'ambiente
+  del container — c'è già, ma a differenza degli altri script questo decifra
+  i refresh token delle caselle.
+  **Rollback — simmetrico e innocuo**: scendere di immagine sul server perde
+  `to`/`cc` dalla risposta (i client li ricevono assenti e mostrano le righe
+  come prima); scendere sul worker smette di scrivere il `cc` sulle righe
+  nuove, che restano `null` — cioè esattamente il valore che significa «non
+  lo sappiamo», e che un lancio futuro del recupero riempirà. La colonna
+  sopravvive a tutto.
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
@@ -1588,6 +1621,39 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   dopo riapplicava il cancello, la riga restava `new` dopo che la UI aveva
   detto ok). Ora `POST /api/me/mail/calendar/:id/repropose` risponde **409
   `not_reproposable`** dicendo il perché, senza toccare l'esito.
+- **`cc_addresses` è NULLABLE mentre `to_addresses` non lo è, e non è
+  un'incoerenza da uniformare (16 set 2026).** È la prima cosa che qualcuno
+  vorrà «sistemare», e uniformarla romperebbe una cosa che non si vede.
+  I due valori dicono cose diverse: `null` = «riga scritta PRIMA della
+  colonna, non lo sappiamo», `[]` = «lo sappiamo, non c'era nessuno in
+  copia». Su quella distinzione si regge INTERAMENTE lo script di recupero
+  (`apps/server/scripts/backfill-email-cc.ts`), la cui condizione di ripresa
+  è `cc_addresses is null`: con un `not null default '{}'` quella condizione
+  smetterebbe di distinguere le righe mai guardate da quelle senza copia, e
+  lo script tornerebbe a Gmail **a ogni lancio** per ogni email che
+  legittimamente non aveva nessuno in copia — cioè la maggioranza. C'è un
+  test che lo fissa da entrambi i lati: `buildEmailMessageInsert` scrive `[]`
+  e mai `null` per un messaggio senza header `Cc`
+  (`apps/worker/src/google/sync.test.ts`), e il recupero al secondo giro non
+  chiama Google nemmeno una volta (`backfill-email-cc.test.ts`).
+  Verso il client la distinzione **non arriva**: `searchMailHitSchema`
+  appiattisce a `[]` (`cc: r.ccAddresses ?? []`), perché una riga di ricerca
+  non ha niente di diverso da dire nei due casi. Esiste per il recupero, non
+  per chi legge.
+  **Lo script di recupero tocca SOLO quella colonna**, ed è l'altra metà
+  della regola: mai `text_excerpt` (è ciò che la CLASSIFICAZIONE ha letto),
+  mai `status`, mai `outcome`, mai una riga di `email_proposals` — una
+  proposta aperta non deve accorgersi che è passato — e non fa partire nessun
+  job e nessuna notifica, stessa dottrina del percorso `auto` del calendario.
+  I test lo verificano sui VALORI prima/dopo, non sull'esito dello script.
+- **`to` e `cc` si MOSTRANO, non si cercano (16 set 2026).** `MAIL_TSV`
+  (`apps/server/src/routes/search.ts`) non li include, e allargarlo è una
+  decisione di prodotto, non un'ottimizzazione: cercare un indirizzo trova
+  già le email di quella persona dal mittente e dall'oggetto, mentre
+  includere i destinatari farebbe comparire una mail in copia a mezza
+  azienda cercando chiunque di quella mezza azienda. C'è un test negativo che
+  lo fissa (una parola che esiste SOLO fra i `cc` non trova la
+  conversazione).
 - **La ricerca della posta non incrina `mailbox_owner`, e il test che lo
   verifica è NEGATIVO (15 set 2026, design §3).** `GET /api/search` ha un
   gruppo `mail` che cerca CONVERSAZIONI (`DISTINCT ON (account_id,

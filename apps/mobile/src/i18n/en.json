@@ -836,6 +836,25 @@
         "tickets": "Tickets · {{count}}",
         "docs": "Docs · {{count}}",
         "projects": "Projects · {{count}}"
+      },
+      "to": "to:",
+      "cc": "cc:",
+      "ticketStatus": {
+        "open": "open",
+        "triaged": "triaged",
+        "in_progress": "in progress",
+        "in_review": "in review",
+        "done": "done",
+        "closed": "closed",
+        "unknown": "unknown"
+      },
+      "docKinds": {
+        "technical": "technical",
+        "functional": "functional",
+        "product": "product",
+        "releases": "releases",
+        "manual": "manual",
+        "unknown": "documentation"
       }
     }
   }

@@ -1,4 +1,4 @@
-import { clockTime, elapsedMinutes, relativeTimeCompact, shortDate } from "./format";
+import { clockTime, elapsedMinutes, relativeTimeCompact, searchMailTime, shortDate } from "./format";
 
 const NOW = new Date("2026-09-02T10:00:00.000Z").getTime();
 
@@ -82,5 +82,38 @@ describe("shortDate", () => {
 
   it("anni sotto il 2010: lo zero non si perde", () => {
     expect(shortDate("2009-03-07T10:00:00.000Z")).toBe("07/03/09");
+  });
+});
+
+/**
+ * `searchMailTime` (16 set 2026): l'orario per oggi, giorno+orario oltre.
+ *
+ * ⚠️ NON è `relativeTimeCompact`: la lista MBX usa quella («3 g»), questa la
+ * riga di ricerca. Il design diceva che fossero la stessa regola — non lo
+ * sono, e il docblock della funzione spiega perché non si è uniformata la
+ * lista MBX. Questi test fissano la differenza, così non si «semplifica».
+ */
+describe("searchMailTime", () => {
+  const NOW = new Date("2026-09-16T12:00:00").getTime();
+
+  it("stesso giorno: solo l'orario", () => {
+    expect(searchMailTime(new Date("2026-09-16T17:45:00").toISOString(), NOW)).toBe("17:45");
+    // Anche a mezzanotte e un minuto: è comunque oggi.
+    expect(searchMailTime(new Date("2026-09-16T00:01:00").toISOString(), NOW)).toBe("00:01");
+  });
+
+  it("giorno diverso: giorno, mese e orario", () => {
+    expect(searchMailTime(new Date("2026-09-10T17:45:00").toISOString(), NOW)).toBe("10/09 17:45");
+  });
+
+  it("ieri sera è IERI, anche se sono passate poche ore", () => {
+    // La soglia è il GIORNO di calendario, non «24 ore fa»: alle 12 di oggi,
+    // un messaggio delle 23 di ieri è di ieri, e dirlo «13 h» sarebbe
+    // un'altra domanda.
+    expect(searchMailTime(new Date("2026-09-15T23:00:00").toISOString(), NOW)).toBe("15/09 23:00");
+  });
+
+  it("un anno diverso non si confonde con lo stesso giorno-mese", () => {
+    expect(searchMailTime(new Date("2025-09-16T17:45:00").toISOString(), NOW)).toBe("16/09 17:45");
   });
 });

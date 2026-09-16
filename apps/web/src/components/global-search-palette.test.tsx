@@ -64,7 +64,13 @@ vi.mock("../lib/api", async (importOriginal) => ({
  * server che non manda un gruppo, che è la situazione contro cui esistono i
  * `?? []` nella palette.
  */
-function asServerSent(body: Omit<SearchResults, "mail"> | SearchResults): SearchResults {
+function asServerSent(body: unknown): SearchResults {
+  // `unknown` e non un'unione di forme ammesse: le risposte che vogliamo
+  // simulare sono per definizione INCOMPLETE rispetto al tipo (un server più
+  // vecchio, un gruppo o un campo che ancora non manda), e un parametro
+  // tipato le rifiuterebbe una per una — costringendo a riscriverlo a ogni
+  // campo nuovo. Le fixture restano annotate dove sono DICHIARATE, quindi i
+  // gruppi che ci sono sono comunque controllati.
   return body as SearchResults;
 }
 const EMPTY: Omit<SearchResults, "mail"> = {
@@ -113,8 +119,17 @@ const RESULTS: Omit<SearchResults, "mail"> = {
   },
 };
 
-/** L'unica fixture COL gruppo posta: i test che lo guardano davvero usano questa. */
-const RESULTS_WITH_MAIL: SearchResults = {
+/**
+ * L'unica fixture COL gruppo posta: i test che lo guardano davvero usano
+ * questa.
+ *
+ * ⚠️ Volutamente **senza `to` e `cc`** (aggiunti al server il 16 set 2026): la
+ * palette web non li usa — è una spotlight compatta, e la forma per tipologia
+ * è stata fatta solo nell'app. Un client che riceve campi che non gli servono
+ * deve ignorarli, ed è ciò che questa fixture verifica restando incompleta.
+ * Il cast lo fa `asServerSent`, che modella quello che `lib/api.ts` fa già.
+ */
+const RESULTS_WITH_MAIL = asServerSent({
   ...EMPTY,
   mail: {
     items: [
@@ -131,7 +146,7 @@ const RESULTS_WITH_MAIL: SearchResults = {
     ],
     hasMore: false,
   },
-};
+});
 
 const SEMANTIC: SearchDocsSemanticResults = [
   {

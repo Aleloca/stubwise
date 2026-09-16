@@ -232,6 +232,14 @@ export interface EmailMessageInsert {
   fromAddress: string;
   fromName: string | null;
   toAddresses: string[];
+  /**
+   * Chi è in COPIA (16 set 2026). Mai `null` da qui: un messaggio senza
+   * header `Cc` dà `[]`, cioè «guardato, nessuno in copia» — il `null` in
+   * colonna è riservato alle righe scritte PRIMA di questa modifica, ed è la
+   * condizione di ripresa dello script di recupero. Scrivere `null` da qui
+   * lo farebbe ripartire su righe già viste, per sempre.
+   */
+  ccAddresses: string[];
   subject: string | null;
   receivedAt: Date;
   labels: string[];
@@ -278,6 +286,12 @@ export function buildEmailMessageInsert(input: {
     fromAddress: normalizeAddress(message.headers["from"]),
     fromName: displayNameOf(message.headers["from"]),
     toAddresses: parseAddressList(message.headers["to"]),
+    // ⚠️ Nessuna chiamata nuova a Gmail: `Cc` è già in
+    // `DEFAULT_METADATA_HEADERS` e arriva nella STESSA risposta
+    // `format=metadata` degli altri header — `messageToRouting`, poche righe
+    // sopra, lo parsa già per l'ammissione della fase 6c. Questa riga smette
+    // di buttarlo via, non lo va a prendere.
+    ccAddresses: parseAddressList(message.headers["cc"]),
     subject: subject ? subject : null,
     receivedAt: message.internalDate ?? input.now,
     labels: message.labelIds,

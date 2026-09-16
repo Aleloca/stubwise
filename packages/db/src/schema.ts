@@ -3421,6 +3421,29 @@ export const emailMessages = pgTable(
     fromAddress: text("from_address").notNull(),
     fromName: text("from_name"),
     toAddresses: text("to_addresses").array().notNull().default([]),
+    /**
+     * Chi è in COPIA (16 set 2026). Il dato arriva dalla stessa risposta
+     * `format=metadata` degli altri header — `Cc` è in
+     * `DEFAULT_METADATA_HEADERS` e l'ammissione della fase 6c lo guarda già
+     * (`admit()`, `ccAddresses`): prima di questa colonna il worker lo
+     * leggeva, ci decideva sopra e lo buttava.
+     *
+     * ⚠️ **NULLABLE, e NON `notNull().default([])` come `toAddresses` qui
+     * sopra — non è un'incoerenza da uniformare.** I due valori dicono cose
+     * diverse:
+     *   - `null` = «riga scritta PRIMA di questa colonna, non lo sappiamo»;
+     *   - `[]`   = «lo sappiamo, non c'era nessuno in copia».
+     *
+     * Ci si regge INTERAMENTE lo script di recupero delle righe storiche
+     * (`apps/server/scripts/backfill-email-cc.ts`), la cui condizione di
+     * ripresa è `cc_addresses is null`. Con un default `[]` quella condizione
+     * smetterebbe di distinguere le righe mai guardate da quelle senza copia,
+     * e lo script ri-scaricherebbe da Gmail A OGNI LANCIO ogni email che
+     * legittimamente non aveva nessuno in copia — cioè la maggioranza.
+     * Chi legge non vede la differenza (in risposta si appiattisce a `[]`):
+     * la distinzione esiste per il recupero.
+     */
+    ccAddresses: text("cc_addresses").array(),
     subject: text("subject"),
     receivedAt: timestamp("received_at", { withTimezone: true }).notNull(),
     /** Etichette Gmail del messaggio: le usa il routing (`gmail_label`). */

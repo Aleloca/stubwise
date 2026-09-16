@@ -135,6 +135,26 @@ export const searchMailHitSchema = z.object({
   subject: z.string().nullable(),
   /** Mittente del messaggio che ha combaciato. NON FIDATO. */
   from: z.string(),
+  /**
+   * Destinatari del messaggio che ha combaciato. NON FIDATO.
+   *
+   * ⚠️ `.default([])` e MAI obbligatorio (CLAUDE.md, «solo cambi additivi»):
+   * l'app si aggiorna dagli store, quindi un'app NUOVA contro un server più
+   * vecchio — un rollback, un'istanza self-hosted — deve reggere l'assenza e
+   * mostrare la riga senza quella parte. C'è un test che parsa una risposta
+   * senza questi due campi.
+   */
+  to: z.array(z.string()).default([]),
+  /**
+   * Chi è in copia. NON FIDATO.
+   *
+   * `[]` copre DUE casi che per chi legge sono lo stesso — «nessuno in copia»
+   * e «di questa riga non lo sappiamo» (scritta prima della colonna
+   * `cc_addresses`, 16 set 2026). La distinzione vive in colonna (`null` vs
+   * `{}`) e serve SOLO allo script di recupero: qui si appiattisce, perché
+   * una riga di ricerca non ha niente di diverso da dire nei due casi.
+   */
+  cc: z.array(z.string()).default([]),
   snippet: z.string(),
   /** Il messaggio che ha combaciato: serve a evidenziarlo dentro la conversazione. */
   matchedMessageId: z.string(),
