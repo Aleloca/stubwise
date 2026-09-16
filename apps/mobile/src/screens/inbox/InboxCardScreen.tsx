@@ -99,7 +99,8 @@ export function InboxCardScreen({ route, navigation }: NativeStackScreenProps<In
             </View>
           </View>
         ) : item !== undefined ? (
-          <InboxCard item={item} projectName={projectName} />
+          <InboxCard
+                  onOpenProposal={(id) => navigation.navigate("Proposal", { id })} item={item} projectName={projectName} />
         ) : (
           <View style={styles.notFound} testID="inbox-card-not-found">
             <Text style={styles.notFoundTitle}>{t("mobile.inbox.notFound.title")}</Text>

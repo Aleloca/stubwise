@@ -1,5 +1,6 @@
 import type { InboxItem, Reader } from "@stubwise/shared";
 import { FailedCard } from "./FailedCard";
+import { GoogleProposalCard } from "./GoogleProposalCard";
 import { InfoCard } from "./InfoCard";
 import { PlanReviewCard } from "./PlanReviewCard";
 import { PrReadyCard } from "./PrReadyCard";
@@ -9,6 +10,14 @@ import { hasDecisionAction } from "../../lib/inbox-sections";
 
 export interface InboxCardProps {
   item: Reader<InboxItem>;
+  /**
+   * Apre la pagina della decisione di una proposta Google. La passa lo
+   * screen, che ha la navigazione: `useNavigation` qui pretenderebbe un
+   * `NavigationContainer` che nessun test di schermata monta (16 set 2026,
+   * lezione dell'avatar delle Impostazioni). Assente = la card mostra il
+   * contorno senza il bottone, invece di un bottone che non fa niente.
+   */
+  onOpenProposal?: (id: string) => void;
   /** Nome del progetto, risolto dallo screen (che ha già la lista progetti) — assente se non risolvibile. */
   projectName?: string;
 }
@@ -33,7 +42,7 @@ export interface InboxCardProps {
  * `PlanReviewCard` resta riservata a chi la decisione la può prendere
  * davvero.
  */
-export function InboxCard({ item, projectName }: InboxCardProps) {
+export function InboxCard({ item, projectName, onOpenProposal }: InboxCardProps) {
   switch (item.kind) {
     case "job.awaiting_input":
       return item.question !== undefined ? (
@@ -58,6 +67,15 @@ export function InboxCard({ item, projectName }: InboxCardProps) {
       return <PrReadyCard item={item} projectName={projectName} />;
     case "job.failed":
       return <FailedCard item={item} projectName={projectName} />;
+    case "google.proposal":
+      // Fino al 16 set 2026 cadeva nel `default` qui sotto, cioè in
+      // `InfoCard`: nessuna decisione possibile, e come unico bottone «Apri
+      // il lavoro» che portava al thread su Gmail.
+      return item.google !== undefined && onOpenProposal !== undefined ? (
+        <GoogleProposalCard item={item} projectName={projectName} onOpen={() => onOpenProposal(item.id)} />
+      ) : (
+        <InfoCard item={item} projectName={projectName} />
+      );
     default:
       return <InfoCard item={item} projectName={projectName} />;
   }

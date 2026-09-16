@@ -90,7 +90,7 @@ async function renderScreen(client: StubwiseClient, role: "admin" | "member" = "
   return render(
     <QueryClientProvider client={queryClient}>
       <AuthContext.Provider value={authValue}>
-        <InboxScreen />
+        <InboxScreen navigation={{ navigate: jest.fn() } as never} route={{ key: "k", name: "List" } as never} />
       </AuthContext.Provider>
     </QueryClientProvider>,
   );

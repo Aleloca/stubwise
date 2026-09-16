@@ -14,6 +14,7 @@ import type { ImageSourcePropType } from "react-native";
 import { Platform } from "react-native";
 import type { AppleIcon } from "react-native-bottom-tabs";
 import { InboxCardScreen } from "../screens/inbox/InboxCardScreen";
+import { GoogleProposalScreen } from "../screens/inbox/GoogleProposalScreen";
 import { InboxScreen } from "../screens/inbox/InboxScreen";
 import { LoginScreen } from "../screens/auth/LoginScreen";
 import { OnboardingScreen } from "../screens/auth/OnboardingScreen";
@@ -48,6 +49,12 @@ export type AuthStackParamList = {
 export type InboxStackParamList = {
   List: undefined;
   Card: { id: string };
+  /**
+   * La pagina dove si DECIDE su una proposta di posta o calendario (16 set
+   * 2026). Non è `Card`: quella mostra la card com'è in elenco ed è il
+   * bersaglio dei deep link; qui si sceglie, e la scelta crea roba vera.
+   */
+  Proposal: { id: string };
 };
 
 export type ProjectsStackParamList = {
@@ -162,6 +169,7 @@ function InboxNavigator() {
     <InboxStack.Navigator screenOptions={{ headerShown: false }}>
       <InboxStack.Screen name="List" component={InboxScreen} />
       <InboxStack.Screen name="Card" component={InboxCardScreen} />
+      <InboxStack.Screen name="Proposal" component={GoogleProposalScreen} />
     </InboxStack.Navigator>
   );
 }

@@ -42,7 +42,11 @@ function makeClient(overrides: Partial<StubwiseClient["inbox"]> = {}): StubwiseC
   } as unknown as StubwiseClient;
 }
 
-async function renderCard(cardItem: Reader<InboxItem>, client: StubwiseClient) {
+async function renderCard(
+  cardItem: Reader<InboxItem>,
+  client: StubwiseClient,
+  extra: { onOpenProposal?: (id: string) => void } = {},
+) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const authValue: AuthContextValue = {
     status: "authenticated",
@@ -57,7 +61,7 @@ async function renderCard(cardItem: Reader<InboxItem>, client: StubwiseClient) {
   await render(
     <QueryClientProvider client={queryClient}>
       <AuthContext.Provider value={authValue}>
-        <InboxCard item={cardItem} projectName="Portale B2B" />
+        <InboxCard item={cardItem} projectName="Portale B2B" {...(extra.onOpenProposal ? { onOpenProposal: extra.onOpenProposal } : {})} />
       </AuthContext.Provider>
     </QueryClientProvider>,
   );
@@ -545,10 +549,13 @@ describe("InboxCard — brief settimanale (kind conosciuto)", () => {
  * Fase 6, Task 12: `google.proposal` (la proposta nata dalla posta o dal
  * calendario) è un kind CON opzioni (ha `question`/`google` come il pulse),
  * ma sull'app resta DEGRADATO a `InfoCard` — mai una card azionabile: è la
- * differenza voluta rispetto al pulse (`PulseProposalCard`), che sull'app
- * sceglie e conferma. Qui si può solo "Apri" (verso la web app o il thread) e
- * fare igiene (posticipa/archivia); confermare l'opzione si fa da un'altra
- * superficie.
+ * ⚠️ Fino al 16 set 2026 questa proposta degradava a `InfoCard`: nessuna
+ * decisione possibile dall'app, e come unico bottone «Apri il lavoro» che
+ * portava al thread su GMAIL. Il maintainer se n'è accorto con 34 proposte
+ * aperte, nessuna chiudibile dal telefono. Ora la card porta alla PAGINA
+ * dove si decide (`GoogleProposalScreen`): la card non decide, perché
+ * confermare crea roba vera e chi decide deve prima vedere da chi arriva e
+ * cosa comporta ogni scelta.
  */
 describe("InboxCard — proposta Google (fase 6)", () => {
   const GOOGLE_PROPOSAL = item({
@@ -578,21 +585,32 @@ describe("InboxCard — proposta Google (fase 6)", () => {
     },
   });
 
-  test("degrada a InfoCard con la sua etichetta, non a una card con opzioni da scegliere", async () => {
-    await renderCard(GOOGLE_PROPOSAL, makeClient());
-    expect(screen.getByTestId("info-card")).toBeTruthy();
-    expect(screen.getByText("Proposta dalla posta")).toBeTruthy();
-    // Nessun radio/opzione: qui non si conferma l'azione, si va ad "Apri".
-    expect(screen.queryByText("Aggiungi al backlog")).toBeNull();
-    expect(screen.queryByText("Ignora")).toBeNull();
+  test("ha una card sua, non più InfoCard: mittente, oggetto e segnale", async () => {
+    await renderCard(GOOGLE_PROPOSAL, makeClient(), { onOpenProposal: jest.fn() });
+    expect(screen.getByTestId("google-proposal-card")).toBeTruthy();
+    expect(screen.queryByTestId("info-card")).toBeNull();
+    expect(screen.getByText("laura@cliente.test")).toBeTruthy();
+    expect(screen.getByText("Rinviamo il rilascio?")).toBeTruthy();
+    expect(screen.getByText("Chiede una decisione")).toBeTruthy();
   });
 
-  test("'Apri' porta al thread (o alla card web), non esegue alcuna azione", async () => {
+  test("il bottone porta alla pagina della decisione, NON a Gmail", async () => {
+    // Il difetto che ha fatto nascere questa card: l'unico bottone era «Apri
+    // il lavoro» sopra `item.url`, che per una proposta di posta è il thread
+    // su Gmail.
+    const onOpenProposal = jest.fn();
+    // La spia su `Linking.openURL` è condivisa col resto del file: senza
+    // azzerarla questo test passerebbe da solo e fallirebbe in gruppo.
+    (Linking.openURL as jest.Mock).mockClear();
+    await renderCard(GOOGLE_PROPOSAL, makeClient(), { onOpenProposal });
+    await fireEvent.press(screen.getByTestId("inbox-decide-gp1"));
+    expect(onOpenProposal).toHaveBeenCalledWith("gp1");
+    expect(Linking.openURL).not.toHaveBeenCalled();
+  });
+
+  test("senza un modo per aprire la pagina resta InfoCard, non un bottone morto", async () => {
     await renderCard(GOOGLE_PROPOSAL, makeClient());
-    await fireEvent.press(screen.getByTestId("info-card-open"));
-    expect(Linking.openURL).toHaveBeenCalledWith(
-      "https://mail.google.com/mail/u/mailbox@acme.test/#all/t1",
-    );
+    expect(screen.getByTestId("info-card")).toBeTruthy();
   });
 
   test("igiene disponibile (posticipa/archivia), nessun bottone di conferma", async () => {

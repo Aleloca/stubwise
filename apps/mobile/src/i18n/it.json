@@ -160,7 +160,39 @@
         "invalidAction": "Questa azione non è disponibile per questa riga."
       },
       "waitingOnMaintainer": "Aspetta un maintainer.",
-      "offlineAction": "Serve la rete"
+      "offlineAction": "Serve la rete",
+      "google": {
+        "openDecision": "Vedi e decidi",
+        "back": "‹ Inbox",
+        "backToInbox": "Torna all'inbox",
+        "fallbackTitle": "Proposta",
+        "fromLine": "Da {{from}}, {{when}}",
+        "whatToDo": "Cosa vuoi fare",
+        "alreadyDecided": "Questa proposta è già stata decisa. Non c'è più niente da scegliere.",
+        "gone": "Questa proposta non è più nell'inbox: qualcuno l'ha decisa.",
+        "loadError": "Non riesco a caricare la proposta.",
+        "source": {
+          "email": "Posta",
+          "calendar": "Calendario"
+        },
+        "signal": {
+          "decision": "Chiede una decisione",
+          "request": "Chiede qualcosa",
+          "deadline": "Porta una scadenza",
+          "blocker": "Segnala un blocco",
+          "none": "Nessun segnale"
+        },
+        "actions": {
+          "create_backlog_item": "Apri una voce di backlog",
+          "create_milestone": "Crea una milestone",
+          "update_ticket": "Aggiorna un ticket",
+          "comment_ticket": "Commenta un ticket",
+          "record_decision": "Registra una decisione",
+          "choose_project": "Scegli il progetto",
+          "acknowledge_reminder": "Ho letto, non fare niente",
+          "ignore": "Non fare niente"
+        }
+      }
     },
     "projects": {
       "header": {

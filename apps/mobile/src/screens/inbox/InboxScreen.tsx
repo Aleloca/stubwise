@@ -3,6 +3,8 @@ import { isUnknown } from "@stubwise/shared";
 import type { InboxItem, Reader } from "@stubwise/shared";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
+import type { NativeStackScreenProps } from "@react-navigation/native-stack";
+import type { InboxStackParamList } from "../../app/navigation";
 import { useTranslation } from "react-i18next";
 import { Linking, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useBottomTabBarHeight } from "react-native-bottom-tabs";
@@ -53,7 +55,7 @@ function resolveProjectName(item: Reader<InboxItem>, projectsById: Map<string, s
  * perché: non solo l'Inbox va offline. Niente banner locale, quindi, o
  * comparirebbe due volte.
  */
-export function InboxScreen() {
+export function InboxScreen({ navigation }: NativeStackScreenProps<InboxStackParamList, "List">) {
   const { t } = useTranslation();
   const { client, user } = useAuth();
   const tabBarHeight = useBottomTabBarHeight();
@@ -152,6 +154,7 @@ export function InboxScreen() {
             <InboxSectionsList
               sections={sectionize(query.data.items, { role: viewerRole })}
               projectsById={projectsById}
+              onOpenProposal={(id) => navigation.navigate("Proposal", { id })}
             />
           </>
         )}
@@ -177,9 +180,12 @@ function subtitleFor(
 function InboxSectionsList({
   sections,
   projectsById,
+  onOpenProposal,
 }: {
   sections: InboxSections;
   projectsById: Map<string, string>;
+  /** Apre la pagina della decisione di una proposta Google (16 set 2026). */
+  onOpenProposal: (id: string) => void;
 }) {
   const { t } = useTranslation();
   const isEmpty = SECTION_ORDER.every(({ key }) => sections[key].length === 0);
@@ -206,7 +212,12 @@ function InboxSectionsList({
             </SectionLabel>
             <View style={styles.cardList}>
               {items.map((item) => (
-                <InboxCard key={item.id} item={item} projectName={resolveProjectName(item, projectsById)} />
+                <InboxCard
+                  key={item.id}
+                  item={item}
+                  projectName={resolveProjectName(item, projectsById)}
+                  onOpenProposal={onOpenProposal}
+                />
               ))}
             </View>
           </View>

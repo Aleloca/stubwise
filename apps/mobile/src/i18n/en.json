@@ -160,7 +160,39 @@
         "invalidAction": "This action isn't available for this row."
       },
       "waitingOnMaintainer": "Waiting on a maintainer.",
-      "offlineAction": "Needs network"
+      "offlineAction": "Needs network",
+      "google": {
+        "openDecision": "See and decide",
+        "back": "‹ Inbox",
+        "backToInbox": "Back to the inbox",
+        "fallbackTitle": "Proposal",
+        "fromLine": "From {{from}}, {{when}}",
+        "whatToDo": "What do you want to do",
+        "alreadyDecided": "This proposal has already been decided. There is nothing left to choose.",
+        "gone": "This proposal is no longer in the inbox: someone decided it.",
+        "loadError": "Can't load the proposal.",
+        "source": {
+          "email": "Mail",
+          "calendar": "Calendar"
+        },
+        "signal": {
+          "decision": "Asks for a decision",
+          "request": "Asks for something",
+          "deadline": "Carries a deadline",
+          "blocker": "Flags a blocker",
+          "none": "No signal"
+        },
+        "actions": {
+          "create_backlog_item": "Open a backlog item",
+          "create_milestone": "Create a milestone",
+          "update_ticket": "Update a ticket",
+          "comment_ticket": "Comment on a ticket",
+          "record_decision": "Record a decision",
+          "choose_project": "Pick the project",
+          "acknowledge_reminder": "Noted, do nothing",
+          "ignore": "Do nothing"
+        }
+      }
     },
     "projects": {
       "header": {
