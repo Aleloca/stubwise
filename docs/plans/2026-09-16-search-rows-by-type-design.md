@@ -117,8 +117,18 @@ smettono di condividere il componente con gli altri tre.
    resto. Su una riga stretta `m.misseri +2` dice quanto basta; l'indirizzo
    completo è nella conversazione aperta, a un tap.
 3. **La data è relativa vicino e assoluta lontano**: `17:45` per oggi,
-   `10/09 17:45` oltre. È la stessa regola che la lista MBX usa già — non se
-   ne inventa una seconda.
+   `10/09 17:45` oltre. ⚠️ **Non esiste già** — la prima stesura di questo
+   design diceva il contrario, ed era un errore di fatto colto in
+   implementazione: la lista MBX usa `relativeTimeCompact` («ora / 12 min /
+   1 h / 3 g»), che non produce mai un orario né una data, e in
+   `apps/mobile/src/lib/format.ts` ci sono `clockTime` (solo `HH:MM`) e
+   `shortDate` (solo `GG/MM/AA`), nessuna delle due con la soglia del giorno.
+   Serve una funzione NUOVA, lì accanto.
+   **E la lista MBX NON si uniforma a lei**, di proposito: le due schermate
+   rispondono a domande diverse. MBX è ordinata per data decrescente, quindi
+   «3 g» basta e si legge più in fretta; un elenco di risultati di ricerca
+   **non** è ordinato per data e può mescolare messaggi di mesi diversi — lì
+   la data vera è l'informazione, ed è precisamente quella che mancava.
 
 ## §4 — La colonna, e i 163 messaggi che non ce l'hanno
 

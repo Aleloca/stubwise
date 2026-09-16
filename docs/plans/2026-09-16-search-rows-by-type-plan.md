@@ -101,8 +101,14 @@ Le tre regole di resa del §3.1, ognuna con il suo test:
    non un `a: —`. Funzione pura, testabile da sola.
 2. **Parte locale più `+N`**: `m.misseri +2`, non tre indirizzi interi.
 3. **Data relativa vicino, assoluta lontano** (`17:45` oggi, `10/09 17:45`
-   oltre): **riusare la funzione che la lista MBX usa già**, non scriverne una
-   seconda. Se non è estratta, estrarla adesso e farla usare a entrambe.
+   oltre): **funzione NUOVA** in `apps/mobile/src/lib/format.ts`, accanto alle
+   altre e non dentro il componente. ⚠️ Una stesura precedente di questo passo
+   diceva «riusare quella che MBX usa già»: non esiste — MBX usa
+   `relativeTimeCompact` («3 g»), e nessuna funzione combina orario e data con
+   la soglia del giorno. **La lista MBX non va cambiata per usarla**: è fuori
+   perimetro, e la lettura relativa lì è quella giusta (lista ordinata per
+   data; i risultati di ricerca non lo sono). Il docblock della funzione nuova
+   dica proprio questo, o qualcuno la «uniformerà».
 
 ⚠️ `subject`, `from`, `to` e `cc` sono testo **non fidato** (lo scrive chi
 manda l'email) e lo `snippet` contiene il markup `<mark>` di `ts_headline`:
