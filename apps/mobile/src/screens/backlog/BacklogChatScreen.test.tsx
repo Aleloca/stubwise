@@ -126,7 +126,7 @@ describe("BacklogChatScreen — caricamento ed errori", () => {
   test("il tasto indietro chiama goBack", async () => {
     const { goBack } = await renderScreen(makeClient());
     await waitFor(() => expect(screen.getByText("Export massivo degli ordini")).toBeTruthy());
-    await fireEvent.press(screen.getByTestId("backlog-chat-back"));
+    await fireEvent.press(screen.getByTestId("screen-header-back"));
     expect(goBack).toHaveBeenCalled();
   });
 

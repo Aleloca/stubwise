@@ -148,7 +148,7 @@ describe("WorkScreen — caricamento ed errori", () => {
     const client = makeClient();
     const { goBack } = await renderScreen(client);
     await waitFor(() => expect(screen.getByText("Export CSV degli ordini")).toBeTruthy());
-    await fireEvent.press(screen.getByTestId("work-back"));
+    await fireEvent.press(screen.getByTestId("screen-header-back"));
     expect(goBack).toHaveBeenCalled();
   });
 

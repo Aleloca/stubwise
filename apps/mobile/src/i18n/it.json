@@ -233,6 +233,7 @@
       }
     },
     "work": {
+      "fallbackTitle": "Lavoro",
       "back": "‹ Progetti",
       "loadError": {
         "title": "Non riesco a caricare il lavoro.",
@@ -447,6 +448,7 @@
         "empty": "Fai una domanda: l'agente risponde citando le pagine di documentazione del progetto."
       },
       "page": {
+        "fallbackTitle": "Pagina",
         "back": "‹ Docs",
         "notFound": {
           "title": "Questa pagina non c'è più.",

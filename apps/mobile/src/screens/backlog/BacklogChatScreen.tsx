@@ -10,7 +10,7 @@ import { useAuth } from "../../app/providers";
 import { GhostButton } from "../../components/GhostButton";
 import { PulseIndicator } from "../../components/PulseIndicator";
 import { QuestionForm } from "../../components/inbox/QuestionForm";
-import { SettingsAvatarButton } from "../../components/SettingsAvatarButton";
+import { ScreenHeader } from "../../components/ScreenHeader";
 import { Skeleton } from "../../components/Skeleton";
 import {
   backlogKeys,
@@ -179,12 +179,12 @@ export function BacklogChatScreen({ navigation, route }: NativeStackScreenProps<
   // `ScrollView` dei messaggi — non ci scorre mai via da solo.
   return (
     <View style={styles.container}>
-      <View style={styles.headerRow}>
-        <Pressable onPress={() => navigation.goBack()} testID="backlog-chat-back" style={styles.backRow}>
-          <Text style={styles.back}>{t("mobile.backlog.chat.back")}</Text>
-        </Pressable>
-        <SettingsAvatarButton />
-      </View>
+      <ScreenHeader
+        title={itemQuery.data?.title ?? t("mobile.backlog.item.fallbackTitle")}
+        onBack={() => navigation.goBack()}
+        backLabel={t("mobile.backlog.chat.back")}
+        titleNumberOfLines={3}
+      />
 
       {itemQuery.isPending ? (
         <View style={styles.skeletonList} testID="backlog-chat-skeleton">
@@ -203,10 +203,6 @@ export function BacklogChatScreen({ navigation, route }: NativeStackScreenProps<
         </View>
       ) : (
         <>
-          <Text style={styles.title} numberOfLines={2}>
-            {itemQuery.data!.title}
-          </Text>
-
           <ScrollView style={styles.messages} contentContainerStyle={styles.messagesContent}>
             {bubbles.map((bubble) =>
               // Un messaggio `system` non è una bolla: divider/nota centrata,

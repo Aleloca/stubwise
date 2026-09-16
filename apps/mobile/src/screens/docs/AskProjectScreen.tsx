@@ -6,7 +6,7 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-
 import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import type { DocsStackParamList } from "../../app/navigation";
 import { PulseIndicator } from "../../components/PulseIndicator";
-import { SettingsAvatarButton } from "../../components/SettingsAvatarButton";
+import { ScreenHeader } from "../../components/ScreenHeader";
 import { useAskProjectChat } from "../../lib/docs-mutations";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
@@ -105,17 +105,13 @@ export function AskProjectScreen({ navigation, route }: NativeStackScreenProps<D
   // `ScrollView` dei messaggi — non ci scorre mai via da solo.
   return (
     <View style={styles.container}>
-      <View style={styles.headerRow}>
-        <Pressable onPress={() => navigation.goBack()} testID="ask-project-back" style={styles.backRow}>
-          <Text style={styles.back}>{t("mobile.docs.ask.back")}</Text>
-        </Pressable>
-        <SettingsAvatarButton />
-      </View>
-
-      <Text style={styles.title} numberOfLines={2}>
-        {t("mobile.docs.ask.sectionLabel")}
-      </Text>
-      <Text style={styles.subtitle}>{projectName}</Text>
+      <ScreenHeader
+        title={t("mobile.docs.ask.sectionLabel")}
+        subtitle={projectName}
+        onBack={() => navigation.goBack()}
+        backLabel={t("mobile.docs.ask.back")}
+        titleNumberOfLines={3}
+      />
 
       <ScrollView style={styles.messages} contentContainerStyle={styles.messagesContent}>
         {bubbles.length === 0 && !send.isPending && <Text style={styles.emptyHint}>{t("mobile.docs.ask.empty")}</Text>}

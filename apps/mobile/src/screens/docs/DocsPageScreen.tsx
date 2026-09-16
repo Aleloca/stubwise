@@ -3,17 +3,17 @@ import { ApiError } from "@stubwise/api-client";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { SafeMarkdown } from "../../components/SafeMarkdown";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import type { DocsStackParamList } from "../../app/navigation";
 import { useAuth } from "../../app/providers";
 import { GhostButton } from "../../components/GhostButton";
 import { SectionLabel } from "../../components/SectionLabel";
-import { SettingsAvatarButton } from "../../components/SettingsAvatarButton";
+import { ScreenHeader } from "../../components/ScreenHeader";
 import { Skeleton } from "../../components/Skeleton";
 import { docsKeys, docsKindLabelKey } from "../../lib/docs-mutations";
 import { colors } from "../../theme/tokens";
-import { fontFamily, textStyles } from "../../theme/typography";
+import { fontFamily } from "../../theme/typography";
 
 /** Vedi `InboxScreen.tsx` per il perché di una costante invece di leggere `styles.body.paddingBottom`. */
 const CONTENT_BASE_BOTTOM_PADDING = 40;
@@ -60,12 +60,12 @@ export function DocsPageScreen({ navigation, route }: NativeStackScreenProps<Doc
         contentContainerStyle={[styles.body, { paddingBottom: CONTENT_BASE_BOTTOM_PADDING + tabBarHeight }]}
         stickyHeaderIndices={[0]}
       >
-        <View style={styles.headerRow}>
-          <Pressable onPress={() => navigation.goBack()} testID="docs-page-back" style={styles.backRow}>
-            <Text style={styles.back}>{t("mobile.docs.page.back")}</Text>
-          </Pressable>
-          <SettingsAvatarButton />
-        </View>
+        <ScreenHeader
+          title={pageQuery.data?.title ?? t("mobile.docs.page.fallbackTitle")}
+          onBack={() => navigation.goBack()}
+          backLabel={t("mobile.docs.page.back")}
+          titleNumberOfLines={3}
+        />
 
         {pageQuery.isPending ? (
           <View style={styles.skeletonList} testID="docs-page-skeleton">
@@ -86,7 +86,6 @@ export function DocsPageScreen({ navigation, route }: NativeStackScreenProps<Doc
         ) : (
           <>
             <SectionLabel>{t(docsKindLabelKey(pageQuery.data!.kind))}</SectionLabel>
-            <Text style={[textStyles.screenTitle, styles.title]}>{pageQuery.data!.title}</Text>
             <SafeMarkdown>{pageQuery.data!.body}</SafeMarkdown>
           </>
         )}

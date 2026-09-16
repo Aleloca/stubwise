@@ -11,12 +11,12 @@ import type {
 } from "@stubwise/shared";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import type { ProjectsStackParamList } from "../../app/navigation";
 import { useAuth } from "../../app/providers";
 import { GhostButton } from "../../components/GhostButton";
-import { SettingsAvatarButton } from "../../components/SettingsAvatarButton";
+import { ScreenHeader } from "../../components/ScreenHeader";
 import { Skeleton } from "../../components/Skeleton";
 import { PlanSection } from "../../components/work/PlanSection";
 import { StatusBadge } from "../../components/work/StatusBadge";
@@ -26,7 +26,7 @@ import { WorkingPill } from "../../components/work/WorkingPill";
 import { buildTimeline, resolveWorkState } from "../../lib/timeline";
 import { workKeys } from "../../lib/work-mutations";
 import { colors } from "../../theme/tokens";
-import { fontFamily, fontSize, textStyles } from "../../theme/typography";
+import { fontFamily, fontSize } from "../../theme/typography";
 
 /** Vedi `InboxScreen.tsx` per il perché di una costante invece di leggere `styles.body.paddingBottom`. */
 const CONTENT_BASE_BOTTOM_PADDING = 40;
@@ -145,12 +145,12 @@ export function WorkScreen({ navigation, route }: NativeStackScreenProps<Project
         contentContainerStyle={[styles.body, { paddingBottom: CONTENT_BASE_BOTTOM_PADDING + tabBarHeight }]}
         stickyHeaderIndices={[0]}
       >
-        <View style={styles.headerRow}>
-          <Pressable onPress={() => navigation.goBack()} testID="work-back" style={styles.backRow}>
-            <Text style={styles.back}>{t("mobile.work.back")}</Text>
-          </Pressable>
-          <SettingsAvatarButton />
-        </View>
+        <ScreenHeader
+          title={ticketQuery.data?.title ?? t("mobile.work.fallbackTitle")}
+          onBack={() => navigation.goBack()}
+          backLabel={t("mobile.work.back")}
+          titleNumberOfLines={3}
+        />
 
         {isPending ? (
           <View style={styles.skeletonList} testID="work-skeleton">
@@ -213,7 +213,6 @@ function WorkBody({
   // "indietro" sopra di lui.
   return (
     <>
-      <Text style={textStyles.screenTitle}>{ticket.title}</Text>
       <View style={styles.metaRow}>
         <StatusBadge state={workState} />
         <Text style={styles.ticketNumber}>{t("mobile.work.ticketNumber", { number: ticket.number })}</Text>
