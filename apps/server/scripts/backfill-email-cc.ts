@@ -194,27 +194,61 @@ export async function backfillEmailCc(
 }
 
 /**
- * Entry point CLI. Separato dalla funzione così i test esercitano la logica su
- * un Postgres di test con un client Google finto, senza toccare env né
- * `process.exit`.
+ * `ENCRYPTION_KEY` → chiave, con la STESSA codifica del server.
+ *
+ * ⚠️ È **base64**, non hex: `apps/server/src/config.ts` la valida come 32 byte
+ * in base64 (`openssl rand -base64 32`). La prima versione di questo script
+ * faceva `Buffer.from(key, "hex")` e in produzione otteneva una chiave di
+ * **ZERO byte** — `Buffer.from` su una stringa che non è hex non lancia, la
+ * tronca al primo carattere non valido. Ogni decifratura falliva, ogni casella
+ * risultava «non usabile», e il messaggio a schermo sembrava dire che le
+ * caselle erano scollegate: 163 righe saltate, zero scritte, nessun errore.
+ *
+ * Il difetto era nel punto di INGRESSO, l'unica parte che i test non
+ * toccavano di proposito («senza toccare env»). Per questo la conversione ora
+ * è una funzione a sé: sta fuori da `main`, quindi è testabile, e **lancia**
+ * invece di restituire una chiave inutilizzabile — un segreto della lunghezza
+ * sbagliata va detto subito, non travestito da problema delle caselle.
+ */
+export function decodeEncryptionKey(raw: string): Buffer {
+  const key = Buffer.from(raw, "base64");
+  if (key.length !== 32) {
+    throw new Error(
+      `ENCRYPTION_KEY deve essere 32 byte in base64 (ne ha ${key.length}): è la stessa che usa il server, generata con "openssl rand -base64 32"`,
+    );
+  }
+  return key;
+}
+
+/**
+ * Entry point CLI. Sottile di proposito: la logica sta in `backfillEmailCc` e
+ * la decodifica del segreto in {@link decodeEncryptionKey}, entrambe testate.
+ * Qui restano solo la lettura di env e `process.exit`.
  */
 async function main(): Promise<void> {
   const dryRun = process.argv.includes("--dry-run");
   const databaseUrl = process.env.DATABASE_URL;
-  const encryptionKeyHex = process.env.ENCRYPTION_KEY;
+  const encryptionKeyRaw = process.env.ENCRYPTION_KEY;
   if (!databaseUrl) {
     console.error("[backfill-cc] DATABASE_URL non impostata");
     process.exit(1);
   }
-  if (!encryptionKeyHex) {
+  if (!encryptionKeyRaw) {
     console.error("[backfill-cc] ENCRYPTION_KEY non impostata (serve a decifrare i refresh token)");
+    process.exit(1);
+  }
+  let encryptionKey: Buffer;
+  try {
+    encryptionKey = decodeEncryptionKey(encryptionKeyRaw);
+  } catch (error) {
+    console.error(`[backfill-cc] ${(error as Error).message}`);
     process.exit(1);
   }
   const handle = createDb(databaseUrl);
   try {
     const result = await backfillEmailCc(handle.db, {
       dryRun,
-      encryptionKey: Buffer.from(encryptionKeyHex, "hex"),
+      encryptionKey,
     });
     console.log(
       dryRun

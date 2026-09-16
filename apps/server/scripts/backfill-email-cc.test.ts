@@ -13,7 +13,7 @@ import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { GoogleApiError } from "@stubwise/google";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { backfillEmailCc, type BackfillGoogleClient } from "./backfill-email-cc.js";
+import { backfillEmailCc, decodeEncryptionKey, type BackfillGoogleClient } from "./backfill-email-cc.js";
 
 /**
  * Recupero una tantum di chi è in COPIA sui messaggi storici (16 set 2026).
@@ -121,6 +121,38 @@ async function reload(id: string) {
   const [row] = await testDb.db.select().from(emailMessages).where(eq(emailMessages.id, id));
   return row!;
 }
+
+/**
+ * La decodifica del segreto, che il 16 set 2026 ha fatto fallire il recupero
+ * in PRODUZIONE senza che nulla sembrasse rotto.
+ *
+ * Lo script leggeva `ENCRYPTION_KEY` come **hex** mentre il server la valida
+ * come **base64**: `Buffer.from(<base64>, "hex")` non lancia, restituisce
+ * ZERO byte. Ogni decifratura falliva, tutte e tre le caselle finivano nel
+ * ramo «non usabile» e il log diceva «163 righe saltate» — che si legge come
+ * «le caselle sono scollegate», non come «il segreto è illeggibile».
+ *
+ * Il difetto stava nel punto di ingresso, l'unico pezzo che i test non
+ * toccavano di proposito. Ora la conversione è una funzione a sé, e questi
+ * test la coprono da entrambi i lati: la codifica giusta, e il fallimento
+ * RUMOROSO di quella sbagliata.
+ */
+describe("decodeEncryptionKey", () => {
+  it("legge base64, la stessa codifica del server", () => {
+    const key = randomBytes(32);
+    expect(decodeEncryptionKey(key.toString("base64"))).toEqual(key);
+  });
+
+  it("⚠️ una chiave in HEX lancia, invece di dare zero byte in silenzio", () => {
+    // Il caso esatto della produzione: 44 caratteri base64 che, letti come
+    // hex, davano un buffer vuoto senza che nessuno se ne accorgesse.
+    expect(() => decodeEncryptionKey(randomBytes(32).toString("hex"))).toThrow(/32 byte in base64/);
+  });
+
+  it("una chiave della lunghezza sbagliata lancia dicendo quanti byte ha", () => {
+    expect(() => decodeEncryptionKey(randomBytes(16).toString("base64"))).toThrow(/ne ha 16/);
+  });
+});
 
 describe("backfillEmailCc", () => {
   it("una riga senza copia nota viene riempita da Gmail", async () => {
