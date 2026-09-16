@@ -8,6 +8,9 @@ import {
   comments,
   docGenerations,
   docPages,
+  emailMessages,
+  googleAccounts,
+  googleWorkspaces,
   projects,
   repositories,
   searchHistory,
@@ -95,6 +98,70 @@ interface SearchResponse {
   projects: { items: { id: string; name: string; slug: string; snippet: string | null }[]; hasMore: boolean };
   repositories: { items: { id: string; slug: string; projectId: string }[]; hasMore: boolean };
   docs: { items: { slug: string; title: string; repositoryId: string; snippet: string }[]; hasMore: boolean };
+  mail: {
+    items: {
+      threadId: string;
+      accountId: string;
+      accountEmail: string;
+      subject: string | null;
+      from: string;
+      snippet: string;
+      matchedMessageId: string;
+      receivedAt: string;
+    }[];
+    hasMore: boolean;
+  };
+}
+
+/**
+ * Una casella Google collegata a un utente, e i messaggi dentro.
+ *
+ * Serve ai test dell'ACL della posta: l'unico modo di verificare che la
+ * ricerca non attraversi il confine fra due caselle è averne due, di due
+ * utenti diversi.
+ */
+async function seedMailbox(userId: string): Promise<{ accountId: string; email: string }> {
+  const [workspace] = await testDb.db
+    .insert(googleWorkspaces)
+    .values({
+      name: "Acme",
+      domains: ["acme.test"],
+      clientId: "client-id",
+      clientSecretEncrypted: "blob",
+    })
+    .returning({ id: googleWorkspaces.id });
+  const email = `mailbox-${randomUUID()}@acme.test`;
+  const [account] = await testDb.db
+    .insert(googleAccounts)
+    .values({
+      userId,
+      workspaceId: workspace!.id,
+      email,
+      googleSub: `sub-${randomUUID()}`,
+      refreshTokenEncrypted: "blob",
+    })
+    .returning({ id: googleAccounts.id });
+  return { accountId: account!.id, email };
+}
+
+async function seedMessage(
+  accountId: string,
+  overrides: Partial<typeof emailMessages.$inferInsert> = {},
+): Promise<string> {
+  const [row] = await testDb.db
+    .insert(emailMessages)
+    .values({
+      accountId,
+      gmailMessageId: `g-${randomUUID()}`,
+      threadId: `t-${randomUUID()}`,
+      fromAddress: "cliente@acme.test",
+      subject: "Un oggetto qualunque",
+      textExcerpt: "Un corpo qualunque",
+      receivedAt: new Date("2026-09-15T09:00:00.000Z"),
+      ...overrides,
+    })
+    .returning({ id: emailMessages.id });
+  return row!.id;
 }
 
 async function search(q: string, cookie = memberCookie, scope?: string): Promise<SearchResponse> {
@@ -287,6 +354,112 @@ async function docsSemantic(
   expect(res.statusCode).toBe(200);
   return res.json() as DocSemanticHit[];
 }
+
+// ---------------------------------------------------------------------------
+// La POSTA (15 set 2026, design §3). L'ACL è la parte che non può sbagliare.
+// ---------------------------------------------------------------------------
+
+describe("GET /api/search — la posta", () => {
+  it("trova una CONVERSAZIONE per un token dell'oggetto, e dice quale messaggio ha combaciato", async () => {
+    const { accountId, email } = await seedMailbox(memberId);
+    const token = `Fatturaxxx${randomUUID().slice(0, 6)}`;
+    const threadId = `thread-${randomUUID()}`;
+    const messageId = await seedMessage(accountId, {
+      threadId,
+      subject: `${token} da rivedere`,
+    });
+
+    const body = await search(token);
+    expect(body.mail.items).toHaveLength(1);
+    const [hit] = body.mail.items;
+    expect(hit!.threadId).toBe(threadId);
+    expect(hit!.matchedMessageId).toBe(messageId);
+    expect(hit!.accountEmail).toBe(email);
+    expect(hit!.snippet.length).toBeGreaterThan(0);
+  });
+
+  it("trova una conversazione per un token dell'ESTRATTO e per il MITTENTE", async () => {
+    const { accountId } = await seedMailbox(memberId);
+    const bodyToken = `Corpoxxx${randomUUID().slice(0, 6)}`;
+    const senderToken = `mittentexxx${randomUUID().slice(0, 6)}`;
+    await seedMessage(accountId, { textExcerpt: `un testo con ${bodyToken} dentro` });
+    await seedMessage(accountId, { fromAddress: `${senderToken}@acme.test` });
+
+    expect((await search(bodyToken)).mail.items).toHaveLength(1);
+    expect((await search(senderToken)).mail.items).toHaveLength(1);
+  });
+
+  it("⚠️ UNA RIGA PER CONVERSAZIONE, non una per messaggio", async () => {
+    // È il modello che «la posta si legge per conversazione» ha tolto: tre
+    // risposte dello stesso scambio non sono tre risultati.
+    const { accountId } = await seedMailbox(memberId);
+    const token = `Scambioxxx${randomUUID().slice(0, 6)}`;
+    const threadId = `thread-${randomUUID()}`;
+    for (let i = 0; i < 3; i++) {
+      await seedMessage(accountId, {
+        threadId,
+        subject: `Re: ${token}`,
+        receivedAt: new Date(`2026-09-1${i + 1}T09:00:00.000Z`),
+      });
+    }
+
+    const body = await search(token);
+    expect(body.mail.items).toHaveLength(1);
+    expect(body.mail.items[0]!.threadId).toBe(threadId);
+  });
+
+  it("i messaggi di CONTESTO (`admitted: false`) sono cercabili: cercare è leggere", async () => {
+    // Quel limite esiste perché un messaggio di contesto non diventi mai una
+    // CARD, non perché non si possa leggere — ed escluderlo lascerebbe buchi
+    // in conversazioni che la pagina Posta mostra per intero.
+    const { accountId } = await seedMailbox(memberId);
+    const token = `Contestoxxx${randomUUID().slice(0, 6)}`;
+    await seedMessage(accountId, { admitted: false, subject: `${token} nel contesto` });
+
+    expect((await search(token)).mail.items).toHaveLength(1);
+  });
+
+  it("⚠️ LA POSTA DI UN ALTRO UTENTE NON COMPARE — nemmeno per un admin", async () => {
+    // ⚠️ Il test NEGATIVO che conta: la parola cercata esiste SOLO nel
+    // messaggio dell'altro utente, quindi un risultato vuoto non può essere
+    // un caso — se l'ACL cadesse, quella riga sarebbe l'unica a comparire.
+    // Contare i risultati non basterebbe: con due messaggi diversi un
+    // conteggio giusto può nascondere la riga sbagliata.
+    const { accountId: mineId } = await seedMailbox(memberId);
+    const { accountId: theirsId } = await seedMailbox(adminId);
+    const secret = `Segretoxxx${randomUUID().slice(0, 6)}`;
+    await seedMessage(theirsId, { subject: `${secret} — riservato`, textExcerpt: secret });
+    // Nella mia casella quella parola NON esiste.
+    await seedMessage(mineId, { subject: "Tutt'altro argomento" });
+
+    const mine = await search(secret, memberCookie);
+    expect(mine.mail.items).toEqual([]);
+
+    // E il verso opposto: il proprietario la trova, quindi il vuoto qui
+    // sopra è l'ACL e non una query che non funziona.
+    const theirs = await search(secret, adminCookie);
+    expect(theirs.mail.items).toHaveLength(1);
+    expect(theirs.mail.items[0]!.accountId).toBe(theirsId);
+  });
+
+  it("⚠️ nemmeno un ADMIN vede la posta di un member: il ruolo non scavalca", async () => {
+    const { accountId } = await seedMailbox(memberId);
+    const secret = `Privatoxxx${randomUUID().slice(0, 6)}`;
+    await seedMessage(accountId, { subject: `${secret} — solo mio`, textExcerpt: secret });
+
+    // L'admin è admin dell'istanza, ma la casella non è sua.
+    const asAdmin = await search(secret, adminCookie);
+    expect(asAdmin.mail.items).toEqual([]);
+
+    const asOwner = await search(secret, memberCookie);
+    expect(asOwner.mail.items).toHaveLength(1);
+  });
+
+  it("senza posta che combacia il gruppo è vuoto, non assente", async () => {
+    const body = await search(`Nessunoxxx${randomUUID().slice(0, 6)}`);
+    expect(body.mail).toEqual({ items: [], hasMore: false });
+  });
+});
 
 describe("GET /api/search/docs-semantic", () => {
   it("GLOBALE: recupera Docs semantici da repo di progetti diversi, con repository corretto e score", async () => {

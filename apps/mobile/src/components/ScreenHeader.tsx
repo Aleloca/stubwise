@@ -1,6 +1,9 @@
+import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import { GlobalSearchSheet } from "./GlobalSearchSheet";
 import { SettingsAvatarButton } from "./SettingsAvatarButton";
-import { colors } from "../theme/tokens";
+import { colors, radii } from "../theme/tokens";
 import { fontFamily, textStyles } from "../theme/typography";
 
 /**
@@ -65,6 +68,14 @@ export function ScreenHeader({
    */
   showAvatar?: boolean;
 }) {
+  const { t } = useTranslation();
+  // ⚠️ La ricerca è un'AZIONE e vive QUI, non nella tab bar: le cinque
+  // destinazioni sono decise per tutte le fasi e la ricerca non ne aggiunge
+  // una sesta (design 15 set 2026 §3). Stando nell'intestazione è
+  // raggiungibile da ogni schermata che la usa — che sono tutte e cinque le
+  // radici di scheda, più i dettagli.
+  const [searchOpen, setSearchOpen] = useState(false);
+
   return (
     <View style={styles.row}>
       <View style={styles.titleBlock}>
@@ -81,7 +92,33 @@ export function ScreenHeader({
         </Text>
         {subtitle !== undefined && <Text style={textStyles.screenSubtitle}>{subtitle}</Text>}
       </View>
-      {showAvatar && <SettingsAvatarButton />}
+      <View style={styles.actions}>
+        {/*
+          ⚠️ La ricerca NON è gated su `showAvatar`, e la differenza è
+          voluta: l'avatar sparisce sulle Impostazioni perché lì porterebbe a
+          se stesso, mentre cercare da dentro le Impostazioni è una cosa
+          sensata. Sono due bottoni con due ragioni diverse di esserci.
+        */}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={t("mobile.search.openLabel")}
+          onPress={() => setSearchOpen(true)}
+          style={styles.searchButton}
+          testID="global-search-trigger"
+        >
+          <Text style={styles.searchLabel}>{t("mobile.search.trigger")}</Text>
+        </Pressable>
+        {showAvatar && <SettingsAvatarButton />}
+      </View>
+      {/*
+        Montato SOLO quando è aperto, e non è un dettaglio di performance: il
+        foglio usa `useNavigation`, e questo header sta su ogni schermata —
+        tenerlo montato significherebbe un `Modal` e un hook di navigazione
+        per ogni schermata dell'app, sempre, per una cosa che si apre di
+        rado. Come effetto, un test che monta solo l'intestazione non ha
+        bisogno di un `NavigationContainer`.
+      */}
+      {searchOpen && <GlobalSearchSheet visible onRequestClose={() => setSearchOpen(false)} />}
     </View>
   );
 }
@@ -107,6 +144,26 @@ const styles = StyleSheet.create({
   },
   titleBlock: {
     flex: 1,
+  },
+  actions: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10,
+  },
+  searchButton: {
+    borderColor: colors.lineStrong,
+    borderRadius: radii.control,
+    borderWidth: 1,
+    justifyContent: "center",
+    minHeight: 32,
+    paddingHorizontal: 10,
+  },
+  searchLabel: {
+    color: colors.muted,
+    fontFamily: fontFamily.mono,
+    fontSize: 11,
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
   },
   back: {
     color: colors.muted,

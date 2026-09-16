@@ -2204,12 +2204,14 @@
       "tickets": "Tickets",
       "projects": "Projects",
       "repositories": "Repositories",
-      "docs": "Documentation"
+      "docs": "Documentation",
+      "mail": "Mail"
     },
     "scope": {
       "repo": "This documentation",
       "all": "Everything"
-    }
+    },
+    "mailMatch": "The matching message"
   },
   "widget": {
     "title": "Support widget",

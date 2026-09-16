@@ -206,7 +206,21 @@ function OriginalMessage({ original }: { original: MailOriginal }) {
  * vista per messaggio — una conversazione lunga di originali sarebbe di
  * nuovo il muro di testo che si sta togliendo.
  */
-export function MailThreadPane({ threadId, onClose }: { threadId: string; onClose: () => void }) {
+export function MailThreadPane({
+  threadId,
+  onClose,
+  highlightMessageId = null,
+}: {
+  threadId: string;
+  onClose: () => void;
+  /**
+   * Il messaggio che ha fatto comparire questa conversazione nella ricerca
+   * (15 set 2026, design §3): si segna, così chi arriva non deve rileggere lo
+   * scambio per capire perché è comparso. `null` quando la conversazione è
+   * stata aperta dalla lista.
+   */
+  highlightMessageId?: string | null;
+}) {
   const { t } = useTranslation();
   const query = useQuery(mailThreadQueryOptions(threadId));
 
@@ -251,7 +265,9 @@ export function MailThreadPane({ threadId, onClose }: { threadId: string; onClos
           <li
             key={message.id}
             data-testid={`mail-thread-message-${message.id}`}
-            className="rounded-sm border border-line bg-ink-950/40 p-3"
+            className={`rounded-sm border bg-ink-950/40 p-3 ${
+              message.id === highlightMessageId ? "border-signal-dim" : "border-line"
+            }`}
           >
             <div className="flex items-baseline justify-between gap-2">
               <span className="min-w-0 truncate font-mono text-[12px] text-fg-muted">{message.from}</span>
@@ -259,6 +275,16 @@ export function MailThreadPane({ threadId, onClose }: { threadId: string; onClos
                 {formatRelativeTime(message.receivedAt)}
               </time>
             </div>
+            {/* Il bordo da solo è un segno che si può non vedere: chi arriva
+                dalla ricerca deve LEGGERE perché questo messaggio è quello. */}
+            {message.id === highlightMessageId && (
+              <p
+                data-testid={`mail-thread-match-${message.id}`}
+                className="mt-1 font-mono text-[11px] tracking-[0.12em] text-signal uppercase"
+              >
+                {t("search:mailMatch")}
+              </p>
+            )}
             {/*
              * Un messaggio di CONTESTO si dichiara tale: è entrato col
              * thread di un ammesso e non produrrà mai una proposta. Senza

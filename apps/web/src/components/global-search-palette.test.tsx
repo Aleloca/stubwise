@@ -43,14 +43,38 @@ vi.mock("../lib/api", async (importOriginal) => ({
   deleteSearchHistory: (...args: unknown[]) => deleteSearchHistory(...args),
 }));
 
-const EMPTY: SearchResults = {
+/**
+ * ⚠️ **Le fixture di base sono VOLUTAMENTE senza il gruppo `mail`**, e
+ * l'annotazione lo dice (`Omit<…, "mail">`): sul web `lib/api.ts` fa un CAST
+ * e non un `parse`, quindi il `.default()` dello schema non gira mai e un
+ * server più vecchio — o un rollback — manda una risposta senza quel gruppo.
+ * Sono la PROVA che la palette lo difende in lettura (`?? []`), non una
+ * svista da completare: se qualcuno le "sistema" aggiungendo `mail`, la
+ * difesa smette di essere verificata da tutti i test che le usano.
+ *
+ * I test che il gruppo lo guardano davvero usano {@link RESULTS_WITH_MAIL}.
+ */
+
+/**
+ * Una risposta come la MANDA il server, non come il tipo promette.
+ *
+ * `lib/api.ts` fa un CAST e non un `parse`: il tipo dice `SearchResults`, il
+ * runtime riceve quello che il server ha mandato davvero. Questo helper
+ * riproduce quella bugia APPOSTA — è l'unico modo di simulare in un test un
+ * server che non manda un gruppo, che è la situazione contro cui esistono i
+ * `?? []` nella palette.
+ */
+function asServerSent(body: Omit<SearchResults, "mail"> | SearchResults): SearchResults {
+  return body as SearchResults;
+}
+const EMPTY: Omit<SearchResults, "mail"> = {
   tickets: { items: [], hasMore: false },
   projects: { items: [], hasMore: false },
   repositories: { items: [], hasMore: false },
   docs: { items: [], hasMore: false },
 };
 
-const RESULTS: SearchResults = {
+const RESULTS: Omit<SearchResults, "mail"> = {
   tickets: {
     items: [
       {
@@ -89,6 +113,26 @@ const RESULTS: SearchResults = {
   },
 };
 
+/** L'unica fixture COL gruppo posta: i test che lo guardano davvero usano questa. */
+const RESULTS_WITH_MAIL: SearchResults = {
+  ...EMPTY,
+  mail: {
+    items: [
+      {
+        threadId: "thread-1",
+        accountId: "acc-1",
+        accountEmail: "mailbox@acme.test",
+        subject: "Fattura da rivedere",
+        from: "cliente@acme.test",
+        snippet: "la <b>fattura</b> di settembre",
+        matchedMessageId: "msg-9",
+        receivedAt: "2026-09-15T09:00:00.000Z",
+      },
+    ],
+    hasMore: false,
+  },
+};
+
 const SEMANTIC: SearchDocsSemanticResults = [
   {
     slug: "auth-semantic",
@@ -119,7 +163,7 @@ beforeEach(() => {
   // la re-fetch di `onSettled` (invalidazione) riflette il cambiamento come in
   // produzione (altrimenti l'aggiornamento ottimistico verrebbe annullato).
   let serverHistory: SearchHistoryItem[] = structuredClone(HISTORY);
-  getSearch.mockResolvedValue(structuredClone(RESULTS));
+  getSearch.mockResolvedValue(asServerSent(structuredClone(RESULTS)));
   getDocsSemantic.mockResolvedValue(structuredClone(SEMANTIC));
   getSearchHistory.mockImplementation(() => Promise.resolve(structuredClone(serverHistory)));
   postSearchHistory.mockResolvedValue(undefined);
@@ -154,6 +198,7 @@ function renderPalette({
     createRoute({ getParentRoute: () => rootRoute, path: "/projects/$projectId" }),
     createRoute({ getParentRoute: () => rootRoute, path: "/repositories/$slug" }),
     createRoute({ getParentRoute: () => rootRoute, path: "/docs/$projectId/$slug" }),
+    createRoute({ getParentRoute: () => rootRoute, path: "/mail/thread/$threadId" }),
   ];
   const router = createRouter({
     routeTree: rootRoute.addChildren(routes),
@@ -194,6 +239,65 @@ describe("GlobalSearchPalette", () => {
     // ne compaiono due occorrenze, entrambe presenti.
     expect(screen.getAllByText("Acme").length).toBeGreaterThanOrEqual(1);
     await waitFor(() => expect(getSearch).toHaveBeenCalledWith("auth", undefined));
+  });
+
+  // -------------------------------------------------------------------------
+  // La POSTA (15 set 2026, design §3).
+  // -------------------------------------------------------------------------
+
+  it("il gruppo Posta mostra la CONVERSAZIONE e porta al thread col messaggio che ha combaciato", async () => {
+    getSearch.mockResolvedValue(asServerSent(structuredClone(RESULTS_WITH_MAIL)));
+    const user = userEvent.setup();
+    const { router } = renderPalette();
+    const input = await screen.findByRole("textbox");
+    await user.type(input, "fattura");
+
+    expect(await screen.findByText("Fattura da rivedere")).toBeInTheDocument();
+    // Il sottotitolo dice DI CHI è la conversazione e in quale casella sta.
+    expect(screen.getByText("cliente@acme.test · mailbox@acme.test")).toBeInTheDocument();
+
+    await user.click(screen.getByText("Fattura da rivedere"));
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe("/mail/thread/thread-1");
+    });
+    // ⚠️ Alla CONVERSAZIONE, con QUALE messaggio ha combaciato.
+    expect(router.state.location.search).toMatchObject({ message: "msg-9" });
+  });
+
+  it("⚠️ la posta NON finisce nei recenti: l'oggetto di un'email non si copia fuori dalla posta", async () => {
+    // Una voce di cronologia porta `title`/`subtitle` denormalizzati, in una
+    // tabella che la potatura della posta non tocca: un messaggio cancellato
+    // da Gmail lascerebbe il suo oggetto nei recenti per sempre.
+    getSearch.mockResolvedValue(asServerSent(structuredClone(RESULTS_WITH_MAIL)));
+    const user = userEvent.setup();
+    renderPalette();
+    const input = await screen.findByRole("textbox");
+    await user.type(input, "fattura");
+    await user.click(await screen.findByText("Fattura da rivedere"));
+
+    await waitFor(() => expect(postSearchHistory).not.toHaveBeenCalled());
+  });
+
+  it("un ticket invece SÌ: la guardia è sulla posta, non sulla cronologia in generale", async () => {
+    const user = userEvent.setup();
+    renderPalette();
+    const input = await screen.findByRole("textbox");
+    await user.type(input, "auth");
+    await user.click(await screen.findByText("#42 Login broken"));
+
+    await waitFor(() => expect(postSearchHistory).toHaveBeenCalled());
+  });
+
+  it("una risposta SENZA il gruppo mail non fa saltare la palette (la difesa `?? []`)", async () => {
+    // `RESULTS` è volutamente senza `mail`: è il payload di un server più
+    // vecchio, e sul web il `.default()` dello schema non gira mai.
+    const user = userEvent.setup();
+    renderPalette();
+    const input = await screen.findByRole("textbox");
+    await user.type(input, "auth");
+
+    // Gli altri gruppi ci sono: la palette non è smontata da un `undefined`.
+    expect(await screen.findByText("#42 Login broken")).toBeInTheDocument();
   });
 
   it("due velocità: dopo il debounce lungo la semantica arricchisce il gruppo Docs", async () => {
@@ -249,7 +353,7 @@ describe("GlobalSearchPalette", () => {
   });
 
   it('"mostra altri": espande un gruppo oltre i primi 5', async () => {
-    const many: SearchResults = {
+    const many: Omit<SearchResults, "mail"> = {
       ...EMPTY,
       tickets: {
         items: Array.from({ length: 6 }, (_, i) => ({
@@ -264,7 +368,7 @@ describe("GlobalSearchPalette", () => {
         hasMore: true,
       },
     };
-    getSearch.mockResolvedValue(many);
+    getSearch.mockResolvedValue(asServerSent(many));
     const user = userEvent.setup();
     renderPalette();
     const input = await screen.findByRole("textbox");

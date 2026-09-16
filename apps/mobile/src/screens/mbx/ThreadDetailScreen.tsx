@@ -39,7 +39,7 @@ export function ThreadDetailScreen({
 }: NativeStackScreenProps<MbxStackParamList, "ThreadDetail">) {
   const { t } = useTranslation();
   const tabBarHeight = useBottomTabBarHeight();
-  const { threadId } = route.params;
+  const { threadId, highlightMessageId } = route.params;
 
   const query = useMailThread(threadId);
   const notFound = query.isError && query.error instanceof ApiError && query.error.status === 404;
@@ -81,13 +81,28 @@ export function ThreadDetailScreen({
             </Text>
 
             {query.data!.messages.map((message) => (
-              <View key={message.id} style={styles.message} testID={`thread-message-${message.id}`}>
+              <View
+                key={message.id}
+                style={[styles.message, message.id === highlightMessageId && styles.messageMatched]}
+                testID={`thread-message-${message.id}`}
+              >
                 <View style={styles.messageHeader}>
                   <Text style={styles.from} numberOfLines={1}>
                     {message.from}
                   </Text>
                   <Text style={styles.time}>{timeLabel(message.receivedAt, t)}</Text>
                 </View>
+                {/*
+                 * Il messaggio che ha fatto comparire questa conversazione
+                 * nella ricerca (15 set 2026, design §3). Il bordo da solo è
+                 * un segno che si può non vedere: chi arriva dalla ricerca
+                 * deve LEGGERE perché è questo.
+                 */}
+                {message.id === highlightMessageId && (
+                  <Text style={styles.matched} testID={`thread-message-matched-${message.id}`}>
+                    {t("mobile.search.matched")}
+                  </Text>
+                )}
                 {/*
                  * Un messaggio di CONTESTO si dichiara: è entrato col thread
                  * di un ammesso e non produrrà mai una proposta. Senza,
@@ -218,6 +233,17 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     marginTop: 12,
     padding: 12,
+  },
+  messageMatched: {
+    borderColor: colors.signal,
+  },
+  matched: {
+    color: colors.signal,
+    fontFamily: fontFamily.mono,
+    fontSize: fontSize.label,
+    letterSpacing: 0.6,
+    marginTop: 6,
+    textTransform: "uppercase",
   },
   messageHeader: {
     alignItems: "center",

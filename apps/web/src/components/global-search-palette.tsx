@@ -50,11 +50,29 @@ const KIND_LABEL_KEY: Record<DocPageKind, string> = {
 };
 
 /** Sigla mono per tipo di entità (coerente con la nav della sidebar). */
-const TYPE_CODE: Record<SearchEntityType, string> = {
+/**
+ * Il tipo di un GRUPPO della palette.
+ *
+ * ⚠️ Più largo di {@link SearchEntityType}, e deliberatamente: quell'enum non
+ * è «cosa si può cercare», è cosa finisce nella CRONOLOGIA (è la colonna
+ * `search_entity` del database). La posta si cerca ma non si registra fra i
+ * recenti — il perché per esteso è nel docblock di `searchEntityTypeSchema`,
+ * in `@stubwise/shared`: registrarla copierebbe l'oggetto di un'email in una
+ * seconda tabella, fuori dalla potatura di `pruneOldEmails`.
+ */
+type PaletteGroupType = SearchEntityType | "mail";
+
+/** Questo risultato si può registrare fra i recenti? La posta no — vedi sopra. */
+function isRecordable(type: PaletteGroupType): type is SearchEntityType {
+  return type !== "mail";
+}
+
+const TYPE_CODE: Record<PaletteGroupType, string> = {
   ticket: "TKT",
   project: "PRJ",
   repository: "REP",
   doc: "DOC",
+  mail: "MBX",
 };
 
 /** Debounce della corsia veloce (full-text). */
@@ -99,7 +117,7 @@ type MergedDoc = SearchDocHit & { score?: number };
 interface PaletteItem {
   /** Chiave stabile per la lista (tipo + entità). */
   key: string;
-  type: SearchEntityType;
+  type: PaletteGroupType;
   /** Entità per la cronologia (id o slug della doc). */
   entityId: string;
   title: string;
@@ -393,12 +411,41 @@ export function GlobalSearchPalette({
           repositoryId: doc.repositoryId,
         })),
       },
+      {
+        type: "mail" as const,
+        labelKey: "search:groups.mail",
+        // ⚠️ `?? []` / `?? false`: sul web `lib/api.ts` fa un CAST e non un
+        // `parse`, quindi il `.default()` dello schema NON gira mai — un
+        // server più vecchio (o un rollback) non manda il gruppo, e un
+        // `undefined` dove si chiama `.map()` fa smontare a React l'INTERA
+        // palette. Il test che lo copre usa una fixture senza il campo.
+        hasMore: r?.mail?.hasMore ?? false,
+        items: (r?.mail?.items ?? []).map<PaletteItem>((hit) => ({
+          key: `mail:${hit.accountId}:${hit.threadId}`,
+          type: "mail",
+          entityId: hit.threadId,
+          // NON FIDATO: lo scrive chi manda l'email. React escapa.
+          title: hit.subject ?? t("mail:noSubject"),
+          subtitle: `${hit.from} · ${hit.accountEmail}`,
+          snippet: hit.snippet,
+          // Alla CONVERSAZIONE, non al messaggio — e `message` dice quale ha
+          // combaciato, così chi arriva non deve rileggere il thread per
+          // capire perché è comparso.
+          navigate: () =>
+            void navigate({
+              to: "/mail/thread/$threadId",
+              params: { threadId: hit.threadId },
+              search: { message: hit.matchedMessageId },
+            }),
+          route: `/mail/thread/${hit.threadId}?message=${hit.matchedMessageId}`,
+        })),
+      },
     ];
-  }, [results, semantic, navigate, kindLabel]);
+  }, [results, semantic, navigate, kindLabel, t]);
 
   // Quali gruppi sono espansi ("mostra altri" cliccato): mostrano tutti i loro
   // item invece dei primi PER_GROUP_VISIBLE.
-  const [expanded, setExpanded] = useState<Set<SearchEntityType>>(new Set());
+  const [expanded, setExpanded] = useState<Set<PaletteGroupType>>(new Set());
   useEffect(() => {
     // Nuova query/scope: ricollassa i gruppi.
     setExpanded(new Set());
@@ -424,14 +471,22 @@ export function GlobalSearchPalette({
   function openItem(item: PaletteItem) {
     // Registra il click nella cronologia (fire-and-forget). Le voci doc portano
     // il repositoryId per il filtro in scope; per gli altri tipi resta null.
-    postSearchHistory({
-      type: item.type,
-      entityId: item.entityId,
-      title: item.title,
-      subtitle: item.subtitle ?? undefined,
-      route: item.route,
-      repositoryId: item.repositoryId,
-    }).catch(() => {});
+    //
+    // ⚠️ La POSTA non si registra: una voce di cronologia porta con sé
+    // `title`/`subtitle` denormalizzati, quindi registrarla copierebbe
+    // l'oggetto di un'email in una tabella che la potatura della posta non
+    // tocca — un messaggio cancellato da Gmail lascerebbe il suo oggetto nei
+    // «recenti» per sempre. Vedi `isRecordable`.
+    if (isRecordable(item.type)) {
+      postSearchHistory({
+        type: item.type,
+        entityId: item.entityId,
+        title: item.title,
+        subtitle: item.subtitle ?? undefined,
+        route: item.route,
+        repositoryId: item.repositoryId,
+      }).catch(() => {});
+    }
     item.navigate();
     onClose();
   }
@@ -545,7 +600,15 @@ export function GlobalSearchPalette({
               removeLabel={(title) => t("search:removeOne", { title })}
               typeLabel={(type) => TYPE_CODE[type]}
               onClearAll={() => clearAll.mutate()}
-              onRemove={(item) => removeEntry.mutate({ type: item.type, entityId: item.entityId })}
+              // I recenti contengono solo tipi registrabili per costruzione
+              // (la posta non ci finisce mai, vedi `isRecordable`): la
+              // guardia è qui perché il TIPO lo dica, non per un caso
+              // possibile a runtime.
+              onRemove={(item) => {
+                if (isRecordable(item.type)) {
+                  removeEntry.mutate({ type: item.type, entityId: item.entityId });
+                }
+              }}
             />
           ) : fastLoading ? (
             <SkeletonList label={t("search:searching")} />
@@ -678,7 +741,7 @@ function RecentsSection({
   recentsLabel: string;
   clearAllLabel: string;
   removeLabel: (title: string) => string;
-  typeLabel: (type: SearchEntityType) => string;
+  typeLabel: (type: PaletteGroupType) => string;
   onClearAll: () => void;
   onRemove: (item: PaletteItem) => void;
 }) {
