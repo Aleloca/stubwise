@@ -554,6 +554,13 @@
       "when": 1789484152939,
       "tag": "0078_calendar_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1789567193156,
+      "tag": "0079_email_cc",
+      "breakpoints": true
     }
   ]
 }

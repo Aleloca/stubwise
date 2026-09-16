@@ -50,6 +50,13 @@ const MAIL_SCAN_CAP = 200;
  *
  * Calcolato al volo e non da una colonna generata: vedi il commento
  * sull'assenza di indice nella gamba della posta.
+ *
+ * ⚠️ **`to_addresses` e `cc_addresses` NON sono qui, ed è deliberato** (16 set
+ * 2026): si MOSTRANO nella riga, non si cercano. Chi cerca un indirizzo trova
+ * già le email di quella persona dal mittente e dall'oggetto; allargare
+ * questo documento cambierebbe COSA la ricerca trova — una mail in copia a
+ * mezza azienda comparirebbe cercando chiunque di quella mezza azienda — ed è
+ * un'altra decisione, non questa.
  */
 const MAIL_TSV = sql`to_tsvector('english', coalesce(${emailMessages.subject}, '') || ' ' || coalesce(${emailMessages.fromName}, '') || ' ' || ${emailMessages.fromAddress} || ' ' || coalesce(${emailMessages.textExcerpt}, ''))`;
 
@@ -246,6 +253,10 @@ export async function searchRoutes(instance: FastifyInstance): Promise<void> {
             matchedMessageId: emailMessages.id,
             subject: emailMessages.subject,
             fromAddress: emailMessages.fromAddress,
+            // 16 set 2026: destinatari e copia si MOSTRANO, non si cercano —
+            // il `where` qui sotto non cambia (vedi il commento su `MAIL_TSV`).
+            toAddresses: emailMessages.toAddresses,
+            ccAddresses: emailMessages.ccAddresses,
             receivedAt: emailMessages.receivedAt,
             snippet: sql<string>`ts_headline('english', coalesce(${emailMessages.subject}, '') || ' — ' || coalesce(${emailMessages.textExcerpt}, ''), ${tsq}, 'MaxFragments=1,MaxWords=40,MinWords=15')`,
             rank: sql<number>`ts_rank(${MAIL_TSV}, ${tsq})`,
@@ -347,6 +358,13 @@ export async function searchRoutes(instance: FastifyInstance): Promise<void> {
             accountEmail: r.accountEmail,
             subject: r.subject,
             from: r.fromAddress,
+            to: r.toAddresses,
+            // `null` in colonna = «riga scritta prima della colonna, non lo
+            // sappiamo»; qui si appiattisce a `[]` perché per chi legge una
+            // riga di ricerca i due casi non hanno niente di diverso da dire.
+            // La distinzione resta in colonna, dove serve allo script di
+            // recupero (`backfill-email-cc.ts`).
+            cc: r.ccAddresses ?? [],
             snippet: r.snippet,
             matchedMessageId: r.matchedMessageId,
             receivedAt: r.receivedAt.toISOString(),

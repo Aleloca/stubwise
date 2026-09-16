@@ -1,0 +1,29 @@
+-- «Righe di ricerca per tipologia» (16 set 2026, design §4): chi è in copia a
+-- un'email si vede nella riga di ricerca dell'app.
+--
+-- Il dato Gmail lo manda GIÀ: l'header `Cc` è in `DEFAULT_METADATA_HEADERS` e
+-- arriva nella stessa risposta `format=metadata` degli altri —
+-- `messageToRouting` lo parsa già per l'ammissione della fase 6c. Mancava solo
+-- una colonna dove metterlo, quindi il worker lo leggeva, ci decideva sopra, e
+-- lo buttava. Nessuna chiamata nuova a Google.
+--
+-- ⚠️ **NULLABLE, e NON `not null default '{}'` come `to_addresses`.** Non è
+-- un'incoerenza da sistemare: i due valori dicono cose diverse.
+--
+--   * `null` = «riga scritta PRIMA di questa modifica, non lo sappiamo»;
+--   * `{}`   = «lo sappiamo, non c'era nessuno in copia».
+--
+-- Su quella distinzione si regge INTERAMENTE lo script di recupero delle righe
+-- storiche (`apps/server/scripts/backfill-email-cc.ts`): la sua condizione di
+-- ripresa è `cc_addresses is null`. Con un default `'{}'` quella condizione
+-- non distinguerebbe più le righe mai guardate da quelle senza copia, e lo
+-- script ri-scaricherebbe da Gmail, A OGNI LANCIO, ogni email che
+-- legittimamente non aveva nessuno in copia — cioè la maggioranza.
+--
+-- Per chi legge la riga i due valori si rendono UGUALI (niente `cc:`), quindi
+-- la distinzione non arriva mai all'utente: esiste per il recupero.
+--
+-- Additiva, nessun `ALTER TYPE`, un solo batch, nessun backfill qui dentro (il
+-- recupero è uno script operativo, non una migrazione: parla con una API
+-- esterna e va lanciato quando si vuole).
+ALTER TABLE "email_messages" ADD COLUMN "cc_addresses" text[];

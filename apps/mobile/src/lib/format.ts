@@ -78,3 +78,51 @@ export function shortDate(iso: string): string {
   const year = String(at.getFullYear() % 100).padStart(2, "0");
   return `${day}/${month}/${year}`;
 }
+
+/**
+ * Quando è arrivata un'email, nella forma della RIGA DI RICERCA (16 set 2026,
+ * design §3.1 regola 3): `17:45` se è di oggi, `10/09 17:45` se è più
+ * vecchia.
+ *
+ * ## ⚠️ Perché è una funzione NUOVA e non `relativeTimeCompact`
+ *
+ * Il design dice che «è la stessa regola che la lista MBX usa già». **Non lo
+ * è**, verificato leggendo `MbxScreen.tsx`: quella lista usa
+ * {@link relativeTimeCompact}, che produce «12 min / 1 h / 3 g» — tempo
+ * trascorso a bucket, mai un orario e mai una data. Nessuna funzione di
+ * questo modulo produceva la forma dell'anteprima approvata dal maintainer:
+ * {@link clockTime} dà solo `HH:MM`, {@link shortDate} solo `GG/MM/AA`.
+ *
+ * **La lista MBX NON è stata cambiata per usare questa, e non è solo una
+ * questione di perimetro: le due letture DEVONO restare diverse.**
+ *
+ * La lista MBX è ordinata per data DECRESCENTE: lì «3 g» basta, si legge più
+ * in fretta di una data, e la posizione nella lista dice già il resto. I
+ * risultati di ricerca **non sono ordinati per data** — sono ordinati per
+ * rilevanza, e possono mescolare messaggi di mesi diversi uno sotto l'altro.
+ * Lì la data VERA è l'informazione, ed è precisamente quella che il
+ * maintainer ha detto che mancava («su email non c'è né data né orario di
+ * arrivo»). È la stessa distinzione già scritta nel docblock di
+ * {@link shortDate}: freschezza e «quando» sono due domande diverse, e
+ * mescolarle è il motivo per cui esistono entrambe le forme.
+ *
+ * Chi un domani volesse «uniformarle» deve prima rispondere a questo, non
+ * solo constatare che sono due.
+ *
+ * A mano e non con `Intl`, per la stessa ragione di {@link clockTime}: Hermes
+ * non garantisce un ICU completo su ogni piattaforma, e `GG/MM HH:MM` è la
+ * stessa forma in ogni lingua che l'app parla. `now` iniettabile per i test.
+ */
+export function searchMailTime(iso: string, now: number = Date.now()): string {
+  const at = new Date(iso);
+  const today = new Date(now);
+  const sameDay =
+    at.getFullYear() === today.getFullYear() &&
+    at.getMonth() === today.getMonth() &&
+    at.getDate() === today.getDate();
+  const time = `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`;
+  if (sameDay) return time;
+  const day = String(at.getDate()).padStart(2, "0");
+  const month = String(at.getMonth() + 1).padStart(2, "0");
+  return `${day}/${month} ${time}`;
+}

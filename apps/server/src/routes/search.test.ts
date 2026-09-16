@@ -105,6 +105,8 @@ interface SearchResponse {
       accountEmail: string;
       subject: string | null;
       from: string;
+      to: string[];
+      cc: string[];
       snippet: string;
       matchedMessageId: string;
       receivedAt: string;
@@ -453,6 +455,52 @@ describe("GET /api/search — la posta", () => {
 
     const asOwner = await search(secret, memberCookie);
     expect(asOwner.mail.items).toHaveLength(1);
+  });
+
+  // -------------------------------------------------------------------------
+  // 16 set 2026: destinatari e copia si MOSTRANO (non si cercano).
+  // -------------------------------------------------------------------------
+
+  it("destinatari e copia arrivano nella risposta", async () => {
+    const { accountId } = await seedMailbox(memberId);
+    const token = `Copiaxxx${randomUUID().slice(0, 6)}`;
+    await seedMessage(accountId, {
+      subject: `${token} da vedere`,
+      toAddresses: ["a.locatelli@thecove.it"],
+      ccAddresses: ["m.misseri@thecove.it", "g.rossi@acme.test"],
+    });
+
+    const [hit] = (await search(token)).mail.items;
+    expect(hit!.to).toEqual(["a.locatelli@thecove.it"]);
+    expect(hit!.cc).toEqual(["m.misseri@thecove.it", "g.rossi@acme.test"]);
+  });
+
+  it("⚠️ una riga scritta PRIMA della colonna (`null`) torna `[]`, non `null`", async () => {
+    // Il `null` in colonna dice «non lo sappiamo» e serve allo script di
+    // recupero; verso il client si appiattisce, perché una riga di ricerca
+    // non ha niente di diverso da dire nei due casi — e un `null` dove il
+    // client chiama `.map()` farebbe saltare il render.
+    const { accountId } = await seedMailbox(memberId);
+    const token = `Storicaxxx${randomUUID().slice(0, 6)}`;
+    await seedMessage(accountId, { subject: `${token} storica`, ccAddresses: null });
+
+    const [hit] = (await search(token)).mail.items;
+    expect(hit!.cc).toEqual([]);
+  });
+
+  it("⚠️ un indirizzo in COPIA non rende trovabile la conversazione: `to`/`cc` non si cercano", async () => {
+    // Allargare il documento full-text a to/cc cambierebbe cosa la ricerca
+    // trova: una mail in copia a mezza azienda comparirebbe cercando
+    // chiunque di quella mezza azienda. È un'altra decisione, non questa.
+    const { accountId } = await seedMailbox(memberId);
+    const onlyInCc = `Soloincopiaxxx${randomUUID().slice(0, 6)}`;
+    await seedMessage(accountId, {
+      subject: "Un oggetto che non contiene la parola",
+      textExcerpt: "nemmeno il corpo la contiene",
+      ccAddresses: [`${onlyInCc}@acme.test`],
+    });
+
+    expect((await search(onlyInCc)).mail.items).toEqual([]);
   });
 
   it("senza posta che combacia il gruppo è vuoto, non assente", async () => {

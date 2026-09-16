@@ -1,7 +1,9 @@
 import type { Reader, SearchResults } from "@stubwise/shared";
+import { isUnknown } from "@stubwise/shared";
 import { useNavigation } from "@react-navigation/native";
 import type { NavigationProp } from "@react-navigation/native";
 import { useQuery } from "@tanstack/react-query";
+import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
@@ -9,6 +11,8 @@ import { useAuth } from "../app/providers";
 import type { RootStackParamList } from "../app/navigation";
 import { SectionLabel } from "./SectionLabel";
 import { Skeleton } from "./Skeleton";
+import { searchMailTime } from "../lib/format";
+import { othersThan, summarizeAddresses } from "../lib/search-recipients";
 import { colors, radii } from "../theme/tokens";
 import { fontFamily, fontSize } from "../theme/typography";
 
@@ -168,11 +172,9 @@ function Groups({
         <View style={styles.group}>
           <SectionLabel>{t("mobile.search.groups.tickets")}</SectionLabel>
           {tickets.map((hit) => (
-            <Row
+            <TicketRow
               key={hit.id}
-              testID={`global-search-ticket-${hit.id}`}
-              title={`#${hit.number} ${hit.title}`}
-              subtitle={hit.projectName}
+              hit={hit}
               onPress={() =>
                 onNavigate(() =>
                   navigation.navigate("Main", {
@@ -190,11 +192,9 @@ function Groups({
         <View style={styles.group}>
           <SectionLabel>{t("mobile.search.groups.projects")}</SectionLabel>
           {projects.map((hit) => (
-            <Row
+            <ProjectRow
               key={hit.id}
-              testID={`global-search-project-${hit.id}`}
-              title={hit.name}
-              subtitle={hit.slug}
+              hit={hit}
               onPress={() =>
                 onNavigate(() =>
                   navigation.navigate("Main", {
@@ -212,11 +212,9 @@ function Groups({
         <View style={styles.group}>
           <SectionLabel>{t("mobile.search.groups.docs")}</SectionLabel>
           {docs.map((hit) => (
-            <Row
+            <DocRow
               key={`${hit.repositoryId}-${hit.slug}`}
-              testID={`global-search-doc-${hit.slug}`}
-              title={hit.title}
-              subtitle={hit.repositoryName}
+              hit={hit}
               onPress={() =>
                 onNavigate(() =>
                   navigation.navigate("Main", {
@@ -237,14 +235,9 @@ function Groups({
         <View style={styles.group}>
           <SectionLabel>{t("mobile.search.groups.mail")}</SectionLabel>
           {mail.map((hit) => (
-            <Row
+            <MailRow
               key={`${hit.accountId}-${hit.threadId}`}
-              testID={`global-search-mail-${hit.threadId}`}
-              // NON FIDATO: l'oggetto lo scrive chi manda l'email. `<Text>`
-              // di React Native non interpreta markup, quindi non c'è niente
-              // da escapare — ma resta testo di un estraneo.
-              title={hit.subject ?? hit.from}
-              subtitle={`${hit.from} · ${hit.accountEmail}`}
+              hit={hit}
               onPress={() =>
                 onNavigate(() =>
                   navigation.navigate("Main", {
@@ -264,28 +257,165 @@ function Groups({
   );
 }
 
-function Row({
-  title,
-  subtitle,
+/**
+ * QUATTRO RIGHE, non una (16 set 2026, design §3).
+ *
+ * Prima c'era un `Row` generico — titolo + sottotitolo, entrambi troncati a
+ * una riga — per posta, ticket, Docs e progetti insieme. Ognuno dei quattro
+ * perdeva per strada esattamente ciò che lo rende riconoscibile: la posta la
+ * data, il ticket numero e stato, la pagina Docs il repository. Non è che i
+ * dati mancassero: il server ne mandava già la maggior parte, e la riga li
+ * scartava per mancanza di posto.
+ *
+ * ⚠️ Gli `testID` NON sono cambiati (`global-search-mail-<threadId>`,
+ * `global-search-ticket-<id>`, …): ci sono sopra i test della navigazione, ed
+ * è la parte che non deve muoversi mentre la forma cambia.
+ *
+ * ⚠️ Tutto ciò che viene dall'email — oggetto, mittente, destinatari, copia —
+ * è testo NON FIDATO, e lo `snippet` contiene il markup `<mark>` di
+ * `ts_headline`. `<Text>` di React Native non interpreta markup, quindi non
+ * c'è niente da escapare: si rende come testo e basta, e non si apre nessuna
+ * strada di rendering nuova.
+ */
+
+/** Il guscio comune: l'area premibile e lo snippet in fondo. Il resto lo mette ogni riga. */
+function RowShell({
   onPress,
   testID,
+  snippet,
+  children,
 }: {
-  title: string;
-  subtitle: string | null;
   onPress: () => void;
   testID: string;
+  snippet: string | null;
+  children: ReactNode;
 }) {
   return (
     <Pressable accessibilityRole="button" onPress={onPress} style={styles.row} testID={testID}>
-      <Text style={styles.rowTitle} numberOfLines={1}>
-        {title}
-      </Text>
-      {subtitle !== null && (
-        <Text style={styles.rowSubtitle} numberOfLines={1}>
-          {subtitle}
+      {children}
+      {snippet !== null && snippet !== "" && (
+        <Text style={styles.snippet} numberOfLines={2}>
+          {snippet}
         </Text>
       )}
     </Pressable>
+  );
+}
+
+/**
+ * POSTA: mittente e quando in cima sulla stessa riga, poi l'oggetto, poi chi
+ * altro c'è, poi l'estratto.
+ */
+function MailRow({
+  hit,
+  onPress,
+}: {
+  hit: Reader<SearchResults>["mail"]["items"][number];
+  onPress: () => void;
+}) {
+  const { t } = useTranslation();
+  // ⚠️ La casella di chi cerca esce dagli elenchi: «a: a.locatelli» quando
+  // a.locatelli è chi sta cercando non è informazione. Se non resta nessuno,
+  // la riga dei destinatari non compare affatto — mai un «a: —».
+  const to = summarizeAddresses(othersThan(hit.to ?? [], hit.accountEmail));
+  const cc = summarizeAddresses(othersThan(hit.cc ?? [], hit.accountEmail));
+
+  return (
+    <RowShell onPress={onPress} testID={`global-search-mail-${hit.threadId}`} snippet={hit.snippet}>
+      <View style={styles.mailTop}>
+        <Text style={styles.mailFrom} numberOfLines={1}>
+          {hit.from}
+        </Text>
+        <Text style={styles.mailWhen}>{searchMailTime(hit.receivedAt)}</Text>
+      </View>
+      <Text style={styles.rowTitle} numberOfLines={1}>
+        {hit.subject ?? t("mobile.mbx.noSubject")}
+      </Text>
+      {(to !== null || cc !== null) && (
+        <Text style={styles.rowSubtitle} numberOfLines={1} testID={`global-search-mail-people-${hit.threadId}`}>
+          {[to === null ? null : `${t("mobile.search.to")} ${to}`, cc === null ? null : `${t("mobile.search.cc")} ${cc}`]
+            .filter((part): part is string => part !== null)
+            .join("  ")}
+        </Text>
+      )}
+    </RowShell>
+  );
+}
+
+/** TICKET: numero e stato in cima, il titolo sotto. */
+function TicketRow({
+  hit,
+  onPress,
+}: {
+  hit: Reader<SearchResults>["tickets"]["items"][number];
+  onPress: () => void;
+}) {
+  const { t } = useTranslation();
+  // `Reader` apre gli enum: uno stato che questa build non conosce arriva
+  // come segnaposto, e si dice «sconosciuto» invece di stampare il valore
+  // grezzo o di far saltare la `t()`.
+  const status = isUnknown(hit.status) ? "unknown" : hit.status;
+
+  return (
+    <RowShell onPress={onPress} testID={`global-search-ticket-${hit.id}`} snippet={hit.snippet}>
+      <View style={styles.mailTop}>
+        <Text style={styles.ticketNumber}>#{hit.number}</Text>
+        <Text style={styles.ticketMeta} numberOfLines={1}>
+          {t(`mobile.search.ticketStatus.${status}`)} · {hit.projectName}
+        </Text>
+      </View>
+      <Text style={styles.rowTitle} numberOfLines={2}>
+        {hit.title}
+      </Text>
+    </RowShell>
+  );
+}
+
+/** DOCS: titolo, poi da dove viene (repository e tipo di pagina). */
+function DocRow({
+  hit,
+  onPress,
+}: {
+  hit: Reader<SearchResults>["docs"]["items"][number];
+  onPress: () => void;
+}) {
+  const { t } = useTranslation();
+  const kind = isUnknown(hit.kind) ? "unknown" : hit.kind;
+
+  return (
+    <RowShell onPress={onPress} testID={`global-search-doc-${hit.slug}`} snippet={hit.snippet}>
+      <Text style={styles.rowTitle} numberOfLines={2}>
+        {hit.title}
+      </Text>
+      <Text style={styles.rowSubtitle} numberOfLines={1}>
+        {hit.repositoryName} · {t(`mobile.search.docKinds.${kind}`)}
+      </Text>
+    </RowShell>
+  );
+}
+
+/**
+ * PROGETTI: restano com'erano — nome e descrizione sono tutto ciò che un
+ * progetto ha, e la riga generica già li mostrava bene. Cambia solo che
+ * smettono di condividere il componente con gli altri tre, così una modifica
+ * a una delle altre righe non li tocca più.
+ */
+function ProjectRow({
+  hit,
+  onPress,
+}: {
+  hit: Reader<SearchResults>["projects"]["items"][number];
+  onPress: () => void;
+}) {
+  return (
+    <RowShell onPress={onPress} testID={`global-search-project-${hit.id}`} snippet={null}>
+      <Text style={styles.rowTitle} numberOfLines={1}>
+        {hit.name}
+      </Text>
+      <Text style={styles.rowSubtitle} numberOfLines={2}>
+        {hit.snippet ?? hit.slug}
+      </Text>
+    </RowShell>
   );
 }
 
@@ -384,6 +514,41 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.mono,
     fontSize: fontSize.label,
     marginTop: 3,
+  },
+  snippet: {
+    color: colors.muted,
+    fontFamily: fontFamily.sans,
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: 5,
+  },
+  mailTop: {
+    alignItems: "baseline",
+    flexDirection: "row",
+    gap: 10,
+    justifyContent: "space-between",
+  },
+  mailFrom: {
+    color: colors.muted,
+    flexShrink: 1,
+    fontFamily: fontFamily.mono,
+    fontSize: fontSize.label,
+  },
+  mailWhen: {
+    color: colors.faint,
+    fontFamily: fontFamily.mono,
+    fontSize: fontSize.label,
+  },
+  ticketNumber: {
+    color: colors.signal,
+    fontFamily: fontFamily.mono,
+    fontSize: fontSize.label,
+  },
+  ticketMeta: {
+    color: colors.faint,
+    flexShrink: 1,
+    fontFamily: fontFamily.mono,
+    fontSize: fontSize.label,
   },
 });
 

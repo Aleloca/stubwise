@@ -118,6 +118,183 @@ beforeEach(() => {
   onRequestClose.mockClear();
 });
 
+// ---------------------------------------------------------------------------
+// 16 set 2026: quattro righe per quattro tipi, e le tre regole di resa.
+// ---------------------------------------------------------------------------
+
+describe("GlobalSearchSheet — le righe per tipologia", () => {
+  it("la riga di posta mostra mittente, quando, oggetto ed estratto", async () => {
+    const global = jest.fn().mockResolvedValue(
+      results({
+        mail: {
+          items: [
+            {
+              threadId: "thread-1",
+              accountId: "acc-1",
+              accountEmail: "a.locatelli@thecove.it",
+              subject: "Hays | PHP Developer",
+              from: "lavinia.corsi@hays.com",
+              snippet: "candidato con 7 anni di esperienza",
+              matchedMessageId: "msg-9",
+              receivedAt: new Date("2026-09-10T17:45:00").toISOString(),
+              to: ["a.locatelli@thecove.it"],
+              cc: ["m.misseri@thecove.it", "g.rossi@acme.test", "terzo@acme.test"],
+            },
+          ],
+          hasMore: false,
+        },
+      }) as Reader<SearchResults>,
+    );
+    const view = await renderSheet(global);
+    fireEvent.changeText(view.getByTestId("global-search-input"), "hays");
+    await view.findByTestId("global-search-mail-thread-1");
+
+    expect(view.getByText("lavinia.corsi@hays.com")).toBeTruthy();
+    expect(view.getByText("10/09 17:45")).toBeTruthy();
+    expect(view.getByText("Hays | PHP Developer")).toBeTruthy();
+    expect(view.getByText("candidato con 7 anni di esperienza")).toBeTruthy();
+  });
+
+  it("⚠️ la TUA casella esce dagli elenchi, e il resto si accorcia a `+N`", async () => {
+    const global = jest.fn().mockResolvedValue(
+      results({
+        mail: {
+          items: [
+            {
+              threadId: "thread-1",
+              accountId: "acc-1",
+              accountEmail: "a.locatelli@thecove.it",
+              subject: "Oggetto",
+              from: "cliente@acme.test",
+              snippet: "",
+              matchedMessageId: "msg-9",
+              receivedAt: new Date("2026-09-10T17:45:00").toISOString(),
+              // La casella di chi cerca è fra i destinatari: deve sparire.
+              to: ["a.locatelli@thecove.it"],
+              cc: ["m.misseri@thecove.it", "g.rossi@acme.test", "terzo@acme.test"],
+            },
+          ],
+          hasMore: false,
+        },
+      }) as Reader<SearchResults>,
+    );
+    const view = await renderSheet(global);
+    fireEvent.changeText(view.getByTestId("global-search-input"), "oggetto");
+
+    const people = await view.findByTestId("global-search-mail-people-thread-1");
+    // Nessun «a:», perché dopo il filtro non resta nessun destinatario; il
+    // `cc` mostra la sola parte locale del primo più quanti altri.
+    expect(people.props.children).toBe("cc: m.misseri +2");
+  });
+
+  it("⚠️ se non resta nessuno, la riga dei destinatari NON compare affatto", async () => {
+    // Meglio assente che vuota: un «a: —» occupa spazio per dire niente.
+    const global = jest.fn().mockResolvedValue(
+      results({
+        mail: {
+          items: [
+            {
+              threadId: "thread-1",
+              accountId: "acc-1",
+              accountEmail: "a.locatelli@thecove.it",
+              subject: "Solo a me",
+              from: "cliente@acme.test",
+              snippet: "",
+              matchedMessageId: "msg-9",
+              receivedAt: new Date("2026-09-10T17:45:00").toISOString(),
+              to: ["a.locatelli@thecove.it"],
+              cc: [],
+            },
+          ],
+          hasMore: false,
+        },
+      }) as Reader<SearchResults>,
+    );
+    const view = await renderSheet(global);
+    fireEvent.changeText(view.getByTestId("global-search-input"), "solo");
+    await view.findByTestId("global-search-mail-thread-1");
+
+    expect(view.queryByTestId("global-search-mail-people-thread-1")).toBeNull();
+  });
+
+  it("una risposta SENZA `to`/`cc` (server più vecchio) non fa saltare la riga", async () => {
+    // La fixture di base non ha quei campi apposta: è il payload di un server
+    // precedente al 16 set 2026.
+    const global = jest.fn().mockResolvedValue(results());
+    const view = await renderSheet(global);
+    fireEvent.changeText(view.getByTestId("global-search-input"), "fattura");
+
+    expect(await view.findByTestId("global-search-mail-thread-1")).toBeTruthy();
+    expect(view.queryByTestId("global-search-mail-people-thread-1")).toBeNull();
+  });
+
+  it("la riga di un ticket mostra numero, stato e progetto", async () => {
+    const global = jest.fn().mockResolvedValue(results());
+    const view = await renderSheet(global);
+    fireEvent.changeText(view.getByTestId("global-search-input"), "login");
+    await view.findByTestId("global-search-ticket-t1");
+
+    expect(view.getByText("#42")).toBeTruthy();
+    expect(view.getByText("aperto · Acme")).toBeTruthy();
+    expect(view.getByText("Login rotto")).toBeTruthy();
+  });
+
+  it("uno stato di ticket che questa build non conosce non stampa il valore grezzo", async () => {
+    const global = jest.fn().mockResolvedValue(
+      results({
+        tickets: {
+          items: [
+            {
+              id: "t1",
+              number: 42,
+              title: "Login rotto",
+              status: "__unknown__",
+              snippet: "",
+              projectId: "p1",
+              projectName: "Acme",
+            },
+          ],
+          hasMore: false,
+        },
+      }) as Reader<SearchResults>,
+    );
+    const view = await renderSheet(global);
+    fireEvent.changeText(view.getByTestId("global-search-input"), "login");
+    await view.findByTestId("global-search-ticket-t1");
+
+    expect(view.getByText("sconosciuto · Acme")).toBeTruthy();
+    expect(view.queryByText("__unknown__ · Acme")).toBeNull();
+  });
+
+  it("la riga di una pagina Docs dice da dove viene", async () => {
+    const global = jest.fn().mockResolvedValue(
+      results({
+        docs: {
+          items: [
+            {
+              slug: "sso",
+              title: "Autenticazione SSO",
+              kind: "technical",
+              snippet: "il token viene rinnovato",
+              repositoryId: "r1",
+              repositorySlug: "stubwise",
+              repositoryName: "stubwise",
+            },
+          ],
+          hasMore: false,
+        },
+      }) as Reader<SearchResults>,
+    );
+    const view = await renderSheet(global);
+    fireEvent.changeText(view.getByTestId("global-search-input"), "sso");
+    await view.findByTestId("global-search-doc-sso");
+
+    expect(view.getByText("Autenticazione SSO")).toBeTruthy();
+    expect(view.getByText("stubwise · tecnica")).toBeTruthy();
+    expect(view.getByText("il token viene rinnovato")).toBeTruthy();
+  });
+});
+
 describe("GlobalSearchSheet", () => {
   it("a query vuota non chiama il server e spiega cosa fare", async () => {
     const global = jest.fn();
