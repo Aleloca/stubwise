@@ -6,7 +6,7 @@ Test manuale del 17 settembre. L'inbox del maintainer dice «34 decisioni che ti
 bloccano»; le prime card sono Google Search Console, un alert di Vercel e una
 mail commerciale.
 
-Conteggio sulle **32 proposte aperte** in produzione, per dominio del mittente:
+Conteggio sulle **37 proposte aperte** in produzione, per dominio del mittente:
 
 | dominio | proposte |
 |---|---|
@@ -14,14 +14,21 @@ Conteggio sulle **32 proposte aperte** in produzione, per dominio del mittente:
 | thecove.atlassian.net + po.atlassian.net | 7 |
 | calvizie.net (commerciale) | 3 |
 | vercel.com | 2 |
-| tutto il resto (lavoro vero) | 9 |
+| tutto il resto | 14 |
 
-**23 su 32 sono notifiche automatiche o posta indesiderata.** E non è arretrato
-storico: le notifiche GitHub arrivano fino a oggi.
+**23 su 37 — quasi due su tre — sono notifiche automatiche o posta
+indesiderata.** E non è arretrato storico: le notifiche GitHub arrivano fino a
+oggi.
+
+⚠️ Una prima stesura di questo design diceva «23 su 32»: il numero veniva da
+una query con `limit 10` di cui avevo sommato le righe come se fossero il
+totale. Corretto ricontando senza limite. Il fatto non cambia la decisione, ma
+un design che dice «misurato sui dati veri» non può portarsi dietro un conto
+fatto male.
 
 Perché conta più di un fastidio: dalla fine di ottobre 2026 saranno operatori
 non tecnici a lavorare da quelle card. Un'inbox per tre quarti rumore non viene
-filtrata con pazienza — viene ignorata, e con lei le nove che contavano.
+filtrata con pazienza — viene ignorata, e con lei le quattordici che contavano.
 
 ## §2 — La causa, che non è un difetto
 
