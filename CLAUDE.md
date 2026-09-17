@@ -1091,6 +1091,66 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   secondo che non morde troppo. Controllo incrociato utile: `netdata.cloud` e
   `twilio.com` erano rimasti aperti perché fuori dall'elenco chiuso a mano —
   se il cancello funziona, smettono di produrne di nuovi da soli.
+- **«Spostare una proposta sul progetto giusto» (17 set 2026)**: rebuild
+  **server + worker + caddy insieme** — il server esegue l'azione, il worker
+  riclassifica prima di pubblicare la proposta nuova, il bundle disegna la
+  scelta del progetto. **Nessuna migrazione, nessuna colonna, nessuna env
+  nuova, nessun toggle**: l'unica cosa nuova è un'AZIONE, più un marcatore
+  dentro un jsonb che esisteva già (`email_proposals.classification`).
+  **Cosa fa**: una mail che il routing ha attribuito al progetto sbagliato si
+  sposta dalla card in inbox. La proposta corrente si chiude `ignored` con
+  `outcome.type = 'reassigned_to'` (mai un `ignored` nudo: fra le gestite deve
+  restare leggibile DOVE è andata) e sul progetto scelto nasce una riga
+  `email_proposals` nuova, `classified` e senza notifica, con
+  `{ reassignedFrom, needsReclassification: true }` nella classificazione. Al
+  giro dopo il poller vede il marcatore, rifà i suggerimenti col contesto del
+  **solo progetto nuovo** e poi pubblica. **Le sorelle e il padre non si
+  toccano** (invariante della 6b): sul padre solo `updated_at`, mai `status`,
+  `project_id`, `scope_project_ids` o `proposal_notification_id` — quei due
+  ultimi sono ciò che il ROUTING aveva dedotto, e restano anche dopo che una
+  persona ha corretto UNA proposta.
+  ⚠️ **Il conflitto è RIFIUTATO, non risolto.** Se sul progetto scelto una
+  proposta aperta c'è già, la risposta è `already_proposed` (409) e **niente
+  viene scritto**: l'insert ha un `onConflictDoUpdate` su `(email_message_id,
+  project_id)` che altrimenti sovrascriverebbe in silenzio una card legittima.
+  Il controllo sta in DUE punti e non è ridondanza: quello in transazione è
+  l'autorità, il **pre-check prima del claim** esiste perché senza,
+  `propagateHandled` avrebbe già chiuso la card e `markSourceFailed` l'avrebbe
+  marcata `failed` per un gesto che non cambia niente. L'errore va **mostrato**
+  a chi ha confermato, non ingoiato: è un'informazione utile.
+  ⚠️ **Il progetto scelto viaggia dal CLIENT, e l'invariante «solo l'indice
+  viaggia» non è aggirata — è letta per il suo scopo.** Vedi il docblock di
+  `inboxGoogleActionSchema` (`packages/shared/src/schemas/notification.ts`),
+  riscritto nello stesso commit: quell'invariante protegge dal client che
+  rimanda MODIFICATO un campo della proposta letta, e qui è il contrario —
+  l'utente sceglie deliberatamente qualcosa che nella proposta non c'è.
+  L'azione persistita **non porta il `projectId`** (al momento della publish il
+  progetto non è conoscibile): è un marcatore di CAPACITÀ come
+  `acknowledge_reminder`, e il progetto arriva in
+  `AnswerGoogleProposalInput.projectId` alle tre condizioni che il server fa
+  rispettare — `optionIndex` obbligatorio, `projectId` **rifiutato e non
+  ignorato** su ogni altra azione, progetto validato.
+  ⚠️ **Su Slack l'opzione si LEGGE ma non si preme**, ed è deliberato: un
+  bottone non sa chiedere quale progetto, quindi darebbe SEMPRE
+  `invalid_answer` — il "bottone che dà sempre errore" da cui il docblock di
+  `KINDS_WITH_OPTIONS` mette in guardia. `buildQuestionBlocks`
+  (`packages/notifications/src/slack-blocks.ts`) omette quel bottone **senza
+  ricompattare gli indici** (`inbox:answer:<i>` porta ancora l'indice VERO) e
+  tiene la riga nella sezione, numerata, con scritto dove si fa. Toglierla del
+  tutto nasconderebbe l'unica via per correggere un'attribuzione sbagliata.
+  **Rollback — innocuo, e nulla da ripulire**: nessun kind di notifica nuovo e
+  nessun valore aggiunto a un enum che entri in una risposta di rotta
+  esistente, quindi niente della famiglia del 500 su `/api/inbox` delle fasi
+  2/5/6. `reassign_project` è un valore nuovo sui due enum chiusi MINORI e
+  gemelli (`inboxGoogleActionTypeSchema` e `storedActionSchema`), stessa
+  famiglia di `acknowledge_reminder` in 7b: entrambi i punti di lettura
+  degradano con `safeParse`, quindi su un binario vecchio una card già
+  pubblicata resta visibile e `answerGoogleProposal` risponde `proposal_stale`
+  alla conferma — nessun crash, ma quelle card vanno chiuse a mano finché non
+  si torna avanti. Scendere di immagine sul **worker** lascia le righe col
+  marcatore `needsReclassification` senza nessuno che lo guardi: verrebbero
+  pubblicate con la classificazione del progetto VECCHIO — è il motivo per non
+  scendere di immagine sul solo worker dopo questo deploy.
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
@@ -1486,6 +1546,21 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   commento esplicito sopra quel case nel sorgente e i test
   `apps/server/src/services/google-proposal.test.ts` (entrambi i rami,
   con asserzioni opposte su `email_messages.status` ed `email_proposals`).
+  ⚠️ **Dal 17 set 2026 le cose sono TRE, e la terza ha un nome diverso
+  apposta.** `reassign_project` («Sposta su un altro progetto») fa una cosa
+  che nessuno dei due rami di `choose_project` fa: chiude la proposta corrente
+  **e CREA** la riga sul progetto scelto — il ramo `"email"` chiude e basta
+  (non sposta `project_id`, non crea niente), il ramo `"email_triage"` non
+  chiude affatto e rimette il PADRE in coda. Non è stata infilata dentro
+  `choose_project` proprio per questa invariante: aggiungere una TERZA
+  semantica a un nome che ne ha già due opposte è esattamente l'errore che il
+  paragrafo qui sopra esiste per impedire, e il prossimo che legge quel case
+  troverebbe tre rami senza un filo che li tenga. Un nome suo costa un valore
+  in due enum minori — `inboxGoogleActionTypeSchema` e `storedActionSchema`,
+  già gemelli per `acknowledge_reminder` — e in cambio ogni ramo resta
+  leggibile da solo. Le tre non si toccano fra loro: `choose_project` non è
+  stata modificata da quel commit, e i suoi test asseriscono ancora il
+  comportamento storico.
 - **Una serie ricorrente è spenta di default, e la sua azione automatica non
   avvia MAI lavoro.** È la lezione diretta dell'incidente del 9 settembre
   2026 (fase 7b, design §1): `calendar_series.enabled` nasce `false` — senza
