@@ -2110,6 +2110,156 @@ describe("fase 4 — le righe pronte diventano proposte", () => {
     expect(after!.classification).not.toHaveProperty("needsReclassification");
   });
 
+  /**
+   * 17 set 2026 — IL CABLAGGIO DEL PROVIDER, non la logica.
+   *
+   * Il difetto che questo test esiste per non far tornare: la riattribuzione
+   * chiamava `runner.run` **senza provider AI** — la chiamata nel poller non
+   * passava `encryptionKey` né `loadProviderChainFn`, quindi la catena non
+   * veniva mai letta. In produzione il CLI partiva senza credenziali, il run
+   * non produceva output, e l'unica traccia era una riga di log che accusava
+   * il modello. Due riattribuzioni vere perse.
+   *
+   * ⚠️ **Nessuno dei test esistenti poteva prenderlo**, ed è il punto: il
+   * runner è finto e del provider non sa che farsene, quindi coprivano la
+   * LOGICA e non il CABLAGGIO fra due moduli entrambi testati. Questo asserisce
+   * ciò che arriva al runner, che è l'unico posto in cui il difetto si vedeva.
+   */
+  it("la riattribuzione riceve il provider RISOLTO dalla catena, come la classificazione normale", async () => {
+    const wilco = await seedProject("Wilco");
+    const carelli = await seedProject("Carelli");
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    const [message] = await db
+      .insert(emailMessages)
+      .values({
+        accountId: account.id,
+        gmailMessageId: `m-${randomUUID()}`,
+        threadId: `t-${randomUUID()}`,
+        fromAddress: "cliente@cliente.com",
+        subject: "CARELLI — quattro punti prima del passaggio",
+        textExcerpt: "Ci servono quattro chiarimenti prima del passaggio.",
+        receivedAt: new Date("2026-09-17T08:00:00.000Z"),
+        projectId: wilco,
+        scopeProjectIds: [wilco],
+        status: "classified",
+      })
+      .returning({ id: emailMessages.id });
+    await db.insert(emailProposals).values({
+      emailMessageId: message!.id,
+      projectId: carelli,
+      status: "classified",
+      classification: {
+        signal: "request",
+        recommendedIndex: 0,
+        proposals: [
+          { type: "create_backlog_item", projectId: wilco, title: "Export", consequence: "x" },
+        ],
+        reassignedFrom: wilco,
+        needsReclassification: true,
+      },
+    });
+
+    const resolved = { id: randomUUID(), kind: "api_key" as const, secret: "sk-test" };
+    const loadProviderChainFn = vi.fn().mockResolvedValue([resolved]);
+    const runner = fakeRunner(
+      JSON.stringify({
+        signal: "request",
+        summary: "Chiede quattro chiarimenti.",
+        recommendedIndex: 0,
+        proposals: [
+          {
+            type: "create_backlog_item",
+            projectId: carelli,
+            title: "Quattro punti",
+            consequence: "Entra nel backlog di Carelli.",
+          },
+        ],
+      }),
+    );
+
+    await pollGoogleOnce({
+      ...deps(account, fakeGmail({ listed: [] })),
+      runner,
+      loadProviderChainFn,
+    });
+
+    // La catena è stata LETTA (col segreto d'istanza, non a vuoto)…
+    expect(loadProviderChainFn).toHaveBeenCalled();
+    // …e il provider risolto è arrivato al run. Senza questa riga il test
+    // passerebbe anche col difetto: `provider` sarebbe `undefined` e il runner
+    // finto non se ne lamenterebbe.
+    expect(runner.calls).toHaveLength(1);
+    expect(runner.calls[0]!.provider).toEqual(resolved);
+  });
+
+  /**
+   * 17 set 2026 — DUE GUASTI, DUE MESSAGGI.
+   *
+   * «Output non interpretabile» su un run che non è mai partito accusa il
+   * modello e manda a cercare nel posto sbagliato: è successo davvero, e ha
+   * fatto perdere tempo a chi diagnosticava. Il messaggio del ramo «niente
+   * testo» deve nominare il CLI e il provider, non il formato.
+   */
+  it("un run senza output lo dice, e non lo chiama «non parsabile»", async () => {
+    const wilco = await seedProject("Wilco");
+    const carelli = await seedProject("Carelli");
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    const [message] = await db
+      .insert(emailMessages)
+      .values({
+        accountId: account.id,
+        gmailMessageId: `m-${randomUUID()}`,
+        threadId: `t-${randomUUID()}`,
+        fromAddress: "cliente@cliente.com",
+        textExcerpt: "Ci servono quattro chiarimenti.",
+        receivedAt: new Date("2026-09-17T08:00:00.000Z"),
+        projectId: wilco,
+        scopeProjectIds: [wilco],
+        status: "classified",
+      })
+      .returning({ id: emailMessages.id });
+    const [child] = await db
+      .insert(emailProposals)
+      .values({
+        emailMessageId: message!.id,
+        projectId: carelli,
+        status: "classified",
+        classification: {
+          signal: "request",
+          recommendedIndex: 0,
+          proposals: [
+            { type: "create_backlog_item", projectId: wilco, title: "Export", consequence: "x" },
+          ],
+          reassignedFrom: wilco,
+          needsReclassification: true,
+        },
+      })
+      .returning({ id: emailProposals.id });
+
+    const warn = vi.fn();
+    await pollGoogleOnce({
+      ...deps(account, fakeGmail({ listed: [] })),
+      // Il run "riesce" (exit 0) ma non scrive niente: è ciò che si vede
+      // quando il CLI parte senza credenziali.
+      runner: fakeRunner(""),
+      logger: { info: () => {}, warn, error: () => {} },
+    });
+
+    const messages = warn.mock.calls.map((call) => String(call[0]));
+    const line = messages.find((m) => m.includes("riattribuzione"));
+    expect(line).toBeDefined();
+    expect(line).toContain("non ha prodotto testo");
+    // ⚠️ L'asserzione NEGATIVA è metà del test: è la frase che accusava il
+    // modello, e non deve comparire su questo guasto.
+    expect(line).not.toContain("fuori schema");
+
+    // La riga resta comunque chiusa e riproponibile: l'esito in colonna non
+    // cambia fra i due guasti, solo il log.
+    const [after] = await db.select().from(emailProposals).where(eq(emailProposals.id, child!.id));
+    expect(after!.status).toBe("ignored");
+    expect(after!.outcome).toMatchObject({ type: "reassign_failed" });
+  });
+
   it("senza marcatore NON si riclassifica: nessun run in più", async () => {
     // La guardia contro un batch che raddoppia la spesa AI di tutta la posta:
     // una proposta normale si pubblica senza pagare un secondo run.

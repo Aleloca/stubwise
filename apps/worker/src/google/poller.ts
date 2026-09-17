@@ -1780,6 +1780,17 @@ async function runProposePhase(
             db: deps.db,
             runner: deps.runner!,
             lang,
+            // ⚠️ Il provider AI passa DA QUI, esattamente come per la fase 2
+            // (`classifyNewMessages` poco sopra): senza questi due campi il
+            // run parte senza credenziali, non produce output, e l'unica
+            // traccia è una riga di log che accusa il modello. È il difetto
+            // del 17 set 2026 — due riattribuzioni vere perse — e da allora è
+            // il TIPO a impedirlo (`ReclassifyReassignedDeps.encryptionKey` è
+            // obbligatoria), non l'attenzione di chi scrive questa chiamata.
+            encryptionKey: deps.encryptionKey,
+            ...(deps.loadProviderChainFn !== undefined
+              ? { loadProviderChainFn: deps.loadProviderChainFn }
+              : {}),
             ...(deps.gmailModel !== undefined ? { model: deps.gmailModel } : {}),
             ...(deps.maxProjectsPerMessage !== undefined
               ? { maxProjectsPerMessage: deps.maxProjectsPerMessage }

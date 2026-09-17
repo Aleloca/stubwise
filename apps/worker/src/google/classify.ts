@@ -370,6 +370,38 @@ export interface ClassifyLogger {
   error: (msg: string) => void;
 }
 
+/**
+ * Il provider AI del run: quello passato, o il primo della catena
+ * dell'istanza, decifrato al momento.
+ *
+ * ⚠️ **Questa funzione esiste per essere l'UNICO posto in cui quella scelta è
+ * scritta.** Prima del 17 set 2026 la risoluzione era inline in
+ * {@link classifyNewMessages} e basta, e
+ * {@link reclassifyReassignedProposal} — aggiunto dopo, con una firma che il
+ * provider non lo prevedeva nemmeno — girava senza: in produzione il CLI
+ * partiva **senza credenziali**, il run non produceva output, e il messaggio
+ * di log («output non interpretabile») indicava il modello invece del
+ * cablaggio. Due tentativi veri, entrambi persi. Chi aggiunge un terzo
+ * percorso che chiama `runner.run` per la posta passi da qui, e non ricopi
+ * queste quattro righe: una copia che diverge riapre esattamente quel buco.
+ *
+ * `undefined` NON è un errore: significa catena vuota, e il CLI ricade
+ * sull'auth dell'ambiente del container (vedi `AgentRunOptions.provider`). È
+ * una configurazione legittima per un'istanza self-hosted senza catena — ma
+ * NON è ciò che succedeva nel difetto qui sopra, dove la catena c'era e non
+ * veniva mai letta.
+ */
+async function resolveClassifyProvider(deps: {
+  db: Db;
+  provider?: ResolvedProvider;
+  encryptionKey: Buffer;
+  loadProviderChainFn?: typeof loadProviderChain;
+}): Promise<ResolvedProvider | undefined> {
+  if (deps.provider !== undefined) return deps.provider;
+  const loadChain = deps.loadProviderChainFn ?? loadProviderChain;
+  return (await loadChain(deps.db, deps.encryptionKey))[0];
+}
+
 export interface ClassifyEmailDeps {
   db: Db;
   runner: AgentRunner;
@@ -1380,6 +1412,26 @@ export function reassignedFrom(classification: unknown): string | null {
 /** Esito della riclassificazione di UNA proposta riattribuita. */
 export type ReclassifyOutcome = "reclassified" | "ignored" | "failed";
 
+/**
+ * Le dipendenze della riattribuzione.
+ *
+ * ⚠️ **`encryptionKey` è OBBLIGATORIA di proposito**, anche se a rigore serve
+ * solo quando `provider` è omesso: è il TIPO a impedire che un chiamante si
+ * dimentichi il cablaggio del provider, non una convenzione. È lo stesso
+ * ragionamento di `attendees`/`mailboxEmail` obbligatori su
+ * `isReadyForProposal` (`./calendar.ts`): un cancello che si spegne quando un
+ * chiamante dimentica un campo non è un cancello. Qui il campo dimenticato
+ * costava un run senza credenziali, e il difetto si vedeva solo in
+ * produzione — i test passavano perché un runner finto del provider non sa
+ * che farsene.
+ */
+export interface ReclassifyReassignedDeps extends ClassifyEmailDeps {
+  /** Chiave AES-256: decifra i segreti della catena di provider. */
+  encryptionKey: Buffer;
+  /** Caricatore della catena di provider (iniettabile nei test). */
+  loadProviderChainFn?: typeof loadProviderChain;
+}
+
 /** La riga minima su cui {@link reclassifyReassignedProposal} lavora. */
 export interface ReassignedProposalRow {
   id: string;
@@ -1412,7 +1464,7 @@ export interface ReassignedProposalRow {
  * niente non deve restare appesa a occupare una card che non arriverà mai.
  */
 export async function reclassifyReassignedProposal(
-  deps: ClassifyEmailDeps,
+  deps: ReclassifyReassignedDeps,
   row: ReassignedProposalRow,
 ): Promise<ReclassifyOutcome> {
   const logger = deps.logger ?? defaultLogger;
@@ -1474,6 +1526,13 @@ export async function reclassifyReassignedProposal(
       openProposals: [],
     });
 
+    // ⚠️ RISOLTO, non letto da `deps.provider` e basta: è il difetto del 17
+    // set 2026 (vedi {@link resolveClassifyProvider}). Sta QUI e non prima del
+    // `try` perché un run che non parte non deve pagare una decifratura: a
+    // questo punto le uscite anticipate (padre sparito, progetto cancellato)
+    // sono già passate.
+    const provider = await resolveClassifyProvider(deps);
+
     const cwd = await mkdtemp(join(tmpdir(), "stubwise-email-reassign-"));
     let result;
     try {
@@ -1481,7 +1540,7 @@ export async function reclassifyReassignedProposal(
         cwd,
         prompt,
         ...(deps.model !== undefined ? { model: deps.model } : {}),
-        ...(deps.provider !== undefined ? { provider: deps.provider } : {}),
+        ...(provider !== undefined ? { provider } : {}),
         permissionMode: "default",
         maxTurns: CLASSIFY_MAX_TURNS,
         timeoutMs: CLASSIFY_TIMEOUT_MS,
@@ -1499,12 +1558,29 @@ export async function reclassifyReassignedProposal(
       ...(result.usage !== undefined ? { usage: result.usage } : {}),
     });
 
+    // ⚠️ DUE GUASTI DIVERSI, DUE MESSAGGI DIVERSI — e non è cosmetica.
+    // Fino al 17 set 2026 erano un ramo solo, «output non interpretabile»:
+    // quella frase accusa il MODELLO, e su un run che non era nemmeno partito
+    // (CLI senza credenziali) ha mandato fuori strada chi diagnosticava. È la
+    // stessa distinzione che `classifyEmail` fa da sempre, qui mancava.
+    // L'esito in colonna resta `reassign_failed` per entrambi, ed è giusto:
+    // il recupero è lo stesso («Riproponi» dalla pagina Posta), e un valore in
+    // più direbbe a chi legge una cosa che non gli cambia il gesto.
     const output = textFromRun(result);
-    const parsed = output === null ? null : parseAgentJson(emailSignalsSchema, output);
+    if (output === null) {
+      logger.warn(
+        `google: riattribuzione ${row.id}: il run non ha prodotto testo (exit ${result.exitCode}) — ` +
+          `guarda il CLI e il provider AI, non il formato della risposta`,
+      );
+      await closeReassigned(deps.db, row.id, { type: "reassign_failed" });
+      return "failed";
+    }
+
+    const parsed = parseAgentJson(emailSignalsSchema, output);
     if (parsed === null) {
       // Nessun ritentativo automatico, come per `classifyEmail`: ritentare su
       // un output fuori schema è il modo di pagare lo stesso run all'infinito.
-      logger.warn(`google: riattribuzione ${row.id}: output non interpretabile`);
+      logger.warn(`google: riattribuzione ${row.id}: output non parsabile o fuori schema`);
       await closeReassigned(deps.db, row.id, { type: "reassign_failed" });
       return "failed";
     }
@@ -1886,11 +1962,7 @@ export async function classifyNewMessages(
   const superseded = candidates.filter((m) => lastByThread.get(m.threadId)?.id !== m.id);
 
   const lang = deps.lang ?? (await getContentLanguage(deps.db));
-  let provider = deps.provider;
-  if (provider === undefined) {
-    const loadChain = deps.loadProviderChainFn ?? loadProviderChain;
-    provider = (await loadChain(deps.db, deps.encryptionKey))[0];
-  }
+  const provider = await resolveClassifyProvider(deps);
 
   // 3. Cooldown per thread (0 = disattivato: comportamento di prima).
   const threadCooldownMinutes = deps.threadCooldownMinutes ?? DEFAULT_GMAIL_THREAD_COOLDOWN_MINUTES;
