@@ -408,55 +408,94 @@ function looksAutomated(headers: Record<string, string> | undefined): boolean {
 /**
  * Un'email entra nel sistema, o no? A differenza di {@link matchRoutes} (di
  * quale progetto parla), questa è la domanda "è lavoro?", decisa a livello di
- * istanza. In ordine:
+ * istanza.
  *
- * 1. **Una regola di progetto che combacia ammette SUBITO, esclusioni
- *    comprese** (riusa la stessa logica di match di {@link matchRoutes},
- *    chiamata qui internamente UNA volta sola — nessuna duplicazione delle
- *    regole `sender_domain`/`sender_address`/`gmail_label`/`keyword`, e il
- *    risultato è quello che rende ammessi i domini dei clienti esterni, che
- *    non sono un Workspace registrato, esattamente come prima della fase
- *    6c). **Decisione del maintainer (8 set 2026), esplicita**: una regola
- *    di progetto è una scelta DELIBERATA dell'admin su un mittente preciso —
- *    non un'ammissione LARGA come quella per dominio di lavoro al passo 3 —
- *    e deve ammettere SEMPRE. Le esclusioni (`denyLabels`, `denyAutomated`)
- *    esistono per CONTENERE l'ammissione larga per dominio di lavoro, non
- *    per limitare quella MIRATA: un'email che una regola di progetto ammette
- *    e che porta `List-Unsubscribe` (comune in notifiche di CRM, ticketing o
- *    piattaforme aziendali legittime) o l'etichetta `CATEGORY_PROMOTIONS`
- *    resta ammessa.
+ * ## ⚠️ Il principio, riscritto il 17 set 2026: scavalca il cancello solo chi
+ * ha nominato QUALCUNO
+ *
+ * Fino a quella data il passo 1 era «QUALUNQUE regola di progetto che
+ * combacia ammette subito, esclusioni comprese» — decisione esplicita del
+ * maintainer dell'8 settembre, e per un MITTENTE regge ancora: una regola
+ * `sender_address`/`sender_domain` è una scelta deliberata dell'admin su un
+ * interlocutore preciso, non un'ammissione larga, e le esclusioni
+ * (`denyLabels`, `denyAutomated`) esistono per contenere l'ammissione LARGA
+ * per dominio di lavoro, non quella MIRATA. Un cliente che scrive dal suo
+ * sistema di ticketing — `List-Unsubscribe` incluso — deve continuare ad
+ * arrivare.
+ *
+ * **Per una `keyword` non regge, e i dati lo hanno mostrato.** Una keyword non
+ * nomina un interlocutore: descrive un CONTENUTO, e il contenuto lo scrive
+ * chiunque. Il caso vero, in produzione: 21 delle 41 regole configurate erano
+ * `keyword`, e l'oggetto di ogni notifica GitHub porta il nome del
+ * repository —
+ *
+ *     [Aleloca/stubwise] Run failed: CI - main (6d6c975)
+ *        → combacia la keyword «stubwise»
+ *        → passo 1: ammessa, `List-Unsubscribe` mai guardato
+ *        → proposta creata
+ *
+ * — con l'esito che 23 delle 37 proposte aperte erano notifiche automatiche
+ * (11 GitHub, 7 Jira, 2 Vercel). Il cancello anti-automatico era ACCESO e
+ * {@link looksAutomated} riconosceva gli header giusti: non li guardava mai,
+ * per quei messaggi.
+ *
+ * ⚠️ `admit` gira sui soli METADATI (nessun corpo scaricato), quindi una
+ * keyword può combaciare solo nell'OGGETTO — cioè esattamente dove una
+ * macchina scrive il nome del progetto.
+ *
+ * ## L'ordine
+ *
+ * 1. **Una regola che nomina un INTERLOCUTORE ammette SUBITO**, esclusioni
+ *    comprese: `sender_address`, `sender_domain`, `gmail_label`. Il filtro
+ *    (`route.kind !== "keyword"`) ESCLUDE la sola keyword invece di elencare i
+ *    tipi ammessi, così un tipo nuovo scavalca per default — il comportamento
+ *    storico — e chi lo aggiunge deve scegliere esplicitamente di
+ *    declassarlo.
+ *    `gmail_label` sta coi mittenti (design §3.1) benché in produzione non ne
+ *    esista ancora nessuna: un'etichetta è una marcatura che una PERSONA ha
+ *    messo a mano su quel messaggio, non una descrizione di argomento. È una
+ *    decisione presa in anticipo, non un comportamento osservato.
  * 2. Altrimenti, **le esclusioni vincono**: un'etichetta in `denyLabels`
  *    (confronto case-insensitive, stesso stile della regola `gmail_label` di
  *    {@link matchRoutes}) rifiuta SUBITO.
  * 3. Se `denyAutomated`: gli header della posta automatica (vedi
  *    {@link looksAutomated}) rifiutano.
- * 4. Se `admitWorkspaceDomains`: il dominio del **mittente**, O quello di
- *    QUALUNQUE destinatario (`toAddresses` **o** `ccAddresses`,
- *    indifferentemente — Task 2, 8 set 2026: l'esito non deve dipendere da
- *    come il mittente ha compilato i campi, un'email che coinvolge due
- *    identità aziendali diverse è lavoro sia che la seconda sia in copia
- *    sia che sia fra i destinatari diretti) DIVERSO dal dominio di
+ * 4. **Superate le esclusioni, le `keyword` rientrano** — una mail NON
+ *    automatica che combacia solo per argomento entra come prima del 17 set
+ *    2026: non si è perso nulla di ciò che arriva da persone. Qui
+ *    {@link matchRoutes} è chiamata una seconda volta, su TUTTE le regole: è
+ *    il prezzo di non aver toccato né `matchRoutes` né la forma di
+ *    {@link EmailRoutingResult}, che il CALENDARIO usa con tutte le regole per
+ *    la sua attribuzione e che non deve accorgersi di niente.
+ * 5. Sempre al passo 4, se `admitWorkspaceDomains`: il dominio del
+ *    **mittente**, O quello di QUALUNQUE destinatario (`toAddresses` **o**
+ *    `ccAddresses`, indifferentemente — Task 2, 8 set 2026: l'esito non deve
+ *    dipendere da come il mittente ha compilato i campi, un'email che
+ *    coinvolge due identità aziendali diverse è lavoro sia che la seconda sia
+ *    in copia sia che sia fra i destinatari diretti) DIVERSO dal dominio di
  *    `receivingDomain` (la casella che sta ricevendo), in `workspaceDomains`
  *    ammette. Il confronto è sul DOMINIO, non sull'indirizzo: la casella
  *    ricevente è nota (`account.email` nel poller) e si esclude a priori —
  *    altrimenti OGNI email diretta a quella casella ammetterebbe per il solo
  *    fatto che la casella stessa compare fra i suoi destinatari (è sempre
  *    così: è lei che la riceve), il motivo preciso per cui `toAddresses` non
- *    c'era affatto prima di questo task. La fix corretta non è "includere
+ *    c'era affatto prima di quel task. La fix corretta non è "includere
  *    `toAddresses` sempre", è "includere `to`+`cc` ESCLUDENDO il dominio
  *    della casella ricevente": ciò che resta, se non vuoto, è un SECONDO
  *    dominio di lavoro coinvolto nella conversazione — e la posta ordinaria
  *    diretta a una sola casella non entra da questo criterio (per quella
- *    restano le regole di progetto del passo 1).
+ *    restano le regole di progetto).
  * 5. Altrimenti, rifiutato `no_match`.
  *
- * Con `admitWorkspaceDomains: false` il passo 4 si salta interamente. Per un
- * messaggio SENZA etichette escluse né header automatici l'esito coincide
- * ancora con `matchRoutes(message, routes).inScope` di prima della fase 6c
- * (vedi il test "interruttore spento") — ma un messaggio CON un'etichetta
- * esclusa o un header automatico differisce ora da `inScope` per
- * costruzione quando nessuna regola di progetto combacia: `inScope` di
- * `matchRoutes` non conosce le esclusioni, `admit` sì.
+ * Con `admitWorkspaceDomains: false` il solo criterio del dominio di lavoro si
+ * salta. Per un messaggio SENZA etichette escluse né header automatici
+ * l'esito coincide ancora con `matchRoutes(message, routes).inScope` di prima
+ * della fase 6c (vedi il test "interruttore spento"), e questo NON è cambiato
+ * il 17 set 2026: una keyword che combacia su un messaggio pulito ammette
+ * ancora, solo un passo più tardi. Ciò che è cambiato è il messaggio SPORCO —
+ * etichetta esclusa o header automatico — dove ora anche una keyword
+ * differisce da `inScope`, mentre prima differivano solo i messaggi che
+ * nessuna regola toccava.
  *
  * @param receivingDomain il dominio (non l'indirizzo) della casella che ha
  *   ricevuto il messaggio — `domainOf(account.email)` nel poller. È un
@@ -473,10 +512,16 @@ export function admit(
   config: AdmissionConfig,
   receivingDomain: string,
 ): AdmissionResult {
-  // Passo 1 — vedi il docblock sopra per il PERCHÉ: `matchRoutes` è calcolata
-  // una volta sola qui, e se combacia si ammette SENZA guardare le
-  // esclusioni. Una regola di progetto non passa mai dai passi 2-4.
-  if (matchRoutes(message, config.routes).inScope) {
+  // Passo 1 — scavalca il cancello SOLO chi ha nominato QUALCUNO. Vedi il
+  // docblock sopra per il perché una `keyword` non basta.
+  //
+  // ⚠️ Il filtro ESCLUDE la sola `keyword`, non elenca i tipi ammessi, ed è
+  // deliberato: un tipo di regola aggiunto un domani scavalca per DEFAULT —
+  // il comportamento storico — e chi lo introduce deve decidere
+  // esplicitamente di metterlo fra i non-decisivi, invece di scoprire a
+  // posteriori di averlo declassato per omissione.
+  const decisive = config.routes.filter((route) => route.kind !== "keyword");
+  if (matchRoutes(message, decisive).inScope) {
     return { admitted: true, reason: "project_rule" };
   }
 
@@ -492,6 +537,21 @@ export function admit(
 
   if (config.denyAutomated && looksAutomated(message.headers)) {
     return { admitted: false, reason: "automated" };
+  }
+
+  // Passo 4 — superate le esclusioni, le `keyword` rientrano: una mail NON
+  // automatica che combacia solo per argomento entra esattamente come prima
+  // di questa modifica. Non abbiamo spento le keyword, abbiamo tolto loro il
+  // privilegio di scavalcare il cancello.
+  //
+  // `matchRoutes` gira una seconda volta, ora su TUTTE le regole. È una
+  // funzione pura su poche decine di regole già in memoria, dentro un tick
+  // che scarica messaggi dalla rete: non è il posto dove si guadagna
+  // qualcosa a risparmiare, e tenere le due chiamate separate è ciò che
+  // permette di non toccare `matchRoutes` né la forma di
+  // {@link EmailRoutingResult}.
+  if (matchRoutes(message, config.routes).inScope) {
+    return { admitted: true, reason: "project_rule" };
   }
 
   if (config.admitWorkspaceDomains) {
