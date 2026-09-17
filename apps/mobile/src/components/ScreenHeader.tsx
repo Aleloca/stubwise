@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { GlobalSearchSheet } from "./GlobalSearchSheet";
+import { Icon } from "./Icon";
 import { SettingsAvatarButton } from "./SettingsAvatarButton";
 import { colors } from "../theme/tokens";
 import { fontFamily, textStyles } from "../theme/typography";
@@ -106,7 +107,7 @@ export function ScreenHeader({
           style={styles.searchButton}
           testID="global-search-trigger"
         >
-          <SearchGlyph />
+          <Icon name="search" size={16} />
         </Pressable>
         {showAvatar && <SettingsAvatarButton />}
       </View>
@@ -120,16 +121,6 @@ export function ScreenHeader({
       */}
       {searchOpen && <GlobalSearchSheet visible onRequestClose={() => setSearchOpen(false)} />}
     </View>
-  );
-}
-
-/** La lente: l'anello più il manico in diagonale. Vedi gli stili in fondo. */
-function SearchGlyph() {
-  return (
-    <>
-      <View style={styles.glyphRing} />
-      <View style={styles.glyphHandle} />
-    </>
   );
 }
 
@@ -174,33 +165,6 @@ const styles = StyleSheet.create({
     height: 32,
     justifyContent: "center",
     width: 32,
-  },
-  /**
-   * La lente, disegnata con due `View` invece che con un'icona.
-   *
-   * L'app non ha né una libreria di icone né `react-native-svg`, e
-   * aggiungerne una per UN glifo significherebbe una dipendenza **nativa**:
-   * `pod install`, e una verifica su device che la CI non copre (vedi
-   * `apps/mobile/README.md`). Due `View` costano niente, si rendono identiche
-   * su ogni telefono e non dipendono da quali glifi ha il font di sistema —
-   * cosa che un carattere Unicode come `⌕` non garantisce affatto.
-   */
-  glyphRing: {
-    borderColor: colors.muted,
-    borderRadius: 6,
-    borderWidth: 1.5,
-    height: 12,
-    width: 12,
-  },
-  glyphHandle: {
-    backgroundColor: colors.muted,
-    borderRadius: 1,
-    bottom: 3,
-    height: 5.5,
-    position: "absolute",
-    right: 7,
-    transform: [{ rotate: "-45deg" }],
-    width: 1.5,
   },
   back: {
     color: colors.muted,
