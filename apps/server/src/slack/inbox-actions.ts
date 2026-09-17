@@ -220,6 +220,13 @@ export function inboxErrorText(
       // Imprevisto DOPO il claim: la riga sorgente resta `failed`,
       // riproponibile dalla pagina Posta.
       return t(lang, "notify.inbox.errActionFailed");
+    case "already_proposed":
+      // 17 set 2026. Da Slack non è raggiungibile — `reassign_project` ha
+      // bisogno di un progetto scelto, che i bottoni di Slack non sanno
+      // chiedere — ma lo switch è esaustivo di proposito: il giorno in cui
+      // quella superficie imparasse a chiederlo, questo esito avrebbe già
+      // parole sue invece di un ramo mancante.
+      return t(lang, "notify.inbox.errAlreadyProposed");
   }
 }
 

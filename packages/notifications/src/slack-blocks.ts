@@ -285,6 +285,42 @@ interface QuestionForBlocks {
   options: AgentQuestionOption[];
   recommendedIndex: number | null;
   allowFreeText: boolean;
+  /**
+   * Indici che si LEGGONO ma non si premono da Slack (17 set 2026).
+   *
+   * Oggi uno solo: «Sposta su un altro progetto» (`reassign_project`), che ha
+   * bisogno di un dato — QUALE progetto — che un bottone di Slack non sa
+   * chiedere. Renderlo come bottone violerebbe la regola scritta sopra
+   * {@link KINDS_WITH_OPTIONS} in `./actions.ts`: un bottone che dà SEMPRE
+   * errore (`invalid_answer`) è peggio di un bottone che non c'è.
+   *
+   * L'opzione resta però nella SEZIONE, numerata come le altre: chi legge deve
+   * sapere che quella scelta esiste, e dove si fa. Sopprimerla del tutto
+   * nasconderebbe l'unica via per correggere un'attribuzione sbagliata.
+   */
+  buttonlessIndices: ReadonlySet<number>;
+}
+
+/**
+ * Le opzioni che su Slack si leggono ma non si premono, per indice.
+ *
+ * Legge `actions[i]` del payload GREZZO, con la stessa disciplina difensiva
+ * del resto del file: un payload non-array o una voce non-oggetto non
+ * producono niente, e nel dubbio il bottone si rende (comportamento storico) —
+ * mai il contrario, che toglierebbe in silenzio una scelta legittima.
+ *
+ * ⚠️ `actions[i]` DESCRIVE `options[i]`: è l'invariante di allineamento che
+ * `googleProposalEventSchema` riconta a ogni pubblicazione. Qui la si usa in
+ * lettura, e per questo il confronto è per INDICE e mai per etichetta.
+ */
+function buttonlessOptionIndices(raw: unknown): ReadonlySet<number> {
+  const indices = new Set<number>();
+  if (!Array.isArray(raw)) return indices;
+  for (const [index, item] of raw.slice(0, MAX_OPTIONS).entries()) {
+    if (typeof item !== "object" || item === null) continue;
+    if ((item as { type?: unknown }).type === "reassign_project") indices.add(index);
+  }
+  return indices;
 }
 
 /**
@@ -334,6 +370,7 @@ function readQuestion(event: unknown): QuestionForBlocks | null {
   const recommended = raw.recommendedIndex;
   return {
     options,
+    buttonlessIndices: buttonlessOptionIndices(raw.actions),
     recommendedIndex:
       typeof recommended === "number" &&
       Number.isInteger(recommended) &&
@@ -403,23 +440,34 @@ export function buildQuestionBlocks(input: QuestionBlocksInput): SlackBlock[] {
     const consequence = option.consequence
       ? `\n${escapedSection(option.consequence, CONSEQUENCE_MAX)}`
       : "";
-    return `${index + 1}. *${escapeSlackMrkdwn(option.label)}*${recommended}${consequence}`;
+    // Un'opzione senza bottone dice DOVE si fa, invece di restare una riga
+    // che il lettore cerca invano fra i bottoni qui sotto.
+    const elsewhere = question.buttonlessIndices.has(index)
+      ? ` _(${t(lang, "notify.inbox.answerFromApp")})_`
+      : "";
+    return `${index + 1}. *${escapeSlackMrkdwn(option.label)}*${recommended}${elsewhere}${consequence}`;
   });
 
-  const elements: SlackBlock[] = question.options.map((option, index) => {
+  const elements: SlackBlock[] = question.options.flatMap((option, index) => {
+    // Vedi {@link QuestionForBlocks.buttonlessIndices}: l'indice NON si
+    // ricompatta — `answerActionId` continua a portare l'indice VERO
+    // dell'opzione, qui manca solo il bottone.
+    if (question.buttonlessIndices.has(index)) return [];
     const prefix = `${index + 1}. `;
     const suffix = index === question.recommendedIndex ? ` ${RECOMMENDED_MARK}` : "";
-    return {
-      type: "button",
-      action_id: answerActionId(index),
-      // L'etichetta è dell'agente: sta nei 75 caratteri del bottone, prefisso e
-      // stella compresi (il numero la lega alla riga della sezione, che è dove
-      // si leggono le conseguenze).
-      text: plainText(
-        `${prefix}${truncateText(option.label, BUTTON_TEXT_MAX - prefix.length - suffix.length)}${suffix}`,
-      ),
-      value: notificationId,
-    };
+    return [
+      {
+        type: "button",
+        action_id: answerActionId(index),
+        // L'etichetta è dell'agente: sta nei 75 caratteri del bottone, prefisso e
+        // stella compresi (il numero la lega alla riga della sezione, che è dove
+        // si leggono le conseguenze).
+        text: plainText(
+          `${prefix}${truncateText(option.label, BUTTON_TEXT_MAX - prefix.length - suffix.length)}${suffix}`,
+        ),
+        value: notificationId,
+      },
+    ];
   });
   if (question.allowFreeText) {
     elements.push({

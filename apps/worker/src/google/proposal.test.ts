@@ -163,7 +163,9 @@ describe("buildEmailProposalEvent", () => {
     expect(event?.source).toBe("email");
     expect(event?.signal).toBe("request");
     expect(event?.allowFreeText).toBe(false);
-    expect(event?.options).toHaveLength(2);
+    // Una proposta + le DUE uscite che ogni card di posta ha comunque:
+    // «Sposta su un altro progetto» (17 set 2026) e «Non fare nulla».
+    expect(event?.options).toHaveLength(3);
     // L'INVARIANTE, asserita e non sperata.
     expect(event?.actions).toHaveLength(event?.options.length ?? -1);
     expect(event?.actions[0]).toEqual({
@@ -171,6 +173,7 @@ describe("buildEmailProposalEvent", () => {
       projectId: PROJECT_A,
       title: "Export CSV dello storico ordini",
     });
+    expect(event?.actions.at(-2)).toEqual({ type: "reassign_project" });
     expect(event?.actions.at(-1)).toEqual({ type: "ignore" });
     // La `consequence` è l'unico pezzo di testo della card che scrive il
     // modello: l'etichetta viene da un template.
@@ -228,8 +231,9 @@ describe("buildEmailProposalEvent", () => {
         },
       },
     );
-    expect(event?.options).toHaveLength(2);
-    expect(event?.actions).toHaveLength(2);
+    // Una proposta sopravvissuta + le due uscite fisse.
+    expect(event?.options).toHaveLength(3);
+    expect(event?.actions).toHaveLength(3);
     expect(event?.actions[0]).toEqual({
       type: "comment_ticket",
       ticketId: TICKET_ID,
@@ -321,9 +325,23 @@ describe("buildEmailProposalEvent", () => {
       {},
       { classification: { signal: "request", recommendedIndex: 0, proposals } },
     );
-    expect(event?.options).toHaveLength(MAX_PROPOSAL_OPTIONS + 1);
-    expect(event?.actions).toHaveLength(MAX_PROPOSAL_OPTIONS + 1);
+    // Il tetto conta le proposte del MODELLO; le due uscite fisse stanno
+    // fuori — «Sposta su un altro progetto» e «Non fare nulla» non sono
+    // suggerimenti, sono le vie d'uscita che ogni card deve avere.
+    expect(event?.options).toHaveLength(MAX_PROPOSAL_OPTIONS + 2);
+    expect(event?.actions).toHaveLength(MAX_PROPOSAL_OPTIONS + 2);
+    expect(event?.actions.at(-2)).toEqual({ type: "reassign_project" });
     expect(event?.actions.at(-1)).toEqual({ type: "ignore" });
+  });
+
+  it("«Sposta su un altro progetto» c'è su OGNI proposta di posta, anche senza referenti", () => {
+    // È l'unica via per correggere un'attribuzione sbagliata: deve esserci
+    // sempre, non solo quando il modello ha prodotto qualcosa di buono.
+    const event = buildEmail();
+    expect(event?.actions.filter((a) => a.type === "reassign_project")).toHaveLength(1);
+    // L'etichetta viene da un TEMPLATE i18n, mai dalla prosa del modello.
+    const index = event!.actions.findIndex((a) => a.type === "reassign_project");
+    expect(event?.options[index]?.label).toBe("Sposta su un altro progetto");
   });
 
   it("due figli dello stesso messaggio → progetti certi diversi, `proposalId` e domanda diversi", () => {
@@ -662,6 +680,32 @@ describe("buildTriageProposalEvent", () => {
 // ---------------------------------------------------------------------------
 // Il cancello prima della publish
 // ---------------------------------------------------------------------------
+
+/**
+ * 17 set 2026 — DOVE «Sposta su un altro progetto» NON si offre.
+ *
+ * Sul CALENDARIO non ha senso: un evento produce sempre e solo una proposta
+ * (uno-a-uno, mai il fan-out della 6b), quindi «di chi è» ha già una risposta
+ * sola. Sullo SMISTAMENTO nemmeno: quella proposta è già la domanda «a quale
+ * progetto appartiene», e ha la sua azione (`choose_project`).
+ *
+ * Il verso negativo di questa coppia sta lato server
+ * (`google-proposal.test.ts`): se un jsonb la portasse comunque, l'esecuzione
+ * la RIFIUTA invece di eseguirla.
+ */
+describe("`reassign_project` non è offerta dove non deve (17 set 2026)", () => {
+  it("il calendario non la genera", () => {
+    const event = buildCalendar();
+    expect(event).not.toBeNull();
+    expect(event?.actions.some((a) => a.type === "reassign_project")).toBe(false);
+  });
+
+  it("lo smistamento non la genera", () => {
+    const event = buildTriage();
+    expect(event).not.toBeNull();
+    expect(event?.actions.some((a) => a.type === "reassign_project")).toBe(false);
+  });
+});
 
 describe("googleProposalEventSchema", () => {
   it("rifiuta un evento con azioni e opzioni di lunghezza diversa", () => {

@@ -858,6 +858,275 @@ describe("answerGoogleProposal — choose_project (DEPRECATA, solo card storiche
 });
 
 // ---------------------------------------------------------------------------
+// reassign_project
+// ---------------------------------------------------------------------------
+
+/**
+ * SPOSTARE UNA PROPOSTA SUL PROGETTO GIUSTO (17 set 2026).
+ *
+ * Il caso vero che l'ha motivata: una mail attribuita al progetto sbagliato
+ * dal routing, che chi legge riconosce come di un altro progetto.
+ *
+ * Le asserzioni guardano i VALORI prima/dopo, non l'esito della chiamata: è
+ * l'invariante della 6b («confermare una proposta non chiude le sorelle») a
+ * essere in gioco, e questo batch ne è il candidato più probabile a
+ * incrinarla.
+ */
+describe("answerGoogleProposal — reassign_project (17 set 2026)", () => {
+  it("chiude la proposta corrente verso il progetto scelto e ne crea una NUOVA col marcatore", async () => {
+    const { owner, projectId: wilco, accountId } = await seedOwner();
+    const { projectId: carelli } = await seedRepository(db);
+    const email = await seedEmailRow(accountId, wilco);
+    const child = await seedEmailProposalRow(email.id, wilco);
+    const { notificationId } = await seedProposal({
+      ownerId: owner.id,
+      sourceId: child.id,
+      source: "email",
+      actions: [{ type: "reassign_project" }, { type: "ignore" }],
+    });
+
+    const result = await answerGoogleProposal(db, {
+      notificationId,
+      actor: owner,
+      optionIndex: 0,
+      projectId: carelli,
+    });
+    expect(result.ok).toBe(true);
+
+    // La corrente si chiude, e l'esito dice DOVE è andata — mai un `ignored`
+    // nudo: fra le gestite deve restare leggibile.
+    const closed = await readEmailProposal(child.id);
+    expect(closed!.status).toBe("ignored");
+    expect(closed!.outcome).toMatchObject({ type: "reassigned_to", projectId: carelli });
+    expect(closed!.projectId).toBe(wilco);
+
+    // La riga NUOVA nasce nello stato in cui il poller la pesca, e porta il
+    // marcatore che gli dice di rifare i suggerimenti prima di pubblicare.
+    const [created] = await db
+      .select()
+      .from(emailProposals)
+      .where(and(eq(emailProposals.emailMessageId, email.id), eq(emailProposals.projectId, carelli)));
+    expect(created!.status).toBe("classified");
+    expect(created!.proposalNotificationId).toBeNull();
+    expect(created!.classification).toMatchObject({ needsReclassification: true, reassignedFrom: wilco });
+  });
+
+  it("le SORELLE non si toccano: valori identici prima e dopo", async () => {
+    const { owner, projectId: wilco, accountId } = await seedOwner();
+    const { projectId: carelli } = await seedRepository(db);
+    const { projectId: siblingProjectId } = await seedRepository(db);
+    const email = await seedEmailRow(accountId, wilco);
+    const child = await seedEmailProposalRow(email.id, wilco);
+    const sibling = await seedEmailProposalRow(email.id, siblingProjectId);
+    const siblingBefore = await readEmailProposal(sibling.id);
+    const { notificationId } = await seedProposal({
+      ownerId: owner.id,
+      sourceId: child.id,
+      source: "email",
+      actions: [{ type: "reassign_project" }, { type: "ignore" }],
+    });
+
+    const result = await answerGoogleProposal(db, {
+      notificationId,
+      actor: owner,
+      optionIndex: 0,
+      projectId: carelli,
+    });
+    expect(result.ok).toBe(true);
+
+    // I VALORI, non l'assenza di errori: status, progetto, classificazione,
+    // esito e notifica della sorella devono essere gli stessi di prima.
+    const siblingAfter = await readEmailProposal(sibling.id);
+    expect(siblingAfter!.status).toBe(siblingBefore!.status);
+    expect(siblingAfter!.projectId).toBe(siblingBefore!.projectId);
+    expect(siblingAfter!.classification).toEqual(siblingBefore!.classification);
+    expect(siblingAfter!.outcome).toBeNull();
+    expect(siblingAfter!.proposalNotificationId).toBeNull();
+  });
+
+  it("il PADRE non si tocca: solo `updated_at` cambia", async () => {
+    const { owner, projectId: wilco, accountId } = await seedOwner();
+    const { projectId: carelli } = await seedRepository(db);
+    const email = await seedEmailRow(accountId, wilco);
+    const child = await seedEmailProposalRow(email.id, wilco);
+    const before = await readEmailMessage(email.id);
+    const { notificationId } = await seedProposal({
+      ownerId: owner.id,
+      sourceId: child.id,
+      source: "email",
+      actions: [{ type: "reassign_project" }],
+    });
+
+    const result = await answerGoogleProposal(db, {
+      notificationId,
+      actor: owner,
+      optionIndex: 0,
+      projectId: carelli,
+    });
+    expect(result.ok).toBe(true);
+
+    const after = await readEmailMessage(email.id);
+    // `project_id` e `scope_project_ids` sono ciò che il ROUTING aveva
+    // dedotto: restano com'erano anche dopo che una persona ha corretto UNA
+    // proposta. Idem `status`, `outcome` e la notifica del padre.
+    expect(after!.status).toBe(before!.status);
+    expect(after!.projectId).toBe(before!.projectId);
+    expect(after!.scopeProjectIds).toEqual(before!.scopeProjectIds);
+    expect(after!.proposalNotificationId).toBe(before!.proposalNotificationId);
+    expect(after!.outcome).toBe(before!.outcome);
+  });
+
+  it("progetto già proposto → `already_proposed`, e la proposta esistente è INVARIATA", async () => {
+    const { owner, projectId: wilco, accountId } = await seedOwner();
+    const { projectId: carelli } = await seedRepository(db);
+    const email = await seedEmailRow(accountId, wilco);
+    const child = await seedEmailProposalRow(email.id, wilco);
+    // Su Carelli una card c'è GIÀ: l'insert del dispatch ha
+    // `onConflictDoUpdate` sulla coppia, quindi senza i due controlli la
+    // sovrascriverebbe in silenzio.
+    const existing = await seedEmailProposalRow(email.id, carelli, { status: "proposed" });
+    const existingBefore = await readEmailProposal(existing.id);
+    const { notificationId } = await seedProposal({
+      ownerId: owner.id,
+      sourceId: child.id,
+      source: "email",
+      actions: [{ type: "reassign_project" }],
+    });
+
+    const result = await answerGoogleProposal(db, {
+      notificationId,
+      actor: owner,
+      optionIndex: 0,
+      projectId: carelli,
+    });
+    expect(result).toEqual({ ok: false, error: "already_proposed" });
+
+    // LA PROVA che il conflitto non ha sovrascritto niente.
+    const existingAfter = await readEmailProposal(existing.id);
+    expect(existingAfter!.status).toBe(existingBefore!.status);
+    expect(existingAfter!.classification).toEqual(existingBefore!.classification);
+    expect(existingAfter!.outcome).toBeNull();
+
+    // E il pre-check PRIMA del claim è la ragione per cui la proposta su cui
+    // si è premuto resta viva: senza, `propagateHandled` l'avrebbe chiusa e
+    // `markSourceFailed` l'avrebbe marcata `failed` per un gesto che non
+    // cambia niente.
+    const current = await readEmailProposal(child.id);
+    expect(current!.status).toBe("classified");
+    expect(current!.outcome).toBeNull();
+    const [notification] = await db.select().from(notifications).where(eq(notifications.id, notificationId));
+    expect(notification!.status).toBe("open");
+  });
+
+  it("non è eseguibile su una proposta di CALENDARIO", async () => {
+    const { owner, projectId, accountId } = await seedOwner();
+    const { projectId: other } = await seedRepository(db);
+    const event = await seedCalendarRow(accountId, projectId);
+    const { notificationId } = await seedProposal({
+      ownerId: owner.id,
+      sourceId: event.id,
+      source: "calendar",
+      actions: [{ type: "reassign_project" }],
+    });
+
+    const result = await answerGoogleProposal(db, {
+      notificationId,
+      actor: owner,
+      optionIndex: 0,
+      projectId: other,
+    });
+    expect(result).toEqual({ ok: false, error: "proposal_stale" });
+    // Si esce PRIMA del claim: l'evento non è stato toccato e la notifica
+    // resta aperta.
+    expect((await readCalendarEvent(event.id))!.outcome).toBeNull();
+  });
+
+  it("non è eseguibile su una proposta di SMISTAMENTO", async () => {
+    const { owner, projectId, accountId } = await seedOwner();
+    const { projectId: other } = await seedRepository(db);
+    const email = await seedEmailRow(accountId, projectId);
+    const { notificationId } = await seedProposal({
+      ownerId: owner.id,
+      sourceId: email.id,
+      source: "email_triage",
+      actions: [{ type: "reassign_project" }],
+    });
+
+    const result = await answerGoogleProposal(db, {
+      notificationId,
+      actor: owner,
+      optionIndex: 0,
+      projectId: other,
+    });
+    expect(result).toEqual({ ok: false, error: "proposal_stale" });
+    const msg = await readEmailMessage(email.id);
+    expect(msg!.outcome).toBeNull();
+  });
+
+  it("`projectId` su un'ALTRA azione è RIFIUTATO, non ignorato", async () => {
+    const { owner, projectId, accountId } = await seedOwner();
+    const { projectId: other } = await seedRepository(db);
+    const email = await seedEmailRow(accountId, projectId);
+    const child = await seedEmailProposalRow(email.id, projectId);
+    const { notificationId } = await seedProposal({
+      ownerId: owner.id,
+      sourceId: child.id,
+      source: "email",
+      actions: [{ type: "ignore" }],
+    });
+
+    const result = await answerGoogleProposal(db, {
+      notificationId,
+      actor: owner,
+      optionIndex: 0,
+      projectId: other,
+    });
+    // Ignorarlo ne farebbe una porta di servizio che il prossimo che passa usa
+    // «tanto c'è» (design §3.1bis, condizione 2).
+    expect(result).toEqual({ ok: false, error: "invalid_answer" });
+    expect((await readEmailProposal(child.id))!.status).toBe("classified");
+  });
+
+  it("`reassign_project` senza `projectId` è `invalid_answer`", async () => {
+    const { owner, projectId, accountId } = await seedOwner();
+    const email = await seedEmailRow(accountId, projectId);
+    const child = await seedEmailProposalRow(email.id, projectId);
+    const { notificationId } = await seedProposal({
+      ownerId: owner.id,
+      sourceId: child.id,
+      source: "email",
+      actions: [{ type: "reassign_project" }],
+    });
+
+    const result = await answerGoogleProposal(db, { notificationId, actor: owner, optionIndex: 0 });
+    expect(result).toEqual({ ok: false, error: "invalid_answer" });
+    expect((await readEmailProposal(child.id))!.status).toBe("classified");
+  });
+
+  it("progetto scelto sparito → `target_gone`, nessuna riga nuova", async () => {
+    const { owner, projectId, accountId } = await seedOwner();
+    const email = await seedEmailRow(accountId, projectId);
+    const child = await seedEmailProposalRow(email.id, projectId);
+    const { notificationId } = await seedProposal({
+      ownerId: owner.id,
+      sourceId: child.id,
+      source: "email",
+      actions: [{ type: "reassign_project" }],
+    });
+
+    const result = await answerGoogleProposal(db, {
+      notificationId,
+      actor: owner,
+      optionIndex: 0,
+      projectId: randomUUID(),
+    });
+    expect(result).toEqual({ ok: false, error: "target_gone" });
+    const rows = await db.select().from(emailProposals).where(eq(emailProposals.emailMessageId, email.id));
+    expect(rows).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // ignore
 // ---------------------------------------------------------------------------
 

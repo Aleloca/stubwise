@@ -193,6 +193,9 @@ export const en: Catalog = {
   "notify.inbox.errTargetGone": "The target of this action no longer exists.",
   "notify.inbox.errActionFailed":
     "This action could not be completed. You can propose it again from Mail.",
+  "notify.inbox.errAlreadyProposed":
+    "That project already has an open proposal for this email.",
+  "notify.inbox.answerFromApp": "from the app or the web",
   "notify.inbox.errFailed": "The action could not be completed. Try again from Stubwise.",
   // Note di stato: sostituiscono i bottoni sul messaggio già deciso.
   "notify.inbox.notePlanApproved": "✅ Plan approved by {actor}",
@@ -404,6 +407,9 @@ export const en: Catalog = {
   "email.proposal.calendarReminderConsequence": "Nothing is created — this card is the reminder.",
   "email.proposal.ignore": "Do nothing",
   "email.proposal.ignoreConsequence": "The message is left as it is, with no proposal.",
+  "email.proposal.reassign": "Move to another project",
+  "email.proposal.reassignConsequence":
+    "This proposal is closed and a new one is prepared on the project you pick, with suggestions rebuilt from its context.",
   // Fase 6c (Task 5): the LAST option of the triage proposal only — "none of
   // these [suggested projects]", distinct from the generic `ignore` above:
   // it archives the message with an outcome that says it was triaged and
@@ -443,6 +449,7 @@ export const en: Catalog = {
   // `apps/server/src/services/google-proposal.ts`.
   "decision.email.title": "Email decision: {subject}",
   "decision.email.decision": "Confirmed via email from {from}: {option}",
+  "decision.email.reassigned": "Email from {from} moved from project {fromProject} to {toProject}",
 
   // --- plan.* — label delle sezioni del piano di fix ---
   "plan.rootCause": "Root cause",
@@ -584,6 +591,9 @@ export const it: Catalog = {
   "notify.inbox.errTargetGone": "L'oggetto di questa azione non esiste più.",
   "notify.inbox.errActionFailed":
     "Questa azione non è riuscita. Puoi riproporla dalla sezione Posta.",
+  "notify.inbox.errAlreadyProposed":
+    "Su quel progetto c'è già una proposta aperta per questa email.",
+  "notify.inbox.answerFromApp": "dall'app o dal web",
   "notify.inbox.errFailed": "Azione non riuscita. Riprova da Stubwise.",
   "notify.inbox.notePlanApproved": "✅ Piano approvato da {actor}",
   "notify.inbox.notePlanRejected": "🚫 Piano rifiutato da {actor}",
@@ -724,6 +734,9 @@ export const it: Catalog = {
   "email.proposal.calendarReminderConsequence": "Non nasce nulla — questa card è il promemoria.",
   "email.proposal.ignore": "Non fare nulla",
   "email.proposal.ignoreConsequence": "Il messaggio resta com'è, senza nessuna proposta.",
+  "email.proposal.reassign": "Sposta su un altro progetto",
+  "email.proposal.reassignConsequence":
+    "Questa proposta si chiude e ne nasce una sul progetto che scegli, coi suggerimenti rifatti sul suo contesto.",
   // Fase 6c (Task 5): l'ULTIMA opzione della SOLA proposta di smistamento —
   // "nessuno di questi [progetti suggeriti]", distinta dal generico `ignore`
   // qui sopra: archivia il messaggio con un esito che dice che è stato
@@ -748,6 +761,7 @@ export const it: Catalog = {
   // Proposta Google confermata (vedi la nota nel catalogo `en`).
   "decision.email.title": "Decisione dalla posta: {subject}",
   "decision.email.decision": "Confermata dall'email di {from}: {option}",
+  "decision.email.reassigned": "Email di {from} spostata dal progetto {fromProject} al progetto {toProject}",
 
   // --- plan.* ---
   "plan.rootCause": "Causa radice",

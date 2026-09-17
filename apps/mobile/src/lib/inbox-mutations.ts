@@ -81,6 +81,11 @@ export function describeInboxError(error: unknown, t: TFunction): string {
       return t("mobile.inbox.errors.invalidAnswer");
     case "proposal_stale":
       return t("mobile.inbox.errors.proposalStale");
+    case "already_proposed":
+      // 17 set 2026: NON è un guasto — su quel progetto una card c'è già. È
+      // un'informazione utile, e va MOSTRATA: la proposta resta aperta e si
+      // può scegliere un altro progetto.
+      return t("mobile.inbox.errors.alreadyProposed");
     case "run_not_started":
       return t("mobile.inbox.errors.runNotStarted");
     case "forbidden":

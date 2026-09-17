@@ -3434,7 +3434,19 @@ export function postInboxHandled(id: string): Promise<void> {
  * testo). La rotta è una sola per quattro azioni, e ognuna guarda solo i campi
  * che la riguardano.
  */
-export type InboxActionBody = { instructions?: string } | AnswerBody;
+export type InboxActionBody =
+  | { instructions?: string }
+  | (AnswerBody & {
+      /**
+       * Accompagna `optionIndex` SOLO quando l'opzione confermata è «Sposta su
+       * un altro progetto» (`reassign_project`, 17 set 2026). Su ogni altra
+       * azione il server lo RIFIUTA con `invalid_answer` — non lo ignora — e
+       * il motivo per cui questo caso non incrina l'invariante «solo l'indice
+       * viaggia» sta nel docblock di `inboxGoogleActionSchema`
+       * (`@stubwise/shared`).
+       */
+      projectId?: string;
+    });
 
 /**
  * Azione DECISIONALE su una notifica (approva/rifiuta il piano, rilancia il

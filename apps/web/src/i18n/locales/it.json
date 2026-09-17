@@ -1293,6 +1293,8 @@
       "confirm": "Conferma",
       "openThread": "Apri il thread",
       "openEvent": "Apri l'evento",
+      "reassignLabel": "Progetto di destinazione",
+      "reassignPlaceholder": "Scegli un progetto…",
       "errors": {
         "stale": "Questa proposta non è più disponibile",
         "alreadyTaken": "Già gestita da {{email}}",
@@ -1300,6 +1302,7 @@
         "targetGone": "Il bersaglio di questa azione non esiste più — puoi riproporla dalla pagina Posta",
         "actionFailed": "Questa azione non è riuscita — puoi riproporla dalla pagina Posta",
         "invalidChoice": "Questa proposta non è più disponibile",
+        "alreadyProposed": "Su quel progetto c'è già una proposta aperta per questa email",
         "forbidden": "Non puoi confermare questa proposta",
         "generic": "Conferma della proposta non riuscita"
       }

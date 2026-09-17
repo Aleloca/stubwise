@@ -74,6 +74,8 @@ import {
 import { executeAutoCalendarAction } from "./calendar-auto.js";
 import {
   classifyNewMessages,
+  needsReclassification,
+  reclassifyReassignedProposal,
   DEFAULT_CLASSIFY_MAX_PER_TICK,
   type ClassifyBatchStats,
 } from "./classify.js";
@@ -1755,6 +1757,55 @@ async function runProposePhase(
 
     for (const row of proposalRows) {
       if (deps.signal?.aborted) return published;
+
+      // ⚠️ RIATTRIBUZIONE (17 set 2026): una proposta spostata a mano su un
+      // altro progetto porta un marcatore nel suo jsonb, e va riclassificata
+      // col contesto di QUEL progetto PRIMA di essere pubblicata — altrimenti
+      // la card nuova mostrerebbe i suggerimenti calcolati sul progetto
+      // sbagliato, che è esattamente ciò per cui è stata spostata.
+      //
+      // Il controllo è sul marcatore, quindi una proposta NORMALE non fa
+      // partire nessun run in più: è la guardia che impedisce a questa
+      // aggiunta di raddoppiare la spesa AI di tutta la posta, e c'è un test
+      // che la fissa contando i run.
+      // Senza runner la fase 2 è spenta (vedi `GooglePollerDeps.runner`): una
+      // riattribuzione resta in attesa invece di essere pubblicata coi
+      // suggerimenti del progetto vecchio. Non è un caso speciale — è lo
+      // stesso comportamento di qualunque messaggio in attesa di
+      // classificazione quando il runner non c'è.
+      if (needsReclassification(row.proposalClassification)) {
+        if (!deps.runner) continue;
+        const outcome = await reclassifyReassignedProposal(
+          {
+            db: deps.db,
+            runner: deps.runner!,
+            lang,
+            ...(deps.gmailModel !== undefined ? { model: deps.gmailModel } : {}),
+            ...(deps.maxProjectsPerMessage !== undefined
+              ? { maxProjectsPerMessage: deps.maxProjectsPerMessage }
+              : {}),
+            ...(deps.logger !== undefined ? { logger: deps.logger } : {}),
+            ...(deps.now !== undefined ? { now: deps.now } : {}),
+          },
+          {
+            id: row.proposalId,
+            emailMessageId: row.messageId,
+            projectId: row.proposalProjectId,
+            classification: row.proposalClassification,
+          },
+        );
+        // Solo `reclassified` prosegue verso la publish: negli altri due casi
+        // la riga è già stata chiusa con un esito che dice perché, e
+        // pubblicarla vorrebbe dire una card su una proposta chiusa.
+        if (outcome !== "reclassified") continue;
+        const [refreshed] = await deps.db
+          .select({ classification: emailProposals.classification })
+          .from(emailProposals)
+          .where(eq(emailProposals.id, row.proposalId));
+        if (!refreshed) continue;
+        row.proposalClassification = refreshed.classification;
+      }
+
       const event = buildEmailProposalEvent({
         lang,
         // `row.proposalId` è `email_proposals.id`, ed è ciò che
