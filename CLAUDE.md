@@ -612,14 +612,35 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   ammissione, solo attribuzione) — verificato leggendo il sorgente, non
   assunto. Nel poller, il pre-filtro sui metadati chiama `admit(...)` invece
   di guardare `matchRoutes(...).inScope`; `matchRoutes` resta dov'era, dopo
-  il download del corpo. L'ordine di `admit()`: le esclusioni (etichetta in
-  `denyLabels`, poi — se `denyAutomated` — gli header `List-Unsubscribe`/
-  `List-Id`/`Precedence: bulk|list|junk`/`Auto-Submitted` diverso da `no`)
-  vincono SEMPRE; poi, se `admitWorkspaceDomains`, il dominio del mittente O
-  di un destinatario in **copia** (non `to`) su un Workspace registrato
-  ammette; altrimenti una regola di progetto che combacia ammette come
-  prima della fase (i domini dei clienti esterni continuano a funzionare
-  invariati); altrimenti `no_match`.
+  il download del corpo. **L'ordine di `admit()`, corretto il 17 set 2026 —
+  scavalca il cancello solo chi ha nominato QUALCUNO**: (1) una regola che
+  nomina un INTERLOCUTORE (`sender_address`, `sender_domain`, `gmail_label`)
+  ammette SUBITO, esclusioni comprese — è la decisione dell'8 set, e per un
+  mittente regge: un cliente che scrive dal suo ticketing, `List-Unsubscribe`
+  incluso, deve arrivare; (2) le esclusioni (etichetta in `denyLabels`, poi —
+  se `denyAutomated` — gli header `List-Unsubscribe`/`List-Id`/`Precedence:
+  bulk|list|junk`/`Auto-Submitted` diverso da `no`); (3) superate quelle,
+  ammettono le `keyword` e il dominio di lavoro (il mittente O un destinatario
+  in `to`/`cc` su un Workspace registrato, escluso il dominio della casella
+  ricevente); altrimenti `no_match`.
+  ⚠️ **Una `keyword` NON è più fra quelle che scavalcano**, e la riga di prima
+  («qualunque regola di progetto ammette subito») è falsa dal 17 set. Il
+  motivo è misurato, non teorico: una keyword non nomina un interlocutore,
+  descrive un CONTENUTO, e il contenuto lo scrive chiunque. In produzione 21
+  delle 41 regole erano `keyword`, e l'oggetto di ogni notifica GitHub porta
+  il nome del repository (`[Aleloca/stubwise] Run failed: CI`) — risultato: 23
+  delle 37 proposte aperte erano notifiche automatiche, col cancello
+  anti-automatico ACCESO e `looksAutomated` che riconosceva gli header giusti
+  ma non li guardava mai per quei messaggi. `admit` gira sui soli METADATI,
+  quindi una keyword può combaciare solo nell'OGGETTO: esattamente dove una
+  macchina scrive il nome del progetto.
+  Due dettagli di implementazione da non «semplificare»: il filtro esclude la
+  sola `keyword` (`route.kind !== "keyword"`) e **non elenca i tipi ammessi**,
+  così un tipo nuovo scavalca per default — il comportamento storico — e chi
+  lo aggiunge deve declassarlo di proposito; e `matchRoutes` **non è stata
+  toccata** né `EmailRoutingResult` ha un campo nuovo: la distinzione si fa
+  filtrando le regole PRIMA di chiamarla, perché il calendario la usa con
+  TUTTE le regole per la sua attribuzione e non deve accorgersi di niente.
   **Il caso nuovo — proposta di smistamento** (Task 5, il più delicato):
   quando un messaggio è ammesso ma il perimetro derivato da `matchRoutes`
   è VUOTO, `classify.ts`/`loadContext` non degrada più a "niente da
@@ -1040,6 +1061,36 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   nuove, che restano `null` — cioè esattamente il valore che significa «non
   lo sappiamo», e che un lancio futuro del recupero riempirà. La colonna
   sopravvive a tutto.
+- **«Una keyword non scavalca il cancello» (17 set 2026)**: rebuild del **solo
+  worker** — `admit()` gira lì, il server non la chiama (unico chiamante:
+  `apps/worker/src/google/poller.ts`). **Nessuna migrazione, nessuno schema
+  toccato, nessuna env nuova, nessun interruttore nuovo in UI**: è un cambio
+  di ORDINE dentro una funzione pura, più i test che lo fissano.
+  **Rollback = l'immagine precedente**, e non c'è nient'altro da fare: nessuna
+  riga da ripulire, nessun flag da spegnere. Un worker precedente torna ad
+  ammettere troppo, senza rompere niente.
+  **Le proposte già aperte non sono toccate dal codice**: la modifica vale da
+  qui in avanti. L'arretrato del 17 set (20 notifiche da `github.com`,
+  `*.atlassian.net`, `vercel.com`) è stato chiuso a mano sui dati di
+  produzione con `outcome.type = 'bulk_closed_automated'` — leggibile fra le
+  gestite, nessuna riga cancellata, e sul padre solo `updated_at` (invariante
+  della 6b). Le 3 commerciali NON sono state chiuse: le ha scritte una
+  persona, e quella è una decisione sul contenuto che prende chi legge.
+  **Come si verifica che sia servito** — non «i test passano», ma il conteggio
+  rifatto dopo **qualche giorno di posta NUOVA** (l'arretrato è già stato
+  spazzato a mano, quindi oggi quei domini sono a zero per un altro motivo):
+
+      select split_part(m.from_address,'@',2) dominio, count(*)
+      from email_messages m
+      join email_proposals p on p.email_message_id = m.id
+      where p.status not in ('actioned','ignored','failed')
+      group by 1 order by 2 desc;
+
+  Atteso: `github.com`, `*.atlassian.net` e `vercel.com` a **zero**; i domini
+  dei clienti **invariati**. Il primo numero dice che il cancello morde, il
+  secondo che non morde troppo. Controllo incrociato utile: `netdata.cloud` e
+  `twilio.com` erano rimasti aperti perché fuori dall'elenco chiuso a mano —
+  se il cancello funziona, smettono di produrne di nuovi da soli.
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.

@@ -498,6 +498,105 @@ describe("admit", () => {
     expect(result).toEqual({ admitted: true, reason: "project_rule" });
   });
 
+  // -------------------------------------------------------------------------
+  // 17 set 2026 — UNA KEYWORD NON SCAVALCA IL CANCELLO.
+  //
+  // Scavalca solo chi ha nominato QUALCUNO (`sender_address`,
+  // `sender_domain`, `gmail_label`). Una `keyword` descrive un CONTENUTO, e
+  // il contenuto lo scrive chiunque — GitHub compreso: in produzione 23 delle
+  // 37 proposte aperte erano notifiche automatiche entrate così.
+  // -------------------------------------------------------------------------
+
+  /** Il caso VERO: l'oggetto di una notifica GitHub porta il nome del repo. */
+  const GITHUB_SUBJECT = "[Aleloca/stubwise] Run failed: CI - main (6d6c975)";
+
+  it("⚠️ notifica automatica che combacia per KEYWORD: FUORI (il cancello anti-automatico la vede)", () => {
+    const result = admit(
+      message({
+        fromAddress: "notifications@github.com",
+        subject: GITHUB_SUBJECT,
+        headers: { "list-unsubscribe": "<https://github.com/notifications/unsubscribe>" },
+      }),
+      admissionConfig({ routes: [route(PROJECT_A, "keyword", "stubwise")] }),
+      RECEIVING_DOMAIN,
+    );
+    expect(result).toEqual({ admitted: false, reason: "automated" });
+  });
+
+  it("⚠️ la STESSA mail SENZA header automatici: DENTRO — le keyword non sono state spente", () => {
+    // È la riga che dimostra che abbiamo tolto alle keyword il PRIVILEGIO di
+    // scavalcare, non la loro capacità di ammettere: una persona che scrive
+    // di «stubwise» entra esattamente come prima, solo un passo più tardi.
+    const result = admit(
+      message({ fromAddress: "collega@esterno.org", subject: GITHUB_SUBJECT }),
+      admissionConfig({ routes: [route(PROJECT_A, "keyword", "stubwise")] }),
+      RECEIVING_DOMAIN,
+    );
+    expect(result).toEqual({ admitted: true, reason: "project_rule" });
+  });
+
+  it("un MITTENTE esplicito scavalca ancora: un cliente che scrive da un ticketing arriva", () => {
+    // È la ragione per cui il cancello non è stato reso assoluto: la
+    // decisione dell'8 set 2026 regge ancora per chi nomina un interlocutore.
+    const result = admit(
+      message({
+        fromAddress: "supporto@cliente.com",
+        headers: { "list-unsubscribe": "<https://cliente.com/unsub>" },
+      }),
+      admissionConfig({ routes: [route(PROJECT_A, "sender_domain", "cliente.com")] }),
+      RECEIVING_DOMAIN,
+    );
+    expect(result).toEqual({ admitted: true, reason: "project_rule" });
+  });
+
+  it("`gmail_label` scavalca come un mittente: è una marcatura messa a mano da una persona", () => {
+    // In produzione non esiste ancora nessuna regola di questo tipo: è una
+    // decisione presa IN ANTICIPO (design §3.1), non un comportamento
+    // osservato. Chi creerà la prima si aspetta che vinca, come vince oggi.
+    const result = admit(
+      message({
+        fromAddress: "notifications@github.com",
+        labels: ["Lavoro/Stubwise"],
+        headers: { "list-unsubscribe": "<https://github.com/unsub>" },
+      }),
+      admissionConfig({ routes: [route(PROJECT_A, "gmail_label", "Lavoro/Stubwise")] }),
+      RECEIVING_DOMAIN,
+    );
+    expect(result).toEqual({ admitted: true, reason: "project_rule" });
+  });
+
+  it("un'etichetta VIETATA batte una keyword, ma non un mittente esplicito", () => {
+    const spammy = { fromAddress: "promo@qualcuno.test", subject: GITHUB_SUBJECT, labels: ["SPAM"] };
+
+    expect(
+      admit(
+        message(spammy),
+        admissionConfig({ routes: [route(PROJECT_A, "keyword", "stubwise")] }),
+        RECEIVING_DOMAIN,
+      ),
+    ).toEqual({ admitted: false, reason: "denied_label" });
+
+    // Invariato dalla 6c: una regola sul mittente vince anche su `SPAM`.
+    expect(
+      admit(
+        message(spammy),
+        admissionConfig({ routes: [route(PROJECT_A, "sender_domain", "qualcuno.test")] }),
+        RECEIVING_DOMAIN,
+      ),
+    ).toEqual({ admitted: true, reason: "project_rule" });
+  });
+
+  it("una keyword che NON combacia non cambia niente: resta il percorso di prima", () => {
+    // Guardia contro un filtro scritto male che ammettesse per il solo fatto
+    // che esiste una regola `keyword` fra quelle configurate.
+    const result = admit(
+      message({ fromAddress: "sconosciuto@altrove.test", subject: "tutt'altro argomento" }),
+      admissionConfig({ routes: [route(PROJECT_A, "keyword", "stubwise")] }),
+      RECEIVING_DOMAIN,
+    );
+    expect(result).toEqual({ admitted: false, reason: "no_match" });
+  });
+
   it("dominio di lavoro (SENZA regola di progetto che combaci) + CATEGORY_PROMOTIONS: rifiutata (le esclusioni valgono per l'ammissione larga)", () => {
     const result = admit(
       message({ fromAddress: "cliente@acme.com", labels: ["CATEGORY_PROMOTIONS"] }),
