@@ -675,10 +675,23 @@ describe("pre-filtro degli eventi", () => {
       .insert(projectEmailRoutes)
       .values({ projectId, kind: "sender_domain", value: "cliente.com" });
     const account = await seedAccount();
-    const now = new Date("2026-09-10T12:00:00Z");
-    const threeWeeksAgo = new Date("2026-08-20T09:00:00Z"); // dentro i 30 gg indietro, ma nel PASSATO
-    const sixMonthsAgo = new Date("2026-03-10T09:00:00Z"); // fuori dalla finestra di ingestione
-    const nextWeek = new Date("2026-09-17T09:00:00Z"); // futuro: proposta come sempre
+    // ⚠️ Date RELATIVE a «adesso», mai fisse. Questo test è esploso il 17 set
+    // 2026 alle 09:27 UTC in CI, con `expected false to be true`: l'evento
+    // «futuro» era fissato al 2026-09-17T09:00Z, cioè quel giorno stesso, e
+    // alle 09:27 era già passato. Non era un flaky — due run dello stesso
+    // commit erano verdi solo perché girate prima delle 09:00.
+    //
+    // La causa di fondo: `pollGoogleOnce` riceve un `now` INIETTATO, mentre
+    // `isReadyForProposal` senza `seriesContext` legge `new Date()`, cioè
+    // l'orologio vero (`const now = seriesContext?.now ?? new Date()`). Le due
+    // misure devono quindi partire dallo STESSO istante, o il test ha una
+    // scadenza. Stessa famiglia della bomba a orologeria già corretta in
+    // `apps/server/src/routes/projects.test.ts`.
+    const now = new Date();
+    const day = 24 * 60 * 60 * 1000;
+    const threeWeeksAgo = new Date(now.getTime() - 21 * day); // dentro i 30 gg indietro, ma nel PASSATO
+    const sixMonthsAgo = new Date(now.getTime() - 180 * day); // fuori dalla finestra di ingestione
+    const nextWeek = new Date(now.getTime() + 7 * day); // futuro: proposta come sempre
     const calendar = fakeCalendar([
       {
         events: [
