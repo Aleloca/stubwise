@@ -17,8 +17,18 @@ vanno tenuti allineati**: sono la stessa famiglia di `acknowledge_reminder`
 della fase 7b, e il motivo per cui un'app vecchia non crasha è che entrambi i
 punti di lettura degradano con `safeParse` — verificarlo, non assumerlo.
 
-L'azione porta il `projectId` scelto. Come per le altre, il testo dell'opzione
-viene da un **template i18n**, mai da prosa generata.
+⚠️ **L'azione persistita NON porta il `projectId`** (design §3.1bis): al
+momento della publish il progetto di destinazione non esiste ancora come dato —
+è ciò che l'utente sceglierà. L'opzione persistita è un marcatore di capacità,
+come `acknowledge_reminder`; il progetto arriva alla CONFERMA, in un campo
+nuovo di `AnswerGoogleProposalInput`, alle tre condizioni del §3.1bis
+(`optionIndex` obbligatorio, `projectId` rifiutato su ogni altra azione,
+progetto validato). E il docblock di `inboxGoogleActionSchema` va **corretto**
+spiegando perché questo caso non è ciò da cui l'invariante protegge — mai
+aggirato in silenzio.
+
+Come per le altre, il testo dell'opzione viene da un **template i18n**, mai da
+prosa generata.
 
 ⚠️ **Non toccare `choose_project`.** Ha già due semantiche opposte (padre vs
 figlio) che CLAUDE.md vieta esplicitamente di unificare: questa è una terza
@@ -37,6 +47,10 @@ In una transazione sola:
    `onConflictDoUpdate` su `(email_message_id, project_id)`: senza questo
    controllo l'azione sovrascriverebbe in silenzio una card legittima. **È il
    punto più facile da sbagliare di tutto il batch.**
+   ⚠️ Il controllo va in DUE punti (design §4): un **pre-check prima del
+   claim** — o `propagateHandled` ha già chiuso la card e `markSourceFailed`
+   l'ha marcata `failed` per un gesto che non cambia niente — più quello **in
+   transazione come autorità**, perché il pre-check è una corsa.
 2. chiude la proposta corrente: `status: "ignored"`, `outcome: { type:
    "reassigned_to", projectId }` — mai un `ignored` nudo.
 3. inserisce la riga per il progetto scelto: `status: "classified"`,

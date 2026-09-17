@@ -88,6 +88,52 @@ Qui si fa lo stesso.
 
 Costo: **zero migrazioni, zero colonne, zero enum toccati.**
 
+### §3.1bis — Il progetto scelto viaggia dal client, e perché è legittimo
+
+⚠️ Sezione aggiunta il 17 set 2026 in corso d'implementazione: la prima
+stesura diceva «l'azione porta il `projectId` scelto», e **non sta in piedi**.
+
+Le azioni sono PERSISTITE nel jsonb della notifica al momento della publish, e
+il client ne sceglie una per INDICE: `AnswerGoogleProposalInput` ha
+`notificationId`, `actor`, `optionIndex` e basta. Al momento della publish il
+progetto di destinazione non è conoscibile — è proprio ciò che l'utente
+sceglierà dopo. E persistere un'opzione per ogni progetto dell'istanza
+gonfierebbe il jsonb di ogni card di posta per un caso raro.
+
+**`AnswerGoogleProposalInput` guadagna quindi un `projectId`**, e il docblock
+di `inboxGoogleActionSchema` va **corretto**, non aggirato in silenzio. Quel
+testo dice: «il payload dell'azione NON esce mai da qui… l'indice scelto è
+l'unico dato che viaggia verso il server», con la motivazione che altrimenti la
+conferma diventerebbe «esegui quello che il client dice» invece di «esegui la
+proposta che hai letto».
+
+**Letta per il suo scopo, quell'invariante non copre questo caso, e il motivo
+va scritto lì accanto**: protegge dal client che rimanda MODIFICATO un campo
+della proposta che l'utente ha letto. Qui è il contrario — l'utente sta
+scegliendo deliberatamente qualcosa che nella proposta non c'è, ed è tutto il
+punto dell'azione. Non si sta eseguendo una proposta alterata: si sta
+eseguendo un'azione il cui unico contenuto è una scelta umana.
+
+Le tre condizioni che la tengono stretta, e vanno tutte e tre:
+
+1. `optionIndex` resta **obbligatorio**: si conferma comunque un'opzione letta
+   (quella «Sposta su un altro progetto»), non un comando arbitrario;
+2. `projectId` è accettato **SOLO** quando l'azione risolta da quell'indice è
+   `reassign_project`. Su qualunque altra azione è **rifiutato, non ignorato**
+   — ignorarlo ne farebbe una porta di servizio che il prossimo che passa usa
+   «tanto c'è»;
+3. il server valida che il progetto **esista**, e l'ACL resta `mailbox_owner`:
+   la proposta che nasce è visibile solo a chi possiede la casella, come
+   quella che chiude.
+
+**L'alternativa scartata**: una rotta a sé (`POST
+/api/me/mail/email/:proposalId/reassign`), che non toccherebbe l'invariante e
+avrebbe un precedente in `repropose`. Scartata perché `repropose` vive sulla
+pagina Posta e **non** sulla card in inbox (CLAUDE.md lo dice esplicitamente):
+replicare quel modello vorrebbe dire far uscire l'utente dalla card per
+correggere un'attribuzione, che è esattamente il gesto che questa funzione
+esiste per rendere immediato.
+
 ### §3.2 — L'esperienza, decisa
 
 La card sparisce al tap, come per ogni altra azione dell'inbox; la proposta
@@ -104,7 +150,18 @@ proposta appena classificata**, non un caso speciale da gestire.
 L'insert esistente ha `onConflictDoUpdate` su `(email_message_id, project_id)`,
 quindi tecnicamente «funzionerebbe» — sovrascrivendo una proposta legittima che
 l'utente magari stava per confermare. **Non si fa**: l'azione rifiuta con un
-errore esplicito (`already_proposed`), e la UI lo dice. Spostare su un progetto
+errore esplicito (`already_proposed`), e la UI lo dice.
+
+⚠️ **Il controllo va in DUE punti, e non è ridondanza** (17 set 2026, in corso
+d'implementazione). Il claim (`propagateHandled`) gira PRIMA di
+`dispatchAction`, e il chiamante su errore fa `markSourceFailed`: col solo
+controllo dentro la transazione, chi sceglie un progetto che ha già una card si
+ritroverebbe la card sparita e la proposta corrente in `failed` — recuperabile
+solo con «Riproponi» dalla pagina Posta — per un gesto che non ha cambiato
+niente. Serve quindi un **pre-check prima del claim** (così nel caso normale
+non si brucia nulla) più quello **in transazione come autorità**, perché un
+controllo fuori transazione è di per sé una corsa. È la stessa difesa in
+profondità di `requireAdmin` sulla rotta più il ricontrollo nel servizio. Spostare su un progetto
 che ha già la sua card non è una riattribuzione: è chiudere questa, e quella
 c'è già.
 
