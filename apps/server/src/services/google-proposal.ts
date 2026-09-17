@@ -86,7 +86,7 @@ import {
 import { t, type Language } from "@stubwise/i18n";
 import { actorAllows } from "@stubwise/notifications";
 import { ticketPrioritySchema, ticketStatusSchema } from "@stubwise/shared";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { getContentLanguage } from "../settings.js";
 import { enqueueBacklogIntake } from "./backlog-intake.js";
@@ -127,7 +127,14 @@ export type AnswerGoogleProposalError =
   /** Il progetto o il ticket dietro l'azione non esiste più. */
   | "target_gone"
   /** Un imprevisto DOPO il claim: la riga sorgente è `failed`, riproponibile. */
-  | "action_failed";
+  | "action_failed"
+  /**
+   * 17 set 2026, solo per `reassign_project`: sul progetto scelto esiste già
+   * una proposta APERTA per questo messaggio. **Non è un guasto** — è
+   * un'informazione utile (la card che si voleva creare c'è già), e va
+   * MOSTRATA a chi ha confermato, non ingoiata.
+   */
+  | "already_proposed";
 
 export type AnswerGoogleProposalResult =
   | { ok: true; changedNotificationIds: string[] }
@@ -138,6 +145,17 @@ export interface AnswerGoogleProposalInput {
   actor: Actor;
   /** Indice dell'opzione confermata, validato contro le AZIONI persistite. */
   optionIndex?: number;
+  /**
+   * Il progetto di destinazione, **solo** per l'azione `reassign_project`
+   * (17 set 2026, design §3.1bis). È l'unico dato di payload che viaggia dal
+   * client verso il server in tutta questa superficie, e le tre condizioni
+   * che lo tengono stretto stanno in {@link answerGoogleProposal}:
+   * `optionIndex` resta obbligatorio, su ogni ALTRA azione questo campo è
+   * RIFIUTATO (non ignorato), e il progetto viene validato. Il ragionamento
+   * per esteso è nel docblock di `inboxGoogleActionSchema`
+   * (`@stubwise/shared`), accanto all'invariante che spiega.
+   */
+  projectId?: string;
 }
 
 /**
@@ -176,6 +194,17 @@ const storedActionSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("choose_project"), projectId: z.string().min(1) }),
   /** Fase 7b: l'occorrenza di una serie con `action: "reminder"`. Nessun payload. */
   z.object({ type: z.literal("acknowledge_reminder") }),
+  /**
+   * 17 set 2026: sposta QUESTA proposta di posta su un altro progetto.
+   *
+   * ⚠️ **Nessun payload, e non è una dimenticanza** (design §3.1bis): al
+   * momento della publish il progetto di destinazione non esiste ancora come
+   * dato — è ciò che l'utente sceglierà. L'opzione persistita è un marcatore
+   * di CAPACITÀ, come `acknowledge_reminder`; il progetto arriva alla
+   * CONFERMA in `AnswerGoogleProposalInput.projectId`, alle tre condizioni
+   * verificate in {@link answerGoogleProposal}.
+   */
+  z.object({ type: z.literal("reassign_project") }),
   z.object({ type: z.literal("ignore") }),
 ]);
 type StoredAction = z.infer<typeof storedActionSchema>;
@@ -438,8 +467,58 @@ async function markSourceFailed(db: Db, source: ProposalSource, error: string): 
     .where(eq(calendarEvents.id, source.rowId));
 }
 
-/** L'esito del dispatch: `target_gone` è l'UNICO errore tipizzato che può risalire da qui. */
-type DispatchResult = { ok: true } | { ok: false; error: "target_gone" };
+/**
+ * L'esito del dispatch. `target_gone` e — dal 17 set 2026, per la sola
+ * `reassign_project` — `already_proposed` sono i soli errori tipizzati che
+ * possono risalire da qui.
+ */
+type DispatchResult = { ok: true } | { ok: false; error: "target_gone" | "already_proposed" };
+
+/**
+ * Gli stati di `email_proposals` in cui una proposta è ancora APERTA: nessuno
+ * ha ancora deciso. Sono il complemento dei terminali
+ * (`actioned`/`ignored`/`failed`) su cui è scritta la retention della 6b —
+ * elencati in positivo, così un valore NUOVO dell'enum non finirebbe per
+ * sbaglio a contare come «aperta».
+ */
+const OPEN_PROPOSAL_STATUSES = ["classified", "proposed"] as const;
+
+/**
+ * Il pre-check di `reassign_project`, PRIMA del claim: il progetto scelto
+ * esiste ancora, e su di lui non c'è già una proposta aperta per questo
+ * messaggio.
+ *
+ * ⚠️ Non è l'autorità — è una corsa, e il controllo che decide davvero sta
+ * nella transazione di {@link dispatchAction}. Esiste perché senza, una
+ * riattribuzione verso un progetto che ha già la sua card avrebbe pagato il
+ * claim: `propagateHandled` chiude la notifica e il ramo d'errore marca la
+ * riga `failed` — una proposta legittima persa per un gesto che non cambia
+ * niente.
+ *
+ * L'insert del ramo di dispatch ha `onConflictDoUpdate` su
+ * `(email_message_id, project_id)` per il fan-out del worker: senza questi
+ * due controlli, riattribuire su un progetto già proposto SOVRASCRIVEREBBE
+ * quella card in silenzio.
+ */
+async function reassignPrecheck(
+  db: Db,
+  source: ProposalSource,
+  targetProjectId: string,
+): Promise<"target_gone" | "already_proposed" | null> {
+  const [project] = await db.select({ id: projects.id }).from(projects).where(eq(projects.id, targetProjectId));
+  if (!project) return "target_gone";
+  const [existing] = await db
+    .select({ id: emailProposals.id })
+    .from(emailProposals)
+    .where(
+      and(
+        eq(emailProposals.emailMessageId, source.emailMessageId!),
+        eq(emailProposals.projectId, targetProjectId),
+        inArray(emailProposals.status, [...OPEN_PROPOSAL_STATUSES]),
+      ),
+    );
+  return existing ? "already_proposed" : null;
+}
 
 /**
  * Esegue l'AZIONE dentro una transazione propria: o l'azione e la chiusura
@@ -460,6 +539,8 @@ async function dispatchAction(
     optionLabel: string;
     proposalId: string;
     notificationId: string;
+    /** Solo per `reassign_project`: il progetto scelto alla conferma (design §3.1bis). */
+    targetProjectId?: string;
   },
 ): Promise<DispatchResult> {
   return db.transaction(async (tx) => {
@@ -660,6 +741,132 @@ async function dispatchAction(
         });
         return { ok: true };
       }
+      case "reassign_project": {
+        // 17 set 2026 — SPOSTARE QUESTA PROPOSTA SU UN ALTRO PROGETTO.
+        //
+        // ⚠️ **NON è `choose_project`**, e la distanza è tutta qui: quel nome
+        // ha già due semantiche opposte (sul padre riapre lo smistamento, sul
+        // figlio chiude con `reassigned_project`) che CLAUDE.md vieta
+        // esplicitamente di unificare. Questa è una TERZA cosa, con un nome
+        // suo, e in particolare — a differenza del ramo 2 di
+        // `choose_project` — **crea davvero la riga sul progetto scelto**.
+        //
+        // Quello che questo ramo NON tocca, ed è l'invariante della 6b che
+        // questo batch è il candidato più probabile a incrinare: le proposte
+        // SORELLE (le altre righe `email_proposals` dello stesso messaggio)
+        // e il PADRE (`email_messages`), toccato SOLO in `updated_at` — mai
+        // `status`, mai `project_id`, mai `scope_project_ids`, mai
+        // `proposal_notification_id`. `project_id`/`scope_project_ids` sono
+        // ciò che il ROUTING aveva dedotto: restano com'erano, anche dopo che
+        // una persona ha corretto una singola proposta.
+        //
+        // Il tetto `GMAIL_MAX_PROJECTS_PER_MESSAGE` non si applica: contiene
+        // il fan-out AUTOMATICO, non una scelta umana.
+        if (args.source.source !== "email" || args.targetProjectId === undefined) {
+          throw new Error("reassign_project richiede una proposta email figlia e un progetto scelto");
+        }
+        const targetProjectId = args.targetProjectId;
+        const [target] = await tx
+          .select({ id: projects.id, name: projects.name })
+          .from(projects)
+          .where(eq(projects.id, targetProjectId));
+        if (!target) return { ok: false, error: "target_gone" };
+
+        // ⚠️ IL CONTROLLO CHE FA AUTORITÀ. Il pre-check prima del claim è una
+        // corsa; questo no. Senza, l'`onConflictDoUpdate` dell'insert qui
+        // sotto sovrascriverebbe IN SILENZIO una card legittima già aperta
+        // sul progetto scelto.
+        const [conflict] = await tx
+          .select({ id: emailProposals.id })
+          .from(emailProposals)
+          .where(
+            and(
+              eq(emailProposals.emailMessageId, args.source.emailMessageId!),
+              eq(emailProposals.projectId, targetProjectId),
+              inArray(emailProposals.status, [...OPEN_PROPOSAL_STATUSES]),
+            ),
+          );
+        if (conflict) return { ok: false, error: "already_proposed" };
+
+        const [current] = await tx
+          .select({ classification: emailProposals.classification, projectId: emailProposals.projectId })
+          .from(emailProposals)
+          .where(eq(emailProposals.id, args.source.rowId));
+        if (!current) return { ok: false, error: "target_gone" };
+
+        // La riga NUOVA nasce `classified` e SENZA notifica: è esattamente lo
+        // stato in cui il poller del worker pesca una proposta da pubblicare.
+        // Il marcatore `needsReclassification` dice al worker di rifare i
+        // suggerimenti col contesto del progetto NUOVO prima di pubblicare —
+        // la classificazione corrente parlava di un altro progetto, e
+        // pubblicarla così com'è sarebbe peggio che non pubblicarla.
+        // `reassignedFrom` conserva da dove è arrivata: senza, la riga
+        // rigenerata non saprebbe più raccontare la propria storia.
+        await tx
+          .insert(emailProposals)
+          .values({
+            emailMessageId: args.source.emailMessageId!,
+            projectId: targetProjectId,
+            status: "classified",
+            classification: {
+              ...current.classification,
+              reassignedFrom: current.projectId,
+              needsReclassification: true,
+            },
+            proposalNotificationId: null,
+            outcome: null,
+            error: null,
+          })
+          .onConflictDoUpdate({
+            target: [emailProposals.emailMessageId, emailProposals.projectId],
+            set: {
+              status: "classified",
+              classification: {
+                ...current.classification,
+                reassignedFrom: current.projectId,
+                needsReclassification: true,
+              },
+              proposalNotificationId: null,
+              outcome: null,
+              error: null,
+            },
+          });
+
+        // Chiude la proposta corrente — mai un `ignored` NUDO: l'esito dice
+        // DOVE è andata, così una card fra le gestite resta leggibile
+        // (stessa forma di `superseded_in_thread` e di `declined`).
+        await markSourceOutcome(tx, args.source, {
+          status: "ignored",
+          detail: { type: "reassigned_to", projectId: targetProjectId },
+        });
+
+        // Il registro annota IL TAP, mai la prosa del classificatore: testo
+        // da template i18n, sul progetto che la proposta LASCIA — è lì che
+        // sparisce una card, ed è lì che serve saperne il perché. `sourceKey`
+        // porta il progetto di destinazione perché l'idempotenza di
+        // `recordDecision` è `(projectId, sourceKey)`: due riattribuzioni
+        // diverse dello stesso messaggio sono due fatti diversi.
+        const [fromProject] = await tx
+          .select({ id: projects.id, name: projects.name })
+          .from(projects)
+          .where(eq(projects.id, current.projectId));
+        if (fromProject) {
+          await recordDecision(tx, {
+            projectId: fromProject.id,
+            source: "email",
+            sourceKey: `email:${args.source.gmailMessageId}:reassign:${targetProjectId}`,
+            sourceRef: { proposalId: args.proposalId, notificationId: args.notificationId },
+            title: t(args.lang, "decision.email.title", { subject: args.subject }),
+            decision: t(args.lang, "decision.email.reassigned", {
+              from: args.from,
+              fromProject: fromProject.name,
+              toProject: target.name,
+            }),
+            decidedByUserId: args.actor.id,
+          });
+        }
+        return { ok: true };
+      }
       case "ignore": {
         // Fase 6c: sulla proposta di SMISTAMENTO (`source: "email_triage"`)
         // «Nessuno di questi» non è un `ignored` generico — registra
@@ -767,6 +974,18 @@ export async function answerGoogleProposal(
   const action = parsedAction.data;
   const optionLabel = options[index]!.label;
 
+  // ⚠️ `projectId` è accettato SOLO se l'azione risolta da quell'indice è
+  // `reassign_project`, e su ogni ALTRA azione è RIFIUTATO — non ignorato
+  // (design §3.1bis): ignorarlo ne farebbe una porta di servizio che il
+  // prossimo che passa usa «tanto c'è». È la richiesta del client a essere
+  // fuori contratto, non il payload persistito: `invalid_answer` (400).
+  if (input.projectId !== undefined && action.type !== "reassign_project") {
+    return { ok: false, error: "invalid_answer" };
+  }
+  if (action.type === "reassign_project" && (input.projectId === undefined || input.projectId.trim() === "")) {
+    return { ok: false, error: "invalid_answer" };
+  }
+
   // Pre-check OTTIMISTICO, prima del claim: una riga non `open` non è
   // azionabile. Il claim sotto è quello che decide DAVVERO sotto concorrenza
   // (stesso schema di `proceedWithProposal`).
@@ -780,6 +999,24 @@ export async function answerGoogleProposal(
   // disfare, quindi si esce PRIMA del claim.
   const source = await findSourceRow(db, input.notificationId);
   if (!source) return { ok: false, error: "proposal_stale" };
+
+  if (action.type === "reassign_project") {
+    // Offerta SOLO sulle proposte di posta FIGLIE. Su `"calendar"` e su
+    // `"email_triage"` è un'anomalia del jsonb, non un `target_gone`: il
+    // worker non la genera mai lì (il calendario non ha fan-out, lo
+    // smistamento ha già `choose_project`). Si esce PRIMA del claim, quindi
+    // non c'è niente da disfare.
+    if (source.source !== "email") return { ok: false, error: "proposal_stale" };
+    if (input.projectId === source.projectId) return { ok: false, error: "invalid_answer" };
+    const precheck = await reassignPrecheck(db, source, input.projectId!);
+    // ⚠️ Questo pre-check NON è ridondante con quello in transazione, ed è il
+    // punto più facile da sbagliare del batch: senza, `propagateHandled`
+    // avrebbe già chiuso la card e il ramo di errore la marcherebbe `failed`
+    // — per un gesto che non cambia niente. L'autorità resta il controllo in
+    // transazione (questo è una corsa), ma senza questo il costo di perderla
+    // lo paga una proposta legittima.
+    if (precheck) return { ok: false, error: precheck };
+  }
 
   // CLAIM: da qui in poi, se riesce, siamo l'UNICO esecutore.
   const changedNotificationIds = await propagateHandled(
@@ -806,6 +1043,7 @@ export async function answerGoogleProposal(
       optionLabel,
       proposalId,
       notificationId: input.notificationId,
+      ...(input.projectId !== undefined ? { targetProjectId: input.projectId } : {}),
     });
     if (!dispatched.ok) {
       await markSourceFailed(db, source, `google.proposal: ${dispatched.error} (${action.type})`);

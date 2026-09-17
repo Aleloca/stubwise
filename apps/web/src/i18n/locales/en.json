@@ -1293,6 +1293,8 @@
       "confirm": "Confirm",
       "openThread": "Open the thread",
       "openEvent": "Open the event",
+      "reassignLabel": "Target project",
+      "reassignPlaceholder": "Pick a project…",
       "errors": {
         "stale": "This proposal is no longer available",
         "alreadyTaken": "Already handled by {{email}}",
@@ -1300,6 +1302,7 @@
         "targetGone": "The target of this action no longer exists — you can retry it from the Mail page",
         "actionFailed": "This action could not be completed — you can retry it from the Mail page",
         "invalidChoice": "This proposal is no longer available",
+        "alreadyProposed": "That project already has an open proposal for this email",
         "forbidden": "You cannot confirm this proposal",
         "generic": "Could not confirm the proposal"
       }

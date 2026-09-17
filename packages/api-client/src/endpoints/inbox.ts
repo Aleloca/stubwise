@@ -30,7 +30,16 @@ export interface InboxFilters {
  * testo). La rotta è una sola per quattro azioni, e ognuna guarda solo i campi
  * che la riguardano.
  */
-export type InboxActionBody = { instructions?: string } | AnswerBody;
+/**
+ * `projectId` accompagna `optionIndex` SOLO quando l'opzione confermata è
+ * «Sposta su un altro progetto» (`reassign_project`, 17 set 2026). Su ogni
+ * altra azione il server lo RIFIUTA con `invalid_answer` — non lo ignora — e
+ * il motivo per cui questo caso non incrina l'invariante «solo l'indice
+ * viaggia» sta nel docblock di `inboxGoogleActionSchema` (`@stubwise/shared`).
+ */
+export type InboxAnswerBody = AnswerBody & { projectId?: string };
+
+export type InboxActionBody = { instructions?: string } | InboxAnswerBody;
 
 /**
  * Inbox personale: la superficie principale dell'app mobile.
@@ -96,7 +105,7 @@ export function createInboxEndpoints(request: ApiRequest) {
      * dell'app e merita un nome suo, ma DELEGA ad `act`: il path della rotta
      * azione è costruito in un posto solo.
      */
-    answer(id: string, answer: AnswerBody): Promise<Reader<InboxActionResult>> {
+    answer(id: string, answer: InboxAnswerBody): Promise<Reader<InboxActionResult>> {
       return act(id, "answer", answer);
     },
   };

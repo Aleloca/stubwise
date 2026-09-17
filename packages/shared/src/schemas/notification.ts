@@ -211,6 +211,21 @@ export const inboxGoogleActionTypeSchema = z.enum([
   "choose_project",
   /** Fase 7b: l'occorrenza di una serie con `action: "reminder"` — nessun oggetto creato. */
   "acknowledge_reminder",
+  /**
+   * 17 set 2026: sposta QUESTA proposta di posta su un altro progetto,
+   * rifacendone i suggerimenti col contesto di quel progetto.
+   *
+   * ⚠️ **NON è `choose_project`, ed è deliberato.** Quel nome ha già DUE
+   * semantiche opposte (sul padre riapre lo smistamento, sul figlio chiude
+   * con `reassigned_project`) che CLAUDE.md vieta esplicitamente di
+   * unificare: aggiungerne una terza allo stesso nome sarebbe precisamente
+   * l'errore che quell'invariante esiste per impedire.
+   *
+   * Offerta SOLO sulle proposte di posta figlie (`source: "email"`): mai sul
+   * calendario (che non ha fan-out — «di chi è» ha ancora una risposta sola)
+   * e mai su uno smistamento (che ha già `choose_project`).
+   */
+  "reassign_project",
   "ignore",
 ]);
 export type InboxGoogleActionType = z.infer<typeof inboxGoogleActionTypeSchema>;
@@ -226,6 +241,26 @@ export type InboxGoogleActionType = z.infer<typeof inboxGoogleActionTypeSchema>;
  * quel punto la conferma non sarebbe più "esegui la proposta che hai letto" ma
  * "esegui quello che il client dice". L'indice scelto è l'unico dato che
  * viaggia verso il server, esattamente come per la domanda dell'agente.
+ *
+ * ⚠️ **Dal 17 set 2026 c'è UNA eccezione, e va letta per il suo scopo, non
+ * come un'apertura.** L'azione `reassign_project` fa viaggiare un `projectId`
+ * dal client al server, in un campo a sé di `AnswerGoogleProposalInput` (mai
+ * dentro l'azione persistita, che non può portarlo: al momento della publish
+ * il progetto di destinazione non esiste ancora come dato — è ciò che
+ * l'utente sceglierà). **Non è ciò da cui questa invariante protegge**:
+ * l'invariante protegge dal client che rimanda MODIFICATO un campo della
+ * proposta che l'utente ha letto, e qui è il contrario — l'utente sta
+ * scegliendo deliberatamente qualcosa che nella proposta non c'è, ed è tutto
+ * il punto dell'azione. Non si esegue una proposta alterata: si esegue
+ * un'azione il cui unico contenuto È una scelta umana.
+ *
+ * Le tre condizioni che la tengono stretta stanno nel server
+ * (`answerGoogleProposal`), e vanno tutte e tre: `optionIndex` resta
+ * OBBLIGATORIO (si conferma comunque un'opzione letta); `projectId` è
+ * accettato SOLO quando l'azione risolta da quell'indice è
+ * `reassign_project`, e su ogni altra azione è RIFIUTATO — non ignorato,
+ * perché ignorarlo ne farebbe una porta di servizio che il prossimo che passa
+ * usa «tanto c'è»; il progetto viene validato, e l'ACL resta `mailbox_owner`.
  *
  * Lo schema è `z.object`, quindi STRIPPA i campi in più: un payload che ne
  * contenesse resta valido e la UI ne vede solo il tipo.

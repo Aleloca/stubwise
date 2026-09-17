@@ -157,7 +157,8 @@
         "proposalStale": "Questa proposta non è più disponibile.",
         "runNotStarted": "Il ticket è stato creato ma il lavoro non è partito: riprova ad avviarlo.",
         "forbidden": "Non hai i permessi per questa azione.",
-        "invalidAction": "Questa azione non è disponibile per questa riga."
+        "invalidAction": "Questa azione non è disponibile per questa riga.",
+        "alreadyProposed": "Su quel progetto c'è già una proposta aperta per questa email."
       },
       "waitingOnMaintainer": "Aspetta un maintainer.",
       "offlineAction": "Serve la rete",
@@ -190,8 +191,12 @@
           "record_decision": "Registra una decisione",
           "choose_project": "Scegli il progetto",
           "acknowledge_reminder": "Ho letto, non fare niente",
+          "reassign_project": "Sposta su un altro progetto",
           "ignore": "Non fare niente"
-        }
+        },
+        "reassignTitle": "Su quale progetto?",
+        "reassignEmpty": "Non c'è nessun altro progetto su cui spostarla.",
+        "reassignCancel": "Annulla"
       },
       "tabs": {
         "yours": "Tue · {{count}}",

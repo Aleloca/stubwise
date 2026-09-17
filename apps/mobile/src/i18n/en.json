@@ -157,7 +157,8 @@
         "proposalStale": "This proposal is no longer available.",
         "runNotStarted": "The ticket was created but the run didn't start: try starting it again.",
         "forbidden": "You don't have permission for this action.",
-        "invalidAction": "This action isn't available for this row."
+        "invalidAction": "This action isn't available for this row.",
+        "alreadyProposed": "That project already has an open proposal for this email."
       },
       "waitingOnMaintainer": "Waiting on a maintainer.",
       "offlineAction": "Needs network",
@@ -190,8 +191,12 @@
           "record_decision": "Record a decision",
           "choose_project": "Pick the project",
           "acknowledge_reminder": "Noted, do nothing",
+          "reassign_project": "Move to another project",
           "ignore": "Do nothing"
-        }
+        },
+        "reassignTitle": "Which project?",
+        "reassignEmpty": "There is no other project to move it to.",
+        "reassignCancel": "Cancel"
       },
       "tabs": {
         "yours": "Yours · {{count}}",

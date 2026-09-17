@@ -404,6 +404,29 @@ export type GoogleProposalAction =
    * interessa").
    */
   | { type: "acknowledge_reminder" }
+  /**
+   * 17 set 2026: sposta QUESTA proposta di posta su un altro progetto,
+   * rifacendone i suggerimenti col contesto di quel progetto.
+   *
+   * ⚠️ **NON è `choose_project`, ed è deliberato.** Quel nome ha già DUE
+   * semantiche opposte (sul padre riapre lo smistamento, sul figlio chiude
+   * con `reassigned_project` senza creare niente) che CLAUDE.md vieta
+   * esplicitamente di unificare: questa è una TERZA cosa — chiude la riga
+   * corrente E CREA quella sul progetto scelto — e aggiungerla a quel nome
+   * sarebbe precisamente l'errore che l'invariante esiste per impedire.
+   *
+   * **Nessun payload**: al momento della publish il progetto di destinazione
+   * non è conoscibile — è ciò che l'utente sceglierà. L'opzione persistita è
+   * un marcatore di CAPACITÀ (come `acknowledge_reminder`); il progetto
+   * arriva alla CONFERMA, in un campo a sé della richiesta. Il ragionamento
+   * per esteso sta nel docblock di `inboxGoogleActionSchema`
+   * (`@stubwise/shared`), accanto all'invariante che spiega.
+   *
+   * Generata SOLO sulle proposte di posta FIGLIE (fase 6b): mai sul
+   * calendario (uno-a-uno, «di chi è» ha già una risposta sola) e mai sullo
+   * smistamento (che ha già `choose_project`).
+   */
+  | { type: "reassign_project" }
   | { type: "ignore" };
 
 /** Il discriminante di {@link GoogleProposalAction}, per chi deve enumerarlo. */

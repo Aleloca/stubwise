@@ -173,6 +173,11 @@ function sendActionError(
       // fallita per un imprevisto DOPO. La riga sorgente è `failed` e resta
       // riproponibile dalla pagina Posta — qui si segnala solo il fallimento.
       return apiError(reply, 409, "action_failed", "This action could not be completed");
+    case "already_proposed":
+      // 409: la riattribuzione non si può fare perché su quel progetto una
+      // card c'è già. È un conflitto di stato vero, e va DETTO — non ingoiato
+      // come se il tap non fosse mai avvenuto.
+      return apiError(reply, 409, "already_proposed", "That project already has an open proposal for this email");
     case "run_not_started":
       // Riuscita a metà: il ticket c'è, il run no. 409 perché c'è qualcosa da
       // fare — aprire il ticket e lanciarlo a mano — non un errore del client
@@ -356,6 +361,13 @@ export async function inboxRoutes(instance: FastifyInstance): Promise<void> {
             instructions: z.string().max(4000).optional(),
             optionIndex: z.number().int().nonnegative().optional(),
             text: z.string().max(ANSWER_TEXT_MAX_CHARS).optional(),
+            // Solo per `answer` su una proposta di posta con l'azione
+            // `reassign_project`. Volutamente FUORI da `answerBodySchema`: là
+            // il refine dice «esattamente uno fra optionIndex e text», e
+            // questo campo è ortogonale ai due — accompagna l'indice, non lo
+            // sostituisce. Su ogni altra azione il servizio lo RIFIUTA
+            // (`invalid_answer`), non lo ignora.
+            projectId: z.uuid().optional(),
           })
           .nullish(),
         response: { 200: inboxActionResultSchema, ...actionErrorResponses },
@@ -387,8 +399,9 @@ export async function inboxRoutes(instance: FastifyInstance): Promise<void> {
         }
         answer = parsed.data;
       }
+      const projectId = request.body?.projectId;
       const payload = answer
-        ? { answer }
+        ? { answer, ...(projectId === undefined ? {} : { projectId }) }
         : instructions === undefined
           ? undefined
           : { instructions };

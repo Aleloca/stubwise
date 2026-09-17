@@ -2030,6 +2030,102 @@ describe("fase 4 — le righe pronte diventano proposte", () => {
     expect(event?.proposalId).toBe(childId);
   });
 
+  /**
+   * 17 set 2026 — IL MARCATORE DELLA RIATTRIBUZIONE.
+   *
+   * Una proposta spostata a mano su un altro progetto nasce `classified` col
+   * marcatore `needsReclassification`: prima di pubblicarla il poller ne rifà
+   * i suggerimenti col contesto del progetto NUOVO. Pubblicarla com'è
+   * significherebbe mostrare a chi legge dei suggerimenti costruiti su un
+   * progetto diverso da quello su cui la card vive.
+   */
+  it("il marcatore fa riclassificare col contesto del progetto NUOVO, e poi sparisce", async () => {
+    const wilco = await seedProject("Wilco");
+    const carelli = await seedProject("Carelli");
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    const [message] = await db
+      .insert(emailMessages)
+      .values({
+        accountId: account.id,
+        gmailMessageId: `m-${randomUUID()}`,
+        threadId: `t-${randomUUID()}`,
+        fromAddress: "cliente@cliente.com",
+        subject: "CARELLI — quattro punti prima del passaggio",
+        textExcerpt: "Ci servono quattro chiarimenti prima del passaggio.",
+        receivedAt: new Date("2026-09-17T08:00:00.000Z"),
+        projectId: wilco,
+        scopeProjectIds: [wilco],
+        status: "classified",
+      })
+      .returning({ id: emailMessages.id });
+    const [child] = await db
+      .insert(emailProposals)
+      .values({
+        emailMessageId: message!.id,
+        projectId: carelli,
+        status: "classified",
+        classification: {
+          signal: "request",
+          recommendedIndex: 0,
+          // La classificazione VECCHIA parla di Wilco: è ciò che il
+          // marcatore esiste per non far pubblicare.
+          proposals: [
+            { type: "create_backlog_item", projectId: wilco, title: "Export", consequence: "x" },
+          ],
+          reassignedFrom: wilco,
+          needsReclassification: true,
+        },
+      })
+      .returning({ id: emailProposals.id });
+
+    const runner = fakeRunner(
+      JSON.stringify({
+        signal: "request",
+        summary: "Chiede quattro chiarimenti.",
+        recommendedIndex: 0,
+        proposals: [
+          {
+            type: "create_backlog_item",
+            projectId: carelli,
+            title: "Quattro punti prima del passaggio",
+            consequence: "Entra nel backlog di Carelli.",
+          },
+        ],
+      }),
+    );
+
+    const stats = await pollGoogleOnce({ ...deps(account, fakeGmail({ listed: [] })), runner });
+
+    // ⚠️ QUALI progetti finiscono nel contesto, non solo «il run è avvenuto»:
+    // il perimetro imposto è il progetto NUOVO e SOLO quello.
+    expect(runner.calls).toHaveLength(1);
+    expect(runner.calls[0]!.prompt).toContain("Carelli");
+    expect(runner.calls[0]!.prompt).not.toContain("Wilco");
+
+    // Pubblicata, e senza più il marcatore: al giro dopo non si ripaga il run.
+    expect(stats.proposed).toBe(1);
+    const [after] = await db.select().from(emailProposals).where(eq(emailProposals.id, child!.id));
+    expect(after!.status).toBe("proposed");
+    expect(after!.proposalNotificationId).not.toBeNull();
+    expect(after!.classification).not.toHaveProperty("needsReclassification");
+  });
+
+  it("senza marcatore NON si riclassifica: nessun run in più", async () => {
+    // La guardia contro un batch che raddoppia la spesa AI di tutta la posta:
+    // una proposta normale si pubblica senza pagare un secondo run.
+    const projectId = await seedProject("negozio");
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    const { childId } = await seedClassified(account.id, projectId);
+    const runner = fakeRunner(IGNORED_OUTPUT);
+
+    const stats = await pollGoogleOnce({ ...deps(account, fakeGmail({ listed: [] })), runner });
+
+    expect(stats.proposed).toBe(1);
+    expect(runner.calls).toHaveLength(0);
+    const [child] = await db.select().from(emailProposals).where(eq(emailProposals.id, childId));
+    expect(child!.status).toBe("proposed");
+  });
+
   it("due figli dello stesso messaggio (progetti diversi) diventano DUE notifiche", async () => {
     // Il caso che il fan-out introduce: stesso mittente/oggetto, due progetti
     // del perimetro → due card, ciascuna col proprio figlio.

@@ -334,6 +334,42 @@ describe("buildQuestionBlocks", () => {
     return (blocks[1] as { text: { text: string } }).text.text;
   }
 
+  /**
+   * 17 set 2026 — «Sposta su un altro progetto» si LEGGE ma non si preme.
+   *
+   * Il bottone avrebbe bisogno di un dato che Slack non sa chiedere (quale
+   * progetto), quindi darebbe SEMPRE `invalid_answer`: è precisamente il
+   * "bottone che dà sempre errore" da cui `KINDS_WITH_OPTIONS` mette in
+   * guardia. L'opzione resta però nella sezione, numerata, con scritto dove
+   * si fa — toglierla nasconderebbe l'unica via per correggere
+   * un'attribuzione sbagliata.
+   */
+  it("l'opzione `reassign_project` non diventa un bottone, ma resta leggibile", () => {
+    const blocks = questionBlocks({
+      options: [
+        { label: "Aggiungi al backlog", consequence: "Entra nel backlog." },
+        { label: "Sposta su un altro progetto", consequence: "Ne nasce una sul progetto scelto." },
+        { label: "Non fare nulla" },
+      ],
+      actions: [{ type: "create_backlog_item" }, { type: "reassign_project" }, { type: "ignore" }],
+      allowFreeText: false,
+      recommendedIndex: 0,
+    });
+
+    // Gli indici NON si ricompattano: il bottone della terza opzione porta
+    // ancora `2`, non `1`. Ricompattarli registrerebbe una scelta DIVERSA da
+    // quella letta.
+    const answerIds = elementsOf(blocks)
+      .map((el) => el.action_id)
+      .filter((id) => id.startsWith("inbox:answer:"));
+    expect(answerIds).toEqual(["inbox:answer:0", "inbox:answer:2"]);
+
+    // E la riga c'è comunque, numerata come le altre, con il dove.
+    const section = JSON.stringify(blocks);
+    expect(section).toContain("Sposta su un altro progetto");
+    expect(section).toContain("dall'app o dal web");
+  });
+
   it("un bottone per opzione, poi Altro…, poi l'igiene dell'inbox", () => {
     const blocks = questionBlocks();
     expect(ids(blocks)).toEqual([

@@ -737,18 +737,42 @@ async function loadThreadContext(
 async function loadContext(
   db: Db,
   message: EmailMessageRow,
+  /**
+   * Perimetro IMPOSTO, che scavalca quello derivato dal messaggio (17 set
+   * 2026). Lo usa SOLO la riclassificazione di una proposta riattribuita
+   * ({@link reclassifyReassignedProposal}): lì il perimetro non è «di quali
+   * progetti parla il messaggio» — a quello il routing ha già risposto, e ha
+   * risposto male — ma «il progetto che una persona ha scelto», uno solo.
+   * Ogni altro chiamante lo omette e ottiene il comportamento di sempre.
+   */
+  overrideScope?: string[],
 ): Promise<ClassifyContext> {
   // Fallback per le righe pre fase 6b: `scopeProjectIds` ha default `'{}'`
   // (sempre un array, mai null/undefined), ma può essere VUOTO per i
   // messaggi ingeriti prima che il routing lo popolasse. In quel caso si
   // ricade sul comportamento precedente: il progetto risolto, o i candidati.
-  const derivedAllowed =
-    message.scopeProjectIds.length > 0
+  const derivedAllowed = overrideScope
+    ? overrideScope
+    : message.scopeProjectIds.length > 0
       ? message.scopeProjectIds
       : message.projectId
         ? [message.projectId]
         : message.candidateProjectIds;
   const cited = citedTicketNumbers(`${message.subject ?? ""}\n${message.textExcerpt ?? ""}`);
+
+  // ⚠️ Con un perimetro IMPOSTO di un solo progetto, `resolvedProjectId` è
+  // QUEL progetto e non quello del messaggio — che per una riattribuzione è
+  // proprio quello sbagliato. Non è un dettaglio: con un solo progetto
+  // elencato le istruzioni del prompt ESENTANO il modello dal ripetere
+  // `projectId` su ogni proposta, e `revalidateProposal` completa l'omissione
+  // da `ctx.resolvedProjectId`. Lasciandoci il progetto vecchio, ogni
+  // proposta senza `projectId` esplicito tornerebbe attribuita a quello da
+  // cui l'utente l'ha appena spostata. È lo stesso ragionamento del ramo
+  // `email_triage` di `choose_project` sul server.
+  const resolvedProjectId =
+    overrideScope !== undefined && overrideScope.length === 1
+      ? overrideScope[0]!
+      : message.projectId;
 
   // Perimetro vuoto (fase 6c): i candidati diventano tutti i progetti
   // dell'istanza. Nessun filtro su stato/archiviazione — lo schema non ne ha
@@ -775,7 +799,7 @@ async function loadContext(
     return {
       allowedProjectIds,
       perimeterOrder: allowed,
-      resolvedProjectId: message.projectId,
+      resolvedProjectId,
       projects: [],
       contextByProject: new Map(),
       citedTicketNumbers: cited,
@@ -859,7 +883,7 @@ async function loadContext(
   return {
     allowedProjectIds,
     perimeterOrder: allowed,
-    resolvedProjectId: message.projectId,
+    resolvedProjectId,
     projects: projectRows,
     contextByProject,
     citedTicketNumbers: cited,
@@ -1319,6 +1343,218 @@ async function writeClassification(
 
     return parentStatus;
   });
+}
+
+/**
+ * Il marcatore che una proposta RIATTRIBUITA porta nella sua `classification`
+ * finché il worker non l'ha rifatta (17 set 2026).
+ *
+ * ⚠️ **Sta nel jsonb, non in uno stato nuovo**, ed è la stessa scelta di
+ * `triage: true` della fase 6c: `email_proposals.status` finisce dritto in
+ * `mailItemStatusSchema`, che l'app mobile legge, e questo repo non ci paga
+ * etichette — è il motivo per cui il rifiuto sopravvenuto di un invito fu
+ * mappato su `ignored` invece di aggiungere `declined` a quell'enum. Qui è
+ * «una forma diversa dello stesso jsonb, letta in modo tollerante da chi la
+ * rilegge».
+ *
+ * Costo: zero migrazioni, zero colonne, zero enum toccati.
+ */
+export const REASSIGNED_MARKER = "needsReclassification";
+
+/** La proposta porta il marcatore di riattribuzione? Lettura TOLLERANTE: un jsonb qualunque non deve far saltare nulla. */
+export function needsReclassification(classification: unknown): boolean {
+  return (
+    typeof classification === "object" &&
+    classification !== null &&
+    (classification as Record<string, unknown>)[REASSIGNED_MARKER] === true
+  );
+}
+
+/** Il progetto DA CUI una proposta è stata spostata, se il marcatore lo dice. */
+export function reassignedFrom(classification: unknown): string | null {
+  if (!needsReclassification(classification)) return null;
+  const value = (classification as Record<string, unknown>)["reassignedFrom"];
+  return typeof value === "string" && value !== "" ? value : null;
+}
+
+/** Esito della riclassificazione di UNA proposta riattribuita. */
+export type ReclassifyOutcome = "reclassified" | "ignored" | "failed";
+
+/** La riga minima su cui {@link reclassifyReassignedProposal} lavora. */
+export interface ReassignedProposalRow {
+  id: string;
+  emailMessageId: string;
+  projectId: string;
+  classification: Record<string, unknown> | null;
+}
+
+/**
+ * Rifà i suggerimenti di UNA proposta appena riattribuita, col contesto del
+ * SOLO progetto su cui è stata spostata (17 set 2026, Task 3).
+ *
+ * ## ⚠️ Perché NON riusa `classifyEmail`
+ *
+ * `classifyEmail` classifica il MESSAGGIO e finisce in `writeClassification`,
+ * che fa il **fan-out** sull'intero perimetro: creerebbe e riscriverebbe le
+ * righe di TUTTI i progetti che combaciano, cioè esattamente le proposte
+ * SORELLE che l'invariante della fase 6b protegge («confermare una proposta
+ * non chiude le sorelle»). Qui si tocca UNA riga e nient'altro: un `update`
+ * su `email_proposals` per id, mai un insert, mai una delete, e il padre
+ * `email_messages` non viene sfiorato.
+ *
+ * Il run segue la dottrina di sempre (vedi il docblock del modulo): nessun
+ * tool, cwd temporanea VUOTA, `permissionMode: "default"`, e soprattutto la
+ * RIVALIDAZIONE di ogni referente che il modello nomina — un'azione che perde
+ * il suo referente sparisce.
+ *
+ * Se dalla rivalidazione non sopravvive nessuna proposta, la riga si chiude
+ * `ignored` con un esito che dice perché: una riattribuzione che non produce
+ * niente non deve restare appesa a occupare una card che non arriverà mai.
+ */
+export async function reclassifyReassignedProposal(
+  deps: ClassifyEmailDeps,
+  row: ReassignedProposalRow,
+): Promise<ReclassifyOutcome> {
+  const logger = deps.logger ?? defaultLogger;
+  const now = (deps.now ?? (() => new Date()))();
+
+  const [message] = await deps.db
+    .select()
+    .from(emailMessages)
+    .where(eq(emailMessages.id, row.emailMessageId));
+  if (!message) {
+    // Il padre è sparito (potatura, cancellazione da Gmail): la riga figlia
+    // sarebbe già stata portata via dal CASCADE, quindi qui ci si arriva solo
+    // in una corsa. Non c'è niente da riclassificare e niente da salvare.
+    logger.warn(`google: riattribuzione ${row.id}: messaggio padre sparito, salto`);
+    return "failed";
+  }
+
+  try {
+    // ⚠️ Il perimetro IMPOSTO: il solo progetto scelto dalla persona. Non
+    // quello del messaggio — che per una riattribuzione è quello sbagliato,
+    // ed è il motivo per cui l'azione esiste.
+    const ctx = await loadContext(deps.db, message, [row.projectId]);
+    if (ctx.allowedProjectIds.size === 0) {
+      // Il progetto è stato cancellato fra la riattribuzione e il tick.
+      await closeReassigned(deps.db, row.id, { type: "reassign_target_gone" });
+      return "ignored";
+    }
+
+    const raw = message.textExcerpt ?? "";
+    const truncated = raw.length > CLASSIFY_TEXT_MAX_CHARS;
+    const text = capText(raw, CLASSIFY_TEXT_MAX_CHARS, t(deps.lang, "email.input.truncated"));
+    const prompt = buildEmailSignalsPrompt(deps.lang, {
+      fromAddress: message.fromAddress,
+      fromName: message.fromName,
+      subject: message.subject,
+      text,
+      projects: ctx.projects.map((p) => {
+        const projectCtx = ctx.contextByProject.get(p.id);
+        return {
+          id: p.id,
+          name: p.name,
+          description: p.description,
+          backlogTitles: projectCtx?.backlogTitles ?? [],
+          openTickets: [...(projectCtx?.openTickets.entries() ?? [])].map(([number, ticket]) => ({
+            number,
+            title: ticket.title,
+            status: ticket.status,
+          })),
+        };
+      }),
+      citedTicketNumbers: ctx.citedTicketNumbers,
+      truncated,
+      threadMessages: await loadThreadContext(deps.db, message),
+      // ⚠️ Nessuna `openProposals`: quel blocco serve a decidere che rapporto
+      // ha un messaggio NUOVO con le card già aperte sul thread, e qui il
+      // messaggio non è nuovo — è lo stesso, su un altro progetto. Passarlo
+      // inviterebbe il modello a dichiarare `replaces` sulle SORELLE, che è
+      // esattamente ciò che questo percorso non deve poter fare.
+      openProposals: [],
+    });
+
+    const cwd = await mkdtemp(join(tmpdir(), "stubwise-email-reassign-"));
+    let result;
+    try {
+      result = await deps.runner.run({
+        cwd,
+        prompt,
+        ...(deps.model !== undefined ? { model: deps.model } : {}),
+        ...(deps.provider !== undefined ? { provider: deps.provider } : {}),
+        permissionMode: "default",
+        maxTurns: CLASSIFY_MAX_TURNS,
+        timeoutMs: CLASSIFY_TIMEOUT_MS,
+      });
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+    // Un run pagato si conta SEMPRE, anche se l'output è inservibile: stessa
+    // regola di `classifyEmail`, e stesso owner/phase — una riattribuzione
+    // erode lo stesso tetto giornaliero e lo stesso budget delle altre
+    // classificazioni, non un capitolo di spesa a sé.
+    await recordAgentRun(deps.db, {
+      emailMessageId: message.id,
+      phase: "email_classify",
+      ...(result.usage !== undefined ? { usage: result.usage } : {}),
+    });
+
+    const output = textFromRun(result);
+    const parsed = output === null ? null : parseAgentJson(emailSignalsSchema, output);
+    if (parsed === null) {
+      // Nessun ritentativo automatico, come per `classifyEmail`: ritentare su
+      // un output fuori schema è il modo di pagare lo stesso run all'infinito.
+      logger.warn(`google: riattribuzione ${row.id}: output non interpretabile`);
+      await closeReassigned(deps.db, row.id, { type: "reassign_failed" });
+      return "failed";
+    }
+
+    const classification = revalidateClassification(
+      parsed,
+      ctx,
+      now,
+      deps.maxProjectsPerMessage ?? GMAIL_MAX_PROJECTS_PER_MESSAGE,
+    );
+    const proposals = classification.proposals.filter((p) => p.projectId === row.projectId);
+    if (classification.signal === "none" || proposals.length === 0) {
+      // Niente da proporre su quel progetto: si chiude dicendo perché,
+      // invece di lasciare una riga che non diventerà mai una card.
+      await closeReassigned(deps.db, row.id, { type: "reassign_no_signal" });
+      return "ignored";
+    }
+
+    // ⚠️ UN update, per ID. Nessun insert, nessuna delete, nessun fan-out: le
+    // sorelle e il padre non sono nemmeno nella query. E il marcatore SPARISCE
+    // — è ciò che impedisce di riclassificare la stessa riga a ogni tick.
+    await deps.db
+      .update(emailProposals)
+      .set({
+        classification: {
+          signal: classification.signal,
+          summary: classification.summary,
+          proposals,
+          recommendedIndex: 0,
+        } as unknown as Record<string, unknown>,
+      })
+      .where(eq(emailProposals.id, row.id));
+    return "reclassified";
+  } catch (err) {
+    logger.warn(`google: riattribuzione ${row.id} fallita: ${errText(err)}`);
+    await closeReassigned(deps.db, row.id, { type: "reassign_failed" });
+    return "failed";
+  }
+}
+
+/** Chiude una riga riattribuita con un esito che dice perché, mai un `ignored` nudo. */
+async function closeReassigned(
+  db: Db,
+  proposalId: string,
+  outcome: { type: string },
+): Promise<void> {
+  await db
+    .update(emailProposals)
+    .set({ status: "ignored", outcome })
+    .where(eq(emailProposals.id, proposalId));
 }
 
 /**

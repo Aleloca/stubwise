@@ -1,6 +1,7 @@
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { InboxItem, Reader } from "@stubwise/shared";
 import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useBottomTabBarHeight } from "react-native-bottom-tabs";
@@ -120,7 +121,33 @@ function ProposalBody({
   onDone: () => void;
 }) {
   const { t } = useTranslation();
+  const { client } = useAuth();
   const google = item.google;
+  // «Sposta su un altro progetto» (17 set 2026): l'UNICA scelta di questa
+  // pagina che ha bisogno di un dato in più — quale progetto — e quindi
+  // l'unica che non esegue al tocco. Il tocco APRE l'elenco; è il tocco su un
+  // progetto a confermare. Nessuno stato nuovo nell'enum che l'app legge:
+  // quando la conferma parte, la card sparisce come per ogni altra azione.
+  const reassignIndex =
+    google?.actions.findIndex((action) => action.type === "reassign_project") ?? -1;
+  const [pickingProject, setPickingProject] = useState(false);
+  // Stessa chiave e stesso `staleTime` di `InboxCardScreen`: una richiesta
+  // sola. `enabled` la tiene spenta finché questa proposta non offre davvero
+  // la riattribuzione.
+  const projectsQuery = useQuery({
+    queryKey: ["projects", "list"],
+    queryFn: () => {
+      if (!client) throw new Error("GoogleProposalScreen richiede un client autenticato");
+      return client.projects.list();
+    },
+    enabled: client !== null && reassignIndex >= 0,
+    staleTime: 60_000,
+  });
+  // Il progetto CORRENTE è escluso: spostarla dov'è già non è una scelta, e
+  // il server la rifiuterebbe.
+  const reassignTargets = (projectsQuery.data ?? []).filter(
+    (project) => project.id !== item.projectId,
+  );
   const relative = relativeTimeCompact(item.createdAt);
   const when =
     relative.kind === "now"
@@ -164,7 +191,11 @@ function ProposalBody({
                 key={index}
                 accessibilityRole="button"
                 disabled={answer.disabled}
-                onPress={() => answer.mutate({ id: item.id, body: { optionIndex: index } })}
+                onPress={() =>
+                  index === reassignIndex
+                    ? setPickingProject(true)
+                    : answer.mutate({ id: item.id, body: { optionIndex: index } })
+                }
                 style={[styles.row, index > 0 && styles.rowDivided, answer.disabled && styles.rowDisabled]}
                 testID={`google-action-${index}`}
               >
@@ -180,6 +211,52 @@ function ProposalBody({
               </Pressable>
             ))}
           </View>
+          {pickingProject && reassignIndex >= 0 && (
+            <>
+              <SectionLabel style={styles.sectionLabel}>
+                {t("mobile.inbox.google.reassignTitle")}
+              </SectionLabel>
+              {reassignTargets.length === 0 ? (
+                <Text style={styles.note} testID="google-reassign-empty">
+                  {t("mobile.inbox.google.reassignEmpty")}
+                </Text>
+              ) : (
+                <View style={styles.card}>
+                  {reassignTargets.map((project, index) => (
+                    <Pressable
+                      key={project.id}
+                      accessibilityRole="button"
+                      disabled={answer.disabled}
+                      onPress={() =>
+                        answer.mutate({
+                          id: item.id,
+                          body: { optionIndex: reassignIndex, projectId: project.id },
+                        })
+                      }
+                      style={[
+                        styles.row,
+                        index > 0 && styles.rowDivided,
+                        answer.disabled && styles.rowDisabled,
+                      ]}
+                      testID={`google-reassign-project-${project.id}`}
+                    >
+                      <View style={styles.rowText}>
+                        <Text style={styles.rowLabel}>{project.name}</Text>
+                      </View>
+                      <Text style={styles.chevron}>›</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
+              <View style={styles.doneWrap}>
+                <GhostButton
+                  label={t("mobile.inbox.google.reassignCancel")}
+                  onPress={() => setPickingProject(false)}
+                  testID="google-reassign-cancel"
+                />
+              </View>
+            </>
+          )}
           {!answer.online && <Text style={styles.note}>{t("mobile.inbox.offlineAction")}</Text>}
         </>
       ) : (

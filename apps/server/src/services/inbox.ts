@@ -86,7 +86,11 @@ export type ExecuteActionError =
   // esiste più, oppure un imprevisto DOPO il claim ha lasciato la riga
   // sorgente `failed` — riproponibile, ma non da qui.
   | "target_gone"
-  | "action_failed";
+  | "action_failed"
+  // 17 set 2026, solo per `reassign_project`: sul progetto scelto c'è già una
+  // proposta aperta per questo messaggio. Non è un guasto — la card che si
+  // voleva creare esiste già — ed è un'informazione da MOSTRARE.
+  | "already_proposed";
 
 /**
  * Esito di {@link executeAction}. Il ramo di successo porta abbastanza contesto
@@ -155,7 +159,19 @@ export interface ExecuteActionInput {
    * Parametri dell'azione: `until` per lo snooze, `instructions` per il rifiuto,
    * `answer` per la risposta a una domanda dell'agente.
    */
-  payload?: { until?: SnoozeUntil; instructions?: string; answer?: AnswerInput };
+  payload?: {
+    until?: SnoozeUntil;
+    instructions?: string;
+    answer?: AnswerInput;
+    /**
+     * 17 set 2026, `google.proposal` + azione `reassign_project`: il progetto
+     * di destinazione, scelto alla conferma. È l'unico dato di payload che
+     * viaggia dal client in questa superficie, e le tre condizioni che lo
+     * tengono stretto vivono in `answerGoogleProposal` (dove sta anche il
+     * ragionamento su perché non incrina l'invariante dell'indice-solo).
+     */
+    projectId?: string;
+  };
   /** PUBLIC_URL, inoltrato a `startRun` per i link nelle notifiche che emette. */
   publicUrl?: string;
 }
@@ -284,6 +300,9 @@ export async function executeAction(
         ...(input.payload?.answer?.optionIndex === undefined
           ? {}
           : { optionIndex: input.payload.answer.optionIndex }),
+        // Inoltrato GREZZO: è `answerGoogleProposal` a decidere se quell'azione
+        // lo ammette — qui rifiutarlo sarebbe una seconda copia della regola.
+        ...(input.payload?.projectId === undefined ? {} : { projectId: input.payload.projectId }),
       });
       if (!answered.ok) {
         return {

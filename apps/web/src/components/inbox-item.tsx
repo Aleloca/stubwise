@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -18,7 +18,7 @@ import {
   type SnoozeUntil,
 } from "../lib/api";
 import { formatDateTime, formatRelativeTime } from "../lib/format";
-import { inboxKeys } from "../lib/queries";
+import { inboxKeys, projectsQueryOptions } from "../lib/queries";
 import { SignalBadge } from "./badges";
 import { answerErrorMessage, QuestionPanel } from "./question-panel";
 
@@ -165,6 +165,18 @@ export function InboxItemCard({
   // data, segnale); assente quando il payload non è leggibile o non è
   // allineato alle opzioni — la card resta comunque intera, solo senza contorno.
   const isGoogle = item.kind === "google.proposal";
+  // «Sposta su un altro progetto» (17 set 2026): il worker la genera SOLO
+  // sulle proposte di posta figlie, quindi sulle altre card questa costante
+  // resta `null` e niente di quanto segue si accende — nemmeno la query dei
+  // progetti.
+  const reassignIndex =
+    item.google?.actions.findIndex((action) => action.type === "reassign_project") ?? -1;
+  const hasReassign = reassignIndex >= 0;
+  const [reassignProjectId, setReassignProjectId] = useState("");
+  // Chiave condivisa con la pagina progetti: una sola richiesta anche con
+  // dieci card aperte. `enabled` la tiene spenta finché nessuna card offre la
+  // riattribuzione — l'inbox di chi non ha posta non deve pagarla.
+  const projectsQuery = useQuery({ ...projectsQueryOptions, enabled: hasReassign });
   // Nome del progetto: quello risolto dalla pagina, o — se la lista dei progetti
   // non lo conosce — quello che il pulse si porta nel payload.
   const displayProjectName = projectName ?? item.pulse?.projectName;
@@ -252,6 +264,12 @@ export function InboxItemCard({
         return t("inbox:google.errors.targetGone");
       case "action_failed":
         return t("inbox:google.errors.actionFailed");
+      case "already_proposed":
+        // 17 set 2026: NON è un guasto — su quel progetto una card c'è già, ed
+        // è un'informazione utile. Va mostrata, non ingoiata (il piano lo dice
+        // esplicitamente): la proposta resta aperta e si può scegliere un
+        // altro progetto.
+        return t("inbox:google.errors.alreadyProposed");
       case "invalid_answer":
         return t("inbox:google.errors.invalidChoice");
       case "forbidden":
@@ -565,7 +583,60 @@ export function InboxItemCard({
               : {})}
           pending={busy}
           error={error !== null && error.onPanel ? error.message : null}
-          onSubmit={(answer) => decide.mutate({ action: "answer", body: answer })}
+          // L'extra sotto l'opzione «Sposta su un altro progetto»: il progetto
+          // di destinazione. Il pannello non impara a conoscere la posta — sa
+          // solo se l'extra è completo (`ready`) — e il dato resta qui, che è
+          // anche l'unico punto che lo aggiunge al body.
+          {...(hasReassign
+            ? {
+                optionExtra: (index: number) =>
+                  index === reassignIndex
+                    ? {
+                        ready: reassignProjectId !== "",
+                        node: (
+                          <label className="mt-1 flex flex-col gap-1">
+                            <span className="font-mono text-[10px] tracking-[0.16em] text-fg-faint uppercase">
+                              {t("inbox:google.reassignLabel")}
+                            </span>
+                            <select
+                              value={reassignProjectId}
+                              disabled={busy}
+                              onChange={(event) => setReassignProjectId(event.target.value)}
+                              className="rounded-sm border border-line-strong bg-ink-950/70 px-2 py-1.5 text-sm text-fg transition-colors focus-visible:border-signal-dim disabled:opacity-50"
+                            >
+                              <option value="">{t("inbox:google.reassignPlaceholder")}</option>
+                              {/*
+                                `?? []`: sul web lo schema di risposta NON gira
+                                (`lib/api.ts` fa un cast, non un parse), quindi
+                                una lista assente resterebbe `undefined` e il
+                                `.map` farebbe smontare l'intera card.
+                                Il progetto CORRENTE della proposta è escluso:
+                                spostarla dov'è già non è una scelta, e il
+                                server la rifiuterebbe.
+                              */}
+                              {(projectsQuery.data ?? [])
+                                .filter((project) => project.id !== item.projectId)
+                                .map((project) => (
+                                  <option key={project.id} value={project.id}>
+                                    {project.name}
+                                  </option>
+                                ))}
+                            </select>
+                          </label>
+                        ),
+                      }
+                    : null,
+              }
+            : {})}
+          onSubmit={(answer) =>
+            decide.mutate({
+              action: "answer",
+              body:
+                hasReassign && answer.optionIndex === reassignIndex
+                  ? { ...answer, projectId: reassignProjectId }
+                  : answer,
+            })
+          }
         />
       )}
 

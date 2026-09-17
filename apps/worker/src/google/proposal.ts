@@ -219,6 +219,26 @@ function ignoreOption(lang: Language): OptionWithAction {
   };
 }
 
+/**
+ * L'opzione «Sposta su un altro progetto», offerta SOLO sulle proposte di
+ * posta FIGLIE (17 set 2026).
+ *
+ * Non ha payload, e non è una dimenticanza: al momento della publish il
+ * progetto di destinazione non esiste ancora come dato — è ciò che l'utente
+ * sceglierà. Vedi il docblock del tipo in `@stubwise/notifications/format.ts`.
+ *
+ * Sta FUORI da {@link MAX_PROPOSAL_OPTIONS}, come {@link ignoreOption}: quel
+ * tetto conta le proposte che il MODELLO ha fatto, e queste due non lo sono —
+ * sono le due uscite che ogni card di posta deve avere comunque.
+ */
+function reassignOption(lang: Language): OptionWithAction {
+  return {
+    label: t(lang, "email.proposal.reassign"),
+    consequence: t(lang, "email.proposal.reassignConsequence"),
+    action: { type: "reassign_project" },
+  };
+}
+
 /** Assembla l'evento dalle opzioni già decise: l'unico punto che le allinea. */
 function assembleEvent(args: {
   proposalId: string;
@@ -381,7 +401,7 @@ export function buildEmailProposalEvent(args: BuildEmailProposalArgs): GooglePro
     // nomina, mai `email.proposal.question` (quello resta per rileggere le
     // card storiche, non per costruirne di nuove).
     question: t(lang, "google.proposal.question.withProject", { project: projectName, from, subject }),
-    options: [...options, ignoreOption(lang)],
+    options: [...options, reassignOption(lang), ignoreOption(lang)],
     recommendedIndex,
   });
 }

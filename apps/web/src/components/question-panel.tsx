@@ -1,5 +1,5 @@
 import type { TFunction } from "i18next";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import {
   ANSWER_TEXT_MAX_CHARS,
@@ -110,6 +110,21 @@ export interface QuestionPanelProps {
    * partire un lavoro.
    */
   submitLabel?: string;
+  /**
+   * Contenuto EXTRA innestato sotto l'opzione SELEZIONATA, per le opzioni che
+   * hanno bisogno di un dato in più prima di poter essere confermate — oggi
+   * solo «Sposta su un altro progetto» (`reassign_project`, 17 set 2026), che
+   * deve chiedere QUALE progetto.
+   *
+   * Il DATO resta della superficie che lo innesta, non del pannello: qui
+   * arriva solo `ready`, cioè «l'extra è completo». Il pannello continua a
+   * mandare `{ optionIndex }` e basta, e chi ospita ci aggiunge il proprio
+   * campo — così l'invariante «l'indice viaggia da solo» resta scritta in un
+   * posto solo, e questo componente non impara a conoscere la posta.
+   *
+   * `null` = quell'opzione non ha extra (il caso di tutte le altre).
+   */
+  optionExtra?: (index: number) => { node: ReactNode; ready: boolean } | null;
 }
 
 /**
@@ -137,6 +152,7 @@ function QuestionPanelInner({
   error = null,
   showQuestionText = true,
   submitLabel,
+  optionExtra,
 }: QuestionPanelProps) {
   const { t } = useTranslation();
   // `null` = niente scelto: è lo stato iniziale ANCHE quando c'è una
@@ -152,7 +168,13 @@ function QuestionPanelInner({
   // aperto, senza un radio che sceglierebbe l'ovvio.
   const freeSelected = options === null || choice === "free";
   const trimmed = text.trim();
-  const canSubmit = !pending && (freeSelected ? trimmed.length > 0 : typeof choice === "number");
+  // L'extra dell'opzione SCELTA (se ne ha uno): finché non è completo, il
+  // bottone resta spento — mandare la conferma senza il dato che l'azione
+  // richiede produrrebbe solo un 400.
+  const extra = typeof choice === "number" ? (optionExtra?.(choice) ?? null) : null;
+  const canSubmit =
+    !pending &&
+    (freeSelected ? trimmed.length > 0 : typeof choice === "number" && (extra === null || extra.ready));
 
   // La consigliata si marca solo se l'indice cade DENTRO le opzioni mostrate:
   // un indice fuori range (payload divergente) non deve marcare nulla.
@@ -226,6 +248,7 @@ function QuestionPanelInner({
                     {option.consequence}
                   </p>
                 )}
+                {choice === index && extra !== null && <div className="pl-8">{extra.node}</div>}
               </div>
             );
           })}
