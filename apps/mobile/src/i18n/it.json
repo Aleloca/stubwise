@@ -814,7 +814,6 @@
       "comingSoonBody": "Questa impostazione è segnata qui perché sappiamo che ci andrà. Oggi non fa niente."
     },
     "search": {
-      "trigger": "Cerca",
       "openLabel": "Apri la ricerca",
       "title": "Cerca",
       "placeholder": "Ticket, progetti, documentazione, posta…",

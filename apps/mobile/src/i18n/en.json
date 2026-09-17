@@ -814,7 +814,6 @@
       "comingSoonBody": "This setting is listed because we know it belongs here. Today it does nothing."
     },
     "search": {
-      "trigger": "Search",
       "openLabel": "Open search",
       "title": "Search",
       "placeholder": "Tickets, projects, docs, mail…",
