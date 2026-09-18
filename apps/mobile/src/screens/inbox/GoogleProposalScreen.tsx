@@ -1,3 +1,4 @@
+import { useNavigation, type NavigationProp } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { InboxItem, Reader } from "@stubwise/shared";
 import { useQuery } from "@tanstack/react-query";
@@ -5,7 +6,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useBottomTabBarHeight } from "react-native-bottom-tabs";
-import type { InboxStackParamList } from "../../app/navigation";
+import type { InboxStackParamList, RootStackParamList } from "../../app/navigation";
 import { useAuth } from "../../app/providers";
 import { GhostButton } from "../../components/GhostButton";
 import { ScreenHeader } from "../../components/ScreenHeader";
@@ -182,6 +183,13 @@ function ProposalBody({
 
       <Text style={styles.text}>{item.text}</Text>
 
+      {/*
+        LA FONTE: il testo che la CLASSIFICAZIONE ha letto, sopra le scelte —
+        perché è ciò che permette di dire «sì, l'ha capita» o «no, ha
+        frainteso» prima di decidere, non dopo.
+      */}
+      <ProposalSource sourceProposalId={google?.sourceProposalId ?? null} />
+
       {options.length > 0 || fallback.length > 0 ? (
         <>
           <SectionLabel style={styles.sectionLabel}>{t("mobile.inbox.google.whatToDo")}</SectionLabel>
@@ -278,6 +286,118 @@ function ProposalBody({
   );
 }
 
+/**
+ * «Cosa ha letto Stubwise»: l'ESTRATTO passato alla classificazione, non
+ * l'email come si vede in Gmail (design §2).
+ *
+ * La distinzione è il valore di questo blocco, non un dettaglio: l'estratto è
+ * troncato, e di un thread la classificazione guarda l'ultimo messaggio
+ * ammesso. Quando i suggerimenti sembrano fuori bersaglio, è spesso la fonte a
+ * spiegarlo — il modello ha letto meno di quanto c'è. Mostrare l'email intera
+ * nasconderebbe proprio questo; per il resto c'è «apri la conversazione».
+ *
+ * ⚠️ **Il degrado non tocca mai le scelte.** Id assente (calendario,
+ * smistamento, card che il server non sa risolvere), rotta che fallisce,
+ * estratto vuoto: il blocco non compare e basta. Non sapere cosa ha letto il
+ * modello è un peccato; non poter decidere è un guasto — e questo componente
+ * sta in un ramo suo apposta, così un suo errore non può portarsi via i
+ * bottoni.
+ *
+ * ⚠️ Il testo è **NON FIDATO** (lo scrive chi manda l'email): esce da un
+ * `<Text>`, mai da niente che interpreti markup.
+ */
+function ProposalSource({ sourceProposalId }: { sourceProposalId: string | null }) {
+  const { t } = useTranslation();
+  const { client } = useAuth();
+  // Tipata sul ROOT: da qui si esce dallo stack Inbox per andare su MBX,
+  // stessa forma di `GlobalSearchSheet`.
+  const navigation = useNavigation<NavigationProp<RootStackParamList>>();
+  const [expanded, setExpanded] = useState(false);
+
+  const query = useQuery({
+    queryKey: ["mail", "detail", "email", sourceProposalId],
+    queryFn: () => {
+      if (!client) throw new Error("ProposalSource richiede un client autenticato");
+      // `source: "email"` vuole `email_proposals.id` — che è esattamente ciò
+      // che il server deriva a lettura in `sourceProposalId`.
+      return client.mail.get("email", sourceProposalId!);
+    },
+    // Chiesto SOLO qui, quando la schermata è aperta: una lista d'inbox con 30
+    // card non deve trasportare 30 estratti per mostrarne uno.
+    //
+    // ⚠️ **Qui è immediato, sul WEB si chiede al click, e la differenza è
+    // deliberata** — chi guarda i due componenti affiancati vede
+    // un'incoerenza, e non lo è. Dipende dalla forma delle due superfici: qui
+    // il dettaglio è una SCHERMATA, una proposta alla volta, quindi la
+    // richiesta è una; sul web la card d'inbox è già espansa DENTRO l'elenco,
+    // quindi un caricamento automatico ne farebbe una per ogni proposta
+    // visibile. Uniformarle peggiorerebbe una delle due: il ragionamento per
+    // esteso sta nel docblock di `ProposalSource` in
+    // `apps/web/src/components/inbox-item.tsx`.
+    enabled: client !== null && sourceProposalId !== null,
+    staleTime: 60_000,
+  });
+
+  if (sourceProposalId === null) return null;
+
+  if (query.isPending) {
+    return (
+      <>
+        <SectionLabel style={styles.sectionLabel}>
+          {t("mobile.inbox.google.sourceTitle")}
+        </SectionLabel>
+        {/* Uno scheletro, non un salto della pagina. */}
+        <Skeleton height={64} />
+      </>
+    );
+  }
+
+  const excerpt = query.data?.textExcerpt ?? null;
+  if (query.isError || excerpt === null || excerpt.trim() === "") return null;
+
+  return (
+    <>
+      <SectionLabel style={styles.sectionLabel}>
+        {t("mobile.inbox.google.sourceTitle")}
+      </SectionLabel>
+      <View style={styles.sourceCard}>
+        <Text
+          style={styles.sourceText}
+          {...(expanded ? {} : { numberOfLines: 6 })}
+          testID="google-proposal-source-text"
+        >
+          {excerpt}
+        </Text>
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => setExpanded((open) => !open)}
+          testID="google-proposal-source-toggle"
+        >
+          <Text style={styles.sourceLink}>
+            {t(expanded ? "mobile.inbox.google.sourceLess" : "mobile.inbox.google.sourceMore")}
+          </Text>
+        </Pressable>
+      </View>
+      {/*
+        Il resto della conversazione ha già la sua schermata: non si duplica
+        qui la lettura completa, si passa la mano a MBX.
+      */}
+      <Pressable
+        accessibilityRole="button"
+        onPress={() =>
+          navigation.navigate("Main", {
+            screen: "Mbx",
+            params: { screen: "MailDetail", params: { source: "email", id: sourceProposalId } },
+          })
+        }
+        testID="google-proposal-source-open"
+      >
+        <Text style={styles.sourceLink}>{t("mobile.inbox.google.sourceOpen")}</Text>
+      </Pressable>
+    </>
+  );
+}
+
 const styles = StyleSheet.create({
   container: { backgroundColor: colors.ink950, flex: 1 },
   body: { paddingHorizontal: 20 },
@@ -304,6 +424,21 @@ const styles = StyleSheet.create({
   rowConsequence: { color: colors.faint, fontFamily: fontFamily.sans, fontSize: 12 },
   chevron: { color: colors.faint, fontFamily: fontFamily.sans, fontSize: 20 },
   note: { color: colors.muted, fontFamily: fontFamily.sans, fontSize: 13, marginTop: 12 },
+  sourceCard: {
+    backgroundColor: colors.ink900,
+    borderColor: colors.line,
+    borderRadius: radii.control,
+    borderWidth: 1,
+    gap: 8,
+    padding: 14,
+  },
+  sourceText: { color: colors.muted, fontFamily: fontFamily.sans, fontSize: 14, lineHeight: 21 },
+  sourceLink: {
+    color: colors.signal,
+    fontFamily: fontFamily.mono,
+    fontSize: fontSize.label,
+    marginTop: 10,
+  },
   error: { color: colors.danger, fontFamily: fontFamily.sans, fontSize: 13, marginTop: 10 },
   doneWrap: { alignItems: "center", marginTop: 28 },
 });

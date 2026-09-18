@@ -1305,7 +1305,11 @@
         "alreadyProposed": "Su quel progetto c'è già una proposta aperta per questa email",
         "forbidden": "Non puoi confermare questa proposta",
         "generic": "Conferma della proposta non riuscita"
-      }
+      },
+      "sourceShow": "Mostra cosa ha letto Stubwise",
+      "sourceHide": "Nascondi cosa ha letto Stubwise",
+      "sourceLoading": "Carico l'estratto…",
+      "sourceUnavailable": "L'estratto non è disponibile per questa proposta."
     }
   },
   "question": {

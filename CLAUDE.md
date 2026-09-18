@@ -1151,6 +1151,42 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   marcatore `needsReclassification` senza nessuno che lo guardi: verrebbero
   pubblicate con la classificazione del progetto VECCHIO — è il motivo per non
   scendere di immagine sul solo worker dopo questo deploy.
+- **«Far vedere cosa ha generato una proposta» (18 set 2026)**: rebuild
+  **server + caddy** — il server DERIVA il campo nuovo, il bundle disegna il
+  blocco. **Il worker non c'entra**: non pubblica niente di diverso, ed è il
+  punto di tutta la funzione (vedi l'invariante «derivati a lettura» più
+  sotto). **Nessuna migrazione, nessuna colonna, nessuna rotta nuova, nessuna
+  env**: l'estratto era già in `email_messages.text_excerpt` e la rotta
+  (`GET /api/me/mail/:source/:id`) esisteva dalla 7b.
+  **Cosa fa**: il dettaglio di una proposta di POSTA mostra l'estratto che la
+  classificazione ha letto — non l'email come si vede in Gmail. La distinzione
+  è il valore della funzione, non un dettaglio: l'estratto è troncato a
+  `CLASSIFY_TEXT_MAX_CHARS` e di un thread si guarda **l'ultimo messaggio
+  ammesso**, quindi quando i suggerimenti sembrano fuori bersaglio è spesso la
+  fonte a spiegarlo — il modello ha letto meno di quanto c'è. È la stessa
+  distinzione fra `text_excerpt` ed `email_bodies` già scritta più sotto:
+  questa schermata vuole il PRIMO.
+  **Il calendario resta fuori, e si dice perché**: una proposta di calendario
+  non ha una classificazione AI (nasce da regole su titolo e partecipanti),
+  quindi «cosa ha letto il modello» lì non vuol dire niente. Il campo è `null`
+  anche per lo SMISTAMENTO, che vive sul padre senza riga `email_proposals`.
+  ⚠️ **Le due superfici si comportano DIVERSAMENTE, e non è un'incoerenza da
+  uniformare.** Sull'app il blocco si carica subito, perché lì il dettaglio è
+  una SCHERMATA — una proposta alla volta. Sul web la card d'inbox è già
+  espansa DENTRO l'elenco, quindi un caricamento automatico farebbe una
+  richiesta per ogni proposta di posta visibile: lì l'estratto si chiede al
+  click. È lo stesso conto che il design fa per non mettere l'estratto nella
+  risposta della lista, applicato al client.
+  **Degrado, uguale su entrambe**: id assente, rotta che fallisce o estratto
+  vuoto ⇒ il blocco non compare (o dice che non c'è) e **le scelte restano
+  premibili**. Non sapere cosa ha letto il modello è un peccato; non poter
+  decidere è un guasto.
+  **Rollback — innocuo**: nessun kind di notifica nuovo e nessun valore
+  aggiunto a un enum, quindi niente della famiglia del 500 su `/api/inbox`
+  delle fasi 2/5/6. Scendere di immagine sul server fa sparire il campo dalla
+  risposta: l'app (che parsa) legge `null` dal `.default`, il web legge
+  `undefined` e lo difende con `?? null` — in entrambi i casi il blocco non
+  compare e la card resta intera. Va sceso col caddy come sempre.
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
@@ -1194,6 +1230,41 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
      sotto). Chi in futuro aggiunge un'integrazione che esegue un DEPLOY
      (non un merge) rompe questa frase, non solo il codice: è un cambio di
      prodotto, non un dettaglio implementativo.
+- **I campi che un client legge su una card di inbox si DERIVANO A LETTURA,
+  non si scrivono nell'evento (18 set 2026).** `notifications.event` è un
+  jsonb **persistito al momento della publish**: un campo aggiunto lì ce
+  l'hanno solo le card pubblicate DOPO, e quelle già in inbox restano senza
+  **per sempre** — non c'è nessun processo che le riscriva.
+  **Non è teoria: è successo il 17 settembre.** `reassign_project` («Sposta su
+  un altro progetto») è stata aggiunta alle azioni che il worker scrive
+  nell'evento, quindi la scelta compariva solo sulle card nuove. Ce ne siamo
+  accorti quando il maintainer ha aperto una card più vecchia e il bottone non
+  c'era, e la riparazione è stata riscrivere **a mano il contenuto di 8
+  notifiche in produzione**.
+  **La forma giusta** è quella di `InboxGoogle.sourceProposalId`
+  (`packages/shared/src/schemas/notification.ts`): il campo non viene mai
+  scritto nel jsonb: `readGoogle` (`apps/server/src/services/inbox.ts`) lo
+  risolve dal DATABASE — la riga `email_proposals` che possiede la notifica —
+  e lo SOVRASCRIVE su quello che il payload dicesse. Vale per tutte le card,
+  vecchie e nuove, senza toccare una riga di dati. Il batch loader
+  (`sourceProposalIdsByNotification`) fa UNA query per pagina, non una per
+  card, come `usersById` accanto.
+  **Il corollario che vale la pena conoscere**: la derivazione non solo
+  raggiunge le card vecchie, **scavalca anche un jsonb sbagliato**.
+  `proposalId` nell'evento dovrebbe già essere `email_proposals.id`, ma lo è
+  solo dalle card successive al fix di App M3 Fase C — prima `assembleEvent`
+  ci scriveva un `randomUUID()` che non apre nessun dettaglio. Un campo
+  derivato non eredita quel difetto.
+  **Quando invece scrivere nell'evento è giusto**: per ciò che è vero SOLO al
+  momento della publish e non è più ricostruibile dopo (il testo della
+  domanda, le opzioni con le loro conseguenze, `auto` di una serie). La
+  domanda da farsi non è «è comodo averlo nel payload» ma «se lo derivassi
+  ora, otterrei la stessa risposta?»: se sì, va derivato. C'è un test che
+  fissa proprio il caso vecchio — `apps/server/src/services/inbox.test.ts`,
+  «CARD VECCHIA: un evento senza campi nuovi produce comunque l'id», che
+  asserisce anche che il valore derivato **non coincide** con quello del
+  jsonb (senza quella seconda asserzione il test passerebbe anche leggendo
+  dall'evento).
 - **Verso l'app mobile, solo cambi ADDITIVI — alle risposte E alle
   richieste.** L'app si aggiorna dagli store, non dai nostri deploy: per
   settimane un server nuovo parla a client vecchi. Aggiungere un campo è

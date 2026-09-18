@@ -130,6 +130,18 @@ describe("inboxItemSchema — il blocco google è additivo", () => {
     expect(parsed.success && parsed.data.subject).toBe("Export degli ordini");
   });
 
+  it("⚠️ `sourceProposalId` ASSENTE dal payload: il parse riesce e vale `null`", () => {
+    // La regola di CLAUDE.md sui cambi additivi: un campo nuovo in una
+    // risposta che l'app legge nasce `.default()` e arriva con un test che
+    // parsa una risposta SENZA di esso. Qui serve doppiamente, perché questo
+    // schema parsa anche il jsonb GREZZO dell'evento — dove il campo non c'è
+    // mai, per costruzione: è derivato a lettura e sovrascritto da
+    // `readGoogle`, mai scritto alla publish.
+    const parsed = inboxGoogleSchema.safeParse(google);
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data.sourceProposalId).toBeNull();
+  });
+
   it("un tipo d'azione sconosciuto invalida il blocco (la card degrada)", () => {
     // Meglio nessun contorno che un contorno che dice «esegui qualcosa» senza
     // saper dire cosa: chi legge omette il blocco e la card resta confermabile.

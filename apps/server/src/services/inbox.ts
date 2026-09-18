@@ -19,7 +19,16 @@
  * (`src/actions.ts`, coi loro test) e questo modulo li ri-esporta: gli import
  * dei suoi consumatori (rotte, test) restano validi.
  */
-import { aiJobs, notifications, prReviews, users, type Db } from "@stubwise/db";
+import {
+  aiJobs,
+  emailMessages,
+  emailProposals,
+  googleAccounts,
+  notifications,
+  prReviews,
+  users,
+  type Db,
+} from "@stubwise/db";
 import type { Language } from "@stubwise/i18n";
 import {
   actionsFor,
@@ -740,6 +749,13 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
     db,
     page.map((r) => r.handledByUserId),
   );
+  // Solo per le card di posta: le altre non hanno una riga `email_proposals` e
+  // la mappa resta vuota per loro.
+  const sourceProposalIds = await sourceProposalIdsByNotification(
+    db,
+    userId,
+    page.filter((r) => r.kind === "google.proposal").map((r) => r.id),
+  );
 
   const items = page.map((r): InboxItem => {
     return {
@@ -748,7 +764,7 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
       status: r.status,
       // La resa dal jsonb è l'unica parte che può esplodere: sta dentro il suo
       // recinto (vedi `renderItem`).
-      ...renderItem(r.event, r.kind, lang),
+      ...renderItem(r.event, r.kind, lang, sourceProposalIds.get(r.id) ?? null),
       // Il riassunto NON passa dal jsonb dell'evento: viene dalle colonne
       // (`ai_jobs.plan_summary`, `pr_reviews.pr_summary`) caricate in batch
       // sopra. Così una card mostra il riassunto anche quando è arrivato DOPO
@@ -884,6 +900,7 @@ function readGoogle(
   rawEvent: Record<string, unknown>,
   kind: NotificationKind,
   question: InboxQuestion | undefined,
+  sourceProposalId: string | null,
 ): InboxGoogle | undefined {
   if (kind !== "google.proposal") return undefined;
   // Senza domanda leggibile non c'è nessuna lista di opzioni con cui
@@ -893,7 +910,12 @@ function readGoogle(
   const parsed = inboxGoogleSchema.safeParse(rawEvent);
   if (!parsed.success) return undefined;
   if (parsed.data.actions.length !== question.options.length) return undefined;
-  return parsed.data;
+  // ⚠️ L'id della FONTE arriva da fuori — dal database, non dal jsonb — e
+  // SOVRASCRIVE qualunque cosa il payload dicesse. Vedi il docblock del campo
+  // in `@stubwise/shared`: derivarlo a lettura è ciò che lo fa funzionare
+  // anche sulle card pubblicate mesi fa. Il `safeParse` qui sopra ha già
+  // messo `null` di default, quindi questa riga è l'UNICA sorgente del valore.
+  return { ...parsed.data, sourceProposalId };
 }
 
 /**
@@ -928,10 +950,11 @@ function renderItem(
   rawEvent: Record<string, unknown>,
   kind: NotificationKind,
   lang: Language,
+  sourceProposalId: string | null,
 ): { text: string; url?: string; question?: InboxQuestion; pulse?: InboxPulse; google?: InboxGoogle } {
   const question = readQuestion(rawEvent, kind);
   const pulse = readPulse(rawEvent, kind, question);
-  const google = readGoogle(rawEvent, kind, question);
+  const google = readGoogle(rawEvent, kind, question, sourceProposalId);
   // I blocchi opzionali della card, insieme: degradano tutti ad assenti e
   // nessuno di loro deve poter far saltare la resa del testo.
   const optionsPart = {
@@ -1078,6 +1101,56 @@ function summaryForItem(
   const prUrl = rawEvent.prUrl;
   if (typeof prUrl !== "string" || prUrl === "") return undefined;
   return prSummaryByTicketAndUrl.get(`${row.ticketId}|${prUrl}`);
+}
+
+/**
+ * Notifica → `email_proposals.id` della riga che la possiede, per il batch, in
+ * UNA query (stessa forma di {@link usersById}: l'inbox non fa una query per
+ * card).
+ *
+ * È la derivazione a lettura di `InboxGoogle.sourceProposalId` — il perché sta
+ * nel docblock di quel campo in `@stubwise/shared`, e in breve: scriverlo nel
+ * jsonb alla publish lo darebbe solo alle card future.
+ *
+ * ⚠️ **Il filtro su `google_accounts.user_id` è difesa in profondità, e va
+ * tenuto.** A rigore è ridondante — `listInbox` seleziona già le sole notifiche
+ * di `userId`, quindi una card di un altro non arriva qui — ma è proprio il
+ * controllo che questo batch potrebbe far saltare: se un domani questa
+ * derivazione venisse riusata da un percorso che NON ha già ristretto le
+ * notifiche, senza il join l'id di un messaggio altrui uscirebbe. Il testo di
+ * un'email è privato del proprietario della casella (audience
+ * `mailbox_owner`), e lì nessun ruolo scavalca — nemmeno un admin. C'è un test
+ * negativo che lo presidia.
+ *
+ * Le notifiche senza riga corrispondente — calendario, smistamento, card
+ * pubblicate quando la tabella non esisteva — semplicemente non compaiono
+ * nella mappa, e il chiamante legge `null`.
+ */
+async function sourceProposalIdsByNotification(
+  db: Db,
+  userId: string,
+  notificationIds: string[],
+): Promise<Map<string, string>> {
+  const byNotification = new Map<string, string>();
+  if (notificationIds.length === 0) return byNotification;
+  const rows = await db
+    .select({
+      notificationId: emailProposals.proposalNotificationId,
+      proposalId: emailProposals.id,
+    })
+    .from(emailProposals)
+    .innerJoin(emailMessages, eq(emailMessages.id, emailProposals.emailMessageId))
+    .innerJoin(googleAccounts, eq(googleAccounts.id, emailMessages.accountId))
+    .where(
+      and(
+        inArray(emailProposals.proposalNotificationId, notificationIds),
+        eq(googleAccounts.userId, userId),
+      ),
+    );
+  for (const row of rows) {
+    if (row.notificationId !== null) byNotification.set(row.notificationId, row.proposalId);
+  }
+  return byNotification;
 }
 
 /** Id → { id, email } per gli utenti del batch, in UNA query. */
