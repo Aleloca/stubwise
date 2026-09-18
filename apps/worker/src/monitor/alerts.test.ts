@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { serverMetrics, serverProjects, servers, serviceChecks, type Db } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { AlertThresholds } from "@stubwise/shared";
@@ -40,7 +41,7 @@ function collector(): {
     publish: async (_db, e, o) => {
       events.push(e);
       opts.push(o ?? {});
-      return { published: 1 };
+      return { published: 1, notificationIds: [randomUUID()] };
     },
   };
 }

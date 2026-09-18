@@ -4,7 +4,7 @@ import type { PublishOpts } from "@stubwise/notifications";
 import type { AgentQuestionAnswer } from "@stubwise/shared";
 import { asc, eq } from "drizzle-orm";
 import { execa } from "execa";
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -1305,7 +1305,7 @@ describe("runFix", () => {
             event: event as unknown as { kind: string; summary?: string },
             opts: opts ?? {},
           });
-          return { published: 1 };
+          return { published: 1, notificationIds: [randomUUID()] };
         },
       }),
       job,
@@ -2059,7 +2059,7 @@ describe("runFix — notifiche", () => {
         publicUrl: "https://stubwise.example.com",
         publish: async (_db, event, opts) => {
           calls.push({ event: event as unknown as Dispatched, opts: opts ?? {} });
-          return { published: 1 };
+          return { published: 1, notificationIds: [randomUUID()] };
         },
       }),
       job,
@@ -2095,7 +2095,7 @@ describe("runFix — notifiche", () => {
         publicUrl: "https://stubwise.example.com",
         publish: async (_db, event, opts) => {
           calls.push({ event: event as unknown as Dispatched, opts: opts ?? {} });
-          return { published: 1 };
+          return { published: 1, notificationIds: [randomUUID()] };
         },
       }),
       job,
@@ -2131,7 +2131,7 @@ describe("runFix — notifiche", () => {
         summariesEnabled: true,
         publish: async (_db, event) => {
           notifyOrder.push(`notify:${(event as { kind: string }).kind}`);
-          return { published: 1 };
+          return { published: 1, notificationIds: [randomUUID()] };
         },
       }),
       job,
@@ -2230,7 +2230,7 @@ describe("runFix — notifiche", () => {
         publicUrl: "https://stubwise.example.com",
         publish: async (_db, event, opts) => {
           calls.push({ event: event as unknown as Dispatched, opts: opts ?? {} });
-          return { published: 1 };
+          return { published: 1, notificationIds: [randomUUID()] };
         },
       }),
       job,
@@ -2278,7 +2278,7 @@ describe("runFix — budget di costo (Task 6)", () => {
         ticketCostUsdFn: async () => 0,
         publish: async (_db, event, opts) => {
           calls.push({ event: event as unknown as BudgetDispatched, opts: opts ?? {} });
-          return { published: 1 };
+          return { published: 1, notificationIds: [randomUUID()] };
         },
       }),
       job,
@@ -2362,7 +2362,7 @@ describe("runFix — budget di costo (Task 6)", () => {
         ticketCostUsdFn: async () => 3, // >= 2.5 → sforato
         publish: async (_db, event, opts) => {
           calls.push({ event: event as unknown as BudgetDispatched, opts: opts ?? {} });
-          return { published: 1 };
+          return { published: 1, notificationIds: [randomUUID()] };
         },
       }),
       job,
@@ -2460,7 +2460,7 @@ describe("runFix — budget di costo (Task 6)", () => {
         monthlyCostUsdFn: async () => 0,
         publish: async (_db, event, opts) => {
           calls.push({ event: event as unknown as BudgetDispatched, opts: opts ?? {} });
-          return { published: 1 };
+          return { published: 1, notificationIds: [randomUUID()] };
         },
       }),
       job,
@@ -3267,7 +3267,7 @@ describe("runFix — domanda dell'agente (ask_user)", () => {
         publicUrl: "https://stubwise.example.com",
         publish: async (_db, event, opts) => {
           calls.push({ event: event as unknown as QuestionDispatched, opts: opts ?? {} });
-          return { published: 1 };
+          return { published: 1, notificationIds: [randomUUID()] };
         },
       }),
       job,

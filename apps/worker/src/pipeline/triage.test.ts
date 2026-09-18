@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   agentRuns,
   aiJobs,
@@ -771,7 +772,7 @@ describe("runTriage", () => {
         summariesEnabled: true,
         publish: async (_db, event) => {
           notifyOrder.push(`notify:${(event as { kind: string }).kind}`);
-          return { published: 1 };
+          return { published: 1, notificationIds: [randomUUID()] };
         },
       }),
       job,
@@ -937,7 +938,7 @@ describe("runTriage — notifiche", () => {
         publicUrl: "https://stubwise.example.com",
         publish: async (_db, event, opts) => {
           calls.push({ event: event as unknown as Dispatched, opts: opts ?? {} });
-          return { published: 1 };
+          return { published: 1, notificationIds: [randomUUID()] };
         },
       }),
       job,
@@ -965,7 +966,7 @@ describe("runTriage — notifiche", () => {
         publicUrl: "https://stubwise.example.com",
         publish: async (_db, event, opts) => {
           calls.push({ event: event as unknown as Dispatched, opts: opts ?? {} });
-          return { published: 1 };
+          return { published: 1, notificationIds: [randomUUID()] };
         },
       }),
       job,
@@ -989,7 +990,7 @@ describe("runTriage — notifiche", () => {
       makeDeps(runner, {
         publish: async (_db, event, opts) => {
           calls.push({ event: event as unknown as Dispatched, opts: opts ?? {} });
-          return { published: 1 };
+          return { published: 1, notificationIds: [randomUUID()] };
         },
       }),
       job,

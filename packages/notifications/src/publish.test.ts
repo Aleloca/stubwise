@@ -204,7 +204,11 @@ describe("publishNotification", () => {
 
     const result = await publishNotification(db, prOpened, { projectId, ticketId });
 
-    expect(result).toEqual({ published: 2 });
+    expect(result.published).toBe(2);
+    // 18 set 2026: gli id delle righe scritte ESCONO dalla publish, uno per
+    // destinatario. È ciò che evita a chi le ha scritte di doverle ritrovare
+    // cercandole nel jsonb — vedi il docblock di `publishNotification`.
+    expect(result.notificationIds).toHaveLength(2);
     const rows = await db.select().from(notifications);
     expect(rows).toHaveLength(2);
     expect(rows.map((row) => row.userId).sort()).toEqual([adminId, followerId].sort());
@@ -226,7 +230,10 @@ describe("publishNotification", () => {
 
     const result = await publishNotification(db, prOpened, { projectId, ticketId });
 
-    expect(result).toEqual({ published: 3 });
+    expect(result.published).toBe(3);
+    // Gli id delle righe scritte escono dalla publish (18 set 2026): uno per
+    // destinatario. È ciò che evita a chi le ha scritte di ritrovarle cercandole.
+    expect(result.notificationIds).toHaveLength(3);
     const rows = await db.select().from(notifications);
     expect(rows.map((row) => row.userId).sort()).toEqual([adminId, followerId, outsiderId].sort());
   });
@@ -260,7 +267,10 @@ describe("publishNotification", () => {
 
     const result = await publishNotification(db, prOpened, { projectId, ticketId });
 
-    expect(result).toEqual({ published: 1 });
+    expect(result.published).toBe(1);
+    // Gli id delle righe scritte escono dalla publish (18 set 2026): uno per
+    // destinatario. È ciò che evita a chi le ha scritte di ritrovarle cercandole.
+    expect(result.notificationIds).toHaveLength(1);
     expect(await db.select().from(notificationDeliveries)).toHaveLength(0);
   });
 
@@ -273,7 +283,10 @@ describe("publishNotification", () => {
 
     const result = await publishNotification(db, prOpened, { projectId, ticketId });
 
-    expect(result).toEqual({ published: 1 });
+    expect(result.published).toBe(1);
+    // Gli id delle righe scritte escono dalla publish (18 set 2026): uno per
+    // destinatario. È ciò che evita a chi le ha scritte di ritrovarle cercandole.
+    expect(result.notificationIds).toHaveLength(1);
     const deliveries = await db.select().from(notificationDeliveries);
     expect(deliveries.map((row) => row.channel)).toEqual(["push"]);
     const [delivery] = deliveries;
@@ -298,7 +311,10 @@ describe("publishNotification", () => {
       const result = await publishNotification(db, prOpened, { projectId, ticketId });
 
       // La notifica in inbox nasce lo stesso: a mancare è solo il recapito.
-      expect(result).toEqual({ published: 1 });
+      expect(result.published).toBe(1);
+      // Gli id delle righe scritte escono dalla publish (18 set 2026): uno per
+      // destinatario. È ciò che evita a chi le ha scritte di ritrovarle cercandole.
+      expect(result.notificationIds).toHaveLength(1);
       expect(await db.select().from(notificationDeliveries)).toHaveLength(0);
     },
   );
@@ -310,7 +326,10 @@ describe("publishNotification", () => {
 
     const result = await publishNotification(db, prOpened, { projectId, ticketId });
 
-    expect(result).toEqual({ published: 1 });
+    expect(result.published).toBe(1);
+    // Gli id delle righe scritte escono dalla publish (18 set 2026): uno per
+    // destinatario. È ciò che evita a chi le ha scritte di ritrovarle cercandole.
+    expect(result.notificationIds).toHaveLength(1);
     expect(await db.select().from(notificationDeliveries)).toHaveLength(0);
   });
 
@@ -325,7 +344,10 @@ describe("publishNotification", () => {
 
     const result = await publishNotification(db, prOpened, { projectId, ticketId });
 
-    expect(result).toEqual({ published: 1 });
+    expect(result.published).toBe(1);
+    // Gli id delle righe scritte escono dalla publish (18 set 2026): uno per
+    // destinatario. È ciò che evita a chi le ha scritte di ritrovarle cercandole.
+    expect(result.notificationIds).toHaveLength(1);
     const deliveries = await db.select().from(notificationDeliveries);
     // Una push (non due: il ventaglio sui token è del poller) e il DM Slack,
     // che il ramo push non deve aver mangiato.
@@ -342,7 +364,11 @@ describe("publishNotification", () => {
 
     // Due destinatari, un solo device: se l'`exists` non fosse correlato
     // all'utente, il device di uno varrebbe come recapito anche per l'altro.
-    expect(result).toEqual({ published: 2 });
+    expect(result.published).toBe(2);
+    // 18 set 2026: gli id delle righe scritte ESCONO dalla publish, uno per
+    // destinatario. È ciò che evita a chi le ha scritte di doverle ritrovare
+    // cercandole nel jsonb — vedi il docblock di `publishNotification`.
+    expect(result.notificationIds).toHaveLength(2);
     const deliveries = await db.select().from(notificationDeliveries);
     expect(deliveries).toHaveLength(1);
     const [withDeviceNotification] = await db
@@ -402,7 +428,10 @@ describe("publishNotification", () => {
 
     const result = await publishNotification(db, planReview, { projectId, ticketId });
 
-    expect(result).toEqual({ published: 1 });
+    expect(result.published).toBe(1);
+    // Gli id delle righe scritte escono dalla publish (18 set 2026): uno per
+    // destinatario. È ciò che evita a chi le ha scritte di ritrovarle cercandole.
+    expect(result.notificationIds).toHaveLength(1);
     const rows = await db.select().from(notifications);
     expect(rows).toHaveLength(1);
     expect(rows[0]?.userId).toBe(adminId);
@@ -426,7 +455,11 @@ describe("publishNotification", () => {
 
     // Admin + richiedente. Il follower del progetto NON riceve la domanda:
     // rispondere è una decisione, non un aggiornamento di avanzamento.
-    expect(result).toEqual({ published: 2 });
+    expect(result.published).toBe(2);
+    // 18 set 2026: gli id delle righe scritte ESCONO dalla publish, uno per
+    // destinatario. È ciò che evita a chi le ha scritte di doverle ritrovare
+    // cercandole nel jsonb — vedi il docblock di `publishNotification`.
+    expect(result.notificationIds).toHaveLength(2);
     const rows = await db.select().from(notifications);
     expect(rows.map((row) => row.userId).sort()).toEqual([adminId, outsiderId].sort());
     expect(rows.map((row) => row.userId)).not.toContain(followerId);
@@ -454,7 +487,10 @@ describe("publishNotification", () => {
       jobId: job.id,
     });
 
-    expect(result).toEqual({ published: 1 });
+    expect(result.published).toBe(1);
+    // Gli id delle righe scritte escono dalla publish (18 set 2026): uno per
+    // destinatario. È ciò che evita a chi le ha scritte di ritrovarle cercandole.
+    expect(result.notificationIds).toHaveLength(1);
     const rows = await db.select().from(notifications);
     expect(rows[0]?.userId).toBe(adminId);
   });
@@ -467,7 +503,11 @@ describe("publishNotification", () => {
 
     const result = await publishNotification(db, projectPulse, { projectId });
 
-    expect(result).toEqual({ published: 2 });
+    expect(result.published).toBe(2);
+    // 18 set 2026: gli id delle righe scritte ESCONO dalla publish, uno per
+    // destinatario. È ciò che evita a chi le ha scritte di doverle ritrovare
+    // cercandole nel jsonb — vedi il docblock di `publishNotification`.
+    expect(result.notificationIds).toHaveLength(2);
     const rows = await db.select().from(notifications);
     expect(rows.map((row) => row.userId).sort()).toEqual([adminId, followerId].sort());
     expect(rows.map((row) => row.userId)).not.toContain(outsiderId);
@@ -495,7 +535,10 @@ describe("publishNotification", () => {
       mailboxOwnerUserId: outsiderId,
     });
 
-    expect(result).toEqual({ published: 1 });
+    expect(result.published).toBe(1);
+    // Gli id delle righe scritte escono dalla publish (18 set 2026): uno per
+    // destinatario. È ciò che evita a chi le ha scritte di ritrovarle cercandole.
+    expect(result.notificationIds).toHaveLength(1);
     const rows = await db.select().from(notifications);
     expect(rows).toHaveLength(1);
     expect(rows[0]?.userId).toBe(outsiderId);
@@ -514,7 +557,7 @@ describe("publishNotification", () => {
     // perdere l'evento" si vedrebbe qui.
     await seedScenario();
 
-    expect(await publishNotification(db, googleProposal, {})).toEqual({ published: 0 });
+    expect(await publishNotification(db, googleProposal, {})).toEqual({ published: 0, notificationIds: [] });
     expect(await db.select().from(notifications)).toHaveLength(0);
   });
 
@@ -537,7 +580,10 @@ describe("publishNotification", () => {
 
     // Il proprietario della casella riceve comunque la sua notifica in inbox:
     // la guardia esclude SOLO il webhook, non le altre vie di consegna.
-    expect(result).toEqual({ published: 1 });
+    expect(result.published).toBe(1);
+    // Gli id delle righe scritte escono dalla publish (18 set 2026): uno per
+    // destinatario. È ciò che evita a chi le ha scritte di ritrovarle cercandole.
+    expect(result.notificationIds).toHaveLength(1);
     expect(
       await db
         .select()
@@ -558,7 +604,7 @@ describe("publishNotification", () => {
 
     const result = await publishNotification(db, googleProposal, {});
 
-    expect(result).toEqual({ published: 0 });
+    expect(result).toEqual({ published: 0, notificationIds: [] });
     expect(await db.select().from(notifications)).toHaveLength(0);
     expect(await db.select().from(notificationDeliveries)).toHaveLength(0);
   });
@@ -569,7 +615,11 @@ describe("publishNotification", () => {
     await expect(
       db.transaction(async (tx) => {
         const result = await publishNotification(tx, prOpened, { projectId, ticketId });
-        expect(result).toEqual({ published: 2 });
+        expect(result.published).toBe(2);
+    // 18 set 2026: gli id delle righe scritte ESCONO dalla publish, uno per
+    // destinatario. È ciò che evita a chi le ha scritte di doverle ritrovare
+    // cercandole nel jsonb — vedi il docblock di `publishNotification`.
+    expect(result.notificationIds).toHaveLength(2);
         throw new Error("rollback voluto");
       }),
     ).rejects.toThrow("rollback voluto");
@@ -592,7 +642,7 @@ describe("publishNotification", () => {
     } as unknown as Db;
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    await expect(publishNotification(broken, prOpened, {})).resolves.toEqual({ published: 0 });
+    await expect(publishNotification(broken, prOpened, {})).resolves.toEqual({ published: 0, notificationIds: [] });
 
     // Il valore di ritorno non lo guarda nessun chiamante: il log è l'UNICA
     // traccia che la notifica è sparita, e deve dire quale kind e perché.
@@ -616,7 +666,7 @@ describe("publishNotification", () => {
         projectId: projectIdFantasma,
         ticketId,
       });
-      expect(result).toEqual({ published: 0 });
+      expect(result).toEqual({ published: 0, notificationIds: [] });
       // La transazione del chiamante è ancora usabile: se il savepoint non ci
       // fosse, qui Postgres risponderebbe "current transaction is aborted".
       await tx
@@ -644,7 +694,10 @@ describe("publishNotification", () => {
 
     const result = await publishNotification(db, prOpened, { projectId, ticketId, jobId: job.id });
 
-    expect(result).toEqual({ published: 3 });
+    expect(result.published).toBe(3);
+    // Gli id delle righe scritte escono dalla publish (18 set 2026): uno per
+    // destinatario. È ciò che evita a chi le ha scritte di ritrovarle cercandole.
+    expect(result.notificationIds).toHaveLength(3);
     const rows = await db.select().from(notifications);
     // L'outsider non segue il progetto e non è assegnatario: arriva solo perché
     // ha lanciato lui il job.
@@ -660,7 +713,11 @@ describe("publishNotification", () => {
 
     const result = await publishNotification(db, prOpened, { ticketId });
 
-    expect(result).toEqual({ published: 2 });
+    expect(result.published).toBe(2);
+    // 18 set 2026: gli id delle righe scritte ESCONO dalla publish, uno per
+    // destinatario. È ciò che evita a chi le ha scritte di doverle ritrovare
+    // cercandole nel jsonb — vedi il docblock di `publishNotification`.
+    expect(result.notificationIds).toHaveLength(2);
     const rows = await db.select().from(notifications);
     expect(rows.map((row) => row.userId).sort()).toEqual([adminId, outsiderId].sort());
     for (const row of rows) {
@@ -675,7 +732,7 @@ describe("publishNotification", () => {
 
     const result = await publishNotification(db, prOpened, { projectId, ticketId });
 
-    expect(result).toEqual({ published: 0 });
+    expect(result).toEqual({ published: 0, notificationIds: [] });
     expect(await db.select().from(notifications)).toHaveLength(0);
     const deliveries = await db.select().from(notificationDeliveries);
     expect(deliveries).toHaveLength(1);
@@ -690,7 +747,7 @@ describe("publishNotification", () => {
 
     const result = await publishNotification(db, prOpened, { projectId, ticketId });
 
-    expect(result).toEqual({ published: 0 });
+    expect(result).toEqual({ published: 0, notificationIds: [] });
     expect(
       await db.select().from(notifications).where(inArray(notifications.userId, [memberId])),
     ).toHaveLength(0);

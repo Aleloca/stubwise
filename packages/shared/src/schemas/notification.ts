@@ -318,16 +318,36 @@ export const inboxGoogleSchema = z.object({
    * costruito su un id casuale. `.optional()`: un payload scritto prima di
    * questo campo non ce l'ha.
    *
-   * ⚠️ **E `proposalId` deve RESTARE casuale per il calendario**, anche se è
-   * tentante renderlo stabile ora che una schermata calendario esiste (App
-   * M3, Fase D): è la chiave di CLAIM di `propagateHandled`, e
-   * `publishProposal` ritrova la notifica appena scritta proprio con
-   * `event->>'proposalId' = … limit 1`, senza ordinamento. Un id stabile per
-   * riga la romperebbe su un percorso raggiungibile dalla UI — «Riproponi»
-   * su un evento di calendario azzera `proposal_notification_id` e il poller
-   * ripubblica per la STESSA riga, quindi quel `limit 1` potrebbe restituire
-   * la notifica vecchia. Per aprire l'appuntamento c'è
-   * {@link calendarEventId} qui sotto, che è un campo a sé apposta.
+   * ⚠️ **Questo docblock metteva in guardia solo per il CALENDARIO, e su
+   * quello sbagliava per difetto: la trappola per la POSTA era già
+   * scattata** (corretto il 18 set 2026, dopo averla trovata in produzione).
+   *
+   * Diceva che un `proposalId` stabile per riga sarebbe stato pericoloso
+   * perché `publishProposal` ritrovava la notifica appena scritta con
+   * `event->>'proposalId' = … limit 1`, **senza ordinamento**, e
+   * ripubblicando la stessa riga quel `limit 1` poteva restituire la
+   * notifica VECCHIA. Tutto vero — ma per la posta l'id **è** stabile
+   * (`email_proposals.id`) da sempre, quindi il caso che si descriveva come
+   * ipotetico per il calendario era reale per l'email. Effetto:
+   * `proposal_notification_id` finito su una notifica già chiusa e la card
+   * visibile ORFANA, quindi non confermabile (`findSourceRow` cerca proprio
+   * per quella colonna) — qualunque scelta rispondeva `proposal_stale`. Due
+   * righe in produzione, una ancora aperta in inbox. Emerso con la
+   * riattribuzione, che ripubblica la stessa riga di routine.
+   *
+   * **La trappola è chiusa alla radice**: `publishProposal` non cerca più
+   * niente — `publishNotification` gli restituisce gli id delle righe che ha
+   * scritto (vedi il suo docblock in `@stubwise/notifications`). Un `order
+   * by` avrebbe reso il difetto raro, non impossibile.
+   *
+   * **Cosa resta vero, e perché il calendario tiene comunque un id casuale**:
+   * `proposalId` è la chiave con cui `propagateHandled` chiude TUTTE le copie
+   * di una proposta. Con un id stabile per riga, confermare una card chiude
+   * anche le notifiche di pubblicazioni PRECEDENTI della stessa riga — che
+   * per la posta è accettabile (sono già chiuse, ed è il comportamento
+   * odierno) ma per il calendario non porterebbe nessun vantaggio: per aprire
+   * l'appuntamento c'è {@link calendarEventId}, un campo a sé apposta.
+   * Cambiarlo sarebbe quindi un rischio senza guadagno, non più una rottura.
    */
   proposalId: z.string().optional(),
   /**

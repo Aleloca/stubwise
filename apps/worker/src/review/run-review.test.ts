@@ -194,7 +194,7 @@ function makeFakes(overrides: Partial<RunPrReviewDeps> = {}): Fakes {
       ({ upsertPrComment, getPullRequestState }) as unknown as GitProvider,
     publish: async (_db, event, opts) => {
       dispatched.push({ event, opts: opts ?? {} });
-      return { published: 1 };
+      return { published: 1, notificationIds: [randomUUID()] };
     },
     // Riassunto "in breve" della PR SPENTO di default nei test: è un run in più
     // dell'agente e falserebbe i conteggi di `runner.run` di tutti gli altri

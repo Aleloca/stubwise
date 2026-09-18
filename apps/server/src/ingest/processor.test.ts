@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { ErrorEvent, FeedbackEvent, TicketCreateEvent } from "@stubwise/shared";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -539,7 +540,7 @@ describe("processEvents — notifica ticket.created", () => {
       projectName: "Acme",
       publish: async (_db, event, opts) => {
         calls.push({ event: event as unknown as DispatchedEvent, opts: opts ?? {} });
-        return { published: 1 };
+        return { published: 1, notificationIds: [randomUUID()] };
       },
     });
     expect(result).toEqual({ created: 1, deduped: 0 });
@@ -567,7 +568,7 @@ describe("processEvents — notifica ticket.created", () => {
         projectName: "Acme",
         publish: async (_db, event, opts) => {
           calls.push({ event: event as unknown as DispatchedEvent, opts: opts ?? {} });
-          return { published: 1 };
+          return { published: 1, notificationIds: [randomUUID()] };
         },
       },
     );
@@ -584,7 +585,7 @@ describe("processEvents — notifica ticket.created", () => {
       projectName: "Acme",
       publish: async (_db, event, opts) => {
         calls.push({ event: event as unknown as DispatchedEvent, opts: opts ?? {} });
-        return { published: 1 };
+        return { published: 1, notificationIds: [randomUUID()] };
       },
     });
     expect(result).toEqual({ created: 0, deduped: 1 });
@@ -603,7 +604,7 @@ describe("processEvents — notifica ticket.created", () => {
         projectName: "Acme",
         publish: async (_db, event, opts) => {
           calls.push({ event: event as unknown as DispatchedEvent, opts: opts ?? {} });
-          return { published: 1 };
+          return { published: 1, notificationIds: [randomUUID()] };
         },
       },
     );

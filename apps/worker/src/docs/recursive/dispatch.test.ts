@@ -36,7 +36,7 @@ import {
 } from "@stubwise/docs-engine";
 import { eq } from "drizzle-orm";
 import { execa } from "execa";
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -590,7 +590,7 @@ describe("limite del provider nel dispatch dei nodi", () => {
           publicUrl: "https://stubwise.example.com",
           publish: async (_db, event, opts) => {
             notified.push({ event, opts: opts ?? {} });
-            return { published: 1 };
+            return { published: 1, notificationIds: [randomUUID()] };
           },
         },
         track,

@@ -71,13 +71,24 @@ export interface PublishOpts {
  *    successiva, cioè esattamente la rottura che l'inghiottimento vorrebbe
  *    evitare).
  *
- * @returns quante righe di inbox sono state scritte (destinatari raggiunti).
+ * @returns quante righe di inbox sono state scritte (destinatari raggiunti) e
+ * i loro id.
+ *
+ * ⚠️ **`notificationIds` esiste per non far ritrovare a nessuno le righe
+ * appena scritte cercandole** (18 set 2026). `publishProposal`
+ * (`apps/worker/src/google/proposal.ts`) lo faceva — `event->>'proposalId' =
+ * … limit 1` — e per la posta, dove quel valore è `email_proposals.id` e
+ * quindi STABILE per riga, ripubblicare la stessa riga («Riproponi», la
+ * riattribuzione) creava due notifiche indistinguibili per quella query: il
+ * `limit 1` restituiva la PIÙ VECCHIA, e la card visibile restava orfana e
+ * non confermabile. Chi scrive le righe sa già quali sono: restituirle chiude
+ * la classe, mentre un `order by` l'avrebbe solo resa meno probabile.
  */
 export async function publishNotification(
   db: DbOrTx,
   event: NotificationEvent,
   opts: PublishOpts,
-): Promise<{ published: number }> {
+): Promise<{ published: number; notificationIds: string[] }> {
   try {
     return await db.transaction(async (inner) => {
       const ctx = await resolveRoutingContext(inner, event, opts);
@@ -91,7 +102,7 @@ export async function publishNotification(
       // toggle o la config del webhook d'istanza, quindi il push in
       // `deliveries` più sotto non scatta mai per quel kind.
       const withWebhook = shouldSendWebhook(settings, event.kind);
-      if (recipients.length === 0 && !withWebhook) return { published: 0 };
+      if (recipients.length === 0 && !withWebhook) return { published: 0, notificationIds: [] };
 
       // Le colonne jsonb sono tipizzate `Record<string, unknown>` perché `db`
       // non può importare l'unione da qui (sarebbe un ciclo): il cast è il punto
@@ -156,7 +167,7 @@ export async function publishNotification(
         await inner.insert(notificationDeliveries).values(deliveries);
       }
 
-      return { published: inserted.length };
+      return { published: inserted.length, notificationIds: inserted.map((row) => row.id) };
     });
   } catch (error) {
     // Inghiottito di proposito: vedi docblock della funzione. Il rollback della
@@ -172,7 +183,7 @@ export async function publishNotification(
     // riceve nulla. `console` e non un logger perché il package non ne ha uno
     // fra le mani (stessa scelta di `slack-client.ts`).
     console.warn(`[notify] publish di ${event.kind} fallita, nessuna riga scritta:`, error);
-    return { published: 0 };
+    return { published: 0, notificationIds: [] };
   }
 }
 

@@ -1452,6 +1452,23 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   sbagliato, non codice che esplode** — prima di concludere «il test non
   discrimina» su una mutazione rimasta verde, verifica che non stia
   fallendo per conto suo.
+  (c) **Il gemello, emerso il 18 set 2026: un test deve riprodurre la
+  CONDIZIONE del difetto, non solo attraversare il codice che lo contiene.**
+  Un test scritto per un difetto già MISURATO in produzione passava — e non
+  perché il codice fosse corretto: l'helper `eventFor`
+  (`apps/worker/src/google/proposal.test.ts`) genera un `proposalId`
+  **casuale** quando non gliene si passa uno, mentre il poller vero ci mette
+  l'id della riga. Le due notifiche del test non erano quindi mai ambigue, e
+  il difetto — un `limit 1` che poteva scegliere la notifica sbagliata fra
+  due con lo stesso `proposalId` — non aveva modo di presentarsi. Il verde
+  non significava niente.
+  **Regola: su un test scritto per riprodurre un difetto, guarda PERCHÉ è
+  verde prima di credergli** — e in particolare controlla che i valori di
+  contorno prodotti dagli helper (id casuali, `now()`, sequenze) non stiano
+  sopprimendo proprio la condizione che serve. È la stessa famiglia del
+  punto (b) — un test che passa per il motivo sbagliato — ma nessuno dei due
+  si deduce dall'altro: là il codice mutato esplodeva prima di essere
+  esercitato, qui non viene mai messo nelle condizioni di sbagliare.
 - **L'audience `mailbox_owner` non include MAI gli admin.** È un'audience a
   sé nell'enum di `routing.ts` (`packages/notifications/src/routing.ts`),
   non un caso speciale di `requester` (che invece gli admin li include
