@@ -818,13 +818,18 @@ async function seedChild(
 }
 
 /** L'evento da pubblicare per il progetto dato (progetto certo, nome noto). */
-function eventFor(projectId: string, projectName = "negozio-web") {
+function eventFor(projectId: string, projectName = "negozio-web", proposalId?: string) {
   const event = buildEmailProposalEvent({
     lang: "it",
     message: messageRow(),
     proposal: proposalRow(projectId),
     mailboxEmail: MAILBOX,
     projectNames: new Map([[projectId, projectName]]),
+    // Come fa il poller vero (`runProposePhase`): l'id dell'evento è quello
+    // della RIGA. Omesso, `assembleEvent` ne genera uno casuale — che in un
+    // test nasconde ogni problema legato a due card con lo stesso
+    // `proposalId`, perché quel caso non si presenta mai.
+    ...(proposalId !== undefined ? { proposalId } : {}),
   });
   if (!event) throw new Error("evento non costruito");
   return event;
@@ -859,6 +864,69 @@ describe("publishProposal", () => {
     const [message] = await db.select().from(emailMessages).where(eq(emailMessages.id, messageId));
     expect(message?.status).toBe("classified");
     expect(message?.proposalNotificationId).toBeNull();
+  });
+
+  it("⚠️ RIPUBBLICATA: la riga punta alla notifica NUOVA, non alla prima", async () => {
+    // Difetto trovato in produzione il 18 set 2026, PREESISTENTE ma emerso con
+    // la riattribuzione. `publishProposal` ritrovava la notifica appena
+    // scritta cercandola per CONTENUTO del jsonb
+    // (`event->>'proposalId' = … limit 1`) e **senza `order by`**. Per la
+    // posta quel `proposalId` è `email_proposals.id`, cioè STABILE per riga:
+    // ripubblicando la stessa riga — «Riproponi», e ora la riattribuzione —
+    // esistono più notifiche con lo stesso valore, e il `limit 1` poteva
+    // restituire la PIÙ VECCHIA.
+    //
+    // La conseguenza non era estetica: `findSourceRow` cerca per
+    // `proposalNotificationId`, quindi la card visibile restava ORFANA e
+    // qualunque scelta rispondeva `proposal_stale` — una card morta in inbox,
+    // senza che si vedesse. In produzione: 2 righe, una ancora aperta.
+    const { userId, accountId, projectId } = await seedOwner();
+    const messageId = await seedMessage(accountId);
+    const childId = await seedChild(messageId, projectId);
+
+    // ⚠️ Lo STESSO `proposalId` su entrambe le publish, perché è così in
+    // produzione: per la posta l'id dell'evento è `email_proposals.id`, cioè
+    // stabile per riga. Con un id casuale (il default di `assembleEvent`) le
+    // due notifiche non sarebbero ambigue e questo test non proverebbe niente.
+    const first = await publishProposal(db, {
+      event: eventFor(projectId, "negozio-web", childId),
+      source: "email",
+      rowId: childId,
+      mailboxOwnerUserId: userId,
+      projectId,
+    });
+    expect(first.ok).toBe(true);
+
+    // Quel che fa «Riproponi» (`POST /api/me/mail/email/:id/repropose`):
+    // rimette la riga in coda, senza toccare la notifica già pubblicata.
+    await db
+      .update(emailProposals)
+      .set({ status: "classified", proposalNotificationId: null })
+      .where(eq(emailProposals.id, childId));
+
+    const second = await publishProposal(db, {
+      event: eventFor(projectId, "negozio-web", childId),
+      source: "email",
+      rowId: childId,
+      mailboxOwnerUserId: userId,
+      projectId,
+    });
+    expect(second.ok).toBe(true);
+
+    // Due notifiche con lo STESSO `proposalId` nel jsonb: è la condizione che
+    // faceva scattare la trappola.
+    const rows = await db.select().from(notifications);
+    expect(rows).toHaveLength(2);
+    // Le due notifiche sono DISTINTE: è ciò che rende la scelta ambigua.
+    expect(first.ok && second.ok && first.notificationId !== second.notificationId).toBe(true);
+
+    const [child] = await db.select().from(emailProposals).where(eq(emailProposals.id, childId));
+    // La riga deve puntare alla SECONDA, quella che l'utente ha in inbox.
+    expect(child?.proposalNotificationId).toBe(second.ok ? second.notificationId : null);
+    // E l'asserzione negativa, che è metà del test: NON alla prima. Senza,
+    // passerebbe anche l'implementazione difettosa quando il `limit 1`
+    // restituisce per caso la riga giusta.
+    expect(child?.proposalNotificationId).not.toBe(first.ok ? first.notificationId : null);
   });
 
   it("una seconda pubblicazione sullo STESSO figlio non passa, e NON lascia una notifica orfana", async () => {
@@ -988,7 +1056,7 @@ describe("publishProposal", () => {
       // `publishNotification` è best-effort: su un proprietario inesistente
       // inghiotte e torna 0. Marcare comunque la riga `proposed` la
       // renderebbe una proposta che non esiste, e nessuno la ripescherebbe.
-      publish: async () => ({ published: 0 }),
+      publish: async () => ({ published: 0, notificationIds: [] }),
     });
 
     expect(result).toEqual({ ok: false, reason: "no_recipients" });

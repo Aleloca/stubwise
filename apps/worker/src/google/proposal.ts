@@ -3,14 +3,13 @@ import {
   calendarEvents as calendarEventsTable,
   emailMessages,
   emailProposals,
-  notifications,
   type Db,
   type EmailProposalRow,
 } from "@stubwise/db";
 import { t, type Language } from "@stubwise/i18n";
 import { publishNotification, type GoogleProposalAction, type GoogleProposalEvent } from "@stubwise/notifications";
 import { ticketPrioritySchema, ticketStatusSchema } from "@stubwise/shared";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import {
   buildMilestoneProposal,
@@ -819,23 +818,39 @@ export async function publishProposal(
 
   try {
     return await db.transaction(async (tx) => {
-      const { published } = await publish(tx, args.event, {
+      const { published, notificationIds } = await publish(tx, args.event, {
         mailboxOwnerUserId: args.mailboxOwnerUserId,
         ...(args.projectId ? { projectId: args.projectId } : {}),
       });
       if (published === 0) throw new ProposalAborted("no_recipients");
 
-      const [row] = await tx
-        .select({ id: notifications.id })
-        .from(notifications)
-        .where(
-          and(
-            eq(notifications.kind, "google.proposal"),
-            sql`${notifications.event}->>'proposalId' = ${args.event.proposalId}`,
-          ),
-        )
-        .limit(1);
-      if (!row) throw new ProposalAborted("notification_missing");
+      // ⚠️ **L'id viene da CHI HA SCRITTO la riga, non da una ricerca nel
+      // jsonb** (fix del 18 set 2026, difetto trovato in produzione).
+      //
+      // Prima, questa riga ritrovava la notifica appena creata con
+      // `event->>'proposalId' = … limit 1` — **senza `order by`**. Per una
+      // proposta di POSTA quel valore è `email_proposals.id`, cioè STABILE
+      // per riga: ripubblicando la stessa riga («Riproponi», e dalla
+      // riattribuzione anche il percorso normale) esistono più notifiche con
+      // lo stesso `proposalId`, e il `limit 1` restituiva la PIÙ VECCHIA.
+      // `proposal_notification_id` finiva così su una notifica già chiusa,
+      // mentre la card visibile restava ORFANA — e siccome `findSourceRow`
+      // cerca proprio per quella colonna, quella card non era più
+      // confermabile: qualunque scelta rispondeva `proposal_stale`. In
+      // produzione: 2 righe, una ancora aperta in inbox.
+      //
+      // Un `order by created_at desc` avrebbe reso il difetto raro, non
+      // impossibile (due publish nello stesso istante restano ambigue).
+      // Restituire gli id dalla publish toglie la ricerca del tutto.
+      //
+      // `[0]` e non una scelta: l'audience di `google.proposal` è
+      // `mailbox_owner`, che ha per costruzione UN SOLO destinatario (vedi
+      // l'invariante in CLAUDE.md), quindi qui c'è sempre esattamente una
+      // riga. Il controllo resta perché un `publish` iniettato nei test
+      // potrebbe dire il contrario.
+      const notificationId = notificationIds[0];
+      if (notificationId === undefined) throw new ProposalAborted("notification_missing");
+      const row = { id: notificationId };
 
       const claimed =
         args.source === "email"
