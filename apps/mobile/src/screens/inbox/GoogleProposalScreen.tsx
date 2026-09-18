@@ -324,6 +324,16 @@ function ProposalSource({ sourceProposalId }: { sourceProposalId: string | null 
     },
     // Chiesto SOLO qui, quando la schermata è aperta: una lista d'inbox con 30
     // card non deve trasportare 30 estratti per mostrarne uno.
+    //
+    // ⚠️ **Qui è immediato, sul WEB si chiede al click, e la differenza è
+    // deliberata** — chi guarda i due componenti affiancati vede
+    // un'incoerenza, e non lo è. Dipende dalla forma delle due superfici: qui
+    // il dettaglio è una SCHERMATA, una proposta alla volta, quindi la
+    // richiesta è una; sul web la card d'inbox è già espansa DENTRO l'elenco,
+    // quindi un caricamento automatico ne farebbe una per ogni proposta
+    // visibile. Uniformarle peggiorerebbe una delle due: il ragionamento per
+    // esteso sta nel docblock di `ProposalSource` in
+    // `apps/web/src/components/inbox-item.tsx`.
     enabled: client !== null && sourceProposalId !== null,
     staleTime: 60_000,
   });

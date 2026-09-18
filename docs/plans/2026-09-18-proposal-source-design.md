@@ -63,6 +63,41 @@ vecchie e nuove, senza toccare una riga di dati.
 non per ogni card della lista. Una lista d'inbox con 30 card non deve
 trasportare 30 estratti per mostrarne uno.
 
+### §3bis — La derivazione non raggiunge le card vecchie: le RIPARA
+
+⚠️ Sezione aggiunta il 18 set 2026 in corso d'implementazione, su un fatto del
+sistema che nessuno dei due conosceva prima di leggere il codice.
+
+Il §3 qui sopra dice che l'evento non porta l'id del messaggio. **Due
+precisazioni, e la seconda cambia il valore di tutta la scelta.**
+
+**(1) L'id giusto non è quello del messaggio.** `GET /api/me/mail/:source/:id`
+(`resolveEmailMessage`, `apps/server/src/routes/me-mail.ts`) per
+`source === "email"` cerca `eq(emailProposals.id, id)`: vuole un
+**`email_proposals.id`**, non un `email_messages.id`. Solo il ramo
+`email_triage` accetta un id di messaggio, ed è la semantica dello smistamento
+— che CLAUDE.md vieta di confondere con quella delle proposte figlie. Il campo
+si chiama quindi `sourceProposalId`.
+
+**(2) Il jsonb, su questo, è inaffidabile anche quando c'è.** L'evento porta
+già un `proposalId` che *dovrebbe* essere `email_proposals.id` — ma lo è solo
+dalle card pubblicate dopo il fix di App M3 Fase C. Prima, `assembleEvent`
+(`apps/worker/src/google/proposal.ts`) ci scriveva un `randomUUID()` senza
+relazione con nessuna riga: su quelle card il campo dell'evento **non apre
+nessun dettaglio**.
+
+Quindi la derivazione a lettura non serve solo a dare il campo alle card
+pubblicate prima di questa funzione: **ripara anche quelle il cui payload
+porta un id sbagliato**. È un argomento più forte di quello del §3, e vale la
+pena conoscerlo prima di essere tentati di «ottimizzare» leggendo
+`event.proposalId` invece di interrogare il database.
+
+**Il test che fissa la differenza** (`apps/server/src/services/inbox.test.ts`,
+«CARD VECCHIA») asserisce due cose, non una: che il valore derivato sia quello
+giusto, **e che NON coincida con quello del jsonb**. Senza la seconda,
+passerebbe anche un'implementazione che legge dall'evento — cioè proprio
+quella che questa sezione esiste per escludere.
+
 ## §4 — Il calendario resta fuori, e si dice perché
 
 Una proposta di calendario **non ha una classificazione AI** (`mailSignalSchema`
