@@ -55,6 +55,39 @@ let db: Db;
 const ENCRYPTION_KEY = randomBytes(32);
 const MAILBOX = "operatore@acme.com";
 
+/**
+ * Il giorno di riferimento degli eventi «futuri» di questo file.
+ *
+ * ⚠️ **Relativo a quando i test girano, mai una data fissa.** Fino al 17 set
+ * 2026 il default era `2026-10-12`, e un test gemello fissato al `2026-09-17`
+ * è ESPLOSO in CI quel giorno alle 09:27 (`expected false to be true`):
+ * l'evento «futuro» era diventato passato a metà mattina. La causa è che
+ * `isReadyForProposal`, senza `seriesContext`, legge l'orologio VERO
+ * (`seriesContext?.now ?? new Date()`) mentre il poller riceve un `now`
+ * iniettato — le due misure devono partire dallo stesso istante, o il test ha
+ * una scadenza.
+ *
+ * ⚠️ L'ora si fissa in **UTC**, e la ragione è verificata leggendo il codice e
+ * non assunta: l'impronta di un evento è `isoDay(startsAt)`, cioè
+ * `toISOString().slice(0, 10)` — il giorno **UTC** (`calendar.ts`). I test del
+ * dedup mettono due eventi a ore diverse dello stesso giorno e pretendono la
+ * stessa impronta: fissando le ore in LOCALE, in un fuso molto spostato
+ * (rotto davvero in `Pacific/Auckland`) le 9 del mattino cadono nel giorno UTC
+ * precedente e le due impronte divergono.
+ *
+ * Una prima stesura di questo commento diceva l'opposto — «l'impronta è letta
+ * nel fuso di chi guarda» — confondendo questa regola con quella della GRIGLIA
+ * del calendario, dove il fuso locale conta davvero. Sono due cose diverse.
+ */
+const FUTURE_DAY_OFFSET_MS = 25 * 24 * 60 * 60 * 1000;
+
+/** Un istante del giorno di riferimento, all'ora UTC indicata. */
+function futureAt(hour: number, minute = 0): Date {
+  const d = new Date(Date.now() + FUTURE_DAY_OFFSET_MS);
+  d.setUTCHours(hour, minute, 0, 0);
+  return d;
+}
+
 /** Un partecipante SENZA stato di risposta noto (fase 9, Task 2). */
 function att(email: string): { email: string; responseStatus: null } {
   return { email, responseStatus: null };
@@ -153,8 +186,8 @@ function event(input: Partial<GoogleCalendarEvent> & { id: string }): GoogleCale
     title: "Revisione portale",
     description: null,
     allDay: false,
-    startsAt: new Date("2026-10-12T09:00:00.000Z"),
-    endsAt: new Date("2026-10-12T10:00:00.000Z"),
+    startsAt: futureAt(9),
+    endsAt: futureAt(10),
     attendees: [att("cliente@cliente.com"), att(MAILBOX)],
     organizer: MAILBOX,
     htmlLink: null,
@@ -610,7 +643,9 @@ describe("pre-filtro degli eventi", () => {
       projectId,
       proposalNotificationId: null,
       outcome: null,
-      fingerprint: "2026-10-12 revisione portale",
+      // Calcolata con la funzione VERA: una stringa fissa qui tornerebbe a
+      // scadere insieme alla data.
+      fingerprint: computeFingerprint("Revisione portale", futureAt(9)),
     });
     expect(readyForProposal(row!)).toBe(true);
     // Il cursore del calendario è avanzato, quello di Gmail è affare suo.
@@ -768,7 +803,7 @@ describe("non riproporre lo stesso appuntamento", () => {
       .where(eq(googleAccounts.id, account.id));
     const second = fakeCalendar([
       {
-        events: [event({ id: "e2", startsAt: new Date("2026-10-12T15:00:00.000Z") })],
+        events: [event({ id: "e2", startsAt: futureAt(12) })],
         nextSyncToken: "tok-2",
       },
     ]);
@@ -793,7 +828,7 @@ describe("non riproporre lo stesso appuntamento", () => {
       {
         events: [
           event({ id: "e1" }),
-          event({ id: "e2", startsAt: new Date("2026-10-12T16:00:00.000Z") }),
+          event({ id: "e2", startsAt: futureAt(13) }),
         ],
         nextSyncToken: "tok-1",
       },
@@ -834,8 +869,8 @@ describe("non riproporre lo stesso appuntamento", () => {
         events: [
           event({
             id: "e1",
-            startsAt: new Date("2026-10-12T15:00:00.000Z"),
-            endsAt: new Date("2026-10-12T16:00:00.000Z"),
+            startsAt: futureAt(12),
+            endsAt: futureAt(13),
             attendees: [att("cliente@cliente.com"), att(MAILBOX), att("nuovo@cliente.com")],
           }),
         ],
@@ -848,7 +883,7 @@ describe("non riproporre lo stesso appuntamento", () => {
     const all = await rows();
     expect(all).toHaveLength(1);
     // Dati freschi…
-    expect(all[0]!.startsAt.toISOString()).toBe("2026-10-12T15:00:00.000Z");
+    expect(all[0]!.startsAt.toISOString()).toBe(futureAt(12).toISOString());
     expect(all[0]!.attendees.map((a) => a.email)).toContain("nuovo@cliente.com");
     // …ma la proposta già pubblicata non si tocca: nessuna seconda proposta.
     expect(all[0]!.proposalNotificationId).toBe(notification!.id);
@@ -1139,7 +1174,7 @@ describe("la regola di ricorrenza: una chiamata per SERIE", () => {
     const account = await seedAccount();
     const occurrence = event({
       id: "occ-1",
-      startsAt: new Date("2026-10-12T09:00:00.000Z"),
+      startsAt: futureAt(9),
       recurringEventId: "serie-1",
     });
 
@@ -1167,7 +1202,7 @@ describe("la regola di ricorrenza: una chiamata per SERIE", () => {
     const calendar = fakeCalendar([
       {
         events: [
-          event({ id: "occ-1", startsAt: new Date("2026-10-12T09:00:00.000Z"), recurringEventId: "serie-1" }),
+          event({ id: "occ-1", startsAt: futureAt(9), recurringEventId: "serie-1" }),
         ],
         nextSyncToken: "tok-1",
       },
@@ -1196,7 +1231,7 @@ describe("la regola di ricorrenza: una chiamata per SERIE", () => {
     const calendar = fakeCalendar([
       {
         events: [
-          event({ id: "occ-1", startsAt: new Date("2026-10-12T09:00:00.000Z"), recurringEventId: "serie-1" }),
+          event({ id: "occ-1", startsAt: futureAt(9), recurringEventId: "serie-1" }),
         ],
         nextSyncToken: "tok-1",
       },
