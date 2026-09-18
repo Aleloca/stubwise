@@ -577,6 +577,10 @@ describe("InboxCard — proposta Google (fase 6)", () => {
     },
     google: {
       source: "email",
+      // 18 set 2026: la card della LISTA non mostra la fonte — l'estratto si
+      // chiede aprendo il dettaglio. Qui il campo c'è solo perché il tipo è
+      // quello PARSATO, dove il `.default(null)` ha già girato.
+      sourceProposalId: null,
       from: "laura@cliente.test",
       subject: "Rinviamo il rilascio?",
       signal: "decision",

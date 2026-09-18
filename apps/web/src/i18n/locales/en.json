@@ -1305,7 +1305,11 @@
         "alreadyProposed": "That project already has an open proposal for this email",
         "forbidden": "You cannot confirm this proposal",
         "generic": "Could not confirm the proposal"
-      }
+      },
+      "sourceShow": "Show what Stubwise read",
+      "sourceHide": "Hide what Stubwise read",
+      "sourceLoading": "Loading the excerpt…",
+      "sourceUnavailable": "The excerpt is not available for this proposal."
     }
   },
   "question": {

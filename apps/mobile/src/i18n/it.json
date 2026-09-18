@@ -196,7 +196,11 @@
         },
         "reassignTitle": "Su quale progetto?",
         "reassignEmpty": "Non c'è nessun altro progetto su cui spostarla.",
-        "reassignCancel": "Annulla"
+        "reassignCancel": "Annulla",
+        "sourceTitle": "Cosa ha letto Stubwise",
+        "sourceMore": "Mostra tutto",
+        "sourceLess": "Mostra meno",
+        "sourceOpen": "Apri la conversazione"
       },
       "tabs": {
         "yours": "Tue · {{count}}",

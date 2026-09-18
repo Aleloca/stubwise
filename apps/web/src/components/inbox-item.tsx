@@ -18,7 +18,7 @@ import {
   type SnoozeUntil,
 } from "../lib/api";
 import { formatDateTime, formatRelativeTime } from "../lib/format";
-import { inboxKeys, projectsQueryOptions } from "../lib/queries";
+import { inboxKeys, mailDetailQueryOptions, projectsQueryOptions } from "../lib/queries";
 import { SignalBadge } from "./badges";
 import { answerErrorMessage, QuestionPanel } from "./question-panel";
 
@@ -497,6 +497,14 @@ export function InboxItemCard({
       )}
 
       {/*
+        LA FONTE — «cosa ha letto Stubwise» (18 set 2026).
+        `?? null`: sul web `lib/api.ts` fa un CAST e non un `parse`, quindi il
+        `.default(null)` dello schema NON gira e un server più vecchio lascia
+        il campo `undefined`. Difeso qui, nel punto di lettura.
+      */}
+      <ProposalSource sourceProposalId={item.google?.sourceProposalId ?? null} />
+
+      {/*
         RIASSUNTO "IN BREVE" (fase 5): due o tre frasi non tecniche su cosa il
         piano cambia o cosa fa la PR. Sta SUBITO SOTTO IL TESTO, che è anche
         subito SOPRA i bottoni: sulla card del piano si legge quindi prima di
@@ -796,5 +804,75 @@ export function InboxItemCard({
         </div>
       )}
     </article>
+  );
+}
+
+/**
+ * «Cosa ha letto Stubwise»: l'ESTRATTO passato alla classificazione — non
+ * l'email come si vede in Gmail (design §2).
+ *
+ * La distinzione è il valore del blocco: l'estratto è troncato, e di un thread
+ * la classificazione guarda l'ultimo messaggio ammesso. Quando i suggerimenti
+ * sembrano fuori bersaglio è spesso la fonte a spiegarlo — il modello ha letto
+ * meno di quanto c'è.
+ *
+ * ⚠️ **A RICHIESTA, non all'apertura della lista, e qui è una necessità, non
+ * una preferenza.** Sul web la card d'inbox è già espansa dentro l'elenco: un
+ * fetch incondizionato farebbe partire una richiesta PER OGNI proposta di
+ * posta visibile — trenta card, trenta richieste. È lo stesso conto che il
+ * design fa (§3) per non mettere l'estratto nella risposta della lista, letto
+ * dall'altro lato: sull'app il blocco può essere immediato perché lì il
+ * dettaglio è una SCHERMATA, una card alla volta. La query è `enabled` solo
+ * dopo il click.
+ *
+ * ⚠️ **Il degrado non tocca mai le scelte**: id assente (calendario,
+ * smistamento, server più vecchio), rotta che fallisce, estratto vuoto — il
+ * blocco non compare o dice che non c'è, e i bottoni restano premibili. Non
+ * sapere cosa ha letto il modello è un peccato; non poter decidere è un
+ * guasto.
+ *
+ * Il testo è **NON FIDATO** (lo scrive chi manda l'email): esce in un nodo di
+ * testo React, mai in `dangerouslySetInnerHTML`, e `whitespace-pre-wrap` ne
+ * conserva gli a capo senza interpretarne niente.
+ */
+function ProposalSource({ sourceProposalId }: { sourceProposalId: string | null }) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const query = useQuery({
+    ...mailDetailQueryOptions("email", sourceProposalId ?? ""),
+    enabled: open && sourceProposalId !== null,
+  });
+
+  if (sourceProposalId === null) return null;
+
+  const excerpt = query.data?.textExcerpt ?? null;
+
+  return (
+    <div className="mt-2">
+      <button
+        type="button"
+        onClick={() => setOpen((wasOpen) => !wasOpen)}
+        className="font-mono text-[11px] tracking-[0.1em] text-fg-faint uppercase transition-colors hover:text-fg-muted"
+      >
+        {open ? t("inbox:google.sourceHide") : t("inbox:google.sourceShow")}
+      </button>
+      {open && (
+        <div className="mt-2 border-l-2 border-line-strong pl-3">
+          {query.isPending && (
+            <p className="font-mono text-[11px] text-fg-faint">{t("inbox:google.sourceLoading")}</p>
+          )}
+          {!query.isPending && (query.isError || excerpt === null || excerpt.trim() === "") && (
+            <p className="font-mono text-[11px] text-fg-faint">
+              {t("inbox:google.sourceUnavailable")}
+            </p>
+          )}
+          {!query.isPending && excerpt !== null && excerpt.trim() !== "" && (
+            <p className="max-h-64 overflow-y-auto text-sm whitespace-pre-wrap text-fg-muted">
+              {excerpt}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
   );
 }

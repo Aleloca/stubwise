@@ -4,7 +4,12 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   agentQuestions,
   aiJobs,
+  calendarEvents,
   comments,
+  emailMessages,
+  emailProposals,
+  googleAccounts,
+  googleWorkspaces,
   notifications,
   prReviews,
   repositories,
@@ -1855,6 +1860,11 @@ describe("google.proposal — contorno della proposta dalla posta", () => {
       // ciò che permette al link "Read in Stubwise" della card di puntare al
       // messaggio giusto.
       proposalId: PROPOSAL_ID,
+      // 18 set 2026: `null` perché questa notifica non ha una riga
+      // `email_proposals` che la possieda — il fixture scrive solo il jsonb.
+      // È il campo DERIVATO a lettura, e la sua assenza di valore qui è
+      // esattamente ciò che si vuole: nessuna riga, nessun id inventato.
+      sourceProposalId: null,
     });
     // Del payload delle azioni esce SOLO il tipo: progetto e titolo restano
     // dentro, dove il server li rilegge quando l'utente conferma.
@@ -1961,5 +1971,207 @@ describe("google.proposal — contorno della proposta dalla posta", () => {
     const result = await executeAction(db, { notificationId: id, action: "handled", actor: user });
     expect(result.ok).toBe(true);
     expect((await readNotification(id))?.status).toBe("handled");
+  });
+});
+
+/**
+ * LA FONTE DELLA PROPOSTA (18 set 2026): `InboxGoogle.sourceProposalId`, l'id
+ * con cui la card chiede l'estratto che la classificazione ha letto.
+ *
+ * Il punto di questi test non è che il campo esista: è che sia **derivato a
+ * lettura**. Scritto nel jsonb alla publish l'avrebbero solo le card future —
+ * l'errore del 17 settembre con `reassign_project`, che è costato la
+ * riscrittura a mano di 8 notifiche in produzione.
+ */
+describe("google.proposal — la fonte, derivata a lettura", () => {
+  /** Casella Google di `userId`, con workspace e account. */
+  async function seedMailbox(userId: string): Promise<string> {
+    const [workspace] = await db
+      .insert(googleWorkspaces)
+      .values({
+        name: "Acme",
+        domains: ["acme.test"],
+        clientId: `client-${randomUUID()}`,
+        clientSecretEncrypted: "blob",
+      })
+      .returning({ id: googleWorkspaces.id });
+    const [account] = await db
+      .insert(googleAccounts)
+      .values({
+        userId,
+        workspaceId: workspace!.id,
+        email: `mailbox-${randomUUID()}@acme.test`,
+        googleSub: `sub-${randomUUID()}`,
+        refreshTokenEncrypted: "blob",
+      })
+      .returning({ id: googleAccounts.id });
+    return account!.id;
+  }
+
+  /** Un messaggio con la sua proposta figlia, legata alla notifica data. */
+  async function seedEmailProposal(
+    accountId: string,
+    notificationId: string,
+  ): Promise<{ messageId: string; proposalId: string }> {
+    const [message] = await db
+      .insert(emailMessages)
+      .values({
+        accountId,
+        gmailMessageId: `m-${randomUUID()}`,
+        threadId: `t-${randomUUID()}`,
+        fromAddress: "laura@cliente.test",
+        subject: "Export degli ordini in CSV",
+        textExcerpt: "Ci servirebbe l'export degli ordini in CSV.",
+        receivedAt: new Date("2026-09-07T08:14:00.000Z"),
+        projectId,
+        status: "proposed",
+      })
+      .returning({ id: emailMessages.id });
+    const [proposal] = await db
+      .insert(emailProposals)
+      .values({
+        emailMessageId: message!.id,
+        projectId,
+        status: "proposed",
+        classification: { summary: "test", proposals: [], recommendedIndex: 0 },
+        proposalNotificationId: notificationId,
+      })
+      .returning({ id: emailProposals.id });
+    return { messageId: message!.id, proposalId: proposal!.id };
+  }
+
+  /** L'evento minimo che `readGoogle` accetta: due opzioni, due azioni. */
+  function event(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      kind: "google.proposal",
+      proposalId: randomUUID(),
+      source: "email",
+      messageUrl: "https://mail.google.com/mail/u/io%40acme.test/#all/18f3a9c0",
+      signal: "request",
+      from: "Laura <laura@cliente.test>",
+      subject: "Export degli ordini in CSV",
+      question: "Come diamo seguito?",
+      options: [{ label: "Apri una voce di backlog" }, { label: "Non fare nulla" }],
+      actions: [{ type: "create_backlog_item" }, { type: "ignore" }],
+      recommendedIndex: 0,
+      allowFreeText: false,
+      ...overrides,
+    };
+  }
+
+  it("una proposta di posta porta l'id GIUSTO, non solo un id qualunque", async () => {
+    const user = await seedUser("member");
+    const accountId = await seedMailbox(user.id);
+    const notificationId = await seedRawNotification({
+      userId: user.id,
+      kind: "google.proposal",
+      event: event(),
+    });
+    const { proposalId } = await seedEmailProposal(accountId, notificationId);
+
+    const { items } = await listInbox(db, { userId: user.id, lang: "it" });
+    // Il VALORE, non «è non nullo»: un id sbagliato aprirebbe il dettaglio di
+    // un'altra proposta, che è peggio di nessun dettaglio.
+    expect(items.find((i) => i.id === notificationId)?.google?.sourceProposalId).toBe(proposalId);
+  });
+
+  it("⚠️ CARD VECCHIA: un evento senza campi nuovi produce comunque l'id", async () => {
+    // È la prova che l'errore del 17 settembre non si ripete. Qui il jsonb è
+    // quello che scriveva una versione precedente — `proposalId` è perfino un
+    // id CASUALE che non corrisponde a nessuna riga (il difetto di App M3
+    // Fase C) — e la card ottiene lo stesso l'id giusto, perché viene dalla
+    // riga che POSSIEDE la notifica, non dal payload.
+    const user = await seedUser("member");
+    const accountId = await seedMailbox(user.id);
+    const notificationId = await seedRawNotification({
+      userId: user.id,
+      kind: "google.proposal",
+      event: event({ proposalId: randomUUID() }),
+    });
+    const { proposalId } = await seedEmailProposal(accountId, notificationId);
+
+    const { items } = await listInbox(db, { userId: user.id, lang: "it" });
+    const google = items.find((i) => i.id === notificationId)?.google;
+    expect(google?.sourceProposalId).toBe(proposalId);
+    // E NON è quello che diceva il jsonb: se coincidessero, questo test
+    // passerebbe anche con il campo letto dall'evento.
+    expect(google?.sourceProposalId).not.toBe(google?.proposalId);
+  });
+
+  it("è `null` per il CALENDARIO: non c'è nessuna classificazione AI da mostrare", async () => {
+    const user = await seedUser("member");
+    const accountId = await seedMailbox(user.id);
+    const notificationId = await seedRawNotification({
+      userId: user.id,
+      kind: "google.proposal",
+      event: event({ source: "calendar" }),
+    });
+    await db.insert(calendarEvents).values({
+      accountId,
+      googleEventId: `e-${randomUUID()}`,
+      title: "Demo col cliente",
+      startsAt: new Date("2026-09-20T10:00:00.000Z"),
+      status: "confirmed",
+      projectId,
+      fingerprint: `fp-${randomUUID()}`,
+      proposalNotificationId: notificationId,
+    });
+
+    const { items } = await listInbox(db, { userId: user.id, lang: "it" });
+    expect(items.find((i) => i.id === notificationId)?.google?.sourceProposalId).toBeNull();
+  });
+
+  it("è `null` per lo SMISTAMENTO: vive sul padre, senza riga `email_proposals`", async () => {
+    const user = await seedUser("member");
+    const accountId = await seedMailbox(user.id);
+    const notificationId = await seedRawNotification({
+      userId: user.id,
+      kind: "google.proposal",
+      event: event(),
+    });
+    await db.insert(emailMessages).values({
+      accountId,
+      gmailMessageId: `m-${randomUUID()}`,
+      threadId: `t-${randomUUID()}`,
+      fromAddress: "laura@cliente.test",
+      receivedAt: new Date("2026-09-07T08:14:00.000Z"),
+      status: "classified",
+      // Lo smistamento lega la notifica al PADRE, non a un figlio.
+      proposalNotificationId: notificationId,
+    });
+
+    const { items } = await listInbox(db, { userId: user.id, lang: "it" });
+    expect(items.find((i) => i.id === notificationId)?.google?.sourceProposalId).toBeNull();
+  });
+
+  it("⚠️ PRIVACY: la casella di un altro non entra nella mia inbox — due asserzioni", async () => {
+    // Il testo di un'email è privato del proprietario della casella (audience
+    // `mailbox_owner`, fase 6), e lì nessun ruolo scavalca — nemmeno un admin.
+    // La derivazione a lettura è il punto in cui quel filtro si potrebbe
+    // dimenticare, ed è per questo che il test guarda proprio lei.
+    const owner = await seedUser("member");
+    const nosy = await seedUser("admin");
+    const accountId = await seedMailbox(owner.id);
+
+    const ownerNotification = await seedRawNotification({
+      userId: owner.id,
+      kind: "google.proposal",
+      event: event(),
+    });
+    const { proposalId } = await seedEmailProposal(accountId, ownerNotification);
+
+    // (1) Il proprietario lo vede — così un risultato vuoto sotto non può
+    // essere «la derivazione non funziona» invece di «il filtro morde».
+    const mine = await listInbox(db, { userId: owner.id, lang: "it" });
+    expect(mine.items.find((i) => i.id === ownerNotification)?.google?.sourceProposalId).toBe(
+      proposalId,
+    );
+
+    // (2) L'admin non vede NÉ quella card (non è sua) né quell'id da nessuna
+    // parte nella propria inbox.
+    const theirs = await listInbox(db, { userId: nosy.id, lang: "it" });
+    expect(theirs.items.find((i) => i.id === ownerNotification)).toBeUndefined();
+    const leaked = theirs.items.some((i) => i.google?.sourceProposalId === proposalId);
+    expect(leaked).toBe(false);
   });
 });

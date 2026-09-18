@@ -353,6 +353,46 @@ export const inboxGoogleSchema = z.object({
    * e questo schema è letto da due app.
    */
   calendarEventId: z.string().optional(),
+  /**
+   * 18 set 2026: l'id con cui la card chiede LA FONTE della proposta — il
+   * testo che la classificazione ha davvero letto — a
+   * `GET /api/me/mail/email/:id`. `null` per il calendario e per lo
+   * smistamento (vedi sotto).
+   *
+   * ⚠️ **DERIVATO A LETTURA dal database, MAI scritto nel jsonb dell'evento,
+   * e i due motivi sono diversi — entrambi buoni.**
+   *
+   * 1. *Le card già pubblicate.* L'evento è persistito al momento della
+   *    publish: un campo scritto lì ce l'avrebbero solo le card FUTURE, e
+   *    quelle già in inbox resterebbero senza per sempre. È l'errore fatto il
+   *    17 set 2026 con `reassign_project`, scoperto solo quando il maintainer
+   *    ha aperto una card vecchia e il bottone non c'era — e costato la
+   *    riscrittura a mano di 8 notifiche in produzione. Derivato a lettura
+   *    vale per tutte, vecchie e nuove, senza toccare una riga di dati.
+   * 2. *Il jsonb non è affidabile su questo.* {@link proposalId} dovrebbe già
+   *    essere `email_proposals.id`, ma lo è solo dalle card pubblicate dopo
+   *    il fix di App M3 Fase C: prima `assembleEvent` ci metteva un
+   *    `randomUUID()` che non apre nessun dettaglio. Questo campo lo risolve
+   *    invece dalla riga che POSSIEDE la notifica
+   *    (`email_proposals.proposal_notification_id`), che è un fatto del
+   *    database.
+   *
+   * Chi è tentato di «ottimizzarlo» spostandolo nell'evento alla publish
+   * rilegga i due punti qui sopra: risparmierebbe una query per batch e
+   * romperebbe ogni card già in inbox.
+   *
+   * **`null` per `calendar` e per `email_triage`, e non è una lacuna**: una
+   * proposta di calendario non ha una classificazione AI (nasce da regole su
+   * titolo e partecipanti), quindi «cosa ha letto il modello» lì non vuol
+   * dire niente; e uno smistamento vive sul PADRE, senza riga
+   * `email_proposals`. Un client che riceve `null` non mostra il blocco.
+   *
+   * ⚠️ **Non è `email_messages.id`**, anche se ciò che si vuole è l'estratto
+   * DI QUEL messaggio: `GET /api/me/mail/:source/:id` per `source: "email"`
+   * risolve a partire da `email_proposals.id` (vedi `resolveEmailMessage`).
+   * Passarle un id di messaggio darebbe 404.
+   */
+  sourceProposalId: z.string().nullable().default(null),
 });
 export type InboxGoogle = z.infer<typeof inboxGoogleSchema>;
 

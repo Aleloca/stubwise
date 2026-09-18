@@ -186,6 +186,15 @@ const GOOGLE = item({
     recommendedIndex: 0,
     allowFreeText: false,
   },
+  // ⚠️ `sourceProposalId` è ASSENTE DI PROPOSITO, e il cast è la ragione per
+  // cui può esserlo (CLAUDE.md, «un campo nuovo che il WEB legge va difeso nel
+  // punto di lettura, e la fixture del test che lo copre va lasciata SENZA
+  // quel campo apposta»). Sul web `lib/api.ts` fa un CAST e non un `parse`:
+  // il `.default(null)` dello schema non gira mai, quindi un server più
+  // vecchio manda una risposta senza il campo e il client ci legge
+  // `undefined`. Questa fixture È quella risposta, e il test che la usa prova
+  // che il `?? null` di `ProposalSource` regge — una fixture "completata" per
+  // far contento il compilatore toglierebbe la prova.
   google: {
     source: "email",
     from: "laura@cliente.test",
@@ -195,7 +204,7 @@ const GOOGLE = item({
     actions: [{ type: "create_backlog_item" }, { type: "ignore" }],
     auto: false,
     proposalId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
-  },
+  } as InboxItem["google"],
 });
 
 /** Riga di sola informazione: nessuna azione decisionale. */
@@ -1068,6 +1077,63 @@ describe("pagina /inbox", () => {
     const decide = within(section("To decide"));
     expect(decide.queryByRole("link", { name: "Read in Stubwise" })).toBeNull();
     // La card resta intera: si perde il link, non la possibilità di decidere.
+    expect(decide.getByRole("button", { name: "Confirm" })).toBeInTheDocument();
+  });
+
+  it("⚠️ server più vecchio (nessun `sourceProposalId`): niente blocco fonte, e si decide lo stesso", async () => {
+    // La fixture `GOOGLE` è lasciata SENZA quel campo apposta (vedi il
+    // commento accanto): sul web `lib/api.ts` fa un cast e non un `parse`,
+    // quindi il `.default(null)` non gira e il campo arriva `undefined`. È il
+    // `?? null` nel punto di lettura a reggere — e questo test è la prova che
+    // c'è. Il modo in cui si romperebbe non è un blocco mancante: è un render
+    // che lancia e React che smonta l'intero sottoalbero, cioè la card che
+    // sparisce.
+    mockApi(
+      baseApi({
+        "GET /api/inbox": () => jsonResponse(200, { items: [GOOGLE], nextCursor: null }),
+      }),
+    );
+    renderInbox();
+    await screen.findByRole("heading", { name: "Inbox" });
+
+    const decide = within(section("To decide"));
+    expect(decide.queryByRole("button", { name: "Show what Stubwise read" })).toBeNull();
+    // Non sapere cosa ha letto il modello è un peccato; non poter decidere è
+    // un guasto: le scelte restano.
+    expect(decide.getByRole("button", { name: "Confirm" })).toBeInTheDocument();
+    expect(decide.getByRole("radio", { name: /Add to backlog/ })).toBeInTheDocument();
+  });
+
+  it("l'estratto si chiede SOLO al click, e un errore non porta via le scelte", async () => {
+    // A richiesta e non all'apertura: sul web la card è già espansa dentro
+    // l'elenco, quindi un fetch incondizionato sarebbe una richiesta per ogni
+    // proposta visibile. E se quella richiesta fallisce, il blocco lo dice —
+    // i bottoni restano.
+    const withSource: InboxItem = {
+      ...GOOGLE,
+      google: { ...GOOGLE.google!, sourceProposalId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd" },
+    };
+    let detailCalls = 0;
+    mockApi(
+      baseApi({
+        "GET /api/inbox": () => jsonResponse(200, { items: [withSource], nextCursor: null }),
+        "GET /api/me/mail/email/dddddddd-dddd-4ddd-8ddd-dddddddddddd": () => {
+          detailCalls += 1;
+          return jsonResponse(500, { code: "internal", message: "boom" });
+        },
+      }),
+    );
+    renderInbox();
+    await screen.findByRole("heading", { name: "Inbox" });
+
+    const decide = within(section("To decide"));
+    // Finché nessuno chiede, nessuna richiesta parte.
+    expect(detailCalls).toBe(0);
+
+    await userEvent.click(decide.getByRole("button", { name: "Show what Stubwise read" }));
+    expect(
+      await decide.findByText("The excerpt is not available for this proposal."),
+    ).toBeInTheDocument();
     expect(decide.getByRole("button", { name: "Confirm" })).toBeInTheDocument();
   });
 
