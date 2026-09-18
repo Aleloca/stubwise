@@ -1058,6 +1058,36 @@ describe("pagina /inbox", () => {
     ).toBeInTheDocument();
   });
 
+  it("⚠️ `proposalId` marcio nel jsonb: il link usa l'id DERIVATO, non quello dell'evento", async () => {
+    // Il caso misurato in produzione il 18 set 2026: su 43 card
+    // `google.proposal`, UNA — aperta, del 13 settembre — porta un
+    // `proposalId` che non corrisponde a nessuna riga (prima del fix di App
+    // M3 Fase C `assembleEvent` ci scriveva un `randomUUID()`). Per quella
+    // card il link è sempre stato un 404: il campo derivato lo ripara.
+    const derived = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+    const repaired: InboxItem = {
+      ...GOOGLE,
+      google: {
+        ...GOOGLE.google!,
+        proposalId: "ffffffff-ffff-4fff-8fff-ffffffffffff",
+        sourceProposalId: derived,
+      },
+    };
+    mockApi(
+      baseApi({
+        "GET /api/inbox": () => jsonResponse(200, { items: [repaired], nextCursor: null }),
+      }),
+    );
+    renderInbox();
+    await screen.findByRole("heading", { name: "Inbox" });
+
+    const link = within(section("To decide")).getByRole("link", { name: "Read in Stubwise" });
+    expect(link).toHaveAttribute("href", expect.stringContaining(derived));
+    // L'asserzione negativa è metà del test: senza, passerebbe anche
+    // un'implementazione che continua a leggere dall'evento.
+    expect(link).not.toHaveAttribute("href", expect.stringContaining("ffffffff"));
+  });
+
   it("proposta di SMISTAMENTO: nessun link, il suo proposalId non apre niente", async () => {
     // Uno smistamento ha `source: "email"` come una proposta vera, ma il suo
     // `proposalId` è un `randomUUID()` — non esiste nessuna riga

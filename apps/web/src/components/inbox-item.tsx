@@ -483,13 +483,35 @@ export function InboxItemCard({
         progetto risolto, è ciò che la proposta CHIEDE»
         (`apps/worker/src/google/poller.ts`).
       */}
+      {/*
+        ⚠️ **L'id del link viene dal campo DERIVATO quando c'è, dal jsonb solo
+        come ripiego** (18 set 2026). Non è un'aggiunta di comodo: su 43 card
+        `google.proposal` in produzione UNA — aperta, del 13 settembre — porta
+        nell'evento un `proposalId` che non corrisponde a nessuna riga di
+        `email_proposals`, perché prima del fix di App M3 Fase C
+        `assembleEvent` ci scriveva un `randomUUID()`. Per quella card questo
+        link è sempre stato un 404, e il campo derivato da questo batch è ciò
+        che lo ripara.
+        **Il ripiego RESTA** e non è morto: copre una card il cui payload
+        porta un id valido mentre la derivazione non trova la riga (le legacy
+        pre-6b, dove la notifica è legata al messaggio padre e non al figlio).
+        Toglierlo farebbe sparire un link che oggi funziona.
+        La guardia su `item.projectId` resta necessaria proprio per il ripiego:
+        uno smistamento ha `sourceProposalId` nullo ma un `proposalId` nel
+        jsonb, e senza quella riga cadrebbe nel fallback verso un id che non
+        apre niente.
+      */}
       {item.google !== undefined &&
         item.google.source === "email" &&
-        item.google.proposalId !== undefined &&
+        (item.google.sourceProposalId ?? item.google.proposalId) !== undefined &&
+        (item.google.sourceProposalId ?? item.google.proposalId) !== null &&
         item.projectId !== null && (
         <Link
           to="/mail/$source/$id"
-          params={{ source: "email", id: item.google.proposalId }}
+          params={{
+            source: "email",
+            id: (item.google.sourceProposalId ?? item.google.proposalId)!,
+          }}
           className="mt-1 inline-flex font-mono text-[11px] tracking-[0.1em] text-signal uppercase transition-colors hover:text-signal-bright"
         >
           {t("mail:detail.readInStubwise")}
