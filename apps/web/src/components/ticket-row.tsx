@@ -59,12 +59,22 @@ export function TicketRow({ ticket, projectName }: TicketRowProps) {
         <TypeBadge type={ticket.type} />
         <PriorityBadge priority={ticket.priority} />
         <StatusBadge status={ticket.status} />
+        {/*
+          ⚠️ `updatedAt`, non `createdAt` (21 set 2026). Questa riga mostrava
+          l'ETÀ del ticket, ed è peggio del non mostrare niente: se non dicesse
+          nulla chi guarda saprebbe di non sapere, così invece SEMBRA dire
+          l'ultima attività. Un ticket aperto due mesi fa e lavorato ieri
+          leggeva «2 mesi fa» e pareva fermo. In un elenco che serve a decidere
+          su cosa lavorare, la domanda è «da quanto non si muove», non «quanti
+          anni ha». Il `title` porta la data per esteso, per chi vuole il dato
+          esatto.
+        */}
         <time
-          dateTime={ticket.createdAt}
-          title={ticket.createdAt}
+          dateTime={ticket.updatedAt}
+          title={ticket.updatedAt}
           className="w-16 text-right font-mono text-[11px] text-fg-faint"
         >
-          {formatRelativeTime(ticket.createdAt)}
+          {formatRelativeTime(ticket.updatedAt)}
         </time>
       </span>
     </Link>
