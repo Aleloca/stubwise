@@ -373,6 +373,26 @@
         "noLog": "No log yet.",
         "logLines_one": "{{count}} line",
         "logLines_other": "{{count}} lines"
+      },
+      "fields": {
+        "title": "Details",
+        "status": "Status",
+        "priority": "Priority",
+        "assignee": "Assigned to",
+        "milestone": "Milestone",
+        "none": "None",
+        "close": "Close",
+        "offline": "// no network, no changes"
+      },
+      "question": {
+        "title": "The agent has a question",
+        "readOnly": "// only whoever started the work, or a maintainer, can answer"
+      },
+      "run": {
+        "start": "Start the work",
+        "starting": "Starting…",
+        "withInstructions": "Resume from instructions",
+        "offline": "// no network, no start"
       }
     },
     "backlog": {

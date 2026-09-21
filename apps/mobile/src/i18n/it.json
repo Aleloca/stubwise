@@ -373,6 +373,26 @@
         "noLog": "Nessun log ancora.",
         "logLines_one": "{{count}} riga",
         "logLines_other": "{{count}} righe"
+      },
+      "fields": {
+        "title": "Dettagli",
+        "status": "Stato",
+        "priority": "Priorità",
+        "assignee": "Assegnato a",
+        "milestone": "Milestone",
+        "none": "Nessuno",
+        "close": "Chiudi",
+        "offline": "// senza rete non si modifica"
+      },
+      "question": {
+        "title": "L'agente ha una domanda",
+        "readOnly": "// risponde chi ha avviato il lavoro, o un maintainer"
+      },
+      "run": {
+        "start": "Avvia il lavoro",
+        "starting": "Avvio…",
+        "withInstructions": "Riprendi dalle istruzioni",
+        "offline": "// senza rete non si avvia"
       }
     },
     "backlog": {

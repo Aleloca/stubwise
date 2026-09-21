@@ -3,9 +3,12 @@ import { ApiError } from "@stubwise/api-client";
 import { isUnknown } from "@stubwise/shared";
 import type {
   AiJob,
+  MilestoneWithCounts,
   PrReviewSummary,
+  PublicUser,
   Reader,
   TicketActivityEntry,
+  TicketComment,
   TicketDetail,
   TicketQuestion,
 } from "@stubwise/shared";
@@ -19,7 +22,10 @@ import { GhostButton } from "../../components/GhostButton";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { Skeleton } from "../../components/Skeleton";
 import { PlanSection } from "../../components/work/PlanSection";
+import { QuestionBlock } from "../../components/work/QuestionBlock";
+import { RunWorkButton } from "../../components/work/RunWorkButton";
 import { StatusBadge } from "../../components/work/StatusBadge";
+import { TicketFields } from "../../components/work/TicketFields";
 import { TechLevel } from "../../components/work/TechLevel";
 import { Timeline } from "../../components/work/Timeline";
 import { WorkingPill } from "../../components/work/WorkingPill";
@@ -105,6 +111,16 @@ export function WorkScreen({ navigation, route }: NativeStackScreenProps<Project
     enabled: client !== null,
     staleTime: 10_000,
   });
+  const commentsQuery = useQuery({
+    queryKey: workKeys.comments(id),
+    queryFn: () => {
+      if (!client) throw new Error("WorkScreen richiede un client autenticato");
+      return client.tickets.comments(id);
+    },
+    enabled: client !== null,
+    staleTime: 10_000,
+  });
+
   const projectId = ticketQuery.data?.projectId;
   const reviewsQuery = useQuery({
     queryKey: ["projects", projectId ?? "", "reviews"],
@@ -114,6 +130,29 @@ export function WorkScreen({ navigation, route }: NativeStackScreenProps<Project
     },
     enabled: client !== null && projectId !== undefined,
     staleTime: 30_000,
+  });
+
+  // Gli elenchi dietro i selettori "assegnatario" e "milestone". Fuori dai
+  // gate `isPending`/`isError` come le due query della fase 5, e per lo stesso
+  // motivo: un loro guasto deve costare quei due selettori, non la schermata —
+  // il valore corrente di entrambi i campi arriva col ticket.
+  const usersQuery = useQuery({
+    queryKey: ["users"],
+    queryFn: () => {
+      if (!client) throw new Error("WorkScreen richiede un client autenticato");
+      return client.users.list();
+    },
+    enabled: client !== null,
+    staleTime: 5 * 60_000,
+  });
+  const milestonesQuery = useQuery({
+    queryKey: ["projects", projectId ?? "", "milestones"],
+    queryFn: () => {
+      if (!client) throw new Error("WorkScreen richiede un client autenticato");
+      return client.projects.milestones(projectId!);
+    },
+    enabled: client !== null && projectId !== undefined,
+    staleTime: 60_000,
   });
 
   const isPending = ticketQuery.isPending || jobsQuery.isPending || questionsQuery.isPending;
@@ -129,7 +168,10 @@ export function WorkScreen({ navigation, route }: NativeStackScreenProps<Project
     void jobsQuery.refetch();
     void questionsQuery.refetch();
     void activityQuery.refetch();
+    void commentsQuery.refetch();
     void reviewsQuery.refetch();
+    void usersQuery.refetch();
+    void milestonesQuery.refetch();
   }
 
   const isAdmin = user !== null && !isUnknown(user.role) && user.role === "admin";
@@ -174,8 +216,12 @@ export function WorkScreen({ navigation, route }: NativeStackScreenProps<Project
             jobs={jobsQuery.data!}
             questions={questionsQuery.data!}
             activity={activityQuery.data}
+            comments={commentsQuery.data}
             reviews={reviewsQuery.data}
+            users={usersQuery.data}
+            milestones={milestonesQuery.data}
             isAdmin={isAdmin}
+            currentUserId={user?.id ?? null}
           />
         )}
       </ScrollView>
@@ -188,22 +234,50 @@ function WorkBody({
   jobs,
   questions,
   activity,
+  comments,
   reviews,
+  users,
+  milestones,
   isAdmin,
+  currentUserId,
 }: {
   ticket: Reader<TicketDetail>;
   jobs: Reader<AiJob>[];
   questions: Reader<TicketQuestion>[];
   /** `undefined` finché la query non ha risposto, o se è fallita: la timeline resta senza quelle date. */
   activity: Reader<TicketActivityEntry>[] | undefined;
+  /** Idem per i commenti: senza, la conversazione non si vede ma il resto resta. */
+  comments: Reader<TicketComment>[] | undefined;
   /** Idem per il verdetto della review. */
   reviews: Reader<PrReviewSummary>[] | undefined;
+  /** Idem per i due selettori: la riga resta leggibile, non premibile. */
+  users: Reader<PublicUser>[] | undefined;
+  milestones: Reader<MilestoneWithCounts>[] | undefined;
   isAdmin: boolean;
+  /** Serve a sapere chi può rispondere a una domanda: il richiedente del run, o un maintainer. */
+  currentUserId: string | null;
 }) {
   const { t } = useTranslation();
   const latestJob = jobs[0];
   const workState = resolveWorkState(latestJob);
   const steps = buildTimeline({ ticket, jobs, questions, activity, reviews });
+
+  /**
+   * La domanda APERTA del job corrente. Si guarda `answeredAt` e non `answer`:
+   * quest'ultimo è `null` anche su una risposta che il server non è più
+   * riuscito a rileggere, e prenderla per una domanda aperta mostrerebbe un
+   * form di risposta su una decisione già presa. Stessa lettura della pagina
+   * ticket sul web.
+   */
+  const openQuestion = questions.find(
+    (question) => question.answeredAt === null && latestJob !== undefined && question.jobId === latestJob.id,
+  );
+  // Chi può rispondere: un maintainer, o chi ha chiesto il run. È la regola di
+  // `actorAllows` lato server, dove resta l'autorità — qui decide solo cosa
+  // mostrare.
+  const requesterId = latestJob?.requestedByUserId ?? null;
+  const canAnswer = isAdmin || (requesterId !== null && currentUserId !== null && requesterId === currentUserId);
+  const hasUserComment = (comments ?? []).some((comment) => comment.authorType === "user");
   const canDecide = isAdmin && latestJob !== undefined && !isUnknown(latestJob.status) && latestJob.status === "awaiting_plan_approval";
   const isWorking =
     latestJob !== undefined && !isUnknown(latestJob.status) && latestJob.status === "fixing" && latestJob.startedAt !== null;
@@ -226,6 +300,12 @@ function WorkBody({
         </View>
       )}
 
+      {openQuestion !== undefined && (
+        <View style={styles.questionRow}>
+          <QuestionBlock ticketId={ticket.id} question={openQuestion} canAnswer={canAnswer} />
+        </View>
+      )}
+
       <View style={styles.planRow}>
         <PlanSection
           ticketId={ticket.id}
@@ -239,6 +319,14 @@ function WorkBody({
           planApprovedBy={ticket.planApprovedBy ?? null}
           planApprovalStale={ticket.planApprovalStale ?? false}
         />
+      </View>
+
+      <View style={styles.runRow}>
+        <RunWorkButton ticketId={ticket.id} latestJob={latestJob} hasUserComment={hasUserComment} />
+      </View>
+
+      <View style={styles.fieldsRow}>
+        <TicketFields ticket={ticket} users={users} milestones={milestones} />
       </View>
 
       <View style={styles.timelineRow}>
@@ -331,7 +419,16 @@ const styles = StyleSheet.create({
   workingPillRow: {
     marginTop: 10,
   },
+  questionRow: {
+    marginTop: 16,
+  },
   planRow: {
+    marginTop: 16,
+  },
+  runRow: {
+    marginTop: 16,
+  },
+  fieldsRow: {
     marginTop: 16,
   },
   timelineRow: {

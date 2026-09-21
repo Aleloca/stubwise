@@ -179,4 +179,13 @@ describe("endpoints projects: registro decisioni (fase 5)", () => {
     const init = fetchImpl.mock.calls.at(-1)![1] as RequestInit;
     expect(init.method).toBe("PATCH");
   });
+
+  it("milestones: il progetto viaggia in query, non nel path", async () => {
+    // La rotta è `/api/milestones?projectId=…` anche se il metodo sta nel
+    // gruppo dei progetti: il gruppo segue la COSA, il path resta quello del
+    // server.
+    const { client, fetchImpl } = clientCon([]);
+    await client.projects.milestones(ID);
+    expect(lastUrl(fetchImpl)).toBe(`/api/milestones?projectId=${ID}`);
+  });
 });

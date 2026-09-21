@@ -5,6 +5,7 @@ import { z } from "zod";
 import { requireAuth } from "../auth/session.js";
 import type { Db } from "@stubwise/db";
 import { comments, tickets } from "@stubwise/db";
+import { ticketCommentSchema } from "@stubwise/shared";
 import { authErrorResponses, errorSchema } from "./shared.js";
 import { apiError } from "../errors.js";
 import { addComment } from "../services/comments.js";
@@ -13,15 +14,13 @@ import { addComment } from "../services/comments.js";
  * Forma pubblica di un commento. `authorId` è nullo per i commenti dell'AI
  * e di sistema, o se l'autore è stato eliminato. `system` copre le notifiche
  * automatiche (es. chiusura ticket al merge). Alimenta l'OpenAPI generata.
+ *
+ * DEFINITO IN `@stubwise/shared` (`ticketCommentSchema`) e qui soltanto
+ * ri-esportato col nome storico: dall'app mobile lo stesso corpo lo legge il
+ * client condiviso, e una seconda copia diverge al primo campo aggiunto da
+ * una parte sola.
  */
-export const commentSchema = z.object({
-  id: z.uuid(),
-  ticketId: z.uuid(),
-  authorType: z.enum(["user", "ai", "system"]),
-  authorId: z.uuid().nullable(),
-  body: z.string(),
-  createdAt: z.iso.datetime(),
-});
+export const commentSchema = ticketCommentSchema;
 
 const createCommentBodySchema = z.object({
   body: z.string().min(1).max(20_000),

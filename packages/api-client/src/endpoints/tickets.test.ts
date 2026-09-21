@@ -144,4 +144,68 @@ describe("endpoints tickets", () => {
     expect(items.map((entry) => entry.kind)).toEqual(["event", "deploy"]);
     expect(items[0]!.payload?.to).toBe("in_progress");
   });
+
+  it("patch: manda SOLO i campi toccati — una patch, non una sostituzione", async () => {
+    // Il server applica campo per campo: mandare `assigneeId: undefined` non
+    // significa "non toccare" ma "chiave assente dal JSON", ed è proprio ciò
+    // che questo test fissa. Un campo azzerato viaggia invece come `null`.
+    const { c, fetchImpl } = clientReturning(200, { ...ticketDetail({}), status: "in_progress" });
+
+    await c.tickets.patch(ID, { status: "in_progress", assigneeId: null });
+
+    const [url, init] = fetchImpl.mock.calls.at(-1)!;
+    expect(url).toBe(`/api/tickets/${ID}`);
+    expect(init!.method).toBe("PATCH");
+    expect(JSON.parse(String(init!.body))).toEqual({ status: "in_progress", assigneeId: null });
+  });
+
+  it("comment: POST col solo corpo, e rilegge il commento creato", async () => {
+    const created = {
+      id: ID,
+      ticketId: ID,
+      authorType: "user",
+      authorId: ID,
+      body: "Ci penso io",
+      createdAt: "2026-09-21T10:00:00.000Z",
+    };
+    const { c, fetchImpl } = clientReturning(201, created);
+
+    const result = await c.tickets.comment(ID, "Ci penso io");
+
+    const [url, init] = fetchImpl.mock.calls.at(-1)!;
+    expect(url).toBe(`/api/tickets/${ID}/comments`);
+    expect(init!.method).toBe("POST");
+    expect(JSON.parse(String(init!.body))).toEqual({ body: "Ci penso io" });
+    expect(result.body).toBe("Ci penso io");
+  });
+
+  it("comments: un'origine di commento che questa build non conosce non fa saltare l'elenco", async () => {
+    // `authorType` è un enum, e gli schemi del client passano da
+    // `readerSchema`: una quarta origine deve arrivare come UNKNOWN, non far
+    // fallire il parse di TUTTI i commenti su un telefono non aggiornato.
+    const { c, fetchImpl } = clientReturning(200, [
+      { id: ID, ticketId: ID, authorType: "user", authorId: ID, body: "Primo", createdAt: "2026-09-21T10:00:00.000Z" },
+      { id: ID, ticketId: ID, authorType: "webhook", authorId: null, body: "Secondo", createdAt: "2026-09-21T11:00:00.000Z" },
+    ]);
+
+    const items = await c.tickets.comments(ID);
+
+    expect(fetchImpl.mock.calls.at(-1)![0]).toBe(`/api/tickets/${ID}/comments`);
+    expect(items.map((item) => item.body)).toEqual(["Primo", "Secondo"]);
+  });
+
+  it("deleteDesign / deletePlan: DELETE sulle due rotte, nessun corpo", async () => {
+    const { c, fetchImpl } = clientReturning(200, ticketDetail({}));
+
+    await c.tickets.deleteDesign(ID);
+    const [designUrl, designInit] = fetchImpl.mock.calls.at(-1)!;
+    expect(designUrl).toBe(`/api/tickets/${ID}/design`);
+    expect(designInit!.method).toBe("DELETE");
+    expect(designInit!.body).toBeUndefined();
+
+    await c.tickets.deletePlan(ID);
+    const [planUrl, planInit] = fetchImpl.mock.calls.at(-1)!;
+    expect(planUrl).toBe(`/api/tickets/${ID}/plan`);
+    expect(planInit!.method).toBe("DELETE");
+  });
 });

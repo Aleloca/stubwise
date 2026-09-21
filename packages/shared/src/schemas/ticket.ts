@@ -247,3 +247,27 @@ export const ticketActivityEntrySchema = z.object({
   finishedAt: z.iso.datetime().nullable().optional(),
 });
 export type TicketActivityEntry = z.infer<typeof ticketActivityEntrySchema>;
+
+/**
+ * Un commento di ticket, come lo restituiscono `GET`/`POST
+ * /api/tickets/:ticketId/comments`.
+ *
+ * Vive QUI e non più solo in `apps/server/src/routes/comments.ts` (che ora lo
+ * importa da qui e lo ri-esporta per l'OpenAPI) perché dall'app mobile lo
+ * legge anche il client condiviso: due definizioni dello stesso corpo sono
+ * due verità che divergono al primo campo aggiunto da una parte sola.
+ *
+ * `authorId` è nullo per i commenti dell'AI e di sistema, o se l'autore è
+ * stato eliminato; `authorType` distingue i tre casi, ed è un enum che
+ * `readerSchema` apre — una quarta origine di commento non deve far fallire
+ * il parse dell'intero elenco su un telefono non aggiornato.
+ */
+export const ticketCommentSchema = z.object({
+  id: z.uuid(),
+  ticketId: z.uuid(),
+  authorType: z.enum(["user", "ai", "system"]),
+  authorId: z.uuid().nullable(),
+  body: z.string(),
+  createdAt: z.iso.datetime(),
+});
+export type TicketComment = z.infer<typeof ticketCommentSchema>;

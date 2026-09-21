@@ -14,6 +14,7 @@ import { createPatsEndpoints } from "./endpoints/pats.js";
 import { createProjectsEndpoints } from "./endpoints/projects.js";
 import { createSearchEndpoints } from "./endpoints/search.js";
 import { createTicketsEndpoints } from "./endpoints/tickets.js";
+import { createUsersEndpoints } from "./endpoints/users.js";
 
 /**
  * L'init di `fetch` DERIVATO dal `fetch` dell'ambiente, invece di nominare
@@ -117,6 +118,7 @@ export function createEndpoints(request: ApiRequest) {
     activity: createActivityEndpoints(request),
     mail: createMailEndpoints(request),
     calendar: createCalendarEndpoints(request),
+    users: createUsersEndpoints(request),
   };
 }
 

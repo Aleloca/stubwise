@@ -27,4 +27,4 @@ export type { BacklogFilters } from "./endpoints/backlog.js";
 export type { CalendarFilters, CalendarRange } from "./endpoints/calendar.js";
 export type { InboxActionBody, InboxAnswerBody, InboxFilters } from "./endpoints/inbox.js";
 export type { MailDetailSource, MailFilters, MailReproposeSource } from "./endpoints/mail.js";
-export type { TicketFilters } from "./endpoints/tickets.js";
+export type { TicketFilters, TicketPatch } from "./endpoints/tickets.js";
