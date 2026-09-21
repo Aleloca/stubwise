@@ -1420,6 +1420,38 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   produzione**, sull'app manca **solo nei test**. La difesa è diversa —
   `?? []` nel codice del web, fixture complete nei test dell'app — e
   applicare quella sbagliata non protegge da niente.
+- **Un campo nuovo non si "aggiunge": si aggiunge E si va a cercare chi
+  diceva qualcosa che ora è INCOMPLETO (21 set 2026).** È la domanda da farsi
+  ogni volta che un campo nuovo cambia il SIGNIFICATO di qualcosa che una
+  schermata già mostrava: l'elenco dei posti da toccare non è «dove metto il
+  nuovo», è «chi parlava di questa cosa prima, e adesso mente».
+  **Due casi misurati, e non si deducono l'uno dall'altro.** (1)
+  `searchSnippetSegments` (`packages/shared/src/search-snippet.ts`): la regola
+  viveva solo nel web e all'app mancava del tutto — il classico «una
+  superficie sola». (2) Il quarto secchio del polso: la regola è stata messa
+  in DUE posti (il blocco «Fermo» c'è sia su web sia su app) ma la RIGA DI
+  SINTESI accanto è stata aggiornata su una superficie sola. Risultato: nel
+  dettaglio dell'app un progetto con zero job vivi e otto ticket fermi diceva
+  «tutto tranquillo» **esattamente sopra l'elenco degli otto**, e sulla lista
+  progetti non diceva niente affatto — cioè il buco che quel batch esisteva
+  per chiudere, lasciato aperto proprio sulla schermata da cui si parte. Il
+  secondo caso è più insidioso del primo: il pezzo nuovo era su entrambe le
+  superfici, quindi «l'ho fatto da tutt'e due le parti» sembrava vero.
+  **Regola operativa**: aggiunto un campo, cerca i suoi CONSUMATORI
+  (`grep` sul nome del tipo di risposta, non solo sul campo) e per ognuno
+  chiediti se quello che mostra è ancora completo. Nel caso del polso erano
+  tre oltre al blocco nuovo — la riga di sintesi (due gemelli:
+  `apps/{web,mobile}/src/lib/pulse-line.ts`), i conteggi
+  (`CountsLine`/`PulseRow`, più l'intestazione di `ProjectsScreen`) e
+  **l'ORDINAMENTO** (`pulseOrder` in `apps/server/src/routes/projects.ts`):
+  anche un ordine afferma una priorità, e lasciarlo indietro l'avrebbe reso
+  una terza verità diversa dalle altre due.
+  ⚠️ **E una riga aggiunta a una fixture non è copertura.** Completare le
+  fixture perché il compilatore smetta di lamentarsi (`stalled: []`,
+  `waitingForMerge: []`) è compatibilità di TIPO: il test che avrebbe fermato
+  il difetto è quello con lo scenario «SOLO i campi nuovi popolati», che
+  nessuna fixture completata a zero produce mai. Chi aggiunge un campo
+  aggiunga anche quel caso, su ogni superficie.
 - **Trappola di routing Fastify — rotta parametrica registrata prima di una
   letterale sullo stesso prefisso.** `GET /api/projects/pulse` e
   `GET /api/projects/:projectId` condividono il prefisso `/api/projects`:
