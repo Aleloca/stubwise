@@ -22,10 +22,27 @@ function summary(overrides: Partial<ProjectPulseSummary> = {}): ProjectPulseSumm
     failedCount: 0,
     backlogReadyCount: 0,
     idleDays: 0,
+    stalled: [],
+    waitingForMerge: [],
     lastReportDate: null,
     ...overrides,
   };
 }
+
+const PR_DA_MERGIARE = {
+  ticketId: TICKET_ID,
+  ticketNumber: 20,
+  title: "Coda di rilascio",
+  prUrl: "https://example.com/pr/20",
+};
+
+const FERMO = {
+  ticketId: TICKET_ID,
+  ticketNumber: 18,
+  title: "Export CSV degli ordini",
+  stalledSince: "2026-08-31T12:00:00.000Z",
+  reason: "to_prepare" as const,
+};
 
 const QUESTION = {
   kind: "question" as const,
@@ -126,5 +143,78 @@ describe("pulseLineFor — 'fermo da N giorni'", () => {
   it("il conteggio dei giorni è nei params", () => {
     const line = pulseLineFor(summary({ idleDays: 6 }));
     expect(line).toEqual({ tone: "faint", key: "projects:pulse.idle", params: { count: 6 } });
+  });
+});
+
+/**
+ * IL QUARTO SECCHIO (21 set 2026) nella riga di polso.
+ */
+describe("pulseLineFor: PR da mergiare e ticket fermi", () => {
+  it("una PR che aspetta il MIO merge sta accanto alle decisioni, prima del lavoro in corso", () => {
+    const line = pulseLineFor(
+      summary({
+        waitingForMerge: [{ ...PR_DA_MERGIARE, canMerge: true }],
+        running: [{ ticketId: TICKET_ID, ticketNumber: 9, title: "Un lavoro", sinceMinutes: 3 }],
+      }),
+    );
+    expect(line.key).toBe("projects:pulse.waitingMerge");
+    expect(line.tone).toBe("signal");
+    expect(line.params).toEqual({ count: 1 });
+  });
+
+  it("una PR che aspetta ALTRI non diventa «aspetta te»", () => {
+    const line = pulseLineFor(summary({ waitingForMerge: [{ ...PR_DA_MERGIARE, canMerge: false }] }));
+    expect(line.key).toBe("projects:pulse.waitingMergeOthers");
+    expect(line.tone).not.toBe("signal");
+  });
+
+  it("il lavoro in corso viene PRIMA di una PR che aspetta altri", () => {
+    const line = pulseLineFor(
+      summary({
+        waitingForMerge: [{ ...PR_DA_MERGIARE, canMerge: false }],
+        running: [{ ticketId: TICKET_ID, ticketNumber: 9, title: "Un lavoro", sinceMinutes: 3 }],
+      }),
+    );
+    expect(line.key).toBe("projects:pulse.runningOne");
+  });
+
+  it("con dei ticket fermi non dice «tutto tranquillo»", () => {
+    const line = pulseLineFor(summary({ stalled: [FERMO] }));
+    expect(line.key).toBe("projects:pulse.stalled");
+    expect(line.params).toEqual({ count: 1 });
+  });
+
+  it("senza niente di fermo torna «tutto tranquillo»", () => {
+    expect(pulseLineFor(summary()).key).toBe("projects:pulse.ok");
+  });
+});
+
+/**
+ * ⚠️ LA DIFESA NEL PUNTO DI LETTURA. Questa fixture è lasciata SENZA i due
+ * campi nuovi APPOSTA: è com'è fatta la risposta di un server più vecchio (un
+ * rollback, o un'istanza self-hosted non aggiornata), e sul web il
+ * `.default([])` dello schema NON gira — `lib/api.ts` fa un cast, non un
+ * parse. Senza il `?? []` in `pulseLineFor` il `.filter` lancerebbe e React
+ * smonterebbe l'intera lista progetti, non una riga.
+ *
+ * Chi un giorno "sistemerà" questa fixture completandola non starà togliendo
+ * una svista: starà togliendo la prova.
+ */
+describe("pulseLineFor contro un server più vecchio", () => {
+  it("una risposta senza `stalled` né `waitingForMerge` non fa lanciare niente", () => {
+    const daServerVecchio = {
+      projectId: PROJECT_ID,
+      projectName: "Portale B2B",
+      waitingForYou: [],
+      waitingForOthers: [],
+      running: [],
+      failedCount: 0,
+      backlogReadyCount: 0,
+      idleDays: 0,
+      lastReportDate: null,
+    } as unknown as ProjectPulseSummary;
+
+    expect(() => pulseLineFor(daServerVecchio)).not.toThrow();
+    expect(pulseLineFor(daServerVecchio).key).toBe("projects:pulse.ok");
   });
 });

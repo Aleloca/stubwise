@@ -15,6 +15,8 @@ function summary(overrides: Partial<Reader<ProjectPulseSummary>> = {}): Reader<P
     failedCount: 0,
     backlogReadyCount: 0,
     idleDays: 0,
+    stalled: [],
+    waitingForMerge: [],
     lastReportDate: null,
     ...overrides,
   };

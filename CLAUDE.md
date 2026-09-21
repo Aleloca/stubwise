@@ -1187,6 +1187,68 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   risposta: l'app (che parsa) legge `null` dal `.default`, il web legge
   `undefined` e lo difende con `?? null` — in entrambi i casi il blocco non
   compare e la card resta intera. Va sceso col caddy come sempre.
+- **«Far vedere ciò che è fermo» (21 set 2026)**: rebuild **server + caddy** —
+  il server DERIVA i due campi nuovi del polso, il bundle li disegna. **Il
+  worker non c'entra**: nessun poller nuovo e **nessuna notifica nuova** (il
+  pulse proattivo della fase 2 avvisa già quando un PROGETTO è fermo; questo è
+  a livello di TICKET e vive in una vista, non in inbox — che stiamo cercando
+  di alleggerire, non di riempire). **Nessuna migrazione, nessuna colonna,
+  nessuna rotta nuova, nessuna env, nessun toggle**: «fermo» si calcola a
+  lettura da dati che ci sono già (`tickets`, `ai_jobs`,
+  `ticket_repositories`, `agent_questions`), a ogni `GET /api/projects/pulse`.
+  **Cosa fa**: il polso di un progetto guadagna DUE campi additivi, entrambi
+  `.default([])` — `stalled` (i ticket che non si muovono, dal più vecchio, con
+  la data dell'ultimo movimento e il MOTIVO) e `waitingForMerge` (le PR aperte,
+  che NON sono ferme: aspettano una decisione umana precisa, il merge).
+  Prima di questa aggiunta i tre secchi del polso erano TUTTI basati su un job
+  in volo: dieci ticket non chiusi in produzione, zero con un job vivo, quindi
+  zero nel polso — e il più vecchio fermo da 21 giorni.
+  ⚠️ **Il criterio del «fermo» sta in UN posto solo**,
+  `packages/notifications/src/project-pulse-summary.ts` (NON
+  `project-signals.ts`, che sono i segnali del pulse proattivo): non chiuso,
+  nessun job vivo, nessuna PR aperta, nessuna domanda dell'agente in sospeso.
+  Chi ne ha bisogno altrove chiami quella funzione invece di ricopiarlo in SQL:
+  il repo ha già due regole scritte in due lingue (`isReadyForProposal` e la
+  query del propose phase) e reggono solo perché documentate con insistenza.
+  La condizione sulla PR aperta è la STESSA della coda di rilascio
+  (`prState = 'open'` E `prUrl` valorizzato), così `stalled` e
+  `waitingForMerge` non possono né sovrapporsi né lasciare un ticket fuori da
+  entrambi.
+  ⚠️ **Il MOTIVO si deriva dai JOB, non dallo STATO** — lo stato è una
+  DICHIARAZIONE di qualcuno, i job sono un FATTO, e una vista che legge solo lo
+  stato manda un operatore a cercare lavoro che non esiste. Il caso che l'ha
+  insegnato è il ticket #25 in produzione: `in_progress` con ZERO job,
+  `created_at` e `updated_at` a tre secondi di distanza, e il suo contenuto
+  (fase 7) già in produzione dal 9 settembre. Per questo esiste
+  `declared_no_work` («nessun lavoro registrato», dove l'azione giusta è spesso
+  «chiudilo») distinto da `interrupted` («cominciato e mai arrivato ad aprire
+  una PR»), che in produzione al 21 set non ha NESSUNA occorrenza: non è il
+  caso normale e non va trattato come tale.
+  ⚠️ **I GIORNI li conta il CLIENT, dalla data**: il server manda
+  `stalledSince` (l'ultimo MOVIMENTO, non la creazione) e mai un numero — un
+  conteggio calcolato a monte invecchia dentro una risposta in cache e dice «da
+  3 giorni» su una pagina aperta da una settimana. Gli helper sono
+  `apps/{mobile,web}/src/lib/stalled.ts`, gemelli deliberati come i due
+  `pulse-line.ts` accanto.
+  ⚠️ **`canMerge` lo calcola il SERVER, col ruolo — mai il client**: vedi «I due
+  divieti dell'operatore» più sotto, punto 2, che da questa data vale anche in
+  lettura.
+  **L'app mobile NON fa parte di questo rebuild**: si aggiorna dagli store, non
+  dai nostri deploy — è la premessa dell'invariante «solo cambi additivi», ed è
+  il motivo per cui entrambi i campi nascono `.default([])`.
+  **Costo, dichiarato**: `summarizeProject` passa da 4 a 7 query per progetto.
+  Non introduce il «limite noto v1» già scritto nel commento di quella funzione
+  (un admin apre questa vista su OGNI progetto dell'istanza, senza cap né
+  paginazione), ma ne alza il coefficiente: se un'istanza crescesse a centinaia
+  di progetti, è lì che si guarda.
+  **Rollback — innocuo, e niente da ripulire**: nessun kind di notifica nuovo e
+  nessun valore aggiunto a un enum che entri in una risposta di rotta esistente,
+  quindi niente della famiglia del 500 su `/api/inbox` delle fasi 2/5/6.
+  Scendere di immagine sul server fa sparire i due campi dalla risposta: l'app
+  (che parsa davvero, via `readerSchema`) legge `[]` dal `.default`, il web —
+  che NON parsa, `lib/api.ts` fa un cast — li difende con `?? []` nel punto di
+  lettura. In entrambi i casi il blocco non compare e il resto del polso resta
+  intero. Va sceso col caddy come sempre.
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
@@ -1230,6 +1292,21 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
      sotto). Chi in futuro aggiunge un'integrazione che esegue un DEPLOY
      (non un merge) rompe questa frase, non solo il codice: è un cambio di
      prodotto, non un dettaglio implementativo.
+     **E dal 21 set 2026 questo divieto vale anche IN LETTURA, non solo sulle
+     rotte di scrittura**: il polso di un progetto non dice a un `member` che
+     una PR aspetta LUI. `waitingForMerge[].canMerge`
+     (`packages/notifications/src/project-pulse-summary.ts`) è calcolato dal
+     SERVER col ruolo del viewer, e il client lo LEGGE — non lo deduce dal
+     proprio ruolo. Se lo deducesse, la copia della regola starebbe dentro
+     l'app, cioè **dalla parte che non possiamo aggiornare** (si aggiorna dagli
+     store): il giorno in cui la regola cambiasse ci sarebbero due verità, e
+     quella sbagliata sarebbe in mano agli utenti. Verificato con un test a DUE
+     RUOLI sugli stessi dati (`project-pulse-summary.test.ts`, «stessi dati,
+     due ruoli: `canMerge` distingue il maintainer dall'operatore»): la stessa
+     PR arriva `canMerge: true` a un admin e `false` a un member, e il client
+     la mette sotto «aspetta te» o «aspetta altri» di conseguenza.
+     `release.test.ts` prova che un member non PUÒ mergiare; questo prova che
+     non gli viene nemmeno MOSTRATO come suo.
 - **I campi che un client legge su una card di inbox si DERIVANO A LETTURA,
   non si scrivono nell'evento (18 set 2026).** `notifications.event` è un
   jsonb **persistito al momento della publish**: un campo aggiunto lì ce

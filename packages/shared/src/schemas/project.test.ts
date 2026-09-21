@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { readerSchema } from "../reader.js";
-import { projectDetailSchema, projectListItemSchema, projectSchema } from "./project.js";
+import {
+  projectDetailSchema,
+  projectListItemSchema,
+  projectPulseSummarySchema,
+  projectSchema,
+} from "./project.js";
 
 /**
  * COMPATIBILITÀ VERSO L'APP GIÀ INSTALLATA.
@@ -74,5 +79,89 @@ describe("projectSchema: campi della fase 5 verso un server più vecchio", () =>
   it("un server CON la fase 5 continua a essere letto verbatim", () => {
     const parsed = projectSchema.parse(progettoSenzaFase5({ weeklyBriefEnabled: true }));
     expect(parsed.weeklyBriefEnabled).toBe(true);
+  });
+});
+
+/**
+ * STESSA REGOLA, campo nuovo: il quarto secchio del polso (21 set 2026).
+ *
+ * `projectPulseSummarySchema` è la risposta di `GET /api/projects/pulse`, la
+ * vista di APERTURA dell'app mobile. Un'app che conosce `stalled` e
+ * `waitingForMerge` può benissimo parlare con un server che non li manda — un
+ * rollback, o un'istanza self-hosted rimasta indietro — e se quei campi
+ * fossero obbligatori il parse dell'INTERA risposta fallirebbe: non una riga
+ * mancante, la schermata di apertura vuota su ogni telefono.
+ *
+ * La fixture qui sotto è lasciata SENZA i due campi APPOSTA: è la prova che la
+ * difesa c'è, non una svista da completare.
+ */
+function polsoSenzaQuartoSecchio(overrides: Record<string, unknown> = {}) {
+  return {
+    projectId: "22222222-2222-4222-8222-222222222222",
+    projectName: "Stubwise",
+    waitingForYou: [],
+    waitingForOthers: [],
+    running: [],
+    failedCount: 0,
+    backlogReadyCount: 0,
+    idleDays: 3,
+    lastReportDate: null,
+    ...overrides,
+  };
+}
+
+describe("projectPulseSummarySchema: il quarto secchio verso un server più vecchio", () => {
+  it("parsa un polso senza `stalled` e `waitingForMerge`, che diventano liste vuote", () => {
+    const parsed = projectPulseSummarySchema.parse(polsoSenzaQuartoSecchio());
+    expect(parsed.stalled).toEqual([]);
+    expect(parsed.waitingForMerge).toEqual([]);
+  });
+
+  it("regge anche attraverso `readerSchema`, che è la strada vera del client", () => {
+    const parsed = readerSchema(projectPulseSummarySchema).parse(polsoSenzaQuartoSecchio()) as {
+      stalled: unknown[];
+      waitingForMerge: unknown[];
+    };
+    expect(parsed.stalled).toEqual([]);
+    expect(parsed.waitingForMerge).toEqual([]);
+  });
+
+  it("un motivo SCONOSCIUTO non fa fallire il parse del client: `readerSchema` lo apre", () => {
+    // Il verso opposto: un server PIÙ NUOVO che aggiunge un quinto motivo. Con
+    // un enum chiuso il polso sparirebbe; `readerSchema` lo riporta come
+    // ignoto e la riga resta disegnabile (stesso trattamento di
+    // `pulseWaitingKind` in `apps/mobile/src/lib/pulse-line.ts`).
+    const parsed = readerSchema(projectPulseSummarySchema).parse(
+      polsoSenzaQuartoSecchio({
+        stalled: [
+          {
+            ticketId: "33333333-3333-4333-8333-333333333333",
+            ticketNumber: 25,
+            title: "Un ticket fermo",
+            stalledSince: "2026-09-01T10:00:00.000Z",
+            reason: "un_motivo_che_non_esiste_ancora",
+          },
+        ],
+      }),
+    ) as { stalled: { reason: unknown }[] };
+    expect(parsed.stalled).toHaveLength(1);
+    expect(parsed.stalled[0]!.reason).not.toBe("un_motivo_che_non_esiste_ancora");
+  });
+
+  it("un server CON il quarto secchio continua a essere letto verbatim", () => {
+    const parsed = projectPulseSummarySchema.parse(
+      polsoSenzaQuartoSecchio({
+        waitingForMerge: [
+          {
+            ticketId: "44444444-4444-4444-8444-444444444444",
+            ticketNumber: 31,
+            title: "Una PR da mergiare",
+            prUrl: "https://example.com/pr/31",
+            canMerge: false,
+          },
+        ],
+      }),
+    );
+    expect(parsed.waitingForMerge[0]?.canMerge).toBe(false);
   });
 });

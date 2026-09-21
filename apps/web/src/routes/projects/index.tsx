@@ -8,6 +8,7 @@ import { formatRelativeTime } from "../../lib/format";
 import { projectQueryOptions, projectsPulseQueryOptions, projectsQueryOptions } from "../../lib/queries";
 import { FormError, SubmitButton, TextField } from "../../components/field";
 import { PULSE_TONE_CLASS, pulseLineFor } from "../../lib/pulse-line";
+import { stalledDays, stalledReasonKey } from "../../lib/stalled";
 
 /**
  * Riga di polso di un progetto (fase 7, Task 10): «cosa aspetta me» — la
@@ -23,6 +24,56 @@ function ProjectPulseLine({ summary }: { summary: ProjectPulseSummary }) {
     <span className={`font-mono text-[11px] whitespace-nowrap ${PULSE_TONE_CLASS[line.tone]}`}>
       {t(line.key, line.params)}
     </span>
+  );
+}
+
+/**
+ * IL QUARTO SECCHIO sul web (21 set 2026): i ticket di un progetto che non si
+ * muovono — non chiusi, senza job vivo, senza PR aperta, senza domanda in
+ * sospeso. Sta SOTTO la riga del progetto e non dentro, perché è un elenco di
+ * link e il `<Link>` del progetto non può contenerne altri.
+ *
+ * Il blocco non compare affatto quando non c'è niente di fermo: un «FERMO · 0»
+ * sarebbe rumore su una pagina che deve dire cosa fare. Nessuna soglia che
+ * nasconde: un ticket fermo da un giorno compare lo stesso, in fondo — una
+ * soglia sarebbe una decisione su cosa conta presa dal codice invece che da
+ * chi guarda.
+ *
+ * ⚠️ `?? []` e non il `.default([])` dello schema: `lib/api.ts` fa un cast e
+ * non un parse, quindi qui il default non gira mai (vedi il commento gemello
+ * in `lib/pulse-line.ts`).
+ */
+function ProjectStalledBlock({ summary }: { summary: ProjectPulseSummary }) {
+  const { t } = useTranslation();
+  const stalled = summary.stalled ?? [];
+  if (stalled.length === 0) return null;
+  // I giorni si contano ADESSO, dalla data: vedi `lib/stalled.ts`. L'ordine
+  // (dal più fermo) arriva già dal server e qui non si tocca.
+  const now = new Date();
+  return (
+    <ul className="border-t border-line bg-ink-950 px-5 py-2" data-testid="project-stalled">
+      <li className="py-1 font-mono text-[11px] tracking-[0.18em] text-fg-faint uppercase">
+        {t("projects:stalled.title", { count: stalled.length })}
+      </li>
+      {stalled.map((item) => (
+        <li key={item.ticketId}>
+          <Link
+            to="/tickets/$id"
+            params={{ id: item.ticketId }}
+            className="flex items-baseline gap-x-3 py-1 transition-colors hover:text-fg"
+          >
+            <span className="font-mono text-[11px] text-fg-faint">#{item.ticketNumber}</span>
+            <span className="min-w-0 flex-1 truncate text-[13px] text-fg-muted">{item.title}</span>
+            <span className="font-mono text-[11px] whitespace-nowrap text-fg-faint">
+              {t("projects:stalled.row", {
+                days: stalledDays(item.stalledSince, now),
+                reason: t(stalledReasonKey(item.reason)),
+              })}
+            </span>
+          </Link>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -162,6 +213,9 @@ export function ProjectsPage() {
                   {t("projects:list.createdAt", { date: formatRelativeTime(project.createdAt) })}
                 </span>
               </Link>
+              {pulseByProjectId.has(project.id) && (
+                <ProjectStalledBlock summary={pulseByProjectId.get(project.id)!} />
+              )}
             </li>
           ))}
         </ul>

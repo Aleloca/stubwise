@@ -21,6 +21,8 @@ function summary(overrides: Partial<Reader<ProjectPulseSummary>> = {}): Reader<P
     failedCount: 0,
     backlogReadyCount: 0,
     idleDays: 0,
+    stalled: [],
+    waitingForMerge: [],
     lastReportDate: null,
     ...overrides,
   };
@@ -144,6 +146,9 @@ describe("ProjectDetailScreen", () => {
     expect(screen.queryByText(/Aspetta qualcuno/)).toBeNull();
     expect(screen.queryByText(/Adesso/)).toBeNull();
     expect(screen.queryByText(/Pronto nel backlog/)).toBeNull();
+    // `stalled` vuoto: nessun «Fermo · 0». Un secchio a zero è rumore su una
+    // schermata che deve dire cosa fare.
+    expect(screen.queryByText(/Fermo/)).toBeNull();
     expect(screen.queryByText("Report di ieri")).toBeNull();
   });
 
@@ -382,5 +387,127 @@ describe("ProjectDetailScreen — brief settimanale", () => {
     await renderScreen(makeClient({ briefs: jest.fn().mockRejectedValue(new Error("down")) }));
     await openBrief();
     await waitFor(() => expect(screen.getByText("Non riesco a caricare il brief.")).toBeTruthy());
+  });
+
+  // ----------------------------------------------------------------------
+  // IL QUARTO SECCHIO (21 set 2026)
+  // ----------------------------------------------------------------------
+
+  /** `stalledSince` a N giorni esatti da adesso: i giorni li conta il client. */
+  function fermoDa(days: number): string {
+    return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  }
+
+  test("«Fermo · N»: ogni voce porta i giorni e il motivo, e apre il ticket", async () => {
+    const navigate = jest.fn();
+    const client = makeClient({
+      pulse: jest.fn().mockResolvedValue([
+        summary({
+          stalled: [
+            {
+              ticketId: TICKET_A,
+              ticketNumber: 18,
+              title: "Export CSV degli ordini",
+              stalledSince: fermoDa(21),
+              reason: "to_prepare",
+            },
+          ],
+        }),
+      ]),
+    });
+    await renderScreen(client, navigate);
+
+    await waitFor(() => expect(screen.getByText("Fermo · 1")).toBeTruthy());
+    expect(screen.getByText("21g · da preparare")).toBeTruthy();
+    await fireEvent.press(screen.getByText("Export CSV degli ordini"));
+    expect(navigate).toHaveBeenCalledWith("Ticket", { id: TICKET_A });
+  });
+
+  test("l'ordine del server (dal più fermo) NON viene riordinato qui", async () => {
+    const client = makeClient({
+      pulse: jest.fn().mockResolvedValue([
+        summary({
+          stalled: [
+            { ticketId: TICKET_A, ticketNumber: 18, title: "Il più fermo", stalledSince: fermoDa(21), reason: "to_prepare" },
+            { ticketId: TICKET_B, ticketNumber: 27, title: "Fermo da poco", stalledSince: fermoDa(1), reason: "interrupted" },
+          ],
+        }),
+      ]),
+    });
+    await renderScreen(client);
+
+    await waitFor(() => expect(screen.getByText("Fermo · 2")).toBeTruthy());
+    expect(screen.getByText("21g · da preparare")).toBeTruthy();
+    expect(screen.getByText("1g · interrotto")).toBeTruthy();
+  });
+
+  /**
+   * ⚠️ IL DIVIETO DELL'OPERATORE IN LETTURA. `canMerge` arriva dal server:
+   * l'app NON lo deduce dal ruolo di chi guarda (qui è sempre `member`, e non
+   * cambia nulla). Con `true` la PR sta fra le cose che aspettano TE, con
+   * `false` fra quelle che aspettano altri — stessa riga, due posti.
+   */
+  test("PR da mergiare, `canMerge: true`: riga «da mergiare» in «Aspetta qualcuno»", async () => {
+    const navigate = jest.fn();
+    const client = makeClient({
+      pulse: jest.fn().mockResolvedValue([
+        summary({
+          waitingForMerge: [
+            {
+              ticketId: TICKET_A,
+              ticketNumber: 20,
+              title: "Coda di rilascio",
+              prUrl: "https://example.com/pr/20",
+              canMerge: true,
+            },
+          ],
+        }),
+      ]),
+    });
+    await renderScreen(client, navigate);
+
+    await waitFor(() => expect(screen.getByText("Aspetta qualcuno · 1")).toBeTruthy());
+    expect(screen.getByText("→ da mergiare")).toBeTruthy();
+    await fireEvent.press(screen.getByText("Coda di rilascio"));
+    expect(navigate).toHaveBeenCalledWith("Ticket", { id: TICKET_A });
+  });
+
+  test("PR da mergiare, `canMerge: false`: la stessa riga dice che aspetta un maintainer", async () => {
+    const client = makeClient({
+      pulse: jest.fn().mockResolvedValue([
+        summary({
+          waitingForMerge: [
+            {
+              ticketId: TICKET_A,
+              ticketNumber: 20,
+              title: "Coda di rilascio",
+              prUrl: "https://example.com/pr/20",
+              canMerge: false,
+            },
+          ],
+        }),
+      ]),
+    });
+    await renderScreen(client);
+
+    await waitFor(() => expect(screen.getByText("Aspetta qualcuno · 1")).toBeTruthy());
+    expect(screen.getByText("→ un maintainer")).toBeTruthy();
+    expect(screen.queryByText("→ da mergiare")).toBeNull();
+  });
+
+  test("una PR aperta non entra MAI fra i fermi: è un'attesa, non un abbandono", async () => {
+    const client = makeClient({
+      pulse: jest.fn().mockResolvedValue([
+        summary({
+          waitingForMerge: [
+            { ticketId: TICKET_A, ticketNumber: 20, title: "Coda di rilascio", prUrl: "https://example.com/pr/20", canMerge: true },
+          ],
+        }),
+      ]),
+    });
+    await renderScreen(client);
+
+    await waitFor(() => expect(screen.getByText("Aspetta qualcuno · 1")).toBeTruthy());
+    expect(screen.queryByText(/Fermo/)).toBeNull();
   });
 });

@@ -1,20 +1,23 @@
 import {
   activityReports,
+  agentQuestions,
   aiJobs,
   backlogItems,
   notifications,
+  ticketRepositories,
   tickets,
   users,
   type Db,
 } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   isRunningStatus,
   isWaitingStatus,
   RUNNING_STATUSES,
+  stalledReasonFor,
   summarizeProject,
   WAITING_STATUSES,
 } from "./project-pulse-summary.js";
@@ -68,7 +71,16 @@ describe("summarizeProject", () => {
 
   async function seedTicketRow(
     projectId: string,
-    opts: { number?: number; title?: string } = {},
+    opts: {
+      number?: number;
+      title?: string;
+      status?: "open" | "triaged" | "in_progress" | "in_review" | "done" | "closed";
+      /** Sposta indietro `updated_at` DOPO l'insert: è l'ultimo MOVIMENTO del
+       * ticket, e il quarto secchio ci si appoggia. Scritto in SQL grezzo e non
+       * con `db.update(...)` perché la colonna ha un `$onUpdate` che
+       * rimetterebbe "adesso". */
+      updatedAt?: Date;
+    } = {},
   ): Promise<{ ticketId: string; number: number }> {
     const number = opts.number ?? 1;
     const [row] = await db
@@ -80,16 +92,38 @@ describe("summarizeProject", () => {
         type: "bug",
         priority: "medium",
         source: "manual",
+        ...(opts.status ? { status: opts.status } : {}),
       })
       .returning({ id: tickets.id });
-    return { ticketId: row!.id, number };
+    const ticketId = row!.id;
+    if (opts.updatedAt) {
+      await db.execute(
+        sql`update tickets set updated_at = ${opts.updatedAt.toISOString()} where id = ${ticketId}`,
+      );
+    }
+    return { ticketId, number };
   }
 
   async function seedAiJob(opts: {
     ticketId: string;
-    status: "awaiting_input" | "awaiting_plan_approval" | "triaging" | "fixing" | "failed";
+    // Allargato al 21 set 2026 (quarto secchio): il criterio del "fermo"
+    // guarda anche gli stati CONCLUSI — un job che c'è stato ed è finito è la
+    // differenza fra «mai lavorato» e «lavorato, poi fermo».
+    status:
+      | "queued"
+      | "awaiting_input"
+      | "awaiting_plan_approval"
+      | "triaging"
+      | "fixing"
+      | "held"
+      | "failed"
+      | "skipped"
+      | "pr_opened"
+      | "pr_merged"
+      | "pr_closed";
     requestedByUserId?: string | null;
     startedAt?: Date;
+    lastActivityAt?: Date;
   }): Promise<string> {
     const [row] = await db
       .insert(aiJobs)
@@ -98,6 +132,7 @@ describe("summarizeProject", () => {
         status: opts.status,
         requestedByUserId: opts.requestedByUserId ?? null,
         ...(opts.startedAt ? { startedAt: opts.startedAt } : {}),
+        ...(opts.lastActivityAt ? { lastActivityAt: opts.lastActivityAt } : {}),
       })
       .returning({ id: aiJobs.id });
     return row!.id;
@@ -455,6 +490,282 @@ describe("summarizeProject", () => {
 
     expect(summary?.waitingForYou).toEqual([]);
     expect(summary?.waitingForOthers).toEqual([]);
+  });
+
+  // ------------------------------------------------------------------------
+  // IL QUARTO SECCHIO: ciò che non si muove (21 set 2026)
+  // ------------------------------------------------------------------------
+
+  async function seedProjectWithRepo(): Promise<{ projectId: string; repositoryId: string }> {
+    return seedRepository(db);
+  }
+
+  async function seedOpenPr(opts: {
+    ticketId: string;
+    repositoryId: string;
+    prUrl: string | null;
+  }): Promise<void> {
+    await db.insert(ticketRepositories).values({
+      ticketId: opts.ticketId,
+      repositoryId: opts.repositoryId,
+      branch: "stubwise/ticket-1",
+      prUrl: opts.prUrl,
+      prState: "open",
+    });
+  }
+
+  async function seedOpenQuestion(opts: { jobId: string; ticketId: string }): Promise<void> {
+    await db.insert(agentQuestions).values({
+      jobId: opts.jobId,
+      ticketId: opts.ticketId,
+      round: 1,
+      question: "Quale strada?",
+      options: [{ label: "A" }, { label: "B" }],
+    });
+  }
+
+  it("ticket aperto e mai lavorato -> stalled, motivo `to_prepare`", async () => {
+    const projectId = await seedProject();
+    const viewerId = await seedUser("member");
+    const { ticketId } = await seedTicketRow(projectId, { number: 7, title: "Da preparare" });
+
+    const summary = await summarizeProject(db, projectId, { userId: viewerId, role: "member" });
+
+    expect(summary?.stalled).toEqual([
+      {
+        ticketId,
+        ticketNumber: 7,
+        title: "Da preparare",
+        stalledSince: expect.any(String),
+        reason: "to_prepare",
+      },
+    ]);
+  });
+
+  it("ticket aperto con un job CONCLUSO -> motivo `worked_then_stopped`", async () => {
+    const projectId = await seedProject();
+    const viewerId = await seedUser("member");
+    const { ticketId } = await seedTicketRow(projectId);
+    await seedAiJob({ ticketId, status: "pr_closed" });
+
+    const summary = await summarizeProject(db, projectId, { userId: viewerId, role: "member" });
+
+    expect(summary?.stalled.map((item) => item.reason)).toEqual(["worked_then_stopped"]);
+  });
+
+  it("`in_progress` con un job che non ha MAI aperto una PR -> `interrupted`", async () => {
+    const projectId = await seedProject();
+    const viewerId = await seedUser("member");
+    const { ticketId } = await seedTicketRow(projectId, { status: "in_progress" });
+    await seedAiJob({ ticketId, status: "failed" });
+
+    const summary = await summarizeProject(db, projectId, { userId: viewerId, role: "member" });
+
+    expect(summary?.stalled.map((item) => item.reason)).toEqual(["interrupted"]);
+  });
+
+  /**
+   * ⚠️ IL CASO CHE HA CORRETTO IL DESIGN, e il motivo per cui il «perché» si
+   * deriva dai JOB e non dallo STATO. In produzione, al 21 set, il ticket #25
+   * era `in_progress` con ZERO job e il suo contenuto era già rilasciato da
+   * settimane: chiamarlo «interrotto» avrebbe mandato un operatore a cercare
+   * un lavoro a metà che non è mai esistito. Lo stato è una DICHIARAZIONE di
+   * qualcuno, i job sono un FATTO.
+   */
+  it("`in_progress` SENZA nessun job -> `declared_no_work`, NON `interrupted`", async () => {
+    const projectId = await seedProject();
+    const viewerId = await seedUser("member");
+    await seedTicketRow(projectId, { status: "in_progress" });
+
+    const summary = await summarizeProject(db, projectId, { userId: viewerId, role: "member" });
+
+    expect(summary?.stalled.map((item) => item.reason)).toEqual(["declared_no_work"]);
+  });
+
+  it("un job VIVO toglie il ticket dai fermi — `held` compreso", async () => {
+    const projectId = await seedProject();
+    const viewerId = await seedUser("member");
+    const { ticketId: held } = await seedTicketRow(projectId, { number: 1 });
+    await seedAiJob({ ticketId: held, status: "held" });
+    const { ticketId: queued } = await seedTicketRow(projectId, { number: 2 });
+    await seedAiJob({ ticketId: queued, status: "queued" });
+
+    const summary = await summarizeProject(db, projectId, { userId: viewerId, role: "member" });
+
+    expect(summary?.stalled).toEqual([]);
+  });
+
+  it("una domanda dell'agente ancora aperta toglie il ticket dai fermi", async () => {
+    const projectId = await seedProject();
+    const viewerId = await seedUser("member");
+    const { ticketId } = await seedTicketRow(projectId);
+    // Job CONCLUSO apposta: senza la domanda questo ticket sarebbe fermo, e il
+    // test non proverebbe niente se il job bastasse già da solo a escluderlo.
+    const jobId = await seedAiJob({ ticketId, status: "failed" });
+    await seedOpenQuestion({ jobId, ticketId });
+
+    const summary = await summarizeProject(db, projectId, { userId: viewerId, role: "member" });
+
+    expect(summary?.stalled).toEqual([]);
+  });
+
+  it("un ticket chiuso non è mai fermo (done e closed)", async () => {
+    const projectId = await seedProject();
+    const viewerId = await seedUser("member");
+    await seedTicketRow(projectId, { number: 1, status: "done" });
+    await seedTicketRow(projectId, { number: 2, status: "closed" });
+
+    const summary = await summarizeProject(db, projectId, { userId: viewerId, role: "member" });
+
+    expect(summary?.stalled).toEqual([]);
+  });
+
+  it("i giorni si contano dall'ultimo MOVIMENTO, non dalla creazione", async () => {
+    const projectId = await seedProject();
+    const viewerId = await seedUser("member");
+    const vecchio = new Date("2026-08-01T10:00:00.000Z");
+    const recente = new Date("2026-09-15T08:30:00.000Z");
+    const { ticketId } = await seedTicketRow(projectId, { updatedAt: vecchio });
+    // Un job che ha lavorato DOPO: il ticket non è fermo da agosto.
+    await seedAiJob({ ticketId, status: "failed", lastActivityAt: recente });
+
+    const summary = await summarizeProject(db, projectId, { userId: viewerId, role: "member" });
+
+    expect(summary?.stalled[0]?.stalledSince).toBe(recente.toISOString());
+  });
+
+  it("l'ordine è dal più fermo (design §4: l'anzianità è il significato)", async () => {
+    const projectId = await seedProject();
+    const viewerId = await seedUser("member");
+    await seedTicketRow(projectId, { number: 1, updatedAt: new Date("2026-09-19T10:00:00.000Z") });
+    await seedTicketRow(projectId, { number: 2, updatedAt: new Date("2026-08-30T10:00:00.000Z") });
+    await seedTicketRow(projectId, { number: 3, updatedAt: new Date("2026-09-10T10:00:00.000Z") });
+
+    const summary = await summarizeProject(db, projectId, { userId: viewerId, role: "member" });
+
+    expect(summary?.stalled.map((item) => item.ticketNumber)).toEqual([2, 3, 1]);
+  });
+
+  it("una PR aperta: NON fermo, va in `waitingForMerge`", async () => {
+    const { projectId, repositoryId } = await seedProjectWithRepo();
+    const viewerId = await seedUser("admin");
+    const { ticketId } = await seedTicketRow(projectId, { number: 20, status: "in_review" });
+    await seedOpenPr({ ticketId, repositoryId, prUrl: "https://example.com/pr/20" });
+
+    const summary = await summarizeProject(db, projectId, { userId: viewerId, role: "admin" });
+
+    expect(summary?.stalled).toEqual([]);
+    expect(summary?.waitingForMerge).toEqual([
+      {
+        ticketId,
+        ticketNumber: 20,
+        title: "Ticket 20",
+        prUrl: "https://example.com/pr/20",
+        canMerge: true,
+      },
+    ]);
+  });
+
+  /**
+   * `prState` nasce `'open'` di default: una riga senza `prUrl` è un branch
+   * preparato di cui la PR non è MAI stata aperta. Dirlo «in attesa di merge»
+   * sarebbe falso — e il ticket deve ricadere fra i FERMI, non sparire da
+   * tutt'e due i posti. È la stessa condizione che usa la coda di rilascio.
+   */
+  it("`prState = open` senza `prUrl` non è una PR aperta: il ticket resta fermo", async () => {
+    const { projectId, repositoryId } = await seedProjectWithRepo();
+    const viewerId = await seedUser("admin");
+    const { ticketId } = await seedTicketRow(projectId, { status: "in_progress" });
+    await seedAiJob({ ticketId, status: "failed" });
+    await seedOpenPr({ ticketId, repositoryId, prUrl: null });
+
+    const summary = await summarizeProject(db, projectId, { userId: viewerId, role: "admin" });
+
+    expect(summary?.waitingForMerge).toEqual([]);
+    expect(summary?.stalled.map((item) => item.reason)).toEqual(["interrupted"]);
+  });
+
+  /**
+   * ⚠️ IL TEST CHE È IL CUORE DEL BATCH. Stessi dati, due ruoli: la stessa PR
+   * arriva a un maintainer con `canMerge: true` e a un operatore con
+   * `canMerge: false` — cioè il client la mette sotto «aspetta te» per il
+   * primo e sotto «aspetta altri» per il secondo, senza deciderlo lui.
+   *
+   * È la verifica che il secondo divieto dell'operatore (CLAUDE.md, «I due
+   * divieti dell'operatore») vale anche IN LETTURA e non solo sulle rotte di
+   * scrittura: `release.test.ts` prova che un `member` non può mergiare, questo
+   * prova che non gli viene nemmeno MOSTRATO come suo.
+   */
+  it("stessi dati, due ruoli: `canMerge` distingue il maintainer dall'operatore", async () => {
+    const { projectId, repositoryId } = await seedProjectWithRepo();
+    const maintainerId = await seedUser("admin");
+    const operatoreId = await seedUser("member");
+    const { ticketId } = await seedTicketRow(projectId, { number: 31, status: "in_review" });
+    await seedOpenPr({ ticketId, repositoryId, prUrl: "https://example.com/pr/31" });
+
+    const perIlMaintainer = await summarizeProject(db, projectId, {
+      userId: maintainerId,
+      role: "admin",
+    });
+    const perLOperatore = await summarizeProject(db, projectId, {
+      userId: operatoreId,
+      role: "member",
+    });
+
+    expect(perIlMaintainer?.waitingForMerge).toHaveLength(1);
+    expect(perLOperatore?.waitingForMerge).toHaveLength(1);
+    expect(perIlMaintainer?.waitingForMerge[0]?.canMerge).toBe(true);
+    expect(perLOperatore?.waitingForMerge[0]?.canMerge).toBe(false);
+    // …e per il resto è la STESSA riga: cambia il permesso, non il fatto.
+    expect(perLOperatore?.waitingForMerge[0]?.prUrl).toBe(
+      perIlMaintainer?.waitingForMerge[0]?.prUrl,
+    );
+    expect(perLOperatore?.waitingForMerge[0]?.ticketId).toBe(
+      perIlMaintainer?.waitingForMerge[0]?.ticketId,
+    );
+  });
+});
+
+/**
+ * Il «perché» come funzione PURA: la regola del design §3 esercitata caso per
+ * caso, senza un Postgres davanti. I test sul database qui sopra provano che
+ * la funzione è collegata ai dati giusti; questi provano la regola.
+ */
+describe("stalledReasonFor", () => {
+  it("nessun job e stato non dichiarato in lavorazione -> `to_prepare`", () => {
+    expect(stalledReasonFor({ ticketStatus: "open", jobCount: 0, deliveredJobCount: 0 })).toBe(
+      "to_prepare",
+    );
+    expect(stalledReasonFor({ ticketStatus: "triaged", jobCount: 0, deliveredJobCount: 0 })).toBe(
+      "to_prepare",
+    );
+  });
+
+  it("nessun job ma stato dichiarato in lavorazione -> `declared_no_work`", () => {
+    expect(
+      stalledReasonFor({ ticketStatus: "in_progress", jobCount: 0, deliveredJobCount: 0 }),
+    ).toBe("declared_no_work");
+    expect(stalledReasonFor({ ticketStatus: "in_review", jobCount: 0, deliveredJobCount: 0 })).toBe(
+      "declared_no_work",
+    );
+  });
+
+  it("`in_progress` con job ma nessuna PR mai aperta -> `interrupted`", () => {
+    expect(
+      stalledReasonFor({ ticketStatus: "in_progress", jobCount: 2, deliveredJobCount: 0 }),
+    ).toBe("interrupted");
+  });
+
+  it("`in_progress` con un job che una PR l'ha aperta -> `worked_then_stopped`", () => {
+    expect(
+      stalledReasonFor({ ticketStatus: "in_progress", jobCount: 1, deliveredJobCount: 1 }),
+    ).toBe("worked_then_stopped");
+  });
+
+  it("aperto con job -> `worked_then_stopped` (non `interrupted`: non si dichiara in lavorazione)", () => {
+    expect(stalledReasonFor({ ticketStatus: "open", jobCount: 1, deliveredJobCount: 0 })).toBe(
+      "worked_then_stopped",
+    );
   });
 });
 

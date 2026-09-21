@@ -255,6 +255,97 @@ export const pulseRunningItemSchema = z.object({
 export type PulseRunningItem = z.infer<typeof pulseRunningItemSchema>;
 
 /**
+ * PERCHÉ un ticket è fermo — e il motivo si deriva dai JOB, non dallo STATO
+ * (design del 21 set 2026, §3: correzione fatta sui dati veri, non a tavolino).
+ * Lo stato è una DICHIARAZIONE di qualcuno, i job sono un FATTO: una vista che
+ * legge solo lo stato manda un operatore a cercare lavoro che non esiste — il
+ * falso positivo peggiore per questa funzione. Il caso che l'ha insegnato è il
+ * ticket #25 in produzione, `in_progress` con ZERO job e il suo contenuto già
+ * rilasciato da settimane: «interrotto» sarebbe stato falso.
+ *
+ *  - `to_prepare` — nessun job è mai partito, e il ticket non si dichiara in
+ *    lavorazione: c'è da prepararlo;
+ *  - `worked_then_stopped` — un job ha girato e si è concluso, il ticket è
+ *    ancora aperto: è stato lavorato, poi si è fermato;
+ *  - `interrupted` — si dichiara in lavorazione e NESSUNO dei suoi job è mai
+ *    arrivato ad aprire una PR: cominciato e lasciato a metà. È il caso
+ *    peggiore, ed è anche il più raro (in produzione, al 21 set, zero);
+ *  - `declared_no_work` — si dichiara in lavorazione o in review, ma di lavoro
+ *    non ne risulta NESSUNO. L'etichetta non promette che ci sia qualcosa da
+ *    fare: lì l'azione giusta è spesso «chiudilo», non «lavoraci».
+ *
+ * Un enum e non una stringa libera: `readerSchema` lo apre lato client (vedi
+ * `packages/shared/src/reader.ts`), quindi un quinto motivo domani arriva a
+ * un'app già installata come `UNKNOWN` invece di far fallire il parse.
+ */
+export const pulseStalledReasonSchema = z.enum([
+  "to_prepare",
+  "worked_then_stopped",
+  "interrupted",
+  "declared_no_work",
+]);
+export type PulseStalledReason = z.infer<typeof pulseStalledReasonSchema>;
+
+/**
+ * Voce di `stalled`: un ticket che non si muove — non chiuso, senza job vivo,
+ * senza PR aperta, senza domanda dell'agente in sospeso.
+ *
+ * ⚠️ `stalledSince` è una DATA, non un numero di giorni, e non è un dettaglio:
+ * i giorni li calcola il CLIENT al momento del rendering. Un conteggio
+ * calcolato dal server invecchia dentro una risposta in cache e mostra «da 3
+ * giorni» su una schermata aperta da una settimana — proprio il numero che il
+ * design §4 chiama «un fatto».
+ *
+ * Ed è l'ultimo MOVIMENTO, non la creazione: un ticket aperto due mesi fa e
+ * lavorato ieri non è fermo da due mesi (design §4, la trappola che
+ * `ticket-row.tsx` sul web ha ancora, mostrando `createdAt`).
+ */
+export const pulseStalledItemSchema = z.object({
+  ticketId: z.uuid(),
+  ticketNumber: z.number().int(),
+  title: z.string(),
+  stalledSince: z.iso.datetime(),
+  reason: pulseStalledReasonSchema,
+});
+export type PulseStalledItem = z.infer<typeof pulseStalledItemSchema>;
+
+/**
+ * Voce di `waitingForMerge`: un ticket con una PR aperta. NON è «fermo» — sta
+ * aspettando una decisione umana precisa, il merge — e per questo vive in un
+ * campo suo invece che nei due secchi d'attesa esistenti: quelli esigono un
+ * `notificationId` (la riga d'inbox su cui agire) e una PR in attesa di merge
+ * una notifica non ce l'ha, deliberatamente (fase 8: «`/release` non è
+ * raggiunta da inbox»). Rendere `notificationId` opzionale sarebbe la
+ * direzione NON sicura dell'invariante sui cambi additivi.
+ *
+ * ⚠️ **`canMerge` lo calcola il SERVER, col controllo di ruolo — mai il
+ * client.** È la stessa cosa che `requireAdmin` fa sulla rotta di rilascio
+ * (`POST /api/tickets/:id/repositories/:repositoryId/release`) e che
+ * `releasePullRequest` ricontrolla dentro il servizio: il divieto
+ * dell'operatore (CLAUDE.md, «I due divieti dell'operatore», punto 2) vale
+ * anche IN LETTURA. Un client che lo deducesse dal proprio ruolo metterebbe
+ * la copia del divieto dalla parte che non possiamo aggiornare — l'app si
+ * aggiorna dagli store — e il giorno in cui la regola cambiasse ci sarebbero
+ * due verità.
+ *
+ * Il client lo rende sotto «aspetta te» quando `canMerge`, sotto «aspetta
+ * altri» quando no: stessi dati, ruoli diversi, posti diversi.
+ *
+ * Una voce per (ticket, repository): un ticket che tocca due repo ha due PR,
+ * e sono due merge distinti — `prUrl` è quindi l'identità della riga. La
+ * condizione è la STESSA della coda di rilascio (`prState = 'open'` E `prUrl`
+ * valorizzato), così le due superfici non possono mostrare insiemi diversi.
+ */
+export const pulseWaitingForMergeItemSchema = z.object({
+  ticketId: z.uuid(),
+  ticketNumber: z.number().int(),
+  title: z.string(),
+  prUrl: z.string(),
+  canMerge: z.boolean(),
+});
+export type PulseWaitingForMergeItem = z.infer<typeof pulseWaitingForMergeItemSchema>;
+
+/**
  * Il "polso" di UN progetto per il viewer che l'ha richiesto: la vista che
  * alimenta l'app mobile (Fase 4, `GET /api/projects/pulse`). Nasce dagli
  * stessi segnali che il poller del pulse proattivo (Fase 2) già calcola per
@@ -270,6 +361,25 @@ export const projectPulseSummarySchema = z.object({
   failedCount: z.number().int().min(0),
   backlogReadyCount: z.number().int().min(0),
   idleDays: z.number().int().min(0),
+  /**
+   * I ticket FERMI del progetto (21 set 2026), dal più vecchio. Un quarto
+   * secchio accanto ai tre esistenti, che sono tutti basati su un JOB in volo
+   * e quindi non vedono un ticket che non si muove affatto.
+   *
+   * `.default([])` — CLAUDE.md, «solo cambi additivi»: l'app si aggiorna dagli
+   * store, quindi un'app NUOVA può parlare con un server più vecchio (un
+   * rollback, o un'istanza self-hosted non aggiornata) che questo campo non lo
+   * manda. Senza il default, il parse dell'INTERA risposta fallirebbe e il
+   * polso sparirebbe su ogni telefono. C'è un test che parsa una risposta
+   * senza il campo (`project.test.ts` accanto).
+   */
+  stalled: z.array(pulseStalledItemSchema).default([]),
+  /**
+   * I ticket con una PR aperta, che NON sono fermi: aspettano il merge. Campo
+   * a sé e non uno dei due secchi d'attesa — vedi il docblock della voce.
+   * `.default([])` per la stessa ragione di `stalled`.
+   */
+  waitingForMerge: z.array(pulseWaitingForMergeItemSchema).default([]),
   // Data (YYYY-MM-DD) dell'ultimo report attività completato, o null se
   // nessuno è mai stato generato per questo progetto. Stringa e non
   // `z.iso.date()`: stessa convenzione della rotta `/api/activity` esistente

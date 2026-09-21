@@ -185,3 +185,87 @@ describe("ProjectsPage — vista «cosa aspetta me»", () => {
     expect(screen.queryByText(/needs you|working —|idle for|all quiet/i)).not.toBeInTheDocument();
   });
 });
+
+/**
+ * IL QUARTO SECCHIO sul web (21 set 2026).
+ *
+ * ⚠️ Le fixture di `pulseSummaries()` qui sopra sono lasciate SENZA `stalled`
+ * e `waitingForMerge` apposta — è la risposta di un server più vecchio, e sul
+ * web il `.default([])` dello schema non gira (`lib/api.ts` fa un cast, non un
+ * parse). Che quei test restino verdi È la prova che la difesa nel punto di
+ * lettura c'è.
+ */
+describe("ProjectsPage — il blocco «Fermo»", () => {
+  const STALLED_ID = "77777777-7777-4777-8777-777777777777";
+
+  /** `stalledSince` a N giorni esatti da adesso: i giorni li conta il client. */
+  function fermoDa(days: number): string {
+    return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  }
+
+  function apiConFermi(): Record<string, Handler> {
+    return {
+      ...baseApi(),
+      "GET /api/projects": () =>
+        jsonResponse(200, [project(STALLED_ID, "Arretrato"), project(OK_ID, "Tranquillo")]),
+      "GET /api/projects/pulse": () =>
+        jsonResponse(200, [
+          {
+            projectId: STALLED_ID,
+            projectName: "Arretrato",
+            waitingForYou: [],
+            waitingForOthers: [],
+            running: [],
+            failedCount: 0,
+            backlogReadyCount: 0,
+            idleDays: 0,
+            stalled: [
+              {
+                ticketId: TICKET_ID,
+                ticketNumber: 18,
+                title: "Export CSV degli ordini",
+                stalledSince: fermoDa(21),
+                reason: "to_prepare",
+              },
+            ],
+            waitingForMerge: [],
+            lastReportDate: null,
+          },
+          {
+            projectId: OK_ID,
+            projectName: "Tranquillo",
+            waitingForYou: [],
+            waitingForOthers: [],
+            running: [],
+            failedCount: 0,
+            backlogReadyCount: 0,
+            idleDays: 0,
+            stalled: [],
+            waitingForMerge: [],
+            lastReportDate: null,
+          },
+        ]),
+    };
+  }
+
+  it("elenca i ticket fermi con giorni e motivo, e ognuno apre il suo ticket", async () => {
+    mockApi(apiConFermi());
+    renderApp("/projects");
+
+    await screen.findByText("Arretrato");
+    const block = await screen.findByTestId("project-stalled");
+    expect(within(block).getByText("Stalled · 1")).toBeInTheDocument();
+    expect(within(block).getByText("Export CSV degli ordini")).toBeInTheDocument();
+    expect(within(block).getByText("21d · to prepare")).toBeInTheDocument();
+    expect(within(block).getByRole("link")).toHaveAttribute("href", `/tickets/${TICKET_ID}`);
+  });
+
+  it("un progetto senza niente di fermo NON mostra un «Fermo · 0»", async () => {
+    mockApi(apiConFermi());
+    renderApp("/projects");
+
+    await screen.findByText("Tranquillo");
+    // Uno solo dei due progetti ha il blocco: quello con dei fermi.
+    expect(screen.getAllByTestId("project-stalled")).toHaveLength(1);
+  });
+});

@@ -255,7 +255,8 @@
         "groups": {
           "waitingSomeone": "Waiting on someone · {{count}}",
           "now": "Now · {{count}}",
-          "backlogReady": "Ready in backlog · {{count}}"
+          "backlogReady": "Ready in backlog · {{count}}",
+          "stalled": "Stalled · {{count}}"
         },
         "waitingYouArrow": "→ you",
         "waitingMaintainerArrow": "→ a maintainer",
@@ -275,6 +276,15 @@
           "empty": "No brief yet.",
           "failed": "This week's brief was not generated.",
           "loadError": "Can't load the brief."
+        },
+        "waitingMergeArrow": "→ to merge",
+        "stalledTrailing": "{{days}}d · {{reason}}",
+        "stalledReason": {
+          "toPrepare": "to prepare",
+          "workedThenStopped": "worked, then stopped",
+          "interrupted": "interrupted",
+          "declaredNoWork": "no work recorded",
+          "unknown": "stalled"
         }
       }
     },

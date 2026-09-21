@@ -1,13 +1,15 @@
 import {
   activityReports,
+  agentQuestions,
   aiJobs,
   backlogItems,
   notifications,
   projects,
+  ticketRepositories,
   tickets,
   type Db,
 } from "@stubwise/db";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, exists, inArray, isNotNull, isNull, notInArray, sql } from "drizzle-orm";
 import {
   actorAllows,
   type ActionableNotification,
@@ -15,7 +17,7 @@ import {
   type ActorRole,
 } from "./actions.js";
 import type { NotificationKind } from "./format.js";
-import { isProjectIdle } from "./project-signals.js";
+import { isProjectIdle, PULSE_BLOCKING_JOB_STATUSES } from "./project-signals.js";
 
 /**
  * IL "POLSO" di un progetto per un viewer: chi aspetta cosa, cosa gira, cosa
@@ -97,6 +99,46 @@ export interface PulseRunningItem {
   sinceMinutes: number;
 }
 
+/**
+ * PERCHÉ un ticket è fermo. Gemello di `pulseStalledReasonSchema`
+ * (`@stubwise/shared`), che ne è la forma pubblica: il ragionamento per esteso
+ * — e in particolare perché il motivo si deriva dai JOB e non dallo STATO —
+ * sta nel docblock di là, scritto una volta sola.
+ */
+export type PulseStalledReason =
+  | "to_prepare"
+  | "worked_then_stopped"
+  | "interrupted"
+  | "declared_no_work";
+
+/** Voce di `stalled`: un ticket che non si muove, e da quando. */
+export interface PulseStalledItem {
+  ticketId: string;
+  ticketNumber: number;
+  title: string;
+  /**
+   * L'ultimo MOVIMENTO del ticket in ISO 8601 — il più recente fra
+   * `tickets.updated_at` e l'ultima attività di un suo job — non la creazione
+   * e non un numero di giorni: i giorni li conta il client al rendering,
+   * perché un numero calcolato qui invecchia dentro una risposta in cache.
+   */
+  stalledSince: string;
+  reason: PulseStalledReason;
+}
+
+/**
+ * Voce di `waitingForMerge`: un ticket con una PR aperta. `canMerge` è
+ * calcolato QUI, col ruolo del viewer, mai dedotto dal client — vedi il
+ * docblock di `pulseWaitingForMergeItemSchema` in `@stubwise/shared`.
+ */
+export interface PulseWaitingForMergeItem {
+  ticketId: string;
+  ticketNumber: number;
+  title: string;
+  prUrl: string;
+  canMerge: boolean;
+}
+
 /** Il riepilogo completo di UN progetto per UN viewer. */
 export interface ProjectPulseSummary {
   projectId: string;
@@ -113,6 +155,10 @@ export interface ProjectPulseSummary {
   /** Giorni dall'ultima attività di un job AI del progetto. 0 se nessun job è
    * mai girato, o se il progetto NON è fermo (l'ultima attività è recentissima). */
   idleDays: number;
+  /** I ticket FERMI, dal più vecchio (design §4: l'ordine è per anzianità). */
+  stalled: PulseStalledItem[];
+  /** I ticket con una PR aperta: non fermi, in attesa del merge. */
+  waitingForMerge: PulseWaitingForMergeItem[];
   /** Data (YYYY-MM-DD) dell'ultimo `activity_reports` completato, o null se
    * nessuno è mai stato generato per questo progetto. */
   lastReportDate: string | null;
@@ -142,6 +188,64 @@ export const RUNNING_STATUSES = ["triaging", "fixing"] as const;
  * {@link isWaitingStatus}, stesso perché. */
 export function isRunningStatus(status: string): boolean {
   return (RUNNING_STATUSES as readonly string[]).includes(status);
+}
+
+/**
+ * Gli stati TERMINALI di un ticket: da qui in poi non c'è più niente da
+ * muovere, quindi un ticket così non può essere "fermo".
+ */
+export const CLOSED_TICKET_STATUSES = ["done", "closed"] as const;
+
+/**
+ * Gli stati di `ai_jobs` che rendono un ticket NON fermo perché qualcuno (o
+ * qualcosa) ci sta ancora lavorando o aspettando. È
+ * {@link PULSE_BLOCKING_JOB_STATUSES} riusata e non riscritta: è la stessa
+ * domanda che il poller del pulse si fa per tacere — «c'è già del lavoro in
+ * corso o una decisione pendente?» — e due elenchi separati divergerebbero al
+ * primo stato nuovo. Include `held` (limite/budget/gate): un job trattenuto
+ * NON è un ticket dimenticato, è un ticket in coda dietro a un cancello.
+ */
+const LIVE_JOB_STATUSES = PULSE_BLOCKING_JOB_STATUSES;
+
+/**
+ * Gli stati di `ai_jobs` in cui il lavoro è arrivato a CONSEGNARE qualcosa: ha
+ * aperto una PR. Serve solo a distinguere `interrupted` (cominciato e mai
+ * arrivato a niente) dal resto — non è un giudizio sulla qualità del lavoro,
+ * solo il fatto che qualcosa di rivedibile sia uscito.
+ */
+const DELIVERED_JOB_STATUSES = ["pr_opened", "pr_merged"] as const;
+
+/**
+ * PERCHÉ questo ticket è fermo. Pura, e separata dalla query apposta: è la
+ * regola del design §3, e la si vuole poter esercitare caso per caso senza un
+ * Postgres davanti.
+ *
+ * ⚠️ Il motivo si deriva dai JOB, non dallo STATO — lo stato è una
+ * DICHIARAZIONE di qualcuno, i job sono un FATTO. `declared_no_work` esiste
+ * proprio per non dire «interrotto» a un ticket che si dichiara in
+ * lavorazione ma di lavoro non ne ha mai avuto (il caso #25 in produzione, il
+ * cui contenuto era già rilasciato da settimane).
+ *
+ * Il chiamante ha già stabilito che il ticket È fermo (non chiuso, nessun job
+ * vivo, nessuna PR aperta, nessuna domanda in sospeso): qui si risponde solo
+ * al «perché».
+ */
+export function stalledReasonFor(input: {
+  ticketStatus: string;
+  jobCount: number;
+  deliveredJobCount: number;
+}): PulseStalledReason {
+  const declaredInWork = input.ticketStatus === "in_progress" || input.ticketStatus === "in_review";
+  // Nessun job REGISTRATO: la differenza fra «da preparare» e «stato
+  // dichiarato, nessun lavoro» sta tutta qui, e l'etichetta del secondo non
+  // promette che ci sia qualcosa da fare.
+  if (input.jobCount === 0) return declaredInWork ? "declared_no_work" : "to_prepare";
+  // Ha avuto job, nessuno vivo (garantito dal chiamante). Se si dichiara in
+  // lavorazione e nessuno di quei job è arrivato ad aprire una PR, il lavoro
+  // è cominciato e si è fermato a metà: è il caso peggiore, e l'unico che
+  // merita quel nome.
+  if (input.ticketStatus === "in_progress" && input.deliveredJobCount === 0) return "interrupted";
+  return "worked_then_stopped";
 }
 
 /**
@@ -216,8 +320,9 @@ export async function summarizeProject(
     .where(eq(projects.id, projectId));
   if (!project) return null;
 
-  // Le QUATTRO query indipendenti da qui in poi (job vivi, backlog pronto,
-  // fermo/idle, ultimo report) non hanno dati in comune fra loro: nessuna
+  // Le SETTE query indipendenti da qui in poi (job vivi, backlog pronto,
+  // fermo/idle, ultimo report, ticket aperti, job dei ticket aperti, PR
+  // aperte) non hanno dati in comune fra loro: nessuna
   // legge ciò che un'altra scrive o restituisce. Le si lancia insieme con
   // `Promise.all` invece che in sequenza — dimezza abbondantemente il numero
   // di round-trip in serie per QUESTO progetto (da 6 a ~3: questa più
@@ -231,13 +336,15 @@ export async function summarizeProject(
   // progetto (il caso comune: un viewer segue poche unità), ma su un'istanza
   // con MOLTI progetti alza il picco di query simultanee verso il pool
   // (`DATABASE_POOL_MAX`) — un admin che apre questa vista genera comunque
-  // dell'ordine di N×4 query, solo più fitte nel tempo invece che più lunghe
+  // dell'ordine di N×7 query (quattro storiche più le tre del quarto secchio,
+  // 21 set 2026), solo più fitte nel tempo invece che più lunghe
   // in serie. Non c'è oggi un cap sul numero di progetti né una paginazione:
   // se un'istanza crescesse a centinaia di progetti, andrebbe rivisitato
   // (limite sui progetti restituiti all'admin, o esecuzione a lotti). Stessa
   // categoria della sezione "limite noto v1" sui Plugin di progetto in
   // CLAUDE.md: accettato per la v1, non per un difetto di oggi.
-  const [jobRows, backlogReadyRow, idleness, lastReportRow] = await Promise.all([
+  const [jobRows, backlogReadyRow, idleness, lastReportRow, openTicketRows, ticketJobRows, openPrRows] =
+    await Promise.all([
     // I job "vivi" del progetto in UNA query: le due categorie di attesa, i
     // due stati "in esecuzione" e i falliti. Un solo giro invece di quattro:
     // il filtro sullo stato è lo stesso indice (`ai_jobs_ticket_id_idx` + il
@@ -279,6 +386,80 @@ export async function summarizeProject(
       .from(activityReports)
       .where(and(eq(activityReports.projectId, projectId), eq(activityReports.status, "done")))
       .then((rows) => rows[0]),
+    // I ticket NON chiusi del progetto: la platea da cui escono sia `stalled`
+    // sia `waitingForMerge`. `hasOpenQuestion` viaggia come `exists` nella
+    // stessa select invece che in una query a sé — è un booleano per riga, non
+    // un elenco da mostrare, e una query in meno qui è una query in meno
+    // MOLTIPLICATA per il numero di progetti di un admin (vedi il limite noto
+    // poco sopra).
+    db
+      .select({
+        ticketId: tickets.id,
+        ticketNumber: tickets.number,
+        title: tickets.title,
+        status: tickets.status,
+        updatedAt: tickets.updatedAt,
+        hasOpenQuestion: exists(
+          db
+            .select({ one: sql`1` })
+            .from(agentQuestions)
+            .where(
+              and(eq(agentQuestions.ticketId, tickets.id), isNull(agentQuestions.answeredAt)),
+            ),
+        ),
+      })
+      .from(tickets)
+      .where(
+        and(
+          eq(tickets.projectId, projectId),
+          notInArray(tickets.status, [...CLOSED_TICKET_STATUSES]),
+        ),
+      ),
+    // I job di quei ticket, TUTTI — conclusi compresi. È la differenza con
+    // `jobRows` qui sopra, che pesca solo i vivi e i falliti: qui serve sapere
+    // anche che un job c'È STATO ed è finito, perché «mai lavorato» e
+    // «lavorato, poi fermo» sono motivi diversi. Il join sui soli ticket non
+    // chiusi tiene la query piccola: non è la storia del progetto, è la storia
+    // di ciò che è ancora aperto.
+    db
+      .select({
+        ticketId: aiJobs.ticketId,
+        status: aiJobs.status,
+        lastActivityAt: aiJobs.lastActivityAt,
+      })
+      .from(aiJobs)
+      .innerJoin(tickets, eq(tickets.id, aiJobs.ticketId))
+      .where(
+        and(
+          eq(tickets.projectId, projectId),
+          notInArray(tickets.status, [...CLOSED_TICKET_STATUSES]),
+        ),
+      ),
+    // Le PR aperte, con la STESSA condizione della coda di rilascio
+    // (`listReleaseQueue`, `apps/server/src/services/release.ts`): `prState =
+    // 'open'` E `prUrl` valorizzato. Non è pignoleria — `prState` nasce
+    // `'open'` di default, quindi una riga con `prUrl` nullo è un branch
+    // preparato di cui la PR non è MAI stata aperta. Tenerla qui direbbe «sta
+    // aspettando il merge» di una PR che non esiste; escluderla la lascia
+    // cadere fra i fermi, che è ciò che è davvero.
+    db
+      .select({
+        ticketId: tickets.id,
+        ticketNumber: tickets.number,
+        title: tickets.title,
+        prUrl: ticketRepositories.prUrl,
+      })
+      .from(ticketRepositories)
+      .innerJoin(tickets, eq(tickets.id, ticketRepositories.ticketId))
+      .where(
+        and(
+          eq(tickets.projectId, projectId),
+          notInArray(tickets.status, [...CLOSED_TICKET_STATUSES]),
+          eq(ticketRepositories.prState, "open"),
+          isNotNull(ticketRepositories.prUrl),
+        ),
+      )
+      .orderBy(tickets.number),
   ]);
 
   const waitingRows = jobRows.filter((row) => isWaitingStatus(row.status));
@@ -361,6 +542,82 @@ export async function summarizeProject(
 
   const failedCount = jobRows.filter((row) => row.status === "failed").length;
 
+  // --- IL QUARTO SECCHIO: ciò che non si muove (21 set 2026) ---------------
+  //
+  // ⚠️ IL CRITERIO STA QUI, E IN NESSUN ALTRO POSTO. Un ticket è FERMO quando
+  // non è chiuso, non ha un job vivo, non ha una PR aperta e non ha una
+  // domanda dell'agente in sospeso: nessuno ci sta lavorando e nessuno sta
+  // aspettando nessun altro. Chi ne ha bisogno altrove chiami questa funzione
+  // — non lo ricopi in SQL: il repo ha già due casi di una stessa regola
+  // scritta in due lingue (`isReadyForProposal` e la query del propose phase)
+  // e reggono solo perché documentati con insistenza. Qui non serve pagare
+  // quel prezzo.
+  //
+  // Le due liste sono COMPLEMENTARI per costruzione: la condizione sulla PR è
+  // la stessa in entrambe (la query qui sopra), quindi un ticket con una PR
+  // aperta finisce in `waitingForMerge` e MAI in `stalled`, e uno senza non
+  // può sparire da tutte e due.
+  const ticketsWithOpenPr = new Set(openPrRows.map((row) => row.ticketId));
+
+  // `canMerge` deciso UNA volta, qui, col ruolo del viewer: è il divieto
+  // dell'operatore (CLAUDE.md, punto 2) applicato IN LETTURA, con lo stesso
+  // criterio di `requireAdmin` sulla rotta di rilascio e del controllo
+  // ridondante dentro `releasePullRequest`. Il client non lo deduce mai da sé:
+  // l'app si aggiorna dagli store, e una copia del divieto là dentro sarebbe
+  // la copia che non possiamo correggere.
+  const canMerge = viewer.role === "admin";
+  const waitingForMerge: PulseWaitingForMergeItem[] = openPrRows
+    .filter((row): row is typeof row & { prUrl: string } => row.prUrl !== null)
+    .map((row) => ({
+      ticketId: row.ticketId,
+      ticketNumber: row.ticketNumber,
+      title: row.title,
+      prUrl: row.prUrl,
+      canMerge,
+    }));
+
+  const jobsByTicket = new Map<string, { status: string; lastActivityAt: Date }[]>();
+  for (const row of ticketJobRows) {
+    const existing = jobsByTicket.get(row.ticketId);
+    if (existing) existing.push(row);
+    else jobsByTicket.set(row.ticketId, [row]);
+  }
+
+  const stalled: PulseStalledItem[] = [];
+  for (const ticket of openTicketRows) {
+    if (ticket.hasOpenQuestion) continue;
+    if (ticketsWithOpenPr.has(ticket.ticketId)) continue;
+    const jobs = jobsByTicket.get(ticket.ticketId) ?? [];
+    if (jobs.some((job) => (LIVE_JOB_STATUSES as readonly string[]).includes(job.status))) continue;
+
+    // L'ultimo MOVIMENTO, non la creazione (design §4): il più recente fra la
+    // riga del ticket e l'attività dei suoi job. Nessuna delle due basta da
+    // sola — un job che gira non tocca `tickets.updated_at`, e un ticket senza
+    // job non ha attività di job.
+    let lastMovedAt = ticket.updatedAt;
+    for (const job of jobs) {
+      if (job.lastActivityAt > lastMovedAt) lastMovedAt = job.lastActivityAt;
+    }
+
+    stalled.push({
+      ticketId: ticket.ticketId,
+      ticketNumber: ticket.ticketNumber,
+      title: ticket.title,
+      stalledSince: lastMovedAt.toISOString(),
+      reason: stalledReasonFor({
+        ticketStatus: ticket.status,
+        jobCount: jobs.length,
+        deliveredJobCount: jobs.filter((job) =>
+          (DELIVERED_JOB_STATUSES as readonly string[]).includes(job.status),
+        ).length,
+      }),
+    });
+  }
+  // Dal più fermo (design §4). L'ordine È parte del significato: senza, il
+  // secchio diventa l'elenco piatto che il §2 ha scartato. Le date sono ISO
+  // 8601 in UTC, quindi l'ordine lessicografico È quello cronologico.
+  stalled.sort((a, b) => a.stalledSince.localeCompare(b.stalledSince));
+
   // `backlogReadyRow`, `idleness` e `lastReportRow` sono già arrivati dal
   // `Promise.all` di sopra: qui si legge solo il risultato.
   const idleDays = idleDaysFrom(new Date(), idleness.lastJobActivityAt);
@@ -374,6 +631,8 @@ export async function summarizeProject(
     failedCount,
     backlogReadyCount: backlogReadyRow?.count ?? 0,
     idleDays,
+    stalled,
+    waitingForMerge,
     lastReportDate: lastReportRow?.date ?? null,
   };
 }
