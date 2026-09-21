@@ -1035,7 +1035,10 @@ export async function meMailRoutes(
         outcomes.push({
           id: row.id,
           projectName: row.projectName,
-          failed: reason?.key === "closedReason.reassignFailed",
+          // ⚠️ Dal campo, non dal confronto con una chiave i18n: quelle si
+          // rinominano, e un rename spegnerebbe in silenzio l'unica
+          // distinzione che il client fa.
+          failed: reason?.failed === true,
           label:
             reason === null
               ? null

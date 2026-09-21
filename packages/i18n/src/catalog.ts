@@ -468,9 +468,7 @@ export const en: Catalog = {
   "closedReason.reassignFailed": "move failed",
   "closedReason.reassignNoSignal": "nothing to propose on that project",
   "closedReason.reassignTargetGone": "the chosen project no longer exists",
-  "closedReason.supersededInThread": "superseded by a later message",
-  "closedReason.declined": "invitation declined",
-  "closedReason.triageDismissed": "no project chosen",
+  "closedReason.supersededByMessage": "superseded by a later message",
 
   // --- plan.* — label delle sezioni del piano di fix ---
   "plan.rootCause": "Root cause",
@@ -790,9 +788,7 @@ export const it: Catalog = {
   "closedReason.reassignFailed": "riattribuzione non riuscita",
   "closedReason.reassignNoSignal": "su quel progetto non c'era nulla da proporre",
   "closedReason.reassignTargetGone": "il progetto scelto non esiste più",
-  "closedReason.supersededInThread": "superata da un messaggio successivo",
-  "closedReason.declined": "invito rifiutato",
-  "closedReason.triageDismissed": "nessun progetto scelto",
+  "closedReason.supersededByMessage": "superata da un messaggio successivo",
 
   // --- plan.* ---
   "plan.rootCause": "Causa radice",

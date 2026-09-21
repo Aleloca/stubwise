@@ -1691,6 +1691,50 @@ describe("GET /api/me/mail/threads/:threadId", () => {
     expect(outcomes[0].failed).toBe(false);
   });
 
+  it("⚠️ SUPERATA DA UN MESSAGGIO SUCCESSIVO: il caso più frequente, e quello che mancava", async () => {
+    // La prima stesura mappava `superseded_in_thread` — che si scrive sul
+    // MESSAGGIO padre — e non `superseded_by_message`, che è quello che il
+    // worker scrive su `email_proposals`, cioè la tabella che questa rotta
+    // legge. Risultato: la chiave mappata non arrivava mai, e il caso vero
+    // restava senza spiegazione. È il caso normale di una conversazione con
+    // più messaggi, cioè esattamente ciò per cui esiste tutta la serie «la
+    // posta si legge per conversazione».
+    const { accountId } = await seedAccount(memberId);
+    const projectId = await seedProject("Apollo");
+    const threadId = `t-${randomUUID()}`;
+    const primo = await seedEmail(accountId, {
+      threadId,
+      receivedAt: new Date("2026-09-01T08:00:00.000Z"),
+    });
+    await seedProposal(primo, projectId, {
+      status: "ignored",
+      outcome: { type: "superseded_by_message", byEmailMessageId: randomUUID() },
+    });
+
+    const body = (await getThread(memberCookie, threadId)).json();
+    const outcome = body.messages[0].proposalOutcomes[0];
+
+    expect(outcome.label).toBe("superseded by a later message");
+    expect(outcome.failed).toBe(false);
+  });
+
+  it("gli esiti che vivono su ALTRE tabelle non producono un'etichetta qui", async () => {
+    // `superseded_in_thread` si scrive su `email_messages`, non su
+    // `email_proposals`: se una riga lo portasse comunque (scritta a mano,
+    // come l'arretrato del 17 settembre), non deve inventare una frase.
+    const { accountId } = await seedAccount(memberId);
+    const projectId = await seedProject("Apollo");
+    const threadId = `t-${randomUUID()}`;
+    const messaggio = await seedEmail(accountId, { threadId });
+    await seedProposal(messaggio, projectId, {
+      status: "ignored",
+      outcome: { type: "superseded_in_thread", byMessageId: randomUUID() },
+    });
+
+    const body = (await getThread(memberCookie, threadId)).json();
+    expect(body.messages[0].proposalOutcomes[0].label).toBeNull();
+  });
+
   it("⚠️ progetto di destinazione CANCELLATO: etichetta senza nome, mai l'UUID", async () => {
     // Il caso che in un test con dati finti non emerge mai: l'esito porta un
     // `projectId` che non si risolve più.
