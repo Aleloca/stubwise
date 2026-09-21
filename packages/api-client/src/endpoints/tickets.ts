@@ -3,8 +3,10 @@ import {
   answerQuestionResultSchema,
   planDecisionResultSchema,
   runAiResultSchema,
+  ticketCommentSchema,
   ticketDetailSchema,
   ticketPageSchema,
+  ticketSchema,
   ticketActivityEntrySchema,
   ticketQuestionsSchema,
 } from "@stubwise/shared";
@@ -15,7 +17,9 @@ import type {
   AnswerQuestionResult,
   PlanDecisionResult,
   RunAiResult,
+  Ticket,
   TicketActivityEntry,
+  TicketComment,
   TicketDetail,
   TicketPage,
   TicketPriority,
@@ -43,8 +47,32 @@ export interface TicketFilters {
   q?: string;
 }
 
+/**
+ * Campi modificabili di un ticket (`PATCH /api/tickets/:id`), tutti
+ * FACOLTATIVI: è una patch, non una sostituzione — ciò che non si manda resta
+ * com'è. Verso un'app che si aggiorna dagli store è anche l'unica forma
+ * sicura (vedi il docblock di `ApiRequest`: un campo reso obbligatorio in un
+ * corpo rompe i client vecchi come un campo rimosso da una risposta).
+ *
+ * `assigneeId` e `milestoneId` distinguono "non toccare" (assente) da
+ * "azzera" (`null`); `title`, `body` e `type` il server li accetta ma nessuna
+ * superficie li espone dalla pagina ticket, e la parità vale in entrambe le
+ * direzioni.
+ */
+export interface TicketPatch {
+  title?: string;
+  body?: string;
+  type?: TicketType;
+  priority?: TicketPriority;
+  status?: TicketStatus;
+  assigneeId?: string | null;
+  milestoneId?: string | null;
+  labels?: string[];
+}
+
 const jobsSchema = z.array(aiJobSchema);
 const activitySchema = z.array(ticketActivityEntrySchema);
+const commentsSchema = z.array(ticketCommentSchema);
 
 /**
  * Ticket e stato del lavoro dell'agente: è il materiale della "storia del
@@ -89,6 +117,49 @@ export function createTicketsEndpoints(request: ApiRequest) {
      */
     activity(ticketId: string): Promise<Reader<TicketActivityEntry>[]> {
       return request("GET", `/api/tickets/${seg(ticketId)}/activity`, undefined, activitySchema);
+    },
+
+    /**
+     * Modifica parziale del ticket. Il corpo porta SOLO i campi toccati: il
+     * server li applica uno a uno, e un campo assente non è un azzeramento
+     * (per quello c'è `null`, su `assigneeId` e `milestoneId`).
+     *
+     * `requireAuth`, non `requireAdmin`: cambiare stato, priorità,
+     * assegnatario, milestone o etichette è lavoro quotidiano anche per un
+     * operatore. Questo metodo non aggiunge un controllo di ruolo che il
+     * server non ha — sarebbe una seconda copia della regola, e la copia
+     * sbagliata starebbe nel client.
+     */
+    patch(ticketId: string, patch: TicketPatch): Promise<Reader<Ticket>> {
+      return request("PATCH", `/api/tickets/${seg(ticketId)}`, patch, ticketSchema);
+    },
+
+    /** I commenti del ticket, dal più vecchio: è la conversazione attorno al lavoro. */
+    comments(ticketId: string): Promise<Reader<TicketComment>[]> {
+      return request("GET", `/api/tickets/${seg(ticketId)}/comments`, undefined, commentsSchema);
+    },
+
+    /**
+     * Aggiunge un commento (201). Nasce sempre `authorType: "user"`: quelli
+     * dell'AI li inserisce il worker, senza passare da questa rotta.
+     */
+    comment(ticketId: string, body: string): Promise<Reader<TicketComment>> {
+      return request("POST", `/api/tickets/${seg(ticketId)}/comments`, { body }, ticketCommentSchema);
+    },
+
+    /**
+     * Scollega il design: il `body` del ticket torna all'originale conservato
+     * in `originContent`. **Irreversibile** — il design non è conservato
+     * altrove — e per questo ogni superficie che la offre chiede conferma.
+     * 404 se un design attivo non c'è.
+     */
+    deleteDesign(ticketId: string): Promise<Reader<TicketDetail>> {
+      return request("DELETE", `/api/tickets/${seg(ticketId)}/design`, undefined, ticketDetailSchema);
+    },
+
+    /** Azzera il piano di implementazione. **Irreversibile**, come `deleteDesign`. */
+    deletePlan(ticketId: string): Promise<Reader<TicketDetail>> {
+      return request("DELETE", `/api/tickets/${seg(ticketId)}/plan`, undefined, ticketDetailSchema);
     },
 
     /**

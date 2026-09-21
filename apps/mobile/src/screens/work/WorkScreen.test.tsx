@@ -1,6 +1,6 @@
 import type { StubwiseClient } from "@stubwise/api-client";
 import { ApiError } from "@stubwise/api-client";
-import type { AiJob, TicketDetail, TicketQuestion, Reader } from "@stubwise/shared";
+import type { AiJob, TicketComment, TicketDetail, TicketQuestion, Reader } from "@stubwise/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { StyleSheet } from "react-native";
@@ -73,16 +73,67 @@ function job(overrides: Partial<Reader<AiJob>> = {}): Reader<AiJob> {
   } as Reader<AiJob>;
 }
 
+function comment(overrides: Partial<Reader<TicketComment>> = {}): Reader<TicketComment> {
+  return {
+    id: "33333333-3333-4333-8333-333333333333",
+    ticketId: TICKET_ID,
+    authorType: "user",
+    authorId: "viewer-1",
+    body: "Ho controllato io, manca il separatore.",
+    createdAt: "2026-08-12T10:00:00.000Z",
+    ...overrides,
+  } as Reader<TicketComment>;
+}
+
+function question(overrides: Partial<Reader<TicketQuestion>> = {}): Reader<TicketQuestion> {
+  return {
+    questionId: "44444444-4444-4444-8444-444444444444",
+    jobId: JOB_ID,
+    round: 1,
+    question: "Il CSV va separato da virgole o da punti e virgola?",
+    options: [
+      { label: "Virgole", consequence: "Standard, ma Excel italiano lo legge male." },
+      { label: "Punti e virgola", consequence: "Excel italiano lo apre in colonne." },
+    ],
+    allowFreeText: false,
+    askedAt: "2026-08-12T09:30:00.000Z",
+    answer: null,
+    answeredAt: null,
+    answeredBy: null,
+    ...overrides,
+  } as Reader<TicketQuestion>;
+}
+
+/**
+ * ⚠️ **Ogni metodo che la schermata chiama va elencato qui, anche quello di
+ * cui un test non si occupa.** Il doppio è un cast (`as unknown as
+ * StubwiseClient`), quindi il compilatore NON segnala un metodo mancante: la
+ * query che lo chiama fallisce a runtime, e siccome le letture accessorie
+ * stanno fuori dai gate `isPending`/`isError` la schermata resta intera e il
+ * test passa lo stesso — verde senza aver provato niente. È la trappola
+ * gemella di quella delle fixture incomplete (CLAUDE.md, 21 set 2026): là
+ * manca un campo, qui manca un metodo, e in nessuno dei due casi il
+ * fallimento nomina la causa.
+ */
 function makeClient(overrides: {
   get?: jest.Mock;
   jobs?: jest.Mock;
   questions?: jest.Mock;
   activity?: jest.Mock;
+  comments?: jest.Mock;
   reviews?: jest.Mock;
+  milestones?: jest.Mock;
+  users?: jest.Mock;
   approvePlan?: jest.Mock;
   rejectPlan?: jest.Mock;
   preApprovePlan?: jest.Mock;
   revokePlanApproval?: jest.Mock;
+  patch?: jest.Mock;
+  comment?: jest.Mock;
+  runAi?: jest.Mock;
+  answerQuestion?: jest.Mock;
+  deleteDesign?: jest.Mock;
+  deletePlan?: jest.Mock;
 } = {}): StubwiseClient {
   return {
     tickets: {
@@ -90,12 +141,23 @@ function makeClient(overrides: {
       jobs: overrides.jobs ?? jest.fn().mockResolvedValue([]),
       questions: overrides.questions ?? jest.fn().mockResolvedValue([] as Reader<TicketQuestion>[]),
       activity: overrides.activity ?? jest.fn().mockResolvedValue([]),
+      comments: overrides.comments ?? jest.fn().mockResolvedValue([]),
       approvePlan: overrides.approvePlan ?? jest.fn().mockResolvedValue({ jobId: JOB_ID }),
       rejectPlan: overrides.rejectPlan ?? jest.fn().mockResolvedValue({ jobId: JOB_ID }),
       preApprovePlan: overrides.preApprovePlan ?? jest.fn().mockResolvedValue(ticket()),
       revokePlanApproval: overrides.revokePlanApproval ?? jest.fn().mockResolvedValue(ticket()),
+      patch: overrides.patch ?? jest.fn().mockResolvedValue(ticket()),
+      comment: overrides.comment ?? jest.fn().mockResolvedValue(comment()),
+      runAi: overrides.runAi ?? jest.fn().mockResolvedValue({ jobId: JOB_ID, status: "queued" }),
+      answerQuestion: overrides.answerQuestion ?? jest.fn().mockResolvedValue({ jobId: JOB_ID }),
+      deleteDesign: overrides.deleteDesign ?? jest.fn().mockResolvedValue(ticket()),
+      deletePlan: overrides.deletePlan ?? jest.fn().mockResolvedValue(ticket()),
     },
-    projects: { reviews: overrides.reviews ?? jest.fn().mockResolvedValue([]) },
+    projects: {
+      reviews: overrides.reviews ?? jest.fn().mockResolvedValue([]),
+      milestones: overrides.milestones ?? jest.fn().mockResolvedValue([]),
+    },
+    users: { list: overrides.users ?? jest.fn().mockResolvedValue([]) },
   } as unknown as StubwiseClient;
 }
 
@@ -423,4 +485,404 @@ describe("WorkScreen — pre-approvazione del piano", () => {
     expect(await screen.findByText("‹ Progetti")).toBeTruthy();
   });
 
+});
+
+describe("WorkScreen — rispondere a una domanda dell'agente", () => {
+  test("la domanda APERTA si vede, e si risponde da qui", async () => {
+    // ⚠️ Prima di questo batch una domanda aperta non compariva da nessuna
+    // parte: `buildTimeline` legge solo quelle RISPOSTE (`answeredAt !==
+    // null`) e le usa per datare un passo. Il job restava fermo finché
+    // qualcuno non apriva il web. Questo test fissa il caso che mancava.
+    const answerQuestion = jest.fn().mockResolvedValue({ jobId: JOB_ID });
+    const client = makeClient({
+      jobs: jest.fn().mockResolvedValue([job({ status: "awaiting_input", requestedByUserId: "viewer-1" })]),
+      questions: jest.fn().mockResolvedValue([question()]),
+      answerQuestion,
+    });
+
+    await renderScreen(client, "member");
+
+    await waitFor(() => expect(screen.getByTestId("work-question")).toBeTruthy());
+    expect(screen.getByText("Il CSV va separato da virgole o da punti e virgola?")).toBeTruthy();
+
+    await fireEvent.press(screen.getByTestId("work-question-option-1"));
+    await fireEvent.press(screen.getByTestId("work-question-submit"));
+
+    await waitFor(() =>
+      expect(answerQuestion).toHaveBeenCalledWith(TICKET_ID, "44444444-4444-4444-8444-444444444444", {
+        optionIndex: 1,
+      }),
+    );
+  });
+
+  test("dopo l'invio la domanda non è più in attesa", async () => {
+    // Il test sopra prova che la chiamata parte; questo prova ciò che conta
+    // per chi guarda: il blocco sparisce. L'invalidazione di `workKeys.all`
+    // rilegge le domande, e al secondo giro quella è risposta — se la
+    // mutazione non invalidasse, il form resterebbe lì a chiedere una cosa
+    // già decisa.
+    const questions = jest
+      .fn()
+      .mockResolvedValueOnce([question()])
+      .mockResolvedValue([question({ answeredAt: "2026-08-12T09:40:00.000Z" })]);
+    const client = makeClient({
+      jobs: jest.fn().mockResolvedValue([job({ status: "awaiting_input", requestedByUserId: "viewer-1" })]),
+      questions,
+    });
+
+    await renderScreen(client, "member");
+
+    await waitFor(() => expect(screen.getByTestId("work-question")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("work-question-option-0"));
+    await fireEvent.press(screen.getByTestId("work-question-submit"));
+
+    await waitFor(() => expect(screen.queryByTestId("work-question")).toBeNull());
+  });
+
+  test("domanda GIÀ risposta: nessun blocco di risposta", async () => {
+    // `answer` è null anche su una risposta che il server non riesce più a
+    // rileggere: è `answeredAt` a dire che una decisione è stata presa, ed è
+    // quello che la schermata deve guardare.
+    const client = makeClient({
+      jobs: jest.fn().mockResolvedValue([job({ status: "fixing", requestedByUserId: "viewer-1" })]),
+      questions: jest
+        .fn()
+        .mockResolvedValue([question({ answeredAt: "2026-08-12T09:40:00.000Z", answer: null })]),
+    });
+
+    await renderScreen(client, "member");
+
+    await waitFor(() => expect(screen.getByTestId("timeline")).toBeTruthy());
+    expect(screen.queryByTestId("work-question")).toBeNull();
+  });
+
+  test("né maintainer né richiedente: la domanda si legge, non si risponde", async () => {
+    // Stessa regola di `actorAllows` lato server, dove resta l'autorità.
+    const client = makeClient({
+      jobs: jest.fn().mockResolvedValue([job({ status: "awaiting_input", requestedByUserId: "un-altro" })]),
+      questions: jest.fn().mockResolvedValue([question()]),
+    });
+
+    await renderScreen(client, "member");
+
+    await waitFor(() => expect(screen.getByTestId("work-question")).toBeTruthy());
+    expect(screen.getByTestId("work-question-read-only")).toBeTruthy();
+    expect(screen.queryByTestId("work-question-submit")).toBeNull();
+  });
+
+  test("un maintainer sblocca la domanda di un collega", async () => {
+    const answerQuestion = jest.fn().mockResolvedValue({ jobId: JOB_ID });
+    const client = makeClient({
+      jobs: jest.fn().mockResolvedValue([job({ status: "awaiting_input", requestedByUserId: "un-altro" })]),
+      questions: jest.fn().mockResolvedValue([question()]),
+      answerQuestion,
+    });
+
+    await renderScreen(client, "admin");
+
+    await waitFor(() => expect(screen.getByTestId("work-question-submit")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("work-question-option-0"));
+    await fireEvent.press(screen.getByTestId("work-question-submit"));
+    await waitFor(() => expect(answerQuestion).toHaveBeenCalled());
+  });
+});
+
+describe("WorkScreen — avviare il lavoro", () => {
+  test("nessun job: un OPERATORE può avviare il lavoro", async () => {
+    // Il divieto dell'operatore non è "non avviare", è "non approvare da solo
+    // il piano": quel gate vive in `jobs.ts` lato server, che per un member fa
+    // nascere il run già fermo sul gate. Nascondere il bottone qui gli
+    // toglierebbe il lavoro quotidiano senza proteggere nulla.
+    const runAi = jest.fn().mockResolvedValue({ jobId: JOB_ID, status: "queued" });
+    const client = makeClient({ jobs: jest.fn().mockResolvedValue([]), runAi });
+
+    await renderScreen(client, "member");
+
+    await waitFor(() => expect(screen.getByTestId("work-run-start")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("work-run-start"));
+    await waitFor(() => expect(runAi).toHaveBeenCalledWith(TICKET_ID, undefined));
+  });
+
+  test("job in volo: niente bottone di avvio", async () => {
+    const client = makeClient({ jobs: jest.fn().mockResolvedValue([job({ status: "fixing" })]) });
+    await renderScreen(client, "admin");
+    await waitFor(() => expect(screen.getByTestId("timeline")).toBeTruthy());
+    expect(screen.queryByTestId("work-run-start")).toBeNull();
+  });
+
+  test("job fallito CON un commento di una persona: si riprende dalle istruzioni", async () => {
+    const runAi = jest.fn().mockResolvedValue({ jobId: JOB_ID, status: "queued" });
+    const client = makeClient({
+      jobs: jest.fn().mockResolvedValue([job({ status: "failed" })]),
+      comments: jest.fn().mockResolvedValue([comment()]),
+      runAi,
+    });
+
+    await renderScreen(client, "member");
+
+    await waitFor(() => expect(screen.getByTestId("work-run-with-instructions")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("work-run-with-instructions"));
+    await waitFor(() => expect(runAi).toHaveBeenCalledWith(TICKET_ID, { withInstructions: true }));
+  });
+
+  test("job fallito SENZA commenti: nessun 'riprendi', non avrebbe istruzioni da leggere", async () => {
+    const client = makeClient({
+      jobs: jest.fn().mockResolvedValue([job({ status: "failed" })]),
+      comments: jest.fn().mockResolvedValue([]),
+    });
+
+    await renderScreen(client, "member");
+
+    await waitFor(() => expect(screen.getByTestId("work-run-start")).toBeTruthy());
+    expect(screen.queryByTestId("work-run-with-instructions")).toBeNull();
+  });
+});
+
+describe("WorkScreen — modificare i campi", () => {
+  test("un OPERATORE cambia lo stato: la PATCH porta SOLO quel campo", async () => {
+    // La rotta è `requireAuth`: nessun gate di ruolo nel client, o sarebbe una
+    // seconda copia della regola dalla parte che si aggiorna dagli store.
+    const patch = jest.fn().mockResolvedValue(ticket());
+    const client = makeClient({ patch });
+
+    await renderScreen(client, "member");
+
+    await waitFor(() => expect(screen.getByTestId("ticket-field-status")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("ticket-field-status"));
+    await fireEvent.press(screen.getByTestId("ticket-field-status-choice-in_review"));
+
+    await waitFor(() => expect(patch).toHaveBeenCalledWith(TICKET_ID, { status: "in_review" }));
+  });
+
+  test("scegliere il valore che c'è già non manda nessuna PATCH", async () => {
+    // Una patch che non cambia niente sarebbe comunque un `updated_at` toccato
+    // e una riga di audit: rumore su una timeline che si legge per capire cosa
+    // è successo.
+    const patch = jest.fn().mockResolvedValue(ticket());
+    const client = makeClient({ patch });
+
+    await renderScreen(client, "member");
+
+    await waitFor(() => expect(screen.getByTestId("ticket-field-status")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("ticket-field-status"));
+    await fireEvent.press(screen.getByTestId("ticket-field-status-choice-in_progress"));
+
+    expect(patch).not.toHaveBeenCalled();
+  });
+
+  test("assegnatario: l'elenco arriva, e azzerarlo manda `null` (non un campo assente)", async () => {
+    const patch = jest.fn().mockResolvedValue(ticket());
+    const client = makeClient({
+      get: jest.fn().mockResolvedValue(ticket({ assigneeId: "viewer-1" })),
+      users: jest.fn().mockResolvedValue([{ id: "viewer-1", email: "op@example.com", role: "member" }]),
+      patch,
+    });
+
+    await renderScreen(client, "member");
+
+    await waitFor(() => expect(screen.getByText("op@example.com")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("ticket-field-assignee"));
+    await fireEvent.press(screen.getByTestId("ticket-field-assignee-choice-none"));
+
+    await waitFor(() => expect(patch).toHaveBeenCalledWith(TICKET_ID, { assigneeId: null }));
+  });
+
+  test("elenco utenti in errore: la riga resta leggibile ma non premibile, e la schermata vive", async () => {
+    const client = makeClient({
+      users: jest.fn().mockRejectedValue(new Error("down")),
+      milestones: jest.fn().mockRejectedValue(new Error("down")),
+    });
+
+    await renderScreen(client, "member");
+
+    await waitFor(() => expect(screen.getByTestId("ticket-fields")).toBeTruthy());
+    expect(screen.getByTestId("timeline")).toBeTruthy();
+    await fireEvent.press(screen.getByTestId("ticket-field-assignee"));
+    expect(screen.queryByTestId("ticket-field-assignee-choice-none")).toBeNull();
+  });
+});
+
+describe("WorkScreen — commentare", () => {
+  test("i commenti si VEDONO, con l'autore e il testo", async () => {
+    // Prima di questo batch l'app non li mostrava da nessuna parte: la
+    // timeline ha sei passi fissi, e `ticketActivityEntrySchema` spoglia
+    // autore e corpo di un commento.
+    const client = makeClient({
+      comments: jest.fn().mockResolvedValue([comment()]),
+      users: jest.fn().mockResolvedValue([{ id: "viewer-1", email: "op@example.com", role: "member" }]),
+    });
+
+    await renderScreen(client, "member");
+
+    await waitFor(() => expect(screen.getByText("Ho controllato io, manca il separatore.")).toBeTruthy());
+    expect(screen.getByText("op@example.com")).toBeTruthy();
+  });
+
+  test("un OPERATORE scrive un commento: il corpo arriva sfrondato", async () => {
+    const commentFn = jest.fn().mockResolvedValue(comment());
+    const client = makeClient({ comment: commentFn });
+
+    await renderScreen(client, "member");
+
+    await waitFor(() => expect(screen.getByTestId("work-comment-input")).toBeTruthy());
+    await fireEvent.changeText(screen.getByTestId("work-comment-input"), "  Ci penso io  ");
+    await fireEvent.press(screen.getByTestId("work-comment-send"));
+
+    await waitFor(() => expect(commentFn).toHaveBeenCalledWith(TICKET_ID, "Ci penso io"));
+  });
+
+  test("un commento vuoto (o di soli spazi) non parte", async () => {
+    const commentFn = jest.fn().mockResolvedValue(comment());
+    const client = makeClient({ comment: commentFn });
+
+    await renderScreen(client, "member");
+
+    await waitFor(() => expect(screen.getByTestId("work-comment-input")).toBeTruthy());
+    await fireEvent.changeText(screen.getByTestId("work-comment-input"), "   ");
+    await fireEvent.press(screen.getByTestId("work-comment-send"));
+
+    expect(commentFn).not.toHaveBeenCalled();
+  });
+
+  test("un commento dell'agente porta la sua origine, non un'email inventata", async () => {
+    const client = makeClient({
+      comments: jest.fn().mockResolvedValue([comment({ authorType: "ai", authorId: null, body: "Ho aperto la PR." })]),
+    });
+
+    await renderScreen(client, "member");
+
+    await waitFor(() => expect(screen.getByText("Ho aperto la PR.")).toBeTruthy());
+    expect(screen.getByText("agente")).toBeTruthy();
+  });
+
+  test("commenti che non arrivano: lo dice, e il resto della schermata resta", async () => {
+    const client = makeClient({ comments: jest.fn().mockRejectedValue(new Error("down")) });
+
+    await renderScreen(client, "member");
+
+    await waitFor(() => expect(screen.getByTestId("work-comments-unavailable")).toBeTruthy());
+    expect(screen.getByTestId("timeline")).toBeTruthy();
+  });
+});
+
+describe("WorkScreen — le due cancellazioni", () => {
+  test("UN SOLO tocco non cancella niente: serve la conferma", async () => {
+    // ⚠️ È la proprietà che il design chiede (§4): design e piano cancellati
+    // non si recuperano, e su un telefono si tocca per sbaglio più che su un
+    // computer.
+    const deleteDesign = jest.fn().mockResolvedValue(ticket());
+    const client = makeClient({
+      get: jest.fn().mockResolvedValue(ticket({ originContent: "Il design originale" })),
+      deleteDesign,
+    });
+
+    await renderScreen(client, "member");
+
+    await waitFor(() => expect(screen.getByTestId("work-delete-design")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("work-delete-design"));
+
+    expect(deleteDesign).not.toHaveBeenCalled();
+    expect(screen.getByTestId("work-delete-confirm-yes")).toBeTruthy();
+  });
+
+  test("il secondo tocco NON cade dove è caduto il primo", async () => {
+    // Sul web i due passi si sovrappongono (`ConfirmDeleteButton` sostituisce
+    // il bottone in loco): con un mouse va bene, con un pollice no. Qui la
+    // conferma vive in una modale, quindi un doppio tap sullo stesso punto
+    // non può arrivare in fondo — e "Annulla" è lì accanto.
+    const client = makeClient({
+      get: jest.fn().mockResolvedValue(ticket({ originContent: "Il design originale" })),
+    });
+
+    await renderScreen(client, "member");
+
+    await waitFor(() => expect(screen.getByTestId("work-delete-design")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("work-delete-design"));
+
+    expect(screen.getByTestId("work-delete-confirm")).toBeTruthy();
+    expect(screen.getByTestId("work-delete-cancel")).toBeTruthy();
+  });
+
+  test("confermando, il design si cancella", async () => {
+    const deleteDesign = jest.fn().mockResolvedValue(ticket());
+    const client = makeClient({
+      get: jest.fn().mockResolvedValue(ticket({ originContent: "Il design originale" })),
+      deleteDesign,
+    });
+
+    await renderScreen(client, "member");
+
+    await waitFor(() => expect(screen.getByTestId("work-delete-design")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("work-delete-design"));
+    await fireEvent.press(screen.getByTestId("work-delete-confirm-yes"));
+
+    await waitFor(() => expect(deleteDesign).toHaveBeenCalledWith(TICKET_ID));
+  });
+
+  test("annullando non si cancella niente", async () => {
+    const deletePlan = jest.fn().mockResolvedValue(ticket());
+    const client = makeClient({
+      get: jest.fn().mockResolvedValue(ticket({ implementationPlan: "## Piano\n1. Fare" })),
+      deletePlan,
+    });
+
+    await renderScreen(client, "member");
+
+    await waitFor(() => expect(screen.getByTestId("work-delete-plan")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("work-delete-plan"));
+    await fireEvent.press(screen.getByTestId("work-delete-cancel"));
+
+    expect(deletePlan).not.toHaveBeenCalled();
+  });
+
+  test("niente design e niente piano: nessun bottone da premere per sbaglio", async () => {
+    const client = makeClient({
+      get: jest.fn().mockResolvedValue(ticket({ originContent: null, implementationPlan: null })),
+    });
+
+    await renderScreen(client, "member");
+
+    await waitFor(() => expect(screen.getByTestId("timeline")).toBeTruthy());
+    expect(screen.queryByTestId("work-destructive")).toBeNull();
+  });
+});
+
+describe("WorkScreen — i permessi che il server NON ha, il client non li inventa", () => {
+  test("un OPERATORE vede e può usare tutte e sei le azioni non-admin", async () => {
+    // ⚠️ Design §3: solo le QUATTRO azioni sul piano sono `requireAdmin`. Le
+    // altre sei sono `requireAuth`, e un controllo di ruolo aggiunto qui
+    // sarebbe una seconda copia della regola — dalla parte che si aggiorna
+    // dagli store, non dai nostri deploy.
+    const client = makeClient({
+      get: jest.fn().mockResolvedValue(
+        ticket({ originContent: "Design", implementationPlan: "## Piano" }),
+      ),
+      jobs: jest.fn().mockResolvedValue([job({ status: "awaiting_input", requestedByUserId: "viewer-1" })]),
+      questions: jest.fn().mockResolvedValue([question()]),
+    });
+
+    await renderScreen(client, "member");
+
+    await waitFor(() => expect(screen.getByTestId("ticket-fields")).toBeTruthy());
+    expect(screen.getByTestId("work-question-submit")).toBeTruthy(); // rispondere
+    expect(screen.getByTestId("work-comment-send")).toBeTruthy(); // commentare
+    expect(screen.getByTestId("ticket-field-status")).toBeTruthy(); // modificare i campi
+    expect(screen.getByTestId("work-delete-design")).toBeTruthy(); // cancellare il design
+    expect(screen.getByTestId("work-delete-plan")).toBeTruthy(); // cancellare il piano
+  });
+
+  test("le QUATTRO azioni sul piano restano al maintainer, come oggi", async () => {
+    // Questo batch passa vicino a quel codice: il test lo dice a voce alta.
+    const client = makeClient({
+      get: jest.fn().mockResolvedValue(ticket({ implementationPlan: "## Piano" })),
+      jobs: jest.fn().mockResolvedValue([job({ status: "awaiting_plan_approval" })]),
+    });
+
+    await renderScreen(client, "member");
+
+    await waitFor(() => expect(screen.getByTestId("timeline")).toBeTruthy());
+    expect(screen.queryByTestId("plan-section-approve")).toBeNull();
+    expect(screen.queryByTestId("plan-section-reject")).toBeNull();
+    expect(screen.queryByTestId("plan-section-pre-approve")).toBeNull();
+  });
 });

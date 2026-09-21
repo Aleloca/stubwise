@@ -373,6 +373,47 @@
         "noLog": "No log yet.",
         "logLines_one": "{{count}} line",
         "logLines_other": "{{count}} lines"
+      },
+      "fields": {
+        "title": "Details",
+        "status": "Status",
+        "priority": "Priority",
+        "assignee": "Assigned to",
+        "milestone": "Milestone",
+        "none": "None",
+        "close": "Close",
+        "offline": "// no network, no changes"
+      },
+      "question": {
+        "title": "The agent has a question",
+        "readOnly": "// only whoever started the work, or a maintainer, can answer"
+      },
+      "run": {
+        "start": "Start the work",
+        "starting": "Starting…",
+        "withInstructions": "Resume from instructions",
+        "offline": "// no network, no start"
+      },
+      "comments": {
+        "title": "Comments",
+        "empty": "No comments yet.",
+        "unavailable": "Can't load the comments.",
+        "placeholder": "Write a comment…",
+        "send": "Send the comment",
+        "authorAi": "agent",
+        "authorSystem": "system",
+        "authorUnknown": "someone",
+        "offline": "// no network, no comments"
+      },
+      "destructive": {
+        "title": "Deletions",
+        "deleteDesign": "Delete the design",
+        "deletePlan": "Delete the plan",
+        "confirmDesignTitle": "Delete the design?",
+        "confirmPlanTitle": "Delete the plan?",
+        "confirmBody": "There is no way back: the text is not kept anywhere else.",
+        "confirm": "Delete",
+        "cancel": "Cancel"
       }
     },
     "backlog": {

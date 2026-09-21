@@ -1,4 +1,5 @@
 import {
+  milestoneWithCountsSchema,
   prReviewSummarySchema,
   projectBriefWeeklySchema,
   projectDecisionSchema,
@@ -13,6 +14,7 @@ import type {
   PrReviewSummary,
   ProjectBriefWeekly,
   ProjectDecision,
+  MilestoneWithCounts,
   ProjectDetail,
   ProjectListItem,
   ProjectPulseSummary,
@@ -29,6 +31,7 @@ const pulseSchema = z.array(projectPulseSummarySchema);
 const reviewsSchema = z.array(prReviewSummarySchema);
 const briefsSchema = z.array(projectBriefWeeklySchema);
 const decisionsSchema = z.array(projectDecisionSchema);
+const milestonesSchema = z.array(milestoneWithCountsSchema);
 
 /**
  * Progetti visibili all'utente corrente.
@@ -47,6 +50,20 @@ export function createProjectsEndpoints(request: ApiRequest) {
 
     get(projectId: string): Promise<Reader<ProjectDetail>> {
       return request("GET", `/api/projects/${seg(projectId)}`, undefined, projectDetailSchema);
+    },
+
+    /**
+     * Le milestone del progetto, già ordinate dal server: le APERTE per prime,
+     * poi per scadenza (senza scadenza in fondo), poi per nome. È l'elenco
+     * dietro il selettore "milestone" di un ticket.
+     *
+     * Sta nel gruppo dei progetti benché la rotta sia `/api/milestones`: una
+     * milestone è sempre di UN progetto (il `projectId` è obbligatorio), e il
+     * gruppo segue la cosa, non il path — come già `brief(briefId)`, che
+     * chiama `/api/briefs/:id`.
+     */
+    milestones(projectId: string): Promise<Reader<MilestoneWithCounts>[]> {
+      return request("GET", `/api/milestones${toQuery({ projectId })}`, undefined, milestonesSchema);
     },
 
     pulse(): Promise<Reader<ProjectPulseSummary>[]> {
