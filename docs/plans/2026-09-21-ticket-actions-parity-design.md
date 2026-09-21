@@ -15,18 +15,34 @@ Le azioni della pagina web (`apps/web/src/routes/tickets/$id.tsx`, dieci
 | rifiutare il piano, con istruzioni | ✓ | ✓ | admin |
 | pre-approvare il piano | ✓ | ✓ | admin |
 | revocare la pre-approvazione | ✓ | ✓ | admin |
-| **modificare i campi** (titolo, stato, priorità, tipo, assegnatario, milestone, effort) | ✓ | — | chiunque |
+| **modificare i campi** — stato, priorità, assegnatario, milestone, **etichette** | ✓ | — | chiunque |
 | **commentare** | ✓ | — | chiunque |
 | **avviare il lavoro dell'agente**, con o senza istruzioni | ✓ | — | chiunque |
 | **rispondere a una domanda dell'agente** | ✓ | — | chiunque |
 | **cancellare il design** | ✓ | — | chiunque |
 | **cancellare il piano** | ✓ | — | chiunque |
 
-⚠️ **Le domande nell'app sono già caricate, ma solo per DISEGNARE la
-cronologia** (`buildTimeline`): si vedono e non si possono rispondere. È il
-caso peggiore dei sei, perché un job fermo su una domanda resta fermo finché
+⚠️ **Le domande nell'app non si vedono affatto, ed è peggio di come lo avevo
+scritto.** La prima stesura diceva «si vedono e non si possono rispondere»:
+falso. `buildTimeline` (`apps/mobile/src/lib/timeline.ts`) seleziona le
+domande con `answeredAt !== null` — cioè **solo quelle già risposte**, e solo
+per datare il passo «Domanda risposta». Il TESTO di una domanda non compare
+mai, e di una domanda APERTA non resta alcuna traccia nell'app.
+
+Quindi il lavoro non era «aggiungere l'invio dove la domanda si vede»: era
+**far vedere la domanda**. Un job fermo su una domanda resta fermo finché
 qualcuno non apre il web — e dalla card in inbox si risponde, ma solo se la
 notifica è ancora lì.
+
+### §1.1 — Tre correzioni al censimento (21 set, dalla lettura del codice)
+
+1. **`effort` non è modificabile, da nessuna superficie**:
+   `updateTicketBodySchema` (`apps/server/src/routes/tickets.ts`) non lo
+   contiene. Era nella mia riga per errore.
+2. **Titolo e tipo**: il server li accetta, ma **nessuna UI li espone** — il
+   web dalla pagina ticket non li modifica. Fuori dal perimetro della parità.
+3. **Le etichette c'erano e mancavano dal censimento**: sono uno dei cinque
+   `patchMutation.mutate` del web. Vedi §4.1 per dove finiscono.
 
 ## §2 — Cosa serve davvero: metà del lavoro è già fatto
 
@@ -65,6 +81,16 @@ tocca per sbaglio più che su un computer. Quindi: conferma esplicita a due
 passi, come il rilascio di una PR sul web, e **mai** in un punto dove il dito
 passa scorrendo. Il resto delle azioni non chiede conferma: sono reversibili
 o innocue.
+
+### §4.1 — Le etichette: dentro la parità, ma nel batch successivo
+
+Sono la quinta cosa che il web modifica, e con la parità piena chiesta dal
+maintainer **vanno fatte**. Non stanno però in questo batch: un editor di
+etichette è un componente a sé (chip, aggiunta, rimozione), e infilarlo ora
+allungherebbe un lavoro che ha già i quattro campi con selettore pronti.
+
+⚠️ **Registrato qui perché non si perda**: senza le etichette la parità non è
+piena, e questo design non può dirsi chiuso finché ci sono.
 
 ## §5 — Cosa NON fa questo batch
 
