@@ -99,7 +99,7 @@ function makeClient(overrides: {
   } as unknown as StubwiseClient;
 }
 
-async function renderScreen(client: StubwiseClient, role: "admin" | "member" = "member") {
+async function renderScreen(client: StubwiseClient, role: "admin" | "member" = "member", extraParams: { backLabel?: string } = {}) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const goBack = jest.fn();
   const authValue: AuthContextValue = {
@@ -116,7 +116,7 @@ async function renderScreen(client: StubwiseClient, role: "admin" | "member" = "
   const rendered = await render(
     <QueryClientProvider client={queryClient}>
       <AuthContext.Provider value={authValue}>
-        <WorkScreen navigation={navigation} route={{ key: "Ticket", name: "Ticket", params: { id: TICKET_ID } }} />
+        <WorkScreen navigation={navigation} route={{ key: "Ticket", name: "Ticket", params: { id: TICKET_ID, ...extraParams } }} />
       </AuthContext.Provider>
     </QueryClientProvider>,
   );
@@ -402,4 +402,25 @@ describe("WorkScreen — pre-approvazione del piano", () => {
     await waitFor(() => expect(screen.getByText("Export CSV degli ordini")).toBeTruthy());
     expect(screen.queryByTestId("plan-section-pre-approve")).toBeNull();
   });
+
+  /**
+   * 21 set 2026: aprendo un ticket DA un progetto, la riga «indietro» diceva
+   * «‹ Progetti» — ma tornando indietro si finisce sul PROGETTO, non sulla
+   * lista. Il maintainer l'ha segnalato guardandolo: l'etichetta prometteva
+   * una destinazione diversa da quella vera.
+   */
+  it("la riga «indietro» dice dove si torna davvero, non «Progetti»", async () => {
+    const client = makeClient();
+    await renderScreen(client, "member", { backLabel: "Portale B2B" });
+    expect(await screen.findByText("‹ Portale B2B")).toBeTruthy();
+  });
+
+  it("senza un progetto di provenienza resta il ripiego", async () => {
+    // Dalla ricerca si entra nello stack Projects: lì «‹ Progetti» è corretto,
+    // perché tornare indietro porta davvero alla lista.
+    const client = makeClient();
+    await renderScreen(client);
+    expect(await screen.findByText("‹ Progetti")).toBeTruthy();
+  });
+
 });

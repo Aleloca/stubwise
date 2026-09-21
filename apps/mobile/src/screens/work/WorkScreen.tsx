@@ -148,7 +148,7 @@ export function WorkScreen({ navigation, route }: NativeStackScreenProps<Project
         <ScreenHeader
           title={ticketQuery.data?.title ?? t("mobile.work.fallbackTitle")}
           onBack={() => navigation.goBack()}
-          backLabel={t("mobile.work.back")}
+          backLabel={route.params.backLabel !== undefined ? `‹ ${route.params.backLabel}` : t("mobile.work.back")}
           titleNumberOfLines={3}
         />
 

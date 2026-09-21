@@ -60,7 +60,13 @@ export type InboxStackParamList = {
 export type ProjectsStackParamList = {
   List: undefined;
   Detail: { id: string };
-  Ticket: { id: string };
+  /**
+   * `backLabel`: il nome del progetto da cui si è arrivati, per la riga
+   * «indietro» (21 set 2026). Opzionale perché a un ticket si arriva anche
+   * dalla ricerca, dove si entra nello stack Projects e il ripiego
+   * «‹ Progetti» è corretto — lì tornare indietro porta davvero alla lista.
+   */
+  Ticket: { id: string; backLabel?: string };
 };
 
 /**

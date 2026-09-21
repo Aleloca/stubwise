@@ -120,7 +120,7 @@ describe("ProjectDetailScreen", () => {
     const client = makeClient();
     await renderScreen(client, navigate);
     await waitFor(() => expect(screen.getByText("Portale B2B")).toBeTruthy());
-    await fireEvent.press(screen.getByTestId("project-detail-back"));
+    await fireEvent.press(screen.getByTestId("screen-header-back"));
     expect(navigate).toHaveBeenCalledWith("List");
   });
 
@@ -191,7 +191,7 @@ describe("ProjectDetailScreen", () => {
     await renderScreen(client, navigate);
     await waitFor(() => expect(screen.getByText("Domanda")).toBeTruthy());
     await fireEvent.press(screen.getByText("Domanda"));
-    expect(navigate).toHaveBeenCalledWith("Ticket", { id: TICKET_A });
+    expect(navigate).toHaveBeenCalledWith("Ticket", { id: TICKET_A, backLabel: "Portale B2B" });
   });
 
   test("'Aspetta qualcuno': un tap su una riga waitingForOthers naviga anch'esso al ticket", async () => {
@@ -208,7 +208,7 @@ describe("ProjectDetailScreen", () => {
     await renderScreen(client, navigate);
     await waitFor(() => expect(screen.getByText("Piano da approvare")).toBeTruthy());
     await fireEvent.press(screen.getByText("Piano da approvare"));
-    expect(navigate).toHaveBeenCalledWith("Ticket", { id: TICKET_B });
+    expect(navigate).toHaveBeenCalledWith("Ticket", { id: TICKET_B, backLabel: "Portale B2B" });
   });
 
   test("'Aspetta qualcuno': who.kind 'requester' mostra 'chi l'ha richiesto'", async () => {
@@ -260,7 +260,7 @@ describe("ProjectDetailScreen", () => {
     await waitFor(() => expect(screen.getByText("Adesso · 1")).toBeTruthy());
     expect(screen.getByText("Export CSV degli ordini")).toBeTruthy();
     await fireEvent.press(screen.getByText("Export CSV degli ordini"));
-    expect(navigate).toHaveBeenCalledWith("Ticket", { id: TICKET_A });
+    expect(navigate).toHaveBeenCalledWith("Ticket", { id: TICKET_A, backLabel: "Portale B2B" });
   });
 
   test("gruppo 'Pronto nel backlog': il conteggio è quello del polso", async () => {
@@ -420,7 +420,7 @@ describe("ProjectDetailScreen — brief settimanale", () => {
     await waitFor(() => expect(screen.getByText("Fermo · 1")).toBeTruthy());
     expect(screen.getByText("21g · da preparare")).toBeTruthy();
     await fireEvent.press(screen.getByText("Export CSV degli ordini"));
-    expect(navigate).toHaveBeenCalledWith("Ticket", { id: TICKET_A });
+    expect(navigate).toHaveBeenCalledWith("Ticket", { id: TICKET_A, backLabel: "Portale B2B" });
   });
 
   test("l'ordine del server (dal più fermo) NON viene riordinato qui", async () => {
@@ -469,7 +469,7 @@ describe("ProjectDetailScreen — brief settimanale", () => {
     await waitFor(() => expect(screen.getByText("Aspetta qualcuno · 1")).toBeTruthy());
     expect(screen.getByText("→ da mergiare")).toBeTruthy();
     await fireEvent.press(screen.getByText("Coda di rilascio"));
-    expect(navigate).toHaveBeenCalledWith("Ticket", { id: TICKET_A });
+    expect(navigate).toHaveBeenCalledWith("Ticket", { id: TICKET_A, backLabel: "Portale B2B" });
   });
 
   test("PR da mergiare, `canMerge: false`: la stessa riga dice che aspetta un maintainer", async () => {

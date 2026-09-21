@@ -12,13 +12,13 @@ import { useAuth } from "../../app/providers";
 import { GhostButton } from "../../components/GhostButton";
 import { PulseIndicator } from "../../components/PulseIndicator";
 import { ProjectGroup } from "../../components/projects/ProjectGroup";
-import { SettingsAvatarButton } from "../../components/SettingsAvatarButton";
+import { ScreenHeader } from "../../components/ScreenHeader";
 import { Skeleton } from "../../components/Skeleton";
 import { pulseLineFor } from "../../lib/pulse-line";
 import { stalledDays, stalledReasonKey } from "../../lib/stalled";
 import { projectsPulseKey } from "./ProjectsScreen";
 import { colors, radii } from "../../theme/tokens";
-import { fontFamily, textStyles } from "../../theme/typography";
+import { fontFamily } from "../../theme/typography";
 
 /** Vedi `InboxScreen.tsx` per il perché di una costante invece di leggere `styles.body.paddingBottom`. */
 const CONTENT_BASE_BOTTOM_PADDING = 40;
@@ -70,24 +70,31 @@ export function ProjectDetailScreen({ navigation, route }: NativeStackScreenProp
   });
 
   const summary = query.data?.find((row) => row.projectId === id);
+  /**
+   * Il nome del progetto: titolo dell'header e — passato alla rotta `Ticket`
+   * — riga «indietro» di chi apre un ticket da qui (21 set 2026). `undefined`
+   * finché il polso non è arrivato: in quel caso il ticket non è nemmeno
+   * apribile, quindi non c'è un caso in cui manchi davvero.
+   */
+  const projectName = summary?.projectName;
 
-  // Task 7 (App M1+M2, 11 set 2026): un solo `ScrollView`, il link
-  // "indietro" come primo figlio — stesso schema di `InboxScreen.tsx`.
-  // Fix di review (Task 2, 11 set 2026): l'avatar, mancante del tutto su
-  // questo screen, ora c'è sulla stessa riga — ancorata
-  // (`stickyHeaderIndices`, vedi `ScreenHeader.tsx`).
+  // Task 7 (App M1+M2, 11 set 2026): un solo `ScrollView`, l'header come
+  // primo figlio e ancorato — stesso schema di `InboxScreen.tsx`.
+  // 21 set 2026: era un header fatto a mano (solo «indietro» + avatar),
+  // quindi senza titolo e senza ricerca. Ora è `ScreenHeader` come ovunque:
+  // il titolo è il NOME del progetto, e la ricerca c'è anche da qui.
   return (
     <View style={styles.container}>
       <ScrollView
         contentContainerStyle={[styles.body, { paddingBottom: CONTENT_BASE_BOTTOM_PADDING + tabBarHeight }]}
         stickyHeaderIndices={[0]}
       >
-        <View style={styles.headerRow}>
-          <Pressable onPress={() => navigation.navigate("List")} testID="project-detail-back" style={styles.backRow}>
-            <Text style={styles.back}>{t("mobile.projects.detail.back")}</Text>
-          </Pressable>
-          <SettingsAvatarButton />
-        </View>
+        <ScreenHeader
+          title={projectName ?? t("mobile.tabs.projects")}
+          onBack={() => navigation.navigate("List")}
+          backLabel={t("mobile.projects.detail.back")}
+          titleNumberOfLines={2}
+        />
 
         {query.isPending ? (
           <View style={styles.skeletonList} testID="project-detail-skeleton">
@@ -145,7 +152,7 @@ function ProjectDetailBody({
       ? t("mobile.projects.detail.waitingMergeArrow")
       : t("mobile.projects.detail.waitingMaintainerArrow"),
     trailingTone: (mine ? "amber" : "muted") as "amber" | "muted",
-    onPress: () => navigation.navigate("Ticket", { id: item.ticketId }),
+    onPress: () => navigation.navigate("Ticket", { id: item.ticketId, ...(summary.projectName !== undefined ? { backLabel: summary.projectName } : {}) }),
   });
 
   const waitingRows = [
@@ -154,7 +161,7 @@ function ProjectDetailBody({
       title: item.title,
       trailing: t("mobile.projects.detail.waitingYouArrow"),
       trailingTone: "amber" as const,
-      onPress: () => navigation.navigate("Ticket", { id: item.ticketId }),
+      onPress: () => navigation.navigate("Ticket", { id: item.ticketId, ...(summary.projectName !== undefined ? { backLabel: summary.projectName } : {}) }),
     })),
     ...mergeForYou.map((item) => mergeRow(item, true)),
     ...summary.waitingForOthers.map((item) => ({
@@ -162,7 +169,7 @@ function ProjectDetailBody({
       title: item.title,
       trailing: t(whoArrowKey(item.who.kind)),
       trailingTone: "muted" as const,
-      onPress: () => navigation.navigate("Ticket", { id: item.ticketId }),
+      onPress: () => navigation.navigate("Ticket", { id: item.ticketId, ...(summary.projectName !== undefined ? { backLabel: summary.projectName } : {}) }),
     })),
     ...mergeForOthers.map((item) => mergeRow(item, false)),
   ];
@@ -172,7 +179,7 @@ function ProjectDetailBody({
     title: item.title,
     trailing: t("mobile.projects.detail.running"),
     trailingTone: "muted" as const,
-    onPress: () => navigation.navigate("Ticket", { id: item.ticketId }),
+    onPress: () => navigation.navigate("Ticket", { id: item.ticketId, ...(summary.projectName !== undefined ? { backLabel: summary.projectName } : {}) }),
   }));
 
   // IL QUARTO SECCHIO (21 set 2026). Le voci arrivano GIÀ ordinate dal più
@@ -188,7 +195,7 @@ function ProjectDetailBody({
       reason: t(stalledReasonKey(item.reason)),
     }),
     trailingTone: "muted" as const,
-    onPress: () => navigation.navigate("Ticket", { id: item.ticketId }),
+    onPress: () => navigation.navigate("Ticket", { id: item.ticketId, ...(summary.projectName !== undefined ? { backLabel: summary.projectName } : {}) }),
   }));
 
   const backlogRows =
@@ -201,7 +208,12 @@ function ProjectDetailBody({
   // link "indietro" sopra di lui.
   return (
     <>
-      <Text style={textStyles.screenTitle}>{summary.projectName}</Text>
+      {/*
+        Il NOME del progetto non si ripete qui: dal 21 set 2026 è il titolo
+        dell'header (`ScreenHeader`), che è ancorato e resta visibile mentre
+        si scorre. Scriverlo due volte sulla stessa schermata è l'unica cosa
+        che questo blocco faceva e che ora sarebbe un doppione.
+      */}
       <View style={styles.pulseRow}>
         <PulseIndicator tone={line.tone} text={t(line.key, line.params)} />
       </View>
@@ -374,20 +386,6 @@ const styles = StyleSheet.create({
   // (`stickyHeaderIndices` sullo `ScrollView` sopra) e porta anche
   // l'avatar — `backgroundColor` opaco necessario, o il contenuto sotto
   // l'attraverserebbe scorrendo.
-  headerRow: {
-    alignItems: "center",
-    backgroundColor: colors.ink950,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingBottom: 12,
-    paddingTop: 56,
-  },
-  backRow: {},
-  back: {
-    color: colors.muted,
-    fontFamily: fontFamily.mono,
-    fontSize: 12,
-  },
   skeletonList: {
     gap: 12,
     padding: 20,
