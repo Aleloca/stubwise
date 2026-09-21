@@ -1,10 +1,23 @@
 # Una card chiusa deve dire PERCHÉ (21 set 2026)
 
-## §1 — Il problema
+## §1 — Il problema (RISCRITTO il 21 set 2026)
 
-Sulla pagina Posta e nell'app, una proposta chiusa si legge **«ignorata»** —
-qualunque sia il motivo per cui è finita lì. Ma `ignored` copre casi che non
-hanno niente in comune:
+⚠️ **La prima stesura di questa sezione descriveva una schermata che non
+esiste più**, e va detto perché l'errore è istruttivo: avevo registrato come
+fatto un'osservazione («sulla pagina Posta una riattribuzione fallita si legge
+ignorata») senza verificarla nel codice. Verificato poi, riga per riga:
+`/mail` sul web elenca solo CONVERSAZIONI dal 14 settembre, `mailDetailSchema`
+`outcome` non ce l'ha, e nell'app `mailStatusLabelKey`/`mailStatusTone` non
+hanno più chiamanti. **Nessuna superficie mostra più lo stato di una proposta
+di posta.** Quell'«Ignorata» l'aveva mostrata un'app già compilata sul
+telefono, non il codice di oggi.
+
+Il problema vero è un altro, ed è più grande: **di una proposta non si sa più
+che fine ha fatto.** Il 18 settembre una riattribuzione è fallita, la card è
+sparita dall'inbox e non è rimasto niente da nessuna parte — ci siamo arrivati
+leggendo il database. Un operatore non ha quel database.
+
+E i motivi per cui una proposta si chiude non hanno niente in comune:
 
 | `outcome.type` | cosa è successo davvero |
 |---|---|
@@ -32,15 +45,29 @@ cosa, riproporre — **e l'esito dice perché ci è arrivata**. È la forma già
 scelta due volte (`declined`, `superseded_in_thread`), ed evita di pagare un
 valore nuovo in `mailItemStatusSchema`, che l'app già installata legge.
 
-**Il dato è già esposto**: `outcome` è nella risposta di `/api/me/mail`
-(`mailItemSchema.outcome`, `.nullable().default(null)`). Nessuna rotta nuova,
-nessun campo nuovo, nessuna migrazione: **solo client**.
+**Dove si mostra** (decisione del maintainer, 21 set): **nella conversazione,
+accanto a ogni messaggio** — è il posto dove uno legge lo scambio e si chiede
+«e questa?». Non sulla card in inbox: per una proposta fallita la card è già
+chiusa, e «gestita» è una parola che stona su un guasto.
+
+⚠️ **NON è "solo client", come diceva la prima stesura.** `mailItemSchema` ha
+`outcome`, ma quella risposta non la legge più nessuno: la conversazione passa
+da `mailThreadMessageSchema`, che porta `proposalIds` e `reproposals` ma non
+l'esito. Serve **un campo nuovo in quella risposta** — additivo,
+`.default([])`, col test che parsa senza.
+
+La buona notizia è che il server **già guarda** lo stato di quelle proposte:
+gli serve per calcolare `reproposals`. E vale qui la stessa regola scritta nel
+docblock di quel campo: **è il SERVER a decidere cosa mostrare**, non il
+client a dedurlo da `status` — due copie della regola divergono, e la copia
+sbagliata sta nel client.
 
 ## §3 — Regole di resa
 
-1. **Si mappa `outcome.type` a un'etichetta i18n**, accanto allo stato, non al
-   posto suo: «Ignorata · spostata su Carelli» dice due cose vere, «Spostata»
-   da sola perderebbe che la riga è chiusa.
+1. **Una riga sotto il messaggio**, per ciascuna proposta nata da lì: cosa è
+   successo, e — se la proposta è riproponibile — il bottone che già esiste.
+   Quando un messaggio ha più proposte (fan-out su più progetti) le righe sono
+   più d'una: il progetto va nominato, o non si capisce di quale si parla.
 2. ⚠️ **Un tipo sconosciuto NON deve rompere né sparire**: si mostra lo stato
    nudo, come oggi. Non è teorico — in produzione ci sono 29 righe con
    `bulk_closed_automated`/`bulk_closed_stale_routing`, esiti che **nessun

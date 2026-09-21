@@ -1,8 +1,12 @@
 # Piano — Una card chiusa deve dire PERCHÉ (21 set 2026)
 
-Design: `2026-09-21-closed-proposal-reason-design.md`. Quattro task, **solo
-client**: nessuna migrazione, nessuna rotta, nessun campo nuovo — `outcome` è
-già nella risposta di `/api/me/mail`.
+Design: `2026-09-21-closed-proposal-reason-design.md`. ⚠️ **Il Task 3 è
+cambiato il 21 set**: non è «solo client» — vedi §1/§2 del design, riscritti.
+Nessuna migrazione e nessuna rotta nuova, ma **un campo nuovo** in
+`mailThreadMessageSchema`.
+
+I Task 1, 2 e 4 (funzione pura, etichette, test) sono **già fatti** e reggono
+invariati: commit `c4d84e6e`.
 
 Chiusura: `pnpm typecheck`, `pnpm test`, **`pnpm lint` dalla radice**.
 
@@ -38,11 +42,22 @@ In `packages/i18n` (it/en), forma «Ignorata · <perché>»:
 - `declined` → «invito rifiutato»;
 - `triage_dismissed` → «nessun progetto scelto».
 
-## Task 3 — Le due superfici
+## Task 3 — L'esito nella conversazione (RISCRITTO)
 
-Pagina Posta (web) e lista/dettaglio posta (app): l'etichetta accanto allo
-stato, non al posto suo (design §3.1). `reassign_failed` si distingue a vista
-dagli altri — è l'unico su cui «Riproponi» è la risposta giusta.
+**Server.** `mailThreadMessageSchema` guadagna, accanto a `proposalIds` e
+`reproposals`, l'esito di ciascuna proposta nata da quel messaggio: id,
+progetto (nome, non solo l'id) e tipo di esito. Additivo, `.default([])`, col
+test che parsa una risposta senza.
+
+⚠️ **Lo decide il SERVER, non il client.** È la stessa regola già scritta nel
+docblock di `reproposals`: un client che deducesse l'esito da `status`
+produrrebbe una seconda copia della regola, e la copia sbagliata starebbe
+dalla parte che non possiamo aggiornare (l'app sui telefoni).
+
+**Client.** Sotto ogni messaggio, una riga per proposta: l'etichetta del Task
+2, il nome del progetto quando serve distinguere, e il bottone «Riproponi»
+dove già compare. `reassign_failed` si distingue a vista: è l'unico che
+segnala un guasto.
 
 ⚠️ Sul web `lib/api.ts` fa un **cast**, non un `parse`: `outcome` può arrivare
 `undefined` anche se lo schema dice `.default(null)`. Difesa nel punto di
