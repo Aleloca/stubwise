@@ -69,16 +69,31 @@ Quindi «fermo» è: ticket **non chiuso**, **senza job vivo**, **senza PR
 aperta**, **senza domanda dell'agente in sospeso**. Cioè: nessuno ci sta
 lavorando e nessuno sta aspettando nessun altro. Sui dati di oggi: 6 ticket.
 
-Ogni voce porta **da quanti giorni** e **perché è ferma**, che non è la stessa
-cosa dello stato:
+Ogni voce porta **da quanti giorni** e **perché è ferma**.
 
-- `open` senza piano → «da preparare»;
-- `open` con piano salvato → «piano pronto, mai avviato»;
-- `in_progress` senza job → **il caso peggiore**: un lavoro cominciato e
-  interrotto, che oggi non compare da nessuna parte (è #25, fermo da 12
-  giorni);
-- `in_review` senza PR → «chiuso a metà»: lo stato dice revisione ma non c'è
-  niente da rivedere.
+⚠️ **Il motivo si deriva dai JOB, non dallo stato** — correzione del 21 set,
+dai dati veri. Una prima stesura diceva «`in_progress` senza job → lavoro
+cominciato e interrotto, il caso peggiore», citando #25 come esempio. **È
+falso**: #25 ha **zero** job, `created_at` e `updated_at` a tre secondi di
+distanza, e il suo contenuto (Fase 7) è **in produzione dal 9 settembre**. Non
+è un lavoro interrotto: è uno stato messo a mano su lavoro che nel frattempo è
+stato fatto altrove.
+
+La distinzione è la lezione: **lo stato è una DICHIARAZIONE di qualcuno, i job
+sono un FATTO.** Una vista che legge solo lo stato manda un operatore a
+cercare lavoro che non esiste — il falso positivo peggiore per questa
+funzione, e capitava proprio sull'esempio che la motivava.
+
+Quindi:
+
+- `open`, mai un job → «da preparare»;
+- `open`, un job finito → «lavorato, poi fermo»;
+- `in_progress` **con** un job non concluso → «interrotto» (il caso vero:
+  oggi in produzione **non ce n'è nessuno**);
+- `in_progress`/`in_review` **senza nessun job** → «stato dichiarato, nessun
+  lavoro registrato» — e **non** si promette che ci sia qualcosa da fare: può
+  essere un ticket da chiudere, come #25 e #97. L'azione giusta lì è spesso
+  «chiudilo», non «lavoraci», e l'etichetta non deve suggerire il contrario.
 
 ## §4 — L'ordine è per ANZIANITÀ, e il numero è un fatto
 
@@ -90,6 +105,14 @@ piatto con un nome diverso — cioè la cosa che il §2 ha scartato.
 **Nessuna soglia che nasconde**: un ticket fermo da un giorno compare lo
 stesso, in fondo. Una soglia sarebbe una decisione su cosa conta presa dal
 codice invece che da chi guarda.
+
+⚠️ **E i giorni si contano dall'ultimo MOVIMENTO, non dalla creazione.** Sul
+web la riga del ticket (`ticket-row.tsx`) mostra `formatRelativeTime(createdAt)`
+— l'ETÀ — mentre `updatedAt` è già nello schema e non viene usato. È peggio
+del non mostrare niente: un ticket aperto due mesi fa e lavorato ieri legge
+«2 mesi fa» e **sembra** fermo. Non è un'informazione mancante, è
+un'informazione che si scambia per quella che serve — la stessa famiglia di
+«ignorata» su una proposta fallita.
 
 ## §5 — Cosa NON si fa
 
