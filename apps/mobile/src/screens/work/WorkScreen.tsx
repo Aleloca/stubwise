@@ -21,6 +21,8 @@ import { useAuth } from "../../app/providers";
 import { GhostButton } from "../../components/GhostButton";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { Skeleton } from "../../components/Skeleton";
+import { CommentsSection } from "../../components/work/CommentsSection";
+import { DestructiveActions } from "../../components/work/DestructiveActions";
 import { PlanSection } from "../../components/work/PlanSection";
 import { QuestionBlock } from "../../components/work/QuestionBlock";
 import { RunWorkButton } from "../../components/work/RunWorkButton";
@@ -332,6 +334,10 @@ function WorkBody({
       <View style={styles.timelineRow}>
         <Timeline steps={steps} />
       </View>
+      <View style={styles.commentsRow}>
+        <CommentsSection ticketId={ticket.id} comments={comments} users={users} />
+      </View>
+
       <Text style={styles.releaseNote}>{t("mobile.work.releaseNote")}</Text>
 
       {isAdmin && (
@@ -340,6 +346,19 @@ function WorkBody({
           log={latestJob?.log ?? ""}
         />
       )}
+
+      {/*
+        In FONDO, dopo tutto il resto: sono le sole azioni irreversibili della
+        schermata, e non devono stare sul percorso del pollice che scorre il
+        piano e i commenti (design §4).
+      */}
+      <View style={styles.destructiveRow}>
+        <DestructiveActions
+          ticketId={ticket.id}
+          hasDesign={ticket.originContent !== null}
+          hasPlan={ticket.implementationPlan !== null}
+        />
+      </View>
     </>
   );
 }
@@ -433,6 +452,12 @@ const styles = StyleSheet.create({
   },
   timelineRow: {
     marginTop: 20,
+  },
+  commentsRow: {
+    marginTop: 20,
+  },
+  destructiveRow: {
+    marginTop: 28,
   },
   releaseNote: {
     color: colors.faint,

@@ -393,6 +393,27 @@
         "starting": "Starting…",
         "withInstructions": "Resume from instructions",
         "offline": "// no network, no start"
+      },
+      "comments": {
+        "title": "Comments",
+        "empty": "No comments yet.",
+        "unavailable": "Can't load the comments.",
+        "placeholder": "Write a comment…",
+        "send": "Send the comment",
+        "authorAi": "agent",
+        "authorSystem": "system",
+        "authorUnknown": "someone",
+        "offline": "// no network, no comments"
+      },
+      "destructive": {
+        "title": "Deletions",
+        "deleteDesign": "Delete the design",
+        "deletePlan": "Delete the plan",
+        "confirmDesignTitle": "Delete the design?",
+        "confirmPlanTitle": "Delete the plan?",
+        "confirmBody": "There is no way back: the text is not kept anywhere else.",
+        "confirm": "Delete",
+        "cancel": "Cancel"
       }
     },
     "backlog": {

@@ -393,6 +393,27 @@
         "starting": "Avvio…",
         "withInstructions": "Riprendi dalle istruzioni",
         "offline": "// senza rete non si avvia"
+      },
+      "comments": {
+        "title": "Commenti",
+        "empty": "Ancora nessun commento.",
+        "unavailable": "Non riesco a caricare i commenti.",
+        "placeholder": "Scrivi un commento…",
+        "send": "Invia il commento",
+        "authorAi": "agente",
+        "authorSystem": "sistema",
+        "authorUnknown": "qualcuno",
+        "offline": "// senza rete non si commenta"
+      },
+      "destructive": {
+        "title": "Cancellazioni",
+        "deleteDesign": "Cancella il design",
+        "deletePlan": "Cancella il piano",
+        "confirmDesignTitle": "Cancellare il design?",
+        "confirmPlanTitle": "Cancellare il piano?",
+        "confirmBody": "Non si torna indietro: il testo non è conservato da nessun'altra parte.",
+        "confirm": "Cancella",
+        "cancel": "Annulla"
       }
     },
     "backlog": {

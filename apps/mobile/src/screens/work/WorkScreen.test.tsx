@@ -515,6 +515,30 @@ describe("WorkScreen — rispondere a una domanda dell'agente", () => {
     );
   });
 
+  test("dopo l'invio la domanda non è più in attesa", async () => {
+    // Il test sopra prova che la chiamata parte; questo prova ciò che conta
+    // per chi guarda: il blocco sparisce. L'invalidazione di `workKeys.all`
+    // rilegge le domande, e al secondo giro quella è risposta — se la
+    // mutazione non invalidasse, il form resterebbe lì a chiedere una cosa
+    // già decisa.
+    const questions = jest
+      .fn()
+      .mockResolvedValueOnce([question()])
+      .mockResolvedValue([question({ answeredAt: "2026-08-12T09:40:00.000Z" })]);
+    const client = makeClient({
+      jobs: jest.fn().mockResolvedValue([job({ status: "awaiting_input", requestedByUserId: "viewer-1" })]),
+      questions,
+    });
+
+    await renderScreen(client, "member");
+
+    await waitFor(() => expect(screen.getByTestId("work-question")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("work-question-option-0"));
+    await fireEvent.press(screen.getByTestId("work-question-submit"));
+
+    await waitFor(() => expect(screen.queryByTestId("work-question")).toBeNull());
+  });
+
   test("domanda GIÀ risposta: nessun blocco di risposta", async () => {
     // `answer` è null anche su una risposta che il server non riesce più a
     // rileggere: è `answeredAt` a dire che una decisione è stata presa, ed è
@@ -675,5 +699,190 @@ describe("WorkScreen — modificare i campi", () => {
     expect(screen.getByTestId("timeline")).toBeTruthy();
     await fireEvent.press(screen.getByTestId("ticket-field-assignee"));
     expect(screen.queryByTestId("ticket-field-assignee-choice-none")).toBeNull();
+  });
+});
+
+describe("WorkScreen — commentare", () => {
+  test("i commenti si VEDONO, con l'autore e il testo", async () => {
+    // Prima di questo batch l'app non li mostrava da nessuna parte: la
+    // timeline ha sei passi fissi, e `ticketActivityEntrySchema` spoglia
+    // autore e corpo di un commento.
+    const client = makeClient({
+      comments: jest.fn().mockResolvedValue([comment()]),
+      users: jest.fn().mockResolvedValue([{ id: "viewer-1", email: "op@example.com", role: "member" }]),
+    });
+
+    await renderScreen(client, "member");
+
+    await waitFor(() => expect(screen.getByText("Ho controllato io, manca il separatore.")).toBeTruthy());
+    expect(screen.getByText("op@example.com")).toBeTruthy();
+  });
+
+  test("un OPERATORE scrive un commento: il corpo arriva sfrondato", async () => {
+    const commentFn = jest.fn().mockResolvedValue(comment());
+    const client = makeClient({ comment: commentFn });
+
+    await renderScreen(client, "member");
+
+    await waitFor(() => expect(screen.getByTestId("work-comment-input")).toBeTruthy());
+    await fireEvent.changeText(screen.getByTestId("work-comment-input"), "  Ci penso io  ");
+    await fireEvent.press(screen.getByTestId("work-comment-send"));
+
+    await waitFor(() => expect(commentFn).toHaveBeenCalledWith(TICKET_ID, "Ci penso io"));
+  });
+
+  test("un commento vuoto (o di soli spazi) non parte", async () => {
+    const commentFn = jest.fn().mockResolvedValue(comment());
+    const client = makeClient({ comment: commentFn });
+
+    await renderScreen(client, "member");
+
+    await waitFor(() => expect(screen.getByTestId("work-comment-input")).toBeTruthy());
+    await fireEvent.changeText(screen.getByTestId("work-comment-input"), "   ");
+    await fireEvent.press(screen.getByTestId("work-comment-send"));
+
+    expect(commentFn).not.toHaveBeenCalled();
+  });
+
+  test("un commento dell'agente porta la sua origine, non un'email inventata", async () => {
+    const client = makeClient({
+      comments: jest.fn().mockResolvedValue([comment({ authorType: "ai", authorId: null, body: "Ho aperto la PR." })]),
+    });
+
+    await renderScreen(client, "member");
+
+    await waitFor(() => expect(screen.getByText("Ho aperto la PR.")).toBeTruthy());
+    expect(screen.getByText("agente")).toBeTruthy();
+  });
+
+  test("commenti che non arrivano: lo dice, e il resto della schermata resta", async () => {
+    const client = makeClient({ comments: jest.fn().mockRejectedValue(new Error("down")) });
+
+    await renderScreen(client, "member");
+
+    await waitFor(() => expect(screen.getByTestId("work-comments-unavailable")).toBeTruthy());
+    expect(screen.getByTestId("timeline")).toBeTruthy();
+  });
+});
+
+describe("WorkScreen — le due cancellazioni", () => {
+  test("UN SOLO tocco non cancella niente: serve la conferma", async () => {
+    // ⚠️ È la proprietà che il design chiede (§4): design e piano cancellati
+    // non si recuperano, e su un telefono si tocca per sbaglio più che su un
+    // computer.
+    const deleteDesign = jest.fn().mockResolvedValue(ticket());
+    const client = makeClient({
+      get: jest.fn().mockResolvedValue(ticket({ originContent: "Il design originale" })),
+      deleteDesign,
+    });
+
+    await renderScreen(client, "member");
+
+    await waitFor(() => expect(screen.getByTestId("work-delete-design")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("work-delete-design"));
+
+    expect(deleteDesign).not.toHaveBeenCalled();
+    expect(screen.getByTestId("work-delete-confirm-yes")).toBeTruthy();
+  });
+
+  test("il secondo tocco NON cade dove è caduto il primo", async () => {
+    // Sul web i due passi si sovrappongono (`ConfirmDeleteButton` sostituisce
+    // il bottone in loco): con un mouse va bene, con un pollice no. Qui la
+    // conferma vive in una modale, quindi un doppio tap sullo stesso punto
+    // non può arrivare in fondo — e "Annulla" è lì accanto.
+    const client = makeClient({
+      get: jest.fn().mockResolvedValue(ticket({ originContent: "Il design originale" })),
+    });
+
+    await renderScreen(client, "member");
+
+    await waitFor(() => expect(screen.getByTestId("work-delete-design")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("work-delete-design"));
+
+    expect(screen.getByTestId("work-delete-confirm")).toBeTruthy();
+    expect(screen.getByTestId("work-delete-cancel")).toBeTruthy();
+  });
+
+  test("confermando, il design si cancella", async () => {
+    const deleteDesign = jest.fn().mockResolvedValue(ticket());
+    const client = makeClient({
+      get: jest.fn().mockResolvedValue(ticket({ originContent: "Il design originale" })),
+      deleteDesign,
+    });
+
+    await renderScreen(client, "member");
+
+    await waitFor(() => expect(screen.getByTestId("work-delete-design")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("work-delete-design"));
+    await fireEvent.press(screen.getByTestId("work-delete-confirm-yes"));
+
+    await waitFor(() => expect(deleteDesign).toHaveBeenCalledWith(TICKET_ID));
+  });
+
+  test("annullando non si cancella niente", async () => {
+    const deletePlan = jest.fn().mockResolvedValue(ticket());
+    const client = makeClient({
+      get: jest.fn().mockResolvedValue(ticket({ implementationPlan: "## Piano\n1. Fare" })),
+      deletePlan,
+    });
+
+    await renderScreen(client, "member");
+
+    await waitFor(() => expect(screen.getByTestId("work-delete-plan")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("work-delete-plan"));
+    await fireEvent.press(screen.getByTestId("work-delete-cancel"));
+
+    expect(deletePlan).not.toHaveBeenCalled();
+  });
+
+  test("niente design e niente piano: nessun bottone da premere per sbaglio", async () => {
+    const client = makeClient({
+      get: jest.fn().mockResolvedValue(ticket({ originContent: null, implementationPlan: null })),
+    });
+
+    await renderScreen(client, "member");
+
+    await waitFor(() => expect(screen.getByTestId("timeline")).toBeTruthy());
+    expect(screen.queryByTestId("work-destructive")).toBeNull();
+  });
+});
+
+describe("WorkScreen — i permessi che il server NON ha, il client non li inventa", () => {
+  test("un OPERATORE vede e può usare tutte e sei le azioni non-admin", async () => {
+    // ⚠️ Design §3: solo le QUATTRO azioni sul piano sono `requireAdmin`. Le
+    // altre sei sono `requireAuth`, e un controllo di ruolo aggiunto qui
+    // sarebbe una seconda copia della regola — dalla parte che si aggiorna
+    // dagli store, non dai nostri deploy.
+    const client = makeClient({
+      get: jest.fn().mockResolvedValue(
+        ticket({ originContent: "Design", implementationPlan: "## Piano" }),
+      ),
+      jobs: jest.fn().mockResolvedValue([job({ status: "awaiting_input", requestedByUserId: "viewer-1" })]),
+      questions: jest.fn().mockResolvedValue([question()]),
+    });
+
+    await renderScreen(client, "member");
+
+    await waitFor(() => expect(screen.getByTestId("ticket-fields")).toBeTruthy());
+    expect(screen.getByTestId("work-question-submit")).toBeTruthy(); // rispondere
+    expect(screen.getByTestId("work-comment-send")).toBeTruthy(); // commentare
+    expect(screen.getByTestId("ticket-field-status")).toBeTruthy(); // modificare i campi
+    expect(screen.getByTestId("work-delete-design")).toBeTruthy(); // cancellare il design
+    expect(screen.getByTestId("work-delete-plan")).toBeTruthy(); // cancellare il piano
+  });
+
+  test("le QUATTRO azioni sul piano restano al maintainer, come oggi", async () => {
+    // Questo batch passa vicino a quel codice: il test lo dice a voce alta.
+    const client = makeClient({
+      get: jest.fn().mockResolvedValue(ticket({ implementationPlan: "## Piano" })),
+      jobs: jest.fn().mockResolvedValue([job({ status: "awaiting_plan_approval" })]),
+    });
+
+    await renderScreen(client, "member");
+
+    await waitFor(() => expect(screen.getByTestId("timeline")).toBeTruthy());
+    expect(screen.queryByTestId("plan-section-approve")).toBeNull();
+    expect(screen.queryByTestId("plan-section-reject")).toBeNull();
+    expect(screen.queryByTestId("plan-section-pre-approve")).toBeNull();
   });
 });
