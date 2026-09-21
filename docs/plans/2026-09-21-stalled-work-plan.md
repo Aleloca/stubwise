@@ -8,9 +8,11 @@ Chiusura: `pnpm typecheck`, `pnpm test`, **`pnpm lint` dalla radice**.
 ## Task 1 — La definizione, in un posto solo
 
 Il criterio del §3 — non chiuso, senza job vivo, senza PR aperta, senza
-domanda in sospeso — va scritto **una volta**, accanto agli altri segnali del
-polso (`packages/notifications/src/project-signals.ts`, che server e worker
-condividono già apposta).
+domanda in sospeso — va scritto **una volta**, in
+`packages/notifications/src/project-pulse-summary.ts`, che è dove vivono i tre
+secchi. ⚠️ Una prima stesura diceva `project-signals.ts`: package giusto, file
+sbagliato — lì stanno i segnali del **pulse proattivo** (`isProjectIdle`,
+`listCandidates`), un'altra cosa.
 
 ⚠️ **Non ricopiarlo in SQL da qualche altra parte.** Il repo ha già due casi
 in cui la stessa regola vive in due lingue e vanno tenute d'accordo a mano
@@ -35,13 +37,21 @@ test che parsa una risposta **senza** il campo.
 calcolato a monte invecchia dentro una risposta in cache e mostra «da 3
 giorni» su una pagina aperta da una settimana.
 
-## Task 3 — Le PR aperte NON finiscono qui
+## Task 3 — Le PR aperte, in un campo A SÉ (RISCRITTO)
 
-I ticket `in_review` **con** PR aperta (4 su 10 oggi) vanno in
-`waitingForYou` per un maintainer e in `waitingForOthers` per un operatore —
-non in `stalled` (design §3). Un operatore **non può mergiare**: è uno dei due
-divieti scritti in CLAUDE.md, e mostrargli una voce su cui non può agire come
-«che aspetta lui» sarebbe una bugia.
+I ticket `in_review` **con** PR aperta (4 su 10 oggi) non vanno in `stalled`.
+⚠️ E **non** in `waitingForYou`, come diceva la prima stesura: quel campo
+esige un `notificationId`, e una PR in attesa di merge non ha una notifica —
+vedi il §3 del design per le tre uscite e perché due sono chiuse.
+
+`projectPulseSummarySchema` guadagna un campo **nuovo**, additivo,
+`.default([])`: ticket, numero, titolo, URL della PR e `canMerge` — **calcolato
+lato server** col controllo di ruolo, mai dedotto dal client. Il client lo
+rende sotto «aspetta te» quando `canMerge`, sotto «aspetta altri» quando no.
+
+Il test resta quello: stesso progetto, stessi dati, due ruoli → la stessa PR
+compare in due posti diversi. È la verifica che il divieto dell'operatore vale
+anche **in lettura** e non solo sulle rotte.
 
 Test: stesso progetto, stessi dati, due ruoli → la stessa PR compare in due
 secchi diversi. È la verifica che il divieto è rispettato **in lettura** e non

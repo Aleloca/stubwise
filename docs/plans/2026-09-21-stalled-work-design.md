@@ -61,9 +61,32 @@ muovendo qui?*
 
 ⚠️ **I quattro con una PR aperta non sono fermi**, e metterli lì darebbe
 l'informazione sbagliata: quelli **aspettano una decisione umana** — il merge
-— e sul web hanno già la coda di rilascio (fase 8). Vanno in
-`waitingForYou` **per un maintainer** (che può mergiare) e in
-`waitingForOthers` per un operatore (che non può: è un divieto, CLAUDE.md).
+— e sul web hanno già la coda di rilascio (fase 8).
+
+**Vanno in un campo A SÉ, non nei due secchi esistenti** (correzione del 21
+set, verificata sullo schema). La prima stesura diceva «`waitingForYou` per un
+maintainer, `waitingForOthers` per un operatore»: **non è implementabile**.
+`pulseWaitingForYouItemSchema.notificationId` è `z.uuid()` **obbligatorio** —
+è la riga d'inbox su cui agire — e una PR che aspetta il merge **non ha una
+notifica**, deliberatamente (fase 8: «`/release` non è raggiunta da inbox»,
+nessun kind nuovo; e il §5 qui sotto vieta notifiche nuove).
+
+Le tre uscite, e perché due sono chiuse:
+
+- **rendere `notificationId` opzionale** → è la direzione NON sicura
+  dell'invariante sui cambi additivi: l'app installata ha quel campo
+  obbligatorio compilato dentro, quindi una risposta senza fa fallire il parse
+  dell'**intera** risposta e il polso sparisce su ogni telefono. Identica alla
+  lezione di `push` in fase 4;
+- **una notifica per le PR** → contraddice la fase 8 e il §5;
+- **un campo nuovo**, additivo, `.default([])`, con un booleano `canMerge`
+  calcolato **lato server** col controllo di ruolo. Il client lo mostra sotto
+  «aspetta te» quando `canMerge`, sotto «aspetta altri» quando no.
+
+La terza ottiene tutto ciò che questa sezione vuole — collocazione dipendente
+dal ruolo, l'operatore che non vede come «sua» una cosa che non può fare, il
+test a due ruoli sugli stessi dati — **senza toccare un campo che le app
+installate esigono**. Un'app vecchia riceve un campo in più e lo ignora.
 
 Quindi «fermo» è: ticket **non chiuso**, **senza job vivo**, **senza PR
 aperta**, **senza domanda dell'agente in sospeso**. Cioè: nessuno ci sta
