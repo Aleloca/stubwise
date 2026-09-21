@@ -1420,6 +1420,32 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   produzione**, sull'app manca **solo nei test**. La difesa è diversa —
   `?? []` nel codice del web, fixture complete nei test dell'app — e
   applicare quella sbagliata non protegge da niente.
+- **E c'è una TERZA trappola nella stessa famiglia, che non fa fallire niente
+  affatto: il DOPPIO del client nei test dell'app (21 set 2026).** Le due qui
+  sopra riguardano un campo che manca; questa riguarda un METODO che manca, e
+  si comporta in modo peggiore — non rompe la schermata, la lascia intatta.
+  `makeClient()` nei test delle schermate è un `as unknown as StubwiseClient`
+  (`apps/mobile/src/screens/work/WorkScreen.test.tsx` e i suoi gemelli): il
+  cast **afferma** che l'oggetto sia il client intero, quindi il compilatore
+  non dice nulla se un metodo non c'è. La query che lo chiama fallisce a
+  runtime, e se quella lettura sta fuori dai gate `isPending`/`isError` — come
+  ci stanno per costruzione tutte le letture ACCESSORIE, apposta perché un
+  loro guasto non costi la schermata — allora **il test passa**, e passa senza
+  aver esercitato niente di ciò che diceva di provare.
+  Successo davvero aggiungendo `tickets.comments`, `users.list` e
+  `projects.milestones` a `WorkScreen`: 24 test verdi con tre query che in
+  ogni singolo caso fallivano.
+  **Regola operativa**: quando una schermata guadagna una chiamata nuova,
+  **aggiungi il metodo al doppio prima di scrivere il test che lo usa**, e
+  tratta un doppio parziale come codice da completare, non come una
+  scorciatoia che il cast rende lecita. Il segnale d'allarme è l'assenza di
+  segnale: un test che passa al primo colpo su una lettura appena aggiunta
+  merita di essere fatto fallire apposta (togli il `mockResolvedValue`) prima
+  di crederci.
+  La differenza con le due qui sopra, e il motivo per cui non si deduce da
+  loro: **una fixture incompleta fa saltare la schermata, un doppio incompleto
+  no** — un cast che finge un'interfaccia intera è peggio di una fixture
+  incompleta, perché non fallisce affatto.
 - **Un campo nuovo non si "aggiunge": si aggiunge E si va a cercare chi
   diceva qualcosa che ora è INCOMPLETO (21 set 2026).** È la domanda da farsi
   ogni volta che un campo nuovo cambia il SIGNIFICATO di qualcosa che una
