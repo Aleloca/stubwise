@@ -125,6 +125,29 @@ export function ThreadDetailScreen({
                  * possibili lo dice il SERVER — qui non si rivaluta nessuno
                  * stato, e l'array vuoto (nessuna azione) è il caso normale.
                  */}
+                {/*
+                 * CHE FINE HA FATTO una proposta nata da questo messaggio (21
+                 * set 2026): prima non si sapeva da nessuna parte. Il testo
+                 * arriva GIÀ localizzato dal server — qui non si traduce né
+                 * si deduce niente da `status`, che è la stessa regola di
+                 * `reproposals` qui sotto.
+                 *
+                 * Il progetto si nomina solo quando c'è: un messaggio può
+                 * avere più proposte (fan-out per progetto) e due righe
+                 * identiche non direbbero di quale si parla.
+                 */}
+                {message.proposalOutcomes
+                  .filter((outcome) => outcome.label !== null)
+                  .map((outcome) => (
+                    <Text
+                      key={`outcome-${outcome.id}`}
+                      style={[styles.outcome, outcome.failed && styles.outcomeFailed]}
+                      testID={`thread-outcome-${outcome.id}`}
+                    >
+                      {outcome.projectName !== null ? `${outcome.projectName} · ` : ""}
+                      {outcome.label}
+                    </Text>
+                  ))}
                 {message.reproposals.map((action) => (
                   <ReproposeButton key={`${action.source}-${action.id}`} action={action} />
                 ))}
@@ -196,6 +219,19 @@ const styles = StyleSheet.create({
     backgroundColor: colors.ink950,
     flex: 1,
   },
+  /** L'esito di una proposta chiusa: una riga discreta sotto il messaggio. */
+  outcome: {
+    color: colors.faint,
+    fontFamily: fontFamily.mono,
+    fontSize: fontSize.label,
+    marginTop: 8,
+  },
+  /**
+   * ⚠️ L'UNICO esito che è un GUASTO (riattribuzione fallita) si distingue a
+   * vista: chi lo legge come una scelta non riprova, ed è l'unico su cui
+   * «Riproponi» è la risposta giusta.
+   */
+  outcomeFailed: { color: colors.danger },
   body: {
     gap: 4,
     padding: 20,

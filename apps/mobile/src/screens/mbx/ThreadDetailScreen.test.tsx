@@ -1,3 +1,4 @@
+import { colors } from "../../theme/tokens";
 import { ApiError, type StubwiseClient } from "@stubwise/api-client";
 import type { MailThreadDetail, Reader } from "@stubwise/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -34,6 +35,7 @@ function detail(overrides: Partial<Reader<MailThreadDetail>> = {}): Reader<MailT
         // Un messaggio di CONTESTO non ha proposte, quindi non ha niente da
         // riproporre: non è «non ancora», è «mai».
         reproposals: [],
+        proposalOutcomes: [],
       },
       {
         id: AMMESSO,
@@ -44,6 +46,7 @@ function detail(overrides: Partial<Reader<MailThreadDetail>> = {}): Reader<MailT
         admitted: true,
         proposalIds: [PROPOSTA],
         reproposals: [{ source: "email", id: PROPOSTA, projectName: "Apollo" }],
+        proposalOutcomes: [],
       },
     ],
     ...overrides,
@@ -118,6 +121,7 @@ describe("ThreadDetailScreen", () => {
             admitted: true,
             proposalIds: [],
             reproposals: [],
+            proposalOutcomes: [],
           },
         ],
       } as Partial<Reader<MailThreadDetail>>),
@@ -125,6 +129,75 @@ describe("ThreadDetailScreen", () => {
     await renderScreen(makeClient(thread));
     await waitFor(() => expect(screen.getByTestId(`thread-message-${AMMESSO}`)).toBeTruthy());
     expect(screen.getByText(/Nessun estratto salvato/)).toBeTruthy();
+  });
+
+  test("una proposta chiusa dice PERCHÉ, e il guasto si distingue dalla scelta", async () => {
+    // Il problema che questo batch chiude: di una proposta non si sapeva più
+    // che fine avesse fatto. Due righe sullo stesso messaggio, perché dal
+    // fan-out della 6b un messaggio può avere più proposte — e senza il nome
+    // del progetto non si capirebbe di quale si parla.
+    const thread = jest.fn().mockResolvedValue(
+      detail({
+        messages: [
+          {
+            id: AMMESSO,
+            from: "cliente@example.com",
+            to: [],
+            receivedAt: "2026-09-11T09:00:00.000Z",
+            textExcerpt: "Testo",
+            admitted: true,
+            proposalIds: ["p1", "p2"],
+            reproposals: [],
+            proposalOutcomes: [
+              // Il testo arriva GIÀ localizzato dal server: qui si verifica
+              // che venga mostrato, non che venga tradotto.
+              { id: "p1", projectName: "Wilco", failed: false, label: "spostata su Carelli" },
+              { id: "p2", projectName: "Carelli", failed: true, label: "riattribuzione non riuscita" },
+            ],
+          },
+        ],
+      } as Partial<Reader<MailThreadDetail>>),
+    );
+    await renderScreen(makeClient(thread));
+    await waitFor(() => expect(screen.getByTestId(`thread-message-${AMMESSO}`)).toBeTruthy());
+
+    expect(screen.getByTestId("thread-outcome-p1")).toHaveTextContent("Wilco · spostata su Carelli");
+    const guasto = screen.getByTestId("thread-outcome-p2");
+    expect(guasto).toHaveTextContent("Carelli · riattribuzione non riuscita");
+    // ⚠️ Il guasto si distingue A VISTA, non solo a parole: chi lo legge come
+    // una scelta non riprova. L'asserzione è sullo stile, perché è lì che la
+    // distinzione vive.
+    expect(guasto).toHaveStyle({ color: colors.danger });
+  });
+
+  test("un esito che il server non sa spiegare: la riga non compare, il resto sì", async () => {
+    // `label: null` è ciò che il server manda per un esito sconosciuto — in
+    // produzione esistono `bulk_closed_automated`, scritti a mano chiudendo
+    // un arretrato. Meglio nessuna spiegazione che una inventata.
+    const thread = jest.fn().mockResolvedValue(
+      detail({
+        messages: [
+          {
+            id: AMMESSO,
+            from: "cliente@example.com",
+            to: [],
+            receivedAt: "2026-09-11T09:00:00.000Z",
+            textExcerpt: "Testo del messaggio",
+            admitted: true,
+            proposalIds: ["p9"],
+            reproposals: [],
+            proposalOutcomes: [{ id: "p9", projectName: "Wilco", failed: false, label: null }],
+          },
+        ],
+      } as Partial<Reader<MailThreadDetail>>),
+    );
+    await renderScreen(makeClient(thread));
+    await waitFor(() => expect(screen.getByTestId(`thread-message-${AMMESSO}`)).toBeTruthy());
+
+    expect(screen.queryByTestId("thread-outcome-p9")).toBeNull();
+    // Il messaggio resta leggibile: si perde la spiegazione, non la
+    // conversazione.
+    expect(screen.getByText("Testo del messaggio")).toBeTruthy();
   });
 
   test("caricamento: skeleton, non una conversazione vuota", async () => {

@@ -318,6 +318,39 @@ export function MailThreadPane({
              * lettura. C'è un test che lo fissa, con una fixture che il
              * campo non ce l'ha.
              */}
+            {/*
+             * CHE FINE HA FATTO una proposta nata da questo messaggio (21 set
+             * 2026). Prima non si sapeva da nessuna parte: il 18 settembre
+             * una riattribuzione è fallita, la card è sparita dall'inbox e
+             * ci si è arrivati leggendo il database — che un operatore non
+             * ha.
+             *
+             * ⚠️ `?? []` per la stessa ragione del blocco qui sotto: il web
+             * fa un cast e non un `parse`, quindi il `.default([])` non gira
+             * e un server precedente manda `undefined`. Senza, salterebbe il
+             * pannello intero.
+             *
+             * Il testo arriva GIÀ localizzato dal server (vedi il docblock
+             * dello schema): qui non si traduce né si deduce niente da
+             * `status`, perché la copia sbagliata di quella regola starebbe
+             * dalla parte che non possiamo aggiornare.
+             */}
+            {(message.proposalOutcomes ?? [])
+              .filter((outcome) => outcome.label !== null)
+              .map((outcome) => (
+                <p
+                  key={`outcome-${outcome.id}`}
+                  className={`mt-2 font-mono text-[11px] ${outcome.failed ? "text-danger" : "text-fg-faint"}`}
+                >
+                  {/*
+                   * Il progetto si nomina solo quando serve a distinguere: un
+                   * messaggio può avere PIÙ proposte (fan-out per progetto),
+                   * e due righe identiche non direbbero di quale si parla.
+                   */}
+                  {outcome.projectName !== null && `${outcome.projectName} · `}
+                  {outcome.label}
+                </p>
+              ))}
             {(message.reproposals ?? []).map((action) => (
               <ReproposeAction key={`${action.source}-${action.id}`} action={action} threadId={threadId} />
             ))}

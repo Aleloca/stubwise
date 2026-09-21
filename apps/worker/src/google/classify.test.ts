@@ -1,3 +1,4 @@
+import { PROPOSAL_OUTCOME_TYPES } from "@stubwise/shared";
 import { randomBytes, randomUUID } from "node:crypto";
 import {
   agentRuns,
@@ -1375,6 +1376,15 @@ describe("classifyEmail: una risposta su un thread che ha già una proposta aper
     const [stale] = await db.select().from(emailProposals).where(eq(emailProposals.id, open.id));
     expect(stale?.status).toBe("ignored");
     expect(stale?.outcome).toEqual({ type: "superseded_by_message", byEmailMessageId: reply.id });
+    // ⚠️ E quel `type` deve essere fra quelli che la lettura sa gestire
+    // (`PROPOSAL_OUTCOME_TYPES`, `@stubwise/shared`): è l'ancoraggio che
+    // mancava il 21 set 2026, quando la mappa spiegava `superseded_in_thread`
+    // — che si scrive sul MESSAGGIO — e non questo, che è ciò che finisce su
+    // `email_proposals`. Chi aggiunge un esito NUOVO qui e non lo enumera là
+    // fa fallire questa riga, invece di scoprirlo da una card muta.
+    expect(PROPOSAL_OUTCOME_TYPES).toContain(
+      (stale?.outcome as { type: string } | null)?.type ?? "",
+    );
 
     // La sua card in inbox si chiude con lei: due card per una cosa sola
     // sarebbero esattamente il difetto da togliere.
