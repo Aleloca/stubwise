@@ -510,4 +510,44 @@ describe("ProjectDetailScreen — brief settimanale", () => {
     await waitFor(() => expect(screen.getByText("Aspetta qualcuno · 1")).toBeTruthy());
     expect(screen.queryByText(/Fermo/)).toBeNull();
   });
+
+  /**
+   * ⚠️ LA CONTRADDIZIONE CHE LA REVIEW HA COLTO. Il blocco «Fermo · N» e la
+   * riga di polso stanno sulla STESSA schermata: finché `pulseLineFor` non
+   * conosceva `stalled`, l'intestazione diceva «tutto tranquillo»
+   * esattamente sopra l'elenco dei ticket fermi. Il blocco nuovo non basta —
+   * va aggiornato anche ciò che già si mostrava e che ora sarebbe incompleto.
+   */
+  test("con dei ticket fermi l'intestazione NON dice «tutto tranquillo»", async () => {
+    const client = makeClient({
+      pulse: jest.fn().mockResolvedValue([
+        summary({
+          stalled: [
+            { ticketId: TICKET_A, ticketNumber: 18, title: "Export CSV", stalledSince: fermoDa(21), reason: "to_prepare" },
+            { ticketId: TICKET_B, ticketNumber: 27, title: "Riconciliazione", stalledSince: fermoDa(3), reason: "declared_no_work" },
+          ],
+        }),
+      ]),
+    });
+    await renderScreen(client);
+
+    await waitFor(() => expect(screen.getByText("Fermo · 2")).toBeTruthy());
+    expect(screen.getByText("2 ticket fermi")).toBeTruthy();
+    expect(screen.queryByText("tutto tranquillo")).toBeNull();
+  });
+
+  test("una PR da mergiare è «aspetta te» anche nell'intestazione, non solo nel gruppo", async () => {
+    const client = makeClient({
+      pulse: jest.fn().mockResolvedValue([
+        summary({
+          waitingForMerge: [
+            { ticketId: TICKET_A, ticketNumber: 20, title: "Coda di rilascio", prUrl: "https://example.com/pr/20", canMerge: true },
+          ],
+        }),
+      ]),
+    });
+    await renderScreen(client);
+
+    await waitFor(() => expect(screen.getByText("aspetta te — 1 PR da mergiare")).toBeTruthy());
+  });
 });

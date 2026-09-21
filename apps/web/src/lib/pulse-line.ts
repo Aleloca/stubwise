@@ -75,7 +75,15 @@ function runningLine(items: RunningItem[]): PulseLine {
  * nemmeno guardate. `aspetta te` vince SEMPRE quando `waitingForYou` non è
  * vuoto, anche se lo stesso progetto ha anche lavori `running` — una
  * decisione del viewer ferma il progetto più di un lavoro che comunque
- * prosegue da solo. Stessa priorità di `apps/mobile/src/lib/pulse-line.ts`.
+ * prosegue da solo.
+ *
+ * La catena, dal 21 set 2026: decisioni per te → PR che aspettano il TUO
+ * merge → lavoro in corso → PR che aspettano altri → progetto fermo da giorni
+ * → ticket fermi → tutto tranquillo. **Gemella di quella dell'app**
+ * (`apps/mobile/src/lib/pulse-line.ts`): le due funzioni sono duplicate
+ * apposta (tipi e temi diversi), ma la PRIORITÀ deve restare la stessa — chi
+ * ne cambia una cambi anche l'altra, o questa frase diventa falsa su
+ * entrambi i file.
  */
 export function pulseLineFor(summary: ProjectPulseSummary): PulseLine {
   // ⚠️ DIFESA NEL PUNTO DI LETTURA, non nello schema. `apps/web/src/lib/api.ts`

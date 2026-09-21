@@ -47,7 +47,14 @@ export function ProjectsScreen({ navigation }: NativeStackScreenProps<ProjectsSt
   });
 
   const summaries = query.data ?? [];
-  const waitingProjects = summaries.filter((summary) => summary.waitingForYou.length > 0).length;
+  // «N aspetta te»: conta anche le PR che il viewer PUÒ mergiare (21 set
+  // 2026). `canMerge` arriva dal server col ruolo — qui si legge, non si
+  // deduce (vedi il divieto dell'operatore in CLAUDE.md): per un operatore
+  // quella stessa PR non è «sua» e giustamente non entra nel conteggio.
+  const waitingProjects = summaries.filter(
+    (summary) =>
+      summary.waitingForYou.length > 0 || summary.waitingForMerge.some((item) => item.canMerge),
+  ).length;
   const subtitle = query.isPending
     ? t("mobile.projects.header.loading")
     : waitingProjects > 0

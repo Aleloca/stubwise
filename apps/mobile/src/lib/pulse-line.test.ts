@@ -45,6 +45,21 @@ const RUNNING = {
   sinceMinutes: 18,
 };
 
+const PR_DA_MERGIARE = {
+  ticketId: TICKET_ID,
+  ticketNumber: 20,
+  title: "Coda di rilascio",
+  prUrl: "https://example.com/pr/20",
+};
+
+const FERMO = {
+  ticketId: TICKET_ID,
+  ticketNumber: 18,
+  title: "Export CSV degli ordini",
+  stalledSince: "2026-08-31T12:00:00.000Z",
+  reason: "to_prepare" as const,
+};
+
 describe("pulseLineFor — priorità", () => {
   test("aspetta te vince quando SIA waitingForYou SIA running sono popolati", () => {
     const line = pulseLineFor(summary({ waitingForYou: [QUESTION], running: [RUNNING] }), VIEWER_ID);
@@ -128,5 +143,69 @@ describe("pulseLineFor — 'fermo da N giorni'", () => {
   test("il conteggio dei giorni è nei params", () => {
     const line = pulseLineFor(summary({ idleDays: 6 }), VIEWER_ID);
     expect(line).toEqual({ tone: "faint", key: "mobile.projects.pulse.idle", params: { count: 6 } });
+  });
+});
+
+/**
+ * IL QUARTO SECCHIO nella riga di polso (21 set 2026).
+ *
+ * ⚠️ Perché questi test esistono: la prima stesura del batch aggiungeva il
+ * blocco «Fermo» al dettaglio ma lasciava `pulseLineFor` com'era, e il
+ * risultato era un progetto con zero job vivi e otto ticket fermi che diceva
+ * «tutto tranquillo» ESATTAMENTE sopra l'elenco degli otto — e che sulla
+ * LISTA progetti non diceva niente affatto. Le due righe aggiunte alla
+ * fixture (`stalled: []`, `waitingForMerge: []`) erano compatibilità di tipo,
+ * non copertura: un test con lo scenario «solo questi due popolati» avrebbe
+ * fermato il difetto, e questi sono quei test.
+ *
+ * La catena deve restare d'accordo con quella del web
+ * (`apps/web/src/lib/pulse-line.test.ts`, describe gemello).
+ */
+describe("pulseLineFor — PR da mergiare e ticket fermi", () => {
+  test("una PR che aspetta il MIO merge vince sul lavoro in corso", () => {
+    const line = pulseLineFor(
+      summary({ waitingForMerge: [{ ...PR_DA_MERGIARE, canMerge: true }], running: [RUNNING] }),
+      VIEWER_ID,
+    );
+    expect(line).toEqual({ tone: "signal", key: "mobile.projects.pulse.waitingMerge", params: { count: 1 } });
+  });
+
+  test("ma una DECISIONE per te viene ancora prima", () => {
+    const line = pulseLineFor(
+      summary({ waitingForYou: [QUESTION], waitingForMerge: [{ ...PR_DA_MERGIARE, canMerge: true }] }),
+      VIEWER_ID,
+    );
+    expect(line.key).toBe("mobile.projects.pulse.waitingQuestion");
+  });
+
+  test("una PR che aspetta ALTRI non diventa mai «aspetta te»", () => {
+    const line = pulseLineFor(summary({ waitingForMerge: [{ ...PR_DA_MERGIARE, canMerge: false }] }), VIEWER_ID);
+    expect(line).toEqual({
+      tone: "faint",
+      key: "mobile.projects.pulse.waitingMergeOthers",
+      params: { count: 1 },
+    });
+  });
+
+  test("il lavoro in corso viene PRIMA di una PR che aspetta altri", () => {
+    const line = pulseLineFor(
+      summary({ waitingForMerge: [{ ...PR_DA_MERGIARE, canMerge: false }], running: [RUNNING] }),
+      VIEWER_ID,
+    );
+    expect(line.key).toBe("mobile.projects.pulse.runningOne");
+  });
+
+  test("SOLO ticket fermi: non dice «tutto tranquillo»", () => {
+    const line = pulseLineFor(summary({ stalled: [FERMO] }), VIEWER_ID);
+    expect(line).toEqual({ tone: "faint", key: "mobile.projects.pulse.stalled", params: { count: 1 } });
+  });
+
+  test("«fermo da N giorni» del progetto viene prima dei ticket fermi", () => {
+    const line = pulseLineFor(summary({ idleDays: 6, stalled: [FERMO] }), VIEWER_ID);
+    expect(line.key).toBe("mobile.projects.pulse.idle");
+  });
+
+  test("senza niente di fermo e niente da mergiare resta «tutto tranquillo»", () => {
+    expect(pulseLineFor(summary(), VIEWER_ID).key).toBe("mobile.projects.pulse.ok");
   });
 });

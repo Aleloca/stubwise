@@ -238,13 +238,21 @@
         "runningMany_other": "sta lavorando — {{count}} lavori in corso",
         "idle_one": "fermo da {{count}} giorno",
         "idle_other": "fermo da {{count}} giorni",
-        "ok": "tutto tranquillo"
+        "ok": "tutto tranquillo",
+        "waitingMerge_one": "aspetta te — {{count}} PR da mergiare",
+        "waitingMerge_other": "aspetta te — {{count}} PR da mergiare",
+        "waitingMergeOthers_one": "aspetta un maintainer — {{count}} PR da mergiare",
+        "waitingMergeOthers_other": "aspetta un maintainer — {{count}} PR da mergiare",
+        "stalled_one": "{{count}} ticket fermo",
+        "stalled_other": "{{count}} ticket fermi"
       },
       "counts": {
         "waiting": "{{count}} in attesa",
         "running": "{{count}} in corso",
         "ready_one": "{{count}} pronta",
-        "ready_other": "{{count}} pronte"
+        "ready_other": "{{count}} pronte",
+        "stalled_one": "{{count}} fermo",
+        "stalled_other": "{{count}} fermi"
       },
       "detail": {
         "back": "‹ Progetti",

@@ -52,6 +52,49 @@ const IDLE = summary({
   backlogReadyCount: 2,
 });
 
+/**
+ * Un progetto SOLO fermo: nessun job vivo, nessuna decisione pendente, nessuna
+ * PR — e sei ticket che non si muovono da settimane. Prima del 21 set 2026
+ * questa riga diceva «tutto tranquillo» e nessun conteggio lo smentiva: era
+ * lo scenario che il design cita come motivazione, irrisolto proprio sulla
+ * schermata da cui si parte.
+ */
+const SOLO_FERMI = summary({
+  projectId: "66666666-6666-4666-8666-666666666666",
+  projectName: "Arretrato",
+  stalled: [
+    {
+      ticketId: "77777777-7777-4777-8777-777777777777",
+      ticketNumber: 18,
+      title: "Export CSV degli ordini",
+      stalledSince: "2026-08-31T12:00:00.000Z",
+      reason: "to_prepare",
+    },
+    {
+      ticketId: "88888888-8888-4888-8888-888888888888",
+      ticketNumber: 27,
+      title: "Riconciliazione pagamenti",
+      stalledSince: "2026-09-10T12:00:00.000Z",
+      reason: "declared_no_work",
+    },
+  ],
+});
+
+/** Un progetto la cui unica attesa è una PR che il viewer PUÒ mergiare. */
+const DA_MERGIARE = summary({
+  projectId: "99999999-9999-4999-8999-999999999999",
+  projectName: "Da rilasciare",
+  waitingForMerge: [
+    {
+      ticketId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaab",
+      ticketNumber: 20,
+      title: "Coda di rilascio",
+      prUrl: "https://example.com/pr/20",
+      canMerge: true,
+    },
+  ],
+});
+
 function makeClient(pulse: jest.Mock): StubwiseClient {
   return { projects: { pulse } } as unknown as StubwiseClient;
 }
@@ -154,5 +197,42 @@ describe("ProjectsScreen", () => {
     await waitFor(() => expect(screen.getByText("Portale B2B")).toBeTruthy());
     await fireEvent.press(screen.getByTestId(`pulse-row-${WAITING.projectId}`));
     expect(navigate).toHaveBeenCalledWith("Detail", { id: WAITING.projectId });
+  });
+
+  // --------------------------------------------------------------------
+  // IL QUARTO SECCHIO sulla LISTA (21 set 2026)
+  // --------------------------------------------------------------------
+
+  test("un progetto con SOLI ticket fermi non dice «tutto tranquillo», e il conteggio lo dice", async () => {
+    const client = makeClient(jest.fn().mockResolvedValue([SOLO_FERMI]));
+    await renderScreen(client);
+    await waitFor(() => expect(screen.getByText("2 ticket fermi")).toBeTruthy());
+    expect(screen.queryByText("tutto tranquillo")).toBeNull();
+    expect(screen.getByText("0 in attesa · 0 in corso · 0 pronte · 2 fermi")).toBeTruthy();
+  });
+
+  test("niente di fermo: il conteggio NON mostra uno «0 fermi» di troppo", async () => {
+    const client = makeClient(jest.fn().mockResolvedValue([RUNNING]));
+    await renderScreen(client);
+    await waitFor(() => expect(screen.getByText("0 in attesa · 1 in corso · 0 pronte")).toBeTruthy());
+  });
+
+  test("una PR che il viewer può mergiare è «aspetta te», sulla riga e nell'intestazione", async () => {
+    const client = makeClient(jest.fn().mockResolvedValue([DA_MERGIARE]));
+    await renderScreen(client);
+    await waitFor(() => expect(screen.getByText("aspetta te — 1 PR da mergiare")).toBeTruthy());
+    expect(screen.getByText("1 seguito · 1 aspetta te")).toBeTruthy();
+    expect(screen.getByText("1 in attesa · 0 in corso · 0 pronte")).toBeTruthy();
+  });
+
+  test("la stessa PR per chi NON può mergiarla non è «aspetta te» né in intestazione", async () => {
+    const perOperatore = summary({
+      ...DA_MERGIARE,
+      waitingForMerge: DA_MERGIARE.waitingForMerge.map((item) => ({ ...item, canMerge: false })),
+    });
+    const client = makeClient(jest.fn().mockResolvedValue([perOperatore]));
+    await renderScreen(client);
+    await waitFor(() => expect(screen.getByText("aspetta un maintainer — 1 PR da mergiare")).toBeTruthy());
+    expect(screen.getByText("1 seguito")).toBeTruthy();
   });
 });

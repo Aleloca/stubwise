@@ -238,13 +238,21 @@
         "runningMany_other": "working — {{count}} jobs running",
         "idle_one": "idle for {{count}} day",
         "idle_other": "idle for {{count}} days",
-        "ok": "all quiet"
+        "ok": "all quiet",
+        "waitingMerge_one": "waiting on you — {{count}} PR to merge",
+        "waitingMerge_other": "waiting on you — {{count}} PRs to merge",
+        "waitingMergeOthers_one": "waiting on a maintainer — {{count}} PR to merge",
+        "waitingMergeOthers_other": "waiting on a maintainer — {{count}} PRs to merge",
+        "stalled_one": "{{count}} stalled ticket",
+        "stalled_other": "{{count}} stalled tickets"
       },
       "counts": {
         "waiting": "{{count}} waiting",
         "running": "{{count}} running",
         "ready_one": "{{count}} ready",
-        "ready_other": "{{count}} ready"
+        "ready_other": "{{count}} ready",
+        "stalled_one": "{{count}} stalled",
+        "stalled_other": "{{count}} stalled"
       },
       "detail": {
         "back": "‹ Projects",
