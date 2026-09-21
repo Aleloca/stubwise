@@ -573,6 +573,54 @@ export const mailThreadReproposalSchema = z.object({
 });
 export type MailThreadReproposal = z.infer<typeof mailThreadReproposalSchema>;
 
+/**
+ * CHE FINE HA FATTO una proposta nata da questo messaggio (21 set 2026).
+ *
+ * Il problema che chiude: di una proposta non si sapeva più che fine avesse
+ * fatto. Il 18 settembre una riattribuzione è fallita, la card è sparita
+ * dall'inbox e non è rimasto niente da nessuna parte — ci si è arrivati
+ * leggendo il database. Un operatore quel database non ce l'ha.
+ *
+ * ⚠️ **`label` arriva GIÀ LOCALIZZATA**, come il `text` di `/api/inbox`: il
+ * server conosce la lingua di chi legge (`request.user.language`) e la regola
+ * che traduce un `outcome.type` in una frase sta in un posto solo
+ * (`closedReason` in `@stubwise/shared`, usata dal server). L'alternativa —
+ * mandare una CHIAVE i18n — costringerebbe ogni client ad avere quella voce
+ * nel proprio catalogo, e l'app si aggiorna dagli store: una chiave nuova
+ * resterebbe muta sui telefoni finché non aggiornano. Così invece il testo
+ * arriva giusto anche a un'app più vecchia.
+ *
+ * `null` quando non c'è niente da dire, ed è il caso PIÙ COMUNE: una proposta
+ * ancora aperta, una chiusa per mancanza di segnale (`outcome` assente), o un
+ * esito che il server non sa spiegare — in produzione esistono righe con
+ * `bulk_closed_automated`, scritte a mano chiudendo un arretrato. Chi rende
+ * mostra la riga senza spiegazione, mai una frase inventata.
+ */
+export const mailThreadProposalOutcomeSchema = z.object({
+  /** `email_proposals.id` — la stessa ancora di `reproposals`. */
+  id: z.uuid(),
+  /**
+   * Il progetto DI QUESTA proposta. Serve a distinguere quando un messaggio
+   * ne ha più d'una (fan-out della 6b): senza, due righe sotto lo stesso
+   * messaggio non si sa di cosa parlino.
+   */
+  projectName: z.string().nullable().default(null),
+  /**
+   * ⚠️ `true` **solo** per una riattribuzione fallita: è l'unico esito che
+   * segnala un GUASTO e non una scelta, ed è l'unico su cui «Riproponi» è la
+   * risposta giusta. Chi rende lo distingue a vista — chi legge «ignorata»
+   * non riprova.
+   *
+   * Un booleano e non il `type` grezzo: al client serve QUESTA distinzione,
+   * non il vocabolario di un jsonb, e sette valori da cui ramificare sono
+   * sette occasioni di divergere dal server.
+   */
+  failed: z.boolean().default(false),
+  /** La frase, già nella lingua di chi legge. `null` = niente da dire. */
+  label: z.string().nullable().default(null),
+});
+export type MailThreadProposalOutcome = z.infer<typeof mailThreadProposalOutcomeSchema>;
+
 export const mailThreadMessageSchema = z.object({
   id: z.uuid(),
   from: z.string(),
@@ -601,6 +649,13 @@ export const mailThreadMessageSchema = z.object({
    * sarebbe un bottone che dà 409.
    */
   reproposals: z.array(mailThreadReproposalSchema).default([]),
+  /**
+   * Che fine hanno fatto le proposte nate da questo messaggio (21 set 2026).
+   * Una voce per proposta, vuoto quando non ce ne sono — vedi
+   * {@link mailThreadProposalOutcomeSchema} per il perché il testo è già
+   * localizzato e per il degrado sugli esiti sconosciuti.
+   */
+  proposalOutcomes: z.array(mailThreadProposalOutcomeSchema).default([]),
 });
 export type MailThreadMessage = z.infer<typeof mailThreadMessageSchema>;
 

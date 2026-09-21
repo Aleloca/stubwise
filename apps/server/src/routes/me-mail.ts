@@ -18,7 +18,10 @@ import {
   GoogleApiError,
 } from "@stubwise/google";
 import { loadGoogleAccountCredentials } from "@stubwise/google/credentials";
+import { t } from "@stubwise/i18n";
 import {
+  closedReason,
+  closedReasonProjectId,
   hasDeclinedInvitation,
   mailDetailSchema,
   mailItemStatusSchema,
@@ -33,6 +36,7 @@ import {
   type MailItemStatus,
   type MailSignal,
   type MailSource,
+  type MailThreadProposalOutcome,
   type MailThreadReproposal,
 } from "@stubwise/shared";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
@@ -971,6 +975,10 @@ export async function meMailRoutes(
           emailMessageId: emailProposals.emailMessageId,
           status: emailProposals.status,
           projectName: projects.name,
+          // 21 set 2026: il PERCHÉ una proposta chiusa è finita lì. Il server
+          // già leggeva questa tabella per `reproposals`: l'esito è una
+          // colonna in più sulla stessa query, non un giro nuovo.
+          outcome: emailProposals.outcome,
         })
         .from(emailProposals)
         .innerJoin(projects, eq(projects.id, emailProposals.projectId))
@@ -980,8 +988,31 @@ export async function meMailRoutes(
             rows.map((row) => row.id),
           ),
         );
+      // ⚠️ Il nome del progetto di DESTINAZIONE di una riattribuzione lo
+      // risolve il SERVER, in una query sola per tutto il thread. Lasciarlo
+      // risolvere al client significherebbe, per un progetto cancellato, un
+      // UUID a schermo — che non dice niente a nessuno. Non risolto ⇒ si usa
+      // la forma dell'etichetta SENZA nome.
+      const destinationIds = [
+        ...new Set(
+          proposalRows
+            .map((row) => closedReasonProjectId(row.outcome))
+            .filter((id): id is string => id !== null),
+        ),
+      ];
+      const destinationNames = new Map<string, string>();
+      if (destinationIds.length > 0) {
+        const destinations = await app.db
+          .select({ id: projects.id, name: projects.name })
+          .from(projects)
+          .where(inArray(projects.id, destinationIds));
+        for (const row of destinations) destinationNames.set(row.id, row.name);
+      }
+      const lang = request.user!.language;
+
       const proposalsByMessage = new Map<string, string[]>();
       const reproposalsByMessage = new Map<string, MailThreadReproposal[]>();
+      const outcomesByMessage = new Map<string, MailThreadProposalOutcome[]>();
       for (const row of proposalRows) {
         const list = proposalsByMessage.get(row.emailMessageId) ?? [];
         list.push(row.id);
@@ -993,6 +1024,28 @@ export async function meMailRoutes(
           actions.push({ source: "email", id: row.id, projectName: row.projectName });
           reproposalsByMessage.set(row.emailMessageId, actions);
         }
+
+        // L'esito, già in parole. `closedReason` torna `null` per un tipo che
+        // non sa spiegare (compresi quelli scritti a mano in produzione): la
+        // riga compare lo stesso, senza spiegazione.
+        const reason = closedReason(row.outcome);
+        const destination = closedReasonProjectId(row.outcome);
+        const destinationName = destination === null ? null : (destinationNames.get(destination) ?? null);
+        const outcomes = outcomesByMessage.get(row.emailMessageId) ?? [];
+        outcomes.push({
+          id: row.id,
+          projectName: row.projectName,
+          failed: reason?.key === "closedReason.reassignFailed",
+          label:
+            reason === null
+              ? null
+              : reason.needsProject && destinationName === null
+                ? // Mai l'UUID: la forma senza nome dice comunque cosa è
+                  // successo, e non finge di sapere dove.
+                  t(lang, "closedReason.reassignedToUnknown")
+                : t(lang, reason.key, destinationName === null ? {} : { project: destinationName }),
+        });
+        outcomesByMessage.set(row.emailMessageId, outcomes);
       }
 
       const last = rows[rows.length - 1]!;
@@ -1014,6 +1067,7 @@ export async function meMailRoutes(
           admitted: row.admitted,
           proposalIds: proposalsByMessage.get(row.id) ?? [],
           reproposals: reproposalsFor(row, reproposalsByMessage.get(row.id) ?? []),
+          proposalOutcomes: outcomesByMessage.get(row.id) ?? [],
         })),
       };
     },

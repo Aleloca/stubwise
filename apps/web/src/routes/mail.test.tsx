@@ -264,6 +264,103 @@ describe("pagina /mail — la vista per CONVERSAZIONI (§4)", () => {
     expect(within(pane).getByText(/Context message/)).toBeInTheDocument();
   });
 
+  it("una proposta chiusa dice PERCHÉ, e il GUASTO si distingue dalla scelta", async () => {
+    // Il problema che questo batch chiude: di una proposta non si sapeva più
+    // che fine avesse fatto — il 18 settembre una riattribuzione è fallita,
+    // la card è sparita dall'inbox e ci si è arrivati leggendo il database.
+    // Due righe sullo stesso messaggio perché dal fan-out della 6b un
+    // messaggio può avere più proposte: senza il nome del progetto non si
+    // capirebbe di quale si parla.
+    mockApi(
+      baseApi({
+        "GET /api/me/mail/threads/thread-1": () =>
+          jsonResponse(200, {
+            threadId: "thread-1",
+            accountId: ACCOUNT_ID,
+            accountEmail: "mailbox@acme.test",
+            subject: "Re: Ship next week?",
+            url: "https://mail.google.com/x",
+            messages: [
+              {
+                id: "22222222-2222-4222-8222-222222222222",
+                from: "marco@cliente.test",
+                to: [],
+                receivedAt: "2026-09-09T09:00:00.000Z",
+                textExcerpt: "L'ULTIMA email",
+                admitted: true,
+                proposalIds: ["p1", "p2"],
+                reproposals: [],
+                // Il testo arriva GIÀ localizzato dal server: qui si verifica
+                // che venga mostrato, non che venga tradotto.
+                proposalOutcomes: [
+                  { id: "p1", projectName: "Wilco", failed: false, label: "moved to Carelli" },
+                  { id: "p2", projectName: "Carelli", failed: true, label: "move failed" },
+                  // `label: null` è ciò che il server manda per un esito che
+                  // non sa spiegare — in produzione esistono
+                  // `bulk_closed_automated`, scritti a mano chiudendo un
+                  // arretrato. Meglio nessuna spiegazione che una inventata.
+                  { id: "p3", projectName: "Apollo", failed: false, label: null },
+                ],
+              },
+            ],
+          }),
+      }),
+    );
+    renderMail();
+    await screen.findByTestId("mail-thread-list");
+    await userEvent.click(screen.getByTestId("mail-thread-row-thread-1"));
+
+    const pane = await screen.findByTestId("mail-thread-pane");
+    expect(within(pane).getByText(/Wilco · moved to Carelli/)).toBeInTheDocument();
+    const guasto = within(pane).getByText(/Carelli · move failed/);
+    expect(guasto).toBeInTheDocument();
+    // ⚠️ Il guasto si distingue A VISTA, non solo a parole: chi lo legge come
+    // una scelta non riprova.
+    expect(guasto).toHaveClass("text-danger");
+    // L'esito che il server non sa spiegare non produce una riga.
+    expect(within(pane).queryByText(/Apollo ·/)).toBeNull();
+  });
+
+  it("⚠️ server più vecchio (nessun `proposalOutcomes`): il pannello NON salta", async () => {
+    // Sul web `lib/api.ts` fa un CAST e non un `parse`, quindi il
+    // `.default([])` dello schema non gira mai: un server che precede questo
+    // campo manda `undefined`, e senza il `?? []` nel punto di lettura non
+    // sarebbe una riga mancante — salterebbe TUTTO il pannello, perché un
+    // `.filter` su `undefined` fa lanciare il render e React smonta il
+    // sottoalbero. La fixture qui sotto è lasciata SENZA il campo apposta:
+    // è la prova che la difesa c'è.
+    mockApi(
+      baseApi({
+        "GET /api/me/mail/threads/thread-1": () =>
+          jsonResponse(200, {
+            threadId: "thread-1",
+            accountId: ACCOUNT_ID,
+            accountEmail: "mailbox@acme.test",
+            subject: "Re: Ship next week?",
+            url: "https://mail.google.com/x",
+            messages: [
+              {
+                id: "22222222-2222-4222-8222-222222222222",
+                from: "marco@cliente.test",
+                to: [],
+                receivedAt: "2026-09-09T09:00:00.000Z",
+                textExcerpt: "L'ULTIMA email",
+                admitted: true,
+                proposalIds: [],
+                reproposals: [],
+              },
+            ],
+          }),
+      }),
+    );
+    renderMail();
+    await screen.findByTestId("mail-thread-list");
+    await userEvent.click(screen.getByTestId("mail-thread-row-thread-1"));
+
+    const pane = await screen.findByTestId("mail-thread-pane");
+    expect(within(pane).getByText(/L'ULTIMA email/)).toBeInTheDocument();
+  });
+
   it("da una proposta fallita si riparte: «Riproponi» sul MESSAGGIO, non sul messaggio di contesto", async () => {
     // Lo stato vero da cui si deve poter uscire: una proposta `failed`.
     // Senza questo bottone l'unica via di recupero sarebbe una chiamata

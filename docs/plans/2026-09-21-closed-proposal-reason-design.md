@@ -83,7 +83,13 @@ sbagliata sta nel client.
 ## §4 — Cosa NON si fa
 
 - **Non si aggiungono stati**: vedi §2.
-- **Non si tocca il server**: il dato c'è già.
+- ~~**Non si tocca il server**: il dato c'è già.~~ ⚠️ **Falso, ed è rimasto
+  dalla prima stesura**: `mailItemSchema.outcome` esiste ma quella risposta
+  non la legge più nessuno, quindi serve un campo nuovo in
+  `mailThreadMessageSchema` — vedi §2, riscritto. Lasciato barrato e non
+  cancellato perché un lettore che trovasse solo la versione nuova non
+  saprebbe che questa riga c'era: è lo stesso motivo per cui §1 dice come ci
+  si è sbagliati invece di limitarsi alla correzione.
 - **Non si mappano gli esiti delle card ANDATE A BUON FINE** (`backlog_item`,
   `milestone_created`, `commented`…): lì «Eseguita» è già corretto e dice ciò
   che serve. Questo design è sulle card CHIUSE SENZA azione, che sono quelle

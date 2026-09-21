@@ -1663,6 +1663,93 @@ describe("GET /api/me/mail/threads/:threadId", () => {
     ]);
   });
 
+  it("una proposta chiusa dice PERCHÉ, col nome del progetto di destinazione risolto", async () => {
+    // Il problema: di una proposta non si sapeva più che fine avesse fatto.
+    // «Ignorata» copriva «non c'era niente da proporre» e «l'hai spostata tu»
+    // allo stesso modo.
+    const { accountId } = await seedAccount(memberId);
+    const wilco = await seedProject("Wilco");
+    const carelli = await seedProject("Carelli");
+    const threadId = `t-${randomUUID()}`;
+    const messaggio = await seedEmail(accountId, { threadId });
+    const spostata = await seedProposal(messaggio, wilco, {
+      status: "ignored",
+      outcome: { type: "reassigned_to", projectId: carelli },
+    });
+
+    const body = (await getThread(memberCookie, threadId)).json();
+    const outcomes = body.messages[0].proposalOutcomes;
+
+    expect(outcomes).toHaveLength(1);
+    expect(outcomes[0].id).toBe(spostata);
+    // Il progetto DI QUESTA proposta, per distinguerla dalle sorelle…
+    expect(outcomes[0].projectName).toBe("Wilco");
+    // …e il progetto di DESTINAZIONE risolto dal server, dentro la frase.
+    // ⚠️ Mai l'id: il client non ha l'elenco progetti e mostrerebbe un UUID.
+    expect(outcomes[0].label).toContain("Carelli");
+    expect(outcomes[0].label).not.toContain(carelli);
+    expect(outcomes[0].failed).toBe(false);
+  });
+
+  it("⚠️ progetto di destinazione CANCELLATO: etichetta senza nome, mai l'UUID", async () => {
+    // Il caso che in un test con dati finti non emerge mai: l'esito porta un
+    // `projectId` che non si risolve più.
+    const { accountId } = await seedAccount(memberId);
+    const wilco = await seedProject("Wilco");
+    const threadId = `t-${randomUUID()}`;
+    const messaggio = await seedEmail(accountId, { threadId });
+    const fantasma = randomUUID();
+    await seedProposal(messaggio, wilco, {
+      status: "ignored",
+      outcome: { type: "reassigned_to", projectId: fantasma },
+    });
+
+    const body = (await getThread(memberCookie, threadId)).json();
+    const outcome = body.messages[0].proposalOutcomes[0];
+
+    expect(outcome.label).not.toBeNull();
+    expect(outcome.label).not.toContain(fantasma);
+    // Dice comunque cosa è successo, senza fingere di sapere dove.
+    expect(outcome.label).toContain("another project");
+  });
+
+  it("⚠️ un esito SCRITTO A MANO non produce una frase inventata", async () => {
+    // NON è un caso teorico: in produzione esistono righe con
+    // `bulk_closed_automated`, scritte chiudendo a mano l'arretrato del 17
+    // settembre. Una mappa esaustiva qui andrebbe in crash sul dato vero.
+    const { accountId } = await seedAccount(memberId);
+    const projectId = await seedProject("Apollo");
+    const threadId = `t-${randomUUID()}`;
+    const messaggio = await seedEmail(accountId, { threadId });
+    await seedProposal(messaggio, projectId, {
+      status: "ignored",
+      outcome: { type: "bulk_closed_automated" },
+    });
+
+    const body = (await getThread(memberCookie, threadId)).json();
+    const outcome = body.messages[0].proposalOutcomes[0];
+
+    // La riga c'è (la proposta esiste), la spiegazione no.
+    expect(outcome.label).toBeNull();
+    expect(outcome.projectName).toBe("Apollo");
+  });
+
+  it("una riattribuzione FALLITA si dichiara un guasto, non una scelta", async () => {
+    // È l'unico esito su cui «Riproponi» è la risposta giusta, e chi lo legge
+    // come «ignorata» non riprova.
+    const { accountId } = await seedAccount(memberId);
+    const projectId = await seedProject("Apollo");
+    const threadId = `t-${randomUUID()}`;
+    const messaggio = await seedEmail(accountId, { threadId });
+    await seedProposal(messaggio, projectId, {
+      status: "ignored",
+      outcome: { type: "reassign_failed" },
+    });
+
+    const body = (await getThread(memberCookie, threadId)).json();
+    expect(body.messages[0].proposalOutcomes[0].failed).toBe(true);
+  });
+
   it("uno smistamento chiuso con «nessuno di questi» si può riaprire dal messaggio", async () => {
     // Il messaggio non ha figli: la riproposizione è sul messaggio stesso,
     // ed è la stessa condizione del ramo `email_triage` della rotta.
