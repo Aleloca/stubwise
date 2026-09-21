@@ -1320,6 +1320,29 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   di lettura (`?? []`, `?? false`), non solo nello schema; e la fixture del
   test che lo copre va lasciata SENZA quel campo apposta — è la prova che la
   difesa c'è, non una svista da sistemare.
+
+  ⚠️ **E l'app ha il GEMELLO di questa trappola, per una causa diversa — nei
+  TEST (21 set 2026).** In produzione l'app è coperta: parsa davvero, quindi
+  i `.default()` girano. **Nei test no**: il client è un doppio
+  (`makeClient()` con dei `jest.fn()`), quindi `readerSchema` non gira mai e
+  una fixture incompleta arriva al componente **così com'è**. E siccome il
+  codice dell'app può legittimamente fidarsi del parse — `message.reproposals`
+  senza `?? []`, perché in produzione c'è sempre — una fixture a cui manca un
+  campo non degrada: **fa saltare l'intera schermata**. Successo davvero
+  aggiungendo `proposalOutcomes`: una sola fixture dimenticata in
+  `ThreadDetailScreen.test.tsx` ha fatto fallire TUTTI i test di quel file,
+  compresi quelli che con il campo nuovo non c'entravano niente — e il
+  messaggio di errore parlava di un `testID` non trovato, non del campo
+  mancante.
+  **Regola operativa**: aggiungendo un campo a una risposta che l'app legge,
+  **completa OGNI fixture dei test dell'app** (il compilatore ne trova molte,
+  ma non quelle dietro un `as`), e quando i test di una schermata falliscono
+  tutti insieme dopo un cambio di schema, il primo sospetto è una fixture
+  incompleta — non il componente.
+  Le due trappole non si deducono una dall'altra: sul web manca il parse **in
+  produzione**, sull'app manca **solo nei test**. La difesa è diversa —
+  `?? []` nel codice del web, fixture complete nei test dell'app — e
+  applicare quella sbagliata non protegge da niente.
 - **Trappola di routing Fastify — rotta parametrica registrata prima di una
   letterale sullo stesso prefisso.** `GET /api/projects/pulse` e
   `GET /api/projects/:projectId` condividono il prefisso `/api/projects`:
