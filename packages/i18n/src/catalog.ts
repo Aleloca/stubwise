@@ -451,6 +451,27 @@ export const en: Catalog = {
   "decision.email.decision": "Confirmed via email from {from}: {option}",
   "decision.email.reassigned": "Email from {from} moved from project {fromProject} to {toProject}",
 
+  // --- closedReason.* — PERCHÉ una card chiusa è finita lì (21 set 2026).
+  // Si affiancano all'etichetta di STATO, mai la sostituiscono: «Ignorata ·
+  // spostata su Carelli» dice due cose vere, «Spostata» da sola perderebbe
+  // che la riga è chiusa. Le chiavi le sceglie `closedReason()` in
+  // `@stubwise/shared`, che per un esito sconosciuto torna `null` — quindi
+  // qui NON serve una voce "generica": non averla è ciò che fa mostrare lo
+  // stato nudo invece di una frase inventata.
+  "closedReason.reassignedTo": "moved to {project}",
+  // ⚠️ La forma SENZA nome esiste perché un UUID non deve mai finire a
+  // schermo: se il progetto non si risolve (cancellato, elenco non ancora
+  // caricato) si usa questa.
+  "closedReason.reassignedToUnknown": "moved to another project",
+  // ⚠️ L'unico che segnala un GUASTO e non una scelta: chi lo legge deve
+  // capire che riprovare ha senso.
+  "closedReason.reassignFailed": "move failed",
+  "closedReason.reassignNoSignal": "nothing to propose on that project",
+  "closedReason.reassignTargetGone": "the chosen project no longer exists",
+  "closedReason.supersededInThread": "superseded by a later message",
+  "closedReason.declined": "invitation declined",
+  "closedReason.triageDismissed": "no project chosen",
+
   // --- plan.* — label delle sezioni del piano di fix ---
   "plan.rootCause": "Root cause",
   "plan.filesToChange": "File/function to change",
@@ -762,6 +783,16 @@ export const it: Catalog = {
   "decision.email.title": "Decisione dalla posta: {subject}",
   "decision.email.decision": "Confermata dall'email di {from}: {option}",
   "decision.email.reassigned": "Email di {from} spostata dal progetto {fromProject} al progetto {toProject}",
+
+  // --- closedReason.* — vedi il blocco gemello in `en` per il ragionamento.
+  "closedReason.reassignedTo": "spostata su {project}",
+  "closedReason.reassignedToUnknown": "spostata su un altro progetto",
+  "closedReason.reassignFailed": "riattribuzione non riuscita",
+  "closedReason.reassignNoSignal": "su quel progetto non c'era nulla da proporre",
+  "closedReason.reassignTargetGone": "il progetto scelto non esiste più",
+  "closedReason.supersededInThread": "superata da un messaggio successivo",
+  "closedReason.declined": "invito rifiutato",
+  "closedReason.triageDismissed": "nessun progetto scelto",
 
   // --- plan.* ---
   "plan.rootCause": "Causa radice",
