@@ -9,20 +9,38 @@ volo**, più le voci di backlog pronte.
 
 Conseguenza sui dati veri, 21 settembre:
 
-| ticket | stato | PR aperta | visibile da? |
-|---|---|---|---|
-| #20 #23 #26 #31 | `in_review` | **sì** | solo `/release` sul WEB |
-| #97 | `in_review` | no | **nessuna superficie** |
-| #18 #19 #27 #29 | `open` | no | **nessuna superficie** |
-| #25 | `in_progress` | no | **nessuna superficie** |
+| ticket | stato | PR aperta | dall'APP | dal WEB |
+|---|---|---|---|---|
+| #20 #23 #26 #31 | `in_review` | **sì** | — | `/release` + elenco ticket |
+| #97 | `in_review` | no | — | elenco ticket |
+| #18 #19 #27 #29 | `open` | no | — | elenco ticket |
+| #25 | `in_progress` | no | — | elenco ticket |
 
 **Dieci ticket non chiusi, zero con un job vivo, quindi zero nel polso.** Il
-più vecchio fermo da **21 giorni**. Sei su dieci non sono raggiungibili da
-nessuna parte, nemmeno sul web.
+più vecchio fermo da **21 giorni**.
+
+⚠️ **Una prima stesura di questa sezione diceva «invisibili da NESSUNA
+superficie». È falso, e l'ho verificato solo dopo averlo scritto**:
+`apps/web/src/routes/tickets/index.tsx` è un elenco ticket completo, con
+filtri, che di default mostra gli stati attivi. Sul web quei dieci ci sono
+tutti. È il terzo caso in una settimana di un'affermazione registrata senza
+guardare il codice (gli altri due: «la pagina Posta legge ignorata», e la
+premessa del design del 21 set) — scritto qui perché chi legge sappia che
+questa sezione è stata corretta, non nata giusta.
+
+**Il buco vero, più stretto ma non meno reale:**
+
+1. **Dall'app non si raggiungono affatto.** Ed è l'app che useranno gli
+   operatori da novembre.
+2. **Sul web sono in un elenco che non distingue «fermo» da «attivo».** Un
+   ticket `open` da 21 giorni e uno aperto stamattina stanno nella stessa
+   lista, senza che niente dica quale dei due ha smesso di muoversi. L'elenco
+   risponde a «quali ticket ci sono», non a «cosa si è fermato».
 
 La ricerca (16 set) apre i ticket, ma risponde a «dov'è quella cosa che so
 esistere», non a «cosa è fermo e aspetta me». Chi apre l'app senza una
-notifica in mano non ha ancora niente da leggere.
+notifica in mano non ha ancora niente da leggere — e sul web trova un elenco
+che gli chiede di sapere già cosa cercare.
 
 **Perché ora**: da fine ottobre saranno operatori non tecnici a far avanzare
 questi lavori. Un ticket fermo da tre settimane che nessuna schermata nomina
