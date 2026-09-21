@@ -15,6 +15,7 @@ import {
   projectDecisions,
   projectEmailRoutes,
   projectFollows,
+  ticketRepositories,
   tickets,
 } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
@@ -596,6 +597,52 @@ describe("GET /api/projects/pulse", () => {
     expect(indexOf(waitingProjectId)).toBeLessThan(indexOf(runningProjectId));
     expect(indexOf(runningProjectId)).toBeLessThan(indexOf(idleProjectId));
     expect(indexOf(idleProjectId)).toBeLessThan(indexOf(idleProjectId2));
+  });
+
+  /**
+   * ⚠️ L'ORDINE DEVE DIRE LA STESSA COSA DELLA RIGA DI POLSO (21 set 2026).
+   * Senza questi due livelli in più, un progetto la cui unica attesa è una PR
+   * che il viewer PUÒ mergiare ordinerebbe come uno che non chiede niente — e
+   * uno con dei ticket fermi ma nessun job MAI girato finirebbe ultimo,
+   * perché `idleDays` vale 0 quando non c'è attività da cui contare.
+   */
+  it("ordina: una PR che il viewer può mergiare vale come una decisione; i ticket fermi battono il silenzio", async () => {
+    const { projectId: mergeProjectId, repositoryId } = await seedRepository(testDb.db);
+    const { projectId: stalledProjectId } = await seedRepository(testDb.db);
+    const { projectId: quietProjectId } = await seedRepository(testDb.db);
+
+    // Una PR aperta, e basta: nessun job vivo, nessuna decisione in inbox.
+    const mergeTicket = await seedTicketRow(mergeProjectId, { number: 20 });
+    await testDb.db.insert(ticketRepositories).values({
+      ticketId: mergeTicket,
+      repositoryId,
+      branch: "stubwise/ticket-20",
+      prUrl: "https://example.com/pr/20",
+      prState: "open",
+    });
+
+    // Un ticket aperto e MAI lavorato: fermo, ma `idleDays` resta 0.
+    await seedTicketRow(stalledProjectId, { number: 18 });
+
+    // `quietProjectId` non ha niente: nessun ticket, nessun job.
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/projects/pulse",
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const summaries = res.json() as { projectId: string; waitingForMerge: unknown[]; stalled: unknown[] }[];
+    const order = summaries.map((s) => s.projectId);
+    const indexOf = (id: string) => order.indexOf(id);
+
+    // I dati sono quelli attesi, prima di giudicare l'ordine.
+    expect(summaries.find((s) => s.projectId === mergeProjectId)?.waitingForMerge).toHaveLength(1);
+    expect(summaries.find((s) => s.projectId === stalledProjectId)?.stalled).toHaveLength(1);
+    expect(summaries.find((s) => s.projectId === quietProjectId)?.stalled).toHaveLength(0);
+
+    expect(indexOf(mergeProjectId)).toBeLessThan(indexOf(stalledProjectId));
+    expect(indexOf(stalledProjectId)).toBeLessThan(indexOf(quietProjectId));
   });
 });
 

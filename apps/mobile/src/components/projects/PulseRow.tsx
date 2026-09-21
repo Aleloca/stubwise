@@ -25,7 +25,10 @@ export function PulseRow({
 }) {
   const { t } = useTranslation();
   const line = pulseLineFor(summary, viewerId);
-  const waiting = summary.waitingForYou.length + summary.waitingForOthers.length;
+  // Le PR in attesa di merge sono un'attesa a tutti gli effetti — di chiunque
+  // sia il turno — quindi entrano nel conteggio "in attesa" come le decisioni.
+  const waiting =
+    summary.waitingForYou.length + summary.waitingForOthers.length + summary.waitingForMerge.length;
 
   return (
     <Pressable
@@ -41,7 +44,12 @@ export function PulseRow({
         <PulseIndicator tone={line.tone} text={t(line.key, line.params)} />
       </View>
       <View style={styles.countsWrap}>
-        <CountsLine waiting={waiting} running={summary.running.length} ready={summary.backlogReadyCount} />
+        <CountsLine
+          waiting={waiting}
+          running={summary.running.length}
+          ready={summary.backlogReadyCount}
+          stalled={summary.stalled.length}
+        />
       </View>
     </Pressable>
   );

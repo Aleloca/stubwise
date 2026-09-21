@@ -75,13 +75,55 @@ function runningLine(items: RunningItem[]): PulseLine {
  * nemmeno guardate. `aspetta te` vince SEMPRE quando `waitingForYou` non è
  * vuoto, anche se lo stesso progetto ha anche lavori `running` — una
  * decisione del viewer ferma il progetto più di un lavoro che comunque
- * prosegue da solo. Stessa priorità di `apps/mobile/src/lib/pulse-line.ts`.
+ * prosegue da solo.
+ *
+ * La catena, dal 21 set 2026: decisioni per te → PR che aspettano il TUO
+ * merge → lavoro in corso → PR che aspettano altri → progetto fermo da giorni
+ * → ticket fermi → tutto tranquillo. **Gemella di quella dell'app**
+ * (`apps/mobile/src/lib/pulse-line.ts`): le due funzioni sono duplicate
+ * apposta (tipi e temi diversi), ma la PRIORITÀ deve restare la stessa — chi
+ * ne cambia una cambi anche l'altra, o questa frase diventa falsa su
+ * entrambi i file.
  */
 export function pulseLineFor(summary: ProjectPulseSummary): PulseLine {
+  // ⚠️ DIFESA NEL PUNTO DI LETTURA, non nello schema. `apps/web/src/lib/api.ts`
+  // fa un CAST e non un parse (scelta dichiarata nel docblock di quel file),
+  // quindi il `.default([])` di `projectPulseSummarySchema` **qui non gira
+  // mai**: da un server più vecchio — un rollback, o un'istanza self-hosted
+  // non aggiornata — questi due campi arrivano `undefined`, e un `.filter` su
+  // `undefined` fa LANCIARE il render: React smonterebbe l'intera lista
+  // progetti, non una riga. La fixture del test che li copre è lasciata SENZA
+  // i campi apposta: è la prova che la difesa c'è, non una svista.
+  const waitingForMerge = summary.waitingForMerge ?? [];
+  const stalled = summary.stalled ?? [];
+
   if (summary.waitingForYou.length > 0) return waitingForYouLine(summary.waitingForYou);
+  // Una PR che aspetta il MIO merge è una decisione che blocca, esattamente
+  // come una domanda o un piano: sta accanto a quelle, non dopo il lavoro in
+  // corso. `canMerge` lo decide il SERVER col ruolo — qui si legge soltanto.
+  const mergeForYou = waitingForMerge.filter((item) => item.canMerge);
+  if (mergeForYou.length > 0) {
+    return { tone: "signal", key: "projects:pulse.waitingMerge", params: { count: mergeForYou.length } };
+  }
   if (summary.running.length > 0) return runningLine(summary.running);
+  // Le PR che aspettano QUALCUN ALTRO: si dicono, ma dopo il lavoro in corso —
+  // non c'è niente che chi guarda possa farci.
+  if (waitingForMerge.length > 0) {
+    return {
+      tone: "faint",
+      key: "projects:pulse.waitingMergeOthers",
+      params: { count: waitingForMerge.length },
+    };
+  }
   if (summary.idleDays >= 2) {
     return { tone: "faint", key: "projects:pulse.idle", params: { count: summary.idleDays } };
+  }
+  // ⚠️ PRIMA di «tutto tranquillo», mai dopo: dire «tutto tranquillo» sopra un
+  // blocco che elenca sei ticket fermi sarebbe la stessa famiglia di difetto
+  // che questo batch esiste per togliere — un'informazione che si scambia per
+  // quella che serve.
+  if (stalled.length > 0) {
+    return { tone: "faint", key: "projects:pulse.stalled", params: { count: stalled.length } };
   }
   return { tone: "ok", key: "projects:pulse.ok", params: {} };
 }

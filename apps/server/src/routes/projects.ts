@@ -79,6 +79,16 @@ function slugify(name: string): string {
  * in corso, meno urgente di una decisione ma più di uno fermo), infine per
  * `idleDays` decrescente (il più fermo in cima, fra pari).
  *
+ * ⚠️ **La scala È quella della riga di polso** (`pulse-line.ts`, web e app:
+ * decisioni per te → PR che aspettano il TUO merge → lavoro in corso → PR che
+ * aspettano altri → progetto fermo da giorni → ticket fermi): un ordine che
+ * dicesse una priorità diversa da quella che la riga scrive sotto il nome del
+ * progetto sarebbe una terza verità. Dal 21 set 2026 il tuple ha quindi
+ * cinque livelli invece di tre — senza, un progetto la cui unica attesa è una
+ * PR che il viewer PUÒ mergiare ordinerebbe come uno che non chiede niente, e
+ * uno con sei ticket fermi ma nessun job mai girato finirebbe ULTIMO
+ * (`idleDays` vale 0 quando nessun job è mai partito: vedi `idleDaysFrom`).
+ *
  * SORT applicativo dopo aver raccolto i riepiloghi, non un `ORDER BY` SQL: i
  * progetti che un viewer segue (il caso comune, quello per cui questa rotta
  * esiste) sono poche unità — un `Array.sort` su una manciata di oggetti è più
@@ -87,10 +97,13 @@ function slugify(name: string): string {
  * (`summarizeProject` ne fa già più di una per progetto).
  */
 function pulseOrder(a: ProjectPulseSummary, b: ProjectPulseSummary): number {
-  const rank = (s: ProjectPulseSummary): [number, number, number] => [
-    s.waitingForYou.length > 0 ? 0 : 1,
+  const rank = (s: ProjectPulseSummary): [number, number, number, number, number] => [
+    // `canMerge` è già calcolato dal server col ruolo del viewer: qui si legge.
+    s.waitingForYou.length > 0 || s.waitingForMerge.some((item) => item.canMerge) ? 0 : 1,
     s.running.length > 0 ? 0 : 1,
+    s.waitingForMerge.length > 0 ? 0 : 1,
     -s.idleDays,
+    s.stalled.length > 0 ? 0 : 1,
   ];
   const [ra, rb] = [rank(a), rank(b)];
   for (let i = 0; i < ra.length; i++) {

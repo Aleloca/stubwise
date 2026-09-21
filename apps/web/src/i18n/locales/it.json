@@ -1472,7 +1472,13 @@
       "runningMany_other": "sta lavorando — {{count}} lavori in corso",
       "idle_one": "fermo da {{count}} giorno",
       "idle_other": "fermo da {{count}} giorni",
-      "ok": "tutto tranquillo"
+      "ok": "tutto tranquillo",
+      "waitingMerge_one": "aspetta te — {{count}} PR da mergiare",
+      "waitingMerge_other": "aspetta te — {{count}} PR da mergiare",
+      "waitingMergeOthers_one": "aspetta un maintainer — {{count}} PR da mergiare",
+      "waitingMergeOthers_other": "aspetta un maintainer — {{count}} PR da mergiare",
+      "stalled_one": "{{count}} ticket fermo",
+      "stalled_other": "{{count}} ticket fermi"
     },
     "detail": {
       "back": "← Tutti i progetti",
@@ -1664,6 +1670,18 @@
       "loadingLabels": "// caricamento etichette…",
       "useTypedLabel": "Usa \"{{value}}\"",
       "cancel": "Annulla"
+    },
+    "stalled": {
+      "title_one": "Fermo · {{count}}",
+      "title_other": "Fermo · {{count}}",
+      "row": "{{days}}g · {{reason}}",
+      "reason": {
+        "toPrepare": "da preparare",
+        "workedThenStopped": "lavorato, poi fermo",
+        "interrupted": "interrotto",
+        "declaredNoWork": "nessun lavoro registrato",
+        "unknown": "fermo"
+      }
     }
   },
   "repositories": {

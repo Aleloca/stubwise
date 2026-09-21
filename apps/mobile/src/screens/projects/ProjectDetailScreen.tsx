@@ -15,6 +15,7 @@ import { ProjectGroup } from "../../components/projects/ProjectGroup";
 import { SettingsAvatarButton } from "../../components/SettingsAvatarButton";
 import { Skeleton } from "../../components/Skeleton";
 import { pulseLineFor } from "../../lib/pulse-line";
+import { stalledDays, stalledReasonKey } from "../../lib/stalled";
 import { projectsPulseKey } from "./ProjectsScreen";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, textStyles } from "../../theme/typography";
@@ -127,6 +128,26 @@ function ProjectDetailBody({
   const { t } = useTranslation();
   const line = pulseLineFor(summary, viewerId);
 
+  // ⚠️ `canMerge` arriva dal SERVER, calcolato col ruolo: qui si legge, non si
+  // deduce. Un maintainer vede la PR fra le cose che aspettano LUI, un
+  // operatore fra quelle che aspettano altri — stessi dati, due posti. È il
+  // secondo divieto dell'operatore (CLAUDE.md) applicato in lettura, e la
+  // copia della regola sta di là apposta: questa app si aggiorna dagli store.
+  const mergeForYou = summary.waitingForMerge.filter((item) => item.canMerge);
+  const mergeForOthers = summary.waitingForMerge.filter((item) => !item.canMerge);
+
+  // Una voce per (ticket, PR): `prUrl` è l'identità della riga, non
+  // `ticketId` — un ticket che tocca due repo ha due PR, e sono due merge.
+  const mergeRow = (item: (typeof summary.waitingForMerge)[number], mine: boolean) => ({
+    rowKey: `merge-${item.prUrl}`,
+    title: item.title,
+    trailing: mine
+      ? t("mobile.projects.detail.waitingMergeArrow")
+      : t("mobile.projects.detail.waitingMaintainerArrow"),
+    trailingTone: (mine ? "amber" : "muted") as "amber" | "muted",
+    onPress: () => navigation.navigate("Ticket", { id: item.ticketId }),
+  });
+
   const waitingRows = [
     ...summary.waitingForYou.map((item) => ({
       rowKey: `you-${item.ticketId}`,
@@ -135,6 +156,7 @@ function ProjectDetailBody({
       trailingTone: "amber" as const,
       onPress: () => navigation.navigate("Ticket", { id: item.ticketId }),
     })),
+    ...mergeForYou.map((item) => mergeRow(item, true)),
     ...summary.waitingForOthers.map((item) => ({
       rowKey: `other-${item.ticketId}`,
       title: item.title,
@@ -142,12 +164,29 @@ function ProjectDetailBody({
       trailingTone: "muted" as const,
       onPress: () => navigation.navigate("Ticket", { id: item.ticketId }),
     })),
+    ...mergeForOthers.map((item) => mergeRow(item, false)),
   ];
 
   const runningRows = summary.running.map((item) => ({
     rowKey: `running-${item.ticketId}`,
     title: item.title,
     trailing: t("mobile.projects.detail.running"),
+    trailingTone: "muted" as const,
+    onPress: () => navigation.navigate("Ticket", { id: item.ticketId }),
+  }));
+
+  // IL QUARTO SECCHIO (21 set 2026). Le voci arrivano GIÀ ordinate dal più
+  // fermo (il server: è parte del significato, non una comodità), quindi qui
+  // non si riordina. I GIORNI si contano adesso, dalla data: vedi
+  // `lib/stalled.ts` per il perché non li manda il server.
+  const now = new Date();
+  const stalledRows = summary.stalled.map((item) => ({
+    rowKey: `stalled-${item.ticketId}`,
+    title: item.title,
+    trailing: t("mobile.projects.detail.stalledTrailing", {
+      days: stalledDays(item.stalledSince, now),
+      reason: t(stalledReasonKey(item.reason)),
+    }),
     trailingTone: "muted" as const,
     onPress: () => navigation.navigate("Ticket", { id: item.ticketId }),
   }));
@@ -182,6 +221,14 @@ function ProjectDetailBody({
           <ProjectGroup
             label={t("mobile.projects.detail.groups.backlogReady", { count: summary.backlogReadyCount })}
             rows={backlogRows}
+          />
+        )}
+        {/* Sotto i secchi esistenti, e SOLO se c'è qualcosa: un «Fermo · 0»
+            sarebbe rumore su una schermata che deve dire cosa fare. */}
+        {stalledRows.length > 0 && (
+          <ProjectGroup
+            label={t("mobile.projects.detail.groups.stalled", { count: stalledRows.length })}
+            rows={stalledRows}
           />
         )}
         <BriefRow projectId={summary.projectId} />

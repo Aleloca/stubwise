@@ -84,6 +84,14 @@ function runningLine(items: RunningItem[]): PulseLine {
  * anche se lo stesso progetto ha anche lavori `running` — una decisione del
  * viewer ferma il progetto più di un lavoro che comunque prosegue da solo.
  *
+ * La catena, dal 21 set 2026: decisioni per te → PR che aspettano il TUO
+ * merge → lavoro in corso → PR che aspettano altri → progetto fermo da giorni
+ * → ticket fermi → tutto tranquillo. **Gemella di quella del web**
+ * (`apps/web/src/lib/pulse-line.ts`): le due funzioni sono duplicate apposta
+ * (tipi e temi diversi), ma la PRIORITÀ deve restare la stessa — chi ne
+ * cambia una cambi anche l'altra, o il commento che lo afferma diventa falso
+ * su entrambi i file.
+ *
  * `viewerId` non entra nella scelta del ramo: `summary.waitingForYou` arriva
  * dal server GIÀ filtrato per il viewer che ha fatto la richiesta
  * (`GET /api/projects/pulse`, vedi il commento sullo schema in
@@ -98,7 +106,31 @@ export function pulseLineFor(summary: Summary, viewerId: string): PulseLine {
   void viewerId;
 
   if (summary.waitingForYou.length > 0) return waitingForYouLine(summary.waitingForYou);
+  // Una PR che aspetta il MIO merge è una decisione che blocca, esattamente
+  // come una domanda o un piano: sta accanto a quelle, non dopo il lavoro in
+  // corso. `canMerge` lo decide il SERVER col ruolo — qui si legge soltanto.
+  const mergeForYou = summary.waitingForMerge.filter((item) => item.canMerge);
+  if (mergeForYou.length > 0) {
+    return { tone: "signal", key: "mobile.projects.pulse.waitingMerge", params: { count: mergeForYou.length } };
+  }
   if (summary.running.length > 0) return runningLine(summary.running);
+  // Le PR che aspettano QUALCUN ALTRO: si dicono, ma dopo il lavoro in corso —
+  // non c'è niente che chi guarda possa farci.
+  if (summary.waitingForMerge.length > 0) {
+    return {
+      tone: "faint",
+      key: "mobile.projects.pulse.waitingMergeOthers",
+      params: { count: summary.waitingForMerge.length },
+    };
+  }
   if (summary.idleDays >= 2) return { tone: "faint", key: "mobile.projects.pulse.idle", params: { count: summary.idleDays } };
+  // ⚠️ PRIMA di «tutto tranquillo», mai dopo. Un progetto senza job vivi e con
+  // otto ticket fermi diceva «tutto tranquillo» ESATTAMENTE sopra l'elenco
+  // degli otto (nel dettaglio), e sulla LISTA non diceva niente affatto — cioè
+  // il buco che questo batch esiste per chiudere, lasciato aperto proprio
+  // sulla schermata da cui si parte.
+  if (summary.stalled.length > 0) {
+    return { tone: "faint", key: "mobile.projects.pulse.stalled", params: { count: summary.stalled.length } };
+  }
   return { tone: "ok", key: "mobile.projects.pulse.ok", params: {} };
 }

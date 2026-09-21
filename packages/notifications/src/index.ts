@@ -81,7 +81,12 @@ export {
 
 export {
   summarizeProject,
+  stalledReasonFor,
+  CLOSED_TICKET_STATUSES,
   type ProjectPulseSummary,
+  type PulseStalledItem,
+  type PulseStalledReason,
+  type PulseWaitingForMergeItem,
   type PulseViewer,
   type PulseWaitingKind,
   type PulseWaitingForYouItem,

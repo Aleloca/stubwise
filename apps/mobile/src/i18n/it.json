@@ -238,13 +238,21 @@
         "runningMany_other": "sta lavorando — {{count}} lavori in corso",
         "idle_one": "fermo da {{count}} giorno",
         "idle_other": "fermo da {{count}} giorni",
-        "ok": "tutto tranquillo"
+        "ok": "tutto tranquillo",
+        "waitingMerge_one": "aspetta te — {{count}} PR da mergiare",
+        "waitingMerge_other": "aspetta te — {{count}} PR da mergiare",
+        "waitingMergeOthers_one": "aspetta un maintainer — {{count}} PR da mergiare",
+        "waitingMergeOthers_other": "aspetta un maintainer — {{count}} PR da mergiare",
+        "stalled_one": "{{count}} ticket fermo",
+        "stalled_other": "{{count}} ticket fermi"
       },
       "counts": {
         "waiting": "{{count}} in attesa",
         "running": "{{count}} in corso",
         "ready_one": "{{count}} pronta",
-        "ready_other": "{{count}} pronte"
+        "ready_other": "{{count}} pronte",
+        "stalled_one": "{{count}} fermo",
+        "stalled_other": "{{count}} fermi"
       },
       "detail": {
         "back": "‹ Progetti",
@@ -255,7 +263,8 @@
         "groups": {
           "waitingSomeone": "Aspetta qualcuno · {{count}}",
           "now": "Adesso · {{count}}",
-          "backlogReady": "Pronto nel backlog · {{count}}"
+          "backlogReady": "Pronto nel backlog · {{count}}",
+          "stalled": "Fermo · {{count}}"
         },
         "waitingYouArrow": "→ te",
         "waitingMaintainerArrow": "→ un maintainer",
@@ -275,6 +284,15 @@
           "empty": "Nessun brief ancora.",
           "failed": "Il brief di questa settimana non è stato generato.",
           "loadError": "Non riesco a caricare il brief."
+        },
+        "waitingMergeArrow": "→ da mergiare",
+        "stalledTrailing": "{{days}}g · {{reason}}",
+        "stalledReason": {
+          "toPrepare": "da preparare",
+          "workedThenStopped": "lavorato, poi fermo",
+          "interrupted": "interrotto",
+          "declaredNoWork": "nessun lavoro registrato",
+          "unknown": "fermo"
         }
       }
     },

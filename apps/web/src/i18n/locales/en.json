@@ -1472,7 +1472,13 @@
       "runningMany_other": "working — {{count}} jobs running",
       "idle_one": "idle for {{count}} day",
       "idle_other": "idle for {{count}} days",
-      "ok": "all quiet"
+      "ok": "all quiet",
+      "waitingMerge_one": "waiting on you — {{count}} PR to merge",
+      "waitingMerge_other": "waiting on you — {{count}} PRs to merge",
+      "waitingMergeOthers_one": "waiting on a maintainer — {{count}} PR to merge",
+      "waitingMergeOthers_other": "waiting on a maintainer — {{count}} PRs to merge",
+      "stalled_one": "{{count}} stalled ticket",
+      "stalled_other": "{{count}} stalled tickets"
     },
     "detail": {
       "back": "← All projects",
@@ -1664,6 +1670,18 @@
       "loadingLabels": "// loading labels…",
       "useTypedLabel": "Use \"{{value}}\"",
       "cancel": "Cancel"
+    },
+    "stalled": {
+      "title_one": "Stalled · {{count}}",
+      "title_other": "Stalled · {{count}}",
+      "row": "{{days}}d · {{reason}}",
+      "reason": {
+        "toPrepare": "to prepare",
+        "workedThenStopped": "worked, then stopped",
+        "interrupted": "interrupted",
+        "declaredNoWork": "no work recorded",
+        "unknown": "stalled"
+      }
     }
   },
   "repositories": {
