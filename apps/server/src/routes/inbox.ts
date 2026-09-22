@@ -241,7 +241,7 @@ export async function inboxRoutes(instance: FastifyInstance): Promise<void> {
       if (result.invalidCursor) {
         return apiError(reply, 400, "invalid_cursor", "Invalid pagination cursor");
       }
-      return { items: result.items.map(toInboxItemView), nextCursor: result.nextCursor };
+      return { items: result.items.map(toInboxItemView), nextCursor: result.nextCursor, total: result.total };
     },
   );
 

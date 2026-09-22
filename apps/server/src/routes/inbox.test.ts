@@ -241,6 +241,8 @@ interface InboxItemBody {
 interface InboxPageBody {
   items: InboxItemBody[];
   nextCursor: string | null;
+  /** Quante notifiche soddisfano i FILTRI, cursore escluso (22 set 2026). */
+  total?: number;
 }
 
 describe("autenticazione", () => {
@@ -321,6 +323,25 @@ describe("GET /api/inbox", () => {
     const res = await getInbox({ projectId });
     const body = res.json() as InboxPageBody;
     expect(body.items.map((i) => i.id)).toEqual([mine]);
+    // `total` segue lo STESSO filtro della lista: la notifica dell'altro
+    // progetto non si conta, altrimenti la riga di sintesi dell'hub direbbe
+    // un numero che le righe sotto non spiegano.
+    expect(body.total).toBe(1);
+  });
+
+  it("`total` conta i filtri, non la pagina, e non cala col cursore", async () => {
+    await clearInbox();
+    for (let i = 0; i < 3; i++) await seedNotification({ userId: seeded.adminId, projectId });
+
+    const first = await getInbox({ projectId, limit: "2" });
+    const firstBody = first.json() as InboxPageBody;
+    expect(firstBody.items).toHaveLength(2);
+    expect(firstBody.total).toBe(3);
+
+    const second = await getInbox({ projectId, limit: "2", cursor: firstBody.nextCursor! });
+    const secondBody = second.json() as InboxPageBody;
+    expect(secondBody.items).toHaveLength(1);
+    expect(secondBody.total).toBe(3);
   });
 
   it("filtra per stato: default open, poi handled e snoozed", async () => {

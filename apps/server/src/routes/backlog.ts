@@ -486,6 +486,11 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
         const likePattern = `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
         conditions.push(ilike(backlogItems.title, likePattern));
       }
+      // Le condizioni di FILTRO, senza il cursore: vedi il gemello in
+      // `routes/tickets.ts` e il docblock di `ticketPageSchema.total` — il
+      // cursore è paginazione, non un filtro, e nel totale non entra.
+      const filterConditions = [...conditions];
+
       if (cursor !== undefined) {
         const decoded = decodeCursor(cursor);
         if (!decoded) {
@@ -534,6 +539,14 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
           ? encodeCursor({ createdAt: last.cursorTimestamp, id: last.id })
           : null;
 
+      // `total`: quante voci soddisfano i filtri, indipendentemente dalla
+      // pagina (design §2.1). Gemello del conteggio in `routes/tickets.ts`.
+      const [totalRow] = await app.db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(backlogItems)
+        .where(filterConditions.length > 0 ? and(...filterConditions) : undefined);
+      const total = totalRow?.count ?? 0;
+
       // Titoli delle voci "simili" della pagina in un'unica query (no N+1).
       const similarIds = [
         ...new Set(
@@ -567,6 +580,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
           ticketCount: r.ticketCount,
         })),
         nextCursor,
+        total,
       };
     },
   );

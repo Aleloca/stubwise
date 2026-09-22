@@ -1,5 +1,4 @@
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
-import type { BacklogItem, Reader } from "@stubwise/shared";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -7,16 +6,11 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import type { BacklogStackParamList } from "../../app/navigation";
 import { useAuth } from "../../app/providers";
+import { BacklogListCard } from "../../components/backlog/BacklogListCard";
 import { GhostButton } from "../../components/GhostButton";
-import { PrimaryButton } from "../../components/PrimaryButton";
-import { PulseIndicator } from "../../components/PulseIndicator";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { Skeleton } from "../../components/Skeleton";
 import {
-  backlogDatesPart,
-  backlogMetaParts,
-  backlogStatusLabelKey,
-  backlogStatusTone,
   navigateToTicketWork,
   useBacklogList,
   useConvertBacklogItem,
@@ -40,26 +34,13 @@ const TOAST_DURATION_MS = 3000;
 
 /**
  * Schermata Backlog (canvas `3a`): lista con chip Attivi/Pronti/Tutti, "Procedi"
- * sulle voci pronte, "Raffina in chat" ovunque tranne convertite/archiviate, FAB
- * "+" per la cattura rapida.
+ * sulle voci pronte, FAB "+" per la cattura rapida.
  *
- * Le card non sono un `Pressable` UNICO, e la ragione resta quella di sempre:
- * annidare un `Pressable` (Procedi/Raffina) dentro un altro non ha precedenti
- * in questa codebase — stesso principio di `CardShell` in
- * `components/inbox/`.
- *
- * ⚠️ **Fino al 15 set 2026 da questo discendeva però che una voce ATTIVA non
- * si potesse APRIRE affatto**, e non era l'intenzione: nessuno aveva deciso
- * che le voci di backlog non si leggono. La card mostra il solo titolo su due
- * righe, mentre `BacklogItemScreen` — che esiste ed è registrata nello stack —
- * mostra il DOCUMENTO della voce. Sui dati veri del maintainer erano 93 voci
- * `new`, dentro cui vivono i design doc salvati per intero: leggibili da
- * nessuna parte sul telefono, con la chat come unica azione offerta.
- *
- * Risolto senza annidare niente: la parte ALTA della card (titolo e
- * metadati) è un `Pressable` verso il dettaglio, e i bottoni restano suoi
- * FRATELLI, non suoi figli. Le card chiuse (`converted`/`archived`), che
- * azioni non ne hanno, restano cliccabili per intero come prima.
+ * La card di una voce vive in `components/backlog/BacklogListCard.tsx` (era
+ * qui dentro fino al 22 set 2026, estratta quando la schermata del backlog di
+ * un PROGETTO ha avuto bisogno della stessa): il perché delle sue scelte —
+ * niente `Pressable` annidati, l'apertura del dettaglio sulla parte alta —
+ * sta nel docblock di là.
  */
 export function BacklogScreen({ navigation }: NativeStackScreenProps<BacklogStackParamList, "List">) {
   const { t } = useTranslation();
@@ -202,91 +183,6 @@ export function BacklogScreen({ navigation }: NativeStackScreenProps<BacklogStac
   );
 }
 
-interface BacklogListCardProps {
-  item: Reader<BacklogItem>;
-  proceedPending: boolean;
-  onProceed: () => void;
-  /** Il nome del progetto della voce, risolto da chi ha l'elenco progetti. */
-  projectName?: string;
-  onOpenDetail: () => void;
-}
-
-function BacklogListCard({ item, proceedPending, onProceed, projectName, onOpenDetail }: BacklogListCardProps) {
-  const { t } = useTranslation();
-  const metaText = backlogMetaParts(item)
-    .map((part) => t(part.key, part.params))
-    .join(" · ");
-  const datesPart = backlogDatesPart(item);
-  const isReady = item.status === "ready";
-  const isClosed = item.status === "converted" || item.status === "archived";
-
-  // Titolo e metadati: è questa la superficie che apre il dettaglio, e sta
-  // FUORI dal blocco delle azioni — vedi il docblock del modulo.
-  const header = (
-    <>
-      <View style={styles.cardTop}>
-        <Text style={styles.cardTitle} numberOfLines={2}>
-          {item.title}
-        </Text>
-        <PulseIndicator tone={backlogStatusTone(item.status)} text={t(backlogStatusLabelKey(item.status))} />
-      </View>
-      {/*
-        Riga d'IDENTITÀ (16 set 2026): progetto a sinistra, date a destra.
-        Prima progetto, date e stime stavano tutti in UNA riga di metadati
-        indistinta che andava a capo comunque — il peggio dei due mondi. Sono
-        tre domande diverse («di cosa parla», «quando», «quanto lavoro è») e
-        ognuna ha la sua riga, così l'occhio le separa senza leggerle tutte.
-      */}
-      <View style={styles.cardIdentity}>
-        <Text style={styles.cardProject} numberOfLines={1}>
-          {projectName ?? ""}
-        </Text>
-        <Text style={styles.cardDates}>{t(datesPart.key, datesPart.params)}</Text>
-      </View>
-      <Text style={styles.cardMeta}>{metaText}</Text>
-    </>
-  );
-
-  // Una card chiusa non ha azioni: cliccabile per intero, nessun annidamento
-  // possibile.
-  if (isClosed) {
-    return (
-      <Pressable onPress={onOpenDetail} style={styles.card} testID={`backlog-card-${item.id}`}>
-        {header}
-      </Pressable>
-    );
-  }
-
-  return (
-    <View style={styles.card} testID={`backlog-card-${item.id}`}>
-      <Pressable accessibilityRole="button" onPress={onOpenDetail} testID={`backlog-open-${item.id}`}>
-        {header}
-      </Pressable>
-      {/*
-        Qui `isClosed` è già falso: il ramo sopra è uscito.
-
-        ⚠️ «Raffina in chat» NON sta più qui (16 set 2026, richiesta del
-        maintainer): vive nel DETTAGLIO, dove c'è il documento su cui si sta
-        decidendo di aprire una chat. Toglierlo dalla lista non chiude nessuna
-        porta — `BacklogItemScreen` offre già sia la chat sia «Procedi», ed è
-        stato verificato PRIMA di rimuoverlo, non dopo.
-      */}
-      {isReady && (
-        <View style={styles.cardActions}>
-          <View style={styles.proceedButton}>
-            <PrimaryButton
-              label={t("mobile.backlog.actions.proceed")}
-              onPress={onProceed}
-              disabled={proceedPending}
-              testID={`backlog-proceed-${item.id}`}
-            />
-          </View>
-        </View>
-      )}
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   container: {
     backgroundColor: colors.ink950,
@@ -395,62 +291,6 @@ const styles = StyleSheet.create({
     gap: 10,
     padding: 16,
     paddingBottom: 40,
-  },
-  card: {
-    backgroundColor: colors.ink900,
-    borderColor: colors.line,
-    borderRadius: radii.card,
-    borderWidth: 1,
-    padding: 14,
-  },
-  cardTop: {
-    alignItems: "baseline",
-    flexDirection: "row",
-    gap: 10,
-    justifyContent: "space-between",
-  },
-  cardTitle: {
-    color: colors.fg,
-    flexShrink: 1,
-    fontFamily: fontFamily.sansSemiBold,
-    fontSize: 15,
-    fontWeight: "600",
-  },
-  cardIdentity: {
-    alignItems: "baseline",
-    flexDirection: "row",
-    gap: 10,
-    justifyContent: "space-between",
-    marginTop: 6,
-  },
-  cardProject: {
-    color: colors.fg,
-    flexShrink: 1,
-    fontFamily: fontFamily.sansSemiBold,
-    fontSize: 13,
-    fontWeight: "600",
-  },
-  cardDates: {
-    color: colors.faint,
-    fontFamily: fontFamily.mono,
-    fontSize: fontSize.label,
-  },
-  cardMeta: {
-    color: colors.faint,
-    fontFamily: fontFamily.mono,
-    fontSize: fontSize.label,
-    marginTop: 6,
-  },
-  cardActions: {
-    flexDirection: "row",
-    gap: 8,
-    marginTop: 10,
-  },
-  proceedButton: {
-    flex: 1.6,
-  },
-  refineButton: {
-    flex: 1,
   },
   convertError: {
     color: colors.danger,

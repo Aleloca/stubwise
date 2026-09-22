@@ -116,6 +116,8 @@ interface TicketBody {
 interface ListBody {
   items: TicketBody[];
   nextCursor: string | null;
+  /** Quanti ticket soddisfano i FILTRI, cursore escluso (22 set 2026). */
+  total?: number;
 }
 
 describe("POST /api/tickets", () => {
@@ -348,6 +350,22 @@ describe("GET /api/tickets — filtri", () => {
     expect(body.items.map((t) => t.title)).toEqual(["Richiesta dark mode"]);
   });
 
+  it("`total` conta le righe dei FILTRI, non quelle della pagina", async () => {
+    // Tre ticket nel progetto, ma se ne chiede UNO: `total` deve dire 3 —
+    // è esattamente la riga di sintesi dell'hub, «di quante sto mostrando
+    // le prime».
+    const res = await listTickets({ projectId: filterProjectId, limit: "1" });
+    const body = res.json() as ListBody;
+    expect(body.items).toHaveLength(1);
+    expect(body.total).toBe(3);
+  });
+
+  it("`total` segue il filtro: uno stato solo conta solo quello", async () => {
+    const res = await listTickets({ projectId: filterProjectId, status: "triaged" });
+    const body = res.json() as ListBody;
+    expect(body.total).toBe(1);
+  });
+
   it("filtro type", async () => {
     const res = await listTickets({ projectId: filterProjectId, type: "bug" });
     const body = res.json() as ListBody;
@@ -507,6 +525,25 @@ describe("GET /api/tickets — paginazione cursor", () => {
     const body = res.json() as ListBody;
     expect(body.items).toHaveLength(25);
     expect(body.nextCursor).not.toBeNull();
+  });
+
+  it("`total` NON cala pagina dopo pagina: il cursore non è un filtro", async () => {
+    // La trappola che questa asserzione presidia: se il conteggio girasse
+    // sulle stesse condizioni della lista — cursore incluso — direbbe
+    // «quanti ne restano», e la riga di sintesi cambierebbe numero mentre si
+    // scorre. Vedi il docblock di `ticketPageSchema.total`.
+    const totals: (number | undefined)[] = [];
+    let cursor: string | null = null;
+    do {
+      const query: Record<string, string> = { projectId: pageProjectId, limit: "12" };
+      if (cursor) query.cursor = cursor;
+      const res = await listTickets(query);
+      const body = res.json() as ListBody;
+      totals.push(body.total);
+      cursor = body.nextCursor;
+    } while (cursor !== null);
+
+    expect(totals).toEqual([30, 30, 30]);
   });
 
   it("limit oltre il massimo: 400", async () => {

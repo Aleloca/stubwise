@@ -18,8 +18,11 @@ import { GoogleProposalScreen } from "../screens/inbox/GoogleProposalScreen";
 import { InboxScreen } from "../screens/inbox/InboxScreen";
 import { LoginScreen } from "../screens/auth/LoginScreen";
 import { OnboardingScreen } from "../screens/auth/OnboardingScreen";
+import { ProjectBacklogScreen } from "../screens/projects/ProjectBacklogScreen";
 import { ProjectDetailScreen } from "../screens/projects/ProjectDetailScreen";
+import { ProjectInboxScreen } from "../screens/projects/ProjectInboxScreen";
 import { ProjectsScreen } from "../screens/projects/ProjectsScreen";
+import { ProjectTicketsScreen } from "../screens/projects/ProjectTicketsScreen";
 import { BacklogChatScreen } from "../screens/backlog/BacklogChatScreen";
 import { BacklogItemScreen } from "../screens/backlog/BacklogItemScreen";
 import { BacklogScreen } from "../screens/backlog/BacklogScreen";
@@ -67,6 +70,21 @@ export type ProjectsStackParamList = {
    * «‹ Progetti» è corretto — lì tornare indietro porta davvero alla lista.
    */
   Ticket: { id: string; backLabel?: string };
+  /**
+   * LE TRE AREE DEL LAVORO DI UN PROGETTO (22 set 2026, hub di progetto,
+   * design §5): l'elenco ticket, il backlog e l'inbox, ognuno già filtrato
+   * sul progetto da cui si è entrati. Stanno nello stack `Projects` e non
+   * nei tab BLG/INB apposta: l'indietro deve tornare all'HUB, e la barra in
+   * basso non si sposta — la stessa scelta della riga «‹ STUBWISE» del 21
+   * settembre.
+   *
+   * `projectName` viaggia come PARAMETRO e non si rilegge dal server: serve
+   * al titolo e alla riga «indietro», ed è già in mano a chi naviga (l'hub
+   * il nome ce l'ha). Stessa scelta di `backLabel` qui sopra.
+   */
+  Tickets: { projectId: string; projectName: string };
+  ProjectBacklog: { projectId: string; projectName: string };
+  ProjectInbox: { projectId: string; projectName: string };
 };
 
 /**
@@ -192,6 +210,9 @@ function ProjectsNavigator() {
       <ProjectsStack.Screen name="List" component={ProjectsScreen} />
       <ProjectsStack.Screen name="Detail" component={ProjectDetailScreen} />
       <ProjectsStack.Screen name="Ticket" component={WorkScreen} />
+      <ProjectsStack.Screen name="Tickets" component={ProjectTicketsScreen} />
+      <ProjectsStack.Screen name="ProjectBacklog" component={ProjectBacklogScreen} />
+      <ProjectsStack.Screen name="ProjectInbox" component={ProjectInboxScreen} />
     </ProjectsStack.Navigator>
   );
 }
