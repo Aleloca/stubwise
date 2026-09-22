@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { readerSchema } from "../reader.js";
 import {
   deviceDeletionSchema,
   deviceRegistrationSchema,
   inboxGoogleSchema,
   inboxItemSchema,
+  inboxPageSchema,
   inboxQuestionSchema,
   ticketQuestionSchema,
 } from "./notification.js";
@@ -207,5 +209,30 @@ describe("deviceDeletionSchema", () => {
     expect(
       deviceRegistrationSchema.safeParse({ platform: "ios", token: oltre }).success,
     ).toBe(false);
+  });
+});
+
+/**
+ * IL TOTALE DELLA PAGINA D'INBOX VERSO UN SERVER PIÙ VECCHIO (22 set 2026,
+ * hub di progetto). Terzo gemello di `ticketPageSchema.total` e
+ * `backlogPageSchema.total`, con la stessa regola: `.optional()`, perché
+ * l'app si aggiorna dagli store e può trovarsi davanti un server che non lo
+ * manda — la lista deve restare leggibile senza il numero.
+ *
+ * ⚠️ La fixture è lasciata SENZA `total` apposta.
+ */
+describe("inboxPageSchema: il totale verso un server più vecchio", () => {
+  /** Una pagina come la emette un server SENZA il campo `total`. */
+  const paginaSenzaTotale = { items: [], nextCursor: null };
+
+  it("parsa una pagina senza `total`", () => {
+    const parsed = readerSchema(inboxPageSchema).parse(paginaSenzaTotale);
+    expect(parsed.total).toBeUndefined();
+    expect(parsed.items).toEqual([]);
+  });
+
+  it("un server che lo manda viene letto verbatim", () => {
+    const parsed = readerSchema(inboxPageSchema).parse({ ...paginaSenzaTotale, total: 4 });
+    expect(parsed.total).toBe(4);
   });
 });

@@ -171,6 +171,23 @@ export type TicketListItem = z.infer<typeof ticketListItemSchema>;
 export const ticketPageSchema = z.object({
   items: z.array(ticketListItemSchema),
   nextCursor: z.string().nullable(),
+  /**
+   * Quanti ticket soddisfano i FILTRI della richiesta, non quanti ne porta
+   * questa pagina (22 set 2026, hub di progetto): serve a una riga di sintesi
+   * — «TICKET · 14 aperti» — che senza dovrebbe scaricare tutte le pagine per
+   * sapere di quante sta mostrando le prime due.
+   *
+   * ⚠️ Il conteggio IGNORA il cursore, di proposito: il cursore è
+   * paginazione, non un filtro, e includerlo darebbe un totale che CALA
+   * pagina dopo pagina — «quanti ne restano», che non è la domanda. Il server
+   * lo calcola perciò sulle sole condizioni di filtro.
+   *
+   * `.optional()` come ogni campo nuovo che l'app legge (CLAUDE.md, «solo
+   * cambi additivi»): un'app aggiornata che parla con un server più vecchio
+   * non lo riceve, e chi lo mostra deve degradare alle sole righe senza il
+   * numero — mai una schermata rotta.
+   */
+  total: z.number().int().optional(),
 });
 export type TicketPage = z.infer<typeof ticketPageSchema>;
 

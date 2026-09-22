@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { ticketDetailSchema } from "./ticket.js";
+import { readerSchema } from "../reader.js";
+import { ticketDetailSchema, ticketPageSchema } from "./ticket.js";
 
 /**
  * COMPATIBILITÀ VERSO L'APP GIÀ INSTALLATA (fase 7).
@@ -71,5 +72,39 @@ describe("ticketDetailSchema: campi della fase 7 verso un server più vecchio", 
     );
     expect(parsed.planApprovedAt).toBeNull();
     expect(parsed.planApprovedBy).toBeNull();
+  });
+});
+
+/**
+ * IL TOTALE DI UNA PAGINA VERSO UN SERVER PIÙ VECCHIO (22 set 2026, hub di
+ * progetto).
+ *
+ * `total` è `.optional()` per la regola di sempre (CLAUDE.md, «solo cambi
+ * additivi»): un'app aggiornata dagli store può parlare con un server che non
+ * lo manda — un rollback, o un'istanza self-hosted indietro — e la pagina
+ * deve restare leggibile, con la sezione che degrada alle sole righe senza
+ * il numero.
+ *
+ * ⚠️ La fixture è lasciata SENZA `total` apposta: è la prova che la difesa
+ * c'è, non una svista da completare (CLAUDE.md, «una fixture incompleta»).
+ * Il parse passa da `readerSchema` perché è così che l'app legge davvero —
+ * `.default()` e `.optional()` vanno attraversati, non aggirati.
+ */
+describe("ticketPageSchema: il totale verso un server più vecchio", () => {
+  /** Una pagina come la emette un server SENZA il campo `total`. */
+  const paginaSenzaTotale = {
+    items: [],
+    nextCursor: null,
+  };
+
+  it("parsa una pagina senza `total`", () => {
+    const parsed = readerSchema(ticketPageSchema).parse(paginaSenzaTotale);
+    expect(parsed.total).toBeUndefined();
+    expect(parsed.items).toEqual([]);
+  });
+
+  it("un server che lo manda viene letto verbatim", () => {
+    const parsed = readerSchema(ticketPageSchema).parse({ ...paginaSenzaTotale, total: 14 });
+    expect(parsed.total).toBe(14);
   });
 });

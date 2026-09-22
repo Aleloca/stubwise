@@ -6,7 +6,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useBottomTabBarHeight } from "react-native-bottom-tabs";
-import type { InboxStackParamList, RootStackParamList } from "../../app/navigation";
+import type { ProposalParamList, RootStackParamList } from "../../app/navigation";
 import { useAuth } from "../../app/providers";
 import { GhostButton } from "../../components/GhostButton";
 import { ScreenHeader } from "../../components/ScreenHeader";
@@ -40,11 +40,23 @@ const CONTENT_BASE_BOTTOM_PADDING = 40;
  * Ne discende cosa questa pagina può e non può promettere: ogni riga dice che
  * TIPO di cosa succederà («crea una milestone»), mai il dettaglio di cosa
  * verrà creato. Il dettaglio vive nel testo della proposta, sopra.
+ *
+ * ⚠️ **Registrata in DUE stack** dal 22 set 2026 (INB e Projects): ci si
+ * arriva dall'inbox generale e dall'inbox di un progetto, e da entrambe
+ * l'indietro deve tornare dove si era. Per questo è tipata su
+ * `ProposalParamList` e non su uno stack intero — non sa, e non deve sapere,
+ * in quale sta girando.
+ *
+ * ⚠️ **Il salto a MBX di «apri la mail d'origine» resta, ed è un'altra cosa**:
+ * quello che il 22 settembre si è chiuso è l'INGRESSO in questa pagina, non le
+ * sue destinazioni interne. La conversazione vive in MBX, ha già la sua
+ * schermata, e mandarci chi legge è deliberato — non una svista sfuggita a
+ * quel giro.
  */
 export function GoogleProposalScreen({
   route,
   navigation,
-}: NativeStackScreenProps<InboxStackParamList, "Proposal">) {
+}: NativeStackScreenProps<ProposalParamList, "Proposal">) {
   const { t } = useTranslation();
   const { client } = useAuth();
   const tabBarHeight = useBottomTabBarHeight();

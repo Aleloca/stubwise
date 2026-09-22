@@ -558,6 +558,16 @@ export type InboxItem = z.infer<typeof inboxItemSchema>;
 export const inboxPageSchema = z.object({
   items: z.array(inboxItemSchema),
   nextCursor: z.string().nullable(),
+  /**
+   * Quante notifiche soddisfano i FILTRI della richiesta — gemello di
+   * `ticketPageSchema.total`, cursore escluso e `.optional()` per le stesse
+   * ragioni: vedi il docblock là.
+   *
+   * ⚠️ Resta un conteggio PER UTENTE, come tutta questa rotta: filtrato per
+   * progetto dice quante notifiche ha CHI GUARDA su quel progetto, mai
+   * quante ne esistono. Chi lo mostra scriva la didascalia di conseguenza.
+   */
+  total: z.number().int().optional(),
 });
 export type InboxPage = z.infer<typeof inboxPageSchema>;
 

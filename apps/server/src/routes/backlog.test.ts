@@ -241,6 +241,7 @@ describe("GET /api/backlog", () => {
     const firstBody = first.json() as {
       items: { title: string }[];
       nextCursor: string | null;
+      total?: number;
     };
     expect(firstBody.items.map((i) => i.title)).toEqual(["voce-2", "voce-1"]);
     expect(firstBody.nextCursor).not.toBeNull();
@@ -253,9 +254,31 @@ describe("GET /api/backlog", () => {
     const secondBody = second.json() as {
       items: { title: string }[];
       nextCursor: string | null;
+      total?: number;
     };
     expect(secondBody.items.map((i) => i.title)).toEqual(["voce-0"]);
     expect(secondBody.nextCursor).toBeNull();
+
+    // `total` è lo stesso sulle due pagine: il cursore è paginazione, non un
+    // filtro — vedi il docblock di `ticketPageSchema.total` e il gemello in
+    // `tickets.test.ts`.
+    expect(firstBody.total).toBe(secondBody.total);
+    expect(firstBody.total).toBeGreaterThanOrEqual(3);
+  });
+
+  it("`total` segue i filtri, non la pagina", async () => {
+    const { projectId: soloProgetto } = await seedRepository(testDb.db);
+    for (const title of ["alfa", "beta", "gamma"]) {
+      await testDb.db.insert(backlogItems).values({ projectId: soloProgetto, title, source: "manual" });
+    }
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/backlog?projectId=${soloProgetto}&limit=1`,
+      headers: { cookie: memberCookie },
+    });
+    const body = res.json() as { items: unknown[]; total?: number };
+    expect(body.items).toHaveLength(1);
+    expect(body.total).toBe(3);
   });
 
   it("cursor malformato → 400", async () => {

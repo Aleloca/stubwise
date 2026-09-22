@@ -658,6 +658,12 @@ export interface ListInboxInput {
 export interface ListInboxResult {
   items: InboxItem[];
   nextCursor: string | null;
+  /**
+   * Quante notifiche soddisfano i filtri, cursore ESCLUSO — vedi il docblock
+   * di `inboxPageSchema.total`. Assente sui due ritorni anticipati (cursore
+   * malformato, utente sparito), che non sono una pagina ma un non-risultato.
+   */
+  total?: number;
   /** Presente solo se il cursore ricevuto era malformato (→ 400 lato rotta). */
   invalidCursor?: true;
 }
@@ -700,6 +706,11 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
   // Sulla COLONNA enum, non sul jsonb `event`: è il dato di cui ci si può
   // fidare (il payload storico può portare un `kind` diverso o non portarlo).
   if (input.kind) conditions.push(eq(notifications.kind, input.kind));
+
+  // Le condizioni di FILTRO, senza il cursore: sono queste — e solo queste —
+  // che determinano `total`. Vedi il gemello in `routes/tickets.ts`.
+  const filterConditions = [...conditions];
+
   if (cursor) {
     conditions.push(
       sql`(${notifications.createdAt}, ${notifications.id}) < (${cursor.createdAt}::timestamptz, ${cursor.id}::uuid)`,
@@ -736,6 +747,12 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
     rows.length > limit && last
       ? encodeCursor({ createdAt: last.cursorTimestamp, id: last.id })
       : null;
+
+  const [totalRow] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(notifications)
+    .where(and(...filterConditions));
+  const total = totalRow?.count ?? 0;
 
   const { latestStatusByTicket, requesterByJob, planSummaryByJob } = await jobsOfTickets(
     db,
@@ -799,7 +816,7 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
     };
   });
 
-  return { items, nextCursor };
+  return { items, nextCursor, total };
 }
 
 /**

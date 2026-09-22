@@ -19,3 +19,31 @@ export const inboxKeys = {
   list: () => [...inboxKeys.all, "list"] as const,
   unread: () => [...inboxKeys.all, "unread"] as const,
 };
+
+/**
+ * Chiavi di query dei TICKET (22 set 2026, hub di progetto).
+ *
+ * ⚠️ **Il prefisso `["tickets"]` è il punto di tutta questa struttura**, non
+ * un modo di raggruppare: ogni chiave che sta sotto eredita, oggi e in
+ * futuro, qualunque `invalidateQueries({ queryKey: ticketKeys.all })`. La
+ * strada alternativa — chiavi in un namespace proprio, più un elenco di
+ * invalidazioni da tenere aggiornato — obbliga ogni mutazione scritta fra sei
+ * mesi a ricordarsi di questa vista, e nessuno se ne ricorderà.
+ *
+ * Chi sposta queste chiavi «per ordine» sotto un `projects` o un `hub`
+ * riapre esattamente il difetto che questo modulo esiste per chiudere: una
+ * vista che resta montata sotto, nello stack nativo, e mostra il numero
+ * vecchio al ritorno — l'app non ha refetch-on-focus da nessuna parte.
+ */
+export const ticketKeys = {
+  all: ["tickets"] as const,
+  /** L'elenco pieno dei ticket di un progetto, per filtro di stato. */
+  list: (projectId: string, filter: string) => [...ticketKeys.all, "list", "project", projectId, filter] as const,
+  /**
+   * L'ANTEPRIMA dell'hub: chiave distinta da {@link ticketKeys.list} perché
+   * chiede un `limit` diverso — la stessa chiave farebbe servire una pagina
+   * da due righe alla schermata intera. Distinta, ma sotto lo stesso
+   * prefisso: è la combinazione che serve.
+   */
+  hub: (projectId: string) => [...ticketKeys.all, "list", "hub", projectId] as const,
+};

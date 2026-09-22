@@ -294,6 +294,60 @@
           "declaredNoWork": "nessun lavoro registrato",
           "unknown": "fermo"
         }
+      },
+      "hub": {
+        "seeAll": "vedi ›",
+        "loadError": "Non caricata.",
+        "retry": "Riprova",
+        "tickets": {
+          "label": "Ticket",
+          "labelWithCount_one": "Ticket · {{count}} aperto",
+          "labelWithCount_other": "Ticket · {{count}} aperti",
+          "empty": "Nessun ticket aperto."
+        },
+        "backlog": {
+          "label": "Backlog",
+          "labelWithCount_one": "Backlog · {{count}} voce",
+          "labelWithCount_other": "Backlog · {{count}} voci",
+          "maturity": "{{ready}} pronte · {{notReady}} da preparare",
+          "empty": "Backlog vuoto."
+        },
+        "inbox": {
+          "label": "Notifiche",
+          "labelWithCount_one": "Notifiche · {{count}} da gestire",
+          "labelWithCount_other": "Notifiche · {{count}} da gestire",
+          "empty": "Niente da gestire."
+        }
+      },
+      "tickets": {
+        "title": "Ticket",
+        "filters": {
+          "open": "Aperti",
+          "inProgress": "In corso",
+          "all": "Tutti"
+        },
+        "loadError": {
+          "title": "Non è stato possibile caricare i ticket.",
+          "retry": "Riprova"
+        },
+        "empty": {
+          "title": "Nessun ticket",
+          "body": "Con questo filtro non c'è nessun ticket in questo progetto."
+        }
+      },
+      "backlog": {
+        "title": "Backlog",
+        "empty": {
+          "title": "Backlog vuoto",
+          "body": "Non c'è ancora nessuna voce di backlog per questo progetto."
+        }
+      },
+      "inbox": {
+        "title": "Notifiche",
+        "empty": {
+          "title": "Niente da gestire",
+          "body": "Non hai notifiche aperte su questo progetto."
+        }
       }
     },
     "work": {

@@ -294,6 +294,60 @@
           "declaredNoWork": "no work recorded",
           "unknown": "stalled"
         }
+      },
+      "hub": {
+        "seeAll": "see ›",
+        "loadError": "Not loaded.",
+        "retry": "Retry",
+        "tickets": {
+          "label": "Tickets",
+          "labelWithCount_one": "Tickets · {{count}} open",
+          "labelWithCount_other": "Tickets · {{count}} open",
+          "empty": "No open tickets."
+        },
+        "backlog": {
+          "label": "Backlog",
+          "labelWithCount_one": "Backlog · {{count}} item",
+          "labelWithCount_other": "Backlog · {{count}} items",
+          "maturity": "{{ready}} ready · {{notReady}} to prepare",
+          "empty": "Backlog is empty."
+        },
+        "inbox": {
+          "label": "Notifications",
+          "labelWithCount_one": "Notifications · {{count}} to handle",
+          "labelWithCount_other": "Notifications · {{count}} to handle",
+          "empty": "Nothing to handle."
+        }
+      },
+      "tickets": {
+        "title": "Tickets",
+        "filters": {
+          "open": "Open",
+          "inProgress": "In progress",
+          "all": "All"
+        },
+        "loadError": {
+          "title": "Could not load the tickets.",
+          "retry": "Retry"
+        },
+        "empty": {
+          "title": "No tickets",
+          "body": "No ticket in this project matches this filter."
+        }
+      },
+      "backlog": {
+        "title": "Backlog",
+        "empty": {
+          "title": "Backlog is empty",
+          "body": "This project has no backlog items yet."
+        }
+      },
+      "inbox": {
+        "title": "Notifications",
+        "empty": {
+          "title": "Nothing to handle",
+          "body": "You have no open notifications on this project."
+        }
       }
     },
     "work": {

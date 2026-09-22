@@ -359,6 +359,12 @@ export type BacklogItemDetail = z.infer<typeof backlogItemDetailSchema>;
 export const backlogPageSchema = z.object({
   items: z.array(backlogItemSchema),
   nextCursor: z.string().nullable(),
+  /**
+   * Quante voci soddisfano i FILTRI della richiesta — gemello esatto di
+   * `ticketPageSchema.total`, cursore escluso e `.optional()` per le stesse
+   * ragioni: vedi il docblock là.
+   */
+  total: z.number().int().optional(),
 });
 export type BacklogPage = z.infer<typeof backlogPageSchema>;
 

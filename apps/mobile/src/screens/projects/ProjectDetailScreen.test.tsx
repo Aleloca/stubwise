@@ -44,8 +44,40 @@ function brief(overrides: Partial<Reader<ProjectBriefWeekly>> = {}): Reader<Proj
   } as Reader<ProjectBriefWeekly>;
 }
 
+/** Una riga della lista ticket, quanto basta a `ticketHeading` e alla riga. */
+function ticket(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: TICKET_A,
+    projectId: PROJECT_ID,
+    number: 33,
+    title: "Export CSV clienti",
+    type: "bug",
+    priority: "medium",
+    status: "open",
+    createdAt: "2026-09-20T10:00:00.000Z",
+    ...overrides,
+  };
+}
+
+/**
+ * ⚠️ IL DOPPIO DEL CLIENT VA COMPLETATO PRIMA DEI TEST CHE LO USANO
+ * (CLAUDE.md, la terza trappola: un metodo mancante non fa fallire niente).
+ * Questo `as unknown as StubwiseClient` AFFERMA di essere il client intero,
+ * quindi il compilatore tace se `tickets`/`backlog`/`inbox` non ci sono — e
+ * le tre sezioni dell'hub, che stanno fuori dai gate `isPending`/`isError`
+ * della schermata apposta, mostrerebbero il proprio errore senza far
+ * fallire un solo test. È successo davvero qui il 22 set 2026: i 24 test
+ * passavano con tre query che fallivano tutte.
+ */
 function makeClient(
-  overrides: { pulse?: jest.Mock; activityForDate?: jest.Mock; briefs?: jest.Mock } = {},
+  overrides: {
+    pulse?: jest.Mock;
+    activityForDate?: jest.Mock;
+    briefs?: jest.Mock;
+    listTickets?: jest.Mock;
+    listBacklog?: jest.Mock;
+    listInbox?: jest.Mock;
+  } = {},
 ): StubwiseClient {
   return {
     projects: {
@@ -53,6 +85,9 @@ function makeClient(
       briefs: overrides.briefs ?? jest.fn().mockResolvedValue([]),
     },
     activity: { forDate: overrides.activityForDate ?? jest.fn().mockResolvedValue({ date: "2026-08-31", projects: [] }) },
+    tickets: { list: overrides.listTickets ?? jest.fn().mockResolvedValue({ items: [], nextCursor: null, total: 0 }) },
+    backlog: { list: overrides.listBacklog ?? jest.fn().mockResolvedValue({ items: [], nextCursor: null, total: 0 }) },
+    inbox: { list: overrides.listInbox ?? jest.fn().mockResolvedValue({ items: [], nextCursor: null, total: 0 }) },
   } as unknown as StubwiseClient;
 }
 
@@ -706,3 +741,115 @@ describe("ProjectDetailScreen — brief settimanale", () => {
   });
 });
 
+
+/**
+ * LE TRE SEZIONI DELL'HUB (22 set 2026, design §3/§4).
+ *
+ * Il punto di queste asserzioni non è che le righe compaiano — è che ogni
+ * sezione stia in piedi DA SOLA: carica per conto suo, e un suo guasto non
+ * tocca né il polso né le altre due.
+ */
+describe("ProjectDetailScreen — le sezioni dell'hub", () => {
+  test("i conteggi arrivano da `total`, non dalle righe ricevute", async () => {
+    const client = makeClient({
+      // Due righe in pagina, quattordici in totale: contare le righe direbbe
+      // «2», che è il `limit` dell'anteprima e non una notizia.
+      listTickets: jest.fn().mockResolvedValue({ items: [ticket(), ticket({ id: TICKET_B, number: 35 })], nextCursor: null, total: 14 }),
+      listBacklog: jest.fn().mockResolvedValue({ items: [], nextCursor: null, total: 6 }),
+      listInbox: jest.fn().mockResolvedValue({ items: [], nextCursor: null, total: 4 }),
+    });
+    await renderScreen(client);
+    await waitFor(() => expect(screen.getByText("Ticket · 14 aperti")).toBeTruthy());
+    expect(screen.getByText("Backlog · 6 voci")).toBeTruthy();
+    expect(screen.getByText("Notifiche · 4 da gestire")).toBeTruthy();
+  });
+
+  test("SERVER PIÙ VECCHIO: senza `total` l'etichetta perde il numero e le righe restano", async () => {
+    // ⚠️ Fixture lasciata SENZA `total` apposta: è la prova che il degrado
+    // c'è (CLAUDE.md, «una fixture incompleta»). Un'app aggiornata dagli
+    // store può parlare con un server che quel campo non lo manda.
+    const client = makeClient({
+      listTickets: jest.fn().mockResolvedValue({ items: [ticket()], nextCursor: null }),
+      listBacklog: jest.fn().mockResolvedValue({ items: [{ ...ticket(), title: "Voce di backlog" }], nextCursor: null }),
+      listInbox: jest.fn().mockResolvedValue({ items: [], nextCursor: null }),
+    });
+    await renderScreen(client);
+    await waitFor(() => expect(screen.getByText("Ticket")).toBeTruthy());
+    expect(screen.getByText("Export CSV clienti")).toBeTruthy();
+    // Il backlog senza totale non può dire quanto è maturo (servirebbe la
+    // differenza fra attive e pronte): degrada ai TITOLI.
+    expect(screen.getByText("Voce di backlog")).toBeTruthy();
+    expect(screen.queryByText(/da preparare/)).toBeNull();
+  });
+
+  test("il backlog dice quanto è maturo: le pronte dal polso, il totale dalla lista", async () => {
+    const client = makeClient({
+      pulse: jest.fn().mockResolvedValue([summary({ backlogReadyCount: 3 })]),
+      listBacklog: jest.fn().mockResolvedValue({ items: [], nextCursor: null, total: 6 }),
+    });
+    await renderScreen(client);
+    await waitFor(() => expect(screen.getByText("3 pronte · 3 da preparare")).toBeTruthy());
+  });
+
+  test("UNA SEZIONE CHE FALLISCE NON PORTA GIÙ LE ALTRE né il polso", async () => {
+    const client = makeClient({
+      pulse: jest.fn().mockResolvedValue([summary({ backlogReadyCount: 2 })]),
+      listTickets: jest.fn().mockRejectedValue(new Error("down")),
+      listBacklog: jest.fn().mockResolvedValue({ items: [], nextCursor: null, total: 5 }),
+      listInbox: jest.fn().mockResolvedValue({ items: [], nextCursor: null, total: 1 }),
+    });
+    await renderScreen(client);
+    await waitFor(() => expect(screen.getByTestId("hub-tickets-error")).toBeTruthy());
+    // Le altre due sono arrivate, e il polso è intero.
+    expect(screen.getByText("Backlog · 5 voci")).toBeTruthy();
+    expect(screen.getByText("Notifiche · 1 da gestire")).toBeTruthy();
+    expect(screen.getByText("Portale B2B")).toBeTruthy();
+  });
+
+  test("una sezione vuota si MOSTRA e lo dice: vuoto e non-ancora-arrivato sono cose diverse", async () => {
+    const client = makeClient();
+    await renderScreen(client);
+    await waitFor(() => expect(screen.getByTestId("hub-tickets-empty")).toBeTruthy());
+    expect(screen.getByText("Nessun ticket aperto.")).toBeTruthy();
+    expect(screen.getByTestId("hub-backlog-empty")).toBeTruthy();
+    expect(screen.getByTestId("hub-inbox-empty")).toBeTruthy();
+  });
+
+  test("«vedi ›» porta alle tre schermate, col progetto e il suo nome", async () => {
+    const navigate = jest.fn();
+    const client = makeClient();
+    await renderScreen(client, navigate);
+    await waitFor(() => expect(screen.getByTestId("hub-tickets-see-all")).toBeTruthy());
+
+    await fireEvent.press(screen.getByTestId("hub-tickets-see-all"));
+    expect(navigate).toHaveBeenCalledWith("Tickets", { projectId: PROJECT_ID, projectName: "Portale B2B" });
+
+    await fireEvent.press(screen.getByTestId("hub-backlog-see-all"));
+    expect(navigate).toHaveBeenCalledWith("ProjectBacklog", { projectId: PROJECT_ID, projectName: "Portale B2B" });
+
+    await fireEvent.press(screen.getByTestId("hub-inbox-see-all"));
+    expect(navigate).toHaveBeenCalledWith("ProjectInbox", { projectId: PROJECT_ID, projectName: "Portale B2B" });
+  });
+
+  test("la sezione ticket chiede SOLO gli aperti, e col limite dell'anteprima", async () => {
+    const listTickets = jest.fn().mockResolvedValue({ items: [], nextCursor: null, total: 0 });
+    await renderScreen(makeClient({ listTickets }));
+    await waitFor(() => expect(listTickets).toHaveBeenCalled());
+    expect(listTickets).toHaveBeenCalledWith(
+      { projectId: PROJECT_ID, statuses: ["open", "triaged", "in_progress", "in_review"] },
+      undefined,
+      2,
+    );
+  });
+
+  test("un tap su una riga ticket dell'anteprima apre il ticket", async () => {
+    const navigate = jest.fn();
+    const client = makeClient({
+      listTickets: jest.fn().mockResolvedValue({ items: [ticket()], nextCursor: null, total: 1 }),
+    });
+    await renderScreen(client, navigate);
+    await waitFor(() => expect(screen.getByText("Export CSV clienti")).toBeTruthy());
+    await fireEvent.press(screen.getByText("Export CSV clienti"));
+    expect(navigate).toHaveBeenCalledWith("Ticket", { id: TICKET_A, backLabel: "Portale B2B" });
+  });
+});

@@ -538,6 +538,13 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         )`);
       }
 
+      // Le condizioni di FILTRO, senza il cursore: sono queste — e solo
+      // queste — che determinano `total`. Congelate qui perché la riga sotto
+      // aggiunge a `conditions` il confronto col cursore, che è paginazione e
+      // non un filtro: includerlo darebbe un totale che cala pagina dopo
+      // pagina (vedi il docblock di `ticketPageSchema.total`).
+      const filterConditions = [...conditions];
+
       if (cursor !== undefined) {
         const decoded = decodeCursor(cursor);
         if (!decoded) {
@@ -568,6 +575,16 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
           ? encodeCursor({ createdAt: last.cursorTimestamp, id: last.ticket.id })
           : null;
 
+      // `total`: quanti ticket soddisfano i filtri, indipendentemente dalla
+      // pagina. Una query in più su ogni lista — il prezzo dichiarato della
+      // riga di sintesi dell'hub (design §2.1), che senza dovrebbe scaricare
+      // tutte le pagine per sapere di quante mostra le prime due.
+      const [totalRow] = await app.db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(tickets)
+        .where(filterConditions.length > 0 ? and(...filterConditions) : undefined);
+      const total = totalRow?.count ?? 0;
+
       // Conteggio dei repository toccati per ciascun ticket della pagina (righe
       // ticket_repositories), in un'unica query, per i badge di board/lista.
       // Vuoto per i ticket non ancora eseguiti (nessuna riga → count 0).
@@ -591,6 +608,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
           repositoryCount: countByTicket.get(row.ticket.id) ?? 0,
         })),
         nextCursor,
+        total,
       };
     },
   );
