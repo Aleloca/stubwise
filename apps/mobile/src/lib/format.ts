@@ -126,3 +126,46 @@ export function searchMailTime(iso: string, now: number = Date.now()): string {
   const month = String(at.getMonth() + 1).padStart(2, "0");
   return `${day}/${month} ${time}`;
 }
+
+/**
+ * Da quanto un ticket è APERTO, nella forma della riga grigia del dettaglio
+ * progetto: «aperto 8 g fa», «aperto 2 mesi» (22 set 2026).
+ *
+ * ⚠️ **Perché non è un bucket in più su {@link relativeTimeCompact}.** Quella
+ * si ferma ai giorni, quindi un ticket di due mesi leggerebbe «63 g» — ed
+ * estenderla sarebbe la scorciatoia sbagliata: **la usa l'inbox**, e ogni
+ * card più vecchia di due mesi cambierebbe testo su una superficie che
+ * nessuno ha chiesto di toccare. È lo stesso precedente di
+ * {@link searchMailTime}, scritta nuova il 16 settembre per non piegare
+ * `relativeTimeCompact` alla riga di ricerca: quando una superficie nuova
+ * vuole una forma diversa, la forma nuova nasce accanto, non dentro.
+ *
+ * Chi un domani volesse fonderle deve prima rispondere a questo: cosa
+ * dovrebbe leggere una card d'inbox di tre mesi fa?
+ *
+ * Ritorna un discriminante e non una stringa composta, come le sue vicine:
+ * l'unità è testo utente e la interpola il componente, così la funzione resta
+ * pura e senza `t()`. `now` iniettabile per i test.
+ *
+ * Il mese è di 30 giorni tondi. Non è una data da calendario — è
+ * un'indicazione di anzianità, e «2 mesi» per 61 giorni o per 67 dice la
+ * stessa cosa utile a chi guarda un elenco di ticket fermi.
+ */
+export type OpenedSince = { kind: "today" } | { kind: "days" | "months"; count: number };
+
+const OPENED_MONTH_THRESHOLD_DAYS = 60;
+
+export function openedSince(iso: string, now: number = Date.now()): OpenedSince {
+  const at = new Date(iso).getTime();
+  // Una data illeggibile non produce «NaN g»: la riga mostra i pezzi che ha,
+  // mai un segnaposto sbagliato (design §4, sull'assenza resa come assenza).
+  if (Number.isNaN(at)) return { kind: "today" };
+  // Stessa guardia anti clock-skew delle altre funzioni del modulo: un
+  // orologio sfasato non deve produrre un numero negativo.
+  const elapsed = Math.max(0, now - at);
+  const days = Math.floor(elapsed / DAY);
+  if (days < 1) return { kind: "today" };
+  if (days <= OPENED_MONTH_THRESHOLD_DAYS) return { kind: "days", count: days };
+  return { kind: "months", count: Math.floor(days / 30) };
+}
+

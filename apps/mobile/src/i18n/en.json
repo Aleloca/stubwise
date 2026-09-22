@@ -414,6 +414,19 @@
         "confirmBody": "There is no way back: the text is not kept anywhere else.",
         "confirm": "Delete",
         "cancel": "Cancel"
+      },
+      "ticketType": {
+        "bug": "bug",
+        "feature": "feature",
+        "task": "task",
+        "feedback": "feedback",
+        "review": "review"
+      },
+      "opened": {
+        "today": "opened today",
+        "days": "opened {{count}}d ago",
+        "months_one": "opened {{count}} month ago",
+        "months_other": "opened {{count}} months ago"
       }
     },
     "backlog": {
