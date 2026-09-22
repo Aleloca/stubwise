@@ -20,6 +20,7 @@ import { useTranslation } from "react-i18next";
 import { useAuth } from "../app/providers";
 import type { PulseTone } from "./pulse-line";
 import { useIsOnline } from "./inbox-mutations";
+import { ticketKeys } from "./query-keys";
 
 /**
  * I tre chip della lista (canvas `3a`): `ready` è l'unico che l'API esprime
@@ -263,9 +264,21 @@ export function useConvertBacklogItem(): BacklogActionMutation<string, Reader<Co
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: backlogKeys.all });
+      // ⚠️ Questa mutazione CREA UN TICKET, e finché non lo diceva nessuna
+      // vista dei ticket se ne accorgeva (22 set 2026). Non è «un'altra voce
+      // in un elenco di invalidazioni da tenere aggiornato»: è la forma
+      // opposta — una mutazione che dichiara UNA VOLTA cosa ha cambiato,
+      // sotto il prefisso che ogni query dei ticket eredita (vedi
+      // `ticketKeys`). Le altre mutazioni non devono sapere niente
+      // dell'hub né di nessuna schermata.
+      void queryClient.invalidateQueries({ queryKey: ticketKeys.all });
     },
     onError: (error) => {
       if (error instanceof ApiError && error.status === 409) {
+        // Solo il backlog: un 409 significa che il ticket NON è nato (la
+        // voce non era convertibile, o l'aveva già convertita qualcun
+        // altro), quindi non c'è nessun elenco di ticket che sia diventato
+        // stantio per colpa di questo tentativo.
         void queryClient.invalidateQueries({ queryKey: backlogKeys.all });
       }
     },

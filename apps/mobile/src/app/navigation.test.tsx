@@ -49,6 +49,51 @@ const BACKLOG_ITEM_DETAIL = {
   pendingTurn: false,
 };
 
+const HUB_NOTIFICATION_ID = "33333333-3333-4333-8333-333333333333";
+
+/** Il polso del progetto dell'hub: i secchi vuoti, serve solo il nome. */
+const HUB_PULSE = [
+  {
+    projectId: HUB_PROJECT_ID,
+    projectName: "Portale B2B",
+    waitingForYou: [],
+    waitingForOthers: [],
+    running: [],
+    failedCount: 0,
+    backlogReadyCount: 1,
+    idleDays: 0,
+    stalled: [],
+    waitingForMerge: [],
+    lastReportDate: null,
+  },
+];
+
+function hubNotification(id: string) {
+  return {
+    id,
+    kind: "review.completed",
+    status: "open",
+    text: `Review finita su PR #${id.slice(0, 2)}`,
+    actions: ["handled"],
+    projectId: HUB_PROJECT_ID,
+    ticketId: null,
+    jobId: null,
+    createdAt: "2026-09-02T09:48:00.000Z",
+    readAt: null,
+    snoozedUntil: null,
+    handledAt: null,
+    handledBy: null,
+  };
+}
+
+/**
+ * Quante notifiche aperte ha il progetto dell'hub. È MUTABILE apposta: il
+ * test più sotto preme «Fatto» su una card e il server, dal giro seguente,
+ * ne conta una in meno — è l'unico modo perché la schermata possa mostrare
+ * un numero DIVERSO, cioè perché l'asserzione significhi qualcosa.
+ */
+let hubOpenNotifications = 2;
+
 function jsonResponse(status: number, body: unknown): Response {
   const init: ResponseInit = { status };
   if (body !== undefined) {
@@ -81,6 +126,26 @@ function routeFetch(input: RequestInfo | URL, init?: RequestInit): Response {
   if (url.endsWith("/api/inbox/unread-count") && method === "GET") {
     return jsonResponse(200, { count: 0 });
   }
+  // L'hub di progetto (22 set 2026): il polso, l'anteprima dei ticket e
+  // l'inbox del progetto — più il «Fatto» su una notifica, che è la
+  // mutazione vera del test sull'invalidazione.
+  if (url.endsWith("/api/projects/pulse") && method === "GET") {
+    return jsonResponse(200, HUB_PULSE);
+  }
+  if (method === "POST" && url.includes("/api/inbox/") && url.endsWith("/handled")) {
+    hubOpenNotifications -= 1;
+    return jsonResponse(204, undefined);
+  }
+  if (method === "GET" && url.includes("/api/inbox?")) {
+    const items = [hubNotification(HUB_NOTIFICATION_ID), hubNotification("44444444-4444-4444-8444-444444444444")].slice(
+      0,
+      hubOpenNotifications,
+    );
+    return jsonResponse(200, { items, nextCursor: null, total: hubOpenNotifications });
+  }
+  if (method === "GET" && url.includes("/api/tickets")) {
+    return jsonResponse(200, { items: [], nextCursor: null, total: 0 });
+  }
   // Il backlog di un progetto e il documento di una sua voce (22 set 2026):
   // li tocca il test dell'hub più sotto. Il dettaglio PRIMA della lista,
   // altrimenti `/api/backlog/<id>` finirebbe nel ramo della lista.
@@ -98,6 +163,7 @@ beforeEach(() => {
   // Stato in memoria di linking.ts: senza reset, un deep link consumato in
   // un test resterebbe (o mancherebbe) nel test successivo.
   setPendingDeepLink(null);
+  hubOpenNotifications = 2;
 });
 
 describe("deep link", () => {
@@ -384,5 +450,70 @@ describe("hub di progetto — il dettaglio di una voce resta nello stack del pro
     await fireEvent.press(screen.getByTestId("screen-header-back"));
     await waitFor(() => expect(screen.getByTestId("project-backlog-chip-active")).toBeTruthy());
     expect(screen.queryByTestId("backlog-chip-active")).toBeNull();
+  });
+});
+
+/**
+ * I NUMERI DELL'HUB NON RESTANO INDIETRO (22 set 2026, difetto colto in
+ * review).
+ *
+ * ⚠️ Questo test monta l'albero VERO e fa una MUTAZIONE VERA, e nessuna
+ * delle due cose è cerimonia: le chiavi dell'hub erano nate in un namespace
+ * proprio (`["projects","hub",…]`), che nessuna invalidazione raggiungeva.
+ * Un test con un `QueryClient` fresco per render non può mostrarlo — non ha
+ * niente di stantio da mostrare — e uno che invalidasse a mano la chiave
+ * giusta proverebbe solo che `invalidateQueries` funziona.
+ *
+ * Qui la sequenza è quella dell'utente: guardo l'hub, entro, faccio una
+ * cosa, torno indietro. `ProjectDetailScreen` resta MONTATA sotto per tutto
+ * il tempo (stack nativo) e l'app non ha refetch-on-focus da nessuna parte:
+ * se la sua query non sta sotto `["inbox"]`, al ritorno il numero è quello
+ * di prima.
+ */
+describe("hub di progetto — i conteggi si aggiornano dopo un'azione", () => {
+  test("gestisco una notifica dentro il progetto e, tornando all'hub, il numero è calato", async () => {
+    const session = {
+      baseUrl: "https://stubwise.example",
+      token: "stw_pat_existing",
+      patId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      user: successUser,
+    };
+    (Keychain.getGenericPassword as jest.Mock).mockResolvedValue({
+      username: "stubwise-session",
+      password: JSON.stringify(session),
+      service: "com.app.aleloca.stubwise.session",
+      storage: "keychain",
+    });
+    (Linking.getInitialURL as jest.Mock).mockResolvedValue(undefined);
+    jest.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => routeFetch(input, init));
+
+    await render(
+      <AppProviders>
+        <RootNavigator />
+      </AppProviders>,
+    );
+    await waitFor(() => expect(navigationRef.isReady()).toBe(true));
+
+    await act(async () => {
+      navigationRef.navigate("Main", {
+        screen: "Projects",
+        params: { screen: "Detail", params: { id: HUB_PROJECT_ID } },
+      });
+    });
+    await waitFor(() => expect(screen.getByText("Notifiche · 2 da gestire")).toBeTruthy());
+
+    // Entro dall'hub, come farebbe chi tocca «vedi ›».
+    await fireEvent.press(screen.getByTestId("hub-inbox-see-all"));
+    await waitFor(() => expect(screen.getAllByTestId("pr-ready-card-handled").length).toBe(2));
+
+    // La mutazione VERA: `useHandled` invalida `inboxKeys.all`, e non sa —
+    // né deve sapere — che esiste una sezione dell'hub.
+    await fireEvent.press(screen.getAllByTestId("pr-ready-card-handled")[0]!);
+    await waitFor(() => expect(screen.getAllByTestId("pr-ready-card-handled").length).toBe(1));
+
+    // Torno indietro: l'hub non è stato rimontato, quindi il numero nuovo
+    // può arrivare SOLO da un'invalidazione che ha raggiunto la sua query.
+    await fireEvent.press(screen.getByTestId("screen-header-back"));
+    await waitFor(() => expect(screen.getByText("Notifiche · 1 da gestire")).toBeTruthy());
   });
 });

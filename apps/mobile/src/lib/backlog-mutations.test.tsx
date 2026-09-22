@@ -9,6 +9,7 @@ import { AuthContext } from "../app/auth-context";
 import type { AuthContextValue } from "../app/providers";
 import "../i18n";
 import { backlogKeys, mergeBacklogPages, useConvertBacklogItem } from "./backlog-mutations";
+import { ticketKeys } from "./query-keys";
 
 const ITEM_ID = "22222222-2222-4222-8222-222222222222";
 const TICKET_ID = "33333333-3333-4333-8333-333333333333";
@@ -64,6 +65,52 @@ describe("useConvertBacklogItem", () => {
 
     await waitFor(() => expect(convert).toHaveBeenCalledWith(ITEM_ID));
     await waitFor(() => expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: backlogKeys.all }));
+  });
+
+  /**
+   * ⚠️ CONVERTIRE CREA UN TICKET, e finché questa mutazione non lo diceva
+   * nessuna vista dei ticket se ne accorgeva (22 set 2026): l'anteprima
+   * dell'hub di progetto restava montata sotto nello stack e, al ritorno,
+   * mostrava un ticket in meno di quelli che esistevano.
+   *
+   * L'asserzione NON è «`invalidateQueries` è stata chiamata con una certa
+   * chiave» — quella passerebbe anche se nessuna query vera fosse
+   * raggiunta. È sulla query SEMINATA: la chiave dell'hub sta sotto
+   * `ticketKeys.all`, quindi dev'essere marcata stantia. Se qualcuno la
+   * spostasse in un namespace proprio, questo test lo direbbe.
+   */
+  test("crea un ticket, quindi invalida anche le viste dei ticket — hub compreso", async () => {
+    const convert = jest.fn().mockResolvedValue({ ticketId: TICKET_ID, ticketNumber: 42 });
+    const client = makeClient({ convert });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const hubKey = ticketKeys.hub("11111111-1111-4111-8111-111111111111");
+    queryClient.setQueryData(hubKey, { items: [], nextCursor: null, total: 3 });
+
+    const rendered = await renderHook(() => useConvertBacklogItem(), { wrapper: makeWrapper(client, queryClient) });
+    await act(async () => {
+      rendered.result.current.mutate(ITEM_ID);
+    });
+
+    await waitFor(() => expect(queryClient.getQueryState(hubKey)?.isInvalidated).toBe(true));
+  });
+
+  test("409: il ticket NON è nato, quindi le viste dei ticket non si toccano", async () => {
+    const convert = jest.fn().mockRejectedValue(new ApiError(409, "Already converted", "already_converted"));
+    const client = makeClient({ convert });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const hubKey = ticketKeys.hub("11111111-1111-4111-8111-111111111111");
+    queryClient.setQueryData(hubKey, { items: [], nextCursor: null, total: 3 });
+
+    const rendered = await renderHook(() => useConvertBacklogItem(), { wrapper: makeWrapper(client, queryClient) });
+    await act(async () => {
+      rendered.result.current.mutate(ITEM_ID);
+    });
+
+    await waitFor(() => expect(rendered.result.current.isPending).toBe(false));
+    // Invalidare qui sarebbe innocuo ma falso: nessun ticket è stato creato,
+    // e una rilettura in più su ogni tentativo fallito è lavoro che nessuno
+    // ha chiesto.
+    expect(queryClient.getQueryState(hubKey)?.isInvalidated).toBe(false);
   });
 
   // Il caso reale: "Procedi" su una voce che un altro utente ha appena

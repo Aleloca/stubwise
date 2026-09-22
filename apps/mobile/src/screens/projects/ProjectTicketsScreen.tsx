@@ -11,6 +11,7 @@ import { ProjectRowsCard, type ProjectGroupRowProps } from "../../components/pro
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { Skeleton } from "../../components/Skeleton";
 import { IN_PROGRESS_TICKET_STATUSES, OPEN_TICKET_STATUSES } from "../../lib/project-tickets";
+import { ticketKeys } from "../../lib/query-keys";
 import { ticketHeading, ticketStatusLabel } from "../../lib/ticket-labels";
 import { colors } from "../../theme/tokens";
 import { fontFamily } from "../../theme/typography";
@@ -31,10 +32,6 @@ const FILTERS = [
 ] as const;
 
 type TicketFilterKey = (typeof FILTERS)[number]["key"];
-
-/** Chiave di query della lista ticket di un progetto, per filtro. */
-export const projectTicketsKey = (projectId: string, filter: TicketFilterKey) =>
-  ["projects", "tickets", projectId, filter] as const;
 
 /**
  * L'ELENCO DEI TICKET DI UN PROGETTO (22 set 2026, hub di progetto, design
@@ -57,7 +54,8 @@ export function ProjectTicketsScreen({ navigation, route }: NativeStackScreenPro
   const [filter, setFilter] = useState<TicketFilterKey>("open");
 
   const query = useQuery({
-    queryKey: projectTicketsKey(projectId, filter),
+    // Sotto il prefisso `["tickets"]`: vedi il docblock di `ticketKeys`.
+    queryKey: ticketKeys.list(projectId, filter),
     queryFn: () => {
       if (!client) throw new Error("ProjectTicketsScreen richiede un client autenticato");
       // `all` non manda nessuno stato: il server senza filtro torna TUTTO,

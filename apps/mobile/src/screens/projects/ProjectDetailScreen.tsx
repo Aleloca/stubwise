@@ -14,7 +14,9 @@ import { PulseIndicator } from "../../components/PulseIndicator";
 import { HubSection, type HubSectionState } from "../../components/projects/HubSection";
 import { ProjectGroup } from "../../components/projects/ProjectGroup";
 import type { ProjectGroupRowProps } from "../../components/projects/ProjectRowsCard";
+import { backlogKeys } from "../../lib/backlog-mutations";
 import { OPEN_TICKET_STATUSES } from "../../lib/project-tickets";
+import { inboxKeys, ticketKeys } from "../../lib/query-keys";
 import { ticketHeading } from "../../lib/ticket-labels";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { Skeleton } from "../../components/Skeleton";
@@ -36,16 +38,32 @@ const CONTENT_BASE_BOTTOM_PADDING = 40;
 const HUB_PREVIEW_LIMIT = 2;
 
 /**
- * Le chiavi di query delle ANTEPRIME dell'hub. Distinte da quelle delle
- * schermate piene (`projectTicketsKey`, `projectInboxKey`,
- * `backlogKeys.list`) perché chiedono un `limit` diverso: la stessa chiave
- * farebbe servire due pagine di lunghezza diversa dalla stessa cache, e la
- * schermata piena mostrerebbe due righe.
+ * Le chiavi di query delle ANTEPRIME dell'hub.
+ *
+ * Sono DISTINTE da quelle delle schermate piene (`ticketKeys.list`,
+ * `backlogKeys.list`, `projectInboxKey`) perché chiedono un `limit` diverso:
+ * la stessa chiave farebbe servire una pagina da due righe alla schermata
+ * intera.
+ *
+ * ⚠️ **Ma stanno sotto i prefissi ESISTENTI — `["tickets"]`, `["backlog"]`,
+ * `["inbox"]` — e quella è la parte che conta.** Non è un modo di
+ * raggruppare: è ciò che le fa invalidare insieme al resto, da ogni
+ * mutazione di oggi e da quelle che verranno. In un namespace proprio
+ * (`["projects","hub",…]`, com'erano nate) nessuna invalidazione le
+ * raggiungeva: questa schermata resta MONTATA sotto, nello stack nativo,
+ * mentre si è nella schermata figlia, e l'app non ha refetch-on-focus da
+ * nessuna parte — si tornava indietro dopo aver convertito una voce o
+ * risposto a una proposta e si vedeva il numero vecchio. `staleTime` non
+ * salva: una query stale rifetcha su un EVENTO, e tornare indietro senza
+ * rimontare non è un evento.
+ *
+ * Chi le sposta «per ordine» sotto un namespace `projects` riapre quel
+ * difetto.
  */
 const hubKeys = {
-  tickets: (projectId: string) => ["projects", "hub", "tickets", projectId] as const,
-  backlog: (projectId: string) => ["projects", "hub", "backlog", projectId] as const,
-  inbox: (projectId: string) => ["projects", "hub", "inbox", projectId] as const,
+  tickets: (projectId: string) => ticketKeys.hub(projectId),
+  backlog: (projectId: string) => [...backlogKeys.all, "list", "hub", projectId] as const,
+  inbox: (projectId: string) => [...inboxKeys.all, "list", "hub", projectId] as const,
 };
 
 type WaitingForOthersItem = Reader<ProjectPulseSummary>["waitingForOthers"][number];

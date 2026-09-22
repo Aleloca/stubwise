@@ -9,14 +9,22 @@ import { GhostButton } from "../../components/GhostButton";
 import { InboxCard } from "../../components/inbox/InboxCard";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { Skeleton } from "../../components/Skeleton";
+import { inboxKeys } from "../../lib/query-keys";
 import { colors } from "../../theme/tokens";
 import { fontFamily } from "../../theme/typography";
 
 /** Vedi `InboxScreen.tsx` per il perché di una costante invece di leggere `styles.list.paddingBottom`. */
 const CONTENT_BASE_BOTTOM_PADDING = 40;
 
-/** Chiave di query delle notifiche APERTE del viewer su un progetto. */
-export const projectInboxKey = (projectId: string) => ["inbox", "list", "project", projectId] as const;
+/**
+ * Chiave di query delle notifiche APERTE del viewer su un progetto.
+ *
+ * Costruita DA `inboxKeys.all` e non scritta a mano: è ciò che la fa
+ * invalidare da ogni decisione d'inbox, senza che quelle mutazioni debbano
+ * conoscerla. Vedi il docblock di `ticketKeys` per il perché questa è la
+ * forma giusta e un namespace proprio no.
+ */
+export const projectInboxKey = (projectId: string) => [...inboxKeys.all, "list", "project", projectId] as const;
 
 /**
  * LE NOTIFICHE DEL VIEWER SU UN PROGETTO (22 set 2026, hub di progetto,
