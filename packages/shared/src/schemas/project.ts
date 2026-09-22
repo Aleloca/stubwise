@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { handledBySchema } from "./notification.js";
 import { milestoneStatusSchema } from "./milestone.js";
+import { ticketPrioritySchema, ticketTypeSchema } from "./ticket.js";
 
 export const gitProviderKindSchema = z.enum(["bitbucket", "github"]);
 export type GitProviderKind = z.infer<typeof gitProviderKindSchema>;
@@ -204,6 +205,36 @@ export const pulseWaitingKindSchema = z.enum(["question", "plan_approval"]);
 export type PulseWaitingKind = z.infer<typeof pulseWaitingKindSchema>;
 
 /**
+ * ⚠️ **I TRE CAMPI DI IDENTIFICAZIONE DEL TICKET — `priority`, `type`,
+ * `createdAt` — SONO `.optional()` IN TUTTI E CINQUE GLI ITEM DEL POLSO, E
+ * NON VANNO RESI OBBLIGATORI (22 set 2026).** Il ragionamento sta qui una
+ * volta sola; gli altri quattro item ci rimandano.
+ *
+ * CLAUDE.md, «Verso l'app mobile, solo cambi ADDITIVI»: l'app si aggiorna
+ * dagli store, quindi un'app NUOVA può parlare con un server più VECCHIO (un
+ * rollback, o un'istanza self-hosted non aggiornata) che questi campi non li
+ * manda.
+ *
+ * **Qui il danno di un campo obbligatorio è massimo, e non è ovvio**: questi
+ * campi stanno DENTRO gli elementi di un array (`stalled: z.array(...)` e le
+ * sue quattro sorelle). Un `priority` obbligatorio che il server non manda
+ * non farebbe degradare *una riga*: farebbe fallire il parse dell'elemento,
+ * quindi dell'array, quindi dell'INTERO {@link projectPulseSummarySchema} —
+ * e la schermata Progetti resterebbe **vuota su ogni telefono**. È la stessa
+ * famiglia del guasto che il `.default([])` di `stalled` documenta un livello
+ * più in fuori, ma un livello più in dentro, dove nessun default può
+ * salvarla.
+ *
+ * `.optional()` e NON `.default(...)`: per una priorità non esiste un neutro
+ * onesto — un `"medium"` inventato dallo schema sarebbe un'affermazione falsa
+ * su un ticket che potrebbe essere urgente. L'assenza si rende come assenza
+ * (la riga mostra i pezzi che ha, `#27 · bug`), mai con un segnaposto.
+ *
+ * C'è un test che parsa un polso i cui item non hanno nessuno dei tre
+ * (`project.test.ts` accanto).
+ *
+ * ---
+ *
  * Voce di `waitingForYou`: il viewer PUÒ agire. `notificationId` è la riga
  * d'inbox su cui farlo (stessa identità di `/api/inbox/:id/actions`).
  */
@@ -213,6 +244,9 @@ export const pulseWaitingForYouItemSchema = z.object({
   ticketNumber: z.number().int(),
   title: z.string(),
   notificationId: z.uuid(),
+  priority: ticketPrioritySchema.optional(),
+  type: ticketTypeSchema.optional(),
+  createdAt: z.iso.datetime().optional(),
 });
 export type PulseWaitingForYouItem = z.infer<typeof pulseWaitingForYouItemSchema>;
 
@@ -240,6 +274,10 @@ export const pulseWaitingForOthersItemSchema = z.object({
   ticketNumber: z.number().int(),
   title: z.string(),
   who: pulseWaitingWhoSchema,
+  /** `.optional()` — vedi {@link pulseWaitingForYouItemSchema}. */
+  priority: ticketPrioritySchema.optional(),
+  type: ticketTypeSchema.optional(),
+  createdAt: z.iso.datetime().optional(),
 });
 export type PulseWaitingForOthersItem = z.infer<typeof pulseWaitingForOthersItemSchema>;
 
@@ -251,6 +289,10 @@ export const pulseRunningItemSchema = z.object({
   // Calcolato al momento della richiesta (non un dato stabile da mettere in
   // cache lato client oltre la sessione in cui è arrivato).
   sinceMinutes: z.number().int().min(0),
+  /** `.optional()` — vedi {@link pulseWaitingForYouItemSchema}. */
+  priority: ticketPrioritySchema.optional(),
+  type: ticketTypeSchema.optional(),
+  createdAt: z.iso.datetime().optional(),
 });
 export type PulseRunningItem = z.infer<typeof pulseRunningItemSchema>;
 
@@ -306,6 +348,19 @@ export const pulseStalledItemSchema = z.object({
   title: z.string(),
   stalledSince: z.iso.datetime(),
   reason: pulseStalledReasonSchema,
+  /**
+   * `.optional()` — vedi {@link pulseWaitingForYouItemSchema}.
+   *
+   * ⚠️ `createdAt` è l'ETÀ del ticket, `stalledSince` è l'ultimo MOVIMENTO:
+   * due date diverse sulla stessa voce, e non sono intercambiabili. Chi le
+   * rende tenga a ciascuna la sua parola — «aperto …» per l'una, i giorni di
+   * fermo col motivo per l'altra: è il difetto corretto sul web il 21
+   * settembre (`ticket-row.tsx` mostrava `createdAt` dove si leggeva «ultima
+   * attività»), e un numero nudo lo riaprirebbe.
+   */
+  priority: ticketPrioritySchema.optional(),
+  type: ticketTypeSchema.optional(),
+  createdAt: z.iso.datetime().optional(),
 });
 export type PulseStalledItem = z.infer<typeof pulseStalledItemSchema>;
 
@@ -342,6 +397,10 @@ export const pulseWaitingForMergeItemSchema = z.object({
   title: z.string(),
   prUrl: z.string(),
   canMerge: z.boolean(),
+  /** `.optional()` — vedi {@link pulseWaitingForYouItemSchema}. */
+  priority: ticketPrioritySchema.optional(),
+  type: ticketTypeSchema.optional(),
+  createdAt: z.iso.datetime().optional(),
 });
 export type PulseWaitingForMergeItem = z.infer<typeof pulseWaitingForMergeItemSchema>;
 

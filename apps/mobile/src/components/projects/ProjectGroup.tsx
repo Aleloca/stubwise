@@ -4,6 +4,16 @@ import { colors, radii } from "../../theme/tokens";
 import { fontFamily } from "../../theme/typography";
 
 export interface ProjectGroupRowProps {
+  /**
+   * Riga grigia mono SOPRA il titolo: `#27 · urgente · guasto · aperto 2
+   * mesi` (22 set 2026, design §3). La compone `ticketHeading`
+   * (`lib/ticket-labels.ts`), che omette i pezzi assenti col loro separatore.
+   *
+   * **Opzionale apposta**: le righe che non sono un ticket — «backlog pronto»
+   * è l'unica oggi — restano esattamente com'erano, senza un ramo speciale né
+   * un'intestazione vuota che occupi spazio.
+   */
+  heading?: string;
   /** Testo primario della riga (titolo del ticket, o un riassunto quando non c'è un singolo elemento). */
   title: string;
   /** Testo mono secondario, a destra (stato, ruolo di chi sblocca, azione…). */
@@ -34,16 +44,27 @@ export function ProjectGroup({ label, amber = false, rows }: { label: string; am
       <SectionLabel style={amber ? styles.labelAmber : undefined}>{label}</SectionLabel>
       <View style={styles.card}>
         {rows.map((row, index) => {
+          // Il titolo e il `trailing` restano sulla STESSA riga, dove sono
+          // sempre stati; l'intestazione si aggiunge sopra, dentro lo stesso
+          // blocco. Nessuna riga in più rispetto a prima per chi non ha un
+          // heading — il `gap` della colonna non si applica a un figlio solo.
           const content = (
-            <View style={[styles.row, index > 0 && styles.rowSeparator]}>
-              <Text style={styles.rowTitle} numberOfLines={1}>
-                {row.title}
-              </Text>
-              {row.trailing !== undefined && (
-                <Text style={[styles.rowTrailing, row.trailingTone === "amber" && styles.rowTrailingAmber]}>
-                  {row.trailing}
+            <View style={[styles.rowBlock, index > 0 && styles.rowSeparator]}>
+              {row.heading !== undefined && (
+                <Text style={styles.rowHeading} numberOfLines={1} testID={row.testID ? `${row.testID}-heading` : undefined}>
+                  {row.heading}
                 </Text>
               )}
+              <View style={styles.row}>
+                <Text style={styles.rowTitle} numberOfLines={1}>
+                  {row.title}
+                </Text>
+                {row.trailing !== undefined && (
+                  <Text style={[styles.rowTrailing, row.trailingTone === "amber" && styles.rowTrailingAmber]}>
+                    {row.trailing}
+                  </Text>
+                )}
+              </View>
             </View>
           );
           if (!row.onPress) {
@@ -78,13 +99,22 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     overflow: "hidden",
   },
+  rowBlock: {
+    gap: 3,
+    justifyContent: "center",
+    minHeight: 44,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
   row: {
     alignItems: "center",
     flexDirection: "row",
     gap: 10,
-    minHeight: 44,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+  },
+  rowHeading: {
+    color: colors.faint,
+    fontFamily: fontFamily.mono,
+    fontSize: 11,
   },
   rowSeparator: {
     borderTopColor: colors.line,

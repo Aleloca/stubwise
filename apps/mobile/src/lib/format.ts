@@ -126,3 +126,57 @@ export function searchMailTime(iso: string, now: number = Date.now()): string {
   const month = String(at.getMonth() + 1).padStart(2, "0");
   return `${day}/${month} ${time}`;
 }
+
+/**
+ * Da quanto un ticket è APERTO, nella forma della riga grigia del dettaglio
+ * progetto: «aperto 8 g fa», «aperto 2 mesi» (22 set 2026).
+ *
+ * ⚠️ **Perché non è un bucket in più su {@link relativeTimeCompact}.** Quella
+ * si ferma ai giorni, quindi un ticket di due mesi leggerebbe «63 g» — ed
+ * estenderla sarebbe la scorciatoia sbagliata: **la usa l'inbox**, e ogni
+ * card più vecchia di due mesi cambierebbe testo su una superficie che
+ * nessuno ha chiesto di toccare. È lo stesso precedente di
+ * {@link searchMailTime}, scritta nuova il 16 settembre per non piegare
+ * `relativeTimeCompact` alla riga di ricerca: quando una superficie nuova
+ * vuole una forma diversa, la forma nuova nasce accanto, non dentro.
+ *
+ * Chi un domani volesse fonderle deve prima rispondere a questo: cosa
+ * dovrebbe leggere una card d'inbox di tre mesi fa?
+ *
+ * Ritorna un discriminante e non una stringa composta, come le sue vicine:
+ * l'unità è testo utente e la interpola il componente, così la funzione resta
+ * pura e senza `t()`. `now` iniettabile per i test.
+ *
+ * Il mese è di 30 giorni tondi. Non è una data da calendario — è
+ * un'indicazione di anzianità, e «2 mesi» per 61 giorni o per 67 dice la
+ * stessa cosa utile a chi guarda un elenco di ticket fermi.
+ *
+ * ⚠️ **`null` per una data ILLEGGIBILE, e non un ripiego su «oggi»**: chi
+ * rende la riga OMETTE il pezzo, come fa già per un campo assente. «Aperto
+ * oggi» su un ticket di due mesi sarebbe un'affermazione falsa, ed è la
+ * stessa ragione per cui `priority` nello schema del polso è `.optional()` e
+ * non `.default("medium")` — un valore inventato è peggio di un'assenza
+ * (design §4).
+ *
+ * È diverso dalla guardia anti clock-skew qui sotto, che invece «oggi» lo
+ * dice per davvero: lì la data è leggibile e il futuro è un orologio sfasato
+ * di poco, quindi il ticket È di oggi. Qui la data non c'è proprio.
+ */
+export type OpenedSince = { kind: "today" } | { kind: "days" | "months"; count: number };
+
+const OPENED_MONTH_THRESHOLD_DAYS = 60;
+
+export function openedSince(iso: string, now: number = Date.now()): OpenedSince | null {
+  const at = new Date(iso).getTime();
+  // Una data illeggibile non produce né «NaN g» né «aperto oggi»: non produce
+  // NIENTE, e chi rende la riga salta il pezzo (vedi il docblock sopra).
+  if (Number.isNaN(at)) return null;
+  // Stessa guardia anti clock-skew delle altre funzioni del modulo: un
+  // orologio sfasato non deve produrre un numero negativo.
+  const elapsed = Math.max(0, now - at);
+  const days = Math.floor(elapsed / DAY);
+  if (days < 1) return { kind: "today" };
+  if (days <= OPENED_MONTH_THRESHOLD_DAYS) return { kind: "days", count: days };
+  return { kind: "months", count: Math.floor(days / 30) };
+}
+

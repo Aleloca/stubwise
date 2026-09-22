@@ -12,6 +12,7 @@ import { useAuth } from "../../app/providers";
 import { GhostButton } from "../../components/GhostButton";
 import { PulseIndicator } from "../../components/PulseIndicator";
 import { ProjectGroup } from "../../components/projects/ProjectGroup";
+import { ticketHeading } from "../../lib/ticket-labels";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { Skeleton } from "../../components/Skeleton";
 import { pulseLineFor } from "../../lib/pulse-line";
@@ -135,6 +136,25 @@ function ProjectDetailBody({
   const { t } = useTranslation();
   const line = pulseLineFor(summary, viewerId);
 
+  // L'ORA della lettura, una sola per tutta la schermata: l'età dei ticket e
+  // i giorni di fermo si contano da qui. I giorni li conta il CLIENT, non il
+  // server — un conteggio calcolato a monte invecchia dentro una risposta in
+  // cache (vedi `lib/stalled.ts`).
+  const now = new Date();
+
+  /**
+   * La riga grigia di testa di una voce che è un TICKET. Un helper solo,
+   * usato da tutti e cinque i secchi: i punti di costruzione sono tanti, e
+   * l'intestazione dimenticata in uno non farebbe rumore — semplicemente non
+   * comparirebbe su quel secchio.
+   */
+  const headingFor = (item: {
+    ticketNumber: number;
+    priority?: Parameters<typeof ticketHeading>[0]["priority"];
+    type?: Parameters<typeof ticketHeading>[0]["type"];
+    createdAt?: string;
+  }) => ticketHeading(item, t, now.getTime());
+
   // ⚠️ `canMerge` arriva dal SERVER, calcolato col ruolo: qui si legge, non si
   // deduce. Un maintainer vede la PR fra le cose che aspettano LUI, un
   // operatore fra quelle che aspettano altri — stessi dati, due posti. È il
@@ -147,6 +167,7 @@ function ProjectDetailBody({
   // `ticketId` — un ticket che tocca due repo ha due PR, e sono due merge.
   const mergeRow = (item: (typeof summary.waitingForMerge)[number], mine: boolean) => ({
     rowKey: `merge-${item.prUrl}`,
+    heading: headingFor(item),
     title: item.title,
     trailing: mine
       ? t("mobile.projects.detail.waitingMergeArrow")
@@ -158,6 +179,7 @@ function ProjectDetailBody({
   const waitingRows = [
     ...summary.waitingForYou.map((item) => ({
       rowKey: `you-${item.ticketId}`,
+      heading: headingFor(item),
       title: item.title,
       trailing: t("mobile.projects.detail.waitingYouArrow"),
       trailingTone: "amber" as const,
@@ -166,6 +188,7 @@ function ProjectDetailBody({
     ...mergeForYou.map((item) => mergeRow(item, true)),
     ...summary.waitingForOthers.map((item) => ({
       rowKey: `other-${item.ticketId}`,
+      heading: headingFor(item),
       title: item.title,
       trailing: t(whoArrowKey(item.who.kind)),
       trailingTone: "muted" as const,
@@ -176,6 +199,7 @@ function ProjectDetailBody({
 
   const runningRows = summary.running.map((item) => ({
     rowKey: `running-${item.ticketId}`,
+    heading: headingFor(item),
     title: item.title,
     trailing: t("mobile.projects.detail.running"),
     trailingTone: "muted" as const,
@@ -186,9 +210,15 @@ function ProjectDetailBody({
   // fermo (il server: è parte del significato, non una comodità), quindi qui
   // non si riordina. I GIORNI si contano adesso, dalla data: vedi
   // `lib/stalled.ts` per il perché non li manda il server.
-  const now = new Date();
+  //
+  // ⚠️ DUE date su questa voce, e ognuna tiene la sua parola: l'ETÀ sta
+  // nell'intestazione («aperto …»), il FERMO qui a destra coi giorni e il
+  // motivo. È il difetto corretto sul web il 21 settembre — `createdAt`
+  // mostrato dove si leggeva «ultima attività» — e toglierne una per far
+  // stare tutto su una riga lo riaprirebbe.
   const stalledRows = summary.stalled.map((item) => ({
     rowKey: `stalled-${item.ticketId}`,
+    heading: headingFor(item),
     title: item.title,
     trailing: t("mobile.projects.detail.stalledTrailing", {
       days: stalledDays(item.stalledSince, now),

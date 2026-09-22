@@ -1,4 +1,4 @@
-import { clockTime, elapsedMinutes, relativeTimeCompact, searchMailTime, shortDate } from "./format";
+import { clockTime, elapsedMinutes, openedSince, relativeTimeCompact, searchMailTime, shortDate } from "./format";
 
 const NOW = new Date("2026-09-02T10:00:00.000Z").getTime();
 
@@ -117,3 +117,53 @@ describe("searchMailTime", () => {
     expect(searchMailTime(new Date("2025-09-16T17:45:00").toISOString(), NOW)).toBe("16/09 17:45");
   });
 });
+
+describe("openedSince — l'età di un ticket, non la freschezza di una card", () => {
+  const ORA = new Date("2026-09-22T12:00:00.000Z").getTime();
+  const giorniFa = (n: number) => new Date(ORA - n * 24 * 60 * 60 * 1000).toISOString();
+
+  it("meno di un giorno: «oggi», non «0 g»", () => {
+    expect(openedSince(new Date(ORA - 3 * 60 * 60 * 1000).toISOString(), ORA)).toEqual({ kind: "today" });
+  });
+
+  it("dentro i due mesi conta i giorni", () => {
+    expect(openedSince(giorniFa(8), ORA)).toEqual({ kind: "days", count: 8 });
+    expect(openedSince(giorniFa(60), ORA)).toEqual({ kind: "days", count: 60 });
+  });
+
+  it("il confine giorni→mesi è a 60: 61 giorni sono «2 mesi»", () => {
+    // Il bucket è ciò che distingue questa funzione da `relativeTimeCompact`,
+    // che a 61 giorni direbbe «61 g» — ed è il motivo per cui è una funzione
+    // NUOVA e non un ramo in più là dentro: quella la usa l'inbox.
+    expect(openedSince(giorniFa(61), ORA)).toEqual({ kind: "months", count: 2 });
+    expect(openedSince(giorniFa(95), ORA)).toEqual({ kind: "months", count: 3 });
+  });
+
+  it("`relativeTimeCompact` NON è cambiata: a 61 giorni dice ancora «61 g»", () => {
+    // La prova che l'inbox non è stata toccata. Se un domani qualcuno
+    // aggiungesse il bucket «mesi» là dentro «per coerenza», questo test lo
+    // direbbe — ed è esattamente ciò per cui esiste.
+    expect(relativeTimeCompact(giorniFa(61), ORA)).toEqual({ kind: "days", count: 61 });
+  });
+
+  it("una data nel FUTURO non produce un numero negativo", () => {
+    // Orologi sfasati fra telefono e server: la guardia che tutte le funzioni
+    // di questo modulo hanno.
+    expect(openedSince(new Date(ORA + 5 * 24 * 60 * 60 * 1000).toISOString(), ORA)).toEqual({ kind: "today" });
+  });
+
+  it("una data illeggibile non produce NIENTE — nemmeno «oggi»", () => {
+    // `null` e non `{kind:"today"}`: chi rende la riga omette il pezzo. Un
+    // ripiego su «oggi» sarebbe un'affermazione FALSA su un ticket che
+    // potrebbe essere di due mesi — la stessa ragione per cui `priority` è
+    // `.optional()` e non `.default("medium")`.
+    expect(openedSince("non-una-data", ORA)).toBeNull();
+  });
+
+  it("il futuro invece «oggi» lo dice per davvero: è un orologio sfasato, non un dato mancante", () => {
+    // I due rami non sono la stessa cosa, e il test lo fissa: qui la data è
+    // LEGGIBILE, quindi «aperto oggi» è vero.
+    expect(openedSince(new Date(ORA + 5 * 60 * 1000).toISOString(), ORA)).toEqual({ kind: "today" });
+  });
+});
+

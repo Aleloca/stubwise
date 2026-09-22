@@ -17,6 +17,7 @@ import {
   type ActorRole,
 } from "./actions.js";
 import type { NotificationKind } from "./format.js";
+import type { TicketPriority as PulseTicketPriority, TicketType as PulseTicketType } from "@stubwise/shared";
 import { isProjectIdle, PULSE_BLOCKING_JOB_STATUSES } from "./project-signals.js";
 
 /**
@@ -52,12 +53,38 @@ export type PulseWaitingKind = "question" | "plan_approval";
  * accetta, così l'app non ha bisogno di una seconda rotta per "rispondi"
  * o "approva": riusa quella che esiste.
  */
-export interface PulseWaitingForYouItem {
+export interface PulseWaitingForYouItem extends PulseTicketIdentity {
   kind: PulseWaitingKind;
   ticketId: string;
   ticketNumber: number;
   title: string;
   notificationId: string;
+}
+
+/**
+ * I tre campi che IDENTIFICANO il ticket di una voce del polso (22 set 2026):
+ * priorità, tipo ed età. Li portano TUTTE e cinque le voci — li produce
+ * {@link ticketIdentity}, una volta sola.
+ *
+ * ⚠️ **Obbligatori QUI, `.optional()` lato schema pubblico**
+ * (`pulseWaitingForYouItemSchema` in `@stubwise/shared`), e non è
+ * un'incoerenza da uniformare: questo è il tipo di ciò che il server
+ * PRODUCE — e lo produce sempre, perché le tre colonne le legge dalla stessa
+ * riga `tickets` che sta già leggendo. Lo schema pubblico descrive invece ciò
+ * che un client può RICEVERE, dove l'assenza è un caso normale: un'app
+ * aggiornata che parla con un server più vecchio. Rendere opzionali anche
+ * questi permetterebbe a un secchio di dimenticarli in silenzio, che è
+ * esattamente ciò che l'helper esiste per impedire.
+ *
+ * `createdAt` è l'ETÀ del ticket, e non va confusa con l'ultimo MOVIMENTO
+ * (`PulseStalledItem.stalledSince`): sulla riga dell'app convivono, ciascuna
+ * con la sua parola.
+ */
+export interface PulseTicketIdentity {
+  priority: PulseTicketPriority;
+  type: PulseTicketType;
+  /** ISO 8601, come ogni altra data di questo modulo. */
+  createdAt: string;
 }
 
 /**
@@ -77,7 +104,7 @@ export interface PulseWaitingForYouItem {
 export type PulseWaitingWho = { kind: "requester" } | { kind: "maintainer" };
 
 /** Voce di `waitingForOthers`: il viewer non può agire lui stesso su questa. */
-export interface PulseWaitingForOthersItem {
+export interface PulseWaitingForOthersItem extends PulseTicketIdentity {
   kind: PulseWaitingKind;
   ticketId: string;
   ticketNumber: number;
@@ -86,7 +113,7 @@ export interface PulseWaitingForOthersItem {
 }
 
 /** Voce di `running`: un job che l'agente sta eseguendo ORA (non solo in coda). */
-export interface PulseRunningItem {
+export interface PulseRunningItem extends PulseTicketIdentity {
   ticketId: string;
   ticketNumber: number;
   title: string;
@@ -112,7 +139,7 @@ export type PulseStalledReason =
   | "declared_no_work";
 
 /** Voce di `stalled`: un ticket che non si muove, e da quando. */
-export interface PulseStalledItem {
+export interface PulseStalledItem extends PulseTicketIdentity {
   ticketId: string;
   ticketNumber: number;
   title: string;
@@ -131,7 +158,7 @@ export interface PulseStalledItem {
  * calcolato QUI, col ruolo del viewer, mai dedotto dal client — vedi il
  * docblock di `pulseWaitingForMergeItemSchema` in `@stubwise/shared`.
  */
-export interface PulseWaitingForMergeItem {
+export interface PulseWaitingForMergeItem extends PulseTicketIdentity {
   ticketId: string;
   ticketNumber: number;
   title: string;
@@ -268,6 +295,29 @@ function idleDaysFrom(now: Date, lastActivityAt: Date | null): number {
 }
 
 /**
+ * I tre campi che IDENTIFICANO un ticket in una riga del polso — priorità,
+ * tipo ed età — nella forma che va sul filo (22 set 2026).
+ *
+ * Un helper e non tre `...` ripetuti cinque volte: i punti di costruzione
+ * delle voci sono cinque (due dentro `shared`, poi `running`,
+ * `waitingForMerge`, `stalled`) e dimenticarne uno non fa rumore — il campo
+ * semplicemente non arriva, e `.optional()` lato schema lo lascia passare in
+ * silenzio. Con un helper solo, o ci sono tutti e cinque o non compila.
+ *
+ * `createdAt` è un `timestamptz`, quindi esce ISO come ogni altra data di
+ * questo modulo (`stalledSince` è il precedente). È l'ETÀ del ticket e non
+ * va confusa con l'ultimo MOVIMENTO: vedi il docblock di
+ * `pulseStalledItemSchema`, dove le due convivono.
+ */
+function ticketIdentity(row: {
+  priority: PulseTicketPriority;
+  type: PulseTicketType;
+  createdAt: Date;
+}): PulseTicketIdentity {
+  return { priority: row.priority, type: row.type, createdAt: row.createdAt.toISOString() };
+}
+
+/**
  * Le notifiche del viewer ancorate a uno di questi job, come mappa
  * jobId -> notificationId. Serve SOLO alle voci di `waitingForYou`: le altre
  * non hanno (o non hanno per QUESTO viewer) una riga d'inbox diretta.
@@ -357,6 +407,13 @@ export async function summarizeProject(
         title: tickets.title,
         status: aiJobs.status,
         requestedByUserId: aiJobs.requestedByUserId,
+        // I tre campi di IDENTIFICAZIONE del ticket (22 set 2026): niente
+        // query nuova e nessun join nuovo — questa select `tickets` la sta
+        // già leggendo. Vedi il docblock di `pulseWaitingForYouItemSchema`
+        // per il perché arrivano al client `.optional()`.
+        priority: tickets.priority,
+        type: tickets.type,
+        createdAt: tickets.createdAt,
         // Calcolato IN SQL, non in JS dopo il fetch: evita lo sfasamento fra
         // l'orologio di questo processo e quello del DB. A differenza di
         // `idleDays` (granularità giorni, dove qualche secondo di skew è
@@ -399,6 +456,12 @@ export async function summarizeProject(
         title: tickets.title,
         status: tickets.status,
         updatedAt: tickets.updatedAt,
+        // ⚠️ `createdAt` (l'ETÀ) accanto a `updatedAt` (l'ultimo MOVIMENTO):
+        // due date diverse, e sulla riga dell'app tengono ciascuna la sua
+        // parola. Scambiarle è il difetto corretto sul web il 21 settembre.
+        priority: tickets.priority,
+        type: tickets.type,
+        createdAt: tickets.createdAt,
         hasOpenQuestion: exists(
           db
             .select({ one: sql`1` })
@@ -448,6 +511,9 @@ export async function summarizeProject(
         ticketNumber: tickets.number,
         title: tickets.title,
         prUrl: ticketRepositories.prUrl,
+        priority: tickets.priority,
+        type: tickets.type,
+        createdAt: tickets.createdAt,
       })
       .from(ticketRepositories)
       .innerJoin(tickets, eq(tickets.id, ticketRepositories.ticketId))
@@ -500,6 +566,7 @@ export async function summarizeProject(
       ticketId: row.ticketId,
       ticketNumber: row.ticketNumber,
       title: row.title,
+      ...ticketIdentity(row),
     };
 
     if (canAct) {
@@ -533,6 +600,7 @@ export async function summarizeProject(
       ticketId: row.ticketId,
       ticketNumber: row.ticketNumber,
       title: row.title,
+      ...ticketIdentity(row),
       // `startedAt` è sempre valorizzato per triaging/fixing (`claimNextJob`
       // lo scrive all'atto del claim, e nessuna transizione successiva lo
       // azzera finché il job resta in uno di questi due stati): il fallback a
@@ -574,6 +642,7 @@ export async function summarizeProject(
       title: row.title,
       prUrl: row.prUrl,
       canMerge,
+      ...ticketIdentity(row),
     }));
 
   const jobsByTicket = new Map<string, { status: string; lastActivityAt: Date }[]>();
@@ -603,6 +672,7 @@ export async function summarizeProject(
       ticketId: ticket.ticketId,
       ticketNumber: ticket.ticketNumber,
       title: ticket.title,
+      ...ticketIdentity(ticket),
       stalledSince: lastMovedAt.toISOString(),
       reason: stalledReasonFor({
         ticketStatus: ticket.status,

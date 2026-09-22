@@ -394,6 +394,12 @@ describe("ProjectDetailScreen — brief settimanale", () => {
   // ----------------------------------------------------------------------
 
   /** `stalledSince` a N giorni esatti da adesso: i giorni li conta il client. */
+  /**
+   * Una data di N giorni fa. La usano sia `stalledSince` (l'ultimo MOVIMENTO)
+   * sia `createdAt` (l'ETÀ) — sono due date diverse sulla stessa voce, e i
+   * test che le mettono a valori diversi sono quelli che provano che non si
+   * confondono.
+   */
   function fermoDa(days: number): string {
     return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
   }
@@ -550,4 +556,153 @@ describe("ProjectDetailScreen — brief settimanale", () => {
 
     await waitFor(() => expect(screen.getByText("aspetta te — 1 PR da mergiare")).toBeTruthy());
   });
+
+  // ------------------------------------------------------------------------
+  // LA RIGA GRIGIA DI TESTA (22 set 2026)
+  // ------------------------------------------------------------------------
+
+  test("un ticket fermo mostra `#numero · priorità · tipo · aperto …` sopra il titolo", async () => {
+    const client = makeClient({
+      pulse: jest.fn().mockResolvedValue([
+        summary({
+          stalled: [
+            {
+              ticketId: TICKET_A,
+              ticketNumber: 27,
+              title: "Error: write EPIPE",
+              stalledSince: fermoDa(19),
+              reason: "to_prepare",
+              priority: "urgent",
+              type: "bug",
+              createdAt: fermoDa(8),
+            },
+          ],
+        }),
+      ]),
+    });
+    await renderScreen(client);
+
+    await waitFor(() => expect(screen.getByText("Error: write EPIPE")).toBeTruthy());
+    expect(screen.getByText("#27 · urgente · guasto · aperto 8 g fa")).toBeTruthy();
+  });
+
+  test("oltre i due mesi l'età si dice in mesi, non in giorni", async () => {
+    // È il motivo per cui `openedSince` esiste accanto a
+    // `relativeTimeCompact` invece che dentro: quella direbbe «75 g».
+    const client = makeClient({
+      pulse: jest.fn().mockResolvedValue([
+        summary({
+          stalled: [
+            {
+              ticketId: TICKET_A,
+              ticketNumber: 27,
+              title: "Un ticket vecchio",
+              stalledSince: fermoDa(19),
+              reason: "to_prepare",
+              priority: "high",
+              type: "feature",
+              createdAt: fermoDa(75),
+            },
+          ],
+        }),
+      ]),
+    });
+    await renderScreen(client);
+
+    await waitFor(() => expect(screen.getByText("#27 · alta · richiesta · aperto 2 mesi")).toBeTruthy());
+  });
+
+  test("SERVER PIÙ VECCHIO: senza i tre campi la riga c'è comunque, col numero e il titolo", async () => {
+    // ⚠️ Vale quanto il test qui sopra. I tre campi sono `.optional()` perché
+    // un'app nuova può parlare con un server più vecchio (un rollback,
+    // un'istanza self-hosted indietro): lì l'intestazione deve degradare al
+    // solo `#numero`, non sparire e non mostrare segnaposti.
+    const client = makeClient({
+      pulse: jest.fn().mockResolvedValue([
+        summary({
+          stalled: [
+            {
+              ticketId: TICKET_A,
+              ticketNumber: 27,
+              title: "Error: write EPIPE",
+              stalledSince: fermoDa(19),
+              reason: "to_prepare",
+            },
+          ],
+        }),
+      ]),
+    });
+    await renderScreen(client);
+
+    await waitFor(() => expect(screen.getByText("Error: write EPIPE")).toBeTruthy());
+    expect(screen.getByText("#27")).toBeTruthy();
+  });
+
+  test("un campo che manca non lascia un separatore vuoto", async () => {
+    // `#27 · · guasto` è peggio di `#27 · guasto`: il pezzo assente se ne
+    // porta via il separatore.
+    const client = makeClient({
+      pulse: jest.fn().mockResolvedValue([
+        summary({
+          stalled: [
+            {
+              ticketId: TICKET_A,
+              ticketNumber: 27,
+              title: "Senza priorità",
+              stalledSince: fermoDa(19),
+              reason: "to_prepare",
+              type: "bug",
+            },
+          ],
+        }),
+      ]),
+    });
+    await renderScreen(client);
+
+    await waitFor(() => expect(screen.getByText("#27 · guasto")).toBeTruthy());
+  });
+
+  test("le DUE date non si confondono: l'età dice «aperto», il fermo dice i giorni col motivo", async () => {
+    // ⚠️ È il difetto corretto sul web il 21 settembre, in forma di test:
+    // `createdAt` mostrato dove si leggeva «ultima attività». Qui le due
+    // convivono sulla stessa voce, e ognuna tiene la sua parola — un numero
+    // nudo le renderebbe scambiabili.
+    const client = makeClient({
+      pulse: jest.fn().mockResolvedValue([
+        summary({
+          stalled: [
+            {
+              ticketId: TICKET_A,
+              ticketNumber: 27,
+              title: "Due date",
+              stalledSince: fermoDa(19),
+              reason: "to_prepare",
+              priority: "urgent",
+              type: "bug",
+              createdAt: fermoDa(75),
+            },
+          ],
+        }),
+      ]),
+    });
+    await renderScreen(client);
+
+    // L'ETÀ, in alto, con la sua parola.
+    await waitFor(() => expect(screen.getByText("#27 · urgente · guasto · aperto 2 mesi")).toBeTruthy());
+    // Il FERMO, a destra, coi giorni e il motivo — dove è sempre stato.
+    expect(screen.getByText("19g · da preparare")).toBeTruthy();
+  });
+
+  test("la riga «backlog pronto» NON è un ticket: nessuna intestazione", async () => {
+    // L'intestazione è opzionale apposta: una voce che non è un ticket non ha
+    // un numero da mostrare, e un ramo speciale non serve.
+    const client = makeClient({
+      pulse: jest.fn().mockResolvedValue([summary({ backlogReadyCount: 3 })]),
+    });
+    await renderScreen(client);
+
+    await waitFor(() => expect(screen.getByText("3 voci pronte alla conversione")).toBeTruthy());
+    expect(screen.queryByText(/^#/)).toBeNull();
+  });
 });
+

@@ -80,6 +80,10 @@ describe("summarizeProject", () => {
        * con `db.update(...)` perché la colonna ha un `$onUpdate` che
        * rimetterebbe "adesso". */
       updatedAt?: Date;
+      /** I due campi di identificazione che il polso riporta (22 set 2026).
+       * Default `medium`/`bug` come prima, così i test esistenti non cambiano. */
+      priority?: "low" | "medium" | "high" | "urgent";
+      type?: "bug" | "feature" | "task" | "feedback" | "review";
     } = {},
   ): Promise<{ ticketId: string; number: number }> {
     const number = opts.number ?? 1;
@@ -89,8 +93,8 @@ describe("summarizeProject", () => {
         projectId,
         number,
         title: opts.title ?? `Ticket ${number}`,
-        type: "bug",
-        priority: "medium",
+        type: opts.type ?? "bug",
+        priority: opts.priority ?? "medium",
         source: "manual",
         ...(opts.status ? { status: opts.status } : {}),
       })
@@ -208,6 +212,10 @@ describe("summarizeProject", () => {
         ticketNumber: number,
         title: "Domanda aperta",
         notificationId,
+        priority: "medium",
+        type: "bug",
+        createdAt: expect.any(String),
+
       },
     ]);
     expect(summary?.waitingForOthers).toEqual([]);
@@ -263,6 +271,10 @@ describe("summarizeProject", () => {
         ticketNumber: number,
         title: "Domanda aperta",
         notificationId,
+        priority: "medium",
+        type: "bug",
+        createdAt: expect.any(String),
+
       },
     ]);
   });
@@ -289,6 +301,10 @@ describe("summarizeProject", () => {
         ticketNumber: number,
         title: "Domanda di un altro",
         who: { kind: "requester" },
+        priority: "medium",
+        type: "bug",
+        createdAt: expect.any(String),
+
       },
     ]);
   });
@@ -318,6 +334,10 @@ describe("summarizeProject", () => {
         ticketNumber: number,
         title: "Piano da approvare",
         notificationId,
+        priority: "medium",
+        type: "bug",
+        createdAt: expect.any(String),
+
       },
     ]);
     expect(summary?.waitingForOthers).toEqual([]);
@@ -348,6 +368,10 @@ describe("summarizeProject", () => {
         ticketNumber: number,
         title: "Piano da approvare",
         who: { kind: "maintainer" },
+        priority: "medium",
+        type: "bug",
+        createdAt: expect.any(String),
+
       },
     ]);
   });
@@ -536,6 +560,10 @@ describe("summarizeProject", () => {
         ticketId,
         ticketNumber: 7,
         title: "Da preparare",
+        priority: "medium",
+        type: "bug",
+        createdAt: expect.any(String),
+
         stalledSince: expect.any(String),
         reason: "to_prepare",
       },
@@ -662,6 +690,10 @@ describe("summarizeProject", () => {
         title: "Ticket 20",
         prUrl: "https://example.com/pr/20",
         canMerge: true,
+        priority: "medium",
+        type: "bug",
+        createdAt: expect.any(String),
+
       },
     ]);
   });
@@ -724,6 +756,110 @@ describe("summarizeProject", () => {
       perIlMaintainer?.waitingForMerge[0]?.ticketId,
     );
   });
+
+  // ------------------------------------------------------------------------
+  // I TRE CAMPI DI IDENTIFICAZIONE (22 set 2026)
+  // ------------------------------------------------------------------------
+  //
+  // ⚠️ Un caso per CIASCUNO dei cinque secchi, non solo per uno. I punti di
+  // costruzione sono cinque e diversi fra loro, e dimenticarne uno non fa
+  // rumore: i campi sono `.optional()` lato schema, quindi un secchio che non
+  // li porta si parsa lo stesso e la riga esce senza intestazione — nessun
+  // errore, solo un'informazione che manca su una schermata sola.
+
+  it("`stalled`: priorità, tipo e data di apertura arrivano dal ticket", async () => {
+    const projectId = await seedProject();
+    const viewerId = await seedUser("member");
+    await seedTicketRow(projectId, {
+      number: 27,
+      title: "Error: write EPIPE",
+      priority: "urgent",
+      type: "bug",
+      updatedAt: new Date("2026-08-01T10:00:00.000Z"),
+    });
+
+    const summary = await summarizeProject(db, projectId, { userId: viewerId, role: "member" });
+
+    const voce = summary?.stalled[0];
+    expect(voce?.ticketNumber).toBe(27);
+    expect(voce?.priority).toBe("urgent");
+    expect(voce?.type).toBe("bug");
+    // ISO come ogni altra data del modulo, non un `Date` grezzo che
+    // `JSON.stringify` serializzerebbe per conto suo.
+    expect(voce?.createdAt).toEqual(expect.any(String));
+    expect(new Date(voce!.createdAt!).toISOString()).toBe(voce!.createdAt);
+  });
+
+  it("`stalled`: l'ETÀ e l'ultimo MOVIMENTO sono due date diverse, e nessuna copia l'altra", async () => {
+    // È il difetto corretto sul web il 21 settembre, in forma di test: un
+    // ticket aperto due mesi fa e toccato ieri non è «fermo da due mesi». Se
+    // qualcuno scrivesse `createdAt` dove va `stalledSince` (o viceversa)
+    // questo test lo direbbe — un `toEqual` sui due campi separatamente non
+    // basterebbe, perché passerebbe anche se fossero uguali per caso.
+    const projectId = await seedProject();
+    const viewerId = await seedUser("member");
+    const { ticketId } = await seedTicketRow(projectId, {
+      number: 28,
+      updatedAt: new Date("2026-09-20T10:00:00.000Z"),
+    });
+
+    const summary = await summarizeProject(db, projectId, { userId: viewerId, role: "member" });
+
+    const voce = summary?.stalled.find((item) => item.ticketId === ticketId);
+    expect(voce?.stalledSince).toBe("2026-09-20T10:00:00.000Z");
+    expect(voce?.createdAt).not.toBe(voce?.stalledSince);
+  });
+
+  it("`waitingForYou` e `waitingForOthers`: li portano entrambi", async () => {
+    const projectId = await seedProject();
+    const viewerId = await seedUser("member");
+    const altroId = await seedUser("member");
+
+    const mio = await seedTicketRow(projectId, { number: 31, priority: "high", type: "feature" });
+    const jobMio = await seedAiJob({ ticketId: mio.ticketId, status: "awaiting_input", requestedByUserId: viewerId });
+    await seedNotification({ userId: viewerId, jobId: jobMio, kind: "job.awaiting_input" });
+
+    const altrui = await seedTicketRow(projectId, { number: 32, priority: "low", type: "task" });
+    await seedAiJob({ ticketId: altrui.ticketId, status: "awaiting_input", requestedByUserId: altroId });
+
+    const summary = await summarizeProject(db, projectId, { userId: viewerId, role: "member" });
+
+    expect(summary?.waitingForYou[0]?.priority).toBe("high");
+    expect(summary?.waitingForYou[0]?.type).toBe("feature");
+    expect(summary?.waitingForOthers[0]?.priority).toBe("low");
+    expect(summary?.waitingForOthers[0]?.type).toBe("task");
+  });
+
+  it("`running`: li porta", async () => {
+    const projectId = await seedProject();
+    const viewerId = await seedUser("member");
+    const { ticketId } = await seedTicketRow(projectId, { number: 33, priority: "medium", type: "review" });
+    await seedAiJob({ ticketId, status: "fixing", startedAt: new Date() });
+
+    const summary = await summarizeProject(db, projectId, { userId: viewerId, role: "member" });
+
+    expect(summary?.running[0]?.priority).toBe("medium");
+    expect(summary?.running[0]?.type).toBe("review");
+    expect(summary?.running[0]?.createdAt).toEqual(expect.any(String));
+  });
+
+  it("`waitingForMerge`: li porta", async () => {
+    const { projectId, repositoryId } = await seedProjectWithRepo();
+    const viewerId = await seedUser("admin");
+    const { ticketId } = await seedTicketRow(projectId, {
+      number: 35,
+      status: "in_review",
+      priority: "high",
+      type: "feedback",
+    });
+    await seedOpenPr({ ticketId, repositoryId, prUrl: "https://example.com/pr/35" });
+
+    const summary = await summarizeProject(db, projectId, { userId: viewerId, role: "admin" });
+
+    expect(summary?.waitingForMerge[0]?.priority).toBe("high");
+    expect(summary?.waitingForMerge[0]?.type).toBe("feedback");
+    expect(summary?.waitingForMerge[0]?.createdAt).toEqual(expect.any(String));
+  });
 });
 
 /**
@@ -731,6 +867,7 @@ describe("summarizeProject", () => {
  * caso, senza un Postgres davanti. I test sul database qui sopra provano che
  * la funzione è collegata ai dati giusti; questi provano la regola.
  */
+
 describe("stalledReasonFor", () => {
   it("nessun job e stato non dichiarato in lavorazione -> `to_prepare`", () => {
     expect(stalledReasonFor({ ticketStatus: "open", jobCount: 0, deliveredJobCount: 0 })).toBe(

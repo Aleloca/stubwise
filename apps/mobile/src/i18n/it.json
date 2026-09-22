@@ -414,6 +414,19 @@
         "confirmBody": "Non si torna indietro: il testo non è conservato da nessun'altra parte.",
         "confirm": "Cancella",
         "cancel": "Annulla"
+      },
+      "ticketType": {
+        "bug": "guasto",
+        "feature": "richiesta",
+        "task": "attività",
+        "feedback": "segnalazione",
+        "review": "review"
+      },
+      "opened": {
+        "today": "aperto oggi",
+        "days": "aperto {{count}} g fa",
+        "months_one": "aperto {{count}} mese",
+        "months_other": "aperto {{count}} mesi"
       }
     },
     "backlog": {
