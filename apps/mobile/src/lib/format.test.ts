@@ -152,8 +152,18 @@ describe("openedSince — l'età di un ticket, non la freschezza di una card", (
     expect(openedSince(new Date(ORA + 5 * 24 * 60 * 60 * 1000).toISOString(), ORA)).toEqual({ kind: "today" });
   });
 
-  it("una data illeggibile non produce «NaN g»", () => {
-    expect(openedSince("non-una-data", ORA)).toEqual({ kind: "today" });
+  it("una data illeggibile non produce NIENTE — nemmeno «oggi»", () => {
+    // `null` e non `{kind:"today"}`: chi rende la riga omette il pezzo. Un
+    // ripiego su «oggi» sarebbe un'affermazione FALSA su un ticket che
+    // potrebbe essere di due mesi — la stessa ragione per cui `priority` è
+    // `.optional()` e non `.default("medium")`.
+    expect(openedSince("non-una-data", ORA)).toBeNull();
+  });
+
+  it("il futuro invece «oggi» lo dice per davvero: è un orologio sfasato, non un dato mancante", () => {
+    // I due rami non sono la stessa cosa, e il test lo fissa: qui la data è
+    // LEGGIBILE, quindi «aperto oggi» è vero.
+    expect(openedSince(new Date(ORA + 5 * 60 * 1000).toISOString(), ORA)).toEqual({ kind: "today" });
   });
 });
 

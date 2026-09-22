@@ -150,16 +150,27 @@ export function searchMailTime(iso: string, now: number = Date.now()): string {
  * Il mese è di 30 giorni tondi. Non è una data da calendario — è
  * un'indicazione di anzianità, e «2 mesi» per 61 giorni o per 67 dice la
  * stessa cosa utile a chi guarda un elenco di ticket fermi.
+ *
+ * ⚠️ **`null` per una data ILLEGGIBILE, e non un ripiego su «oggi»**: chi
+ * rende la riga OMETTE il pezzo, come fa già per un campo assente. «Aperto
+ * oggi» su un ticket di due mesi sarebbe un'affermazione falsa, ed è la
+ * stessa ragione per cui `priority` nello schema del polso è `.optional()` e
+ * non `.default("medium")` — un valore inventato è peggio di un'assenza
+ * (design §4).
+ *
+ * È diverso dalla guardia anti clock-skew qui sotto, che invece «oggi» lo
+ * dice per davvero: lì la data è leggibile e il futuro è un orologio sfasato
+ * di poco, quindi il ticket È di oggi. Qui la data non c'è proprio.
  */
 export type OpenedSince = { kind: "today" } | { kind: "days" | "months"; count: number };
 
 const OPENED_MONTH_THRESHOLD_DAYS = 60;
 
-export function openedSince(iso: string, now: number = Date.now()): OpenedSince {
+export function openedSince(iso: string, now: number = Date.now()): OpenedSince | null {
   const at = new Date(iso).getTime();
-  // Una data illeggibile non produce «NaN g»: la riga mostra i pezzi che ha,
-  // mai un segnaposto sbagliato (design §4, sull'assenza resa come assenza).
-  if (Number.isNaN(at)) return { kind: "today" };
+  // Una data illeggibile non produce né «NaN g» né «aperto oggi»: non produce
+  // NIENTE, e chi rende la riga salta il pezzo (vedi il docblock sopra).
+  if (Number.isNaN(at)) return null;
   // Stessa guardia anti clock-skew delle altre funzioni del modulo: un
   // orologio sfasato non deve produrre un numero negativo.
   const elapsed = Math.max(0, now - at);

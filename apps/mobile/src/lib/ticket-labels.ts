@@ -78,12 +78,17 @@ export function ticketHeading(
   if (item.priority !== undefined) parts.push(ticketPriorityLabel(item.priority, t));
   if (item.type !== undefined) parts.push(ticketTypeLabel(item.type, t));
   if (item.createdAt !== undefined) {
+    // `null` = data illeggibile: il pezzo si omette, esattamente come un campo
+    // assente. Mai un ripiego su «aperto oggi», che su un ticket di due mesi
+    // sarebbe falso — vedi il docblock di {@link openedSince}.
     const opened = openedSince(item.createdAt, now);
-    parts.push(
-      opened.kind === "today"
-        ? t("mobile.work.opened.today")
-        : t(`mobile.work.opened.${opened.kind}`, { count: opened.count }),
-    );
+    if (opened !== null) {
+      parts.push(
+        opened.kind === "today"
+          ? t("mobile.work.opened.today")
+          : t(`mobile.work.opened.${opened.kind}`, { count: opened.count }),
+      );
+    }
   }
   return parts.join(" · ");
 }
