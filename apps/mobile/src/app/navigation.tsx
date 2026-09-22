@@ -49,16 +49,42 @@ export type AuthStackParamList = {
   Onboarding: undefined;
 };
 
+/**
+ * LE ROTTE DI DETTAGLIO DEL BACKLOG, registrate in DUE stack (22 set 2026,
+ * hub di progetto).
+ *
+ * Non sono un frammento «per riuso»: esistono perché le stesse due schermate
+ * si raggiungono da due elenchi diversi — il tab BLG e il backlog DI UN
+ * PROGETTO — e da entrambi l'indietro deve riportare all'elenco da cui si è
+ * partiti. Registrarle solo in BLG faceva saltare la scheda in basso e
+ * riportava alla lista generale, perdendo il progetto.
+ *
+ * ⚠️ `Chat` sta qui e non è di troppo: `BacklogItemScreen` ci naviga
+ * («Raffina in chat»), quindi uno stack che registra `Item` senza `Chat` ha
+ * un tap che esplode a runtime. Le due viaggiano insieme.
+ */
+export type BacklogDetailParamList = {
+  Item: { id: string };
+  Chat: { id: string };
+};
+
+/**
+ * La pagina dove si DECIDE su una proposta di posta o calendario (16 set
+ * 2026). Non è `Card`: quella mostra la card com'è in elenco ed è il
+ * bersaglio dei deep link; qui si sceglie, e la scelta crea roba vera.
+ *
+ * Registrata in DUE stack dal 22 set 2026, per la stessa ragione di
+ * {@link BacklogDetailParamList}: ci si arriva dall'inbox generale e
+ * dall'inbox di un progetto, e l'indietro deve tornare dove si era.
+ */
+export type ProposalParamList = {
+  Proposal: { id: string };
+};
+
 export type InboxStackParamList = {
   List: undefined;
   Card: { id: string };
-  /**
-   * La pagina dove si DECIDE su una proposta di posta o calendario (16 set
-   * 2026). Non è `Card`: quella mostra la card com'è in elenco ed è il
-   * bersaglio dei deep link; qui si sceglie, e la scelta crea roba vera.
-   */
-  Proposal: { id: string };
-};
+} & ProposalParamList;
 
 export type ProjectsStackParamList = {
   List: undefined;
@@ -85,7 +111,8 @@ export type ProjectsStackParamList = {
   Tickets: { projectId: string; projectName: string };
   ProjectBacklog: { projectId: string; projectName: string };
   ProjectInbox: { projectId: string; projectName: string };
-};
+} & BacklogDetailParamList &
+  ProposalParamList;
 
 /**
  * Stack del tab Backlog (Task 17, canvas `3a`/`3b`/`3c`): lista, dettaglio di
@@ -95,9 +122,7 @@ export type ProjectsStackParamList = {
  */
 export type BacklogStackParamList = {
   List: undefined;
-  Item: { id: string };
-  Chat: { id: string };
-};
+} & BacklogDetailParamList;
 
 /**
  * Stack del tab Docs (Task 18, canvas `3f`): hub (ricerca + «Oppure sfoglia» +
@@ -213,6 +238,23 @@ function ProjectsNavigator() {
       <ProjectsStack.Screen name="Tickets" component={ProjectTicketsScreen} />
       <ProjectsStack.Screen name="ProjectBacklog" component={ProjectBacklogScreen} />
       <ProjectsStack.Screen name="ProjectInbox" component={ProjectInboxScreen} />
+      {/*
+        LE STESSE TRE SCHERMATE DI BLG E INB, registrate una seconda volta
+        (22 set 2026). Una sola COPIA del componente, due registrazioni: una
+        seconda copia in un file nuovo sarebbe la divergenza che questo repo
+        insegue ovunque. Le schermate non sanno in quale stack stanno girando
+        — sono tipate sui frammenti `BacklogDetailParamList`/
+        `ProposalParamList`, non su uno stack intero — e non esiste nessun
+        ramo che lo chieda.
+
+        Servono perché senza, aprire una voce di backlog o decidere una
+        proposta dall'hub usciva dallo stack `Projects`: la scheda in basso
+        saltava, e l'indietro riportava alla lista GENERALE invece che
+        all'elenco di quel progetto.
+      */}
+      <ProjectsStack.Screen name="Item" component={BacklogItemScreen} />
+      <ProjectsStack.Screen name="Chat" component={BacklogChatScreen} />
+      <ProjectsStack.Screen name="Proposal" component={GoogleProposalScreen} />
     </ProjectsStack.Navigator>
   );
 }

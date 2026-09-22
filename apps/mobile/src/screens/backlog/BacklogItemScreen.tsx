@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useBottomTabBarHeight } from "react-native-bottom-tabs";
-import type { BacklogStackParamList } from "../../app/navigation";
+import type { BacklogDetailParamList } from "../../app/navigation";
 import { useAuth } from "../../app/providers";
 import { GhostButton } from "../../components/GhostButton";
 import { PrimaryButton } from "../../components/PrimaryButton";
@@ -41,7 +41,7 @@ const CONTENT_BASE_BOTTOM_PADDING = 40;
  * modo di arrivarci sia da una voce chiusa: un futuro deep link o un'altra
  * lista potrebbero puntare qui su una voce ancora attiva.
  */
-export function BacklogItemScreen({ navigation, route }: NativeStackScreenProps<BacklogStackParamList, "Item">) {
+export function BacklogItemScreen({ navigation, route }: NativeStackScreenProps<BacklogDetailParamList, "Item">) {
   const { t } = useTranslation();
   const { client } = useAuth();
   const tabBarHeight = useBottomTabBarHeight();

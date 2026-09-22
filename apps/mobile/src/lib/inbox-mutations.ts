@@ -275,22 +275,3 @@ export function useProceed(): DecisionMutation {
   return useDecision("answer");
 }
 
-/**
- * Apre la pagina della DECISIONE di una proposta Google (`Main/Inbox/Proposal`)
- * da uno screen che non sta nell'`InboxStack` — oggi solo l'inbox di un
- * progetto (22 set 2026, hub). Stesso meccanismo e stesso cast di
- * `navigateToTicketWork` in `lib/backlog-mutations.ts`, per le stesse ragioni.
- *
- * ⚠️ Come il gemello del backlog, **questo tap sposta la scheda in basso su
- * INB**: la pagina della decisione vive solo nell'`InboxStack`, e la prima
- * tappa dell'hub non registra schermate nuove oltre alle tre liste.
- * L'alternativa era una card di proposta SENZA il bottone che la decide
- * (`InboxCard` degrada così quando `onOpenProposal` manca) — cioè mostrare
- * una decisione e non lasciarla prendere.
- */
-export function navigateToInboxProposal(navigation: { navigate: (...args: never[]) => void }, id: string): void {
-  (navigation.navigate as (name: string, params?: unknown) => void)("Main", {
-    screen: "Inbox",
-    params: { screen: "Proposal", params: { id } },
-  });
-}

@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useBottomTabBarHeight } from "react-native-bottom-tabs";
-import type { BacklogStackParamList } from "../../app/navigation";
+import type { BacklogDetailParamList } from "../../app/navigation";
 import { useAuth } from "../../app/providers";
 import { GhostButton } from "../../components/GhostButton";
 import { PulseIndicator } from "../../components/PulseIndicator";
@@ -64,7 +64,7 @@ interface ChatBubble {
  * resta FUORI SCOPE (nessuna schermata mobile lo fa): quella è una
  * decisione che si prende davanti al codice, non in fila alle poste.
  */
-export function BacklogChatScreen({ navigation, route }: NativeStackScreenProps<BacklogStackParamList, "Chat">) {
+export function BacklogChatScreen({ navigation, route }: NativeStackScreenProps<BacklogDetailParamList, "Chat">) {
   const { t } = useTranslation();
   const { client } = useAuth();
   const tabBarHeight = useBottomTabBarHeight();

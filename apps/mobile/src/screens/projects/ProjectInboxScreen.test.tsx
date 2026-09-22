@@ -97,12 +97,11 @@ describe("ProjectInboxScreen", () => {
   });
 
   /**
-   * Una proposta Google si DECIDE nella sua pagina, che vive solo
-   * nell'`InboxStack` — quindi il tap sposta la scheda su INB. Vedi
-   * `navigateToInboxProposal`: l'alternativa era una card di proposta senza
-   * il bottone che la decide.
+   * ⚠️ Decidere una proposta NON deve uscire dallo stack `Projects`:
+   * `Proposal` è registrata anche qui (22 set 2026). La seconda asserzione è
+   * quella che fallirebbe se tornasse il salto fra tab.
    */
-  test("una proposta Google porta alla pagina della decisione", async () => {
+  test("decidere una proposta resta DENTRO lo stack del progetto, non salta al tab INB", async () => {
     const navigate = jest.fn();
     const list = jest.fn().mockResolvedValue({
       items: [
@@ -128,10 +127,8 @@ describe("ProjectInboxScreen", () => {
     await renderScreen(makeClient(list), navigate);
     await waitFor(() => expect(screen.getByTestId("google-proposal-card")).toBeTruthy());
     await fireEvent.press(screen.getByTestId("inbox-decide-g1"));
-    expect(navigate).toHaveBeenCalledWith("Main", {
-      screen: "Inbox",
-      params: { screen: "Proposal", params: { id: "g1" } },
-    });
+    expect(navigate).toHaveBeenCalledWith("Proposal", { id: "g1" });
+    expect(navigate).not.toHaveBeenCalledWith("Main", expect.anything());
   });
 
   test("l'indietro torna all'hub", async () => {

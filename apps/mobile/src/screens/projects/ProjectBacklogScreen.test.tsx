@@ -115,21 +115,22 @@ describe("ProjectBacklogScreen", () => {
   });
 
   /**
-   * ⚠️ Questo tap SPOSTA la scheda in basso su BLG, a differenza del resto
-   * dell'hub: il documento di una voce si legge in `BacklogItemScreen`, che
-   * vive solo nel `BacklogStack`. Vedi `navigateToBacklogItem`. L'asserzione
-   * fissa la scelta, così chi un domani registrerà `Item` anche qui sa cosa
-   * sta cambiando.
+   * ⚠️ Aprire una voce NON deve uscire dallo stack `Projects`: `Item` è
+   * registrata anche qui (22 set 2026), quindi si naviga DENTRO — ed è ciò
+   * che fa tornare l'indietro a questo elenco invece che alla lista
+   * generale.
+   *
+   * La seconda asserzione non è ridondante: è quella che fallirebbe se
+   * qualcuno reintroducesse il salto fra tab. Senza, il test passerebbe
+   * anche con una navigazione verso `Main` che ce la mette in aggiunta.
    */
-  test("aprire una voce porta al suo documento nel tab BLG", async () => {
+  test("aprire una voce resta DENTRO lo stack del progetto, non salta al tab BLG", async () => {
     const navigate = jest.fn();
     await renderScreen(makeClient(), navigate);
     await waitFor(() => expect(screen.getByTestId(`backlog-open-${ITEM_ID}`)).toBeTruthy());
     await fireEvent.press(screen.getByTestId(`backlog-open-${ITEM_ID}`));
-    expect(navigate).toHaveBeenCalledWith("Main", {
-      screen: "Backlog",
-      params: { screen: "Item", params: { id: ITEM_ID } },
-    });
+    expect(navigate).toHaveBeenCalledWith("Item", { id: ITEM_ID });
+    expect(navigate).not.toHaveBeenCalledWith("Main", expect.anything());
   });
 
   test("l'indietro torna all'hub", async () => {

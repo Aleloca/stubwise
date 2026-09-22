@@ -9,7 +9,6 @@ import { GhostButton } from "../../components/GhostButton";
 import { InboxCard } from "../../components/inbox/InboxCard";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { Skeleton } from "../../components/Skeleton";
-import { navigateToInboxProposal } from "../../lib/inbox-mutations";
 import { colors } from "../../theme/tokens";
 import { fontFamily } from "../../theme/typography";
 
@@ -31,6 +30,10 @@ export const projectInboxKey = (projectId: string) => ["inbox", "list", "project
  * ⚠️ **La lista non è riscritta**: monta `InboxCard`, lo STESSO componente
  * del tab INB — era già un componente a sé, quindi qui non c'è stato niente
  * da estrarre.
+ *
+ * La pagina della decisione è la STESSA `GoogleProposalScreen` del tab INB,
+ * registrata anche nello stack `Projects` (22 set 2026): deciderla non esce
+ * da qui, quindi l'indietro riporta a questo elenco.
  *
  * Quello che questa schermata NON ha, rispetto al tab: le tre schede
  * (tue / in attesa di altri / dai progetti) e la sezionatura per ruolo. Una
@@ -98,7 +101,9 @@ export function ProjectInboxScreen({ navigation, route }: NativeStackScreenProps
                 key={item.id}
                 item={item}
                 projectName={projectName}
-                onOpenProposal={(id) => navigateToInboxProposal(navigation, id)}
+                // DENTRO lo stack `Projects`: vedi il gemello in
+                // `ProjectBacklogScreen`.
+                onOpenProposal={(id) => navigation.navigate("Proposal", { id })}
               />
             ))}
           </View>

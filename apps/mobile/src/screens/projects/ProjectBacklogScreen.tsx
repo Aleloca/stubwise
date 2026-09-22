@@ -8,13 +8,7 @@ import { BacklogListCard } from "../../components/backlog/BacklogListCard";
 import { GhostButton } from "../../components/GhostButton";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { Skeleton } from "../../components/Skeleton";
-import {
-  navigateToBacklogItem,
-  navigateToTicketWork,
-  useBacklogList,
-  useConvertBacklogItem,
-  type BacklogChip,
-} from "../../lib/backlog-mutations";
+import { navigateToTicketWork, useBacklogList, useConvertBacklogItem, type BacklogChip } from "../../lib/backlog-mutations";
 import { colors } from "../../theme/tokens";
 import { fontFamily } from "../../theme/typography";
 
@@ -35,6 +29,11 @@ const CHIPS: { chip: BacklogChip; i18nKey: string }[] = [
  * proprio per non averne due copie che divergono. E il filtro per progetto
  * non è nuovo: `useBacklogList(chip, projectId)` lo accetta da sempre, la
  * chiave di query lo include, e il server lo espone.
+ *
+ * Il dettaglio di una voce è la STESSA `BacklogItemScreen` del tab BLG,
+ * registrata anche nello stack `Projects` (22 set 2026): aprirla non esce da
+ * qui, quindi l'indietro riporta a questo elenco — con il progetto ancora
+ * addosso — e non alla lista generale del backlog.
  *
  * Quello che questa schermata NON ha, rispetto al tab: la cattura rapida
  * («+»), che chiede un progetto ed è quindi una domanda già risposta qui —
@@ -122,7 +121,11 @@ export function ProjectBacklogScreen({
                 onProceed={() =>
                   convert.mutate(item.id, { onSuccess: (result) => navigateToTicketWork(navigation, result.ticketId) })
                 }
-                onOpenDetail={() => navigateToBacklogItem(navigation, item.id)}
+                // DENTRO lo stack `Projects`, non verso il tab BLG: è la
+                // stessa `BacklogItemScreen`, registrata anche qui (22 set
+                // 2026), quindi l'indietro riporta a QUESTO elenco e la
+                // scheda in basso non si muove.
+                onOpenDetail={() => navigation.navigate("Item", { id: item.id })}
               />
             ))}
           </View>

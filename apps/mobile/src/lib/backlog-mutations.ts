@@ -463,27 +463,6 @@ export function navigateToTicketWork(navigation: { navigate: (...args: never[]) 
   });
 }
 
-/**
- * Apre il DETTAGLIO di una voce di backlog (`Main/Backlog/Item`) da uno
- * screen che non sta nel `BacklogStack` — oggi solo il backlog di un progetto
- * (22 set 2026, hub). Stesso meccanismo e stesso cast di
- * {@link navigateToTicketWork} qui sopra, per le stesse ragioni.
- *
- * ⚠️ **Questo tap SPOSTA la scheda in basso su BLG**, a differenza di tutto
- * il resto dell'hub, che resta dentro lo stack `Projects` (design §5). Non è
- * una svista: il documento di una voce si legge in `BacklogItemScreen`, che
- * esiste solo nel `BacklogStack`, e la prima tappa dell'hub non registra
- * schermate nuove oltre alle tre liste. L'alternativa sarebbe stata una card
- * che non si apre — cioè togliere la lettura del documento proprio dove il
- * backlog si guarda. Chi registrerà `Item` anche nello stack `Projects`
- * sostituisca questa chiamata: il resto non cambia.
- */
-export function navigateToBacklogItem(navigation: { navigate: (...args: never[]) => void }, itemId: string): void {
-  (navigation.navigate as (name: string, params?: unknown) => void)("Main", {
-    screen: "Backlog",
-    params: { screen: "Item", params: { id: itemId } },
-  });
-}
 
 /**
  * Le date di una voce, per la riga d'IDENTITÀ della card (16 set 2026): non
