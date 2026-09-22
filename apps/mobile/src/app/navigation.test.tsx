@@ -94,6 +94,44 @@ function hubNotification(id: string) {
  */
 let hubOpenNotifications = 2;
 
+const DOC_REPOSITORY_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+const DOC_PAGE_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+
+const DOC_SPACE = {
+  repositoryId: DOC_REPOSITORY_ID,
+  slug: "portale-api",
+  name: "Spazio API",
+  pageCount: 3,
+  lastGenerationAt: null,
+  lastCommitSha: null,
+};
+
+const DOC_TREE_NODE = {
+  id: DOC_PAGE_ID,
+  slug: "guida",
+  title: "Guida all'API",
+  kind: "functional",
+  parentId: null,
+  position: 0,
+  sourcePath: null,
+  isManual: false,
+  createdAt: "2026-08-01T00:00:00.000Z",
+  viewCount: 0,
+  // Obbligatorio benché nullable: senza, il parse dell'INTERA risposta
+  // fallisce e la query resta in errore — non un campo degradato.
+  significant: null,
+};
+
+const DOC_PAGE = {
+  ...DOC_TREE_NODE,
+  body: "# Guida all'API\n\nCome si chiama l'API.",
+  commitSha: null,
+  commitUrl: null,
+  links: null,
+  updatedAt: "2026-08-01T00:00:00.000Z",
+  significant: null,
+};
+
 function jsonResponse(status: number, body: unknown): Response {
   const init: ResponseInit = { status };
   if (body !== undefined) {
@@ -142,6 +180,18 @@ function routeFetch(input: RequestInfo | URL, init?: RequestInit): Response {
       hubOpenNotifications,
     );
     return jsonResponse(200, { items, nextCursor: null, total: hubOpenNotifications });
+  }
+  // La documentazione di un progetto (22 set 2026, tappa 2): gli spazi,
+  // l'albero di uno spazio e una pagina. La PAGINA prima dell'albero: i due
+  // path condividono il prefisso `/docs/`.
+  if (method === "GET" && url.includes("/docs/spaces")) {
+    return jsonResponse(200, [DOC_SPACE]);
+  }
+  if (method === "GET" && url.includes("/docs/pages/")) {
+    return jsonResponse(200, DOC_PAGE);
+  }
+  if (method === "GET" && url.includes("/docs/tree")) {
+    return jsonResponse(200, [DOC_TREE_NODE]);
   }
   if (method === "GET" && url.includes("/api/tickets")) {
     return jsonResponse(200, { items: [], nextCursor: null, total: 0 });
@@ -515,5 +565,70 @@ describe("hub di progetto — i conteggi si aggiornano dopo un'azione", () => {
     // può arrivare SOLO da un'invalidazione che ha raggiunto la sua query.
     await fireEvent.press(screen.getByTestId("screen-header-back"));
     await waitFor(() => expect(screen.getByText("Notifiche · 1 da gestire")).toBeTruthy());
+  });
+});
+
+/**
+ * LA DOCUMENTAZIONE SI LEGGE SENZA USCIRE DAL PROGETTO (22 set 2026, tappa
+ * 2) — è la verifica che il maintainer fa sul telefono.
+ *
+ * ⚠️ Albero di navigazione VERO, come per i due gemelli della tappa 1 e per
+ * la stessa ragione: la proprietà è DOVE SI TORNA, e una navigazione finta
+ * non può mostrarla. Un test che verificasse solo «la rotta `Page` esiste»
+ * passerebbe anche se l'indietro finisse nel tab DOC, sulla documentazione di
+ * un progetto qualsiasi — che è il difetto che la registrazione doppia
+ * esiste per impedire.
+ */
+describe("hub di progetto — la documentazione resta nello stack del progetto", () => {
+  test("apro una pagina dalla documentazione del progetto e, tornando indietro, sono ancora lì", async () => {
+    const session = {
+      baseUrl: "https://stubwise.example",
+      token: "stw_pat_existing",
+      patId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+      user: successUser,
+    };
+    (Keychain.getGenericPassword as jest.Mock).mockResolvedValue({
+      username: "stubwise-session",
+      password: JSON.stringify(session),
+      service: "com.app.aleloca.stubwise.session",
+      storage: "keychain",
+    });
+    (Linking.getInitialURL as jest.Mock).mockResolvedValue(undefined);
+    jest.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => routeFetch(input, init));
+
+    await render(
+      <AppProviders>
+        <RootNavigator />
+      </AppProviders>,
+    );
+    await waitFor(() => expect(navigationRef.isReady()).toBe(true));
+
+    await act(async () => {
+      navigationRef.navigate("Main", {
+        screen: "Projects",
+        params: {
+          screen: "ProjectDocs",
+          params: { projectId: HUB_PROJECT_ID, projectName: "Portale B2B" },
+        },
+      });
+    });
+    await waitFor(() => expect(screen.getByTestId(`project-docs-space-${DOC_REPOSITORY_ID}`)).toBeTruthy());
+
+    await fireEvent.press(screen.getByTestId(`project-docs-space-${DOC_REPOSITORY_ID}`));
+    await waitFor(() => expect(screen.getByTestId(`project-docs-browse-${DOC_REPOSITORY_ID}-functional`)).toBeTruthy());
+    await fireEvent.press(screen.getByTestId(`project-docs-browse-${DOC_REPOSITORY_ID}-functional`));
+    await waitFor(() => expect(screen.getByText("Guida all'API")).toBeTruthy());
+
+    await fireEvent.press(screen.getByText("Guida all'API"));
+    await waitFor(() => expect(screen.getByTestId("docs-page-body")).toBeTruthy());
+
+    // ⚠️ La scheda in basso non si è mossa: se il tap fosse uscito dallo
+    // stack saremmo nel tab DOC, che si riconosce dal suo switcher di
+    // progetto — qui non deve esserci.
+    expect(screen.queryByTestId("docs-project-toggle")).toBeNull();
+
+    await fireEvent.press(screen.getByTestId("screen-header-back"));
+    await waitFor(() => expect(screen.getByTestId(`project-docs-space-${DOC_REPOSITORY_ID}`)).toBeTruthy());
+    expect(screen.queryByTestId("docs-project-toggle")).toBeNull();
   });
 });

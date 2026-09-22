@@ -69,6 +69,42 @@ function ticket(overrides: Record<string, unknown> = {}): Record<string, unknown
  * fallire un solo test. È successo davvero qui il 22 set 2026: i 24 test
  * passavano con tre query che fallivano tutte.
  */
+/** Un repository come lo porta la proiezione sintetica di `projects.get`. */
+function repositorySummary(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  // Nome e slug DIVERSI apposta: è il caso reale, e due stringhe uguali
+  // renderebbero il test cieco su quale delle due sta guardando.
+  return { id: "r1", name: "Portale API", slug: "portale-api", provider: "github", ...overrides };
+}
+
+/** Uno spazio documentale come lo porta `docs.projectSpaces`. */
+function docSpace(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    repositoryId: "r1",
+    slug: "portale-api",
+    name: "Spazio API",
+    pageCount: 12,
+    lastGenerationAt: null,
+    lastCommitSha: null,
+    ...overrides,
+  };
+}
+
+/** Una milestone col suo avanzamento, come la porta `projects.milestones`. */
+function milestone(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: "m1",
+    projectId: PROJECT_ID,
+    name: "Lancio pilota",
+    description: null,
+    dueDate: "2026-10-15T00:00:00.000Z",
+    status: "open",
+    closedAt: null,
+    createdAt: "2026-08-01T00:00:00.000Z",
+    counts: { total: 8, completed: 3, byStatus: {} },
+    ...overrides,
+  };
+}
+
 function makeClient(
   overrides: {
     pulse?: jest.Mock;
@@ -77,17 +113,27 @@ function makeClient(
     listTickets?: jest.Mock;
     listBacklog?: jest.Mock;
     listInbox?: jest.Mock;
+    getProject?: jest.Mock;
+    projectSpaces?: jest.Mock;
+    milestones?: jest.Mock;
   } = {},
 ): StubwiseClient {
   return {
     projects: {
       pulse: overrides.pulse ?? jest.fn().mockResolvedValue([summary()]),
       briefs: overrides.briefs ?? jest.fn().mockResolvedValue([]),
+      // ⚠️ I tre metodi della tappa 2 vanno nel doppio PRIMA dei test che li
+      // usano (CLAUDE.md, la terza trappola): senza, le tre sezioni nuove
+      // mostrerebbero il proprio errore — stanno fuori dai gate della
+      // schermata apposta — e non un solo test fallirebbe.
+      get: overrides.getProject ?? jest.fn().mockResolvedValue({ id: PROJECT_ID, repositories: [] }),
+      milestones: overrides.milestones ?? jest.fn().mockResolvedValue([]),
     },
     activity: { forDate: overrides.activityForDate ?? jest.fn().mockResolvedValue({ date: "2026-08-31", projects: [] }) },
     tickets: { list: overrides.listTickets ?? jest.fn().mockResolvedValue({ items: [], nextCursor: null, total: 0 }) },
     backlog: { list: overrides.listBacklog ?? jest.fn().mockResolvedValue({ items: [], nextCursor: null, total: 0 }) },
     inbox: { list: overrides.listInbox ?? jest.fn().mockResolvedValue({ items: [], nextCursor: null, total: 0 }) },
+    docs: { projectSpaces: overrides.projectSpaces ?? jest.fn().mockResolvedValue([]) },
   } as unknown as StubwiseClient;
 }
 
@@ -851,5 +897,94 @@ describe("ProjectDetailScreen — le sezioni dell'hub", () => {
     await waitFor(() => expect(screen.getByText("Export CSV clienti")).toBeTruthy());
     await fireEvent.press(screen.getByText("Export CSV clienti"));
     expect(navigate).toHaveBeenCalledWith("Ticket", { id: TICKET_A, backLabel: "Portale B2B" });
+  });
+});
+
+/**
+ * LE TRE SEZIONI DI «DI COSA È FATTO» (22 set 2026, tappa 2).
+ *
+ * Stessa proprietà delle tre del lavoro: ognuna sta in piedi da sola, e il
+ * suo guasto non tocca le altre né il polso.
+ */
+describe("ProjectDetailScreen — repository, documentazione, roadmap", () => {
+  test("i conteggi dicono quante cose ci sono, e le righe quali", async () => {
+    const client = makeClient({
+      getProject: jest.fn().mockResolvedValue({
+        id: PROJECT_ID,
+        repositories: [repositorySummary(), repositorySummary({ id: "r2", name: "Portale Web", slug: "portale-web" })],
+      }),
+      projectSpaces: jest.fn().mockResolvedValue([docSpace()]),
+      milestones: jest.fn().mockResolvedValue([milestone()]),
+    });
+    await renderScreen(client);
+    await waitFor(() => expect(screen.getByText("Repository · 2")).toBeTruthy());
+    expect(screen.getByText("Portale API")).toBeTruthy();
+    expect(screen.getByText("Spazio API")).toBeTruthy();
+    expect(screen.getByText("Documentazione · 1 spazio")).toBeTruthy();
+    expect(screen.getByText("Roadmap · 1 aperta")).toBeTruthy();
+    expect(screen.getByText("Lancio pilota")).toBeTruthy();
+  });
+
+  /**
+   * ⚠️ Il numero della roadmap è quello delle APERTE, non il totale: di una
+   * roadmap interessa quanto manca. Con tre milestone di cui una chiusa
+   * l'etichetta dice 2, non 3.
+   */
+  test("la roadmap conta le milestone APERTE, non tutte", async () => {
+    const client = makeClient({
+      milestones: jest.fn().mockResolvedValue([
+        milestone({ id: "m1" }),
+        milestone({ id: "m2", name: "Beta" }),
+        milestone({ id: "m3", name: "Vecchia", status: "closed", closedAt: "2026-09-01T00:00:00.000Z" }),
+      ]),
+    });
+    await renderScreen(client);
+    await waitFor(() => expect(screen.getByText("Roadmap · 2 aperte")).toBeTruthy());
+  });
+
+  test("una sezione che fallisce non porta giù le altre né il polso", async () => {
+    const client = makeClient({
+      getProject: jest.fn().mockRejectedValue(new Error("down")),
+      projectSpaces: jest.fn().mockResolvedValue([docSpace()]),
+      milestones: jest.fn().mockResolvedValue([milestone()]),
+    });
+    await renderScreen(client);
+    await waitFor(() => expect(screen.getByTestId("hub-repositories-error")).toBeTruthy());
+    expect(screen.getByText("Documentazione · 1 spazio")).toBeTruthy();
+    expect(screen.getByText("Roadmap · 1 aperta")).toBeTruthy();
+    expect(screen.getByText("Portale B2B")).toBeTruthy();
+  });
+
+  test("sezioni vuote: lo dicono, invece di sparire", async () => {
+    await renderScreen(makeClient());
+    await waitFor(() => expect(screen.getByTestId("hub-repositories-empty")).toBeTruthy());
+    expect(screen.getByTestId("hub-docs-empty")).toBeTruthy();
+    expect(screen.getByTestId("hub-roadmap-empty")).toBeTruthy();
+  });
+
+  test("«vedi ›» porta alle tre schermate, col progetto e il suo nome", async () => {
+    const navigate = jest.fn();
+    await renderScreen(makeClient(), navigate);
+    await waitFor(() => expect(screen.getByTestId("hub-repositories-see-all")).toBeTruthy());
+
+    await fireEvent.press(screen.getByTestId("hub-repositories-see-all"));
+    expect(navigate).toHaveBeenCalledWith("ProjectRepositories", { projectId: PROJECT_ID, projectName: "Portale B2B" });
+
+    await fireEvent.press(screen.getByTestId("hub-docs-see-all"));
+    expect(navigate).toHaveBeenCalledWith("ProjectDocs", { projectId: PROJECT_ID, projectName: "Portale B2B" });
+
+    await fireEvent.press(screen.getByTestId("hub-roadmap-see-all"));
+    expect(navigate).toHaveBeenCalledWith("ProjectRoadmap", { projectId: PROJECT_ID, projectName: "Portale B2B" });
+  });
+
+  test("un tap su un repository dell'anteprima apre il suo dettaglio, per SLUG", async () => {
+    const navigate = jest.fn();
+    const client = makeClient({
+      getProject: jest.fn().mockResolvedValue({ id: PROJECT_ID, repositories: [repositorySummary()] }),
+    });
+    await renderScreen(client, navigate);
+    await waitFor(() => expect(screen.getByTestId("hub-repository-r1")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("hub-repository-r1"));
+    expect(navigate).toHaveBeenCalledWith("Repository", { slug: "portale-api", projectName: "Portale B2B" });
   });
 });

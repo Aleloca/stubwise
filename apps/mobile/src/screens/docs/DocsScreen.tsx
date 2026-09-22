@@ -1,5 +1,5 @@
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
-import type { DocTreeNode, Reader, SearchResults } from "@stubwise/shared";
+import type { Reader, SearchResults } from "@stubwise/shared";
 import { useQuery } from "@tanstack/react-query";
 import type { UseQueryResult } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
@@ -8,10 +8,11 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-
 import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import type { DocsStackParamList } from "../../app/navigation";
 import { useAuth } from "../../app/providers";
+import { DocSpaceBrowser } from "../../components/docs/DocSpaceBrowser";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { SectionLabel } from "../../components/SectionLabel";
 import { Skeleton } from "../../components/Skeleton";
-import { docsKeys, groupTreeByKind, mainDocSpace } from "../../lib/docs-mutations";
+import { docsKeys, mainDocSpace } from "../../lib/docs-mutations";
 import { getLastDocsProjectId, setLastDocsProjectId } from "../../lib/storage";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
@@ -21,8 +22,6 @@ const CONTENT_BASE_BOTTOM_PADDING = 40;
 
 /** Quanto attendere dopo l'ultimo tocco prima di lanciare la ricerca (canvas: "Cerca nella documentazione…"). */
 const SEARCH_DEBOUNCE_MS = 300;
-
-type BrowseGroupKey = "functional" | "technical" | "releases";
 
 /**
  * Hub Docs (canvas `3f`): ricerca, «Oppure sfoglia» nei tre gruppi
@@ -49,7 +48,6 @@ export function DocsScreen({ navigation }: NativeStackScreenProps<DocsStackParam
   const [pickerOpen, setPickerOpen] = useState(false);
   const [rawQuery, setRawQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
-  const [expandedGroup, setExpandedGroup] = useState<BrowseGroupKey | null>(null);
   const projectInitialized = useRef(false);
 
   const projectsQuery = useQuery({
@@ -119,7 +117,6 @@ export function DocsScreen({ navigation }: NativeStackScreenProps<DocsStackParam
   const isSearching = trimmedQuery.length > 0;
 
   const selectedProject = projects.find((project) => project.id === projectId);
-  const groups = groupTreeByKind(treeQuery.data ?? []);
 
   function openAskProject(): void {
     if (!selectedProject) return;
@@ -134,7 +131,6 @@ export function DocsScreen({ navigation }: NativeStackScreenProps<DocsStackParam
   function pickProject(id: string): void {
     setProjectId(id);
     setPickerOpen(false);
-    setExpandedGroup(null);
     void setLastDocsProjectId(id);
   }
 
@@ -237,103 +233,23 @@ export function DocsScreen({ navigation }: NativeStackScreenProps<DocsStackParam
             </Pressable>
 
             <SectionLabel style={styles.browseLabel}>{t("mobile.docs.browse.label")}</SectionLabel>
-            <View style={styles.browseCard}>
-              <BrowseRow
-                labelKey="mobile.docs.browse.functional"
-                countText={pageCountText(groups.functional.count, t)}
-                count={groups.functional.count}
-                expanded={expandedGroup === "functional"}
-                onPress={() => setExpandedGroup((current) => (current === "functional" ? null : "functional"))}
-                nodes={groups.functional.nodes}
-                onOpenPage={openPage}
-                testID="docs-browse-functional"
-              />
-              <BrowseRow
-                labelKey="mobile.docs.browse.releases"
-                countText={
-                  groups.releases.latest ? t("mobile.docs.browse.latestRelease", { title: groups.releases.latest.title }) : t("mobile.docs.browse.noReleases")
-                }
-                count={groups.releases.count}
-                expanded={expandedGroup === "releases"}
-                onPress={() => setExpandedGroup((current) => (current === "releases" ? null : "releases"))}
-                nodes={groups.releases.nodes}
-                onOpenPage={openPage}
-                testID="docs-browse-releases"
-                last
-              />
-              <BrowseRow
-                labelKey="mobile.docs.browse.technical"
-                countText={pageCountText(groups.technical.count, t)}
-                count={groups.technical.count}
-                expanded={expandedGroup === "technical"}
-                onPress={() => setExpandedGroup((current) => (current === "technical" ? null : "technical"))}
-                nodes={groups.technical.nodes}
-                onOpenPage={openPage}
-                testID="docs-browse-technical"
-                last
-              />
-            </View>
+            {/*
+              I tre gruppi vivono in `components/docs/DocSpaceBrowser.tsx` dal
+              22 set 2026: li monta anche la documentazione di un progetto
+              nell'hub, e due copie dello stesso raggruppamento divergono.
+            */}
+            {/*
+              ⚠️ `key` sullo SPAZIO: lo stato «quale gruppo è aperto» vive
+              ora dentro il componente, e cambiando progetto non si
+              azzererebbe da sé — prima lo faceva `pickProject` a mano. È la
+              regola già scritta in questo repo: un componente con stato
+              locale seminato da un'identità va keyato su quell'identità, o
+              resta stantio quando il chiamante la cambia senza smontarlo.
+            */}
+            <DocSpaceBrowser key={repositoryId} nodes={treeQuery.data ?? []} onOpenPage={openPage} />
           </>
         )}
       </ScrollView>
-    </View>
-  );
-}
-
-function pageCountText(count: number, t: ReturnType<typeof useTranslation>["t"]): string {
-  return t("mobile.docs.browse.pageCount", { count });
-}
-
-function BrowseRow({
-  labelKey,
-  countText,
-  count,
-  expanded,
-  onPress,
-  nodes,
-  onOpenPage,
-  testID,
-  last = false,
-}: {
-  labelKey: string;
-  countText: string;
-  count: number;
-  expanded: boolean;
-  onPress: () => void;
-  nodes: Reader<DocTreeNode>[];
-  onOpenPage: (slug: string) => void;
-  testID: string;
-  last?: boolean;
-}) {
-  const { t } = useTranslation();
-  return (
-    <View style={!last ? styles.browseRowBorder : undefined}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityState={{ disabled: count === 0 }}
-        disabled={count === 0}
-        onPress={onPress}
-        style={styles.browseRow}
-        testID={testID}
-      >
-        <Text style={styles.browseRowLabel}>{t(labelKey)}</Text>
-        <Text style={styles.browseRowMeta}>{countText} ›</Text>
-      </Pressable>
-      {expanded && (
-        <View style={styles.browseExpanded} testID={`${testID}-expanded`}>
-          {nodes.length === 0 ? (
-            <Text style={styles.browseEmpty}>{t("mobile.docs.browse.groupEmpty")}</Text>
-          ) : (
-            nodes.map((n) => (
-              <Pressable key={n.id} onPress={() => onOpenPage(n.slug)} style={styles.browsePageRow} testID={`docs-page-row-${n.id}`}>
-                <Text style={styles.browsePageTitle} numberOfLines={1}>
-                  {n.title}
-                </Text>
-              </Pressable>
-            ))
-          )}
-        </View>
-      )}
     </View>
   );
 }
@@ -491,58 +407,6 @@ const styles = StyleSheet.create({
   },
   browseLabel: {
     marginBottom: 8,
-  },
-  browseCard: {
-    backgroundColor: colors.ink900,
-    borderColor: colors.line,
-    borderRadius: radii.card,
-    borderWidth: 1,
-    overflow: "hidden",
-  },
-  browseRowBorder: {
-    borderBottomColor: colors.line,
-    borderBottomWidth: 1,
-  },
-  browseRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    minHeight: 44,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  browseRowLabel: {
-    color: colors.fg,
-    flex: 1,
-    fontFamily: fontFamily.sans,
-    fontSize: 14,
-  },
-  browseRowMeta: {
-    color: colors.faint,
-    fontFamily: fontFamily.mono,
-    fontSize: 11,
-  },
-  browseExpanded: {
-    backgroundColor: colors.ink950,
-    paddingBottom: 8,
-  },
-  browseEmpty: {
-    color: colors.faint,
-    fontFamily: fontFamily.sans,
-    fontSize: 13,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-  },
-  browsePageRow: {
-    minHeight: 40,
-    justifyContent: "center",
-    paddingHorizontal: 24,
-    paddingVertical: 6,
-  },
-  browsePageTitle: {
-    color: colors.muted,
-    fontFamily: fontFamily.sans,
-    fontSize: 13,
   },
   searchResults: {
     gap: 8,

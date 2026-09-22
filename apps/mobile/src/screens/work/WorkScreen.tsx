@@ -33,6 +33,7 @@ import { Timeline } from "../../components/work/Timeline";
 import { WorkingPill } from "../../components/work/WorkingPill";
 import { buildTimeline, resolveWorkState } from "../../lib/timeline";
 import { workKeys } from "../../lib/work-mutations";
+import { milestoneKeys } from "../../lib/query-keys";
 import { colors } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
 
@@ -148,7 +149,10 @@ export function WorkScreen({ navigation, route }: NativeStackScreenProps<Project
     staleTime: 5 * 60_000,
   });
   const milestonesQuery = useQuery({
-    queryKey: ["projects", projectId ?? "", "milestones"],
+    // Sotto `["milestones"]` dal 22 set 2026: vedi il docblock di
+    // `milestoneKeys`. Era un letterale sotto `["projects"]`, che nessuna
+    // mutazione invalida.
+    queryKey: milestoneKeys.forProject(projectId ?? ""),
     queryFn: () => {
       if (!client) throw new Error("WorkScreen richiede un client autenticato");
       return client.projects.milestones(projectId!);

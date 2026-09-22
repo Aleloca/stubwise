@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import { SafeMarkdown } from "../../components/SafeMarkdown";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { useBottomTabBarHeight } from "react-native-bottom-tabs";
-import type { DocsStackParamList } from "../../app/navigation";
+import type { DocsPageParamList } from "../../app/navigation";
 import { useAuth } from "../../app/providers";
 import { GhostButton } from "../../components/GhostButton";
 import { SectionLabel } from "../../components/SectionLabel";
@@ -31,7 +31,7 @@ const CONTENT_BASE_BOTTOM_PADDING = 40;
  * costruzione (`html: false` di default in markdown-it, un tag HTML nel
  * corpo appare come testo letterale).
  */
-export function DocsPageScreen({ navigation, route }: NativeStackScreenProps<DocsStackParamList, "Page">) {
+export function DocsPageScreen({ navigation, route }: NativeStackScreenProps<DocsPageParamList, "Page">) {
   const { t } = useTranslation();
   const { client } = useAuth();
   const tabBarHeight = useBottomTabBarHeight();
@@ -84,10 +84,14 @@ export function DocsPageScreen({ navigation, route }: NativeStackScreenProps<Doc
             <GhostButton label={t("mobile.docs.page.loadError.retry")} onPress={() => void pageQuery.refetch()} testID="docs-page-retry" />
           </View>
         ) : (
-          <>
+          // `testID` sul corpo: è il segnale che questa schermata è montata
+          // E ha finito di caricare, e serve ai test che navigano nell'albero
+          // vero (`app/navigation.test.tsx`) — il titolo da solo non basta,
+          // compare anche nella riga dell'albero da cui si è partiti.
+          <View testID="docs-page-body">
             <SectionLabel>{t(docsKindLabelKey(pageQuery.data!.kind))}</SectionLabel>
             <SafeMarkdown>{pageQuery.data!.body}</SafeMarkdown>
-          </>
+          </View>
         )}
       </ScrollView>
     </View>
