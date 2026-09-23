@@ -1146,6 +1146,39 @@ describe("ProjectDetailScreen — monitor e impostazioni", () => {
     expect(navigate).toHaveBeenCalledWith("ProjectSettings", { projectId: PROJECT_ID, projectName: "Portale B2B" });
   });
 
+  /**
+   * ⚠️ LE RIGHE RIASSUNTIVE SONO AZIONI (23 set 2026). Segnalato dal
+   * maintainer sul telefono: la riga delle impostazioni si apriva solo dal
+   * bottone «apri ›», non toccando la riga — e sul telefono si tocca la
+   * riga. Stesso difetto, non segnalato, sulla maturità del backlog e sul
+   * gruppo «backlog pronto» del polso: righe disegnate identiche a quelle
+   * premibili che non rispondevano al tocco.
+   *
+   * Il test preme la RIGA, mai il «vedi ›»: quello è coperto qui sopra, e un
+   * test che premesse il bottone passerebbe anche col difetto tornato.
+   */
+  test("toccare una riga riassuntiva apre la stessa schermata del suo «vedi ›»", async () => {
+    const navigate = jest.fn();
+    const client = makeClient({
+      pulse: jest.fn().mockResolvedValue([summary({ backlogReadyCount: 3 })]),
+      listBacklog: jest.fn().mockResolvedValue({ items: [], nextCursor: null, total: 6 }),
+    });
+    await renderScreen(client, navigate);
+    const toBacklog = { projectId: PROJECT_ID, projectName: "Portale B2B" };
+
+    await waitFor(() => expect(screen.getByTestId("hub-settings-summary")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("hub-settings-summary"));
+    expect(navigate).toHaveBeenCalledWith("ProjectSettings", toBacklog);
+
+    await waitFor(() => expect(screen.getByTestId("hub-backlog-maturity")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("hub-backlog-maturity"));
+    expect(navigate).toHaveBeenLastCalledWith("ProjectBacklog", toBacklog);
+
+    navigate.mockClear();
+    await fireEvent.press(screen.getByTestId("backlog-ready-row"));
+    expect(navigate).toHaveBeenCalledWith("ProjectBacklog", toBacklog);
+  });
+
   test("un tap su un server dell'anteprima apre il suo cruscotto", async () => {
     const navigate = jest.fn();
     await renderScreen(makeClient({ listServers: jest.fn().mockResolvedValue([server()]) }), navigate);

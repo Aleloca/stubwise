@@ -275,7 +275,22 @@ function ProjectDetailBody({
 
   const backlogRows =
     summary.backlogReadyCount > 0
-      ? [{ rowKey: "backlog-ready", title: t("mobile.projects.detail.backlogReadySummary", { count: summary.backlogReadyCount }) }]
+      ? [
+          {
+            rowKey: "backlog-ready",
+            title: t("mobile.projects.detail.backlogReadySummary", { count: summary.backlogReadyCount }),
+            // ⚠️ Una riga riassuntiva È un'azione (23 set 2026): va dove va il
+            // suo «vedi ›». Senza `onPress` la riga si disegna identica a
+            // quelle premibili ma non risponde al tocco — il maintainer l'ha
+            // trovato sul telefono con le impostazioni.
+            onPress: () =>
+              navigation.navigate("ProjectBacklog", {
+                projectId: summary.projectId,
+                projectName: summary.projectName,
+              }),
+            testID: "backlog-ready-row",
+          },
+        ]
       : [];
 
   // Task 7 (App M1+M2, 11 set 2026): non più il proprio `ScrollView` — è
@@ -502,8 +517,23 @@ function HubBacklogSection({
 
   const rows: ProjectGroupRowProps[] =
     total !== undefined
-      ? [{ rowKey: "maturity", title: t("mobile.projects.hub.backlog.maturity", { ready: readyCount, notReady }) }]
-      : items.map((item) => ({ rowKey: item.id, title: item.title }));
+      ? [
+          {
+            rowKey: "maturity",
+            title: t("mobile.projects.hub.backlog.maturity", { ready: readyCount, notReady }),
+            // Stessa destinazione del «vedi ›» della sezione: vedi la riga
+            // «backlog-ready» del polso per il perché.
+            onPress: () => navigation.navigate("ProjectBacklog", { projectId, projectName }),
+            testID: "hub-backlog-maturity",
+          },
+        ]
+      : items.map((item) => ({
+          rowKey: item.id,
+          title: item.title,
+          // Il ripiego (server senza `total`) mostra VOCI, non un riassunto:
+          // qui ogni riga apre la sua voce, come nella schermata piena.
+          onPress: () => navigation.navigate("Item", { id: item.id }),
+        }));
 
   const isEmpty = total !== undefined ? total === 0 : items.length === 0;
   const state =
@@ -901,6 +931,9 @@ function HubSettingsSection({
         {
           rowKey: "settings-summary",
           title: active.length === 0 ? t("mobile.projects.hub.settings.noneActive") : active.join(" · "),
+          // Stessa destinazione di «apri ›» (23 set 2026): la riga si apriva
+          // solo dal bottone, e sul telefono si tocca la riga.
+          onPress: () => navigation.navigate("ProjectSettings", { projectId, projectName }),
           testID: "hub-settings-summary",
         },
       ],

@@ -103,21 +103,33 @@ function Dashboard({ server }: { server: Reader<ServerDetail> }) {
   return (
     <>
       <SectionLabel>{t("mobile.projects.server.sections.state")}</SectionLabel>
-      <View style={styles.card}>
+      {/*
+        Griglia 2×2 e non quattro righe (23 set 2026, richiesta del
+        maintainer): sono quattro valori corti, e in colonna occupavano mezzo
+        schermo prima di arrivare ai numeri. Le celle dicono da sole dove
+        stanno (`left`/`top`) perché i bordi vanno SOLO fra le celle — una
+        griglia con il bordo anche sul contorno esterno raddoppierebbe quello
+        della card.
+      */}
+      <View style={[styles.card, styles.grid]}>
         <Field
           label={t("mobile.projects.server.fields.status")}
           value={t(serverStatusKey(server.status))}
           danger={server.status === "offline"}
           testID="server-status"
+          left
+          top
         />
         <Field
           label={t("mobile.projects.server.fields.hostname")}
           value={server.hostname ?? t("mobile.projects.server.fields.notYet")}
+          top
         />
         <Field
           label={t("mobile.projects.server.fields.agentVersion")}
           value={server.agentVersion ?? t("mobile.projects.server.fields.notYet")}
           testID="server-agent-version"
+          left
         />
         <Field
           label={t("mobile.projects.server.fields.sample")}
@@ -128,7 +140,6 @@ function Dashboard({ server }: { server: Reader<ServerDetail> }) {
           }
           warn={age.kind === "stale"}
           testID="server-sample"
-          last
         />
       </View>
 
@@ -271,25 +282,40 @@ function UsageBar({ pct }: { pct: number }) {
   );
 }
 
+/**
+ * Una cella della griglia 2×2 dello stato. `left` = colonna di sinistra
+ * (bordo a destra), `top` = riga di sopra (bordo sotto): i bordi stanno solo
+ * FRA le celle.
+ *
+ * `numberOfLines={2}` sul valore: un hostname vero può essere lungo
+ * (`srv-prod-01.azienda.internal`) e in mezza larghezza deve andare a capo
+ * una volta, non allargare la cella né sparire del tutto.
+ */
 function Field({
   label,
   value,
-  last = false,
+  left = false,
+  top = false,
   danger = false,
   warn = false,
   testID,
 }: {
   label: string;
   value: string;
-  last?: boolean;
+  left?: boolean;
+  top?: boolean;
   danger?: boolean;
   warn?: boolean;
   testID?: string;
 }) {
   return (
-    <View style={[styles.field, !last && styles.rowBorder]}>
+    <View style={[styles.field, left && styles.cellRight, top && styles.rowBorder]}>
       <Text style={styles.fieldLabel}>{label}</Text>
-      <Text style={[styles.fieldValue, danger && styles.danger, warn && styles.warn]} testID={testID}>
+      <Text
+        style={[styles.fieldValue, danger && styles.danger, warn && styles.warn]}
+        numberOfLines={2}
+        testID={testID}
+      >
         {value}
       </Text>
     </View>
@@ -337,10 +363,19 @@ const styles = StyleSheet.create({
     gap: 8,
     padding: 14,
   },
+  grid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+  },
   field: {
     gap: 3,
     paddingHorizontal: 16,
     paddingVertical: 10,
+    width: "50%",
+  },
+  cellRight: {
+    borderRightColor: colors.line,
+    borderRightWidth: 1,
   },
   rowBorder: {
     borderBottomColor: colors.line,
