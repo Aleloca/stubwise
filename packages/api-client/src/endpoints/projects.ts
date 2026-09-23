@@ -6,6 +6,7 @@ import {
   projectDetailSchema,
   projectListItemSchema,
   projectPulseSummarySchema,
+  projectSchema,
 } from "@stubwise/shared";
 import type {
   DecisionDraft,
@@ -19,8 +20,10 @@ import type {
   ProjectListItem,
   ProjectPulseSummary,
   ProjectTimeline,
+  Project,
   ProjectTimelineKind,
   Reader,
+  UpdateProjectInput,
 } from "@stubwise/shared";
 import { z } from "zod";
 import type { ApiRequest } from "../client.js";
@@ -50,6 +53,26 @@ export function createProjectsEndpoints(request: ApiRequest) {
 
     get(projectId: string): Promise<Reader<ProjectDetail>> {
       return request("GET", `/api/projects/${seg(projectId)}`, undefined, projectDetailSchema);
+    },
+
+    /**
+     * Modifica le impostazioni di un progetto (23 set 2026, hub di progetto,
+     * tappa 3). Solo un maintainer: la rotta è `requireAdmin`, e un 403 arriva
+     * come `ApiError` — chi chiama lo MOSTRA, non lo ingoia.
+     *
+     * ⚠️ È una PATCH e va usata come tale: il corpo porta SOLO i campi che
+     * l'utente ha cambiato. Mandare l'oggetto intero farebbe sovrascrivere a
+     * due persone, che salvano dalla stessa schermata aperta da prima, i
+     * campi che nessuna delle due ha toccato. `updateProjectSchema` è già a
+     * campi tutti opzionali — la forma che un client che si aggiorna dagli
+     * store richiede: un campo nuovo del corpo non diventa mai obbligatorio.
+     *
+     * La risposta è il `Project` SENZA i repository (è quello che la rotta
+     * restituisce): chi mostra il dettaglio lo rilegge invalidando la sua
+     * chiave, invece di rattoppare la cache a mano.
+     */
+    patch(projectId: string, body: UpdateProjectInput): Promise<Reader<Project>> {
+      return request("PATCH", `/api/projects/${seg(projectId)}`, body, projectSchema);
     },
 
     /**

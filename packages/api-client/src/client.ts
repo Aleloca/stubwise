@@ -14,6 +14,7 @@ import { createPatsEndpoints } from "./endpoints/pats.js";
 import { createProjectsEndpoints } from "./endpoints/projects.js";
 import { createRepositoriesEndpoints } from "./endpoints/repositories.js";
 import { createSearchEndpoints } from "./endpoints/search.js";
+import { createServersEndpoints } from "./endpoints/servers.js";
 import { createTicketsEndpoints } from "./endpoints/tickets.js";
 import { createUsersEndpoints } from "./endpoints/users.js";
 
@@ -113,6 +114,7 @@ export function createEndpoints(request: ApiRequest) {
     pats: createPatsEndpoints(request),
     projects: createProjectsEndpoints(request),
     repositories: createRepositoriesEndpoints(request),
+    servers: createServersEndpoints(request),
     tickets: createTicketsEndpoints(request),
     backlog: createBacklogEndpoints(request),
     docs: createDocsEndpoints(request),
