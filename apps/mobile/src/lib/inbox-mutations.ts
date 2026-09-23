@@ -6,6 +6,7 @@ import { useNetInfo } from "@react-native-community/netinfo";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "../app/providers";
+import { OPTIMISTIC_MUTATION_KEY } from "./refresh";
 import { backlogKeys, inboxKeys, mailKeys, milestoneKeys, projectsPulseKey, ticketKeys, workKeys } from "./query-keys";
 
 // `inboxKeys` vive in `./query-keys` (Task 19: serve anche a
@@ -135,6 +136,10 @@ function useOptimisticRemoval<TInput extends { id: string }>(
   const queryClient = useQueryClient();
   const { t } = useTranslation();
   const mutation = useMutation({
+    // ⚠️ La chiave delle mutazioni OTTIMISTICHE: finché questa è in corso,
+    // nessun ricaricamento globale parte (`canRefreshNow`, `lib/refresh.ts`)
+    // — riporterebbe la riga appena tolta.
+    mutationKey: OPTIMISTIC_MUTATION_KEY,
     mutationFn,
     onMutate: async (input: TInput) => {
       await queryClient.cancelQueries({ queryKey: inboxKeys.list() });

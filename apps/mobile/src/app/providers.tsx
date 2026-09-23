@@ -70,8 +70,9 @@ export const queryClient: QueryClient = new QueryClient({
       // polso, ogni minuto.
       retry: 1,
       // Il ritorno in primo piano ricarica le query scadute (`focusManager`
-      // qui sotto) — ma NON mentre una mutazione è in corso: riporterebbe per
-      // un attimo una notifica appena segnata «Fatto». Vedi `canRefreshNow`.
+      // qui sotto) — ma NON mentre una mutazione OTTIMISTICA è in corso:
+      // riporterebbe per un attimo una notifica appena segnata «Fatto». Vedi
+      // `canRefreshNow`.
       refetchOnWindowFocus: (): boolean => canRefreshNow(queryClient),
     },
   },

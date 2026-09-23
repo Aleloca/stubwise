@@ -540,7 +540,7 @@ function AuthNavigator() {
  * cause diverse, e servono entrambi.
  *
  * Le due regole fini — riusare la richiesta in volo, e non ricaricare
- * mentre una mutazione è in corso — stanno in `refreshStaleQueries`
+ * mentre una mutazione OTTIMISTICA è in corso — stanno in `refreshStaleQueries`
  * (`lib/refresh.ts`), dove si provano da sole.
  */
 function useRefreshOnNavigation(): () => void {

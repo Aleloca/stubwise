@@ -2,7 +2,7 @@ import { focusManager, QueryClient, QueryObserver } from "@tanstack/react-query"
 import { waitFor } from "@testing-library/react-native";
 import { AppState } from "react-native";
 import { queryClient as appQueryClient, subscribeAppFocus } from "../app/providers";
-import { canRefreshNow, refreshStaleQueries } from "./refresh";
+import { canRefreshNow, OPTIMISTIC_MUTATION_KEY, refreshStaleQueries } from "./refresh";
 
 /**
  * Le regole del ricaricamento GLOBALE (23 set 2026, «l'app non resta
@@ -16,6 +16,17 @@ function deferred<T>() {
     resolve = res;
   });
   return { promise, resolve };
+}
+
+/** Avvia una mutazione che resta in corso finché non si risolve la promise; `optimistic` le dà la chiave delle ottimistiche. */
+function startMutation(queryClient: QueryClient, promise: Promise<void>, optimistic: boolean) {
+  void queryClient
+    .getMutationCache()
+    .build(queryClient, {
+      ...(optimistic ? { mutationKey: OPTIMISTIC_MUTATION_KEY } : {}),
+      mutationFn: () => promise,
+    })
+    .execute(undefined);
 }
 
 function mount(queryClient: QueryClient, key: string, staleTime: number, fn: jest.Mock) {
@@ -90,17 +101,14 @@ describe("refreshStaleQueries — il ritorno su una schermata", () => {
    * lista a un server che il «Fatto» non l'ha ancora visto, e la riga tolta
    * ricomparirebbe. La mutazione invaliderà da sé quando finisce.
    */
-  test("NON ricarica mentre una mutazione è in corso", async () => {
+  test("NON ricarica mentre una mutazione OTTIMISTICA è in corso", async () => {
     const queryClient = new QueryClient();
     const fetch = jest.fn().mockResolvedValue(1);
     const unmount = mount(queryClient, "durante-mutazione", 0, fetch);
     await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
 
     const mutation = deferred<void>();
-    void queryClient
-      .getMutationCache()
-      .build(queryClient, { mutationFn: () => mutation.promise })
-      .execute(undefined);
+    startMutation(queryClient, mutation.promise, true);
     await waitFor(() => expect(canRefreshNow(queryClient)).toBe(false));
 
     await refreshStaleQueries(queryClient);
@@ -110,6 +118,30 @@ describe("refreshStaleQueries — il ritorno su una schermata", () => {
     await waitFor(() => expect(canRefreshNow(queryClient)).toBe(true));
     await refreshStaleQueries(queryClient);
     expect(fetch).toHaveBeenCalledTimes(2);
+    unmount();
+  });
+
+  /**
+   * ⚠️ Il caso OPPOSTO: una mutazione NON ottimistica in corso — un turno di
+   * chat col backlog, che resta in corso per tutto il lavoro dell'agente —
+   * NON blocca il ricaricamento. Non scrive la cache prima del server, quindi
+   * non c'è niente che un ricaricamento possa riportare indietro; bloccare
+   * qui farebbe saltare un ricaricamento che poi non si ripete. Diventa rosso
+   * con la regola larga (`isMutating() === 0`), la prima versione.
+   */
+  test("ricarica lo stesso mentre è in corso una mutazione NON ottimistica", async () => {
+    const queryClient = new QueryClient();
+    const fetch = jest.fn().mockResolvedValue(1);
+    const unmount = mount(queryClient, "durante-chat", 0, fetch);
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+
+    const turn = deferred<void>();
+    startMutation(queryClient, turn.promise, false);
+    await waitFor(() => expect(queryClient.isMutating()).toBe(1));
+
+    await refreshStaleQueries(queryClient);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    turn.resolve();
     unmount();
   });
 });
@@ -158,17 +190,14 @@ describe("subscribeAppFocus — il ritorno in primo piano", () => {
    * dell'app (`refetchOnWindowFocus` nei suoi default): tornare in primo
    * piano mentre un «Fatto» aspetta il server non deve riportare la riga.
    */
-  test("sul client dell'app: niente ricarica al ritorno mentre una mutazione è in corso", async () => {
+  test("sul client dell'app: niente ricarica al ritorno mentre una mutazione OTTIMISTICA è in corso", async () => {
     appQueryClient.mount();
     const stale = jest.fn().mockResolvedValue(1);
     const unmount = mount(appQueryClient, "fg-durante-mutazione", 0, stale);
     await waitFor(() => expect(stale).toHaveBeenCalledTimes(1));
 
     const mutation = deferred<void>();
-    void appQueryClient
-      .getMutationCache()
-      .build(appQueryClient, { mutationFn: () => mutation.promise })
-      .execute(undefined);
+    startMutation(appQueryClient, mutation.promise, true);
     await waitFor(() => expect(canRefreshNow(appQueryClient)).toBe(false));
 
     const listener = appStateListener();
@@ -182,6 +211,26 @@ describe("subscribeAppFocus — il ritorno in primo piano", () => {
     listener("background");
     listener("active");
     await waitFor(() => expect(stale).toHaveBeenCalledTimes(2));
+    unmount();
+    appQueryClient.unmount();
+  });
+
+  test("sul client dell'app: una mutazione NON ottimistica in corso non blocca il ritorno in primo piano", async () => {
+    appQueryClient.mount();
+    const stale = jest.fn().mockResolvedValue(1);
+    const unmount = mount(appQueryClient, "fg-durante-chat", 0, stale);
+    await waitFor(() => expect(stale).toHaveBeenCalledTimes(1));
+
+    const turn = deferred<void>();
+    startMutation(appQueryClient, turn.promise, false);
+    await waitFor(() => expect(appQueryClient.isMutating()).toBe(1));
+
+    const listener = appStateListener();
+    listener("background");
+    listener("active");
+    await waitFor(() => expect(stale).toHaveBeenCalledTimes(2));
+    turn.resolve();
+    await waitFor(() => expect(appQueryClient.isMutating()).toBe(0));
     unmount();
     appQueryClient.unmount();
   });
