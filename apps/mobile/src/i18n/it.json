@@ -272,19 +272,6 @@
         "running": "in esecuzione",
         "backlogReadySummary_one": "{{count}} voce pronta alla conversione",
         "backlogReadySummary_other": "{{count}} voci pronte alla conversione",
-        "report": {
-          "title": "Report di ieri",
-          "loading": "carico il riassunto…",
-          "empty": "Nessun riassunto per questo giorno.",
-          "loadError": "Non riesco a caricare il report."
-        },
-        "brief": {
-          "title": "Brief settimanale",
-          "loading": "carico il brief…",
-          "empty": "Nessun brief ancora.",
-          "failed": "Il brief di questa settimana non è stato generato.",
-          "loadError": "Non riesco a caricare il brief."
-        },
         "waitingMergeArrow": "→ da mergiare",
         "stalledTrailing": "{{days}}g · {{reason}}",
         "stalledReason": {
