@@ -17,7 +17,9 @@ import type { ProjectGroupRowProps } from "../../components/projects/ProjectRows
 import { backlogKeys } from "../../lib/backlog-mutations";
 import { docsKeys } from "../../lib/docs-mutations";
 import { OPEN_TICKET_STATUSES } from "../../lib/project-tickets";
-import { inboxKeys, milestoneKeys, projectKeys, ticketKeys } from "../../lib/query-keys";
+import { pulseValue } from "../../lib/project-settings";
+import { inboxKeys, milestoneKeys, projectKeys, serverKeys, ticketKeys } from "../../lib/query-keys";
+import { serverIsBroken, serverStatusKey } from "../../lib/server-health";
 import { ticketHeading } from "../../lib/ticket-labels";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { Skeleton } from "../../components/Skeleton";
@@ -345,6 +347,14 @@ function ProjectDetailBody({
         <HubRepositoriesSection projectId={summary.projectId} projectName={summary.projectName} navigation={navigation} />
         <HubDocsSection projectId={summary.projectId} projectName={summary.projectName} navigation={navigation} />
         <HubRoadmapSection projectId={summary.projectId} projectName={summary.projectName} navigation={navigation} />
+
+        {/*
+          MONITOR E IMPOSTAZIONI (23 set 2026, tappa 3 — l'ultima): in fondo,
+          nell'ordine del design §3. Si scende da «di cosa è fatto» a «com'è
+          configurato», che è la domanda che si fa più di rado.
+        */}
+        <HubMonitorSection projectId={summary.projectId} projectName={summary.projectName} navigation={navigation} />
+        <HubSettingsSection projectId={summary.projectId} projectName={summary.projectName} navigation={navigation} />
 
         <BriefRow projectId={summary.projectId} />
         {summary.lastReportDate !== null && <ReportRow projectId={summary.projectId} date={summary.lastReportDate} />}
@@ -750,6 +760,158 @@ function HubRoadmapSection({
       }
       seeAllLabel={t("mobile.projects.hub.seeAll")}
       onSeeAll={() => navigation.navigate("ProjectRoadmap", { projectId, projectName })}
+      state={state}
+    />
+  );
+}
+
+/**
+ * MONITOR — quanti server e se qualcosa è giù: «Monitor · 2 server · 3
+ * controlli giù».
+ *
+ * ⚠️ Il ROSSO solo quando qualcosa è DAVVERO rotto (`serverIsBroken`: server
+ * offline o controlli giù). Un server appena registrato che non ha mai
+ * mandato campioni non è un guasto, e un monitor che è sempre un po' rosso
+ * smette di dire qualcosa.
+ *
+ * Stessa chiave della schermata dietro «vedi ›» (`serverKeys.forProject`):
+ * chiedono la stessa risposta, senza `limit`.
+ */
+function HubMonitorSection({
+  projectId,
+  projectName,
+  navigation,
+}: {
+  projectId: string;
+  projectName: string;
+  navigation: HubNavigation;
+}) {
+  const { t } = useTranslation();
+  const { client } = useAuth();
+
+  const query = useQuery({
+    queryKey: serverKeys.forProject(projectId),
+    queryFn: () => {
+      if (!client) throw new Error("HubMonitorSection richiede un client autenticato");
+      return client.servers.list(projectId);
+    },
+    enabled: client !== null,
+    staleTime: 30_000,
+  });
+
+  const servers = query.data ?? [];
+  const checksDown = servers.reduce((sum, server) => sum + server.checksDown, 0);
+
+  const rows: ProjectGroupRowProps[] = servers.slice(0, HUB_PREVIEW_LIMIT).map((server) => {
+    const broken = serverIsBroken(server);
+    return {
+      rowKey: server.id,
+      title: server.name,
+      // Un server online con controlli giù: il numero dei giù, che è la cosa
+      // da sapere. Altrimenti lo stato.
+      trailing:
+        server.status === "online" && server.checksDown > 0
+          ? t("mobile.projects.hub.monitor.rowChecksDown", { count: server.checksDown })
+          : t(serverStatusKey(server.status)),
+      trailingTone: broken ? "danger" : "muted",
+      onPress: () => navigation.navigate("Server", { serverId: server.id, projectName }),
+      testID: `hub-server-${server.id}`,
+    };
+  });
+
+  const state =
+    hubQueryState(query, t) ??
+    (servers.length === 0
+      ? ({ kind: "empty", message: t("mobile.projects.hub.monitor.empty") } as const)
+      : ({ kind: "ready", rows } as const));
+
+  const label =
+    query.data === undefined
+      ? t("mobile.projects.hub.monitor.label")
+      : checksDown > 0
+        ? t("mobile.projects.hub.monitor.labelWithDown", {
+            servers: t("mobile.projects.hub.monitor.serverCount", { count: servers.length }),
+            count: checksDown,
+          })
+        : t("mobile.projects.hub.monitor.labelWithCount", { count: servers.length });
+
+  return (
+    <HubSection
+      testID="hub-monitor"
+      label={label}
+      seeAllLabel={t("mobile.projects.hub.seeAll")}
+      onSeeAll={() => navigation.navigate("ProjectMonitor", { projectId, projectName })}
+      state={state}
+    />
+  );
+}
+
+/**
+ * IMPOSTAZIONI — cosa è acceso. Una riga sola, le automazioni attive: di
+ * come è configurato un progetto interessa cosa FA da solo.
+ *
+ * Nessuna richiesta sua: è la STESSA query di repository e schermata
+ * impostazioni (`projectKeys.detail`), che il salvataggio invalida — quindi
+ * tornando qui dopo aver salvato la riga è già quella nuova.
+ */
+function HubSettingsSection({
+  projectId,
+  projectName,
+  navigation,
+}: {
+  projectId: string;
+  projectName: string;
+  navigation: HubNavigation;
+}) {
+  const { t } = useTranslation();
+  const { client } = useAuth();
+
+  const query = useQuery({
+    queryKey: projectKeys.detail(projectId),
+    queryFn: () => {
+      if (!client) throw new Error("HubSettingsSection richiede un client autenticato");
+      return client.projects.get(projectId);
+    },
+    enabled: client !== null,
+    staleTime: 60_000,
+  });
+
+  const project = query.data;
+  const active: string[] = [];
+  if (project !== undefined) {
+    if (project.docAutoUpdate) active.push(t("mobile.projects.hub.settings.docAutoUpdate"));
+    if (project.dailyReportEnabled) active.push(t("mobile.projects.hub.settings.dailyReport"));
+    if (project.backlogEnabled) active.push(t("mobile.projects.hub.settings.backlog"));
+    // Il pulse si dice come lo dice la schermata: acceso senza backlog è
+    // «in attesa del backlog», non una cadenza che non succederà.
+    const pulse = pulseValue(project);
+    if (pulse.key === "mobile.projects.settings.pulseEvery") {
+      active.push(t("mobile.projects.hub.settings.pulseEvery", { count: pulse.count }));
+    } else if (pulse.key === "mobile.projects.settings.pulseWaitingBacklog") {
+      active.push(t("mobile.projects.hub.settings.pulseWaitingBacklog"));
+    }
+    if (project.weeklyBriefEnabled) active.push(t("mobile.projects.hub.settings.weeklyBrief"));
+  }
+
+  const state =
+    hubQueryState(query, t) ??
+    ({
+      kind: "ready",
+      rows: [
+        {
+          rowKey: "settings-summary",
+          title: active.length === 0 ? t("mobile.projects.hub.settings.noneActive") : active.join(" · "),
+          testID: "hub-settings-summary",
+        },
+      ],
+    } as const);
+
+  return (
+    <HubSection
+      testID="hub-settings"
+      label={t("mobile.projects.hub.settings.label")}
+      seeAllLabel={t("mobile.projects.hub.open")}
+      onSeeAll={() => navigation.navigate("ProjectSettings", { projectId, projectName })}
       state={state}
     />
   );

@@ -336,6 +336,30 @@
           "labelWithCount_other": "Roadmap · {{count}} aperte",
           "empty": "Nessuna milestone.",
           "rowProgress": "{{completed}}/{{total}}"
+        },
+        "open": "apri ›",
+        "monitor": {
+          "label": "Monitor",
+          "labelWithCount_one": "Monitor · {{count}} server",
+          "labelWithCount_other": "Monitor · {{count}} server",
+          "serverCount_one": "{{count}} server",
+          "serverCount_other": "{{count}} server",
+          "labelWithDown_one": "Monitor · {{servers}} · {{count}} controllo giù",
+          "labelWithDown_other": "Monitor · {{servers}} · {{count}} controlli giù",
+          "rowChecksDown_one": "{{count}} giù",
+          "rowChecksDown_other": "{{count}} giù",
+          "empty": "Nessun server associato."
+        },
+        "settings": {
+          "label": "Impostazioni",
+          "docAutoUpdate": "Docs automatici",
+          "dailyReport": "Report giornaliero",
+          "backlog": "Backlog",
+          "pulseEvery_one": "Pulse ogni giorno",
+          "pulseEvery_other": "Pulse ogni {{count}} g",
+          "pulseWaitingBacklog": "Pulse in attesa del backlog",
+          "weeklyBrief": "Brief settimanale",
+          "noneActive": "Nessuna automazione attiva."
         }
       },
       "tickets": {
@@ -435,6 +459,107 @@
         "dueDate": "scade il {{date}}",
         "noDueDate": "senza scadenza",
         "progress": "{{completed}} di {{total}} ticket completati"
+      },
+      "monitor": {
+        "title": "Monitor",
+        "loadError": {
+          "title": "Non è stato possibile caricare i server.",
+          "retry": "Riprova"
+        },
+        "empty": {
+          "title": "Nessun server",
+          "body": "Nessun server di monitoraggio è associato a questo progetto."
+        },
+        "status": {
+          "online": "Online",
+          "offline": "Offline",
+          "neverConnected": "Mai connesso",
+          "unknown": "Stato sconosciuto"
+        },
+        "cpuNow": "CPU {{pct}}%",
+        "checks": "{{up}} controlli su · {{down}} giù",
+        "lastSeen": "visto {{ago}} fa"
+      },
+      "server": {
+        "titleFallback": "Server",
+        "loadError": {
+          "title": "Non è stato possibile caricare il server.",
+          "retry": "Riprova"
+        },
+        "sections": {
+          "state": "Stato",
+          "cpu": "CPU",
+          "memory": "Memoria",
+          "disks": "Dischi",
+          "checks": "Controlli",
+          "services": "Servizi"
+        },
+        "fields": {
+          "status": "stato",
+          "hostname": "host",
+          "agentVersion": "versione dell'agente",
+          "sample": "ultimo campione",
+          "notYet": "non ancora noto"
+        },
+        "sample": {
+          "none": "nessuno",
+          "at": "{{ago}} fa"
+        },
+        "staleWarning": "L'ultimo campione è di {{ago}} fa: i numeri qui sotto potrebbero non essere più veri.",
+        "neverConnectedBody": "Questo server non ha mai mandato campioni: l'agente non si è ancora collegato, quindi non ci sono numeri da mostrare.",
+        "noValue": "—",
+        "usage": "{{used}} di {{total}}",
+        "memoryUnavailable": "Il server non manda ancora la memoria: va aggiornato per vederla qui.",
+        "noDisks": "Nessun disco nell'ultimo campione.",
+        "noServices": "Nessun servizio scoperto.",
+        "restarts_one": "{{count}} riavvio",
+        "restarts_other": "{{count}} riavvii",
+        "readOnlyHint": "Soglie, controlli e chiave dell'agente si configurano dal web."
+      },
+      "settings": {
+        "title": "Impostazioni",
+        "loadError": {
+          "title": "Non è stato possibile caricare le impostazioni.",
+          "retry": "Riprova"
+        },
+        "sections": {
+          "identity": "Progetto",
+          "automations": "Automazioni"
+        },
+        "fields": {
+          "name": "nome",
+          "description": "descrizione",
+          "docAutoUpdate": "Aggiorna la documentazione a ogni push",
+          "dailyReport": "Report attività giornaliero",
+          "backlog": "Backlog di discovery",
+          "pulse": "Pulse proattivo",
+          "pulseEveryDays": "Giorni fra un pulse e l'altro",
+          "weeklyBrief": "Brief settimanale"
+        },
+        "hints": {
+          "docAutoUpdate": "rigenera i Docs di un repo quando arriva un push sul suo branch di default",
+          "dailyReport": "ogni notte uno standup dai commit del giorno",
+          "backlog": "i ticket feedback/feature vanno al backlog invece che alla pipeline di fix",
+          "pulse": "quando il progetto è fermo, propone voci del backlog da cui ripartire",
+          "weeklyBrief": "una volta a settimana, il resoconto per chi non legge codice"
+        },
+        "pulseNeedsBacklog": "serve il backlog di discovery: senza, non c'è nulla da proporre",
+        "pulseOff": "Spento",
+        "pulseWaitingBacklog": "Attivo (in attesa del backlog di discovery)",
+        "pulseEvery_one": "Ogni giorno",
+        "pulseEvery_other": "Ogni {{count}} giorni",
+        "on": "Acceso",
+        "off": "Spento",
+        "noDescription": "nessuna descrizione",
+        "nameRequired": "Il nome non può essere vuoto.",
+        "save": "Salva modifiche",
+        "saving": "Salvataggio…",
+        "saved": "Salvato.",
+        "readOnlyHint": "Sola lettura: le impostazioni le modificano i maintainer.",
+        "errors": {
+          "forbidden": "Solo un maintainer può modificare le impostazioni.",
+          "generic": "Salvataggio non riuscito. Riprova."
+        }
       }
     },
     "work": {
