@@ -12,6 +12,7 @@ import { Skeleton } from "../../components/Skeleton";
 import { projectKeys } from "../../lib/query-keys";
 import { colors } from "../../theme/tokens";
 import { fontFamily } from "../../theme/typography";
+import { usePullToRefresh } from "../../components/PullToRefresh";
 
 /** Vedi `InboxScreen.tsx` per il perché di una costante invece di leggere `styles.list.paddingBottom`. */
 const CONTENT_BASE_BOTTOM_PADDING = 40;
@@ -57,9 +58,12 @@ export function ProjectRepositoriesScreen({
     testID: `project-repository-${repository.id}`,
   }));
 
+  const refreshControl = usePullToRefresh([projectKeys.detail(projectId)], "project-repositories-refresh");
+
   return (
     <View style={styles.container}>
       <ScrollView
+        refreshControl={refreshControl}
         contentContainerStyle={[styles.list, { paddingBottom: CONTENT_BASE_BOTTOM_PADDING + tabBarHeight }]}
         stickyHeaderIndices={[0]}
       >

@@ -11,6 +11,8 @@ import { Skeleton } from "../../components/Skeleton";
 import { navigateToTicketWork, useBacklogList, useConvertBacklogItem, type BacklogChip } from "../../lib/backlog-mutations";
 import { colors } from "../../theme/tokens";
 import { fontFamily } from "../../theme/typography";
+import { usePullToRefresh } from "../../components/PullToRefresh";
+import { backlogKeys } from "../../lib/query-keys";
 
 /** Vedi `InboxScreen.tsx` per il perché di una costante invece di leggere `styles.list.paddingBottom`. */
 const CONTENT_BASE_BOTTOM_PADDING = 40;
@@ -57,9 +59,12 @@ export function ProjectBacklogScreen({
   const convert = useConvertBacklogItem();
   const items = query.data ?? [];
 
+  const refreshControl = usePullToRefresh([backlogKeys.all], "project-backlog-refresh");
+
   return (
     <View style={styles.container}>
       <ScrollView
+        refreshControl={refreshControl}
         contentContainerStyle={[styles.list, { paddingBottom: CONTENT_BASE_BOTTOM_PADDING + tabBarHeight }]}
         stickyHeaderIndices={[0]}
       >

@@ -27,6 +27,7 @@ import {
 import { projectKeys } from "../../lib/query-keys";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily } from "../../theme/typography";
+import { usePullToRefresh } from "../../components/PullToRefresh";
 
 /** Vedi `InboxScreen.tsx` per il perché di una costante invece di leggere `styles.body.paddingBottom`. */
 const CONTENT_BASE_BOTTOM_PADDING = 40;
@@ -68,9 +69,12 @@ export function ProjectSettingsScreen({
   // usarlo; quello opposto un form che il server rifiuterebbe.
   const isAdmin = user !== null && !isUnknown(user.role) && user.role === "admin";
 
+  const refreshControl = usePullToRefresh([projectKeys.detail(projectId)], "project-settings-refresh");
+
   return (
     <View style={styles.container}>
       <ScrollView
+        refreshControl={refreshControl}
         contentContainerStyle={[styles.body, { paddingBottom: CONTENT_BASE_BOTTOM_PADDING + tabBarHeight }]}
         stickyHeaderIndices={[0]}
         keyboardShouldPersistTaps="handled"

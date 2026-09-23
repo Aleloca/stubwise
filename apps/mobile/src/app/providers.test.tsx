@@ -141,7 +141,17 @@ describe("AppProviders — badge OS al foreground", () => {
     );
     await waitFor(() => expect(mockLoadSession).toHaveBeenCalled());
 
-    expect(mockAddEventListener).not.toHaveBeenCalledWith("change", expect.any(Function));
+    // Dal 23 set 2026 `AppState` È ascoltato anche senza login: da
+    // `focusManager` (il ricaricamento globale al ritorno in primo piano,
+    // `subscribeAppFocus`), che non c'entra col badge. Questo test verificava
+    // «nessuno ascolta», che non è più vero né era il punto: il punto è che il
+    // BADGE non si aggiorna senza un utente. Quindi si fa scattare ogni
+    // listener registrato e si guarda il badge.
+    for (const [event, listener] of mockAddEventListener.mock.calls) {
+      if (event === "change") (listener as (status: string) => void)("active");
+    }
+    await Promise.resolve();
+    expect(mockSetBadgeCount).not.toHaveBeenCalled();
   });
 });
 

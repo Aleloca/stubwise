@@ -16,7 +16,11 @@ import { fontFamily } from "../../theme/typography";
 const CONTENT_BASE_BOTTOM_PADDING = 40;
 
 /** Chiave di query condivisa col dettaglio (`ProjectDetailScreen`): STESSA cache, un solo fetch. */
-export const projectsPulseKey = ["projects", "pulse"] as const;
+// La chiave vive in `lib/query-keys.ts` dal 23 set 2026 (le mutazioni la
+// invalidano); ri-esportata qui perché nessun import esistente cambi.
+export { projectsPulseKey } from "../../lib/query-keys";
+import { projectsPulseKey } from "../../lib/query-keys";
+import { usePullToRefresh } from "../../components/PullToRefresh";
 
 /**
  * Schermata Progetti (canvas `2a`): un polso per riga — nome, tono e testo
@@ -44,6 +48,15 @@ export function ProjectsScreen({ navigation }: NativeStackScreenProps<ProjectsSt
     },
     enabled: client !== null,
     staleTime: 10_000,
+    // IL POLSO SI RICARICA DA SOLO OGNI MINUTO (23 set 2026): è la parte che
+    // dice cosa fare adesso, e contiene i lavori «in corso» — proprio ciò che
+    // il worker cambia mentre guardi, senza che tu tocchi niente. In
+    // background si ferma da solo (`focusManager`, `app/providers.tsx`).
+    //
+    // ⚠️ In ENTRAMBI i posti che leggono `projectsPulseKey` (`ProjectsScreen`
+    // e `ProjectDetailScreen`): con l'intervallo in uno solo, lo stesso dato
+    // si aggiornerebbe o no a seconda di quale schermata è montata.
+    refetchInterval: 60_000,
   });
 
   const summaries = query.data ?? [];
@@ -63,9 +76,12 @@ export function ProjectsScreen({ navigation }: NativeStackScreenProps<ProjectsSt
 
   // Task 7 (App M1+M2, 11 set 2026): un solo `ScrollView`, header (ora
   // `ScreenHeader`) come primo figlio — stesso schema di `InboxScreen.tsx`.
+  const refreshControl = usePullToRefresh([projectsPulseKey], "projects-refresh");
+
   return (
     <View style={styles.container}>
       <ScrollView
+        refreshControl={refreshControl}
         contentContainerStyle={[styles.scrollContent, { paddingBottom: CONTENT_BASE_BOTTOM_PADDING + tabBarHeight }]}
         stickyHeaderIndices={[0]}
       >

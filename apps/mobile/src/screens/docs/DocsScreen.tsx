@@ -16,6 +16,7 @@ import { docsKeys, mainDocSpace } from "../../lib/docs-mutations";
 import { getLastDocsProjectId, setLastDocsProjectId } from "../../lib/storage";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
+import { usePullToRefresh } from "../../components/PullToRefresh";
 
 /** Vedi `InboxScreen.tsx` per il perché di una costante invece di leggere `styles.body.paddingBottom`. */
 const CONTENT_BASE_BOTTOM_PADDING = 40;
@@ -153,9 +154,12 @@ export function DocsScreen({ navigation }: NativeStackScreenProps<DocsStackParam
   // Lo switcher progetto e la ricerca erano sulla riga del titolo/dentro
   // l'header fisso: restano un blocco subito sotto `ScreenHeader`, la stessa
   // sistemazione del bottone "+" in `BacklogScreen.tsx`.
+  const refreshControl = usePullToRefresh([docsKeys.all], "docs-refresh");
+
   return (
     <View style={styles.container}>
       <ScrollView
+        refreshControl={refreshControl}
         contentContainerStyle={[styles.body, { paddingBottom: CONTENT_BASE_BOTTOM_PADDING + tabBarHeight }]}
         stickyHeaderIndices={[0]}
       >

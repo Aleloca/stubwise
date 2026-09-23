@@ -20,7 +20,7 @@ import { useTranslation } from "react-i18next";
 import { useAuth } from "../app/providers";
 import type { PulseTone } from "./pulse-line";
 import { useIsOnline } from "./inbox-mutations";
-import { ticketKeys } from "./query-keys";
+import { backlogKeys, projectsPulseKey, ticketKeys } from "./query-keys";
 
 /**
  * I tre chip della lista (canvas `3a`): `ready` è l'unico che l'API esprime
@@ -34,11 +34,11 @@ import { ticketKeys } from "./query-keys";
  */
 export type BacklogChip = "active" | "ready" | "all";
 
-export const backlogKeys = {
-  all: ["backlog"] as const,
-  list: (chip: BacklogChip, projectId?: string) => [...backlogKeys.all, "list", chip, projectId ?? null] as const,
-  item: (id: string) => [...backlogKeys.all, "item", id] as const,
-};
+// `backlogKeys` vive in `./query-keys` dal 23 set 2026 (l'app non resta
+// indietro): `useDecision` in `inbox-mutations.ts` deve invalidarle, e quel
+// file non può importare QUESTO senza un ciclo (questo importa `useIsOnline`
+// da lì). Ri-esportate perché nessun chiamante cambi import.
+export { backlogKeys } from "./query-keys";
 
 /** Etichetta i18n dello stato di una voce, in parole (canvas: Pronto / In raffinamento / Nuovo…). */
 export const BACKLOG_STATUS_LABEL_KEYS: Record<BacklogItemStatus, string> = {
@@ -272,6 +272,9 @@ export function useConvertBacklogItem(): BacklogActionMutation<string, Reader<Co
       // `ticketKeys`). Le altre mutazioni non devono sapere niente
       // dell'hub né di nessuna schermata.
       void queryClient.invalidateQueries({ queryKey: ticketKeys.all });
+      // Il POLSO (23 set 2026): `backlogReadyCount` conta le voci pronte, e
+      // questa ne ha appena tolta una.
+      void queryClient.invalidateQueries({ queryKey: projectsPulseKey });
     },
     onError: (error) => {
       if (error instanceof ApiError && error.status === 409) {

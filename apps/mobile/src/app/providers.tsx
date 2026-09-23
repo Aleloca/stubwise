@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { QueryCache, QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { focusManager, QueryCache, QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { canRefreshNow } from "../lib/refresh";
 import { createAsyncStoragePersister } from "@tanstack/query-async-storage-persister";
 import { persistQueryClient } from "@tanstack/react-query-persist-client";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
@@ -43,7 +44,7 @@ export type { AuthContextValue } from "./auth-context";
  * pattern ufficiale"). Un solo `QueryClient` per l'intera app, creato fuori
  * dal componente perché deve sopravvivere ai re-render.
  */
-export const queryClient = new QueryClient({
+export const queryClient: QueryClient = new QueryClient({
   // Task 20: "ultima sincronizzazione" (banner offline) si aggiorna a OGNI
   // fetch riuscita gestita da TanStack Query — non solo dall'Inbox (che aveva
   // la propria chiamata ad-hoc a `setLastSyncAt`: rimossa dal fix del Task 20
@@ -61,13 +62,52 @@ export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       // I dati di Stubwise cambiano per iniziativa di altri (un altro
-      // maintainer risponde, il worker finisce un job): un retry solo, i
-      // task successivi (inbox, pulse) decideranno l'intervallo di refetch
-      // per singola query.
+      // maintainer risponde, il worker finisce un job): un retry solo. Come
+      // restano freschi è deciso altrove, in tre pezzi (23 set 2026, «l'app
+      // non resta indietro»): il ritorno in primo piano (`focusManager` qui
+      // sotto), il ritorno su una schermata (`RootNavigator` in
+      // `navigation.tsx`) e gli intervalli per singola query — l'inbox e il
+      // polso, ogni minuto.
       retry: 1,
+      // Il ritorno in primo piano ricarica le query scadute (`focusManager`
+      // qui sotto) — ma NON mentre una mutazione è in corso: riporterebbe per
+      // un attimo una notifica appena segnata «Fatto». Vedi `canRefreshNow`.
+      refetchOnWindowFocus: (): boolean => canRefreshNow(queryClient),
     },
   },
 });
+
+/**
+ * IL RITORNO IN PRIMO PIANO, per TUTTE le query (23 set 2026 — design
+ * «l'app non resta indietro», §3).
+ *
+ * È la forma documentata da TanStack Query per React Native: nel browser la
+ * libreria sa da sola quando la finestra torna in vista, su un telefono no, e
+ * finché non glielo si dice nessuna query si ricarica al ritorno. Da qui in
+ * poi ogni query MONTATA e SCADUTA (oltre il suo `staleTime`) si ricarica da
+ * sola quando l'app torna attiva, e gli intervalli (`refetchInterval`) si
+ * fermano in background.
+ *
+ * Il listener `AppState` dentro `AppProviders` (inbox + badge) resta com'è:
+ * ha un altro compito — il badge del sistema operativo, e la stessa funzione
+ * serve alle push ricevute in primo piano. ⚠️ Le due cose NON si deduplicano
+ * del tutto: quel listener chiama `refetchQueries`, che di default annulla
+ * una richiesta in volo e ne rifà una. Al ritorno, quindi, l'inbox può
+ * partire due volte e la prima viene annullata. Non si è cambiato quel
+ * listener apposta: per una PUSH annullare la richiesta in volo è giusto —
+ * potrebbe essere partita prima che la notifica esistesse.
+ *
+ * Esportata per il test, che la collega a un `AppState` finto e guarda cosa
+ * succede alle query.
+ */
+export function subscribeAppFocus(handleFocus: (focused: boolean) => void): () => void {
+  const subscription = AppState.addEventListener("change", (status: AppStateStatus) => {
+    handleFocus(status === "active");
+  });
+  return () => subscription?.remove();
+}
+
+focusManager.setEventListener(subscribeAppFocus);
 
 const persister = createAsyncStoragePersister({
   storage: AsyncStorage,

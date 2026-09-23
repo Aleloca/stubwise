@@ -13,6 +13,8 @@ import type { MailThreadReproposal, Reader } from "@stubwise/shared";
 import { useMailThread, useRepropose } from "../../lib/mail-mutations";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
+import { usePullToRefresh } from "../../components/PullToRefresh";
+import { mailKeys } from "../../lib/query-keys";
 
 /** Vedi `InboxScreen.tsx` per il perché di una costante invece di leggere `styles.body.paddingBottom`. */
 const CONTENT_BASE_BOTTOM_PADDING = 40;
@@ -44,9 +46,12 @@ export function ThreadDetailScreen({
   const query = useMailThread(threadId);
   const notFound = query.isError && query.error instanceof ApiError && query.error.status === 404;
 
+  const refreshControl = usePullToRefresh([mailKeys.thread(threadId)], "thread-refresh");
+
   return (
     <View style={styles.container} testID="thread-detail-screen">
       <ScrollView
+        refreshControl={refreshControl}
         contentContainerStyle={[styles.body, { paddingBottom: CONTENT_BASE_BOTTOM_PADDING + tabBarHeight }]}
         stickyHeaderIndices={[0]}
       >

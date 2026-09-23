@@ -1,9 +1,10 @@
 import type { StubwiseClient } from "@stubwise/api-client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { AuthContext } from "../../app/auth-context";
 import type { AuthContextValue } from "../../app/providers";
 import "../../i18n";
+import { pullToRefresh, refreshControlOf } from "../../test-utils/pull-to-refresh";
 import { ProjectTicketsScreen } from "./ProjectTicketsScreen";
 
 const PROJECT_ID = "11111111-1111-4111-8111-111111111111";
@@ -139,5 +140,36 @@ describe("ProjectTicketsScreen", () => {
   test("SERVER PIÙ VECCHIO: senza `total` l'elenco si vede lo stesso", async () => {
     await renderScreen(makeClient(jest.fn().mockResolvedValue({ items: [ticket()], nextCursor: null })));
     await waitFor(() => expect(screen.getByText("Export CSV clienti")).toBeTruthy());
+  });
+});
+
+/**
+ * TRASCINA PER AGGIORNARE (23 set 2026, «l'app non resta indietro», §5): il
+ * gesto ricarica l'elenco della schermata, anche se è fresco — chi trascina
+ * sta chiedendo di vedere adesso, non «se è vecchio».
+ */
+describe("ProjectTicketsScreen — trascina per aggiornare", () => {
+  test("il gesto ricarica l'elenco, e la rotella resta finché la risposta non arriva", async () => {
+    let answer!: (value: unknown) => void;
+    const slow = new Promise((resolve) => {
+      answer = resolve;
+    });
+    const list = jest
+      .fn()
+      .mockResolvedValueOnce({ items: [ticket()], nextCursor: null, total: 1 })
+      .mockReturnValueOnce(slow);
+    await renderScreen(makeClient(list));
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(1));
+    expect(refreshControlOf("project-tickets-refresh").refreshing).toBe(false);
+
+    await pullToRefresh("project-tickets-refresh");
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+    // La risposta non è ancora arrivata: la rotella gira.
+    expect(refreshControlOf("project-tickets-refresh").refreshing).toBe(true);
+
+    await act(async () => {
+      answer({ items: [ticket()], nextCursor: null, total: 1 });
+    });
+    await waitFor(() => expect(refreshControlOf("project-tickets-refresh").refreshing).toBe(false));
   });
 });

@@ -3,7 +3,7 @@ import NetInfo from "@react-native-community/netinfo";
 import { Linking } from "react-native";
 import * as Keychain from "react-native-keychain";
 import "../i18n";
-import { AppProviders } from "./providers";
+import { AppProviders, queryClient } from "./providers";
 import { navigationRef, RootNavigator } from "./navigation";
 import { setPendingDeepLink } from "./linking";
 
@@ -50,6 +50,78 @@ const BACKLOG_ITEM_DETAIL = {
 };
 
 const HUB_NOTIFICATION_ID = "33333333-3333-4333-8333-333333333333";
+
+/**
+ * Il ticket col piano da approvare del test sul SINTOMO (23 set 2026, «l'app
+ * non resta indietro»). Finché il piano non è approvato il polso lo mette
+ * sotto «aspetta te»; dal momento dell'approvazione il server finto smette —
+ * come farebbe quello vero.
+ */
+const PLAN_TICKET_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+const PLAN_JOB_ID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+const PLAN_NOTIFICATION_ID = "ffffffff-ffff-4fff-8fff-ffffffffffff";
+let planAwaitingApproval = false;
+/** Quante volte il polso è stato chiesto al server: il test del ritorno le conta. */
+let pulseCalls = 0;
+
+const PLAN_TICKET = {
+  id: PLAN_TICKET_ID,
+  projectId: "11111111-1111-4111-8111-111111111111",
+  number: 27,
+  title: "Export CSV degli ordini",
+  body: "Aggiunge l'esportazione CSV degli ordini.",
+  type: "feature",
+  priority: "medium",
+  status: "in_progress",
+  source: "manual",
+  assigneeId: null,
+  milestoneId: null,
+  effort: 3,
+  labels: [],
+  technicalPayload: null,
+  occurrences: 1,
+  lastSeenAt: "2026-09-20T09:00:00.000Z",
+  createdAt: "2026-09-20T09:00:00.000Z",
+  updatedAt: "2026-09-20T09:00:00.000Z",
+  implementationPlan: "1. Aggiungere l'export.",
+  originContent: null,
+  repositories: [],
+};
+
+function planJob() {
+  return {
+    id: PLAN_JOB_ID,
+    ticketId: PLAN_TICKET_ID,
+    status: planAwaitingApproval ? "awaiting_plan_approval" : "fixing",
+    log: "",
+    prUrl: null,
+    error: null,
+    createdAt: "2026-09-20T09:05:00.000Z",
+    startedAt: null,
+    finishedAt: null,
+    providerLabel: null,
+    providerKind: null,
+    requestedByUserId: null,
+  };
+}
+
+/** Il polso, ricostruito a ogni richiesta dallo stato del server finto. */
+function hubPulse() {
+  return HUB_PULSE.map((row) => ({
+    ...row,
+    waitingForYou: planAwaitingApproval
+      ? [
+          {
+            kind: "plan_approval",
+            ticketId: PLAN_TICKET_ID,
+            ticketNumber: 27,
+            title: "Export CSV degli ordini",
+            notificationId: PLAN_NOTIFICATION_ID,
+          },
+        ]
+      : [],
+  }));
+}
 
 /** Il polso del progetto dell'hub: i secchi vuoti, serve solo il nome. */
 const HUB_PULSE = [
@@ -168,7 +240,32 @@ function routeFetch(input: RequestInfo | URL, init?: RequestInit): Response {
   // l'inbox del progetto — più il «Fatto» su una notifica, che è la
   // mutazione vera del test sull'invalidazione.
   if (url.endsWith("/api/projects/pulse") && method === "GET") {
-    return jsonResponse(200, HUB_PULSE);
+    pulseCalls += 1;
+    return jsonResponse(200, hubPulse());
+  }
+  // La schermata del ticket col piano da approvare (23 set 2026): tutto ciò
+  // che `WorkScreen` legge, più l'approvazione — la mutazione VERA del test
+  // sul sintomo. PRIMA del ramo generico `/api/tickets`, che la inghiottirebbe.
+  if (method === "POST" && url.endsWith(`/api/tickets/${PLAN_TICKET_ID}/approve-plan`)) {
+    planAwaitingApproval = false;
+    return jsonResponse(200, { jobId: PLAN_JOB_ID });
+  }
+  if (method === "GET" && url.endsWith(`/api/tickets/${PLAN_TICKET_ID}`)) {
+    return jsonResponse(200, PLAN_TICKET);
+  }
+  if (method === "GET" && url.endsWith(`/api/tickets/${PLAN_TICKET_ID}/jobs`)) {
+    return jsonResponse(200, [planJob()]);
+  }
+  if (
+    method === "GET" &&
+    (url.endsWith(`/api/tickets/${PLAN_TICKET_ID}/questions`) ||
+      url.endsWith(`/api/tickets/${PLAN_TICKET_ID}/activity`) ||
+      url.endsWith(`/api/tickets/${PLAN_TICKET_ID}/comments`) ||
+      url.includes("/reviews") ||
+      url.endsWith("/api/users") ||
+      url.includes("/api/milestones"))
+  ) {
+    return jsonResponse(200, []);
   }
   if (method === "POST" && url.includes("/api/inbox/") && url.endsWith("/handled")) {
     hubOpenNotifications -= 1;
@@ -214,6 +311,8 @@ beforeEach(() => {
   // un test resterebbe (o mancherebbe) nel test successivo.
   setPendingDeepLink(null);
   hubOpenNotifications = 2;
+  planAwaitingApproval = false;
+  pulseCalls = 0;
 });
 
 describe("deep link", () => {
@@ -630,5 +729,146 @@ describe("hub di progetto — la documentazione resta nello stack del progetto",
     await fireEvent.press(screen.getByTestId("screen-header-back"));
     await waitFor(() => expect(screen.getByTestId(`project-docs-space-${DOC_REPOSITORY_ID}`)).toBeTruthy());
     expect(screen.queryByTestId("docs-project-toggle")).toBeNull();
+  });
+});
+
+
+/** Una sessione salvata, con il ruolo scelto: il test del piano vuole un maintainer. */
+function mockSession(role: "admin" | "member") {
+  const session = {
+    baseUrl: "https://stubwise.example",
+    token: "stw_pat_existing",
+    patId: "12121212-1212-4121-8121-121212121212",
+    user: { ...successUser, role },
+  };
+  (Keychain.getGenericPassword as jest.Mock).mockResolvedValue({
+    username: "stubwise-session",
+    password: JSON.stringify(session),
+    service: "com.app.aleloca.stubwise.session",
+    storage: "keychain",
+  });
+  (Linking.getInitialURL as jest.Mock).mockResolvedValue(undefined);
+  jest.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => routeFetch(input, init));
+}
+
+/**
+ * ⚠️ Il `QueryClient` dell'app è UNO per tutto il file (è un singleton di
+ * modulo): senza svuotarlo, il polso arriva già in cache dai test
+ * precedenti, fresco, e non viene nemmeno chiesto — i test qui sotto
+ * contano proprio quelle richieste.
+ */
+function clearAppCache() {
+  queryClient.clear();
+}
+
+async function openHub() {
+  await render(
+    <AppProviders>
+      <RootNavigator />
+    </AppProviders>,
+  );
+  await waitFor(() => expect(navigationRef.isReady()).toBe(true));
+  await act(async () => {
+    navigationRef.navigate("Main", {
+      screen: "Projects",
+      params: { screen: "Detail", params: { id: HUB_PROJECT_ID } },
+    });
+  });
+}
+
+/**
+ * IL SINTOMO DA CUI È PARTITO «L'APP NON RESTA INDIETRO» (23 set 2026,
+ * design §1 e §8) — ed è la verifica che il maintainer fa sul telefono.
+ *
+ * Approvi il piano del #27 dal ticket aperto dall'hub, torni indietro
+ * SUBITO, e il #27 non deve più essere sotto «aspetta te». «Subito» è il
+ * punto: il polso ha pochi secondi, è dentro il suo `staleTime`, quindi il
+ * ricaricamento al ritorno NON parte. L'unica cosa che può aggiornarlo è
+ * l'invalidazione che `useTicketAction` dichiara. Verificato togliendola: il
+ * test diventa rosso.
+ */
+describe("l'app non resta indietro — approvi un piano e torni all'hub", () => {
+  beforeEach(clearAppCache);
+
+  test("il ticket non è più sotto «aspetta te», senza uscire dal progetto", async () => {
+    planAwaitingApproval = true;
+    mockSession("admin");
+    await openHub();
+
+    await waitFor(() => expect(screen.getByText("Aspetta qualcuno · 1")).toBeTruthy());
+    await fireEvent.press(screen.getByText("Export CSV degli ordini"));
+
+    await waitFor(() => expect(screen.getByTestId("plan-section-approve")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("plan-section-approve"));
+    await waitFor(() => expect(screen.getByTestId("plan-section-approve-confirm")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("plan-section-approve-confirm"));
+    await waitFor(() => expect(planAwaitingApproval).toBe(false));
+
+    await fireEvent.press(screen.getByTestId("screen-header-back"));
+    await waitFor(() => expect(screen.queryByText("Aspetta qualcuno · 1")).toBeNull());
+    expect(screen.getByText("Portale B2B")).toBeTruthy();
+  });
+});
+
+/**
+ * IL RITORNO SU UNA SCHERMATA RICARICA CIÒ CHE È SCADUTO, E SOLO QUELLO
+ * (23 set 2026, design §3). Albero vero: la regola vive in `RootNavigator`,
+ * sull'`onStateChange` del `NavigationContainer`, e solo il navigatore vero
+ * la fa scattare.
+ */
+describe("l'app non resta indietro — il ritorno su una schermata", () => {
+  beforeEach(clearAppCache);
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  /**
+   * ⚠️ Timer FINTI, e non un `Date.now` spostato: una query montata diventa
+   * «scaduta» quando scatta un TIMER interno dell'osservatore (dopo lo
+   * `staleTime`), non quando l'orologio lo dice. Spostare solo l'orologio
+   * lascia la query fresca, e il test fallirebbe per un motivo che sul
+   * telefono non esiste — dove il timer scatta davvero.
+   */
+  test("tornando all'hub dopo lo `staleTime`, il polso si ricarica", async () => {
+    jest.useFakeTimers();
+    mockSession("member");
+    await openHub();
+    await waitFor(() => expect(screen.getByTestId("hub-tickets-see-all")).toBeTruthy());
+
+    await fireEvent.press(screen.getByTestId("hub-tickets-see-all"));
+    await waitFor(() => expect(screen.getByTestId("screen-header-back")).toBeTruthy());
+    const before = pulseCalls;
+
+    // Il tempo passa mentre si è nella schermata figlia: il polso (10 s di
+    // `staleTime`) diventa vecchio, ma l'hub resta montato sotto. Meno del
+    // minuto dell'intervallo, che altrimenti lo ricaricherebbe da sé.
+    await act(async () => {
+      jest.advanceTimersByTime(15_000);
+    });
+    expect(pulseCalls).toBe(before);
+
+    await fireEvent.press(screen.getByTestId("screen-header-back"));
+    await waitFor(() => expect(pulseCalls).toBe(before + 1));
+  });
+
+  test("tornando all'hub SUBITO, il polso non si ricarica: è ancora fresco", async () => {
+    mockSession("member");
+    await openHub();
+    await waitFor(() => expect(screen.getByTestId("hub-tickets-see-all")).toBeTruthy());
+
+    await fireEvent.press(screen.getByTestId("hub-tickets-see-all"));
+    await waitFor(() => expect(screen.getByTestId("screen-header-back")).toBeTruthy());
+    const before = pulseCalls;
+
+    await fireEvent.press(screen.getByTestId("screen-header-back"));
+    await waitFor(() => expect(screen.getByTestId("hub-tickets-see-all")).toBeTruthy());
+    // Una lettura in più avrebbe tempo di partire: si aspetta un giro.
+    await act(async () => {
+      await new Promise<void>((resolve) => {
+        setTimeout(() => resolve(), 50);
+      });
+    });
+    expect(pulseCalls).toBe(before);
   });
 });

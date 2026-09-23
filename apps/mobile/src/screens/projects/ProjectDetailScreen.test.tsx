@@ -6,6 +6,7 @@ import { AuthContext } from "../../app/auth-context";
 import type { AuthContextValue } from "../../app/providers";
 import { StyleSheet } from "react-native";
 import "../../i18n";
+import { pullToRefresh } from "../../test-utils/pull-to-refresh";
 import { ProjectDetailScreen } from "./ProjectDetailScreen";
 
 const PROJECT_ID = "11111111-1111-4111-8111-111111111111";
@@ -396,7 +397,11 @@ describe("ProjectDetailScreen", () => {
     const { rendered } = await renderScreen(client);
     await waitFor(() => expect(screen.getByText("Aspetta qualcuno · 1")).toBeTruthy());
 
-    const flat = JSON.stringify(rendered.toJSON());
+    // Senza la prop `refreshControl` (23 set 2026): è un ELEMENTO React
+    // passato allo `ScrollView`, con dentro un riferimento circolare che
+    // `JSON.stringify` non sa attraversare. Qui interessa solo l'ordine dei
+    // testi.
+    const flat = JSON.stringify(rendered.toJSON(), (key, value: unknown) => (key === "refreshControl" ? undefined : value));
     const waitingIndex = flat.indexOf("Aspetta qualcuno · 1");
     const nowIndex = flat.indexOf("Adesso · 1");
     const backlogIndex = flat.indexOf("Pronto nel backlog · 1");
@@ -1103,5 +1108,38 @@ describe("ProjectDetailScreen — monitor e impostazioni", () => {
     await waitFor(() => expect(screen.getByTestId("hub-server-s1")).toBeTruthy());
     await fireEvent.press(screen.getByTestId("hub-server-s1"));
     expect(navigate).toHaveBeenCalledWith("Server", { serverId: "s1", projectName: "Portale B2B" });
+  });
+});
+
+/**
+ * TRASCINA PER AGGIORNARE sull'hub (23 set 2026): il gesto ricarica il polso
+ * E ogni sezione — ognuna ha la sua query, e l'hub le elenca tutte al
+ * componente condiviso.
+ */
+describe("ProjectDetailScreen — trascina per aggiornare", () => {
+  test("il gesto ricarica il polso e le sezioni", async () => {
+    const pulse = jest.fn().mockResolvedValue([summary()]);
+    const listTickets = jest.fn().mockResolvedValue({ items: [], nextCursor: null, total: 0 });
+    const getProject = jest.fn().mockResolvedValue(projectDetail());
+    const listServers = jest.fn().mockResolvedValue([]);
+    const milestones = jest.fn().mockResolvedValue([]);
+    await renderScreen(makeClient({ pulse, listTickets, getProject, listServers, milestones }));
+    await waitFor(() => expect(listServers).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(milestones).toHaveBeenCalledTimes(1));
+    const [pulseBefore, ticketsBefore, projectBefore] = [
+      pulse.mock.calls.length,
+      listTickets.mock.calls.length,
+      getProject.mock.calls.length,
+    ];
+
+    await pullToRefresh("project-detail-refresh");
+
+    await waitFor(() => expect(pulse.mock.calls.length).toBe(pulseBefore + 1));
+    await waitFor(() => expect(listTickets.mock.calls.length).toBe(ticketsBefore + 1));
+    // Il dettaglio del progetto è UNA query letta da due sezioni (repository e
+    // impostazioni): si ricarica una volta sola.
+    await waitFor(() => expect(getProject.mock.calls.length).toBe(projectBefore + 1));
+    await waitFor(() => expect(listServers).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(milestones).toHaveBeenCalledTimes(2));
   });
 });

@@ -1,3 +1,6 @@
+import type { MailDetailSource, MailFilters } from "@stubwise/api-client";
+import type { BacklogChip } from "./backlog-mutations";
+
 /**
  * Chiavi di query dell'inbox — estratte da `inbox-mutations.ts` in un modulo
  * proprio perché il Task 19 le usa anche in `app/providers.tsx` (refresh al
@@ -116,3 +119,66 @@ export const serverKeys = {
   forProject: (projectId: string) => [...serverKeys.all, "list", "project", projectId] as const,
   detail: (serverId: string) => [...serverKeys.all, "detail", serverId] as const,
 };
+
+/**
+ * IL POLSO dei progetti (`GET /api/projects/pulse`), letto da
+ * `ProjectsScreen` e `ProjectDetailScreen`.
+ *
+ * Qui dal 23 set 2026 (l'app non resta indietro), prima dentro
+ * `ProjectsScreen.tsx`: le mutazioni condivise lo invalidano, e una libreria
+ * che importa da una schermata è la dipendenza nel verso sbagliato. Stesso
+ * valore di sempre, sotto `["projects"]` — `projectKeys.all` lo raggiunge
+ * ancora.
+ *
+ * ⚠️ Le mutazioni invalidano QUESTA chiave, non `projectKeys.all`: quella
+ * porterebbe con sé dettaglio, lista e impostazioni di ogni progetto a ogni
+ * «Fatto» su una notifica. Si dichiara il minimo che è cambiato davvero.
+ */
+export const projectsPulseKey = ["projects", "pulse"] as const;
+
+/**
+ * Chiavi del BACKLOG — qui dal 23 set 2026, prima in `backlog-mutations.ts`
+ * (che le ri-esporta): `useDecision` deve invalidarle e non può importare
+ * quel file senza un ciclo.
+ */
+export const backlogKeys = {
+  all: ["backlog"] as const,
+  list: (chip: BacklogChip, projectId?: string) => [...backlogKeys.all, "list", chip, projectId ?? null] as const,
+  item: (id: string) => [...backlogKeys.all, "item", id] as const,
+};
+
+/** Chiavi della POSTA — qui dal 23 set 2026, stessa ragione di {@link backlogKeys}. */
+export const mailKeys = {
+  all: ["mail"] as const,
+  list: (filters: MailFilters) => [...mailKeys.all, "list", filters] as const,
+  detail: (source: MailDetailSource, id: string) => [...mailKeys.all, "detail", source, id] as const,
+  /** La lista per CONVERSAZIONE, distinta da quella per messaggio. */
+  threads: () => [...mailKeys.all, "threads"] as const,
+  thread: (threadId: string) => [...mailKeys.all, "thread", threadId] as const,
+};
+
+/**
+ * Chiavi di query del lavoro di UN ticket: dettaglio ticket (`implementationPlan`
+ * incluso), job (la timeline) e domande dell'agente. Raggruppate sotto lo
+ * stesso genitore (`all(ticketId)`) così un'unica `invalidateQueries` dopo
+ * approva/rifiuta rinfresca tutt'e tre — la schermata Lavoro (Task 16) le
+ * legge tutte per costruire la timeline in parole (`lib/timeline.ts`).
+ */
+export const workKeys = {
+  /**
+   * IL TICKET APERTO, qualunque sia (23 set 2026). Una decisione dall'inbox
+   * agisce su una NOTIFICA e non sa quale ticket sia aperto sullo schermo:
+   * invalidare il prefisso segna scaduto l'albero di ogni ticket, e si
+   * ricarica solo quello montato.
+   */
+  root: ["work"] as const,
+  all: (ticketId: string) => [...workKeys.root, ticketId] as const,
+  ticket: (ticketId: string) => [...workKeys.all(ticketId), "ticket"] as const,
+  jobs: (ticketId: string) => [...workKeys.all(ticketId), "jobs"] as const,
+  questions: (ticketId: string) => [...workKeys.all(ticketId), "questions"] as const,
+  /** Il feed di attività del ticket (fase 5): date reali dei passi della timeline. */
+  activity: (ticketId: string) => [...workKeys.all(ticketId), "activity"] as const,
+  /** I commenti del ticket: la conversazione attorno al lavoro. */
+  comments: (ticketId: string) => [...workKeys.all(ticketId), "comments"] as const,
+};
+

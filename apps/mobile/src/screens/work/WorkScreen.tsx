@@ -36,6 +36,7 @@ import { workKeys } from "../../lib/work-mutations";
 import { milestoneKeys } from "../../lib/query-keys";
 import { colors } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
+import { usePullToRefresh } from "../../components/PullToRefresh";
 
 /** Vedi `InboxScreen.tsx` per il perché di una costante invece di leggere `styles.body.paddingBottom`. */
 const CONTENT_BASE_BOTTOM_PADDING = 40;
@@ -187,9 +188,12 @@ export function WorkScreen({ navigation, route }: NativeStackScreenProps<Project
   // Fix di review (Task 2, 11 set 2026): l'avatar, mancante del tutto su
   // questo screen — quello dove si approva un piano — ora c'è sulla
   // stessa riga, ancorata (`stickyHeaderIndices`, vedi `ScreenHeader.tsx`).
+  const refreshControl = usePullToRefresh([workKeys.all(id), milestoneKeys.all], "work-refresh");
+
   return (
     <View style={styles.container}>
       <ScrollView
+        refreshControl={refreshControl}
         contentContainerStyle={[styles.body, { paddingBottom: CONTENT_BASE_BOTTOM_PADDING + tabBarHeight }]}
         stickyHeaderIndices={[0]}
       >

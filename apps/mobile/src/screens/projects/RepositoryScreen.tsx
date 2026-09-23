@@ -14,6 +14,7 @@ import { shortDate } from "../../lib/format";
 import { repositoryKeys } from "../../lib/query-keys";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily } from "../../theme/typography";
+import { usePullToRefresh } from "../../components/PullToRefresh";
 
 /** Vedi `InboxScreen.tsx` per il perché di una costante invece di leggere `styles.body.paddingBottom`. */
 const CONTENT_BASE_BOTTOM_PADDING = 40;
@@ -53,9 +54,12 @@ export function RepositoryScreen({ navigation, route }: NativeStackScreenProps<P
 
   const repository = query.data;
 
+  const refreshControl = usePullToRefresh([repositoryKeys.detail(slug)], "repository-refresh");
+
   return (
     <View style={styles.container}>
       <ScrollView
+        refreshControl={refreshControl}
         contentContainerStyle={[styles.body, { paddingBottom: CONTENT_BASE_BOTTOM_PADDING + tabBarHeight }]}
         stickyHeaderIndices={[0]}
       >

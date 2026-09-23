@@ -13,6 +13,8 @@ import { relativeTimeCompact } from "../../lib/format";
 import { useMailDetail, useMailOriginal } from "../../lib/mail-mutations";
 import { colors } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
+import { usePullToRefresh } from "../../components/PullToRefresh";
+import { mailKeys } from "../../lib/query-keys";
 
 /** Vedi `InboxScreen.tsx` per il perché di una costante invece di leggere `styles.body.paddingBottom`. */
 const CONTENT_BASE_BOTTOM_PADDING = 40;
@@ -44,9 +46,12 @@ export function MailDetailScreen({ navigation, route }: NativeStackScreenProps<M
 
   const notFound = detailQuery.isError && detailQuery.error instanceof ApiError && detailQuery.error.status === 404;
 
+  const refreshControl = usePullToRefresh([mailKeys.all], "mail-detail-refresh");
+
   return (
     <View style={styles.container} testID="mail-detail-screen">
       <ScrollView
+        refreshControl={refreshControl}
         contentContainerStyle={[styles.body, { paddingBottom: CONTENT_BASE_BOTTOM_PADDING + tabBarHeight }]}
         stickyHeaderIndices={[0]}
       >

@@ -19,6 +19,8 @@ import {
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
 import { CaptureSheet } from "./CaptureSheet";
+import { usePullToRefresh } from "../../components/PullToRefresh";
+import { backlogKeys } from "../../lib/query-keys";
 
 /** Vedi `InboxScreen.tsx` per il perché di una costante invece di leggere `styles.list.paddingBottom`. */
 const CONTENT_BASE_BOTTOM_PADDING = 40;
@@ -90,9 +92,12 @@ export function BacklogScreen({ navigation }: NativeStackScreenProps<BacklogStac
   // `ScreenHeader`) come primo figlio — stesso schema di `InboxScreen.tsx`.
   // Il bottone "+" era sulla STESSA riga del titolo prima di questo task:
   // con l'avatar ora lì, resta sulla riga sotto, insieme ai chip.
+  const refreshControl = usePullToRefresh([backlogKeys.all], "backlog-refresh");
+
   return (
     <View style={styles.container}>
       <ScrollView
+        refreshControl={refreshControl}
         contentContainerStyle={[styles.list, { paddingBottom: CONTENT_BASE_BOTTOM_PADDING + tabBarHeight }]}
         stickyHeaderIndices={[0]}
       >
