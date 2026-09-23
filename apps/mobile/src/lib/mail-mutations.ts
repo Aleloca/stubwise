@@ -9,14 +9,10 @@ import { useAuth } from "../app/providers";
 import { useIsOnline } from "./inbox-mutations";
 import type { PulseTone } from "./pulse-line";
 
-export const mailKeys = {
-  all: ["mail"] as const,
-  list: (filters: MailFilters) => [...mailKeys.all, "list", filters] as const,
-  detail: (source: MailDetailSource, id: string) => [...mailKeys.all, "detail", source, id] as const,
-  /** La lista per CONVERSAZIONE, distinta da quella per messaggio. */
-  threads: () => [...mailKeys.all, "threads"] as const,
-  thread: (threadId: string) => [...mailKeys.all, "thread", threadId] as const,
-};
+// `mailKeys` vive in `./query-keys` dal 23 set 2026, per la stessa ragione
+// di `backlogKeys` (vedi lì). Ri-esportate perché nessun chiamante cambi import.
+export { mailKeys } from "./query-keys";
+import { mailKeys } from "./query-keys";
 
 /**
  * Da quale `source` (e — per l'email — quale `MailDetailSource`) apre il

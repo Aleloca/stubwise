@@ -14,6 +14,7 @@ import { shortDate } from "../../lib/format";
 import { milestoneKeys } from "../../lib/query-keys";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily } from "../../theme/typography";
+import { usePullToRefresh } from "../../components/PullToRefresh";
 
 /** Vedi `InboxScreen.tsx` per il perché di una costante invece di leggere `styles.body.paddingBottom`. */
 const CONTENT_BASE_BOTTOM_PADDING = 40;
@@ -55,9 +56,12 @@ export function ProjectRoadmapScreen({
 
   const milestones = query.data ?? [];
 
+  const refreshControl = usePullToRefresh([milestoneKeys.forProject(projectId)], "project-roadmap-refresh");
+
   return (
     <View style={styles.container}>
       <ScrollView
+        refreshControl={refreshControl}
         contentContainerStyle={[styles.body, { paddingBottom: CONTENT_BASE_BOTTOM_PADDING + tabBarHeight }]}
         stickyHeaderIndices={[0]}
       >

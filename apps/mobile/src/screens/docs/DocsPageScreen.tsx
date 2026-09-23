@@ -14,6 +14,7 @@ import { Skeleton } from "../../components/Skeleton";
 import { docsKeys, docsKindLabelKey } from "../../lib/docs-mutations";
 import { colors } from "../../theme/tokens";
 import { fontFamily } from "../../theme/typography";
+import { usePullToRefresh } from "../../components/PullToRefresh";
 
 /** Vedi `InboxScreen.tsx` per il perché di una costante invece di leggere `styles.body.paddingBottom`. */
 const CONTENT_BASE_BOTTOM_PADDING = 40;
@@ -54,9 +55,12 @@ export function DocsPageScreen({ navigation, route }: NativeStackScreenProps<Doc
   // Fix di review (Task 2, 11 set 2026): l'avatar, mancante del tutto su
   // questo screen, ora c'è sulla stessa riga — ancorata
   // (`stickyHeaderIndices`, vedi `ScreenHeader.tsx`).
+  const refreshControl = usePullToRefresh([docsKeys.page(repositoryId, slug)], "docs-page-refresh");
+
   return (
     <View style={styles.container}>
       <ScrollView
+        refreshControl={refreshControl}
         contentContainerStyle={[styles.body, { paddingBottom: CONTENT_BASE_BOTTOM_PADDING + tabBarHeight }]}
         stickyHeaderIndices={[0]}
       >

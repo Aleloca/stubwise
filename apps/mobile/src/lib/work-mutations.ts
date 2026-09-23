@@ -5,25 +5,11 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "../app/providers";
 import { describeInboxError, useIsOnline } from "./inbox-mutations";
-import { milestoneKeys, ticketKeys } from "./query-keys";
+import { milestoneKeys, projectsPulseKey, ticketKeys, workKeys } from "./query-keys";
 
-/**
- * Chiavi di query del lavoro di UN ticket: dettaglio ticket (`implementationPlan`
- * incluso), job (la timeline) e domande dell'agente. Raggruppate sotto lo
- * stesso genitore (`all(ticketId)`) così un'unica `invalidateQueries` dopo
- * approva/rifiuta rinfresca tutt'e tre — la schermata Lavoro (Task 16) le
- * legge tutte per costruire la timeline in parole (`lib/timeline.ts`).
- */
-export const workKeys = {
-  all: (ticketId: string) => ["work", ticketId] as const,
-  ticket: (ticketId: string) => [...workKeys.all(ticketId), "ticket"] as const,
-  jobs: (ticketId: string) => [...workKeys.all(ticketId), "jobs"] as const,
-  questions: (ticketId: string) => [...workKeys.all(ticketId), "questions"] as const,
-  /** Il feed di attività del ticket (fase 5): date reali dei passi della timeline. */
-  activity: (ticketId: string) => [...workKeys.all(ticketId), "activity"] as const,
-  /** I commenti del ticket: la conversazione attorno al lavoro. */
-  comments: (ticketId: string) => [...workKeys.all(ticketId), "comments"] as const,
-};
+// `workKeys` vive in `./query-keys` dal 23 set 2026, per la stessa ragione
+// di `backlogKeys`. Ri-esportate perché nessun chiamante cambi import.
+export { workKeys } from "./query-keys";
 
 export interface TicketActionMutation<TInput> {
   mutate: (input: TInput) => void;
@@ -105,6 +91,13 @@ function useTicketAction<TInput>(
       // Stessa forma di `useConvertBacklogItem`: una mutazione dichiara cosa
       // ha cambiato, e nessuna schermata deve essere nominata qui.
       void queryClient.invalidateQueries({ queryKey: ticketKeys.all });
+      // ⚠️ E il POLSO (23 set 2026): un piano approvato, una risposta data, un
+      // lavoro avviato spostano il ticket fra «aspetta te», «in corso» e
+      // «fermo». È il sintomo da cui è partito questo lavoro — approvi il
+      // piano, torni indietro in tre secondi, e il ticket è ancora sotto
+      // «aspetta te»: dentro lo `staleTime` il ricaricamento al ritorno non
+      // parte, e solo questa riga dice alla cache che il polso è cambiato.
+      void queryClient.invalidateQueries({ queryKey: projectsPulseKey });
       for (const key of extraKeys?.(input) ?? []) {
         void queryClient.invalidateQueries({ queryKey: key });
       }

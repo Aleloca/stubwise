@@ -13,6 +13,7 @@ import { serverKeys } from "../../lib/query-keys";
 import { agoLabel, serverIsBroken, serverStatusKey } from "../../lib/server-health";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily } from "../../theme/typography";
+import { usePullToRefresh } from "../../components/PullToRefresh";
 
 /** Vedi `InboxScreen.tsx` per il perché di una costante invece di leggere `styles.body.paddingBottom`. */
 const CONTENT_BASE_BOTTOM_PADDING = 40;
@@ -45,9 +46,12 @@ export function ProjectMonitorScreen({
 
   const servers = query.data ?? [];
 
+  const refreshControl = usePullToRefresh([serverKeys.forProject(projectId)], "project-monitor-refresh");
+
   return (
     <View style={styles.container}>
       <ScrollView
+        refreshControl={refreshControl}
         contentContainerStyle={[styles.body, { paddingBottom: CONTENT_BASE_BOTTOM_PADDING + tabBarHeight }]}
         stickyHeaderIndices={[0]}
       >

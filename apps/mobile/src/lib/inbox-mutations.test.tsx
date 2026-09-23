@@ -1,12 +1,15 @@
 import type { StubwiseClient } from "@stubwise/api-client";
 import type { InboxItem, InboxPage, Reader } from "@stubwise/shared";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react-native";
 import type { ReactNode } from "react";
 import { AuthContext } from "../app/auth-context";
 import type { AuthContextValue } from "../app/providers";
 import "../i18n";
-import { inboxKeys, useHandled, useSnooze } from "./inbox-mutations";
+import NetInfo from "@react-native-community/netinfo";
+import { inboxKeys, useAnswer, useApprove, useHandled, useSnooze } from "./inbox-mutations";
+import { refreshStaleQueries } from "./refresh";
+import { backlogKeys, mailKeys, milestoneKeys, projectKeys, projectsPulseKey, ticketKeys, workKeys } from "./query-keys";
 
 /**
  * Copertura dedicata di `useSnooze`/`useHandled` (Step 1 del piano: "snooze
@@ -164,5 +167,165 @@ describe("useHandled — ottimismo con rollback", () => {
     await waitFor(() => expect(rendered.result.current.errorMessage).toBe("Qualcosa è andato storto. Riprova."));
 
     await rendered.unmount();
+  });
+});
+
+/**
+ * COSA DICHIARANO LE MUTAZIONI DELL'INBOX (23 set 2026, «l'app non resta
+ * indietro», design §4). Asserzioni sulle query SEMINATE, non su
+ * «`invalidateQueries` è stata chiamata» — quella passerebbe senza
+ * raggiungere niente.
+ */
+describe("le mutazioni dell'inbox dichiarano cosa hanno cambiato", () => {
+  function decisionClient(
+    inboxAct: jest.Mock = jest.fn().mockResolvedValue({ kind: "job.plan_review", changedNotificationIds: ["a"] }),
+  ) {
+    return {
+      inbox: {
+        act: inboxAct,
+        answer: jest.fn(),
+        handled: jest.fn().mockResolvedValue(undefined),
+        snooze: jest.fn().mockResolvedValue({ id: "a", snoozedUntil: "2026-09-24T09:00:00.000Z" }),
+      },
+    } as unknown as StubwiseClient;
+  }
+
+  beforeEach(() => {
+    (NetInfo.useNetInfo as jest.Mock).mockReturnValue({ isConnected: true, isInternetReachable: true });
+  });
+
+  test("«Fatto» segna scaduto il polso: `waitingForYou` esclude le notifiche gestite", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(projectsPulseKey, []);
+
+    const rendered = await renderHook(() => useHandled(), { wrapper: makeWrapper(decisionClient(), queryClient) });
+    await act(async () => {
+      rendered.result.current.mutate({ id: "a" });
+    });
+
+    await waitFor(() => expect(queryClient.getQueryState(projectsPulseKey)?.isInvalidated).toBe(true));
+  });
+
+  test("«Rimanda» segna scaduto il polso", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(projectsPulseKey, []);
+
+    const rendered = await renderHook(() => useSnooze(), { wrapper: makeWrapper(decisionClient(), queryClient) });
+    await act(async () => {
+      rendered.result.current.mutate({ id: "a", until: "1h" });
+    });
+
+    await waitFor(() => expect(queryClient.getQueryState(projectsPulseKey)?.isInvalidated).toBe(true));
+  });
+
+  /**
+   * Una decisione è il caso più largo: una conferma può creare un ticket,
+   * una voce di backlog o una milestone, e agisce su una NOTIFICA senza
+   * sapere quale ticket sia aperto. Tutte e sei le cose si segnano.
+   */
+  test("una decisione segna scaduti polso, ticket, backlog, milestone, posta e il ticket aperto", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const seeded = [
+      projectsPulseKey,
+      ticketKeys.hub("p1"),
+      backlogKeys.item("b1"),
+      milestoneKeys.forProject("p1"),
+      mailKeys.threads(),
+      workKeys.ticket("t1"),
+    ] as const;
+    for (const key of seeded) queryClient.setQueryData(key, {});
+
+    const rendered = await renderHook(() => useApprove(), { wrapper: makeWrapper(decisionClient(), queryClient) });
+    await act(async () => {
+      rendered.result.current.mutate({ id: "a" });
+    });
+
+    for (const key of seeded) {
+      await waitFor(() => expect(queryClient.getQueryState(key)?.isInvalidated).toBe(true));
+    }
+  });
+
+  test("anche «Procedi» e le risposte passano di lì: stesso involucro", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(projectsPulseKey, []);
+
+    const rendered = await renderHook(() => useAnswer(), { wrapper: makeWrapper(decisionClient(), queryClient) });
+    await act(async () => {
+      rendered.result.current.mutate({ id: "a", body: { optionIndex: 0 } });
+    });
+
+    await waitFor(() => expect(queryClient.getQueryState(projectsPulseKey)?.isInvalidated).toBe(true));
+  });
+
+  /** ⚠️ La chiave vera del polso, non tutto `["projects"]`. */
+  test("una decisione NON invalida il dettaglio dei progetti", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(projectsPulseKey, []);
+    queryClient.setQueryData(projectKeys.detail("p1"), {});
+
+    const rendered = await renderHook(() => useApprove(), { wrapper: makeWrapper(decisionClient(), queryClient) });
+    await act(async () => {
+      rendered.result.current.mutate({ id: "a" });
+    });
+
+    await waitFor(() => expect(queryClient.getQueryState(projectsPulseKey)?.isInvalidated).toBe(true));
+    expect(queryClient.getQueryState(projectKeys.detail("p1"))?.isInvalidated).toBe(false);
+  });
+});
+
+/**
+ * ⚠️ IL RICARICAMENTO AL RITORNO NON ANNULLA UN «FATTO» IN CORSO (23 set
+ * 2026, design §6).
+ *
+ * `onMutate` chiama `cancelQueries` sulla lista — ma quella annulla solo le
+ * richieste GIÀ in volo in quel momento. Qui il ricaricamento parte DOPO,
+ * mentre il server non ha ancora risposto al «Fatto» (il caso di chi preme e
+ * torna subito indietro): la lista montata è scaduta, e il server finto
+ * risponde ancora con la riga — come farebbe quello vero, che il «Fatto» non
+ * l'ha ancora visto. Senza il gate in `refreshStaleQueries` la riga
+ * ricomparirebbe.
+ */
+describe("un «Fatto» ottimistico resiste al ricaricamento globale", () => {
+  test("tornando indietro mentre il server risponde, la riga resta tolta", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const handled = deferred<void>();
+    const client = {
+      inbox: {
+        // Il server che non ha ancora visto il «Fatto»: la riga c'è ancora.
+        list: jest.fn().mockResolvedValue({ items: [ITEM_A, ITEM_B], nextCursor: null }),
+        handled: jest.fn().mockReturnValue(handled.promise),
+      },
+    } as unknown as StubwiseClient;
+
+    const rendered = await renderHook(
+      () => {
+        // La lista MONTATA, come sulla schermata dell'inbox.
+        useQuery({ queryKey: inboxKeys.list(), queryFn: () => client.inbox.list() });
+        return useHandled();
+      },
+      { wrapper: makeWrapper(client, queryClient) },
+    );
+    await waitFor(() => expect(idsOf(queryClient)).toEqual(["a", "b"]));
+
+    await act(async () => {
+      rendered.result.current.mutate({ id: "a" });
+    });
+    await waitFor(() => expect(idsOf(queryClient)).toEqual(["b"]));
+
+    // Il ricaricamento del ritorno su una schermata, mentre il server tace.
+    await act(async () => {
+      await refreshStaleQueries(queryClient);
+    });
+    expect(idsOf(queryClient)).toEqual(["b"]);
+    expect(client.inbox.list).toHaveBeenCalledTimes(1);
+
+    // Il server risponde: la mutazione invalida da sé, e il ricaricamento
+    // avviene adesso — al momento giusto.
+    (client.inbox.list as jest.Mock).mockResolvedValue({ items: [ITEM_B], nextCursor: null });
+    await act(async () => {
+      handled.resolve();
+    });
+    await waitFor(() => expect(client.inbox.list).toHaveBeenCalledTimes(2));
+    expect(idsOf(queryClient)).toEqual(["b"]);
   });
 });

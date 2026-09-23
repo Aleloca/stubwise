@@ -6,7 +6,8 @@ import { useNetInfo } from "@react-native-community/netinfo";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "../app/providers";
-import { inboxKeys } from "./query-keys";
+import { OPTIMISTIC_MUTATION_KEY } from "./refresh";
+import { backlogKeys, inboxKeys, mailKeys, milestoneKeys, projectsPulseKey, ticketKeys, workKeys } from "./query-keys";
 
 // `inboxKeys` vive in `./query-keys` (Task 19: serve anche a
 // `app/providers.tsx`, che non può importare QUESTO file senza un ciclo —
@@ -135,6 +136,10 @@ function useOptimisticRemoval<TInput extends { id: string }>(
   const queryClient = useQueryClient();
   const { t } = useTranslation();
   const mutation = useMutation({
+    // ⚠️ La chiave delle mutazioni OTTIMISTICHE: finché questa è in corso,
+    // nessun ricaricamento globale parte (`canRefreshNow`, `lib/refresh.ts`)
+    // — riporterebbe la riga appena tolta.
+    mutationKey: OPTIMISTIC_MUTATION_KEY,
     mutationFn,
     onMutate: async (input: TInput) => {
       await queryClient.cancelQueries({ queryKey: inboxKeys.list() });
@@ -153,6 +158,13 @@ function useOptimisticRemoval<TInput extends { id: string }>(
     // riallineata al server (e il badge non letto con lei).
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: inboxKeys.all });
+      // ⚠️ Anche il POLSO (23 set 2026): `waitingForYou` esclude le notifiche
+      // gestite o rimandate, quindi un «Fatto» qui cambia cosa l'hub dice che
+      // aspetta te. Senza, tornando indietro entro lo `staleTime` del polso il
+      // ricaricamento al ritorno non partirebbe — i dati «non sono vecchi» — e
+      // la voce resterebbe lì. La chiave vera del polso, non tutto
+      // `["projects"]`: vedi `projectsPulseKey`.
+      void queryClient.invalidateQueries({ queryKey: projectsPulseKey });
     },
   });
 
@@ -188,6 +200,41 @@ export interface DecisionMutation {
   online: boolean;
   errorMessage: string | null;
   reset: () => void;
+}
+
+/**
+ * COSA CAMBIA UNA DECISIONE DALL'INBOX, oltre all'inbox stessa (23 set 2026,
+ * l'app non resta indietro — design §4).
+ *
+ * È il caso più largo dell'app: approvare o rifiutare un piano, rilanciare,
+ * rispondere all'agente, «Procedi» su una proposta del pulse, confermare una
+ * proposta dalla posta. Una conferma può CREARE un ticket, una voce di backlog
+ * o una milestone, e non si sa in anticipo quale — quindi si dichiarano tutte,
+ * e sono query piccole:
+ *
+ * - il POLSO (`projectsPulseKey`, non tutto `["projects"]`): ciò che aspetta
+ *   te cambia per definizione dopo una decisione;
+ * - i TICKET, il BACKLOG e le MILESTONE: ciò che una conferma può creare;
+ * - la POSTA: una proposta confermata cambia lo stato del suo messaggio;
+ * - IL TICKET APERTO, qualunque sia (`workKeys.root`): la decisione agisce su
+ *   una notifica e non sa quale ticket sia sullo schermo. Invalidare il
+ *   prefisso ricarica solo quello montato; gli altri restano solo segnati.
+ *
+ * ⚠️ Sta QUI, nell'involucro, e non in chi chiama `useApprove`/`useAnswer`/…:
+ * una riga sola copre ogni decisione di oggi e di domani, e nessuna schermata
+ * viene nominata. La stessa ragione di `useConvertBacklogItem` → `ticketKeys`.
+ */
+function invalidateWhatADecisionChanges(queryClient: ReturnType<typeof useQueryClient>): void {
+  for (const queryKey of [
+    projectsPulseKey,
+    ticketKeys.all,
+    backlogKeys.all,
+    milestoneKeys.all,
+    mailKeys.all,
+    workKeys.root,
+  ] as const) {
+    void queryClient.invalidateQueries({ queryKey });
+  }
 }
 
 /**
@@ -227,6 +274,7 @@ function useDecision(action: InboxDecisionAction): DecisionMutation {
           : page,
       );
       void queryClient.invalidateQueries({ queryKey: inboxKeys.all });
+      invalidateWhatADecisionChanges(queryClient);
     },
     onError: (error) => {
       if (error instanceof ApiError && error.status === 409) {

@@ -9,7 +9,9 @@ import type { SettingsSectionKey } from "../screens/settings/sections";
 import { useLogout } from "../screens/settings/use-logout";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { MailDetailSource } from "@stubwise/api-client";
-import { useEffect, useMemo } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { refreshStaleQueries } from "../lib/refresh";
+import { useCallback, useEffect, useMemo } from "react";
 import type { ImageSourcePropType } from "react-native";
 import { Platform } from "react-native";
 import type { AppleIcon } from "react-native-bottom-tabs";
@@ -508,6 +510,47 @@ function AuthNavigator() {
 }
 
 /**
+ * IL RITORNO SU UNA SCHERMATA, per TUTTE le schermate (23 set 2026 — design
+ * «l'app non resta indietro», §3).
+ *
+ * A ogni cambio di navigazione — tornare indietro, cambiare scheda, aprire
+ * una schermata — si ricaricano le query MONTATE e SCADUTE (oltre il loro
+ * `staleTime`). Quelle fresche non si toccano.
+ *
+ * ⚠️ **Un punto solo, non un hook per schermata.** La forma che si trova
+ * nella documentazione di TanStack per React Native è un `useRefreshOnFocus`
+ * da chiamare in ogni schermata: è la fragilità che questo lavoro esiste per
+ * togliere. Le tre scoperte della settimana del 22 settembre — le chiavi
+ * dell'hub, `useTicketAction`, il polso — erano tutte la stessa cosa: un
+ * punto che qualcuno doveva ricordarsi e non l'ha fatto. Qui non c'è niente
+ * da ricordare: vale per le schermate di oggi e per quelle che verranno.
+ *
+ * ⚠️ **Il costo, dichiarato.** «Montate» vuol dire più della schermata in
+ * vista: le schermate SOTTO nello stack restano montate, e la barra in basso
+ * tiene montate anche le altre SCHEDE già visitate. Le loro query scadute si
+ * ricaricano anche loro. È spreco limitato — solo query più vecchie del loro
+ * `staleTime`, e un'app con cinque schede e stack di due o tre livelli — e
+ * filtrarle per schermata richiederebbe di sapere, da qui, quale query
+ * appartiene a quale rotta: non c'è un modo pulito.
+ *
+ * ⚠️ **Non basta da solo.** Il ricaricamento rispetta lo `staleTime`: chi
+ * approva un piano e torna indietro in tre secondi trova dati «non vecchi», e
+ * non si ricarica niente. Per quello le mutazioni condivise dichiarano cosa
+ * hanno cambiato (`useTicketAction`, `useDecision`, …): sono due rimedi a due
+ * cause diverse, e servono entrambi.
+ *
+ * Le due regole fini — riusare la richiesta in volo, e non ricaricare
+ * mentre una mutazione OTTIMISTICA è in corso — stanno in `refreshStaleQueries`
+ * (`lib/refresh.ts`), dove si provano da sole.
+ */
+function useRefreshOnNavigation(): () => void {
+  const queryClient = useQueryClient();
+  return useCallback(() => {
+    void refreshStaleQueries(queryClient);
+  }, [queryClient]);
+}
+
+/**
  * Radice della navigazione: `Auth` (Login → Onboarding) finché
  * `justLoggedIn` non torna `false`, poi `Main`. Vedi il commento su
  * `justLoggedIn` in `providers.tsx` per il perché di questa condizione
@@ -517,13 +560,14 @@ export function RootNavigator() {
   const { status, justLoggedIn } = useAuth();
   const isAuthenticated = useMemo(() => () => status === "authenticated" && !justLoggedIn, [status, justLoggedIn]);
   const linking = useMemo(() => buildLinking(isAuthenticated), [isAuthenticated]);
+  const refreshOnNavigation = useRefreshOnNavigation();
 
   if (status === "loading") return null;
 
   const showMain = status === "authenticated" && !justLoggedIn;
 
   return (
-    <NavigationContainer linking={linking} ref={navigationRef}>
+    <NavigationContainer linking={linking} ref={navigationRef} onStateChange={refreshOnNavigation}>
       <RootStack.Navigator screenOptions={{ headerShown: false }}>
         {showMain ? (
           <>

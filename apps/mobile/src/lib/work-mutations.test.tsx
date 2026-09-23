@@ -7,7 +7,7 @@ import type { ReactNode } from "react";
 import { AuthContext } from "../app/auth-context";
 import type { AuthContextValue } from "../app/providers";
 import "../i18n";
-import { milestoneKeys, ticketKeys } from "./query-keys";
+import { milestoneKeys, projectsPulseKey, ticketKeys } from "./query-keys";
 import { useApprovePlan, usePatchTicket, useRejectPlan, workKeys } from "./work-mutations";
 
 const TICKET_ID = "11111111-1111-4111-8111-111111111111";
@@ -229,5 +229,58 @@ describe("le mutazioni sul ticket dichiarano cosa hanno cambiato", () => {
 
     await waitFor(() => expect(rendered.result.current.isPending).toBe(false));
     expect(queryClient.getQueryState(roadmapKey)?.isInvalidated).toBe(false);
+  });
+});
+
+/**
+ * IL POLSO (23 set 2026, «l'app non resta indietro»). È il sintomo da cui è
+ * partito quel lavoro: approvi il piano dal ticket, torni all'hub in tre
+ * secondi, e il ticket è ancora sotto «aspetta te» — dentro lo `staleTime` il
+ * ricaricamento al ritorno non parte, e solo l'invalidazione dice alla cache
+ * che il polso è cambiato. Asserzione sulla query SEMINATA, non sulla
+ * chiamata.
+ */
+describe("le azioni sul ticket invalidano il polso", () => {
+  test("approvare un piano segna scaduto il polso", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(projectsPulseKey, []);
+
+    const rendered = await renderHook(() => useApprovePlan(TICKET_ID), { wrapper: makeWrapper(makeClient(), queryClient) });
+    await act(async () => {
+      rendered.result.current.mutate(undefined);
+    });
+
+    await waitFor(() => expect(queryClient.getQueryState(projectsPulseKey)?.isInvalidated).toBe(true));
+  });
+
+  test("una patch qualunque sul ticket segna scaduto il polso", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(projectsPulseKey, []);
+
+    const rendered = await renderHook(() => usePatchTicket(TICKET_ID), { wrapper: makeWrapper(makeClient(), queryClient) });
+    await act(async () => {
+      rendered.result.current.mutate({ status: "in_progress" });
+    });
+
+    await waitFor(() => expect(queryClient.getQueryState(projectsPulseKey)?.isInvalidated).toBe(true));
+  });
+
+  /**
+   * ⚠️ La chiave VERA del polso, non tutto `["projects"]`: un'azione sul
+   * ticket non cambia il dettaglio né la lista dei progetti, e invalidarli
+   * li ricaricherebbe per niente.
+   */
+  test("NON invalida il resto dei progetti", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(projectsPulseKey, []);
+    queryClient.setQueryData(["projects", "list"], []);
+
+    const rendered = await renderHook(() => useApprovePlan(TICKET_ID), { wrapper: makeWrapper(makeClient(), queryClient) });
+    await act(async () => {
+      rendered.result.current.mutate(undefined);
+    });
+
+    await waitFor(() => expect(queryClient.getQueryState(projectsPulseKey)?.isInvalidated).toBe(true));
+    expect(queryClient.getQueryState(["projects", "list"])?.isInvalidated).toBe(false);
   });
 });

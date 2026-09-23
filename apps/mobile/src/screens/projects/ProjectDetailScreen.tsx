@@ -26,6 +26,7 @@ import { stalledDays, stalledReasonKey } from "../../lib/stalled";
 import { projectsPulseKey } from "./ProjectsScreen";
 import { colors } from "../../theme/tokens";
 import { fontFamily } from "../../theme/typography";
+import { usePullToRefresh } from "../../components/PullToRefresh";
 
 /** Vedi `InboxScreen.tsx` per il perché di una costante invece di leggere `styles.body.paddingBottom`. */
 const CONTENT_BASE_BOTTOM_PADDING = 40;
@@ -111,6 +112,15 @@ export function ProjectDetailScreen({ navigation, route }: NativeStackScreenProp
     },
     enabled: client !== null,
     staleTime: 10_000,
+    // IL POLSO SI RICARICA DA SOLO OGNI MINUTO (23 set 2026): è la parte che
+    // dice cosa fare adesso, e contiene i lavori «in corso» — proprio ciò che
+    // il worker cambia mentre guardi, senza che tu tocchi niente. In
+    // background si ferma da solo (`focusManager`, `app/providers.tsx`).
+    //
+    // ⚠️ In ENTRAMBI i posti che leggono `projectsPulseKey` (`ProjectsScreen`
+    // e `ProjectDetailScreen`): con l'intervallo in uno solo, lo stesso dato
+    // si aggiornerebbe o no a seconda di quale schermata è montata.
+    refetchInterval: 60_000,
   });
 
   const summary = query.data?.find((row) => row.projectId === id);
@@ -127,9 +137,12 @@ export function ProjectDetailScreen({ navigation, route }: NativeStackScreenProp
   // 21 set 2026: era un header fatto a mano (solo «indietro» + avatar),
   // quindi senza titolo e senza ricerca. Ora è `ScreenHeader` come ovunque:
   // il titolo è il NOME del progetto, e la ricerca c'è anche da qui.
+  const refreshControl = usePullToRefresh([projectsPulseKey, hubKeys.tickets(id), hubKeys.backlog(id), hubKeys.inbox(id), projectKeys.detail(id), docsKeys.spaces(id), milestoneKeys.forProject(id), serverKeys.forProject(id)], "project-detail-refresh");
+
   return (
     <View style={styles.container}>
       <ScrollView
+        refreshControl={refreshControl}
         contentContainerStyle={[styles.body, { paddingBottom: CONTENT_BASE_BOTTOM_PADDING + tabBarHeight }]}
         stickyHeaderIndices={[0]}
       >

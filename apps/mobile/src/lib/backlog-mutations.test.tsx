@@ -9,7 +9,7 @@ import { AuthContext } from "../app/auth-context";
 import type { AuthContextValue } from "../app/providers";
 import "../i18n";
 import { backlogKeys, mergeBacklogPages, useConvertBacklogItem } from "./backlog-mutations";
-import { ticketKeys } from "./query-keys";
+import { projectsPulseKey, ticketKeys } from "./query-keys";
 
 const ITEM_ID = "22222222-2222-4222-8222-222222222222";
 const TICKET_ID = "33333333-3333-4333-8333-333333333333";
@@ -231,5 +231,23 @@ describe("mergeBacklogPages — chip 'Tutti' (nessun filtro server equivalente, 
 
   test("pagine vuote non producono voci fantasma", () => {
     expect(mergeBacklogPages([[], [], []])).toEqual([]);
+  });
+});
+
+/**
+ * IL POLSO (23 set 2026): `backlogReadyCount` conta le voci pronte, e
+ * convertirne una ne toglie una.
+ */
+describe("useConvertBacklogItem — il polso", () => {
+  test("convertire una voce segna scaduto il polso", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(projectsPulseKey, []);
+
+    const rendered = await renderHook(() => useConvertBacklogItem(), { wrapper: makeWrapper(makeClient(), queryClient) });
+    await act(async () => {
+      rendered.result.current.mutate(ITEM_ID);
+    });
+
+    await waitFor(() => expect(queryClient.getQueryState(projectsPulseKey)?.isInvalidated).toBe(true));
   });
 });

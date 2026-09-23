@@ -14,6 +14,9 @@ import { relativeTimeCompact } from "../../lib/format";
 import { useMailThreads } from "../../lib/mail-mutations";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
+import { usePullToRefresh } from "../../components/PullToRefresh";
+import { mailKeys } from "../../lib/query-keys";
+import { calendarKeys } from "../../lib/calendar-mutations";
 
 /** Vedi `InboxScreen.tsx` per il perché di una costante invece di leggere `styles.content.paddingBottom`. */
 const CONTENT_BASE_BOTTOM_PADDING = 40;
@@ -69,9 +72,12 @@ export function MbxScreen({ navigation, route }: NativeStackScreenProps<MbxStack
   // solo posta, e il calendario ha la sua scheda qui accanto.
   const query = useMailThreads();
 
+  const refreshControl = usePullToRefresh([mailKeys.all, calendarKeys.all], "mbx-refresh");
+
   return (
     <View style={styles.container}>
       <ScrollView
+        refreshControl={refreshControl}
         contentContainerStyle={[styles.content, { paddingBottom: CONTENT_BASE_BOTTOM_PADDING + tabBarHeight }]}
         stickyHeaderIndices={[0]}
       >

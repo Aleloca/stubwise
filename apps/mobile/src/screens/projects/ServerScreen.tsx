@@ -16,6 +16,7 @@ import { serverKeys } from "../../lib/query-keys";
 import { agoLabel, formatBytes, memoryReading, sampleAge, serverStatusKey, usedPct } from "../../lib/server-health";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily } from "../../theme/typography";
+import { usePullToRefresh } from "../../components/PullToRefresh";
 
 /** Vedi `InboxScreen.tsx` per il perché di una costante invece di leggere `styles.body.paddingBottom`. */
 const CONTENT_BASE_BOTTOM_PADDING = 40;
@@ -57,9 +58,12 @@ export function ServerScreen({ navigation, route }: NativeStackScreenProps<Proje
 
   const server = query.data;
 
+  const refreshControl = usePullToRefresh([serverKeys.detail(serverId)], "server-refresh");
+
   return (
     <View style={styles.container}>
       <ScrollView
+        refreshControl={refreshControl}
         contentContainerStyle={[styles.body, { paddingBottom: CONTENT_BASE_BOTTOM_PADDING + tabBarHeight }]}
         stickyHeaderIndices={[0]}
       >
