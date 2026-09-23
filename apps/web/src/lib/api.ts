@@ -2,7 +2,6 @@ import type {
   AgentQuestionOption,
   AiJob as AIJob,
   AiJobStatus as AIJobStatus,
-  AlertThresholds,
   AnswerBody,
   BacklogCodeSession,
   BacklogItem,
@@ -24,7 +23,6 @@ import type {
   CreateCheckInput,
   CreateEnvironmentInput,
   CreatePluginInput,
-  DiscoveredService,
   EmailRoute,
   GitProviderKind,
   GoogleAccount,
@@ -76,7 +74,6 @@ import type {
   SearchEntityType,
   SearchHistoryItem,
   SearchResults,
-  ServerStatus,
   SnoozeResult,
   SnoozeUntil,
   // `TicketBase` non esce da questo file: è la forma che il server restituisce
@@ -2801,8 +2798,21 @@ export type {
  * `.default()` dello schema qui non gira mai. Un campo nuovo che questo bundle
  * legga va difeso nel punto di lettura (`?? null`, `?? []`).
  */
-export type { ServerDetail, ServerDisk, ServerProjectSummary, ServerView } from "@stubwise/shared";
-import type { ServerDetail, ServerView } from "@stubwise/shared";
+export type { ServerDisk, ServerProjectSummary, ServerView } from "@stubwise/shared";
+import type { ServerDetail as SharedServerDetail, ServerView } from "@stubwise/shared";
+
+/**
+ * Il dettaglio di un server COME LO VEDE IL WEB, che fa un cast e non un
+ * parse: `memUsedBytes`/`memTotalBytes` (23 set 2026) sono OPZIONALI qui
+ * anche se lo schema li riempie di `null` col `.default()` — quel default
+ * gira solo in un client che parsa, e un server più vecchio del bundle non
+ * li manda. Il tipo lo dice, così chi un giorno li leggesse da qui è
+ * costretto dal compilatore al `?? null` nel punto di lettura.
+ */
+export type ServerDetail = Omit<SharedServerDetail, "memUsedBytes" | "memTotalBytes"> & {
+  memUsedBytes?: number | null;
+  memTotalBytes?: number | null;
+};
 
 /**
  * Server con la chiave dell'agente (`sk_…`) in chiaro: restituito SOLO da
