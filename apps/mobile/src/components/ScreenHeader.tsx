@@ -82,7 +82,18 @@ export function ScreenHeader({
       <View style={styles.titleBlock}>
         {onBack !== undefined && (
           <Pressable accessibilityRole="button" onPress={onBack} testID="screen-header-back">
-            <Text style={styles.back}>{backLabel}</Text>
+            {/*
+              ⚠️ LA CHEVRON LA METTE QUESTO COMPONENTE, non chi passa
+              `backLabel` (23 set 2026). Prima viveva dentro le stringhe
+              tradotte («‹ Progetti») e in un template scritto a mano in
+              `WorkScreen`: funzionava finché l'etichetta era una costante
+              nostra, ma dalle schermate dell'hub di progetto `backLabel` è
+              il NOME DI UN PROGETTO, che arriva dal database — e il nome
+              nudo compariva senza chevron, indistinguibile da un
+              sottotitolo. Mettendola qui non si può più dimenticare:
+              l'alternativa era ricordarsene in ogni chiamante, per sempre.
+            */}
+            <Text style={styles.back}>{`‹ ${backLabel}`}</Text>
           </Pressable>
         )}
         <Text

@@ -164,7 +164,7 @@
       "offlineAction": "Needs network",
       "google": {
         "openDecision": "Choose",
-        "back": "‹ Inbox",
+        "back": "Inbox",
         "backToInbox": "Back to the inbox",
         "fallbackTitle": "Proposal",
         "fromLine": "From {{from}}, {{when}}",
@@ -255,7 +255,7 @@
         "stalled_other": "{{count}} stalled"
       },
       "detail": {
-        "back": "‹ Projects",
+        "back": "Projects",
         "notFound": {
           "title": "This project is gone.",
           "body": "You no longer follow it, or it doesn't exist."
@@ -439,7 +439,7 @@
     },
     "work": {
       "fallbackTitle": "Work",
-      "back": "‹ Projects",
+      "back": "Projects",
       "loadError": {
         "title": "Can't load the work.",
         "retry": "Retry"
@@ -630,7 +630,7 @@
         "noProjects": "No projects available."
       },
       "chat": {
-        "back": "‹ Backlog",
+        "back": "Backlog",
         "agent": "Agent",
         "thinking": "Thinking…",
         "placeholder": "Or write your own…",
@@ -642,7 +642,7 @@
       },
       "item": {
         "fallbackTitle": "Backlog item",
-        "back": "‹ Backlog",
+        "back": "Backlog",
         "loadError": {
           "title": "Can't load this item.",
           "retry": "Retry"
@@ -699,7 +699,7 @@
       "ask": {
         "sectionLabel": "Ask the project",
         "entryHint": "Ask a question about this project's documentation ›",
-        "back": "‹ Docs",
+        "back": "Docs",
         "placeholder": "Ask a question…",
         "send": "Send",
         "thinking": "Thinking…",
@@ -708,7 +708,7 @@
       },
       "page": {
         "fallbackTitle": "Page",
-        "back": "‹ Docs",
+        "back": "Docs",
         "notFound": {
           "title": "This page is gone.",
           "body": "It was removed, or you don't have access to the repository."

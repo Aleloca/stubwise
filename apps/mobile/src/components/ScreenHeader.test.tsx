@@ -27,13 +27,21 @@ function authValue(overrides: Partial<AuthContextValue> = {}): AuthContextValue 
 
 async function renderHeader(
   value: AuthContextValue,
-  extra: { showAvatar?: boolean; title?: string; subtitle?: string } = {},
+  extra: {
+    showAvatar?: boolean;
+    title?: string;
+    subtitle?: string;
+    backLabel?: string;
+    onBack?: () => void;
+  } = {},
 ) {
   return await render(
     <AuthContext.Provider value={value}>
       <ScreenHeader
         title={extra.title ?? "Inbox"}
         subtitle={extra.subtitle}
+        {...(extra.backLabel !== undefined ? { backLabel: extra.backLabel } : {})}
+        {...(extra.onBack !== undefined ? { onBack: extra.onBack } : {})}
         {...(extra.showAvatar !== undefined ? { showAvatar: extra.showAvatar } : {})}
       />
     </AuthContext.Provider>,
@@ -82,4 +90,31 @@ test("l'avatar si può nascondere: è la pagina Impostazioni stessa", async () =
   // Unico caso in tutta l'app: lì l'avatar porterebbe a se stesso.
   await renderHeader(authValue({}), { showAvatar: false });
   expect(screen.queryByTestId("settings-avatar-button")).toBeNull();
+});
+
+/**
+ * ⚠️ LA CHEVRON DELL'INDIETRO LA METTE IL COMPONENTE (23 set 2026).
+ *
+ * Il difetto che questi test presidiano è stato trovato dal maintainer sul
+ * telefono: fino a qui la chevron viveva dentro le stringhe tradotte («‹
+ * Progetti») e in un template scritto a mano in `WorkScreen`. Finché
+ * l'etichetta era una costante nostra funzionava; dalle schermate dell'hub
+ * di progetto `backLabel` è il NOME DI UN PROGETTO, che arriva dal database,
+ * e compariva nudo — indistinguibile da un sottotitolo, senza niente che
+ * dicesse «questo riporta indietro».
+ *
+ * Il test con un'etichetta ARBITRARIA è quello che conta: uno scritto su una
+ * costante tradotta passerebbe anche se la chevron tornasse dentro le
+ * traduzioni, cioè proprio nel posto dove si può dimenticare.
+ */
+test("l'indietro porta la chevron anche su un'etichetta che non è una nostra costante", async () => {
+  await renderHeader(authValue({}), { backLabel: "Portale B2B", onBack: () => {} });
+  expect(screen.getByText("‹ Portale B2B")).toBeTruthy();
+});
+
+test("senza `onBack` non c'è nessun indietro da disegnare", async () => {
+  // Il NEGATIVO: senza, un header che mostrasse una chevron sciolta su ogni
+  // schermata di primo livello passerebbe il test qui sopra.
+  await renderHeader(authValue({}));
+  expect(screen.queryByTestId("screen-header-back")).toBeNull();
 });

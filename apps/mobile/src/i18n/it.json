@@ -164,7 +164,7 @@
       "offlineAction": "Serve la rete",
       "google": {
         "openDecision": "Scegli",
-        "back": "‹ Inbox",
+        "back": "Inbox",
         "backToInbox": "Torna all'inbox",
         "fallbackTitle": "Proposta",
         "fromLine": "Da {{from}}, {{when}}",
@@ -255,7 +255,7 @@
         "stalled_other": "{{count}} fermi"
       },
       "detail": {
-        "back": "‹ Progetti",
+        "back": "Progetti",
         "notFound": {
           "title": "Questo progetto non c'è più.",
           "body": "Non lo segui più, o non esiste."
@@ -439,7 +439,7 @@
     },
     "work": {
       "fallbackTitle": "Lavoro",
-      "back": "‹ Progetti",
+      "back": "Progetti",
       "loadError": {
         "title": "Non riesco a caricare il lavoro.",
         "retry": "Riprova"
@@ -630,7 +630,7 @@
         "noProjects": "Nessun progetto disponibile."
       },
       "chat": {
-        "back": "‹ Backlog",
+        "back": "Backlog",
         "agent": "Agente",
         "thinking": "Sta pensando…",
         "placeholder": "Oppure scrivi tu…",
@@ -642,7 +642,7 @@
       },
       "item": {
         "fallbackTitle": "Voce di backlog",
-        "back": "‹ Backlog",
+        "back": "Backlog",
         "loadError": {
           "title": "Non riesco a caricare la voce.",
           "retry": "Riprova"
@@ -699,7 +699,7 @@
       "ask": {
         "sectionLabel": "Chiedi al progetto",
         "entryHint": "Fai una domanda sulla documentazione di questo progetto ›",
-        "back": "‹ Docs",
+        "back": "Docs",
         "placeholder": "Fai una domanda…",
         "send": "Invia",
         "thinking": "Sta pensando…",
@@ -708,7 +708,7 @@
       },
       "page": {
         "fallbackTitle": "Pagina",
-        "back": "‹ Docs",
+        "back": "Docs",
         "notFound": {
           "title": "Questa pagina non c'è più.",
           "body": "È stata rimossa o non hai accesso al repository."

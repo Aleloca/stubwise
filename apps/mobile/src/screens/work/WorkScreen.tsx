@@ -193,10 +193,14 @@ export function WorkScreen({ navigation, route }: NativeStackScreenProps<Project
         contentContainerStyle={[styles.body, { paddingBottom: CONTENT_BASE_BOTTOM_PADDING + tabBarHeight }]}
         stickyHeaderIndices={[0]}
       >
+        {/* La chevron dell'indietro non si scrive più qui: la mette
+            `ScreenHeader` per tutti (23 set 2026). Scritta a mano restava il
+            nome nudo su chiunque passasse un `backLabel` che non fosse una
+            nostra costante tradotta — le schermate dell'hub di progetto. */}
         <ScreenHeader
           title={ticketQuery.data?.title ?? t("mobile.work.fallbackTitle")}
           onBack={() => navigation.goBack()}
-          backLabel={route.params.backLabel !== undefined ? `‹ ${route.params.backLabel}` : t("mobile.work.back")}
+          backLabel={route.params.backLabel ?? t("mobile.work.back")}
           titleNumberOfLines={3}
         />
 
