@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { AuthContext } from "../../app/auth-context";
 import type { AuthContextValue } from "../../app/providers";
+import { StyleSheet } from "react-native";
 import "../../i18n";
 import { ProjectDetailScreen } from "./ProjectDetailScreen";
 
@@ -70,6 +71,49 @@ function ticket(overrides: Record<string, unknown> = {}): Record<string, unknown
  * passavano con tre query che fallivano tutte.
  */
 /** Un repository come lo porta la proiezione sintetica di `projects.get`. */
+function projectDetail(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  // Il dettaglio di progetto COMPLETO (tappa 3): la sezione impostazioni ne
+  // legge gli interruttori, e nei test `readerSchema` non gira — una fixture
+  // a cui manca un campo arriva al componente così com'è (CLAUDE.md).
+  return {
+    id: PROJECT_ID,
+    name: "Portale B2B",
+    slug: "portale-b2b",
+    description: null,
+    aiProviderId: null,
+    docAutoUpdate: false,
+    dailyReportEnabled: false,
+    backlogEnabled: false,
+    pulseEnabled: false,
+    pulseEveryDays: 3,
+    weeklyBriefEnabled: false,
+    ingestionKey: "ik_test",
+    nextTicketNumber: 1,
+    createdAt: "2026-08-01T10:00:00.000Z",
+    repositories: [],
+    ...overrides,
+  };
+}
+
+function server(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: "s1",
+    name: "prod-web-1",
+    hostname: "web1.acme.test",
+    status: "online",
+    sampleIntervalSeconds: 30,
+    agentVersion: "1.4.0",
+    alertThresholds: { cpuPct: 95, memPct: 90, diskPct: 90, sustainedMinutes: 5 },
+    lastSeenAt: "2026-09-23T10:00:00.000Z",
+    createdAt: "2026-08-01T10:00:00.000Z",
+    projects: [{ id: PROJECT_ID, name: "Portale B2B" }],
+    checksUp: 3,
+    checksDown: 0,
+    recentCpu: [10, 20],
+    ...overrides,
+  };
+}
+
 function repositorySummary(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   // Nome e slug DIVERSI apposta: è il caso reale, e due stringhe uguali
   // renderebbero il test cieco su quale delle due sta guardando.
@@ -116,6 +160,7 @@ function makeClient(
     getProject?: jest.Mock;
     projectSpaces?: jest.Mock;
     milestones?: jest.Mock;
+    listServers?: jest.Mock;
   } = {},
 ): StubwiseClient {
   return {
@@ -126,7 +171,7 @@ function makeClient(
       // usano (CLAUDE.md, la terza trappola): senza, le tre sezioni nuove
       // mostrerebbero il proprio errore — stanno fuori dai gate della
       // schermata apposta — e non un solo test fallirebbe.
-      get: overrides.getProject ?? jest.fn().mockResolvedValue({ id: PROJECT_ID, repositories: [] }),
+      get: overrides.getProject ?? jest.fn().mockResolvedValue(projectDetail()),
       milestones: overrides.milestones ?? jest.fn().mockResolvedValue([]),
     },
     activity: { forDate: overrides.activityForDate ?? jest.fn().mockResolvedValue({ date: "2026-08-31", projects: [] }) },
@@ -134,6 +179,10 @@ function makeClient(
     backlog: { list: overrides.listBacklog ?? jest.fn().mockResolvedValue({ items: [], nextCursor: null, total: 0 }) },
     inbox: { list: overrides.listInbox ?? jest.fn().mockResolvedValue({ items: [], nextCursor: null, total: 0 }) },
     docs: { projectSpaces: overrides.projectSpaces ?? jest.fn().mockResolvedValue([]) },
+    // ⚠️ Tappa 3: nel doppio PRIMA dei test che lo usano. Senza, la sezione
+    // monitor mostrerebbe il proprio errore — sta fuori dai gate della
+    // schermata — e nessun test fallirebbe.
+    servers: { list: overrides.listServers ?? jest.fn().mockResolvedValue([]) },
   } as unknown as StubwiseClient;
 }
 
@@ -909,10 +958,11 @@ describe("ProjectDetailScreen — le sezioni dell'hub", () => {
 describe("ProjectDetailScreen — repository, documentazione, roadmap", () => {
   test("i conteggi dicono quante cose ci sono, e le righe quali", async () => {
     const client = makeClient({
-      getProject: jest.fn().mockResolvedValue({
-        id: PROJECT_ID,
-        repositories: [repositorySummary(), repositorySummary({ id: "r2", name: "Portale Web", slug: "portale-web" })],
-      }),
+      getProject: jest.fn().mockResolvedValue(
+        projectDetail({
+          repositories: [repositorySummary(), repositorySummary({ id: "r2", name: "Portale Web", slug: "portale-web" })],
+        }),
+      ),
       projectSpaces: jest.fn().mockResolvedValue([docSpace()]),
       milestones: jest.fn().mockResolvedValue([milestone()]),
     });
@@ -980,11 +1030,127 @@ describe("ProjectDetailScreen — repository, documentazione, roadmap", () => {
   test("un tap su un repository dell'anteprima apre il suo dettaglio, per SLUG", async () => {
     const navigate = jest.fn();
     const client = makeClient({
-      getProject: jest.fn().mockResolvedValue({ id: PROJECT_ID, repositories: [repositorySummary()] }),
+      getProject: jest.fn().mockResolvedValue(projectDetail({ repositories: [repositorySummary()] })),
     });
     await renderScreen(client, navigate);
     await waitFor(() => expect(screen.getByTestId("hub-repository-r1")).toBeTruthy());
     await fireEvent.press(screen.getByTestId("hub-repository-r1"));
     expect(navigate).toHaveBeenCalledWith("Repository", { slug: "portale-api", projectName: "Portale B2B" });
+  });
+});
+
+/**
+ * TAPPA 3 (23 set 2026): monitor e impostazioni, in fondo all'hub.
+ */
+describe("ProjectDetailScreen — monitor e impostazioni", () => {
+  test("la sezione monitor chiede i server DEL PROGETTO", async () => {
+    const listServers = jest.fn().mockResolvedValue([]);
+    await renderScreen(makeClient({ listServers }));
+    await waitFor(() => expect(listServers).toHaveBeenCalledWith(PROJECT_ID));
+  });
+
+  test("quanti server e quanti controlli giù, nell'etichetta", async () => {
+    const client = makeClient({
+      listServers: jest.fn().mockResolvedValue([
+        server({ id: "s1", checksDown: 2 }),
+        server({ id: "s2", name: "prod-db", checksDown: 1 }),
+      ]),
+    });
+    await renderScreen(client);
+    await waitFor(() => expect(screen.getByText("Monitor · 2 server · 3 controlli giù")).toBeTruthy());
+  });
+
+  /**
+   * ⚠️ Il rosso solo quando qualcosa è DAVVERO rotto. Due server: uno sano,
+   * uno offline — solo il secondo è rosso (il mai connesso ha il suo test), e
+   * l'etichetta non parla di controlli giù perché non ce ne sono.
+   */
+  test("rosso solo per ciò che è rotto: offline sì, un server sano no", async () => {
+    const client = makeClient({
+      listServers: jest.fn().mockResolvedValue([
+        server({ id: "s1" }),
+        server({ id: "s2", name: "prod-db", status: "offline" }),
+      ]),
+    });
+    await renderScreen(client);
+    await waitFor(() => expect(screen.getByText("Monitor · 2 server")).toBeTruthy());
+    const healthy = screen.getByTestId("hub-server-s1-trailing");
+    const down = screen.getByTestId("hub-server-s2-trailing");
+    const color = (node: ReturnType<typeof screen.getByTestId>) =>
+      (StyleSheet.flatten(node.props.style) as { color?: string } | undefined)?.color;
+    expect(down.props.children).toBe("Offline");
+    expect(color(down)).not.toBe(color(healthy));
+  });
+
+  test("un server mai connesso non è rosso", async () => {
+    const client = makeClient({
+      listServers: jest.fn().mockResolvedValue([
+        server({ id: "s1" }),
+        server({ id: "s3", name: "nuovo", status: "never_connected", lastSeenAt: null, recentCpu: [] }),
+      ]),
+    });
+    await renderScreen(client);
+    await waitFor(() => expect(screen.getByTestId("hub-server-s3-trailing")).toBeTruthy());
+    const style = (id: string) => JSON.stringify(screen.getByTestId(id).props.style);
+    expect(screen.getByTestId("hub-server-s3-trailing").props.children).toBe("Mai connesso");
+    expect(style("hub-server-s3-trailing")).toBe(style("hub-server-s1-trailing"));
+  });
+
+  test("il monitor che fallisce non porta giù le altre sezioni", async () => {
+    const client = makeClient({ listServers: jest.fn().mockRejectedValue(new Error("down")) });
+    await renderScreen(client);
+    await waitFor(() => expect(screen.getByTestId("hub-monitor-error")).toBeTruthy());
+    expect(screen.getByTestId("hub-roadmap-empty")).toBeTruthy();
+    expect(screen.getByTestId("hub-settings-summary")).toBeTruthy();
+  });
+
+  test("nessun server: lo dice", async () => {
+    await renderScreen(makeClient());
+    await waitFor(() => expect(screen.getByTestId("hub-monitor-empty")).toBeTruthy());
+  });
+
+  test("le impostazioni dicono cosa è acceso", async () => {
+    const client = makeClient({
+      getProject: jest.fn().mockResolvedValue(
+        projectDetail({ backlogEnabled: true, pulseEnabled: true, pulseEveryDays: 5, weeklyBriefEnabled: true }),
+      ),
+    });
+    await renderScreen(client);
+    await waitFor(() =>
+      expect(screen.getByTestId("hub-settings-summary")).toBeTruthy(),
+    );
+    await waitFor(() => expect(screen.getByText("Backlog · Pulse ogni 5 g · Brief settimanale")).toBeTruthy());
+  });
+
+  /** ⚠️ Acceso senza backlog il pulse è muto: la riga lo dice, come il web. */
+  test("pulse acceso senza backlog: in attesa, non una cadenza", async () => {
+    const client = makeClient({
+      getProject: jest.fn().mockResolvedValue(projectDetail({ pulseEnabled: true, pulseEveryDays: 5 })),
+    });
+    await renderScreen(client);
+    await waitFor(() => expect(screen.getByText("Pulse in attesa del backlog")).toBeTruthy());
+  });
+
+  test("niente acceso: lo dice", async () => {
+    await renderScreen(makeClient());
+    await waitFor(() => expect(screen.getByText("Nessuna automazione attiva.")).toBeTruthy());
+  });
+
+  test("«vedi ›» e «apri ›» portano al monitor e alle impostazioni, col progetto e il suo nome", async () => {
+    const navigate = jest.fn();
+    await renderScreen(makeClient(), navigate);
+    await waitFor(() => expect(screen.getByTestId("hub-monitor-see-all")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("hub-monitor-see-all"));
+    expect(navigate).toHaveBeenCalledWith("ProjectMonitor", { projectId: PROJECT_ID, projectName: "Portale B2B" });
+    await fireEvent.press(screen.getByTestId("hub-settings-see-all"));
+    expect(navigate).toHaveBeenCalledWith("ProjectSettings", { projectId: PROJECT_ID, projectName: "Portale B2B" });
+  });
+
+  test("un tap su un server dell'anteprima apre il suo cruscotto", async () => {
+    const navigate = jest.fn();
+    await renderScreen(makeClient({ listServers: jest.fn().mockResolvedValue([server()]) }), navigate);
+    await waitFor(() => expect(screen.getByTestId("hub-server-s1")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("hub-server-s1"));
+    expect(navigate).toHaveBeenCalledWith("Server", { serverId: "s1", projectName: "Portale B2B" });
   });
 });

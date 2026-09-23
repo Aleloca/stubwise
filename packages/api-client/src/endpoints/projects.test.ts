@@ -189,3 +189,46 @@ describe("endpoints projects: registro decisioni (fase 5)", () => {
     expect(lastUrl(fetchImpl)).toBe(`/api/milestones?projectId=${ID}`);
   });
 });
+
+describe("endpoints projects: impostazioni (hub, tappa 3)", () => {
+  const PROJECT = {
+    id: ID,
+    name: "Portale B2B",
+    slug: "portale-b2b",
+    description: null,
+    aiProviderId: null,
+    docAutoUpdate: false,
+    dailyReportEnabled: true,
+    backlogEnabled: true,
+    pulseEnabled: true,
+    pulseEveryDays: 5,
+    weeklyBriefEnabled: false,
+    ingestionKey: "ik_x",
+    nextTicketNumber: 42,
+    createdAt: "2026-08-01T10:00:00.000Z",
+  };
+
+  it("patch: PATCH sul progetto col corpo così com'è — solo i campi passati", async () => {
+    const { client, fetchImpl } = clientVuoto();
+    fetchImpl.mockResolvedValue(
+      new Response(JSON.stringify(PROJECT), { status: 200, headers: { "content-type": "application/json" } }),
+    );
+    await client.projects.patch(ID, { pulseEveryDays: 5 });
+    const [url, init] = fetchImpl.mock.calls.at(-1)!;
+    expect(String(url)).toBe(`/api/projects/${ID}`);
+    expect(init?.method).toBe("PATCH");
+    // Nessun campo in più: il client non «completa» la patch.
+    expect(JSON.parse(String(init?.body))).toEqual({ pulseEveryDays: 5 });
+  });
+
+  it("patch: un 403 arriva come errore, non come successo muto", async () => {
+    const { client, fetchImpl } = clientVuoto();
+    fetchImpl.mockResolvedValue(
+      new Response(JSON.stringify({ error: { code: "forbidden", message: "Forbidden" } }), {
+        status: 403,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    await expect(client.projects.patch(ID, { backlogEnabled: false })).rejects.toMatchObject({ status: 403 });
+  });
+});

@@ -1249,6 +1249,27 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   che NON parsa, `lib/api.ts` fa un cast — li difende con `?? []` nel punto di
   lettura. In entrambi i casi il blocco non compare e il resto del polso resta
   intero. Va sceso col caddy come sempre.
+- **«Hub di progetto, tappa 3: monitor e impostazioni» (23 set 2026)**:
+  rebuild **server + caddy**. **Il worker non c'entra.** Nessuna migrazione,
+  nessuna rotta nuova, nessuna env, nessun kind di notifica né valore di enum.
+  Due cose distinte, in due commit, da non confondere: (1) **SPOSTAMENTO** di
+  `serverViewSchema`/`serverDetailSchema` da `apps/server/src/routes/servers.ts`
+  a `packages/shared/src/schemas/server.ts` — nessuna forma cambiata, i test
+  esistenti di `servers.test.ts` sono passati senza essere toccati, e il web
+  ha smesso di tenerne una terza copia a mano in `lib/api.ts`; (2) **CAMBIO DI
+  RISPOSTA additivo**: `GET /api/servers/:id` aggiunge `memUsedBytes`/
+  `memTotalBytes` dell'ultimo campione (stessa query di `services`/`disks`),
+  `.nullable().default(null)` nello schema. Serviva perché la memoria il web
+  la prende da `/metrics`, un'unione che `readerSchema` non attraversa.
+  ⚠️ `null` lì ha DUE significati — nessun campione mai ricevuto, oppure
+  server più vecchio che il campo non lo manda — e l'app li distingue
+  (`memoryReading`, `apps/mobile/src/lib/server-health.ts`): in nessuno dei
+  due casi è «0». Il web oggi non legge quei due campi; se lo facesse, `??
+  null` nel punto di lettura (fa un cast, non un parse).
+  **L'app mobile NON fa parte di questo rebuild** (si aggiorna dagli store).
+  **Rollback — innocuo**: scendere di immagine sul server fa sparire i due
+  campi, e l'app li legge `null` dal `.default` («non disponibile»). Va sceso
+  col caddy come sempre.
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.

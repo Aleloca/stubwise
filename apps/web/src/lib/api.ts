@@ -2,7 +2,6 @@ import type {
   AgentQuestionOption,
   AiJob as AIJob,
   AiJobStatus as AIJobStatus,
-  AlertThresholds,
   AnswerBody,
   BacklogCodeSession,
   BacklogItem,
@@ -24,7 +23,6 @@ import type {
   CreateCheckInput,
   CreateEnvironmentInput,
   CreatePluginInput,
-  DiscoveredService,
   EmailRoute,
   GitProviderKind,
   GoogleAccount,
@@ -76,7 +74,6 @@ import type {
   SearchEntityType,
   SearchHistoryItem,
   SearchResults,
-  ServerStatus,
   SnoozeResult,
   SnoozeUntil,
   // `TicketBase` non esce da questo file: è la forma che il server restituisce
@@ -2790,38 +2787,32 @@ export type {
   UpdateServerInput,
 } from "@stubwise/shared";
 
-/** Progetto associato a un server, ridotto ai campi per la UI (id + nome). */
-export interface ServerProjectSummary {
-  id: string;
-  name: string;
-}
+/**
+ * Le proiezioni di lettura di un server (lista e dettaglio) vengono da
+ * `@stubwise/shared` dal 23 set 2026 (hub di progetto, tappa 3). Fino ad allora
+ * questo file ne teneva una TERZA copia scritta a mano, gemella di quella
+ * dichiarata dentro la rotta: ora c'è una dichiarazione sola, che la rotta usa
+ * come schema di risposta e l'app mobile per parsare.
+ *
+ * ⚠️ Il web NON parsa (vedi il docblock in cima: fa un cast), quindi un
+ * `.default()` dello schema qui non gira mai. Un campo nuovo che questo bundle
+ * legga va difeso nel punto di lettura (`?? null`, `?? []`).
+ */
+export type { ServerDisk, ServerProjectSummary, ServerView } from "@stubwise/shared";
+import type { ServerDetail as SharedServerDetail, ServerView } from "@stubwise/shared";
 
 /**
- * Proiezione pubblica di un server monitorato (lista e base del dettaglio):
- * anagrafica, stato calcolato dall'heartbeat, progetti associati, conteggi
- * check e la coda di CPU recente per la sparkline. Non contiene MAI la chiave
- * dell'agente (esposta solo da {@link ServerWithKey} a creazione/rigenerazione).
- * Gemella di `serverViewSchema` di apps/server/src/routes/servers.ts.
+ * Il dettaglio di un server COME LO VEDE IL WEB, che fa un cast e non un
+ * parse: `memUsedBytes`/`memTotalBytes` (23 set 2026) sono OPZIONALI qui
+ * anche se lo schema li riempie di `null` col `.default()` — quel default
+ * gira solo in un client che parsa, e un server più vecchio del bundle non
+ * li manda. Il tipo lo dice, così chi un giorno li leggesse da qui è
+ * costretto dal compilatore al `?? null` nel punto di lettura.
  */
-export interface ServerView {
-  id: string;
-  name: string;
-  /** Hostname dichiarato dall'agente al primo ingest; null se mai connesso. */
-  hostname: string | null;
-  status: ServerStatus;
-  sampleIntervalSeconds: number;
-  /** Versione dell'agente all'ultimo ingest; null se mai connesso. */
-  agentVersion: string | null;
-  alertThresholds: AlertThresholds;
-  /** ISO dell'ultimo heartbeat; null se il server non ha mai inviato campioni. */
-  lastSeenAt: string | null;
-  createdAt: string;
-  projects: ServerProjectSummary[];
-  checksUp: number;
-  checksDown: number;
-  /** Ultimi valori di CPU dai campioni fini, dal più vecchio al più recente. */
-  recentCpu: number[];
-}
+export type ServerDetail = Omit<SharedServerDetail, "memUsedBytes" | "memTotalBytes"> & {
+  memUsedBytes?: number | null;
+  memTotalBytes?: number | null;
+};
 
 /**
  * Server con la chiave dell'agente (`sk_…`) in chiaro: restituito SOLO da
@@ -2829,26 +2820,6 @@ export interface ServerView {
  */
 export interface ServerWithKey extends ServerView {
   key: string;
-}
-
-/** Uso di un disco per punto di mount (dettaglio server, ultimo campione). */
-export interface ServerDisk {
-  mount: string;
-  usedBytes: number;
-  totalBytes: number;
-}
-
-/**
- * Dettaglio di un server (solo GET /:id): la proiezione base più lo snapshot
- * corrente dall'ultimo campione — servizi auto-scoperti (docker/pm2), dischi per
- * mount e il ts del campione (`metricsAt`, per marcare dati stantii in UI).
- * Vuoti/null se il server non ha mai inviato campioni. Gemella di
- * `serverDetailSchema`.
- */
-export interface ServerDetail extends ServerView {
-  services: DiscoveredService[];
-  disks: ServerDisk[];
-  metricsAt: string | null;
 }
 
 /**

@@ -336,6 +336,30 @@
           "labelWithCount_other": "Roadmap · {{count}} open",
           "empty": "No milestones.",
           "rowProgress": "{{completed}}/{{total}}"
+        },
+        "open": "open ›",
+        "monitor": {
+          "label": "Monitor",
+          "labelWithCount_one": "Monitor · {{count}} server",
+          "labelWithCount_other": "Monitor · {{count}} servers",
+          "serverCount_one": "{{count}} server",
+          "serverCount_other": "{{count}} servers",
+          "labelWithDown_one": "Monitor · {{servers}} · {{count}} check down",
+          "labelWithDown_other": "Monitor · {{servers}} · {{count}} checks down",
+          "rowChecksDown_one": "{{count}} down",
+          "rowChecksDown_other": "{{count}} down",
+          "empty": "No servers linked."
+        },
+        "settings": {
+          "label": "Settings",
+          "docAutoUpdate": "Auto docs",
+          "dailyReport": "Daily report",
+          "backlog": "Backlog",
+          "pulseEvery_one": "Pulse every day",
+          "pulseEvery_other": "Pulse every {{count}} d",
+          "pulseWaitingBacklog": "Pulse waiting for backlog",
+          "weeklyBrief": "Weekly brief",
+          "noneActive": "No automation active."
         }
       },
       "tickets": {
@@ -435,6 +459,107 @@
         "dueDate": "due {{date}}",
         "noDueDate": "no due date",
         "progress": "{{completed}} of {{total}} tickets done"
+      },
+      "monitor": {
+        "title": "Monitor",
+        "loadError": {
+          "title": "Couldn't load the servers.",
+          "retry": "Retry"
+        },
+        "empty": {
+          "title": "No servers",
+          "body": "No monitoring server is linked to this project."
+        },
+        "status": {
+          "online": "Online",
+          "offline": "Offline",
+          "neverConnected": "Never connected",
+          "unknown": "Unknown state"
+        },
+        "cpuNow": "CPU {{pct}}%",
+        "checks": "{{up}} checks up · {{down}} down",
+        "lastSeen": "seen {{ago}} ago"
+      },
+      "server": {
+        "titleFallback": "Server",
+        "loadError": {
+          "title": "Couldn't load the server.",
+          "retry": "Retry"
+        },
+        "sections": {
+          "state": "State",
+          "cpu": "CPU",
+          "memory": "Memory",
+          "disks": "Disks",
+          "checks": "Checks",
+          "services": "Services"
+        },
+        "fields": {
+          "status": "status",
+          "hostname": "host",
+          "agentVersion": "agent version",
+          "sample": "last sample",
+          "notYet": "not known yet"
+        },
+        "sample": {
+          "none": "none",
+          "at": "{{ago}} ago"
+        },
+        "staleWarning": "The last sample is from {{ago}} ago: the numbers below may no longer be true.",
+        "neverConnectedBody": "This server has never sent samples: the agent hasn't connected yet, so there are no numbers to show.",
+        "noValue": "—",
+        "usage": "{{used}} of {{total}}",
+        "memoryUnavailable": "The server doesn't send memory yet: update it to see it here.",
+        "noDisks": "No disks in the last sample.",
+        "noServices": "No services discovered.",
+        "restarts_one": "{{count}} restart",
+        "restarts_other": "{{count}} restarts",
+        "readOnlyHint": "Thresholds, checks and the agent key are configured on the web."
+      },
+      "settings": {
+        "title": "Settings",
+        "loadError": {
+          "title": "Couldn't load the settings.",
+          "retry": "Retry"
+        },
+        "sections": {
+          "identity": "Project",
+          "automations": "Automations"
+        },
+        "fields": {
+          "name": "name",
+          "description": "description",
+          "docAutoUpdate": "Update the docs on every push",
+          "dailyReport": "Daily activity report",
+          "backlog": "Discovery backlog",
+          "pulse": "Proactive pulse",
+          "pulseEveryDays": "Days between pulses",
+          "weeklyBrief": "Weekly brief"
+        },
+        "hints": {
+          "docAutoUpdate": "regenerates a repo's Docs when a push lands on its default branch",
+          "dailyReport": "every night, a standup from the day's commits",
+          "backlog": "feedback/feature tickets go to the backlog instead of the fix pipeline",
+          "pulse": "when the project is idle, proposes backlog items to restart from",
+          "weeklyBrief": "once a week, the summary for people who don't read code"
+        },
+        "pulseNeedsBacklog": "needs the discovery backlog: without it there's nothing to propose",
+        "pulseOff": "Off",
+        "pulseWaitingBacklog": "On (waiting for the discovery backlog)",
+        "pulseEvery_one": "Every day",
+        "pulseEvery_other": "Every {{count}} days",
+        "on": "On",
+        "off": "Off",
+        "noDescription": "no description",
+        "nameRequired": "The name can't be empty.",
+        "save": "Save changes",
+        "saving": "Saving…",
+        "saved": "Saved.",
+        "readOnlyHint": "Read only: settings are changed by maintainers.",
+        "errors": {
+          "forbidden": "Only a maintainer can change the settings.",
+          "generic": "Couldn't save. Try again."
+        }
       }
     },
     "work": {

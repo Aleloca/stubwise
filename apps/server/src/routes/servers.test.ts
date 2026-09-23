@@ -322,6 +322,48 @@ describe("GET /api/servers/:id", () => {
     expect(body.metricsAt).toBeNull();
   });
 
+  // 23 set 2026 (hub di progetto, tappa 3): la memoria è un campo AGGIUNTO
+  // al dettaglio. I due test qui sotto sono nuovi; quelli sopra sono rimasti
+  // come erano, ed è la prova che nessuna forma preesistente è cambiata.
+  it("memoria dall'ULTIMO campione, non da uno qualunque", async () => {
+    const { id } = await createServerReturning("dettaglio-memoria");
+    const baseSample = {
+      serverId: id,
+      cpuPct: 10,
+      load1m: 0.5,
+      swapUsedBytes: 0,
+      diskUsedBytes: 100,
+      diskTotalBytes: 1000,
+      netRxBytes: 0,
+      netTxBytes: 0,
+    };
+    await testDb.db.insert(serverMetrics).values([
+      { ...baseSample, ts: new Date(Date.now() - 60_000), memUsedBytes: 1, memTotalBytes: 2 },
+      { ...baseSample, ts: new Date(), memUsedBytes: 3_000, memTotalBytes: 8_000 },
+    ]);
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/servers/${id}`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as Record<string, unknown>;
+    expect(body.memUsedBytes).toBe(3_000);
+    expect(body.memTotalBytes).toBe(8_000);
+  });
+
+  it("memoria senza campioni: null, mai 0", async () => {
+    const { id } = await createServerReturning("dettaglio-memoria-vuota");
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/servers/${id}`,
+      headers: { cookie: memberCookie },
+    });
+    const body = res.json() as Record<string, unknown>;
+    expect(body.memUsedBytes).toBeNull();
+    expect(body.memTotalBytes).toBeNull();
+  });
+
   it("server inesistente: 404", async () => {
     const res = await app.inject({
       method: "GET",

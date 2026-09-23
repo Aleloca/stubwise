@@ -97,3 +97,22 @@ export const repositoryKeys = {
   all: ["repositories"] as const,
   detail: (slug: string) => [...repositoryKeys.all, "detail", slug] as const,
 };
+
+/**
+ * Chiavi di query dei SERVER di monitoraggio (23 set 2026, hub di progetto,
+ * tappa 3).
+ *
+ * Stessa regola del prefisso di {@link ticketKeys}: nell'app niente modifica
+ * un server — si configurano da un computer — ma il giorno in cui qualcosa lo
+ * farà, un `invalidateQueries({ queryKey: serverKeys.all })` raggiungerà
+ * elenco, dettaglio e sezione dell'hub senza doversi ricordare di loro.
+ *
+ * La sezione dell'hub e la schermata dietro «vedi ›» usano la STESSA chiave
+ * (`forProject`): chiedono la stessa risposta, senza `limit`, quindi non c'è
+ * motivo di tenerle distinte come per ticket e backlog.
+ */
+export const serverKeys = {
+  all: ["servers"] as const,
+  forProject: (projectId: string) => [...serverKeys.all, "list", "project", projectId] as const,
+  detail: (serverId: string) => [...serverKeys.all, "detail", serverId] as const,
+};

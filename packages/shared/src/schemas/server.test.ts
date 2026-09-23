@@ -1,363 +1,60 @@
 import { describe, expect, it } from "vitest";
-import {
-  agentConfigSchema,
-  alertThresholdsSchema,
-  checkResultSchema,
-  computeServerStatus,
-  createCheckSchema,
-  createServerSchema,
-  discoveredServiceSchema,
-  ingestBodySchema,
-  metricSampleSchema,
-  updateCheckSchema,
-  updateServerSchema,
-} from "./server.js";
+import { readerSchema } from "../reader.js";
+import { serverDetailSchema, serverViewSchema } from "./server.js";
 
-const validSample = {
-  ts: "2026-07-13T10:00:00Z",
-  cpuPct: 42.5,
-  load1m: 0.7,
-  memUsedBytes: 4_000_000_000,
-  memTotalBytes: 8_000_000_000,
-  swapUsedBytes: 0,
-  diskUsedBytes: 50_000_000_000,
-  diskTotalBytes: 100_000_000_000,
-  disks: [{ mount: "/", usedBytes: 50_000_000_000, totalBytes: 100_000_000_000 }],
-  netRxBytes: 1024,
-  netTxBytes: 2048,
-  services: [
-    {
-      source: "docker" as const,
-      name: "stubwise-server-1",
-      state: "running",
-      cpuPct: 3.2,
-      memBytes: 120_000_000,
-      restarts: null,
-    },
-  ],
+/**
+ * Le proiezioni di lettura dei server, come le legge un CLIENT che parsa
+ * (l'app mobile, via `readerSchema`).
+ */
+const VIEW = {
+  id: "11111111-1111-4111-8111-111111111111",
+  name: "prod-web-1",
+  hostname: "web1.acme.test",
+  status: "online",
+  sampleIntervalSeconds: 30,
+  agentVersion: "1.4.0",
+  alertThresholds: { cpuPct: 95, memPct: 90, diskPct: 90, sustainedMinutes: 5 },
+  lastSeenAt: "2026-09-23T10:00:00.000Z",
+  createdAt: "2026-08-01T10:00:00.000Z",
+  projects: [],
+  checksUp: 0,
+  checksDown: 0,
+  recentCpu: [],
 };
 
-const validCheckResult = {
-  checkId: "11111111-1111-4111-8111-111111111111",
-  ts: "2026-07-13T10:00:00Z",
-  status: "up" as const,
-  latencyMs: 12,
-  error: null,
-  metrics: { connections: 5, cacheHitRatio: 0.98 },
-};
-
-describe("ingestBodySchema", () => {
-  it("accetta un payload di ingest completo", () => {
-    const body = {
-      hostname: "vps-01",
-      agentVersion: "1.0.0",
-      samples: [validSample],
-      checkResults: [validCheckResult],
-    };
-    expect(ingestBodySchema.parse(body)).toMatchObject({ hostname: "vps-01" });
-  });
-
-  it("default checkResults a [] quando assente", () => {
-    const parsed = ingestBodySchema.parse({
-      hostname: "vps-01",
-      agentVersion: "1.0.0",
-      samples: [validSample],
+describe("serverDetailSchema: la memoria è un campo AGGIUNTO (23 set 2026)", () => {
+  /**
+   * ⚠️ Il caso del server PIÙ VECCHIO dell'app: un rollback, o un'istanza
+   * self-hosted non aggiornata, risponde senza i due campi. La fixture è
+   * senza apposta — è la prova che il `.default(null)` c'è, non una svista
+   * da completare.
+   */
+  it("un dettaglio SENZA la memoria si legge lo stesso, con null e non 0", () => {
+    const detail = readerSchema(serverDetailSchema).parse({
+      ...VIEW,
+      services: [],
+      disks: [],
+      metricsAt: "2026-09-23T10:00:00.000Z",
     });
-    expect(parsed.checkResults).toEqual([]);
+    expect(detail.memUsedBytes).toBeNull();
+    expect(detail.memTotalBytes).toBeNull();
   });
 
-  it("rifiuta un batch vuoto di samples", () => {
-    expect(() =>
-      ingestBodySchema.parse({ hostname: "vps-01", agentVersion: "1.0.0", samples: [] }),
-    ).toThrow();
-  });
-
-  it("rifiuta un agentVersion vuoto", () => {
-    expect(() =>
-      ingestBodySchema.parse({ hostname: "vps-01", agentVersion: "", samples: [validSample] }),
-    ).toThrow();
-  });
-
-  it("accetta esattamente 300 samples", () => {
-    const samples = Array.from({ length: 300 }, () => validSample);
-    const parsed = ingestBodySchema.parse({
-      hostname: "vps-01",
-      agentVersion: "1.0.0",
-      samples,
+  it("con la memoria, i due numeri arrivano così come sono", () => {
+    const detail = serverDetailSchema.parse({
+      ...VIEW,
+      services: [],
+      disks: [],
+      metricsAt: "2026-09-23T10:00:00.000Z",
+      memUsedBytes: 3_000,
+      memTotalBytes: 8_000,
     });
-    expect(parsed.samples).toHaveLength(300);
+    expect(detail.memUsedBytes).toBe(3_000);
+    expect(detail.memTotalBytes).toBe(8_000);
   });
 
-  it("rifiuta un batch con più di 300 samples", () => {
-    const samples = Array.from({ length: 301 }, () => validSample);
-    expect(() =>
-      ingestBodySchema.parse({ hostname: "vps-01", agentVersion: "1.0.0", samples }),
-    ).toThrow();
-  });
-});
-
-describe("metricSampleSchema", () => {
-  it("default disks e services a [] quando assenti", () => {
-    const parsed = metricSampleSchema.parse({
-      ts: "2026-07-13T10:00:00Z",
-      cpuPct: 10,
-      load1m: 0.1,
-      memUsedBytes: 1,
-      memTotalBytes: 2,
-      swapUsedBytes: 0,
-      diskUsedBytes: 1,
-      diskTotalBytes: 2,
-      netRxBytes: 0,
-      netTxBytes: 0,
-    });
-    expect(parsed.disks).toEqual([]);
-    expect(parsed.services).toEqual([]);
-  });
-
-  it("rifiuta cpuPct sopra 100", () => {
-    expect(() => metricSampleSchema.parse({ ...validSample, cpuPct: 101 })).toThrow();
-  });
-
-  it("rifiuta cpuPct sotto 0", () => {
-    expect(() => metricSampleSchema.parse({ ...validSample, cpuPct: -1 })).toThrow();
-  });
-
-  it("rifiuta memTotalBytes = 0", () => {
-    expect(() => metricSampleSchema.parse({ ...validSample, memTotalBytes: 0 })).toThrow();
-  });
-
-  it("rifiuta un ts non ISO", () => {
-    expect(() => metricSampleSchema.parse({ ...validSample, ts: "not-a-date" })).toThrow();
-  });
-
-  it("rifiuta un ts con offset di fuso orario (contratto: solo UTC Z)", () => {
-    expect(() =>
-      metricSampleSchema.parse({ ...validSample, ts: "2026-07-13T12:00:00+02:00" }),
-    ).toThrow();
-  });
-
-  it("rifiuta un mount vuoto nei disks", () => {
-    expect(() =>
-      metricSampleSchema.parse({
-        ...validSample,
-        disks: [{ mount: "", usedBytes: 1, totalBytes: 2 }],
-      }),
-    ).toThrow();
-  });
-});
-
-describe("discoveredServiceSchema", () => {
-  it("accetta un servizio con campi PM2 valorizzati", () => {
-    const parsed = discoveredServiceSchema.parse({
-      source: "pm2",
-      name: "api",
-      state: "online",
-      cpuPct: 1.5,
-      memBytes: 50_000_000,
-      restarts: 3,
-    });
-    expect(parsed).toMatchObject({ source: "pm2", restarts: 3 });
-  });
-
-  it("rifiuta una source sconosciuta", () => {
-    expect(() =>
-      discoveredServiceSchema.parse({
-        source: "systemd",
-        name: "api",
-        state: "running",
-        cpuPct: null,
-        memBytes: null,
-        restarts: null,
-      }),
-    ).toThrow();
-  });
-
-  it("fase 8: accetta image/commitSha quando presenti (agente nuovo, container Docker con label OCI)", () => {
-    const parsed = discoveredServiceSchema.parse({
-      source: "docker",
-      name: "web",
-      state: "running",
-      cpuPct: 2.1,
-      memBytes: 100_000_000,
-      restarts: null,
-      image: "acme/web:1.2.3",
-      commitSha: "abc1234",
-    });
-    expect(parsed).toMatchObject({ image: "acme/web:1.2.3", commitSha: "abc1234" });
-  });
-
-  it("fase 8: parsa SENZA image/commitSha — un agente vecchio che non li manda non deve rompere il server", () => {
-    const parsed = discoveredServiceSchema.parse({
-      source: "docker",
-      name: "web",
-      state: "running",
-      cpuPct: null,
-      memBytes: null,
-      restarts: null,
-    });
-    expect(parsed.image).toBeUndefined();
-    expect(parsed.commitSha).toBeUndefined();
-  });
-});
-
-describe("checkResultSchema", () => {
-  it("accetta un risultato con metrics null", () => {
-    const parsed = checkResultSchema.parse({ ...validCheckResult, metrics: null });
-    expect(parsed.metrics).toBeNull();
-  });
-
-  it("rifiuta uno status sconosciuto", () => {
-    expect(() => checkResultSchema.parse({ ...validCheckResult, status: "flapping" })).toThrow();
-  });
-
-  it("rifiuta un checkId non uuid", () => {
-    expect(() => checkResultSchema.parse({ ...validCheckResult, checkId: "abc" })).toThrow();
-  });
-
-  it("rifiuta una chiave di metrics oltre 100 caratteri", () => {
-    expect(() =>
-      checkResultSchema.parse({ ...validCheckResult, metrics: { ["k".repeat(101)]: 1 } }),
-    ).toThrow();
-  });
-});
-
-describe("agentConfigSchema", () => {
-  it("accetta una config completa", () => {
-    const parsed = agentConfigSchema.parse({
-      sampleIntervalSeconds: 30,
-      checks: [
-        {
-          id: "22222222-2222-4222-8222-222222222222",
-          type: "http",
-          name: "homepage",
-          target: "https://example.com",
-          intervalSeconds: 60,
-        },
-      ],
-    });
-    expect(parsed.checks).toHaveLength(1);
-  });
-
-  it("rifiuta un tipo di check sconosciuto", () => {
-    expect(() =>
-      agentConfigSchema.parse({
-        sampleIntervalSeconds: 30,
-        checks: [
-          {
-            id: "22222222-2222-4222-8222-222222222222",
-            type: "grpc",
-            name: "x",
-            target: "y",
-            intervalSeconds: 60,
-          },
-        ],
-      }),
-    ).toThrow();
-  });
-});
-
-describe("alertThresholdsSchema", () => {
-  it("applica i default quando l'oggetto è vuoto", () => {
-    const parsed = alertThresholdsSchema.parse({});
-    expect(parsed).toEqual({
-      cpuPct: 95,
-      memPct: 90,
-      diskPct: 90,
-      sustainedMinutes: 5,
-    });
-  });
-
-  it("accetta soglie null (disattivate)", () => {
-    const parsed = alertThresholdsSchema.parse({ cpuPct: null });
-    expect(parsed.cpuPct).toBeNull();
-  });
-});
-
-describe("createServerSchema / updateServerSchema", () => {
-  it("createServerSchema richiede solo il nome", () => {
-    expect(createServerSchema.parse({ name: "vps-01" })).toEqual({ name: "vps-01" });
-  });
-
-  it("createServerSchema rifiuta un nome vuoto", () => {
-    expect(() => createServerSchema.parse({ name: "" })).toThrow();
-  });
-
-  it("updateServerSchema è una patch parziale", () => {
-    const parsed = updateServerSchema.parse({
-      sampleIntervalSeconds: 60,
-      projectIds: ["33333333-3333-4333-8333-333333333333"],
-    });
-    expect(parsed.sampleIntervalSeconds).toBe(60);
-    expect(parsed.projectIds).toHaveLength(1);
-  });
-
-  it("updateServerSchema accetta un oggetto vuoto", () => {
-    expect(updateServerSchema.parse({})).toEqual({});
-  });
-
-  it("alertThresholds è full-replacement: i campi omessi tornano ai default", () => {
-    const parsed = updateServerSchema.parse({ alertThresholds: { cpuPct: 80 } });
-    expect(parsed.alertThresholds).toEqual({
-      cpuPct: 80,
-      memPct: 90,
-      diskPct: 90,
-      sustainedMinutes: 5,
-    });
-  });
-});
-
-describe("createCheckSchema / updateCheckSchema", () => {
-  it("createCheckSchema accetta un check completo", () => {
-    const parsed = createCheckSchema.parse({
-      type: "postgres",
-      name: "db primaria",
-      target: "postgres://user:pass@host:5432/db",
-      intervalSeconds: 30,
-      enabled: true,
-    });
-    expect(parsed).toMatchObject({ type: "postgres", enabled: true });
-  });
-
-  it("createCheckSchema rifiuta un intervallo troppo corto", () => {
-    expect(() =>
-      createCheckSchema.parse({
-        type: "http",
-        name: "x",
-        target: "https://example.com",
-        intervalSeconds: 5,
-        enabled: true,
-      }),
-    ).toThrow();
-  });
-
-  it("updateCheckSchema è una patch parziale", () => {
-    expect(updateCheckSchema.parse({ enabled: false })).toEqual({ enabled: false });
-  });
-});
-
-describe("computeServerStatus", () => {
-  const now = new Date("2026-07-13T12:00:00Z");
-
-  it("lastSeenAt null → never_connected", () => {
-    expect(computeServerStatus(null, 30, now)).toBe("never_connected");
-  });
-
-  it("heartbeat recente → online", () => {
-    expect(computeServerStatus(new Date("2026-07-13T11:59:50Z"), 30, now)).toBe("online");
-  });
-
-  it("bordo: esattamente 3×intervallo fa → ancora online (soglia stretta)", () => {
-    // 3 × 30s = 90s: il confronto è `>`, quindi il bordo è ancora online.
-    expect(computeServerStatus(new Date("2026-07-13T11:58:30Z"), 30, now)).toBe("online");
-  });
-
-  it("oltre 3×intervallo → offline", () => {
-    expect(computeServerStatus(new Date("2026-07-13T11:58:29.999Z"), 30, now)).toBe("offline");
-  });
-
-  it("la soglia scala con sampleIntervalSeconds", () => {
-    const lastSeen = new Date("2026-07-13T11:55:00Z"); // 5 minuti fa
-    expect(computeServerStatus(lastSeen, 30, now)).toBe("offline"); // soglia 90s
-    expect(computeServerStatus(lastSeen, 120, now)).toBe("online"); // soglia 360s
+  it("la lista non porta la memoria: è solo del dettaglio", () => {
+    const view = serverViewSchema.parse({ ...VIEW, memUsedBytes: 1 });
+    expect(view).not.toHaveProperty("memUsedBytes");
   });
 });

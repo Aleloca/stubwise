@@ -23,9 +23,12 @@ import { ProjectDetailScreen } from "../screens/projects/ProjectDetailScreen";
 import { ProjectInboxScreen } from "../screens/projects/ProjectInboxScreen";
 import { ProjectDocsScreen } from "../screens/projects/ProjectDocsScreen";
 import { ProjectRepositoriesScreen } from "../screens/projects/ProjectRepositoriesScreen";
+import { ProjectMonitorScreen } from "../screens/projects/ProjectMonitorScreen";
 import { ProjectRoadmapScreen } from "../screens/projects/ProjectRoadmapScreen";
+import { ProjectSettingsScreen } from "../screens/projects/ProjectSettingsScreen";
 import { ProjectsScreen } from "../screens/projects/ProjectsScreen";
 import { RepositoryScreen } from "../screens/projects/RepositoryScreen";
+import { ServerScreen } from "../screens/projects/ServerScreen";
 import { ProjectTicketsScreen } from "../screens/projects/ProjectTicketsScreen";
 import { BacklogChatScreen } from "../screens/backlog/BacklogChatScreen";
 import { BacklogItemScreen } from "../screens/backlog/BacklogItemScreen";
@@ -149,6 +152,20 @@ export type ProjectsStackParamList = {
   Repository: { slug: string; projectName: string };
   ProjectDocs: { projectId: string; projectName: string };
   ProjectRoadmap: { projectId: string; projectName: string };
+  /**
+   * MONITOR E IMPOSTAZIONI (23 set 2026, tappa 3 — l'ultima dell'hub).
+   *
+   * `Server` prende l'ID: è così che la rotta lo indirizza (`GET
+   * /api/servers/:id`). Il monitor è in SOLA LETTURA per tutti: registrare o
+   * configurare un server resta sul web.
+   *
+   * `ProjectSettings` è l'unica schermata dell'hub che SCRIVE, e solo per un
+   * maintainer: il gate vero è `requireAdmin` sulla rotta, e l'app mostra il
+   * form solo a chi quel gate lo passa.
+   */
+  ProjectMonitor: { projectId: string; projectName: string };
+  Server: { serverId: string; projectName: string };
+  ProjectSettings: { projectId: string; projectName: string };
 } & BacklogDetailParamList &
   ProposalParamList &
   DocsPageParamList;
@@ -297,6 +314,9 @@ function ProjectsNavigator() {
       <ProjectsStack.Screen name="Repository" component={RepositoryScreen} />
       <ProjectsStack.Screen name="ProjectDocs" component={ProjectDocsScreen} />
       <ProjectsStack.Screen name="ProjectRoadmap" component={ProjectRoadmapScreen} />
+      <ProjectsStack.Screen name="ProjectMonitor" component={ProjectMonitorScreen} />
+      <ProjectsStack.Screen name="Server" component={ServerScreen} />
+      <ProjectsStack.Screen name="ProjectSettings" component={ProjectSettingsScreen} />
       {/* Stessa copia di `DocsPageScreen` del tab DOC, seconda registrazione. */}
       <ProjectsStack.Screen name="Page" component={DocsPageScreen} />
     </ProjectsStack.Navigator>

@@ -174,6 +174,100 @@ export const alertThresholdsSchema = z.object({
 export type AlertThresholds = z.infer<typeof alertThresholdsSchema>;
 
 // ---------------------------------------------------------------------------
+// Proiezioni di LETTURA (superficie interna /api/servers → SPA e app mobile)
+// ---------------------------------------------------------------------------
+
+/**
+ * ⚠️ PERCHÉ STANNO QUI E NON NELLA ROTTA (23 set 2026, hub di progetto,
+ * tappa 3). Fino a questa data `serverViewSchema` e `serverDetailSchema`
+ * erano dichiarati dentro `apps/server/src/routes/servers.ts`, e il web ne
+ * teneva una TERZA copia scritta a mano in `lib/api.ts`. L'app mobile PARSA
+ * davvero le risposte (`readerSchema(schema).parse`), quindi senza lo schema
+ * in un package condiviso non poteva leggere questa rotta affatto.
+ *
+ * Lo spostamento NON ha cambiato nessuna forma: stesse chiavi, stessi tipi,
+ * stessi nullable. È la condizione che lo rende sicuro verso un'app che si
+ * aggiorna dagli store — e la prova è che i test di `servers.test.ts` sono
+ * rimasti verdi senza essere toccati.
+ *
+ * Verso l'app valgono da qui in avanti le regole di sempre: un campo NUOVO
+ * nasce `.default()`/`.optional()`/`.nullable()`, mai obbligatorio; nessun
+ * campo si rimuove né si rinomina.
+ */
+
+/** Progetto associato a un server, ridotto ai campi che servono alla UI (id + nome). */
+export const serverProjectSummarySchema = z.object({ id: z.uuid(), name: z.string() });
+export type ServerProjectSummary = z.infer<typeof serverProjectSummarySchema>;
+
+/**
+ * Proiezione pubblica di un server: dati anagrafici, stato calcolato,
+ * progetti associati, conteggi check e la coda di CPU recente per la
+ * sparkline. NON contiene MAI `keyHash` né la chiave in chiaro (quella si
+ * mostra solo alla creazione e alla rigenerazione, in uno schema dedicato che
+ * resta nella rotta: nessun client che parsa la legge).
+ */
+export const serverViewSchema = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  /** Hostname dichiarato dall'agente al primo ingest; null se mai connesso. */
+  hostname: z.string().nullable(),
+  status: serverStatusSchema,
+  sampleIntervalSeconds: z.number().int(),
+  /** Versione dell'agente all'ultimo ingest; null se mai connesso. */
+  agentVersion: z.string().nullable(),
+  alertThresholds: alertThresholdsSchema,
+  /** ISO dell'ultimo heartbeat; null se il server non ha mai inviato campioni. */
+  lastSeenAt: z.string().nullable(),
+  createdAt: z.string(),
+  projects: z.array(serverProjectSummarySchema),
+  checksUp: z.number().int(),
+  checksDown: z.number().int(),
+  /** Ultimi valori di CPU dai campioni fini, dal più vecchio al più recente. */
+  recentCpu: z.array(z.number()),
+});
+export type ServerView = z.infer<typeof serverViewSchema>;
+
+/** Uso di un disco per punto di mount (dettaglio server, ultimo campione). */
+export const serverDiskSchema = z.object({
+  mount: z.string(),
+  usedBytes: z.number(),
+  totalBytes: z.number(),
+});
+export type ServerDisk = z.infer<typeof serverDiskSchema>;
+
+/**
+ * Dettaglio (solo GET /:id, non la lista): aggiunge lo snapshot corrente
+ * dall'ULTIMO campione di server_metrics — servizi auto-scoperti
+ * (docker/pm2), dischi per mount e il ts del campione (`metricsAt`, per
+ * marcare in UI i dati stantii). Vuoti/null se il server non ha mai inviato
+ * campioni.
+ */
+export const serverDetailSchema = serverViewSchema.extend({
+  services: z.array(discoveredServiceSchema),
+  disks: z.array(serverDiskSchema),
+  metricsAt: z.string().nullable(),
+  /**
+   * Memoria dell'ULTIMO campione (23 set 2026, hub di progetto, tappa 3):
+   * letta nella stessa query di `services`/`disks`/`metricsAt`, nessun join
+   * nuovo. È un campo AGGIUNTO alla risposta, non spostato.
+   *
+   * `.nullable().default(null)`, mai obbligatori: un'app nuova che parla con
+   * un server più vecchio — un rollback, un'istanza self-hosted non
+   * aggiornata — non li riceve, e senza il default il parse dell'intero
+   * dettaglio fallirebbe. `null` ha quindi DUE significati, che chi legge
+   * tiene distinti: nessun campione mai ricevuto (`metricsAt` è null anche
+   * lui), oppure server che il campo non lo manda. In nessuno dei due casi
+   * vuol dire «0».
+   *
+   * ⚠️ Il web NON parsa (fa un cast): se un giorno li leggesse, `?? null` nel
+   * punto di lettura.
+   */
+  memUsedBytes: z.number().nullable().default(null),
+  memTotalBytes: z.number().nullable().default(null),
+});
+export type ServerDetail = z.infer<typeof serverDetailSchema>;
+
+// ---------------------------------------------------------------------------
 // Schemi admin (superficie interna /api/servers)
 // ---------------------------------------------------------------------------
 

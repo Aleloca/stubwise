@@ -17,8 +17,14 @@ export interface ProjectGroupRowProps {
   title: string;
   /** Testo mono secondario, a destra (stato, ruolo di chi sblocca, azione…). */
   trailing?: string;
-  /** Tono di `trailing` — ambra per l'azione che il viewer può fare ("Rispondi ›"). */
-  trailingTone?: "amber" | "muted";
+  /**
+   * Tono di `trailing` — ambra per l'azione che il viewer può fare
+   * ("Rispondi ›"), rosso (`danger`, 23 set 2026, monitor) per qualcosa che è
+   * davvero ROTTO: un server offline, un controllo giù. Il rosso non si usa
+   * per «attenzione» né per «in attesa»: se compare dappertutto smette di
+   * dire qualcosa.
+   */
+  trailingTone?: "amber" | "muted" | "danger";
   onPress?: () => void;
   testID?: string;
   /** Chiave React (non `key`: quel nome ombreggerebbe la prop riservata quando l'oggetto viene letto come props altrove). */
@@ -60,7 +66,14 @@ export function ProjectRowsCard({ rows }: { rows: ProjectGroupRowProps[] }) {
                 {row.title}
               </Text>
               {row.trailing !== undefined && (
-                <Text style={[styles.rowTrailing, row.trailingTone === "amber" && styles.rowTrailingAmber]}>
+                <Text
+                  style={[
+                    styles.rowTrailing,
+                    row.trailingTone === "amber" && styles.rowTrailingAmber,
+                    row.trailingTone === "danger" && styles.rowTrailingDanger,
+                  ]}
+                  testID={row.testID ? `${row.testID}-trailing` : undefined}
+                >
                   {row.trailing}
                 </Text>
               )}
@@ -129,5 +142,8 @@ const styles = StyleSheet.create({
     color: colors.signal,
     letterSpacing: 1,
     textTransform: "uppercase",
+  },
+  rowTrailingDanger: {
+    color: colors.danger,
   },
 });

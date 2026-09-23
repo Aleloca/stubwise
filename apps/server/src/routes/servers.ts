@@ -1,9 +1,8 @@
 import {
-  alertThresholdsSchema,
   computeServerStatus,
   createServerSchema,
-  discoveredServiceSchema,
-  serverStatusSchema,
+  serverDetailSchema,
+  serverViewSchema,
   updateServerSchema,
 } from "@stubwise/shared";
 import {
@@ -37,49 +36,15 @@ const listQuerySchema = z.object({ projectId: z.uuid().optional() });
 
 type ServerRow = typeof servers.$inferSelect;
 
-/** Progetto associato, ridotto ai campi che servono alla UI (id + nome). */
-const serverProjectSummarySchema = z.object({ id: z.uuid(), name: z.string() });
-
 /**
- * Proiezione pubblica di un server per la SPA: dati anagrafici, stato calcolato,
- * progetti associati, conteggi check e la coda di CPU recente per la sparkline.
- * NON contiene MAI `keyHash` né la chiave in chiaro (quella si mostra solo alla
- * creazione e alla rigenerazione, in uno schema dedicato).
+ * `serverViewSchema` e `serverDetailSchema` vivono in `@stubwise/shared` dal
+ * 23 set 2026 (hub di progetto, tappa 3): l'app mobile parsa questa risposta e
+ * ha bisogno dello schema. Lo spostamento non ha cambiato nessuna forma.
  */
-const serverViewSchema = z.object({
-  id: z.uuid(),
-  name: z.string(),
-  hostname: z.string().nullable(),
-  status: serverStatusSchema,
-  sampleIntervalSeconds: z.number().int(),
-  agentVersion: z.string().nullable(),
-  alertThresholds: alertThresholdsSchema,
-  lastSeenAt: z.string().nullable(),
-  createdAt: z.string(),
-  projects: z.array(serverProjectSummarySchema),
-  checksUp: z.number().int(),
-  checksDown: z.number().int(),
-  // Ultimi valori di CPU dai campioni fini, dal più vecchio al più recente.
-  recentCpu: z.array(z.number()),
-});
 type ServerView = z.infer<typeof serverViewSchema>;
 
 /** Risposta con la chiave in chiaro: creazione e rigenerazione, una sola volta. */
 const serverWithKeySchema = serverViewSchema.extend({ key: z.string() });
-
-/**
- * Dettaglio (solo GET /:id, non la lista): aggiunge lo snapshot corrente
- * dall'ULTIMO campione di server_metrics — servizi auto-scoperti (docker/pm2),
- * dischi per mount e il ts del campione (`metricsAt`, per marcare in UI i dati
- * stantii). Vuoti/null se il server non ha mai inviato campioni.
- */
-const serverDetailSchema = serverViewSchema.extend({
-  services: z.array(discoveredServiceSchema),
-  disks: z.array(
-    z.object({ mount: z.string(), usedBytes: z.number(), totalBytes: z.number() }),
-  ),
-  metricsAt: z.string().nullable(),
-});
 
 /** Dati aggregati per un server, da unire alla riga base nella proiezione. */
 interface ServerAggregates {
@@ -260,12 +225,16 @@ export async function serverRoutes(instance: FastifyInstance): Promise<void> {
       const [row] = await app.db.select().from(servers).where(eq(servers.id, request.params.id));
       if (!row) return apiError(reply, 404, "server_not_found", "Server not found");
       const agg = await loadAggregates(app, [row.id]);
-      // Snapshot corrente dall'ultimo campione: servizi scoperti, dischi e ts.
+      // Snapshot corrente dall'ultimo campione: servizi scoperti, dischi,
+      // memoria e ts. La memoria (23 set 2026) sta nella STESSA riga: le due
+      // colonne sono NOT NULL, quindi c'è sempre quando c'è un campione.
       const [latest] = await app.db
         .select({
           ts: serverMetrics.ts,
           services: serverMetrics.services,
           disks: serverMetrics.disks,
+          memUsedBytes: serverMetrics.memUsedBytes,
+          memTotalBytes: serverMetrics.memTotalBytes,
         })
         .from(serverMetrics)
         .where(eq(serverMetrics.serverId, row.id))
@@ -276,6 +245,8 @@ export async function serverRoutes(instance: FastifyInstance): Promise<void> {
         services: latest?.services ?? [],
         disks: latest?.disks ?? [],
         metricsAt: latest ? latest.ts.toISOString() : null,
+        memUsedBytes: latest?.memUsedBytes ?? null,
+        memTotalBytes: latest?.memTotalBytes ?? null,
       };
     },
   );
