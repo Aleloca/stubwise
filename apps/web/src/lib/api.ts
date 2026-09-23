@@ -2790,38 +2790,19 @@ export type {
   UpdateServerInput,
 } from "@stubwise/shared";
 
-/** Progetto associato a un server, ridotto ai campi per la UI (id + nome). */
-export interface ServerProjectSummary {
-  id: string;
-  name: string;
-}
-
 /**
- * Proiezione pubblica di un server monitorato (lista e base del dettaglio):
- * anagrafica, stato calcolato dall'heartbeat, progetti associati, conteggi
- * check e la coda di CPU recente per la sparkline. Non contiene MAI la chiave
- * dell'agente (esposta solo da {@link ServerWithKey} a creazione/rigenerazione).
- * Gemella di `serverViewSchema` di apps/server/src/routes/servers.ts.
+ * Le proiezioni di lettura di un server (lista e dettaglio) vengono da
+ * `@stubwise/shared` dal 23 set 2026 (hub di progetto, tappa 3). Fino ad allora
+ * questo file ne teneva una TERZA copia scritta a mano, gemella di quella
+ * dichiarata dentro la rotta: ora c'è una dichiarazione sola, che la rotta usa
+ * come schema di risposta e l'app mobile per parsare.
+ *
+ * ⚠️ Il web NON parsa (vedi il docblock in cima: fa un cast), quindi un
+ * `.default()` dello schema qui non gira mai. Un campo nuovo che questo bundle
+ * legga va difeso nel punto di lettura (`?? null`, `?? []`).
  */
-export interface ServerView {
-  id: string;
-  name: string;
-  /** Hostname dichiarato dall'agente al primo ingest; null se mai connesso. */
-  hostname: string | null;
-  status: ServerStatus;
-  sampleIntervalSeconds: number;
-  /** Versione dell'agente all'ultimo ingest; null se mai connesso. */
-  agentVersion: string | null;
-  alertThresholds: AlertThresholds;
-  /** ISO dell'ultimo heartbeat; null se il server non ha mai inviato campioni. */
-  lastSeenAt: string | null;
-  createdAt: string;
-  projects: ServerProjectSummary[];
-  checksUp: number;
-  checksDown: number;
-  /** Ultimi valori di CPU dai campioni fini, dal più vecchio al più recente. */
-  recentCpu: number[];
-}
+export type { ServerDetail, ServerDisk, ServerProjectSummary, ServerView } from "@stubwise/shared";
+import type { ServerDetail, ServerView } from "@stubwise/shared";
 
 /**
  * Server con la chiave dell'agente (`sk_…`) in chiaro: restituito SOLO da
@@ -2829,26 +2810,6 @@ export interface ServerView {
  */
 export interface ServerWithKey extends ServerView {
   key: string;
-}
-
-/** Uso di un disco per punto di mount (dettaglio server, ultimo campione). */
-export interface ServerDisk {
-  mount: string;
-  usedBytes: number;
-  totalBytes: number;
-}
-
-/**
- * Dettaglio di un server (solo GET /:id): la proiezione base più lo snapshot
- * corrente dall'ultimo campione — servizi auto-scoperti (docker/pm2), dischi per
- * mount e il ts del campione (`metricsAt`, per marcare dati stantii in UI).
- * Vuoti/null se il server non ha mai inviato campioni. Gemella di
- * `serverDetailSchema`.
- */
-export interface ServerDetail extends ServerView {
-  services: DiscoveredService[];
-  disks: ServerDisk[];
-  metricsAt: string | null;
 }
 
 /**
