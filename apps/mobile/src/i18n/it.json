@@ -635,7 +635,14 @@
         "milestone": "Milestone",
         "none": "Nessuno",
         "close": "Chiudi",
-        "offline": "// senza rete non si modifica"
+        "offline": "// senza rete non si modifica",
+        "labels": "Etichette",
+        "labelsEmpty": "Nessuna etichetta.",
+        "labelsPlaceholder": "Nuova etichetta",
+        "labelsAdd": "Aggiungi",
+        "labelsRemove": "Rimuovi l'etichetta {{label}}",
+        "labelsDuplicate": "«{{label}}» c'è già.",
+        "labelsFull": "Un ticket può avere al massimo {{count}} etichette: togline una per aggiungerne un'altra."
       },
       "question": {
         "title": "L'agente ha una domanda",

@@ -635,7 +635,14 @@
         "milestone": "Milestone",
         "none": "None",
         "close": "Close",
-        "offline": "// no network, no changes"
+        "offline": "// no network, no changes",
+        "labels": "Labels",
+        "labelsEmpty": "No labels.",
+        "labelsPlaceholder": "New label",
+        "labelsAdd": "Add",
+        "labelsRemove": "Remove label {{label}}",
+        "labelsDuplicate": "“{{label}}” is already there.",
+        "labelsFull": "A ticket can have at most {{count}} labels: remove one to add another."
       },
       "question": {
         "title": "The agent has a question",
