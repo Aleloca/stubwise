@@ -2,10 +2,8 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { isUnknown } from "@stubwise/shared";
 import type { ProjectPulseSummary, Reader } from "@stubwise/shared";
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { SafeMarkdown } from "../../components/SafeMarkdown";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import type { ProjectsStackParamList } from "../../app/navigation";
 import { useAuth } from "../../app/providers";
@@ -26,7 +24,7 @@ import { Skeleton } from "../../components/Skeleton";
 import { pulseLineFor } from "../../lib/pulse-line";
 import { stalledDays, stalledReasonKey } from "../../lib/stalled";
 import { projectsPulseKey } from "./ProjectsScreen";
-import { colors, radii } from "../../theme/tokens";
+import { colors } from "../../theme/tokens";
 import { fontFamily } from "../../theme/typography";
 
 /** Vedi `InboxScreen.tsx` per il perché di una costante invece di leggere `styles.body.paddingBottom`. */
@@ -370,9 +368,14 @@ function ProjectDetailBody({
         */}
         <HubMonitorSection projectId={summary.projectId} projectName={summary.projectName} navigation={navigation} />
         <HubSettingsSection projectId={summary.projectId} projectName={summary.projectName} navigation={navigation} />
-
-        <BriefRow projectId={summary.projectId} />
-        {summary.lastReportDate !== null && <ReportRow projectId={summary.projectId} date={summary.lastReportDate} />}
+        {/*
+          Brief settimanale e report di ieri NON stanno più qui (23 set 2026,
+          richiesta del maintainer). Il brief resta raggiungibile dall'inbox,
+          dove arriva come card quando il progetto lo ha attivo; il report di
+          ieri sul telefono non ha più un accesso, e resta sul web. Chi li
+          rimette qui lo faccia come una sezione dell'hub (`HubSection`), non
+          come le due righe a sé che erano.
+        */}
       </View>
     </>
   );
@@ -950,128 +953,6 @@ function HubSettingsSection({
   );
 }
 
-/**
- * "Brief settimanale" (fase 5): il resoconto della settimana scritto per chi
- * non legge codice — dove siamo, cosa è cambiato, cosa è fermo, cosa serve.
- *
- * Stessa forma del "Report di ieri" qui sotto, e per le stesse ragioni: la riga
- * c'è sempre (un brief può esistere anche per un progetto senza attività
- * recente, quindi non c'è un campo del polso che dica "qui non guardare"), e il
- * fetch è PIGRO — parte al primo tocco, non all'apertura del dettaglio.
- *
- * `limit: 1`: solo l'ULTIMO brief. Lo storico ha una sua pagina sul web
- * (`/projects/:id/roadmap`), e la vista roadmap sull'app è esplicitamente fuori
- * dalla v1 della fase.
- *
- * Tre esiti diversi, tre parole diverse — un brief assente, uno senza testo e
- * uno fallito non sono la stessa cosa: `summary` è `null` anche a brief `done`
- * quando l'istanza non ha un provider AI configurato (vedi
- * `projectBriefWeeklySchema`), e quello è "non c'è ancora niente da leggere";
- * `failed` invece è "c'è stato un tentativo e non è andato", che merita di
- * essere detto perché suggerisce di riprovare dal web.
- */
-function BriefRow({ projectId }: { projectId: string }) {
-  const { t } = useTranslation();
-  const { client } = useAuth();
-  const [expanded, setExpanded] = useState(false);
-
-  const query = useQuery({
-    queryKey: ["briefs", "latest", projectId],
-    queryFn: () => {
-      if (!client) throw new Error("BriefRow richiede un client autenticato");
-      return client.projects.briefs(projectId, { limit: 1 });
-    },
-    enabled: expanded && client !== null,
-    staleTime: 60_000,
-  });
-
-  const latest = query.data?.[0];
-  const text = latest?.summary ?? null;
-
-  return (
-    <View style={styles.reportCard}>
-      <Pressable
-        onPress={() => setExpanded((current) => !current)}
-        accessibilityRole="button"
-        style={styles.reportRow}
-        testID="project-detail-brief-toggle"
-      >
-        <Text style={styles.reportTitle}>{t("mobile.projects.detail.brief.title")}</Text>
-      </Pressable>
-      {expanded && (
-        <View style={styles.reportBody} testID="project-detail-brief">
-          {query.isPending ? (
-            <Text style={styles.reportMeta}>{t("mobile.projects.detail.brief.loading")}</Text>
-          ) : query.isError ? (
-            <Text style={styles.reportMeta}>{t("mobile.projects.detail.brief.loadError")}</Text>
-          ) : text !== null && text.trim() !== "" ? (
-            // Markdown come il piano e le pagine Docs: `MARKDOWN_STYLE` è
-            // l'unica definizione dello stile, e markdown-it ha `html: false`
-            // di default (vedi la nota in `components/work/PlanSection.tsx`).
-            <SafeMarkdown>{text}</SafeMarkdown>
-          ) : latest !== undefined && !isUnknown(latest.status) && latest.status === "failed" ? (
-            <Text style={styles.reportMeta}>{t("mobile.projects.detail.brief.failed")}</Text>
-          ) : (
-            <Text style={styles.reportMeta}>{t("mobile.projects.detail.brief.empty")}</Text>
-          )}
-        </View>
-      )}
-    </View>
-  );
-}
-
-/**
- * "Report di ieri" (canvas `2b`): v1 mostra SOLO il riassunto narrativo
- * (`summary`) del report giornaliero esistente — non la lista commit, non
- * la vista per-sviluppatore, non una navigazione verso `/activity` (che sul
- * mobile non esiste ancora come schermata a sé). Il fetch è PIGRO: parte al
- * primo tap, non all'apertura del dettaglio — la maggior parte delle visite
- * al dettaglio non apre questa riga.
- */
-function ReportRow({ projectId, date }: { projectId: string; date: string }) {
-  const { t } = useTranslation();
-  const { client } = useAuth();
-  const [expanded, setExpanded] = useState(false);
-
-  const query = useQuery({
-    queryKey: ["activity", "for-date", date],
-    queryFn: () => {
-      if (!client) throw new Error("ReportRow richiede un client autenticato");
-      return client.activity.forDate(date);
-    },
-    enabled: expanded && client !== null,
-    staleTime: 60_000,
-  });
-
-  const projectReport = query.data?.projects.find((row) => row.project.id === projectId);
-
-  return (
-    <View style={styles.reportCard}>
-      <Pressable
-        onPress={() => setExpanded((current) => !current)}
-        accessibilityRole="button"
-        style={styles.reportRow}
-        testID="project-detail-report-toggle"
-      >
-        <Text style={styles.reportTitle}>{t("mobile.projects.detail.report.title")}</Text>
-      </Pressable>
-      {expanded && (
-        <View style={styles.reportBody}>
-          {query.isPending ? (
-            <Text style={styles.reportMeta}>{t("mobile.projects.detail.report.loading")}</Text>
-          ) : query.isError ? (
-            <Text style={styles.reportMeta}>{t("mobile.projects.detail.report.loadError")}</Text>
-          ) : projectReport?.summary != null && projectReport.summary.length > 0 ? (
-            <Text style={styles.reportSummary}>{projectReport.summary}</Text>
-          ) : (
-            <Text style={styles.reportMeta}>{t("mobile.projects.detail.report.empty")}</Text>
-          )}
-        </View>
-      )}
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   container: {
     backgroundColor: colors.ink950,
@@ -1120,40 +1001,5 @@ const styles = StyleSheet.create({
   },
   groups: {
     gap: 16,
-  },
-  reportCard: {
-    backgroundColor: colors.ink900,
-    borderColor: colors.line,
-    borderRadius: radii.card,
-    borderWidth: 1,
-    overflow: "hidden",
-  },
-  reportRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    minHeight: 44,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  reportTitle: {
-    color: colors.muted,
-    fontFamily: fontFamily.sans,
-    fontSize: 14,
-  },
-  reportBody: {
-    borderTopColor: colors.line,
-    borderTopWidth: 1,
-    padding: 16,
-  },
-  reportSummary: {
-    color: colors.fg,
-    fontFamily: fontFamily.sans,
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  reportMeta: {
-    color: colors.faint,
-    fontFamily: fontFamily.mono,
-    fontSize: 12,
   },
 });

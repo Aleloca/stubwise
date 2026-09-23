@@ -272,19 +272,6 @@
         "running": "running",
         "backlogReadySummary_one": "{{count}} item ready to convert",
         "backlogReadySummary_other": "{{count}} items ready to convert",
-        "report": {
-          "title": "Yesterday's report",
-          "loading": "loading the summary…",
-          "empty": "No summary for this day.",
-          "loadError": "Can't load the report."
-        },
-        "brief": {
-          "title": "Weekly brief",
-          "loading": "loading the brief…",
-          "empty": "No brief yet.",
-          "failed": "This week's brief was not generated.",
-          "loadError": "Can't load the brief."
-        },
         "waitingMergeArrow": "→ to merge",
         "stalledTrailing": "{{days}}d · {{reason}}",
         "stalledReason": {
