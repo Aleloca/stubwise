@@ -317,6 +317,25 @@
           "labelWithCount_one": "Notifiche · {{count}} da gestire",
           "labelWithCount_other": "Notifiche · {{count}} da gestire",
           "empty": "Niente da gestire."
+        },
+        "repositories": {
+          "label": "Repository",
+          "labelWithCount_one": "Repository · {{count}}",
+          "labelWithCount_other": "Repository · {{count}}",
+          "empty": "Nessun repository collegato."
+        },
+        "docs": {
+          "label": "Documentazione",
+          "labelWithCount_one": "Documentazione · {{count}} spazio",
+          "labelWithCount_other": "Documentazione · {{count}} spazi",
+          "empty": "Nessuna documentazione generata."
+        },
+        "roadmap": {
+          "label": "Roadmap",
+          "labelWithCount_one": "Roadmap · {{count}} aperta",
+          "labelWithCount_other": "Roadmap · {{count}} aperte",
+          "empty": "Nessuna milestone.",
+          "rowProgress": "{{completed}}/{{total}}"
         }
       },
       "tickets": {
@@ -348,6 +367,74 @@
           "title": "Niente da gestire",
           "body": "Non hai notifiche aperte su questo progetto."
         }
+      },
+      "repositories": {
+        "title": "Repository",
+        "loadError": {
+          "title": "Non è stato possibile caricare i repository.",
+          "retry": "Riprova"
+        },
+        "empty": {
+          "title": "Nessun repository",
+          "body": "A questo progetto non è collegato nessun repository."
+        }
+      },
+      "repository": {
+        "loadError": {
+          "title": "Non è stato possibile caricare il repository.",
+          "retry": "Riprova"
+        },
+        "sections": {
+          "where": "Dove sta il codice",
+          "pipeline": "Cosa esegue la pipeline"
+        },
+        "fields": {
+          "url": "Indirizzo",
+          "provider": "Provider",
+          "providerUnknown": "sconosciuto",
+          "defaultBranch": "Branch di default",
+          "gitAccount": "Account git",
+          "webhook": "Webhook",
+          "webhookConfigured": "configurato il {{date}}",
+          "webhookMissing": "non configurato",
+          "installCommand": "Installazione",
+          "testCommand": "Test",
+          "noCommand": "nessun comando",
+          "graph": "Grafo del codice",
+          "graphOn": "attivo",
+          "graphOff": "non attivo"
+        },
+        "readOnlyHint": "Questi dati si leggono soltanto: un repository si configura da un computer."
+      },
+      "docs": {
+        "title": "Documentazione",
+        "loadError": {
+          "title": "Non è stato possibile caricare la documentazione.",
+          "retry": "Riprova"
+        },
+        "empty": {
+          "title": "Nessuna documentazione",
+          "body": "Nessun repository di questo progetto ha ancora pagine generate."
+        },
+        "treeError": "Non è stato possibile caricare le pagine di questo spazio."
+      },
+      "roadmap": {
+        "title": "Roadmap",
+        "loadError": {
+          "title": "Non è stato possibile caricare la roadmap.",
+          "retry": "Riprova"
+        },
+        "empty": {
+          "title": "Nessuna milestone",
+          "body": "Questo progetto non ha ancora milestone."
+        },
+        "status": {
+          "open": "Aperta",
+          "closed": "Chiusa"
+        },
+        "dueDate": "scade il {{date}}",
+        "noDueDate": "senza scadenza",
+        "progress": "{{completed}} di {{total}} ticket completati"
       }
     },
     "work": {

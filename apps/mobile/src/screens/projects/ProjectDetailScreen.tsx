@@ -15,8 +15,9 @@ import { HubSection, type HubSectionState } from "../../components/projects/HubS
 import { ProjectGroup } from "../../components/projects/ProjectGroup";
 import type { ProjectGroupRowProps } from "../../components/projects/ProjectRowsCard";
 import { backlogKeys } from "../../lib/backlog-mutations";
+import { docsKeys } from "../../lib/docs-mutations";
 import { OPEN_TICKET_STATUSES } from "../../lib/project-tickets";
-import { inboxKeys, ticketKeys } from "../../lib/query-keys";
+import { inboxKeys, milestoneKeys, projectKeys, ticketKeys } from "../../lib/query-keys";
 import { ticketHeading } from "../../lib/ticket-labels";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { Skeleton } from "../../components/Skeleton";
@@ -334,6 +335,17 @@ function ProjectDetailBody({
         />
         <HubInboxSection projectId={summary.projectId} projectName={summary.projectName} navigation={navigation} />
 
+        {/*
+          DI COSA È FATTO IL PROGETTO (22 set 2026, tappa 2): sotto le tre
+          del lavoro, nell'ordine del design §3. Scende da «cosa devi fare»
+          (il polso) a «cosa c'è da fare» a «di cosa è fatto» — chi apre
+          l'hub dieci volte al giorno trova in alto la risposta che cerca
+          nove volte su dieci.
+        */}
+        <HubRepositoriesSection projectId={summary.projectId} projectName={summary.projectName} navigation={navigation} />
+        <HubDocsSection projectId={summary.projectId} projectName={summary.projectName} navigation={navigation} />
+        <HubRoadmapSection projectId={summary.projectId} projectName={summary.projectName} navigation={navigation} />
+
         <BriefRow projectId={summary.projectId} />
         {summary.lastReportDate !== null && <ReportRow projectId={summary.projectId} date={summary.lastReportDate} />}
       </View>
@@ -553,6 +565,191 @@ function HubInboxSection({
       label={total === undefined ? t("mobile.projects.hub.inbox.label") : t("mobile.projects.hub.inbox.labelWithCount", { count: total })}
       seeAllLabel={t("mobile.projects.hub.seeAll")}
       onSeeAll={() => navigation.navigate("ProjectInbox", { projectId, projectName })}
+      state={state}
+    />
+  );
+}
+
+/**
+ * REPOSITORY — di quali codebase è fatto il progetto.
+ *
+ * ⚠️ Non costa una richiesta sua nel senso che conta: `projects.get` porta
+ * già la proiezione sintetica dei repository, ed è la STESSA query (stessa
+ * chiave) che usa la schermata dietro «vedi ›» — entrarci non ne fa partire
+ * una seconda.
+ */
+function HubRepositoriesSection({
+  projectId,
+  projectName,
+  navigation,
+}: {
+  projectId: string;
+  projectName: string;
+  navigation: HubNavigation;
+}) {
+  const { t } = useTranslation();
+  const { client } = useAuth();
+
+  const query = useQuery({
+    queryKey: projectKeys.detail(projectId),
+    queryFn: () => {
+      if (!client) throw new Error("HubRepositoriesSection richiede un client autenticato");
+      return client.projects.get(projectId);
+    },
+    enabled: client !== null,
+    staleTime: 60_000,
+  });
+
+  const repositories = query.data?.repositories ?? [];
+  const rows: ProjectGroupRowProps[] = repositories.slice(0, HUB_PREVIEW_LIMIT).map((repository) => ({
+    rowKey: repository.id,
+    title: repository.name,
+    trailing: repository.slug,
+    trailingTone: "muted",
+    onPress: () => navigation.navigate("Repository", { slug: repository.slug, projectName }),
+    testID: `hub-repository-${repository.id}`,
+  }));
+
+  const state =
+    hubQueryState(query, t) ??
+    (repositories.length === 0
+      ? ({ kind: "empty", message: t("mobile.projects.hub.repositories.empty") } as const)
+      : ({ kind: "ready", rows } as const));
+
+  return (
+    <HubSection
+      testID="hub-repositories"
+      label={
+        query.data === undefined
+          ? t("mobile.projects.hub.repositories.label")
+          : t("mobile.projects.hub.repositories.labelWithCount", { count: repositories.length })
+      }
+      seeAllLabel={t("mobile.projects.hub.seeAll")}
+      onSeeAll={() => navigation.navigate("ProjectRepositories", { projectId, projectName })}
+      state={state}
+    />
+  );
+}
+
+/**
+ * DOCUMENTAZIONE — quanti spazi documentati ha il progetto e quanto sono
+ * grandi. Un «spazio» è un repository con almeno una pagina: un repository
+ * senza documentazione non compare, ed è corretto — non c'è niente da
+ * aprire.
+ */
+function HubDocsSection({
+  projectId,
+  projectName,
+  navigation,
+}: {
+  projectId: string;
+  projectName: string;
+  navigation: HubNavigation;
+}) {
+  const { t } = useTranslation();
+  const { client } = useAuth();
+
+  // STESSA chiave della schermata dietro «vedi ›» (`docsKeys.spaces`), e
+  // stessa risposta: qui non serve un `limit` diverso, quindi non serve
+  // nemmeno una chiave diversa — al contrario di ticket, backlog e inbox.
+  const query = useQuery({
+    queryKey: docsKeys.spaces(projectId),
+    queryFn: () => {
+      if (!client) throw new Error("HubDocsSection richiede un client autenticato");
+      return client.docs.projectSpaces(projectId);
+    },
+    enabled: client !== null,
+    staleTime: 60_000,
+  });
+
+  const spaces = query.data ?? [];
+  const rows: ProjectGroupRowProps[] = spaces.slice(0, HUB_PREVIEW_LIMIT).map((space) => ({
+    rowKey: space.repositoryId,
+    title: space.name,
+    trailing: t("mobile.docs.browse.pageCount", { count: space.pageCount }),
+    trailingTone: "muted",
+  }));
+
+  const state =
+    hubQueryState(query, t) ??
+    (spaces.length === 0
+      ? ({ kind: "empty", message: t("mobile.projects.hub.docs.empty") } as const)
+      : ({ kind: "ready", rows } as const));
+
+  return (
+    <HubSection
+      testID="hub-docs"
+      label={
+        query.data === undefined
+          ? t("mobile.projects.hub.docs.label")
+          : t("mobile.projects.hub.docs.labelWithCount", { count: spaces.length })
+      }
+      seeAllLabel={t("mobile.projects.hub.seeAll")}
+      onSeeAll={() => navigation.navigate("ProjectDocs", { projectId, projectName })}
+      state={state}
+    />
+  );
+}
+
+/**
+ * ROADMAP — quante milestone ci sono e quante sono ancora aperte.
+ *
+ * ⚠️ Il numero in etichetta è quello delle APERTE, non il totale: di una
+ * roadmap interessa quanto manca, non quanto si è accumulato. Il totale
+ * resta leggibile nella schermata, dove le chiuse si vedono con le altre.
+ */
+function HubRoadmapSection({
+  projectId,
+  projectName,
+  navigation,
+}: {
+  projectId: string;
+  projectName: string;
+  navigation: HubNavigation;
+}) {
+  const { t } = useTranslation();
+  const { client } = useAuth();
+
+  const query = useQuery({
+    queryKey: milestoneKeys.forProject(projectId),
+    queryFn: () => {
+      if (!client) throw new Error("HubRoadmapSection richiede un client autenticato");
+      return client.projects.milestones(projectId);
+    },
+    enabled: client !== null,
+    staleTime: 60_000,
+  });
+
+  const milestones = query.data ?? [];
+  // Il server manda le APERTE per prime: le prime righe dell'anteprima sono
+  // quindi già quelle che contano, senza riordinare niente qui.
+  const openCount = milestones.filter((milestone) => !isUnknown(milestone.status) && milestone.status === "open").length;
+  const rows: ProjectGroupRowProps[] = milestones.slice(0, HUB_PREVIEW_LIMIT).map((milestone) => ({
+    rowKey: milestone.id,
+    title: milestone.name,
+    trailing: t("mobile.projects.hub.roadmap.rowProgress", {
+      completed: milestone.counts.completed,
+      total: milestone.counts.total,
+    }),
+    trailingTone: "muted",
+  }));
+
+  const state =
+    hubQueryState(query, t) ??
+    (milestones.length === 0
+      ? ({ kind: "empty", message: t("mobile.projects.hub.roadmap.empty") } as const)
+      : ({ kind: "ready", rows } as const));
+
+  return (
+    <HubSection
+      testID="hub-roadmap"
+      label={
+        query.data === undefined
+          ? t("mobile.projects.hub.roadmap.label")
+          : t("mobile.projects.hub.roadmap.labelWithCount", { count: openCount })
+      }
+      seeAllLabel={t("mobile.projects.hub.seeAll")}
+      onSeeAll={() => navigation.navigate("ProjectRoadmap", { projectId, projectName })}
       state={state}
     />
   );

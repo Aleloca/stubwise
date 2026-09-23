@@ -5,6 +5,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "../app/providers";
 import { describeInboxError, useIsOnline } from "./inbox-mutations";
+import { milestoneKeys, ticketKeys } from "./query-keys";
 
 /**
  * Chiavi di query del lavoro di UN ticket: dettaglio ticket (`implementationPlan`
@@ -71,7 +72,19 @@ export interface TicketActionMutation<TInput> {
  * stato stantio. Il refetch che ne segue aggiorna `job.status`, e `WorkScreen`
  * ricalcola `canDecide` da lì.
  */
-function useTicketAction<TInput>(mutationFn: (client: NonNullable<ReturnType<typeof useAuth>["client"]>, input: TInput) => Promise<unknown>, ticketId: string): TicketActionMutation<TInput> {
+function useTicketAction<TInput>(
+  mutationFn: (client: NonNullable<ReturnType<typeof useAuth>["client"]>, input: TInput) => Promise<unknown>,
+  ticketId: string,
+  /**
+   * Chiavi che QUESTA azione invalida in più, decise dal suo input: serve a
+   * `usePatchTicket`, l'unica che può spostare un ticket da una milestone a
+   * un'altra. Una funzione e non un elenco fisso perché la risposta dipende
+   * da cosa si sta modificando — cambiare un'etichetta non tocca nessuna
+   * milestone, e rileggerle a ogni modifica sarebbe lavoro che nessuno ha
+   * chiesto.
+   */
+  extraKeys?: (input: TInput) => readonly (readonly unknown[])[],
+): TicketActionMutation<TInput> {
   const { client } = useAuth();
   const queryClient = useQueryClient();
   const online = useIsOnline();
@@ -82,8 +95,19 @@ function useTicketAction<TInput>(mutationFn: (client: NonNullable<ReturnType<typ
       if (!client) return Promise.reject(new Error("useTicketAction richiede un client autenticato"));
       return mutationFn(client, input);
     },
-    onSuccess: () => {
+    onSuccess: (_result, input) => {
       void queryClient.invalidateQueries({ queryKey: workKeys.all(ticketId) });
+      // ⚠️ OGNI azione qui dentro cambia un TICKET — lo stato, la priorità,
+      // l'assegnatario, o il job che gli gira sopra — e finché non lo diceva
+      // nessun ELENCO di ticket se ne accorgeva (22 set 2026). `workKeys` è
+      // per-ticket (`["work", id]`): non raggiunge né l'anteprima dell'hub né
+      // la schermata dei ticket del progetto, che vivono sotto `["tickets"]`.
+      // Stessa forma di `useConvertBacklogItem`: una mutazione dichiara cosa
+      // ha cambiato, e nessuna schermata deve essere nominata qui.
+      void queryClient.invalidateQueries({ queryKey: ticketKeys.all });
+      for (const key of extraKeys?.(input) ?? []) {
+        void queryClient.invalidateQueries({ queryKey: key });
+      }
     },
     onError: (error) => {
       if (error instanceof ApiError && error.status === 409) {
@@ -146,7 +170,15 @@ export function useRevokePlanApproval(ticketId: string): TicketActionMutation<vo
  * `useTicketAction`).
  */
 export function usePatchTicket(ticketId: string): TicketActionMutation<TicketPatch> {
-  return useTicketAction<TicketPatch>((client, patch) => client.tickets.patch(ticketId, patch), ticketId);
+  return useTicketAction<TicketPatch>(
+    (client, patch) => client.tickets.patch(ticketId, patch),
+    ticketId,
+    // Spostare un ticket da una milestone a un'altra ne cambia i CONTEGGI
+    // (`total`/`completed`), che la roadmap mostra come avanzamento. Solo
+    // quando `milestoneId` è nella patch: un cambio di etichetta o di
+    // priorità non tocca nessuna milestone.
+    (patch) => (patch.milestoneId !== undefined ? [milestoneKeys.all] : []),
+  );
 }
 
 /**

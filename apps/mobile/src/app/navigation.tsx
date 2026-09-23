@@ -21,7 +21,11 @@ import { OnboardingScreen } from "../screens/auth/OnboardingScreen";
 import { ProjectBacklogScreen } from "../screens/projects/ProjectBacklogScreen";
 import { ProjectDetailScreen } from "../screens/projects/ProjectDetailScreen";
 import { ProjectInboxScreen } from "../screens/projects/ProjectInboxScreen";
+import { ProjectDocsScreen } from "../screens/projects/ProjectDocsScreen";
+import { ProjectRepositoriesScreen } from "../screens/projects/ProjectRepositoriesScreen";
+import { ProjectRoadmapScreen } from "../screens/projects/ProjectRoadmapScreen";
 import { ProjectsScreen } from "../screens/projects/ProjectsScreen";
+import { RepositoryScreen } from "../screens/projects/RepositoryScreen";
 import { ProjectTicketsScreen } from "../screens/projects/ProjectTicketsScreen";
 import { BacklogChatScreen } from "../screens/backlog/BacklogChatScreen";
 import { BacklogItemScreen } from "../screens/backlog/BacklogItemScreen";
@@ -81,6 +85,26 @@ export type ProposalParamList = {
   Proposal: { id: string };
 };
 
+/**
+ * LA PAGINA DI DOCUMENTAZIONE, registrata in DUE stack (22 set 2026, hub di
+ * progetto, tappa 2) — terzo frammento dopo {@link BacklogDetailParamList} e
+ * {@link ProposalParamList}, e per la stessa identica ragione: ci si arriva
+ * dal tab DOC e dalla documentazione DI UN PROGETTO, e da entrambi l'indietro
+ * deve riportare dove si era.
+ *
+ * ⚠️ Il §5 del design diceva che la documentazione «ha già dove atterrare»
+ * perché esiste il tab DOC. È l'unico punto in cui quel documento si
+ * contraddice (il §2, la tabella verificata sul codice, dice il contrario):
+ * andarci da qui sarebbe il salto fra tab che la tappa 1 ha chiuso.
+ *
+ * `repositoryId` + `slug` e non un id di pagina: è così che
+ * `client.docs.page` la vuole, ed è quello che portano le «Fonti» di una
+ * risposta della chat.
+ */
+export type DocsPageParamList = {
+  Page: { repositoryId: string; slug: string };
+};
+
 export type InboxStackParamList = {
   List: undefined;
   Card: { id: string };
@@ -111,8 +135,23 @@ export type ProjectsStackParamList = {
   Tickets: { projectId: string; projectName: string };
   ProjectBacklog: { projectId: string; projectName: string };
   ProjectInbox: { projectId: string; projectName: string };
+  /**
+   * DI COSA È FATTO IL PROGETTO (22 set 2026, tappa 2): i repository con il
+   * dettaglio di uno, la documentazione e la roadmap. Tutte e quattro in
+   * SOLA LETTURA — configurare un repository o amministrare una milestone
+   * resta sul web.
+   *
+   * `Repository` prende lo SLUG e non l'id perché è così che la rotta lo
+   * indirizza (`GET /api/repositories/:slug`), ed è quello che porta la
+   * proiezione sintetica dentro `projects.get`.
+   */
+  ProjectRepositories: { projectId: string; projectName: string };
+  Repository: { slug: string; projectName: string };
+  ProjectDocs: { projectId: string; projectName: string };
+  ProjectRoadmap: { projectId: string; projectName: string };
 } & BacklogDetailParamList &
-  ProposalParamList;
+  ProposalParamList &
+  DocsPageParamList;
 
 /**
  * Stack del tab Backlog (Task 17, canvas `3a`/`3b`/`3c`): lista, dettaglio di
@@ -133,9 +172,8 @@ export type BacklogStackParamList = {
  */
 export type DocsStackParamList = {
   List: undefined;
-  Page: { repositoryId: string; slug: string };
   Ask: { projectId: string; projectName: string };
-};
+} & DocsPageParamList;
 
 /**
  * Stack del tab MBX (Task 7, App M3, Fase C — architettura §3/§6a): posta e
@@ -255,6 +293,12 @@ function ProjectsNavigator() {
       <ProjectsStack.Screen name="Item" component={BacklogItemScreen} />
       <ProjectsStack.Screen name="Chat" component={BacklogChatScreen} />
       <ProjectsStack.Screen name="Proposal" component={GoogleProposalScreen} />
+      <ProjectsStack.Screen name="ProjectRepositories" component={ProjectRepositoriesScreen} />
+      <ProjectsStack.Screen name="Repository" component={RepositoryScreen} />
+      <ProjectsStack.Screen name="ProjectDocs" component={ProjectDocsScreen} />
+      <ProjectsStack.Screen name="ProjectRoadmap" component={ProjectRoadmapScreen} />
+      {/* Stessa copia di `DocsPageScreen` del tab DOC, seconda registrazione. */}
+      <ProjectsStack.Screen name="Page" component={DocsPageScreen} />
     </ProjectsStack.Navigator>
   );
 }

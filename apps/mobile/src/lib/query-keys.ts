@@ -47,3 +47,53 @@ export const ticketKeys = {
    */
   hub: (projectId: string) => [...ticketKeys.all, "list", "hub", projectId] as const,
 };
+
+/**
+ * Chiavi di query dei PROGETTI (22 set 2026, hub di progetto, tappa 2).
+ *
+ * Stessa regola di {@link ticketKeys}: il prefisso è il punto. Qui nessuna
+ * mutazione dell'app tocca un progetto o i suoi repository — si configurano
+ * da un computer — quindi oggi non c'è niente da ereditare; la chiave sta
+ * sotto `["projects"]` perché il giorno in cui qualcosa li cambierà non
+ * debba anche ricordarsi di questa vista.
+ *
+ * ⚠️ Non copre `["projects","list"]` né `["projects","pulse"]`, che sono
+ * letterali più vecchi sparsi in tre schermate: migrarli è churn senza
+ * guadagno di comportamento, e non è il lavoro di questa tappa.
+ */
+export const projectKeys = {
+  all: ["projects"] as const,
+  /** Il progetto con il suo elenco sintetico di repository (`projects.get`). */
+  detail: (projectId: string) => [...projectKeys.all, "detail", projectId] as const,
+};
+
+/**
+ * Chiavi di query delle MILESTONE (22 set 2026, hub di progetto, tappa 2).
+ *
+ * ⚠️ Un prefisso PROPRIO e non `["projects", id, "milestones"]` (com'era
+ * scritto a mano in `WorkScreen`), per una ragione misurata: i CONTEGGI di
+ * una milestone cambiano quando un ticket entra o esce da lei, e quello
+ * succede da `usePatchTicket` — una mutazione che sta su un'altra schermata e
+ * che non deve conoscere né la roadmap né l'hub. Con un prefisso suo le basta
+ * dichiarare «ho cambiato una milestone»; annidate sotto i progetti servirebbe
+ * invalidare `["projects"]` per intero, cioè anche il polso e la lista, per
+ * aggiornare due numeri.
+ */
+export const milestoneKeys = {
+  all: ["milestones"] as const,
+  forProject: (projectId: string) => [...milestoneKeys.all, "project", projectId] as const,
+};
+
+/**
+ * Chiavi di query dei REPOSITORY (22 set 2026, hub di progetto, tappa 2).
+ *
+ * Indicizzate per SLUG e non per id: è così che la rotta li indirizza, ed è
+ * quello che l'app ha in mano venendo dall'elenco. Stessa regola del
+ * prefisso di {@link ticketKeys} — nell'app niente modifica un repository, ma
+ * il giorno in cui qualcosa lo farà non dovrà anche ricordarsi di questa
+ * schermata.
+ */
+export const repositoryKeys = {
+  all: ["repositories"] as const,
+  detail: (slug: string) => [...repositoryKeys.all, "detail", slug] as const,
+};

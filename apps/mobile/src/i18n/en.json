@@ -317,6 +317,25 @@
           "labelWithCount_one": "Notifications · {{count}} to handle",
           "labelWithCount_other": "Notifications · {{count}} to handle",
           "empty": "Nothing to handle."
+        },
+        "repositories": {
+          "label": "Repositories",
+          "labelWithCount_one": "Repositories · {{count}}",
+          "labelWithCount_other": "Repositories · {{count}}",
+          "empty": "No repository linked."
+        },
+        "docs": {
+          "label": "Documentation",
+          "labelWithCount_one": "Documentation · {{count}} space",
+          "labelWithCount_other": "Documentation · {{count}} spaces",
+          "empty": "No documentation generated."
+        },
+        "roadmap": {
+          "label": "Roadmap",
+          "labelWithCount_one": "Roadmap · {{count}} open",
+          "labelWithCount_other": "Roadmap · {{count}} open",
+          "empty": "No milestones.",
+          "rowProgress": "{{completed}}/{{total}}"
         }
       },
       "tickets": {
@@ -348,6 +367,74 @@
           "title": "Nothing to handle",
           "body": "You have no open notifications on this project."
         }
+      },
+      "repositories": {
+        "title": "Repositories",
+        "loadError": {
+          "title": "Could not load the repositories.",
+          "retry": "Retry"
+        },
+        "empty": {
+          "title": "No repositories",
+          "body": "No repository is linked to this project."
+        }
+      },
+      "repository": {
+        "loadError": {
+          "title": "Could not load the repository.",
+          "retry": "Retry"
+        },
+        "sections": {
+          "where": "Where the code lives",
+          "pipeline": "What the pipeline runs"
+        },
+        "fields": {
+          "url": "Address",
+          "provider": "Provider",
+          "providerUnknown": "unknown",
+          "defaultBranch": "Default branch",
+          "gitAccount": "Git account",
+          "webhook": "Webhook",
+          "webhookConfigured": "configured on {{date}}",
+          "webhookMissing": "not configured",
+          "installCommand": "Install",
+          "testCommand": "Test",
+          "noCommand": "no command",
+          "graph": "Code graph",
+          "graphOn": "on",
+          "graphOff": "off"
+        },
+        "readOnlyHint": "These values are read-only: a repository is configured from a computer."
+      },
+      "docs": {
+        "title": "Documentation",
+        "loadError": {
+          "title": "Could not load the documentation.",
+          "retry": "Retry"
+        },
+        "empty": {
+          "title": "No documentation",
+          "body": "No repository in this project has generated pages yet."
+        },
+        "treeError": "Could not load the pages of this space."
+      },
+      "roadmap": {
+        "title": "Roadmap",
+        "loadError": {
+          "title": "Could not load the roadmap.",
+          "retry": "Retry"
+        },
+        "empty": {
+          "title": "No milestones",
+          "body": "This project has no milestones yet."
+        },
+        "status": {
+          "open": "Open",
+          "closed": "Closed"
+        },
+        "dueDate": "due {{date}}",
+        "noDueDate": "no due date",
+        "progress": "{{completed}} of {{total}} tickets done"
       }
     },
     "work": {
