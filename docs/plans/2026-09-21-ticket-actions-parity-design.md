@@ -92,6 +92,12 @@ allungherebbe un lavoro che ha già i quattro campi con selettore pronti.
 ⚠️ **Registrato qui perché non si perda**: senza le etichette la parità non è
 piena, e questo design non può dirsi chiuso finché ci sono.
 
+✅ **Chiuso il 23 set 2026**: le etichette si modificano dall'app
+(`LabelsSheet`, `apps/mobile/src/components/work/LabelsSheet.tsx`), con le
+stesse regole del web più una differenza voluta — un doppione identico lo si
+dice invece di scartarlo in silenzio. Con questo la parità delle azioni sul
+ticket è piena.
+
 ## §5 — Cosa NON fa questo batch
 
 - **Non tocca il server**: nessuna rotta nuova, nessuna migrazione, nessun

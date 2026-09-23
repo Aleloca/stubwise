@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { ChoiceSheet, type Choice } from "./ChoiceSheet";
+import { LabelsSheet } from "./LabelsSheet";
 import { usePatchTicket } from "../../lib/work-mutations";
 import {
   TICKET_PRIORITIES,
@@ -15,7 +16,7 @@ import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
 
 /** Quale campo ha la sheet aperta; `null` = nessuna. */
-type OpenField = "status" | "priority" | "assignee" | "milestone" | null;
+type OpenField = "status" | "priority" | "assignee" | "milestone" | "labels" | null;
 
 export interface TicketFieldsProps {
   ticket: Reader<TicketDetail>;
@@ -27,8 +28,10 @@ export interface TicketFieldsProps {
 
 /**
  * I campi modificabili di un ticket: stato, priorità, assegnatario,
- * milestone — gli stessi quattro che la pagina web modifica dal suo pannello
- * di destra (`patchMutation`, `apps/web/src/routes/tickets/$id.tsx`).
+ * milestone ed etichette — gli stessi cinque che la pagina web modifica dal
+ * suo pannello di destra (`patchMutation`, `apps/web/src/routes/tickets/$id.tsx`).
+ * Le etichette sono arrivate il 23 set 2026, due giorni dopo gli altri quattro
+ * (vedi `LabelsSheet`): fino ad allora la parità con il web non era piena.
  *
  * ⚠️ **Nessun controllo di ruolo**, e non è una dimenticanza: la rotta è
  * `requireAuth`, non `requireAdmin` — cambiare lo stato di un ticket o
@@ -90,6 +93,15 @@ export function TicketFields({ ticket, users, milestones }: TicketFieldsProps) {
     patch.mutate({ milestoneId: value });
   }
 
+  /**
+   * La PATCH delle etichette sostituisce l'INSIEME, quindi arriva l'elenco
+   * completo. A differenza degli altri campi la sheet NON si chiude: si
+   * aggiungono spesso più etichette di fila (vedi `LabelsSheet`).
+   */
+  function changeLabels(labels: string[]): void {
+    patch.mutate({ labels });
+  }
+
   return (
     <View style={styles.card} testID="ticket-fields">
       <Text style={styles.eyebrow}>{t("mobile.work.fields.title")}</Text>
@@ -121,6 +133,13 @@ export function TicketFields({ ticket, users, milestones }: TicketFieldsProps) {
         onPress={milestones === undefined ? undefined : () => setOpen("milestone")}
         disabled={patch.disabled}
         testID="ticket-field-milestone"
+      />
+      <FieldRow
+        label={t("mobile.work.fields.labels")}
+        value={ticket.labels.length === 0 ? t("mobile.work.fields.none") : ticket.labels.join(", ")}
+        onPress={() => setOpen("labels")}
+        disabled={patch.disabled}
+        testID="ticket-field-labels"
       />
 
       {patch.errorMessage !== null && (
@@ -173,6 +192,13 @@ export function TicketFields({ ticket, users, milestones }: TicketFieldsProps) {
         onRequestClose={() => setOpen(null)}
         disabled={patch.disabled}
         testIDPrefix="ticket-field-milestone-choice"
+      />
+      <LabelsSheet
+        visible={open === "labels"}
+        labels={ticket.labels}
+        onChange={changeLabels}
+        onRequestClose={() => setOpen(null)}
+        disabled={patch.disabled}
       />
     </View>
   );

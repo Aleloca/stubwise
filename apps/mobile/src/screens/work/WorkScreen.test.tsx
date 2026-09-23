@@ -702,6 +702,82 @@ describe("WorkScreen — modificare i campi", () => {
   });
 });
 
+/**
+ * LE ETICHETTE (23 set 2026): la quinta cosa che il web modifica dal
+ * pannello del ticket, rimasta fuori dalla parità del 21 settembre (§4.1 del
+ * suo design). Tutti i test girano come OPERATORE: come gli altri quattro
+ * campi, la rotta è `requireAuth` e non `requireAdmin`.
+ */
+describe("WorkScreen — etichette", () => {
+  async function openLabels(labels: string[], patch = jest.fn().mockResolvedValue(ticket())) {
+    const client = makeClient({ get: jest.fn().mockResolvedValue(ticket({ labels })), patch });
+    await renderScreen(client, "member");
+    await waitFor(() => expect(screen.getByTestId("ticket-field-labels")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("ticket-field-labels"));
+    return patch;
+  }
+
+  test("le etichette si leggono nel campo, separate da virgola", async () => {
+    const client = makeClient({ get: jest.fn().mockResolvedValue(ticket({ labels: ["ios", "checkout"] })) });
+    await renderScreen(client, "member");
+    await waitFor(() => expect(screen.getByText("ios, checkout")).toBeTruthy());
+  });
+
+  test("aggiungere: la PATCH porta l'elenco COMPLETO, con la nuova in fondo e senza spazi ai bordi", async () => {
+    // La PATCH delle etichette SOSTITUISCE l'insieme: mandare solo la nuova
+    // cancellerebbe le altre.
+    const patch = await openLabels(["ios"]);
+    await fireEvent.changeText(screen.getByTestId("ticket-field-labels-input"), "  checkout  ");
+    await fireEvent.press(screen.getByTestId("ticket-field-labels-add"));
+    await waitFor(() => expect(patch).toHaveBeenCalledWith(TICKET_ID, { labels: ["ios", "checkout"] }));
+  });
+
+  test("aggiungere anche dal tasto «fatto» della tastiera", async () => {
+    const patch = await openLabels([]);
+    const input = screen.getByTestId("ticket-field-labels-input");
+    await fireEvent.changeText(input, "ios");
+    await fireEvent(input, "submitEditing");
+    await waitFor(() => expect(patch).toHaveBeenCalledWith(TICKET_ID, { labels: ["ios"] }));
+  });
+
+  test("togliere: la PATCH porta l'elenco senza quella", async () => {
+    const patch = await openLabels(["ios", "checkout"]);
+    await fireEvent.press(screen.getByTestId("ticket-field-labels-remove-ios"));
+    await waitFor(() => expect(patch).toHaveBeenCalledWith(TICKET_ID, { labels: ["checkout"] }));
+  });
+
+  test("un doppione identico non parte, e la sheet DICE perché", async () => {
+    // Il web lo scarta in silenzio; su un telefono un tocco che non fa niente
+    // sembra un guasto.
+    const patch = await openLabels(["ios"]);
+    await fireEvent.changeText(screen.getByTestId("ticket-field-labels-input"), "ios");
+    await fireEvent.press(screen.getByTestId("ticket-field-labels-add"));
+    expect(screen.getByTestId("ticket-field-labels-notice")).toBeTruthy();
+    expect(patch).not.toHaveBeenCalled();
+  });
+
+  test("solo spazi: niente PATCH, né dal bottone né dalla tastiera", async () => {
+    const patch = await openLabels(["ios"]);
+    const input = screen.getByTestId("ticket-field-labels-input");
+    await fireEvent.changeText(input, "   ");
+    await fireEvent.press(screen.getByTestId("ticket-field-labels-add"));
+    await fireEvent(input, "submitEditing");
+    expect(patch).not.toHaveBeenCalled();
+  });
+
+  test("al limite di 20 non si può aggiungere, e si dice perché", async () => {
+    // Il limite lo impone il SERVER (`labelsSchema`): qui si dice prima,
+    // invece di far partire una richiesta che torna 400.
+    const twenty = Array.from({ length: 20 }, (_, index) => `e${index}`);
+    const patch = await openLabels(twenty);
+    expect(screen.getByTestId("ticket-field-labels-full")).toBeTruthy();
+    expect(screen.queryByTestId("ticket-field-labels-input")).toBeNull();
+    // Togliere resta possibile: è il modo di fare spazio.
+    await fireEvent.press(screen.getByTestId("ticket-field-labels-remove-e0"));
+    await waitFor(() => expect(patch).toHaveBeenCalledWith(TICKET_ID, { labels: twenty.slice(1) }));
+  });
+});
+
 describe("WorkScreen — commentare", () => {
   test("i commenti si VEDONO, con l'autore e il testo", async () => {
     // Prima di questo batch l'app non li mostrava da nessuna parte: la
