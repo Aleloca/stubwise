@@ -246,6 +246,24 @@ export const serverDetailSchema = serverViewSchema.extend({
   services: z.array(discoveredServiceSchema),
   disks: z.array(serverDiskSchema),
   metricsAt: z.string().nullable(),
+  /**
+   * Memoria dell'ULTIMO campione (23 set 2026, hub di progetto, tappa 3):
+   * letta nella stessa query di `services`/`disks`/`metricsAt`, nessun join
+   * nuovo. È un campo AGGIUNTO alla risposta, non spostato.
+   *
+   * `.nullable().default(null)`, mai obbligatori: un'app nuova che parla con
+   * un server più vecchio — un rollback, un'istanza self-hosted non
+   * aggiornata — non li riceve, e senza il default il parse dell'intero
+   * dettaglio fallirebbe. `null` ha quindi DUE significati, che chi legge
+   * tiene distinti: nessun campione mai ricevuto (`metricsAt` è null anche
+   * lui), oppure server che il campo non lo manda. In nessuno dei due casi
+   * vuol dire «0».
+   *
+   * ⚠️ Il web NON parsa (fa un cast): se un giorno li leggesse, `?? null` nel
+   * punto di lettura.
+   */
+  memUsedBytes: z.number().nullable().default(null),
+  memTotalBytes: z.number().nullable().default(null),
 });
 export type ServerDetail = z.infer<typeof serverDetailSchema>;
 

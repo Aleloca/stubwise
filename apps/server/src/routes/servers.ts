@@ -225,12 +225,16 @@ export async function serverRoutes(instance: FastifyInstance): Promise<void> {
       const [row] = await app.db.select().from(servers).where(eq(servers.id, request.params.id));
       if (!row) return apiError(reply, 404, "server_not_found", "Server not found");
       const agg = await loadAggregates(app, [row.id]);
-      // Snapshot corrente dall'ultimo campione: servizi scoperti, dischi e ts.
+      // Snapshot corrente dall'ultimo campione: servizi scoperti, dischi,
+      // memoria e ts. La memoria (23 set 2026) sta nella STESSA riga: le due
+      // colonne sono NOT NULL, quindi c'è sempre quando c'è un campione.
       const [latest] = await app.db
         .select({
           ts: serverMetrics.ts,
           services: serverMetrics.services,
           disks: serverMetrics.disks,
+          memUsedBytes: serverMetrics.memUsedBytes,
+          memTotalBytes: serverMetrics.memTotalBytes,
         })
         .from(serverMetrics)
         .where(eq(serverMetrics.serverId, row.id))
@@ -241,6 +245,8 @@ export async function serverRoutes(instance: FastifyInstance): Promise<void> {
         services: latest?.services ?? [],
         disks: latest?.disks ?? [],
         metricsAt: latest ? latest.ts.toISOString() : null,
+        memUsedBytes: latest?.memUsedBytes ?? null,
+        memTotalBytes: latest?.memTotalBytes ?? null,
       };
     },
   );
