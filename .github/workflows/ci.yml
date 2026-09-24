@@ -21,7 +21,11 @@ jobs:
     name: Lint, typecheck e test
     runs-on: ubuntu-latest
     steps:
+      # Tutta la storia, non solo l'ultimo commit: sulle PR il passo dei test
+      # confronta il branch con la sua base per sapere quali pacchetti testare.
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Abilita corepack (pnpm)
         run: corepack enable
@@ -52,8 +56,48 @@ jobs:
       # interlacciata/garbled e timeout. `--workspace-concurrency=1` serializza i
       # package così ciascuno ha le CPU per sé (i fork interni restano limitati
       # dalle vitest.config dei singoli package).
+      #
+      # ⚠️ SULLE PR SI TESTANO SOLO I PACCHETTI TOCCATI E CHI NE DIPENDE (24 set
+      # 2026). Prima si testava tutto sempre: una PR che toccava solo l'app
+      # passava ~10 degli 11 minuti di test su server, worker e database, che
+      # quella modifica non può cambiare. `...[base]` è il filtro di pnpm per
+      # «cambiati rispetto alla base, più i loro dipendenti»: una modifica a
+      # `packages/shared` trascina ancora dentro quasi tutto, come deve.
+      #
+      # Due reti di sicurezza, e nessuna delle due va tolta:
+      #   1. un file cambiato FUORI da `apps/` e `packages/` (lockfile, config di
+      #      radice, questa CI) può toccare tutti senza appartenere a nessuno —
+      #      il filtro non lo vedrebbe, quindi lì si testa tutto;
+      #   2. sul PUSH a main (dopo il merge) si testa SEMPRE tutto: il filtro
+      #      guarda le dipendenze DICHIARATE, e un pacchetto che ne usa un
+      #      altro senza dichiararlo sfuggirebbe sulla PR. Il giro su main lo
+      #      coglie — e non rallenta nessuno, perché deploy e installazione
+      #      partono al merge senza aspettarlo.
+      #
+      # Esclusi dalla rete 1, perché non cambiano nessun test: la
+      # documentazione (`docs/`, `*.md`) e il grafo generato (`graphify-out/`).
       - name: Test
-        run: pnpm -r --workspace-concurrency=1 test
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ "$EVENT" != "pull_request" ]; then
+            echo "Push su main: tutti i test."
+            pnpm -r --workspace-concurrency=1 test
+            exit 0
+          fi
+          CHANGED=$(git diff --name-only "$BASE_SHA"...HEAD)
+          echo "File cambiati rispetto alla base:"
+          echo "$CHANGED"
+          OUTSIDE=$(echo "$CHANGED" | grep -vE '^(apps|packages)/' | grep -vE '^(docs|graphify-out)/|\.md$' || true)
+          if [ -n "$OUTSIDE" ]; then
+            echo "Cambiati file fuori dai pacchetti: tutti i test."
+            echo "$OUTSIDE"
+            pnpm -r --workspace-concurrency=1 test
+            exit 0
+          fi
+          echo "Solo i pacchetti toccati e chi ne dipende."
+          pnpm -r --workspace-concurrency=1 --filter "...[$BASE_SHA]" test
 
   e2e:
     name: E2E (Playwright)
