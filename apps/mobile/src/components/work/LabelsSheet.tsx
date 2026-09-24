@@ -1,17 +1,9 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import {
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { SheetModal } from "../SheetModal";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
-import { SheetBackdrop } from "../SheetBackdrop";
 
 /**
  * I limiti che il SERVER impone alle etichette (`labelsSchema` in
@@ -87,99 +79,83 @@ export function LabelsSheet({ visible, labels, onChange, onRequestClose, disable
   }
 
   return (
-    <Modal visible={visible} animationType="fade" transparent onRequestClose={close} testID="ticket-field-labels-sheet">
-      {/* La tastiera la gestisce `SheetBackdrop`: vedi il suo docblock. */}
-      <SheetBackdrop onDismiss={close} dismissLabel={t("mobile.work.fields.close")}>
-        <Pressable style={styles.sheet} onPress={() => {}}>
-          <Text style={styles.title}>{t("mobile.work.fields.labels")}</Text>
+    <SheetModal open={visible} onClose={close} testID="ticket-field-labels-sheet">
+      <Text style={styles.title}>{t("mobile.work.fields.labels")}</Text>
 
-          {labels.length === 0 ? (
-            <Text style={styles.empty} testID="ticket-field-labels-empty">
-              {t("mobile.work.fields.labelsEmpty")}
-            </Text>
-          ) : (
-            <ScrollView style={styles.chipsScroll} contentContainerStyle={styles.chips}>
-              {labels.map((label) => (
-                <Pressable
-                  key={label}
-                  accessibilityRole="button"
-                  accessibilityLabel={t("mobile.work.fields.labelsRemove", { label })}
-                  accessibilityState={{ disabled }}
-                  disabled={disabled}
-                  onPress={() => remove(label)}
-                  style={({ pressed }) => [styles.chip, pressed && !disabled && styles.pressed, disabled && styles.disabled]}
-                  testID={`ticket-field-labels-remove-${label}`}
-                >
-                  <Text style={styles.chipText}>{label}</Text>
-                  <Text style={styles.chipRemove}>×</Text>
-                </Pressable>
-              ))}
-            </ScrollView>
-          )}
+      {labels.length === 0 ? (
+        <Text style={styles.empty} testID="ticket-field-labels-empty">
+          {t("mobile.work.fields.labelsEmpty")}
+        </Text>
+      ) : (
+        <View style={[styles.chipsScroll, styles.chips]}>
+          {labels.map((label) => (
+            <Pressable
+              key={label}
+              accessibilityRole="button"
+              accessibilityLabel={t("mobile.work.fields.labelsRemove", { label })}
+              accessibilityState={{ disabled }}
+              disabled={disabled}
+              onPress={() => remove(label)}
+              style={({ pressed }) => [styles.chip, pressed && !disabled && styles.pressed, disabled && styles.disabled]}
+              testID={`ticket-field-labels-remove-${label}`}
+            >
+              <Text style={styles.chipText}>{label}</Text>
+              <Text style={styles.chipRemove}>×</Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
 
-          {full ? (
-            <Text style={styles.notice} testID="ticket-field-labels-full">
-              {t("mobile.work.fields.labelsFull", { count: MAX_LABELS })}
-            </Text>
-          ) : (
-            <View style={styles.addRow}>
-              <TextInput
-                value={draft}
-                onChangeText={(text) => {
-                  setDraft(text);
-                  if (notice !== null) setNotice(null);
-                }}
-                onSubmitEditing={add}
-                placeholder={t("mobile.work.fields.labelsPlaceholder")}
-                placeholderTextColor={colors.faint}
-                maxLength={MAX_LABEL_LENGTH}
-                autoCapitalize="none"
-                autoCorrect={false}
-                returnKeyType="done"
-                editable={!disabled}
-                style={styles.input}
-                testID="ticket-field-labels-input"
-              />
-              <Pressable
-                accessibilityRole="button"
-                accessibilityState={{ disabled: disabled || draft.trim() === "" }}
-                disabled={disabled || draft.trim() === ""}
-                onPress={add}
-                style={({ pressed }) => [
-                  styles.addButton,
-                  pressed && styles.pressed,
-                  (disabled || draft.trim() === "") && styles.disabled,
-                ]}
-                testID="ticket-field-labels-add"
-              >
-                <Text style={styles.addButtonText}>{t("mobile.work.fields.labelsAdd")}</Text>
-              </Pressable>
-            </View>
-          )}
+      {full ? (
+        <Text style={styles.notice} testID="ticket-field-labels-full">
+          {t("mobile.work.fields.labelsFull", { count: MAX_LABELS })}
+        </Text>
+      ) : (
+        <View style={styles.addRow}>
+          <TextInput
+            value={draft}
+            onChangeText={(text) => {
+              setDraft(text);
+              if (notice !== null) setNotice(null);
+            }}
+            onSubmitEditing={add}
+            placeholder={t("mobile.work.fields.labelsPlaceholder")}
+            placeholderTextColor={colors.faint}
+            maxLength={MAX_LABEL_LENGTH}
+            autoCapitalize="none"
+            autoCorrect={false}
+            returnKeyType="done"
+            editable={!disabled}
+            style={styles.input}
+            testID="ticket-field-labels-input"
+          />
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ disabled: disabled || draft.trim() === "" }}
+            disabled={disabled || draft.trim() === ""}
+            onPress={add}
+            style={({ pressed }) => [
+              styles.addButton,
+              pressed && styles.pressed,
+              (disabled || draft.trim() === "") && styles.disabled,
+            ]}
+            testID="ticket-field-labels-add"
+          >
+            <Text style={styles.addButtonText}>{t("mobile.work.fields.labelsAdd")}</Text>
+          </Pressable>
+        </View>
+      )}
 
-          {notice !== null && (
-            <Text accessibilityLiveRegion="polite" style={styles.notice} testID="ticket-field-labels-notice">
-              {notice}
-            </Text>
-          )}
-        </Pressable>
-      </SheetBackdrop>
-    </Modal>
+      {notice !== null && (
+        <Text accessibilityLiveRegion="polite" style={styles.notice} testID="ticket-field-labels-notice">
+          {notice}
+        </Text>
+      )}
+    </SheetModal>
   );
 }
 
 const styles = StyleSheet.create({
-  sheet: {
-    backgroundColor: colors.ink900,
-    borderColor: colors.line,
-    borderTopLeftRadius: radii.card,
-    borderTopRightRadius: radii.card,
-    borderTopWidth: 1,
-    maxHeight: "70%",
-    paddingBottom: 32,
-    paddingHorizontal: 16,
-    paddingTop: 18,
-  },
   title: {
     color: colors.faint,
     fontFamily: fontFamily.mono,

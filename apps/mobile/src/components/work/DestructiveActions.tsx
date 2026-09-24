@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
+import { SheetModal } from "../SheetModal";
 import { useDeleteDesign, useDeletePlan } from "../../lib/work-mutations";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
@@ -22,13 +23,14 @@ export interface DestructiveActionsProps {
  * chiedere conferma. Tutte le altre sono reversibili o innocue, e una
  * conferma su ognuna insegnerebbe solo a premere "sì" senza leggere.
  *
- * ⚠️ **La conferma è in una MODALE, e non è un dettaglio estetico.** Sul web
+ * ⚠️ **La conferma è in un PANNELLO a sé, e non è un dettaglio estetico.** Sul web
  * `ConfirmDeleteButton` sostituisce il bottone con "Conferma"/"Annulla" nello
  * STESSO punto: con un mouse va bene, su un telefono no — il secondo tocco
  * cadrebbe dove è appena caduto il primo, e un doppio tap involontario
- * cancellerebbe un design. Qui il secondo passo sta altrove, in un riquadro
- * che copre la pagina, con "Annulla" accanto: nessun gesto continuo può
- * attraversare tutti e due i passi.
+ * cancellerebbe un design. Qui il secondo passo sta altrove, nel foglio
+ * nativo che sale dal fondo (dal 24 set 2026; prima un dialogo centrato), con
+ * "Annulla" accanto: nessun gesto continuo può attraversare tutti e due i
+ * passi.
  *
  * Per la stessa ragione questo blocco sta in FONDO alla schermata, fuori dal
  * percorso del pollice che scorre il piano e i commenti.
@@ -87,46 +89,43 @@ export function DestructiveActions({ ticketId, hasDesign, hasPlan }: Destructive
         </Text>
       )}
 
-      <Modal
-        visible={pending !== null}
-        animationType="fade"
-        transparent
-        onRequestClose={() => setPending(null)}
-        testID="work-delete-confirm"
-      >
-        <View style={styles.backdrop}>
+      {/*
+        ⚠️ NESSUNA regola `dismissible` qui, e non per dimenticanza (24 set
+        2026, pannelli nativi). La conferma si chiude al «sì» — `confirm()`
+        fa partire la cancellazione e subito dopo `setPending(null)` — e
+        l'esito, errore compreso, compare nel blocco qui sopra, non nella
+        finestra: non c'è mai un momento in cui la finestra è aperta mentre
+        la sua cancellazione è in corso. Trascinarla via equivale a dire «no».
+        Se un domani qualcuno spostasse l'esito DENTRO la finestra (la
+        conferma che resta aperta finché il server risponde), la regola
+        diventerebbe necessaria: `dismissible={!mutation.isPending}`,
+        altrimenti l'esito arriverebbe su una finestra che non c'è più.
+      */}
+      <SheetModal open={pending !== null} onClose={() => setPending(null)} scrollable={false} testID="work-delete-confirm">
+        <Text style={styles.confirmTitle}>
+          {pending === "design"
+            ? t("mobile.work.destructive.confirmDesignTitle")
+            : t("mobile.work.destructive.confirmPlanTitle")}
+        </Text>
+        <Text style={styles.confirmBody}>{t("mobile.work.destructive.confirmBody")}</Text>
+        <View style={styles.confirmRow}>
+          {/* "Annulla" per PRIMO: l'uscita sta dove il pollice arriva prima. */}
           <Pressable
-            style={StyleSheet.absoluteFill}
+            accessibilityRole="button"
             onPress={() => setPending(null)}
-            accessibilityLabel={t("mobile.work.destructive.cancel")}
-          />
-          <Pressable style={styles.sheet} onPress={() => {}}>
-            <Text style={styles.confirmTitle}>
-              {pending === "design"
-                ? t("mobile.work.destructive.confirmDesignTitle")
-                : t("mobile.work.destructive.confirmPlanTitle")}
-            </Text>
-            <Text style={styles.confirmBody}>{t("mobile.work.destructive.confirmBody")}</Text>
-            <View style={styles.confirmRow}>
-              {/* "Annulla" per PRIMO: l'uscita sta dove il pollice arriva prima. */}
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => setPending(null)}
-                style={styles.cancelButton}
-                testID="work-delete-cancel"
-              >
-                <Text style={styles.cancelLabel}>{t("mobile.work.destructive.cancel")}</Text>
-              </Pressable>
-              <DangerButton
-                label={t("mobile.work.destructive.confirm")}
-                onPress={confirm}
-                disabled={mutation.disabled}
-                testID="work-delete-confirm-yes"
-              />
-            </View>
+            style={styles.cancelButton}
+            testID="work-delete-cancel"
+          >
+            <Text style={styles.cancelLabel}>{t("mobile.work.destructive.cancel")}</Text>
           </Pressable>
+          <DangerButton
+            label={t("mobile.work.destructive.confirm")}
+            onPress={confirm}
+            disabled={mutation.disabled}
+            testID="work-delete-confirm-yes"
+          />
         </View>
-      </Modal>
+      </SheetModal>
     </View>
   );
 }
@@ -196,22 +195,6 @@ const styles = StyleSheet.create({
     color: colors.danger,
     fontFamily: fontFamily.sans,
     fontSize: fontSize.label,
-  },
-  backdrop: {
-    alignItems: "center",
-    backgroundColor: "rgba(0,0,0,0.6)",
-    flex: 1,
-    justifyContent: "center",
-    padding: 24,
-  },
-  sheet: {
-    backgroundColor: colors.ink900,
-    borderColor: colors.line,
-    borderRadius: radii.card,
-    borderWidth: 1,
-    gap: 10,
-    padding: 18,
-    width: "100%",
   },
   confirmTitle: {
     color: colors.fg,

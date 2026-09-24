@@ -77,15 +77,17 @@ describe("CaptureSheet — visibilità e copy", () => {
   });
 
   /**
-   * ⚠️ La finestra sta dentro `SheetBackdrop`, che la solleva sopra la
-   * tastiera (24 set 2026): è ancorata in basso e ha un campo di testo, e
-   * senza quello su iOS la tastiera coprirebbe il campo mentre si scrive. Il
-   * layout vero non si può misurare qui; questo test tiene il CABLAGGIO —
-   * chi rimettesse uno sfondo semplice lo farebbe diventare rosso.
+   * ⚠️ Il pannello è il FOGLIO NATIVO (24 set 2026): la tastiera la gestisce
+   * lui (`TrueSheetKeyboardObserver` fa crescere il pannello e dà l'inset
+   * allo scroll). Prima stava dentro `SheetBackdrop`, che la gestiva a mano
+   * insieme a un velo opaco: tolto lo stesso giorno, dopo che la prova sul
+   * telefono ha mostrato il campo visibile sopra la tastiera. Il layout vero
+   * non si misura qui; il test tiene il CABLAGGIO — il pannello sta nel
+   * foglio nativo, non in un contenitore disegnato a mano.
    */
-  test("sta dentro lo sfondo che la solleva sopra la tastiera", async () => {
+  test("sta nel foglio nativo, che gestisce da sé la tastiera", async () => {
     await renderSheet(makeClient());
-    expect(screen.getByTestId("sheet-backdrop")).toBeTruthy();
+    expect(screen.getByTestId("true-sheet")).toBeTruthy();
   });
 
   test("nascosta quando visible=false", async () => {

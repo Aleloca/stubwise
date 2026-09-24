@@ -15,7 +15,8 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Linking, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
+import { SheetModal } from "../SheetModal";
 import { useAuth } from "../../app/providers";
 import { GhostButton } from "../GhostButton";
 import { PrimaryButton } from "../PrimaryButton";
@@ -68,130 +69,121 @@ export function EventSheet({
   const myResponse = attendeeResponseOf(event.attendees, event.accountEmail);
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onRequestClose} testID="event-sheet">
-      <View style={styles.backdrop}>
-        <Pressable
-          style={StyleSheet.absoluteFill}
-          onPress={onRequestClose}
-          accessibilityLabel={t("mobile.calendar.sheet.close")}
-        />
-        <View style={styles.sheet}>
-          <ScrollView contentContainerStyle={styles.sheetContent}>
-            <View style={styles.headerRow}>
-              <Text style={styles.title}>{event.title ?? t("mobile.calendar.noTitle")}</Text>
-              <Pressable accessibilityRole="button" onPress={onRequestClose} testID="event-sheet-close">
-                <Text style={styles.close}>{t("mobile.calendar.sheet.close")}</Text>
-              </Pressable>
-            </View>
-
-            <Text style={styles.when}>{whenLabel(event, t)}</Text>
-            {event.organizer !== null && <Text style={styles.meta}>{event.organizer}</Text>}
-            {event.projectName !== null && <Text style={styles.meta}>{event.projectName}</Text>}
-
-            {/*
-              SEPARATA dall'elenco dei partecipanti, non una riga fra le
-              altre: «ci vado?» è una domanda di un altro ordine rispetto a
-              «chi altro c'è».
-            */}
-            {myResponse !== null && (
-              <View style={styles.section}>
-                <SectionLabel>{t("mobile.calendar.sheet.yourResponse")}</SectionLabel>
-                <Text
-                  style={[styles.yourResponse, myResponse === "declined" && styles.yourResponseDeclined]}
-                  testID="event-sheet-your-response"
-                >
-                  {t(`mobile.calendar.attendeeStatus.${myResponse}`)}
-                </Text>
-                {myResponse === "declined" && (
-                  <Text style={styles.hint}>{t("mobile.calendar.sheet.declinedNotice")}</Text>
-                )}
-              </View>
-            )}
-
-            {event.attendees.length > 0 && (
-              <View style={styles.section}>
-                <SectionLabel>{t("mobile.calendar.sheet.attendees")}</SectionLabel>
-                {event.attendees.map((attendee) => (
-                  <View key={attendee.email} style={styles.attendeeRow}>
-                    <Text style={styles.attendeeEmail} numberOfLines={1}>
-                      {attendee.email}
-                    </Text>
-                    <Text style={styles.attendeeStatus}>{attendeeStatusLabel(attendee.responseStatus, t)}</Text>
-                  </View>
-                ))}
-              </View>
-            )}
-
-            {/*
-              ⚠️ `!= null` (LASCO) e non `!== null` su tutti i campi del 15
-              set 2026: in produzione `packages/api-client` parsa davvero e
-              il `.default()` dello schema li riempie, ma un server più
-              vecchio — o un rollback — manda una risposta SENZA, e allora
-              qui arriva `undefined`. `LinkedText` su `undefined` lancia e
-              React smonta l'intero foglio, non una riga. I test lo fissano
-              con una fixture che quei campi non li ha, apposta.
-            */}
-            {event.location != null && (
-              <View style={styles.section}>
-                <SectionLabel>{t("mobile.calendar.sheet.location")}</SectionLabel>
-                <Text style={styles.body}>{event.location}</Text>
-              </View>
-            )}
-
-            <JoinBlock hangoutLink={event.hangoutLink} entryPoints={event.conferenceEntryPoints} />
-
-            {event.descriptionText != null && (
-              <View style={styles.section}>
-                <SectionLabel>{t("mobile.calendar.sheet.description")}</SectionLabel>
-                {/*
-                  ⚠️ TESTO, non HTML — e non è un ripiego. La descrizione di
-                  un evento è scritta da chiunque abbia creato l'invito:
-                  sul web si rende nell'`<iframe sandbox>`, qui non c'è un
-                  recinto equivalente, quindi si usa il percorso che l'app ha
-                  già per il corpo delle email (`LinkedText`, solo
-                  `http`/`https` toccabili). Il testo arriva dal server, che
-                  lo ricava dalla STESSA colonna con `htmlToText`.
-                */}
-                <LinkedText style={styles.body} text={event.descriptionText} testID="event-sheet-description" />
-              </View>
-            )}
-
-            <RecurrenceBlock recurrence={event.recurrence} />
-
-            <RemindersBlock reminders={event.reminders} useDefault={event.remindersUseDefault} />
-
-            {link !== null && (
-              <View style={styles.openButton}>
-                <GhostButton
-                  label={t("mobile.calendar.sheet.openInGoogle")}
-                  onPress={() => void Linking.openURL(link)}
-                  testID="event-sheet-open-google"
-                />
-              </View>
-            )}
-
-            {event.recurringEventId !== null && (
-              <View style={styles.section}>
-                <SectionLabel>{t("mobile.calendar.series.heading")}</SectionLabel>
-                <SeriesConfig
-                  // Senza questa `key`, aprire un evento della serie A e poi
-                  // uno della serie B riuserebbe la stessa istanza: lo stato
-                  // locale resterebbe quello di A mentre `recurringEventId`
-                  // è già B, e «Salva» scriverebbe la configurazione di A
-                  // (`auto: true` compreso) sulla serie B. È il bug
-                  // bloccante trovato dalla review sul web
-                  // (`calendar-detail-panel.tsx`, stessa `key`): non
-                  // riscoprirlo qui.
-                  key={`${event.accountId}-${event.recurringEventId}`}
-                  accountId={event.accountId}
-                  recurringEventId={event.recurringEventId}
-                />
-              </View>
-            )}
-          </ScrollView>
+    <SheetModal open={visible} onClose={onRequestClose} testID="event-sheet">
+      <View>
+        <View style={styles.headerRow}>
+          <Text style={styles.title}>{event.title ?? t("mobile.calendar.noTitle")}</Text>
+          <Pressable accessibilityRole="button" onPress={onRequestClose} testID="event-sheet-close">
+            <Text style={styles.close}>{t("mobile.calendar.sheet.close")}</Text>
+          </Pressable>
         </View>
+
+        <Text style={styles.when}>{whenLabel(event, t)}</Text>
+        {event.organizer !== null && <Text style={styles.meta}>{event.organizer}</Text>}
+        {event.projectName !== null && <Text style={styles.meta}>{event.projectName}</Text>}
+
+        {/*
+          SEPARATA dall'elenco dei partecipanti, non una riga fra le
+          altre: «ci vado?» è una domanda di un altro ordine rispetto a
+          «chi altro c'è».
+        */}
+        {myResponse !== null && (
+          <View style={styles.section}>
+            <SectionLabel>{t("mobile.calendar.sheet.yourResponse")}</SectionLabel>
+            <Text
+              style={[styles.yourResponse, myResponse === "declined" && styles.yourResponseDeclined]}
+              testID="event-sheet-your-response"
+            >
+              {t(`mobile.calendar.attendeeStatus.${myResponse}`)}
+            </Text>
+            {myResponse === "declined" && (
+              <Text style={styles.hint}>{t("mobile.calendar.sheet.declinedNotice")}</Text>
+            )}
+          </View>
+        )}
+
+        {event.attendees.length > 0 && (
+          <View style={styles.section}>
+            <SectionLabel>{t("mobile.calendar.sheet.attendees")}</SectionLabel>
+            {event.attendees.map((attendee) => (
+              <View key={attendee.email} style={styles.attendeeRow}>
+                <Text style={styles.attendeeEmail} numberOfLines={1}>
+                  {attendee.email}
+                </Text>
+                <Text style={styles.attendeeStatus}>{attendeeStatusLabel(attendee.responseStatus, t)}</Text>
+              </View>
+            ))}
+          </View>
+        )}
+
+        {/*
+          ⚠️ `!= null` (LASCO) e non `!== null` su tutti i campi del 15
+          set 2026: in produzione `packages/api-client` parsa davvero e
+          il `.default()` dello schema li riempie, ma un server più
+          vecchio — o un rollback — manda una risposta SENZA, e allora
+          qui arriva `undefined`. `LinkedText` su `undefined` lancia e
+          React smonta l'intero foglio, non una riga. I test lo fissano
+          con una fixture che quei campi non li ha, apposta.
+        */}
+        {event.location != null && (
+          <View style={styles.section}>
+            <SectionLabel>{t("mobile.calendar.sheet.location")}</SectionLabel>
+            <Text style={styles.body}>{event.location}</Text>
+          </View>
+        )}
+
+        <JoinBlock hangoutLink={event.hangoutLink} entryPoints={event.conferenceEntryPoints} />
+
+        {event.descriptionText != null && (
+          <View style={styles.section}>
+            <SectionLabel>{t("mobile.calendar.sheet.description")}</SectionLabel>
+            {/*
+              ⚠️ TESTO, non HTML — e non è un ripiego. La descrizione di
+              un evento è scritta da chiunque abbia creato l'invito:
+              sul web si rende nell'`<iframe sandbox>`, qui non c'è un
+              recinto equivalente, quindi si usa il percorso che l'app ha
+              già per il corpo delle email (`LinkedText`, solo
+              `http`/`https` toccabili). Il testo arriva dal server, che
+              lo ricava dalla STESSA colonna con `htmlToText`.
+            */}
+            <LinkedText style={styles.body} text={event.descriptionText} testID="event-sheet-description" />
+          </View>
+        )}
+
+        <RecurrenceBlock recurrence={event.recurrence} />
+
+        <RemindersBlock reminders={event.reminders} useDefault={event.remindersUseDefault} />
+
+        {link !== null && (
+          <View style={styles.openButton}>
+            <GhostButton
+              label={t("mobile.calendar.sheet.openInGoogle")}
+              onPress={() => void Linking.openURL(link)}
+              testID="event-sheet-open-google"
+            />
+          </View>
+        )}
+
+        {event.recurringEventId !== null && (
+          <View style={styles.section}>
+            <SectionLabel>{t("mobile.calendar.series.heading")}</SectionLabel>
+            <SeriesConfig
+              // Senza questa `key`, aprire un evento della serie A e poi
+              // uno della serie B riuserebbe la stessa istanza: lo stato
+              // locale resterebbe quello di A mentre `recurringEventId`
+              // è già B, e «Salva» scriverebbe la configurazione di A
+              // (`auto: true` compreso) sulla serie B. È il bug
+              // bloccante trovato dalla review sul web
+              // (`calendar-detail-panel.tsx`, stessa `key`): non
+              // riscoprirlo qui.
+              key={`${event.accountId}-${event.recurringEventId}`}
+              accountId={event.accountId}
+              recurringEventId={event.recurringEventId}
+            />
+          </View>
+        )}
       </View>
-    </Modal>
+    </SheetModal>
   );
 }
 
@@ -525,23 +517,6 @@ function SeriesConfig({ accountId, recurringEventId }: { accountId: string; recu
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
-    backgroundColor: "rgba(5,7,10,0.7)",
-    flex: 1,
-    justifyContent: "flex-end",
-  },
-  sheet: {
-    backgroundColor: colors.ink900,
-    borderColor: colors.line,
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    borderWidth: 1,
-    maxHeight: "88%",
-  },
-  sheetContent: {
-    padding: 20,
-    paddingBottom: 32,
-  },
   headerRow: {
     alignItems: "flex-start",
     flexDirection: "row",

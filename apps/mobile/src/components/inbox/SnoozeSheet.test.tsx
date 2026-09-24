@@ -48,10 +48,10 @@ describe("SnoozeSheet", () => {
     expect(onChoose).not.toHaveBeenCalled();
   });
 
-  test("toccare lo sfondo chiama onRequestClose", async () => {
+  test("trascinarlo via chiama onRequestClose (il velo e il gesto sono del sistema)", async () => {
     const onRequestClose = jest.fn();
     await render(<SnoozeSheet visible onRequestClose={onRequestClose} onChoose={jest.fn()} />);
-    await fireEvent.press(screen.getByLabelText("Annulla"));
+    await fireEvent.press(screen.getByTestId("true-sheet-dismiss"));
     expect(onRequestClose).toHaveBeenCalledTimes(1);
   });
 });

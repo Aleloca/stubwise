@@ -634,7 +634,6 @@
         "assignee": "Assegnato a",
         "milestone": "Milestone",
         "none": "Nessuno",
-        "close": "Chiudi",
         "offline": "// senza rete non si modifica",
         "labels": "Etichette",
         "labelsEmpty": "Nessuna etichetta.",
