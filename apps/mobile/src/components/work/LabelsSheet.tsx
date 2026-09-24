@@ -1,9 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  KeyboardAvoidingView,
   Modal,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -13,6 +11,7 @@ import {
 } from "react-native";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
+import { SheetBackdrop } from "../SheetBackdrop";
 
 /**
  * I limiti che il SERVER impone alle etichette (`labelsSchema` in
@@ -89,12 +88,8 @@ export function LabelsSheet({ visible, labels, onChange, onRequestClose, disable
 
   return (
     <Modal visible={visible} animationType="fade" transparent onRequestClose={close} testID="ticket-field-labels-sheet">
-      {/*
-        ⚠️ La sheet è ancorata in BASSO e contiene un campo di testo: senza
-        questo, su iOS la tastiera lo coprirebbe esattamente mentre si scrive.
-      */}
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.backdrop}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={close} accessibilityLabel={t("mobile.work.fields.close")} />
+      {/* La tastiera la gestisce `SheetBackdrop`: vedi il suo docblock. */}
+      <SheetBackdrop onDismiss={close} dismissLabel={t("mobile.work.fields.close")}>
         <Pressable style={styles.sheet} onPress={() => {}}>
           <Text style={styles.title}>{t("mobile.work.fields.labels")}</Text>
 
@@ -168,17 +163,12 @@ export function LabelsSheet({ visible, labels, onChange, onRequestClose, disable
             </Text>
           )}
         </Pressable>
-      </KeyboardAvoidingView>
+      </SheetBackdrop>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
-    backgroundColor: "rgba(0,0,0,0.6)",
-    flex: 1,
-    justifyContent: "flex-end",
-  },
   sheet: {
     backgroundColor: colors.ink900,
     borderColor: colors.line,

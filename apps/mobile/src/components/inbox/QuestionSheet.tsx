@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { QuestionForm } from "./QuestionForm";
 import { colors } from "../../theme/tokens";
+import { SheetBackdrop } from "../SheetBackdrop";
 
 export interface QuestionSheetProps {
   visible: boolean;
@@ -45,8 +46,7 @@ export function QuestionSheet({
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onRequestClose} testID={testID}>
-      <View style={styles.backdrop}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onRequestClose} accessibilityLabel={t("mobile.inbox.actions.cancel")} />
+      <SheetBackdrop onDismiss={onRequestClose} dismissLabel={t("mobile.inbox.actions.cancel")}>
         <Pressable style={styles.sheet} onPress={() => {}}>
           <View style={styles.handle} />
           <ScrollView keyboardShouldPersistTaps="handled">
@@ -61,17 +61,12 @@ export function QuestionSheet({
             />
           </ScrollView>
         </Pressable>
-      </View>
+      </SheetBackdrop>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
-    backgroundColor: "rgba(5,7,10,0.7)",
-    flex: 1,
-    justifyContent: "flex-end",
-  },
   sheet: {
     backgroundColor: colors.ink900,
     borderColor: colors.line,
