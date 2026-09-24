@@ -94,7 +94,7 @@ export function PlanReviewCard({ item, projectName }: PlanReviewCardProps) {
                     />
                   </View>
                   <View style={styles.confirmSecondary}>
-                    <GhostButton
+                    <GhostButton besidePrimary
                       label={t("mobile.inbox.actions.cancel")}
                       onPress={() => setConfirmingApprove(false)}
                       testID="plan-review-card-approve-cancel"
@@ -114,7 +114,7 @@ export function PlanReviewCard({ item, projectName }: PlanReviewCardProps) {
             ))}
           {can(item, "reject_plan") && !confirmingApprove && (
             <View style={styles.rejectButton}>
-              <GhostButton
+              <GhostButton besidePrimary
                 label={t("mobile.inbox.actions.rejectWithInstructions")}
                 onPress={() => setRejectOpen(true)}
                 testID="plan-review-card-reject"

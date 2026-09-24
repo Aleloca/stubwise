@@ -201,7 +201,7 @@ export function PlanSection({
                   />
                 </View>
                 <View style={styles.confirmSecondary}>
-                  <GhostButton
+                  <GhostButton besidePrimary
                     label={t("mobile.work.plan.cancel")}
                     onPress={() => setConfirmingApprove(false)}
                     testID="plan-section-approve-cancel"
@@ -220,7 +220,7 @@ export function PlanSection({
                 />
               </View>
               <View style={styles.rejectButton}>
-                <GhostButton
+                <GhostButton besidePrimary
                   label={t("mobile.work.plan.rejectWithInstructions")}
                   onPress={() => setRejectOpen(true)}
                   testID="plan-section-reject"
