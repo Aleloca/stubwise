@@ -5,6 +5,7 @@ import { GhostButton } from "../GhostButton";
 import { PrimaryButton } from "../PrimaryButton";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
+import { SheetBackdrop } from "../SheetBackdrop";
 
 export interface RejectSheetProps {
   visible: boolean;
@@ -69,8 +70,7 @@ export function RejectSheet({
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onRequestClose} testID={testID}>
-      <View style={styles.backdrop}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onRequestClose} accessibilityLabel={t("mobile.inbox.reject.cancel")} />
+      <SheetBackdrop onDismiss={onRequestClose} dismissLabel={t("mobile.inbox.reject.cancel")}>
         <Pressable style={styles.sheet} onPress={() => {}}>
           <View style={styles.handle} />
           <ScrollView keyboardShouldPersistTaps="handled">
@@ -130,17 +130,12 @@ export function RejectSheet({
             <Text style={styles.hint}>{t("mobile.inbox.reject.hint")}</Text>
           </ScrollView>
         </Pressable>
-      </View>
+      </SheetBackdrop>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
-    backgroundColor: "rgba(5,7,10,0.7)",
-    flex: 1,
-    justifyContent: "flex-end",
-  },
   sheet: {
     backgroundColor: colors.ink900,
     borderColor: colors.line,

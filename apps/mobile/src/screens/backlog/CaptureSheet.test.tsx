@@ -64,6 +64,18 @@ beforeEach(async () => {
 });
 
 describe("CaptureSheet — visibilità e copy", () => {
+  /**
+   * ⚠️ La finestra sta dentro `SheetBackdrop`, che la solleva sopra la
+   * tastiera (24 set 2026): è ancorata in basso e ha un campo di testo, e
+   * senza quello su iOS la tastiera coprirebbe il campo mentre si scrive. Il
+   * layout vero non si può misurare qui; questo test tiene il CABLAGGIO —
+   * chi rimettesse uno sfondo semplice lo farebbe diventare rosso.
+   */
+  test("sta dentro lo sfondo che la solleva sopra la tastiera", async () => {
+    await renderSheet(makeClient());
+    expect(screen.getByTestId("sheet-backdrop")).toBeTruthy();
+  });
+
   test("nascosta quando visible=false", async () => {
     const client = makeClient();
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });

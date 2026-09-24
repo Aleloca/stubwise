@@ -7,6 +7,7 @@ import { useCreateBacklogItem } from "../../lib/backlog-mutations";
 import { getLastBacklogProjectId, setLastBacklogProjectId } from "../../lib/storage";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
+import { SheetBackdrop } from "../../components/SheetBackdrop";
 
 export interface CaptureSheetProject {
   id: string;
@@ -95,12 +96,7 @@ export function CaptureSheet({ visible, onRequestClose, projects, onSubmitted, t
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onRequestClose} testID={testID}>
-      <View style={styles.backdrop}>
-        <Pressable
-          style={StyleSheet.absoluteFill}
-          onPress={onRequestClose}
-          accessibilityLabel={t("mobile.backlog.capture.cancel")}
-        />
+      <SheetBackdrop onDismiss={onRequestClose} dismissLabel={t("mobile.backlog.capture.cancel")}>
         <Pressable style={styles.sheet} onPress={() => {}}>
           <View style={styles.handle} />
           <ScrollView keyboardShouldPersistTaps="handled">
@@ -173,17 +169,12 @@ export function CaptureSheet({ visible, onRequestClose, projects, onSubmitted, t
             <Text style={styles.hint}>{t("mobile.backlog.capture.hint")}</Text>
           </ScrollView>
         </Pressable>
-      </View>
+      </SheetBackdrop>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
-    backgroundColor: "rgba(5,7,10,0.7)",
-    flex: 1,
-    justifyContent: "flex-end",
-  },
   sheet: {
     backgroundColor: colors.ink900,
     borderColor: colors.line,
