@@ -82,6 +82,10 @@ sé. Va tolto — con i suoi test — **solo dopo** aver visto sul telefono che 
 tastiera non copre i campi nei pannelli nativi (§6). Se il foglio non la
 gestisse, resta.
 
+✅ **Tolto il 24 set 2026, dopo la prova sul telefono**: nel pannello «Nuova
+idea» il campo resta visibile sopra la tastiera, quindi la gestione nativa
+basta. Il file e i suoi test sono stati rimossi sullo stesso branch.
+
 Così pure lo sfondo disegnato a mano e il `Pressable` «tocco fuori» di ogni
 pannello: li fa il sistema.
 

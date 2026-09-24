@@ -25,16 +25,15 @@ describe("RejectSheet", () => {
   /**
    * ⚠️ Il pannello è il FOGLIO NATIVO (24 set 2026): la tastiera la gestisce
    * lui (`TrueSheetKeyboardObserver` fa crescere il pannello e dà l'inset
-   * allo scroll), quindi non sta più dentro `SheetBackdrop`, che disegnava
-   * anche il velo opaco segnalato dal maintainer. Il layout vero non si
-   * misura qui; il test tiene il CABLAGGIO — chi rimettesse `SheetBackdrop`
-   * attorno al pannello lo farebbe diventare rosso. La prova che la tastiera
-   * non copra il campo è sul telefono (design §6).
+   * allo scroll). Prima stava dentro `SheetBackdrop`, che la gestiva a mano
+   * insieme a un velo opaco: tolto lo stesso giorno, dopo che la prova sul
+   * telefono ha mostrato il campo visibile sopra la tastiera. Il layout vero
+   * non si misura qui; il test tiene il CABLAGGIO — il pannello sta nel
+   * foglio nativo, non in un contenitore disegnato a mano.
    */
-  test("sta nel foglio nativo, non dentro lo sfondo disegnato a mano", async () => {
+  test("sta nel foglio nativo, che gestisce da sé la tastiera", async () => {
     await renderSheet();
     expect(screen.getByTestId("true-sheet")).toBeTruthy();
-    expect(screen.queryByTestId("sheet-backdrop")).toBeNull();
   });
 
   test("nascosto quando visible=false", async () => {

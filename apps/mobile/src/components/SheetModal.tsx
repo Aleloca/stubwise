@@ -43,10 +43,14 @@ import { colors } from "../theme/tokens";
  *    tastiera e ne serve un secondo.
  *
  * LA TASTIERA la gestisce true-sheet (`TrueSheetKeyboardObserver`: il
- * pannello cresce e lo scroll riceve l'inset). Per questo i pannelli con un
- * campo di testo non usano più `SheetBackdrop`, che la gestiva con un
- * `KeyboardAvoidingView` insieme al velo: dentro il foglio nativo il velo
- * sarebbe tornato opaco, e lo spostamento si sarebbe applicato due volte.
+ * pannello cresce e lo scroll riceve l'inset). Per questo non esiste più
+ * `SheetBackdrop`, che la gestiva con un `KeyboardAvoidingView` insieme al
+ * velo: dentro il foglio nativo il velo sarebbe tornato opaco e lo
+ * spostamento si sarebbe applicato due volte. Tolto il 24 set 2026, dopo che
+ * la prova sul telefono ha mostrato il campo di «Nuova idea» visibile sopra la
+ * tastiera. Chi aggiunge un pannello con un campo di testo NON aggiunga un
+ * `KeyboardAvoidingView` qui dentro «per sicurezza»: raddoppierebbe lo
+ * spostamento.
  */
 
 /** Il respiro sopra il contenuto: la maniglia di sistema galleggia sopra, non spinge. */
