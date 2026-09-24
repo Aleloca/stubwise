@@ -108,3 +108,12 @@ maintainer con il build che gli installo dal branch:
 - il velo è quello di sistema;
 - in un pannello con un campo di testo (nuova voce di backlog) la tastiera
   non copre il campo — è la condizione per togliere `SheetBackdrop`.
+- i pannelli senza `contentHeight` si aprono al 90% e si restringono dopo la
+  prima misura del contenuto: all'apertura non deve vedersi un «salto».
+
+⚠️ **Provato SOLO su iOS.** L'app Android oggi non la usa nessuno (conferma
+del maintainer, 24 set 2026). `true-sheet` ha anche un'implementazione
+Android — il pannello di Material
+(`android/src/.../TrueSheetViewController.kt`) —, ma nessuno l'ha vista
+funzionare: va provata, con gli stessi passi, il giorno in cui l'app Android
+verrà usata. Fino ad allora «i pannelli nativi funzionano» vale per iOS.

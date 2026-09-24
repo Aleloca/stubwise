@@ -52,10 +52,11 @@ export interface QuestionFormProps {
  * a ogni domanda diversa (`question.questionId`) — separate dal CONTENITORE
  * che le ospita.
  *
- * Estratto da `QuestionSheet` (App M3, Fase A): quello resta il Modal per la
- * card d'inbox (`job.awaiting_input`), `BacklogChatScreen` lo usa NUDO, in
- * linea nella chat — nessun `Modal`, nessuno `ScrollView` proprio (vive dentro
- * quello del chiamante). Nessuna delle due invarianti sopra è duplicata: sono
+ * Estratto da `QuestionSheet` (App M3, Fase A): quello resta il PANNELLO per
+ * la card d'inbox (`job.awaiting_input`) — dal 24 set 2026 il foglio nativo
+ * (`SheetModal`), prima un `Modal` —, `BacklogChatScreen` lo usa NUDO, in
+ * linea nella chat — nessun pannello, nessuno `ScrollView` proprio (vive
+ * dentro quello del chiamante). Nessuna delle due invarianti sopra è duplicata: sono
  * QUI, una volta sola.
  */
 export function QuestionForm({

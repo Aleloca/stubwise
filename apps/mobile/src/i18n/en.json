@@ -634,7 +634,6 @@
         "assignee": "Assigned to",
         "milestone": "Milestone",
         "none": "None",
-        "close": "Close",
         "offline": "// no network, no changes",
         "labels": "Labels",
         "labelsEmpty": "No labels.",

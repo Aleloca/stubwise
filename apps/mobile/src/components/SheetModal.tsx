@@ -1,4 +1,5 @@
 import { TrueSheet } from "@lodev09/react-native-true-sheet";
+import type { SheetDetent } from "@lodev09/react-native-true-sheet";
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import { ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
@@ -122,12 +123,15 @@ export function SheetModal({
     }
   }, [open]);
 
-  const detents = fullHeight ? [1] : scrollable ? [fraction] : (["auto"] as const);
+  // Il tipo della LIBRERIA, non un cast: è la prop più delicata del foglio, e
+  // `SheetDetent` accetta esattamente le due forme che usiamo — una frazione
+  // di schermo (0–1) o `'auto'`.
+  const detents: SheetDetent[] = fullHeight ? [1] : scrollable ? [fraction] : ["auto"];
 
   return (
     <TrueSheet
       ref={sheet}
-      detents={detents as never}
+      detents={detents}
       backgroundColor={colors.ink900}
       cornerRadius={CORNER_RADIUS}
       grabber={dismissible}
