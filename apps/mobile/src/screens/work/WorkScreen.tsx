@@ -20,6 +20,7 @@ import type { ProjectsStackParamList } from "../../app/navigation";
 import { useAuth } from "../../app/providers";
 import { GhostButton } from "../../components/GhostButton";
 import { ScreenHeader } from "../../components/ScreenHeader";
+import { SafeMarkdown } from "../../components/SafeMarkdown";
 import { Skeleton } from "../../components/Skeleton";
 import { CommentsSection } from "../../components/work/CommentsSection";
 import { DestructiveActions } from "../../components/work/DestructiveActions";
@@ -306,7 +307,20 @@ function WorkBody({
         <Text style={styles.ticketNumber}>{t("mobile.work.ticketNumber", { number: ticket.number })}</Text>
       </View>
 
-      <Text style={styles.description}>{ticket.body.trim() === "" ? t("mobile.work.noDescription") : ticket.body}</Text>
+      {/*
+        Il corpo di un ticket è MARKDOWN (24 set 2026): lo scrivono i design,
+        l'intake del backlog e chi apre il ticket dal web, e fino a qui si
+        leggeva come testo grezzo — `##`, `**` e le liste coi trattini a
+        vista. `SafeMarkdown` è lo stesso componente del piano poco sotto, e
+        porta con sé la guardia sui link (solo http/https).
+      */}
+      {ticket.body.trim() === "" ? (
+        <Text style={styles.description}>{t("mobile.work.noDescription")}</Text>
+      ) : (
+        <View style={styles.bodyMarkdown} testID="work-body">
+          <SafeMarkdown>{ticket.body}</SafeMarkdown>
+        </View>
+      )}
 
       {isWorking && (
         <View style={styles.workingPillRow}>
@@ -445,6 +459,9 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.sans,
     fontSize: fontSize.body,
     lineHeight: 20,
+    marginTop: 10,
+  },
+  bodyMarkdown: {
     marginTop: 10,
   },
   workingPillRow: {

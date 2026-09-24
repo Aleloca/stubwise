@@ -2,7 +2,7 @@ import type { StubwiseClient } from "@stubwise/api-client";
 import { ApiError } from "@stubwise/api-client";
 import type { AiJob, TicketComment, TicketDetail, TicketQuestion, Reader } from "@stubwise/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react-native";
 import { StyleSheet } from "react-native";
 import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import { AuthContext } from "../../app/auth-context";
@@ -247,9 +247,33 @@ describe("WorkScreen — corpo", () => {
     const client = makeClient({ jobs: jest.fn().mockResolvedValue([job({ status: "awaiting_input" })]) });
     await renderScreen(client);
     await waitFor(() => expect(screen.getByText("Export CSV degli ordini")).toBeTruthy());
-    expect(screen.getByText("Aggiunge l'esportazione CSV degli ordini per il gestionale.")).toBeTruthy();
+    // L'apostrofo è quello TIPOGRAFICO (’): dal 24 set 2026 il corpo passa dal
+    // markdown, che lo converte come fa già nel piano e nelle pagine di Docs.
+    expect(screen.getByText("Aggiunge l’esportazione CSV degli ordini per il gestionale.")).toBeTruthy();
     expect(screen.getByText("In attesa di risposta")).toBeTruthy();
     expect(screen.getByText("lavoro #247")).toBeTruthy();
+  });
+
+  /**
+   * ⚠️ IL CORPO È MARKDOWN (24 set 2026, segnalato dal maintainer sul
+   * telefono): si leggeva come testo grezzo, con `##` e `**` a vista. Il test
+   * asserisce che la sintassi SPARISCA, non solo che il testo ci sia: un
+   * `<Text>` grezzo mostrerebbe comunque «Contesto» dentro «## Contesto», e
+   * un test che cercasse solo la parola passerebbe anche col difetto.
+   */
+  test("il corpo è markdown vero: intestazioni, grassetto ed elenchi senza la sintassi a vista", async () => {
+    const client = makeClient({
+      get: jest.fn().mockResolvedValue(
+        ticket({ body: "## Contesto\n\nIl checkout è **lento**.\n\n- primo punto\n- secondo punto" }),
+      ),
+    });
+    await renderScreen(client);
+    const body = await waitFor(() => within(screen.getByTestId("work-body")));
+    expect(body.getByText("Contesto")).toBeTruthy();
+    expect(body.getByText("lento")).toBeTruthy();
+    expect(body.getByText("primo punto")).toBeTruthy();
+    expect(body.queryByText(/##/)).toBeNull();
+    expect(body.queryByText(/\*\*/)).toBeNull();
   });
 
   test("nessuna descrizione: testo dedicato invece di una riga vuota", async () => {
