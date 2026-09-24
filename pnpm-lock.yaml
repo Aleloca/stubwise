@@ -60,6 +60,9 @@ importers:
       '@bottom-tabs/react-navigation':
         specifier: 1.4.0
         version: 1.4.0(@react-navigation/native@7.3.18(react-native@0.87.1(@babel/core@7.29.7)(@react-native-community/cli@20.2.0(typescript@6.0.3))(@react-native/metro-config@0.87.1(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3))(react@19.2.3))(react-native-bottom-tabs@1.4.0(react-native@0.87.1(@babel/core@7.29.7)(@react-native-community/cli@20.2.0(typescript@6.0.3))(@react-native/metro-config@0.87.1(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3))(react@19.2.3))(react-native@0.87.1(@babel/core@7.29.7)(@react-native-community/cli@20.2.0(typescript@6.0.3))(@react-native/metro-config@0.87.1(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3))(react@19.2.3)
+      '@lodev09/react-native-true-sheet':
+        specifier: ^3.11.12
+        version: 3.11.12(@react-navigation/core@7.21.13(react@19.2.3))(react-native@0.87.1(@babel/core@7.29.7)(@react-native-community/cli@20.2.0(typescript@6.0.3))(@react-native/metro-config@0.87.1(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3))(react@19.2.3)
       '@notifee/react-native':
         specifier: ^9.1.8
         version: 9.1.8(react-native@0.87.1(@babel/core@7.29.7)(@react-native-community/cli@20.2.0(typescript@6.0.3))(@react-native/metro-config@0.87.1(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3))
@@ -3144,6 +3147,28 @@ packages:
 
   '@kwsites/file-exists@1.1.1':
     resolution: {integrity: sha512-m9/5YGR18lIwxSFDwfE3oA7bWuq9kdau6ugN4H2rJeyhFQZcG9AgSHkQtSD15a8WvTgfz9aikZMrKPHvbpqFiw==}
+
+  '@lodev09/react-native-true-sheet@3.11.12':
+    resolution: {integrity: sha512-eL7mfUw0p3dxqXKqck3k7H2Ja6UHGbPSqbVDRKeANuxZN4xctxF1iFSPYHj0LULVtheqxKBhWBiR4lJ25El57Q==}
+    peerDependencies:
+      '@radix-ui/react-dialog': '>=1'
+      '@radix-ui/react-presence': '>=1'
+      '@react-navigation/core': '>=7'
+      react: '*'
+      react-native: '*'
+      react-native-reanimated: '>=4'
+      react-native-worklets: '*'
+    peerDependenciesMeta:
+      '@radix-ui/react-dialog':
+        optional: true
+      '@radix-ui/react-presence':
+        optional: true
+      '@react-navigation/core':
+        optional: true
+      react-native-reanimated:
+        optional: true
+      react-native-worklets:
+        optional: true
 
   '@lukeed/ms@2.0.2':
     resolution: {integrity: sha512-9I2Zn6+NJLfaGoz9jN3lpwDgAYvfGeNYdbAIjJOqzs4Tpc+VU3Jqq4IofSUBKajiDS8k9fZIg18/z13mpk1bsA==}
@@ -11723,6 +11748,13 @@ snapshots:
       debug: 4.4.3
     transitivePeerDependencies:
       - supports-color
+
+  '@lodev09/react-native-true-sheet@3.11.12(@react-navigation/core@7.21.13(react@19.2.3))(react-native@0.87.1(@babel/core@7.29.7)(@react-native-community/cli@20.2.0(typescript@6.0.3))(@react-native/metro-config@0.87.1(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3))(react@19.2.3)':
+    dependencies:
+      react: 19.2.3
+      react-native: 0.87.1(@babel/core@7.29.7)(@react-native-community/cli@20.2.0(typescript@6.0.3))(@react-native/metro-config@0.87.1(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3)
+    optionalDependencies:
+      '@react-navigation/core': 7.21.13(react@19.2.3)
 
   '@lukeed/ms@2.0.2': {}
 

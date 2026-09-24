@@ -115,3 +115,69 @@ jest.mock("react-native-bottom-tabs", () => ({
   ...jest.requireActual("react-native-bottom-tabs"),
   useBottomTabBarHeight: jest.fn(() => 0),
 }));
+
+/**
+ * IL FOGLIO NATIVO (`@lodev09/react-native-true-sheet`, 24 set 2026): in Jest
+ * non esiste — è `UISheetPresentationController`, niente JavaScript da
+ * eseguire. Qui lo sostituisce un contenitore che rende i figli finché è
+ * PRESENTATO, e li toglie quando non lo è: la stessa forma di prima dei
+ * `Modal`, così i test dei dieci pannelli — che asseriscono il CONTENUTO, non
+ * il contenitore — restano validi senza toccarli uno per uno.
+ *
+ * Globale e non per file (come in Half Story, dove si mocka `SheetModal`
+ * file per file): mockando la LIBRERIA, `SheetModal` gira davvero nei test,
+ * con le sue regole — aperto/chiuso dalla prop, `dismissible`.
+ *
+ * Due cose del foglio vero che questo riproduce, perché i test ci si
+ * appoggiano:
+ *
+ * - il TRASCINAMENTO per chiudere: un bottone nascosto `true-sheet-dismiss`
+ *   fa quello che farebbe il dito — chiude e chiama `onDidDismiss` — ma SOLO
+ *   se `dismissible` non è `false`, esattamente come il sistema;
+ * - la chiusura DA CODICE (`dismiss()`, quando `open` torna falso) chiama
+ *   anch'essa `onDidDismiss`, come fa la libreria vera: un pannello che
+ *   reagisce a `onClose` deve reggere quel secondo avviso.
+ */
+jest.mock("@lodev09/react-native-true-sheet", () => {
+  const React = require("react");
+  const { Pressable, View } = require("react-native");
+  type MockSheetProps = {
+    children?: unknown;
+    dismissible?: boolean;
+    onDidDismiss?: () => void;
+  };
+  const TrueSheet = React.forwardRef((props: MockSheetProps, ref: unknown) => {
+    const [presented, setPresented] = React.useState(false);
+    const presentedRef = React.useRef(false);
+    const propsRef = React.useRef(props);
+    propsRef.current = props;
+    React.useImperativeHandle(ref, () => ({
+      present: async () => {
+        presentedRef.current = true;
+        setPresented(true);
+      },
+      dismiss: async () => {
+        if (!presentedRef.current) return;
+        presentedRef.current = false;
+        setPresented(false);
+        propsRef.current.onDidDismiss?.();
+      },
+    }));
+    if (!presented) return null;
+    return React.createElement(
+      View,
+      { testID: "true-sheet" },
+      props.children,
+      React.createElement(Pressable, {
+        testID: "true-sheet-dismiss",
+        onPress: () => {
+          if (propsRef.current.dismissible === false) return;
+          presentedRef.current = false;
+          setPresented(false);
+          propsRef.current.onDidDismiss?.();
+        },
+      }),
+    );
+  });
+  return { TrueSheet };
+});

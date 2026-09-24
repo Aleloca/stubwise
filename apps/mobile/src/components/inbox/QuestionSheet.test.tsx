@@ -36,15 +36,18 @@ async function renderSheet(overrides: Partial<React.ComponentProps<typeof Questi
 
 describe("QuestionSheet", () => {
   /**
-   * ⚠️ La finestra sta dentro `SheetBackdrop`, che la solleva sopra la
-   * tastiera (24 set 2026): è ancorata in basso e ha un campo di testo, e
-   * senza quello su iOS la tastiera coprirebbe il campo mentre si scrive. Il
-   * layout vero non si può misurare qui; questo test tiene il CABLAGGIO —
-   * chi rimettesse uno sfondo semplice lo farebbe diventare rosso.
+   * ⚠️ Il pannello è il FOGLIO NATIVO (24 set 2026): la tastiera la gestisce
+   * lui (`TrueSheetKeyboardObserver` fa crescere il pannello e dà l'inset
+   * allo scroll), quindi non sta più dentro `SheetBackdrop`, che disegnava
+   * anche il velo opaco segnalato dal maintainer. Il layout vero non si
+   * misura qui; il test tiene il CABLAGGIO — chi rimettesse `SheetBackdrop`
+   * attorno al pannello lo farebbe diventare rosso. La prova che la tastiera
+   * non copra il campo è sul telefono (design §6).
    */
-  test("sta dentro lo sfondo che la solleva sopra la tastiera", async () => {
+  test("sta nel foglio nativo, non dentro lo sfondo disegnato a mano", async () => {
     await renderSheet();
-    expect(screen.getByTestId("sheet-backdrop")).toBeTruthy();
+    expect(screen.getByTestId("true-sheet")).toBeTruthy();
+    expect(screen.queryByTestId("sheet-backdrop")).toBeNull();
   });
 
   test("nascosto quando visible=false: nessuna opzione nell'albero", async () => {
@@ -159,7 +162,7 @@ describe("QuestionSheet", () => {
     expect(screen.getByText("Ci ha pensato marco@example.com.")).toBeTruthy();
   });
 
-  test("toccare lo sfondo chiama onRequestClose", async () => {
+  test("trascinarlo via chiama onRequestClose (il velo e il gesto sono del sistema)", async () => {
     const onRequestClose = jest.fn();
     await render(
       <QuestionSheet
@@ -173,7 +176,7 @@ describe("QuestionSheet", () => {
         errorMessage={null}
       />,
     );
-    await fireEvent.press(screen.getByLabelText("Annulla"));
+    await fireEvent.press(screen.getByTestId("true-sheet-dismiss"));
     expect(onRequestClose).toHaveBeenCalledTimes(1);
   });
 });

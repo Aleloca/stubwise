@@ -935,6 +935,34 @@ describe("WorkScreen — le due cancellazioni", () => {
     expect(deletePlan).not.toHaveBeenCalled();
   });
 
+  /**
+   * ⚠️ La conferma è un FOGLIO NATIVO dal 24 set 2026, e si trascina via:
+   * quel gesto deve valere «no», mai «sì». Un gesto distratto annulla, non
+   * esegue. Il foglio si chiude e nessuna cancellazione parte — verificato
+   * facendo partire la cancellazione su `onClose`: questo test diventa rosso.
+   */
+  test("trascinare via la conferma è un «no»: niente si cancella", async () => {
+    const deleteDesign = jest.fn().mockResolvedValue(ticket());
+    const client = makeClient({
+      get: jest.fn().mockResolvedValue(ticket({ originContent: "Il design originale" })),
+      deleteDesign,
+    });
+
+    await renderScreen(client, "member");
+
+    await waitFor(() => expect(screen.getByTestId("work-delete-design")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("work-delete-design"));
+    expect(screen.getByTestId("work-delete-confirm")).toBeTruthy();
+
+    await fireEvent.press(screen.getByTestId("true-sheet-dismiss"));
+
+    expect(screen.queryByTestId("work-delete-confirm")).toBeNull();
+    await new Promise<void>((resolve) => {
+      setTimeout(() => resolve(), 20);
+    });
+    expect(deleteDesign).not.toHaveBeenCalled();
+  });
+
   test("niente design e niente piano: nessun bottone da premere per sbaglio", async () => {
     const client = makeClient({
       get: jest.fn().mockResolvedValue(ticket({ originContent: null, implementationPlan: null })),

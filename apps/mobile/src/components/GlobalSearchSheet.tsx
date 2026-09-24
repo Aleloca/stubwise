@@ -6,7 +6,8 @@ import { useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { SheetModal } from "./SheetModal";
 import { useAuth } from "../app/providers";
 import type { RootStackParamList } from "../app/navigation";
 import { SectionLabel } from "./SectionLabel";
@@ -97,7 +98,7 @@ export function GlobalSearchSheet({
   }
 
   return (
-    <Modal visible={visible} animationType="slide" onRequestClose={onRequestClose} testID="global-search-sheet">
+    <SheetModal open={visible} onClose={onRequestClose} fullHeight testID="global-search-sheet">
       <View style={styles.screen}>
         <View style={styles.header}>
           <Text style={styles.title}>{t("mobile.search.title")}</Text>
@@ -135,7 +136,7 @@ export function GlobalSearchSheet({
           )}
         </ScrollView>
       </View>
-    </Modal>
+    </SheetModal>
   );
 }
 
@@ -468,10 +469,10 @@ const styles = StyleSheet.create({
   filterLabelActive: {
     color: colors.signal,
   },
+  // Una PAGINA a tutta altezza dentro il foglio nativo (24 set 2026): lo
+  // sfondo e il respiro in cima li mette `SheetModal`.
   screen: {
-    backgroundColor: colors.ink950,
     flex: 1,
-    paddingTop: 56,
   },
   header: {
     alignItems: "center",

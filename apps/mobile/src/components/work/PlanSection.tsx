@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { SafeMarkdown } from "../SafeMarkdown";
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { SheetModal } from "../SheetModal";
 import type { HandledBy, Reader } from "@stubwise/shared";
 import type { TFunction } from "i18next";
 import { RejectSheet } from "../inbox/RejectSheet";
@@ -249,7 +250,7 @@ export function PlanSection({
         testID="plan-section-reject-sheet"
       />
 
-      <Modal visible={readOpen} animationType="slide" onRequestClose={() => setReadOpen(false)} testID="plan-section-modal">
+      <SheetModal open={readOpen} onClose={() => setReadOpen(false)} fullHeight testID="plan-section-modal">
         <View style={styles.modal}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>{t("mobile.work.plan.modalTitle")}</Text>
@@ -261,7 +262,7 @@ export function PlanSection({
             {plan !== null && <SafeMarkdown>{plan}</SafeMarkdown>}
           </ScrollView>
         </View>
-      </Modal>
+      </SheetModal>
     </View>
   );
 }
@@ -357,8 +358,9 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginTop: 8,
   },
+  // Una PAGINA a tutta altezza dentro il foglio nativo (24 set 2026): lo
+  // sfondo e il respiro in cima li mette `SheetModal`.
   modal: {
-    backgroundColor: colors.ink950,
     flex: 1,
   },
   modalHeader: {
@@ -368,7 +370,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     paddingHorizontal: 20,
-    paddingTop: 56,
     paddingBottom: 14,
   },
   modalTitle: {

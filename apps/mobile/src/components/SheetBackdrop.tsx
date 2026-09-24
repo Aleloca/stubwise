@@ -2,6 +2,16 @@ import type { ReactNode } from "react";
 import { KeyboardAvoidingView, Platform, Pressable, StyleSheet } from "react-native";
 
 /**
+ * ⚠️ **NON USATO dal 24 set 2026**, in attesa della prova sul telefono della
+ * gestione nativa della tastiera — vedi il design §4
+ * (`docs/plans/2026-09-24-native-sheets-design.md`). I quattro pannelli che lo
+ * usavano (`CaptureSheet`, `RejectSheet`, `QuestionSheet`, `LabelsSheet`) sono
+ * diventati il foglio nativo (`SheetModal`), che la tastiera la gestisce da sé:
+ * lasciato attorno a loro avrebbe ridisegnato il velo opaco dentro il foglio e
+ * spostato il contenuto due volte. Resta qui, coi suoi test, finché il
+ * telefono non conferma che la tastiera non copre i campi; se li coprisse, si
+ * rimette il solo `KeyboardAvoidingView` dentro il pannello.
+ *
  * Lo sfondo di una finestra ANCORATA IN BASSO che contiene un campo di testo
  * (24 set 2026): il velo scuro, il tocco fuori che chiude, e — la ragione per
  * cui esiste — lo spostamento sopra la tastiera.

@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { SheetModal } from "../../components/SheetModal";
 import { GhostButton } from "../../components/GhostButton";
 import { PrimaryButton } from "../../components/PrimaryButton";
 import { useCreateBacklogItem } from "../../lib/backlog-mutations";
 import { getLastBacklogProjectId, setLastBacklogProjectId } from "../../lib/storage";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
-import { SheetBackdrop } from "../../components/SheetBackdrop";
 
 export interface CaptureSheetProject {
   id: string;
@@ -95,105 +95,79 @@ export function CaptureSheet({ visible, onRequestClose, projects, onSubmitted, t
   }
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onRequestClose} testID={testID}>
-      <SheetBackdrop onDismiss={onRequestClose} dismissLabel={t("mobile.backlog.capture.cancel")}>
-        <Pressable style={styles.sheet} onPress={() => {}}>
-          <View style={styles.handle} />
-          <ScrollView keyboardShouldPersistTaps="handled">
-            <View style={styles.headerRow}>
-              <Text style={styles.title}>{t("mobile.backlog.capture.title")}</Text>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={t("mobile.backlog.capture.projectPickerLabel")}
-                onPress={() => setPickerOpen((open) => !open)}
-                style={styles.projectPill}
-                testID="capture-sheet-project-toggle"
-              >
-                <Text style={styles.projectPillLabel}>{selectedProject ? `${selectedProject.name} ▾` : "— ▾"}</Text>
-              </Pressable>
-            </View>
-
-            {pickerOpen && (
-              <View style={styles.projectList} testID="capture-sheet-project-list">
-                {projects.map((project) => (
-                  <Pressable
-                    key={project.id}
-                    accessibilityRole="button"
-                    onPress={() => {
-                      setProjectId(project.id);
-                      setPickerOpen(false);
-                    }}
-                    style={styles.projectOption}
-                    testID={`capture-sheet-project-${project.id}`}
-                  >
-                    <Text style={styles.projectOptionLabel}>{project.name}</Text>
-                  </Pressable>
-                ))}
-              </View>
-            )}
-
-            <TextInput
-              accessibilityLabel={t("mobile.backlog.capture.title")}
-              value={text}
-              onChangeText={setText}
-              editable={!create.disabled}
-              multiline
-              placeholder={t("mobile.backlog.capture.placeholder")}
-              placeholderTextColor={colors.faint}
-              style={styles.input}
-              testID="capture-sheet-input"
-            />
-
-            {projects.length === 0 && <Text style={styles.notice}>{t("mobile.backlog.capture.noProjects")}</Text>}
-            {!create.online && <Text style={styles.notice}>{t("mobile.backlog.offlineAction")}</Text>}
-            {create.errorMessage !== null && (
-              <Text accessibilityLiveRegion="polite" style={styles.errorText}>
-                {create.errorMessage}
-              </Text>
-            )}
-
-            <View style={styles.actions}>
-              <View style={styles.primaryButton}>
-                <PrimaryButton
-                  label={create.online ? t("mobile.backlog.capture.submit") : t("mobile.backlog.offlineAction")}
-                  onPress={submit}
-                  disabled={!canSubmit || create.disabled}
-                  testID="capture-sheet-submit"
-                />
-              </View>
-              <View style={styles.secondaryButton}>
-                <GhostButton besidePrimary label={t("mobile.backlog.capture.cancel")} onPress={onRequestClose} testID="capture-sheet-cancel" />
-              </View>
-            </View>
-
-            <Text style={styles.hint}>{t("mobile.backlog.capture.hint")}</Text>
-          </ScrollView>
+    <SheetModal open={visible} onClose={onRequestClose} testID={testID}>
+      <View style={styles.headerRow}>
+        <Text style={styles.title}>{t("mobile.backlog.capture.title")}</Text>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={t("mobile.backlog.capture.projectPickerLabel")}
+          onPress={() => setPickerOpen((open) => !open)}
+          style={styles.projectPill}
+          testID="capture-sheet-project-toggle"
+        >
+          <Text style={styles.projectPillLabel}>{selectedProject ? `${selectedProject.name} ▾` : "— ▾"}</Text>
         </Pressable>
-      </SheetBackdrop>
-    </Modal>
+      </View>
+
+      {pickerOpen && (
+        <View style={styles.projectList} testID="capture-sheet-project-list">
+          {projects.map((project) => (
+            <Pressable
+              key={project.id}
+              accessibilityRole="button"
+              onPress={() => {
+                setProjectId(project.id);
+                setPickerOpen(false);
+              }}
+              style={styles.projectOption}
+              testID={`capture-sheet-project-${project.id}`}
+            >
+              <Text style={styles.projectOptionLabel}>{project.name}</Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
+
+      <TextInput
+        accessibilityLabel={t("mobile.backlog.capture.title")}
+        value={text}
+        onChangeText={setText}
+        editable={!create.disabled}
+        multiline
+        placeholder={t("mobile.backlog.capture.placeholder")}
+        placeholderTextColor={colors.faint}
+        style={styles.input}
+        testID="capture-sheet-input"
+      />
+
+      {projects.length === 0 && <Text style={styles.notice}>{t("mobile.backlog.capture.noProjects")}</Text>}
+      {!create.online && <Text style={styles.notice}>{t("mobile.backlog.offlineAction")}</Text>}
+      {create.errorMessage !== null && (
+        <Text accessibilityLiveRegion="polite" style={styles.errorText}>
+          {create.errorMessage}
+        </Text>
+      )}
+
+      <View style={styles.actions}>
+        <View style={styles.primaryButton}>
+          <PrimaryButton
+            label={create.online ? t("mobile.backlog.capture.submit") : t("mobile.backlog.offlineAction")}
+            onPress={submit}
+            disabled={!canSubmit || create.disabled}
+            testID="capture-sheet-submit"
+          />
+        </View>
+        <View style={styles.secondaryButton}>
+          <GhostButton besidePrimary label={t("mobile.backlog.capture.cancel")} onPress={onRequestClose} testID="capture-sheet-cancel" />
+        </View>
+      </View>
+
+      <Text style={styles.hint}>{t("mobile.backlog.capture.hint")}</Text>
+    </SheetModal>
   );
 }
 
 const styles = StyleSheet.create({
-  sheet: {
-    backgroundColor: colors.ink900,
-    borderColor: colors.line,
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    borderWidth: 1,
-    maxHeight: "85%",
-    paddingBottom: 24,
-    paddingHorizontal: 20,
-    paddingTop: 10,
-  },
-  handle: {
-    alignSelf: "center",
-    backgroundColor: colors.lineStrong,
-    borderRadius: 2,
-    height: 4,
-    marginBottom: 16,
-    width: 36,
-  },
   headerRow: {
     alignItems: "baseline",
     flexDirection: "row",

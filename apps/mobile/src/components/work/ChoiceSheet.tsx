@@ -1,5 +1,5 @@
-import { useTranslation } from "react-i18next";
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
+import { SheetModal } from "../SheetModal";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
 
@@ -31,8 +31,10 @@ export interface ChoiceSheetProps {
  * una scelta, non l'assenza di una scelta, e il server distingue i due casi
  * (campo assente = non toccare, `null` = azzera).
  *
- * `ScrollView` e non una lista fissa: le milestone di un progetto e le
- * persone di un'istanza non hanno un tetto.
+ * La lista SCORRE (le milestone di un progetto e le persone di
+ * un'istanza non hanno un tetto), ma lo scorrimento è quello del pannello
+ * (`SheetModal`), non uno suo: dentro il foglio nativo ce ne deve essere
+ * uno solo, perché è su quello che il sistema coordina il gesto di chiusura.
  */
 export function ChoiceSheet({
   visible,
@@ -44,64 +46,37 @@ export function ChoiceSheet({
   disabled = false,
   testIDPrefix,
 }: ChoiceSheetProps) {
-  const { t } = useTranslation();
-
   return (
-    <Modal visible={visible} animationType="fade" transparent onRequestClose={onRequestClose} testID={testIDPrefix}>
-      <View style={styles.backdrop}>
-        <Pressable
-          style={StyleSheet.absoluteFill}
-          onPress={onRequestClose}
-          accessibilityLabel={t("mobile.work.fields.close")}
-        />
-        <Pressable style={styles.sheet} onPress={() => {}}>
-          <Text style={styles.title}>{title}</Text>
-          <ScrollView style={styles.list}>
-            {choices.map((choice) => {
-              const isSelected = choice.value === selected;
-              return (
-                <Pressable
-                  key={choice.value ?? "__none__"}
-                  accessibilityRole="button"
-                  accessibilityState={{ disabled, selected: isSelected }}
-                  disabled={disabled}
-                  onPress={() => onChoose(choice.value)}
-                  style={({ pressed }) => [
-                    styles.row,
-                    pressed && !disabled && styles.pressed,
-                    disabled && styles.disabled,
-                  ]}
-                  testID={`${testIDPrefix}-${choice.value ?? "none"}`}
-                >
-                  <Text style={[styles.rowLabel, isSelected && styles.rowLabelSelected]}>{choice.label}</Text>
-                  {isSelected && <Text style={styles.check}>✓</Text>}
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-        </Pressable>
+    <SheetModal open={visible} onClose={onRequestClose} testID={testIDPrefix}>
+      <Text style={styles.title}>{title}</Text>
+      <View>
+        {choices.map((choice) => {
+          const isSelected = choice.value === selected;
+          return (
+            <Pressable
+              key={choice.value ?? "__none__"}
+              accessibilityRole="button"
+              accessibilityState={{ disabled, selected: isSelected }}
+              disabled={disabled}
+              onPress={() => onChoose(choice.value)}
+              style={({ pressed }) => [
+                styles.row,
+                pressed && !disabled && styles.pressed,
+                disabled && styles.disabled,
+              ]}
+              testID={`${testIDPrefix}-${choice.value ?? "none"}`}
+            >
+              <Text style={[styles.rowLabel, isSelected && styles.rowLabelSelected]}>{choice.label}</Text>
+              {isSelected && <Text style={styles.check}>✓</Text>}
+            </Pressable>
+          );
+        })}
       </View>
-    </Modal>
+    </SheetModal>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
-    backgroundColor: "rgba(0,0,0,0.6)",
-    flex: 1,
-    justifyContent: "flex-end",
-  },
-  sheet: {
-    backgroundColor: colors.ink900,
-    borderTopLeftRadius: radii.card,
-    borderTopRightRadius: radii.card,
-    borderTopWidth: 1,
-    borderColor: colors.line,
-    maxHeight: "70%",
-    paddingBottom: 32,
-    paddingHorizontal: 16,
-    paddingTop: 18,
-  },
   title: {
     color: colors.faint,
     fontFamily: fontFamily.mono,
@@ -109,9 +84,6 @@ const styles = StyleSheet.create({
     letterSpacing: 1.4,
     marginBottom: 12,
     textTransform: "uppercase",
-  },
-  list: {
-    flexGrow: 0,
   },
   row: {
     alignItems: "center",

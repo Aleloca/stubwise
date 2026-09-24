@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { SheetModal } from "../SheetModal";
 import { GhostButton } from "../GhostButton";
 import { PrimaryButton } from "../PrimaryButton";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
-import { SheetBackdrop } from "../SheetBackdrop";
 
 export interface RejectSheetProps {
   visible: boolean;
@@ -69,92 +69,66 @@ export function RejectSheet({
   }
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onRequestClose} testID={testID}>
-      <SheetBackdrop onDismiss={onRequestClose} dismissLabel={t("mobile.inbox.reject.cancel")}>
-        <Pressable style={styles.sheet} onPress={() => {}}>
-          <View style={styles.handle} />
-          <ScrollView keyboardShouldPersistTaps="handled">
-            <Text style={styles.title}>{t("mobile.inbox.reject.title")}</Text>
-            <Text style={styles.context}>{contextLine}</Text>
+    <SheetModal open={visible} onClose={onRequestClose} testID={testID}>
+      <Text style={styles.title}>{t("mobile.inbox.reject.title")}</Text>
+      <Text style={styles.context}>{contextLine}</Text>
 
-            <TextInput
-              accessibilityLabel={t("mobile.inbox.reject.title")}
-              value={text}
-              onChangeText={setText}
-              editable={!disabled}
-              multiline
-              placeholder={t("mobile.inbox.reject.placeholder")}
-              placeholderTextColor={colors.faint}
-              style={styles.input}
-              testID="reject-sheet-input"
-            />
+      <TextInput
+        accessibilityLabel={t("mobile.inbox.reject.title")}
+        value={text}
+        onChangeText={setText}
+        editable={!disabled}
+        multiline
+        placeholder={t("mobile.inbox.reject.placeholder")}
+        placeholderTextColor={colors.faint}
+        style={styles.input}
+        testID="reject-sheet-input"
+      />
 
-            <View style={styles.chipRow}>
-              {QUICK_CHIPS.map((chip) => {
-                const label = t(chip.i18nKey);
-                return (
-                  <Pressable
-                    key={chip.key}
-                    accessibilityRole="button"
-                    onPress={() => appendChip(label)}
-                    style={styles.chip}
-                    testID={`reject-sheet-chip-${chip.key}`}
-                  >
-                    <Text style={styles.chipLabel}>{label}</Text>
-                  </Pressable>
-                );
-              })}
-            </View>
+      <View style={styles.chipRow}>
+        {QUICK_CHIPS.map((chip) => {
+          const label = t(chip.i18nKey);
+          return (
+            <Pressable
+              key={chip.key}
+              accessibilityRole="button"
+              onPress={() => appendChip(label)}
+              style={styles.chip}
+              testID={`reject-sheet-chip-${chip.key}`}
+            >
+              <Text style={styles.chipLabel}>{label}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
 
-            {!online && <Text style={styles.offlineNotice}>{t("mobile.inbox.offlineAction")}</Text>}
-            {errorMessage !== null && (
-              <Text accessibilityLiveRegion="polite" style={styles.errorText}>
-                {errorMessage}
-              </Text>
-            )}
+      {!online && <Text style={styles.offlineNotice}>{t("mobile.inbox.offlineAction")}</Text>}
+      {errorMessage !== null && (
+        <Text accessibilityLiveRegion="polite" style={styles.errorText}>
+          {errorMessage}
+        </Text>
+      )}
 
-            <View style={styles.actions}>
-              <View style={styles.primaryButton}>
-                <PrimaryButton
-                  label={online ? t("mobile.inbox.reject.submit") : t("mobile.inbox.offlineAction")}
-                  onPress={submit}
-                  disabled={disabled || pending}
-                  testID="reject-sheet-submit"
-                />
-              </View>
-              <View style={styles.secondaryButton}>
-                <GhostButton besidePrimary label={t("mobile.inbox.reject.cancel")} onPress={onRequestClose} testID="reject-sheet-cancel" />
-              </View>
-            </View>
+      <View style={styles.actions}>
+        <View style={styles.primaryButton}>
+          <PrimaryButton
+            label={online ? t("mobile.inbox.reject.submit") : t("mobile.inbox.offlineAction")}
+            onPress={submit}
+            disabled={disabled || pending}
+            testID="reject-sheet-submit"
+          />
+        </View>
+        <View style={styles.secondaryButton}>
+          <GhostButton besidePrimary label={t("mobile.inbox.reject.cancel")} onPress={onRequestClose} testID="reject-sheet-cancel" />
+        </View>
+      </View>
 
-            <Text style={styles.hint}>{t("mobile.inbox.reject.hint")}</Text>
-          </ScrollView>
-        </Pressable>
-      </SheetBackdrop>
-    </Modal>
+      <Text style={styles.hint}>{t("mobile.inbox.reject.hint")}</Text>
+    </SheetModal>
   );
 }
 
 const styles = StyleSheet.create({
-  sheet: {
-    backgroundColor: colors.ink900,
-    borderColor: colors.line,
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    borderWidth: 1,
-    maxHeight: "85%",
-    paddingBottom: 24,
-    paddingHorizontal: 20,
-    paddingTop: 10,
-  },
-  handle: {
-    alignSelf: "center",
-    backgroundColor: colors.lineStrong,
-    borderRadius: 2,
-    height: 4,
-    marginBottom: 16,
-    width: 36,
-  },
   title: {
     color: colors.fg,
     fontFamily: fontFamily.sansBold,
