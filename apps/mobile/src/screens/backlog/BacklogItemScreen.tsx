@@ -197,7 +197,7 @@ function ItemBody({
           )}
           {canRefine && (
             <View style={styles.refineButton}>
-              <GhostButton label={t("mobile.backlog.actions.refineInChat")} onPress={onRefine} testID="backlog-item-refine" />
+              <GhostButton besidePrimary label={t("mobile.backlog.actions.refineInChat")} onPress={onRefine} testID="backlog-item-refine" />
             </View>
           )}
         </View>

@@ -1,3 +1,4 @@
+import { StyleSheet } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { StubwiseClient } from "@stubwise/api-client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -64,6 +65,17 @@ beforeEach(async () => {
 });
 
 describe("CaptureSheet — visibilità e copy", () => {
+  /**
+   * «Add to backlog» e «Cancel» stanno nella stessa riga: devono avere la
+   * stessa altezza (24 set 2026, segnalato dal maintainer — il principale era
+   * 50, il secondario 44).
+   */
+  test("i due bottoni affiancati hanno la stessa altezza", async () => {
+    await renderSheet(makeClient());
+    const heightOf = (id: string) => StyleSheet.flatten(screen.getByTestId(id).props.style)?.height;
+    expect(heightOf("capture-sheet-cancel")).toBe(heightOf("capture-sheet-submit"));
+  });
+
   /**
    * ⚠️ La finestra sta dentro `SheetBackdrop`, che la solleva sopra la
    * tastiera (24 set 2026): è ancorata in basso e ha un campo di testo, e

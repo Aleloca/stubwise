@@ -3,6 +3,13 @@ import { colors, radii } from "../theme/tokens";
 import { fontFamily } from "../theme/typography";
 
 /**
+ * L'altezza del bottone principale. Esportata perché `GhostButton`, quando gli
+ * sta ACCANTO, deve avere la stessa (vedi la sua prop `besidePrimary`): due
+ * numeri scritti a mano in due file divergono al primo ritocco.
+ */
+export const PRIMARY_BUTTON_HEIGHT = 50;
+
+/**
  * Bottone pieno ambra, mono maiuscolo: "Accedi", "Attiva le notifiche e
  * inizia" nel canvas. `disabled` copre sia il caso "form non valido" sia
  * "richiesta in corso" — la copy del label (es. "Accesso…") la decide chi
@@ -38,7 +45,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: colors.signal,
     borderRadius: radii.control,
-    height: 50,
+    height: PRIMARY_BUTTON_HEIGHT,
     justifyContent: "center",
   },
   // App M1: stesso stato "premuto" del sito (`active:bg-signal-dim`) — un

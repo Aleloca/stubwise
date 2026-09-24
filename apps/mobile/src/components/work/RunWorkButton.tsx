@@ -64,7 +64,7 @@ export function RunWorkButton({ ticketId, latestJob, hasUserComment }: RunWorkBu
           testID="work-run-start"
         />
         {canRelaunch && hasUserComment && (
-          <GhostButton
+          <GhostButton besidePrimary
             label={t("mobile.work.run.withInstructions")}
             onPress={() => run.mutate({ withInstructions: true })}
             disabled={run.disabled}

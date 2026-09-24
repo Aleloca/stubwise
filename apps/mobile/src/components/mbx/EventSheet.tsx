@@ -508,7 +508,7 @@ function SeriesConfig({ accountId, recurringEventId }: { accountId: string; recu
         </View>
         {enabled && (
           <View style={styles.disableButton}>
-            <GhostButton
+            <GhostButton besidePrimary
               label={t("mobile.calendar.series.disable")}
               onPress={() => {
                 setEnabled(false);

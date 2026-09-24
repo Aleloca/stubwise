@@ -123,7 +123,7 @@ export function RejectSheet({
                 />
               </View>
               <View style={styles.secondaryButton}>
-                <GhostButton label={t("mobile.inbox.reject.cancel")} onPress={onRequestClose} testID="reject-sheet-cancel" />
+                <GhostButton besidePrimary label={t("mobile.inbox.reject.cancel")} onPress={onRequestClose} testID="reject-sheet-cancel" />
               </View>
             </View>
 

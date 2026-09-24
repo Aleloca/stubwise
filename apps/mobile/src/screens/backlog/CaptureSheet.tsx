@@ -162,7 +162,7 @@ export function CaptureSheet({ visible, onRequestClose, projects, onSubmitted, t
                 />
               </View>
               <View style={styles.secondaryButton}>
-                <GhostButton label={t("mobile.backlog.capture.cancel")} onPress={onRequestClose} testID="capture-sheet-cancel" />
+                <GhostButton besidePrimary label={t("mobile.backlog.capture.cancel")} onPress={onRequestClose} testID="capture-sheet-cancel" />
               </View>
             </View>
 
