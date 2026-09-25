@@ -3,6 +3,7 @@ import {
   emailBodies,
   emailMessages,
   emailProposals,
+  emailRejections,
   googleAccounts,
   notifications,
   projects,
@@ -27,6 +28,7 @@ import {
   mailItemStatusSchema,
   mailOriginalSchema,
   mailPageSchema,
+  mailRejectionsSchema,
   mailReproposeResultSchema,
   mailSourceSchema,
   mailSummarySchema,
@@ -34,6 +36,8 @@ import {
   mailThreadPageSchema,
   type MailItem,
   type MailItemStatus,
+  type MailRejectionReason,
+  type MailRejections,
   type MailSignal,
   type MailSource,
   type MailThreadProposalOutcome,
@@ -635,6 +639,63 @@ async function resolveEmailMessage(
   return row ?? null;
 }
 
+/** Finestra di default e massima di `GET /rejections`: la potatura del worker tiene 30 giorni. */
+const REJECTIONS_DEFAULT_DAYS = 7;
+const REJECTIONS_MAX_DAYS = 30;
+/** Quanti domini per motivo si elencano; gli altri finiscono in `otherDomains`. */
+const REJECTIONS_TOP_DOMAINS = 10;
+
+/** Conteggio decrescente; a parità, chiave in ordine alfabetico e `null` per ultima. */
+function compareByCount(aCount: number, aKey: string | null, bCount: number, bKey: string | null): number {
+  if (aCount !== bCount) return bCount - aCount;
+  if (aKey === bKey) return 0;
+  if (aKey === null) return 1;
+  if (bKey === null) return -1;
+  return aKey.localeCompare(bKey);
+}
+
+/**
+ * Dalle righe raggruppate per (casella, motivo, dominio) alla risposta di
+ * `GET /rejections`. Motivi e domini per conteggio decrescente (a parità, in
+ * ordine alfabetico, un dominio `null` per ultimo: un ordine stabile fra due
+ * letture); caselle per totale decrescente. `otherDomains` conta le MAIL dei
+ * domini oltre i primi dieci, così che la somma torni sempre a `count`.
+ */
+function summarizeRejections(
+  days: number,
+  rows: { accountId: string; email: string; reason: MailRejectionReason; domain: string | null; count: number }[],
+): MailRejections {
+  type DomainCount = { domain: string | null; count: number };
+  const byAccount = new Map<string, { email: string; byReason: Map<MailRejectionReason, DomainCount[]> }>();
+  for (const row of rows) {
+    let account = byAccount.get(row.accountId);
+    if (!account) {
+      account = { email: row.email, byReason: new Map() };
+      byAccount.set(row.accountId, account);
+    }
+    const domains = account.byReason.get(row.reason) ?? [];
+    domains.push({ domain: row.domain, count: row.count });
+    account.byReason.set(row.reason, domains);
+  }
+
+  const accounts = [...byAccount.entries()].map(([accountId, account]) => {
+    const reasons = [...account.byReason.entries()]
+      .map(([reason, domains]) => {
+        domains.sort((a, b) => compareByCount(a.count, a.domain, b.count, b.domain));
+        const count = domains.reduce((sum, d) => sum + d.count, 0);
+        const shown = domains.slice(0, REJECTIONS_TOP_DOMAINS);
+        const otherDomains = domains.slice(REJECTIONS_TOP_DOMAINS).reduce((sum, d) => sum + d.count, 0);
+        return { reason, count, domains: shown, otherDomains };
+      })
+      .sort((a, b) => compareByCount(a.count, a.reason, b.count, b.reason));
+    const total = reasons.reduce((sum, r) => sum + r.count, 0);
+    return { accountId, email: account.email, total, reasons };
+  });
+  accounts.sort((a, b) => compareByCount(a.total, a.email, b.total, b.email));
+
+  return { days, total: accounts.reduce((sum, a) => sum + a.total, 0), accounts };
+}
+
 export async function meMailRoutes(
   instance: FastifyInstance,
   opts: MeMailRoutesOptions = {},
@@ -785,6 +846,56 @@ export async function meMailRoutes(
         failed: (emailFailedRow?.count ?? 0) + (calFailedRow?.count ?? 0) + (triageFailedRow?.count ?? 0),
         ignored: (emailIgnoredRow?.count ?? 0) + (calIgnoredRow?.count ?? 0) + (triageIgnoredRow?.count ?? 0),
       };
+    },
+  );
+
+  /**
+   * LE MAIL TENUTE FUORI («le mail tenute fuori», 25 set 2026): quante mail
+   * il cancello di ammissione ha scartato nelle caselle di chi chiede, per
+   * motivo e dominio del mittente, negli ultimi `days` giorni.
+   *
+   * ⚠️ Registrata PRIMA di `/:source/:id`, come `/summary` e `/threads`: è
+   * una rotta letterale sullo stesso prefisso (trappola in CLAUDE.md).
+   *
+   * ⚠️ **`mailbox_owner`, senza eccezioni per gli admin**: `user_id` nel
+   * WHERE via il JOIN su `google_accounts`, e nessun ramo per ruolo. I
+   * domini da cui scrive la gente a un collega non sono affare di un admin.
+   *
+   * L'aggregazione per (casella, motivo, dominio) la fa Postgres; i primi
+   * dieci domini per motivo e il resto in `otherDomains` si tagliano in
+   * {@link summarizeRejections}, su righe già raggruppate.
+   */
+  app.get(
+    "/rejections",
+    {
+      preHandler: requireAuth,
+      schema: {
+        querystring: z.object({
+          days: z.coerce.number().int().min(1).max(REJECTIONS_MAX_DAYS).default(REJECTIONS_DEFAULT_DAYS),
+        }),
+        response: { 200: mailRejectionsSchema, 400: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request) => {
+      const { days } = request.query;
+      const rows = await app.db
+        .select({
+          accountId: googleAccounts.id,
+          email: googleAccounts.email,
+          reason: emailRejections.reason,
+          domain: emailRejections.senderDomain,
+          count: sql<number>`count(*)::int`,
+        })
+        .from(emailRejections)
+        .innerJoin(googleAccounts, eq(googleAccounts.id, emailRejections.accountId))
+        .where(
+          and(
+            eq(googleAccounts.userId, request.user!.id),
+            sql`${emailRejections.rejectedAt} >= now() - make_interval(days => ${days})`,
+          ),
+        )
+        .groupBy(googleAccounts.id, googleAccounts.email, emailRejections.reason, emailRejections.senderDomain);
+      return summarizeRejections(days, rows);
     },
   );
 

@@ -211,6 +211,30 @@ export function useMailThreads() {
   });
 }
 
+/** Quanti giorni guarda indietro la riga delle mail tenute fuori (design §5). */
+export const REJECTIONS_DAYS = 7;
+
+/**
+ * Le mail tenute fuori dal cancello di ammissione, per casella, motivo e
+ * dominio («le mail tenute fuori», 25 set 2026).
+ *
+ * È una lettura ACCESSORIA: chi la usa la tiene fuori dai gate
+ * `isPending`/`isError` della sua schermata, e un server più vecchio che
+ * risponde 404 la fa semplicemente sparire.
+ */
+export function useMailRejections(days: number = REJECTIONS_DAYS) {
+  const { client } = useAuth();
+  return useQuery({
+    queryKey: mailKeys.rejections(days),
+    queryFn: () => {
+      if (!client) throw new Error("useMailRejections richiede un client autenticato");
+      return client.mail.rejections(days);
+    },
+    enabled: client !== null,
+    staleTime: 60_000,
+  });
+}
+
 /** I messaggi di UNA conversazione, in ordine, ciascuno con la sua provenienza. */
 export function useMailThread(threadId: string) {
   const { client } = useAuth();

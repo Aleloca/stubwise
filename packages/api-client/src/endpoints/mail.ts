@@ -2,6 +2,7 @@ import {
   mailDetailSchema,
   mailOriginalSchema,
   mailPageSchema,
+  mailRejectionsSchema,
   mailReproposeResultSchema,
   mailSummarySchema,
   mailThreadDetailSchema,
@@ -13,6 +14,7 @@ import type {
   MailItemStatus,
   MailOriginal,
   MailPage,
+  MailRejections,
   MailReproposeResult,
   MailSource,
   MailSummary,
@@ -108,6 +110,16 @@ export function createMailEndpoints(request: ApiRequest) {
     /** Contatori per il badge di nav e l'intestazione della pagina. */
     summary(): Promise<Reader<MailSummary>> {
       return request("GET", "/api/me/mail/summary", undefined, mailSummarySchema);
+    },
+
+    /**
+     * Le mail tenute fuori dal cancello di ammissione, per casella, motivo e
+     * dominio, negli ultimi `days` giorni (1..30; assente = default del
+     * server, 7). Solo le caselle di chi chiede. Un server più vecchio
+     * risponde 404: la lettura è accessoria, chi la usa la nasconde.
+     */
+    rejections(days?: number): Promise<Reader<MailRejections>> {
+      return request("GET", `/api/me/mail/rejections${toQuery({ days })}`, undefined, mailRejectionsSchema);
     },
 
     /**

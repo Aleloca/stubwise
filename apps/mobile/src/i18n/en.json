@@ -930,6 +930,43 @@
           "title": "No conversations here",
           "body": "Only the mail Stubwise recognizes as work from your Google mailbox shows up — routing rules are configured on the site."
         }
+      },
+      "rejections": {
+        "row_one": "{{count}} email kept out in the last {{days}} days",
+        "row_other": "{{count}} emails kept out in the last {{days}} days",
+        "title": "Kept out",
+        "back": "Mail",
+        "intro": "Emails from the last {{days}} days that Stubwise didn't let in. They're counted, not stored: all that's here is the reason and the sender's domain.",
+        "reasons": {
+          "automated": {
+            "title": "Automated",
+            "body": "Notifications, newsletters and auto-replies."
+          },
+          "denied_label": {
+            "title": "Excluded label",
+            "body": "Promotions, social and spam, as set in Settings → Google."
+          },
+          "no_match": {
+            "title": "No matching rule",
+            "body": "Not from your Workspace and no project rule names the sender."
+          },
+          "unknown": {
+            "title": "Other"
+          }
+        },
+        "count_one": "{{count}} email",
+        "count_other": "{{count}} emails",
+        "unknownDomain": "unreadable sender",
+        "otherDomains_one": "+{{count}} from other domains",
+        "otherDomains_other": "+{{count}} from other domains",
+        "empty": {
+          "title": "No emails kept out",
+          "body": "In the last {{days}} days everything that arrived got in, or nothing arrived."
+        },
+        "loadError": {
+          "title": "Can't load the emails kept out.",
+          "retry": "Retry"
+        }
       }
     },
     "calendar": {

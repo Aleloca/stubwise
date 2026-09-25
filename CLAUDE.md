@@ -1270,6 +1270,34 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   **Rollback — innocuo**: scendere di immagine sul server fa sparire i due
   campi, e l'app li legge `null` dal `.default` («non disponibile»). Va sceso
   col caddy come sempre.
+- **«Le mail tenute fuori» (25 set 2026)**: rebuild **server + worker**. Il
+  caddy no: il web non cambia (la rotta c'è, la legge solo l'app). Migrazione
+  **0080** all'avvio del server — additiva, **nessun `ALTER TYPE`**, un solo
+  batch, nessun backfill: una tabella NUOVA `email_rejections`, una riga per
+  mail scartata dal cancello di ammissione (`admit()`), con il solo MOTIVO e
+  il DOMINIO del mittente — mai oggetto né indirizzo completo. Il motivo è un
+  CHECK, non un pgEnum. **Nessuna env, nessun kind di notifica, nessun valore
+  aggiunto a un enum esistente, nessuna risposta esistente toccata**: per
+  l'app è una rotta NUOVA, `GET /api/me/mail/rejections?days=7`.
+  ⚠️ **Il worker scrive gli scarti FAIL-OPEN** (`recordRejection`/
+  `forgetRejections`, `apps/worker/src/google/poller.ts`): un errore si logga
+  e non sale, perché un'eccezione dal ciclo di sync verrebbe letta come guasto
+  della CASELLA (backoff, poi `sync_failed`). È anche ciò che rende innocuo
+  l'ordine di deploy: un worker nuovo davanti a uno schema senza la 0080
+  prosegue. L'unique `(account_id, gmail_message_id)` è l'idempotenza — una
+  mail scartata viene riletta a ogni resync, e non deve contare due volte —, e
+  una mail che poi ENTRA (ammessa, o come contesto del thread) smette di
+  essere uno scarto. Potatura a 30 giorni nel tick (`REJECTIONS_RETENTION_DAYS`,
+  costante), indipendente da `GMAIL_RETENTION_DAYS`.
+  ⚠️ **`mailbox_owner` senza eccezioni per gli admin**: la rotta filtra su
+  `google_accounts.user_id = utente corrente` e non ha un ramo per ruolo — i
+  domini da cui scrive la gente a un collega non sono affare di un admin.
+  Test negativo in entrambi i versi, col verso positivo accanto
+  (`apps/server/src/routes/me-mail.test.ts`).
+  **L'app mobile NON fa parte di questo rebuild** (si aggiorna dagli store).
+  **Rollback — innocuo in ogni direzione**: server vecchio → 404 → l'app non
+  mostra la riga; worker vecchio → nessuno scrive né pota più, le righe già
+  scritte restano ferme finché non torna il nuovo. La tabella sopravvive.
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.

@@ -4,6 +4,7 @@ import {
   calendarSeriesRecurrence,
   emailMessages,
   emailProposals,
+  emailRejections,
   googleAccounts,
   googleWorkspaces,
   instanceSettings,
@@ -37,6 +38,7 @@ import {
   matchRoutes,
   normalizeAddress,
   type AdmissionConfig,
+  type AdmissionResult,
   type EmailRoute,
 } from "@stubwise/notifications";
 import {
@@ -785,7 +787,7 @@ async function ingestThreadContext(
     return 0;
   }
 
-  let inserted = 0;
+  const insertedIds: string[] = [];
   for (const sibling of thread.messages) {
     if (sibling.id === admittedMessage.id) continue;
     const text = sibling.payload ? extractText(sibling.payload) : "";
@@ -805,9 +807,89 @@ async function ingestThreadContext(
       )
       .onConflictDoNothing()
       .returning({ id: emailMessages.id });
-    inserted += rows.length;
+    if (rows.length > 0) insertedIds.push(sibling.id);
   }
-  return inserted;
+  await forgetRejections(deps, account, insertedIds);
+  return insertedIds.length;
+}
+
+/**
+ * Il dominio del mittente di uno scarto («le mail tenute fuori», design §3):
+ * la parte dopo l'ULTIMA chiocciola dell'indirizzo, minuscola. `null` quando
+ * non c'è niente di leggibile — mai una stringa vuota, che la schermata
+ * dovrebbe interpretare a sé.
+ */
+export function senderDomain(from: string | null | undefined): string | null {
+  const address = normalizeAddress(from);
+  const at = address.lastIndexOf("@");
+  if (at === -1) return null;
+  const domain = address.slice(at + 1).trim();
+  return domain === "" ? null : domain;
+}
+
+/**
+ * Registra una mail tenuta fuori dal cancello. `onConflictDoNothing`
+ * sull'unique `(account_id, gmail_message_id)`: una mail scartata non entra in
+ * `email_messages`, quindi a ogni rilettura della casella viene rivalutata —
+ * senza, conterebbe due volte.
+ *
+ * ⚠️ **FAIL-OPEN, sempre.** Il contatore è osservabilità: un errore qui si
+ * logga e non sale. Un'eccezione dal ciclo di sync verrebbe letta come guasto
+ * della CASELLA (backoff, e poi `sync_failed`) per un problema che non ha
+ * niente a che fare con Gmail. È anche ciò che rende innocuo l'ordine di
+ * deploy: un worker nuovo davanti a uno schema senza la tabella prosegue.
+ */
+async function recordRejection(
+  deps: GooglePollerDeps,
+  account: ClaimedAccount,
+  metadata: GmailMessage,
+  reason: Extract<AdmissionResult, { admitted: false }>["reason"],
+): Promise<void> {
+  const logger = deps.logger ?? defaultLogger;
+  try {
+    await deps.db
+      .insert(emailRejections)
+      .values({
+        accountId: account.id,
+        gmailMessageId: metadata.id,
+        senderDomain: senderDomain(metadata.headers["from"]),
+        reason,
+      })
+      .onConflictDoNothing();
+  } catch (err) {
+    logger.info(`google: scarto di ${metadata.id} non registrato su ${account.email}: ${errText(err)}`);
+  }
+}
+
+/**
+ * Una mail che ENTRA in `email_messages` smette di essere uno scarto (design
+ * §2): senza, dopo un cambio di regole la stessa mail comparirebbe sia in
+ * Posta sia fra le tenute fuori. Vale per l'ammessa e per i fratelli che
+ * entrano come contesto — anche quelli si leggono in Posta.
+ *
+ * FAIL-OPEN come {@link recordRejection}, e qui conta ancora di più: questa
+ * cancellazione gira per OGNI mail ammessa, quindi un'eccezione fermerebbe la
+ * posta vera, non solo il contatore.
+ */
+async function forgetRejections(
+  deps: GooglePollerDeps,
+  account: ClaimedAccount,
+  gmailMessageIds: string[],
+): Promise<void> {
+  if (gmailMessageIds.length === 0) return;
+  const logger = deps.logger ?? defaultLogger;
+  try {
+    await deps.db
+      .delete(emailRejections)
+      .where(
+        and(
+          eq(emailRejections.accountId, account.id),
+          inArray(emailRejections.gmailMessageId, gmailMessageIds),
+        ),
+      );
+  } catch (err) {
+    logger.info(`google: scarti non ripuliti su ${account.email}: ${errText(err)}`);
+  }
 }
 
 async function syncGmail(
@@ -858,7 +940,10 @@ async function syncGmail(
     if (isFromMailbox(metadata, ctx.credentials.email)) continue;
 
     const admission = admit(messageToRouting(metadata), ctx.admission, ctx.receivingDomain);
-    if (!admission.admitted) continue;
+    if (!admission.admitted) {
+      await recordRejection(deps, account, metadata, admission.reason);
+      continue;
+    }
 
     const full = await gmail.getMessageFull({ accessToken: ctx.accessToken, id });
     const text = full.payload ? extractText(full.payload) : "";
@@ -882,6 +967,7 @@ async function syncGmail(
       .onConflictDoNothing()
       .returning({ id: emailMessages.id });
     if (inserted.length > 0) ingested += 1;
+    await forgetRejections(deps, account, [id]);
 
     // IL THREAD INTERO («la posta si legge per conversazione» §2, Task 8).
     // Dopo l'inserimento del messaggio ammesso, non prima: se qui va storto
@@ -2271,6 +2357,25 @@ export async function pruneOldEmails(db: Db, retentionDays: number): Promise<num
 }
 
 /**
+ * Quanti giorni si conservano le mail tenute fuori («le mail tenute fuori»,
+ * design §2). Una costante e non una env: sono solo numeri, e la schermata
+ * guarda al massimo 30 giorni indietro. Indipendente da
+ * `GMAIL_RETENTION_DAYS`, che riguarda messaggi con proposte.
+ */
+export const REJECTIONS_RETENTION_DAYS = 30;
+
+/** Cancella gli scarti più vecchi di `retentionDays`. Ritorna quanti. */
+export async function pruneOldRejections(db: Db, retentionDays: number): Promise<number> {
+  if (retentionDays <= 0) return 0;
+  const days = Math.round(retentionDays);
+  const deleted = await db
+    .delete(emailRejections)
+    .where(sql`${emailRejections.rejectedAt} < now() - make_interval(days => ${days})`)
+    .returning({ id: emailRejections.id });
+  return deleted.length;
+}
+
+/**
  * Esegue UN giro: potatura, claim, e poi una casella alla volta in SEQUENZA.
  *
  * Le caselle non vanno in parallelo: ogni giro è una raffica di chiamate a
@@ -2299,6 +2404,11 @@ export async function pollGoogleOnce(deps: GooglePollerDeps): Promise<GoogleTick
     stats.pruned = await pruneOldEmails(deps.db, deps.retentionDays);
   } catch (err) {
     logger.error(`google: potatura dei messaggi fallita: ${errText(err)}`);
+  }
+  try {
+    await pruneOldRejections(deps.db, REJECTIONS_RETENTION_DAYS);
+  } catch (err) {
+    logger.error(`google: potatura delle mail tenute fuori fallita: ${errText(err)}`);
   }
 
   let accounts: ClaimedAccount[];

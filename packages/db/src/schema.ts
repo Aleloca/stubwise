@@ -3574,6 +3574,45 @@ export const emailBodies = pgTable("email_bodies", {
 });
 
 /**
+ * MAIL TENUTA FUORI dal cancello di ammissione («le mail tenute fuori», 25
+ * set 2026): una riga per mail scartata da `admit()`, per poter dire quante,
+ * perché e da quali domini.
+ *
+ * Senza CONTENUTO, apposta: niente oggetto (sarebbe posta fuori da
+ * `pruneOldEmails`) e niente indirizzo completo (un dato personale di un
+ * terzo in una tabella in più). Il dominio basta alla domanda che la
+ * schermata esiste per rispondere — «il cancello sta tagliando un cliente?».
+ *
+ * L'unique `(account_id, gmail_message_id)` è l'idempotenza: una mail
+ * scartata non entra in `email_messages`, quindi `filterAlreadyIngested` non
+ * la riconosce e a ogni rilettura della casella viene rivalutata. Un
+ * contatore che incrementa conterebbe due volte.
+ *
+ * `reason` è un CHECK e non un pgEnum per restare in un solo batch di
+ * migrazione, come `calendar_series.action`.
+ */
+export const emailRejections = pgTable(
+  "email_rejections",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => googleAccounts.id, { onDelete: "cascade" }),
+    gmailMessageId: text("gmail_message_id").notNull(),
+    /** Minuscolo. `null` = mittente non leggibile (niente `@`). */
+    senderDomain: text("sender_domain"),
+    reason: text("reason").$type<"automated" | "denied_label" | "no_match">().notNull(),
+    rejectedAt: timestamp("rejected_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("email_rejections_account_message_unique").on(table.accountId, table.gmailMessageId),
+    // La rotta legge gli scarti di una casella in una finestra; la potatura per data.
+    index("email_rejections_account_rejected_at_idx").on(table.accountId, table.rejectedAt),
+    check("email_rejections_reason_chk", sql`reason in ('automated', 'denied_label', 'no_match')`),
+  ],
+);
+
+/**
  * EVENTO del calendario `primary` di una casella, in perimetro come la posta
  * (Fase 6).
  *
