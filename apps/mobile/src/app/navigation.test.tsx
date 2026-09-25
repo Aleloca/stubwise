@@ -913,11 +913,9 @@ describe("la barra delle schede", () => {
     return bar!;
   }
 
-  test("Wisey sta al CENTRO, fra Projects e Backlog", async () => {
+  test("cinque schede, Wisey al CENTRO: il tab DOC non c'è più", async () => {
     const bar = await renderMain();
-    const titles = bar.props.items.map((item) => item.title);
-    expect(titles.slice(0, 4)).toEqual(["INB", "PRJ", "WISEY", "BLG"]);
-    expect(titles.at(-1)).toBe("MBX");
+    expect(bar.props.items.map((item) => item.title)).toEqual(["INB", "PRJ", "WISEY", "BLG", "MBX"]);
   });
 
   test("il gufo è un'IMMAGINE a colori: rendering «original», le altre restano tinte dalla barra", async () => {

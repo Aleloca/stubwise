@@ -32,8 +32,7 @@
     "tabs": {
       "inbox": "Inbox",
       "projects": "Progetti",
-      "backlog": "Backlog",
-      "docs": "Docs"
+      "backlog": "Backlog"
     },
     "inbox": {
       "header": {
@@ -427,7 +426,8 @@
           "title": "Nessuna documentazione",
           "body": "Nessun repository di questo progetto ha ancora pagine generate."
         },
-        "treeError": "Non è stato possibile caricare le pagine di questo spazio."
+        "treeError": "Non è stato possibile caricare le pagine di questo spazio.",
+        "ask": "Chiedi a questo progetto ›"
       },
       "roadmap": {
         "title": "Roadmap",
@@ -786,25 +786,10 @@
       "offlineAction": "Serve la rete"
     },
     "docs": {
-      "title": "Docs",
-      "searchPlaceholder": "Cerca in questa documentazione…",
-      "project": {
-        "pickerLabel": "Progetto",
-        "none": "Nessun progetto disponibile."
-      },
       "loadError": {
-        "title": "Non riesco a caricare i Docs.",
         "retry": "Riprova"
       },
-      "empty": {
-        "title": "Nessuna documentazione qui.",
-        "body": "Questo progetto non ha ancora pagine documentate."
-      },
-      "search": {
-        "empty": "Nessun risultato."
-      },
       "browse": {
-        "label": "Oppure sfoglia",
         "functional": "Guida funzionale",
         "technical": "Pagine tecniche",
         "releases": "Note di rilascio",
@@ -816,8 +801,7 @@
       },
       "ask": {
         "sectionLabel": "Chiedi al progetto",
-        "entryHint": "Fai una domanda sulla documentazione di questo progetto ›",
-        "back": "Docs",
+        "back": "Documentazione",
         "placeholder": "Fai una domanda…",
         "send": "Invia",
         "thinking": "Sta pensando…",

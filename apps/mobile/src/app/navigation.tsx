@@ -37,7 +37,6 @@ import { BacklogItemScreen } from "../screens/backlog/BacklogItemScreen";
 import { BacklogScreen } from "../screens/backlog/BacklogScreen";
 import { AskProjectScreen } from "../screens/docs/AskProjectScreen";
 import { DocsPageScreen } from "../screens/docs/DocsPageScreen";
-import { DocsScreen } from "../screens/docs/DocsScreen";
 import { MailDetailScreen } from "../screens/mbx/MailDetailScreen";
 import { MbxScreen } from "../screens/mbx/MbxScreen";
 import { MailRejectionsScreen } from "../screens/mbx/MailRejectionsScreen";
@@ -53,7 +52,6 @@ import { fontFamily } from "../theme/typography";
 import inboxIcon from "../../assets/icons/inbox.svg";
 import folderIcon from "../../assets/icons/folder.svg";
 import checklistIcon from "../../assets/icons/checklist.svg";
-import menuBookIcon from "../../assets/icons/menu_book.svg";
 import mailIcon from "../../assets/icons/mail.svg";
 import { buildLinking, getPendingDeepLink, resolveDeepLinkTarget, setPendingDeepLink } from "./linking";
 import { useAuth } from "./providers";
@@ -101,6 +99,11 @@ export type ProposalParamList = {
  * {@link ProposalParamList}, e per la stessa identica ragione: ci si arriva
  * dal tab DOC e dalla documentazione DI UN PROGETTO, e da entrambi l'indietro
  * deve riportare dove si era.
+ *
+ * Dal 25 set 2026 il tab DOC non c'è più («Wisey, anteprima nell'app» §3):
+ * la pagina resta registrata nel solo stack dei progetti, e ci arrivano la
+ * documentazione del progetto, le «Fonti» della chat e la ricerca globale.
+ * Il tipo resta un frammento perché `DocsPageScreen` lo usa per le sue props.
  *
  * ⚠️ Il §5 del design diceva che la documentazione «ha già dove atterrare»
  * perché esiste il tab DOC. È l'unico punto in cui quel documento si
@@ -158,6 +161,12 @@ export type ProjectsStackParamList = {
   ProjectRepositories: { projectId: string; projectName: string };
   Repository: { slug: string; projectName: string };
   ProjectDocs: { projectId: string; projectName: string };
+  /**
+   * «Chiedi al progetto», la chat sulla documentazione (25 set 2026): viveva
+   * nel tab DOC, che non c'è più, e ci si arriva ora dalla documentazione del
+   * progetto. Parametri invariati.
+   */
+  Ask: { projectId: string; projectName: string };
   ProjectRoadmap: { projectId: string; projectName: string };
   /**
    * MONITOR E IMPOSTAZIONI (23 set 2026, tappa 3 — l'ultima dell'hub).
@@ -186,18 +195,6 @@ export type ProjectsStackParamList = {
 export type BacklogStackParamList = {
   List: undefined;
 } & BacklogDetailParamList;
-
-/**
- * Stack del tab Docs (Task 18, canvas `3f`): hub (ricerca + «Oppure sfoglia» +
- * entrata di «Chiedi al progetto»), una pagina in markdown e la chat di
- * progetto. `Page` prende `repositoryId`+`slug` (non un id di pagina: è così
- * che `client.docs.page` la vuole, e le "Fonti" di una risposta chat portano
- * esattamente questi due campi) — vedi `DocsScreen.tsx`.
- */
-export type DocsStackParamList = {
-  List: undefined;
-  Ask: { projectId: string; projectName: string };
-} & DocsPageParamList;
 
 /**
  * Stack del tab MBX (Task 7, App M3, Fase C — architettura §3/§6a): posta e
@@ -239,7 +236,6 @@ export type MainTabParamList = {
   /** Wisey, l'agente dell'istanza (25 set 2026): per ora un'anteprima. */
   Wisey: undefined;
   Backlog: NavigatorScreenParams<BacklogStackParamList>;
-  Docs: NavigatorScreenParams<DocsStackParamList>;
   Mbx: NavigatorScreenParams<MbxStackParamList>;
 };
 
@@ -281,7 +277,6 @@ const AuthStack = createNativeStackNavigator<AuthStackParamList>();
 const InboxStack = createNativeStackNavigator<InboxStackParamList>();
 const ProjectsStack = createNativeStackNavigator<ProjectsStackParamList>();
 const BacklogStack = createNativeStackNavigator<BacklogStackParamList>();
-const DocsStack = createNativeStackNavigator<DocsStackParamList>();
 const MbxStack = createNativeStackNavigator<MbxStackParamList>();
 const Tab = createNativeBottomTabNavigator<MainTabParamList>();
 
@@ -328,8 +323,8 @@ function ProjectsNavigator() {
       <ProjectsStack.Screen name="ProjectMonitor" component={ProjectMonitorScreen} />
       <ProjectsStack.Screen name="Server" component={ServerScreen} />
       <ProjectsStack.Screen name="ProjectSettings" component={ProjectSettingsScreen} />
-      {/* Stessa copia di `DocsPageScreen` del tab DOC, seconda registrazione. */}
       <ProjectsStack.Screen name="Page" component={DocsPageScreen} />
+      <ProjectsStack.Screen name="Ask" component={AskProjectScreen} />
     </ProjectsStack.Navigator>
   );
 }
@@ -341,16 +336,6 @@ function BacklogNavigator() {
       <BacklogStack.Screen name="Item" component={BacklogItemScreen} />
       <BacklogStack.Screen name="Chat" component={BacklogChatScreen} />
     </BacklogStack.Navigator>
-  );
-}
-
-function DocsNavigator() {
-  return (
-    <DocsStack.Navigator screenOptions={{ headerShown: false }}>
-      <DocsStack.Screen name="List" component={DocsScreen} />
-      <DocsStack.Screen name="Page" component={DocsPageScreen} />
-      <DocsStack.Screen name="Ask" component={AskProjectScreen} />
-    </DocsStack.Navigator>
   );
 }
 
@@ -379,7 +364,8 @@ function MbxNavigator() {
  *
  * Scelta finale (riferita a Fable/maintainer): Inbox → `tray.fill` /
  * `inbox`, Projects → `folder.fill` / `folder`, Backlog → `checklist` /
- * `checklist`, Docs → `book.fill` / `menu_book`, **MBX → `envelope.fill` /
+ * `checklist`, Docs → `book.fill` / `menu_book` (tab tolta il 25 set 2026),
+ * **MBX → `envelope.fill` /
  * `mail`** (Task 7, App M3, Fase C, 11 set 2026 — busta, per l'architettura
  * §6a: verificato `'envelope.fill'` contro `sf-symbols-typescript@2.2.0`
  * — presente dalla versione 1.0, la più compatibile — e `mail_fill1_24px.svg`
@@ -505,14 +491,6 @@ function MainNavigator() {
         options={{
           tabBarLabel: "BLG",
           tabBarIcon: () => nativeTabIcon("checklist", checklistIcon),
-        }}
-      />
-      <Tab.Screen
-        name="Docs"
-        component={DocsNavigator}
-        options={{
-          tabBarLabel: "DOC",
-          tabBarIcon: () => nativeTabIcon("book.fill", menuBookIcon),
         }}
       />
       <Tab.Screen

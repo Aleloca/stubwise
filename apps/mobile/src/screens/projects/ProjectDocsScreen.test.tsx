@@ -59,6 +59,24 @@ beforeEach(() => jest.clearAllMocks());
 
 describe("ProjectDocsScreen", () => {
   /**
+   * «Chiedi al progetto» vive qui dal 25 set 2026: il tab DOC, che era
+   * l'unica strada per arrivarci, non c'è più.
+   */
+  test("«Chiedi a questo progetto» apre la chat del progetto, col suo id e nome", async () => {
+    const { navigate } = await renderScreen(makeClient());
+    await waitFor(() => expect(screen.getByText("Spazio API")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("project-docs-ask"));
+    expect(navigate).toHaveBeenCalledWith("Ask", { projectId: PROJECT_ID, projectName: "Portale B2B" });
+  });
+
+  test("il bottone sta in testa, quindi c'è anche quando il progetto non ha documentazione", async () => {
+    const { navigate } = await renderScreen(makeClient({ projectSpaces: jest.fn().mockResolvedValue([]) }));
+    await waitFor(() => expect(screen.getByTestId("project-docs-empty")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("project-docs-ask"));
+    expect(navigate).toHaveBeenCalledWith("Ask", { projectId: PROJECT_ID, projectName: "Portale B2B" });
+  });
+
+  /**
    * ⚠️ TUTTI gli spazi, non solo il principale: il tab DOC ne sceglie uno
    * (`mainDocSpace`) perché ha un solo switcher; qui la domanda è «di cosa è
    * fatto QUESTO progetto», e nasconderne due risponderebbe a un'altra

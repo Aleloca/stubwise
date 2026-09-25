@@ -143,7 +143,10 @@ export function buildLinking(isAuthenticated: () => boolean): LinkingOptions<Roo
             },
             Projects: {
               screens: {
-                List: "projects",
+                // `docs` era il path del tab DOC, tolto il 25 set 2026: nessuna
+                // notifica lo emette, ma un link già in giro atterra qui, da
+                // dove si raggiunge la documentazione di ogni progetto.
+                List: { path: "projects", alias: ["docs"] },
                 Detail: "projects/:id",
                 Ticket: "tickets/:id",
               },
@@ -157,7 +160,6 @@ export function buildLinking(isAuthenticated: () => boolean): LinkingOptions<Roo
                 List: "backlog",
               },
             },
-            Docs: "docs",
             // Task 7 (App M3, Fase C): `MailDetail` porta all'oggetto
             // (regola 2), non alla lista. Fase D: anche il calendario ha ora
             // un oggetto da raggiungere, e ci si arriva da `List` con un

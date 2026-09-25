@@ -22,9 +22,10 @@ const CONTENT_BASE_BOTTOM_PADDING = 40;
 /**
  * Una pagina di documentazione in markdown (canvas: nessun mockup dedicato —
  * `3f` copre solo l'hub Docs, non la pagina; stessa situazione di
- * `BacklogItemScreen`, che documenta la stessa assenza). Raggiunta da
- * `DocsScreen` (ricerca o «Oppure sfoglia») e dalle "Fonti" cliccabili di
- * `AskProjectScreen` — sempre con `repositoryId`+`slug`, mai un id di pagina:
+ * `BacklogItemScreen`, che documenta la stessa assenza). Raggiunta dalla
+ * documentazione del progetto, dalla ricerca globale e dalle "Fonti"
+ * cliccabili di `AskProjectScreen` (il tab DOC, che era la quarta strada, non
+ * c'è più dal 25 set 2026) — sempre con `repositoryId`+`slug`, mai un id di pagina:
  * è la stessa coppia che porta una fonte della chat.
  *
  * Rendering: `react-native-markdown-display`, stile condiviso con

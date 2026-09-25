@@ -32,8 +32,7 @@
     "tabs": {
       "inbox": "Inbox",
       "projects": "Projects",
-      "backlog": "Backlog",
-      "docs": "Docs"
+      "backlog": "Backlog"
     },
     "inbox": {
       "header": {
@@ -427,7 +426,8 @@
           "title": "No documentation",
           "body": "No repository in this project has generated pages yet."
         },
-        "treeError": "Could not load the pages of this space."
+        "treeError": "Could not load the pages of this space.",
+        "ask": "Ask this project ›"
       },
       "roadmap": {
         "title": "Roadmap",
@@ -786,25 +786,10 @@
       "offlineAction": "Needs a connection"
     },
     "docs": {
-      "title": "Docs",
-      "searchPlaceholder": "Search this documentation…",
-      "project": {
-        "pickerLabel": "Project",
-        "none": "No projects available."
-      },
       "loadError": {
-        "title": "Can't load Docs.",
         "retry": "Retry"
       },
-      "empty": {
-        "title": "No documentation here.",
-        "body": "This project has no documented pages yet."
-      },
-      "search": {
-        "empty": "No results."
-      },
       "browse": {
-        "label": "Or browse",
         "functional": "Functional guide",
         "technical": "Technical pages",
         "releases": "Release notes",
@@ -816,8 +801,7 @@
       },
       "ask": {
         "sectionLabel": "Ask the project",
-        "entryHint": "Ask a question about this project's documentation ›",
-        "back": "Docs",
+        "back": "Documentation",
         "placeholder": "Ask a question…",
         "send": "Send",
         "thinking": "Thinking…",

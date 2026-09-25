@@ -44,7 +44,7 @@ import { fontFamily, fontSize } from "../theme/typography";
  * non va aggiunto — la privacy della posta non è una scelta del client.
  */
 
-/** Debounce dell'input: lo stesso di `DocsScreen`, per coerenza di percezione. */
+/** Debounce dell'input, in millisecondi. */
 const SEARCH_DEBOUNCE_MS = 250;
 
 export function GlobalSearchSheet({
@@ -218,8 +218,10 @@ function Groups({
               hit={hit}
               onPress={() =>
                 onNavigate(() =>
+                  // Nella scheda Progetti: il tab DOC non c'è più (25 set 2026),
+                  // e `Page` è registrata nello stack dei progetti dall'hub.
                   navigation.navigate("Main", {
-                    screen: "Docs",
+                    screen: "Projects",
                     params: {
                       screen: "Page",
                       params: { repositoryId: hit.repositoryId, slug: hit.slug },

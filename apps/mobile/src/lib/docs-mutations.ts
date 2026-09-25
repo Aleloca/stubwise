@@ -1,6 +1,6 @@
 import { ApiError } from "@stubwise/api-client";
 import { isUnknown } from "@stubwise/shared";
-import type { DocPageKind, DocSpace, DocsChatAnswer, DocTreeNode, Reader } from "@stubwise/shared";
+import type { DocPageKind, DocsChatAnswer, DocTreeNode, Reader } from "@stubwise/shared";
 import { useMutation } from "@tanstack/react-query";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
@@ -13,25 +13,8 @@ export const docsKeys = {
   spaces: (projectId: string) => [...docsKeys.all, "spaces", projectId] as const,
   tree: (repositoryId: string) => [...docsKeys.all, "tree", repositoryId] as const,
   page: (repositoryId: string, slug: string) => [...docsKeys.all, "page", repositoryId, slug] as const,
-  search: (repositoryId: string, q: string) => [...docsKeys.all, "search", repositoryId, q] as const,
 };
 
-/**
- * Lo spazio doc "principale" di un progetto: quello con più pagine — STESSA
- * euristica di `mainSpace` in `apps/web/src/routes/docs/project.$projectId.tsx`
- * (la home Docs di progetto sul web). Il canvas mobile (`3f`) mostra UN solo
- * switcher ("Portale B2B ▾", un PROGETTO — vedi il fixture `PROJECT` di
- * `BacklogScreen.test.tsx`/`CaptureSheet.test.tsx`, stesso nome), non un
- * secondo picker per repository: `DocsScreen` sfoglia e cerca nello spazio
- * principale del progetto scelto, senza esporre uno switcher di repository
- * proprio — coerente col canvas, che non ne mostra uno.
- *
- * `undefined` se il progetto non ha ancora spazi documentati (nessun
- * repository con almeno una pagina, vedi il commento su `docSpaceSchema`).
- */
-export function mainDocSpace(spaces: Reader<DocSpace>[]): Reader<DocSpace> | undefined {
-  return [...spaces].sort((a, b) => b.pageCount - a.pageCount)[0];
-}
 
 /** Un gruppo di «Oppure sfoglia»: le pagine di un kind, contate e in ordine di posizione. */
 export interface DocsKindGroup {

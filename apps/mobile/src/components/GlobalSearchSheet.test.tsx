@@ -449,6 +449,35 @@ it("⚠️ i marcatori `<b>` di ts_headline NON finiscono a schermo", async () =
     });
   });
 
+  it("una pagina di documentazione si apre dentro la scheda Progetti: il tab DOC non c'è più", async () => {
+    const global = jest.fn().mockResolvedValue(
+      results({
+        docs: {
+          items: [
+            {
+              slug: "sso",
+              title: "Autenticazione SSO",
+              kind: "technical",
+              snippet: "il token viene rinnovato",
+              repositoryId: "r1",
+              repositorySlug: "stubwise",
+              repositoryName: "stubwise",
+            },
+          ],
+          hasMore: false,
+        },
+      }) as Reader<SearchResults>,
+    );
+    const view = await renderSheet(global);
+    fireEvent.changeText(view.getByTestId("global-search-input"), "sso");
+
+    fireEvent.press(await view.findByTestId("global-search-doc-sso"));
+    expect(mockNavigate).toHaveBeenCalledWith("Main", {
+      screen: "Projects",
+      params: { screen: "Page", params: { repositoryId: "r1", slug: "sso" } },
+    });
+  });
+
   it("nessun risultato lo dice, invece di restare vuoto", async () => {
     const global = jest.fn().mockResolvedValue(
       results({
