@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { UNKNOWN } from "@stubwise/shared";
 import { ApiError, createStubwiseClient } from "../index.js";
 
 const ID = "11111111-1111-4111-8111-111111111111";
@@ -27,6 +28,46 @@ describe("endpoints mail", () => {
     const summary = await c.mail.summary();
     expect(fetchImpl.mock.calls.at(-1)![0]).toBe("/api/me/mail/summary");
     expect(summary).toEqual({ openProposals: 2, failed: 1, ignored: 0 });
+  });
+
+  it("rejections: GET /api/me/mail/rejections, days solo se passato", async () => {
+    const body = {
+      days: 7,
+      total: 3,
+      accounts: [
+        {
+          accountId: ID,
+          email: "ops@example.com",
+          total: 3,
+          reasons: [
+            { reason: "automated", count: 3, domains: [{ domain: "github.com", count: 2 }, { domain: null, count: 1 }], otherDomains: 0 },
+          ],
+        },
+      ],
+    };
+    const { c, fetchImpl } = clientReturning(200, body);
+    expect(await c.mail.rejections()).toEqual(body);
+    expect(fetchImpl.mock.calls.at(-1)![0]).toBe("/api/me/mail/rejections");
+
+    await c.mail.rejections(30);
+    expect(fetchImpl.mock.calls.at(-1)![0]).toBe("/api/me/mail/rejections?days=30");
+  });
+
+  it("rejections: un motivo che l'app non conosce arriva come UNKNOWN, non rompe la risposta", async () => {
+    const { c } = clientReturning(200, {
+      days: 7,
+      total: 1,
+      accounts: [
+        {
+          accountId: ID,
+          email: "ops@example.com",
+          total: 1,
+          reasons: [{ reason: "quarantined", count: 1, domains: [], otherDomains: 0 }],
+        },
+      ],
+    });
+    const result = await c.mail.rejections();
+    expect(result.accounts[0]?.reasons[0]?.reason).toBe(UNKNOWN);
   });
 
   it("get: GET /api/me/mail/:source/:id — l'estratto, textExcerpt può essere null", async () => {
