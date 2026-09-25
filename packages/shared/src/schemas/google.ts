@@ -685,6 +685,48 @@ export const mailSummarySchema = z.object({
 });
 export type MailSummary = z.infer<typeof mailSummarySchema>;
 
+/**
+ * Perché il cancello di ammissione (`admit()`, fase 6c) ha tenuto fuori una
+ * mail. Sono i soli esiti NEGATIVI di `AdmissionResult`: gli esiti positivi
+ * (`workspace_domain`, `project_rule`) non producono uno scarto. Un client lo
+ * legge via `readerSchema`, quindi un motivo aggiunto domani arriva come
+ * `UNKNOWN` invece di far fallire la risposta.
+ */
+export const mailRejectionReasonSchema = z.enum(["automated", "denied_label", "no_match"]);
+export type MailRejectionReason = z.infer<typeof mailRejectionReasonSchema>;
+
+/**
+ * Risposta di `GET /api/me/mail/rejections` («le mail tenute fuori», 25 set
+ * 2026): quante mail il cancello ha scartato nelle caselle di CHI CHIEDE, per
+ * motivo e dominio del mittente. Solo le proprie caselle, nessun ruolo
+ * scavalca (invariante `mailbox_owner`).
+ *
+ * `domain: null` = mittente non leggibile. `domains` sono i primi 10 per
+ * conteggio; `otherDomains` conta le MAIL oltre quei dieci (non i domini), così
+ * che la somma torni sempre a `count`. Una casella senza scarti nel periodo
+ * non compare.
+ */
+export const mailRejectionsSchema = z.object({
+  days: z.number().int().min(1),
+  total: z.number().int().min(0),
+  accounts: z.array(
+    z.object({
+      accountId: z.uuid(),
+      email: z.string(),
+      total: z.number().int().min(0),
+      reasons: z.array(
+        z.object({
+          reason: mailRejectionReasonSchema,
+          count: z.number().int().min(0),
+          domains: z.array(z.object({ domain: z.string().nullable(), count: z.number().int().min(0) })),
+          otherDomains: z.number().int().min(0),
+        }),
+      ),
+    }),
+  ),
+});
+export type MailRejections = z.infer<typeof mailRejectionsSchema>;
+
 /** Risposta di `POST /api/me/mail/:source/:id/repropose`: nessun dato oltre l'esito. */
 export const mailReproposeResultSchema = z.object({ ok: z.literal(true) });
 export type MailReproposeResult = z.infer<typeof mailReproposeResultSchema>;

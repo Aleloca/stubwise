@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { readerSchema, UNKNOWN } from "../reader.js";
 import {
   calendarEventItemSchema,
   calendarSeriesItemSchema,
@@ -17,6 +18,8 @@ import {
   mailAdmissionPatchSchema,
   mailAdmissionSchema,
   mailItemSchema,
+  mailRejectionReasonSchema,
+  mailRejectionsSchema,
   mailOriginalSchema,
 } from "./google.js";
 
@@ -469,5 +472,63 @@ describe("mailThreadDetailSchema — le riproposizioni di un messaggio", () => {
       { source: "email", id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", projectName: "Apollo" },
       { source: "email_triage", id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd", projectName: null },
     ]);
+  });
+});
+
+describe("mailRejectionsSchema («le mail tenute fuori»)", () => {
+  const risposta = {
+    days: 7,
+    total: 14,
+    accounts: [
+      {
+        accountId: "11111111-1111-4111-8111-111111111111",
+        email: "io@acme.test",
+        total: 14,
+        reasons: [
+          {
+            reason: "automated",
+            count: 12,
+            domains: [
+              { domain: "github.com", count: 9 },
+              { domain: null, count: 1 },
+            ],
+            otherDomains: 2,
+          },
+          { reason: "no_match", count: 2, domains: [{ domain: "gmail.com", count: 2 }], otherDomains: 0 },
+        ],
+      },
+    ],
+  };
+
+  it("parsa una risposta completa", () => {
+    expect(mailRejectionsSchema.parse(risposta)).toEqual(risposta);
+  });
+
+  it("parsa la risposta vuota", () => {
+    expect(mailRejectionsSchema.parse({ days: 7, total: 0, accounts: [] })).toEqual({
+      days: 7,
+      total: 0,
+      accounts: [],
+    });
+  });
+
+  it("i motivi sono i tre scarti del cancello, non gli esiti di ammissione", () => {
+    expect(mailRejectionReasonSchema.options).toEqual(["automated", "denied_label", "no_match"]);
+    expect(mailRejectionReasonSchema.safeParse("workspace_domain").success).toBe(false);
+  });
+
+  it("readerSchema porta un motivo ignoto a UNKNOWN senza far fallire il parse", () => {
+    const conMotivoNuovo = {
+      ...risposta,
+      accounts: [
+        {
+          ...risposta.accounts[0]!,
+          reasons: [{ reason: "quarantined", count: 3, domains: [], otherDomains: 0 }],
+        },
+      ],
+    };
+    const parsed = readerSchema(mailRejectionsSchema).parse(conMotivoNuovo);
+    expect(parsed.accounts[0]?.reasons[0]?.reason).toBe(UNKNOWN);
+    expect(parsed.accounts[0]?.reasons[0]?.count).toBe(3);
   });
 });
