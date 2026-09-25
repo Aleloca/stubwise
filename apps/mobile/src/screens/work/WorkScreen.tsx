@@ -38,6 +38,7 @@ import { milestoneKeys } from "../../lib/query-keys";
 import { colors } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
 import { usePullToRefresh } from "../../components/PullToRefresh";
+import { KEYBOARD_AWARE_SCROLL_PROPS } from "../../lib/keyboard";
 
 /** Vedi `InboxScreen.tsx` per il perché di una costante invece di leggere `styles.body.paddingBottom`. */
 const CONTENT_BASE_BOTTOM_PADDING = 40;
@@ -194,9 +195,11 @@ export function WorkScreen({ navigation, route }: NativeStackScreenProps<Project
   return (
     <View style={styles.container}>
       <ScrollView
+        {...KEYBOARD_AWARE_SCROLL_PROPS}
         refreshControl={refreshControl}
         contentContainerStyle={[styles.body, { paddingBottom: CONTENT_BASE_BOTTOM_PADDING + tabBarHeight }]}
         stickyHeaderIndices={[0]}
+        testID="keyboard-aware-scroll"
       >
         {/* La chevron dell'indietro non si scrive più qui: la mette
             `ScreenHeader` per tutti (23 set 2026). Scritta a mano restava il
