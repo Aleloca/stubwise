@@ -165,3 +165,44 @@ notifiche o nell'onboarding, l'icona dell'app, il web.
 Solo app: nessun deploy, nessuna modifica al server. Nessuna dipendenza
 nativa nuova (le immagini sono asset di Metro). Le varianti Modern e le
 versioni 28×24 del design non servono qui.
+
+## §10 — Correzioni dopo la prova sul telefono (25 set 2026)
+
+Il maintainer ha provato la schermata completa e ha cambiato due cose.
+Questa sezione **vince** sui §2, §4 e §5 dove li contraddice.
+
+### La pagina: il gufo grande resta fisso
+
+- Il gufo grande (2×, 112×96) sta **fisso in testa per tutta la
+  conversazione**, sempre alla stessa misura, animato sulla fase, con sotto la
+  riga di stato. **Non si rimpicciolisce più** alla prima domanda: niente
+  `LayoutAnimation`. Scorrono solo i messaggi, sotto di lui.
+- **Nessun gufo sui messaggi.** Le risposte di Wisey si distinguono per la
+  bolla e per una piccola etichetta mono «WISEY» sopra il testo, come
+  «Wisey · risponde» nella 5b, senza il gufo.
+
+### La barra: il gufo segue lo stato, sempre
+
+Supera la regola del design originale «nella tab bar resta fermo»: decisione
+del maintainer.
+
+- L'icona della tab è **animata sulla stessa fase del gufo grande**: resting
+  respira, poi thinking, working, answering; listening mentre scrivi.
+- **«Done» resta finché non l'hai visto.** Se una risposta finisce mentre la
+  tab Wisey NON è a fuoco, sia il gufo della barra sia quello grande restano
+  in «done», con l'animazione a ciclo, finché non apri la tab Wisey. Quando la
+  apri, «done» fa un giro e poi si torna al riposo. Se la risposta finisce
+  mentre sei su Wisey, fa un giro e torna a riposo come oggi.
+- Per questo lo stato della conversazione esce dalla schermata e va in UNO
+  store condiviso (un context sopra il navigator). La schermata e l'icona
+  della barra lo leggono; la fase continua a essere `wiseyPhase(state)`, con
+  un campo nuovo `doneUnseen`.
+- **Riduzione del movimento**: anche l'icona della barra resta sul primo
+  fotogramma della fase.
+- Tecnica: la barra nativa non anima immagini, quindi cambiamo noi l'icona a
+  ogni fotogramma. Servono 4 fotogrammi per fase alla misura della tab
+  (variante morbida, tela 28×27 pt col margine di 3 pt), generati dallo
+  script. ⚠️ **Rischio da provare sul telefono**: «answering» cambia
+  fotogramma ogni 120 ms, e ogni cambio passa dalla barra nativa. Se sfarfalla
+  o scatta, l'icona della barra usa un passo minimo (per esempio 250 ms), in
+  una costante. Il gufo grande resta alla velocità del design.

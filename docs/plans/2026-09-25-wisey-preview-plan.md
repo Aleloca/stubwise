@@ -79,3 +79,29 @@ più vero (decisione del maintainer). Aggiorna quella frase: le schede sono
 INB/PRJ/WISEY/BLG/MBX, DOC è uscita e la documentazione si raggiunge
 dall'hub del progetto e dalla ricerca. E la frase «La ricerca dentro DOC
 resta» va riscritta sulla Docs del progetto. Nient'altro nel file.
+
+## Task 7 — Correzioni dopo la prova (design §10)
+
+1. **Store condiviso** (`WiseyProvider`, context sopra il navigator):
+   messaggi, stage, fuoco e testo del campo, `doneUnseen`, e i timer della
+   risposta finta. I timer oggi stanno nella schermata: spostali nel provider,
+   così una risposta prosegue e finisce anche fuori dalla tab. `wiseyPhase`
+   riceve `doneUnseen`. Se `doneUnseen` è vero la fase è «done» finché la tab
+   Wisey non va a fuoco; alla messa a fuoco fa un giro e torna a riposo. Test
+   puri su `wiseyPhase` e test del provider coi fake timer: risposta finita a
+   tab non a fuoco → resta done; messa a fuoco → done un giro, poi rest.
+2. **La pagina**: il gufo grande è fisso, senza `LayoutAnimation`, sempre 2×.
+   I messaggi di Wisey non hanno gufo, solo l'etichetta mono «WISEY». Aggiorna
+   i test: via quello «un solo sprite animato» coi gufi dei messaggi, e UN
+   solo sprite nella pagina.
+3. **La barra**:
+   - lo script genera 4 fotogrammi per fase per la tab, cioè 6 fasi × 4
+     fotogrammi, variante morbida con margine;
+   - l'icona della tab si legge dallo store e avanza sul ciclo della fase, con
+     un passo minimo `WISEY_TAB_MIN_FRAME_MS`, oggi 120 (cioè nessun limite:
+     si prova prima al vero ritmo);
+   - riduzione del movimento → primo fotogramma.
+   Test: l'icona passata alla barra nativa cambia coi fake timer e segue la
+   fase; resta ferma con la riduzione del movimento.
+4. Pusha e avvisami: prima di tutto va provato sul telefono se la barra
+   regge i cambi d'icona.
