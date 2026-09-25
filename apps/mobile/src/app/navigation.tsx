@@ -40,6 +40,7 @@ import { DocsPageScreen } from "../screens/docs/DocsPageScreen";
 import { DocsScreen } from "../screens/docs/DocsScreen";
 import { MailDetailScreen } from "../screens/mbx/MailDetailScreen";
 import { MbxScreen } from "../screens/mbx/MbxScreen";
+import { MailRejectionsScreen } from "../screens/mbx/MailRejectionsScreen";
 import { ThreadDetailScreen } from "../screens/mbx/ThreadDetailScreen";
 import { WorkScreen } from "../screens/work/WorkScreen";
 import { useUnreadCount } from "../lib/inbox-mutations";
@@ -224,6 +225,8 @@ export type MbxStackParamList = {
    * arriva dalla lista o da una notifica non ne ha bisogno.
    */
   ThreadDetail: { threadId: string; highlightMessageId?: string };
+  /** Le mail tenute fuori dal cancello, per motivo e dominio (25 set 2026). */
+  MailRejections: undefined;
 };
 
 export type MainTabParamList = {
@@ -351,6 +354,7 @@ function MbxNavigator() {
       <MbxStack.Screen name="List" component={MbxScreen} />
       <MbxStack.Screen name="MailDetail" component={MailDetailScreen} />
       <MbxStack.Screen name="ThreadDetail" component={ThreadDetailScreen} />
+      <MbxStack.Screen name="MailRejections" component={MailRejectionsScreen} />
     </MbxStack.Navigator>
   );
 }

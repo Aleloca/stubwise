@@ -930,6 +930,43 @@
           "title": "Nessuna conversazione qui",
           "body": "Entra solo la posta che Stubwise riconosce come lavoro dalla tua casella Google — le regole di smistamento si configurano dal sito."
         }
+      },
+      "rejections": {
+        "row_one": "{{count}} email tenuta fuori negli ultimi {{days}} giorni",
+        "row_other": "{{count}} email tenute fuori negli ultimi {{days}} giorni",
+        "title": "Tenute fuori",
+        "back": "Posta",
+        "intro": "Email arrivate negli ultimi {{days}} giorni che Stubwise non ha fatto entrare. Si contano, non si conservano: qui ci sono solo il motivo e il dominio di chi scrive.",
+        "reasons": {
+          "automated": {
+            "title": "Automatiche",
+            "body": "Notifiche, newsletter e risposte automatiche."
+          },
+          "denied_label": {
+            "title": "Etichetta esclusa",
+            "body": "Promozioni, social e spam, come impostato in Impostazioni → Google."
+          },
+          "no_match": {
+            "title": "Nessuna regola",
+            "body": "Non arrivano dal tuo Workspace e nessuna regola di progetto nomina il mittente."
+          },
+          "unknown": {
+            "title": "Altro"
+          }
+        },
+        "count_one": "{{count}} email",
+        "count_other": "{{count}} email",
+        "unknownDomain": "mittente non leggibile",
+        "otherDomains_one": "+{{count}} da altri domini",
+        "otherDomains_other": "+{{count}} da altri domini",
+        "empty": {
+          "title": "Nessuna email tenuta fuori",
+          "body": "Negli ultimi {{days}} giorni tutto quello che è arrivato è entrato, o non è arrivato niente."
+        },
+        "loadError": {
+          "title": "Non riesco a caricare le email tenute fuori.",
+          "retry": "Riprova"
+        }
       }
     },
     "calendar": {

@@ -1,4 +1,4 @@
-import type { StubwiseClient } from "@stubwise/api-client";
+import { ApiError, type StubwiseClient } from "@stubwise/api-client";
 import type { MailPage, MailThreadItem, Reader } from "@stubwise/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
@@ -13,7 +13,13 @@ function page(items: never[] = []): Reader<MailPage> {
 }
 
 function makeClient(
-  overrides: { list?: jest.Mock; repropose?: jest.Mock; range?: jest.Mock; threads?: jest.Mock } = {},
+  overrides: {
+    list?: jest.Mock;
+    repropose?: jest.Mock;
+    range?: jest.Mock;
+    threads?: jest.Mock;
+    rejections?: jest.Mock;
+  } = {},
 ): StubwiseClient {
   return {
     mail: {
@@ -21,6 +27,9 @@ function makeClient(
       threads: overrides.threads ?? jest.fn().mockResolvedValue({ items: [], nextCursor: null }),
       thread: jest.fn(),
       summary: jest.fn(),
+      // Nessuno scarto di default: la riga «tenute fuori» non compare, e i
+      // test che non la riguardano vedono la schermata di sempre.
+      rejections: overrides.rejections ?? jest.fn().mockResolvedValue({ days: 7, total: 0, accounts: [] }),
       get: jest.fn(),
       original: jest.fn(),
       repropose: overrides.repropose ?? jest.fn().mockResolvedValue({ ok: true }),
@@ -156,5 +165,94 @@ describe("MbxScreen — la lista per conversazione", () => {
     await waitFor(() => expect(screen.getByTestId("mbx-thread-row-thread-1")).toBeTruthy());
     await fireEvent.press(screen.getByTestId("mbx-thread-row-thread-1"));
     expect(navigate).toHaveBeenCalledWith("ThreadDetail", { threadId: "thread-1" });
+  });
+});
+
+/**
+ * LE MAIL TENUTE FUORI (25 set 2026): una riga in fondo alla Posta, che porta
+ * alla schermata dei motivi. È una lettura ACCESSORIA: se fallisce o non c'è
+ * niente da dire, la riga non compare e la lista resta intera.
+ */
+describe("MbxScreen — la riga delle mail tenute fuori", () => {
+  function rejections(total: number) {
+    return jest.fn().mockResolvedValue({
+      days: 7,
+      total,
+      accounts:
+        total === 0
+          ? []
+          : [
+              {
+                accountId: "acc-1",
+                email: "ops@example.com",
+                total,
+                reasons: [{ reason: "automated", count: total, domains: [], otherDomains: 0 }],
+              },
+            ],
+    });
+  }
+
+  const oneThread = {
+    items: [
+      {
+        threadId: "thread-1",
+        accountId: "acc-1",
+        accountEmail: "ops@example.com",
+        subject: "Re: Reso ordine #123",
+        lastFrom: "cliente@example.com",
+        lastReceivedAt: "2026-09-11T09:00:00.000Z",
+        messageCount: 1,
+        openProposals: 0,
+        projectNames: [],
+      },
+    ],
+    nextCursor: null,
+  };
+
+  test("sotto la lista, col totale e il periodo, e chiede 7 giorni", async () => {
+    const reject = rejections(335);
+    await renderScreen(makeClient({ threads: jest.fn().mockResolvedValue(oneThread), rejections: reject }));
+    await waitFor(() => expect(screen.getByTestId("mbx-rejections-row")).toBeTruthy());
+    expect(screen.getByText("335 email tenute fuori negli ultimi 7 giorni")).toBeTruthy();
+    expect(screen.getByTestId("mbx-thread-row-thread-1")).toBeTruthy();
+    expect(reject).toHaveBeenCalledWith(7);
+  });
+
+  test("anche quando la lista è VUOTA: è proprio lì che serve", async () => {
+    await renderScreen(makeClient({ rejections: rejections(3) }));
+    await waitFor(() => expect(screen.getByTestId("mbx-rejections-row")).toBeTruthy());
+    expect(screen.getByTestId("mbx-mail-empty")).toBeTruthy();
+  });
+
+  test("totale zero: la riga non compare", async () => {
+    const reject = rejections(0);
+    await renderScreen(makeClient({ threads: jest.fn().mockResolvedValue(oneThread), rejections: reject }));
+    await waitFor(() => expect(screen.getByTestId("mbx-thread-row-thread-1")).toBeTruthy());
+    await waitFor(() => expect(reject).toHaveBeenCalled());
+    expect(screen.queryByTestId("mbx-rejections-row")).toBeNull();
+  });
+
+  test("server vecchio (404): la riga non compare e la lista resta", async () => {
+    const reject = jest.fn().mockRejectedValue(new ApiError(404, "Not found", "not_found"));
+    await renderScreen(makeClient({ threads: jest.fn().mockResolvedValue(oneThread), rejections: reject }));
+    await waitFor(() => expect(screen.getByTestId("mbx-thread-row-thread-1")).toBeTruthy());
+    await waitFor(() => expect(reject).toHaveBeenCalled());
+    expect(screen.queryByTestId("mbx-rejections-row")).toBeNull();
+    expect(screen.queryByTestId("mbx-mail-error")).toBeNull();
+  });
+
+  test("nel Calendario non c'è: riguarda la posta", async () => {
+    await renderScreen(makeClient({ rejections: rejections(3) }));
+    await waitFor(() => expect(screen.getByTestId("mbx-rejections-row")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("mbx-tab-calendar"));
+    await waitFor(() => expect(screen.getByTestId("calendar-panel")).toBeTruthy());
+    expect(screen.queryByTestId("mbx-rejections-row")).toBeNull();
+  });
+
+  test("un tap apre la schermata delle tenute fuori", async () => {
+    const { navigate } = await renderScreen(makeClient({ rejections: rejections(3) }));
+    await waitFor(() => expect(screen.getByTestId("mbx-rejections-row")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("mbx-rejections-row"));
+    expect(navigate).toHaveBeenCalledWith("MailRejections");
   });
 });

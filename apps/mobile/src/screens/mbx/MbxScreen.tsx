@@ -11,7 +11,7 @@ import { PulseIndicator } from "../../components/PulseIndicator";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { Skeleton } from "../../components/Skeleton";
 import { relativeTimeCompact } from "../../lib/format";
-import { useMailThreads } from "../../lib/mail-mutations";
+import { useMailRejections, useMailThreads } from "../../lib/mail-mutations";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
 import { usePullToRefresh } from "../../components/PullToRefresh";
@@ -71,6 +71,10 @@ export function MbxScreen({ navigation, route }: NativeStackScreenProps<MbxStack
   // messaggio. Il filtro `source=email` non serve più — questa rotta è già
   // solo posta, e il calendario ha la sua scheda qui accanto.
   const query = useMailThreads();
+  // Lettura ACCESSORIA (25 set 2026): fuori dai gate della lista, così un suo
+  // guasto — un server che la rotta non ce l'ha, per esempio — non costa la
+  // Posta. Vedi `RejectionsRow`.
+  const rejections = useMailRejections();
 
   const refreshControl = usePullToRefresh([mailKeys.all, calendarKeys.all], "mbx-refresh");
 
@@ -135,8 +139,35 @@ export function MbxScreen({ navigation, route }: NativeStackScreenProps<MbxStack
             ))}
           </View>
         )}
+
+        {tab === "mail" && (rejections.data?.total ?? 0) > 0 && (
+          <RejectionsRow
+            total={rejections.data!.total}
+            days={rejections.data!.days}
+            onPress={() => navigation.navigate("MailRejections")}
+          />
+        )}
       </ScrollView>
     </View>
+  );
+}
+
+/**
+ * LE MAIL TENUTE FUORI (25 set 2026, design §5): una riga in fondo alla Posta
+ * che dice quante email il cancello ha scartato e porta ai motivi.
+ *
+ * Compare anche con la lista VUOTA, ed è proprio lì che serve: «non vedo
+ * posta — è stata tenuta fuori?». Non compare quando non c'è niente da dire
+ * (totale zero) né quando la lettura non riesce: è un'informazione in più,
+ * non una parte della Posta, e un suo guasto non deve farsi vedere.
+ */
+function RejectionsRow({ total, days, onPress }: { total: number; days: number; onPress: () => void }) {
+  const { t } = useTranslation();
+  return (
+    <Pressable accessibilityRole="button" onPress={onPress} style={styles.rejectionsRow} testID="mbx-rejections-row">
+      <Text style={styles.rejectionsText}>{t("mobile.mbx.rejections.row", { count: total, days })}</Text>
+      <Text style={styles.rejectionsChevron}>›</Text>
+    </Pressable>
   );
 }
 
@@ -294,6 +325,29 @@ const styles = StyleSheet.create({
     color: colors.faint,
     fontFamily: fontFamily.mono,
     fontSize: fontSize.label,
+  },
+  rejectionsRow: {
+    alignItems: "center",
+    borderColor: colors.line,
+    borderRadius: radii.control,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 8,
+    justifyContent: "space-between",
+    marginTop: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  rejectionsText: {
+    color: colors.muted,
+    flexShrink: 1,
+    fontFamily: fontFamily.sans,
+    fontSize: 13,
+  },
+  rejectionsChevron: {
+    color: colors.faint,
+    fontFamily: fontFamily.mono,
+    fontSize: 16,
   },
   rowProject: {
     color: colors.faint,

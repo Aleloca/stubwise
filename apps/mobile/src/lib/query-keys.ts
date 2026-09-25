@@ -155,6 +155,12 @@ export const mailKeys = {
   /** La lista per CONVERSAZIONE, distinta da quella per messaggio. */
   threads: () => [...mailKeys.all, "threads"] as const,
   thread: (threadId: string) => [...mailKeys.all, "thread", threadId] as const,
+  /**
+   * Le mail tenute fuori dal cancello (25 set 2026). Sotto `all` apposta: il
+   * pull-to-refresh della Posta e ogni invalidazione della posta la prendono
+   * senza saperne niente.
+   */
+  rejections: (days: number) => [...mailKeys.all, "rejections", days] as const,
 };
 
 /**
