@@ -63,3 +63,12 @@ risposta; UN solo sprite animato nella schermata.
 
 `pnpm lint`, typecheck e test dell'app. Build Release su device dopo il Task 1
 e alla fine (è il maintainer che prova: tu pusha e avvisa).
+
+## Task 6 — CLAUDE.md
+
+In «Nell'app la ricerca è un'AZIONE…» c'è scritto che le cinque schede
+INB/PRJ/BLG/DOC/MBX «sono decise per tutte le fasi»: dal 25 set 2026 non è
+più vero (decisione del maintainer). Aggiorna quella frase: le schede sono
+INB/PRJ/WISEY/BLG/MBX, DOC è uscita e la documentazione si raggiunge
+dall'hub del progetto e dalla ricerca. E la frase «La ricerca dentro DOC
+resta» va riscritta sulla Docs del progetto. Nient'altro nel file.
