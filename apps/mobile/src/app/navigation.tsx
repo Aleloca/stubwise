@@ -42,6 +42,7 @@ import { MbxScreen } from "../screens/mbx/MbxScreen";
 import { MailRejectionsScreen } from "../screens/mbx/MailRejectionsScreen";
 import { ThreadDetailScreen } from "../screens/mbx/ThreadDetailScreen";
 import { WiseyScreen } from "../screens/wisey/WiseyScreen";
+import { WiseyProvider } from "../components/wisey/WiseyProvider";
 // Il gufo della tab: un'IMMAGINE a colori, non un SF Symbol. Quale variante
 // lo decide `wisey-tab-icon.ts`, in un posto solo.
 import { WISEY_TAB_ICON } from "./wisey-tab-icon";
@@ -380,6 +381,20 @@ function nativeTabIcon(
 }
 
 /**
+ * L'area autenticata: le schede, dentro lo store di Wisey (design §10). Il
+ * provider sta SOPRA il navigatore delle schede perché lo leggono sia la
+ * pagina Wisey sia la sua icona nella barra, che `MainTabs` disegna — e un
+ * componente non legge il contesto che rende lui stesso.
+ */
+function MainNavigator() {
+  return (
+    <WiseyProvider>
+      <MainTabs />
+    </WiseyProvider>
+  );
+}
+
+/**
  * Monta l'app "vera" (autenticata). Al primo render consuma un eventuale
  * deep link rimasto in sospeso da prima del login (vedi
  * `linking.ts`): `Main` è il primo posto in cui gli screen di destinazione
@@ -387,7 +402,7 @@ function nativeTabIcon(
  * `Mbx/List` col giorno del calendario) esistono davvero nell'albero, quindi
  * è anche il primo momento in cui si può navigarci.
  */
-function MainNavigator() {
+function MainTabs() {
   // Tipizzato sul RootStack (l'ANTENATO di questo componente: `MainNavigator`
   // è il `component` dello screen "Main" del RootStack, non un discendente
   // del proprio `Tab.Navigator`, che ritorna qui sotto): `.navigate("Main",

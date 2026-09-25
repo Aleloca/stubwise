@@ -1,6 +1,5 @@
-import { NavigationContext } from "@react-navigation/native";
-import { useContext, useEffect, useState } from "react";
-import { AccessibilityInfo, Image, type ImageSourcePropType, StyleSheet, View } from "react-native";
+import { useEffect, useState } from "react";
+import { Image, type ImageSourcePropType, StyleSheet, View } from "react-native";
 import gufoAscolta from "../../../assets/wisey/gufo-ascolta.png";
 import gufoAscoltaLarge from "../../../assets/wisey/gufo-ascolta-large.png";
 import gufoFatto from "../../../assets/wisey/gufo-fatto.png";
@@ -13,6 +12,8 @@ import gufoPensa from "../../../assets/wisey/gufo-pensa.png";
 import gufoPensaLarge from "../../../assets/wisey/gufo-pensa-large.png";
 import gufoRiposo from "../../../assets/wisey/gufo-riposo.png";
 import gufoRiposoLarge from "../../../assets/wisey/gufo-riposo-large.png";
+import { useReduceMotion } from "../../lib/use-reduce-motion";
+import { useScreenFocused } from "../../lib/use-screen-focused";
 import { WISEY_CYCLE_MS, type WiseyPhase } from "../../lib/wisey-phase";
 
 const FRAMES = 4;
@@ -37,44 +38,6 @@ const SPRITES: Record<WiseyPhase, { small: ImageSourcePropType; large: ImageSour
   speak: { small: gufoParla, large: gufoParlaLarge },
   done: { small: gufoFatto, large: gufoFattoLarge },
 };
-
-/**
- * La schermata è a fuoco? Letta dal `NavigationContext` e non con
- * `useIsFocused`, che lancia fuori da un navigatore: fuori da un navigatore
- * (un test, un'anteprima) lo sprite si considera a fuoco.
- */
-function useScreenFocused(): boolean {
-  const navigation = useContext(NavigationContext);
-  const [focused, setFocused] = useState(() => navigation?.isFocused() ?? true);
-  useEffect(() => {
-    if (!navigation) return undefined;
-    setFocused(navigation.isFocused());
-    const offFocus = navigation.addListener("focus", () => setFocused(true));
-    const offBlur = navigation.addListener("blur", () => setFocused(false));
-    return () => {
-      offFocus();
-      offBlur();
-    };
-  }, [navigation]);
-  return focused;
-}
-
-/** La riduzione del movimento di sistema: letta all'avvio e seguita nei cambi. */
-function useReduceMotion(): boolean {
-  const [reduce, setReduce] = useState(false);
-  useEffect(() => {
-    let alive = true;
-    void AccessibilityInfo.isReduceMotionEnabled().then((value) => {
-      if (alive) setReduce(value);
-    });
-    const subscription = AccessibilityInfo.addEventListener("reduceMotionChanged", setReduce);
-    return () => {
-      alive = false;
-      subscription?.remove();
-    };
-  }, []);
-  return reduce;
-}
 
 /**
  * IL GUFO («Wisey, anteprima nell'app», 25 set 2026, design §7): quattro

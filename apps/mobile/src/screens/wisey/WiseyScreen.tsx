@@ -1,12 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { LayoutAnimation, Pressable, ScrollView, type ScrollViewInstance, StyleSheet, Text, TextInput, View } from "react-native";
+import { Pressable, ScrollView, type ScrollViewInstance, StyleSheet, Text, TextInput, View } from "react-native";
 import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { TabScreenKeyboardAvoider } from "../../components/TabScreenKeyboardAvoider";
+import { useWisey } from "../../components/wisey/WiseyProvider";
 import { WiseySprite } from "../../components/wisey/WiseySprite";
-import { mockReply } from "../../lib/wisey-mock";
-import { WISEY_STAGE_MS, WISEY_WORD_MS, wiseyPhase, type WiseyStage } from "../../lib/wisey-phase";
+import { useScreenFocused } from "../../lib/use-screen-focused";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily } from "../../theme/typography";
 
@@ -19,11 +19,6 @@ const SUGGESTION_KEYS = [
   "mobile.wisey.suggestions.status",
 ] as const;
 
-interface Message {
-  role: "user" | "wisey";
-  text: string;
-}
-
 /**
  * WISEY («Wisey, anteprima nell'app», 25 set 2026, design §4-§6): l'agente
  * con cui si parlerà a tutta l'istanza. Questa è l'ANTEPRIMA — il posto
@@ -35,82 +30,32 @@ interface Message {
  * non uno scatto: `LayoutAnimation`), con sotto la riga di stato; i messaggi;
  * il campo in fondo, sopra la tastiera.
  *
- * ⚠️ La FASE del gufo non si sceglie qui: la decide `wiseyPhase` dallo stato
- * (lo `stage` della risposta, il fuoco e il testo del campo). Questa
- * schermata fa avanzare lo stage a tempo; quando Wisey parlerà con un job
- * vero, cambierà chi lo fa avanzare, non le regole.
+ * ⚠️ Lo STATO non vive qui: sta in `WiseyProvider`, sopra il navigator, che
+ * lo condivide con l'icona della barra e fa avanzare la risposta anche fuori
+ * dalla tab (design §10). Questa schermata lo legge, e gli dice quando la tab
+ * è a fuoco — è ciò che decide se un «fatto» è stato visto.
  *
  * ⚠️ UN solo gufo animato: quello in testa. I gufi accanto alle risposte
  * restano fermi al primo fotogramma (regola del design).
  *
- * La conversazione vive nello stato del componente: le schede restano
- * montate, quindi sopravvive al cambio di tab e sparisce alla chiusura
- * dell'app.
+ * La conversazione sopravvive al cambio di tab e sparisce alla chiusura
+ * dell'app (o al logout, che smonta il provider).
  */
 export function WiseyScreen() {
   const { t } = useTranslation();
   const tabBarHeight = useBottomTabBarHeight();
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [stage, setStage] = useState<WiseyStage>("idle");
-  const [draft, setDraft] = useState("");
-  const [inputFocused, setInputFocused] = useState(false);
-  const [shownWords, setShownWords] = useState(0);
-  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const wisey = useWisey();
+  const { messages, phase, draft, canSend, setDraft, setInputFocused, send, setTabFocused } = wisey;
+  const focused = useScreenFocused();
   const scroll = useRef<ScrollViewInstance>(null);
 
-  // Nessun timer sopravvive alla schermata.
-  useEffect(
-    () => () => {
-      for (const timer of timers.current) clearTimeout(timer);
-    },
-    [],
-  );
-
-  function later(ms: number, run: () => void) {
-    timers.current.push(setTimeout(run, ms));
-  }
-
-  const busy = stage !== "idle";
-  const canSend = draft.trim().length > 0 && !busy;
-  const phase = wiseyPhase({ stage, inputFocused, hasText: draft.length > 0 });
-
-  function answer(text: string) {
-    const words = text.split(" ");
-    setMessages((current) => [...current, { role: "wisey", text }]);
-    setShownWords(1);
-    setStage("answering");
-    // A scatti, a tempo col becco: una parola per fotogramma di «ti risponde».
-    for (let index = 2; index <= words.length; index += 1) {
-      later(WISEY_WORD_MS * (index - 1), () => setShownWords(index));
-    }
-    later(WISEY_WORD_MS * words.length, () => {
-      setStage("done");
-      // «Fatto» fa un giro solo, poi il gufo torna a riposo.
-      later(WISEY_STAGE_MS.done, () => setStage("idle"));
-    });
-  }
-
-  function send(question: string) {
-    const text = question.trim();
-    if (text.length === 0 || busy) return;
-    if (messages.length === 0) LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setMessages((current) => [...current, { role: "user", text }]);
-    setDraft("");
-    setStage("thinking");
-    const reply = mockReply(text);
-    const replyText = t(reply.textKey);
-    later(WISEY_STAGE_MS.thinking, () => {
-      if (reply.kind === "action") {
-        setStage("working");
-        later(WISEY_STAGE_MS.working, () => answer(replyText));
-      } else {
-        answer(replyText);
-      }
-    });
-  }
+  // La tab a fuoco è ciò che rende «visto» un «fatto» arrivato mentre si era
+  // altrove: lo store lo deve sapere.
+  useEffect(() => {
+    setTabFocused(focused);
+  }, [focused, setTabFocused]);
 
   const started = messages.length > 0;
-  const lastIndex = messages.length - 1;
 
   return (
     <TabScreenKeyboardAvoider style={styles.container}>
@@ -150,10 +95,7 @@ export function WiseyScreen() {
         )}
 
         {messages.map((message, index) => {
-          const text =
-            message.role === "wisey" && index === lastIndex && stage === "answering"
-              ? message.text.split(" ").slice(0, shownWords).join(" ")
-              : message.text;
+          const text = wisey.visibleText(index);
           return message.role === "user" ? (
             <View key={index} style={[styles.bubble, styles.bubbleUser]} testID={`wisey-message-user-${index}`}>
               <Text style={styles.bubbleText} testID={`wisey-message-text-${index}`}>

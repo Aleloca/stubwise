@@ -23,13 +23,21 @@ export interface WiseyState {
   inputFocused: boolean;
   /** Nel campo c'è già qualcosa di scritto. */
   hasText: boolean;
+  /**
+   * Una risposta è finita mentre la tab Wisey NON era a fuoco, e nessuno
+   * l'ha ancora vista (design §10): il gufo resta su «fatto», nella barra e
+   * nella pagina, finché la tab non va a fuoco.
+   */
+  doneUnseen: boolean;
 }
 
 /**
- * La tabella del design §5. Fuori dal riposo il campo non conta: mentre
- * Wisey lavora il gufo dice cosa fa LUI, non cosa fa chi scrive.
+ * La tabella del design §5, più il §10: una risposta non ancora vista vince
+ * su tutto. Fuori dal riposo il campo non conta: mentre Wisey lavora il gufo
+ * dice cosa fa LUI, non cosa fa chi scrive.
  */
 export function wiseyPhase(state: WiseyState): WiseyPhase {
+  if (state.doneUnseen) return "done";
   switch (state.stage) {
     case "thinking":
       return "think";

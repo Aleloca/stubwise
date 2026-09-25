@@ -6,6 +6,7 @@ import { AuthContext } from "../../app/auth-context";
 import type { AuthContextValue } from "../../app/providers";
 import "../../i18n";
 import { WISEY_STAGE_MS, WISEY_WORD_MS } from "../../lib/wisey-phase";
+import { WiseyProvider } from "../../components/wisey/WiseyProvider";
 import { WiseyScreen } from "./WiseyScreen";
 
 /**
@@ -32,7 +33,9 @@ async function renderScreen() {
   await render(
     <QueryClientProvider client={queryClient}>
       <AuthContext.Provider value={authValue}>
-        <WiseyScreen />
+        <WiseyProvider>
+          <WiseyScreen />
+        </WiseyProvider>
       </AuthContext.Provider>
     </QueryClientProvider>,
   );
