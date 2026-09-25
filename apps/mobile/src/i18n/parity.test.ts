@@ -41,3 +41,21 @@ test("nessuna stringa vuota nei due cataloghi", () => {
   });
   expect({ emptyIt, emptyEn }).toEqual({ emptyIt: [], emptyEn: [] });
 });
+
+/**
+ * Le etichette di ritorno (`….back`) finiscono in `ScreenHeader`, che ci
+ * mette davanti la sua «‹». Una freccia già nella traduzione diventava
+ * «‹ ← Mail» (25 set 2026, dettaglio di una conversazione).
+ */
+test("nessuna etichetta di ritorno porta già una freccia", () => {
+  const withArrow = [it, en].flatMap((catalog) =>
+    leafPaths(catalog)
+      .filter((path) => path.endsWith(".back"))
+      .filter((path) => {
+        const value = path.split(".").reduce<unknown>((acc, key) => (acc as Record<string, unknown>)?.[key], catalog);
+        return typeof value === "string" && /^\s*[←‹<]/.test(value);
+      }),
+  );
+
+  expect(withArrow).toEqual([]);
+});

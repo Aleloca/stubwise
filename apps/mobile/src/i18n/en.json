@@ -897,7 +897,7 @@
         "reproposeSuccess": "Back in the queue."
       },
       "detail": {
-        "back": "← Mail",
+        "back": "Mail",
         "loadError": {
           "title": "I can't load this message.",
           "retry": "Retry"
