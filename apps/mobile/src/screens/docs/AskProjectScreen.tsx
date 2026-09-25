@@ -10,6 +10,7 @@ import { ScreenHeader } from "../../components/ScreenHeader";
 import { useAskProjectChat } from "../../lib/docs-mutations";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
+import { TabScreenKeyboardAvoider } from "../../components/TabScreenKeyboardAvoider";
 
 /** Vedi `InboxScreen.tsx` per il perché di una costante invece di leggere `styles.composer.paddingBottom`. */
 const COMPOSER_BASE_BOTTOM_PADDING = 40;
@@ -104,7 +105,7 @@ export function AskProjectScreen({ navigation, route }: NativeStackScreenProps<D
   // NON serve `stickyHeaderIndices`: l'header è già fisso, fratello dello
   // `ScrollView` dei messaggi — non ci scorre mai via da solo.
   return (
-    <View style={styles.container}>
+    <TabScreenKeyboardAvoider style={styles.container}>
       <ScreenHeader
         title={t("mobile.docs.ask.sectionLabel")}
         subtitle={projectName}
@@ -176,7 +177,7 @@ export function AskProjectScreen({ navigation, route }: NativeStackScreenProps<D
           <Text style={styles.sendButtonLabel}>↑</Text>
         </Pressable>
       </View>
-    </View>
+    </TabScreenKeyboardAvoider>
   );
 }
 
