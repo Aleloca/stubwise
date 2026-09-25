@@ -2113,8 +2113,12 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
 - **Nell'app la ricerca è un'AZIONE, non una destinazione — e i repository
   non ci sono (15 set 2026, design §3).** Vive in `ScreenHeader`, quindi è
   raggiungibile da ogni schermata che lo usa, e **non** aggiunge una sesta
-  scheda: le cinque (INB/PRJ/BLG/DOC/MBX) sono decise per tutte le fasi
-  (`docs/plans/2026-09-11-app-navigation-architecture-design.md`). Il foglio
+  scheda: le cinque sono INB/PRJ/WISEY/BLG/MBX. Erano INB/PRJ/BLG/DOC/MBX,
+  «decise per tutte le fasi»
+  (`docs/plans/2026-09-11-app-navigation-architecture-design.md`), finché il
+  25 set 2026 il maintainer ha deciso altrimenti: DOC è uscita per far posto
+  a Wisey al centro, e la documentazione si raggiunge dall'hub del progetto e
+  dalla ricerca («Wisey, anteprima nell'app» §3). Il foglio
   è montato SOLO quando è aperto, e non per performance: usa
   `useNavigation`, e tenerlo montato significherebbe un `Modal` e un hook di
   navigazione su ogni schermata dell'app, sempre.
@@ -2125,9 +2129,14 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   `EventRow` in `CalendarPanel`). Chi aggiungesse quella schermata aggiunga
   anche il gruppo; chi aggiunge il gruppo prima della schermata sta
   offrendo un tap che non fa niente.
-  La ricerca dentro DOC **resta** ed è un'altra cosa: filtra QUELLA
-  documentazione (passa `repositoryId`), e la copy lo dice («Cerca in questa
-  documentazione…») proprio perché non sembri la globale.
+  La ricerca dentro DOC **non c'è più**, ed è una perdita da conoscere: era
+  un'altra cosa dalla globale, filtrava QUELLA documentazione (passava
+  `repositoryId`), ed è uscita col tab il 25 set 2026. La documentazione di
+  un progetto si SFOGLIA dalla sua pagina Docs nell'hub
+  (`ProjectDocsScreen`, che non ha una ricerca sua) e si CERCA dalla ricerca
+  globale, il cui gruppo `docs` apre la pagina dentro la scheda Progetti.
+  Chi volesse riavere la ricerca per spazio la metta in `ProjectDocsScreen`,
+  non in un tab.
 - **⚠️ Nei test dell'app `render` di `@testing-library/react-native` si
   ASPETTA** (`await render(...)`), come fa ogni test di questo repo. Non è
   cosmetica: con React 19 un `render` non atteso torna un oggetto SENZA
