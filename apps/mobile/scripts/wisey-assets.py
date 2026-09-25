@@ -22,35 +22,18 @@ Nessun fattore è intero (0,75×, 1,5×, 2,25×), quindi si fa come la variante
 (b) della tab, scelta dal maintainer: NEAREST a 3× (intero, senza perdita) e
 poi LANCZOS alla misura, fotogramma per fotogramma — ridurre la striscia
 intera mescolerebbe i bordi di due fotogrammi vicini.
-  wisey-tab-<fase>-<n>[@2x/@3x].png  l'icona della tab: 4 fotogrammi per fase
+  wisey-tab-empty[@2x/@3x].png    l'icona della tab NATIVA di Wisey: trasparente
 
-L'ICONA SI ANIMA (25 set 2026, design §10): la barra nativa non anima
-immagini, quindi l'app le cambia l'icona a ogni fotogramma, sulla stessa fase
-del gufo grande. Ogni fotogramma di ogni fase diventa un'icona a sé, fatta
-come quella che segue — la tela, la variante morbida, il margine.
+LA TAB NATIVA È TRASPARENTE (25 set 2026, design §11): Wisey nella barra è
+ora il cerchio nostro che sporge sopra, col gufo del cerchio qui sopra. La
+tab nativa resta (le altre quattro tengono il loro posto), con un'icona che
+non disegna niente, alla misura di un'icona di tab.
 
-L'ICONA DELLA TAB (25 set 2026, dopo due prove sul telefono): all'inizio era
-il solo PRIMO fotogramma di `gufo-riposo.png` — il gufo Classic della 5a, 56×48 — e non
-`owl-minimal.png`, che il maintainer ha scartato. Nella barra il gufo sta a
-28×24 pt, cioè a METÀ del disegno:
-
-  @2x = 56×48 px  → il fotogramma 1:1, nessuna scala, perfetto;
-  @3x = 84×72 px  → 1,5 pixel per pixel del disegno: NON intero.
-
-Con un fattore non intero nessuna scala è perfetta. Ne sono state provate
-due sul telefono: NEAREST a 1,5× (pixel netti ma irregolari: metà dei pixel
-del disegno diventano 1 px e metà 2 px, e le linee sottili raddoppiano o
-spariscono a seconda della posizione) e quella tenuta, scelta dal
-maintainer: NEAREST a 3× (168×144, intero, nessuna perdita) e poi LANCZOS a
-84×72 — forme fedeli, bordi un poco morbidi. Il 1× (28×24, schermi a
-densità 1, in pratica solo Android) è una riduzione LANCZOS: a metà misura
-nessuna scala nearest tiene il disegno.
-
-IL MARGINE SOTTO: nel fotogramma il gufo occupa (2,2)-(54,47), cioè arriva a
-1 px dal bordo inferiore, mentre gli SF Symbol delle altre tab hanno aria
-intorno — sul telefono il gufo toccava la scritta «WISEY». La tela è quindi
-più ALTA del gufo di `TAB_BOTTOM_MARGIN_PT`, trasparente, col gufo in alto e
-alla sua misura: si aggiunge spazio, non si rimpicciolisce il disegno.
+Prima (design §10) l'icona nativa era il gufo stesso, animato cambiandole
+immagine a ogni fotogramma: 4 fotogrammi per fase, 28×24 pt più 3 pt di
+margine, variante morbida a @3x — scelta al telefono fra una NEAREST a 1,5×
+(netta ma irregolare) e NEAREST a 3× poi LANCZOS (fedele). Quel meccanismo è
+stato tolto col §11; la riduzione morbida vive nel gufo del cerchio.
 
 Rieseguibile: riscrive solo i file generati.
 Uso: python3 apps/mobile/scripts/wisey-assets.py
@@ -64,8 +47,6 @@ PHASES = ["riposo", "ascolta", "pensa", "lavora", "parla", "fatto"]
 # Il gufo dentro il cerchio sopra la barra, in punti per fotogramma (vedi il docblock).
 BUTTON_FRAME_PT = (42, 36)
 
-# Spazio trasparente sotto il gufo della tab, in punti (vedi il docblock).
-TAB_BOTTOM_MARGIN_PT = 3
 
 
 def scaled(source: Image.Image, factor: int) -> Image.Image:
@@ -87,7 +68,7 @@ def main() -> None:
         write(source, f"gufo-{phase}", 1)
         write(source, f"gufo-{phase}-large", 2)
         write_button_sprite(source, f"gufo-{phase}-button")
-    write_tab_icons()
+    write_empty_tab_icon()
 
 
 def write_button_sprite(strip: Image.Image, stem: str) -> None:
@@ -102,26 +83,12 @@ def write_button_sprite(strip: Image.Image, stem: str) -> None:
         out.save(ASSETS / f"{stem}{suffix}.png", optimize=True)
 
 
-def write_tab_icons() -> None:
-    """Le icone della tab: 4 fotogrammi per fase, 28×24 pt più il margine (vedi il docblock)."""
-    for phase in PHASES:
-        strip = Image.open(ASSETS / f"gufo-{phase}.png").convert("RGBA")
-        for index in range(4):
-            write_tab_icon(strip.crop((56 * index, 0, 56 * (index + 1), 48)), f"wisey-tab-{phase}-{index}")
-
-
-def write_tab_icon(frame: Image.Image, stem: str) -> None:
-    """UN fotogramma 56×48 come icona della tab, alle tre densità."""
-    owls = {
-        1: frame.resize((28, 24), Image.LANCZOS),
-        2: frame,
-        3: frame.resize((168, 144), Image.NEAREST).resize((84, 72), Image.LANCZOS),
-    }
-    for density, owl in owls.items():
-        canvas = Image.new("RGBA", (28 * density, (24 + TAB_BOTTOM_MARGIN_PT) * density), (0, 0, 0, 0))
-        canvas.paste(owl, (0, 0))
-        suffix = "" if density == 1 else f"@{density}x"
-        canvas.save(ASSETS / f"{stem}{suffix}.png", optimize=True)
+def write_empty_tab_icon() -> None:
+    """L'icona trasparente della tab nativa: 28×24 pt, nessun pixel visibile."""
+    for density, suffix in ((1, ""), (2, "@2x"), (3, "@3x")):
+        Image.new("RGBA", (28 * density, 24 * density), (0, 0, 0, 0)).save(
+            ASSETS / f"wisey-tab-empty{suffix}.png", optimize=True
+        )
 
 if __name__ == "__main__":
     main()

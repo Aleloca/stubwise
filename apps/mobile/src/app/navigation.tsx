@@ -42,12 +42,11 @@ import { MbxScreen } from "../screens/mbx/MbxScreen";
 import { MailRejectionsScreen } from "../screens/mbx/MailRejectionsScreen";
 import { ThreadDetailScreen } from "../screens/mbx/ThreadDetailScreen";
 import { WiseyScreen } from "../screens/wisey/WiseyScreen";
-import { useWisey, WiseyProvider } from "../components/wisey/WiseyProvider";
+import { WiseyProvider } from "../components/wisey/WiseyProvider";
 import { WiseyTabButton } from "../components/wisey/WiseyTabButton";
 import { TabBarHeightProvider, TabBarHeightReporter } from "./tab-bar-height";
-// Il gufo della tab: un'IMMAGINE a colori, non un SF Symbol, che si anima
-// sulla fase di Wisey (`wisey-tab-icon.ts`).
-import { useWiseyTabIcon } from "./wisey-tab-icon";
+// L'icona della tab NATIVA di Wisey: trasparente, la copre il cerchio (§11).
+import { WISEY_TAB_ICON } from "./wisey-tab-icon";
 import { WorkScreen } from "../screens/work/WorkScreen";
 import { useUnreadCount } from "../lib/inbox-mutations";
 import { colors } from "../theme/tokens";
@@ -437,9 +436,6 @@ function MainTabs() {
   // renderebbe comunque (bottom-tabs non nasconde uno "0"), quindi lo si
   // passa come `undefined`.
   const unreadCount = useUnreadCount();
-  // L'icona di Wisey si anima sulla stessa fase del gufo grande (design §10):
-  // la barra nativa riceve un'icona nuova a ogni fotogramma.
-  const wiseyIcon = useWiseyTabIcon(useWisey().phase);
   const badge = unreadCount.data !== undefined && unreadCount.data > 0 ? String(unreadCount.data) : undefined;
 
   useEffect(() => {
@@ -512,12 +508,11 @@ function MainTabs() {
         }}
       />
       {/*
-        WISEY al CENTRO (25 set 2026, design §2). Il rilievo lo dà il COLORE,
-        non la misura: la barra resta quella nativa. `original` è ciò che
-        tiene il gufo a colori — senza, iOS ricolora l'immagine con la tinta
-        della barra e ne fa una sagoma. Stessa icona da selezionata e non.
-        Dal §10 l'icona si ANIMA sulla fase del gufo grande: `wiseyIcon`
-        cambia a ogni fotogramma (vedi `useWiseyTabIcon`).
+        WISEY al CENTRO (25 set 2026). Dal design §11 Wisey nella barra è il
+        CERCHIO nostro che sporge sopra (`WiseyTabButton`, montato in
+        `MainNavigator`), col gufo animato e il nome «Wisey» per VoiceOver.
+        Questa tab nativa resta, così le altre quattro tengono il loro posto,
+        ma con un'icona TRASPARENTE e il titolo vuoto: la copre il cerchio.
         La tab iniziale resta Inbox: aprire l'app su un'anteprima sarebbe
         sbagliato.
       */}
@@ -525,17 +520,11 @@ function MainTabs() {
         name="Wisey"
         component={WiseyScreen}
         options={{
-          // SENZA nome sotto il gufo (25 set 2026, scelta del maintainer).
-          // ⚠️ Costa l'accessibilità, ed è accettato: in
-          // react-native-bottom-tabs 1.4.0 l'etichetta di VoiceOver È il
-          // titolo (`TabViewImpl.swift:238`, `item.accessibilityLabel =
-          // tabData.title`; nel percorso SwiftUI `TabItem` è `Text(title)`),
-          // non esiste un'etichetta di accessibilità per tab, e `labeled`
-          // vale per TUTTA la barra. Titolo vuoto = VoiceOver non nomina
-          // questa tab. Ridarle il nome senza mostrarlo richiede una patch
-          // nativa alla libreria.
+          // Titolo vuoto: in react-native-bottom-tabs 1.4.0 l'etichetta di
+          // VoiceOver È il titolo (`TabViewImpl.swift:238`), quindi questa
+          // tab nativa non ha un nome — ce l'ha il cerchio che la copre.
           tabBarLabel: "",
-          tabBarIcon: () => wiseyIcon,
+          tabBarIcon: () => WISEY_TAB_ICON,
           tabBarIconRenderingMode: "original",
         }}
       />

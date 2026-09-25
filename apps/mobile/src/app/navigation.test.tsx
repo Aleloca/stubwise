@@ -7,8 +7,7 @@ import "../i18n";
 import { AppProviders, queryClient } from "./providers";
 import { navigationRef, RootNavigator } from "./navigation";
 import { setPendingDeepLink } from "./linking";
-import { WISEY_TAB_FRAMES } from "./wisey-tab-icon";
-import { WISEY_CYCLE_MS } from "../lib/wisey-phase";
+import { WISEY_TAB_ICON } from "./wisey-tab-icon";
 
 const successUser = {
   id: "44444444-4444-4444-8444-444444444444",
@@ -937,51 +936,17 @@ describe("la barra delle schede", () => {
     expect(bar.props.items.map((item) => item.title)).toEqual(["INB", "PRJ", "", "BLG", "MBX"]);
   });
 
-  test("il gufo è un'IMMAGINE a colori: rendering «original», le altre restano tinte dalla barra", async () => {
-    const bar = await renderMain();
-    const wisey = bar.props.items.findIndex((item) => item.key.startsWith("Wisey"));
-    expect(bar.props.items[wisey]?.iconRenderingMode).toBe("original");
-    // Il gufo della 5a (Classic), non Minimal: il maintainer l'ha scartato
-    // dopo la prova sul telefono (25 set 2026). A riposo, primo fotogramma.
-    // Misure e margine dei file li prova `scripts/wisey-assets.test.mjs`.
-    expect(bar.props.icons[wisey]).toEqual(WISEY_TAB_FRAMES.rest[0]);
-    expect(JSON.stringify(bar.props.icons[wisey])).not.toContain("owl-minimal");
-    for (const item of bar.props.items.filter((i) => !i.key.startsWith("Wisey"))) {
-      expect(item.iconRenderingMode).not.toBe("original");
-    }
-  });
-
   /**
-   * L'icona si ANIMA (design §10): la barra nativa non anima immagini, quindi
-   * riceve un'icona nuova a ogni fotogramma, sulla fase del gufo grande.
+   * Design §11: la tab nativa di Wisey resta (le altre quattro tengono il
+   * loro posto) ma la copre il cerchio nostro — la sua icona è TRASPARENTE.
    */
-  test("l'icona passata alla barra nativa avanza coi fotogrammi della fase", async () => {
-    jest.useFakeTimers();
+  test("la tab nativa di Wisey ha un'icona trasparente; le altre restano SF Symbol", async () => {
     const bar = await renderMain();
     const wisey = bar.props.items.findIndex((item) => item.key.startsWith("Wisey"));
-    const iconNow = () =>
-      (screen.container.queryAll((node) => Array.isArray(node.props.items) && Array.isArray(node.props.icons))[0]!
-        .props.icons as unknown[])[wisey];
-    expect(iconNow()).toEqual(WISEY_TAB_FRAMES.rest[0]);
-    await act(async () => {
-      jest.advanceTimersByTime(WISEY_CYCLE_MS.rest / 4);
-    });
-    expect(iconNow()).toEqual(WISEY_TAB_FRAMES.rest[1]);
-    jest.useRealTimers();
+    expect(bar.props.icons[wisey]).toEqual(WISEY_TAB_ICON);
+    expect(JSON.stringify(bar.props.icons[wisey])).toContain("wisey-tab-empty");
   });
 
-  test("l'icona segue lo stato di Wisey: scrivendo nella sua pagina, «ti ascolta»", async () => {
-    const bar = await renderMain();
-    const wisey = bar.props.items.findIndex((item) => item.key.startsWith("Wisey"));
-    const iconNow = () =>
-      (screen.container.queryAll((node) => Array.isArray(node.props.items) && Array.isArray(node.props.icons))[0]!
-        .props.icons as unknown[])[wisey];
-    await act(async () => {
-      navigationRef.navigate("Main", { screen: "Wisey" });
-    });
-    await fireEvent.changeText(await screen.findByTestId("wisey-input"), "ciao");
-    await waitFor(() => expect(iconNow()).toEqual(WISEY_TAB_FRAMES.listen[0]));
-  });
 
   /**
    * IL CERCHIO CHE SPORGE (design §11): posato sopra la barra, agganciato

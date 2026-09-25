@@ -59,45 +59,23 @@ function decodeRgba(file) {
   return { width, height, alpha: (x, y) => pixels[y * stride + x * 4 + 3] };
 }
 
-/**
- * Design §10: l'icona della tab si ANIMA sulla stessa fase del gufo grande,
- * quindi non è più un file solo ma quattro fotogrammi per ognuna delle sei
- * fasi, ciascuno alle tre densità.
- */
 const PHASES = ["riposo", "ascolta", "pensa", "lavora", "parla", "fatto"];
-const TAB_FILES = PHASES.flatMap((phase) =>
-  [0, 1, 2, 3].flatMap((frame) =>
-    [
-      [`wisey-tab-${phase}-${frame}.png`, 1],
-      [`wisey-tab-${phase}-${frame}@2x.png`, 2],
-      [`wisey-tab-${phase}-${frame}@3x.png`, 3],
-    ],
-  ),
-);
 
-describe("l'icona della tab Wisey", () => {
-  test("sei fasi × quattro fotogrammi × tre densità", () => {
-    expect(TAB_FILES).toHaveLength(72);
-  });
-
-  test.each(TAB_FILES)("%s: tela 28×27 pt, gufo 28×24 in alto, 3 pt trasparenti sotto", (file, scale) => {
+/**
+ * LA TAB NATIVA DI WISEY È TRASPARENTE (design §11): la copre il cerchio
+ * nostro che sporge sopra la barra. Resta una tab vera, così le altre quattro
+ * tengono il loro posto, ma la sua icona non deve disegnare niente.
+ */
+describe("l'icona trasparente della tab Wisey", () => {
+  test.each([
+    ["wisey-tab-empty.png", 1],
+    ["wisey-tab-empty@2x.png", 2],
+    ["wisey-tab-empty@3x.png", 3],
+  ])("%s: 28×24 pt, e nessun pixel visibile", (file, scale) => {
     const icon = decodeRgba(file);
-    expect([icon.width, icon.height]).toEqual([28 * scale, 27 * scale]);
-
-    const opaqueRows = new Set();
+    expect([icon.width, icon.height]).toEqual([28 * scale, 24 * scale]);
     for (let y = 0; y < icon.height; y += 1) {
-      for (let x = 0; x < icon.width; x += 1) if (icon.alpha(x, y) > 0) opaqueRows.add(y);
-    }
-    // Il margine: nessun pixel visibile negli ultimi 3 pt.
-    expect(Math.max(...opaqueRows)).toBeLessThan(24 * scale);
-    // Il gufo NON è stato rimpicciolito: arriva ancora in fondo ai suoi 24 pt.
-    expect(Math.max(...opaqueRows)).toBeGreaterThanOrEqual(24 * scale - Math.ceil(scale));
-  });
-
-  test("i quattro fotogrammi di una fase sono DIVERSI: la barra ha qualcosa da animare", () => {
-    for (const phase of PHASES) {
-      const frames = [0, 1, 2, 3].map((frame) => readFileSync(join(ASSETS, `wisey-tab-${phase}-${frame}@2x.png`)).toString("base64"));
-      expect(new Set(frames).size).toBeGreaterThan(1);
+      for (let x = 0; x < icon.width; x += 1) expect(icon.alpha(x, y)).toBe(0);
     }
   });
 });
