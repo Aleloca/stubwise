@@ -6,6 +6,7 @@ import "../i18n";
 import { AppProviders, queryClient } from "./providers";
 import { navigationRef, RootNavigator } from "./navigation";
 import { setPendingDeepLink } from "./linking";
+import { WISEY_TAB_ICON } from "./wisey-tab-icon";
 
 const successUser = {
   id: "44444444-4444-4444-8444-444444444444",
@@ -923,7 +924,12 @@ describe("la barra delle schede", () => {
     const bar = await renderMain();
     const wisey = bar.props.items.findIndex((item) => item.title === "WISEY");
     expect(bar.props.items[wisey]?.iconRenderingMode).toBe("original");
-    expect(JSON.stringify(bar.props.icons[wisey])).toContain("owl-minimal");
+    // Il gufo della 5a (Classic, primo fotogramma di «riposo»), non Minimal:
+    // il maintainer l'ha scartato dopo la prova sul telefono (25 set 2026).
+    // L'icona è quella della costante unica, qualunque variante @3x scelga.
+    expect(bar.props.icons[wisey]).toEqual(WISEY_TAB_ICON);
+    expect(JSON.stringify(bar.props.icons[wisey])).toMatch(/wisey-tab-(sharp|smooth)/);
+    expect(JSON.stringify(bar.props.icons[wisey])).not.toContain("owl-minimal");
     for (const item of bar.props.items.filter((i) => i.title !== "WISEY")) {
       expect(item.iconRenderingMode).not.toBe("original");
     }

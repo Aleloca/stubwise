@@ -8,19 +8,26 @@ worktree `.worktrees/wisey`. Un commit per task, TDD dove c'è logica.
 - Gli sprite sono GIÀ nel branch, in `apps/mobile/assets/wisey/` (copiati
   dall'export di design, commit dei documenti): `gufo-{riposo,ascolta,pensa,
   lavora,parla,fatto}.png`, 224×48 RGBA = 4 fotogrammi da 56×48 (`parla` è la
-  fase «ti risponde»), e `owl-minimal.png`, 28×24, per la tab. La variante
+  fase «ti risponde»). L'icona della tab è il PRIMO fotogramma di
+  `gufo-riposo.png` (il gufo Classic della 5a), non `owl-minimal.png`:
+  scartato dal maintainer dopo la prima prova sul telefono (25 set 2026),
+  e tolto dagli asset. La variante
   «noedge» dell'export esiste solo per tre fasi e l'HTML non la usa: esclusa.
 - Il riferimento visivo è `docs/design/wisey/Wisey.dc.html`: **leggi per
   intero la sezione 5a/5b** (colori, bolle, campo, riga di stato) e ricreala
   fedelmente coi token di `theme/tokens.ts`. Non renderizzarla in un browser.
 - `apps/mobile/scripts/wisey-assets.py` (Pillow, `Image.NEAREST`): genera
   @2x/@3x per il gufo grande, il gufo piccolo e l'icona della tab. Committa
-  anche i file generati.
+  anche i file generati. Per la tab (28×24 pt): @2x = il fotogramma 1:1;
+  @3x = 84×72, fattore 1,5, in DUE varianti — (a) NEAREST a 1,5×, (b)
+  NEAREST a 3× poi LANCZOS — vedi design §2.
 
 ## Task 1 — La tab, e la prova sul telefono SUBITO
 
 - `navigation.tsx`: tab `Wisey` al centro, con una schermata segnaposto.
-  Icona immagine `iconRenderingMode: "original"`.
+  Icona immagine `iconRenderingMode: "original"`: il primo fotogramma di
+  riposo della 5a, variante scelta da UNA costante
+  (`src/app/wisey-tab-icon.ts`), la (a) di default.
 - Test di cablaggio dell'ordine delle tab, se il navigator lo consente;
   altrimenti una costante esportata con l'ordine, testata.
 - **Fermati qui, pusha e avvisami**: il maintainer deve vedere il gufo nella

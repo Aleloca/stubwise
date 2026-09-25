@@ -4,10 +4,12 @@
 domande, avvio di voci di backlog, stato dei job. Questo lavoro NON lo
 costruisce: gli dà il posto nell'app, la faccia e le animazioni, con risposte
 finte. Il riferimento visivo è `Wisey.dc.html` (export di design, turno 5):
-gufo **Classic 56×48**, sei fasi animate; **Minimal** per la tab bar.
+gufo **Classic 56×48**, sei fasi animate, anche per la tab bar (il suo
+primo fotogramma di riposo — vedi §2: il Minimal che l'export proponeva per
+la barra è stato scartato dopo la prova sul telefono).
 
 Decisioni del maintainer:
-1. **Tab nativa al centro**, col gufo Minimal a colori. Il rilievo lo dà il
+1. **Tab nativa al centro**, col gufo Classic a colori. Il rilievo lo dà il
    colore, non la misura: la barra resta quella nativa col Liquid Glass.
 2. **Via il tab DOC**. «Ask the project» si sposta nella pagina Docs
    dell'hub del progetto.
@@ -39,9 +41,24 @@ Ordine: **Inbox · Projects · Wisey · Backlog · Mailbox**. La tab iniziale
 resta Inbox: finché Wisey è un'anteprima, aprire l'app su un finto sarebbe
 sbagliato. Quando Wisey sarà vero, cambiarla sarà una riga.
 
-Icona: `owl/minimal.png` del design, a colori (`iconRenderingMode:
-"original"`), la stessa da selezionata e non. Su Android un'immagine va bene
-com'è (non verificato su device, come il resto di Android).
+Icona: il **primo fotogramma di riposo del gufo Classic della 5a** (56×48,
+`gufo-riposo.png` x 0..55), a colori (`iconRenderingMode: "original"`), la
+stessa da selezionata e non. Su Android un'immagine va bene com'è (non
+verificato su device, come il resto di Android).
+
+✅ **Corretto il 25 set 2026, dopo la prima prova sul telefono**: questo
+documento proponeva `owl/minimal.png` (il gufo Minimal 28×24 dell'export),
+e nella barra si vedeva, a colori e nitido — ma il maintainer vuole il gufo
+della 5a, lo stesso della schermata. Il Minimal esce dall'uso.
+
+Misure: nella barra sta a **28×24 pt**, metà del disegno. A @2x è il
+fotogramma 1:1 (56×48 px); a @3x servono 84×72 px, un fattore **1,5 non
+intero**, e nessuna scala è perfetta. Se ne generano due varianti
+(`scripts/wisey-assets.py`, il ragionamento è nel suo docblock): **(a)**
+NEAREST a 1,5× — pixel netti ma irregolari — e **(b)** NEAREST a 3× poi
+LANCZOS a 84×72 — fedele ma morbida. Cablata la (a); la scelta è UNA
+costante (`apps/mobile/src/app/wisey-tab-icon.ts`), e decide il maintainer
+sul telefono.
 
 ⚠️ **Rischio da verificare PER PRIMO, su device**: che l'immagine a colori
 resti nitida e della misura giusta dentro la barra col Liquid Glass. Se il

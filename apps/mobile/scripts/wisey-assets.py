@@ -10,12 +10,35 @@ a video non resta nessuna scala da fare.
 
 Sorgenti (dall'export di design, in `assets/wisey/`, MAI riscritti):
   gufo-<fase>.png  224×48 = 4 fotogrammi da 56×48  (il gufo piccolo, 1×)
-  owl-minimal.png  28×24                           (l'icona della tab)
 
 Generati accanto:
   gufo-<fase>@2x/@3x.png          il gufo piccolo (56×48 pt a fotogramma)
   gufo-<fase>-large[@2x/@3x].png  il gufo grande, mostrato a 2× (112×96 pt)
-  owl-minimal@2x/@3x.png          l'icona della tab
+  wisey-tab-sharp[@2x/@3x].png    l'icona della tab, variante (a)
+  wisey-tab-smooth[@2x/@3x].png   l'icona della tab, variante (b)
+
+L'ICONA DELLA TAB (25 set 2026, dopo la prova sul telefono): è il PRIMO
+fotogramma di `gufo-riposo.png` — il gufo Classic della 5a, 56×48 — e non
+più `owl-minimal.png`, che il maintainer ha scartato. Nella barra sta a
+28×24 pt, cioè a METÀ del disegno:
+
+  @2x = 56×48 px  → il fotogramma 1:1, nessuna scala, perfetto;
+  @3x = 84×72 px  → 1,5 pixel per pixel del disegno: NON intero.
+
+Con un fattore non intero non esiste una scala perfetta, e le due scelte
+sbagliano in modo diverso, quindi si generano entrambe e decide il telefono:
+
+  (a) `sharp`:  NEAREST a 1,5× — pixel netti ma irregolari (metà dei pixel
+      del disegno diventano 1 px, l'altra metà 2 px: le linee sottili possono
+      raddoppiare o sparire a seconda della posizione);
+  (b) `smooth`: NEAREST a 3× (168×144, intero, nessuna perdita) e poi
+      LANCZOS a 84×72 — forme fedeli, bordi un poco morbidi.
+
+Le due varianti hanno lo stesso 1× e lo stesso @2x: differiscono SOLO a
+@3x. Quale va nella barra lo dice UNA costante,
+`src/app/wisey-tab-icon.ts`. Il 1× (28×24, schermi a densità 1, in pratica
+solo Android) è una riduzione LANCZOS: a metà misura nessuna scala nearest
+tiene il disegno.
 
 Rieseguibile: riscrive solo i file generati.
 Uso: python3 apps/mobile/scripts/wisey-assets.py
@@ -46,9 +69,20 @@ def main() -> None:
         assert source.size == (224, 48), f"gufo-{phase}.png: atteso 224×48, trovato {source.size}"
         write(source, f"gufo-{phase}", 1)
         write(source, f"gufo-{phase}-large", 2)
-    owl = Image.open(ASSETS / "owl-minimal.png").convert("RGBA")
-    assert owl.size == (28, 24), f"owl-minimal.png: atteso 28×24, trovato {owl.size}"
-    write(owl, "owl-minimal", 1)
+    write_tab_icon()
+
+
+def write_tab_icon() -> None:
+    """L'icona della tab: primo fotogramma di riposo, 28×24 pt (vedi il docblock)."""
+    frame = Image.open(ASSETS / "gufo-riposo.png").convert("RGBA").crop((0, 0, 56, 48))
+    one_x = frame.resize((28, 24), Image.LANCZOS)
+    sharp_3x = frame.resize((84, 72), Image.NEAREST)
+    smooth_3x = frame.resize((168, 144), Image.NEAREST).resize((84, 72), Image.LANCZOS)
+    for variant, three_x in (("sharp", sharp_3x), ("smooth", smooth_3x)):
+        stem = f"wisey-tab-{variant}"
+        one_x.save(ASSETS / f"{stem}.png", optimize=True)
+        frame.save(ASSETS / f"{stem}@2x.png", optimize=True)
+        three_x.save(ASSETS / f"{stem}@3x.png", optimize=True)
 
 
 if __name__ == "__main__":

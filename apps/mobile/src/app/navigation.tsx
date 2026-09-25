@@ -43,6 +43,9 @@ import { MbxScreen } from "../screens/mbx/MbxScreen";
 import { MailRejectionsScreen } from "../screens/mbx/MailRejectionsScreen";
 import { ThreadDetailScreen } from "../screens/mbx/ThreadDetailScreen";
 import { WiseyScreen } from "../screens/wisey/WiseyScreen";
+// Il gufo della tab: un'IMMAGINE a colori, non un SF Symbol. Quale variante
+// lo decide `wisey-tab-icon.ts`, in un posto solo.
+import { WISEY_TAB_ICON } from "./wisey-tab-icon";
 import { WorkScreen } from "../screens/work/WorkScreen";
 import { useUnreadCount } from "../lib/inbox-mutations";
 import { colors } from "../theme/tokens";
@@ -52,9 +55,6 @@ import folderIcon from "../../assets/icons/folder.svg";
 import checklistIcon from "../../assets/icons/checklist.svg";
 import menuBookIcon from "../../assets/icons/menu_book.svg";
 import mailIcon from "../../assets/icons/mail.svg";
-// Il gufo Minimal della tab (28×24, con @2x/@3x pre-scalati nearest da
-// `scripts/wisey-assets.py`): un'IMMAGINE a colori, non un SF Symbol.
-import wiseyTabIcon from "../../assets/wisey/owl-minimal.png";
 import { buildLinking, getPendingDeepLink, resolveDeepLinkTarget, setPendingDeepLink } from "./linking";
 import { useAuth } from "./providers";
 
@@ -495,7 +495,7 @@ function MainNavigator() {
         component={WiseyScreen}
         options={{
           tabBarLabel: "WISEY",
-          tabBarIcon: () => wiseyTabIcon,
+          tabBarIcon: () => WISEY_TAB_ICON,
           tabBarIconRenderingMode: "original",
         }}
       />
