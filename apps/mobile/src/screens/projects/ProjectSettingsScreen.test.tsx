@@ -175,3 +175,18 @@ describe("ProjectSettingsScreen — maintainer", () => {
     expect(screen.getByText("Il nome non può essere vuoto.")).toBeTruthy();
   });
 });
+
+/**
+ * ⚠️ La pagina scorre fino al campo in uso quando sale la tastiera (25 set
+ * 2026, segnalato dal maintainer: «la tastiera va sopra l'input del
+ * commento»). Il layout vero non si misura in Jest; questo test tiene il
+ * CABLAGGIO — la `ScrollView` della pagina ha la gestione nativa accesa.
+ */
+describe("ProjectSettingsScreen — tastiera", () => {
+  test("la pagina che scorre ha la gestione nativa della tastiera", async () => {
+    await renderScreen(makeClient(), "admin");
+    const scroll = await waitFor(() => screen.getByTestId("keyboard-aware-scroll"));
+    expect(scroll.props.automaticallyAdjustKeyboardInsets).toBe(true);
+    expect(scroll.props.keyboardShouldPersistTaps).toBe("handled");
+  });
+});

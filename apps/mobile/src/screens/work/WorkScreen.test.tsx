@@ -1014,3 +1014,18 @@ describe("WorkScreen — i permessi che il server NON ha, il client non li inven
     expect(screen.queryByTestId("plan-section-pre-approve")).toBeNull();
   });
 });
+
+/**
+ * ⚠️ La pagina scorre fino al campo in uso quando sale la tastiera (25 set
+ * 2026, segnalato dal maintainer: «la tastiera va sopra l'input del
+ * commento»). Il layout vero non si misura in Jest; questo test tiene il
+ * CABLAGGIO — la `ScrollView` della pagina ha la gestione nativa accesa.
+ */
+describe("WorkScreen — tastiera", () => {
+  test("la pagina che scorre ha la gestione nativa della tastiera", async () => {
+    await renderScreen(makeClient(), "member");
+    const scroll = await waitFor(() => screen.getByTestId("keyboard-aware-scroll"));
+    expect(scroll.props.automaticallyAdjustKeyboardInsets).toBe(true);
+    expect(scroll.props.keyboardShouldPersistTaps).toBe("handled");
+  });
+});
