@@ -244,7 +244,15 @@ nativa non si ritaglia.
   `MainNavigator`, quindi sotto il `WiseyProvider`. Cerchio da **64 pt**,
   sfondo scuro (`ink900`, lo stesso della barra), **bordo ambra** di 2 pt e,
   fuori dal bordo, un anello di 4 pt del colore della barra che lo stacca dal
-  contenuto. Sporge sopra il bordo della barra di circa metà altezza.
+  contenuto. ✅ **Posizione misurata sul telefono (25 set 2026)**: il cerchio
+  è **centrato in verticale come le altre icone** e sporge un po' sopra e
+  sotto la capsula, non «di metà altezza» come diceva questa riga. Col valore
+  iniziale (centro sul bordo della barra misurata) sporgeva troppo, copriva
+  il campo della pagina Wisey e restava sfalsato rispetto all'evidenziazione
+  che iOS 26 disegna al centro della capsula per la tab selezionata — che non
+  si può spostare né togliere per una sola tab. La correzione è
+  `WISEY_BUTTON_OFFSET_PT = -31` (`WiseyTabButton.tsx`), misurato su iPhone
+  con iOS 26 Liquid Glass: su un'altra versione va rimisurato.
   Il cerchio NON è ambra pieno: il gufo è ambra e crema, e sparirebbe.
 - **Dentro**, il gufo animato con `WiseySprite`, sulla fase dello store e con
   le stesse regole, compresi «done finché non l'hai visto» e la riduzione del

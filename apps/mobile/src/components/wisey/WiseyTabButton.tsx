@@ -14,16 +14,29 @@ export const WISEY_BUTTON_OUTER_PT = WISEY_BUTTON_SIZE_PT + RING_PT * 2;
 
 /**
  * Di quanto spostare il centro del cerchio rispetto al bordo superiore della
- * barra MISURATA, in punti (positivo = più in alto). Oggi 0: il centro sta sul
- * bordo e il cerchio sporge di metà. ⚠️ Col Liquid Glass di iOS 26 la barra è
- * fluttuante, staccata dal bordo dello schermo: se la misura della libreria
- * non coincide col bordo VISIBILE della capsula, si corregge QUI, una riga.
+ * barra MISURATA, in punti (positivo = più in alto, negativo = più in basso).
+ *
+ * -31 è un valore MISURATO sul telefono (iPhone, iOS 26 col Liquid Glass, 25
+ * set 2026), non calcolato. Col Liquid Glass la barra è una capsula
+ * fluttuante, e il bordo della misura della libreria non è dove la si vede:
+ * con 0 il centro del cerchio stava sul bordo ALTO della capsula, sporgeva
+ * troppo (copriva il campo della pagina Wisey) e restava sfalsato rispetto
+ * all'evidenziazione della tab selezionata. Con -31 il cerchio è centrato in
+ * verticale come le altre icone e sporge un po' sopra e sotto — decisione del
+ * maintainer: «centrale allineato come le altre ma grosso».
+ *
+ * ⚠️ L'evidenziazione della tab selezionata la disegna iOS al centro della
+ * capsula, e non si può spostare né togliere per una sola tab: il cerchio va
+ * quindi centrato su di lei, non lei su di lui. Su un'altra versione di iOS o
+ * senza Liquid Glass il numero va rimisurato: si cambia qui, una riga.
  */
-export const WISEY_BUTTON_OFFSET_PT = 0;
+export const WISEY_BUTTON_OFFSET_PT = -31;
 
 /**
- * IL CERCHIO CHE SPORGE sopra la barra (25 set 2026, design §11): il nostro
- * bottone, posato sopra la barra nativa e centrato sulla terza tab — la tab
+ * IL CERCHIO DI WISEY sulla barra (25 set 2026, design §11): il nostro
+ * bottone, posato sopra la barra nativa e centrato sulla terza tab —
+ * allineato in verticale alle altre icone, più grosso, sporge un po' sopra e
+ * sotto la capsula — la tab
  * nativa di Wisey c'è ancora sotto, trasparente e senza titolo, così le altre
  * quattro tengono il loro posto.
  *
@@ -35,7 +48,8 @@ export const WISEY_BUTTON_OFFSET_PT = 0;
  * dove la tab nativa senza titolo non ne aveva uno.
  *
  * Si aggancia all'altezza VERA della barra (`useTabBarHeight`, vedi
- * `app/tab-bar-height.tsx`) e non compare finché la barra non è misurata.
+ * `app/tab-bar-height.tsx`) più un offset misurato sul telefono, e non
+ * compare finché la barra non è misurata.
  */
 export function WiseyTabButton({ onPress }: { onPress: () => void }) {
   const { t } = useTranslation();

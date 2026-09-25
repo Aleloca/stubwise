@@ -40,10 +40,19 @@ describe("WiseyTabButton", () => {
     expect(screen.queryByTestId("wisey-tab-button")).toBeNull();
   });
 
-  test("con la misura compare, e il suo centro sta sul bordo superiore della barra", async () => {
+  /**
+   * Il valore dell'offset è MISURATO sul telefono (iPhone, iOS 26 Liquid
+   * Glass): con 0 il centro del cerchio stava sul bordo alto della capsula e
+   * sporgeva troppo; con -31 è centrato in verticale come le altre icone.
+   * Numeri scritti apposta, non ricalcolati dalla costante: altrimenti il test
+   * passerebbe con qualunque valore.
+   */
+  test("con la misura compare, centrato in verticale nella capsula come le altre icone", async () => {
+    expect(WISEY_BUTTON_OFFSET_PT).toBe(-31);
     await mount(83);
     const style = StyleSheet.flatten(screen.getByTestId("wisey-tab-button-anchor").props.style) as { bottom: number };
-    expect(style.bottom).toBe(83 - WISEY_BUTTON_OUTER_PT / 2 + WISEY_BUTTON_OFFSET_PT);
+    // 83 (barra misurata) − 36 (metà del cerchio con l'anello) − 31.
+    expect(style.bottom).toBe(16);
   });
 
   test("segue un'altra misura: si aggancia alla barra, non a un numero scritto a mano", async () => {
