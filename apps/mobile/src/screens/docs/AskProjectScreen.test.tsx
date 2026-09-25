@@ -187,3 +187,16 @@ describe("AskProjectScreen — chat di progetto (canvas 3f, «Chiedi al progetto
     expect(screen.getByText("La chat richiede un provider AI con chiave API.")).toBeTruthy();
   });
 });
+
+/**
+ * ⚠️ La chat sta dentro `TabScreenKeyboardAvoider`, che la solleva sopra la
+ * tastiera (25 set 2026, segnalato dal maintainer: «la tastiera va sopra
+ * l'input»). Il layout vero non si misura in Jest; questo test tiene il
+ * CABLAGGIO — chi togliesse il componente lo farebbe diventare rosso.
+ */
+describe("AskProjectScreen — tastiera", () => {
+  test("il campo in fondo sta dentro lo strato che si alza sopra la tastiera", async () => {
+    await renderScreen(makeClient());
+    await waitFor(() => expect(screen.getByTestId("tab-screen-keyboard-avoider")).toBeTruthy());
+  });
+});

@@ -20,6 +20,7 @@ import {
 } from "../../lib/backlog-mutations";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
+import { TabScreenKeyboardAvoider } from "../../components/TabScreenKeyboardAvoider";
 
 /** Vedi `InboxScreen.tsx` per il perché di una costante invece di leggere `styles.composer.paddingBottom`. */
 const COMPOSER_BASE_BOTTOM_PADDING = 40;
@@ -178,7 +179,7 @@ export function BacklogChatScreen({ navigation, route }: NativeStackScreenProps<
   // NON serve `stickyHeaderIndices`: l'header è già fisso, fratello dello
   // `ScrollView` dei messaggi — non ci scorre mai via da solo.
   return (
-    <View style={styles.container}>
+    <TabScreenKeyboardAvoider style={styles.container}>
       <ScreenHeader
         title={itemQuery.data?.title ?? t("mobile.backlog.item.fallbackTitle")}
         onBack={() => navigation.goBack()}
@@ -313,7 +314,7 @@ export function BacklogChatScreen({ navigation, route }: NativeStackScreenProps<
           </View>
         </>
       )}
-    </View>
+    </TabScreenKeyboardAvoider>
   );
 }
 

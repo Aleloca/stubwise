@@ -346,3 +346,16 @@ describe("BacklogChatScreen — domande a bottoni (App M3 Fase A)", () => {
     expect(answerQuestion).toHaveBeenCalledWith(ITEM_ID, "q1", { optionIndex: 0 });
   });
 });
+
+/**
+ * ⚠️ La chat sta dentro `TabScreenKeyboardAvoider`, che la solleva sopra la
+ * tastiera (25 set 2026, segnalato dal maintainer: «la tastiera va sopra
+ * l'input»). Il layout vero non si misura in Jest; questo test tiene il
+ * CABLAGGIO — chi togliesse il componente lo farebbe diventare rosso.
+ */
+describe("BacklogChatScreen — tastiera", () => {
+  test("il campo in fondo sta dentro lo strato che si alza sopra la tastiera", async () => {
+    await renderScreen(makeClient());
+    await waitFor(() => expect(screen.getByTestId("tab-screen-keyboard-avoider")).toBeTruthy());
+  });
+});
