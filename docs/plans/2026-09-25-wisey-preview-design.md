@@ -224,3 +224,47 @@ del maintainer.
 - Il margine trasparente resta **in basso**, per ora: prima si guarda sul
   telefono se iOS lascia comunque lo spazio del titolo. Se il gufo resta alto
   con un vuoto sotto, il margine si sposta in alto (costante dello script).
+
+## §11 — Il cerchio che sporge (25 set 2026, seconda prova)
+
+Il maintainer vuole Wisey più in evidenza nella barra: un cerchio più grande
+della barra che esce sopra il bordo, sul modello delle bottom nav con un
+bottone centrale rialzato che ci ha mostrato come esempio. Questa sezione
+**vince** sul §10 per l'icona della barra.
+
+Verificato sul codice (`navigation.tsx`): la barra non si nasconde mai (nessun
+`tabBarHidden`) e non si rimpicciolisce scorrendo (nessun `minimizeBehavior`).
+Un elemento nostro appoggiato sopra la barra nativa resta quindi al suo
+posto: il rischio che al §2 ci aveva fatto scartare questa strada, qui non c'è.
+Non si può fare invece l'**incavo** nella barra, perché la forma di quella
+nativa non si ritaglia.
+
+- **Il bottone** (`WiseyTabButton`) è un componente React Native nostro,
+  posato sopra la barra nativa, centrato sulla terza tab, dentro
+  `MainNavigator`, quindi sotto il `WiseyProvider`. Cerchio da **64 pt**,
+  sfondo scuro (`ink900`, lo stesso della barra), **bordo ambra** di 2 pt e,
+  fuori dal bordo, un anello di 4 pt del colore della barra che lo stacca dal
+  contenuto. Sporge sopra il bordo della barra di circa metà altezza.
+  Il cerchio NON è ambra pieno: il gufo è ambra e crema, e sparirebbe.
+- **Dentro**, il gufo animato con `WiseySprite`, sulla fase dello store e con
+  le stesse regole, compresi «done finché non l'hai visto» e la riduzione del
+  movimento. La misura è da scegliere perché stia nel cerchio: circa
+  42×36 pt, ridotta morbida come la variante (b).
+- **A fuoco sulla tab Wisey**: il bordo ambra si accende di più, con uno
+  spessore o un alone. Fuori fuoco resta come descritto sopra.
+- **Tap** → si va alla tab Wisey. Accessibilità: `accessibilityRole="button"`,
+  `accessibilityLabel="Wisey"`. Questo **risolve** il buco di VoiceOver del
+  §10, perché il nome ora ce l'ha il bottone.
+- **La tab nativa** sotto resta, così le altre quattro mantengono le loro
+  posizioni, ma con un'icona **trasparente** e il titolo vuoto: la copre il
+  cerchio. Tutto il meccanismo che cambiava l'icona nativa a ogni fotogramma
+  (i 72 file `wisey-tab-*`, `useWiseyTabIcon`, `WISEY_TAB_MIN_FRAME_MS`) si
+  **toglie**: l'animazione ora è del componente nostro.
+- **Posizione verticale**: si aggancia all'altezza reale della barra (safe
+  area compresa), non a un numero scritto a mano. Scegli il modo più solido
+  che la libreria offre e scrivilo nel docblock.
+- Il contenuto delle schermate scorre sotto la parte che sporge: è accettato,
+  come negli esempi.
+- Da provare sul telefono: posizione esatta sulla barra, tap, rotazione non
+  necessaria (l'app è verticale), tastiera aperta (il cerchio resta sotto la
+  tastiera), pannelli nativi aperti (lo coprono).

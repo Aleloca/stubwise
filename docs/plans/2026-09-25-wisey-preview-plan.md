@@ -113,3 +113,13 @@ resta» va riscritta sulla Docs del progetto. Nient'altro nel file.
    della tela dal basso all'alto, così il gufo scende, con la costante dello
    script. Test: la barra nativa riceve un titolo vuoto per Wisey, e
    l'etichetta di accessibilità resta.
+
+## Task 8 — Il cerchio che sporge (design §11)
+
+1. `components/WiseyTabButton.tsx` + montaggio in `MainNavigator` sopra le
+   schede, agganciato all'altezza reale della barra. Test: fase dallo store,
+   tap → navigazione alla tab Wisey, accessibilità «Wisey», stato a fuoco.
+2. Tab nativa Wisey: icona trasparente, titolo vuoto. Via i 72 file
+   `wisey-tab-*`, `useWiseyTabIcon`, `WISEY_TAB_MIN_FRAME_MS` e la parte dello
+   script che li generava. Aggiorna i test di cablaggio della barra.
+3. Pusha e avvisami: la posizione si verifica solo sul telefono.
