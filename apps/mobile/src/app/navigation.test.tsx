@@ -883,7 +883,7 @@ describe("l'app non resta indietro — il ritorno su una schermata", () => {
  * cablaggio e non una lista tenuta accanto al codice.
  */
 describe("la barra delle schede", () => {
-  type NativeTabItem = { title: string; iconRenderingMode?: string };
+  type NativeTabItem = { key: string; title: string; iconRenderingMode?: string };
 
   async function renderMain() {
     (Keychain.getGenericPassword as jest.Mock).mockResolvedValue({
@@ -916,19 +916,36 @@ describe("la barra delle schede", () => {
 
   test("cinque schede, Wisey al CENTRO: il tab DOC non c'è più", async () => {
     const bar = await renderMain();
-    expect(bar.props.items.map((item) => item.title)).toEqual(["INB", "PRJ", "WISEY", "BLG", "MBX"]);
+    // La chiave di rotta, non il titolo: Wisey non ha un titolo (qui sotto).
+    expect(bar.props.items.map((item) => item.key.split("-")[0])).toEqual([
+      "Inbox",
+      "Projects",
+      "Wisey",
+      "Backlog",
+      "Mbx",
+    ]);
+  });
+
+  /**
+   * La tab Wisey SENZA nome sotto il gufo (25 set 2026, scelta del
+   * maintainer). Nella libreria l'etichetta di accessibilità È il titolo
+   * (`TabViewImpl.swift:238`), quindi VoiceOver non la nomina: accettato.
+   */
+  test("la tab Wisey ha il titolo VUOTO; le altre quattro tengono il loro", async () => {
+    const bar = await renderMain();
+    expect(bar.props.items.map((item) => item.title)).toEqual(["INB", "PRJ", "", "BLG", "MBX"]);
   });
 
   test("il gufo è un'IMMAGINE a colori: rendering «original», le altre restano tinte dalla barra", async () => {
     const bar = await renderMain();
-    const wisey = bar.props.items.findIndex((item) => item.title === "WISEY");
+    const wisey = bar.props.items.findIndex((item) => item.key.startsWith("Wisey"));
     expect(bar.props.items[wisey]?.iconRenderingMode).toBe("original");
     // Il gufo della 5a (Classic), non Minimal: il maintainer l'ha scartato
     // dopo la prova sul telefono (25 set 2026). A riposo, primo fotogramma.
     // Misure e margine dei file li prova `scripts/wisey-assets.test.mjs`.
     expect(bar.props.icons[wisey]).toEqual(WISEY_TAB_FRAMES.rest[0]);
     expect(JSON.stringify(bar.props.icons[wisey])).not.toContain("owl-minimal");
-    for (const item of bar.props.items.filter((i) => i.title !== "WISEY")) {
+    for (const item of bar.props.items.filter((i) => !i.key.startsWith("Wisey"))) {
       expect(item.iconRenderingMode).not.toBe("original");
     }
   });
@@ -940,7 +957,7 @@ describe("la barra delle schede", () => {
   test("l'icona passata alla barra nativa avanza coi fotogrammi della fase", async () => {
     jest.useFakeTimers();
     const bar = await renderMain();
-    const wisey = bar.props.items.findIndex((item) => item.title === "WISEY");
+    const wisey = bar.props.items.findIndex((item) => item.key.startsWith("Wisey"));
     const iconNow = () =>
       (screen.container.queryAll((node) => Array.isArray(node.props.items) && Array.isArray(node.props.icons))[0]!
         .props.icons as unknown[])[wisey];
@@ -954,7 +971,7 @@ describe("la barra delle schede", () => {
 
   test("l'icona segue lo stato di Wisey: scrivendo nella sua pagina, «ti ascolta»", async () => {
     const bar = await renderMain();
-    const wisey = bar.props.items.findIndex((item) => item.title === "WISEY");
+    const wisey = bar.props.items.findIndex((item) => item.key.startsWith("Wisey"));
     const iconNow = () =>
       (screen.container.queryAll((node) => Array.isArray(node.props.items) && Array.isArray(node.props.icons))[0]!
         .props.icons as unknown[])[wisey];

@@ -500,7 +500,16 @@ function MainTabs() {
         name="Wisey"
         component={WiseyScreen}
         options={{
-          tabBarLabel: "WISEY",
+          // SENZA nome sotto il gufo (25 set 2026, scelta del maintainer).
+          // ⚠️ Costa l'accessibilità, ed è accettato: in
+          // react-native-bottom-tabs 1.4.0 l'etichetta di VoiceOver È il
+          // titolo (`TabViewImpl.swift:238`, `item.accessibilityLabel =
+          // tabData.title`; nel percorso SwiftUI `TabItem` è `Text(title)`),
+          // non esiste un'etichetta di accessibilità per tab, e `labeled`
+          // vale per TUTTA la barra. Titolo vuoto = VoiceOver non nomina
+          // questa tab. Ridarle il nome senza mostrarlo richiede una patch
+          // nativa alla libreria.
+          tabBarLabel: "",
           tabBarIcon: () => wiseyIcon,
           tabBarIconRenderingMode: "original",
         }}

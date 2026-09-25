@@ -206,3 +206,21 @@ del maintainer.
   fotogramma ogni 120 ms, e ogni cambio passa dalla barra nativa. Se sfarfalla
   o scatta, l'icona della barra usa un passo minimo (per esempio 250 ms), in
   una costante. Il gufo grande resta alla velocità del design.
+
+### La tab senza nome
+
+- La tab Wisey **non mostra l'etichetta** sotto il gufo; le altre quattro la
+  tengono. Scelta del maintainer (25 set 2026).
+- ⚠️ **VoiceOver non la nomina, ed è accettato.** Non era la richiesta
+  iniziale («l'accessibilità resta, VoiceOver dice Wisey»), ma con la
+  libreria non si può: in `react-native-bottom-tabs` 1.4.0 l'etichetta di
+  accessibilità È il titolo (`ios/TabViewImpl.swift:238`,
+  `item.accessibilityLabel = tabData.title`; nel percorso SwiftUI
+  `TabItem.swift` rende `Text(title)`), le opzioni di
+  `@bottom-tabs/react-navigation` non hanno un'etichetta di accessibilità per
+  tab, e `labeled` vale per tutta la barra. Titolo vuoto vuol dire quindi
+  nessun nome per VoiceOver. Ridarglielo senza mostrarlo richiederebbe una
+  patch nativa alla libreria.
+- Il margine trasparente resta **in basso**, per ora: prima si guarda sul
+  telefono se iOS lascia comunque lo spazio del titolo. Se il gufo resta alto
+  con un vuoto sotto, il margine si sposta in alto (costante dello script).
