@@ -897,7 +897,7 @@
         "reproposeSuccess": "Ripresa in coda."
       },
       "detail": {
-        "back": "← Posta",
+        "back": "Posta",
         "loadError": {
           "title": "Non riesco a caricare questo messaggio.",
           "retry": "Riprova"
