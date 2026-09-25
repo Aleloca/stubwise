@@ -56,9 +56,14 @@ fotogramma 1:1 (56×48 px); a @3x servono 84×72 px, un fattore **1,5 non
 intero**, e nessuna scala è perfetta. Se ne generano due varianti
 (`scripts/wisey-assets.py`, il ragionamento è nel suo docblock): **(a)**
 NEAREST a 1,5× — pixel netti ma irregolari — e **(b)** NEAREST a 3× poi
-LANCZOS a 84×72 — fedele ma morbida. Cablata la (a); la scelta è UNA
-costante (`apps/mobile/src/app/wisey-tab-icon.ts`), e decide il maintainer
-sul telefono.
+LANCZOS a 84×72 — fedele ma morbida. ✅ **Scelta la (b)** dal maintainer
+sul telefono; la (a) è stata tolta.
+
+Margine: nel fotogramma il gufo arriva a 1 px dal bordo inferiore, e sul
+telefono toccava la scritta «WISEY» (gli SF Symbol delle altre tab hanno
+aria intorno). La tela è quindi **28×27 pt**, col gufo in alto alla sua
+misura e 3 pt trasparenti sotto — una costante dello script,
+`TAB_BOTTOM_MARGIN_PT`, da ritoccare se serve.
 
 ⚠️ **Rischio da verificare PER PRIMO, su device**: che l'immagine a colori
 resti nitida e della misura giusta dentro la barra col Liquid Glass. Se il

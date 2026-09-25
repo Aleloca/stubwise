@@ -19,15 +19,15 @@ worktree `.worktrees/wisey`. Un commit per task, TDD dove c'è logica.
 - `apps/mobile/scripts/wisey-assets.py` (Pillow, `Image.NEAREST`): genera
   @2x/@3x per il gufo grande, il gufo piccolo e l'icona della tab. Committa
   anche i file generati. Per la tab (28×24 pt): @2x = il fotogramma 1:1;
-  @3x = 84×72, fattore 1,5, in DUE varianti — (a) NEAREST a 1,5×, (b)
-  NEAREST a 3× poi LANCZOS — vedi design §2.
+  @3x = 84×72, fattore 1,5: NEAREST a 3× poi LANCZOS (la variante morbida,
+  scelta sul telefono). Tela 28×27 pt: 3 pt trasparenti sotto il gufo
+  (`TAB_BOTTOM_MARGIN_PT`) — vedi design §2.
 
 ## Task 1 — La tab, e la prova sul telefono SUBITO
 
 - `navigation.tsx`: tab `Wisey` al centro, con una schermata segnaposto.
   Icona immagine `iconRenderingMode: "original"`: il primo fotogramma di
-  riposo della 5a, variante scelta da UNA costante
-  (`src/app/wisey-tab-icon.ts`), la (a) di default.
+  riposo della 5a (`src/app/wisey-tab-icon.ts`).
 - Test di cablaggio dell'ordine delle tab, se il navigator lo consente;
   altrimenti una costante esportata con l'ordine, testata.
 - **Fermati qui, pusha e avvisami**: il maintainer deve vedere il gufo nella

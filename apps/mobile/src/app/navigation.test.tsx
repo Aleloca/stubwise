@@ -926,9 +926,9 @@ describe("la barra delle schede", () => {
     expect(bar.props.items[wisey]?.iconRenderingMode).toBe("original");
     // Il gufo della 5a (Classic, primo fotogramma di «riposo»), non Minimal:
     // il maintainer l'ha scartato dopo la prova sul telefono (25 set 2026).
-    // L'icona è quella della costante unica, qualunque variante @3x scelga.
+    // Misure e margine del file li prova `scripts/wisey-assets.test.mjs`.
     expect(bar.props.icons[wisey]).toEqual(WISEY_TAB_ICON);
-    expect(JSON.stringify(bar.props.icons[wisey])).toMatch(/wisey-tab-(sharp|smooth)/);
+    expect(JSON.stringify(bar.props.icons[wisey])).toContain("wisey-tab");
     expect(JSON.stringify(bar.props.icons[wisey])).not.toContain("owl-minimal");
     for (const item of bar.props.items.filter((i) => i.title !== "WISEY")) {
       expect(item.iconRenderingMode).not.toBe("original");
