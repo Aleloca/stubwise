@@ -5,10 +5,14 @@ worktree `.worktrees/wisey`. Un commit per task, TDD dove c'è logica.
 
 ## Task 0 — Gli asset
 
-- Copia gli sprite forniti dal maintainer in
-  `apps/mobile/assets/wisey/`: le sei fasi `gufo-<fase>.png` e
-  `owl/minimal.png`. **Controlla le misure reali** (4 fotogrammi da 56×48 →
-  224×48?) e scrivile nel docblock: tutto il resto ne dipende.
+- Gli sprite sono GIÀ nel branch, in `apps/mobile/assets/wisey/` (copiati
+  dall'export di design, commit dei documenti): `gufo-{riposo,ascolta,pensa,
+  lavora,parla,fatto}.png`, 224×48 RGBA = 4 fotogrammi da 56×48 (`parla` è la
+  fase «ti risponde»), e `owl-minimal.png`, 28×24, per la tab. La variante
+  «noedge» dell'export esiste solo per tre fasi e l'HTML non la usa: esclusa.
+- Il riferimento visivo è `docs/design/wisey/Wisey.dc.html`: **leggi per
+  intero la sezione 5a/5b** (colori, bolle, campo, riga di stato) e ricreala
+  fedelmente coi token di `theme/tokens.ts`. Non renderizzarla in un browser.
 - `apps/mobile/scripts/wisey-assets.py` (Pillow, `Image.NEAREST`): genera
   @2x/@3x per il gufo grande, il gufo piccolo e l'icona della tab. Committa
   anche i file generati.

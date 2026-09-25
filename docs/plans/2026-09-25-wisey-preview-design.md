@@ -121,7 +121,7 @@ you. For now I'm a preview: you can do it from Backlog › New idea.»
 
 ## §7 — L'animazione
 
-- Asset: un PNG per fase, 4 fotogrammi affiancati (`gufo-<fase>.png`), dal
+- Asset: un PNG per fase, 4 fotogrammi da 56×48 affiancati (`gufo-<fase>.png`, 224×48), dal
   design. Pre-scalati **nearest-neighbour** a @2x e @3x per le misure usate
   (uno script in `apps/mobile/scripts/`, rieseguibile): iOS scala le immagini
   con interpolazione, e la pixel art si sfocherebbe.

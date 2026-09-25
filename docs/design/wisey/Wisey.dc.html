@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&amp;family=IBM+Plex+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+  @keyframes blink { 0%,60% { opacity:1; } 61%,100% { opacity:0; } }
+  @keyframes gufo112 { from { background-position:0 0; } to { background-position:-448px 0; } }
+  @keyframes gufo56 { from { background-position:0 0; } to { background-position:-224px 0; } }
+  @keyframes run32 { from { background-position:0 0; } to { background-position:-128px 0; } }
+  @keyframes run40 { from { background-position:0 0; } to { background-position:-160px 0; } }
+  @keyframes run60 { from { background-position:0 0; } to { background-position:-240px 0; } }
+  @keyframes run64 { from { background-position:0 0; } to { background-position:-256px 0; } }
+  @keyframes run96 { from { background-position:0 0; } to { background-position:-384px 0; } }
+  @keyframes run100 { from { background-position:0 0; } to { background-position:-400px 0; } }
+  body { margin:0; background:#07090c; color:#e9e6df; font-family:"IBM Plex Sans",ui-sans-serif,system-ui,sans-serif; -webkit-font-smoothing:antialiased; }
+  a { color:#f5a623; text-decoration:none; }
+  a:hover { color:#ffc14d; }
+  img { image-rendering:pixelated; image-rendering:crisp-edges; }
+</style>
+</helmet>
+<section data-screen-label="Wisey — gufo animato" style="background:#07090c; padding:56px 64px 80px; border-bottom:1px solid #1d242d;">
+  <div style="max-width:900px;">
+    <p style="margin:0; font-family:'IBM Plex Mono',monospace; font-size:12px; letter-spacing:0.2em; color:#f5a623; text-transform:uppercase;">Wisey · turno 5 · gufo in movimento</p>
+    <h1 style="margin:8px 0 0; font-size:34px; font-weight:700;">Le sei fasi, sul gufo</h1>
+    <p style="margin:10px 0 0; font-size:15px; line-height:1.6; color:#98a1ac;">Stesso impianto di <a href="#2a">2a</a>/<a href="#2b">2b</a> — quattro fotogrammi per fase, scatti senza interpolazione — ma a 56 × 48 il personaggio ha abbastanza pixel per recitare: le palpebre scendono davvero, le pupille si dilatano, lo sguardo si sposta, il becco si apre.</p>
+  </div>
+
+  <div style="display:flex; flex-wrap:wrap; align-items:flex-start; gap:24px; margin-top:40px;">
+
+    <div id="5a" data-screen-label="5a Gufo animato" style="flex:1; min-width:700px; border:1px solid #1d242d; background:#0a0d10; border-radius:10px; padding:24px;">
+      <div style="display:flex; align-items:baseline; gap:10px;">
+        <span style="display:inline-block; border:1px solid #b97d1a; border-radius:4px; padding:2px 8px; font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.12em; color:#f5a623;">5a</span>
+        <span style="font-size:20px; font-weight:700;">Classic — sei fasi animate</span>
+        <span style="margin-left:auto; font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.1em; color:#5c6671; text-transform:uppercase;">56 × 48 px · 4 fotogrammi · mostrato a 2×</span>
+      </div>
+      <div style="display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:12px; margin-top:18px;">
+        <div style="border:1px solid #1d242d; background:#05070a; border-radius:8px; padding:18px 12px 12px; display:flex; flex-direction:column; align-items:center; gap:10px;">
+          <div style="width:112px; height:96px; background-image:url('sprites/anim/gufo-riposo.png'); background-size:448px 96px; background-repeat:no-repeat; image-rendering:pixelated; animation:gufo112 3.2s steps(4) infinite;"></div>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.1em; color:#f5a623; text-transform:uppercase;">A riposo</span>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; line-height:1.5; color:#5c6671; text-align:center;">respiro di un pixel, poi le palpebre scendono. 3,2s</span>
+        </div>
+        <div style="border:1px solid #1d242d; background:#05070a; border-radius:8px; padding:18px 12px 12px; display:flex; flex-direction:column; align-items:center; gap:10px;">
+          <div style="width:112px; height:96px; background-image:url('sprites/anim/gufo-ascolta.png'); background-size:448px 96px; background-repeat:no-repeat; image-rendering:pixelated; animation:gufo112 0.6s steps(4) infinite;"></div>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.1em; color:#f5a623; text-transform:uppercase;">Ti ascolta</span>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; line-height:1.5; color:#5c6671; text-align:center;">pupille che si dilatano, ciuffi accesi. 0,6s</span>
+        </div>
+        <div style="border:1px solid #1d242d; background:#05070a; border-radius:8px; padding:18px 12px 12px; display:flex; flex-direction:column; align-items:center; gap:10px;">
+          <div style="width:112px; height:96px; background-image:url('sprites/anim/gufo-pensa.png'); background-size:448px 96px; background-repeat:no-repeat; image-rendering:pixelated; animation:gufo112 1.4s steps(4) infinite;"></div>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.1em; color:#f5a623; text-transform:uppercase;">Sta pensando</span>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; line-height:1.5; color:#5c6671; text-align:center;">occhi socchiusi, sguardo che si sposta. 1,4s</span>
+        </div>
+        <div style="border:1px solid #1d242d; background:#05070a; border-radius:8px; padding:18px 12px 12px; display:flex; flex-direction:column; align-items:center; gap:10px;">
+          <div style="width:112px; height:96px; background-image:url('sprites/anim/gufo-lavora.png'); background-size:448px 96px; background-repeat:no-repeat; image-rendering:pixelated; animation:gufo112 1s steps(4) infinite;"></div>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.1em; color:#f5a623; text-transform:uppercase;">Sta lavorando</span>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; line-height:1.5; color:#5c6671; text-align:center;">pupille strette, iride che pulsa: minuti o ore. 1s</span>
+        </div>
+        <div style="border:1px solid #1d242d; background:#05070a; border-radius:8px; padding:18px 12px 12px; display:flex; flex-direction:column; align-items:center; gap:10px;">
+          <div style="width:112px; height:96px; background-image:url('sprites/anim/gufo-parla.png'); background-size:448px 96px; background-repeat:no-repeat; image-rendering:pixelated; animation:gufo112 0.48s steps(4) infinite;"></div>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.1em; color:#f5a623; text-transform:uppercase;">Ti risponde</span>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; line-height:1.5; color:#5c6671; text-align:center;">il becco si apre a tempo col testo. 0,48s</span>
+        </div>
+        <div style="border:1px solid #1d242d; background:#05070a; border-radius:8px; padding:18px 12px 12px; display:flex; flex-direction:column; align-items:center; gap:10px;">
+          <div style="width:112px; height:96px; background-image:url('sprites/anim/gufo-fatto.png'); background-size:448px 96px; background-repeat:no-repeat; image-rendering:pixelated; animation:gufo112 1.4s steps(4) infinite;"></div>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.1em; color:#f5a623; text-transform:uppercase;">Fatto</span>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; line-height:1.5; color:#5c6671; text-align:center;">occhi contenti e scintille, un giro solo. 1,4s</span>
+        </div>
+      </div>
+    </div>
+
+    <div id="5b" data-screen-label="5b Gufo in situ" style="width:420px; border:1px solid #1d242d; background:#0a0d10; border-radius:10px; padding:24px;">
+      <div style="display:flex; align-items:baseline; gap:10px;">
+        <span style="display:inline-block; border:1px solid #b97d1a; border-radius:4px; padding:2px 8px; font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.12em; color:#f5a623;">5b</span>
+        <span style="font-size:20px; font-weight:700;">Nell'app</span>
+      </div>
+      <div style="display:flex; gap:12px; align-items:flex-start; margin-top:18px; border:1px solid #1d242d; background:#0f1318; border-radius:10px; padding:14px;">
+        <div style="width:56px; height:48px; flex-shrink:0; background-image:url('sprites/anim/gufo-parla.png'); background-size:224px 48px; background-repeat:no-repeat; image-rendering:pixelated; animation:gufo56 0.48s steps(4) infinite;"></div>
+        <div style="min-width:0;">
+          <p style="margin:0; font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.12em; color:#5c6671; text-transform:uppercase;">Wisey · risponde</p>
+          <p style="margin:4px 0 0; font-size:13px; line-height:1.45;">Il Portale B2B aspetta te: una domanda dell'agente, aperta da 12 minuti. Te la apro?</p>
+        </div>
+      </div>
+      <div style="display:flex; gap:12px; align-items:flex-start; margin-top:10px; border:1px solid #1d242d; background:#0f1318; border-radius:10px; padding:14px;">
+        <div style="width:56px; height:48px; flex-shrink:0; background-image:url('sprites/anim/gufo-lavora.png'); background-size:224px 48px; background-repeat:no-repeat; image-rendering:pixelated; animation:gufo56 1s steps(4) infinite;"></div>
+        <div style="min-width:0;">
+          <p style="margin:0; font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.12em; color:#5c6671; text-transform:uppercase;">Wisey · sta lavorando</p>
+          <p style="margin:4px 0 0; font-size:13px; line-height:1.45;">Sto rileggendo i log del worker. Ci metto qualche minuto — ti avviso io.</p>
+        </div>
+      </div>
+      <div style="display:flex; align-items:center; gap:12px; margin-top:10px; border:1px solid #2c3641; background:rgba(10,13,16,0.7); border-radius:26px; padding:8px 14px;">
+        <div style="width:56px; height:48px; flex-shrink:0; background-image:url('sprites/anim/gufo-ascolta.png'); background-size:224px 48px; background-repeat:no-repeat; image-rendering:pixelated; animation:gufo56 0.6s steps(4) infinite;"></div>
+        <span style="flex:1; font-size:13px; color:#5c6671;">Ti sto ascoltando…</span>
+        <span style="display:inline-flex; align-items:center; justify-content:center; width:28px; height:28px; border-radius:50%; background:#f5a623; color:#0a0d10; font-family:'IBM Plex Mono',monospace; font-size:12px; font-weight:600;">↑</span>
+      </div>
+      <p style="margin:14px 0 0; font-family:'IBM Plex Mono',monospace; font-size:11px; line-height:1.5; color:#5c6671;">// nelle liste e nella tab bar resta fermo al primo fotogramma: si muove solo dove c'è una conversazione</p>
+    </div>
+
+  </div>
+</section>
+<section data-screen-label="Wisey — Classic ad alta densità" style="background:#07090c; padding:56px 64px 80px; border-bottom:1px solid #1d242d;">
+  <div style="max-width:900px;">
+    <p style="margin:0; font-family:'IBM Plex Mono',monospace; font-size:12px; letter-spacing:0.2em; color:#f5a623; text-transform:uppercase;">Wisey · turno 4 · classic ad alta densità</p>
+    <h1 style="margin:8px 0 0; font-size:34px; font-weight:700;">Più pixel, più gufo</h1>
+    <p style="margin:10px 0 0; font-size:15px; line-height:1.6; color:#98a1ac;">Da 28 × 24 a <strong style="color:#e9e6df;">56 × 48</strong>: il quadruplo dei pixel serve a far comparire le cose che mancavano — ciuffi pieni e inclinati verso l'esterno, disco facciale a due cerchi con bordo caldo, piumaggio accennato sulla calotta e sulle guance, riflessi doppi negli occhi. Il becco in particolare ora è costruito: cera più chiara alla base con due narici scure, spigolo centrale in luce, due facce (una illuminata da sinistra, una in ombra), linea della mandibola e punta più scura, il tutto stagliato da un bordo netto che lo stacca dal crema del disco facciale.</p>
+  </div>
+
+  <div style="display:flex; flex-wrap:wrap; align-items:flex-start; gap:24px; margin-top:40px;">
+
+    <div id="4a" data-screen-label="4a Classic HD" style="border:1px solid #1d242d; background:#0a0d10; border-radius:10px; padding:24px;">
+      <div style="display:flex; align-items:baseline; gap:10px;">
+        <span style="display:inline-block; border:1px solid #b97d1a; border-radius:4px; padding:2px 8px; font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.12em; color:#f5a623;">4a</span>
+        <span style="font-size:20px; font-weight:700;">Classic — 56 × 48</span>
+      </div>
+      <div style="display:flex; align-items:center; justify-content:center; margin-top:16px; border:1px solid #1d242d; border-radius:8px; padding:28px 40px; background:radial-gradient(circle at 50% 50%, rgba(245,166,35,0.14), rgba(5,7,10,0) 62%), #05070a;">
+        <img src="sprites/owl/classic-hd.png" alt="Wisey Classic ad alta densità" style="width:448px; height:384px; display:block;">
+      </div>
+    </div>
+
+    <div id="4b" data-screen-label="4b Confronto e scale" style="flex:1; min-width:420px; border:1px solid #1d242d; background:#0a0d10; border-radius:10px; padding:24px;">
+      <div style="display:flex; align-items:baseline; gap:10px;">
+        <span style="display:inline-block; border:1px solid #b97d1a; border-radius:4px; padding:2px 8px; font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.12em; color:#f5a623;">4b</span>
+        <span style="font-size:20px; font-weight:700;">Prima e dopo, e come scala</span>
+      </div>
+      <div style="display:flex; gap:12px; margin-top:16px;">
+        <div style="flex:1; border:1px solid #1d242d; background:#05070a; border-radius:8px; padding:16px; display:flex; flex-direction:column; align-items:center; gap:10px;">
+          <img src="sprites/owl/classic.png" alt="Classic 28×24" style="width:168px; height:144px; display:block;">
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.1em; color:#5c6671; text-transform:uppercase;">28 × 24 · prima</span>
+        </div>
+        <div style="flex:1; border:1px solid rgba(245,166,35,0.55); background:#05070a; border-radius:8px; padding:16px; display:flex; flex-direction:column; align-items:center; gap:10px;">
+          <img src="sprites/owl/classic-hd.png" alt="Classic 56×48" style="width:168px; height:144px; display:block;">
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.1em; color:#f5a623; text-transform:uppercase;">56 × 48 · dopo</span>
+        </div>
+      </div>
+      <p style="margin:18px 0 0; font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.14em; color:#5c6671; text-transform:uppercase;">Alle dimensioni reali</p>
+      <div style="display:flex; align-items:flex-end; gap:24px; margin-top:12px; border:1px solid #1d242d; background:#05070a; border-radius:8px; padding:18px 20px;">
+        <div style="display:flex; flex-direction:column; align-items:center; gap:8px;">
+          <img src="sprites/owl/classic-hd.png" alt="" style="width:112px; height:96px; display:block;">
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; color:#5c6671;">112 px · 2×</span>
+        </div>
+        <div style="display:flex; flex-direction:column; align-items:center; gap:8px;">
+          <img src="sprites/owl/classic-hd.png" alt="" style="width:56px; height:48px; display:block;">
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; color:#5c6671;">56 px · 1×</span>
+        </div>
+        <div style="display:flex; flex-direction:column; align-items:center; gap:8px;">
+          <img src="sprites/owl/classic.png" alt="" style="width:28px; height:24px; display:block;">
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; color:#5c6671;">28 px · chat</span>
+        </div>
+        <div style="display:flex; flex-direction:column; align-items:center; gap:8px;">
+          <img src="sprites/owl/minimal.png" alt="" style="width:28px; height:24px; display:block;">
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; color:#5c6671;">minimal · icona</span>
+        </div>
+      </div>
+      <p style="margin:14px 0 0; font-size:13px; line-height:1.55; color:#98a1ac;">La versione ricca non sostituisce le altre: <strong style="color:#e9e6df;">56 × 48</strong> per onboarding, schermata di Wisey e notifiche espanse; <strong style="color:#e9e6df;">28 × 24</strong> per chat e liste; <strong style="color:#e9e6df;">Minimal</strong> per icona app e tab bar. Stesso personaggio, tre tagli — come si fa con le icone.</p>
+      <p style="margin:10px 0 0; font-family:'IBM Plex Mono',monospace; font-size:11px; line-height:1.5; color:#5c6671;">// se questa ti convince, il passo dopo è animarla sulle sei fasi (<a href="#2a">2a</a>): a 56 × 48 le palpebre scendono davvero e la pupilla può dilatarsi — cosa che a 28 × 24 non si vedeva</p>
+    </div>
+
+  </div>
+</section>
+<section data-screen-label="Wisey — gufo, 3 varianti" style="background:#07090c; padding:56px 64px 80px; border-bottom:1px solid #1d242d;">
+  <div style="max-width:900px;">
+    <p style="margin:0; font-family:'IBM Plex Mono',monospace; font-size:12px; letter-spacing:0.2em; color:#f5a623; text-transform:uppercase;">Wisey · turno 3 · direzione gufo</p>
+    <h1 style="margin:8px 0 0; font-family:'IBM Plex Mono',monospace; font-size:40px; font-weight:600; letter-spacing:0.22em; color:#f5a623;">WISEY</h1>
+    <p style="margin:2px 0 0; font-family:'IBM Plex Mono',monospace; font-size:13px; letter-spacing:0.42em; color:#98a1ac;">AI AGENT</p>
+    <p style="margin:16px 0 0; font-size:15px; line-height:1.6; color:#98a1ac;">Il riferimento che mi hai passato, ridisegnato pixel per pixel a 28 × 24 sulla palette Stubwise: ambra come unico segnale, testa nei grigi-blu dell'inchiostro, crema al posto del bianco puro. Nessun colore fuori sistema, quindi convive con badge e stati già disegnati.</p>
+    <p style="margin:8px 0 0; font-family:'IBM Plex Mono',monospace; font-size:12px; color:#5c6671;">// differenze rispetto al riferimento: niente bianco assoluto (crema #f2ece0, meno abbagliante sul nero), un solo ambra invece di due gialli, e il becco sotto il livello degli occhi per liberare il centro nei formati piccoli</p>
+  </div>
+
+  <div style="display:flex; flex-wrap:wrap; align-items:flex-start; gap:24px; margin-top:40px;">
+
+    <div id="3a" data-screen-label="3a Classic" style="width:400px; border:1px solid #1d242d; background:#0a0d10; border-radius:10px; padding:24px;">
+      <div style="display:flex; align-items:center; justify-content:center; border:1px solid #1d242d; border-radius:8px; padding:26px 0; background:radial-gradient(circle at 50% 50%, rgba(245,166,35,0.14), rgba(5,7,10,0) 62%), #05070a;">
+        <img src="sprites/owl/classic.png" alt="Wisey Classic" style="width:224px; height:192px; display:block;">
+      </div>
+      <div style="display:flex; gap:8px; margin-top:14px;">
+        <span style="width:26px; height:26px; border-radius:4px; background:#f5a623;"></span>
+        <span style="width:26px; height:26px; border-radius:4px; background:#f2ece0;"></span>
+        <span style="width:26px; height:26px; border-radius:4px; background:#323b47;"></span>
+        <span style="width:26px; height:26px; border-radius:4px; background:#1d242d;"></span>
+        <span style="margin-left:auto; display:flex; align-items:center; gap:10px;">
+          <img src="sprites/owl/classic.png" alt="" style="width:56px; height:48px; display:block;">
+          <img src="sprites/owl/classic.png" alt="" style="width:28px; height:24px; display:block;">
+        </span>
+      </div>
+      <div style="display:flex; align-items:center; gap:12px; margin-top:18px;">
+        <span style="display:inline-flex; align-items:center; justify-content:center; width:30px; height:30px; border:1px solid #2c3641; border-radius:50%; font-family:'IBM Plex Mono',monospace; font-size:13px; color:#e9e6df;">1</span>
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:15px; font-weight:600; letter-spacing:0.22em; text-transform:uppercase;">Classic</span>
+      </div>
+      <p style="margin:12px 0 0; font-size:14px; line-height:1.55; color:#98a1ac;">Iconico e immediato. Occhi grandi con pupilla piena: è la variante che recita meglio, quindi la migliore per le sei fasi già disegnate (ascolta, pensa, lavora, risponde).</p>
+      <p style="margin:10px 0 0; font-family:'IBM Plex Mono',monospace; font-size:11px; line-height:1.5; color:#5c6671;">// regge fino a ~20px: sotto, la pupilla si chiude e resta un occhio nero</p>
+    </div>
+
+    <div id="3b" data-screen-label="3b Modern" style="width:400px; border:1px solid #1d242d; background:#0a0d10; border-radius:10px; padding:24px;">
+      <div style="display:flex; align-items:center; justify-content:center; border:1px solid #1d242d; border-radius:8px; padding:26px 0; background:radial-gradient(circle at 50% 50%, rgba(245,166,35,0.14), rgba(5,7,10,0) 62%), #05070a;">
+        <img src="sprites/owl/modern.png" alt="Wisey Modern" style="width:224px; height:192px; display:block;">
+      </div>
+      <div style="display:flex; gap:8px; margin-top:14px;">
+        <span style="width:26px; height:26px; border-radius:4px; background:#f5a623;"></span>
+        <span style="width:26px; height:26px; border-radius:4px; background:#f2ece0;"></span>
+        <span style="width:26px; height:26px; border-radius:4px; background:#323b47;"></span>
+        <span style="width:26px; height:26px; border-radius:4px; background:#0b0f14;"></span>
+        <span style="margin-left:auto; display:flex; align-items:center; gap:10px;">
+          <img src="sprites/owl/modern.png" alt="" style="width:56px; height:48px; display:block;">
+          <img src="sprites/owl/modern.png" alt="" style="width:28px; height:24px; display:block;">
+        </span>
+      </div>
+      <div style="display:flex; align-items:center; gap:12px; margin-top:18px;">
+        <span style="display:inline-flex; align-items:center; justify-content:center; width:30px; height:30px; border:1px solid #2c3641; border-radius:50%; font-family:'IBM Plex Mono',monospace; font-size:13px; color:#e9e6df;">2</span>
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:15px; font-weight:600; letter-spacing:0.22em; text-transform:uppercase;">Modern</span>
+      </div>
+      <p style="margin:12px 0 0; font-size:14px; line-height:1.55; color:#98a1ac;">Stessa costruzione, più gli occhiali: montatura scura, ponte e astine che escono dalla sagoma. Dice «legge il codice per te» — adatto se Wisey deve sembrare competente più che simpatico.</p>
+      <p style="margin:10px 0 0; font-family:'IBM Plex Mono',monospace; font-size:11px; line-height:1.5; color:#5c6671;">// la montatura nera mangia contrasto sotto i 24px: sotto quella soglia userei Minimal</p>
+    </div>
+
+    <div id="3c" data-screen-label="3c Minimal" style="width:400px; border:1px solid #1d242d; background:#0a0d10; border-radius:10px; padding:24px;">
+      <div style="display:flex; align-items:center; justify-content:center; border:1px solid #1d242d; border-radius:8px; padding:26px 0; background:radial-gradient(circle at 50% 50%, rgba(245,166,35,0.14), rgba(5,7,10,0) 62%), #05070a;">
+        <img src="sprites/owl/minimal.png" alt="Wisey Minimal" style="width:224px; height:192px; display:block;">
+      </div>
+      <div style="display:flex; gap:8px; margin-top:14px;">
+        <span style="width:26px; height:26px; border-radius:4px; background:#f5a623;"></span>
+        <span style="width:26px; height:26px; border-radius:4px; background:#f2ece0;"></span>
+        <span style="width:26px; height:26px; border-radius:4px; background:#323b47;"></span>
+        <span style="width:26px; height:26px; border-radius:4px; background:#1d242d;"></span>
+        <span style="margin-left:auto; display:flex; align-items:center; gap:10px;">
+          <img src="sprites/owl/minimal.png" alt="" style="width:56px; height:48px; display:block;">
+          <img src="sprites/owl/minimal.png" alt="" style="width:28px; height:24px; display:block;">
+        </span>
+      </div>
+      <div style="display:flex; align-items:center; gap:12px; margin-top:18px;">
+        <span style="display:inline-flex; align-items:center; justify-content:center; width:30px; height:30px; border:1px solid #2c3641; border-radius:50%; font-family:'IBM Plex Mono',monospace; font-size:13px; color:#e9e6df;">3</span>
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:15px; font-weight:600; letter-spacing:0.22em; text-transform:uppercase;">Minimal</span>
+      </div>
+      <p style="margin:12px 0 0; font-size:14px; line-height:1.55; color:#98a1ac;">Solo l'essenziale: due occhi pieni, ciuffi sottili, becco. Sopravvive a 16px, quindi è la versione per icona app, favicon, tab bar e avatar nelle liste.</p>
+      <p style="margin:10px 0 0; font-family:'IBM Plex Mono',monospace; font-size:11px; line-height:1.5; color:#5c6671;">// non è un'alternativa ma il fratello piccolo: la userei insieme a 1 o 2, non al posto loro</p>
+    </div>
+
+    <div style="width:100%; max-width:1248px; border:1px solid #1d242d; background:#0a0d10; border-radius:10px; padding:20px 24px;">
+      <p style="margin:0; font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.14em; color:#f5a623; text-transform:uppercase;">Come starebbe nell'app</p>
+      <div style="display:flex; flex-wrap:wrap; gap:14px; margin-top:14px;">
+        <div style="flex:1; min-width:300px; display:flex; gap:10px; align-items:flex-start; border:1px solid #1d242d; background:#0f1318; border-radius:10px; padding:12px 14px;">
+          <img src="sprites/owl/classic.png" alt="" style="width:42px; height:36px; flex-shrink:0; display:block;">
+          <div style="min-width:0;">
+            <p style="margin:0; font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.12em; color:#5c6671; text-transform:uppercase;">Wisey · in chat</p>
+            <p style="margin:3px 0 0; font-size:13px; line-height:1.45;">Il Portale B2B aspetta te: una domanda dell'agente, aperta da 12 minuti.</p>
+          </div>
+        </div>
+        <div style="flex:1; min-width:300px; display:flex; align-items:center; gap:10px; border:1px solid #2c3641; background:rgba(10,13,16,0.7); border-radius:22px; padding:9px 14px;">
+          <img src="sprites/owl/minimal.png" alt="" style="width:28px; height:24px; flex-shrink:0; display:block;">
+          <span style="flex:1; font-size:13px; color:#5c6671;">Chiedi o chiedi di fare…</span>
+          <span style="display:inline-flex; align-items:center; justify-content:center; width:26px; height:26px; border-radius:50%; background:#f5a623; color:#0a0d10; font-family:'IBM Plex Mono',monospace; font-size:12px; font-weight:600;">↑</span>
+        </div>
+      </div>
+      <p style="margin:14px 0 0; font-family:'IBM Plex Mono',monospace; font-size:12px; line-height:1.5; color:#5c6671;">// dimmi quale tieni e gli costruisco le sei fasi animate come in <a href="#2a">2a</a>/<a href="#2b">2b</a> — sul gufo funzionano bene: palpebre che scendono (riposo), pupille che si dilatano (ascolta), sguardo che scorre (pensa), ciuffi che pulsano (lavora)</p>
+    </div>
+
+  </div>
+</section>
+<section data-screen-label="Wisey — animazioni 1b e 1d" style="background:#07090c; padding:56px 64px 80px; border-bottom:1px solid #1d242d;">
+  <div style="max-width:900px;">
+    <p style="margin:0; font-family:'IBM Plex Mono',monospace; font-size:12px; letter-spacing:0.2em; color:#f5a623; text-transform:uppercase;">Wisey · turno 2 · animazioni</p>
+    <h1 style="margin:8px 0 0; font-size:34px; font-weight:700;">Le sei fasi, in movimento</h1>
+    <p style="margin:10px 0 0; font-size:15px; line-height:1.6; color:#98a1ac;">Le due direzioni che hai scelto: <a href="#1b">1b</a> Bolla e <a href="#1d">1d</a> Mascotte ridotta alla sola testa (antenna, visiera, nessun corpo — si comporta come un avatar e regge bene i formati piccoli). Ogni fase è un ciclo di 4 fotogrammi a scatti, senza interpolazione: il movimento resta pixel art anche in movimento.</p>
+    <p style="margin:8px 0 0; font-family:'IBM Plex Mono',monospace; font-size:12px; color:#5c6671;">// le fasi sono le stesse per entrambe le direzioni: quello che cambia è il registro, non la grammatica</p>
+  </div>
+
+  <div style="display:flex; flex-wrap:wrap; align-items:flex-start; gap:28px; margin-top:40px;">
+
+    <div id="2a" data-screen-label="2a Bolla animata" style="width:620px; border:1px solid #1d242d; background:#0a0d10; border-radius:10px; padding:24px;">
+      <div style="display:flex; align-items:baseline; gap:10px;">
+        <span style="display:inline-block; border:1px solid #b97d1a; border-radius:4px; padding:2px 8px; font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.12em; color:#f5a623;">2a</span>
+        <span style="font-size:20px; font-weight:700;">Bolla — animata</span>
+        <span style="margin-left:auto; font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.1em; color:#5c6671; text-transform:uppercase;">16 × 16 px · 4 fotogrammi</span>
+      </div>
+      <p style="margin:8px 0 0; font-size:13px; line-height:1.5; color:#98a1ac;">Recita con gli occhi e con la bocca. Il corpo respira di un pixel: basta quello a farla sembrare viva senza rubare attenzione.</p>
+      <div style="display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:10px; margin-top:16px;">
+        <div style="border:1px solid #1d242d; background:#05070a; border-radius:8px; padding:16px 12px 12px; display:flex; flex-direction:column; align-items:center; gap:10px;">
+          <div style="width:96px; height:96px; background-image:url('sprites/anim/bolla-riposo.png'); background-size:384px 96px; background-repeat:no-repeat; image-rendering:pixelated; animation:run96 2.8s steps(4) infinite;"></div>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.1em; color:#f5a623; text-transform:uppercase;">A riposo</span>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; line-height:1.5; color:#5c6671; text-align:center;">respira, sbatte le palpebre. 2,8s</span>
+        </div>
+        <div style="border:1px solid #1d242d; background:#05070a; border-radius:8px; padding:16px 12px 12px; display:flex; flex-direction:column; align-items:center; gap:10px;">
+          <div style="width:96px; height:96px; background-image:url('sprites/anim/bolla-ascolta.png'); background-size:384px 96px; background-repeat:no-repeat; image-rendering:pixelated; animation:run96 0.5s steps(4) infinite;"></div>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.1em; color:#f5a623; text-transform:uppercase;">Ti ascolta</span>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; line-height:1.5; color:#5c6671; text-align:center;">occhi spalancati, onde ai lati. 0,5s</span>
+        </div>
+        <div style="border:1px solid #1d242d; background:#05070a; border-radius:8px; padding:16px 12px 12px; display:flex; flex-direction:column; align-items:center; gap:10px;">
+          <div style="width:96px; height:96px; background-image:url('sprites/anim/bolla-pensa.png'); background-size:384px 96px; background-repeat:no-repeat; image-rendering:pixelated; animation:run96 1.2s steps(4) infinite;"></div>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.1em; color:#f5a623; text-transform:uppercase;">Sta pensando</span>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; line-height:1.5; color:#5c6671; text-align:center;">occhi chiusi, tre puntini. 1,2s</span>
+        </div>
+        <div style="border:1px solid #1d242d; background:#05070a; border-radius:8px; padding:16px 12px 12px; display:flex; flex-direction:column; align-items:center; gap:10px;">
+          <div style="width:96px; height:96px; background-image:url('sprites/anim/bolla-lavora.png'); background-size:384px 96px; background-repeat:no-repeat; image-rendering:pixelated; animation:run96 1s steps(4) infinite;"></div>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.1em; color:#f5a623; text-transform:uppercase;">Sta lavorando</span>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; line-height:1.5; color:#5c6671; text-align:center;">scintilla in orbita: minuti o ore. 1s</span>
+        </div>
+        <div style="border:1px solid #1d242d; background:#05070a; border-radius:8px; padding:16px 12px 12px; display:flex; flex-direction:column; align-items:center; gap:10px;">
+          <div style="width:96px; height:96px; background-image:url('sprites/anim/bolla-parla.png'); background-size:384px 96px; background-repeat:no-repeat; image-rendering:pixelated; animation:run96 0.4s steps(4) infinite;"></div>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.1em; color:#f5a623; text-transform:uppercase;">Ti risponde</span>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; line-height:1.5; color:#5c6671; text-align:center;">bocca a tempo col testo. 0,4s</span>
+        </div>
+        <div style="border:1px solid #1d242d; background:#05070a; border-radius:8px; padding:16px 12px 12px; display:flex; flex-direction:column; align-items:center; gap:10px;">
+          <div style="width:96px; height:96px; background-image:url('sprites/anim/bolla-fatto.png'); background-size:384px 96px; background-repeat:no-repeat; image-rendering:pixelated; animation:run96 1.4s steps(4) infinite;"></div>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.1em; color:#f5a623; text-transform:uppercase;">Fatto</span>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; line-height:1.5; color:#5c6671; text-align:center;">un giro solo, poi torna a riposo. 1,4s</span>
+        </div>
+      </div>
+      <div style="display:flex; gap:10px; align-items:flex-start; margin-top:14px; border:1px solid #1d242d; background:#0f1318; border-radius:10px; padding:12px 14px;">
+        <div style="width:32px; height:32px; flex-shrink:0; background-image:url('sprites/anim/bolla-parla.png'); background-size:128px 32px; background-repeat:no-repeat; image-rendering:pixelated; animation:run32 0.4s steps(4) infinite;"></div>
+        <div style="min-width:0;">
+          <p style="margin:0; font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.12em; color:#5c6671; text-transform:uppercase;">Wisey · in chat</p>
+          <p style="margin:3px 0 0; font-size:13px; line-height:1.45;">Il piano è pronto: te lo racconto in due righe o vuoi il dettaglio?</p>
+        </div>
+      </div>
+      <div style="display:flex; align-items:center; gap:10px; margin-top:8px; border:1px solid #2c3641; background:rgba(10,13,16,0.7); border-radius:22px; padding:9px 14px;">
+        <div style="width:32px; height:32px; flex-shrink:0; background-image:url('sprites/anim/bolla-ascolta.png'); background-size:128px 32px; background-repeat:no-repeat; image-rendering:pixelated; animation:run32 0.5s steps(4) infinite;"></div>
+        <span style="flex:1; font-size:13px; color:#5c6671;">Ti sto ascoltando…</span>
+        <span style="display:inline-flex; align-items:center; justify-content:center; width:26px; height:26px; border-radius:50%; background:#f5a623; color:#0a0d10; font-family:'IBM Plex Mono',monospace; font-size:12px; font-weight:600;">↑</span>
+      </div>
+    </div>
+
+    <div id="2b" data-screen-label="2b Testa animata" style="width:620px; border:1px solid #1d242d; background:#0a0d10; border-radius:10px; padding:24px;">
+      <div style="display:flex; align-items:baseline; gap:10px;">
+        <span style="display:inline-block; border:1px solid #b97d1a; border-radius:4px; padding:2px 8px; font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.12em; color:#f5a623;">2b</span>
+        <span style="font-size:20px; font-weight:700;">Testa — animata</span>
+        <span style="margin-left:auto; font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.1em; color:#5c6671; text-transform:uppercase;">20 × 20 px · 4 fotogrammi</span>
+      </div>
+      <p style="margin:8px 0 0; font-size:13px; line-height:1.5; color:#98a1ac;">Recita con la visiera e con l'antenna: la visiera è uno schermo, quindi può mostrare onde, puntini, una scansione o una spunta. Più «strumento» e meno «personaggio».</p>
+      <div style="display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:10px; margin-top:16px;">
+        <div style="border:1px solid #1d242d; background:#05070a; border-radius:8px; padding:16px 12px 12px; display:flex; flex-direction:column; align-items:center; gap:10px;">
+          <div style="width:100px; height:100px; background-image:url('sprites/anim/testa-riposo.png'); background-size:400px 100px; background-repeat:no-repeat; image-rendering:pixelated; animation:run100 2.8s steps(4) infinite;"></div>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.1em; color:#f5a623; text-transform:uppercase;">A riposo</span>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; line-height:1.5; color:#5c6671; text-align:center;">antenna spenta, occhi che si chiudono. 2,8s</span>
+        </div>
+        <div style="border:1px solid #1d242d; background:#05070a; border-radius:8px; padding:16px 12px 12px; display:flex; flex-direction:column; align-items:center; gap:10px;">
+          <div style="width:100px; height:100px; background-image:url('sprites/anim/testa-ascolta.png'); background-size:400px 100px; background-repeat:no-repeat; image-rendering:pixelated; animation:run100 0.45s steps(4) infinite;"></div>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.1em; color:#f5a623; text-transform:uppercase;">Ti ascolta</span>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; line-height:1.5; color:#5c6671; text-align:center;">la visiera diventa un livello audio. 0,45s</span>
+        </div>
+        <div style="border:1px solid #1d242d; background:#05070a; border-radius:8px; padding:16px 12px 12px; display:flex; flex-direction:column; align-items:center; gap:10px;">
+          <div style="width:100px; height:100px; background-image:url('sprites/anim/testa-pensa.png'); background-size:400px 100px; background-repeat:no-repeat; image-rendering:pixelated; animation:run100 1.2s steps(4) infinite;"></div>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.1em; color:#f5a623; text-transform:uppercase;">Sta pensando</span>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; line-height:1.5; color:#5c6671; text-align:center;">tre puntini che scorrono. 1,2s</span>
+        </div>
+        <div style="border:1px solid #1d242d; background:#05070a; border-radius:8px; padding:16px 12px 12px; display:flex; flex-direction:column; align-items:center; gap:10px;">
+          <div style="width:100px; height:100px; background-image:url('sprites/anim/testa-lavora.png'); background-size:400px 100px; background-repeat:no-repeat; image-rendering:pixelated; animation:run100 0.9s steps(4) infinite;"></div>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.1em; color:#f5a623; text-transform:uppercase;">Sta lavorando</span>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; line-height:1.5; color:#5c6671; text-align:center;">scansione + antenna accesa. 0,9s</span>
+        </div>
+        <div style="border:1px solid #1d242d; background:#05070a; border-radius:8px; padding:16px 12px 12px; display:flex; flex-direction:column; align-items:center; gap:10px;">
+          <div style="width:100px; height:100px; background-image:url('sprites/anim/testa-parla.png'); background-size:400px 100px; background-repeat:no-repeat; image-rendering:pixelated; animation:run100 0.4s steps(4) infinite;"></div>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.1em; color:#f5a623; text-transform:uppercase;">Ti risponde</span>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; line-height:1.5; color:#5c6671; text-align:center;">bocca sotto la visiera. 0,4s</span>
+        </div>
+        <div style="border:1px solid #1d242d; background:#05070a; border-radius:8px; padding:16px 12px 12px; display:flex; flex-direction:column; align-items:center; gap:10px;">
+          <div style="width:100px; height:100px; background-image:url('sprites/anim/testa-fatto.png'); background-size:400px 100px; background-repeat:no-repeat; image-rendering:pixelated; animation:run100 1.4s steps(4) infinite;"></div>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.1em; color:#f5a623; text-transform:uppercase;">Fatto</span>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; line-height:1.5; color:#5c6671; text-align:center;">spunta sulla visiera, un lampo. 1,4s</span>
+        </div>
+      </div>
+      <div style="display:flex; gap:10px; align-items:flex-start; margin-top:14px; border:1px solid #1d242d; background:#0f1318; border-radius:10px; padding:12px 14px;">
+        <div style="width:40px; height:40px; flex-shrink:0; background-image:url('sprites/anim/testa-parla.png'); background-size:160px 40px; background-repeat:no-repeat; image-rendering:pixelated; animation:run40 0.4s steps(4) infinite;"></div>
+        <div style="min-width:0;">
+          <p style="margin:0; font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.12em; color:#5c6671; text-transform:uppercase;">Wisey · in chat</p>
+          <p style="margin:3px 0 0; font-size:13px; line-height:1.45;">Fatto: ho aperto la PR e l'ho mandata in review. Ti avviso io quando esce.</p>
+        </div>
+      </div>
+      <div style="display:flex; align-items:center; gap:10px; margin-top:8px; border:1px solid #2c3641; background:rgba(10,13,16,0.7); border-radius:22px; padding:9px 14px;">
+        <div style="width:40px; height:40px; flex-shrink:0; background-image:url('sprites/anim/testa-ascolta.png'); background-size:160px 40px; background-repeat:no-repeat; image-rendering:pixelated; animation:run40 0.45s steps(4) infinite;"></div>
+        <span style="flex:1; font-size:13px; color:#5c6671;">Ti sto ascoltando…</span>
+        <span style="display:inline-flex; align-items:center; justify-content:center; width:26px; height:26px; border-radius:50%; background:#f5a623; color:#0a0d10; font-family:'IBM Plex Mono',monospace; font-size:12px; font-weight:600;">↑</span>
+      </div>
+    </div>
+
+    <div id="2c" data-screen-label="2c Sequenza e note" style="width:100%; max-width:1268px; border:1px solid #1d242d; background:#0a0d10; border-radius:10px; padding:24px;">
+      <div style="display:flex; align-items:baseline; gap:10px;">
+        <span style="display:inline-block; border:1px solid #b97d1a; border-radius:4px; padding:2px 8px; font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.12em; color:#f5a623;">2c</span>
+        <span style="font-size:20px; font-weight:700;">La sequenza di una richiesta vera</span>
+      </div>
+      <p style="margin:8px 0 0; font-size:13px; line-height:1.5; color:#98a1ac;">«Wisey, com'è messo il Portale B2B?» — le fasi non si scelgono a mano: le detta lo stato del job. Sotto, le due direzioni a confronto sulla stessa sequenza.</p>
+      <div style="display:flex; flex-wrap:wrap; align-items:center; gap:0; margin-top:18px;">
+        <div style="display:flex; align-items:center;">
+          <div style="width:150px; border:1px solid #1d242d; background:#05070a; border-radius:8px; padding:12px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+            <div style="display:flex; gap:8px;">
+              <div style="width:64px; height:64px; background-image:url('sprites/anim/bolla-ascolta.png'); background-size:256px 64px; background-repeat:no-repeat; image-rendering:pixelated; animation:run64 0.5s steps(4) infinite;"></div>
+              <div style="width:60px; height:60px; background-image:url('sprites/anim/testa-ascolta.png'); background-size:240px 60px; background-repeat:no-repeat; image-rendering:pixelated; animation:run60 0.45s steps(4) infinite;"></div>
+            </div>
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.08em; color:#98a1ac; text-transform:uppercase;">1 · detti la domanda</span>
+          </div>
+          <span style="padding:0 10px; font-family:'IBM Plex Mono',monospace; font-size:13px; color:#5c6671;">→</span>
+        </div>
+        <div style="display:flex; align-items:center;">
+          <div style="width:150px; border:1px solid #1d242d; background:#05070a; border-radius:8px; padding:12px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+            <div style="display:flex; gap:8px;">
+              <div style="width:64px; height:64px; background-image:url('sprites/anim/bolla-pensa.png'); background-size:256px 64px; background-repeat:no-repeat; image-rendering:pixelated; animation:run64 1.2s steps(4) infinite;"></div>
+              <div style="width:60px; height:60px; background-image:url('sprites/anim/testa-pensa.png'); background-size:240px 60px; background-repeat:no-repeat; image-rendering:pixelated; animation:run60 1.2s steps(4) infinite;"></div>
+            </div>
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.08em; color:#98a1ac; text-transform:uppercase;">2 · capisce (2-3 s)</span>
+          </div>
+          <span style="padding:0 10px; font-family:'IBM Plex Mono',monospace; font-size:13px; color:#5c6671;">→</span>
+        </div>
+        <div style="display:flex; align-items:center;">
+          <div style="width:150px; border:1px solid #1d242d; background:#05070a; border-radius:8px; padding:12px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+            <div style="display:flex; gap:8px;">
+              <div style="width:64px; height:64px; background-image:url('sprites/anim/bolla-lavora.png'); background-size:256px 64px; background-repeat:no-repeat; image-rendering:pixelated; animation:run64 1s steps(4) infinite;"></div>
+              <div style="width:60px; height:60px; background-image:url('sprites/anim/testa-lavora.png'); background-size:240px 60px; background-repeat:no-repeat; image-rendering:pixelated; animation:run60 0.9s steps(4) infinite;"></div>
+            </div>
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.08em; color:#98a1ac; text-transform:uppercase;">3 · lavora (minuti)</span>
+          </div>
+          <span style="padding:0 10px; font-family:'IBM Plex Mono',monospace; font-size:13px; color:#5c6671;">→</span>
+        </div>
+        <div style="display:flex; align-items:center;">
+          <div style="width:150px; border:1px solid #1d242d; background:#05070a; border-radius:8px; padding:12px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+            <div style="display:flex; gap:8px;">
+              <div style="width:64px; height:64px; background-image:url('sprites/anim/bolla-parla.png'); background-size:256px 64px; background-repeat:no-repeat; image-rendering:pixelated; animation:run64 0.4s steps(4) infinite;"></div>
+              <div style="width:60px; height:60px; background-image:url('sprites/anim/testa-parla.png'); background-size:240px 60px; background-repeat:no-repeat; image-rendering:pixelated; animation:run60 0.4s steps(4) infinite;"></div>
+            </div>
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.08em; color:#98a1ac; text-transform:uppercase;">4 · risponde</span>
+          </div>
+          <span style="padding:0 10px; font-family:'IBM Plex Mono',monospace; font-size:13px; color:#5c6671;">→</span>
+        </div>
+        <div style="display:flex; align-items:center;">
+          <div style="width:150px; border:1px solid rgba(245,166,35,0.55); background:#05070a; border-radius:8px; padding:12px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+            <div style="display:flex; gap:8px;">
+              <div style="width:64px; height:64px; background-image:url('sprites/anim/bolla-fatto.png'); background-size:256px 64px; background-repeat:no-repeat; image-rendering:pixelated; animation:run64 1.4s steps(4) infinite;"></div>
+              <div style="width:60px; height:60px; background-image:url('sprites/anim/testa-fatto.png'); background-size:240px 60px; background-repeat:no-repeat; image-rendering:pixelated; animation:run60 1.4s steps(4) infinite;"></div>
+            </div>
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.08em; color:#f5a623; text-transform:uppercase;">5 · fatto</span>
+          </div>
+          <span style="padding:0 10px; font-family:'IBM Plex Mono',monospace; font-size:13px; color:#5c6671;">→</span>
+        </div>
+        <div style="width:150px; border:1px solid #1d242d; background:#05070a; border-radius:8px; padding:12px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+          <div style="display:flex; gap:8px;">
+            <div style="width:64px; height:64px; background-image:url('sprites/anim/bolla-riposo.png'); background-size:256px 64px; background-repeat:no-repeat; image-rendering:pixelated; animation:run64 2.8s steps(4) infinite;"></div>
+            <div style="width:60px; height:60px; background-image:url('sprites/anim/testa-riposo.png'); background-size:240px 60px; background-repeat:no-repeat; image-rendering:pixelated; animation:run60 2.8s steps(4) infinite;"></div>
+          </div>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.08em; color:#98a1ac; text-transform:uppercase;">6 · torna a riposo</span>
+        </div>
+      </div>
+      <div style="display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:16px; margin-top:22px;">
+        <div style="border-top:1px solid #1d242d; padding-top:12px;">
+          <p style="margin:0; font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.14em; color:#f5a623; text-transform:uppercase;">Come si implementa</p>
+          <p style="margin:8px 0 0; font-size:13px; line-height:1.5; color:#e9e6df;"><span style="color:#98a1ac;">Formato:</span> un PNG per fase, 4 fotogrammi affiancati (64×16 per la Bolla, 80×20 per la Testa). Un solo asset per fase, @2x e @3x per gli schermi retina.</p>
+          <p style="margin:8px 0 0; font-size:13px; line-height:1.5; color:#e9e6df;"><span style="color:#98a1ac;">Riproduzione:</span> scorrimento a scatti del fotogramma, mai interpolazione. Nessuna libreria di animazione: un timer a 4 passi e un'immagine ritagliata.</p>
+        </div>
+        <div style="border-top:1px solid #1d242d; padding-top:12px;">
+          <p style="margin:0; font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.14em; color:#f5a623; text-transform:uppercase;">Chi decide la fase</p>
+          <p style="margin:8px 0 0; font-size:13px; line-height:1.5; color:#e9e6df;"><span style="color:#98a1ac;">Nessuna scelta manuale:</span> la fase è una funzione dello stato del job — in coda e in esecuzione → lavora, in attesa di risposta → ti ascolta, streaming → risponde, done → fatto, poi riposo.</p>
+          <p style="margin:8px 0 0; font-size:13px; line-height:1.5; color:#e9e6df;"><span style="color:#98a1ac;">Coerenza:</span> lo stesso stato che colora i badge muove Wisey: se il badge dice «in attesa di una tua risposta», Wisey ascolta.</p>
+        </div>
+        <div style="border-top:1px solid #1d242d; padding-top:12px;">
+          <p style="margin:0; font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.14em; color:#f5a623; text-transform:uppercase;">Regole d'uso</p>
+          <p style="margin:8px 0 0; font-size:13px; line-height:1.5; color:#e9e6df;"><span style="color:#98a1ac;">Una sola istanza animata</span> per schermata: Wisey è un indicatore, non una decorazione. Nelle liste resta fermo al primo fotogramma.</p>
+          <p style="margin:8px 0 0; font-size:13px; line-height:1.5; color:#e9e6df;"><span style="color:#98a1ac;">Riduzione movimento:</span> con l'impostazione di sistema attiva, resta statico e lo stato lo dicono solo le parole.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+<section data-screen-label="Wisey — 5 proposte" style="background:#07090c; padding:56px 64px 96px;">
+  <div style="max-width:860px;">
+    <p style="margin:0; font-family:'IBM Plex Mono',monospace; font-size:12px; letter-spacing:0.2em; color:#f5a623; text-transform:uppercase;">Wisey · agente conversazionale · turno 1</p>
+    <h1 style="margin:8px 0 0; font-size:34px; font-weight:700;">Cinque estetiche pixel art</h1>
+    <p style="margin:10px 0 0; font-size:15px; line-height:1.6; color:#98a1ac;">Tutte disegnate pixel per pixel alla risoluzione nativa indicata e scalate senza interpolazione, sulla palette della web app (ambra come unico segnale). Ognuna cambia asse: 1-bit / 4 toni / isometrico / personaggio / astratto. Ogni proposta mostra i tre stati che servono davvero — a riposo, sta pensando, ti ascolta — più come appare accanto a un messaggio e nella barra di input.</p>
+    <p style="margin:8px 0 0; font-family:'IBM Plex Mono',monospace; font-size:12px; color:#5c6671;">// dimmi quale direzione tenere (es. <a href="#1c">1c</a>) e la porto a sistema: set completo di stati, animazioni, icona app, comparse in Inbox e push</p>
+  </div>
+
+  <div style="display:flex; flex-wrap:wrap; align-items:flex-start; gap:24px; margin-top:44px;">
+      <div id="1a" data-screen-label="1a Prompt" style="width:392px; border:1px solid #1d242d; background:#0a0d10; border-radius:10px; padding:22px;">
+        <div style="display:flex; align-items:baseline; gap:10px;">
+          <span style="display:inline-block; border:1px solid #b97d1a; border-radius:4px; padding:2px 8px; font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.12em; color:#f5a623;">1a</span>
+          <span style="font-size:19px; font-weight:700;">Prompt</span>
+          <span style="margin-left:auto; font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.1em; color:#5c6671; text-transform:uppercase;">16 × 16 px</span>
+        </div>
+        <p style="margin:8px 0 0; font-size:13px; line-height:1.5; color:#98a1ac; min-height:58px;">1-bit puro: solo ambra su inchiostro, nessuna sfumatura. È il cursore del wordmark che ha preso una faccia — la scelta più vicina all'identità esistente e la più sobria.</p>
+        <div style="display:flex; align-items:center; justify-content:center; margin-top:14px; border:1px solid #1d242d; background:#05070a; border-radius:8px; padding:26px 0;">
+          <img src="sprites/prompt-idle.png" alt="Wisey — Prompt" style="width:96px; height:96px; display:block;">
+        </div>
+        <div style="display:flex; gap:8px; margin-top:8px;">
+          <div style="flex:1; border:1px solid #1d242d; background:#0f1318; border-radius:8px; padding:12px 0 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+            <img src="sprites/prompt-idle.png" alt="A riposo" style="width:32px; height:32px; display:block;">
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.08em; color:#5c6671; text-transform:uppercase;">A riposo</span>
+          </div>
+          <div style="flex:1; border:1px solid #1d242d; background:#0f1318; border-radius:8px; padding:12px 0 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+            <img src="sprites/prompt-think.png" alt="Sta pensando" style="width:32px; height:32px; display:block;">
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.08em; color:#5c6671; text-transform:uppercase;">Sta pensando</span>
+          </div>
+          <div style="flex:1; border:1px solid #1d242d; background:#0f1318; border-radius:8px; padding:12px 0 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+            <img src="sprites/prompt-listen.png" alt="Ti ascolta" style="width:32px; height:32px; display:block;">
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.08em; color:#5c6671; text-transform:uppercase;">Ti ascolta</span>
+          </div>
+        </div>
+        <div style="display:flex; gap:10px; align-items:flex-start; margin-top:12px; border:1px solid #1d242d; background:#0f1318; border-radius:10px; padding:12px 14px;">
+          <img src="sprites/prompt-idle.png" alt="" style="width:32px; height:32px; flex-shrink:0; display:block;">
+          <div style="min-width:0;">
+            <p style="margin:0; font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.12em; color:#5c6671; text-transform:uppercase;">Wisey</p>
+            <p style="margin:3px 0 0; font-size:13px; line-height:1.45;">Ho trovato 2 decisioni aperte sul Portale B2B. Te le riassumo?</p>
+          </div>
+        </div>
+        <div style="display:flex; align-items:center; gap:10px; margin-top:8px; border:1px solid #2c3641; background:rgba(10,13,16,0.7); border-radius:22px; padding:9px 14px;">
+          <img src="sprites/prompt-listen.png" alt="" style="width:32px; height:32px; flex-shrink:0; display:block;">
+          <span style="flex:1; font-size:13px; color:#5c6671;">Chiedi o chiedi di fare…</span>
+          <span style="display:inline-flex; align-items:center; justify-content:center; width:26px; height:26px; border-radius:50%; background:#f5a623; color:#0a0d10; font-family:'IBM Plex Mono',monospace; font-size:12px; font-weight:600;">↑</span>
+        </div>
+        <p style="margin:12px 0 0; font-family:'IBM Plex Mono',monospace; font-size:11px; line-height:1.5; color:#5c6671;">// costa poco, invecchia bene, si legge a 16px nella tab bar. Rischio: poco carattere se Wisey deve «parlare» molto.</p>
+      </div>
+      <div id="1b" data-screen-label="1b Bolla" style="width:392px; border:1px solid #1d242d; background:#0a0d10; border-radius:10px; padding:22px;">
+        <div style="display:flex; align-items:baseline; gap:10px;">
+          <span style="display:inline-block; border:1px solid #b97d1a; border-radius:4px; padding:2px 8px; font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.12em; color:#f5a623;">1b</span>
+          <span style="font-size:19px; font-weight:700;">Bolla</span>
+          <span style="margin-left:auto; font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.1em; color:#5c6671; text-transform:uppercase;">16 × 16 px</span>
+        </div>
+        <p style="margin:8px 0 0; font-size:13px; line-height:1.5; color:#98a1ac; min-height:58px;">Quattro toni di ambra come un handheld anni '90: forma tonda, ombra, luce in alto a sinistra. Morbida e amichevole, pensata per gli operatori non tecnici.</p>
+        <div style="display:flex; align-items:center; justify-content:center; margin-top:14px; border:1px solid #1d242d; background:#05070a; border-radius:8px; padding:26px 0;">
+          <img src="sprites/bolla-idle.png" alt="Wisey — Bolla" style="width:96px; height:96px; display:block;">
+        </div>
+        <div style="display:flex; gap:8px; margin-top:8px;">
+          <div style="flex:1; border:1px solid #1d242d; background:#0f1318; border-radius:8px; padding:12px 0 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+            <img src="sprites/bolla-idle.png" alt="A riposo" style="width:32px; height:32px; display:block;">
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.08em; color:#5c6671; text-transform:uppercase;">A riposo</span>
+          </div>
+          <div style="flex:1; border:1px solid #1d242d; background:#0f1318; border-radius:8px; padding:12px 0 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+            <img src="sprites/bolla-think.png" alt="Sta pensando" style="width:32px; height:32px; display:block;">
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.08em; color:#5c6671; text-transform:uppercase;">Sta pensando</span>
+          </div>
+          <div style="flex:1; border:1px solid #1d242d; background:#0f1318; border-radius:8px; padding:12px 0 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+            <img src="sprites/bolla-listen.png" alt="Ti ascolta" style="width:32px; height:32px; display:block;">
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.08em; color:#5c6671; text-transform:uppercase;">Ti ascolta</span>
+          </div>
+        </div>
+        <div style="display:flex; gap:10px; align-items:flex-start; margin-top:12px; border:1px solid #1d242d; background:#0f1318; border-radius:10px; padding:12px 14px;">
+          <img src="sprites/bolla-idle.png" alt="" style="width:32px; height:32px; flex-shrink:0; display:block;">
+          <div style="min-width:0;">
+            <p style="margin:0; font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.12em; color:#5c6671; text-transform:uppercase;">Wisey</p>
+            <p style="margin:3px 0 0; font-size:13px; line-height:1.45;">Il piano è pronto: te lo racconto in due righe o vuoi il dettaglio?</p>
+          </div>
+        </div>
+        <div style="display:flex; align-items:center; gap:10px; margin-top:8px; border:1px solid #2c3641; background:rgba(10,13,16,0.7); border-radius:22px; padding:9px 14px;">
+          <img src="sprites/bolla-listen.png" alt="" style="width:32px; height:32px; flex-shrink:0; display:block;">
+          <span style="flex:1; font-size:13px; color:#5c6671;">Chiedi o chiedi di fare…</span>
+          <span style="display:inline-flex; align-items:center; justify-content:center; width:26px; height:26px; border-radius:50%; background:#f5a623; color:#0a0d10; font-family:'IBM Plex Mono',monospace; font-size:12px; font-weight:600;">↑</span>
+        </div>
+        <p style="margin:12px 0 0; font-family:'IBM Plex Mono',monospace; font-size:11px; line-height:1.5; color:#5c6671;">// la più calda delle cinque e l'unica che sorride. Rischio: allontana un po' dal tono «sala controllo».</p>
+      </div>
+      <div id="1c" data-screen-label="1c Diorama" style="width:392px; border:1px solid #1d242d; background:#0a0d10; border-radius:10px; padding:22px;">
+        <div style="display:flex; align-items:baseline; gap:10px;">
+          <span style="display:inline-block; border:1px solid #b97d1a; border-radius:4px; padding:2px 8px; font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.12em; color:#f5a623;">1c</span>
+          <span style="font-size:19px; font-weight:700;">Diorama</span>
+          <span style="margin-left:auto; font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.1em; color:#5c6671; text-transform:uppercase;">32 × 32 px</span>
+        </div>
+        <p style="margin:8px 0 0; font-size:13px; line-height:1.5; color:#98a1ac; min-height:58px;">Isometrica e dithered: Wisey non è una faccia ma una piccola macchina accesa, con lo schermo che cambia a seconda di cosa sta facendo. Rende la profondità senza colori nuovi.</p>
+        <div style="display:flex; align-items:center; justify-content:center; margin-top:14px; border:1px solid #1d242d; background:#05070a; border-radius:8px; padding:26px 0;">
+          <img src="sprites/diorama-idle.png" alt="Wisey — Diorama" style="width:160px; height:160px; display:block;">
+        </div>
+        <div style="display:flex; gap:8px; margin-top:8px;">
+          <div style="flex:1; border:1px solid #1d242d; background:#0f1318; border-radius:8px; padding:12px 0 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+            <img src="sprites/diorama-idle.png" alt="A riposo" style="width:64px; height:64px; display:block;">
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.08em; color:#5c6671; text-transform:uppercase;">A riposo</span>
+          </div>
+          <div style="flex:1; border:1px solid #1d242d; background:#0f1318; border-radius:8px; padding:12px 0 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+            <img src="sprites/diorama-think.png" alt="Sta pensando" style="width:64px; height:64px; display:block;">
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.08em; color:#5c6671; text-transform:uppercase;">Sta pensando</span>
+          </div>
+          <div style="flex:1; border:1px solid #1d242d; background:#0f1318; border-radius:8px; padding:12px 0 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+            <img src="sprites/diorama-listen.png" alt="Ti ascolta" style="width:64px; height:64px; display:block;">
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.08em; color:#5c6671; text-transform:uppercase;">Ti ascolta</span>
+          </div>
+        </div>
+        <div style="display:flex; gap:10px; align-items:flex-start; margin-top:12px; border:1px solid #1d242d; background:#0f1318; border-radius:10px; padding:12px 14px;">
+          <img src="sprites/diorama-idle.png" alt="" style="width:32px; height:32px; flex-shrink:0; display:block;">
+          <div style="min-width:0;">
+            <p style="margin:0; font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.12em; color:#5c6671; text-transform:uppercase;">Wisey</p>
+            <p style="margin:3px 0 0; font-size:13px; line-height:1.45;">Sto guardando i log del worker. Ci metto un minuto, poi ti dico.</p>
+          </div>
+        </div>
+        <div style="display:flex; align-items:center; gap:10px; margin-top:8px; border:1px solid #2c3641; background:rgba(10,13,16,0.7); border-radius:22px; padding:9px 14px;">
+          <img src="sprites/diorama-listen.png" alt="" style="width:32px; height:32px; flex-shrink:0; display:block;">
+          <span style="flex:1; font-size:13px; color:#5c6671;">Chiedi o chiedi di fare…</span>
+          <span style="display:inline-flex; align-items:center; justify-content:center; width:26px; height:26px; border-radius:50%; background:#f5a623; color:#0a0d10; font-family:'IBM Plex Mono',monospace; font-size:12px; font-weight:600;">↑</span>
+        </div>
+        <p style="margin:12px 0 0; font-family:'IBM Plex Mono',monospace; font-size:11px; line-height:1.5; color:#5c6671;">// legge «worker sempre acceso» meglio di ogni altra. Rischio: a 24px perde leggibilità, serve una versione ridotta.</p>
+      </div>
+      <div id="1d" data-screen-label="1d Mascotte" style="width:392px; border:1px solid #1d242d; background:#0a0d10; border-radius:10px; padding:22px;">
+        <div style="display:flex; align-items:baseline; gap:10px;">
+          <span style="display:inline-block; border:1px solid #b97d1a; border-radius:4px; padding:2px 8px; font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.12em; color:#f5a623;">1d</span>
+          <span style="font-size:19px; font-weight:700;">Mascotte</span>
+          <span style="margin-left:auto; font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.1em; color:#5c6671; text-transform:uppercase;">24 × 24 px</span>
+        </div>
+        <p style="margin:8px 0 0; font-size:13px; line-height:1.5; color:#98a1ac; min-height:58px;">Personaggio intero in stile 8-bit: testa, visiera ambra, antenna che si accende quando lavora. La più espressiva, quella che può avere pose diverse.</p>
+        <div style="display:flex; align-items:center; justify-content:center; margin-top:14px; border:1px solid #1d242d; background:#05070a; border-radius:8px; padding:26px 0;">
+          <img src="sprites/mascotte-idle.png" alt="Wisey — Mascotte" style="width:144px; height:144px; display:block;">
+        </div>
+        <div style="display:flex; gap:8px; margin-top:8px;">
+          <div style="flex:1; border:1px solid #1d242d; background:#0f1318; border-radius:8px; padding:12px 0 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+            <img src="sprites/mascotte-idle.png" alt="A riposo" style="width:48px; height:48px; display:block;">
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.08em; color:#5c6671; text-transform:uppercase;">A riposo</span>
+          </div>
+          <div style="flex:1; border:1px solid #1d242d; background:#0f1318; border-radius:8px; padding:12px 0 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+            <img src="sprites/mascotte-think.png" alt="Sta pensando" style="width:48px; height:48px; display:block;">
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.08em; color:#5c6671; text-transform:uppercase;">Sta pensando</span>
+          </div>
+          <div style="flex:1; border:1px solid #1d242d; background:#0f1318; border-radius:8px; padding:12px 0 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+            <img src="sprites/mascotte-listen.png" alt="Ti ascolta" style="width:48px; height:48px; display:block;">
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.08em; color:#5c6671; text-transform:uppercase;">Ti ascolta</span>
+          </div>
+        </div>
+        <div style="display:flex; gap:10px; align-items:flex-start; margin-top:12px; border:1px solid #1d242d; background:#0f1318; border-radius:10px; padding:12px 14px;">
+          <img src="sprites/mascotte-idle.png" alt="" style="width:48px; height:48px; flex-shrink:0; display:block;">
+          <div style="min-width:0;">
+            <p style="margin:0; font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.12em; color:#5c6671; text-transform:uppercase;">Wisey</p>
+            <p style="margin:3px 0 0; font-size:13px; line-height:1.45;">Fatto: ho aperto la PR e l'ho mandata in review. Ti avviso io quando esce.</p>
+          </div>
+        </div>
+        <div style="display:flex; align-items:center; gap:10px; margin-top:8px; border:1px solid #2c3641; background:rgba(10,13,16,0.7); border-radius:22px; padding:9px 14px;">
+          <img src="sprites/mascotte-listen.png" alt="" style="width:24px; height:24px; flex-shrink:0; display:block;">
+          <span style="flex:1; font-size:13px; color:#5c6671;">Chiedi o chiedi di fare…</span>
+          <span style="display:inline-flex; align-items:center; justify-content:center; width:26px; height:26px; border-radius:50%; background:#f5a623; color:#0a0d10; font-family:'IBM Plex Mono',monospace; font-size:12px; font-weight:600;">↑</span>
+        </div>
+        <p style="margin:12px 0 0; font-family:'IBM Plex Mono',monospace; font-size:11px; line-height:1.5; color:#5c6671;">// spazio enorme per animazioni e stati futuri. Rischio: più «gioco» che strumento, e costa di più da mantenere.</p>
+      </div>
+      <div id="1e" data-screen-label="1e Sigillo" style="width:392px; border:1px solid #1d242d; background:#0a0d10; border-radius:10px; padding:22px;">
+        <div style="display:flex; align-items:baseline; gap:10px;">
+          <span style="display:inline-block; border:1px solid #b97d1a; border-radius:4px; padding:2px 8px; font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.12em; color:#f5a623;">1e</span>
+          <span style="font-size:19px; font-weight:700;">Sigillo</span>
+          <span style="margin-left:auto; font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.1em; color:#5c6671; text-transform:uppercase;">16 × 16 px</span>
+        </div>
+        <p style="margin:8px 0 0; font-size:13px; line-height:1.5; color:#98a1ac; min-height:58px;">Nessun personaggio: un glifo geometrico che cambia forma. Non finge di essere qualcuno, dichiara solo il proprio stato. La più rigorosa e la più adulta.</p>
+        <div style="display:flex; align-items:center; justify-content:center; margin-top:14px; border:1px solid #1d242d; background:#05070a; border-radius:8px; padding:26px 0;">
+          <img src="sprites/sigillo-idle.png" alt="Wisey — Sigillo" style="width:96px; height:96px; display:block;">
+        </div>
+        <div style="display:flex; gap:8px; margin-top:8px;">
+          <div style="flex:1; border:1px solid #1d242d; background:#0f1318; border-radius:8px; padding:12px 0 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+            <img src="sprites/sigillo-idle.png" alt="A riposo" style="width:32px; height:32px; display:block;">
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.08em; color:#5c6671; text-transform:uppercase;">A riposo</span>
+          </div>
+          <div style="flex:1; border:1px solid #1d242d; background:#0f1318; border-radius:8px; padding:12px 0 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+            <img src="sprites/sigillo-think.png" alt="Sta pensando" style="width:32px; height:32px; display:block;">
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.08em; color:#5c6671; text-transform:uppercase;">Sta pensando</span>
+          </div>
+          <div style="flex:1; border:1px solid #1d242d; background:#0f1318; border-radius:8px; padding:12px 0 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+            <img src="sprites/sigillo-listen.png" alt="Ti ascolta" style="width:32px; height:32px; display:block;">
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.08em; color:#5c6671; text-transform:uppercase;">Ti ascolta</span>
+          </div>
+        </div>
+        <div style="display:flex; gap:10px; align-items:flex-start; margin-top:12px; border:1px solid #1d242d; background:#0f1318; border-radius:10px; padding:12px 14px;">
+          <img src="sprites/sigillo-idle.png" alt="" style="width:32px; height:32px; flex-shrink:0; display:block;">
+          <div style="min-width:0;">
+            <p style="margin:0; font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.12em; color:#5c6671; text-transform:uppercase;">Wisey</p>
+            <p style="margin:3px 0 0; font-size:13px; line-height:1.45;">Trovate 3 fonti nelle Docs. Risposta breve per il cliente, o completa?</p>
+          </div>
+        </div>
+        <div style="display:flex; align-items:center; gap:10px; margin-top:8px; border:1px solid #2c3641; background:rgba(10,13,16,0.7); border-radius:22px; padding:9px 14px;">
+          <img src="sprites/sigillo-listen.png" alt="" style="width:32px; height:32px; flex-shrink:0; display:block;">
+          <span style="flex:1; font-size:13px; color:#5c6671;">Chiedi o chiedi di fare…</span>
+          <span style="display:inline-flex; align-items:center; justify-content:center; width:26px; height:26px; border-radius:50%; background:#f5a623; color:#0a0d10; font-family:'IBM Plex Mono',monospace; font-size:12px; font-weight:600;">↑</span>
+        </div>
+        <p style="margin:12px 0 0; font-family:'IBM Plex Mono',monospace; font-size:11px; line-height:1.5; color:#5c6671;">// zero rischio di antropomorfismo e perfetta come icona. Rischio: nome «Wisey» su un glifo può risultare freddo.</p>
+      </div>
+  </div>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>
