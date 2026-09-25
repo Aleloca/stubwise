@@ -55,6 +55,7 @@ export function ScreenHeader({
   backLabel,
   titleNumberOfLines,
   showAvatar = true,
+  badge,
 }: {
   title: string;
   subtitle?: string;
@@ -68,6 +69,12 @@ export function ScreenHeader({
    * altrove renderebbe irraggiungibile una pagina.
    */
   showAvatar?: boolean;
+  /**
+   * Un'etichetta breve accanto al titolo, in stile badge del design (bordo
+   * ambra, mono, maiuscolo). Nata per «Preview» su Wisey (25 set 2026): dice
+   * che la schermata è un'anteprima senza togliere spazio al titolo.
+   */
+  badge?: string;
 }) {
   const { t } = useTranslation();
   // ⚠️ La ricerca è un'AZIONE e vive QUI, non nella tab bar: le cinque
@@ -96,12 +103,19 @@ export function ScreenHeader({
             <Text style={styles.back}>{`‹ ${backLabel}`}</Text>
           </Pressable>
         )}
-        <Text
-          style={textStyles.screenTitle}
-          {...(titleNumberOfLines !== undefined ? { numberOfLines: titleNumberOfLines } : {})}
-        >
-          {title}
-        </Text>
+        <View style={styles.titleRow}>
+          <Text
+            style={[textStyles.screenTitle, styles.titleText]}
+            {...(titleNumberOfLines !== undefined ? { numberOfLines: titleNumberOfLines } : {})}
+          >
+            {title}
+          </Text>
+          {badge !== undefined && (
+            <Text style={styles.badge} testID="screen-header-badge">
+              {badge}
+            </Text>
+          )}
+        </View>
         {subtitle !== undefined && <Text style={textStyles.screenSubtitle}>{subtitle}</Text>}
       </View>
       <View style={styles.actions}>
@@ -156,6 +170,26 @@ const styles = StyleSheet.create({
   },
   titleBlock: {
     flex: 1,
+  },
+  titleRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10,
+  },
+  titleText: {
+    flexShrink: 1,
+  },
+  badge: {
+    borderColor: colors.signalDim,
+    borderRadius: 4,
+    borderWidth: 1,
+    color: colors.signal,
+    fontFamily: fontFamily.mono,
+    fontSize: 11,
+    letterSpacing: 1.3,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    textTransform: "uppercase",
   },
   actions: {
     alignItems: "center",
