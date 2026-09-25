@@ -872,3 +872,60 @@ describe("l'app non resta indietro — il ritorno su una schermata", () => {
     expect(pulseCalls).toBe(before);
   });
 });
+
+/**
+ * LA BARRA DELLE SCHEDE (25 set 2026, «Wisey, anteprima nell'app» §2).
+ *
+ * Si legge dalle props del componente NATIVO della barra, non da una
+ * costante: è quello che iOS riceve davvero, quindi il test prova il
+ * cablaggio e non una lista tenuta accanto al codice.
+ */
+describe("la barra delle schede", () => {
+  type NativeTabItem = { title: string; iconRenderingMode?: string };
+
+  async function renderMain() {
+    (Keychain.getGenericPassword as jest.Mock).mockResolvedValue({
+      username: "stubwise-session",
+      password: JSON.stringify({
+        baseUrl: "https://stubwise.example",
+        token: "stw_pat_existing",
+        patId: "66666666-6666-4666-8666-666666666666",
+        user: successUser,
+      }),
+      service: "com.app.aleloca.stubwise.session",
+      storage: "keychain",
+    });
+    (Linking.getInitialURL as jest.Mock).mockResolvedValue(undefined);
+    jest.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => routeFetch(input, init));
+    await render(
+      <AppProviders>
+        <RootNavigator />
+      </AppProviders>,
+    );
+    let bar: { props: { items: NativeTabItem[]; icons: unknown[] } } | undefined;
+    await waitFor(() => {
+      bar = screen.container.queryAll(
+        (node) => Array.isArray(node.props.items) && Array.isArray(node.props.icons),
+      )[0] as unknown as typeof bar;
+      expect(bar).toBeDefined();
+    });
+    return bar!;
+  }
+
+  test("Wisey sta al CENTRO, fra Projects e Backlog", async () => {
+    const bar = await renderMain();
+    const titles = bar.props.items.map((item) => item.title);
+    expect(titles.slice(0, 4)).toEqual(["INB", "PRJ", "WISEY", "BLG"]);
+    expect(titles.at(-1)).toBe("MBX");
+  });
+
+  test("il gufo è un'IMMAGINE a colori: rendering «original», le altre restano tinte dalla barra", async () => {
+    const bar = await renderMain();
+    const wisey = bar.props.items.findIndex((item) => item.title === "WISEY");
+    expect(bar.props.items[wisey]?.iconRenderingMode).toBe("original");
+    expect(JSON.stringify(bar.props.icons[wisey])).toContain("owl-minimal");
+    for (const item of bar.props.items.filter((i) => i.title !== "WISEY")) {
+      expect(item.iconRenderingMode).not.toBe("original");
+    }
+  });
+});

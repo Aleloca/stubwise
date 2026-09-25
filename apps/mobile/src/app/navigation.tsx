@@ -42,6 +42,7 @@ import { MailDetailScreen } from "../screens/mbx/MailDetailScreen";
 import { MbxScreen } from "../screens/mbx/MbxScreen";
 import { MailRejectionsScreen } from "../screens/mbx/MailRejectionsScreen";
 import { ThreadDetailScreen } from "../screens/mbx/ThreadDetailScreen";
+import { WiseyScreen } from "../screens/wisey/WiseyScreen";
 import { WorkScreen } from "../screens/work/WorkScreen";
 import { useUnreadCount } from "../lib/inbox-mutations";
 import { colors } from "../theme/tokens";
@@ -51,6 +52,9 @@ import folderIcon from "../../assets/icons/folder.svg";
 import checklistIcon from "../../assets/icons/checklist.svg";
 import menuBookIcon from "../../assets/icons/menu_book.svg";
 import mailIcon from "../../assets/icons/mail.svg";
+// Il gufo Minimal della tab (28×24, con @2x/@3x pre-scalati nearest da
+// `scripts/wisey-assets.py`): un'IMMAGINE a colori, non un SF Symbol.
+import wiseyTabIcon from "../../assets/wisey/owl-minimal.png";
 import { buildLinking, getPendingDeepLink, resolveDeepLinkTarget, setPendingDeepLink } from "./linking";
 import { useAuth } from "./providers";
 
@@ -232,6 +236,8 @@ export type MbxStackParamList = {
 export type MainTabParamList = {
   Inbox: NavigatorScreenParams<InboxStackParamList>;
   Projects: NavigatorScreenParams<ProjectsStackParamList>;
+  /** Wisey, l'agente dell'istanza (25 set 2026): per ora un'anteprima. */
+  Wisey: undefined;
   Backlog: NavigatorScreenParams<BacklogStackParamList>;
   Docs: NavigatorScreenParams<DocsStackParamList>;
   Mbx: NavigatorScreenParams<MbxStackParamList>;
@@ -474,6 +480,23 @@ function MainNavigator() {
         options={{
           tabBarLabel: "PRJ",
           tabBarIcon: () => nativeTabIcon("folder.fill", folderIcon),
+        }}
+      />
+      {/*
+        WISEY al CENTRO (25 set 2026, design §2). Il rilievo lo dà il COLORE,
+        non la misura: la barra resta quella nativa. `original` è ciò che
+        tiene il gufo a colori — senza, iOS ricolora l'immagine con la tinta
+        della barra e ne fa una sagoma. Stessa icona da selezionata e non.
+        La tab iniziale resta Inbox: aprire l'app su un'anteprima sarebbe
+        sbagliato.
+      */}
+      <Tab.Screen
+        name="Wisey"
+        component={WiseyScreen}
+        options={{
+          tabBarLabel: "WISEY",
+          tabBarIcon: () => wiseyTabIcon,
+          tabBarIconRenderingMode: "original",
         }}
       />
       <Tab.Screen

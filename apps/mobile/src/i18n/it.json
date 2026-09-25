@@ -1232,6 +1232,10 @@
         "manual": "manuale",
         "unknown": "documentazione"
       }
+    },
+    "wisey": {
+      "title": "Wisey",
+      "placeholder": "Wisey sta arrivando."
     }
   }
 }
