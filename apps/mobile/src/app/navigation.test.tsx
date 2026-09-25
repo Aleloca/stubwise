@@ -6,7 +6,8 @@ import "../i18n";
 import { AppProviders, queryClient } from "./providers";
 import { navigationRef, RootNavigator } from "./navigation";
 import { setPendingDeepLink } from "./linking";
-import { WISEY_TAB_ICON } from "./wisey-tab-icon";
+import { WISEY_TAB_FRAMES } from "./wisey-tab-icon";
+import { WISEY_CYCLE_MS } from "../lib/wisey-phase";
 
 const successUser = {
   id: "44444444-4444-4444-8444-444444444444",
@@ -922,14 +923,45 @@ describe("la barra delle schede", () => {
     const bar = await renderMain();
     const wisey = bar.props.items.findIndex((item) => item.title === "WISEY");
     expect(bar.props.items[wisey]?.iconRenderingMode).toBe("original");
-    // Il gufo della 5a (Classic, primo fotogramma di «riposo»), non Minimal:
-    // il maintainer l'ha scartato dopo la prova sul telefono (25 set 2026).
-    // Misure e margine del file li prova `scripts/wisey-assets.test.mjs`.
-    expect(bar.props.icons[wisey]).toEqual(WISEY_TAB_ICON);
-    expect(JSON.stringify(bar.props.icons[wisey])).toContain("wisey-tab");
+    // Il gufo della 5a (Classic), non Minimal: il maintainer l'ha scartato
+    // dopo la prova sul telefono (25 set 2026). A riposo, primo fotogramma.
+    // Misure e margine dei file li prova `scripts/wisey-assets.test.mjs`.
+    expect(bar.props.icons[wisey]).toEqual(WISEY_TAB_FRAMES.rest[0]);
     expect(JSON.stringify(bar.props.icons[wisey])).not.toContain("owl-minimal");
     for (const item of bar.props.items.filter((i) => i.title !== "WISEY")) {
       expect(item.iconRenderingMode).not.toBe("original");
     }
+  });
+
+  /**
+   * L'icona si ANIMA (design §10): la barra nativa non anima immagini, quindi
+   * riceve un'icona nuova a ogni fotogramma, sulla fase del gufo grande.
+   */
+  test("l'icona passata alla barra nativa avanza coi fotogrammi della fase", async () => {
+    jest.useFakeTimers();
+    const bar = await renderMain();
+    const wisey = bar.props.items.findIndex((item) => item.title === "WISEY");
+    const iconNow = () =>
+      (screen.container.queryAll((node) => Array.isArray(node.props.items) && Array.isArray(node.props.icons))[0]!
+        .props.icons as unknown[])[wisey];
+    expect(iconNow()).toEqual(WISEY_TAB_FRAMES.rest[0]);
+    await act(async () => {
+      jest.advanceTimersByTime(WISEY_CYCLE_MS.rest / 4);
+    });
+    expect(iconNow()).toEqual(WISEY_TAB_FRAMES.rest[1]);
+    jest.useRealTimers();
+  });
+
+  test("l'icona segue lo stato di Wisey: scrivendo nella sua pagina, «ti ascolta»", async () => {
+    const bar = await renderMain();
+    const wisey = bar.props.items.findIndex((item) => item.title === "WISEY");
+    const iconNow = () =>
+      (screen.container.queryAll((node) => Array.isArray(node.props.items) && Array.isArray(node.props.icons))[0]!
+        .props.icons as unknown[])[wisey];
+    await act(async () => {
+      navigationRef.navigate("Main", { screen: "Wisey" });
+    });
+    await fireEvent.changeText(await screen.findByTestId("wisey-input"), "ciao");
+    await waitFor(() => expect(iconNow()).toEqual(WISEY_TAB_FRAMES.listen[0]));
   });
 });

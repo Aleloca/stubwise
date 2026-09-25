@@ -14,10 +14,15 @@ Sorgenti (dall'export di design, in `assets/wisey/`, MAI riscritti):
 Generati accanto:
   gufo-<fase>@2x/@3x.png          il gufo piccolo (56×48 pt a fotogramma)
   gufo-<fase>-large[@2x/@3x].png  il gufo grande, mostrato a 2× (112×96 pt)
-  wisey-tab[@2x/@3x].png          l'icona della tab
+  wisey-tab-<fase>-<n>[@2x/@3x].png  l'icona della tab: 4 fotogrammi per fase
 
-L'ICONA DELLA TAB (25 set 2026, dopo due prove sul telefono): è il PRIMO
-fotogramma di `gufo-riposo.png` — il gufo Classic della 5a, 56×48 — e non
+L'ICONA SI ANIMA (25 set 2026, design §10): la barra nativa non anima
+immagini, quindi l'app le cambia l'icona a ogni fotogramma, sulla stessa fase
+del gufo grande. Ogni fotogramma di ogni fase diventa un'icona a sé, fatta
+come quella che segue — la tela, la variante morbida, il margine.
+
+L'ICONA DELLA TAB (25 set 2026, dopo due prove sul telefono): all'inizio era
+il solo PRIMO fotogramma di `gufo-riposo.png` — il gufo Classic della 5a, 56×48 — e non
 `owl-minimal.png`, che il maintainer ha scartato. Nella barra il gufo sta a
 28×24 pt, cioè a METÀ del disegno:
 
@@ -70,12 +75,19 @@ def main() -> None:
         assert source.size == (224, 48), f"gufo-{phase}.png: atteso 224×48, trovato {source.size}"
         write(source, f"gufo-{phase}", 1)
         write(source, f"gufo-{phase}-large", 2)
-    write_tab_icon()
+    write_tab_icons()
 
 
-def write_tab_icon() -> None:
-    """L'icona della tab: primo fotogramma di riposo, 28×24 pt più il margine (vedi il docblock)."""
-    frame = Image.open(ASSETS / "gufo-riposo.png").convert("RGBA").crop((0, 0, 56, 48))
+def write_tab_icons() -> None:
+    """Le icone della tab: 4 fotogrammi per fase, 28×24 pt più il margine (vedi il docblock)."""
+    for phase in PHASES:
+        strip = Image.open(ASSETS / f"gufo-{phase}.png").convert("RGBA")
+        for index in range(4):
+            write_tab_icon(strip.crop((56 * index, 0, 56 * (index + 1), 48)), f"wisey-tab-{phase}-{index}")
+
+
+def write_tab_icon(frame: Image.Image, stem: str) -> None:
+    """UN fotogramma 56×48 come icona della tab, alle tre densità."""
     owls = {
         1: frame.resize((28, 24), Image.LANCZOS),
         2: frame,
@@ -85,7 +97,7 @@ def write_tab_icon() -> None:
         canvas = Image.new("RGBA", (28 * density, (24 + TAB_BOTTOM_MARGIN_PT) * density), (0, 0, 0, 0))
         canvas.paste(owl, (0, 0))
         suffix = "" if density == 1 else f"@{density}x"
-        canvas.save(ASSETS / f"wisey-tab{suffix}.png", optimize=True)
+        canvas.save(ASSETS / f"{stem}{suffix}.png", optimize=True)
 
 if __name__ == "__main__":
     main()

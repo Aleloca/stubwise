@@ -42,10 +42,10 @@ import { MbxScreen } from "../screens/mbx/MbxScreen";
 import { MailRejectionsScreen } from "../screens/mbx/MailRejectionsScreen";
 import { ThreadDetailScreen } from "../screens/mbx/ThreadDetailScreen";
 import { WiseyScreen } from "../screens/wisey/WiseyScreen";
-import { WiseyProvider } from "../components/wisey/WiseyProvider";
-// Il gufo della tab: un'IMMAGINE a colori, non un SF Symbol. Quale variante
-// lo decide `wisey-tab-icon.ts`, in un posto solo.
-import { WISEY_TAB_ICON } from "./wisey-tab-icon";
+import { useWisey, WiseyProvider } from "../components/wisey/WiseyProvider";
+// Il gufo della tab: un'IMMAGINE a colori, non un SF Symbol, che si anima
+// sulla fase di Wisey (`wisey-tab-icon.ts`).
+import { useWiseyTabIcon } from "./wisey-tab-icon";
 import { WorkScreen } from "../screens/work/WorkScreen";
 import { useUnreadCount } from "../lib/inbox-mutations";
 import { colors } from "../theme/tokens";
@@ -416,6 +416,9 @@ function MainTabs() {
   // renderebbe comunque (bottom-tabs non nasconde uno "0"), quindi lo si
   // passa come `undefined`.
   const unreadCount = useUnreadCount();
+  // L'icona di Wisey si anima sulla stessa fase del gufo grande (design §10):
+  // la barra nativa riceve un'icona nuova a ogni fotogramma.
+  const wiseyIcon = useWiseyTabIcon(useWisey().phase);
   const badge = unreadCount.data !== undefined && unreadCount.data > 0 ? String(unreadCount.data) : undefined;
 
   useEffect(() => {
@@ -488,6 +491,8 @@ function MainTabs() {
         non la misura: la barra resta quella nativa. `original` è ciò che
         tiene il gufo a colori — senza, iOS ricolora l'immagine con la tinta
         della barra e ne fa una sagoma. Stessa icona da selezionata e non.
+        Dal §10 l'icona si ANIMA sulla fase del gufo grande: `wiseyIcon`
+        cambia a ogni fotogramma (vedi `useWiseyTabIcon`).
         La tab iniziale resta Inbox: aprire l'app su un'anteprima sarebbe
         sbagliato.
       */}
@@ -496,7 +501,7 @@ function MainTabs() {
         component={WiseyScreen}
         options={{
           tabBarLabel: "WISEY",
-          tabBarIcon: () => WISEY_TAB_ICON,
+          tabBarIcon: () => wiseyIcon,
           tabBarIconRenderingMode: "original",
         }}
       />

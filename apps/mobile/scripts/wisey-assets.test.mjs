@@ -59,12 +59,28 @@ function decodeRgba(file) {
   return { width, height, alpha: (x, y) => pixels[y * stride + x * 4 + 3] };
 }
 
+/**
+ * Design §10: l'icona della tab si ANIMA sulla stessa fase del gufo grande,
+ * quindi non è più un file solo ma quattro fotogrammi per ognuna delle sei
+ * fasi, ciascuno alle tre densità.
+ */
+const PHASES = ["riposo", "ascolta", "pensa", "lavora", "parla", "fatto"];
+const TAB_FILES = PHASES.flatMap((phase) =>
+  [0, 1, 2, 3].flatMap((frame) =>
+    [
+      [`wisey-tab-${phase}-${frame}.png`, 1],
+      [`wisey-tab-${phase}-${frame}@2x.png`, 2],
+      [`wisey-tab-${phase}-${frame}@3x.png`, 3],
+    ],
+  ),
+);
+
 describe("l'icona della tab Wisey", () => {
-  test.each([
-    ["wisey-tab.png", 1],
-    ["wisey-tab@2x.png", 2],
-    ["wisey-tab@3x.png", 3],
-  ])("%s: tela 28×27 pt, gufo 28×24 in alto, 3 pt trasparenti sotto", (file, scale) => {
+  test("sei fasi × quattro fotogrammi × tre densità", () => {
+    expect(TAB_FILES).toHaveLength(72);
+  });
+
+  test.each(TAB_FILES)("%s: tela 28×27 pt, gufo 28×24 in alto, 3 pt trasparenti sotto", (file, scale) => {
     const icon = decodeRgba(file);
     expect([icon.width, icon.height]).toEqual([28 * scale, 27 * scale]);
 
@@ -74,8 +90,14 @@ describe("l'icona della tab Wisey", () => {
     }
     // Il margine: nessun pixel visibile negli ultimi 3 pt.
     expect(Math.max(...opaqueRows)).toBeLessThan(24 * scale);
-    // Il gufo NON è stato rimpicciolito: arriva ancora in fondo ai suoi 24 pt
-    // (nel fotogramma il disegno tocca la penultima riga, cioè 1 px dal bordo).
+    // Il gufo NON è stato rimpicciolito: arriva ancora in fondo ai suoi 24 pt.
     expect(Math.max(...opaqueRows)).toBeGreaterThanOrEqual(24 * scale - Math.ceil(scale));
+  });
+
+  test("i quattro fotogrammi di una fase sono DIVERSI: la barra ha qualcosa da animare", () => {
+    for (const phase of PHASES) {
+      const frames = [0, 1, 2, 3].map((frame) => readFileSync(join(ASSETS, `wisey-tab-${phase}-${frame}@2x.png`)).toString("base64"));
+      expect(new Set(frames).size).toBeGreaterThan(1);
+    }
   });
 });
