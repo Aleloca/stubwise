@@ -4,6 +4,7 @@ import {
   emailBodies,
   emailMessages,
   emailProposals,
+  emailRejections,
   encrypt,
   googleAccounts,
   googleWorkspaces,
@@ -1845,5 +1846,147 @@ describe("GET /api/me/mail/threads/:threadId", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(Array.isArray(res.json().items)).toBe(true);
+  });
+});
+
+/**
+ * LE MAIL TENUTE FUORI (25 set 2026): `GET /api/me/mail/rejections`.
+ *
+ * La domanda a cui risponde — «il cancello sta tagliando un cliente?» — la
+ * può fare solo il proprietario della casella: i domini da cui scrive la gente
+ * a un collega non sono affare di un admin (invariante `mailbox_owner`,
+ * nessun ruolo scavalca).
+ */
+describe("GET /api/me/mail/rejections", () => {
+  const DAY = 24 * 60 * 60 * 1000;
+
+  function getRejections(cookie: string, query = "") {
+    return app.inject({ method: "GET", url: `/api/me/mail/rejections${query}`, headers: { cookie } });
+  }
+
+  async function seedRejection(
+    accountId: string,
+    values: { domain?: string | null; reason?: "automated" | "denied_label" | "no_match"; daysAgo?: number } = {},
+  ): Promise<void> {
+    await db.insert(emailRejections).values({
+      accountId,
+      gmailMessageId: `m-${randomUUID()}`,
+      senderDomain: values.domain === undefined ? "github.com" : values.domain,
+      reason: values.reason ?? "automated",
+      rejectedAt: new Date(Date.now() - (values.daysAgo ?? 1) * DAY),
+    });
+  }
+
+  it("MAILBOX_OWNER: l'admin non vede gli scarti della casella di un member, il member sì", async () => {
+    const { accountId, email } = await seedAccount(memberId);
+    await seedRejection(accountId, { domain: "solo-del-member.test" });
+
+    const adminRes = await getRejections(adminCookie);
+    expect(adminRes.statusCode).toBe(200);
+    expect(adminRes.json()).toEqual({ days: 7, total: 0, accounts: [] });
+
+    // Il verso positivo: la query funziona, e il vuoto sopra non è un guasto.
+    const memberRes = await getRejections(memberCookie);
+    expect(memberRes.statusCode).toBe(200);
+    expect(memberRes.json()).toEqual({
+      days: 7,
+      total: 1,
+      accounts: [
+        {
+          accountId,
+          email,
+          total: 1,
+          reasons: [
+            { reason: "automated", count: 1, domains: [{ domain: "solo-del-member.test", count: 1 }], otherDomains: 0 },
+          ],
+        },
+      ],
+    });
+  });
+
+  it("MAILBOX_OWNER: e nemmeno il verso opposto — il member non vede gli scarti dell'admin", async () => {
+    const admin = await seedAccount(adminId);
+    const member = await seedAccount(memberId);
+    await seedRejection(admin.accountId, { domain: "dell-admin.test" });
+    await seedRejection(member.accountId, { domain: "del-member.test" });
+
+    const body = (await getRejections(memberCookie)).json() as { accounts: { accountId: string }[] };
+    expect(body.accounts.map((a) => a.accountId)).toEqual([member.accountId]);
+  });
+
+  it("senza sessione: 401", async () => {
+    const res = await app.inject({ method: "GET", url: "/api/me/mail/rejections" });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("nessuno scarto: total 0 e nessuna casella", async () => {
+    await seedAccount(memberId);
+    expect((await getRejections(memberCookie)).json()).toEqual({ days: 7, total: 0, accounts: [] });
+  });
+
+  it("days fuori da 1..30 è un 400", async () => {
+    for (const q of ["?days=0", "?days=31", "?days=abc"]) {
+      expect((await getRejections(memberCookie, q)).statusCode).toBe(400);
+    }
+  });
+
+  it("default 7 giorni: uno scarto di 8 giorni fa è escluso col default e incluso con days=10", async () => {
+    const { accountId } = await seedAccount(memberId);
+    await seedRejection(accountId, { daysAgo: 8 });
+
+    expect((await getRejections(memberCookie)).json()).toMatchObject({ days: 7, total: 0 });
+    expect((await getRejections(memberCookie, "?days=10")).json()).toMatchObject({ days: 10, total: 1 });
+  });
+
+  it("motivi e domini in ordine di conteggio decrescente, dominio null compreso", async () => {
+    const { accountId } = await seedAccount(memberId);
+    await seedRejection(accountId, { reason: "no_match", domain: "cliente.test" });
+    for (let i = 0; i < 3; i += 1) await seedRejection(accountId, { reason: "automated", domain: "github.com" });
+    for (let i = 0; i < 2; i += 1) await seedRejection(accountId, { reason: "automated", domain: null });
+    await seedRejection(accountId, { reason: "automated", domain: "vercel.com" });
+
+    const body = (await getRejections(memberCookie)).json() as {
+      total: number;
+      accounts: { total: number; reasons: { reason: string; count: number; domains: unknown[] }[] }[];
+    };
+    expect(body.total).toBe(7);
+    expect(body.accounts[0]!.total).toBe(7);
+    expect(body.accounts[0]!.reasons.map((r) => [r.reason, r.count])).toEqual([
+      ["automated", 6],
+      ["no_match", 1],
+    ]);
+    expect(body.accounts[0]!.reasons[0]!.domains).toEqual([
+      { domain: "github.com", count: 3 },
+      { domain: null, count: 2 },
+      { domain: "vercel.com", count: 1 },
+    ]);
+  });
+
+  it("dodici domini: i primi dieci, e otherDomains conta le MAIL degli altri", async () => {
+    const { accountId } = await seedAccount(memberId);
+    // Il dominio d{i} ha 13 - i mail: d0 = 13 … d11 = 2. Gli ultimi due, fuori
+    // dai dieci, ne hanno 3 + 2 = 5.
+    for (let i = 0; i < 12; i += 1) {
+      for (let n = 0; n < 13 - i; n += 1) await seedRejection(accountId, { domain: `d${i}.test` });
+    }
+
+    const body = (await getRejections(memberCookie)).json() as {
+      accounts: { reasons: { count: number; domains: { domain: string }[]; otherDomains: number }[] }[];
+    };
+    const reason = body.accounts[0]!.reasons[0]!;
+    expect(reason.domains.map((d) => d.domain)).toEqual(Array.from({ length: 10 }, (_, i) => `d${i}.test`));
+    expect(reason.otherDomains).toBe(5);
+    const sum = reason.domains.reduce((acc, d) => acc + (d as unknown as { count: number }).count, 0);
+    expect(sum + reason.otherDomains).toBe(reason.count);
+  });
+
+  it("una casella senza scarti nel periodo non compare", async () => {
+    const conScarti = await seedAccount(memberId);
+    const vecchia = await seedAccount(memberId);
+    await seedRejection(conScarti.accountId);
+    await seedRejection(vecchia.accountId, { daysAgo: 20 });
+
+    const body = (await getRejections(memberCookie)).json() as { accounts: { accountId: string }[] };
+    expect(body.accounts.map((a) => a.accountId)).toEqual([conScarti.accountId]);
   });
 });
