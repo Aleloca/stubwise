@@ -14,6 +14,14 @@ Sorgenti (dall'export di design, in `assets/wisey/`, MAI riscritti):
 Generati accanto:
   gufo-<fase>@2x/@3x.png          il gufo piccolo (56×48 pt a fotogramma)
   gufo-<fase>-large[@2x/@3x].png  il gufo grande, mostrato a 2× (112×96 pt)
+  gufo-<fase>-button[@2x/@3x].png il gufo del cerchio sopra la barra (42×36 pt)
+
+IL GUFO DEL CERCHIO (25 set 2026, design §11): sta dentro il bottone da 64 pt
+che sporge sopra la barra, a 42×36 pt per fotogramma, cioè 0,75 del disegno.
+Nessun fattore è intero (0,75×, 1,5×, 2,25×), quindi si fa come la variante
+(b) della tab, scelta dal maintainer: NEAREST a 3× (intero, senza perdita) e
+poi LANCZOS alla misura, fotogramma per fotogramma — ridurre la striscia
+intera mescolerebbe i bordi di due fotogrammi vicini.
   wisey-tab-<fase>-<n>[@2x/@3x].png  l'icona della tab: 4 fotogrammi per fase
 
 L'ICONA SI ANIMA (25 set 2026, design §10): la barra nativa non anima
@@ -53,6 +61,9 @@ from PIL import Image
 
 ASSETS = Path(__file__).resolve().parent.parent / "assets" / "wisey"
 PHASES = ["riposo", "ascolta", "pensa", "lavora", "parla", "fatto"]
+# Il gufo dentro il cerchio sopra la barra, in punti per fotogramma (vedi il docblock).
+BUTTON_FRAME_PT = (42, 36)
+
 # Spazio trasparente sotto il gufo della tab, in punti (vedi il docblock).
 TAB_BOTTOM_MARGIN_PT = 3
 
@@ -75,7 +86,20 @@ def main() -> None:
         assert source.size == (224, 48), f"gufo-{phase}.png: atteso 224×48, trovato {source.size}"
         write(source, f"gufo-{phase}", 1)
         write(source, f"gufo-{phase}-large", 2)
+        write_button_sprite(source, f"gufo-{phase}-button")
     write_tab_icons()
+
+
+def write_button_sprite(strip: Image.Image, stem: str) -> None:
+    """La striscia del gufo del cerchio: 4 fotogrammi da 42×36 pt, alle tre densità."""
+    for density, suffix in ((1, ""), (2, "@2x"), (3, "@3x")):
+        width, height = BUTTON_FRAME_PT[0] * density, BUTTON_FRAME_PT[1] * density
+        out = Image.new("RGBA", (width * 4, height), (0, 0, 0, 0))
+        for index in range(4):
+            frame = strip.crop((56 * index, 0, 56 * (index + 1), 48))
+            big = frame.resize((168, 144), Image.NEAREST)
+            out.paste(big.resize((width, height), Image.LANCZOS), (width * index, 0))
+        out.save(ASSETS / f"{stem}{suffix}.png", optimize=True)
 
 
 def write_tab_icons() -> None:

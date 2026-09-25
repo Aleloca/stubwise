@@ -98,6 +98,15 @@ describe("WiseyProvider", () => {
     expect(store.visibleText(store.messages.length - 1)).toBe(last.text);
   });
 
+  test("dice se la tab Wisey è a fuoco: il cerchio sopra la barra lo mostra", async () => {
+    await mount();
+    expect(store.wiseyFocused).toBe(false);
+    await act(async () => store.setTabFocused(true));
+    expect(store.wiseyFocused).toBe(true);
+    await act(async () => store.setTabFocused(false));
+    expect(store.wiseyFocused).toBe(false);
+  });
+
   test("il campo: fuoco e testo fanno «ti ascolta», e un invio svuota il testo", async () => {
     await mount();
     await act(async () => store.setTabFocused(true));

@@ -14,6 +14,8 @@ export interface WiseyStore {
   draft: string;
   inputFocused: boolean;
   doneUnseen: boolean;
+  /** La tab Wisey è a fuoco: il cerchio sopra la barra si accende di più. */
+  wiseyFocused: boolean;
   /** La fase del gufo, UNA per la pagina e per la barra: `wiseyPhase` dello stato. */
   phase: WiseyPhase;
   /** Una risposta è in corso: un secondo invio è bloccato. */
@@ -55,6 +57,7 @@ export function WiseyProvider({ children }: { children: ReactNode }) {
   const [inputFocused, setInputFocused] = useState(false);
   const [shownWords, setShownWords] = useState(0);
   const [doneUnseen, setDoneUnseen] = useState(false);
+  const [wiseyFocused, setWiseyFocused] = useState(false);
   // Letti dentro i timer: un ref, non lo stato catturato alla loro creazione.
   const tabFocused = useRef(false);
   const doneUnseenRef = useRef(false);
@@ -128,6 +131,7 @@ export function WiseyProvider({ children }: { children: ReactNode }) {
   const setTabFocused = useCallback(
     (focused: boolean) => {
       tabFocused.current = focused;
+      setWiseyFocused(focused);
       if (focused && doneUnseenRef.current) {
         doneUnseenRef.current = false;
         setDoneUnseen(false);
@@ -157,6 +161,7 @@ export function WiseyProvider({ children }: { children: ReactNode }) {
       draft,
       inputFocused,
       doneUnseen,
+      wiseyFocused,
       phase: wiseyPhase({ stage, inputFocused, hasText: draft.length > 0, doneUnseen }),
       busy,
       canSend: draft.trim().length > 0 && !busy,
@@ -166,7 +171,7 @@ export function WiseyProvider({ children }: { children: ReactNode }) {
       setTabFocused,
       send,
     }),
-    [busy, doneUnseen, draft, inputFocused, messages, send, setTabFocused, stage, visibleText],
+    [busy, doneUnseen, draft, inputFocused, messages, send, setTabFocused, stage, visibleText, wiseyFocused],
   );
 
   return <WiseyContext.Provider value={store}>{children}</WiseyContext.Provider>;

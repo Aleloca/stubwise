@@ -13,7 +13,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { refreshStaleQueries } from "../lib/refresh";
 import { useCallback, useEffect, useMemo } from "react";
 import type { ImageSourcePropType } from "react-native";
-import { Platform } from "react-native";
+import { Platform, StyleSheet, View } from "react-native";
 import type { AppleIcon } from "react-native-bottom-tabs";
 import { InboxCardScreen } from "../screens/inbox/InboxCardScreen";
 import { GoogleProposalScreen } from "../screens/inbox/GoogleProposalScreen";
@@ -43,6 +43,8 @@ import { MailRejectionsScreen } from "../screens/mbx/MailRejectionsScreen";
 import { ThreadDetailScreen } from "../screens/mbx/ThreadDetailScreen";
 import { WiseyScreen } from "../screens/wisey/WiseyScreen";
 import { useWisey, WiseyProvider } from "../components/wisey/WiseyProvider";
+import { WiseyTabButton } from "../components/wisey/WiseyTabButton";
+import { TabBarHeightProvider, TabBarHeightReporter } from "./tab-bar-height";
 // Il gufo della tab: un'IMMAGINE a colori, non un SF Symbol, che si anima
 // sulla fase di Wisey (`wisey-tab-icon.ts`).
 import { useWiseyTabIcon } from "./wisey-tab-icon";
@@ -283,11 +285,19 @@ const Tab = createNativeBottomTabNavigator<MainTabParamList>();
 
 function InboxNavigator() {
   return (
-    <InboxStack.Navigator screenOptions={{ headerShown: false }}>
+    <>
+      {/*
+        Porta l'altezza vera della barra FUORI dalle scene, per il cerchio di
+        Wisey (design §11): vedi `app/tab-bar-height.tsx` per perché proprio
+        qui, e perché la tab Inbox ha `lazy: false`.
+      */}
+      <TabBarHeightReporter />
+      <InboxStack.Navigator screenOptions={{ headerShown: false }}>
       <InboxStack.Screen name="List" component={InboxScreen} />
       <InboxStack.Screen name="Card" component={InboxCardScreen} />
       <InboxStack.Screen name="Proposal" component={GoogleProposalScreen} />
-    </InboxStack.Navigator>
+      </InboxStack.Navigator>
+    </>
   );
 }
 
@@ -387,10 +397,21 @@ function nativeTabIcon(
  * componente non legge il contesto che rende lui stesso.
  */
 function MainNavigator() {
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   return (
-    <WiseyProvider>
-      <MainTabs />
-    </WiseyProvider>
+    <TabBarHeightProvider>
+      <WiseyProvider>
+        <View style={styles.main}>
+          <MainTabs />
+          {/*
+            Il cerchio che sporge (design §11): SOPRA le schede, non dentro
+            una scena, così non si smonta cambiando tab. Si aggancia
+            all'altezza della barra portata qui dal riportatore di Inbox.
+          */}
+          <WiseyTabButton onPress={() => navigation.navigate("Main", { screen: "Wisey" })} />
+        </View>
+      </WiseyProvider>
+    </TabBarHeightProvider>
   );
 }
 
@@ -473,6 +494,10 @@ function MainTabs() {
         name="Inbox"
         component={InboxNavigator}
         options={{
+          // Montata all'avvio anche se l'app si apre su un'altra tab (un deep
+          // link): porta il riportatore dell'altezza della barra, senza il
+          // quale il cerchio di Wisey non compare. Vedi `app/tab-bar-height.tsx`.
+          lazy: false,
           tabBarLabel: "INB",
           tabBarIcon: () => nativeTabIcon("tray.fill", inboxIcon),
           tabBarBadge: badge,
@@ -658,3 +683,10 @@ function SettingsSectionRoute({
     />
   );
 }
+
+const styles = StyleSheet.create({
+  // Contiene le schede e, sopra, il cerchio di Wisey posato in assoluto.
+  main: {
+    flex: 1,
+  },
+});

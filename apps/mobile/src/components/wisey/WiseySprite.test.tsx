@@ -81,6 +81,14 @@ describe("WiseySprite", () => {
     expect(frame(112)).toBe(1);
   });
 
+  test("il gufo del cerchio sopra la barra: fotogrammi da 42×36, file suoi", async () => {
+    await render(<WiseySprite phase="work" size="button" />);
+    await flush();
+    const box = StyleSheet.flatten(screen.getByTestId("wisey-sprite", HIDDEN).props.style) as { width: number; height: number };
+    expect([box.width, box.height]).toEqual([42, 36]);
+    expect(JSON.stringify(screen.getByTestId("wisey-sprite-image", HIDDEN).props.source)).toContain("gufo-lavora-button");
+  });
+
   test("ogni fase ha il suo sprite", async () => {
     const view = await render(<WiseySprite phase="rest" size="small" />);
     for (const [phase, file] of [

@@ -101,3 +101,30 @@ describe("l'icona della tab Wisey", () => {
     }
   });
 });
+
+/**
+ * IL GUFO DEL CERCHIO (design §11): il gufo animato dentro il bottone che
+ * sporge sopra la barra, 42×36 pt a fotogramma, quattro fotogrammi
+ * affiancati come gli altri sprite, ridotto morbido (nearest a 3× e poi
+ * Lanczos) come la variante (b) della tab.
+ */
+describe("il gufo del cerchio", () => {
+  const BUTTON_FILES = PHASES.flatMap((phase) => [
+    [`gufo-${phase}-button.png`, 1],
+    [`gufo-${phase}-button@2x.png`, 2],
+    [`gufo-${phase}-button@3x.png`, 3],
+  ]);
+
+  test.each(BUTTON_FILES)("%s: striscia di 4 fotogrammi da 42×36 pt", (file, scale) => {
+    const strip = decodeRgba(file);
+    expect([strip.width, strip.height]).toEqual([4 * 42 * scale, 36 * scale]);
+    // Ogni fotogramma ha qualcosa dentro: non è una striscia vuota o spostata.
+    for (let frame = 0; frame < 4; frame += 1) {
+      let opaque = 0;
+      for (let y = 0; y < strip.height; y += 1) {
+        for (let x = frame * 42 * scale; x < (frame + 1) * 42 * scale; x += 1) if (strip.alpha(x, y) > 0) opaque += 1;
+      }
+      expect(opaque).toBeGreaterThan(0);
+    }
+  });
+});

@@ -1,5 +1,11 @@
 import { useEffect, useState } from "react";
 import { Image, type ImageSourcePropType, StyleSheet, View } from "react-native";
+import gufoAscoltaButton from "../../../assets/wisey/gufo-ascolta-button.png";
+import gufoFattoButton from "../../../assets/wisey/gufo-fatto-button.png";
+import gufoLavoraButton from "../../../assets/wisey/gufo-lavora-button.png";
+import gufoParlaButton from "../../../assets/wisey/gufo-parla-button.png";
+import gufoPensaButton from "../../../assets/wisey/gufo-pensa-button.png";
+import gufoRiposoButton from "../../../assets/wisey/gufo-riposo-button.png";
 import gufoAscolta from "../../../assets/wisey/gufo-ascolta.png";
 import gufoAscoltaLarge from "../../../assets/wisey/gufo-ascolta-large.png";
 import gufoFatto from "../../../assets/wisey/gufo-fatto.png";
@@ -18,11 +24,17 @@ import { WISEY_CYCLE_MS, type WiseyPhase } from "../../lib/wisey-phase";
 
 const FRAMES = 4;
 
-/** Un fotogramma, in punti: il disegno è 56×48, il gufo grande lo mostra a 2×. */
+/**
+ * Un fotogramma, in punti: il disegno è 56×48, il gufo grande lo mostra a 2×,
+ * quello del cerchio sopra la barra a 0,75× (design §11).
+ */
 const FRAME_SIZE = {
   small: { width: 56, height: 48 },
   large: { width: 112, height: 96 },
+  button: { width: 42, height: 36 },
 } as const;
+
+type SpriteSize = keyof typeof FRAME_SIZE;
 
 /**
  * Le fasi hanno nomi inglesi nel codice, gli sprite dell'export di design
@@ -30,13 +42,13 @@ const FRAME_SIZE = {
  * ha i suoi file pre-scalati (`scripts/wisey-assets.py`), perché iOS scalando
  * da sé sfocherebbe la pixel art.
  */
-const SPRITES: Record<WiseyPhase, { small: ImageSourcePropType; large: ImageSourcePropType }> = {
-  rest: { small: gufoRiposo, large: gufoRiposoLarge },
-  listen: { small: gufoAscolta, large: gufoAscoltaLarge },
-  think: { small: gufoPensa, large: gufoPensaLarge },
-  work: { small: gufoLavora, large: gufoLavoraLarge },
-  speak: { small: gufoParla, large: gufoParlaLarge },
-  done: { small: gufoFatto, large: gufoFattoLarge },
+const SPRITES: Record<WiseyPhase, Record<SpriteSize, ImageSourcePropType>> = {
+  rest: { small: gufoRiposo, large: gufoRiposoLarge, button: gufoRiposoButton },
+  listen: { small: gufoAscolta, large: gufoAscoltaLarge, button: gufoAscoltaButton },
+  think: { small: gufoPensa, large: gufoPensaLarge, button: gufoPensaButton },
+  work: { small: gufoLavora, large: gufoLavoraLarge, button: gufoLavoraButton },
+  speak: { small: gufoParla, large: gufoParlaLarge, button: gufoParlaButton },
+  done: { small: gufoFatto, large: gufoFattoLarge, button: gufoFattoButton },
 };
 
 /**
@@ -63,7 +75,7 @@ export function WiseySprite({
   animated = true,
 }: {
   phase: WiseyPhase;
-  size: "small" | "large";
+  size: SpriteSize;
   animated?: boolean;
 }) {
   const focused = useScreenFocused();
