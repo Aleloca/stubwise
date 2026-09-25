@@ -7,6 +7,7 @@ import {
   calendarSeries,
   emailMessages,
   emailProposals,
+  emailRejections,
   googleAccounts,
   googleWorkspaces,
   instanceSettings,
@@ -25,13 +26,15 @@ import {
   type GoogleCalendarEvent,
 } from "@stubwise/google";
 import type { GoogleAccountCredentials } from "@stubwise/google/credentials";
-import { and, eq, isNotNull } from "drizzle-orm";
+import { and, eq, isNotNull, sql } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { AgentRunOptions, AgentRunResult, AgentRunner } from "../agent/runner.js";
 import {
   claimDueAccounts,
   pollGoogleOnce,
   pruneOldEmails,
+  pruneOldRejections,
+  senderDomain,
   startGooglePoller,
   type CalendarClient,
   type GmailClient,
@@ -1072,6 +1075,229 @@ describe("ammissione (fase 6c, Task 2) — dominio di lavoro fra i destinatari",
 // ---------------------------------------------------------------------------
 // Errori
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Le mail tenute fuori (25 set 2026): ogni scarto del cancello lascia UNA
+// riga in `email_rejections`, senza contenuto. Il contatore è osservabilità:
+// non deve mai fermare la sincronizzazione (fail-open), e non deve contare due
+// volte la stessa mail riletta (l'unique è l'idempotenza).
+// ---------------------------------------------------------------------------
+
+describe("senderDomain", () => {
+  it("il dominio dopo l'ULTIMA chiocciola, minuscolo, anche col nome visualizzato", () => {
+    expect(senderDomain("Cliente <Mario@Cliente.COM>")).toBe("cliente.com");
+    expect(senderDomain("  noreply@github.com ")).toBe("github.com");
+    expect(senderDomain('"a@b" <x@y@Strano.it>')).toBe("strano.it");
+  });
+
+  it("senza chiocciola, o senza niente dopo, è null: mittente non leggibile", () => {
+    expect(senderDomain("Mittente sconosciuto")).toBeNull();
+    expect(senderDomain("")).toBeNull();
+    expect(senderDomain(undefined)).toBeNull();
+    expect(senderDomain("rotto@")).toBeNull();
+  });
+});
+
+describe("le mail tenute fuori", () => {
+  /** Una mail con l'aria di posta automatica (header di una lista). */
+  function automated(id: string) {
+    const base = message({ id, from: "GitHub <notifications@GitHub.com>" });
+    return { ...base, headers: { ...base.headers, "list-unsubscribe": "<mailto:unsub@github.com>" } };
+  }
+
+  async function dueAccount() {
+    return seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), gmailHistoryId: "1000" });
+  }
+
+  async function makeDue(id: string): Promise<void> {
+    await db
+      .update(googleAccounts)
+      .set({ nextSyncAt: new Date(Date.now() - 60_000) })
+      .where(eq(googleAccounts.id, id));
+  }
+
+  it("un solo scarto per motivo: automatica, etichetta esclusa, nessuna regola — col dominio giusto e senza scaricare il corpo", async () => {
+    const account = await dueAccount();
+    const gmail = fakeGmail({
+      history: { addedMessageIds: ["auto", "promo", "nessuna"], historyId: "1010" },
+      messages: {
+        auto: automated("auto"),
+        promo: message({ id: "promo", from: "Negozio <offerte@negozio.it>", labels: ["INBOX", "CATEGORY_PROMOTIONS"] }),
+        nessuna: message({ id: "nessuna", from: "Cliente <cliente@cliente.com>" }),
+      },
+    });
+
+    const stats = await pollGoogleOnce(deps(account, gmail));
+
+    expect(stats.ingested).toBe(0);
+    expect(gmail.calls.filter((c) => c.startsWith("full:"))).toEqual([]);
+    const rows = await db.select().from(emailRejections);
+    const byId = new Map(rows.map((row) => [row.gmailMessageId, row]));
+    expect(rows).toHaveLength(3);
+    expect(byId.get("auto")).toMatchObject({ accountId: account.id, reason: "automated", senderDomain: "github.com" });
+    expect(byId.get("promo")).toMatchObject({ reason: "denied_label", senderDomain: "negozio.it" });
+    expect(byId.get("nessuna")).toMatchObject({ reason: "no_match", senderDomain: "cliente.com" });
+  });
+
+  it("la stessa mail riletta due volte resta UNA riga", async () => {
+    const account = await dueAccount();
+    const gmail = fakeGmail({
+      history: { addedMessageIds: ["m1"], historyId: "1010" },
+      messages: { m1: message({ id: "m1", from: "cliente@cliente.com" }) },
+    });
+
+    const logged: string[] = [];
+    const logger = {
+      info: (m: string) => logged.push(m),
+      warn: (m: string) => logged.push(m),
+      error: (m: string) => logged.push(m),
+    };
+
+    await pollGoogleOnce(deps(account, gmail, { logger }));
+    await makeDue(account.id);
+    await pollGoogleOnce(deps(account, gmail, { logger }));
+
+    // La mail è stata davvero riletta (due `metadata`), non saltata.
+    expect(gmail.calls.filter((c) => c === "metadata:m1")).toHaveLength(2);
+    expect(await db.select().from(emailRejections)).toHaveLength(1);
+    // Il doppione è il caso NORMALE, non un errore da assorbire col fail-open.
+    expect(logged.filter((m) => m.includes("non registrato"))).toEqual([]);
+  });
+
+  it("la posta in USCITA non è uno scarto: nessuna riga", async () => {
+    const account = await dueAccount();
+    const gmail = fakeGmail({
+      history: { addedMessageIds: ["m1"], historyId: "1010" },
+      messages: { m1: message({ id: "m1", from: `Operatore <${MAILBOX}>`, to: "cliente@cliente.com" }) },
+    });
+
+    await pollGoogleOnce(deps(account, gmail));
+
+    expect(await db.select().from(emailRejections)).toEqual([]);
+  });
+
+  it("una mail ammessa non lascia nessuno scarto", async () => {
+    const account = await dueAccount();
+    const gmail = fakeGmail({
+      history: { addedMessageIds: ["m1"], historyId: "1010" },
+      messages: { m1: message({ id: "m1", from: "collega@acme.com" }) },
+    });
+
+    const stats = await pollGoogleOnce(deps(account, gmail));
+
+    expect(stats.ingested).toBe(1);
+    expect(await db.select().from(emailRejections)).toEqual([]);
+  });
+
+  it("scartata e poi, con una regola nuova, ammessa: lo scarto sparisce", async () => {
+    const account = await dueAccount();
+    const gmail = fakeGmail({
+      history: { addedMessageIds: ["m1"], historyId: "1010" },
+      messages: { m1: message({ id: "m1", from: "cliente@cliente.com" }) },
+    });
+    await pollGoogleOnce(deps(account, gmail));
+    expect(await db.select().from(emailRejections)).toHaveLength(1);
+
+    const projectId = await seedProject("Acme");
+    await db.insert(projectEmailRoutes).values({ projectId, kind: "sender_domain", value: "cliente.com" });
+    await makeDue(account.id);
+    const stats = await pollGoogleOnce(deps(account, gmail));
+
+    expect(stats.ingested).toBe(1);
+    expect(await db.select().from(emailRejections)).toEqual([]);
+  });
+
+  it("scartata e poi entrata come CONTESTO del thread di un'ammessa: lo scarto sparisce", async () => {
+    const account = await dueAccount();
+    const scartata = message({ id: "m1", threadId: "t1", from: "cliente@cliente.com" });
+    const first = fakeGmail({
+      history: { addedMessageIds: ["m1"], historyId: "1010" },
+      messages: { m1: scartata },
+    });
+    await pollGoogleOnce(deps(account, first));
+    expect(await db.select().from(emailRejections)).toHaveLength(1);
+
+    const ammessa = message({ id: "m2", threadId: "t1", from: "collega@acme.com" });
+    const second = fakeGmail({
+      history: { addedMessageIds: ["m2"], historyId: "1020" },
+      messages: { m2: ammessa },
+      threads: { t1: [scartata, ammessa] },
+    });
+    await makeDue(account.id);
+    await pollGoogleOnce(deps(account, second));
+
+    // Ora si legge in Posta: non può comparire anche fra le tenute fuori.
+    const [context] = await db.select().from(emailMessages).where(eq(emailMessages.gmailMessageId, "m1"));
+    expect(context?.admitted).toBe(false);
+    expect(await db.select().from(emailRejections)).toEqual([]);
+  });
+
+  it("FAIL-OPEN: se la tabella degli scarti non c'è, il tick prosegue e le ammesse entrano comunque", async () => {
+    const account = await dueAccount();
+    const errors: string[] = [];
+    const infos: string[] = [];
+    const gmail = fakeGmail({
+      history: { addedMessageIds: ["scartata", "ammessa"], historyId: "1010" },
+      messages: {
+        scartata: message({ id: "scartata", from: "cliente@cliente.com" }),
+        ammessa: message({ id: "ammessa", from: "collega@acme.com" }),
+      },
+    });
+
+    // Come un worker nuovo davanti a uno schema senza la 0080.
+    await db.execute(sql`alter table email_rejections rename to email_rejections_altrove`);
+    try {
+      const stats = await pollGoogleOnce(
+        deps(account, gmail, {
+          logger: {
+            info: (m: string) => infos.push(m),
+            warn: (m: string) => infos.push(m),
+            error: (m: string) => errors.push(m),
+          },
+        }),
+      );
+
+      expect(stats.ingested).toBe(1);
+      expect(stats.disabled).toBe(0);
+    } finally {
+      await db.execute(sql`alter table email_rejections_altrove rename to email_rejections`);
+    }
+    const [row] = await db.select().from(emailMessages);
+    expect(row?.gmailMessageId).toBe("ammessa");
+    // La casella non ha registrato un guasto: niente backoff, cursore avanzato.
+    const reloaded = await reload(account.id);
+    expect(reloaded.syncAttempts).toBe(0);
+    expect(reloaded.gmailHistoryId).toBe("1010");
+    expect(infos.some((m) => m.includes("scarto"))).toBe(true);
+  });
+
+  it("potatura: oltre i 30 giorni se ne va, entro resta", async () => {
+    const account = await seedAccount();
+    const day = 24 * 60 * 60 * 1000;
+    await db.insert(emailRejections).values([
+      { accountId: account.id, gmailMessageId: "vecchia", reason: "no_match", rejectedAt: new Date(Date.now() - 31 * day) },
+      { accountId: account.id, gmailMessageId: "recente", reason: "no_match", rejectedAt: new Date(Date.now() - 29 * day) },
+    ]);
+
+    expect(await pruneOldRejections(db, 30)).toBe(1);
+    const rows = await db.select().from(emailRejections);
+    expect(rows.map((r) => r.gmailMessageId)).toEqual(["recente"]);
+  });
+
+  it("il tick pota gli scarti anche quando nessuna casella è dovuta", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() + 3_600_000) });
+    await db.insert(emailRejections).values({
+      accountId: account.id,
+      gmailMessageId: "vecchia",
+      reason: "automated",
+      rejectedAt: new Date(Date.now() - 40 * 24 * 60 * 60 * 1000),
+    });
+
+    await pollGoogleOnce(deps(account, fakeGmail({})));
+
+    expect(await db.select().from(emailRejections)).toEqual([]);
+  });
+});
 
 describe("classificazione degli errori", () => {
   it("invalid_grant disabilita la casella senza ritentativi", async () => {
