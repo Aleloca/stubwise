@@ -105,3 +105,11 @@ resta» va riscritta sulla Docs del progetto. Nient'altro nel file.
    fase; resta ferma con la riduzione del movimento.
 4. Pusha e avvisami: prima di tutto va provato sul telefono se la barra
    regge i cambi d'icona.
+5. **Tab senza nome** (richiesta del maintainer, arrivata dopo): la tab Wisey
+   non mostra l'etichetta sotto il gufo. Le altre quattro la tengono.
+   L'accessibilità resta, e VoiceOver dice «Wisey». Da verificare sul
+   telefono, perché UITabBar potrebbe tenere comunque lo spazio del titolo:
+   se il gufo resta alto con un vuoto sotto, sposta il margine trasparente
+   della tela dal basso all'alto, così il gufo scende, con la costante dello
+   script. Test: la barra nativa riceve un titolo vuoto per Wisey, e
+   l'etichetta di accessibilità resta.
