@@ -1219,7 +1219,17 @@
     },
     "wisey": {
       "title": "Wisey",
-      "placeholder": "Wisey sta arrivando."
+      "placeholder": "Wisey sta arrivando.",
+      "replies": {
+        "backlog": "Presto creerò io la voce di backlog e la stimerò per te. Per ora sono un'anteprima: puoi farlo da Backlog › Nuova idea.",
+        "ticket": "Presto avvierò io il lavoro su un ticket e ti dirò quando il piano è pronto da approvare. Per ora sono un'anteprima: apri il ticket da Progetti e avvialo da lì.",
+        "pr": "Presto ti dirò quali pull request aspettano un merge. Per ora sono un'anteprima: la pagina di ogni progetto mostra cosa aspetta te.",
+        "mail": "Presto ti dirò cosa vale la pena leggere nella tua posta. Per ora sono un'anteprima: è tutto nella scheda Posta.",
+        "inbox": "Presto ti dirò cosa aspetta una tua decisione. Per ora sono un'anteprima: è tutto nella scheda Inbox.",
+        "status": "Presto ti dirò in due righe come va un progetto. Per ora sono un'anteprima: aprilo da Progetti per vedere cosa si muove e cosa è fermo.",
+        "greeting": "Ciao, sono Wisey. Per ora sono un'anteprima: non leggo ancora i tuoi progetti, ma presto potrai chiedermi di loro — o chiedermi di fare le cose.",
+        "generic": "Per ora sono un'anteprima, quindi non so ancora rispondere. Presto leggerò i tuoi progetti, i ticket e la posta, e farò le cose quando me lo chiedi."
+      }
     }
   }
 }
