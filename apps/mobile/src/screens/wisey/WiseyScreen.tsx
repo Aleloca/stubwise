@@ -25,18 +25,21 @@ const SUGGESTION_KEYS = [
  * nell'app, la faccia e le animazioni, con risposte finte (`lib/wisey-mock`)
  * che dicono cosa Wisey FARÀ e dove si fa oggi. Nessuna chiamata al server.
  *
- * Dall'alto: intestazione con «Preview»; il gufo, grande e centrato finché la
- * conversazione è vuota, piccolo in testa quando comincia (una transizione,
- * non uno scatto: `LayoutAnimation`), con sotto la riga di stato; i messaggi;
- * il campo in fondo, sopra la tastiera.
+ * Dall'alto: intestazione con «Preview»; il gufo grande (2×) FISSO in testa
+ * per tutta la conversazione, con sotto la riga di stato; i messaggi, che
+ * sono la sola cosa che scorre; il campo in fondo, sopra la tastiera.
+ *
+ * ⚠️ Il gufo NON si rimpicciolisce più alla prima domanda, e non sta dentro
+ * lo scorrimento (design §10, dopo la prova sul telefono): era così nella
+ * prima versione, e il maintainer l'ha cambiato.
  *
  * ⚠️ Lo STATO non vive qui: sta in `WiseyProvider`, sopra il navigator, che
  * lo condivide con l'icona della barra e fa avanzare la risposta anche fuori
  * dalla tab (design §10). Questa schermata lo legge, e gli dice quando la tab
  * è a fuoco — è ciò che decide se un «fatto» è stato visto.
  *
- * ⚠️ UN solo gufo animato: quello in testa. I gufi accanto alle risposte
- * restano fermi al primo fotogramma (regola del design).
+ * ⚠️ UN solo gufo nella pagina: le risposte di Wisey si riconoscono dalla
+ * bolla e da un'etichetta mono «WISEY», non da un gufo accanto (§10).
  *
  * La conversazione sopravvive al cambio di tab e sparisce alla chiusura
  * dell'app (o al logout, che smonta il provider).
@@ -61,20 +64,21 @@ export function WiseyScreen() {
     <TabScreenKeyboardAvoider style={styles.container}>
       <ScreenHeader title={t("mobile.wisey.title")} badge={t("mobile.wisey.badge")} />
 
+      <View style={styles.owl}>
+        <WiseySprite phase={phase} size="large" />
+        <Text style={styles.status} testID="wisey-status">
+          {t(`mobile.wisey.status.${phase}`)}
+        </Text>
+      </View>
+
       <ScrollView
         ref={scroll}
+        testID="wisey-messages"
         style={styles.messages}
         contentContainerStyle={styles.messagesContent}
         keyboardShouldPersistTaps="handled"
         onContentSizeChange={() => scroll.current?.scrollToEnd({ animated: true })}
       >
-        <View style={[styles.owl, started && styles.owlCompact]}>
-          <WiseySprite phase={phase} size={started ? "small" : "large"} />
-          <Text style={styles.status} testID="wisey-status">
-            {t(`mobile.wisey.status.${phase}`)}
-          </Text>
-        </View>
-
         {!started && (
           <View style={styles.welcome} testID="wisey-welcome">
             <Text style={styles.welcomeText}>{t("mobile.wisey.welcome")}</Text>
@@ -104,13 +108,12 @@ export function WiseyScreen() {
             </View>
           ) : (
             <View key={index} style={[styles.bubble, styles.bubbleWisey]} testID={`wisey-message-wisey-${index}`}>
-              <WiseySprite phase="rest" size="small" animated={false} />
-              <View style={styles.bubbleBody}>
-                <Text style={styles.bubbleLabel}>{t("mobile.wisey.title")}</Text>
-                <Text style={styles.bubbleText} testID={`wisey-message-text-${index}`}>
-                  {text}
-                </Text>
-              </View>
+              <Text style={styles.bubbleLabel} testID={`wisey-message-label-${index}`}>
+                {t("mobile.wisey.title")}
+              </Text>
+              <Text style={styles.bubbleText} testID={`wisey-message-text-${index}`}>
+                {text}
+              </Text>
             </View>
           );
         })}
@@ -163,13 +166,8 @@ const styles = StyleSheet.create({
   },
   owl: {
     alignItems: "center",
-    gap: 10,
-    paddingVertical: 24,
-  },
-  owlCompact: {
-    flexDirection: "row",
-    gap: 12,
-    paddingVertical: 4,
+    gap: 8,
+    paddingBottom: 8,
   },
   // Riga di stato: mono, maiuscolo, ambra — come le etichette delle fasi nel design (5a).
   status: {
@@ -217,15 +215,9 @@ const styles = StyleSheet.create({
     borderColor: colors.signalDim,
   },
   bubbleWisey: {
-    alignItems: "flex-start",
     alignSelf: "flex-start",
     backgroundColor: colors.ink900,
     borderColor: colors.line,
-    flexDirection: "row",
-    gap: 12,
-  },
-  bubbleBody: {
-    flexShrink: 1,
   },
   bubbleLabel: {
     color: colors.faint,

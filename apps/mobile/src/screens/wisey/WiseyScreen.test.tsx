@@ -1,6 +1,6 @@
 import type { StubwiseClient } from "@stubwise/api-client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, screen } from "@testing-library/react-native";
+import { act, fireEvent, render, screen, within } from "@testing-library/react-native";
 import { AccessibilityInfo, StyleSheet } from "react-native";
 import { AuthContext } from "../../app/auth-context";
 import type { AuthContextValue } from "../../app/providers";
@@ -44,14 +44,6 @@ async function renderScreen() {
 async function advance(ms: number) {
   await act(async () => {
     jest.advanceTimersByTime(ms);
-  });
-}
-
-/** Il fotogramma mostrato da ogni sprite nella schermata. */
-function frames(): number[] {
-  return screen.getAllByTestId("wisey-sprite-image", HIDDEN).map((image) => {
-    const style = StyleSheet.flatten(image.props.style) as { marginLeft?: number; width: number };
-    return -(style.marginLeft ?? 0) / (style.width / 4);
   });
 }
 
@@ -159,28 +151,28 @@ describe("WiseyScreen — una domanda", () => {
     expect(screen.queryByTestId("wisey-message-user-2")).toBeNull();
   });
 
-  test("con la conversazione avviata il gufo si rimpicciolisce in testa", async () => {
-    await renderScreen();
-    await fireEvent.press(screen.getByText("Come va il mio progetto?"));
-    const box = StyleSheet.flatten(screen.getAllByTestId("wisey-sprite", HIDDEN)[0]!.props.style) as { width: number };
-    expect(box.width).toBe(56);
-  });
-
-  test("UN solo gufo animato per schermata: quelli accanto ai messaggi restano fermi", async () => {
+  /**
+   * Design §10: il gufo grande resta FISSO in testa, sempre a 2×, per tutta
+   * la conversazione — non si rimpicciolisce più alla prima domanda — e sta
+   * FUORI da ciò che scorre: scorrono solo i messaggi, sotto di lui.
+   */
+  test("il gufo resta grande e fisso anche a conversazione avviata", async () => {
     await renderScreen();
     await fireEvent.press(screen.getByText("Come va il mio progetto?"));
     await advance(WISEY_STAGE_MS.thinking);
-    // Ora c'è una bolla di Wisey col suo gufo piccolo, e il gufo in testa che
-    // risponde. Si guarda su più passi, NON un multiplo del ciclo: il gufo in
-    // testa si deve muovere, quelli dei messaggi mai.
-    let headMoved = false;
-    for (let step = 0; step < 3; step += 1) {
-      await advance(WISEY_WORD_MS);
-      const [head, ...others] = frames();
-      if (head !== 0) headMoved = true;
-      expect(others.length).toBeGreaterThan(0);
-      expect(others.every((f) => f === 0)).toBe(true);
-    }
-    expect(headMoved).toBe(true);
+    const box = StyleSheet.flatten(screen.getByTestId("wisey-sprite", HIDDEN).props.style) as { width: number };
+    expect(box.width).toBe(112);
+    // Fuori dallo ScrollView dei messaggi.
+    const list = screen.getByTestId("wisey-messages");
+    expect(within(list).queryAllByTestId("wisey-sprite", HIDDEN)).toHaveLength(0);
+  });
+
+  test("UN solo gufo nella pagina: le risposte hanno l'etichetta «Wisey», non un gufo", async () => {
+    await renderScreen();
+    await fireEvent.press(screen.getByText("Come va il mio progetto?"));
+    await advance(WISEY_STAGE_MS.thinking);
+    expect(screen.getByTestId("wisey-message-wisey-1")).toBeTruthy();
+    expect(screen.getAllByTestId("wisey-sprite", HIDDEN)).toHaveLength(1);
+    expect(screen.getByTestId("wisey-message-label-1").props.children).toBe("Wisey");
   });
 });
