@@ -51,6 +51,7 @@ import {
   type InboxGoogle,
   type InboxPulse,
   type InboxQuestion,
+  multiSelectableIndices,
 } from "@stubwise/shared";
 import { and, desc, eq, inArray, isNotNull, isNull, ne, sql, type SQL } from "drizzle-orm";
 import { answerGoogleProposal } from "./google-proposal.js";
@@ -932,7 +933,16 @@ function readGoogle(
   // in `@stubwise/shared`: derivarlo a lettura è ciò che lo fa funzionare
   // anche sulle card pubblicate mesi fa. Il `safeParse` qui sopra ha già
   // messo `null` di default, quindi questa riga è l'UNICA sorgente del valore.
-  return { ...parsed.data, sourceProposalId };
+  //
+  // Stessa regola per `multiSelectIndices` («una mail, più azioni e più
+  // progetti», 26 set 2026): quali opzioni si sommano lo dicono le `actions`,
+  // con la STESSA funzione che il server usa per accettare la risposta
+  // (`multiSelectableIndices`), e scavalca qualunque valore stesse nel jsonb.
+  return {
+    ...parsed.data,
+    sourceProposalId,
+    multiSelectIndices: multiSelectableIndices(parsed.data.source, parsed.data.actions),
+  };
 }
 
 /**
