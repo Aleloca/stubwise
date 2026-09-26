@@ -820,6 +820,18 @@ describe("POST /api/inbox/:id/actions/answer", () => {
     expect(job?.resumeMode).toBe("plan_continue");
   });
 
+  it("400 invalid_answer: `optionIndices` su una domanda dell'agente (vale solo per la posta)", async () => {
+    const { jobId, questionId, notificationId } = await seedQuestion();
+    const res = await post(`/api/inbox/${notificationId}/actions/answer`, seeded.adminCookie, {
+      optionIndices: [0, 1],
+    });
+    expect(res.statusCode).toBe(400);
+    expect((res.json() as { code: string }).code).toBe("invalid_answer");
+    const [question] = await db.select().from(agentQuestions).where(eq(agentQuestions.id, questionId));
+    expect(question?.answer).toBeNull();
+    expect((await readJob(jobId))?.status).toBe("awaiting_input");
+  });
+
   it("200 col testo libero", async () => {
     const { questionId, notificationId } = await seedQuestion();
     const res = await post(`/api/inbox/${notificationId}/actions/answer`, seeded.adminCookie, {
@@ -1124,5 +1136,34 @@ describe("POST /api/inbox/:id/actions/answer — la proposta Google (fase 6, Tas
       code: "already_handled",
       handledBy: { id: seeded.memberId },
     });
+  });
+
+  // Più azioni insieme (26 set 2026): il body largo porta `optionIndices` fino
+  // al servizio. Le regole vere sono in `google-proposal.test.ts`.
+  it("200: `optionIndices` conferma più voci di backlog in un colpo", async () => {
+    const { notificationId } = await seedGoogleProposal([
+      { type: "create_backlog_item", projectId, title: "Prima" },
+      { type: "create_backlog_item", projectId, title: "Seconda" },
+      { type: "ignore" },
+    ]);
+    const res = await post(`/api/inbox/${notificationId}/actions/answer`, seeded.memberCookie, {
+      optionIndices: [0, 1],
+    });
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { changedNotificationIds: string[] }).changedNotificationIds).toEqual([notificationId]);
+  });
+
+  it("400 invalid_answer: `optionIndices` insieme a `optionIndex`", async () => {
+    const { notificationId } = await seedGoogleProposal([
+      { type: "create_backlog_item", projectId, title: "Prima" },
+      { type: "create_backlog_item", projectId, title: "Seconda" },
+    ]);
+    const res = await post(`/api/inbox/${notificationId}/actions/answer`, seeded.memberCookie, {
+      optionIndex: 0,
+      optionIndices: [0, 1],
+    });
+    expect(res.statusCode).toBe(400);
+    expect((res.json() as { code: string }).code).toBe("invalid_answer");
+    expect((await readNotification(notificationId))?.status).toBe("open");
   });
 });

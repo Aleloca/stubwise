@@ -29,6 +29,7 @@
 import { notifications, users, type Db } from "@stubwise/db";
 import { t, type Language } from "@stubwise/i18n";
 import {
+  ANSWER_ALL_ACTION_ID,
   ANSWER_FREE_ACTION_ID,
   buildInboxBlocks,
   formatNotification,
@@ -39,7 +40,8 @@ import {
   type SlackBlock,
   type SnoozeUntil,
 } from "@stubwise/notifications";
-import { eq } from "drizzle-orm";
+import { multiSelectableIndices } from "@stubwise/shared";
+import { and, eq } from "drizzle-orm";
 import { resolveReporter, resolveReporterBySlackId } from "../ingest/reporter.js";
 import { executeAction, type ExecuteActionResult } from "../services/inbox.js";
 import { renderAnswer, type AnswerInput } from "../services/questions.js";
@@ -84,7 +86,11 @@ export function parseInboxActionId(actionId: string | undefined | null): ActionI
  * Cosa ha premuto chi risponde a una domanda dell'agente: una delle opzioni
  * (col suo indice) o "Altro…", che apre il modal del testo libero.
  */
-export type SlackAnswerPress = { kind: "option"; optionIndex: number } | { kind: "free" };
+export type SlackAnswerPress =
+  | { kind: "option"; optionIndex: number }
+  | { kind: "free" }
+  /** «Crea tutte (N)» di una proposta di posta (26 set 2026): gli indici li ricalcola il server. */
+  | { kind: "all" };
 
 /** Speculare a `answerActionId` di `@stubwise/notifications`. */
 const ANSWER_OPTION_PATTERN = new RegExp(`^${ACTION_PREFIX}answer:(\\d{1,3})$`);
@@ -102,6 +108,7 @@ const ANSWER_OPTION_PATTERN = new RegExp(`^${ACTION_PREFIX}answer:(\\d{1,3})$`);
 export function parseAnswerActionId(actionId: string | undefined | null): SlackAnswerPress | null {
   if (!actionId) return null;
   if (actionId === ANSWER_FREE_ACTION_ID) return { kind: "free" };
+  if (actionId === ANSWER_ALL_ACTION_ID) return { kind: "all" };
   // Fino a 3 cifre: il tetto vero è nelle opzioni della domanda, questo evita
   // solo di trasformare in numero una stringa arbitraria.
   const match = ANSWER_OPTION_PATTERN.exec(actionId);
@@ -295,11 +302,16 @@ async function updatedMessage(
  * `readOptions` difende i bottoni.
  */
 function answerLine(
-  answer: AnswerInput | undefined,
+  answer: SlackAnswer | undefined,
   event: Record<string, unknown> | null,
 ): string | undefined {
   if (!answer) return undefined;
   if (answer.text !== undefined) return answer.text.trim() || undefined;
+  if (answer.optionIndices !== undefined) {
+    // Più opzioni insieme: le etichette, separate come nella nota del servizio.
+    const labels = answer.optionIndices.map((optionIndex) => answerLine({ optionIndex }, event));
+    return labels.every((label) => label !== undefined) ? labels.join("; ") : undefined;
+  }
   if (answer.optionIndex === undefined) return undefined;
   const raw: unknown = event?.options;
   const item: unknown = Array.isArray(raw) ? raw[answer.optionIndex] : undefined;
@@ -316,6 +328,35 @@ function answerLine(
         : {}),
     },
   ]);
+}
+
+/** La risposta che arriva da Slack: l'indice o il testo di sempre, oppure più indici insieme. */
+type SlackAnswer = AnswerInput & { optionIndices?: number[] };
+
+/**
+ * Gli indici di «Crea tutte», ricalcolati dal payload PERSISTITO della
+ * notifica — mai dal messaggio Slack, che può essere vecchio quanto si vuole —
+ * con la regola condivisa `multiSelectableIndices`. Nessun indice (notifica di
+ * un altro, sparita, o senza azioni sommabili) ⇒ una risposta vuota, che il
+ * servizio rifiuta con `invalid_answer` come ogni altra risposta malformata.
+ * Filtrare per destinatario qui non protegge niente di nuovo (lo fa già
+ * `executeAction`), ma evita di leggere il payload di un altro.
+ */
+async function allIndicesAnswer(db: Db, notificationId: string, userId: string): Promise<SlackAnswer> {
+  const [row] = await db
+    .select({ event: notifications.event })
+    .from(notifications)
+    .where(and(eq(notifications.id, notificationId), eq(notifications.userId, userId)));
+  const event = (row?.event ?? null) as { source?: unknown; actions?: unknown } | null;
+  const actions = Array.isArray(event?.actions)
+    ? event.actions.map((a: unknown) => ({
+        type: typeof a === "object" && a !== null && typeof (a as { type?: unknown }).type === "string"
+          ? (a as { type: string }).type
+          : "",
+      }))
+    : [];
+  const indices = multiSelectableIndices(typeof event?.source === "string" ? event.source : "", actions);
+  return indices.length > 0 ? { optionIndices: indices } : {};
 }
 
 export interface InboxActionDeps {
@@ -339,6 +380,12 @@ export interface InboxActionInput {
    * ammesso) è di `answerQuestion`, non di qui.
    */
   answer?: AnswerInput;
+  /**
+   * «Crea tutte (N)» su una proposta di posta (26 set 2026). Il bottone non
+   * porta indici: li ricalcola {@link runInboxAction} dal payload PERSISTITO
+   * della notifica, con la stessa regola con cui il server mostra le caselle.
+   */
+  answerAll?: boolean;
   /** `response_url` del messaggio da riscrivere. Assente ⇒ nessun feedback diretto. */
   responseUrl?: string;
 }
@@ -354,6 +401,9 @@ export async function runInboxAction(
 ): Promise<void> {
   const { db, postResponse } = deps;
   const { actor, notificationId, action, responseUrl } = input;
+  const answer: SlackAnswer | undefined = input.answerAll
+    ? await allIndicesAnswer(db, notificationId, actor.id)
+    : input.answer;
 
   const result = await executeAction(db, {
     notificationId,
@@ -365,7 +415,7 @@ export async function runInboxAction(
     ...(action === "snooze" ? { payload: { until: input.until as SnoozeUntil } } : {}),
     // Idem per la risposta: l'indice del bottone o il testo del modal li
     // valida `answerQuestion` contro la domanda persistita.
-    ...(action === "answer" ? { payload: { answer: input.answer ?? {} } } : {}),
+    ...(action === "answer" ? { payload: { answer: answer ?? {} } } : {}),
     ...(deps.publicUrl ? { publicUrl: deps.publicUrl } : {}),
   });
 
@@ -392,10 +442,10 @@ export async function runInboxAction(
     const message = await updatedMessage(db, notificationId, actor.language, (event) => {
       // La nota della risposta la PORTA: chi ha premuto deve rileggere cosa ha
       // appena scelto, non solo che ha scelto.
-      const answer = answerLine(input.answer, event);
+      const line = answerLine(answer, event);
       return inboxNote(action, actor.language, {
         ...noteArgs,
-        ...(answer === undefined ? {} : { answer }),
+        ...(line === undefined ? {} : { answer: line }),
       });
     });
     await postResponse(responseUrl, {

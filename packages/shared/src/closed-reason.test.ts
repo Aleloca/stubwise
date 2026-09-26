@@ -72,6 +72,9 @@ describe("closedReason", () => {
     expect(closedReason({ type: "exists" })).toBeNull();
     expect(closedReason({ type: "commented", ticketId: "t1" })).toBeNull();
     expect(closedReason({ type: "reminder" })).toBeNull();
+    // Più azioni confermate insieme: registrato come esito riuscito, non ignoto.
+    expect(SUCCESSFUL_PROPOSAL_OUTCOMES).toContain("multiple");
+    expect(closedReason({ type: "multiple", results: [{ type: "backlog_item" }] })).toBeNull();
   });
 });
 

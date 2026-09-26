@@ -1865,6 +1865,9 @@ describe("google.proposal — contorno della proposta dalla posta", () => {
       // È il campo DERIVATO a lettura, e la sua assenza di valore qui è
       // esattamente ciò che si vuole: nessuna riga, nessun id inventato.
       sourceProposalId: null,
+      // 26 set 2026: derivato anche lui dalle azioni. Una sola azione del
+      // modello, quindi nessuna casella.
+      multiSelectIndices: [],
     });
     // Del payload delle azioni esce SOLO il tipo: progetto e titolo restano
     // dentro, dove il server li rilegge quando l'utente conferma.
@@ -2119,6 +2122,57 @@ describe("google.proposal — la fonte, derivata a lettura", () => {
 
     const { items } = await listInbox(db, { userId: user.id, lang: "it" });
     expect(items.find((i) => i.id === notificationId)?.google?.sourceProposalId).toBeNull();
+  });
+
+  /**
+   * «Una mail, più azioni e più progetti» (26 set 2026): quali opzioni si
+   * sommano è DERIVATO A LETTURA dalle `actions`, mai scritto nell'evento —
+   * così vale anche per le card già in inbox, come quella di Calvizie del 21
+   * set con tre voci di backlog.
+   */
+  const MULTI = {
+    options: [
+      { label: "Voce: strumento MCP" },
+      { label: "Voce: ricerca trattative" },
+      { label: "Voce: filtro sullo stato" },
+      { label: "Sposta su un altro progetto" },
+      { label: "Non fare nulla" },
+    ],
+    actions: [
+      { type: "create_backlog_item" },
+      { type: "create_backlog_item" },
+      { type: "create_backlog_item" },
+      { type: "reassign_project" },
+      { type: "ignore" },
+    ],
+  };
+
+  it("⚠️ CARD VECCHIA: tre azioni del modello, senza nessun campo nuovo nell'evento, escono sommabili", async () => {
+    const user = await seedUser("member");
+    const notificationId = await seedRawNotification({ userId: user.id, kind: "google.proposal", event: event(MULTI) });
+
+    const { items } = await listInbox(db, { userId: user.id, lang: "it" });
+    expect(items.find((i) => i.id === notificationId)?.google?.multiSelectIndices).toEqual([0, 1, 2]);
+  });
+
+  it("un jsonb che dicesse altro viene SCAVALCATO: il valore viene dalle azioni, non dal payload", async () => {
+    const user = await seedUser("member");
+    const notificationId = await seedRawNotification({
+      userId: user.id,
+      kind: "google.proposal",
+      event: event({ ...MULTI, multiSelectIndices: [4] }),
+    });
+
+    const { items } = await listInbox(db, { userId: user.id, lang: "it" });
+    expect(items.find((i) => i.id === notificationId)?.google?.multiSelectIndices).toEqual([0, 1, 2]);
+  });
+
+  it("una sola azione del modello: nessuna casella, scelta singola come prima", async () => {
+    const user = await seedUser("member");
+    const notificationId = await seedRawNotification({ userId: user.id, kind: "google.proposal", event: event() });
+
+    const { items } = await listInbox(db, { userId: user.id, lang: "it" });
+    expect(items.find((i) => i.id === notificationId)?.google?.multiSelectIndices).toEqual([]);
   });
 
   it("è `null` per lo SMISTAMENTO: vive sul padre, senza riga `email_proposals`", async () => {

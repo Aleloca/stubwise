@@ -125,6 +125,23 @@ export interface QuestionPanelProps {
    * `null` = quell'opzione non ha extra (il caso di tutte le altre).
    */
   optionExtra?: (index: number) => { node: ReactNode; ready: boolean } | null;
+  /**
+   * Modalità A CASELLE («una mail, più azioni e più progetti», 26 set 2026):
+   * le opzioni a questi indici si scelgono insieme, tutte spuntate all'inizio,
+   * e si mandano con un bottone loro (`submitLabel(n)`, spento a zero). Le
+   * altre restano la scelta singola di sempre, sotto, col loro bottone.
+   *
+   * Assente o vuoto = il pannello di sempre: le domande dell'agente non la
+   * accendono mai, ed è la card d'inbox a deciderlo da `multiSelectIndices`.
+   * È una callback a sé e non un ramo di `onSubmit` perché quel body (più
+   * indici) esiste solo per la posta: allargare `onSubmit` lo imporrebbe a
+   * ogni superficie che ospita il pannello.
+   */
+  multiSelect?: {
+    indices: number[];
+    submitLabel: (count: number) => string;
+    onSubmit: (optionIndices: number[]) => void;
+  };
 }
 
 /**
@@ -153,6 +170,7 @@ function QuestionPanelInner({
   showQuestionText = true,
   submitLabel,
   optionExtra,
+  multiSelect,
 }: QuestionPanelProps) {
   const { t } = useTranslation();
   // `null` = niente scelto: è lo stato iniziale ANCHE quando c'è una
@@ -162,6 +180,17 @@ function QuestionPanelInner({
 
   const options = usableOptions(question);
   const allowFreeText = question.allowFreeText;
+  // Gli indici a casella, tenuti SOLO se cadono dentro le opzioni mostrate:
+  // un indice fuori range (payload divergente) non deve diventare una casella
+  // che manda qualcosa che nessuno ha letto.
+  const multiIndices =
+    options === null
+      ? []
+      : (multiSelect?.indices ?? []).filter((index) => Number.isInteger(index) && index >= 0 && index < options.length);
+  const multiSet = new Set(multiIndices);
+  // Tutte spuntate all'inizio (design §5): la proposta le ha già scelte per
+  // una ragione, e chi legge toglie quelle che non vuole.
+  const [checked, setChecked] = useState<ReadonlySet<number>>(() => new Set(multiIndices));
   if (options === null && !allowFreeText) return null;
 
   // Senza opzioni da scegliere il testo libero è l'unica strada: si mostra
@@ -191,6 +220,17 @@ function QuestionPanelInner({
   const groupName = `question-${question.questionId}`;
   const textId = `${groupName}-text`;
 
+  const checkedIndices = multiIndices.filter((index) => checked.has(index));
+
+  function toggle(index: number): void {
+    setChecked((current) => {
+      const next = new Set(current);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  }
+
   function submit(): void {
     if (pending) return;
     // Due rami espliciti invece di un cast: il body ha esattamente uno dei due
@@ -206,6 +246,49 @@ function QuestionPanelInner({
     <div className="mt-3">
       {showQuestionText && <p className="text-sm text-fg">{question.question}</p>}
 
+      {options !== null && multiSelect !== undefined && multiIndices.length > 0 && (
+        <fieldset className="mt-2 flex flex-col gap-2" disabled={pending}>
+          <legend className="mb-1 font-mono text-[10px] tracking-[0.16em] text-fg-faint uppercase">
+            {t("question:multiLegend")}
+          </legend>
+          {multiIndices.map((index) => {
+            const option = options[index]!;
+            const consequenceId = `${groupName}-multi-consequence-${index}`;
+            return (
+              <div key={index} className="flex flex-col gap-1">
+                <label className="flex items-start gap-2 rounded-sm border border-line px-2 py-1.5 text-sm transition-colors hover:border-line-strong">
+                  <input
+                    type="checkbox"
+                    checked={checked.has(index)}
+                    onChange={() => toggle(index)}
+                    {...(option.consequence ? { "aria-describedby": consequenceId } : {})}
+                    className="mt-0.5 size-4 accent-signal"
+                  />
+                  <span className="text-fg">{option.label}</span>
+                </label>
+                {option.consequence && (
+                  <p id={consequenceId} className="pl-8 text-[12px] text-fg-muted">
+                    {option.consequence}
+                  </p>
+                )}
+              </div>
+            );
+          })}
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={pending || checkedIndices.length === 0}
+              onClick={() => {
+                if (!pending && checkedIndices.length > 0) multiSelect.onSubmit(checkedIndices);
+              }}
+              className={primaryButton}
+            >
+              {multiSelect.submitLabel(checkedIndices.length)}
+            </button>
+          </div>
+        </fieldset>
+      )}
+
       {options !== null && (
         // `fieldset` + `legend`: il gruppo ha un nome per chi naviga a
         // tastiera, e `disabled` sul fieldset spegne in un colpo tutti i radio.
@@ -214,6 +297,9 @@ function QuestionPanelInner({
             {t("question:legend")}
           </legend>
           {options.map((option, index) => {
+            // Le opzioni a casella stanno sopra: qui restano le altre, con
+            // l'indice ORIGINALE (mai compattato, vedi `usableOptions`).
+            if (multiSet.has(index)) return null;
             const consequenceId = `${groupName}-consequence-${index}`;
             return (
               <div key={index} className="flex flex-col gap-1">

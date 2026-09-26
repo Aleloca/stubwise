@@ -7,6 +7,11 @@ import { buildQuestionBlocks } from "@stubwise/notifications";
 import {
   agentQuestions,
   aiJobs,
+  backlogJobs,
+  emailMessages,
+  emailProposals,
+  googleAccounts,
+  googleWorkspaces,
   comments,
   docChunks,
   docGenerations,
@@ -1245,6 +1250,123 @@ describe("POST /api/slack/interactions — block_actions dell'inbox", () => {
       .where(eq(users.id, seeded.memberId));
   });
 
+  // «Una mail, più azioni e più progetti» (26 set 2026, design §5): il
+  // bottone «Crea tutte (N)» non porta indici, e il gestore li RICALCOLA dal
+  // payload persistito con la regola condivisa.
+  async function seedEmailProposal(actions: Record<string, unknown>[], labels: string[]) {
+    const [workspace] = await testDb.db
+      .insert(googleWorkspaces)
+      .values({ name: "Acme", domains: ["acme.test"], clientId: "client-id", clientSecretEncrypted: "blob" })
+      .returning({ id: googleWorkspaces.id });
+    const [account] = await testDb.db
+      .insert(googleAccounts)
+      .values({
+        userId: seeded.adminId,
+        workspaceId: workspace!.id,
+        email: `mailbox-${randomUUID()}@acme.test`,
+        googleSub: `sub-${randomUUID()}`,
+        refreshTokenEncrypted: "blob",
+      })
+      .returning({ id: googleAccounts.id });
+    const [message] = await testDb.db
+      .insert(emailMessages)
+      .values({
+        accountId: account!.id,
+        gmailMessageId: `m-${randomUUID()}`,
+        threadId: `t-${randomUUID()}`,
+        fromAddress: "laura@cliente.test",
+        receivedAt: new Date(),
+        projectId: ticketProjectId,
+        status: "proposed",
+      })
+      .returning({ id: emailMessages.id });
+    const [child] = await testDb.db
+      .insert(emailProposals)
+      .values({
+        emailMessageId: message!.id,
+        projectId: ticketProjectId,
+        status: "proposed",
+        classification: { summary: "test", proposals: [], recommendedIndex: 0 },
+      })
+      .returning({ id: emailProposals.id });
+    const [row] = await testDb.db
+      .insert(notifications)
+      .values({
+        userId: seeded.adminId,
+        kind: "google.proposal",
+        event: {
+          kind: "google.proposal",
+          proposalId: randomUUID(),
+          source: "email",
+          messageUrl: "https://mail.google.com/mail/u/x/#all/t",
+          signal: "request",
+          from: "Laura <laura@cliente.test>",
+          subject: "Tre richieste",
+          question: "Come diamo seguito?",
+          options: labels.map((label) => ({ label })),
+          actions,
+          allowFreeText: false,
+        },
+        projectId: ticketProjectId,
+      })
+      .returning({ id: notifications.id });
+    await testDb.db
+      .update(emailProposals)
+      .set({ proposalNotificationId: row!.id })
+      .where(eq(emailProposals.id, child!.id));
+    return { notificationId: row!.id, childId: child!.id };
+  }
+
+  it("inbox:answer:all → tutte le azioni sommabili, indici ricalcolati dal server", async () => {
+    await testDb.db.delete(backlogJobs);
+    const { notificationId, childId } = await seedEmailProposal(
+      [
+        { type: "create_backlog_item", projectId: ticketProjectId, title: "Prima" },
+        { type: "create_backlog_item", projectId: ticketProjectId, title: "Seconda" },
+        { type: "ignore" },
+      ],
+      ["Voce: prima", "Voce: seconda", "Non fare nulla"],
+    );
+
+    const res = await slackPost(
+      "/api/slack/interactions",
+      blockActionsBody({ actionId: "inbox:answer:all", notificationId }),
+    );
+    expect(res.statusCode).toBe(200);
+
+    await vi.waitFor(async () => {
+      expect((await readNotification(notificationId))?.status).toBe("handled");
+    });
+    const jobs = await testDb.db.select().from(backlogJobs).where(eq(backlogJobs.projectId, ticketProjectId));
+    expect(jobs).toHaveLength(2);
+    const [child] = await testDb.db.select().from(emailProposals).where(eq(emailProposals.id, childId));
+    expect(child!.outcome).toMatchObject({ type: "multiple" });
+    // La nota del messaggio riscritto porta ENTRAMBE le scelte.
+    await vi.waitFor(() => expect(postResponse).toHaveBeenCalled());
+    const payload = postResponse.mock.calls.at(-1)![1] as { replace_original: boolean; text: string };
+    expect(payload.replace_original).toBe(true);
+    expect(payload.text).toContain("Voce: prima; Voce: seconda");
+  });
+
+  it("inbox:answer:all su una card senza azioni da sommare → errore, niente eseguito", async () => {
+    await testDb.db.delete(backlogJobs);
+    const { notificationId } = await seedEmailProposal(
+      [{ type: "create_backlog_item", projectId: ticketProjectId, title: "Sola" }, { type: "ignore" }],
+      ["Voce: sola", "Non fare nulla"],
+    );
+
+    await slackPost(
+      "/api/slack/interactions",
+      blockActionsBody({ actionId: "inbox:answer:all", notificationId }),
+    );
+
+    await vi.waitFor(() => expect(postResponse).toHaveBeenCalled());
+    const payload = postResponse.mock.calls.at(-1)![1] as { replace_original: boolean };
+    expect(payload.replace_original).toBe(false);
+    expect((await readNotification(notificationId))?.status).toBe("open");
+    expect(await testDb.db.select().from(backlogJobs).where(eq(backlogJobs.projectId, ticketProjectId))).toHaveLength(0);
+  });
+
   it("firma non valida → 401, nessuna azione eseguita", async () => {
     const ticketId = await seedTicket("## Piano");
     const jobId = await seedJob(ticketId, "awaiting_plan_approval");
@@ -1638,7 +1760,7 @@ describe("POST /api/slack/interactions — block_actions dell'inbox", () => {
     expect(payload.text).toContain("admin@example.com");
   });
 
-  it("end-to-end: il bottone premuto registra l'opzione LETTA, con 5 opzioni nel payload", async () => {
+  it("end-to-end: il bottone premuto registra l'opzione LETTA, con 7 opzioni nel payload", async () => {
     // Il test parte dai blocchi VERI: si legge l'etichetta sul bottone, lo si
     // "preme" col suo action_id e si verifica che la riga persistita porti
     // quella stessa etichetta. È il giro completo che una compattazione degli
@@ -1649,6 +1771,8 @@ describe("POST /api/slack/interactions — block_actions dell'inbox", () => {
       { label: "Entrambe" },
       { label: "Nessuna delle due" },
       { label: "Chiedi al cliente" },
+      { label: "Rimanda" },
+      { label: "Chiedi al commerciale" },
     ];
     const { questionId, notificationId } = await seedQuestion({ options });
     const [notification] = await testDb.db
@@ -1666,8 +1790,9 @@ describe("POST /api/slack/interactions — block_actions dell'inbox", () => {
     const buttons = (blocks.find((b) => b.type === "actions")?.elements ?? []).filter((el) =>
       el.action_id.startsWith("inbox:answer:"),
     );
-    // Il payload ne ha 5, i bottoni si fermano a 4: il taglio è di prefisso.
-    expect(buttons).toHaveLength(4);
+    // Il payload ne ha 7, i bottoni si fermano a 6 (tetto alzato da 4 il 26
+    // set 2026): il taglio è di prefisso.
+    expect(buttons).toHaveLength(6);
     const pressed = buttons.find((b) => b.text?.text.includes("Nessuna delle due"))!;
     expect(pressed.action_id).toBe("inbox:answer:3");
 

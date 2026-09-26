@@ -118,6 +118,7 @@ describe("ProjectInboxScreen", () => {
             actions: [{ type: "create_backlog_item" }],
             auto: false,
             sourceProposalId: null,
+            multiSelectIndices: [],
           },
         }),
       ],

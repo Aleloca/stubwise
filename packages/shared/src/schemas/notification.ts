@@ -413,6 +413,20 @@ export const inboxGoogleSchema = z.object({
    * Passarle un id di messaggio darebbe 404.
    */
   sourceProposalId: z.string().nullable().default(null),
+  /**
+   * Gli indici delle opzioni che si possono SCEGLIERE INSIEME («una mail, più
+   * azioni e più progetti», 26 set 2026): le azioni proposte dal modello,
+   * quando sono almeno due. `[]` = scelta singola, come prima.
+   *
+   * ⚠️ **Derivato a lettura, mai scritto nell'evento** (invariante di
+   * CLAUDE.md): `readGoogle` lo calcola con `multiSelectableIndices` dalle
+   * `actions`, così vale anche per le card già in inbox. I client lo LEGGONO
+   * e non ricalcolano la regola.
+   *
+   * `.default([])` come ogni campo nuovo che l'app legge: un server più
+   * vecchio non lo manda. Il web lo difende con `?? []` (fa un cast).
+   */
+  multiSelectIndices: z.array(z.number().int().nonnegative()).default([]),
 });
 export type InboxGoogle = z.infer<typeof inboxGoogleSchema>;
 
@@ -468,7 +482,7 @@ export const ticketQuestionsSchema = z.array(ticketQuestionSchema);
 export const ANSWER_TEXT_MAX_CHARS = 4000;
 
 /**
- * Corpo di `POST /api/inbox/:id/actions/answer`: ESATTAMENTE uno dei due campi.
+ * Corpo di una RISPOSTA a una domanda: ESATTAMENTE uno dei due campi.
  *
  * Non è la union persistita ({@link agentQuestionAnswerSchema}) ma un oggetto
  * con due campi opzionali più un refine, per una ragione pratica: un client che
@@ -480,6 +494,10 @@ export const ANSWER_TEXT_MAX_CHARS = 4000;
  * La validazione di MERITO — indice dentro le opzioni davvero persistite, testo
  * libero ammesso da quella domanda — non sta qui: dipende dalla riga
  * `agent_questions` e vive in `answerQuestion`.
+ *
+ * ⚠️ Lo usano anche le rotte delle domande di un TICKET e del BACKLOG, dove
+ * una scelta multipla non ha senso: per questo `optionIndices` NON è qui ma
+ * in {@link inboxAnswerBodySchema}, che vale solo per l'inbox.
  */
 export const answerBodySchema = z
   .object({
@@ -490,6 +508,34 @@ export const answerBodySchema = z
     message: "provide exactly one of optionIndex or text",
   });
 export type AnswerBody = z.infer<typeof answerBodySchema>;
+
+/**
+ * Corpo di `POST /api/inbox/:id/actions/answer`: ESATTAMENTE uno fra
+ * `optionIndex`, `optionIndices` e `text`.
+ *
+ * `optionIndices` sceglie più opzioni INSIEME su una card di posta con
+ * `multiSelectIndices` («una mail, più azioni e più progetti», 26 set 2026).
+ * È FACOLTATIVO: un client vecchio manda `optionIndex` e continua a
+ * funzionare. Il merito — almeno un indice, nessun doppione, tutti fra quelli
+ * sommabili — lo controlla il server, che risponde `invalid_answer`; su una
+ * domanda dell'agente, dove una scelta multipla non esiste, lo rifiuta allo
+ * stesso modo.
+ *
+ * Uno schema a sé e non un allargamento di {@link answerBodySchema}: quello
+ * lo usano anche le domande di un ticket e del backlog, i cui gestori leggono
+ * solo `optionIndex` e `text`.
+ */
+export const inboxAnswerBodySchema = z
+  .object({
+    optionIndex: z.number().int().nonnegative().optional(),
+    optionIndices: z.array(z.number().int().nonnegative()).optional(),
+    text: z.string().max(ANSWER_TEXT_MAX_CHARS).optional(),
+  })
+  .refine(
+    (v) => [v.optionIndex, v.optionIndices, v.text].filter((field) => field !== undefined).length === 1,
+    { message: "provide exactly one of optionIndex, optionIndices or text" },
+  );
+export type InboxAnswerBodyFields = z.infer<typeof inboxAnswerBodySchema>;
 
 /**
  * Una riga d'inbox pronta per la UI. `text` è già localizzato nella lingua del

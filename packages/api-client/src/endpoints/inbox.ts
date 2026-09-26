@@ -6,8 +6,8 @@ import {
 } from "@stubwise/shared";
 import type {
   Reader,
-  AnswerBody,
   InboxActionResult,
+  InboxAnswerBodyFields,
   InboxDecisionAction,
   InboxPage,
   InboxStatus,
@@ -36,8 +36,13 @@ export interface InboxFilters {
  * altra azione il server lo RIFIUTA con `invalid_answer` — non lo ignora — e
  * il motivo per cui questo caso non incrina l'invariante «solo l'indice
  * viaggia» sta nel docblock di `inboxGoogleActionSchema` (`@stubwise/shared`).
+ *
+ * `optionIndices` (26 set 2026) sostituisce `optionIndex` quando più azioni di
+ * una proposta di posta si confermano insieme: mai insieme a `optionIndex` né a
+ * `projectId`, e solo sugli indici che la card offre come caselle
+ * (`multiSelectIndices`) — altrimenti `invalid_answer`.
  */
-export type InboxAnswerBody = AnswerBody & { projectId?: string };
+export type InboxAnswerBody = InboxAnswerBodyFields & { projectId?: string };
 
 export type InboxActionBody = { instructions?: string } | InboxAnswerBody;
 

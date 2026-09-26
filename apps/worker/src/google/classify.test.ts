@@ -1,3 +1,4 @@
+import { t } from "@stubwise/i18n";
 import { PROPOSAL_OUTCOME_TYPES } from "@stubwise/shared";
 import { randomBytes, randomUUID } from "node:crypto";
 import {
@@ -361,7 +362,11 @@ describe("citedTicketNumbers", () => {
 // ---------------------------------------------------------------------------
 
 describe("classifyEmail: rivalidazione dei referenti", () => {
-  it("scarta un'azione con un projectId che non è fra i candidati", async () => {
+  // «Una mail, più azioni e più progetti» (26 set 2026, design §4): il
+  // controllo del progetto è diventato «esiste fra quelli elencati». Un
+  // progetto fuori dal perimetro ma ESISTENTE ora passa (vedi il test nel
+  // describe del perimetro multi-progetto); uno INESISTENTE resta scartato.
+  it("scarta un'azione con un projectId INESISTENTE (non elencato nel prompt)", async () => {
     const account = await seedAccount();
     const projectId = await seedProject("Portale");
     const message = await seedMessage(account.id, { projectId });
@@ -1595,7 +1600,12 @@ describe("classifyEmail: perimetro multi-progetto (fase 6b)", () => {
     expect(ticketIdByProject.get(b)).toBe(ticketB);
   });
 
-  it("scarta una proposta il cui projectId non è nel perimetro (scopeProjectIds), anche se è un progetto valido altrove", async () => {
+  // ⚠️ RISCRITTO il 26 set 2026 (design §4), non cancellato: fino ad allora
+  // fissava lo SCARTO di un progetto fuori perimetro. Ora il perimetro del
+  // routing è solo l'ordinamento, e un progetto esistente nominato dalla mail
+  // riceve la sua card. L'altra metà della regola — un progetto INESISTENTE è
+  // scartato — è il test «projectId INESISTENTE» più sopra.
+  it("un projectId FUORI dal perimetro ma esistente passa: una riga `email_proposals` sul suo progetto", async () => {
     const account = await seedAccount();
     const a = await seedProject("Alfa");
     const outside = await seedProject("Fuori perimetro");
@@ -1606,7 +1616,7 @@ describe("classifyEmail: perimetro multi-progetto (fase 6b)", () => {
           {
             type: "create_backlog_item",
             projectId: outside,
-            title: "Non deve entrare",
+            title: "Nominato dalla mail",
             body: "x",
             consequence: "Crea",
           },
@@ -1620,7 +1630,71 @@ describe("classifyEmail: perimetro multi-progetto (fase 6b)", () => {
     const proposals = (
       (await reload(message.id)).classification as { proposals: { projectId: string; title: string }[] }
     ).proposals;
-    expect(proposals.map((p) => p.title)).toEqual(["Dentro il perimetro"]);
+    expect(proposals.map((p) => p.title)).toEqual(["Nominato dalla mail", "Dentro il perimetro"]);
+    const children = await reloadProposals(message.id);
+    expect(children.map((c) => c.projectId).sort()).toEqual([a, outside].sort());
+  });
+
+  it("il prompt elenca TUTTI i progetti, col perimetro per primo e le due etichette", async () => {
+    const account = await seedAccount();
+    // Creato PRIMA: senza il perimetro davanti, l'ordine di creazione lo metterebbe in testa.
+    const other = await seedProject("Altro");
+    const matched = await seedProject("Combacia");
+    const message = await seedMessage(account.id, { projectId: matched, scopeProjectIds: [matched] });
+    const runner = new FakeRunner([modelOutput({ signal: "none" })]);
+
+    await classifyEmail(deps(runner), message);
+
+    const prompt = runner.calls[0]!.prompt;
+    const matchedHeading = prompt.indexOf(t("it", "email.input.matchedProjects"));
+    const otherHeading = prompt.indexOf(t("it", "email.input.otherProjects"));
+    expect(matchedHeading).toBeGreaterThan(-1);
+    expect(otherHeading).toBeGreaterThan(-1);
+    expect(matchedHeading).toBeLessThan(prompt.indexOf(matched));
+    expect(prompt.indexOf(matched)).toBeLessThan(otherHeading);
+    expect(otherHeading).toBeLessThan(prompt.indexOf(other));
+    expect(prompt).toContain(t("it", "email.signals.otherProjectsRule"));
+  });
+
+  it("a parità, lo spareggio del tetto segue l'ordine del ROUTING, non quello di creazione", async () => {
+    const account = await seedAccount();
+    const older = await seedProject("Più vecchio");
+    const first = await seedProject("Primo per il routing");
+    const message = await seedMessage(account.id, { projectId: first, scopeProjectIds: [first, older] });
+    const runner = new FakeRunner([
+      modelOutput({
+        proposals: [
+          { type: "create_backlog_item", projectId: older, title: "V1", body: "x", consequence: "Crea" },
+          { type: "create_backlog_item", projectId: first, title: "P1", body: "x", consequence: "Crea" },
+        ],
+      }),
+    ]);
+
+    await classifyEmail(deps(runner, { maxProjectsPerMessage: 1 }), message);
+
+    const children = await reloadProposals(message.id);
+    expect(children.map((c) => c.projectId)).toEqual([first]);
+  });
+
+  it("il tetto sul fan-out preferisce i progetti del PERIMETRO, anche con meno proposte", async () => {
+    const account = await seedAccount();
+    const a = await seedProject("Alfa");
+    const outside = await seedProject("Fuori perimetro");
+    const message = await seedMessage(account.id, { projectId: a, scopeProjectIds: [a] });
+    const runner = new FakeRunner([
+      modelOutput({
+        proposals: [
+          { type: "create_backlog_item", projectId: outside, title: "F1", body: "x", consequence: "Crea" },
+          { type: "create_backlog_item", projectId: outside, title: "F2", body: "x", consequence: "Crea" },
+          { type: "create_backlog_item", projectId: a, title: "A1", body: "x", consequence: "Crea" },
+        ],
+      }),
+    ]);
+
+    await classifyEmail(deps(runner, { maxProjectsPerMessage: 1 }), message);
+
+    const children = await reloadProposals(message.id);
+    expect(children.map((c) => c.projectId)).toEqual([a]);
   });
 
   it("rispetta CLASSIFY_MAX_PROPOSALS PER PROGETTO, non sull'intero messaggio", async () => {
@@ -1707,10 +1781,14 @@ describe("classifyEmail: perimetro multi-progetto (fase 6b)", () => {
     expect(survivingProjects.has(projectIds[6]!)).toBe(false);
   });
 
-  it("scopeProjectIds VUOTO (riga pre fase 6b) ricade sul progetto risolto o sui candidati", async () => {
+  // ⚠️ RISCRITTO il 26 set 2026 (design §4), non cancellato: fissava lo
+  // SCARTO di «Fuori» per le righe pre fase 6b. Il ripiego sul progetto
+  // risolto decide ancora il PERIMETRO — cioè chi viene per primo e chi vince
+  // sul tetto —, ma non è più un confine.
+  it("scopeProjectIds VUOTO (riga pre fase 6b): il perimetro ricade sul progetto risolto, che viene per primo", async () => {
     const account = await seedAccount();
-    const a = await seedProject("Alfa");
     const outside = await seedProject("Fuori");
+    const a = await seedProject("Alfa");
     // Nessun scopeProjectIds (default '{}' → array vuoto): come prima della
     // fase 6b, il perimetro è il solo progetto risolto.
     const message = await seedMessage(account.id, { projectId: a, scopeProjectIds: [] });
@@ -1725,10 +1803,15 @@ describe("classifyEmail: perimetro multi-progetto (fase 6b)", () => {
 
     await classifyEmail(deps(runner), message);
 
+    const prompt = runner.calls[0]!.prompt;
+    const otherHeading = prompt.indexOf(t("it", "email.input.otherProjects"));
+    expect(prompt.indexOf(a)).toBeGreaterThan(prompt.indexOf(t("it", "email.input.matchedProjects")));
+    expect(prompt.indexOf(a)).toBeLessThan(otherHeading);
+    expect(prompt.indexOf(outside)).toBeGreaterThan(otherHeading);
     const proposals = (
       (await reload(message.id)).classification as { proposals: { projectId: string; title: string }[] }
     ).proposals;
-    expect(proposals.map((p) => p.title)).toEqual(["Dentro"]);
+    expect(proposals.map((p) => p.title)).toEqual(["Fuori", "Dentro"]);
   });
 
   it("passa al prompt il contesto di CIASCUN progetto del perimetro, sotto blocchi separati", async () => {
@@ -1785,6 +1868,20 @@ describe("classifyEmail: perimetro vuoto → tutti i progetti dell'istanza (fase
     expect(prompt).toContain(b);
     expect(prompt).toContain("Alfa");
     expect(prompt).toContain("Beta");
+  });
+
+  it("perimetro vuoto: il prompt NON divide i progetti in due gruppi (lo smistamento resta com'era)", async () => {
+    const account = await seedAccount();
+    await seedProject("Alfa");
+    const message = await seedMessage(account.id, { projectId: null, candidateProjectIds: [] });
+    const runner = new FakeRunner([modelOutput({ signal: "none" })]);
+
+    await classifyEmail(deps(runner), message);
+
+    const prompt = runner.calls[0]!.prompt;
+    expect(prompt).not.toContain(t("it", "email.input.matchedProjects"));
+    expect(prompt).not.toContain(t("it", "email.input.otherProjects"));
+    expect(prompt).not.toContain(t("it", "email.signals.otherProjectsRule"));
   });
 
   it("perimetro vuoto: una proposta su un progetto QUALSIASI dell'istanza viene accettata dalla rivalidazione", async () => {
@@ -1976,7 +2073,9 @@ describe("classifyEmail: proposta di smistamento — forma «da smistare» sul p
     });
   });
 
-  it("un projectId INVENTATO (non fra i candidati) non entra fra i suggeriti", async () => {
+  // Invariato il 26 set 2026: parlava già di un progetto INESISTENTE, che resta
+  // fuori anche ora che ogni progetto esistente è elencato.
+  it("un projectId INVENTATO (inesistente) non entra fra i suggeriti", async () => {
     const account = await seedAccount();
     const alfa = await seedProject("Alfa");
     const message = await seedMessage(account.id, { projectId: null, candidateProjectIds: [] });

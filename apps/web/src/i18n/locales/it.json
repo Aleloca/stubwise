@@ -1291,6 +1291,7 @@
     "google": {
       "unknownSender": "Mittente sconosciuto",
       "confirm": "Conferma",
+      "createN": "Crea {{count}}",
       "openThread": "Apri il thread",
       "openEvent": "Apri l'evento",
       "reassignLabel": "Progetto di destinazione",
@@ -1314,6 +1315,7 @@
   },
   "question": {
     "legend": "Scegli una risposta",
+    "multiLegend": "Scegli cosa creare",
     "recommended": "consigliata",
     "other": "Altro…",
     "freeLabel": "La tua risposta",

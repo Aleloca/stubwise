@@ -914,6 +914,106 @@ describe("pagina /inbox", () => {
     expect(decide.getByRole("button", { name: "Start" })).toBeInTheDocument();
   });
 
+  // «Una mail, più azioni e più progetti» (26 set 2026, design §5): le azioni
+  // del modello si scelgono a CASELLE, tutte spuntate, e un bottone «Create N»
+  // le manda insieme. La modalità la accende SOLO `multiSelectIndices`, che il
+  // server deriva a lettura.
+  const MULTI: InboxItem = {
+    ...GOOGLE,
+    question: {
+      ...GOOGLE.question!,
+      options: [
+        { label: "Backlog: MCP tool", consequence: "New backlog item on Apollo" },
+        { label: "Backlog: deal search", consequence: "New backlog item on Zeus" },
+        { label: "Backlog: status filter", consequence: "New backlog item on Apollo" },
+        { label: "Move to another project" },
+        { label: "Do nothing", consequence: "Nothing happens" },
+      ],
+    },
+    google: {
+      ...GOOGLE.google!,
+      actions: [
+        { type: "create_backlog_item" },
+        { type: "create_backlog_item" },
+        { type: "create_backlog_item" },
+        { type: "reassign_project" },
+        { type: "ignore" },
+      ],
+      multiSelectIndices: [0, 1, 2],
+    } as InboxItem["google"],
+  };
+
+  it("proposta con più azioni: caselle tutte spuntate, «Create N» manda `optionIndices`", async () => {
+    let body: unknown = null;
+    mockApi(
+      baseApi({
+        "GET /api/inbox": () => jsonResponse(200, { items: [MULTI], nextCursor: null }),
+        "POST /api/inbox/:id/actions/answer": (_url, init) => {
+          body = JSON.parse(String(init?.body));
+          return jsonResponse(200, { kind: "google.proposal", changedNotificationIds: [GOOGLE_NOTIFICATION_ID] });
+        },
+      }),
+    );
+    renderInbox();
+    await screen.findByRole("heading", { name: "Inbox" });
+
+    const decide = within(section("To decide"));
+    const boxes = decide.getAllByRole("checkbox");
+    expect(boxes).toHaveLength(3);
+    for (const box of boxes) expect(box).toBeChecked();
+    // «Sposta» e «Non fare nulla» restano scelte a sé, non caselle.
+    expect(decide.getByRole("radio", { name: "Move to another project" })).toBeInTheDocument();
+    expect(decide.getByRole("radio", { name: "Do nothing" })).toBeInTheDocument();
+    expect(decide.queryByRole("radio", { name: /Backlog: MCP tool/ })).toBeNull();
+
+    await userEvent.click(decide.getByRole("checkbox", { name: "Backlog: deal search" }));
+    await userEvent.click(decide.getByRole("button", { name: "Create 2" }));
+
+    await waitFor(() => expect(body).toEqual({ optionIndices: [0, 2] }));
+  });
+
+  it("proposta con più azioni: a zero caselle «Create 0» è spento", async () => {
+    mockApi(baseApi({ "GET /api/inbox": () => jsonResponse(200, { items: [MULTI], nextCursor: null }) }));
+    renderInbox();
+    await screen.findByRole("heading", { name: "Inbox" });
+
+    const decide = within(section("To decide"));
+    for (const box of decide.getAllByRole("checkbox")) await userEvent.click(box);
+    expect(decide.getByRole("button", { name: "Create 0" })).toBeDisabled();
+  });
+
+  it("proposta con più azioni: «Do nothing» resta una scelta singola, con il suo «Confirm»", async () => {
+    let body: unknown = null;
+    mockApi(
+      baseApi({
+        "GET /api/inbox": () => jsonResponse(200, { items: [MULTI], nextCursor: null }),
+        "POST /api/inbox/:id/actions/answer": (_url, init) => {
+          body = JSON.parse(String(init?.body));
+          return jsonResponse(200, { kind: "google.proposal", changedNotificationIds: [GOOGLE_NOTIFICATION_ID] });
+        },
+      }),
+    );
+    renderInbox();
+    await screen.findByRole("heading", { name: "Inbox" });
+
+    const decide = within(section("To decide"));
+    await userEvent.click(decide.getByRole("radio", { name: "Do nothing" }));
+    await userEvent.click(decide.getByRole("button", { name: "Confirm" }));
+    await waitFor(() => expect(body).toEqual({ optionIndex: 4 }));
+  });
+
+  it("⚠️ server più vecchio (nessun `multiSelectIndices`): scelta singola di sempre, nessuna casella", async () => {
+    // GOOGLE è lasciata SENZA il campo apposta: è la prova del `?? []`.
+    expect("multiSelectIndices" in GOOGLE.google!).toBe(false);
+    mockApi(baseApi({ "GET /api/inbox": () => jsonResponse(200, { items: [GOOGLE], nextCursor: null }) }));
+    renderInbox();
+    await screen.findByRole("heading", { name: "Inbox" });
+
+    const decide = within(section("To decide"));
+    expect(decide.queryAllByRole("checkbox")).toHaveLength(0);
+    expect(decide.getByRole("radio", { name: /Add to backlog/ })).toBeInTheDocument();
+  });
+
   it("la proposta Google: contorno (mittente, oggetto, data, segnale), conferma 'Confirm', link al thread in una scheda nuova", async () => {
     mockApi(
       baseApi({ "GET /api/inbox": () => jsonResponse(200, { items: [GOOGLE], nextCursor: null }) }),

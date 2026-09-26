@@ -3407,6 +3407,12 @@ export function postInboxHandled(id: string): Promise<void> {
  */
 export type InboxActionBody =
   | { instructions?: string }
+  /**
+   * Più azioni di una proposta di posta confermate insieme (26 set 2026): mai
+   * con `optionIndex` né con `projectId`, e solo sugli indici che la card
+   * offre come caselle (`multiSelectIndices`).
+   */
+  | { optionIndices: number[] }
   | (AnswerBody & {
       /**
        * Accompagna `optionIndex` SOLO quando l'opzione confermata è «Sposta su

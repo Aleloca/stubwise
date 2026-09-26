@@ -1505,3 +1505,163 @@ describe("answerGoogleProposal — choose_project sulla proposta di SMISTAMENTO 
     expect(legacyMessageAfter!.projectId).toBe(originalProjectId);
   });
 });
+
+/**
+ * «Una mail, più azioni e più progetti» (26 set 2026, design §3): più opzioni
+ * confermate INSIEME. La mail di Calvizie del 21 set proponeva tre voci di
+ * backlog, tutte giuste; toccarne una chiudeva la card e perdeva le altre due.
+ */
+describe("answerGoogleProposal — più azioni insieme (optionIndices)", () => {
+  async function seedMulti(extra: { secondProjectId?: string } = {}) {
+    const { owner, projectId, accountId } = await seedOwner();
+    const email = await seedEmailRow(accountId, projectId);
+    const child = await seedEmailProposalRow(email.id, projectId);
+    const { notificationId } = await seedProposal({
+      ownerId: owner.id,
+      sourceId: child.id,
+      source: "email",
+      actions: [
+        { type: "create_backlog_item", projectId, title: "Strumento MCP per le telefonate" },
+        { type: "create_backlog_item", projectId: extra.secondProjectId ?? projectId, title: "Ricerca trattative" },
+        { type: "create_backlog_item", projectId, title: "Filtro sullo stato" },
+        { type: "reassign_project" },
+        { type: "ignore" },
+      ],
+      options: [
+        { label: "Voce: strumento MCP" },
+        { label: "Voce: ricerca trattative" },
+        { label: "Voce: filtro sullo stato" },
+        { label: "Sposta su un altro progetto" },
+        { label: "Non fare nulla" },
+      ],
+    });
+    return { owner, projectId, email, child, notificationId };
+  }
+
+  it("tre voci di backlog: tre job d'intake, UNA chiusura, esito `multiple` con tutti i risultati", async () => {
+    const { owner, projectId, child, notificationId } = await seedMulti();
+
+    const result = await answerGoogleProposal(db, { notificationId, actor: owner, optionIndices: [0, 1, 2] });
+    expect(result).toEqual({ ok: true, changedNotificationIds: [notificationId] });
+
+    const jobs = await db.select().from(backlogJobs).where(eq(backlogJobs.projectId, projectId));
+    expect(jobs).toHaveLength(3);
+    const proposal = await readEmailProposal(child.id);
+    expect(proposal!.status).toBe("actioned");
+    expect(proposal!.outcome).toMatchObject({ type: "multiple" });
+    const results = (proposal!.outcome as { results: { type: string }[] }).results;
+    expect(results.map((r) => r.type)).toEqual(["backlog_item", "backlog_item", "backlog_item"]);
+
+    expect((await readNotification(notificationId))!.status).toBe("handled");
+    // La nota elenca TUTTE le etichette scelte, non solo la prima.
+    const notes = await readNotes(notificationId);
+    expect(notes[0]).toContain("Voce: strumento MCP");
+    expect(notes[0]).toContain("Voce: ricerca trattative");
+    expect(notes[0]).toContain("Voce: filtro sullo stato");
+  });
+
+  it("un sottoinsieme crea solo quelle scelte", async () => {
+    const { owner, projectId, notificationId } = await seedMulti();
+    const result = await answerGoogleProposal(db, { notificationId, actor: owner, optionIndices: [2, 0] });
+    expect(result.ok).toBe(true);
+    const jobs = await db.select().from(backlogJobs).where(eq(backlogJobs.projectId, projectId));
+    expect(jobs).toHaveLength(2);
+  });
+
+  it.each([
+    ["«Sposta» non si somma", [0, 3]],
+    ["«Non fare nulla» non si somma", [0, 4]],
+    ["un doppione", [0, 0]],
+    ["una lista vuota", []],
+    ["un indice fuori range", [0, 9]],
+  ])("%s → invalid_answer, e NIENTE scritto né chiuso", async (_label, optionIndices) => {
+    const { owner, projectId, child, notificationId } = await seedMulti();
+
+    const result = await answerGoogleProposal(db, { notificationId, actor: owner, optionIndices });
+    expect(result).toEqual({ ok: false, error: "invalid_answer" });
+
+    expect(await db.select().from(backlogJobs).where(eq(backlogJobs.projectId, projectId))).toHaveLength(0);
+    expect((await readEmailProposal(child.id))!.status).toBe("classified");
+    // Nessun claim: la card è ancora aperta.
+    expect((await readNotification(notificationId))!.status).toBe("open");
+  });
+
+  it("`projectId` insieme a `optionIndices` è rifiutato, non ignorato", async () => {
+    const { owner, projectId, notificationId } = await seedMulti();
+    const result = await answerGoogleProposal(db, { notificationId, actor: owner, optionIndices: [0, 1], projectId });
+    expect(result).toEqual({ ok: false, error: "invalid_answer" });
+    expect((await readNotification(notificationId))!.status).toBe("open");
+  });
+
+  it("⚠️ O TUTTE O NESSUNA: la seconda che fallisce annulla anche la prima, e la card va failed", async () => {
+    const { owner, projectId, child, notificationId } = await seedMulti({ secondProjectId: randomUUID() });
+
+    const result = await answerGoogleProposal(db, { notificationId, actor: owner, optionIndices: [0, 1, 2] });
+    expect(result).toEqual({ ok: false, error: "target_gone" });
+
+    // La prima voce NON è rimasta scritta: la transazione è stata annullata.
+    expect(await db.select().from(backlogJobs).where(eq(backlogJobs.projectId, projectId))).toHaveLength(0);
+    const proposal = await readEmailProposal(child.id);
+    expect(proposal!.status).toBe("failed");
+    expect(proposal!.error).toContain("target_gone");
+  });
+
+  it("`optionIndex` singolo su una card multipla funziona ancora: crea quella sola e chiude (Slack, app vecchie)", async () => {
+    const { owner, projectId, child, notificationId } = await seedMulti();
+    const result = await answerGoogleProposal(db, { notificationId, actor: owner, optionIndex: 1 });
+    expect(result.ok).toBe(true);
+    const jobs = await db.select().from(backlogJobs).where(eq(backlogJobs.projectId, projectId));
+    expect(jobs).toHaveLength(1);
+    expect((await readEmailProposal(child.id))!.outcome).toMatchObject({ type: "backlog_item" });
+  });
+
+  it("`optionIndices` su una card SENZA caselle (una sola azione del modello) → invalid_answer", async () => {
+    const { owner, projectId, accountId } = await seedOwner();
+    const email = await seedEmailRow(accountId, projectId);
+    const child = await seedEmailProposalRow(email.id, projectId);
+    const { notificationId } = await seedProposal({
+      ownerId: owner.id,
+      sourceId: child.id,
+      source: "email",
+      actions: [{ type: "create_backlog_item", projectId, title: "Export CSV" }, { type: "ignore" }],
+    });
+    const result = await answerGoogleProposal(db, { notificationId, actor: owner, optionIndices: [0] });
+    expect(result).toEqual({ ok: false, error: "invalid_answer" });
+  });
+
+  it("due decisioni scelte insieme sulla stessa mail sono DUE righe del registro, non una", async () => {
+    const { owner, projectId, accountId } = await seedOwner();
+    const email = await seedEmailRow(accountId, projectId);
+    const child = await seedEmailProposalRow(email.id, projectId);
+    const { notificationId } = await seedProposal({
+      ownerId: owner.id,
+      sourceId: child.id,
+      source: "email",
+      actions: [
+        { type: "record_decision", projectId, title: "a", decision: "a" },
+        { type: "record_decision", projectId, title: "b", decision: "b" },
+        { type: "ignore" },
+      ],
+      options: [{ label: "Registra: niente SSO" }, { label: "Registra: rilascio venerdì" }, { label: "Non fare nulla" }],
+    });
+
+    const result = await answerGoogleProposal(db, { notificationId, actor: owner, optionIndices: [0, 1] });
+    expect(result.ok).toBe(true);
+    const rows = await db.select().from(projectDecisions).where(eq(projectDecisions.projectId, projectId));
+    expect(rows).toHaveLength(2);
+    // Il testo viene dal TEMPLATE con l'etichetta di ciascuna, mai dalla prosa del modello.
+    expect(rows.map((r) => r.decision).sort().join(" | ")).toMatch(/niente SSO.*rilascio venerdì|rilascio venerdì.*niente SSO/);
+  });
+
+  it("le SORELLE su altri progetti non si toccano (invariante 6b)", async () => {
+    const { owner, projectId, email, notificationId } = await seedMulti();
+    const { projectId: siblingProjectId } = await seedRepository(db);
+    const sibling = await seedEmailProposalRow(email.id, siblingProjectId);
+    const before = await readEmailProposal(sibling.id);
+
+    const result = await answerGoogleProposal(db, { notificationId, actor: owner, optionIndices: [0, 1] });
+    expect(result.ok).toBe(true);
+    expect(await readEmailProposal(sibling.id)).toEqual(before);
+    expect(projectId).not.toBe(siblingProjectId);
+  });
+});

@@ -168,6 +168,8 @@
         "fallbackTitle": "Proposta",
         "fromLine": "Da {{from}}, {{when}}",
         "whatToDo": "Cosa vuoi fare",
+        "multiTitle": "Da creare insieme",
+        "createN": "Crea {{count}}",
         "alreadyDecided": "Questa proposta è già stata decisa. Non c'è più niente da scegliere.",
         "gone": "Questa proposta non è più nell'inbox: qualcuno l'ha decisa.",
         "loadError": "Non riesco a caricare la proposta.",

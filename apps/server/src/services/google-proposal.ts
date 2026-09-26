@@ -85,7 +85,7 @@ import {
 } from "@stubwise/db";
 import { t, type Language } from "@stubwise/i18n";
 import { actorAllows } from "@stubwise/notifications";
-import { ticketPrioritySchema, ticketStatusSchema } from "@stubwise/shared";
+import { multiSelectableIndices, ticketPrioritySchema, ticketStatusSchema } from "@stubwise/shared";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { getContentLanguage } from "../settings.js";
@@ -145,6 +145,14 @@ export interface AnswerGoogleProposalInput {
   actor: Actor;
   /** Indice dell'opzione confermata, validato contro le AZIONI persistite. */
   optionIndex?: number;
+  /**
+   * Più opzioni confermate INSIEME («una mail, più azioni e più progetti», 26
+   * set 2026, design §3). Alternativa a `optionIndex`, mai insieme. Ammesse
+   * solo quelle che `multiSelectableIndices` dichiara sommabili — la STESSA
+   * regola con cui `readGoogle` mostra le caselle — altrimenti
+   * `invalid_answer`, prima di qualunque claim.
+   */
+  optionIndices?: number[];
   /**
    * Il progetto di destinazione, **solo** per l'azione `reassign_project`
    * (17 set 2026, design §3.1bis). È l'unico dato di payload che viaggia dal
@@ -220,6 +228,8 @@ type StoredAction = z.infer<typeof storedActionSchema>;
  */
 const storedEventSchema = z.object({
   proposalId: z.string().min(1),
+  /** `"email"` o `"calendar"`: serve a {@link multiSelectableIndices}. Un valore illeggibile non è sommabile. */
+  source: z.string().catch(""),
   from: z.string().catch(""),
   subject: z.string().catch(""),
   options: z.array(z.object({ label: z.string().min(1) })).min(1),
@@ -468,6 +478,142 @@ async function markSourceFailed(db: Db, source: ProposalSource, error: string): 
 }
 
 /**
+ * Le azioni proposte dal MODELLO — le sole che si sommano, vedi
+ * `multiSelectableIndices` in `@stubwise/shared`.
+ */
+type ModelAction = Extract<
+  StoredAction,
+  { type: "create_backlog_item" | "create_milestone" | "update_ticket" | "comment_ticket" | "record_decision" }
+>;
+
+type ApplyResult = { ok: true; detail: Record<string, unknown> } | { ok: false; error: "target_gone" };
+
+/**
+ * ESEGUE un'azione del modello nella transazione data, SENZA chiudere la riga
+ * sorgente: restituisce l'esito, e decide il chiamante come chiudere — con
+ * quell'esito solo ({@link dispatchAction}) o con tutti insieme
+ * ({@link dispatchMultiple}). Il corpo è quello che prima stava nei cinque
+ * `case` di `dispatchAction`, invariato.
+ *
+ * `decisionKeySuffix` distingue le decisioni scelte INSIEME sulla stessa mail:
+ * l'idempotenza di `recordDecision` è `(projectId, sourceKey)`, e due decisioni
+ * con la stessa chiave ne scriverebbero una sola.
+ */
+async function applyModelAction(
+  tx: DbOrTx,
+  args: {
+    action: ModelAction;
+    source: ProposalSource;
+    actor: Actor;
+    lang: Language;
+    from: string;
+    subject: string;
+    optionLabel: string;
+    proposalId: string;
+    notificationId: string;
+    decisionKeySuffix?: string;
+  },
+): Promise<ApplyResult> {
+  switch (args.action.type) {
+    case "create_backlog_item": {
+      const result = await enqueueBacklogIntake(tx, {
+        projectId: args.action.projectId,
+        title: args.action.title,
+        // Il payload d'intake vuole un corpo NON VUOTO: se la proposta non
+        // ne aveva uno (il classificatore non l'ha scritto), si ripiega
+        // sull'oggetto della email e, in ultima istanza, sull'etichetta
+        // dell'opzione — mai una stringa fissa senza contesto.
+        body: nonEmpty(args.action.body, args.subject, args.optionLabel),
+      });
+      if (!result.ok) return { ok: false, error: "target_gone" };
+      return { ok: true, detail: { type: "backlog_item", jobId: result.jobId } };
+    }
+    case "create_milestone": {
+      const result = await createMilestone(tx, {
+        projectId: args.action.projectId,
+        name: args.action.name,
+        dueDate: args.action.dueDate ?? null,
+      });
+      if (!result.ok) {
+        if (result.error === "milestone_exists") {
+          // NON è un errore per chi ha confermato: voleva quella milestone,
+          // e già esiste. Outcome di successo, non `target_gone`.
+          return { ok: true, detail: { type: "exists" } };
+        }
+        return { ok: false, error: "target_gone" };
+      }
+      return { ok: true, detail: { type: "milestone", milestoneId: result.milestone.id } };
+    }
+    case "update_ticket": {
+      const result = await patchTicket(tx, {
+        ticketId: args.action.ticketId,
+        actorId: args.actor.id,
+        patch: {
+          ...(args.action.status ? { status: args.action.status } : {}),
+          ...(args.action.priority ? { priority: args.action.priority } : {}),
+        },
+      });
+      if (!result.ok) return { ok: false, error: "target_gone" };
+      return { ok: true, detail: { type: "ticket_updated", ticketId: args.action.ticketId } };
+    }
+    case "comment_ticket": {
+      // Il worker non genera MAI questa azione per un evento di calendario
+      // (nessun `threadId` da linkare): stessa anomalia di `choose_project`
+      // qui sotto — si lascia rientrare la transazione, `action_failed`.
+      if (args.source.source !== "email" || !args.source.threadId || !args.source.mailboxEmail) {
+        throw new Error("comment_ticket richiede una proposta email con thread noto");
+      }
+      // `addSystemComment` NON verifica che il ticket esista (è compito del
+      // chiamante, vedi il suo docblock): lo si controlla qui.
+      const [ticket] = await tx.select({ id: tickets.id }).from(tickets).where(eq(tickets.id, args.action.ticketId));
+      if (!ticket) return { ok: false, error: "target_gone" };
+      await addSystemComment(tx, {
+        ticketId: args.action.ticketId,
+        body: t(args.lang, "email.execution.commentBody", {
+          body: args.action.body,
+          link: gmailThreadUrl(args.source.mailboxEmail, args.source.threadId),
+        }),
+      });
+      return { ok: true, detail: { type: "commented", ticketId: args.action.ticketId } };
+    }
+    case "record_decision": {
+      const [project] = await tx.select({ id: projects.id }).from(projects).where(eq(projects.id, args.action.projectId));
+      if (!project) return { ok: false, error: "target_gone" };
+      // `sourceKey` è l'ancora di IDEMPOTENZA di `recordDecision`: una email
+      // (il caso previsto, vedi il docblock del modulo) o — difensivamente,
+      // per un jsonb malformato che indicizzasse un evento di calendario —
+      // l'evento stesso. Nessuno dei due può mancare: `findSourceRow` ha già
+      // stabilito da quale tabella viene `args.source`.
+      const sourceKey = `${
+        args.source.source === "email"
+          ? `email:${args.source.gmailMessageId}`
+          : `calendar:${args.source.googleEventId}`
+      }${args.decisionKeySuffix ?? ""}`;
+      // ⚠️ MAI `args.action.title`/`args.action.decision` (prosa del
+      // classificatore, sia pure rivalidata): il registro decisioni li
+      // ignora di proposito e compone il fatto SOLO da `from`, `subject` e
+      // l'etichetta già templata dell'opzione scelta — vedi il docblock del
+      // modulo e `decision.email.*` in `packages/i18n`.
+      await recordDecision(tx, {
+        projectId: args.action.projectId,
+        source: "email",
+        sourceKey,
+        sourceRef: { proposalId: args.proposalId, notificationId: args.notificationId },
+        ...(args.action.ticketId ? { ticketId: args.action.ticketId } : {}),
+        title: t(args.lang, "decision.email.title", { subject: args.subject }),
+        decision: t(args.lang, "decision.email.decision", {
+          from: args.from,
+          subject: args.subject,
+          option: args.optionLabel,
+        }),
+        decidedByUserId: args.actor.id,
+      });
+      return { ok: true, detail: { type: "decision_recorded" } };
+    }
+  }
+}
+
+/**
  * L'esito del dispatch. `target_gone` e — dal 17 set 2026, per la sola
  * `reassign_project` — `already_proposed` sono i soli errori tipizzati che
  * possono risalire da qui.
@@ -545,116 +691,14 @@ async function dispatchAction(
 ): Promise<DispatchResult> {
   return db.transaction(async (tx) => {
     switch (args.action.type) {
-      case "create_backlog_item": {
-        const result = await enqueueBacklogIntake(tx, {
-          projectId: args.action.projectId,
-          title: args.action.title,
-          // Il payload d'intake vuole un corpo NON VUOTO: se la proposta non
-          // ne aveva uno (il classificatore non l'ha scritto), si ripiega
-          // sull'oggetto della email e, in ultima istanza, sull'etichetta
-          // dell'opzione — mai una stringa fissa senza contesto.
-          body: nonEmpty(args.action.body, args.subject, args.optionLabel),
-        });
-        if (!result.ok) return { ok: false, error: "target_gone" };
-        await markSourceOutcome(tx, args.source, {
-          status: "actioned",
-          detail: { type: "backlog_item", jobId: result.jobId },
-        });
-        return { ok: true };
-      }
-      case "create_milestone": {
-        const result = await createMilestone(tx, {
-          projectId: args.action.projectId,
-          name: args.action.name,
-          dueDate: args.action.dueDate ?? null,
-        });
-        if (!result.ok) {
-          if (result.error === "milestone_exists") {
-            // NON è un errore per chi ha confermato: voleva quella milestone,
-            // e già esiste. Outcome di successo, non `target_gone`.
-            await markSourceOutcome(tx, args.source, { status: "actioned", detail: { type: "exists" } });
-            return { ok: true };
-          }
-          return { ok: false, error: "target_gone" };
-        }
-        await markSourceOutcome(tx, args.source, {
-          status: "actioned",
-          detail: { type: "milestone", milestoneId: result.milestone.id },
-        });
-        return { ok: true };
-      }
-      case "update_ticket": {
-        const result = await patchTicket(tx, {
-          ticketId: args.action.ticketId,
-          actorId: args.actor.id,
-          patch: {
-            ...(args.action.status ? { status: args.action.status } : {}),
-            ...(args.action.priority ? { priority: args.action.priority } : {}),
-          },
-        });
-        if (!result.ok) return { ok: false, error: "target_gone" };
-        await markSourceOutcome(tx, args.source, {
-          status: "actioned",
-          detail: { type: "ticket_updated", ticketId: args.action.ticketId },
-        });
-        return { ok: true };
-      }
-      case "comment_ticket": {
-        // Il worker non genera MAI questa azione per un evento di calendario
-        // (nessun `threadId` da linkare): stessa anomalia di `choose_project`
-        // qui sotto — si lascia rientrare la transazione, `action_failed`.
-        if (args.source.source !== "email" || !args.source.threadId || !args.source.mailboxEmail) {
-          throw new Error("comment_ticket richiede una proposta email con thread noto");
-        }
-        // `addSystemComment` NON verifica che il ticket esista (è compito del
-        // chiamante, vedi il suo docblock): lo si controlla qui.
-        const [ticket] = await tx.select({ id: tickets.id }).from(tickets).where(eq(tickets.id, args.action.ticketId));
-        if (!ticket) return { ok: false, error: "target_gone" };
-        await addSystemComment(tx, {
-          ticketId: args.action.ticketId,
-          body: t(args.lang, "email.execution.commentBody", {
-            body: args.action.body,
-            link: gmailThreadUrl(args.source.mailboxEmail, args.source.threadId),
-          }),
-        });
-        await markSourceOutcome(tx, args.source, {
-          status: "actioned",
-          detail: { type: "commented", ticketId: args.action.ticketId },
-        });
-        return { ok: true };
-      }
+      case "create_backlog_item":
+      case "create_milestone":
+      case "update_ticket":
+      case "comment_ticket":
       case "record_decision": {
-        const [project] = await tx.select({ id: projects.id }).from(projects).where(eq(projects.id, args.action.projectId));
-        if (!project) return { ok: false, error: "target_gone" };
-        // `sourceKey` è l'ancora di IDEMPOTENZA di `recordDecision`: una email
-        // (il caso previsto, vedi il docblock del modulo) o — difensivamente,
-        // per un jsonb malformato che indicizzasse un evento di calendario —
-        // l'evento stesso. Nessuno dei due può mancare: `findSourceRow` ha già
-        // stabilito da quale tabella viene `args.source`.
-        const sourceKey =
-          args.source.source === "email"
-            ? `email:${args.source.gmailMessageId}`
-            : `calendar:${args.source.googleEventId}`;
-        // ⚠️ MAI `args.action.title`/`args.action.decision` (prosa del
-        // classificatore, sia pure rivalidata): il registro decisioni li
-        // ignora di proposito e compone il fatto SOLO da `from`, `subject` e
-        // l'etichetta già templata dell'opzione scelta — vedi il docblock del
-        // modulo e `decision.email.*` in `packages/i18n`.
-        await recordDecision(tx, {
-          projectId: args.action.projectId,
-          source: "email",
-          sourceKey,
-          sourceRef: { proposalId: args.proposalId, notificationId: args.notificationId },
-          ...(args.action.ticketId ? { ticketId: args.action.ticketId } : {}),
-          title: t(args.lang, "decision.email.title", { subject: args.subject }),
-          decision: t(args.lang, "decision.email.decision", {
-            from: args.from,
-            subject: args.subject,
-            option: args.optionLabel,
-          }),
-          decidedByUserId: args.actor.id,
-        });
-        await markSourceOutcome(tx, args.source, { status: "actioned", detail: { type: "decision_recorded" } });
+        const applied = await applyModelAction(tx, { ...args, action: args.action });
+        if (!applied.ok) return applied;
+        await markSourceOutcome(tx, args.source, { status: "actioned", detail: applied.detail });
         return { ok: true };
       }
       case "choose_project": {
@@ -921,6 +965,133 @@ async function handledByOf(db: Db, notificationId: string): Promise<{ handledBy?
 }
 
 /**
+ * Valida una scelta MULTIPLA contro le azioni persistite, prima di qualunque
+ * claim. Restituisce gli indici ordinati, o `null` se la richiesta è fuori
+ * contratto (`invalid_answer`): insieme a `optionIndex` o a `projectId`,
+ * vuota, con duplicati, o con un indice che la regola condivisa non dichiara
+ * sommabile — la STESSA con cui `readGoogle` decide dove mostrare le caselle,
+ * così il client non può chiedere ciò che non gli è stato offerto.
+ */
+function validateMultiSelection(
+  input: AnswerGoogleProposalInput,
+  source: string,
+  actions: readonly unknown[],
+  optionCount: number,
+): number[] | null {
+  const indices = input.optionIndices;
+  if (!indices || indices.length === 0) return null;
+  if (input.optionIndex !== undefined || input.projectId !== undefined) return null;
+  if (new Set(indices).size !== indices.length) return null;
+  const typed = actions.map((a) => ({
+    type: typeof a === "object" && a !== null && typeof (a as { type?: unknown }).type === "string"
+      ? (a as { type: string }).type
+      : "",
+  }));
+  const allowed = new Set(multiSelectableIndices(source, typed));
+  for (const i of indices) {
+    if (!Number.isInteger(i) || i < 0 || i >= optionCount || !allowed.has(i)) return null;
+  }
+  return [...indices].sort((a, b) => a - b);
+}
+
+/** Lanciata DENTRO la transazione multipla per farla rientrare: un `return` la committerebbe. */
+class MultipleActionError extends Error {
+  constructor(readonly error: "target_gone") {
+    super(error);
+  }
+}
+
+/**
+ * Conferma PIÙ azioni insieme («una mail, più azioni e più progetti», design
+ * §3). Tutto o niente: le azioni girano in UNA transazione, in ordine
+ * d'indice, e la prima che perde il suo referente la fa rientrare intera —
+ * nessuna voce creata a metà. La riga sorgente si chiude UNA volta, con
+ * l'esito `multiple` che elenca quelli delle singole azioni.
+ */
+async function answerMultiple(
+  db: Db,
+  args: {
+    input: AnswerGoogleProposalInput;
+    row: { status: string };
+    proposalId: string;
+    from: string;
+    subject: string;
+    actions: readonly unknown[];
+    options: readonly { label: string }[];
+    selected: number[];
+  },
+): Promise<AnswerGoogleProposalResult> {
+  const { input, row, proposalId, from, subject, options, selected } = args;
+  const { actor } = input;
+
+  const chosen: { index: number; action: ModelAction; label: string }[] = [];
+  for (const index of selected) {
+    const parsed = storedActionSchema.safeParse(args.actions[index]);
+    if (!parsed.success) return { ok: false, error: "proposal_stale" };
+    // `multiSelectableIndices` ha già filtrato per tipo: qui è solo il parse.
+    chosen.push({ index, action: parsed.data as ModelAction, label: options[index]!.label });
+  }
+
+  if (row.status !== "open") {
+    return { ok: false, error: "already_handled", ...(await handledByOf(db, input.notificationId)) };
+  }
+  const source = await findSourceRow(db, input.notificationId);
+  // Le azioni sommabili esistono solo sulle proposte di posta FIGLIE.
+  if (!source || source.source !== "email") return { ok: false, error: "proposal_stale" };
+
+  const changedNotificationIds = await propagateHandled(
+    db,
+    { eventKey: { kind: "google_proposal", field: "proposalId", value: proposalId } },
+    actor.id,
+  );
+  if (changedNotificationIds.length === 0) {
+    return { ok: false, error: "already_handled", ...(await handledByOf(db, input.notificationId)) };
+  }
+
+  const lang = await getContentLanguage(db);
+
+  try {
+    await db.transaction(async (tx) => {
+      const results: Record<string, unknown>[] = [];
+      for (const { index, action, label } of chosen) {
+        const applied = await applyModelAction(tx, {
+          action,
+          source,
+          actor,
+          lang,
+          from,
+          subject,
+          optionLabel: label,
+          proposalId,
+          notificationId: input.notificationId,
+          // Una chiave per decisione: con la stessa, `recordDecision` ne terrebbe una sola.
+          decisionKeySuffix: `#${index}`,
+        });
+        if (!applied.ok) throw new MultipleActionError(applied.error);
+        results.push(applied.detail);
+      }
+      await markSourceOutcome(tx, source, { status: "actioned", detail: { type: "multiple", results } });
+    });
+  } catch (err) {
+    if (err instanceof MultipleActionError) {
+      await markSourceFailed(db, source, `google.proposal: ${err.error} (multiple)`);
+      return { ok: false, error: err.error };
+    }
+    await markSourceFailed(db, source, errorMessage(err));
+    return { ok: false, error: "action_failed" };
+  }
+
+  await mirrorDecision(db, {
+    notificationIds: changedNotificationIds,
+    action: "answer",
+    actorId: actor.id,
+    answer: chosen.map((c) => c.label).join("; "),
+  });
+
+  return { ok: true, changedNotificationIds };
+}
+
+/**
  * Conferma UN'opzione di una proposta Google: dalla lettura al claim, dal
  * claim al dispatch dell'azione, per la sola persona a cui la proposta è
  * rivolta. Vedi il docblock del modulo per l'ordine delle operazioni e il
@@ -954,9 +1125,19 @@ export async function answerGoogleProposal(
   if (!parsedEvent.success) return { ok: false, error: "proposal_stale" };
   const { proposalId, from, subject, actions, options } = parsedEvent.data;
 
+  // PIÙ OPZIONI INSIEME (26 set 2026). Tutta la validazione sta QUI, prima di
+  // qualunque claim: una richiesta fuori contratto non chiude niente.
+  let index = input.optionIndex;
+  if (input.optionIndices !== undefined) {
+    const selected = validateMultiSelection(input, parsedEvent.data.source, actions, options.length);
+    if (!selected) return { ok: false, error: "invalid_answer" };
+    // Un indice solo è la scelta singola di sempre: stesso percorso, stesso esito.
+    if (selected.length === 1) index = selected[0];
+    else return answerMultiple(db, { input, row, proposalId, from, subject, actions, options, selected });
+  }
+
   // Validazione di MERITO dell'indice (400): è la richiesta del client a
   // essere fuori range, non il payload persistito a essere malato.
-  const index = input.optionIndex;
   if (
     index === undefined ||
     !Number.isInteger(index) ||
