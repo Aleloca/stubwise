@@ -185,7 +185,7 @@ describe("ProjectDocsScreen — la ricerca del progetto", () => {
           slug: "auth",
           title: "Autenticazione",
           kind: "technical",
-          snippet: "…il token…",
+          snippet: "## Autenticazione\n\nIl **token** si rinnova col <b>refresh</b> ogni ora.",
           score: 0.8,
           source: "hybrid",
           repositoryId: REPO_A,
@@ -205,6 +205,9 @@ describe("ProjectDocsScreen — la ricerca del progetto", () => {
       await waitFor(() => expect(screen.getByTestId("project-docs-hit-auth")).toBeTruthy());
       expect(projectSearch).toHaveBeenCalledWith(PROJECT_ID, "token");
       expect(screen.getByText("portale-api · Tecnica")).toBeTruthy();
+      // Lo snippet si legge pulito: niente markdown né <b> di ts_headline.
+      expect(screen.queryByText(/##|\*\*|<b>/)).toBeNull();
+      expect(screen.getByTestId("project-docs-snippet-auth-match-0").props.children).toBe("refresh");
       expect(screen.queryByTestId(`project-docs-repo-${REPO_A}`)).toBeNull();
 
       await fireEvent.press(screen.getByTestId("project-docs-hit-auth"));

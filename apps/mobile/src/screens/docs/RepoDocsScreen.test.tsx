@@ -327,7 +327,7 @@ describe("RepoDocsScreen — la ricerca nel repository", () => {
     slug,
     title,
     kind: "technical",
-    snippet: `…${title}…`,
+    snippet: "## Autenticazione\n\nIl **token** si rinnova col <b>refresh</b> ogni ora.",
     repositoryId: REPO,
     repositorySlug: "portale-web",
     repositoryName: "portale-web",
@@ -358,6 +358,9 @@ describe("RepoDocsScreen — la ricerca nel repository", () => {
       const ids = screen.getAllByTestId(/^repo-docs-hit-/).map((el) => el.props.testID);
       expect(ids).toEqual(["repo-docs-hit-api", "repo-docs-hit-setup"]);
       expect(screen.getByText("API semantica")).toBeTruthy();
+      // Lo snippet si legge pulito: niente markdown né <b> di ts_headline.
+      expect(screen.queryByText(/##|\*\*|<b>/)).toBeNull();
+      expect(screen.getByTestId("repo-docs-snippet-api-match-0").props.children).toBe("refresh");
 
       await fireEvent.press(screen.getByTestId("repo-docs-hit-setup"));
       expect(navigate).toHaveBeenCalledWith("Page", { repositoryId: REPO, slug: "setup" });

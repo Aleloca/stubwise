@@ -10,6 +10,7 @@ import { useAuth } from "../../app/providers";
 import { GhostButton } from "../../components/GhostButton";
 import { usePullToRefresh } from "../../components/PullToRefresh";
 import { ScreenHeader } from "../../components/ScreenHeader";
+import { SearchSnippet } from "../../components/SearchSnippet";
 import { SectionLabel } from "../../components/SectionLabel";
 import { Skeleton } from "../../components/Skeleton";
 import { docsKeys } from "../../lib/docs-mutations";
@@ -308,11 +309,7 @@ function ProjectSearchResults({
           <Text style={styles.rowMeta}>
             {isUnknown(hit.kind) ? hit.repositoryName : `${hit.repositoryName} · ${t(`mobile.docs.repo.tabs.${hit.kind}`)}`}
           </Text>
-          {hit.snippet.length > 0 && (
-            <Text style={styles.snippet} numberOfLines={2}>
-              {hit.snippet}
-            </Text>
-          )}
+          <SearchSnippet snippet={hit.snippet} testID={`project-docs-snippet-${hit.slug}`} />
         </Pressable>
       ))}
     </View>
@@ -406,12 +403,6 @@ const styles = StyleSheet.create({
     color: colors.faint,
     fontFamily: fontFamily.mono,
     fontSize: fontSize.label,
-  },
-  snippet: {
-    color: colors.muted,
-    fontFamily: fontFamily.sans,
-    fontSize: 13,
-    lineHeight: 18,
   },
   muted: {
     color: colors.muted,

@@ -1,5 +1,5 @@
 import type { Reader, SearchResults } from "@stubwise/shared";
-import { isUnknown, searchSnippetSegments } from "@stubwise/shared";
+import { isUnknown } from "@stubwise/shared";
 import { useNavigation } from "@react-navigation/native";
 import type { NavigationProp } from "@react-navigation/native";
 import { useQuery } from "@tanstack/react-query";
@@ -10,6 +10,7 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-
 import { SheetModal } from "./SheetModal";
 import { useAuth } from "../app/providers";
 import type { RootStackParamList } from "../app/navigation";
+import { SearchSnippet } from "./SearchSnippet";
 import { SectionLabel } from "./SectionLabel";
 import { Skeleton } from "./Skeleton";
 import { searchMailTime } from "../lib/format";
@@ -285,29 +286,6 @@ function Groups({
  * apre nessuna strada di rendering nuova.
  */
 
-/**
- * L'estratto, con in grassetto il pezzo che ha fatto comparire il risultato.
- *
- * Il grassetto NON è decorazione: in un elenco dice perché quella riga è lì,
- * soprattutto quando il termine cercato è sepolto nell'estratto e non sta né
- * nell'oggetto né nel titolo. La palette del web invece lo appiattisce
- * (`plainSearchSnippet`), perché lì la riga è una sola.
- */
-function SnippetText({ snippet }: { snippet: string | null }) {
-  if (snippet === null || snippet === "") return null;
-  const segments = searchSnippetSegments(snippet);
-  if (segments.length === 0) return null;
-  return (
-    <Text style={styles.snippet} numberOfLines={2}>
-      {segments.map((segment, index) => (
-        <Text key={index} style={segment.highlighted ? styles.snippetMatch : undefined}>
-          {segment.text}
-        </Text>
-      ))}
-    </Text>
-  );
-}
-
 /** Il guscio comune: l'area premibile e lo snippet in fondo. Il resto lo mette ogni riga. */
 function RowShell({
   onPress,
@@ -323,7 +301,7 @@ function RowShell({
   return (
     <Pressable accessibilityRole="button" onPress={onPress} style={styles.row} testID={testID}>
       {children}
-      <SnippetText snippet={snippet} />
+      <SearchSnippet snippet={snippet} style={styles.snippetSpacing} />
     </Pressable>
   );
 }
@@ -438,9 +416,14 @@ function ProjectRow({
       <Text style={styles.rowTitle} numberOfLines={1}>
         {hit.name}
       </Text>
-      <Text style={styles.rowSubtitle} numberOfLines={2}>
-        {hit.snippet ?? hit.slug}
-      </Text>
+      {/* La descrizione del progetto è scritta a mano: può avere markdown anche lei. */}
+      {hit.snippet ? (
+        <SearchSnippet snippet={hit.snippet} style={styles.rowSubtitle} />
+      ) : (
+        <Text style={styles.rowSubtitle} numberOfLines={2}>
+          {hit.slug}
+        </Text>
+      )}
     </RowShell>
   );
 }
@@ -541,24 +524,8 @@ const styles = StyleSheet.create({
     fontSize: fontSize.label,
     marginTop: 3,
   },
-  snippet: {
-    color: colors.muted,
-    fontFamily: fontFamily.sans,
-    fontSize: 13,
-    lineHeight: 18,
+  snippetSpacing: {
     marginTop: 5,
-  },
-  /**
-   * Il pezzo che ha combaciato. Peso E colore: l'estratto è `colors.muted`, e
-   * su un fondo scuro il solo grassetto si distingue poco — portare la parola
-   * trovata al colore del testo pieno la stacca senza aggiungere un accento
-   * che competerebbe con `colors.signal`, che in questa app vuol dire «serve
-   * una tua decisione».
-   */
-  snippetMatch: {
-    color: colors.fg,
-    fontFamily: fontFamily.sansSemiBold,
-    fontWeight: "600",
   },
   mailTop: {
     alignItems: "baseline",

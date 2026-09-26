@@ -11,6 +11,7 @@ import { AppSwitch } from "../../components/AppSwitch";
 import { GhostButton } from "../../components/GhostButton";
 import { usePullToRefresh } from "../../components/PullToRefresh";
 import { ScreenHeader } from "../../components/ScreenHeader";
+import { SearchSnippet } from "../../components/SearchSnippet";
 import { SectionLabel } from "../../components/SectionLabel";
 import { Skeleton } from "../../components/Skeleton";
 import { docsKeys } from "../../lib/docs-mutations";
@@ -547,11 +548,7 @@ function RepoSearchResults({
           testID={`repo-docs-hit-${hit.slug}`}
         >
           <Text style={styles.rowTitle}>{hit.title}</Text>
-          {hit.snippet.length > 0 && (
-            <Text style={styles.snippet} numberOfLines={2}>
-              {hit.snippet}
-            </Text>
-          )}
+          <SearchSnippet snippet={hit.snippet} testID={`repo-docs-snippet-${hit.slug}`} />
         </Pressable>
       ))}
     </View>
@@ -651,12 +648,6 @@ const styles = StyleSheet.create({
     color: colors.faint,
     fontFamily: fontFamily.mono,
     fontSize: fontSize.label,
-  },
-  snippet: {
-    color: colors.muted,
-    fontFamily: fontFamily.sans,
-    fontSize: 13,
-    lineHeight: 18,
   },
   tiles: {
     flexDirection: "row",
