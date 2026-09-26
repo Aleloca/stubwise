@@ -8,8 +8,10 @@ import {
   docGenerationTriggerSchema,
   docJobStatusSchema,
   docPageKindSchema,
+  docBriefResponseSchema,
   productExclusionSchema,
   projectBriefSchema,
+  repoHighlightsSchema,
 } from "@stubwise/shared";
 import { commitWebUrl } from "@stubwise/git";
 import { and, asc, desc, eq, isNull, ne, or, sql } from "drizzle-orm";
@@ -27,11 +29,7 @@ import {
 import type { Db } from "@stubwise/db";
 import { apiError } from "../errors.js";
 import { buildDocsExportZip, safeFilenamePart } from "./docs-export-zip.js";
-import {
-  emptyCountsByKind,
-  HIGHLIGHT_LIMITS,
-  repoHighlightsSchema,
-} from "./docs-highlights.js";
+import { emptyCountsByKind, HIGHLIGHT_LIMITS } from "./docs-highlights.js";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
 
 const repositoryIdParamsSchema = z.object({ repositoryId: z.uuid() });
@@ -443,14 +441,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
       schema: {
         params: repositoryIdParamsSchema,
         response: {
-          200: z.object({
-            brief: projectBriefSchema,
-            generation: z.object({
-              createdAt: z.string(),
-              commitSha: z.string().nullable(),
-            }),
-            productExclusions: z.array(productExclusionSchema),
-          }),
+          200: docBriefResponseSchema,
           404: errorSchema,
           ...authErrorResponses,
         },

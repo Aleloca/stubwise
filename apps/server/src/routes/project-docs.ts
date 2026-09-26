@@ -19,9 +19,10 @@
 import {
   docChatMessageSchema,
   docChatSessionSchema,
-  docPageKindSchema,
   docsChatAnswerSchema,
   docSpaceSchema,
+  projectDocsSearchResultSchema,
+  projectHighlightsSchema,
 } from "@stubwise/shared";
 import { and, asc, desc, eq, isNull, ne, or, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
@@ -40,7 +41,7 @@ import {
 } from "@stubwise/db";
 import { apiError } from "../errors.js";
 import { chatQuerySchema, loadHistory, streamChatResponse } from "./docs-chat-core.js";
-import { emptyCountsByKind, HIGHLIGHT_LIMITS, projectHighlightsSchema } from "./docs-highlights.js";
+import { emptyCountsByKind, HIGHLIGHT_LIMITS } from "./docs-highlights.js";
 import { buildCitations, buildDocsSystemPrompt } from "./docs-rag.js";
 import { retrieveChunksForProject } from "./docs-retrieval.js";
 import { appendGraphContext, retrieveGraphContextForProject } from "../graph-chat/context.js";
@@ -60,22 +61,6 @@ const chatBodySchema = z.object({
 /** Query di ricerca: `q` non vuota, cappata a 300 char (come la ricerca per-repo). */
 const searchQuerySchema = z.object({ q: z.string().min(1).max(300) });
 
-/**
- * Un risultato di ricerca cross-repo: stesso shape della search per-repo
- * (slug/title/kind/snippet/score/source) ARRICCHITO col repository d'origine, così
- * il client può disambiguare/linkare la fonte tra i repo del progetto.
- */
-const searchResultSchema = z.object({
-  slug: z.string(),
-  title: z.string(),
-  kind: docPageKindSchema,
-  snippet: z.string(),
-  score: z.number(),
-  source: z.enum(["semantic", "fulltext", "hybrid"]),
-  repositoryId: z.uuid(),
-  repositorySlug: z.string(),
-  repositoryName: z.string(),
-});
 
 /**
  * Route della documentazione di PROGETTO, registrate sotto
@@ -302,7 +287,7 @@ export async function projectDocsRoutes(instance: FastifyInstance): Promise<void
         params: projectIdParamsSchema,
         querystring: searchQuerySchema,
         response: {
-          200: z.array(searchResultSchema),
+          200: z.array(projectDocsSearchResultSchema),
           400: errorSchema,
           404: errorSchema,
           ...authErrorResponses,

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { decisionSourceSchema } from "./project.js";
 
 /**
  * Tipo di pagina di documentazione: "technical" (registro tecnico/dev),
@@ -276,3 +277,138 @@ export const docsChatAnswerSchema = z.object({
   sessionId: z.uuid(),
 });
 export type DocsChatAnswer = z.infer<typeof docsChatAnswerSchema>;
+
+// ---------------------------------------------------------------------------
+// HIGHLIGHTS, BRIEF E RICERCA DI PROGETTO («la documentazione nell'app, come
+// sul web», 25 set 2026). Erano scritti solo nel server — `docs-highlights.ts`,
+// dentro la rotta del brief in `docs.ts`, `project-docs.ts` — e li legge ora
+// anche l'app: spostati qui SENZA cambiarne la forma, le rotte li importano.
+// ---------------------------------------------------------------------------
+
+/** Riferimento leggero a una pagina in una lista di highlights. */
+export const highlightRefSchema = z.object({
+  slug: z.string(),
+  title: z.string(),
+  kind: docPageKindSchema,
+  viewCount: z.number().int(),
+});
+
+/**
+ * Riferimento a una release nel changelog: `createdAt` è la data della entry
+ * (le release sono pagine persistenti create al push), `significant` la
+ * significatività calcolata dal worker (null per le release pre-migrazione).
+ * `commitSha` è quello della generazione di appartenenza: per le release, che
+ * sono persistenti (generationId null), è sempre null — il commit si legge
+ * dallo slug `release-YYYYMMDD-HHmm-<sha>`.
+ */
+export const releaseRefSchema = z.object({
+  slug: z.string(),
+  title: z.string(),
+  createdAt: z.string(),
+  significant: z.boolean().nullable(),
+  commitSha: z.string().nullable(),
+});
+
+/** Tutti i kind, con conteggio: chiavi sempre presenti (0 se nessuna pagina). */
+export const countsByKindSchema = z.object({
+  technical: z.number().int(),
+  functional: z.number().int(),
+  product: z.number().int(),
+  manual: z.number().int(),
+  releases: z.number().int(),
+});
+
+/** Highlights di un singolo repository (overview di repo). */
+export const repoHighlightsSchema = z.object({
+  countsByKind: countsByKindSchema,
+  topViewed: z.array(highlightRefSchema),
+  recentlyUpdated: z.array(highlightRefSchema),
+  latestReleases: z.array(releaseRefSchema),
+});
+
+/** Come {@link highlightRefSchema}, arricchito col repository d'origine. */
+export const projectHighlightRefSchema = highlightRefSchema.extend({
+  repositoryId: z.uuid(),
+  repositorySlug: z.string(),
+  repositoryName: z.string(),
+});
+
+/** Come {@link releaseRefSchema}, arricchito col repository d'origine. */
+export const projectReleaseRefSchema = releaseRefSchema.extend({
+  repositoryId: z.uuid(),
+  repositorySlug: z.string(),
+  repositoryName: z.string(),
+});
+
+/**
+ * Riferimento a una DECISIONE nel registro di progetto (Fase 5), come compare
+ * nella home Docs accanto a "Novità".
+ *
+ * Solo il necessario a orientarsi e a decidere se aprire la pagina completa:
+ * chi ha deciso è un'email, non l'oggetto attore intero — nella home la riga è
+ * una sola, e il resto sta in `/api/projects/:id/decisions`.
+ */
+export const decisionHighlightRefSchema = z.object({
+  id: z.uuid(),
+  // `decisionSourceSchema` (schemas/project.ts) e non una lista ripetuta: le
+  // sorgenti crescono (la fase 6 ha aggiunto `email`) e una copia locale si
+  // scopre disallineata solo quando la risposta non serializza più.
+  source: decisionSourceSchema,
+  title: z.string(),
+  decision: z.string(),
+  decidedByEmail: z.string().nullable(),
+  decidedAt: z.string(),
+  superseded: z.boolean(),
+});
+
+/** Highlights aggregate di progetto (changelog cross-repo + pagine top). */
+export const projectHighlightsSchema = z.object({
+  countsByKind: countsByKindSchema,
+  topViewed: z.array(projectHighlightRefSchema),
+  latestReleases: z.array(projectReleaseRefSchema),
+  /**
+   * Le ultime decisioni registrate sul progetto.
+   *
+   * `.optional()` come ogni campo nuovo di una risposta esistente: un client
+   * compilato prima della fase 5 non lo conosce, e un server sceso di immagine
+   * non lo produce. Chi lo legge tratta l'assenza come "nessuna decisione".
+   */
+  latestDecisions: z.array(decisionHighlightRefSchema).optional(),
+});
+export type RepoHighlights = z.infer<typeof repoHighlightsSchema>;
+export type ProjectHighlights = z.infer<typeof projectHighlightsSchema>;
+
+/**
+ * Risposta di `GET /api/repositories/:id/docs/brief`: il brief della
+ * generazione corrente (o, in mancanza, della più recente che ne ha uno), la
+ * generazione da cui viene e le esclusioni della Fase C della STESSA
+ * generazione. Prima era scritta dentro la rotta.
+ */
+export const docBriefResponseSchema = z.object({
+  brief: projectBriefSchema,
+  generation: z.object({
+    createdAt: z.string(),
+    commitSha: z.string().nullable(),
+  }),
+  productExclusions: z.array(productExclusionSchema),
+});
+export type DocBriefResponse = z.infer<typeof docBriefResponseSchema>;
+
+/**
+ * Un risultato della ricerca CROSS-REPO nei Docs di un progetto
+ * (`GET /api/projects/:id/docs/search`): stesso shape della ricerca per-repo
+ * (slug/title/kind/snippet/score/source) arricchito col repository d'origine.
+ * Prima era `searchResultSchema`, locale a `project-docs.ts`.
+ */
+export const projectDocsSearchResultSchema = z.object({
+  slug: z.string(),
+  title: z.string(),
+  kind: docPageKindSchema,
+  snippet: z.string(),
+  score: z.number(),
+  source: z.enum(["semantic", "fulltext", "hybrid"]),
+  repositoryId: z.uuid(),
+  repositorySlug: z.string(),
+  repositoryName: z.string(),
+});
+export type ProjectDocsSearchResult = z.infer<typeof projectDocsSearchResultSchema>;
