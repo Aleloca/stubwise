@@ -6,6 +6,7 @@ import { Platform } from "react-native";
 import { AuthContext } from "../../app/auth-context";
 import type { AuthContextValue } from "../../app/providers";
 import "../../i18n";
+import { colors } from "../../theme/tokens";
 import { OnboardingScreen } from "./OnboardingScreen";
 
 const mockGetToken = getToken as jest.Mock;
@@ -71,6 +72,20 @@ describe("OnboardingScreen", () => {
     // I 3 seguiti sono ON, il quarto (non in `follows`) è OFF.
     expect(screen.getByLabelText("Portale B2B").props.value).toBe(true);
     expect(screen.getByLabelText("Gestionale interno").props.value).toBe(false);
+  });
+
+  // L'interruttore dei progetti è `AppSwitch`, coi colori di tutti gli altri
+  // (26 set 2026): da spento aveva `ink700` al posto di `line`, l'unico della
+  // app rimasto scritto a mano.
+  test("i toggle dei progetti hanno i colori degli altri interruttori dell'app", async () => {
+    const client = makeClient();
+    await renderOnboarding(client);
+
+    await waitFor(() => expect(screen.getByText("Portale B2B")).toBeTruthy());
+    const toggle = screen.getByLabelText("Gestionale interno");
+    expect(toggle.props.thumbTintColor).toBe(colors.ink950);
+    expect(toggle.props.onTintColor).toBe(colors.signal);
+    expect(toggle.props.tintColor).toBe(colors.line);
   });
 
   test("'Attiva le notifiche e inizia': chiede il permesso, registra il device (c'è un token), salva i follow e completa l'onboarding", async () => {

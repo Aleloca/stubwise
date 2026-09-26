@@ -2,8 +2,9 @@ import type { ProjectListItem, Reader } from "@stubwise/shared";
 import notifee from "@notifee/react-native";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ScrollView, StyleSheet, Switch, Text, View } from "react-native";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { useAuth } from "../../app/providers";
+import { AppSwitch } from "../../components/AppSwitch";
 import { GhostButton } from "../../components/GhostButton";
 import { PrimaryButton } from "../../components/PrimaryButton";
 import { SectionLabel } from "../../components/SectionLabel";
@@ -121,11 +122,9 @@ export function OnboardingScreen() {
             {state.projects.map((project) => (
               <View key={project.id} style={styles.row}>
                 <Text style={styles.projectName}>{project.name}</Text>
-                <Switch
+                <AppSwitch
                   accessibilityLabel={project.name}
                   onValueChange={() => toggle(project.id)}
-                  thumbColor={colors.ink950}
-                  trackColor={{ false: colors.ink700, true: colors.signal }}
                   value={selected.has(project.id)}
                 />
               </View>
