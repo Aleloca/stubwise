@@ -2,10 +2,11 @@ import { ApiError } from "@stubwise/api-client";
 import type { StubwiseClient } from "@stubwise/api-client";
 import type { DocPage, Reader } from "@stubwise/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react-native";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { AuthContext } from "../../app/auth-context";
 import type { AuthContextValue } from "../../app/providers";
 import "../../i18n";
+import { resetViewPings } from "../../lib/view-ping";
 import { DocsPageScreen } from "./DocsPageScreen";
 
 const REPO_ID = "11111111-1111-4111-8111-111111111111";
@@ -32,10 +33,13 @@ function page(overrides: Partial<Reader<DocPage>> = {}): Reader<DocPage> {
   };
 }
 
-function makeClient(overrides: { page?: jest.Mock } = {}): StubwiseClient {
+function makeClient(overrides: { page?: jest.Mock; viewPage?: jest.Mock } = {}): StubwiseClient {
   return {
     docs: {
       page: overrides.page ?? jest.fn().mockResolvedValue(page()),
+      // Il ping delle visite (25 set 2026): nel doppio PRIMA dei test che lo
+      // usano, o una sua assenza passerebbe inosservata (è fire-and-forget).
+      viewPage: overrides.viewPage ?? jest.fn().mockResolvedValue(undefined),
       spaces: jest.fn(),
       projectSpaces: jest.fn(),
       tree: jest.fn(),
@@ -52,6 +56,7 @@ function makeClient(overrides: { page?: jest.Mock } = {}): StubwiseClient {
 async function renderScreen(client: StubwiseClient, params: { repositoryId: string; slug: string } = { repositoryId: REPO_ID, slug: "esporta-ordini" }) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const goBack = jest.fn();
+  const push = jest.fn();
   const authValue: AuthContextValue = {
     status: "authenticated",
     client,
@@ -62,16 +67,18 @@ async function renderScreen(client: StubwiseClient, params: { repositoryId: stri
     openSettings: jest.fn(),
     loggedOut: jest.fn(),
   };
-  const navigation = { goBack, navigate: jest.fn() } as never;
-  await render(
+  const navigation = { goBack, navigate: jest.fn(), push } as never;
+  const view = await render(
     <QueryClientProvider client={queryClient}>
       <AuthContext.Provider value={authValue}>
         <DocsPageScreen navigation={navigation} route={{ key: "Page", name: "Page", params }} />
       </AuthContext.Provider>
     </QueryClientProvider>,
   );
-  return { goBack };
+  return { goBack, push, unmount: view.unmount };
 }
+
+beforeEach(() => resetViewPings());
 
 describe("DocsPageScreen — caricamento, errori, rendering markdown", () => {
   test("caricamento: mostra lo skeleton", async () => {
@@ -107,5 +114,71 @@ describe("DocsPageScreen — caricamento, errori, rendering markdown", () => {
     await renderScreen(makeClient({ page: failing }));
     await waitFor(() => expect(screen.getByTestId("docs-page-error")).toBeTruthy());
     expect(screen.getByTestId("docs-page-retry")).toBeTruthy();
+  });
+});
+
+/**
+ * «La documentazione nell'app, come sul web» (25 set 2026, design §5): i
+ * badge, le pagine collegate e il conteggio delle visite.
+ */
+describe("DocsPageScreen — badge, pagine collegate, visite", () => {
+  test("i badge: categoria, data di aggiornamento e commit abbreviato", async () => {
+    await renderScreen(makeClient({ page: jest.fn().mockResolvedValue(page({ commitSha: "abc1234def5678" })) }));
+    await waitFor(() => expect(screen.getByTestId("docs-page-badges")).toBeTruthy());
+    expect(screen.getByText("01/08/26")).toBeTruthy();
+    expect(screen.getByText("abc1234")).toBeTruthy();
+  });
+
+  test("le pagine collegate, raggruppate come sul web, e premibili", async () => {
+    const { push } = await renderScreen(
+      makeClient({
+        page: jest.fn().mockResolvedValue(
+          page({
+            links: [
+              { type: "related", slug: "resi", title: "Gestire i resi" },
+              { type: "implemented_by", slug: "export-csv", title: "Export CSV" },
+            ],
+          }),
+        ),
+      }),
+    );
+    await waitFor(() => expect(screen.getByTestId("docs-page-related")).toBeTruthy());
+    // Ordine dei gruppi come sul web: implementata da, implementa, correlate.
+    const ids = screen.getAllByTestId(/^docs-page-link-/).map((el) => el.props.testID);
+    expect(ids).toEqual(["docs-page-link-export-csv", "docs-page-link-resi"]);
+    await fireEvent.press(screen.getByTestId("docs-page-link-resi"));
+    expect(push).toHaveBeenCalledWith("Page", { repositoryId: REPO_ID, slug: "resi" });
+  });
+
+  test("senza collegamenti la sezione non c'è", async () => {
+    await renderScreen(makeClient());
+    await waitFor(() => expect(screen.getByTestId("docs-page-body")).toBeTruthy());
+    expect(screen.queryByTestId("docs-page-related")).toBeNull();
+  });
+
+  test("la visita si conta UNA volta per pagina entro il TTL, anche riaprendola", async () => {
+    const viewPage = jest.fn().mockResolvedValue(undefined);
+    const client = makeClient({ viewPage });
+    const first = await renderScreen(client);
+    await waitFor(() => expect(viewPage).toHaveBeenCalledWith(REPO_ID, "esporta-ordini"));
+    await first.unmount();
+    const second = await renderScreen(client);
+    await waitFor(() => expect(screen.getByTestId("docs-page-body")).toBeTruthy());
+    expect(viewPage).toHaveBeenCalledTimes(1);
+
+    // Un'altra pagina conta subito.
+    await second.unmount();
+    await renderScreen(client, { repositoryId: REPO_ID, slug: "altra-pagina" });
+    await waitFor(() => expect(viewPage).toHaveBeenCalledWith(REPO_ID, "altra-pagina"));
+    expect(viewPage).toHaveBeenCalledTimes(2);
+  });
+
+  test("⚠️ un ping che fallisce non tocca la pagina", async () => {
+    const viewPage = jest.fn().mockRejectedValue(new Error("giù"));
+    await renderScreen(makeClient({ viewPage }));
+    await waitFor(() => expect(screen.getByTestId("docs-page-body")).toBeTruthy());
+    await waitFor(() => expect(viewPage).toHaveBeenCalled());
+    expect(screen.queryByTestId("docs-page-error")).toBeNull();
+    expect(screen.getByTestId("docs-page-body")).toBeTruthy();
   });
 });

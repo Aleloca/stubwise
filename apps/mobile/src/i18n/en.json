@@ -823,7 +823,11 @@
         "loadError": {
           "title": "Can't load this page.",
           "retry": "Retry"
-        }
+        },
+        "relatedTitle": "Related pages",
+        "implementedBy": "Implemented by",
+        "implements": "Implements",
+        "related": "Related"
       },
       "kind": {
         "technical": "Technical page",

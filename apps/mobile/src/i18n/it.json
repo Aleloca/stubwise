@@ -823,7 +823,11 @@
         "loadError": {
           "title": "Non riesco a caricare la pagina.",
           "retry": "Riprova"
-        }
+        },
+        "relatedTitle": "Pagine collegate",
+        "implementedBy": "Implementata da",
+        "implements": "Implementa",
+        "related": "Correlate"
       },
       "kind": {
         "technical": "Pagina tecnica",
