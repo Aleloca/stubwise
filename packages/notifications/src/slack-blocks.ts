@@ -23,6 +23,7 @@
  * non quella dell'istanza — il DM è personale.
  */
 import { t, type Language } from "@stubwise/i18n";
+import { multiSelectableIndices } from "@stubwise/shared";
 import { SNOOZE_OPTIONS, type ActionId, type SnoozeUntil } from "./actions.js";
 import { escapeSlackMrkdwn, type AgentQuestionOption } from "./format.js";
 
@@ -201,6 +202,15 @@ export function answerActionId(optionIndex: number): string {
   return `${ACTION_PREFIX}answer:${optionIndex}`;
 }
 
+/**
+ * `action_id` del bottone «Crea tutte (N)» di una proposta di posta con più
+ * azioni sommabili (26 set 2026). Non porta gli indici, di proposito: il
+ * gestore li RICALCOLA dal payload persistito con la stessa regola condivisa
+ * (`multiSelectableIndices`), senza fidarsi di un messaggio Slack che può
+ * essere vecchio quanto si vuole.
+ */
+export const ANSWER_ALL_ACTION_ID = `${ACTION_PREFIX}answer:all`;
+
 /** `action_id` del bottone "Altro…", che apre il modal del testo libero. */
 export const ANSWER_FREE_ACTION_ID = `${ACTION_PREFIX}answer_free`;
 
@@ -209,8 +219,12 @@ export const ANSWER_FREE_ACTION_ID = `${ACTION_PREFIX}answer_free`;
  * il tetto qui è una cintura di sicurezza su un payload jsonb scritto da
  * chissà quale versione, non un limite di Slack (un blocco `actions` ne regge
  * fino a 25).
+ *
+ * ⚠️ 6 e non più 4 dal 26 set 2026: una proposta di posta arriva a CINQUE
+ * opzioni (tre azioni del modello, «Sposta», «Non fare nulla»), e col tetto a
+ * 4 «Non fare nulla» spariva — riga e bottone — su ogni card piena.
  */
-const MAX_OPTIONS = 4;
+const MAX_OPTIONS = 6;
 
 /** Tetto Slack al `plain_text` di un bottone. */
 const BUTTON_TEXT_MAX = 75;
@@ -283,6 +297,11 @@ function escapedSection(text: string, max: number): string {
 /** La domanda come serve a questi blocchi, estratta dal payload dell'evento. */
 interface QuestionForBlocks {
   options: AgentQuestionOption[];
+  /**
+   * Gli indici che si confermano INSIEME (26 set 2026): la stessa regola
+   * condivisa con cui il server mostra le caselle. Vuoto ⇒ nessun «Crea tutte».
+   */
+  multiSelectIndices: number[];
   recommendedIndex: number | null;
   allowFreeText: boolean;
   /**
@@ -368,8 +387,22 @@ function readQuestion(event: unknown): QuestionForBlocks | null {
   const options = readOptions(raw.options);
   if (options.length === 0 && !allowFreeText) return null;
   const recommended = raw.recommendedIndex;
+  const actionTypes = Array.isArray(raw.actions)
+    ? raw.actions.map((action: unknown) => ({
+        type:
+          typeof action === "object" && action !== null && typeof (action as { type?: unknown }).type === "string"
+            ? (action as { type: string }).type
+            : "",
+      }))
+    : [];
   return {
     options,
+    // Solo indici che hanno un'opzione da leggere: il taglio di prefisso di
+    // `readOptions` non deve lasciare un «Crea tutte» che conta righe invisibili.
+    multiSelectIndices: multiSelectableIndices(
+      typeof raw.source === "string" ? raw.source : "",
+      actionTypes,
+    ).filter((index) => index < options.length),
     buttonlessIndices: buttonlessOptionIndices(raw.actions),
     recommendedIndex:
       typeof recommended === "number" &&
@@ -448,7 +481,20 @@ export function buildQuestionBlocks(input: QuestionBlocksInput): SlackBlock[] {
     return `${index + 1}. *${escapeSlackMrkdwn(option.label)}*${recommended}${elsewhere}${consequence}`;
   });
 
-  const elements: SlackBlock[] = question.options.flatMap((option, index) => {
+  // «Crea tutte (N)» per primo: sulle card con più azioni sommabili è la
+  // scelta che la proposta stessa suggerisce. I bottoni singoli restano.
+  const elements: SlackBlock[] =
+    question.multiSelectIndices.length >= 2
+      ? [
+          {
+            type: "button",
+            action_id: ANSWER_ALL_ACTION_ID,
+            text: plainText(t(lang, "notify.inbox.createAll", { count: question.multiSelectIndices.length })),
+            value: notificationId,
+          },
+        ]
+      : [];
+  const optionButtons: SlackBlock[] = question.options.flatMap((option, index) => {
     // Vedi {@link QuestionForBlocks.buttonlessIndices}: l'indice NON si
     // ricompatta — `answerActionId` continua a portare l'indice VERO
     // dell'opzione, qui manca solo il bottone.
@@ -469,6 +515,7 @@ export function buildQuestionBlocks(input: QuestionBlocksInput): SlackBlock[] {
       },
     ];
   });
+  elements.push(...optionButtons);
   if (question.allowFreeText) {
     elements.push({
       type: "button",

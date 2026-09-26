@@ -857,6 +857,8 @@ export async function slackRoutes(
       const until = pressed?.selected_option?.value;
       // Opzione premuta: l'indice è tutto ciò che la risposta porta con sé.
       const answer = press?.kind === "option" ? { optionIndex: press.optionIndex } : undefined;
+      // «Crea tutte»: nessun indice dal bottone, li ricalcola `runInboxAction`.
+      const answerAll = press?.kind === "all";
       const ackReply = ack(reply);
       const publicUrl = publicUrlOrUndefined(instance);
       setImmediate(() => {
@@ -882,6 +884,7 @@ export async function slackRoutes(
               action,
               ...(until === undefined ? {} : { until }),
               ...(answer === undefined ? {} : { answer }),
+              ...(answerAll ? { answerAll } : {}),
               ...(responseUrl ? { responseUrl } : {}),
             },
           );

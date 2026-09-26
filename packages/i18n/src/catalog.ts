@@ -236,6 +236,8 @@ export const en: Catalog = {
   // ticket (`comment.agentQuestionRecommended`), e una sola traduzione evita
   // che le due superfici dicano cose diverse della stessa opzione.
   "notify.inbox.answerOther": "Other…",
+  // Bottone Slack di una proposta di posta con più azioni sommabili (26 set 2026).
+  "notify.inbox.createAll": "Create all ({count})",
   "notify.inbox.answerTitle": "Answer the AI",
   "notify.inbox.answerSubmit": "Send",
   "notify.inbox.answerClose": "Cancel",
@@ -643,6 +645,7 @@ export const it: Catalog = {
   "notify.inbox.rejectPlaceholder":
     "Cosa non va nel piano? L'AI userà queste indicazioni per ripianificare.",
   "notify.inbox.answerOther": "Altro…",
+  "notify.inbox.createAll": "Crea tutte ({count})",
   "notify.inbox.answerTitle": "Rispondi all'AI",
   "notify.inbox.answerSubmit": "Invia",
   "notify.inbox.answerClose": "Annulla",
