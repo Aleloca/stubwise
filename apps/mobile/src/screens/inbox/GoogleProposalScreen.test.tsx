@@ -65,12 +65,20 @@ function proposal(overrides: Partial<Reader<InboxItem>> = {}): Reader<InboxItem>
 }
 
 function makeClient(
-  overrides: { list?: jest.Mock; act?: jest.Mock; mailGet?: jest.Mock } = {},
+  overrides: { list?: jest.Mock; act?: jest.Mock; mailGet?: jest.Mock; projectsList?: jest.Mock } = {},
 ): StubwiseClient {
   return {
     inbox: {
       list: overrides.list ?? jest.fn().mockResolvedValue({ items: [proposal()], nextCursor: null }),
+      // `act(id, "answer", body)`: il body porta `optionIndex` OPPURE, dal 26
+      // set 2026, `optionIndices` (più azioni insieme) — il doppio lo inoltra
+      // così com'è, e i test lo leggono dalla chiamata.
       act: overrides.act ?? jest.fn().mockResolvedValue({ changedNotificationIds: [] }),
+    },
+    // Una proposta con «Sposta» accende la lista dei progetti: senza questo
+    // metodo quella query fallirebbe in silenzio (è una lettura accessoria).
+    projects: {
+      list: overrides.projectsList ?? jest.fn().mockResolvedValue([]),
     },
     mail: {
       get: overrides.mailGet ?? jest.fn().mockRejectedValue(new Error("non chiamata")),
@@ -109,6 +117,94 @@ async function renderScreen(client: StubwiseClient) {
   );
   return { ...rendered, goBack };
 }
+
+/**
+ * «Una mail, più azioni e più progetti» (26 set 2026): tre voci del modello
+ * sommabili, più «Sposta» e «Non fare nulla» che restano scelte a sé.
+ */
+function multiProposal(): Reader<InboxItem> {
+  const base = proposal();
+  return {
+    ...base,
+    question: {
+      ...base.question!,
+      options: [
+        { label: "Voce: strumento MCP", consequence: "Nuova voce su Portale B2B" },
+        { label: "Voce: ricerca trattative", consequence: "Nuova voce su CRM" },
+        { label: "Voce: filtro sullo stato", consequence: "Nuova voce su Portale B2B" },
+        { label: "Sposta su un altro progetto", consequence: null },
+        { label: "Non fare nulla", consequence: "Nessuna azione" },
+      ],
+    },
+    google: {
+      ...base.google!,
+      actions: [
+        { type: "create_backlog_item" },
+        { type: "create_backlog_item" },
+        { type: "create_backlog_item" },
+        { type: "reassign_project" },
+        { type: "ignore" },
+      ],
+      multiSelectIndices: [0, 1, 2],
+    },
+  } as Reader<InboxItem>;
+}
+
+describe("GoogleProposalScreen — più azioni insieme", () => {
+  test("le azioni sommabili sono caselle tutte spuntate; «Sposta» e «Non fare nulla» restano righe", async () => {
+    const list = jest.fn().mockResolvedValue({ items: [multiProposal()], nextCursor: null });
+    await renderScreen(makeClient({ list }));
+    await waitFor(() => expect(screen.getByTestId("google-multi-0")).toBeTruthy());
+    for (const index of [0, 1, 2]) {
+      expect(screen.getByTestId(`google-multi-${index}`).props.accessibilityState).toMatchObject({ checked: true });
+      expect(screen.queryByTestId(`google-action-${index}`)).toBeNull();
+    }
+    expect(screen.getByTestId("google-action-3")).toBeTruthy();
+    expect(screen.getByTestId("google-action-4")).toBeTruthy();
+    expect(screen.getByTestId("google-multi-submit")).toHaveTextContent(/3/);
+  });
+
+  test("togliere una casella e premere «Crea N» manda `optionIndices`", async () => {
+    const list = jest.fn().mockResolvedValue({ items: [multiProposal()], nextCursor: null });
+    const act = jest.fn().mockResolvedValue({ changedNotificationIds: [ID] });
+    await renderScreen(makeClient({ list, act }));
+    await waitFor(() => expect(screen.getByTestId("google-multi-1")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("google-multi-1"));
+    expect(screen.getByTestId("google-multi-1").props.accessibilityState).toMatchObject({ checked: false });
+    expect(screen.getByTestId("google-multi-submit")).toHaveTextContent(/2/);
+    // Togliere una casella non decide niente: al server non è andato nulla.
+    expect(act).not.toHaveBeenCalled();
+    await fireEvent.press(screen.getByTestId("google-multi-submit"));
+    await waitFor(() => expect(act).toHaveBeenCalledWith(ID, "answer", { optionIndices: [0, 2] }));
+  });
+
+  test("a zero caselle «Crea N» è spento e non manda niente", async () => {
+    const list = jest.fn().mockResolvedValue({ items: [multiProposal()], nextCursor: null });
+    const act = jest.fn().mockResolvedValue({ changedNotificationIds: [ID] });
+    await renderScreen(makeClient({ list, act }));
+    await waitFor(() => expect(screen.getByTestId("google-multi-0")).toBeTruthy());
+    for (const index of [0, 1, 2]) await fireEvent.press(screen.getByTestId(`google-multi-${index}`));
+    expect(screen.getByTestId("google-multi-submit").props.accessibilityState).toMatchObject({ disabled: true });
+    await fireEvent.press(screen.getByTestId("google-multi-submit"));
+    expect(act).not.toHaveBeenCalled();
+  });
+
+  test("«Non fare nulla» agisce al tap come prima, col suo indice", async () => {
+    const list = jest.fn().mockResolvedValue({ items: [multiProposal()], nextCursor: null });
+    const act = jest.fn().mockResolvedValue({ changedNotificationIds: [ID] });
+    await renderScreen(makeClient({ list, act }));
+    await waitFor(() => expect(screen.getByTestId("google-action-4")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("google-action-4"));
+    await waitFor(() => expect(act).toHaveBeenCalledWith(ID, "answer", { optionIndex: 4 }));
+  });
+
+  test("senza indici sommabili (`[]`, anche il default di un server vecchio) nessuna casella", async () => {
+    await renderScreen(makeClient());
+    await waitFor(() => expect(screen.getByTestId("google-action-0")).toBeTruthy());
+    expect(screen.queryByTestId("google-multi-0")).toBeNull();
+    expect(screen.queryByTestId("google-multi-submit")).toBeNull();
+  });
+});
 
 describe("GoogleProposalScreen", () => {
   test("mostra chi scrive, cosa chiede e le scelte con la loro conseguenza", async () => {

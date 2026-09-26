@@ -168,6 +168,8 @@
         "fallbackTitle": "Proposal",
         "fromLine": "From {{from}}, {{when}}",
         "whatToDo": "What do you want to do",
+        "multiTitle": "Create together",
+        "createN": "Create {{count}}",
         "alreadyDecided": "This proposal has already been decided. There is nothing left to choose.",
         "gone": "This proposal is no longer in the inbox: someone decided it.",
         "loadError": "Can't load the proposal.",
