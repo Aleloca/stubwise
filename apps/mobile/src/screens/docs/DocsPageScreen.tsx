@@ -3,7 +3,7 @@ import { ApiError } from "@stubwise/api-client";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { SafeMarkdown } from "../../components/SafeMarkdown";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import type { DocsPageParamList } from "../../app/navigation";
 import { useAuth } from "../../app/providers";
@@ -11,9 +11,12 @@ import { GhostButton } from "../../components/GhostButton";
 import { SectionLabel } from "../../components/SectionLabel";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { Skeleton } from "../../components/Skeleton";
+import type { DocPageLink, Reader } from "@stubwise/shared";
 import { docsKeys, docsKindLabelKey } from "../../lib/docs-mutations";
-import { colors } from "../../theme/tokens";
-import { fontFamily } from "../../theme/typography";
+import { shortDate } from "../../lib/format";
+import { usePageViewPing } from "../../lib/view-ping";
+import { colors, radii } from "../../theme/tokens";
+import { fontFamily, fontSize } from "../../theme/typography";
 import { usePullToRefresh } from "../../components/PullToRefresh";
 
 /** Vedi `InboxScreen.tsx` per il perché di una costante invece di leggere `styles.body.paddingBottom`. */
@@ -32,7 +35,20 @@ const CONTENT_BASE_BOTTOM_PADDING = 40;
  * `PlanSection.tsx` (Task 16) in `theme/markdown.ts` — sanitizzato per
  * costruzione (`html: false` di default in markdown-it, un tag HTML nel
  * corpo appare come testo letterale).
+ *
+ * Dal 25 set 2026 («la documentazione nell'app, come sul web» §5), come sul
+ * web: i badge (categoria, data di aggiornamento, commit), le PAGINE
+ * COLLEGATE raggruppate e premibili, e il conteggio delle visite — un ping
+ * fire-and-forget deduplicato per pagina (`lib/view-ping.ts`), che non fa
+ * mai fallire la pagina.
  */
+
+/** L'ordine dei gruppi di pagine collegate, come sul web. */
+const LINK_GROUPS: { type: Reader<DocPageLink>["type"]; labelKey: string }[] = [
+  { type: "implemented_by", labelKey: "mobile.docs.page.implementedBy" },
+  { type: "implements", labelKey: "mobile.docs.page.implements" },
+  { type: "related", labelKey: "mobile.docs.page.related" },
+];
 export function DocsPageScreen({ navigation, route }: NativeStackScreenProps<DocsPageParamList, "Page">) {
   const { t } = useTranslation();
   const { client } = useAuth();
@@ -48,6 +64,8 @@ export function DocsPageScreen({ navigation, route }: NativeStackScreenProps<Doc
     enabled: client !== null,
     staleTime: 10_000,
   });
+
+  usePageViewPing(client, repositoryId, slug);
 
   const notFound = pageQuery.isError && pageQuery.error instanceof ApiError && pageQuery.error.status === 404;
 
@@ -94,8 +112,16 @@ export function DocsPageScreen({ navigation, route }: NativeStackScreenProps<Doc
           // vero (`app/navigation.test.tsx`) — il titolo da solo non basta,
           // compare anche nella riga dell'albero da cui si è partiti.
           <View testID="docs-page-body">
-            <SectionLabel>{t(docsKindLabelKey(pageQuery.data!.kind))}</SectionLabel>
+            <View style={styles.badges} testID="docs-page-badges">
+              <SectionLabel>{t(docsKindLabelKey(pageQuery.data!.kind))}</SectionLabel>
+              <Text style={styles.badge}>{shortDate(pageQuery.data!.updatedAt)}</Text>
+              {pageQuery.data!.commitSha && <Text style={styles.badge}>{pageQuery.data!.commitSha.slice(0, 7)}</Text>}
+            </View>
             <SafeMarkdown>{pageQuery.data!.body}</SafeMarkdown>
+            <RelatedPages
+              links={pageQuery.data!.links ?? []}
+              onOpen={(linkSlug) => navigation.push("Page", { repositoryId, slug: linkSlug })}
+            />
           </View>
         )}
       </ScrollView>
@@ -103,7 +129,71 @@ export function DocsPageScreen({ navigation, route }: NativeStackScreenProps<Doc
   );
 }
 
+/**
+ * Le pagine collegate, raggruppate come sul web (implementata da · implementa
+ * · correlate). Una pagina nuova si IMPILA sopra quella corrente (`push`):
+ * l'indietro riporta qui, non alla lista da cui si era partiti.
+ */
+function RelatedPages({ links, onOpen }: { links: readonly Reader<DocPageLink>[]; onOpen: (slug: string) => void }) {
+  const { t } = useTranslation();
+  const groups = LINK_GROUPS.map((group) => ({ ...group, links: links.filter((link) => link.type === group.type) })).filter(
+    (group) => group.links.length > 0,
+  );
+  if (groups.length === 0) return null;
+  return (
+    <View style={styles.related} testID="docs-page-related">
+      <SectionLabel>{t("mobile.docs.page.relatedTitle")}</SectionLabel>
+      {groups.map((group) => (
+        <View key={group.type} style={styles.relatedGroup}>
+          <Text style={styles.badge}>{t(group.labelKey)}</Text>
+          {group.links.map((link) => (
+            <Pressable
+              key={link.slug}
+              accessibilityRole="button"
+              onPress={() => onOpen(link.slug)}
+              style={styles.relatedLink}
+              testID={`docs-page-link-${link.slug}`}
+            >
+              <Text style={styles.relatedTitle}>{link.title}</Text>
+            </Pressable>
+          ))}
+        </View>
+      ))}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
+  badges: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  badge: {
+    color: colors.faint,
+    fontFamily: fontFamily.mono,
+    fontSize: fontSize.label,
+  },
+  related: {
+    gap: 10,
+    marginTop: 24,
+  },
+  relatedGroup: {
+    gap: 6,
+  },
+  relatedLink: {
+    backgroundColor: colors.ink900,
+    borderColor: colors.line,
+    borderRadius: radii.control,
+    borderWidth: 1,
+    padding: 12,
+  },
+  relatedTitle: {
+    color: colors.signal,
+    fontFamily: fontFamily.sans,
+    fontSize: 14,
+  },
   container: {
     backgroundColor: colors.ink950,
     flex: 1,

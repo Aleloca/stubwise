@@ -4,10 +4,11 @@ import type { ProjectDetail, Reader } from "@stubwise/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import type { ProjectsStackParamList } from "../../app/navigation";
 import { useAuth } from "../../app/providers";
+import { AppSwitch } from "../../components/AppSwitch";
 import { GhostButton } from "../../components/GhostButton";
 import { PrimaryButton } from "../../components/PrimaryButton";
 import { ScreenHeader } from "../../components/ScreenHeader";
@@ -342,12 +343,10 @@ function ToggleRow({
         <Text style={[styles.toggleLabel, disabled && styles.disabledText]}>{label}</Text>
         <Text style={styles.toggleHint}>{hint}</Text>
       </View>
-      <Switch
+      <AppSwitch
         accessibilityLabel={label}
         disabled={disabled}
         onValueChange={onChange}
-        thumbColor={colors.ink950}
-        trackColor={{ false: colors.line, true: colors.signal }}
         value={value}
         testID={testID}
       />

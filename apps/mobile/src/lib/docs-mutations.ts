@@ -1,6 +1,6 @@
 import { ApiError } from "@stubwise/api-client";
 import { isUnknown } from "@stubwise/shared";
-import type { DocPageKind, DocsChatAnswer, DocTreeNode, Reader } from "@stubwise/shared";
+import type { DocPageKind, DocsChatAnswer, Reader } from "@stubwise/shared";
 import { useMutation } from "@tanstack/react-query";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
@@ -13,51 +13,16 @@ export const docsKeys = {
   spaces: (projectId: string) => [...docsKeys.all, "spaces", projectId] as const,
   tree: (repositoryId: string) => [...docsKeys.all, "tree", repositoryId] as const,
   page: (repositoryId: string, slug: string) => [...docsKeys.all, "page", repositoryId, slug] as const,
+  // «La documentazione nell'app, come sul web» (25 set 2026): tutte sotto
+  // `docs`, così il pull-to-refresh della documentazione le prende.
+  repoHighlights: (repositoryId: string) => [...docsKeys.all, "repoHighlights", repositoryId] as const,
+  brief: (repositoryId: string) => [...docsKeys.all, "brief", repositoryId] as const,
+  repoSearch: (repositoryId: string, q: string) => [...docsKeys.all, "repoSearch", repositoryId, q] as const,
+  repoSemantic: (repositoryId: string, q: string) => [...docsKeys.all, "repoSemantic", repositoryId, q] as const,
+  projectHighlights: (projectId: string) => [...docsKeys.all, "projectHighlights", projectId] as const,
+  projectSearch: (projectId: string, q: string) => [...docsKeys.all, "projectSearch", projectId, q] as const,
 };
 
-
-/** Un gruppo di «Oppure sfoglia»: le pagine di un kind, contate e in ordine di posizione. */
-export interface DocsKindGroup {
-  count: number;
-  nodes: Reader<DocTreeNode>[];
-}
-
-/** Come {@link DocsKindGroup}, per il gruppo "Note di rilascio": porta anche l'ULTIMA release. */
-export interface DocsReleaseGroup extends DocsKindGroup {
-  latest: Reader<DocTreeNode> | null;
-}
-
-/**
- * I tre gruppi di «Oppure sfoglia» (canvas `3f`): "Guida funzionale" (kind
- * `functional`), "Note di rilascio" (kind `releases`) e "Pagine tecniche"
- * (kind `technical`) — SOLO questi tre, come nel canvas: `product` e `manual`
- * non hanno un gruppo qui (nessuna riga per loro nel mockup). Un kind
- * Unknown (server più nuovo di questa build, vedi
- * `packages/shared/src/reader.ts`) non entra in nessun gruppo — non un
- * crash, un conteggio che semplicemente lo ignora.
- *
- * `functional`/`technical` restano nell'ordine dell'albero (già ordinato per
- * `position` dal server); `releases` è riordinato per `createdAt`
- * DECRESCENTE così `latest` è sempre la release più recente, non l'ultima
- * della lista in arrivo.
- */
-export function groupTreeByKind(nodes: Reader<DocTreeNode>[]): {
-  functional: DocsKindGroup;
-  technical: DocsKindGroup;
-  releases: DocsReleaseGroup;
-} {
-  const functional = nodes.filter((n) => n.kind === "functional");
-  const technical = nodes.filter((n) => n.kind === "technical");
-  const releases = nodes
-    .filter((n) => n.kind === "releases")
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-
-  return {
-    functional: { count: functional.length, nodes: functional },
-    technical: { count: technical.length, nodes: technical },
-    releases: { count: releases.length, nodes: releases, latest: releases[0] ?? null },
-  };
-}
 
 const KIND_LABEL_KEYS: Record<DocPageKind, string> = {
   technical: "mobile.docs.kind.technical",

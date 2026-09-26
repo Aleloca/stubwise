@@ -426,8 +426,19 @@
           "title": "No documentation",
           "body": "No repository in this project has generated pages yet."
         },
-        "treeError": "Could not load the pages of this space.",
-        "ask": "Ask this project ›"
+        "ask": "Ask this project ›",
+        "searchPlaceholder": "Search this project's documentation…",
+        "searchEmpty": "Nothing found in this project's documentation.",
+        "searchError": "Search isn't available right now.",
+        "startHere": "Start here",
+        "briefLink": "Brief ›",
+        "overviewLink": "Overview of {{name}} ›",
+        "latestRelease": "Latest release",
+        "repositories": "Repositories",
+        "whatsNew": "What's new",
+        "topViewed": "most viewed",
+        "generatedAt": "generated {{date}}",
+        "releaseMeta": "latest: {{title}}"
       },
       "roadmap": {
         "title": "Roadmap",
@@ -790,14 +801,8 @@
         "retry": "Retry"
       },
       "browse": {
-        "functional": "Functional guide",
-        "technical": "Technical pages",
-        "releases": "Release notes",
         "pageCount_one": "{{count}} page",
-        "pageCount_other": "{{count}} pages",
-        "latestRelease": "latest: {{title}}",
-        "noReleases": "no releases",
-        "groupEmpty": "No pages here."
+        "pageCount_other": "{{count}} pages"
       },
       "ask": {
         "sectionLabel": "Ask the project",
@@ -818,7 +823,11 @@
         "loadError": {
           "title": "Can't load this page.",
           "retry": "Retry"
-        }
+        },
+        "relatedTitle": "Related pages",
+        "implementedBy": "Implemented by",
+        "implements": "Implements",
+        "related": "Related"
       },
       "kind": {
         "technical": "Technical page",
@@ -832,6 +841,54 @@
         "generic": "Something went wrong. Please retry.",
         "chatUnavailable": "Chat requires an API-key AI provider.",
         "notFound": "This project no longer exists."
+      },
+      "repo": {
+        "tabs": {
+          "overview": "Overview",
+          "technical": "Technical",
+          "functional": "Functional",
+          "product": "Product",
+          "manual": "Manual",
+          "releases": "Releases"
+        },
+        "searchPlaceholder": "Search this repository…",
+        "searchEmpty": "Nothing found in this repository.",
+        "searchError": "Search isn't available right now.",
+        "briefLink": "Brief ›",
+        "noBrief": "No brief yet for this repository.",
+        "startHere": "Start here",
+        "categories": "Categories",
+        "whatsNew": "What's new",
+        "recentlyUpdated": "Recently updated",
+        "topViewed": "Most viewed",
+        "minor": "minor",
+        "onlySignificant": "Only significant",
+        "noSignificant": "No significant releases.",
+        "loadError": "Can't load this documentation.",
+        "retry": "Retry",
+        "empty": "No pages in this category.",
+        "back": "Back",
+        "branchOverview": "{{title}} · overview",
+        "releasesCount": "{{visible}} of {{total}}"
+      },
+      "brief": {
+        "title": "Brief",
+        "identity": "Identity",
+        "actors": "Actors",
+        "surfaces": "Surfaces",
+        "journeys": "Journeys",
+        "glossary": "Glossary",
+        "invariants": "Invariants",
+        "sources": "Existing sources",
+        "confidential": "Confidential facts",
+        "exclusions": "Excluded product pages",
+        "internal": "internal",
+        "external": "external",
+        "generatedAt": "Generated {{date}}",
+        "commit": "commit {{sha}}",
+        "empty": "This repository has no brief yet.",
+        "loadError": "Can't load the brief.",
+        "retry": "Retry"
       }
     },
     "mbx": {

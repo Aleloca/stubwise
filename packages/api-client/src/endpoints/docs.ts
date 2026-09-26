@@ -1,10 +1,14 @@
 import {
+  docBriefResponseSchema,
   docChatMessageSchema,
   docChatSessionSchema,
   docPageSchema,
   docsChatAnswerSchema,
   docSpaceSchema,
   docTreeNodeSchema,
+  projectDocsSearchResultSchema,
+  projectHighlightsSchema,
+  repoHighlightsSchema,
 } from "@stubwise/shared";
 import type {
   Reader,
@@ -14,15 +18,20 @@ import type {
   DocsChatAnswer,
   DocSpace,
   DocTreeNode,
+  DocBriefResponse,
+  ProjectDocsSearchResult,
+  ProjectHighlights,
+  RepoHighlights,
 } from "@stubwise/shared";
 import { z } from "zod";
 import type { ApiRequest } from "../client.js";
-import { seg } from "../query.js";
+import { seg, toQuery } from "../query.js";
 
 const spacesSchema = z.array(docSpaceSchema);
 const treeSchema = z.array(docTreeNodeSchema);
 const sessionsSchema = z.array(docChatSessionSchema);
 const messagesSchema = z.array(docChatMessageSchema);
+const projectSearchSchema = z.array(projectDocsSearchResultSchema);
 
 /**
  * Docs: navigazione della documentazione autogenerata.
@@ -66,6 +75,65 @@ export function createDocsEndpoints(request: ApiRequest) {
         undefined,
         docPageSchema,
       );
+    },
+
+    /**
+     * Gli highlights di un repository — conteggi per categoria, pagine più
+     * viste e aggiornate di recente, ultime release — per la sua Overview.
+     */
+    repoHighlights(repositoryId: string): Promise<Reader<RepoHighlights>> {
+      return request(
+        "GET",
+        `/api/repositories/${seg(repositoryId)}/docs/highlights`,
+        undefined,
+        repoHighlightsSchema,
+      );
+    },
+
+    /** Gli highlights aggregati di un progetto: le novità di tutti i suoi repository. */
+    projectHighlights(projectId: string): Promise<Reader<ProjectHighlights>> {
+      return request(
+        "GET",
+        `/api/projects/${seg(projectId)}/docs/highlights`,
+        undefined,
+        projectHighlightsSchema,
+      );
+    },
+
+    /**
+     * Il brief di un repository, con la generazione da cui viene. 404 se il
+     * repository non ne ha ancora uno: chi lo legge lo tratta come assente.
+     */
+    brief(repositoryId: string): Promise<Reader<DocBriefResponse>> {
+      return request(
+        "GET",
+        `/api/repositories/${seg(repositoryId)}/docs/brief`,
+        undefined,
+        docBriefResponseSchema,
+      );
+    },
+
+    /**
+     * Ricerca IBRIDA (semantica + full-text) nella documentazione di tutti i
+     * repository di un progetto, lo stesso retrieval della chat di progetto.
+     * Ogni risultato porta il repository d'origine.
+     */
+    projectSearch(projectId: string, q: string): Promise<Reader<ProjectDocsSearchResult>[]> {
+      return request(
+        "GET",
+        `/api/projects/${seg(projectId)}/docs/search${toQuery({ q })}`,
+        undefined,
+        projectSearchSchema,
+      );
+    },
+
+    /**
+     * Conta una visita a una pagina (204, nessun corpo). Chi la chiama la
+     * tratta come fire-and-forget: un errore qui non deve mai toccare la
+     * pagina che si sta leggendo.
+     */
+    viewPage(repositoryId: string, slug: string): Promise<void> {
+      return request("POST", `/api/repositories/${seg(repositoryId)}/docs/pages/${seg(slug)}/view`);
     },
 
     /**

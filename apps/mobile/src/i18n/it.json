@@ -426,8 +426,19 @@
           "title": "Nessuna documentazione",
           "body": "Nessun repository di questo progetto ha ancora pagine generate."
         },
-        "treeError": "Non è stato possibile caricare le pagine di questo spazio.",
-        "ask": "Chiedi a questo progetto ›"
+        "ask": "Chiedi a questo progetto ›",
+        "searchPlaceholder": "Cerca nella documentazione del progetto…",
+        "searchEmpty": "Niente trovato nella documentazione del progetto.",
+        "searchError": "La ricerca non è disponibile in questo momento.",
+        "startHere": "Da dove iniziare",
+        "briefLink": "Brief ›",
+        "overviewLink": "Panoramica di {{name}} ›",
+        "latestRelease": "Ultimo rilascio",
+        "repositories": "Repository",
+        "whatsNew": "Novità",
+        "topViewed": "più vista",
+        "generatedAt": "generata il {{date}}",
+        "releaseMeta": "ultimo: {{title}}"
       },
       "roadmap": {
         "title": "Roadmap",
@@ -790,14 +801,8 @@
         "retry": "Riprova"
       },
       "browse": {
-        "functional": "Guida funzionale",
-        "technical": "Pagine tecniche",
-        "releases": "Note di rilascio",
         "pageCount_one": "{{count}} pagina",
-        "pageCount_other": "{{count}} pagine",
-        "latestRelease": "ultima: {{title}}",
-        "noReleases": "nessuna release",
-        "groupEmpty": "Nessuna pagina qui."
+        "pageCount_other": "{{count}} pagine"
       },
       "ask": {
         "sectionLabel": "Chiedi al progetto",
@@ -818,7 +823,11 @@
         "loadError": {
           "title": "Non riesco a caricare la pagina.",
           "retry": "Riprova"
-        }
+        },
+        "relatedTitle": "Pagine collegate",
+        "implementedBy": "Implementata da",
+        "implements": "Implementa",
+        "related": "Correlate"
       },
       "kind": {
         "technical": "Pagina tecnica",
@@ -832,6 +841,54 @@
         "generic": "Qualcosa è andato storto. Riprova.",
         "chatUnavailable": "La chat richiede un provider AI con chiave API.",
         "notFound": "Questo progetto non esiste più."
+      },
+      "repo": {
+        "tabs": {
+          "overview": "Panoramica",
+          "technical": "Tecnica",
+          "functional": "Funzionale",
+          "product": "Prodotto",
+          "manual": "Manuale",
+          "releases": "Rilasci"
+        },
+        "searchPlaceholder": "Cerca in questo repository…",
+        "searchEmpty": "Niente trovato in questo repository.",
+        "searchError": "La ricerca non è disponibile in questo momento.",
+        "briefLink": "Brief ›",
+        "noBrief": "Questo repository non ha ancora un brief.",
+        "startHere": "Da dove iniziare",
+        "categories": "Categorie",
+        "whatsNew": "Novità",
+        "recentlyUpdated": "Aggiornate di recente",
+        "topViewed": "Più viste",
+        "minor": "minore",
+        "onlySignificant": "Solo significative",
+        "noSignificant": "Nessun rilascio significativo.",
+        "loadError": "Non riesco a caricare questa documentazione.",
+        "retry": "Riprova",
+        "empty": "Nessuna pagina in questa categoria.",
+        "back": "Indietro",
+        "branchOverview": "{{title}} · panoramica",
+        "releasesCount": "{{visible}} di {{total}}"
+      },
+      "brief": {
+        "title": "Brief",
+        "identity": "Identità",
+        "actors": "Attori",
+        "surfaces": "Superfici",
+        "journeys": "Percorsi",
+        "glossary": "Glossario",
+        "invariants": "Invarianti",
+        "sources": "Fonti esistenti",
+        "confidential": "Fatti riservati",
+        "exclusions": "Pagine prodotto escluse",
+        "internal": "interno",
+        "external": "esterno",
+        "generatedAt": "Generato il {{date}}",
+        "commit": "commit {{sha}}",
+        "empty": "Questo repository non ha ancora un brief.",
+        "loadError": "Non riesco a caricare il brief.",
+        "retry": "Riprova"
       }
     },
     "mbx": {

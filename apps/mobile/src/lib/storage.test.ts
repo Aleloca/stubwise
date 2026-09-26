@@ -7,6 +7,8 @@ import {
   loadSession,
   saveSession,
   setLastBacklogProjectId,
+  getLastRepoDocsTab,
+  setLastRepoDocsTab,
   setLastSyncAt,
 } from "./storage";
 
@@ -115,3 +117,25 @@ describe("lastBacklogProjectId (AsyncStorage — picker progetto della cattura r
   });
 });
 
+
+describe("lastRepoDocsTab (AsyncStorage — la tab della documentazione, per repository)", () => {
+  test("prima di ogni scelta: null", async () => {
+    await expect(getLastRepoDocsTab("repo-1")).resolves.toBeNull();
+  });
+
+  test("si ricorda PER repository: la scelta di uno non tocca l'altro", async () => {
+    await setLastRepoDocsTab("repo-1", "functional");
+    await setLastRepoDocsTab("repo-2", "releases");
+    await expect(getLastRepoDocsTab("repo-1")).resolves.toBe("functional");
+    await expect(getLastRepoDocsTab("repo-2")).resolves.toBe("releases");
+  });
+
+  test("MAI bloccante: se lo storage lancia, lettura null e scrittura silenziosa", async () => {
+    const get = jest.spyOn(AsyncStorage, "getItem").mockRejectedValueOnce(new Error("disco pieno"));
+    const set = jest.spyOn(AsyncStorage, "setItem").mockRejectedValueOnce(new Error("disco pieno"));
+    await expect(getLastRepoDocsTab("repo-1")).resolves.toBeNull();
+    await expect(setLastRepoDocsTab("repo-1", "technical")).resolves.toBeUndefined();
+    get.mockRestore();
+    set.mockRestore();
+  });
+});

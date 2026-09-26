@@ -719,11 +719,15 @@ function HubDocsSection({
   });
 
   const spaces = query.data ?? [];
+  // Una riga apre la documentazione DI QUEL repository, a tab come sul web
+  // (25 set 2026); «vedi ›» la pagina generale del progetto.
   const rows: ProjectGroupRowProps[] = spaces.slice(0, HUB_PREVIEW_LIMIT).map((space) => ({
     rowKey: space.repositoryId,
     title: space.name,
     trailing: t("mobile.docs.browse.pageCount", { count: space.pageCount }),
     trailingTone: "muted",
+    onPress: () => navigation.navigate("RepoDocs", { repositoryId: space.repositoryId, repositoryName: space.name }),
+    testID: `hub-docs-space-${space.repositoryId}`,
   }));
 
   const state =

@@ -4,7 +4,8 @@ import type { Language, Reader, SessionUser } from "@stubwise/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { AppSwitch } from "../../components/AppSwitch";
 import { GhostButton } from "../../components/GhostButton";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { SectionLabel } from "../../components/SectionLabel";
@@ -210,12 +211,10 @@ export function SettingsSectionScreen({ section, client, user, onBack, testID }:
               ) : (
                 <View style={styles.row}>
                   <Text style={styles.rowLabel}>{t("mobile.settings.notifications.pushLabel")}</Text>
-                  <Switch
+                  <AppSwitch
                     accessibilityLabel={t("mobile.settings.notifications.pushLabel")}
                     disabled={!prefsQuery.data || setPushMutation.isPending}
                     onValueChange={(value) => setPushMutation.mutate(value)}
-                    thumbColor={colors.ink950}
-                    trackColor={{ false: colors.line, true: colors.signal }}
                     value={prefsQuery.data?.push ?? false}
                     testID="settings-push-switch"
                   />
@@ -249,12 +248,10 @@ export function SettingsSectionScreen({ section, client, user, onBack, testID }:
                       <Text style={styles.rowLabel} numberOfLines={1}>
                         {project.name}
                       </Text>
-                      <Switch
+                      <AppSwitch
                         accessibilityLabel={project.name}
                         disabled={!followsQuery.data || setFollowsMutation.isPending}
                         onValueChange={(value) => toggleFollow(project.id, value)}
-                        thumbColor={colors.ink950}
-                        trackColor={{ false: colors.line, true: colors.signal }}
                         value={(followsQuery.data?.projectIds ?? []).includes(project.id)}
                         testID={`settings-follow-${project.id}`}
                       />

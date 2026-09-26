@@ -960,6 +960,19 @@ describe("ProjectDetailScreen — repository, documentazione, roadmap", () => {
     await fireEvent.press(screen.getByTestId("hub-repository-r1"));
     expect(navigate).toHaveBeenCalledWith("Repository", { slug: "portale-api", projectName: "Portale B2B" });
   });
+
+  /**
+   * «La documentazione nell'app, come sul web» (25 set 2026): una riga della
+   * sezione Documentazione apre la documentazione DI QUEL repository, a tab.
+   */
+  test("un tap su uno spazio della documentazione apre la documentazione del suo repository", async () => {
+    const navigate = jest.fn();
+    const client = makeClient({ projectSpaces: jest.fn().mockResolvedValue([docSpace()]) });
+    await renderScreen(client, navigate);
+    await waitFor(() => expect(screen.getByTestId("hub-docs-space-r1")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("hub-docs-space-r1"));
+    expect(navigate).toHaveBeenCalledWith("RepoDocs", { repositoryId: "r1", repositoryName: "Spazio API" });
+  });
 });
 
 /**
