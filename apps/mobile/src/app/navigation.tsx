@@ -37,6 +37,8 @@ import { BacklogItemScreen } from "../screens/backlog/BacklogItemScreen";
 import { BacklogScreen } from "../screens/backlog/BacklogScreen";
 import { AskProjectScreen } from "../screens/docs/AskProjectScreen";
 import { DocsPageScreen } from "../screens/docs/DocsPageScreen";
+import { RepoBriefScreen } from "../screens/docs/RepoBriefScreen";
+import { RepoDocsScreen } from "../screens/docs/RepoDocsScreen";
 import { MailDetailScreen } from "../screens/mbx/MailDetailScreen";
 import { MbxScreen } from "../screens/mbx/MbxScreen";
 import { MailRejectionsScreen } from "../screens/mbx/MailRejectionsScreen";
@@ -163,6 +165,12 @@ export type ProjectsStackParamList = {
   ProjectRepositories: { projectId: string; projectName: string };
   Repository: { slug: string; projectName: string };
   ProjectDocs: { projectId: string; projectName: string };
+  /**
+   * La documentazione di UN repository, a tab come sul web, e il suo brief
+   * («la documentazione nell'app, come sul web», 25 set 2026). Sola lettura.
+   */
+  RepoDocs: { repositoryId: string; repositoryName: string };
+  RepoBrief: { repositoryId: string; repositoryName: string };
   /**
    * «Chiedi al progetto», la chat sulla documentazione (25 set 2026): viveva
    * nel tab DOC, che non c'è più, e ci si arriva ora dalla documentazione del
@@ -334,6 +342,8 @@ function ProjectsNavigator() {
       <ProjectsStack.Screen name="Server" component={ServerScreen} />
       <ProjectsStack.Screen name="ProjectSettings" component={ProjectSettingsScreen} />
       <ProjectsStack.Screen name="Page" component={DocsPageScreen} />
+      <ProjectsStack.Screen name="RepoDocs" component={RepoDocsScreen} />
+      <ProjectsStack.Screen name="RepoBrief" component={RepoBriefScreen} />
       <ProjectsStack.Screen name="Ask" component={AskProjectScreen} />
     </ProjectsStack.Navigator>
   );

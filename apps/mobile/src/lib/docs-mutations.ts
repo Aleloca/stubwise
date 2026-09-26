@@ -13,6 +13,14 @@ export const docsKeys = {
   spaces: (projectId: string) => [...docsKeys.all, "spaces", projectId] as const,
   tree: (repositoryId: string) => [...docsKeys.all, "tree", repositoryId] as const,
   page: (repositoryId: string, slug: string) => [...docsKeys.all, "page", repositoryId, slug] as const,
+  // «La documentazione nell'app, come sul web» (25 set 2026): tutte sotto
+  // `docs`, così il pull-to-refresh della documentazione le prende.
+  repoHighlights: (repositoryId: string) => [...docsKeys.all, "repoHighlights", repositoryId] as const,
+  brief: (repositoryId: string) => [...docsKeys.all, "brief", repositoryId] as const,
+  repoSearch: (repositoryId: string, q: string) => [...docsKeys.all, "repoSearch", repositoryId, q] as const,
+  repoSemantic: (repositoryId: string, q: string) => [...docsKeys.all, "repoSemantic", repositoryId, q] as const,
+  projectHighlights: (projectId: string) => [...docsKeys.all, "projectHighlights", projectId] as const,
+  projectSearch: (projectId: string, q: string) => [...docsKeys.all, "projectSearch", projectId, q] as const,
 };
 
 
