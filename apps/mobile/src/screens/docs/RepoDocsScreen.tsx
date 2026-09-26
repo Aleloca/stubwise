@@ -350,8 +350,14 @@ function EntryRow({ title, meta, onPress, testID }: { title: string; meta: strin
 }
 
 /**
- * L'albero di una categoria, da `parentId` come `buildForest` del web. Un nodo
- * con figli si apre col chevron; il titolo apre sempre la pagina.
+ * L'albero di una categoria, da `parentId` come `buildForest` del web.
+ *
+ * ⚠️ Una voce CON sotto-pagine è un RAMO: tutta la riga lo apre e lo chiude,
+ * e non naviga. La pagina della voce sta DENTRO il ramo, come prima riga
+ * («<titolo> · overview»). Una voce senza sotto-pagine apre la pagina, con la
+ * freccia a destra. Correzione dopo la prova sul telefono (26 set 2026): prima
+ * il ramo si apriva da un chevron e il titolo apriva la pagina, ma il chevron
+ * era troppo piccolo per colpirlo e il tap finiva quasi sempre sul titolo.
  */
 function CategoryForest({ nodes, onOpenPage }: { nodes: readonly Reader<DocTreeNode>[]; onOpenPage: OpenPage }) {
   const { t } = useTranslation();
@@ -369,35 +375,50 @@ function CategoryForest({ nodes, onOpenPage }: { nodes: readonly Reader<DocTreeN
 
   if (forest.length === 0) return <Text style={styles.muted}>{t("mobile.docs.repo.empty")}</Text>;
 
+  function leaf(key: string, title: string, slug: string, depth: number, testID: string) {
+    return (
+      <Pressable
+        key={key}
+        accessibilityRole="button"
+        onPress={() => onOpenPage(slug)}
+        style={[styles.nodeRow, { paddingLeft: 12 + depth * 16 }]}
+        testID={testID}
+      >
+        <Text style={[styles.rowTitle, styles.nodeTitle]}>{title}</Text>
+        <Text style={styles.chevron} testID={testID.startsWith("repo-docs-node-") ? `repo-docs-leaf-arrow-${slug}` : undefined}>
+          ›
+        </Text>
+      </Pressable>
+    );
+  }
+
   function renderNode(node: DocForestNode, depth: number) {
+    if (node.children.length === 0) return leaf(node.id, node.title, node.slug, depth, `repo-docs-node-${node.slug}`);
     const expanded = open.has(node.id);
     return (
       <View key={node.id}>
-        <View style={[styles.nodeRow, { paddingLeft: 12 + depth * 16 }]}>
-          {node.children.length > 0 ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={t(expanded ? "mobile.docs.repo.collapse" : "mobile.docs.repo.expand")}
-              accessibilityState={{ expanded }}
-              hitSlop={8}
-              onPress={() => toggle(node.id)}
-              testID={`repo-docs-toggle-${node.slug}`}
-            >
-              <Text style={styles.chevron}>{expanded ? "▾" : "▸"}</Text>
-            </Pressable>
-          ) : (
-            <View style={styles.chevronSpacer} />
-          )}
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => onOpenPage(node.slug)}
-            style={styles.nodeTitle}
-            testID={`repo-docs-node-${node.slug}`}
-          >
-            <Text style={styles.rowTitle}>{node.title}</Text>
-          </Pressable>
-        </View>
-        {expanded && node.children.map((child) => renderNode(child, depth + 1))}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ expanded }}
+          onPress={() => toggle(node.id)}
+          style={[styles.nodeRow, { paddingLeft: 12 + depth * 16 }]}
+          testID={`repo-docs-branch-${node.slug}`}
+        >
+          <Text style={styles.chevron}>{expanded ? "▾" : "▸"}</Text>
+          <Text style={[styles.rowTitle, styles.nodeTitle]}>{node.title}</Text>
+        </Pressable>
+        {expanded && (
+          <>
+            {leaf(
+              `${node.id}-overview`,
+              t("mobile.docs.repo.branchOverview", { title: node.title }),
+              node.slug,
+              depth + 1,
+              `repo-docs-overview-${node.slug}`,
+            )}
+            {node.children.map((child) => renderNode(child, depth + 1))}
+          </>
+        )}
       </View>
     );
   }
@@ -672,9 +693,6 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontFamily: fontFamily.mono,
     fontSize: 13,
-    width: 14,
-  },
-  chevronSpacer: {
     width: 14,
   },
   switchRow: {

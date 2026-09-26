@@ -231,20 +231,56 @@ describe("RepoDocsScreen — Overview", () => {
 });
 
 describe("RepoDocsScreen — una categoria", () => {
-  test("l'albero: un nodo con figli si apre col chevron, il titolo apre la pagina", async () => {
-    const { navigate } = await renderScreen(makeClient());
+  /**
+   * Correzione dopo la prova sul telefono (26 set 2026): il chevron era troppo
+   * piccolo per colpirlo, e il tap finiva sul titolo aprendo la pagina. Ora una
+   * voce CON sotto-pagine è un ramo: TUTTA la riga lo apre e lo chiude, e la
+   * pagina della voce sta dentro, come prima riga.
+   */
+  async function openTechnical() {
+    const result = await renderScreen(makeClient());
     await waitFor(() => expect(screen.getByTestId("repo-docs-tab-technical")).toBeTruthy());
     await fireEvent.press(screen.getByTestId("repo-docs-tab-technical"));
-    await waitFor(() => expect(screen.getByTestId("repo-docs-node-architettura")).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId("repo-docs-branch-architettura")).toBeTruthy());
+    return result;
+  }
+
+  test("un tap sulla riga di un ramo NON naviga: apre il ramo, e lo dice all'accessibilità", async () => {
+    const { navigate } = await openTechnical();
+    const branch = screen.getByTestId("repo-docs-branch-architettura");
+    expect(branch.props.accessibilityRole).toBe("button");
+    expect(branch.props.accessibilityState).toMatchObject({ expanded: false });
     expect(screen.queryByTestId("repo-docs-node-api")).toBeNull();
 
-    await fireEvent.press(screen.getByTestId("repo-docs-toggle-architettura"));
+    await fireEvent.press(branch);
+    expect(navigate).not.toHaveBeenCalled();
+    expect(screen.getByTestId("repo-docs-branch-architettura").props.accessibilityState).toMatchObject({ expanded: true });
     expect(screen.getByTestId("repo-docs-node-api")).toBeTruthy();
 
-    await fireEvent.press(screen.getByTestId("repo-docs-node-api"));
-    expect(navigate).toHaveBeenCalledWith("Page", { repositoryId: REPO, slug: "api" });
-    // Un nodo senza figli non ha il chevron.
-    expect(screen.queryByTestId("repo-docs-toggle-setup")).toBeNull();
+    // Un secondo tap lo richiude.
+    await fireEvent.press(screen.getByTestId("repo-docs-branch-architettura"));
+    expect(screen.queryByTestId("repo-docs-node-api")).toBeNull();
+  });
+
+  test("dentro il ramo, la PRIMA riga è la pagina della voce stessa, «<titolo> · panoramica»", async () => {
+    const { navigate } = await openTechnical();
+    await fireEvent.press(screen.getByTestId("repo-docs-branch-architettura"));
+    const ids = screen.getAllByTestId(/^repo-docs-(node|overview)-/).map((el) => el.props.testID);
+    expect(ids.slice(0, 2)).toEqual(["repo-docs-overview-architettura", "repo-docs-node-api"]);
+    expect(screen.getByText("Architettura · panoramica")).toBeTruthy();
+
+    await fireEvent.press(screen.getByTestId("repo-docs-overview-architettura"));
+    expect(navigate).toHaveBeenCalledWith("Page", { repositoryId: REPO, slug: "architettura" });
+  });
+
+  test("una foglia apre la sua pagina, con la freccia a destra", async () => {
+    const { navigate } = await openTechnical();
+    const leaf = screen.getByTestId("repo-docs-node-setup");
+    expect(screen.getByTestId("repo-docs-leaf-arrow-setup")).toBeTruthy();
+    await fireEvent.press(leaf);
+    expect(navigate).toHaveBeenCalledWith("Page", { repositoryId: REPO, slug: "setup" });
+    // Una foglia non è un ramo.
+    expect(screen.queryByTestId("repo-docs-branch-setup")).toBeNull();
   });
 });
 

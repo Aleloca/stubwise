@@ -867,9 +867,8 @@
         "loadError": "Can't load this documentation.",
         "retry": "Retry",
         "empty": "No pages in this category.",
-        "expand": "Expand",
-        "collapse": "Collapse",
-        "back": "Back"
+        "back": "Back",
+        "branchOverview": "{{title}} · overview"
       },
       "brief": {
         "title": "Brief",

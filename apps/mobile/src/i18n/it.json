@@ -867,9 +867,8 @@
         "loadError": "Non riesco a caricare questa documentazione.",
         "retry": "Riprova",
         "empty": "Nessuna pagina in questa categoria.",
-        "expand": "Apri",
-        "collapse": "Chiudi",
-        "back": "Indietro"
+        "back": "Indietro",
+        "branchOverview": "{{title}} · panoramica"
       },
       "brief": {
         "title": "Brief",
