@@ -104,3 +104,29 @@ export async function setLastBacklogProjectId(projectId: string): Promise<void> 
   await AsyncStorage.setItem(LAST_BACKLOG_PROJECT_KEY, projectId);
 }
 
+/**
+ * L'ultima tab aperta della documentazione di UN repository («la
+ * documentazione nell'app, come sul web», 25 set 2026): come sul web, si
+ * ricorda per repository. ⚠️ MAI bloccante: è una comodità, e uno storage che
+ * lancia non deve costare la schermata — la lettura torna `null`, la scrittura
+ * si perde in silenzio.
+ */
+function repoDocsTabKey(repositoryId: string): string {
+  return `stubwise:repoDocsTab:${repositoryId}`;
+}
+
+export async function getLastRepoDocsTab(repositoryId: string): Promise<string | null> {
+  try {
+    return await AsyncStorage.getItem(repoDocsTabKey(repositoryId));
+  } catch {
+    return null;
+  }
+}
+
+export async function setLastRepoDocsTab(repositoryId: string, tab: string): Promise<void> {
+  try {
+    await AsyncStorage.setItem(repoDocsTabKey(repositoryId), tab);
+  } catch {
+    // Una comodità persa, non un errore da mostrare.
+  }
+}
