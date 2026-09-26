@@ -51,6 +51,7 @@ import {
   type InboxGoogle,
   type InboxPulse,
   type InboxQuestion,
+  multiSelectableIndices,
 } from "@stubwise/shared";
 import { and, desc, eq, inArray, isNotNull, isNull, ne, sql, type SQL } from "drizzle-orm";
 import { answerGoogleProposal } from "./google-proposal.js";
@@ -171,7 +172,12 @@ export interface ExecuteActionInput {
   payload?: {
     until?: SnoozeUntil;
     instructions?: string;
-    answer?: AnswerInput;
+    /**
+     * `optionIndices` (26 set 2026) vale SOLO su `google.proposal`: più azioni
+     * della stessa proposta confermate insieme. Il pulse e le domande
+     * dell'agente lo RIFIUTANO (`invalid_answer`), non lo ignorano.
+     */
+    answer?: AnswerInput & { optionIndices?: number[] };
     /**
      * 17 set 2026, `google.proposal` + azione `reassign_project`: il progetto
      * di destinazione, scelto alla conferma. È l'unico dato di payload che
@@ -262,6 +268,10 @@ export async function executeAction(
     // dell'agente scrive la risposta e fa ripartire il job (`answerQuestion`);
     // sul pulse converte la proposta scelta in ticket e ne lancia la
     // pianificazione (`proceedWithProposal`).
+    const optionIndices = input.payload?.answer?.optionIndices;
+    if (optionIndices !== undefined && row.kind !== "google.proposal") {
+      return { ok: false, error: "invalid_answer" };
+    }
     if (row.kind === "project.pulse") {
       // Il pulse non ha un job dietro: `optionIndex` è l'indice della PROPOSTA,
       // e un corpo a testo libero (che il pulse non ammette) arriva qui senza
@@ -309,6 +319,7 @@ export async function executeAction(
         ...(input.payload?.answer?.optionIndex === undefined
           ? {}
           : { optionIndex: input.payload.answer.optionIndex }),
+        ...(optionIndices === undefined ? {} : { optionIndices }),
         // Inoltrato GREZZO: è `answerGoogleProposal` a decidere se quell'azione
         // lo ammette — qui rifiutarlo sarebbe una seconda copia della regola.
         ...(input.payload?.projectId === undefined ? {} : { projectId: input.payload.projectId }),
@@ -331,7 +342,10 @@ export async function executeAction(
     const outcome = await answerQuestion(db, {
       notificationId: row.id,
       actor,
-      answer: input.payload?.answer ?? {},
+      answer: {
+        ...(input.payload?.answer?.optionIndex === undefined ? {} : { optionIndex: input.payload.answer.optionIndex }),
+        ...(input.payload?.answer?.text === undefined ? {} : { text: input.payload.answer.text }),
+      },
     });
     if (!outcome.ok) {
       return {
@@ -932,7 +946,16 @@ function readGoogle(
   // in `@stubwise/shared`: derivarlo a lettura è ciò che lo fa funzionare
   // anche sulle card pubblicate mesi fa. Il `safeParse` qui sopra ha già
   // messo `null` di default, quindi questa riga è l'UNICA sorgente del valore.
-  return { ...parsed.data, sourceProposalId };
+  //
+  // Stessa regola per `multiSelectIndices` («una mail, più azioni e più
+  // progetti», 26 set 2026): quali opzioni si sommano lo dicono le `actions`,
+  // con la STESSA funzione che il server usa per accettare la risposta
+  // (`multiSelectableIndices`), e scavalca qualunque valore stesse nel jsonb.
+  return {
+    ...parsed.data,
+    sourceProposalId,
+    multiSelectIndices: multiSelectableIndices(parsed.data.source, parsed.data.actions),
+  };
 }
 
 /**

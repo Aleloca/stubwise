@@ -31,6 +31,7 @@ export {
 } from "./actions.js";
 
 export {
+  ANSWER_ALL_ACTION_ID,
   ANSWER_FREE_ACTION_ID,
   answerActionId,
   buildInboxBlocks,

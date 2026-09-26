@@ -370,6 +370,65 @@ describe("buildQuestionBlocks", () => {
     expect(section).toContain("dall'app o dal web");
   });
 
+  // «Una mail, più azioni e più progetti» (26 set 2026, design §5). Una card
+  // di posta con tre voci ha CINQUE opzioni (le tre, «Sposta», «Non fare
+  // nulla»): col vecchio tetto a 4 «Non fare nulla» spariva, riga e bottone.
+  const MULTI_EMAIL_EVENT = {
+    kind: "google.proposal",
+    source: "email",
+    options: [
+      { label: "Voce: strumento MCP", consequence: "Nuova voce su Portale B2B." },
+      { label: "Voce: ricerca trattative", consequence: "Nuova voce su CRM." },
+      { label: "Voce: filtro sullo stato", consequence: "Nuova voce su Portale B2B." },
+      { label: "Sposta su un altro progetto" },
+      { label: "Non fare nulla" },
+    ],
+    actions: [
+      { type: "create_backlog_item" },
+      { type: "create_backlog_item" },
+      { type: "create_backlog_item" },
+      { type: "reassign_project" },
+      { type: "ignore" },
+    ],
+    recommendedIndex: 0,
+    allowFreeText: false,
+  };
+
+  it("una card da 5 opzioni le mostra TUTTE: «Non fare nulla» ha riga e bottone", () => {
+    const blocks = questionBlocks({}, { event: MULTI_EMAIL_EVENT });
+    const section = JSON.stringify(blocks);
+    expect(section).toContain("5. *Non fare nulla*");
+    expect(ids(blocks)).toContain("inbox:answer:4");
+  });
+
+  it("card con più azioni sommabili: un bottone «Crea tutte (N)», prima dei singoli", () => {
+    const blocks = questionBlocks({}, { event: MULTI_EMAIL_EVENT });
+    const answerIds = ids(blocks).filter((id) => id.startsWith("inbox:answer"));
+    expect(answerIds).toEqual([
+      "inbox:answer:all",
+      "inbox:answer:0",
+      "inbox:answer:1",
+      "inbox:answer:2",
+      "inbox:answer:4",
+    ]);
+    const all = elementsOf(blocks).find((el) => el.action_id === "inbox:answer:all")!;
+    expect(all.text?.text).toBe("Crea tutte (3)");
+    expect(all.value).toBe(NOTIFICATION_ID);
+  });
+
+  it("nessun «Crea tutte» dove non c'è niente da sommare: domanda dell'agente, calendario, un'azione sola", () => {
+    expect(ids(questionBlocks())).not.toContain("inbox:answer:all");
+    expect(ids(questionBlocks({}, { event: { ...MULTI_EMAIL_EVENT, source: "calendar" } }))).not.toContain(
+      "inbox:answer:all",
+    );
+    const single = {
+      ...MULTI_EMAIL_EVENT,
+      options: MULTI_EMAIL_EVENT.options.slice(2),
+      actions: MULTI_EMAIL_EVENT.actions.slice(2),
+    };
+    expect(ids(questionBlocks({}, { event: single }))).not.toContain("inbox:answer:all");
+  });
+
   it("un bottone per opzione, poi Altro…, poi l'igiene dell'inbox", () => {
     const blocks = questionBlocks();
     expect(ids(blocks)).toEqual([
@@ -429,7 +488,9 @@ describe("buildQuestionBlocks", () => {
     expect(ids(blocks)).toEqual(["inbox:answer:0", "inbox:answer:1", "inbox:open", "inbox:snooze"]);
   });
 
-  it("mai più di 4 opzioni (il contratto ne ammette 2–4): un payload gonfio viene tagliato", () => {
+  // Il tetto è 6 dal 26 set 2026 (una proposta di posta arriva a 5 opzioni):
+  // il senso del test — un payload gonfio viene tagliato — non cambia.
+  it("mai più di 6 opzioni: un payload gonfio viene tagliato", () => {
     const blocks = questionBlocks({
       options: Array.from({ length: 9 }, (_, i) => ({ label: `Opzione ${i + 1}` })),
     });
@@ -438,6 +499,8 @@ describe("buildQuestionBlocks", () => {
       "inbox:answer:1",
       "inbox:answer:2",
       "inbox:answer:3",
+      "inbox:answer:4",
+      "inbox:answer:5",
       "inbox:answer_free",
       "inbox:open",
       "inbox:snooze",
@@ -623,7 +686,7 @@ describe("buildQuestionBlocks", () => {
     expect(blocks).toHaveLength(2);
   });
 
-  it("il taglio a 4 è di PREFISSO: gli indici restano quelli della riga persistita", () => {
+  it("il taglio a 6 è di PREFISSO: gli indici restano quelli della riga persistita", () => {
     const blocks = questionBlocks({
       options: [
         { label: "Zero" },
@@ -631,6 +694,8 @@ describe("buildQuestionBlocks", () => {
         { label: "Due" },
         { label: "Tre" },
         { label: "Quattro" },
+        { label: "Cinque" },
+        { label: "Sei" },
       ],
       recommendedIndex: 3,
     });
@@ -642,6 +707,8 @@ describe("buildQuestionBlocks", () => {
       ["inbox:answer:1", "2. Uno"],
       ["inbox:answer:2", "3. Due"],
       ["inbox:answer:3", "4. Tre ⭐"],
+      ["inbox:answer:4", "5. Quattro"],
+      ["inbox:answer:5", "6. Cinque"],
     ]);
   });
 

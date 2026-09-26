@@ -173,6 +173,11 @@ export function InboxItemCard({
     item.google?.actions.findIndex((action) => action.type === "reassign_project") ?? -1;
   const hasReassign = reassignIndex >= 0;
   const [reassignProjectId, setReassignProjectId] = useState("");
+  // Le azioni che si confermano INSIEME (26 set 2026): le decide il server a
+  // lettura. `?? []`: sul web `lib/api.ts` fa un CAST e non un `parse`, quindi
+  // da un server più vecchio il campo arriva `undefined` — e la card torna la
+  // scelta singola di sempre, invece di rompersi.
+  const multiSelectIndices = item.google?.multiSelectIndices ?? [];
   // Chiave condivisa con la pagina progetti: una sola richiesta anche con
   // dieci card aperte. `enabled` la tiene spenta finché nessuna card offre la
   // riattribuzione — l'inbox di chi non ha posta non deve pagarla.
@@ -656,6 +661,16 @@ export function InboxItemCard({
                         ),
                       }
                     : null,
+              }
+            : {})}
+          {...(multiSelectIndices.length > 0
+            ? {
+                multiSelect: {
+                  indices: multiSelectIndices,
+                  submitLabel: (count: number) => t("inbox:google.createN", { count }),
+                  onSubmit: (optionIndices: number[]) =>
+                    decide.mutate({ action: "answer", body: { optionIndices } }),
+                },
               }
             : {})}
           onSubmit={(answer) =>

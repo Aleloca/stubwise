@@ -1298,6 +1298,29 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   **Rollback — innocuo in ogni direzione**: server vecchio → 404 → l'app non
   mostra la riga; worker vecchio → nessuno scrive né pota più, le righe già
   scritte restano ferme finché non torna il nuovo. La tabella sopravvive.
+- **«Una mail, più azioni e più progetti» (26 set 2026)**: rebuild **server +
+  worker + caddy**; l'app si aggiorna dagli store. **Nessuna migrazione,
+  nessuna env, nessun kind di notifica, nessun valore aggiunto a un enum che
+  entri in una risposta esistente.** Due cose: (1) le azioni del MODELLO di
+  una proposta di posta (`multiSelectableIndices`,
+  `packages/shared/src/multi-select.ts`, almeno due) si confermano insieme —
+  caselle su web e app, «Crea tutte (N)» su Slack — con `optionIndices`, in
+  UNA transazione (o tutte o nessuna) e l'esito `multiple`; gli indici li
+  deriva il server a lettura (`multiSelectIndices`, mai scritto
+  nell'evento) e Slack li ricalcola dal payload persistito; (2) il worker
+  ammette in classificazione TUTTI i progetti, col perimetro del routing solo
+  come ordinamento (primo nel prompt, vince sul tetto del fan-out). Su Slack
+  `MAX_OPTIONS` è salito a 6: col 4 «Non fare nulla» spariva dalle card piene.
+  **Rollback**: server vecchio → `multiSelectIndices` sparisce e i client
+  tornano alla scelta singola (app dal `.default`, web dal `?? []`); solo una
+  card già aperta al momento del rollback può mandare `optionIndices` e
+  prendersi `invalid_answer` (accettato), e un «Crea tutte» premuto su un DM
+  vecchio non fa niente. Worker vecchio → il perimetro torna un confine; le
+  card già nate su altri progetti restano valide.
+  **Come si verifica che serva** (dopo qualche giorno di posta NUOVA,
+  guardando, non automatizzando): quante mail hanno card su più progetti
+  (erano 2 su 48), e le card nate su un progetto FUORI dal perimetro —
+  confermate o ignorate — dicono se il modello attribuisce bene.
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.

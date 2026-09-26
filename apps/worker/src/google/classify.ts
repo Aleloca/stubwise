@@ -343,6 +343,11 @@ export interface EmailSignalsInput {
     backlogTitles: string[];
     /** Ticket APERTI DI QUESTO progetto. */
     openTickets: { number: number; title: string; status: string }[];
+    /**
+     * Il progetto sta nel PERIMETRO del routing (26 set 2026). Assente =
+     * `true`: chi non lo dice ottiene il prompt di sempre, senza gruppi.
+     */
+    matched?: boolean;
   }[];
   /** Numeri `#N` citati nel messaggio. */
   citedTicketNumbers: number[];
@@ -515,9 +520,7 @@ export function buildEmailSignalsPrompt(lang: Language, input: EmailSignalsInput
   // Fase 6b: un blocco PER PROGETTO del perimetro, con intestazione propria
   // (nome + id, così il modello sa quale id usare in `proposals[].projectId`)
   // e sotto il SUO contesto — non un'unica lista condivisa.
-  const projectBlocks: string[] =
-    input.projects.length > 0
-      ? input.projects.flatMap((p) => {
+  const projectBlock = (p: EmailSignalsInput["projects"][number]): string[] => {
           const backlogLines =
             p.backlogTitles.length > 0
               ? p.backlogTitles.map((title) => `- ${title}`)
@@ -535,8 +538,28 @@ export function buildEmailSignalsPrompt(lang: Language, input: EmailSignalsInput
             `${t(lang, "email.input.tickets")}:`,
             ...ticketLines,
           ];
-        })
-      : ["", `- ${t(lang, "email.input.none")}`];
+  };
+  // «Una mail, più azioni e più progetti» (26 set 2026, design §4): ogni
+  // progetto dell'istanza è elencato, quelli del perimetro del routing per
+  // primi. I due gruppi si dichiarano SOLO quando esistono entrambi: con un
+  // perimetro vuoto (smistamento) o con un progetto solo (riattribuzione) il
+  // prompt resta identico a prima.
+  const matchedProjects = input.projects.filter((p) => p.matched !== false);
+  const otherProjects = input.projects.filter((p) => p.matched === false);
+  const projectBlocks: string[] =
+    input.projects.length === 0
+      ? ["", `- ${t(lang, "email.input.none")}`]
+      : matchedProjects.length > 0 && otherProjects.length > 0
+        ? [
+            "",
+            t(lang, "email.input.matchedProjects"),
+            ...matchedProjects.flatMap(projectBlock),
+            "",
+            t(lang, "email.input.otherProjects"),
+            t(lang, "email.signals.otherProjectsRule"),
+            ...otherProjects.flatMap(projectBlock),
+          ]
+        : input.projects.flatMap(projectBlock);
 
   const lines: string[] = [
     t(lang, "email.signals.instructions"),
@@ -607,8 +630,20 @@ interface ProjectContext {
 
 /** Il contesto con cui i referenti dell'agente vengono riconfrontati. */
 export interface ClassifyContext {
-  /** Progetti su cui una proposta può insistere: il PERIMETRO del messaggio. */
+  /**
+   * Progetti su cui una proposta può insistere. Dal 26 set 2026 sono TUTTI
+   * quelli dell'istanza (design §4), non più il solo perimetro: un progetto
+   * che la mail nomina esplicitamente riceve la sua card anche se nessuna
+   * regola lo aveva attribuito. Resta ristretto al progetto scelto nella
+   * riclassificazione dopo «Sposta».
+   */
   allowedProjectIds: Set<string>;
+  /**
+   * Il PERIMETRO del routing (`scopeProjectIds` e i suoi ripieghi): i
+   * progetti che vengono per primi nel prompt e che vincono sul tetto del
+   * fan-out. Vuoto nello smistamento.
+   */
+  matchedProjectIds: Set<string>;
   /**
    * L'ordine del perimetro (`scopeProjectIds`/`allowed`), per il tie-break
    * deterministico del tetto sul fan-out (`GMAIL_MAX_PROJECTS_PER_MESSAGE`).
@@ -806,30 +841,37 @@ async function loadContext(
       ? overrideScope[0]!
       : message.projectId;
 
-  // Perimetro vuoto (fase 6c): i candidati diventano tutti i progetti
-  // dell'istanza. Nessun filtro su stato/archiviazione — lo schema non ne ha
-  // uno (verificato su `projects`, come già fanno il pulse e la `GET
-  // /api/projects/pulse`, che leggono l'istanza intera senza un filtro
-  // "attivo"). Ordinati per data di creazione: stesso ordine di `GET
-  // /api/projects`, e dà al tie-break del tetto sul fan-out
-  // (`perimeterOrder`, vedi {@link revalidateClassification}) un ordine
-  // deterministico anche in questo caso.
-  const projectRows =
-    derivedAllowed.length > 0
-      ? await db
-          .select({ id: projects.id, name: projects.name, description: projects.description })
-          .from(projects)
-          .where(inArray(projects.id, derivedAllowed))
-      : await db
-          .select({ id: projects.id, name: projects.name, description: projects.description })
-          .from(projects)
-          .orderBy(asc(projects.createdAt));
-  const allowed = derivedAllowed.length > 0 ? derivedAllowed : projectRows.map((p) => p.id);
+  // Ogni progetto dell'istanza, ordinato per data di creazione: stesso ordine
+  // di `GET /api/projects`. Nessun filtro su stato/archiviazione — lo schema
+  // non ne ha uno (verificato su `projects`, come già fanno il pulse e la
+  // `GET /api/projects/pulse`, che leggono l'istanza intera).
+  //
+  // «Una mail, più azioni e più progetti» (26 set 2026, design §4): i
+  // progetti AMMESSI sono sempre tutti, e il perimetro del routing è solo
+  // l'ORDINAMENTO — i suoi progetti vengono per primi (nel prompt e nel
+  // tie-break del tetto sul fan-out, vedi {@link revalidateClassification}).
+  // Prima era il confine: una mail sul progetto A che nominava il progetto B
+  // perdeva in silenzio la parte di B. Fa eccezione il perimetro IMPOSTO
+  // della riattribuzione, che resta il solo progetto scelto dalla persona.
+  // Un id del perimetro che non esiste più è semplicemente assente: il
+  // controllo è «esiste fra gli elencati».
+  const instanceProjects = await db
+    .select({ id: projects.id, name: projects.name, description: projects.description })
+    .from(projects)
+    .orderBy(asc(projects.createdAt));
+  const byId = new Map(instanceProjects.map((p) => [p.id, p]));
+  const matched = derivedAllowed.filter((id, i) => byId.has(id) && derivedAllowed.indexOf(id) === i);
+  const matchedProjectIds = new Set(matched);
+  const allowed = overrideScope
+    ? matched
+    : [...matched, ...instanceProjects.map((p) => p.id).filter((id) => !matchedProjectIds.has(id))];
+  const projectRows = allowed.map((id) => byId.get(id)!);
   const allowedProjectIds = new Set(allowed);
 
   if (allowed.length === 0) {
     return {
       allowedProjectIds,
+      matchedProjectIds,
       perimeterOrder: allowed,
       resolvedProjectId,
       projects: [],
@@ -914,6 +956,7 @@ async function loadContext(
 
   return {
     allowedProjectIds,
+    matchedProjectIds,
     perimeterOrder: allowed,
     resolvedProjectId,
     projects: projectRows,
@@ -954,7 +997,9 @@ export function revalidateProposal(
   if (!parsed.success) return null;
   const input = parsed.data;
 
-  // Progetto: se c'è, deve essere uno di quelli del PERIMETRO. Se NON c'è e il
+  // Progetto: se c'è, deve essere uno di quelli ELENCATI nel prompt — dal 26
+  // set 2026 ogni progetto dell'istanza (design §4), quindi il controllo è
+  // «esiste», non più «sta nel perimetro del routing». Se NON c'è e il
   // routing ha risolto un vincitore, lo mettiamo noi: è un dato che sappiamo,
   // non una lacuna da punire scartando l'azione. Con un messaggio ambiguo
   // (nessun vincitore), invece, l'omissione resta tale — indovinare fra più
@@ -1063,6 +1108,10 @@ export function revalidateClassification(
     const perimeterIndex = new Map(ctx.perimeterOrder.map((id, i) => [id, i]));
     projectIds = [...projectIds]
       .sort((a, b) => {
+        // Il PERIMETRO del routing vince sul tetto (design §4): un progetto
+        // nominato di passaggio non scalza quello a cui la mail è attribuita.
+        const byMatch = Number(ctx.matchedProjectIds.has(b)) - Number(ctx.matchedProjectIds.has(a));
+        if (byMatch !== 0) return byMatch;
         const byCount = byProject.get(b)!.length - byProject.get(a)!.length;
         if (byCount !== 0) return byCount;
         return (perimeterIndex.get(a) ?? 0) - (perimeterIndex.get(b) ?? 0);
@@ -1507,6 +1556,7 @@ export async function reclassifyReassignedProposal(
           id: p.id,
           name: p.name,
           description: p.description,
+          matched: ctx.matchedProjectIds.has(p.id),
           backlogTitles: projectCtx?.backlogTitles ?? [],
           openTickets: [...(projectCtx?.openTickets.entries() ?? [])].map(([number, ticket]) => ({
             number,
@@ -1676,6 +1726,7 @@ export async function classifyEmail(
           id: p.id,
           name: p.name,
           description: p.description,
+          matched: ctx.matchedProjectIds.has(p.id),
           backlogTitles: projectCtx?.backlogTitles ?? [],
           openTickets: [...(projectCtx?.openTickets.entries() ?? [])].map(([number, ticket]) => ({
             number,

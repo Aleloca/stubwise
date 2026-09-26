@@ -9,6 +9,7 @@ import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import type { ProposalParamList, RootStackParamList } from "../../app/navigation";
 import { useAuth } from "../../app/providers";
 import { GhostButton } from "../../components/GhostButton";
+import { PrimaryButton } from "../../components/PrimaryButton";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { SectionLabel } from "../../components/SectionLabel";
 import { Skeleton } from "../../components/Skeleton";
@@ -178,6 +179,28 @@ function ProposalBody({
   // comunque che COSA succederà, solo senza il dettaglio.
   const options = item.question?.options ?? [];
   const fallback = google?.actions ?? [];
+  const choices = options.length > 0 ? options : fallback;
+
+  // PIÙ AZIONI INSIEME (26 set 2026, design §5): le azioni del modello che si
+  // sommano diventano caselle, tutte spuntate, con un bottone «Crea N»; le
+  // altre righe («Sposta», «Non fare nulla») agiscono al tocco come prima.
+  // Quali si sommano lo dice il SERVER (`multiSelectIndices`, derivato a
+  // lettura): l'app non ricalcola la regola, perché una sua copia starebbe
+  // dalla parte che non possiamo aggiornare. Un indice fuori dalle scelte
+  // mostrate non diventa una casella.
+  const multiIndices = (google?.multiSelectIndices ?? []).filter(
+    (index) => Number.isInteger(index) && index >= 0 && index < choices.length,
+  );
+  const multiSet = new Set(multiIndices);
+  const [checked, setChecked] = useState<ReadonlySet<number>>(() => new Set(multiIndices));
+  const checkedIndices = multiIndices.filter((index) => checked.has(index));
+  const toggle = (index: number) =>
+    setChecked((current) => {
+      const next = new Set(current);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
 
   return (
     <>
@@ -202,11 +225,60 @@ function ProposalBody({
       */}
       <ProposalSource sourceProposalId={google?.sourceProposalId ?? null} />
 
-      {options.length > 0 || fallback.length > 0 ? (
+      {choices.length > 0 ? (
         <>
+          {multiIndices.length > 0 && (
+            <>
+              <SectionLabel style={styles.sectionLabel}>{t("mobile.inbox.google.multiTitle")}</SectionLabel>
+              <View style={styles.card}>
+                {multiIndices.map((index, position) => {
+                  const choice = choices[index]!;
+                  const isChecked = checked.has(index);
+                  return (
+                    <Pressable
+                      key={index}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked: isChecked, disabled: answer.disabled }}
+                      disabled={answer.disabled}
+                      onPress={() => toggle(index)}
+                      style={[styles.row, position > 0 && styles.rowDivided, answer.disabled && styles.rowDisabled]}
+                      testID={`google-multi-${index}`}
+                    >
+                      <View style={[styles.checkbox, isChecked && styles.checkboxOn]}>
+                        {isChecked && <Text style={styles.checkmark}>✓</Text>}
+                      </View>
+                      <View style={styles.rowText}>
+                        <Text style={styles.rowLabel}>
+                          {"label" in choice ? choice.label : t(`mobile.inbox.google.actions.${choice.type}`)}
+                        </Text>
+                        {"consequence" in choice && choice.consequence !== null && (
+                          <Text style={styles.rowConsequence}>{choice.consequence}</Text>
+                        )}
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              <View style={styles.doneWrap}>
+                <PrimaryButton
+                  label={t("mobile.inbox.google.createN", { count: checkedIndices.length })}
+                  disabled={answer.disabled || checkedIndices.length === 0}
+                  onPress={() => {
+                    if (checkedIndices.length > 0) {
+                      answer.mutate({ id: item.id, body: { optionIndices: checkedIndices } });
+                    }
+                  }}
+                  testID="google-multi-submit"
+                />
+              </View>
+            </>
+          )}
           <SectionLabel style={styles.sectionLabel}>{t("mobile.inbox.google.whatToDo")}</SectionLabel>
           <View style={styles.card}>
-            {(options.length > 0 ? options : fallback).map((choice, index) => (
+            {choices.map((choice, index) =>
+              // Le caselle stanno sopra: qui restano le altre, con l'INDICE
+              // ORIGINALE — è quello che viaggia fino al server.
+              multiSet.has(index) ? null : (
               <Pressable
                 key={index}
                 accessibilityRole="button"
@@ -229,7 +301,8 @@ function ProposalBody({
                 </View>
                 <Text style={styles.chevron}>›</Text>
               </Pressable>
-            ))}
+              ),
+            )}
           </View>
           {pickingProject && reassignIndex >= 0 && (
             <>
@@ -432,6 +505,19 @@ const styles = StyleSheet.create({
   rowDivided: { borderTopColor: colors.line, borderTopWidth: 1 },
   rowDisabled: { opacity: 0.5 },
   rowText: { flex: 1, gap: 2 },
+  // Casella delle azioni sommabili: stessa lingua del resto (bordo, ambra
+  // quando è spuntata), niente componente di libreria.
+  checkbox: {
+    alignItems: "center",
+    borderColor: colors.lineStrong,
+    borderRadius: radii.control,
+    borderWidth: 1,
+    height: 22,
+    justifyContent: "center",
+    width: 22,
+  },
+  checkboxOn: { backgroundColor: colors.signal, borderColor: colors.signal },
+  checkmark: { color: colors.ink950, fontFamily: fontFamily.mono, fontSize: 13 },
   rowLabel: { color: colors.fg, fontFamily: fontFamily.sans, fontSize: 15 },
   rowConsequence: { color: colors.faint, fontFamily: fontFamily.sans, fontSize: 12 },
   chevron: { color: colors.faint, fontFamily: fontFamily.sans, fontSize: 20 },

@@ -1,6 +1,6 @@
 import {
   ANSWER_TEXT_MAX_CHARS,
-  answerBodySchema,
+  inboxAnswerBodySchema,
   inboxActionErrorSchema,
   inboxActionResultSchema,
   inboxActionSchema,
@@ -11,7 +11,7 @@ import {
   snoozeResultSchema,
   snoozeUntilSchema,
   unreadCountSchema,
-  type AnswerBody,
+  type InboxAnswerBodyFields,
   type InboxAction,
   type InboxDecisionAction,
   type InboxItem,
@@ -360,9 +360,13 @@ export async function inboxRoutes(instance: FastifyInstance): Promise<void> {
           .object({
             instructions: z.string().max(4000).optional(),
             optionIndex: z.number().int().nonnegative().optional(),
+            // Più azioni di una proposta di posta insieme (26 set 2026): il
+            // contratto stretto sta in `inboxAnswerBodySchema`, le regole di
+            // merito (quali indici si sommano) in `answerGoogleProposal`.
+            optionIndices: z.array(z.number().int().nonnegative()).max(50).optional(),
             text: z.string().max(ANSWER_TEXT_MAX_CHARS).optional(),
             // Solo per `answer` su una proposta di posta con l'azione
-            // `reassign_project`. Volutamente FUORI da `answerBodySchema`: là
+            // `reassign_project`. Volutamente FUORI da `inboxAnswerBodySchema`: là
             // il refine dice «esattamente uno fra optionIndex e text», e
             // questo campo è ortogonale ai due — accompagna l'indice, non lo
             // sostituisce. Su ogni altra azione il servizio lo RIFIUTA
@@ -386,15 +390,15 @@ export async function inboxRoutes(instance: FastifyInstance): Promise<void> {
       // si valida qui, sul solo ramo `answer`, con lo schema condiviso. Un
       // corpo che non lo rispetta è `invalid_answer` (400) come se l'avesse
       // rifiutato il servizio: per il client è lo stesso errore.
-      let answer: AnswerBody | undefined;
+      let answer: InboxAnswerBodyFields | undefined;
       if (action === "answer") {
-        const parsed = answerBodySchema.safeParse(request.body ?? {});
+        const parsed = inboxAnswerBodySchema.safeParse(request.body ?? {});
         if (!parsed.success) {
           return apiError(
             reply,
             400,
             "invalid_answer",
-            "Provide exactly one of optionIndex or text",
+            "Provide exactly one of optionIndex, optionIndices or text",
           );
         }
         answer = parsed.data;
