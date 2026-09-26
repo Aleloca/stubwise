@@ -3,10 +3,11 @@ import type { DocPageKind, DocTreeNode, Reader } from "@stubwise/shared";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import type { ProjectsStackParamList } from "../../app/navigation";
 import { useAuth } from "../../app/providers";
+import { AppSwitch } from "../../components/AppSwitch";
 import { GhostButton } from "../../components/GhostButton";
 import { usePullToRefresh } from "../../components/PullToRefresh";
 import { ScreenHeader } from "../../components/ScreenHeader";
@@ -439,16 +440,26 @@ function CategoryForest({ nodes, onOpenPage }: { nodes: readonly Reader<DocTreeN
 function Releases({ nodes, onOpenPage }: { nodes: readonly Reader<DocTreeNode>[]; onOpenPage: OpenPage }) {
   const { t } = useTranslation();
   const [onlySignificant, setOnlySignificant] = useState(false);
-  const releases = nodes
+  const all = nodes
     .filter((node) => node.kind === "releases")
-    .sort((a, b) => a.position - b.position || a.title.localeCompare(b.title))
-    .filter((node) => !onlySignificant || node.significant !== false);
+    .sort((a, b) => a.position - b.position || a.title.localeCompare(b.title));
+  const releases = all.filter((node) => !onlySignificant || node.significant !== false);
 
   return (
     <View style={styles.list} testID="repo-docs-releases">
       <View style={styles.switchRow}>
-        <Text style={styles.rowMeta}>{t("mobile.docs.repo.onlySignificant")}</Text>
-        <Switch
+        <Text style={[styles.rowMeta, styles.switchLabel]}>{t("mobile.docs.repo.onlySignificant")}</Text>
+        {/*
+          Quante se ne vedono sul totale, a filtro acceso: le minori sono poche
+          e spesso in fondo (2 su 64 in produzione), e senza il numero il filtro
+          sembra non fare niente.
+        */}
+        {onlySignificant && (
+          <Text style={styles.rowMeta} testID="repo-docs-releases-count">
+            {t("mobile.docs.repo.releasesCount", { visible: releases.length, total: all.length })}
+          </Text>
+        )}
+        <AppSwitch
           accessibilityLabel={t("mobile.docs.repo.onlySignificant")}
           value={onlySignificant}
           onValueChange={setOnlySignificant}
@@ -698,7 +709,10 @@ const styles = StyleSheet.create({
   switchRow: {
     alignItems: "center",
     flexDirection: "row",
-    justifyContent: "space-between",
+    gap: 10,
+  },
+  switchLabel: {
+    flex: 1,
   },
   releaseMeta: {
     alignItems: "center",

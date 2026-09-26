@@ -307,6 +307,19 @@ describe("RepoDocsScreen — Releases", () => {
     expect(screen.queryByTestId("repo-docs-release-release-20260921-0900-bbb2222")).toBeNull();
     expect(screen.getByTestId("repo-docs-release-release-20260920-0900-aaa1111")).toBeTruthy();
   });
+
+  /**
+   * Sul telefono il filtro sembrava non fare niente: in produzione 2 release
+   * su 64 sono minori, e stanno in fondo. Il conteggio dice che agisce.
+   */
+  test("acceso, il filtro dice quante release si vedono sul totale", async () => {
+    await openReleases();
+    expect(screen.queryByTestId("repo-docs-releases-count")).toBeNull();
+    await fireEvent(screen.getByTestId("repo-docs-only-significant"), "valueChange", true);
+    expect(screen.getByTestId("repo-docs-releases-count").props.children).toBe("1 di 2");
+    await fireEvent(screen.getByTestId("repo-docs-only-significant"), "valueChange", false);
+    expect(screen.queryByTestId("repo-docs-releases-count")).toBeNull();
+  });
 });
 
 describe("RepoDocsScreen — la ricerca nel repository", () => {
