@@ -1,29 +1,69 @@
 import type { StubwiseClient } from "@stubwise/api-client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react-native";
 import { AuthContext } from "../../app/auth-context";
 import type { AuthContextValue } from "../../app/providers";
 import "../../i18n";
 import { ProjectDocsScreen } from "./ProjectDocsScreen";
 
+/**
+ * LA PAGINA GENERALE DELLA DOCUMENTAZIONE di un progetto, come la home Docs di
+ * progetto del web («la documentazione nell'app, come sul web» §3): ricerca,
+ * «Ask this project», «Start here», repository, novità.
+ */
 const PROJECT_ID = "11111111-1111-4111-8111-111111111111";
 const REPO_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const REPO_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 
-function space(id: string, name: string, pageCount = 12): Record<string, unknown> {
-  return { repositoryId: id, slug: name, name, pageCount, lastGenerationAt: null, lastCommitSha: null };
+function space(id: string, name: string, pageCount: number, lastGenerationAt: string | null = null) {
+  return { repositoryId: id, slug: name, name, pageCount, lastGenerationAt, lastCommitSha: null };
 }
 
-function node(overrides: Record<string, unknown> = {}): Record<string, unknown> {
-  return { id: "n1", parentId: null, slug: "guida", title: "Guida all'API", kind: "functional", ...overrides };
-}
+const SPACES = [space(REPO_B, "portale-web", 4, "2026-09-10T08:00:00.000Z"), space(REPO_A, "portale-api", 12)];
 
-function makeClient(overrides: { projectSpaces?: jest.Mock; tree?: jest.Mock } = {}): StubwiseClient {
+const HIGHLIGHTS = {
+  countsByKind: { technical: 10, functional: 3, product: 0, manual: 0, releases: 2 },
+  topViewed: [
+    { slug: "auth", title: "Autenticazione", kind: "technical", viewCount: 40, repositoryId: REPO_A, repositorySlug: "portale-api", repositoryName: "portale-api" },
+  ],
+  latestReleases: [
+    {
+      slug: "release-20260924-1000-abc1234",
+      title: "Nuovo checkout",
+      createdAt: "2026-09-24T10:00:00.000Z",
+      significant: true,
+      commitSha: null,
+      repositoryId: REPO_A,
+      repositorySlug: "portale-api",
+      repositoryName: "portale-api",
+    },
+  ],
+};
+
+const BRIEF = {
+  brief: {
+    identity: "Le API degli ordini B2B.",
+    actors: [],
+    surfaces: [],
+    glossary: [],
+    invariants: [],
+    confidentialFacts: [],
+    journeys: [],
+    existingSources: [],
+  },
+  generation: { createdAt: "2026-09-25T10:30:00.000Z", commitSha: null },
+  productExclusions: [],
+};
+
+function makeClient(
+  overrides: { projectSpaces?: jest.Mock; projectHighlights?: jest.Mock; brief?: jest.Mock; projectSearch?: jest.Mock } = {},
+): StubwiseClient {
   return {
     docs: {
-      projectSpaces:
-        overrides.projectSpaces ?? jest.fn().mockResolvedValue([space(REPO_A, "Spazio API"), space(REPO_B, "Spazio Web", 4)]),
-      tree: overrides.tree ?? jest.fn().mockResolvedValue([node()]),
+      projectSpaces: overrides.projectSpaces ?? jest.fn().mockResolvedValue(SPACES),
+      projectHighlights: overrides.projectHighlights ?? jest.fn().mockResolvedValue(HIGHLIGHTS),
+      brief: overrides.brief ?? jest.fn().mockResolvedValue(BRIEF),
+      projectSearch: overrides.projectSearch ?? jest.fn().mockResolvedValue([]),
     },
   } as unknown as StubwiseClient;
 }
@@ -40,13 +80,12 @@ async function renderScreen(client: StubwiseClient, navigate: jest.Mock = jest.f
     openSettings: jest.fn(),
     loggedOut: jest.fn(),
   };
-  const navigation = { navigate, goBack } as never;
   // `await`: vedi il commento gemello in `ProjectsScreen.test.tsx`.
   await render(
     <QueryClientProvider client={queryClient}>
       <AuthContext.Provider value={authValue}>
         <ProjectDocsScreen
-          navigation={navigation}
+          navigation={{ navigate, goBack } as never}
           route={{ key: "ProjectDocs", name: "ProjectDocs", params: { projectId: PROJECT_ID, projectName: "Portale B2B" } }}
         />
       </AuthContext.Provider>
@@ -57,99 +96,127 @@ async function renderScreen(client: StubwiseClient, navigate: jest.Mock = jest.f
 
 beforeEach(() => jest.clearAllMocks());
 
-describe("ProjectDocsScreen", () => {
-  /**
-   * «Chiedi al progetto» vive qui dal 25 set 2026: il tab DOC, che era
-   * l'unica strada per arrivarci, non c'è più.
-   */
-  test("«Chiedi a questo progetto» apre la chat del progetto, col suo id e nome", async () => {
-    const { navigate } = await renderScreen(makeClient());
-    await waitFor(() => expect(screen.getByText("Spazio API")).toBeTruthy());
-    await fireEvent.press(screen.getByTestId("project-docs-ask"));
-    expect(navigate).toHaveBeenCalledWith("Ask", { projectId: PROJECT_ID, projectName: "Portale B2B" });
-  });
-
-  test("il bottone sta in testa, quindi c'è anche quando il progetto non ha documentazione", async () => {
+describe("ProjectDocsScreen — la pagina generale", () => {
+  test("«Ask this project» apre la chat del progetto, anche senza documentazione", async () => {
     const { navigate } = await renderScreen(makeClient({ projectSpaces: jest.fn().mockResolvedValue([]) }));
     await waitFor(() => expect(screen.getByTestId("project-docs-empty")).toBeTruthy());
     await fireEvent.press(screen.getByTestId("project-docs-ask"));
     expect(navigate).toHaveBeenCalledWith("Ask", { projectId: PROJECT_ID, projectName: "Portale B2B" });
   });
 
-  /**
-   * ⚠️ TUTTI gli spazi, non solo il principale: il tab DOC ne sceglie uno
-   * (`mainDocSpace`) perché ha un solo switcher; qui la domanda è «di cosa è
-   * fatto QUESTO progetto», e nasconderne due risponderebbe a un'altra
-   * domanda.
-   */
-  test("elenca TUTTI gli spazi del progetto, non solo quello principale", async () => {
-    await renderScreen(makeClient());
-    await waitFor(() => expect(screen.getByText("Spazio API")).toBeTruthy());
-    expect(screen.getByText("Spazio Web")).toBeTruthy();
+  test("«Start here» parte dal repository PRINCIPALE (quello con più pagine): brief e panoramica", async () => {
+    const client = makeClient();
+    const { navigate } = await renderScreen(client);
+    await waitFor(() => expect(screen.getByText("Le API degli ordini B2B.")).toBeTruthy());
+    expect(client.docs.brief).toHaveBeenCalledWith(REPO_A);
+
+    await fireEvent.press(screen.getByTestId("project-docs-start-brief"));
+    expect(navigate).toHaveBeenCalledWith("RepoBrief", { repositoryId: REPO_A, repositoryName: "portale-api" });
+    await fireEvent.press(screen.getByTestId("project-docs-start-overview"));
+    expect(navigate).toHaveBeenCalledWith("RepoDocs", { repositoryId: REPO_A, repositoryName: "portale-api" });
   });
 
-  /**
-   * ⚠️ L'albero di uno spazio si chiede SOLO aprendolo: con N repository
-   * sarebbero N richieste all'ingresso per mostrarne una.
-   */
-  test("non chiede nessun albero finché non si apre uno spazio", async () => {
-    const tree = jest.fn().mockResolvedValue([node()]);
-    await renderScreen(makeClient({ tree }));
-    await waitFor(() => expect(screen.getByText("Spazio API")).toBeTruthy());
-    expect(tree).not.toHaveBeenCalled();
-
-    await fireEvent.press(screen.getByTestId(`project-docs-space-${REPO_A}`));
-    await waitFor(() => expect(tree).toHaveBeenCalledWith(REPO_A));
-    // E SOLO quello aperto: l'altro spazio resta chiuso e non chiede niente.
-    expect(tree).toHaveBeenCalledTimes(1);
+  test("l'ultima release in «Start here» apre la sua pagina, nel repository giusto", async () => {
+    const { navigate } = await renderScreen(makeClient());
+    await waitFor(() => expect(screen.getByTestId("project-docs-start-release")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("project-docs-start-release"));
+    expect(navigate).toHaveBeenCalledWith("Page", { repositoryId: REPO_A, slug: "release-20260924-1000-abc1234" });
   });
 
-  test("aperto uno spazio, un gruppo si espande e una pagina naviga — dentro lo stack del progetto", async () => {
-    const navigate = jest.fn();
-    await renderScreen(makeClient(), navigate);
-    await waitFor(() => expect(screen.getByTestId(`project-docs-space-${REPO_A}`)).toBeTruthy());
-    await fireEvent.press(screen.getByTestId(`project-docs-space-${REPO_A}`));
-    await waitFor(() => expect(screen.getByTestId(`project-docs-browse-${REPO_A}-functional`)).toBeTruthy());
+  test("i repository: nome, pagine e l'ultima release o l'ultima generazione; il tap apre la loro documentazione", async () => {
+    const { navigate } = await renderScreen(makeClient());
+    await waitFor(() => expect(screen.getByTestId(`project-docs-repo-${REPO_A}`)).toBeTruthy());
+    expect(screen.getByTestId(`project-docs-repo-${REPO_B}`)).toBeTruthy();
+    // portale-api ha una release nelle novità; portale-web no, e mostra la generazione.
+    expect(within(screen.getByTestId(`project-docs-repo-${REPO_A}`)).getByText(/ultimo: Nuovo checkout/)).toBeTruthy();
+    expect(within(screen.getByTestId(`project-docs-repo-${REPO_B}`)).getByText(/10\/09\/26/)).toBeTruthy();
 
-    await fireEvent.press(screen.getByTestId(`project-docs-browse-${REPO_A}-functional`));
-    await waitFor(() => expect(screen.getByText("Guida all'API")).toBeTruthy());
-    await fireEvent.press(screen.getByText("Guida all'API"));
-
-    expect(navigate).toHaveBeenCalledWith("Page", { repositoryId: REPO_A, slug: "guida" });
-    // ⚠️ Non un salto al tab DOC: la pagina è registrata anche qui.
-    expect(navigate).not.toHaveBeenCalledWith("Main", expect.anything());
+    await fireEvent.press(screen.getByTestId(`project-docs-repo-${REPO_B}`));
+    expect(navigate).toHaveBeenCalledWith("RepoDocs", { repositoryId: REPO_B, repositoryName: "portale-web" });
   });
 
-  test("un albero che non si carica lo dice, e non porta giù la schermata", async () => {
-    await renderScreen(makeClient({ tree: jest.fn().mockRejectedValue(new Error("down")) }));
-    await waitFor(() => expect(screen.getByTestId(`project-docs-space-${REPO_A}`)).toBeTruthy());
-    await fireEvent.press(screen.getByTestId(`project-docs-space-${REPO_A}`));
-    await waitFor(() => expect(screen.getByTestId(`project-docs-tree-error-${REPO_A}`)).toBeTruthy());
-    // Gli altri spazi restano leggibili e apribili.
-    expect(screen.getByText("Spazio Web")).toBeTruthy();
+  test("le novità di tutti i repository, ciascuna col suo repository", async () => {
+    const { navigate } = await renderScreen(makeClient());
+    await waitFor(() => expect(screen.getByTestId("project-docs-whats-new")).toBeTruthy());
+    expect(screen.getByTestId("project-docs-new-release-release-20260924-1000-abc1234")).toBeTruthy();
+    await fireEvent.press(screen.getByTestId("project-docs-new-viewed-auth"));
+    expect(navigate).toHaveBeenCalledWith("Page", { repositoryId: REPO_A, slug: "auth" });
   });
 
-  test("nessuno spazio documentato: lo stato vuoto, non un errore", async () => {
-    await renderScreen(makeClient({ projectSpaces: jest.fn().mockResolvedValue([]) }));
-    await waitFor(() => expect(screen.getByTestId("project-docs-empty")).toBeTruthy());
+  test("⚠️ highlights e brief che FALLISCONO: spariscono le loro sezioni, i repository restano", async () => {
+    await renderScreen(
+      makeClient({
+        projectHighlights: jest.fn().mockRejectedValue(new Error("giù")),
+        brief: jest.fn().mockRejectedValue(new Error("404")),
+      }),
+    );
+    await waitFor(() => expect(screen.getByTestId(`project-docs-repo-${REPO_A}`)).toBeTruthy());
+    expect(screen.queryByTestId("project-docs-whats-new")).toBeNull();
+    expect(screen.queryByTestId("project-docs-start-brief")).toBeNull();
+    expect(screen.queryByTestId("project-docs-start-release")).toBeNull();
+    // La panoramica del principale non dipende da loro: resta.
+    expect(screen.getByTestId("project-docs-start-overview")).toBeTruthy();
+    expect(screen.queryByTestId("project-docs-error")).toBeNull();
   });
 
-  test("errore sugli spazi: un messaggio con Riprova, che ricarica", async () => {
-    const projectSpaces = jest
-      .fn()
-      .mockRejectedValueOnce(new Error("down"))
-      .mockResolvedValueOnce([space(REPO_A, "Spazio API")]);
+  test("errore sugli spazi: messaggio con Riprova, che ricarica", async () => {
+    const projectSpaces = jest.fn().mockRejectedValueOnce(new Error("giù")).mockResolvedValueOnce(SPACES);
     await renderScreen(makeClient({ projectSpaces }));
     await waitFor(() => expect(screen.getByTestId("project-docs-error")).toBeTruthy());
     await fireEvent.press(screen.getByTestId("project-docs-retry"));
-    await waitFor(() => expect(screen.getByText("Spazio API")).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId(`project-docs-repo-${REPO_A}`)).toBeTruthy());
   });
 
   test("l'indietro torna all'hub", async () => {
     const goBack = jest.fn();
     await renderScreen(makeClient(), jest.fn(), goBack);
-    await waitFor(() => expect(screen.getByText("Spazio API")).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId(`project-docs-repo-${REPO_A}`)).toBeTruthy());
     await fireEvent.press(screen.getByTestId("screen-header-back"));
     expect(goBack).toHaveBeenCalled();
+  });
+});
+
+describe("ProjectDocsScreen — la ricerca del progetto", () => {
+  test("i risultati sostituiscono la pagina finché il campo non è vuoto; il tap apre la pagina", async () => {
+    jest.useFakeTimers();
+    try {
+      const projectSearch = jest.fn().mockResolvedValue([
+        {
+          slug: "auth",
+          title: "Autenticazione",
+          kind: "technical",
+          snippet: "…il token…",
+          score: 0.8,
+          source: "hybrid",
+          repositoryId: REPO_A,
+          repositorySlug: "portale-api",
+          repositoryName: "portale-api",
+        },
+      ]);
+      const { navigate } = await renderScreen(makeClient({ projectSearch }));
+      await waitFor(() => expect(screen.getByTestId(`project-docs-repo-${REPO_A}`)).toBeTruthy());
+
+      await fireEvent.changeText(screen.getByTestId("project-docs-search-input"), "token");
+      // Col debounce: niente chiamata prima dei 300 ms.
+      expect(projectSearch).not.toHaveBeenCalled();
+      await act(async () => {
+        jest.advanceTimersByTime(300);
+      });
+      await waitFor(() => expect(screen.getByTestId("project-docs-hit-auth")).toBeTruthy());
+      expect(projectSearch).toHaveBeenCalledWith(PROJECT_ID, "token");
+      expect(screen.getByText("portale-api · Tecnica")).toBeTruthy();
+      expect(screen.queryByTestId(`project-docs-repo-${REPO_A}`)).toBeNull();
+
+      await fireEvent.press(screen.getByTestId("project-docs-hit-auth"));
+      expect(navigate).toHaveBeenCalledWith("Page", { repositoryId: REPO_A, slug: "auth" });
+
+      await fireEvent.changeText(screen.getByTestId("project-docs-search-input"), "");
+      await act(async () => {
+        jest.advanceTimersByTime(300);
+      });
+      await waitFor(() => expect(screen.getByTestId(`project-docs-repo-${REPO_A}`)).toBeTruthy());
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

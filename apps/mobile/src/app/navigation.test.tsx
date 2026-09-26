@@ -286,6 +286,22 @@ function routeFetch(input: RequestInfo | URL, init?: RequestInit): Response {
   if (method === "GET" && url.includes("/docs/spaces")) {
     return jsonResponse(200, [DOC_SPACE]);
   }
+  // «La documentazione nell'app, come sul web» (25 set 2026): highlights e
+  // brief sono letture accessorie; qui un repository senza brief (404).
+  if (method === "GET" && url.includes("/docs/highlights")) {
+    return jsonResponse(200, {
+      countsByKind: { technical: 0, functional: 1, product: 0, manual: 0, releases: 0 },
+      topViewed: [],
+      latestReleases: [],
+      ...(url.includes("/api/repositories/") ? { recentlyUpdated: [] } : {}),
+    });
+  }
+  if (method === "GET" && url.includes("/docs/brief")) {
+    return jsonResponse(404, { error: { code: "doc_brief_not_found", message: "No brief" } });
+  }
+  if (method === "POST" && url.includes("/docs/pages/") && url.endsWith("/view")) {
+    return jsonResponse(204, undefined);
+  }
   if (method === "GET" && url.includes("/docs/pages/")) {
     return jsonResponse(200, DOC_PAGE);
   }
@@ -713,24 +729,25 @@ describe("hub di progetto — la documentazione resta nello stack del progetto",
         },
       });
     });
-    await waitFor(() => expect(screen.getByTestId(`project-docs-space-${DOC_REPOSITORY_ID}`)).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId(`project-docs-repo-${DOC_REPOSITORY_ID}`)).toBeTruthy());
 
-    await fireEvent.press(screen.getByTestId(`project-docs-space-${DOC_REPOSITORY_ID}`));
-    await waitFor(() => expect(screen.getByTestId(`project-docs-browse-${DOC_REPOSITORY_ID}-functional`)).toBeTruthy());
-    await fireEvent.press(screen.getByTestId(`project-docs-browse-${DOC_REPOSITORY_ID}-functional`));
-    await waitFor(() => expect(screen.getByText("Guida all'API")).toBeTruthy());
+    // Dalla pagina generale alla documentazione del repository, a tab.
+    await fireEvent.press(screen.getByTestId(`project-docs-repo-${DOC_REPOSITORY_ID}`));
+    await waitFor(() => expect(screen.getByTestId("repo-docs-tab-functional")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("repo-docs-tab-functional"));
+    await waitFor(() => expect(screen.getByTestId("repo-docs-node-guida")).toBeTruthy());
 
-    await fireEvent.press(screen.getByText("Guida all'API"));
+    await fireEvent.press(screen.getByTestId("repo-docs-node-guida"));
     await waitFor(() => expect(screen.getByTestId("docs-page-body")).toBeTruthy());
 
-    // ⚠️ La scheda in basso non si è mossa: se il tap fosse uscito dallo
-    // stack saremmo nel tab DOC, che si riconosce dal suo switcher di
-    // progetto — qui non deve esserci.
-    expect(screen.queryByTestId("docs-project-toggle")).toBeNull();
-
-    await fireEvent.press(screen.getByTestId("screen-header-back"));
-    await waitFor(() => expect(screen.getByTestId(`project-docs-space-${DOC_REPOSITORY_ID}`)).toBeTruthy());
-    expect(screen.queryByTestId("docs-project-toggle")).toBeNull();
+    // Indietro: si torna alla documentazione del repository, dentro lo stack
+    // del progetto — non a un'altra scheda.
+    const backs = screen.getAllByTestId("screen-header-back");
+    await fireEvent.press(backs[backs.length - 1]!);
+    // La pagina se n'è andata (la documentazione del repository era rimasta
+    // montata SOTTO: vederla non basterebbe a provare l'indietro).
+    await waitFor(() => expect(screen.queryByTestId("docs-page-body")).toBeNull());
+    expect(screen.getByTestId("repo-docs-tab-functional")).toBeTruthy();
   });
 });
 

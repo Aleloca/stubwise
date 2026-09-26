@@ -426,8 +426,19 @@
           "title": "Nessuna documentazione",
           "body": "Nessun repository di questo progetto ha ancora pagine generate."
         },
-        "treeError": "Non è stato possibile caricare le pagine di questo spazio.",
-        "ask": "Chiedi a questo progetto ›"
+        "ask": "Chiedi a questo progetto ›",
+        "searchPlaceholder": "Cerca nella documentazione del progetto…",
+        "searchEmpty": "Niente trovato nella documentazione del progetto.",
+        "searchError": "La ricerca non è disponibile in questo momento.",
+        "startHere": "Da dove iniziare",
+        "briefLink": "Brief ›",
+        "overviewLink": "Panoramica di {{name}} ›",
+        "latestRelease": "Ultimo rilascio",
+        "repositories": "Repository",
+        "whatsNew": "Novità",
+        "topViewed": "più vista",
+        "generatedAt": "generata il {{date}}",
+        "releaseMeta": "ultimo: {{title}}"
       },
       "roadmap": {
         "title": "Roadmap",
@@ -790,14 +801,8 @@
         "retry": "Riprova"
       },
       "browse": {
-        "functional": "Guida funzionale",
-        "technical": "Pagine tecniche",
-        "releases": "Note di rilascio",
         "pageCount_one": "{{count}} pagina",
-        "pageCount_other": "{{count}} pagine",
-        "latestRelease": "ultima: {{title}}",
-        "noReleases": "nessuna release",
-        "groupEmpty": "Nessuna pagina qui."
+        "pageCount_other": "{{count}} pagine"
       },
       "ask": {
         "sectionLabel": "Chiedi al progetto",
@@ -846,12 +851,10 @@
         "searchEmpty": "Niente trovato in questo repository.",
         "searchError": "La ricerca non è disponibile in questo momento.",
         "briefLink": "Brief ›",
-        "briefMeta": "Cos'è questo progetto, per chi, e con quali parole",
         "noBrief": "Questo repository non ha ancora un brief.",
         "startHere": "Da dove iniziare",
         "categories": "Categorie",
         "whatsNew": "Novità",
-        "latestReleases": "Ultimi rilasci",
         "recentlyUpdated": "Aggiornate di recente",
         "topViewed": "Più viste",
         "minor": "minore",

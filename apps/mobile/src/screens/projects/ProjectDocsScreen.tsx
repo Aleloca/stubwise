@@ -1,53 +1,59 @@
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
-import type { DocSpace, Reader } from "@stubwise/shared";
+import { isUnknown, type DocSpace, type ProjectHighlights, type Reader } from "@stubwise/shared";
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import type { ProjectsStackParamList } from "../../app/navigation";
 import { useAuth } from "../../app/providers";
-import { DocSpaceBrowser } from "../../components/docs/DocSpaceBrowser";
 import { GhostButton } from "../../components/GhostButton";
+import { usePullToRefresh } from "../../components/PullToRefresh";
 import { ScreenHeader } from "../../components/ScreenHeader";
+import { SectionLabel } from "../../components/SectionLabel";
 import { Skeleton } from "../../components/Skeleton";
 import { docsKeys } from "../../lib/docs-mutations";
+import { mainDocSpace } from "../../lib/docs-structure";
+import { shortDate } from "../../lib/format";
 import { colors, radii } from "../../theme/tokens";
-import { fontFamily } from "../../theme/typography";
-import { usePullToRefresh } from "../../components/PullToRefresh";
+import { fontFamily, fontSize } from "../../theme/typography";
 
 /** Vedi `InboxScreen.tsx` per il perché di una costante invece di leggere `styles.body.paddingBottom`. */
 const CONTENT_BASE_BOTTOM_PADDING = 40;
+/** Il debounce del campo di ricerca, come la ricerca globale. */
+const SEARCH_DEBOUNCE_MS = 300;
+
+type Props = NativeStackScreenProps<ProjectsStackParamList, "ProjectDocs">;
 
 /**
- * LA DOCUMENTAZIONE DI UN PROGETTO (22 set 2026, hub di progetto, tappa 2):
- * gli spazi documentali — uno per repository documentato — e, dentro
- * ognuno, i suoi gruppi di pagine.
+ * LA DOCUMENTAZIONE DI UN PROGETTO, come la home Docs di progetto del web
+ * («la documentazione nell'app, come sul web», 25 set 2026, design §3).
+ * Dall'alto: la ricerca del progetto, «Ask this project», «Start here», i
+ * repository e le novità. Le decisioni non ci sono: nell'app hanno già la
+ * loro sezione nell'hub del progetto.
  *
- * ⚠️ **Tutti gli spazi, non solo il principale.** Il tab DOC, finché è
- * esistito, ne sceglieva UNO perché aveva un solo switcher, di progetto; qui la domanda è «di cosa è fatto QUESTO progetto», e un
- * progetto con tre repository documentati ne ha tre — nasconderne due
- * risponderebbe a un'altra domanda.
+ * Gli spazi (`docs.projectSpaces`) sono l'unica lettura che regge la pagina.
+ * Gli highlights di progetto e il brief del repository principale sono
+ * ACCESSORI, fuori dai gate: se falliscono la loro parte sparisce e il resto
+ * resta.
  *
- * «CHIEDI A QUESTO PROGETTO» sta qui in testa dal 25 set 2026 («Wisey,
- * anteprima nell'app» §3): la chat viveva nel tab DOC, che non c'è più, ed
- * era l'unica strada per arrivarci. In testa e non dopo gli spazi, così c'è
- * anche mentre carica, in errore o senza documentazione.
+ * Il repository «principale» è quello con più pagine (`mainDocSpace`), la
+ * stessa euristica del web: da lui vengono il brief e la panoramica di «Start
+ * here».
  *
- * L'albero di uno spazio si carica SOLO quando lo si apre: sono N richieste
- * potenziali, una per repository, e chiederle tutte all'ingresso per
- * mostrarne una sarebbe il conto che l'hub evita altrove.
+ * «Ask this project» sta in testa, fuori dai gate: c'è anche mentre carica,
+ * in errore o senza documentazione (la chat viveva nel tab DOC, uscito con
+ * Wisey).
  */
-export function ProjectDocsScreen({ navigation, route }: NativeStackScreenProps<ProjectsStackParamList, "ProjectDocs">) {
+export function ProjectDocsScreen({ navigation, route }: Props) {
   const { t } = useTranslation();
   const { client } = useAuth();
   const tabBarHeight = useBottomTabBarHeight();
   const { projectId, projectName } = route.params;
-  const [openSpaceId, setOpenSpaceId] = useState<string | null>(null);
 
   // STESSA chiave della sezione dell'hub (`docsKeys.spaces`): entrando da lì
-  // gli spazi sono già in cache, e non c'è una seconda richiesta.
-  const query = useQuery({
+  // gli spazi sono già in cache.
+  const spacesQuery = useQuery({
     queryKey: docsKeys.spaces(projectId),
     queryFn: () => {
       if (!client) throw new Error("ProjectDocsScreen richiede un client autenticato");
@@ -56,8 +62,18 @@ export function ProjectDocsScreen({ navigation, route }: NativeStackScreenProps<
     enabled: client !== null,
     staleTime: 60_000,
   });
+  const spaces = spacesQuery.data ?? [];
 
-  const spaces = query.data ?? [];
+  const [draft, setDraft] = useState("");
+  const [query, setQuery] = useState("");
+  useEffect(() => {
+    const timer = setTimeout(() => setQuery(draft.trim()), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [draft]);
+
+  const openPage = (repositoryId: string, slug: string) => navigation.navigate("Page", { repositoryId, slug });
+  const openRepo = (space: Reader<DocSpace>) =>
+    navigation.navigate("RepoDocs", { repositoryId: space.repositoryId, repositoryName: space.name });
 
   const refreshControl = usePullToRefresh([docsKeys.all], "project-docs-refresh");
 
@@ -67,6 +83,7 @@ export function ProjectDocsScreen({ navigation, route }: NativeStackScreenProps<
         refreshControl={refreshControl}
         contentContainerStyle={[styles.body, { paddingBottom: CONTENT_BASE_BOTTOM_PADDING + tabBarHeight }]}
         stickyHeaderIndices={[0]}
+        keyboardShouldPersistTaps="handled"
       >
         <ScreenHeader
           title={t("mobile.projects.docs.title")}
@@ -75,111 +92,241 @@ export function ProjectDocsScreen({ navigation, route }: NativeStackScreenProps<
           backLabel={projectName}
         />
 
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => navigation.navigate("Ask", { projectId, projectName })}
-          style={styles.askEntry}
-          testID="project-docs-ask"
-        >
-          <Text style={styles.askLabel}>{t("mobile.projects.docs.ask")}</Text>
-        </Pressable>
+        <TextInput
+          accessibilityLabel={t("mobile.projects.docs.searchPlaceholder")}
+          value={draft}
+          onChangeText={setDraft}
+          placeholder={t("mobile.projects.docs.searchPlaceholder")}
+          placeholderTextColor={colors.faint}
+          style={styles.search}
+          testID="project-docs-search-input"
+        />
 
-        {query.isPending ? (
-          <View style={styles.skeletonList} testID="project-docs-skeleton">
-            <Skeleton height={60} />
-            <Skeleton height={60} />
-          </View>
-        ) : query.isError ? (
-          <View style={styles.centered} testID="project-docs-error">
-            <Text style={styles.errorTitle}>{t("mobile.projects.docs.loadError.title")}</Text>
-            <GhostButton
-              label={t("mobile.projects.docs.loadError.retry")}
-              onPress={() => void query.refetch()}
-              testID="project-docs-retry"
-            />
-          </View>
-        ) : spaces.length === 0 ? (
-          <View style={styles.centered} testID="project-docs-empty">
-            <Text style={styles.emptyTitle}>{t("mobile.projects.docs.empty.title")}</Text>
-            <Text style={styles.emptyBody}>{t("mobile.projects.docs.empty.body")}</Text>
-          </View>
+        {query.length > 0 ? (
+          <ProjectSearchResults projectId={projectId} query={query} onOpenPage={openPage} />
         ) : (
-          spaces.map((space) => (
-            <SpaceBlock
-              key={space.repositoryId}
-              space={space}
-              open={openSpaceId === space.repositoryId}
-              onToggle={() =>
-                setOpenSpaceId((current) => (current === space.repositoryId ? null : space.repositoryId))
-              }
-              onOpenPage={(slug) => navigation.navigate("Page", { repositoryId: space.repositoryId, slug })}
-            />
-          ))
+          <>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => navigation.navigate("Ask", { projectId, projectName })}
+              style={styles.askEntry}
+              testID="project-docs-ask"
+            >
+              <Text style={styles.askLabel}>{t("mobile.projects.docs.ask")}</Text>
+            </Pressable>
+
+            {spacesQuery.isPending ? (
+              <View style={styles.list} testID="project-docs-skeleton">
+                <Skeleton height={60} />
+                <Skeleton height={60} />
+              </View>
+            ) : spacesQuery.isError ? (
+              <View style={styles.centered} testID="project-docs-error">
+                <Text style={styles.stateTitle}>{t("mobile.projects.docs.loadError.title")}</Text>
+                <GhostButton
+                  label={t("mobile.projects.docs.loadError.retry")}
+                  onPress={() => void spacesQuery.refetch()}
+                  testID="project-docs-retry"
+                />
+              </View>
+            ) : spaces.length === 0 ? (
+              <View style={styles.centered} testID="project-docs-empty">
+                <Text style={styles.stateTitle}>{t("mobile.projects.docs.empty.title")}</Text>
+                <Text style={styles.muted}>{t("mobile.projects.docs.empty.body")}</Text>
+              </View>
+            ) : (
+              <ProjectDocsHome
+                projectId={projectId}
+                spaces={spaces}
+                onOpenPage={openPage}
+                onOpenRepo={openRepo}
+                onOpenBrief={(space) =>
+                  navigation.navigate("RepoBrief", { repositoryId: space.repositoryId, repositoryName: space.name })
+                }
+              />
+            )}
+          </>
         )}
       </ScrollView>
     </View>
   );
 }
 
-/**
- * UNO spazio: la riga col nome del repository e il numero di pagine, e — se
- * aperto — i suoi gruppi. L'albero si chiede solo da aperto (`enabled`).
- */
-function SpaceBlock({
-  space,
-  open,
-  onToggle,
+function ProjectDocsHome({
+  projectId,
+  spaces,
   onOpenPage,
+  onOpenRepo,
+  onOpenBrief,
 }: {
-  space: Reader<DocSpace>;
-  open: boolean;
-  onToggle: () => void;
-  onOpenPage: (slug: string) => void;
+  projectId: string;
+  spaces: readonly Reader<DocSpace>[];
+  onOpenPage: (repositoryId: string, slug: string) => void;
+  onOpenRepo: (space: Reader<DocSpace>) => void;
+  onOpenBrief: (space: Reader<DocSpace>) => void;
 }) {
   const { t } = useTranslation();
   const { client } = useAuth();
+  const main = mainDocSpace(spaces)!;
 
-  const treeQuery = useQuery({
-    queryKey: docsKeys.tree(space.repositoryId),
-    queryFn: () => {
-      if (!client) throw new Error("ProjectDocsScreen richiede un client autenticato");
-      return client.docs.tree(space.repositoryId);
-    },
-    enabled: open && client !== null,
+  // ACCESSORI: fuori dai gate, un loro guasto toglie solo la loro parte.
+  const highlights = useQuery({
+    queryKey: docsKeys.projectHighlights(projectId),
+    queryFn: () => client!.docs.projectHighlights(projectId),
+    enabled: client !== null,
     staleTime: 60_000,
   });
+  const brief = useQuery({
+    queryKey: docsKeys.brief(main.repositoryId),
+    queryFn: () => client!.docs.brief(main.repositoryId),
+    enabled: client !== null,
+    staleTime: 5 * 60_000,
+  });
+
+  const news: Reader<ProjectHighlights> | undefined = highlights.data;
+  const latestRelease = news?.latestReleases[0];
+  const hasNews = news !== undefined && news.latestReleases.length + news.topViewed.length > 0;
 
   return (
-    <View style={styles.spaceBlock}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityState={{ expanded: open }}
-        onPress={onToggle}
-        style={styles.spaceRow}
-        testID={`project-docs-space-${space.repositoryId}`}
-      >
-        <Text style={styles.spaceName} numberOfLines={1}>
-          {space.name}
-        </Text>
-        <Text style={styles.spaceMeta}>{t("mobile.docs.browse.pageCount", { count: space.pageCount })} ›</Text>
-      </Pressable>
-      {open &&
-        (treeQuery.isPending ? (
-          <View style={styles.spaceLoading} testID={`project-docs-tree-loading-${space.repositoryId}`}>
-            <Skeleton height={44} />
-          </View>
-        ) : treeQuery.isError ? (
-          <Text style={styles.spaceError} testID={`project-docs-tree-error-${space.repositoryId}`}>
-            {t("mobile.projects.docs.treeError")}
-          </Text>
-        ) : (
-          <DocSpaceBrowser
-            nodes={treeQuery.data ?? []}
-            onOpenPage={onOpenPage}
-            testIDPrefix={`project-docs-browse-${space.repositoryId}`}
+    <View style={styles.list}>
+      <View style={styles.section}>
+        <SectionLabel>{t("mobile.projects.docs.startHere")}</SectionLabel>
+        {brief.data && (
+          <Pressable accessibilityRole="button" onPress={() => onOpenBrief(main)} style={styles.card} testID="project-docs-start-brief">
+            <Text style={styles.identity}>{brief.data.brief.identity}</Text>
+            <Text style={styles.link}>{t("mobile.projects.docs.briefLink")}</Text>
+          </Pressable>
+        )}
+        <Row
+          title={t("mobile.projects.docs.overviewLink", { name: main.name })}
+          meta={t("mobile.docs.browse.pageCount", { count: main.pageCount })}
+          onPress={() => onOpenRepo(main)}
+          testID="project-docs-start-overview"
+        />
+        {latestRelease && (
+          <Row
+            title={latestRelease.title}
+            meta={`${t("mobile.projects.docs.latestRelease")} · ${latestRelease.repositoryName} · ${shortDate(latestRelease.createdAt)}`}
+            onPress={() => onOpenPage(latestRelease.repositoryId, latestRelease.slug)}
+            testID="project-docs-start-release"
           />
-        ))}
+        )}
+      </View>
+
+      <View style={styles.section}>
+        <SectionLabel>{t("mobile.projects.docs.repositories")}</SectionLabel>
+        {spaces.map((space) => {
+          const release = news?.latestReleases.find((entry) => entry.repositoryId === space.repositoryId);
+          const extra = release
+            ? t("mobile.projects.docs.releaseMeta", { title: release.title })
+            : space.lastGenerationAt
+              ? t("mobile.projects.docs.generatedAt", { date: shortDate(space.lastGenerationAt) })
+              : null;
+          return (
+            <Row
+              key={space.repositoryId}
+              title={space.name}
+              meta={[t("mobile.docs.browse.pageCount", { count: space.pageCount }), extra].filter(Boolean).join(" · ")}
+              onPress={() => onOpenRepo(space)}
+              testID={`project-docs-repo-${space.repositoryId}`}
+            />
+          );
+        })}
+      </View>
+
+      {hasNews && (
+        <View style={styles.section} testID="project-docs-whats-new">
+          <SectionLabel>{t("mobile.projects.docs.whatsNew")}</SectionLabel>
+          {news.latestReleases.map((entry) => (
+            <Row
+              key={`r-${entry.repositoryId}-${entry.slug}`}
+              title={entry.title}
+              meta={`${entry.repositoryName} · ${shortDate(entry.createdAt)}`}
+              onPress={() => onOpenPage(entry.repositoryId, entry.slug)}
+              testID={`project-docs-new-release-${entry.slug}`}
+            />
+          ))}
+          {news.topViewed.map((entry) => (
+            <Row
+              key={`v-${entry.repositoryId}-${entry.slug}`}
+              title={entry.title}
+              meta={`${entry.repositoryName} · ${t("mobile.projects.docs.topViewed")}`}
+              onPress={() => onOpenPage(entry.repositoryId, entry.slug)}
+              testID={`project-docs-new-viewed-${entry.slug}`}
+            />
+          ))}
+        </View>
+      )}
     </View>
+  );
+}
+
+/**
+ * La ricerca IBRIDA nella documentazione del progetto (`docs.projectSearch`,
+ * lo stesso retrieval della chat): ogni risultato dice da quale repository e
+ * da quale categoria viene.
+ */
+function ProjectSearchResults({
+  projectId,
+  query,
+  onOpenPage,
+}: {
+  projectId: string;
+  query: string;
+  onOpenPage: (repositoryId: string, slug: string) => void;
+}) {
+  const { t } = useTranslation();
+  const { client } = useAuth();
+  const search = useQuery({
+    queryKey: docsKeys.projectSearch(projectId, query),
+    queryFn: () => client!.docs.projectSearch(projectId, query),
+    enabled: client !== null,
+  });
+
+  if (search.isPending) {
+    return (
+      <View style={styles.list} testID="project-docs-search-loading">
+        <Skeleton height={56} />
+        <Skeleton height={56} />
+      </View>
+    );
+  }
+  if (search.isError) return <Text style={styles.muted}>{t("mobile.projects.docs.searchError")}</Text>;
+  if (search.data.length === 0) return <Text style={styles.muted}>{t("mobile.projects.docs.searchEmpty")}</Text>;
+
+  return (
+    <View style={styles.list} testID="project-docs-search-results">
+      {search.data.map((hit) => (
+        <Pressable
+          key={`${hit.repositoryId}:${hit.slug}`}
+          accessibilityRole="button"
+          onPress={() => onOpenPage(hit.repositoryId, hit.slug)}
+          style={styles.row}
+          testID={`project-docs-hit-${hit.slug}`}
+        >
+          <Text style={styles.rowTitle}>{hit.title}</Text>
+          <Text style={styles.rowMeta}>
+            {isUnknown(hit.kind) ? hit.repositoryName : `${hit.repositoryName} · ${t(`mobile.docs.repo.tabs.${hit.kind}`)}`}
+          </Text>
+          {hit.snippet.length > 0 && (
+            <Text style={styles.snippet} numberOfLines={2}>
+              {hit.snippet}
+            </Text>
+          )}
+        </Pressable>
+      ))}
+    </View>
+  );
+}
+
+function Row({ title, meta, onPress, testID }: { title: string; meta: string; onPress: () => void; testID: string }) {
+  return (
+    <Pressable accessibilityRole="button" onPress={onPress} style={styles.row} testID={testID}>
+      <Text style={styles.rowTitle} numberOfLines={2}>
+        {title}
+      </Text>
+      {meta.length > 0 && <Text style={styles.rowMeta}>{meta}</Text>}
+    </Pressable>
   );
 }
 
@@ -187,6 +334,22 @@ const styles = StyleSheet.create({
   container: {
     backgroundColor: colors.ink950,
     flex: 1,
+  },
+  body: {
+    gap: 12,
+    padding: 16,
+    paddingBottom: 40,
+  },
+  search: {
+    backgroundColor: colors.ink900,
+    borderColor: colors.lineStrong,
+    borderRadius: radii.control,
+    borderWidth: 1,
+    color: colors.fg,
+    fontFamily: fontFamily.sans,
+    fontSize: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
   askEntry: {
     backgroundColor: colors.ink900,
@@ -200,77 +363,74 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.mono,
     fontSize: 13,
   },
-  body: {
-    gap: 10,
-    padding: 16,
-    paddingBottom: 40,
-  },
-  skeletonList: {
+  list: {
     gap: 8,
   },
-  centered: {
-    alignItems: "center",
-    gap: 12,
-    justifyContent: "center",
-    paddingHorizontal: 32,
-    paddingVertical: 40,
+  section: {
+    gap: 8,
+    marginTop: 8,
   },
-  errorTitle: {
+  card: {
+    backgroundColor: colors.ink900,
+    borderColor: colors.line,
+    borderRadius: radii.card,
+    borderWidth: 1,
+    gap: 10,
+    padding: 14,
+  },
+  identity: {
     color: colors.fg,
-    fontFamily: fontFamily.sansSemiBold,
-    fontSize: 15,
-    fontWeight: "600",
-    textAlign: "center",
+    fontFamily: fontFamily.sans,
+    fontSize: 14,
+    lineHeight: 20,
   },
-  emptyTitle: {
+  link: {
+    color: colors.signal,
+    fontFamily: fontFamily.mono,
+    fontSize: 13,
+  },
+  row: {
+    backgroundColor: colors.ink900,
+    borderColor: colors.line,
+    borderRadius: radii.control,
+    borderWidth: 1,
+    gap: 4,
+    padding: 12,
+  },
+  rowTitle: {
     color: colors.fg,
-    fontFamily: fontFamily.sansSemiBold,
-    fontSize: 15,
-    fontWeight: "600",
-    textAlign: "center",
+    fontFamily: fontFamily.sans,
+    fontSize: 14,
   },
-  emptyBody: {
+  rowMeta: {
+    color: colors.faint,
+    fontFamily: fontFamily.mono,
+    fontSize: fontSize.label,
+  },
+  snippet: {
+    color: colors.muted,
+    fontFamily: fontFamily.sans,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  muted: {
     color: colors.muted,
     fontFamily: fontFamily.sans,
     fontSize: 14,
     lineHeight: 20,
     textAlign: "center",
   },
-  spaceBlock: {
-    gap: 8,
-  },
-  spaceRow: {
+  centered: {
     alignItems: "center",
-    backgroundColor: colors.ink900,
-    borderColor: colors.line,
-    borderRadius: radii.card,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 10,
-    justifyContent: "space-between",
-    minHeight: 44,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    gap: 12,
+    paddingHorizontal: 32,
+    paddingVertical: 48,
   },
-  spaceName: {
+  stateTitle: {
     color: colors.fg,
-    flexShrink: 1,
     fontFamily: fontFamily.sansSemiBold,
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: "600",
-  },
-  spaceMeta: {
-    color: colors.faint,
-    fontFamily: fontFamily.mono,
-    fontSize: 11,
-  },
-  spaceLoading: {
-    paddingHorizontal: 4,
-  },
-  spaceError: {
-    color: colors.faint,
-    fontFamily: fontFamily.mono,
-    fontSize: 12,
-    paddingHorizontal: 4,
+    textAlign: "center",
   },
 });

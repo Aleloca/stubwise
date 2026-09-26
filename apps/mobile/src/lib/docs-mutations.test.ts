@@ -1,75 +1,8 @@
 import { ApiError } from "@stubwise/api-client";
-import type { DocPageKind, DocTreeNode, Reader } from "@stubwise/shared";
+import type { DocPageKind, Reader } from "@stubwise/shared";
 import { UNKNOWN } from "@stubwise/shared";
 import i18n from "../i18n";
-import { describeDocsError, docsKindLabelKey, groupTreeByKind } from "./docs-mutations";
-
-function node(overrides: Partial<Reader<DocTreeNode>> = {}): Reader<DocTreeNode> {
-  return {
-    id: "11111111-1111-4111-8111-111111111111",
-    slug: "a-page",
-    title: "A page",
-    kind: "technical" as Reader<DocPageKind>,
-    parentId: null,
-    position: 0,
-    sourcePath: null,
-    isManual: false,
-    createdAt: "2026-08-01T00:00:00.000Z",
-    viewCount: 0,
-    significant: null,
-    ...overrides,
-  };
-}
-
-describe("groupTreeByKind — i tre gruppi di «Oppure sfoglia» (Task 18, canvas 3f)", () => {
-  test("conta le pagine functional/technical, ed espone l'ultima release", () => {
-    const nodes = [
-      node({ id: "1", kind: "functional" as Reader<DocPageKind>, title: "Guida A" }),
-      node({ id: "2", kind: "functional" as Reader<DocPageKind>, title: "Guida B" }),
-      node({ id: "3", kind: "technical" as Reader<DocPageKind>, title: "Tecnica A" }),
-      node({
-        id: "4",
-        kind: "releases" as Reader<DocPageKind>,
-        title: "Vecchia release",
-        createdAt: "2026-07-01T00:00:00.000Z",
-      }),
-      node({
-        id: "5",
-        kind: "releases" as Reader<DocPageKind>,
-        title: "Release più recente",
-        createdAt: "2026-08-15T00:00:00.000Z",
-      }),
-      // kind fuori dai tre gruppi mostrati (canvas): non deve comparire da
-      // nessuna parte, né contarsi né far fallire il raggruppamento.
-      node({ id: "6", kind: "manual" as Reader<DocPageKind> }),
-    ];
-
-    const groups = groupTreeByKind(nodes);
-
-    expect(groups.functional.count).toBe(2);
-    expect(groups.functional.nodes.map((n) => n.id)).toEqual(["1", "2"]);
-    expect(groups.technical.count).toBe(1);
-    expect(groups.releases.count).toBe(2);
-    // La release più recente (createdAt maggiore), non l'ultima in ordine di lista.
-    expect(groups.releases.latest?.title).toBe("Release più recente");
-  });
-
-  test("nessuna release → latest è null", () => {
-    const groups = groupTreeByKind([node({ kind: "technical" as Reader<DocPageKind> })]);
-    expect(groups.releases.count).toBe(0);
-    expect(groups.releases.latest).toBeNull();
-  });
-
-  // Un kind Unknown (server più nuovo di questa build, vedi
-  // packages/shared/src/reader.ts) non deve far esplodere il raggruppamento:
-  // semplicemente non entra in nessuno dei tre gruppi mostrati.
-  test("un kind Unknown viene ignorato, non fa fallire il raggruppamento", () => {
-    const groups = groupTreeByKind([node({ kind: UNKNOWN as Reader<DocPageKind> })]);
-    expect(groups.functional.count).toBe(0);
-    expect(groups.technical.count).toBe(0);
-    expect(groups.releases.count).toBe(0);
-  });
-});
+import { describeDocsError, docsKindLabelKey } from "./docs-mutations";
 
 describe("docsKindLabelKey — etichetta i18n di un kind (Reader-aperto)", () => {
   test.each([
