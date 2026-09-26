@@ -1,0 +1,108 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { inflateSync } from "node:zlib";
+
+/**
+ * L'ICONA DELLA TAB WISEY sui FILE che questo script genera, non sul
+ * cablaggio (quello lo prova `src/app/navigation.test.tsx`): 28×27 pt, cioè il gufo a 28×24 in ALTO più 3 pt di
+ * margine TRASPARENTE sotto (25 set 2026). Senza il margine, sul telefono il
+ * gufo toccava la scritta «WISEY»: nel fotogramma 56×48 il disegno arriva a
+ * 1 px dal bordo, mentre gli SF Symbol delle altre tab hanno aria intorno.
+ *
+ * Si leggono i PNG a mano (IHDR per le misure, IDAT decompresso per l'alfa)
+ * per non aggiungere una dipendenza di test: i file li scrive
+ * `wisey-assets.py` sempre RGBA 8 bit, non interlacciati. È un `.mjs`
+ * come `version-bump.test.mjs` qui accanto: legge file con Node, e la
+ * tsconfig dell'app (React Native) non ha i tipi di Node.
+ */
+// `__dirname` e non `import.meta`: babel-jest trasforma questo file in CommonJS.
+const ASSETS = join(__dirname, "../assets/wisey");
+
+function decodeRgba(file) {
+  const png = readFileSync(join(ASSETS, file));
+  const width = png.readUInt32BE(16);
+  const height = png.readUInt32BE(20);
+  expect(png[24]).toBe(8); // bit depth
+  expect(png[25]).toBe(6); // RGBA
+  const chunks = [];
+  let offset = 8;
+  while (offset < png.length) {
+    const length = png.readUInt32BE(offset);
+    const type = png.toString("ascii", offset + 4, offset + 8);
+    if (type === "IDAT") chunks.push(png.subarray(offset + 8, offset + 8 + length));
+    offset += 12 + length;
+  }
+  const raw = inflateSync(Buffer.concat(chunks));
+  const stride = width * 4;
+  const pixels = Buffer.alloc(height * stride);
+  for (let y = 0; y < height; y += 1) {
+    const filter = raw[y * (stride + 1)];
+    for (let x = 0; x < stride; x += 1) {
+      const value = raw[y * (stride + 1) + 1 + x];
+      const left = x >= 4 ? pixels[y * stride + x - 4] : 0;
+      const up = y > 0 ? pixels[(y - 1) * stride + x] : 0;
+      const upLeft = x >= 4 && y > 0 ? pixels[(y - 1) * stride + x - 4] : 0;
+      let predictor = 0;
+      if (filter === 1) predictor = left;
+      else if (filter === 2) predictor = up;
+      else if (filter === 3) predictor = Math.floor((left + up) / 2);
+      else if (filter === 4) {
+        const p = left + up - upLeft;
+        const pa = Math.abs(p - left);
+        const pb = Math.abs(p - up);
+        const pc = Math.abs(p - upLeft);
+        predictor = pa <= pb && pa <= pc ? left : pb <= pc ? up : upLeft;
+      }
+      pixels[y * stride + x] = (value + predictor) & 0xff;
+    }
+  }
+  return { width, height, alpha: (x, y) => pixels[y * stride + x * 4 + 3] };
+}
+
+const PHASES = ["riposo", "ascolta", "pensa", "lavora", "parla", "fatto"];
+
+/**
+ * LA TAB NATIVA DI WISEY È TRASPARENTE (design §11): la copre il cerchio
+ * nostro che sporge sopra la barra. Resta una tab vera, così le altre quattro
+ * tengono il loro posto, ma la sua icona non deve disegnare niente.
+ */
+describe("l'icona trasparente della tab Wisey", () => {
+  test.each([
+    ["wisey-tab-empty.png", 1],
+    ["wisey-tab-empty@2x.png", 2],
+    ["wisey-tab-empty@3x.png", 3],
+  ])("%s: 28×24 pt, e nessun pixel visibile", (file, scale) => {
+    const icon = decodeRgba(file);
+    expect([icon.width, icon.height]).toEqual([28 * scale, 24 * scale]);
+    for (let y = 0; y < icon.height; y += 1) {
+      for (let x = 0; x < icon.width; x += 1) expect(icon.alpha(x, y)).toBe(0);
+    }
+  });
+});
+
+/**
+ * IL GUFO DEL CERCHIO (design §11): il gufo animato dentro il bottone che
+ * sporge sopra la barra, 42×36 pt a fotogramma, quattro fotogrammi
+ * affiancati come gli altri sprite, ridotto morbido (nearest a 3× e poi
+ * Lanczos) come la variante (b) della tab.
+ */
+describe("il gufo del cerchio", () => {
+  const BUTTON_FILES = PHASES.flatMap((phase) => [
+    [`gufo-${phase}-button.png`, 1],
+    [`gufo-${phase}-button@2x.png`, 2],
+    [`gufo-${phase}-button@3x.png`, 3],
+  ]);
+
+  test.each(BUTTON_FILES)("%s: striscia di 4 fotogrammi da 42×36 pt", (file, scale) => {
+    const strip = decodeRgba(file);
+    expect([strip.width, strip.height]).toEqual([4 * 42 * scale, 36 * scale]);
+    // Ogni fotogramma ha qualcosa dentro: non è una striscia vuota o spostata.
+    for (let frame = 0; frame < 4; frame += 1) {
+      let opaque = 0;
+      for (let y = 0; y < strip.height; y += 1) {
+        for (let x = frame * 42 * scale; x < (frame + 1) * 42 * scale; x += 1) if (strip.alpha(x, y) > 0) opaque += 1;
+      }
+      expect(opaque).toBeGreaterThan(0);
+    }
+  });
+});

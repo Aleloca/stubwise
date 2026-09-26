@@ -1,4 +1,5 @@
-import { resolveDeepLinkTarget } from "./linking";
+import { getStateFromPath } from "@react-navigation/native";
+import { buildLinking, resolveDeepLinkTarget } from "./linking";
 
 /**
  * Il parser dei deep link (App M3): puro, quindi si prova qui senza montare
@@ -70,5 +71,35 @@ describe("tutto il resto è `null`", () => {
     expect(resolveDeepLinkTarget("https://stubwise.example/calendar/2026-09-17")).toBeNull();
     expect(resolveDeepLinkTarget("stubwise://qualcosa/1")).toBeNull();
     expect(resolveDeepLinkTarget("")).toBeNull();
+  });
+});
+
+/**
+ * Il tab DOC non c'è più (25 set 2026, «Wisey, anteprima nell'app» §3), ma
+ * `stubwise://docs` era un path della config: nessuna notifica lo emette
+ * oggi, però un link già in giro non deve cercare una tab che non esiste.
+ * Porta alla lista dei progetti, da cui si raggiunge la documentazione.
+ */
+describe("config dei path", () => {
+  function leafOf(path: string): string[] {
+    const config = buildLinking(() => true).config!;
+    let state = getStateFromPath(path, config as never) as
+      | { routes: { name: string; state?: unknown }[] }
+      | undefined;
+    const names: string[] = [];
+    while (state) {
+      const route = state.routes[state.routes.length - 1]!;
+      names.push(route.name);
+      state = route.state as typeof state;
+    }
+    return names;
+  }
+
+  test("docs porta alla lista dei progetti", () => {
+    expect(leafOf("docs")).toEqual(["Main", "Projects", "List"]);
+  });
+
+  test("projects resta dov'era", () => {
+    expect(leafOf("projects")).toEqual(["Main", "Projects", "List"]);
   });
 });

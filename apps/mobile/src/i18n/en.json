@@ -32,8 +32,7 @@
     "tabs": {
       "inbox": "Inbox",
       "projects": "Projects",
-      "backlog": "Backlog",
-      "docs": "Docs"
+      "backlog": "Backlog"
     },
     "inbox": {
       "header": {
@@ -427,7 +426,8 @@
           "title": "No documentation",
           "body": "No repository in this project has generated pages yet."
         },
-        "treeError": "Could not load the pages of this space."
+        "treeError": "Could not load the pages of this space.",
+        "ask": "Ask this project ›"
       },
       "roadmap": {
         "title": "Roadmap",
@@ -786,25 +786,10 @@
       "offlineAction": "Needs a connection"
     },
     "docs": {
-      "title": "Docs",
-      "searchPlaceholder": "Search this documentation…",
-      "project": {
-        "pickerLabel": "Project",
-        "none": "No projects available."
-      },
       "loadError": {
-        "title": "Can't load Docs.",
         "retry": "Retry"
       },
-      "empty": {
-        "title": "No documentation here.",
-        "body": "This project has no documented pages yet."
-      },
-      "search": {
-        "empty": "No results."
-      },
       "browse": {
-        "label": "Or browse",
         "functional": "Functional guide",
         "technical": "Technical pages",
         "releases": "Release notes",
@@ -816,8 +801,7 @@
       },
       "ask": {
         "sectionLabel": "Ask the project",
-        "entryHint": "Ask a question about this project's documentation ›",
-        "back": "Docs",
+        "back": "Documentation",
         "placeholder": "Ask a question…",
         "send": "Send",
         "thinking": "Thinking…",
@@ -1231,6 +1215,36 @@
         "releases": "releases",
         "manual": "manual",
         "unknown": "documentation"
+      }
+    },
+    "wisey": {
+      "title": "Wisey",
+      "replies": {
+        "backlog": "Soon I'll create the backlog item and estimate it for you. For now I'm a preview: you can do it from Backlog › New idea.",
+        "ticket": "Soon I'll start the work on a ticket and tell you when the plan is ready to approve. For now I'm a preview: open the ticket from Projects and start it from there.",
+        "pr": "Soon I'll tell you which pull requests are waiting for a merge. For now I'm a preview: each project's page shows what's waiting on you.",
+        "mail": "Soon I'll tell you what's worth reading in your mail. For now I'm a preview: it's all in the Mailbox tab.",
+        "inbox": "Soon I'll tell you what's waiting for your decision. For now I'm a preview: it's all in the Inbox tab.",
+        "status": "Soon I'll tell you how a project is doing in a couple of lines. For now I'm a preview: open it from Projects to see what's moving and what's stuck.",
+        "greeting": "Hi, I'm Wisey. I'm a preview for now: I can't read your projects yet, but soon you'll be able to ask me about them — or ask me to do things.",
+        "generic": "I'm a preview for now, so I can't answer that yet. Soon I'll read your projects, tickets and mail, and act on them when you ask."
+      },
+      "badge": "Preview",
+      "placeholder": "Ask or ask me to do…",
+      "send": "Send",
+      "welcome": "I'm Wisey. Soon you'll ask me anything about your projects — or ask me to do it. For now I'm a preview: I'll tell you what I'm going to do.",
+      "suggestions": {
+        "waiting": "What's waiting for me?",
+        "backlog": "Start a backlog item",
+        "status": "How is my project doing?"
+      },
+      "status": {
+        "rest": "Resting",
+        "listen": "Listening…",
+        "think": "Thinking…",
+        "work": "Working…",
+        "speak": "Answering",
+        "done": "Done"
       }
     }
   }

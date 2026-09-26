@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useBottomTabBarHeight } from "react-native-bottom-tabs";
-import type { DocsStackParamList } from "../../app/navigation";
+import type { ProjectsStackParamList } from "../../app/navigation";
 import { PulseIndicator } from "../../components/PulseIndicator";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { useAskProjectChat } from "../../lib/docs-mutations";
@@ -31,8 +31,9 @@ interface ChatBubble {
  * (`POST /api/projects/:projectId/docs/chat`, `apps/server/src/routes/
  * project-docs.ts`) prende SOLO `projectId` — il retrieval è cross-repo
  * (`retrieveChunksForProject`), nessun repository da scegliere qui. Il
- * progetto arriva già scelto da `DocsScreen` (route param `projectId` +
- * `projectName`, per la testata): niente picker proprio su questo screen,
+ * progetto arriva già scelto dalla documentazione del progetto
+ * (`ProjectDocsScreen`, dal 25 set 2026: prima era il tab DOC, che non c'è
+ * più — route param `projectId` + `projectName`, per la testata): niente picker proprio su questo screen,
  * stessa scelta di `BacklogChatScreen` (riceve `id` dai `route.params`,
  * nessun secondo selettore).
  *
@@ -47,7 +48,7 @@ interface ChatBubble {
  * scelta deliberata per restare nello scope di questo task (nessun mockup
  * mostra un "riprendi conversazione precedente").
  */
-export function AskProjectScreen({ navigation, route }: NativeStackScreenProps<DocsStackParamList, "Ask">) {
+export function AskProjectScreen({ navigation, route }: NativeStackScreenProps<ProjectsStackParamList, "Ask">) {
   const { t } = useTranslation();
   const tabBarHeight = useBottomTabBarHeight();
   const { projectId, projectName } = route.params;

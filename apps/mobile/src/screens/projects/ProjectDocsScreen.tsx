@@ -24,14 +24,15 @@ const CONTENT_BASE_BOTTOM_PADDING = 40;
  * gli spazi documentali — uno per repository documentato — e, dentro
  * ognuno, i suoi gruppi di pagine.
  *
- * ⚠️ **Tutti gli spazi, non solo il principale.** Il tab DOC ne sceglie UNO
- * (`mainDocSpace`, quello con più pagine) perché ha un solo switcher, di
- * progetto; qui la domanda è «di cosa è fatto QUESTO progetto», e un
+ * ⚠️ **Tutti gli spazi, non solo il principale.** Il tab DOC, finché è
+ * esistito, ne sceglieva UNO perché aveva un solo switcher, di progetto; qui la domanda è «di cosa è fatto QUESTO progetto», e un
  * progetto con tre repository documentati ne ha tre — nasconderne due
  * risponderebbe a un'altra domanda.
  *
- * ⚠️ **La chat «Chiedi al progetto» resta nel tab DOC**: è una
- * conversazione, non un pezzo di anagrafica, e questa tappa non la sposta.
+ * «CHIEDI A QUESTO PROGETTO» sta qui in testa dal 25 set 2026 («Wisey,
+ * anteprima nell'app» §3): la chat viveva nel tab DOC, che non c'è più, ed
+ * era l'unica strada per arrivarci. In testa e non dopo gli spazi, così c'è
+ * anche mentre carica, in errore o senza documentazione.
  *
  * L'albero di uno spazio si carica SOLO quando lo si apre: sono N richieste
  * potenziali, una per repository, e chiederle tutte all'ingresso per
@@ -73,6 +74,15 @@ export function ProjectDocsScreen({ navigation, route }: NativeStackScreenProps<
           onBack={() => navigation.goBack()}
           backLabel={projectName}
         />
+
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => navigation.navigate("Ask", { projectId, projectName })}
+          style={styles.askEntry}
+          testID="project-docs-ask"
+        >
+          <Text style={styles.askLabel}>{t("mobile.projects.docs.ask")}</Text>
+        </Pressable>
 
         {query.isPending ? (
           <View style={styles.skeletonList} testID="project-docs-skeleton">
@@ -177,6 +187,18 @@ const styles = StyleSheet.create({
   container: {
     backgroundColor: colors.ink950,
     flex: 1,
+  },
+  askEntry: {
+    backgroundColor: colors.ink900,
+    borderColor: colors.signalDim,
+    borderRadius: radii.card,
+    borderWidth: 1,
+    padding: 14,
+  },
+  askLabel: {
+    color: colors.signal,
+    fontFamily: fontFamily.mono,
+    fontSize: 13,
   },
   body: {
     gap: 10,

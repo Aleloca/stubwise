@@ -1,20 +1,8 @@
 import { ApiError } from "@stubwise/api-client";
-import type { DocPageKind, DocSpace, DocTreeNode, Reader } from "@stubwise/shared";
+import type { DocPageKind, DocTreeNode, Reader } from "@stubwise/shared";
 import { UNKNOWN } from "@stubwise/shared";
 import i18n from "../i18n";
-import { describeDocsError, docsKindLabelKey, groupTreeByKind, mainDocSpace } from "./docs-mutations";
-
-function space(overrides: Partial<Reader<DocSpace>> = {}): Reader<DocSpace> {
-  return {
-    repositoryId: "repo-1",
-    slug: "repo-1",
-    name: "Repo 1",
-    pageCount: 1,
-    lastGenerationAt: null,
-    lastCommitSha: null,
-    ...overrides,
-  };
-}
+import { describeDocsError, docsKindLabelKey, groupTreeByKind } from "./docs-mutations";
 
 function node(overrides: Partial<Reader<DocTreeNode>> = {}): Reader<DocTreeNode> {
   return {
@@ -32,25 +20,6 @@ function node(overrides: Partial<Reader<DocTreeNode>> = {}): Reader<DocTreeNode>
     ...overrides,
   };
 }
-
-describe("mainDocSpace — spazio doc principale di un progetto (Task 18)", () => {
-  test("sceglie lo spazio con più pagine", () => {
-    const spaces = [space({ repositoryId: "a", pageCount: 3 }), space({ repositoryId: "b", pageCount: 12 })];
-    expect(mainDocSpace(spaces)?.repositoryId).toBe("b");
-  });
-
-  test("lista vuota → undefined", () => {
-    expect(mainDocSpace([])).toBeUndefined();
-  });
-
-  // Mutazione da rompere apposta: se `mainDocSpace` prendesse il PRIMO spazio
-  // invece di ordinare per pageCount, questo test morirebbe (lo spazio "a"
-  // arriva prima in lista ma ha meno pagine).
-  test("l'ordine in ingresso non conta, solo pageCount", () => {
-    const spaces = [space({ repositoryId: "a", pageCount: 1 }), space({ repositoryId: "b", pageCount: 2 })];
-    expect(mainDocSpace(spaces)?.repositoryId).toBe("b");
-  });
-});
 
 describe("groupTreeByKind — i tre gruppi di «Oppure sfoglia» (Task 18, canvas 3f)", () => {
   test("conta le pagine functional/technical, ed espone l'ultima release", () => {

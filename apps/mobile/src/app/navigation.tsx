@@ -13,7 +13,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { refreshStaleQueries } from "../lib/refresh";
 import { useCallback, useEffect, useMemo } from "react";
 import type { ImageSourcePropType } from "react-native";
-import { Platform } from "react-native";
+import { Platform, StyleSheet, View } from "react-native";
 import type { AppleIcon } from "react-native-bottom-tabs";
 import { InboxCardScreen } from "../screens/inbox/InboxCardScreen";
 import { GoogleProposalScreen } from "../screens/inbox/GoogleProposalScreen";
@@ -37,11 +37,16 @@ import { BacklogItemScreen } from "../screens/backlog/BacklogItemScreen";
 import { BacklogScreen } from "../screens/backlog/BacklogScreen";
 import { AskProjectScreen } from "../screens/docs/AskProjectScreen";
 import { DocsPageScreen } from "../screens/docs/DocsPageScreen";
-import { DocsScreen } from "../screens/docs/DocsScreen";
 import { MailDetailScreen } from "../screens/mbx/MailDetailScreen";
 import { MbxScreen } from "../screens/mbx/MbxScreen";
 import { MailRejectionsScreen } from "../screens/mbx/MailRejectionsScreen";
 import { ThreadDetailScreen } from "../screens/mbx/ThreadDetailScreen";
+import { WiseyScreen } from "../screens/wisey/WiseyScreen";
+import { WiseyProvider } from "../components/wisey/WiseyProvider";
+import { WiseyTabButton } from "../components/wisey/WiseyTabButton";
+import { TabBarHeightProvider, TabBarHeightReporter } from "./tab-bar-height";
+// L'icona della tab NATIVA di Wisey: trasparente, la copre il cerchio (§11).
+import { WISEY_TAB_ICON } from "./wisey-tab-icon";
 import { WorkScreen } from "../screens/work/WorkScreen";
 import { useUnreadCount } from "../lib/inbox-mutations";
 import { colors } from "../theme/tokens";
@@ -49,7 +54,6 @@ import { fontFamily } from "../theme/typography";
 import inboxIcon from "../../assets/icons/inbox.svg";
 import folderIcon from "../../assets/icons/folder.svg";
 import checklistIcon from "../../assets/icons/checklist.svg";
-import menuBookIcon from "../../assets/icons/menu_book.svg";
 import mailIcon from "../../assets/icons/mail.svg";
 import { buildLinking, getPendingDeepLink, resolveDeepLinkTarget, setPendingDeepLink } from "./linking";
 import { useAuth } from "./providers";
@@ -97,6 +101,11 @@ export type ProposalParamList = {
  * {@link ProposalParamList}, e per la stessa identica ragione: ci si arriva
  * dal tab DOC e dalla documentazione DI UN PROGETTO, e da entrambi l'indietro
  * deve riportare dove si era.
+ *
+ * Dal 25 set 2026 il tab DOC non c'è più («Wisey, anteprima nell'app» §3):
+ * la pagina resta registrata nel solo stack dei progetti, e ci arrivano la
+ * documentazione del progetto, le «Fonti» della chat e la ricerca globale.
+ * Il tipo resta un frammento perché `DocsPageScreen` lo usa per le sue props.
  *
  * ⚠️ Il §5 del design diceva che la documentazione «ha già dove atterrare»
  * perché esiste il tab DOC. È l'unico punto in cui quel documento si
@@ -154,6 +163,12 @@ export type ProjectsStackParamList = {
   ProjectRepositories: { projectId: string; projectName: string };
   Repository: { slug: string; projectName: string };
   ProjectDocs: { projectId: string; projectName: string };
+  /**
+   * «Chiedi al progetto», la chat sulla documentazione (25 set 2026): viveva
+   * nel tab DOC, che non c'è più, e ci si arriva ora dalla documentazione del
+   * progetto. Parametri invariati.
+   */
+  Ask: { projectId: string; projectName: string };
   ProjectRoadmap: { projectId: string; projectName: string };
   /**
    * MONITOR E IMPOSTAZIONI (23 set 2026, tappa 3 — l'ultima dell'hub).
@@ -182,18 +197,6 @@ export type ProjectsStackParamList = {
 export type BacklogStackParamList = {
   List: undefined;
 } & BacklogDetailParamList;
-
-/**
- * Stack del tab Docs (Task 18, canvas `3f`): hub (ricerca + «Oppure sfoglia» +
- * entrata di «Chiedi al progetto»), una pagina in markdown e la chat di
- * progetto. `Page` prende `repositoryId`+`slug` (non un id di pagina: è così
- * che `client.docs.page` la vuole, e le "Fonti" di una risposta chat portano
- * esattamente questi due campi) — vedi `DocsScreen.tsx`.
- */
-export type DocsStackParamList = {
-  List: undefined;
-  Ask: { projectId: string; projectName: string };
-} & DocsPageParamList;
 
 /**
  * Stack del tab MBX (Task 7, App M3, Fase C — architettura §3/§6a): posta e
@@ -232,8 +235,9 @@ export type MbxStackParamList = {
 export type MainTabParamList = {
   Inbox: NavigatorScreenParams<InboxStackParamList>;
   Projects: NavigatorScreenParams<ProjectsStackParamList>;
+  /** Wisey, l'agente dell'istanza (25 set 2026): per ora un'anteprima. */
+  Wisey: undefined;
   Backlog: NavigatorScreenParams<BacklogStackParamList>;
-  Docs: NavigatorScreenParams<DocsStackParamList>;
   Mbx: NavigatorScreenParams<MbxStackParamList>;
 };
 
@@ -275,17 +279,24 @@ const AuthStack = createNativeStackNavigator<AuthStackParamList>();
 const InboxStack = createNativeStackNavigator<InboxStackParamList>();
 const ProjectsStack = createNativeStackNavigator<ProjectsStackParamList>();
 const BacklogStack = createNativeStackNavigator<BacklogStackParamList>();
-const DocsStack = createNativeStackNavigator<DocsStackParamList>();
 const MbxStack = createNativeStackNavigator<MbxStackParamList>();
 const Tab = createNativeBottomTabNavigator<MainTabParamList>();
 
 function InboxNavigator() {
   return (
-    <InboxStack.Navigator screenOptions={{ headerShown: false }}>
+    <>
+      {/*
+        Porta l'altezza vera della barra FUORI dalle scene, per il cerchio di
+        Wisey (design §11): vedi `app/tab-bar-height.tsx` per perché proprio
+        qui, e perché la tab Inbox ha `lazy: false`.
+      */}
+      <TabBarHeightReporter />
+      <InboxStack.Navigator screenOptions={{ headerShown: false }}>
       <InboxStack.Screen name="List" component={InboxScreen} />
       <InboxStack.Screen name="Card" component={InboxCardScreen} />
       <InboxStack.Screen name="Proposal" component={GoogleProposalScreen} />
-    </InboxStack.Navigator>
+      </InboxStack.Navigator>
+    </>
   );
 }
 
@@ -322,8 +333,8 @@ function ProjectsNavigator() {
       <ProjectsStack.Screen name="ProjectMonitor" component={ProjectMonitorScreen} />
       <ProjectsStack.Screen name="Server" component={ServerScreen} />
       <ProjectsStack.Screen name="ProjectSettings" component={ProjectSettingsScreen} />
-      {/* Stessa copia di `DocsPageScreen` del tab DOC, seconda registrazione. */}
       <ProjectsStack.Screen name="Page" component={DocsPageScreen} />
+      <ProjectsStack.Screen name="Ask" component={AskProjectScreen} />
     </ProjectsStack.Navigator>
   );
 }
@@ -335,16 +346,6 @@ function BacklogNavigator() {
       <BacklogStack.Screen name="Item" component={BacklogItemScreen} />
       <BacklogStack.Screen name="Chat" component={BacklogChatScreen} />
     </BacklogStack.Navigator>
-  );
-}
-
-function DocsNavigator() {
-  return (
-    <DocsStack.Navigator screenOptions={{ headerShown: false }}>
-      <DocsStack.Screen name="List" component={DocsScreen} />
-      <DocsStack.Screen name="Page" component={DocsPageScreen} />
-      <DocsStack.Screen name="Ask" component={AskProjectScreen} />
-    </DocsStack.Navigator>
   );
 }
 
@@ -373,7 +374,8 @@ function MbxNavigator() {
  *
  * Scelta finale (riferita a Fable/maintainer): Inbox → `tray.fill` /
  * `inbox`, Projects → `folder.fill` / `folder`, Backlog → `checklist` /
- * `checklist`, Docs → `book.fill` / `menu_book`, **MBX → `envelope.fill` /
+ * `checklist`, Docs → `book.fill` / `menu_book` (tab tolta il 25 set 2026),
+ * **MBX → `envelope.fill` /
  * `mail`** (Task 7, App M3, Fase C, 11 set 2026 — busta, per l'architettura
  * §6a: verificato `'envelope.fill'` contro `sf-symbols-typescript@2.2.0`
  * — presente dalla versione 1.0, la più compatibile — e `mail_fill1_24px.svg`
@@ -388,6 +390,31 @@ function nativeTabIcon(
 }
 
 /**
+ * L'area autenticata: le schede, dentro lo store di Wisey (design §10). Il
+ * provider sta SOPRA il navigatore delle schede perché lo leggono sia la
+ * pagina Wisey sia la sua icona nella barra, che `MainTabs` disegna — e un
+ * componente non legge il contesto che rende lui stesso.
+ */
+function MainNavigator() {
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  return (
+    <TabBarHeightProvider>
+      <WiseyProvider>
+        <View style={styles.main}>
+          <MainTabs />
+          {/*
+            Il cerchio che sporge (design §11): SOPRA le schede, non dentro
+            una scena, così non si smonta cambiando tab. Si aggancia
+            all'altezza della barra portata qui dal riportatore di Inbox.
+          */}
+          <WiseyTabButton onPress={() => navigation.navigate("Main", { screen: "Wisey" })} />
+        </View>
+      </WiseyProvider>
+    </TabBarHeightProvider>
+  );
+}
+
+/**
  * Monta l'app "vera" (autenticata). Al primo render consuma un eventuale
  * deep link rimasto in sospeso da prima del login (vedi
  * `linking.ts`): `Main` è il primo posto in cui gli screen di destinazione
@@ -395,7 +422,7 @@ function nativeTabIcon(
  * `Mbx/List` col giorno del calendario) esistono davvero nell'albero, quindi
  * è anche il primo momento in cui si può navigarci.
  */
-function MainNavigator() {
+function MainTabs() {
   // Tipizzato sul RootStack (l'ANTENATO di questo componente: `MainNavigator`
   // è il `component` dello screen "Main" del RootStack, non un discendente
   // del proprio `Tab.Navigator`, che ritorna qui sotto): `.navigate("Main",
@@ -463,6 +490,10 @@ function MainNavigator() {
         name="Inbox"
         component={InboxNavigator}
         options={{
+          // Montata all'avvio anche se l'app si apre su un'altra tab (un deep
+          // link): porta il riportatore dell'altezza della barra, senza il
+          // quale il cerchio di Wisey non compare. Vedi `app/tab-bar-height.tsx`.
+          lazy: false,
           tabBarLabel: "INB",
           tabBarIcon: () => nativeTabIcon("tray.fill", inboxIcon),
           tabBarBadge: badge,
@@ -476,20 +507,33 @@ function MainNavigator() {
           tabBarIcon: () => nativeTabIcon("folder.fill", folderIcon),
         }}
       />
+      {/*
+        WISEY al CENTRO (25 set 2026). Dal design §11 Wisey nella barra è il
+        CERCHIO nostro che sporge sopra (`WiseyTabButton`, montato in
+        `MainNavigator`), col gufo animato e il nome «Wisey» per VoiceOver.
+        Questa tab nativa resta, così le altre quattro tengono il loro posto,
+        ma con un'icona TRASPARENTE e il titolo vuoto: la copre il cerchio.
+        La tab iniziale resta Inbox: aprire l'app su un'anteprima sarebbe
+        sbagliato.
+      */}
+      <Tab.Screen
+        name="Wisey"
+        component={WiseyScreen}
+        options={{
+          // Titolo vuoto: in react-native-bottom-tabs 1.4.0 l'etichetta di
+          // VoiceOver È il titolo (`TabViewImpl.swift:238`), quindi questa
+          // tab nativa non ha un nome — ce l'ha il cerchio che la copre.
+          tabBarLabel: "",
+          tabBarIcon: () => WISEY_TAB_ICON,
+          tabBarIconRenderingMode: "original",
+        }}
+      />
       <Tab.Screen
         name="Backlog"
         component={BacklogNavigator}
         options={{
           tabBarLabel: "BLG",
           tabBarIcon: () => nativeTabIcon("checklist", checklistIcon),
-        }}
-      />
-      <Tab.Screen
-        name="Docs"
-        component={DocsNavigator}
-        options={{
-          tabBarLabel: "DOC",
-          tabBarIcon: () => nativeTabIcon("book.fill", menuBookIcon),
         }}
       />
       <Tab.Screen
@@ -628,3 +672,10 @@ function SettingsSectionRoute({
     />
   );
 }
+
+const styles = StyleSheet.create({
+  // Contiene le schede e, sopra, il cerchio di Wisey posato in assoluto.
+  main: {
+    flex: 1,
+  },
+});

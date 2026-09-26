@@ -2,10 +2,12 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-
 import NetInfo from "@react-native-community/netinfo";
 import { Linking } from "react-native";
 import * as Keychain from "react-native-keychain";
+import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import "../i18n";
 import { AppProviders, queryClient } from "./providers";
 import { navigationRef, RootNavigator } from "./navigation";
 import { setPendingDeepLink } from "./linking";
+import { WISEY_TAB_ICON } from "./wisey-tab-icon";
 
 const successUser = {
   id: "44444444-4444-4444-8444-444444444444",
@@ -870,5 +872,135 @@ describe("l'app non resta indietro — il ritorno su una schermata", () => {
       });
     });
     expect(pulseCalls).toBe(before);
+  });
+});
+
+/**
+ * LA BARRA DELLE SCHEDE (25 set 2026, «Wisey, anteprima nell'app» §2).
+ *
+ * Si legge dalle props del componente NATIVO della barra, non da una
+ * costante: è quello che iOS riceve davvero, quindi il test prova il
+ * cablaggio e non una lista tenuta accanto al codice.
+ */
+describe("la barra delle schede", () => {
+  type NativeTabItem = { key: string; title: string; iconRenderingMode?: string };
+
+  async function renderMain() {
+    (Keychain.getGenericPassword as jest.Mock).mockResolvedValue({
+      username: "stubwise-session",
+      password: JSON.stringify({
+        baseUrl: "https://stubwise.example",
+        token: "stw_pat_existing",
+        patId: "66666666-6666-4666-8666-666666666666",
+        user: successUser,
+      }),
+      service: "com.app.aleloca.stubwise.session",
+      storage: "keychain",
+    });
+    (Linking.getInitialURL as jest.Mock).mockResolvedValue(undefined);
+    jest.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => routeFetch(input, init));
+    await render(
+      <AppProviders>
+        <RootNavigator />
+      </AppProviders>,
+    );
+    let bar: { props: { items: NativeTabItem[]; icons: unknown[] } } | undefined;
+    await waitFor(() => {
+      bar = screen.container.queryAll(
+        (node) => Array.isArray(node.props.items) && Array.isArray(node.props.icons),
+      )[0] as unknown as typeof bar;
+      expect(bar).toBeDefined();
+    });
+    return bar!;
+  }
+
+  test("cinque schede, Wisey al CENTRO: il tab DOC non c'è più", async () => {
+    const bar = await renderMain();
+    // La chiave di rotta, non il titolo: Wisey non ha un titolo (qui sotto).
+    expect(bar.props.items.map((item) => item.key.split("-")[0])).toEqual([
+      "Inbox",
+      "Projects",
+      "Wisey",
+      "Backlog",
+      "Mbx",
+    ]);
+  });
+
+  /**
+   * La tab Wisey SENZA nome sotto il gufo (25 set 2026, scelta del
+   * maintainer). Nella libreria l'etichetta di accessibilità È il titolo
+   * (`TabViewImpl.swift:238`), quindi VoiceOver non la nomina: accettato.
+   */
+  test("la tab Wisey ha il titolo VUOTO; le altre quattro tengono il loro", async () => {
+    const bar = await renderMain();
+    expect(bar.props.items.map((item) => item.title)).toEqual(["INB", "PRJ", "", "BLG", "MBX"]);
+  });
+
+  /**
+   * Design §11: la tab nativa di Wisey resta (le altre quattro tengono il
+   * loro posto) ma la copre il cerchio nostro — la sua icona è TRASPARENTE.
+   */
+  test("la tab nativa di Wisey ha un'icona trasparente; le altre restano SF Symbol", async () => {
+    const bar = await renderMain();
+    const wisey = bar.props.items.findIndex((item) => item.key.startsWith("Wisey"));
+    expect(bar.props.icons[wisey]).toEqual(WISEY_TAB_ICON);
+    expect(JSON.stringify(bar.props.icons[wisey])).toContain("wisey-tab-empty");
+  });
+
+
+  /**
+   * IL CERCHIO CHE SPORGE (design §11): posato sopra la barra, agganciato
+   * all'altezza VERA della barra, che la libreria dà solo dentro le scene —
+   * la porta fuori un riportatore nella scena di Inbox.
+   */
+  describe("il cerchio di Wisey sopra la barra", () => {
+    afterEach(() => {
+      (useBottomTabBarHeight as jest.Mock).mockReturnValue(0);
+    });
+
+    test("con la barra misurata compare, e il tap apre la pagina di Wisey", async () => {
+      (useBottomTabBarHeight as jest.Mock).mockReturnValue(83);
+      await renderMain();
+      // La scena di Wisey è pigra: prima del tap non esiste.
+      expect(screen.queryByTestId("wisey-input")).toBeNull();
+      const button = await screen.findByRole("button", { name: "Wisey" });
+      await fireEvent.press(button);
+      await waitFor(() => expect(screen.getByTestId("wisey-input")).toBeTruthy());
+    });
+
+    test("senza misura (0) non compare", async () => {
+      await renderMain();
+      expect(screen.queryByTestId("wisey-tab-button")).toBeNull();
+    });
+
+    /**
+     * ⚠️ Le scene sono PIGRE: si montano quando le visiti. Un deep link apre
+     * l'app su un'altra tab, e se Inbox non si montasse il riportatore non
+     * scriverebbe mai l'altezza — il cerchio resterebbe nascosto. Per questo
+     * la tab Inbox ha `lazy: false`.
+     */
+    test("anche aprendo l'app da un deep link su un'altra tab il cerchio compare", async () => {
+      (useBottomTabBarHeight as jest.Mock).mockReturnValue(83);
+      (Keychain.getGenericPassword as jest.Mock).mockResolvedValue({
+        username: "stubwise-session",
+        password: JSON.stringify({
+          baseUrl: "https://stubwise.example",
+          token: "stw_pat_existing",
+          patId: "66666666-6666-4666-8666-666666666666",
+          user: successUser,
+        }),
+        service: "com.app.aleloca.stubwise.session",
+        storage: "keychain",
+      });
+      (Linking.getInitialURL as jest.Mock).mockResolvedValue("stubwise://mail/email/xyz");
+      jest.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => routeFetch(input, init));
+      await render(
+        <AppProviders>
+          <RootNavigator />
+        </AppProviders>,
+      );
+      await waitFor(() => expect(screen.getByTestId("mail-detail-screen")).toBeTruthy());
+      expect(await screen.findByTestId("wisey-tab-button")).toBeTruthy();
+    });
   });
 });
