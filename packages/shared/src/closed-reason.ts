@@ -111,6 +111,9 @@ export const SUCCESSFUL_PROPOSAL_OUTCOMES = [
   "reassigned_project",
   "reminder",
   "ignored",
+  // Più azioni confermate insieme (26 set 2026): `results` elenca gli esiti
+  // delle singole, tutti di questo stesso elenco.
+  "multiple",
 ] as const;
 
 /**

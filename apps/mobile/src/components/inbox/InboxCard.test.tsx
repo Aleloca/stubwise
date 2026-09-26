@@ -581,6 +581,7 @@ describe("InboxCard — proposta Google (fase 6)", () => {
       // chiede aprendo il dettaglio. Qui il campo c'è solo perché il tipo è
       // quello PARSATO, dove il `.default(null)` ha già girato.
       sourceProposalId: null,
+      multiSelectIndices: [],
       from: "laura@cliente.test",
       subject: "Rinviamo il rilascio?",
       signal: "decision",

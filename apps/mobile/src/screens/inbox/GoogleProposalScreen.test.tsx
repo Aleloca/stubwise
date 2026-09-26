@@ -58,6 +58,7 @@ function proposal(overrides: Partial<Reader<InboxItem>> = {}): Reader<InboxItem>
       signal: "decision",
       actions: [{ type: "create_backlog_item" }, { type: "ignore" }],
       auto: false,
+      multiSelectIndices: [],
     },
     ...overrides,
   } as Reader<InboxItem>;
