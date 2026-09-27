@@ -866,6 +866,82 @@ describe("pagina /inbox", () => {
     await waitFor(() => expect(fetched).toBeGreaterThan(before));
   });
 
+  // «Una proposta decisa mostra la decisione» (27 set 2026, design §4): la
+  // card GESTITA di una proposta Google dice cosa è stato deciso — chi, quando
+  // e quali opzioni — invece del solo «handled by».
+  function decidedGoogle(
+    decision: unknown,
+    handledBy: InboxItem["handledBy"] = { id: "u1", email: "ada@example.com" },
+  ): InboxItem {
+    return {
+      ...GOOGLE,
+      status: "handled",
+      actions: [],
+      handledAt: new Date().toISOString(),
+      handledBy,
+      google: { ...GOOGLE.google!, decision } as InboxItem["google"],
+    };
+  }
+
+  async function renderDecided(row: InboxItem) {
+    mockApi(baseApi({ "GET /api/inbox": () => jsonResponse(200, { items: [row], nextCursor: null }) }));
+    renderInbox();
+    await screen.findByRole("heading", { name: "Inbox" });
+    return within(card(GOOGLE.text));
+  }
+
+  it("proposta decisa da me: «Decided by you» e le opzioni scelte, niente scelte da premere", async () => {
+    const row = await renderDecided(
+      decidedGoogle({ status: "actioned", chosen: ["Add to backlog", "Record the decision"], error: null }),
+    );
+    expect(row.getByText(/Decided by you/)).toBeInTheDocument();
+    expect(row.getByText("Add to backlog")).toBeInTheDocument();
+    expect(row.getByText("Record the decision")).toBeInTheDocument();
+    expect(row.queryByRole("radio")).toBeNull();
+    expect(row.queryByText("handled by ada@example.com")).toBeNull();
+  });
+
+  it("proposta decisa da un collega: il suo indirizzo", async () => {
+    const row = await renderDecided(
+      decidedGoogle(
+        { status: "actioned", chosen: ["Add to backlog"], error: null },
+        { id: "55555555-5555-4555-8555-555555555555", email: "bea@example.com" },
+      ),
+    );
+    expect(row.getByText(/Decided by bea@example\.com/)).toBeInTheDocument();
+  });
+
+  it("proposta ignorata senza scelte: «Nothing to do»", async () => {
+    const row = await renderDecided(decidedGoogle({ status: "ignored", chosen: [], error: null }));
+    expect(row.getByText("Nothing to do")).toBeInTheDocument();
+  });
+
+  it("proposta fallita: lo dice, con l'errore e il rimando a «Repropose»", async () => {
+    const row = await renderDecided(
+      decidedGoogle({ status: "failed", chosen: ["Add to backlog"], error: "google.proposal: target_gone" }),
+    );
+    expect(row.getByText("Couldn't be completed")).toBeInTheDocument();
+    expect(row.getByText("google.proposal: target_gone")).toBeInTheDocument();
+    expect(row.getByText(/Repropose/)).toBeInTheDocument();
+  });
+
+  it("⚠️ server più vecchio (nessun `decision`): solo chi e quando, e la card resta intera", async () => {
+    // Il campo è ASSENTE di proposito: il web fa un cast e non un parse, quindi
+    // da un server più vecchio `decision` arriva `undefined` — è la prova del
+    // `?? null` nel punto di lettura.
+    const row = await renderDecided({
+      ...GOOGLE,
+      status: "handled",
+      actions: [],
+      handledAt: new Date().toISOString(),
+      handledBy: { id: "u1", email: "ada@example.com" },
+    });
+    expect("decision" in GOOGLE.google!).toBe(false);
+    expect(row.getByText(/Decided by you/)).toBeInTheDocument();
+    expect(row.queryByText("Nothing to do")).toBeNull();
+    expect(row.getByText("laura@cliente.test")).toBeInTheDocument();
+  });
+
   it("riga già decisa: il link al ticket viene dai DATI, senza aver premuto nulla", async () => {
     // È la riga come la rimanda il server dopo la decisione — in "Gestite",
     // dopo un reload, o nell'inbox di un collega che non ha premuto lui: il

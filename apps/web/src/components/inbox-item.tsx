@@ -546,12 +546,25 @@ export function InboxItemCard({
         </p>
       )}
 
-      {isHandled && (
-        <p className="mt-1 font-mono text-[11px] text-fg-faint">
-          {item.handledBy
-            ? t("inbox:status.handledBy", { email: item.handledBy.email })
-            : t("inbox:status.handled")}
-        </p>
+      {isHandled && isGoogle && item.handledBy ? (
+        // «Una proposta decisa mostra la decisione» (27 set 2026): chi, quando e
+        // COSA è stato deciso, invece del solo «handled by». `?? null`: sul web
+        // `lib/api.ts` fa un CAST e non un `parse`, quindi da un server più
+        // vecchio `decision` arriva `undefined` — e resta la sola riga chi/quando.
+        <DecisionSummary
+          decision={item.google?.decision ?? null}
+          handledBy={item.handledBy}
+          handledAt={item.handledAt}
+          currentUser={currentUser}
+        />
+      ) : (
+        isHandled && (
+          <p className="mt-1 font-mono text-[11px] text-fg-faint">
+            {item.handledBy
+              ? t("inbox:status.handledBy", { email: item.handledBy.email })
+              : t("inbox:status.handled")}
+          </p>
+        )
       )}
 
       {startedTicketId !== null && (
@@ -908,6 +921,59 @@ function ProposalSource({ sourceProposalId }: { sourceProposalId: string | null 
               {excerpt}
             </p>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * COSA È STATO DECISO su una proposta Google gestita (27 set 2026, design §4):
+ * gemello del blocco dell'app (`GoogleProposalScreen`, `DecisionBlock`). Chi
+ * e quando vengono da `handledBy`/`handledAt`; le etichette scelte, lo stato
+ * e l'errore da `google.decision`, che il server DERIVA a lettura. Senza
+ * decisione (server vecchio, o proposta decisa prima che le scelte si
+ * salvassero) resta la sola riga chi/quando, che è vera.
+ */
+function DecisionSummary({
+  decision,
+  handledBy,
+  handledAt,
+  currentUser,
+}: {
+  decision: NonNullable<InboxItem["google"]>["decision"] | null;
+  handledBy: HandledBy;
+  handledAt: string | null;
+  currentUser: HandledBy;
+}) {
+  const { t } = useTranslation();
+  const who =
+    handledBy.id === currentUser.id
+      ? t("inbox:google.decidedByYou")
+      : t("inbox:google.decidedBy", { email: handledBy.email });
+  const chosen = decision?.chosen ?? [];
+  return (
+    <div className="mt-2 border-l-2 border-line-strong pl-3" data-testid="google-decision">
+      <p className="font-mono text-[11px] text-fg-muted">
+        {decision?.status === "failed" ? "! " : "✓ "}
+        {who}
+        {handledAt ? ` · ${formatRelativeTime(handledAt)}` : ""}
+      </p>
+      {chosen.length > 0 && (
+        <ul className="mt-1 flex flex-col gap-0.5 text-sm text-fg">
+          {chosen.map((label, index) => (
+            <li key={index}>{label}</li>
+          ))}
+        </ul>
+      )}
+      {decision?.status === "ignored" && chosen.length === 0 && (
+        <p className="mt-1 text-sm text-fg-muted">{t("inbox:google.decisionNothing")}</p>
+      )}
+      {decision?.status === "failed" && (
+        <div className="mt-1 flex flex-col gap-0.5">
+          <p className="text-sm text-danger">{t("inbox:google.decisionFailed")}</p>
+          {decision.error !== null && <p className="font-mono text-[11px] text-fg-muted">{decision.error}</p>}
+          <p className="text-[12px] text-fg-muted">{t("inbox:google.decisionFailedHint")}</p>
         </div>
       )}
     </div>

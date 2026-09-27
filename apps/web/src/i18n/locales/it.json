@@ -1291,6 +1291,11 @@
     "google": {
       "unknownSender": "Mittente sconosciuto",
       "confirm": "Conferma",
+      "decidedByYou": "Decisa da te",
+      "decidedBy": "Decisa da {{email}}",
+      "decisionNothing": "Niente da fare",
+      "decisionFailed": "Non è stato possibile completarla",
+      "decisionFailedHint": "Puoi riprovare con «Riproponi» sul messaggio, nella Posta.",
       "createN": "Crea {{count}}",
       "openThread": "Apri il thread",
       "openEvent": "Apri l'evento",
