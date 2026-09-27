@@ -76,7 +76,33 @@ export function GoogleProposalScreen({
     enabled: client !== null,
     staleTime: 10_000,
   });
-  const item = query.data?.items.find((row) => row.id === id);
+  const openItem = query.data?.items.find((row) => row.id === id);
+
+  // ⚠️ LA PROPOSTA APPENA DECISA (27 set 2026, «una proposta decisa mostra la
+  // decisione»). Dopo la conferma `useDecision` toglie la notifica dalla lista
+  // delle APERTE, l'unica che questa schermata leggeva: senza questa seconda
+  // richiesta si vedeva «gone» («qualcuno l'ha decisa»), come se l'avesse
+  // decisa un altro. Quando l'id non è fra le aperte si guarda fra le GESTITE,
+  // con UNA richiesta — niente rotta per id, stessa ragione di sopra — e se
+  // c'è si mostra cosa è stato deciso. «gone» resta per il caso vero: non c'è
+  // da nessuna parte.
+  //
+  // LIMITE, dichiarato: si guarda solo la PRIMA pagina delle gestite. Basta per
+  // «subito dopo il tap», che è la più recente; una proposta decisa settimane
+  // fa e scivolata oltre la prima pagina ricade su «gone». L'app non ha una
+  // vista delle gestite, quindi oggi non ci si arriva comunque.
+  const handledQuery = useQuery({
+    queryKey: inboxKeys.handled(),
+    queryFn: () => {
+      if (!client) throw new Error("GoogleProposalScreen richiede un client autenticato");
+      return client.inbox.list({ status: "handled" });
+    },
+    enabled: client !== null && query.isSuccess && openItem === undefined,
+    staleTime: 10_000,
+  });
+  const item = openItem ?? handledQuery.data?.items.find((row) => row.id === id);
+  // Si aspetta la risposta delle gestite prima di concludere «gone».
+  const lookingAmongHandled = query.isSuccess && openItem === undefined && handledQuery.isPending;
 
   return (
     <View style={styles.container} testID="google-proposal-screen">
@@ -91,7 +117,7 @@ export function GoogleProposalScreen({
           titleNumberOfLines={3}
         />
 
-        {query.isPending ? (
+        {query.isPending || lookingAmongHandled ? (
           <View style={styles.skeletonList} testID="google-proposal-skeleton">
             <Skeleton height={18} width="60%" />
             <Skeleton height={80} />
@@ -225,7 +251,9 @@ function ProposalBody({
       */}
       <ProposalSource sourceProposalId={google?.sourceProposalId ?? null} />
 
-      {choices.length > 0 ? (
+      {item.status === "handled" && item.handledBy !== null ? (
+        <DecisionBlock item={item} />
+      ) : choices.length > 0 && item.status !== "handled" ? (
         <>
           {multiIndices.length > 0 && (
             <>
@@ -372,6 +400,69 @@ function ProposalBody({
 }
 
 /**
+ * COSA È STATO DECISO (27 set 2026): al posto delle scelte, su una proposta
+ * gestita. Chi e quando vengono da `handledBy`/`handledAt`, che ci sono per
+ * ogni notifica gestita; le etichette scelte, lo stato e l'errore da
+ * `google.decision`, che il server DERIVA a lettura dall'esito della riga.
+ *
+ * Una proposta decisa prima di quel campo non ha le scelte salvate: resta la
+ * sola riga chi/quando, che è vera. «you» quando l'ha decisa chi guarda — era
+ * proprio l'equivoco da togliere.
+ */
+function DecisionBlock({ item }: { item: Reader<InboxItem> }) {
+  const { t } = useTranslation();
+  const { user } = useAuth();
+  const decision = item.google?.decision ?? null;
+  const who =
+    item.handledBy !== null && user !== null && item.handledBy.id === user.id
+      ? t("mobile.inbox.google.decidedByYou")
+      : t("mobile.inbox.google.decidedBy", { who: item.handledBy?.email ?? "" });
+  const relative = item.handledAt ? relativeTimeCompact(item.handledAt) : null;
+  const when =
+    relative === null
+      ? null
+      : relative.kind === "now"
+        ? t("mobile.inbox.time.now")
+        : t(`mobile.inbox.time.${relative.kind}`, { count: relative.count });
+
+  return (
+    <>
+      <SectionLabel style={styles.sectionLabel}>{t("mobile.inbox.google.decisionTitle")}</SectionLabel>
+      <View style={styles.card} testID="google-proposal-decision">
+        <View style={styles.row}>
+          <Text style={styles.decisionMark}>{decision?.status === "failed" ? "!" : "✓"}</Text>
+          <Text style={styles.rowLabel} testID="google-decision-who">
+            {when === null ? who : `${who} · ${when}`}
+          </Text>
+        </View>
+        {decision !== null &&
+          decision.chosen.map((label, index) => (
+            <View key={index} style={[styles.row, styles.rowDivided]}>
+              <Text style={styles.rowLabel} testID={`google-decision-chosen-${index}`}>
+                {label}
+              </Text>
+            </View>
+          ))}
+        {decision !== null && decision.status === "ignored" && decision.chosen.length === 0 && (
+          <View style={[styles.row, styles.rowDivided]}>
+            <Text style={styles.rowConsequence} testID="google-decision-nothing">
+              {t("mobile.inbox.google.decisionNothing")}
+            </Text>
+          </View>
+        )}
+      </View>
+      {decision !== null && decision.status === "failed" && (
+        <View style={styles.failedBox} testID="google-decision-failed">
+          <Text style={styles.error}>{t("mobile.inbox.google.decisionFailed")}</Text>
+          {decision.error !== null && <Text style={styles.rowConsequence}>{decision.error}</Text>}
+          <Text style={styles.note}>{t("mobile.inbox.google.decisionFailedHint")}</Text>
+        </View>
+      )}
+    </>
+  );
+}
+
+/**
  * «Cosa ha letto Stubwise»: l'ESTRATTO passato alla classificazione, non
  * l'email come si vede in Gmail (design §2).
  *
@@ -505,6 +596,8 @@ const styles = StyleSheet.create({
   rowDivided: { borderTopColor: colors.line, borderTopWidth: 1 },
   rowDisabled: { opacity: 0.5 },
   rowText: { flex: 1, gap: 2 },
+  decisionMark: { color: colors.signal, fontFamily: fontFamily.mono, fontSize: 15 },
+  failedBox: { gap: 4, marginTop: 10 },
   // Casella delle azioni sommabili: stessa lingua del resto (bordo, ambra
   // quando è spuntata), niente componente di libreria.
   checkbox: {

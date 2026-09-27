@@ -5,7 +5,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react-nativ
 import NetInfo from "@react-native-community/netinfo";
 import { AuthContext } from "../../app/auth-context";
 import type { AuthContextValue } from "../../app/providers";
-import "../../i18n";
+import i18n from "../../i18n";
 import { GoogleProposalScreen } from "./GoogleProposalScreen";
 
 // ⚠️ LO SPREAD DI `requireActual` NON È OPZIONALE (CLAUDE.md): sostituire il
@@ -66,11 +66,24 @@ function proposal(overrides: Partial<Reader<InboxItem>> = {}): Reader<InboxItem>
 }
 
 function makeClient(
-  overrides: { list?: jest.Mock; act?: jest.Mock; mailGet?: jest.Mock; projectsList?: jest.Mock } = {},
+  overrides: {
+    list?: jest.Mock;
+    listHandled?: jest.Mock;
+    act?: jest.Mock;
+    mailGet?: jest.Mock;
+    projectsList?: jest.Mock;
+  } = {},
 ): StubwiseClient {
+  const open = overrides.list ?? jest.fn().mockResolvedValue({ items: [proposal()], nextCursor: null });
   return {
     inbox: {
-      list: overrides.list ?? jest.fn().mockResolvedValue({ items: [proposal()], nextCursor: null }),
+      // 27 set 2026: la schermata chiede anche le GESTITE
+      // (`list({ status: "handled" })`) quando l'id non è fra le aperte. Il
+      // doppio le distingue: `listHandled`, se c'è, risponde a quella
+      // richiesta; altrimenti risponde la lista di sempre.
+      list: jest.fn((filters?: { status?: string }) =>
+        filters?.status === "handled" && overrides.listHandled ? overrides.listHandled(filters) : open(filters),
+      ),
       // `act(id, "answer", body)`: il body porta `optionIndex` OPPURE, dal 26
       // set 2026, `optionIndices` (più azioni insieme) — il doppio lo inoltra
       // così com'è, e i test lo leggono dalla chiamata.
@@ -89,7 +102,7 @@ function makeClient(
 
 // ⚠️ `await render(...)`: in questo progetto va atteso, o l'albero non viene
 // montato e `screen` resta vuoto.
-async function renderScreen(client: StubwiseClient) {
+async function renderScreen(client: StubwiseClient, user: AuthContextValue["user"] = null) {
   // Le decisioni sono disabilitate offline (vedi `useDecision`): senza dire a
   // NetInfo che c'è rete, ogni bottone di questa pagina resta inerte e i test
   // fallirebbero per il motivo sbagliato.
@@ -99,7 +112,7 @@ async function renderScreen(client: StubwiseClient) {
   const authValue: AuthContextValue = {
     status: "authenticated",
     client,
-    user: null,
+    user,
     justLoggedIn: false,
     login: jest.fn(),
     completeOnboarding: jest.fn(),
@@ -150,6 +163,149 @@ function multiProposal(): Reader<InboxItem> {
     },
   } as Reader<InboxItem>;
 }
+
+/**
+ * «Una proposta decisa mostra la decisione» (27 set 2026). Dopo la conferma la
+ * notifica esce dalle APERTE, l'unica lista che la schermata leggeva: senza
+ * guardare anche fra le gestite si vedeva «gone», come se l'avesse decisa
+ * qualcun altro.
+ */
+const ME = { id: "11111111-1111-4111-8111-111111111111", email: "io@acme.test" };
+const COLLEAGUE = { id: "22222222-2222-4222-8222-222222222222", email: "maria@acme.test" };
+const SESSION_USER = { ...ME, role: "admin", language: "it", avatarUrl: null, slackUserId: null } as NonNullable<
+  AuthContextValue["user"]
+>;
+
+function decided(
+  decision: NonNullable<Reader<InboxItem>["google"]>["decision"],
+  handledBy: { id: string; email: string } | null = ME,
+): Reader<InboxItem> {
+  const base = proposal();
+  return {
+    ...base,
+    status: "handled",
+    actions: ["open"],
+    handledAt: new Date().toISOString(),
+    handledBy,
+    google: { ...base.google!, decision },
+  } as Reader<InboxItem>;
+}
+
+function handledPage(item: Reader<InboxItem>) {
+  return jest.fn().mockResolvedValue({ items: [item], nextCursor: null });
+}
+
+const NO_OPEN = () => jest.fn().mockResolvedValue({ items: [], nextCursor: null });
+
+describe("GoogleProposalScreen — la proposta decisa mostra la decisione", () => {
+  test("decisa da me: «Decided by you», le scelte, e nessun bottone", async () => {
+    const listHandled = handledPage(
+      decided({ status: "actioned", chosen: ["Voce: strumento MCP", "Voce: filtro sullo stato"], error: null }),
+    );
+    await renderScreen(makeClient({ list: NO_OPEN(), listHandled }), SESSION_USER);
+    await waitFor(() => expect(screen.getByTestId("google-proposal-decision")).toBeTruthy());
+    expect(screen.getByTestId("google-decision-who")).toHaveTextContent(
+      new RegExp(i18n.t("mobile.inbox.google.decidedByYou")),
+    );
+    expect(screen.getByTestId("google-decision-chosen-0")).toHaveTextContent("Voce: strumento MCP");
+    expect(screen.getByTestId("google-decision-chosen-1")).toHaveTextContent("Voce: filtro sullo stato");
+    expect(screen.queryByTestId("google-action-0")).toBeNull();
+    expect(screen.queryByTestId("google-proposal-gone")).toBeNull();
+    expect(screen.queryByTestId("google-proposal-decided")).toBeNull();
+    expect(listHandled).toHaveBeenCalledWith({ status: "handled" });
+  });
+
+  test("decisa da un collega: il suo indirizzo, non «you»", async () => {
+    const listHandled = handledPage(decided({ status: "actioned", chosen: ["Voce: export"], error: null }, COLLEAGUE));
+    await renderScreen(makeClient({ list: NO_OPEN(), listHandled }), SESSION_USER);
+    await waitFor(() => expect(screen.getByTestId("google-decision-who")).toBeTruthy());
+    expect(screen.getByTestId("google-decision-who")).toHaveTextContent(/maria@acme\.test/);
+    expect(screen.getByTestId("google-decision-who")).not.toHaveTextContent(
+      new RegExp(i18n.t("mobile.inbox.google.decidedByYou")),
+    );
+  });
+
+  test("ignorata senza scelte: «Nothing to do»", async () => {
+    const listHandled = handledPage(decided({ status: "ignored", chosen: [], error: null }));
+    await renderScreen(makeClient({ list: NO_OPEN(), listHandled }), SESSION_USER);
+    await waitFor(() => expect(screen.getByTestId("google-decision-nothing")).toBeTruthy());
+  });
+
+  test("fallita: lo dice, con l'errore e il rimando a «Riproponi»", async () => {
+    const listHandled = handledPage(
+      decided({ status: "failed", chosen: ["Voce: export"], error: "google.proposal: target_gone" }),
+    );
+    await renderScreen(makeClient({ list: NO_OPEN(), listHandled }), SESSION_USER);
+    await waitFor(() => expect(screen.getByTestId("google-decision-failed")).toBeTruthy());
+    expect(screen.getByTestId("google-decision-failed")).toHaveTextContent(/target_gone/);
+    expect(screen.getByTestId("google-decision-failed")).toHaveTextContent(
+      new RegExp(i18n.t("mobile.inbox.google.decisionFailedHint")),
+    );
+  });
+
+  test("card VECCHIA (nessuna scelta salvata, o nessuna decisione): solo chi e quando", async () => {
+    const listHandled = handledPage(decided(null, COLLEAGUE));
+    await renderScreen(makeClient({ list: NO_OPEN(), listHandled }), SESSION_USER);
+    await waitFor(() => expect(screen.getByTestId("google-decision-who")).toBeTruthy());
+    expect(screen.queryByTestId("google-decision-chosen-0")).toBeNull();
+    expect(screen.queryByTestId("google-decision-nothing")).toBeNull();
+    expect(screen.queryByTestId("google-decision-failed")).toBeNull();
+  });
+
+  test("gestita senza nemmeno chi l'ha decisa: il ripiego generico «already decided»", async () => {
+    const listHandled = handledPage(decided(null, null));
+    await renderScreen(makeClient({ list: NO_OPEN(), listHandled }), SESSION_USER);
+    await waitFor(() => expect(screen.getByTestId("google-proposal-decided")).toBeTruthy());
+  });
+
+  test("mentre le gestite arrivano: lo scheletro, MAI un «gone» che poi si smentisce", async () => {
+    let resolveHandled: (page: unknown) => void = () => {};
+    const listHandled = jest.fn().mockImplementation(
+      () => new Promise((resolve) => {
+        resolveHandled = resolve;
+      }),
+    );
+    const list = NO_OPEN();
+    await renderScreen(makeClient({ list, listHandled }), SESSION_USER);
+    await waitFor(() => expect(listHandled).toHaveBeenCalled());
+    expect(screen.getByTestId("google-proposal-skeleton")).toBeTruthy();
+    expect(screen.queryByTestId("google-proposal-gone")).toBeNull();
+
+    resolveHandled({ items: [decided({ status: "actioned", chosen: ["Voce: export"], error: null })], nextCursor: null });
+    await waitFor(() => expect(screen.getByTestId("google-proposal-decision")).toBeTruthy());
+  });
+
+  test("né fra le aperte né fra le gestite: «gone», come prima", async () => {
+    const listHandled = jest.fn().mockResolvedValue({ items: [], nextCursor: null });
+    await renderScreen(makeClient({ list: NO_OPEN(), listHandled }), SESSION_USER);
+    await waitFor(() => expect(screen.getByTestId("google-proposal-gone")).toBeTruthy());
+  });
+
+  test("SUBITO DOPO IL TAP: la notifica esce dalle aperte, compare fra le gestite, e il blocco si vede", async () => {
+    let answered = false;
+    const list = jest.fn().mockImplementation(() =>
+      Promise.resolve({ items: answered ? [] : [proposal()], nextCursor: null }),
+    );
+    const listHandled = jest.fn().mockImplementation(() =>
+      Promise.resolve({
+        items: answered ? [decided({ status: "actioned", chosen: ["Aggiungi al backlog"], error: null })] : [],
+        nextCursor: null,
+      }),
+    );
+    const act = jest.fn().mockImplementation(() => {
+      answered = true;
+      return Promise.resolve({ changedNotificationIds: [ID] });
+    });
+    await renderScreen(makeClient({ list, listHandled, act }), SESSION_USER);
+    await waitFor(() => expect(screen.getByTestId("google-action-0")).toBeTruthy());
+
+    await fireEvent.press(screen.getByTestId("google-action-0"));
+
+    await waitFor(() => expect(screen.getByTestId("google-proposal-decision")).toBeTruthy());
+    expect(screen.getByTestId("google-decision-chosen-0")).toHaveTextContent("Aggiungi al backlog");
+    expect(screen.queryByTestId("google-proposal-gone")).toBeNull();
+  });
+});
 
 describe("GoogleProposalScreen — più azioni insieme", () => {
   test("le azioni sommabili sono caselle tutte spuntate; «Sposta» e «Non fare nulla» restano righe", async () => {

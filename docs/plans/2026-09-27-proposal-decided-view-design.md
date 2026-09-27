@@ -9,10 +9,22 @@ riaprendola dalle gestite e sul web**.
 
 ## §1 — Premesse (verificate su `main` 3a9d7662)
 
-- Dopo la conferma il server marca la notifica gestita e il payload non porta
-  più le scelte. `GoogleProposalScreen` (app) cade allora nel ramo senza
-  opzioni e mostra `mobile.inbox.google.alreadyDecided`
-  (`GoogleProposalScreen.tsx:~355`).
+- ⚠️ **Corretto il 27 set, dopo la verifica sul codice** (la prima stesura
+  diceva che il server toglie le scelte a una notifica gestita, ed era
+  sbagliato):
+  1. il server NON toglie le scelte: `readQuestion`/`readGoogle`
+     (`apps/server/src/services/inbox.ts`) e `toInboxItemView`
+     (`routes/inbox.ts`) non guardano lo status, e una gestita porta ancora
+     opzioni e azioni. Il ramo `alreadyDecided` di `GoogleProposalScreen`
+     scatta solo con un payload senza domanda;
+  2. dopo il tap l'app NON rilegge la notifica: `useDecision.onSuccess` la
+     toglie dalla lista in cache, e la schermata cerca l'item solo in
+     `inboxKeys.list()`, che legge le sole APERTE (default della rotta). Il
+     risultato è la schermata «gone» («This proposal is no longer in the
+     inbox: someone decided it.»): stesso difetto percepito, meccanismo
+     diverso;
+  3. nell'app non esiste una lista delle gestite: «riaprirla dalle gestite»
+     oggi vale solo sul web.
 - L'item di inbox porta già `handledAt` e `handledBy`
   (`packages/shared/src/schemas/notification.ts:598-599`): CHI e QUANDO ci
   sono.
@@ -73,8 +85,15 @@ decision: {
   - senza `decision`, o con `chosen` vuoto, solo la riga chi/quando.
 
   La fonte (l'estratto letto dal modello) resta sopra: è il contesto della
-  decisione. Il blocco compare anche SUBITO dopo il tap, perché la schermata
-  rilegge la notifica. Nessuno stato locale da tenere allineato.
+  decisione. Nessuno stato locale da tenere allineato.
+  **Come ci arriva la notifica gestita** (vedi §1, punto 2): quando l'id non
+  è fra le aperte, la schermata fa UNA richiesta in più,
+  `client.inbox.list({ status: "handled" })`, e se lo trova mostra il blocco;
+  «gone» resta solo se non c'è da nessuna parte, e mentre le gestite arrivano
+  si vede lo scheletro, mai un «gone» che poi si smentisce. Nessuna rotta
+  nuova. **Limite**: si guarda solo la prima pagina delle gestite, che basta
+  per «subito dopo il tap» (è la più recente). Nessuna vista «gestite»
+  nell'app: fuori perimetro.
 - **Web** (`inbox-item.tsx`): la card gestita mostra lo stesso blocco. Il
   campo si legge con `?? null`, perché il web fa un cast e non un parse.
 - i18n it e en per tutte le frasi. Il testo generico «already decided» resta
