@@ -1321,6 +1321,19 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   guardando, non automatizzando): quante mail hanno card su più progetti
   (erano 2 su 48), e le card nate su un progetto FUORI dal perimetro —
   confermate o ignorate — dicono se il modello attribuisce bene.
+- **«Una proposta decisa mostra la decisione» (27 set 2026)**: rebuild
+  **server + caddy**; l'app si aggiorna dagli store, il worker non c'entra.
+  **Nessuna migrazione, nessuna env, nessun kind né valore di enum nuovo.**
+  Alla conferma, `markSourceOutcome`/`markSourceFailed` scrivono gli indici
+  scelti in `outcome.chosenIndices` (posta, smistamento, calendario, anche se
+  fallisce); `InboxGoogle.decision` (stato, etichette scelte, errore) si
+  DERIVA a lettura in `readGoogle`, con una query per tabella e per pagina, e
+  non è mai scritto nell'evento. Nell'app, una proposta appena decisa non è
+  più fra le aperte: la schermata la cerca fra le gestite con una richiesta in
+  più (solo la prima pagina, limite dichiarato nel docblock).
+  **Rollback innocuo**: senza il campo, l'app lo legge `null` dal `.default` e
+  il web con `?? null`, e tornano alla sola riga chi/quando; gli indici già
+  scritti negli esiti restano, innocui (`closed-reason.ts` guarda solo `type`).
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
