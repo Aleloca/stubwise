@@ -564,7 +564,7 @@ describe("answerGoogleProposal — create_milestone", () => {
     expect(rows).toHaveLength(1); // nessuna seconda milestone creata
 
     const row = await readCalendarEvent(event.id);
-    expect(row!.outcome).toEqual({ type: "exists" });
+    expect(row!.outcome).toEqual({ type: "exists", chosenIndices: [0] });
   });
 });
 
@@ -587,10 +587,10 @@ describe("answerGoogleProposal — acknowledge_reminder", () => {
     expect(result.ok).toBe(true);
 
     const row = await readCalendarEvent(event.id);
-    expect(row!.outcome).toEqual({ type: "reminder" });
+    expect(row!.outcome).toEqual({ type: "reminder", chosenIndices: [0] });
     // Distinguibile da un `ignore` generico: l'utente ha detto "sì,
     // ricordamelo", non "questo non mi interessa".
-    expect(row!.outcome).not.toEqual({ type: "ignored" });
+    expect(row!.outcome).not.toMatchObject({ type: "ignored" });
     expect(await db.select().from(milestones).where(eq(milestones.projectId, projectId))).toHaveLength(0);
   });
 });
@@ -1160,7 +1160,7 @@ describe("answerGoogleProposal — ignore", () => {
     const result = await answerGoogleProposal(db, { notificationId, actor: owner, optionIndex: 1 });
     expect(result.ok).toBe(true);
     const row = await readCalendarEvent(event.id);
-    expect(row!.outcome).toEqual({ type: "ignored" });
+    expect(row!.outcome).toEqual({ type: "ignored", chosenIndices: [1] });
     expect(row!.status).toBe("confirmed");
   });
 });
@@ -1663,5 +1663,158 @@ describe("answerGoogleProposal — più azioni insieme (optionIndices)", () => {
     expect(result.ok).toBe(true);
     expect(await readEmailProposal(sibling.id)).toEqual(before);
     expect(projectId).not.toBe(siblingProjectId);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// «Una proposta decisa mostra la decisione» (27 set 2026, design §2): QUALI
+// opzioni sono state scelte resta dentro l'esito che la chiusura già scrive,
+// per tutte e tre le sorgenti, anche quando l'azione fallisce.
+// ---------------------------------------------------------------------------
+
+describe("answerGoogleProposal — gli indici scelti restano nell'esito (chosenIndices)", () => {
+  it("posta, scelta singola: l'esito porta l'indice accanto al suo tipo", async () => {
+    const { owner, projectId, accountId } = await seedOwner();
+    const email = await seedEmailRow(accountId, projectId);
+    const child = await seedEmailProposalRow(email.id, projectId);
+    const { notificationId } = await seedProposal({
+      ownerId: owner.id,
+      sourceId: child.id,
+      source: "email",
+      actions: [{ type: "ignore" }, { type: "create_backlog_item", projectId, title: "Voce" }],
+    });
+
+    expect((await answerGoogleProposal(db, { notificationId, actor: owner, optionIndex: 1 })).ok).toBe(true);
+
+    const proposal = await readEmailProposal(child.id);
+    expect(proposal!.outcome).toMatchObject({ type: "backlog_item", chosenIndices: [1] });
+  });
+
+  it("posta, più azioni insieme: l'esito `multiple` porta tutti gli indici, in ordine", async () => {
+    const { owner, projectId, accountId } = await seedOwner();
+    const email = await seedEmailRow(accountId, projectId);
+    const child = await seedEmailProposalRow(email.id, projectId);
+    const { notificationId } = await seedProposal({
+      ownerId: owner.id,
+      sourceId: child.id,
+      source: "email",
+      actions: [
+        { type: "create_backlog_item", projectId, title: "Prima" },
+        { type: "create_backlog_item", projectId, title: "Seconda" },
+        { type: "create_backlog_item", projectId, title: "Terza" },
+        { type: "ignore" },
+      ],
+    });
+
+    const result = await answerGoogleProposal(db, { notificationId, actor: owner, optionIndices: [2, 0] });
+    expect(result.ok).toBe(true);
+
+    const proposal = await readEmailProposal(child.id);
+    expect(proposal!.outcome).toMatchObject({ type: "multiple", chosenIndices: [0, 2] });
+  });
+
+  it("smistamento, «nessuno di questi»: l'indice sta sull'esito del PADRE", async () => {
+    const { owner, accountId } = await seedOwner();
+    const triage = await seedTriageEmailRow(accountId);
+    const { notificationId } = await seedProposal({
+      ownerId: owner.id,
+      sourceId: triage.id,
+      source: "email_triage",
+      actions: [{ type: "ignore" }],
+    });
+
+    expect((await answerGoogleProposal(db, { notificationId, actor: owner, optionIndex: 0 })).ok).toBe(true);
+
+    const message = await readEmailMessage(triage.id);
+    expect(message!.outcome).toEqual({ type: "triage_dismissed", chosenIndices: [0] });
+  });
+
+  it("calendario: l'indice sta su `calendar_events.outcome`", async () => {
+    const { owner, projectId, accountId } = await seedOwner();
+    const event = await seedCalendarRow(accountId, projectId);
+    const { notificationId } = await seedProposal({
+      ownerId: owner.id,
+      sourceId: event.id,
+      source: "calendar",
+      actions: [{ type: "ignore" }, { type: "acknowledge_reminder" }],
+    });
+
+    expect((await answerGoogleProposal(db, { notificationId, actor: owner, optionIndex: 1 })).ok).toBe(true);
+
+    expect((await readCalendarEvent(event.id))!.outcome).toEqual({ type: "reminder", chosenIndices: [1] });
+  });
+
+  it("posta che FALLISCE (target_gone): la riga va `failed` e ricorda cosa si è provato a fare", async () => {
+    const { owner, projectId, accountId } = await seedOwner();
+    const email = await seedEmailRow(accountId, projectId);
+    const child = await seedEmailProposalRow(email.id, projectId);
+    const { notificationId } = await seedProposal({
+      ownerId: owner.id,
+      sourceId: child.id,
+      source: "email",
+      actions: [{ type: "ignore" }, { type: "create_backlog_item", projectId: randomUUID(), title: "Sparito" }],
+    });
+
+    const result = await answerGoogleProposal(db, { notificationId, actor: owner, optionIndex: 1 });
+    expect(result).toMatchObject({ ok: false, error: "target_gone" });
+
+    const proposal = await readEmailProposal(child.id);
+    expect(proposal!.status).toBe("failed");
+    expect(proposal!.outcome).toEqual({ chosenIndices: [1] });
+  });
+
+  it("più azioni che FALLISCONO: la riga `failed` ricorda tutti gli indici provati", async () => {
+    const { owner, projectId, accountId } = await seedOwner();
+    const email = await seedEmailRow(accountId, projectId);
+    const child = await seedEmailProposalRow(email.id, projectId);
+    const { notificationId } = await seedProposal({
+      ownerId: owner.id,
+      sourceId: child.id,
+      source: "email",
+      actions: [
+        { type: "create_backlog_item", projectId, title: "Prima" },
+        { type: "create_backlog_item", projectId: randomUUID(), title: "Sparito" },
+        { type: "ignore" },
+      ],
+    });
+
+    const result = await answerGoogleProposal(db, { notificationId, actor: owner, optionIndices: [0, 1] });
+    expect(result).toMatchObject({ ok: false, error: "target_gone" });
+
+    expect((await readEmailProposal(child.id))!.outcome).toEqual({ chosenIndices: [0, 1] });
+  });
+
+  it("smistamento che FALLISCE (progetto sparito): il padre `failed` ricorda l'indice", async () => {
+    const { owner, accountId } = await seedOwner();
+    const triage = await seedTriageEmailRow(accountId);
+    const { notificationId } = await seedProposal({
+      ownerId: owner.id,
+      sourceId: triage.id,
+      source: "email_triage",
+      actions: [{ type: "choose_project", projectId: randomUUID() }, { type: "ignore" }],
+    });
+
+    const result = await answerGoogleProposal(db, { notificationId, actor: owner, optionIndex: 0 });
+    expect(result).toMatchObject({ ok: false, error: "target_gone" });
+
+    const message = await readEmailMessage(triage.id);
+    expect(message!.status).toBe("failed");
+    expect(message!.outcome).toEqual({ chosenIndices: [0] });
+  });
+
+  it("calendario che FALLISCE: l'esito `failed` porta anche gli indici", async () => {
+    const { owner, projectId, accountId } = await seedOwner();
+    const event = await seedCalendarRow(accountId, projectId);
+    const { notificationId } = await seedProposal({
+      ownerId: owner.id,
+      sourceId: event.id,
+      source: "calendar",
+      actions: [{ type: "create_milestone", projectId: randomUUID(), name: "Demo", dueDate: "2026-12-20" }],
+    });
+
+    const result = await answerGoogleProposal(db, { notificationId, actor: owner, optionIndex: 0 });
+    expect(result).toMatchObject({ ok: false, error: "target_gone" });
+
+    expect((await readCalendarEvent(event.id))!.outcome).toMatchObject({ type: "failed", chosenIndices: [0] });
   });
 });

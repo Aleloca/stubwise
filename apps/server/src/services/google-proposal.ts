@@ -411,11 +411,20 @@ async function markSourceOutcome(
   tx: DbOrTx,
   source: ProposalSource,
   outcome: { status: "actioned" | "ignored"; detail: Record<string, unknown> },
+  /**
+   * QUALI opzioni della card sono state confermate (27 set 2026, «una
+   * proposta decisa mostra la decisione», design §2): finiscono DENTRO
+   * l'esito, accanto a `type`, perché la card decisa possa dire cosa è stato
+   * scelto. Obbligatorio apposta: un chiamante che lo dimentica non compila.
+   * Il vocabolario degli esiti (`closed-reason.ts`) guarda solo `type`.
+   */
+  chosenIndices: readonly number[],
 ): Promise<void> {
+  const detail = { ...outcome.detail, chosenIndices: [...chosenIndices] };
   if (source.source === "email") {
     await tx
       .update(emailProposals)
-      .set({ status: outcome.status, outcome: outcome.detail, error: null })
+      .set({ status: outcome.status, outcome: detail, error: null })
       .where(eq(emailProposals.id, source.rowId));
     // Solo `updated_at`: nessun altro campo del padre cambia qui (vedi il docblock sopra).
     await tx.update(emailMessages).set({ updatedAt: new Date() }).where(eq(emailMessages.id, source.emailMessageId!));
@@ -424,11 +433,11 @@ async function markSourceOutcome(
   if (source.source === "email_triage") {
     await tx
       .update(emailMessages)
-      .set({ status: outcome.status, outcome: outcome.detail, error: null })
+      .set({ status: outcome.status, outcome: detail, error: null })
       .where(eq(emailMessages.id, source.rowId));
     return;
   }
-  await tx.update(calendarEvents).set({ outcome: outcome.detail }).where(eq(calendarEvents.id, source.rowId));
+  await tx.update(calendarEvents).set({ outcome: detail }).where(eq(calendarEvents.id, source.rowId));
 }
 
 /** Il tetto di caratteri del messaggio scritto su `email_messages.error` / `outcome.error`. */
@@ -452,13 +461,24 @@ function errorMessage(err: unknown): string {
  * (fase 6c) scrive DIRETTAMENTE su `email_messages` — la riga sorgente È il
  * padre, nessun figlio da chiudere né updated_at-a-parte da toccare.
  */
-async function markSourceFailed(db: Db, source: ProposalSource, error: string): Promise<void> {
+async function markSourceFailed(
+  db: Db,
+  source: ProposalSource,
+  error: string,
+  /**
+   * Le opzioni che si è PROVATO a confermare (design §2): la card fallita dice
+   * cosa non è riuscito. Sulla posta `outcome` di una riga `failed` non lo
+   * leggeva nessuno, e «Riproponi» lo azzera insieme all'errore.
+   */
+  chosenIndices: readonly number[],
+): Promise<void> {
   const truncated = errorMessage(error);
+  const tried = { chosenIndices: [...chosenIndices] };
   if (source.source === "email") {
     await db.transaction(async (tx) => {
       await tx
         .update(emailProposals)
-        .set({ status: "failed", error: truncated })
+        .set({ status: "failed", error: truncated, outcome: tried })
         .where(eq(emailProposals.id, source.rowId));
       await tx.update(emailMessages).set({ updatedAt: new Date() }).where(eq(emailMessages.id, source.emailMessageId!));
     });
@@ -467,13 +487,13 @@ async function markSourceFailed(db: Db, source: ProposalSource, error: string): 
   if (source.source === "email_triage") {
     await db
       .update(emailMessages)
-      .set({ status: "failed", error: truncated })
+      .set({ status: "failed", error: truncated, outcome: tried })
       .where(eq(emailMessages.id, source.rowId));
     return;
   }
   await db
     .update(calendarEvents)
-    .set({ outcome: { type: "failed", error: truncated } })
+    .set({ outcome: { type: "failed", error: truncated, ...tried } })
     .where(eq(calendarEvents.id, source.rowId));
 }
 
@@ -687,6 +707,8 @@ async function dispatchAction(
     notificationId: string;
     /** Solo per `reassign_project`: il progetto scelto alla conferma (design §3.1bis). */
     targetProjectId?: string;
+    /** Le opzioni confermate, da scrivere nell'esito (vedi `markSourceOutcome`). */
+    chosenIndices: readonly number[];
   },
 ): Promise<DispatchResult> {
   return db.transaction(async (tx) => {
@@ -698,7 +720,7 @@ async function dispatchAction(
       case "record_decision": {
         const applied = await applyModelAction(tx, { ...args, action: args.action });
         if (!applied.ok) return applied;
-        await markSourceOutcome(tx, args.source, { status: "actioned", detail: applied.detail });
+        await markSourceOutcome(tx, args.source, { status: "actioned", detail: applied.detail }, args.chosenIndices);
         return { ok: true };
       }
       case "choose_project": {
@@ -782,7 +804,7 @@ async function dispatchAction(
         await markSourceOutcome(tx, args.source, {
           status: "actioned",
           detail: { type: "reassigned_project", projectId: args.action.projectId },
-        });
+        }, args.chosenIndices);
         return { ok: true };
       }
       case "reassign_project": {
@@ -882,7 +904,7 @@ async function dispatchAction(
         await markSourceOutcome(tx, args.source, {
           status: "ignored",
           detail: { type: "reassigned_to", projectId: targetProjectId },
-        });
+        }, args.chosenIndices);
 
         // Il registro annota IL TAP, mai la prosa del classificatore: testo
         // da template i18n, sul progetto che la proposta LASCIA — è lì che
@@ -923,7 +945,7 @@ async function dispatchAction(
           args.source.source === "email_triage"
             ? { type: "triage_dismissed" as const }
             : { type: "ignored" as const };
-        await markSourceOutcome(tx, args.source, { status: "ignored", detail });
+        await markSourceOutcome(tx, args.source, { status: "ignored", detail }, args.chosenIndices);
         return { ok: true };
       }
       case "acknowledge_reminder": {
@@ -932,7 +954,7 @@ async function dispatchAction(
         // servizio da chiamare: solo l'esito, distinguibile in lettura da un
         // `ignore` generico (l'utente ha detto "sì, ricordamelo", non
         // "questo non mi interessa").
-        await markSourceOutcome(tx, args.source, { status: "actioned", detail: { type: "reminder" } });
+        await markSourceOutcome(tx, args.source, { status: "actioned", detail: { type: "reminder" } }, args.chosenIndices);
         return { ok: true };
       }
     }
@@ -1070,14 +1092,14 @@ async function answerMultiple(
         if (!applied.ok) throw new MultipleActionError(applied.error);
         results.push(applied.detail);
       }
-      await markSourceOutcome(tx, source, { status: "actioned", detail: { type: "multiple", results } });
+      await markSourceOutcome(tx, source, { status: "actioned", detail: { type: "multiple", results } }, selected);
     });
   } catch (err) {
     if (err instanceof MultipleActionError) {
-      await markSourceFailed(db, source, `google.proposal: ${err.error} (multiple)`);
+      await markSourceFailed(db, source, `google.proposal: ${err.error} (multiple)`, selected);
       return { ok: false, error: err.error };
     }
-    await markSourceFailed(db, source, errorMessage(err));
+    await markSourceFailed(db, source, errorMessage(err), selected);
     return { ok: false, error: "action_failed" };
   }
 
@@ -1225,16 +1247,17 @@ export async function answerGoogleProposal(
       proposalId,
       notificationId: input.notificationId,
       ...(input.projectId !== undefined ? { targetProjectId: input.projectId } : {}),
+      chosenIndices: [index],
     });
     if (!dispatched.ok) {
-      await markSourceFailed(db, source, `google.proposal: ${dispatched.error} (${action.type})`);
+      await markSourceFailed(db, source, `google.proposal: ${dispatched.error} (${action.type})`, [index]);
       return { ok: false, error: dispatched.error };
     }
   } catch (err) {
     // Fallimento IMPREVISTO dopo il claim: la riga resta riproponibile, la
     // notifica resta chiusa (nessun secondo tentativo automatico — è la
     // persona, dalla pagina Posta del Task 12, a rimandarla in coda).
-    await markSourceFailed(db, source, errorMessage(err));
+    await markSourceFailed(db, source, errorMessage(err), [index]);
     return { ok: false, error: "action_failed" };
   }
 
