@@ -171,6 +171,12 @@
         "multiTitle": "Create together",
         "createN": "Create {{count}}",
         "alreadyDecided": "This proposal has already been decided. There is nothing left to choose.",
+        "decisionTitle": "Decision",
+        "decidedByYou": "Decided by you",
+        "decidedBy": "Decided by {{who}}",
+        "decisionNothing": "Nothing to do",
+        "decisionFailed": "Couldn't be completed",
+        "decisionFailedHint": "You can try again with «Repropose» on the message, in the Mailbox.",
         "gone": "This proposal is no longer in the inbox: someone decided it.",
         "loadError": "Can't load the proposal.",
         "source": {

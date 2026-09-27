@@ -20,6 +20,14 @@ import type { BacklogChip } from "./backlog-mutations";
 export const inboxKeys = {
   all: ["inbox"] as const,
   list: () => [...inboxKeys.all, "list"] as const,
+  /**
+   * Le notifiche GESTITE (27 set 2026): le legge solo `GoogleProposalScreen`,
+   * per mostrare una proposta appena decisa. Una chiave a sé e NON sotto
+   * `list`, apposta: `cancelQueries`/`setQueryData` su `list()` agiscono sulla
+   * lista delle aperte, e non devono toccare questa. Sta sotto `all`, quindi
+   * l'invalidazione dopo una decisione la rilegge insieme alle altre.
+   */
+  handled: () => [...inboxKeys.all, "handled"] as const,
   unread: () => [...inboxKeys.all, "unread"] as const,
 };
 

@@ -1291,6 +1291,11 @@
     "google": {
       "unknownSender": "Unknown sender",
       "confirm": "Confirm",
+      "decidedByYou": "Decided by you",
+      "decidedBy": "Decided by {{email}}",
+      "decisionNothing": "Nothing to do",
+      "decisionFailed": "Couldn't be completed",
+      "decisionFailedHint": "You can try again with «Repropose» on the message, in Mail.",
       "createN": "Create {{count}}",
       "openThread": "Open the thread",
       "openEvent": "Open the event",

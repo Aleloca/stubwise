@@ -171,6 +171,12 @@
         "multiTitle": "Da creare insieme",
         "createN": "Crea {{count}}",
         "alreadyDecided": "Questa proposta è già stata decisa. Non c'è più niente da scegliere.",
+        "decisionTitle": "Decisione",
+        "decidedByYou": "Decisa da te",
+        "decidedBy": "Decisa da {{who}}",
+        "decisionNothing": "Niente da fare",
+        "decisionFailed": "Non è stato possibile completarla",
+        "decisionFailedHint": "Puoi riprovare con «Riproponi» sul messaggio, nella Posta.",
         "gone": "Questa proposta non è più nell'inbox: qualcuno l'ha decisa.",
         "loadError": "Non riesco a caricare la proposta.",
         "source": {

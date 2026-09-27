@@ -1868,6 +1868,7 @@ describe("google.proposal — contorno della proposta dalla posta", () => {
       // 26 set 2026: derivato anche lui dalle azioni. Una sola azione del
       // modello, quindi nessuna casella.
       multiSelectIndices: [],
+      decision: null,
     });
     // Del payload delle azioni esce SOLO il tipo: progetto e titolo restano
     // dentro, dove il server li rilegge quando l'utente conferma.
@@ -2227,5 +2228,304 @@ describe("google.proposal — la fonte, derivata a lettura", () => {
     expect(theirs.items.find((i) => i.id === ownerNotification)).toBeUndefined();
     const leaked = theirs.items.some((i) => i.google?.sourceProposalId === proposalId);
     expect(leaked).toBe(false);
+  });
+});
+
+/**
+ * «Una proposta decisa mostra la decisione» (27 set 2026, design §3):
+ * `decision` si DERIVA a lettura dall'esito in colonna della riga che possiede
+ * la notifica, con le etichette prese dalle `options` dell'evento. Mai scritto
+ * nell'evento.
+ */
+describe("google.proposal — la decisione, derivata a lettura", () => {
+  async function seedMailbox(userId: string): Promise<string> {
+    const [workspace] = await db
+      .insert(googleWorkspaces)
+      .values({ name: "Acme", domains: ["acme.test"], clientId: `client-${randomUUID()}`, clientSecretEncrypted: "blob" })
+      .returning({ id: googleWorkspaces.id });
+    const [account] = await db
+      .insert(googleAccounts)
+      .values({
+        userId,
+        workspaceId: workspace!.id,
+        email: `mailbox-${randomUUID()}@acme.test`,
+        googleSub: `sub-${randomUUID()}`,
+        refreshTokenEncrypted: "blob",
+      })
+      .returning({ id: googleAccounts.id });
+    return account!.id;
+  }
+
+  const LABELS = ["Voce: strumento MCP", "Voce: ricerca trattative", "Voce: filtro sullo stato", "Non fare nulla"];
+
+  function event(): Record<string, unknown> {
+    return {
+      kind: "google.proposal",
+      proposalId: randomUUID(),
+      source: "email",
+      messageUrl: "https://mail.google.com/mail/u/io%40acme.test/#all/18f3a9c0",
+      signal: "request",
+      from: "Laura <laura@cliente.test>",
+      subject: "Tre richieste",
+      question: "Come diamo seguito?",
+      options: LABELS.map((label) => ({ label })),
+      actions: [
+        { type: "create_backlog_item" },
+        { type: "create_backlog_item" },
+        { type: "create_backlog_item" },
+        { type: "ignore" },
+      ],
+      recommendedIndex: 0,
+      allowFreeText: false,
+    };
+  }
+
+  /** Notifica gestita dal proprietario, con la sua proposta figlia e l'esito dato. */
+  async function seedDecidedEmail(
+    userId: string,
+    accountId: string,
+    child: { status: "actioned" | "ignored" | "failed" | "proposed"; outcome: Record<string, unknown> | null; error?: string },
+    notificationStatus: "open" | "handled" = "handled",
+  ): Promise<string> {
+    const [row] = await db
+      .insert(notifications)
+      .values({
+        userId,
+        kind: "google.proposal",
+        event: event(),
+        projectId,
+        status: notificationStatus,
+        handledAt: notificationStatus === "handled" ? new Date() : null,
+        handledByUserId: notificationStatus === "handled" ? userId : null,
+      })
+      .returning({ id: notifications.id });
+    const [message] = await db
+      .insert(emailMessages)
+      .values({
+        accountId,
+        gmailMessageId: `m-${randomUUID()}`,
+        threadId: `t-${randomUUID()}`,
+        fromAddress: "laura@cliente.test",
+        receivedAt: new Date("2026-09-07T08:14:00.000Z"),
+        projectId,
+        status: "proposed",
+      })
+      .returning({ id: emailMessages.id });
+    await db.insert(emailProposals).values({
+      emailMessageId: message!.id,
+      projectId,
+      status: child.status,
+      outcome: child.outcome,
+      error: child.error ?? null,
+      classification: { summary: "test", proposals: [], recommendedIndex: 0 },
+      proposalNotificationId: row!.id,
+    });
+    return row!.id;
+  }
+
+  async function decisionOf(userId: string, notificationId: string) {
+    const { items } = await listInbox(db, { userId, lang: "it", status: "handled" });
+    return items.find((i) => i.id === notificationId)?.google?.decision;
+  }
+
+  it("una scelta: lo stato e l'etichetta dell'opzione scelta", async () => {
+    const user = await seedUser("member");
+    const accountId = await seedMailbox(user.id);
+    const id = await seedDecidedEmail(user.id, accountId, {
+      status: "actioned",
+      outcome: { type: "backlog_item", jobId: randomUUID(), chosenIndices: [1] },
+    });
+    expect(await decisionOf(user.id, id)).toEqual({
+      status: "actioned",
+      chosen: ["Voce: ricerca trattative"],
+      error: null,
+    });
+  });
+
+  it("tre scelte insieme: le tre etichette, nell'ordine della card", async () => {
+    const user = await seedUser("member");
+    const accountId = await seedMailbox(user.id);
+    const id = await seedDecidedEmail(user.id, accountId, {
+      status: "actioned",
+      outcome: { type: "multiple", results: [], chosenIndices: [0, 1, 2] },
+    });
+    expect((await decisionOf(user.id, id))?.chosen).toEqual(LABELS.slice(0, 3));
+  });
+
+  it("ignorata: stato `ignored` con la scelta «Non fare nulla»", async () => {
+    const user = await seedUser("member");
+    const accountId = await seedMailbox(user.id);
+    const id = await seedDecidedEmail(user.id, accountId, {
+      status: "ignored",
+      outcome: { type: "ignored", chosenIndices: [3] },
+    });
+    expect(await decisionOf(user.id, id)).toEqual({ status: "ignored", chosen: ["Non fare nulla"], error: null });
+  });
+
+  it("fallita: lo stato, cosa si è provato a fare e l'errore", async () => {
+    const user = await seedUser("member");
+    const accountId = await seedMailbox(user.id);
+    const id = await seedDecidedEmail(user.id, accountId, {
+      status: "failed",
+      outcome: { chosenIndices: [0] },
+      error: "google.proposal: target_gone (create_backlog_item)",
+    });
+    expect(await decisionOf(user.id, id)).toEqual({
+      status: "failed",
+      chosen: ["Voce: strumento MCP"],
+      error: "google.proposal: target_gone (create_backlog_item)",
+    });
+  });
+
+  it("CARD VECCHIA (decisa prima degli indici): `chosen` vuoto, lo stato c'è", async () => {
+    const user = await seedUser("member");
+    const accountId = await seedMailbox(user.id);
+    const id = await seedDecidedEmail(user.id, accountId, {
+      status: "actioned",
+      outcome: { type: "backlog_item", jobId: randomUUID() },
+    });
+    expect(await decisionOf(user.id, id)).toEqual({ status: "actioned", chosen: [], error: null });
+  });
+
+  it("un indice fuori dalle opzioni dell'evento non diventa un'etichetta inventata", async () => {
+    const user = await seedUser("member");
+    const accountId = await seedMailbox(user.id);
+    const id = await seedDecidedEmail(user.id, accountId, {
+      status: "actioned",
+      outcome: { type: "backlog_item", chosenIndices: [9] },
+    });
+    expect((await decisionOf(user.id, id))?.chosen).toEqual([]);
+  });
+
+  it("notifica ancora APERTA: `decision` è null", async () => {
+    const user = await seedUser("member");
+    const accountId = await seedMailbox(user.id);
+    const id = await seedDecidedEmail(user.id, accountId, { status: "proposed", outcome: null }, "open");
+    const { items } = await listInbox(db, { userId: user.id, lang: "it" });
+    expect(items.find((i) => i.id === id)?.google?.decision).toBeNull();
+  });
+
+  it("smistamento e calendario: la decisione si legge dalla loro riga", async () => {
+    const user = await seedUser("member");
+    const accountId = await seedMailbox(user.id);
+    const [triageNotification] = await db
+      .insert(notifications)
+      .values({ userId: user.id, kind: "google.proposal", event: event(), projectId, status: "handled", handledAt: new Date() })
+      .returning({ id: notifications.id });
+    await db.insert(emailMessages).values({
+      accountId,
+      gmailMessageId: `m-${randomUUID()}`,
+      threadId: `t-${randomUUID()}`,
+      fromAddress: "laura@cliente.test",
+      receivedAt: new Date("2026-09-07T08:14:00.000Z"),
+      status: "ignored",
+      outcome: { type: "triage_dismissed", chosenIndices: [3] },
+      proposalNotificationId: triageNotification!.id,
+    });
+    const [calendarNotification] = await db
+      .insert(notifications)
+      .values({
+        userId: user.id,
+        kind: "google.proposal",
+        event: { ...event(), source: "calendar" },
+        projectId,
+        status: "handled",
+        handledAt: new Date(),
+      })
+      .returning({ id: notifications.id });
+    await db.insert(calendarEvents).values({
+      accountId,
+      googleEventId: `e-${randomUUID()}`,
+      title: "Demo col cliente",
+      startsAt: new Date("2026-09-20T10:00:00.000Z"),
+      status: "confirmed",
+      projectId,
+      fingerprint: `fp-${randomUUID()}`,
+      proposalNotificationId: calendarNotification!.id,
+      outcome: { type: "failed", error: "google.proposal: target_gone (create_milestone)", chosenIndices: [0] },
+    });
+
+    expect(await decisionOf(user.id, triageNotification!.id)).toEqual({
+      status: "ignored",
+      chosen: ["Non fare nulla"],
+      error: null,
+    });
+    expect(await decisionOf(user.id, calendarNotification!.id)).toEqual({
+      status: "failed",
+      chosen: ["Voce: strumento MCP"],
+      error: "google.proposal: target_gone (create_milestone)",
+    });
+  });
+
+  it("riga legacy con l'id della notifica anche sul PADRE: vince il figlio", async () => {
+    const user = await seedUser("member");
+    const accountId = await seedMailbox(user.id);
+    const id = await seedDecidedEmail(user.id, accountId, {
+      status: "actioned",
+      outcome: { type: "backlog_item", chosenIndices: [0] },
+    });
+    // Il padre di quel figlio porta anche lui l'id, ed è rimasto `proposed`.
+    const [child] = await db.select().from(emailProposals).where(eq(emailProposals.proposalNotificationId, id));
+    await db
+      .update(emailMessages)
+      .set({ proposalNotificationId: id, status: "proposed" })
+      .where(eq(emailMessages.id, child!.emailMessageId));
+
+    expect((await decisionOf(user.id, id))?.status).toBe("actioned");
+  });
+
+  it("smistamento ATTRIBUITO (rimesso in coda, stato `new`): gestita ma nessuna decisione da mostrare", async () => {
+    const user = await seedUser("member");
+    const accountId = await seedMailbox(user.id);
+    const [row] = await db
+      .insert(notifications)
+      .values({ userId: user.id, kind: "google.proposal", event: event(), projectId, status: "handled", handledAt: new Date() })
+      .returning({ id: notifications.id });
+    await db.insert(emailMessages).values({
+      accountId,
+      gmailMessageId: `m-${randomUUID()}`,
+      threadId: `t-${randomUUID()}`,
+      fromAddress: "laura@cliente.test",
+      receivedAt: new Date("2026-09-07T08:14:00.000Z"),
+      status: "new",
+      proposalNotificationId: row!.id,
+    });
+    expect(await decisionOf(user.id, row!.id)).toBeNull();
+  });
+
+  it("⚠️ la decisione non si legge da una casella ALTRUI", async () => {
+    const owner = await seedUser("member");
+    const other = await seedUser("admin");
+    const otherAccount = await seedMailbox(other.id);
+    // La notifica è del proprietario, ma la riga che la possiede sta su una
+    // casella di un altro: non deve comparire niente.
+    const id = await seedDecidedEmail(owner.id, otherAccount, {
+      status: "actioned",
+      outcome: { type: "backlog_item", chosenIndices: [0] },
+    });
+    expect(await decisionOf(owner.id, id)).toBeNull();
+  });
+
+  it("una pagina di gestite costa un numero FISSO di query, non una per card", async () => {
+    const user = await seedUser("member");
+    const accountId = await seedMailbox(user.id);
+    const ids: string[] = [];
+    for (let i = 0; i < 6; i++) {
+      ids.push(
+        await seedDecidedEmail(user.id, accountId, {
+          status: "actioned",
+          outcome: { type: "backlog_item", chosenIndices: [i % 3] },
+        }),
+      );
+    }
+    const selectSpy = vi.spyOn(db, "select");
+    const { items } = await listInbox(db, { userId: user.id, lang: "it", status: "handled" });
+    const counted = selectSpy.mock.calls.length;
+    selectSpy.mockRestore();
+
+    for (const id of ids) expect(items.find((i) => i.id === id)?.google?.decision?.status).toBe("actioned");
+    // Righe, conteggio, job, review, utenti, fonte + UNA per tabella della
+    // decisione (posta, smistamento, calendario): non cresce con le card.
+    expect(counted).toBeLessThanOrEqual(11);
   });
 });

@@ -427,8 +427,35 @@ export const inboxGoogleSchema = z.object({
    * vecchio non lo manda. Il web lo difende con `?? []` (fa un cast).
    */
   multiSelectIndices: z.array(z.number().int().nonnegative()).default([]),
+  /**
+   * COSA È STATO DECISO su una proposta già gestita («una proposta decisa
+   * mostra la decisione», 27 set 2026): l'esito della riga che la possiede,
+   * con le etichette delle opzioni scelte. `null` su una proposta ancora
+   * aperta, o quando la riga non si ritrova.
+   *
+   * ⚠️ **Derivato a lettura, mai scritto nell'evento** (invariante di
+   * CLAUDE.md): `readGoogle` lo compone dall'esito in colonna
+   * (`outcome.chosenIndices`, scritto alla conferma) e dalle `options`
+   * dell'evento, che è immutabile — quindi un indice punta sempre alla stessa
+   * etichetta. Le proposte decise PRIMA di questo campo non hanno gli indici:
+   * `chosen` è `[]`, e i client mostrano solo chi e quando.
+   *
+   * `.nullable().default(null)`: un server più vecchio non lo manda. Il web
+   * lo difende con `?? null` (fa un cast, non un parse).
+   */
+  decision: z
+    .object({
+      status: z.enum(["actioned", "ignored", "failed"]),
+      /** Le etichette delle opzioni scelte, nell'ordine della card. */
+      chosen: z.array(z.string()),
+      /** Solo per `failed`: l'errore tecnico, corto. */
+      error: z.string().nullable(),
+    })
+    .nullable()
+    .default(null),
 });
 export type InboxGoogle = z.infer<typeof inboxGoogleSchema>;
+export type InboxGoogleDecision = NonNullable<InboxGoogle["decision"]>;
 
 /**
  * La risposta umana COME VIENE PERSISTITA in `agent_questions.answer`: l'indice
