@@ -119,6 +119,7 @@ describe("ProjectInboxScreen", () => {
             auto: false,
             sourceProposalId: null,
             multiSelectIndices: [],
+            decision: null,
           },
         }),
       ],

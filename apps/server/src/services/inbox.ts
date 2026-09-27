@@ -21,6 +21,7 @@
  */
 import {
   aiJobs,
+  calendarEvents,
   emailMessages,
   emailProposals,
   googleAccounts,
@@ -49,11 +50,13 @@ import {
   inboxPulseSchema,
   inboxQuestionSchema,
   type InboxGoogle,
+  type InboxGoogleDecision,
   type InboxPulse,
   type InboxQuestion,
   multiSelectableIndices,
 } from "@stubwise/shared";
 import { and, desc, eq, inArray, isNotNull, isNull, ne, sql, type SQL } from "drizzle-orm";
+import { calendarStatusCaseSql } from "../routes/calendar-status.js";
 import { answerGoogleProposal } from "./google-proposal.js";
 import { resolvePlan, startRun, type Actor } from "./jobs.js";
 import { mirrorDecision, propagateDecision } from "./notifications-propagation.js";
@@ -787,6 +790,12 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
     userId,
     page.filter((r) => r.kind === "google.proposal").map((r) => r.id),
   );
+  // Solo per le proposte GESTITE: su un'aperta non c'è niente di deciso.
+  const decisionRows = await decisionRowsByNotification(
+    db,
+    userId,
+    page.filter((r) => r.kind === "google.proposal" && r.status === "handled").map((r) => r.id),
+  );
 
   const items = page.map((r): InboxItem => {
     return {
@@ -795,7 +804,7 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
       status: r.status,
       // La resa dal jsonb è l'unica parte che può esplodere: sta dentro il suo
       // recinto (vedi `renderItem`).
-      ...renderItem(r.event, r.kind, lang, sourceProposalIds.get(r.id) ?? null),
+      ...renderItem(r.event, r.kind, lang, sourceProposalIds.get(r.id) ?? null, decisionRows.get(r.id)),
       // Il riassunto NON passa dal jsonb dell'evento: viene dalle colonne
       // (`ai_jobs.plan_summary`, `pr_reviews.pr_summary`) caricate in batch
       // sopra. Così una card mostra il riassunto anche quando è arrivato DOPO
@@ -932,6 +941,7 @@ function readGoogle(
   kind: NotificationKind,
   question: InboxQuestion | undefined,
   sourceProposalId: string | null,
+  decisionRow: DecisionRow | undefined,
 ): InboxGoogle | undefined {
   if (kind !== "google.proposal") return undefined;
   // Senza domanda leggibile non c'è nessuna lista di opzioni con cui
@@ -955,6 +965,49 @@ function readGoogle(
     ...parsed.data,
     sourceProposalId,
     multiSelectIndices: multiSelectableIndices(parsed.data.source, parsed.data.actions),
+    // «Una proposta decisa mostra la decisione» (27 set 2026): stessa regola,
+    // dall'esito in colonna — sovrascrive qualunque cosa il jsonb dicesse.
+    decision: decisionRow ? decisionFrom(decisionRow, question.options) : null,
+  };
+}
+
+/** L'esito della riga che possiede una proposta, come lo legge {@link decisionRowsByNotification}. */
+interface DecisionRow {
+  status: string;
+  outcome: Record<string, unknown> | null;
+  error: string | null;
+}
+
+/**
+ * Compone la DECISIONE di una proposta gestita dal suo esito in colonna.
+ *
+ * Le etichette si prendono dalle `options` dell'evento per indice: l'evento è
+ * persistito e immutabile, quindi `chosenIndices` punta sempre alla stessa
+ * etichetta. Un indice che non cade dentro le opzioni viene SCARTATO, non
+ * tradotto in un'etichetta inventata. Senza `chosenIndices` — le proposte
+ * decise prima del 27 set 2026 — `chosen` resta vuoto e lo stato c'è lo
+ * stesso: i client mostrano solo chi e quando.
+ *
+ * Uno stato che non è una decisione (una riga tornata in coda, uno
+ * smistamento riattribuito) dà `null`: non c'è niente da dire.
+ */
+function decisionFrom(row: DecisionRow, options: readonly { label: string }[]): InboxGoogleDecision | null {
+  if (row.status !== "actioned" && row.status !== "ignored" && row.status !== "failed") return null;
+  const raw = row.outcome?.chosenIndices;
+  const chosen = Array.isArray(raw)
+    ? raw.flatMap((index: unknown) =>
+        typeof index === "number" && Number.isInteger(index) && index >= 0 && index < options.length
+          ? [options[index]!.label]
+          : [],
+      )
+    : [];
+  // L'errore sta in colonna per la posta e nell'esito per il calendario, che
+  // una colonna `error` non ce l'ha.
+  const outcomeError = typeof row.outcome?.error === "string" ? row.outcome.error : null;
+  return {
+    status: row.status,
+    chosen,
+    error: row.status === "failed" ? (row.error ?? outcomeError) : null,
   };
 }
 
@@ -991,10 +1044,11 @@ function renderItem(
   kind: NotificationKind,
   lang: Language,
   sourceProposalId: string | null,
+  decisionRow?: DecisionRow,
 ): { text: string; url?: string; question?: InboxQuestion; pulse?: InboxPulse; google?: InboxGoogle } {
   const question = readQuestion(rawEvent, kind);
   const pulse = readPulse(rawEvent, kind, question);
-  const google = readGoogle(rawEvent, kind, question, sourceProposalId);
+  const google = readGoogle(rawEvent, kind, question, sourceProposalId, decisionRow);
   // I blocchi opzionali della card, insieme: degradano tutti ad assenti e
   // nessuno di loro deve poter far saltare la resa del testo.
   const optionsPart = {
@@ -1189,6 +1243,83 @@ async function sourceProposalIdsByNotification(
     );
   for (const row of rows) {
     if (row.notificationId !== null) byNotification.set(row.notificationId, row.proposalId);
+  }
+  return byNotification;
+}
+
+/**
+ * L'esito della riga che possiede ciascuna proposta GESTITA della pagina
+ * («una proposta decisa mostra la decisione», 27 set 2026): UNA query per
+ * tabella, non una per card — posta (`email_proposals`), smistamento (il
+ * padre `email_messages`) e calendario (`calendar_events`).
+ *
+ * Stesso filtro sul PROPRIETARIO della casella di
+ * {@link sourceProposalIdsByNotification}, per la stessa ragione: l'esito di
+ * una proposta sta sulla posta di qualcuno, e nessun ruolo scavalca.
+ *
+ * Il calendario non ha una colonna `status`: lo stato lo dà la stessa CASE che
+ * lo normalizza per le pagine Posta e Calendario (`calendarStatusCaseSql`),
+ * non una seconda copia della regola.
+ */
+async function decisionRowsByNotification(
+  db: Db,
+  userId: string,
+  notificationIds: string[],
+): Promise<Map<string, DecisionRow>> {
+  const byNotification = new Map<string, DecisionRow>();
+  if (notificationIds.length === 0) return byNotification;
+
+  const emailRows = await db
+    .select({
+      notificationId: emailProposals.proposalNotificationId,
+      status: emailProposals.status,
+      outcome: emailProposals.outcome,
+      error: emailProposals.error,
+    })
+    .from(emailProposals)
+    .innerJoin(emailMessages, eq(emailMessages.id, emailProposals.emailMessageId))
+    .innerJoin(googleAccounts, eq(googleAccounts.id, emailMessages.accountId))
+    .where(and(inArray(emailProposals.proposalNotificationId, notificationIds), eq(googleAccounts.userId, userId)));
+
+  const triageRows = await db
+    .select({
+      notificationId: emailMessages.proposalNotificationId,
+      status: emailMessages.status,
+      outcome: emailMessages.outcome,
+      error: emailMessages.error,
+    })
+    .from(emailMessages)
+    .innerJoin(googleAccounts, eq(googleAccounts.id, emailMessages.accountId))
+    .where(and(inArray(emailMessages.proposalNotificationId, notificationIds), eq(googleAccounts.userId, userId)));
+
+  const calendarRows = await db
+    .select({
+      notificationId: calendarEvents.proposalNotificationId,
+      status: calendarStatusCaseSql(),
+      outcome: calendarEvents.outcome,
+    })
+    .from(calendarEvents)
+    .innerJoin(googleAccounts, eq(googleAccounts.id, calendarEvents.accountId))
+    .where(and(inArray(calendarEvents.proposalNotificationId, notificationIds), eq(googleAccounts.userId, userId)));
+
+  // Il FIGLIO vince sul padre: una riga legacy pre-6b può avere l'id della
+  // notifica anche sul padre, ma dalla 6b lo stato di una proposta di posta
+  // lo dice `email_proposals`, mai `email_messages` (invariante della 6b).
+  for (const row of [...triageRows, ...emailRows]) {
+    if (row.notificationId === null) continue;
+    byNotification.set(row.notificationId, {
+      status: row.status,
+      outcome: (row.outcome as Record<string, unknown> | null) ?? null,
+      error: row.error ?? null,
+    });
+  }
+  for (const row of calendarRows) {
+    if (row.notificationId === null) continue;
+    byNotification.set(row.notificationId, {
+      status: row.status,
+      outcome: (row.outcome as Record<string, unknown> | null) ?? null,
+      error: null,
+    });
   }
   return byNotification;
 }
