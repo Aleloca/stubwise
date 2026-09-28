@@ -60,7 +60,7 @@ function othersTrailing(trailing: OthersTrailing, t: TFunction): string {
     case "merge":
       return t("mobile.projects.detail.now.waitingMerge");
     case "stalled":
-      return t("mobile.projects.detail.now.stalledDays", { count: trailing.days });
+      return t("mobile.projects.detail.now.stalledDays", { count: trailing.days, reason: t(trailing.reasonKey) });
   }
 }
 

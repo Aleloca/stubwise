@@ -1,7 +1,7 @@
 import { isUnknown } from "@stubwise/shared";
 import type { ProjectPulseSummary, Reader, TicketPriority } from "@stubwise/shared";
 import { serverIsBroken } from "./server-health";
-import { stalledDays } from "./stalled";
+import { stalledDays, stalledReasonKey } from "./stalled";
 
 /**
  * LA LOGICA PURA DEL DETTAGLIO PROGETTO v3 (28 set 2026, design
@@ -140,7 +140,7 @@ export function yourTurnCount(summary: Summary): number {
 export type OthersTrailing =
   | { kind: "who"; who: "requester" | "maintainer" }
   | { kind: "merge" }
-  | { kind: "stalled"; days: number };
+  | { kind: "stalled"; days: number; reasonKey: string };
 
 export interface OthersRow {
   key: string;
@@ -153,7 +153,10 @@ export interface OthersRow {
 /**
  * «Aspetta altri · fermi», nell'ordine del §4: le attese altrui, poi le PR
  * che non puoi mergiare tu, poi i fermi. I giorni di fermo li conta il
- * CLIENT dalla data (`lib/stalled.ts`); il MOTIVO resta nel ticket.
+ * CLIENT dalla data (`lib/stalled.ts`), e accanto c'è il MOTIVO: è un fatto
+ * derivato dai job, e nell'app non c'è un altro posto che lo mostri (review
+ * della #61, che ha corretto il design: diceva «resta nel ticket», e non era
+ * vero).
  *
  * Un ruolo sconosciuto (server più nuovo) ricade sul richiedente, il meno
  * privilegiato dei due — mai un valore grezzo mostrato.
@@ -184,7 +187,11 @@ export function othersRows(summary: Summary, now: Date): OthersRow[] {
       ticketId: item.ticketId,
       ticketNumber: item.ticketNumber,
       title: item.title,
-      trailing: { kind: "stalled" as const, days: stalledDays(item.stalledSince, now) },
+      trailing: {
+        kind: "stalled" as const,
+        days: stalledDays(item.stalledSince, now),
+        reasonKey: stalledReasonKey(item.reason),
+      },
     })),
   ];
 }

@@ -97,8 +97,10 @@ Dall'alto, e ogni blocco solo se ha qualcosa:
    `canMerge`, poi `stalled`. A destra:
    - «→ requester» o «→ maintainer» per chi aspetta;
    - «waiting for merge» per le PR;
-   - «stalled 9d» per i fermi. Il motivo del fermo resta raggiungibile dal
-     ticket.
+   - «stalled 9d · to prepare» per i fermi, coi giorni e il MOTIVO.
+     ⚠️ Corretto dopo la review della #61: la prima stesura diceva che il
+     motivo «resta raggiungibile dal ticket», ma nell'app nessuna schermata
+     lo mostra.
 5. **Tutto vuoto**: al posto dei blocchi, la frase del polso di oggi
    (`pulseLineFor`), per esempio «All quiet» o «Idle for 3 days». Non si
    perde, cambia posto.

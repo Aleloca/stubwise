@@ -174,7 +174,7 @@ describe("«Aspetta altri · fermi»", () => {
     expect(rows.map((row) => row.trailing)).toEqual([
       { kind: "who", who: "requester" },
       { kind: "merge" },
-      { kind: "stalled", days: 9 },
+      { kind: "stalled", days: 9, reasonKey: "mobile.projects.detail.stalledReason.toPrepare" },
     ]);
   });
 

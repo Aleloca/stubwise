@@ -307,7 +307,7 @@
           "toRequester": "→ richiedente",
           "toMaintainer": "→ maintainer",
           "waitingMerge": "attende il merge",
-          "stalledDays": "fermo {{count}}g"
+          "stalledDays": "fermo {{count}}g · {{reason}}"
         },
         "work": {
           "tickets": "Ticket",
@@ -589,6 +589,8 @@
           "unreachable": "Il provider non risponde, riprova",
           "forbidden": "Solo un maintainer può mergiare",
           "notFound": "Questa PR non è più sul ticket",
+          "notMergeable": "Il provider ha rifiutato il merge: conflitti o regole del branch",
+          "mergeForbidden": "Le credenziali git non hanno il permesso di mergiare",
           "network": "Stubwise non risponde, controlla la connessione e riprova",
           "generic": "Il merge non è andato a buon fine, riprova"
         }

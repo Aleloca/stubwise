@@ -508,7 +508,9 @@ describe("ProjectDetailScreen v3 — Adesso", () => {
     expect(titles).toEqual(["#33 Testo del bottone troncato", "#38 Aggiorna dipendenze del worker", "#19 Notifiche email duplicate"]);
     expect(screen.getByText("→ richiedente")).toBeTruthy();
     expect(screen.getByText("attende il merge")).toBeTruthy();
-    expect(screen.getByText("fermo 9g")).toBeTruthy();
+    // Il MOTIVO accanto ai giorni: è un fatto derivato dai job, e nell'app
+    // non c'è un altro posto che lo mostri (review della #61).
+    expect(screen.getByText("fermo 9g · da preparare")).toBeTruthy();
   });
 
   test("il banner del monitor: server giù, e il tap porta alla tab Progetto", async () => {

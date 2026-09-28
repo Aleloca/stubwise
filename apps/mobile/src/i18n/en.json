@@ -307,7 +307,7 @@
           "toRequester": "→ requester",
           "toMaintainer": "→ maintainer",
           "waitingMerge": "waiting for merge",
-          "stalledDays": "stalled {{count}}d"
+          "stalledDays": "stalled {{count}}d · {{reason}}"
         },
         "work": {
           "tickets": "Tickets",
@@ -589,6 +589,8 @@
           "unreachable": "Couldn't reach the provider, try again",
           "forbidden": "Only a maintainer can merge",
           "notFound": "This PR is no longer on the ticket",
+          "notMergeable": "The provider refused the merge: conflicts or branch rules",
+          "mergeForbidden": "The stored git credentials aren't allowed to merge",
           "network": "Couldn't reach Stubwise, check your connection and try again",
           "generic": "The merge didn't go through, try again"
         }
