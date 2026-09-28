@@ -10,13 +10,10 @@ import { useAuth } from "../../app/providers";
 import { GhostButton } from "../../components/GhostButton";
 import { HubSection, type HubSectionState } from "../../components/projects/HubSection";
 import type { ProjectGroupRowProps } from "../../components/projects/ProjectRowsCard";
-import { backlogKeys } from "../../lib/backlog-mutations";
 import { docsKeys } from "../../lib/docs-mutations";
-import { OPEN_TICKET_STATUSES } from "../../lib/project-tickets";
 import { pulseValue } from "../../lib/project-settings";
-import { inboxKeys, milestoneKeys, projectKeys, serverKeys, ticketKeys } from "../../lib/query-keys";
+import { milestoneKeys, projectKeys, serverKeys } from "../../lib/query-keys";
 import { serverIsBroken, serverStatusKey } from "../../lib/server-health";
-import { ticketHeading } from "../../lib/ticket-labels";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { Skeleton } from "../../components/Skeleton";
 import { projectsPulseKey } from "./ProjectsScreen";
@@ -27,6 +24,8 @@ import { HubTabBar } from "../../components/projects/HubTabBar";
 import { useState } from "react";
 import { monitorAlert, yourTurnCount, type HubDestination } from "../../lib/project-hub";
 import { NowTab } from "./hub/NowTab";
+import { WorkTab } from "./hub/WorkTab";
+import { hubKeys } from "./hub/hub-keys";
 import { MergeSheet, type MergeTarget } from "./hub/MergeSheet";
 import { useRelease } from "../../lib/release-mutations";
 
@@ -36,42 +35,8 @@ type HubTabKey = "now" | "work" | "project";
 /** Vedi `InboxScreen.tsx` per il perché di una costante invece di leggere `styles.body.paddingBottom`. */
 const CONTENT_BASE_BOTTOM_PADDING = 40;
 
-/**
- * Quante righe vere mostra l'ANTEPRIMA di una sezione dell'hub (design §3:
- * «le prime due o tre righe»). Basso apposta: queste sei richieste partono
- * tutte all'apertura, e la sezione serve a dire *che aria tira*, non a
- * sostituire l'elenco — quello sta dietro «vedi ›».
- */
+/** Righe delle anteprime delle sezioni lunghe (provvisorio, fino alla tab Progetto). */
 const HUB_PREVIEW_LIMIT = 2;
-
-/**
- * Le chiavi di query delle ANTEPRIME dell'hub.
- *
- * Sono DISTINTE da quelle delle schermate piene (`ticketKeys.list`,
- * `backlogKeys.list`, `projectInboxKey`) perché chiedono un `limit` diverso:
- * la stessa chiave farebbe servire una pagina da due righe alla schermata
- * intera.
- *
- * ⚠️ **Ma stanno sotto i prefissi ESISTENTI — `["tickets"]`, `["backlog"]`,
- * `["inbox"]` — e quella è la parte che conta.** Non è un modo di
- * raggruppare: è ciò che le fa invalidare insieme al resto, da ogni
- * mutazione di oggi e da quelle che verranno. In un namespace proprio
- * (`["projects","hub",…]`, com'erano nate) nessuna invalidazione le
- * raggiungeva: questa schermata resta MONTATA sotto, nello stack nativo,
- * mentre si è nella schermata figlia, e l'app non ha refetch-on-focus da
- * nessuna parte — si tornava indietro dopo aver convertito una voce o
- * risposto a una proposta e si vedeva il numero vecchio. `staleTime` non
- * salva: una query stale rifetcha su un EVENTO, e tornare indietro senza
- * rimontare non è un evento.
- *
- * Chi le sposta «per ordine» sotto un namespace `projects` riapre quel
- * difetto.
- */
-const hubKeys = {
-  tickets: (projectId: string) => ticketKeys.hub(projectId),
-  backlog: (projectId: string) => [...backlogKeys.all, "list", "hub", projectId] as const,
-  inbox: (projectId: string) => [...inboxKeys.all, "list", "hub", projectId] as const,
-};
 
 /**
  * Dettaglio di UN progetto (canvas `2b`): l'intestazione col nome e il
@@ -252,7 +217,16 @@ export function ProjectDetailScreen({ navigation, route }: NativeStackScreenProp
                 <ProjectDetailBody summary={summary} navigation={navigation} />
               </View>
             )}
-            {tab === "work" && <View testID="hub-panel-work" />}
+            {tab === "work" && (
+              <View testID="hub-panel-work">
+                <WorkTab
+                  projectId={summary.projectId}
+                  projectName={summary.projectName}
+                  backlogReadyCount={summary.backlogReadyCount}
+                  navigation={navigation}
+                />
+              </View>
+            )}
             {tab === "project" && <View testID="hub-panel-project" />}
           </View>
         )}
@@ -286,14 +260,6 @@ function ProjectDetailBody({
 }) {
   return (
     <View style={styles.groups}>
-      <HubTicketsSection projectId={summary.projectId} projectName={summary.projectName} navigation={navigation} />
-      <HubBacklogSection
-        projectId={summary.projectId}
-        projectName={summary.projectName}
-        readyCount={summary.backlogReadyCount}
-        navigation={navigation}
-      />
-      <HubInboxSection projectId={summary.projectId} projectName={summary.projectName} navigation={navigation} />
       <HubRepositoriesSection projectId={summary.projectId} projectName={summary.projectName} navigation={navigation} />
       <HubDocsSection projectId={summary.projectId} projectName={summary.projectName} navigation={navigation} />
       <HubRoadmapSection projectId={summary.projectId} projectName={summary.projectName} navigation={navigation} />
@@ -326,213 +292,6 @@ function hubQueryState(
     };
   }
   return null;
-}
-
-/**
- * TICKET — il conteggio degli APERTI e le prime due righe.
- *
- * Il numero viene da `total` della risposta, non dalle righe ricevute: con
- * `limit: 2` contarle direbbe sempre «2». Quando il server non lo manda
- * (più vecchio di questa app, vedi `ticketPageSchema.total`) l'etichetta
- * resta la sola parola e le righe si vedono lo stesso — è il degrado
- * previsto, non un guasto.
- */
-function HubTicketsSection({
-  projectId,
-  projectName,
-  navigation,
-}: {
-  projectId: string;
-  projectName: string;
-  navigation: HubNavigation;
-}) {
-  const { t } = useTranslation();
-  const { client } = useAuth();
-  const now = Date.now();
-
-  const query = useQuery({
-    queryKey: hubKeys.tickets(projectId),
-    queryFn: () => {
-      if (!client) throw new Error("HubTicketsSection richiede un client autenticato");
-      return client.tickets.list({ projectId, statuses: OPEN_TICKET_STATUSES }, undefined, HUB_PREVIEW_LIMIT);
-    },
-    enabled: client !== null,
-    staleTime: 10_000,
-  });
-
-  const total = query.data?.total;
-  const items = query.data?.items ?? [];
-  const rows: ProjectGroupRowProps[] = items.map((item) => ({
-    rowKey: item.id,
-    heading: ticketHeading(
-      { ticketNumber: item.number, priority: item.priority, type: item.type, createdAt: item.createdAt },
-      t,
-      now,
-    ),
-    title: item.title,
-    onPress: () => navigation.navigate("Ticket", { id: item.id, backLabel: projectName }),
-  }));
-
-  const state =
-    hubQueryState(query, t) ??
-    (rows.length === 0
-      ? ({ kind: "empty", message: t("mobile.projects.hub.tickets.empty") } as const)
-      : ({ kind: "ready", rows } as const));
-
-  return (
-    <HubSection
-      testID="hub-tickets"
-      label={total === undefined ? t("mobile.projects.hub.tickets.label") : t("mobile.projects.hub.tickets.labelWithCount", { count: total })}
-      seeAllLabel={t("mobile.projects.hub.seeAll")}
-      onSeeAll={() => navigation.navigate("Tickets", { projectId, projectName })}
-      state={state}
-    />
-  );
-}
-
-/**
- * BACKLOG — quanto materiale c'è e QUANTO È MATURO, non quali sono le prime
- * voci (design §Task 5: di un backlog interessa la maturità, non l'ordine di
- * arrivo).
- *
- * ⚠️ I due numeri arrivano da due posti diversi, e nessuno dei due costa una
- * richiesta in più: il TOTALE delle voci attive da `total` della lista (che
- * questa sezione chiede comunque), e le PRONTE dal polso, che è già in cache
- * — `backlogReadyCount` è esattamente «voci `ready`». Contarle dalle righe
- * ricevute darebbe un numero capato dal `limit`.
- *
- * Senza `total` (server più vecchio) la maturità non è calcolabile — la
- * differenza «attive meno pronte» richiede il totale — e la sezione degrada
- * ai TITOLI delle prime voci: meno informativo, mai sbagliato.
- */
-function HubBacklogSection({
-  projectId,
-  projectName,
-  readyCount,
-  navigation,
-}: {
-  projectId: string;
-  projectName: string;
-  readyCount: number;
-  navigation: HubNavigation;
-}) {
-  const { t } = useTranslation();
-  const { client } = useAuth();
-
-  const query = useQuery({
-    queryKey: hubKeys.backlog(projectId),
-    queryFn: () => {
-      if (!client) throw new Error("HubBacklogSection richiede un client autenticato");
-      // Nessuno `status`: il server nasconde già `converted`/`archived` di
-      // default — sono le voci ATTIVE, le stesse del chip «Attivi».
-      return client.backlog.list({ projectId }, undefined, HUB_PREVIEW_LIMIT);
-    },
-    enabled: client !== null,
-    staleTime: 10_000,
-  });
-
-  const total = query.data?.total;
-  const items = query.data?.items ?? [];
-
-  // `Math.max(0, …)`: i due numeri vengono da due risposte diverse, quindi in
-  // una finestra di qualche secondo possono raccontare momenti diversi — una
-  // voce appena passata a `ready` renderebbe la differenza negativa, e «-1 da
-  // preparare» è peggio di uno zero.
-  const notReady = total === undefined ? 0 : Math.max(0, total - readyCount);
-
-  const rows: ProjectGroupRowProps[] =
-    total !== undefined
-      ? [
-          {
-            rowKey: "maturity",
-            title: t("mobile.projects.hub.backlog.maturity", { ready: readyCount, notReady }),
-            // Stessa destinazione del «vedi ›» della sezione: vedi la riga
-            // «backlog-ready» del polso per il perché.
-            onPress: () => navigation.navigate("ProjectBacklog", { projectId, projectName }),
-            testID: "hub-backlog-maturity",
-          },
-        ]
-      : items.map((item) => ({
-          rowKey: item.id,
-          title: item.title,
-          // Il ripiego (server senza `total`) mostra VOCI, non un riassunto:
-          // qui ogni riga apre la sua voce, come nella schermata piena.
-          onPress: () => navigation.navigate("Item", { id: item.id }),
-        }));
-
-  const isEmpty = total !== undefined ? total === 0 : items.length === 0;
-  const state =
-    hubQueryState(query, t) ??
-    (isEmpty
-      ? ({ kind: "empty", message: t("mobile.projects.hub.backlog.empty") } as const)
-      : ({ kind: "ready", rows } as const));
-
-  return (
-    <HubSection
-      testID="hub-backlog"
-      label={total === undefined ? t("mobile.projects.hub.backlog.label") : t("mobile.projects.hub.backlog.labelWithCount", { count: total })}
-      seeAllLabel={t("mobile.projects.hub.seeAll")}
-      onSeeAll={() => navigation.navigate("ProjectBacklog", { projectId, projectName })}
-      state={state}
-    />
-  );
-}
-
-/**
- * INBOX — le notifiche di CHI GUARDA su questo progetto.
- *
- * ⚠️ L'etichetta dice «da gestire», non «del progetto»: l'inbox è per utente,
- * e il filtro di progetto non allarga niente. Chiamarle «le notifiche del
- * progetto» prometterebbe di vedere anche quelle dei colleghi.
- */
-function HubInboxSection({
-  projectId,
-  projectName,
-  navigation,
-}: {
-  projectId: string;
-  projectName: string;
-  navigation: HubNavigation;
-}) {
-  const { t } = useTranslation();
-  const { client } = useAuth();
-
-  const query = useQuery({
-    queryKey: hubKeys.inbox(projectId),
-    queryFn: () => {
-      if (!client) throw new Error("HubInboxSection richiede un client autenticato");
-      return client.inbox.list({ projectId }, undefined, HUB_PREVIEW_LIMIT);
-    },
-    enabled: client !== null,
-    staleTime: 10_000,
-  });
-
-  const total = query.data?.total;
-  const items = query.data?.items ?? [];
-  // `text` è la riga che la notifica porta con sé — quella che la card
-  // d'inbox mostra in testa. Non esiste un `title` su questo schema, e
-  // costruirne uno dal `kind` qui vorrebbe dire una seconda copia delle
-  // parole che `InboxCard` già sceglie.
-  const rows: ProjectGroupRowProps[] = items.map((item) => ({
-    rowKey: item.id,
-    title: item.text,
-  }));
-
-  const state =
-    hubQueryState(query, t) ??
-    (rows.length === 0
-      ? ({ kind: "empty", message: t("mobile.projects.hub.inbox.empty") } as const)
-      : ({ kind: "ready", rows } as const));
-
-  return (
-    <HubSection
-      testID="hub-inbox"
-      label={total === undefined ? t("mobile.projects.hub.inbox.label") : t("mobile.projects.hub.inbox.labelWithCount", { count: total })}
-      seeAllLabel={t("mobile.projects.hub.seeAll")}
-      onSeeAll={() => navigation.navigate("ProjectInbox", { projectId, projectName })}
-      state={state}
-    />
-  );
 }
 
 /**

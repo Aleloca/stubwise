@@ -342,7 +342,9 @@
           "toPrepare_other": "{{count}} da preparare",
           "ageToday": "oggi",
           "ageDays_one": "{{count}} g",
-          "ageDays_other": "{{count}} g"
+          "ageDays_other": "{{count}} g",
+          "ageMonths_one": "{{count}} mese",
+          "ageMonths_other": "{{count}} mesi"
         },
         "project": {
           "repositories": "Repository",
