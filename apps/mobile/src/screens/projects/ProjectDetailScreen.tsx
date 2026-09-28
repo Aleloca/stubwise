@@ -27,6 +27,12 @@ import { projectsPulseKey } from "./ProjectsScreen";
 import { colors } from "../../theme/tokens";
 import { fontFamily } from "../../theme/typography";
 import { usePullToRefresh } from "../../components/PullToRefresh";
+import { HubTabBar } from "../../components/projects/HubTabBar";
+import { useState } from "react";
+import { monitorAlert, yourTurnCount } from "../../lib/project-hub";
+
+/** Le tre tab del dettaglio (design v3 §3). */
+type HubTabKey = "now" | "work" | "project";
 
 /** Vedi `InboxScreen.tsx` per il perché di una costante invece di leggere `styles.body.paddingBottom`. */
 const CONTENT_BASE_BOTTOM_PADDING = 40;
@@ -139,19 +145,69 @@ export function ProjectDetailScreen({ navigation, route }: NativeStackScreenProp
   // il titolo è il NOME del progetto, e la ricerca c'è anche da qui.
   const refreshControl = usePullToRefresh([projectsPulseKey, hubKeys.tickets(id), hubKeys.backlog(id), hubKeys.inbox(id), projectKeys.detail(id), docsKeys.spaces(id), milestoneKeys.forProject(id), serverKeys.forProject(id)], "project-detail-refresh");
 
+  /**
+   * LA TAB SCELTA (28 set 2026, dettaglio progetto v3 §3). Stato locale e non
+   * un parametro di rotta: si apre SEMPRE su Adesso, e la scelta resta finché
+   * la schermata è montata — lo stack nativo la tiene montata sotto il ticket
+   * aperto da qui, quindi tornando indietro si ritrova la tab di prima.
+   */
+  const [tab, setTab] = useState<HubTabKey>("now");
+
+  /**
+   * I SERVER DEL PROGETTO, letti QUI e non nella sola tab Progetto: il
+   * pallino sulla tab e il banner di Adesso ne hanno bisogno da ovunque.
+   * Stessa chiave del monitor (`serverKeys.forProject`), quindi una lettura
+   * sola. È una lettura ACCESSORIA, fuori da ogni gate: se fallisce, niente
+   * pallino né banner, e la schermata resta intera.
+   */
+  const serversQuery = useQuery({
+    queryKey: serverKeys.forProject(id),
+    queryFn: () => {
+      if (!client) throw new Error("ProjectDetailScreen richiede un client autenticato");
+      return client.servers.list(id);
+    },
+    enabled: client !== null,
+    staleTime: 30_000,
+  });
+  const alert = serversQuery.data !== undefined ? monitorAlert(serversQuery.data) : null;
+  const badge = summary !== undefined ? yourTurnCount(summary) : 0;
+
   return (
     <View style={styles.container}>
       <ScrollView
         refreshControl={refreshControl}
-        contentContainerStyle={[styles.body, { paddingBottom: CONTENT_BASE_BOTTOM_PADDING + tabBarHeight }]}
+        contentContainerStyle={{ paddingBottom: CONTENT_BASE_BOTTOM_PADDING + tabBarHeight }}
         stickyHeaderIndices={[0]}
       >
-        <ScreenHeader
-          title={projectName ?? t("mobile.tabs.projects")}
-          onBack={() => navigation.navigate("List")}
-          backLabel={t("mobile.projects.detail.back")}
-          titleNumberOfLines={2}
-        />
+        <View style={styles.header}>
+          <ScreenHeader
+            title={projectName ?? t("mobile.tabs.projects")}
+            onBack={() => navigation.navigate("List")}
+            backLabel={t("mobile.projects.detail.back")}
+            titleNumberOfLines={2}
+          />
+          {summary !== undefined && (
+            <HubTabBar
+              active={tab}
+              onSelect={setTab}
+              tabs={[
+                {
+                  key: "now",
+                  label: t("mobile.projects.detail.tabs.now"),
+                  badge,
+                  badgeLabel: t("mobile.projects.detail.tabs.badgeLabel", { count: badge }),
+                },
+                { key: "work", label: t("mobile.projects.detail.tabs.work") },
+                {
+                  key: "project",
+                  label: t("mobile.projects.detail.tabs.project"),
+                  alert: alert !== null,
+                  alertLabel: t("mobile.projects.detail.tabs.alertLabel"),
+                },
+              ]}
+            />
+          )}
+        </View>
 
         {query.isPending ? (
           <View style={styles.skeletonList} testID="project-detail-skeleton">
@@ -173,7 +229,15 @@ export function ProjectDetailScreen({ navigation, route }: NativeStackScreenProp
             <Text style={styles.notFoundBody}>{t("mobile.projects.detail.notFound.body")}</Text>
           </View>
         ) : (
-          <ProjectDetailBody summary={summary} viewerId={viewerId} navigation={navigation} />
+          <View style={styles.panel}>
+            {tab === "now" && (
+              <View testID="hub-panel-now">
+                <ProjectDetailBody summary={summary} viewerId={viewerId} navigation={navigation} />
+              </View>
+            )}
+            {tab === "work" && <View testID="hub-panel-work" />}
+            {tab === "project" && <View testID="hub-panel-project" />}
+          </View>
         )}
       </ScrollView>
     </View>
@@ -1008,10 +1072,16 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: "center",
   },
-  body: {
-    gap: 8,
+  // L'intestazione ANCORATA è il nome del progetto più le tab: la linea sotto
+  // le tab separa la parte fissa da quella che scorre (riferimento v3).
+  // `backgroundColor` opaco: il contenuto non deve attraversarla scorrendo.
+  header: {
+    backgroundColor: colors.ink950,
+    borderBottomColor: colors.line,
+    borderBottomWidth: 1,
+  },
+  panel: {
     padding: 20,
-    paddingBottom: 40,
   },
   pulseRow: {
     marginBottom: 8,

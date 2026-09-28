@@ -259,7 +259,8 @@ describe("ProjectDetailScreen", () => {
     await renderScreen(client);
     await waitFor(() => expect(screen.getByText("Portale B2B")).toBeTruthy());
     expect(screen.queryByText(/Aspetta qualcuno/)).toBeNull();
-    expect(screen.queryByText(/Adesso/)).toBeNull();
+    // «Adesso · N» era il gruppo; «Adesso» da solo è ora il nome della tab.
+    expect(screen.queryByText(/Adesso ·/)).toBeNull();
     expect(screen.queryByText(/Pronto nel backlog/)).toBeNull();
     // `stalled` vuoto: nessun «Fermo · 0». Un secchio a zero è rumore su una
     // schermata che deve dire cosa fare.
@@ -1154,5 +1155,87 @@ describe("ProjectDetailScreen — trascina per aggiornare", () => {
     await waitFor(() => expect(getProject.mock.calls.length).toBe(projectBefore + 1));
     await waitFor(() => expect(listServers).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(milestones).toHaveBeenCalledTimes(2));
+  });
+});
+
+/**
+ * DETTAGLIO PROGETTO v3 — LE TRE TAB (28 set 2026, design §3).
+ *
+ * Adesso · Lavoro · Progetto. Si apre sempre su Adesso; la tab scelta resta
+ * finché la schermata è montata. Il badge di Adesso conta «Tocca a te», il
+ * pallino di Progetto dice che un server è giù.
+ */
+describe("ProjectDetailScreen v3 — le tre tab", () => {
+  const tabSelected = (testID: string) => screen.getByTestId(testID).props.accessibilityState?.selected === true;
+
+  test("si apre su Adesso", async () => {
+    await renderScreen(makeClient());
+    await waitFor(() => expect(screen.getByTestId("hub-tab-now")).toBeTruthy());
+    expect(tabSelected("hub-tab-now")).toBe(true);
+    expect(tabSelected("hub-tab-work")).toBe(false);
+    expect(tabSelected("hub-tab-project")).toBe(false);
+    expect(screen.getByTestId("hub-panel-now")).toBeTruthy();
+    expect(screen.queryByTestId("hub-panel-work")).toBeNull();
+  });
+
+  test("premere una tab mostra il suo contenuto, e la scelta resta anche quando il polso si ricarica", async () => {
+    const pulse = jest.fn().mockResolvedValue([summary()]);
+    await renderScreen(makeClient({ pulse }));
+    await waitFor(() => expect(screen.getByTestId("hub-tab-work")).toBeTruthy());
+
+    await fireEvent.press(screen.getByTestId("hub-tab-work"));
+    expect(tabSelected("hub-tab-work")).toBe(true);
+    expect(screen.getByTestId("hub-panel-work")).toBeTruthy();
+    expect(screen.queryByTestId("hub-panel-now")).toBeNull();
+
+    await pullToRefresh("project-detail-refresh");
+    await waitFor(() => expect(pulse).toHaveBeenCalledTimes(2));
+    expect(tabSelected("hub-tab-work")).toBe(true);
+
+    await fireEvent.press(screen.getByTestId("hub-tab-project"));
+    expect(screen.getByTestId("hub-panel-project")).toBeTruthy();
+  });
+
+  test("il badge di Adesso conta domande, piani e le PR che PUOI mergiare", async () => {
+    const pulse = jest.fn().mockResolvedValue([
+      summary({
+        waitingForYou: [{ kind: "question", ticketId: TICKET_A, ticketNumber: 27, title: "Domanda", notificationId: "n1" }],
+        waitingForMerge: [
+          { ticketId: TICKET_B, ticketNumber: 38, title: "PR mia", prUrl: "https://example.com/pr/38", canMerge: true },
+          { ticketId: TICKET_B, ticketNumber: 39, title: "PR d'altri", prUrl: "https://example.com/pr/39", canMerge: false },
+        ],
+      }),
+    ]);
+    await renderScreen(makeClient({ pulse }));
+    await waitFor(() => expect(screen.getByTestId("hub-tab-now-badge")).toBeTruthy());
+    expect(screen.getByTestId("hub-tab-now-badge")).toHaveTextContent("2");
+  });
+
+  test("a zero il badge non c'è", async () => {
+    await renderScreen(makeClient());
+    await waitFor(() => expect(screen.getByTestId("hub-tab-now")).toBeTruthy());
+    expect(screen.queryByTestId("hub-tab-now-badge")).toBeNull();
+  });
+
+  test("il pallino di Progetto c'è quando un server del progetto è giù, e solo allora", async () => {
+    const listServers = jest.fn().mockResolvedValue([server({ checksDown: 1 })]);
+    await renderScreen(makeClient({ listServers }));
+    await waitFor(() => expect(screen.getByTestId("hub-tab-project-alert")).toBeTruthy());
+  });
+
+  test("nessun pallino se i server sono su, e nemmeno se la loro lettura fallisce", async () => {
+    const listServers = jest.fn().mockResolvedValue([server({}), server({ id: "s2", status: "never_connected" })]);
+    const first = await renderScreen(makeClient({ listServers }));
+    await waitFor(() => expect(listServers).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByTestId("hub-tab-project")).toBeTruthy());
+    expect(screen.queryByTestId("hub-tab-project-alert")).toBeNull();
+    first.rendered.unmount();
+
+    const failing = jest.fn().mockRejectedValue(new Error("down"));
+    await renderScreen(makeClient({ listServers: failing }));
+    await waitFor(() => expect(failing).toHaveBeenCalled());
+    // Una lettura accessoria che fallisce non toglie la schermata.
+    await waitFor(() => expect(screen.getByTestId("hub-panel-now")).toBeTruthy());
+    expect(screen.queryByTestId("hub-tab-project-alert")).toBeNull();
   });
 });
