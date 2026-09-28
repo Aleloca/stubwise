@@ -267,20 +267,6 @@
           "title": "Questo progetto non c'è più.",
           "body": "Non lo segui più, o non esiste."
         },
-        "groups": {
-          "waitingSomeone": "Aspetta qualcuno · {{count}}",
-          "now": "Adesso · {{count}}",
-          "backlogReady": "Pronto nel backlog · {{count}}",
-          "stalled": "Fermo · {{count}}"
-        },
-        "waitingYouArrow": "→ te",
-        "waitingMaintainerArrow": "→ un maintainer",
-        "waitingRequesterArrow": "→ chi l'ha richiesto",
-        "running": "in esecuzione",
-        "backlogReadySummary_one": "{{count}} voce pronta alla conversione",
-        "backlogReadySummary_other": "{{count}} voci pronte alla conversione",
-        "waitingMergeArrow": "→ da mergiare",
-        "stalledTrailing": "{{days}}g · {{reason}}",
         "stalledReason": {
           "toPrepare": "da preparare",
           "workedThenStopped": "lavorato, poi fermo",
@@ -369,70 +355,16 @@
         }
       },
       "hub": {
-        "seeAll": "vedi ›",
         "loadError": "Non caricata.",
         "retry": "Riprova",
         "tickets": {
-          "label": "Ticket",
-          "labelWithCount_one": "Ticket · {{count}} aperto",
-          "labelWithCount_other": "Ticket · {{count}} aperti",
           "empty": "Nessun ticket aperto."
         },
         "backlog": {
-          "label": "Backlog",
-          "labelWithCount_one": "Backlog · {{count}} voce",
-          "labelWithCount_other": "Backlog · {{count}} voci",
-          "maturity": "{{ready}} pronte · {{notReady}} da preparare",
           "empty": "Backlog vuoto."
         },
         "inbox": {
-          "label": "Notifiche",
-          "labelWithCount_one": "Notifiche · {{count}} da gestire",
-          "labelWithCount_other": "Notifiche · {{count}} da gestire",
           "empty": "Niente da gestire."
-        },
-        "repositories": {
-          "label": "Repository",
-          "labelWithCount_one": "Repository · {{count}}",
-          "labelWithCount_other": "Repository · {{count}}",
-          "empty": "Nessun repository collegato."
-        },
-        "docs": {
-          "label": "Documentazione",
-          "labelWithCount_one": "Documentazione · {{count}} spazio",
-          "labelWithCount_other": "Documentazione · {{count}} spazi",
-          "empty": "Nessuna documentazione generata."
-        },
-        "roadmap": {
-          "label": "Roadmap",
-          "labelWithCount_one": "Roadmap · {{count}} aperta",
-          "labelWithCount_other": "Roadmap · {{count}} aperte",
-          "empty": "Nessuna milestone.",
-          "rowProgress": "{{completed}}/{{total}}"
-        },
-        "open": "apri ›",
-        "monitor": {
-          "label": "Monitor",
-          "labelWithCount_one": "Monitor · {{count}} server",
-          "labelWithCount_other": "Monitor · {{count}} server",
-          "serverCount_one": "{{count}} server",
-          "serverCount_other": "{{count}} server",
-          "labelWithDown_one": "Monitor · {{servers}} · {{count}} controllo giù",
-          "labelWithDown_other": "Monitor · {{servers}} · {{count}} controlli giù",
-          "rowChecksDown_one": "{{count}} giù",
-          "rowChecksDown_other": "{{count}} giù",
-          "empty": "Nessun server associato."
-        },
-        "settings": {
-          "label": "Impostazioni",
-          "docAutoUpdate": "Docs automatici",
-          "dailyReport": "Report giornaliero",
-          "backlog": "Backlog",
-          "pulseEvery_one": "Pulse ogni giorno",
-          "pulseEvery_other": "Pulse ogni {{count}} g",
-          "pulseWaitingBacklog": "Pulse in attesa del backlog",
-          "weeklyBrief": "Brief settimanale",
-          "noneActive": "Nessuna automazione attiva."
         }
       },
       "tickets": {

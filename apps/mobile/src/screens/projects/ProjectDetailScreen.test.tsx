@@ -255,256 +255,16 @@ describe("ProjectDetailScreen", () => {
       activityForDate,
     });
     await renderScreen(client);
-    await waitFor(() => expect(screen.getByTestId("hub-settings")).toBeTruthy());
+    // Nessuna delle tre tab li mostra (v3): si guarda in tutte.
+    await waitFor(() => expect(screen.getByTestId("hub-panel-now")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("hub-tab-work"));
+    await fireEvent.press(screen.getByTestId("hub-tab-project"));
+    await waitFor(() => expect(screen.getByTestId("hub-project-settings")).toBeTruthy());
     expect(screen.queryByText("Brief settimanale")).toBeNull();
     expect(screen.queryByText("Report di ieri")).toBeNull();
     expect(screen.queryByTestId("project-detail-brief-toggle")).toBeNull();
     expect(briefs).not.toHaveBeenCalled();
     expect(activityForDate).not.toHaveBeenCalled();
-  });
-});
-
-/**
- * LE TRE SEZIONI DI «DI COSA È FATTO» (22 set 2026, tappa 2).
- *
- * Stessa proprietà delle tre del lavoro: ognuna sta in piedi da sola, e il
- * suo guasto non tocca le altre né il polso.
- */
-describe("ProjectDetailScreen — repository, documentazione, roadmap", () => {
-  test("i conteggi dicono quante cose ci sono, e le righe quali", async () => {
-    const client = makeClient({
-      getProject: jest.fn().mockResolvedValue(
-        projectDetail({
-          repositories: [repositorySummary(), repositorySummary({ id: "r2", name: "Portale Web", slug: "portale-web" })],
-        }),
-      ),
-      projectSpaces: jest.fn().mockResolvedValue([docSpace()]),
-      milestones: jest.fn().mockResolvedValue([milestone()]),
-    });
-    await renderScreen(client);
-    await waitFor(() => expect(screen.getByText("Repository · 2")).toBeTruthy());
-    expect(screen.getByText("Portale API")).toBeTruthy();
-    expect(screen.getByText("Spazio API")).toBeTruthy();
-    expect(screen.getByText("Documentazione · 1 spazio")).toBeTruthy();
-    expect(screen.getByText("Roadmap · 1 aperta")).toBeTruthy();
-    expect(screen.getByText("Lancio pilota")).toBeTruthy();
-  });
-
-  /**
-   * ⚠️ Il numero della roadmap è quello delle APERTE, non il totale: di una
-   * roadmap interessa quanto manca. Con tre milestone di cui una chiusa
-   * l'etichetta dice 2, non 3.
-   */
-  test("la roadmap conta le milestone APERTE, non tutte", async () => {
-    const client = makeClient({
-      milestones: jest.fn().mockResolvedValue([
-        milestone({ id: "m1" }),
-        milestone({ id: "m2", name: "Beta" }),
-        milestone({ id: "m3", name: "Vecchia", status: "closed", closedAt: "2026-09-01T00:00:00.000Z" }),
-      ]),
-    });
-    await renderScreen(client);
-    await waitFor(() => expect(screen.getByText("Roadmap · 2 aperte")).toBeTruthy());
-  });
-
-  test("una sezione che fallisce non porta giù le altre né il polso", async () => {
-    const client = makeClient({
-      getProject: jest.fn().mockRejectedValue(new Error("down")),
-      projectSpaces: jest.fn().mockResolvedValue([docSpace()]),
-      milestones: jest.fn().mockResolvedValue([milestone()]),
-    });
-    await renderScreen(client);
-    await waitFor(() => expect(screen.getByTestId("hub-repositories-error")).toBeTruthy());
-    expect(screen.getByText("Documentazione · 1 spazio")).toBeTruthy();
-    expect(screen.getByText("Roadmap · 1 aperta")).toBeTruthy();
-    expect(screen.getByText("Portale B2B")).toBeTruthy();
-  });
-
-  test("sezioni vuote: lo dicono, invece di sparire", async () => {
-    await renderScreen(makeClient());
-    await waitFor(() => expect(screen.getByTestId("hub-repositories-empty")).toBeTruthy());
-    expect(screen.getByTestId("hub-docs-empty")).toBeTruthy();
-    expect(screen.getByTestId("hub-roadmap-empty")).toBeTruthy();
-  });
-
-  test("«vedi ›» porta alle tre schermate, col progetto e il suo nome", async () => {
-    const navigate = jest.fn();
-    await renderScreen(makeClient(), navigate);
-    await waitFor(() => expect(screen.getByTestId("hub-repositories-see-all")).toBeTruthy());
-
-    await fireEvent.press(screen.getByTestId("hub-repositories-see-all"));
-    expect(navigate).toHaveBeenCalledWith("ProjectRepositories", { projectId: PROJECT_ID, projectName: "Portale B2B" });
-
-    await fireEvent.press(screen.getByTestId("hub-docs-see-all"));
-    expect(navigate).toHaveBeenCalledWith("ProjectDocs", { projectId: PROJECT_ID, projectName: "Portale B2B" });
-
-    await fireEvent.press(screen.getByTestId("hub-roadmap-see-all"));
-    expect(navigate).toHaveBeenCalledWith("ProjectRoadmap", { projectId: PROJECT_ID, projectName: "Portale B2B" });
-  });
-
-  test("un tap su un repository dell'anteprima apre il suo dettaglio, per SLUG", async () => {
-    const navigate = jest.fn();
-    const client = makeClient({
-      getProject: jest.fn().mockResolvedValue(projectDetail({ repositories: [repositorySummary()] })),
-    });
-    await renderScreen(client, navigate);
-    await waitFor(() => expect(screen.getByTestId("hub-repository-r1")).toBeTruthy());
-    await fireEvent.press(screen.getByTestId("hub-repository-r1"));
-    expect(navigate).toHaveBeenCalledWith("Repository", { slug: "portale-api", projectName: "Portale B2B" });
-  });
-
-  /**
-   * «La documentazione nell'app, come sul web» (25 set 2026): una riga della
-   * sezione Documentazione apre la documentazione DI QUEL repository, a tab.
-   */
-  test("un tap su uno spazio della documentazione apre la documentazione del suo repository", async () => {
-    const navigate = jest.fn();
-    const client = makeClient({ projectSpaces: jest.fn().mockResolvedValue([docSpace()]) });
-    await renderScreen(client, navigate);
-    await waitFor(() => expect(screen.getByTestId("hub-docs-space-r1")).toBeTruthy());
-    await fireEvent.press(screen.getByTestId("hub-docs-space-r1"));
-    expect(navigate).toHaveBeenCalledWith("RepoDocs", { repositoryId: "r1", repositoryName: "Spazio API" });
-  });
-});
-
-/**
- * TAPPA 3 (23 set 2026): monitor e impostazioni, in fondo all'hub.
- */
-describe("ProjectDetailScreen — monitor e impostazioni", () => {
-  test("la sezione monitor chiede i server DEL PROGETTO", async () => {
-    const listServers = jest.fn().mockResolvedValue([]);
-    await renderScreen(makeClient({ listServers }));
-    await waitFor(() => expect(listServers).toHaveBeenCalledWith(PROJECT_ID));
-  });
-
-  test("quanti server e quanti controlli giù, nell'etichetta", async () => {
-    const client = makeClient({
-      listServers: jest.fn().mockResolvedValue([
-        server({ id: "s1", checksDown: 2 }),
-        server({ id: "s2", name: "prod-db", checksDown: 1 }),
-      ]),
-    });
-    await renderScreen(client);
-    await waitFor(() => expect(screen.getByText("Monitor · 2 server · 3 controlli giù")).toBeTruthy());
-  });
-
-  /**
-   * ⚠️ Il rosso solo quando qualcosa è DAVVERO rotto. Due server: uno sano,
-   * uno offline — solo il secondo è rosso (il mai connesso ha il suo test), e
-   * l'etichetta non parla di controlli giù perché non ce ne sono.
-   */
-  test("rosso solo per ciò che è rotto: offline sì, un server sano no", async () => {
-    const client = makeClient({
-      listServers: jest.fn().mockResolvedValue([
-        server({ id: "s1" }),
-        server({ id: "s2", name: "prod-db", status: "offline" }),
-      ]),
-    });
-    await renderScreen(client);
-    await waitFor(() => expect(screen.getByText("Monitor · 2 server")).toBeTruthy());
-    const healthy = screen.getByTestId("hub-server-s1-trailing");
-    const down = screen.getByTestId("hub-server-s2-trailing");
-    const color = (node: ReturnType<typeof screen.getByTestId>) =>
-      (StyleSheet.flatten(node.props.style) as { color?: string } | undefined)?.color;
-    expect(down.props.children).toBe("Offline");
-    expect(color(down)).not.toBe(color(healthy));
-  });
-
-  test("un server mai connesso non è rosso", async () => {
-    const client = makeClient({
-      listServers: jest.fn().mockResolvedValue([
-        server({ id: "s1" }),
-        server({ id: "s3", name: "nuovo", status: "never_connected", lastSeenAt: null, recentCpu: [] }),
-      ]),
-    });
-    await renderScreen(client);
-    await waitFor(() => expect(screen.getByTestId("hub-server-s3-trailing")).toBeTruthy());
-    const style = (id: string) => JSON.stringify(screen.getByTestId(id).props.style);
-    expect(screen.getByTestId("hub-server-s3-trailing").props.children).toBe("Mai connesso");
-    expect(style("hub-server-s3-trailing")).toBe(style("hub-server-s1-trailing"));
-  });
-
-  test("il monitor che fallisce non porta giù le altre sezioni", async () => {
-    const client = makeClient({ listServers: jest.fn().mockRejectedValue(new Error("down")) });
-    await renderScreen(client);
-    await waitFor(() => expect(screen.getByTestId("hub-monitor-error")).toBeTruthy());
-    expect(screen.getByTestId("hub-roadmap-empty")).toBeTruthy();
-    expect(screen.getByTestId("hub-settings-summary")).toBeTruthy();
-  });
-
-  test("nessun server: lo dice", async () => {
-    await renderScreen(makeClient());
-    await waitFor(() => expect(screen.getByTestId("hub-monitor-empty")).toBeTruthy());
-  });
-
-  test("le impostazioni dicono cosa è acceso", async () => {
-    const client = makeClient({
-      getProject: jest.fn().mockResolvedValue(
-        projectDetail({ backlogEnabled: true, pulseEnabled: true, pulseEveryDays: 5, weeklyBriefEnabled: true }),
-      ),
-    });
-    await renderScreen(client);
-    await waitFor(() =>
-      expect(screen.getByTestId("hub-settings-summary")).toBeTruthy(),
-    );
-    await waitFor(() => expect(screen.getByText("Backlog · Pulse ogni 5 g · Brief settimanale")).toBeTruthy());
-  });
-
-  /** ⚠️ Acceso senza backlog il pulse è muto: la riga lo dice, come il web. */
-  test("pulse acceso senza backlog: in attesa, non una cadenza", async () => {
-    const client = makeClient({
-      getProject: jest.fn().mockResolvedValue(projectDetail({ pulseEnabled: true, pulseEveryDays: 5 })),
-    });
-    await renderScreen(client);
-    await waitFor(() => expect(screen.getByText("Pulse in attesa del backlog")).toBeTruthy());
-  });
-
-  test("niente acceso: lo dice", async () => {
-    await renderScreen(makeClient());
-    await waitFor(() => expect(screen.getByText("Nessuna automazione attiva.")).toBeTruthy());
-  });
-
-  test("«vedi ›» e «apri ›» portano al monitor e alle impostazioni, col progetto e il suo nome", async () => {
-    const navigate = jest.fn();
-    await renderScreen(makeClient(), navigate);
-    await waitFor(() => expect(screen.getByTestId("hub-monitor-see-all")).toBeTruthy());
-    await fireEvent.press(screen.getByTestId("hub-monitor-see-all"));
-    expect(navigate).toHaveBeenCalledWith("ProjectMonitor", { projectId: PROJECT_ID, projectName: "Portale B2B" });
-    await fireEvent.press(screen.getByTestId("hub-settings-see-all"));
-    expect(navigate).toHaveBeenCalledWith("ProjectSettings", { projectId: PROJECT_ID, projectName: "Portale B2B" });
-  });
-
-  /**
-   * ⚠️ LE RIGHE RIASSUNTIVE SONO AZIONI (23 set 2026). Segnalato dal
-   * maintainer sul telefono: la riga delle impostazioni si apriva solo dal
-   * bottone «apri ›», non toccando la riga — e sul telefono si tocca la
-   * riga. Stesso difetto, non segnalato, sulla maturità del backlog e sul
-   * gruppo «backlog pronto» del polso: righe disegnate identiche a quelle
-   * premibili che non rispondevano al tocco.
-   *
-   * Il test preme la RIGA, mai il «vedi ›»: quello è coperto qui sopra, e un
-   * test che premesse il bottone passerebbe anche col difetto tornato.
-   */
-  test("toccare una riga riassuntiva apre la stessa schermata del suo «vedi ›»", async () => {
-    const navigate = jest.fn();
-    const client = makeClient({
-      pulse: jest.fn().mockResolvedValue([summary({ backlogReadyCount: 3 })]),
-      listBacklog: jest.fn().mockResolvedValue({ items: [], nextCursor: null, total: 6 }),
-    });
-    await renderScreen(client, navigate);
-    const toBacklog = { projectId: PROJECT_ID, projectName: "Portale B2B" };
-
-    await waitFor(() => expect(screen.getByTestId("hub-settings-summary")).toBeTruthy());
-    await fireEvent.press(screen.getByTestId("hub-settings-summary"));
-    expect(navigate).toHaveBeenCalledWith("ProjectSettings", toBacklog);
-  });
-
-  test("un tap su un server dell'anteprima apre il suo cruscotto", async () => {
-    const navigate = jest.fn();
-    await renderScreen(makeClient({ listServers: jest.fn().mockResolvedValue([server()]) }), navigate);
-    await waitFor(() => expect(screen.getByTestId("hub-server-s1")).toBeTruthy());
-    await fireEvent.press(screen.getByTestId("hub-server-s1"));
-    expect(navigate).toHaveBeenCalledWith("Server", { serverId: "s1", projectName: "Portale B2B" });
   });
 });
 
@@ -972,5 +732,131 @@ describe("ProjectDetailScreen v3 — Lavoro", () => {
     expect(screen.getByText("2 pronte")).toBeTruthy();
     expect(screen.queryByText(/da preparare/)).toBeNull();
     expect(screen.queryByTestId("hub-work-backlog-bar-fill")).toBeNull();
+  });
+});
+
+/**
+ * DETTAGLIO PROGETTO v3 — LA TAB «PROGETTO» (design §7).
+ *
+ * Una scheda con cinque righe, ognuna col suo riassunto; ogni riassunto è una
+ * lettura ACCESSORIA, fuori dai gate: se fallisce dice «—» e la riga resta
+ * premibile.
+ */
+describe("ProjectDetailScreen v3 — Progetto", () => {
+  const toProject = { projectId: PROJECT_ID, projectName: "Portale B2B" };
+
+  async function openProject(overrides: Parameters<typeof makeClient>[0] = {}, navigate: jest.Mock = jest.fn()) {
+    await renderScreen(makeClient(overrides), navigate);
+    await waitFor(() => expect(screen.getByTestId("hub-tab-project")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("hub-tab-project"));
+    return navigate;
+  }
+
+  const full = {
+    getProject: jest.fn(),
+    projectSpaces: jest.fn(),
+    milestones: jest.fn(),
+    listServers: jest.fn(),
+  };
+
+  beforeEach(() => {
+    full.getProject.mockResolvedValue(
+      projectDetail({
+        docAutoUpdate: true,
+        dailyReportEnabled: true,
+        backlogEnabled: true,
+        pulseEnabled: true,
+        weeklyBriefEnabled: false,
+        repositories: [
+          // Nome e slug DIVERSI apposta: la riga mostra il NOME.
+          repositorySummary({ id: "r1", name: "web-app", slug: "acme-web-app" }),
+          repositorySummary({ id: "r2", name: "api", slug: "acme-api" }),
+        ],
+      }),
+    );
+    full.projectSpaces.mockResolvedValue([docSpace({ repositoryId: "r1", pageCount: 20 }), docSpace({ repositoryId: "r2", pageCount: 13 })]);
+    full.milestones.mockResolvedValue([
+      milestone({ id: "m1", status: "open" }),
+      milestone({ id: "m2", status: "open" }),
+      milestone({ id: "m3", status: "closed" }),
+    ]);
+    full.listServers.mockResolvedValue([server({ id: "s1", name: "prod-eu-1", checksDown: 1 }), server({ id: "s2", name: "prod-eu-2" })]);
+  });
+
+  test("cinque righe, ognuna col suo riassunto", async () => {
+    await openProject(full);
+    await waitFor(() => expect(screen.getByText("web-app · api")).toBeTruthy());
+    expect(screen.getByText("Repository")).toBeTruthy();
+    await waitFor(() => expect(screen.getByText("2 spazi · 33 pag.")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("2 aperte")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("2 server · 1 giù")).toBeTruthy());
+    // docAutoUpdate, report giornaliero, backlog e pulse (acceso CON il backlog).
+    await waitFor(() => expect(screen.getByText("4 automazioni")).toBeTruthy());
+  });
+
+  test("il monitor è rosso se un server è giù, e solo allora", async () => {
+    await openProject(full);
+    await waitFor(() => expect(screen.getByText("2 server · 1 giù")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("2 aperte")).toBeTruthy());
+    expect(StyleSheet.flatten(screen.getByText("2 server · 1 giù").props.style).color).toBe("#ff6b6e");
+    expect(StyleSheet.flatten(screen.getByText("2 aperte").props.style).color).not.toBe("#ff6b6e");
+  });
+
+  test("ogni riga porta alla sua schermata", async () => {
+    const navigate = await openProject(full);
+    await waitFor(() => expect(screen.getByText("web-app · api")).toBeTruthy());
+    const cases: [string, string][] = [
+      ["hub-project-repositories", "ProjectRepositories"],
+      ["hub-project-docs", "ProjectDocs"],
+      ["hub-project-roadmap", "ProjectRoadmap"],
+      ["hub-project-monitor", "ProjectMonitor"],
+      ["hub-project-settings", "ProjectSettings"],
+    ];
+    for (const [testID, route] of cases) {
+      await fireEvent.press(screen.getByTestId(testID));
+      expect(navigate).toHaveBeenLastCalledWith(route, toProject);
+    }
+  });
+
+  test("una lettura che fallisce dice «—», e la riga resta premibile", async () => {
+    const navigate = await openProject({
+      ...full,
+      getProject: jest.fn().mockRejectedValue(new Error("down")),
+      milestones: jest.fn().mockRejectedValue(new Error("down")),
+    });
+    await waitFor(() => expect(screen.getAllByText("—")).toHaveLength(3));
+    // Le altre righe no: ognuna sta in piedi da sola.
+    await waitFor(() => expect(screen.getByText("2 spazi · 33 pag.")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("hub-project-settings"));
+    expect(navigate).toHaveBeenLastCalledWith("ProjectSettings", toProject);
+  });
+
+  test("il banner del monitor c'è anche qui, e porta al Monitor", async () => {
+    const navigate = await openProject(full);
+    await waitFor(() => expect(screen.getByTestId("hub-project-monitor-banner")).toBeTruthy());
+    expect(screen.getByText("prod-eu-1 · 1 controllo giù")).toBeTruthy();
+    await fireEvent.press(screen.getByTestId("hub-project-monitor-banner"));
+    expect(navigate).toHaveBeenLastCalledWith("ProjectMonitor", toProject);
+  });
+
+  test("nessun repository, nessuna automazione: lo dice", async () => {
+    await openProject({ listServers: jest.fn().mockResolvedValue([]) });
+    await waitFor(() => expect(screen.getByText("nessuno")).toBeTruthy());
+    expect(screen.getByText("0 automazioni")).toBeTruthy();
+    expect(screen.queryByTestId("hub-project-monitor-banner")).toBeNull();
+  });
+
+  test("trascina per aggiornare su Progetto ricarica le quattro letture", async () => {
+    await openProject(full);
+    await waitFor(() => expect(full.milestones).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(full.projectSpaces).toHaveBeenCalledTimes(1));
+    const [projectBefore, serversBefore] = [full.getProject.mock.calls.length, full.listServers.mock.calls.length];
+
+    await pullToRefresh("project-detail-refresh");
+
+    await waitFor(() => expect(full.getProject.mock.calls.length).toBe(projectBefore + 1));
+    await waitFor(() => expect(full.projectSpaces).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(full.milestones).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(full.listServers.mock.calls.length).toBe(serversBefore + 1));
   });
 });
