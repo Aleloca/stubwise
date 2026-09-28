@@ -16,6 +16,8 @@ import {
   projectBriefWeeklySchema,
   projectTimelineSchema,
   updateProjectSchema,
+  compareProjectNames,
+  needsViewer,
 } from "@stubwise/shared";
 import { summarizeProject, type ProjectPulseSummary } from "@stubwise/notifications";
 import { eq, sql } from "drizzle-orm";
@@ -74,43 +76,35 @@ function slugify(name: string): string {
 }
 
 /**
- * Ordinamento di `GET /api/projects/pulse`: prima chi ha `waitingForYou`
- * (una decisione del viewer ferma il progetto), poi chi ha `running` (lavoro
- * in corso, meno urgente di una decisione ma più di uno fermo), infine per
- * `idleDays` decrescente (il più fermo in cima, fra pari).
+ * Ordinamento di `GET /api/projects/pulse` (riscritto il 28 set 2026, «i
+ * progetti in ordine alfabetico, ovunque»): DUE GRUPPI, ognuno alfabetico.
+ * Prima i progetti dove qualcosa aspetta CHI GUARDA — una decisione, o una PR
+ * che può mergiare lui (`needsViewer` di `@stubwise/shared`) — poi tutti gli
+ * altri; dentro ciascun gruppo `compareProjectNames`.
  *
- * ⚠️ **La scala È quella della riga di polso** (`pulse-line.ts`, web e app:
- * decisioni per te → PR che aspettano il TUO merge → lavoro in corso → PR che
- * aspettano altri → progetto fermo da giorni → ticket fermi): un ordine che
- * dicesse una priorità diversa da quella che la riga scrive sotto il nome del
- * progetto sarebbe una terza verità. Dal 21 set 2026 il tuple ha quindi
- * cinque livelli invece di tre — senza, un progetto la cui unica attesa è una
- * PR che il viewer PUÒ mergiare ordinerebbe come uno che non chiede niente, e
- * uno con sei ticket fermi ma nessun job mai girato finirebbe ULTIMO
- * (`idleDays` vale 0 quando nessun job è mai partito: vedi `idleDaysFrom`).
+ * ⚠️ **La posizione ora dice UNA cosa sola: «aspetta te, sì o no».** Fino al
+ * 27 set era una scala a cinque livelli allineata alla riga del polso
+ * (decisioni → PR da mergiare → lavoro in corso → PR d'altri → giorni fermo
+ * → ticket fermi), e l'elenco cambiava ordine a ogni job che partiva: il
+ * maintainer cercava i progetti «a occhio» e non li trovava mai nello stesso
+ * posto. Per sua decisione tutto il resto lo dice la RIGA sotto il nome
+ * (`pulse-line.ts`, web e app), non l'ordine. Chi reintroduce un livello «per
+ * urgenza» riporta l'elenco che si rimescola da solo.
  *
- * SORT applicativo dopo aver raccolto i riepiloghi, non un `ORDER BY` SQL: i
- * progetti che un viewer segue (il caso comune, quello per cui questa rotta
- * esiste) sono poche unità — un `Array.sort` su una manciata di oggetti è più
- * semplice da leggere e mantenere di un `ORDER BY` su colonne calcolate da tre
- * query diverse, e non ci sarebbe comunque un modo di farlo in UNA query sola
- * (`summarizeProject` ne fa già più di una per progetto).
+ * `needsViewer` è la STESSA funzione con cui i client disegnano il confine
+ * fra «Needs you» e «All projects»: l'ordine del server e le intestazioni del
+ * client non possono dire due cose diverse. E `canMerge` è già calcolato qui
+ * col ruolo del viewer — il divieto dell'operatore vale anche per l'ordine.
+ *
+ * SORT applicativo e non un `ORDER BY`: i riepiloghi vengono da più query per
+ * progetto, e il Postgres è `--locale=C` (un `ORDER BY name` metterebbe
+ * «Zeta» prima di «alfa»).
  */
 function pulseOrder(a: ProjectPulseSummary, b: ProjectPulseSummary): number {
-  const rank = (s: ProjectPulseSummary): [number, number, number, number, number] => [
-    // `canMerge` è già calcolato dal server col ruolo del viewer: qui si legge.
-    s.waitingForYou.length > 0 || s.waitingForMerge.some((item) => item.canMerge) ? 0 : 1,
-    s.running.length > 0 ? 0 : 1,
-    s.waitingForMerge.length > 0 ? 0 : 1,
-    -s.idleDays,
-    s.stalled.length > 0 ? 0 : 1,
-  ];
-  const [ra, rb] = [rank(a), rank(b)];
-  for (let i = 0; i < ra.length; i++) {
-    const diff = ra[i]! - rb[i]!;
-    if (diff !== 0) return diff;
-  }
-  return 0;
+  const group = (s: ProjectPulseSummary) => (needsViewer(s) ? 0 : 1);
+  const byGroup = group(a) - group(b);
+  if (byGroup !== 0) return byGroup;
+  return compareProjectNames({ id: a.projectId, name: a.projectName }, { id: b.projectId, name: b.projectName });
 }
 
 type ProjectRow = typeof projects.$inferSelect;
@@ -253,7 +247,10 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
       schema: { response: { 200: z.array(projectListItemSchema), ...authErrorResponses } },
     },
     async () => {
-      const rows = await app.db.select().from(projects).orderBy(projects.createdAt);
+      // In ordine ALFABETICO (28 set 2026), e in TypeScript: il Postgres è
+      // `--locale=C`, dove «Zeta» viene prima di «alfa». Da qui passano i
+      // selettori di app e web, che non riordinano.
+      const rows = (await app.db.select().from(projects)).sort(compareProjectNames);
       // Conteggio dei repository per progetto in una sola query, poi unito.
       const counts = await app.db
         .select({

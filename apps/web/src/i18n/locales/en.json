@@ -1466,7 +1466,11 @@
       "emptyHintMember": "Ask a maintainer to create the first project.",
       "repositoryCount": "{{count}} repositories",
       "repositoryCount_one": "{{count}} repository",
-      "createdAt": "created {{date}}"
+      "createdAt": "created {{date}}",
+      "groups": {
+        "needsYou": "Needs you",
+        "allProjects": "All projects"
+      }
     },
     "pulse": {
       "waitingQuestion_one": "needs you — {{count}} agent question",

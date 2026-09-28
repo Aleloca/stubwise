@@ -578,6 +578,10 @@
           "generic": "Couldn't save. Try again."
         }
       },
+      "groups": {
+        "needsYou": "Needs you",
+        "allProjects": "All projects"
+      },
       "merge": {
         "title": "Merge the PR of #{{number}}?",
         "openPr": "Open PR ›",

@@ -1349,6 +1349,18 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   **e** `repositoryId`: il divieto dell'operatore non si sposta nell'app.
   **Rollback innocuo**: un server senza i due campi fa sparire il bottone
   Mergia e la riga resta premibile verso il ticket.
+- **«I progetti in ordine alfabetico» (28 set 2026)**: rebuild **server +
+  caddy**. Nessuna migrazione, env, rotta, kind né valore di enum. Cambia
+  solo l'ORDINE di `GET /api/projects` (alfabetico, `compareProjectNames` di
+  `@stubwise/shared`: Collator `it`, maiuscole e accenti ignorati, numeri
+  letti come numeri) e di `GET /api/projects/pulse` («aspetta te» prima, poi
+  alfabetico). Nessun campo cambia, quindi è sicuro per le app installate.
+  ⚠️ L'ordine si fa in TypeScript e non con `ORDER BY name`: il Postgres del
+  compose è `--locale=C`, e ordinerebbe per byte («Zeta» prima di «alfa»).
+  Effetto collaterale noto: i selettori che preselezionano il primo progetto
+  (web: nuovo ticket e nuova voce di backlog; app: nuova idea al primo uso)
+  ora partono dal primo in ordine alfabetico invece che dal più vecchio.
+  **Rollback innocuo**: torna l'ordine di prima.
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
@@ -1572,6 +1584,12 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   **l'ORDINAMENTO** (`pulseOrder` in `apps/server/src/routes/projects.ts`):
   anche un ordine afferma una priorità, e lasciarlo indietro l'avrebbe reso
   una terza verità diversa dalle altre due.
+  ⚠️ **Dal 28 set 2026 l'ordine afferma MENO di prima, per scelta del
+  maintainer**: `pulseOrder` è `[needsViewer ? 0 : 1, nome]`. La posizione
+  dice solo «aspetta te sì o no», poi è alfabetica; tutto il resto lo dice
+  la riga sotto il nome. Il confine è `needsViewer` di `@stubwise/shared`,
+  la stessa funzione che i client usano per le intestazioni «Needs you» e
+  «All projects»: chi cambia cosa conta come «aspetta te» lo cambia lì.
   ⚠️ **E una riga aggiunta a una fixture non è copertura.** Completare le
   fixture perché il compilatore smetta di lamentarsi (`stalled: []`,
   `waitingForMerge: []`) è compatibilità di TIPO: il test che avrebbe fermato
