@@ -2,6 +2,7 @@ import {
   aiJobSchema,
   answerQuestionResultSchema,
   planDecisionResultSchema,
+  releaseResultSchema,
   runAiResultSchema,
   ticketCommentSchema,
   ticketDetailSchema,
@@ -16,6 +17,7 @@ import type {
   AnswerBody,
   AnswerQuestionResult,
   PlanDecisionResult,
+  ReleaseResult,
   RunAiResult,
   Ticket,
   TicketActivityEntry,
@@ -244,6 +246,27 @@ export function createTicketsEndpoints(request: ApiRequest) {
      */
     revokePlanApproval(ticketId: string): Promise<Reader<TicketDetail>> {
       return request("DELETE", `/api/tickets/${seg(ticketId)}/pre-approve-plan`, undefined, ticketDetailSchema);
+    },
+
+    /**
+     * Mergia la PR del ticket su UN repository (28 set 2026, dettaglio
+     * progetto v3 §6): la STESSA rotta della coda di rilascio del web, con il
+     * suo `requireAdmin` e il controllo ridondante dentro
+     * `releasePullRequest`. Il cancello vero è lì: chi chiama mostra il
+     * bottone solo quando il polso dice `canMerge`, ma non decide niente.
+     *
+     * Gli errori arrivano come `ApiError` col loro `code` — 404 `not_found`,
+     * 409 `already_closed`/`checks_failed`/`checks_unreadable`, 502 — e chi
+     * chiama li MOSTRA. Il ticket non cambia qui: lo chiude il webhook del
+     * provider, come per un merge fatto a mano.
+     */
+    release(ticketId: string, repositoryId: string): Promise<Reader<ReleaseResult>> {
+      return request(
+        "POST",
+        `/api/tickets/${seg(ticketId)}/repositories/${seg(repositoryId)}/release`,
+        undefined,
+        releaseResultSchema,
+      );
     },
   };
 }

@@ -690,10 +690,13 @@ describe("summarizeProject", () => {
         title: "Ticket 20",
         prUrl: "https://example.com/pr/20",
         canMerge: true,
+        // Il repository della PR (28 set 2026): la rotta di rilascio lo vuole
+        // nel percorso, e l'app mergia da qui.
+        repositoryId,
+        repositoryName: "Repository di test",
         priority: "medium",
         type: "bug",
         createdAt: expect.any(String),
-
       },
     ]);
   });

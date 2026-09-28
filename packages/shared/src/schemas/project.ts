@@ -397,6 +397,17 @@ export const pulseWaitingForMergeItemSchema = z.object({
   title: z.string(),
   prUrl: z.string(),
   canMerge: z.boolean(),
+  /**
+   * Il repository della PR (28 set 2026, dettaglio progetto v3 §2): la rotta
+   * di rilascio lo vuole nel percorso, e l'app ci mergia da qui.
+   *
+   * `.optional()` e non obbligatori — CLAUDE.md, «solo cambi additivi»: un'app
+   * nuova può parlare con un server più vecchio che non li manda. Lì il
+   * bottone Mergia semplicemente non compare, e la riga resta premibile verso
+   * il ticket. C'è un test che parsa un polso senza (`project.test.ts`).
+   */
+  repositoryId: z.uuid().optional(),
+  repositoryName: z.string().optional(),
   /** `.optional()` — vedi {@link pulseWaitingForYouItemSchema}. */
   priority: ticketPrioritySchema.optional(),
   type: ticketTypeSchema.optional(),

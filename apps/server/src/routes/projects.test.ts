@@ -643,6 +643,16 @@ describe("GET /api/projects/pulse", () => {
 
     expect(indexOf(mergeProjectId)).toBeLessThan(indexOf(stalledProjectId));
     expect(indexOf(stalledProjectId)).toBeLessThan(indexOf(quietProjectId));
+
+    // Il repository della PR arriva fino al client (28 set 2026, dettaglio
+    // progetto v3 §2): senza, l'app non saprebbe su quale rotta mergiare. La
+    // risposta passa dallo schema di Fastify, che scarterebbe un campo non
+    // dichiarato — è quello che questo verifica, non la query.
+    const mergeItem = summaries.find((s) => s.projectId === mergeProjectId)?.waitingForMerge[0] as
+      | { repositoryId?: string; repositoryName?: string }
+      | undefined;
+    expect(mergeItem?.repositoryId).toBe(repositoryId);
+    expect(mergeItem?.repositoryName).toEqual(expect.any(String));
   });
 });
 
