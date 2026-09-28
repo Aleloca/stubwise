@@ -29,6 +29,13 @@ export function describeReleaseError(error: unknown, t: TFunction): string {
       return t("mobile.projects.merge.errors.forbidden");
     case "not_found":
       return t("mobile.projects.merge.errors.notFound");
+    // Due rifiuti del PROVIDER che riprovare non cambia: conflitti o regole
+    // del branch, e credenziali git senza il permesso di merge. Stesse due
+    // frasi del web (`release:errors.notMergeable`/`mergeForbidden`).
+    case "not_mergeable":
+      return t("mobile.projects.merge.errors.notMergeable");
+    case "merge_forbidden":
+      return t("mobile.projects.merge.errors.mergeForbidden");
     default:
       return t("mobile.projects.merge.errors.generic");
   }

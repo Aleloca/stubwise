@@ -22,6 +22,8 @@ describe("describeReleaseError: ogni errore della rotta ha la sua frase", () => 
     [new ApiError(502, "…", "merge_failed"), "Il provider non risponde, riprova"],
     [new ApiError(403, "…", "forbidden"), "Solo un maintainer può mergiare"],
     [new ApiError(404, "…", "not_found"), "Questa PR non è più sul ticket"],
+    [new ApiError(409, "…", "not_mergeable"), "Il provider ha rifiutato il merge: conflitti o regole del branch"],
+    [new ApiError(403, "…", "merge_forbidden"), "Le credenziali git non hanno il permesso di mergiare"],
     [new TypeError("Network request failed"), "Stubwise non risponde, controlla la connessione e riprova"],
     [new ApiError(500, "…", "internal"), "Il merge non è andato a buon fine, riprova"],
   ])("%s", (error, expected) => {
