@@ -54,7 +54,7 @@ function makeClient(overrides: { list?: jest.Mock; projects?: jest.Mock } = {}):
 
 type CardScreenProps = NativeStackScreenProps<InboxStackParamList, "Card">;
 
-async function renderScreen(client: StubwiseClient, id = "q1") {
+async function renderScreen(client: StubwiseClient, id = "q1", backLabel?: string) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const authValue: AuthContextValue = {
     status: "authenticated",
@@ -67,8 +67,10 @@ async function renderScreen(client: StubwiseClient, id = "q1") {
     loggedOut: jest.fn(),
   };
   const navigate = jest.fn();
-  const navigation = { navigate } as unknown as CardScreenProps["navigation"];
-  const route = { key: "Card", name: "Card", params: { id } } as unknown as CardScreenProps["route"];
+  const goBack = jest.fn();
+  const navigation = { navigate, goBack } as unknown as CardScreenProps["navigation"];
+  const params = backLabel !== undefined ? { id, backLabel } : { id };
+  const route = { key: "Card", name: "Card", params } as unknown as CardScreenProps["route"];
 
   const rendered = await render(
     <QueryClientProvider client={queryClient}>
@@ -77,7 +79,7 @@ async function renderScreen(client: StubwiseClient, id = "q1") {
       </AuthContext.Provider>
     </QueryClientProvider>,
   );
-  return { ...rendered, navigate };
+  return { ...rendered, navigate, goBack };
 }
 
 describe("InboxCardScreen", () => {
@@ -151,5 +153,18 @@ describe("InboxCardScreen", () => {
     await waitFor(() => expect(screen.getByTestId("question-card")).toBeTruthy());
     await fireEvent.press(screen.getByTestId("inbox-card-back"));
     expect(navigate).toHaveBeenCalledWith("List");
+  });
+
+  // Dettaglio progetto v3 (28 set 2026): «Rispondi» apre questa card dentro
+  // lo stack dei PROGETTI, dove `List` è l'elenco dei progetti. Da lì il
+  // bottone dice il progetto e torna indietro, non all'inbox.
+  test("aperta dall'hub di un progetto: il bottone dice il progetto e torna indietro", async () => {
+    const client = makeClient();
+    const { navigate, goBack } = await renderScreen(client, "q1", "Portale B2B");
+    await waitFor(() => expect(screen.getByTestId("question-card")).toBeTruthy());
+    expect(screen.getByText("‹ Portale B2B")).toBeTruthy();
+    await fireEvent.press(screen.getByTestId("inbox-card-back"));
+    expect(goBack).toHaveBeenCalledTimes(1);
+    expect(navigate).not.toHaveBeenCalled();
   });
 });

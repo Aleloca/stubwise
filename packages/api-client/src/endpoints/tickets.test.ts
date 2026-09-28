@@ -120,6 +120,28 @@ describe("endpoints tickets", () => {
     expect(result.planApprovedAt).toBeNull();
   });
 
+  // IL MERGE DALL'APP (28 set 2026, dettaglio progetto v3 §6): la stessa
+  // rotta della coda di rilascio del web, con il suo `requireAdmin`.
+  it("release: POST sulla rotta di rilascio con ticket e repository, torna lo sha", async () => {
+    const REPO = "22222222-2222-4222-8222-222222222222";
+    const { c, fetchImpl } = clientReturning(200, { merged: true, sha: "abc123" });
+
+    const result = await c.tickets.release(ID, REPO);
+
+    const [url, init] = fetchImpl.mock.calls.at(-1)!;
+    expect(url).toBe(`/api/tickets/${ID}/repositories/${REPO}/release`);
+    expect(init!.method).toBe("POST");
+    expect(result).toEqual({ merged: true, sha: "abc123" });
+  });
+
+  it("release: 409 checks_failed arriva come ApiError col suo codice, non ingoiato", async () => {
+    const { c } = clientReturning(409, { code: "checks_failed", message: "…" });
+    const error = await c.tickets.release(ID, ID).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).status).toBe(409);
+    expect((error as ApiError).code).toBe("checks_failed");
+  });
+
   it("activity: chiama il feed del ticket e legge le voci senza chiudere i tipi", async () => {
     const fetchImpl = vi.fn<typeof globalThis.fetch>(async () =>
       new Response(

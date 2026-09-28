@@ -267,93 +267,104 @@
           "title": "This project is gone.",
           "body": "You no longer follow it, or it doesn't exist."
         },
-        "groups": {
-          "waitingSomeone": "Waiting on someone · {{count}}",
-          "now": "Now · {{count}}",
-          "backlogReady": "Ready in backlog · {{count}}",
-          "stalled": "Stalled · {{count}}"
-        },
-        "waitingYouArrow": "→ you",
-        "waitingMaintainerArrow": "→ a maintainer",
-        "waitingRequesterArrow": "→ whoever asked",
-        "running": "running",
-        "backlogReadySummary_one": "{{count}} item ready to convert",
-        "backlogReadySummary_other": "{{count}} items ready to convert",
-        "waitingMergeArrow": "→ to merge",
-        "stalledTrailing": "{{days}}d · {{reason}}",
         "stalledReason": {
           "toPrepare": "to prepare",
           "workedThenStopped": "worked, then stopped",
           "interrupted": "interrupted",
           "declaredNoWork": "no work recorded",
           "unknown": "stalled"
+        },
+        "tabs": {
+          "now": "Now",
+          "work": "Work",
+          "project": "Project",
+          "badgeLabel_one": "{{count}} thing waiting on you",
+          "badgeLabel_other": "{{count}} things waiting on you",
+          "alertLabel": "A server is down"
+        },
+        "now": {
+          "monitorEyebrow": "Monitor · server down",
+          "monitorChecks_one": "{{server}} · {{count}} check down",
+          "monitorChecks_other": "{{server}} · {{count}} checks down",
+          "monitorOffline": "{{server}} · offline",
+          "monitorOthers_one": "+{{count}} other server",
+          "monitorOthers_other": "+{{count}} other servers",
+          "yourTurn": "Your turn · {{count}}",
+          "running": "Running · {{count}}",
+          "others": "Waiting on others · stalled · {{count}}",
+          "kind": {
+            "question": "question",
+            "plan": "plan",
+            "merge": "PR ready",
+            "unknown": "waiting"
+          },
+          "action": {
+            "answer": "Answer",
+            "approve": "Approve",
+            "merge": "Merge"
+          },
+          "sinceMinutes": "{{count}} min",
+          "toRequester": "→ requester",
+          "toMaintainer": "→ maintainer",
+          "waitingMerge": "waiting for merge",
+          "stalledDays": "stalled {{count}}d · {{reason}}"
+        },
+        "work": {
+          "tickets": "Tickets",
+          "ticketsCount_one": "{{count}} open",
+          "ticketsCount_other": "{{count}} open",
+          "backlog": "Backlog",
+          "backlogCount_one": "{{count}} item",
+          "backlogCount_other": "{{count}} items",
+          "notifications": "Notifications",
+          "notificationsCount_one": "{{count}} to handle",
+          "notificationsCount_other": "{{count}} to handle",
+          "seeAllTickets": "all ›",
+          "seeAllBacklog": "all ›",
+          "seeAllInbox": "all ›",
+          "ready_one": "{{count}} ready",
+          "ready_other": "{{count}} ready",
+          "toPrepare_one": "{{count}} to prepare",
+          "toPrepare_other": "{{count}} to prepare",
+          "ageToday": "today",
+          "ageDays_one": "{{count}}d",
+          "ageDays_other": "{{count}}d",
+          "ageMonths_one": "{{count}}mo",
+          "ageMonths_other": "{{count}}mo"
+        },
+        "project": {
+          "repositories": "Repositories",
+          "documentation": "Documentation",
+          "roadmap": "Roadmap",
+          "monitor": "Monitor",
+          "settings": "Settings",
+          "repositoriesNone": "none",
+          "docsSpaces_one": "{{count}} space",
+          "docsSpaces_other": "{{count}} spaces",
+          "docsPages_one": "{{count}} page",
+          "docsPages_other": "{{count}} pages",
+          "roadmapOpen_one": "{{count}} open",
+          "roadmapOpen_other": "{{count}} open",
+          "monitorServers_one": "{{count}} server",
+          "monitorServers_other": "{{count}} servers",
+          "monitorDown_one": "{{count}} down",
+          "monitorDown_other": "{{count}} down",
+          "automations_one": "{{count}} automation",
+          "automations_other": "{{count}} automations",
+          "unavailable": "—"
         }
       },
       "hub": {
-        "seeAll": "see ›",
         "loadError": "Not loaded.",
         "retry": "Retry",
         "tickets": {
-          "label": "Tickets",
-          "labelWithCount_one": "Tickets · {{count}} open",
-          "labelWithCount_other": "Tickets · {{count}} open",
           "empty": "No open tickets."
         },
         "backlog": {
-          "label": "Backlog",
-          "labelWithCount_one": "Backlog · {{count}} item",
-          "labelWithCount_other": "Backlog · {{count}} items",
-          "maturity": "{{ready}} ready · {{notReady}} to prepare",
           "empty": "Backlog is empty."
         },
         "inbox": {
-          "label": "Notifications",
-          "labelWithCount_one": "Notifications · {{count}} to handle",
-          "labelWithCount_other": "Notifications · {{count}} to handle",
           "empty": "Nothing to handle."
-        },
-        "repositories": {
-          "label": "Repositories",
-          "labelWithCount_one": "Repositories · {{count}}",
-          "labelWithCount_other": "Repositories · {{count}}",
-          "empty": "No repository linked."
-        },
-        "docs": {
-          "label": "Documentation",
-          "labelWithCount_one": "Documentation · {{count}} space",
-          "labelWithCount_other": "Documentation · {{count}} spaces",
-          "empty": "No documentation generated."
-        },
-        "roadmap": {
-          "label": "Roadmap",
-          "labelWithCount_one": "Roadmap · {{count}} open",
-          "labelWithCount_other": "Roadmap · {{count}} open",
-          "empty": "No milestones.",
-          "rowProgress": "{{completed}}/{{total}}"
-        },
-        "open": "open ›",
-        "monitor": {
-          "label": "Monitor",
-          "labelWithCount_one": "Monitor · {{count}} server",
-          "labelWithCount_other": "Monitor · {{count}} servers",
-          "serverCount_one": "{{count}} server",
-          "serverCount_other": "{{count}} servers",
-          "labelWithDown_one": "Monitor · {{servers}} · {{count}} check down",
-          "labelWithDown_other": "Monitor · {{servers}} · {{count}} checks down",
-          "rowChecksDown_one": "{{count}} down",
-          "rowChecksDown_other": "{{count}} down",
-          "empty": "No servers linked."
-        },
-        "settings": {
-          "label": "Settings",
-          "docAutoUpdate": "Auto docs",
-          "dailyReport": "Daily report",
-          "backlog": "Backlog",
-          "pulseEvery_one": "Pulse every day",
-          "pulseEvery_other": "Pulse every {{count}} d",
-          "pulseWaitingBacklog": "Pulse waiting for backlog",
-          "weeklyBrief": "Weekly brief",
-          "noneActive": "No automation active."
         }
       },
       "tickets": {
@@ -565,6 +576,23 @@
         "errors": {
           "forbidden": "Only a maintainer can change the settings.",
           "generic": "Couldn't save. Try again."
+        }
+      },
+      "merge": {
+        "title": "Merge the PR of #{{number}}?",
+        "openPr": "Open PR ›",
+        "confirm": "Merge",
+        "cancel": "Cancel",
+        "errors": {
+          "checksFailed": "The provider's checks are failing",
+          "alreadyClosed": "This PR is no longer open",
+          "unreachable": "Couldn't reach the provider, try again",
+          "forbidden": "Only a maintainer can merge",
+          "notFound": "This PR is no longer on the ticket",
+          "notMergeable": "The provider refused the merge: conflicts or branch rules",
+          "mergeForbidden": "The stored git credentials aren't allowed to merge",
+          "network": "Couldn't reach Stubwise, check your connection and try again",
+          "generic": "The merge didn't go through, try again"
         }
       }
     },

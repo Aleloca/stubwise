@@ -298,3 +298,47 @@ describe("projectPulseSummarySchema: gli item senza priorità, tipo e data di ap
     expect(parsed.stalled[0]?.type).not.toBe("incident");
   });
 });
+
+/**
+ * IL REPOSITORY DELLA VOCE DI MERGE (28 set 2026, dettaglio progetto v3 §2).
+ *
+ * `repositoryId`/`repositoryName` servono all'app per chiamare la rotta di
+ * rilascio, che vuole il repository. Sono `.optional()`: un'app nuova parla
+ * anche con un server che non li manda, e lì il bottone Mergia non compare —
+ * ma il polso deve parsarsi lo stesso. La fixture di sopra NON li ha, apposta.
+ */
+describe("projectPulseSummarySchema: il repository della voce di merge", () => {
+  it("un polso SENZA repositoryId/repositoryName si parsa, e i due campi restano assenti", () => {
+    const parsed = projectPulseSummarySchema.parse(polsoConItemSenzaIdentificazione());
+
+    expect(parsed.waitingForMerge).toHaveLength(1);
+    expect(parsed.waitingForMerge[0]?.repositoryId).toBeUndefined();
+    expect(parsed.waitingForMerge[0]?.repositoryName).toBeUndefined();
+  });
+
+  it("regge anche attraverso `readerSchema`", () => {
+    const parsed = readerSchema(projectPulseSummarySchema).parse(polsoConItemSenzaIdentificazione()) as {
+      waitingForMerge: { canMerge: boolean; repositoryId?: string }[];
+    };
+
+    expect(parsed.waitingForMerge[0]?.canMerge).toBe(true);
+    expect(parsed.waitingForMerge[0]?.repositoryId).toBeUndefined();
+  });
+
+  it("un server che li manda li riporta verbatim", () => {
+    const polso = polsoConItemSenzaIdentificazione();
+    const parsed = projectPulseSummarySchema.parse({
+      ...polso,
+      waitingForMerge: [
+        {
+          ...polso.waitingForMerge[0]!,
+          repositoryId: "44444444-4444-4444-8444-444444444444",
+          repositoryName: "web-app",
+        },
+      ],
+    });
+
+    expect(parsed.waitingForMerge[0]?.repositoryId).toBe("44444444-4444-4444-8444-444444444444");
+    expect(parsed.waitingForMerge[0]?.repositoryName).toBe("web-app");
+  });
+});

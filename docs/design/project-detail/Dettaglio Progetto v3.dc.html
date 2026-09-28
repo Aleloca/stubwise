@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+@font-face{font-family:"IBM Plex Sans";font-weight:400;src:url("fonts/IBMPlexSans-Regular.ttf")}
+@font-face{font-family:"IBM Plex Sans";font-weight:500;src:url("fonts/IBMPlexSans-Medium.ttf")}
+@font-face{font-family:"IBM Plex Sans";font-weight:600;src:url("fonts/IBMPlexSans-SemiBold.ttf")}
+@font-face{font-family:"IBM Plex Sans";font-weight:700;src:url("fonts/IBMPlexSans-Bold.ttf")}
+@font-face{font-family:"IBM Plex Mono";font-weight:400;src:url("fonts/IBMPlexMono-Regular.ttf")}
+@font-face{font-family:"IBM Plex Mono";font-weight:500;src:url("fonts/IBMPlexMono-Medium.ttf")}
+html,body{margin:0;background:#050607}
+a{color:#f5a623;text-decoration:none}a:hover{color:#ffc14d}
+</style>
+</helmet>
+<div data-screen-label="Dettaglio progetto" style="width:393px;min-height:852px;margin:0 auto;background:#0a0d10;overflow:hidden;font-family:'IBM Plex Sans',sans-serif;color:#e9e6df;-webkit-font-smoothing:antialiased">
+        <div style="padding:56px 20px 0;border-bottom:1px solid #1d242d">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
+            <div style="flex:1;min-width:0">
+              <div style="color:#98a1ac;font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:0.6px;margin-bottom:6px;text-transform:uppercase">‹ Progetti</div>
+              <div style="font-weight:700;font-size:24px;letter-spacing:-0.3px">Negozio online</div>
+            </div>
+            <div style="display:flex;gap:10px">
+              <div style="width:32px;height:32px;border-radius:16px;background:#181f28;display:flex;align-items:center;justify-content:center"><svg width="16" height="16" viewBox="0 -960 960 960"><path fill="#98a1ac" d="M784-120 532-372q-30 24-69 38t-83 14q-109 0-184.5-75.5T120-580q0-109 75.5-184.5T380-840q109 0 184.5 75.5T640-580q0 44-14 83t-38 69l252 252-56 56ZM380-400q75 0 127.5-52.5T560-580q0-75-52.5-127.5T380-760q-75 0-127.5 52.5T200-580q0 75 52.5 127.5T380-400Z"></path></svg></div>
+              <div style="width:32px;height:32px;border-radius:16px;background:#181f28;display:flex;align-items:center;justify-content:center;color:#98a1ac;font-family:'IBM Plex Mono',monospace;font-size:13px">A</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:4px;margin-top:14px">
+            <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="3">
+              <div onClick="{{ t.select }}" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;min-height:44px;cursor:pointer;border-bottom:{{ t.border }};color:{{ t.color }};font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:1px;text-transform:uppercase">
+                <span>{{ t.label }}</span>
+                <sc-if value="{{ t.badge }}" hint-placeholder-val="{{ false }}"><span style="background:#f5a623;color:#0a0d10;border-radius:8px;padding:0 6px;font-size:11px;font-weight:500">{{ t.badge }}</span></sc-if>
+                <sc-if value="{{ t.alert }}" hint-placeholder-val="{{ false }}"><span style="width:6px;height:6px;border-radius:3px;background:#ff6b6e"></span></sc-if>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+
+        <sc-if value="{{ tabNow }}" hint-placeholder-val="{{ true }}">
+          <div style="display:flex;flex-direction:column;gap:24px;padding:20px 20px 40px">
+            <div onClick="{{ goProject }}" style="display:flex;align-items:center;gap:10px;background:#0f1318;border:1px solid #ff6b6e;border-radius:10px;padding:12px 14px;min-height:20px;cursor:pointer">
+              <div style="width:8px;height:8px;border-radius:4px;background:#ff6b6e;flex-shrink:0"></div>
+              <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px">
+                <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#ff6b6e">Monitor · server giù</div>
+                <div style="font-size:14px">prod-eu-1 · 1 controllo giù</div>
+              </div>
+              <div style="color:#98a1ac;font-size:16px">›</div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <div style="color:#f5a623;font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:500;letter-spacing:1.4px;text-transform:uppercase">Tocca a te · 3</div>
+              <div style="background:#0f1318;border:1px solid #1d242d;border-radius:10px;overflow:hidden">
+                <div style="display:flex;align-items:center;gap:12px;padding:12px 14px">
+                  <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px"><div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#98a1ac">#27 · <span style="color:#ff6b6e">urgente</span> · domanda</div><div style="font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Checkout fallisce con carta salvata</div></div>
+                  <div style="border:1px solid #b97d1a;color:#f5a623;border-radius:8px;padding:7px 10px;font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:1px;text-transform:uppercase">Rispondi</div>
+                </div>
+                <div style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-top:1px solid #1d242d">
+                  <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px"><div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#98a1ac">#41 · alta · piano</div><div style="font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Export CSV degli ordini</div></div>
+                  <div style="border:1px solid #b97d1a;color:#f5a623;border-radius:8px;padding:7px 10px;font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:1px;text-transform:uppercase">Approva</div>
+                </div>
+                <div style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-top:1px solid #1d242d">
+                  <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px"><div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#98a1ac">#38 · media · PR pronta</div><div style="font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Aggiorna dipendenze del worker</div></div>
+                  <div style="border:1px solid #b97d1a;color:#f5a623;border-radius:8px;padding:7px 10px;font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:1px;text-transform:uppercase">Mergia</div>
+                </div>
+              </div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <div style="color:#98a1ac;font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:500;letter-spacing:1.4px;text-transform:uppercase">In esecuzione · 1</div>
+              <div style="display:flex;align-items:center;gap:10px;background:#0f1318;border:1px solid #1d242d;border-radius:10px;padding:12px 14px">
+                <div style="width:8px;height:8px;border-radius:4px;background:#38bdf8"></div>
+                <div style="flex:1;min-width:0;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">#44 Filtri salvati nella lista ordini</div>
+                <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#38bdf8">12 min</div>
+              </div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <div style="color:#98a1ac;font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:500;letter-spacing:1.4px;text-transform:uppercase">Aspetta altri · fermi · 3</div>
+              <div style="background:#0f1318;border:1px solid #1d242d;border-radius:10px;overflow:hidden">
+                <div style="display:flex;align-items:center;gap:10px;padding:12px 14px"><div style="flex:1;min-width:0;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">#33 Testo del bottone troncato</div><div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#98a1ac">→ richiedente</div></div>
+                <div style="display:flex;align-items:center;gap:10px;padding:12px 14px;border-top:1px solid #1d242d"><div style="flex:1;min-width:0;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">#19 Notifiche email duplicate</div><div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#98a1ac">fermo 9g</div></div>
+                <div style="display:flex;align-items:center;gap:10px;padding:12px 14px;border-top:1px solid #1d242d"><div style="flex:1;min-width:0;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">#22 Pulizia dei log vecchi</div><div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#98a1ac">fermo 6g</div></div>
+              </div>
+            </div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ tabWork }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;flex-direction:column;gap:24px;padding:20px 20px 40px">
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <div style="display:flex;justify-content:space-between;align-items:baseline"><div style="font-size:17px;font-weight:600">Ticket <span style="color:#98a1ac;font-weight:400">14 aperti</span></div><div style="color:#98a1ac;font-family:'IBM Plex Mono',monospace;font-size:12px">tutti ›</div></div>
+              <div style="background:#0f1318;border:1px solid #1d242d;border-radius:10px;overflow:hidden">
+                <div style="display:flex;align-items:center;gap:10px;padding:12px 14px"><div style="flex:1;min-width:0;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">#44 Filtri salvati nella lista ordini</div><div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#98a1ac">oggi</div></div>
+                <div style="display:flex;align-items:center;gap:10px;padding:12px 14px;border-top:1px solid #1d242d"><div style="flex:1;min-width:0;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">#41 Export CSV degli ordini</div><div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#98a1ac">5 g</div></div>
+                <div style="display:flex;align-items:center;gap:10px;padding:12px 14px;border-top:1px solid #1d242d"><div style="flex:1;min-width:0;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">#38 Aggiorna dipendenze del worker</div><div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#98a1ac">12 g</div></div>
+              </div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <div style="display:flex;justify-content:space-between;align-items:baseline"><div style="font-size:17px;font-weight:600">Backlog <span style="color:#98a1ac;font-weight:400">11 voci</span></div><div style="color:#98a1ac;font-family:'IBM Plex Mono',monospace;font-size:12px">tutte ›</div></div>
+              <div style="background:#0f1318;border:1px solid #1d242d;border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:10px">
+                <div style="display:flex;height:6px;border-radius:3px;overflow:hidden;background:#181f28"><div style="width:27%;background:#4ad295"></div></div>
+                <div style="display:flex;justify-content:space-between;font-family:'IBM Plex Mono',monospace;font-size:12px"><span style="color:#4ad295">3 pronte</span><span style="color:#98a1ac">8 da preparare</span></div>
+              </div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <div style="display:flex;justify-content:space-between;align-items:baseline"><div style="font-size:17px;font-weight:600">Notifiche <span style="color:#98a1ac;font-weight:400">2 da gestire</span></div><div style="color:#98a1ac;font-family:'IBM Plex Mono',monospace;font-size:12px">tutte ›</div></div>
+              <div style="background:#0f1318;border:1px solid #1d242d;border-radius:10px;overflow:hidden">
+                <div style="padding:12px 14px;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">L'agente chiede quale gateway usare per i rimborsi</div>
+                <div style="padding:12px 14px;font-size:14px;border-top:1px solid #1d242d;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Piano pronto per #41 Export CSV degli ordini</div>
+              </div>
+            </div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ tabProject }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;flex-direction:column;gap:24px;padding:20px 20px 40px">
+            <div style="display:flex;align-items:center;gap:10px;background:#0f1318;border:1px solid #ff6b6e;border-radius:10px;padding:12px 14px">
+              <div style="width:8px;height:8px;border-radius:4px;background:#ff6b6e"></div>
+              <div style="flex:1;font-size:14px">prod-eu-1 · 1 controllo giù</div>
+              <div style="color:#98a1ac">›</div>
+            </div>
+            <div style="background:#0f1318;border:1px solid #1d242d;border-radius:10px;overflow:hidden">
+              <div style="display:flex;align-items:center;gap:10px;padding:0 14px;min-height:48px"><div style="flex:1;font-size:15px">Repository</div><div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#98a1ac">web-app · api</div><div style="color:#5c6671">›</div></div>
+              <div style="display:flex;align-items:center;gap:10px;padding:0 14px;min-height:48px;border-top:1px solid #1d242d"><div style="flex:1;font-size:15px">Documentazione</div><div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#98a1ac">2 spazi · 33 pag.</div><div style="color:#5c6671">›</div></div>
+              <div style="display:flex;align-items:center;gap:10px;padding:0 14px;min-height:48px;border-top:1px solid #1d242d"><div style="flex:1;font-size:15px">Roadmap</div><div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#98a1ac">2 aperte</div><div style="color:#5c6671">›</div></div>
+              <div style="display:flex;align-items:center;gap:10px;padding:0 14px;min-height:48px;border-top:1px solid #1d242d"><div style="flex:1;font-size:15px">Monitor</div><div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#ff6b6e">2 server · 1 giù</div><div style="color:#5c6671">›</div></div>
+              <div style="display:flex;align-items:center;gap:10px;padding:0 14px;min-height:48px;border-top:1px solid #1d242d"><div style="flex:1;font-size:15px">Impostazioni</div><div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#98a1ac">4 automazioni</div><div style="color:#5c6671">›</div></div>
+            </div>
+          </div>
+        </sc-if>
+      </div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { tab: "now" };
+  renderVals() {
+    const defs = [
+      { id: "now", label: "Adesso", badge: "3" },
+      { id: "work", label: "Lavoro" },
+      { id: "project", label: "Progetto", alert: true },
+    ];
+    const tabs = defs.map(d => {
+      const on = this.state.tab === d.id;
+      return { label: d.label, badge: d.badge || null, alert: !!d.alert,
+        color: on ? "#e9e6df" : "#98a1ac", border: on ? "2px solid #f5a623" : "2px solid transparent",
+        select: () => this.setState({ tab: d.id }) };
+    });
+    return { tabs, goProject: () => this.setState({ tab: "project" }), tabNow: this.state.tab === "now", tabWork: this.state.tab === "work", tabProject: this.state.tab === "project" };
+  }
+}
+</script>
+</body>
+</html>

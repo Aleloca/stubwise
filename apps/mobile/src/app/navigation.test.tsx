@@ -667,10 +667,13 @@ describe("hub di progetto — i conteggi si aggiornano dopo un'azione", () => {
         params: { screen: "Detail", params: { id: HUB_PROJECT_ID } },
       });
     });
-    await waitFor(() => expect(screen.getByText("Notifiche · 2 da gestire")).toBeTruthy());
+    // Dettaglio v3 (28 set 2026): le notifiche stanno nella tab Lavoro.
+    await waitFor(() => expect(screen.getByTestId("hub-tab-work")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("hub-tab-work"));
+    await waitFor(() => expect(screen.getByText(/2 da gestire/)).toBeTruthy());
 
-    // Entro dall'hub, come farebbe chi tocca «vedi ›».
-    await fireEvent.press(screen.getByTestId("hub-inbox-see-all"));
+    // Entro dall'hub, come farebbe chi tocca «tutte ›».
+    await fireEvent.press(screen.getByTestId("hub-work-inbox-all"));
     await waitFor(() => expect(screen.getAllByTestId("pr-ready-card-handled").length).toBe(2));
 
     // La mutazione VERA: `useHandled` invalida `inboxKeys.all`, e non sa —
@@ -680,8 +683,10 @@ describe("hub di progetto — i conteggi si aggiornano dopo un'azione", () => {
 
     // Torno indietro: l'hub non è stato rimontato, quindi il numero nuovo
     // può arrivare SOLO da un'invalidazione che ha raggiunto la sua query.
+    // E si ritrova la tab di prima: la scelta resta finché l'hub è montato.
     await fireEvent.press(screen.getByTestId("screen-header-back"));
-    await waitFor(() => expect(screen.getByText("Notifiche · 1 da gestire")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/1 da gestire/)).toBeTruthy());
+    expect(screen.getByTestId("hub-tab-work").props.accessibilityState?.selected).toBe(true);
   });
 });
 
@@ -814,7 +819,8 @@ describe("l'app non resta indietro — approvi un piano e torni all'hub", () => 
     mockSession("admin");
     await openHub();
 
-    await waitFor(() => expect(screen.getByText("Aspetta qualcuno · 1")).toBeTruthy());
+    // Dettaglio v3: un piano che il maintainer può approvare è «Tocca a te».
+    await waitFor(() => expect(screen.getByText("Tocca a te · 1")).toBeTruthy());
     await fireEvent.press(screen.getByText("Export CSV degli ordini"));
 
     await waitFor(() => expect(screen.getByTestId("plan-section-approve")).toBeTruthy());
@@ -824,7 +830,7 @@ describe("l'app non resta indietro — approvi un piano e torni all'hub", () => 
     await waitFor(() => expect(planAwaitingApproval).toBe(false));
 
     await fireEvent.press(screen.getByTestId("screen-header-back"));
-    await waitFor(() => expect(screen.queryByText("Aspetta qualcuno · 1")).toBeNull());
+    await waitFor(() => expect(screen.queryByText("Tocca a te · 1")).toBeNull());
     expect(screen.getByText("Portale B2B")).toBeTruthy();
   });
 });
@@ -853,9 +859,12 @@ describe("l'app non resta indietro — il ritorno su una schermata", () => {
     jest.useFakeTimers();
     mockSession("member");
     await openHub();
-    await waitFor(() => expect(screen.getByTestId("hub-tickets-see-all")).toBeTruthy());
+    // Dettaglio v3: l'elenco dei ticket si apre dalla tab Lavoro.
+    await waitFor(() => expect(screen.getByTestId("hub-tab-work")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("hub-tab-work"));
+    await waitFor(() => expect(screen.getByTestId("hub-work-tickets-all")).toBeTruthy());
 
-    await fireEvent.press(screen.getByTestId("hub-tickets-see-all"));
+    await fireEvent.press(screen.getByTestId("hub-work-tickets-all"));
     await waitFor(() => expect(screen.getByTestId("screen-header-back")).toBeTruthy());
     const before = pulseCalls;
 
@@ -874,14 +883,17 @@ describe("l'app non resta indietro — il ritorno su una schermata", () => {
   test("tornando all'hub SUBITO, il polso non si ricarica: è ancora fresco", async () => {
     mockSession("member");
     await openHub();
-    await waitFor(() => expect(screen.getByTestId("hub-tickets-see-all")).toBeTruthy());
+    // Dettaglio v3: l'elenco dei ticket si apre dalla tab Lavoro.
+    await waitFor(() => expect(screen.getByTestId("hub-tab-work")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("hub-tab-work"));
+    await waitFor(() => expect(screen.getByTestId("hub-work-tickets-all")).toBeTruthy());
 
-    await fireEvent.press(screen.getByTestId("hub-tickets-see-all"));
+    await fireEvent.press(screen.getByTestId("hub-work-tickets-all"));
     await waitFor(() => expect(screen.getByTestId("screen-header-back")).toBeTruthy());
     const before = pulseCalls;
 
     await fireEvent.press(screen.getByTestId("screen-header-back"));
-    await waitFor(() => expect(screen.getByTestId("hub-tickets-see-all")).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId("hub-work-tickets-all")).toBeTruthy());
     // Una lettura in più avrebbe tempo di partire: si aspetta un giro.
     await act(async () => {
       await new Promise<void>((resolve) => {
