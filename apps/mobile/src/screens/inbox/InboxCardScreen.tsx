@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { useBottomTabBarHeight } from "react-native-bottom-tabs";
-import type { InboxStackParamList } from "../../app/navigation";
+import type { InboxCardParamList } from "../../app/navigation";
 import { useAuth } from "../../app/providers";
 import { GhostButton } from "../../components/GhostButton";
 import { InboxCard } from "../../components/inbox/InboxCard";
@@ -36,11 +36,14 @@ const CONTENT_BASE_BOTTOM_PADDING = 16;
  * un solo modo di distinguere "non è successo niente" da "non ho potuto
  * controllare".
  */
-export function InboxCardScreen({ route, navigation }: NativeStackScreenProps<InboxStackParamList, "Card">) {
+export function InboxCardScreen({
+  route,
+  navigation,
+}: NativeStackScreenProps<InboxCardParamList & { List: undefined }, "Card">) {
   const { t } = useTranslation();
   const { client } = useAuth();
   const tabBarHeight = useBottomTabBarHeight();
-  const { id } = route.params;
+  const { id, backLabel } = route.params;
 
   const projectsQuery = useQuery({
     queryKey: ["projects", "list"],
@@ -80,7 +83,16 @@ export function InboxCardScreen({ route, navigation }: NativeStackScreenProps<In
         stickyHeaderIndices={[0]}
       >
         <View style={styles.header}>
-          <GhostButton label={t("mobile.inbox.notFound.back")} onPress={() => navigation.navigate("List")} testID="inbox-card-back" />
+          {/*
+            Dall'hub di un progetto (`backLabel`) si torna INDIETRO, al
+            progetto: `List` in quello stack è l'elenco dei progetti, non
+            l'inbox. Senza, il comportamento di sempre.
+          */}
+          <GhostButton
+            label={backLabel !== undefined ? `‹ ${backLabel}` : t("mobile.inbox.notFound.back")}
+            onPress={() => (backLabel !== undefined ? navigation.goBack() : navigation.navigate("List"))}
+            testID="inbox-card-back"
+          />
           <SettingsAvatarButton />
         </View>
         {query.isPending ? (

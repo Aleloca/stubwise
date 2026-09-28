@@ -8,9 +8,7 @@ import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import type { ProjectsStackParamList } from "../../app/navigation";
 import { useAuth } from "../../app/providers";
 import { GhostButton } from "../../components/GhostButton";
-import { PulseIndicator } from "../../components/PulseIndicator";
 import { HubSection, type HubSectionState } from "../../components/projects/HubSection";
-import { ProjectGroup } from "../../components/projects/ProjectGroup";
 import type { ProjectGroupRowProps } from "../../components/projects/ProjectRowsCard";
 import { backlogKeys } from "../../lib/backlog-mutations";
 import { docsKeys } from "../../lib/docs-mutations";
@@ -21,15 +19,14 @@ import { serverIsBroken, serverStatusKey } from "../../lib/server-health";
 import { ticketHeading } from "../../lib/ticket-labels";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { Skeleton } from "../../components/Skeleton";
-import { pulseLineFor } from "../../lib/pulse-line";
-import { stalledDays, stalledReasonKey } from "../../lib/stalled";
 import { projectsPulseKey } from "./ProjectsScreen";
 import { colors } from "../../theme/tokens";
 import { fontFamily } from "../../theme/typography";
 import { usePullToRefresh } from "../../components/PullToRefresh";
 import { HubTabBar } from "../../components/projects/HubTabBar";
 import { useState } from "react";
-import { monitorAlert, yourTurnCount } from "../../lib/project-hub";
+import { monitorAlert, yourTurnCount, type HubDestination } from "../../lib/project-hub";
+import { NowTab } from "./hub/NowTab";
 
 /** Le tre tab del dettaglio (design v3 §3). */
 type HubTabKey = "now" | "work" | "project";
@@ -73,23 +70,6 @@ const hubKeys = {
   backlog: (projectId: string) => [...backlogKeys.all, "list", "hub", projectId] as const,
   inbox: (projectId: string) => [...inboxKeys.all, "list", "hub", projectId] as const,
 };
-
-type WaitingForOthersItem = Reader<ProjectPulseSummary>["waitingForOthers"][number];
-
-/**
- * Ruolo di chi sblocca una voce `waitingForOthers`, nel testo del canvas
- * ("→ …"). Tipizzato sul campo REALE (`WaitingForOthersItem["who"]["kind"]`,
- * non un'unione scritta a mano che collasserebbe a `string` aggiungendoci
- * `| string`) e con `isUnknown()`, stesso trattamento di `waitingKindKey` in
- * `lib/pulse-line.ts`: se `pulseWaitingWhoKindSchema` guadagna un terzo
- * valore un domani, il compilatore lo fa notare qui esattamente come là.
- * `UNKNOWN` (server più nuovo di questa build) va allo stesso testo del
- * richiedente, il meno privilegiato dei due — mai un valore grezzo mostrato.
- */
-function whoArrowKey(kind: WaitingForOthersItem["who"]["kind"]): string {
-  if (!isUnknown(kind) && kind === "maintainer") return "mobile.projects.detail.waitingMaintainerArrow";
-  return "mobile.projects.detail.waitingRequesterArrow";
-}
 
 /**
  * Dettaglio di UN progetto (canvas `2b`): l'intestazione col nome e il
@@ -170,6 +150,22 @@ export function ProjectDetailScreen({ navigation, route }: NativeStackScreenProp
     staleTime: 30_000,
   });
   const alert = serversQuery.data !== undefined ? monitorAlert(serversQuery.data) : null;
+
+  /**
+   * La PR di cui si sta confermando il merge (§6): il pannello di conferma
+   * si apre quando c'è. Arriva dal bottone Mergia, che esiste solo con
+   * `canMerge` E `repositoryId` (`lib/project-hub.ts`).
+   */
+  const [, setMergeTarget] = useState<Extract<HubDestination, { kind: "confirmMerge" }> | null>(null);
+
+  /** Dove porta un tap sulla tab Adesso: le destinazioni le decide `lib/project-hub.ts`. */
+  const open = (destination: HubDestination) => {
+    const backLabel = summary?.projectName;
+    const back = backLabel !== undefined ? { backLabel } : {};
+    if (destination.kind === "ticket") navigation.navigate("Ticket", { id: destination.ticketId, ...back });
+    else if (destination.kind === "inboxCard") navigation.navigate("Card", { id: destination.notificationId, ...back });
+    else setMergeTarget(destination);
+  };
   const badge = summary !== undefined ? yourTurnCount(summary) : 0;
 
   return (
@@ -232,7 +228,15 @@ export function ProjectDetailScreen({ navigation, route }: NativeStackScreenProp
           <View style={styles.panel}>
             {tab === "now" && (
               <View testID="hub-panel-now">
-                <ProjectDetailBody summary={summary} viewerId={viewerId} navigation={navigation} />
+                <NowTab
+                  summary={summary}
+                  viewerId={viewerId}
+                  alert={alert}
+                  now={new Date()}
+                  onOpen={open}
+                  onGoProject={() => setTab("project")}
+                />
+                <ProjectDetailBody summary={summary} navigation={navigation} />
               </View>
             )}
             {tab === "work" && <View testID="hub-panel-work" />}
@@ -244,217 +248,33 @@ export function ProjectDetailScreen({ navigation, route }: NativeStackScreenProp
   );
 }
 
+/**
+ * LE SEZIONI LUNGHE di prima (provvisorio, dettaglio progetto v3): restano
+ * qui sotto Adesso solo finché le tab Lavoro e Progetto non le rimpiazzano.
+ */
 function ProjectDetailBody({
   summary,
-  viewerId,
   navigation,
 }: {
   summary: Reader<ProjectPulseSummary>;
-  viewerId: string;
   navigation: NativeStackScreenProps<ProjectsStackParamList, "Detail">["navigation"];
 }) {
-  const { t } = useTranslation();
-  const line = pulseLineFor(summary, viewerId);
-
-  // L'ORA della lettura, una sola per tutta la schermata: l'età dei ticket e
-  // i giorni di fermo si contano da qui. I giorni li conta il CLIENT, non il
-  // server — un conteggio calcolato a monte invecchia dentro una risposta in
-  // cache (vedi `lib/stalled.ts`).
-  const now = new Date();
-
-  /**
-   * La riga grigia di testa di una voce che è un TICKET. Un helper solo,
-   * usato da tutti e cinque i secchi: i punti di costruzione sono tanti, e
-   * l'intestazione dimenticata in uno non farebbe rumore — semplicemente non
-   * comparirebbe su quel secchio.
-   */
-  const headingFor = (item: {
-    ticketNumber: number;
-    priority?: Parameters<typeof ticketHeading>[0]["priority"];
-    type?: Parameters<typeof ticketHeading>[0]["type"];
-    createdAt?: string;
-  }) => ticketHeading(item, t, now.getTime());
-
-  // ⚠️ `canMerge` arriva dal SERVER, calcolato col ruolo: qui si legge, non si
-  // deduce. Un maintainer vede la PR fra le cose che aspettano LUI, un
-  // operatore fra quelle che aspettano altri — stessi dati, due posti. È il
-  // secondo divieto dell'operatore (CLAUDE.md) applicato in lettura, e la
-  // copia della regola sta di là apposta: questa app si aggiorna dagli store.
-  const mergeForYou = summary.waitingForMerge.filter((item) => item.canMerge);
-  const mergeForOthers = summary.waitingForMerge.filter((item) => !item.canMerge);
-
-  // Una voce per (ticket, PR): `prUrl` è l'identità della riga, non
-  // `ticketId` — un ticket che tocca due repo ha due PR, e sono due merge.
-  const mergeRow = (item: (typeof summary.waitingForMerge)[number], mine: boolean) => ({
-    rowKey: `merge-${item.prUrl}`,
-    heading: headingFor(item),
-    title: item.title,
-    trailing: mine
-      ? t("mobile.projects.detail.waitingMergeArrow")
-      : t("mobile.projects.detail.waitingMaintainerArrow"),
-    trailingTone: (mine ? "amber" : "muted") as "amber" | "muted",
-    onPress: () => navigation.navigate("Ticket", { id: item.ticketId, ...(summary.projectName !== undefined ? { backLabel: summary.projectName } : {}) }),
-  });
-
-  const waitingRows = [
-    ...summary.waitingForYou.map((item) => ({
-      rowKey: `you-${item.ticketId}`,
-      heading: headingFor(item),
-      title: item.title,
-      trailing: t("mobile.projects.detail.waitingYouArrow"),
-      trailingTone: "amber" as const,
-      onPress: () => navigation.navigate("Ticket", { id: item.ticketId, ...(summary.projectName !== undefined ? { backLabel: summary.projectName } : {}) }),
-    })),
-    ...mergeForYou.map((item) => mergeRow(item, true)),
-    ...summary.waitingForOthers.map((item) => ({
-      rowKey: `other-${item.ticketId}`,
-      heading: headingFor(item),
-      title: item.title,
-      trailing: t(whoArrowKey(item.who.kind)),
-      trailingTone: "muted" as const,
-      onPress: () => navigation.navigate("Ticket", { id: item.ticketId, ...(summary.projectName !== undefined ? { backLabel: summary.projectName } : {}) }),
-    })),
-    ...mergeForOthers.map((item) => mergeRow(item, false)),
-  ];
-
-  const runningRows = summary.running.map((item) => ({
-    rowKey: `running-${item.ticketId}`,
-    heading: headingFor(item),
-    title: item.title,
-    trailing: t("mobile.projects.detail.running"),
-    trailingTone: "muted" as const,
-    onPress: () => navigation.navigate("Ticket", { id: item.ticketId, ...(summary.projectName !== undefined ? { backLabel: summary.projectName } : {}) }),
-  }));
-
-  // IL QUARTO SECCHIO (21 set 2026). Le voci arrivano GIÀ ordinate dal più
-  // fermo (il server: è parte del significato, non una comodità), quindi qui
-  // non si riordina. I GIORNI si contano adesso, dalla data: vedi
-  // `lib/stalled.ts` per il perché non li manda il server.
-  //
-  // ⚠️ DUE date su questa voce, e ognuna tiene la sua parola: l'ETÀ sta
-  // nell'intestazione («aperto …»), il FERMO qui a destra coi giorni e il
-  // motivo. È il difetto corretto sul web il 21 settembre — `createdAt`
-  // mostrato dove si leggeva «ultima attività» — e toglierne una per far
-  // stare tutto su una riga lo riaprirebbe.
-  const stalledRows = summary.stalled.map((item) => ({
-    rowKey: `stalled-${item.ticketId}`,
-    heading: headingFor(item),
-    title: item.title,
-    trailing: t("mobile.projects.detail.stalledTrailing", {
-      days: stalledDays(item.stalledSince, now),
-      reason: t(stalledReasonKey(item.reason)),
-    }),
-    trailingTone: "muted" as const,
-    onPress: () => navigation.navigate("Ticket", { id: item.ticketId, ...(summary.projectName !== undefined ? { backLabel: summary.projectName } : {}) }),
-  }));
-
-  const backlogRows =
-    summary.backlogReadyCount > 0
-      ? [
-          {
-            rowKey: "backlog-ready",
-            title: t("mobile.projects.detail.backlogReadySummary", { count: summary.backlogReadyCount }),
-            // ⚠️ Una riga riassuntiva È un'azione (23 set 2026): va dove va il
-            // suo «vedi ›». Senza `onPress` la riga si disegna identica a
-            // quelle premibili ma non risponde al tocco — il maintainer l'ha
-            // trovato sul telefono con le impostazioni.
-            onPress: () =>
-              navigation.navigate("ProjectBacklog", {
-                projectId: summary.projectId,
-                projectName: summary.projectName,
-              }),
-            testID: "backlog-ready-row",
-          },
-        ]
-      : [];
-
-  // Task 7 (App M1+M2, 11 set 2026): non più il proprio `ScrollView` — è
-  // già dentro quello di `ProjectDetailScreen`, che ora avvolge anche il
-  // link "indietro" sopra di lui.
   return (
-    <>
-      {/*
-        Il NOME del progetto non si ripete qui: dal 21 set 2026 è il titolo
-        dell'header (`ScreenHeader`), che è ancorato e resta visibile mentre
-        si scorre. Scriverlo due volte sulla stessa schermata è l'unica cosa
-        che questo blocco faceva e che ora sarebbe un doppione.
-      */}
-      <View style={styles.pulseRow}>
-        <PulseIndicator tone={line.tone} text={t(line.key, line.params)} />
-      </View>
-
-      <View style={styles.groups}>
-        {waitingRows.length > 0 && (
-          <ProjectGroup
-            amber
-            label={t("mobile.projects.detail.groups.waitingSomeone", { count: waitingRows.length })}
-            rows={waitingRows}
-          />
-        )}
-        {runningRows.length > 0 && (
-          <ProjectGroup label={t("mobile.projects.detail.groups.now", { count: runningRows.length })} rows={runningRows} />
-        )}
-        {backlogRows.length > 0 && (
-          <ProjectGroup
-            label={t("mobile.projects.detail.groups.backlogReady", { count: summary.backlogReadyCount })}
-            rows={backlogRows}
-          />
-        )}
-        {/* Sotto i secchi esistenti, e SOLO se c'è qualcosa: un «Fermo · 0»
-            sarebbe rumore su una schermata che deve dire cosa fare. */}
-        {stalledRows.length > 0 && (
-          <ProjectGroup
-            label={t("mobile.projects.detail.groups.stalled", { count: stalledRows.length })}
-            rows={stalledRows}
-          />
-        )}
-        {/*
-          LE TRE AREE DEL LAVORO (22 set 2026, hub di progetto, design §3):
-          sotto il polso, che resta il primo blocco perché è l'unico che dice
-          COSA FARE ADESSO. Queste dicono invece COSA C'È DA FARE, ed è una
-          domanda diversa — per questo stanno sotto e non al posto suo.
-
-          Ognuna carica per conto suo (design §4): tre `useQuery`
-          indipendenti, non suspense. Una che fallisce mostra il proprio
-          errore e le altre restano usabili.
-        */}
-        <HubTicketsSection projectId={summary.projectId} projectName={summary.projectName} navigation={navigation} />
-        <HubBacklogSection
-          projectId={summary.projectId}
-          projectName={summary.projectName}
-          readyCount={summary.backlogReadyCount}
-          navigation={navigation}
-        />
-        <HubInboxSection projectId={summary.projectId} projectName={summary.projectName} navigation={navigation} />
-
-        {/*
-          DI COSA È FATTO IL PROGETTO (22 set 2026, tappa 2): sotto le tre
-          del lavoro, nell'ordine del design §3. Scende da «cosa devi fare»
-          (il polso) a «cosa c'è da fare» a «di cosa è fatto» — chi apre
-          l'hub dieci volte al giorno trova in alto la risposta che cerca
-          nove volte su dieci.
-        */}
-        <HubRepositoriesSection projectId={summary.projectId} projectName={summary.projectName} navigation={navigation} />
-        <HubDocsSection projectId={summary.projectId} projectName={summary.projectName} navigation={navigation} />
-        <HubRoadmapSection projectId={summary.projectId} projectName={summary.projectName} navigation={navigation} />
-
-        {/*
-          MONITOR E IMPOSTAZIONI (23 set 2026, tappa 3 — l'ultima): in fondo,
-          nell'ordine del design §3. Si scende da «di cosa è fatto» a «com'è
-          configurato», che è la domanda che si fa più di rado.
-        */}
-        <HubMonitorSection projectId={summary.projectId} projectName={summary.projectName} navigation={navigation} />
-        <HubSettingsSection projectId={summary.projectId} projectName={summary.projectName} navigation={navigation} />
-        {/*
-          Brief settimanale e report di ieri NON stanno più qui (23 set 2026,
-          richiesta del maintainer). Il brief resta raggiungibile dall'inbox,
-          dove arriva come card quando il progetto lo ha attivo; il report di
-          ieri sul telefono non ha più un accesso, e resta sul web. Chi li
-          rimette qui lo faccia come una sezione dell'hub (`HubSection`), non
-          come le due righe a sé che erano.
-        */}
-      </View>
-    </>
+    <View style={styles.groups}>
+      <HubTicketsSection projectId={summary.projectId} projectName={summary.projectName} navigation={navigation} />
+      <HubBacklogSection
+        projectId={summary.projectId}
+        projectName={summary.projectName}
+        readyCount={summary.backlogReadyCount}
+        navigation={navigation}
+      />
+      <HubInboxSection projectId={summary.projectId} projectName={summary.projectName} navigation={navigation} />
+      <HubRepositoriesSection projectId={summary.projectId} projectName={summary.projectName} navigation={navigation} />
+      <HubDocsSection projectId={summary.projectId} projectName={summary.projectName} navigation={navigation} />
+      <HubRoadmapSection projectId={summary.projectId} projectName={summary.projectName} navigation={navigation} />
+      <HubMonitorSection projectId={summary.projectId} projectName={summary.projectName} navigation={navigation} />
+      <HubSettingsSection projectId={summary.projectId} projectName={summary.projectName} navigation={navigation} />
+    </View>
   );
 }
 

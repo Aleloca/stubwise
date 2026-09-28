@@ -239,185 +239,6 @@ describe("ProjectDetailScreen", () => {
     expect(navigate).toHaveBeenCalledWith("List");
   });
 
-  test("intestazione: nome del progetto e la riga di polso", async () => {
-    const client = makeClient({
-      pulse: jest.fn().mockResolvedValue([
-        summary({
-          waitingForYou: [
-            { kind: "question", ticketId: TICKET_A, ticketNumber: 245, title: "Cache immagini", notificationId: "x" },
-          ],
-        }),
-      ]),
-    });
-    await renderScreen(client);
-    await waitFor(() => expect(screen.getByText("Portale B2B")).toBeTruthy());
-    expect(screen.getByText("aspetta te — 1 domanda dell'agente")).toBeTruthy();
-  });
-
-  test("nessun gruppo popolato e nessun report: solo l'intestazione, niente in più", async () => {
-    const client = makeClient();
-    await renderScreen(client);
-    await waitFor(() => expect(screen.getByText("Portale B2B")).toBeTruthy());
-    expect(screen.queryByText(/Aspetta qualcuno/)).toBeNull();
-    // «Adesso · N» era il gruppo; «Adesso» da solo è ora il nome della tab.
-    expect(screen.queryByText(/Adesso ·/)).toBeNull();
-    expect(screen.queryByText(/Pronto nel backlog/)).toBeNull();
-    // `stalled` vuoto: nessun «Fermo · 0». Un secchio a zero è rumore su una
-    // schermata che deve dire cosa fare.
-    expect(screen.queryByText(/Fermo/)).toBeNull();
-    expect(screen.queryByText("Report di ieri")).toBeNull();
-  });
-
-  test("gruppo 'Aspetta qualcuno': combina waitingForYou e waitingForOthers, conteggio nell'header", async () => {
-    const client = makeClient({
-      pulse: jest.fn().mockResolvedValue([
-        summary({
-          waitingForYou: [
-            { kind: "question", ticketId: TICKET_A, ticketNumber: 245, title: "Domanda dell'agente", notificationId: "x" },
-          ],
-          waitingForOthers: [
-            {
-              kind: "plan_approval",
-              ticketId: TICKET_B,
-              ticketNumber: 246,
-              title: "Piano «cache immagini»",
-              who: { kind: "maintainer" },
-            },
-          ],
-        }),
-      ]),
-    });
-    await renderScreen(client);
-    await waitFor(() => expect(screen.getByText("Aspetta qualcuno · 2")).toBeTruthy());
-    expect(screen.getByText("Domanda dell'agente")).toBeTruthy();
-    expect(screen.getByText("Piano «cache immagini»")).toBeTruthy();
-    expect(screen.getByText("→ te")).toBeTruthy();
-    expect(screen.getByText("→ un maintainer")).toBeTruthy();
-  });
-
-  test("un tap su una riga 'Aspetta qualcuno' naviga al ticket", async () => {
-    const navigate = jest.fn();
-    const client = makeClient({
-      pulse: jest.fn().mockResolvedValue([
-        summary({
-          waitingForYou: [{ kind: "question", ticketId: TICKET_A, ticketNumber: 245, title: "Domanda", notificationId: "x" }],
-        }),
-      ]),
-    });
-    await renderScreen(client, navigate);
-    await waitFor(() => expect(screen.getByText("Domanda")).toBeTruthy());
-    await fireEvent.press(screen.getByText("Domanda"));
-    expect(navigate).toHaveBeenCalledWith("Ticket", { id: TICKET_A, backLabel: "Portale B2B" });
-  });
-
-  test("'Aspetta qualcuno': un tap su una riga waitingForOthers naviga anch'esso al ticket", async () => {
-    const navigate = jest.fn();
-    const client = makeClient({
-      pulse: jest.fn().mockResolvedValue([
-        summary({
-          waitingForOthers: [
-            { kind: "plan_approval", ticketId: TICKET_B, ticketNumber: 246, title: "Piano da approvare", who: { kind: "maintainer" } },
-          ],
-        }),
-      ]),
-    });
-    await renderScreen(client, navigate);
-    await waitFor(() => expect(screen.getByText("Piano da approvare")).toBeTruthy());
-    await fireEvent.press(screen.getByText("Piano da approvare"));
-    expect(navigate).toHaveBeenCalledWith("Ticket", { id: TICKET_B, backLabel: "Portale B2B" });
-  });
-
-  test("'Aspetta qualcuno': who.kind 'requester' mostra 'chi l'ha richiesto'", async () => {
-    const client = makeClient({
-      pulse: jest.fn().mockResolvedValue([
-        summary({
-          waitingForOthers: [
-            { kind: "question", ticketId: TICKET_A, ticketNumber: 245, title: "Domanda", who: { kind: "requester" } },
-          ],
-        }),
-      ]),
-    });
-    await renderScreen(client);
-    await waitFor(() => expect(screen.getByText("→ chi l'ha richiesto")).toBeTruthy());
-    // NON deve comparire l'arrow del maintainer: sono due testi distinti.
-    expect(screen.queryByText("→ un maintainer")).toBeNull();
-  });
-
-  test("'Aspetta qualcuno': who.kind ignoto (UNKNOWN, server più nuovo) degrada allo stesso fallback del richiedente, mai un valore grezzo", async () => {
-    const client = makeClient({
-      pulse: jest.fn().mockResolvedValue([
-        summary({
-          waitingForOthers: [
-            {
-              kind: "question",
-              ticketId: TICKET_A,
-              ticketNumber: 245,
-              title: "Domanda",
-              who: { kind: "UNKNOWN" as unknown as "requester" },
-            },
-          ],
-        }),
-      ]),
-    });
-    await renderScreen(client);
-    await waitFor(() => expect(screen.getByText("→ chi l'ha richiesto")).toBeTruthy());
-    expect(screen.queryByText("UNKNOWN")).toBeNull();
-    expect(screen.queryByText("→ un maintainer")).toBeNull();
-  });
-
-  test("gruppo 'Adesso': una riga per lavoro in esecuzione, tap naviga al ticket", async () => {
-    const navigate = jest.fn();
-    const client = makeClient({
-      pulse: jest.fn().mockResolvedValue([
-        summary({ running: [{ ticketId: TICKET_A, ticketNumber: 247, title: "Export CSV degli ordini", sinceMinutes: 18 }] }),
-      ]),
-    });
-    await renderScreen(client, navigate);
-    await waitFor(() => expect(screen.getByText("Adesso · 1")).toBeTruthy());
-    expect(screen.getByText("Export CSV degli ordini")).toBeTruthy();
-    await fireEvent.press(screen.getByText("Export CSV degli ordini"));
-    expect(navigate).toHaveBeenCalledWith("Ticket", { id: TICKET_A, backLabel: "Portale B2B" });
-  });
-
-  test("gruppo 'Pronto nel backlog': il conteggio è quello del polso", async () => {
-    const client = makeClient({ pulse: jest.fn().mockResolvedValue([summary({ backlogReadyCount: 4 })]) });
-    await renderScreen(client);
-    await waitFor(() => expect(screen.getByText("Pronto nel backlog · 4")).toBeTruthy());
-  });
-
-  test("ordine dei gruppi: Aspetta qualcuno, poi Adesso, poi Pronto nel backlog — urgenza umana, non l'ordine dei campi dello schema", async () => {
-    const client = makeClient({
-      pulse: jest.fn().mockResolvedValue([
-        summary({
-          waitingForYou: [{ kind: "question", ticketId: TICKET_A, ticketNumber: 1, title: "D", notificationId: "x" }],
-          running: [{ ticketId: TICKET_B, ticketNumber: 2, title: "R", sinceMinutes: 1 }],
-          backlogReadyCount: 1,
-        }),
-      ]),
-    });
-    const { rendered } = await renderScreen(client);
-    await waitFor(() => expect(screen.getByText("Aspetta qualcuno · 1")).toBeTruthy());
-
-    // Senza la prop `refreshControl` (23 set 2026): è un ELEMENTO React
-    // passato allo `ScrollView`, con dentro un riferimento circolare che
-    // `JSON.stringify` non sa attraversare. Qui interessa solo l'ordine dei
-    // testi.
-    const flat = JSON.stringify(rendered.toJSON(), (key, value: unknown) => (key === "refreshControl" ? undefined : value));
-    const waitingIndex = flat.indexOf("Aspetta qualcuno · 1");
-    const nowIndex = flat.indexOf("Adesso · 1");
-    const backlogIndex = flat.indexOf("Pronto nel backlog · 1");
-    expect(waitingIndex).toBeGreaterThan(-1);
-    expect(nowIndex).toBeGreaterThan(waitingIndex);
-    expect(backlogIndex).toBeGreaterThan(nowIndex);
-  });
-
-  /**
-   * ⚠️ BRIEF SETTIMANALE E REPORT DI IERI NON STANNO PIÙ QUI (23 set 2026,
-   * richiesta del maintainer). Il test li cerca in un progetto che ha un
-   * report (`lastReportDate` valorizzato): con il codice di prima la riga
-   * sarebbe comparsa, quindi un risultato vuoto qui non è un caso fortunato.
-   * E controlla che nessuno dei due venga nemmeno CHIESTO al server.
-   */
   test("brief settimanale e report di ieri non compaiono nel dettaglio", async () => {
     const briefs = jest.fn().mockResolvedValue([]);
     const activityForDate = jest.fn();
@@ -435,331 +256,6 @@ describe("ProjectDetailScreen", () => {
     expect(activityForDate).not.toHaveBeenCalled();
   });
 });
-
-/**
- * Il polso nel dettaglio: i secchi dei fermi e delle PR, e le righe ricche
- * dei ticket. Questo blocco si chiamava «brief settimanale» perché ci era
- * nato; i test del brief sono usciti il 23 set 2026 insieme alla riga del
- * brief, e gli altri sono rimasti qui.
- */
-describe("ProjectDetailScreen — polso", () => {
-  // ----------------------------------------------------------------------
-  // IL QUARTO SECCHIO (21 set 2026)
-  // ----------------------------------------------------------------------
-
-  /** `stalledSince` a N giorni esatti da adesso: i giorni li conta il client. */
-  /**
-   * Una data di N giorni fa. La usano sia `stalledSince` (l'ultimo MOVIMENTO)
-   * sia `createdAt` (l'ETÀ) — sono due date diverse sulla stessa voce, e i
-   * test che le mettono a valori diversi sono quelli che provano che non si
-   * confondono.
-   */
-  function fermoDa(days: number): string {
-    return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-  }
-
-  test("«Fermo · N»: ogni voce porta i giorni e il motivo, e apre il ticket", async () => {
-    const navigate = jest.fn();
-    const client = makeClient({
-      pulse: jest.fn().mockResolvedValue([
-        summary({
-          stalled: [
-            {
-              ticketId: TICKET_A,
-              ticketNumber: 18,
-              title: "Export CSV degli ordini",
-              stalledSince: fermoDa(21),
-              reason: "to_prepare",
-            },
-          ],
-        }),
-      ]),
-    });
-    await renderScreen(client, navigate);
-
-    await waitFor(() => expect(screen.getByText("Fermo · 1")).toBeTruthy());
-    expect(screen.getByText("21g · da preparare")).toBeTruthy();
-    await fireEvent.press(screen.getByText("Export CSV degli ordini"));
-    expect(navigate).toHaveBeenCalledWith("Ticket", { id: TICKET_A, backLabel: "Portale B2B" });
-  });
-
-  test("l'ordine del server (dal più fermo) NON viene riordinato qui", async () => {
-    const client = makeClient({
-      pulse: jest.fn().mockResolvedValue([
-        summary({
-          stalled: [
-            { ticketId: TICKET_A, ticketNumber: 18, title: "Il più fermo", stalledSince: fermoDa(21), reason: "to_prepare" },
-            { ticketId: TICKET_B, ticketNumber: 27, title: "Fermo da poco", stalledSince: fermoDa(1), reason: "interrupted" },
-          ],
-        }),
-      ]),
-    });
-    await renderScreen(client);
-
-    await waitFor(() => expect(screen.getByText("Fermo · 2")).toBeTruthy());
-    expect(screen.getByText("21g · da preparare")).toBeTruthy();
-    expect(screen.getByText("1g · interrotto")).toBeTruthy();
-  });
-
-  /**
-   * ⚠️ IL DIVIETO DELL'OPERATORE IN LETTURA. `canMerge` arriva dal server:
-   * l'app NON lo deduce dal ruolo di chi guarda (qui è sempre `member`, e non
-   * cambia nulla). Con `true` la PR sta fra le cose che aspettano TE, con
-   * `false` fra quelle che aspettano altri — stessa riga, due posti.
-   */
-  test("PR da mergiare, `canMerge: true`: riga «da mergiare» in «Aspetta qualcuno»", async () => {
-    const navigate = jest.fn();
-    const client = makeClient({
-      pulse: jest.fn().mockResolvedValue([
-        summary({
-          waitingForMerge: [
-            {
-              ticketId: TICKET_A,
-              ticketNumber: 20,
-              title: "Coda di rilascio",
-              prUrl: "https://example.com/pr/20",
-              canMerge: true,
-            },
-          ],
-        }),
-      ]),
-    });
-    await renderScreen(client, navigate);
-
-    await waitFor(() => expect(screen.getByText("Aspetta qualcuno · 1")).toBeTruthy());
-    expect(screen.getByText("→ da mergiare")).toBeTruthy();
-    await fireEvent.press(screen.getByText("Coda di rilascio"));
-    expect(navigate).toHaveBeenCalledWith("Ticket", { id: TICKET_A, backLabel: "Portale B2B" });
-  });
-
-  test("PR da mergiare, `canMerge: false`: la stessa riga dice che aspetta un maintainer", async () => {
-    const client = makeClient({
-      pulse: jest.fn().mockResolvedValue([
-        summary({
-          waitingForMerge: [
-            {
-              ticketId: TICKET_A,
-              ticketNumber: 20,
-              title: "Coda di rilascio",
-              prUrl: "https://example.com/pr/20",
-              canMerge: false,
-            },
-          ],
-        }),
-      ]),
-    });
-    await renderScreen(client);
-
-    await waitFor(() => expect(screen.getByText("Aspetta qualcuno · 1")).toBeTruthy());
-    expect(screen.getByText("→ un maintainer")).toBeTruthy();
-    expect(screen.queryByText("→ da mergiare")).toBeNull();
-  });
-
-  test("una PR aperta non entra MAI fra i fermi: è un'attesa, non un abbandono", async () => {
-    const client = makeClient({
-      pulse: jest.fn().mockResolvedValue([
-        summary({
-          waitingForMerge: [
-            { ticketId: TICKET_A, ticketNumber: 20, title: "Coda di rilascio", prUrl: "https://example.com/pr/20", canMerge: true },
-          ],
-        }),
-      ]),
-    });
-    await renderScreen(client);
-
-    await waitFor(() => expect(screen.getByText("Aspetta qualcuno · 1")).toBeTruthy());
-    expect(screen.queryByText(/Fermo/)).toBeNull();
-  });
-
-  /**
-   * ⚠️ LA CONTRADDIZIONE CHE LA REVIEW HA COLTO. Il blocco «Fermo · N» e la
-   * riga di polso stanno sulla STESSA schermata: finché `pulseLineFor` non
-   * conosceva `stalled`, l'intestazione diceva «tutto tranquillo»
-   * esattamente sopra l'elenco dei ticket fermi. Il blocco nuovo non basta —
-   * va aggiornato anche ciò che già si mostrava e che ora sarebbe incompleto.
-   */
-  test("con dei ticket fermi l'intestazione NON dice «tutto tranquillo»", async () => {
-    const client = makeClient({
-      pulse: jest.fn().mockResolvedValue([
-        summary({
-          stalled: [
-            { ticketId: TICKET_A, ticketNumber: 18, title: "Export CSV", stalledSince: fermoDa(21), reason: "to_prepare" },
-            { ticketId: TICKET_B, ticketNumber: 27, title: "Riconciliazione", stalledSince: fermoDa(3), reason: "declared_no_work" },
-          ],
-        }),
-      ]),
-    });
-    await renderScreen(client);
-
-    await waitFor(() => expect(screen.getByText("Fermo · 2")).toBeTruthy());
-    expect(screen.getByText("2 ticket fermi")).toBeTruthy();
-    expect(screen.queryByText("tutto tranquillo")).toBeNull();
-  });
-
-  test("una PR da mergiare è «aspetta te» anche nell'intestazione, non solo nel gruppo", async () => {
-    const client = makeClient({
-      pulse: jest.fn().mockResolvedValue([
-        summary({
-          waitingForMerge: [
-            { ticketId: TICKET_A, ticketNumber: 20, title: "Coda di rilascio", prUrl: "https://example.com/pr/20", canMerge: true },
-          ],
-        }),
-      ]),
-    });
-    await renderScreen(client);
-
-    await waitFor(() => expect(screen.getByText("aspetta te — 1 PR da mergiare")).toBeTruthy());
-  });
-
-  // ------------------------------------------------------------------------
-  // LA RIGA GRIGIA DI TESTA (22 set 2026)
-  // ------------------------------------------------------------------------
-
-  test("un ticket fermo mostra `#numero · priorità · tipo · aperto …` sopra il titolo", async () => {
-    const client = makeClient({
-      pulse: jest.fn().mockResolvedValue([
-        summary({
-          stalled: [
-            {
-              ticketId: TICKET_A,
-              ticketNumber: 27,
-              title: "Error: write EPIPE",
-              stalledSince: fermoDa(19),
-              reason: "to_prepare",
-              priority: "urgent",
-              type: "bug",
-              createdAt: fermoDa(8),
-            },
-          ],
-        }),
-      ]),
-    });
-    await renderScreen(client);
-
-    await waitFor(() => expect(screen.getByText("Error: write EPIPE")).toBeTruthy());
-    expect(screen.getByText("#27 · urgente · guasto · aperto 8 g fa")).toBeTruthy();
-  });
-
-  test("oltre i due mesi l'età si dice in mesi, non in giorni", async () => {
-    // È il motivo per cui `openedSince` esiste accanto a
-    // `relativeTimeCompact` invece che dentro: quella direbbe «75 g».
-    const client = makeClient({
-      pulse: jest.fn().mockResolvedValue([
-        summary({
-          stalled: [
-            {
-              ticketId: TICKET_A,
-              ticketNumber: 27,
-              title: "Un ticket vecchio",
-              stalledSince: fermoDa(19),
-              reason: "to_prepare",
-              priority: "high",
-              type: "feature",
-              createdAt: fermoDa(75),
-            },
-          ],
-        }),
-      ]),
-    });
-    await renderScreen(client);
-
-    await waitFor(() => expect(screen.getByText("#27 · alta · richiesta · aperto 2 mesi")).toBeTruthy());
-  });
-
-  test("SERVER PIÙ VECCHIO: senza i tre campi la riga c'è comunque, col numero e il titolo", async () => {
-    // ⚠️ Vale quanto il test qui sopra. I tre campi sono `.optional()` perché
-    // un'app nuova può parlare con un server più vecchio (un rollback,
-    // un'istanza self-hosted indietro): lì l'intestazione deve degradare al
-    // solo `#numero`, non sparire e non mostrare segnaposti.
-    const client = makeClient({
-      pulse: jest.fn().mockResolvedValue([
-        summary({
-          stalled: [
-            {
-              ticketId: TICKET_A,
-              ticketNumber: 27,
-              title: "Error: write EPIPE",
-              stalledSince: fermoDa(19),
-              reason: "to_prepare",
-            },
-          ],
-        }),
-      ]),
-    });
-    await renderScreen(client);
-
-    await waitFor(() => expect(screen.getByText("Error: write EPIPE")).toBeTruthy());
-    expect(screen.getByText("#27")).toBeTruthy();
-  });
-
-  test("un campo che manca non lascia un separatore vuoto", async () => {
-    // `#27 · · guasto` è peggio di `#27 · guasto`: il pezzo assente se ne
-    // porta via il separatore.
-    const client = makeClient({
-      pulse: jest.fn().mockResolvedValue([
-        summary({
-          stalled: [
-            {
-              ticketId: TICKET_A,
-              ticketNumber: 27,
-              title: "Senza priorità",
-              stalledSince: fermoDa(19),
-              reason: "to_prepare",
-              type: "bug",
-            },
-          ],
-        }),
-      ]),
-    });
-    await renderScreen(client);
-
-    await waitFor(() => expect(screen.getByText("#27 · guasto")).toBeTruthy());
-  });
-
-  test("le DUE date non si confondono: l'età dice «aperto», il fermo dice i giorni col motivo", async () => {
-    // ⚠️ È il difetto corretto sul web il 21 settembre, in forma di test:
-    // `createdAt` mostrato dove si leggeva «ultima attività». Qui le due
-    // convivono sulla stessa voce, e ognuna tiene la sua parola — un numero
-    // nudo le renderebbe scambiabili.
-    const client = makeClient({
-      pulse: jest.fn().mockResolvedValue([
-        summary({
-          stalled: [
-            {
-              ticketId: TICKET_A,
-              ticketNumber: 27,
-              title: "Due date",
-              stalledSince: fermoDa(19),
-              reason: "to_prepare",
-              priority: "urgent",
-              type: "bug",
-              createdAt: fermoDa(75),
-            },
-          ],
-        }),
-      ]),
-    });
-    await renderScreen(client);
-
-    // L'ETÀ, in alto, con la sua parola.
-    await waitFor(() => expect(screen.getByText("#27 · urgente · guasto · aperto 2 mesi")).toBeTruthy());
-    // Il FERMO, a destra, coi giorni e il motivo — dove è sempre stato.
-    expect(screen.getByText("19g · da preparare")).toBeTruthy();
-  });
-
-  test("la riga «backlog pronto» NON è un ticket: nessuna intestazione", async () => {
-    // L'intestazione è opzionale apposta: una voce che non è un ticket non ha
-    // un numero da mostrare, e un ramo speciale non serve.
-    const client = makeClient({
-      pulse: jest.fn().mockResolvedValue([summary({ backlogReadyCount: 3 })]),
-    });
-    await renderScreen(client);
-
-    await waitFor(() => expect(screen.getByText("3 voci pronte alla conversione")).toBeTruthy());
-    expect(screen.queryByText(/^#/)).toBeNull();
-  });
-});
-
 
 /**
  * LE TRE SEZIONI DELL'HUB (22 set 2026, design §3/§4).
@@ -1110,10 +606,6 @@ describe("ProjectDetailScreen — monitor e impostazioni", () => {
     await waitFor(() => expect(screen.getByTestId("hub-backlog-maturity")).toBeTruthy());
     await fireEvent.press(screen.getByTestId("hub-backlog-maturity"));
     expect(navigate).toHaveBeenLastCalledWith("ProjectBacklog", toBacklog);
-
-    navigate.mockClear();
-    await fireEvent.press(screen.getByTestId("backlog-ready-row"));
-    expect(navigate).toHaveBeenCalledWith("ProjectBacklog", toBacklog);
   });
 
   test("un tap su un server dell'anteprima apre il suo cruscotto", async () => {
@@ -1223,19 +715,174 @@ describe("ProjectDetailScreen v3 — le tre tab", () => {
     await waitFor(() => expect(screen.getByTestId("hub-tab-project-alert")).toBeTruthy());
   });
 
-  test("nessun pallino se i server sono su, e nemmeno se la loro lettura fallisce", async () => {
+  test("nessun pallino se i server sono su, né per un server mai connesso", async () => {
     const listServers = jest.fn().mockResolvedValue([server({}), server({ id: "s2", status: "never_connected" })]);
-    const first = await renderScreen(makeClient({ listServers }));
+    await renderScreen(makeClient({ listServers }));
     await waitFor(() => expect(listServers).toHaveBeenCalled());
     await waitFor(() => expect(screen.getByTestId("hub-tab-project")).toBeTruthy());
     expect(screen.queryByTestId("hub-tab-project-alert")).toBeNull();
-    first.rendered.unmount();
+  });
 
+  test("nessun pallino se la lettura dei server fallisce, e la schermata resta intera", async () => {
     const failing = jest.fn().mockRejectedValue(new Error("down"));
     await renderScreen(makeClient({ listServers: failing }));
     await waitFor(() => expect(failing).toHaveBeenCalled());
     // Una lettura accessoria che fallisce non toglie la schermata.
     await waitFor(() => expect(screen.getByTestId("hub-panel-now")).toBeTruthy());
     expect(screen.queryByTestId("hub-tab-project-alert")).toBeNull();
+  });
+});
+
+/**
+ * DETTAGLIO PROGETTO v3 — LA TAB «ADESSO» (design §4).
+ *
+ * I bottoni portano dove si DECIDE, non decidono dalla riga: Rispondi alla
+ * card della domanda, Approva al ticket col piano, Mergia alla conferma.
+ */
+describe("ProjectDetailScreen v3 — Adesso", () => {
+  const REPO = "66666666-6666-4666-8666-666666666666";
+  const NINE_DAYS_AGO = new Date(Date.now() - 9 * 24 * 60 * 60 * 1000 - 60_000).toISOString();
+
+  const QUESTION = {
+    kind: "question" as const,
+    ticketId: TICKET_A,
+    ticketNumber: 27,
+    title: "Checkout fallisce con carta salvata",
+    notificationId: "44444444-4444-4444-8444-444444444444",
+    priority: "urgent" as const,
+  };
+  const PLAN = {
+    kind: "plan_approval" as const,
+    ticketId: TICKET_B,
+    ticketNumber: 41,
+    title: "Export CSV degli ordini",
+    notificationId: "55555555-5555-4555-8555-555555555555",
+    priority: "high" as const,
+  };
+  const PR = {
+    ticketId: "77777777-7777-4777-8777-777777777777",
+    ticketNumber: 38,
+    title: "Aggiorna dipendenze del worker",
+    prUrl: "https://example.com/pr/38",
+    canMerge: true,
+    repositoryId: REPO,
+    repositoryName: "web-app",
+    priority: "medium" as const,
+  };
+
+  test("«Tocca a te»: la riga mono, il titolo e il bottone di ciascuna", async () => {
+    const pulse = jest.fn().mockResolvedValue([summary({ waitingForYou: [QUESTION, PLAN], waitingForMerge: [PR] })]);
+    await renderScreen(makeClient({ pulse }));
+    await waitFor(() => expect(screen.getByText("Tocca a te · 3")).toBeTruthy());
+    expect(screen.getByText("#27 · urgente · domanda")).toBeTruthy();
+    expect(screen.getByText("#41 · alta · piano")).toBeTruthy();
+    expect(screen.getByText("#38 · media · PR pronta")).toBeTruthy();
+    expect(screen.getByText("Checkout fallisce con carta salvata")).toBeTruthy();
+    expect(screen.getByText("Rispondi")).toBeTruthy();
+    expect(screen.getByText("Approva")).toBeTruthy();
+    expect(screen.getByText("Mergia")).toBeTruthy();
+  });
+
+  test("Rispondi apre la card d'inbox della domanda, col progetto per tornare indietro", async () => {
+    const navigate = jest.fn();
+    await renderScreen(makeClient({ pulse: jest.fn().mockResolvedValue([summary({ waitingForYou: [QUESTION] })]) }), navigate);
+    await waitFor(() => expect(screen.getByText("Rispondi")).toBeTruthy());
+    await fireEvent.press(screen.getByText("Rispondi"));
+    expect(navigate).toHaveBeenCalledWith("Card", { id: QUESTION.notificationId, backLabel: "Portale B2B" });
+  });
+
+  test("Approva apre il TICKET, dove il piano si legge: non approva niente dalla riga", async () => {
+    const navigate = jest.fn();
+    await renderScreen(makeClient({ pulse: jest.fn().mockResolvedValue([summary({ waitingForYou: [PLAN] })]) }), navigate);
+    await waitFor(() => expect(screen.getByText("Approva")).toBeTruthy());
+    await fireEvent.press(screen.getByText("Approva"));
+    expect(navigate).toHaveBeenCalledWith("Ticket", { id: TICKET_B, backLabel: "Portale B2B" });
+  });
+
+  test("il tap sulla riga, fuori dal bottone, apre il ticket", async () => {
+    const navigate = jest.fn();
+    await renderScreen(makeClient({ pulse: jest.fn().mockResolvedValue([summary({ waitingForYou: [QUESTION] })]) }), navigate);
+    await waitFor(() => expect(screen.getByText("Checkout fallisce con carta salvata")).toBeTruthy());
+    await fireEvent.press(screen.getByText("Checkout fallisce con carta salvata"));
+    expect(navigate).toHaveBeenCalledWith("Ticket", { id: TICKET_A, backLabel: "Portale B2B" });
+  });
+
+  test("Mergia NON c'è senza canMerge: la PR sta fra le cose che aspettano altri", async () => {
+    const pulse = jest.fn().mockResolvedValue([summary({ waitingForMerge: [{ ...PR, canMerge: false }] })]);
+    await renderScreen(makeClient({ pulse }));
+    await waitFor(() => expect(screen.getByText("Aspetta altri · fermi · 1")).toBeTruthy());
+    expect(screen.queryByText("Mergia")).toBeNull();
+    expect(screen.queryByText(/Tocca a te/)).toBeNull();
+    expect(screen.getByText("attende il merge")).toBeTruthy();
+  });
+
+  test("Mergia NON c'è senza repositoryId (server più vecchio): la riga resta, e porta al ticket", async () => {
+    const { repositoryId: _r, repositoryName: _n, ...prSenzaRepo } = PR;
+    void _r;
+    void _n;
+    const navigate = jest.fn();
+    await renderScreen(makeClient({ pulse: jest.fn().mockResolvedValue([summary({ waitingForMerge: [prSenzaRepo] })]) }), navigate);
+    await waitFor(() => expect(screen.getByText("Tocca a te · 1")).toBeTruthy());
+    expect(screen.queryByText("Mergia")).toBeNull();
+    await fireEvent.press(screen.getByText("Aggiorna dipendenze del worker"));
+    expect(navigate).toHaveBeenCalledWith("Ticket", { id: PR.ticketId, backLabel: "Portale B2B" });
+  });
+
+  test("«In esecuzione»: il titolo col numero e i minuti", async () => {
+    const pulse = jest.fn().mockResolvedValue([
+      summary({ running: [{ ticketId: TICKET_A, ticketNumber: 44, title: "Filtri salvati nella lista ordini", sinceMinutes: 12 }] }),
+    ]);
+    await renderScreen(makeClient({ pulse }));
+    await waitFor(() => expect(screen.getByText("In esecuzione · 1")).toBeTruthy());
+    expect(screen.getByText("#44 Filtri salvati nella lista ordini")).toBeTruthy();
+    expect(screen.getByText("12 min")).toBeTruthy();
+  });
+
+  test("«Aspetta altri · fermi»: attese altrui, poi PR d'altri, poi i fermi, ognuno col suo testo a destra", async () => {
+    const pulse = jest.fn().mockResolvedValue([
+      summary({
+        waitingForOthers: [{ ...PLAN, ticketNumber: 33, title: "Testo del bottone troncato", who: { kind: "requester" } }],
+        waitingForMerge: [{ ...PR, canMerge: false }],
+        stalled: [
+          { ticketId: TICKET_A, ticketNumber: 19, title: "Notifiche email duplicate", stalledSince: NINE_DAYS_AGO, reason: "to_prepare" },
+        ],
+      }),
+    ]);
+    await renderScreen(makeClient({ pulse }));
+    await waitFor(() => expect(screen.getByText("Aspetta altri · fermi · 3")).toBeTruthy());
+    const titles = screen.getAllByText(/^#(33|38|19) /).map((node) => node.props.children as string);
+    expect(titles).toEqual(["#33 Testo del bottone troncato", "#38 Aggiorna dipendenze del worker", "#19 Notifiche email duplicate"]);
+    expect(screen.getByText("→ richiedente")).toBeTruthy();
+    expect(screen.getByText("attende il merge")).toBeTruthy();
+    expect(screen.getByText("fermo 9g")).toBeTruthy();
+  });
+
+  test("il banner del monitor: server giù, e il tap porta alla tab Progetto", async () => {
+    const listServers = jest.fn().mockResolvedValue([server({ name: "prod-eu-1", checksDown: 1 })]);
+    await renderScreen(makeClient({ listServers }));
+    await waitFor(() => expect(screen.getByTestId("hub-now-monitor-banner")).toBeTruthy());
+    expect(screen.getByText("Monitor · server giù")).toBeTruthy();
+    expect(screen.getByText("prod-eu-1 · 1 controllo giù")).toBeTruthy();
+
+    await fireEvent.press(screen.getByTestId("hub-now-monitor-banner"));
+    expect(screen.getByTestId("hub-tab-project").props.accessibilityState?.selected).toBe(true);
+    expect(screen.getByTestId("hub-panel-project")).toBeTruthy();
+  });
+
+  test("niente banner quando i server sono su", async () => {
+    const listServers = jest.fn().mockResolvedValue([server({})]);
+    await renderScreen(makeClient({ listServers }));
+    await waitFor(() => expect(listServers).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByTestId("hub-panel-now")).toBeTruthy());
+    expect(screen.queryByTestId("hub-now-monitor-banner")).toBeNull();
+  });
+
+  test("tutto vuoto: al posto dei blocchi, la frase del polso", async () => {
+    await renderScreen(makeClient({ pulse: jest.fn().mockResolvedValue([summary({ idleDays: 3 })]) }));
+    await waitFor(() => expect(screen.getByTestId("hub-now-empty")).toBeTruthy());
+    expect(screen.getByText("fermo da 3 giorni")).toBeTruthy();
+    expect(screen.queryByTestId("hub-now-your-turn")).toBeNull();
+    expect(screen.queryByTestId("hub-now-running")).toBeNull();
+    expect(screen.queryByTestId("hub-now-others")).toBeNull();
   });
 });
