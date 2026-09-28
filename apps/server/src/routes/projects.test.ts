@@ -15,6 +15,7 @@ import {
   projectDecisions,
   projectEmailRoutes,
   projectFollows,
+  projects,
   ticketRepositories,
   tickets,
 } from "@stubwise/db";
@@ -178,6 +179,26 @@ describe("GET /api/projects", () => {
     const target = body.find((p) => p.id === projectId);
     expect(target).toBeDefined();
     expect(target!.repositoryCount).toBe(1);
+  });
+
+  /**
+   * IN ORDINE ALFABETICO (28 set 2026). Il Postgres di test, come quello del
+   * compose, è `--locale=C`: un `ORDER BY name` metterebbe «Zeta» prima di
+   * «alfa». I due «Portale» che differiscono solo per la maiuscola stanno
+   * vicini, nell'ordine dei loro id.
+   */
+  it("elenca in ordine alfabetico: maiuscole e accenti non contano, a parità decide l'id", async () => {
+    const ids: Record<string, string> = {};
+    for (const name of ["Zeta ordine", "alfa ordine", "Èlite ordine", "Portale ordine", "portale ordine"]) {
+      const { projectId } = await seedRepository(testDb.db);
+      await testDb.db.update(projects).set({ name }).where(eq(projects.id, projectId));
+      ids[name] = projectId;
+    }
+    const res = await app.inject({ method: "GET", url: "/api/projects", headers: { cookie: memberCookie } });
+    expect(res.statusCode).toBe(200);
+    const mine = (res.json() as { id: string; name: string }[]).filter((p) => p.name.endsWith(" ordine"));
+    const [lower, upper] = [ids["portale ordine"]!, ids["Portale ordine"]!].sort();
+    expect(mine.map((p) => p.id)).toEqual([ids["alfa ordine"], ids["Èlite ordine"], lower, upper, ids["Zeta ordine"]]);
   });
 
   it("senza sessione: 401", async () => {
@@ -547,72 +568,38 @@ describe("GET /api/projects/pulse", () => {
     expect(adminIds).toContain(unfollowedId);
   });
 
-  it("ordina: prima chi ha waitingForYou, poi chi ha running, poi idleDays decrescente", async () => {
-    const { projectId: waitingProjectId } = await seedRepository(testDb.db);
-    const { projectId: runningProjectId } = await seedRepository(testDb.db);
-    const { projectId: idleProjectId } = await seedRepository(testDb.db);
-    const { projectId: idleProjectId2 } = await seedRepository(testDb.db);
+  /**
+   * L'ORDINE DEL POLSO (28 set 2026): due gruppi, ognuno alfabetico. In cima
+   * i progetti che aspettano CHI GUARDA — una decisione, o una PR che può
+   * mergiare lui (`needsViewer` di `@stubwise/shared`, la stessa funzione che
+   * i client usano per disegnare il confine) — poi tutti gli altri. Un lavoro
+   * in corso, una PR d'altri o dei ticket fermi NON spostano più un progetto:
+   * lo dice la riga sotto il nome.
+   */
+  it("ordina: prima chi aspetta il viewer, poi gli altri, ognuno in ordine alfabetico", async () => {
+    const named = async (name: string) => {
+      const seeded = await seedRepository(testDb.db);
+      await testDb.db.update(projects).set({ name }).where(eq(projects.id, seeded.projectId));
+      return seeded;
+    };
+    // Aspetta il viewer: una decisione («Zeta») e una PR che può mergiare
+    // («beta»). Nomi scelti perché l'ordine alfabetico INVERTA quello in cui
+    // le vecchie regole li avrebbero messi.
+    const { projectId: zetaDecision } = await named("Zeta polso");
+    const { projectId: betaMerge, repositoryId } = await named("beta polso");
+    // Gli altri: uno in corso («Delta»), uno fermo da giorni («Alfa»), uno
+    // vuoto con la minuscola («gamma»).
+    const { projectId: deltaRunning } = await named("Delta polso");
+    const { projectId: alfaIdle } = await named("Alfa polso");
+    const { projectId: gammaQuiet } = await named("gamma polso");
 
-    // waitingForYou (admin è sempre nel pubblico di un piano da approvare) —
-    // serve anche la riga di notifica: senza, `summarizeProject` OMETTE la
-    // voce da `waitingForYou` (nessun modo di agirci), e il progetto finirebbe
-    // nel gruppo "né in attesa né in corso" invece che in cima.
-    const waitingTicket = await seedTicketRow(waitingProjectId);
-    const waitingJobId = await seedJob(waitingTicket, "awaiting_plan_approval", {
-      requestedByUserId: memberId,
-    });
+    const decisionTicket = await seedTicketRow(zetaDecision);
+    const decisionJob = await seedJob(decisionTicket, "awaiting_plan_approval", { requestedByUserId: memberId });
     await testDb.db
       .insert(notifications)
-      .values({ userId: adminId, jobId: waitingJobId, kind: "job.plan_review", event: {} });
+      .values({ userId: adminId, jobId: decisionJob, kind: "job.plan_review", event: {} });
 
-    // running.
-    const runningTicket = await seedTicketRow(runningProjectId);
-    await seedJob(runningTicket, "fixing", { startedAt: new Date() });
-
-    // fermo da 10 giorni.
-    const idleTicket = await seedTicketRow(idleProjectId);
-    await seedJob(idleTicket, "pr_merged", {
-      lastActivityAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000),
-    });
-
-    // fermo da 1 giorno: deve stare DOPO quello fermo da 10 (idleDays desc).
-    const idleTicket2 = await seedTicketRow(idleProjectId2);
-    await seedJob(idleTicket2, "pr_merged", {
-      lastActivityAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000),
-    });
-
-    const res = await app.inject({
-      method: "GET",
-      url: "/api/projects/pulse",
-      headers: { cookie: adminCookie },
-    });
-    expect(res.statusCode).toBe(200);
-    const order = (res.json() as { projectId: string }[]).map((s) => s.projectId);
-    const indexOf = (id: string) => order.indexOf(id);
-
-    expect(indexOf(waitingProjectId)).toBeGreaterThanOrEqual(0);
-    expect(indexOf(runningProjectId)).toBeGreaterThanOrEqual(0);
-    expect(indexOf(idleProjectId)).toBeGreaterThanOrEqual(0);
-    expect(indexOf(idleProjectId2)).toBeGreaterThanOrEqual(0);
-    expect(indexOf(waitingProjectId)).toBeLessThan(indexOf(runningProjectId));
-    expect(indexOf(runningProjectId)).toBeLessThan(indexOf(idleProjectId));
-    expect(indexOf(idleProjectId)).toBeLessThan(indexOf(idleProjectId2));
-  });
-
-  /**
-   * ⚠️ L'ORDINE DEVE DIRE LA STESSA COSA DELLA RIGA DI POLSO (21 set 2026).
-   * Senza questi due livelli in più, un progetto la cui unica attesa è una PR
-   * che il viewer PUÒ mergiare ordinerebbe come uno che non chiede niente — e
-   * uno con dei ticket fermi ma nessun job MAI girato finirebbe ultimo,
-   * perché `idleDays` vale 0 quando non c'è attività da cui contare.
-   */
-  it("ordina: una PR che il viewer può mergiare vale come una decisione; i ticket fermi battono il silenzio", async () => {
-    const { projectId: mergeProjectId, repositoryId } = await seedRepository(testDb.db);
-    const { projectId: stalledProjectId } = await seedRepository(testDb.db);
-    const { projectId: quietProjectId } = await seedRepository(testDb.db);
-
-    // Una PR aperta, e basta: nessun job vivo, nessuna decisione in inbox.
-    const mergeTicket = await seedTicketRow(mergeProjectId, { number: 20 });
+    const mergeTicket = await seedTicketRow(betaMerge, { number: 20 });
     await testDb.db.insert(ticketRepositories).values({
       ticketId: mergeTicket,
       repositoryId,
@@ -621,28 +608,65 @@ describe("GET /api/projects/pulse", () => {
       prState: "open",
     });
 
-    // Un ticket aperto e MAI lavorato: fermo, ma `idleDays` resta 0.
-    await seedTicketRow(stalledProjectId, { number: 18 });
+    const runningTicket = await seedTicketRow(deltaRunning);
+    await seedJob(runningTicket, "fixing", { startedAt: new Date() });
+    const idleTicket = await seedTicketRow(alfaIdle);
+    await seedJob(idleTicket, "pr_merged", { lastActivityAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000) });
 
-    // `quietProjectId` non ha niente: nessun ticket, nessun job.
-
-    const res = await app.inject({
-      method: "GET",
-      url: "/api/projects/pulse",
-      headers: { cookie: adminCookie },
-    });
+    const res = await app.inject({ method: "GET", url: "/api/projects/pulse", headers: { cookie: adminCookie } });
     expect(res.statusCode).toBe(200);
-    const summaries = res.json() as { projectId: string; waitingForMerge: unknown[]; stalled: unknown[] }[];
-    const order = summaries.map((s) => s.projectId);
-    const indexOf = (id: string) => order.indexOf(id);
+    const mine = (res.json() as { projectId: string; projectName: string }[]).filter((s) =>
+      s.projectName.endsWith(" polso"),
+    );
 
+    expect(mine.map((s) => s.projectId)).toEqual([betaMerge, zetaDecision, alfaIdle, deltaRunning, gammaQuiet]);
+    // E nessun progetto di un altro test si è infilato fra i due gruppi:
+    // tutto ciò che aspetta il viewer viene prima di tutto il resto.
+    const all = res.json() as { projectId: string; waitingForYou: unknown[]; waitingForMerge: { canMerge: boolean }[] }[];
+    const firstOther = all.findIndex((s) => s.waitingForYou.length === 0 && !s.waitingForMerge.some((m) => m.canMerge));
+    const lastNeeding = all.map((s) => s.waitingForYou.length > 0 || s.waitingForMerge.some((m) => m.canMerge)).lastIndexOf(true);
+    expect(lastNeeding).toBeLessThan(firstOther === -1 ? all.length : firstOther);
+  });
+
+  it("il confine: una PR che il viewer NON può mergiare non lo mette in cima", async () => {
+    // «aaa»: prima di tutti per nome, con una PR che il member non può
+    // mergiare. «zzz»: ultimo per nome, con una domanda che aspetta il member.
+    // Solo il confine giusto mette «zzz» PRIMA di «aaa».
+    const altrui = await seedRepository(testDb.db);
+    await testDb.db.update(projects).set({ name: "aaa confine" }).where(eq(projects.id, altrui.projectId));
+    const suo = await seedRepository(testDb.db);
+    await testDb.db.update(projects).set({ name: "zzz confine" }).where(eq(projects.id, suo.projectId));
+    await testDb.db.insert(projectFollows).values([
+      { userId: memberId, projectId: altrui.projectId },
+      { userId: memberId, projectId: suo.projectId },
+    ]);
+
+    const prTicket = await seedTicketRow(altrui.projectId, { number: 30 });
+    await testDb.db.insert(ticketRepositories).values({
+      ticketId: prTicket,
+      repositoryId: altrui.repositoryId,
+      branch: "stubwise/ticket-30",
+      prUrl: "https://example.com/pr/30",
+      prState: "open",
+    });
+
+    // Una domanda dell'agente al member che ha lanciato il job.
+    const questionTicket = await seedTicketRow(suo.projectId);
+    const questionJob = await seedJob(questionTicket, "awaiting_input", { requestedByUserId: memberId });
+    await testDb.db
+      .insert(notifications)
+      .values({ userId: memberId, jobId: questionJob, kind: "job.awaiting_input", event: {} });
+
+    const res = await app.inject({ method: "GET", url: "/api/projects/pulse", headers: { cookie: memberCookie } });
+    const all = res.json() as { projectId: string; waitingForYou: unknown[]; waitingForMerge: { canMerge: boolean }[] }[];
+    const aaa = all.find((s) => s.projectId === altrui.projectId);
+    const zzz = all.find((s) => s.projectId === suo.projectId);
     // I dati sono quelli attesi, prima di giudicare l'ordine.
-    expect(summaries.find((s) => s.projectId === mergeProjectId)?.waitingForMerge).toHaveLength(1);
-    expect(summaries.find((s) => s.projectId === stalledProjectId)?.stalled).toHaveLength(1);
-    expect(summaries.find((s) => s.projectId === quietProjectId)?.stalled).toHaveLength(0);
+    expect(aaa?.waitingForMerge[0]?.canMerge).toBe(false);
+    expect(zzz?.waitingForYou).toHaveLength(1);
 
-    expect(indexOf(mergeProjectId)).toBeLessThan(indexOf(stalledProjectId));
-    expect(indexOf(stalledProjectId)).toBeLessThan(indexOf(quietProjectId));
+    const indexOf = (id: string) => all.findIndex((s) => s.projectId === id);
+    expect(indexOf(suo.projectId)).toBeLessThan(indexOf(altrui.projectId));
   });
 });
 
