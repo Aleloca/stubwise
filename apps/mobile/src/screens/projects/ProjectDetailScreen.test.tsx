@@ -4,7 +4,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { AuthContext } from "../../app/auth-context";
 import type { AuthContextValue } from "../../app/providers";
-import { StyleSheet } from "react-native";
+import { Linking, StyleSheet } from "react-native";
+import { ApiError } from "@stubwise/api-client";
 import "../../i18n";
 import { pullToRefresh } from "../../test-utils/pull-to-refresh";
 import { ProjectDetailScreen } from "./ProjectDetailScreen";
@@ -146,6 +147,7 @@ function makeClient(
     projectSpaces?: jest.Mock;
     milestones?: jest.Mock;
     listServers?: jest.Mock;
+    release?: jest.Mock;
   } = {},
 ): StubwiseClient {
   return {
@@ -160,7 +162,12 @@ function makeClient(
       milestones: overrides.milestones ?? jest.fn().mockResolvedValue([]),
     },
     activity: { forDate: overrides.activityForDate ?? jest.fn().mockResolvedValue({ date: "2026-08-31", projects: [] }) },
-    tickets: { list: overrides.listTickets ?? jest.fn().mockResolvedValue({ items: [], nextCursor: null, total: 0 }) },
+    tickets: {
+      list: overrides.listTickets ?? jest.fn().mockResolvedValue({ items: [], nextCursor: null, total: 0 }),
+      // ⚠️ Il merge dall'app (28 set 2026): nel doppio PRIMA dei test che lo
+      // usano, per la stessa ragione dei metodi della tappa 2.
+      release: overrides.release ?? jest.fn().mockResolvedValue({ merged: true, sha: "abc123" }),
+    },
     backlog: { list: overrides.listBacklog ?? jest.fn().mockResolvedValue({ items: [], nextCursor: null, total: 0 }) },
     inbox: { list: overrides.listInbox ?? jest.fn().mockResolvedValue({ items: [], nextCursor: null, total: 0 }) },
     docs: { projectSpaces: overrides.projectSpaces ?? jest.fn().mockResolvedValue([]) },
@@ -884,5 +891,88 @@ describe("ProjectDetailScreen v3 — Adesso", () => {
     expect(screen.queryByTestId("hub-now-your-turn")).toBeNull();
     expect(screen.queryByTestId("hub-now-running")).toBeNull();
     expect(screen.queryByTestId("hub-now-others")).toBeNull();
+  });
+});
+
+/**
+ * DETTAGLIO PROGETTO v3 — IL MERGE DALL'APP (design §6).
+ *
+ * Mergia apre una conferma in due passi; Merge chiama la rotta di rilascio
+ * esistente. Gli errori si mostrano nel pannello, che resta aperto.
+ */
+describe("ProjectDetailScreen v3 — il merge", () => {
+  const REPO = "66666666-6666-4666-8666-666666666666";
+  const PR_TICKET = "77777777-7777-4777-8777-777777777777";
+  const PR = {
+    ticketId: PR_TICKET,
+    ticketNumber: 38,
+    title: "Aggiorna dipendenze del worker",
+    prUrl: "https://example.com/pr/38",
+    canMerge: true,
+    repositoryId: REPO,
+    repositoryName: "web-app",
+  };
+
+  async function openMerge(release?: jest.Mock, pulse?: jest.Mock) {
+    const pulseMock = pulse ?? jest.fn().mockResolvedValue([summary({ waitingForMerge: [PR] })]);
+    const releaseMock = release ?? jest.fn().mockResolvedValue({ merged: true, sha: "abc123" });
+    await renderScreen(makeClient({ pulse: pulseMock, release: releaseMock }));
+    await waitFor(() => expect(screen.getByText("Mergia")).toBeTruthy());
+    await fireEvent.press(screen.getByText("Mergia"));
+    return { release: releaseMock, pulse: pulseMock };
+  }
+
+  test("Mergia apre la conferma: la domanda, il repository col ticket, il link alla PR", async () => {
+    const { release } = await openMerge();
+    expect(screen.getByText("Mergiare la PR di #38?")).toBeTruthy();
+    expect(screen.getByText("web-app · Aggiorna dipendenze del worker")).toBeTruthy();
+    expect(screen.getByText("Apri la PR ›")).toBeTruthy();
+    // Aprire la conferma non mergia niente.
+    expect(release).not.toHaveBeenCalled();
+  });
+
+  test("«Apri la PR ›» apre l'indirizzo della PR", async () => {
+    const openURL = jest.spyOn(Linking, "openURL").mockResolvedValue(undefined);
+    await openMerge();
+    await fireEvent.press(screen.getByText("Apri la PR ›"));
+    expect(openURL).toHaveBeenCalledWith("https://example.com/pr/38");
+    openURL.mockRestore();
+  });
+
+  test("Annulla chiude senza mergiare", async () => {
+    const { release } = await openMerge();
+    await fireEvent.press(screen.getByTestId("merge-sheet-cancel"));
+    await waitFor(() => expect(screen.queryByText("Mergiare la PR di #38?")).toBeNull());
+    expect(release).not.toHaveBeenCalled();
+  });
+
+  test("Merge chiama la rotta di rilascio col ticket e il repository; al successo il pannello si chiude e il polso si ricarica", async () => {
+    const { release, pulse } = await openMerge();
+    const pulseCalls = pulse.mock.calls.length;
+    await fireEvent.press(screen.getByTestId("merge-sheet-confirm"));
+    await waitFor(() => expect(release).toHaveBeenCalledWith(PR_TICKET, REPO));
+    await waitFor(() => expect(screen.queryByText("Mergiare la PR di #38?")).toBeNull());
+    await waitFor(() => expect(pulse.mock.calls.length).toBeGreaterThan(pulseCalls));
+  });
+
+  test("in attesa il bottone mostra lo spinner e non si ripreme", async () => {
+    const release = jest.fn(() => new Promise(() => {}));
+    await openMerge(release);
+    await fireEvent.press(screen.getByTestId("merge-sheet-confirm"));
+    await waitFor(() => expect(screen.getByTestId("merge-sheet-confirm-spinner")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("merge-sheet-confirm"));
+    expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  test.each([
+    ["checks_failed", new ApiError(409, "…", "checks_failed"), "I controlli del provider falliscono"],
+    ["already_closed", new ApiError(409, "…", "already_closed"), "Questa PR non è più aperta"],
+    ["rete", new TypeError("Network request failed"), "Stubwise non risponde, controlla la connessione e riprova"],
+  ])("errore %s: il messaggio si vede e il pannello resta aperto", async (_name, error, message) => {
+    const release = jest.fn().mockRejectedValue(error);
+    await openMerge(release);
+    await fireEvent.press(screen.getByTestId("merge-sheet-confirm"));
+    await waitFor(() => expect(screen.getByText(message)).toBeTruthy());
+    expect(screen.getByText("Mergiare la PR di #38?")).toBeTruthy();
   });
 });

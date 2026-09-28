@@ -27,6 +27,8 @@ import { HubTabBar } from "../../components/projects/HubTabBar";
 import { useState } from "react";
 import { monitorAlert, yourTurnCount, type HubDestination } from "../../lib/project-hub";
 import { NowTab } from "./hub/NowTab";
+import { MergeSheet, type MergeTarget } from "./hub/MergeSheet";
+import { useRelease } from "../../lib/release-mutations";
 
 /** Le tre tab del dettaglio (design v3 §3). */
 type HubTabKey = "now" | "work" | "project";
@@ -156,7 +158,18 @@ export function ProjectDetailScreen({ navigation, route }: NativeStackScreenProp
    * si apre quando c'è. Arriva dal bottone Mergia, che esiste solo con
    * `canMerge` E `repositoryId` (`lib/project-hub.ts`).
    */
-  const [, setMergeTarget] = useState<Extract<HubDestination, { kind: "confirmMerge" }> | null>(null);
+  const [mergeTarget, setMergeTarget] = useState<MergeTarget | null>(null);
+  const release = useRelease();
+  const openMerge = (target: MergeTarget) => {
+    // Un errore rimasto da un tentativo su un'ALTRA PR non deve comparire qui.
+    release.reset();
+    setMergeTarget(target);
+  };
+  const closeMerge = () => {
+    if (release.isPending) return;
+    setMergeTarget(null);
+    release.reset();
+  };
 
   /** Dove porta un tap sulla tab Adesso: le destinazioni le decide `lib/project-hub.ts`. */
   const open = (destination: HubDestination) => {
@@ -164,7 +177,7 @@ export function ProjectDetailScreen({ navigation, route }: NativeStackScreenProp
     const back = backLabel !== undefined ? { backLabel } : {};
     if (destination.kind === "ticket") navigation.navigate("Ticket", { id: destination.ticketId, ...back });
     else if (destination.kind === "inboxCard") navigation.navigate("Card", { id: destination.notificationId, ...back });
-    else setMergeTarget(destination);
+    else openMerge(destination);
   };
   const badge = summary !== undefined ? yourTurnCount(summary) : 0;
 
@@ -244,6 +257,18 @@ export function ProjectDetailScreen({ navigation, route }: NativeStackScreenProp
           </View>
         )}
       </ScrollView>
+      <MergeSheet
+        target={mergeTarget}
+        pending={release.isPending}
+        errorMessage={release.errorMessage}
+        onClose={closeMerge}
+        onConfirm={() => {
+          if (mergeTarget === null) return;
+          release.release({ ticketId: mergeTarget.ticketId, repositoryId: mergeTarget.repositoryId }, () =>
+            setMergeTarget(null),
+          );
+        }}
+      />
     </View>
   );
 }
