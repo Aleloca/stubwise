@@ -166,15 +166,49 @@ describe("ProjectsScreen", () => {
     await waitFor(() => expect(screen.getByTestId("settings-avatar-button")).toBeTruthy());
   });
 
-  test("lista: nell'ORDINE esatto restituito dal server, senza risistemarla lato client", async () => {
-    // L'ordine qui è DELIBERATAMENTE quello sbagliato per idleDays (RUNNING
-    // prima di WAITING violerebbe la priorità server, ma qui verifichiamo
-    // che lo screen non tocchi affatto l'ordine — usa quello che arriva.
+  // 28 set 2026: la lista si DIVIDE in due gruppi — «Tocca a te» e «Tutti i
+  // progetti» — ma dentro ciascuno l'ordine resta quello del server, che è
+  // già alfabetico. Il client non riordina: la regola dell'ordine vive in UN
+  // posto (`compareProjectNames`, usato dal server).
+  test("lista: dentro ciascun gruppo l'ORDINE resta quello del server, senza risistemarlo", async () => {
     const client = makeClient(jest.fn().mockResolvedValue([RUNNING, WAITING, IDLE]));
     await renderScreen(client);
     await waitFor(() => expect(screen.getByText("Piattaforma Acme")).toBeTruthy());
     const names = screen.getAllByText(/Portale B2B|Piattaforma Acme|Sito vetrina/).map((node) => node.props.children);
-    expect(names).toEqual(["Piattaforma Acme", "Portale B2B", "Sito vetrina"]);
+    // WAITING sale nel primo gruppo; RUNNING e IDLE restano nell'ordine ricevuto.
+    expect(names).toEqual(["Portale B2B", "Piattaforma Acme", "Sito vetrina"]);
+  });
+
+  test("due gruppi: «Tocca a te» sopra, «Tutti i progetti» sotto, con le intestazioni", async () => {
+    const client = makeClient(jest.fn().mockResolvedValue([DA_MERGIARE, WAITING, SOLO_FERMI, RUNNING]));
+    await renderScreen(client);
+    await waitFor(() => expect(screen.getByText("Tocca a te")).toBeTruthy());
+    const labels = screen
+      .getAllByText(/^(Tocca a te|Tutti i progetti|Da rilasciare|Portale B2B|Arretrato|Piattaforma Acme)$/)
+      .map((node) => node.props.children);
+    expect(labels).toEqual(["Tocca a te", "Da rilasciare", "Portale B2B", "Tutti i progetti", "Arretrato", "Piattaforma Acme"]);
+  });
+
+  test("un gruppo solo: nessuna intestazione", async () => {
+    const client = makeClient(jest.fn().mockResolvedValue([RUNNING, IDLE]));
+    await renderScreen(client);
+    await waitFor(() => expect(screen.getByText("Piattaforma Acme")).toBeTruthy());
+    expect(screen.queryByText("Tocca a te")).toBeNull();
+    expect(screen.queryByText("Tutti i progetti")).toBeNull();
+  });
+
+  test("il confine: una PR che il viewer NON può mergiare resta fra gli altri", async () => {
+    const altrui = summary({
+      ...DA_MERGIARE,
+      waitingForMerge: DA_MERGIARE.waitingForMerge.map((item) => ({ ...item, canMerge: false })),
+    });
+    const client = makeClient(jest.fn().mockResolvedValue([altrui, WAITING]));
+    await renderScreen(client);
+    await waitFor(() => expect(screen.getByText("Tocca a te")).toBeTruthy());
+    const labels = screen
+      .getAllByText(/^(Tocca a te|Tutti i progetti|Da rilasciare|Portale B2B)$/)
+      .map((node) => node.props.children);
+    expect(labels).toEqual(["Tocca a te", "Portale B2B", "Tutti i progetti", "Da rilasciare"]);
   });
 
   test("ogni riga mostra il polso col tono giusto e la riga di conteggi", async () => {

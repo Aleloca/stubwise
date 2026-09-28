@@ -1,4 +1,5 @@
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
+import { needsViewer } from "@stubwise/shared";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
@@ -7,6 +8,7 @@ import type { ProjectsStackParamList } from "../../app/navigation";
 import { useAuth } from "../../app/providers";
 import { GhostButton } from "../../components/GhostButton";
 import { PulseRow } from "../../components/projects/PulseRow";
+import { SectionLabel } from "../../components/SectionLabel";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { Skeleton } from "../../components/Skeleton";
 import { colors } from "../../theme/tokens";
@@ -64,15 +66,30 @@ export function ProjectsScreen({ navigation }: NativeStackScreenProps<ProjectsSt
   // 2026). `canMerge` arriva dal server col ruolo — qui si legge, non si
   // deduce (vedi il divieto dell'operatore in CLAUDE.md): per un operatore
   // quella stessa PR non è «sua» e giustamente non entra nel conteggio.
-  const waitingProjects = summaries.filter(
-    (summary) =>
-      summary.waitingForYou.length > 0 || summary.waitingForMerge.some((item) => item.canMerge),
-  ).length;
+  //
+  // `needsViewer` è la STESSA funzione con cui il server ordina il polso
+  // (`@stubwise/shared`): il confine fra i due gruppi qui sotto e l'ordine
+  // che arriva dal server non possono dire due cose diverse.
+  const needing = summaries.filter((summary) => needsViewer(summary));
+  const others = summaries.filter((summary) => !needsViewer(summary));
+  const waitingProjects = needing.length;
+  // Le intestazioni solo quando ENTRAMBI i gruppi hanno qualcosa: con un
+  // gruppo solo direbbero l'ovvio.
+  const showGroupLabels = needing.length > 0 && others.length > 0;
   const subtitle = query.isPending
     ? t("mobile.projects.header.loading")
     : waitingProjects > 0
       ? t("mobile.projects.header.subtitleWaiting", { count: summaries.length, waiting: waitingProjects })
       : t("mobile.projects.header.subtitle", { count: summaries.length });
+
+  const renderRow = (summary: (typeof summaries)[number]) => (
+    <PulseRow
+      key={summary.projectId}
+      summary={summary}
+      viewerId={user?.id ?? ""}
+      onPress={() => navigation.navigate("Detail", { id: summary.projectId })}
+    />
+  );
 
   // Task 7 (App M1+M2, 11 set 2026): un solo `ScrollView`, header (ora
   // `ScreenHeader`) come primo figlio — stesso schema di `InboxScreen.tsx`.
@@ -122,14 +139,26 @@ export function ProjectsScreen({ navigation }: NativeStackScreenProps<ProjectsSt
             <Text style={styles.emptyCtaHint}>{t("mobile.projects.empty.ctaHint")}</Text>
           </View>
         ) : (
-          summaries.map((summary) => (
-            <PulseRow
-              key={summary.projectId}
-              summary={summary}
-              viewerId={user?.id ?? ""}
-              onPress={() => navigation.navigate("Detail", { id: summary.projectId })}
-            />
-          ))
+          /*
+            DUE GRUPPI (28 set 2026): in cima i progetti dove qualcosa aspetta
+            chi guarda, sotto tutti gli altri. Ciascun gruppo nell'ordine del
+            server, che è alfabetico (`compareProjectNames`): qui si divide e
+            basta, non si riordina — la regola vive in un posto solo.
+          */
+          <>
+            {showGroupLabels && (
+              <SectionLabel tone="muted" style={styles.groupLabel}>
+                {t("mobile.projects.groups.needsYou")}
+              </SectionLabel>
+            )}
+            {needing.map(renderRow)}
+            {showGroupLabels && (
+              <SectionLabel tone="muted" style={styles.groupLabel}>
+                {t("mobile.projects.groups.allProjects")}
+              </SectionLabel>
+            )}
+            {others.map(renderRow)}
+          </>
         )}
       </ScrollView>
     </View>
@@ -163,6 +192,9 @@ const styles = StyleSheet.create({
     gap: 8,
     padding: 16,
     paddingBottom: 40,
+  },
+  groupLabel: {
+    marginTop: 8,
   },
   emptyState: {
     alignItems: "center",

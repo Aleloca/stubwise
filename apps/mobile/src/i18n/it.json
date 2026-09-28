@@ -566,6 +566,10 @@
           "forbidden": "Solo un maintainer può modificare le impostazioni.",
           "generic": "Salvataggio non riuscito. Riprova."
         }
+      },
+      "groups": {
+        "needsYou": "Tocca a te",
+        "allProjects": "Tutti i progetti"
       }
     },
     "work": {

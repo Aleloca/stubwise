@@ -566,6 +566,10 @@
           "forbidden": "Only a maintainer can change the settings.",
           "generic": "Couldn't save. Try again."
         }
+      },
+      "groups": {
+        "needsYou": "Needs you",
+        "allProjects": "All projects"
       }
     },
     "work": {
