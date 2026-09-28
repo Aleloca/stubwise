@@ -620,6 +620,17 @@ describe("GET /api/projects/pulse", () => {
     );
 
     expect(mine.map((s) => s.projectId)).toEqual([betaMerge, zetaDecision, alfaIdle, deltaRunning, gammaQuiet]);
+
+    // Il repository della PR arriva fino al client (28 set 2026, dettaglio
+    // progetto v3 §2): senza, l'app non saprebbe su quale rotta mergiare. La
+    // risposta passa dallo schema di Fastify, che scarterebbe un campo non
+    // dichiarato — è quello che questo verifica, non la query. (Spostato qui
+    // dal vecchio test d'ordinamento, che questo ha sostituito.)
+    const mergeItem = (
+      res.json() as { projectId: string; waitingForMerge: { repositoryId?: string; repositoryName?: string }[] }[]
+    ).find((s) => s.projectId === betaMerge)?.waitingForMerge[0];
+    expect(mergeItem?.repositoryId).toBe(repositoryId);
+    expect(mergeItem?.repositoryName).toEqual(expect.any(String));
     // E nessun progetto di un altro test si è infilato fra i due gruppi:
     // tutto ciò che aspetta il viewer viene prima di tutto il resto.
     const all = res.json() as { projectId: string; waitingForYou: unknown[]; waitingForMerge: { canMerge: boolean }[] }[];

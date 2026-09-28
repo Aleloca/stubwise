@@ -122,10 +122,24 @@ export type DocsPageParamList = {
   Page: { repositoryId: string; slug: string };
 };
 
+/**
+ * LA CARD D'INBOX, registrata in DUE stack (28 set 2026, dettaglio progetto
+ * v3): ci si arriva dall'inbox e da «Rispondi» sull'hub di un progetto — ed
+ * è il quarto frammento, per la stessa ragione di {@link ProposalParamList}:
+ * dall'hub l'indietro deve tornare al progetto, e la scheda in basso non deve
+ * saltare.
+ *
+ * `backLabel`: il nome del progetto da cui si è arrivati, come per `Ticket`.
+ * Con esso il bottone in alto dice dove si torna e torna INDIETRO; senza (dall'
+ * inbox, o da un deep link) resta «Torna all'Inbox», com'era.
+ */
+export type InboxCardParamList = {
+  Card: { id: string; backLabel?: string };
+} & ProposalParamList;
+
 export type InboxStackParamList = {
   List: undefined;
-  Card: { id: string };
-} & ProposalParamList;
+} & InboxCardParamList;
 
 export type ProjectsStackParamList = {
   List: undefined;
@@ -193,7 +207,7 @@ export type ProjectsStackParamList = {
   Server: { serverId: string; projectName: string };
   ProjectSettings: { projectId: string; projectName: string };
 } & BacklogDetailParamList &
-  ProposalParamList &
+  InboxCardParamList &
   DocsPageParamList;
 
 /**
@@ -334,6 +348,8 @@ function ProjectsNavigator() {
       <ProjectsStack.Screen name="Item" component={BacklogItemScreen} />
       <ProjectsStack.Screen name="Chat" component={BacklogChatScreen} />
       <ProjectsStack.Screen name="Proposal" component={GoogleProposalScreen} />
+      {/* «Rispondi» dal dettaglio progetto (28 set 2026): vedi `InboxCardParamList`. */}
+      <ProjectsStack.Screen name="Card" component={InboxCardScreen} />
       <ProjectsStack.Screen name="ProjectRepositories" component={ProjectRepositoriesScreen} />
       <ProjectsStack.Screen name="Repository" component={RepositoryScreen} />
       <ProjectsStack.Screen name="ProjectDocs" component={ProjectDocsScreen} />

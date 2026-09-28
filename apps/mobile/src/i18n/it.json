@@ -267,93 +267,104 @@
           "title": "Questo progetto non c'è più.",
           "body": "Non lo segui più, o non esiste."
         },
-        "groups": {
-          "waitingSomeone": "Aspetta qualcuno · {{count}}",
-          "now": "Adesso · {{count}}",
-          "backlogReady": "Pronto nel backlog · {{count}}",
-          "stalled": "Fermo · {{count}}"
-        },
-        "waitingYouArrow": "→ te",
-        "waitingMaintainerArrow": "→ un maintainer",
-        "waitingRequesterArrow": "→ chi l'ha richiesto",
-        "running": "in esecuzione",
-        "backlogReadySummary_one": "{{count}} voce pronta alla conversione",
-        "backlogReadySummary_other": "{{count}} voci pronte alla conversione",
-        "waitingMergeArrow": "→ da mergiare",
-        "stalledTrailing": "{{days}}g · {{reason}}",
         "stalledReason": {
           "toPrepare": "da preparare",
           "workedThenStopped": "lavorato, poi fermo",
           "interrupted": "interrotto",
           "declaredNoWork": "nessun lavoro registrato",
           "unknown": "fermo"
+        },
+        "tabs": {
+          "now": "Adesso",
+          "work": "Lavoro",
+          "project": "Progetto",
+          "badgeLabel_one": "{{count}} cosa tocca a te",
+          "badgeLabel_other": "{{count}} cose toccano a te",
+          "alertLabel": "Un server è giù"
+        },
+        "now": {
+          "monitorEyebrow": "Monitor · server giù",
+          "monitorChecks_one": "{{server}} · {{count}} controllo giù",
+          "monitorChecks_other": "{{server}} · {{count}} controlli giù",
+          "monitorOffline": "{{server}} · offline",
+          "monitorOthers_one": "+{{count}} altro server",
+          "monitorOthers_other": "+{{count}} altri server",
+          "yourTurn": "Tocca a te · {{count}}",
+          "running": "In esecuzione · {{count}}",
+          "others": "Aspetta altri · fermi · {{count}}",
+          "kind": {
+            "question": "domanda",
+            "plan": "piano",
+            "merge": "PR pronta",
+            "unknown": "in attesa"
+          },
+          "action": {
+            "answer": "Rispondi",
+            "approve": "Approva",
+            "merge": "Mergia"
+          },
+          "sinceMinutes": "{{count}} min",
+          "toRequester": "→ richiedente",
+          "toMaintainer": "→ maintainer",
+          "waitingMerge": "attende il merge",
+          "stalledDays": "fermo {{count}}g · {{reason}}"
+        },
+        "work": {
+          "tickets": "Ticket",
+          "ticketsCount_one": "{{count}} aperto",
+          "ticketsCount_other": "{{count}} aperti",
+          "backlog": "Backlog",
+          "backlogCount_one": "{{count}} voce",
+          "backlogCount_other": "{{count}} voci",
+          "notifications": "Notifiche",
+          "notificationsCount_one": "{{count}} da gestire",
+          "notificationsCount_other": "{{count}} da gestire",
+          "seeAllTickets": "tutti ›",
+          "seeAllBacklog": "tutte ›",
+          "seeAllInbox": "tutte ›",
+          "ready_one": "{{count}} pronta",
+          "ready_other": "{{count}} pronte",
+          "toPrepare_one": "{{count}} da preparare",
+          "toPrepare_other": "{{count}} da preparare",
+          "ageToday": "oggi",
+          "ageDays_one": "{{count}} g",
+          "ageDays_other": "{{count}} g",
+          "ageMonths_one": "{{count}} mese",
+          "ageMonths_other": "{{count}} mesi"
+        },
+        "project": {
+          "repositories": "Repository",
+          "documentation": "Documentazione",
+          "roadmap": "Roadmap",
+          "monitor": "Monitor",
+          "settings": "Impostazioni",
+          "repositoriesNone": "nessuno",
+          "docsSpaces_one": "{{count}} spazio",
+          "docsSpaces_other": "{{count}} spazi",
+          "docsPages_one": "{{count}} pag.",
+          "docsPages_other": "{{count}} pag.",
+          "roadmapOpen_one": "{{count}} aperta",
+          "roadmapOpen_other": "{{count}} aperte",
+          "monitorServers_one": "{{count}} server",
+          "monitorServers_other": "{{count}} server",
+          "monitorDown_one": "{{count}} giù",
+          "monitorDown_other": "{{count}} giù",
+          "automations_one": "{{count}} automazione",
+          "automations_other": "{{count}} automazioni",
+          "unavailable": "—"
         }
       },
       "hub": {
-        "seeAll": "vedi ›",
         "loadError": "Non caricata.",
         "retry": "Riprova",
         "tickets": {
-          "label": "Ticket",
-          "labelWithCount_one": "Ticket · {{count}} aperto",
-          "labelWithCount_other": "Ticket · {{count}} aperti",
           "empty": "Nessun ticket aperto."
         },
         "backlog": {
-          "label": "Backlog",
-          "labelWithCount_one": "Backlog · {{count}} voce",
-          "labelWithCount_other": "Backlog · {{count}} voci",
-          "maturity": "{{ready}} pronte · {{notReady}} da preparare",
           "empty": "Backlog vuoto."
         },
         "inbox": {
-          "label": "Notifiche",
-          "labelWithCount_one": "Notifiche · {{count}} da gestire",
-          "labelWithCount_other": "Notifiche · {{count}} da gestire",
           "empty": "Niente da gestire."
-        },
-        "repositories": {
-          "label": "Repository",
-          "labelWithCount_one": "Repository · {{count}}",
-          "labelWithCount_other": "Repository · {{count}}",
-          "empty": "Nessun repository collegato."
-        },
-        "docs": {
-          "label": "Documentazione",
-          "labelWithCount_one": "Documentazione · {{count}} spazio",
-          "labelWithCount_other": "Documentazione · {{count}} spazi",
-          "empty": "Nessuna documentazione generata."
-        },
-        "roadmap": {
-          "label": "Roadmap",
-          "labelWithCount_one": "Roadmap · {{count}} aperta",
-          "labelWithCount_other": "Roadmap · {{count}} aperte",
-          "empty": "Nessuna milestone.",
-          "rowProgress": "{{completed}}/{{total}}"
-        },
-        "open": "apri ›",
-        "monitor": {
-          "label": "Monitor",
-          "labelWithCount_one": "Monitor · {{count}} server",
-          "labelWithCount_other": "Monitor · {{count}} server",
-          "serverCount_one": "{{count}} server",
-          "serverCount_other": "{{count}} server",
-          "labelWithDown_one": "Monitor · {{servers}} · {{count}} controllo giù",
-          "labelWithDown_other": "Monitor · {{servers}} · {{count}} controlli giù",
-          "rowChecksDown_one": "{{count}} giù",
-          "rowChecksDown_other": "{{count}} giù",
-          "empty": "Nessun server associato."
-        },
-        "settings": {
-          "label": "Impostazioni",
-          "docAutoUpdate": "Docs automatici",
-          "dailyReport": "Report giornaliero",
-          "backlog": "Backlog",
-          "pulseEvery_one": "Pulse ogni giorno",
-          "pulseEvery_other": "Pulse ogni {{count}} g",
-          "pulseWaitingBacklog": "Pulse in attesa del backlog",
-          "weeklyBrief": "Brief settimanale",
-          "noneActive": "Nessuna automazione attiva."
         }
       },
       "tickets": {
@@ -570,6 +581,23 @@
       "groups": {
         "needsYou": "Tocca a te",
         "allProjects": "Tutti i progetti"
+      },
+      "merge": {
+        "title": "Mergiare la PR di #{{number}}?",
+        "openPr": "Apri la PR ›",
+        "confirm": "Mergia",
+        "cancel": "Annulla",
+        "errors": {
+          "checksFailed": "I controlli del provider falliscono",
+          "alreadyClosed": "Questa PR non è più aperta",
+          "unreachable": "Il provider non risponde, riprova",
+          "forbidden": "Solo un maintainer può mergiare",
+          "notFound": "Questa PR non è più sul ticket",
+          "notMergeable": "Il provider ha rifiutato il merge: conflitti o regole del branch",
+          "mergeForbidden": "Le credenziali git non hanno il permesso di mergiare",
+          "network": "Stubwise non risponde, controlla la connessione e riprova",
+          "generic": "Il merge non è andato a buon fine, riprova"
+        }
       }
     },
     "work": {

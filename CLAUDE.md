@@ -1334,6 +1334,21 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   **Rollback innocuo**: senza il campo, l'app lo legge `null` dal `.default` e
   il web con `?? null`, e tornano alla sola riga chi/quando; gli indici già
   scritti negli esiti restano, innocui (`closed-reason.ts` guarda solo `type`).
+- **«Dettaglio progetto v3, a tre tab» (28 set 2026)**: rebuild del **solo
+  server**; il web non cambia, il worker non c'entra, l'app si aggiorna dagli
+  store. **Nessuna migrazione, nessuna env, nessuna rotta nuova, nessun kind né
+  valore di enum.** Il polso aggiunge due campi additivi alla voce di merge,
+  `repositoryId`/`repositoryName` in `pulseWaitingForMergeItemSchema`, entrambi
+  **`.optional()`** (letti con un join su `repositories` in
+  `project-pulse-summary.ts`), perché l'app ora **mergia**: il bottone Mergia
+  del dettaglio progetto chiama `tickets.release` (`api-client`), cioè la
+  STESSA rotta della coda di rilascio del web
+  (`POST /api/tickets/:id/repositories/:repositoryId/release`) con lo stesso
+  cancello — `requireAdmin` più il controllo dentro `releasePullRequest`. Il
+  bottone compare solo con `canMerge` (letto dal server, mai dedotto dal ruolo)
+  **e** `repositoryId`: il divieto dell'operatore non si sposta nell'app.
+  **Rollback innocuo**: un server senza i due campi fa sparire il bottone
+  Mergia e la riga resta premibile verso il ticket.
 - **«I progetti in ordine alfabetico» (28 set 2026)**: rebuild **server +
   caddy**. Nessuna migrazione, env, rotta, kind né valore di enum. Cambia
   solo l'ORDINE di `GET /api/projects` (alfabetico, `compareProjectNames` di

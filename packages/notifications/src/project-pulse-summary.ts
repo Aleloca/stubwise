@@ -5,6 +5,7 @@ import {
   backlogItems,
   notifications,
   projects,
+  repositories,
   ticketRepositories,
   tickets,
   type Db,
@@ -164,6 +165,14 @@ export interface PulseWaitingForMergeItem extends PulseTicketIdentity {
   title: string;
   prUrl: string;
   canMerge: boolean;
+  /**
+   * Il repository della PR: la rotta di rilascio lo vuole nel percorso, e
+   * l'app mergia da qui (28 set 2026, dettaglio progetto v3 §2). Sempre
+   * valorizzati da questa funzione; opzionali nello schema condiviso solo per
+   * un'app che parla con un server più vecchio.
+   */
+  repositoryId: string;
+  repositoryName: string;
 }
 
 /** Il riepilogo completo di UN progetto per UN viewer. */
@@ -511,12 +520,17 @@ export async function summarizeProject(
         ticketNumber: tickets.number,
         title: tickets.title,
         prUrl: ticketRepositories.prUrl,
+        repositoryId: ticketRepositories.repositoryId,
+        repositoryName: repositories.name,
         priority: tickets.priority,
         type: tickets.type,
         createdAt: tickets.createdAt,
       })
       .from(ticketRepositories)
       .innerJoin(tickets, eq(tickets.id, ticketRepositories.ticketId))
+      // Inner e non left: `repository_id` è NOT NULL con FK, quindi la riga
+      // c'è sempre — il join porta solo il NOME, per la conferma del merge.
+      .innerJoin(repositories, eq(repositories.id, ticketRepositories.repositoryId))
       .where(
         and(
           eq(tickets.projectId, projectId),
@@ -642,6 +656,8 @@ export async function summarizeProject(
       title: row.title,
       prUrl: row.prUrl,
       canMerge,
+      repositoryId: row.repositoryId,
+      repositoryName: row.repositoryName,
       ...ticketIdentity(row),
     }));
 
