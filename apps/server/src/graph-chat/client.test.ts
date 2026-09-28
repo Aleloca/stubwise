@@ -18,6 +18,16 @@ import { createGraphMcpClient } from "./client.js";
 interface FakeState {
   /** Richieste HTTP ricevute in totale (handshake + tool call). */
   requests: number;
+  /**
+   * Solo le POST, cioè i messaggi JSON-RPC: handshake, notifiche, tool call.
+   * Esiste perché `requests` conta anche la GET che il client Streamable HTTP
+   * apre DA SOLO dopo l'handshake, per lo stream degli eventi del server, e che
+   * non attende: la sua ora d'arrivo è libera. In locale arriva prima della
+   * prima tool call; sotto il carico della CI (28 set 2026, giro completo su
+   * main dopo la #61) è arrivata dopo, e un conteggio «fra due query» vedeva 2
+   * invece di 1 senza che niente fosse rotto.
+   */
+  posts: number;
   /** `true` = ogni richiesta risponde 500 (container rotto / non ancora pronto). */
   broken: boolean;
   /** Ritardo applicato all'handler del tool, per provare i timeout. */
@@ -67,6 +77,7 @@ function buildFakeServer(state: FakeState): McpServer {
 async function startFakeGraphify(): Promise<FakeGraphify> {
   const state: FakeState = {
     requests: 0,
+    posts: 0,
     broken: false,
     delayMs: 0,
     toolFails: false,
@@ -86,6 +97,7 @@ async function startFakeGraphify(): Promise<FakeGraphify> {
 
   const httpServer: Server = createServer((req, res) => {
     state.requests += 1;
+    if (req.method === "POST") state.posts += 1;
     if (state.broken) {
       res.writeHead(500, { "content-type": "text/plain" });
       res.end("kaboom");
@@ -158,12 +170,14 @@ describe("createGraphMcpClient", () => {
     cleanups.push(() => client.close());
 
     await client.queryGraph(query);
-    const afterFirst = fake.state.requests;
+    const afterFirst = fake.state.posts;
     await client.queryGraph(query);
 
-    // La seconda query costa UNA richiesta (la tool call): se ci fosse un nuovo
-    // handshake il delta sarebbe maggiore.
-    expect(fake.state.requests - afterFirst).toBe(1);
+    // La seconda query costa UNA POST (la tool call): se ci fosse un nuovo
+    // handshake il delta sarebbe maggiore. Si contano le POST e non tutte le
+    // richieste: la GET che il client apre in background dopo l'handshake non
+    // ha un'ora d'arrivo fissa (vedi `FakeState.posts`).
+    expect(fake.state.posts - afterFirst).toBe(1);
   });
 
   it("ritorna null su isError SENZA aprire il circuito", async () => {
