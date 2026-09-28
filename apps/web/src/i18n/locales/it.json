@@ -1466,7 +1466,11 @@
       "emptyHintMember": "Chiedi a un maintainer di creare il primo progetto.",
       "repositoryCount": "{{count}} repository",
       "repositoryCount_one": "{{count}} repository",
-      "createdAt": "creato {{date}}"
+      "createdAt": "creato {{date}}",
+      "groups": {
+        "needsYou": "Tocca a te",
+        "allProjects": "Tutti i progetti"
+      }
     },
     "pulse": {
       "waitingQuestion_one": "aspetta te — {{count}} domanda dell'agente",

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { needsViewer } from "@stubwise/shared";
 import { useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
@@ -96,6 +97,26 @@ export function ProjectsPage() {
   const { data: pulseSummaries } = useQuery(projectsPulseQueryOptions);
   const pulseByProjectId = new Map((pulseSummaries ?? []).map((summary) => [summary.projectId, summary]));
 
+  // DUE GRUPPI (28 set 2026): in cima i progetti dove qualcosa aspetta chi
+  // guarda, sotto gli altri. `needsViewer` è la STESSA funzione con cui il
+  // server ordina il polso; l'elenco arriva già alfabetico da
+  // `GET /api/projects` (`compareProjectNames`), quindi qui si divide e
+  // basta. Senza polso (lettura fallita, o progetto non seguito) un progetto
+  // sta fra gli altri: non si afferma un'attesa che non si conosce.
+  const needsYou = (project: (typeof projects)[number]) => {
+    const summary = pulseByProjectId.get(project.id);
+    return summary !== undefined && needsViewer(summary);
+  };
+  const needing = projects.filter(needsYou);
+  const others = projects.filter((project) => !needsYou(project));
+  const groups =
+    needing.length > 0 && others.length > 0
+      ? [
+          { key: "needs", label: t("projects:list.groups.needsYou"), items: needing },
+          { key: "all", label: t("projects:list.groups.allProjects"), items: others },
+        ]
+      : [{ key: "all", label: null, items: [...needing, ...others] }];
+
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -187,38 +208,47 @@ export function ProjectsPage() {
           </p>
         </div>
       ) : (
-        <ul className="mt-6 rounded-sm border border-line bg-ink-900">
-          {projects.map((project) => (
-            <li key={project.id} className="border-b border-line last:border-b-0">
-              <Link
-                to="/projects/$projectId"
-                params={{ projectId: project.id }}
-                className="flex flex-wrap items-baseline gap-x-4 gap-y-1.5 px-5 py-4 transition-colors hover:bg-ink-850"
-              >
-                <span className="text-[15px] font-medium text-fg">{project.name}</span>
-                <span className="font-mono text-[12px] text-fg-faint">{project.slug}</span>
-                <span className="font-mono text-[11px] tracking-[0.12em] text-fg-muted uppercase">
-                  {t("projects:list.repositoryCount", { count: project.repositoryCount })}
-                </span>
-                {pulseByProjectId.has(project.id) && (
-                  <ProjectPulseLine summary={pulseByProjectId.get(project.id)!} />
-                )}
-                <span className="min-w-0 flex-1 truncate text-right font-mono text-[12px] text-fg-muted">
-                  {project.description ?? ""}
-                </span>
-                <span
-                  className="font-mono text-[11px] whitespace-nowrap text-fg-faint"
-                  title={project.createdAt}
-                >
-                  {t("projects:list.createdAt", { date: formatRelativeTime(project.createdAt) })}
-                </span>
-              </Link>
-              {pulseByProjectId.has(project.id) && (
-                <ProjectStalledBlock summary={pulseByProjectId.get(project.id)!} />
+        <div className="mt-6 flex flex-col gap-6">
+          {groups.map((group) => (
+            <section key={group.key} className="flex flex-col gap-2">
+              {group.label !== null && (
+                <h2 className="font-mono text-[11px] tracking-[0.14em] text-fg-muted uppercase">{group.label}</h2>
               )}
-            </li>
+              <ul className="rounded-sm border border-line bg-ink-900">
+                {group.items.map((project) => (
+                <li key={project.id} className="border-b border-line last:border-b-0">
+                  <Link
+                    to="/projects/$projectId"
+                    params={{ projectId: project.id }}
+                    className="flex flex-wrap items-baseline gap-x-4 gap-y-1.5 px-5 py-4 transition-colors hover:bg-ink-850"
+                  >
+                    <span className="text-[15px] font-medium text-fg">{project.name}</span>
+                    <span className="font-mono text-[12px] text-fg-faint">{project.slug}</span>
+                    <span className="font-mono text-[11px] tracking-[0.12em] text-fg-muted uppercase">
+                      {t("projects:list.repositoryCount", { count: project.repositoryCount })}
+                    </span>
+                    {pulseByProjectId.has(project.id) && (
+                      <ProjectPulseLine summary={pulseByProjectId.get(project.id)!} />
+                    )}
+                    <span className="min-w-0 flex-1 truncate text-right font-mono text-[12px] text-fg-muted">
+                      {project.description ?? ""}
+                    </span>
+                    <span
+                      className="font-mono text-[11px] whitespace-nowrap text-fg-faint"
+                      title={project.createdAt}
+                    >
+                      {t("projects:list.createdAt", { date: formatRelativeTime(project.createdAt) })}
+                    </span>
+                  </Link>
+                  {pulseByProjectId.has(project.id) && (
+                    <ProjectStalledBlock summary={pulseByProjectId.get(project.id)!} />
+                  )}
+                </li>
+                ))}
+              </ul>
+            </section>
           ))}
-        </ul>
+        </div>
       )}
     </div>
   );

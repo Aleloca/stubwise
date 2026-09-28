@@ -269,3 +269,76 @@ describe("ProjectsPage — il blocco «Fermo»", () => {
     expect(screen.getAllByTestId("project-stalled")).toHaveLength(1);
   });
 });
+
+/**
+ * DUE GRUPPI, ALFABETICI (28 set 2026). In cima i progetti dove qualcosa
+ * aspetta chi guarda (`needsViewer` di `@stubwise/shared`, la stessa funzione
+ * con cui il server ordina il polso), sotto tutti gli altri. L'elenco arriva
+ * già alfabetico da `GET /api/projects`: la pagina divide, non riordina.
+ */
+describe("ProjectsPage — «Needs you» e «All projects»", () => {
+  const mergeable = (canMerge: boolean) =>
+    pulseSummaries().map((summary) =>
+      summary.projectId === OK_ID
+        ? {
+            ...summary,
+            waitingForMerge: [
+              { ticketId: TICKET_ID, ticketNumber: 20, title: "PR", prUrl: "https://example.com/pr/20", canMerge },
+            ],
+          }
+        : summary,
+    );
+
+  const rowNames = () =>
+    screen
+      .getAllByRole("link")
+      .map((link) => link.querySelector("span")?.textContent)
+      .filter((name): name is string => ["Attesa", "Corsa", "Fermo", "Tranquillo"].includes(name ?? ""));
+
+  it("in cima chi aspetta te — anche per una PR che puoi mergiare — poi gli altri, ognuno nell'ordine ricevuto", async () => {
+    mockApi({ ...baseApi(), "GET /api/projects/pulse": () => jsonResponse(200, mergeable(true)) });
+    renderApp("/projects");
+
+    const needs = await screen.findByRole("heading", { name: "Needs you" });
+    const all = screen.getByRole("heading", { name: "All projects" });
+    expect(needs.compareDocumentPosition(all) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(rowNames()).toEqual(["Attesa", "Tranquillo", "Corsa", "Fermo"]);
+  });
+
+  it("il confine: una PR che NON puoi mergiare resta fra gli altri", async () => {
+    mockApi({ ...baseApi(), "GET /api/projects/pulse": () => jsonResponse(200, mergeable(false)) });
+    renderApp("/projects");
+
+    await screen.findByRole("heading", { name: "Needs you" });
+    expect(rowNames()).toEqual(["Attesa", "Corsa", "Fermo", "Tranquillo"]);
+  });
+
+  it("un gruppo solo: nessuna intestazione", async () => {
+    mockApi({
+      ...baseApi(),
+      "GET /api/projects/pulse": () =>
+        jsonResponse(
+          200,
+          pulseSummaries().map((summary) => ({ ...summary, waitingForYou: [] })),
+        ),
+    });
+    renderApp("/projects");
+
+    await screen.findByText("Attesa");
+    await screen.findAllByText(/all quiet/i);
+    expect(screen.queryByRole("heading", { name: "Needs you" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "All projects" })).not.toBeInTheDocument();
+  });
+
+  it("senza polso (la lettura fallisce): nessun gruppo, l'elenco resta com'è", async () => {
+    mockApi({
+      ...baseApi(),
+      "GET /api/projects/pulse": () => jsonResponse(500, { code: "internal", message: "boom" }),
+    });
+    renderApp("/projects");
+
+    await screen.findByText("Attesa");
+    expect(screen.queryByRole("heading", { name: "Needs you" })).not.toBeInTheDocument();
+    expect(rowNames()).toEqual(["Attesa", "Corsa", "Fermo", "Tranquillo"]);
+  });
+});
