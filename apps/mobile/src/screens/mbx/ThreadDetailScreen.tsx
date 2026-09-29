@@ -21,8 +21,13 @@ const CONTENT_BASE_BOTTOM_PADDING = 40;
 
 /**
  * Una CONVERSAZIONE letta per intero («la posta si legge per conversazione»
- * §4, Task 15): i messaggi in ordine, ciascuno col suo mittente, la sua data
- * e il suo corpo.
+ * §4, Task 15): i messaggi dal PIÙ RECENTE, ciascuno col suo mittente, la
+ * sua data e il suo corpo.
+ *
+ * L'ordine è invertito QUI, non sul server (29 set 2026): la rotta li manda
+ * dal più vecchio, e il web li legge così. Sul telefono l'ordine
+ * cronologico costringeva a scorrere fino in fondo per leggere l'ultima
+ * email, che è quasi sempre quella per cui si apre la conversazione.
  *
  * È ciò che dissolve il terzo sintomo da cui nasce tutto questo: prima, per
  * leggere lo scambio, l'unica strada era «Mostra l'originale» — che
@@ -85,7 +90,7 @@ export function ThreadDetailScreen({
               {query.data!.accountEmail}
             </Text>
 
-            {query.data!.messages.map((message) => (
+            {[...query.data!.messages].reverse().map((message) => (
               <View
                 key={message.id}
                 style={[styles.message, message.id === highlightMessageId && styles.messageMatched]}

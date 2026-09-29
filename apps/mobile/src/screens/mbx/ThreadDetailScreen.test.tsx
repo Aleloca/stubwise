@@ -98,6 +98,16 @@ describe("ThreadDetailScreen", () => {
     expect(screen.getByText("2 messaggi · ops@example.com")).toBeTruthy();
   });
 
+  test("il messaggio PIÙ RECENTE sta in cima, anche se il server li manda dal più vecchio", async () => {
+    await renderScreen(makeClient());
+    await waitFor(() => expect(screen.getByTestId(`thread-message-${AMMESSO}`)).toBeTruthy());
+
+    const order = screen
+      .getAllByTestId(/^thread-message-[0-9a-f-]{36}$/)
+      .map((node) => node.props.testID as string);
+    expect(order).toEqual([`thread-message-${AMMESSO}`, `thread-message-${CONTESTO}`]);
+  });
+
   test("un messaggio di CONTESTO si dichiara tale; uno ammesso no", async () => {
     // Non è uno che «non ha ancora» prodotto una proposta: è uno che non ne
     // produrrà mai, ed è una cosa diversa.
