@@ -8,6 +8,7 @@
  * precedente. Passare quella roba al modello significa classificare dieci volte
  * la stessa conversazione e pagarla ogni volta.
  */
+import { splitQuotedReply } from "@stubwise/shared";
 import sanitizeHtml from "sanitize-html";
 import { z } from "zod";
 import { buildUrl, parseGoogleJson, requestGoogle, type GoogleClientOptions } from "./fetch.js";
@@ -435,9 +436,16 @@ const SIGNATURE_SEPARATOR = /^--\s?$/;
  * La citazione si riconosce dalla riga d'apertura, che i client spezzano
  * volentieri su due righe ("… Bob <bob@…> ha" / "scritto:"): per questo il
  * confronto si fa anche sulla coppia di righe unita, non solo sulla singola.
+ *
+ * Le citazioni che si aprono con un BLOCCO d'intestazione (Outlook, «Da: …
+ * Inviato: …», e la forma a tabella senza due punti) le toglie PRIMA
+ * `splitQuotedReply` di `@stubwise/shared` (29 set 2026): è la stessa regola
+ * che la conversazione applica in lettura agli estratti scritti prima di
+ * questa data, e tenerla in un posto solo evita che le due divergano. Gli
+ * inoltri li lascia interi, come fa lei.
  */
 export function stripQuotedAndSignature(text: string): string {
-  const lines = text.replace(/\r\n?/g, "\n").split("\n");
+  const lines = splitQuotedReply(text.replace(/\r\n?/g, "\n")).body.split("\n");
   let cut = lines.length;
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i] ?? "";

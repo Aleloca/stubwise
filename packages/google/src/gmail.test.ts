@@ -460,6 +460,50 @@ describe("extractText", () => {
     expect(extractText({ mimeType: "text/plain", body: { data: b64url(body) } })).toBe("Confermo la data.");
   });
 
+  it("taglia la citazione di Outlook («Da: … Inviato: …»), con la riga di separazione", () => {
+    const body = [
+      "Confermo la modifica.",
+      "________________________________",
+      "Da: Ufficio IT <it@acme.test>",
+      "Inviato: martedì 28 luglio 2026 12:11",
+      "A: Bob <bob@acme.test>",
+      "Oggetto: Re: APP 4.0",
+      "",
+      "La mail precedente",
+    ].join("\n");
+    expect(extractText({ mimeType: "text/plain", body: { data: b64url(body) } })).toBe("Confermo la modifica.");
+  });
+
+  it("taglia la citazione a TABELLA (etichette senza due punti)", () => {
+    const body = [
+      "Ho mandato l'invito.",
+      "",
+      'Da "Bob" bob@acme.test',
+      "",
+      "A ada@acme.test",
+      "",
+      "Data Tue, 29 Sep 2026 12:21:16 +0200",
+      "",
+      "Oggetto Re: Integrazione software",
+      "",
+      "La mail precedente",
+    ].join("\n");
+    expect(extractText({ mimeType: "text/plain", body: { data: b64url(body) } })).toBe("Ho mandato l'invito.");
+  });
+
+  it("un INOLTRO resta intero: il testo sotto l'intestazione è il contenuto", () => {
+    const body = [
+      "Vi giro questa",
+      "---------- Forwarded message ---------",
+      "Da: Sales <sales@acme.test>",
+      "Date: lun 14 set 2026 alle ore 10:05",
+      "Subject: Fwd: Anomalie sconti",
+      "",
+      "Il contenuto inoltrato",
+    ].join("\n");
+    expect(extractText({ mimeType: "text/plain", body: { data: b64url(body) } })).toContain("Il contenuto inoltrato");
+  });
+
   it("taglia la firma dopo il separatore «-- »", () => {
     const body = ["Ci vediamo lunedì.", "", "-- ", "Ada Lovelace", "CTO, Acme", "+39 000 000"].join("\n");
     expect(extractText({ mimeType: "text/plain", body: { data: b64url(body) } })).toBe("Ci vediamo lunedì.");

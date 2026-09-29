@@ -30,12 +30,15 @@
  * operativi»), quindi qui la regola è più stretta: servono `A`, `Data` e
  * `Oggetto`, tutte senza due punti, nelle righe subito sotto.
  *
- * ⚠️ **È una regola di LETTURA, non di ingestione.** L'estratto resta com'è:
- * è ciò che la classificazione ha letto, e non si riscrive (CLAUDE.md, «Il
- * corpo HTML di un'email»). Per questo vale anche sulle righe già in
- * database, senza toccarle; e per questo NON si usa dove si mostra «cosa ha
- * letto il modello» (il dettaglio di una proposta), ma solo nella
- * conversazione.
+ * ⚠️ **Gira in DUE punti, e non sono ridondanti.** All'ingestione, dentro
+ * `stripQuotedAndSignature` (`packages/google/src/gmail.ts`): dal 29 set 2026
+ * l'estratto nasce già senza questa citazione, quindi la classificazione non
+ * la legge più. E in LETTURA, nella conversazione (app e web): serve agli
+ * estratti scritti PRIMA di quella data, che non si riscrivono — sono ciò che
+ * la classificazione ha letto (CLAUDE.md, «Il corpo HTML di un'email»). Su un
+ * estratto nuovo non trova niente da comprimere, ed è giusto così. Per la
+ * stessa ragione NON si usa dove si mostra «cosa ha letto il modello» (il
+ * dettaglio di una proposta).
  *
  * ⚠️ **Un INOLTRO non si taglia**: il testo sotto l'intestazione è il
  * contenuto vero, e la mail inoltrata non sta nel thread. Si riconosce in due
