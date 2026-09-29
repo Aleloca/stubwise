@@ -166,6 +166,108 @@ describe("collectPm2Services", () => {
     expect(services[0]!.name).toBe("x".repeat(200));
   });
 
+  describe("names from the PM2_HOME pid files (environ unreadable)", () => {
+    /** Fake host root with `<pm2Home>/pids/<file>` entries. */
+    async function makeHostRoot(pm2Home: string, pids: Record<string, string>): Promise<string> {
+      const rootPath = await mkdtemp(join(tmpdir(), "sw-pm2-root-"));
+      const dir = join(rootPath, pm2Home, "pids");
+      await mkdir(dir, { recursive: true });
+      for (const [file, content] of Object.entries(pids)) {
+        await writeFile(join(dir, file), content);
+      }
+      return rootPath;
+    }
+
+    async function writeDaemon(procRoot: string, pid: number, pm2Home: string): Promise<void> {
+      await writeProc(procRoot, pid, {
+        cmdline: `PM2 v5.3.0: God Daemon (${pm2Home})${NUL}`,
+        stat: `${pid} (PM2 v5.3.0: G) S 1 ${pid} ${pid} 0 -1 4194560 0 0 0 0 0 0`,
+      });
+    }
+
+    // The case seen in production: the agent runs as an unprivileged user, so
+    // /proc/<pid>/environ is unreadable (no file here), and npm rewrites its own
+    // process title — every app started with `npm run start` looked the same.
+    it("uses the PM2 app name instead of the npm process title", async () => {
+      const procRoot = await makeProcRoot();
+      await writeDaemon(procRoot, 100, "/home/deploy/.pm2");
+      await writeProc(procRoot, 200, {
+        stat: "200 (npm run start) S 100 200 200 0 -1 4194304 0 0 0 0 0 0",
+        cmdline: "npm run start",
+      });
+      await writeProc(procRoot, 201, {
+        stat: "201 (npm run start) S 100 201 201 0 -1 4194304 0 0 0 0 0 0",
+        cmdline: "npm run start",
+      });
+      const rootPath = await makeHostRoot("/home/deploy/.pm2", {
+        "Audin-api-0.pid": "200",
+        "Audin-web-1.pid": "201\n",
+        "stale-app-2.pid": "999", // app stopped: its pid is not a daemon child
+        "garbage.pid": "200", // not `<name>-<id>.pid` → ignored
+      });
+
+      const services = await collectPm2Services({ procRoot, rootPath });
+      expect(services.map((s) => s.name)).toEqual(["Audin-api", "Audin-web"]);
+    });
+
+    it("keeps each daemon's pid files separate (root + deploy user)", async () => {
+      const procRoot = await makeProcRoot();
+      await writeDaemon(procRoot, 100, "/home/deploy/.pm2");
+      await writeDaemon(procRoot, 110, "/home/other/.pm2");
+      await writeProc(procRoot, 200, {
+        stat: "200 (node) S 100 200 200 0 -1 4194304 0 0 0 0 0 0",
+        cmdline: "npm run start",
+      });
+      await writeProc(procRoot, 210, {
+        stat: "210 (node) S 110 210 210 0 -1 4194304 0 0 0 0 0 0",
+        cmdline: "npm run start",
+      });
+      const rootPath = await makeHostRoot("/home/deploy/.pm2", { "deploy-app-0.pid": "200" });
+      await mkdir(join(rootPath, "home/other/.pm2/pids"), { recursive: true });
+      await writeFile(join(rootPath, "home/other/.pm2/pids/other-app-0.pid"), "210");
+
+      const services = await collectPm2Services({ procRoot, rootPath });
+      expect(services.map((s) => s.name)).toEqual(["deploy-app", "other-app"]);
+    });
+
+    it("falls back to environ, then cmdline, when PM2_HOME is unreadable", async () => {
+      const procRoot = await makeProcRoot();
+      // e.g. /root/.pm2 or a 750 home: the pids dir does not exist for us.
+      await writeDaemon(procRoot, 100, "/root/.pm2");
+      await writeProc(procRoot, 200, {
+        stat: "200 (node) S 100 200 200 0 -1 4194304 0 0 0 0 0 0",
+        environ: `name=from-environ${NUL}`,
+        cmdline: "npm run start",
+      });
+      await writeProc(procRoot, 201, {
+        stat: "201 (node) S 100 201 201 0 -1 4194304 0 0 0 0 0 0",
+        cmdline: "npm run start",
+      });
+      const rootPath = await mkdtemp(join(tmpdir(), "sw-pm2-root-"));
+
+      const services = await collectPm2Services({ procRoot, rootPath });
+      expect(services.map((s) => s.name)).toEqual(["from-environ", "npm run start"]);
+    });
+
+    it("never resolves a PM2_HOME that climbs out of the host root", async () => {
+      const procRoot = await makeProcRoot();
+      await writeDaemon(procRoot, 100, "/../../escape/.pm2");
+      await writeProc(procRoot, 200, {
+        stat: "200 (node) S 100 200 200 0 -1 4194304 0 0 0 0 0 0",
+        cmdline: "npm run start",
+      });
+      // The pid file sits where `join(rootPath, "/../../escape/.pm2")` would land.
+      const outer = await mkdtemp(join(tmpdir(), "sw-pm2-outer-"));
+      const rootPath = join(outer, "a", "b");
+      await mkdir(rootPath, { recursive: true });
+      await mkdir(join(outer, "escape/.pm2/pids"), { recursive: true });
+      await writeFile(join(outer, "escape/.pm2/pids/escaped-0.pid"), "200");
+
+      const services = await collectPm2Services({ procRoot, rootPath });
+      expect(services.map((s) => s.name)).toEqual(["npm run start"]);
+    });
+  });
+
   it("returns [] when there is no PM2 God Daemon", async () => {
     const procRoot = await makeProcRoot();
     await writeProc(procRoot, 200, {

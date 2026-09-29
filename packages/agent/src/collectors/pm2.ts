@@ -4,6 +4,17 @@
  * per user, e.g. root + deploy), then enumerate their child processes (the
  * managed apps) and read each child's name and RSS from `/proc`.
  *
+ * The app NAME (the one given to `pm2 start --name`) comes, in order, from:
+ *  1. the daemon's pid files, `<PM2_HOME>/pids/<name>-<pm_id>.pid` on the host
+ *     root — the only source readable by the agent's unprivileged user;
+ *  2. the `name` env var PM2 injects (`/proc/<pid>/environ`) — readable only
+ *     by the same uid or with CAP_SYS_PTRACE, so in practice never, from the
+ *     container as it is installed;
+ *  3. the cmdline — which for `npm run start` is npm's own process title, the
+ *     same for every app: the last resort, not a name.
+ * PM2_HOME is unreadable when the home is closed to other users (`/root`, a
+ * `750` home): there step 1 yields nothing and we fall through to 2 and 3.
+ *
  * Fail-soft by design: no daemon → []; any per-pid read/parse error skips that
  * pid; the collector never throws.
  */
@@ -17,6 +28,11 @@ import type { DiscoveredService } from "@stubwise/shared";
 export interface CollectPm2Options {
   /** Path to the (host) proc filesystem root (e.g. "/host/proc"). */
   procRoot: string;
+  /**
+   * Path to the (host) root filesystem (e.g. "/host/root"), where PM2_HOME's
+   * pid files are read. Omitted → names come from environ/cmdline only.
+   */
+  rootPath?: string;
 }
 
 /**
@@ -69,6 +85,41 @@ function cmdlineToString(raw: string): string {
  */
 function isGodDaemon(cmdline: string): boolean {
   return cmdline.includes("PM2") && cmdline.includes("God Daemon");
+}
+
+/** PM2_HOME from the daemon title: "... God Daemon (/home/deploy/.pm2)". */
+function pm2HomeOf(cmdline: string): string | null {
+  const match = cmdline.match(/God Daemon \((\/[^)]*)\)\s*$/);
+  const home = match?.[1];
+  // The title is written by a process on the host: never let it climb out of
+  // the host root mount.
+  if (!home || home.split("/").includes("..")) return null;
+  return home;
+}
+
+/**
+ * pid → app name from `<rootPath><pm2Home>/pids/<name>-<pm_id>.pid`. PM2 writes
+ * the file name with every char outside [a-zA-Z0-9.-] replaced by "-", so an
+ * app called `audin_api` reads back as `audin-api`: close enough to tell apps
+ * apart, which is what the cmdline can't do. Unreadable dir → empty map.
+ */
+async function readPidFileNames(rootPath: string, pm2Home: string): Promise<Map<number, string>> {
+  const names = new Map<number, string>();
+  const dir = join(rootPath, pm2Home, "pids");
+  let files: string[];
+  try {
+    files = await readdir(dir);
+  } catch {
+    return names;
+  }
+  for (const file of files) {
+    const match = file.match(/^(.+)-\d+\.pid$/);
+    if (!match?.[1]) continue;
+    const content = await readFileSafe(join(dir, file));
+    const pid = Number(content?.trim());
+    if (Number.isInteger(pid) && pid > 0) names.set(pid, match[1]);
+  }
+  return names;
 }
 
 /**
@@ -137,17 +188,32 @@ function parseStatmRss(statm: string): number | null {
 export async function collectPm2Services(
   options: CollectPm2Options,
 ): Promise<DiscoveredService[]> {
-  const { procRoot } = options;
+  const { procRoot, rootPath } = options;
   const pids = await listPids(procRoot);
   if (pids.length === 0) return [];
 
   // Locate every God Daemon (one per user is common: root + deploy user).
   const daemonPids = new Set<number>();
+  const pm2Homes: string[] = [];
   for (const pid of pids) {
-    const cmdline = await readFileSafe(join(procRoot, String(pid), "cmdline"));
-    if (cmdline && isGodDaemon(cmdlineToString(cmdline))) daemonPids.add(pid);
+    const raw = await readFileSafe(join(procRoot, String(pid), "cmdline"));
+    if (!raw) continue;
+    const cmdline = cmdlineToString(raw);
+    if (!isGodDaemon(cmdline)) continue;
+    daemonPids.add(pid);
+    const home = pm2HomeOf(cmdline);
+    if (home) pm2Homes.push(home);
   }
   if (daemonPids.size === 0) return [];
+
+  // Only the pids that turn out to be daemon children are looked up, so a
+  // stale pid file (stopped app) never names anything.
+  const pidFileNames = new Map<number, string>();
+  if (rootPath) {
+    for (const home of pm2Homes) {
+      for (const [pid, name] of await readPidFileNames(rootPath, home)) pidFileNames.set(pid, name);
+    }
+  }
 
   const services: DiscoveredService[] = [];
   for (const pid of pids) {
@@ -162,10 +228,12 @@ export async function collectPm2Services(
     // the restarted replacement (a live child) will be picked up instead.
     if (stat.state === "Z") continue;
 
-    // Name: PM2 injects a `name` env var; fall back to the cmdline-derived name.
-    let name: string | null = null;
-    const environ = await readFileSafe(join(procRoot, String(pid), "environ"));
-    if (environ) name = parseEnviron(environ).get("name") ?? null;
+    // Name: pid file, then PM2's `name` env var, then the cmdline (see top).
+    let name: string | null = pidFileNames.get(pid) ?? null;
+    if (!name) {
+      const environ = await readFileSafe(join(procRoot, String(pid), "environ"));
+      if (environ) name = parseEnviron(environ).get("name") ?? null;
+    }
     if (!name) {
       const cmdline = await readFileSafe(join(procRoot, String(pid), "cmdline"));
       if (cmdline) name = cmdlineName(cmdline);
