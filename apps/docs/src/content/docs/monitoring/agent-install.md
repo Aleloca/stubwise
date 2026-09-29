@@ -98,7 +98,7 @@ to obtain the exact command with your URL and key already filled in. It looks
 like this:
 
 ```bash
-docker run -d --name stubwise-agent --restart unless-stopped \
+docker run -d --name stubwise-agent --restart unless-stopped --user 0 \
   --group-add "$(stat -c %g /var/run/docker.sock)" \
   -v /proc:/host/proc:ro -v /sys:/host/sys:ro -v /:/host/root:ro \
   -v /var/run/docker.sock:/var/run/docker.sock:ro \
@@ -112,10 +112,19 @@ Line by line:
 - `-d --name stubwise-agent --restart unless-stopped` — run detached, name the
   container so you can manage it later, and restart it on boot or crash (but not
   if you stop it by hand).
+- `--user 0` — run the agent as root inside the container. PM2 app names are
+  read from the pid files in PM2's home (`~/.pm2/pids`); when PM2 runs as root
+  that directory is under `/root`, which other users can't enter, and without
+  this flag every app started with `npm run start` would be listed under that
+  same command instead of its PM2 name. The mounts stay **read-only**, so the
+  agent still can't change anything on the host — but it can read every file on
+  it. If you'd rather not grant that and your PM2 runs as a regular user with a
+  home other users can traverse, you can drop the flag.
 - `--group-add "$(stat -c %g /var/run/docker.sock)"` — add the container process
-  to the **group that owns the Docker socket**. The agent runs as a non-root
-  user (UID 10001); without this group its `connect()` to the socket fails with
-  **`EACCES`** and Docker containers silently show up as zero services.
+  to the **group that owns the Docker socket**. Without `--user 0` the agent runs
+  as a non-root user (UID 10001), and without this group its `connect()` to the
+  socket fails with **`EACCES`** and Docker containers silently show up as zero
+  services. With `--user 0` it isn't needed, but it's harmless to keep.
 - `-v /proc:/host/proc:ro` and `-v /sys:/host/sys:ro` — mount the host's `/proc`
   and `/sys` **read-only**; this is where CPU, memory, network and PM2 data come
   from.
@@ -165,6 +174,9 @@ If things don't line up:
 - **PM2 apps missing** — PM2 is discovered by scanning `/proc`, so the
   `/proc` mount must be present (`-v /proc:/host/proc:ro`). The agent does not
   report PM2 restart counts.
+- **PM2 apps listed as `npm run start` (or `app.js`)** — the agent can't read
+  PM2's pid files, so it falls back to the process command line. Make sure the
+  run command includes `--user 0` (required when PM2 runs as root).
 
 ## Update
 
@@ -172,8 +184,15 @@ Pull the latest image and recreate the container:
 
 ```bash
 docker pull alelocadev/stubwise-agent
+
+# the key can't be retrieved from Stubwise: read URL and key from the running container
+ENVS=$(docker inspect stubwise-agent --format '{{range .Config.Env}}{{println .}}{{end}}')
+URL=$(echo "$ENVS" | sed -n 's/^STUBWISE_URL=//p')
+KEY=$(echo "$ENVS" | sed -n 's/^STUBWISE_SERVER_KEY=//p')
+echo "$URL ${KEY:0:6}…"   # both must be set before going on
+
 docker rm -f stubwise-agent
-# re-run the docker run command above (same URL and key)
+# re-run the docker run command above with -e STUBWISE_URL="$URL" -e STUBWISE_SERVER_KEY="$KEY"
 ```
 
 ## Uninstall
