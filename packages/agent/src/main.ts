@@ -353,7 +353,7 @@ export function makeCollectSample(
         log.warn("docker collection failed", { error: err instanceof Error ? err.message : String(err) });
         return [];
       }),
-      collectPm2Services({ procRoot }).catch((err) => {
+      collectPm2Services({ procRoot, rootPath }).catch((err) => {
         log.warn("pm2 collection failed", { error: err instanceof Error ? err.message : String(err) });
         return [];
       }),
