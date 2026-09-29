@@ -414,65 +414,37 @@ describe("GitHubProvider.mergePullRequest", () => {
   });
 });
 
-describe("GitHubProvider.upsertPrComment", () => {
-  const MARKER = "<!-- stubwise-pr-review -->";
-
-  it("nessun commento col marker → POST di un nuovo commento", async () => {
-    const fetchImpl = vi
-      .fn()
-      .mockResolvedValueOnce(jsonResponse([{ id: 1, body: "altro" }], 200)) // list
-      .mockResolvedValueOnce(jsonResponse({ id: 2 }, 201)); // create
+describe("GitHubProvider.createPrComment", () => {
+  it("POST di un commento nuovo, senza leggere né modificare quelli esistenti", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ id: 2 }, 201));
     const provider = new GitHubProvider({ fetchImpl });
 
-    await provider.upsertPrComment(config, 42, MARKER, `${MARKER}\nAnalisi`);
+    await provider.createPrComment(config, 42, "Analisi");
 
-    expect(fetchImpl).toHaveBeenCalledTimes(2);
-    expect(fetchImpl).toHaveBeenNthCalledWith(
-      1,
-      "https://api.github.com/repos/octo/repo/issues/42/comments?per_page=100",
-      expect.objectContaining({ method: "GET" })
-    );
-    expect(fetchImpl).toHaveBeenLastCalledWith(
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(fetchImpl).toHaveBeenCalledWith(
       "https://api.github.com/repos/octo/repo/issues/42/comments",
       expect.objectContaining({ method: "POST" })
     );
-    const [, init] = fetchImpl.mock.calls[1] as [string, RequestInit];
+    const [, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
     const headers = init.headers as Record<string, string>;
     expect(headers["Authorization"]).toBe("Bearer ghp_secret");
     expect(headers["Accept"]).toBe("application/vnd.github+json");
     expect(headers["Content-Type"]).toBe("application/json");
-    expect(JSON.parse(init.body as string)).toEqual({ body: `${MARKER}\nAnalisi` });
+    expect(JSON.parse(init.body as string)).toEqual({ body: "Analisi" });
   });
 
-  it("commento col marker esistente → PATCH dello stesso commento", async () => {
-    const fetchImpl = vi
-      .fn()
-      .mockResolvedValueOnce(jsonResponse([{ id: 9, body: `${MARKER}\nvecchia` }], 200))
-      .mockResolvedValueOnce(jsonResponse({ id: 9 }, 200));
-    const provider = new GitHubProvider({ fetchImpl });
-
-    await provider.upsertPrComment(config, 42, MARKER, `${MARKER}\nnuova`);
-
-    expect(fetchImpl).toHaveBeenLastCalledWith(
-      "https://api.github.com/repos/octo/repo/issues/comments/9",
-      expect.objectContaining({ method: "PATCH" })
-    );
-    const [, init] = fetchImpl.mock.calls[1] as [string, RequestInit];
-    expect(JSON.parse(init.body as string)).toEqual({ body: `${MARKER}\nnuova` });
-  });
-
-  it("throws GitProviderError when the list call fails", async () => {
+  it("throws GitProviderError when the create call fails", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(new Response("forbidden", { status: 403 }));
     const provider = new GitHubProvider({ fetchImpl });
 
     const error = await provider
-      .upsertPrComment(config, 42, MARKER, "testo")
+      .createPrComment(config, 42, "testo")
       .then(() => null)
       .catch((e: unknown) => e);
 
     expect(error).toBeInstanceOf(GitProviderError);
     expect((error as GitProviderError).status).toBe(403);
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 });
 

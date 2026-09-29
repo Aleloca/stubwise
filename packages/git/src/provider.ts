@@ -278,13 +278,13 @@ export interface GitProvider {
     opts?: { fetchImpl?: FetchLike }
   ): Promise<{ merged: true; sha: string }>;
   /**
-   * Crea o aggiorna il commento "sticky" della review sulla PR: se esiste già
-   * un commento che contiene `marker` lo aggiorna, altrimenti ne crea uno.
+   * Pubblica un commento NUOVO sulla PR. Ogni review (una per push) lascia il
+   * suo commento: la storia delle review resta leggibile nella conversazione
+   * della PR, invece di essere riscritta sull'unico commento della prima.
    */
-  upsertPrComment(
+  createPrComment(
     p: ProjectGitConfig,
     prNumber: number,
-    marker: string,
     body: string,
     opts?: { fetchImpl?: FetchLike }
   ): Promise<void>;

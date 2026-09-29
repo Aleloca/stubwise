@@ -198,7 +198,7 @@ export async function releasePullRequest(
  * tratta già tutte allo stesso modo (design §4), e prima di questo fix la
  * funzione lo PROMETTEVA senza mantenerlo: partiva solo da
  * `ticket_repositories`, che scrive SOLO la pipeline di fix — una PR aperta a
- * mano (che riceve comunque verdetto, riassunto, commento sticky e un ticket
+ * mano (che riceve comunque verdetto, riassunto, commento sulla PR e un ticket
  * di tipo `review` se `pr_review_enabled` è acceso) non compariva mai.
  *
  * Due sorgenti, dedup per `(repositoryId, prNumber)`:

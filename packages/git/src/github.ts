@@ -251,44 +251,24 @@ export class GitHubProvider implements GitProvider {
   }
 
   /**
-   * Commento "sticky" della review: cerca tra gli issue comment della PR (su
-   * GitHub i commenti di conversazione delle PR sono issue comment) quello che
-   * contiene `marker` e lo aggiorna (PATCH), altrimenti ne crea uno (POST).
+   * Nuovo commento sulla PR (su GitHub i commenti di conversazione delle PR
+   * sono issue comment): sempre un POST, mai la modifica di uno esistente.
    */
-  async upsertPrComment(
+  async createPrComment(
     p: ProjectGitConfig,
     prNumber: number,
-    marker: string,
     body: string,
     opts: { fetchImpl?: FetchLike } = {}
   ): Promise<void> {
     const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
     const { owner, repo } = parseRepoUrl(p.repoUrl);
-    const headers = {
-      Authorization: `Bearer ${p.credentials.token}`,
-      Accept: "application/vnd.github+json",
-      "Content-Type": "application/json",
-    };
-    // Una pagina da 100 basta: il commento sticky è tra i primi della PR.
-    const listResponse = await fetchImpl(
-      `${API_BASE}/repos/${owner}/${repo}/issues/${prNumber}/comments?per_page=100`,
-      { method: "GET", headers }
-    );
-    await ensureOkResponse(listResponse, "GitHub");
-    const list = (await readJsonResponse(listResponse, "GitHub")) as {
-      id?: unknown;
-      body?: unknown;
-    }[];
-    const existing = Array.isArray(list)
-      ? list.find((c) => typeof c.body === "string" && c.body.includes(marker))
-      : undefined;
-    const target =
-      existing && typeof existing.id === "number"
-        ? { url: `${API_BASE}/repos/${owner}/${repo}/issues/comments/${existing.id}`, method: "PATCH" }
-        : { url: `${API_BASE}/repos/${owner}/${repo}/issues/${prNumber}/comments`, method: "POST" };
-    const response = await fetchImpl(target.url, {
-      method: target.method,
-      headers,
+    const response = await fetchImpl(`${API_BASE}/repos/${owner}/${repo}/issues/${prNumber}/comments`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${p.credentials.token}`,
+        Accept: "application/vnd.github+json",
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({ body }),
     });
     await ensureOkResponse(response, "GitHub");

@@ -446,92 +446,45 @@ describe("BitbucketProvider.mergePullRequest", () => {
   });
 });
 
-describe("BitbucketProvider.upsertPrComment", () => {
-  const MARKER = "<!-- stubwise-pr-review -->";
-
-  it("nessun commento col marker → POST di un nuovo commento", async () => {
-    const fetchImpl = vi
-      .fn()
-      .mockResolvedValueOnce(jsonResponse({ values: [{ id: 1, content: { raw: "altro" } }] }, 200)) // list
-      .mockResolvedValueOnce(jsonResponse({ id: 2 }, 201)); // create
+describe("BitbucketProvider.createPrComment", () => {
+  it("POST di un commento nuovo, senza leggere né modificare quelli esistenti", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ id: 2 }, 201));
     const provider = new BitbucketProvider({ fetchImpl });
 
-    await provider.upsertPrComment(config, 7, MARKER, `${MARKER}\nAnalisi`);
+    await provider.createPrComment(config, 7, "Analisi");
 
-    expect(fetchImpl).toHaveBeenCalledTimes(2);
-    expect(fetchImpl).toHaveBeenNthCalledWith(
-      1,
-      "https://api.bitbucket.org/2.0/repositories/myws/myrepo/pullrequests/7/comments?pagelen=100",
-      expect.objectContaining({ method: "GET" })
-    );
-    expect(fetchImpl).toHaveBeenLastCalledWith(
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(fetchImpl).toHaveBeenCalledWith(
       "https://api.bitbucket.org/2.0/repositories/myws/myrepo/pullrequests/7/comments",
       expect.objectContaining({ method: "POST" })
     );
-    const [, init] = fetchImpl.mock.calls[1] as [string, RequestInit];
+    const [, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
     const headers = init.headers as Record<string, string>;
     expect(headers["Authorization"]).toBe(`Basic ${Buffer.from("alice:app-pass").toString("base64")}`);
     expect(headers["Content-Type"]).toBe("application/json");
-    expect(JSON.parse(init.body as string)).toEqual({ content: { raw: `${MARKER}\nAnalisi` } });
-  });
-
-  it("commento col marker esistente → PUT dello stesso commento", async () => {
-    const fetchImpl = vi
-      .fn()
-      .mockResolvedValueOnce(
-        jsonResponse({ values: [{ id: 9, content: { raw: `${MARKER}\nvecchia` } }] }, 200)
-      )
-      .mockResolvedValueOnce(jsonResponse({ id: 9 }, 200));
-    const provider = new BitbucketProvider({ fetchImpl });
-
-    await provider.upsertPrComment(config, 7, MARKER, `${MARKER}\nnuova`);
-
-    expect(fetchImpl).toHaveBeenLastCalledWith(
-      "https://api.bitbucket.org/2.0/repositories/myws/myrepo/pullrequests/7/comments/9",
-      expect.objectContaining({ method: "PUT" })
-    );
-    const [, init] = fetchImpl.mock.calls[1] as [string, RequestInit];
-    expect(JSON.parse(init.body as string)).toEqual({ content: { raw: `${MARKER}\nnuova` } });
-  });
-
-  it("commento col marker ma deleted: true → POST (il PUT su un commento cancellato fallirebbe)", async () => {
-    const fetchImpl = vi
-      .fn()
-      .mockResolvedValueOnce(
-        jsonResponse({ values: [{ id: 9, deleted: true, content: { raw: `${MARKER}\nvecchia` } }] }, 200)
-      )
-      .mockResolvedValueOnce(jsonResponse({ id: 10 }, 201));
-    const provider = new BitbucketProvider({ fetchImpl });
-
-    await provider.upsertPrComment(config, 7, MARKER, `${MARKER}\nnuova`);
-
-    expect(fetchImpl).toHaveBeenLastCalledWith(
-      "https://api.bitbucket.org/2.0/repositories/myws/myrepo/pullrequests/7/comments",
-      expect.objectContaining({ method: "POST" })
-    );
+    expect(JSON.parse(init.body as string)).toEqual({ content: { raw: "Analisi" } });
   });
 
   it("throws when both email and username are missing (before any request)", async () => {
     const fetchImpl = vi.fn();
     const provider = new BitbucketProvider({ fetchImpl });
     await expect(
-      provider.upsertPrComment({ ...config, credentials: { token: "t" } }, 7, MARKER, "testo")
+      provider.createPrComment({ ...config, credentials: { token: "t" } }, 7, "testo")
     ).rejects.toThrow(/email.*username|username.*email/i);
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
-  it("throws GitProviderError when the list call fails", async () => {
+  it("throws GitProviderError when the create call fails", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(new Response("forbidden", { status: 403 }));
     const provider = new BitbucketProvider({ fetchImpl });
 
     const error = await provider
-      .upsertPrComment(config, 7, MARKER, "testo")
+      .createPrComment(config, 7, "testo")
       .then(() => null)
       .catch((e: unknown) => e);
 
     expect(error).toBeInstanceOf(GitProviderError);
     expect((error as GitProviderError).status).toBe(403);
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -250,45 +250,24 @@ export class BitbucketProvider implements GitProvider {
     );
   }
 
-  /**
-   * Commento "sticky" della review: cerca tra i commenti della PR quello che
-   * contiene `marker` in content.raw e lo aggiorna (PUT), altrimenti ne crea
-   * uno (POST). Una pagina da 100 basta: il commento sticky è tra i primi.
-   */
-  async upsertPrComment(
+  /** Nuovo commento sulla PR: sempre un POST, mai la modifica di uno esistente. */
+  async createPrComment(
     p: ProjectGitConfig,
     prNumber: number,
-    marker: string,
     body: string,
     opts: { fetchImpl?: FetchLike } = {}
   ): Promise<void> {
     const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
     const { owner, repo } = parseRepoUrl(p.repoUrl);
     const auth = this.projectRestAuthHeader(p);
-    const base = `${API_BASE}/repositories/${owner}/${repo}/pullrequests/${prNumber}/comments`;
-    const listResponse = await fetchImpl(`${base}?pagelen=100`, {
-      method: "GET",
-      headers: { Authorization: auth },
-    });
-    await ensureOkResponse(listResponse, "Bitbucket");
-    const list = (await readJsonResponse(listResponse, "Bitbucket")) as {
-      values?: { id?: unknown; deleted?: unknown; content?: { raw?: unknown } }[];
-    };
-    const values = Array.isArray(list.values) ? list.values : [];
-    // Bitbucket include anche i commenti cancellati (deleted: true): un PUT su
-    // quelli fallirebbe, quindi li ignoriamo e ricreiamo il commento (self-healing).
-    const existing = values.find(
-      (c) => c.deleted !== true && typeof c.content?.raw === "string" && c.content.raw.includes(marker)
+    const response = await fetchImpl(
+      `${API_BASE}/repositories/${owner}/${repo}/pullrequests/${prNumber}/comments`,
+      {
+        method: "POST",
+        headers: { Authorization: auth, "Content-Type": "application/json" },
+        body: JSON.stringify({ content: { raw: body } }),
+      }
     );
-    const target =
-      existing && typeof existing.id === "number"
-        ? { url: `${base}/${existing.id}`, method: "PUT" }
-        : { url: base, method: "POST" };
-    const response = await fetchImpl(target.url, {
-      method: target.method,
-      headers: { Authorization: auth, "Content-Type": "application/json" },
-      body: JSON.stringify({ content: { raw: body } }),
-    });
     await ensureOkResponse(response, "Bitbucket");
   }
 

@@ -80,12 +80,10 @@ import { buildReviewPrompt, parseReviewOutput } from "./prompts.js";
  * 12. transazione: commento AI sul ticket + riga → `completed`; al testo
  *     dell'agente si appende la sezione "Impatto sul codice" (blast radius),
  *     omessa se il calcolo non ha prodotto nulla;
- * 13. commento sticky sulla PR (best-effort, fuori transazione);
+ * 13. commento NUOVO sulla PR (best-effort, fuori transazione): uno per
+ *     review, mai la riscrittura del precedente;
  * 14. notifica `review.completed` (best-effort).
  */
-
-/** Marker del commento sticky sulla PR (upsertPrComment lo cerca nel body). */
-export const PR_REVIEW_COMMENT_MARKER = "<!-- stubwise-pr-review -->";
 
 /** Branch dei fix di Stubwise: `stubwise/ticket-<N>` (N = numero di progetto). */
 const STUBWISE_BRANCH_RE = /^stubwise\/ticket-(\d+)$/;
@@ -135,7 +133,7 @@ export interface RunPrReviewDeps {
   /** Provider git iniettabile nei test (default: getProvider). */
   getProviderFn?: (
     kind: GitProviderKind,
-  ) => Pick<GitProvider, "getPullRequestState" | "upsertPrComment">;
+  ) => Pick<GitProvider, "getPullRequestState" | "createPrComment">;
   /** Risolutore di UN provider AI per id (iniettabile). Default: loadProviderById. */
   loadProviderByIdFn?: typeof loadProviderById;
   /** Caricatore della catena di provider AI (iniettabile). Default: loadProviderChain. */
@@ -717,7 +715,7 @@ export async function runPrReview(deps: RunPrReviewDeps, job: PrReviewJobRow): P
       // PR esterna chiusa DURANTE il run (race col webhook di chiusura, vedi
       // resolveTicket): la riga si chiude completed con verdict/summary (lo
       // storico e i costi restano consultabili) ma SENZA ticket, commento
-      // sticky né notifica — il lavoro non serve più a nessuno.
+      // sulla PR né notifica — il lavoro non serve più a nessuno.
       console.error(
         `[stubwise-worker] pr-review: PR #${job.prNumber} chiusa durante la review, completo senza ticket`,
       );
@@ -773,14 +771,15 @@ export async function runPrReview(deps: RunPrReviewDeps, job: PrReviewJobRow): P
         .where(eq(prReviews.id, reviewId));
     });
 
-    // 13. Commento sticky sulla PR: best-effort FUORI transazione (la review è
-    // già completed; un provider giù non la degrada).
+    // 13. Commento sulla PR: best-effort FUORI transazione (la review è già
+    // completed; un provider giù non la degrada). Ogni review ne pubblica uno
+    // NUOVO — come il commento sul ticket — e la firma porta il commit rivisto,
+    // così nella conversazione della PR si distingue a quale push risponde.
     try {
-      await getProviderFn(ctx.mirrorProject.provider).upsertPrComment(
+      await getProviderFn(ctx.mirrorProject.provider).createPrComment(
         ctx.mirrorProject,
         job.prNumber,
-        PR_REVIEW_COMMENT_MARKER,
-        `${PR_REVIEW_COMMENT_MARKER}\n\n${reviewBody}\n\n_— Stubwise PR Review_`,
+        `${reviewBody}\n\n_— Stubwise PR Review · \`${job.headSha.slice(0, 7)}\`_`,
       );
     } catch (err) {
       console.error(

@@ -29,7 +29,6 @@ import {
 import type { MirrorManager } from "../git/mirrors.js";
 import { GRAPHIFY_AGENT_ALLOWED_TOOLS } from "../graph/agent-hint.js";
 import {
-  PR_REVIEW_COMMENT_MARKER,
   runPrReview,
   type PrReviewJobRow,
   type RunPrReviewDeps,
@@ -163,7 +162,7 @@ interface Fakes {
     withWorktreeAtSha: ReturnType<typeof vi.fn>;
     getPrDiff: ReturnType<typeof vi.fn>;
   };
-  upsertPrComment: ReturnType<typeof vi.fn>;
+  createPrComment: ReturnType<typeof vi.fn>;
   getPullRequestState: ReturnType<typeof vi.fn>;
   /** Notifiche pubblicate: evento + riferimenti. */
   dispatched: { event: NotificationEvent; opts: PublishOpts }[];
@@ -178,7 +177,7 @@ function makeFakes(overrides: Partial<RunPrReviewDeps> = {}): Fakes {
     getPrDiff: vi.fn(async () => ({ diff: "diff --git a/x b/x\n+1", truncated: false })),
   };
   const runner = { run: vi.fn(async () => makeRunResult()) };
-  const upsertPrComment = vi.fn(async () => {});
+  const createPrComment = vi.fn(async () => {});
   const getPullRequestState = vi.fn(async () => "open" as const);
   const dispatched: { event: NotificationEvent; opts: PublishOpts }[] = [];
   const deps: RunPrReviewDeps = {
@@ -191,7 +190,7 @@ function makeFakes(overrides: Partial<RunPrReviewDeps> = {}): Fakes {
     agentTimeoutMs: 60_000,
     publicUrl: "https://stubwise.example.com",
     getProviderFn: () =>
-      ({ upsertPrComment, getPullRequestState }) as unknown as GitProvider,
+      ({ createPrComment, getPullRequestState }) as unknown as GitProvider,
     publish: async (_db, event, opts) => {
       dispatched.push({ event, opts: opts ?? {} });
       return { published: 1, notificationIds: [randomUUID()] };
@@ -202,7 +201,7 @@ function makeFakes(overrides: Partial<RunPrReviewDeps> = {}): Fakes {
     summariesEnabled: false,
     ...overrides,
   };
-  return { deps, runner, mirrors, upsertPrComment, getPullRequestState, dispatched };
+  return { deps, runner, mirrors, createPrComment, getPullRequestState, dispatched };
 }
 
 describe("runPrReview", () => {
@@ -251,19 +250,16 @@ describe("runPrReview", () => {
     expect(reviews[0]!.ticketId).toBe(ticket.id);
     expect(reviews[0]!.finishedAt).not.toBeNull();
 
-    // Commento sticky sulla PR col marker.
-    expect(fakes.upsertPrComment).toHaveBeenCalledTimes(1);
-    const [, prNumber, marker, body] = fakes.upsertPrComment.mock.calls[0] as [
+    // Commento NUOVO sulla PR, firmato col commit rivisto.
+    expect(fakes.createPrComment).toHaveBeenCalledTimes(1);
+    const [, prNumber, body] = fakes.createPrComment.mock.calls[0] as [
       unknown,
       number,
       string,
-      string,
     ];
     expect(prNumber).toBe(7);
-    expect(marker).toBe(PR_REVIEW_COMMENT_MARKER);
-    expect(body).toContain(PR_REVIEW_COMMENT_MARKER);
     expect(body).toContain("changes requested");
-    expect(body).toContain("Stubwise PR Review");
+    expect(body).toContain("Stubwise PR Review · `aaaaaaa`");
 
     // agent_runs con prReviewId e phase review.
     const runs = await testDb.db
@@ -393,7 +389,7 @@ describe("runPrReview", () => {
       .from(tickets)
       .where(eq(tickets.projectId, projectId));
     expect(projectTickets).toHaveLength(0);
-    expect(fakes.upsertPrComment).not.toHaveBeenCalled();
+    expect(fakes.createPrComment).not.toHaveBeenCalled();
     expect(fakes.dispatched).toHaveLength(0);
     expect(fakes.getPullRequestState).toHaveBeenCalledTimes(2);
   });
@@ -453,7 +449,7 @@ describe("runPrReview", () => {
       .from(tickets)
       .where(eq(tickets.projectId, projectId));
     expect(projectTickets).toHaveLength(0);
-    expect(fakes.upsertPrComment).not.toHaveBeenCalled();
+    expect(fakes.createPrComment).not.toHaveBeenCalled();
     expect(fakes.dispatched).toHaveLength(0);
 
     // I costi del run si registrano comunque (l'agente è girato).
@@ -501,7 +497,7 @@ describe("runPrReview", () => {
       .from(tickets)
       .where(eq(tickets.projectId, projectId));
     expect(projectTickets).toHaveLength(0);
-    expect(fakes.upsertPrComment).not.toHaveBeenCalled();
+    expect(fakes.createPrComment).not.toHaveBeenCalled();
     expect(fakes.dispatched).toHaveLength(0);
   });
 
@@ -579,11 +575,11 @@ describe("runPrReview", () => {
     expect(review!.prSummary).toBeNull();
   });
 
-  it("upsertPrComment fallisce: review completed comunque, commento ticket presente", async () => {
+  it("createPrComment fallisce: review completed comunque, commento ticket presente", async () => {
     const { projectId, repositoryId } = await createRepository(testDb.db);
     await enableReview(testDb.db);
     const fakes = makeFakes();
-    fakes.upsertPrComment.mockRejectedValue(new Error("403 dal provider"));
+    fakes.createPrComment.mockRejectedValue(new Error("403 dal provider"));
 
     await runPrReview(fakes.deps, makeJob(repositoryId));
 
@@ -621,7 +617,7 @@ describe("runPrReview", () => {
     expect(reviews).toHaveLength(1);
     expect(reviews[0]!.status).toBe("failed");
     expect(reviews[0]!.error).toContain("timeout");
-    expect(fakes.upsertPrComment).not.toHaveBeenCalled();
+    expect(fakes.createPrComment).not.toHaveBeenCalled();
   });
 
   it("limite del provider: riga failed con errore esplicito E job riaccodato in pr_review_jobs con notBefore ~+30'", async () => {
@@ -664,13 +660,13 @@ describe("runPrReview", () => {
     expect(requeued.notBefore.getTime()).toBeGreaterThanOrEqual(before + 29 * 60 * 1000);
     expect(requeued.notBefore.getTime()).toBeLessThanOrEqual(after + 31 * 60 * 1000);
 
-    // Nessun ticket, nessun commento, nessuna notifica, nessuno sticky sulla PR.
+    // Nessun ticket, nessun commento, nessuna notifica, nessun commento sulla PR.
     const projectTickets = await testDb.db
       .select()
       .from(tickets)
       .where(eq(tickets.projectId, projectId));
     expect(projectTickets).toHaveLength(0);
-    expect(fakes.upsertPrComment).not.toHaveBeenCalled();
+    expect(fakes.createPrComment).not.toHaveBeenCalled();
     expect(fakes.dispatched).toHaveLength(0);
   });
 
@@ -743,7 +739,7 @@ describe("runPrReview", () => {
       .from(tickets)
       .where(eq(tickets.projectId, projectId));
     expect(projectTickets).toHaveLength(0);
-    expect(fakes.upsertPrComment).not.toHaveBeenCalled();
+    expect(fakes.createPrComment).not.toHaveBeenCalled();
     expect(fakes.dispatched).toHaveLength(0);
 
     // I costi del run si registrano comunque (la spesa è avvenuta).
@@ -786,7 +782,7 @@ describe("runPrReview", () => {
     expect(reviews[0]!.status).toBe("failed");
     expect(reviews[0]!.error).toMatch(/provider AI/i);
     expect(fakes.runner.run).not.toHaveBeenCalled();
-    expect(fakes.upsertPrComment).not.toHaveBeenCalled();
+    expect(fakes.createPrComment).not.toHaveBeenCalled();
     expect(fakes.dispatched).toHaveLength(0);
   });
 });
@@ -882,7 +878,7 @@ describe("runPrReview — grafo del codice (fase 2d graphify)", () => {
       ticketComment!.body.indexOf("Code impact"),
     );
 
-    const prBody = fakes.upsertPrComment.mock.calls[0]![3] as string;
+    const prBody = fakes.createPrComment.mock.calls[0]![2] as string;
     expect(prBody).toContain("Code impact");
     expect(prBody).toContain("Stubwise PR Review");
 
@@ -934,7 +930,7 @@ describe("runPrReview — grafo del codice (fase 2d graphify)", () => {
     expect(runArgs.prompt).not.toContain("## Code graph impact");
     const [ticketComment] = await testDb.db.select().from(comments);
     expect(ticketComment!.body).not.toContain("Code impact");
-    expect(fakes.upsertPrComment).toHaveBeenCalledTimes(1);
+    expect(fakes.createPrComment).toHaveBeenCalledTimes(1);
   });
 
   it("repo senza grafo (o graphsDir non cablata): review byte-identica a prima", async () => {
@@ -954,7 +950,7 @@ describe("runPrReview — grafo del codice (fase 2d graphify)", () => {
     expect(withDirArgs.allowedTools).toBeUndefined();
     const [ticketComment] = await testDb.db.select().from(comments);
     expect(ticketComment!.body).not.toContain("Code impact");
-    const withDirPrBody = withDir.upsertPrComment.mock.calls[0]![3] as string;
+    const withDirPrBody = withDir.createPrComment.mock.calls[0]![2] as string;
 
     // Stesso job SENZA graphsDir: prompt e commento pubblicato identici.
     const { repositoryId: otherRepo } = await createRepository(testDb.db);
@@ -968,6 +964,6 @@ describe("runPrReview — grafo del codice (fase 2d graphify)", () => {
     };
     expect(withoutDirArgs.prompt).toBe(withDirArgs.prompt);
     expect(withoutDirArgs.allowedTools).toBeUndefined();
-    expect(withoutDir.upsertPrComment.mock.calls[0]![3]).toBe(withDirPrBody);
+    expect(withoutDir.createPrComment.mock.calls[0]![2]).toBe(withDirPrBody);
   });
 });
