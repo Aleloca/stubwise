@@ -61,32 +61,42 @@ export function widgetStyles(accentColor: string): string {
 /* Durante il trascinamento la bolla segue il puntatore senza ritardo; la
    transizione torna al rilascio, per lo scatto verso il bordo. */
 .sw-root--dragging .sw-bubble { transition: none; cursor: grabbing; }
-/* Maniglia: linguetta coi puntini sul lato della bolla rivolto al centro
-   pagina, finché l'utente non l'ha mai spostata. Sta dentro il bottone (un
-   pointerdown lì avvia il trascinamento come sulla bolla) e sborda di 2px
-   sotto il cerchio per sembrarne attaccata. */
+/* Maniglia, finché l'utente non ha mai spostato la bolla: una linguetta a
+   pillola, un tono più scura dell'accento, che spunta da DIETRO la bolla sul
+   lato rivolto al centro pagina. È un elemento fratello con z-index più basso
+   (un figlio del bottone non potrebbe stare sotto il suo sfondo) e segue la
+   bolla con le stesse variabili e la stessa transizione. */
 .sw-bubble-grip {
-  position: absolute;
-  top: 50%;
-  left: -12px;
-  transform: translateY(-50%);
-  width: 14px;
-  height: 28px;
-  border-radius: 6px 0 0 6px;
+  position: fixed;
+  left: calc(var(--sw-bubble-left) - 14px);
+  top: calc(var(--sw-bubble-top) + 12px);
+  width: 34px;
+  height: 32px;
+  padding-left: 5px;
+  border-radius: 16px;
   background: var(--sw-accent);
-  color: rgba(255, 255, 255, 0.85);
-  font-size: 12px;
-  line-height: 28px;
-  text-align: center;
+  filter: brightness(0.82);
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+  z-index: 2147482999;
   cursor: grab;
-  box-shadow: -2px 2px 6px rgba(0, 0, 0, 0.18);
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: left 0.18s ease-out, top 0.18s ease-out;
 }
+/* Bolla a sinistra: la linguetta spunta dal suo lato destro. */
 .sw-bubble-grip--right {
-  left: auto;
-  right: -12px;
-  border-radius: 0 6px 6px 0;
-  box-shadow: 2px 2px 6px rgba(0, 0, 0, 0.18);
+  left: calc(var(--sw-bubble-left) + 36px);
+  padding-left: 0;
+  padding-right: 5px;
+  justify-content: flex-end;
 }
+.sw-root--dragging .sw-bubble-grip { transition: none; cursor: grabbing; }
 
 /* Pannello chat: posizione e dimensioni dal JS (placement.ts), dove c'è
    spazio rispetto alla bolla. */

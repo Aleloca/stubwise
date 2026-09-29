@@ -50,7 +50,8 @@ flottanti, chat di terzi), che la bolla copre.
 ### Maniglia (aggiunta dopo la prima prova manuale)
 
 Il trascinamento non si scopre da solo. Finché l'utente non ha mai spostato la
-bolla, sul lato rivolto al centro della pagina c'è una linguetta coi puntini
+bolla, sul lato rivolto al centro della pagina spunta da dietro il cerchio una
+linguetta a pillola un tono più scura, coi puntini
 (⠿) e la bolla ha il tooltip «Trascina per spostare». "Mai spostata" coincide
 con "nessuna posizione salvata": nessun flag a parte. Nascosta a chat aperta
 (la bolla è il tasto chiudi). Scartati: il solo cursore `grab` (invisibile su

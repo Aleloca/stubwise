@@ -694,6 +694,17 @@ describe("drag", () => {
     expect(bubble().getAttribute("title") ?? "").toBe("");
   });
 
+  it("la maniglia è un elemento a sé (sta DIETRO la bolla) e trascinarla sposta la bolla", async () => {
+    await mount();
+    const grip = shadow().querySelector<HTMLElement>(".sw-bubble-grip")!;
+    expect(bubble().contains(grip)).toBe(false);
+    pointer(grip, "pointerdown", 1210, 752);
+    pointer(window, "pointermove", 200, 300);
+    pointer(window, "pointerup", 200, 300);
+    await flush();
+    expect(JSON.parse(localStorage.getItem("stubwise-widget:acme:position")!).side).toBe("left");
+  });
+
   it("con una posizione già salvata la maniglia non compare", async () => {
     localStorage.setItem("stubwise-widget:acme:position", JSON.stringify({ side: "right", y: 1 }));
     await mount();

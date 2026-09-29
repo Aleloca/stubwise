@@ -136,6 +136,18 @@ export function WidgetRoot({ base, config, user }: WidgetRootProps) {
           />
         </div>
       ) : null}
+      {showGrip ? (
+        // Fratello della bolla e non figlio: sta DIETRO di lei (un figlio di un
+        // elemento `position: fixed` non può scendere sotto il suo sfondo), così
+        // sembra una linguetta che spunta da sotto il cerchio.
+        <span
+          class={bubbleOnLeft ? "sw-bubble-grip sw-bubble-grip--right" : "sw-bubble-grip"}
+          aria-hidden="true"
+          onPointerDown={(e) => drag.onPointerDown(e)}
+        >
+          ⠿
+        </span>
+      ) : null}
       <button
         class={open ? "sw-bubble sw-bubble--hidden" : "sw-bubble"}
         aria-label={open ? strings.closeLabel : strings.openLabel}
@@ -148,14 +160,6 @@ export function WidgetRoot({ base, config, user }: WidgetRootProps) {
         }}
       >
         {open ? "✕" : "💬"}
-        {showGrip ? (
-          <span
-            class={bubbleOnLeft ? "sw-bubble-grip sw-bubble-grip--right" : "sw-bubble-grip"}
-            aria-hidden="true"
-          >
-            ⠿
-          </span>
-        ) : null}
       </button>
     </div>
   );
