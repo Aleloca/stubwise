@@ -1,9 +1,9 @@
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { collectPm2Services } from "./pm2.js";
+import { collectPm2Services, createPm2CpuState } from "./pm2.js";
 
 /** Write one `/proc/<pid>/<file>` entry into the fake proc tree. */
 async function writeProc(
@@ -265,6 +265,128 @@ describe("collectPm2Services", () => {
 
       const services = await collectPm2Services({ procRoot, rootPath });
       expect(services.map((s) => s.name)).toEqual(["npm run start"]);
+    });
+  });
+
+  // On a host where the same pid shows up in two pid files (PM2 left the one of
+  // a stopped instance behind and the kernel has since reused its pid), the
+  // most recently written file is the one describing the live process.
+  it("prefers the newest pid file when two name the same pid", async () => {
+    const procRoot = await makeProcRoot();
+    await writeProc(procRoot, 100, {
+      cmdline: `PM2 v5.3.0: God Daemon (/root/.pm2)${NUL}`,
+      stat: "100 (PM2 v5.3.0: G) S 1 100 100 0 -1 4194560 0 0 0 0 0 0",
+    });
+    await writeProc(procRoot, 200, {
+      stat: "200 (npm run start) S 100 200 200 0 -1 4194304 0 0 0 0 0 0",
+      cmdline: "npm run start",
+    });
+    const rootPath = await mkdtemp(join(tmpdir(), "sw-pm2-root-"));
+    const dir = join(rootPath, "root/.pm2/pids");
+    await mkdir(dir, { recursive: true });
+    // Alphabetically old-app comes LAST: a "last one read wins" map would pick it.
+    await writeFile(join(dir, "new-app-3.pid"), "200");
+    await writeFile(join(dir, "old-app-1.pid"), "200");
+    await utimes(join(dir, "old-app-1.pid"), new Date("2026-01-01"), new Date("2026-01-01"));
+    await utimes(join(dir, "new-app-3.pid"), new Date("2026-09-01"), new Date("2026-09-01"));
+
+    const services = await collectPm2Services({ procRoot, rootPath });
+    expect(services.map((s) => s.name)).toEqual(["new-app"]);
+  });
+
+  describe("CPU and memory of the whole process tree", () => {
+    /** `/proc/<pid>/stat` with utime/stime/cutime/cstime at fields 14-17. */
+    function statLine(pid: number, ppid: number, utime: number, stime: number, state = "S", cutime = 0): string {
+      return `${pid} (x) ${state} ${ppid} ${pid} ${pid} 0 -1 4194304 0 0 0 0 ${utime} ${stime} ${cutime} 0 20 0 1 0 100`;
+    }
+    /** `/proc/stat` whose aggregate line totals `total` jiffies, on `cpus` cores. */
+    function procStat(total: number, cpus: number): string {
+      const perCore = Array.from({ length: cpus }, (_, i) => `cpu${i} 0 0 0 0 0 0 0 0 0 0`);
+      return [`cpu  ${total} 0 0 0 0 0 0 0 0 0`, ...perCore, "intr 0"].join("\n") + "\n";
+    }
+
+    async function setup(procRoot: string): Promise<void> {
+      await writeProc(procRoot, 100, {
+        cmdline: `PM2 v5.3.0: God Daemon (/root/.pm2)${NUL}`,
+        stat: statLine(100, 1, 0, 0),
+      });
+    }
+
+    // `npm run start`: PM2's child is npm, the app is its grandchild node.
+    // Measuring only npm (idle, small) is what the table showed before.
+    it("sums RSS over npm → sh → node, and nothing outside the tree", async () => {
+      const procRoot = await makeProcRoot();
+      await setup(procRoot);
+      await writeFile(join(procRoot, "stat"), procStat(1000, 2));
+      await writeProc(procRoot, 200, {
+        stat: statLine(200, 100, 0, 0),
+        environ: `name=app${NUL}`,
+        status: "VmRSS:\t 1000 kB\n",
+      });
+      await writeProc(procRoot, 201, { stat: statLine(201, 200, 0, 0), status: "VmRSS:\t 100 kB\n" });
+      await writeProc(procRoot, 202, { stat: statLine(202, 201, 0, 0), status: "VmRSS:\t 50000 kB\n" });
+      // Unrelated process: must not be summed in.
+      await writeProc(procRoot, 300, { stat: statLine(300, 1, 0, 0), status: "VmRSS:\t 99999 kB\n" });
+
+      const [app] = await collectPm2Services({ procRoot });
+      expect(app!.memBytes).toBe((1000 + 100 + 50000) * 1024);
+    });
+
+    it("reports CPU as % of one core, from two reads a tick apart", async () => {
+      const procRoot = await makeProcRoot();
+      await setup(procRoot);
+      await writeProc(procRoot, 200, { stat: statLine(200, 100, 10, 0), environ: `name=app${NUL}` });
+      await writeProc(procRoot, 202, { stat: statLine(202, 200, 100, 50) });
+      await writeFile(join(procRoot, "stat"), procStat(1000, 4));
+      const cpuState = createPm2CpuState();
+
+      // First read: baseline only, nothing to compare against yet.
+      const first = await collectPm2Services({ procRoot, cpuState });
+      expect(first[0]!.cpuPct).toBeNull();
+
+      // 400 jiffies pass across 4 cores (= 100 per core); the tree burns 150
+      // of them (node 120, npm 30) → 1.5 cores → 150%, same unit as Docker.
+      await writeProc(procRoot, 200, { stat: statLine(200, 100, 40, 0) });
+      await writeProc(procRoot, 202, { stat: statLine(202, 200, 200, 70) });
+      await writeFile(join(procRoot, "stat"), procStat(1400, 4));
+      const second = await collectPm2Services({ procRoot, cpuState });
+      expect(second[0]!.cpuPct).toBeCloseTo(150);
+    });
+
+    // A child that exits and is reaped moves its time into the parent's
+    // cutime: the tree total must not drop (a drop would read as negative CPU).
+    it("keeps counting a reaped child's time through the parent's cutime", async () => {
+      const procRoot = await makeProcRoot();
+      await setup(procRoot);
+      await writeProc(procRoot, 200, { stat: statLine(200, 100, 0, 0), environ: `name=app${NUL}` });
+      await writeProc(procRoot, 202, { stat: statLine(202, 200, 100, 0) });
+      await writeFile(join(procRoot, "stat"), procStat(1000, 1));
+      const cpuState = createPm2CpuState();
+      await collectPm2Services({ procRoot, cpuState });
+
+      // 202 is gone; its 100 + 20 more ticks now sit in 200's cutime.
+      await rm(join(procRoot, "202"), { recursive: true });
+      await writeProc(procRoot, 200, { stat: statLine(200, 100, 0, 0, "S", 120) });
+      await writeFile(join(procRoot, "stat"), procStat(1100, 1));
+      const [app] = await collectPm2Services({ procRoot, cpuState });
+      expect(app!.cpuPct).toBeCloseTo(20);
+    });
+
+    it("has no CPU for an app restarted between two reads (new pid)", async () => {
+      const procRoot = await makeProcRoot();
+      await setup(procRoot);
+      // The new process has MORE ticks than the old one had: a state keyed by
+      // name would compute a plausible-looking delta. Only the pid key says no.
+      await writeProc(procRoot, 200, { stat: statLine(200, 100, 5, 0), environ: `name=app${NUL}` });
+      await writeFile(join(procRoot, "stat"), procStat(1000, 1));
+      const cpuState = createPm2CpuState();
+      await collectPm2Services({ procRoot, cpuState });
+
+      await rm(join(procRoot, "200"), { recursive: true });
+      await writeProc(procRoot, 210, { stat: statLine(210, 100, 50, 0), environ: `name=app${NUL}` });
+      await writeFile(join(procRoot, "stat"), procStat(1100, 1));
+      const [app] = await collectPm2Services({ procRoot, cpuState });
+      expect(app!.cpuPct).toBeNull();
     });
   });
 

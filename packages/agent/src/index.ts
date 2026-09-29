@@ -7,7 +7,12 @@
 export { parseCpu, parseLoadavg, parseMeminfo, parseNetDev } from "./collectors/proc.js";
 export { collectDisks, type DiskUsage, type CollectDisksOptions } from "./collectors/disk.js";
 export { collectDockerServices, type CollectDockerOptions } from "./collectors/docker.js";
-export { collectPm2Services, type CollectPm2Options } from "./collectors/pm2.js";
+export {
+  collectPm2Services,
+  createPm2CpuState,
+  type CollectPm2Options,
+  type Pm2CpuState,
+} from "./collectors/pm2.js";
 export {
   runCheck,
   resetCheckState,

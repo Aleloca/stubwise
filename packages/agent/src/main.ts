@@ -13,7 +13,7 @@ import { metricSampleSchema } from "@stubwise/shared";
 import { RingBuffer } from "./buffer.js";
 import { collectDisks } from "./collectors/disk.js";
 import { collectDockerServices } from "./collectors/docker.js";
-import { collectPm2Services } from "./collectors/pm2.js";
+import { collectPm2Services, createPm2CpuState } from "./collectors/pm2.js";
 import { parseCpu, parseLoadavg, parseMeminfo, parseNetDev } from "./collectors/proc.js";
 import { consoleLogger, type IngestTransport, type Logger } from "./ingest-client.js";
 
@@ -324,6 +324,7 @@ export function makeCollectSample(
   const log = opts.log ?? consoleLogger;
 
   let prev: { stat: string; netdev: string } | null = null;
+  const pm2CpuState = createPm2CpuState();
 
   return async () => {
     const statNow = await readText(`${procRoot}/stat`);
@@ -353,7 +354,7 @@ export function makeCollectSample(
         log.warn("docker collection failed", { error: err instanceof Error ? err.message : String(err) });
         return [];
       }),
-      collectPm2Services({ procRoot, rootPath }).catch((err) => {
+      collectPm2Services({ procRoot, rootPath, cpuState: pm2CpuState }).catch((err) => {
         log.warn("pm2 collection failed", { error: err instanceof Error ? err.message : String(err) });
         return [];
       }),
