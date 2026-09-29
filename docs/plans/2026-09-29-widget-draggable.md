@@ -470,10 +470,13 @@ function cssVar(name: string): string {
 ```
 
 Viewport dei test: in `beforeEach` del describe fissare
-`window.innerWidth = 1280; window.innerHeight = 800` (via `vi.stubGlobal` o
-`Object.defineProperty`, e verificare prima con un test sonda che cosa
-restituisce `document.documentElement.clientWidth` in happy-dom: se ≠ 0, va
-stubbato quello).
+`window.innerWidth = 1280; window.innerHeight = 800` con `Object.defineProperty`
+(configurable). Verificato il 29 set con una sonda: in happy-dom
+`document.documentElement.clientWidth/clientHeight` valgono 0, quindi
+`readViewport` ripiega su `innerWidth/innerHeight` (default 1024×768), ed è
+quello che si stubba. `PointerEvent` con `clientX/clientY/button` funziona;
+`setPointerCapture` non esiste, ed è il motivo per cui l'hook usa listener su
+`window`.
 
 Casi:
 
