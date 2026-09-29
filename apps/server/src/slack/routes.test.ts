@@ -1747,7 +1747,12 @@ describe("POST /api/slack/interactions — block_actions dell'inbox", () => {
     const job = await readJob(jobId);
     expect(job?.status).toBe("queued");
     expect(job?.resumeMode).toBe("plan_continue");
-    expect((await readNotification(notificationId))?.status).toBe("handled");
+    // `answerQuestion` chiude la notifica DOPO il commit della risposta
+    // (`propagateDecision`, fuori dalla transazione apposta): aspettare la
+    // risposta non basta, sotto carico la notifica è ancora `open`.
+    await vi.waitFor(async () => {
+      expect((await readNotification(notificationId))?.status).toBe("handled");
+    });
 
     // La propria copia si riscrive subito, e la nota PORTA la risposta.
     await vi.waitFor(() => expect(postResponse).toHaveBeenCalled());
