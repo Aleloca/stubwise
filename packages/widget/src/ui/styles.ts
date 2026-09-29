@@ -30,11 +30,17 @@ export function widgetStyles(accentColor: string): string {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
-/* Bolla lanciatrice, fissa in basso a destra. */
+/* Bolla lanciatrice. La posizione la calcola il JS (placement.ts) e arriva
+   come variabili sul root: di default in basso a destra, poi dove l'utente la
+   trascina. touch-action:none evita che trascinarla col dito scorra la pagina. */
 .sw-bubble {
   position: fixed;
-  bottom: 20px;
-  right: 20px;
+  left: var(--sw-bubble-left);
+  top: var(--sw-bubble-top);
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: left 0.18s ease-out, top 0.18s ease-out;
   width: 56px;
   height: 56px;
   border-radius: 50%;
@@ -52,15 +58,18 @@ export function widgetStyles(accentColor: string): string {
   padding: 0;
 }
 .sw-bubble:hover { filter: brightness(1.05); }
+/* Durante il trascinamento la bolla segue il puntatore senza ritardo; la
+   transizione torna al rilascio, per lo scatto verso il bordo. */
+.sw-root--dragging .sw-bubble { transition: none; cursor: grabbing; }
 
-/* Pannello chat. */
+/* Pannello chat: posizione e dimensioni dal JS (placement.ts), dove c'è
+   spazio rispetto alla bolla. */
 .sw-panel {
   position: fixed;
-  bottom: 88px;
-  right: 20px;
-  width: 380px;
-  height: 600px;
-  max-height: calc(100vh - 108px);
+  left: var(--sw-panel-left);
+  top: var(--sw-panel-top);
+  width: var(--sw-panel-width);
+  height: var(--sw-panel-height);
   background: var(--sw-bg);
   color: var(--sw-fg);
   border: 1px solid var(--sw-border);
@@ -283,6 +292,9 @@ export function widgetStyles(accentColor: string): string {
 
 /* Full-screen sotto 480px. */
 @media (max-width: 480px) {
+  /* Stessa specificità di .sw-panel e scritta dopo: vince sulle variabili di
+     posizione, quindi sotto i 480px la chat resta a schermo intero ovunque
+     sia la bolla. */
   .sw-panel {
     inset: 0;
     width: 100%;

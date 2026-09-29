@@ -3,7 +3,10 @@
  * Shadow DOM (isolamento dallo stile del sito ospite) tramite {@link mountWidget}.
  *
  * La bolla è sempre visibile; il click apre/chiude il pannello e la bolla
- * diventa un "chiudi". Lo stato di storico/stream vive dentro {@link Chat}: il
+ * diventa un "chiudi". La bolla si TRASCINA (vedi `use-draggable-bubble.ts`) e
+ * il pannello si apre dove c'è spazio rispetto a lei (`placement.ts`): la
+ * geometria arriva al CSS come variabili sul root, così la media query mobile
+ * (pannello a schermo intero) resta l'unica autorità sotto i 480px. Lo stato di storico/stream vive dentro {@link Chat}: il
  * pannello si smonta/rimonta all'apri/chiudi, quindi lo storico si ricarica
  * dallo storage a ogni apertura (comportamento voluto: sempre coerente col
  * server, nessuno stato appeso).
@@ -14,7 +17,9 @@ import type { WidgetApiBase, WidgetConfig, WidgetUser } from "../core/api.js";
 import { getConversationId } from "../core/storage.js";
 import { getStrings } from "../i18n.js";
 import { Chat } from "./chat.js";
+import { placePanel } from "./placement.js";
 import { widgetStyles } from "./styles.js";
+import { useDraggableBubble } from "./use-draggable-bubble.js";
 
 /** Timeout (ms) dopo cui la conferma inline "nuova conversazione" si annulla. */
 const NEW_CHAT_CONFIRM_MS = 3000;
@@ -39,6 +44,18 @@ export function WidgetRoot({ base, config, user }: WidgetRootProps) {
   // del DOM: il bottone è nell'header, il reset dentro Chat).
   const resetRef = useRef<(() => void) | null>(null);
   const strings = getStrings(config.language);
+  const drag = useDraggableBubble(base.slug);
+  const panel = placePanel(drag.bubble, drag.viewport);
+  // Preact applica le chiavi `--*` con setProperty; il tipo di `style` non le
+  // prevede, da qui il cast.
+  const geometry = {
+    "--sw-bubble-left": `${drag.bubble.left}px`,
+    "--sw-bubble-top": `${drag.bubble.top}px`,
+    "--sw-panel-left": `${panel.left}px`,
+    "--sw-panel-top": `${panel.top}px`,
+    "--sw-panel-width": `${panel.width}px`,
+    "--sw-panel-height": `${panel.height}px`,
+  } as Record<string, string>;
 
   /** Annulla il timer di conferma pendente (se presente). */
   function clearConfirmTimer() {
@@ -76,7 +93,7 @@ export function WidgetRoot({ base, config, user }: WidgetRootProps) {
   }
 
   return (
-    <div class="sw-root">
+    <div class={drag.dragging ? "sw-root sw-root--dragging" : "sw-root"} style={geometry}>
       {open ? (
         <div class="sw-panel" role="dialog" aria-label={config.title}>
           <div class="sw-header">
@@ -118,7 +135,12 @@ export function WidgetRoot({ base, config, user }: WidgetRootProps) {
       <button
         class={open ? "sw-bubble sw-bubble--hidden" : "sw-bubble"}
         aria-label={open ? strings.closeLabel : strings.openLabel}
-        onClick={() => setOpen((v) => !v)}
+        onPointerDown={(e) => drag.onPointerDown(e)}
+        onClick={() => {
+          // Il click che chiude un trascinamento non apre né chiude la chat.
+          if (drag.consumeClick()) return;
+          setOpen((v) => !v);
+        }}
       >
         {open ? "✕" : "💬"}
       </button>
