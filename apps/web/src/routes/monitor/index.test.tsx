@@ -246,6 +246,8 @@ describe("sezione Monitor — gestione (admin vs member)", () => {
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText(/STUBWISE_SERVER_KEY=sk_secret_key_value/)).toBeInTheDocument();
     expect(within(dialog).getByText(/docker run -d --name stubwise-agent/)).toBeInTheDocument();
+    // Senza --user 0 i nomi delle app PM2 root non si leggono (vedi dockerRunCommand).
+    expect(within(dialog).getByText(/--restart unless-stopped --user 0/)).toBeInTheDocument();
     expect(within(dialog).getByText(/shown only once/i)).toBeInTheDocument();
     expect(within(dialog).getByRole("link", { name: /full guide/i })).toHaveAttribute(
       "href",

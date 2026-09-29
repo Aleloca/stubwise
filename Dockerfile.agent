@@ -9,7 +9,7 @@
 #   docker buildx build --platform linux/amd64,linux/arm64 \
 #     -f Dockerfile.agent -t alelocadev/stubwise-agent:latest --push .
 # Run (sull'host da monitorare, immagine pullata da Docker Hub, niente repo da clonare):
-#           docker run -d --restart unless-stopped \
+#           docker run -d --restart unless-stopped --user 0 \
 #           --group-add "$(stat -c %g /var/run/docker.sock)" \
 #           -e STUBWISE_URL=https://stubwise.example.com \
 #           -e STUBWISE_SERVER_KEY=sk_... \
@@ -17,8 +17,14 @@
 #           -v /var/run/docker.sock:/var/run/docker.sock:ro \
 #           alelocadev/stubwise-agent
 #
-# Il --group-add è NECESSARIO: il runtime gira come UID 10001 non-root e senza
-# il gid del socket Docker la connect() fallisce con EACCES → l'agente riporta
+# --user 0: i nomi delle app PM2 si leggono da <PM2_HOME>/pids, e con PM2 root
+# (/root è 700) l'utente 10001 qui sotto non ci entra → si vedrebbe il comando
+# (`npm run start`) al posto del nome. È nel comando mostrato dalla UI
+# (apps/web/.../monitor/server-admin.tsx). L'USER dell'immagine resta 10001:
+# chi non vuole dare root all'agente toglie il flag e perde solo i nomi PM2 root.
+#
+# Il --group-add serve SENZA --user 0: da UID 10001 non-root, senza il gid del
+# socket Docker la connect() fallisce con EACCES → l'agente riporta
 # silenziosamente zero servizi Docker (il collector non fa throw).
 
 FROM node:22-slim AS build

@@ -49,6 +49,11 @@ export function parseIntervalSeconds(raw: string, min: number, max: number): num
 
 /**
  * Comando `docker run` completo per installare l'agente su un host monitorato.
+ * `--user 0`: i nomi delle app PM2 si leggono da `<PM2_HOME>/pids`, e quando PM2
+ * gira come root (`/root` è 700) l'utente 10001 dell'immagine non ci entra — si
+ * vedrebbe `npm run start` al posto del nome. I mount restano tutti `:ro`.
+ * `--group-add` resta: non serve a root, ma tiene Docker visibile a chi toglie
+ * `--user 0` per scelta.
  * `STUBWISE_URL` è preso dall'origin del browser (l'istanza corrente), la chiave
  * è interpolata così com'è. Mostrato SOLO nel dialog a creazione/rigenerazione:
  * la chiave in chiaro non è mai persistita né rifetchabile dal client.
@@ -56,7 +61,7 @@ export function parseIntervalSeconds(raw: string, min: number, max: number): num
 export function dockerRunCommand(key: string): string {
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   return [
-    "docker run -d --name stubwise-agent --restart unless-stopped \\",
+    "docker run -d --name stubwise-agent --restart unless-stopped --user 0 \\",
     '  --group-add "$(stat -c %g /var/run/docker.sock)" \\',
     "  -v /proc:/host/proc:ro -v /sys:/host/sys:ro -v /:/host/root:ro \\",
     "  -v /var/run/docker.sock:/var/run/docker.sock:ro \\",

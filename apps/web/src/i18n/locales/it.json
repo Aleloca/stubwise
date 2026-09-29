@@ -171,7 +171,7 @@
       "keyStepDockerInstall": "Installalo (Ubuntu/Debian):",
       "keyStepDockerNote": "Altre distro o setup rootless? Vedi la guida completa qui sotto.",
       "keyStepRunTitle": "Passo 2 — Avvia l'agente",
-      "keyStepRunBody": "Esegui il comando qui sopra sull'host. I mount (/proc, /sys, /, docker.sock) sono tutti in sola lettura — l'agente si limita a osservare. --group-add gli dà accesso al socket Docker per scoprire i tuoi container.",
+      "keyStepRunBody": "Esegui il comando qui sopra sull'host. I mount (/proc, /sys, /, docker.sock) sono tutti in sola lettura — l'agente si limita a osservare. --user 0 gli permette di leggere i nomi delle app PM2 quando PM2 gira come root; --group-add gli dà accesso al socket Docker per scoprire i tuoi container.",
       "keyStepVerifyTitle": "Passo 3 — Verifica",
       "keyStepVerifyBody": "Il server passa a online entro circa un minuto dal primo invio. Segui i log dell'agente:",
       "keyFullGuide": "Guida completa e installazione Docker per tutte le distro →",
