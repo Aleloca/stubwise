@@ -1,7 +1,8 @@
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { ApiError } from "@stubwise/api-client";
 import { useTranslation } from "react-i18next";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { useState } from "react";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import type { MbxStackParamList } from "../../app/navigation";
 import { GhostButton } from "../../components/GhostButton";
@@ -9,7 +10,7 @@ import { LinkedText } from "../../components/LinkedText";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { Skeleton } from "../../components/Skeleton";
 import { relativeTimeCompact } from "../../lib/format";
-import type { MailThreadReproposal, Reader } from "@stubwise/shared";
+import { splitQuotedReply, type MailThreadReproposal, type Reader } from "@stubwise/shared";
 import { useMailThread, useRepropose } from "../../lib/mail-mutations";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
@@ -125,7 +126,7 @@ export function ThreadDetailScreen({
                   </Text>
                 )}
                 {message.textExcerpt !== null ? (
-                  <LinkedText style={styles.bodyText} text={message.textExcerpt} />
+                  <MessageBody messageId={message.id} text={message.textExcerpt} />
                 ) : (
                   <Text style={styles.missing}>{t("mobile.mbx.detail.excerptMissing")}</Text>
                 )}
@@ -167,6 +168,40 @@ export function ThreadDetailScreen({
         )}
       </ScrollView>
     </View>
+  );
+}
+
+/**
+ * Il corpo di un messaggio, con la catena citata in stile Outlook COMPRESSA
+ * dietro «Mostra testo citato» (29 set 2026): in una conversazione i messaggi
+ * precedenti sono già sotto, uno per uno. Compressa e non tolta, perché la
+ * regola (`splitQuotedReply`, `@stubwise/shared`) è un'euristica su testo
+ * scritto da chiunque: se sbaglia, un tap la rimette a posto.
+ */
+function MessageBody({ messageId, text }: { messageId: string; text: string }) {
+  const { t } = useTranslation();
+  const [showQuoted, setShowQuoted] = useState(false);
+  const { body, quoted } = splitQuotedReply(text);
+
+  return (
+    <>
+      <LinkedText style={styles.bodyText} text={body} />
+      {quoted !== null && (
+        <>
+          <Pressable
+            accessibilityRole="button"
+            hitSlop={8}
+            onPress={() => setShowQuoted((v) => !v)}
+            testID={`thread-message-quoted-toggle-${messageId}`}
+          >
+            <Text style={styles.quotedToggle}>
+              {showQuoted ? t("mobile.mbx.thread.hideQuoted") : t("mobile.mbx.thread.showQuoted")}
+            </Text>
+          </Pressable>
+          {showQuoted && <LinkedText style={[styles.bodyText, styles.quotedText]} text={quoted} />}
+        </>
+      )}
+    </>
   );
 }
 
@@ -322,6 +357,15 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     marginTop: 10,
+  },
+  quotedToggle: {
+    color: colors.faint,
+    fontFamily: fontFamily.mono,
+    fontSize: fontSize.label,
+    marginTop: 10,
+  },
+  quotedText: {
+    color: colors.muted,
   },
   missing: {
     color: colors.muted,

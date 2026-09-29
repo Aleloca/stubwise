@@ -108,6 +108,32 @@ describe("ThreadDetailScreen", () => {
     expect(order).toEqual([`thread-message-${AMMESSO}`, `thread-message-${CONTESTO}`]);
   });
 
+  test("la catena citata di Outlook è COMPRESSA, e un tap la mostra", async () => {
+    const outlook = [
+      "Confermo la modifica.",
+      "________________________________",
+      "Da: Ufficio IT <it@example.com>",
+      "Inviato: martedì 28 luglio 2026 12:11",
+      "Oggetto: Re: Reso ordine #123",
+      "",
+      "La mail PRECEDENTE citata",
+    ].join("\n");
+    const base = detail();
+    const thread = jest.fn().mockResolvedValue(
+      detail({ messages: [base.messages[0]!, { ...base.messages[1]!, textExcerpt: outlook }] }),
+    );
+    await renderScreen(makeClient(thread));
+    await waitFor(() => expect(screen.getByText("Confermo la modifica.")).toBeTruthy());
+
+    expect(screen.queryByText(/La mail PRECEDENTE citata/)).toBeNull();
+    // Il messaggio senza citazione non ha il bottone.
+    expect(screen.queryByTestId(`thread-message-quoted-toggle-${CONTESTO}`)).toBeNull();
+
+    await fireEvent.press(screen.getByTestId(`thread-message-quoted-toggle-${AMMESSO}`));
+    expect(screen.getByText(/La mail PRECEDENTE citata/)).toBeTruthy();
+    expect(screen.getByText("Nascondi testo citato")).toBeTruthy();
+  });
+
   test("un messaggio di CONTESTO si dichiara tale; uno ammesso no", async () => {
     // Non è uno che «non ha ancora» prodotto una proposta: è uno che non ne
     // produrrà mai, ed è una cosa diversa.

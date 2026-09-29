@@ -361,6 +361,54 @@ describe("pagina /mail — la vista per CONVERSAZIONI (§4)", () => {
     expect(within(pane).getByText(/L'ULTIMA email/)).toBeInTheDocument();
   });
 
+  it("la catena citata di Outlook è COMPRESSA, e un click la mostra", async () => {
+    mockApi(
+      baseApi({
+        "GET /api/me/mail/threads/thread-1": () =>
+          jsonResponse(200, {
+            threadId: "thread-1",
+            accountId: ACCOUNT_ID,
+            accountEmail: "mailbox@acme.test",
+            subject: "Re: Ship next week?",
+            url: "https://mail.google.com/x",
+            messages: [
+              {
+                id: "22222222-2222-4222-8222-222222222222",
+                from: "marco@cliente.test",
+                to: [],
+                receivedAt: "2026-09-09T09:00:00.000Z",
+                textExcerpt: [
+                  "Confermo la modifica.",
+                  "________________________________",
+                  "Da: Ufficio IT <it@acme.test>",
+                  "Inviato: martedì 28 luglio 2026 12:11",
+                  "Oggetto: Re: Ship next week?",
+                  "",
+                  "La mail PRECEDENTE citata",
+                ].join("\n"),
+                admitted: true,
+                proposalIds: [],
+                reproposals: [],
+                proposalOutcomes: [],
+              },
+            ],
+          }),
+      }),
+    );
+    renderMail();
+    await screen.findByTestId("mail-thread-list");
+    await userEvent.click(screen.getByTestId("mail-thread-row-thread-1"));
+
+    const pane = await screen.findByTestId("mail-thread-pane");
+    expect(within(pane).getByText(/Confermo la modifica/)).toBeInTheDocument();
+    expect(within(pane).queryByText(/La mail PRECEDENTE citata/)).toBeNull();
+
+    await userEvent.click(
+      within(pane).getByTestId("mail-thread-quoted-toggle-22222222-2222-4222-8222-222222222222"),
+    );
+    expect(within(pane).getByText(/La mail PRECEDENTE citata/)).toBeInTheDocument();
+  });
+
   it("da una proposta fallita si riparte: «Riproponi» sul MESSAGGIO, non sul messaggio di contesto", async () => {
     // Lo stato vero da cui si deve poter uscire: una proposta `failed`.
     // Senza questo bottone l'unica via di recupero sarebbe una chiamata

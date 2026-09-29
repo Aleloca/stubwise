@@ -1,6 +1,8 @@
 import { ApiError } from "@stubwise/api-client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { splitQuotedReply } from "@stubwise/shared";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   getMailOriginal,
@@ -295,9 +297,7 @@ export function MailThreadPane({
               <p className="mt-1 font-mono text-[11px] text-fg-faint">{t("mail:thread.context")}</p>
             )}
             {message.textExcerpt !== null ? (
-              <pre className="mt-2 max-h-64 overflow-auto text-sm whitespace-pre-wrap text-fg">
-                {message.textExcerpt}
-              </pre>
+              <ThreadMessageBody messageId={message.id} text={message.textExcerpt} />
             ) : (
               <p className="mt-2 font-mono text-[11px] text-fg-faint">{t("mail:detail.noExcerpt")}</p>
             )}
@@ -378,6 +378,40 @@ export function MailThreadPane({
  * Il nome del progetto compare solo quando c'è: su uno smistamento non
  * esiste ancora, ed è esattamente la domanda che quella card fa.
  */
+/**
+ * Il corpo di un messaggio della conversazione, con la catena citata in stile
+ * Outlook COMPRESSA dietro «Mostra testo citato» (29 set 2026): i messaggi
+ * precedenti sono già nella conversazione, uno per uno. Compressa e non
+ * tolta, perché `splitQuotedReply` (`@stubwise/shared`, la stessa regola
+ * dell'app) è un'euristica su testo scritto da chiunque. Solo qui, non nel
+ * pannello di lettura qui sopra: quello mostra l'estratto come l'ha letto la
+ * classificazione.
+ */
+function ThreadMessageBody({ messageId, text }: { messageId: string; text: string }) {
+  const { t } = useTranslation();
+  const [showQuoted, setShowQuoted] = useState(false);
+  const { body, quoted } = splitQuotedReply(text);
+
+  return (
+    <div className="mt-2 max-h-64 overflow-auto">
+      <pre className="text-sm whitespace-pre-wrap text-fg">{body}</pre>
+      {quoted !== null && (
+        <>
+          <button
+            type="button"
+            data-testid={`mail-thread-quoted-toggle-${messageId}`}
+            onClick={() => setShowQuoted((v) => !v)}
+            className="mt-2 font-mono text-[11px] text-fg-faint hover:text-fg-muted"
+          >
+            {showQuoted ? t("mail:thread.hideQuoted") : t("mail:thread.showQuoted")}
+          </button>
+          {showQuoted && <pre className="mt-2 text-sm whitespace-pre-wrap text-fg-muted">{quoted}</pre>}
+        </>
+      )}
+    </div>
+  );
+}
+
 function ReproposeAction({ action, threadId }: { action: MailThreadReproposal; threadId: string }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();

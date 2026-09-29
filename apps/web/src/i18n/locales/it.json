@@ -2444,7 +2444,9 @@
       "open_one": "{{count}} proposta aperta",
       "open_other": "{{count}} proposte aperte",
       "context": "Messaggio di contesto: entrato con la conversazione, non produce proposte.",
-      "openInGmail": "Apri la conversazione su Gmail"
+      "openInGmail": "Apri la conversazione su Gmail",
+      "showQuoted": "Mostra testo citato",
+      "hideQuoted": "Nascondi testo citato"
     }
   },
   "calendar": {

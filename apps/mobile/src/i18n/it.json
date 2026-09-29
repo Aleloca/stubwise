@@ -1004,6 +1004,8 @@
         "open_one": "{{count}} proposta aperta",
         "open_other": "{{count}} proposte aperte",
         "context": "Messaggio di contesto: entrato con la conversazione, non produce proposte.",
+        "showQuoted": "Mostra testo citato",
+        "hideQuoted": "Nascondi testo citato",
         "loadError": {
           "title": "Non riesco a caricare questa conversazione."
         },
