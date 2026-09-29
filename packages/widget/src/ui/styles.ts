@@ -61,6 +61,32 @@ export function widgetStyles(accentColor: string): string {
 /* Durante il trascinamento la bolla segue il puntatore senza ritardo; la
    transizione torna al rilascio, per lo scatto verso il bordo. */
 .sw-root--dragging .sw-bubble { transition: none; cursor: grabbing; }
+/* Maniglia: linguetta coi puntini sul lato della bolla rivolto al centro
+   pagina, finché l'utente non l'ha mai spostata. Sta dentro il bottone (un
+   pointerdown lì avvia il trascinamento come sulla bolla) e sborda di 2px
+   sotto il cerchio per sembrarne attaccata. */
+.sw-bubble-grip {
+  position: absolute;
+  top: 50%;
+  left: -12px;
+  transform: translateY(-50%);
+  width: 14px;
+  height: 28px;
+  border-radius: 6px 0 0 6px;
+  background: var(--sw-accent);
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 12px;
+  line-height: 28px;
+  text-align: center;
+  cursor: grab;
+  box-shadow: -2px 2px 6px rgba(0, 0, 0, 0.18);
+}
+.sw-bubble-grip--right {
+  left: auto;
+  right: -12px;
+  border-radius: 0 6px 6px 0;
+  box-shadow: 2px 2px 6px rgba(0, 0, 0, 0.18);
+}
 
 /* Pannello chat: posizione e dimensioni dal JS (placement.ts), dove c'è
    spazio rispetto alla bolla. */

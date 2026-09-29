@@ -17,7 +17,7 @@ import type { WidgetApiBase, WidgetConfig, WidgetUser } from "../core/api.js";
 import { getConversationId } from "../core/storage.js";
 import { getStrings } from "../i18n.js";
 import { Chat } from "./chat.js";
-import { placePanel } from "./placement.js";
+import { BUBBLE, placePanel } from "./placement.js";
 import { widgetStyles } from "./styles.js";
 import { useDraggableBubble } from "./use-draggable-bubble.js";
 
@@ -46,6 +46,10 @@ export function WidgetRoot({ base, config, user }: WidgetRootProps) {
   const strings = getStrings(config.language);
   const drag = useDraggableBubble(base.slug);
   const panel = placePanel(drag.bubble, drag.viewport);
+  // Maniglia: finché l'utente non ha mai spostato la bolla, e non a chat aperta
+  // (lì la bolla è il tasto "chiudi"). Sta sul lato rivolto al centro pagina.
+  const showGrip = !drag.moved && !open;
+  const bubbleOnLeft = drag.bubble.left + BUBBLE / 2 < drag.viewport.width / 2;
   // Preact applica le chiavi `--*` con setProperty; il tipo di `style` non le
   // prevede, da qui il cast.
   const geometry = {
@@ -135,6 +139,7 @@ export function WidgetRoot({ base, config, user }: WidgetRootProps) {
       <button
         class={open ? "sw-bubble sw-bubble--hidden" : "sw-bubble"}
         aria-label={open ? strings.closeLabel : strings.openLabel}
+        title={showGrip ? strings.dragHint : undefined}
         onPointerDown={(e) => drag.onPointerDown(e)}
         onClick={() => {
           // Il click che chiude un trascinamento non apre né chiude la chat.
@@ -143,6 +148,14 @@ export function WidgetRoot({ base, config, user }: WidgetRootProps) {
         }}
       >
         {open ? "✕" : "💬"}
+        {showGrip ? (
+          <span
+            class={bubbleOnLeft ? "sw-bubble-grip sw-bubble-grip--right" : "sw-bubble-grip"}
+            aria-hidden="true"
+          >
+            ⠿
+          </span>
+        ) : null}
       </button>
     </div>
   );

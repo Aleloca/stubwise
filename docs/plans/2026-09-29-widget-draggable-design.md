@@ -47,6 +47,18 @@ flottanti, chat di terzi), che la bolla copre.
 - **Col pannello aperto** la bolla si trascina e il pannello la segue. Sotto i
   480px il pannello è a schermo intero e la bolla nascosta: invariato.
 
+### Maniglia (aggiunta dopo la prima prova manuale)
+
+Il trascinamento non si scopre da solo. Finché l'utente non ha mai spostato la
+bolla, sul lato rivolto al centro della pagina c'è una linguetta coi puntini
+(⠿) e la bolla ha il tooltip «Trascina per spostare». "Mai spostata" coincide
+con "nessuna posizione salvata": nessun flag a parte. Nascosta a chat aperta
+(la bolla è il tasto chiudi). Scartati: il solo cursore `grab` (invisibile su
+telefono), un suggerimento temporaneo una tantum, i puntini dentro il cerchio
+(poco leggibili su 56px) e un badge d'angolo (scambiabile per un contatore).
+Costo accettato: chi non sposta mai la bolla vede la maniglia sempre, quindi
+dev'essere piccola.
+
 ## 2. Posizionamento del pannello
 
 Funzione pura `placePanel(viewport, bubble)` in `ui/placement.ts`.

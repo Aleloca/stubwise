@@ -671,6 +671,42 @@ describe("drag", () => {
     expect(cssVar("--sw-panel-height")).toBe("600px");
   });
 
+  it("finché non è mai stata spostata la bolla ha la maniglia, verso il centro della pagina", async () => {
+    await mount();
+    const grip = shadow().querySelector(".sw-bubble-grip");
+    expect(grip).not.toBeNull();
+    // Bolla a destra → maniglia sul suo lato sinistro.
+    expect(grip!.classList.contains("sw-bubble-grip--right")).toBe(false);
+    expect(bubble().getAttribute("title")).toBe("Trascina per spostare");
+  });
+
+  it("dopo il primo trascinamento la maniglia sparisce", async () => {
+    await mount();
+    pointer(bubble(), "pointerdown", 1224, 752);
+    pointer(window, "pointermove", 200, 300);
+    await flush();
+    // Durante il trascinamento resta, e passa sul lato giusto.
+    expect(shadow().querySelector(".sw-bubble-grip--right")).not.toBeNull();
+    pointer(window, "pointerup", 200, 300);
+    await flush();
+    expect(shadow().querySelector(".sw-bubble-grip")).toBeNull();
+    // Preact lascia title="" invece di rimuoverlo: per il browser è "nessun tooltip".
+    expect(bubble().getAttribute("title") ?? "").toBe("");
+  });
+
+  it("con una posizione già salvata la maniglia non compare", async () => {
+    localStorage.setItem("stubwise-widget:acme:position", JSON.stringify({ side: "right", y: 1 }));
+    await mount();
+    expect(shadow().querySelector(".sw-bubble-grip")).toBeNull();
+  });
+
+  it("a chat aperta la maniglia non c'è (la bolla è il tasto chiudi)", async () => {
+    await mount();
+    bubble().click();
+    await flush();
+    expect(shadow().querySelector(".sw-bubble-grip")).toBeNull();
+  });
+
   it("al resize la posizione si ricalcola dalla frazione", async () => {
     await mount();
     setViewport(1280, 600);

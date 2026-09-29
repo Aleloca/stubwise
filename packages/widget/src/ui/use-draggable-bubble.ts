@@ -35,6 +35,9 @@ export function useDraggableBubble(slug: string) {
   const [position, setPos] = useState<BubblePosition>(() => getPosition(slug) ?? DEFAULT_POSITION);
   const [viewport, setViewport] = useState<Viewport>(readViewport);
   const [dragBox, setDragBox] = useState<Box | null>(null);
+  // Ha mai spostato la bolla? Coincide con "c'è una posizione salvata": è ciò
+  // che spegne la maniglia, senza un flag a parte.
+  const [moved, setMoved] = useState(() => getPosition(slug) !== null);
   const suppressClick = useRef(false);
   const detach = useRef<(() => void) | null>(null);
 
@@ -77,6 +80,7 @@ export function useDraggableBubble(slug: string) {
       setDragBox(null);
       setViewport(now);
       setPos(next);
+      setMoved(true);
       setPosition(slug, next);
     };
     const remove = () => {
@@ -99,6 +103,7 @@ export function useDraggableBubble(slug: string) {
   }
 
   return {
+    moved,
     viewport,
     bubble: dragBox ?? bubbleBox(position, viewport),
     dragging: dragBox !== null,

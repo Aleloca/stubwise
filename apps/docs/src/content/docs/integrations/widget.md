@@ -39,7 +39,8 @@ project and the widget.
 - **Movable launcher** — the chat bubble starts in the bottom-right corner.
   If it covers something on your site, visitors can **drag it**: it snaps to
   the nearest side (left or right) at the height they chose, and the position
-  is **remembered in their browser**. The chat opens above, below or beside
+  is **remembered in their browser**. Until a visitor moves it for the first
+  time, a small dotted handle on the bubble hints that it can be dragged. The chat opens above, below or beside
   the bubble — wherever it fits whole. On phones the chat still opens full
   screen.
 
