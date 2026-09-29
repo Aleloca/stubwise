@@ -36,6 +36,41 @@ describe("splitQuotedReply", () => {
     expect(split.quoted).toMatch(/più vecchio$/);
   });
 
+  it("forma a TABELLA (etichette senza due punti, righe vuote in mezzo)", () => {
+    const text = [
+      "Buongiorno Alessandro,",
+      "sì, ho appena mandato l'invito.",
+      "Simona.",
+      "\u200b",
+      "",
+      'Da "Leonardo Rossi" l.rossi@example.com',
+      "",
+      "A s.bianchi@example.com",
+      "",
+      "Cc it@example.com, o.verdi@example.com",
+      "",
+      "Data Tue, 29 Sep 2026 12:21:16 +0200",
+      "",
+      "Oggetto Re: Integrazione software",
+      "",
+      "Ciao Simona, la mail precedente",
+    ].join("\n");
+
+    const split = splitQuotedReply(text);
+    expect(split.body).toBe("Buongiorno Alessandro,\nsì, ho appena mandato l'invito.\nSimona.");
+    expect(split.quoted).toMatch(/^Da "Leonardo Rossi"/);
+  });
+
+  it("forma a tabella: un inoltro («Oggetto I: …») NON si taglia", () => {
+    const text = 'Vedi sotto\n\nDa "X" x@example.com\n\nA y@example.com\n\nData ieri\n\nOggetto I: preventivo\n\ncontenuto';
+    expect(splitQuotedReply(text).quoted).toBeNull();
+  });
+
+  it("forma a tabella: «Da lunedì…» in una frase non basta, servono A, Data e Oggetto", () => {
+    const text = "Da lunedì siamo operativi.\nA presto,\nMario";
+    expect(splitQuotedReply(text).quoted).toBeNull();
+  });
+
   it("un inoltro di Gmail NON si taglia: il testo sotto è il contenuto", () => {
     const text = [
       "Vi giro questa",

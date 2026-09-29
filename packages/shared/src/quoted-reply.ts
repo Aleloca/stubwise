@@ -17,6 +17,19 @@
  * per conversazione è già sotto, messaggio per messaggio. In produzione, al
  * 29 set 2026, 16 messaggi su 278.
  *
+ * Esiste una SECONDA forma, da una webmail che mette l'intestazione in una
+ * tabella: le celle arrivano come righe SENZA i due punti —
+ *
+ *     Da "Leonardo Locatelli" l.locatelli@farmakom.it
+ *     A s.trimboli@rotopubblicita.com
+ *     Cc it@farmakom.it
+ *     Data Tue, 29 Sep 2026 12:21:16 +0200
+ *     Oggetto Re: Integrazione software
+ *
+ * Senza due punti «Da …» è anche una frase qualunque («Da lunedì siamo
+ * operativi»), quindi qui la regola è più stretta: servono `A`, `Data` e
+ * `Oggetto`, tutte senza due punti, nelle righe subito sotto.
+ *
  * ⚠️ **È una regola di LETTURA, non di ingestione.** L'estratto resta com'è:
  * è ciò che la classificazione ha letto, e non si riscrive (CLAUDE.md, «Il
  * corpo HTML di un'email»). Per questo vale anche sulle righe già in
@@ -44,14 +57,35 @@ export interface QuotedReplySplit {
 
 const FROM_LINE = /^\s*\*?(?:Da|From)\s*:\*?(?:\s|$)/i;
 const SENT_LINE = /^\s*\*?(?:Inviato|Sent)\s*:/i;
-const SUBJECT_LINE = /^\s*\*?(?:Oggetto|Subject)\s*:\*?\s*(.*)$/i;
+/** Le righe della forma a tabella: etichetta, spazio, valore — nessun due punti. */
+const TABLE_FROM_LINE = /^\s*(?:Da|From)\s+[^:\s]/;
+const TABLE_TO_LINE = /^\s*(?:A|To)\s+[^:\s]/;
+const TABLE_DATE_LINE = /^\s*(?:Data|Date)\s+[^:\s]/;
+const TABLE_SUBJECT_LINE = /^\s*(?:Oggetto|Subject)(?:\s|$)/;
+const SUBJECT_LINE = /^\s*\*?(?:Oggetto|Subject)\s*:?\*?\s*(.*)$/i;
 const FORWARD_SUBJECT = /^(?:I|Fw|Fwd|Tr|Inoltro)\s*:/i;
 // Gmail («---------- Forwarded message ---------») e Apple Mail («Begin forwarded message:», «Inizio messaggio inoltrato:»).
 const FORWARD_MARKER = /forwarded message|messaggio inoltrato/i;
 const SEPARATOR = /^\s*(?:_{10,}|-{5,}\s*(?:Original Message|Messaggio originale)\s*-*)\s*$/i;
 
-/** Quante righe dopo `Da:` si cerca il resto dell'intestazione. */
-const HEADER_WINDOW = 6;
+/**
+ * Quante righe dopo `Da` si cerca il resto dell'intestazione: la forma a
+ * tabella lascia una riga vuota fra una cella e l'altra.
+ */
+const HEADER_WINDOW = 10;
+
+function isOutlookHeader(line: string, header: string[]): boolean {
+  return FROM_LINE.test(line) && header.some((l) => SENT_LINE.test(l));
+}
+
+function isTableHeader(line: string, header: string[]): boolean {
+  return (
+    TABLE_FROM_LINE.test(line) &&
+    header.some((l) => TABLE_TO_LINE.test(l)) &&
+    header.some((l) => TABLE_DATE_LINE.test(l)) &&
+    header.some((l) => TABLE_SUBJECT_LINE.test(l))
+  );
+}
 
 export function splitQuotedReply(text: string): QuotedReplySplit {
   const lines = text.split("\n");
@@ -60,10 +94,8 @@ export function splitQuotedReply(text: string): QuotedReplySplit {
     // Un inoltro PRIMA di qualunque intestazione di risposta: tutto ciò che
     // segue è contenuto, anche le risposte citate dentro la mail inoltrata.
     if (FORWARD_MARKER.test(line)) return { body: text, quoted: null };
-    if (!FROM_LINE.test(line)) continue;
-
     const header = lines.slice(i + 1, i + 1 + HEADER_WINDOW);
-    if (!header.some((l) => SENT_LINE.test(l))) continue;
+    if (!isOutlookHeader(line, header) && !isTableHeader(line, header)) continue;
     const subject = header.map((l) => SUBJECT_LINE.exec(l)).find((m) => m !== null);
     if (subject && FORWARD_SUBJECT.test((subject[1] ?? "").trim())) return { body: text, quoted: null };
 
@@ -73,7 +105,8 @@ export function splitQuotedReply(text: string): QuotedReplySplit {
     while (prev >= 0 && (lines[prev] ?? "").trim() === "") prev -= 1;
     if (prev >= 0 && SEPARATOR.test(lines[prev] ?? "")) cut = prev;
 
-    const body = lines.slice(0, cut).join("\n").trimEnd();
+    // `trimEnd` non toglie gli spazi a larghezza zero che certe firme lasciano in fondo.
+    const body = lines.slice(0, cut).join("\n").replace(/[\s\u200b]+$/, "");
     // Un messaggio che è SOLO citazione resta intero: meglio un blocco lungo
     // che un messaggio vuoto con un bottone.
     if (body.trim() === "") return { body: text, quoted: null };
