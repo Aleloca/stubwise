@@ -30,11 +30,17 @@ export function widgetStyles(accentColor: string): string {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
-/* Bolla lanciatrice, fissa in basso a destra. */
+/* Bolla lanciatrice. La posizione la calcola il JS (placement.ts) e arriva
+   come variabili sul root: di default in basso a destra, poi dove l'utente la
+   trascina. touch-action:none evita che trascinarla col dito scorra la pagina. */
 .sw-bubble {
   position: fixed;
-  bottom: 20px;
-  right: 20px;
+  left: var(--sw-bubble-left);
+  top: var(--sw-bubble-top);
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: left 0.18s ease-out, top 0.18s ease-out;
   width: 56px;
   height: 56px;
   border-radius: 50%;
@@ -52,15 +58,54 @@ export function widgetStyles(accentColor: string): string {
   padding: 0;
 }
 .sw-bubble:hover { filter: brightness(1.05); }
+/* Durante il trascinamento la bolla segue il puntatore senza ritardo; la
+   transizione torna al rilascio, per lo scatto verso il bordo. */
+.sw-root--dragging .sw-bubble { transition: none; cursor: grabbing; }
+/* Maniglia, finché l'utente non ha mai spostato la bolla: una linguetta a
+   pillola, un tono più scura dell'accento, che spunta da DIETRO la bolla sul
+   lato rivolto al centro pagina. È un elemento fratello con z-index più basso
+   (un figlio del bottone non potrebbe stare sotto il suo sfondo) e segue la
+   bolla con le stesse variabili e la stessa transizione. */
+.sw-bubble-grip {
+  position: fixed;
+  left: calc(var(--sw-bubble-left) - 14px);
+  top: calc(var(--sw-bubble-top) + 12px);
+  width: 34px;
+  height: 32px;
+  padding-left: 5px;
+  border-radius: 16px;
+  background: var(--sw-accent);
+  filter: brightness(0.82);
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+  z-index: 2147482999;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: left 0.18s ease-out, top 0.18s ease-out;
+}
+/* Bolla a sinistra: la linguetta spunta dal suo lato destro. */
+.sw-bubble-grip--right {
+  left: calc(var(--sw-bubble-left) + 36px);
+  padding-left: 0;
+  padding-right: 5px;
+  justify-content: flex-end;
+}
+.sw-root--dragging .sw-bubble-grip { transition: none; cursor: grabbing; }
 
-/* Pannello chat. */
+/* Pannello chat: posizione e dimensioni dal JS (placement.ts), dove c'è
+   spazio rispetto alla bolla. */
 .sw-panel {
   position: fixed;
-  bottom: 88px;
-  right: 20px;
-  width: 380px;
-  height: 600px;
-  max-height: calc(100vh - 108px);
+  left: var(--sw-panel-left);
+  top: var(--sw-panel-top);
+  width: var(--sw-panel-width);
+  height: var(--sw-panel-height);
   background: var(--sw-bg);
   color: var(--sw-fg);
   border: 1px solid var(--sw-border);
@@ -283,6 +328,9 @@ export function widgetStyles(accentColor: string): string {
 
 /* Full-screen sotto 480px. */
 @media (max-width: 480px) {
+  /* Stessa specificità di .sw-panel e scritta dopo: vince sulle variabili di
+     posizione, quindi sotto i 480px la chat resta a schermo intero ovunque
+     sia la bolla. */
   .sw-panel {
     inset: 0;
     width: 100%;

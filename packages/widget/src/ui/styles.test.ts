@@ -42,3 +42,18 @@ describe("widgetStyles mobile/anti-zoom rules", () => {
     expect(css).toMatch(/\.sw-bubble--hidden\s*\{\s*display:\s*none/);
   });
 });
+
+describe("widgetStyles posizione dal JS", () => {
+  const css = widgetStyles("#3366ff");
+
+  it("bolla e pannello leggono la geometria dalle variabili", () => {
+    expect(css).toMatch(/\.sw-bubble\s*\{[^}]*top:\s*var\(--sw-bubble-top\)/);
+    expect(css).toMatch(/\.sw-panel\s*\{[^}]*top:\s*var\(--sw-panel-top\)/);
+    expect(css).toMatch(/\.sw-bubble\s*\{[^}]*touch-action:\s*none/);
+  });
+
+  it("sotto i 480px il pannello resta a schermo intero", () => {
+    const mobile = css.slice(css.indexOf("@media (max-width: 480px)"));
+    expect(mobile).toMatch(/\.sw-panel\s*\{[^}]*inset:\s*0/);
+  });
+});

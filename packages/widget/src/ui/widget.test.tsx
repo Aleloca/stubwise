@@ -587,3 +587,142 @@ describe("chat disabled", () => {
     expect(shadow().querySelector(".sw-composer-note")).not.toBeNull();
   });
 });
+
+describe("drag", () => {
+  /** Pointer event con coordinate client (tasto principale). */
+  function pointer(target: EventTarget, type: string, x: number, y: number) {
+    target.dispatchEvent(
+      new PointerEvent(type, { clientX: x, clientY: y, button: 0, bubbles: true, composed: true }),
+    );
+  }
+  /** La geometria arriva al CSS come variabili sul root. */
+  function cssVar(name: string): string {
+    return shadow().querySelector<HTMLElement>(".sw-root")!.style.getPropertyValue(name);
+  }
+  function bubble(): HTMLButtonElement {
+    return shadow().querySelector<HTMLButtonElement>(".sw-bubble")!;
+  }
+  /** In happy-dom documentElement.clientWidth/Height valgono 0: il widget ripiega su inner*. */
+  function setViewport(width: number, height: number) {
+    Object.defineProperty(window, "innerWidth", { value: width, configurable: true, writable: true });
+    Object.defineProperty(window, "innerHeight", { value: height, configurable: true, writable: true });
+  }
+  async function mount() {
+    installFetch({ "GET /config": jsonResponse(200, activeConfig()) });
+    await initWidget({ dsn: DSN, user: USER });
+    await flush();
+  }
+
+  beforeEach(() => setViewport(1280, 800));
+  afterEach(() => setViewport(1024, 768));
+
+  it("senza posizione salvata la bolla sta in basso a destra, come prima", async () => {
+    await mount();
+    expect(cssVar("--sw-bubble-left")).toBe("1204px");
+    expect(cssVar("--sw-bubble-top")).toBe("724px");
+  });
+
+  it("un movimento sotto soglia resta un click: apre, e non salva nulla", async () => {
+    await mount();
+    pointer(bubble(), "pointerdown", 1224, 752);
+    pointer(window, "pointerup", 1226, 753);
+    bubble().click();
+    await flush();
+    expect(shadow().querySelector(".sw-panel")).not.toBeNull();
+    expect(localStorage.getItem("stubwise-widget:acme:position")).toBeNull();
+  });
+
+  it("un trascinamento non apre la chat, aggancia al bordo e salva; il click dopo funziona", async () => {
+    await mount();
+    pointer(bubble(), "pointerdown", 1224, 752);
+    pointer(window, "pointermove", 200, 300);
+    await flush();
+    // Durante il trascinamento la bolla segue il puntatore.
+    expect(shadow().querySelector(".sw-root--dragging")).not.toBeNull();
+    expect(cssVar("--sw-bubble-left")).toBe("180px");
+    pointer(window, "pointerup", 200, 300);
+    bubble().click(); // il click che il browser emette a fine trascinamento
+    await flush();
+
+    expect(shadow().querySelector(".sw-panel")).toBeNull();
+    expect(shadow().querySelector(".sw-root--dragging")).toBeNull();
+    expect(JSON.parse(localStorage.getItem("stubwise-widget:acme:position")!)).toEqual({
+      side: "left",
+      y: 0.375,
+    });
+    expect(cssVar("--sw-bubble-left")).toBe("20px");
+    expect(cssVar("--sw-bubble-top")).toBe("272px");
+
+    // La soppressione vale un click solo.
+    bubble().click();
+    await flush();
+    expect(shadow().querySelector(".sw-panel")).not.toBeNull();
+  });
+
+  it("riparte dalla posizione salvata e apre il pannello dove c'è spazio (sotto)", async () => {
+    localStorage.setItem("stubwise-widget:acme:position", JSON.stringify({ side: "left", y: 0 }));
+    await mount();
+    expect(cssVar("--sw-bubble-left")).toBe("20px");
+    expect(cssVar("--sw-bubble-top")).toBe("20px");
+    bubble().click();
+    await flush();
+    expect(cssVar("--sw-panel-left")).toBe("20px");
+    expect(cssVar("--sw-panel-top")).toBe("88px");
+    expect(cssVar("--sw-panel-height")).toBe("600px");
+  });
+
+  it("finché non è mai stata spostata la bolla ha la maniglia, verso il centro della pagina", async () => {
+    await mount();
+    const grip = shadow().querySelector(".sw-bubble-grip");
+    expect(grip).not.toBeNull();
+    // Bolla a destra → maniglia sul suo lato sinistro.
+    expect(grip!.classList.contains("sw-bubble-grip--right")).toBe(false);
+    expect(bubble().getAttribute("title")).toBe("Trascina per spostare");
+  });
+
+  it("dopo il primo trascinamento la maniglia sparisce", async () => {
+    await mount();
+    pointer(bubble(), "pointerdown", 1224, 752);
+    pointer(window, "pointermove", 200, 300);
+    await flush();
+    // Durante il trascinamento resta, e passa sul lato giusto.
+    expect(shadow().querySelector(".sw-bubble-grip--right")).not.toBeNull();
+    pointer(window, "pointerup", 200, 300);
+    await flush();
+    expect(shadow().querySelector(".sw-bubble-grip")).toBeNull();
+    // Preact lascia title="" invece di rimuoverlo: per il browser è "nessun tooltip".
+    expect(bubble().getAttribute("title") ?? "").toBe("");
+  });
+
+  it("la maniglia è un elemento a sé (sta DIETRO la bolla) e trascinarla sposta la bolla", async () => {
+    await mount();
+    const grip = shadow().querySelector<HTMLElement>(".sw-bubble-grip")!;
+    expect(bubble().contains(grip)).toBe(false);
+    pointer(grip, "pointerdown", 1210, 752);
+    pointer(window, "pointermove", 200, 300);
+    pointer(window, "pointerup", 200, 300);
+    await flush();
+    expect(JSON.parse(localStorage.getItem("stubwise-widget:acme:position")!).side).toBe("left");
+  });
+
+  it("con una posizione già salvata la maniglia non compare", async () => {
+    localStorage.setItem("stubwise-widget:acme:position", JSON.stringify({ side: "right", y: 1 }));
+    await mount();
+    expect(shadow().querySelector(".sw-bubble-grip")).toBeNull();
+  });
+
+  it("a chat aperta la maniglia non c'è (la bolla è il tasto chiudi)", async () => {
+    await mount();
+    bubble().click();
+    await flush();
+    expect(shadow().querySelector(".sw-bubble-grip")).toBeNull();
+  });
+
+  it("al resize la posizione si ricalcola dalla frazione", async () => {
+    await mount();
+    setViewport(1280, 600);
+    window.dispatchEvent(new Event("resize"));
+    await flush();
+    expect(cssVar("--sw-bubble-top")).toBe("524px");
+  });
+});

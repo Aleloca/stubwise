@@ -20,6 +20,8 @@ export interface WidgetStrings {
   /** aria-label della bolla/bottone di chiusura. */
   openLabel: string;
   closeLabel: string;
+  /** Tooltip della bolla finché mostra la maniglia (mai spostata). */
+  dragHint: string;
   /** aria-label del bottone "nuova conversazione" (stato iniziale). */
   newChat: string;
   /** aria-label del bottone "nuova conversazione" nello stato di conferma. */
@@ -52,6 +54,7 @@ const it: WidgetStrings = {
   send: "Invia",
   openLabel: "Apri la chat di assistenza",
   closeLabel: "Chiudi la chat",
+  dragHint: "Trascina per spostare",
   newChat: "Nuova conversazione",
   newChatConfirm: "Confermi? Ricomincia da capo",
   assistantNote: "Risponde l'assistente AI",
@@ -77,6 +80,7 @@ const en: WidgetStrings = {
   send: "Send",
   openLabel: "Open support chat",
   closeLabel: "Close chat",
+  dragHint: "Drag to move",
   newChat: "New conversation",
   newChatConfirm: "Confirm? This starts over",
   assistantNote: "You are chatting with the AI assistant",

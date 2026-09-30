@@ -36,6 +36,13 @@ project and the widget.
 - **Team visibility** — every conversation is readable by your team in the
   **Conversations** page of the project — transcript included, labelled with the
   widget it came from and **filterable per widget**.
+- **Movable launcher** — the chat bubble starts in the bottom-right corner.
+  If it covers something on your site, visitors can **drag it**: it snaps to
+  the nearest side (left or right) at the height they chose, and the position
+  is **remembered in their browser**. Until a visitor moves it for the first
+  time, a small dotted handle on the bubble hints that it can be dragged. The
+  chat opens above, below or beside the bubble — wherever it fits whole. On
+  phones the chat still opens full screen.
 
 ## Requirements
 

@@ -38,3 +38,48 @@ export function clearConversationId(slug: string): void {
     // storage non disponibile: no-op
   }
 }
+
+/**
+ * Posizione della bolla scelta dall'utente trascinandola: il lato a cui è
+ * agganciata e il CENTRO verticale come frazione (0–1) dell'altezza del
+ * viewport — una frazione e non i pixel, così sopravvive al resize e al cambio
+ * di schermo.
+ */
+export interface BubblePosition {
+  side: "left" | "right";
+  y: number;
+}
+
+/** Chiave localStorage della posizione della bolla per lo slug. */
+function positionKey(slug: string): string {
+  return `stubwise-widget:${slug}:position`;
+}
+
+/**
+ * Posizione salvata per lo slug, o null (assente, storage non accessibile, o
+ * valore che non ha la forma attesa: un valore corrotto non deve portare la
+ * bolla fuori schermo, quindi si torna al default).
+ */
+export function getPosition(slug: string): BubblePosition | null {
+  try {
+    const raw = localStorage.getItem(positionKey(slug));
+    if (raw === null) return null;
+    const v: unknown = JSON.parse(raw);
+    if (typeof v !== "object" || v === null) return null;
+    const { side, y } = v as Record<string, unknown>;
+    if (side !== "left" && side !== "right") return null;
+    if (typeof y !== "number" || !Number.isFinite(y) || y < 0 || y > 1) return null;
+    return { side, y };
+  } catch {
+    return null;
+  }
+}
+
+/** Salva la posizione per lo slug. No-op se lo storage non è accessibile. */
+export function setPosition(slug: string, position: BubblePosition): void {
+  try {
+    localStorage.setItem(positionKey(slug), JSON.stringify(position));
+  } catch {
+    // storage non disponibile: la posizione vale fino al reload
+  }
+}
