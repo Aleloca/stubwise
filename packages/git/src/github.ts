@@ -20,6 +20,7 @@ import {
   type GitProvider,
   type GitProviderOptions,
   type PrActivityEvent,
+  type PrComment,
   type ProjectGitConfig,
   type PullRequestChecks,
   type PushWebhookEvent,
@@ -39,6 +40,11 @@ const MAX_REPO_PAGES = 3;
 
 /** Tetto di branch elencati: ~2 pagine da 100. */
 const MAX_BRANCH_PAGES = 2;
+
+/** Tetto di pagine PER FONTE di commenti di una PR: 10 da 100 (~1000). Oltre
+ * è un'anomalia, e un Link `next` che non termina non deve girare
+ * all'infinito: meglio una fotografia troncata che un ciclo senza fine. */
+const MAX_COMMENT_PAGES = 10;
 
 export class GitHubProvider implements GitProvider {
   private readonly fetchImpl: FetchLike;
@@ -275,6 +281,101 @@ export class GitHubProvider implements GitProvider {
     await ensureOkResponse(response, "GitHub");
   }
 
+  /**
+   * Feedback scritto su una PR, da tre fonti: conversazione (issue comment),
+   * righe (review comment, con `path`/`line` — `original_line` se la riga non
+   * è più nel diff) e testo delle review inviate (le PENDING no, i testi vuoti
+   * no: un "Approve" senza testo non è feedback). Ordinato per data; id con
+   * prefisso per fonte (`issue-`, `review-comment-`, `review-`), perché GitHub
+   * non garantisce che gli id delle tre non si sovrappongano. L'autore passa
+   * da {@link githubAuthor} per tutte e tre, la stessa funzione del webhook
+   * "Request changes": scarta ciò che non ha un id numerico sicuro (vedi
+   * {@link PrComment}). Lancia GitProviderError sui non-2xx: la fotografia
+   * del feedback non si prende a metà.
+   */
+  async listPrComments(
+    p: ProjectGitConfig,
+    prNumber: number,
+    opts: { fetchImpl?: FetchLike } = {}
+  ): Promise<PrComment[]> {
+    const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
+    const { owner, repo } = parseRepoUrl(p.repoUrl);
+    const headers = {
+      Authorization: `Bearer ${p.credentials.token}`,
+      Accept: "application/vnd.github+json",
+    };
+    const base = `${API_BASE}/repos/${owner}/${repo}`;
+    const comments: PrComment[] = [];
+
+    for (const raw of await this.fetchCommentPages(fetchImpl, `${base}/issues/${prNumber}/comments?per_page=100`, headers)) {
+      const c = raw as { id?: unknown; user?: unknown; body?: unknown; created_at?: unknown };
+      const author = githubAuthor(c.user);
+      if (author === null || !Number.isSafeInteger(c.id) || typeof c.created_at !== "string") continue;
+      if (typeof c.body !== "string" || c.body.trim().length === 0) continue;
+      comments.push({
+        id: `issue-${String(c.id)}`,
+        authorId: author.id,
+        authorLogin: author.login,
+        body: c.body,
+        createdAt: c.created_at,
+        path: null,
+        line: null,
+      });
+    }
+
+    for (const raw of await this.fetchCommentPages(fetchImpl, `${base}/pulls/${prNumber}/comments?per_page=100`, headers)) {
+      const c = raw as {
+        id?: unknown;
+        user?: unknown;
+        body?: unknown;
+        created_at?: unknown;
+        path?: unknown;
+        line?: unknown;
+        original_line?: unknown;
+      };
+      const author = githubAuthor(c.user);
+      if (author === null || !Number.isSafeInteger(c.id) || typeof c.created_at !== "string") continue;
+      if (typeof c.body !== "string" || c.body.trim().length === 0) continue;
+      const path = typeof c.path === "string" ? c.path : null;
+      const line =
+        path === null
+          ? null
+          : Number.isSafeInteger(c.line)
+            ? (c.line as number)
+            : Number.isSafeInteger(c.original_line)
+              ? (c.original_line as number)
+              : null;
+      comments.push({
+        id: `review-comment-${String(c.id)}`,
+        authorId: author.id,
+        authorLogin: author.login,
+        body: c.body,
+        createdAt: c.created_at,
+        path,
+        line,
+      });
+    }
+
+    for (const raw of await this.fetchCommentPages(fetchImpl, `${base}/pulls/${prNumber}/reviews?per_page=100`, headers)) {
+      const r = raw as { id?: unknown; user?: unknown; body?: unknown; state?: unknown; submitted_at?: unknown };
+      const author = githubAuthor(r.user);
+      if (author === null || !Number.isSafeInteger(r.id) || typeof r.submitted_at !== "string") continue;
+      if (r.state === "PENDING") continue;
+      if (typeof r.body !== "string" || r.body.trim().length === 0) continue;
+      comments.push({
+        id: `review-${String(r.id)}`,
+        authorId: author.id,
+        authorLogin: author.login,
+        body: r.body,
+        createdAt: r.submitted_at,
+        path: null,
+        line: null,
+      });
+    }
+
+    return comments.sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
+  }
+
   parseWebhook(headers: Record<string, string>, body: unknown): WebhookEvent | null {
     if (getHeader(headers, "x-github-event") !== "pull_request") return null;
     if (typeof body !== "object" || body === null) return null;
@@ -377,15 +478,12 @@ export class GitHubProvider implements GitProvider {
       return null;
     }
     const pr = payload.pull_request as { number?: unknown; head?: { ref?: unknown } };
-    const actorId = review.user?.id;
-    const actorLogin = review.user?.login;
+    const actor = githubAuthor(review.user);
     if (
       typeof pr.number !== "number" ||
       !Number.isSafeInteger(pr.number) ||
       typeof pr.head?.ref !== "string" ||
-      typeof actorId !== "number" ||
-      !Number.isSafeInteger(actorId) ||
-      typeof actorLogin !== "string"
+      actor === null
     ) {
       return null;
     }
@@ -394,8 +492,8 @@ export class GitHubProvider implements GitProvider {
     return {
       prNumber: pr.number,
       sourceBranch: pr.head.ref,
-      actorId: String(actorId),
-      actorLogin,
+      actorId: actor.id,
+      actorLogin: actor.login,
       reviewBody,
     };
   }
@@ -709,6 +807,39 @@ export class GitHubProvider implements GitProvider {
   }
 
   /**
+   * GET paginato con l'header Link (`parseNextLink`), fino a
+   * {@link MAX_COMMENT_PAGES}. Un corpo che non è un array chiude la
+   * paginazione. Un `next` che non sta sull'host dell'API GitHub fa lanciare
+   * PRIMA di seguirlo: la richiesta porterebbe il token altrove, e troncare in
+   * silenzio darebbe una fotografia a metà.
+   */
+  private async fetchCommentPages(
+    fetchImpl: FetchLike,
+    firstUrl: string,
+    headers: Record<string, string>
+  ): Promise<unknown[]> {
+    const items: unknown[] = [];
+    let url: string | null = firstUrl;
+    for (let page = 0; page < MAX_COMMENT_PAGES && url; page++) {
+      if (!isGitHubApiUrl(url)) {
+        throw new GitProviderError(
+          "GitHub ha indicato una pagina successiva fuori da api.github.com: non la seguo per non inviare il token altrove",
+          0,
+          ""
+        );
+      }
+      const response = await fetchImpl(url, { method: "GET", headers });
+      await ensureOkResponse(response, "GitHub");
+      const link = response.headers.get("link");
+      const data = await readJsonResponse(response, "GitHub");
+      if (!Array.isArray(data)) break;
+      items.push(...(data as unknown[]));
+      url = parseNextLink(link);
+    }
+    return items;
+  }
+
+  /**
    * Lancia GitProviderError sui non-2xx delle chiamate webhook, con messaggio
    * dedicato sul 403/404 (permesso webhook mancante).
    */
@@ -756,4 +887,30 @@ function githubCheckStatus(status: unknown, conclusion: unknown): CheckOutcomeSt
     return "success";
   }
   return "failure";
+}
+
+/**
+ * Identità di un utente GitHub in un commento, una review o un webhook: id
+ * numerico come stringa (stabile, sopravvive a un cambio di login — è ciò che
+ * si confronta con gli account di Stubwise) e login. Null se `user` manca o è
+ * null (account cancellato, "ghost"), se l'id non è un intero sicuro o se il
+ * login manca: senza un id affidabile non lo si può escludere dagli account
+ * di Stubwise. UNA funzione per commenti e webhook, così le due identità non
+ * possono divergere.
+ */
+function githubAuthor(raw: unknown): { id: string; login: string } | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const user = raw as { id?: unknown; login?: unknown };
+  if (typeof user.id !== "number" || !Number.isSafeInteger(user.id)) return null;
+  if (typeof user.login !== "string") return null;
+  return { id: String(user.id), login: user.login };
+}
+
+/** Vero solo per un URL https sull'host dell'API GitHub (`API_BASE`). */
+function isGitHubApiUrl(url: string): boolean {
+  try {
+    return new URL(url).origin === API_BASE;
+  } catch {
+    return false;
+  }
 }

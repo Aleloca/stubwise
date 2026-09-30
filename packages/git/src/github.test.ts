@@ -448,6 +448,273 @@ describe("GitHubProvider.createPrComment", () => {
   });
 });
 
+describe("GitHubProvider.listPrComments", () => {
+  const BASE = "https://api.github.com/repos/octo/repo";
+  const ISSUE_URL = `${BASE}/issues/42/comments?per_page=100`;
+  const REVIEW_COMMENTS_URL = `${BASE}/pulls/42/comments?per_page=100`;
+  const REVIEWS_URL = `${BASE}/pulls/42/reviews?per_page=100`;
+  const mario = { id: 12345, login: "mario-rossi" };
+
+  function pagedResponse(body: unknown, next?: string): Response {
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: {
+        "content-type": "application/json",
+        ...(next ? { link: `<${next}>; rel="next"` } : {}),
+      },
+    });
+  }
+
+  function routes(pages: Record<string, () => Response>) {
+    return vi.fn().mockImplementation((input: string | URL) => {
+      const handler = pages[String(input)];
+      return Promise.resolve(handler ? handler() : new Response("", { status: 404 }));
+    });
+  }
+
+  it("unisce conversazione, righe e testo delle review, ordinati per data", async () => {
+    const fetchImpl = routes({
+      [ISSUE_URL]: () =>
+        pagedResponse([{ id: 1, user: mario, body: "Generale", created_at: "2026-09-30T10:03:00Z" }]),
+      [REVIEW_COMMENTS_URL]: () =>
+        pagedResponse([
+          {
+            id: 2,
+            user: mario,
+            body: "Null check",
+            created_at: "2026-09-30T10:01:00Z",
+            path: "src/a.ts",
+            line: 42,
+            original_line: 40,
+          },
+          {
+            id: 3,
+            user: mario,
+            body: "Riga non più nel diff",
+            created_at: "2026-09-30T10:02:00Z",
+            path: "src/b.ts",
+            line: null,
+            original_line: 9,
+          },
+        ]),
+      [REVIEWS_URL]: () =>
+        pagedResponse([
+          { id: 4, user: mario, body: "Nel complesso ok", state: "COMMENTED", submitted_at: "2026-09-30T10:00:00Z" },
+          { id: 5, user: mario, body: "", state: "APPROVED", submitted_at: "2026-09-30T10:04:00Z" },
+          { id: 6, user: mario, body: "bozza", state: "PENDING" },
+        ]),
+    });
+    const provider = new GitHubProvider({ fetchImpl });
+
+    const comments = await provider.listPrComments(config, 42);
+
+    const calledUrls = fetchImpl.mock.calls.map((c) => String((c as [string])[0]));
+    expect(calledUrls).toEqual([ISSUE_URL, REVIEW_COMMENTS_URL, REVIEWS_URL]);
+    const [, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    expect((init.headers as Record<string, string>)["Authorization"]).toBe("Bearer ghp_secret");
+    expect((init.headers as Record<string, string>)["Accept"]).toBe("application/vnd.github+json");
+    expect(comments).toEqual([
+      {
+        id: "review-4",
+        authorId: "12345",
+        authorLogin: "mario-rossi",
+        body: "Nel complesso ok",
+        createdAt: "2026-09-30T10:00:00Z",
+        path: null,
+        line: null,
+      },
+      {
+        id: "review-comment-2",
+        authorId: "12345",
+        authorLogin: "mario-rossi",
+        body: "Null check",
+        createdAt: "2026-09-30T10:01:00Z",
+        path: "src/a.ts",
+        line: 42,
+      },
+      {
+        id: "review-comment-3",
+        authorId: "12345",
+        authorLogin: "mario-rossi",
+        body: "Riga non più nel diff",
+        createdAt: "2026-09-30T10:02:00Z",
+        path: "src/b.ts",
+        line: 9,
+      },
+      {
+        id: "issue-1",
+        authorId: "12345",
+        authorLogin: "mario-rossi",
+        body: "Generale",
+        createdAt: "2026-09-30T10:03:00Z",
+        path: null,
+        line: null,
+      },
+    ]);
+  });
+
+  it("una review in bozza (PENDING) non entra, anche se ha testo e data", async () => {
+    const fetchImpl = routes({
+      [ISSUE_URL]: () => pagedResponse([]),
+      [REVIEW_COMMENTS_URL]: () => pagedResponse([]),
+      [REVIEWS_URL]: () =>
+        pagedResponse([
+          { id: 7, user: mario, body: "bozza con data", state: "PENDING", submitted_at: "2026-09-30T10:00:00Z" },
+          { id: 8, user: mario, body: "   ", state: "APPROVED", submitted_at: "2026-09-30T10:01:00Z" },
+          { id: 9, user: mario, body: null, state: "APPROVED", submitted_at: "2026-09-30T10:02:00Z" },
+        ]),
+    });
+    const provider = new GitHubProvider({ fetchImpl });
+    expect(await provider.listPrComments(config, 42)).toEqual([]);
+  });
+
+  it("scarta i commenti senza autore riconoscibile (user null: account cancellato)", async () => {
+    const fetchImpl = routes({
+      [ISSUE_URL]: () =>
+        pagedResponse([{ id: 1, user: null, body: "fantasma", created_at: "2026-09-30T10:00:00Z" }]),
+      [REVIEW_COMMENTS_URL]: () => pagedResponse([]),
+      [REVIEWS_URL]: () => pagedResponse([]),
+    });
+    const provider = new GitHubProvider({ fetchImpl });
+    expect(await provider.listPrComments(config, 42)).toEqual([]);
+  });
+
+  it("authorId è sempre l'id numerico, mai il login; un id non intero sicuro scarta il commento, in tutte e tre le fonti", async () => {
+    const at = "2026-09-30T10:00:00Z";
+    const badUsers = [
+      { id: "12345", login: "mario-rossi" },
+      { id: 1.5, login: "mario-rossi" },
+      { id: Number.MAX_SAFE_INTEGER + 2, login: "mario-rossi" },
+      { login: "mario-rossi" },
+    ];
+    const fetchImpl = routes({
+      [ISSUE_URL]: () =>
+        pagedResponse([
+          ...badUsers.map((user, i) => ({ id: 100 + i, user, body: "x", created_at: at })),
+          { id: 1, user: mario, body: "buono", created_at: at },
+        ]),
+      [REVIEW_COMMENTS_URL]: () =>
+        pagedResponse([
+          ...badUsers.map((user, i) => ({ id: 200 + i, user, body: "x", created_at: at, path: "a.ts", line: 1 })),
+          { id: 2, user: mario, body: "buono", created_at: at, path: "a.ts", line: 1 },
+        ]),
+      [REVIEWS_URL]: () =>
+        pagedResponse([
+          ...badUsers.map((user, i) => ({ id: 300 + i, user, body: "x", state: "COMMENTED", submitted_at: at })),
+          { id: 3, user: mario, body: "buono", state: "COMMENTED", submitted_at: at },
+        ]),
+    });
+    const provider = new GitHubProvider({ fetchImpl });
+
+    const comments = await provider.listPrComments(config, 42);
+
+    expect(comments.map((c) => c.id).sort()).toEqual(["issue-1", "review-3", "review-comment-2"]);
+    for (const c of comments) {
+      expect(c.authorId).toBe("12345");
+      expect(c.authorLogin).toBe("mario-rossi");
+    }
+  });
+
+  it("sulla stessa utenza, authorId dei commenti coincide con l'actorId del webhook \"Request changes\"", async () => {
+    const user = { id: 987654321, login: "lucia-bianchi" };
+    const fetchImpl = routes({
+      [ISSUE_URL]: () => pagedResponse([{ id: 1, user, body: "a", created_at: "2026-09-30T10:00:00Z" }]),
+      [REVIEW_COMMENTS_URL]: () =>
+        pagedResponse([{ id: 2, user, body: "b", created_at: "2026-09-30T10:01:00Z", path: "a.ts", line: 3 }]),
+      [REVIEWS_URL]: () =>
+        pagedResponse([{ id: 3, user, body: "c", state: "CHANGES_REQUESTED", submitted_at: "2026-09-30T10:02:00Z" }]),
+    });
+    const provider = new GitHubProvider({ fetchImpl });
+
+    const event = provider.parseChangesRequestedEvent(
+      { "x-github-event": "pull_request_review" },
+      {
+        action: "submitted",
+        review: { state: "changes_requested", body: "c", user },
+        pull_request: { number: 42, head: { ref: "stubwise/ticket-7" } },
+      }
+    );
+    const comments = await provider.listPrComments(config, 42);
+
+    expect(event).not.toBeNull();
+    expect(comments).toHaveLength(3);
+    for (const c of comments) {
+      expect(c.authorId).toBe(event?.actorId);
+      expect(c.authorLogin).toBe(event?.actorLogin);
+    }
+  });
+
+  it("segue l'header Link rel=next", async () => {
+    const ISSUE_PAGE_2 = `${BASE}/issues/42/comments?per_page=100&page=2`;
+    const fetchImpl = routes({
+      [ISSUE_URL]: () =>
+        pagedResponse([{ id: 1, user: mario, body: "p1", created_at: "2026-09-30T10:00:00Z" }], ISSUE_PAGE_2),
+      [ISSUE_PAGE_2]: () =>
+        pagedResponse([{ id: 2, user: mario, body: "p2", created_at: "2026-09-30T10:01:00Z" }]),
+      [REVIEW_COMMENTS_URL]: () => pagedResponse([]),
+      [REVIEWS_URL]: () => pagedResponse([]),
+    });
+    const provider = new GitHubProvider({ fetchImpl });
+    const comments = await provider.listPrComments(config, 42);
+    expect(comments.map((c) => c.id)).toEqual(["issue-1", "issue-2"]);
+  });
+
+  it("un Link next verso un host diverso dall'API GitHub non viene seguito: il token non esce", async () => {
+    const EVIL = "https://evil.example.com/repos/octo/repo/issues/42/comments?page=2";
+    const fetchImpl = routes({
+      [ISSUE_URL]: () =>
+        pagedResponse([{ id: 1, user: mario, body: "p1", created_at: "2026-09-30T10:00:00Z" }], EVIL),
+      [EVIL]: () => pagedResponse([]),
+      [REVIEW_COMMENTS_URL]: () => pagedResponse([]),
+      [REVIEWS_URL]: () => pagedResponse([]),
+    });
+    const provider = new GitHubProvider({ fetchImpl });
+
+    const error = await provider
+      .listPrComments(config, 42)
+      .then(() => null)
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).message).not.toContain("ghp_secret");
+    const calledUrls = fetchImpl.mock.calls.map((c) => String((c as [string])[0]));
+    expect(calledUrls).not.toContain(EVIL);
+    expect(calledUrls.every((u) => u.startsWith("https://api.github.com/"))).toBe(true);
+  });
+
+  it("un Link next che non finisce si ferma al tetto di 10 pagine per fonte", async () => {
+    const fetchImpl = vi.fn().mockImplementation((input: string | URL) =>
+      Promise.resolve(
+        String(input).includes("/issues/")
+          ? pagedResponse(
+              [{ id: 1, user: mario, body: "x", created_at: "2026-09-30T10:00:00Z" }],
+              `${BASE}/issues/42/comments?per_page=100&page=n`
+            )
+          : pagedResponse([])
+      )
+    );
+    const provider = new GitHubProvider({ fetchImpl });
+    await provider.listPrComments(config, 42);
+    const issueCalls = fetchImpl.mock.calls.filter((c) => String((c as [string])[0]).includes("/issues/"));
+    expect(issueCalls).toHaveLength(10);
+  });
+
+  it("non-2xx su una fonte → GitProviderError (niente fotografia a metà)", async () => {
+    const fetchImpl = routes({
+      [ISSUE_URL]: () => pagedResponse([]),
+      [REVIEW_COMMENTS_URL]: () => new Response("forbidden", { status: 403 }),
+      [REVIEWS_URL]: () => pagedResponse([]),
+    });
+    const provider = new GitHubProvider({ fetchImpl });
+    const error = await provider
+      .listPrComments(config, 42)
+      .then(() => null)
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).status).toBe(403);
+  });
+});
+
 describe("GitHubProvider.parseWebhook", () => {
   const provider = new GitHubProvider();
   const mergedBody = {
