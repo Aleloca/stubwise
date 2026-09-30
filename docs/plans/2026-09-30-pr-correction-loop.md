@@ -13290,7 +13290,8 @@ lettura riesce, la stessa review arriva da `listPrComments` come voce
 volte nel prompt.
 
 **Fail-closed dove conta.** Identità degli account irrisolvibile → nessuna
-correzione (design §5). Una richiesta dal provider durante un job vivo non è
+correzione (design §5), e un commento di sistema sul ticket che lo spiega —
+deduplicato, best-effort, mai un job (step 7–11). Una richiesta dal provider durante un job vivo non è
 un errore: `enqueueCorrection` la salva `pending` (design §6).
 
 **Una consegna, una richiesta.** Il provider ritrasmette un evento a cui non
@@ -13308,6 +13309,7 @@ posto solo.
 - Create: `apps/server/src/services/pr-correction-webhook.ts`
 - Modify: `apps/server/src/routes/webhooks.ts`
 - Create: `apps/server/src/routes/webhooks.corrections.test.ts`
+- Modify/Create per gli step 7–11 (l'avviso sul ticket): vedi l'elenco allo step 7
 
 **Step 1: test che fallisce**
 
@@ -14158,6 +14160,533 @@ pnpm --filter @stubwise/server typecheck && pnpm lint
 git add apps/server/src/services/pr-correction-webhook.ts apps/server/src/routes/webhooks.ts apps/server/src/routes/webhooks.corrections.test.ts
 git commit -m "feat(server): Request changes sulla PR accoda una correzione, account propri esclusi fail-closed"
 ```
+
+**Step 7: lo scarto per identità irrisolvibile lo dice SUL TICKET — perché**
+
+Fino allo step 6 il ramo `identity_unresolved` lascia solo una riga nel log:
+chi ha premuto "Request changes" sulla piattaforma non vede succedere niente e
+non ha modo di capire perché (su Bitbucket il caso tipico è un token vecchio
+senza lo scope `read:user:bitbucket`). Da qui quel ramo — e **solo** quello —
+scrive anche un commento di sistema sul ticket (`authorType: "system"`,
+`authorId: null`) che dice chi ha chiesto le modifiche, su quale PR, che la
+richiesta non è partita, perché, e che nel frattempo c'è il bottone «Applica le
+correzioni». Gli altri scarti restano muti, e apposta: branch non di Stubwise e
+PR diversa non riguardano un ticket di questo repository, un evento
+dell'account principale o revisore è il ciclo che si difende da sé, una PR non
+aperta non ha niente da correggere.
+
+Il testo viene da un **template i18n**, mai da un run del modello (stessa
+dottrina di `comment.prMerged`). Il commento è **best-effort**: un errore si
+logga e il webhook risponde comunque 204 — non avvia job, non scrive in
+`pr_corrections`, non cambia l'esito `identity_unresolved`.
+
+**Dedup — un avviso per condizione, non per click.** Il commento si riconosce
+dalla sua PRIMA riga, che è esattamente il titolo del template renderizzato per
+quella PR nella lingua dell'istanza (`isDroppedRequestNotice`, funzione unica).
+Si TACE se sul ticket esiste un commento `author_type = 'system'` riconosciuto
+così **e** non esiste nessuna `pr_corrections` con `trigger = 'provider'` per la
+stessa `(repository_id, pr_number)` creata DOPO quel commento. Una richiesta
+dalla piattaforma andata a buon fine dopo l'avviso prova che l'identità era
+tornata risolvibile: se poi lo scarto si ripresenta, è una rottura NUOVA e si
+riavvisa. **Limite accettato**: credenziali sistemate e poi rotte di nuovo senza
+nessuna richiesta dalla piattaforma riuscita in mezzo → silenzio (l'avviso di
+prima è ancora lì sul ticket, e la riga nel log c'è sempre).
+
+Nessuna colonna nuova: `comments` non ha tipo né metadati (solo `id`,
+`ticket_id`, `author_type`, `author_id`, `body`, `created_at`), e
+`git_accounts` non ha `updated_at` — il riconoscimento dal testo e il confronto
+con `pr_corrections.created_at` sono le due cose che lo schema offre già.
+
+**Files (step 7–11):**
+- Modify: `packages/i18n/src/catalog.ts` — chiavi `comment.changesRequestDropped.*`
+- Modify: `packages/i18n/src/index.test.ts`
+- Modify: `apps/server/src/services/pr-correction-webhook.ts`
+- Create: `apps/server/src/services/pr-correction-webhook.test.ts` (unitario, senza DB)
+- Modify: `apps/server/src/routes/webhooks.corrections.test.ts`
+
+**Step 8: le chiavi i18n — qui in D2, non in C1.** C1 raccoglie i testi che
+scrive il WORKER; questo lo scrive solo il server, e nasce con questo task: le
+chiavi stanno nello stesso commit del codice che le usa. Nel catalogo vanno
+subito DOPO le chiavi di C1 (`"commitStatus.correctionFailed"`), in `en` e in
+`it`.
+
+Test che fallisce, in coda a `packages/i18n/src/index.test.ts`:
+
+```ts
+describe("Request changes scartato (identità irrisolvibile)", () => {
+  test("il titolo porta il numero della PR, in entrambe le lingue", () => {
+    expect(t("en", "comment.changesRequestDropped.title", { prNumber: 42 })).toBe(
+      "Changes requested on PR #42: no correction was started",
+    );
+    expect(t("it", "comment.changesRequestDropped.title", { prNumber: 42 })).toBe(
+      "Modifiche richieste sulla PR #42: nessuna correzione avviata",
+    );
+  });
+
+  test("il titolo non ha ALTRI dati variabili oltre al numero della PR", () => {
+    // È la riga con cui il server riconosce l'avviso già scritto
+    // (isDroppedRequestNotice): un login o una data qui dentro renderebbero
+    // ogni avviso diverso dal precedente, e il dedup non tacerebbe mai.
+    for (const lang of ["en", "it"] as const) {
+      const template = catalogs[lang]["comment.changesRequestDropped.title"]!;
+      expect(template.match(/\{(\w+)\}/g)).toEqual(["{prNumber}"]);
+      expect(template).not.toContain("\n");
+    }
+  });
+});
+```
+
+(`catalogs` è già esportato dal package: aggiungilo all'import in testa se
+manca.)
+
+```bash
+pnpm --filter @stubwise/i18n exec vitest run src/index.test.ts
+```
+
+Atteso: FAIL (la chiave torna tal quale; `template` undefined).
+
+Implementazione, in `en` dopo `"commitStatus.correctionFailed"`:
+
+```ts
+  // --- Request changes dalla piattaforma scartato perché Stubwise non sa chi
+  // sono i propri account (webhook, fail-closed). Commento di sistema sul
+  // ticket, una riga per chiave, unite con "\n" dal server.
+  // ⚠️ `.title` è la PRIMA riga del commento ed è ciò con cui il server
+  // riconosce un avviso già scritto (isDroppedRequestNotice): NESSUN dato
+  // variabile oltre a {prNumber} — niente login, niente date, niente nomi di
+  // account. Ritoccarne il testo è innocuo (si riavvisa una volta), metterci
+  // un dato variabile rompe il dedup per sempre. C'è un test.
+  "comment.changesRequestDropped.title": "Changes requested on PR #{prNumber}: no correction was started",
+  "comment.changesRequestDropped.requestedBy": "Requested by {login} on {platform}.",
+  "comment.changesRequestDropped.reason":
+    'Reason: the credentials of the git account "{account}" don\'t let Stubwise read who that account is on {platform}, so it can\'t tell a person\'s request from its own review, and to be safe it ignored the event.',
+  "comment.changesRequestDropped.bitbucketScope":
+    "On Bitbucket the account's token needs the read:user:bitbucket scope.",
+  "comment.changesRequestDropped.meanwhile":
+    'Meanwhile you can ask for the correction with the "Apply corrections" button on this ticket.',
+```
+
+In `it` dopo `"commitStatus.correctionFailed"`:
+
+```ts
+  // --- Request changes scartato (vedi nota in `en`).
+  // ⚠️ `.title` è la prima riga e la chiave del dedup: nessun dato variabile
+  // oltre a {prNumber} (niente login né date). Vedi la nota in `en`.
+  "comment.changesRequestDropped.title": "Modifiche richieste sulla PR #{prNumber}: nessuna correzione avviata",
+  "comment.changesRequestDropped.requestedBy": "Richieste da {login} su {platform}.",
+  "comment.changesRequestDropped.reason":
+    "Motivo: le credenziali dell'account git «{account}» non permettono a Stubwise di leggere chi è quell'account su {platform}, quindi non può distinguere la richiesta di una persona dalla propria review, e per sicurezza ha ignorato l'evento.",
+  "comment.changesRequestDropped.bitbucketScope":
+    "Su Bitbucket il token dell'account deve avere lo scope read:user:bitbucket.",
+  "comment.changesRequestDropped.meanwhile":
+    "Nel frattempo puoi chiedere la correzione col bottone «Applica le correzioni» su questo ticket.",
+```
+
+(«Applica le correzioni» / "Apply corrections" sono le etichette del bottone in
+E2, `tickets:cycle.apply`: se cambiano lì, cambiano qui.)
+
+```bash
+pnpm --filter @stubwise/i18n exec vitest run src/index.test.ts
+pnpm --filter @stubwise/i18n build
+```
+
+Atteso: PASS, compreso il test di parità delle chiavi `en`/`it`. Il `build` serve:
+il server legge `@stubwise/i18n` dal `dist/`.
+
+**Step 9: test che falliscono**
+
+(a) Unitario, `apps/server/src/services/pr-correction-webhook.test.ts`:
+
+```ts
+import { describe, expect, it } from "vitest";
+import { droppedRequestNoticeBody, isDroppedRequestNotice } from "./pr-correction-webhook.js";
+
+describe("isDroppedRequestNotice", () => {
+  const body = droppedRequestNoticeBody("en", {
+    prNumber: 42,
+    login: "mario-rossi",
+    provider: "github",
+    accountName: "Account GitHub",
+  });
+
+  it("prima riga uguale al titolo di QUELLA PR → true", () => {
+    expect(isDroppedRequestNotice(body, 42, "en")).toBe(true);
+  });
+
+  it("stesso avviso, numero di PR diverso → false (anche se è un prefisso: #4 vs #42)", () => {
+    expect(isDroppedRequestNotice(body, 43, "en")).toBe(false);
+    expect(isDroppedRequestNotice(body, 4, "en")).toBe(false);
+  });
+
+  it("un altro commento di sistema → false", () => {
+    expect(isDroppedRequestNotice("PR merged: https://github.com/acme/repo/pull/42 — ticket closed automatically", 42, "en")).toBe(false);
+  });
+
+  it("il titolo in coda a un testo diverso → false: conta solo la PRIMA riga", () => {
+    const title = body.split("\n")[0]!;
+    expect(isDroppedRequestNotice(`Nota a mano\n${title}`, 42, "en")).toBe(false);
+  });
+
+  it("lingua diversa da quella in cui è stato scritto → false (si riavvisa una volta, per eccesso)", () => {
+    expect(isDroppedRequestNotice(body, 42, "it")).toBe(false);
+  });
+
+  it("il login sta in una riga successiva, mai nella prima", () => {
+    const [first, ...rest] = body.split("\n");
+    expect(first).not.toContain("mario-rossi");
+    expect(rest.join("\n")).toContain("mario-rossi");
+  });
+});
+```
+
+(b) Integrazione, in `apps/server/src/routes/webhooks.corrections.test.ts`:
+aggiungi `comments` e `prCorrections` (già c'è) all'import da `@stubwise/db`,
+`buildApp` è già importato; poi:
+
+```ts
+async function systemCommentsOf(ticketId: string) {
+  return testDb.db
+    .select()
+    .from(comments)
+    .where(and(eq(comments.ticketId, ticketId), eq(comments.authorType, "system")))
+    .orderBy(comments.createdAt);
+}
+
+/** L'identità di QUALUNQUE account non si legge: il caso del token senza scope. */
+function identityFails(provider: typeof GitHubProvider | typeof BitbucketProvider) {
+  return vi.spyOn(provider.prototype, "getAuthenticatedUserId").mockRejectedValue(new Error("403"));
+}
+
+describe("webhook \"Request changes\" scartato — l'avviso sul ticket", () => {
+  it("identità non risolvibile: UN commento di sistema con PR, chi l'ha chiesto e il bottone", async () => {
+    const fx = await seedFixture({ reviewerUserId: null });
+    identityFails(GitHubProvider);
+
+    const res = await postGithub(fx, githubReview());
+    expect(res.statusCode).toBe(204);
+
+    const rows = await systemCommentsOf(fx.ticketId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ authorType: "system", authorId: null });
+    const lines = rows[0]!.body.split("\n");
+    expect(lines[0]).toBe("Changes requested on PR #42: no correction was started");
+    expect(rows[0]!.body).toContain("mario-rossi");
+    expect(rows[0]!.body).toContain('"Apply corrections"');
+    // GitHub: nessuno scope da nominare.
+    expect(rows[0]!.body).not.toContain("read:user:bitbucket");
+    // Un avviso, non una richiesta: nessuna correzione, nessun job.
+    expect(await correctionsOf(fx.repositoryId)).toHaveLength(0);
+    expect(await correctionJobsOf(fx.ticketId)).toHaveLength(0);
+  });
+
+  it("Bitbucket: l'avviso nomina lo scope read:user:bitbucket", async () => {
+    const fx = await seedFixture({ provider: "bitbucket", mainUserId: null });
+    identityFails(BitbucketProvider);
+
+    await postBitbucket(fx, bitbucketChangesRequest());
+
+    const [row] = await systemCommentsOf(fx.ticketId);
+    expect(row!.body).toContain("read:user:bitbucket");
+    expect(row!.body).toContain("mario.rossi");
+    expect(row!.body).toContain("Bitbucket");
+  });
+
+  it("un secondo Request changes con la condizione che persiste: nessun commento nuovo", async () => {
+    const fx = await seedFixture({ reviewerUserId: null });
+    identityFails(GitHubProvider);
+
+    await postGithub(fx, githubReview());
+    await postGithub(fx, githubReview({ login: "giulia-bianchi", actorId: "6160" }));
+
+    expect(await systemCommentsOf(fx.ticketId)).toHaveLength(1);
+  });
+
+  it("dopo una richiesta dalla piattaforma riuscita DOPO l'avviso, un nuovo scarto riavvisa", async () => {
+    const fx = await seedFixture({ reviewerUserId: null });
+    identityFails(GitHubProvider);
+    await postGithub(fx, githubReview());
+    const [notice] = await systemCommentsOf(fx.ticketId);
+
+    // L'identità era tornata risolvibile: una correzione `provider` è nata
+    // dopo l'avviso (qui scritta a mano; `done` per non toccare gli indici
+    // unici parziali su pending/queued).
+    await testDb.db.insert(prCorrections).values({
+      ticketId: fx.ticketId,
+      repositoryId: fx.repositoryId,
+      prNumber: 42,
+      trigger: "provider",
+      status: "done",
+      requestedByProviderLogin: "mario-rossi",
+      providerFeedback: [],
+      createdAt: new Date(notice!.createdAt.getTime() + 1_000),
+    });
+
+    await postGithub(fx, githubReview());
+
+    expect(await systemCommentsOf(fx.ticketId)).toHaveLength(2);
+  });
+
+  it("una correzione `provider` più VECCHIA dell'avviso non lo riarma", async () => {
+    const fx = await seedFixture({ reviewerUserId: null });
+    identityFails(GitHubProvider);
+    await testDb.db.insert(prCorrections).values({
+      ticketId: fx.ticketId,
+      repositoryId: fx.repositoryId,
+      prNumber: 42,
+      trigger: "provider",
+      status: "done",
+      requestedByProviderLogin: "mario-rossi",
+      providerFeedback: [],
+      createdAt: new Date(Date.now() - 60 * 60_000),
+    });
+
+    await postGithub(fx, githubReview());
+    await postGithub(fx, githubReview());
+
+    expect(await systemCommentsOf(fx.ticketId)).toHaveLength(1);
+  });
+
+  it("una PR diversa sullo stesso ticket: commento nuovo", async () => {
+    const fx = await seedFixture({ reviewerUserId: null });
+    identityFails(GitHubProvider);
+    await postGithub(fx, githubReview());
+
+    // La PR #42 è stata chiusa e il fix ne ha aperta un'altra, la #43.
+    await testDb.db
+      .update(ticketRepositories)
+      .set({ prNumber: 43, prUrl: "https://github.com/acme/repo/pull/43" })
+      .where(eq(ticketRepositories.ticketId, fx.ticketId));
+    await postGithub(fx, githubReview({ prNumber: 43 }));
+
+    const rows = await systemCommentsOf(fx.ticketId);
+    expect(rows.map((r) => r.body.split("\n")[0])).toEqual([
+      "Changes requested on PR #42: no correction was started",
+      "Changes requested on PR #43: no correction was started",
+    ]);
+  });
+
+  it("scartato per un ALTRO motivo (evento dell'account principale, branch non di Stubwise): nessun commento", async () => {
+    const fx = await seedFixture();
+    identityMustNotBeCalled(GitHubProvider);
+
+    await postGithub(fx, githubReview({ actorId: MAIN_ID, login: "stubwise-bot" }));
+    expect(await systemCommentsOf(fx.ticketId)).toHaveLength(0);
+
+    const other = await seedFixture({ branch: "feature/login" });
+    await postGithub(other, githubReview({ branch: "feature/login" }));
+    expect(await systemCommentsOf(other.ticketId)).toHaveLength(0);
+  });
+
+  it("la scrittura del commento fallisce: 204 comunque, nessuna riga", async () => {
+    const fx = await seedFixture({ reviewerUserId: null });
+    identityFails(GitHubProvider);
+    // Un'app col DB che rifiuta le transazioni: l'avviso si scrive in una
+    // transazione (lock del dedup), il resto del ramo no. Verifica prima che
+    // la rotta non apra una transazione PRIMA del ramo "Request changes":
+    // se lo fa, restringi il Proxy (es. fallisci solo al secondo `transaction`).
+    const failingDb = new Proxy(testDb.db, {
+      get(target, prop, receiver) {
+        if (prop === "transaction") return () => Promise.reject(new Error("DB giù per il test"));
+        return Reflect.get(target, prop, receiver);
+      },
+    });
+    const faulty = buildApp({
+      db: failingDb,
+      sessionSecret: SESSION_SECRET,
+      encryptionKey: ENCRYPTION_KEY.toString("base64"),
+      publicUrl: "https://stubwise.example.com",
+    });
+    try {
+      const body = githubReview();
+      const res = await faulty.inject({
+        method: "POST",
+        url: `/webhooks/git/${fx.slug}`,
+        headers: {
+          "content-type": "application/json",
+          "x-github-event": "pull_request_review",
+          "x-github-delivery": newDelivery(),
+          "x-hub-signature-256": sign(fx.secret, body),
+        },
+        payload: body,
+      });
+      expect(res.statusCode).toBe(204);
+    } finally {
+      await faulty.close();
+    }
+    expect(await systemCommentsOf(fx.ticketId)).toHaveLength(0);
+  });
+});
+```
+
+```bash
+pnpm --filter @stubwise/server exec vitest run src/services/pr-correction-webhook.test.ts src/routes/webhooks.corrections.test.ts
+```
+
+Atteso: FAIL — il modulo non esporta `isDroppedRequestNotice` /
+`droppedRequestNoticeBody`, e il ramo non scrive commenti. I negativi («altro
+motivo», «scrittura fallisce») passano già: il loro valore è restare verdi
+dopo lo step 10.
+
+**Step 10: implementazione** — in `apps/server/src/services/pr-correction-webhook.ts`.
+
+Import in più:
+
+```ts
+import { comments, prCorrections } from "@stubwise/db";
+import { t, type Language } from "@stubwise/i18n";
+import { desc, gt } from "drizzle-orm";
+import { getContentLanguage } from "../settings.js";
+```
+
+(accorpali agli import esistenti di `@stubwise/db` e `drizzle-orm`.)
+
+Le funzioni pure e la scrittura, in fondo al file:
+
+```ts
+const PLATFORM_NAME: Record<GitProviderKind, string> = { github: "GitHub", bitbucket: "Bitbucket" };
+
+/**
+ * Il commento di sistema di un "Request changes" scartato perché l'identità
+ * di un account di Stubwise non si legge (design §5, fail-closed). Una riga per
+ * chiave del catalogo: il TITOLO è la prima e porta il solo numero della PR —
+ * login, piattaforma e account stanno nelle righe dopo, così il titolo resta
+ * uguale da un avviso all'altro e fa da chiave del dedup.
+ */
+export function droppedRequestNoticeBody(
+  lang: Language,
+  input: { prNumber: number; login: string; provider: GitProviderKind; accountName: string },
+): string {
+  const platform = PLATFORM_NAME[input.provider];
+  return [
+    t(lang, "comment.changesRequestDropped.title", { prNumber: input.prNumber }),
+    "",
+    t(lang, "comment.changesRequestDropped.requestedBy", { login: input.login, platform }),
+    t(lang, "comment.changesRequestDropped.reason", { account: input.accountName, platform }),
+    ...(input.provider === "bitbucket" ? [t(lang, "comment.changesRequestDropped.bitbucketScope")] : []),
+    t(lang, "comment.changesRequestDropped.meanwhile"),
+  ].join("\n");
+}
+
+/**
+ * È l'avviso di un "Request changes" scartato su QUESTA PR? Unico punto in cui
+ * si riconosce: la PRIMA riga del commento deve essere esattamente il titolo
+ * del template renderizzato per `prNumber` nella lingua `lang`.
+ *
+ * Due cose da sapere prima di toccarla:
+ *  1. se cambia la lingua dell'istanza o il testo del template, un avviso già
+ *     scritto non si riconosce più e si riavvisa UNA volta. È un errore per
+ *     eccesso, innocuo: un commento in più, mai una richiesta persa in silenzio;
+ *  2. il titolo NON deve contenere dati variabili oltre al numero della PR —
+ *     niente login né date: ogni avviso sarebbe diverso dal precedente e il
+ *     dedup non tacerebbe mai. Per questo il login sta in una riga successiva.
+ *     La stessa nota è accanto alla chiave nel catalogo i18n, e un test in
+ *     `packages/i18n` controlla i segnaposto del titolo.
+ */
+export function isDroppedRequestNotice(body: string, prNumber: number, lang: Language): boolean {
+  const firstLine = body.split("\n", 1)[0];
+  return firstLine === t(lang, "comment.changesRequestDropped.title", { prNumber });
+}
+
+/**
+ * Scrive l'avviso sul ticket, a meno che ce ne sia già uno per questa PR non
+ * "superato" da una richiesta dalla piattaforma riuscita DOPO di lui (prova che
+ * l'identità era tornata risolvibile: allora questo è un guasto nuovo).
+ * Limite accettato: credenziali sistemate e rotte di nuovo senza nessuna
+ * richiesta riuscita in mezzo → silenzio.
+ *
+ * BEST-EFFORT: un errore si logga e basta — il webhook risponde 204 comunque,
+ * e questo non avvia job né scrive in `pr_corrections`. La transazione con
+ * l'advisory lock (chiave propria, non quella di `startRun`) serializza due
+ * consegne DIVERSE arrivate insieme, che altrimenti scriverebbero due avvisi.
+ */
+async function postDroppedRequestNotice(
+  ctx: ChangesRequestedContext,
+  input: { ticketId: string; prNumber: number; login: string; accountName: string },
+): Promise<void> {
+  try {
+    const lang = await getContentLanguage(ctx.db);
+    const title = t(lang, "comment.changesRequestDropped.title", { prNumber: input.prNumber });
+    await ctx.db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`pr-dropped-notice:${input.ticketId}`}))`);
+      // `starts_with` restringe in SQL; la decisione la prende isDroppedRequestNotice.
+      const candidates = await tx
+        .select({ body: comments.body, createdAt: comments.createdAt })
+        .from(comments)
+        .where(
+          and(
+            eq(comments.ticketId, input.ticketId),
+            eq(comments.authorType, "system"),
+            sql`starts_with(${comments.body}, ${title})`,
+          ),
+        )
+        .orderBy(desc(comments.createdAt));
+      const lastNotice = candidates.find((c) => isDroppedRequestNotice(c.body, input.prNumber, lang));
+      if (lastNotice) {
+        const [succeededSince] = await tx
+          .select({ id: prCorrections.id })
+          .from(prCorrections)
+          .where(
+            and(
+              eq(prCorrections.repositoryId, ctx.repositoryId),
+              eq(prCorrections.prNumber, input.prNumber),
+              eq(prCorrections.trigger, "provider"),
+              gt(prCorrections.createdAt, lastNotice.createdAt),
+            ),
+          )
+          .limit(1);
+        if (!succeededSince) return; // già avvisato, e nulla è cambiato da allora
+      }
+      await tx.insert(comments).values({
+        ticketId: input.ticketId,
+        authorType: "system",
+        authorId: null,
+        body: droppedRequestNoticeBody(lang, {
+          prNumber: input.prNumber,
+          login: input.login,
+          provider: ctx.provider,
+          accountName: input.accountName,
+        }),
+      });
+    });
+  } catch (err) {
+    ctx.log.warn(
+      { repositoryId: ctx.repositoryId, prNumber: input.prNumber, err: err instanceof Error ? err.message : String(err) },
+      "Request changes scartato: l'avviso sul ticket non è stato scritto",
+    );
+  }
+}
+```
+
+Nel ramo `if (resolved === null)` di `handleChangesRequested`, prima del
+`return "identity_unresolved";`:
+
+```ts
+      // L'unico scarto che una persona non può capire da sola: lo si dice sul
+      // ticket (best-effort, deduplicato). Gli altri scarti restano muti.
+      await postDroppedRequestNotice(ctx, {
+        ticketId: row.ticketId,
+        prNumber,
+        login: event.actorLogin,
+        accountName: account?.name ?? accountId,
+      });
+```
+
+e aggiorna il commento del ramo: «… che si ripete dal bottone "Applica le
+correzioni" sul ticket (design §5) — e il ticket lo dice, col commento qui
+sotto.»
+
+**Step 11: verifica e commit**
+
+```bash
+pnpm --filter @stubwise/server exec vitest run src/services/pr-correction-webhook.test.ts src/routes/webhooks.corrections.test.ts src/routes/webhooks.test.ts
+pnpm --filter @stubwise/server typecheck && pnpm lint
+git add packages/i18n/src/catalog.ts packages/i18n/src/index.test.ts apps/server/src/services/pr-correction-webhook.ts apps/server/src/services/pr-correction-webhook.test.ts apps/server/src/routes/webhooks.corrections.test.ts
+git commit -m "feat(server): un Request changes scartato per identità irrisolvibile lo dice sul ticket"
+```
+
+Atteso: tutto PASS; i test esistenti del task (in particolare «identità del
+revisore NON risolvibile: fail-closed, nessuna riga») restano verdi — asseriscono
+su `pr_corrections` e `ai_jobs`, che l'avviso non tocca.
 
 ---
 
@@ -15194,7 +15723,10 @@ sugli id delle righe, ma sulla piattaforma sono la stessa persona, e il filtro
 anti-auto-innesco non distinguerebbe niente. Al salvataggio l'identità del
 revisore si RI-risolve (non si fida della cache), e si risolve anche quella del
 principale: se non è risolvibile ora, il webhook scarterebbe ogni "Request
-changes" in silenzio, ed è meglio dirlo all'admin adesso.
+changes" (D2 lo spiega sul ticket solo a cose fatte), ed è meglio dirlo
+all'admin adesso. Con un revisore è un 422 (serve l'identità del principale
+per confrontarla); SENZA revisore diventa un avviso non bloccante nella
+risposta di ogni salvataggio (step 7–10).
 
 I controlli di rete girano solo quando `reviewGitAccountId` è nel corpo e non
 è `null`; cambiando SOLO l'account principale si rifanno i controlli locali
@@ -15570,7 +16102,7 @@ type ReviewAccountCheck =
  * RI-risolta (non dalla cache: il salvataggio è il momento in cui l'admin
  * deve sapere se funziona) e diversa da quella del principale. Anche
  * l'identità del principale si risolve qui: senza, il webhook scarterebbe ogni
- * "Request changes" in silenzio (fail-closed, §5).
+ * "Request changes" (fail-closed, §5; lo direbbe solo dopo, sul ticket).
  */
 async function checkReviewAccount(
   app: FastifyInstance,
@@ -15642,7 +16174,8 @@ async function checkReviewAccount(
   }
   // Su Bitbucket leggere "chi sono" vuole lo scope `read:user:bitbucket`:
   // un token creato prima di questa fase risponde 403, e va detto QUI — al
-  // webhook sarebbe un "Request changes" scartato in silenzio (fail-closed).
+  // webhook sarebbe un "Request changes" scartato (fail-closed), spiegato
+  // solo a cose fatte da un commento sul ticket (D2).
   // È un SUGGERIMENTO, non la diagnosi: il motivo vero (401, 403, rate
   // limit…) lo scrive onError nel log, col messaggio del provider (senza token).
   const scopeHint =
@@ -15777,6 +16310,239 @@ git add packages/shared/src/schemas/project.ts packages/shared/src/schemas/proje
 git add -u apps/web apps/mobile packages/api-client
 git commit -m "feat(server): account revisore del repository, validato su provider, workspace e identità"
 ```
+
+**Step 7: l'avviso sull'identità dell'account PRINCIPALE, a ogni salvataggio — perché**
+
+Il 422 `main_account_identity_unresolved` qui sopra scatta solo quando si
+SCEGLIE un revisore (serve l'identità del principale per confrontarla con
+quella del revisore). Ma lo scarto del webhook (D2) colpisce anche le
+repository SENZA revisore: se l'identità del principale non si legge, ogni
+"Request changes" dalla piattaforma viene scartato. D2 lo dice sul ticket
+quando succede; qui lo si dice PRIMA, all'admin che salva la repository.
+
+Regole:
+- a **ogni** POST e PATCH andati a buon fine, una verifica **best-effort**
+  dell'identità del principale con `resolveProviderUserId` **dalla cache**
+  (niente `refresh`): con `provider_user_id` già salvato non costa una
+  chiamata, e la cache è esattamente ciò con cui il webhook lavorerà;
+- **non blocca mai** il salvataggio: la riga è già scritta quando si verifica,
+  e un errore della verifica stessa (DB, eccezione inattesa) si logga e non
+  produce avviso — un avviso sbagliato costa meno di un salvataggio fallito,
+  ma nessun avviso costa meno di uno inventato;
+- l'avviso viaggia in un campo **additivo** della risposta di POST/PATCH,
+  `warnings: ["main_account_identity_unresolved"]`, `.default([])` (regola app
+  mobile: un server più vecchio non lo manda) — e il web, che non parsa, lo
+  legge con `?? []` (E6). Non entra in `repositorySchema`: la GET non lo
+  calcola e non deve sembrare che lo porti.
+- il testo dello scope Bitbucket lo mette il CLIENT, che conosce `provider`
+  dalla stessa risposta: il server manda un codice, non una frase.
+
+**Files (step 7–10):**
+- Modify: `packages/shared/src/schemas/project.ts` (`repositoryWarningSchema`, `repositorySaveResponseSchema`)
+- Modify: `packages/shared/src/schemas/project.test.ts`
+- Modify: `apps/server/src/routes/repositories.ts`
+- Modify: `apps/server/src/routes/repositories.test.ts`
+
+**Step 8: schema condiviso, test che fallisce** — in `project.test.ts`
+(aggiungi `repositorySaveResponseSchema` all'import):
+
+```ts
+describe("repositorySaveResponseSchema.warnings (30 set 2026)", () => {
+  const saved = {
+    id: "11111111-1111-4111-8111-111111111111",
+    projectId: "22222222-2222-4222-8222-222222222222",
+    name: "Shop API",
+    slug: "shop-api",
+    provider: "bitbucket",
+    repoUrl: "https://bitbucket.org/acme/shop-api",
+    defaultBranch: "main",
+    gitAccountId: "33333333-3333-4333-8333-333333333333",
+    gitAccountName: "Account Bitbucket",
+    reviewGitAccountId: null,
+    testCommand: null,
+    installCommand: null,
+    webhookConfiguredAt: null,
+    graphEnabled: false,
+    createdAt: "2026-09-01T10:00:00.000Z",
+  };
+
+  it("una risposta senza `warnings` (server più vecchio) si legge []", () => {
+    expect(readerSchema(repositorySaveResponseSchema).parse(saved).warnings).toEqual([]);
+  });
+
+  it("l'avviso sull'identità del principale si legge verbatim", () => {
+    expect(
+      readerSchema(repositorySaveResponseSchema).parse({ ...saved, warnings: ["main_account_identity_unresolved"] })
+        .warnings,
+    ).toEqual(["main_account_identity_unresolved"]);
+  });
+
+  it("un avviso che il client non conosce diventa UNKNOWN, non un parse fallito", () => {
+    expect(
+      readerSchema(repositorySaveResponseSchema).parse({ ...saved, warnings: ["qualcosa_di_nuovo"] }).warnings,
+    ).toEqual(["UNKNOWN"]);
+  });
+});
+```
+
+(Se `readerSchema` rappresenta l'ignoto diversamente da `"UNKNOWN"` in un
+array, allinea l'ultima asserzione a ciò che fa per gli altri enum del file.)
+
+Implementazione, in `project.ts` dopo `repositorySchema`:
+
+```ts
+/**
+ * Avvisi NON bloccanti di un salvataggio della repository (ciclo di
+ * correzione, 30 set 2026). `main_account_identity_unresolved`: Stubwise non
+ * riesce a leggere chi è l'account principale sulla piattaforma, quindi ogni
+ * "Request changes" dalla piattaforma verrà scartato (fail-closed) — su
+ * Bitbucket il caso tipico è un token senza lo scope `read:user:bitbucket`.
+ */
+export const repositoryWarningSchema = z.enum(["main_account_identity_unresolved"]);
+export type RepositoryWarning = z.infer<typeof repositoryWarningSchema>;
+
+/**
+ * Risposta di POST/PATCH `/api/repositories`: la repository più gli avvisi
+ * del salvataggio. Solo lì: la GET non li calcola. `.default([])` per l'app
+ * installata e per un server più vecchio.
+ */
+export const repositorySaveResponseSchema = repositorySchema.extend({
+  warnings: z.array(repositoryWarningSchema).default([]),
+});
+export type RepositorySaveResponse = z.infer<typeof repositorySaveResponseSchema>;
+```
+
+ed esportali dall'index del package se `project.ts` non è già riesportato per
+intero.
+
+```bash
+pnpm --filter @stubwise/shared exec vitest run src/schemas/project.test.ts && pnpm --filter @stubwise/shared build
+```
+
+Atteso: PASS dopo l'implementazione (FAIL prima: l'export non esiste).
+
+**Step 9: test server che falliscono** — in `repositories.test.ts`, dentro
+`describe("account revisore (ciclo di correzione, 30 set 2026)", …)`:
+
+```ts
+  it("PATCH qualunque con l'identità del principale non leggibile: 200, salvato, e l'avviso", async () => {
+    vi.spyOn(GitHubProvider.prototype, "getAuthenticatedUserId").mockRejectedValue(new Error("403"));
+    const slug = await newRepository();
+    await testDb.db.update(gitAccounts).set({ providerUserId: null }).where(eq(gitAccounts.id, githubAccountId));
+
+    const res = await patch(slug, { name: `Rinominata ${randomBytes(3).toString("hex")}` });
+
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { warnings: string[] }).warnings).toEqual(["main_account_identity_unresolved"]);
+    // Non bloccante: il nome è salvato.
+    const [row] = await testDb.db.select().from(repositories).where(eq(repositories.slug, slug));
+    expect(row!.name).toMatch(/^Rinominata /);
+  });
+
+  it("identità del principale già salvata: nessun avviso, e il provider NON viene interrogato", async () => {
+    const identity = vi
+      .spyOn(GitHubProvider.prototype, "getAuthenticatedUserId")
+      .mockRejectedValue(new Error("non va chiamato: c'è la cache"));
+    const slug = await newRepository();
+    await testDb.db.update(gitAccounts).set({ providerUserId: "1001" }).where(eq(gitAccounts.id, githubAccountId));
+
+    const res = await patch(slug, { testCommand: "pnpm test" });
+
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { warnings: string[] }).warnings).toEqual([]);
+    expect(identity).not.toHaveBeenCalled();
+  });
+
+  it("POST con l'identità del principale non leggibile: 201 e l'avviso", async () => {
+    vi.spyOn(GitHubProvider.prototype, "getAuthenticatedUserId").mockRejectedValue(new Error("401"));
+    await testDb.db.update(gitAccounts).set({ providerUserId: null }).where(eq(gitAccounts.id, githubAccountId));
+
+    const res = await createProject({ ...basePayload(), name: `Senza identità ${randomBytes(3).toString("hex")}` });
+
+    expect(res.statusCode).toBe(201);
+    expect((res.json() as { warnings: string[] }).warnings).toEqual(["main_account_identity_unresolved"]);
+  });
+
+  it("il provider che LANCIA (invece di rigettare): 200, salvato, avviso — mai un 5xx", async () => {
+    vi.spyOn(GitHubProvider.prototype, "getAuthenticatedUserId").mockImplementation(() => {
+      throw new Error("boom");
+    });
+    const slug = await newRepository();
+    await testDb.db.update(gitAccounts).set({ providerUserId: null }).where(eq(gitAccounts.id, githubAccountId));
+
+    const res = await patch(slug, { installCommand: "pnpm install" });
+
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { warnings: string[] }).warnings).toEqual(["main_account_identity_unresolved"]);
+  });
+```
+
+(Controlla che `newRepository()` non azzeri/riempia `providerUserId` del
+principale a sua volta: i test lo impostano DOPO averla creata apposta.
+`githubAccountId` è condiviso fra i test del file: se un test precedente ne
+lascia l'identità salvata, gli `update` qui sopra la riportano allo stato
+voluto.)
+
+```bash
+pnpm --filter @stubwise/server exec vitest run src/routes/repositories.test.ts
+```
+
+Atteso: FAIL (`warnings` assente).
+
+**Step 10: implementazione** — in `apps/server/src/routes/repositories.ts`:
+
+- import: `repositorySaveResponseSchema, type RepositoryWarning` da `@stubwise/shared`;
+- risposte: POST `201: repositorySaveResponseSchema`, PATCH `200: repositorySaveResponseSchema`
+  (la GET resta `repositorySchema`);
+- accanto a `checkReviewAccount`:
+
+```ts
+/**
+ * Avviso NON bloccante (ciclo di correzione): l'identità dell'account
+ * principale si legge? Se no, il webhook scarterà ogni "Request changes"
+ * dalla piattaforma (fail-closed, D2) — meglio dirlo a chi salva adesso.
+ * Dalla CACHE (niente refresh): è l'identità con cui lavora il webhook, e con
+ * `provider_user_id` salvato non costa una chiamata. Best-effort: un errore
+ * della verifica si logga e non produce avviso, e non tocca il salvataggio
+ * (la riga è già scritta).
+ */
+async function mainIdentityWarnings(app: FastifyInstance, mainAccount: GitAccountRow): Promise<RepositoryWarning[]> {
+  try {
+    const id = await resolveProviderUserId(app.db, app.encryptionKey, mainAccount, fetchPlatformIdentity, {
+      onError: (err) =>
+        app.log.warn(
+          { gitAccountId: mainAccount.id, err: err instanceof Error ? err.message : String(err) },
+          "identità dell'account principale: il provider ha risposto con un errore",
+        ),
+    });
+    return id === null ? ["main_account_identity_unresolved"] : [];
+  } catch (err) {
+    app.log.warn(
+      { gitAccountId: mainAccount.id, err: err instanceof Error ? err.message : String(err) },
+      "verifica dell'identità dell'account principale non riuscita: nessun avviso",
+    );
+    return [];
+  }
+}
+```
+
+- nel POST, dopo l'insert: `return reply.code(201).send({ ...toPublicRepository(created), warnings: await mainIdentityWarnings(app, account) });`
+  (adatta ai nomi reali delle variabili del POST);
+- nel PATCH, dopo l'update: l'account principale EFFETTIVO è `mainAccount` se
+  il blocco «account principale e revisore» è girato, altrimenti va letto
+  (`select().from(gitAccounts).where(eq(gitAccounts.id, updated.gitAccountId))`);
+  poi `return { ...toPublicRepository(updated), warnings: await mainIdentityWarnings(app, main) };`.
+
+```bash
+pnpm --filter @stubwise/server exec vitest run src/routes/repositories.test.ts
+pnpm typecheck && pnpm lint
+git add packages/shared/src/schemas/project.ts packages/shared/src/schemas/project.test.ts apps/server/src/routes/repositories.ts apps/server/src/routes/repositories.test.ts
+git commit -m "feat(server): salvare una repository avvisa se l'identità dell'account principale non si legge"
+```
+
+Atteso: PASS, typecheck e lint puliti (il web compila ancora: `patchRepository`
+torna `Repository`, e una risposta con un campo in più resta assegnabile — lo
+aggiorna E6).
 
 ---
 
@@ -15973,6 +16739,13 @@ script è `scripts`): la decifratura si riscrive qui, cinque righe.
 
 Al successo scrive `webhook_configured_at`, come la rotta
 `/configure-webhook`: dopo lo script il webhook È configurato, e la UI lo dice.
+
+**Nota — niente duplicati sulle repository con molti hook.** La ricerca
+dell'hook esistente in `ensureWebhook` segue tutte le pagine della lista
+(con `assertPageOnApiHost`, fix della tappa B), quindi il resync su tutte le
+repository non crea duplicati: un hook di Stubwise che sta oltre la prima
+pagina viene trovato e aggiornato, non ricreato. Questo task non cambia
+`ensureWebhook`.
 
 **Files:**
 - Create: `apps/server/scripts/resync-webhooks.ts`
@@ -16654,6 +17427,19 @@ quando la chiave manca.
       "reviewAccountHint": "Un secondo account sulla stessa piattaforma che approva o chiede modifiche sulle PR di Stubwise. Deve essere diverso da quello principale e avere accesso in scrittura alla repository.",
 ```
 
+**Step 3b:** namespace `repositories.detail`, accanto a `"saved"` (en / it) —
+l'avviso NON bloccante che il PATCH manda in `warnings` (D7, step 7–10):
+
+```json
+      "mainIdentityWarning": "Saved, but Stubwise can't read who the main account is on the platform: every \"Request changes\" made on the PR will be ignored (the ticket will say so). Check the account's token.",
+      "mainIdentityWarningBitbucket": "On Bitbucket the token needs the read:user:bitbucket scope.",
+```
+
+```json
+      "mainIdentityWarning": "Salvato, ma Stubwise non riesce a leggere dalla piattaforma chi è l'account principale: ogni \"Request changes\" fatto sulla PR verrà ignorato (il ticket lo dirà). Controlla il token dell'account.",
+      "mainIdentityWarningBitbucket": "Su Bitbucket il token deve avere lo scope read:user:bitbucket.",
+```
+
 **Step 4:** namespace `projects.form` (en / it):
 
 ```json
@@ -17289,6 +18075,7 @@ a «Nessuno» (e il PATCH manda `null` se all'inizio c'era un revisore).
 - Modify: `apps/web/src/components/repository-form.tsx`
 - Modify: `apps/web/src/components/repository-form.test.tsx`
 - Modify: `apps/web/src/routes/repositories/$slug.tsx`
+- Modify (step 4–6, l'avviso sul principale): `apps/web/src/lib/api.ts`, `apps/web/src/routes/repositories/repositories.test.tsx`
 
 **Step 1: test che falliscono** — in `repository-form.test.tsx`:
 
@@ -17478,6 +18265,125 @@ senza il campo compilano perché il campo nell'interfaccia è opzionale (step 2)
 pnpm --filter @stubwise/web exec vitest run src/components/repository-form.test.tsx src/routes/repositories
 git add apps/web/src/components/repository-form.tsx apps/web/src/components/repository-form.test.tsx "apps/web/src/routes/repositories/\$slug.tsx"
 git commit -m "feat(web): account revisore nel form del repository"
+```
+
+Atteso: PASS.
+
+**Step 4: l'avviso sull'identità del principale dopo il salvataggio — test che falliscono**
+
+Il PATCH (D7, step 7–10) può rispondere 200 con
+`warnings: ["main_account_identity_unresolved"]`: salvato, ma ogni "Request
+changes" dalla piattaforma verrà scartato. Il form lo dice sotto «Changes
+saved.», senza bloccare niente; su Bitbucket aggiunge la riga dello scope. Il
+web fa un CAST, non un parse: da un server più vecchio `warnings` arriva
+`undefined`, quindi si legge `updated.warnings ?? []` nel punto di lettura — e
+il test esistente «PATCH del nome non tocca l'account», il cui mock risponde
+SENZA `warnings`, resta così apposta: è la prova che la difesa c'è.
+
+In `apps/web/src/routes/repositories/repositories.test.tsx`, nel
+`describe("dettaglio repository")`:
+
+```ts
+  it("admin: il PATCH avvisa che l'identità del principale non si legge (Bitbucket: nomina lo scope)", async () => {
+    const user = userEvent.setup();
+    const repo = { ...makeRepo(), provider: "bitbucket", repoUrl: "https://bitbucket.org/acme/demo-shop" };
+    mockApi({
+      "GET /api/auth/me": meHandler("admin"),
+      "GET /api/repositories/demo-shop": () => jsonResponse(200, repo),
+      "GET /api/projects": () => jsonResponse(200, []),
+      "GET /api/git-accounts": () => jsonResponse(200, [ACCOUNT, ACCOUNT_B]),
+      "GET /api/git-accounts/11111111-1111-4111-8111-111111111111/branches": () =>
+        jsonResponse(200, { branches: ["main"], defaultBranch: "main" }),
+      [`GET /api/repositories/${REPO_ID}/env-files`]: () => jsonResponse(200, []),
+      "GET /api/repositories/demo-shop/webhook": () =>
+        jsonResponse(200, { webhookSecret: "s3cr3t", webhookPath: "/webhooks/git/demo-shop" }),
+      "PATCH /api/repositories/demo-shop": () =>
+        jsonResponse(200, { ...repo, warnings: ["main_account_identity_unresolved"] }),
+    });
+
+    renderApp("/repositories/demo-shop");
+    await screen.findByLabelText("Name");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    // Non bloccante: salvato E avvisato.
+    expect(await screen.findByText("Changes saved.")).toBeInTheDocument();
+    expect(screen.getByText(/can't read who the main account is/)).toBeInTheDocument();
+    expect(screen.getByText(/read:user:bitbucket/)).toBeInTheDocument();
+  });
+
+  it("admin: su GitHub l'avviso non nomina lo scope di Bitbucket", async () => {
+    // … stessi mock del test sopra con `makeRepo()` (GitHub) e la stessa risposta del PATCH …
+    expect(await screen.findByText(/can't read who the main account is/)).toBeInTheDocument();
+    expect(screen.queryByText(/read:user:bitbucket/)).not.toBeInTheDocument();
+  });
+```
+
+(Adatta `provider`/`ACCOUNT` di Bitbucket a ciò che le fixture del file già
+offrono: se l'account principale del form deve essere Bitbucket, usa
+`ACCOUNT_B` e aggiungi l'handler dei suoi branch. Nel test esistente «PATCH del
+nome…» aggiungi solo `expect(screen.queryByText(/can't read who the main account is/)).not.toBeInTheDocument();`
+dopo «Changes saved.»: il mock senza `warnings` non deve produrre avvisi né
+far saltare la pagina.)
+
+```bash
+pnpm --filter @stubwise/web exec vitest run src/routes/repositories
+```
+
+Atteso: FAIL (nessun avviso mostrato).
+
+**Step 5: implementazione**
+
+- `apps/web/src/lib/api.ts`: `patchRepository` (e `postRepository`) tornano
+  `Promise<RepositorySaveResponse>` (tipo da `@stubwise/shared`, D7 step 8).
+- `apps/web/src/routes/repositories/$slug.tsx`:
+
+```tsx
+  const [saved, setSaved] = useState(false);
+  // Avvisi NON bloccanti del salvataggio (D7): oggi solo l'identità del
+  // principale che non si legge.
+  const [warnings, setWarnings] = useState<string[]>([]);
+
+  async function handleSubmit(patch: RepositoryPatch) {
+    setSaved(false);
+    setWarnings([]);
+    const { warnings: saveWarnings, ...updated } = await patchRepository(slug, patch);
+    // Nella cache va la repository, non gli avvisi del salvataggio.
+    queryClient.setQueryData(repositoryQueryOptions(slug).queryKey, updated);
+    // … invalidazioni invariate …
+    setSaved(true);
+    // `?? []`: il web fa un cast, e un server senza il ciclo non manda il campo.
+    setWarnings(saveWarnings ?? []);
+  }
+```
+
+  e sotto il paragrafo `saved`:
+
+```tsx
+              {warnings.includes("main_account_identity_unresolved") && (
+                <p role="status" className="mt-2 font-mono text-[12px] text-signal">
+                  {t("repositories:detail.mainIdentityWarning")}
+                  {repository.provider === "bitbucket" && (
+                    <> {t("repositories:detail.mainIdentityWarningBitbucket")}</>
+                  )}
+                </p>
+              )}
+```
+
+  (`text-signal` è l'ambra di `styles.css`, `--color-signal`: un avviso, non
+  un errore — `text-danger` direbbe che il salvataggio è fallito.)
+
+Nella creazione (`new.tsx`, il wizard) l'avviso arriva nella risposta del POST
+ma la pagina naviga subito al dettaglio: **qui non si mostra**, ed è un limite
+accettato — al primo salvataggio dal dettaglio l'avviso compare, e se nel
+frattempo arriva un "Request changes" il ticket lo spiega (D2).
+
+**Step 6: verifica e commit**
+
+```bash
+pnpm --filter @stubwise/web exec vitest run src/routes/repositories src/components/repository-form.test.tsx
+pnpm --filter @stubwise/web typecheck && pnpm lint
+git add apps/web/src/lib/api.ts "apps/web/src/routes/repositories/\$slug.tsx" apps/web/src/routes/repositories/repositories.test.tsx
+git commit -m "feat(web): il salvataggio della repository avvisa se l'identità dell'account principale non si legge"
 ```
 
 Atteso: PASS.
@@ -19534,7 +20440,11 @@ del merge). Sostituisci `<data>` con la data del merge.
   gli scope già richiesti (repository read+write) bastano.
   **⚠️ Bitbucket: i token (principale e revisore) devono avere anche
   `read:user:bitbucket`; senza, ogni "Request changes" dalla piattaforma è
-  scartato (fail-closed) — rigenerarli al deploy.**
+  scartato (fail-closed) — rigenerarli al deploy.** Lo scarto non è muto: sul
+  ticket compare un commento di sistema che dice chi ha chiesto, su quale PR e
+  perché non è partito (uno per PR finché la condizione persiste), e il form
+  della repository avvisa a ogni salvataggio se l'identità del principale non
+  si legge.
   **Account revisore — facoltativo.** Senza, la review commenta con l'account
   principale come prima e lo stato vero della PR (approvata / modifiche
   richieste) non si scrive: GitHub vieta all'autore `APPROVE`/`REQUEST_CHANGES`
@@ -19592,9 +20502,11 @@ del merge). Sostituisci `<data>` con la data del merge.
   repository si **scarta prima di qualunque scrittura**, e gli stessi due
   account sono esclusi dalla fotografia dei commenti (`provider_feedback`: la
   review l'AI la riceve già dal DB). Se `provider_user_id` non è risolvibile
-  per uno dei due, l'evento **non** fa partire niente e resta una riga nel
-  log: un ciclo infinito costa più di una richiesta persa, che si ripete dal
-  bottone. Chi tocca il webhook non trasformi quel «non so chi è» in un «allora
+  per uno dei due, l'evento **non** fa partire niente: resta una riga nel log
+  e un commento di sistema sul ticket che lo spiega (template i18n, mai AI;
+  deduplicato per PR con `isDroppedRequestNotice`, best-effort, mai un job né
+  una riga in `pr_corrections`). Un ciclo infinito costa più di una richiesta
+  persa, che si ripete dal bottone. Chi tocca il webhook non trasformi quel «non so chi è» in un «allora
   è umano». Il test che la presidia è NEGATIVO e asserisce sulle righe in DB,
   non sulla risposta: lo stesso evento da un terzo crea la correzione, dai due
   account propri no.
@@ -19875,16 +20787,18 @@ To set it up:
 
 The reviewer account's own *Request changes* never restarts the loop: events
 authored by Stubwise's accounts are discarded before anything is written. If
-Stubwise can't tell who an account is, it plays safe and ignores the event —
-you can always ask again from the ticket.
+Stubwise can't tell who an account is, it plays safe and ignores the event, and
+leaves a comment on the ticket saying who asked, on which PR, and why nothing
+started — you can always ask again from the ticket.
 
 :::caution[Bitbucket tokens created before this version]
 To recognise its own events, Stubwise asks the platform who each account is.
 On Bitbucket this needs the **`read:user:bitbucket`** scope on **both** the
 main account's token and the reviewer account's token. Tokens created earlier
 usually lack it: until you regenerate them with that scope, every *Request
-changes* made on Bitbucket is ignored (Stubwise plays safe), and the button on
-the ticket remains the only way to ask for a correction. On GitHub nothing
+changes* made on Bitbucket is ignored (Stubwise plays safe) — the ticket gets a
+comment explaining it, and saving the repository form shows a warning — and the
+button on the ticket remains the only way to ask for a correction. On GitHub nothing
 changes: any personal access token can read its own identity.
 :::
 
@@ -20389,9 +21303,12 @@ tappe sono stati risolti e integrati nella sezione «Contratti» e nei task.
 
 - **Token Bitbucket senza `read:user:bitbucket`**: su un'istanza esistente
   ogni "Request changes" viene scartato (fail-closed, riga nel log) finché
-  l'admin non rigenera il token. Il form del revisore lo dice; senza revisore
-  configurato nessuno lo scopre finché qualcuno non preme "Request changes".
-  Il passo di deploy (Tappa G) dovrebbe dirlo.
+  l'admin non rigenera il token. Mitigato su tre lati: il form della
+  repository avvisa a ogni salvataggio (D7 step 7–10, anche senza revisore),
+  lo scarto lascia un commento di sistema sul ticket (D2 step 7–11, uno per PR
+  finché la condizione persiste) e il passo di deploy (G1) lo dice. Limite
+  accettato: credenziali sistemate e poi rotte di nuovo senza una richiesta
+  riuscita in mezzo → nessun secondo avviso sul ticket.
 - **Fixture tipizzate.** I `.default()` rendono i campi obbligatori
   nell'output Zod: D6–D8 toccano fixture di web, app e api-client prima della
   Tappa F. Meccanico, ma va fatto col compilatore, non con la lista.
