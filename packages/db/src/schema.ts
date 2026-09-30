@@ -8,6 +8,8 @@ import {
   type CalendarReminder,
   type DiscoveredService,
   type PluginInventory,
+  type PrComment,
+  type PrCorrectionTrigger,
   aiJobStatusSchema,
   aiProviderKindSchema,
   backlogCodeSessionStatusSchema,
@@ -342,6 +344,12 @@ export const gitAccounts = pgTable("git_accounts", {
   // per workspace (GET /2.0/repositories/{workspace}). Null per GitHub, che
   // continua a usare /user/repos.
   workspace: text("workspace"),
+  // Identità dell'account SULLA PIATTAFORMA (uuid Bitbucket `{…}`, id numerico
+  // GitHub come stringa). Serve a riconoscere gli eventi generati da noi stessi
+  // — una "Request changes" messa dall'account revisore non deve far ripartire
+  // il ciclo (design correzioni §5). Scritta alla validazione; null per gli
+  // account registrati prima, risolta al primo uso.
+  providerUserId: text("provider_user_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -407,11 +415,22 @@ export const projects = pgTable(
     // dipende dal backlog (a differenza del pulse): un progetto ha sempre
     // qualcosa da raccontare, anche senza voci da proporre.
     weeklyBriefEnabled: boolean("weekly_brief_enabled").notNull().default(false),
+    // Ciclo di correzione post-PR: quante correzioni AUTOMATICHE (chieste dalla
+    // review) per tornata prima di fermarsi e chiamare una persona. 0 = ciclo
+    // automatico spento (la review commenta e basta; le correzioni manuali
+    // funzionano). Il contatore NON si salva: lo deriva
+    // `autoRoundsInCurrentSeries` (@stubwise/notifications).
+    prCorrectionMaxRounds: integer("pr_correction_max_rounds").notNull().default(3),
   },
   () => [
     // Sotto 1 giorno il pulse diventerebbe un ping continuo, sopra 30 un
     // promemoria che non arriva mai.
     check("projects_pulse_every_days_chk", sql`pulse_every_days BETWEEN 1 AND 30`),
+    // 0 spegne il ciclo automatico; oltre 10 è un giro che nessuno rilegge.
+    check(
+      "projects_pr_correction_max_rounds_chk",
+      sql`pr_correction_max_rounds BETWEEN 0 AND 10`,
+    ),
   ],
 );
 
@@ -438,6 +457,13 @@ export const repositories = pgTable("repositories", {
   gitAccountId: uuid("git_account_id")
     .notNull()
     .references(() => gitAccounts.id, { onDelete: "restrict" }),
+  // Account revisore (facoltativo): con questo la review pubblica lo stato VERO
+  // della PR (approve / request changes), che l'autore della PR non può dare a
+  // sé stesso. Null = la review commenta con l'account principale, come prima.
+  // ON DELETE SET NULL: togliere l'account non blocca la repository.
+  reviewGitAccountId: uuid("review_git_account_id").references(() => gitAccounts.id, {
+    onDelete: "set null",
+  }),
   repoUrl: text("repo_url").notNull(),
   defaultBranch: text("default_branch").notNull(),
   // Segreto HMAC del webhook git (chiusura automatica al merge): 32 hex
@@ -646,6 +672,10 @@ export const ticketRepositories = pgTable(
     branch: text("branch").notNull(),
     // URL della PR aperta su questo repo; null finché non è stata aperta.
     prUrl: text("pr_url"),
+    // Numero della PR, estratto da `prUrl` (backfill della 0081) e scritto dal
+    // fix all'apertura. È la chiave con cui correzioni e review si ritrovano
+    // (`(repository_id, pr_number)`). Null finché la PR non esiste.
+    prNumber: integer("pr_number"),
     prState: prState("pr_state").notNull().default("open"),
     /**
      * Fase 8, Task 6: l'esito del test INTERNO (quello che la pipeline di fix
@@ -829,6 +859,15 @@ export const aiJobs = pgTable(
     // (run non fallito, generazione fallita o riassunti spenti): la card
     // degrada al log tecnico come prima di questa fase.
     failureSummary: text("failure_summary"),
+    // Correzione post-PR di cui questo job è l'esecuzione: valorizzata = il
+    // worker salta triage e `resolveFixMode` e va in `runCorrection`. NON è un
+    // valore di `resumeMode`, apposta: un valore dimenticato in
+    // `resolveFixMode` degraderebbe in silenzio a fix completo, cioè a un fix
+    // che riparte dal branch di default. UNIQUE: un job per correzione.
+    // Riferimento lazy (`AnyPgColumn`): `prCorrections` è dichiarata più sotto.
+    correctionId: uuid("correction_id")
+      .unique()
+      .references((): AnyPgColumn => prCorrections.id, { onDelete: "set null" }),
   },
   (table) => [
     // Lookup dei job di un ticket (storico e dettaglio).
@@ -1549,6 +1588,77 @@ export const prReviews = pgTable(
   (table) => [
     // Lookup del ticket riusabile per le re-review della stessa PR.
     index("pr_reviews_repository_pr_idx").on(table.repositoryId, table.prNumber),
+  ],
+);
+
+/**
+ * Una CORREZIONE chiesta su una PR aperta da Stubwise (design
+ * `2026-09-30-pr-correction-loop-design.md` §4): dalla review
+ * (`trigger='review'`, il ciclo automatico), dal bottone sul ticket
+ * (`stubwise`) o da "Request changes" sul provider (`provider`).
+ *
+ * `status` — `pending` (richiesta umana in attesa che finisca ciò che è in
+ * volo), `queued` (ha un job non ancora terminale), `done` (il job è finito:
+ * l'esito sta su `ai_jobs.status`), `cancelled` (PR chiusa). Gli indici unici
+ * parziali garantiscono UNA `pending` e UNA `queued` per PR.
+ *
+ * Il job si trova da `ai_jobs.correction_id`: qui NON c'è un `ai_job_id`, per
+ * non avere una FK circolare. `providerFeedback` è la fotografia dei commenti
+ * della PR presa alla richiesta; `feedbackComplete` dice se quella fotografia
+ * è stata letta DAVVERO dal provider — solo allora la correzione fa da taglio
+ * per i commenti successivi (una lettura fallita non deve far saltare per
+ * sempre i commenti mai letti).
+ *
+ * CHECK e non pgEnum: additiva, un solo batch (come `calendar_series.action`).
+ */
+export const prCorrections = pgTable(
+  "pr_corrections",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ticketId: uuid("ticket_id")
+      .notNull()
+      .references(() => tickets.id, { onDelete: "cascade" }),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    prNumber: integer("pr_number").notNull(),
+    trigger: text("trigger").$type<PrCorrectionTrigger>().notNull(),
+    status: text("status")
+      .$type<"pending" | "queued" | "done" | "cancelled">()
+      .notNull()
+      .default("queued"),
+    requestedByUserId: uuid("requested_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    /** Login sulla piattaforma di chi ha premuto "Request changes" (anche se non è su Stubwise). */
+    requestedByProviderLogin: text("requested_by_provider_login"),
+    /** L'ultima review completata al momento della richiesta: entra nel prompt. */
+    reviewId: uuid("review_id").references(() => prReviews.id, { onDelete: "set null" }),
+    /** La nota del bottone "Applica le correzioni". */
+    note: text("note"),
+    providerFeedback: jsonb("provider_feedback").$type<PrComment[]>(),
+    /** Emendamento E1: true solo se `providerFeedback` è stata letta davvero dal provider. */
+    feedbackComplete: boolean("feedback_complete").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    index("pr_corrections_repository_pr_created_at_idx").on(
+      table.repositoryId,
+      table.prNumber,
+      table.createdAt,
+    ),
+    uniqueIndex("pr_corrections_pending_unique")
+      .on(table.repositoryId, table.prNumber)
+      .where(sql`status = 'pending'`),
+    uniqueIndex("pr_corrections_queued_unique")
+      .on(table.repositoryId, table.prNumber)
+      .where(sql`status = 'queued'`),
+    check("pr_corrections_trigger_chk", sql`"trigger" in ('review', 'stubwise', 'provider')`),
+    check("pr_corrections_status_chk", sql`status in ('pending', 'queued', 'done', 'cancelled')`),
   ],
 );
 
@@ -3893,3 +4003,6 @@ export type CalendarEventRow = typeof calendarEvents.$inferSelect;
 export type CalendarSeriesRow = typeof calendarSeries.$inferSelect;
 /** Riga di `email_proposals`: la proposta di UN messaggio per UN progetto. */
 export type EmailProposalRow = typeof emailProposals.$inferSelect;
+
+/** Riga di `pr_corrections`: una correzione chiesta su una PR di Stubwise. */
+export type PrCorrectionRow = typeof prCorrections.$inferSelect;
