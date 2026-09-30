@@ -246,8 +246,11 @@ key `stubwise-review` (D10).
 - `apps/worker/src/pipeline/correction.ts`: `runCorrection(deps, job): Promise<CorrectionOutcome>`
   e `promotePendingForTicket(db, ticketId)`. Chiusura ATOMICA: esito del job +
   `completeCorrection` in una transazione; promozione/review/notifiche SOLO se la
-  chiusura è avvenuta. Per `trigger='provider'` rifà la fotografia all'avvio
-  (`listPrComments` + helper di A8b) e la sostituisce a quella del webhook.
+  chiusura è avvenuta. Se la correzione porta commenti del provider
+  (`providerFeedback !== null`, NON `trigger='provider'`: un click fuso in una
+  `pending` provider tiene comunque il trigger, ma la regola guarda il dato)
+  rifà la fotografia all'avvio (`listPrComments` + helper di A8b) e la
+  sostituisce a quella accumulata dai webhook.
 - `apps/worker/src/pipeline/prompts.ts`: `buildCorrectionPrompt(input, lang)`.
 - `apps/worker/src/handler.ts`: `job.correctionId != null` → `markFixing` + `runCorrection`
   (niente triage, niente `resolveFixMode`); dopo un job non di correzione chiuso
@@ -1977,14 +1980,21 @@ git commit -m "feat(notifications): il contatore dei giri automatici del ciclo d
 `startRun` (`pg_advisory_xact_lock(hashtext(ticketId))`): una correzione e un
 rilancio del fix sullo stesso ticket si serializzano, e nessuno dei due vede
 uno stato a metà. Sotto il lock legge: la `queued` della PR, la `pending` della
-PR, se il ticket ha un job in `IN_FLIGHT_JOB_STATUSES` (QUALSIASI job, non solo
-l'ultimo: più severo di `startRun`, apposta).
+PR, se il ticket ha un job VIVO (QUALSIASI job, non solo l'ultimo: più severo
+di `startRun`, apposta). «Vivo» = in `IN_FLIGHT_JOB_STATUSES` **oppure** un FIX
+`held` (`status='held'` AND `correction_id IS NULL`): un fix parcheggiato su
+limite/budget/gate riparte da solo e andrebbe in conflitto col branch che la
+correzione ha pushato. Una CORREZIONE `held` resta fuori, perché la sua riga è
+ancora `queued` e decide già `correction_in_flight`. Il predicato è UNO,
+esportato e documentato (`jobBlocksCorrection()` / `hasJobInFlight`, deciso in
+revisione di A6): A7 e A8 (`canRequestCorrection`) lo riusano, non lo
+ricopiano.
 
 | trigger | c'è una `queued` | c'è un job in volo sul ticket (e nessuna `queued`) | c'è una `pending` e niente è in volo | niente di tutto ciò |
 |---|---|---|---|---|
-| `stubwise` (bottone) | ❌ `correction_in_flight` | ❌ `job_in_flight` | fonde nella `pending` e la **promuove** → `queued` + job | nuova `queued` + job |
-| `provider` (Request changes) | `pending` (nuova o fusa) | `pending` (nuova o fusa) | fonde e promuove → `queued` + job | nuova `queued` + job |
-| `review` (ciclo automatico) | ❌ `correction_in_flight` | ❌ `job_in_flight` | **promuove la `pending` così com'è** (vince la richiesta umana, §6) | nuova `queued` + job |
+| `stubwise` (bottone) | ❌ `correction_in_flight` | ❌ `job_in_flight` | fonde nella `pending` e la **promuove** → `queued` + job (se la `pending` porta `providerFeedback` resta `trigger='provider'` col suo login: il click aggiunge solo `note`, `requestedByUserId`, `reviewId`) | nuova `queued` + job |
+| `provider` (Request changes) | `pending` (nuova o fusa; i `providerFeedback` si UNISCONO, dedup per `id`) | `pending` (nuova o fusa, idem) | fonde e promuove → `queued` + job | nuova `queued` + job |
+| `review` (ciclo automatico) | ❌ `correction_in_flight` | ❌ `job_in_flight` | **promuove la `pending` senza fondersi** (vince la richiesta umana, §6): trigger, richiedente, nota e commenti restano i suoi; cambia solo `reviewId`, che diventa l'ultima review completata — voluto: il prompt riceve la review più recente | nuova `queued` + job |
 
 - Nessuna riga viene scritta nei casi ❌ (asserito sulle righe, non solo sulla risposta).
 - Il job nasce `queued`, `correctionId` valorizzato, `resumeMode`/`planText`
@@ -1997,9 +2007,30 @@ l'ultimo: più severo di `startRun`, apposta).
 - `reviewId` assente → l'ultima review `completed` della PR (così il prompt ha
   sempre "l'ultima review" anche per una richiesta dal bottone).
 - Fusione nella `pending`: `trigger`, `requestedByUserId`,
-  `requestedByProviderLogin` presi dalla richiesta nuova; `note`,
-  `providerFeedback`, `reviewId` sostituiti solo se la richiesta nuova li
-  porta; `updated_at` aggiornato (`$onUpdate`).
+  `requestedByProviderLogin` presi dalla richiesta nuova; `note` e `reviewId`
+  sostituiti solo se la richiesta nuova li porta; `updated_at` aggiornato
+  (`$onUpdate`). Due eccezioni decise in revisione di A6:
+  - `providerFeedback` si UNISCE (dedup per `id`, a parità vince la versione
+    nuova), mai si sostituisce: due "Request changes" in attesa sono due
+    insiemi di commenti;
+  - un CLICK fuso in una `pending` con `providerFeedback !== null` lascia la
+    riga `trigger='provider'` col suo `requestedByProviderLogin`: aggiunge solo
+    `note`, `requestedByUserId` e `reviewId`.
+- Il docblock di `enqueueCorrection` dice tre cose a chi la chiama dentro una
+  transazione: il lock vale fino al COMMIT della transazione esterna (e intanto
+  `startRun` aspetta); sotto REPEATABLE READ il lock non protegge; va chiamata
+  PRIMA di altre scritture su `ai_jobs`/`pr_corrections` (stesso ordine dei lock
+  di `startRun`, altrimenti deadlock).
+- `Tx` è esportato da `packages/notifications/src/dispatch.ts`
+  (`DbOrTx = Db | Tx`): niente copie locali del tipo.
+
+> **Nota (revisione di A6):** il codice degli Step 1 e 3 qui sotto è la
+> versione di partenza. Quello committato aggiunge le regole sopra, i loro
+> test (click in una `pending` provider, fix `held`, correzione `held`, dedup
+> dei commenti) e un test DETERMINISTICO del lock basato su
+> `pg_stat_activity`. Il test «due click contemporanei» ora scalda il pool:
+> senza, il secondo `begin` apriva una connessione nuova, le due transazioni
+> non si sovrapponevano mai e il test era verde anche senza lock.
 
 `completeCorrection(db, correctionId)` porta `queued → done`. Il worker la
 chiama **nella stessa transazione** che rende terminale il job della
@@ -8227,8 +8258,12 @@ perdendo il lavoro in silenzio). `held` e `limit` lasciano la correzione
 `completeCorrection` la porta a `done` come quella riuscita, e
 `autoRoundsInCurrentSeries` conta ogni `trigger='review'` non `cancelled`.
 
-**Fotografia dei commenti (`trigger='provider'`):** una `pending` fusa porta la
-fotografia della PRIMA richiesta; all'avvio la correzione la RIFÀ e la riscrive
+**Fotografia dei commenti (`providerFeedback !== null`):** la condizione è sul
+DATO, non su `trigger='provider'` (decisione della revisione di A6: un click
+fuso in una `pending` provider resta `provider`, ma è la presenza dei commenti
+a dire che vanno riletti). Una `pending` fusa porta l'UNIONE delle fotografie
+delle richieste fuse, prese ognuna al suo webhook; all'avvio la correzione la
+RIFÀ e la riscrive
 in `provider_feedback` prima di costruire il prompt, con GLI STESSI helper del
 webhook (A8b, `packages/notifications/src/pr-correction-feedback.ts`, NON
 ridefiniti qui): `resolveProviderUserId` per l'account principale e il revisore
@@ -9096,8 +9131,9 @@ async function loadReview(
 }
 
 /**
- * RIFÀ la fotografia dei commenti della PR per una richiesta dal provider (una
- * `pending` fusa porta quella della PRIMA richiesta). Con GLI STESSI helper del
+ * RIFÀ la fotografia dei commenti della PR per una correzione che porta
+ * commenti del provider (`providerFeedback !== null`; una `pending` fusa porta
+ * l'unione delle fotografie prese ai webhook). Con GLI STESSI helper del
  * webhook (`@stubwise/notifications`, pr-correction-feedback.ts), perché due
  * copie di «quali commenti ha già letto l'AI» divergerebbero: identità degli
  * account propri risolta (e salvata) al primo uso, taglio = ultima correzione
@@ -9356,7 +9392,10 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
     const parsed = z.array(prCommentSchema).safeParse(correction.providerFeedback ?? []);
     return parsed.success ? parsed.data : [];
   })();
-  if (correction.trigger === "provider") {
+  // La condizione è sul DATO, non sul trigger (revisione di A6). Il test di
+  // questa regola lo scrive C8: una correzione con `providerFeedback` non
+  // null rilegge i commenti, una con `providerFeedback` null no.
+  if (correction.providerFeedback !== null) {
     const [reviewerAccount] =
       row.repository.reviewGitAccountId !== null
         ? await db.select().from(gitAccounts).where(eq(gitAccounts.id, row.repository.reviewGitAccountId))
@@ -18641,12 +18680,15 @@ tappe sono stati risolti e integrati nella sezione «Contratti» e nei task.
 - **Lock di concorrenza = lo stesso lock advisory di `startRun`**
   (`hashtext(ticketId)`): correzioni e rilanci del fix sullo stesso ticket si
   serializzano. "Job vivo" = QUALSIASI job del ticket in
-  `IN_FLIGHT_JOB_STATUSES` (non solo l'ultimo come in `startRun`).
+  `IN_FLIGHT_JOB_STATUSES` (non solo l'ultimo come in `startRun`), più i FIX
+  `held` (`correction_id IS NULL`): un fix parcheggiato riparte da solo. Un
+  solo predicato esportato, `jobBlocksCorrection()`.
 - **Regola "un job vivo per ticket"**: il bottone e la review rifiutano
   (`job_in_flight`) se un job qualunque è in volo; "Request changes" dal
   provider diventa `pending` sia durante una correzione sia durante un fix
   qualsiasi. Una `pending` libera parte al posto di QUALUNQUE richiesta nuova,
-  review compresa (la review la promuove "così com'è", senza fondersi).
+  review compresa (la review la promuove senza fondersi: cambia solo il
+  `reviewId`, che diventa l'ultima review completata — voluto).
 - **`manualTrigger = trigger !== 'review'`** sul job della correzione: le
   richieste di una persona scavalcano i tetti di spesa come ogni avvio a mano
   (`fix.ts:916`); il ciclo automatico si ferma al budget mensile, come chiede

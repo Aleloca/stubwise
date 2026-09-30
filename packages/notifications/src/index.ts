@@ -8,6 +8,7 @@ export {
   shouldSendWebhook,
   type DbOrTx,
   type DispatchOptions,
+  type Tx,
   type NotificationSettingsRow,
   type SendTestResult,
 } from "./dispatch.js";
