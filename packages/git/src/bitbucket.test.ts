@@ -540,6 +540,7 @@ describe("BitbucketProvider.listPrComments", () => {
         createdAt: "2026-09-30T10:01:00+00:00",
         path: null,
         line: null,
+        authorAssociation: null,
       },
       {
         id: "2",
@@ -549,6 +550,7 @@ describe("BitbucketProvider.listPrComments", () => {
         createdAt: "2026-09-30T10:02:00+00:00",
         path: "src/a.ts",
         line: 42,
+        authorAssociation: null,
       },
       {
         id: "3",
@@ -558,6 +560,8 @@ describe("BitbucketProvider.listPrComments", () => {
         createdAt: "2026-09-30T10:03:00+00:00",
         path: "src/b.ts",
         line: 7,
+        // Bitbucket non ha un equivalente di author_association: sempre null
+        authorAssociation: null,
       },
     ]);
   });
@@ -1264,6 +1268,8 @@ describe("BitbucketProvider.parseChangesRequestedEvent", () => {
       actorId: "{u-mario}",
       actorLogin: "mario.rossi",
       reviewBody: null,
+      // nessun dato di associazione su Bitbucket
+      authorAssociation: null,
     });
   });
 

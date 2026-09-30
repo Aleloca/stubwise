@@ -638,6 +638,8 @@ export class BitbucketProvider implements GitProvider {
       actorId: who.id,
       actorLogin: who.login,
       reviewBody: null,
+      // Bitbucket non dice che rapporto ha l'autore col repository.
+      authorAssociation: null,
     };
   }
 
@@ -1285,5 +1287,7 @@ function bitbucketComment(c: BitbucketCommentPayload): PrComment | null {
     createdAt: c.created_on,
     path,
     line,
+    // Nessun equivalente di `author_association` su Bitbucket.
+    authorAssociation: null,
   };
 }

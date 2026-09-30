@@ -138,6 +138,24 @@ describe("prCommentSchema", () => {
     expect(prCommentSchema.parse({ ...base, path: null, line: null }).path).toBeNull();
     expect(prCommentSchema.parse({ ...base, path: "src/a.ts", line: 12 }).line).toBe(12);
   });
+
+  it("authorAssociation è additivo: una fotografia salvata PRIMA del campo si legge ancora", () => {
+    const base = {
+      id: "1",
+      authorId: "12345",
+      authorLogin: "mario-rossi",
+      body: "qui manca il test",
+      createdAt: "2026-09-30T10:00:00.000Z",
+      path: null,
+      line: null,
+    };
+    // fotografia vecchia, senza il campo: nessun errore, campo assente
+    const old = prCommentSchema.parse(base);
+    expect(old.authorAssociation).toBeUndefined();
+    // Bitbucket: null (sconosciuto); GitHub: il valore così com'è
+    expect(prCommentSchema.parse({ ...base, authorAssociation: null }).authorAssociation).toBeNull();
+    expect(prCommentSchema.parse({ ...base, authorAssociation: "OWNER" }).authorAssociation).toBe("OWNER");
+  });
 });
 
 describe("prCycleEventSchema", () => {

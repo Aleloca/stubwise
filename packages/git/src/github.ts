@@ -359,7 +359,13 @@ export class GitHubProvider implements GitProvider {
     const comments: PrComment[] = [];
 
     for (const raw of await this.fetchCommentPages(fetchImpl, `${base}/issues/${prNumber}/comments?per_page=100`, headers)) {
-      const c = raw as { id?: unknown; user?: unknown; body?: unknown; created_at?: unknown };
+      const c = raw as {
+        id?: unknown;
+        user?: unknown;
+        body?: unknown;
+        created_at?: unknown;
+        author_association?: unknown;
+      };
       const author = githubAuthor(c.user);
       if (author === null || !Number.isSafeInteger(c.id) || typeof c.created_at !== "string") continue;
       if (typeof c.body !== "string" || c.body.trim().length === 0) continue;
@@ -371,6 +377,7 @@ export class GitHubProvider implements GitProvider {
         createdAt: c.created_at,
         path: null,
         line: null,
+        authorAssociation: githubAuthorAssociation(c.author_association),
       });
     }
 
@@ -383,6 +390,7 @@ export class GitHubProvider implements GitProvider {
         path?: unknown;
         line?: unknown;
         original_line?: unknown;
+        author_association?: unknown;
       };
       const author = githubAuthor(c.user);
       if (author === null || !Number.isSafeInteger(c.id) || typeof c.created_at !== "string") continue;
@@ -404,11 +412,19 @@ export class GitHubProvider implements GitProvider {
         createdAt: c.created_at,
         path,
         line,
+        authorAssociation: githubAuthorAssociation(c.author_association),
       });
     }
 
     for (const raw of await this.fetchCommentPages(fetchImpl, `${base}/pulls/${prNumber}/reviews?per_page=100`, headers)) {
-      const r = raw as { id?: unknown; user?: unknown; body?: unknown; state?: unknown; submitted_at?: unknown };
+      const r = raw as {
+        id?: unknown;
+        user?: unknown;
+        body?: unknown;
+        state?: unknown;
+        submitted_at?: unknown;
+        author_association?: unknown;
+      };
       const author = githubAuthor(r.user);
       if (author === null || !Number.isSafeInteger(r.id) || typeof r.submitted_at !== "string") continue;
       if (r.state === "PENDING") continue;
@@ -421,6 +437,7 @@ export class GitHubProvider implements GitProvider {
         createdAt: r.submitted_at,
         path: null,
         line: null,
+        authorAssociation: githubAuthorAssociation(r.author_association),
       });
     }
 
@@ -682,6 +699,7 @@ export class GitHubProvider implements GitProvider {
       state?: unknown;
       body?: unknown;
       user?: { id?: unknown; login?: unknown } | null;
+      author_association?: unknown;
     };
     if (typeof review.state !== "string" || review.state.toLowerCase() !== "changes_requested") {
       return null;
@@ -704,6 +722,7 @@ export class GitHubProvider implements GitProvider {
       actorId: actor.id,
       actorLogin: actor.login,
       reviewBody,
+      authorAssociation: githubAuthorAssociation(review.author_association),
     };
   }
 
@@ -1164,4 +1183,18 @@ function githubAuthor(raw: unknown): { id: string; login: string } | null {
   if (typeof user.id !== "number" || !Number.isSafeInteger(user.id)) return null;
   if (typeof user.login !== "string") return null;
   return { id: String(user.id), login: user.login };
+}
+
+/**
+ * `author_association` di GitHub (commento, review, webhook): il rapporto
+ * dell'autore col repository — `OWNER`, `MEMBER`, `COLLABORATOR`,
+ * `CONTRIBUTOR`, `FIRST_TIME_CONTRIBUTOR`, `NONE`… — restituito così come
+ * GitHub lo manda (maiuscolo), senza normalizzarlo: la decisione su chi è
+ * ammesso la prende `isTrustedAuthorAssociation` in `@stubwise/notifications`,
+ * non questo package. Assente, vuoto o non stringa → `null` (sconosciuto, e a
+ * valle fail-closed). UNA funzione per le tre fonti dei commenti e per il
+ * webhook, come {@link githubAuthor}.
+ */
+function githubAuthorAssociation(raw: unknown): string | null {
+  return typeof raw === "string" && raw.length > 0 ? raw : null;
 }

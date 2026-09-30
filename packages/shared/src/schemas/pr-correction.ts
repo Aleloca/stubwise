@@ -122,6 +122,18 @@ export const prCommentSchema = z.object({
   createdAt: z.string(),
   path: z.string().nullable(),
   line: z.number().int().nullable(),
+  // Il rapporto dell'autore col repository, com'è sulla piattaforma: il campo
+  // `author_association` di GitHub (`OWNER`, `MEMBER`, `COLLABORATOR`,
+  // `CONTRIBUTOR`, `FIRST_TIME_CONTRIBUTOR`, `NONE`…), maiuscolo come GitHub
+  // lo manda. Serve a tenere nella fotografia SOLO chi ha il permesso di
+  // chiedere modifiche (`isTrustedAuthorAssociation` in
+  // `@stubwise/notifications`): su un repository pubblico chiunque può
+  // commentare, e senza questo filtro il suo testo finirebbe nel prompt.
+  // Lo valorizza solo GitHub; Bitbucket non ha un equivalente e manda `null`.
+  // `null`/assente = SCONOSCIUTO. Additivo e `.optional()` apposta: le
+  // fotografie già salvate in `pr_corrections.provider_feedback` non ce
+  // l'hanno, e devono continuare a leggersi.
+  authorAssociation: z.string().nullable().optional(),
 });
 export type PrComment = z.infer<typeof prCommentSchema>;
 

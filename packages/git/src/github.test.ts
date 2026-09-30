@@ -475,7 +475,9 @@ describe("GitHubProvider.listPrComments", () => {
   it("unisce conversazione, righe e testo delle review, ordinati per data", async () => {
     const fetchImpl = routes({
       [ISSUE_URL]: () =>
-        pagedResponse([{ id: 1, user: mario, body: "Generale", created_at: "2026-09-30T10:03:00Z" }]),
+        pagedResponse([
+          { id: 1, user: mario, body: "Generale", created_at: "2026-09-30T10:03:00Z", author_association: "OWNER" },
+        ]),
       [REVIEW_COMMENTS_URL]: () =>
         pagedResponse([
           {
@@ -486,6 +488,7 @@ describe("GitHubProvider.listPrComments", () => {
             path: "src/a.ts",
             line: 42,
             original_line: 40,
+            author_association: "MEMBER",
           },
           {
             id: 3,
@@ -499,7 +502,14 @@ describe("GitHubProvider.listPrComments", () => {
         ]),
       [REVIEWS_URL]: () =>
         pagedResponse([
-          { id: 4, user: mario, body: "Nel complesso ok", state: "COMMENTED", submitted_at: "2026-09-30T10:00:00Z" },
+          {
+            id: 4,
+            user: mario,
+            body: "Nel complesso ok",
+            state: "COMMENTED",
+            submitted_at: "2026-09-30T10:00:00Z",
+            author_association: "COLLABORATOR",
+          },
           { id: 5, user: mario, body: "", state: "APPROVED", submitted_at: "2026-09-30T10:04:00Z" },
           { id: 6, user: mario, body: "bozza", state: "PENDING" },
         ]),
@@ -522,6 +532,7 @@ describe("GitHubProvider.listPrComments", () => {
         createdAt: "2026-09-30T10:00:00Z",
         path: null,
         line: null,
+        authorAssociation: "COLLABORATOR",
       },
       {
         id: "review-comment-2",
@@ -531,6 +542,7 @@ describe("GitHubProvider.listPrComments", () => {
         createdAt: "2026-09-30T10:01:00Z",
         path: "src/a.ts",
         line: 42,
+        authorAssociation: "MEMBER",
       },
       {
         id: "review-comment-3",
@@ -540,6 +552,8 @@ describe("GitHubProvider.listPrComments", () => {
         createdAt: "2026-09-30T10:02:00Z",
         path: "src/b.ts",
         line: 9,
+        // campo assente nella risposta → sconosciuto
+        authorAssociation: null,
       },
       {
         id: "issue-1",
@@ -549,6 +563,7 @@ describe("GitHubProvider.listPrComments", () => {
         createdAt: "2026-09-30T10:03:00Z",
         path: null,
         line: null,
+        authorAssociation: "OWNER",
       },
     ]);
   });
@@ -894,6 +909,7 @@ describe("GitHubProvider.parseChangesRequestedEvent", () => {
       state,
       body: "Manca la gestione dell'errore 404",
       user: { id: 12345, login: "mario-rossi" },
+      author_association: "OWNER",
       commit_id: "a".repeat(40),
     },
     pull_request: {
@@ -912,7 +928,23 @@ describe("GitHubProvider.parseChangesRequestedEvent", () => {
       actorId: "12345",
       actorLogin: "mario-rossi",
       reviewBody: "Manca la gestione dell'errore 404",
+      authorAssociation: "OWNER",
     });
+  });
+
+  it("author_association: passato così com'è (NONE incluso); assente, vuoto o non stringa → null", () => {
+    const none = payload();
+    (none.review as { author_association: unknown }).author_association = "NONE";
+    expect(provider.parseChangesRequestedEvent(headers, none)?.authorAssociation).toBe("NONE");
+    for (const value of [undefined, "", 7, null]) {
+      const p = payload();
+      if (value === undefined) delete (p.review as { author_association?: unknown }).author_association;
+      else (p.review as { author_association: unknown }).author_association = value;
+      const event = provider.parseChangesRequestedEvent(headers, p);
+      // l'evento resta valido: la decisione su chi è ammesso si prende a valle
+      expect(event).not.toBeNull();
+      expect(event?.authorAssociation).toBeNull();
+    }
   });
 
   it("stato maiuscolo (forma REST) accettato; header case-insensitive", () => {

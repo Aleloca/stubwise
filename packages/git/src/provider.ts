@@ -175,6 +175,16 @@ export interface ChangesRequestedEvent {
   actorId: string;
   actorLogin: string;
   reviewBody: string | null;
+  /**
+   * Il rapporto dell'autore col repository: `review.author_association` di
+   * GitHub (`OWNER`, `MEMBER`, `COLLABORATOR`, `CONTRIBUTOR`, `NONE`…),
+   * maiuscolo come GitHub lo manda; `null` se assente. Bitbucket non ha un
+   * equivalente: sempre `null`. Il chiamante lo passa a
+   * `isTrustedAuthorAssociation` (`@stubwise/notifications`) prima di far
+   * partire una correzione: su un repository pubblico chiunque può chiedere
+   * modifiche.
+   */
+  authorAssociation: string | null;
 }
 
 /**
