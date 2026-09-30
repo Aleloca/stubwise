@@ -4,7 +4,6 @@ import {
   comments,
   decrypt,
   gitAccounts,
-  instanceSettings,
   monthlyCostUsd,
   projects,
   recordTicketStatusChange,
@@ -32,7 +31,6 @@ import { mirrorSlug, MirrorManager, type MirrorProject } from "../git/mirrors.js
 import { GRAPHIFY_AGENT_ALLOWED_TOOLS, resolveRepoGraphJson } from "../graph/agent-hint.js";
 import type { ResolvedProvider } from "../providers/chain.js";
 import { isLimitError, ProviderLimitError } from "../providers/limit.js";
-import { generateFailureSummary } from "../summaries/failure-summary.js";
 import { generatePlanSummary } from "../summaries/plan-summary.js";
 import { openRunPlugins } from "../plugins/materialize-run.js";
 import {
@@ -40,13 +38,10 @@ import {
   clearCliSessionId,
   completeJob,
   failJob,
-  getJobLog,
-  holdJob,
   parkForInput,
   parkForPlanApproval,
   recordAgentRun,
   touchJob,
-  writeFailureSummary,
   type AiJob,
 } from "../queue.js";
 import { getContentLanguage } from "../settings.js";
@@ -75,6 +70,13 @@ import {
   type LoadedEnvFile,
 } from "./env-files.js";
 import { computeReleaseRisk } from "./release-risk.js";
+import {
+  checkBudgetsBeforeRun,
+  DEFAULT_SUMMARY_TIMEOUT_MS,
+  holdForBudget,
+  notifyJobFailed,
+  type JobOutcomeContext,
+} from "./job-outcomes.js";
 import {
   AgentExitError,
   BudgetExceededError,
@@ -464,15 +466,6 @@ const TITLE_MAX_CHARS = 200;
  * un job davvero stuck (interval morto col processo) viene comunque recuperato. */
 const HEARTBEAT_INTERVAL_MS = 60_000;
 
-/**
- * Timeout del run di riassunto del piano (fase 5). Corto di proposito: è un run
- * di solo testo, senza tool e senza working tree, e sta DENTRO la finestra di un
- * job che ha appena finito di pianificare. Tenerlo breve significa che un
- * provider lento allunga il parcheggio del piano di due minuti al massimo,
- * invece di trattenere il job fino alla soglia di staleness.
- */
-const DEFAULT_SUMMARY_TIMEOUT_MS = 120_000;
-
 /** Forma attesa delle credenziali git decifrate (vedi routes/projects.ts). */
 const credentialsSchema = z.object({
   username: z.string().min(1).optional(),
@@ -718,140 +711,48 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
   /** Riferimenti comuni a TUTTE le notifiche di questa fase: il fix conosce
    * progetto, ticket e job del run, e li porta su ogni evento. */
   const notifyRefs = { projectId: ticket.projectId, ticketId: ticket.id, jobId: job.id };
-  /**
-   * Notifica job.failed best-effort dopo il failJob (lo stato è già
-   * committato), poi — SEMPRE DOPO, mai prima — il riassunto "in breve" del
-   * fallimento (fase 7, Task 9): best-effort quanto la notifica, e capace di
-   * girare per decine di secondi senza mai ritardarla, perché la notifica è
-   * già stata pubblicata quando il run del riassunto comincia. Vedi il
-   * docblock di `summaries/failure-summary.ts` per il perché del
-   * disaccoppiamento dalla forma di `plan_summary`/`pr_summary`.
-   */
-  const notifyFailed = async (error: string): Promise<void> => {
-    await notify(
-      notifyDeps,
-      db,
-      {
-        kind: "job.failed",
-        ticketNumber: ticket.number,
-        ticketTitle: ticket.title,
-        projectName,
-        error,
-        ticketUrl: url,
-      },
-      notifyRefs,
-    );
-    try {
-      const log = await getJobLog(db, job.id);
-      const summary = await generateFailureSummary(
-        {
-          runner: deps.runner,
-          timeoutMs: deps.summaryTimeoutMs ?? DEFAULT_SUMMARY_TIMEOUT_MS,
-          ...(deps.summaryModel !== undefined ? { model: deps.summaryModel } : {}),
-          ...(deps.provider !== undefined ? { provider: deps.provider } : {}),
-          ...(deps.summariesEnabled !== undefined ? { enabled: deps.summariesEnabled } : {}),
-        },
-        { lang, ticketTitle: ticket.title, error, log },
-      );
-      if (summary) await writeFailureSummary(db, job.id, summary);
-    } catch {
-      // Best-effort: un riassunto (o la sua scrittura) che fallisce non deve
-      // mai propagare da qui — il fallimento è già registrato e notificato.
-    }
+  /** Contesto degli esiti del job (budget-held, job.failed + riassunto): lo
+   * stesso che usa la correzione post-PR, vedi job-outcomes.ts. */
+  const outcomeCtx: JobOutcomeContext = {
+    db,
+    jobId: job.id,
+    ticket: { id: ticket.id, number: ticket.number, title: ticket.title },
+    projectName,
+    lang,
+    url,
+    notifyDeps,
+    notifyRefs,
+    runner: deps.runner,
+    ...(deps.provider !== undefined ? { provider: deps.provider } : {}),
+    ...(deps.summariesEnabled !== undefined ? { summariesEnabled: deps.summariesEnabled } : {}),
+    ...(deps.summaryModel !== undefined ? { summaryModel: deps.summaryModel } : {}),
+    summaryTimeoutMs: deps.summaryTimeoutMs ?? DEFAULT_SUMMARY_TIMEOUT_MS,
+    logPrefix: "[fix]",
   };
+  const notifyFailed = (error: string): Promise<void> => notifyJobFailed(outcomeCtx, error);
 
-  /**
-   * Percorso budget-held (Task 6): il job ha sforato un tetto di spesa e va
-   * messo in pausa, NON fallito. Riusa la transizione holdJob (status-guarded),
-   * lascia un commento AI che spiega lo sforamento e notifica job.budget_held.
-   * Modellato sul gate auto-fix del triage (commento + holdJob + notify). Le
-   * cifre nel commento sono arrotondate a 4 decimali per leggibilità; lo scope
-   * è tradotto con le chiavi notify.scope* condivise con la notifica. */
-  const fmtUsd = (n: number): string => n.toFixed(4);
+  /** Percorso budget-held: vedi holdForBudget. */
   const budgetHeld = async (
     scope: "ticket" | "monthly",
     limitUsd: number,
     spentUsd: number,
   ): Promise<FixOutcome> => {
-    const scopeLabel = t(lang, scope === "monthly" ? "notify.scopeMonthly" : "notify.scopeTicket");
-    await db.transaction(async (tx) => {
-      await tx.insert(comments).values({
-        ticketId: ticket.id,
-        authorType: "ai",
-        body: t(lang, "comment.budgetHeld", {
-          scope: scopeLabel,
-          limit: fmtUsd(limitUsd),
-          spent: fmtUsd(spentUsd),
-        }),
-      });
-    });
-    const held = await holdJob(db, job.id, {
-      log: `[fix] budget di costo superato (${scope}): spesi $${fmtUsd(spentUsd)} sul limite di $${fmtUsd(limitUsd)} → job in pausa (held), avvio manuale per forzare`,
-      // "budget": tetto di spesa superato, decisione umana (il resume poller
-      // dei limiti NON lo riaccoda).
-      heldReason: "budget",
-    });
-    if (!held) {
-      await appendLog(db, job.id, "[fix] ownership persa dopo il hold per budget");
-    }
-    await notify(
-      notifyDeps,
-      db,
-      {
-        kind: "job.budget_held",
-        ticketNumber: ticket.number,
-        ticketTitle: ticket.title,
-        projectName,
-        scope,
-        limitUsd,
-        spentUsd,
-        ticketUrl: url,
-      },
-      notifyRefs,
-    );
+    await holdForBudget(outcomeCtx, scope, limitUsd, spentUsd);
     return "held";
   };
 
-  // Configurazione dei tetti di spesa (Task 6), caricata SOLO se il job non è
-  // avviato manualmente: un avvio a mano scavalca entrambi i controlli (un
-  // umano ha già deciso di spendere). `maxCostUsd` serve anche al check
-  // in-loop del self-repair, perciò resta in scope fuori dal pre-fix check.
-  // I valori numeric di Postgres arrivano come stringa: Number() li converte.
-  let maxCostUsd: number | null = null;
-  // Costo storico del ticket (run già registrati), letto una volta per il check
-  // in-loop del self-repair. È la base a cui si aggiunge la stima dei costi del
-  // run corrente (fixUsages, non ancora persistiti) prima di ogni riparazione.
-  let ticketCostBaseline = 0;
-  if (!job.manualTrigger) {
-    const [budgetRule] = await db
-      .select({ maxCostUsd: automationRules.maxCostUsd })
-      .from(automationRules)
-      .where(eq(automationRules.type, ticket.type));
-    maxCostUsd =
-      budgetRule?.maxCostUsd != null && budgetRule.maxCostUsd !== ""
-        ? Number(budgetRule.maxCostUsd)
-        : null;
-    const [settings] = await db
-      .select({ monthlyBudgetUsd: instanceSettings.monthlyBudgetUsd })
-      .from(instanceSettings)
-      .where(eq(instanceSettings.id, 1));
-    const monthlyBudgetUsd =
-      settings?.monthlyBudgetUsd != null && settings.monthlyBudgetUsd !== ""
-        ? Number(settings.monthlyBudgetUsd)
-        : null;
-
-    // PRE-FIX CHECK: prima di toccare il repo. Mensile prima del ticket: un
-    // tetto d'istanza sforato blocca a prescindere dal singolo ticket.
-    const monthlySpent = await monthlyCostUsdFn(db);
-    if (monthlyBudgetUsd != null && monthlySpent >= monthlyBudgetUsd) {
-      return budgetHeld("monthly", monthlyBudgetUsd, monthlySpent);
-    }
-    const ticketSpent = await ticketCostUsdFn(db, ticket.id);
-    ticketCostBaseline = ticketSpent;
-    if (maxCostUsd != null && ticketSpent >= maxCostUsd) {
-      return budgetHeld("ticket", maxCostUsd, ticketSpent);
-    }
-  }
+  // Tetti di spesa (Task 6), PRIMA di toccare il repo: vedi checkBudgetsBeforeRun.
+  // `maxCostUsd`/`ticketCostBaseline` servono anche al check in-loop del
+  // self-repair; con un avvio manuale valgono null/0 (nessun controllo).
+  const budget = await checkBudgetsBeforeRun(db, {
+    ticketId: ticket.id,
+    ticketType: ticket.type,
+    manualTrigger: job.manualTrigger,
+    ticketCostUsdFn,
+    monthlyCostUsdFn,
+  });
+  if (budget.kind === "held") return budgetHeld(budget.scope, budget.limitUsd, budget.spentUsd);
+  const { maxCostUsd, ticketCostBaseline } = budget;
 
   // Prepara OGNI repository del progetto: decifra le credenziali del suo account
   // git e costruisce il MirrorProject. Un fallimento qui (chiave sbagliata,
