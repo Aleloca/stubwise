@@ -12,7 +12,7 @@ import { startCredentialTester } from "./agent/credential-tester.js";
 import { startUsagePoller } from "./agent/usage-poller.js";
 import { loadWorkerConfig, type WorkerConfig } from "./config.js";
 import { startAutoUpdatePoller } from "./docs/auto-update-poller.js";
-import { startPrReviewPoller } from "./review/poller.js";
+import { requeueWaitingReviews, startPrReviewPoller } from "./review/poller.js";
 import { createDocHandler, failDocJobOnError } from "./docs/handler.js";
 import { dispatchNode } from "./docs/recursive/node-dispatch.js";
 import { createGenerationWorktreeRegistry } from "./docs/recursive/registry.js";
@@ -249,6 +249,14 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
     console.error(`[stubwise-worker] ricevuto ${signal}: attendo i job in corso e mi fermo`);
     controller.abort();
   });
+}
+
+// Review rimaste IN ATTESA nella catena in memoria del processo precedente:
+// tornano in coda PRIMA che qualunque poller parta (review/poller.ts,
+// requeueWaitingReviews — un solo processo worker per istanza).
+const requeuedReviews = await requeueWaitingReviews(db);
+if (requeuedReviews > 0) {
+  console.error(`[stubwise-worker] ${requeuedReviews} review in attesa rimesse in coda dopo il riavvio`);
 }
 
 // Poller dell'usage residuo dell'abbonamento (Task 6): task SEPARATO dal loop

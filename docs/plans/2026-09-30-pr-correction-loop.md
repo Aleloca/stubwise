@@ -12132,6 +12132,24 @@ errore lascia una riga di log e non tocca la review già `completed`:
    (GitHub accetta lo status senza `target_url`; Bitbucket ha già il suo
    ripiego sulla pagina della repository). Senza, un'istanza in http non
    avrebbe mai lo status.
+   **Deciso dal coordinatore in C10, da confermare con B14 §6a** (B14 non
+   ancora eseguito): la scelta difensiva è già nel codice —
+   `commitStatusTargetUrl` (`apps/worker/src/review/cycle.ts`) manda il link
+   SOLO se l'URL pubblico è `https:` e non punta a `localhost`/`127.0.0.1`/
+   `::1`; altrimenti lo omette, per entrambi i provider. Test nei due versi in
+   `cycle.test.ts`. Se B14 dice 201 anche per `http://`, la guardia si può
+   allentare; se dice 422, resta com'è. ⚠️ Lo status «in correzione» di C8
+   (`pipeline/correction.ts`, `setStatus`) manda ancora `url` sempre: da
+   allineare alla stessa funzione se B14 conferma il 422.
+   **Anche §7a, deciso in C10 e da confermare con B14**: in
+   `BitbucketProvider.submitPrReview` un **409** sul POST del verdetto si
+   tratta come «già in quello stato» — nessun errore, il commento parte
+   comunque, e il metodo restituisce `"already_in_state"` (tipo
+   `SubmitPrReviewOutcome`, `@stubwise/git`: `submitPrReview` ora torna
+   `"submitted" | "already_in_state"` invece di `void`) perché C10 ne scriva
+   la riga di log (il pacchetto non ha un logger). Ogni altro non-2xx resta un
+   errore, e il ripiego sul commento dell'account principale resta com'è.
+   T37/T38/T40: nessun cambio (il permesso è già fail-closed).
 3. **Ciclo**, solo per le PR di Stubwise: branch `stubwise/ticket-N`, N =
    numero del ticket che ospita la review, e una riga `ticket_repositories` di
    quel ticket su quel repo con quel branch. Su una PR scritta da una persona

@@ -1,21 +1,24 @@
 import {
   agentRuns,
+  aiJobs,
   aiProviders,
   comments,
   encrypt,
   gitAccounts,
   instanceSettings,
+  prCorrections,
   prReviewJobs,
   prReviews,
   projects,
   repositories,
+  ticketRepositories,
   tickets,
   type Db,
 } from "@stubwise/db";
 import { startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { GitProvider } from "@stubwise/git";
 import type { NotificationEvent, PublishOpts } from "@stubwise/notifications";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { randomBytes, randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -26,9 +29,11 @@ import {
   type AgentRunner,
   type AgentRunResult,
 } from "../agent/runner.js";
-import type { MirrorManager } from "../git/mirrors.js";
+import type { MirrorManager, MirrorProject } from "../git/mirrors.js";
 import { GRAPHIFY_AGENT_ALLOWED_TOOLS } from "../graph/agent-hint.js";
+import { dropIfNeverStarted } from "./poller.js";
 import {
+  insertWaitingReview,
   runPrReview,
   type PrReviewJobRow,
   type RunPrReviewDeps,
@@ -135,6 +140,20 @@ const REVIEW_JSON = JSON.stringify({
   summary: "- `src/x.ts:3`: bug nella condizione",
 });
 
+/**
+ * Come il poller: riga in attesa al claim, poi la review su quella riga, poi la
+ * pulizia della riga se non è mai partita (`dropIfNeverStarted`).
+ */
+async function runClaimed(deps: RunPrReviewDeps, job: PrReviewJobRow): Promise<string> {
+  const reviewId = await insertWaitingReview(deps.db, job);
+  try {
+    await runPrReview(deps, job, reviewId);
+  } finally {
+    await dropIfNeverStarted(deps.db, reviewId);
+  }
+  return reviewId;
+}
+
 function makeRunResult(overrides: Partial<AgentRunResult> = {}): AgentRunResult {
   return {
     output: REVIEW_JSON,
@@ -155,42 +174,47 @@ function makeRunResult(overrides: Partial<AgentRunResult> = {}): AgentRunResult 
   };
 }
 
-interface Fakes {
-  deps: RunPrReviewDeps;
-  runner: { run: ReturnType<typeof vi.fn> };
-  mirrors: {
-    withWorktreeAtSha: ReturnType<typeof vi.fn>;
-    getPrDiff: ReturnType<typeof vi.fn>;
-  };
-  createPrComment: ReturnType<typeof vi.fn>;
-  getPullRequestState: ReturnType<typeof vi.fn>;
-  /** Notifiche pubblicate: evento + riferimenti. */
-  dispatched: { event: NotificationEvent; opts: PublishOpts }[];
-}
-
-function makeFakes(overrides: Partial<RunPrReviewDeps> = {}): Fakes {
+// Il doppio dei mirror e del provider git è SENZA cast sull'oggetto intero e
+// con TUTTI i metodi del `Pick` di RunPrReviewDeps (terza trappola di
+// CLAUDE.md, «il doppio del client»): un metodo mancante lo dice il
+// compilatore, non un TypeError inghiottito dal best-effort.
+function makeFakes(overrides: Partial<RunPrReviewDeps> = {}) {
+  const withWorktreeAtSha = vi.fn(
+    async (_p: MirrorProject, _sha: string, fn: (dir: string) => Promise<unknown>) =>
+      fn("/tmp/fake-worktree"),
+  );
   const mirrors = {
-    withWorktreeAtSha: vi.fn(
-      async (_p: unknown, _sha: string, fn: (dir: string) => Promise<unknown>) =>
-        fn("/tmp/fake-worktree"),
-    ),
-    getPrDiff: vi.fn(async () => ({ diff: "diff --git a/x b/x\n+1", truncated: false })),
+    withWorktreeAtSha,
+    getPrDiff: vi.fn<MirrorManager["getPrDiff"]>(async () => ({
+      diff: "diff --git a/x b/x\n+1",
+      truncated: false,
+    })),
+    // Lo sha COMPLETO che il mirror risolverebbe da una head abbreviata.
+    resolveCommitSha: vi.fn(async (_p: MirrorProject, sha: string) => sha.padEnd(40, "0")),
   };
-  const runner = { run: vi.fn(async () => makeRunResult()) };
-  const createPrComment = vi.fn(async () => {});
-  const getPullRequestState = vi.fn(async () => "open" as const);
+  const runner = { run: vi.fn<AgentRunner["run"]>(async () => makeRunResult()) };
+  const createPrComment = vi.fn<GitProvider["createPrComment"]>(async () => {});
+  const getPullRequestState = vi.fn<GitProvider["getPullRequestState"]>(async () => "open");
+  const submitPrReview = vi.fn<GitProvider["submitPrReview"]>(async () => "submitted");
+  const setCommitStatus = vi.fn<GitProvider["setCommitStatus"]>(async () => {});
+  /** Notifiche pubblicate: evento + riferimenti. */
   const dispatched: { event: NotificationEvent; opts: PublishOpts }[] = [];
   const deps: RunPrReviewDeps = {
     db: testDb.db,
-    mirrors: mirrors as unknown as Pick<MirrorManager, "withWorktreeAtSha" | "getPrDiff">,
-    runner: runner as unknown as AgentRunner,
+    mirrors: {
+      // Unico `as`: il VALORE di ritorno del metodo generico, non l'oggetto.
+      withWorktreeAtSha: <T,>(p: MirrorProject, sha: string, fn: (dir: string) => Promise<T>) =>
+        withWorktreeAtSha(p, sha, fn) as Promise<T>,
+      getPrDiff: mirrors.getPrDiff,
+      resolveCommitSha: mirrors.resolveCommitSha,
+    },
+    runner,
     encryptionKey: ENCRYPTION_KEY,
     model: "sonnet",
     maxTurns: 30,
     agentTimeoutMs: 60_000,
     publicUrl: "https://stubwise.example.com",
-    getProviderFn: () =>
-      ({ createPrComment, getPullRequestState }) as unknown as GitProvider,
+    getProviderFn: () => ({ createPrComment, getPullRequestState, submitPrReview, setCommitStatus }),
     publish: async (_db, event, opts) => {
       dispatched.push({ event, opts: opts ?? {} });
       return { published: 1, notificationIds: [randomUUID()] };
@@ -201,7 +225,16 @@ function makeFakes(overrides: Partial<RunPrReviewDeps> = {}): Fakes {
     summariesEnabled: false,
     ...overrides,
   };
-  return { deps, runner, mirrors, createPrComment, getPullRequestState, dispatched };
+  return {
+    deps,
+    runner,
+    mirrors,
+    createPrComment,
+    getPullRequestState,
+    submitPrReview,
+    setCommitStatus,
+    dispatched,
+  };
 }
 
 describe("runPrReview", () => {
@@ -211,7 +244,7 @@ describe("runPrReview", () => {
     const fakes = makeFakes();
     const job = makeJob(repositoryId);
 
-    await runPrReview(fakes.deps, job);
+    await runClaimed(fakes.deps, job);
 
     // Ticket di tipo review, numerato dal contatore del progetto.
     const projectTickets = await testDb.db
@@ -302,7 +335,7 @@ describe("runPrReview", () => {
     const fakes = makeFakes();
     const job = makeJob(repositoryId, { sourceBranch: "stubwise/ticket-5" });
 
-    await runPrReview(fakes.deps, job);
+    await runClaimed(fakes.deps, job);
 
     // Nessun ticket nuovo: resta solo quello esistente.
     const projectTickets = await testDb.db
@@ -331,8 +364,9 @@ describe("runPrReview", () => {
     const fakes = makeFakes();
     const job = makeJob(repositoryId);
 
-    await runPrReview(fakes.deps, job);
-    await runPrReview(fakes.deps, job);
+    await runClaimed(fakes.deps, job);
+    // Un push NUOVO: la stessa head sarebbe un doppione, saltato di proposito.
+    await runClaimed(fakes.deps, { ...job, headSha: "b".repeat(40) });
 
     const projectTickets = await testDb.db
       .select()
@@ -368,7 +402,7 @@ describe("runPrReview", () => {
       .mockResolvedValueOnce("open")
       .mockResolvedValueOnce("closed");
 
-    await runPrReview(fakes.deps, makeJob(repositoryId));
+    await runClaimed(fakes.deps, makeJob(repositoryId));
 
     // La riga si chiude completed (storico e costi restano) ma SENZA ticket.
     const reviews = await testDb.db
@@ -400,7 +434,7 @@ describe("runPrReview", () => {
     const fakes = makeFakes();
     fakes.getPullRequestState.mockResolvedValue("closed");
 
-    await runPrReview(fakes.deps, makeJob(repositoryId));
+    await runClaimed(fakes.deps, makeJob(repositoryId));
 
     const reviews = await testDb.db
       .select()
@@ -415,7 +449,7 @@ describe("runPrReview", () => {
     // prReviewEnabled resta false (default post-afterEach).
     const fakes = makeFakes();
 
-    await runPrReview(fakes.deps, makeJob(repositoryId));
+    await runClaimed(fakes.deps, makeJob(repositoryId));
 
     const reviews = await testDb.db
       .select()
@@ -432,7 +466,7 @@ describe("runPrReview", () => {
     const fakes = makeFakes();
     fakes.runner.run.mockResolvedValue(makeRunResult({ output: "nessun JSON qui" }));
 
-    await runPrReview(fakes.deps, makeJob(repositoryId));
+    await runClaimed(fakes.deps, makeJob(repositoryId));
 
     const reviews = await testDb.db
       .select()
@@ -465,7 +499,7 @@ describe("runPrReview", () => {
     await enableReview(testDb.db, { monthlyBudgetUsd: "50" });
     const fakes = makeFakes({ monthlyCostUsdFn: async () => 100 });
 
-    await runPrReview(fakes.deps, makeJob(repositoryId));
+    await runClaimed(fakes.deps, makeJob(repositoryId));
 
     const reviews = await testDb.db
       .select()
@@ -482,7 +516,7 @@ describe("runPrReview", () => {
     await enableReview(testDb.db, { maxCostUsd: "0.01" });
     const fakes = makeFakes(); // usage costUsd 0.5 > cap 0.01
 
-    await runPrReview(fakes.deps, makeJob(repositoryId));
+    await runClaimed(fakes.deps, makeJob(repositoryId));
 
     const reviews = await testDb.db
       .select()
@@ -512,7 +546,7 @@ describe("runPrReview", () => {
         makeRunResult({ output: "La PR sistema il login. La review chiede una correzione." }),
       );
 
-    await runPrReview(fakes.deps, makeJob(repositoryId));
+    await runClaimed(fakes.deps, makeJob(repositoryId));
 
     expect(fakes.runner.run).toHaveBeenCalledTimes(2);
     const summaryCall = fakes.runner.run.mock.calls[1]![0] as { prompt: string; model?: string };
@@ -546,7 +580,7 @@ describe("runPrReview", () => {
       .mockImplementationOnce(async () => makeRunResult())
       .mockImplementationOnce(async () => makeRunResult({ output: "parziale", exitCode: 1 }));
 
-    await runPrReview(fakes.deps, makeJob(repositoryId));
+    await runClaimed(fakes.deps, makeJob(repositoryId));
 
     const [review] = await testDb.db
       .select()
@@ -562,7 +596,7 @@ describe("runPrReview", () => {
     await enableReview(testDb.db, { maxCostUsd: "0.01" });
     const fakes = makeFakes({ summariesEnabled: true }); // usage 0.5 > cap 0.01
 
-    await runPrReview(fakes.deps, makeJob(repositoryId));
+    await runClaimed(fakes.deps, makeJob(repositoryId));
 
     // Un solo run: quello della review, poi scartato. Non si paga un riassunto
     // di un risultato che nessuno vedrà.
@@ -581,7 +615,7 @@ describe("runPrReview", () => {
     const fakes = makeFakes();
     fakes.createPrComment.mockRejectedValue(new Error("403 dal provider"));
 
-    await runPrReview(fakes.deps, makeJob(repositoryId));
+    await runClaimed(fakes.deps, makeJob(repositoryId));
 
     const reviews = await testDb.db
       .select()
@@ -608,7 +642,7 @@ describe("runPrReview", () => {
     const fakes = makeFakes();
     fakes.runner.run.mockRejectedValue(new AgentTimeoutError(1000, "output parziale"));
 
-    await runPrReview(fakes.deps, makeJob(repositoryId));
+    await runClaimed(fakes.deps, makeJob(repositoryId));
 
     const reviews = await testDb.db
       .select()
@@ -630,7 +664,7 @@ describe("runPrReview", () => {
     const job = makeJob(repositoryId);
 
     const before = Date.now();
-    await runPrReview(fakes.deps, job);
+    await runClaimed(fakes.deps, job);
     const after = Date.now();
 
     // Riga failed con errore esplicito che segnala il riaccodo.
@@ -695,7 +729,7 @@ describe("runPrReview", () => {
     });
 
     const before = Date.now();
-    await runPrReview(fakes.deps, job);
+    await runClaimed(fakes.deps, job);
     const after = Date.now();
 
     // Un solo job per (repo, PR): i metadati del webhook restano intatti,
@@ -722,7 +756,7 @@ describe("runPrReview", () => {
     // fallito non va MAI pubblicato.
     fakes.runner.run.mockResolvedValue(makeRunResult({ output: REVIEW_JSON, exitCode: 1 }));
 
-    await runPrReview(fakes.deps, makeJob(repositoryId));
+    await runClaimed(fakes.deps, makeJob(repositoryId));
 
     const reviews = await testDb.db
       .select()
@@ -772,7 +806,7 @@ describe("runPrReview", () => {
       .where(eq(projects.id, projectId));
     const fakes = makeFakes({ loadProviderByIdFn: async () => null });
 
-    await runPrReview(fakes.deps, makeJob(repositoryId));
+    await runClaimed(fakes.deps, makeJob(repositoryId));
 
     const reviews = await testDb.db
       .select()
@@ -784,6 +818,201 @@ describe("runPrReview", () => {
     expect(fakes.runner.run).not.toHaveBeenCalled();
     expect(fakes.createPrComment).not.toHaveBeenCalled();
     expect(fakes.dispatched).toHaveLength(0);
+  });
+
+  it("stessa head già revisionata (webhook arrivato dopo il claim): niente run, niente riga", async () => {
+    const { repositoryId } = await createRepository(testDb.db);
+    await enableReview(testDb.db);
+    const fakes = makeFakes();
+    // La review accodata dal worker, sha completo.
+    await runClaimed(fakes.deps, makeJob(repositoryId, { headSha: "c".repeat(40) }));
+    // Il webhook Bitbucket della stessa head, abbreviata.
+    await runClaimed(fakes.deps, makeJob(repositoryId, { headSha: "c".repeat(12) }));
+
+    expect(fakes.runner.run).toHaveBeenCalledTimes(1);
+    const reviews = await testDb.db.select().from(prReviews).where(eq(prReviews.repositoryId, repositoryId));
+    expect(reviews).toHaveLength(1);
+  });
+
+  it("status di commit: in corso all'avvio, poi l'esito del verdetto, sullo sha completo", async () => {
+    const { repositoryId } = await createRepository(testDb.db);
+    await enableReview(testDb.db);
+    const fakes = makeFakes();
+
+    await runClaimed(fakes.deps, makeJob(repositoryId, { headSha: "d".repeat(12) }));
+
+    const states = fakes.setCommitStatus.mock.calls.map((c) => c[2].state);
+    expect(states).toEqual(["pending", "failure"]);
+    // Lo sha passato alle API è quello COMPLETO risolto dal mirror.
+    expect(fakes.mirrors.resolveCommitSha).toHaveBeenCalledWith(expect.anything(), "d".repeat(12));
+    expect(fakes.setCommitStatus.mock.calls.map((c) => c[1])).toEqual([
+      "d".repeat(12).padEnd(40, "0"),
+      "d".repeat(12).padEnd(40, "0"),
+    ]);
+    expect(fakes.setCommitStatus.mock.calls[0]![2]).toMatchObject({ key: "stubwise-review", refname: "feature/login" });
+  });
+
+  it("riusa la riga del claim: nessuna riga nuova, started_at scritto alla partenza", async () => {
+    const { repositoryId } = await createRepository(testDb.db);
+    await enableReview(testDb.db);
+    const fakes = makeFakes();
+    const job = makeJob(repositoryId);
+    const reviewId = await insertWaitingReview(testDb.db, job);
+    const [waiting] = await testDb.db.select().from(prReviews).where(eq(prReviews.id, reviewId));
+    expect(waiting).toMatchObject({ status: "running", startedAt: null, sourceBranch: job.sourceBranch });
+
+    await runPrReview(fakes.deps, job, reviewId);
+
+    const rows = await testDb.db.select().from(prReviews).where(eq(prReviews.repositoryId, repositoryId));
+    expect(rows.map((r) => r.id)).toEqual([reviewId]);
+    expect(rows[0]!.status).toBe("completed");
+    expect(rows[0]!.startedAt).not.toBeNull();
+  });
+
+  it("partenza: last_activity_at rinnovato (una review rimasta in attesa a lungo non sembra stantia)", async () => {
+    const { repositoryId } = await createRepository(testDb.db);
+    await enableReview(testDb.db);
+    const fakes = makeFakes();
+    const job = makeJob(repositoryId);
+    const reviewId = await insertWaitingReview(testDb.db, job);
+    // In attesa da 3 ore: il suo last_activity_at è quello del claim.
+    await testDb.db
+      .update(prReviews)
+      .set({ lastActivityAt: new Date(Date.now() - 180 * 60_000) })
+      .where(eq(prReviews.id, reviewId));
+    let seenAtRun: Date | null = null;
+    fakes.runner.run.mockImplementationOnce(async () => {
+      const [row] = await testDb.db.select().from(prReviews).where(eq(prReviews.id, reviewId));
+      seenAtRun = row!.lastActivityAt;
+      return makeRunResult();
+    });
+
+    await runPrReview(fakes.deps, job, reviewId);
+
+    expect(seenAtRun).not.toBeNull();
+    expect(Date.now() - seenAtRun!.getTime()).toBeLessThan(60_000);
+  });
+
+  it("gate del budget: la riga in attesa diventa failed SENZA essere mai partita", async () => {
+    const { repositoryId } = await createRepository(testDb.db);
+    await enableReview(testDb.db, { monthlyBudgetUsd: "1" });
+    const fakes = makeFakes({ monthlyCostUsdFn: async () => 5 });
+    const reviewId = await runClaimed(fakes.deps, makeJob(repositoryId));
+
+    const [row] = await testDb.db.select().from(prReviews).where(eq(prReviews.id, reviewId));
+    expect(row).toMatchObject({ status: "failed", startedAt: null });
+    expect(row!.error).toMatch(/budget/);
+    expect(fakes.runner.run).not.toHaveBeenCalled();
+  });
+
+  it("la guardia anti-doppione non trova la PROPRIA riga in attesa", async () => {
+    // Senza `ne(prReviews.id, reviewId)` la review vedrebbe sé stessa
+    // (running, stessa head) e si salterebbe: nessun run, mai.
+    const { repositoryId } = await createRepository(testDb.db);
+    await enableReview(testDb.db);
+    const fakes = makeFakes();
+
+    await runClaimed(fakes.deps, makeJob(repositoryId));
+
+    expect(fakes.runner.run).toHaveBeenCalled();
+  });
+});
+
+// Emendamento E2: una review che NON arriva a un verdetto (fallita) è comunque
+// un punto di promozione della richiesta umana in fila su QUESTA PR — mai di
+// una correzione automatica.
+describe("runPrReview — review fallita e richiesta in attesa (E2)", () => {
+  /** Ticket #5 con la PR 7 di Stubwise collegata, e opzionalmente una pending. */
+  async function stubwisePr(withPending: boolean) {
+    const { projectId, repositoryId } = await createRepository(testDb.db);
+    const [ticket] = await testDb.db
+      .insert(tickets)
+      .values({ projectId, number: 5, title: "Bug", type: "bug", priority: "high", source: "manual" })
+      .returning();
+    await testDb.db.insert(ticketRepositories).values({
+      ticketId: ticket!.id,
+      repositoryId,
+      branch: "stubwise/ticket-5",
+      prUrl: "https://example.com/owner/repo/pull/7",
+      prState: "open",
+      prNumber: 7,
+    });
+    const [pending] = withPending
+      ? await testDb.db
+          .insert(prCorrections)
+          .values({ ticketId: ticket!.id, repositoryId, prNumber: 7, trigger: "stubwise", status: "pending" })
+          .returning()
+      : [];
+    return { repositoryId, ticketId: ticket!.id, pendingId: pending?.id ?? null };
+  }
+
+  it("review fallita con una pending sulla PR: la pending diventa queued col suo job", async () => {
+    const pr = await stubwisePr(true);
+    await enableReview(testDb.db);
+    const fakes = makeFakes();
+    fakes.runner.run.mockResolvedValue(makeRunResult({ output: "nessun JSON qui" }));
+
+    await runClaimed(fakes.deps, makeJob(pr.repositoryId, { sourceBranch: "stubwise/ticket-5" }));
+
+    const [review] = await testDb.db.select().from(prReviews).where(eq(prReviews.repositoryId, pr.repositoryId));
+    expect(review!.status).toBe("failed");
+    const [correction] = await testDb.db.select().from(prCorrections).where(eq(prCorrections.id, pr.pendingId!));
+    expect(correction!.status).toBe("queued");
+    const jobs = await testDb.db.select().from(aiJobs).where(eq(aiJobs.correctionId, pr.pendingId!));
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.status).toBe("queued");
+  });
+
+  it("review fallita al gate del budget (mai partita): la pending parte comunque", async () => {
+    const pr = await stubwisePr(true);
+    await enableReview(testDb.db, { monthlyBudgetUsd: "1" });
+    const fakes = makeFakes({ monthlyCostUsdFn: async () => 5 });
+
+    await runClaimed(fakes.deps, makeJob(pr.repositoryId, { sourceBranch: "stubwise/ticket-5" }));
+
+    const [correction] = await testDb.db.select().from(prCorrections).where(eq(prCorrections.id, pr.pendingId!));
+    expect(correction!.status).toBe("queued");
+  });
+
+  it("review fallita SENZA pending: nessuna correzione creata (mai un giro automatico)", async () => {
+    const pr = await stubwisePr(false);
+    await enableReview(testDb.db);
+    const fakes = makeFakes();
+    fakes.runner.run.mockResolvedValue(makeRunResult({ output: "API error", exitCode: 1 }));
+
+    await runClaimed(fakes.deps, makeJob(pr.repositoryId, { sourceBranch: "stubwise/ticket-5" }));
+
+    expect(await testDb.db.select().from(prCorrections).where(eq(prCorrections.repositoryId, pr.repositoryId))).toHaveLength(0);
+    expect(await testDb.db.select().from(aiJobs).where(eq(aiJobs.ticketId, pr.ticketId))).toHaveLength(0);
+  });
+
+  it("limite del provider (review riaccodata): la pending NON parte, ripartirà con la review", async () => {
+    const pr = await stubwisePr(true);
+    await enableReview(testDb.db);
+    const fakes = makeFakes();
+    fakes.runner.run.mockResolvedValue(makeRunResult({ output: "API error: rate limit reached", exitCode: 1 }));
+
+    await runClaimed(fakes.deps, makeJob(pr.repositoryId, { sourceBranch: "stubwise/ticket-5" }));
+
+    const [correction] = await testDb.db.select().from(prCorrections).where(eq(prCorrections.id, pr.pendingId!));
+    expect(correction!.status).toBe("pending");
+    expect(await testDb.db.select().from(prReviewJobs).where(eq(prReviewJobs.repositoryId, pr.repositoryId))).toHaveLength(1);
+  });
+
+  it("branch che non è di Stubwise: nessuna promozione", async () => {
+    const pr = await stubwisePr(true);
+    await enableReview(testDb.db);
+    const fakes = makeFakes();
+    fakes.runner.run.mockResolvedValue(makeRunResult({ output: "nessun JSON qui" }));
+
+    // Stessa PR 7, ma il job arriva da un branch scritto da una persona.
+    await runClaimed(fakes.deps, makeJob(pr.repositoryId, { sourceBranch: "feature/login" }));
+
+    const [correction] = await testDb.db
+      .select()
+      .from(prCorrections)
+      .where(and(eq(prCorrections.repositoryId, pr.repositoryId), eq(prCorrections.prNumber, 7)));
+    expect(correction!.status).toBe("pending");
   });
 });
 
@@ -851,7 +1080,7 @@ describe("runPrReview — grafo del codice (fase 2d graphify)", () => {
     const fakes = makeFakes({ graphsDir });
     fakes.mirrors.getPrDiff.mockResolvedValue({ diff: DIFF, truncated: false });
 
-    await runPrReview(fakes.deps, makeJob(repositoryId));
+    await runClaimed(fakes.deps, makeJob(repositoryId));
 
     // Prompt: blocco CODE GRAPH col path del volume + impatto deterministico.
     const runArgs = fakes.runner.run.mock.calls[0]![0] as {
@@ -899,7 +1128,7 @@ describe("runPrReview — grafo del codice (fase 2d graphify)", () => {
       truncated: false,
     });
 
-    await runPrReview(fakes.deps, makeJob(repositoryId));
+    await runClaimed(fakes.deps, makeJob(repositoryId));
 
     const runArgs = fakes.runner.run.mock.calls[0]![0] as { prompt: string };
     expect(runArgs.prompt).toContain("CODE GRAPH:"); // il grafo c'è comunque
@@ -915,7 +1144,7 @@ describe("runPrReview — grafo del codice (fase 2d graphify)", () => {
     const fakes = makeFakes({ graphsDir });
     fakes.mirrors.getPrDiff.mockResolvedValue({ diff: DIFF, truncated: false });
 
-    await runPrReview(fakes.deps, makeJob(repositoryId));
+    await runClaimed(fakes.deps, makeJob(repositoryId));
 
     const [review] = await testDb.db.select().from(prReviews);
     expect(review!.status).toBe("completed");
@@ -939,7 +1168,7 @@ describe("runPrReview — grafo del codice (fase 2d graphify)", () => {
     // graphsDir cablata ma NESSUN graph.json per questo repository.
     const withDir = makeFakes({ graphsDir });
     withDir.mirrors.getPrDiff.mockResolvedValue({ diff: DIFF, truncated: false });
-    await runPrReview(withDir.deps, makeJob(repositoryId));
+    await runClaimed(withDir.deps, makeJob(repositoryId));
 
     const withDirArgs = withDir.runner.run.mock.calls[0]![0] as {
       prompt: string;
@@ -956,7 +1185,7 @@ describe("runPrReview — grafo del codice (fase 2d graphify)", () => {
     const { repositoryId: otherRepo } = await createRepository(testDb.db);
     const withoutDir = makeFakes();
     withoutDir.mirrors.getPrDiff.mockResolvedValue({ diff: DIFF, truncated: false });
-    await runPrReview(withoutDir.deps, makeJob(otherRepo));
+    await runClaimed(withoutDir.deps, makeJob(otherRepo));
 
     const withoutDirArgs = withoutDir.runner.run.mock.calls[0]![0] as {
       prompt: string;
