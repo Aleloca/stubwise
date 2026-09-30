@@ -3,12 +3,15 @@ import {
   ensureListResponse,
   ensureCommitStatusResponse,
   ensureOkResponse,
+  ensureOkResponseWithHint,
   fetchWithTimeout,
   getHeader,
   GitProviderError,
   assertPageOnApiHost,
   isFullCommitSha,
   parseRepoUrl,
+  PR_REVIEW_PERMISSION_HINT,
+  withPermissionHint,
   readJsonResponse,
   rollupCheckStatus,
   verifyHmacSignature,
@@ -25,6 +28,7 @@ import {
   type GitProviderOptions,
   type PrActivityEvent,
   type PrComment,
+  type PrReviewVerdict,
   type ProjectGitConfig,
   type PullRequestChecks,
   type PushWebhookEvent,
@@ -396,6 +400,50 @@ export class BitbucketProvider implements GitProvider {
       }
     );
     await ensureCommitStatusResponse(response, "Bitbucket");
+  }
+
+  /**
+   * Verdetto dell'account revisore come stato vero della PR (design §8).
+   * Bitbucket non ha un testo per il verdetto: prima il commento (se il
+   * corpo non è vuoto), poi lo stato — se il commento fallisce lo stato non
+   * si tocca. Un partecipante ha UNO stato (approved | changes_requested),
+   * quindi prima si ritira l'opposto con un DELETE best-effort (la risposta
+   * non si guarda: il caso "niente da ritirare" non è documentato), poi il
+   * POST decide. L'autore della PR può approvarla ma la sua approvazione non
+   * conta per i merge check: per questo serve un account revisore distinto.
+   * Su 401/403 (commento o stato) il messaggio nomina il permesso mancante
+   * ({@link PR_REVIEW_PERMISSION_HINT}).
+   */
+  async submitPrReview(
+    p: ProjectGitConfig,
+    prNumber: number,
+    verdict: PrReviewVerdict,
+    body: string,
+    opts: { fetchImpl?: FetchLike } = {}
+  ): Promise<void> {
+    const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
+    const { owner, repo } = parseRepoUrl(p.repoUrl);
+    const auth = this.projectRestAuthHeader(p);
+    const prBase = `${API_BASE}/repositories/${owner}/${repo}/pullrequests/${prNumber}`;
+    if (body.trim().length > 0) {
+      try {
+        await this.createPrComment(p, prNumber, body, { fetchImpl });
+      } catch (error) {
+        throw withPermissionHint(error, PR_REVIEW_PERMISSION_HINT);
+      }
+    }
+    // `as const`: senza, l'array è string[] e con noUncheckedIndexedAccess la
+    // destrutturazione darebbe string | undefined.
+    const [withdraw, submit] =
+      verdict === "approve"
+        ? (["request-changes", "approve"] as const)
+        : (["approve", "request-changes"] as const);
+    await fetchImpl(`${prBase}/${withdraw}`, { method: "DELETE", headers: { Authorization: auth } });
+    const response = await fetchImpl(`${prBase}/${submit}`, {
+      method: "POST",
+      headers: { Authorization: auth },
+    });
+    await ensureOkResponseWithHint(response, "Bitbucket", PR_REVIEW_PERMISSION_HINT);
   }
 
   parseWebhook(headers: Record<string, string>, body: unknown): WebhookEvent | null {

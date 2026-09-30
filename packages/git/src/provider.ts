@@ -621,6 +621,41 @@ export async function ensureOkResponse(response: Response, provider: string): Pr
 export const COMMIT_STATUS_PERMISSION_HINT =
   "il token deve poter scrivere gli status di commit (GitHub: Commit statuses write; Bitbucket: repository write)";
 
+/** Cosa manca al token quando la pubblicazione del verdetto di una review
+ * (approvare / chiedere modifiche, e il commento che lo accompagna) riceve
+ * 401/403. Senza segreti: nomina i permessi, mai il token. */
+export const PR_REVIEW_PERMISSION_HINT =
+  "il token deve poter revisionare le pull request (GitHub: Pull requests write; Bitbucket: pullrequest write)";
+
+/**
+ * Se `error` è un {@link GitProviderError} 401/403, ne restituisce una copia
+ * col messaggio che nomina il permesso mancante (`hint`); altrimenti
+ * restituisce `error` invariato. Lo status HTTP resta quello vero.
+ */
+export function withPermissionHint(error: unknown, hint: string): unknown {
+  if (error instanceof GitProviderError && (error.status === 401 || error.status === 403)) {
+    return new GitProviderError(`${error.message} — ${hint}`, error.status, error.responseText);
+  }
+  return error;
+}
+
+/**
+ * Come {@link ensureOkResponse}, ma su 401/403 il messaggio dice quale
+ * permesso manca (`hint`): un "403" nudo nel log non spiega che cosa va
+ * aggiunto al token.
+ */
+export async function ensureOkResponseWithHint(
+  response: Response,
+  provider: string,
+  hint: string
+): Promise<void> {
+  try {
+    await ensureOkResponse(response, provider);
+  } catch (error) {
+    throw withPermissionHint(error, hint);
+  }
+}
+
 /**
  * Come {@link ensureOkResponse}, ma su 401/403 il messaggio dice quale
  * permesso manca ({@link COMMIT_STATUS_PERMISSION_HINT}): lo status di commit
@@ -628,18 +663,7 @@ export const COMMIT_STATUS_PERMISSION_HINT =
  * e un "403" nudo nel log non lo spiega. Lo status HTTP resta quello vero.
  */
 export async function ensureCommitStatusResponse(response: Response, provider: string): Promise<void> {
-  try {
-    await ensureOkResponse(response, provider);
-  } catch (error) {
-    if (error instanceof GitProviderError && (error.status === 401 || error.status === 403)) {
-      throw new GitProviderError(
-        `${error.message} — ${COMMIT_STATUS_PERMISSION_HINT}`,
-        error.status,
-        error.responseText
-      );
-    }
-    throw error;
-  }
+  await ensureOkResponseWithHint(response, provider, COMMIT_STATUS_PERMISSION_HINT);
 }
 
 /**
