@@ -182,27 +182,73 @@ il payload webhook `generic` di `review.completed` porta sempre `cycle` (`null` 
 `src/pr-correction-cycle.ts` (condiviso server+worker, `DbOrTx` = db o transazione):
 
 - `autoRoundsInCurrentSeries(db, { repositoryId, prNumber }): Promise<number>` —
-  correzioni `trigger='review'` (status ≠ cancelled) create dopo l'ultima
-  correzione umana (`stubwise`/`provider`, status ≠ cancelled, `pending` compresa).
+  correzioni `trigger='review'` (status ≠ cancelled, **`pending` compresa**: un giro
+  automatico in fila è già un giro) create dopo l'ultima correzione umana
+  (`stubwise`/`provider`, status ≠ cancelled, `pending` compresa). Una `pending`
+  `review` conta ma NON azzera: solo una persona azzera.
+- **Job che blocca** («job vivo», `jobBlocksCorrection()`/`hasJobInFlight`, l'UNICA
+  definizione): un job del ticket in `IN_FLIGHT_JOB_STATUSES` **oppure** in `held`,
+  di QUALUNQUE tipo. Regola: UN LAVORO PER TICKET, qualunque sia la PR — una
+  correzione `held` sulla PR A blocca anche la PR B (seconda revisione di A7:
+  prima una correzione `held` restava fuori, e la rete di sicurezza avrebbe
+  fatto partire una seconda correzione sullo stesso ticket).
 - `enqueueCorrection(db, input: EnqueueCorrectionInput): Promise<EnqueueCorrectionResult>`
   - input `{ ticketId, repositoryId, prNumber, trigger, requestedByUserId?, requestedByProviderLogin?, reviewId?, note?, providerFeedback? }`;
     `reviewId` assente = l'ultima review `completed` della PR (i chiamanti NON la ricalcolano).
   - ritorno `{ ok: true; correctionId; status: "queued" | "pending"; jobId: string | null } | { ok: false; error: "correction_in_flight" | "job_in_flight" }`.
-  - sotto il lock advisory `hashtext(ticketId)` di `startRun`. `stubwise`/`review`:
-    rifiuto se c'è una `queued` o un job vivo sul ticket; `provider`: `pending`
-    (nuova o fusa). Una `pending` libera parte al posto di qualunque richiesta nuova.
+  - sotto il lock advisory `hashtext(ticketId)` di `startRun`. `stubwise`: rifiuto
+    se c'è una `queued` sulla PR o un job che blocca sul ticket; `provider`:
+    `pending` (nuova o fusa). `review`: `correction_in_flight` se c'è una `queued`
+    sulla STESSA PR; se invece a bloccare è un job del ticket (un altro lavoro) →
+    `{ ok: true, status: "pending", jobId: null }` — una pending NUOVA con
+    `trigger='review'`, il `reviewId` e `requestedBy*` null, oppure, se sulla PR
+    c'era già una pending (umana o automatica), l'id di QUELLA, invariata
+    (niente creato, niente fuso). Una `pending` libera parte al posto di
+    qualunque richiesta nuova; un click fuso in una pending `review` (senza
+    `providerFeedback`) ne prende il trigger `stubwise`.
   - il job nasce `queued`, `correctionId`, `manualTrigger = trigger !== 'review'`,
     `planApprovalRequired: false`.
 - `completeCorrection(db, correctionId): Promise<boolean>` — POSIZIONALE,
   `queued → done`. Il worker la chiama **nella stessa transazione** di
   `completeJob`/`failJob`, e solo se quelle hanno restituito `true`.
 - `promotePendingCorrection(db, { repositoryId, prNumber }): Promise<string | null>` —
-  pending → queued + ai_job; null se non c'è pending (o se una `queued` è ancora lì).
-  **Punti di promozione**: fine di QUALUNQUE review (approve o request_changes),
-  fine di qualunque fix (aperto: C7; `failed`/`skipped`: handler C9) e di qualunque
-  correzione chiusa (C8).
+  pending → queued + ai_job; null se non c'è pending, se una `queued` è ancora lì
+  o se un job blocca il ticket (`hasJobInFlight`). Stesso lock advisory di
+  `enqueueCorrection`, che dentro una transazione esterna dura fino al suo
+  COMMIT. **Mai chiamarla nella transazione in cui il job del chiamante non è
+  ancora terminale**: `hasJobInFlight` vedrebbe quel job e la pending non
+  partirebbe (un null, nessun errore).
+- `promotePendingForTicket(db, ticketId): Promise<string[]>` — `promotePendingCorrection`
+  su OGNI PR del ticket che ha una `pending`; ritorna gli id promossi (al più
+  uno parte davvero: il suo job `queued` blocca le altre). Esiste perché il job
+  vivo blocca per TICKET mentre la pending è per PR: promuovere solo la PR del
+  lavoro appena finito lascerebbe ferma per sempre la pending di un'altra PR
+  dello stesso ticket.
+- `promoteStalePendings(db, opts?: { onError?(pendingId, pr, error) }): Promise<string[]>` —
+  RETE DI SICUREZZA: promuove le `pending` dei ticket su cui nessun job blocca
+  (`jobBlocksCorrection`, non ricopiata). Best-effort PER RIGA: un errore va a
+  `onError` (default `console.warn`) e non ferma le altre; ritorna gli id
+  promossi, uno per riga di log del chiamante.
+- `prHasOpenCorrection(db, { repositoryId, prNumber }): Promise<boolean>` — la PR
+  ha una `pending` o una `queued`: la domanda che fix e correzione si fanno per
+  ogni loro PR DOPO `promotePendingForTicket`, per decidere se accodare la
+  review (con una correzione aperta no: arriverà dopo il suo push).
+- **Punti di promozione.** Per QUALUNQUE verdetto di una review (approve,
+  request_changes, e anche una review fallita: emendamento E2) si promuove la
+  pending di QUESTA PR (`promotePendingCorrection`); quelle di altre PR del
+  ticket partono dopo il giro automatico o dal tick. Fine di un lavoro sul
+  ticket → `promotePendingForTicket`: fine di qualunque fix (aperto: C7;
+  `failed`/`skipped`: handler C9), di qualunque correzione chiusa (C8), e dopo
+  `cancelOpenCorrections` nel webhook di chiusura (D3, con `instance.db`, FUORI
+  da ogni transazione del webhook). Infine `promoteStalePendings` nel tick
+  periodico del worker (C9, accanto a `requeueStale`) raccoglie tutto il resto.
+- `cancelPendingCorrection(db, { repositoryId, prNumber }): Promise<string | null>` —
+  `pending → cancelled` sulla PR, sotto il lock del ticket; per una PR che non
+  si può più correggere pur essendo aperta (branch sparito, C8), altrimenti il
+  tick la ripromuoverebbe all'infinito.
 - `cancelOpenCorrections(db, { repositoryId, prNumber }): Promise<number>` —
-  pending/queued → cancelled, e i loro ai_jobs ancora `queued` **o `held`** → `skipped`.
+  pending/queued → cancelled, e i loro ai_jobs ancora `queued` **o `held`** → `skipped`,
+  con una riga nel log del job (`[correction] PR chiusa: correzione annullata`).
 - `derivePrCycle(db, { ticketId, repositoryId }): Promise<PrCycle | null>` — null
   se la PR non è di Stubwise (`stubwiseTicketNumber(branch) !== ticket.number`) o non c'è.
 - `resolvePrCycleState(facts: PrCycleFacts): PrCycleState` — la tabella di verità, pura.
@@ -243,10 +289,13 @@ key `stubwise-review` (D10).
   (tipo `DbOrTx` esportato dal file), stesso comportamento di oggi.
 - `apps/worker/src/git/mirrors.ts`: `withProjectWorktrees(repos, branchName, fn, { fromExistingBranch?: boolean })`
   — worktree sulla head di `refs/heads/<branch>` del mirror.
-- `apps/worker/src/pipeline/correction.ts`: `runCorrection(deps, job): Promise<CorrectionOutcome>`
-  e `promotePendingForTicket(db, ticketId)`. Chiusura ATOMICA: esito del job +
-  `completeCorrection` in una transazione; promozione/review/notifiche SOLO se la
-  chiusura è avvenuta. Se la correzione porta commenti del provider
+- `apps/worker/src/pipeline/correction.ts`: `runCorrection(deps, job): Promise<CorrectionOutcome>`.
+  Chiusura ATOMICA: esito del job + `completeCorrection` in una transazione;
+  promozione/review/notifiche SOLO se la chiusura è avvenuta E la correzione è
+  passata a `done` (`completeCorrection` → `false` = annullata dalla chiusura
+  della PR: niente review, niente promozione, una riga di log). Prima del push
+  rilegge `pr_corrections.status`: se non è più `queued` → `PrNoLongerOpenError`,
+  job `skipped`. Se la correzione porta commenti del provider
   (`providerFeedback !== null`, NON `trigger='provider'`: un click fuso in una
   `pending` provider tiene comunque il trigger, ma la regola guarda il dato)
   rifà la fotografia all'avvio (`listPrComments` + helper di A8b) e la
@@ -254,14 +303,18 @@ key `stubwise-review` (D10).
 - `apps/worker/src/pipeline/prompts.ts`: `buildCorrectionPrompt(input, lang)`.
 - `apps/worker/src/handler.ts`: `job.correctionId != null` → `markFixing` + `runCorrection`
   (niente triage, niente `resolveFixMode`); dopo un job non di correzione chiuso
-  `failed`/`skipped` → `promotePendingForTicket`.
+  `failed`/`skipped` → `promotePendingForTicket` (import da `@stubwise/notifications`).
+- `apps/worker/src/queue.ts`: `runWorker` chiama `promoteStalePendings` sulla
+  cadenza di `requeueStale` (C9), una riga di log per ogni promozione.
 - `apps/worker/src/review/enqueue.ts`: `enqueuePrReviewNow(db, input): Promise<boolean>` —
   upsert su `pr_review_jobs` con `notBefore = now()` del DB; usato dal fix dopo
   l'apertura PR e dalla correzione dopo il push.
 - `apps/worker/src/review/cycle.ts`: `afterReviewCompleted(deps, input)` — pubblica
   (revisore: `submitPrReview`; altrimenti commento), status di commit, ciclo:
-  promuove una `pending` su QUALUNQUE verdetto, poi correzione automatica / stop al
-  tetto / approvata.
+  per QUALUNQUE verdetto promuove la pending di QUESTA PR
+  (`promotePendingCorrection`) — quelle di altre PR del ticket partono dopo il
+  giro automatico o dal tick —, poi correzione automatica (anche `pending`
+  `review`, se un altro lavoro del ticket la blocca) / stop al tetto / approvata.
 
 ### Server
 
@@ -298,7 +351,7 @@ key `stubwise-review` (D10).
   nota sul ticket (`PrCycleSection`, `CorrectionSheet`, `useRequestCorrection`).
 - **Web e app dicono la stessa frase**: stessi testi (E2), stesso ordine dei
   segmenti (su `correcting` a giro 0 prima chi ha chiesto, poi lo stato; una
-  richiesta in attesa dopo, con «in coda»), `stoppedAtCap` con `count = round` e
+  richiesta in attesa dopo, con «in coda · parte quando finisce il lavoro in corso sul ticket»), `stoppedAtCap` con `count = round` e
   plurale `_one/_other`, piattaforma da `lastRequest.platform` («su Bitbucket»;
   `null`/sconosciuta → «sulla PR»). Testo «approvata»: «Approvata dalla review ·
   pronta per il merge».
@@ -367,9 +420,10 @@ senza nessun evento che la sblocchi.
 - **C10**: in `apps/worker/src/review/run-review.ts`, in OGNI uscita terminale
   che non passa da `afterReviewCompleted` ma che ha già una riga `pr_reviews`
   (i rami che la marcano `failed`, e la chiusura con verdetto nullo), chiamare
-  best-effort `promotePendingCorrection(db, { repositoryId, prNumber })` solo se
-  il branch sorgente combacia con `STUBWISE_BRANCH_RE`; errore → riga di log,
-  mai rilanciato. Il ramo «limite del provider → job riaccodato con cooldown»
+  best-effort `promotePendingCorrection(db, { repositoryId, prNumber })` — la
+  pending di QUESTA PR, come per ogni verdetto (quelle di altre PR del ticket le
+  ripesca il tick di C9) — solo se il branch sorgente combacia con
+  `STUBWISE_BRANCH_RE`; errore → riga di log, mai rilanciato. Il ramo «limite del provider → job riaccodato con cooldown»
   NON promuove: la review ripartirà e la promozione avverrà lì.
 - Test in `cycle.test.ts` / `run-review.test.ts`: review che fallisce con una
   `pending` sulla PR → la pending diventa `queued` con il suo job; senza
@@ -1981,11 +2035,13 @@ git commit -m "feat(notifications): il contatore dei giri automatici del ciclo d
 rilancio del fix sullo stesso ticket si serializzano, e nessuno dei due vede
 uno stato a metà. Sotto il lock legge: la `queued` della PR, la `pending` della
 PR, se il ticket ha un job VIVO (QUALSIASI job, non solo l'ultimo: più severo
-di `startRun`, apposta). «Vivo» = in `IN_FLIGHT_JOB_STATUSES` **oppure** un FIX
-`held` (`status='held'` AND `correction_id IS NULL`): un fix parcheggiato su
-limite/budget/gate riparte da solo e andrebbe in conflitto col branch che la
-correzione ha pushato. Una CORREZIONE `held` resta fuori, perché la sua riga è
-ancora `queued` e decide già `correction_in_flight`. Il predicato è UNO,
+di `startRun`, apposta). «Vivo» = in `IN_FLIGHT_JOB_STATUSES` **oppure** in
+`held`, di QUALUNQUE tipo: un job parcheggiato su limite/budget/gate riparte da
+solo. Un FIX `held` andrebbe in conflitto col branch che la correzione ha
+pushato; una CORREZIONE `held` sulla PR A deve bloccare anche la PR B, perché
+la sua `queued` blocca solo la A e al risveglio ci sarebbero due correzioni in
+volo sullo stesso ticket. (Deciso nella seconda revisione di A7: fino ad allora
+una correzione `held` restava fuori, `correction_id IS NULL`.) Il predicato è UNO,
 esportato e documentato (`jobBlocksCorrection()` / `hasJobInFlight`, deciso in
 revisione di A6): A7 e A8 (`canRequestCorrection`) lo riusano, non lo
 ricopiano.
@@ -1994,7 +2050,7 @@ ricopiano.
 |---|---|---|---|---|
 | `stubwise` (bottone) | ❌ `correction_in_flight` | ❌ `job_in_flight` | fonde nella `pending` e la **promuove** → `queued` + job (se la `pending` porta `providerFeedback` resta `trigger='provider'` col suo login: il click aggiunge solo `note`, `requestedByUserId`, `reviewId`) | nuova `queued` + job |
 | `provider` (Request changes) | `pending` (nuova o fusa; i `providerFeedback` si UNISCONO, dedup per `id`) | `pending` (nuova o fusa, idem) | fonde e promuove → `queued` + job | nuova `queued` + job |
-| `review` (ciclo automatico) | ❌ `correction_in_flight` | ❌ `job_in_flight` | **promuove la `pending` senza fondersi** (vince la richiesta umana, §6): trigger, richiedente, nota e commenti restano i suoi; cambia solo `reviewId`, che diventa l'ultima review completata — voluto: il prompt riceve la review più recente | nuova `queued` + job |
+| `review` (ciclo automatico) | ❌ `correction_in_flight` | `pending` `trigger='review'` NUOVA (`requestedBy*` null) — o, se sulla PR ce n'è già una, l'id di QUELLA invariata (seconda revisione di A7: prima era ❌ `job_in_flight`, e un giro bloccato da un'altra PR del ticket si perdeva) | **promuove la `pending` senza fondersi** (vince la richiesta umana, §6): trigger, richiedente, nota e commenti restano i suoi; cambia solo `reviewId`, che diventa l'ultima review completata — voluto: il prompt riceve la review più recente | nuova `queued` + job |
 
 - Nessuna riga viene scritta nei casi ❌ (asserito sulle righe, non solo sulla risposta).
 - Il job nasce `queued`, `correctionId` valorizzato, `resumeMode`/`planText`
@@ -2438,7 +2494,7 @@ export async function enqueueCorrection(
  * fallimento si legge da `ai_jobs.status`). Il worker la chiama nella STESSA
  * transazione che rende terminale il job (`completeJob`/`failJob` accettano una
  * `tx`), e solo se quella chiusura è riuscita (ownership del job ancora sua);
- * poi, fuori dalla transazione, `promotePendingCorrection`/la review: finché la
+ * poi, fuori dalla transazione, `promotePendingForTicket`/la review: finché la
  * `queued` esiste, nessuna `pending` può partire. `false` = non era più
  * `queued` (es. annullata alla chiusura della PR): niente da fare.
  */
@@ -2659,7 +2715,45 @@ export async function cancelOpenCorrections(db: DbOrTx, pr: PrRef): Promise<numb
 pnpm --filter @stubwise/notifications test -- pr-correction-cycle
 ```
 
-Atteso: PASS (tutti i `describe` finora: 6 + 11 + 4 + 4).
+Atteso: PASS. Col codice committato (aggiunte in revisione sotto) il file ha
+**58 test**.
+
+**Aggiunte in revisione (già nel commit del task).** Il job vivo blocca per
+TICKET mentre la promozione era per PR: su un ticket con PR A e B la pending di
+B poteva restare ferma per sempre. Per questo, oltre a quanto sopra:
+
+- `promotePendingForTicket(db, ticketId)` — `promotePendingCorrection` su ogni
+  PR del ticket con una `pending`; è la funzione che ogni punto di promozione
+  chiama (C7, C8, C9, C10, D3).
+- `promoteStalePendings(db)` — la rete di sicurezza per il tick del worker
+  (C9): le pending dei ticket senza un job che blocca (`jobBlocksCorrection`,
+  non ricopiata), best-effort per riga, ritorna gli id promossi.
+- `prHasOpenCorrection(db, pr)` — la PR ha una `pending`/`queued`: dopo la
+  promozione per ticket, fix e correzione decidono PER PR se accodare la review.
+- `cancelOpenCorrections` scrive `[correction] PR chiusa: correzione annullata`
+  nel log del job portato a `skipped`.
+- Docblock di `promotePendingCorrection`: mai nella transazione in cui il job
+  del chiamante non è ancora terminale; il lock dura fino al COMMIT della
+  transazione esterna.
+- Test in più: una `queued` blocca da sola (senza job); confini fra PR e fra
+  ticket; `manualTrigger` e `reviewId` della promozione; le due funzioni nuove
+  (compresa una riga che fallisce senza fermare le altre, con `onError`).
+
+**Seconda revisione (stesso commit).**
+
+- `jobBlocksCorrection`: `held` di QUALUNQUE tipo blocca (tolta la clausola
+  `correction_id IS NULL`). Un lavoro per ticket: una correzione `held` su A
+  blocca B, o la rete di sicurezza farebbe partire due correzioni sullo stesso
+  ticket. Il test di A6 sulla PR 10/11 ora asserisce `job_in_flight` (click) e
+  `pending` (provider), con un commento sul perché è cambiato.
+- `enqueueCorrection` con `trigger='review'` bloccata da un job su un'altra
+  parte del ticket → `pending` `review` (vedi Contratti); pending già presente
+  → l'id di quella, niente scritto. La pending `review` conta come giro e non
+  azzera la tornata; promossa, il suo job ha `manualTrigger=false`; un click
+  fuso ne prende il trigger `stubwise`.
+- `cancelPendingCorrection(db, pr)`, per C8 (branch sparito).
+- `promoteStalePendings(db, { onError })`: l'errore di una riga arriva al
+  chiamante con l'id della pending (il worker avvisa una volta per id, C9).
 
 **Step 5: commit**
 
@@ -3570,10 +3664,14 @@ git commit -m "feat(notifications): identità degli account git e fotografia del
 export {
   autoRoundsInCurrentSeries,
   cancelOpenCorrections,
+  cancelPendingCorrection,
   completeCorrection,
   derivePrCycle,
   enqueueCorrection,
+  prHasOpenCorrection,
   promotePendingCorrection,
+  promotePendingForTicket,
+  promoteStalePendings,
   resolvePrCycleState,
   type EnqueueCorrectionInput,
   type EnqueueCorrectionResult,
@@ -8055,6 +8153,34 @@ describe("runFix — review accodata subito dopo l'apertura della PR", () => {
     expect(await testDb.db.select().from(prReviewJobs)).toHaveLength(0);
   });
 
+  it("una pending su un'ALTRA PR del ticket parte, e la review di questa PR si accoda", async () => {
+    // Il job vivo blocca per TICKET: la promozione è per ticket
+    // (promotePendingForTicket), la review per PR (prHasOpenCorrection).
+    const fixture = await makeFixture();
+    await testDb.db.update(instanceSettings).set({ prReviewEnabled: true }).where(eq(instanceSettings.id, 1));
+    const ticket = await createTicket(testDb.db, fixture);
+    const job = await createFixingJob(testDb.db, ticket.id);
+    const [altra] = await testDb.db
+      .insert(prCorrections)
+      .values({
+        ticketId: ticket.id,
+        repositoryId: fixture.repositoryId,
+        prNumber: 99,
+        trigger: "provider",
+        status: "pending",
+        requestedByProviderLogin: "mario.rossi",
+      })
+      .returning();
+    const runner = new FakeAgentRunner({ fileChanges: fixChanges(fixture) });
+
+    await runFix(makeDeps(fixture, runner, makeProvider("https://github.com/acme/repo/pull/31"), { twoPhase: false }), job);
+
+    const [after] = await testDb.db.select().from(prCorrections).where(eq(prCorrections.id, altra!.id));
+    expect(after!.status).toBe("queued");
+    const reviews = await testDb.db.select().from(prReviewJobs);
+    expect(reviews.map((r) => r.prNumber)).toEqual([31]);
+  });
+
   it("URL della PR in un formato non riconosciuto: niente review accodata, il fix resta riuscito", async () => {
     const fixture = await makeFixture();
     await testDb.db.update(instanceSettings).set({ prReviewEnabled: true }).where(eq(instanceSettings.id, 1));
@@ -8151,30 +8277,39 @@ e il push in `openedPrs` diventa:
 `job.pr_opened`:
 
 ```ts
-  // DOPO L'APERTURA DELLE PR (ciclo review → correzione), per ogni PR: se durante
-  // il fix è arrivato un "Request changes" dal provider, è stato salvato come
-  // `pending` (non si può rifiutare a chi l'ha premuto) e parte ORA, al posto
-  // della review — è una richiesta umana. Altrimenti la PRIMA REVIEW si accoda
-  // subito, senza aspettare il webhook (vedi enqueuePrReviewNow per
-  // l'idempotenza). Tutto best-effort: il fix è già chiuso.
+  // DOPO L'APERTURA DELLE PR (ciclo review → correzione). Se durante il fix è
+  // arrivato un "Request changes" dal provider, è stato salvato come `pending`
+  // (non si può rifiutare a chi l'ha premuto) e parte ORA, al posto della
+  // review — è una richiesta umana. La promozione è per TICKET
+  // (promotePendingForTicket): il job vivo blocca per ticket, e promuovere solo
+  // le PR appena aperte lascerebbe ferma la pending di un'altra PR del ticket.
+  // Il fix qui è GIÀ terminale: dentro la sua transazione hasJobInFlight lo
+  // vedrebbe e non partirebbe niente. Poi, per ogni PR, la PRIMA REVIEW si
+  // accoda subito (vedi enqueuePrReviewNow per l'idempotenza) — tranne sulle
+  // PR con una correzione aperta, appena promossa o in attesa del suo turno:
+  // la review arriverà dopo il suo push. Tutto best-effort: il fix è chiuso.
+  const promoted = await promotePendingForTicket(db, job.ticketId).catch(async (err: unknown) => {
+    await appendLog(
+      db,
+      job.id,
+      `[fix] promozione delle richieste di correzione in attesa fallita (${err instanceof Error ? err.message : String(err)})`,
+    );
+    return [] as string[];
+  });
+  for (const id of promoted) {
+    await appendLog(db, job.id, `[fix] richiesta di correzione in attesa avviata (${id}) al posto della review`);
+  }
   for (const pr of openedPrs) {
     const prNumber = parsePrNumberFromUrl(pr.prUrl);
     if (prNumber === null) {
       await appendLog(db, job.id, `[fix] '${pr.name}': numero della PR non leggibile da ${pr.prUrl}: review non accodata`);
       continue;
     }
-    const promoted = await promotePendingCorrection(db, { repositoryId: pr.repositoryId, prNumber }).catch(
-      async (err: unknown) => {
-        await appendLog(
-          db,
-          job.id,
-          `[fix] '${pr.name}': promozione della richiesta di correzione in attesa fallita (${err instanceof Error ? err.message : String(err)})`,
-        );
-        return null;
-      },
-    );
-    if (promoted !== null) {
-      await appendLog(db, job.id, `[fix] '${pr.name}': richiesta di correzione in attesa avviata (${promoted}) al posto della review`);
+    // Errore della lettura → si accoda la review: una review in più è innocua
+    // (la correzione che poi pusha la riaccoda sulla head nuova).
+    const hasOpen = await prHasOpenCorrection(db, { repositoryId: pr.repositoryId, prNumber }).catch(() => false);
+    if (hasOpen) {
+      await appendLog(db, job.id, `[fix] '${pr.name}': richiesta di correzione aperta, la review arriverà dopo il suo push`);
       continue;
     }
     await enqueuePrReviewNow(db, {
@@ -8190,13 +8325,14 @@ e il push in `openedPrs` diventa:
   }
 ```
 
-e aggiungi l'import `import { promotePendingCorrection } from "@stubwise/notifications";`.
+e aggiungi l'import `import { prHasOpenCorrection, promotePendingForTicket } from "@stubwise/notifications";`.
 
 Il caso opposto — un fix che FALLISCE con una `pending` in attesa su una PR già
 aperta del ticket — lo copre il handler (C9), che dopo ogni job NON-correzione
-chiuso `failed`/`skipped` promuove le pending delle PR aperte del ticket: gli
-esiti di fallimento del fix sono una dozzina di `return "failed"` e il handler
-è l'unico punto che li vede tutti.
+chiuso `failed`/`skipped` chiama `promotePendingForTicket`: gli esiti di
+fallimento del fix sono una dozzina di `return "failed"` e il handler è l'unico
+punto che li vede tutti. Qualunque punto mancato lo ripesca il tick di C9
+(`promoteStalePendings`).
 
 **Step 4 — verifica.**
 
@@ -8245,14 +8381,35 @@ l'indice unico sulla `queued` della PR) in **UNA transazione**, e
 `completeCorrection` SOLO se il job è stato davvero chiuso (il booleano di
 `completeJob`/`failJob`: `false` = ownership persa, `requeueStale` ha rimesso il
 job in coda e il lavoro è di chi lo riprende). Poi, fuori dalla transazione e
-SOLO se la chiusura è avvenuta: `promotePendingCorrection` e, se non c'era una
-pending, `enqueuePrReviewNow`; notifiche e commenti di esito idem. Così un
+SOLO se la chiusura è avvenuta: `promotePendingForTicket` (per TICKET: il job
+vivo blocca per ticket, e una pending su un'altra PR dello stesso ticket
+aspettava proprio questa correzione) e, se QUESTA PR non ha una correzione
+aperta (`prHasOpenCorrection`), `enqueuePrReviewNow`; notifiche e commenti di
+esito idem. Così un
 crash fra i due passi non può lasciare il job terminale e la correzione
 `queued` (la PR bloccata dall'indice unico senza recupero), e un job ripreso da
 un altro worker non trova la sua correzione già `done` (chiuderebbe `skipped`
 perdendo il lavoro in silenzio). `held` e `limit` lasciano la correzione
 `queued`: il job verrà ripreso. Per la transazione, `completeJob`/`failJob` di
 `apps/worker/src/queue.ts` accettano `Db | Tx` (Step 3a).
+
+**Correzione annullata a metà lavoro (PR chiusa, D3).** `cancelOpenCorrections`
+porta la riga a `cancelled` ma non tocca un job già in `fixing`: è la
+correzione a fermarsi. Due punti, due regole (decise in revisione di A7):
+
+- **Prima del push** si rilegge `pr_corrections.status`, PRIMA della chiamata
+  `getPullRequestState`: se non è più `queued` → `PrNoLongerOpenError`, e il
+  job chiude `skipped` senza pushare. È un controllo sul NOSTRO dato, più
+  affidabile dello stato letto dal provider (che su errore è fail-open).
+- **Se `completeCorrection` ritorna `false` col job chiuso** (l'annullamento è
+  arrivato fra il controllo e la chiusura: il push c'è già stato, ed è un
+  fatto) → niente review, niente promozione, una riga di log. Le pending di
+  quella PR sono già `cancelled`; quelle di un'altra PR del ticket le ripesca
+  il tick (`promoteStalePendings`, C9) entro un minuto.
+- **Branch sparito (`BranchNotFoundError`)**: oltre a chiudere job e
+  correzione, la pending della STESSA PR si annulla (`cancelPendingCorrection`,
+  con una riga di log). Lasciata `pending`, il tick la ripromuoverebbe a ogni
+  giro e ogni giro fallirebbe allo stesso modo.
 
 **Una correzione che non ha pushato niente conta come giro** (design §11):
 `completeCorrection` la porta a `done` come quella riuscita, e
@@ -8730,6 +8887,103 @@ describe("runCorrection", () => {
     expect(await testDb.db.select().from(prReviewJobs)).toHaveLength(0);
   });
 
+  it("una pending su un'ALTRA PR del ticket parte dopo il push, e la review di questa PR si accoda", async () => {
+    const f = await makeFixture();
+    await testDb.db.update(instanceSettings).set({ prReviewEnabled: true }).where(eq(instanceSettings.id, 1));
+    const { job } = await seedCorrection(f, { reviewId: await seedReview(f) });
+    const [altra] = await testDb.db
+      .insert(prCorrections)
+      .values({
+        ticketId: f.ticket.id,
+        repositoryId: f.repositoryId,
+        prNumber: 13,
+        trigger: "provider",
+        status: "pending",
+        requestedByProviderLogin: "mario.rossi",
+      })
+      .returning();
+
+    expect(await runCorrection(makeDeps(f, applyingRunner(f), makeProvider()), job)).toBe("pushed");
+
+    const [after] = await testDb.db.select().from(prCorrections).where(eq(prCorrections.id, altra!.id));
+    expect(after!.status).toBe("queued");
+    expect((await testDb.db.select().from(prReviewJobs)).map((r) => r.prNumber)).toEqual([12]);
+  });
+
+  it("branch della PR sparito: job failed, e la pending della stessa PR si annulla (il tick non la ripromuove)", async () => {
+    const f = await makeFixture();
+    const { job } = await seedCorrection(f);
+    const [pending] = await testDb.db
+      .insert(prCorrections)
+      .values({ ticketId: f.ticket.id, repositoryId: f.repositoryId, prNumber: 12, trigger: "provider", status: "pending" })
+      .returning();
+    // Il branch non c'è più sull'upstream: il fetch del mirror lo pota.
+    await git(["update-ref", "-d", `refs/heads/${BRANCH}`], f.upstreamDir);
+
+    expect(await runCorrection(makeDeps(f, applyingRunner(f), makeProvider()), job)).toBe("failed");
+
+    const [after] = await testDb.db.select().from(prCorrections).where(eq(prCorrections.id, pending!.id));
+    expect(after!.status).toBe("cancelled");
+    const [jobAfter] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+    expect(jobAfter!.status).toBe("failed");
+    expect(jobAfter!.log).toMatch(/annullata: il branch della PR non esiste più/);
+    // Nessun job nuovo: niente è stato promosso.
+    expect(await testDb.db.select().from(aiJobs).where(eq(aiJobs.correctionId, pending!.id))).toHaveLength(0);
+  });
+
+  it("correzione annullata durante il lavoro (PR chiusa): niente push, job skipped", async () => {
+    const f = await makeFixture();
+    await testDb.db.update(instanceSettings).set({ prReviewEnabled: true }).where(eq(instanceSettings.id, 1));
+    const { correctionId, job } = await seedCorrection(f, { reviewId: await seedReview(f) });
+    const before = await upstreamHead(f);
+    const runner = new FakeAgentRunner({
+      script: async (opts: AgentRunOptions) => {
+        const repo = join(opts.cwd, mirrorSlug(f.repoUrl));
+        await writeFile(join(repo, "app.test.js"), "// regressione sum\n");
+        await writeFile(join(opts.cwd, "STUBWISE_REPORT.md"), REPORT);
+        // Il webhook di chiusura (D3) annulla la correzione mentre l'agente lavora.
+        await testDb.db.update(prCorrections).set({ status: "cancelled" }).where(eq(prCorrections.id, correctionId));
+        return { output: "review applicata", exitCode: 0 };
+      },
+    });
+    const provider = makeProvider();
+
+    expect(await runCorrection(makeDeps(f, runner, provider), job)).toBe("skipped");
+
+    expect(await upstreamHead(f)).toBe(before);
+    // Il dato nostro si rilegge PRIMA di chiedere al provider.
+    expect(provider.getPullRequestState).not.toHaveBeenCalled();
+    const [jobAfter] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+    expect(jobAfter!.status).toBe("skipped");
+    expect(await testDb.db.select().from(prReviewJobs)).toHaveLength(0);
+  });
+
+  it("correzione annullata DOPO il controllo (completeCorrection → false): push fatto, niente review né promozione", async () => {
+    const f = await makeFixture();
+    await testDb.db.update(instanceSettings).set({ prReviewEnabled: true }).where(eq(instanceSettings.id, 1));
+    const { correctionId, job } = await seedCorrection(f, { reviewId: await seedReview(f) });
+    const [altra] = await testDb.db
+      .insert(prCorrections)
+      .values({ ticketId: f.ticket.id, repositoryId: f.repositoryId, prNumber: 13, trigger: "provider", status: "pending" })
+      .returning();
+    const provider = makeProvider();
+    // L'annullamento arriva fra la rilettura dello status e la chiusura: qui,
+    // durante la domanda al provider che segue la rilettura.
+    provider.getPullRequestState.mockImplementation(async () => {
+      await testDb.db.update(prCorrections).set({ status: "cancelled" }).where(eq(prCorrections.id, correctionId));
+      return "open";
+    });
+
+    expect(await runCorrection(makeDeps(f, applyingRunner(f), provider), job)).toBe("pushed");
+
+    const [jobAfter] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+    expect(jobAfter!.status).toBe("pr_opened");
+    expect(jobAfter!.log).toMatch(/non era più in coda/);
+    expect(await testDb.db.select().from(prReviewJobs)).toHaveLength(0);
+    const [altraAfter] = await testDb.db.select().from(prCorrections).where(eq(prCorrections.id, altra!.id));
+    expect(altraAfter!.status).toBe("pending");
+  });
+
   it("ownership persa dopo il push (job riaccodato da requeueStale): la correzione resta queued, niente promozione né review", async () => {
     const f = await makeFixture();
     await testDb.db.update(instanceSettings).set({ prReviewEnabled: true }).where(eq(instanceSettings.id, 1));
@@ -8943,9 +9197,11 @@ import {
 import { getProvider, type GitProvider } from "@stubwise/git";
 import { t } from "@stubwise/i18n";
 import {
+  cancelPendingCorrection,
   completeCorrection,
   decryptGitCredentials,
-  promotePendingCorrection,
+  prHasOpenCorrection,
+  promotePendingForTicket,
   providerFeedbackCutoff,
   resolveProviderUserId,
   selectProviderFeedback,
@@ -9030,9 +9286,11 @@ import { resolveTestCommand } from "./test-command.js";
  * Chiusura (contratto di `completeCorrection`): esito terminale del job e
  * `completeCorrection` (libera l'unica `queued` ammessa per PR) in UNA
  * transazione, la seconda solo se il job è stato davvero chiuso; poi, e solo
- * allora, `promotePendingCorrection` e — se non c'era una richiesta umana in
- * attesa — `enqueuePrReviewNow`. A ownership persa non si fa niente: il job è
- * di chi l'ha ripreso. `held`/`limit` lasciano la correzione `queued`: il job
+ * allora, `promotePendingForTicket` e — se questa PR non ha una correzione
+ * aperta — `enqueuePrReviewNow`. A ownership persa non si fa niente: il job è
+ * di chi l'ha ripreso. Correzione annullata (PR chiusa) mentre si lavorava:
+ * prima del push → niente push, job `skipped`; dopo il push → niente review né
+ * promozione. `held`/`limit` lasciano la correzione `queued`: il job
  * verrà ripreso.
  *
  * Come runFix, va chiamata SERIALMENTE per progetto (handler.ts).
@@ -9263,6 +9521,12 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
   // il job è stato davvero chiuso. `false` = ownership persa (requeueStale ha
   // rimesso il job in coda): la correzione resta `queued` per chi lo riprende,
   // e il chiamante non fa NIENTE di ciò che segue una chiusura.
+  //
+  // `correctionDone` dice se la correzione è passata DAVVERO a `done`: `false`
+  // col job chiuso = la PR è stata chiusa e la correzione annullata
+  // (`cancelOpenCorrections`) mentre si lavorava. Allora niente review e niente
+  // promozione: la PR non si corregge più.
+  let correctionDone = false;
   const closeJobAndCorrection = async (
     close: { kind: "complete"; input: CompleteJobInput } | { kind: "fail"; input: FailJobInput },
   ): Promise<boolean> => {
@@ -9271,28 +9535,33 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
         close.kind === "complete"
           ? await completeJob(tx, job.id, close.input)
           : await failJob(tx, job.id, close.input);
-      if (ok) await completeCorrection(tx, correction.id);
+      if (ok) correctionDone = await completeCorrection(tx, correction.id);
       return ok;
     });
     if (!closed) {
       await logLine("ownership del job persa: la correzione resta in coda per chi lo ha ripreso");
+    } else if (!correctionDone) {
+      await logLine("la correzione non era più in coda (annullata: PR chiusa): niente review né promozione");
     }
     return closed;
   };
-  // Dopo una chiusura avvenuta: la richiesta umana in attesa, se c'è. Non si
+  // Dopo una chiusura avvenuta (job terminale E correzione `done`): le richieste
+  // umane in attesa del TICKET — il job vivo blocca per ticket, quindi una
+  // pending su un'altra PR aspettava proprio questa correzione. MAI dentro la
+  // transazione di chiusura: lì hasJobInFlight vedrebbe questo job. Non si
   // chiama quando la PR non c'è più o non è nostra: lì fallirebbe allo stesso
   // modo.
-  const promotePending = async (): Promise<string | null> => {
+  const promotePending = async (): Promise<string[]> => {
+    if (!correctionDone) return [];
     try {
-      return await promotePendingCorrection(db, {
-        repositoryId: correction.repositoryId,
-        prNumber: correction.prNumber,
-      });
+      const promoted = await promotePendingForTicket(db, correction.ticketId);
+      for (const id of promoted) await logLine(`richiesta di correzione in attesa avviata (${id})`);
+      return promoted;
     } catch (err) {
       await logLine(
-        `promozione della richiesta in attesa fallita: ${err instanceof Error ? err.message : String(err)}`,
+        `promozione delle richieste in attesa fallita: ${err instanceof Error ? err.message : String(err)}`,
       );
-      return null;
+      return [];
     }
   };
 
@@ -9595,6 +9864,15 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
               `Ticket #${ticket.number} — ${toSingleLine(ticket.title, TITLE_MAX_CHARS)}\n` +
               `Correzione automatica di Stubwise AI (richiesta: ${correction.trigger})`,
           );
+          // CORREZIONE ANCORA IN CODA? È il nostro dato, e si rilegge PRIMA di
+          // chiedere al provider: la chiusura della PR (webhook, D3) porta la
+          // riga a `cancelled` senza toccare un job già in lavorazione, ed è qui
+          // che il lavoro si ferma. Non è fail-open come lo stato del provider.
+          const [current] = await db
+            .select({ status: prCorrections.status })
+            .from(prCorrections)
+            .where(eq(prCorrections.id, correction.id));
+          if (current?.status !== "queued") throw new PrNoLongerOpenError();
           // PR ANCORA APERTA? Controllata a ridosso del push. Errore dell'API →
           // si prosegue (fail-open, come il gate della review): il push è in
           // avanti, sul NOSTRO branch, e un commit su una PR appena chiusa non
@@ -9695,7 +9973,22 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
       );
     }
     if (err instanceof BranchNotFoundError) {
-      return fail(`[correction] ${err.message}`, `branch ${branch} non trovato`, { promote: false });
+      // Branch sparito: la PR non si può più correggere. La pending della
+      // STESSA PR va annullata, non lasciata lì: il tick
+      // (promoteStalePendings) la ripromuoverebbe a ogni giro e ogni giro
+      // finirebbe qui. Niente promozione di altre PR da qui (le ripesca il tick).
+      return fail(`[correction] ${err.message}`, `branch ${branch} non trovato`, {
+        promote: false,
+        afterClose: async () => {
+          const cancelled = await cancelPendingCorrection(db, {
+            repositoryId: correction.repositoryId,
+            prNumber: correction.prNumber,
+          }).catch(() => null);
+          if (cancelled !== null) {
+            await logLine(`richiesta in attesa ${cancelled} annullata: il branch della PR non esiste più`);
+          }
+        },
+      });
     }
     if (err instanceof AgentExitError) {
       return fail(
@@ -9765,13 +10058,22 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
   });
   // Ownership persa DOPO il push: il push resta (è un fatto), ma la
   // correzione è ancora `queued` e il job è di chi l'ha ripreso — né
-  // promozione né review da qui.
-  if (!closed) return "pushed";
+  // promozione né review da qui. Correzione annullata (PR chiusa) dopo il
+  // controllo pre-push: il push c'è stato, ma la PR non si corregge più — né
+  // promozione né review (la riga di log l'ha scritta closeJobAndCorrection).
+  if (!closed || !correctionDone) return "pushed";
 
-  // Dopo il push: prima la richiesta umana in attesa, altrimenti la review.
-  const promoted = await promotePending();
-  if (promoted !== null) {
-    await logLine(`richiesta di correzione in attesa avviata (${promoted}) al posto della review`);
+  // Dopo il push: prima le richieste umane in attesa del ticket; poi la review
+  // di QUESTA PR, se non ha una correzione aperta (appena promossa o in attesa
+  // del suo turno: la review arriverà dopo il suo push). Errore della lettura →
+  // si accoda: una review in più è innocua.
+  await promotePending();
+  const hasOpen = await prHasOpenCorrection(db, {
+    repositoryId: correction.repositoryId,
+    prNumber: correction.prNumber,
+  }).catch(() => false);
+  if (hasOpen) {
+    await logLine("richiesta di correzione aperta su questa PR: la review arriverà dopo il suo push");
   } else {
     await enqueuePrReviewNow(db, {
       repositoryId: row.repository.id,
@@ -9832,13 +10134,27 @@ quel fix apre la PR, la pending parte al posto della review (C7); se il fix
 **fallisce** (o viene saltato), nessuno la toccherebbe più. Gli esiti di
 fallimento di `runFix` sono una dozzina di `return "failed"`: l'unico punto che
 li vede tutti è il handler, che dopo ogni job NON di correzione chiuso
-`failed`/`skipped` promuove le pending delle PR aperte del ticket.
+`failed`/`skipped` chiama `promotePendingForTicket` — la funzione di
+`@stubwise/notifications` (A7), NON una copia nel worker.
+
+Terza cosa, la RETE DI SICUREZZA (decisa in revisione di A7): i punti di
+promozione sono tanti (fine di review, fix, correzione; chiusura della PR), e
+un worker morto fra la chiusura di un job e la promozione, un errore ingoiato
+o un percorso futuro che la dimentica lascerebbero una `pending` ferma per
+sempre, senza nessun evento che la sblocchi. `runWorker` (`queue.ts`) chiama
+`promoteStalePendings` sulla STESSA cadenza di `requeueStale`
+(`requeueEveryMs`, 60 s): è già il tick che recupera gli orfani della coda dei
+job, e una pending orfana è lo stesso genere di problema. Non un poller a sé
+(C11 non c'entra: tratta i conti della staleness, non un loop) e non un env
+nuovo: la promozione costa una query quando non c'è niente da fare.
 
 **Files:**
 - Modify: `apps/worker/src/handler.ts` — import (righe 1-15); `HandlerDeps.getProviderFn`
   (riga 39); `runJobWithProvider` (righe 104-159); `createHandler` (392-394).
-- Modify: `apps/worker/src/pipeline/correction.ts` — export nuovo `promotePendingForTicket`.
+- Modify: `apps/worker/src/queue.ts` — `RunWorkerInternals.promoteStalePendings`
+  e la chiamata nel blocco di `requeueStale` di `runWorker`.
 - Test: `apps/worker/src/handler.test.ts` — import e tre test in coda al `describe("createHandler")`.
+- Test: `apps/worker/src/queue.test.ts` — tre test in coda al `describe("runWorker")`.
 
 **Step 1 — test che falliscono.** Negli import di `handler.test.ts` aggiungi
 `prCorrections` e `ticketRepositories` da `@stubwise/db`. Dopo `makeUpstream`:
@@ -10012,42 +10328,12 @@ Atteso: FAIL sui tre test nuovi (il primo esegue un execute-only dal default).
 
 **Step 3 — implementazione.**
 
-In `correction.ts`, in coda (l'import di `promotePendingCorrection` c'è già):
-
-```ts
-/**
- * Promuove le richieste di correzione in attesa sulle PR APERTE del ticket.
- * Serve quando un job NON di correzione (un fix, un rilancio) finisce senza
- * aprire PR — fallito o saltato — mentre un "Request changes" dal provider
- * aspettava in `pending` (salvato così perché c'era un job in volo): senza,
- * quella richiesta resterebbe ferma finché non ne arriva un'altra.
- * Best-effort: un errore si logga, mai lancia.
- */
-export async function promotePendingForTicket(db: Db, ticketId: string): Promise<string[]> {
-  const promoted: string[] = [];
-  try {
-    const prs = await db
-      .select({ repositoryId: ticketRepositories.repositoryId, prNumber: ticketRepositories.prNumber })
-      .from(ticketRepositories)
-      .where(
-        and(
-          eq(ticketRepositories.ticketId, ticketId),
-          eq(ticketRepositories.prState, "open"),
-          isNotNull(ticketRepositories.prNumber),
-        ),
-      );
-    for (const pr of prs) {
-      const id = await promotePendingCorrection(db, { repositoryId: pr.repositoryId, prNumber: pr.prNumber! });
-      if (id !== null) promoted.push(id);
-    }
-  } catch (err) {
-    console.error(
-      `[stubwise-worker] correction: promozione delle richieste in attesa del ticket ${ticketId} fallita (${err instanceof Error ? err.message : String(err)})`,
-    );
-  }
-  return promoted;
-}
-```
+`promotePendingForTicket` NON si scrive nel worker: è di `@stubwise/notifications`
+(A7), ed è la stessa che chiamano fix (C7), correzione (C8), review (C10) e il
+webhook di chiusura (D3). Lì non filtra le PR `open`: una pending su una PR
+chiusa è già `cancelled` (D3), e se il webhook fosse andato perso
+`runCorrection` chiude il job `skipped` sulla PR non più aperta. Lancia sugli
+errori: il chiamante qui sotto è best-effort.
 
 In `handler.ts`:
 
@@ -10055,8 +10341,9 @@ In `handler.ts`:
 
 ```ts
 import type { GitProvider } from "@stubwise/git";
+import { promotePendingForTicket } from "@stubwise/notifications";
 import type { GitProviderKind } from "@stubwise/shared";
-import { runCorrection, promotePendingForTicket, type CorrectionDeps } from "./pipeline/correction.js";
+import { runCorrection, type CorrectionDeps } from "./pipeline/correction.js";
 ```
 e aggiungi `aiJobs` all'import da `@stubwise/db`.
 
@@ -10149,18 +10436,169 @@ async function promotePendingAfterJob(db: Db, job: AiJob): Promise<void> {
 
 (`Db` va aggiunto all'import di tipo da `@stubwise/db`.)
 
+(e) IL TICK — in `queue.ts`. Import:
+
+```ts
+import { promoteStalePendings as promoteStalePendingsImpl } from "@stubwise/notifications";
+```
+
+in `RunWorkerInternals`:
+
+```ts
+  /** Override della rete di sicurezza del ciclo di correzione (default promoteStalePendings). */
+  promoteStalePendings?: typeof promoteStalePendingsImpl;
+```
+
+in `runWorker`, accanto agli altri override
+(`const promoteStale = _internals?.promoteStalePendings ?? promoteStalePendingsImpl;`)
+e alle variabili del loop:
+
+```ts
+  // Pending la cui promozione è già fallita in questo processo: il warn si dà
+  // UNA volta per id. La stessa riga fallirebbe a ogni tick (ogni minuto), e
+  // un log che ripete la stessa riga all'infinito smette di essere letto.
+  const stalePromotionWarned = new Set<string>();
+```
+
+e dentro `if (Date.now() >= nextRequeueAt) {`, dopo `requeueNodes` e PRIMA di
+`nextRequeueAt = …`:
+
+```ts
+          // RETE DI SICUREZZA del ciclo di correzione (A7): una `pending` su un
+          // ticket dove nessun job blocca più. Parte qui, con una riga per
+          // ciascuna. La riga NON afferma una causa: può essere un punto di
+          // promozione mancato come, del tutto normalmente, la pending di
+          // un'altra PR dopo una review (la review promuove solo la sua).
+          // Try/catch A SÉ: un suo errore non deve far ripetere requeueStale a
+          // ogni giro né portare il loop in backoff — la ritenta il prossimo tick.
+          try {
+            const promoted = await promoteStale(db, {
+              onError: (pendingId, pr, error) => {
+                if (stalePromotionWarned.has(pendingId)) return;
+                stalePromotionWarned.add(pendingId);
+                console.error(
+                  `[stubwise-worker] correction: promozione della richiesta in attesa ${pendingId} (${pr.repositoryId}#${pr.prNumber}) fallita, la si ritenta a ogni tick senza riscriverlo (${error instanceof Error ? error.message : String(error)})`,
+                );
+              },
+            });
+            for (const id of promoted) {
+              console.error(`[stubwise-worker] correction: richiesta in attesa ${id} avviata dal tick`);
+            }
+          } catch (err) {
+            console.error(
+              `[stubwise-worker] correction: rete di sicurezza delle richieste in attesa fallita (${err instanceof Error ? err.message : String(err)})`,
+            );
+          }
+```
+
+Test in `queue.test.ts`, in coda al `describe("runWorker")` (aggiungi
+`prCorrections` all'import da `@stubwise/db`):
+
+```ts
+  it("il tick fa partire una richiesta in attesa rimasta orfana, con una riga di log", async () => {
+    const { db } = testDb;
+    const { ticketId: orphanTicket, repositoryId } = await seedTicket(db);
+    const [pending] = await db
+      .insert(prCorrections)
+      .values({ ticketId: orphanTicket, repositoryId, prNumber: 7, trigger: "provider", status: "pending" })
+      .returning();
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const controller = new AbortController();
+    // Il handler NON chiude il job della correzione: si guarda solo la promozione.
+    const worker = runWorker({ db, pollMs: 20, requeueEveryMs: 1, signal: controller.signal, handler: async () => {} });
+
+    await vi.waitFor(async () => {
+      const [row] = await db.select().from(prCorrections).where(eq(prCorrections.id, pending!.id));
+      expect(row!.status).toBe("queued");
+    });
+    controller.abort();
+    await worker;
+    expect(log.mock.calls.some(([line]) => String(line).includes(`richiesta in attesa ${pending!.id} avviata dal tick`))).toBe(true);
+    log.mockRestore();
+  });
+
+  it("una pending che non si riesce a promuovere si segnala UNA volta, non a ogni tick", async () => {
+    const { db } = testDb;
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    let ticks = 0;
+    const controller = new AbortController();
+    const worker = runWorker({
+      db,
+      pollMs: 20,
+      requeueEveryMs: 1,
+      signal: controller.signal,
+      handler: async () => {},
+      _internals: {
+        promoteStalePendings: async (_db, opts) => {
+          ticks += 1;
+          opts?.onError?.("pending-rotta", { repositoryId: "r", prNumber: 1 }, new Error("unique"));
+          return [];
+        },
+      },
+    });
+
+    await vi.waitFor(() => expect(ticks).toBeGreaterThanOrEqual(3));
+    controller.abort();
+    await worker;
+    const warned = log.mock.calls.filter(([line]) => String(line).includes("pending-rotta"));
+    expect(warned).toHaveLength(1);
+    log.mockRestore();
+  });
+
+  it("un errore della rete di sicurezza non ferma il loop né requeueStale", async () => {
+    const { db } = testDb;
+    const job = await enqueueJob(db);
+    let requeues = 0;
+    const processed = new Set<string>();
+    const controller = new AbortController();
+    const worker = runWorker({
+      db,
+      pollMs: 20,
+      requeueEveryMs: 1,
+      signal: controller.signal,
+      handler: async (claimed) => {
+        processed.add(claimed.id);
+        await completeJob(db, claimed.id, { status: "skipped", log: "fatto" });
+      },
+      _internals: {
+        requeueStale: async (database, opts) => {
+          requeues += 1;
+          return requeueStale(database, opts);
+        },
+        promoteStalePendings: async () => {
+          throw new Error("DB irraggiungibile (promozione)");
+        },
+      },
+    });
+
+    await vi.waitFor(() => expect(processed.has(job.id)).toBe(true), { timeout: 15_000 });
+    controller.abort();
+    await worker;
+    expect(requeues).toBeGreaterThan(0);
+  });
+```
+
+Mutazioni da fare a mano (e rimettere): togliere la chiamata a `promoteStale` →
+rosso il primo test; togliere il controllo sul `Set` → rosso il test del warn
+una-tantum; togliere il try/catch → il secondo va in backoff ma può
+restare verde (il job si processa comunque dopo il backoff): per questo il
+secondo asserisce che `requeueStale` giri, e il try/catch va verificato
+guardando che nel log NON compaia l'errore del loop (`[stubwise-worker]` di
+backoff) — se il test resta verde anche senza try/catch, dirlo nel report
+invece di crederci.
+
 **Step 4 — verifica.**
 
 ```bash
 pnpm --filter @stubwise/worker exec tsc --noEmit
-pnpm --filter @stubwise/worker exec vitest run src/handler.test.ts src/pipeline/correction.test.ts
+pnpm --filter @stubwise/worker exec vitest run src/handler.test.ts src/pipeline/correction.test.ts src/queue.test.ts
 ```
-Atteso: PASS, compresi tutti i test storici del handler.
+Atteso: PASS, compresi tutti i test storici del handler e della coda.
 
 **Step 5 — commit.**
 
 ```bash
-git add apps/worker/src/handler.ts apps/worker/src/handler.test.ts apps/worker/src/pipeline/correction.ts
+git add apps/worker/src/handler.ts apps/worker/src/handler.test.ts apps/worker/src/queue.ts apps/worker/src/queue.test.ts
 git commit -m "feat(worker): i job di correzione vanno in runCorrection senza passare da resolveFixMode"
 ```
 
@@ -10191,8 +10629,12 @@ errore lascia una riga di log e non tocca la review già `completed`:
    numero del ticket che ospita la review, e una riga `ticket_repositories` di
    quel ticket su quel repo con quel branch. Su una PR scritta da una persona
    non succede niente di nuovo (e Stubwise non pusha mai sul branch di un altro).
-   - **prima di tutto, per QUALUNQUE verdetto**, le richieste umane in fila:
-     la fine di una review è un punto di promozione della `pending` (A7).
+   - **prima di tutto, per QUALUNQUE verdetto**, le richieste in fila: la fine
+     di una review è un punto di promozione della `pending` di QUESTA PR (A7,
+     `promotePendingCorrection`). Quelle di altre PR del ticket partono dopo il
+     giro automatico (la correzione chiude con `promotePendingForTicket`) o dal
+     tick del worker (`promoteStalePendings`, C9): promuoverle qui farebbe
+     rifiutare il giro automatico che la review ha appena chiesto.
    - `approve` → se c'è una `pending` e nessuna `queued`, la si promuove; in
      ogni caso notifica `review.completed` con `cycle { round, max, stopped: false }`
      (con una `queued` davanti, la sua partenza è già in corso: solo la notifica).
@@ -10201,9 +10643,14 @@ errore lascia una riga di log e non tocca la review già `completed`:
        la review) → niente: il suo push riaccoderà la review;
      - c'è una `pending` → la si promuove (vince la richiesta umana, §6);
      - tetto 0 → ciclo automatico spento: notifica come oggi, `cycle { 0, 0, false }`;
-     - `autoRoundsInCurrentSeries < max` → `enqueueCorrection(trigger review,
-       reviewId)`; se torna `ok: false` (`job_in_flight`/`correction_in_flight`)
-       non si accoda e resta una riga di log;
+     - `autoRoundsInCurrentSeries < max` (il tetto si controlla PRIMA di
+       chiamarla; una pending `review` in fila conta già come giro) →
+       `enqueueCorrection(trigger review, reviewId)`: `queued` se niente blocca;
+       `pending` `review` se un altro lavoro del ticket (la correzione di
+       un'altra PR, un fix) blocca — partirà alla fine di quel lavoro, e NON si
+       notifica (il ciclo non è finito); `ok: false` può essere solo
+       `correction_in_flight` (una `queued` comparsa nel frattempo sulla PR):
+       riga di log;
      - al tetto → notifica con `cycle { round, max, stopped: true }`.
    - Le review intermedie di un giro automatico **non notificano**: la persona
      riceve «approvata» o «ferma al tetto», non tre notifiche di una
@@ -10245,8 +10692,8 @@ import {
 } from "@stubwise/db";
 import { startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { NotificationEvent } from "@stubwise/notifications";
-import { autoRoundsInCurrentSeries } from "@stubwise/notifications";
-import { eq } from "drizzle-orm";
+import { autoRoundsInCurrentSeries, completeCorrection, promotePendingForTicket } from "@stubwise/notifications";
+import { and, eq } from "drizzle-orm";
 import { randomBytes, randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { MirrorProject } from "../git/mirrors.js";
@@ -10519,6 +10966,85 @@ describe("afterReviewCompleted — ciclo", () => {
     const jobs = await testDb.db.select().from(aiJobs).where(eq(aiJobs.correctionId, pending!.id));
     expect(jobs).toHaveLength(1);
     expect(f.events[0]).toMatchObject({ kind: "review.completed", verdict: "approve", cycle: { stopped: false } });
+  });
+
+  it("approve: la pending di un'ALTRA PR del ticket NON parte qui (la promuove il tick)", async () => {
+    const s = await setup({ maxRounds: 3 });
+    const [altra] = await testDb.db
+      .insert(prCorrections)
+      .values({ ticketId: s.ticket.id, repositoryId: s.repositoryId, prNumber: 13, trigger: "provider", status: "pending" })
+      .returning();
+    const f = fakes();
+
+    await afterReviewCompleted(f.deps, input(s, { verdict: "approve" }));
+
+    const [after] = await testDb.db.select().from(prCorrections).where(eq(prCorrections.id, altra!.id));
+    expect(after!.status).toBe("pending");
+  });
+
+  it("B chiede modifiche mentre A corregge: pending(B, review), promossa alla fine di A", async () => {
+    const s = await setup({ maxRounds: 3 });
+    // A = la PR 13 dello stesso ticket, con una correzione in lavorazione.
+    const [a] = await testDb.db
+      .insert(prCorrections)
+      .values({ ticketId: s.ticket.id, repositoryId: s.repositoryId, prNumber: 13, trigger: "review", status: "queued" })
+      .returning();
+    const [aJob] = await testDb.db
+      .insert(aiJobs)
+      .values({ ticketId: s.ticket.id, status: "fixing", correctionId: a!.id })
+      .returning();
+    const f = fakes();
+
+    await afterReviewCompleted(f.deps, input(s)); // B = la PR 12, request_changes
+
+    const [b] = await testDb.db
+      .select()
+      .from(prCorrections)
+      .where(and(eq(prCorrections.repositoryId, s.repositoryId), eq(prCorrections.prNumber, 12)));
+    expect(b).toMatchObject({ trigger: "review", status: "pending", reviewId: s.reviewId });
+    expect(f.events).toHaveLength(0); // il ciclo non è finito: nessuna notifica
+
+    // Fine della correzione di A, come la chiude runCorrection (C8).
+    await testDb.db.update(aiJobs).set({ status: "pr_opened" }).where(eq(aiJobs.id, aJob!.id));
+    await completeCorrection(testDb.db, a!.id);
+    expect(await promotePendingForTicket(testDb.db, s.ticket.id)).toEqual([b!.id]);
+    const [bJob] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.correctionId, b!.id));
+    expect(bJob).toMatchObject({ status: "queued", manualTrigger: false });
+  });
+
+  it("B al tetto mentre A corregge: nessuna pending, notifica di stop", async () => {
+    const s = await setup({ maxRounds: 2 });
+    await seedAutoRounds(s, 2);
+    const [a] = await testDb.db
+      .insert(prCorrections)
+      .values({ ticketId: s.ticket.id, repositoryId: s.repositoryId, prNumber: 13, trigger: "review", status: "queued" })
+      .returning();
+    await testDb.db.insert(aiJobs).values({ ticketId: s.ticket.id, status: "fixing", correctionId: a!.id });
+    const f = fakes();
+
+    await afterReviewCompleted(f.deps, input(s));
+
+    const onB = await testDb.db
+      .select()
+      .from(prCorrections)
+      .where(and(eq(prCorrections.repositoryId, s.repositoryId), eq(prCorrections.prNumber, 12)));
+    expect(onB.filter((r) => r.status === "pending" || r.status === "queued")).toHaveLength(0);
+    expect(f.events[0]).toMatchObject({ kind: "review.completed", cycle: { round: 2, max: 2, stopped: true } });
+  });
+
+  it("request_changes sotto il tetto con una pending su un'ALTRA PR: parte il giro automatico, la pending aspetta la sua fine", async () => {
+    const s = await setup({ maxRounds: 3 });
+    const [altra] = await testDb.db
+      .insert(prCorrections)
+      .values({ ticketId: s.ticket.id, repositoryId: s.repositoryId, prNumber: 13, trigger: "provider", status: "pending" })
+      .returning();
+    const f = fakes();
+
+    await afterReviewCompleted(f.deps, input(s));
+
+    const rows = await testDb.db.select().from(prCorrections).where(eq(prCorrections.repositoryId, s.repositoryId));
+    expect(rows.find((r) => r.id === altra!.id)!.status).toBe("pending");
+    expect(rows.find((r) => r.prNumber === 12)).toMatchObject({ trigger: "review", status: "queued" });
   });
 
   it("approve con una correzione già in coda: niente promozione, solo la notifica", async () => {
@@ -10937,9 +11463,19 @@ async function advanceCycle(db: Db, input: AfterReviewCompletedInput): Promise<C
   const max = project?.max ?? 0;
 
   // Prima le richieste umane già in fila, QUALUNQUE sia il verdetto: la fine
-  // di una review è un punto di promozione della `pending` (A7), e una
-  // richiesta arrivata durante una review che poi approva non deve restare
-  // ferma finché non succede qualcos'altro.
+  // di una review è un punto di promozione della `pending` di QUESTA PR (A7),
+  // e una richiesta arrivata durante una review che poi approva non deve
+  // restare ferma finché non succede qualcos'altro. Solo di QUESTA PR: quelle
+  // di altre PR del ticket partono alla fine del giro automatico (la
+  // correzione chiude con promotePendingForTicket) o dal tick del worker
+  // (promoteStalePendings). Promuoverle qui farebbe rifiutare il giro
+  // automatico di questa PR, che è la cosa che la review ha appena chiesto.
+  const promoteThisPr = async (why: string): Promise<void> => {
+    const promoted = await promotePendingCorrection(db, where);
+    console.error(
+      `[stubwise-worker] pr-review: PR #${where.prNumber}: ${why}, richiesta umana in attesa avviata (${promoted ?? "nessuna: la ferma un altro lavoro del ticket"})`,
+    );
+  };
   const open = await db
     .select({ status: prCorrections.status })
     .from(prCorrections)
@@ -10957,12 +11493,7 @@ async function advanceCycle(db: Db, input: AfterReviewCompletedInput): Promise<C
     // Una `queued` (richiesta arrivata durante la review) parte già da sé; una
     // `pending` senza `queued` davanti si promuove qui. L'approvazione si
     // notifica comunque: è un fatto, anche se una persona ha chiesto altro.
-    if (!hasQueued && hasPending) {
-      const promoted = await promotePendingCorrection(db, where);
-      console.error(
-        `[stubwise-worker] pr-review: PR #${where.prNumber}: approvata, richiesta umana in attesa avviata (${promoted ?? "nessuna"})`,
-      );
-    }
+    if (!hasQueued && hasPending) await promoteThisPr("approvata");
     const round = await autoRoundsInCurrentSeries(db, where);
     return { notify: true, cycle: { round, max, stopped: false } };
   }
@@ -10977,14 +11508,15 @@ async function advanceCycle(db: Db, input: AfterReviewCompletedInput): Promise<C
     return { notify: false };
   }
   if (hasPending) {
-    const promoted = await promotePendingCorrection(db, where);
-    console.error(
-      `[stubwise-worker] pr-review: PR #${where.prNumber}: richiesta umana in attesa avviata (${promoted ?? "nessuna"}) al posto del giro automatico`,
-    );
+    // Vince la richiesta in fila (§6). Se un altro lavoro del ticket la ferma,
+    // resta `pending` e partirà alla fine di quel lavoro.
+    await promoteThisPr("al posto del giro automatico");
     return { notify: false };
   }
   if (max === 0) return { notify: true, cycle: { round: 0, max: 0, stopped: false } };
 
+  // Il tetto si controlla PRIMA di enqueueCorrection. Una pending `review` in
+  // fila conta già come giro (`autoRoundsInCurrentSeries`).
   const round = await autoRoundsInCurrentSeries(db, where);
   if (round < max) {
     const result = await enqueueCorrection(db, {
@@ -10995,13 +11527,23 @@ async function advanceCycle(db: Db, input: AfterReviewCompletedInput): Promise<C
       reviewId: input.reviewId,
     });
     if (!result.ok) {
+      // Con `trigger: "review"` resta solo `correction_in_flight`: una `queued`
+      // su QUESTA PR comparsa dopo la lettura qui sopra (una richiesta arrivata
+      // nel frattempo). Parte già, e il suo push riaccoderà la review.
       console.error(
         `[stubwise-worker] pr-review: PR #${where.prNumber}: correzione automatica non accodata (${result.error})`,
       );
       return { notify: false };
     }
+    // `status: "pending"` = un altro lavoro del ticket (la correzione di
+    // un'altra PR, un fix) blocca: il giro è in fila e partirà alla sua fine
+    // (promotePendingForTicket) o dal tick. NON si notifica: il ciclo non è
+    // finito, come per un giro accodato — la persona riceverà «approvata» o
+    // «ferma al tetto».
     console.error(
-      `[stubwise-worker] pr-review: PR #${where.prNumber}: correzione automatica ${round + 1}/${max} accodata (${result.correctionId}, ${result.status})`,
+      result.status === "pending"
+        ? `[stubwise-worker] pr-review: PR #${where.prNumber}: correzione automatica ${round + 1}/${max} in fila (${result.correctionId}): parte quando finisce il lavoro in corso sul ticket`
+        : `[stubwise-worker] pr-review: PR #${where.prNumber}: correzione automatica ${round + 1}/${max} accodata (${result.correctionId})`,
     );
     return { notify: false };
   }
@@ -11791,7 +12333,8 @@ concludere qualcosa.
   lock advisory `hashtext(ticketId)` di `startRun`; con `trigger: "provider"`
   una richiesta durante un job vivo diventa `pending`, mai un errore —,
   `cancelOpenCorrections`, `derivePrCycle`, `autoRoundsInCurrentSeries`,
-  `promotePendingCorrection`, `completeCorrection`; e da A8b
+  `promotePendingCorrection`, `promotePendingForTicket`, `promoteStalePendings`,
+  `prHasOpenCorrection`, `cancelPendingCorrection`, `completeCorrection`; e da A8b
   (`pr-correction-feedback.ts`) `decryptGitCredentials`,
   `resolveProviderUserId`, `providerFeedbackCutoff`, `selectProviderFeedback`,
   tipo `FetchPlatformIdentity`.
@@ -12887,6 +13430,29 @@ describe("chiusura della PR", () => {
 
     expect((await correctionsOf(fx.repositoryId)).map((r) => r.status)).toEqual(["done"]);
   });
+
+  it("annullata la correzione in coda, parte la pending di un'ALTRA PR dello stesso ticket", async () => {
+    const fx = await seedFixture();
+    // PR 42: una correzione in coda (il suo job `queued` blocca il ticket).
+    const [inCoda] = await testDb.db
+      .insert(prCorrections)
+      .values({ ticketId: fx.ticketId, repositoryId: fx.repositoryId, prNumber: 42, trigger: "review", status: "queued" })
+      .returning();
+    await testDb.db.insert(aiJobs).values({ ticketId: fx.ticketId, status: "queued", correctionId: inCoda!.id });
+    // PR 43 dello stesso ticket: una richiesta umana che aspettava.
+    const [altra] = await testDb.db
+      .insert(prCorrections)
+      .values({ ticketId: fx.ticketId, repositoryId: fx.repositoryId, prNumber: 43, trigger: "provider", status: "pending" })
+      .returning();
+
+    await postClosed(fx, githubClosed(true));
+
+    const byId = new Map((await correctionsOf(fx.repositoryId)).map((r) => [r.id, r.status]));
+    expect(byId.get(inCoda!.id)).toBe("cancelled");
+    expect(byId.get(altra!.id)).toBe("queued");
+    const jobs = await correctionJobsOf(fx.ticketId);
+    expect(jobs.find((j) => j.correctionId === altra!.id)?.status).toBe("queued");
+  });
 });
 ```
 
@@ -12897,20 +13463,39 @@ pnpm --filter @stubwise/server exec vitest run src/routes/webhooks.corrections.t
 Atteso: FAIL (`["queued","pending"]` invece di `cancelled`).
 
 **Step 2: implementazione** — in `webhooks.ts` aggiungi
-`cancelOpenCorrections` all'import da `@stubwise/notifications`
-(`import { cancelOpenCorrections, publishNotification } from "@stubwise/notifications";`),
-e dentro `if (event.prNumber != null) {`, subito dopo il `delete(prReviewJobs)`:
+`cancelOpenCorrections` e `promotePendingForTicket` all'import da
+`@stubwise/notifications`
+(`import { cancelOpenCorrections, promotePendingForTicket, publishNotification } from "@stubwise/notifications";`),
+`prCorrections` all'import da `@stubwise/db`, e dentro
+`if (event.prNumber != null) {`, subito dopo il `delete(prReviewJobs)`:
 
 ```ts
         // Ciclo di correzione (design §11): una PR chiusa o mergiata non si
         // corregge più. Le correzioni in attesa (`pending`) e in coda
-        // (`queued`) vanno `cancelled`, e i loro job ancora `queued` →
+        // (`queued`) vanno `cancelled`, e i loro job ancora `queued`/`held` →
         // `skipped`. Una correzione GIÀ in lavorazione non si tocca qui: il
-        // worker ricontrolla lo stato della PR prima del push (§7).
-        await cancelOpenCorrections(instance.db, {
-          repositoryId: context.repositoryId,
-          prNumber: event.prNumber,
-        });
+        // worker rilegge lo status della correzione prima del push (C8).
+        const pr = { repositoryId: context.repositoryId, prNumber: event.prNumber };
+        const correctionTickets = await instance.db
+          .selectDistinct({ ticketId: prCorrections.ticketId })
+          .from(prCorrections)
+          .where(
+            and(
+              eq(prCorrections.repositoryId, pr.repositoryId),
+              eq(prCorrections.prNumber, pr.prNumber),
+            ),
+          );
+        await cancelOpenCorrections(instance.db, pr);
+        // Il job annullato può essere quello che bloccava il TICKET: una
+        // pending su un'altra PR dello stesso ticket parte ora. Con
+        // `instance.db`, FUORI da ogni transazione (la promozione apre la sua
+        // e prende il lock del ticket); best-effort — quello che resta lo
+        // ripesca il tick del worker.
+        for (const { ticketId } of correctionTickets) {
+          await promotePendingForTicket(instance.db, ticketId).catch((err: unknown) => {
+            instance.log.warn({ err, ticketId }, "promozione delle correzioni in attesa fallita");
+          });
+        }
 ```
 
 **Step 3: verifica e commit**
@@ -15174,7 +15759,7 @@ en:
       "requestedOnPlatform": "Changes requested by {{name}} on {{platform}}",
       "requestedOnPr": "Changes requested by {{name}} on the PR",
       "requestedInStubwise": "Changes requested by {{name}} in Stubwise",
-      "queued": "queued",
+      "queued": "queued · starts when the current work on the ticket finishes",
       "apply": "Apply corrections",
       "noteLabel": "Note for the agent (optional)",
       "notePlaceholder": "What should change? The latest review is always included.",
@@ -15203,7 +15788,7 @@ it:
       "requestedOnPlatform": "Modifiche richieste da {{name}} su {{platform}}",
       "requestedOnPr": "Modifiche richieste da {{name}} sulla PR",
       "requestedInStubwise": "Modifiche richieste da {{name}} su Stubwise",
-      "queued": "in coda",
+      "queued": "in coda · parte quando finisce il lavoro in corso sul ticket",
       "apply": "Applica le correzioni",
       "noteLabel": "Nota per l'agente (facoltativa)",
       "notePlaceholder": "Cosa va cambiato? L'ultima review è sempre inclusa.",
@@ -15497,8 +16082,10 @@ export function prCycleLineFor(cycle: PrCycle): PrCycleLine {
     segments.push(requester(cycle.lastRequest));
   }
   segments.push(stateSegment(cycle));
-  // Una richiesta umana in attesa parte al posto della prossima review
-  // (design §6): si dice, con chi l'ha fatta.
+  // Una richiesta umana in attesa parte appena finisce il lavoro in corso sul
+  // TICKET (il job vivo blocca per ticket, non per PR: può essere la correzione
+  // di un'altra PR): si dice, con chi l'ha fatta. Nessun campo nuovo: lo dice
+  // il testo di `cycle.queued`.
   if (cycle.pendingRequest && cycle.lastRequest) {
     segments.push(requester(cycle.lastRequest), { key: "tickets:cycle.queued", params: {} });
   }
@@ -16565,7 +17152,8 @@ possibile: quello è `canRequestCorrection`.
 **Gemella di `prCycleLineFor` del web (E3), segmento per segmento** (design §9:
 le due superfici non possono dire cose diverse): stesse frasi (i testi qui sotto
 sono quelli di E2), stesso ordine — su `correcting` a giro 0 il richiedente viene
-PRIMA dello stato, una richiesta in attesa si aggiunge DOPO con «in coda» —,
+PRIMA dello stato, una richiesta in attesa si aggiunge DOPO con «in coda · parte
+quando finisce il lavoro in corso sul ticket» —,
 `stoppedAtCap` col conteggio `round` (i giri effettivi, non `maxRounds`) e plurale
 `_one/_other`, la piattaforma di `lastRequest.platform` nel nome («su Bitbucket»,
 `null`/`UNKNOWN` → «sulla PR»). Unica differenza voluta: il testo dello stato
@@ -16594,7 +17182,7 @@ rispetto al server.
           "requestedOnPlatform": "Modifiche richieste da {{name}} su {{platform}}",
           "requestedOnPr": "Modifiche richieste da {{name}} sulla PR",
           "requestedInStubwise": "Modifiche richieste da {{name}} su Stubwise",
-          "queued": "in coda"
+          "queued": "in coda · parte quando finisce il lavoro in corso sul ticket"
         },
         "sheet": {
           "title": "Applica le correzioni · #{{number}}",
@@ -16636,7 +17224,7 @@ In `en.json`, stessa posizione (dopo `"offline": "// no network, no start"\n    
           "requestedOnPlatform": "Changes requested by {{name}} on {{platform}}",
           "requestedOnPr": "Changes requested by {{name}} on the PR",
           "requestedInStubwise": "Changes requested by {{name}} in Stubwise",
-          "queued": "queued"
+          "queued": "queued · starts when the current work on the ticket finishes"
         },
         "sheet": {
           "title": "Apply corrections · #{{number}}",
@@ -16720,7 +17308,7 @@ describe("prCycleLine: una frase per stato, detta dal server (gemella di E3)", (
       }),
       t,
     );
-    expect(line).toBe("Giro 1 di 3 · correzione in corso · Modifiche richieste da mario-rossi su GitHub · in coda");
+    expect(line).toBe("Giro 1 di 3 · correzione in corso · Modifiche richieste da mario-rossi su GitHub · in coda · parte quando finisce il lavoro in corso sul ticket");
   });
 
   test("una richiesta dal bottone in attesa si distingue da una della piattaforma", () => {
@@ -16732,7 +17320,7 @@ describe("prCycleLine: una frase per stato, detta dal server (gemella di E3)", (
       }),
       t,
     );
-    expect(line).toBe("In attesa della review · Modifiche richieste da anna@acme.it su Stubwise · in coda");
+    expect(line).toBe("In attesa della review · Modifiche richieste da anna@acme.it su Stubwise · in coda · parte quando finisce il lavoro in corso sul ticket");
   });
 
   test("piattaforma null o sconosciuta: «sulla PR», il nome non si perde", () => {
@@ -16745,7 +17333,7 @@ describe("prCycleLine: una frase per stato, detta dal server (gemella di E3)", (
         }),
         t,
       );
-      expect(line).toBe("In attesa della review · Modifiche richieste da mario.rossi sulla PR · in coda");
+      expect(line).toBe("In attesa della review · Modifiche richieste da mario.rossi sulla PR · in coda · parte quando finisce il lavoro in corso sul ticket");
     }
   });
 
@@ -16774,7 +17362,7 @@ describe("prCycleLine: una frase per stato, detta dal server (gemella di E3)", (
       }),
       t,
     );
-    expect(line).toBe("In attesa della review · Modifiche richieste da mario.rossi sulla PR · in coda");
+    expect(line).toBe("In attesa della review · Modifiche richieste da mario.rossi sulla PR · in coda · parte quando finisce il lavoro in corso sul ticket");
   });
 });
 ```
@@ -16816,8 +17404,8 @@ export function prCycleLine(cycle: Reader<PrCycle>, t: TFunction): string {
     parts.push(requesterText(cycle.lastRequest, t));
   }
   parts.push(stateText(cycle, t));
-  // Una richiesta umana in attesa parte al posto della prossima review
-  // (design §6): si dice, con chi l'ha fatta. Senza `lastRequest` (non
+  // Una richiesta umana in attesa parte appena finisce il lavoro in corso sul
+  // TICKET (vedi il gemello web): si dice, con chi l'ha fatta. Senza `lastRequest` (non
   // succede: la pending È l'ultima richiesta) non si inventa niente, come il web.
   if (cycle.pendingRequest && cycle.lastRequest) {
     parts.push(requesterText(cycle.lastRequest, t), t("mobile.work.pr.cycle.queued"));
@@ -17872,7 +18460,7 @@ describe("WorkScreen — il ciclo di correzione della PR", () => {
     await waitFor(() => expect(screen.getByTestId("pr-cycle-section")).toBeTruthy());
     expect(screen.getByText("portale-b2b")).toBeTruthy();
     expect(screen.getByTestId("pr-cycle-line-repo-1").props.children).toBe(
-      "Giro 2 di 3 · correzione in corso · Modifiche richieste da mario.rossi su Bitbucket · in coda",
+      "Giro 2 di 3 · correzione in corso · Modifiche richieste da mario.rossi su Bitbucket · in coda · parte quando finisce il lavoro in corso sul ticket",
     );
     expect(screen.getByTestId("pr-cycle-request-repo-1").props.accessibilityState?.disabled).toBe(true);
   });
@@ -18237,11 +18825,22 @@ del merge). Sostituisci `<data>` con la data del merge.
   review riaccodata, notifiche — parte solo se la chiusura è avvenuta. Chi
   «semplifica» in due statement riapre il caso di una correzione `queued`
   con il job già terminale: l'indice unico blocca la PR senza recupero.
-- **Una `pending` ha sempre un punto di promozione**: la fine di QUALUNQUE
-  review (approve o request_changes, `review/cycle.ts`) e di qualunque
-  fix/correzione terminato (fix aperto, fix `failed`/`skipped` nel handler,
-  correzione). Chi aggiunge un esito terminale nuovo lo faccia passare da uno
-  di questi punti.
+- **Una `pending` ha sempre un punto di promozione, e un lavoro per ticket.**
+  Il job che blocca è UNO per ticket (`jobBlocksCorrection`: in volo, o `held`
+  di qualunque tipo — una correzione parcheggiata sulla PR A ferma anche la B),
+  mentre le richieste in fila sono per PR. Per QUALUNQUE verdetto di una review
+  (`review/cycle.ts`, anche una review fallita) si promuove la pending di
+  QUESTA PR; quelle di altre PR del ticket partono dopo il giro automatico o
+  dal tick. La fine di un lavoro sul ticket — fix aperto, fix
+  `failed`/`skipped` nel handler, correzione chiusa — chiama
+  `promotePendingForTicket` (per ticket, non per PR); la chiusura della PR
+  (webhook) annulla la coda e poi chiama anch'essa `promotePendingForTicket`,
+  fuori dalla transazione; e il tick del worker (`promoteStalePendings`, sulla
+  cadenza di `requeueStale`) raccoglie ciò che resta. Un giro automatico
+  bloccato dal lavoro su un'altra PR del ticket non si perde: diventa una
+  `pending` `trigger='review'`, che conta come giro. Chi aggiunge un esito
+  terminale nuovo lo faccia passare da `promotePendingForTicket`; chi toglie
+  il tick lascia ferme le pending di altre PR dopo un'approvazione.
 - **Una sola regex dei branch dei fix**: `STUBWISE_BRANCH_RE` di
   `@stubwise/shared` (`stubwise/ticket-<N>`, con `N` = numero del ticket).
   La usano il webhook, `derivePrCycle`, la rotta delle correzioni, la review e
@@ -18382,13 +18981,14 @@ There are two ways, and both reset the count:
 
 If you request changes on the platform **while a correction is running**,
 nothing is lost: your request waits and runs **instead of** the next review, as
-soon as the running correction has pushed. Several requests in the meantime
-merge into one.
+soon as the current work on the ticket finishes. Several requests in the
+meantime merge into one.
 
 Under each PR, the ticket shows where the loop is, e.g. *Round 2 of 3 ·
 correction in progress*, *Waiting for the review*, *Approved by the review ·
 ready to merge*, *Stopped after 3 automatic corrections*, or *changes requested
-by mario.rossi on the PR · queued*.
+by mario.rossi on the PR · queued · starts when the current work on the ticket
+finishes*.
 
 ### What stops the loop
 
@@ -18680,13 +19280,19 @@ tappe sono stati risolti e integrati nella sezione «Contratti» e nei task.
 - **Lock di concorrenza = lo stesso lock advisory di `startRun`**
   (`hashtext(ticketId)`): correzioni e rilanci del fix sullo stesso ticket si
   serializzano. "Job vivo" = QUALSIASI job del ticket in
-  `IN_FLIGHT_JOB_STATUSES` (non solo l'ultimo come in `startRun`), più i FIX
-  `held` (`correction_id IS NULL`): un fix parcheggiato riparte da solo. Un
-  solo predicato esportato, `jobBlocksCorrection()`.
-- **Regola "un job vivo per ticket"**: il bottone e la review rifiutano
-  (`job_in_flight`) se un job qualunque è in volo; "Request changes" dal
-  provider diventa `pending` sia durante una correzione sia durante un fix
-  qualsiasi. Una `pending` libera parte al posto di QUALUNQUE richiesta nuova,
+  `IN_FLIGHT_JOB_STATUSES` (non solo l'ultimo come in `startRun`), più ogni
+  job `held`, di qualunque tipo: un job parcheggiato riparte da solo, e una
+  correzione `held` sulla PR A deve fermare anche la PR B (seconda revisione
+  di A7; prima valeva solo per i FIX `held`, e la rete di sicurezza avrebbe
+  fatto partire due correzioni sullo stesso ticket). Un solo predicato
+  esportato, `jobBlocksCorrection()`.
+- **Regola "un lavoro per ticket"**: il bottone rifiuta (`job_in_flight`) se
+  un job qualunque blocca; la review rifiuta solo per una `queued` sulla SUA
+  PR (`correction_in_flight`) e, se a bloccare è un altro lavoro del ticket,
+  il giro diventa una `pending` `trigger='review'` (o risponde con la pending
+  già in fila) — conta come giro, non azzera la tornata, e promossa ha
+  `manualTrigger=false`; "Request changes" dal provider diventa `pending` sia
+  durante una correzione sia durante un fix qualsiasi. Una `pending` libera parte al posto di QUALUNQUE richiesta nuova,
   review compresa (la review la promuove senza fondersi: cambia solo il
   `reviewId`, che diventa l'ultima review completata — voluto).
 - **`manualTrigger = trigger !== 'review'`** sul job della correzione: le
@@ -18838,10 +19444,24 @@ tappe sono stati risolti e integrati nella sezione «Contratti» e nei task.
   worker.
 - **Pending dopo un fix fallito promossa dal handler** (C9) e non da ognuno dei
   `return "failed"` di `runFix`.
-- **Una `pending` si promuove alla fine di QUALUNQUE review** (approve o
-  request_changes, C10) **e di qualunque fix/correzione terminato** (C7 sul
-  successo del fix, C9 sul fix `failed`/`skipped`, C8 sulla correzione): non
-  resta mai senza un punto di promozione.
+- **Per QUALUNQUE verdetto di una review si promuove la pending di QUESTA
+  PR** (C10, e la review fallita dell'emendamento E2); quelle di altre PR del
+  ticket partono dopo il giro automatico o dal tick — promuoverle alla fine
+  della review farebbe rifiutare il giro automatico appena chiesto.
+- **La fine di un lavoro sul ticket promuove PER TICKET**
+  (`promotePendingForTicket`): C7 sul successo del fix, C9 sul fix
+  `failed`/`skipped`, C8 sulla correzione, D3 dopo l'annullamento alla chiusura
+  della PR. Il job vivo blocca per ticket: promuovere solo la PR del lavoro
+  appena finito lascerebbe ferma la pending di un'altra PR.
+- **Il tick del worker** (`promoteStalePendings`, C9, sulla cadenza di
+  `requeueStale`) è la rete di sicurezza: raccoglie ogni pending di un ticket
+  su cui nessun job blocca più. Una riga di log per promozione, senza
+  affermare una causa; il warn di una riga che fallisce una volta per id.
+- **Una correzione annullata a metà lavoro non pusha, o se ha già pushato non
+  fa altro** (C8): rilettura dello status prima del push, niente review né
+  promozione se `completeCorrection` torna `false`. Col branch sparito la
+  pending della stessa PR si annulla, o il tick la ripromuoverebbe
+  all'infinito.
 - **Test d'integrazione con tetto 2**: «tre request_changes → stop» vuol dire
   due correzioni e lo stop alla terza review; la ripartenza dopo la richiesta
   umana si prova con un `request_changes` (un `approve` passerebbe anche senza
