@@ -25,7 +25,13 @@
 export type * from "./format.js";
 export type * from "./actions.js";
 
-export { eventSummary, formatNotification, formatNotificationText, sampleEvents } from "./format.js";
+export {
+  eventSummary,
+  formatNotification,
+  formatNotificationText,
+  isReviewFailedEvent,
+  sampleEvents,
+} from "./format.js";
 
 export {
   actionsFor,

@@ -492,8 +492,9 @@ export async function promotePendingAfterFailedReview(db: Db, job: PrReviewJobRo
  * Solo se:
  *  - la PR è di Stubwise per QUESTO ticket: branch `stubwise/ticket-N`, il
  *    ticket N del progetto, e la riga `ticket_repositories` su quel repo e
- *    branch (stessa prova di `isStubwisePr`; il ticket qui non è ancora stato
- *    risolto da `resolveTicket`, che gira solo a parse riuscito);
+ *    branch, con la PR ancora APERTA (stessa prova di `isStubwisePr` più lo
+ *    stato; il ticket qui non è ancora stato risolto da `resolveTicket`, che
+ *    gira solo a parse riuscito);
  *  - la serie corrente ha fatto almeno un giro automatico
  *    (`autoRoundsInCurrentSeries > 0`): una review normale fallita resta
  *    silenziosa come oggi. Una richiesta umana (anche `pending`) azzera già il
@@ -501,6 +502,10 @@ export async function promotePendingAfterFailedReview(db: Db, job: PrReviewJobRo
  *  - nessuna correzione è ancora aperta sulla PR (`pending`/`queued`, anche
  *    appena promossa): lì il ciclo NON è fermo, qualcosa sta per ripartire.
  *    Va quindi chiamata DOPO `promotePendingAfterFailedReview`.
+ *
+ * L'avviso si RIPETE a ogni review fallita della serie, come quello dello stop
+ * al tetto a ogni review successiva: ogni review nasce da un'azione (un push,
+ * una richiesta), e ogni fallimento è un fatto nuovo da sapere.
  *
  * Il chiamante la invoca solo quando la chiusura `failed` è davvero sua (una
  * riga già chiusa dal recovery non si ri-notifica) e MAI nel ramo del limite
@@ -524,6 +529,9 @@ export async function notifyCycleStoppedByFailedReview(
           eq(ticketRepositories.ticketId, tickets.id),
           eq(ticketRepositories.repositoryId, job.repositoryId),
           eq(ticketRepositories.branch, job.sourceBranch),
+          // PR chiusa (magari durante la review): niente ciclo da dichiarare
+          // fermo, la chiusura ha già annullato le correzioni.
+          eq(ticketRepositories.prState, "open"),
         ),
       )
       .where(and(eq(tickets.projectId, input.projectId), eq(tickets.number, number)))

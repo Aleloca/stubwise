@@ -779,21 +779,41 @@ const KEY_FOR_KIND: Record<NotificationKind, string> = {
 };
 
 /**
- * Il `{verdict}` di `notify.reviewCompleted`. Fermo: il verdetto dice PERCHÉ
- * nessuno sta più correggendo — la review fallita dentro una serie, o il tetto.
- * Senza `cycle` (evento vecchio, PR esterna) il testo resta quello di sempre, e
- * uno `stopped` senza `stoppedReason` (evento pubblicato prima del campo) è lo
- * stop al tetto, l'unico che esisteva.
- *
- * Un `verdict: null` senza `stoppedReason: "review_failed"` non lo pubblica
- * nessuno; se arrivasse (jsonb scritto a mano), dire «la review non è
- * riuscita» è vero, mentre «modifiche richieste» sarebbe un verdetto inventato.
+ * Una `review.completed` che NON è una review completata: dentro una serie di
+ * correzioni automatiche la review è fallita (C10b del ciclo di correzione).
+ * Il worker la pubblica con `verdict: null` e `cycle.stoppedReason:
+ * "review_failed"`; basta uno dei due (un jsonb scritto a mano, o un campo
+ * perso) per non chiamarla «completata» né «pronta», e per non inventarle un
+ * verdetto. L'UNICA definizione: la usano il testo ({@link templateKey}), il
+ * titolo della push e il server (`summaryForItem`, nessun riassunto di una
+ * review precedente). Legge un evento che può venire da un jsonb vecchio:
+ * tollera `cycle` assente.
+ */
+export function isReviewFailedEvent(event: NotificationEvent): boolean {
+  if (event.kind !== "review.completed") return false;
+  return event.verdict === null || event.cycle?.stoppedReason === "review_failed";
+}
+
+/**
+ * La chiave `notify.*` della frase: quella del kind, tranne per una review
+ * fallita dentro una serie ({@link isReviewFailedEvent}), che ha una frase sua
+ * (`notify.reviewStopped`) — stesso kind, nessun valore nuovo di
+ * `notification_kind`.
+ */
+function templateKey(event: NotificationEvent): string {
+  return isReviewFailedEvent(event) ? "notify.reviewStopped" : KEY_FOR_KIND[event.kind];
+}
+
+/**
+ * Il `{verdict}` di `notify.reviewCompleted`. Fermo al tetto: il verdetto dice
+ * PERCHÉ nessuno sta più correggendo. Senza `cycle` (evento vecchio, PR
+ * esterna) il testo resta quello di sempre, e uno `stopped` senza
+ * `stoppedReason` (evento pubblicato prima del campo) è lo stop al tetto,
+ * l'unico che esisteva. La review fallita non passa di qui: ha la sua frase
+ * ({@link templateKey}).
  */
 function reviewVerdictText(lang: Language, event: ReviewCompletedEvent): string {
   const cycle = event.cycle;
-  if (cycle?.stoppedReason === "review_failed" || event.verdict === null) {
-    return t(lang, "notify.verdict.reviewFailed", { rounds: cycle?.round ?? 0 });
-  }
   if (cycle?.stopped) return t(lang, "notify.verdict.stoppedAtCap", { rounds: cycle.round });
   return t(lang, event.verdict === "approve" ? "notify.verdict.approve" : "notify.verdict.requestChanges");
 }
@@ -863,7 +883,8 @@ function textParams(
         spent: event.spentUsd.toFixed(2),
       };
     case "review.completed":
-      return { ...base, verdict: reviewVerdictText(lang, event) };
+      // `rounds` serve solo a `notify.reviewStopped` (review fallita).
+      return { ...base, verdict: reviewVerdictText(lang, event), rounds: event.cycle?.round ?? 0 };
     case "job.failed":
       return { ...base, error: event.error };
     case "job.awaiting_input":
@@ -926,7 +947,7 @@ function renderText(
       if (typeof value === "string") params[name] = escapeSlackMrkdwn(value);
     }
   }
-  const sentence = t(lang, KEY_FOR_KIND[event.kind], {
+  const sentence = t(lang, templateKey(event), {
     ...params,
     // `{ref}` esiste solo per gli eventi ancorati a un ticket.
     ...(hasTicket(event) ? { ref: refParam(format, event.ticketNumber) } : {}),
@@ -958,7 +979,7 @@ function formatDiscord(event: NotificationEvent, lang: Language): Record<string,
  */
 export function formatNotificationText(event: NotificationEvent, lang: Language = "en"): string {
   const cost = event.kind === "job.pr_opened" ? costParam(lang, event.costUsd) : "";
-  return t(lang, KEY_FOR_KIND[event.kind], {
+  return t(lang, templateKey(event), {
     ...textParams(event, lang),
     ...(hasTicket(event) ? { ref: refParam("generic", event.ticketNumber) } : {}),
     cost,

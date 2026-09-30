@@ -195,9 +195,12 @@ Nella risposta di dettaglio ticket, ogni voce PR per repository
 `packages/notifications/src/format.ts`, non zod) guadagna `cycle?: PrCycleEvent`;
 il payload webhook `generic` di `review.completed` porta sempre `cycle` (`null` se assente).
 Da C10b il suo `verdict` è `"approve" | "request_changes" | null`: `null` SOLO con
-`cycle.stoppedReason === "review_failed"` (testo `notify.verdict.reviewFailed`,
-«la review non è riuscita (correzioni automatiche: N); il ciclo automatico si è
-fermato»). Nessun kind nuovo.
+`cycle.stoppedReason === "review_failed"`. Quegli eventi li riconosce
+`isReviewFailedEvent(event)` (esportato da `@stubwise/notifications` e da
+`./pure`): frase `notify.reviewStopped` («Correzioni automatiche della PR ferme
+per … : la review non è riuscita (correzioni automatiche: N).») e titolo push
+`push.title.review.stopped`, al posto di «review completata/pronta». Nessun
+kind nuovo.
 
 ### packages/notifications
 
@@ -13963,29 +13966,51 @@ Best-effort.
    (`.optional()`; chi lo leggesse da un client passi da `readerSchema`, che
    apre l'enum — oggi nessun client lo legge: il dettaglio inbox manda solo
    `text`/`summary`). Al tetto (C10) `stoppedReason: "cap"`.
-2. `@stubwise/i18n`: `notify.verdict.reviewFailed` (en/it, forma
-   `etichetta: N`, niente plurali).
-3. `@stubwise/notifications`: `ReviewCompletedEvent.verdict` ammette `null`;
-   `textParams` → `reviewVerdictText`: `review_failed` (o un verdetto nullo
-   comunque arrivato) → `reviewFailed`, poi `stopped` → `stoppedAtCap`, poi il
-   verdetto. Slack/Discord/push passano dallo stesso testo; `generic` porta
-   `verdict: null` e `cycle` col motivo.
+2. `@stubwise/i18n` (revisione di C10b): una FRASE sua, non un verdetto
+   dentro «PR review completed» — `notify.reviewStopped` («Automatic PR
+   corrections stopped for {ref} — {ticketTitle} ({projectName}): the review
+   did not succeed (automatic corrections: {rounds}). {link}» / «Correzioni
+   automatiche della PR ferme per …: la review non è riuscita (correzioni
+   automatiche: {rounds}). {link}») e il titolo push
+   `push.title.review.stopped` («Automatic PR corrections stopped» /
+   «Correzioni automatiche della PR ferme») al posto di «PR review ready».
+   Forma `etichetta: N`, niente plurali.
+3. `@stubwise/notifications`: `ReviewCompletedEvent.verdict` ammette `null`.
+   Predicato ESPORTATO (anche da `./pure`) `isReviewFailedEvent(event)`:
+   `review.completed` con `verdict === null` o `cycle.stoppedReason ===
+   "review_failed"`. `templateKey(event)` in `format.ts` sceglie
+   `notify.reviewStopped` per quegli eventi, altrimenti `KEY_FOR_KIND` (usata in
+   `renderText` e `formatNotificationText`); `buildPushPayload` sceglie il
+   titolo allo stesso modo. Slack/Discord/push passano dalla stessa frase;
+   `generic` porta `verdict: null` e `cycle` col motivo. Un evento vecchio
+   resta con frase e titolo di sempre.
 4. Worker: `notifyCycleStoppedByFailedReview` (`review/cycle.ts`), chiamata da
    `failRunningAndPromote` SOLO se la chiusura `failed` è stata sua e DOPO
    `promotePendingAfterFailedReview`. Notifica solo se: branch
    `stubwise/ticket-N` con la riga `ticket_repositories` del ticket N del
-   progetto su quel repo e branch (il ticket non è ancora risolto da
-   `resolveTicket`, che gira a parse riuscito); `autoRoundsInCurrentSeries > 0`
+   progetto su quel repo e branch, con la PR ancora aperta (`pr_state =
+   'open'`: una PR chiusa durante la review non ha un ciclo da dichiarare
+   fermo; il ticket non è ancora risolto da `resolveTicket`, che gira a parse
+   riuscito); `autoRoundsInCurrentSeries > 0`
    (una richiesta umana, anche `pending`, azzera: niente avviso); nessuna
    correzione ancora aperta sulla PR (`prHasOpenCorrection`: un giro in fila o
    appena promosso vuol dire che il ciclo NON è fermo). MAI nel ramo del limite
    del provider (la review riparte), MAI con la serie a 0 giri (review normale
    fallita: comportamento di prima), MAI per una review mai partita
-   (`failWaitingAndPromote`).
+   (`failWaitingAndPromote`). L'avviso si RIPETE a ogni review fallita della
+   serie, come lo stop al tetto a ogni review successiva: ogni review nasce da
+   un'azione (un push, una richiesta), e ogni fallimento è un fatto nuovo.
 5. Server (consumatore): `summaryForItem` (`services/inbox.ts`) non allega il
-   riassunto "in breve" a una `review.completed` con verdetto nullo — sarebbe
-   quello di una review PRECEDENTE della stessa PR («la review approva») sotto
-   «la review non è riuscita».
+   riassunto "in breve" quando `isReviewFailedEvent` è vero (stesso predicato
+   della frase) — sarebbe quello di una review PRECEDENTE della stessa PR («la
+   review approva») sotto «la review non è riuscita».
+
+**Rollback (revisione di C10b).** Un server sceso d'immagine rende le
+`review.completed` con `verdict: null` come «modifiche (ancora) richieste»
+(non conosce `notify.reviewStopped`) e ci allega il riassunto di una review
+precedente. Nessun 500, nessun crash: testo sbagliato su quelle card. Pulizia
+facoltativa: `delete from notifications where kind='review.completed' and
+event->>'verdict' is null;`. Riportata anche in G1.
 
 **Consumatori verificati** con verdetto nullo: `format.ts` (testo, Slack,
 Discord, generic, push via testo), `services/inbox.ts` (testo nel recinto di
@@ -13996,8 +14021,12 @@ solo `text`/`summary`; il TONO resta `ok` — è F8).
 **Test.** `run-review.test.ts` («review fallita dentro una serie automatica
 (C10b)»): fallita in serie (non parsabile, exit ≠ 0) → UNA notifica col motivo;
 fuori serie → nessuna; serie azzerata da una richiesta umana → nessuna; giro
-automatico ancora in fila → nessuna; limite del provider → nessuna; branch non
-di Stubwise → nessuna; riga chiusa dal recovery → nessuna. `format.test.ts`,
+automatico ancora in fila → nessuna; richiesta UMANA in attesa promossa da E2 →
+nessuna; limite del provider → nessuna; branch non di Stubwise → nessuna;
+branch `stubwise/ticket-N` senza la riga `ticket_repositories` → nessuna; PR
+chiusa durante la review → nessuna; riga chiusa dal recovery → nessuna.
+`push/payload.test.ts`: titolo nuovo per la review fallita, di sempre per un
+evento vecchio; chiave presente in ogni lingua. `format.test.ts`,
 `pr-correction.test.ts` (shared), `inbox.test.ts` (server).
 
 **Commit:** `feat(notifications): …` (shared+i18n+notifications),
@@ -23175,6 +23204,14 @@ del merge). Sostituisci `<data>` con la data del merge.
   migratore ignora la 0081 già applicata. Per **spegnere solo il ciclo
   automatico** senza toccare immagini: `pr_correction_max_rounds = 0` sui
   progetti (le correzioni manuali restano).
+  ⚠️ **Card di una review fallita dopo un rollback del server (C10b)**: le
+  `review.completed` con `verdict: null` (review fallita dentro una serie
+  automatica) su un server sceso d'immagine si leggono «modifiche (ancora)
+  richieste» — il binario vecchio non conosce `notify.reviewStopped` — e ci
+  viene allegato il riassunto di una review PRECEDENTE della PR. Nessun 500,
+  nessun crash: solo testo sbagliato su quelle card. Pulizia facoltativa:
+  `delete from notifications where kind='review.completed' and
+  event->>'verdict' is null;`.
 ```
 
 **Step 2: invarianti.** In «Invarianti e trappole», subito DOPO la voce che inizia con

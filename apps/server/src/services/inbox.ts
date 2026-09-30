@@ -35,6 +35,7 @@ import {
   actionsFor,
   actorAllows,
   formatNotificationText,
+  isReviewFailedEvent,
   kindOffers,
   KINDS_WITH_OPTIONS,
   openUrl,
@@ -1192,12 +1193,15 @@ function summaryForItem(
     return row.jobId ? planSummaryByJob.get(row.jobId) : undefined;
   }
   if (!PR_SUMMARY_KINDS.has(row.kind) || row.ticketId === null) return undefined;
-  // `review.completed` con verdetto NULLO (C10b del ciclo di correzione): la
-  // review è FALLITA dentro una serie automatica e non ha prodotto nessun
-  // riassunto. Quello che la mappa troverebbe è il riassunto di una review
-  // PRECEDENTE della stessa PR (per esempio «la review approva»): mostrarlo
-  // sotto «la review non è riuscita» lo contraddirebbe. Meglio nessuno.
-  if (row.kind === "review.completed" && rawEvent.verdict === null) return undefined;
+  // Review FALLITA dentro una serie automatica (C10b del ciclo di correzione,
+  // `isReviewFailedEvent`: verdetto nullo o `stoppedReason: "review_failed"`):
+  // non ha prodotto nessun riassunto. Quello che la mappa troverebbe è il
+  // riassunto di una review PRECEDENTE della stessa PR (per esempio «la review
+  // approva»): mostrarlo sotto «la review non è riuscita» lo contraddirebbe.
+  // Il predicato è lo stesso che sceglie la frase: le due cose non divergono.
+  if (row.kind === "review.completed" && isReviewFailedEvent({ ...rawEvent, kind: row.kind } as unknown as NotificationEvent)) {
+    return undefined;
+  }
   const prUrl = rawEvent.prUrl;
   if (typeof prUrl !== "string" || prUrl === "") return undefined;
   return prSummaryByTicketAndUrl.get(`${row.ticketId}|${prUrl}`);

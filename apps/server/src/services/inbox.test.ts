@@ -1153,7 +1153,8 @@ describe("listInbox — riassunto in breve", () => {
     expect(items[0]!.summary).toBe("La PR sistema il login. La review approva.");
   });
 
-  it("review.completed con verdetto NULLO (review fallita in una serie, C10b): niente riassunto di una review precedente, testo che lo dice", async () => {
+  /** Review PRECEDENTE della stessa PR, col suo riassunto, e la card da leggere. */
+  async function failedReviewCard(event: Record<string, unknown>) {
     const user = await seedUser("admin");
     const ticketId = await seedTicket();
     const prUrl = "https://github.com/o/r/pull/7";
@@ -1161,7 +1162,6 @@ describe("listInbox — riassunto in breve", () => {
       .select({ id: repositories.id })
       .from(repositories)
       .where(eq(repositories.projectId, projectId));
-    // La review PRECEDENTE della stessa PR, col suo riassunto.
     await db.insert(prReviews).values({
       repositoryId: repository!.id,
       ticketId,
@@ -1184,18 +1184,41 @@ describe("listInbox — riassunto in breve", () => {
         projectName: "negozio-web",
         ticketUrl: "https://stubwise.test/tickets/7",
         prUrl,
-        verdict: null,
-        cycle: { round: 2, max: 3, stopped: true, stoppedReason: "review_failed" },
-      } as NotificationEvent,
+        ...event,
+      } as unknown as NotificationEvent,
       ticketId,
     });
-
     const { items } = await listInbox(db, { userId: user.id, lang: "it" });
-
     expect(items).toHaveLength(1);
-    expect(items[0]).not.toHaveProperty("summary");
-    expect(items[0]!.text).toContain("la review non è riuscita (correzioni automatiche: 2)");
-    expect(items[0]!.text).not.toContain("modifiche richieste");
+    return items[0]!;
+  }
+
+  it("review.completed con verdetto NULLO (review fallita in una serie, C10b): niente riassunto di una review precedente, frase delle correzioni ferme", async () => {
+    const item = await failedReviewCard({
+      verdict: null,
+      cycle: { round: 2, max: 3, stopped: true, stoppedReason: "review_failed" },
+    });
+    expect(item).not.toHaveProperty("summary");
+    expect(item.text).toContain("Correzioni automatiche della PR ferme per #7");
+    expect(item.text).toContain("la review non è riuscita (correzioni automatiche: 2)");
+    expect(item.text).not.toContain("modifiche richieste");
+  });
+
+  it("review.completed con `stoppedReason: \"review_failed\"` e verdetto VALORIZZATO: nessun riassunto (stesso predicato del testo)", async () => {
+    const item = await failedReviewCard({
+      verdict: "request_changes",
+      cycle: { round: 2, max: 3, stopped: true, stoppedReason: "review_failed" },
+    });
+    expect(item).not.toHaveProperty("summary");
+    expect(item.text).toContain("Correzioni automatiche della PR ferme per #7");
+  });
+
+  it("review.completed al tetto (`stoppedReason: \"cap\"`): il riassunto resta", async () => {
+    const item = await failedReviewCard({
+      verdict: "request_changes",
+      cycle: { round: 3, max: 3, stopped: true, stoppedReason: "cap" },
+    });
+    expect(item.summary).toBe("La PR sistema il login. La review chiede modifiche.");
   });
 
   it("una pagina intera costa UNA query in più, non una per item", async () => {

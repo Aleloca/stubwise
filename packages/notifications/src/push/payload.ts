@@ -16,7 +16,12 @@ import {
   PUSH_TITLE_MAX_CHARS,
   type PushPayload,
 } from "@stubwise/shared";
-import { formatNotificationText, type NotificationEvent, type NotificationKind } from "../format.js";
+import {
+  formatNotificationText,
+  isReviewFailedEvent,
+  type NotificationEvent,
+  type NotificationKind,
+} from "../format.js";
 import { truncate } from "./truncate.js";
 
 /**
@@ -170,6 +175,17 @@ export interface PushPayloadContext {
  * esiste perché aggiungerne un altro non richieda di ricordarsi di passarlo (un
  * test verifica che nessun titolo esca con un `{segnaposto}` non risolto).
  */
+/**
+ * Chiave del titolo: quella del kind, tranne per una `review.completed` di una
+ * review FALLITA dentro una serie ({@link isReviewFailedEvent}), che non è
+ * «pronta». Stessa eccezione della frase (`templateKey` in `format.ts`).
+ */
+export const PUSH_TITLE_REVIEW_STOPPED_KEY = "push.title.review.stopped";
+
+function pushTitleKey(event: NotificationEvent): string {
+  return isReviewFailedEvent(event) ? PUSH_TITLE_REVIEW_STOPPED_KEY : PUSH_TITLE_KEY[event.kind];
+}
+
 function titleParams(event: NotificationEvent): Record<string, string | number> {
   if (event.kind === "project.pulse") return { project: event.projectName };
   if (event.kind === "project.brief") return { project: event.projectName };
@@ -195,7 +211,7 @@ export function buildPushPayload(
   ctx: PushPayloadContext,
 ): PushPayload {
   return {
-    title: truncate(t(lang, PUSH_TITLE_KEY[event.kind], titleParams(event)), PUSH_TITLE_MAX_CHARS),
+    title: truncate(t(lang, pushTitleKey(event), titleParams(event)), PUSH_TITLE_MAX_CHARS),
     body: truncate(formatNotificationText(event, lang), PUSH_BODY_MAX_CHARS),
     // Su iOS è la `UNNotificationCategory` (i bottoni d'azione rapida), su
     // Android il `channel_id`: in entrambi i casi è il kind.

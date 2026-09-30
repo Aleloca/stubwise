@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   formatNotification,
   formatNotificationText,
+  isReviewFailedEvent,
   sampleEvents,
   type NotificationEvent,
   type NotificationFormat,
@@ -1163,55 +1164,77 @@ describe("review.completed: il ciclo di correzione", () => {
   });
 
   // C10b: dentro una serie automatica la review è FALLITA. Stesso kind, verdetto
-  // nullo, `stoppedReason: "review_failed"`: il testo non deve inventare un
-  // verdetto («changes requested») che la review non ha mai dato.
+  // nullo, `stoppedReason: "review_failed"`: una frase SUA (`notify.reviewStopped`),
+  // né «review completed» né un verdetto («changes requested») mai dato.
   const FALLITA: ReviewCompletedEvent = {
     ...FERMO,
     verdict: null,
     cycle: { round: 2, max: 3, stopped: true, stoppedReason: "review_failed" },
   };
 
-  it("review fallita dentro una serie → lo dice, con i giri fatti (en)", () => {
+  it("review fallita dentro una serie → la frase delle correzioni ferme (en)", () => {
     const text = formatNotificationText(FALLITA, "en");
-    expect(text).toContain("the review did not succeed (automatic corrections: 2); the automatic cycle has stopped");
-    expect(text).not.toContain("changes requested");
-    expect(text).not.toContain("changes still requested");
+    expect(text).toBe(
+      "Automatic PR corrections stopped for #42 — Fix checkout (webapp): the review did not succeed (automatic corrections: 2).",
+    );
   });
 
   it("review fallita dentro una serie → it", () => {
     const text = formatNotificationText(FALLITA, "it");
-    expect(text).toContain("la review non è riuscita (correzioni automatiche: 2); il ciclo automatico si è fermato");
+    expect(text).toBe(
+      "Correzioni automatiche della PR ferme per #42 — Fix checkout (webapp): la review non è riuscita (correzioni automatiche: 2).",
+    );
   });
 
-  it("stop al tetto con `stoppedReason: \"cap\"` → il testo del tetto", () => {
+  it("evento vecchio (senza `cycle`, verdetto valorizzato) → la frase di sempre", () => {
+    const vecchio: ReviewCompletedEvent = { ...FERMO };
+    delete vecchio.cycle;
+    expect(formatNotificationText(vecchio, "en")).toBe(
+      "PR review completed for #42 — Fix checkout (webapp): changes requested.",
+    );
+  });
+
+  it("stop al tetto con `stoppedReason: \"cap\"` → la frase del tetto", () => {
     const text = formatNotificationText({ ...FERMO, cycle: { round: 3, max: 3, stopped: true, stoppedReason: "cap" } }, "en");
+    expect(text).toContain("PR review completed for #42");
     expect(text).toContain("changes still requested (automatic corrections: 3)");
   });
 
-  it("`stoppedReason: \"review_failed\"` decide il testo anche se il verdetto c'è (è il motivo dello stop, non il verdetto)", () => {
+  it("`stoppedReason: \"review_failed\"` basta anche col verdetto valorizzato", () => {
     const text = formatNotificationText({ ...FALLITA, verdict: "request_changes" }, "en");
-    expect(text).toContain("the review did not succeed (automatic corrections: 2)");
-    expect(text).not.toContain("changes still requested");
+    expect(text).toContain("Automatic PR corrections stopped for #42");
+    expect(text).not.toContain("PR review completed");
   });
 
-  it("verdetto nullo senza `cycle` (jsonb anomalo) → non inventa un verdetto, non lancia", () => {
+  it("verdetto nullo senza `cycle` (jsonb anomalo) → frase delle correzioni ferme, non lancia", () => {
     const anomalo: ReviewCompletedEvent = { ...FERMO, verdict: null };
     delete anomalo.cycle;
     const text = formatNotificationText(anomalo, "en");
-    expect(text).toContain("the review did not succeed (automatic corrections: 0)");
-    expect(text).not.toContain("changes requested");
+    expect(text).toContain("Automatic PR corrections stopped for #42");
+    expect(text).toContain("(automatic corrections: 0)");
   });
 
-  it("Slack e Discord: la review fallita si rende senza lanciare", () => {
+  it("isReviewFailedEvent: vero per verdetto nullo o motivo review_failed, falso altrimenti", () => {
+    expect(isReviewFailedEvent(FALLITA)).toBe(true);
+    expect(isReviewFailedEvent({ ...FALLITA, verdict: "request_changes" })).toBe(true);
+    expect(isReviewFailedEvent({ ...FERMO, verdict: null, cycle: undefined })).toBe(true);
+    expect(isReviewFailedEvent(FERMO)).toBe(false);
+    expect(isReviewFailedEvent({ ...FERMO, cycle: { round: 3, max: 3, stopped: true, stoppedReason: "cap" } })).toBe(false);
+  });
+
+  it("Slack e Discord: la review fallita usa la stessa frase, coi link", () => {
     for (const format of ["slack", "discord"] as const) {
-      const out = formatNotification(FALLITA, format);
-      expect(JSON.stringify(out.body)).toContain("the review did not succeed");
+      const out = JSON.stringify(formatNotification(FALLITA, format).body);
+      expect(out).toContain("Automatic PR corrections stopped for");
+      expect(out).toContain("the review did not succeed");
+      expect(out).not.toContain("PR review completed");
     }
   });
 
-  it("generic: verdetto null e `cycle` col motivo dello stop", () => {
+  it("generic: verdetto null, `cycle` col motivo dello stop e la frase nuova in `message`", () => {
     const body = formatNotification(FALLITA, "generic").body as Record<string, unknown>;
     expect(body.verdict).toBeNull();
     expect(body.cycle).toEqual({ round: 2, max: 3, stopped: true, stoppedReason: "review_failed" });
+    expect(String(body.message)).toContain("Automatic PR corrections stopped");
   });
 });

@@ -1100,21 +1100,28 @@ describe("runPrReview — review fallita dentro una serie automatica (C10b)", ()
    * Ticket #5 con la PR 7 di Stubwise, tetto 3, e le correzioni già fatte
    * sulla PR: `auto` giri automatici conclusi, più eventuali righe extra.
    */
-  async function seriesPr(opts: { auto: number; extra?: { trigger: "review" | "stubwise"; status: "pending" | "queued" | "done" }[] }) {
+  async function seriesPr(opts: {
+    auto: number;
+    extra?: { trigger: "review" | "stubwise"; status: "pending" | "queued" | "done" }[];
+    /** false = nessuna riga `ticket_repositories` per il branch della PR. */
+    link?: boolean;
+  }) {
     const { projectId, repositoryId } = await createRepository(testDb.db);
     await testDb.db.update(projects).set({ prCorrectionMaxRounds: 3 }).where(eq(projects.id, projectId));
     const [ticket] = await testDb.db
       .insert(tickets)
       .values({ projectId, number: 5, title: "Bug", type: "bug", priority: "high", source: "manual" })
       .returning();
-    await testDb.db.insert(ticketRepositories).values({
-      ticketId: ticket!.id,
-      repositoryId,
-      branch: "stubwise/ticket-5",
-      prUrl: "https://example.com/owner/repo/pull/7",
-      prState: "open",
-      prNumber: 7,
-    });
+    if (opts.link !== false) {
+      await testDb.db.insert(ticketRepositories).values({
+        ticketId: ticket!.id,
+        repositoryId,
+        branch: "stubwise/ticket-5",
+        prUrl: "https://example.com/owner/repo/pull/7",
+        prState: "open",
+        prNumber: 7,
+      });
+    }
     const rows = [
       ...Array.from({ length: opts.auto }, () => ({ trigger: "review" as const, status: "done" as const })),
       ...(opts.extra ?? []),
@@ -1223,6 +1230,53 @@ describe("runPrReview — review fallita dentro una serie automatica (C10b)", ()
 
     await runClaimed(fakes.deps, makeJob(pr.repositoryId, { sourceBranch: "feature/login" }));
 
+    expect(fakes.dispatched).toHaveLength(0);
+  });
+
+  it("una richiesta UMANA in attesa dentro la serie, promossa dopo la review fallita: nessuna notifica", async () => {
+    const pr = await seriesPr({ auto: 2, extra: [{ trigger: "stubwise", status: "pending" }] });
+    await enableReview(testDb.db);
+    const fakes = makeFakes();
+    fakes.runner.run.mockResolvedValue(makeRunResult({ output: "nessun JSON qui" }));
+
+    await runClaimed(fakes.deps, makeJob(pr.repositoryId, { sourceBranch: "stubwise/ticket-5" }));
+
+    // La richiesta umana è partita (E2): il ciclo non è fermo, qualcuno corregge.
+    const human = await testDb.db
+      .select()
+      .from(prCorrections)
+      .where(and(eq(prCorrections.repositoryId, pr.repositoryId), eq(prCorrections.trigger, "stubwise")));
+    expect(human[0]!.status).toBe("queued");
+    expect(fakes.dispatched).toHaveLength(0);
+  });
+
+  it("branch `stubwise/ticket-5` senza la riga `ticket_repositories` corrispondente: nessuna notifica", async () => {
+    const pr = await seriesPr({ auto: 2, link: false });
+    await enableReview(testDb.db);
+    const fakes = makeFakes();
+    fakes.runner.run.mockResolvedValue(makeRunResult({ output: "nessun JSON qui" }));
+
+    await runClaimed(fakes.deps, makeJob(pr.repositoryId, { sourceBranch: "stubwise/ticket-5" }));
+
+    expect(fakes.dispatched).toHaveLength(0);
+  });
+
+  it("PR chiusa DURANTE la review, poi review fallita: nessuna notifica", async () => {
+    const pr = await seriesPr({ auto: 2 });
+    await enableReview(testDb.db);
+    const fakes = makeFakes();
+    fakes.runner.run.mockImplementation(async () => {
+      await testDb.db
+        .update(ticketRepositories)
+        .set({ prState: "closed_unmerged" })
+        .where(eq(ticketRepositories.ticketId, pr.ticketId));
+      return makeRunResult({ output: "nessun JSON qui" });
+    });
+
+    await runClaimed(fakes.deps, makeJob(pr.repositoryId, { sourceBranch: "stubwise/ticket-5" }));
+
+    const [review] = await testDb.db.select().from(prReviews).where(eq(prReviews.repositoryId, pr.repositoryId));
+    expect(review!.status).toBe("failed");
     expect(fakes.dispatched).toHaveLength(0);
   });
 

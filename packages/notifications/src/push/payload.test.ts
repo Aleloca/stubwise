@@ -10,8 +10,15 @@ import {
   sampleEvents,
   type GoogleProposalEvent,
   type NotificationEvent,
+  type ReviewCompletedEvent,
 } from "../format.js";
-import { buildPushPayload, PUSH_TITLE_KEY, type PushPayloadContext } from "./payload.js";
+import {
+  buildPushPayload,
+  PUSH_TITLE_KEY,
+  PUSH_TITLE_REVIEW_STOPPED_KEY,
+  type PushPayloadContext,
+} from "./payload.js";
+import { t } from "@stubwise/i18n";
 
 const BASE_URL = "https://stubwise.test";
 const NOTIFICATION_ID = "3f2a91c4-5555-4666-8777-888899990000";
@@ -241,5 +248,33 @@ describe("tetto del payload", () => {
   it("un corpo che ci sta non viene toccato", () => {
     const event = longFailure("test suite fallita (3 test rossi)");
     expect(build(event, "it").body).toBe(formatNotificationText(event, "it"));
+  });
+});
+
+// C10b: una `review.completed` di una review FALLITA dentro una serie non è
+// «pronta». Stesso kind, titolo suo; un evento vecchio tiene quello di sempre.
+describe("titolo della review fallita dentro una serie", () => {
+  const REVIEW = EVENTS.find((e): e is ReviewCompletedEvent => e.kind === "review.completed")!;
+  const FALLITA: ReviewCompletedEvent = {
+    ...REVIEW,
+    verdict: null,
+    cycle: { round: 2, max: 3, stopped: true, stoppedReason: "review_failed" },
+  };
+
+  it.each(LANGS)("in %s la chiave esiste (non torna la chiave stessa)", (lang) => {
+    expect(t(lang, PUSH_TITLE_REVIEW_STOPPED_KEY)).not.toBe(PUSH_TITLE_REVIEW_STOPPED_KEY);
+  });
+
+  it("review fallita → titolo delle correzioni ferme, corpo con la frase nuova", () => {
+    expect(build(FALLITA, "en").title).toBe("Automatic PR corrections stopped");
+    expect(build(FALLITA, "it").title).toBe("Correzioni automatiche della PR ferme");
+    expect(build(FALLITA, "en").body).toContain("Automatic PR corrections stopped for");
+  });
+
+  it("evento vecchio (senza `cycle`) → il titolo di sempre", () => {
+    const vecchio: ReviewCompletedEvent = { ...REVIEW };
+    delete vecchio.cycle;
+    expect(build(vecchio, "en").title).toBe("PR review ready");
+    expect(build(vecchio, "it").title).toBe("Review della PR pronta");
   });
 });

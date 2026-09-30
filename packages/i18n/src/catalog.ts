@@ -112,6 +112,13 @@ export const en: Catalog = {
     "Budget exceeded ({scope}) — {ref} {ticketTitle} ({projectName}): spent ${spent} of ${limit} limit. Job on hold; start it manually to override. {link}",
   "notify.reviewCompleted":
     "PR review completed for {ref} — {ticketTitle} ({projectName}): {verdict}. {link}",
+  // Stesso kind (`review.completed`), frase diversa: dentro una serie di
+  // correzioni automatiche la review NON è arrivata a un verdetto
+  // (`verdict: null` / `cycle.stoppedReason === "review_failed"`, vedi
+  // `isReviewFailedEvent`). Dire «review completed» sarebbe falso.
+  // `{rounds}` in forma `etichetta: N` (niente plurali).
+  "notify.reviewStopped":
+    "Automatic PR corrections stopped for {ref} — {ticketTitle} ({projectName}): the review did not succeed (automatic corrections: {rounds}). {link}",
   // Unico evento SENZA ticket: niente {ref}, il {link} porta alla pagina Docs.
   "notify.docsLimitPaused":
     "Docs generation paused for {repositoryName} ({projectName}): provider usage limit reached. It will resume automatically. {link}",
@@ -155,12 +162,6 @@ export const en: Catalog = {
   // `cycle.stopped`): sostituisce il verdetto nella stessa frase.
   "notify.verdict.stoppedAtCap":
     "changes still requested (automatic corrections: {rounds}); the automatic cycle has stopped",
-  // Dentro una serie di correzioni automatiche la review NON è arrivata a un
-  // verdetto (review.completed con `verdict: null` e
-  // `cycle.stoppedReason === "review_failed"`): sostituisce il verdetto nella
-  // stessa frase. `{rounds}` in forma `etichetta: N` (niente plurali).
-  "notify.verdict.reviewFailed":
-    "the review did not succeed (automatic corrections: {rounds}); the automatic cycle has stopped",
   // Suffisso costo (anteposto allo spazio: la frase ha già lo spazio prima).
   "notify.costSuffix": " (cost ${cost})",
   // Etichette dei link (rese nel markup del formato attorno all'URL).
@@ -291,6 +292,9 @@ export const en: Catalog = {
   "push.title.job.plan_review": "Plan to approve",
   "push.title.job.budget_held": "Budget exceeded",
   "push.title.review.completed": "PR review ready",
+  // Titolo della `review.completed` di una review FALLITA dentro una serie
+  // (`isReviewFailedEvent`): «ready» sarebbe falso.
+  "push.title.review.stopped": "Automatic PR corrections stopped",
   "push.title.job.failed": "Job failed",
   "push.title.docs.limit_paused": "Docs paused",
   "push.title.monitor.alert": "Server alert",
@@ -597,6 +601,8 @@ export const it: Catalog = {
     "Budget superato ({scope}) — {ref} {ticketTitle} ({projectName}): spesi ${spent} sul limite di ${limit}. Job in pausa; avvialo manualmente per forzare. {link}",
   "notify.reviewCompleted":
     "Review della PR completata per {ref} — {ticketTitle} ({projectName}): {verdict}. {link}",
+  "notify.reviewStopped":
+    "Correzioni automatiche della PR ferme per {ref} — {ticketTitle} ({projectName}): la review non è riuscita (correzioni automatiche: {rounds}). {link}",
   // Unico evento SENZA ticket: niente {ref}, il {link} porta alla pagina Docs.
   "notify.docsLimitPaused":
     "Generazione Docs in pausa per {repositoryName} ({projectName}): limite di utilizzo del provider raggiunto. Riprenderà da sola. {link}",
@@ -617,8 +623,6 @@ export const it: Catalog = {
   "notify.verdict.requestChanges": "modifiche richieste",
   "notify.verdict.stoppedAtCap":
     "modifiche ancora richieste (correzioni automatiche: {rounds}); il ciclo automatico si è fermato",
-  "notify.verdict.reviewFailed":
-    "la review non è riuscita (correzioni automatiche: {rounds}); il ciclo automatico si è fermato",
   "notify.costSuffix": " (costo ${cost})",
   "notify.linkOpen": "Apri",
   "notify.linkReview": "Rivedi",
@@ -700,6 +704,7 @@ export const it: Catalog = {
   "push.title.job.plan_review": "Piano da approvare",
   "push.title.job.budget_held": "Budget superato",
   "push.title.review.completed": "Review della PR pronta",
+  "push.title.review.stopped": "Correzioni automatiche della PR ferme",
   "push.title.job.failed": "Fix AI fallito",
   "push.title.docs.limit_paused": "Docs in pausa",
   "push.title.monitor.alert": "Allarme su un server",
