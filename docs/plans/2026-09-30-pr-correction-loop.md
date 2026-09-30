@@ -259,8 +259,12 @@ NON dipende da `@stubwise/git`, il provider si inietta):
 
 - `decryptGitCredentials(encryptedCredentials, encryptionKey): GitCredentials | null`
 - `resolveProviderUserId(db, encryptionKey, account: IdentityAccount, fetchIdentity: FetchPlatformIdentity, opts?: { refresh?: boolean }): Promise<string | null>` — null = fail-closed.
+  La cache si scrive con una GUARDIA sul blob letto (`id` E `encrypted_credentials`
+  uguali a quelli letti; l'IV casuale fa del blob una versione) e `.returning()`:
+  nessuna riga scritta o errore del DB → `null`. Così una risposta partita col
+  token vecchio non riscrive la cache dopo che un PATCH delle credenziali l'ha azzerata.
 - `providerFeedbackCutoff(db, { repositoryId, prNumber }): Promise<Date | null>` —
-  `created_at` dell'ultima correzione `done` con `provider_feedback IS NOT NULL`.
+  `created_at` dell'ultima correzione `done` con `feedback_complete = true` (emendamento E1).
 - `selectProviderFeedback(comments, { cutoff, ownIds }): PrComment[]`
 - tipi: `FetchPlatformIdentity = ({ provider, credentials }) => Promise<string>`, `GitCredentials`, `IdentityAccount`.
 
@@ -3300,7 +3304,7 @@ scritto sulla PR prima di una correzione AUTOMATICA (`trigger = 'review'`)
 non è mai stato letto da nessuno — le correzioni automatiche non
 fotografano la PR — e la richiesta umana successiva lo scarterebbe. Quindi
 l'istante è il `created_at` dell'ultima correzione `done` sulla PR **che ha
-una fotografia** (`provider_feedback IS NOT NULL`): i commenti fino a lì sono
+una fotografia completa** (`feedback_complete = true`, emendamento E1): i commenti fino a lì sono
 già stati consegnati all'AI, quelli dopo no. Senza una correzione del genere
 non c'è taglio: la PR è di Stubwise, quindi tutti i suoi commenti sono nati
 dopo la sua apertura. `created_at` e non `updated_at`, perché `updated_at` si
@@ -3516,7 +3520,7 @@ Atteso: FAIL, `Cannot find module './pr-correction-feedback.js'`.
 ```ts
 import { decrypt, gitAccounts, prCorrections, type Db } from "@stubwise/db";
 import type { GitProviderKind, PrComment } from "@stubwise/shared";
-import { and, desc, eq, isNotNull } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 
 /**
  * Identità degli account di Stubwise sulla piattaforma e fotografia dei
@@ -3579,6 +3583,12 @@ export type FetchPlatformIdentity = (input: {
  * 403): chi ci costruisce sopra una difesa deve poter chiudere il cancello
  * (design §5, fail-closed).
  *
+ * L'id restituito è SEMPRE quello salvato: il salvataggio è guardato sul blob
+ * delle credenziali letto all'inizio (fa da versione, l'IV è casuale), così
+ * una risposta del provider partita col token vecchio non riscrive la cache
+ * dopo che un PATCH l'ha azzerata. Se la scrittura non tocca nessuna riga, o
+ * il DB dà errore: `null`.
+ *
  * `refresh` ignora la cache: lo usa il salvataggio dell'account revisore, il
  * momento in cui l'admin deve sapere se funziona davvero.
  */
@@ -3599,14 +3609,35 @@ export async function resolveProviderUserId(
     return null;
   }
   if (!providerUserId) return null;
-  await db.update(gitAccounts).set({ providerUserId }).where(eq(gitAccounts.id, account.id));
-  return providerUserId;
+  // Scrittura GUARDATA sul blob letto: l'IV di `encrypt` è casuale, quindi il
+  // blob fa da versione delle credenziali. Se nel frattempo un PATCH le ha
+  // cambiate (e ha azzerato la cache), l'id appena letto è del token VECCHIO:
+  // scriverlo renderebbe fail-open il filtro anti-auto-innesco. Nessuna riga
+  // scritta, o un errore del DB → null.
+  try {
+    const written = await db
+      .update(gitAccounts)
+      .set({ providerUserId })
+      .where(
+        and(
+          eq(gitAccounts.id, account.id),
+          eq(gitAccounts.encryptedCredentials, account.encryptedCredentials),
+        ),
+      )
+      .returning({ id: gitAccounts.id });
+    return written.length > 0 ? providerUserId : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
  * L'istante dopo cui un commento della PR non è ancora stato consegnato
  * all'AI: il `created_at` dell'ultima correzione CONCLUSA che aveva una
- * fotografia. `null` = nessun taglio (tutti i commenti della PR).
+ * fotografia COMPLETA (`feedback_complete`, emendamento E1: una lettura dei
+ * commenti fallita lascia la sola fotografia minima del webhook, e tagliare lì
+ * salterebbe per sempre i commenti scritti prima, mai letti). `null` = nessun
+ * taglio (tutti i commenti della PR).
  *
  * Non l'«ultimo push» qualsiasi: una correzione automatica (`trigger =
  * 'review'`) pusha senza aver fotografato la PR, e tagliare lì perderebbe i
@@ -3625,7 +3656,10 @@ export async function providerFeedbackCutoff(
         eq(prCorrections.repositoryId, pr.repositoryId),
         eq(prCorrections.prNumber, pr.prNumber),
         eq(prCorrections.status, "done"),
-        isNotNull(prCorrections.providerFeedback),
+        // Emendamento E1: non basta che una fotografia ci sia — quella minima
+        // del webhook esiste anche quando la lettura dei commenti è fallita.
+        // Taglia solo una fotografia letta DAVVERO dal provider.
+        eq(prCorrections.feedbackComplete, true),
       ),
     )
     .orderBy(desc(prCorrections.createdAt))
@@ -3637,6 +3671,12 @@ export async function providerFeedbackCutoff(
  * I commenti che entrano nella fotografia: non scritti dagli account di
  * Stubwise (la review l'AI la riceve già dal DB, e un commento del bot non è
  * feedback umano) e scritti DOPO il taglio.
+ *
+ * - Un `createdAt` non parsabile il commento lo TIENE: errore per eccesso,
+ *   mai per difetto.
+ * - Limite noto: un commento MODIFICATO dopo il taglio si perde, perché
+ *   `PrComment` non ha `updatedAt` (conta solo la data di creazione).
+ * - L'ordine dell'output è quello del provider.
  */
 export function selectProviderFeedback(
   comments: readonly PrComment[],
@@ -3646,8 +3686,14 @@ export function selectProviderFeedback(
   return comments.filter(
     (c) =>
       !own.has(c.authorId) &&
-      (opts.cutoff === null || new Date(c.createdAt).getTime() > opts.cutoff.getTime()),
+      (opts.cutoff === null || !isBeforeOrAt(c.createdAt, opts.cutoff)),
   );
+}
+
+function isBeforeOrAt(createdAt: string, cutoff: Date): boolean {
+  const t = Date.parse(createdAt);
+  if (Number.isNaN(t)) return false;
+  return t <= cutoff.getTime();
 }
 ```
 
@@ -3658,7 +3704,7 @@ pnpm --filter @stubwise/notifications exec vitest run src/pr-correction-feedback
 pnpm --filter @stubwise/notifications typecheck
 ```
 
-Atteso: 11 test PASS, typecheck pulito.
+Atteso: 14 test PASS (gli 11 originali, E1, la race col PATCH, la data non parsabile), typecheck pulito.
 
 **Step 5: commit**
 
