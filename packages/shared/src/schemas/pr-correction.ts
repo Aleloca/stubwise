@@ -138,14 +138,32 @@ export const prCommentSchema = z.object({
 export type PrComment = z.infer<typeof prCommentSchema>;
 
 /**
+ * PERCHÉ il ciclo automatico si è fermato (`PrCycleEvent.stoppedReason`):
+ *  - `cap`: la review chiede ancora modifiche e il tetto dei giri è raggiunto;
+ *  - `review_failed`: dentro una serie di correzioni automatiche la review non
+ *    è arrivata a un verdetto (errore dell'agente o del git, costo oltre il
+ *    tetto, output non parsabile…): nessuno riparte da solo, e senza avviso il
+ *    ciclo si sarebbe spento in silenzio. L'evento porta allora `verdict: null`.
+ * Chi LEGGE questo valore da un client che non si aggiorna coi nostri deploy
+ * lo faccia passare da `readerSchema`, che apre l'enum a un valore futuro.
+ */
+export const prCycleStopReasonSchema = z.enum(["cap", "review_failed"]);
+export type PrCycleStopReason = z.infer<typeof prCycleStopReasonSchema>;
+
+/**
  * Il ciclo com'era al momento della publish di `review.completed`: un fatto
  * vero SOLO in quell'istante (CLAUDE.md, «derivati a lettura»: questo è il
- * caso in cui scriverlo nell'evento è giusto). `stopped` = la review chiede
- * ancora modifiche e il tetto è raggiunto.
+ * caso in cui scriverlo nell'evento è giusto). `stopped` = il ciclo automatico
+ * si è fermato; il PERCHÉ sta in `stoppedReason`.
+ *
+ * `stoppedReason` è ADDITIVO e `.optional()`: gli eventi pubblicati prima non
+ * lo hanno, e per loro `stopped: true` significa sempre «al tetto» (l'unico
+ * stop che esisteva). Chi legge tratti l'assenza così.
  */
 export const prCycleEventSchema = z.object({
   round: z.number().int(),
   max: z.number().int(),
   stopped: z.boolean(),
+  stoppedReason: prCycleStopReasonSchema.optional(),
 });
 export type PrCycleEvent = z.infer<typeof prCycleEventSchema>;

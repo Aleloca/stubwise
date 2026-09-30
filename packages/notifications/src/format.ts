@@ -162,8 +162,13 @@ export interface ReviewCompletedEvent {
   projectName: string;
   ticketUrl: string;
   prUrl: string;
-  /** Verdetto della review. */
-  verdict: "approve" | "request_changes";
+  /**
+   * Verdetto della review. `null` SOLO quando la review non è arrivata a un
+   * verdetto dentro una serie di correzioni automatiche: l'evento porta allora
+   * `cycle.stoppedReason === "review_failed"` (ciclo fermato perché la review
+   * è fallita). Una review fallita FUORI da una serie non notifica affatto.
+   */
+  verdict: "approve" | "request_changes" | null;
   /**
    * Riassunto "in breve" (fase 5): due o tre frasi in linguaggio NON tecnico,
    * generate dall'agente. Assente quando i riassunti sono spenti, quando il run
@@ -773,6 +778,26 @@ const KEY_FOR_KIND: Record<NotificationKind, string> = {
   "google.proposal": "notify.googleProposal",
 };
 
+/**
+ * Il `{verdict}` di `notify.reviewCompleted`. Fermo: il verdetto dice PERCHÉ
+ * nessuno sta più correggendo — la review fallita dentro una serie, o il tetto.
+ * Senza `cycle` (evento vecchio, PR esterna) il testo resta quello di sempre, e
+ * uno `stopped` senza `stoppedReason` (evento pubblicato prima del campo) è lo
+ * stop al tetto, l'unico che esisteva.
+ *
+ * Un `verdict: null` senza `stoppedReason: "review_failed"` non lo pubblica
+ * nessuno; se arrivasse (jsonb scritto a mano), dire «la review non è
+ * riuscita» è vero, mentre «modifiche richieste» sarebbe un verdetto inventato.
+ */
+function reviewVerdictText(lang: Language, event: ReviewCompletedEvent): string {
+  const cycle = event.cycle;
+  if (cycle?.stoppedReason === "review_failed" || event.verdict === null) {
+    return t(lang, "notify.verdict.reviewFailed", { rounds: cycle?.round ?? 0 });
+  }
+  if (cycle?.stopped) return t(lang, "notify.verdict.stoppedAtCap", { rounds: cycle.round });
+  return t(lang, event.verdict === "approve" ? "notify.verdict.approve" : "notify.verdict.requestChanges");
+}
+
 /** Params (oltre a ref/link/cost) specifici per evento, passati a `t()`. */
 function textParams(
   event: NotificationEvent,
@@ -838,19 +863,7 @@ function textParams(
         spent: event.spentUsd.toFixed(2),
       };
     case "review.completed":
-      return {
-        ...base,
-        // Fermo al tetto: il verdetto dice PERCHÉ nessuno sta più correggendo.
-        // Senza `cycle` (evento vecchio, PR esterna) il testo resta quello di sempre.
-        verdict: event.cycle?.stopped
-          ? t(lang, "notify.verdict.stoppedAtCap", { rounds: event.cycle.round })
-          : t(
-              lang,
-              event.verdict === "approve"
-                ? "notify.verdict.approve"
-                : "notify.verdict.requestChanges",
-            ),
-      };
+      return { ...base, verdict: reviewVerdictText(lang, event) };
     case "job.failed":
       return { ...base, error: event.error };
     case "job.awaiting_input":

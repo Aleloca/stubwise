@@ -155,6 +155,12 @@ export const en: Catalog = {
   // `cycle.stopped`): sostituisce il verdetto nella stessa frase.
   "notify.verdict.stoppedAtCap":
     "changes still requested (automatic corrections: {rounds}); the automatic cycle has stopped",
+  // Dentro una serie di correzioni automatiche la review NON è arrivata a un
+  // verdetto (review.completed con `verdict: null` e
+  // `cycle.stoppedReason === "review_failed"`): sostituisce il verdetto nella
+  // stessa frase. `{rounds}` in forma `etichetta: N` (niente plurali).
+  "notify.verdict.reviewFailed":
+    "the review did not succeed (automatic corrections: {rounds}); the automatic cycle has stopped",
   // Suffisso costo (anteposto allo spazio: la frase ha già lo spazio prima).
   "notify.costSuffix": " (cost ${cost})",
   // Etichette dei link (rese nel markup del formato attorno all'URL).
@@ -611,6 +617,8 @@ export const it: Catalog = {
   "notify.verdict.requestChanges": "modifiche richieste",
   "notify.verdict.stoppedAtCap":
     "modifiche ancora richieste (correzioni automatiche: {rounds}); il ciclo automatico si è fermato",
+  "notify.verdict.reviewFailed":
+    "la review non è riuscita (correzioni automatiche: {rounds}); il ciclo automatico si è fermato",
   "notify.costSuffix": " (costo ${cost})",
   "notify.linkOpen": "Apri",
   "notify.linkReview": "Rivedi",

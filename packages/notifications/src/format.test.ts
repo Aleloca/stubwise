@@ -1161,4 +1161,57 @@ describe("review.completed: il ciclo di correzione", () => {
     const senza = formatNotification(vecchio, "generic").body as Record<string, unknown>;
     expect(senza.cycle).toBeNull();
   });
+
+  // C10b: dentro una serie automatica la review è FALLITA. Stesso kind, verdetto
+  // nullo, `stoppedReason: "review_failed"`: il testo non deve inventare un
+  // verdetto («changes requested») che la review non ha mai dato.
+  const FALLITA: ReviewCompletedEvent = {
+    ...FERMO,
+    verdict: null,
+    cycle: { round: 2, max: 3, stopped: true, stoppedReason: "review_failed" },
+  };
+
+  it("review fallita dentro una serie → lo dice, con i giri fatti (en)", () => {
+    const text = formatNotificationText(FALLITA, "en");
+    expect(text).toContain("the review did not succeed (automatic corrections: 2); the automatic cycle has stopped");
+    expect(text).not.toContain("changes requested");
+    expect(text).not.toContain("changes still requested");
+  });
+
+  it("review fallita dentro una serie → it", () => {
+    const text = formatNotificationText(FALLITA, "it");
+    expect(text).toContain("la review non è riuscita (correzioni automatiche: 2); il ciclo automatico si è fermato");
+  });
+
+  it("stop al tetto con `stoppedReason: \"cap\"` → il testo del tetto", () => {
+    const text = formatNotificationText({ ...FERMO, cycle: { round: 3, max: 3, stopped: true, stoppedReason: "cap" } }, "en");
+    expect(text).toContain("changes still requested (automatic corrections: 3)");
+  });
+
+  it("`stoppedReason: \"review_failed\"` decide il testo anche se il verdetto c'è (è il motivo dello stop, non il verdetto)", () => {
+    const text = formatNotificationText({ ...FALLITA, verdict: "request_changes" }, "en");
+    expect(text).toContain("the review did not succeed (automatic corrections: 2)");
+    expect(text).not.toContain("changes still requested");
+  });
+
+  it("verdetto nullo senza `cycle` (jsonb anomalo) → non inventa un verdetto, non lancia", () => {
+    const anomalo: ReviewCompletedEvent = { ...FERMO, verdict: null };
+    delete anomalo.cycle;
+    const text = formatNotificationText(anomalo, "en");
+    expect(text).toContain("the review did not succeed (automatic corrections: 0)");
+    expect(text).not.toContain("changes requested");
+  });
+
+  it("Slack e Discord: la review fallita si rende senza lanciare", () => {
+    for (const format of ["slack", "discord"] as const) {
+      const out = formatNotification(FALLITA, format);
+      expect(JSON.stringify(out.body)).toContain("the review did not succeed");
+    }
+  });
+
+  it("generic: verdetto null e `cycle` col motivo dello stop", () => {
+    const body = formatNotification(FALLITA, "generic").body as Record<string, unknown>;
+    expect(body.verdict).toBeNull();
+    expect(body.cycle).toEqual({ round: 2, max: 3, stopped: true, stoppedReason: "review_failed" });
+  });
 });

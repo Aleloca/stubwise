@@ -166,4 +166,26 @@ describe("prCycleEventSchema", () => {
       stopped: true,
     });
   });
+
+  it("`stoppedReason` è facoltativo: un evento vecchio senza il campo si legge", () => {
+    const parsed = prCycleEventSchema.parse({ round: 3, max: 3, stopped: true });
+    expect("stoppedReason" in parsed).toBe(false);
+  });
+
+  it("i due motivi dello stop: tetto e review fallita", () => {
+    expect(prCycleEventSchema.parse({ round: 3, max: 3, stopped: true, stoppedReason: "cap" }).stoppedReason).toBe(
+      "cap",
+    );
+    expect(
+      prCycleEventSchema.parse({ round: 1, max: 3, stopped: true, stoppedReason: "review_failed" }).stoppedReason,
+    ).toBe("review_failed");
+    expect(prCycleEventSchema.safeParse({ round: 1, max: 3, stopped: true, stoppedReason: "boh" }).success).toBe(
+      false,
+    );
+  });
+
+  it("letto con `readerSchema`: un motivo futuro non fa fallire il parse", () => {
+    const parsed = readerSchema(prCycleEventSchema).parse({ round: 1, max: 3, stopped: true, stoppedReason: "futuro" });
+    expect(parsed.stoppedReason).toBe(UNKNOWN);
+  });
 });
