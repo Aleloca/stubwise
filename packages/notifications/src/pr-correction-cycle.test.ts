@@ -174,6 +174,8 @@ async function seedReview(
     status: "running" | "completed" | "failed";
     verdict?: "approve" | "request_changes" | null;
     createdAt: Date;
+    /** Assente = la riga resta IN ATTESA (`started_at` null), come al claim. */
+    startedAt?: Date;
   },
 ): Promise<string> {
   const [row] = await db
@@ -188,6 +190,7 @@ async function seedReview(
       status: opts.status,
       verdict: opts.verdict ?? null,
       createdAt: opts.createdAt,
+      ...(opts.startedAt ? { startedAt: opts.startedAt } : {}),
     })
     .returning({ id: prReviews.id });
   return row!.id;
@@ -1222,6 +1225,27 @@ describe("derivePrCycle", () => {
     await seedReview(pr, { status: "running", createdAt: at(1) });
     await seedReview(pr, { status: "failed", createdAt: at(2) });
     expect((await derivePrCycle(db, pr))?.state).toBe("reviewing");
+  });
+
+  it("review IN ATTESA nel serializer (running, started_at null) → reviewing, non il verdetto precedente", async () => {
+    // La finestra del piano (C10): il poller ha già tolto il job da
+    // `pr_review_jobs` ma la review non è ancora partita. Nessuna riga in coda,
+    // quindi è la sola riga `pr_reviews` in attesa a dire «reviewing» invece
+    // del `changes_requested` della review completata prima. Il bottone NON
+    // dipende da `reviewing` (è la condizione di `enqueueCorrection`: PR
+    // aperta, niente `queued`, niente job): qui resta disponibile.
+    const pr = await seedPr();
+    await seedReview(pr, {
+      status: "completed",
+      verdict: "request_changes",
+      createdAt: at(1),
+      startedAt: at(1),
+    });
+    await seedReview(pr, { status: "running", createdAt: at(2) });
+    expect(await derivePrCycle(db, pr)).toMatchObject({
+      state: "reviewing",
+      canRequestCorrection: true,
+    });
   });
 
   it("giro 2 di 3 in corso → correcting, round 2, niente bottone", async () => {

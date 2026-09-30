@@ -81,3 +81,30 @@ ALTER TABLE "ticket_repositories" ADD COLUMN "pr_number" integer;--> statement-b
 UPDATE "ticket_repositories"
 SET "pr_number" = substring("pr_url" from '/pull(?:-requests|s)?/([0-9]+)')::int
 WHERE "pr_url" IS NOT NULL;
+--> statement-breakpoint
+
+-- La review ESISTE dal claim, non da quando parte (piano, C10). Il poller
+-- reclama il job con DELETE…RETURNING su `pr_review_jobs` e nella STESSA
+-- transazione crea la riga `pr_reviews` `running` "in attesa"
+-- (`started_at` NULL): altrimenti, mentre il job aspetta nel serializer di
+-- progetto (in memoria), né la coda né lo storico lo vedono e il ciclo della
+-- PR si legge `idle` con il bottone della correzione attivo. `runPrReview`
+-- riusa quella riga e scrive `started_at = now()` quando parte davvero.
+-- Colonna e non valore di `pr_review_status`: quello è un pgEnum, e un
+-- `ALTER TYPE … ADD VALUE` qui romperebbe il batch unico.
+--   started_at NULL  + running → in attesa nel serializer (il recovery degli
+--                                stantii NON la chiude; all'avvio del worker
+--                                torna in `pr_review_jobs` e la riga sparisce);
+--   started_at !NULL + running → partita (heartbeat su `last_activity_at`).
+-- `pr_body`/`source_branch`/`target_branch` sono i metadati del job che
+-- `pr_reviews` non aveva: servono a rimettere in coda una riga in attesa al
+-- riavvio senza richiamare il provider. NULL sulle righe storiche, mai lette.
+ALTER TABLE "pr_reviews" ADD COLUMN "started_at" timestamp with time zone;--> statement-breakpoint
+ALTER TABLE "pr_reviews" ADD COLUMN "pr_body" text;--> statement-breakpoint
+ALTER TABLE "pr_reviews" ADD COLUMN "source_branch" text;--> statement-breakpoint
+ALTER TABLE "pr_reviews" ADD COLUMN "target_branch" text;--> statement-breakpoint
+-- BACKFILL, non cosmetico: ogni review già esistente (anche una `running` in
+-- volo al deploy) è PARTITA. Senza, il recovery non chiuderebbe più una
+-- `running` orfana del worker vecchio, e l'avvio del worker nuovo la
+-- scambierebbe per una in attesa e la cancellerebbe.
+UPDATE "pr_reviews" SET "started_at" = "created_at";

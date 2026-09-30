@@ -12,12 +12,15 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDb, type Db } from "./client.js";
 
 /**
- * Verifica la migrazione 0081 (ciclo di correzione post-PR) sul suo unico
- * pezzo NON cosmetico, il BACKFILL di `ticket_repositories.pr_number`: la
+ * Verifica la migrazione 0081 (ciclo di correzione post-PR) sui suoi due
+ * pezzi NON cosmetici. Il BACKFILL di `ticket_repositories.pr_number`: la
  * derivazione dello stato del ciclo (`derivePrCycle`) e la coda delle
  * correzioni cercano la PR per `(repository_id, pr_number)`, e una riga
  * storica rimasta NULL sarebbe una PR di Stubwise che non mostra mai il suo
- * ciclo.
+ * ciclo. E il BACKFILL di `pr_reviews.started_at`: ogni review storica deve
+ * risultare PARTITA, o il recovery (solo sulle partite) e il riaccodamento
+ * all'avvio (solo sulle in attesa) la tratterebbero come una review mai
+ * cominciata.
  *
  * Strategia (come migration-0074.test): catena FINO alla 0080, semina delle
  * righe con URL dei due provider (più un NULL e un formato sconosciuto), poi
@@ -73,6 +76,12 @@ describe("migrazione 0081: correzioni post-PR", () => {
     githubFrammento: "",
     bitbucketQuery: "",
     nonNumerico: "",
+  };
+  /** pr_reviews storiche, una per stato, seminate PRIMA della 0081. */
+  const reviewIds: Record<"running" | "completed" | "failed", string> = {
+    running: "",
+    completed: "",
+    failed: "",
   };
 
   async function seedTicketRepo(n: number, prUrl: string | null): Promise<string> {
@@ -136,6 +145,20 @@ describe("migrazione 0081: correzioni post-PR", () => {
     );
     rowIds.nonNumerico = await seedTicketRepo(7, "https://github.com/acme/r/pull/abc");
 
+    // Review storiche (una per stato, `running` compresa: una review in volo
+    // al deploy), con `created_at` nel passato così il backfill si distingue
+    // da un `now()`.
+    for (const status of ["running", "completed", "failed"] as const) {
+      const rows = await db.execute<{ id: string }>(sql`
+        insert into "pr_reviews"
+          ("repository_id", "pr_number", "pr_url", "pr_title", "head_sha", "status", "created_at")
+        values (${repositoryId}, 10, 'https://github.com/acme/r/pull/10', 'PR', ${"a".repeat(40)},
+                ${status}, now() - interval '3 days')
+        returning "id"
+      `);
+      reviewIds[status] = rows[0]!.id;
+    }
+
     // 3) La 0081 sopra i dati seminati.
     await applyMigration0081(db);
   }, 120_000);
@@ -189,11 +212,15 @@ describe("migrazione 0081: correzioni post-PR", () => {
         ('ai_jobs', 'correction_id'),
         ('repositories', 'review_git_account_id'),
         ('git_accounts', 'provider_user_id'),
-        ('ticket_repositories', 'pr_number')
+        ('ticket_repositories', 'pr_number'),
+        ('pr_reviews', 'started_at'),
+        ('pr_reviews', 'pr_body'),
+        ('pr_reviews', 'source_branch'),
+        ('pr_reviews', 'target_branch')
       )
       order by "table_name"
     `);
-    expect(rows).toHaveLength(4);
+    expect(rows).toHaveLength(8);
     for (const row of rows) expect(row.is_nullable).toBe("YES");
   });
 
@@ -205,5 +232,37 @@ describe("migrazione 0081: correzioni post-PR", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]!.is_nullable).toBe("NO");
     expect(rows[0]!.column_default).toBe("false");
+  });
+
+  it("backfill: ogni pr_reviews storica risulta PARTITA (started_at = created_at), running compresa", async () => {
+    // Senza, il recovery delle review stantie (solo le partite) non chiuderebbe
+    // più una running orfana del worker vecchio, e l'avvio del worker nuovo la
+    // scambierebbe per una in attesa: la riaccoderebbe e la cancellerebbe.
+    const rows = await db.execute<{ id: string; started_at: Date | null; created_at: Date }>(sql`
+      select "id", "started_at", "created_at" from "pr_reviews"
+    `);
+    expect(rows).toHaveLength(3);
+    for (const row of rows) {
+      expect(row.started_at).not.toBeNull();
+      expect(new Date(row.started_at!).getTime()).toBe(new Date(row.created_at).getTime());
+    }
+    const inAttesa = await db.execute<{ n: number }>(sql`
+      select count(*)::int as "n" from "pr_reviews" where "started_at" is null
+    `);
+    expect(inAttesa[0]!.n).toBe(0);
+    expect(rows.map((r) => r.id).sort()).toEqual(Object.values(reviewIds).sort());
+  });
+
+  it("una pr_reviews nuova nasce IN ATTESA (started_at null, metadati del job salvabili)", async () => {
+    const rows = await db.execute<{ started_at: Date | null; source_branch: string | null }>(sql`
+      insert into "pr_reviews"
+        ("repository_id", "pr_number", "pr_url", "pr_title", "head_sha",
+         "pr_body", "source_branch", "target_branch")
+      values (${repositoryId}, 11, 'https://github.com/acme/r/pull/11', 'PR', ${"b".repeat(40)},
+              '', 'stubwise/ticket-1', 'main')
+      returning "started_at", "source_branch"
+    `);
+    expect(rows[0]!.started_at).toBeNull();
+    expect(rows[0]!.source_branch).toBe("stubwise/ticket-1");
   });
 });

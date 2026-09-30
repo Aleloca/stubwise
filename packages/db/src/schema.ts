@@ -1558,7 +1558,8 @@ export const prReviewJobs = pgTable(
  * di Stubwise che ospita l'analisi (quello esistente per le PR aperte dal fix,
  * o il ticket di tipo `review` creato per le PR esterne); set null se il ticket
  * viene eliminato (lo storico sopravvive). `lastActivityAt` è l'heartbeat per
- * il recovery delle righe `running` orfane (riavvio del worker a metà review).
+ * il recovery delle righe `running` orfane (riavvio del worker a metà review),
+ * che (dal task C10 del piano) guarda solo le righe PARTITE (`startedAt` non null).
  */
 export const prReviews = pgTable(
   "pr_reviews",
@@ -1583,6 +1584,18 @@ export const prReviews = pgTable(
     error: text("error"),
     lastActivityAt: timestamp("last_activity_at", { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    // La review ESISTE dal claim del poller (migrazione 0081): `running` con
+    // `startedAt` null = reclamata e IN ATTESA nel serializer di progetto;
+    // valorizzato = PARTITA (`runPrReview` lo scrive alla partenza). Il
+    // recovery degli stantii chiude solo le partite; all'avvio del worker le
+    // in attesa tornano in `pr_review_jobs`. Backfill `= created_at` sulle
+    // righe storiche. Colonna e non valore dell'enum: niente `ALTER TYPE`.
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    // Metadati del job che servono a riaccodare una riga in attesa al riavvio
+    // (null sulle righe precedenti alla 0081, che non sono mai in attesa).
+    prBody: text("pr_body"),
+    sourceBranch: text("source_branch"),
+    targetBranch: text("target_branch"),
     finishedAt: timestamp("finished_at", { withTimezone: true }),
   },
   (table) => [
