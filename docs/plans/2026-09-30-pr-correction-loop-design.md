@@ -1,3 +1,9 @@
+---
+stubwise:
+  project: stubwise
+  backlogItem: bf99b3f6-3928-4178-b094-978d0de1ea17 # https://stubwise.thecove.it/backlog/bf99b3f6-3928-4178-b094-978d0de1ea17
+---
+
 # Correzioni post-PR: il ciclo review → correzione
 
 Data: 30 set 2026. Stato: design approvato, piano da scrivere.
