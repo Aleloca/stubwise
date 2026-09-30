@@ -1615,3 +1615,93 @@ describe("GitHubProvider.setCommitStatus", () => {
     expect((error as GitProviderError).message).not.toContain("ghp_secret");
   });
 });
+
+describe("GitHubProvider.submitPrReview", () => {
+  const REVIEWS_URL = "https://api.github.com/repos/octo/repo/pulls/42/reviews";
+  const HINT =
+    "il token deve poter revisionare le pull request (GitHub: Pull requests write; Bitbucket: pullrequest write)";
+
+  it("request_changes → una review REQUEST_CHANGES col testo", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ id: 1, state: "CHANGES_REQUESTED" }, 200));
+    const provider = new GitHubProvider({ fetchImpl });
+
+    await provider.submitPrReview(config, 42, "request_changes", "Manca il test");
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(REVIEWS_URL);
+    expect(init.method).toBe("POST");
+    expect((init.headers as Record<string, string>)["Authorization"]).toBe("Bearer ghp_secret");
+    expect((init.headers as Record<string, string>)["Accept"]).toBe("application/vnd.github+json");
+    expect(JSON.parse(init.body as string)).toEqual({ event: "REQUEST_CHANGES", body: "Manca il test" });
+  });
+
+  it("approve col testo → APPROVE col testo", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ id: 1, state: "APPROVED" }, 200));
+    const provider = new GitHubProvider({ fetchImpl });
+    await provider.submitPrReview(config, 42, "approve", "Tutto a posto");
+    const [, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({ event: "APPROVE", body: "Tutto a posto" });
+  });
+
+  it("approve con corpo vuoto → APPROVE senza body", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ id: 1, state: "APPROVED" }, 200));
+    const provider = new GitHubProvider({ fetchImpl });
+    await provider.submitPrReview(config, 42, "approve", "");
+    const [, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({ event: "APPROVE" });
+  });
+
+  it("opts.fetchImpl per chiamata vince su quello del costruttore", async () => {
+    const ctorFetch = vi.fn().mockResolvedValue(jsonResponse({ id: 1 }, 200));
+    const callFetch = vi.fn().mockResolvedValue(jsonResponse({ id: 1 }, 200));
+    const provider = new GitHubProvider({ fetchImpl: ctorFetch });
+    await provider.submitPrReview(config, 42, "approve", "ok", { fetchImpl: callFetch });
+    expect(callFetch).toHaveBeenCalledTimes(1);
+    expect(ctorFetch).not.toHaveBeenCalled();
+  });
+
+  it("422 → GitProviderError che nomina il caso dell'autore della PR", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ message: "Unprocessable Entity", errors: ["Can not approve your own pull request"] }), {
+        status: 422,
+      })
+    );
+    const provider = new GitHubProvider({ fetchImpl });
+    const error = await provider
+      .submitPrReview(config, 42, "approve", "ok")
+      .then(() => null)
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).status).toBe(422);
+    expect((error as GitProviderError).message).toMatch(/autore/);
+    expect((error as GitProviderError).message).not.toContain("ghp_secret");
+    expect((error as GitProviderError).responseText).toMatch(/own pull request/);
+  });
+
+  it("403 → il messaggio dice quale permesso manca, senza credenziali", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("forbidden", { status: 403 }));
+    const provider = new GitHubProvider({ fetchImpl });
+    const error = await provider
+      .submitPrReview(config, 42, "approve", "ok")
+      .then(() => null)
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).status).toBe(403);
+    expect((error as GitProviderError).message).toContain(HINT);
+    expect((error as GitProviderError).message).not.toContain("ghp_secret");
+  });
+
+  it("altri non-2xx (500) → GitProviderError generico, senza il suggerimento sui permessi", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("boom", { status: 500 }));
+    const provider = new GitHubProvider({ fetchImpl });
+    const error = await provider
+      .submitPrReview(config, 42, "request_changes", "Manca il test")
+      .then(() => null)
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).status).toBe(500);
+    expect((error as GitProviderError).message).not.toContain(HINT);
+    expect((error as GitProviderError).message).not.toMatch(/autore/);
+  });
+});
