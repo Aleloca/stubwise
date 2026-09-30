@@ -1,4 +1,4 @@
-import { aiJobs, type Db } from "@stubwise/db";
+import { aiJobs, prCorrections, type Db } from "@stubwise/db";
 import { seedTicket, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -34,6 +34,9 @@ beforeAll(async () => {
 
 afterEach(async () => {
   await testDb.db.delete(aiJobs);
+  // Le correzioni dei test del tick: senza, una `queued` rimasta orfana (il suo
+  // job cancellato qui sopra) verrebbe riconciliata dal tick del test dopo.
+  await testDb.db.delete(prCorrections);
 });
 
 afterAll(async () => {
@@ -732,4 +735,219 @@ describe("runWorker", () => {
     expect(claimFailures).toBe(4);
     expect((await getJob(db, job.id)).status).toBe("skipped");
   }, 30_000);
+
+  it("il tick fa partire una richiesta in attesa rimasta orfana, con una riga di log", async () => {
+    const { db } = testDb;
+    const { ticketId: orphanTicket, repositoryId } = await seedTicket(db);
+    const [pending] = await db
+      .insert(prCorrections)
+      .values({ ticketId: orphanTicket, repositoryId, prNumber: 7, trigger: "provider", status: "pending" })
+      .returning();
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const controller = new AbortController();
+    // Il handler NON chiude il job della correzione: si guarda solo la promozione.
+    const worker = runWorker({ db, pollMs: 20, requeueEveryMs: 1, signal: controller.signal, handler: async () => {} });
+
+    try {
+      await vi.waitFor(async () => {
+        const [row] = await db.select().from(prCorrections).where(eq(prCorrections.id, pending!.id));
+        expect(row!.status).toBe("queued");
+      }, { timeout: 10_000 });
+    } finally {
+      // Sempre, anche se il waitFor scade: un loop lasciato vivo
+      // reclamerebbe i job dei test successivi.
+      controller.abort();
+      await worker;
+    }
+    expect(log.mock.calls.some(([line]) => String(line).includes(`richiesta in attesa ${pending!.id} avviata dal tick`))).toBe(true);
+    log.mockRestore();
+  });
+
+  it("correzione orfana riconciliata e la pending della stessa PR parte nello stesso tick", async () => {
+    const { db } = testDb;
+    const { ticketId: prTicket, repositoryId } = await seedTicket(db);
+    // La `queued` il cui job è già `failed` (annullato per un'altra strada):
+    // senza riconciliazione blocca la pending della stessa PR per sempre.
+    const [orphan] = await db
+      .insert(prCorrections)
+      .values({ ticketId: prTicket, repositoryId, prNumber: 8, trigger: "review", status: "queued" })
+      .returning();
+    await db.insert(aiJobs).values({ ticketId: prTicket, status: "failed", correctionId: orphan!.id });
+    const [pending] = await db
+      .insert(prCorrections)
+      .values({ ticketId: prTicket, repositoryId, prNumber: 8, trigger: "provider", status: "pending" })
+      .returning();
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const controller = new AbortController();
+    // `requeueEveryMs: 60_000`: il PRIMO tick parte subito (nextRequeueAt = 0),
+    // il secondo non arriva entro il waitFor. Con `1` il secondo tick
+    // arriverebbe subito e coprirebbe una riconciliazione messa DOPO la
+    // promozione: il test resterebbe verde senza provare «stesso tick».
+    const worker = runWorker({ db, pollMs: 20, requeueEveryMs: 60_000, signal: controller.signal, handler: async () => {} });
+
+    try {
+      await vi.waitFor(async () => {
+        const [row] = await db.select().from(prCorrections).where(eq(prCorrections.id, pending!.id));
+        expect(row!.status).toBe("queued");
+      }, { timeout: 10_000 });
+    } finally {
+      // Sempre, anche se il waitFor scade: un loop lasciato vivo
+      // reclamerebbe i job dei test successivi.
+      controller.abort();
+      await worker;
+    }
+    const [closed] = await db.select().from(prCorrections).where(eq(prCorrections.id, orphan!.id));
+    expect(closed!.status).toBe("done");
+    const lines = log.mock.calls.map(([line]) => String(line));
+    // Stesso tick: la riga della riconciliazione viene PRIMA di quella della promozione.
+    const iReconciled = lines.findIndex((l) => l.includes(`correzione ${orphan!.id} chiusa dal tick`));
+    const iPromoted = lines.findIndex((l) => l.includes(`richiesta in attesa ${pending!.id} avviata dal tick`));
+    expect(iReconciled).toBeGreaterThanOrEqual(0);
+    expect(iPromoted).toBeGreaterThan(iReconciled);
+    log.mockRestore();
+  });
+
+  it("un errore della riconciliazione non salta la promozione: due try/catch separati", async () => {
+    const { db } = testDb;
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    let promotions = 0;
+    const controller = new AbortController();
+    const worker = runWorker({
+      db,
+      pollMs: 20,
+      requeueEveryMs: 60_000,
+      signal: controller.signal,
+      handler: async () => {},
+      _internals: {
+        reconcileOrphanCorrections: async () => {
+          throw new Error("DB irraggiungibile (riconciliazione)");
+        },
+        promoteStalePendings: async () => {
+          promotions += 1;
+          return [];
+        },
+      },
+    });
+
+    try {
+      await vi.waitFor(() => expect(promotions).toBe(1), { timeout: 10_000 });
+    } finally {
+      // Sempre, anche se il waitFor scade: un loop lasciato vivo
+      // reclamerebbe i job dei test successivi.
+      controller.abort();
+      await worker;
+    }
+    expect(
+      log.mock.calls.some(([line]) => String(line).includes("riconciliazione delle correzioni orfane fallita")),
+    ).toBe(true);
+    log.mockRestore();
+  });
+
+  it("una pending che non si riesce a promuovere si segnala UNA volta, non a ogni tick", async () => {
+    const { db } = testDb;
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    let ticks = 0;
+    const controller = new AbortController();
+    const worker = runWorker({
+      db,
+      pollMs: 20,
+      requeueEveryMs: 1,
+      signal: controller.signal,
+      handler: async () => {},
+      _internals: {
+        promoteStalePendings: async (_db, opts) => {
+          ticks += 1;
+          opts?.onError?.("pending-rotta", { repositoryId: "r", prNumber: 1 }, new Error("unique"));
+          return [];
+        },
+      },
+    });
+
+    try {
+      await vi.waitFor(() => expect(ticks).toBeGreaterThanOrEqual(3), { timeout: 10_000 });
+    } finally {
+      // Sempre, anche se il waitFor scade: un loop lasciato vivo
+      // reclamerebbe i job dei test successivi.
+      controller.abort();
+      await worker;
+    }
+    const warned = log.mock.calls.filter(([line]) => String(line).includes("pending-rotta"));
+    expect(warned).toHaveLength(1);
+    log.mockRestore();
+  });
+
+  it("riconciliazione e promozione tengono i warn in DUE insiemi: lo stesso id si segnala una volta per ciascuna", async () => {
+    const { db } = testDb;
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    let ticks = 0;
+    const controller = new AbortController();
+    const worker = runWorker({
+      db,
+      pollMs: 20,
+      requeueEveryMs: 1,
+      signal: controller.signal,
+      handler: async () => {},
+      _internals: {
+        reconcileOrphanCorrections: async (_db, opts) => {
+          opts?.onError?.("id-condiviso", new Error("lock"));
+          return [];
+        },
+        promoteStalePendings: async (_db, opts) => {
+          ticks += 1;
+          opts?.onError?.("id-condiviso", { repositoryId: "r", prNumber: 2 }, new Error("unique"));
+          return [];
+        },
+      },
+    });
+
+    try {
+      await vi.waitFor(() => expect(ticks).toBeGreaterThanOrEqual(3), { timeout: 10_000 });
+    } finally {
+      // Sempre, anche se il waitFor scade: un loop lasciato vivo
+      // reclamerebbe i job dei test successivi.
+      controller.abort();
+      await worker;
+    }
+    const lines = log.mock.calls.map(([line]) => String(line)).filter((l) => l.includes("id-condiviso"));
+    expect(lines.filter((l) => l.includes("riconciliazione della correzione id-condiviso"))).toHaveLength(1);
+    expect(lines.filter((l) => l.includes("promozione della richiesta in attesa id-condiviso"))).toHaveLength(1);
+    log.mockRestore();
+  });
+
+  it("un errore della rete di sicurezza non ferma il loop né requeueStale", async () => {
+    const { db } = testDb;
+    const job = await enqueueJob(db);
+    let requeues = 0;
+    const processed = new Set<string>();
+    const controller = new AbortController();
+    const worker = runWorker({
+      db,
+      pollMs: 20,
+      requeueEveryMs: 1,
+      signal: controller.signal,
+      handler: async (claimed) => {
+        processed.add(claimed.id);
+        await completeJob(db, claimed.id, { status: "skipped", log: "fatto" });
+      },
+      _internals: {
+        requeueStale: async (database, opts) => {
+          requeues += 1;
+          return requeueStale(database, opts);
+        },
+        promoteStalePendings: async () => {
+          throw new Error("DB irraggiungibile (promozione)");
+        },
+      },
+    });
+
+    try {
+      await vi.waitFor(() => expect(processed.has(job.id)).toBe(true), { timeout: 15_000 });
+    } finally {
+      // Sempre, anche se il waitFor scade: un loop lasciato vivo
+      // reclamerebbe i job dei test successivi.
+      controller.abort();
+      await worker;
+    }
+    expect(requeues).toBeGreaterThan(0);
+  });
 });

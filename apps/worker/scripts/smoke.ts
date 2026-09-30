@@ -203,12 +203,27 @@ interface CapturedPr {
 
 function makeFakeProvider(captured: CapturedPr[]): (
   kind: GitProviderKind,
-) => Pick<GitProvider, "openPullRequest"> {
+) => Pick<
+  GitProvider,
+  "openPullRequest" | "getPullRequestState" | "setCommitStatus" | "listPrComments" | "getAuthenticatedUserId"
+> {
   return () => ({
     async openPullRequest(_p, pr) {
       captured.push({ branch: pr.branch, title: pr.title, body: pr.body });
       // URL fittizio plausibile: il worker lo salva su aiJobs.prUrl e nel commento.
       return { url: `https://example.invalid/pull/${captured.length}` };
+    },
+    // Il handler usa lo stesso provider anche per le correzioni post-PR: lo
+    // smoke esegue solo un fix, ma il doppio risponde comunque in modo valido.
+    async getPullRequestState() {
+      return "open";
+    },
+    async setCommitStatus() {},
+    async listPrComments() {
+      return [];
+    },
+    async getAuthenticatedUserId() {
+      return "smoke";
     },
   });
 }

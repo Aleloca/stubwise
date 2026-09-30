@@ -1,4 +1,8 @@
 import { agentRuns, aiJobs, type Db } from "@stubwise/db";
+import {
+  promoteStalePendings as promoteStalePendingsImpl,
+  reconcileOrphanCorrections as reconcileOrphanCorrectionsImpl,
+} from "@stubwise/notifications";
 import type { HeldReason } from "@stubwise/shared";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { AgentRunUsage } from "./agent/runner.js";
@@ -461,6 +465,10 @@ export interface RunWorkerInternals {
   requeueStaleDocJobs?: typeof requeueStaleDocJobsImpl;
   /** Override del requeue dei nodi orfani del DAG (default requeueStaleNodes). */
   requeueStaleNodes?: typeof requeueStaleNodesImpl;
+  /** Override della rete di sicurezza del ciclo di correzione (default promoteStalePendings). */
+  promoteStalePendings?: typeof promoteStalePendingsImpl;
+  /** Override della riconciliazione delle correzioni orfane (default reconcileOrphanCorrections, A8c). */
+  reconcileOrphanCorrections?: typeof reconcileOrphanCorrectionsImpl;
   /** Primo intervallo di backoff dopo un errore DB (default 1s). */
   backoffBaseMs?: number;
   /** Tetto del backoff esponenziale (default 30s). */
@@ -602,12 +610,21 @@ export async function runWorker(options: RunWorkerOptions): Promise<void> {
   const claimDoc = _internals?.claimNextDocJob ?? claimNextDocJobImpl;
   const requeueDoc = _internals?.requeueStaleDocJobs ?? requeueStaleDocJobsImpl;
   const requeueNodes = _internals?.requeueStaleNodes ?? requeueStaleNodesImpl;
+  const promoteStale = _internals?.promoteStalePendings ?? promoteStalePendingsImpl;
+  const reconcileOrphans = _internals?.reconcileOrphanCorrections ?? reconcileOrphanCorrectionsImpl;
   const backoffBaseMs = _internals?.backoffBaseMs ?? 1000;
   const backoffMaxMs = _internals?.backoffMaxMs ?? 30_000;
 
   const inFlight = new Set<Promise<void>>();
   let nextRequeueAt = 0; // 0 = il primo requeueStale parte subito.
   let backoffMs = 0; // 0 = nessun errore DB recente.
+  // Pending la cui promozione è già fallita in questo processo: il warn si dà
+  // UNA volta per id. La stessa riga fallirebbe a ogni tick (ogni minuto), e
+  // un log che ripete la stessa riga all'infinito smette di essere letto.
+  const stalePromotionWarned = new Set<string>();
+  // Stessa regola, in un insieme A SÉ, per le correzioni orfane la cui
+  // riconciliazione fallisce: un id segnalato da un passo non zittisce l'altro.
+  const reconcileWarned = new Set<string>();
 
   try {
     while (!signal?.aborted) {
@@ -621,6 +638,57 @@ export async function runWorker(options: RunWorkerOptions): Promise<void> {
           // exploring/synthesizing senza heartbeat oltre soglia torna claimabile
           // (la sua generazione verrà ri-aperta on-demand dal dispatch se necessario).
           if (dispatchNode) await requeueNodes(db, staleAfterMinutes);
+          // RETE DI SICUREZZA del ciclo di correzione, in DUE passi e con DUE
+          // try/catch SEPARATI: un errore della riconciliazione non deve
+          // saltare la promozione (e viceversa). Ognuno ha il suo messaggio.
+          // Nessuno dei due deve far ripetere requeueStale a ogni giro né
+          // portare il loop in backoff — li ritenta il prossimo tick.
+          //
+          // 1. PRIMA le correzioni `queued` orfane del loro job (A8c): una
+          //    `queued` rimasta lì blocca la pending della sua PR, e la
+          //    promozione qui sotto la salterebbe. Riconciliate, la pending
+          //    parte in QUESTO stesso tick.
+          try {
+            const reconciled = await reconcileOrphans(db, {
+              onError: (correctionId, error) => {
+                if (reconcileWarned.has(correctionId)) return;
+                reconcileWarned.add(correctionId);
+                console.error(
+                  `[stubwise-worker] correction: riconciliazione della correzione ${correctionId} fallita, la si ritenta a ogni tick senza riscriverlo (${error instanceof Error ? error.message : String(error)})`,
+                );
+              },
+            });
+            for (const id of reconciled) {
+              console.error(`[stubwise-worker] correction: correzione ${id} chiusa dal tick (job terminale o assente)`);
+            }
+          } catch (err) {
+            console.error(
+              `[stubwise-worker] correction: riconciliazione delle correzioni orfane fallita (${err instanceof Error ? err.message : String(err)})`,
+            );
+          }
+          // 2. POI le `pending` su un ticket dove nessun job blocca più (A7).
+          //    Una riga per ciascuna, che NON afferma una causa: può essere un
+          //    punto di promozione mancato come, del tutto normalmente, la
+          //    pending di un'altra PR dopo una review (la review promuove solo
+          //    la sua).
+          try {
+            const promoted = await promoteStale(db, {
+              onError: (pendingId, pr, error) => {
+                if (stalePromotionWarned.has(pendingId)) return;
+                stalePromotionWarned.add(pendingId);
+                console.error(
+                  `[stubwise-worker] correction: promozione della richiesta in attesa ${pendingId} (${pr.repositoryId}#${pr.prNumber}) fallita, la si ritenta a ogni tick senza riscriverlo (${error instanceof Error ? error.message : String(error)})`,
+                );
+              },
+            });
+            for (const id of promoted) {
+              console.error(`[stubwise-worker] correction: richiesta in attesa ${id} avviata dal tick`);
+            }
+          } catch (err) {
+            console.error(
+              `[stubwise-worker] correction: rete di sicurezza delle richieste in attesa fallita (${err instanceof Error ? err.message : String(err)})`,
+            );
+          }
           // Avanzato solo dopo il successo: se la requeue fallisce si
           // ritenta alla prossima iterazione, non tra requeueEveryMs.
           nextRequeueAt = Date.now() + requeueEveryMs;
