@@ -159,24 +159,70 @@ export async function providerFeedbackCutoff(
 }
 
 /**
+ * Chi, su GitHub, ha il permesso di far ripartire il ciclo di correzione: il
+ * proprietario del repository, un membro dell'organizzazione, un
+ * collaboratore. Sono i valori di `author_association` (maiuscoli, come
+ * GitHub li manda). Tutto il resto — `CONTRIBUTOR`, `FIRST_TIME_CONTRIBUTOR`,
+ * `FIRST_TIMER`, `MANNEQUIN`, `NONE` — è qualcuno che su un repository
+ * PUBBLICO può scrivere, ma non decidere cosa si corregge.
+ */
+export const TRUSTED_AUTHOR_ASSOCIATIONS = ["OWNER", "MEMBER", "COLLABORATOR"] as const;
+
+const TRUSTED = new Set<string>(TRUSTED_AUTHOR_ASSOCIATIONS);
+
+/**
+ * L'autore di una richiesta di modifiche o di un commento ha il permesso di
+ * chiederle? Regola dell'utente: «chi ha il PERMESSO sulla piattaforma di
+ * chiedere modifiche fa ripartire il ciclo» — senza, un estraneo su un
+ * repository pubblico spenderebbe budget e metterebbe testo nel prompt.
+ *
+ * - **GitHub**: solo se `association` è in {@link TRUSTED_AUTHOR_ASSOCIATIONS}.
+ *   `null`/assente NON passa (fail-closed): GitHub il campo lo manda sempre,
+ *   quindi la sua assenza è un'anomalia, non un «non so» da concedere.
+ * - **Bitbucket**: sempre ammesso. Non esiste un dato equivalente (il valore
+ *   è sempre `null`), e i repository su cui gira oggi sono privati — chi può
+ *   commentare ha già accesso. Rischio accettato e documentato nel piano
+ *   ("Decisioni e rischi"), da rivedere dopo la verifica manuale B14 su un
+ *   repository Bitbucket pubblico.
+ *
+ * UNA funzione per il webhook (la review "Request changes") e per la
+ * fotografia dei commenti: le due porte non devono poter dire cose diverse.
+ */
+export function isTrustedAuthorAssociation(
+  association: string | null | undefined,
+  provider: GitProviderKind,
+): boolean {
+  if (provider === "bitbucket") return true;
+  return typeof association === "string" && TRUSTED.has(association);
+}
+
+/**
  * I commenti che entrano nella fotografia: non scritti dagli account di
  * Stubwise (la review l'AI la riceve già dal DB, e un commento del bot non è
- * feedback umano) e scritti DOPO il taglio.
+ * feedback umano), scritti DOPO il taglio, e di un autore che ha il permesso
+ * di chiedere modifiche ({@link isTrustedAuthorAssociation} col `provider`
+ * della repository: su GitHub un commento di un estraneo non entra nel
+ * prompt).
  *
+ * - `provider` è OBBLIGATORIO apposta: un chiamante che lo dimenticasse
+ *   aprirebbe la porta agli estranei senza che niente lo segnali. Il
+ *   compilatore lo segnala.
  * - Un `createdAt` non parsabile il commento lo TIENE: errore per eccesso,
- *   mai per difetto.
+ *   mai per difetto. Per l'autore vale il contrario (fail-closed su GitHub):
+ *   un commento in più di un estraneo non è un errore innocuo.
  * - Limite noto: un commento MODIFICATO dopo il taglio si perde, perché
  *   `PrComment` non ha `updatedAt` (conta solo la data di creazione).
  * - L'ordine dell'output è quello del provider.
  */
 export function selectProviderFeedback(
   comments: readonly PrComment[],
-  opts: { cutoff: Date | null; ownIds: readonly string[] },
+  opts: { cutoff: Date | null; ownIds: readonly string[]; provider: GitProviderKind },
 ): PrComment[] {
   const own = new Set(opts.ownIds);
   return comments.filter(
     (c) =>
       !own.has(c.authorId) &&
+      isTrustedAuthorAssociation(c.authorAssociation, opts.provider) &&
       (opts.cutoff === null || !isBeforeOrAt(c.createdAt, opts.cutoff)),
   );
 }

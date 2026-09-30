@@ -218,9 +218,11 @@ export {
 // letto l'AI».
 export {
   decryptGitCredentials,
+  isTrustedAuthorAssociation,
   providerFeedbackCutoff,
   resolveProviderUserId,
   selectProviderFeedback,
+  TRUSTED_AUTHOR_ASSOCIATIONS,
   type FetchPlatformIdentity,
   type GitCredentials,
   type IdentityAccount,

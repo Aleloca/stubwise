@@ -8,7 +8,9 @@ import {
   decryptGitCredentials,
   providerFeedbackCutoff,
   resolveProviderUserId,
+  isTrustedAuthorAssociation,
   selectProviderFeedback,
+  TRUSTED_AUTHOR_ASSOCIATIONS,
 } from "./pr-correction-feedback.js";
 
 /**
@@ -233,6 +235,7 @@ describe("selectProviderFeedback", () => {
     const kept = selectProviderFeedback(comments, {
       cutoff: new Date("2026-09-30T09:00:00.000Z"),
       ownIds: ["1001", "1002"],
+      provider: "bitbucket",
     });
 
     expect(kept.map((c) => c.id)).toEqual(["nuovo"]);
@@ -242,6 +245,7 @@ describe("selectProviderFeedback", () => {
     const kept = selectProviderFeedback([comment("strano", "5150", "non-una-data")], {
       cutoff: new Date("2026-09-30T09:00:00.000Z"),
       ownIds: ["1001"],
+      provider: "bitbucket",
     });
     expect(kept.map((c) => c.id)).toEqual(["strano"]);
   });
@@ -249,8 +253,69 @@ describe("selectProviderFeedback", () => {
   it("senza taglio tiene tutto ciò che non è di Stubwise", () => {
     const kept = selectProviderFeedback(
       [comment("a", "5150", "2026-01-01T00:00:00.000Z"), comment("b", "1002", "2026-01-01T00:00:00.000Z")],
-      { cutoff: null, ownIds: ["1001", "1002"] },
+      { cutoff: null, ownIds: ["1001", "1002"], provider: "bitbucket" },
     );
     expect(kept.map((c) => c.id)).toEqual(["a"]);
+  });
+
+  describe("chi ha il permesso di chiedere modifiche", () => {
+    const by = (id: string, authorAssociation: string | null | undefined): PrComment => ({
+      ...comment(id, `autore-${id}`, "2026-09-30T10:00:00.000Z"),
+      ...(authorAssociation === undefined ? {} : { authorAssociation }),
+    });
+    const mixed = [
+      by("owner", "OWNER"),
+      by("member", "MEMBER"),
+      by("collaborator", "COLLABORATOR"),
+      by("contributor", "CONTRIBUTOR"),
+      by("none", "NONE"),
+      by("first-time", "FIRST_TIME_CONTRIBUTOR"),
+      by("null", null),
+      // fotografia salvata prima del campo
+      by("assente", undefined),
+      // GitHub la manda maiuscola: una minuscola non è il valore di GitHub
+      by("minuscolo", "owner"),
+    ];
+
+    it("GitHub: tiene owner, membri e collaboratori; scarta tutti gli altri, null e assente compresi", () => {
+      const kept = selectProviderFeedback(mixed, { cutoff: null, ownIds: [], provider: "github" });
+      expect(kept.map((c) => c.id)).toEqual(["owner", "member", "collaborator"]);
+    });
+
+    it("Bitbucket: nessun dato di associazione, tiene tutto (rischio documentato)", () => {
+      const kept = selectProviderFeedback(mixed, { cutoff: null, ownIds: [], provider: "bitbucket" });
+      expect(kept.map((c) => c.id)).toEqual(mixed.map((c) => c.id));
+    });
+
+    it("il filtro sull'autore non scavalca gli altri: un OWNER che è un account di Stubwise resta fuori", () => {
+      const kept = selectProviderFeedback([by("bot", "OWNER")], {
+        cutoff: null,
+        ownIds: ["autore-bot"],
+        provider: "github",
+      });
+      expect(kept).toEqual([]);
+    });
+  });
+});
+
+describe("isTrustedAuthorAssociation", () => {
+  it("l'elenco è esattamente owner, membri, collaboratori", () => {
+    expect([...TRUSTED_AUTHOR_ASSOCIATIONS]).toEqual(["OWNER", "MEMBER", "COLLABORATOR"]);
+  });
+
+  it("GitHub: ammessi solo i tre valori; null e assente fail-closed", () => {
+    for (const a of ["OWNER", "MEMBER", "COLLABORATOR"]) {
+      expect(isTrustedAuthorAssociation(a, "github")).toBe(true);
+    }
+    for (const a of ["CONTRIBUTOR", "FIRST_TIME_CONTRIBUTOR", "FIRST_TIMER", "MANNEQUIN", "NONE", "", "owner"]) {
+      expect(isTrustedAuthorAssociation(a, "github")).toBe(false);
+    }
+    expect(isTrustedAuthorAssociation(null, "github")).toBe(false);
+    expect(isTrustedAuthorAssociation(undefined, "github")).toBe(false);
+  });
+
+  it("Bitbucket: sempre ammesso, anche senza dato", () => {
+    expect(isTrustedAuthorAssociation(null, "bitbucket")).toBe(true);
+    expect(isTrustedAuthorAssociation(undefined, "bitbucket")).toBe(true);
   });
 });
