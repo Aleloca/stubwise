@@ -2223,7 +2223,7 @@ describe("GitHubProvider.getCollaboratorPermission", () => {
     await expect(provider.getCollaboratorPermission(config, "mario-rossi")).rejects.toMatchObject({ status: 500 });
   });
 
-  it.each(["../../admin", "mario/rossi", "mario?x=1", "", "-mario", "mario rossi", "a".repeat(40), "mario%2F"])(
+  it.each(["../../admin", "mario/rossi", "mario?x=1", "", "-mario", "_mario", "mario rossi", "a".repeat(46), "mario%2F", "mario.rossi"])(
     "login malformato %j → lancia SENZA fare la richiesta",
     async (login) => {
       // Il doppio risponderebbe comunque "admin": se la richiesta partisse, il
@@ -2234,6 +2234,15 @@ describe("GitHubProvider.getCollaboratorPermission", () => {
       expect(fetchImpl).not.toHaveBeenCalled();
     }
   );
+
+  it("login Enterprise Managed User (`handle_shortcode`) → ammesso, URL composto", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ role_name: "write", permission: "write" }, 200));
+    const provider = new GitHubProvider({ fetchImpl });
+    await expect(provider.getCollaboratorPermission(config, "mario_acme")).resolves.toBe("write");
+    expect(fetchImpl.mock.calls[0]![0]).toBe(
+      "https://api.github.com/repos/octo/repo/collaborators/mario_acme/permission"
+    );
+  });
 
   it("login di una GitHub App (`[bot]`) → ammesso e codificato nell'URL", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(new Response("", { status: 404 }));

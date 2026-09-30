@@ -10,8 +10,10 @@ import {
   resolveProviderUserId,
   isAuthorPermitted,
   isTrustedAuthorAssociation,
+  MAX_PERMISSION_LOOKUPS_PER_SNAPSHOT,
   selectProviderFeedback,
   TRUSTED_AUTHOR_ASSOCIATIONS,
+  WEBHOOK_REVIEW_BODY_ID,
   type FetchAuthorPermission,
   type PlatformPermission,
 } from "./pr-correction-feedback.js";
@@ -407,6 +409,76 @@ describe("selectProviderFeedback", () => {
       expect(fetchPermission).not.toHaveBeenCalled();
     });
 
+    it("la scorciatoia si guarda per OGNI commento: stesso login, NONE e poi MEMBER → il MEMBER entra", async () => {
+      // Il ripiego di C8 può mescolare una voce vecchia e una nuova dello stesso autore.
+      const fetchPermission = fetchFrom({ "mario-rossi": "read" });
+      const res = await selectProviderFeedback(
+        [by("vecchio", "NONE", "mario-rossi"), by("nuovo", "MEMBER", "mario-rossi")],
+        { cutoff: null, ownIds: [], provider: "github", fetchPermission },
+      );
+      expect(res.comments.map((c) => c.id)).toEqual(["nuovo"]);
+      expect(fetchPermission).toHaveBeenCalledTimes(1);
+    });
+
+    it("…e nell'ordine opposto: MEMBER prima non mette in cache un permesso per il NONE dopo", async () => {
+      const fetchPermission = fetchFrom({ "mario-rossi": "read" });
+      const res = await selectProviderFeedback(
+        [by("nuovo", "MEMBER", "mario-rossi"), by("vecchio", "NONE", "mario-rossi")],
+        { cutoff: null, ownIds: [], provider: "github", fetchPermission },
+      );
+      expect(res.comments.map((c) => c.id)).toEqual(["nuovo"]);
+      expect(res.excludedAuthors).toEqual([{ login: "mario-rossi", reason: "denied" }]);
+    });
+
+    it("un login `[bot]` è denied SENZA chiamata", async () => {
+      const fetchPermission = vi.fn<FetchAuthorPermission>().mockResolvedValue("admin");
+      const res = await selectProviderFeedback([by("1", "NONE", "dependabot[bot]")], {
+        cutoff: null,
+        ownIds: [],
+        provider: "github",
+        fetchPermission,
+      });
+      expect(res.comments).toEqual([]);
+      expect(res.excludedAuthors).toEqual([{ login: "dependabot[bot]", reason: "denied", detail: "bot" }]);
+      expect(fetchPermission).not.toHaveBeenCalled();
+    });
+
+    it(`oltre ${MAX_PERMISSION_LOOKUPS_PER_SNAPSHOT} login la fotografia smette di chiedere: unverifiable senza chiamata`, async () => {
+      const n = MAX_PERMISSION_LOOKUPS_PER_SNAPSHOT;
+      const comments = Array.from({ length: n + 2 }, (_, i) => by(String(i), "CONTRIBUTOR", `u${i}`));
+      // un login GIÀ visto oltre il tetto resta dalla cache, non diventa unverifiable
+      comments.push(by("ripetuto", "CONTRIBUTOR", "u0"));
+      const fetchPermission = vi.fn<FetchAuthorPermission>().mockResolvedValue("write");
+      const res = await selectProviderFeedback(comments, {
+        cutoff: null,
+        ownIds: [],
+        provider: "github",
+        fetchPermission,
+      });
+      expect(fetchPermission).toHaveBeenCalledTimes(n);
+      expect(res.comments.map((c) => c.id)).toEqual([
+        ...Array.from({ length: n }, (_, i) => String(i)),
+        "ripetuto",
+      ]);
+      expect(res.excludedAuthors).toEqual([
+        { login: `u${n}`, reason: "unverifiable", detail: "lookup_limit" },
+        { login: `u${n + 1}`, reason: "unverifiable", detail: "lookup_limit" },
+      ]);
+    });
+
+    it("il tetto conta le CHIAMATE, non i commenti: la scorciatoia e i bot non lo consumano", async () => {
+      const n = MAX_PERMISSION_LOOKUPS_PER_SNAPSHOT;
+      const comments = [
+        ...Array.from({ length: n }, (_, i) => by(`m${i}`, "MEMBER", `m${i}`)),
+        ...Array.from({ length: 5 }, (_, i) => by(`b${i}`, "NONE", `bot${i}[bot]`)),
+        by("ultimo", "CONTRIBUTOR", "ultimo"),
+      ];
+      const fetchPermission = vi.fn<FetchAuthorPermission>().mockResolvedValue("write");
+      const res = await selectProviderFeedback(comments, { cutoff: null, ownIds: [], provider: "github", fetchPermission });
+      expect(res.comments.map((c) => c.id)).toContain("ultimo");
+      expect(fetchPermission).toHaveBeenCalledTimes(1);
+    });
+
     it("Bitbucket: nessun dato di associazione, tiene tutto e non chiede niente (rischio documentato)", async () => {
       const mixed = [...trusted, by("contributor", "CONTRIBUTOR"), by("null", null), by("assente", undefined)];
       const fetchPermission = neverFetch();
@@ -462,6 +534,18 @@ describe("isAuthorPermitted", () => {
   it("GitHub, la chiamata lancia → unverifiable (distinto da denied)", async () => {
     const fetchPermission = vi.fn<FetchAuthorPermission>().mockRejectedValue(new Error("rete"));
     await expect(isAuthorPermitted(author(null), "github", fetchPermission)).resolves.toBe("unverifiable");
+  });
+
+  it("GitHub, un login `[bot]` → denied senza chiamate (anche con NONE)", async () => {
+    const fetchPermission = vi.fn<FetchAuthorPermission>().mockResolvedValue("admin");
+    await expect(
+      isAuthorPermitted({ login: "renovate[bot]", association: "NONE" }, "github", fetchPermission),
+    ).resolves.toBe("denied");
+    expect(fetchPermission).not.toHaveBeenCalled();
+  });
+
+  it("WEBHOOK_REVIEW_BODY_ID è la voce sintetica del webhook", () => {
+    expect(WEBHOOK_REVIEW_BODY_ID).toBe("review-body");
   });
 
   it("Bitbucket → permitted senza chiamate", async () => {

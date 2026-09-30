@@ -204,8 +204,13 @@ export function isTrustedAuthorAssociation(
 
 /**
  * Permesso di un utente sulla repository, nella forma di
- * `GitProvider.getCollaboratorPermission` (`@stubwise/git`, che questo package
- * non importa: stessa unione, ripetuta).
+ * `GitProvider.getCollaboratorPermission`.
+ *
+ * ⚠️ COPIA VOLUTA di `RepositoryPermission` (`packages/git/src/provider.ts`):
+ * questo package non dipende da `@stubwise/git` (la chiamata si inietta), quindi
+ * l'unione è ripetuta. Chi aggiunge un valore là lo aggiunga qui; un valore che
+ * qui manca non apre niente — {@link isAuthorPermitted} ammette solo
+ * {@link PERMITTED_PERMISSIONS}, e il resto è `denied`.
  */
 export type PlatformPermission = "admin" | "maintain" | "write" | "triage" | "read" | "none";
 
@@ -225,6 +230,26 @@ const PERMITTED = new Set<string>(PERMITTED_PERMISSIONS);
  * `"unverifiable"`.
  */
 export type FetchAuthorPermission = (login: string) => Promise<PlatformPermission>;
+
+/**
+ * Id della voce sintetica che il webhook (D2) salva nella fotografia col testo
+ * della review "Request changes". UNA definizione: il server la scrive, il
+ * worker (C8) la riconosce per conservarla quando la rilettura la scarterebbe.
+ */
+export const WEBHOOK_REVIEW_BODY_ID = "review-body";
+
+/**
+ * Tetto di login di cui una fotografia chiede il permesso reale. Oltre, i login
+ * NUOVI sono `unverifiable` senza chiamata (fail-closed): una PR pubblica
+ * commentata da cento estranei non deve costare cento chiamate — né il rate
+ * limit del token principale — a ogni correzione.
+ */
+export const MAX_PERMISSION_LOOKUPS_PER_SNAPSHOT = 20;
+
+/** Un login di una GitHub App o di un bot (`dependabot[bot]`). */
+function isBotLogin(login: string): boolean {
+  return login.endsWith("[bot]");
+}
 
 /**
  * Esito del filtro sull'autore. `unverifiable` è distinto da `denied` apposta:
@@ -256,9 +281,22 @@ export async function isAuthorPermitted(
   fetchPermission: FetchAuthorPermission,
 ): Promise<AuthorPermissionVerdict> {
   if (isTrustedAuthorAssociation(author.association, provider)) return "permitted";
+  return fetchedVerdict(author.login, fetchPermission);
+}
+
+/**
+ * La parte di {@link isAuthorPermitted} DOPO la scorciatoia: un bot è `denied`
+ * senza chiamata (una GitHub App non è un collaboratore: GitHub risponderebbe
+ * 404), altrimenti il permesso reale.
+ */
+async function fetchedVerdict(
+  login: string,
+  fetchPermission: FetchAuthorPermission,
+): Promise<AuthorPermissionVerdict> {
+  if (isBotLogin(login)) return "denied";
   let permission: unknown;
   try {
-    permission = await fetchPermission(author.login);
+    permission = await fetchPermission(login);
   } catch {
     return "unverifiable";
   }
@@ -269,6 +307,12 @@ export async function isAuthorPermitted(
 export interface ExcludedAuthor {
   login: string;
   reason: Exclude<AuthorPermissionVerdict, "permitted">;
+  /**
+   * Esclusioni decise SENZA chiamare la piattaforma: `bot` (login `*[bot]`,
+   * `denied`) e `lookup_limit` (tetto {@link MAX_PERMISSION_LOOKUPS_PER_SNAPSHOT}
+   * superato, `unverifiable`). Assente = esito della chiamata.
+   */
+  detail?: "bot" | "lookup_limit";
 }
 
 /** La fotografia filtrata e gli autori tenuti fuori per il permesso. */
@@ -291,11 +335,15 @@ export interface ProviderFeedbackSelection {
  *   segnali. Il compilatore lo segnala. Su Bitbucket `fetchPermission` non è
  *   mai chiamata.
  * - Il permesso si chiede solo per i commenti che hanno già passato gli altri
- *   due filtri, e UNA volta per login: la cache vive dentro QUESTA chiamata (è
- *   una fotografia) — mai persistita, mai condivisa fra chiamate: un permesso
+ *   due filtri e NON hanno un'associazione fidata (la scorciatoia si guarda per
+ *   ogni commento, fuori dalla cache), UNA volta per login, al più per
+ *   {@link MAX_PERMISSION_LOOKUPS_PER_SNAPSHOT} login (oltre: `unverifiable`
+ *   senza chiamata); un login `*[bot]` è `denied` senza chiamata. La cache
+ *   vive dentro QUESTA chiamata (è una fotografia) — mai persistita, mai condivisa fra chiamate: un permesso
  *   tolto sulla piattaforma vale dalla fotografia successiva.
  * - Un autore `denied` o `unverifiable` resta fuori (fail-closed) e compare in
- *   `excludedAuthors` col motivo, così il chiamante lo può scrivere nel log.
+ *   `excludedAuthors` col motivo (e `detail` se deciso senza chiamata), così il
+ *   chiamante lo può scrivere nel log.
  * - Un `createdAt` non parsabile il commento lo TIENE: errore per eccesso,
  *   mai per difetto. Per l'autore vale il contrario (fail-closed su GitHub):
  *   un commento in più di un estraneo non è un errore innocuo.
@@ -316,20 +364,36 @@ export async function selectProviderFeedback(
   const candidates = comments.filter(
     (c) => !own.has(c.authorId) && (opts.cutoff === null || !isBeforeOrAt(c.createdAt, opts.cutoff)),
   );
-  // La fotografia: un verdetto per login, solo per questa chiamata.
+  // La fotografia: il verdetto della PIATTAFORMA per login, solo per questa
+  // chiamata. La scorciatoia NON passa dalla cache: si guarda commento per
+  // commento, così un login visto prima come `NONE` e poi come `MEMBER` non
+  // perde il secondo commento.
   const verdicts = new Map<string, AuthorPermissionVerdict>();
   const excludedAuthors: ExcludedAuthor[] = [];
   const kept: PrComment[] = [];
+  let lookups = 0;
   for (const c of candidates) {
+    if (isTrustedAuthorAssociation(c.authorAssociation, opts.provider)) {
+      kept.push(c);
+      continue;
+    }
     let verdict = verdicts.get(c.authorLogin);
     if (verdict === undefined) {
-      verdict = await isAuthorPermitted(
-        { login: c.authorLogin, association: c.authorAssociation },
-        opts.provider,
-        opts.fetchPermission,
-      );
+      let detail: ExcludedAuthor["detail"];
+      if (isBotLogin(c.authorLogin)) {
+        verdict = "denied";
+        detail = "bot";
+      } else if (lookups >= MAX_PERMISSION_LOOKUPS_PER_SNAPSHOT) {
+        verdict = "unverifiable";
+        detail = "lookup_limit";
+      } else {
+        lookups += 1;
+        verdict = await fetchedVerdict(c.authorLogin, opts.fetchPermission);
+      }
       verdicts.set(c.authorLogin, verdict);
-      if (verdict !== "permitted") excludedAuthors.push({ login: c.authorLogin, reason: verdict });
+      if (verdict !== "permitted") {
+        excludedAuthors.push({ login: c.authorLogin, reason: verdict, ...(detail ? { detail } : {}) });
+      }
     }
     if (verdict === "permitted") kept.push(c);
   }

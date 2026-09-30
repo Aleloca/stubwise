@@ -133,6 +133,10 @@ export type { PrComment };
  * Permesso di un utente su una repository, dal più forte al più debole
  * (GitHub `role_name`: `maintain` e `triage` sono ruoli propri, che il campo
  * legacy `permission` appiattisce su `write`/`read`). `none` = nessun accesso.
+ *
+ * ⚠️ COPIA VOLUTA in `PlatformPermission` (`packages/notifications/src/pr-correction-feedback.ts`):
+ * `@stubwise/notifications` non dipende da questo package, quindi l'unione è
+ * ripetuta là. Chi aggiunge un valore qui lo aggiunga anche là.
  */
 export const REPOSITORY_PERMISSIONS = ["admin", "maintain", "write", "triage", "read", "none"] as const;
 export type RepositoryPermission = (typeof REPOSITORY_PERMISSIONS)[number];

@@ -1270,23 +1270,15 @@ function githubAuthor(raw: unknown): { id: string; login: string } | null {
 }
 
 /**
- * `author_association` di GitHub (commento, review, webhook): il rapporto
- * dell'autore col repository — `OWNER`, `MEMBER`, `COLLABORATOR`,
- * `CONTRIBUTOR`, `FIRST_TIME_CONTRIBUTOR`, `NONE`… — restituito così come
- * GitHub lo manda (maiuscolo), senza normalizzarlo: la decisione su chi è
- * ammesso la prende `isTrustedAuthorAssociation` in `@stubwise/notifications`,
- * non questo package. Assente, vuoto o non stringa → `null` (sconosciuto, e a
- * valle fail-closed). UNA funzione per le tre fonti dei commenti e per il
- * webhook, come {@link githubAuthor}.
+ * Un login GitHub: lettere, cifre, trattini e underscore, al più 45 caratteri,
+ * che non comincia con un trattino o un underscore; più il suffisso `[bot]`
+ * degli account delle GitHub App. L'underscore e la lunghezza servono agli
+ * Enterprise Managed Users (`handle_shortcode`); i login storici possono avere
+ * trattini doppi o in coda, quindi non si vietano. Il controllo è largo apposta:
+ * tiene fuori `/`, `.`, `?`, `%`, spazi…, e la difesa vera resta
+ * `encodeURIComponent` sul segmento.
  */
-/**
- * Un login GitHub: lettere, cifre e trattini, al più 39 caratteri, che non
- * comincia con un trattino (i login storici possono avere trattini doppi o in
- * coda, quindi non si vietano); più il suffisso `[bot]` degli account delle
- * GitHub App. Tutto il resto (`/`, `..`, `?`, spazi…) è rifiutato prima di
- * finire in un percorso.
- */
-const GITHUB_LOGIN_RE = /^[A-Za-z0-9][A-Za-z0-9-]{0,38}(?:\[bot\])?$/;
+const GITHUB_LOGIN_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,44}(?:\[bot\])?$/;
 
 function isValidGitHubLogin(login: string): boolean {
   return GITHUB_LOGIN_RE.test(login);
@@ -1298,6 +1290,16 @@ function knownPermission(raw: unknown): RepositoryPermission | null {
   return typeof raw === "string" && KNOWN_PERMISSIONS.has(raw) ? (raw as RepositoryPermission) : null;
 }
 
+/**
+ * `author_association` di GitHub (commento, review, webhook): il rapporto
+ * dell'autore col repository — `OWNER`, `MEMBER`, `COLLABORATOR`,
+ * `CONTRIBUTOR`, `FIRST_TIME_CONTRIBUTOR`, `NONE`… — restituito così come
+ * GitHub lo manda (maiuscolo), senza normalizzarlo: la decisione su chi è
+ * ammesso la prende `isTrustedAuthorAssociation` in `@stubwise/notifications`,
+ * non questo package. Assente, vuoto o non stringa → `null` (sconosciuto, e a
+ * valle fail-closed). UNA funzione per le tre fonti dei commenti e per il
+ * webhook, come {@link githubAuthor}.
+ */
 function githubAuthorAssociation(raw: unknown): string | null {
   return typeof raw === "string" && raw.length > 0 ? raw : null;
 }

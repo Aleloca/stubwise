@@ -292,15 +292,22 @@ NON dipende da `@stubwise/git`, il provider si inietta):
 - `selectProviderFeedback(comments, { cutoff, ownIds, provider, fetchPermission }): Promise<ProviderFeedbackSelection>` —
   ASINCRONA (permesso reale, E3): `provider: GitProviderKind` e
   `fetchPermission: FetchAuthorPermission` OBBLIGATORI; filtra per account
-  propri, taglio e poi `isAuthorPermitted`, chiedendo il permesso UNA volta per
-  login (cache limitata alla singola chiamata: mai persistita, mai condivisa).
+  propri, taglio e poi il permesso: la scorciatoia `isTrustedAuthorAssociation`
+  si guarda per OGNI commento, FUORI dalla cache (un login visto `NONE` e poi
+  `MEMBER` non perde il secondo commento); in cache va solo l'esito della
+  piattaforma, UNA volta per login (cache limitata alla singola chiamata: mai
+  persistita, mai condivisa). Un login `*[bot]` → `denied` senza chiamata;
+  oltre `MAX_PERMISSION_LOOKUPS_PER_SNAPSHOT = 20` chiamate per fotografia i
+  login NUOVI → `unverifiable` senza chiamata (fail-closed: una PR pubblica con
+  cento estranei non costa cento chiamate a ogni correzione).
   `ProviderFeedbackSelection = { comments: PrComment[]; excludedAuthors: ExcludedAuthor[] }`,
-  `ExcludedAuthor = { login: string; reason: "denied" | "unverifiable" }` (uno per
-  login, per il log).
+  `ExcludedAuthor = { login: string; reason: "denied" | "unverifiable"; detail?: "bot" | "lookup_limit" }`
+  (uno per login, per il log; `detail` = deciso senza chiamata).
 - `isAuthorPermitted(author: { login; association }, provider, fetchPermission): Promise<AuthorPermissionVerdict>`
   (E3, permesso reale), `AuthorPermissionVerdict = "permitted" | "denied" | "unverifiable"`:
   Bitbucket → `permitted` senza chiamate; GitHub → `permitted` se
-  `isTrustedAuthorAssociation` (la SCORCIATOIA, nessuna chiamata), altrimenti
+  `isTrustedAuthorAssociation` (la SCORCIATOIA, nessuna chiamata), un login
+  `*[bot]` → `denied` senza chiamata, altrimenti
   `fetchPermission(login)` e ammessi solo `PERMITTED_PERMISSIONS =
   ["write", "maintain", "admin"]` (`triage` NO); la chiamata lancia →
   `unverifiable` (fail-closed). UNA regola per il webhook (D2) e per la
@@ -312,17 +319,19 @@ NON dipende da `@stubwise/git`, il provider si inietta):
   (nessun dato, rischio in "Decisioni e rischi"). `switch` esaustivo sul provider.
 - `WEBHOOK_REVIEW_BODY_ID = "review-body"` (E3, permesso reale): l'id della
   voce sintetica che D2 salva col testo della review; C8 la riconosce per
-  conservarla. **Da AGGIUNGERE** — oggi non esiste in `packages/notifications`
-  — in `pr-correction-feedback.ts`, esportata da `index.ts`, dal primo dei due
-  task (C8 o D2) che arriva; il secondo la importa e basta. **Una sola
-  definizione nel monorepo**: D2 la importa al posto della sua costante locale
+  conservarla. **GIÀ DEFINITA** in `pr-correction-feedback.ts` ed esportata da
+  `index.ts` (commit «fix(git,notifications): …» della revisione del permesso
+  reale): C8 e D2 la IMPORTANO e basta. **Una sola definizione nel monorepo**: D2 la importa al posto della sua costante locale
   `REVIEW_BODY_ID` (che sparisce), C8 la importa da `@stubwise/notifications`,
   nessuno dei due la riscrive come stringa letterale. Un `grep -rn
   '"review-body"' apps packages --include=*.ts` a fine tappa deve trovarla SOLO
   lì (e nei test).
+- `MAX_PERMISSION_LOOKUPS_PER_SNAPSHOT = 20` (vedi `selectProviderFeedback`).
 - tipi: `FetchPlatformIdentity = ({ provider, credentials }) => Promise<string>`,
   `FetchAuthorPermission = (login: string) => Promise<PlatformPermission>`,
-  `PlatformPermission = "admin" | "maintain" | "write" | "triage" | "read" | "none"`,
+  `PlatformPermission = "admin" | "maintain" | "write" | "triage" | "read" | "none"`
+  (copia VOLUTA di `RepositoryPermission` di `@stubwise/git`, che questo
+  package non importa: un commento in entrambi i file lo ricorda),
   `GitCredentials`, `IdentityAccount`.
 
 ### packages/git — GitProvider (provider.ts, github.ts, bitbucket.ts)
@@ -10137,8 +10146,31 @@ describe("runCorrection", () => {
 
     expect(runner.calls[0]!.prompt).not.toContain("rinomina sum in add");
     const log = await jobLogOf(job.id);
-    expect(log).toMatch(/permesso di membro-privato sul repository non verificabile: GitHub: accesso negato \(403\)/);
-    expect(log).toMatch(/commenti di membro-privato esclusi dalla fotografia: permesso non verificabile/);
+    // UNA riga sola per quel login, col motivo E il messaggio d'errore.
+    const lines = log.split("\n").filter((l) => l.includes("membro-privato"));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(
+      /commenti di membro-privato esclusi dalla fotografia: permesso non verificabile \(GitHub: accesso negato \(403\)\)/,
+    );
+  });
+
+  it("bot e tetto delle verifiche: esclusi SENZA chiamata, ciascuno con la sua riga di log", async () => {
+    const f = await makeFixture();
+    const provider = makeProvider();
+    const n = MAX_PERMISSION_LOOKUPS_PER_SNAPSHOT;
+    provider.listPrComments.mockResolvedValue([
+      prComment("bot", "dependabot[bot]", "aggiorna le dipendenze", "NONE"),
+      ...Array.from({ length: n + 1 }, (_, i) => prComment(String(i), `u${i}`, `commento ${i}`)),
+    ]);
+    provider.getCollaboratorPermission.mockResolvedValue("write");
+    const { job } = await seedCorrection(f, { trigger: "provider", requestedByProviderLogin: "mario", providerFeedback: [] });
+
+    await runCorrection(makeDeps(f, applyingRunner(f), provider), job);
+
+    expect(provider.getCollaboratorPermission).toHaveBeenCalledTimes(n);
+    const log = await jobLogOf(job.id);
+    expect(log).toMatch(/commenti di dependabot\[bot\] esclusi dalla fotografia: account di un bot/);
+    expect(log).toMatch(new RegExp(`commenti di u${n} esclusi dalla fotografia: permesso non verificabile: superato il tetto`));
   });
 
   it("DECISIONE (2): la review-body ammessa da D2 si CONSERVA se la rilettura la scarterebbe", async () => {
@@ -10350,6 +10382,7 @@ import {
   providerFeedbackCutoff,
   resolveProviderUserId,
   selectProviderFeedback,
+  MAX_PERMISSION_LOOKUPS_PER_SNAPSHOT,
   WEBHOOK_REVIEW_BODY_ID,
   type ExcludedAuthor,
   type FetchAuthorPermission,
@@ -10579,27 +10612,35 @@ async function refreshProviderFeedback(input: {
       // Log best-effort.
     });
   // Il permesso reale (E3), col token PRINCIPALE (`input.project` è il
-  // mirrorProject, con le credenziali dell'account principale). Il motivo di
-  // un errore finisce nel log; l'errore stesso diventa `unverifiable`.
+  // mirrorProject, con le credenziali dell'account principale). L'errore
+  // diventa `unverifiable`; il suo messaggio si tiene per login e finisce
+  // nell'UNICA riga di log di quell'autore (logExcluded), non in due.
   // Definito PRIMA delle identità: serve anche al ripiego «identità non
   // risolvibile», che non ha bisogno di sapere chi siamo per rifiltrare.
+  const permissionErrors = new Map<string, string>();
   const fetchPermission: FetchAuthorPermission = async (login) => {
-    const get = input.provider.getCollaboratorPermission;
-    if (!get) throw new Error(`${input.project.provider}: il provider non sa dire il permesso di un utente`);
     try {
+      const get = input.provider.getCollaboratorPermission;
+      if (!get) throw new Error(`${input.project.provider}: il provider non sa dire il permesso di un utente`);
       return await get.call(input.provider, input.project, login);
     } catch (err) {
-      await log(`permesso di ${login} sul repository non verificabile: ${err instanceof Error ? err.message : String(err)}`);
+      permissionErrors.set(login, err instanceof Error ? err.message : String(err));
       throw err;
     }
   };
+  // UNA riga per autore escluso, col motivo — e, se la piattaforma ha dato
+  // errore, il suo messaggio (i GitProviderError non contengono il token).
   const logExcluded = async (excluded: ExcludedAuthor[]): Promise<void> => {
     for (const e of excluded) {
-      await log(
-        `commenti di ${e.login} esclusi dalla fotografia: ${
-          e.reason === "denied" ? "senza permesso di scrittura sul repository" : "permesso non verificabile"
-        }`,
-      );
+      const why =
+        e.detail === "bot"
+          ? "account di un bot o di una GitHub App"
+          : e.detail === "lookup_limit"
+            ? `permesso non verificabile: superato il tetto di ${MAX_PERMISSION_LOOKUPS_PER_SNAPSHOT} verifiche per fotografia`
+            : e.reason === "denied"
+              ? "senza permesso di scrittura sul repository"
+              : `permesso non verificabile (${permissionErrors.get(e.login) ?? "errore sconosciuto"})`;
+      await log(`commenti di ${e.login} esclusi dalla fotografia: ${why}`);
     }
   };
   const isWebhookReviewBody = (c: PrComment): boolean => c.id === WEBHOOK_REVIEW_BODY_ID;
@@ -15253,19 +15294,6 @@ export interface ChangesRequestedContext {
 }
 
 /**
- * Id sintetico del testo della review nella fotografia salvata dal webhook:
- * `WEBHOOK_REVIEW_BODY_ID` di `@stubwise/notifications` (E3, permesso reale),
- * NON una costante locale — C8 deve riconoscere la stessa voce. È il RIPIEGO:
- * all'avvio il worker rifà la fotografia con `listPrComments` (C8) e la
- * SOSTITUISCE — su GitHub la stessa review ci arriva come voce `review-<id>`
- * (B5), quindi il testo non entra mai due volte. Resta questa voce se la
- * lettura del worker fallisce, o se la rilettura non porta più quella review
- * (C8 la conserva). Su Bitbucket l'evento non porta testo (`reviewBody` sempre
- * null) e la fotografia nasce vuota.
- */
-const REVIEW_BODY_ID = WEBHOOK_REVIEW_BODY_ID;
-
-/**
  * Gli id di consegna già visti (`X-GitHub-Delivery`, `X-Request-UUID`):
  * il provider ritrasmette un evento senza risposta in tempo con lo STESSO id, e
  * una seconda elaborazione diventerebbe una seconda correzione identica
@@ -15473,7 +15501,12 @@ function reviewBodyFeedback(event: ChangesRequestedEvent): PrComment[] {
   if (!body) return [];
   return [
     {
-      id: REVIEW_BODY_ID,
+      // `WEBHOOK_REVIEW_BODY_ID` di `@stubwise/notifications` — mai una costante
+      // locale né il letterale: C8 deve riconoscere la stessa voce. È il
+      // RIPIEGO: il worker rifà la fotografia (C8) e la SOSTITUISCE (su GitHub
+      // la stessa review torna come `review-<id>`, B5); resta se la lettura
+      // fallisce o se la rilettura non porta più quella review (C8 la conserva).
+      id: WEBHOOK_REVIEW_BODY_ID,
       authorId: event.actorId,
       authorLogin: event.actorLogin,
       body,
@@ -23569,9 +23602,13 @@ Entrate con i fix della revisione di fine tappa:
   quale permesso serve lo dice B14 T40); (b) se GitHub risponde 404 invece di
   403 a un token che non vede la repository, l'esito è `none` → «senza
   permesso», col motivo sbagliato (T40 dice se succede). Un costo: al più UNA
-  chiamata in più per autore non fidato, per webhook e per fotografia. Le
-  review di bot e GitHub App (`<nome>[bot]`) di solito non passano: prendono
-  404 → `none`.
+  chiamata in più per autore non fidato, per webhook e per fotografia, con un
+  TETTO di `MAX_PERMISSION_LOOKUPS_PER_SNAPSHOT = 20` chiamate per fotografia
+  (oltre, i login nuovi sono `unverifiable` senza chiamata: fail-closed, e
+  riga di log col motivo). Le review di bot e GitHub App (`<nome>[bot]`) sono
+  `denied` senza chiamata. Il login si valida prima dell'URL con un'espressione
+  larga (underscore e 45 caratteri, per gli Enterprise Managed Users):
+  `encodeURIComponent` resta la difesa vera.
 - **Token Bitbucket senza `read:user:bitbucket`**: su un'istanza esistente
   ogni "Request changes" viene scartato (fail-closed, riga nel log) finché
   l'admin non rigenera il token. Mitigato su tre lati: il form della
