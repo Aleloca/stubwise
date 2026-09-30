@@ -6,6 +6,7 @@ import {
   getHeader,
   GitProviderError,
   assertPageOnApiHost,
+  isFullCommitSha,
   parseRepoUrl,
   readJsonResponse,
   rollupCheckStatus,
@@ -15,6 +16,8 @@ import {
   type AccountCredentials,
   type ChangesRequestedEvent,
   type CheckOutcomeStatus,
+  type CommitStatusInput,
+  type CommitStatusState,
   type CredentialCheck,
   type FetchLike,
   type GitProvider,
@@ -48,6 +51,15 @@ const MAX_BRANCH_PAGES = 2;
  * una fotografia parziale verrebbe presa per completa e i commenti persi
  * resterebbero fuori per sempre. L'errore evita sia quello sia il ciclo. */
 const MAX_COMMENT_PAGES = 10;
+
+/** Nome leggibile dello status di Stubwise nella UI di Bitbucket. */
+const COMMIT_STATUS_NAME = "Stubwise review";
+
+const BITBUCKET_STATUS_STATE: Record<CommitStatusState, "INPROGRESS" | "SUCCESSFUL" | "FAILED"> = {
+  pending: "INPROGRESS",
+  success: "SUCCESSFUL",
+  failure: "FAILED",
+};
 
 interface BitbucketCommentPayload {
   id?: unknown;
@@ -342,6 +354,47 @@ export class BitbucketProvider implements GitProvider {
       );
     }
     return comments;
+  }
+
+  /**
+   * Status di commit di Stubwise (design §8). Stessa `key` sullo stesso commit
+   * = sovrascrive (documentato). `refname` associa lo status alla PR (la doc
+   * lo dice necessario); `url` si manda sempre — senza quello del chiamante,
+   * la pagina della repository. Lo sha dev'essere completo: un abbreviato è
+   * rifiutato qui, prima della richiesta. Lancia GitProviderError: chi chiama
+   * lo tratta come best-effort (design §8).
+   */
+  async setCommitStatus(
+    p: ProjectGitConfig,
+    sha: string,
+    status: CommitStatusInput,
+    opts: { fetchImpl?: FetchLike } = {}
+  ): Promise<void> {
+    if (!isFullCommitSha(sha)) {
+      throw new GitProviderError(
+        `Bitbucket: lo status di commit richiede lo sha completo (40 caratteri), ricevuto "${sha}"`,
+        0,
+        ""
+      );
+    }
+    const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
+    const { host, owner, repo } = parseRepoUrl(p.repoUrl);
+    const response = await fetchImpl(
+      `${API_BASE}/repositories/${owner}/${repo}/commit/${sha}/statuses/build`,
+      {
+        method: "POST",
+        headers: { Authorization: this.projectRestAuthHeader(p), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          key: status.key,
+          state: BITBUCKET_STATUS_STATE[status.state],
+          name: COMMIT_STATUS_NAME,
+          description: status.description,
+          url: status.url ?? `https://${host}/${owner}/${repo}`,
+          ...(status.refname !== undefined ? { refname: status.refname } : {}),
+        }),
+      }
+    );
+    await ensureOkResponse(response, "Bitbucket");
   }
 
   parseWebhook(headers: Record<string, string>, body: unknown): WebhookEvent | null {

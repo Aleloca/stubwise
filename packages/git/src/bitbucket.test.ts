@@ -694,6 +694,83 @@ describe("BitbucketProvider.listPrComments", () => {
   });
 });
 
+describe("BitbucketProvider.setCommitStatus", () => {
+  const SHA = "0123456789abcdef0123456789abcdef01234567";
+  const STATUS_URL = `https://api.bitbucket.org/2.0/repositories/myws/myrepo/commit/${SHA}/statuses/build`;
+
+  it("POST con key, stato mappato, nome, descrizione, url e refname", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ key: "stubwise-review" }, 201));
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    await provider.setCommitStatus(config, SHA, {
+      state: "failure",
+      key: "stubwise-review",
+      description: "La review chiede modifiche",
+      url: "https://stubwise.example.com/tickets/t1",
+      refname: "stubwise/ticket-42",
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(STATUS_URL);
+    expect(init.method).toBe("POST");
+    const headers = init.headers as Record<string, string>;
+    expect(headers["Authorization"]).toBe(`Basic ${Buffer.from("alice:app-pass").toString("base64")}`);
+    expect(headers["Content-Type"]).toBe("application/json");
+    expect(JSON.parse(init.body as string)).toEqual({
+      key: "stubwise-review",
+      state: "FAILED",
+      name: "Stubwise review",
+      description: "La review chiede modifiche",
+      url: "https://stubwise.example.com/tickets/t1",
+      refname: "stubwise/ticket-42",
+    });
+  });
+
+  it("pending → INPROGRESS, success → SUCCESSFUL", async () => {
+    const fetchImpl = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse({}, 201)));
+    const provider = new BitbucketProvider({ fetchImpl });
+    await provider.setCommitStatus(config, SHA, { state: "pending", key: "stubwise-review", description: "d" });
+    await provider.setCommitStatus(config, SHA, { state: "success", key: "stubwise-review", description: "d" });
+    const states = fetchImpl.mock.calls.map((c) => JSON.parse((c as [string, RequestInit])[1].body as string).state);
+    expect(states).toEqual(["INPROGRESS", "SUCCESSFUL"]);
+  });
+
+  it("senza url né refname: url = pagina della repository, refname assente", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({}, 201));
+    const provider = new BitbucketProvider({ fetchImpl });
+    await provider.setCommitStatus(config, SHA, { state: "pending", key: "stubwise-review", description: "d" });
+    const body = JSON.parse((fetchImpl.mock.calls[0] as [string, RequestInit])[1].body as string);
+    expect(body.url).toBe("https://bitbucket.org/myws/myrepo");
+    expect(body).not.toHaveProperty("refname");
+  });
+
+  it("sha abbreviato → GitProviderError, nessuna richiesta", async () => {
+    // Il doppio risponde 201 valido: senza il controllo sullo sha la chiamata
+    // andrebbe a buon fine, e il test deve cadere sull'asserzione "nessuna
+    // richiesta", non su un crash del doppio.
+    const fetchImpl = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse({}, 201)));
+    const provider = new BitbucketProvider({ fetchImpl });
+    const error = await provider
+      .setCommitStatus(config, "abc123def456", { state: "pending", key: "stubwise-review", description: "d" })
+      .then(() => null)
+      .catch((e: unknown) => e);
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(error).toBeInstanceOf(GitProviderError);
+  });
+
+  it("non-2xx → GitProviderError con lo status", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("nope", { status: 404 }));
+    const provider = new BitbucketProvider({ fetchImpl });
+    const error = await provider
+      .setCommitStatus(config, SHA, { state: "pending", key: "stubwise-review", description: "d" })
+      .then(() => null)
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).status).toBe(404);
+  });
+});
+
 describe("BitbucketProvider.parseWebhook", () => {
   const provider = new BitbucketProvider();
   const mergedBody = {
