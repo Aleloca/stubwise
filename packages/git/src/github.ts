@@ -12,6 +12,8 @@ import {
   parseNextLink,
   parseRepoUrl,
   PR_REVIEW_PERMISSION_HINT,
+  COLLABORATOR_PERMISSION_HINT,
+  REPOSITORY_PERMISSIONS,
   readJsonResponse,
   rollupCheckStatus,
   verifyHmacSignature,
@@ -32,6 +34,7 @@ import {
   type PullRequestChecks,
   type PushWebhookEvent,
   type RepoSummary,
+  type RepositoryPermission,
   type WebhookEvent,
   type WebhookResult,
 } from "./provider.js";
@@ -600,6 +603,87 @@ export class GitHubProvider implements GitProvider {
       );
     }
     return account.id;
+  }
+
+  /**
+   * Il permesso effettivo di `login` sulla repository di `p`:
+   * `GET /repos/{o}/{r}/collaborators/{login}/permission`. Conta anche
+   * l'accesso via organizzazione e team, e le appartenenze PRIVATE che
+   * `author_association` riporta come `CONTRIBUTOR`/`NONE`.
+   *
+   * - Si legge `role_name` (distingue `maintain` e `triage`); se non è uno dei
+   *   ruoli noti — un ruolo personalizzato dell'organizzazione ha un nome suo
+   *   — si ripiega su `permission`, che GitHub mappa sempre sul ruolo base
+   *   (`admin`/`write`/`read`/`none`). Nessuno dei due riconoscibile → lancia:
+   *   inventare un permesso aprirebbe il cancello.
+   * - 404 → `"none"`: il login non è un collaboratore (o non esiste). Anche un
+   *   token che non vede la repository prende 404: l'esito resta un rifiuto,
+   *   quindi l'errore è comunque dalla parte chiusa.
+   * - 401/403 → GitProviderError che nomina il permesso mancante
+   *   ({@link COLLABORATOR_PERMISSION_HINT}), salvo il rate limit, che ha un
+   *   messaggio suo; altri non-2xx → GitProviderError generico.
+   * - Il login è validato PRIMA di comporre l'URL (niente path injection):
+   *   caratteri di un login GitHub, al più 39, più il suffisso `[bot]` degli
+   *   account delle App (che poi prende 404 → `none`). Malformato → lancia
+   *   senza fare la richiesta.
+   * - Mai il token in un messaggio.
+   */
+  async getCollaboratorPermission(
+    p: ProjectGitConfig,
+    login: string,
+    opts: { fetchImpl?: FetchLike } = {}
+  ): Promise<RepositoryPermission> {
+    if (!isValidGitHubLogin(login)) {
+      throw new GitProviderError(
+        "GitHub: login non valido per la lettura del permesso sulla repository",
+        0,
+        ""
+      );
+    }
+    const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
+    const { owner, repo } = parseRepoUrl(p.repoUrl);
+    const response = await fetchImpl(
+      `${API_BASE}/repos/${owner}/${repo}/collaborators/${encodeURIComponent(login)}/permission`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${p.credentials.token}`,
+          Accept: "application/vnd.github+json",
+        },
+      }
+    );
+    if (response.status === 404) return "none";
+    if (response.status === 403) {
+      const text = maskSecret(await response.text().catch(() => ""), p.credentials.token).slice(0, 500);
+      const rateLimited =
+        response.headers.get("x-ratelimit-remaining") === "0" || /rate limit/i.test(text);
+      throw new GitProviderError(
+        rateLimited
+          ? "GitHub: limite di richieste raggiunto leggendo il permesso sulla repository (403, rate limit) — riprova più tardi"
+          : `GitHub: accesso negato leggendo il permesso sulla repository (403) — ${COLLABORATOR_PERMISSION_HINT}`,
+        403,
+        text
+      );
+    }
+    if (response.status === 401) {
+      const text = maskSecret(await response.text().catch(() => ""), p.credentials.token).slice(0, 500);
+      throw new GitProviderError(
+        `GitHub: credenziali non valide leggendo il permesso sulla repository (401) — ${COLLABORATOR_PERMISSION_HINT}`,
+        401,
+        text
+      );
+    }
+    await ensureOkResponse(response, "GitHub");
+    const data = (await readJsonResponse(response, "GitHub")) as { role_name?: unknown; permission?: unknown };
+    const permission = knownPermission(data.role_name) ?? knownPermission(data.permission);
+    if (permission === null) {
+      throw new GitProviderError(
+        "GitHub: la risposta del permesso sulla repository non contiene un ruolo riconoscibile",
+        response.status,
+        ""
+      );
+    }
+    return permission;
   }
 
   parseWebhook(headers: Record<string, string>, body: unknown): WebhookEvent | null {
@@ -1195,6 +1279,25 @@ function githubAuthor(raw: unknown): { id: string; login: string } | null {
  * valle fail-closed). UNA funzione per le tre fonti dei commenti e per il
  * webhook, come {@link githubAuthor}.
  */
+/**
+ * Un login GitHub: lettere, cifre e trattini, al più 39 caratteri, che non
+ * comincia con un trattino (i login storici possono avere trattini doppi o in
+ * coda, quindi non si vietano); più il suffisso `[bot]` degli account delle
+ * GitHub App. Tutto il resto (`/`, `..`, `?`, spazi…) è rifiutato prima di
+ * finire in un percorso.
+ */
+const GITHUB_LOGIN_RE = /^[A-Za-z0-9][A-Za-z0-9-]{0,38}(?:\[bot\])?$/;
+
+function isValidGitHubLogin(login: string): boolean {
+  return GITHUB_LOGIN_RE.test(login);
+}
+
+const KNOWN_PERMISSIONS = new Set<string>(REPOSITORY_PERMISSIONS);
+
+function knownPermission(raw: unknown): RepositoryPermission | null {
+  return typeof raw === "string" && KNOWN_PERMISSIONS.has(raw) ? (raw as RepositoryPermission) : null;
+}
+
 function githubAuthorAssociation(raw: unknown): string | null {
   return typeof raw === "string" && raw.length > 0 ? raw : null;
 }

@@ -6328,8 +6328,9 @@ del piano, quando useranno i metodi nuovi:
 ### B14 — Verifica manuale con chiamate vere (non in CI, niente commit)
 
 > **Si esegue dalla guida operativa, non da qui:**
-> `docs/plans/2026-09-30-pr-correction-loop-b14.md` (39 test T1–T39 — i
-> T37–T39 per il §9, emendamento E3 —, uno alla volta, con preparazione, comandi esatti e tabella «Da riportare») e lo script
+> `docs/plans/2026-09-30-pr-correction-loop-b14.md` (40 test T1–T40 — i
+> T37–T40 per il §9, emendamento E3 e permesso reale; T37/T38 obbligatori con
+> un revisore membro PRIVATO dell'organizzazione e accesso via team —, uno alla volta, con preparazione, comandi esatti e tabella «Da riportare») e lo script
 > `packages/git/scripts/b14-probe.mjs` per i casi «da uno script». La guida
 > corregge le incongruenze del testo qui sotto: i `curl | jq` che nascondevano
 > il codice HTTP, un solo `$SHA` per due repository (ora `BB_SHA`/`GH_SHA`, e lo
@@ -6530,16 +6531,23 @@ di prova chiusa), `PR_MERGED` (una PR Bitbucket di prova già mergiata).
    `COLLABORATOR` o `MEMBER`.
    (b) **GitHub, i commenti letti.** Sulle tre fonti di `listPrComments`
    (conversazione, righe, review), lette col token dell'account principale,
-   `author_association` c'è per ogni voce, e un collaboratore risulta
-   `COLLABORATOR`/`MEMBER`. Caso da guardare apposta: un membro
-   dell'organizzazione con appartenenza PRIVATA — se GitHub lo riporta
-   `CONTRIBUTOR`/`NONE` a quel token, i suoi commenti e le sue richieste
-   verrebbero scartati a torto (fail-closed): va deciso prima del merge.
+   `author_association` c'è per ogni voce. **Obbligatorio** (a e b) con un
+   revisore membro dell'organizzazione con appartenenza PRIVATA e accesso via
+   organizzazione/team, NON collaboratore diretto: se GitHub lo riporta
+   `CONTRIBUTOR`/`NONE`, a decidere è il permesso reale
+   (`getCollaboratorPermission`, sonda `gh-permission`), che per lo stesso
+   login deve dire `write`/`maintain`/`admin`.
    (c) **Bitbucket PUBBLICO.** Con la repository di prova resa pubblica, un
    account NON membro del workspace vede e può premere "Request changes", e il
    webhook lo consegna? Se sì, su un repository Bitbucket pubblico un estraneo
    fa partire una correzione e Stubwise non ha un dato per fermarlo (rischio
    in «Decisioni e rischi»).
+   (d) **GitHub, il permesso del token per leggere il permesso.** Quale
+   permesso di un token fine-grained serve a `GET
+   /repos/{o}/{r}/collaborators/{login}/permission` (Metadata read?
+   Administration read?), e cosa risponde a un token senza: 403 (→ «permesso
+   non verificabile») o 404 (→ `none`, cioè «senza permesso»: fail-closed ma
+   col motivo sbagliato). Guida: T40.
 
 ---
 

@@ -19,6 +19,7 @@
 //   node b14-probe.mjs gh-status <TOKEN_VAR> [emoji]              (O, R, GH_SHA)
 //   node b14-probe.mjs bb-review <EMAIL_VAR> <TOKEN_VAR> <PR> <approve|request_changes>   (WS, REPO)
 //   node b14-probe.mjs gh-review <TOKEN_VAR> <PR> <approve|request_changes>               (O, R)
+//   node b14-probe.mjs gh-permission <TOKEN_VAR> <LOGIN>                                   (O, R)
 import { pathToFileURL } from "node:url";
 
 // Il dist del package accanto allo script (packages/git/dist): va buildato
@@ -28,7 +29,13 @@ const distUrl = process.env.STUBWISE_GIT_DIST
   ? pathToFileURL(process.env.STUBWISE_GIT_DIST).href
   : new URL("../dist/index.js", import.meta.url).href;
 const git = await import(distUrl);
-const { BitbucketProvider, GitHubProvider, PR_REVIEW_PERMISSION_HINT, COMMIT_STATUS_PERMISSION_HINT } = git;
+const {
+  BitbucketProvider,
+  GitHubProvider,
+  PR_REVIEW_PERMISSION_HINT,
+  COMMIT_STATUS_PERMISSION_HINT,
+  COLLABORATOR_PERMISSION_HINT,
+} = git;
 
 function env(name) {
   const v = process.env[name];
@@ -103,6 +110,11 @@ async function run() {
       const p = { repoUrl: `https://github.com/${env("O")}/${env("R")}`, defaultBranch: "main", credentials };
       return new GitHubProvider().submitPrReview(p, Number(args[1]), args[2], REVIEW_BODY);
     }
+    case "gh-permission": {
+      const credentials = trackGitHub(args[0]);
+      const p = { repoUrl: `https://github.com/${env("O")}/${env("R")}`, defaultBranch: "main", credentials };
+      return new GitHubProvider().getCollaboratorPermission(p, args[1]);
+    }
     default:
       console.error("Comando sconosciuto. Vedi l'intestazione del file.");
       process.exit(2);
@@ -128,4 +140,5 @@ try {
   console.log(`CONTIENE IL TOKEN O LA SUA FORMA BASE64: ${found.length > 0 ? `SI (${found.join(", ")})` : "no"}`);
   console.log(`contiene il suggerimento sui permessi della review: ${message.includes(PR_REVIEW_PERMISSION_HINT) ? "SI" : "no"}`);
   console.log(`contiene il suggerimento sui permessi dello status: ${message.includes(COMMIT_STATUS_PERMISSION_HINT) ? "SI" : "no"}`);
+  console.log(`contiene il suggerimento sul permesso dei collaboratori: ${message.includes(COLLABORATOR_PERMISSION_HINT) ? "SI" : "no"}`);
 }

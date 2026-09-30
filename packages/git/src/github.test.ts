@@ -2136,3 +2136,111 @@ describe("GitHubProvider.getAuthenticatedUserId", () => {
     expect((error as GitProviderError).message).not.toMatch(/GitHub App/);
   });
 });
+
+describe("GitHubProvider.getCollaboratorPermission", () => {
+  const PERM_URL = "https://api.github.com/repos/octo/repo/collaborators/mario-rossi/permission";
+
+  it.each([
+    ["admin", "admin"],
+    ["maintain", "write"],
+    ["write", "write"],
+    ["triage", "read"],
+    ["read", "read"],
+  ] as const)("role_name %s (permission legacy %s) → role_name", async (roleName, permission) => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ role_name: roleName, permission }, 200));
+    const provider = new GitHubProvider({ fetchImpl });
+    await expect(provider.getCollaboratorPermission(config, "mario-rossi")).resolves.toBe(roleName);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(PERM_URL);
+    expect(init.method).toBe("GET");
+    expect((init.headers as Record<string, string>)["Authorization"]).toBe("Bearer ghp_secret");
+  });
+
+  it("role_name di un ruolo personalizzato → ripiego su permission", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ role_name: "security-reviewer", permission: "read" }, 200));
+    const provider = new GitHubProvider({ fetchImpl });
+    await expect(provider.getCollaboratorPermission(config, "mario-rossi")).resolves.toBe("read");
+  });
+
+  it("senza role_name → permission", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ permission: "write" }, 200));
+    const provider = new GitHubProvider({ fetchImpl });
+    await expect(provider.getCollaboratorPermission(config, "mario-rossi")).resolves.toBe("write");
+  });
+
+  it("permission none → none", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ role_name: "none", permission: "none" }, 200));
+    const provider = new GitHubProvider({ fetchImpl });
+    await expect(provider.getCollaboratorPermission(config, "mario-rossi")).resolves.toBe("none");
+  });
+
+  it("nessun ruolo riconoscibile → lancia, MAI un permesso inventato", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ role_name: "boh", permission: "boh" }, 200));
+    const provider = new GitHubProvider({ fetchImpl });
+    await expect(provider.getCollaboratorPermission(config, "mario-rossi")).rejects.toBeInstanceOf(GitProviderError);
+  });
+
+  it("404 (non collaboratore) → none", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response('{"message":"Not Found"}', { status: 404 }));
+    const provider = new GitHubProvider({ fetchImpl });
+    await expect(provider.getCollaboratorPermission(config, "mario-rossi")).resolves.toBe("none");
+  });
+
+  it("403 → GitProviderError che nomina il permesso mancante, senza token", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(new Response('{"message":"Resource not accessible by personal access token ghp_secret"}', { status: 403 }));
+    const provider = new GitHubProvider({ fetchImpl });
+    const error = await provider
+      .getCollaboratorPermission(config, "mario-rossi")
+      .then(() => null)
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).status).toBe(403);
+    expect((error as GitProviderError).message).toContain("Metadata");
+    expect((error as GitProviderError).message).not.toContain("ghp_secret");
+    expect((error as GitProviderError).responseText).not.toContain("ghp_secret");
+  });
+
+  it("403 da rate limit → messaggio suo, non il permesso mancante", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response("{}", { status: 403, headers: { "x-ratelimit-remaining": "0" } })
+    );
+    const provider = new GitHubProvider({ fetchImpl });
+    await expect(provider.getCollaboratorPermission(config, "mario-rossi")).rejects.toThrow(/rate limit/);
+  });
+
+  it("401 → GitProviderError", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("", { status: 401 }));
+    const provider = new GitHubProvider({ fetchImpl });
+    await expect(provider.getCollaboratorPermission(config, "mario-rossi")).rejects.toMatchObject({ status: 401 });
+  });
+
+  it("500 → GitProviderError, mai none", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("boom", { status: 500 }));
+    const provider = new GitHubProvider({ fetchImpl });
+    await expect(provider.getCollaboratorPermission(config, "mario-rossi")).rejects.toMatchObject({ status: 500 });
+  });
+
+  it.each(["../../admin", "mario/rossi", "mario?x=1", "", "-mario", "mario rossi", "a".repeat(40), "mario%2F"])(
+    "login malformato %j → lancia SENZA fare la richiesta",
+    async (login) => {
+      // Il doppio risponderebbe comunque "admin": se la richiesta partisse, il
+      // test lo vedrebbe dal risultato e dal conteggio.
+      const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ role_name: "admin", permission: "admin" }, 200));
+      const provider = new GitHubProvider({ fetchImpl });
+      await expect(provider.getCollaboratorPermission(config, login)).rejects.toBeInstanceOf(GitProviderError);
+      expect(fetchImpl).not.toHaveBeenCalled();
+    }
+  );
+
+  it("login di una GitHub App (`[bot]`) → ammesso e codificato nell'URL", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("", { status: 404 }));
+    const provider = new GitHubProvider({ fetchImpl });
+    await expect(provider.getCollaboratorPermission(config, "dependabot[bot]")).resolves.toBe("none");
+    expect(fetchImpl.mock.calls[0]![0]).toBe(
+      "https://api.github.com/repos/octo/repo/collaborators/dependabot%5Bbot%5D/permission"
+    );
+  });
+});

@@ -69,7 +69,14 @@ Regole che valgono per tutto il documento:
   chiusa** (`$N_CLOSED`) per il T34 (chiudila solo quando ci arrivi, se non
   esiste già).
 - **Account autore** e **account revisore** (un altro utente, con permesso di
-  scrittura sulla repo: solo così la sua approvazione conta).
+  scrittura sulla repo: solo così la sua approvazione conta). **Il revisore è
+  OBBLIGATORIAMENTE un membro dell'organizzazione di prova con appartenenza
+  PRIVATA** (Organization → People → la sua riga → «Private»), che ha la
+  scrittura sulla repository **via l'organizzazione o un team** (Organization →
+  Teams → un team con ruolo *Write* sulla repo), **NON come collaboratore
+  diretto** (Repository → Settings → Collaborators: il revisore NON deve
+  comparire nell'elenco dei singoli). È il caso che fa scegliere fra
+  `author_association` e il permesso reale: T37, T38 e T40 ne dipendono.
 - Una **regola di protezione** sul branch base della PR: «Require a pull
   request before merging» con **1 approvazione richiesta**, **nessun** status
   check obbligatorio (altrimenti gli status di prova dei T13–T18 falsano
@@ -79,9 +86,8 @@ Regole che valgono per tutto il documento:
   Crealo prima del T31: la consegna del T31 serve al T33 e al T37.
 - Per il T38: il revisore scrive **un commento nella conversazione** della PR
   di prova e **un commento su una riga** del diff (dalla UI, quando ci arrivi).
-  Meglio ancora se nell'organizzazione di prova il revisore è membro con
-  appartenenza **privata** (Organization → People → la sua riga → «Private»):
-  è il caso in cui GitHub potrebbe non dire `MEMBER`.
+  Il revisore è il membro con appartenenza privata descritto sopra: è il caso
+  in cui GitHub potrebbe non dire `MEMBER`.
 - Token:
 
   | Variabile | Account | Tipo e permessi |
@@ -91,6 +97,7 @@ Regole che valgono per tutto il documento:
   | `GH_TOKEN_REV_RO` | revisore | fine-grained sulla repo di prova: Metadata read, **Pull requests: read-only** (senza write) |
   | `GH_TOKEN_NOSTATUS` | autore | fine-grained sulla repo di prova: Metadata read, Contents read, **senza** Commit statuses |
   | `GH_TOKEN_NOPERM` | uno qualunque | fine-grained **senza alcun permesso** (Repository access: «Public repositories (read-only)», nessun permesso aggiunto) |
+  | `GH_TOKEN_META` | autore | fine-grained sulla repo di prova: **solo Metadata read** (per il T40) |
   | `GH_APP_TOKEN` | — | **facoltativo**: installation token di una GitHub App (per T7/T8) |
 
 **Sulla macchina**
@@ -178,8 +185,8 @@ sia `null`. Non fare push sulle due PR durante i test: gli sha cambierebbero.
 
 Ordine: prima le letture (T1–T8), poi gli status di commit (T9–T18), poi i
 verdetti sulle PR di prova (T19–T33), poi chi ha il permesso di chiedere
-modifiche (T37–T39, emendamento E3: aggiunti dopo, hanno numeri più alti ma
-vanno fatti qui), per ultimi i casi che richiedono una PR mergiata o chiusa
+modifiche (T37–T40, emendamento E3 e permesso reale: aggiunti dopo, hanno
+numeri più alti ma vanno fatti qui), per ultimi i casi che richiedono una PR mergiata o chiusa
 (T34–T36).
 
 ### Letture (nessuna modifica)
@@ -609,10 +616,16 @@ Nessun comando. Su GitHub: Settings → Webhooks → il webhook di prova →
 
 ### Chi ha il permesso di chiedere modifiche (emendamento E3)
 
-Il ciclo di correzione riparte solo per chi ha il permesso sulla piattaforma:
-su GitHub `author_association` ∈ `OWNER`/`MEMBER`/`COLLABORATOR`, su Bitbucket
-nessun filtro (il dato non esiste). Questi tre test dicono se le due ipotesi
-reggono sulle piattaforme vere.
+Il ciclo di correzione riparte solo per chi ha il permesso sulla piattaforma.
+Su GitHub `author_association` ∈ `OWNER`/`MEMBER`/`COLLABORATOR` è solo una
+**scorciatoia**: se non è fra le tre, Stubwise chiede a GitHub il permesso
+reale dell'autore (`getCollaboratorPermission`, `GET
+/repos/{o}/{r}/collaborators/{login}/permission`) e ammette solo
+`write`/`maintain`/`admin`. Su Bitbucket nessun filtro (il dato non esiste).
+**T37 e T38 sono OBBLIGATORI e vanno fatti col revisore membro con
+appartenenza PRIVATA e accesso via organizzazione/team** (Preparazione): sono
+il caso che la scorciatoia potrebbe mancare, e il permesso reale deve
+recuperare.
 
 #### T37 — GitHub: `author_association` nella consegna `pull_request_review` (E3)
 
@@ -620,12 +633,22 @@ Nessun comando. Su GitHub: Settings → Webhooks → il webhook di prova →
 *Recent Deliveries* → la stessa consegna del T33 (il REQUEST_CHANGES del
 revisore, T31).
 
-- Verifica nel payload: `review.author_association` c'è, ed è `COLLABORATOR`
-  o `MEMBER` (il revisore ha scrittura sulla repo). Se è `CONTRIBUTOR` o
-  `NONE`, il webhook scarterebbe la richiesta di una persona che il permesso
-  ce l'ha: va detto prima del merge.
-- Da annotare: il valore esatto; se il revisore è membro dell'organizzazione,
-  se la sua appartenenza è pubblica o privata.
+- Verifica nel payload: `review.author_association` c'è; annota il valore.
+  `COLLABORATOR`/`MEMBER` = la scorciatoia basta. `CONTRIBUTOR`/`NONE` = la
+  scorciatoia NON basta e a decidere è il permesso reale: lancia subito la
+  sonda per lo stesso login (la stessa del T40, col token dell'**autore**, che
+  fa la parte dell'account principale di Stubwise):
+
+  ```bash
+  node packages/git/scripts/b14-probe.mjs gh-permission GH_TOKEN_AUTHOR "<login del revisore>"
+  ```
+
+  Atteso: `ESITO: OK -> "write"` (o `"maintain"`/`"admin"`, secondo il ruolo
+  del team). Se dice `"read"`, `"triage"` o `"none"`, il revisore — che la
+  scrittura ce l'ha — verrebbe scartato: va detto prima del merge.
+- Da annotare: il valore esatto di `author_association`; conferma che il
+  revisore è membro **privato** e che la scrittura gli arriva **da un team**
+  (non collaboratore diretto); l'esito di `gh-permission` per lo stesso login.
 
 #### T38 — GitHub: `author_association` nei commenti letti (E3)
 
@@ -637,13 +660,14 @@ principale di Stubwise (è lui che legge i commenti nella correzione):
 for P in "issues/$N/comments" "pulls/$N/comments" "pulls/$N/reviews"; do curl -sS -H "Authorization: Bearer $GH_TOKEN_AUTHOR" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$O/$R/$P?per_page=100" | jq -c --arg p "$P" '[.[] | {fonte: $p, login: .user.login, a: .author_association}]'; done
 ```
 
-- Atteso: su tutte e tre le fonti ogni voce ha `a` valorizzato; quelle del
-  revisore `COLLABORATOR` o `MEMBER`, quelle dell'autore `OWNER`, `MEMBER` o
-  `COLLABORATOR`.
+- Atteso: su tutte e tre le fonti ogni voce ha `a` valorizzato.
 - Da annotare: il valore per ciascuna fonte e ciascun autore. **In
-  particolare**: se il revisore è membro con appartenenza privata, GitHub dice
+  particolare**: per il revisore (membro privato, accesso da team) GitHub dice
   `MEMBER` anche a questo token, o `CONTRIBUTOR`/`NONE`? Nel secondo caso i
-  suoi commenti verrebbero esclusi dalla fotografia: va detto prima del merge.
+  suoi commenti entrano nella fotografia **solo** se il permesso reale li
+  ammette: annota l'esito di `gh-permission GH_TOKEN_AUTHOR "<login del
+  revisore>"` (se l'hai già lanciato al T37, riporta quello) — atteso
+  `write`/`maintain`/`admin`.
 
 #### T39 — Bitbucket PUBBLICO: un account esterno può chiedere modifiche? (E3)
 
@@ -663,6 +687,30 @@ for P in "issues/$N/comments" "pulls/$N/comments" "pulls/$N/reviews"; do curl -s
   e va rivisto prima di collegare un repository Bitbucket pubblico.
 - Pulizia: con l'account esterno ritira la richiesta (se è riuscita), poi
   **rimetti privata** la repository di prova.
+
+#### T40 — GitHub: quale permesso del token serve per leggere il permesso di un utente
+
+Script (da uno script: sonda `gh-permission`). Non modifica nulla. Il login è
+quello del revisore (T37).
+
+```bash
+for T in GH_TOKEN_AUTHOR GH_TOKEN_META GH_TOKEN_NOPERM; do echo "== $T"; node packages/git/scripts/b14-probe.mjs gh-permission "$T" "<login del revisore>"; done
+```
+
+- Atteso con `GH_TOKEN_AUTHOR`: `ESITO: OK` con `"write"`/`"maintain"`/`"admin"`.
+- `GH_TOKEN_META` (solo Metadata read): se dà lo stesso esito, **Metadata read
+  basta**, e nessun token esistente va ritoccato. Se dà `ERRORE` 403, serve un
+  altro permesso: ripeti con un token che ha in più **Administration: read**
+  e annota quale dei due fa passare la chiamata.
+- `GH_TOKEN_NOPERM` (nessun permesso): atteso `ERRORE`, status 403, «contiene
+  il suggerimento sul permesso dei collaboratori: SI», «CONTIENE IL TOKEN…:
+  no». **Caso da guardare apposta**: se invece risponde `OK -> "none"` (cioè
+  GitHub dà 404 a un token che non vede la repository), un token senza il
+  permesso giusto farebbe scartare TUTTI i revisori non `OWNER`/`MEMBER`/
+  `COLLABORATOR` con il motivo «senza permesso» invece di «permesso non
+  verificabile»: resta fail-closed, ma il commento sul ticket direbbe la cosa
+  sbagliata. Va detto prima del merge.
+- Da annotare: esito e status per ciascun token; il permesso minimo che serve.
 
 ### Casi con PR mergiata o chiusa (ultimi)
 
@@ -748,6 +796,7 @@ node "$PROBE" bb-review BB_REV_EMAIL BB_REV_TOKEN "$PR_MERGED" approve
 | T34 | §8b | codice; `message`/`errors`; contiene «own pull request» sì/no | |
 | T35 | §7d | codici di approve e request-changes su PR mergiata | |
 | T36 | §7d | status; suggerimento review sì/no (atteso no); token sì/no | |
-| T37 | §9a (E3) | `review.author_association` della consegna; appartenenza pubblica/privata | |
-| T38 | §9b (E3) | `author_association` per fonte e autore; membro privato → `MEMBER` sì/no | |
+| T37 | §9a (E3) | **obbligatorio**, revisore membro privato via team: `review.author_association` della consegna; esito `gh-permission` per lo stesso login | |
+| T38 | §9b (E3) | **obbligatorio**, stesso revisore: `author_association` per fonte e autore; esito `gh-permission` | |
 | T39 | §9c (E3) | Bitbucket pubblico: bottone sì/no; premuto sì/no; consegna arrivata sì/no | |
+| T40 | §9d | esito/status di `gh-permission` con AUTHOR, META, NOPERM; permesso minimo del token; NOPERM → 403 o `none` | |

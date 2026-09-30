@@ -129,6 +129,14 @@ export interface PushWebhookEvent {
  */
 export type { PrComment };
 
+/**
+ * Permesso di un utente su una repository, dal più forte al più debole
+ * (GitHub `role_name`: `maintain` e `triage` sono ruoli propri, che il campo
+ * legacy `permission` appiattisce su `write`/`read`). `none` = nessun accesso.
+ */
+export const REPOSITORY_PERMISSIONS = ["admin", "maintain", "write", "triage", "read", "none"] as const;
+export type RepositoryPermission = (typeof REPOSITORY_PERMISSIONS)[number];
+
 /** Stato di uno status di commit di Stubwise: in corso, approvata, modifiche richieste. */
 export type CommitStatusState = "pending" | "success" | "failure";
 
@@ -407,6 +415,30 @@ export interface GitProvider {
     p: Pick<ProjectGitConfig, "credentials">,
     opts?: { fetchImpl?: FetchLike }
   ): Promise<string>;
+  /**
+   * Il permesso EFFETTIVO di un utente sulla repository di `p` (GitHub:
+   * `GET /repos/{o}/{r}/collaborators/{login}/permission`), comprese le
+   * appartenenze via organizzazione e team — anche quelle PRIVATE, che
+   * `author_association` non riporta (arrivano come `CONTRIBUTOR`/`NONE`).
+   * Serve al filtro «chi ha il permesso di chiedere modifiche»
+   * (`isAuthorPermitted` in `@stubwise/notifications`).
+   *
+   * **Opzionale apposta**: esiste solo su GitHub. Bitbucket non ha un dato
+   * equivalente e il filtro non lo interroga mai (lì ammette sempre); un
+   * metodo Bitbucket che lanciasse o restituisse un valore inventato sarebbe
+   * un'implementazione finta che nessuno chiama. Col `?` il compilatore
+   * obbliga il chiamante a gestirne l'assenza, e l'assenza su GitHub va
+   * trattata come «non verificabile» (fail-closed), mai come un permesso.
+   *
+   * Un login che non è un collaboratore (404) → `"none"`. Lancia
+   * GitProviderError sugli altri errori e su un login malformato (in quel
+   * caso senza fare la richiesta). Mai il token in un messaggio.
+   */
+  getCollaboratorPermission?(
+    p: ProjectGitConfig,
+    login: string,
+    opts?: { fetchImpl?: FetchLike }
+  ): Promise<RepositoryPermission>;
   /**
    * Returns a WebhookEvent if the webhook payload represents a closed PR —
    * `kind: "merged"` if it was merged, `kind: "closed_unmerged"` if it was
@@ -706,6 +738,13 @@ export const COMMIT_STATUS_PERMISSION_HINT =
  * 401/403. Senza segreti: nomina i permessi, mai il token. */
 export const PR_REVIEW_PERMISSION_HINT =
   "il token deve poter revisionare le pull request (GitHub: Pull requests write; Bitbucket: pullrequest write)";
+
+/** Cosa manca al token quando la lettura del permesso di un utente sulla
+ * repository riceve 401/403. Senza segreti: nomina i permessi, mai il token.
+ * Il permesso esatto richiesto a un token fine-grained è da confermare in
+ * B14 (T40). */
+export const COLLABORATOR_PERMISSION_HINT =
+  "il token deve poter leggere i collaboratori della repository (GitHub: Metadata read sulla repository; token classico: scope repo)";
 
 /**
  * Se `error` è un {@link GitProviderError} 401/403, ne restituisce una copia
