@@ -341,6 +341,56 @@ export interface GitProvider {
     opts?: { fetchImpl?: FetchLike }
   ): Promise<void>;
   /**
+   * Commenti della PR — generali e sulle righe (GitHub: anche il testo delle
+   * review inviate) — per la fotografia del feedback umano (design §9). Mai
+   * cancellati, bozze o vuoti; mai commenti senza un autore riconoscibile
+   * (il chiamante esclude gli account di Stubwise per `authorId`). Lancia
+   * GitProviderError: una fotografia parziale non si prende.
+   */
+  listPrComments(
+    p: ProjectGitConfig,
+    prNumber: number,
+    opts?: { fetchImpl?: FetchLike }
+  ): Promise<PrComment[]>;
+  /**
+   * Scrive (o sovrascrive, stessa `key`) lo status di commit di Stubwise
+   * sullo sha COMPLETO (design §8). Lancia GitProviderError, anche su uno
+   * sha abbreviato prima di qualunque richiesta: il chiamante lo tratta come
+   * best-effort, un errore non ferma il ciclo.
+   */
+  setCommitStatus(
+    p: ProjectGitConfig,
+    sha: string,
+    status: CommitStatusInput,
+    opts?: { fetchImpl?: FetchLike }
+  ): Promise<void>;
+  /**
+   * Pubblica il verdetto della review come stato vero della PR, testo
+   * compreso (Bitbucket: commento + approve/request-changes; GitHub: una
+   * review). Va chiamato con l'account REVISORE: GitHub rifiuta i due
+   * verdetti all'autore della PR (422), Bitbucket li accetta ma
+   * l'approvazione dell'autore non conta per i merge check. Sostituisce
+   * `createPrComment` quando l'account revisore c'è. Lancia GitProviderError.
+   */
+  submitPrReview(
+    p: ProjectGitConfig,
+    prNumber: number,
+    verdict: PrReviewVerdict,
+    body: string,
+    opts?: { fetchImpl?: FetchLike }
+  ): Promise<void>;
+  /**
+   * Identità stabile dell'account delle credenziali (uuid Bitbucket con le
+   * graffe / id numerico GitHub come stringa), nella stessa forma di
+   * `ChangesRequestedEvent.actorId` e `PrComment.authorId`. Accetta
+   * qualunque oggetto con `credentials` (ProjectGitConfig o
+   * AccountCredentials). Lancia GitProviderError.
+   */
+  getAuthenticatedUserId(
+    p: Pick<ProjectGitConfig, "credentials">,
+    opts?: { fetchImpl?: FetchLike }
+  ): Promise<string>;
+  /**
    * Returns a WebhookEvent if the webhook payload represents a closed PR —
    * `kind: "merged"` if it was merged, `kind: "closed_unmerged"` if it was
    * closed/rejected without merging — otherwise null. Never throws on malformed
@@ -356,6 +406,18 @@ export interface GitProvider {
    * call verifyWebhook first.
    */
   parsePushEvent(headers: Record<string, string>, body: unknown): PushWebhookEvent | null;
+  /**
+   * "Request changes" su una PR (Bitbucket
+   * `pullrequest:changes_request_created`, GitHub `pull_request_review`
+   * submitted con stato changes_requested), altrimenti null. Mutuamente
+   * esclusivo con parseWebhook/parsePrEvent/parsePushEvent: nessun payload è
+   * riconosciuto da due parser. Mai lancia. NON verifica la firma — chiamare
+   * prima verifyWebhook.
+   */
+  parseChangesRequestedEvent(
+    headers: Record<string, string>,
+    body: unknown
+  ): ChangesRequestedEvent | null;
   /**
    * Verifies the webhook HMAC-SHA256 signature against the RAW body.
    * Returns false if the signature header is missing or invalid.
@@ -388,7 +450,8 @@ export interface GitProvider {
     opts?: { fetchImpl?: FetchLike }
   ): Promise<CredentialCheck[]>;
   /**
-   * Registra in modo idempotente il webhook delle PR chiuse (merge e rifiuto) sul provider git usando
+   * Registra in modo idempotente il webhook del repository (PR
+   * aperte/aggiornate/chiuse, "Request changes", push) sul provider git usando
    * l'autenticazione REST (Bitbucket: email-o-username:token Basic; GitHub:
    * Bearer). Elenca i webhook esistenti, cerca quello con lo stesso target URL
    * di `hook.url`: se lo trova lo aggiorna (attivo + eventi corretti + secret
