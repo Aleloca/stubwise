@@ -15,11 +15,11 @@ import { notify, type NotifyDeps } from "./notify.js";
  */
 
 /**
- * Timeout del run di riassunto (piano, fase 5, e fallimento, fase 7). Corto di
- * proposito: è un run di solo testo, senza tool e senza working tree, e sta
- * DENTRO la finestra di un job che ha appena finito di pianificare. Tenerlo
- * breve significa che un provider lento allunga il parcheggio del piano di due
- * minuti al massimo, invece di trattenere il job fino alla soglia di staleness.
+ * Timeout di un run di riassunto «in breve» — del piano, del fallimento, della
+ * correzione. Corto di proposito: è un run di solo testo, senza tool e senza
+ * working tree, e sta DENTRO la finestra del job che lo chiede. Tenerlo breve
+ * significa che un provider lento allunga quel job di due minuti al massimo,
+ * invece di trattenerlo fino alla soglia di staleness.
  */
 export const DEFAULT_SUMMARY_TIMEOUT_MS = 120_000;
 
@@ -92,13 +92,16 @@ export async function notifyJobFailed(ctx: JobOutcomeContext, error: string): Pr
  * lascia un commento AI che spiega lo sforamento e notifica job.budget_held.
  * Modellato sul gate auto-fix del triage (commento + holdJob + notify). Le
  * cifre nel commento sono arrotondate a 4 decimali per leggibilità; lo scope
- * è tradotto con le chiavi notify.scope* condivise con la notifica. */
+ * è tradotto con le chiavi notify.scope* condivise con la notifica.
+ *
+ * Restituisce l'esito di `holdJob`: `false` = ownership persa (il job non era
+ * più attivo). Il commento e la notifica partono comunque, come prima. */
 export async function holdForBudget(
   ctx: JobOutcomeContext,
   scope: "ticket" | "monthly",
   limitUsd: number,
   spentUsd: number,
-): Promise<void> {
+): Promise<boolean> {
   const fmtUsd = (n: number): string => n.toFixed(4);
   const scopeLabel = t(ctx.lang, scope === "monthly" ? "notify.scopeMonthly" : "notify.scopeTicket");
   await ctx.db.transaction(async (tx) => {
@@ -136,6 +139,7 @@ export async function holdForBudget(
     },
     ctx.notifyRefs,
   );
+  return held;
 }
 
 /** Esito del pre-check dei tetti di spesa. */

@@ -8985,6 +8985,8 @@ git commit -m "feat(worker): il fix accoda subito la review della PR e ne regist
 | `ask_user` | **NO** — vedi sotto |
 | piano, `resolveFixMode`, `openPullRequest`, cambio di stato del ticket | **NO**: la PR esiste, il ticket resta `in_review` |
 
+> Nota (C4): `holdForBudget` restituisce `held: boolean`; se è `false` (ownership del job persa) la correzione NON si tocca: niente `completeCorrection`/chiusura della riga `pr_corrections`.
+
 **Perché niente `ask_user`:** il tool esiste solo nei run di PIANIFICAZIONE
 (`permission-mode plan`, file-bridge nella parent dir deterministica, ripresa
 `plan_continue` con `--resume`), e la ripresa passa da `resolveFixMode` — che la
