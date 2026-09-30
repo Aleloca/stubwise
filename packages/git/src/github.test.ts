@@ -1519,3 +1519,76 @@ describe("GitHubProvider: un Link next fuori da api.github.com non viene seguito
     }
   });
 });
+
+describe("GitHubProvider.setCommitStatus", () => {
+  const SHA = "0123456789abcdef0123456789abcdef01234567";
+
+  it("POST con state, context = key, descrizione e target_url; refname ignorato", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ id: 1 }, 201));
+    const provider = new GitHubProvider({ fetchImpl });
+
+    await provider.setCommitStatus(config, SHA, {
+      state: "success",
+      key: "stubwise-review",
+      description: "Approvata dalla review",
+      url: "https://stubwise.example.com/tickets/t1",
+      refname: "stubwise/ticket-7",
+    });
+
+    const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`https://api.github.com/repos/octo/repo/statuses/${SHA}`);
+    expect(init.method).toBe("POST");
+    const headers = init.headers as Record<string, string>;
+    expect(headers["Authorization"]).toBe("Bearer ghp_secret");
+    expect(headers["Accept"]).toBe("application/vnd.github+json");
+    expect(JSON.parse(init.body as string)).toEqual({
+      state: "success",
+      context: "stubwise-review",
+      description: "Approvata dalla review",
+      target_url: "https://stubwise.example.com/tickets/t1",
+    });
+  });
+
+  it("senza url niente target_url; descrizione oltre 140 caratteri troncata", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ id: 1 }, 201));
+    const provider = new GitHubProvider({ fetchImpl });
+    await provider.setCommitStatus(config, SHA, {
+      state: "pending",
+      key: "stubwise-review",
+      description: "x".repeat(200),
+    });
+    const body = JSON.parse((fetchImpl.mock.calls[0] as [string, RequestInit])[1].body as string);
+    expect(body).not.toHaveProperty("target_url");
+    expect(body.description).toHaveLength(140);
+    expect(body.description.endsWith("…")).toBe(true);
+  });
+
+  it("descrizione di esattamente 140 caratteri: intatta", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ id: 1 }, 201));
+    const provider = new GitHubProvider({ fetchImpl });
+    const description = "y".repeat(140);
+    await provider.setCommitStatus(config, SHA, { state: "failure", key: "stubwise-review", description });
+    const body = JSON.parse((fetchImpl.mock.calls[0] as [string, RequestInit])[1].body as string);
+    expect(body.description).toBe(description);
+  });
+
+  it("sha abbreviato → GitProviderError, nessuna richiesta", async () => {
+    // Il doppio risponde comunque con una Response valida: se il controllo
+    // sullo sha sparisse, la chiamata andrebbe a buon fine e il test cadrebbe
+    // sull'asserzione, non su un TypeError del doppio.
+    const fetchImpl = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse({ id: 1 }, 201)));
+    const provider = new GitHubProvider({ fetchImpl });
+    await expect(
+      provider.setCommitStatus(config, "abc123", { state: "pending", key: "stubwise-review", description: "d" })
+    ).rejects.toBeInstanceOf(GitProviderError);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("non-2xx → GitProviderError", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("nope", { status: 422 }));
+    const provider = new GitHubProvider({ fetchImpl });
+    await expect(
+      provider.setCommitStatus(config, SHA, { state: "pending", key: "stubwise-review", description: "d" })
+    ).rejects.toBeInstanceOf(GitProviderError);
+  });
+});

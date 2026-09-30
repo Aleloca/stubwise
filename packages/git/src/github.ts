@@ -5,6 +5,7 @@ import {
   fetchWithTimeout,
   getHeader,
   GitProviderError,
+  isFullCommitSha,
   assertPageOnApiHost,
   parseNextLink,
   parseRepoUrl,
@@ -15,6 +16,7 @@ import {
   type AccountConfig,
   type AccountCredentials,
   type ChangesRequestedEvent,
+  type CommitStatusInput,
   type CheckOutcomeStatus,
   type CredentialCheck,
   type FetchLike,
@@ -49,6 +51,9 @@ const MAX_BRANCH_PAGES = 2;
  * commenti persi resterebbero fuori per sempre. L'errore evita sia quello sia
  * il ciclo. */
 const MAX_COMMENT_PAGES = 10;
+
+/** Lunghezza massima della descrizione di uno status di commit su GitHub. */
+const MAX_STATUS_DESCRIPTION = 140;
 
 export class GitHubProvider implements GitProvider {
   private readonly fetchImpl: FetchLike;
@@ -378,6 +383,48 @@ export class GitHubProvider implements GitProvider {
     }
 
     return comments.sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
+  }
+
+  /**
+   * Status di commit di Stubwise (design §8): `context` = key, così uno
+   * status nuovo sostituisce il precedente sullo stesso commit. `refname` non
+   * serve (GitHub associa per sha). Descrizione troncata a 140 caratteri.
+   * Sha completo obbligatorio. Lancia GitProviderError (best-effort a monte).
+   */
+  async setCommitStatus(
+    p: ProjectGitConfig,
+    sha: string,
+    status: CommitStatusInput,
+    opts: { fetchImpl?: FetchLike } = {}
+  ): Promise<void> {
+    if (!isFullCommitSha(sha)) {
+      throw new GitProviderError(
+        `GitHub: lo status di commit richiede lo sha completo (40 caratteri), ricevuto "${sha}"`,
+        0,
+        ""
+      );
+    }
+    const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
+    const { owner, repo } = parseRepoUrl(p.repoUrl);
+    const description =
+      status.description.length > MAX_STATUS_DESCRIPTION
+        ? `${status.description.slice(0, MAX_STATUS_DESCRIPTION - 1)}…`
+        : status.description;
+    const response = await fetchImpl(`${API_BASE}/repos/${owner}/${repo}/statuses/${sha}`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${p.credentials.token}`,
+        Accept: "application/vnd.github+json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        state: status.state,
+        context: status.key,
+        description,
+        ...(status.url !== undefined ? { target_url: status.url } : {}),
+      }),
+    });
+    await ensureOkResponse(response, "GitHub");
   }
 
   parseWebhook(headers: Record<string, string>, body: unknown): WebhookEvent | null {
