@@ -133,6 +133,13 @@ export type { PrComment };
 export type CommitStatusState = "pending" | "success" | "failure";
 
 /**
+ * Chiave dello status di commit di Stubwise (design §8). Una sola, esportata:
+ * chi scrive lo status (worker) e chi lo filtra (server) importano questa
+ * costante invece di ripetere il letterale, così le due metà non divergono.
+ */
+export const STUBWISE_REVIEW_STATUS_KEY = "stubwise-review" as const;
+
+/**
  * Status di commit scritto da Stubwise (design §8). `key` è fisso: è la
  * chiave che le regole del branch possono rendere obbligatoria, e uno status
  * con la stessa chiave SOVRASCRIVE il precedente sullo stesso commit (così
@@ -140,7 +147,7 @@ export type CommitStatusState = "pending" | "success" | "failure";
  */
 export interface CommitStatusInput {
   state: CommitStatusState;
-  key: "stubwise-review";
+  key: typeof STUBWISE_REVIEW_STATUS_KEY;
   description: string;
   url?: string;
   /**

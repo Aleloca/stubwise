@@ -9,6 +9,7 @@ import {
   isFullCommitSha,
   parsePrNumberFromUrl,
   parseRepoUrl,
+  STUBWISE_REVIEW_STATUS_KEY,
 } from "./index.js";
 
 describe("getProvider", () => {
@@ -173,5 +174,13 @@ describe("assertPageOnApiHost", () => {
     expect(message).not.toContain("s3cret");
     expect(message).not.toContain("token=abc");
     expect(message).not.toContain("/path");
+  });
+});
+
+describe("STUBWISE_REVIEW_STATUS_KEY", () => {
+  it("è la chiave che le regole del branch rendono obbligatoria: non cambia", () => {
+    // Cambiarla orfanerebbe lo status già richiesto dalle regole di branch
+    // configurate sui repository: è un contratto verso l'esterno.
+    expect(STUBWISE_REVIEW_STATUS_KEY).toBe("stubwise-review");
   });
 });

@@ -426,6 +426,11 @@ export class BitbucketProvider implements GitProvider {
    * conta per i merge check: per questo serve un account revisore distinto.
    * Su 401/403 (stato o commento) il messaggio nomina il permesso mancante
    * ({@link PR_REVIEW_PERMISSION_HINT}); gli altri errori passano invariati.
+   * Limite accettato: se il DELETE dell'opposto riesce e poi il POST del
+   * verdetto fallisce, la PR resta SENZA stato del revisore (quello
+   * precedente è già stato ritirato). Il ripiego di C10 pubblica il testo ma
+   * non ripristina il verdetto di prima. La verifica dal vivo del POST
+   * ripetuto è nel task B14 del piano.
    */
   async submitPrReview(
     p: ProjectGitConfig,

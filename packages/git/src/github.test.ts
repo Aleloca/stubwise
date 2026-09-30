@@ -727,6 +727,25 @@ describe("GitHubProvider.listPrComments", () => {
     expect(error).toBeInstanceOf(GitProviderError);
     expect((error as GitProviderError).status).toBe(403);
   });
+  it("una data non leggibile non si scarta: va in fondo, nell'ordine d'arrivo, e non scompiglia le altre", async () => {
+    const fetchImpl = routes({
+      [ISSUE_URL]: () =>
+        pagedResponse([
+          { id: 1, user: mario, body: "senza data buona A", created_at: "boh" },
+          { id: 2, user: mario, body: "secondo", created_at: "2026-09-30T10:02:00Z" },
+          { id: 3, user: mario, body: "senza data buona B", created_at: "non è una data" },
+          { id: 4, user: mario, body: "primo", created_at: "2026-09-30T10:01:00Z" },
+          { id: 5, user: mario, body: "terzo", created_at: "2026-09-30T10:03:00Z" },
+        ]),
+      [REVIEW_COMMENTS_URL]: () => pagedResponse([]),
+      [REVIEWS_URL]: () => pagedResponse([]),
+    });
+    const provider = new GitHubProvider({ fetchImpl });
+
+    const comments = await provider.listPrComments(config, 42);
+
+    expect(comments.map((c) => c.id)).toEqual(["issue-4", "issue-2", "issue-5", "issue-1", "issue-3"]);
+  });
 });
 
 describe("GitHubProvider.parseWebhook", () => {
@@ -1838,6 +1857,27 @@ describe("GitHubProvider.submitPrReview", () => {
     expect(message).not.toContain("ghp_secret");
   });
 
+  it("422 con il token nel corpo → mascherato (***) nel messaggio e in responseText, anche oltre il taglio", async () => {
+    // Per ipotesi: GitHub non ha motivo di rimandare il token, ma il corpo non
+    // è sotto il nostro controllo e il messaggio finisce nei log. La seconda
+    // occorrenza sta a cavallo del taglio a 200 caratteri: mascherare DOPO il
+    // taglio ne lascerebbe passare un pezzo.
+    const detail = `Validation Failed: ghp_secret ${"y".repeat(152)}ghp_secret tail`;
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({ message: detail }), { status: 422 }));
+    const provider = new GitHubProvider({ fetchImpl });
+    const error = await provider
+      .submitPrReview(config, 42, "approve", "ok")
+      .then(() => null)
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(GitProviderError);
+    const { message, responseText } = error as GitProviderError;
+    expect(message).toContain("Validation Failed: ***");
+    expect(message).not.toContain("ghp_secret");
+    expect(message).not.toContain("ghp_");
+    expect(responseText).not.toContain("ghp_secret");
+    expect(responseText).toContain("***");
+  });
+
   it("request_changes con testo di soli spazi → errore locale, nessuna chiamata", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ id: 1 }, 200));
     const provider = new GitHubProvider({ fetchImpl });
@@ -1998,6 +2038,22 @@ describe("GitHubProvider.getAuthenticatedUserId", () => {
     expect(message).toMatch(/personal access token/i);
     expect(message).not.toMatch(/credenziali non valide/i);
     expect(message).not.toContain("ghp_secret");
+  });
+
+  it.each([401, 403])("%i con il token nel corpo → il messaggio non lo riporta", async (status) => {
+    // I test sopra usano corpi senza il token, dove "non contiene" è vero per
+    // costruzione: qui il corpo lo contiene, e il messaggio non deve citarlo.
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ message: "Bad credentials: ghp_secret" }), { status })
+    );
+    const provider = new GitHubProvider({ fetchImpl });
+    const error = await provider.getAuthenticatedUserId(config).then(
+      () => null,
+      (e: unknown) => e
+    );
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).status).toBe(status);
+    expect((error as GitProviderError).message).not.toContain("ghp_secret");
   });
 
   it("403 da rate limit (header) → messaggio sul rate limit, non sulla GitHub App", async () => {

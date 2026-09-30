@@ -38,6 +38,26 @@ import {
 
 const API_BASE = "https://api.github.com";
 
+/** Sostituisce ogni occorrenza di `secret` in `text` con `***`. Un segreto
+ * vuoto non maschera niente (altrimenti `***` finirebbe fra ogni carattere). */
+function maskSecret(text: string, secret: string): string {
+  return secret.length === 0 ? text : text.split(secret).join("***");
+}
+
+/**
+ * Comparatore dei commenti per data crescente, con le date non leggibili in
+ * fondo (fra loro pari, così `Array.prototype.sort`, stabile, le lascia
+ * nell'ordine d'arrivo). Mai un NaN restituito al sort.
+ */
+function byCreatedAtUnreadableLast(a: PrComment, b: PrComment): number {
+  const ta = Date.parse(a.createdAt);
+  const tb = Date.parse(b.createdAt);
+  const aBad = Number.isNaN(ta);
+  const bBad = Number.isNaN(tb);
+  if (aBad || bBad) return aBad === bBad ? 0 : aBad ? 1 : -1;
+  return ta - tb;
+}
+
 /**
  * Tetto di repository elencati: ~3 pagine da 100. Oltre questa soglia la UI
  * di scelta repo diventa comunque ingestibile; l'utente può sempre incollare
@@ -318,7 +338,11 @@ export class GitHubProvider implements GitProvider {
    * da {@link githubAuthor} per tutte e tre, la stessa funzione del webhook
    * "Request changes": scarta ciò che non ha un id numerico sicuro (vedi
    * {@link PrComment}). Lancia GitProviderError sui non-2xx: la fotografia
-   * del feedback non si prende a metà.
+   * del feedback non si prende a metà. Un commento con una data non leggibile
+   * (`Date.parse` → NaN) NON si scarta — perderlo sarebbe peggio di mostrarlo
+   * fuori posto, ed è la stessa scelta per eccesso di `selectProviderFeedback`
+   * — ma va in FONDO, nell'ordine in cui è arrivato: un NaN nel comparatore
+   * renderebbe l'ordinamento incoerente anche per i commenti con data buona.
    */
   async listPrComments(
     p: ProjectGitConfig,
@@ -400,7 +424,7 @@ export class GitHubProvider implements GitProvider {
       });
     }
 
-    return comments.sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
+    return comments.sort(byCreatedAtUnreadableLast);
   }
 
   /**
@@ -459,8 +483,9 @@ export class GitHubProvider implements GitProvider {
    * REQUEST_CHANGES dall'autore della PR: l'account revisore DEVE essere un
    * account diverso da quello che apre le PR. Il messaggio del 422 nomina
    * l'autore solo se la risposta lo dice ("own pull request"); altrimenti
-   * riporta un estratto della risposta (che non contiene l'Authorization) e
-   * indica l'autore come causa possibile. Su 401/403 il messaggio nomina il
+   * riporta un estratto della risposta, con ogni occorrenza del token
+   * sostituita da `***` prima del taglio, e indica l'autore come causa
+   * possibile. Su 401/403 il messaggio nomina il
    * permesso mancante ({@link PR_REVIEW_PERMISSION_HINT}), come il gemello
    * Bitbucket.
    */
@@ -490,7 +515,11 @@ export class GitHubProvider implements GitProvider {
       }),
     });
     if (response.status === 422) {
-      const text = (await response.text().catch(() => "")).slice(0, 500);
+      // Il corpo finisce nel messaggio (estratto) e in `responseText`: si
+      // maschera il token PRIMA di troncare, così nemmeno un token spezzato
+      // dal taglio può sopravvivere. GitHub non ha motivo di rimandarlo, ma il
+      // messaggio va nei log e il corpo non è sotto il nostro controllo.
+      const text = maskSecret(await response.text().catch(() => ""), p.credentials.token).slice(0, 500);
       const message = /own pull request/i.test(text)
         ? "GitHub: review rifiutata (422) — GitHub non permette all'autore della PR di approvarla o di chiedere modifiche: verifica che l'account revisore sia diverso da quello che apre le PR"
         : `GitHub: review rifiutata (422): ${text.slice(0, 200)} — una causa possibile è l'account revisore che coincide con l'autore della PR`;
