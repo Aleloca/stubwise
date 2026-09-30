@@ -168,8 +168,15 @@ prCommentSchema = z.object({                                              // PrC
   id: z.string(), authorId: z.string(), authorLogin: z.string(), body: z.string(),
   createdAt: z.string(), path: z.string().nullable(), line: z.number().int().nullable(),
 })
-prCycleEventSchema = z.object({ round, max, stopped: z.boolean() })       // PrCycleEvent
+prCycleStopReasonSchema = z.enum(["cap", "review_failed"])             // PrCycleStopReason (C10b)
+prCycleEventSchema = z.object({ round, max, stopped: z.boolean(),
+  stoppedReason: prCycleStopReasonSchema.optional() })                  // PrCycleEvent
 ```
+
+`stoppedReason` (C10b, additivo e facoltativo): perché il ciclo si è fermato —
+`cap` al tetto, `review_failed` quando dentro una serie automatica la review non
+è arrivata a un verdetto. Un evento senza il campo (pubblicato prima) con
+`stopped: true` è lo stop al tetto, l'unico che esisteva.
 
 `src/stubwise-branch.ts` (esportato dall'index) — **l'unica regex dei branch
 dei fix in tutto il monorepo**, importata da webhook, `derivePrCycle`, rotta delle
@@ -187,6 +194,10 @@ Nella risposta di dettaglio ticket, ogni voce PR per repository
 (additivo, regola app mobile). `ReviewCompletedEvent` (interfaccia TS in
 `packages/notifications/src/format.ts`, non zod) guadagna `cycle?: PrCycleEvent`;
 il payload webhook `generic` di `review.completed` porta sempre `cycle` (`null` se assente).
+Da C10b il suo `verdict` è `"approve" | "request_changes" | null`: `null` SOLO con
+`cycle.stoppedReason === "review_failed"` (testo `notify.verdict.reviewFailed`,
+«la review non è riuscita (correzioni automatiche: N); il ciclo automatico si è
+fermato»). Nessun kind nuovo.
 
 ### packages/notifications
 
@@ -6826,6 +6837,7 @@ pnpm --filter @stubwise/worker exec vitest run <percorso relativo ad apps/worker
 | C8 | `pipeline/correction.ts`: `runCorrection` | C1–C6 |
 | C9 | `handler.ts`: dispatch su `correction_id` | C8 |
 | C10 | `review/cycle.ts` + aggancio in `run-review.ts` (pubblicazione, status, ciclo) | C1, C2, C6 |
+| C10b | una review fallita dentro una serie automatica lo notifica (`stoppedReason: "review_failed"`) | C10 |
 | C11 | invariante di staleness: i conti della correzione | C8 |
 | C12 | test d'integrazione del ciclo intero | C7–C10 |
 | C13 | scenario golden `correction` + lancio manuale | C5 |
@@ -13926,6 +13938,70 @@ correzione accodata, nessuna notifica); rimetti com'era.
 git add apps/worker/src/review/cycle.ts apps/worker/src/review/cycle.test.ts apps/worker/src/review/run-review.ts apps/worker/src/review/run-review.test.ts apps/worker/src/review/poller.ts apps/worker/src/review/poller.test.ts apps/worker/src/index.ts
 git commit -m "feat(worker): ciclo review → correzione, account revisore e status di commit della review"
 ```
+
+---
+
+### C10b — Un ciclo automatico interrotto da una review fallita lo dice
+
+**Aggiunta del coordinatore (1 ott 2026), dopo C10.** Dentro una serie di
+correzioni automatiche (`autoRoundsInCurrentSeries > 0`) una review che FALLISCE
+dopo la partenza — errore dell'agente o del git, exit ≠ 0, costo oltre il tetto,
+output non parsabile, ticket non risolvibile, errore inatteso: le uscite di
+`failRunningAndPromote` in `run-review.ts` — spegne il ciclo (una review senza
+verdetto non accoda mai una correzione) e fino a C10 non lo diceva a nessuno.
+
+**Decisione.** Si riusa il kind ESISTENTE `review.completed` (MAI un kind nuovo:
+un valore nuovo di `notification_kind` è la trappola del 500 su `/api/inbox` al
+rollback, CLAUDE.md fasi 2/5/6), con `verdict: null` e
+`cycle: { round, max, stopped: true, stoppedReason: "review_failed" }`. Stessi
+destinatari dello stop al tetto (`projectId` + `ticketId`, niente `jobId`).
+Best-effort.
+
+**Cosa cambia.**
+
+1. `@stubwise/shared`: `prCycleStopReasonSchema` e `PrCycleEvent.stoppedReason`
+   (`.optional()`; chi lo leggesse da un client passi da `readerSchema`, che
+   apre l'enum — oggi nessun client lo legge: il dettaglio inbox manda solo
+   `text`/`summary`). Al tetto (C10) `stoppedReason: "cap"`.
+2. `@stubwise/i18n`: `notify.verdict.reviewFailed` (en/it, forma
+   `etichetta: N`, niente plurali).
+3. `@stubwise/notifications`: `ReviewCompletedEvent.verdict` ammette `null`;
+   `textParams` → `reviewVerdictText`: `review_failed` (o un verdetto nullo
+   comunque arrivato) → `reviewFailed`, poi `stopped` → `stoppedAtCap`, poi il
+   verdetto. Slack/Discord/push passano dallo stesso testo; `generic` porta
+   `verdict: null` e `cycle` col motivo.
+4. Worker: `notifyCycleStoppedByFailedReview` (`review/cycle.ts`), chiamata da
+   `failRunningAndPromote` SOLO se la chiusura `failed` è stata sua e DOPO
+   `promotePendingAfterFailedReview`. Notifica solo se: branch
+   `stubwise/ticket-N` con la riga `ticket_repositories` del ticket N del
+   progetto su quel repo e branch (il ticket non è ancora risolto da
+   `resolveTicket`, che gira a parse riuscito); `autoRoundsInCurrentSeries > 0`
+   (una richiesta umana, anche `pending`, azzera: niente avviso); nessuna
+   correzione ancora aperta sulla PR (`prHasOpenCorrection`: un giro in fila o
+   appena promosso vuol dire che il ciclo NON è fermo). MAI nel ramo del limite
+   del provider (la review riparte), MAI con la serie a 0 giri (review normale
+   fallita: comportamento di prima), MAI per una review mai partita
+   (`failWaitingAndPromote`).
+5. Server (consumatore): `summaryForItem` (`services/inbox.ts`) non allega il
+   riassunto "in breve" a una `review.completed` con verdetto nullo — sarebbe
+   quello di una review PRECEDENTE della stessa PR («la review approva») sotto
+   «la review non è riuscita».
+
+**Consumatori verificati** con verdetto nullo: `format.ts` (testo, Slack,
+Discord, generic, push via testo), `services/inbox.ts` (testo nel recinto di
+`renderItem`, riassunto corretto al punto 5), web (`inbox-item.tsx`: solo
+`text`/`summary`, nessuna lettura di `verdict`/`cycle`), app (`PrReadyCard`:
+solo `text`/`summary`; il TONO resta `ok` — è F8).
+
+**Test.** `run-review.test.ts` («review fallita dentro una serie automatica
+(C10b)»): fallita in serie (non parsabile, exit ≠ 0) → UNA notifica col motivo;
+fuori serie → nessuna; serie azzerata da una richiesta umana → nessuna; giro
+automatico ancora in fila → nessuna; limite del provider → nessuna; branch non
+di Stubwise → nessuna; riga chiusa dal recovery → nessuna. `format.test.ts`,
+`pr-correction.test.ts` (shared), `inbox.test.ts` (server).
+
+**Commit:** `feat(notifications): …` (shared+i18n+notifications),
+`feat(worker): …`, `fix(server): …`, `docs(plans): …`.
 
 ---
 
@@ -22965,6 +23041,37 @@ con una build locale dell'app:
 messaggio, dopo l'esito del primo.)
 
 Nessun commit.
+
+---
+
+### Task F8: il tono della card inbox dice quando serve attenzione
+
+**Aggiunto dal coordinatore dopo F7.** Oggi `PrReadyCard`
+(`apps/mobile/src/components/inbox/PrReadyCard.tsx`) ha `tone="ok"` per ogni
+`review.completed`: verde anche su «modifiche richieste», sullo stop al tetto e
+(da C10b) sulla review fallita dentro una serie.
+
+**Vincoli.**
+
+1. Verificare PRIMA se verdetto e `cycle` arrivano al client nel dettaglio
+   inbox. Oggi NO: `renderItem` (`apps/server/src/services/inbox.ts`) manda
+   solo `text`/`url`/`summary` (+ blocchi opzionali di domanda/pulse/google).
+   `cycle.stopped`/`stoppedReason` e `verdict` sono fatti del momento della
+   publish: leggerli dall'evento va bene (non serve derivarli). Se serve un
+   campo nel dettaglio, derivarlo a lettura in `inbox.ts` con `.default(...)`
+   nello schema (`.nullable().default(null)`), additivo, e aprire l'enum con
+   `readerSchema` sul client.
+2. Tono `ok` SOLO per `approve`; tono di attenzione per `request_changes`,
+   per lo stop al tetto (`stoppedReason: "cap"`, o `stopped: true` senza
+   motivo su un evento vecchio) e per `stoppedReason: "review_failed"`
+   (verdetto nullo). Se oggi la card è verde anche su `request_changes` senza
+   ciclo (lo è), correggerlo insieme. `job.pr_opened` resta com'è.
+3. Stessa verifica sulla card inbox del WEB (`apps/web/src/components/
+   inbox-item.tsx`), con la difesa `?? …` nel punto di lettura (il web fa un
+   cast, non un parse).
+4. Test con fixture COMPLETE (trappola dei test dell'app), un caso con SOLO i
+   campi nuovi popolati, e un evento vecchio senza `cycle` (e senza il campo
+   derivato) che resta leggibile col tono di prima.
 
 ---
 
