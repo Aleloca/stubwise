@@ -59,6 +59,13 @@ const MAX_COMMENT_PAGES = 10;
 /** Lunghezza massima della descrizione di uno status di commit su GitHub. */
 const MAX_STATUS_DESCRIPTION = 140;
 
+/**
+ * Eventi del webhook: `pull_request` (apertura/aggiornamento/chiusura),
+ * `pull_request_review` (ciclo di correzione: "Request changes"), `push`
+ * (auto-aggiornamento Docs). Una sola lista per creazione e aggiornamento.
+ */
+const WEBHOOK_EVENTS = ["pull_request", "pull_request_review", "push"];
+
 export class GitHubProvider implements GitProvider {
   private readonly fetchImpl: FetchLike;
 
@@ -876,7 +883,7 @@ export class GitHubProvider implements GitProvider {
         const updateResponse = await fetchImpl(`${base}/${existing.id}`, {
           method: "PATCH",
           headers,
-          body: JSON.stringify({ active: true, events: ["pull_request", "push"], config }),
+          body: JSON.stringify({ active: true, events: WEBHOOK_EVENTS, config }),
         });
         this.guardWebhookResponse(updateResponse);
         return { created: false, updated: true, id: String(existing.id), detail: "Webhook aggiornato" };
@@ -885,7 +892,7 @@ export class GitHubProvider implements GitProvider {
       const createResponse = await fetchImpl(base, {
         method: "POST",
         headers,
-        body: JSON.stringify({ name: "web", active: true, events: ["pull_request", "push"], config }),
+        body: JSON.stringify({ name: "web", active: true, events: WEBHOOK_EVENTS, config }),
       });
       this.guardWebhookResponse(createResponse);
       const created = (await readJsonResponse(createResponse, "GitHub")) as { id?: unknown };

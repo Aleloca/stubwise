@@ -1205,7 +1205,7 @@ describe("GitHubProvider.ensureWebhook", () => {
   const expectedBody = {
     name: "web",
     active: true,
-    events: ["pull_request", "push"],
+    events: ["pull_request", "pull_request_review", "push"],
     config: { url: hook.url, content_type: "json", secret: hook.secret, insecure_ssl: "0" },
   };
 
@@ -1238,11 +1238,20 @@ describe("GitHubProvider.ensureWebhook", () => {
   it("aggiorna il webhook esistente: PATCH all'id trovato per config.url", async () => {
     const fetchImpl = vi.fn((input: string | URL, init?: RequestInit) => {
       const url = String(input);
+      // L'hook già configurato ha la lista eventi VECCHIA: il riallineamento
+      // (script resync-webhooks) deve riscriverla in place, senza duplicarlo.
       if (url === LIST_URL && (init?.method ?? "GET") === "GET") {
-        return Promise.resolve(jsonResponse([{ id: 7, config: { url: hook.url } }], 200));
+        return Promise.resolve(
+          jsonResponse([{ id: 7, events: ["pull_request", "push"], config: { url: hook.url } }], 200)
+        );
       }
       if (url === `${LIST_URL}/7` && init?.method === "PATCH") {
         return Promise.resolve(jsonResponse({ id: 7, config: { url: hook.url } }, 200));
+      }
+      // Anche una creazione riceverebbe una risposta valida: un POST deve far
+      // fallire l'asserzione "nessun duplicato", non il doppio.
+      if (url === LIST_URL && init?.method === "POST") {
+        return Promise.resolve(jsonResponse({ id: 99, config: { url: hook.url } }, 201));
       }
       return Promise.resolve(new Response("", { status: 404 }));
     });
@@ -1250,15 +1259,20 @@ describe("GitHubProvider.ensureWebhook", () => {
 
     const result = await provider.ensureWebhook(config, hook);
 
+    // Nessun duplicato: un solo aggiornamento in place, nessuna creazione.
+    expect(fetchImpl.mock.calls.filter((c) => c[1]?.method === "POST")).toHaveLength(0);
+    const patches = fetchImpl.mock.calls.filter((c) => c[1]?.method === "PATCH");
+    expect(patches).toHaveLength(1);
+
     expect(result.created).toBe(false);
     expect(result.updated).toBe(true);
     expect(result.id).toBe("7");
 
-    const patch = fetchImpl.mock.calls.find((c) => c[1]?.method === "PATCH") as [string, RequestInit];
+    const patch = patches[0] as [string, RequestInit];
     expect(patch[0]).toBe(`${LIST_URL}/7`);
     expect(JSON.parse(patch[1].body as string)).toEqual({
       active: true,
-      events: ["pull_request", "push"],
+      events: ["pull_request", "pull_request_review", "push"],
       config: { url: hook.url, content_type: "json", secret: hook.secret, insecure_ssl: "0" },
     });
   });

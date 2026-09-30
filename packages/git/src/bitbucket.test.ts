@@ -1774,6 +1774,7 @@ describe("BitbucketProvider.ensureWebhook", () => {
         "pullrequest:updated",
         "pullrequest:fulfilled",
         "pullrequest:rejected",
+        "pullrequest:changes_request_created",
         "repo:push",
       ],
       secret: hook.secret,
@@ -1781,15 +1782,42 @@ describe("BitbucketProvider.ensureWebhook", () => {
   });
 
   it("aggiorna il webhook esistente: PUT all'uuid trovato con stesso URL", async () => {
+    // L'hook già configurato in produzione ha la lista eventi VECCHIA: il
+    // riallineamento (script resync-webhooks) passa da qui e deve riscriverla
+    // in place, senza crearne un secondo.
     const fetchImpl = vi.fn((input: string | URL, init?: RequestInit) => {
       const url = String(input);
       if (url === LIST_URL && (init?.method ?? "GET") === "GET") {
         return Promise.resolve(
-          jsonResponse({ values: [{ uuid: "{existing}", url: hook.url, active: false }] }, 200)
+          jsonResponse(
+            {
+              values: [
+                {
+                  uuid: "{existing}",
+                  url: hook.url,
+                  active: false,
+                  events: [
+                    "pullrequest:created",
+                    "pullrequest:updated",
+                    "pullrequest:fulfilled",
+                    "pullrequest:rejected",
+                    "repo:push",
+                  ],
+                },
+              ],
+            },
+            200
+          )
         );
       }
       if (url === `${LIST_URL}/{existing}` && init?.method === "PUT") {
         return Promise.resolve(jsonResponse({ uuid: "{existing}", url: hook.url }, 200));
+      }
+      // Anche una creazione riceverebbe una risposta valida: se partisse un
+      // POST, il test deve fallire sull'asserzione "nessun duplicato", non
+      // su un errore del doppio.
+      if (url === LIST_URL && init?.method === "POST") {
+        return Promise.resolve(jsonResponse({ uuid: "{duplicate}", url: hook.url }, 201));
       }
       return Promise.resolve(new Response("", { status: 404 }));
     });
@@ -1797,11 +1825,16 @@ describe("BitbucketProvider.ensureWebhook", () => {
 
     const result = await provider.ensureWebhook(apiConfig, hook);
 
+    // Nessun duplicato: un solo aggiornamento in place, nessuna creazione.
+    expect(fetchImpl.mock.calls.filter((c) => c[1]?.method === "POST")).toHaveLength(0);
+    const puts = fetchImpl.mock.calls.filter((c) => c[1]?.method === "PUT");
+    expect(puts).toHaveLength(1);
+
     expect(result.created).toBe(false);
     expect(result.updated).toBe(true);
     expect(result.id).toBe("{existing}");
 
-    const put = fetchImpl.mock.calls.find((c) => c[1]?.method === "PUT") as [string, RequestInit];
+    const put = puts[0] as [string, RequestInit];
     expect(put[0]).toBe(`${LIST_URL}/{existing}`);
     expect(JSON.parse(put[1].body as string)).toEqual({
       description: "Stubwise",
@@ -1812,6 +1845,7 @@ describe("BitbucketProvider.ensureWebhook", () => {
         "pullrequest:updated",
         "pullrequest:fulfilled",
         "pullrequest:rejected",
+        "pullrequest:changes_request_created",
         "repo:push",
       ],
       secret: hook.secret,

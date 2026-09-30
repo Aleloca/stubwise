@@ -946,13 +946,16 @@ export class BitbucketProvider implements GitProvider {
       url: hook.url,
       active: true,
       // created/updated alimentano l'automazione PR Review; fulfilled/rejected
-      // e repo:push servono al tracking dei fix. I webhook già configurati vanno
-      // riallineati con "Configura webhook" dalla UI (ensureWebhook è idempotente).
+      // e repo:push servono al tracking dei fix; changes_request_created al
+      // ciclo di correzione ("Request changes" sulla PR). I webhook già
+      // configurati vanno riallineati rilanciando ensureWebhook (idempotente):
+      // dalla UI con "Configura webhook" o con lo script resync-webhooks.
       events: [
         "pullrequest:created",
         "pullrequest:updated",
         "pullrequest:fulfilled",
         "pullrequest:rejected",
+        "pullrequest:changes_request_created",
         "repo:push",
       ],
       secret: hook.secret,
