@@ -11,6 +11,7 @@ import {
   type Db,
 } from "@stubwise/db";
 import {
+  prNumberFromUrl,
   stubwiseTicketNumber,
   type PrComment,
   type PrCorrectionTrigger,
@@ -663,20 +664,6 @@ export async function cancelPendingCorrection(db: DbOrTx, pr: PrRef): Promise<st
   });
 }
 
-/**
- * Ripiego per una riga `ticket_repositories` senza `pr_number` (scritta da un
- * worker precedente alla 0081 dopo il backfill). STESSA regex del backfill
- * della 0081 (`/pull/N`, `/pull-requests/N`, `/pulls/N`; `parsePrNumberFromUrl`
- * di @stubwise/git, di cui questo package non dipende, non conosce `/pulls/`):
- * null se non combacia, mai un numero inventato.
- */
-function prNumberFromUrl(prUrl: string): number | null {
-  const match = /\/pull(?:-requests|s)?\/(\d+)\b/.exec(prUrl);
-  if (!match) return null;
-  const n = Number(match[1]);
-  return Number.isInteger(n) ? n : null;
-}
-
 /** I fatti da cui si deriva lo stato: vedi la tabella di verità nel piano (Task A8). */
 export interface PrCycleFacts {
   prOpen: boolean;
@@ -787,6 +774,8 @@ export async function derivePrCycle(
   // @stubwise/shared, la regex unica del monorepo): è la condizione della rotta
   // delle correzioni, quindi un ciclo mostrato è un bottone che funziona.
   if (!tr || tr.prUrl === null || stubwiseTicketNumber(tr.branch) !== tr.ticketNumber) return null;
+  // Riga senza `pr_number` (scritta da un worker precedente alla 0081 dopo il
+  // backfill): la regola unica di @stubwise/shared, null se non combacia.
   const prNumber = tr.prNumber ?? prNumberFromUrl(tr.prUrl);
   if (prNumber === null) return null;
   const pr: PrRef = { repositoryId: input.repositoryId, prNumber };

@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import type { GitProviderKind } from "@stubwise/shared";
+import { prNumberFromUrl, type GitProviderKind } from "@stubwise/shared";
 
 /**
  * Git configuration of a project, with credentials ALREADY decrypted.
@@ -461,15 +461,14 @@ export function parseRepoUrl(repoUrl: string): ParsedRepoUrl {
 
 /**
  * Estrae il numero della PR dal suo URL (fase 8, Task 9): GitHub
- * `.../pull/N`, Bitbucket `.../pull-requests/N`. `null` se il formato non è
- * riconosciuto — MAI lancia: chi lo chiama (la coda di rilascio) legge un URL
- * salvato da un run precedente e non deve rompersi su un formato imprevisto.
+ * `.../pull/N`, Bitbucket `.../pull-requests/N` (e `/pulls/N`). `null` se il
+ * formato non è riconosciuto — MAI lancia: chi lo chiama (la coda di rilascio)
+ * legge un URL salvato da un run precedente e non deve rompersi su un formato
+ * imprevisto. Delega a `prNumberFromUrl` di @stubwise/shared, la regola unica
+ * del monorepo; il nome resta perché lo usano altri (es. `release.ts`).
  */
 export function parsePrNumberFromUrl(prUrl: string): number | null {
-  const match = /\/pull(?:-requests)?\/(\d+)\b/.exec(prUrl);
-  if (!match) return null;
-  const n = Number(match[1]);
-  return Number.isInteger(n) ? n : null;
+  return prNumberFromUrl(prUrl);
 }
 
 /** Reads a header value case-insensitively. */
