@@ -14,7 +14,7 @@ import {
 } from "@stubwise/db";
 import { getProvider, type GitProvider } from "@stubwise/git";
 import { t, type Language } from "@stubwise/i18n";
-import type { GitProviderKind } from "@stubwise/shared";
+import { STUBWISE_BRANCH_RE, type GitProviderKind } from "@stubwise/shared";
 import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { AgentRunner, AgentRunUsage } from "../agent/runner.js";
@@ -84,9 +84,6 @@ import { buildReviewPrompt, parseReviewOutput } from "./prompts.js";
  *     review, mai la riscrittura del precedente;
  * 14. notifica `review.completed` (best-effort).
  */
-
-/** Branch dei fix di Stubwise: `stubwise/ticket-<N>` (N = numero di progetto). */
-const STUBWISE_BRANCH_RE = /^stubwise\/ticket-(\d+)$/;
 
 /** Intervallo dell'heartbeat su pr_reviews.lastActivityAt (<< soglia stale). */
 const HEARTBEAT_INTERVAL_MS = 60_000;
