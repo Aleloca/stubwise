@@ -18075,7 +18075,7 @@ a «Nessuno» (e il PATCH manda `null` se all'inizio c'era un revisore).
 - Modify: `apps/web/src/components/repository-form.tsx`
 - Modify: `apps/web/src/components/repository-form.test.tsx`
 - Modify: `apps/web/src/routes/repositories/$slug.tsx`
-- Modify (step 4–6, l'avviso sul principale): `apps/web/src/lib/api.ts`, `apps/web/src/routes/repositories/repositories.test.tsx`
+- Modify (step 4–6, l'avviso sul principale): `apps/web/src/lib/api.ts`, `apps/web/src/router.tsx`, `apps/web/src/routes/repositories/new.tsx`, `apps/web/src/routes/repositories/new-standalone.tsx`, `apps/web/src/routes/repositories/repositories.test.tsx`; Create: `apps/web/src/components/repository-save-warnings.tsx`
 
 **Step 1: test che falliscono** — in `repository-form.test.tsx`:
 
@@ -18274,8 +18274,24 @@ Atteso: PASS.
 Il PATCH (D7, step 7–10) può rispondere 200 con
 `warnings: ["main_account_identity_unresolved"]`: salvato, ma ogni "Request
 changes" dalla piattaforma verrà scartato. Il form lo dice sotto «Changes
-saved.», senza bloccare niente; su Bitbucket aggiunge la riga dello scope. Il
-web fa un CAST, non un parse: da un server più vecchio `warnings` arriva
+saved.», senza bloccare niente; su Bitbucket aggiunge la riga dello scope.
+Lo stesso vale per la CREAZIONE: il POST del wizard (`new.tsx` e
+`new-standalone.tsx`) porta gli stessi `warnings`, e la pagina naviga subito
+al dettaglio — l'avviso deve arrivarci.
+
+**Come ci arriva.** Nel web non esiste un meccanismo di notifica globale
+(nessun toast, `useToast`, sonner o banner globale: cercato in `apps/web/src`
+e in `apps/web/package.json`; i banner che ci sono — `OutcomeBanner` in
+`google-accounts-section.tsx`, quello di intake in `routes/backlog/index.tsx`
+— sono locali alla loro pagina). Quindi i warnings viaggiano nello **stato
+della navigazione di TanStack Router** (`navigate({ …, state })`, letto con
+`useRouterState({ select: (s) => s.location.state })`) e il dettaglio li
+mostra con lo STESSO componente e lo stesso testo dell'avviso del PATCH. Lo
+stato di history vive solo in quella voce: un reload o un link condiviso non
+lo riportano, ed è giusto — è l'esito di UN salvataggio, non una proprietà
+della repository.
+
+Il web fa un CAST, non un parse: da un server più vecchio `warnings` arriva
 `undefined`, quindi si legge `updated.warnings ?? []` nel punto di lettura — e
 il test esistente «PATCH del nome non tocca l'account», il cui mock risponde
 SENZA `warnings`, resta così apposta: è la prova che la difesa c'è.
@@ -18318,6 +18334,27 @@ In `apps/web/src/routes/repositories/repositories.test.tsx`, nel
   });
 ```
 
+e nel `describe("aggiunta repository (wizard)")`:
+
+```ts
+  it("admin: creazione con warning → l'avviso è visibile sul dettaglio dove atterra", async () => {
+    // … stessi mock del test «account → repo → branch → POST…», con il POST che risponde:
+    //   "POST /api/repositories": () =>
+    //     jsonResponse(201, { ...created, warnings: ["main_account_identity_unresolved"] }),
+    // e la GET del dettaglio che risponde `created` SENZA warnings (la GET non li porta).
+    const router = renderApp(`/projects/${PROJECT_ID}/repositories/new`);
+    // … stessi passi del wizard fino a «Add repository» …
+
+    await waitFor(() => expect(router.state.location.pathname).toBe("/repositories/demo-shop"));
+    expect(await screen.findByText(/can't read who the main account is/)).toBeInTheDocument();
+  });
+```
+
+e nel test esistente «account → repo → branch → POST con projectId…» (il cui
+POST risponde SENZA `warnings`) aggiungi, dopo l'atterraggio:
+`expect(screen.queryByText(/can't read who the main account is/)).not.toBeInTheDocument();`
+— è la difesa `?? []` sul percorso di creazione.
+
 (Adatta `provider`/`ACCOUNT` di Bitbucket a ciò che le fixture del file già
 offrono: se l'account principale del form deve essere Bitbucket, usa
 `ACCOUNT_B` e aggiungi l'handler dei suoi branch. Nel test esistente «PATCH del
@@ -18333,57 +18370,115 @@ Atteso: FAIL (nessun avviso mostrato).
 
 **Step 5: implementazione**
 
-- `apps/web/src/lib/api.ts`: `patchRepository` (e `postRepository`) tornano
+- `apps/web/src/lib/api.ts`: `patchRepository` e `postRepository` tornano
   `Promise<RepositorySaveResponse>` (tipo da `@stubwise/shared`, D7 step 8).
+- `apps/web/src/router.tsx`, accanto al `declare module "@tanstack/react-router"`
+  che c'è già: il tipo dello stato di navigazione (è `@tanstack/history` a
+  dichiarare `HistoryState`, vuota, apposta per essere estesa):
+
+```ts
+declare module "@tanstack/history" {
+  interface HistoryState {
+    /**
+     * Avvisi NON bloccanti della creazione di una repository (D7), portati dal
+     * wizard al dettaglio dove la navigazione atterra. Solo in quella voce di
+     * history: un reload non li riporta.
+     */
+    repositoryWarnings?: string[];
+  }
+}
+```
+
+- `apps/web/src/components/repository-save-warnings.tsx` (NUOVO) — l'avviso,
+  UNO per il PATCH e per la creazione:
+
+```tsx
+import { useTranslation } from "react-i18next";
+import type { GitProviderKind } from "@stubwise/shared";
+
+/**
+ * Avvisi NON bloccanti del salvataggio di una repository (D7): oggi solo
+ * l'identità dell'account principale che non si legge — ogni "Request
+ * changes" dalla piattaforma verrà scartato. Lo usano il dettaglio dopo un
+ * PATCH e dopo la creazione (warnings arrivati con lo stato di navigazione).
+ */
+export function RepositorySaveWarnings({
+  warnings,
+  provider,
+}: {
+  warnings: readonly string[];
+  provider: GitProviderKind;
+}) {
+  const { t } = useTranslation();
+  if (!warnings.includes("main_account_identity_unresolved")) return null;
+  // `text-signal` è l'ambra di `styles.css` (`--color-signal`): un avviso,
+  // non un errore — `text-danger` direbbe che il salvataggio è fallito.
+  return (
+    <p role="status" className="mt-2 font-mono text-[12px] text-signal">
+      {t("repositories:detail.mainIdentityWarning")}
+      {provider === "bitbucket" && <> {t("repositories:detail.mainIdentityWarningBitbucket")}</>}
+    </p>
+  );
+}
+```
+
+- `apps/web/src/routes/repositories/new.tsx` (e allo stesso modo
+  `new-standalone.tsx`, che chiama `postRepository` e naviga allo stesso modo):
+
+```tsx
+  async function handleSubmit(draft: RepositoryDraft) {
+    const { warnings, ...repository } = await postRepository(draft);
+    queryClient.setQueryData(repositoryQueryOptions(repository.slug).queryKey, repository);
+    // … invalidazioni invariate …
+    await navigate({
+      to: "/repositories/$slug",
+      params: { slug: repository.slug },
+      // `?? []`: il web fa un cast, e un server senza il ciclo non manda il campo.
+      state: (prev) => ({ ...prev, repositoryWarnings: warnings ?? [] }),
+    });
+  }
+```
+
 - `apps/web/src/routes/repositories/$slug.tsx`:
 
 ```tsx
   const [saved, setSaved] = useState(false);
-  // Avvisi NON bloccanti del salvataggio (D7): oggi solo l'identità del
-  // principale che non si legge.
-  const [warnings, setWarnings] = useState<string[]>([]);
+  // Avvisi del salvataggio: dal PATCH qui sotto, oppure — appena atterrati
+  // dal wizard — dallo stato della navigazione.
+  const createdWarnings = useRouterState({ select: (s) => s.location.state.repositoryWarnings });
+  const [patchWarnings, setPatchWarnings] = useState<string[] | null>(null);
+  const warnings = patchWarnings ?? createdWarnings ?? [];
 
   async function handleSubmit(patch: RepositoryPatch) {
     setSaved(false);
-    setWarnings([]);
+    setPatchWarnings([]);
     const { warnings: saveWarnings, ...updated } = await patchRepository(slug, patch);
     // Nella cache va la repository, non gli avvisi del salvataggio.
     queryClient.setQueryData(repositoryQueryOptions(slug).queryKey, updated);
     // … invalidazioni invariate …
     setSaved(true);
     // `?? []`: il web fa un cast, e un server senza il ciclo non manda il campo.
-    setWarnings(saveWarnings ?? []);
+    setPatchWarnings(saveWarnings ?? []);
   }
 ```
 
   e sotto il paragrafo `saved`:
 
 ```tsx
-              {warnings.includes("main_account_identity_unresolved") && (
-                <p role="status" className="mt-2 font-mono text-[12px] text-signal">
-                  {t("repositories:detail.mainIdentityWarning")}
-                  {repository.provider === "bitbucket" && (
-                    <> {t("repositories:detail.mainIdentityWarningBitbucket")}</>
-                  )}
-                </p>
-              )}
+              <RepositorySaveWarnings warnings={warnings} provider={repository.provider} />
 ```
 
-  (`text-signal` è l'ambra di `styles.css`, `--color-signal`: un avviso, non
-  un errore — `text-danger` direbbe che il salvataggio è fallito.)
-
-Nella creazione (`new.tsx`, il wizard) l'avviso arriva nella risposta del POST
-ma la pagina naviga subito al dettaglio: **qui non si mostra**, ed è un limite
-accettato — al primo salvataggio dal dettaglio l'avviso compare, e se nel
-frattempo arriva un "Request changes" il ticket lo spiega (D2).
+  (Un PATCH successivo sostituisce gli avvisi della creazione: `patchWarnings`
+  non è più `null`. Il componente è montato nel ramo admin del dettaglio, lo
+  stesso del form: il wizard è solo admin, quindi chi crea lo vede.)
 
 **Step 6: verifica e commit**
 
 ```bash
 pnpm --filter @stubwise/web exec vitest run src/routes/repositories src/components/repository-form.test.tsx
 pnpm --filter @stubwise/web typecheck && pnpm lint
-git add apps/web/src/lib/api.ts "apps/web/src/routes/repositories/\$slug.tsx" apps/web/src/routes/repositories/repositories.test.tsx
-git commit -m "feat(web): il salvataggio della repository avvisa se l'identità dell'account principale non si legge"
+git add apps/web/src/lib/api.ts apps/web/src/router.tsx apps/web/src/components/repository-save-warnings.tsx apps/web/src/routes/repositories/new.tsx apps/web/src/routes/repositories/new-standalone.tsx "apps/web/src/routes/repositories/\$slug.tsx" apps/web/src/routes/repositories/repositories.test.tsx
+git commit -m "feat(web): salvare o creare una repository avvisa se l'identità dell'account principale non si legge"
 ```
 
 Atteso: PASS.
@@ -20443,8 +20538,8 @@ del merge). Sostituisci `<data>` con la data del merge.
   scartato (fail-closed) — rigenerarli al deploy.** Lo scarto non è muto: sul
   ticket compare un commento di sistema che dice chi ha chiesto, su quale PR e
   perché non è partito (uno per PR finché la condizione persiste), e il form
-  della repository avvisa a ogni salvataggio se l'identità del principale non
-  si legge.
+  della repository avvisa alla creazione e a ogni salvataggio se l'identità
+  del principale non si legge.
   **Account revisore — facoltativo.** Senza, la review commenta con l'account
   principale come prima e lo stato vero della PR (approvata / modifiche
   richieste) non si scrive: GitHub vieta all'autore `APPROVE`/`REQUEST_CHANGES`
@@ -20797,7 +20892,7 @@ On Bitbucket this needs the **`read:user:bitbucket`** scope on **both** the
 main account's token and the reviewer account's token. Tokens created earlier
 usually lack it: until you regenerate them with that scope, every *Request
 changes* made on Bitbucket is ignored (Stubwise plays safe) — the ticket gets a
-comment explaining it, and saving the repository form shows a warning — and the
+comment explaining it, and creating or saving the repository shows a warning — and the
 button on the ticket remains the only way to ask for a correction. On GitHub nothing
 changes: any personal access token can read its own identity.
 :::
@@ -21304,7 +21399,8 @@ tappe sono stati risolti e integrati nella sezione «Contratti» e nei task.
 - **Token Bitbucket senza `read:user:bitbucket`**: su un'istanza esistente
   ogni "Request changes" viene scartato (fail-closed, riga nel log) finché
   l'admin non rigenera il token. Mitigato su tre lati: il form della
-  repository avvisa a ogni salvataggio (D7 step 7–10, anche senza revisore),
+  repository avvisa alla creazione e a ogni salvataggio (D7 step 7–10 ed E6,
+  anche senza revisore),
   lo scarto lascia un commento di sistema sul ticket (D2 step 7–11, uno per PR
   finché la condizione persiste) e il passo di deploy (G1) lo dice. Limite
   accettato: credenziali sistemate e poi rotte di nuovo senza una richiesta
