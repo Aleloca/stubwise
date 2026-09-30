@@ -404,15 +404,20 @@ export class BitbucketProvider implements GitProvider {
 
   /**
    * Verdetto dell'account revisore come stato vero della PR (design §8).
-   * Bitbucket non ha un testo per il verdetto: prima il commento (se il
-   * corpo non è vuoto), poi lo stato — se il commento fallisce lo stato non
-   * si tocca. Un partecipante ha UNO stato (approved | changes_requested),
-   * quindi prima si ritira l'opposto con un DELETE best-effort (la risposta
-   * non si guarda: il caso "niente da ritirare" non è documentato), poi il
-   * POST decide. L'autore della PR può approvarla ma la sua approvazione non
+   * Bitbucket non ha un testo per il verdetto: stato e commento sono due
+   * chiamate. Ordine: (1) DELETE dell'opposto, best-effort — un partecipante
+   * ha UNO stato (approved | changes_requested), quindi si ritira l'altro; la
+   * risposta non si guarda (il caso "niente da ritirare" non è documentato)
+   * e anche un errore di rete si ignora; (2) POST del verdetto; (3) il
+   * commento, se il corpo non è vuoto. Il verdetto va PRIMA del testo perché
+   * chi chiama (C10), se questo metodo fallisce, ripiega su `createPrComment`
+   * con l'account principale: se il verdetto fallisce non è uscito niente, se
+   * fallisce il commento il ripiego pubblica il testo una volta sola — con
+   * l'ordine opposto un verdetto fallito dopo il commento lo farebbe uscire
+   * due volte. L'autore della PR può approvarla ma la sua approvazione non
    * conta per i merge check: per questo serve un account revisore distinto.
-   * Su 401/403 (commento o stato) il messaggio nomina il permesso mancante
-   * ({@link PR_REVIEW_PERMISSION_HINT}).
+   * Su 401/403 (stato o commento) il messaggio nomina il permesso mancante
+   * ({@link PR_REVIEW_PERMISSION_HINT}); gli altri errori passano invariati.
    */
   async submitPrReview(
     p: ProjectGitConfig,
@@ -425,6 +430,26 @@ export class BitbucketProvider implements GitProvider {
     const { owner, repo } = parseRepoUrl(p.repoUrl);
     const auth = this.projectRestAuthHeader(p);
     const prBase = `${API_BASE}/repositories/${owner}/${repo}/pullrequests/${prNumber}`;
+    // `as const`: senza, l'array è string[] e con noUncheckedIndexedAccess la
+    // destrutturazione darebbe string | undefined.
+    const [withdraw, submit] =
+      verdict === "approve"
+        ? (["request-changes", "approve"] as const)
+        : (["approve", "request-changes"] as const);
+    try {
+      const withdrawn = await fetchImpl(`${prBase}/${withdraw}`, {
+        method: "DELETE",
+        headers: { Authorization: auth },
+      });
+      await withdrawn.body?.cancel();
+    } catch {
+      // best-effort: il POST qui sotto decide.
+    }
+    const response = await fetchImpl(`${prBase}/${submit}`, {
+      method: "POST",
+      headers: { Authorization: auth },
+    });
+    await ensureOkResponseWithHint(response, "Bitbucket", PR_REVIEW_PERMISSION_HINT);
     if (body.trim().length > 0) {
       try {
         await this.createPrComment(p, prNumber, body, { fetchImpl });
@@ -432,18 +457,6 @@ export class BitbucketProvider implements GitProvider {
         throw withPermissionHint(error, PR_REVIEW_PERMISSION_HINT);
       }
     }
-    // `as const`: senza, l'array è string[] e con noUncheckedIndexedAccess la
-    // destrutturazione darebbe string | undefined.
-    const [withdraw, submit] =
-      verdict === "approve"
-        ? (["request-changes", "approve"] as const)
-        : (["approve", "request-changes"] as const);
-    await fetchImpl(`${prBase}/${withdraw}`, { method: "DELETE", headers: { Authorization: auth } });
-    const response = await fetchImpl(`${prBase}/${submit}`, {
-      method: "POST",
-      headers: { Authorization: auth },
-    });
-    await ensureOkResponseWithHint(response, "Bitbucket", PR_REVIEW_PERMISSION_HINT);
   }
 
   parseWebhook(headers: Record<string, string>, body: unknown): WebhookEvent | null {

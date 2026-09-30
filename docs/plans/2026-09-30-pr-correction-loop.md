@@ -5348,24 +5348,41 @@ git commit -m "feat(git): GitHub scrive lo status di commit della review"
 - Modify: `packages/git/src/bitbucket.ts`
 - Test: `packages/git/src/bitbucket.test.ts`
 
-Su Bitbucket il verdetto non ha un testo: `submitPrReview` pubblica PRIMA il
-commento (riusando `createPrComment`, se il corpo non è vuoto) e POI lo
-stato. Lo stato di un partecipante è UNO (`approved | changes_requested |
-null`, schema `participant`), quindi prima si ritira l'opposto: `approve` =
+Su Bitbucket il verdetto non ha un testo: stato e commento sono due chiamate.
+Lo stato di un partecipante è UNO (`approved | changes_requested | null`,
+schema `participant`), quindi prima si ritira l'opposto: `approve` =
 `DELETE .../request-changes` + `POST .../approve`; `request_changes` =
 `DELETE .../approve` + `POST .../request-changes`. Il `DELETE` preliminare è
-best-effort — la sua risposta non si guarda: che cosa risponda quando non c'è
-niente da ritirare non è documentato (vedi «Decisioni e rischi», tappa B, rischio 2). Il `POST` decide.
+best-effort davvero — la risposta non si guarda (che cosa risponda quando non
+c'è niente da ritirare non è documentato, vedi «Decisioni e rischi», tappa B,
+rischio 2) e anche un errore di rete si ignora. Il `POST` decide.
+
+**Ordine: DELETE dell'opposto → POST del verdetto → commento (riusando
+`createPrComment`, se il corpo non è vuoto).** Il verdetto va PRIMA del testo
+per il ripiego di C10: se `submitPrReview` fallisce, C10 pubblica il testo con
+`createPrComment` e l'account principale. Con il commento per primo, un
+verdetto fallito DOPO il commento farebbe uscire il testo due volte; con
+questo ordine, se fallisce il verdetto non è uscito niente, e se fallisce il
+commento il ripiego lo pubblica una volta sola. Su 401/403 (stato o commento)
+il messaggio nomina il permesso mancante (`PR_REVIEW_PERMISSION_HINT`); un
+400/500 passa invariato.
 
 **Step 1 — test che fallisce.**
 
 ```ts
 describe("BitbucketProvider.submitPrReview", () => {
   const PR = "https://api.bitbucket.org/2.0/repositories/myws/myrepo/pullrequests/7";
+  const AUTH = `Basic ${Buffer.from("alice:app-pass").toString("base64")}`;
+  const HINT =
+    "il token deve poter revisionare le pull request (GitHub: Pull requests write; Bitbucket: pullrequest write)";
 
-  function recorder() {
+  /** Doppio che risponde bene a tutto, salvo le risposte forzate per "METODO url". */
+  function recorder(overrides: Record<string, () => Promise<Response>> = {}) {
     return vi.fn().mockImplementation((input: string | URL, init?: RequestInit) => {
       const url = String(input);
+      const key = `${init?.method} ${url}`;
+      const forced = overrides[key];
+      if (forced) return forced();
       if (init?.method === "DELETE") return Promise.resolve(new Response(null, { status: 404 }));
       if (url === `${PR}/comments`) return Promise.resolve(jsonResponse({ id: 1 }, 201));
       return Promise.resolve(jsonResponse({ approved: true }, 200));
@@ -5373,36 +5390,37 @@ describe("BitbucketProvider.submitPrReview", () => {
   }
   const calls = (fetchImpl: ReturnType<typeof vi.fn>) =>
     fetchImpl.mock.calls.map((c) => `${(c as [string, RequestInit])[1].method} ${String((c as [string])[0])}`);
+  const errorOf = (promise: Promise<unknown>) => promise.then(() => null).catch((e: unknown) => e);
 
-  it("approve: commento, poi ritira request-changes, poi approva", async () => {
+  it("approve: ritira request-changes, approva, poi il commento", async () => {
     const fetchImpl = recorder();
     const provider = new BitbucketProvider({ fetchImpl });
 
     await provider.submitPrReview(config, 7, "approve", "Tutto a posto");
 
     expect(calls(fetchImpl)).toEqual([
-      `POST ${PR}/comments`,
       `DELETE ${PR}/request-changes`,
       `POST ${PR}/approve`,
+      `POST ${PR}/comments`,
     ]);
-    const comment = fetchImpl.mock.calls[0] as [string, RequestInit];
+    const withdraw = fetchImpl.mock.calls[0] as [string, RequestInit];
+    expect((withdraw[1].headers as Record<string, string>)["Authorization"]).toBe(AUTH);
+    const approve = fetchImpl.mock.calls[1] as [string, RequestInit];
+    expect((approve[1].headers as Record<string, string>)["Authorization"]).toBe(AUTH);
+    const comment = fetchImpl.mock.calls[2] as [string, RequestInit];
     expect(JSON.parse(comment[1].body as string)).toEqual({ content: { raw: "Tutto a posto" } });
-    const approve = fetchImpl.mock.calls[2] as [string, RequestInit];
-    expect((approve[1].headers as Record<string, string>)["Authorization"]).toBe(
-      `Basic ${Buffer.from("alice:app-pass").toString("base64")}`
-    );
   });
 
-  it("request_changes: commento, poi ritira approve, poi chiede modifiche", async () => {
+  it("request_changes: ritira approve, chiede modifiche, poi il commento", async () => {
     const fetchImpl = recorder();
     const provider = new BitbucketProvider({ fetchImpl });
 
     await provider.submitPrReview(config, 7, "request_changes", "Manca il test");
 
     expect(calls(fetchImpl)).toEqual([
-      `POST ${PR}/comments`,
       `DELETE ${PR}/approve`,
       `POST ${PR}/request-changes`,
+      `POST ${PR}/comments`,
     ]);
   });
 
@@ -5413,49 +5431,112 @@ describe("BitbucketProvider.submitPrReview", () => {
     expect(calls(fetchImpl)).toEqual([`DELETE ${PR}/request-changes`, `POST ${PR}/approve`]);
   });
 
-  it("il commento fallisce → lo stato non si tocca", async () => {
-    const fetchImpl = vi.fn().mockImplementation(() => Promise.resolve(new Response("x", { status: 403 })));
+  it("il DELETE rifiuta (errore di rete) → il verdetto parte comunque", async () => {
+    const fetchImpl = recorder({
+      [`DELETE ${PR}/request-changes`]: () => Promise.reject(new TypeError("fetch failed")),
+    });
     const provider = new BitbucketProvider({ fetchImpl });
-    await expect(provider.submitPrReview(config, 7, "approve", "testo")).rejects.toBeInstanceOf(GitProviderError);
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
+
+    const error = await errorOf(provider.submitPrReview(config, 7, "approve", ""));
+
+    expect(error).toBeNull();
+    expect(calls(fetchImpl)).toEqual([`DELETE ${PR}/request-changes`, `POST ${PR}/approve`]);
   });
 
-  it("il POST dello stato fallisce → GitProviderError con lo status", async () => {
-    const fetchImpl = vi.fn().mockImplementation((input: string | URL, init?: RequestInit) =>
-      Promise.resolve(
-        init?.method === "POST" && String(input).endsWith("/approve")
-          ? new Response("merged", { status: 400 })
-          : new Response(null, { status: 204 })
-      )
-    );
+  it("il verdetto fallisce → nessun commento pubblicato", async () => {
+    const fetchImpl = recorder({
+      [`POST ${PR}/approve`]: () => Promise.resolve(new Response("merged", { status: 400 })),
+    });
     const provider = new BitbucketProvider({ fetchImpl });
-    const error = await provider
-      .submitPrReview(config, 7, "approve", "")
-      .then(() => null)
-      .catch((e: unknown) => e);
+    const error = await errorOf(provider.submitPrReview(config, 7, "approve", "testo"));
     expect(error).toBeInstanceOf(GitProviderError);
     expect((error as GitProviderError).status).toBe(400);
+    expect((error as GitProviderError).message).not.toContain(HINT);
+    expect(calls(fetchImpl)).not.toContain(`POST ${PR}/comments`);
   });
-});
-```
+
+  it("il commento fallisce dopo un verdetto riuscito → errore, verdetto già inviato", async () => {
+    const fetchImpl = recorder({
+      [`POST ${PR}/comments`]: () => Promise.resolve(new Response("boom", { status: 500 })),
+    });
+    const provider = new BitbucketProvider({ fetchImpl });
+    const error = await errorOf(provider.submitPrReview(config, 7, "request_changes", "Manca il test"));
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).status).toBe(500);
+    expect(calls(fetchImpl)).toEqual([
+      `DELETE ${PR}/approve`,
+      `POST ${PR}/request-changes`,
+      `POST ${PR}/comments`,
+    ]);
+  });
+
+  it("400/500 sul commento → nessun suggerimento sui permessi", async () => {
+    for (const status of [400, 500]) {
+      const fetchImpl = recorder({
+        [`POST ${PR}/comments`]: () => Promise.resolve(new Response("nope", { status })),
+      });
+      const provider = new BitbucketProvider({ fetchImpl });
+      const error = await errorOf(provider.submitPrReview(config, 7, "approve", "testo"));
+      expect(error).toBeInstanceOf(GitProviderError);
+      expect((error as GitProviderError).status).toBe(status);
+      expect((error as GitProviderError).message).not.toContain(HINT);
+    }
+  });
+
+  it("403 sullo stato → il messaggio dice quale permesso manca, senza credenziali", async () => {
+    const fetchImpl = recorder({
+      [`POST ${PR}/request-changes`]: () => Promise.resolve(new Response("Forbidden", { status: 403 })),
+    });
+    const provider = new BitbucketProvider({ fetchImpl });
+    const error = await errorOf(provider.submitPrReview(config, 7, "request_changes", ""));
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).status).toBe(403);
+    const message = (error as GitProviderError).message;
+    expect(message).toContain(HINT);
+    expect(message).not.toContain("app-pass");
+    expect(message).not.toContain(Buffer.from("alice:app-pass").toString("base64"));
+  });
+
+  it("401 sul commento → il messaggio dice quale permesso manca, senza credenziali", async () => {
+    const fetchImpl = recorder({
+      [`POST ${PR}/comments`]: () => Promise.resolve(new Response("Unauthorized", { status: 401 })),
+    });
+    const provider = new BitbucketProvider({ fetchImpl });
+    const error = await errorOf(provider.submitPrReview(config, 7, "approve", "testo"));
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).status).toBe(401);
+    const message = (error as GitProviderError).message;
+    expect(message).toContain(HINT);
+    expect(message).not.toContain("app-pass");
+    expect(message).not.toContain(Buffer.from("alice:app-pass").toString("base64"));
+  });
+});```
 
 **Step 2 — esegui, fallisce.**
 `pnpm --filter @stubwise/git exec vitest run src/bitbucket.test.ts -t "submitPrReview"`
 Atteso: FAIL — `provider.submitPrReview is not a function`.
 
-**Step 3 — implementazione.** `type PrReviewVerdict` nell'import; metodo dopo
+**Step 3 — implementazione.** `type PrReviewVerdict`, `PR_REVIEW_PERMISSION_HINT`,
+`withPermissionHint` ed `ensureOkResponseWithHint` nell'import; metodo dopo
 `setCommitStatus`:
 
 ```ts
   /**
    * Verdetto dell'account revisore come stato vero della PR (design §8).
-   * Bitbucket non ha un testo per il verdetto: prima il commento (se il
-   * corpo non è vuoto), poi lo stato — se il commento fallisce lo stato non
-   * si tocca. Un partecipante ha UNO stato (approved | changes_requested),
-   * quindi prima si ritira l'opposto con un DELETE best-effort (la risposta
-   * non si guarda: il caso "niente da ritirare" non è documentato), poi il
-   * POST decide. L'autore della PR può approvarla ma la sua approvazione non
+   * Bitbucket non ha un testo per il verdetto: stato e commento sono due
+   * chiamate. Ordine: (1) DELETE dell'opposto, best-effort — un partecipante
+   * ha UNO stato (approved | changes_requested), quindi si ritira l'altro; la
+   * risposta non si guarda (il caso "niente da ritirare" non è documentato)
+   * e anche un errore di rete si ignora; (2) POST del verdetto; (3) il
+   * commento, se il corpo non è vuoto. Il verdetto va PRIMA del testo perché
+   * chi chiama (C10), se questo metodo fallisce, ripiega su `createPrComment`
+   * con l'account principale: se il verdetto fallisce non è uscito niente, se
+   * fallisce il commento il ripiego pubblica il testo una volta sola — con
+   * l'ordine opposto un verdetto fallito dopo il commento lo farebbe uscire
+   * due volte. L'autore della PR può approvarla ma la sua approvazione non
    * conta per i merge check: per questo serve un account revisore distinto.
+   * Su 401/403 (stato o commento) il messaggio nomina il permesso mancante
+   * ({@link PR_REVIEW_PERMISSION_HINT}); gli altri errori passano invariati.
    */
   async submitPrReview(
     p: ProjectGitConfig,
@@ -5468,25 +5549,37 @@ Atteso: FAIL — `provider.submitPrReview is not a function`.
     const { owner, repo } = parseRepoUrl(p.repoUrl);
     const auth = this.projectRestAuthHeader(p);
     const prBase = `${API_BASE}/repositories/${owner}/${repo}/pullrequests/${prNumber}`;
-    if (body.trim().length > 0) {
-      await this.createPrComment(p, prNumber, body, { fetchImpl });
-    }
     // `as const`: senza, l'array è string[] e con noUncheckedIndexedAccess la
     // destrutturazione darebbe string | undefined.
     const [withdraw, submit] =
       verdict === "approve"
         ? (["request-changes", "approve"] as const)
         : (["approve", "request-changes"] as const);
-    await fetchImpl(`${prBase}/${withdraw}`, { method: "DELETE", headers: { Authorization: auth } });
+    try {
+      const withdrawn = await fetchImpl(`${prBase}/${withdraw}`, {
+        method: "DELETE",
+        headers: { Authorization: auth },
+      });
+      await withdrawn.body?.cancel();
+    } catch {
+      // best-effort: il POST qui sotto decide.
+    }
     const response = await fetchImpl(`${prBase}/${submit}`, {
       method: "POST",
       headers: { Authorization: auth },
     });
-    await ensureOkResponse(response, "Bitbucket");
+    await ensureOkResponseWithHint(response, "Bitbucket", PR_REVIEW_PERMISSION_HINT);
+    if (body.trim().length > 0) {
+      try {
+        await this.createPrComment(p, prNumber, body, { fetchImpl });
+      } catch (error) {
+        throw withPermissionHint(error, PR_REVIEW_PERMISSION_HINT);
+      }
+    }
   }
 ```
 
-**Step 4 — esegui, passa.** Atteso: PASS (5 test).
+**Step 4 — esegui, passa.** Atteso: PASS (9 test).
 
 **Step 5 — commit.**
 ```bash
@@ -5503,16 +5596,24 @@ git commit -m "feat(git): Bitbucket approva o chiede modifiche su una PR"
 - Test: `packages/git/src/github.test.ts`
 
 Una sola chiamata: `POST /pulls/{n}/reviews` con `event: APPROVE |
-REQUEST_CHANGES` e `body`. Il testo è obbligatorio per `REQUEST_CHANGES` e
-facoltativo per `APPROVE` (si omette se vuoto). Il 422 ha un messaggio
-dedicato: il caso tipico è l'account revisore che coincide con l'autore
-(GitHub rifiuta entrambi i verdetti sulla propria PR).
+REQUEST_CHANGES` e `body`. Il testo è obbligatorio per `REQUEST_CHANGES`
+(GitHub lo esige): un testo vuoto o di soli spazi è un errore LOCALE, senza
+chiamare GitHub, perché il 422 che ne tornerebbe sembrerebbe un altro
+problema. Per `APPROVE` il testo vuoto si omette. Il 422 nomina l'autore
+della PR solo se la risposta dice "own pull request" (senza distinguere
+maiuscole) — il caso tipico: l'account revisore coincide con l'autore, e
+GitHub rifiuta entrambi i verdetti sulla propria PR —; ogni altro 422
+riporta un estratto della risposta di GitHub (max 200 caratteri; la risposta
+non riflette l'Authorization) e indica l'autore solo come causa possibile.
+Su 401/403 il messaggio nomina il permesso mancante, come il gemello B8.
 
 **Step 1 — test che fallisce.**
 
 ```ts
 describe("GitHubProvider.submitPrReview", () => {
   const REVIEWS_URL = "https://api.github.com/repos/octo/repo/pulls/42/reviews";
+  const HINT =
+    "il token deve poter revisionare le pull request (GitHub: Pull requests write; Bitbucket: pullrequest write)";
 
   it("request_changes → una review REQUEST_CHANGES col testo", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ id: 1, state: "CHANGES_REQUESTED" }, 200));
@@ -5525,7 +5626,16 @@ describe("GitHubProvider.submitPrReview", () => {
     expect(url).toBe(REVIEWS_URL);
     expect(init.method).toBe("POST");
     expect((init.headers as Record<string, string>)["Authorization"]).toBe("Bearer ghp_secret");
+    expect((init.headers as Record<string, string>)["Accept"]).toBe("application/vnd.github+json");
     expect(JSON.parse(init.body as string)).toEqual({ event: "REQUEST_CHANGES", body: "Manca il test" });
+  });
+
+  it("approve col testo → APPROVE col testo", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ id: 1, state: "APPROVED" }, 200));
+    const provider = new GitHubProvider({ fetchImpl });
+    await provider.submitPrReview(config, 42, "approve", "Tutto a posto");
+    const [, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({ event: "APPROVE", body: "Tutto a posto" });
   });
 
   it("approve con corpo vuoto → APPROVE senza body", async () => {
@@ -5536,9 +5646,18 @@ describe("GitHubProvider.submitPrReview", () => {
     expect(JSON.parse(init.body as string)).toEqual({ event: "APPROVE" });
   });
 
+  it("opts.fetchImpl per chiamata vince su quello del costruttore", async () => {
+    const ctorFetch = vi.fn().mockResolvedValue(jsonResponse({ id: 1 }, 200));
+    const callFetch = vi.fn().mockResolvedValue(jsonResponse({ id: 1 }, 200));
+    const provider = new GitHubProvider({ fetchImpl: ctorFetch });
+    await provider.submitPrReview(config, 42, "approve", "ok", { fetchImpl: callFetch });
+    expect(callFetch).toHaveBeenCalledTimes(1);
+    expect(ctorFetch).not.toHaveBeenCalled();
+  });
+
   it("422 → GitProviderError che nomina il caso dell'autore della PR", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ message: "Unprocessable Entity", errors: ["Can not approve your own pull request"] }), {
+      new Response(JSON.stringify({ message: "Unprocessable Entity", errors: ["Can not approve your Own Pull Request"] }), {
         status: 422,
       })
     );
@@ -5549,37 +5668,102 @@ describe("GitHubProvider.submitPrReview", () => {
       .catch((e: unknown) => e);
     expect(error).toBeInstanceOf(GitProviderError);
     expect((error as GitProviderError).status).toBe(422);
-    expect((error as GitProviderError).message).toMatch(/autore/);
-    expect((error as GitProviderError).responseText).toMatch(/own pull request/);
+    expect((error as GitProviderError).message).toMatch(/non permette all'autore della PR/);
+    expect((error as GitProviderError).message).not.toMatch(/possibile/);
+    expect((error as GitProviderError).message).not.toContain("ghp_secret");
+    expect((error as GitProviderError).responseText).toMatch(/own pull request/i);
   });
 
-  it("altri non-2xx → GitProviderError generico", async () => {
+  it("422 con un'altra causa → estratto della risposta (max 200), autore solo come causa possibile", async () => {
+    const detail = "Validation Failed: pull request is closed " + "x".repeat(400);
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ message: detail }), { status: 422 })
+    );
+    const provider = new GitHubProvider({ fetchImpl });
+    const error = await provider
+      .submitPrReview(config, 42, "approve", "ok")
+      .then(() => null)
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).status).toBe(422);
+    const message = (error as GitProviderError).message;
+    expect(message).toContain("pull request is closed");
+    expect(message).toMatch(/possibile/);
+    expect(message).not.toMatch(/non permette all'autore/);
+    expect(message).not.toContain("x".repeat(201));
+    expect(message).not.toContain("ghp_secret");
+  });
+
+  it("request_changes con testo di soli spazi → errore locale, nessuna chiamata", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ id: 1 }, 200));
+    const provider = new GitHubProvider({ fetchImpl });
+    const error = await provider
+      .submitPrReview(config, 42, "request_changes", "   ")
+      .then(() => null)
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).message).toMatch(/REQUEST_CHANGES richiede un testo/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("approve con testo di soli spazi → APPROVE senza body", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ id: 1, state: "APPROVED" }, 200));
+    const provider = new GitHubProvider({ fetchImpl });
+    await provider.submitPrReview(config, 42, "approve", "   ");
+    const [, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({ event: "APPROVE" });
+  });
+
+  it("403 → il messaggio dice quale permesso manca, senza credenziali", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(new Response("forbidden", { status: 403 }));
     const provider = new GitHubProvider({ fetchImpl });
     const error = await provider
       .submitPrReview(config, 42, "approve", "ok")
       .then(() => null)
       .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(GitProviderError);
     expect((error as GitProviderError).status).toBe(403);
+    expect((error as GitProviderError).message).toContain(HINT);
+    expect((error as GitProviderError).message).not.toContain("ghp_secret");
   });
-});
-```
+
+  it("altri non-2xx (500) → GitProviderError generico, senza il suggerimento sui permessi", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("boom", { status: 500 }));
+    const provider = new GitHubProvider({ fetchImpl });
+    const error = await provider
+      .submitPrReview(config, 42, "request_changes", "Manca il test")
+      .then(() => null)
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).status).toBe(500);
+    expect((error as GitProviderError).message).not.toContain(HINT);
+    expect((error as GitProviderError).message).not.toMatch(/autore/);
+  });
+});```
 
 **Step 2 — esegui, fallisce.**
 `pnpm --filter @stubwise/git exec vitest run src/github.test.ts -t "submitPrReview"`
 Atteso: FAIL — `provider.submitPrReview is not a function`.
 
-**Step 3 — implementazione.** `type PrReviewVerdict` nell'import; metodo dopo
-`setCommitStatus`:
+**Step 3 — implementazione.** `type PrReviewVerdict`, `PR_REVIEW_PERMISSION_HINT`
+ed `ensureOkResponseWithHint` nell'import; metodo dopo `setCommitStatus`:
 
 ```ts
   /**
    * Verdetto dell'account revisore come review GitHub (design §8): una sola
-   * richiesta, testo incluso. `body` è obbligatorio per REQUEST_CHANGES (lo
-   * garantisce chi chiama: la review ha sempre un testo) e omesso se vuoto
-   * per APPROVE. GitHub rifiuta con 422 APPROVE e REQUEST_CHANGES dall'autore
-   * della PR: il messaggio lo dice, perché è l'errore di configurazione
-   * tipico (account revisore = account principale).
+   * richiesta, `POST /pulls/{n}/reviews`, testo incluso — quindi chi chiama
+   * NON pubblica anche un `createPrComment`, o il testo uscirebbe doppio.
+   * `body` è obbligatorio per REQUEST_CHANGES (GitHub lo esige): un testo
+   * vuoto o di soli spazi è un errore locale, senza chiamare GitHub, perché
+   * il 422 che ne tornerebbe sembrerebbe un altro problema. Per APPROVE il
+   * testo vuoto si omette. GitHub rifiuta con 422 sia APPROVE sia
+   * REQUEST_CHANGES dall'autore della PR: l'account revisore DEVE essere un
+   * account diverso da quello che apre le PR. Il messaggio del 422 nomina
+   * l'autore solo se la risposta lo dice ("own pull request"); altrimenti
+   * riporta un estratto della risposta (che non contiene l'Authorization) e
+   * indica l'autore come causa possibile. Su 401/403 il messaggio nomina il
+   * permesso mancante ({@link PR_REVIEW_PERMISSION_HINT}), come il gemello
+   * Bitbucket.
    */
   async submitPrReview(
     p: ProjectGitConfig,
@@ -5588,6 +5772,10 @@ Atteso: FAIL — `provider.submitPrReview is not a function`.
     body: string,
     opts: { fetchImpl?: FetchLike } = {}
   ): Promise<void> {
+    const hasBody = body.trim().length > 0;
+    if (verdict === "request_changes" && !hasBody) {
+      throw new GitProviderError("GitHub: REQUEST_CHANGES richiede un testo (il corpo della review è vuoto)", 0, "");
+    }
     const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
     const { owner, repo } = parseRepoUrl(p.repoUrl);
     const response = await fetchImpl(`${API_BASE}/repos/${owner}/${repo}/pulls/${prNumber}/reviews`, {
@@ -5599,22 +5787,21 @@ Atteso: FAIL — `provider.submitPrReview is not a function`.
       },
       body: JSON.stringify({
         event: verdict === "approve" ? "APPROVE" : "REQUEST_CHANGES",
-        ...(body.trim().length > 0 ? { body } : {}),
+        ...(hasBody ? { body } : {}),
       }),
     });
     if (response.status === 422) {
       const text = (await response.text().catch(() => "")).slice(0, 500);
-      throw new GitProviderError(
-        "GitHub: review rifiutata (422) — GitHub non permette all'autore della PR di approvarla o di chiedere modifiche: verifica che l'account revisore sia diverso da quello che apre le PR",
-        422,
-        text
-      );
+      const message = /own pull request/i.test(text)
+        ? "GitHub: review rifiutata (422) — GitHub non permette all'autore della PR di approvarla o di chiedere modifiche: verifica che l'account revisore sia diverso da quello che apre le PR"
+        : `GitHub: review rifiutata (422): ${text.slice(0, 200)} — una causa possibile è l'account revisore che coincide con l'autore della PR`;
+      throw new GitProviderError(message, 422, text);
     }
-    await ensureOkResponse(response, "GitHub");
+    await ensureOkResponseWithHint(response, "GitHub", PR_REVIEW_PERMISSION_HINT);
   }
 ```
 
-**Step 4 — esegui, passa.** Atteso: PASS (4 test).
+**Step 4 — esegui, passa.** Atteso: PASS (10 test).
 
 **Step 5 — commit.**
 ```bash
@@ -6066,13 +6253,18 @@ del piano, quando useranno i metodi nuovi:
 
 ### B14 — Verifica manuale con chiamate vere (non in CI, niente commit)
 
-Quattro comportamenti non sono nella documentazione (vedi «Decisioni e rischi»,
-tappa B, in fondo al piano). Si
+Otto punti, per i comportamenti che la documentazione non dice o che i doppi
+`fetch` non possono provare (vedi «Decisioni e rischi», tappa B, in fondo al
+piano): §1–§6 per lettura dei commenti, status di commit e webhook, §7–§8 per
+il verdetto di B8/B9. Si
 verificano UNA volta, a mano, su una repository e una PR **di prova** (mai
 trion-webapp né un'altra repo di un cliente), prima del merge; l'esito si
 annota nel PR. Variabili: `BB_EMAIL`, `BB_TOKEN` (account principale),
 `BB_REV_EMAIL`, `BB_REV_TOKEN` (account revisore), `WS`, `REPO`, `PR`, `SHA`
-(40 caratteri, head della PR), `GH_TOKEN_AUTHOR`, `O`, `R`, `N`.
+(40 caratteri, head della PR), `GH_TOKEN_AUTHOR`, `GH_TOKEN_REV` (account
+revisore GitHub, diverso dall'autore), `GH_TOKEN_REV_RO` (revisore con un token
+fine-grained SENZA «Pull requests: write»), `O`, `R`, `N`, `N_CLOSED` (una PR
+di prova chiusa), `PR_MERGED` (una PR Bitbucket di prova già mergiata).
 
 1. **Bitbucket `GET /user` con i token che abbiamo oggi** (scope `read:user`):
    ```bash
@@ -6154,6 +6346,55 @@ annota nel PR. Variabili: `BB_EMAIL`, `BB_TOKEN` (account principale),
    della coppia.
    Annotare cosa risponde GitHub (201 con un carattere di sostituzione, o
    422): se è 422, il troncamento va fatto per code point (`Array.from`).
+7. **Bitbucket: il verdetto di B8 contro la API vera** (account revisore;
+   `B=https://api.bitbucket.org/2.0/repositories/$WS/$REPO/pullrequests`).
+   Dopo ogni passo, lo stato del revisore:
+   ```bash
+   curl -s -u "$BB_REV_EMAIL:$BB_REV_TOKEN" "$B/$PR"      | jq -c '[.participants[] | {u: .user.uuid, state}]'
+   ```
+   (a) **POST del verdetto ripetuto due volte.**
+   ```bash
+   for i in 1 2; do curl -s -o /dev/null -w '%{http_code}\n' -u "$BB_REV_EMAIL:$BB_REV_TOKEN" -X POST "$B/$PR/approve"; done
+   ```
+   200 e 200, o 200 e 409? Se il secondo è un errore, B8 lo trasforma in un
+   `GitProviderError` e C10 ripiega sul commento anche se lo stato è già
+   quello giusto: annotarlo, va gestito prima del merge.
+   (b) **Da `changes_requested` ad `approve` SENZA il DELETE.** Con il
+   revisore in `changes_requested` (`POST $B/$PR/request-changes`), un
+   `POST $B/$PR/approve` nudo: codice e stato che ne risulta (`approved`, o
+   rifiuto perché c'è già uno stato?). Dice se il DELETE di B8 è necessario o
+   solo prudente.
+   (c) **DELETE dell'opposto da `changes_requested`.** Con il revisore in
+   `changes_requested`, `DELETE $B/$PR/request-changes`: atteso 204 e stato
+   `null`. È il passo che B8 fa prima di un `approve`.
+   (d) **Verdetto su una PR mergiata.** `POST $B/$PR_MERGED/approve` e
+   `POST $B/$PR_MERGED/request-changes`: atteso 400 (la spec lo dà solo per
+   request-changes e per i DELETE). B8 lo lascia passare senza il
+   suggerimento sui permessi: verificare che il messaggio non lo contenga.
+8. **GitHub: il verdetto di B9 contro la API vera**
+   (`V=https://api.github.com/repos/$O/$R/pulls`).
+   (a) **REQUEST_CHANGES → APPROVE dello stesso revisore.** Con una regola di
+   protezione del branch che richiede 1 approvazione:
+   ```bash
+   curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $GH_TOKEN_REV" -H 'Accept: application/vnd.github+json' \
+     -X POST "$V/$N/reviews" -d '{"event":"REQUEST_CHANGES","body":"prova"}'
+   curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $GH_TOKEN_REV" -H 'Accept: application/vnd.github+json' \
+     -X POST "$V/$N/reviews" -d '{"event":"APPROVE","body":"ok"}'
+   curl -s -H "Authorization: Bearer $GH_TOKEN_REV" "https://api.github.com/repos/$O/$R/pulls/$N" | jq -c '{mergeable_state}'
+   ```
+   La protezione considera solo l'ultima review del revisore (la PR diventa
+   mergiabile) o il REQUEST_CHANGES resta bloccante finché non è "dismissed"?
+   Annotarlo nei «Fatti verificati»: oggi non ci sono, e B9 non ritira niente.
+   (b) **Altre cause di 422.** Un `REQUEST_CHANGES` senza `body` (curl
+   diretto: B9 lo ferma prima, qui si guarda GitHub) e un `APPROVE` su
+   `$N_CLOSED`. Annotare `message` ed `errors` di ciascuno: il ramo generico di
+   B9 ne riporta un estratto, e se uno dei due contenesse "own pull request"
+   il messaggio dedicato all'autore scatterebbe a torto.
+   (c) **Token del revisore senza «Pull requests: write».** Un
+   `POST "$V/$N/reviews"` con `GH_TOKEN_REV_RO`: atteso **403**. Poi
+   `submitPrReview` da uno script con lo stesso token: il messaggio deve
+   contenere il suggerimento sui permessi (`PR_REVIEW_PERMISSION_HINT`) e NON
+   il token.
 
 ---
 
@@ -11038,8 +11279,11 @@ errore lascia una riga di log e non tocca la review già `completed`:
    `submitPrReview` pubblica già il testo (GitHub: è la review; Bitbucket:
    commento + stato), quindi niente `createPrComment` in più, o il testo
    uscirebbe doppio. Se `submitPrReview` fallisce, ripiego sul commento con
-   l'account principale: il testo non si perde. Senza account revisore: il
-   commento di oggi.
+   l'account principale: il testo non si perde. E non esce nemmeno due volte:
+   su Bitbucket `submitPrReview` manda il verdetto PRIMA del commento (B8),
+   quindi se fallisce il verdetto nessun testo è uscito, e se fallisce il
+   commento il ripiego lo pubblica una volta sola; su GitHub è una richiesta
+   sola. Senza account revisore: il commento di oggi.
 2. **Status di commit `stubwise-review`**, sempre, con l'account principale (è
    quello che ha scritto sul repo): `success` su approve, `failure` su
    request_changes. Sha COMPLETO dal mirror (`resolveCommitSha`), perché
@@ -11117,6 +11361,7 @@ import {
   type Db,
 } from "@stubwise/db";
 import { startTestDb, type TestDb } from "@stubwise/db/testing";
+import { BitbucketProvider } from "@stubwise/git";
 import type { NotificationEvent } from "@stubwise/notifications";
 import { autoRoundsInCurrentSeries, completeCorrection, promotePendingForTicket } from "@stubwise/notifications";
 import { and, eq } from "drizzle-orm";
@@ -11151,7 +11396,15 @@ interface Setup {
   mainProject: MirrorProject;
 }
 
-async function setup(opts: { maxRounds?: number; branch?: string; linked?: boolean; reviewer?: boolean } = {}): Promise<Setup> {
+async function setup(
+  opts: {
+    maxRounds?: number;
+    branch?: string;
+    linked?: boolean;
+    reviewer?: boolean;
+    reviewerCredentials?: Record<string, string>;
+  } = {},
+): Promise<Setup> {
   const [account] = await testDb.db
     .insert(gitAccounts)
     .values({
@@ -11166,7 +11419,10 @@ async function setup(opts: { maxRounds?: number; branch?: string; linked?: boole
         .values({
           name: `Revisore ${randomUUID()}`,
           provider: "github",
-          encryptedCredentials: encrypt(JSON.stringify({ token: "reviewer-token" }), ENCRYPTION_KEY),
+          encryptedCredentials: encrypt(
+            JSON.stringify(opts.reviewerCredentials ?? { token: "reviewer-token" }),
+            ENCRYPTION_KEY,
+          ),
         })
         .returning()
     : [];
@@ -11582,6 +11838,51 @@ describe("afterReviewCompleted — pubblicazione e status", () => {
     expect((f.createPrComment.mock.calls[0]![0] as MirrorProject).credentials.token).toBe("main-token");
   });
 
+  // Con il VERO BitbucketProvider (solo `fetch` finto): è l'ordine interno di
+  // submitPrReview (verdetto prima del commento, B8) a garantire che il
+  // ripiego non duplichi il testo, e un doppio di submitPrReview non lo
+  // eserciterebbe. Le credenziali hanno l'email: senza, projectRestAuthHeader
+  // lancerebbe PRIMA di ogni richiesta e il test passerebbe per il motivo
+  // sbagliato.
+  it("il verdetto fallisce su Bitbucket → testo pubblicato UNA volta, dal ripiego", async () => {
+    const s = await setup({
+      reviewer: true,
+      reviewerCredentials: { email: "rev@example.com", token: "reviewer-token" },
+    });
+    const f = fakes();
+    const PR = "https://api.bitbucket.org/2.0/repositories/ws/repo/pullrequests/12";
+    const fetchImpl = vi.fn().mockImplementation((url: string | URL, init?: RequestInit) => {
+      const key = `${init?.method} ${String(url)}`;
+      if (key === `POST ${PR}/request-changes`) return Promise.resolve(new Response("merged", { status: 400 }));
+      if (key === `POST ${PR}/comments`) return Promise.resolve(new Response(JSON.stringify({ id: 1 }), { status: 201 }));
+      return Promise.resolve(new Response(null, { status: 204 }));
+    });
+    const bitbucket = new BitbucketProvider({ fetchImpl });
+    const mainBitbucket: MirrorProject = {
+      provider: "bitbucket",
+      repoUrl: "https://bitbucket.org/ws/repo",
+      defaultBranch: "main",
+      credentials: { email: "main@example.com", token: "main-token" },
+    };
+    const deps: ReviewCycleDeps = { ...f.deps, getProviderFn: () => bitbucket as never };
+
+    await afterReviewCompleted(deps, input(s, { mirrorProject: mainBitbucket }));
+
+    // il verdetto è stato tentato, con l'account revisore
+    const verdicts = fetchImpl.mock.calls.filter(
+      ([url, init]) => String(url) === `${PR}/request-changes` && (init as RequestInit).method === "POST",
+    );
+    expect(verdicts).toHaveLength(1);
+    // il testo è uscito UNA volta, ed è quello del ripiego (account principale)
+    const comments = fetchImpl.mock.calls.filter(
+      ([url, init]) => String(url) === `${PR}/comments` && (init as RequestInit).method === "POST",
+    );
+    expect(comments).toHaveLength(1);
+    expect(((comments[0]![1] as RequestInit).headers as Record<string, string>)["Authorization"]).toBe(
+      `Basic ${Buffer.from("main@example.com:main-token").toString("base64")}`,
+    );
+  });
+
   it("status di commit sullo sha COMPLETO risolto dal mirror, legato al branch sorgente", async () => {
     const s = await setup();
     const f = fakes();
@@ -11828,8 +12129,11 @@ async function loadReviewerProject(
  * Pubblica la review sulla PR. Con l'account revisore: SOLO submitPrReview, che
  * pubblica anche il testo (GitHub: è la review; Bitbucket: commento + stato) —
  * un createPrComment in più lo farebbe uscire doppio. Se fallisce, ripiego sul
- * commento dell'account principale: il testo non si perde. Ogni review lascia
- * un commento NUOVO, firmato col commit rivisto.
+ * commento dell'account principale: il testo non si perde, e non si duplica —
+ * su Bitbucket submitPrReview manda il verdetto PRIMA del commento (B8), quindi
+ * quando fallisce il testo non è ancora uscito oppure è proprio il commento ad
+ * aver fallito; su GitHub è una richiesta sola. Ogni review lascia un commento
+ * NUOVO, firmato col commit rivisto.
  */
 async function publishReview(deps: ReviewCycleDeps, input: AfterReviewCompletedInput): Promise<void> {
   const provider = (deps.getProviderFn ?? getProvider)(input.mirrorProject.provider);
@@ -19785,12 +20089,20 @@ tappe sono stati risolti e integrati nella sezione «Contratti» e nei task.
    come dice il design; il pacchetto non ingoia errori per lui.
 8. **Bitbucket `parseChangesRequestedEvent` fail-closed**: se
    `changes_request.user.uuid` e `actor.uuid` ci sono e differiscono, null.
-9. **Bitbucket `submitPrReview`**: commento prima dello stato; `DELETE`
-   dell'opposto best-effort senza guardarne la risposta; il `POST` decide.
+9. **Bitbucket `submitPrReview`**: `DELETE` dell'opposto best-effort (né la
+   risposta né un errore di rete fermano niente), poi il `POST` del verdetto,
+   che decide, e SOLO DOPO il commento. Il verdetto prima del testo perché il
+   ripiego di C10 (`createPrComment` con l'account principale) non lo
+   duplichi: verdetto fallito → nessun testo uscito; commento fallito → il
+   ripiego lo pubblica una volta.
 10. **Bitbucket `setCommitStatus` manda sempre `url`** (ripiego: pagina della
     repository) e `name: "Stubwise review"`.
 11. **GitHub**: descrizione dello status troncata a 140 caratteri; `body`
-    omesso da un APPROVE vuoto; 422 con messaggio dedicato all'autore.
+    omesso da un APPROVE vuoto o di soli spazi; REQUEST_CHANGES senza testo è
+    un errore locale, senza chiamare GitHub; il 422 nomina l'autore della PR
+    solo se la risposta dice "own pull request" (senza distinguere
+    maiuscole), altrimenti riporta un estratto della risposta (max 200
+    caratteri) con l'autore come causa possibile.
 12. **`projectRestAuthHeader`** passa a `Pick<ProjectGitConfig,
     "credentials">` (solo il tipo; comportamento e chiamanti invariati).
 

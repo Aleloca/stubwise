@@ -791,12 +791,17 @@ describe("BitbucketProvider.setCommitStatus", () => {
 
 describe("BitbucketProvider.submitPrReview", () => {
   const PR = "https://api.bitbucket.org/2.0/repositories/myws/myrepo/pullrequests/7";
+  const AUTH = `Basic ${Buffer.from("alice:app-pass").toString("base64")}`;
   const HINT =
     "il token deve poter revisionare le pull request (GitHub: Pull requests write; Bitbucket: pullrequest write)";
 
-  function recorder() {
+  /** Doppio che risponde bene a tutto, salvo le risposte forzate per "METODO url". */
+  function recorder(overrides: Record<string, () => Promise<Response>> = {}) {
     return vi.fn().mockImplementation((input: string | URL, init?: RequestInit) => {
       const url = String(input);
+      const key = `${init?.method} ${url}`;
+      const forced = overrides[key];
+      if (forced) return forced();
       if (init?.method === "DELETE") return Promise.resolve(new Response(null, { status: 404 }));
       if (url === `${PR}/comments`) return Promise.resolve(jsonResponse({ id: 1 }, 201));
       return Promise.resolve(jsonResponse({ approved: true }, 200));
@@ -804,36 +809,37 @@ describe("BitbucketProvider.submitPrReview", () => {
   }
   const calls = (fetchImpl: ReturnType<typeof vi.fn>) =>
     fetchImpl.mock.calls.map((c) => `${(c as [string, RequestInit])[1].method} ${String((c as [string])[0])}`);
+  const errorOf = (promise: Promise<unknown>) => promise.then(() => null).catch((e: unknown) => e);
 
-  it("approve: commento, poi ritira request-changes, poi approva", async () => {
+  it("approve: ritira request-changes, approva, poi il commento", async () => {
     const fetchImpl = recorder();
     const provider = new BitbucketProvider({ fetchImpl });
 
     await provider.submitPrReview(config, 7, "approve", "Tutto a posto");
 
     expect(calls(fetchImpl)).toEqual([
-      `POST ${PR}/comments`,
       `DELETE ${PR}/request-changes`,
       `POST ${PR}/approve`,
+      `POST ${PR}/comments`,
     ]);
-    const comment = fetchImpl.mock.calls[0] as [string, RequestInit];
+    const withdraw = fetchImpl.mock.calls[0] as [string, RequestInit];
+    expect((withdraw[1].headers as Record<string, string>)["Authorization"]).toBe(AUTH);
+    const approve = fetchImpl.mock.calls[1] as [string, RequestInit];
+    expect((approve[1].headers as Record<string, string>)["Authorization"]).toBe(AUTH);
+    const comment = fetchImpl.mock.calls[2] as [string, RequestInit];
     expect(JSON.parse(comment[1].body as string)).toEqual({ content: { raw: "Tutto a posto" } });
-    const approve = fetchImpl.mock.calls[2] as [string, RequestInit];
-    expect((approve[1].headers as Record<string, string>)["Authorization"]).toBe(
-      `Basic ${Buffer.from("alice:app-pass").toString("base64")}`
-    );
   });
 
-  it("request_changes: commento, poi ritira approve, poi chiede modifiche", async () => {
+  it("request_changes: ritira approve, chiede modifiche, poi il commento", async () => {
     const fetchImpl = recorder();
     const provider = new BitbucketProvider({ fetchImpl });
 
     await provider.submitPrReview(config, 7, "request_changes", "Manca il test");
 
     expect(calls(fetchImpl)).toEqual([
-      `POST ${PR}/comments`,
       `DELETE ${PR}/approve`,
       `POST ${PR}/request-changes`,
+      `POST ${PR}/comments`,
     ]);
   });
 
@@ -844,44 +850,64 @@ describe("BitbucketProvider.submitPrReview", () => {
     expect(calls(fetchImpl)).toEqual([`DELETE ${PR}/request-changes`, `POST ${PR}/approve`]);
   });
 
-  it("il commento fallisce → lo stato non si tocca", async () => {
-    const fetchImpl = vi.fn().mockImplementation(() => Promise.resolve(new Response("x", { status: 403 })));
+  it("il DELETE rifiuta (errore di rete) → il verdetto parte comunque", async () => {
+    const fetchImpl = recorder({
+      [`DELETE ${PR}/request-changes`]: () => Promise.reject(new TypeError("fetch failed")),
+    });
     const provider = new BitbucketProvider({ fetchImpl });
-    await expect(provider.submitPrReview(config, 7, "approve", "testo")).rejects.toBeInstanceOf(GitProviderError);
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
+
+    const error = await errorOf(provider.submitPrReview(config, 7, "approve", ""));
+
+    expect(error).toBeNull();
+    expect(calls(fetchImpl)).toEqual([`DELETE ${PR}/request-changes`, `POST ${PR}/approve`]);
   });
 
-  it("il POST dello stato fallisce → GitProviderError con lo status", async () => {
-    const fetchImpl = vi.fn().mockImplementation((input: string | URL, init?: RequestInit) =>
-      Promise.resolve(
-        init?.method === "POST" && String(input).endsWith("/approve")
-          ? new Response("merged", { status: 400 })
-          : new Response(null, { status: 204 })
-      )
-    );
+  it("il verdetto fallisce → nessun commento pubblicato", async () => {
+    const fetchImpl = recorder({
+      [`POST ${PR}/approve`]: () => Promise.resolve(new Response("merged", { status: 400 })),
+    });
     const provider = new BitbucketProvider({ fetchImpl });
-    const error = await provider
-      .submitPrReview(config, 7, "approve", "")
-      .then(() => null)
-      .catch((e: unknown) => e);
+    const error = await errorOf(provider.submitPrReview(config, 7, "approve", "testo"));
     expect(error).toBeInstanceOf(GitProviderError);
     expect((error as GitProviderError).status).toBe(400);
     expect((error as GitProviderError).message).not.toContain(HINT);
+    expect(calls(fetchImpl)).not.toContain(`POST ${PR}/comments`);
+  });
+
+  it("il commento fallisce dopo un verdetto riuscito → errore, verdetto già inviato", async () => {
+    const fetchImpl = recorder({
+      [`POST ${PR}/comments`]: () => Promise.resolve(new Response("boom", { status: 500 })),
+    });
+    const provider = new BitbucketProvider({ fetchImpl });
+    const error = await errorOf(provider.submitPrReview(config, 7, "request_changes", "Manca il test"));
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).status).toBe(500);
+    expect(calls(fetchImpl)).toEqual([
+      `DELETE ${PR}/approve`,
+      `POST ${PR}/request-changes`,
+      `POST ${PR}/comments`,
+    ]);
+  });
+
+  it("400/500 sul commento → nessun suggerimento sui permessi", async () => {
+    for (const status of [400, 500]) {
+      const fetchImpl = recorder({
+        [`POST ${PR}/comments`]: () => Promise.resolve(new Response("nope", { status })),
+      });
+      const provider = new BitbucketProvider({ fetchImpl });
+      const error = await errorOf(provider.submitPrReview(config, 7, "approve", "testo"));
+      expect(error).toBeInstanceOf(GitProviderError);
+      expect((error as GitProviderError).status).toBe(status);
+      expect((error as GitProviderError).message).not.toContain(HINT);
+    }
   });
 
   it("403 sullo stato → il messaggio dice quale permesso manca, senza credenziali", async () => {
-    const fetchImpl = vi.fn().mockImplementation((input: string | URL, init?: RequestInit) =>
-      Promise.resolve(
-        init?.method === "POST" && String(input).endsWith("/request-changes")
-          ? new Response("Forbidden", { status: 403 })
-          : new Response(null, { status: 204 })
-      )
-    );
+    const fetchImpl = recorder({
+      [`POST ${PR}/request-changes`]: () => Promise.resolve(new Response("Forbidden", { status: 403 })),
+    });
     const provider = new BitbucketProvider({ fetchImpl });
-    const error = await provider
-      .submitPrReview(config, 7, "request_changes", "")
-      .then(() => null)
-      .catch((e: unknown) => e);
+    const error = await errorOf(provider.submitPrReview(config, 7, "request_changes", ""));
     expect(error).toBeInstanceOf(GitProviderError);
     expect((error as GitProviderError).status).toBe(403);
     const message = (error as GitProviderError).message;
@@ -890,17 +916,18 @@ describe("BitbucketProvider.submitPrReview", () => {
     expect(message).not.toContain(Buffer.from("alice:app-pass").toString("base64"));
   });
 
-  it("401 sul commento → il messaggio dice quale permesso manca, lo stato non si tocca", async () => {
-    const fetchImpl = vi.fn().mockImplementation(() => Promise.resolve(new Response("Unauthorized", { status: 401 })));
+  it("401 sul commento → il messaggio dice quale permesso manca, senza credenziali", async () => {
+    const fetchImpl = recorder({
+      [`POST ${PR}/comments`]: () => Promise.resolve(new Response("Unauthorized", { status: 401 })),
+    });
     const provider = new BitbucketProvider({ fetchImpl });
-    const error = await provider
-      .submitPrReview(config, 7, "approve", "testo")
-      .then(() => null)
-      .catch((e: unknown) => e);
+    const error = await errorOf(provider.submitPrReview(config, 7, "approve", "testo"));
     expect(error).toBeInstanceOf(GitProviderError);
     expect((error as GitProviderError).status).toBe(401);
-    expect((error as GitProviderError).message).toContain(HINT);
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const message = (error as GitProviderError).message;
+    expect(message).toContain(HINT);
+    expect(message).not.toContain("app-pass");
+    expect(message).not.toContain(Buffer.from("alice:app-pass").toString("base64"));
   });
 });
 

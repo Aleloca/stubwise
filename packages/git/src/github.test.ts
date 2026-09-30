@@ -1663,7 +1663,7 @@ describe("GitHubProvider.submitPrReview", () => {
 
   it("422 → GitProviderError che nomina il caso dell'autore della PR", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ message: "Unprocessable Entity", errors: ["Can not approve your own pull request"] }), {
+      new Response(JSON.stringify({ message: "Unprocessable Entity", errors: ["Can not approve your Own Pull Request"] }), {
         status: 422,
       })
     );
@@ -1674,9 +1674,50 @@ describe("GitHubProvider.submitPrReview", () => {
       .catch((e: unknown) => e);
     expect(error).toBeInstanceOf(GitProviderError);
     expect((error as GitProviderError).status).toBe(422);
-    expect((error as GitProviderError).message).toMatch(/autore/);
+    expect((error as GitProviderError).message).toMatch(/non permette all'autore della PR/);
+    expect((error as GitProviderError).message).not.toMatch(/possibile/);
     expect((error as GitProviderError).message).not.toContain("ghp_secret");
-    expect((error as GitProviderError).responseText).toMatch(/own pull request/);
+    expect((error as GitProviderError).responseText).toMatch(/own pull request/i);
+  });
+
+  it("422 con un'altra causa → estratto della risposta (max 200), autore solo come causa possibile", async () => {
+    const detail = "Validation Failed: pull request is closed " + "x".repeat(400);
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ message: detail }), { status: 422 })
+    );
+    const provider = new GitHubProvider({ fetchImpl });
+    const error = await provider
+      .submitPrReview(config, 42, "approve", "ok")
+      .then(() => null)
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).status).toBe(422);
+    const message = (error as GitProviderError).message;
+    expect(message).toContain("pull request is closed");
+    expect(message).toMatch(/possibile/);
+    expect(message).not.toMatch(/non permette all'autore/);
+    expect(message).not.toContain("x".repeat(201));
+    expect(message).not.toContain("ghp_secret");
+  });
+
+  it("request_changes con testo di soli spazi → errore locale, nessuna chiamata", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ id: 1 }, 200));
+    const provider = new GitHubProvider({ fetchImpl });
+    const error = await provider
+      .submitPrReview(config, 42, "request_changes", "   ")
+      .then(() => null)
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).message).toMatch(/REQUEST_CHANGES richiede un testo/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("approve con testo di soli spazi → APPROVE senza body", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ id: 1, state: "APPROVED" }, 200));
+    const provider = new GitHubProvider({ fetchImpl });
+    await provider.submitPrReview(config, 42, "approve", "   ");
+    const [, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({ event: "APPROVE" });
   });
 
   it("403 → il messaggio dice quale permesso manca, senza credenziali", async () => {

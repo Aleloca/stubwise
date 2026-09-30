@@ -438,14 +438,17 @@ export class GitHubProvider implements GitProvider {
    * Verdetto dell'account revisore come review GitHub (design §8): una sola
    * richiesta, `POST /pulls/{n}/reviews`, testo incluso — quindi chi chiama
    * NON pubblica anche un `createPrComment`, o il testo uscirebbe doppio.
-   * `body` è obbligatorio per REQUEST_CHANGES (GitHub lo esige; lo garantisce
-   * chi chiama: la review ha sempre un testo) e si omette se vuoto per
-   * APPROVE. GitHub rifiuta con 422 sia APPROVE sia REQUEST_CHANGES
-   * dall'autore della PR: l'account revisore DEVE essere un account diverso
-   * da quello che apre le PR, e il messaggio del 422 lo dice perché è
-   * l'errore di configurazione tipico (revisore = account principale). Su
-   * 401/403 il messaggio nomina il permesso mancante
-   * ({@link PR_REVIEW_PERMISSION_HINT}), come il gemello Bitbucket.
+   * `body` è obbligatorio per REQUEST_CHANGES (GitHub lo esige): un testo
+   * vuoto o di soli spazi è un errore locale, senza chiamare GitHub, perché
+   * il 422 che ne tornerebbe sembrerebbe un altro problema. Per APPROVE il
+   * testo vuoto si omette. GitHub rifiuta con 422 sia APPROVE sia
+   * REQUEST_CHANGES dall'autore della PR: l'account revisore DEVE essere un
+   * account diverso da quello che apre le PR. Il messaggio del 422 nomina
+   * l'autore solo se la risposta lo dice ("own pull request"); altrimenti
+   * riporta un estratto della risposta (che non contiene l'Authorization) e
+   * indica l'autore come causa possibile. Su 401/403 il messaggio nomina il
+   * permesso mancante ({@link PR_REVIEW_PERMISSION_HINT}), come il gemello
+   * Bitbucket.
    */
   async submitPrReview(
     p: ProjectGitConfig,
@@ -454,6 +457,10 @@ export class GitHubProvider implements GitProvider {
     body: string,
     opts: { fetchImpl?: FetchLike } = {}
   ): Promise<void> {
+    const hasBody = body.trim().length > 0;
+    if (verdict === "request_changes" && !hasBody) {
+      throw new GitProviderError("GitHub: REQUEST_CHANGES richiede un testo (il corpo della review è vuoto)", 0, "");
+    }
     const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
     const { owner, repo } = parseRepoUrl(p.repoUrl);
     const response = await fetchImpl(`${API_BASE}/repos/${owner}/${repo}/pulls/${prNumber}/reviews`, {
@@ -465,16 +472,15 @@ export class GitHubProvider implements GitProvider {
       },
       body: JSON.stringify({
         event: verdict === "approve" ? "APPROVE" : "REQUEST_CHANGES",
-        ...(body.trim().length > 0 ? { body } : {}),
+        ...(hasBody ? { body } : {}),
       }),
     });
     if (response.status === 422) {
       const text = (await response.text().catch(() => "")).slice(0, 500);
-      throw new GitProviderError(
-        "GitHub: review rifiutata (422) — GitHub non permette all'autore della PR di approvarla o di chiedere modifiche: verifica che l'account revisore sia diverso da quello che apre le PR",
-        422,
-        text
-      );
+      const message = /own pull request/i.test(text)
+        ? "GitHub: review rifiutata (422) — GitHub non permette all'autore della PR di approvarla o di chiedere modifiche: verifica che l'account revisore sia diverso da quello che apre le PR"
+        : `GitHub: review rifiutata (422): ${text.slice(0, 200)} — una causa possibile è l'account revisore che coincide con l'autore della PR`;
+      throw new GitProviderError(message, 422, text);
     }
     await ensureOkResponseWithHint(response, "GitHub", PR_REVIEW_PERMISSION_HINT);
   }
