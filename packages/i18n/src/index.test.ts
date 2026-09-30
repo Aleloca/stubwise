@@ -70,3 +70,33 @@ describe("parità delle chiavi", () => {
     }
   });
 });
+
+describe("correzioni post-PR", () => {
+  test("interpola l'URL della PR nel commento della correzione, in entrambe le lingue", () => {
+    expect(t("it", "comment.correctionApplied", { url: "https://x/pull/3" })).toBe(
+      "Correzioni pushate sulla pull request: https://x/pull/3",
+    );
+    expect(t("en", "comment.correctionApplied", { url: "https://x/pull/3" })).toBe(
+      "Corrections pushed to the pull request: https://x/pull/3",
+    );
+  });
+
+  test("le descrizioni dello status di commit restano sotto i 140 caratteri (limite GitHub)", () => {
+    const keys = [
+      "commitStatus.reviewing",
+      "commitStatus.correcting",
+      "commitStatus.approved",
+      "commitStatus.changesRequested",
+      "commitStatus.correctionFailed",
+    ];
+    for (const lang of ["it", "en"] as const) {
+      for (const key of keys) {
+        const text = t(lang, key);
+        // `t` torna la CHIAVE se manca il testo: senza questa riga una chiave
+        // dimenticata passerebbe il controllo di lunghezza.
+        expect(text).not.toBe(key);
+        expect(text.length).toBeLessThanOrEqual(140);
+      }
+    }
+  });
+});

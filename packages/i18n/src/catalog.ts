@@ -58,6 +58,19 @@ export const en: Catalog = {
   "comment.reviewImpact.files":
     "Files touched: {inGraph} in the graph, {outside} outside it — symbols touched: {nodes}",
   "comment.reviewImpact.communities": "Areas crossed: {list}",
+  // Correzioni post-PR (ciclo review → correzione): il commento che il worker
+  // lascia sul ticket dopo aver pushato le correzioni sulla PR, e quello del
+  // giro che non ha cambiato nulla (sotto segue la risposta dell'AI).
+  "comment.correctionApplied": "Corrections pushed to the pull request: {url}",
+  "comment.correctionNoChanges":
+    "Correction of {url}: the AI changed nothing. Its answer is below — often the requested change was not applicable.",
+  // --- commitStatus.* — descrizione dello status `stubwise-review` sulla PR.
+  // GitHub la tronca oltre 140 caratteri: restano corte apposta (c'è un test).
+  "commitStatus.reviewing": "Stubwise review in progress",
+  "commitStatus.correcting": "Stubwise is applying the requested changes",
+  "commitStatus.approved": "Approved by the Stubwise review",
+  "commitStatus.changesRequested": "The Stubwise review requests changes",
+  "commitStatus.correctionFailed": "The Stubwise correction did not complete",
   "comment.reviewImpact.communityEntry": "{name} (files: {files}, symbols: {nodes})",
   "comment.reviewImpact.godNodes": "Highly connected symbols touched: {list}",
   "comment.reviewImpact.godNodeEntry": "`{label}` (degree {degree})",
@@ -532,6 +545,16 @@ export const it: Catalog = {
   "comment.reviewImpact.files":
     "File toccati: {inGraph} nel grafo, {outside} fuori — simboli toccati: {nodes}",
   "comment.reviewImpact.communities": "Aree attraversate: {list}",
+  // Correzioni post-PR (vedi nota in `en`).
+  "comment.correctionApplied": "Correzioni pushate sulla pull request: {url}",
+  "comment.correctionNoChanges":
+    "Correzione di {url}: l'AI non ha modificato nulla. Qui sotto la sua risposta — spesso la modifica richiesta non era applicabile.",
+  // --- commitStatus.* (vedi nota in `en`) ---
+  "commitStatus.reviewing": "Review di Stubwise in corso",
+  "commitStatus.correcting": "Stubwise sta applicando le modifiche richieste",
+  "commitStatus.approved": "Approvata dalla review di Stubwise",
+  "commitStatus.changesRequested": "La review di Stubwise chiede modifiche",
+  "commitStatus.correctionFailed": "La correzione di Stubwise non è andata a buon fine",
   "comment.reviewImpact.communityEntry": "{name} (file: {files}, simboli: {nodes})",
   "comment.reviewImpact.godNodes": "Simboli molto connessi toccati: {list}",
   "comment.reviewImpact.godNodeEntry": "`{label}` (grado {degree})",
