@@ -19,6 +19,7 @@ import {
   type GitProvider,
   type GitProviderOptions,
   type PrActivityEvent,
+  type PrComment,
   type ProjectGitConfig,
   type PullRequestChecks,
   type PushWebhookEvent,
@@ -39,6 +40,21 @@ const MAX_TOTAL_REPOS = 300;
 
 /** Tetto di branch elencati: ~2 pagine da 100 (~200 branch). */
 const MAX_BRANCH_PAGES = 2;
+
+/** Tetto di pagine di commenti di una PR: 10 da 100 (~1000 commenti). Oltre
+ * è un'anomalia, e un `next` che non termina non deve girare all'infinito:
+ * meglio una fotografia troncata che un ciclo senza fine. */
+const MAX_COMMENT_PAGES = 10;
+
+interface BitbucketCommentPayload {
+  id?: unknown;
+  created_on?: unknown;
+  deleted?: unknown;
+  pending?: unknown;
+  content?: { raw?: unknown };
+  user?: unknown;
+  inline?: { path?: unknown; to?: unknown; from?: unknown };
+}
 
 interface BitbucketPrResponse {
   links?: { html?: { href?: unknown } };
@@ -270,6 +286,41 @@ export class BitbucketProvider implements GitProvider {
       }
     );
     await ensureOkResponse(response, "Bitbucket");
+  }
+
+  /**
+   * Commenti della PR (generali, sulle righe e risposte), dal più vecchio al
+   * più nuovo come li ordina Bitbucket, seguendo `next` fino al tetto
+   * {@link MAX_COMMENT_PAGES}. Mai i cancellati (`deleted`), le bozze
+   * (`pending`), i vuoti, né quelli senza `user.uuid` (vedi {@link PrComment}).
+   * Lancia GitProviderError sui non-2xx: la fotografia del feedback non si
+   * prende a metà.
+   */
+  async listPrComments(
+    p: ProjectGitConfig,
+    prNumber: number,
+    opts: { fetchImpl?: FetchLike } = {}
+  ): Promise<PrComment[]> {
+    const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
+    const { owner, repo } = parseRepoUrl(p.repoUrl);
+    const auth = this.projectRestAuthHeader(p);
+    const comments: PrComment[] = [];
+    let url: string | null =
+      `${API_BASE}/repositories/${owner}/${repo}/pullrequests/${prNumber}/comments?pagelen=100`;
+    for (let page = 0; page < MAX_COMMENT_PAGES && url; page++) {
+      const response = await fetchImpl(url, { method: "GET", headers: { Authorization: auth } });
+      await ensureOkResponse(response, "Bitbucket");
+      const data = (await readJsonResponse(response, "Bitbucket")) as {
+        values?: BitbucketCommentPayload[];
+        next?: unknown;
+      };
+      for (const raw of Array.isArray(data.values) ? data.values : []) {
+        const comment = bitbucketComment(raw);
+        if (comment !== null) comments.push(comment);
+      }
+      url = typeof data.next === "string" ? data.next : null;
+    }
+    return comments;
   }
 
   parseWebhook(headers: Record<string, string>, body: unknown): WebhookEvent | null {
@@ -956,4 +1007,41 @@ function bitbucketAccount(raw: unknown): { id: string; login: string } | null {
         ? account.display_name
         : account.uuid;
   return { id: account.uuid, login };
+}
+
+/**
+ * Un commento REST di Bitbucket → {@link PrComment}, o null se non va nella
+ * fotografia (cancellato, bozza, vuoto, senza id/data/autore). L'autore passa
+ * da {@link bitbucketAccount}, la stessa funzione del webhook "Request
+ * changes": l'identità Bitbucket ha UNA forma sola (uuid grezzo con le
+ * graffe), confrontabile con gli account di Stubwise. La riga è `inline.to`
+ * (versione nuova del file) e, se manca, `inline.from` (riga tolta); nessuna
+ * riga per un commento generale.
+ */
+function bitbucketComment(c: BitbucketCommentPayload): PrComment | null {
+  if (typeof c !== "object" || c === null) return null;
+  if (c.deleted === true || c.pending === true) return null;
+  if (typeof c.id !== "number" || typeof c.created_on !== "string") return null;
+  const body = typeof c.content?.raw === "string" ? c.content.raw : "";
+  if (body.trim().length === 0) return null;
+  const author = bitbucketAccount(c.user);
+  if (author === null) return null;
+  const path = typeof c.inline?.path === "string" ? c.inline.path : null;
+  const line =
+    path === null
+      ? null
+      : typeof c.inline?.to === "number"
+        ? c.inline.to
+        : typeof c.inline?.from === "number"
+          ? c.inline.from
+          : null;
+  return {
+    id: String(c.id),
+    authorId: author.id,
+    authorLogin: author.login,
+    body,
+    createdAt: c.created_on,
+    path,
+    line,
+  };
 }

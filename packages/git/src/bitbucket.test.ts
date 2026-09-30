@@ -488,6 +488,178 @@ describe("BitbucketProvider.createPrComment", () => {
   });
 });
 
+describe("BitbucketProvider.listPrComments", () => {
+  const COMMENTS_URL =
+    "https://api.bitbucket.org/2.0/repositories/myws/myrepo/pullrequests/7/comments?pagelen=100";
+  const mario = { uuid: "{u-mario}", nickname: "mario.rossi", display_name: "Mario Rossi" };
+  const comment = (id: number, extra: Record<string, unknown> = {}) => ({
+    id,
+    created_on: `2026-09-30T10:0${id}:00+00:00`,
+    content: { raw: `commento ${id}` },
+    user: mario,
+    deleted: false,
+    ...extra,
+  });
+
+  it("generali e inline con file:riga; cancellati, bozze, vuoti e senza autore esclusi", async () => {
+    const fetchImpl = vi.fn().mockImplementation(() =>
+      Promise.resolve(
+        jsonResponse(
+          {
+            values: [
+              comment(1),
+              comment(2, { inline: { path: "src/a.ts", to: 42, from: null } }),
+              comment(3, { inline: { path: "src/b.ts", from: 7 } }),
+              comment(4, { deleted: true, content: { raw: "" } }),
+              comment(5, { pending: true }),
+              comment(6, { content: { raw: "   " } }),
+              comment(7, { user: { nickname: "senza-uuid" } }),
+            ],
+          },
+          200
+        )
+      )
+    );
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    const comments = await provider.listPrComments(config, 7);
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(COMMENTS_URL);
+    expect(init.method).toBe("GET");
+    expect((init.headers as Record<string, string>)["Authorization"]).toBe(
+      `Basic ${Buffer.from("alice:app-pass").toString("base64")}`
+    );
+    expect(comments).toEqual([
+      {
+        id: "1",
+        authorId: "{u-mario}",
+        authorLogin: "mario.rossi",
+        body: "commento 1",
+        createdAt: "2026-09-30T10:01:00+00:00",
+        path: null,
+        line: null,
+      },
+      {
+        id: "2",
+        authorId: "{u-mario}",
+        authorLogin: "mario.rossi",
+        body: "commento 2",
+        createdAt: "2026-09-30T10:02:00+00:00",
+        path: "src/a.ts",
+        line: 42,
+      },
+      {
+        id: "3",
+        authorId: "{u-mario}",
+        authorLogin: "mario.rossi",
+        body: "commento 3",
+        createdAt: "2026-09-30T10:03:00+00:00",
+        path: "src/b.ts",
+        line: 7,
+      },
+    ]);
+  });
+
+  it("un cancellato col testo ancora presente è escluso comunque", async () => {
+    const fetchImpl = vi.fn().mockImplementation(() =>
+      Promise.resolve(jsonResponse({ values: [comment(1, { deleted: true })] }, 200))
+    );
+    const provider = new BitbucketProvider({ fetchImpl });
+    expect(await provider.listPrComments(config, 7)).toEqual([]);
+  });
+
+  it("stessa fixture utente: authorId del commento === actorId di parseChangesRequestedEvent", async () => {
+    // L'identità Bitbucket (uuid grezzo con le graffe, non normalizzato) ha UNA
+    // forma sola: il chiamante confronta authorId dei commenti e actorId del
+    // webhook con lo stesso `git_accounts.provider_user_id`.
+    const user = { type: "user", uuid: "{a1b2c3d4-0000-4000-8000-000000000001}", nickname: "anna.b" };
+    const fetchImpl = vi.fn().mockImplementation(() =>
+      Promise.resolve(jsonResponse({ values: [comment(1, { user: { ...user } })] }, 200))
+    );
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    const [fromComment] = await provider.listPrComments(config, 7);
+    const fromEvent = provider.parseChangesRequestedEvent(
+      { "x-event-key": "pullrequest:changes_request_created" },
+      {
+        actor: { ...user },
+        pullrequest: { id: 7, source: { branch: { name: "stubwise/ticket-1" } } },
+        changes_request: { user: { ...user } },
+      }
+    );
+
+    expect(fromEvent).not.toBeNull();
+    expect(fromComment?.authorId).toBe(fromEvent?.actorId);
+    expect(fromComment?.authorLogin).toBe(fromEvent?.actorLogin);
+    expect(fromComment?.authorId).toBe(user.uuid);
+  });
+
+  it("segue il cursore `next` fino all'ultima pagina", async () => {
+    const PAGE_2 = `${COMMENTS_URL}&page=2`;
+    const fetchImpl = vi.fn().mockImplementation((input: string | URL) =>
+      Promise.resolve(
+        String(input) === PAGE_2
+          ? jsonResponse({ values: [comment(2)] }, 200)
+          : jsonResponse({ values: [comment(1)], next: PAGE_2 }, 200)
+      )
+    );
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    const comments = await provider.listPrComments(config, 7);
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect((fetchImpl.mock.calls[1] as [string])[0]).toBe(PAGE_2);
+    expect(comments.map((c) => c.id)).toEqual(["1", "2"]);
+  });
+
+  it("un `next` che non finisce si ferma al tetto di 10 pagine", async () => {
+    const fetchImpl = vi.fn().mockImplementation(() =>
+      Promise.resolve(jsonResponse({ values: [comment(1)], next: `${COMMENTS_URL}&page=n` }, 200))
+    );
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    const comments = await provider.listPrComments(config, 7);
+
+    expect(fetchImpl).toHaveBeenCalledTimes(10);
+    expect(comments).toHaveLength(10);
+  });
+
+  it("usa l'email Atlassian come identità REST quando c'è", async () => {
+    const fetchImpl = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse({ values: [] }, 200)));
+    const provider = new BitbucketProvider({ fetchImpl });
+    await provider.listPrComments(
+      { ...config, credentials: { username: "alice", email: "alice@corp.io", token: "api-token" } },
+      7
+    );
+    const [, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    expect((init.headers as Record<string, string>)["Authorization"]).toBe(
+      `Basic ${Buffer.from("alice@corp.io:api-token").toString("base64")}`
+    );
+  });
+
+  it("credenziali REST mancanti → lancia prima di qualunque richiesta", async () => {
+    const fetchImpl = vi.fn();
+    const provider = new BitbucketProvider({ fetchImpl });
+    await expect(provider.listPrComments({ ...config, credentials: { token: "t" } }, 7)).rejects.toThrow(
+      /email.*username|username.*email/i
+    );
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("non-2xx → GitProviderError con lo status", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("forbidden", { status: 403 }));
+    const provider = new BitbucketProvider({ fetchImpl });
+    const error = await provider
+      .listPrComments(config, 7)
+      .then(() => null)
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).status).toBe(403);
+  });
+});
+
 describe("BitbucketProvider.parseWebhook", () => {
   const provider = new BitbucketProvider();
   const mergedBody = {
