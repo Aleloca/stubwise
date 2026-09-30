@@ -303,6 +303,29 @@ parseChangesRequestedEvent(headers, body): ChangesRequestedEvent | null
 GitHub `pull_request_review`. `BitbucketProvider.getPullRequestChecks` esclude la
 key `stubwise-review` (D10).
 
+Contratto aggiunto con i fix della revisione di fine tappa B:
+
+- `export const STUBWISE_REVIEW_STATUS_KEY = "stubwise-review" as const`, e
+  `CommitStatusInput.key: typeof STUBWISE_REVIEW_STATUS_KEY`. Chi scrive lo
+  status (C8, C10) e chi lo filtra (D10) importano la costante da
+  `@stubwise/git` (dentro il pacchetto: da `./provider.js`), mai il letterale.
+- `ensureWebhook` segue TUTTE le pagine della lista hook (tetto 5 da 100): al
+  tetto con ancora pagine lancia `GitProviderError` invece di concludere «non
+  c'è» e creare un duplicato.
+- `assertPageOnApiHost(url, expectedOrigin, providerName)` gira all'inizio di
+  OGNI iterazione di OGNI ciclo di paginazione (repository, branch, commenti,
+  webhook): un `next` fuori dall'origin dell'API (o `http:`, o con userinfo)
+  lancia invece di essere seguito col token.
+- Helper esportati per i messaggi d'errore: `ensureOkResponseWithHint(response,
+  provider, hint)` e `withPermissionHint(error, hint)` — su 401/403 aggiungono
+  al messaggio il permesso mancante, status HTTP invariato, mai il token —
+  con le costanti `COMMIT_STATUS_PERMISSION_HINT` (`setCommitStatus`) e
+  `PR_REVIEW_PERMISSION_HINT` (`submitPrReview`).
+- Commenti (`listPrComments`): **errore invece di dato parziale**. Un non-2xx
+  su qualunque fonte, o il tetto di pagine raggiunto con ancora una pagina,
+  lancia `GitProviderError`; non esiste un risultato troncato. Un commento
+  con data non leggibile resta, in fondo all'elenco (GitHub).
+
 ### Worker
 
 - `apps/worker/src/queue.ts`: `completeJob(db: DbOrTx, …)`, `failJob(db: DbOrTx, …)`
@@ -9310,7 +9333,7 @@ function makeDeps(
     runner,
     mirrors: f.mirrors,
     encryptionKey: ENCRYPTION_KEY,
-    getProviderFn: () => provider as never,
+    getProviderFn: () => provider,
     summariesEnabled: false,
     publish: async (_db: Db, event: NotificationEvent, _opts?: PublishOpts) => {
       dispatched.push(event);
@@ -9787,7 +9810,7 @@ import {
   tickets,
   type Db,
 } from "@stubwise/db";
-import { getProvider, type GitProvider } from "@stubwise/git";
+import { getProvider, STUBWISE_REVIEW_STATUS_KEY, type GitProvider } from "@stubwise/git";
 import { t } from "@stubwise/i18n";
 import {
   cancelPendingCorrection,
@@ -9923,9 +9946,6 @@ const NO_CHANGES_ANSWER_MAX_CHARS = 1500;
 
 /** Commenti utente del ticket passati al prompt (i più recenti). */
 const TEAM_COMMENTS_MAX = 10;
-
-/** Chiave dello status di commit della review (lo stesso di cycle.ts). */
-const REVIEW_STATUS_KEY = "stubwise-review" as const;
 
 /** La PR è stata chiusa/mergiata mentre la correzione lavorava. */
 class PrNoLongerOpenError extends Error {
@@ -10328,7 +10348,7 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
     try {
       await provider.setCommitStatus(mirrorProject, sha, {
         state,
-        key: REVIEW_STATUS_KEY,
+        key: STUBWISE_REVIEW_STATUS_KEY,
         description,
         url,
         refname: branch,
@@ -10846,7 +10866,7 @@ In coda al `describe("createHandler")`:
       runner,
       mirrors,
       encryptionKey: ENCRYPTION_KEY,
-      getProviderFn: () => provider as never,
+      getProviderFn: () => provider,
     });
 
     const job = await claim(db);
@@ -10914,7 +10934,15 @@ In coda al `describe("createHandler")`:
       runner,
       mirrors,
       encryptionKey: ENCRYPTION_KEY,
-      getProviderFn: () => ({ openPullRequest: vi.fn() }) as never,
+      // Doppio COMPLETO del Pick di HandlerDeps.getProviderFn, senza cast: un
+      // metodo mancante lo dice il compilatore, non un test verde per caso.
+      getProviderFn: () => ({
+        openPullRequest: vi.fn(),
+        getPullRequestState: vi.fn(),
+        setCommitStatus: vi.fn(),
+        listPrComments: vi.fn(),
+        getAuthenticatedUserId: vi.fn(),
+      }),
     });
 
     const job = await claim(db);
@@ -11568,7 +11596,7 @@ function fakes(): Fakes {
       db: testDb.db,
       mirrors: { resolveCommitSha },
       encryptionKey: ENCRYPTION_KEY,
-      getProviderFn: () => ({ createPrComment, submitPrReview, setCommitStatus }) as never,
+      getProviderFn: () => ({ createPrComment, submitPrReview, setCommitStatus }),
       publish: async (_db: Db, event: NotificationEvent) => {
         events.push(event);
         return { published: 1, notificationIds: [] };
@@ -11922,7 +11950,7 @@ describe("afterReviewCompleted — pubblicazione e status", () => {
       defaultBranch: "main",
       credentials: { email: "main@example.com", token: "main-token" },
     };
-    const deps: ReviewCycleDeps = { ...f.deps, getProviderFn: () => bitbucket as never };
+    const deps: ReviewCycleDeps = { ...f.deps, getProviderFn: () => bitbucket };
 
     await afterReviewCompleted(deps, input(s, { mirrorProject: mainBitbucket }));
 
@@ -11999,10 +12027,22 @@ dentro `mirrors`, e
   const setCommitStatus = vi.fn(async () => {});
 ```
 
-con `getProviderFn: () => ({ createPrComment, getPullRequestState, submitPrReview, setCommitStatus }) as unknown as GitProvider,`,
-il cast di `mirrors` aggiornato a
+con `getProviderFn: () => ({ createPrComment, getPullRequestState, submitPrReview, setCommitStatus }),`
+— SENZA cast: il `Pick` di `RunPrReviewDeps.getProviderFn` (punto (b) qui
+sotto) include già `submitPrReview` e `setCommitStatus`, e il doppio lo
+soddisfa per intero —, il cast di `mirrors` aggiornato a
 `Pick<MirrorManager, "withWorktreeAtSha" | "getPrDiff" | "resolveCommitSha">`, e
 `submitPrReview, setCommitStatus` nel `return`.
+
+> **Nota (terza trappola di CLAUDE.md, «il doppio del client»).** Il doppio di
+> `apps/worker/src/review/run-review.test.ts` va scritto **senza cast** e con i
+> due metodi nuovi (`submitPrReview`, `setCommitStatus`) aggiunti **PRIMA** dei
+> test che li usano: un `as unknown as GitProvider` afferma un'interfaccia
+> intera e lascia passare un metodo mancante, e una chiamata best-effort che
+> fallisce (lo status di commit lo è per costruzione) non fa cadere il test.
+> Per lo stesso motivo, **un test sul percorso nuovo va fatto fallire apposta**
+> — togliendo il `mockResolvedValue` del metodo che esercita — prima di
+> credere al suo verde: se resta verde, non stava provando niente.
 
 (b) «re-review di una PR esterna»: la seconda chiamata diventa un push NUOVO
 (stessa head = doppione, ora saltato di proposito):
@@ -12060,7 +12100,7 @@ import {
   ticketRepositories,
   type Db,
 } from "@stubwise/db";
-import { getProvider, type GitProvider } from "@stubwise/git";
+import { getProvider, STUBWISE_REVIEW_STATUS_KEY, type GitProvider } from "@stubwise/git";
 import { t, type Language } from "@stubwise/i18n";
 import {
   autoRoundsInCurrentSeries,
@@ -12087,9 +12127,6 @@ import type { PrReviewJobRow } from "./run-review.js";
  *     richiesta umana in attesa promossa, stop al tetto. Il contatore NON si
  *     salva: `autoRoundsInCurrentSeries` lo deriva dalle righe.
  */
-
-/** Chiave dello status di commit: la stessa che le regole del branch possono esigere. */
-export const REVIEW_STATUS_KEY = "stubwise-review" as const;
 
 export interface ReviewCycleDeps {
   db: Db;
@@ -12147,7 +12184,7 @@ export async function setReviewCommitStatus(
       sha,
       {
         state: input.state,
-        key: REVIEW_STATUS_KEY,
+        key: STUBWISE_REVIEW_STATUS_KEY,
         description: input.description,
         refname: input.sourceBranch,
         ...(input.url !== undefined ? { url: input.url } : {}),
@@ -12771,7 +12808,7 @@ describe("ciclo review → correzione, dall'apertura della PR all'approvazione",
         runner,
         mirrors,
         encryptionKey: ENCRYPTION_KEY,
-        getProviderFn: () => provider as never,
+        getProviderFn: () => provider,
         publish,
         fix: { twoPhase: false, summariesEnabled: false },
       },
@@ -12785,7 +12822,7 @@ describe("ciclo review → correzione, dall'apertura della PR all'approvazione",
       model: "sonnet",
       maxTurns: 10,
       agentTimeoutMs: 60_000,
-      getProviderFn: () => provider as never,
+      getProviderFn: () => provider,
       publish,
       summariesEnabled: false,
       serializer,
@@ -14053,6 +14090,14 @@ export async function handleChangesRequested(
  * Il membro Stubwise collegato a uno username Bitbucket (`users.bitbucketUsername`,
  * gestito da `routes/git-identity-routes.ts`). Case-insensitive: lo username
  * lo scrive a mano un admin. GitHub non ha un collegamento: resta il solo login.
+ *
+ * Attenzione a cosa arriva come `login`: su Bitbucket `actorLogin` è il
+ * `nickname` dell'account, se manca il `display_name`, e come ultima risorsa
+ * l'uuid (`bitbucketAccount` in `packages/git/src/bitbucket.ts`). Può quindi
+ * NON coincidere con `users.bitbucketUsername`, scritto a mano: in quel caso
+ * manca il collegamento alla persona (`requestedByUserId` resta assente) e la
+ * riga di stato mostra il solo login. Innocuo: la correzione parte lo stesso,
+ * perde solo il nome del membro.
  */
 async function findBitbucketUser(db: Db, login: string): Promise<string | null> {
   const [user] = await db
@@ -17205,12 +17250,17 @@ sostituisci la riga `const values = Array.isArray(data.values) ? data.values : [
       // su Bitbucket (GitHub legge i check-run, non gli status). Le regole del
       // branch sulla piattaforma lo vedono comunque: il filtro è solo nostro.
       const values = (Array.isArray(data.values) ? data.values : []).filter(
-        (v) => v.key !== "stubwise-review",
+        (v) => v.key !== STUBWISE_REVIEW_STATUS_KEY,
       );
 ```
 
-Se la Tappa B ha esportato una costante per la key (es. da `provider.ts`),
-usa quella invece del letterale.
+La key è la costante `STUBWISE_REVIEW_STATUS_KEY` che la Tappa B esporta da
+`@stubwise/git` (definita in `packages/git/src/provider.ts`): qui, DENTRO il
+pacchetto, si aggiunge all'import esistente da `"./provider.js"` (fuori dal
+pacchetto si importa da `@stubwise/git`). Mai il letterale: chi scrive lo
+status (worker, C8/C10) e chi lo filtra devono leggere la stessa costante. I
+test qui sopra tengono invece il letterale `"stubwise-review"` apposta: fissano
+il valore sul filo, e con la costante passerebbero anche se cambiasse.
 
 **Step 3: verifica e commit**
 
@@ -21187,6 +21237,8 @@ tappe sono stati risolti e integrati nella sezione «Contratti» e nei task.
    non più nel diff).
 6. **Tetto di paginazione**: 10 pagine da 100 per fonte, come i tetti
    esistenti di repository/branch; un `next` infinito non gira all'infinito.
+   Arrivati al tetto con ancora una pagina successiva si LANCIA, non si
+   tronca (vedi 15).
 7. **Errori**: `listPrComments`, `setCommitStatus`, `submitPrReview`,
    `getAuthenticatedUserId` lanciano `GitProviderError` (mai `null` o
    fallback silenziosi). Best-effort e fail-closed li decide il chiamante,
@@ -21209,6 +21261,52 @@ tappe sono stati risolti e integrati nella sezione «Contratti» e nei task.
     caratteri) con l'autore come causa possibile.
 12. **`projectRestAuthHeader`** passa a `Pick<ProjectGitConfig,
     "credentials">` (solo il tipo; comportamento e chiamanti invariati).
+
+Entrate con i fix della revisione di fine tappa:
+
+13. **Guardia sull'host di ogni pagina successiva** (`assertPageOnApiHost`,
+    `provider.ts`) in TUTTI i cicli di paginazione dei due provider
+    (repository, branch, commenti, webhook): un `next`/Link che punta fuori
+    dall'origin dell'API (`https:`, origin esatta via `new URL`, niente
+    userinfo) fa lanciare invece di mandare il token a un host scelto da chi
+    ha scritto la risposta. Il messaggio riporta solo l'origin ricevuta.
+14. **`ensureWebhook` segue tutte le pagine della lista hook** (tetto 5 da
+    100, `MAX_HOOK_PAGES`) prima di concludere che l'hook non c'è; al tetto
+    con ancora pagine LANCIA invece di crearne uno: un duplicato
+    consegnerebbe ogni evento due volte.
+15. **Errore invece di fotografia parziale** (`listPrComments`): un non-2xx
+    su qualunque fonte o il tetto di pagine raggiunto lanciano
+    `GitProviderError`. Una fotografia parziale verrebbe presa per completa e
+    i commenti persi resterebbero fuori per sempre; a monte la correzione
+    resta fail-closed.
+16. **Date non leggibili (GitHub `listPrComments`)**: un commento con
+    `createdAt` che `Date.parse` non legge NON si scarta (stessa scelta per
+    eccesso di `selectProviderFeedback` in A8b), ma va in fondo nell'ordine
+    d'arrivo: un NaN nel comparatore renderebbe incoerente l'ordine di tutti.
+17. **Bitbucket `submitPrReview`: ordine DELETE → verdetto → commento**
+    (decisione 9), con un limite accettato e scritto nel docblock: se il
+    DELETE dell'opposto riesce e il POST del verdetto fallisce, la PR resta
+    senza stato del revisore; il ripiego di C10 pubblica il testo ma non
+    ripristina il verdetto precedente. B14 verifica il POST ripetuto.
+18. **Suggerimento sui permessi su 401/403**: `ensureOkResponseWithHint` /
+    `withPermissionHint` aggiungono al messaggio quale permesso manca al
+    token (`COMMIT_STATUS_PERMISSION_HINT` per `setCommitStatus`,
+    `PR_REVIEW_PERMISSION_HINT` per `submitPrReview`, stato e commento), con
+    lo status HTTP vero e mai il token. Un "403" nudo nel log non dice cosa
+    aggiungere.
+19. **`resolveProviderUserId` accetta `onError`** (`@stubwise/notifications`,
+    A8b): riceve l'errore del provider (es. il 401/403 di
+    `getAuthenticatedUserId`) per il log del chiamante. Non cambia l'esito,
+    che resta fail-closed, e un `onError` che lancia non lo rompe.
+20. **GitHub 422 col motivo vero**: il messaggio nomina l'autore della PR
+    solo se la risposta dice "own pull request"; altrimenti riporta
+    l'estratto della risposta (max 200) — con ogni occorrenza del token
+    sostituita da `***` PRIMA del taglio, anche in `responseText` — e
+    l'autore solo come causa possibile.
+21. **`STUBWISE_REVIEW_STATUS_KEY`** esportata da `@stubwise/git` e usata nel
+    tipo di `CommitStatusInput.key`: il worker (C8, C10) che scrive lo status
+    e il filtro della coda di rilascio (D10) la importano, niente letterali
+    ripetuti. I test tengono il letterale apposta: fissano il valore sul filo.
 
 #### Rischi
 
