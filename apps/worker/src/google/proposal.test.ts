@@ -13,7 +13,7 @@ import {
 import { startTestDb, type TestDb } from "@stubwise/db/testing";
 import { t } from "@stubwise/i18n";
 import { eq } from "drizzle-orm";
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildCalendarProposalEvent,
   buildEmailProposalEvent,
@@ -391,6 +391,27 @@ function calendarRow(overrides: Record<string, unknown> = {}) {
   };
 }
 
+/**
+ * L'orologio dei test del calendario, FERMO due giorni prima
+ * dell'appuntamento di `calendarRow`. `isReadyForProposal` scarta un
+ * appuntamento passato confrontandolo con l'ora VERA (fase 9, fix di review):
+ * con l'orologio reale questi test sono scaduti da soli il 30 set 2026, il
+ * giorno dell'appuntamento della fixture, e il cancello «vale anche qui»
+ * passava da quel giorno per il motivo sbagliato. Si ferma solo `Date`, non i
+ * timer.
+ */
+const CALENDAR_NOW = new Date("2026-09-28T00:00:00.000Z");
+
+function freezeCalendarClock(): void {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(CALENDAR_NOW);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+}
+
 function buildCalendar(overrides: Record<string, unknown> = {}) {
   return buildCalendarProposalEvent({
     lang: "it",
@@ -401,6 +422,8 @@ function buildCalendar(overrides: Record<string, unknown> = {}) {
 }
 
 describe("buildCalendarProposalEvent", () => {
+  freezeCalendarClock();
+
   it("una sola opzione (la milestone) più «Non fare nulla», consigliata la prima", () => {
     const event = buildCalendar();
     expect(event?.source).toBe("calendar");
@@ -460,7 +483,7 @@ function buildSeriesCalendar(
   }>,
   rowOverrides: Record<string, unknown> = {},
 ) {
-  const now = new Date("2026-09-28T00:00:00.000Z");
+  const now = CALENDAR_NOW;
   return buildCalendarProposalEvent({
     lang: "it",
     event: calendarRow({ recurringEventId: "serie-1", ...rowOverrides }),
@@ -474,6 +497,8 @@ function buildSeriesCalendar(
 }
 
 describe("buildCalendarProposalEvent — l'ancora del deep link (App M3, Fase D)", () => {
+  freezeCalendarClock();
+
   it("`calendarEventId` è l'id della RIGA, e `proposalId` resta un id diverso e casuale", () => {
     // I due campi rispondono a due domande diverse e NON vanno unificati:
     // `calendarEventId` apre l'appuntamento, `proposalId` è la chiave di
@@ -514,6 +539,8 @@ describe("buildCalendarProposalEvent — l'ancora del deep link (App M3, Fase D)
 });
 
 describe("buildCalendarProposalEvent — azione di serie (fase 7b, Task 5)", () => {
+  freezeCalendarClock();
+
   it("action: milestone — stessa opzione di un evento singolo", () => {
     const event = buildSeriesCalendar({ action: "milestone" });
     expect(event?.actions[0]).toEqual({
@@ -694,6 +721,8 @@ describe("buildTriageProposalEvent", () => {
  * la RIFIUTA invece di eseguirla.
  */
 describe("`reassign_project` non è offerta dove non deve (17 set 2026)", () => {
+  freezeCalendarClock();
+
   it("il calendario non la genera", () => {
     const event = buildCalendar();
     expect(event).not.toBeNull();
@@ -1100,12 +1129,21 @@ describe("publishProposal", () => {
       })
       .returning({ id: calendarEventsTable.id });
 
-    const event = buildCalendarProposalEvent({
-      lang: "it",
-      event: calendarRow({ id: row!.id, projectId }),
-      mailboxEmail: MAILBOX,
-      projectNames: new Map([[projectId, "negozio-web"]]),
-    });
+    // Vedi `CALENDAR_NOW`: l'orologio si ferma solo per costruire l'evento
+    // (è lì che il cancello guarda l'ora), non per le scritture sul database.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(CALENDAR_NOW);
+    let event;
+    try {
+      event = buildCalendarProposalEvent({
+        lang: "it",
+        event: calendarRow({ id: row!.id, projectId }),
+        mailboxEmail: MAILBOX,
+        projectNames: new Map([[projectId, "negozio-web"]]),
+      });
+    } finally {
+      vi.useRealTimers();
+    }
     if (!event) throw new Error("evento di calendario non costruito");
 
     const result = await publishProposal(db, {
