@@ -403,7 +403,10 @@ Contratto aggiunto con i fix della revisione di fine tappa B:
   (`providerFeedback !== null`, NON `trigger='provider'`: un click fuso in una
   `pending` provider tiene comunque il trigger, ma la regola guarda il dato)
   rifà la fotografia all'avvio (`listPrComments` + helper di A8b) e la
-  sostituisce a quella accumulata dai webhook.
+  sostituisce a quella accumulata dai webhook. Un fallimento SENZA push a PR
+  aperta (chiusura avvenuta, correzione `done`) accoda comunque la review sulla
+  head ATTUALE del branch (`MirrorManager.resolveBranchHead`), perché il
+  webhook non la accoda finché la correzione è aperta (D3, Step 2b).
 - `apps/worker/src/pipeline/prompts.ts`: `buildCorrectionPrompt(input, lang)`.
 - `apps/worker/src/handler.ts`: `job.correctionId != null` → `markFixing` + `runCorrection`
   (niente triage, niente `resolveFixMode`); dopo un job non di correzione chiuso
@@ -9326,6 +9329,37 @@ correzione a fermarsi. Due punti, due regole (decise in revisione di A7):
   con una riga di log). Lasciata `pending`, il tick la ripromuoverebbe a ogni
   giro e ogni giro fallirebbe allo stesso modo.
 
+**Review della head attuale dopo un fallimento senza push** (regola del
+coordinatore, 30 set 2026, aggiunta durante l'esecuzione di C8). Il webhook
+`opened`/`updated` NON accoda la review se sulla PR c'è una correzione aperta
+(D3, Step 2b): una persona che pusha sul branch mentre la correzione è in coda
+o al lavoro non verrebbe rivista da nessuno se poi la correzione fallisce
+senza pushare. Quindi su OGNI esito terminale in cui la PR è ancora aperta e
+la correzione NON ha pushato — push rifiutato, nessuna modifica, test rossi
+dopo il self-repair, errore/timeout dell'agente, errore generico — la
+correzione accoda comunque `enqueuePrReviewNow` sulla head ATTUALE del branch
+della PR:
+- dopo la chiusura, e SOLO se è avvenuta con la correzione davvero `done`
+  (ownership persa → niente; correzione annullata = PR chiusa → niente);
+- come ULTIMO passo del job (dopo commento, promozione e notifica), e solo se
+  la PR non ha una correzione aperta (`prHasOpenCorrection`: una pending
+  appena promossa sulla STESSA PR porterà lei la review, dopo il suo push o
+  dalla sua chiusura);
+- la head si legge FUORI dalla callback del worktree, dal mirror dopo il fetch
+  (`MirrorManager.resolveBranchHead(project, branch)`, nuovo accanto a
+  `resolveCommitSha`, che accetta solo uno sha): sha completo
+  (`isFullCommitSha`); non leggibile → una riga di log e niente review;
+- ESCLUSI: `PrNoLongerOpenError` (PR chiusa o correzione annullata), branch
+  sparito (`BranchNotFoundError`: non c'è una head da rivedere), `held`/`limit`
+  (il job non è terminale: verrà ripreso), e i fallimenti prima di avere le
+  credenziali del repository (niente mirror da leggere).
+Una head già revisionata la ferma la guardia anti-doppione di `runPrReview`:
+«nessuna modifica» non produce una review inutile. Test in
+`correction.test.ts`: push rifiutato → review sulla head del remoto; nessuna
+modifica → review sulla head attuale; exit non-zero → review; PR chiusa →
+nessuna review; chiusura non avvenuta → nessuna review; pending promossa sulla
+stessa PR → nessuna review.
+
 **Una correzione che non ha pushato niente conta come giro** (design §11):
 `completeCorrection` la porta a `done` come quella riuscita, e
 `autoRoundsInCurrentSeries` conta ogni `trigger='review'` non `cancelled`.
@@ -16898,6 +16932,54 @@ Atteso: FAIL (`["queued","pending"]` invece di `cancelled`).
           });
         }
 ```
+
+**Step 2b: l'apertura/aggiornamento della PR NON accoda la review con una
+correzione aperta** (regola del coordinatore, 30 set 2026; la metà worker è in
+C8, «Review della head attuale dopo un fallimento senza push»). Nel ramo
+`parsePrEvent` di `webhooks.ts`, dopo il gate `prReviewEnabled` e PRIMA
+dell'upsert su `pr_review_jobs`:
+
+```ts
+        // Ciclo di correzione: con una correzione aperta sulla PR (`pending`
+        // o `queued`) la review la accoda la CORREZIONE — dopo il suo push, o
+        // sulla head attuale se fallisce senza pushare (C8) —, non il push che
+        // stiamo ricevendo: accodarla qui farebbe rivedere una head che la
+        // correzione sta per superare.
+        if (await prHasOpenCorrection(instance.db, { repositoryId: context.repositoryId, prNumber: prEvent.prNumber })) {
+          return reply.code(204).send();
+        }
+```
+
+(`prHasOpenCorrection` all'import da `@stubwise/notifications`.) Test, in
+`webhooks.corrections.test.ts` (adatta gli helper del file):
+
+```ts
+it("una correzione aperta sulla PR: il webhook `synchronize` NON accoda la review", async () => {
+  const fx = await seedFixture();
+  await testDb.db.update(instanceSettings).set({ prReviewEnabled: true }).where(eq(instanceSettings.id, 1));
+  await testDb.db.insert(prCorrections).values({
+    ticketId: fx.ticketId, repositoryId: fx.repositoryId, prNumber: 42, trigger: "review", status: "queued",
+  });
+  const body = JSON.stringify({
+    action: "synchronize",
+    pull_request: {
+      number: 42, title: "fix (#3)", body: "", html_url: "https://github.com/acme/repo/pull/42",
+      head: { ref: "stubwise/ticket-3", sha: "b".repeat(40) }, base: { ref: "main" },
+    },
+  });
+  const res = await app.inject({
+    method: "POST", url: `/webhooks/git/${fx.slug}`, payload: body,
+    headers: { "content-type": "application/json", "x-github-event": "pull_request", "x-hub-signature-256": sign(fx.secret, body) },
+  });
+  expect(res.statusCode).toBe(204);
+  expect(await testDb.db.select().from(prReviewJobs).where(eq(prReviewJobs.repositoryId, fx.repositoryId))).toHaveLength(0);
+});
+```
+
+più il verso positivo (stessa PR, correzione `done` → una riga in
+`pr_review_jobs`), perché un risultato vuoto non sia un webhook che non arriva
+al ramo. Mutazione: togli il `return` → il primo test deve diventare rosso
+sull'asserzione della lunghezza.
 
 **Step 3: verifica e commit**
 
