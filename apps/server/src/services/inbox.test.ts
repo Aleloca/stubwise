@@ -1153,6 +1153,51 @@ describe("listInbox — riassunto in breve", () => {
     expect(items[0]!.summary).toBe("La PR sistema il login. La review approva.");
   });
 
+  it("review.completed con verdetto NULLO (review fallita in una serie, C10b): niente riassunto di una review precedente, testo che lo dice", async () => {
+    const user = await seedUser("admin");
+    const ticketId = await seedTicket();
+    const prUrl = "https://github.com/o/r/pull/7";
+    const [repository] = await db
+      .select({ id: repositories.id })
+      .from(repositories)
+      .where(eq(repositories.projectId, projectId));
+    // La review PRECEDENTE della stessa PR, col suo riassunto.
+    await db.insert(prReviews).values({
+      repositoryId: repository!.id,
+      ticketId,
+      prNumber: 7,
+      prUrl,
+      prTitle: "fix: somma",
+      headSha: "a".repeat(40),
+      status: "completed",
+      verdict: "request_changes",
+      summary: "- `src/x.ts:3`: bug",
+      prSummary: "La PR sistema il login. La review chiede modifiche.",
+    });
+    await seedNotification({
+      userId: user.id,
+      kind: "review.completed",
+      event: {
+        kind: "review.completed",
+        ticketNumber: 7,
+        ticketTitle: "Export CSV",
+        projectName: "negozio-web",
+        ticketUrl: "https://stubwise.test/tickets/7",
+        prUrl,
+        verdict: null,
+        cycle: { round: 2, max: 3, stopped: true, stoppedReason: "review_failed" },
+      } as NotificationEvent,
+      ticketId,
+    });
+
+    const { items } = await listInbox(db, { userId: user.id, lang: "it" });
+
+    expect(items).toHaveLength(1);
+    expect(items[0]).not.toHaveProperty("summary");
+    expect(items[0]!.text).toContain("la review non è riuscita (correzioni automatiche: 2)");
+    expect(items[0]!.text).not.toContain("modifiche richieste");
+  });
+
   it("una pagina intera costa UNA query in più, non una per item", async () => {
     const user = await seedUser("admin");
     for (let i = 0; i < 5; i++) {
