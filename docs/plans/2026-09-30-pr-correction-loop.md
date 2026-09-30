@@ -6285,6 +6285,18 @@ del piano, quando useranno i metodi nuovi:
 
 ### B14 — Verifica manuale con chiamate vere (non in CI, niente commit)
 
+> **Si esegue dalla guida operativa, non da qui:**
+> `docs/plans/2026-09-30-pr-correction-loop-b14.md` (36 test T1–T36, uno alla
+> volta, con preparazione, comandi esatti e tabella «Da riportare») e lo script
+> `packages/git/scripts/b14-probe.mjs` per i casi «da uno script». La guida
+> corregge le incongruenze del testo qui sotto: i `curl | jq` che nascondevano
+> il codice HTTP, un solo `$SHA` per due repository (ora `BB_SHA`/`GH_SHA`, e lo
+> sha di Bitbucket nella PR è abbreviato: si prende da `refs/branches`), le
+> variabili mancanti (`BB_BRANCH`, `GH_TOKEN_NOSTATUS`, `BB_TOKEN_RO`), gli
+> script mai forniti, i webhook di prova da creare a mano e i prerequisiti
+> GitHub (protezione del branch, permesso di scrittura del revisore). Il testo
+> qui sotto resta come motivazione di ciascun punto.
+
 Otto punti (più §4 bis e §8 bis), per i comportamenti che la documentazione non dice o che i doppi
 `fetch` non possono provare (vedi «Decisioni e rischi», tappa B, in fondo al
 piano): §1–§6 per lettura dei commenti, status di commit e webhook, §7–§8 per
