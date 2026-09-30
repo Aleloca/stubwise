@@ -41,6 +41,11 @@ Regole che valgono per tutto il documento:
   viene comunque registrata). Attiva la cronologia delle richieste se
   Bitbucket la chiede, così *View requests* mostra i body. Crealo **prima**
   dei test di verdetto, così registra anche le chiamate API dei T21–T24.
+- Per il T39 (emendamento E3): un **account Bitbucket esterno**, che non sia
+  membro del workspace né abbia permessi sulla repository di prova, e il
+  permesso di rendere **pubblica** la repository di prova per la durata del
+  test (Repository settings → Repository details → togliere «This is a
+  private repository»; rimetterla privata alla fine).
 - API token (Atlassian → Account settings → Security → API tokens *with
   scopes*, app **Bitbucket**). Nel piano gli scope sono scritti abbreviati
   (`read:user`, `read:pullrequest`…); nella UI hanno il suffisso
@@ -71,7 +76,12 @@ Regole che valgono per tutto il documento:
   `mergeable_state`). Serve ai T31/T32; puoi aggiungerla anche subito prima.
 - Un **webhook di prova** sulla repository (Settings → Webhooks): evento
   **Pull request reviews**, content type `application/json`, URL come sopra.
-  Crealo prima del T31: la consegna del T31 serve al T33.
+  Crealo prima del T31: la consegna del T31 serve al T33 e al T37.
+- Per il T38: il revisore scrive **un commento nella conversazione** della PR
+  di prova e **un commento su una riga** del diff (dalla UI, quando ci arrivi).
+  Meglio ancora se nell'organizzazione di prova il revisore è membro con
+  appartenenza **privata** (Organization → People → la sua riga → «Private»):
+  è il caso in cui GitHub potrebbe non dire `MEMBER`.
 - Token:
 
   | Variabile | Account | Tipo e permessi |
@@ -167,8 +177,10 @@ sia `null`. Non fare push sulle due PR durante i test: gli sha cambierebbero.
 ## 2. Test
 
 Ordine: prima le letture (T1–T8), poi gli status di commit (T9–T18), poi i
-verdetti sulle PR di prova (T19–T33), per ultimi i casi che richiedono una PR
-mergiata o chiusa (T34–T36).
+verdetti sulle PR di prova (T19–T33), poi chi ha il permesso di chiedere
+modifiche (T37–T39, emendamento E3: aggiunti dopo, hanno numeri più alti ma
+vanno fatti qui), per ultimi i casi che richiedono una PR mergiata o chiusa
+(T34–T36).
 
 ### Letture (nessuna modifica)
 
@@ -595,6 +607,63 @@ Nessun comando. Su GitHub: Settings → Webhooks → il webhook di prova →
   `$GH_REV_ID` (T6). Controlla anche `review.state` = `changes_requested`.
 - Da annotare: uguali sì/no; il valore di `review.state`.
 
+### Chi ha il permesso di chiedere modifiche (emendamento E3)
+
+Il ciclo di correzione riparte solo per chi ha il permesso sulla piattaforma:
+su GitHub `author_association` ∈ `OWNER`/`MEMBER`/`COLLABORATOR`, su Bitbucket
+nessun filtro (il dato non esiste). Questi tre test dicono se le due ipotesi
+reggono sulle piattaforme vere.
+
+#### T37 — GitHub: `author_association` nella consegna `pull_request_review` (E3)
+
+Nessun comando. Su GitHub: Settings → Webhooks → il webhook di prova →
+*Recent Deliveries* → la stessa consegna del T33 (il REQUEST_CHANGES del
+revisore, T31).
+
+- Verifica nel payload: `review.author_association` c'è, ed è `COLLABORATOR`
+  o `MEMBER` (il revisore ha scrittura sulla repo). Se è `CONTRIBUTOR` o
+  `NONE`, il webhook scarterebbe la richiesta di una persona che il permesso
+  ce l'ha: va detto prima del merge.
+- Da annotare: il valore esatto; se il revisore è membro dell'organizzazione,
+  se la sua appartenenza è pubblica o privata.
+
+#### T38 — GitHub: `author_association` nei commenti letti (E3)
+
+Prerequisito: i due commenti del revisore (vedi Preparazione). Non modifica
+nulla. Si leggono con il token dell'**autore**, che fa la parte dell'account
+principale di Stubwise (è lui che legge i commenti nella correzione):
+
+```bash
+for P in "issues/$N/comments" "pulls/$N/comments" "pulls/$N/reviews"; do curl -sS -H "Authorization: Bearer $GH_TOKEN_AUTHOR" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$O/$R/$P?per_page=100" | jq -c --arg p "$P" '[.[] | {fonte: $p, login: .user.login, a: .author_association}]'; done
+```
+
+- Atteso: su tutte e tre le fonti ogni voce ha `a` valorizzato; quelle del
+  revisore `COLLABORATOR` o `MEMBER`, quelle dell'autore `OWNER`, `MEMBER` o
+  `COLLABORATOR`.
+- Da annotare: il valore per ciascuna fonte e ciascun autore. **In
+  particolare**: se il revisore è membro con appartenenza privata, GitHub dice
+  `MEMBER` anche a questo token, o `CONTRIBUTOR`/`NONE`? Nel secondo caso i
+  suoi commenti verrebbero esclusi dalla fotografia: va detto prima del merge.
+
+#### T39 — Bitbucket PUBBLICO: un account esterno può chiedere modifiche? (E3)
+
+**Modifica:** la repository di prova diventa pubblica per la durata del test.
+
+1. Rendi pubblica la repository di prova (vedi Preparazione).
+2. Nel browser, **con l'account esterno**, apri la PR di prova: c'è il bottone
+   **Request changes**? Se sì, premilo.
+3. Come amministratore: Repository settings → Webhooks → il webhook di prova →
+   *View requests*: è arrivata una consegna `pullrequest:changes_request_created`
+   con `actor` = l'account esterno?
+
+- Da annotare: bottone presente sì/no; premuto con successo sì/no; consegna
+  arrivata sì/no. Se tutti e tre sono **sì**, su un repository Bitbucket
+  pubblico un estraneo può far partire una correzione (Stubwise non ha un
+  dato per fermarlo): è il rischio scritto in «Decisioni e rischi» del piano,
+  e va rivisto prima di collegare un repository Bitbucket pubblico.
+- Pulizia: con l'account esterno ritira la richiesta (se è riuscita), poi
+  **rimetti privata** la repository di prova.
+
 ### Casi con PR mergiata o chiusa (ultimi)
 
 #### T34 — `APPROVE` su una PR chiusa (B14 §8b, seconda parte)
@@ -679,3 +748,6 @@ node "$PROBE" bb-review BB_REV_EMAIL BB_REV_TOKEN "$PR_MERGED" approve
 | T34 | §8b | codice; `message`/`errors`; contiene «own pull request» sì/no | |
 | T35 | §7d | codici di approve e request-changes su PR mergiata | |
 | T36 | §7d | status; suggerimento review sì/no (atteso no); token sì/no | |
+| T37 | §9a (E3) | `review.author_association` della consegna; appartenenza pubblica/privata | |
+| T38 | §9b (E3) | `author_association` per fonte e autore; membro privato → `MEMBER` sì/no | |
+| T39 | §9c (E3) | Bitbucket pubblico: bottone sì/no; premuto sì/no; consegna arrivata sì/no | |
