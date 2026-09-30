@@ -12,6 +12,7 @@ import {
   MergeNotAllowedError,
   type AccountConfig,
   type AccountCredentials,
+  type ChangesRequestedEvent,
   type CheckOutcomeStatus,
   type CredentialCheck,
   type FetchLike,
@@ -348,6 +349,44 @@ export class BitbucketProvider implements GitProvider {
       targetBranch,
       headSha,
       prUrl,
+    };
+  }
+
+  /**
+   * "Request changes" su una PR (ciclo di correzione, design §9). Il payload
+   * documentato è `{ actor, pullrequest, repository, changes_request: { date,
+   * user } }`: nessun testo, quindi `reviewBody` è sempre null. L'autore è
+   * `changes_request.user`, con `actor` come ripiego; se entrambi hanno un
+   * uuid e non coincidono l'evento è scartato — non si può escludere che sia
+   * di un account di Stubwise (design §5, fail-closed). Mai lancia.
+   */
+  parseChangesRequestedEvent(
+    headers: Record<string, string>,
+    body: unknown
+  ): ChangesRequestedEvent | null {
+    if (getHeader(headers, "x-event-key") !== "pullrequest:changes_request_created") return null;
+    if (typeof body !== "object" || body === null) return null;
+    const payload = body as {
+      actor?: unknown;
+      pullrequest?: unknown;
+      changes_request?: { user?: unknown } | null;
+    };
+    if (typeof payload.pullrequest !== "object" || payload.pullrequest === null) return null;
+    const pr = payload.pullrequest as { id?: unknown; source?: { branch?: { name?: unknown } } };
+    const sourceBranch = pr.source?.branch?.name;
+    if (typeof pr.id !== "number" || typeof sourceBranch !== "string") return null;
+
+    const requester = bitbucketAccount(payload.changes_request?.user);
+    const actor = bitbucketAccount(payload.actor);
+    if (requester !== null && actor !== null && requester.id !== actor.id) return null;
+    const who = requester ?? actor;
+    if (who === null) return null;
+    return {
+      prNumber: pr.id,
+      sourceBranch,
+      actorId: who.id,
+      actorLogin: who.login,
+      reviewBody: null,
     };
   }
 
@@ -891,4 +930,24 @@ function bitbucketCheckStatus(state: unknown): CheckOutcomeStatus {
   if (state === "SUCCESSFUL") return "success";
   if (state === "INPROGRESS") return "pending";
   return "failure"; // FAILED, STOPPED, o qualunque valore non riconosciuto.
+}
+
+/**
+ * Identità di un account Bitbucket da un payload (webhook o REST): uuid (con
+ * le graffe, com'è) come id stabile, `nickname` come nome leggibile —
+ * `display_name` se manca, l'uuid come ultima risorsa. Null senza uuid:
+ * un'identità che non si può confrontare con gli account di Stubwise non
+ * vale niente per il filtro del design §5.
+ */
+function bitbucketAccount(raw: unknown): { id: string; login: string } | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const account = raw as { uuid?: unknown; nickname?: unknown; display_name?: unknown };
+  if (typeof account.uuid !== "string" || account.uuid.length === 0) return null;
+  const login =
+    typeof account.nickname === "string" && account.nickname.length > 0
+      ? account.nickname
+      : typeof account.display_name === "string" && account.display_name.length > 0
+        ? account.display_name
+        : account.uuid;
+  return { id: account.uuid, login };
 }

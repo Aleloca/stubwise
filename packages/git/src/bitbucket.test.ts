@@ -630,6 +630,85 @@ describe("BitbucketProvider.parsePrEvent", () => {
   });
 });
 
+describe("BitbucketProvider.parseChangesRequestedEvent", () => {
+  const provider = new BitbucketProvider();
+  const headers = { "x-event-key": "pullrequest:changes_request_created" };
+  const mario = { type: "user", uuid: "{u-mario}", nickname: "mario.rossi", display_name: "Mario Rossi" };
+  const payload = () => ({
+    actor: { ...mario },
+    pullrequest: {
+      id: 10,
+      title: "Fix login",
+      source: { branch: { name: "stubwise/ticket-42" }, commit: { hash: "abc123def456" } },
+      destination: { branch: { name: "main" } },
+      links: { html: { href: "https://bitbucket.org/myws/myrepo/pull-requests/10" } },
+    },
+    repository: { full_name: "myws/myrepo" },
+    changes_request: { date: "2026-09-30T10:00:00+00:00", user: { ...mario } },
+  });
+
+  it("changes_request_created → PR, branch, autore (uuid + nickname), nessun testo", () => {
+    expect(provider.parseChangesRequestedEvent(headers, payload())).toEqual({
+      prNumber: 10,
+      sourceBranch: "stubwise/ticket-42",
+      actorId: "{u-mario}",
+      actorLogin: "mario.rossi",
+      reviewBody: null,
+    });
+  });
+
+  it("header case-insensitive", () => {
+    expect(
+      provider.parseChangesRequestedEvent({ "X-Event-Key": "pullrequest:changes_request_created" }, payload())
+    ).not.toBeNull();
+  });
+
+  it("senza changes_request.user ripiega su actor; senza nickname usa display_name", () => {
+    const p = payload() as Record<string, unknown>;
+    delete p.changes_request;
+    p.actor = { uuid: "{u-anna}", display_name: "Anna Bianchi" };
+    expect(provider.parseChangesRequestedEvent(headers, p)).toMatchObject({
+      actorId: "{u-anna}",
+      actorLogin: "Anna Bianchi",
+    });
+  });
+
+  it("actor e changes_request.user DIVERSI → null (non si sa di chi è: fail-closed)", () => {
+    const p = payload();
+    p.actor = { ...mario, uuid: "{u-altro}" };
+    expect(provider.parseChangesRequestedEvent(headers, p)).toBeNull();
+  });
+
+  it("nessun uuid da nessuna parte → null", () => {
+    const p = payload() as Record<string, unknown>;
+    p.actor = { nickname: "x" };
+    p.changes_request = { user: { nickname: "x" } };
+    expect(provider.parseChangesRequestedEvent(headers, p)).toBeNull();
+  });
+
+  it("altri eventi → null, e gli altri parser non vedono questo evento", () => {
+    expect(
+      provider.parseChangesRequestedEvent({ "x-event-key": "pullrequest:changes_request_removed" }, payload())
+    ).toBeNull();
+    expect(provider.parseChangesRequestedEvent({ "x-event-key": "pullrequest:updated" }, payload())).toBeNull();
+    // Mutua esclusione con la catena di apps/server/src/routes/webhooks.ts.
+    expect(provider.parsePrEvent(headers, payload())).toBeNull();
+    expect(provider.parseWebhook(headers, payload())).toBeNull();
+    expect(provider.parsePushEvent(headers, payload())).toBeNull();
+  });
+
+  it("campi obbligatori mancanti o body malformato → null, senza lanciare", () => {
+    const noId = payload();
+    (noId.pullrequest as { id: unknown }).id = "10";
+    expect(provider.parseChangesRequestedEvent(headers, noId)).toBeNull();
+    const noBranch = payload();
+    (noBranch.pullrequest as { source: unknown }).source = {};
+    expect(provider.parseChangesRequestedEvent(headers, noBranch)).toBeNull();
+    expect(provider.parseChangesRequestedEvent(headers, null)).toBeNull();
+    expect(provider.parseChangesRequestedEvent(headers, "x")).toBeNull();
+    expect(provider.parseChangesRequestedEvent(headers, { pullrequest: null })).toBeNull();
+  });
+});
 describe("BitbucketProvider.parsePushEvent", () => {
   const provider = new BitbucketProvider();
   const pushBody = {
