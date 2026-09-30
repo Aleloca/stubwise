@@ -2771,7 +2771,9 @@ git commit -m "feat(notifications): la richiesta in attesa parte dopo la correzi
 Fatti letti (tutti per `(repository_id, pr_number)` salvo dove indicato):
 
 - **PR aperta** = `ticket_repositories.pr_state = 'open'`.
-- **correzione in corso** = esiste una `pr_corrections` `queued`.
+- **correzione in corso** = esiste una `pr_corrections` `queued`, **oppure** una
+  `pending` con `trigger='review'` (giro automatico in fila perché un altro
+  lavoro del ticket blocca: si legge come correzione in arrivo).
 - **review in corso** = esiste una riga `pr_review_jobs` **oppure** l'ultima
   `pr_reviews` fra le `running`/`completed` è `running`. Le `failed` si
   ignorano: una review fallita non è "la review della PR", e il suo verdetto
@@ -2808,7 +2810,9 @@ Gli altri campi:
   della rotta delle correzioni, del webhook e del worker: una PR su
   `stubwise/graphify-setup` non ha un ciclo —, oppure numero della PR non
   ricavabile (`pr_number` null E `pr_url` che non combacia con la regex della 0081).
-- `pendingRequest` = esiste una `pending` sulla PR.
+- `pendingRequest` = esiste una `pending` **umana** (`stubwise`/`provider`) sulla
+  PR. Una `pending` `review` NON conta qui: è lo stato `correcting` (e conta già
+  nel `round`, come in `autoRoundsInCurrentSeries`).
 - `round` = sempre `autoRoundsInCurrentSeries`, anche in `stopped_at_cap`
   (mai `maxRounds`: se il tetto cambia dopo lo stop il numero resta vero).
 - `lastRequest` = l'ultima correzione non annullata con trigger umano
@@ -2821,8 +2825,25 @@ Gli altri campi:
   diventare «richiesta alle 10:00» l'ora del push.
   `null` se nessuna persona ha mai chiesto.
 - `canRequestCorrection` = PR aperta **e** nessuna `queued` **e** nessun job
-  vivo sul ticket — la stessa condizione per cui `enqueueCorrection` con
+  che blocca sul ticket (`hasJobInFlight`/`jobBlocksCorrection`, `held`
+  compreso, riusata e mai ricopiata) — la stessa condizione per cui `enqueueCorrection` con
   trigger `stubwise` NON rifiuterebbe (il server non la rideduce altrove).
+
+> **Deviazioni in implementazione (A8).** (1) `PrCycleFacts` ha un campo in più,
+> `autoCorrectionPending` (una `pending` `review` sulla PR): con la PR aperta
+> la regola 1 vale per `correctionQueued || autoCorrectionPending`; test nuovi
+> «1b giro automatico in fila» e «PR chiusa: il giro automatico in fila non
+> conta più» nella tabella, e in `derivePrCycle` «giro automatico in fila
+> (pending `review`) → correcting, NON una richiesta in attesa». (2)
+> `pendingRequest` conta solo le pending umane (vedi sopra). (3)
+> `canRequestCorrection` riusa `hasJobInFlight` (`held` compreso): test «un job
+> `held` sul ticket toglie il bottone». (4) Nel test «lastRequest.at di una
+> correzione CHIUSA» l'utente è seminato con email casuale: `anna@example.com`
+> è già usata dal test precedente sullo stesso DB (`users_email_unique`). Test
+> aggiuntivi: `pr_number` null con URL senza numero → null; review `running`
+> non nascosta da una `failed` più recente; `lastRequest.at` di una pending =
+> `updated_at`. Il codice qui sotto è quello del piano originale: la versione
+> vera è nel sorgente.
 
 La precedenza è in una funzione PURA, `resolvePrCycleState`, testata riga per
 riga; `derivePrCycle` raccoglie i fatti e la chiama.

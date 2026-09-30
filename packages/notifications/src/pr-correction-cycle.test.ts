@@ -14,7 +14,7 @@ import {
   startTestDb,
   type TestDb,
 } from "@stubwise/db/testing";
-import type { AiJobStatus, PrCorrectionTrigger } from "@stubwise/shared";
+import { prCycleSchema, type AiJobStatus, type PrCorrectionTrigger } from "@stubwise/shared";
 import { and, eq, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -23,11 +23,14 @@ import {
   cancelOpenCorrections,
   cancelPendingCorrection,
   completeCorrection,
+  derivePrCycle,
   enqueueCorrection,
   prHasOpenCorrection,
   promotePendingCorrection,
   promotePendingForTicket,
   promoteStalePendings,
+  resolvePrCycleState,
+  type PrCycleFacts,
 } from "./pr-correction-cycle.js";
 
 /**
@@ -182,7 +185,6 @@ async function seedReview(
   return row!.id;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars -- impalcatura dei task A6–A8, che la useranno
 async function seedReviewJob(pr: SeededPr): Promise<void> {
   await db.insert(prReviewJobs).values({
     repositoryId: pr.repositoryId,
@@ -932,5 +934,260 @@ describe("cancelPendingCorrection", () => {
   it("niente pending → null", async () => {
     const pr = await seedPr();
     expect(await cancelPendingCorrection(db, pr)).toBeNull();
+  });
+});
+
+describe("resolvePrCycleState (tabella di verità)", () => {
+  const base: PrCycleFacts = {
+    prOpen: true,
+    correctionQueued: false,
+    autoCorrectionPending: false,
+    reviewInProgress: false,
+    lastCompletedReview: null,
+    lastDoneCorrection: null,
+    round: 0,
+    maxRounds: 3,
+  };
+  const review = (verdict: "approve" | "request_changes" | null, min = 5) => ({
+    verdict,
+    createdAt: at(min),
+  });
+
+  it.each<[string, Partial<PrCycleFacts>, string]>([
+    ["1 correzione in corso vince su tutto", { correctionQueued: true, reviewInProgress: true, lastCompletedReview: review("approve") }, "correcting"],
+    ["1b giro automatico in fila (pending `review`) → già correcting", { autoCorrectionPending: true, reviewInProgress: true, lastCompletedReview: review("request_changes") }, "correcting"],
+    ["2 review in corso", { reviewInProgress: true, lastCompletedReview: review("approve") }, "reviewing"],
+    ["3 correzione fallita dopo l'ultima review", { lastCompletedReview: review("request_changes", 1), lastDoneCorrection: { createdAt: at(2), jobFailed: true } }, "correction_failed"],
+    ["4 corretta ma nessuna review della versione nuova", { lastCompletedReview: review("request_changes", 1), lastDoneCorrection: { createdAt: at(2), jobFailed: false } }, "idle"],
+    ["5a nessuna review", {}, "idle"],
+    ["5b review senza verdetto", { lastCompletedReview: review(null) }, "idle"],
+    ["6 approvata", { lastCompletedReview: review("approve") }, "approved"],
+    ["6 approvata dopo una correzione (la correzione è PIÙ VECCHIA della review)", { lastCompletedReview: review("approve", 5), lastDoneCorrection: { createdAt: at(2), jobFailed: true } }, "approved"],
+    ["7 tetto 0 → modifiche richieste, il ciclo non parte", { lastCompletedReview: review("request_changes"), maxRounds: 0 }, "changes_requested"],
+    ["8 al tetto", { lastCompletedReview: review("request_changes"), round: 3 }, "stopped_at_cap"],
+    ["8 oltre il tetto (tetto abbassato dopo)", { lastCompletedReview: review("request_changes"), round: 3, maxRounds: 1 }, "stopped_at_cap"],
+    ["9 sotto il tetto", { lastCompletedReview: review("request_changes"), round: 1 }, "changes_requested"],
+    ["PR chiusa: la correzione in coda non conta più", { prOpen: false, correctionQueued: true, lastCompletedReview: review("approve") }, "approved"],
+    ["PR chiusa: il giro automatico in fila non conta più", { prOpen: false, autoCorrectionPending: true, lastCompletedReview: review("approve") }, "approved"],
+    ["PR chiusa: la review a metà non conta più", { prOpen: false, reviewInProgress: true }, "idle"],
+  ])("%s", (_nome, facts, atteso) => {
+    expect(resolvePrCycleState({ ...base, ...facts })).toBe(atteso);
+  });
+});
+
+describe("derivePrCycle", () => {
+  it("null se la PR non è di Stubwise (branch fuori da `stubwise/`)", async () => {
+    const pr = await seedPr({ branch: "feature/login" });
+    expect(await derivePrCycle(db, pr)).toBeNull();
+  });
+
+  it("null anche per un branch `stubwise/*` che non è di un ticket (graphify-setup)", async () => {
+    // Il worker apre davvero PR su `stubwise/graphify-setup`: la rotta delle
+    // correzioni risponderebbe `not_stubwise_pr`, quindi niente ciclo e niente
+    // bottone (un bottone mostrato è un bottone che funziona).
+    const pr = await seedPr({ branch: "stubwise/graphify-setup" });
+    expect(await derivePrCycle(db, pr)).toBeNull();
+  });
+
+  it("null se il branch è di un ALTRO ticket", async () => {
+    // seedTicket crea il ticket numero 1
+    const pr = await seedPr({ branch: "stubwise/ticket-2" });
+    expect(await derivePrCycle(db, pr)).toBeNull();
+  });
+
+  it("null se la PR non è ancora aperta (pr_url null)", async () => {
+    const pr = await seedPr({ prUrl: null, prNumber: null });
+    expect(await derivePrCycle(db, pr)).toBeNull();
+  });
+
+  it("pr_number null su una riga scritta da un worker vecchio → lo ricava dall'URL", async () => {
+    const pr = await seedPr({ prNumber: null });
+    await seedReview(pr, { status: "completed", verdict: "approve", createdAt: at(1) });
+    expect((await derivePrCycle(db, pr))?.state).toBe("approved");
+  });
+
+  it("pr_number null e URL senza numero → null, mai un numero inventato", async () => {
+    const pr = await seedPr({ prNumber: null, prUrl: "https://example.com/qualcosa" });
+    expect(await derivePrCycle(db, pr)).toBeNull();
+  });
+
+  it("appena aperta, nessuna review → idle, si può chiedere una correzione", async () => {
+    const pr = await seedPr();
+    expect(await derivePrCycle(db, pr)).toEqual({
+      state: "idle",
+      round: 0,
+      maxRounds: 3,
+      pendingRequest: false,
+      lastRequest: null,
+      canRequestCorrection: true,
+    });
+  });
+
+  it("review in coda (pr_review_jobs) → reviewing", async () => {
+    const pr = await seedPr();
+    await seedReviewJob(pr);
+    expect((await derivePrCycle(db, pr))?.state).toBe("reviewing");
+  });
+
+  it("review `running` → reviewing; una `failed` più recente non la nasconde", async () => {
+    const pr = await seedPr();
+    await seedReview(pr, { status: "running", createdAt: at(1) });
+    await seedReview(pr, { status: "failed", createdAt: at(2) });
+    expect((await derivePrCycle(db, pr))?.state).toBe("reviewing");
+  });
+
+  it("giro 2 di 3 in corso → correcting, round 2, niente bottone", async () => {
+    const pr = await seedPr();
+    await seedReview(pr, { status: "completed", verdict: "request_changes", createdAt: at(1) });
+    await seedCorrection(pr, { trigger: "review", jobStatus: "pr_opened", createdAt: at(2) });
+    await seedReview(pr, { status: "completed", verdict: "request_changes", createdAt: at(3) });
+    await seedCorrection(pr, { trigger: "review", status: "queued", jobStatus: "fixing", createdAt: at(4) });
+    const cycle = await derivePrCycle(db, pr);
+    expect(cycle).toMatchObject({ state: "correcting", round: 2, maxRounds: 3, canRequestCorrection: false });
+  });
+
+  it("tre correzioni automatiche e la review chiede ancora → stopped_at_cap", async () => {
+    const pr = await seedPr();
+    for (let i = 0; i < 3; i++) {
+      await seedReview(pr, { status: "completed", verdict: "request_changes", createdAt: at(i * 2) });
+      await seedCorrection(pr, { trigger: "review", jobStatus: "pr_opened", createdAt: at(i * 2 + 1) });
+    }
+    await seedReview(pr, { status: "completed", verdict: "request_changes", createdAt: at(10) });
+    expect(await derivePrCycle(db, pr)).toMatchObject({
+      state: "stopped_at_cap",
+      round: 3,
+      canRequestCorrection: true,
+    });
+  });
+
+  it("Request changes in attesa durante una correzione → pendingRequest e lastRequest dal login", async () => {
+    const pr = await seedPr();
+    await seedCorrection(pr, { trigger: "review", status: "queued", jobStatus: "fixing", createdAt: at(1) });
+    await seedCorrection(pr, { trigger: "provider", status: "pending", login: "mario.rossi", createdAt: at(2) });
+    expect(await derivePrCycle(db, pr)).toMatchObject({
+      state: "correcting",
+      pendingRequest: true,
+      round: 0,
+      // seedTicket crea repository GitHub (default di `seedRepository`)
+      lastRequest: { via: "provider", platform: "github", name: "mario.rossi", at: at(2).toISOString() },
+    });
+  });
+
+  it("giro automatico in fila (pending `review`, un altro lavoro del ticket blocca) → correcting, NON una richiesta in attesa", async () => {
+    // Un fix `held` (limite/budget) sullo stesso ticket: la review ha chiesto
+    // modifiche, `enqueueCorrection` ha messo il giro in fila come `pending`
+    // `review`. È un giro AUTOMATICO in arrivo, non una persona che aspetta.
+    const pr = await seedPr();
+    await db.insert(aiJobs).values({ ticketId: pr.ticketId, status: "held" });
+    await seedReview(pr, { status: "completed", verdict: "request_changes", createdAt: at(1) });
+    await seedCorrection(pr, { trigger: "review", status: "pending", createdAt: at(2) });
+    expect(await derivePrCycle(db, pr)).toEqual({
+      state: "correcting",
+      round: 1,
+      maxRounds: 3,
+      pendingRequest: false,
+      lastRequest: null,
+      canRequestCorrection: false,
+    });
+  });
+
+  it("richiesta dal bottone → lastRequest con l'email dell'utente", async () => {
+    const pr = await seedPr();
+    const userId = await seedUser("anna@example.com");
+    await seedCorrection(pr, { trigger: "stubwise", requestedByUserId: userId, jobStatus: "failed", createdAt: at(1) });
+    expect(await derivePrCycle(db, pr)).toMatchObject({
+      state: "correction_failed",
+      lastRequest: { via: "stubwise", platform: null, name: "anna@example.com" },
+    });
+  });
+
+  it("lastRequest.at di una correzione CHIUSA è l'ora della richiesta, non quella della chiusura", async () => {
+    const pr = await seedPr();
+    const userId = await seedUser();
+    const id = await seedCorrection(pr, { trigger: "stubwise", requestedByUserId: userId, jobStatus: "pr_opened", createdAt: at(1) });
+    // completeCorrection sposta updated_at (l'ora del push)
+    await db.update(prCorrections).set({ updatedAt: at(9) }).where(eq(prCorrections.id, id));
+    expect((await derivePrCycle(db, pr))?.lastRequest?.at).toBe(at(1).toISOString());
+  });
+
+  it("lastRequest.at di una PENDING è updated_at (la fusione la rinnova)", async () => {
+    const pr = await seedPr();
+    const id = await seedCorrection(pr, { trigger: "provider", status: "pending", login: "mario.rossi", createdAt: at(1) });
+    await db.update(prCorrections).set({ updatedAt: at(7) }).where(eq(prCorrections.id, id));
+    expect((await derivePrCycle(db, pr))?.lastRequest?.at).toBe(at(7).toISOString());
+  });
+
+  it("un fix in volo sul ticket toglie il bottone anche senza correzioni", async () => {
+    const pr = await seedPr();
+    await db.insert(aiJobs).values({ ticketId: pr.ticketId, status: "fixing" });
+    expect((await derivePrCycle(db, pr))?.canRequestCorrection).toBe(false);
+  });
+
+  it("un job `held` sul ticket toglie il bottone (stessa regola di enqueueCorrection)", async () => {
+    // `held` non è in IN_FLIGHT_JOB_STATUSES: se derivePrCycle ricopiasse la
+    // regola invece di usare `hasJobInFlight`, il bottone comparirebbe e il
+    // click prenderebbe `job_in_flight`.
+    const pr = await seedPr();
+    await db.insert(aiJobs).values({ ticketId: pr.ticketId, status: "held" });
+    expect((await derivePrCycle(db, pr))?.canRequestCorrection).toBe(false);
+  });
+
+  it("PR mergiata → niente bottone, lo stato racconta l'ultima review", async () => {
+    const pr = await seedPr({ prState: "merged" });
+    await seedReview(pr, { status: "completed", verdict: "approve", createdAt: at(1) });
+    expect(await derivePrCycle(db, pr)).toMatchObject({ state: "approved", canRequestCorrection: false });
+  });
+
+  it("fermo al tetto e tetto abbassato DOPO: round resta il numero vero (3), non il nuovo tetto", async () => {
+    const pr = await seedPr();
+    for (let i = 0; i < 3; i++) {
+      await seedReview(pr, { status: "completed", verdict: "request_changes", createdAt: at(i * 2) });
+      await seedCorrection(pr, { trigger: "review", jobStatus: "pr_opened", createdAt: at(i * 2 + 1) });
+    }
+    await seedReview(pr, { status: "completed", verdict: "request_changes", createdAt: at(10) });
+    await db.update(projects).set({ prCorrectionMaxRounds: 1 }).where(eq(projects.id, pr.projectId));
+    expect(await derivePrCycle(db, pr)).toMatchObject({ state: "stopped_at_cap", round: 3, maxRounds: 1 });
+  });
+
+  it("lastRequest.name, ripiego: `provider` senza login → l'email dell'utente collegato", async () => {
+    const pr = await seedPr();
+    const userId = await seedUser("collegato@example.com");
+    await seedCorrection(pr, { trigger: "provider", status: "pending", requestedByUserId: userId, createdAt: at(1) });
+    expect((await derivePrCycle(db, pr))?.lastRequest?.name).toBe("collegato@example.com");
+  });
+
+  it("lastRequest.name, ripiego: `stubwise` senza email → il login", async () => {
+    const pr = await seedPr();
+    await seedCorrection(pr, { trigger: "stubwise", login: "luigi.verdi", jobStatus: "pr_opened", createdAt: at(1) });
+    expect((await derivePrCycle(db, pr))?.lastRequest?.name).toBe("luigi.verdi");
+  });
+
+  it("lastRequest.name `\"\"` se l'utente è stato cancellato (SET NULL) e non c'è login", async () => {
+    const pr = await seedPr();
+    const userId = await seedUser();
+    await seedCorrection(pr, { trigger: "stubwise", requestedByUserId: userId, jobStatus: "pr_opened", createdAt: at(1) });
+    await db.delete(users).where(eq(users.id, userId));
+    expect((await derivePrCycle(db, pr))?.lastRequest).toMatchObject({ via: "stubwise", name: "" });
+  });
+
+  it("contratto: l'uscita passa da prCycleSchema identica (lastRequest valorizzato)", async () => {
+    const pr = await seedPr();
+    await seedCorrection(pr, { trigger: "provider", status: "pending", login: "mario.rossi", createdAt: at(1) });
+    const cycle = await derivePrCycle(db, pr);
+    expect(cycle?.lastRequest).not.toBeNull();
+    expect(prCycleSchema.parse(cycle)).toEqual(cycle);
+  });
+
+  it("contratto: l'uscita passa da prCycleSchema identica (lastRequest null)", async () => {
+    const pr = await seedPr();
+    const cycle = await derivePrCycle(db, pr);
+    expect(cycle?.lastRequest).toBeNull();
+    expect(prCycleSchema.parse(cycle)).toEqual(cycle);
+  });
+
+  it("il tetto è quello del progetto", async () => {
+    const pr = await seedPr({ maxRounds: 0 });
+    await seedReview(pr, { status: "completed", verdict: "request_changes", createdAt: at(1) });
+    expect(await derivePrCycle(db, pr)).toMatchObject({ state: "changes_requested", maxRounds: 0 });
   });
 });

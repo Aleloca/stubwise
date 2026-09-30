@@ -1,5 +1,22 @@
-import { aiJobs, prCorrections, prReviews, type Db } from "@stubwise/db";
-import type { PrComment, PrCorrectionTrigger } from "@stubwise/shared";
+import {
+  aiJobs,
+  prCorrections,
+  prReviewJobs,
+  prReviews,
+  projects,
+  repositories,
+  ticketRepositories,
+  tickets,
+  users,
+  type Db,
+} from "@stubwise/db";
+import {
+  stubwiseTicketNumber,
+  type PrComment,
+  type PrCorrectionTrigger,
+  type PrCycle,
+  type PrCycleState,
+} from "@stubwise/shared";
 import { and, desc, eq, inArray, ne, or, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { IN_FLIGHT_JOB_STATUSES } from "./actions.js";
@@ -644,4 +661,224 @@ export async function cancelPendingCorrection(db: DbOrTx, pr: PrRef): Promise<st
       .returning({ id: prCorrections.id });
     return row?.id ?? null;
   });
+}
+
+/**
+ * Ripiego per una riga `ticket_repositories` senza `pr_number` (scritta da un
+ * worker precedente alla 0081 dopo il backfill). STESSA regex del backfill
+ * della 0081 (`/pull/N`, `/pull-requests/N`, `/pulls/N`; `parsePrNumberFromUrl`
+ * di @stubwise/git, di cui questo package non dipende, non conosce `/pulls/`):
+ * null se non combacia, mai un numero inventato.
+ */
+function prNumberFromUrl(prUrl: string): number | null {
+  const match = /\/pull(?:-requests|s)?\/(\d+)\b/.exec(prUrl);
+  if (!match) return null;
+  const n = Number(match[1]);
+  return Number.isInteger(n) ? n : null;
+}
+
+/** I fatti da cui si deriva lo stato: vedi la tabella di verità nel piano (Task A8). */
+export interface PrCycleFacts {
+  prOpen: boolean;
+  /** C'è una correzione `queued` sulla PR. */
+  correctionQueued: boolean;
+  /**
+   * C'è una correzione `pending` con `trigger='review'` sulla PR: un giro
+   * AUTOMATICO messo in fila perché un altro lavoro del ticket blocca. Si
+   * legge come correzione in arrivo (`correcting`), non come una richiesta
+   * umana in attesa.
+   */
+  autoCorrectionPending: boolean;
+  /** Review in coda (`pr_review_jobs`) o l'ultima non fallita è `running`. */
+  reviewInProgress: boolean;
+  /** L'ultima review `completed`. */
+  lastCompletedReview: {
+    verdict: "approve" | "request_changes" | null;
+    createdAt: Date;
+  } | null;
+  /** L'ultima correzione `done` e se il suo job è fallito. */
+  lastDoneCorrection: { createdAt: Date; jobFailed: boolean } | null;
+  round: number;
+  maxRounds: number;
+}
+
+/**
+ * La precedenza degli stati, PURA (tabella di verità del piano, Tappa A,
+ * Task A8). La prima regola che combacia vince:
+ *
+ * 1. PR aperta + correzione in corso (`queued`) o giro automatico in fila
+ *    (`pending` `review`) → `correcting`;
+ * 2. PR aperta + review in coda/in corso → `reviewing`;
+ * 3–4. l'ultima correzione chiusa è PIÙ RECENTE dell'ultima review: se il suo
+ *    job è fallito `correction_failed`, altrimenti `idle` (nessuno ha ancora
+ *    guardato la versione corretta);
+ * 5. nessuna review (o senza verdetto) → `idle`;
+ * 6. `approve` → `approved`;
+ * 7–9. `request_changes`: tetto 0 → `changes_requested`; round ≥ tetto →
+ *    `stopped_at_cap`; altrimenti `changes_requested`.
+ *
+ * Con la PR non aperta le regole 1–2 non si applicano: le correzioni aperte
+ * sono già annullate, e una review a metà non racconta più niente.
+ */
+export function resolvePrCycleState(f: PrCycleFacts): PrCycleState {
+  if (f.prOpen && (f.correctionQueued || f.autoCorrectionPending)) return "correcting";
+  if (f.prOpen && f.reviewInProgress) return "reviewing";
+  const review = f.lastCompletedReview;
+  const done = f.lastDoneCorrection;
+  if (done && (!review || done.createdAt > review.createdAt)) {
+    return done.jobFailed ? "correction_failed" : "idle";
+  }
+  if (!review || review.verdict === null) return "idle";
+  if (review.verdict === "approve") return "approved";
+  if (f.maxRounds > 0 && f.round >= f.maxRounds) return "stopped_at_cap";
+  return "changes_requested";
+}
+
+/**
+ * Il ciclo di UNA PR di un ticket, come la riga sotto la PR lo racconta (web e
+ * app lo LEGGONO dalla risposta del dettaglio ticket, non lo ricostruiscono).
+ * `null` = la PR non è di Stubwise (o non c'è ancora): niente ciclo, niente
+ * bottone. Sette letture per PR (riga del ticket, correzioni, due su
+ * `pr_reviews`, `pr_review_jobs`, job che blocca, giri della tornata): si
+ * chiama per ogni voce PR del dettaglio di UN ticket, non su liste.
+ *
+ * «Correzione più recente della review» (regole 3–4) confronta
+ * `pr_corrections.created_at`, cioè l'ora della RICHIESTA, non quella della
+ * chiusura (`updated_at` si sposta con `completeCorrection`). Caso limite
+ * accettato: una review creata MENTRE la correzione gira (sulla versione
+ * precedente al push) risulta più recente della correzione, e finché non
+ * arriva la review della versione nuova lo stato può mostrare quel verdetto
+ * stantio.
+ *
+ * `lastRequest.name` ha un ripiego (login ↔ email) e può essere `""`: una
+ * richiesta dal bottone il cui utente è stato cancellato (`requested_by_user_id`
+ * SET NULL) non ha né email né login. In quel caso il client omette «da X».
+ *
+ * Le `pending` si leggono per TRIGGER: una umana (`stubwise`/`provider`) è
+ * `pendingRequest` e `lastRequest`; una `review` è un giro automatico in fila
+ * (stato `correcting`, e conta già in `round`, come in
+ * {@link autoRoundsInCurrentSeries}).
+ */
+export async function derivePrCycle(
+  db: DbOrTx,
+  input: { ticketId: string; repositoryId: string },
+): Promise<PrCycle | null> {
+  const [tr] = await db
+    .select({
+      branch: ticketRepositories.branch,
+      prUrl: ticketRepositories.prUrl,
+      prState: ticketRepositories.prState,
+      prNumber: ticketRepositories.prNumber,
+      maxRounds: projects.prCorrectionMaxRounds,
+      provider: repositories.provider,
+      ticketNumber: tickets.number,
+    })
+    .from(ticketRepositories)
+    .innerJoin(tickets, eq(tickets.id, ticketRepositories.ticketId))
+    .innerJoin(projects, eq(projects.id, tickets.projectId))
+    .innerJoin(repositories, eq(repositories.id, ticketRepositories.repositoryId))
+    .where(
+      and(
+        eq(ticketRepositories.ticketId, input.ticketId),
+        eq(ticketRepositories.repositoryId, input.repositoryId),
+      ),
+    );
+  // Solo `stubwise/ticket-<N>` del TICKET stesso (STUBWISE_BRANCH_RE di
+  // @stubwise/shared, la regex unica del monorepo): è la condizione della rotta
+  // delle correzioni, quindi un ciclo mostrato è un bottone che funziona.
+  if (!tr || tr.prUrl === null || stubwiseTicketNumber(tr.branch) !== tr.ticketNumber) return null;
+  const prNumber = tr.prNumber ?? prNumberFromUrl(tr.prUrl);
+  if (prNumber === null) return null;
+  const pr: PrRef = { repositoryId: input.repositoryId, prNumber };
+
+  const corrections = await db
+    .select({
+      status: prCorrections.status,
+      trigger: prCorrections.trigger,
+      createdAt: prCorrections.createdAt,
+      updatedAt: prCorrections.updatedAt,
+      login: prCorrections.requestedByProviderLogin,
+      email: users.email,
+      jobStatus: aiJobs.status,
+    })
+    .from(prCorrections)
+    .leftJoin(users, eq(users.id, prCorrections.requestedByUserId))
+    .leftJoin(aiJobs, eq(aiJobs.correctionId, prCorrections.id))
+    .where(and(onPr(pr), ne(prCorrections.status, "cancelled")))
+    .orderBy(desc(prCorrections.createdAt), desc(prCorrections.id));
+
+  const reviewOnPr = and(
+    eq(prReviews.repositoryId, pr.repositoryId),
+    eq(prReviews.prNumber, pr.prNumber),
+  );
+  const [lastLive] = await db
+    .select({ status: prReviews.status })
+    .from(prReviews)
+    .where(and(reviewOnPr, inArray(prReviews.status, ["running", "completed"])))
+    .orderBy(desc(prReviews.createdAt))
+    .limit(1);
+  const [lastCompleted] = await db
+    .select({ verdict: prReviews.verdict, createdAt: prReviews.createdAt })
+    .from(prReviews)
+    .where(and(reviewOnPr, eq(prReviews.status, "completed")))
+    .orderBy(desc(prReviews.createdAt))
+    .limit(1);
+  const [reviewJob] = await db
+    .select({ id: prReviewJobs.id })
+    .from(prReviewJobs)
+    .where(
+      and(eq(prReviewJobs.repositoryId, pr.repositoryId), eq(prReviewJobs.prNumber, pr.prNumber)),
+    )
+    .limit(1);
+  // La regola del job che blocca è UNA (`jobBlocksCorrection`, `held` compreso):
+  // qui si riusa, mai si ricopia.
+  const jobBusy = await hasJobInFlight(db, input.ticketId);
+  const round = await autoRoundsInCurrentSeries(db, pr);
+
+  const isHuman = (t: PrCorrectionTrigger) => t === "stubwise" || t === "provider";
+  const prOpen = tr.prState === "open";
+  const queued = corrections.some((c) => c.status === "queued");
+  const autoPending = corrections.some((c) => c.status === "pending" && c.trigger === "review");
+  const done = corrections.find((c) => c.status === "done");
+  const human = corrections.find((c) => isHuman(c.trigger));
+
+  const state = resolvePrCycleState({
+    prOpen,
+    correctionQueued: queued,
+    autoCorrectionPending: autoPending,
+    reviewInProgress: reviewJob !== undefined || lastLive?.status === "running",
+    lastCompletedReview: lastCompleted ?? null,
+    lastDoneCorrection: done
+      ? { createdAt: done.createdAt, jobFailed: done.jobStatus === "failed" }
+      : null,
+    round,
+    maxRounds: tr.maxRounds,
+  });
+
+  return {
+    state,
+    round,
+    maxRounds: tr.maxRounds,
+    // Solo una PERSONA in attesa: un giro automatico in fila è `correcting`.
+    pendingRequest: corrections.some((c) => c.status === "pending" && isHuman(c.trigger)),
+    lastRequest: human
+      ? {
+          via: human.trigger === "provider" ? "provider" : "stubwise",
+          // La piattaforma è quella della repository: "Request changes" arriva
+          // solo dal provider che la ospita.
+          platform: human.trigger === "provider" ? tr.provider : null,
+          name:
+            (human.trigger === "provider"
+              ? (human.login ?? human.email)
+              : (human.email ?? human.login)) ?? "",
+          // L'ora della RICHIESTA: `updated_at` solo per una `pending` (la
+          // fusione la rinnova); su una chiusa si è spostato col push.
+          at: (human.status === "pending" ? human.updatedAt : human.createdAt).toISOString(),
+        }
+      : null,
+    // La stessa condizione per cui `enqueueCorrection` (trigger `stubwise`) NON
+    // rifiuterebbe: un bottone mostrato è un bottone che funziona. Una pending
+    // (umana o automatica) non toglie il bottone: il click vi si fonde.
+    canRequestCorrection: prOpen && !queued && !jobBusy,
+  };
 }
