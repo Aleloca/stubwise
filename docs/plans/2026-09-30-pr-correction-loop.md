@@ -8670,6 +8670,11 @@ una review: URL, titolo, corpo, branch, default branch e la head appena pushata
 anche `ticket_repositories.pr_number` (colonna della Tappa A), così il ciclo non
 deve più rileggere il numero dall'URL.
 
+> Sha: dentro la callback si legge con `git rev-parse HEAD` nel worktree (già
+> completo); `mirrors.resolveCommitSha` si chiama solo FUORI dalla callback di
+> `withProjectWorktrees`, perché fa `ensureMirror` (`fetch --prune`) e
+> cancellerebbe il ref del worktree aperto.
+
 **Files:**
 - Modify: `apps/worker/src/pipeline/fix.ts` — import (`@stubwise/git`, nuovo
   import di `enqueuePrReviewNow`); `interface ChangedRepo` (1182-1201); il ciclo
@@ -8976,7 +8981,7 @@ git commit -m "feat(worker): il fix accoda subito la review della PR e ne regist
 | env di test, install, self-repair, report, commit con esclusione degli env | `repo-steps.ts` (C3) |
 | plugin del progetto | `openRunPlugins`, come il fix: la correzione è un run di ESECUZIONE e sta nel perimetro plugin (CLAUDE.md, «Run col perimetro plugin»); `--setting-sources ""` arriva con le opzioni |
 | heartbeat | stessa forma del fix (`touchJob` ogni 60s dentro la callback) |
-| worktree | `withProjectWorktrees(..., { fromExistingBranch: true })` (C2), SOLO sul repo della PR |
+| worktree | `withProjectWorktrees(..., { fromExistingBranch: true })` (C2), SOLO sul repo della PR. Gli sha (`startSha`, `headSha`) si leggono con `git rev-parse HEAD` DENTRO la callback; `mirrors.resolveCommitSha` si chiama solo FUORI (fa `fetch --prune` e cancellerebbe il ref del worktree aperto) |
 | `ask_user` | **NO** — vedi sotto |
 | piano, `resolveFixMode`, `openPullRequest`, cambio di stato del ticket | **NO**: la PR esiste, il ticket resta `in_review` |
 
@@ -11384,7 +11389,8 @@ errore lascia una riga di log e non tocca la review già `completed`:
    sola. Senza account revisore: il commento di oggi.
 2. **Status di commit `stubwise-review`**, sempre, con l'account principale (è
    quello che ha scritto sul repo): `success` su approve, `failure` su
-   request_changes. Sha COMPLETO dal mirror (`resolveCommitSha`), perché
+   request_changes. Sha COMPLETO dal mirror (`resolveCommitSha`, chiamata
+   FUORI dalla callback di `withWorktreeAtSha`: fa `fetch --prune`), perché
    `pr_review_jobs.head_sha` di Bitbucket è abbreviato; `refname` = branch
    sorgente (senza, su Bitbucket lo status non si lega alla PR). Allo start
    della review, `runPrReview` mette `pending` («in corso»).
