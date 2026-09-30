@@ -246,7 +246,7 @@ describe("afterReviewCompleted — ciclo", () => {
     const open = await testDb.db.select().from(prCorrections).where(eq(prCorrections.status, "queued"));
     expect(open).toHaveLength(0);
     expect(f.events).toHaveLength(1);
-    expect(f.events[0]).toMatchObject({ kind: "review.completed", verdict: "request_changes", cycle: { round: 2, max: 2, stopped: true } });
+    expect(f.events[0]).toMatchObject({ kind: "review.completed", verdict: "request_changes", cycle: { round: 2, max: 2, stopped: true, stoppedReason: "cap" } });
   });
 
   it("una richiesta umana azzera il conteggio: sotto il tetto si riprende", async () => {
@@ -394,7 +394,7 @@ describe("afterReviewCompleted — ciclo", () => {
 
     expect(f.events).toHaveLength(2);
     for (const event of f.events) {
-      expect(event).toMatchObject({ kind: "review.completed", cycle: { round: 2, max: 2, stopped: true } });
+      expect(event).toMatchObject({ kind: "review.completed", cycle: { round: 2, max: 2, stopped: true, stoppedReason: "cap" } });
     }
   });
 
@@ -405,7 +405,7 @@ describe("afterReviewCompleted — ciclo", () => {
 
     await afterReviewCompleted(f.deps, input(s));
 
-    expect(f.events[0]).toMatchObject({ kind: "review.completed", cycle: { round: 3, max: 2, stopped: true } });
+    expect(f.events[0]).toMatchObject({ kind: "review.completed", cycle: { round: 3, max: 2, stopped: true, stoppedReason: "cap" } });
   });
 
   it("B al tetto mentre A corregge: nessuna pending, notifica di stop", async () => {
@@ -425,7 +425,7 @@ describe("afterReviewCompleted — ciclo", () => {
       .from(prCorrections)
       .where(and(eq(prCorrections.repositoryId, s.repositoryId), eq(prCorrections.prNumber, 12)));
     expect(onB.filter((r) => r.status === "pending" || r.status === "queued")).toHaveLength(0);
-    expect(f.events[0]).toMatchObject({ kind: "review.completed", cycle: { round: 2, max: 2, stopped: true } });
+    expect(f.events[0]).toMatchObject({ kind: "review.completed", cycle: { round: 2, max: 2, stopped: true, stoppedReason: "cap" } });
   });
 
   it("request_changes sotto il tetto con una pending su un'ALTRA PR: parte il giro automatico, la pending aspetta la sua fine", async () => {

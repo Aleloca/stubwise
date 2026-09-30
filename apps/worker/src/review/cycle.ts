@@ -4,6 +4,7 @@ import {
   projects,
   repositories,
   ticketRepositories,
+  tickets,
   type Db,
 } from "@stubwise/db";
 import { getProvider, STUBWISE_REVIEW_STATUS_KEY, type GitProvider } from "@stubwise/git";
@@ -13,9 +14,15 @@ import {
   cancelPendingCorrection,
   decryptGitCredentials,
   enqueueCorrection,
+  prHasOpenCorrection,
   promotePendingCorrection,
 } from "@stubwise/notifications";
-import { STUBWISE_BRANCH_RE, type GitProviderKind } from "@stubwise/shared";
+import {
+  STUBWISE_BRANCH_RE,
+  stubwiseTicketNumber,
+  type GitProviderKind,
+  type PrCycleEvent,
+} from "@stubwise/shared";
 import { and, eq, inArray } from "drizzle-orm";
 import type { MirrorManager, MirrorProject } from "../git/mirrors.js";
 import { notify, ticketUrl, type PublishFn } from "../pipeline/notify.js";
@@ -230,7 +237,7 @@ async function publishReview(deps: ReviewCycleDeps, input: AfterReviewCompletedI
   }
 }
 
-type CycleNotice = { notify: false } | { notify: true; cycle?: { round: number; max: number; stopped: boolean } };
+type CycleNotice = { notify: false } | { notify: true; cycle?: PrCycleEvent };
 
 /**
  * È una PR di Stubwise? Branch `stubwise/ticket-N` con N = il ticket che ospita
@@ -379,7 +386,7 @@ async function advanceCycle(db: Db, input: AfterReviewCompletedInput): Promise<C
     );
     return { notify: false };
   }
-  return { notify: true, cycle: { round, max, stopped: true } };
+  return { notify: true, cycle: { round, max, stopped: true, stoppedReason: "cap" } };
 }
 
 /**
@@ -467,6 +474,95 @@ export async function promotePendingAfterFailedReview(db: Db, job: PrReviewJobRo
   } catch (err) {
     console.error(
       `[stubwise-worker] pr-review: PR #${job.prNumber}: promozione della richiesta in attesa dopo una review fallita non riuscita (${errText(err)})`,
+    );
+  }
+}
+
+/**
+ * C10b — dentro una serie di correzioni automatiche una review FALLITA (partita
+ * e poi chiusa `failed`: errore dell'agente o del git, exit ≠ 0, costo oltre il
+ * tetto, output non parsabile, ticket non risolvibile, errore inatteso) spegne
+ * il ciclo: nessuna correzione automatica riparte da una review senza verdetto.
+ * Senza avviso si spegnerebbe IN SILENZIO. Si notifica allora `review.completed`
+ * — MAI un kind nuovo (un valore nuovo di `notification_kind` è la trappola del
+ * 500 su `/api/inbox` al rollback) — con `verdict: null` e `cycle.stoppedReason:
+ * "review_failed"`, agli stessi destinatari dello stop al tetto
+ * (`projectId`+`ticketId`, niente jobId).
+ *
+ * Solo se:
+ *  - la PR è di Stubwise per QUESTO ticket: branch `stubwise/ticket-N`, il
+ *    ticket N del progetto, e la riga `ticket_repositories` su quel repo e
+ *    branch (stessa prova di `isStubwisePr`; il ticket qui non è ancora stato
+ *    risolto da `resolveTicket`, che gira solo a parse riuscito);
+ *  - la serie corrente ha fatto almeno un giro automatico
+ *    (`autoRoundsInCurrentSeries > 0`): una review normale fallita resta
+ *    silenziosa come oggi. Una richiesta umana (anche `pending`) azzera già il
+ *    contatore, quindi in quel caso non si notifica;
+ *  - nessuna correzione è ancora aperta sulla PR (`pending`/`queued`, anche
+ *    appena promossa): lì il ciclo NON è fermo, qualcosa sta per ripartire.
+ *    Va quindi chiamata DOPO `promotePendingAfterFailedReview`.
+ *
+ * Il chiamante la invoca solo quando la chiusura `failed` è davvero sua (una
+ * riga già chiusa dal recovery non si ri-notifica) e MAI nel ramo del limite
+ * del provider: lì la review è riaccodata e ripartirà. Best-effort: un errore è
+ * una riga di log, mai rilanciato.
+ */
+export async function notifyCycleStoppedByFailedReview(
+  deps: ReviewCycleDeps,
+  input: { job: PrReviewJobRow; projectId: string; repositoryName: string },
+): Promise<void> {
+  const { job } = input;
+  const number = stubwiseTicketNumber(job.sourceBranch);
+  if (number === null) return;
+  try {
+    const [ticket] = await deps.db
+      .select({ id: tickets.id, number: tickets.number, title: tickets.title })
+      .from(tickets)
+      .innerJoin(
+        ticketRepositories,
+        and(
+          eq(ticketRepositories.ticketId, tickets.id),
+          eq(ticketRepositories.repositoryId, job.repositoryId),
+          eq(ticketRepositories.branch, job.sourceBranch),
+        ),
+      )
+      .where(and(eq(tickets.projectId, input.projectId), eq(tickets.number, number)))
+      .limit(1);
+    if (!ticket) return;
+    const where = { repositoryId: job.repositoryId, prNumber: job.prNumber };
+    const round = await autoRoundsInCurrentSeries(deps.db, where);
+    if (round === 0) return;
+    if (await prHasOpenCorrection(deps.db, where)) return;
+    const [project] = await deps.db
+      .select({ max: projects.prCorrectionMaxRounds })
+      .from(projects)
+      .where(eq(projects.id, input.projectId));
+    const max = project?.max ?? 0;
+    console.error(
+      `[stubwise-worker] pr-review: PR #${job.prNumber}: review fallita dopo ${round} correzioni automatiche, ciclo fermato (notifico)`,
+    );
+    await notify(
+      {
+        ...(deps.publicUrl !== undefined ? { publicUrl: deps.publicUrl } : {}),
+        projectName: input.repositoryName,
+        ...(deps.publish !== undefined ? { publish: deps.publish } : {}),
+      },
+      deps.db,
+      {
+        kind: "review.completed",
+        ticketNumber: ticket.number,
+        ticketTitle: ticket.title,
+        projectName: input.repositoryName,
+        ticketUrl: ticketUrl(deps.publicUrl, ticket.id),
+        prUrl: job.prUrl,
+        verdict: null,
+        cycle: { round, max, stopped: true, stoppedReason: "review_failed" },
+      },
+      { projectId: input.projectId, ticketId: ticket.id },
+    );
+  } catch (err) {
+    console.error(
+      `[stubwise-worker] pr-review: PR #${job.prNumber}: avviso del ciclo fermato dalla review fallita non pubblicato (${errText(err)})`,
     );
   }
 }

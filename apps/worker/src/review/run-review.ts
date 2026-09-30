@@ -38,6 +38,7 @@ import { isLimitError } from "../providers/limit.js";
 import { generatePrSummary } from "../summaries/pr-summary.js";
 import {
   afterReviewCompleted,
+  notifyCycleStoppedByFailedReview,
   promotePendingAfterFailedReview,
   resolveReviewSha,
   setReviewCommitStatus,
@@ -698,8 +699,14 @@ export async function runPrReview(
   // `pending` fino alla ripartenza. LIMITE: se il worker muore a review
   // partita, nessuno scrive l'esito — lo status resta `pending` fino al push
   // successivo (il recovery chiude la riga, ma non tocca la piattaforma).
+  //
+  // C10b: dentro una serie di correzioni automatiche la chiusura avvisa che il
+  // ciclo si è fermato (`notifyCycleStoppedByFailedReview`), DOPO la
+  // promozione — una richiesta umana appena partita vuol dire che il ciclo
+  // non è fermo — e solo se la chiusura è stata nostra.
   const failRunningAndPromote = async (error: string): Promise<void> => {
-    if (await failRunningReview(deps.db, reviewId, error)) {
+    const closed = await failRunningReview(deps.db, reviewId, error);
+    if (closed) {
       await setReviewCommitStatus(cycleDeps, {
         mirrorProject: ctx.mirrorProject,
         sha: fullSha,
@@ -709,6 +716,13 @@ export async function runPrReview(
       });
     }
     await promotePendingAfterFailedReview(deps.db, job);
+    if (closed) {
+      await notifyCycleStoppedByFailedReview(cycleDeps, {
+        job,
+        projectId: ctx.projectId,
+        repositoryName: ctx.repositoryName,
+      });
+    }
   };
 
   // Grafo del repository sul volume (fase 2d graphify): quando esiste, il

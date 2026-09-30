@@ -1091,6 +1091,159 @@ describe("runPrReview — review fallita e richiesta in attesa (E2)", () => {
   });
 });
 
+// C10b: dentro una serie di correzioni automatiche una review FALLITA spegne il
+// ciclo. Si avvisa con `review.completed` (mai un kind nuovo), verdetto nullo e
+// `cycle.stoppedReason: "review_failed"`; fuori serie, e sul limite del
+// provider (la review riparte), nessuna notifica.
+describe("runPrReview — review fallita dentro una serie automatica (C10b)", () => {
+  /**
+   * Ticket #5 con la PR 7 di Stubwise, tetto 3, e le correzioni già fatte
+   * sulla PR: `auto` giri automatici conclusi, più eventuali righe extra.
+   */
+  async function seriesPr(opts: { auto: number; extra?: { trigger: "review" | "stubwise"; status: "pending" | "queued" | "done" }[] }) {
+    const { projectId, repositoryId } = await createRepository(testDb.db);
+    await testDb.db.update(projects).set({ prCorrectionMaxRounds: 3 }).where(eq(projects.id, projectId));
+    const [ticket] = await testDb.db
+      .insert(tickets)
+      .values({ projectId, number: 5, title: "Bug", type: "bug", priority: "high", source: "manual" })
+      .returning();
+    await testDb.db.insert(ticketRepositories).values({
+      ticketId: ticket!.id,
+      repositoryId,
+      branch: "stubwise/ticket-5",
+      prUrl: "https://example.com/owner/repo/pull/7",
+      prState: "open",
+      prNumber: 7,
+    });
+    const rows = [
+      ...Array.from({ length: opts.auto }, () => ({ trigger: "review" as const, status: "done" as const })),
+      ...(opts.extra ?? []),
+    ];
+    for (const row of rows) {
+      await testDb.db
+        .insert(prCorrections)
+        .values({ ticketId: ticket!.id, repositoryId, prNumber: 7, trigger: row.trigger, status: row.status });
+    }
+    return { projectId, repositoryId, ticketId: ticket!.id };
+  }
+
+  const reviewEvents = (fakes: ReturnType<typeof makeFakes>) =>
+    fakes.dispatched.filter((d) => d.event.kind === "review.completed");
+
+  it("fallita dentro una serie (output non parsabile): una notifica, verdetto nullo, ciclo fermato dalla review", async () => {
+    const pr = await seriesPr({ auto: 2 });
+    await enableReview(testDb.db);
+    const fakes = makeFakes();
+    fakes.runner.run.mockResolvedValue(makeRunResult({ output: "nessun JSON qui" }));
+
+    await runClaimed(fakes.deps, makeJob(pr.repositoryId, { sourceBranch: "stubwise/ticket-5" }));
+
+    const events = reviewEvents(fakes);
+    expect(events).toHaveLength(1);
+    expect(events[0]!.event).toMatchObject({
+      kind: "review.completed",
+      ticketNumber: 5,
+      ticketTitle: "Bug",
+      prUrl: "https://example.com/owner/repo/pull/7",
+      verdict: null,
+      cycle: { round: 2, max: 3, stopped: true, stoppedReason: "review_failed" },
+    });
+    // Stessi destinatari dello stop al tetto: progetto + ticket, niente jobId.
+    expect(events[0]!.opts).toEqual({ projectId: pr.projectId, ticketId: pr.ticketId });
+    const [review] = await testDb.db.select().from(prReviews).where(eq(prReviews.repositoryId, pr.repositoryId));
+    expect(review!.status).toBe("failed");
+  });
+
+  it("fallita dentro una serie (exit ≠ 0): stessa notifica", async () => {
+    const pr = await seriesPr({ auto: 1 });
+    await enableReview(testDb.db);
+    const fakes = makeFakes();
+    fakes.runner.run.mockResolvedValue(makeRunResult({ output: "API error", exitCode: 1 }));
+
+    await runClaimed(fakes.deps, makeJob(pr.repositoryId, { sourceBranch: "stubwise/ticket-5" }));
+
+    const events = reviewEvents(fakes);
+    expect(events).toHaveLength(1);
+    expect(events[0]!.event).toMatchObject({
+      verdict: null,
+      cycle: { round: 1, max: 3, stopped: true, stoppedReason: "review_failed" },
+    });
+  });
+
+  it("fallita FUORI serie (nessun giro automatico): nessuna notifica, come oggi", async () => {
+    const pr = await seriesPr({ auto: 0 });
+    await enableReview(testDb.db);
+    const fakes = makeFakes();
+    fakes.runner.run.mockResolvedValue(makeRunResult({ output: "nessun JSON qui" }));
+
+    await runClaimed(fakes.deps, makeJob(pr.repositoryId, { sourceBranch: "stubwise/ticket-5" }));
+
+    expect(fakes.dispatched).toHaveLength(0);
+  });
+
+  it("serie azzerata da una richiesta umana dopo i giri automatici: nessuna notifica", async () => {
+    const pr = await seriesPr({ auto: 2, extra: [{ trigger: "stubwise", status: "done" }] });
+    await enableReview(testDb.db);
+    const fakes = makeFakes();
+    fakes.runner.run.mockResolvedValue(makeRunResult({ output: "nessun JSON qui" }));
+
+    await runClaimed(fakes.deps, makeJob(pr.repositoryId, { sourceBranch: "stubwise/ticket-5" }));
+
+    expect(fakes.dispatched).toHaveLength(0);
+  });
+
+  it("dentro una serie ma con un giro automatico ancora in fila: il ciclo non è fermo, nessuna notifica", async () => {
+    const pr = await seriesPr({ auto: 1, extra: [{ trigger: "review", status: "pending" }] });
+    await enableReview(testDb.db);
+    const fakes = makeFakes();
+    fakes.runner.run.mockResolvedValue(makeRunResult({ output: "nessun JSON qui" }));
+
+    await runClaimed(fakes.deps, makeJob(pr.repositoryId, { sourceBranch: "stubwise/ticket-5" }));
+
+    expect(fakes.dispatched).toHaveLength(0);
+  });
+
+  it("limite del provider dentro una serie (review riaccodata): nessuna notifica", async () => {
+    const pr = await seriesPr({ auto: 2 });
+    await enableReview(testDb.db);
+    const fakes = makeFakes();
+    fakes.runner.run.mockResolvedValue(makeRunResult({ output: "API error: rate limit reached", exitCode: 1 }));
+
+    await runClaimed(fakes.deps, makeJob(pr.repositoryId, { sourceBranch: "stubwise/ticket-5" }));
+
+    expect(fakes.dispatched).toHaveLength(0);
+    expect(await testDb.db.select().from(prReviewJobs).where(eq(prReviewJobs.repositoryId, pr.repositoryId))).toHaveLength(1);
+  });
+
+  it("stessa PR con un branch che non è di Stubwise: nessuna notifica", async () => {
+    const pr = await seriesPr({ auto: 2 });
+    await enableReview(testDb.db);
+    const fakes = makeFakes();
+    fakes.runner.run.mockResolvedValue(makeRunResult({ output: "nessun JSON qui" }));
+
+    await runClaimed(fakes.deps, makeJob(pr.repositoryId, { sourceBranch: "feature/login" }));
+
+    expect(fakes.dispatched).toHaveLength(0);
+  });
+
+  it("riga già chiusa dal recovery mentre girava: nessuna notifica (la chiusura non è nostra)", async () => {
+    const pr = await seriesPr({ auto: 2 });
+    await enableReview(testDb.db);
+    const fakes = makeFakes();
+    fakes.runner.run.mockImplementation(async () => {
+      await testDb.db
+        .update(prReviews)
+        .set({ status: "failed", error: "recovery" })
+        .where(eq(prReviews.repositoryId, pr.repositoryId));
+      return makeRunResult({ output: "nessun JSON qui" });
+    });
+
+    await runClaimed(fakes.deps, makeJob(pr.repositoryId, { sourceBranch: "stubwise/ticket-5" }));
+
+    expect(fakes.dispatched).toHaveLength(0);
+  });
+});
+
 describe("runPrReview — grafo del codice (fase 2d graphify)", () => {
   let graphsDir: string;
 
