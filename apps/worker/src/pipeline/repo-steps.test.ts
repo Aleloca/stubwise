@@ -2,13 +2,15 @@ import type { Db } from "@stubwise/db";
 import { startTestDb, type TestDb } from "@stubwise/db/testing";
 import { execa } from "execa";
 import { randomBytes, randomUUID } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   BudgetExceededError,
+  commitAsStubwise,
   newRepoState,
+  REPORT_EXCLUDE_PATHSPEC,
   runSelfRepairLoop,
   type RepoStepsDeps,
   type TestRunResult,
@@ -86,5 +88,66 @@ describe("runSelfRepairLoop", () => {
     await expect(loop).rejects.toBeInstanceOf(BudgetExceededError);
     expect(runTestCommand).toHaveBeenCalledTimes(1);
     expect(repair).not.toHaveBeenCalled();
+  });
+});
+
+describe("commitAsStubwise: il report non finisce mai in un commit", () => {
+  /** Un repo git REALE con un commit iniziale, così `git show` ha una base. */
+  async function repoForCommit(): Promise<string> {
+    const dir = await mkdtemp(join(tmpdir(), "repo-steps-commit-"));
+    await execa("git", ["init", "-q"], { cwd: dir });
+    await writeFile(join(dir, "app.js"), "export const x = 1;\n");
+    await execa("git", ["add", "-A"], { cwd: dir });
+    await execa(
+      "git",
+      ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "init"],
+      { cwd: dir },
+    );
+    return dir;
+  }
+
+  async function committedFiles(dir: string): Promise<string[]> {
+    const { stdout } = await execa("git", ["show", "--name-only", "--format=", "HEAD"], { cwd: dir });
+    return stdout.split("\n").filter((l) => l !== "").sort();
+  }
+
+  const repo = { repositoryId: randomUUID(), name: "r", installCommand: null, testCommand: null };
+
+  it("il pathspec è UNO, condiviso con lo stage: STUBWISE_REPORT* a ogni profondità, senza maiuscole", () => {
+    expect(REPORT_EXCLUDE_PATHSPEC).toBe(":(exclude,icase,glob)**/STUBWISE_REPORT*");
+  });
+
+  for (const [label, reportPath] of [
+    ["il nome esatto nella radice del repo", "STUBWISE_REPORT.md"],
+    ["minuscolo nella radice del repo", "stubwise_report.md"],
+    ["in una sottocartella", "docs/STUBWISE_REPORT.md"],
+    ["con un suffisso scelto dall'agente", "STUBWISE_REPORT-final.md"],
+  ] as const) {
+    it(`un report scritto per errore dentro il repo non entra nel commit: ${label}`, async () => {
+      const dir = await repoForCommit();
+      try {
+        await writeFile(join(dir, "app.js"), "export const x = 2;\n");
+        await mkdir(join(dir, "docs"), { recursive: true });
+        await writeFile(join(dir, reportPath), "## Report\n");
+        await commitAsStubwise(newRepoState(repo, dir), "fix: x");
+        // Il file normale entra, il report no (e resta lì, non tracciato).
+        expect(await committedFiles(dir)).toEqual(["app.js"]);
+        const { stdout } = await execa("git", ["status", "--porcelain"], { cwd: dir });
+        expect(stdout).toContain(reportPath.split("/")[0]);
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+  }
+
+  it("un file che contiene il nome ma non comincia così entra, come ogni altro", async () => {
+    const dir = await repoForCommit();
+    try {
+      await writeFile(join(dir, "MY_STUBWISE_REPORT.md"), "x\n");
+      await commitAsStubwise(newRepoState(repo, dir), "fix: x");
+      expect(await committedFiles(dir)).toEqual(["MY_STUBWISE_REPORT.md"]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });

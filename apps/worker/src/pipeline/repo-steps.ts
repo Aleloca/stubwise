@@ -281,6 +281,17 @@ export async function materializeEnvAndInstall<R extends RepoStepsRepo>(
 }
 
 /**
+ * Esclusione del report da OGNI `git add`/`status` di un worktree. Il report
+ * va scritto nella radice della cartella del run, FUORI dai worktree; ma un
+ * agente può scriverlo per errore dentro il repo, anche in una sottocartella o
+ * con un nome suo (`stubwise_report.md`, `STUBWISE_REPORT-final.md`). Il
+ * pathspec copre `STUBWISE_REPORT*` a ogni profondità (`glob`: `**\/` vale anche
+ * per zero cartelle) senza distinguere maiuscole (`icase`). Nessun altro file è
+ * escluso: `MY_STUBWISE_REPORT.md` entra come ogni file normale.
+ */
+export const REPORT_EXCLUDE_PATHSPEC = `:(exclude,icase,glob)**/${REPORT_FILENAME.replace(/\.md$/, "")}*`;
+
+/**
  * Stage di TUTTI i worktree (escludendo report + env), poi ritorna quali
  * repo hanno effettivamente un diff. È il "il repo ha modifiche?" del
  * multi-repo: si guarda `git status --porcelain` in OGNI sottocartella,
@@ -297,7 +308,7 @@ async function stageAndDetectChanged<R extends RepoStepsRepo>(
       "-A",
       "--",
       ".",
-      `:(exclude)${REPORT_FILENAME}`,
+      REPORT_EXCLUDE_PATHSPEC,
       ...state.envExcludePathspecs,
     ]);
     const status = await gitIn(state.dir, [
@@ -305,7 +316,7 @@ async function stageAndDetectChanged<R extends RepoStepsRepo>(
       "--porcelain",
       "--",
       ".",
-      `:(exclude)${REPORT_FILENAME}`,
+      REPORT_EXCLUDE_PATHSPEC,
       ...state.envExcludePathspecs,
     ]);
     if (status.trim() !== "") {
@@ -456,12 +467,14 @@ export async function readAndRemoveReport(parentDir: string): Promise<string | n
 }
 
 /** Commit del worktree con l'identità di Stubwise (autore Stubwise AI), env
- * materializzati esclusi dal `git add` (SAFEGUARD anti-leak). */
+ * materializzati esclusi dal `git add` (SAFEGUARD anti-leak) e report escluso
+ * (`REPORT_EXCLUDE_PATHSPEC`): il commit non dipende dal fatto che il chiamante
+ * abbia già fatto lo stage con `stageAndDetectChanged`. */
 export async function commitAsStubwise<R extends RepoStepsRepo>(
   state: RepoState<R>,
   message: string,
 ): Promise<void> {
-  await gitIn(state.dir, ["add", "-A", "--", ".", ...state.envExcludePathspecs]);
+  await gitIn(state.dir, ["add", "-A", "--", ".", REPORT_EXCLUDE_PATHSPEC, ...state.envExcludePathspecs]);
   await gitIn(state.dir, [
     "-c",
     "user.name=Stubwise AI",

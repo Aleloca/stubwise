@@ -9813,6 +9813,26 @@ pnpm --filter @stubwise/worker exec vitest run src/pipeline/correction.test.ts
 ```
 Atteso: FAIL (modulo inesistente).
 
+**Step 2b — il prompt di riparazione della correzione (review di C5, 30 set
+2026).** Lo snippet dello Step 3 riusa `buildFixRepairPrompt`, che dice due
+cose FALSE per una correzione: scrive il report «at the repository root»
+(nella correzione la cwd è la cartella del run, il repo è `./<dir>/`, e il
+report va nella radice della cartella del run, NON dentro il repo — come dice
+`buildCorrectionPrompt`) e dice che il report «becomes the body of the pull
+request» (nella correzione la PR esiste già: il report diventa il commento sul
+ticket). Prima dello Step 3: aggiungi a `prompts.ts` una variante per la
+correzione (`buildCorrectionRepairPrompt`, stessa cornice e stesso blocco
+`<test_failure>` non fidato) oppure un parametro di `buildFixRepairPrompt` che
+cambi quelle due frasi senza toccare il testo del fix; un test puro per
+ciascuna delle due frasi (presente nel fix, assente nella correzione) e il
+test del fix che resta verde. Lo Step 3 chiama quella, non
+`buildFixRepairPrompt` nudo. Nota: dal commit «il report non finisce mai in un
+commit» `commitAsStubwise` esclude comunque `STUBWISE_REPORT*` a ogni
+profondità (`REPORT_EXCLUDE_PATHSPEC` in `repo-steps.ts`), quindi un report
+scritto per errore dentro il repo non entra nella PR — ma non verrebbe
+nemmeno letto da `readAndRemoveReport`, che guarda la radice del run: il
+prompt deve dire il posto giusto.
+
 **Step 3a — `completeJob`/`failJob` dentro una transazione.** In
 `apps/worker/src/queue.ts`, dopo `export type AiJob = ...`:
 
