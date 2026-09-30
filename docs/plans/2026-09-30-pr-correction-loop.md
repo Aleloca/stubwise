@@ -94,6 +94,9 @@ silenzio: fermati e segnalalo.
 - La coda di rilascio NON conta lo status `stubwise-review` fra i check (D10):
   il verdetto sta già nella sua colonna `reviewVerdict`. L'obbligo della review
   per il merge vale solo nelle regole del branch sulla piattaforma.
+- La coda di rilascio ignora le review IN ATTESA (D10): con la riga
+  `pr_reviews` che nasce al claim (C10) una PR esterna sparirebbe dalla coda, e
+  una interna perderebbe il verdetto, per tutta l'attesa nel serializer.
 
 ### DB — migrazione `0081_pr_corrections` (additiva, nessun ALTER TYPE, un batch)
 
@@ -461,6 +464,10 @@ Contratto aggiunto con i fix della revisione di fine tappa B:
 - `repositories`: campo `reviewGitAccountId` (create/update/risposta).
 - `projects`: campo `prCorrectionMaxRounds` (update/risposta, solo admin).
 - script `apps/server/scripts/resync-webhooks.ts` → `dist/scripts/resync-webhooks.js` (`--dry-run`).
+- `services/release.ts`, `listReleaseQueue` (D10, firma e risposta invariate):
+  i candidati esterni (`latestExternalReviews`, `DISTINCT ON`) si scelgono solo
+  fra le review con `ticket_id` non null; il verdetto delle PR interne
+  (`reviewRows`/`reviewByKey`) solo fra le review `completed`, la più recente.
 
 ### Client
 
@@ -487,7 +494,7 @@ interno non è quello numerico è scritto esplicitamente.
 | **A — dati** (11) | A1 → **A3** → A2 → A4 → A5 → A6 → A7 → A8 → **A8b** → **A8c** → A9 | — | A2 importa i tipi che nascono in A3. A8b (identità e fotografia, ex D1) sta in A perché C lo importa. A8c (riconciliazione delle correzioni orfane) aggiunto dal coordinatore: il tick di C9 lo chiama. A9 esporta tutto e builda. |
 | **B — provider git** (14) | B1 → B2 … B12 → B13 → B14 | A3 (+ build di `@stubwise/shared`: B1 importa `PrComment` da lì) | B14 è manuale (chiamate vere, niente commit): si fa quando ci sono le credenziali, al più tardi prima del merge. |
 | **C — worker** (13) | C1 → C2 → C3 → C4 → C5 → C6 → C7 → C8 → C9 → C10 → C11 → C12 → C13 | A9, B13 | C4 dopo C3; C7 dopo C2, C3, C6; C8 dopo C1–C6 (Step 3a tocca `queue.ts`); C9 e C11 dopo C8; C10 dopo C1, C2, C6; C12 dopo C7–C10; C13 dopo C5 (scenario golden, manuale). |
-| **D — server** (11) | D1 → D2 → D3 → D4 → D5 → D6 → D7 → D8 → D9 → D10 → D11 | A9, B13 | D10 (filtro di `stubwise-review` nei check Bitbucket) tocca solo `packages/git`: può anche andare subito dopo B13. |
+| **D — server** (11) | D1 → D2 → D3 → D4 → D5 → D6 → D7 → D8 → D9 → D10 → D11 | A9, B13 | D10 ha due parti: il filtro di `stubwise-review` nei check Bitbucket (`packages/git`, può andare anche subito dopo B13) e la coda di rilascio che ignora le review in attesa (`apps/server/src/services/release.ts`, spostata qui da C10: serve la colonna `started_at` di A1/A2). Server e worker si deployano insieme e il branch non si mergia a metà, quindi C10 senza questa parte non va mai in produzione. |
 | **E — web** (8) | E1 → E2 → E3 → E4 → E5 → E6 → E7 → E8 | D5, D6 (E6 anche D7, E7 anche D8) | E8 lancia gli E2E. |
 | **F — app** (7) | F1 → F2 → F3 → F4 → F5 → F6 → F7 | D5, D6 | F1 aggiunge `requestCorrection` a `packages/api-client` (il web usa il suo wrapper, E1). F7 è la prova sul telefono. |
 | **G — documentazione** (3) | G1, G2, G3 | tutte le altre | G2 allinea le etichette dei form a quelle di E2. |
@@ -609,8 +616,10 @@ nessuna riga diceva che la review c'era, e il ciclo della PR si leggeva `idle`.
   funzione non cambia).
 - **C10**: claim + riga in attesa in una transazione, riuso della riga in
   `runPrReview` con `started_at = now()` alla partenza, `dropIfNeverStarted`
-  dopo il run, recovery solo sulle partite, `requeueWaitingReviews` all'avvio,
-  correzione di `listReleaseQueue`. Vedi «La review esiste dal claim» in C10.
+  dopo il run, recovery solo sulle partite, `requeueWaitingReviews` all'avvio.
+  Vedi «La review esiste dal claim» in C10.
+- **D10**: la correzione di `listReleaseQueue` (una review in attesa non
+  nasconde la PR né il suo verdetto), spostata qui da C10 dal coordinatore.
   Rispetto a **E2**: «un'uscita terminale che ha già una riga `pr_reviews`» vuol
   dire ora una riga chiusa `failed` (`failWaitingReview`/`failRunningReview`) o
   con verdetto nullo — NON le uscite silenziose, la cui riga in attesa il
@@ -12164,17 +12173,11 @@ ATTESA nel serializer»). Attenzione: `canRequestCorrection` NON dipende da
 `reviewing` (è la condizione di `enqueueCorrection` per il bottone): durante la
 review il bottone resta, come oggi. La tab Review del progetto
 (`listProjectReviews`) mostra la riga in attesa come `running` — accettato: la
-review è stata presa in carico. `listReleaseQueue`
-(`apps/server/src/services/release.ts`, `latestExternalReviews`, `DISTINCT ON`
-sulla più recente per PR) scarta la PR esterna finché la sua review più recente
-ha `ticketId` null: lo faceva già durante il run, ora lo fa per tutta
-l'attesa — **da correggere in questo task**: la `DISTINCT ON` guarda solo le
-righe con `ticket_id IS NOT NULL` (una review in attesa o in corso non nasconde
-più il ticket della precedente); e `reviewByKey` accanto (una `Map` costruita da
-righe NON ordinate) passa a guardare solo le `completed`, altrimenti una riga
-in attesa col `verdict` null può coprire il verdetto vero. `resolveTicket`
-(`run-review.ts`), `inbox.ts` e `release.ts:165` filtrano per `ticketId` non
-null o per `ticket_id =`, che una riga in attesa non ha: invariati.
+review è stata presa in carico. La coda di rilascio (`listReleaseQueue`,
+che prende l'ULTIMA review per PR): vedi D10 — la correzione sta lì, NON in
+questo task. `resolveTicket` (`run-review.ts`), `inbox.ts` e `release.ts:165`
+filtrano per `ticketId` non null o per `ticket_id =`, che una riga in attesa
+non ha: invariati.
 `project-timeline.ts` guarda solo le `completed`: invariato.
 `pr_corrections.review_id` non può puntare a una riga in attesa:
 `enqueueCorrection` usa `input.reviewId` (lo passa solo `afterReviewCompleted`,
@@ -12199,9 +12202,7 @@ DOPO la transazione che rende `completed` la review) o
   esistente (la riga stantia deve essere PARTITA), test nuovi.
 - Modify: `apps/worker/src/index.ts` — `await requeueWaitingReviews(db)` prima
   del primo poller.
-- Modify: `apps/server/src/services/release.ts` (+ `release.test.ts`) —
-  `latestExternalReviews` solo sulle righe con ticket, `reviewByKey` solo sulle
-  `completed`.
+- La coda di rilascio (`apps/server/src/services/release.ts`): vedi D10.
 
 **Step 1 — test che falliscono.** `apps/worker/src/review/cycle.test.ts`:
 
@@ -13748,15 +13749,7 @@ if (requeuedReviews > 0) {
 }
 ```
 
-In `release.ts` (`listReleaseQueue`): `latestExternalReviews` aggiunge
-`.where(isNotNull(prReviews.ticketId))` prima dell'`orderBy` (la `DISTINCT ON`
-prende la più recente CON ticket: una review in attesa o in corso non nasconde
-più la PR esterna — il filtro `c.ticketId === null` sotto resta come difesa),
-e la query di `reviewRows` aggiunge `eq(prReviews.status, "completed")` e
-ordina per `createdAt` ascendente (nella `Map` vince l'ultima, cioè la
-completata più recente). Test in `release.test.ts`: una PR esterna con una
-review completata col ticket e una più recente in attesa (ticket null) resta
-in coda di rilascio.
+La coda di rilascio: vedi D10.
 
 Ultimo, il docblock del modulo: i punti 13-14 diventano
 
@@ -13777,7 +13770,6 @@ e dopo il punto 3 aggiungi `* 3-bis. guardia anti-doppione sulla stessa head (ve
 ```bash
 pnpm --filter @stubwise/worker exec tsc --noEmit
 pnpm --filter @stubwise/worker exec vitest run src/review/cycle.test.ts src/review/run-review.test.ts src/review/poller.test.ts
-pnpm --filter @stubwise/server exec vitest run src/services/release.test.ts
 ```
 Atteso: PASS. Trappola (c) sulla review in attesa: togli temporaneamente
 `isNotNull(prReviews.startedAt)` dal recovery — il test «una review IN ATTESA
@@ -13790,7 +13782,7 @@ correzione accodata, nessuna notifica); rimetti com'era.
 **Step 5 — commit.**
 
 ```bash
-git add apps/worker/src/review/cycle.ts apps/worker/src/review/cycle.test.ts apps/worker/src/review/run-review.ts apps/worker/src/review/run-review.test.ts apps/worker/src/review/poller.ts apps/worker/src/review/poller.test.ts apps/worker/src/index.ts apps/server/src/services/release.ts apps/server/src/services/release.test.ts
+git add apps/worker/src/review/cycle.ts apps/worker/src/review/cycle.test.ts apps/worker/src/review/run-review.ts apps/worker/src/review/run-review.test.ts apps/worker/src/review/poller.ts apps/worker/src/review/poller.test.ts apps/worker/src/index.ts
 git commit -m "feat(worker): ciclo review → correzione, account revisore e status di commit della review"
 ```
 
@@ -19176,7 +19168,14 @@ git commit -m "feat(server): script una tantum che riallinea i webhook ai due ev
 
 ---
 
-### Task D10: la coda di rilascio non conta lo status `stubwise-review` fra i check
+### Task D10: la coda di rilascio non conta lo status `stubwise-review` fra i check, e non si perde una PR per una review in attesa
+
+Due parti, due commit: il filtro dello status nei check Bitbucket (Step 1-3,
+`packages/git`) e la coda che ignora le review in attesa (Step 4-6,
+`apps/server/src/services/release.ts`). La seconda era in C10: il coordinatore
+l'ha spostata qui, nel task che tocca già la coda di rilascio — server e worker
+si deployano insieme e il branch non si mergia a metà, quindi C10 non va mai in
+produzione senza di lei.
 
 **Cosa succede oggi, letto nel codice.** La coda di rilascio
 (`apps/server/src/services/release.ts`) chiede a
@@ -19210,6 +19209,10 @@ scrivesse.
 **Files:**
 - Modify: `packages/git/src/bitbucket.ts` (`getPullRequestChecks`)
 - Modify: `packages/git/src/bitbucket.test.ts`
+- Modify: `apps/server/src/services/release.ts` (`listReleaseQueue`: `reviewRows`,
+  `latestExternalReviews`)
+- Modify: `apps/server/src/routes/release.test.ts` (i test della coda stanno
+  qui: `services/release.test.ts` non esiste)
 
 **Step 1: test che fallisce** — in `packages/git/src/bitbucket.test.ts`,
 dentro `describe("BitbucketProvider.getPullRequestChecks", ...)`:
@@ -19292,6 +19295,231 @@ git commit -m "fix(git): lo status della review di Stubwise non conta fra i chec
 ```
 
 Atteso: PASS.
+
+**Parte 2 — la review in attesa (spostata da C10).**
+
+**Cosa succede, letto nel codice.** `listReleaseQueue` legge `pr_reviews` in
+due punti, ed entrambi prendono «l'ultima review» senza guardarne lo stato:
+
+- **PR esterne** (`latestExternalReviews`): `selectDistinctOn([repositoryId,
+  prNumber])` ordinato per `desc(createdAt)` → la più recente per PR, poi
+  `externalCandidates` scarta chi ha `ticketId === null` («capita solo quando
+  l'ULTIMA review di quel PR non è andata a buon fine»). Dal C10 la più recente
+  è la riga `running` IN ATTESA creata al claim, che il ticket non ce l'ha
+  (lo risolve `runPrReview` alla fine): la PR **sparisce dalla coda** per tutta
+  l'attesa nel serializer (fino a ~139' dietro un fix) più il run. Lo faceva
+  già durante il run; C10 allunga la finestra a ore.
+- **PR interne** (`reviewRows` → `reviewByKey`): tutte le review con quel
+  `prUrl`, senza ordine né filtro di stato, in una `Map` dove vince l'ULTIMA
+  riga restituita — in un ordine che Postgres non garantisce. Una riga in
+  attesa (`verdict` null) può quindi **coprire il verdetto** della review
+  completata, e la colonna resta vuota per ore.
+
+**Regola.** I candidati esterni si scelgono solo fra le righe CON ticket (la
+riga in attesa o in corso non ha ticket: la `DISTINCT ON` ricade sulla
+precedente, che il ticket ce l'ha); il verdetto delle PR interne si legge solo
+dalle `completed`, la più recente. Una PR interna la cui unica review è in
+attesa resta in coda (la tiene `ticket_repositories`, non `pr_reviews`) senza
+verdetto: non sparisce.
+
+**Step 4: test che falliscono** — in `apps/server/src/routes/release.test.ts`,
+dentro `describe("GET /api/release-queue", ...)`; l'helper sta accanto a
+`seedExternalPr` (la colonna `startedAt` c'è già dalla Tappa A):
+
+```ts
+/**
+ * La riga `pr_reviews` che il poller crea al CLAIM (C10): `running`,
+ * `started_at` null, NESSUN ticket (lo risolve `runPrReview` alla fine),
+ * nessun verdetto. `createdAt` esplicito e DOPO quello della review completata:
+ * col default `now()` due insert ravvicinati possono avere lo stesso istante, e
+ * il test non riprodurrebbe la condizione del difetto («la più recente è quella
+ * in attesa») — vedi la trappola (c) del mutation testing in CLAUDE.md.
+ */
+async function seedWaitingReview(input: { repositoryId: string; prNumber: number; prUrl: string }) {
+  await testDb.db.insert(prReviews).values({
+    repositoryId: input.repositoryId,
+    ticketId: null,
+    prNumber: input.prNumber,
+    prUrl: input.prUrl,
+    prTitle: "Fix in attesa di review",
+    headSha: "waitingsha456",
+    status: "running",
+    startedAt: null,
+    verdict: null,
+    createdAt: new Date(Date.now() + 60_000),
+  });
+}
+```
+
+```ts
+  it("una review IN ATTESA (senza ticket) dopo una completata: la PR esterna resta in coda col verdetto della completata", async () => {
+    const { ticketId, repositoryId, prNumber, prUrl } = await seedExternalPr({
+      prNumber: 301,
+      verdict: "request_changes",
+    });
+    await seedWaitingReview({ repositoryId, prNumber, prUrl });
+    const detailUrl = `https://api.github.com/repos/acme/demo-shop/pulls/${prNumber}`;
+    const checksUrl = `https://api.github.com/repos/acme/demo-shop/commits/extheadsha/check-runs?per_page=100`;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = init?.method ?? "GET";
+        if (url === detailUrl && method === "GET") {
+          return Promise.resolve(
+            new Response(JSON.stringify({ state: "open", head: { sha: "extheadsha" } }), { status: 200 }),
+          );
+        }
+        if (url === checksUrl && method === "GET") {
+          return Promise.resolve(new Response(JSON.stringify({ check_runs: [] }), { status: 200 }));
+        }
+        return Promise.resolve(new Response("", { status: 404 }));
+      }),
+    );
+
+    const res = await app.inject({ method: "GET", url: "/api/release-queue", headers: { cookie: adminCookie } });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as {
+      items: { ticketId: string; repositoryId: string; origin: string; reviewVerdict: string | null }[];
+    };
+    const item = body.items.find((i) => i.ticketId === ticketId && i.repositoryId === repositoryId);
+    expect(item).toBeDefined();
+    expect(item!.origin).toBe("external");
+    expect(item!.reviewVerdict).toBe("request_changes");
+  });
+
+  it("una review IN ATTESA dopo una completata: la PR interna tiene il verdetto della completata", async () => {
+    const { ticketId, repositoryId } = await seedOpenPr();
+    await testDb.db.insert(prReviews).values({
+      repositoryId,
+      ticketId,
+      prNumber: 42,
+      prUrl: PR_URL,
+      prTitle: "Fix the bug",
+      headSha: "headsha123",
+      status: "completed",
+      verdict: "request_changes",
+      prSummary: "Manca il test del totale.",
+    });
+    await seedWaitingReview({ repositoryId, prNumber: 42, prUrl: PR_URL });
+    vi.stubGlobal("fetch", greenFetch());
+
+    const res = await app.inject({ method: "GET", url: "/api/release-queue", headers: { cookie: adminCookie } });
+
+    const body = res.json() as {
+      items: { ticketId: string; repositoryId: string; reviewVerdict: string | null; reviewSummary: string | null }[];
+    };
+    const item = body.items.find((i) => i.ticketId === ticketId && i.repositoryId === repositoryId);
+    expect(item).toBeDefined();
+    expect(item!.reviewVerdict).toBe("request_changes");
+    expect(item!.reviewSummary).toBe("Manca il test del totale.");
+  });
+
+  it("nessuna review completata, solo una IN ATTESA: la PR resta in coda, senza verdetto (non sparisce)", async () => {
+    const { ticketId, repositoryId } = await seedOpenPr();
+    await seedWaitingReview({ repositoryId, prNumber: 42, prUrl: PR_URL });
+    vi.stubGlobal("fetch", greenFetch());
+
+    const res = await app.inject({ method: "GET", url: "/api/release-queue", headers: { cookie: adminCookie } });
+
+    const body = res.json() as {
+      items: { ticketId: string; repositoryId: string; origin: string; reviewVerdict: string | null }[];
+    };
+    const matches = body.items.filter((i) => i.ticketId === ticketId && i.repositoryId === repositoryId);
+    expect(matches).toHaveLength(1);
+    expect(matches[0]!.origin).toBe("stubwise");
+    expect(matches[0]!.reviewVerdict).toBeNull();
+  });
+```
+
+(Il caso inverso è per forza una PR INTERNA: una PR esterna senza nessuna
+review col ticket non è mai stata in coda, nemmeno prima — non c'è un ticket
+da passare all'azione di rilascio. `seedOpenPr` usa sempre `PR_URL` (PR 42):
+ogni test ha il suo repository, quindi le chiavi `repositoryId:prUrl` non si
+scontrano con i test precedenti dello stesso file.)
+
+```bash
+pnpm --filter @stubwise/server exec vitest run src/routes/release.test.ts -t "IN ATTESA"
+```
+
+Atteso: FAIL sul primo (`item` undefined: la `DISTINCT ON` sceglie la riga in
+attesa, scartata perché senza ticket); il secondo è rosso o verde a seconda
+dell'ordine che Postgres restituisce — è proprio il difetto, un verdetto che
+dipende dal caso: non considerarlo prova di niente finché la Map non legge
+righe ORDINATE; il terzo passa già (`ticket_repositories` tiene la riga, il
+verdetto è null) e resta come rete del filtro sulle `completed`.
+
+**Step 5: implementazione** — in `listReleaseQueue`
+(`apps/server/src/services/release.ts`); aggiungi `asc` e `isNotNull`
+all'import da `drizzle-orm`.
+
+`reviewRows`, il verdetto delle PR interne:
+
+```ts
+  // Solo le review COMPLETATE, dalla più vecchia alla più recente: nella Map
+  // vince l'ultima inserita, cioè la completata più recente. Senza il filtro,
+  // la riga che il poller crea al claim (C10: `running`, `started_at` null,
+  // verdetto null) — o una review in corso — coprirebbe il verdetto vero per
+  // tutta l'attesa; senza l'ordine, quale riga vince lo decide Postgres.
+  const reviewRows = internalPrUrls.length > 0
+    ? await db
+        .select({
+          repositoryId: prReviews.repositoryId,
+          prUrl: prReviews.prUrl,
+          verdict: prReviews.verdict,
+          prSummary: prReviews.prSummary,
+        })
+        .from(prReviews)
+        .where(and(inArray(prReviews.prUrl, internalPrUrls), eq(prReviews.status, "completed")))
+        .orderBy(asc(prReviews.createdAt))
+    : [];
+```
+
+`latestExternalReviews`, i candidati esterni:
+
+```ts
+  // Solo le review CON ticket: la riga in attesa (C10) e quella in corso non
+  // l'hanno ancora — lo risolve `runPrReview` alla fine —, e se vincessero la
+  // DISTINCT ON la PR sparirebbe dalla coda per tutta l'attesa (fino a ore).
+  // Così la più recente CON ticket è la review precedente, col suo verdetto.
+  const latestExternalReviews = await db
+    .selectDistinctOn([prReviews.repositoryId, prReviews.prNumber], {
+      // …campi invariati…
+    })
+    .from(prReviews)
+    .where(isNotNull(prReviews.ticketId))
+    .orderBy(prReviews.repositoryId, prReviews.prNumber, desc(prReviews.createdAt));
+```
+
+Il filtro `if (c.ticketId === null) return false;` in `externalCandidates`
+resta, come difesa; il suo commento («capita solo quando l'ULTIMA review…»)
+va aggiornato: dopo il `where` non capita più, e la riga dice che è una difesa.
+Il docblock di `listReleaseQueue`, punto (1), diventa «candidati = l'ULTIMA
+review CON ticket per ogni (repository, prNumber)…». Non si aggiunge un filtro
+`completed` ai candidati esterni: il ticket di una PR esterna lo scrive la
+review al suo esito, quindi la riga più recente con ticket è già quella che ha
+un verdetto da mostrare.
+
+**Step 6: verifica e commit**
+
+```bash
+pnpm --filter @stubwise/server exec vitest run src/routes/release.test.ts
+pnpm --filter @stubwise/server exec tsc --noEmit
+```
+
+Atteso: PASS. Trappola (c): togli temporaneamente
+`.where(isNotNull(prReviews.ticketId))` — il test della PR esterna deve
+diventare ROSSO; rimettilo. Togli `eq(prReviews.status, "completed")` — il test
+della PR interna deve diventare ROSSO in modo DETERMINISTICO (con l'`orderBy`
+ascendente la riga in attesa, più recente, vince sempre nella Map); se resta
+verde, controlla che `seedWaitingReview` stia davvero scrivendo un `createdAt`
+successivo. Rimettilo.
+
+```bash
+git add apps/server/src/services/release.ts apps/server/src/routes/release.test.ts
+git commit -m "fix(server): la coda di rilascio non perde una PR né il suo verdetto per una review in attesa"
+```
 
 ---
 
@@ -23489,9 +23717,13 @@ Entrate con i fix della revisione di fine tappa:
   fino al prossimo riavvio del worker, che la rimette in coda. Accettato: è un
   errore del DB nel `finally` di un run già finito, e il danno è un'etichetta
   «in revisione» di troppo, non un lavoro perso.
-- **Una review in attesa nasconde la PR esterna dalla coda di rilascio** se
-  `listReleaseQueue` non viene corretta insieme (C10, `release.ts`): lo faceva
-  già durante il run, e la riga in attesa allunga quella finestra fino a ore.
+- **Una review in attesa nasconde la PR esterna dalla coda di rilascio** (e
+  può coprire il verdetto di una interna) se `listReleaseQueue` non viene
+  corretta insieme: lo faceva già durante il run, e la riga in attesa allunga
+  quella finestra fino a ore. La correzione sta in **D10** (spostata da C10 dal
+  coordinatore, nel task che tocca già la coda): innocuo finché il branch si
+  mergia intero e server e worker si deployano insieme, com'è la regola di
+  questo piano.
 - **Costo**: fino a `pr_correction_max_rounds` (default 3) correzioni + 4 review
   per PR in una tornata automatica, ciascuna un run completo. Il ciclo automatico
   rispetta il budget mensile (`manualTrigger=false`), quelle umane no (come ogni
