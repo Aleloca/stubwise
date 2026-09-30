@@ -183,3 +183,45 @@ export {
   type ReviewCompletedEvent,
   type TicketCreatedEvent,
 } from "./format.js";
+
+// --- ciclo di correzione post-PR ---
+//
+// Condiviso fra SERVER (bottone, webhook del provider, riga di stato sul
+// ticket) e WORKER (review che chiede modifiche, correzione che ha pushato):
+// una coda con due writer in due app sta in un posto solo. `jobBlocksCorrection`
+// e `hasJobInFlight` sono l'UNICA definizione di «job che blocca»: si
+// riusano, non si ricopiano.
+export {
+  autoRoundsInCurrentSeries,
+  cancelOpenCorrections,
+  cancelPendingCorrection,
+  completeCorrection,
+  derivePrCycle,
+  enqueueCorrection,
+  hasJobInFlight,
+  jobBlocksCorrection,
+  prHasOpenCorrection,
+  promotePendingCorrection,
+  promotePendingForTicket,
+  promoteStalePendings,
+  reconcileOrphanCorrections,
+  resolvePrCycleState,
+  TERMINAL_JOB_STATUSES,
+  type EnqueueCorrectionInput,
+  type EnqueueCorrectionResult,
+  type PrCycleFacts,
+  type PrRef,
+} from "./pr-correction-cycle.js";
+
+// Identità degli account di Stubwise e fotografia dei commenti (A8b): il
+// webhook del server e il worker devono dire la stessa cosa su «cosa ha già
+// letto l'AI».
+export {
+  decryptGitCredentials,
+  providerFeedbackCutoff,
+  resolveProviderUserId,
+  selectProviderFeedback,
+  type FetchPlatformIdentity,
+  type GitCredentials,
+  type IdentityAccount,
+} from "./pr-correction-feedback.js";
