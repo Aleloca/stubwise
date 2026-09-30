@@ -4,6 +4,7 @@ import {
   gitAccounts,
   monthlyCostUsd,
   prCorrections,
+  prReviewJobs,
   prReviews,
   projects,
   repositories,
@@ -29,7 +30,14 @@ import {
   type FetchAuthorPermission,
   type FetchPlatformIdentity,
 } from "@stubwise/notifications";
-import { prCommentSchema, STUBWISE_BRANCH_RE, type GitProviderKind, type PrComment } from "@stubwise/shared";
+import {
+  prCommentSchema,
+  prNumberFromUrl,
+  STUBWISE_BRANCH_RE,
+  stubwiseTicketNumber,
+  type GitProviderKind,
+  type PrComment,
+} from "@stubwise/shared";
 import { and, count, desc, eq, gt, isNotNull } from "drizzle-orm";
 import { z } from "zod";
 import { AgentRunError, AgentTimeoutError, type AgentRunUsage } from "../agent/runner.js";
@@ -132,8 +140,15 @@ export type CorrectionOutcome =
   | "held"
   /** Limite del provider prima di ogni effetto: il handler fa failover. */
   | "limit"
-  /** Niente da fare (PR chiusa, correzione già chiusa). */
-  | "skipped";
+  /** Niente da fare (PR chiusa, correzione già chiusa o annullata a metà lavoro). */
+  | "skipped"
+  /**
+   * Ownership del job persa (requeueStale l'ha rimesso in coda) PRIMA di poter
+   * dichiarare un esito: niente è stato chiuso né comunicato, il job è di chi
+   * l'ha ripreso. Solo sui percorsi senza push (col push l'esito resta
+   * `pushed`: il push è un fatto).
+   */
+  | "lost";
 
 export type CorrectionDeps = Omit<FixDeps, "getProviderFn"> & {
   /** Iniettabile nei test: provider FINTO senza HTTP. Default: getProvider. */
@@ -167,6 +182,47 @@ class PrNoLongerOpenError extends Error {
     super("la PR non è più aperta: niente push");
     this.name = "PrNoLongerOpenError";
   }
+}
+
+/**
+ * L'agente ha creato dei commit da sé (una skill, un `git commit` nonostante il
+ * prompt): la head del worktree non è più quella di partenza. Non si pusha
+ * niente — quei commit non passano dall'esclusione degli env e del report di
+ * `commitAsStubwise`, e non si sa cosa contengano.
+ */
+class AgentCommittedError extends Error {
+  constructor(startSha: string, head: string) {
+    super(
+      `l'agente ha creato dei commit da sé (HEAD ${head.slice(0, 7)} invece di ${startSha.slice(0, 7)}): per sicurezza niente push`,
+    );
+    this.name = "AgentCommittedError";
+  }
+}
+
+/**
+ * Il corpo della PR per la riga di `pr_review_jobs`: quello dell'ultima review
+ * che l'aveva (`pr_reviews.pr_body`, dalla 0081) o dell'ultimo accodamento
+ * rimasto; altrimenti vuoto. La review lo legge come contesto della PR.
+ */
+async function loadPrBody(db: Db, pr: { repositoryId: string; prNumber: number }): Promise<string> {
+  const [fromReview] = await db
+    .select({ body: prReviews.prBody })
+    .from(prReviews)
+    .where(
+      and(
+        eq(prReviews.repositoryId, pr.repositoryId),
+        eq(prReviews.prNumber, pr.prNumber),
+        isNotNull(prReviews.prBody),
+      ),
+    )
+    .orderBy(desc(prReviews.createdAt))
+    .limit(1);
+  if (fromReview?.body) return fromReview.body;
+  const [fromJob] = await db
+    .select({ body: prReviewJobs.prBody })
+    .from(prReviewJobs)
+    .where(and(eq(prReviewJobs.repositoryId, pr.repositoryId), eq(prReviewJobs.prNumber, pr.prNumber)));
+  return fromJob?.body ?? "";
 }
 
 /**
@@ -441,34 +497,58 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
         )
     : [];
 
-  // Chiusura ATOMICA (contratto di completeCorrection): esito terminale del
-  // job e correzione `done` nella STESSA transazione, e la correzione solo se
-  // il job è stato davvero chiuso. `false` = ownership persa (requeueStale ha
-  // rimesso il job in coda): la correzione resta `queued` per chi lo riprende,
-  // e il chiamante non fa NIENTE di ciò che segue una chiusura.
-  //
-  // `correctionDone` dice se la correzione è passata DAVVERO a `done`: `false`
-  // col job chiuso = la PR è stata chiusa e la correzione annullata
-  // (`cancelOpenCorrections`) mentre si lavorava. Allora niente review e niente
-  // promozione: la PR non si corregge più.
+  // Chiusura ATOMICA (contratto di completeCorrection). Nella STESSA
+  // transazione: la riga della correzione letta `FOR UPDATE` (l'annullamento
+  // della chiusura della PR, D3, la aggiorna: così non ci si incrocia), poi
+  // l'esito del job e `completeCorrection`. Tre esiti, e il chiamante fa cose
+  // diverse per ciascuno:
+  // - "closed": job terminale e correzione `done` — l'unico dopo cui si
+  //   comunica (commento, notifica, status), si promuove e si accoda la review;
+  // - "cancelled": la correzione NON era più `queued` (la PR è stata chiusa
+  //   mentre si lavorava). Il job chiude `skipped`, qualunque esito il
+  //   chiamante volesse scrivere: un «fallito» sarebbe falso, il lavoro si è
+  //   fermato perché la PR non c'è più. Unica eccezione, `keepIfCancelled`: il
+  //   ramo del push chiude comunque `pr_opened` (il push è un fatto). Niente
+  //   notifica, niente commento, niente review, niente promozione;
+  // - "lost": ownership persa (requeueStale ha rimesso il job in coda): niente
+  //   di scritto, la correzione resta `queued` per chi lo riprende.
   let correctionDone = false;
+  type Closure = "closed" | "cancelled" | "lost";
   const closeJobAndCorrection = async (
-    close: { kind: "complete"; input: CompleteJobInput } | { kind: "fail"; input: FailJobInput },
-  ): Promise<boolean> => {
-    const closed = await db.transaction(async (tx) => {
+    close: { kind: "complete"; input: CompleteJobInput; keepIfCancelled?: boolean } | { kind: "fail"; input: FailJobInput },
+  ): Promise<Closure> => {
+    const closure = await db.transaction(async (tx): Promise<Closure> => {
+      const [current] = await tx
+        .select({ status: prCorrections.status })
+        .from(prCorrections)
+        .where(eq(prCorrections.id, correction.id))
+        .for("update");
+      if (current?.status !== "queued") {
+        const keep = close.kind === "complete" && close.keepIfCancelled === true;
+        const ok = keep
+          ? await completeJob(tx, job.id, close.input)
+          : await completeJob(tx, job.id, {
+              status: "skipped",
+              log: `${close.input.log}\n[correction] la correzione non era più in coda (annullata: PR chiusa): job chiuso come saltato`,
+            });
+        return ok ? "cancelled" : "lost";
+      }
       const ok =
         close.kind === "complete"
           ? await completeJob(tx, job.id, close.input)
           : await failJob(tx, job.id, close.input);
-      if (ok) correctionDone = await completeCorrection(tx, correction.id);
-      return ok;
+      if (!ok) return "lost";
+      // Sotto il FOR UPDATE la riga è ancora `queued`: `false` qui sarebbe
+      // un'anomalia, e la si tratta come un annullamento (niente seguito).
+      return (await completeCorrection(tx, correction.id)) ? "closed" : "cancelled";
     });
-    if (!closed) {
+    correctionDone = closure === "closed";
+    if (closure === "lost") {
       await logLine("ownership del job persa: la correzione resta in coda per chi lo ha ripreso");
-    } else if (!correctionDone) {
+    } else if (closure === "cancelled") {
       await logLine("la correzione non era più in coda (annullata: PR chiusa): niente review né promozione");
     }
-    return closed;
+    return closure;
   };
   // Dopo una chiusura avvenuta (job terminale E correzione `done`): le richieste
   // umane in attesa del TICKET — il job vivo blocca per ticket, quindi una
@@ -490,24 +570,46 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
     }
   };
 
-  if (!ticket || !row || !link || !link.prUrl || !STUBWISE_BRANCH_RE.test(link.branch)) {
-    await closeJobAndCorrection({
+  // La PR della correzione è QUELLA che Stubwise ha aperto per QUESTO ticket:
+  // branch `stubwise/ticket-<numero del ticket>` e stesso numero di PR (dalla
+  // colonna, o dall'URL sulle righe precedenti a C7). Altrimenti si
+  // lavorerebbe — e si pusherebbe — su un branch che non è di questa PR.
+  const linkPrNumber = link ? (link.prNumber ?? (link.prUrl ? prNumberFromUrl(link.prUrl) : null)) : null;
+  if (
+    !ticket ||
+    !row ||
+    !link ||
+    !link.prUrl ||
+    !STUBWISE_BRANCH_RE.test(link.branch) ||
+    stubwiseTicketNumber(link.branch) !== ticket.number ||
+    linkPrNumber !== correction.prNumber
+  ) {
+    const closure = await closeJobAndCorrection({
       kind: "fail",
       input: {
         log: `[correction] PR ${correction.prNumber} del repository ${correction.repositoryId} non è una PR aperta da Stubwise su questo ticket`,
         error: "PR della correzione non trovata o non di Stubwise",
       },
     });
-    return "failed";
+    return closure === "closed" ? "failed" : closure === "cancelled" ? "skipped" : "lost";
   }
   const prUrl = link.prUrl;
   const branch = link.branch;
   if (link.prState !== "open") {
-    await closeJobAndCorrection({
+    const closure = await closeJobAndCorrection({
       kind: "complete",
       input: { status: "skipped", log: `[correction] la PR ${prUrl} non è più aperta` },
     });
-    return "skipped";
+    // Una PR chiusa non si corregge più: le richieste in attesa sulla stessa
+    // PR vanno annullate, o il tick le ripromuoverebbe a ogni giro.
+    if (closure !== "lost") {
+      const cancelled = await cancelPendingCorrection(db, {
+        repositoryId: correction.repositoryId,
+        prNumber: correction.prNumber,
+      }).catch(() => null);
+      if (cancelled !== null) await logLine(`richiesta in attesa ${cancelled} annullata: la PR non è più aperta`);
+    }
+    return closure === "lost" ? "lost" : "skipped";
   }
 
   const projectName = row.projectName;
@@ -553,14 +655,15 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
   const credentials = decryptGitCredentials(row.account.encryptedCredentials, deps.encryptionKey);
   if (credentials === null) {
     const error = "credenziali dell'account git non decifrabili";
-    const closed = await closeJobAndCorrection({
+    const closure = await closeJobAndCorrection({
       kind: "fail",
       input: {
         log: `[correction] impossibile decifrare le credenziali dell'account git del repository '${row.repository.name}'`,
         error,
       },
     });
-    if (closed) await notifyJobFailed(outcomeCtx, error);
+    if (closure !== "closed") return closure === "cancelled" ? "skipped" : "lost";
+    await notifyJobFailed(outcomeCtx, error);
     return "failed";
   }
   const mirrorProject: MirrorProject = {
@@ -722,7 +825,9 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
       prNumber: correction.prNumber,
       prUrl,
       prTitle: review?.prTitle ?? `fix: ${toSingleLine(ticket.title, TITLE_MAX_CHARS)} (#${ticket.number})`,
-      prBody: "",
+      prBody: await loadPrBody(db, { repositoryId: correction.repositoryId, prNumber: correction.prNumber }).catch(
+        () => "",
+      ),
       sourceBranch: branch,
       targetBranch: mirrorProject.defaultBranch,
       headSha,
@@ -756,12 +861,27 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
     /** File dell'intera PR (default...HEAD): l'input del rischio aggiornato. */
     prFiles: string[];
   }
-  let pushed: Pushed;
+  // Valorizzato SUBITO dopo `pushBranch`, dentro la callback: da lì in poi il
+  // push è un fatto, e un'eccezione che arrivasse dopo (smontaggio del
+  // worktree nel `finally` di withProjectWorktrees, un passo best-effort che
+  // lancia) NON deve raccontare un fallimento né lasciare la PR senza review.
+  // `as`: TS non vede l'assegnazione dentro la callback e lo restringerebbe a
+  // `null` nel catch.
+  let pushed = null as Pushed | null;
+  // Nessun commit dell'agente: la head del worktree dev'essere ancora quella di
+  // partenza prima di ogni stage/commit di Stubwise (e dopo ogni run). Un
+  // commit dell'agente sfuggirebbe altrimenti al rilevamento delle modifiche
+  // (status pulito → «nessuna modifica») o finirebbe nel push senza le
+  // esclusioni di commitAsStubwise.
+  const assertNoAgentCommit = async (dir: string): Promise<void> => {
+    const head = (await gitIn(dir, ["rev-parse", "HEAD"])).trim();
+    if (startSha !== null && head !== startSha) throw new AgentCommittedError(startSha, head);
+  };
   try {
-    pushed = await mirrors.withProjectWorktrees(
+    await mirrors.withProjectWorktrees(
       [mirrorProject],
       branch,
-      async ({ parentDir, worktrees }): Promise<Pushed> => {
+      async ({ parentDir, worktrees }): Promise<void> => {
         const heartbeat = setInterval(() => {
           void touchJob(db, job.id).catch(() => {
             // Il prossimo battito riproverà.
@@ -799,6 +919,7 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
           // Limite PRIMA di ogni effetto (niente commit né push): failover sicuro.
           if (isLimitError(result)) throw new ProviderLimitError(result.output);
           if (result.exitCode !== 0) throw new AgentExitError(result.exitCode, result.output);
+          await assertNoAgentCommit(state.dir);
 
           const loop = await runSelfRepairLoop(steps, {
             states: [state],
@@ -831,11 +952,13 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
               usages.push(repair.usage);
               if (isLimitError(repair)) throw new ProviderLimitError(repair.output);
               if (repair.exitCode !== 0) throw new AgentExitError(repair.exitCode, repair.output);
+              await assertNoAgentCommit(state.dir);
               return repair.output;
             },
           });
 
           const report = await readAndRemoveReport(parentDir);
+          await assertNoAgentCommit(state.dir);
           await commitAsStubwise(
             state,
             `fix: applica le correzioni richieste (#${ticket.number})\n\n` +
@@ -865,20 +988,17 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
           }
           if (prState === "closed") throw new PrNoLongerOpenError();
           const headSha = (await gitIn(state.dir, ["rev-parse", "HEAD"])).trim();
-          // MAI --force: un rifiuto è PushRejectedError, gestito sotto.
-          await mirrors.pushBranch(mirrorProject, branch);
+          // I file dell'intera PR PRIMA del push: dopo, ogni eccezione deve
+          // trovare il lavoro già descritto per intero.
           const prFiles = (
             await gitIn(state.dir, ["diff", "--name-only", `refs/heads/${mirrorProject.defaultBranch}...HEAD`])
           )
             .split("\n")
             .filter((line) => line.length > 0);
-          return {
-            report,
-            agentOutput: loop.output,
-            testStatus: loop.testStatusByRepo.get(state.prepared.repositoryId) ?? "skipped",
-            headSha,
-            prFiles,
-          };
+          const testStatus = loop.testStatusByRepo.get(state.prepared.repositoryId) ?? "skipped";
+          // MAI --force: un rifiuto è PushRejectedError, gestito sotto.
+          await mirrors.pushBranch(mirrorProject, branch);
+          pushed = { report, agentOutput: loop.output, testStatus, headSha, prFiles };
         } finally {
           clearInterval(heartbeat);
         }
@@ -886,16 +1006,40 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
       { fromExistingBranch: true },
     );
   } catch (err) {
-    await recordAllUsages();
+    if (pushed !== null) {
+      // DOPO il push: il lavoro c'è, sulla PR. Si prosegue come un successo
+      // (qui sotto, fuori dal catch) invece di chiudere `failed` una
+      // correzione pushata e lasciarla senza review.
+      await logLine(
+        `errore dopo il push (${err instanceof Error ? err.message : String(err)}): il push c'è, proseguo come riuscita`,
+      );
+    } else {
+      return await handleNoPush(err);
+    }
+  } finally {
+    await runPlugins.cleanup().catch(async (err: unknown) => {
+      await logLine(`pulizia dei plugin del run fallita: ${err instanceof Error ? err.message : String(err)}`);
+    });
+  }
+  if (pushed === null) {
+    // Impossibile: la callback o pusha o lancia. Difesa, non un percorso.
+    return handleNoPush(new Error("la correzione è terminata senza push né errore"));
+  }
+  return finishPushed(pushed);
+
+  // --- Esito senza push -----------------------------------------------------
+  async function handleNoPush(err: unknown): Promise<CorrectionOutcome> {
+    await recordAllUsages().catch(() => undefined);
     // Fallimento comune: job failed + correzione chiusa (conta come giro) in
-    // una transazione; SOLO se la chiusura è avvenuta, status rimesso a posto,
-    // `afterClose` (es. il commento sul ticket), richiesta in attesa promossa,
-    // notifica + riassunto. A ownership persa non si tocca niente: il job è di
-    // chi lo ha ripreso.
+    // una transazione; SOLO se la chiusura è avvenuta ("closed"), status
+    // rimesso a posto, `afterClose` (es. il commento sul ticket), richiesta in
+    // attesa promossa, notifica + riassunto. Correzione annullata a metà
+    // ("cancelled", PR chiusa): job `skipped` e nient'altro. Ownership persa
+    // ("lost"): non si tocca niente, il job è di chi lo ha ripreso.
     //
     // Poi, come ULTIMO passo, la review della head ATTUALE del branch (regola
     // del coordinatore, 30 set 2026): il webhook `opened`/`updated` non accoda
-    // la review mentre sulla PR c'è una correzione aperta (D2), quindi un push
+    // la review mentre sulla PR c'è una correzione aperta (D3), quindi un push
     // di una persona arrivato durante questa correzione non lo rivedrebbe
     // nessuno. Vale per ogni fallimento a PR ancora aperta; `reviewHead:
     // false` dove non c'è una head da rivedere (branch sparito).
@@ -904,8 +1048,9 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
       error: string,
       opts: { promote?: boolean; reviewHead?: boolean; afterClose?: () => Promise<void> } = {},
     ): Promise<CorrectionOutcome> => {
-      const closed = await closeJobAndCorrection({ kind: "fail", input: { log, error } });
-      if (!closed) return "failed";
+      const closure = await closeJobAndCorrection({ kind: "fail", input: { log, error } });
+      if (closure === "lost") return "lost";
+      if (closure === "cancelled") return "skipped";
       await restoreStatus();
       if (opts.afterClose) await opts.afterClose();
       if (opts.promote ?? true) await promotePending();
@@ -914,43 +1059,53 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
       return "failed";
     };
     if (err instanceof ProviderLimitError) {
+      // Nessuna chiusura: il handler fa failover sulla credenziale successiva.
+      // Lo status resta «in corso» apposta: il job riprenderà e lo riscriverà
+      // lui (e con la catena esaurita il job va `held`, ancora vivo).
       await appendLog(db, job.id, "[correction] provider AI al limite di rate/usage: failover");
       return "limit";
     }
     if (err instanceof BudgetExceededError) {
-      await restoreStatus();
-      await holdForBudget(outcomeCtx, err.scope, err.limitUsd, err.spentUsd);
-      return "held";
+      // Status rimesso SOLO se il hold è avvenuto: a ownership persa il job è
+      // di chi l'ha ripreso, e lo status lo scrive lui.
+      const held = await holdForBudget(outcomeCtx, err.scope, err.limitUsd, err.spentUsd);
+      if (held) await restoreStatus();
+      return held ? "held" : "lost";
     }
     if (err instanceof PrNoLongerOpenError) {
-      await closeJobAndCorrection({
+      const closure = await closeJobAndCorrection({
         kind: "complete",
         input: {
           status: "skipped",
           log: `[correction] la PR ${prUrl} è stata chiusa durante la correzione: niente push`,
         },
       });
-      return "skipped";
+      return closure === "lost" ? "lost" : "skipped";
     }
     if (err instanceof NoChangesError) {
       // Conta come giro e la risposta dell'AI va a chi ha chiesto: spesso la
       // review (o la nota) chiedeva una cosa sbagliata, ed è proprio questo che
       // l'AI ha scritto invece di cambiare il codice.
       const answer = truncateForLog(err.agentOutput.trim()).slice(0, NO_CHANGES_ANSWER_MAX_CHARS);
-      await fail(
+      const outcome = await fail(
         `[correction] output agente:\n${truncateForLog(err.agentOutput)}\n[correction] nessuna modifica prodotta: niente push`,
         `nessuna modifica prodotta: ${toSingleLine(answer, NO_CHANGES_ANSWER_MAX_CHARS)}`,
         {
           afterClose: async () => {
             await db.insert(comments).values({
-              ticketId: ticket.id,
+              ticketId: ticket!.id,
               authorType: "ai",
               body: `${t(lang, "comment.correctionNoChanges", { url: prUrl })}\n\n${answer}`,
             });
           },
         },
       );
-      return "no_changes";
+      // L'esito dice cosa è successo davvero: «nessuna modifica» solo se il
+      // giro si è chiuso come tale.
+      return outcome === "failed" ? "no_changes" : outcome;
+    }
+    if (err instanceof AgentCommittedError) {
+      return fail(`[correction] ${err.message}`, err.message);
     }
     if (err instanceof PushRejectedError) {
       return fail(
@@ -968,8 +1123,8 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
         reviewHead: false,
         afterClose: async () => {
           const cancelled = await cancelPendingCorrection(db, {
-            repositoryId: correction.repositoryId,
-            prNumber: correction.prNumber,
+            repositoryId: correction!.repositoryId,
+            prNumber: correction!.prNumber,
           }).catch(() => null);
           if (cancelled !== null) {
             await logLine(`richiesta in attesa ${cancelled} annullata: il branch della PR non esiste più`);
@@ -1002,63 +1157,82 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
     }
     const message = err instanceof Error ? err.message : String(err);
     return fail(`[correction] errore: ${message}`, message);
-  } finally {
-    await runPlugins.cleanup();
   }
 
-  await recordAllUsages();
-
-  // Rischio aggiornato sull'INTERA PR (default...HEAD), non solo su questo giro:
-  // una correzione che tocca una migrazione alza il rischio della PR. Il numero
-  // di repository resta quello delle PR aperte del ticket, così un fix
-  // multi-repo non perde il suo rischio di coordinamento.
-  const [openPrs] = await db
-    .select({ value: count() })
-    .from(ticketRepositories)
-    .where(and(eq(ticketRepositories.ticketId, ticket.id), eq(ticketRepositories.prState, "open")));
-  const risk = computeReleaseRisk(pushed.prFiles, Math.max(1, openPrs?.value ?? 1));
-  const reportBody =
-    pushed.report !== null
-      ? pushed.report.trim()
-      : t(lang, "comment.reportMissing", { filename: REPORT_FILENAME });
-  await db.transaction(async (tx) => {
-    await tx
-      .update(ticketRepositories)
-      .set({ testStatus: pushed.testStatus, risk: risk.level, riskReason: risk.reason })
-      .where(eq(ticketRepositories.id, link.id));
-    await tx.insert(comments).values({
-      ticketId: ticket.id,
-      authorType: "ai",
-      body: `${t(lang, "comment.correctionApplied", { url: prUrl })}\n\n${reportBody}`,
+  // --- Esito col push -------------------------------------------------------
+  async function finishPushed(done: Pushed): Promise<CorrectionOutcome> {
+    await recordAllUsages().catch(async (err: unknown) => {
+      await logLine(`consumi del run non registrati: ${err instanceof Error ? err.message : String(err)}`);
     });
-  });
-  const closed = await closeJobAndCorrection({
-    kind: "complete",
-    input: {
-      status: "pr_opened",
-      log:
-        `[correction] output agente:\n${truncateForLog(pushed.agentOutput)}\n` +
-        `[correction] pushato ${pushed.headSha.slice(0, 7)} su ${branch}` +
-        (pushed.report === null ? `\n[correction] attenzione: ${REPORT_FILENAME} non trovato` : ""),
-      prUrl,
-    },
-  });
-  // Ownership persa DOPO il push: il push resta (è un fatto), ma la
-  // correzione è ancora `queued` e il job è di chi l'ha ripreso — né
-  // promozione né review da qui. Correzione annullata (PR chiusa) dopo il
-  // controllo pre-push: il push c'è stato, ma la PR non si corregge più — né
-  // promozione né review (la riga di log l'ha scritta closeJobAndCorrection).
-  if (!closed || !correctionDone) return "pushed";
+    // Rischio aggiornato e commento «applicata»: BEST-EFFORT. La chiusura del
+    // job e la review non devono dipendere da loro — un errore qui lascerebbe
+    // una correzione pushata con un job ancora `fixing` e la PR senza review.
+    try {
+      // Rischio sull'INTERA PR (default...HEAD), non solo su questo giro: una
+      // correzione che tocca una migrazione alza il rischio della PR. Il numero
+      // di repository resta quello delle PR aperte del ticket, così un fix
+      // multi-repo non perde il suo rischio di coordinamento.
+      const [openPrs] = await db
+        .select({ value: count() })
+        .from(ticketRepositories)
+        .where(and(eq(ticketRepositories.ticketId, ticket!.id), eq(ticketRepositories.prState, "open")));
+      const risk = computeReleaseRisk(done.prFiles, Math.max(1, openPrs?.value ?? 1));
+      await db
+        .update(ticketRepositories)
+        .set({ testStatus: done.testStatus, risk: risk.level, riskReason: risk.reason })
+        .where(eq(ticketRepositories.id, link!.id));
+    } catch (err) {
+      await logLine(`rischio della PR non aggiornato: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    try {
+      const reportBody =
+        done.report !== null ? done.report.trim() : t(lang, "comment.reportMissing", { filename: REPORT_FILENAME });
+      await db.insert(comments).values({
+        ticketId: ticket!.id,
+        authorType: "ai",
+        body: `${t(lang, "comment.correctionApplied", { url: prUrl })}\n\n${reportBody}`,
+      });
+    } catch (err) {
+      await logLine(`commento sul ticket non scritto: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    await closeJobAndCorrection({
+      kind: "complete",
+      // Il push c'è stato: anche con la correzione annullata dopo il controllo
+      // il job dice `pr_opened`, ma senza review né promozione.
+      keepIfCancelled: true,
+      input: {
+        status: "pr_opened",
+        log:
+          `[correction] output agente:\n${truncateForLog(done.agentOutput)}\n` +
+          `[correction] pushato ${done.headSha.slice(0, 7)} su ${branch}` +
+          (done.report === null ? `\n[correction] attenzione: ${REPORT_FILENAME} non trovato` : ""),
+        prUrl,
+      },
+    });
+    // Ownership persa DOPO il push: il push resta (è un fatto), ma la
+    // correzione è ancora `queued` e il job è di chi l'ha ripreso — né
+    // promozione né review da qui. Correzione annullata (PR chiusa) dopo il
+    // controllo pre-push: il push c'è stato, ma la PR non si corregge più — né
+    // promozione né review (la riga di log l'ha scritta closeJobAndCorrection).
+    if (!correctionDone) return "pushed";
 
-  // Dopo il push: prima le richieste umane in attesa del ticket; poi la review
-  // di QUESTA PR, se non ha una correzione aperta (appena promossa o in attesa
-  // del suo turno: la review arriverà dopo il suo push). Errore della lettura →
-  // si accoda: una review in più è innocua.
-  // L'accodamento è l'ULTIMO passo del job (emendamento «la review esiste dal
-  // claim», C10): dal claim nasce già la riga `pr_reviews` in attesa, quindi
-  // niente scritture, notifiche o commenti DOPO di lui. Chi aggiunge un passo
-  // lo mette prima di questo blocco.
-  await promotePending();
-  await enqueueReview(pushed.headSha);
-  return "pushed";
+    // Dopo il push: prima le richieste umane in attesa del ticket; poi la review
+    // di QUESTA PR, se non ha una correzione aperta. Sulla head ATTUALE del
+    // branch, non su quella pushata: un push umano arrivato nei secondi fra il
+    // nostro push e la chiusura sarebbe rimasto senza review (il webhook non la
+    // accoda con la correzione aperta). Head non leggibile → quella pushata.
+    // L'accodamento è l'ULTIMO passo del job (emendamento «la review esiste dal
+    // claim», C10): niente scritture, notifiche o commenti DOPO di lui.
+    await promotePending();
+    let head = done.headSha;
+    try {
+      head = await mirrors.resolveBranchHead(mirrorProject!, branch);
+    } catch (err) {
+      await logLine(
+        `head attuale del branch non leggibile (${err instanceof Error ? err.message : String(err)}): review sulla head pushata`,
+      );
+    }
+    await enqueueReview(head);
+    return "pushed";
+  }
 }

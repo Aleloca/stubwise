@@ -9360,6 +9360,38 @@ modifica → review sulla head attuale; exit non-zero → review; PR chiusa →
 nessuna review; chiusura non avvenuta → nessuna review; pending promossa sulla
 stessa PR → nessuna review.
 
+**La correzione dice il vero su ogni uscita** (revisione di C8, 30 set 2026,
+sopra il primo commit del task):
+- `closeJobAndCorrection` legge la riga della correzione `FOR UPDATE` nella
+  transazione di chiusura e ha TRE esiti: `closed` (job terminale + correzione
+  `done`: l'unico dopo cui si comunica, si promuove e si accoda la review),
+  `cancelled` (la correzione non era più `queued` — PR chiusa mentre l'agente
+  lavorava: il job chiude `skipped`, niente notifica, commento, status, review
+  o promozione; solo il ramo del push chiude comunque `pr_opened`, perché il
+  push è un fatto) e `lost` (ownership persa: niente di scritto). L'esito di
+  `runCorrection` lo riflette: `skipped` per `cancelled`, e il nuovo `lost`
+  (ownership persa senza push) al posto di un `failed`/`no_changes` falso.
+- Dopo il push il lavoro è un fatto: `prFiles` si calcola PRIMA di
+  `pushBranch`, subito dopo si tiene l'esito del push, e un'eccezione
+  successiva (smontaggio del worktree, pulizia dei plugin) prosegue come una
+  riuscita; rischio e commento «applicata» sono best-effort con una riga di
+  log, così chiusura `pr_opened` e review non dipendono da loro.
+- Controllo all'avvio: `stubwiseTicketNumber(branch) === ticket.number` e
+  `ticket_repositories.pr_number` (o il numero nell'URL, sulle righe storiche)
+  `=== correction.prNumber`; altrimenti `failed`, correzione `done`, niente
+  agente né review. PR già chiusa all'avvio: job `skipped` e la pending della
+  stessa PR annullata (`cancelPendingCorrection`).
+- Lo status di commit si rimette a posto solo a chiusura avvenuta, o dopo un
+  hold per budget riuscito; col limite del provider resta «in corso» (il job
+  riprenderà e lo riscriverà).
+- Nel successo la review va sulla head ATTUALE del branch
+  (`resolveBranchHead` dopo la chiusura; ripiego sulla head pushata), così un
+  push umano arrivato fra il nostro push e la chiusura viene rivisto; `prBody`
+  si riusa dall'ultima `pr_reviews` (o dall'ultimo `pr_review_jobs`).
+- Prima di stage e commit: se `rev-parse HEAD` non è più la head di partenza
+  (l'agente ha committato da sé) → `failed` con un messaggio chiaro, niente
+  push (vedi «Decisioni e rischi», tappa C).
+
 **Una correzione che non ha pushato niente conta come giro** (design §11):
 `completeCorrection` la porta a `done` come quella riuscita, e
 `autoRoundsInCurrentSeries` conta ogni `trigger='review'` non `cancelled`.
@@ -23839,6 +23871,21 @@ Entrate con i fix della revisione di fine tappa:
   `correction_id` come fix normali (design §13): ripartirebbero dal default e il
   push sarebbe rifiutato. Il design lo copre con la procedura di annullamento
   prima del rollback.
+- **Una correzione `held` per budget blocca le review dei push umani sulla
+  PR** (revisione di C8, 30 set 2026). Con la regola di D3 Step 2b il webhook
+  `opened`/`updated` non accoda la review finché sulla PR c'è una correzione
+  aperta, e una `held` lo è: chi pusha sul branch mentre la correzione è in
+  pausa per il tetto di spesa non viene rivisto finché qualcuno non la sblocca
+  (avvio manuale) o la PR si chiude. Accettato: la pausa per budget è già una
+  decisione umana pendente con la sua notifica, e la correzione, quando
+  riparte, riaccoda la review sulla head attuale del branch in ogni esito.
+- **Commit dell'agente: controllato nella correzione, non nel fix.** La
+  correzione fallisce (niente push) se la head del worktree non è più quella di
+  partenza dopo un run dell'agente — una skill che committa da sé, un `git
+  commit` nonostante il prompt: quei commit non passano dalle esclusioni di
+  `commitAsStubwise` (env, report) e, con lo status pulito, farebbero leggere
+  il giro come «nessuna modifica». Lo stesso controllo servirebbe al fix, ma è
+  fuori dal perimetro di questo piano (voce da aprire nel backlog).
 
 ### Tappe D ed E — server e web
 
