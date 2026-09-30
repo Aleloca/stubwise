@@ -10,7 +10,8 @@ import { and, desc, eq } from "drizzle-orm";
  * all'avvio di ogni correzione chiesta dalla piattaforma.
  *
  * Questo package non dipende da `@stubwise/git`, e non deve: la chiamata al
- * provider arriva INIETTATA ({@link FetchPlatformIdentity}).
+ * provider arriva INIETTATA ({@link FetchPlatformIdentity} per l'identità,
+ * {@link FetchAuthorPermission} per il permesso di un autore).
  */
 
 /** Credenziali git in chiaro di un account (stessa forma di `routes/git-accounts.ts`). */
@@ -159,16 +160,78 @@ export async function providerFeedbackCutoff(
 }
 
 /**
- * Chi, su GitHub, ha il permesso di far ripartire il ciclo di correzione: il
- * proprietario del repository, un membro dell'organizzazione, un
- * collaboratore. Sono i valori di `author_association` (maiuscoli, come
- * GitHub li manda). Tutto il resto — `CONTRIBUTOR`, `FIRST_TIME_CONTRIBUTOR`,
- * `FIRST_TIMER`, `MANNEQUIN`, `NONE` — è qualcuno che su un repository
- * PUBBLICO può scrivere, ma non decidere cosa si corregge.
+ * La SCORCIATOIA di GitHub per «ha il permesso di far ripartire il ciclo»: i
+ * valori di `author_association` (maiuscoli, come GitHub li manda) che bastano
+ * da soli — proprietario, membro dell'organizzazione, collaboratore. Gli altri
+ * (`CONTRIBUTOR`, `FIRST_TIME_CONTRIBUTOR`, `FIRST_TIMER`, `MANNEQUIN`, `NONE`)
+ * NON sono un rifiuto: un membro dell'organizzazione con appartenenza PRIVATA
+ * arriva come `CONTRIBUTOR`/`NONE`. Per loro decide il permesso reale
+ * ({@link isAuthorPermitted}).
  */
 export const TRUSTED_AUTHOR_ASSOCIATIONS = ["OWNER", "MEMBER", "COLLABORATOR"] as const;
 
 const TRUSTED = new Set<string>(TRUSTED_AUTHOR_ASSOCIATIONS);
+
+/**
+ * L'associazione dell'autore basta, da sola, ad ammetterlo?
+ *
+ * - **GitHub**: solo se `association` è in {@link TRUSTED_AUTHOR_ASSOCIATIONS}.
+ *   `false` qui NON è un rifiuto definitivo: vuol dire «chiedi il permesso
+ *   reale» ({@link isAuthorPermitted}). `null`/assente non basta.
+ * - **Bitbucket**: sempre `true`. Non esiste un dato equivalente (il valore è
+ *   sempre `null`), e i repository su cui gira oggi sono privati — chi può
+ *   commentare ha già accesso. Rischio accettato e documentato nel piano
+ *   ("Decisioni e rischi"), da rivedere dopo B14 T39.
+ *
+ * `switch` esaustivo: un provider nuovo non compila finché qualcuno non decide
+ * cosa vale per lui.
+ */
+export function isTrustedAuthorAssociation(
+  association: string | null | undefined,
+  provider: GitProviderKind,
+): boolean {
+  switch (provider) {
+    case "bitbucket":
+      return true;
+    case "github":
+      return typeof association === "string" && TRUSTED.has(association);
+    default: {
+      const unreachable: never = provider;
+      throw new Error(`provider sconosciuto: ${String(unreachable)}`);
+    }
+  }
+}
+
+/**
+ * Permesso di un utente sulla repository, nella forma di
+ * `GitProvider.getCollaboratorPermission` (`@stubwise/git`, che questo package
+ * non importa: stessa unione, ripetuta).
+ */
+export type PlatformPermission = "admin" | "maintain" | "write" | "triage" | "read" | "none";
+
+/**
+ * I permessi che ammettono: chi può scrivere sul branch e mergiare. `triage`
+ * NO — gestisce issue e PR ma non scrive codice né mergia —, e nemmeno
+ * `read`/`none`.
+ */
+export const PERMITTED_PERMISSIONS = ["write", "maintain", "admin"] as const;
+
+const PERMITTED = new Set<string>(PERMITTED_PERMISSIONS);
+
+/**
+ * Chiede alla piattaforma il permesso reale di `login` sulla repository. Server
+ * e worker passano `(login) => provider.getCollaboratorPermission(p, login)`
+ * col token dell'account PRINCIPALE. Può lanciare: l'errore diventa
+ * `"unverifiable"`.
+ */
+export type FetchAuthorPermission = (login: string) => Promise<PlatformPermission>;
+
+/**
+ * Esito del filtro sull'autore. `unverifiable` è distinto da `denied` apposta:
+ * il ticket deve poter dire «non sono riuscito a verificarlo» invece di «non ha
+ * il permesso», che sarebbe falso. Entrambi escludono (fail-closed).
+ */
+export type AuthorPermissionVerdict = "permitted" | "denied" | "unverifiable";
 
 /**
  * L'autore di una richiesta di modifiche o di un commento ha il permesso di
@@ -176,37 +239,63 @@ const TRUSTED = new Set<string>(TRUSTED_AUTHOR_ASSOCIATIONS);
  * chiedere modifiche fa ripartire il ciclo» — senza, un estraneo su un
  * repository pubblico spenderebbe budget e metterebbe testo nel prompt.
  *
- * - **GitHub**: solo se `association` è in {@link TRUSTED_AUTHOR_ASSOCIATIONS}.
- *   `null`/assente NON passa (fail-closed): GitHub il campo lo manda sempre,
- *   quindi la sua assenza è un'anomalia, non un «non so» da concedere.
- * - **Bitbucket**: sempre ammesso. Non esiste un dato equivalente (il valore
- *   è sempre `null`), e i repository su cui gira oggi sono privati — chi può
- *   commentare ha già accesso. Rischio accettato e documentato nel piano
- *   ("Decisioni e rischi"), da rivedere dopo la verifica manuale B14 su un
- *   repository Bitbucket pubblico.
+ * - **Bitbucket** → `permitted`, senza chiamate (vedi
+ *   {@link isTrustedAuthorAssociation}).
+ * - **GitHub** → `permitted` se l'associazione è una delle tre fidate (la
+ *   scorciatoia, nessuna chiamata); altrimenti chiede `fetchPermission(login)`
+ *   e ammette solo {@link PERMITTED_PERMISSIONS}: `triage`, `read`, `none` (e
+ *   qualunque valore inatteso) → `denied`. Una chiamata che lancia →
+ *   `unverifiable` (fail-closed: il commento resta fuori).
  *
  * UNA funzione per il webhook (la review "Request changes") e per la
  * fotografia dei commenti: le due porte non devono poter dire cose diverse.
  */
-export function isTrustedAuthorAssociation(
-  association: string | null | undefined,
+export async function isAuthorPermitted(
+  author: { login: string; association: string | null | undefined },
   provider: GitProviderKind,
-): boolean {
-  if (provider === "bitbucket") return true;
-  return typeof association === "string" && TRUSTED.has(association);
+  fetchPermission: FetchAuthorPermission,
+): Promise<AuthorPermissionVerdict> {
+  if (isTrustedAuthorAssociation(author.association, provider)) return "permitted";
+  let permission: unknown;
+  try {
+    permission = await fetchPermission(author.login);
+  } catch {
+    return "unverifiable";
+  }
+  return typeof permission === "string" && PERMITTED.has(permission) ? "permitted" : "denied";
+}
+
+/** Un autore escluso dalla fotografia per il permesso, e perché (per il log). */
+export interface ExcludedAuthor {
+  login: string;
+  reason: Exclude<AuthorPermissionVerdict, "permitted">;
+}
+
+/** La fotografia filtrata e gli autori tenuti fuori per il permesso. */
+export interface ProviderFeedbackSelection {
+  /** I commenti ammessi, nell'ordine del provider. */
+  comments: PrComment[];
+  /** Un elemento per login escluso (non per commento), nell'ordine di scoperta. */
+  excludedAuthors: ExcludedAuthor[];
 }
 
 /**
  * I commenti che entrano nella fotografia: non scritti dagli account di
  * Stubwise (la review l'AI la riceve già dal DB, e un commento del bot non è
  * feedback umano), scritti DOPO il taglio, e di un autore che ha il permesso
- * di chiedere modifiche ({@link isTrustedAuthorAssociation} col `provider`
- * della repository: su GitHub un commento di un estraneo non entra nel
- * prompt).
+ * di chiedere modifiche ({@link isAuthorPermitted}: su GitHub un commento di un
+ * estraneo non entra nel prompt).
  *
- * - `provider` è OBBLIGATORIO apposta: un chiamante che lo dimenticasse
- *   aprirebbe la porta agli estranei senza che niente lo segnali. Il
- *   compilatore lo segnala.
+ * - `provider` e `fetchPermission` sono OBBLIGATORI apposta: un chiamante che
+ *   li dimenticasse aprirebbe la porta agli estranei senza che niente lo
+ *   segnali. Il compilatore lo segnala. Su Bitbucket `fetchPermission` non è
+ *   mai chiamata.
+ * - Il permesso si chiede solo per i commenti che hanno già passato gli altri
+ *   due filtri, e UNA volta per login: la cache vive dentro QUESTA chiamata (è
+ *   una fotografia) — mai persistita, mai condivisa fra chiamate: un permesso
+ *   tolto sulla piattaforma vale dalla fotografia successiva.
+ * - Un autore `denied` o `unverifiable` resta fuori (fail-closed) e compare in
+ *   `excludedAuthors` col motivo, così il chiamante lo può scrivere nel log.
  * - Un `createdAt` non parsabile il commento lo TIENE: errore per eccesso,
  *   mai per difetto. Per l'autore vale il contrario (fail-closed su GitHub):
  *   un commento in più di un estraneo non è un errore innocuo.
@@ -214,17 +303,37 @@ export function isTrustedAuthorAssociation(
  *   `PrComment` non ha `updatedAt` (conta solo la data di creazione).
  * - L'ordine dell'output è quello del provider.
  */
-export function selectProviderFeedback(
+export async function selectProviderFeedback(
   comments: readonly PrComment[],
-  opts: { cutoff: Date | null; ownIds: readonly string[]; provider: GitProviderKind },
-): PrComment[] {
+  opts: {
+    cutoff: Date | null;
+    ownIds: readonly string[];
+    provider: GitProviderKind;
+    fetchPermission: FetchAuthorPermission;
+  },
+): Promise<ProviderFeedbackSelection> {
   const own = new Set(opts.ownIds);
-  return comments.filter(
-    (c) =>
-      !own.has(c.authorId) &&
-      isTrustedAuthorAssociation(c.authorAssociation, opts.provider) &&
-      (opts.cutoff === null || !isBeforeOrAt(c.createdAt, opts.cutoff)),
+  const candidates = comments.filter(
+    (c) => !own.has(c.authorId) && (opts.cutoff === null || !isBeforeOrAt(c.createdAt, opts.cutoff)),
   );
+  // La fotografia: un verdetto per login, solo per questa chiamata.
+  const verdicts = new Map<string, AuthorPermissionVerdict>();
+  const excludedAuthors: ExcludedAuthor[] = [];
+  const kept: PrComment[] = [];
+  for (const c of candidates) {
+    let verdict = verdicts.get(c.authorLogin);
+    if (verdict === undefined) {
+      verdict = await isAuthorPermitted(
+        { login: c.authorLogin, association: c.authorAssociation },
+        opts.provider,
+        opts.fetchPermission,
+      );
+      verdicts.set(c.authorLogin, verdict);
+      if (verdict !== "permitted") excludedAuthors.push({ login: c.authorLogin, reason: verdict });
+    }
+    if (verdict === "permitted") kept.push(c);
+  }
+  return { comments: kept, excludedAuthors };
 }
 
 function isBeforeOrAt(createdAt: string, cutoff: Date): boolean {

@@ -218,12 +218,19 @@ export {
 // letto l'AI».
 export {
   decryptGitCredentials,
+  isAuthorPermitted,
   isTrustedAuthorAssociation,
+  PERMITTED_PERMISSIONS,
   providerFeedbackCutoff,
   resolveProviderUserId,
   selectProviderFeedback,
   TRUSTED_AUTHOR_ASSOCIATIONS,
+  type AuthorPermissionVerdict,
+  type ExcludedAuthor,
+  type FetchAuthorPermission,
   type FetchPlatformIdentity,
+  type PlatformPermission,
+  type ProviderFeedbackSelection,
   type GitCredentials,
   type IdentityAccount,
 } from "./pr-correction-feedback.js";

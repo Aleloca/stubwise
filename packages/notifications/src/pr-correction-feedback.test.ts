@@ -8,9 +8,12 @@ import {
   decryptGitCredentials,
   providerFeedbackCutoff,
   resolveProviderUserId,
+  isAuthorPermitted,
   isTrustedAuthorAssociation,
   selectProviderFeedback,
   TRUSTED_AUTHOR_ASSOCIATIONS,
+  type FetchAuthorPermission,
+  type PlatformPermission,
 } from "./pr-correction-feedback.js";
 
 /**
@@ -213,6 +216,19 @@ describe("providerFeedbackCutoff", () => {
   });
 });
 
+/** Un `fetchPermission` che non deve mai essere chiamato: se lo è, il test lo vede. */
+const neverFetch = (): ReturnType<typeof vi.fn<FetchAuthorPermission>> =>
+  vi.fn<FetchAuthorPermission>().mockRejectedValue(new Error("fetchPermission non doveva essere chiamata"));
+
+/** Un `fetchPermission` che risponde da una tabella login → permesso. */
+const fetchFrom = (table: Record<string, PlatformPermission | Error>) =>
+  vi.fn<FetchAuthorPermission>(async (login) => {
+    const v = table[login];
+    if (v === undefined) throw new Error(`login inatteso: ${login}`);
+    if (v instanceof Error) throw v;
+    return v;
+  });
+
 describe("selectProviderFeedback", () => {
   const comment = (id: string, authorId: string, createdAt: string): PrComment => ({
     id,
@@ -224,7 +240,7 @@ describe("selectProviderFeedback", () => {
     line: null,
   });
 
-  it("esclude gli account propri e i commenti fino al taglio compreso", () => {
+  it("esclude gli account propri e i commenti fino al taglio compreso", async () => {
     const comments = [
       comment("vecchio", "5150", "2026-09-30T08:59:00.000Z"),
       comment("al-taglio", "5150", "2026-09-30T09:00:00.000Z"),
@@ -232,69 +248,226 @@ describe("selectProviderFeedback", () => {
       comment("del-bot", "1001", "2026-09-30T09:02:00.000Z"),
     ];
 
-    const kept = selectProviderFeedback(comments, {
+    const { comments: kept } = await selectProviderFeedback(comments, {
       cutoff: new Date("2026-09-30T09:00:00.000Z"),
       ownIds: ["1001", "1002"],
       provider: "bitbucket",
+      fetchPermission: neverFetch(),
     });
 
     expect(kept.map((c) => c.id)).toEqual(["nuovo"]);
   });
 
-  it("una data non parsabile il commento lo TIENE (errore per eccesso)", () => {
-    const kept = selectProviderFeedback([comment("strano", "5150", "non-una-data")], {
+  it("una data non parsabile il commento lo TIENE (errore per eccesso)", async () => {
+    const { comments: kept } = await selectProviderFeedback([comment("strano", "5150", "non-una-data")], {
       cutoff: new Date("2026-09-30T09:00:00.000Z"),
       ownIds: ["1001"],
       provider: "bitbucket",
+      fetchPermission: neverFetch(),
     });
     expect(kept.map((c) => c.id)).toEqual(["strano"]);
   });
 
-  it("senza taglio tiene tutto ciò che non è di Stubwise", () => {
-    const kept = selectProviderFeedback(
+  it("senza taglio tiene tutto ciò che non è di Stubwise", async () => {
+    const { comments: kept } = await selectProviderFeedback(
       [comment("a", "5150", "2026-01-01T00:00:00.000Z"), comment("b", "1002", "2026-01-01T00:00:00.000Z")],
-      { cutoff: null, ownIds: ["1001", "1002"], provider: "bitbucket" },
+      { cutoff: null, ownIds: ["1001", "1002"], provider: "bitbucket", fetchPermission: neverFetch() },
     );
     expect(kept.map((c) => c.id)).toEqual(["a"]);
   });
 
   describe("chi ha il permesso di chiedere modifiche", () => {
-    const by = (id: string, authorAssociation: string | null | undefined): PrComment => ({
+    const by = (
+      id: string,
+      authorAssociation: string | null | undefined,
+      login = `login-autore-${id}`,
+    ): PrComment => ({
       ...comment(id, `autore-${id}`, "2026-09-30T10:00:00.000Z"),
+      authorLogin: login,
       ...(authorAssociation === undefined ? {} : { authorAssociation }),
     });
-    const mixed = [
-      by("owner", "OWNER"),
-      by("member", "MEMBER"),
-      by("collaborator", "COLLABORATOR"),
-      by("contributor", "CONTRIBUTOR"),
-      by("none", "NONE"),
-      by("first-time", "FIRST_TIME_CONTRIBUTOR"),
-      by("null", null),
-      // fotografia salvata prima del campo
-      by("assente", undefined),
-      // GitHub la manda maiuscola: una minuscola non è il valore di GitHub
-      by("minuscolo", "owner"),
-    ];
+    const trusted = [by("owner", "OWNER"), by("member", "MEMBER"), by("collaborator", "COLLABORATOR")];
 
-    it("GitHub: tiene owner, membri e collaboratori; scarta tutti gli altri, null e assente compresi", () => {
-      const kept = selectProviderFeedback(mixed, { cutoff: null, ownIds: [], provider: "github" });
-      expect(kept.map((c) => c.id)).toEqual(["owner", "member", "collaborator"]);
+    it("GitHub, associazione fidata → ammessi SENZA chiedere il permesso", async () => {
+      const fetchPermission = neverFetch();
+      const res = await selectProviderFeedback(trusted, {
+        cutoff: null,
+        ownIds: [],
+        provider: "github",
+        fetchPermission,
+      });
+      expect(res.comments.map((c) => c.id)).toEqual(["owner", "member", "collaborator"]);
+      expect(res.excludedAuthors).toEqual([]);
+      expect(fetchPermission).not.toHaveBeenCalled();
     });
 
-    it("Bitbucket: nessun dato di associazione, tiene tutto (rischio documentato)", () => {
-      const kept = selectProviderFeedback(mixed, { cutoff: null, ownIds: [], provider: "bitbucket" });
-      expect(kept.map((c) => c.id)).toEqual(mixed.map((c) => c.id));
+    it("GitHub, associazione non fidata → decide il permesso reale", async () => {
+      // Il membro PRIVATO dell'organizzazione arriva come CONTRIBUTOR/NONE.
+      const comments = [
+        by("privato", "CONTRIBUTOR"),
+        by("maintainer", "NONE"),
+        by("admin", null),
+        by("triage", "CONTRIBUTOR"),
+        by("lettore", "NONE"),
+        by("estraneo", "FIRST_TIME_CONTRIBUTOR"),
+        by("assente", undefined),
+        by("minuscolo", "owner"),
+      ];
+      const fetchPermission = fetchFrom({
+        "login-autore-privato": "write",
+        "login-autore-maintainer": "maintain",
+        "login-autore-admin": "admin",
+        "login-autore-triage": "triage",
+        "login-autore-lettore": "read",
+        "login-autore-estraneo": "none",
+        "login-autore-assente": "write",
+        "login-autore-minuscolo": "none",
+      });
+      const res = await selectProviderFeedback(comments, {
+        cutoff: null,
+        ownIds: [],
+        provider: "github",
+        fetchPermission,
+      });
+      expect(res.comments.map((c) => c.id)).toEqual(["privato", "maintainer", "admin", "assente"]);
+      expect(res.excludedAuthors).toEqual([
+        { login: "login-autore-triage", reason: "denied" },
+        { login: "login-autore-lettore", reason: "denied" },
+        { login: "login-autore-estraneo", reason: "denied" },
+        { login: "login-autore-minuscolo", reason: "denied" },
+      ]);
     });
 
-    it("il filtro sull'autore non scavalca gli altri: un OWNER che è un account di Stubwise resta fuori", () => {
-      const kept = selectProviderFeedback([by("bot", "OWNER")], {
+    it("GitHub, la verifica fallisce → unverifiable ed escluso (fail-closed)", async () => {
+      const fetchPermission = fetchFrom({
+        "login-autore-rotto": new Error("GitHub: accesso negato (403)"),
+        "login-autore-ok": "write",
+      });
+      const res = await selectProviderFeedback([by("rotto", "CONTRIBUTOR"), by("ok", "CONTRIBUTOR")], {
+        cutoff: null,
+        ownIds: [],
+        provider: "github",
+        fetchPermission,
+      });
+      expect(res.comments.map((c) => c.id)).toEqual(["ok"]);
+      expect(res.excludedAuthors).toEqual([{ login: "login-autore-rotto", reason: "unverifiable" }]);
+    });
+
+    it("due commenti dello stesso autore → UNA sola chiamata (cache della fotografia)", async () => {
+      const fetchPermission = fetchFrom({ "mario-rossi": "write", "anna": "triage" });
+      const comments = [
+        by("1", "CONTRIBUTOR", "mario-rossi"),
+        by("2", "CONTRIBUTOR", "anna"),
+        by("3", "CONTRIBUTOR", "mario-rossi"),
+        by("4", "CONTRIBUTOR", "anna"),
+      ];
+      const res = await selectProviderFeedback(comments, {
+        cutoff: null,
+        ownIds: [],
+        provider: "github",
+        fetchPermission,
+      });
+      expect(res.comments.map((c) => c.id)).toEqual(["1", "3"]);
+      // Un elemento per LOGIN escluso, non per commento.
+      expect(res.excludedAuthors).toEqual([{ login: "anna", reason: "denied" }]);
+      expect(fetchPermission).toHaveBeenCalledTimes(2);
+      expect(fetchPermission.mock.calls.map(([l]) => l)).toEqual(["mario-rossi", "anna"]);
+    });
+
+    it("la cache NON passa da una chiamata all'altra: un permesso tolto vale dalla fotografia successiva", async () => {
+      const fetchPermission = vi
+        .fn<FetchAuthorPermission>()
+        .mockResolvedValueOnce("write")
+        .mockResolvedValueOnce("read");
+      const comments = [by("1", "CONTRIBUTOR", "mario-rossi")];
+      const opts = { cutoff: null, ownIds: [], provider: "github" as const, fetchPermission };
+
+      const first = await selectProviderFeedback(comments, opts);
+      const second = await selectProviderFeedback(comments, opts);
+
+      expect(first.comments.map((c) => c.id)).toEqual(["1"]);
+      expect(second.comments).toEqual([]);
+      expect(second.excludedAuthors).toEqual([{ login: "mario-rossi", reason: "denied" }]);
+      expect(fetchPermission).toHaveBeenCalledTimes(2);
+    });
+
+    it("il permesso si chiede solo per i commenti che passano gli altri filtri", async () => {
+      const fetchPermission = neverFetch();
+      const res = await selectProviderFeedback(
+        [by("bot", "NONE"), { ...by("vecchio", "NONE"), createdAt: "2026-09-30T08:00:00.000Z" }],
+        {
+          cutoff: new Date("2026-09-30T09:00:00.000Z"),
+          ownIds: ["autore-bot"],
+          provider: "github",
+          fetchPermission,
+        },
+      );
+      expect(res.comments).toEqual([]);
+      expect(res.excludedAuthors).toEqual([]);
+      expect(fetchPermission).not.toHaveBeenCalled();
+    });
+
+    it("Bitbucket: nessun dato di associazione, tiene tutto e non chiede niente (rischio documentato)", async () => {
+      const mixed = [...trusted, by("contributor", "CONTRIBUTOR"), by("null", null), by("assente", undefined)];
+      const fetchPermission = neverFetch();
+      const res = await selectProviderFeedback(mixed, {
+        cutoff: null,
+        ownIds: [],
+        provider: "bitbucket",
+        fetchPermission,
+      });
+      expect(res.comments.map((c) => c.id)).toEqual(mixed.map((c) => c.id));
+      expect(fetchPermission).not.toHaveBeenCalled();
+    });
+
+    it("il filtro sull'autore non scavalca gli altri: un OWNER che è un account di Stubwise resta fuori", async () => {
+      const res = await selectProviderFeedback([by("bot", "OWNER")], {
         cutoff: null,
         ownIds: ["autore-bot"],
         provider: "github",
+        fetchPermission: neverFetch(),
       });
-      expect(kept).toEqual([]);
+      expect(res.comments).toEqual([]);
     });
+  });
+});
+
+describe("isAuthorPermitted", () => {
+  const author = (association: string | null | undefined) => ({ login: "mario-rossi", association });
+
+  it.each(["OWNER", "MEMBER", "COLLABORATOR"])("GitHub, %s → permitted senza chiamate", async (a) => {
+    const fetchPermission = neverFetch();
+    await expect(isAuthorPermitted(author(a), "github", fetchPermission)).resolves.toBe("permitted");
+    expect(fetchPermission).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["write", "permitted"],
+    ["maintain", "permitted"],
+    ["admin", "permitted"],
+    ["triage", "denied"],
+    ["read", "denied"],
+    ["none", "denied"],
+  ] as const)("GitHub, CONTRIBUTOR con permesso %s → %s", async (permission, verdict) => {
+    const fetchPermission = vi.fn<FetchAuthorPermission>().mockResolvedValue(permission);
+    await expect(isAuthorPermitted(author("CONTRIBUTOR"), "github", fetchPermission)).resolves.toBe(verdict);
+    expect(fetchPermission).toHaveBeenCalledWith("mario-rossi");
+  });
+
+  it("GitHub, un valore inatteso dal provider → denied, mai permitted", async () => {
+    const fetchPermission = vi.fn<FetchAuthorPermission>().mockResolvedValue("superuser" as PlatformPermission);
+    await expect(isAuthorPermitted(author("NONE"), "github", fetchPermission)).resolves.toBe("denied");
+  });
+
+  it("GitHub, la chiamata lancia → unverifiable (distinto da denied)", async () => {
+    const fetchPermission = vi.fn<FetchAuthorPermission>().mockRejectedValue(new Error("rete"));
+    await expect(isAuthorPermitted(author(null), "github", fetchPermission)).resolves.toBe("unverifiable");
+  });
+
+  it("Bitbucket → permitted senza chiamate", async () => {
+    const fetchPermission = neverFetch();
+    await expect(isAuthorPermitted(author(null), "bitbucket", fetchPermission)).resolves.toBe("permitted");
+    expect(fetchPermission).not.toHaveBeenCalled();
   });
 });
 
