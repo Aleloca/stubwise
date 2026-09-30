@@ -1814,8 +1814,10 @@ describe("GitHubProvider.submitPrReview", () => {
     const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ id: 1, state: "CHANGES_REQUESTED" }, 200));
     const provider = new GitHubProvider({ fetchImpl });
 
-    await provider.submitPrReview(config, 42, "request_changes", "Manca il test");
+    const outcome = await provider.submitPrReview(config, 42, "request_changes", "Manca il test");
 
+    // GitHub non ha un «già in quello stato»: ogni review è nuova.
+    expect(outcome).toBe("submitted");
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
     expect(url).toBe(REVIEWS_URL);

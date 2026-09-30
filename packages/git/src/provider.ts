@@ -174,6 +174,16 @@ export interface CommitStatusInput {
 export type PrReviewVerdict = "approve" | "request_changes";
 
 /**
+ * Esito di {@link GitProvider.submitPrReview} quando non lancia.
+ * `"already_in_state"`: il provider ha risposto che l'account era GIÀ in
+ * quello stato (Bitbucket 409 sul POST del verdetto) — non un errore, il
+ * testo è uscito comunque. Scelta difensiva da confermare con B14 §7a (piano).
+ * Il pacchetto non ha un logger: l'esito torna al chiamante, che scrive la
+ * riga di log.
+ */
+export type SubmitPrReviewOutcome = "submitted" | "already_in_state";
+
+/**
  * "Request changes" arrivato dal webhook (Bitbucket
  * `pullrequest:changes_request_created`, GitHub `pull_request_review` con
  * `review.state = changes_requested`). `actorId` è la stessa identità di
@@ -399,7 +409,9 @@ export interface GitProvider {
    * review). Va chiamato con l'account REVISORE: GitHub rifiuta i due
    * verdetti all'autore della PR (422), Bitbucket li accetta ma
    * l'approvazione dell'autore non conta per i merge check. Sostituisce
-   * `createPrComment` quando l'account revisore c'è. Lancia GitProviderError.
+   * `createPrComment` quando l'account revisore c'è. Lancia GitProviderError;
+   * `"already_in_state"` quando il verdetto c'era già (vedi
+   * {@link SubmitPrReviewOutcome}).
    */
   submitPrReview(
     p: ProjectGitConfig,
@@ -407,7 +419,7 @@ export interface GitProvider {
     verdict: PrReviewVerdict,
     body: string,
     opts?: { fetchImpl?: FetchLike }
-  ): Promise<void>;
+  ): Promise<SubmitPrReviewOutcome>;
   /**
    * Identità stabile dell'account delle credenziali (uuid Bitbucket con le
    * graffe / id numerico GitHub come stringa), nella stessa forma di

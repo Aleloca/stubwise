@@ -33,6 +33,7 @@ import {
   type PullRequestChecks,
   type PushWebhookEvent,
   type RepoSummary,
+  type SubmitPrReviewOutcome,
   type WebhookEvent,
   type WebhookResult,
 } from "./provider.js";
@@ -430,7 +431,10 @@ export class BitbucketProvider implements GitProvider {
    * verdetto fallisce, la PR resta SENZA stato del revisore (quello
    * precedente è già stato ritirato). Il ripiego di C10 pubblica il testo ma
    * non ripristina il verdetto di prima. La verifica dal vivo del POST
-   * ripetuto è nel task B14 del piano.
+   * ripetuto è nel task B14 del piano: nell'attesa, un 409 sul POST del
+   * verdetto si tratta come «già in quello stato» (esito
+   * `"already_in_state"`, il commento parte comunque) — scelta difensiva da
+   * confermare con B14 §7a.
    */
   async submitPrReview(
     p: ProjectGitConfig,
@@ -438,7 +442,7 @@ export class BitbucketProvider implements GitProvider {
     verdict: PrReviewVerdict,
     body: string,
     opts: { fetchImpl?: FetchLike } = {}
-  ): Promise<void> {
+  ): Promise<SubmitPrReviewOutcome> {
     const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
     const { owner, repo } = parseRepoUrl(p.repoUrl);
     const auth = this.projectRestAuthHeader(p);
@@ -462,7 +466,18 @@ export class BitbucketProvider implements GitProvider {
       method: "POST",
       headers: { Authorization: auth },
     });
-    await ensureOkResponseWithHint(response, "Bitbucket", PR_REVIEW_PERMISSION_HINT);
+    // 409 sul verdetto = l'account è GIÀ in quello stato (es. un secondo
+    // approve): SCELTA DIFENSIVA da confermare con B14 §7a — si tratta come
+    // successo e il commento parte comunque, così il chiamante non ripiega
+    // sul commento dell'account principale per uno stato già giusto. Ogni
+    // altro non-2xx resta un errore.
+    let outcome: SubmitPrReviewOutcome = "submitted";
+    if (response.status === 409) {
+      await response.body?.cancel();
+      outcome = "already_in_state";
+    } else {
+      await ensureOkResponseWithHint(response, "Bitbucket", PR_REVIEW_PERMISSION_HINT);
+    }
     if (body.trim().length > 0) {
       try {
         await this.createPrComment(p, prNumber, body, { fetchImpl });
@@ -470,6 +485,7 @@ export class BitbucketProvider implements GitProvider {
         throw withPermissionHint(error, PR_REVIEW_PERMISSION_HINT);
       }
     }
+    return outcome;
   }
 
   /**

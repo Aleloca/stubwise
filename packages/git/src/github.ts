@@ -34,6 +34,7 @@ import {
   type PullRequestChecks,
   type PushWebhookEvent,
   type RepoSummary,
+  type SubmitPrReviewOutcome,
   type RepositoryPermission,
   type WebhookEvent,
   type WebhookResult,
@@ -515,7 +516,7 @@ export class GitHubProvider implements GitProvider {
     verdict: PrReviewVerdict,
     body: string,
     opts: { fetchImpl?: FetchLike } = {}
-  ): Promise<void> {
+  ): Promise<SubmitPrReviewOutcome> {
     const hasBody = body.trim().length > 0;
     if (verdict === "request_changes" && !hasBody) {
       throw new GitProviderError("GitHub: REQUEST_CHANGES richiede un testo (il corpo della review è vuoto)", 0, "");
@@ -546,6 +547,7 @@ export class GitHubProvider implements GitProvider {
       throw new GitProviderError(message, 422, text);
     }
     await ensureOkResponseWithHint(response, "GitHub", PR_REVIEW_PERMISSION_HINT);
+    return "submitted";
   }
 
   /**

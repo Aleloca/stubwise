@@ -878,6 +878,43 @@ describe("BitbucketProvider.submitPrReview", () => {
     expect(calls(fetchImpl)).not.toContain(`POST ${PR}/comments`);
   });
 
+  // SCELTA DIFENSIVA da confermare con B14 §7a: il secondo POST dello stesso
+  // verdetto potrebbe rispondere 409. Non è un errore: lo stato è già quello.
+  it("409 sul verdetto → «già in quello stato»: nessun errore, il commento parte", async () => {
+    for (const verdict of ["approve", "request_changes"] as const) {
+      const submit = verdict === "approve" ? "approve" : "request-changes";
+      const fetchImpl = recorder({
+        [`POST ${PR}/${submit}`]: () => Promise.resolve(new Response("already", { status: 409 })),
+      });
+      const provider = new BitbucketProvider({ fetchImpl });
+
+      // Il rifiuto diventa un valore: un 409 trattato come errore deve far
+      // fallire l'ASSERZIONE qui sotto, non esplodere il test.
+      const outcome = await provider.submitPrReview(config, 7, verdict, "Il testo").catch((e: unknown) => e);
+
+      expect(outcome).toBe("already_in_state");
+      expect(calls(fetchImpl)).toContain(`POST ${PR}/comments`);
+    }
+  });
+
+  it("verdetto riuscito → esito «submitted»", async () => {
+    const provider = new BitbucketProvider({ fetchImpl: recorder() });
+    await expect(provider.submitPrReview(config, 7, "approve", "ok")).resolves.toBe("submitted");
+  });
+
+  it("400/500 sul verdetto → errore, nessun commento (solo il 409 è «già in quello stato»)", async () => {
+    for (const status of [400, 500]) {
+      const fetchImpl = recorder({
+        [`POST ${PR}/request-changes`]: () => Promise.resolve(new Response("nope", { status })),
+      });
+      const provider = new BitbucketProvider({ fetchImpl });
+      const error = await errorOf(provider.submitPrReview(config, 7, "request_changes", "Manca il test"));
+      expect(error).toBeInstanceOf(GitProviderError);
+      expect((error as GitProviderError).status).toBe(status);
+      expect(calls(fetchImpl)).not.toContain(`POST ${PR}/comments`);
+    }
+  });
+
   it("il commento fallisce dopo un verdetto riuscito → errore, verdetto già inviato", async () => {
     const fetchImpl = recorder({
       [`POST ${PR}/comments`]: () => Promise.resolve(new Response("boom", { status: 500 })),
