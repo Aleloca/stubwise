@@ -931,6 +931,170 @@ describe("BitbucketProvider.submitPrReview", () => {
   });
 });
 
+describe("BitbucketProvider.getAuthenticatedUserId", () => {
+  const USER_URL = "https://api.bitbucket.org/2.0/user";
+  const TOKEN_B64 = Buffer.from("alice:app-pass").toString("base64");
+
+  it("GET /2.0/user con l'identità REST → uuid", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse({ uuid: "{u-stubwise}", nickname: "stubwise-bot", account_id: "5f00" }, 200)
+    );
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    const id = await provider.getAuthenticatedUserId({
+      credentials: { username: "alice", email: "alice@corp.io", token: "api-token" },
+    });
+
+    expect(id).toBe("{u-stubwise}");
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(USER_URL);
+    expect(init.method).toBe("GET");
+    expect((init.headers as Record<string, string>)["Authorization"]).toBe(
+      `Basic ${Buffer.from("alice@corp.io:api-token").toString("base64")}`
+    );
+  });
+
+  it("senza email usa lo username (app password legacy)", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ uuid: "{u-x}" }, 200));
+    const provider = new BitbucketProvider({ fetchImpl });
+    await provider.getAuthenticatedUserId(config);
+    const [, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    expect((init.headers as Record<string, string>)["Authorization"]).toBe(`Basic ${TOKEN_B64}`);
+  });
+
+  it("accetta anche una ProjectGitConfig intera", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ uuid: "{u-x}" }, 200));
+    const provider = new BitbucketProvider({ fetchImpl });
+    await expect(provider.getAuthenticatedUserId(config)).resolves.toBe("{u-x}");
+  });
+
+  it("opts.fetchImpl per chiamata vince su quello del costruttore", async () => {
+    const ctorFetch = vi.fn().mockResolvedValue(jsonResponse({ uuid: "{u-ctor}" }, 200));
+    const callFetch = vi.fn().mockResolvedValue(jsonResponse({ uuid: "{u-call}" }, 200));
+    const provider = new BitbucketProvider({ fetchImpl: ctorFetch });
+    await expect(provider.getAuthenticatedUserId(config, { fetchImpl: callFetch })).resolves.toBe("{u-call}");
+    expect(ctorFetch).not.toHaveBeenCalled();
+  });
+
+  it("uuid GREZZO: graffe e maiuscole restano come le manda Bitbucket", async () => {
+    const raw = "{A1B2C3D4-0000-4000-8000-00000000ABCD}";
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ uuid: raw }, 200));
+    const provider = new BitbucketProvider({ fetchImpl });
+    await expect(provider.getAuthenticatedUserId(config)).resolves.toBe(raw);
+  });
+
+  it("stessa fixture utente: === actorId del webhook === authorId dei commenti", async () => {
+    // Il confronto del design §5 è un'uguaglianza di stringhe: la forma
+    // dell'identità deve essere UNA sola nei tre punti.
+    const user = {
+      type: "user",
+      uuid: "{A1b2C3d4-0000-4000-8000-000000000001}",
+      nickname: "stubwise-bot",
+      display_name: "Stubwise Bot",
+      account_id: "5f00",
+    };
+    const fetchImpl = vi.fn().mockImplementation((input: string | URL) =>
+      Promise.resolve(
+        String(input) === USER_URL
+          ? jsonResponse({ ...user }, 200)
+          : jsonResponse(
+              {
+                values: [
+                  {
+                    id: 1,
+                    created_on: "2026-09-30T10:01:00+00:00",
+                    content: { raw: "da correggere" },
+                    user: { ...user },
+                    deleted: false,
+                  },
+                ],
+              },
+              200
+            )
+      )
+    );
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    const me = await provider.getAuthenticatedUserId(config);
+    const [fromComment] = await provider.listPrComments(config, 7);
+    const fromEvent = provider.parseChangesRequestedEvent(
+      { "x-event-key": "pullrequest:changes_request_created" },
+      {
+        actor: { ...user },
+        pullrequest: { id: 7, source: { branch: { name: "stubwise/ticket-1" } } },
+        changes_request: { user: { ...user } },
+      }
+    );
+
+    expect(me).toBe(user.uuid);
+    expect(fromEvent?.actorId).toBe(me);
+    expect(fromComment?.authorId).toBe(me);
+  });
+
+  it("401 → GitProviderError che dice credenziali non valide, senza il token", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("unauthorized", { status: 401 }));
+    const provider = new BitbucketProvider({ fetchImpl });
+    const error = await provider.getAuthenticatedUserId(config).then(
+      () => null,
+      (e: unknown) => e
+    );
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).status).toBe(401);
+    const message = (error as GitProviderError).message;
+    expect(message).toMatch(/credenziali/i);
+    expect(message).not.toContain("app-pass");
+    expect(message).not.toContain(TOKEN_B64);
+  });
+
+  it("403 → GitProviderError che nomina lo scope read:user, senza il token", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("forbidden", { status: 403 }));
+    const provider = new BitbucketProvider({ fetchImpl });
+    const error = await provider.getAuthenticatedUserId(config).then(
+      () => null,
+      (e: unknown) => e
+    );
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).status).toBe(403);
+    const message = (error as GitProviderError).message;
+    expect(message).toMatch(/read:user/);
+    expect(message).not.toContain("app-pass");
+    expect(message).not.toContain(TOKEN_B64);
+  });
+
+  it("altri non-2xx → GitProviderError con lo status vero", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("boom", { status: 500 }));
+    const provider = new BitbucketProvider({ fetchImpl });
+    const error = await provider.getAuthenticatedUserId(config).then(
+      () => null,
+      (e: unknown) => e
+    );
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).status).toBe(500);
+  });
+
+  it.each([
+    ["senza uuid", { nickname: "x" }],
+    ["uuid vuoto", { uuid: "", nickname: "x" }],
+    ["uuid non stringa", { uuid: 42 }],
+    ["corpo null", null],
+  ])("risposta %s → GitProviderError (mai una stringa vuota come identità)", async (_label, body) => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(body, 200));
+    const provider = new BitbucketProvider({ fetchImpl });
+    await expect(provider.getAuthenticatedUserId(config)).rejects.toBeInstanceOf(GitProviderError);
+  });
+
+  it("credenziali REST mancanti → lancia prima della richiesta", async () => {
+    // Il doppio risponderebbe bene: se la richiesta partisse, il test lo vedrebbe.
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ uuid: "{u-x}" }, 200));
+    const provider = new BitbucketProvider({ fetchImpl });
+    await expect(provider.getAuthenticatedUserId({ credentials: { token: "t" } })).rejects.toThrow(
+      /email.*username|username.*email/i
+    );
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});
+
 describe("BitbucketProvider.parseWebhook", () => {
   const provider = new BitbucketProvider();
   const mergedBody = {

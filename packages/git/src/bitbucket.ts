@@ -459,6 +459,51 @@ export class BitbucketProvider implements GitProvider {
     }
   }
 
+  /**
+   * Identità stabile dell'account sulla piattaforma (design §4/§5): lo uuid di
+   * `GET /2.0/user`, GREZZO — graffe comprese e maiuscole come arrivano. Lo
+   * ricava {@link bitbucketAccount}, la stessa funzione che dà `actorId` al
+   * webhook "Request changes" e `authorId` ai commenti: il confronto del
+   * design §5 è un'uguaglianza di stringhe, e la forma sta in un posto solo.
+   * Accetta qualunque oggetto con `credentials` (ProjectGitConfig o
+   * AccountCredentials); identità REST come gli altri metodi (email
+   * Atlassian, poi username). Lancia GitProviderError: sul 401 dice che le
+   * credenziali non valgono, sul 403 lo scope mancante (read:user per gli API
+   * token, Account: Read per le app password); senza uuid lancia invece di
+   * restituire un'identità vuota. Mai il token in un messaggio.
+   */
+  async getAuthenticatedUserId(
+    p: Pick<ProjectGitConfig, "credentials">,
+    opts: { fetchImpl?: FetchLike } = {}
+  ): Promise<string> {
+    const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
+    const response = await fetchImpl(`${API_BASE}/user`, {
+      method: "GET",
+      headers: { Authorization: this.projectRestAuthHeader(p) },
+    });
+    if (response.status === 401 || response.status === 403) {
+      const text = (await response.text().catch(() => "")).slice(0, 500);
+      throw new GitProviderError(
+        response.status === 401
+          ? "Bitbucket: credenziali non valide leggendo l'identità dell'account (401) — verifica email/username e token"
+          : "Bitbucket: il token non può leggere la propria identità (403) — serve lo scope read:user (API token) o Account: Read (app password)",
+        response.status,
+        text
+      );
+    }
+    await ensureOkResponse(response, "Bitbucket");
+    const data = await readJsonResponse(response, "Bitbucket");
+    const account = bitbucketAccount(data);
+    if (account === null) {
+      throw new GitProviderError(
+        "Bitbucket: la risposta di /user non contiene uno uuid: identità dell'account non determinabile",
+        response.status,
+        ""
+      );
+    }
+    return account.id;
+  }
+
   parseWebhook(headers: Record<string, string>, body: unknown): WebhookEvent | null {
     const eventKey = getHeader(headers, "x-event-key");
     const kind =
@@ -1070,7 +1115,7 @@ export class BitbucketProvider implements GitProvider {
    * legacy). Stessa regola di openPullRequest/restAuthHeader; lancia se
    * mancano entrambe, prima di qualsiasi richiesta.
    */
-  private projectRestAuthHeader(p: ProjectGitConfig): string {
+  private projectRestAuthHeader(p: Pick<ProjectGitConfig, "credentials">): string {
     const restUser = p.credentials.email ?? p.credentials.username;
     if (!restUser) {
       throw new GitProviderError(
