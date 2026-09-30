@@ -59,6 +59,24 @@ const STALE_MARGIN_MS = 5 * 60_000;
  * gira UNA SOLA VOLTA prima dell'agente (fino a installTimeoutMs), quindi entra
  * come addendo unico (non per tentativo). L'heartbeat in runFix è la difesa
  * primaria; questa è la rete di sicurezza contro una config rotta.
+ *
+ * La CORREZIONE post-PR (pipeline/correction.ts) non ha un termine suo: niente
+ * triage, niente piano, un solo run di esecuzione + lo stesso install e lo
+ * stesso self-repair del fix — cioè un sottoinsieme stretto dei termini qui
+ * sopra, sugli STESSI parametri (handler.ts le passa lo stesso `deps.fix`). Coi
+ * default: 10' + 30' + 2×(30'+5') = 110' contro i 139' del fix. Chi aggiungesse
+ * alla correzione una fase di piano (o un secondo run) deve rifare questo conto.
+ * Come nel fix, l'heartbeat avvolge tutto il lavoro nel worktree (install,
+ * esecuzione, self-repair, commit, push); in più la correzione ha un tratto
+ * PRIMA del worktree che il fix non ha — la rilettura dei commenti della PR
+ * (identità, pagine dei commenti, fino a 20 verifiche di permesso), chiamate
+ * HTTP senza un timeout loro — e anche quello ha il suo heartbeat: nessun conto
+ * di questa funzione potrebbe dargli un tetto. Resta scoperto, come nel fix,
+ * solo il non-agentico già nel margine (clone/fetch del mirror, worktree).
+ * La REVIEW (review/poller.ts) usa la stessa soglia su `pr_reviews`, ma il suo
+ * recovery guarda solo le review PARTITE (`started_at` non null): l'attesa nel
+ * serializer non ha heartbeat e non entra in questo conto, la partenza rinnova
+ * `last_activity_at` e da lì batte l'heartbeat di run-review.ts.
  */
 function assertStaleInvariant(
   staleAfterMinutes: number,

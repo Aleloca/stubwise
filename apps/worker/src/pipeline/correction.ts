@@ -705,18 +705,34 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
     // Chi è il token sulla piattaforma: la stessa chiamata che fa il server.
     const fetchIdentity: FetchPlatformIdentity = ({ provider: kind, credentials: creds }) =>
       getProviderFn(kind).getAuthenticatedUserId({ credentials: creds });
-    feedback = await refreshProviderFeedback({
-      db,
-      jobId: job.id,
-      encryptionKey: deps.encryptionKey,
-      provider,
-      fetchIdentity,
-      project: mirrorProject,
-      accounts: [row.account, ...(reviewerAccount ? [reviewerAccount] : [])],
-      correctionId: correction.id,
-      pr: { repositoryId: correction.repositoryId, prNumber: correction.prNumber },
-      existing: feedback,
-    });
+    // Heartbeat ANCHE qui, non solo nel worktree (C11): la rilettura sta prima
+    // del worktree e fa fino a qualche decina di chiamate HTTP (identità,
+    // pagine dei commenti, MAX_PERMISSION_LOOKUPS_PER_SNAPSHOT permessi) che
+    // nel provider non hanno un timeout loro. Senza battito il tempo fino al
+    // primo `last_activity_at` non avrebbe un tetto noto alla config, e
+    // requeueStale potrebbe riaccodare un job vivo. Il fix non ha questo tratto.
+    const feedbackHeartbeat = setInterval(() => {
+      void touchJob(db, job.id).catch(() => {
+        // Il prossimo battito riproverà.
+      });
+    }, deps.heartbeatIntervalMs ?? HEARTBEAT_INTERVAL_MS);
+    feedbackHeartbeat.unref();
+    try {
+      feedback = await refreshProviderFeedback({
+        db,
+        jobId: job.id,
+        encryptionKey: deps.encryptionKey,
+        provider,
+        fetchIdentity,
+        project: mirrorProject,
+        accounts: [row.account, ...(reviewerAccount ? [reviewerAccount] : [])],
+        correctionId: correction.id,
+        pr: { repositoryId: correction.repositoryId, prNumber: correction.prNumber },
+        existing: feedback,
+      });
+    } finally {
+      clearInterval(feedbackHeartbeat);
+    }
   }
 
   const repoDir = mirrorSlug(mirrorProject.repoUrl);

@@ -23301,6 +23301,20 @@ del merge). Sostituisci `<data>` con la data del merge.
   si scartano in memoria per 5 minuti (`createDeliveryDedupe`): senza,
   diventerebbero una seconda correzione identica. Chi ci rimette la lettura
   dei commenti rende il webhook lento quanto basta a farle arrivare.
+- **Staleness: la correzione non sposta `WORKER_STALE_MINUTES`, ma ha DUE
+  heartbeat (C11).** I 3 punti della voce `WORKER_STALE_MINUTES` qui sopra
+  restano 150 / invariante > 139: la correzione è un sottoinsieme stretto dei
+  termini del fix sugli stessi parametri (niente triage né piano, un solo run
+  + install + self-repair: 110' coi default), conto scritto nel docblock di
+  `assertStaleInvariant` (`apps/worker/src/index.ts`). Ma a differenza del
+  fix ha un tratto PRIMA del worktree — la rilettura dei commenti della PR:
+  identità, pagine, fino a 20 verifiche di permesso, chiamate HTTP del
+  provider SENZA timeout proprio — e quel tratto ha un heartbeat suo
+  (`pipeline/correction.ts`, attorno a `refreshProviderFeedback`), perché
+  nessun conto sui timeout potrebbe dargli un tetto. Chi sposta altro lavoro
+  di rete prima del worktree lo metta dentro un heartbeat, non nel margine.
+  La review usa la stessa soglia ma solo sulle review PARTITE: l'attesa nel
+  serializer non entra nel conto.
 ```
 
 **Step 3: sezione MCP.** In «Integrazione Claude Code (MCP)», dopo la voce che inizia

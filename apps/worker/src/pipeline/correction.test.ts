@@ -1108,6 +1108,38 @@ describe("runCorrection", () => {
     expect(after!.feedbackComplete).toBe(true);
   });
 
+  it("la rilettura dei commenti batte l'heartbeat: le chiamate al provider non hanno timeout, e stanno PRIMA del worktree", async () => {
+    // C11: requeueStale guarda `last_activity_at`, e fino al worktree nessun
+    // battito lo rinnova. Le chiamate della rilettura (identità, pagine dei
+    // commenti, fino a MAX_PERMISSION_LOOKUPS_PER_SNAPSHOT permessi) non hanno
+    // un timeout loro: senza heartbeat il tempo fra due battiti non avrebbe
+    // un tetto che la config conosca. Qui l'orologio del job si porta
+    // indietro di un'ora DENTRO la lettura, che poi aspetta alcuni battiti:
+    // nessuna riga di log cade in mezzo, quindi solo l'heartbeat lo rinnova.
+    const f = await makeFixture();
+    const provider = makeProvider();
+    const { job } = await seedCorrection(f, { trigger: "review", providerFeedback: [] });
+    let seen = null as Date | null;
+    provider.listPrComments.mockImplementation(async () => {
+      await testDb.db
+        .update(aiJobs)
+        .set({ lastActivityAt: sql`now() - interval '1 hour'` })
+        .where(eq(aiJobs.id, job.id));
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      const [row] = await testDb.db
+        .select({ lastActivityAt: aiJobs.lastActivityAt })
+        .from(aiJobs)
+        .where(eq(aiJobs.id, job.id));
+      seen = row!.lastActivityAt;
+      return [];
+    });
+
+    await runCorrection(makeDeps(f, applyingRunner(f), provider, [], { heartbeatIntervalMs: 20 }), job);
+
+    expect(seen).not.toBeNull();
+    expect(Date.now() - seen!.getTime()).toBeLessThan(60_000);
+  });
+
   it("self-repair: la riparazione usa il prompt della CORREZIONE (report nella radice del run, commento sul ticket)", async () => {
     const f = await makeFixture();
     const runner = new FakeAgentRunner({
