@@ -43,8 +43,10 @@ const MAX_TOTAL_REPOS = 300;
 const MAX_BRANCH_PAGES = 2;
 
 /** Tetto di pagine di commenti di una PR: 10 da 100 (~1000 commenti). Oltre
- * è un'anomalia, e un `next` che non termina non deve girare all'infinito:
- * meglio una fotografia troncata che un ciclo senza fine. */
+ * è un'anomalia, e un `next` che non termina non deve girare all'infinito.
+ * Arrivati al tetto con ancora una pagina successiva si LANCIA, non si tronca:
+ * una fotografia parziale verrebbe presa per completa e i commenti persi
+ * resterebbero fuori per sempre. L'errore evita sia quello sia il ciclo. */
 const MAX_COMMENT_PAGES = 10;
 
 interface BitbucketCommentPayload {
@@ -314,14 +316,30 @@ export class BitbucketProvider implements GitProvider {
       const response = await fetchImpl(url, { method: "GET", headers: { Authorization: auth } });
       await ensureOkResponse(response, "Bitbucket");
       const data = (await readJsonResponse(response, "Bitbucket")) as {
-        values?: BitbucketCommentPayload[];
+        values?: unknown;
         next?: unknown;
-      };
-      for (const raw of Array.isArray(data.values) ? data.values : []) {
+      } | null;
+      // Una pagina senza `values` non è "nessun commento": è una risposta che
+      // non capiamo, e contarla come vuota darebbe una fotografia a metà.
+      if (typeof data !== "object" || data === null || !Array.isArray(data.values)) {
+        throw new GitProviderError(
+          "Bitbucket: risposta inattesa leggendo i commenti della PR: non prendo una fotografia parziale",
+          0,
+          ""
+        );
+      }
+      for (const raw of data.values as BitbucketCommentPayload[]) {
         const comment = bitbucketComment(raw);
         if (comment !== null) comments.push(comment);
       }
       url = typeof data.next === "string" ? data.next : null;
+    }
+    if (url) {
+      throw new GitProviderError(
+        `Bitbucket: oltre ${MAX_COMMENT_PAGES} pagine di commenti sulla PR: non prendo una fotografia parziale`,
+        0,
+        ""
+      );
     }
     return comments;
   }

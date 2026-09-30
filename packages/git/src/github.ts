@@ -44,7 +44,10 @@ const MAX_BRANCH_PAGES = 2;
 
 /** Tetto di pagine PER FONTE di commenti di una PR: 10 da 100 (~1000). Oltre
  * è un'anomalia, e un Link `next` che non termina non deve girare
- * all'infinito: meglio una fotografia troncata che un ciclo senza fine. */
+ * all'infinito. Arrivati al tetto con ancora una pagina successiva si LANCIA,
+ * non si tronca: una fotografia parziale verrebbe presa per completa e i
+ * commenti persi resterebbero fuori per sempre. L'errore evita sia quello sia
+ * il ciclo. */
 const MAX_COMMENT_PAGES = 10;
 
 export class GitHubProvider implements GitProvider {
@@ -813,10 +816,11 @@ export class GitHubProvider implements GitProvider {
 
   /**
    * GET paginato con l'header Link (`parseNextLink`), fino a
-   * {@link MAX_COMMENT_PAGES}. Un corpo che non è un array chiude la
-   * paginazione. Un `next` che non sta sull'host dell'API GitHub fa lanciare
-   * PRIMA di seguirlo: la richiesta porterebbe il token altrove, e troncare in
-   * silenzio darebbe una fotografia a metà.
+   * {@link MAX_COMMENT_PAGES}. O tutte le pagine o un GitProviderError, mai
+   * una fotografia a metà: lancia su un corpo che non è un array (risposta
+   * inattesa), su una pagina successiva oltre il tetto, e su un `next` che non
+   * sta sull'host dell'API GitHub — quest'ultimo PRIMA di seguirlo, perché la
+   * richiesta porterebbe il token altrove.
    */
   private async fetchCommentPages(
     fetchImpl: FetchLike,
@@ -831,9 +835,22 @@ export class GitHubProvider implements GitProvider {
       await ensureOkResponse(response, "GitHub");
       const link = response.headers.get("link");
       const data = await readJsonResponse(response, "GitHub");
-      if (!Array.isArray(data)) break;
+      if (!Array.isArray(data)) {
+        throw new GitProviderError(
+          "GitHub: risposta inattesa leggendo i commenti della PR: non prendo una fotografia parziale",
+          0,
+          ""
+        );
+      }
       items.push(...(data as unknown[]));
       url = parseNextLink(link);
+    }
+    if (url) {
+      throw new GitProviderError(
+        `GitHub: oltre ${MAX_COMMENT_PAGES} pagine di commenti sulla PR: non prendo una fotografia parziale`,
+        0,
+        ""
+      );
     }
     return items;
   }
@@ -904,5 +921,3 @@ function githubAuthor(raw: unknown): { id: string; login: string } | null {
   if (typeof user.login !== "string") return null;
   return { id: String(user.id), login: user.login };
 }
-
-/** Vero solo per un URL https sull'host dell'API GitHub (`API_BASE`). */

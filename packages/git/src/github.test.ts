@@ -682,7 +682,7 @@ describe("GitHubProvider.listPrComments", () => {
     expect(calledUrls.every((u) => u.startsWith("https://api.github.com/"))).toBe(true);
   });
 
-  it("un Link next che non finisce si ferma al tetto di 10 pagine per fonte", async () => {
+  it("un Link next oltre il tetto di 10 pagine per fonte → GitProviderError, mai una fotografia a metà", async () => {
     const fetchImpl = vi.fn().mockImplementation((input: string | URL) =>
       Promise.resolve(
         String(input).includes("/issues/")
@@ -694,9 +694,23 @@ describe("GitHubProvider.listPrComments", () => {
       )
     );
     const provider = new GitHubProvider({ fetchImpl });
-    await provider.listPrComments(config, 42);
+    const error = await provider.listPrComments(config, 42).then(() => null, (e: unknown) => e);
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).message).toMatch(/oltre 10 pagine/);
     const issueCalls = fetchImpl.mock.calls.filter((c) => String((c as [string])[0]).includes("/issues/"));
     expect(issueCalls).toHaveLength(10);
+  });
+
+  it("un corpo che non è un array → GitProviderError (risposta inattesa), non \"nessun commento\"", async () => {
+    const fetchImpl = routes({
+      [ISSUE_URL]: () => pagedResponse([{ id: 1, user: mario, body: "p1", created_at: "2026-09-30T10:00:00Z" }]),
+      [REVIEW_COMMENTS_URL]: () => pagedResponse({ message: "boh" }),
+      [REVIEWS_URL]: () => pagedResponse([]),
+    });
+    const provider = new GitHubProvider({ fetchImpl });
+    const error = await provider.listPrComments(config, 42).then(() => null, (e: unknown) => e);
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).message).toMatch(/risposta inattesa/);
   });
 
   it("non-2xx su una fonte → GitProviderError (niente fotografia a metà)", async () => {

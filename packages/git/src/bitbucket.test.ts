@@ -614,16 +614,50 @@ describe("BitbucketProvider.listPrComments", () => {
     expect(comments.map((c) => c.id)).toEqual(["1", "2"]);
   });
 
-  it("un `next` che non finisce si ferma al tetto di 10 pagine", async () => {
+  it("un `next` oltre il tetto di 10 pagine → GitProviderError, mai una fotografia a metà", async () => {
     const fetchImpl = vi.fn().mockImplementation(() =>
       Promise.resolve(jsonResponse({ values: [comment(1)], next: `${COMMENTS_URL}&page=n` }, 200))
     );
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    const error = await provider.listPrComments(config, 7).then(() => null, (e: unknown) => e);
+
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).message).toMatch(/oltre 10 pagine/);
+    expect(fetchImpl).toHaveBeenCalledTimes(10);
+  });
+
+  it("esattamente 10 pagine e poi nessun `next` → tutti i commenti, nessun errore", async () => {
+    let n = 0;
+    const fetchImpl = vi.fn().mockImplementation(() => {
+      n++;
+      return Promise.resolve(
+        jsonResponse({ values: [comment(1)], ...(n < 10 ? { next: `${COMMENTS_URL}&page=${n + 1}` } : {}) }, 200)
+      );
+    });
     const provider = new BitbucketProvider({ fetchImpl });
 
     const comments = await provider.listPrComments(config, 7);
 
     expect(fetchImpl).toHaveBeenCalledTimes(10);
     expect(comments).toHaveLength(10);
+  });
+
+  it("una pagina senza `values` → GitProviderError (risposta inattesa), non \"nessun commento\"", async () => {
+    const PAGE_2 = `${COMMENTS_URL}&page=2`;
+    const fetchImpl = vi.fn().mockImplementation((input: string | URL) =>
+      Promise.resolve(
+        String(input) === PAGE_2
+          ? jsonResponse({ error: "boh" }, 200)
+          : jsonResponse({ values: [comment(1)], next: PAGE_2 }, 200)
+      )
+    );
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    const error = await provider.listPrComments(config, 7).then(() => null, (e: unknown) => e);
+
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).message).toMatch(/risposta inattesa/);
   });
 
   it("usa l'email Atlassian come identità REST quando c'è", async () => {

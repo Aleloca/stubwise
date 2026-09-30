@@ -4377,7 +4377,19 @@ inline e risposte, dal più vecchio al più nuovo, paginati con `next`
 (`pagelen` massimo 100). Si escludono `deleted: true` e `pending: true` (le
 bozze non pubblicate), i commenti vuoti e quelli senza `user.uuid`. Tetto di
 10 pagine (1000 commenti): una PR con più commenti è un'anomalia, e un ciclo
-senza tetto su un `next` che non finisce è peggio di una fotografia troncata.
+senza tetto su un `next` che non finisce non va lasciato girare.
+
+> **Emendamento (30 set 2026, review di B4/B5).** La versione precedente di
+> questo task diceva «meglio una fotografia troncata che un ciclo senza fine».
+> Il dilemma è falso: arrivati al tetto con ancora un `next`, il metodo
+> **lancia** `GitProviderError` («oltre 10 pagine di commenti sulla PR»), e
+> l'errore evita sia il ciclo sia la fotografia a metà. Lo stesso per una
+> pagina senza `values` («risposta inattesa»), che prima contava come «nessun
+> commento». Il motivo è C8: una fotografia parziale verrebbe marcata
+> `feedbackComplete: true`, e i commenti persi resterebbero fuori per sempre.
+> Il `next` è anche verificato sull'host dell'API prima di seguirlo
+> (`assertPageOnApiHost`, commit a sé). Test e codice qui sotto sono già
+> aggiornati.
 
 **Step 1 — test che fallisce.** In `bitbucket.test.ts`, dopo il `describe` di
 `createPrComment`:
@@ -4475,16 +4487,34 @@ describe("BitbucketProvider.listPrComments", () => {
     expect(comments.map((c) => c.id)).toEqual(["1", "2"]);
   });
 
-  it("un `next` che non finisce si ferma al tetto di 10 pagine", async () => {
+  it("un `next` oltre il tetto di 10 pagine → GitProviderError, mai una fotografia a metà", async () => {
     const fetchImpl = vi.fn().mockImplementation(() =>
       Promise.resolve(jsonResponse({ values: [comment(1)], next: `${COMMENTS_URL}&page=n` }, 200))
     );
     const provider = new BitbucketProvider({ fetchImpl });
 
-    const comments = await provider.listPrComments(config, 7);
+    const error = await provider.listPrComments(config, 7).then(() => null, (e: unknown) => e);
 
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).message).toMatch(/oltre 10 pagine/);
     expect(fetchImpl).toHaveBeenCalledTimes(10);
-    expect(comments).toHaveLength(10);
+  });
+
+  it("una pagina senza `values` → GitProviderError (risposta inattesa), non \"nessun commento\"", async () => {
+    const PAGE_2 = `${COMMENTS_URL}&page=2`;
+    const fetchImpl = vi.fn().mockImplementation((input: string | URL) =>
+      Promise.resolve(
+        String(input) === PAGE_2
+          ? jsonResponse({ error: "boh" }, 200)
+          : jsonResponse({ values: [comment(1)], next: PAGE_2 }, 200)
+      )
+    );
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    const error = await provider.listPrComments(config, 7).then(() => null, (e: unknown) => e);
+
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).message).toMatch(/risposta inattesa/);
   });
 
   it("usa l'email Atlassian come identità REST quando c'è", async () => {
@@ -4531,7 +4561,9 @@ nell'import; sotto `MAX_BRANCH_PAGES`:
 
 ```ts
 /** Tetto di pagine di commenti di una PR: 10 da 100 (~1000 commenti). Oltre
- * è un'anomalia, e un `next` che non termina non deve girare all'infinito. */
+ * è un'anomalia, e un `next` che non termina non deve girare all'infinito.
+ * Arrivati al tetto con ancora una pagina successiva si LANCIA, non si tronca:
+ * una fotografia parziale verrebbe presa per completa. */
 const MAX_COMMENT_PAGES = 10;
 
 interface BitbucketCommentPayload {
@@ -4552,8 +4584,9 @@ Il metodo, subito dopo `createPrComment`:
    * Commenti della PR (generali, sulle righe e risposte), dal più vecchio al
    * più nuovo come li ordina Bitbucket, seguendo `next` fino al tetto. Mai i
    * cancellati (`deleted`), le bozze (`pending`), i vuoti, né quelli senza
-   * `user.uuid` (vedi {@link PrComment}). Lancia GitProviderError sui non-2xx:
-   * la fotografia del feedback non si prende a metà.
+   * `user.uuid` (vedi {@link PrComment}). Lancia GitProviderError sui non-2xx,
+   * su una pagina senza `values` e su un `next` oltre il tetto: la fotografia
+   * del feedback non si prende a metà.
    */
   async listPrComments(
     p: ProjectGitConfig,
@@ -4567,17 +4600,32 @@ Il metodo, subito dopo `createPrComment`:
     let url: string | null =
       `${API_BASE}/repositories/${owner}/${repo}/pullrequests/${prNumber}/comments?pagelen=100`;
     for (let page = 0; page < MAX_COMMENT_PAGES && url; page++) {
+      assertPageOnApiHost(url, API_BASE, "Bitbucket");
       const response = await fetchImpl(url, { method: "GET", headers: { Authorization: auth } });
       await ensureOkResponse(response, "Bitbucket");
       const data = (await readJsonResponse(response, "Bitbucket")) as {
-        values?: BitbucketCommentPayload[];
+        values?: unknown;
         next?: unknown;
-      };
-      for (const raw of Array.isArray(data.values) ? data.values : []) {
+      } | null;
+      if (typeof data !== "object" || data === null || !Array.isArray(data.values)) {
+        throw new GitProviderError(
+          "Bitbucket: risposta inattesa leggendo i commenti della PR: non prendo una fotografia parziale",
+          0,
+          ""
+        );
+      }
+      for (const raw of data.values as BitbucketCommentPayload[]) {
         const comment = bitbucketComment(raw);
         if (comment !== null) comments.push(comment);
       }
       url = typeof data.next === "string" ? data.next : null;
+    }
+    if (url) {
+      throw new GitProviderError(
+        `Bitbucket: oltre ${MAX_COMMENT_PAGES} pagine di commenti sulla PR: non prendo una fotografia parziale`,
+        0,
+        ""
+      );
     }
     return comments;
   }
@@ -4644,6 +4692,12 @@ id delle tre fonti hanno un prefisso (`issue-`, `review-comment-`, `review-`)
 perché GitHub non garantisce che non si sovrappongano. Il risultato è
 ordinato per data. Paginazione con l'header `Link` (`parseNextLink`), stesso
 tetto di 10 pagine per fonte.
+
+> **Emendamento (30 set 2026, review di B4/B5)**: come in B4, nessuna
+> fotografia a metà. Un `Link next` ancora presente al tetto di una fonte e un
+> corpo che non è un array («risposta inattesa», prima chiudeva la
+> paginazione in silenzio) lanciano `GitProviderError`. Test e codice qui
+> sotto sono già aggiornati.
 
 **Step 1 — test che fallisce.** In `github.test.ts`, dopo `createPrComment`:
 
@@ -4779,7 +4833,7 @@ describe("GitHubProvider.listPrComments", () => {
     expect(comments.map((c) => c.id)).toEqual(["issue-1", "issue-2"]);
   });
 
-  it("un Link next che non finisce si ferma al tetto di 10 pagine per fonte", async () => {
+  it("un Link next oltre il tetto di 10 pagine per fonte → GitProviderError, mai una fotografia a metà", async () => {
     const fetchImpl = vi.fn().mockImplementation((input: string | URL) =>
       Promise.resolve(
         String(input).includes("/issues/")
@@ -4791,9 +4845,23 @@ describe("GitHubProvider.listPrComments", () => {
       )
     );
     const provider = new GitHubProvider({ fetchImpl });
-    await provider.listPrComments(config, 42);
+    const error = await provider.listPrComments(config, 42).then(() => null, (e: unknown) => e);
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).message).toMatch(/oltre 10 pagine/);
     const issueCalls = fetchImpl.mock.calls.filter((c) => String((c as [string])[0]).includes("/issues/"));
     expect(issueCalls).toHaveLength(10);
+  });
+
+  it("un corpo che non è un array → GitProviderError (risposta inattesa), non \"nessun commento\"", async () => {
+    const fetchImpl = routes({
+      [ISSUE_URL]: () => pagedResponse([{ id: 1, user: mario, body: "p1", created_at: "2026-09-30T10:00:00Z" }]),
+      [REVIEW_COMMENTS_URL]: () => pagedResponse({ message: "boh" }),
+      [REVIEWS_URL]: () => pagedResponse([]),
+    });
+    const provider = new GitHubProvider({ fetchImpl });
+    const error = await provider.listPrComments(config, 42).then(() => null, (e: unknown) => e);
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).message).toMatch(/risposta inattesa/);
   });
 
   it("non-2xx su una fonte → GitProviderError (niente fotografia a metà)", async () => {
@@ -4821,7 +4889,8 @@ Atteso: FAIL — `provider.listPrComments is not a function`.
 sotto `MAX_BRANCH_PAGES`:
 
 ```ts
-/** Tetto di pagine PER FONTE di commenti di una PR: 10 da 100. */
+/** Tetto di pagine PER FONTE di commenti di una PR: 10 da 100. Arrivati al
+ * tetto con ancora una pagina successiva si LANCIA, non si tronca. */
 const MAX_COMMENT_PAGES = 10;
 ```
 
@@ -4900,7 +4969,9 @@ Il metodo, dopo `createPrComment`, più un helper privato accanto a
 ```ts
   /**
    * GET paginato con l'header Link (`parseNextLink`), fino a
-   * MAX_COMMENT_PAGES. Un corpo che non è un array chiude la paginazione.
+   * MAX_COMMENT_PAGES. O tutte le pagine o un GitProviderError, mai una
+   * fotografia a metà: lancia su un corpo che non è un array, su una pagina
+   * successiva oltre il tetto e su un `next` fuori dall'host dell'API.
    */
   private async fetchAllPages(
     fetchImpl: FetchLike,
@@ -4910,13 +4981,27 @@ Il metodo, dopo `createPrComment`, più un helper privato accanto a
     const items: unknown[] = [];
     let url: string | null = firstUrl;
     for (let page = 0; page < MAX_COMMENT_PAGES && url; page++) {
+      assertPageOnApiHost(url, API_BASE, "GitHub");
       const response = await fetchImpl(url, { method: "GET", headers });
       await ensureOkResponse(response, "GitHub");
       const link = response.headers.get("link");
       const data = await readJsonResponse(response, "GitHub");
-      if (!Array.isArray(data)) break;
+      if (!Array.isArray(data)) {
+        throw new GitProviderError(
+          "GitHub: risposta inattesa leggendo i commenti della PR: non prendo una fotografia parziale",
+          0,
+          ""
+        );
+      }
       items.push(...(data as unknown[]));
       url = parseNextLink(link);
+    }
+    if (url) {
+      throw new GitProviderError(
+        `GitHub: oltre ${MAX_COMMENT_PAGES} pagine di commenti sulla PR: non prendo una fotografia parziale`,
+        0,
+        ""
+      );
     }
     return items;
   }
@@ -7637,6 +7722,16 @@ anti-injection PRECEDE i blocchi; i delimitatori nuovi entrano in
 feedback su questa PR, non riprogettare» — è scritto due volte: nella procedura e
 nelle regole.
 
+**Le righe dei commenti sono INDICATIVE, e il prompt lo dice all'agente**
+(emendamento del 30 set 2026, review di B4/B5). Il `line` di un commento può
+riferirsi al file vecchio (GitHub `side: LEFT`, Bitbucket `inline.from`) o alla
+revisione in cui il commento è stato scritto (commento «outdated»: GitHub
+`original_line`, Bitbucket `inline.to` della revisione d'origine), quindi i
+commit successivi — i round precedenti di correzione compresi — possono averla
+spostata. Il prompt dice di usare `file:riga` come punto di partenza e di
+ritrovare il codice di cui parla il commento, non di modificare quella riga alla
+cieca (vedi il docblock di `line` in `prCommentSchema`).
+
 **Files:**
 - Modify: `apps/worker/src/pipeline/prompts.ts` — regex di `defangDelimiters`
   (righe 98-101); blocco nuovo dopo `buildFixRepairPrompt` (dopo riga 777).
@@ -7696,6 +7791,12 @@ describe("buildCorrectionPrompt", () => {
     expect(prompt).toContain("@anna — (general comment)");
     expect(prompt).not.toContain("null");
     expect(prompt).toContain("Occhio agli arrotondamenti");
+  });
+
+  it("dice che le righe dei commenti sono indicative e possono essersi spostate", () => {
+    const prompt = buildCorrectionPrompt(input(), "it");
+    expect(prompt).toMatch(/line numbers are indicative/i);
+    expect(prompt).toMatch(/later commits may have moved/i);
   });
 
   it("lavora sulla PR esistente: branch, sottocartella del repo, niente riprogettazione", () => {
@@ -7889,7 +7990,7 @@ function renderCorrectionCommentsBlock(comments: CorrectionProviderComment[] | u
       return `[${i + 1}] ${header}\n${defangDelimiters(truncate(c.body, CORRECTION_COMMENT_MAX_CHARS))}`;
     })
     .join("\n\n");
-  return `\n\nComments left on the pull request (inline ones with file:line), delimited by <commenti_della_pr> tags and numbered [1]..[N]:\n<commenti_della_pr>\n${body}\n</commenti_della_pr>`;
+  return `\n\nComments left on the pull request (inline ones with file:line; line numbers are indicative, later commits may have moved the code), delimited by <commenti_della_pr> tags and numbered [1]..[N]:\n<commenti_della_pr>\n${body}\n</commenti_della_pr>`;
 }
 
 /**
@@ -7909,7 +8010,7 @@ export function buildCorrectionPrompt(input: BuildCorrectionPromptInput, lang: L
 The pull request's repository (${repoLabel}) is checked out in ./${repo.dir}/ on the pull request branch \`${branch}\` (${prUrl}): the changes of the previous rounds are already there. Work on top of them.${renderCodeGraphBlock([repo])}
 
 Procedure:
-1. Read the feedback below and the files it points to (inline comments carry file:line).
+1. Read the feedback below and the files it points to (inline comments carry file:line). Those line numbers are indicative: a comment may refer to the old version of the file or to the revision it was written on, and later commits may have moved the code. Use file:line as a starting point and find the code the comment is actually about; never edit a line blindly just because of its number.
 2. Apply the MINIMAL changes that address each point of the feedback. Do NOT redesign the solution, do NOT start a different approach, do NOT refactor unrelated code, and do NOT undo the previous rounds unless the feedback explicitly asks for it.
 3. If a point of the feedback is wrong or cannot be applied, do not force it: leave that part unchanged and explain why in the report.
 4. Run the existing tests of the repository (e.g. \`npm test\` or \`pnpm test\`) and make sure they pass.
@@ -8577,6 +8678,19 @@ la fotografia esistente (fail-closed: senza poter escludere i propri account
 rientrerebbe la review AI); lettura dei commenti fallita → si parte con quella
 esistente (fail-open). Su GitHub il testo della review compare come voce
 sintetica `review-body`: è un commento come gli altri per il prompt.
+
+**La fotografia riletta SOSTITUISCE quella del webhook, non si unisce**
+(emendamento del 30 set 2026, review di B4/B5). Quando la lettura riesce,
+`provider_feedback` diventa il risultato della rilettura e basta: niente unione
+con le voci che c'erano. Su GitHub la stessa review arriva DUE volte con due id
+diversi — dal webhook come voce sintetica `review-body`, dalla lettura come
+`review-<id>` (B5) — e unirle la metterebbe due volte nel prompt; nessun id
+comune permette di deduplicarle. E una rilettura riuscita è per costruzione
+COMPLETA: dal 30 set `listPrComments` o restituisce tutte le pagine o lancia
+`GitProviderError` (tetto superato, risposta inattesa, `next` fuori dall'host
+dell'API), mai una fotografia a metà. Un errore ricade quindi nel ramo
+«lettura fallita → si parte con quella esistente», che NON va marcato
+`feedbackComplete: true`.
 
 **«Ultimo giro su quella PR» per i commenti UTENTE DEL TICKET** (non quelli
 della PR, che hanno il taglio di A8b): `max(ai_jobs.finished_at)` dei job del

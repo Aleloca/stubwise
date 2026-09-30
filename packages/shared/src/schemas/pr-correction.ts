@@ -101,8 +101,16 @@ export type RequestCorrectionResponse = z.infer<typeof requestCorrectionResponse
  * Bitbucket con le graffe, id numerico GitHub come stringa): è ciò su cui il
  * chiamante esclude gli account di Stubwise, quindi un commento senza autore
  * riconoscibile non viene restituito affatto. `path`/`line` sono entrambi
- * `null` per un commento generale; `line` è la riga nella versione NUOVA del
- * file quando esiste, altrimenti quella vecchia (commento su una riga tolta).
+ * `null` per un commento generale.
+ *
+ * `line` è INDICATIVA, non un indirizzo esatto nel codice di oggi. Può
+ * riferirsi al file VECCHIO (commento su una riga tolta: GitHub `side: LEFT`,
+ * Bitbucket `inline.from`) oppure alla revisione in cui il commento è stato
+ * scritto e non a quella attuale (commento "outdated": GitHub
+ * `original_line`; Bitbucket `inline.to` resta quello della revisione
+ * d'origine). I commit arrivati dopo possono quindi averla spostata: chi la
+ * usa la tratti come un punto di partenza da ritrovare, non come una riga su
+ * cui agire alla cieca.
  */
 export const prCommentSchema = z.object({
   id: z.string(),
