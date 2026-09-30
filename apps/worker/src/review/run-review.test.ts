@@ -195,7 +195,7 @@ function makeFakes(overrides: Partial<RunPrReviewDeps> = {}) {
   const runner = { run: vi.fn<AgentRunner["run"]>(async () => makeRunResult()) };
   const createPrComment = vi.fn<GitProvider["createPrComment"]>(async () => {});
   const getPullRequestState = vi.fn<GitProvider["getPullRequestState"]>(async () => "open");
-  const submitPrReview = vi.fn<GitProvider["submitPrReview"]>(async () => "submitted");
+  const submitPrReview = vi.fn<GitProvider["submitPrReview"]>(async () => ({ status: "submitted" }));
   const setCommitStatus = vi.fn<GitProvider["setCommitStatus"]>(async () => {});
   /** Notifiche pubblicate: evento + riferimenti. */
   const dispatched: { event: NotificationEvent; opts: PublishOpts }[] = [];
@@ -213,6 +213,7 @@ function makeFakes(overrides: Partial<RunPrReviewDeps> = {}) {
     model: "sonnet",
     maxTurns: 30,
     agentTimeoutMs: 60_000,
+    staleMinutes: 150,
     publicUrl: "https://stubwise.example.com",
     getProviderFn: () => ({ createPrComment, getPullRequestState, submitPrReview, setCommitStatus }),
     publish: async (_db, event, opts) => {
@@ -850,6 +851,80 @@ describe("runPrReview", () => {
       "d".repeat(12).padEnd(40, "0"),
     ]);
     expect(fakes.setCommitStatus.mock.calls[0]![2]).toMatchObject({ key: "stubwise-review", refname: "feature/login" });
+    // Risolto UNA volta alla partenza: l'esito va sullo stesso sha del pending.
+    expect(fakes.mirrors.resolveCommitSha).toHaveBeenCalledTimes(1);
+  });
+
+  it("review fallita DOPO la partenza: lo status in corso diventa failure (niente PR bloccata)", async () => {
+    const { repositoryId } = await createRepository(testDb.db);
+    await enableReview(testDb.db);
+    const fakes = makeFakes();
+    fakes.runner.run.mockResolvedValue(makeRunResult({ output: "nessun JSON qui" }));
+
+    await runClaimed(fakes.deps, makeJob(repositoryId));
+
+    expect(fakes.setCommitStatus.mock.calls.map((c) => c[2].state)).toEqual(["pending", "failure"]);
+    expect(fakes.setCommitStatus.mock.calls[1]![2].description).toBe("The Stubwise review did not complete");
+    expect(fakes.setCommitStatus.mock.calls[1]![1]).toBe(fakes.setCommitStatus.mock.calls[0]![1]);
+  });
+
+  it("riga già chiusa dal recovery mentre girava: il fallimento non riscrive lo status", async () => {
+    const { repositoryId } = await createRepository(testDb.db);
+    await enableReview(testDb.db);
+    const fakes = makeFakes();
+    fakes.runner.run.mockImplementationOnce(async () => {
+      // Il recovery degli stantii chiude la riga a metà run.
+      await testDb.db.update(prReviews).set({ status: "failed", error: "stantia" }).where(eq(prReviews.repositoryId, repositoryId));
+      return makeRunResult({ output: "nessun JSON qui" });
+    });
+
+    await runClaimed(fakes.deps, makeJob(repositoryId));
+
+    // Nessuna chiusura avvenuta qui → nessun `failure` scritto da questa review.
+    expect(fakes.setCommitStatus.mock.calls.map((c) => c[2].state)).toEqual(["pending"]);
+  });
+
+  it("review fallita PRIMA della partenza (budget): nessuno status, mai scritto il pending", async () => {
+    const { repositoryId } = await createRepository(testDb.db);
+    await enableReview(testDb.db, { monthlyBudgetUsd: "1" });
+    const fakes = makeFakes({ monthlyCostUsdFn: async () => 5 });
+
+    await runClaimed(fakes.deps, makeJob(repositoryId));
+
+    expect(fakes.setCommitStatus).not.toHaveBeenCalled();
+  });
+
+  it("una riga IN ATTESA orfana (più vecchia della soglia) della stessa head non blocca la review", async () => {
+    const { repositoryId } = await createRepository(testDb.db);
+    await enableReview(testDb.db);
+    const fakes = makeFakes({ staleMinutes: 15 });
+    const job = makeJob(repositoryId);
+    // Riga in attesa rimasta appesa 3 ore fa (mai partita, mai cancellata).
+    await testDb.db.insert(prReviews).values({
+      repositoryId,
+      prNumber: job.prNumber,
+      prUrl: job.prUrl,
+      prTitle: job.prTitle,
+      headSha: job.headSha,
+      status: "running",
+      createdAt: new Date(Date.now() - 180 * 60_000),
+    });
+
+    await runClaimed(fakes.deps, job);
+
+    expect(fakes.runner.run).toHaveBeenCalled();
+  });
+
+  it("una riga IN ATTESA recente della stessa head blocca ancora (è un doppione vivo)", async () => {
+    const { repositoryId } = await createRepository(testDb.db);
+    await enableReview(testDb.db);
+    const fakes = makeFakes({ staleMinutes: 15 });
+    const job = makeJob(repositoryId);
+    await insertWaitingReview(testDb.db, job);
+
+    await runClaimed(fakes.deps, job);
+
+    expect(fakes.runner.run).not.toHaveBeenCalled();
   });
 
   it("riusa la riga del claim: nessuna riga nuova, started_at scritto alla partenza", async () => {

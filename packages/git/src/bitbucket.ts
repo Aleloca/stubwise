@@ -433,7 +433,7 @@ export class BitbucketProvider implements GitProvider {
    * non ripristina il verdetto di prima. La verifica dal vivo del POST
    * ripetuto è nel task B14 del piano: nell'attesa, un 409 sul POST del
    * verdetto si tratta come «già in quello stato» (esito
-   * `"already_in_state"`, il commento parte comunque) — scelta difensiva da
+   * `already_in_state`, il commento parte comunque) — scelta difensiva da
    * confermare con B14 §7a.
    */
   async submitPrReview(
@@ -471,10 +471,10 @@ export class BitbucketProvider implements GitProvider {
     // successo e il commento parte comunque, così il chiamante non ripiega
     // sul commento dell'account principale per uno stato già giusto. Ogni
     // altro non-2xx resta un errore.
-    let outcome: SubmitPrReviewOutcome = "submitted";
+    let outcome: SubmitPrReviewOutcome = { status: "submitted" };
     if (response.status === 409) {
-      await response.body?.cancel();
-      outcome = "already_in_state";
+      const text = await response.text().catch(() => "");
+      outcome = { status: "already_in_state", responseExcerpt: maskCredentials(text, p, auth).slice(0, 200) };
     } else {
       await ensureOkResponseWithHint(response, "Bitbucket", PR_REVIEW_PERMISSION_HINT);
     }
@@ -1243,6 +1243,16 @@ export class BitbucketProvider implements GitProvider {
 }
 
 /** Mappa `state` di un build status Bitbucket sul rollup a tre stati condiviso. */
+/**
+ * Un testo della risposta senza le credenziali: il token e l'header Basic
+ * (la sua forma base64) diventano `***`, PRIMA di qualunque taglio (un token
+ * spezzato dal taglio non sopravvive). Il testo va nei log del chiamante.
+ */
+function maskCredentials(text: string, p: ProjectGitConfig, authHeader: string): string {
+  const secrets = [p.credentials.token, authHeader.replace(/^Basic\s+/i, "")].filter((x) => x.length > 0);
+  return secrets.reduce((acc, secret) => acc.split(secret).join("***"), text);
+}
+
 function bitbucketCheckStatus(state: unknown): CheckOutcomeStatus {
   if (state === "SUCCESSFUL") return "success";
   if (state === "INPROGRESS") return "pending";

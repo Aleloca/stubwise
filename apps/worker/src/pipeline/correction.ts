@@ -76,6 +76,7 @@ import {
   notifyJobFailed,
   type JobOutcomeContext,
 } from "./job-outcomes.js";
+import { commitStatusTargetUrl } from "../review/cycle.js";
 import { ticketUrl, type NotifyDeps } from "./notify.js";
 import { buildCorrectionPrompt, buildCorrectionRepairPrompt, REPORT_FILENAME, toSingleLine } from "./prompts.js";
 import { computeReleaseRisk } from "./release-risk.js";
@@ -619,6 +620,10 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
     ...(deps.publish !== undefined ? { publish: deps.publish } : {}),
   };
   const url = ticketUrl(deps.publicUrl, ticket.id);
+  // Il link dello status di commit segue la STESSA regola della review
+  // (`commitStatusTargetUrl`, review/cycle.ts): solo verso un'istanza https
+  // non locale — una regola sola per lo status `stubwise-review`.
+  const statusUrl = commitStatusTargetUrl(deps.publicUrl, ticket.id);
   const outcomeCtx: JobOutcomeContext = {
     db,
     jobId: job.id,
@@ -755,7 +760,7 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
         state,
         key: STUBWISE_REVIEW_STATUS_KEY,
         description,
-        url,
+        ...(statusUrl !== undefined ? { url: statusUrl } : {}),
         refname: branch,
       });
     } catch (err) {

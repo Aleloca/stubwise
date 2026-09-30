@@ -755,7 +755,18 @@ export async function reconcileOrphanCorrections(
  * modo. Sotto il lock del ticket, come la promozione, per non annullare una
  * riga che un altro sta promuovendo. Ritorna l'id annullato, o null.
  */
-export async function cancelPendingCorrection(db: DbOrTx, pr: PrRef): Promise<string | null> {
+export async function cancelPendingCorrection(
+  db: DbOrTx,
+  pr: PrRef,
+  /**
+   * `trigger`: annulla la pending SOLO se ha questo trigger, riletto SOTTO il
+   * lock (nell'UPDATE guardato). Serve a C10: un'approvazione annulla un giro
+   * automatico ormai superato (`review`), mai una richiesta umana — e un click
+   * fuso nella pending prima del lock ne cambia il trigger in `stubwise`, che
+   * così resta intatta. Assente = qualunque trigger (comportamento di sempre).
+   */
+  opts: { trigger?: PrCorrectionTrigger } = {},
+): Promise<string | null> {
   return (db as Db).transaction(async (tx) => {
     const [pending] = await tx
       .select({ id: prCorrections.id, ticketId: prCorrections.ticketId })
@@ -767,7 +778,13 @@ export async function cancelPendingCorrection(db: DbOrTx, pr: PrRef): Promise<st
     const [row] = await tx
       .update(prCorrections)
       .set({ status: "cancelled" })
-      .where(and(eq(prCorrections.id, pending.id), eq(prCorrections.status, "pending")))
+      .where(
+        and(
+          eq(prCorrections.id, pending.id),
+          eq(prCorrections.status, "pending"),
+          ...(opts.trigger !== undefined ? [eq(prCorrections.trigger, opts.trigger)] : []),
+        ),
+      )
       .returning({ id: prCorrections.id });
     return row?.id ?? null;
   });

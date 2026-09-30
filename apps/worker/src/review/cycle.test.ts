@@ -156,20 +156,17 @@ interface Fakes {
   createPrComment: ReturnType<typeof vi.fn>;
   submitPrReview: ReturnType<typeof vi.fn>;
   setCommitStatus: ReturnType<typeof vi.fn>;
-  resolveCommitSha: ReturnType<typeof vi.fn>;
   events: NotificationEvent[];
 }
 
 function fakes(): Fakes {
   const createPrComment = vi.fn().mockResolvedValue(undefined);
-  const submitPrReview = vi.fn().mockResolvedValue("submitted");
+  const submitPrReview = vi.fn().mockResolvedValue({ status: "submitted" });
   const setCommitStatus = vi.fn().mockResolvedValue(undefined);
-  const resolveCommitSha = vi.fn().mockResolvedValue(FULL_SHA);
   const events: NotificationEvent[] = [];
   return {
     deps: {
       db: testDb.db,
-      mirrors: { resolveCommitSha },
       encryptionKey: ENCRYPTION_KEY,
       getProviderFn: () => ({ createPrComment, submitPrReview, setCommitStatus }),
       publish: async (_db: Db, event: NotificationEvent) => {
@@ -180,7 +177,6 @@ function fakes(): Fakes {
     createPrComment,
     submitPrReview,
     setCommitStatus,
-    resolveCommitSha,
     events,
   };
 }
@@ -198,6 +194,8 @@ function input(s: Setup, overrides: Partial<AfterReviewCompletedInput> = {}): Af
       headSha: FULL_SHA.slice(0, 12),
     },
     reviewId: s.reviewId,
+    // Lo sha completo risolto UNA volta alla partenza (run-review.ts).
+    fullSha: FULL_SHA,
     mirrorProject: s.mainProject,
     projectId: s.projectId,
     repositoryName: "Repo",
@@ -353,6 +351,61 @@ describe("afterReviewCompleted — ciclo", () => {
     expect(await promotePendingForTicket(testDb.db, s.ticket.id)).toEqual([b!.id]);
     const [bJob] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.correctionId, b!.id));
     expect(bJob).toMatchObject({ status: "queued", manualTrigger: false });
+  });
+
+  it("approve con un giro AUTOMATICO in fila (pending review): annullato, non promosso, nessun job", async () => {
+    const s = await setup({ maxRounds: 3 });
+    const [auto] = await testDb.db
+      .insert(prCorrections)
+      .values({ ticketId: s.ticket.id, repositoryId: s.repositoryId, prNumber: 12, trigger: "review", status: "pending" })
+      .returning();
+    const f = fakes();
+
+    await afterReviewCompleted(f.deps, input(s, { verdict: "approve" }));
+
+    const [after] = await testDb.db.select().from(prCorrections).where(eq(prCorrections.id, auto!.id));
+    expect(after!.status).toBe("cancelled");
+    expect(await testDb.db.select().from(aiJobs).where(eq(aiJobs.correctionId, auto!.id))).toHaveLength(0);
+    expect(f.events[0]).toMatchObject({ kind: "review.completed", verdict: "approve" });
+  });
+
+  it("approve con una richiesta UMANA in fila (pending stubwise): promossa col suo job", async () => {
+    const s = await setup({ maxRounds: 3 });
+    const [human] = await testDb.db
+      .insert(prCorrections)
+      .values({ ticketId: s.ticket.id, repositoryId: s.repositoryId, prNumber: 12, trigger: "stubwise", status: "pending" })
+      .returning();
+    const f = fakes();
+
+    await afterReviewCompleted(f.deps, input(s, { verdict: "approve" }));
+
+    const [after] = await testDb.db.select().from(prCorrections).where(eq(prCorrections.id, human!.id));
+    expect(after!.status).toBe("queued");
+    expect(await testDb.db.select().from(aiJobs).where(eq(aiJobs.correctionId, human!.id))).toHaveLength(1);
+  });
+
+  it("al tetto la notifica di stop si RIPETE a ogni review successiva (è un fatto nuovo)", async () => {
+    const s = await setup({ maxRounds: 2 });
+    await seedAutoRounds(s, 2);
+    const f = fakes();
+
+    await afterReviewCompleted(f.deps, input(s));
+    await afterReviewCompleted(f.deps, input(s, { job: { ...input(s).job, headSha: "e".repeat(40) } }));
+
+    expect(f.events).toHaveLength(2);
+    for (const event of f.events) {
+      expect(event).toMatchObject({ kind: "review.completed", cycle: { round: 2, max: 2, stopped: true } });
+    }
+  });
+
+  it("tetto abbassato a metà serie: l'evento porta il round REALE e il max nuovo", async () => {
+    const s = await setup({ maxRounds: 2 });
+    await seedAutoRounds(s, 3);
+    const f = fakes();
+
+    await afterReviewCompleted(f.deps, input(s));
+
+    expect(f.events[0]).toMatchObject({ kind: "review.completed", cycle: { round: 3, max: 2, stopped: true } });
   });
 
   it("B al tetto mentre A corregge: nessuna pending, notifica di stop", async () => {
@@ -544,13 +597,12 @@ describe("afterReviewCompleted — pubblicazione e status", () => {
     );
   });
 
-  it("status di commit sullo sha COMPLETO risolto dal mirror, legato al branch sorgente", async () => {
+  it("status di commit sullo sha COMPLETO risolto alla partenza, legato al branch sorgente", async () => {
     const s = await setup();
     const f = fakes();
 
     await afterReviewCompleted(f.deps, input(s));
 
-    expect(f.resolveCommitSha).toHaveBeenCalledWith(s.mainProject, FULL_SHA.slice(0, 12));
     expect(f.setCommitStatus).toHaveBeenCalledWith(
       s.mainProject,
       FULL_SHA,
@@ -563,10 +615,19 @@ describe("afterReviewCompleted — pubblicazione e status", () => {
     const f = fakes();
     f.setCommitStatus.mockRejectedValue(new Error("boom"));
     f.createPrComment.mockRejectedValue(new Error("boom"));
-    f.resolveCommitSha.mockRejectedValue(new Error("sha sconosciuto"));
 
     await afterReviewCompleted(f.deps, input(s));
 
+    expect(await testDb.db.select().from(prCorrections).where(eq(prCorrections.status, "queued"))).toHaveLength(1);
+  });
+
+  it("sha non risolto alla partenza: nessuno status, il ciclo va avanti", async () => {
+    const s = await setup();
+    const f = fakes();
+
+    await afterReviewCompleted(f.deps, input(s, { fullSha: null }));
+
+    expect(f.setCommitStatus).not.toHaveBeenCalled();
     expect(await testDb.db.select().from(prCorrections).where(eq(prCorrections.status, "queued"))).toHaveLength(1);
   });
 });
@@ -647,6 +708,7 @@ describe("afterReviewCompleted — verdetto già in quello stato (B14 §7a)", ()
     expect(((comments[0]![1] as RequestInit).headers as Record<string, string>)["Authorization"]).toBe(
       `Basic ${Buffer.from("rev@example.com:reviewer-token").toString("base64")}`,
     );
-    expect(logLines.some((line) => line.includes("già in stato"))).toBe(true);
+    // Il log dice perché, con un estratto della risposta (senza credenziali).
+    expect(logLines.some((line) => line.includes("già in stato") && line.includes('409: "already"'))).toBe(true);
   });
 });

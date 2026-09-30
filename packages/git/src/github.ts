@@ -547,7 +547,7 @@ export class GitHubProvider implements GitProvider {
       throw new GitProviderError(message, 422, text);
     }
     await ensureOkResponseWithHint(response, "GitHub", PR_REVIEW_PERMISSION_HINT);
-    return "submitted";
+    return { status: "submitted" };
   }
 
   /**

@@ -88,6 +88,7 @@ describe("correzioni post-PR", () => {
       "commitStatus.approved",
       "commitStatus.changesRequested",
       "commitStatus.correctionFailed",
+      "commitStatus.reviewFailed",
     ];
     for (const lang of ["it", "en"] as const) {
       for (const key of keys) {

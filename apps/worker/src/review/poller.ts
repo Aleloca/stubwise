@@ -95,10 +95,12 @@ export async function pollPrReviewsOnce(deps: PollPrReviewsDeps): Promise<number
     );
   }
 
-  // CLAIM + RIGA IN ATTESA, in UNA transazione: rimuove e restituisce in un
-  // colpo solo i pending scaduti (atomico → niente doppio processing tra tick
-  // o tra processi) e fa nascere la review nello stesso istante (mai un
-  // momento in cui il ciclo della PR non vede né l'una né l'altra).
+  // CLAIM + RIGHE IN ATTESA, in UNA transazione per TUTTO il batch: rimuove e
+  // restituisce in un colpo solo i pending scaduti (atomico → niente doppio
+  // processing tra tick o tra processi) e fa nascere le review nello stesso
+  // istante (mai un momento in cui il ciclo della PR non vede né l'una né
+  // l'altra). Un solo insert che fallisce annulla il claim INTERO: i job
+  // restano in coda e il tick successivo ci riprova.
   let claimed: { job: PrReviewJobRow; reviewId: string }[];
   try {
     claimed = await deps.db.transaction(async (tx) => {
@@ -196,6 +198,29 @@ export async function dropIfNeverStarted(db: Db, reviewId: string): Promise<void
  * il worker diventa multi-processo, questa funzione si rivede INSIEME al
  * serializer.
  */
+/**
+ * `requeueWaitingReviews` per l'AVVIO del worker: un errore (DB giù, query
+ * fallita) si logga e dà 0 — il worker parte lo stesso, le righe restano in
+ * attesa e ci riprova il prossimo avvio. `requeue` è iniettabile nei test.
+ */
+export async function requeueWaitingReviewsAtStartup(
+  db: Db,
+  requeue: typeof requeueWaitingReviews = requeueWaitingReviews,
+): Promise<number> {
+  try {
+    const requeued = await requeue(db);
+    if (requeued > 0) {
+      console.error(`[stubwise-worker] ${requeued} review in attesa rimesse in coda dopo il riavvio`);
+    }
+    return requeued;
+  } catch (err) {
+    console.error(
+      `[stubwise-worker] riaccodamento delle review in attesa fallito all'avvio: ${errText(err)}`,
+    );
+    return 0;
+  }
+}
+
 export async function requeueWaitingReviews(db: Db): Promise<number> {
   const waiting = await db
     .select()

@@ -1126,6 +1126,20 @@ describe("cancelPendingCorrection", () => {
     const pr = await seedPr();
     expect(await cancelPendingCorrection(db, pr)).toBeNull();
   });
+
+  it("filtro sul trigger: annulla solo la pending di quel trigger", async () => {
+    const pr = await seedPr();
+    const auto = await seedCorrection(pr, { trigger: "review", status: "pending" });
+    expect(await cancelPendingCorrection(db, pr, { trigger: "review" })).toBe(auto);
+    expect(new Map((await correctionsOf(pr)).map((r) => [r.id, r.status])).get(auto)).toBe("cancelled");
+  });
+
+  it("filtro sul trigger: una pending UMANA resta intatta → null", async () => {
+    const pr = await seedPr();
+    const human = await seedCorrection(pr, { trigger: "stubwise", status: "pending" });
+    expect(await cancelPendingCorrection(db, pr, { trigger: "review" })).toBeNull();
+    expect(new Map((await correctionsOf(pr)).map((r) => [r.id, r.status])).get(human)).toBe("pending");
+  });
 });
 
 describe("resolvePrCycleState (tabella di verità)", () => {

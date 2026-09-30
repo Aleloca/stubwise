@@ -883,8 +883,14 @@ describe("BitbucketProvider.submitPrReview", () => {
   it("409 sul verdetto → «già in quello stato»: nessun errore, il commento parte", async () => {
     for (const verdict of ["approve", "request_changes"] as const) {
       const submit = verdict === "approve" ? "approve" : "request-changes";
+      // La risposta contiene (per assurdo) il token: l'estratto deve mascherarlo.
       const fetchImpl = recorder({
-        [`POST ${PR}/${submit}`]: () => Promise.resolve(new Response("already", { status: 409 })),
+        [`POST ${PR}/${submit}`]: () =>
+          Promise.resolve(
+            new Response(`already approved by app-pass (${Buffer.from("alice:app-pass").toString("base64")})`, {
+              status: 409,
+            }),
+          ),
       });
       const provider = new BitbucketProvider({ fetchImpl });
 
@@ -892,14 +898,14 @@ describe("BitbucketProvider.submitPrReview", () => {
       // fallire l'ASSERZIONE qui sotto, non esplodere il test.
       const outcome = await provider.submitPrReview(config, 7, verdict, "Il testo").catch((e: unknown) => e);
 
-      expect(outcome).toBe("already_in_state");
+      expect(outcome).toEqual({ status: "already_in_state", responseExcerpt: "already approved by *** (***)" });
       expect(calls(fetchImpl)).toContain(`POST ${PR}/comments`);
     }
   });
 
   it("verdetto riuscito → esito «submitted»", async () => {
     const provider = new BitbucketProvider({ fetchImpl: recorder() });
-    await expect(provider.submitPrReview(config, 7, "approve", "ok")).resolves.toBe("submitted");
+    await expect(provider.submitPrReview(config, 7, "approve", "ok")).resolves.toEqual({ status: "submitted" });
   });
 
   it("400/500 sul verdetto → errore, nessun commento (solo il 409 è «già in quello stato»)", async () => {

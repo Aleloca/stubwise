@@ -10,6 +10,7 @@ import { getProvider, STUBWISE_REVIEW_STATUS_KEY, type GitProvider } from "@stub
 import { t, type Language } from "@stubwise/i18n";
 import {
   autoRoundsInCurrentSeries,
+  cancelPendingCorrection,
   decryptGitCredentials,
   enqueueCorrection,
   promotePendingCorrection,
@@ -40,7 +41,6 @@ import type { PrReviewJobRow } from "./run-review.js";
 
 export interface ReviewCycleDeps {
   db: Db;
-  mirrors: Pick<MirrorManager, "resolveCommitSha">;
   encryptionKey: Buffer;
   getProviderFn?: (
     kind: GitProviderKind,
@@ -52,6 +52,12 @@ export interface ReviewCycleDeps {
 export interface AfterReviewCompletedInput {
   job: PrReviewJobRow;
   reviewId: string;
+  /**
+   * Sha COMPLETO della head revisionata, risolto UNA volta alla partenza
+   * (`resolveReviewSha`): lo status finale va sullo stesso commit del
+   * `pending`. `null` = non risolto → nessuno status (riga di log).
+   */
+  fullSha: string | null;
   /** Repo con le credenziali dell'account PRINCIPALE, già decifrate. */
   mirrorProject: MirrorProject;
   projectId: string;
@@ -71,6 +77,10 @@ function errText(err: unknown): string {
 
 /**
  * Il link dello status di commit, oppure `undefined` per ometterlo.
+ *
+ * È una guardia di UTILITÀ, non di sicurezza: evita di perdere lo status per
+ * un link che la piattaforma potrebbe rifiutare (o che nessuno può aprire).
+ * Il link porta solo all'istanza stessa; nessun dato passa da qui.
  *
  * SCELTA DIFENSIVA, da confermare con B14 §6a (piano): GitHub potrebbe
  * rispondere 422 a un `target_url` non https, e allora un'istanza self-hosted
@@ -96,29 +106,50 @@ export function commitStatusTargetUrl(publicUrl: string | undefined, ticketId: s
 }
 
 /**
- * Status `stubwise-review` sulla head. Sha COMPLETO risolto dal mirror (le API
- * vogliono 40 caratteri, la head di un webhook Bitbucket ne ha 12); `refname` =
- * branch sorgente, senza il quale su Bitbucket lo status non si lega alla PR.
- * Sempre con l'account principale: è quello che ha accesso in scrittura al
- * repo. `resolveCommitSha` fa `fetch --prune`: si chiama FUORI da ogni
- * callback di worktree (qui non ce n'è nessuna aperta). Mai lancia.
+ * Sha COMPLETO della head (le API vogliono 40 caratteri, la head di un webhook
+ * Bitbucket ne ha 12), risolto dal mirror UNA volta alla partenza della review:
+ * `pending` ed esito vanno sullo stesso commit. `resolveCommitSha` fa
+ * `fetch --prune`: si chiama FUORI da ogni callback di worktree. `null` se non
+ * si risolve (la review prosegue, senza status). Mai lancia.
+ */
+export async function resolveReviewSha(
+  mirrors: Pick<MirrorManager, "resolveCommitSha">,
+  mirrorProject: MirrorProject,
+  headSha: string,
+): Promise<string | null> {
+  try {
+    return await mirrors.resolveCommitSha(mirrorProject, headSha);
+  } catch (err) {
+    console.error(
+      `[stubwise-worker] pr-review: sha completo della head ${headSha.slice(0, 7)} non risolto (${errText(err)}): nessuno status di commit`,
+    );
+    return null;
+  }
+}
+
+/**
+ * Status `stubwise-review` sullo sha COMPLETO (`resolveReviewSha`); `refname`
+ * = branch sorgente, senza il quale su Bitbucket lo status non si lega alla
+ * PR. Sempre con l'account principale: è quello che ha accesso in scrittura al
+ * repo. `sha` null → niente (la risoluzione ha già scritto il suo log). Mai
+ * lancia.
  */
 export async function setReviewCommitStatus(
   deps: ReviewCycleDeps,
   input: {
     mirrorProject: MirrorProject;
-    headSha: string;
+    sha: string | null;
     sourceBranch: string;
     state: "pending" | "success" | "failure";
     description: string;
     url?: string;
   },
 ): Promise<void> {
+  if (input.sha === null) return;
   try {
-    const sha = await deps.mirrors.resolveCommitSha(input.mirrorProject, input.headSha);
     await (deps.getProviderFn ?? getProvider)(input.mirrorProject.provider).setCommitStatus(
       input.mirrorProject,
-      sha,
+      input.sha,
       {
         state: input.state,
         key: STUBWISE_REVIEW_STATUS_KEY,
@@ -174,12 +205,13 @@ async function publishReview(deps: ReviewCycleDeps, input: AfterReviewCompletedI
   if (reviewer) {
     try {
       const outcome = await provider.submitPrReview(reviewer, input.job.prNumber, input.verdict, body);
-      if (outcome === "already_in_state") {
+      if (outcome.status === "already_in_state") {
         // Bitbucket 409 sul verdetto (scelta difensiva da confermare con B14
         // §7a): l'account revisore era già in quello stato. Nessun errore, e il
-        // testo è comunque uscito col commento del revisore.
+        // testo è comunque uscito col commento del revisore. L'estratto arriva
+        // già senza credenziali (`@stubwise/git`).
         console.error(
-          `[stubwise-worker] pr-review: PR #${input.job.prNumber}: il revisore era già in stato '${input.verdict}' (409), pubblicato il solo commento`,
+          `[stubwise-worker] pr-review: PR #${input.job.prNumber}: il revisore era già in stato '${input.verdict}' (409: ${JSON.stringify(outcome.responseExcerpt)}), pubblicato il solo commento`,
         );
       }
       return;
@@ -222,7 +254,18 @@ async function isStubwisePr(db: Db, input: AfterReviewCompletedInput): Promise<b
   return link !== undefined;
 }
 
-/** Decide il passo del ciclo. Vedi il docblock del modulo e il design §2/§6. */
+/**
+ * Decide il passo del ciclo. Vedi il docblock del modulo e il design §2/§6.
+ *
+ * Tre comportamenti da conoscere:
+ *  - AL TETTO la notifica «ferma al tetto» si RIPETE a ogni review successiva
+ *    della PR (una persona pusha, la review chiede ancora modifiche): ogni
+ *    volta è un fatto nuovo, e il ciclo resta fermo;
+ *  - se il tetto viene ABBASSATO a metà serie, l'evento porta il `round`
+ *    REALE e il `max` nuovo (es. `round: 3, max: 2`), non un giro inventato;
+ *  - con `max === 0` (ciclo spento) una `queued` o `pending` sulla PR
+ *    sopprime la notifica come sempre: quei rami vengono prima del tetto.
+ */
 async function advanceCycle(db: Db, input: AfterReviewCompletedInput): Promise<CycleNotice> {
   if (!(await isStubwisePr(db, input))) return { notify: true };
   const where = { repositoryId: input.job.repositoryId, prNumber: input.job.prNumber };
@@ -243,11 +286,11 @@ async function advanceCycle(db: Db, input: AfterReviewCompletedInput): Promise<C
   const promoteThisPr = async (why: string): Promise<void> => {
     const promoted = await promotePendingCorrection(db, where);
     console.error(
-      `[stubwise-worker] pr-review: PR #${where.prNumber}: ${why}, richiesta umana in attesa avviata (${promoted ?? "nessuna: la ferma un altro lavoro del ticket"})`,
+      `[stubwise-worker] pr-review: PR #${where.prNumber}: ${why}, correzione in attesa (${pendingTrigger}) avviata (${promoted ?? "nessuna: la ferma un altro lavoro del ticket"})`,
     );
   };
   const open = await db
-    .select({ status: prCorrections.status })
+    .select({ status: prCorrections.status, trigger: prCorrections.trigger })
     .from(prCorrections)
     .where(
       and(
@@ -257,13 +300,32 @@ async function advanceCycle(db: Db, input: AfterReviewCompletedInput): Promise<C
       ),
     );
   const hasQueued = open.some((c) => c.status === "queued");
-  const hasPending = open.some((c) => c.status === "pending");
+  const pendingTrigger = open.find((c) => c.status === "pending")?.trigger ?? null;
+  const hasPending = pendingTrigger !== null;
 
   if (input.verdict === "approve") {
+    // Una `pending` AUTOMATICA (`trigger='review'`: un giro messo in fila da
+    // una review precedente che chiedeva modifiche) è SUPERATA da questa
+    // approvazione: si annulla, non si promuove — farebbe un giro di
+    // correzione su una PR già approvata. Sotto il lock del ticket, col
+    // trigger riletto sotto lock: se nel frattempo un click ci si è fuso
+    // (trigger → `stubwise`) non si annulla, e la si tratta come umana. Vale
+    // anche con una `queued` davanti: il giro resta superato.
+    let humanPending = hasPending && pendingTrigger !== "review";
+    if (pendingTrigger === "review") {
+      const cancelled = await cancelPendingCorrection(db, where, { trigger: "review" });
+      if (cancelled !== null) {
+        console.error(
+          `[stubwise-worker] pr-review: PR #${where.prNumber}: approvata, giro automatico in fila superato e annullato (${cancelled})`,
+        );
+      } else {
+        humanPending = true; // diventata umana (o sparita: la promozione dà null)
+      }
+    }
     // Una `queued` (richiesta arrivata durante la review) parte già da sé; una
-    // `pending` senza `queued` davanti si promuove qui. L'approvazione si
+    // `pending` UMANA senza `queued` davanti si promuove qui. L'approvazione si
     // notifica comunque: è un fatto, anche se una persona ha chiesto altro.
-    if (!hasQueued && hasPending) await promoteThisPr("approvata");
+    if (!hasQueued && humanPending) await promoteThisPr("approvata");
     const round = await autoRoundsInCurrentSeries(db, where);
     return { notify: true, cycle: { round, max, stopped: false } };
   }
@@ -334,7 +396,7 @@ export async function afterReviewCompleted(
   const statusUrl = commitStatusTargetUrl(deps.publicUrl, input.ticket.id);
   await setReviewCommitStatus(deps, {
     mirrorProject: input.mirrorProject,
-    headSha: input.job.headSha,
+    sha: input.fullSha,
     sourceBranch: input.job.sourceBranch,
     state: input.verdict === "approve" ? "success" : "failure",
     description: t(

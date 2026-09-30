@@ -12138,16 +12138,18 @@ errore lascia una riga di log e non tocca la review già `completed`:
    SOLO se l'URL pubblico è `https:` e non punta a `localhost`/`127.0.0.1`/
    `::1`; altrimenti lo omette, per entrambi i provider. Test nei due versi in
    `cycle.test.ts`. Se B14 dice 201 anche per `http://`, la guardia si può
-   allentare; se dice 422, resta com'è. ⚠️ Lo status «in correzione» di C8
-   (`pipeline/correction.ts`, `setStatus`) manda ancora `url` sempre: da
-   allineare alla stessa funzione se B14 conferma il 422.
+   allentare; se dice 422, resta com'è. È una guardia di UTILITÀ, non di
+   sicurezza. Anche lo status «in correzione» di C8 (`pipeline/correction.ts`,
+   `setStatus`) la usa (revisione di C10): una regola sola.
    **Anche §7a, deciso in C10 e da confermare con B14**: in
    `BitbucketProvider.submitPrReview` un **409** sul POST del verdetto si
    tratta come «già in quello stato» — nessun errore, il commento parte
-   comunque, e il metodo restituisce `"already_in_state"` (tipo
-   `SubmitPrReviewOutcome`, `@stubwise/git`: `submitPrReview` ora torna
-   `"submitted" | "already_in_state"` invece di `void`) perché C10 ne scriva
-   la riga di log (il pacchetto non ha un logger). Ogni altro non-2xx resta un
+   comunque, e il metodo restituisce `{ status: "already_in_state",
+   responseExcerpt }` (tipo `SubmitPrReviewOutcome`, `@stubwise/git`:
+   `submitPrReview` ora torna `{ status: "submitted" } | { status:
+   "already_in_state"; responseExcerpt }` invece di `void`; l'estratto è di
+   al più 200 caratteri, col token e l'header Basic mascherati) perché C10 ne
+   scriva la riga di log (il pacchetto non ha un logger). Ogni altro non-2xx resta un
    errore, e il ripiego sul commento dell'account principale resta com'è.
    T37/T38/T40: nessun cambio (il permesso è già fail-closed).
 3. **Ciclo**, solo per le PR di Stubwise: branch `stubwise/ticket-N`, N =
@@ -12188,6 +12190,43 @@ prefisso: la head del webhook Bitbucket è abbreviata, la nostra completa). È c
 che rende innocuo un webhook `pullrequest:created`/`updated` arrivato DOPO che il
 poller ha già reclamato la review accodata dal worker. Una review `failed`
 (anche per limite) resta ripetibile.
+
+#### Revisione di C10 (1 ott 2026): status mai appesi, giri superati annullati
+
+Correzioni della revisione, nel commit «fix(worker): la review non lascia
+status appesi né giri superati»:
+
+- **Review fallita DOPO la partenza → status `failure`** (chiave i18n
+  `commitStatus.reviewFailed`, en/it, sotto i 140 caratteri: coperta dal test
+  di C1). Si scrive solo se la chiusura `failed` è avvenuta davvero
+  (`failRunningReview` restituisce se ha chiuso la riga), così un errore
+  tardivo non contraddice una review già `completed`. Una review mai partita
+  (budget, provider) non scrive status: il `pending` non c'è mai stato. Il
+  ramo «limite → riaccodata» lascia il `pending` fino alla ripartenza.
+  LIMITE: un crash del worker a review partita lascia lo status `pending`
+  fino al push successivo (il recovery chiude la riga, non la piattaforma).
+- **Sha completo risolto UNA volta alla partenza** (`resolveReviewSha`) e
+  passato ad `afterReviewCompleted` (`fullSha`): `pending`, esito e `failure`
+  vanno sullo stesso commit. `null` → nessuno status.
+- **Approve e giro automatico in fila**: una `pending` con `trigger='review'`
+  è superata dall'approvazione e si ANNULLA (`cancelPendingCorrection(db, pr,
+  { trigger: "review" })`, filtro additivo in `@stubwise/notifications`, con il
+  trigger riletto sotto il lock del ticket nell'UPDATE guardato); con approve
+  si promuovono solo le `pending` umane. Vale anche con una `queued` davanti.
+- **Tetto**: la notifica «ferma al tetto» si RIPETE a ogni review successiva
+  (fatto nuovo); con il tetto abbassato a metà serie l'evento porta il `round`
+  reale e il `max` nuovo; con `max === 0` una `queued`/`pending` sulla PR
+  sopprime la notifica (quei rami vengono prima del tetto).
+- **Guardia anti-doppione**: ignora le righe in attesa (`started_at IS NULL`)
+  più vecchie di `staleMinutes` (nuovo campo obbligatorio di
+  `RunPrReviewDeps`, = `WORKER_STALE_MINUTES`), così una riga orfana non
+  blocca le review successive della stessa head.
+- **Claim**: una transazione per TUTTO il batch; un insert fallito annulla il
+  claim intero (test deterministico con un trigger Postgres).
+- `requeueWaitingReviews` all'avvio passa da `requeueWaitingReviewsAtStartup`
+  (`review/poller.ts`, try/catch testato): un errore si logga e il worker
+  parte.
+- Il log di `already_in_state` porta l'estratto della risposta.
 
 #### La review esiste dal claim (emendamento del 30 set 2026)
 

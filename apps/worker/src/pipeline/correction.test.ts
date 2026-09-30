@@ -362,6 +362,34 @@ describe("runCorrection", () => {
     );
   });
 
+  // Una regola sola per il link dello status `stubwise-review`: quella della
+  // review (commitStatusTargetUrl, review/cycle.ts — B14 §6a da confermare).
+  it("status della correzione con un'istanza https: porta il link al ticket", async () => {
+    const f = await makeFixture();
+    await testDb.db.update(instanceSettings).set({ prReviewEnabled: true }).where(eq(instanceSettings.id, 1));
+    const { job } = await seedCorrection(f, { reviewId: await seedReview(f) });
+    const provider = makeProvider();
+
+    await runCorrection(makeDeps(f, applyingRunner(f), provider, [], { publicUrl: "https://stubwise.example.com" }), job);
+
+    expect(provider.setCommitStatus.mock.calls[0]![2]).toMatchObject({
+      state: "pending",
+      url: `https://stubwise.example.com/tickets/${f.ticket.id}`,
+    });
+  });
+
+  it("status della correzione con un'istanza http: parte SENZA link", async () => {
+    const f = await makeFixture();
+    await testDb.db.update(instanceSettings).set({ prReviewEnabled: true }).where(eq(instanceSettings.id, 1));
+    const { job } = await seedCorrection(f, { reviewId: await seedReview(f) });
+    const provider = makeProvider();
+
+    await runCorrection(makeDeps(f, applyingRunner(f), provider, [], { publicUrl: "http://stubwise.example.com" }), job);
+
+    expect(provider.setCommitStatus).toHaveBeenCalled();
+    for (const call of provider.setCommitStatus.mock.calls) expect(call[2]).not.toHaveProperty("url");
+  });
+
   it("nessuna modifica: giro contato, job failed, risposta dell'AI notificata e sul ticket, niente push; review sulla head ATTUALE", async () => {
     const f = await makeFixture();
     await testDb.db.update(instanceSettings).set({ prReviewEnabled: true }).where(eq(instanceSettings.id, 1));

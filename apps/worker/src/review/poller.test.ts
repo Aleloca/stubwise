@@ -8,11 +8,16 @@ import {
   type Db,
 } from "@stubwise/db";
 import { startTestDb, type TestDb } from "@stubwise/db/testing";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { randomBytes, randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { ProjectSerializer } from "../handler.js";
-import { pollPrReviewsOnce, requeueWaitingReviews, type PollPrReviewsDeps } from "./poller.js";
+import {
+  pollPrReviewsOnce,
+  requeueWaitingReviews,
+  requeueWaitingReviewsAtStartup,
+  type PollPrReviewsDeps,
+} from "./poller.js";
 import type { PrReviewJobRow } from "./run-review.js";
 
 vi.setConfig({ testTimeout: 60_000 });
@@ -286,6 +291,37 @@ describe("pollPrReviewsOnce", () => {
     expect(seenDuringRun).toEqual({ status: "running", startedAt: null, inQueue: 0 });
   });
 
+  it("claim atomico per TUTTO il batch: un insert che fallisce annulla il claim, i job restano", async () => {
+    // Un trigger fa fallire il SECONDO insert su pr_reviews (il primo è
+    // visibile nella stessa transazione, o già committato se l'insert stesse
+    // fuori): deterministico qualunque sia l'ordine dei job reclamati.
+    await testDb.db.execute(sql`
+      create or replace function c10_fail_second_review() returns trigger language plpgsql as $$
+      begin
+        if (select count(*) from pr_reviews) >= 1 then raise exception 'insert di prova fallito'; end if;
+        return new;
+      end $$`);
+    await testDb.db.execute(sql`
+      create trigger c10_fail_second_review before insert on pr_reviews
+      for each row execute function c10_fail_second_review()`);
+    try {
+      const { repositoryId } = await createRepository(testDb.db);
+      await insertJob(testDb.db, repositoryId, 1, -60_000);
+      await insertJob(testDb.db, repositoryId, 2, -60_000);
+      const spy = vi.fn(async () => {});
+      const { serializer } = makeSerializer();
+
+      expect(await pollPrReviewsOnce(makeDeps(serializer, spy))).toBe(0);
+
+      expect(spy).not.toHaveBeenCalled();
+      expect(await testDb.db.select().from(prReviewJobs)).toHaveLength(2);
+      expect(await testDb.db.select().from(prReviews)).toHaveLength(0);
+    } finally {
+      await testDb.db.execute(sql`drop trigger if exists c10_fail_second_review on pr_reviews`);
+      await testDb.db.execute(sql`drop function if exists c10_fail_second_review()`);
+    }
+  });
+
   it("una riga mai partita non sopravvive al suo run (uscita silenziosa o errore)", async () => {
     const { repositoryId } = await createRepository(testDb.db);
     await insertJob(testDb.db, repositoryId, 1, -60_000);
@@ -418,5 +454,21 @@ describe("requeueWaitingReviews (avvio del worker)", () => {
     const [after] = await testDb.db.select().from(prReviews).where(eq(prReviews.id, row!.id));
     expect(after!.status).toBe("failed");
     expect(await testDb.db.select().from(prReviewJobs)).toHaveLength(0);
+  });
+
+  it("all'avvio un errore del riaccodamento si logga e NON fa cadere il worker", async () => {
+    const logs = vi.spyOn(console, "error").mockImplementation(() => {});
+    let result: number | Error;
+    let lines: string[];
+    try {
+      result = await requeueWaitingReviewsAtStartup(testDb.db, async () => {
+        throw new Error("DB irraggiungibile");
+      }).catch((e: unknown) => (e instanceof Error ? e : new Error(String(e))));
+    } finally {
+      lines = logs.mock.calls.map(([line]) => String(line));
+      logs.mockRestore();
+    }
+    expect(result).toBe(0);
+    expect(lines.some((line) => line.includes("DB irraggiungibile"))).toBe(true);
   });
 });

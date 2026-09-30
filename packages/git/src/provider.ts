@@ -179,9 +179,12 @@ export type PrReviewVerdict = "approve" | "request_changes";
  * quello stato (Bitbucket 409 sul POST del verdetto) — non un errore, il
  * testo è uscito comunque. Scelta difensiva da confermare con B14 §7a (piano).
  * Il pacchetto non ha un logger: l'esito torna al chiamante, che scrive la
- * riga di log.
+ * riga di log, con `responseExcerpt` — un estratto (al più 200 caratteri)
+ * della risposta, con il token e la sua forma base64 già mascherati.
  */
-export type SubmitPrReviewOutcome = "submitted" | "already_in_state";
+export type SubmitPrReviewOutcome =
+  | { status: "submitted" }
+  | { status: "already_in_state"; responseExcerpt: string };
 
 /**
  * "Request changes" arrivato dal webhook (Bitbucket
