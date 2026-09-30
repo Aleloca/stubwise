@@ -768,6 +768,24 @@ describe("BitbucketProvider.setCommitStatus", () => {
       .catch((e: unknown) => e);
     expect(error).toBeInstanceOf(GitProviderError);
     expect((error as GitProviderError).status).toBe(404);
+    expect((error as GitProviderError).message).not.toContain("repository write");
+  });
+
+  it("401 → GitProviderError che dice quale permesso manca, senza credenziali", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("Unauthorized", { status: 401 }));
+    const provider = new BitbucketProvider({ fetchImpl });
+    const error = await provider
+      .setCommitStatus(config, SHA, { state: "failure", key: "stubwise-review", description: "d" })
+      .then(() => null)
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).status).toBe(401);
+    const message = (error as GitProviderError).message;
+    expect(message).toContain(
+      "il token deve poter scrivere gli status di commit (GitHub: Commit statuses write; Bitbucket: repository write)"
+    );
+    expect(message).not.toContain("app-pass");
+    expect(message).not.toContain(Buffer.from("alice:app-pass").toString("base64"));
   });
 });
 

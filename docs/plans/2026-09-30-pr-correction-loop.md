@@ -6119,6 +6119,41 @@ annota nel PR. Variabili: `BB_EMAIL`, `BB_TOKEN` (account principale),
    Atteso: 422 "Can not request changes on your own pull request"; per lo
    status, 422 se 141 caratteri sono troppi (conferma il troncamento di B7) o
    201 (il troncamento resta innocuo).
+6. **Status di commit: i casi che i test con i doppi non possono dire.** Stesso
+   `$SHA` di prova, `GH_TOKEN_AUTHOR` salvo dove indicato.
+   (a) **`target_url` non https.** Due POST, uno con
+   `"target_url":"http://stubwise.example.com/tickets/t1"` e uno con
+   `"target_url":"http://localhost:3000/tickets/t1"`:
+   ```bash
+   for U in http://stubwise.example.com/tickets/t1 http://localhost:3000/tickets/t1; do
+     curl -s -w '\n%{http_code}\n' -H "Authorization: Bearer $GH_TOKEN_AUTHOR" -H 'Accept: application/vnd.github+json' \
+       -X POST "https://api.github.com/repos/$O/$R/statuses/$SHA" \
+       -d "{\"state\":\"pending\",\"context\":\"stubwise-review-prova\",\"description\":\"url http\",\"target_url\":\"$U\"}"
+   done
+   ```
+   201 o 422? Se anche uno dei due è **422**, annotarlo qui e nel PR: C10
+   dovrà **omettere `url`** quando `STUBWISE_URL` non è https (vedi la nota in
+   C10, passo 2), o un'istanza self-hosted in http perde lo status per intero.
+   (b) **Accodato, non sovrascritto.** Due POST con lo stesso
+   `"context":"stubwise-review"`, prima `pending` poi `success`; poi
+   ```bash
+   curl -s -H "Authorization: Bearer $GH_TOKEN_AUTHOR" -H 'Accept: application/vnd.github+json' \
+     "https://api.github.com/repos/$O/$R/commits/$SHA/status" | jq -c '[.statuses[] | select(.context=="stubwise-review") | .state]'
+   ```
+   Atteso `["success"]`: la vista combinata mostra solo l'ultimo per context
+   (`/statuses` li elencherebbe entrambi, ed è corretto).
+   (c) **Token senza permesso.** Con un token GitHub fine-grained che NON ha
+   "Commit statuses" (solo lettura dei contenuti), un POST come in (b): atteso
+   **403**. Stessa prova su Bitbucket con un token senza scrittura sulla
+   repository (il POST di §2): atteso 401/403. In entrambi i casi, lanciare
+   anche `setCommitStatus` da uno script e controllare che il messaggio
+   dell'errore nomini il permesso mancante e non contenga il token.
+   (d) **Emoji al confine dei 140 caratteri** su GitHub: una descrizione di
+   138 `x`, un'emoji (coppia surrogata) e una `y` (`.length` 141), passata per
+   `setCommitStatus`: il troncamento a 139 unità + `…` tiene la sola metà alta
+   della coppia.
+   Annotare cosa risponde GitHub (201 con un carattere di sostituzione, o
+   422): se è 422, il troncamento va fatto per code point (`Array.from`).
 
 ---
 
@@ -6169,7 +6204,11 @@ e <https://github.com/octokit/webhooks/blob/main/payload-schemas/api.github.com/
   will be overwritten." "To associate a commit status to a pull request, the
   refname field must be set to the source branch of the pull request." 201;
   404 "If the repository, commit, or build status key does not exist". Scope
-  `repository` (lettura: `read:repository`, sic nella spec).
+  `repository` (lettura: `read:repository`, sic nella spec). **La spec non
+  dà limiti di lunghezza** per `description` né per `url`: B6 non tronca, e
+  va bene perché le descrizioni che passiamo sono chiavi i18n corte (C1), non
+  testo libero. Su 401/403 `setCommitStatus` rilancia con un suffisso che
+  nomina il permesso mancante (scrittura sulla repository).
 - `GET /user`: "Returns the currently logged in user", 200/401, **non
   deprecato** nella spec corrente; scope `account` (app password) /
   `read:user:bitbucket` (API token). Risposta: `uuid` (tra graffe nei
@@ -6203,7 +6242,12 @@ e <https://github.com/octokit/webhooks/blob/main/payload-schemas/api.github.com/
 - `POST /repos/{o}/{r}/statuses/{sha}`: "Users with push access… can create
   commit statuses"; `state` obbligatorio `error | failure | pending | success`,
   `target_url`, `description`, `context` (default `default`,
-  case-insensitive); 201; tetto di 1000 status per sha e context.
+  case-insensitive); 201; tetto di 1000 status per sha e context. **Non
+  sovrascrive**: ogni chiamata ACCODA uno status nuovo, e la vista combinata
+  (`GET /repos/{o}/{r}/commits/{ref}/status`) e la protezione del branch usano
+  l'ultimo per `context` (B14 §6b lo verifica). Un token senza il permesso
+  "Commit statuses: write" riceve 403: `setCommitStatus` lo rilancia con un
+  suffisso che nomina il permesso mancante.
 - Gli status di commit NON sono check-run: `getPullRequestChecks` di GitHub,
   che legge `/commits/{sha}/check-runs`, non li vede (vedi D10: la coda di
   rilascio esclude `stubwise-review` anche su Bitbucket, per simmetria).
@@ -11002,6 +11046,11 @@ errore lascia una riga di log e non tocca la review già `completed`:
    `pr_review_jobs.head_sha` di Bitbucket è abbreviato; `refname` = branch
    sorgente (senza, su Bitbucket lo status non si lega alla PR). Allo start
    della review, `runPrReview` mette `pending` («in corso»).
+   ⚠️ **Dipende da B14 §6a**: se GitHub risponde 422 a un `target_url` in
+   `http://`, qui `url` va **omesso** quando `STUBWISE_URL` non è https
+   (GitHub accetta lo status senza `target_url`; Bitbucket ha già il suo
+   ripiego sulla pagina della repository). Senza, un'istanza in http non
+   avrebbe mai lo status.
 3. **Ciclo**, solo per le PR di Stubwise: branch `stubwise/ticket-N`, N =
    numero del ticket che ospita la review, e una riga `ticket_repositories` di
    quel ticket su quel repo con quel branch. Su una PR scritta da una persona

@@ -616,6 +616,32 @@ export async function ensureOkResponse(response: Response, provider: string): Pr
   );
 }
 
+/** Cosa manca al token quando la scrittura di uno status di commit riceve
+ * 401/403. Senza segreti: nomina i permessi, mai il token. */
+export const COMMIT_STATUS_PERMISSION_HINT =
+  "il token deve poter scrivere gli status di commit (GitHub: Commit statuses write; Bitbucket: repository write)";
+
+/**
+ * Come {@link ensureOkResponse}, ma su 401/403 il messaggio dice quale
+ * permesso manca ({@link COMMIT_STATUS_PERMISSION_HINT}): lo status di commit
+ * è l'unica scrittura della review che un token in sola lettura non può fare,
+ * e un "403" nudo nel log non lo spiega. Lo status HTTP resta quello vero.
+ */
+export async function ensureCommitStatusResponse(response: Response, provider: string): Promise<void> {
+  try {
+    await ensureOkResponse(response, provider);
+  } catch (error) {
+    if (error instanceof GitProviderError && (error.status === 401 || error.status === 403)) {
+      throw new GitProviderError(
+        `${error.message} — ${COMMIT_STATUS_PERMISSION_HINT}`,
+        error.status,
+        error.responseText
+      );
+    }
+    throw error;
+  }
+}
+
 /**
  * Esegue una fetch GET con un timeout (default 10s) via AbortController. A
  * differenza di `ensureOkResponse`, non lancia sui non-2xx: restituisce la

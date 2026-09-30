@@ -1,6 +1,7 @@
 import {
   basicAuthHeader,
   ensureListResponse,
+  ensureCommitStatusResponse,
   ensureOkResponse,
   fetchWithTimeout,
   getHeader,
@@ -386,10 +387,13 @@ export class GitHubProvider implements GitProvider {
   }
 
   /**
-   * Status di commit di Stubwise (design §8): `context` = key, così uno
-   * status nuovo sostituisce il precedente sullo stesso commit. `refname` non
-   * serve (GitHub associa per sha). Descrizione troncata a 140 caratteri.
-   * Sha completo obbligatorio. Lancia GitProviderError (best-effort a monte).
+   * Status di commit di Stubwise (design §8): `context` = key. GitHub non
+   * sovrascrive: ACCODA uno status nuovo a ogni chiamata, e la vista combinata
+   * e la protezione del branch usano l'ultimo per `context` (tetto di 1000
+   * status per sha e context). `refname` non serve (GitHub associa per sha).
+   * Descrizione troncata a 140 caratteri. Sha completo obbligatorio. Lancia
+   * GitProviderError (best-effort a monte); su 401/403 il messaggio dice quale
+   * permesso manca al token.
    */
   async setCommitStatus(
     p: ProjectGitConfig,
@@ -424,7 +428,7 @@ export class GitHubProvider implements GitProvider {
         ...(status.url !== undefined ? { target_url: status.url } : {}),
       }),
     });
-    await ensureOkResponse(response, "GitHub");
+    await ensureCommitStatusResponse(response, "GitHub");
   }
 
   parseWebhook(headers: Record<string, string>, body: unknown): WebhookEvent | null {

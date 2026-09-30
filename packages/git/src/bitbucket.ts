@@ -1,6 +1,7 @@
 import {
   basicAuthHeader,
   ensureListResponse,
+  ensureCommitStatusResponse,
   ensureOkResponse,
   fetchWithTimeout,
   getHeader,
@@ -394,7 +395,7 @@ export class BitbucketProvider implements GitProvider {
         }),
       }
     );
-    await ensureOkResponse(response, "Bitbucket");
+    await ensureCommitStatusResponse(response, "Bitbucket");
   }
 
   parseWebhook(headers: Record<string, string>, body: unknown): WebhookEvent | null {

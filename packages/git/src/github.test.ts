@@ -1559,6 +1559,7 @@ describe("GitHubProvider.setCommitStatus", () => {
     });
     const body = JSON.parse((fetchImpl.mock.calls[0] as [string, RequestInit])[1].body as string);
     expect(body).not.toHaveProperty("target_url");
+    expect(body.state).toBe("pending");
     expect(body.description).toHaveLength(140);
     expect(body.description.endsWith("…")).toBe(true);
   });
@@ -1569,6 +1570,7 @@ describe("GitHubProvider.setCommitStatus", () => {
     const description = "y".repeat(140);
     await provider.setCommitStatus(config, SHA, { state: "failure", key: "stubwise-review", description });
     const body = JSON.parse((fetchImpl.mock.calls[0] as [string, RequestInit])[1].body as string);
+    expect(body.state).toBe("failure");
     expect(body.description).toBe(description);
   });
 
@@ -1584,11 +1586,32 @@ describe("GitHubProvider.setCommitStatus", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
-  it("non-2xx → GitProviderError", async () => {
+  it("non-2xx → GitProviderError con lo status", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(new Response("nope", { status: 422 }));
     const provider = new GitHubProvider({ fetchImpl });
-    await expect(
-      provider.setCommitStatus(config, SHA, { state: "pending", key: "stubwise-review", description: "d" })
-    ).rejects.toBeInstanceOf(GitProviderError);
+    const error = await provider
+      .setCommitStatus(config, SHA, { state: "pending", key: "stubwise-review", description: "d" })
+      .then(() => null)
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).status).toBe(422);
+    expect((error as GitProviderError).message).not.toContain("Commit statuses write");
+  });
+
+  it("403 → GitProviderError che dice quale permesso manca, senza il token", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ message: "Resource not accessible by integration" }), { status: 403 }));
+    const provider = new GitHubProvider({ fetchImpl });
+    const error = await provider
+      .setCommitStatus(config, SHA, { state: "success", key: "stubwise-review", description: "d" })
+      .then(() => null)
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).status).toBe(403);
+    expect((error as GitProviderError).message).toContain(
+      "il token deve poter scrivere gli status di commit (GitHub: Commit statuses write; Bitbucket: repository write)"
+    );
+    expect((error as GitProviderError).message).not.toContain("ghp_secret");
   });
 });
