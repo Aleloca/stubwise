@@ -14,7 +14,13 @@ import {
   startTestDb,
   type TestDb,
 } from "@stubwise/db/testing";
-import { prCycleSchema, type AiJobStatus, type PrCorrectionTrigger } from "@stubwise/shared";
+import {
+  aiJobStatusSchema,
+  prCycleSchema,
+  type AiJobStatus,
+  type PrCorrectionTrigger,
+} from "@stubwise/shared";
+import { IN_FLIGHT_JOB_STATUSES } from "./actions.js";
 import { and, eq, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -29,7 +35,9 @@ import {
   promotePendingCorrection,
   promotePendingForTicket,
   promoteStalePendings,
+  reconcileOrphanCorrections,
   resolvePrCycleState,
+  TERMINAL_JOB_STATUSES,
   type PrCycleFacts,
 } from "./pr-correction-cycle.js";
 
@@ -742,6 +750,186 @@ describe("promoteStalePendings", () => {
     // L'errore arriva al chiamante con l'id della pending, per il warn una-tantum.
     expect(failed).toContain(idRotta);
     expect((await correctionsOf(rotta))[0]?.status).toBe("pending");
+  });
+});
+
+describe("reconcileOrphanCorrections", () => {
+  // DB condiviso e rete GLOBALE, come per promoteStalePendings: si asserisce
+  // sulle righe di QUESTO test (`toContain`/`not.toContain`).
+
+  it("PARTIZIONE: ogni stato di un job è terminale OPPURE blocca, mai entrambi né nessuno", () => {
+    // Uno stato nuovo dell'enum fa diventare rosso questo test finché non lo
+    // si mette esplicitamente da una parte: mai terminale per default.
+    const blocking: readonly string[] = [...IN_FLIGHT_JOB_STATUSES, "held"];
+    const terminal: readonly string[] = TERMINAL_JOB_STATUSES;
+    for (const status of aiJobStatusSchema.options) {
+      const places = Number(terminal.includes(status)) + Number(blocking.includes(status));
+      expect({ status, places }).toEqual({ status, places: 1 });
+    }
+  });
+
+  for (const jobStatus of ["failed", "skipped", "pr_opened", "pr_merged", "pr_closed"] as const) {
+    it(`job \`${jobStatus}\` con la correzione ancora \`queued\` → done, con una riga nel log del job`, async () => {
+      const pr = await seedPr();
+      const id = await seedCorrection(pr, { trigger: "review", status: "queued", jobStatus });
+      expect(await reconcileOrphanCorrections(db)).toContain(id);
+      expect((await correctionsOf(pr))[0]?.status).toBe("done");
+      const job = (await jobsOf(pr)).find((j) => j.correctionId === id);
+      // Il job non si tocca, se non per la riga di log.
+      expect(job?.status).toBe(jobStatus);
+      expect(job?.log).toContain(
+        `[correction] correzione chiusa dalla riconciliazione: il job era ${jobStatus}\n`,
+      );
+    });
+  }
+
+  it("correzione `queued` SENZA job → done", async () => {
+    const pr = await seedPr();
+    const id = await seedCorrection(pr, { trigger: "stubwise", status: "queued" });
+    expect(await reconcileOrphanCorrections(db)).toContain(id);
+    expect((await correctionsOf(pr))[0]?.status).toBe("done");
+    expect(await jobsOf(pr)).toHaveLength(0);
+  });
+
+  for (const jobStatus of [
+    "queued",
+    "triaging",
+    "fixing",
+    "awaiting_plan_approval",
+    "awaiting_input",
+    "held",
+  ] as const) {
+    it(`job \`${jobStatus}\` (vivo o parcheggiato) → correzione intatta, log intatto`, async () => {
+      const pr = await seedPr();
+      const id = await seedCorrection(pr, { trigger: "review", status: "queued", jobStatus });
+      expect(await reconcileOrphanCorrections(db)).not.toContain(id);
+      expect((await correctionsOf(pr))[0]?.status).toBe("queued");
+      expect((await jobsOf(pr)).find((j) => j.correctionId === id)?.log).not.toContain(
+        "riconciliazione",
+      );
+    });
+  }
+
+  for (const status of ["pending", "done", "cancelled"] as const) {
+    it(`correzione \`${status}\` con job terminale → intatta`, async () => {
+      const pr = await seedPr();
+      const id = await seedCorrection(pr, {
+        trigger: "provider",
+        login: "m",
+        status,
+        jobStatus: "failed",
+      });
+      expect(await reconcileOrphanCorrections(db)).not.toContain(id);
+      expect((await correctionsOf(pr))[0]?.status).toBe(status);
+    });
+  }
+
+  it("best-effort per riga: una riconciliazione che fallisce non ferma le altre", async () => {
+    const rotta = await seedPr();
+    const idRotta = await seedCorrection(rotta, { trigger: "review", status: "queued", jobStatus: "failed" });
+    const sana = await seedPr();
+    const idSana = await seedCorrection(sana, { trigger: "review", status: "queued", jobStatus: "failed" });
+    // Un trigger che fa fallire l'UPDATE della sola riga "rotta": l'errore
+    // nasce DENTRO la transazione per riga, come un guasto vero.
+    await db.execute(
+      sql.raw(`create or replace function pr_corr_boom() returns trigger language plpgsql as $$
+        begin if old.id = '${idRotta}' then raise exception 'boom'; end if; return new; end $$;`),
+    );
+    await db.execute(
+      sql.raw(`create trigger pr_corr_boom before update on pr_corrections
+        for each row execute function pr_corr_boom();`),
+    );
+    try {
+      const failed: string[] = [];
+      const done = await reconcileOrphanCorrections(db, { onError: (id) => failed.push(id) });
+      expect(done).toContain(idSana);
+      expect(done).not.toContain(idRotta);
+      expect(failed).toContain(idRotta);
+      expect((await correctionsOf(rotta))[0]?.status).toBe("queued");
+      expect((await correctionsOf(sana))[0]?.status).toBe("done");
+      // Il rollback della transazione per riga toglie anche la riga di log.
+      expect((await jobsOf(rotta))[0]?.log).not.toContain("riconciliazione");
+    } finally {
+      await db.execute(sql.raw("drop trigger pr_corr_boom on pr_corrections"));
+      await db.execute(sql.raw("drop function pr_corr_boom()"));
+    }
+  });
+
+  /**
+   * Tiene il lock del ticket, avvia la riconciliazione senza await, aspetta che
+   * sia DAVVERO ferma sul lock advisory, esegue `meanwhile` e poi fa COMMIT:
+   * lo stesso schema deterministico del test del lock di `enqueueCorrection`.
+   */
+  async function reconcileWhileLocked(
+    ticketId: string,
+    meanwhile: (tx: Parameters<Parameters<Db["transaction"]>[0]>[0]) => Promise<void>,
+  ): Promise<string[]> {
+    let running: Promise<string[]> | undefined;
+    await db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${ticketId}))`);
+      running = reconcileOrphanCorrections(db);
+      const deadline = Date.now() + 5000;
+      for (;;) {
+        const waiting = await db.execute(
+          sql`select 1 from pg_stat_activity
+              where datname = current_database()
+                and wait_event_type = 'Lock' and wait_event = 'advisory'`,
+        );
+        if (waiting.length > 0) break;
+        if (Date.now() > deadline) {
+          throw new Error("la riconciliazione non si è mai fermata sul lock advisory del ticket");
+        }
+        await new Promise((r) => setTimeout(r, 20));
+      }
+      await meanwhile(tx);
+    });
+    return running!;
+  }
+
+  it("sotto il lock RILEGGE il job: ripartito mentre aspettava → correzione intatta", async () => {
+    const pr = await seedPr();
+    const id = await seedCorrection(pr, { trigger: "review", status: "queued", jobStatus: "failed" });
+    const done = await reconcileWhileLocked(pr.ticketId, async (tx) => {
+      await tx.update(aiJobs).set({ status: "queued" }).where(eq(aiJobs.correctionId, id));
+    });
+    expect(done).not.toContain(id);
+    expect((await correctionsOf(pr))[0]?.status).toBe("queued");
+    expect((await jobsOf(pr))[0]?.log).not.toContain("riconciliazione");
+  });
+
+  it("UPDATE guardato: chiusa da completeCorrection mentre aspettava → niente da fare, niente log", async () => {
+    const pr = await seedPr();
+    const id = await seedCorrection(pr, { trigger: "review", status: "queued", jobStatus: "failed" });
+    const done = await reconcileWhileLocked(pr.ticketId, async (tx) => {
+      expect(await completeCorrection(tx, id)).toBe(true);
+    });
+    expect(done).not.toContain(id);
+    expect((await correctionsOf(pr))[0]?.status).toBe("done");
+    expect((await jobsOf(pr))[0]?.log).not.toContain("riconciliazione");
+  });
+
+  it("integrazione: riconciliata l'orfana, promoteStalePendings fa partire la pending della STESSA PR", async () => {
+    const pr = await seedPr();
+    const orfana = await seedCorrection(pr, {
+      trigger: "review",
+      status: "queued",
+      jobStatus: "failed",
+      createdAt: at(1),
+    });
+    const inAttesa = await seedCorrection(pr, {
+      trigger: "provider",
+      status: "pending",
+      login: "m",
+      createdAt: at(2),
+    });
+    // Senza riconciliazione la `queued` orfana blocca la pending per sempre.
+    expect(await promoteStalePendings(db)).not.toContain(inAttesa);
+    expect(await reconcileOrphanCorrections(db)).toContain(orfana);
+    expect(await promoteStalePendings(db)).toContain(inAttesa);
+    const byId = new Map((await correctionsOf(pr)).map((r) => [r.id, r.status]));
+    expect(byId.get(orfana)).toBe("done");
+    expect(byId.get(inAttesa)).toBe("queued");
+    expect((await jobsOf(pr)).find((j) => j.correctionId === inAttesa)?.status).toBe("queued");
   });
 });
 

@@ -12,6 +12,7 @@ import {
 } from "@stubwise/db";
 import {
   prNumberFromUrl,
+  type AiJobStatus,
   stubwiseTicketNumber,
   type PrComment,
   type PrCorrectionTrigger,
@@ -636,6 +637,114 @@ export async function promoteStalePendings(
     }
   }
   return promoted;
+}
+
+/**
+ * Gli stati TERMINALI di un job `ai_jobs`, per la riconciliazione delle
+ * correzioni orfane ({@link reconcileOrphanCorrections}). Un ELENCO ESPLICITO,
+ * non il complemento di {@link jobBlocksCorrection}, e il verso è voluto: se
+ * uno stato nuovo dell'enum finisse qui per default, una correzione col job
+ * ancora VIVO verrebbe chiusa e ne partirebbe un doppione — un danno
+ * silenzioso. Con l'elenco esplicito, al peggio la correzione resta appesa:
+ * si vede, e si recupera.
+ *
+ * Gli stati di attesa umana (`awaiting_plan_approval`, `awaiting_input`) sono
+ * in `IN_FLIGHT_JOB_STATUSES`, e `held` blocca a sé: il lavoro non è finito.
+ *
+ * ⚠️ Uno stato NUOVO di `aiJobStatusSchema` obbliga a una scelta esplicita:
+ * o qui (terminale) o fra quelli che bloccano (`IN_FLIGHT_JOB_STATUSES`/`held`).
+ * Il test di PARTIZIONE in `pr-correction-cycle.test.ts` diventa rosso finché
+ * non la si fa.
+ */
+export const TERMINAL_JOB_STATUSES = [
+  "pr_opened",
+  "pr_merged",
+  "pr_closed",
+  "failed",
+  "skipped",
+] as const satisfies readonly AiJobStatus[];
+
+/** La riga che il job di una correzione riconciliata riceve nel log. */
+const reconciledLogLine = (jobStatus: string) =>
+  `[correction] correzione chiusa dalla riconciliazione: il job era ${jobStatus}\n`;
+
+/**
+ * RETE DI SICUREZZA gemella di {@link promoteStalePendings}, da chiamare nel
+ * tick del worker SUBITO PRIMA di lei: chiude (`queued → done`) le correzioni
+ * `queued` rimaste ORFANE del loro job — il job è in uno stato terminale
+ * ({@link TERMINAL_JOB_STATUSES}) oppure non esiste affatto.
+ *
+ * Il percorso normale è `completeCorrection` nella stessa transazione che rende
+ * terminale il job. Ma un job può diventare terminale per altre strade: un'eccezione
+ * non gestita nel handler (`failJob` chiamato fuori da `closeJobAndCorrection`),
+ * il recovery degli stantii, un rollback manuale sul database, o un percorso
+ * futuro che dimentica la correzione. Senza questa rete la `queued` resterebbe lì per sempre — stato
+ * `correcting` eterno, bottone tolto, ogni `pending` della PR bloccata. I
+ * percorsi terminali cambiano nel tempo; questa rete no.
+ *
+ * Per riga, sotto il lock del ticket (lo stesso di `startRun`/
+ * `enqueueCorrection`/`promotePendingCorrection`) e con un UPDATE guardato
+ * (`status = 'queued'`): non corre con `completeCorrection` del worker né con
+ * un annullamento. Lo stato del job si RILEGGE sotto il lock: un job che nel
+ * frattempo è ripartito (es. `held → queued`) lascia la correzione intatta. Al
+ * job esistente si appende una riga di log. Non promuove niente: lo fa
+ * `promoteStalePendings`, dopo, nello stesso tick.
+ *
+ * Best-effort PER RIGA, come `promoteStalePendings`: un errore va a `onError`
+ * (default: `console.warn`) e non ferma le altre. Ritorna gli id riconciliati.
+ */
+export async function reconcileOrphanCorrections(
+  db: DbOrTx,
+  opts: { onError?: (correctionId: string, error: unknown) => void } = {},
+): Promise<string[]> {
+  const onError =
+    opts.onError ??
+    ((correctionId: string, error: unknown) => {
+      console.warn(`[correction] riconciliazione della correzione ${correctionId} fallita:`, error);
+    });
+  const candidates = await db
+    .select({ id: prCorrections.id, ticketId: prCorrections.ticketId })
+    .from(prCorrections)
+    .leftJoin(aiJobs, eq(aiJobs.correctionId, prCorrections.id))
+    .where(
+      and(
+        eq(prCorrections.status, "queued"),
+        or(sql`${aiJobs.id} is null`, inArray(aiJobs.status, [...TERMINAL_JOB_STATUSES])),
+      ),
+    )
+    .orderBy(prCorrections.id);
+  const reconciled: string[] = [];
+  for (const { id, ticketId } of candidates) {
+    try {
+      const done = await (db as Db).transaction(async (tx) => {
+        await lockTicket(tx, ticketId);
+        // Riletto SOTTO il lock: il job può essere ripartito, o la correzione
+        // chiusa da `completeCorrection`/annullata, fra la lettura e il lock.
+        const [job] = await tx
+          .select({ id: aiJobs.id, status: aiJobs.status })
+          .from(aiJobs)
+          .where(eq(aiJobs.correctionId, id));
+        if (job && !(TERMINAL_JOB_STATUSES as readonly string[]).includes(job.status)) return false;
+        const [row] = await tx
+          .update(prCorrections)
+          .set({ status: "done" })
+          .where(and(eq(prCorrections.id, id), eq(prCorrections.status, "queued")))
+          .returning({ id: prCorrections.id });
+        if (!row) return false;
+        if (job) {
+          await tx
+            .update(aiJobs)
+            .set({ log: sql`${aiJobs.log} || ${reconciledLogLine(job.status)}` })
+            .where(eq(aiJobs.id, job.id));
+        }
+        return true;
+      });
+      if (done) reconciled.push(id);
+    } catch (error) {
+      onError(id, error);
+    }
+  }
+  return reconciled;
 }
 
 /**

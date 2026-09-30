@@ -229,6 +229,18 @@ il payload webhook `generic` di `review.completed` porta sempre `cycle` (`null` 
   (`jobBlocksCorrection`, non ricopiata). Best-effort PER RIGA: un errore va a
   `onError` (default `console.warn`) e non ferma le altre; ritorna gli id
   promossi, uno per riga di log del chiamante.
+- `reconcileOrphanCorrections(db, opts?: { onError?(correctionId, error) }): Promise<string[]>` —
+  (A8c) RETE DI SICUREZZA gemella: chiude (`queued → done`) le correzioni
+  `queued` il cui job è in uno stato terminale (`TERMINAL_JOB_STATUSES`,
+  elenco ESPLICITO, mai derivato) o che un job non ce l'hanno, con una
+  riga nel log del job. Esiste perché i percorsi che rendono terminale un job
+  cambiano nel tempo (un'eccezione non gestita nel handler — `failJob` fuori
+  da `closeJobAndCorrection` —, il recovery degli stantii, un rollback
+  manuale, un percorso futuro) e non tutti chiamano `completeCorrection`: senza, la
+  `queued` resterebbe `correcting` per sempre e bloccherebbe ogni `pending`
+  della PR. Per riga sotto il lock del ticket, UPDATE guardato, best-effort;
+  non promuove niente (lo fa `promoteStalePendings`, subito dopo, nello
+  stesso tick).
 - `prHasOpenCorrection(db, { repositoryId, prNumber }): Promise<boolean>` — la PR
   ha una `pending` o una `queued`: la domanda che fix e correzione si fanno per
   ogni loro PR DOPO `promotePendingForTicket`, per decidere se accodare la
@@ -241,7 +253,8 @@ il payload webhook `generic` di `review.completed` porta sempre `cycle` (`null` 
   `failed`/`skipped`: handler C9), di qualunque correzione chiusa (C8), e dopo
   `cancelOpenCorrections` nel webhook di chiusura (D3, con `instance.db`, FUORI
   da ogni transazione del webhook). Infine `promoteStalePendings` nel tick
-  periodico del worker (C9, accanto a `requeueStale`) raccoglie tutto il resto.
+  periodico del worker (C9, accanto a `requeueStale`, preceduta da
+  `reconcileOrphanCorrections`) raccoglie tutto il resto.
 - `cancelPendingCorrection(db, { repositoryId, prNumber }): Promise<string | null>` —
   `pending → cancelled` sulla PR, sotto il lock del ticket; per una PR che non
   si può più correggere pur essendo aperta (branch sparito, C8), altrimenti il
@@ -362,12 +375,12 @@ key `stubwise-review` (D10).
 
 ## Ordine di esecuzione
 
-66 task in 7 tappe. L'ordine qui sotto è quello da seguire; dove l'ordine
+67 task in 7 tappe. L'ordine qui sotto è quello da seguire; dove l'ordine
 interno non è quello numerico è scritto esplicitamente.
 
 | Tappa | Task, in quest'ordine | Dipende da | Note |
 |---|---|---|---|
-| **A — dati** (10) | A1 → **A3** → A2 → A4 → A5 → A6 → A7 → A8 → **A8b** → A9 | — | A2 importa i tipi che nascono in A3. A8b (identità e fotografia, ex D1) sta in A perché C lo importa. A9 esporta tutto e builda. |
+| **A — dati** (11) | A1 → **A3** → A2 → A4 → A5 → A6 → A7 → A8 → **A8b** → **A8c** → A9 | — | A2 importa i tipi che nascono in A3. A8b (identità e fotografia, ex D1) sta in A perché C lo importa. A8c (riconciliazione delle correzioni orfane) aggiunto dal coordinatore: il tick di C9 lo chiama. A9 esporta tutto e builda. |
 | **B — provider git** (14) | B1 → B2 … B12 → B13 → B14 | A3 (+ build di `@stubwise/shared`: B1 importa `PrComment` da lì) | B14 è manuale (chiamate vere, niente commit): si fa quando ci sono le credenziali, al più tardi prima del merge. |
 | **C — worker** (13) | C1 → C2 → C3 → C4 → C5 → C6 → C7 → C8 → C9 → C10 → C11 → C12 → C13 | A9, B13 | C4 dopo C3; C7 dopo C2, C3, C6; C8 dopo C1–C6 (Step 3a tocca `queue.ts`); C9 e C11 dopo C8; C10 dopo C1, C2, C6; C12 dopo C7–C10; C13 dopo C5 (scenario golden, manuale). |
 | **D — server** (11) | D1 → D2 → D3 → D4 → D5 → D6 → D7 → D8 → D9 → D10 → D11 | A9, B13 | D10 (filtro di `stubwise-review` nei check Bitbucket) tocca solo `packages/git`: può anche andare subito dopo B13. |
@@ -3715,6 +3728,70 @@ git commit -m "feat(notifications): identità degli account git e fotografia del
 
 ---
 
+### Task A8c — `reconcileOrphanCorrections`: la rete che chiude le correzioni orfane del loro job
+
+Aggiunto dal coordinatore dopo A8b. **Il problema**: una correzione `queued`
+ha un job (`ai_jobs.correction_id`), e il worker chiude job + correzione
+(`completeCorrection`) nella stessa transazione. Ma un job può diventare
+terminale per un'altra strada — un'eccezione non gestita nel handler
+(`failJob` chiamato fuori da `closeJobAndCorrection`), il recovery degli
+stantii, un rollback manuale sul database, un percorso futuro — e la correzione resta `queued` per sempre: stato
+`correcting` eterno, bottone tolto, ogni `pending` della PR bloccata (la
+`queued` la scarta già `promotePendingCorrection`, quindi nemmeno
+`promoteStalePendings` la sblocca).
+
+**Files:**
+- Modify: `packages/notifications/src/pr-correction-cycle.ts` —
+  `TERMINAL_JOB_STATUSES` e `reconcileOrphanCorrections` (subito prima di
+  `cancelPendingCorrection`). Il codice è nel sorgente, con il docblock: qui
+  non si ricopia.
+- Test: `packages/notifications/src/pr-correction-cycle.test.ts` —
+  `describe("reconcileOrphanCorrections")`.
+
+**Cosa fa.**
+- `TERMINAL_JOB_STATUSES` è un ELENCO ESPLICITO (`pr_opened`, `pr_merged`,
+  `pr_closed`, `failed`, `skipped`, `as const satisfies readonly
+  AiJobStatus[]`), NON il complemento di `jobBlocksCorrection`. Il verso è
+  deciso in revisione: col complemento uno stato nuovo dell'enum sarebbe
+  terminale per default, e una correzione col job ancora vivo verrebbe chiusa
+  con un doppione in partenza (danno silenzioso); con l'elenco esplicito, al
+  peggio la correzione resta appesa, che si vede e si recupera. Gli stati di
+  attesa umana (`awaiting_plan_approval`, `awaiting_input`) sono in
+  `IN_FLIGHT_JOB_STATUSES`, `held` blocca a sé. Un test di PARTIZIONE obbliga
+  a una scelta esplicita: ogni valore di `aiJobStatusSchema.options` sta in
+  ESATTAMENTE uno fra `TERMINAL_JOB_STATUSES` e `[...IN_FLIGHT_JOB_STATUSES,
+  "held"]`.
+- `reconcileOrphanCorrections(db, { onError? })`: legge le `queued` il cui job
+  è terminale o assente; per ciascuna, in una transazione sua, prende il lock
+  del ticket (`lockTicket`, lo stesso di `startRun`/`enqueueCorrection`),
+  RILEGGE il job (un job ripartito mentre aspettava il lock lascia la
+  correzione intatta), fa l'UPDATE guardato `queued → done` (non corre con
+  `completeCorrection` né con un annullamento) e, se il job esiste, gli appende
+  `[correction] correzione chiusa dalla riconciliazione: il job era <status>\n`.
+  Best-effort per riga (errore → `onError`, default `console.warn`). Ritorna
+  gli id riconciliati. Non promuove niente.
+
+**Test** (Postgres reale): job `failed`/`skipped`/`pr_opened`/`pr_merged`/
+`pr_closed` + `queued` → `done` con la riga di log e il job intatto; `queued`
+senza job → `done`; job `queued`/`triaging`/`fixing`/`awaiting_*`/`held` →
+intatta; correzione `pending`/`done`/`cancelled` → intatta; la partizione
+degli stati; best-effort per riga (un trigger Postgres fa fallire l'UPDATE
+di una sola riga); due test deterministici col lock tenuto da un altro (job
+ripartito mentre aspetta → intatta; `completeCorrection` mentre aspetta →
+niente log); integrazione: `promoteStalePendings` NON fa partire la pending
+della PR finché c'è l'orfana, e la fa partire dopo la riconciliazione.
+
+**Mutazioni** (ognuna rossa sul test giusto, poi rimessa): `pr_closed` tolto
+dall'elenco (partizione rossa); `held` fra i terminali; `IN_FLIGHT` fra i
+terminali; senza il ramo «nessun job»; senza il
+filtro/la guardia su `queued` (tolti INSIEME: ognuno da solo è coperto
+dall'altro); senza la riga di log; senza try/catch; senza la rilettura sotto
+il lock; senza la guardia dell'UPDATE; senza il lock.
+
+**Commit:** `feat(notifications): la rete che chiude le correzioni rimaste orfane del loro job`
+
+---
+
 ### Task A9 — Export, build dei package e verifica di tappa
 
 **Files:**
@@ -3739,7 +3816,9 @@ export {
   promotePendingCorrection,
   promotePendingForTicket,
   promoteStalePendings,
+  reconcileOrphanCorrections,
   resolvePrCycleState,
+  TERMINAL_JOB_STATUSES,
   type EnqueueCorrectionInput,
   type EnqueueCorrectionResult,
   type PrCycleFacts,
@@ -10215,13 +10294,20 @@ job, e una pending orfana è lo stesso genere di problema. Non un poller a sé
 (C11 non c'entra: tratta i conti della staleness, non un loop) e non un env
 nuovo: la promozione costa una query quando non c'è niente da fare.
 
+Nello stesso blocco, PRIMA della promozione, `reconcileOrphanCorrections`
+(A8c): una `queued` il cui job è già terminale (annullato, recuperato dagli
+stantii…) bloccherebbe la pending della sua PR per sempre, perché
+`promotePendingCorrection` scarta ogni PR con una `queued`. Riconciliare prima
+e promuovere dopo, nello stesso tick, fa partire quella pending subito.
+
 **Files:**
 - Modify: `apps/worker/src/handler.ts` — import (righe 1-15); `HandlerDeps.getProviderFn`
   (riga 39); `runJobWithProvider` (righe 104-159); `createHandler` (392-394).
 - Modify: `apps/worker/src/queue.ts` — `RunWorkerInternals.promoteStalePendings`
-  e la chiamata nel blocco di `requeueStale` di `runWorker`.
+  e `RunWorkerInternals.reconcileOrphanCorrections`, e le due chiamate
+  (riconciliazione, poi promozione) nel blocco di `requeueStale` di `runWorker`.
 - Test: `apps/worker/src/handler.test.ts` — import e tre test in coda al `describe("createHandler")`.
-- Test: `apps/worker/src/queue.test.ts` — tre test in coda al `describe("runWorker")`.
+- Test: `apps/worker/src/queue.test.ts` — cinque test in coda al `describe("runWorker")`.
 
 **Step 1 — test che falliscono.** Negli import di `handler.test.ts` aggiungi
 `prCorrections` e `ticketRepositories` da `@stubwise/db`. Dopo `makeUpstream`:
@@ -10506,7 +10592,10 @@ async function promotePendingAfterJob(db: Db, job: AiJob): Promise<void> {
 (e) IL TICK — in `queue.ts`. Import:
 
 ```ts
-import { promoteStalePendings as promoteStalePendingsImpl } from "@stubwise/notifications";
+import {
+  promoteStalePendings as promoteStalePendingsImpl,
+  reconcileOrphanCorrections as reconcileOrphanCorrectionsImpl,
+} from "@stubwise/notifications";
 ```
 
 in `RunWorkerInternals`:
@@ -10514,10 +10603,13 @@ in `RunWorkerInternals`:
 ```ts
   /** Override della rete di sicurezza del ciclo di correzione (default promoteStalePendings). */
   promoteStalePendings?: typeof promoteStalePendingsImpl;
+  /** Override della riconciliazione delle correzioni orfane (default reconcileOrphanCorrections, A8c). */
+  reconcileOrphanCorrections?: typeof reconcileOrphanCorrectionsImpl;
 ```
 
 in `runWorker`, accanto agli altri override
-(`const promoteStale = _internals?.promoteStalePendings ?? promoteStalePendingsImpl;`)
+(`const promoteStale = _internals?.promoteStalePendings ?? promoteStalePendingsImpl;`
+e `const reconcileOrphans = _internals?.reconcileOrphanCorrections ?? reconcileOrphanCorrectionsImpl;`)
 e alle variabili del loop:
 
 ```ts
@@ -10525,19 +10617,47 @@ e alle variabili del loop:
   // UNA volta per id. La stessa riga fallirebbe a ogni tick (ogni minuto), e
   // un log che ripete la stessa riga all'infinito smette di essere letto.
   const stalePromotionWarned = new Set<string>();
+  // Stessa regola per le correzioni orfane la cui riconciliazione fallisce.
+  const reconcileWarned = new Set<string>();
 ```
 
 e dentro `if (Date.now() >= nextRequeueAt) {`, dopo `requeueNodes` e PRIMA di
 `nextRequeueAt = …`:
 
 ```ts
-          // RETE DI SICUREZZA del ciclo di correzione (A7): una `pending` su un
-          // ticket dove nessun job blocca più. Parte qui, con una riga per
-          // ciascuna. La riga NON afferma una causa: può essere un punto di
-          // promozione mancato come, del tutto normalmente, la pending di
-          // un'altra PR dopo una review (la review promuove solo la sua).
-          // Try/catch A SÉ: un suo errore non deve far ripetere requeueStale a
-          // ogni giro né portare il loop in backoff — la ritenta il prossimo tick.
+          // RETE DI SICUREZZA del ciclo di correzione, in DUE passi e con DUE
+          // try/catch SEPARATI: un errore della riconciliazione non deve
+          // saltare la promozione (e viceversa). Ognuno ha il suo messaggio.
+          // Nessuno dei due deve far ripetere requeueStale a ogni giro né
+          // portare il loop in backoff — li ritenta il prossimo tick.
+          //
+          // 1. PRIMA le correzioni `queued` orfane del loro job (A8c): una
+          //    `queued` rimasta lì blocca la pending della sua PR, e la
+          //    promozione qui sotto la salterebbe. Riconciliate, la pending
+          //    parte in QUESTO stesso tick.
+          try {
+            const reconciled = await reconcileOrphans(db, {
+              onError: (correctionId, error) => {
+                if (reconcileWarned.has(correctionId)) return;
+                reconcileWarned.add(correctionId);
+                console.error(
+                  `[stubwise-worker] correction: riconciliazione della correzione ${correctionId} fallita, la si ritenta a ogni tick senza riscriverlo (${error instanceof Error ? error.message : String(error)})`,
+                );
+              },
+            });
+            for (const id of reconciled) {
+              console.error(`[stubwise-worker] correction: correzione ${id} chiusa dal tick (il suo job era già terminale)`);
+            }
+          } catch (err) {
+            console.error(
+              `[stubwise-worker] correction: riconciliazione delle correzioni orfane fallita (${err instanceof Error ? err.message : String(err)})`,
+            );
+          }
+          // 2. POI le `pending` su un ticket dove nessun job blocca più (A7).
+          //    Una riga per ciascuna, che NON afferma una causa: può essere un
+          //    punto di promozione mancato come, del tutto normalmente, la
+          //    pending di un'altra PR dopo una review (la review promuove solo
+          //    la sua).
           try {
             const promoted = await promoteStale(db, {
               onError: (pendingId, pr, error) => {
@@ -10581,6 +10701,76 @@ Test in `queue.test.ts`, in coda al `describe("runWorker")` (aggiungi
     controller.abort();
     await worker;
     expect(log.mock.calls.some(([line]) => String(line).includes(`richiesta in attesa ${pending!.id} avviata dal tick`))).toBe(true);
+    log.mockRestore();
+  });
+
+  it("correzione orfana riconciliata e la pending della stessa PR parte nello stesso tick", async () => {
+    const { db } = testDb;
+    const { ticketId, repositoryId } = await seedTicket(db);
+    // La `queued` il cui job è già `failed` (annullato per un'altra strada):
+    // senza riconciliazione blocca la pending della stessa PR per sempre.
+    const [orphan] = await db
+      .insert(prCorrections)
+      .values({ ticketId, repositoryId, prNumber: 8, trigger: "review", status: "queued" })
+      .returning();
+    await db.insert(aiJobs).values({ ticketId, status: "failed", correctionId: orphan!.id });
+    const [pending] = await db
+      .insert(prCorrections)
+      .values({ ticketId, repositoryId, prNumber: 8, trigger: "provider", status: "pending" })
+      .returning();
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const controller = new AbortController();
+    // `requeueEveryMs: 60_000`: il PRIMO tick parte subito (nextRequeueAt = 0),
+    // il secondo non arriva entro il waitFor. Con `1` il secondo tick
+    // arriverebbe subito e coprirebbe una riconciliazione messa DOPO la
+    // promozione: il test resterebbe verde senza provare «stesso tick».
+    const worker = runWorker({ db, pollMs: 20, requeueEveryMs: 60_000, signal: controller.signal, handler: async () => {} });
+
+    await vi.waitFor(async () => {
+      const [row] = await db.select().from(prCorrections).where(eq(prCorrections.id, pending!.id));
+      expect(row!.status).toBe("queued");
+    });
+    controller.abort();
+    await worker;
+    const [closed] = await db.select().from(prCorrections).where(eq(prCorrections.id, orphan!.id));
+    expect(closed!.status).toBe("done");
+    const lines = log.mock.calls.map(([line]) => String(line));
+    // Stesso tick: la riga della riconciliazione viene PRIMA di quella della promozione.
+    const iReconciled = lines.findIndex((l) => l.includes(`correzione ${orphan!.id} chiusa dal tick`));
+    const iPromoted = lines.findIndex((l) => l.includes(`richiesta in attesa ${pending!.id} avviata dal tick`));
+    expect(iReconciled).toBeGreaterThanOrEqual(0);
+    expect(iPromoted).toBeGreaterThan(iReconciled);
+    log.mockRestore();
+  });
+
+  it("un errore della riconciliazione non salta la promozione: due try/catch separati", async () => {
+    const { db } = testDb;
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    let promotions = 0;
+    const controller = new AbortController();
+    const worker = runWorker({
+      db,
+      pollMs: 20,
+      requeueEveryMs: 60_000,
+      signal: controller.signal,
+      handler: async () => {},
+      _internals: {
+        reconcileOrphanCorrections: async () => {
+          throw new Error("DB irraggiungibile (riconciliazione)");
+        },
+        promoteStalePendings: async () => {
+          promotions += 1;
+          return [];
+        },
+      },
+    });
+
+    await vi.waitFor(() => expect(promotions).toBe(1));
+    controller.abort();
+    await worker;
+    expect(
+      log.mock.calls.some(([line]) => String(line).includes("riconciliazione delle correzioni orfane fallita")),
+    ).toBe(true);
     log.mockRestore();
   });
 
@@ -10646,7 +10836,13 @@ Test in `queue.test.ts`, in coda al `describe("runWorker")` (aggiungi
 ```
 
 Mutazioni da fare a mano (e rimettere): togliere la chiamata a `promoteStale` →
-rosso il primo test; togliere il controllo sul `Set` → rosso il test del warn
+rosso il primo test; togliere la chiamata a `reconcileOrphans` o spostarla
+DOPO la promozione → rosso il test della correzione orfana: con
+`requeueEveryMs: 60_000` c'è UN solo tick nella finestra del `waitFor`, e
+riconciliando dopo la promozione la pending resta `pending` fino al tick
+successivo, che non arriva (timeout del `waitFor`); rimettere un unico
+try/catch per i due passi → rosso il test «un errore della riconciliazione non
+salta la promozione» (`promotions` resta 0); togliere il controllo sul `Set` → rosso il test del warn
 una-tantum; togliere il try/catch → il secondo va in backoff ma può
 restare verde (il job si processa comunque dopo il backoff): per questo il
 secondo asserisce che `requeueStale` giri, e il try/catch va verificato
@@ -19388,9 +19584,10 @@ tappe sono stati risolti e integrati nella sezione «Contratti» e nei task.
   `notify.verdict.stoppedAtCap`, che sostituisce il verdetto nella frase di
   `notify.reviewCompleted`; il payload webhook generic porta sempre
   `cycle` (null se assente), come già fa con `summary`.
-- **Ordine di esecuzione**: A1 → A3 → A2 → A4 → A5 → A6 → A7 → A8 → A8b → A9
+- **Ordine di esecuzione**: A1 → A3 → A2 → A4 → A5 → A6 → A7 → A8 → A8b → A8c → A9
   (A2 importa i tipi che nascono in A3; A8b era D1 ed è qui perché la tappa C
-  lo importa).
+  lo importa; A8c — la riconciliazione delle correzioni orfane — è stato
+  aggiunto dal coordinatore e il tick di C9 lo chiama).
 
 ### Tappa B — provider git
 
