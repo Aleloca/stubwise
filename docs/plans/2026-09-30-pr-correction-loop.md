@@ -8100,6 +8100,27 @@ spostata. Il prompt dice di usare `file:riga` come punto di partenza e di
 ritrovare il codice di cui parla il commento, non di modificare quella riga alla
 cieca (vedi il docblock di `line` in `prCommentSchema`).
 
+**Correzioni della review di C5 (30 set 2026) — il codice committato fa fede
+sugli snippet qui sotto:**
+- tetto dei commenti: `slice(-30)`, gli ULTIMI 30 in ordine cronologico
+  (i provider li restituiscono crescenti), «oldest first» nell'intestazione e
+  «(N older comments omitted)» quando se ne scartano;
+- corpo dei commenti e summary della review quotati riga per riga con `> `:
+  solo le intestazioni `[n] @…` e `Verdict:` di Stubwise stanno a inizio riga;
+- procedura: `[...]` = testo troncato da Stubwise; alcuni commenti possono
+  essere già risolti dai giri precedenti; in conflitto prevale il feedback
+  umano (nota → commenti PR e team → review automatica), e il conflitto va
+  nel report;
+- regola del perimetro: «…outside ./dir/, except STUBWISE_REPORT.md at the root
+  of your working directory (NOT inside ./dir/)» — prima contraddiceva il
+  report;
+- `defangDelimiters` riconosce le varianti del TAG (entità `&lt;`/`&#60;`/
+  `&#x3c;`, `＜`/`／` a larghezza piena, caratteri Cf e NEL fra `<`, `/` e nome)
+  senza normalizzare il resto del testo; `toSingleLine` toglie i Cf e collassa
+  anche i controlli C1 (NEL). Additivo per fix e triage;
+- i test cercano l'apertura di un blocco come `<tag>\n`: il paragrafo
+  anti-injection nomina i tag, quindi il tag nudo compare anche lì.
+
 **Files:**
 - Modify: `apps/worker/src/pipeline/prompts.ts` — regex di `defangDelimiters`
   (righe 98-101); blocco nuovo dopo `buildFixRepairPrompt` (dopo riga 777).
