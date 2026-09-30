@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
+import type { z } from "zod";
 import { readerSchema, UNKNOWN } from "../reader.js";
 import {
   prCommentSchema,
@@ -6,6 +7,7 @@ import {
   prCycleSchema,
   requestCorrectionBodySchema,
   requestCorrectionResponseSchema,
+  type RequestCorrectionBody,
 } from "./pr-correction.js";
 
 /**
@@ -92,6 +94,24 @@ describe("requestCorrectionBodySchema", () => {
     expect(requestCorrectionBodySchema.parse({ note: "  rinomina la funzione  " }).note).toBe(
       "rinomina la funzione",
     );
+  });
+
+  it("una nota di soli spazi è una nota assente", () => {
+    const parsed = requestCorrectionBodySchema.parse({ note: "   " });
+    expect(parsed.note).toBeUndefined();
+    expect(parsed).toEqual({});
+  });
+
+  it("una nota vera circondata da spazi è trimmata e conservata", () => {
+    expect(requestCorrectionBodySchema.parse({ note: "\n  aggiungi il test  \t" })).toEqual({
+      note: "aggiungi il test",
+    });
+  });
+
+  it("il tipo del corpo resta usabile come input: input e output coincidono", () => {
+    expectTypeOf<z.input<typeof requestCorrectionBodySchema>>().toEqualTypeOf<RequestCorrectionBody>();
+    const body: RequestCorrectionBody = {};
+    expect(requestCorrectionBodySchema.parse(body)).toEqual({});
   });
 
   it("oltre 4000 caratteri è rifiutata", () => {

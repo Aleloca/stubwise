@@ -71,7 +71,16 @@ export type PrCycle = z.infer<typeof prCycleSchema>;
 
 /** Corpo di `POST /api/tickets/:id/repositories/:repositoryId/corrections`. */
 export const requestCorrectionBodySchema = z.object({
-  note: z.string().trim().max(4000).optional(),
+  // Nessun consumatore deve sapere che una nota vuota equivale a nessuna nota.
+  // `.optional()` DOPO il transform: prima, zod 4 renderebbe `note` obbligatoria
+  // nel tipo di output (`note: string | undefined`) e il body non coinciderebbe
+  // più col tipo di input.
+  note: z
+    .string()
+    .trim()
+    .max(4000)
+    .transform((v) => (v === "" ? undefined : v))
+    .optional(),
 });
 export type RequestCorrectionBody = z.infer<typeof requestCorrectionBodySchema>;
 
