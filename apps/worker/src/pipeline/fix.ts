@@ -19,8 +19,7 @@ import { t, type Language } from "@stubwise/i18n";
 import type { GitProviderKind } from "@stubwise/shared";
 import { and, asc, count, desc, eq, isNotNull, isNull } from "drizzle-orm";
 import { execa } from "execa";
-import { readFile, rm, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { rm } from "node:fs/promises";
 import { z } from "zod";
 import {
   AgentRunError,
@@ -76,6 +75,21 @@ import {
   type LoadedEnvFile,
 } from "./env-files.js";
 import { computeReleaseRisk } from "./release-risk.js";
+import {
+  AgentExitError,
+  BudgetExceededError,
+  NoChangesError,
+  SelfRepairFailedError,
+  commitAsStubwise,
+  materializeEnvAndInstall,
+  newRepoState,
+  readAndRemoveReport,
+  runSelfRepairLoop,
+  truncateForLog,
+  type RepoState,
+  type RepoStepsDeps,
+  type TestRunResult,
+} from "./repo-steps.js";
 
 /**
  * Fase 2 della pipeline: il fix, PER PROGETTO (Fase 3). Il job è già in stato
@@ -141,12 +155,9 @@ export const DEFAULT_SELF_REPAIR_TEST_TIMEOUT_MS = 300_000;
  * `installTimeoutMs` del WorkerConfig (vedi invariante di staleness). */
 export const DEFAULT_INSTALL_TIMEOUT_MS = 600_000;
 
-/** Output del comando di test eseguito dal worker. */
-export interface TestRunResult {
-  exitCode: number;
-  /** stdout + stderr combinati, troncato. */
-  output: string;
-}
+/** Output del comando di test eseguito dal worker: vive in repo-steps.ts,
+ * ri-esportato per i chiamanti storici. */
+export type { TestRunResult };
 
 /** Tetto per l'output del comando di test (stdout+stderr) catturato: i runner
  * possono produrre log enormi; per la riparazione e il log bastano i primi
@@ -201,7 +212,7 @@ async function runCommandCaptured(
  * Esegue il comando di test nel worktree (default iniettabile di FixDeps). Un
  * exit non-zero NON è un errore: è il segnale che i test sono rossi (reject:
  * false). Delega a runCommandCaptured (stdout+stderr combinati e troncati). */
-async function defaultRunTestCommand(
+export async function defaultRunTestCommand(
   cmd: TestCommand,
   dir: string,
   timeoutMs: number,
@@ -441,9 +452,6 @@ async function resolveFixMode(db: Db, job: AiJob, ticket: Ticket): Promise<Resol
   return { mode: "full", planContinue };
 }
 
-/** Tetto per gli output dell'agente accodati al log del job. */
-const LOG_OUTPUT_MAX_CHARS = 4000;
-
 /** Tetto per il titolo del ticket dentro titolo PR / messaggio di commit. */
 const TITLE_MAX_CHARS = 200;
 
@@ -465,111 +473,12 @@ const HEARTBEAT_INTERVAL_MS = 60_000;
  */
 const DEFAULT_SUMMARY_TIMEOUT_MS = 120_000;
 
-function truncateForLog(output: string): string {
-  return output.length > LOG_OUTPUT_MAX_CHARS
-    ? `${output.slice(0, LOG_OUTPUT_MAX_CHARS)}\n[output troncato]`
-    : output;
-}
-
-/**
- * Fase 8, Task 7: estrae i path da `git status --porcelain` (formato NON -z,
- * coerente col resto di questo file). Ogni riga è `XY path` — due caratteri
- * di stato, uno spazio, il path; una rinomina è `XY vecchio -> nuovo`, di cui
- * prendiamo solo il nuovo path (quello che esiste davvero nel diff). Best-
- * effort: alimenta solo l'euristica del rischio (Task 7), non una decisione
- * di sicurezza — un path che sfugge al parsing abbassa il rischio percepito,
- * mai lo confonde con un file diverso.
- */
-function parsePorcelainPaths(status: string): string[] {
-  return status
-    .split("\n")
-    .map((line) => line.trimEnd())
-    .filter((line) => line.length > 3)
-    .map((line) => {
-      const rest = line.slice(3);
-      const arrowIdx = rest.indexOf(" -> ");
-      const path = arrowIdx === -1 ? rest : rest.slice(arrowIdx + 4);
-      return path.replace(/^"(.*)"$/, "$1");
-    });
-}
-
-/** L'agente ha terminato ma non ha prodotto nessuna modifica committabile. */
-class NoChangesError extends Error {
-  readonly agentOutput: string;
-  constructor(agentOutput: string) {
-    super("nessuna modifica prodotta dall'agente");
-    this.name = "NoChangesError";
-    this.agentOutput = agentOutput;
-  }
-}
-
-/**
- * Exit code non-zero dall'agente: scelta CONSERVATIVA, il job fallisce anche
- * se nel worktree c'è un diff plausibile. Un CLI morto male a metà lavoro può
- * lasciare modifiche incoerenti (fix a metà, test non eseguiti): meglio
- * nessuna PR che una PR inaffidabile. L'output finisce nel log per il debug.
- */
-class AgentExitError extends Error {
-  readonly exitCode: number;
-  readonly agentOutput: string;
-  constructor(exitCode: number, agentOutput: string) {
-    super(`agente terminato con exit ${exitCode}`);
-    this.name = "AgentExitError";
-    this.exitCode = exitCode;
-    this.agentOutput = agentOutput;
-  }
-}
-
-/**
- * I test del repo, eseguiti dal worker, restano ROSSI dopo tutti i RE-tentativi
- * del loop di self-repair: fallimento CONSERVATIVO, niente PR. Si preferisce
- * nessuna PR a una PR che non passa i test del progetto. Porta sia l'output dei
- * test (per il log) sia l'ultimo output dell'agente.
- */
-class SelfRepairFailedError extends Error {
-  readonly testOutput: string;
-  readonly agentOutput: string;
-  constructor(testOutput: string, agentOutput: string) {
-    super("i test del repo restano rossi dopo i tentativi di riparazione");
-    this.name = "SelfRepairFailedError";
-    this.testOutput = testOutput;
-    this.agentOutput = agentOutput;
-  }
-}
-
-/**
- * Tetto di costo del ticket sforato DENTRO il loop di self-repair (Task 6):
- * prima di ri-tentare una riparazione la spesa stimata del ticket ha superato
- * `automation_rules.max_cost_usd`. NON è un fallimento: esce da withWorktree e
- * nel catch di runFix porta al percorso budget-held (holdJob + commento +
- * notifica), MAI a failJob. Lo scope è sempre "ticket" (il tetto mensile è
- * controllato solo pre-fix, fuori dal loop).
- */
-class BudgetExceededError extends Error {
-  readonly scope: "ticket" | "monthly";
-  readonly limitUsd: number;
-  readonly spentUsd: number;
-  constructor(scope: "ticket" | "monthly", limitUsd: number, spentUsd: number) {
-    super(`budget di costo superato (${scope}): spesi ${spentUsd} sul limite di ${limitUsd}`);
-    this.name = "BudgetExceededError";
-    this.scope = scope;
-    this.limitUsd = limitUsd;
-    this.spentUsd = spentUsd;
-  }
-}
-
 /** Forma attesa delle credenziali git decifrate (vedi routes/projects.ts). */
 const credentialsSchema = z.object({
   username: z.string().min(1).optional(),
   email: z.string().min(1).optional(),
   token: z.string().min(1),
 });
-
-/** git nel worktree: comandi locali (add/commit/status), niente auth. */
-async function gitIn(dir: string, args: string[]): Promise<string> {
-  const { stdout } = await execa("git", args, { cwd: dir, timeout: 120_000 });
-  return stdout;
-}
 
 /** Input di {@link parkAgentQuestion}: il contesto del run che serve a
  * registrare la domanda, parcheggiare il job e notificarlo. */
@@ -1417,6 +1326,22 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     if (question) return question;
     return { kind: "planned", planText: planResult.output };
   };
+  // Dipendenze dei passi per-repo (repo-steps.ts), risolte UNA volta: le stesse
+  // che la correzione post-PR usa per i suoi worktree.
+  const steps: RepoStepsDeps = {
+    db,
+    jobId: job.id,
+    encryptionKey: deps.encryptionKey,
+    logPrefix: "[fix]",
+    loadEnvFilesFn,
+    materializeEnvFilesFn,
+    resolveInstallCommandFn,
+    runInstallCommand,
+    installTimeoutMs,
+    resolveTestCommandFn,
+    runTestCommand,
+    testTimeoutMs,
+  };
   try {
     worktreeResult = await mirrors.withProjectWorktrees(
       preparedRepos.map((r) => r.mirrorProject),
@@ -1436,119 +1361,22 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
         heartbeat.unref();
         let output: string;
         let exitCode: number;
-        // Stato PER-REPO: ogni repo del progetto ha il proprio worktree
-        // (sottocartella di parentDir), i propri file d'ambiente materializzati (la
-        // tabella env è scoped per repositoryId), il proprio pathspec di esclusione
-        // anti-leak e la propria mappa env per install/test. `prepared` riabbina il
+        // Stato PER-REPO (vedi RepoState in repo-steps.ts): `prepared` riabbina il
         // worktree al repo preparato (credenziali/comandi) via il repoUrl.
-        interface RepoState {
-          prepared: PreparedRepo;
-          dir: string;
-          /** Esclusione dei file env materializzati da OGNI git add/status del suo
-           * worktree (SAFEGUARD anti-leak). Vuoto = nessun env. */
-          envExcludePathspecs: string[];
-          /** Mappa env del repo da iniettare in install/test (mai loggata). */
-          envProcessEnv: Record<string, string>;
-          /**
-           * Fase 8, Task 7: i path modificati in QUESTO repo secondo l'ultimo
-           * `git status --porcelain` (stageAndDetectChanged li scrive qui) —
-           * l'input del calcolo del rischio. Vuoto finché non è ancora stato
-           * rilevato un diff.
-           */
-          changedFiles: string[];
-        }
-        const repoStates: RepoState[] = worktrees.map(({ project: mp, dir }) => {
+        const repoStates: RepoState<PreparedRepo>[] = worktrees.map(({ project: mp, dir }) => {
           const prepared = repoByUrl.get(mp.repoUrl);
           if (!prepared) {
             // Non dovrebbe accadere: withProjectWorktrees monta esattamente i repo
             // che gli passiamo. Un mismatch è un errore di programmazione.
             throw new Error(`worktree senza repo preparato per ${mp.repoUrl}`);
           }
-          return { prepared, dir, envExcludePathspecs: [], envProcessEnv: {}, changedFiles: [] };
+          return newRepoState(prepared, dir);
         });
         try {
           // FILE D'AMBIENTE + INSTALL, PER OGNI REPO, PRIMA dell'agente. SALTATI in
-          // plan-only (read-only). Ogni repo materializza i suoi env-file nel PROPRIO
-          // worktree e installa le sue dipendenze lì. Tutto BEST-EFFORT: un errore
-          // su un repo si logga e non blocca gli altri né il fix. I valori env non
-          // vengono MAI loggati (solo il conteggio dei file).
+          // plan-only (read-only). Vedi materializeEnvAndInstall.
           if (fixMode !== "plan-only") {
-            for (const state of repoStates) {
-              const repoName = state.prepared.name;
-              try {
-                const files = await loadEnvFilesFn(
-                  db,
-                  state.prepared.repositoryId,
-                  deps.encryptionKey,
-                  "test",
-                );
-                const { writtenPaths, env } = await materializeEnvFilesFn(state.dir, files);
-                state.envProcessEnv = env;
-                state.envExcludePathspecs = writtenPaths.map((p) => `:(exclude)${p}`);
-                if (writtenPaths.length > 0) {
-                  await appendLog(
-                    db,
-                    job.id,
-                    `[fix] '${repoName}': file d'ambiente materializzati (${writtenPaths.length} file)`,
-                  ).catch(() => {
-                    // Log best-effort.
-                  });
-                }
-              } catch (envErr) {
-                const message = envErr instanceof Error ? envErr.message : String(envErr);
-                await appendLog(
-                  db,
-                  job.id,
-                  `[fix] '${repoName}': file d'ambiente: errore inatteso (proseguo senza): ${message}`,
-                ).catch(() => {
-                  // Log best-effort.
-                });
-              }
-              // INSTALL delle dipendenze del repo (se ha un comando risolvibile):
-              // popola node_modules per i test del self-repair. Un install fallito
-              // (exit non-zero) è un DATO, non un throw: si logga e si prosegue.
-              // L'install eredita l'env del worker (NON l'env ristretto dell'agente)
-              // con NODE_ENV neutralizzato (le devDeps servono ai runner di test).
-              try {
-                const installCmd = await resolveInstallCommandFn(
-                  { installCommand: state.prepared.installCommand },
-                  state.dir,
-                );
-                if (installCmd) {
-                  await appendLog(
-                    db,
-                    job.id,
-                    `[fix] '${repoName}': install dipendenze (${installCmd.cmd} ${installCmd.args.join(" ")})…`,
-                  ).catch(() => {
-                    // Log best-effort.
-                  });
-                  const install = await runInstallCommand(
-                    installCmd,
-                    state.dir,
-                    installTimeoutMs,
-                    state.envProcessEnv,
-                  );
-                  await appendLog(
-                    db,
-                    job.id,
-                    install.exitCode === 0
-                      ? `[fix] '${repoName}': install dipendenze: ok`
-                      : `[fix] '${repoName}': install dipendenze: fallito (exit ${install.exitCode})\n${install.output}`,
-                  ).catch(() => {
-                    // Log best-effort.
-                  });
-                }
-              } catch (installErr) {
-                const message = installErr instanceof Error ? installErr.message : String(installErr);
-                await appendLog(
-                  db,
-                  job.id,
-                  `[fix] '${repoName}': install dipendenze: errore inatteso: ${message}`,
-                ).catch(() => {
-                  // Log best-effort.
-                });
-              }
-            }
+            await materializeEnvAndInstall(steps, repoStates);
           }
           // PLAN-ONLY: solo il run di pianificazione (Opus, sola lettura) SULLA
           // RADICE del progetto. Si cattura il piano, NON si esegue il fix, NON si
@@ -1617,137 +1445,14 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
 
           if (exitCode !== 0) throw new AgentExitError(exitCode, output);
 
-          // Il report è il corpo delle PR e NON deve MAI finire nei commit. Sta
-          // nella RADICE del progetto (parentDir), FUORI dai worktree dei repo:
-          // `git add` dentro un worktree non lo raggiunge mai. Letto e rimosso DOPO
-          // che i test sono verdi (l'agente può riscriverlo nelle riparazioni). Se
-          // è una DIRECTORY (output malformato) lo trattiamo come mancante.
-          const reportPath = join(parentDir, REPORT_FILENAME);
-          const readAndRemoveReport = async (): Promise<string | null> => {
-            try {
-              const info = await stat(reportPath);
-              if (info.isDirectory()) {
-                await rm(reportPath, { recursive: true, force: true });
-                return null; // Malformato: fallback.
-              }
-              const content = await readFile(reportPath, "utf8");
-              await rm(reportPath);
-              return content;
-            } catch {
-              return null; // Mancante: si decide fuori (fallback, il fix ha valore).
-            }
-          };
-
-          // Stage di TUTTI i worktree (escludendo report + env), poi ritorna quali
-          // repo hanno effettivamente un diff. È il "il repo ha modifiche?" del
-          // multi-repo: si guarda `git status --porcelain` in OGNI sottocartella,
-          // scontando i file env materializzati e l'eventuale report (che comunque
-          // vive fuori dai worktree). Il report è escluso per igiene, come oggi.
-          const stageAndDetectChanged = async (): Promise<RepoState[]> => {
-            const changed: RepoState[] = [];
-            for (const state of repoStates) {
-              await gitIn(state.dir, [
-                "add",
-                "-A",
-                "--",
-                ".",
-                `:(exclude)${REPORT_FILENAME}`,
-                ...state.envExcludePathspecs,
-              ]);
-              const status = await gitIn(state.dir, [
-                "status",
-                "--porcelain",
-                "--",
-                ".",
-                `:(exclude)${REPORT_FILENAME}`,
-                ...state.envExcludePathspecs,
-              ]);
-              if (status.trim() !== "") {
-                state.changedFiles = parsePorcelainPaths(status);
-                changed.push(state);
-              }
-            }
-            return changed;
-          };
-
-          // LOOP di self-repair (Task 5), esteso al multi-repo: il WORKER esegue da
-          // sé i test dei repo MODIFICATI (quelli con un comando di test risolvibile)
-          // e, finché QUALCUNO è rosso, reinvoca l'agente sulla radice con l'output
-          // del fallimento, fino a selfRepairMaxAttempts riparazioni. Solo con TUTTI
-          // i test verdi si procede a commit/push. Con self-repair disattivato
-          // (maxAttempts 0) si salta il loop e si committa direttamente.
-          // Esegue i test dei repo modificati che hanno un comando RISOLVIBILE (via
-          // resolveTestCommandFn, come il caso a 1 repo di oggi: la risoluzione, non
-          // la sola colonna DB, decide). Ritorna l'esito aggregato: `redOutput`
-          // non-null = almeno un repo rosso (col suo output, prefissato dal nome);
-          // null = tutti verdi O nessun repo con test risolvibile (→ commit diretto).
-          const runRepoTests = async (
-            changed: RepoState[],
-          ): Promise<{
-            redOutput: string | null;
-            // Fase 8, Task 6: costruita man mano — "passed"/"skipped" per i
-            // repo già superati in QUESTO giro; vuota/parziale se il giro si
-            // ferma su un rosso (scartata dal chiamante in quel caso, si
-            // riparte da capo al prossimo tentativo).
-            statuses: Map<string, "passed" | "skipped">;
-          }> => {
-            const statuses = new Map<string, "passed" | "skipped">();
-            for (const state of changed) {
-              const testCmd = await resolveTestCommandFn(
-                { testCommand: state.prepared.testCommand },
-                state.dir,
-              );
-              if (!testCmd) {
-                statuses.set(state.prepared.repositoryId, "skipped");
-                continue;
-              }
-              const test = await runTestCommand(
-                testCmd,
-                state.dir,
-                testTimeoutMs,
-                state.envProcessEnv,
-              );
-              await appendLog(
-                db,
-                job.id,
-                `[fix] '${state.prepared.name}': test ${test.exitCode === 0 ? "verdi" : `rossi (exit ${test.exitCode})`}`,
-              ).catch(() => {
-                // Log best-effort.
-              });
-              if (test.exitCode !== 0) {
-                return { redOutput: `[${state.prepared.name}]\n${test.output}`, statuses };
-              }
-              statuses.set(state.prepared.repositoryId, "passed");
-            }
-            return { redOutput: null, statuses };
-          };
-
-          let changedRepoStates: RepoState[];
-          // Fase 8, Task 6: l'esito per repo, popolato SOLO sul percorso che
-          // arriva davvero all'apertura della PR (vedi ChangedRepo.testStatus).
-          let testStatusByRepo = new Map<string, "passed" | "skipped">();
-          if (selfRepairMaxAttempts > 0) {
-            for (let attempt = 0; ; attempt++) {
-              const changed = await stageAndDetectChanged();
-              // Nessun repo modificato → NoChangesError (come oggi il caso a 1 repo).
-              if (changed.length === 0) throw new NoChangesError(output);
-
-              const { redOutput, statuses } = await runRepoTests(changed);
-              await appendLog(
-                db,
-                job.id,
-                `[fix] self-repair tentativo ${attempt}: ${redOutput === null ? "tutti i test verdi" : "test rossi"}`,
-              ).catch(() => {
-                // Log best-effort.
-              });
-              if (redOutput === null) {
-                changedRepoStates = changed;
-                testStatusByRepo = statuses;
-                break; // Tutti verdi → commit/push.
-              }
-              if (attempt >= selfRepairMaxAttempts) {
-                throw new SelfRepairFailedError(redOutput, output);
-              }
+          // LOOP di self-repair esteso al multi-repo (vedi runSelfRepairLoop): solo
+          // con TUTTI i test verdi si procede a commit/push. Il check del budget del
+          // ticket gira prima di ogni riparazione e porta al percorso budget-held.
+          const loop = await runSelfRepairLoop(steps, {
+            states: repoStates,
+            maxAttempts: selfRepairMaxAttempts,
+            initialOutput: output,
+            beforeRepair: () => {
               // CHECK BUDGET-TICKET in-loop (Task 6): stessa logica di oggi, prima di
               // spendere su una ri-riparazione. Esce da withProjectWorktrees con
               // BudgetExceededError → percorso budget-held (NON failJob).
@@ -1758,6 +1463,8 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
                   throw new BudgetExceededError("ticket", maxCostUsd, estimated);
                 }
               }
+            },
+            repair: async (redOutput) => {
               const repair = await runner.run({
                 cwd: parentDir,
                 prompt: buildFixRepairPrompt(
@@ -1776,43 +1483,29 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
               // LIMITE di rate/usage (best-effort): PRIMA del commit/push finale.
               if (isLimitError(repair)) throw new ProviderLimitError(repair.output);
               if (repair.exitCode !== 0) throw new AgentExitError(repair.exitCode, repair.output);
-              output = repair.output; // Aggiorna l'output dell'agente per report/log.
-            }
-          } else {
-            // Nessun comando di test risolvibile (o self-repair disattivato): stage +
-            // detect una sola volta, come oggi il flusso senza self-repair.
-            changedRepoStates = await stageAndDetectChanged();
-            if (changedRepoStates.length === 0) throw new NoChangesError(output);
-            // Nessun test è girato per nessuno di questi repo: tutti "skipped",
-            // non "passed" — la distinzione è il punto del Task 6.
-            testStatusByRepo = new Map(
-              changedRepoStates.map((state) => [state.prepared.repositoryId, "skipped" as const]),
-            );
-          }
+              return repair.output;
+            },
+          });
+          output = loop.output;
 
-          // Test verdi (o nessun test): legge+rimuove il report e committa+pusha
-          // OGNI repo modificato. Un commit per repo (autore Stubwise AI), poi il
-          // push del branch sul rispettivo mirror. Il ref del branch vive nel mirror
-          // e sparisce all'uscita da withProjectWorktrees, quindi il push è QUI.
-          const reportContent = await readAndRemoveReport();
+          // Test verdi (o nessun test): legge+rimuove il report (è il corpo delle PR
+          // e non deve MAI finire nei commit) e committa+pusha OGNI repo modificato.
+          // Un commit per repo (autore Stubwise AI), poi il push del branch sul
+          // rispettivo mirror. Il ref del branch vive nel mirror e sparisce
+          // all'uscita da withProjectWorktrees, quindi il push è QUI.
+          const reportContent = await readAndRemoveReport(parentDir);
           const changedRepos: ChangedRepo[] = [];
-          for (const state of changedRepoStates) {
-            await gitIn(state.dir, ["add", "-A", "--", ".", ...state.envExcludePathspecs]);
-            await gitIn(state.dir, [
-              "-c",
-              "user.name=Stubwise AI",
-              "-c",
-              "user.email=ai@stubwise",
-              "commit",
-              "-m",
+          for (const state of loop.changed) {
+            await commitAsStubwise(
+              state,
               `${prTitle}\n\nTicket #${ticket.number} — fix automatico di Stubwise AI`,
-            ]);
+            );
             await mirrors.pushBranch(state.prepared.mirrorProject, branch);
             changedRepos.push({
               repositoryId: state.prepared.repositoryId,
               name: state.prepared.name,
               mirrorProject: state.prepared.mirrorProject,
-              testStatus: testStatusByRepo.get(state.prepared.repositoryId) ?? "skipped",
+              testStatus: loop.testStatusByRepo.get(state.prepared.repositoryId) ?? "skipped",
               changedFiles: state.changedFiles,
             });
           }
