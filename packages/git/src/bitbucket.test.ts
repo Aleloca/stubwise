@@ -1047,7 +1047,7 @@ describe("BitbucketProvider.getAuthenticatedUserId", () => {
     expect(message).not.toContain(TOKEN_B64);
   });
 
-  it("403 → GitProviderError che nomina lo scope read:user, senza il token", async () => {
+  it("403 → GitProviderError che nomina lo scope read:user:bitbucket, senza il token", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(new Response("forbidden", { status: 403 }));
     const provider = new BitbucketProvider({ fetchImpl });
     const error = await provider.getAuthenticatedUserId(config).then(
@@ -1057,13 +1057,16 @@ describe("BitbucketProvider.getAuthenticatedUserId", () => {
     expect(error).toBeInstanceOf(GitProviderError);
     expect((error as GitProviderError).status).toBe(403);
     const message = (error as GitProviderError).message;
-    expect(message).toMatch(/read:user/);
+    expect(message).toContain("read:user:bitbucket");
+    expect(message).not.toMatch(/app password/i);
     expect(message).not.toContain("app-pass");
     expect(message).not.toContain(TOKEN_B64);
   });
 
-  it("altri non-2xx → GitProviderError con lo status vero", async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(new Response("boom", { status: 500 }));
+  it("altri non-2xx → GitProviderError con lo status vero, anche con un'identità nel corpo", async () => {
+    // Corpo JSON VALIDO con uno uuid: se il controllo dello status mancasse,
+    // la risposta verrebbe letta come un'identità buona.
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ uuid: "{u-x}", nickname: "x" }, 500));
     const provider = new BitbucketProvider({ fetchImpl });
     const error = await provider.getAuthenticatedUserId(config).then(
       () => null,

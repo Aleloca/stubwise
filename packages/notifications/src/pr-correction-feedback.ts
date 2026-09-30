@@ -71,13 +71,19 @@ export type FetchPlatformIdentity = (input: {
  *
  * `refresh` ignora la cache: lo usa il salvataggio dell'account revisore, il
  * momento in cui l'admin deve sapere se funziona davvero.
+ *
+ * `onError` riceve l'errore del provider (es. il GitProviderError del 401/403,
+ * il cui messaggio dice PERCHÉ l'identità non si risolve, senza token) prima
+ * che la funzione restituisca `null`: serve al chiamante per scriverlo nel
+ * log. Non cambia l'esito (resta fail-closed), e un `onError` che lancia non
+ * trasforma il `null` in un'eccezione.
  */
 export async function resolveProviderUserId(
   db: Db,
   encryptionKey: Buffer,
   account: IdentityAccount,
   fetchIdentity: FetchPlatformIdentity,
-  opts: { refresh?: boolean } = {},
+  opts: { refresh?: boolean; onError?: (err: unknown) => void } = {},
 ): Promise<string | null> {
   if (account.providerUserId && !opts.refresh) return account.providerUserId;
   const credentials = decryptGitCredentials(account.encryptedCredentials, encryptionKey);
@@ -85,7 +91,12 @@ export async function resolveProviderUserId(
   let providerUserId: string;
   try {
     providerUserId = await fetchIdentity({ provider: account.provider, credentials });
-  } catch {
+  } catch (err) {
+    try {
+      opts.onError?.(err);
+    } catch {
+      // Il log non deve cambiare l'esito: resta null.
+    }
     return null;
   }
   if (!providerUserId) return null;

@@ -1862,8 +1862,44 @@ describe("GitHubProvider.getAuthenticatedUserId", () => {
     expect(message).not.toContain("ghp_secret");
   });
 
-  it("altri non-2xx → GitProviderError con lo status vero", async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(new Response("boom", { status: 500 }));
+  it("403 da rate limit (header) → messaggio sul rate limit, non sulla GitHub App", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response("forbidden", { status: 403, headers: { "x-ratelimit-remaining": "0" } })
+    );
+    const provider = new GitHubProvider({ fetchImpl });
+    const error = await provider.getAuthenticatedUserId(config).then(
+      () => null,
+      (e: unknown) => e
+    );
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).status).toBe(403);
+    const message = (error as GitProviderError).message;
+    expect(message).toMatch(/rate limit/i);
+    expect(message).not.toMatch(/GitHub App/);
+    expect(message).not.toContain("ghp_secret");
+  });
+
+  it("403 da rate limit (corpo, maiuscole indifferenti) → messaggio sul rate limit", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ message: "API Rate Limit exceeded for user ID 1." }), {
+        status: 403,
+        headers: { "x-ratelimit-remaining": "12" },
+      })
+    );
+    const provider = new GitHubProvider({ fetchImpl });
+    const error = await provider.getAuthenticatedUserId(config).then(
+      () => null,
+      (e: unknown) => e
+    );
+    const message = (error as GitProviderError).message;
+    expect(message).toMatch(/rate limit/i);
+    expect(message).not.toMatch(/GitHub App/);
+  });
+
+  it("altri non-2xx → GitProviderError con lo status vero, anche con un'identità nel corpo", async () => {
+    // Corpo JSON VALIDO con un id: se il controllo dello status mancasse, la
+    // risposta verrebbe letta come un'identità buona.
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ id: 12345, login: "x" }, 500));
     const provider = new GitHubProvider({ fetchImpl });
     const error = await provider.getAuthenticatedUserId(config).then(
       () => null,

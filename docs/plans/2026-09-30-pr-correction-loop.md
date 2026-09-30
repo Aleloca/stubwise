@@ -271,7 +271,10 @@ il payload webhook `generic` di `review.completed` porta sempre `cycle` (`null` 
 NON dipende da `@stubwise/git`, il provider si inietta):
 
 - `decryptGitCredentials(encryptedCredentials, encryptionKey): GitCredentials | null`
-- `resolveProviderUserId(db, encryptionKey, account: IdentityAccount, fetchIdentity: FetchPlatformIdentity, opts?: { refresh?: boolean }): Promise<string | null>` — null = fail-closed.
+- `resolveProviderUserId(db, encryptionKey, account: IdentityAccount, fetchIdentity: FetchPlatformIdentity, opts?: { refresh?: boolean; onError?: (err: unknown) => void }): Promise<string | null>` — null = fail-closed.
+  `onError` (aggiunto dopo B10/B11) riceve l'errore del provider prima del `null`, così
+  il chiamante ne scrive il MESSAGGIO nel log (i `GitProviderError` di 401/403 dicono
+  il perché, senza token); un `onError` che lancia non cambia l'esito.
   La cache si scrive con una GUARDIA sul blob letto (`id` E `encrypted_credentials`
   uguali a quelli letti; l'IV casuale fa del blob una versione) e `.returning()`:
   nessuna riga scritta o errore del DB → `null`. Così una risposta partita col
@@ -3610,7 +3613,7 @@ export async function resolveProviderUserId(
   encryptionKey: Buffer,
   account: IdentityAccount,
   fetchIdentity: FetchPlatformIdentity,
-  opts: { refresh?: boolean } = {},
+  opts: { refresh?: boolean; onError?: (err: unknown) => void } = {},
 ): Promise<string | null> {
   if (account.providerUserId && !opts.refresh) return account.providerUserId;
   const credentials = decryptGitCredentials(account.encryptedCredentials, encryptionKey);
@@ -3618,7 +3621,13 @@ export async function resolveProviderUserId(
   let providerUserId: string;
   try {
     providerUserId = await fetchIdentity({ provider: account.provider, credentials });
-  } catch {
+  } catch (err) {
+    // Aggiunto dopo B10/B11: il chiamante logga il perché (401/403 accurati).
+    try {
+      opts.onError?.(err);
+    } catch {
+      // Il log non deve cambiare l'esito: resta null.
+    }
     return null;
   }
   if (!providerUserId) return null;
@@ -5824,7 +5833,7 @@ un'uguaglianza di stringhe). Il parametro è `Pick<ProjectGitConfig,
 un `AccountCredentials` (server, validazione dell'account) — è la firma
 fissata nei Contratti. Per questo `projectRestAuthHeader` passa allo stesso tipo
 (legge solo `credentials`; nessun chiamante esistente cambia). Scope: API
-token `read:user:bitbucket`, app password "Account: Read" — un token senza
+token `read:user:bitbucket` (le app password sono dismesse) — un token senza
 risponde 403, e il messaggio lo dice.
 
 **Step 1 — test che fallisce.**
@@ -5904,8 +5913,8 @@ Metodo dopo `submitPrReview`:
    * `GET /2.0/user`, con le graffe — la stessa forma di `actor.uuid` nei
    * webhook e di `user.uuid` nei commenti. Accetta qualunque oggetto con
    * `credentials` (ProjectGitConfig o AccountCredentials). Lancia
-   * GitProviderError; sul 403 spiega lo scope mancante (read:user per gli API
-   * token, Account: Read per le app password).
+   * GitProviderError; sul 403 spiega lo scope mancante
+   * (`read:user:bitbucket` dell'API token).
    */
   async getAuthenticatedUserId(
     p: Pick<ProjectGitConfig, "credentials">,
@@ -5919,7 +5928,7 @@ Metodo dopo `submitPrReview`:
     if (response.status === 403) {
       const text = (await response.text().catch(() => "")).slice(0, 500);
       throw new GitProviderError(
-        "Bitbucket: il token non può leggere la propria identità (403) — serve lo scope read:user (API token) o Account: Read (app password)",
+        "Bitbucket: il token non può leggere la propria identità (403) — all'API token serve lo scope read:user:bitbucket",
         403,
         text
       );
@@ -6253,25 +6262,39 @@ del piano, quando useranno i metodi nuovi:
 
 ### B14 — Verifica manuale con chiamate vere (non in CI, niente commit)
 
-Otto punti, per i comportamenti che la documentazione non dice o che i doppi
+Otto punti (più §4 bis e §8 bis), per i comportamenti che la documentazione non dice o che i doppi
 `fetch` non possono provare (vedi «Decisioni e rischi», tappa B, in fondo al
 piano): §1–§6 per lettura dei commenti, status di commit e webhook, §7–§8 per
 il verdetto di B8/B9. Si
 verificano UNA volta, a mano, su una repository e una PR **di prova** (mai
 trion-webapp né un'altra repo di un cliente), prima del merge; l'esito si
 annota nel PR. Variabili: `BB_EMAIL`, `BB_TOKEN` (account principale),
-`BB_REV_EMAIL`, `BB_REV_TOKEN` (account revisore), `WS`, `REPO`, `PR`, `SHA`
+`BB_REV_EMAIL`, `BB_REV_TOKEN` (account revisore), `BB_TOKEN_NOUSER` (API
+token SENZA `read:user:bitbucket`), `WS`, `REPO`, `PR`, `SHA`
 (40 caratteri, head della PR), `GH_TOKEN_AUTHOR`, `GH_TOKEN_REV` (account
 revisore GitHub, diverso dall'autore), `GH_TOKEN_REV_RO` (revisore con un token
-fine-grained SENZA «Pull requests: write»), `O`, `R`, `N`, `N_CLOSED` (una PR
+fine-grained SENZA «Pull requests: write»), `GH_TOKEN_NOPERM` (fine-grained
+PAT senza alcun permesso), `GH_APP_TOKEN` (facoltativo: installation token di
+una GitHub App), `O`, `R`, `N`, `N_CLOSED` (una PR
 di prova chiusa), `PR_MERGED` (una PR Bitbucket di prova già mergiata).
 
-1. **Bitbucket `GET /user` con i token che abbiamo oggi** (scope `read:user`):
+1. **Bitbucket `GET /user` con i token che abbiamo oggi** (scope `read:user:bitbucket`):
    ```bash
    curl -s -w '\n%{http_code}\n' -u "$BB_EMAIL:$BB_TOKEN" https://api.bitbucket.org/2.0/user | jq -c '{uuid, nickname}' 2>/dev/null
    ```
    Atteso 200 con `uuid` tra graffe. Un 403 vuol dire che i token esistenti
    vanno rigenerati con lo scope: è un passo di deploy, non un bug.
+   (a) **Stessa chiamata con le credenziali del REVISORE**
+   (`-u "$BB_REV_EMAIL:$BB_REV_TOKEN"`): atteso 200 con uno `uuid` DIVERSO da
+   quello del principale.
+   (b) **Token SENZA `read:user:bitbucket`** (`-u "$BB_EMAIL:$BB_TOKEN_NOUSER"`):
+   annotare se risponde **403 o 401**. Se è 401, il messaggio di B10 (che
+   nomina lo scope sul 403 e le credenziali sul 401) sta sul ramo sbagliato:
+   va corretto prima del merge.
+   (c) **Messaggio senza token.** Con lo stesso token di (b), lanciare
+   `getAuthenticatedUserId` da uno script e controllare che il messaggio
+   dell'errore dica il motivo e NON contenga né il token né la sua forma
+   base64.
 2. **Bitbucket build status senza `url`** (serve a sapere se il ripiego è
    necessario o solo prudente):
    ```bash
@@ -6300,6 +6323,15 @@ di prova chiusa), `PR_MERGED` (una PR Bitbucket di prova già mergiata).
    consegna e verificare `changes_request.user.uuid`, `actor.uuid` (uguali) e
    `pullrequest.source.branch.name`. Copiare il body come fixture se diverge
    dal test di B2.
+4 bis. **Bitbucket: il collegamento vero della catena dell'identità.** Il
+   REVISORE mette "Request changes" sulla PR di prova e ci scrive un commento.
+   Verificare che `actor.uuid` nella consegna del webhook (*View requests*) e
+   `user.uuid` del suo commento
+   (`curl -s -u "$BB_REV_EMAIL:$BB_REV_TOKEN" "https://api.bitbucket.org/2.0/repositories/$WS/$REPO/pullrequests/$PR/comments" | jq -r '.values[].user.uuid'`)
+   siano identici **byte per byte** (graffe e maiuscole comprese) all'`uuid` di
+   `GET /2.0/user` col token del revisore (§1a). È l'uguaglianza su cui si
+   regge il filtro anti-auto-innesco (design §5): i doppi di B10 la provano su
+   una fixture, solo qui la si prova sulla piattaforma.
 5. **GitHub: 422 dell'autore e limite della descrizione dello status.**
    ```bash
    curl -s -w '\n%{http_code}\n' -H "Authorization: Bearer $GH_TOKEN_AUTHOR" -H 'Accept: application/vnd.github+json' \
@@ -6395,6 +6427,22 @@ di prova chiusa), `PR_MERGED` (una PR Bitbucket di prova già mergiata).
    `submitPrReview` da uno script con lo stesso token: il messaggio deve
    contenere il suggerimento sui permessi (`PR_REVIEW_PERMISSION_HINT`) e NON
    il token.
+8 bis. **GitHub: identità dell'account (B11).**
+   (a) **`/user` con un fine-grained PAT senza permessi:**
+   ```bash
+   curl -s -w '\n%{http_code}\n' -H "Authorization: Bearer $GH_TOKEN_NOPERM" -H 'Accept: application/vnd.github+json' \
+     https://api.github.com/user | jq -c '{id, login}' 2>/dev/null
+   ```
+   Atteso 200 con `id` numerico: leggere la propria identità non chiede
+   permessi.
+   (b) **Stesso id della consegna.** Lo stesso `/user` con `GH_TOKEN_REV`; poi
+   il revisore fa "Request changes" su `$N` e, nella consegna
+   `pull_request_review` (Settings → Webhooks → *Recent Deliveries*),
+   `review.user.id` e `sender.id` devono coincidere con quell'`id`.
+   (c) **Facoltativo: installation token di una GitHub App** (`GH_APP_TOKEN`):
+   `/user` risponde **403**, e `getAuthenticatedUserId` da uno script deve dare
+   il messaggio che chiede un utente con un personal access token (non quello
+   del rate limit), senza il token.
 
 ---
 
@@ -9969,8 +10017,18 @@ async function refreshProviderFeedback(input: {
     });
   const ownIds: string[] = [];
   for (const account of input.accounts) {
-    const id = await resolveProviderUserId(db, input.encryptionKey, account, input.fetchIdentity);
+    // Il motivo vero (401, 403 con lo scope mancante, rate limit…) arriva da
+    // onError: il messaggio di GitProviderError non contiene il token.
+    let identityError: string | null = null;
+    const id = await resolveProviderUserId(db, input.encryptionKey, account, input.fetchIdentity, {
+      onError: (err) => {
+        identityError = err instanceof Error ? err.message : String(err);
+      },
+    });
     if (id === null) {
+      if (identityError !== null) {
+        await log(`identità dell'account git ${account.id}: ${identityError}`);
+      }
       await log(
         `identità sulla piattaforma dell'account git ${account.id} non risolvibile: tengo la fotografia dei commenti presa alla richiesta`,
       );
@@ -13930,12 +13988,22 @@ export async function handleChangesRequested(
   for (const accountId of accountIds) {
     const account = accounts.find((a) => a.id === accountId);
     const resolved = account
-      ? await resolveProviderUserId(db, ctx.encryptionKey, account, fetchPlatformIdentity)
+      ? await resolveProviderUserId(db, ctx.encryptionKey, account, fetchPlatformIdentity, {
+          // Il motivo VERO (401, 403 con lo scope mancante, rate limit…): il
+          // messaggio di GitProviderError non contiene il token.
+          onError: (err) =>
+            log.warn(
+              { repositoryId, gitAccountId: accountId, err: err instanceof Error ? err.message : String(err) },
+              "identità dell'account di Stubwise: il provider ha risposto con un errore",
+            ),
+        })
       : null;
     if (resolved === null) {
       // Un ciclo infinito costa più di una richiesta persa, che si ripete dal
-      // bottone "Applica le correzioni" sul ticket (design §5). Su Bitbucket la
-      // causa tipica è un token senza lo scope `read:user:bitbucket`.
+      // bottone "Applica le correzioni" sul ticket (design §5). La causa l'ha
+      // già scritta onError qui sopra; su Bitbucket la più frequente è un token
+      // senza lo scope `read:user:bitbucket`, ma è un suggerimento, non la
+      // diagnosi.
       log.warn(
         { repositoryId, prNumber, gitAccountId: accountId },
         "Request changes ignorato: identità dell'account di Stubwise non risolvibile (fail-closed)",
@@ -15575,10 +15643,18 @@ async function checkReviewAccount(
   // Su Bitbucket leggere "chi sono" vuole lo scope `read:user:bitbucket`:
   // un token creato prima di questa fase risponde 403, e va detto QUI — al
   // webhook sarebbe un "Request changes" scartato in silenzio (fail-closed).
+  // È un SUGGERIMENTO, non la diagnosi: il motivo vero (401, 403, rate
+  // limit…) lo scrive onError nel log, col messaggio del provider (senza token).
   const scopeHint =
-    review.provider === "bitbucket" ? " (the Bitbucket token needs the read:user:bitbucket scope)" : "";
+    review.provider === "bitbucket" ? " (on Bitbucket, check that the token has the read:user:bitbucket scope)" : "";
+  const logIdentityError = (gitAccountId: string) => (err: unknown) =>
+    app.log.warn(
+      { gitAccountId, err: err instanceof Error ? err.message : String(err) },
+      "identità dell'account git: il provider ha risposto con un errore",
+    );
   const reviewerId = await resolveProviderUserId(app.db, app.encryptionKey, review, fetchPlatformIdentity, {
     refresh: true,
+    onError: logIdentityError(review.id),
   });
   if (reviewerId === null) {
     return {
@@ -15591,7 +15667,9 @@ async function checkReviewAccount(
   // Il principale dalla cache se c'è: è l'identità con cui il webhook
   // lavorerà comunque, e un rinfresco fallito non deve bloccare la scelta
   // del revisore se quella salvata è buona.
-  const mainId = await resolveProviderUserId(app.db, app.encryptionKey, mainAccount, fetchPlatformIdentity);
+  const mainId = await resolveProviderUserId(app.db, app.encryptionKey, mainAccount, fetchPlatformIdentity, {
+    onError: logIdentityError(mainAccount.id),
+  });
   if (mainId === null) {
     return {
       ok: false,
@@ -19452,8 +19530,11 @@ del merge). Sostituisci `<data>` con la data del merge.
   **⚠️ GitHub: il token dell'account principale deve avere anche «Commit
   statuses: Read and write»** — senza, lo status `stubwise-review` fallisce
   (best-effort: una riga nel log, il ciclo prosegue) e la review non si può
-  rendere obbligatoria per il merge. Su Bitbucket gli scope già richiesti
-  (repository read+write) bastano.
+  rendere obbligatoria per il merge. Su Bitbucket, per gli status di commit,
+  gli scope già richiesti (repository read+write) bastano.
+  **⚠️ Bitbucket: i token (principale e revisore) devono avere anche
+  `read:user:bitbucket`; senza, ogni "Request changes" dalla piattaforma è
+  scartato (fail-closed) — rigenerarli al deploy.**
   **Account revisore — facoltativo.** Senza, la review commenta con l'account
   principale come prima e lo stato vero della PR (approvata / modifiche
   richieste) non si scrive: GitHub vieta all'autore `APPROVE`/`REQUEST_CHANGES`
@@ -19780,9 +19861,13 @@ To set it up:
    it must belong to the **same workspace** as the main account.
 2. Create a token for it with the same permissions as the main account:
    - **Bitbucket**: an API token with **repository** and **pull request**
-     scopes, read and write;
+     scopes, read and write, plus **`read:user:bitbucket`** — Stubwise uses it
+     to learn who the account is;
    - **GitHub**: a fine-grained personal access token with **Contents**, **Pull
-     requests** and **Commit statuses**, read and write.
+     requests** and **Commit statuses**, read and write. It must belong to a
+     **user**: a GitHub App installation token can't tell Stubwise who it is
+     (`GET /user` answers 403), so it can't be used as the main or the reviewer
+     account.
 3. In Stubwise, register it among the **git accounts**, then open the
    repository form and pick it as the **Reviewer account**. Saving checks that
    it's the same provider (and workspace), that it's a different account from
@@ -19792,6 +19877,16 @@ The reviewer account's own *Request changes* never restarts the loop: events
 authored by Stubwise's accounts are discarded before anything is written. If
 Stubwise can't tell who an account is, it plays safe and ignores the event —
 you can always ask again from the ticket.
+
+:::caution[Bitbucket tokens created before this version]
+To recognise its own events, Stubwise asks the platform who each account is.
+On Bitbucket this needs the **`read:user:bitbucket`** scope on **both** the
+main account's token and the reviewer account's token. Tokens created earlier
+usually lack it: until you regenerate them with that scope, every *Request
+changes* made on Bitbucket is ignored (Stubwise plays safe), and the button on
+the ticket remains the only way to ask for a correction. On GitHub nothing
+changes: any personal access token can read its own identity.
+:::
 
 :::caution[Repositories whose webhook was configured before this version]
 The webhook must also receive the *changes requested* events (Bitbucket

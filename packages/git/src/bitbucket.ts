@@ -468,8 +468,8 @@ export class BitbucketProvider implements GitProvider {
    * Accetta qualunque oggetto con `credentials` (ProjectGitConfig o
    * AccountCredentials); identità REST come gli altri metodi (email
    * Atlassian, poi username). Lancia GitProviderError: sul 401 dice che le
-   * credenziali non valgono, sul 403 lo scope mancante (read:user per gli API
-   * token, Account: Read per le app password); senza uuid lancia invece di
+   * credenziali non valgono, sul 403 lo scope mancante (`read:user:bitbucket`
+   * dell'API token); senza uuid lancia invece di
    * restituire un'identità vuota. Mai il token in un messaggio.
    */
   async getAuthenticatedUserId(
@@ -486,7 +486,7 @@ export class BitbucketProvider implements GitProvider {
       throw new GitProviderError(
         response.status === 401
           ? "Bitbucket: credenziali non valide leggendo l'identità dell'account (401) — verifica email/username e token"
-          : "Bitbucket: il token non può leggere la propria identità (403) — serve lo scope read:user (API token) o Account: Read (app password)",
+          : "Bitbucket: il token non può leggere la propria identità (403) — all'API token serve lo scope read:user:bitbucket",
         response.status,
         text
       );

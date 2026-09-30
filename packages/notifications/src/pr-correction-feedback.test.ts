@@ -104,6 +104,38 @@ describe("resolveProviderUserId", () => {
     expect(await storedId(account.id)).toBeNull();
   });
 
+  it("errore del provider: onError riceve l'errore, il risultato resta null", async () => {
+    const failure = new Error("Bitbucket: il token non può leggere la propria identità (403)");
+    const fetchIdentity = vi.fn().mockRejectedValue(failure);
+    const onError = vi.fn();
+    const account = await seedAccount({ provider: "bitbucket" });
+
+    expect(await resolveProviderUserId(testDb.db, KEY, account, fetchIdentity, { onError })).toBeNull();
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledWith(failure);
+    expect(await storedId(account.id)).toBeNull();
+  });
+
+  it("un onError che lancia non cambia l'esito: null, mai un'eccezione", async () => {
+    const fetchIdentity = vi.fn().mockRejectedValue(new Error("401"));
+    const onError = vi.fn(() => {
+      throw new Error("logger rotto");
+    });
+    const account = await seedAccount();
+
+    await expect(resolveProviderUserId(testDb.db, KEY, account, fetchIdentity, { onError })).resolves.toBeNull();
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
+
+  it("identità risolta: onError non viene chiamato", async () => {
+    const onError = vi.fn();
+    const account = await seedAccount();
+    expect(
+      await resolveProviderUserId(testDb.db, KEY, account, vi.fn().mockResolvedValue("1001"), { onError })
+    ).toBe("1001");
+    expect(onError).not.toHaveBeenCalled();
+  });
+
   it("race col PATCH delle credenziali: l'id del token vecchio non riscrive la cache (fail-closed)", async () => {
     const account = await seedAccount();
     const fetchIdentity = vi.fn().mockImplementation(async () => {

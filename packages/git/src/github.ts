@@ -496,8 +496,10 @@ export class GitHubProvider implements GitProvider {
    * credenziali non valgono; sul 403 che il token non rappresenta un utente —
    * l'installation token di una GitHub App riceve 403 su `/user`, e l'account
    * (principale o revisore) deve essere un utente con un personal access
-   * token. Senza un id intero sicuro lancia invece di inventare un'identità.
-   * Mai il token in un messaggio.
+   * token — salvo che il 403 sia il rate limit (`x-ratelimit-remaining: 0` o
+   * "rate limit" nel corpo), che ha un messaggio suo. Senza un id intero
+   * sicuro lancia invece di inventare un'identità. Mai il token in un
+   * messaggio.
    */
   async getAuthenticatedUserId(
     p: Pick<ProjectGitConfig, "credentials">,
@@ -513,13 +515,19 @@ export class GitHubProvider implements GitProvider {
     });
     if (response.status === 401 || response.status === 403) {
       const text = (await response.text().catch(() => "")).slice(0, 500);
-      throw new GitProviderError(
+      // Un 403 di GitHub è anche il rate limit primario/secondario: lì il
+      // token va bene, e dire "non una GitHub App" manderebbe a cercare il
+      // guasto nel posto sbagliato.
+      const rateLimited =
+        response.status === 403 &&
+        (response.headers.get("x-ratelimit-remaining") === "0" || /rate limit/i.test(text));
+      const message =
         response.status === 401
           ? "GitHub: credenziali non valide leggendo l'identità dell'account (401) — verifica il token"
-          : "GitHub: il token non può leggere la propria identità (403) — l'account (principale o revisore) deve essere un utente GitHub con un personal access token, non una GitHub App: l'installation token di un'App non può leggere /user",
-        response.status,
-        text
-      );
+          : rateLimited
+            ? "GitHub: limite di richieste raggiunto leggendo l'identità dell'account (403, rate limit) — riprova più tardi"
+            : "GitHub: il token non può leggere la propria identità (403) — l'account (principale o revisore) deve essere un utente GitHub con un personal access token, non una GitHub App: l'installation token di un'App non può leggere /user";
+      throw new GitProviderError(message, response.status, text);
     }
     await ensureOkResponse(response, "GitHub");
     const data = await readJsonResponse(response, "GitHub");
