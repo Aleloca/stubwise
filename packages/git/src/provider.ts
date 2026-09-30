@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { prNumberFromUrl, type GitProviderKind } from "@stubwise/shared";
+import { prNumberFromUrl, type GitProviderKind, type PrComment } from "@stubwise/shared";
 
 /**
  * Git configuration of a project, with credentials ALREADY decrypted.
@@ -116,6 +116,58 @@ export interface PushWebhookEvent {
   afterSha: string;
   /** Commit inclusi nel push, dal più vecchio al più recente come li espone il provider. */
   commits: { sha: string; message: string }[];
+}
+
+/**
+ * Il commento di una PR ha UNA sola definizione: lo schema `prCommentSchema`
+ * di `@stubwise/shared` (tappa A, Task A3), che tipizza anche la colonna
+ * `pr_corrections.provider_feedback`. Qui lo si importa (in cima al file) e lo
+ * si riesporta, così l'`export *` di `index.ts` continua a offrirlo ai
+ * consumatori di `@stubwise/git` senza una seconda fonte di verità
+ * (`packages/git` dipende già da `@stubwise/shared`). Il docblock sulla
+ * semantica (`authorId`, `line` nuova/vecchia) sta sullo schema.
+ */
+export type { PrComment };
+
+/** Stato di uno status di commit di Stubwise: in corso, approvata, modifiche richieste. */
+export type CommitStatusState = "pending" | "success" | "failure";
+
+/**
+ * Status di commit scritto da Stubwise (design §8). `key` è fisso: è la
+ * chiave che le regole del branch possono rendere obbligatoria, e uno status
+ * con la stessa chiave SOVRASCRIVE il precedente sullo stesso commit (così
+ * "in corso" diventa "approvata" invece di affiancarlesi).
+ */
+export interface CommitStatusInput {
+  state: CommitStatusState;
+  key: "stubwise-review";
+  description: string;
+  url?: string;
+  /**
+   * Branch sorgente della PR. Solo Bitbucket lo usa (`refname`): la sua
+   * documentazione dice che serve ad associare lo status alla PR. GitHub lo
+   * ignora (associa per sha).
+   */
+  refname?: string;
+}
+
+/** Verdetto pubblicato come stato vero della PR dall'account revisore. */
+export type PrReviewVerdict = "approve" | "request_changes";
+
+/**
+ * "Request changes" arrivato dal webhook (Bitbucket
+ * `pullrequest:changes_request_created`, GitHub `pull_request_review` con
+ * `review.state = changes_requested`). `actorId` è la stessa identità di
+ * {@link PrComment.authorId}: il chiamante la confronta con gli account di
+ * Stubwise PRIMA di qualunque scrittura (design §5). `reviewBody` è il testo
+ * della review su GitHub; Bitbucket non ne manda uno (sempre `null`).
+ */
+export interface ChangesRequestedEvent {
+  prNumber: number;
+  sourceBranch: string;
+  actorId: string;
+  actorLogin: string;
+  reviewBody: string | null;
 }
 
 /**
@@ -469,6 +521,15 @@ export function parseRepoUrl(repoUrl: string): ParsedRepoUrl {
  */
 export function parsePrNumberFromUrl(prUrl: string): number | null {
   return prNumberFromUrl(prUrl);
+}
+
+/**
+ * Vero se `sha` è uno sha git COMPLETO (40 esadecimali). Gli status di commit
+ * lo esigono su entrambi i provider; lo sha di `pr_review_jobs.head_sha` di
+ * Bitbucket è abbreviato e va risolto nel mirror prima di arrivare qui.
+ */
+export function isFullCommitSha(sha: string): boolean {
+  return /^[0-9a-f]{40}$/i.test(sha);
 }
 
 /** Reads a header value case-insensitively. */

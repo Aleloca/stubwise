@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { BitbucketProvider } from "./bitbucket.js";
 import { GitHubProvider } from "./github.js";
-import { commitWebUrl, getProvider, parsePrNumberFromUrl, parseRepoUrl } from "./index.js";
+import {
+  commitWebUrl,
+  getProvider,
+  isFullCommitSha,
+  parsePrNumberFromUrl,
+  parseRepoUrl,
+} from "./index.js";
 
 describe("getProvider", () => {
   it("returns the Bitbucket implementation for 'bitbucket'", () => {
@@ -100,5 +106,22 @@ describe("commitWebUrl", () => {
   it("repoUrl non parsabile o sha vuoto → null (la UI mostra il solo sha)", () => {
     expect(commitWebUrl("github", "git@github.com:acme/api.git", "abc1234")).toBeNull();
     expect(commitWebUrl("github", "https://github.com/acme/api", "")).toBeNull();
+  });
+});
+
+describe("isFullCommitSha", () => {
+  it("accetta solo 40 caratteri esadecimali, maiuscole comprese", () => {
+    expect(isFullCommitSha("a".repeat(40))).toBe(true);
+    expect(isFullCommitSha("0123456789ABCDEFabcdef0123456789abcdef01")).toBe(true);
+  });
+
+  it("rifiuta lo sha abbreviato di Bitbucket e ogni altra cosa", () => {
+    // pr_review_jobs.head_sha di Bitbucket è abbreviato (~12 caratteri): lo
+    // status di commit vuole lo sha completo, e un abbreviato va fermato
+    // PRIMA della richiesta, non scoperto da un 404.
+    expect(isFullCommitSha("abc123def456")).toBe(false);
+    expect(isFullCommitSha("g".repeat(40))).toBe(false);
+    expect(isFullCommitSha("a".repeat(41))).toBe(false);
+    expect(isFullCommitSha("")).toBe(false);
   });
 });
