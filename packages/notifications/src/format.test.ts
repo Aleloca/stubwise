@@ -5,6 +5,7 @@ import {
   sampleEvents,
   type NotificationEvent,
   type NotificationFormat,
+  type ReviewCompletedEvent,
 } from "./format.js";
 
 /**
@@ -1099,5 +1100,65 @@ describe("sampleEvents", () => {
         expect(() => formatNotification(event, format)).not.toThrow();
       }
     }
+  });
+});
+
+/**
+ * Ciclo di correzione post-PR: "fermo al tetto" NON è un kind nuovo (un valore
+ * nuovo di `notification_kind` è la trappola del 500 su `/api/inbox` al
+ * rollback, fasi 2/5/6). Riusa `review.completed` con un campo ADDITIVO,
+ * `cycle`, e un evento pubblicato prima — senza il campo — deve rendersi
+ * esattamente come sempre.
+ */
+describe("review.completed: il ciclo di correzione", () => {
+  const FERMO: ReviewCompletedEvent = {
+    kind: "review.completed",
+    ticketNumber: 42,
+    ticketTitle: "Fix checkout",
+    projectName: "webapp",
+    prUrl: "https://github.com/o/r/pull/7",
+    ticketUrl: "https://app.example.com/tickets/42",
+    verdict: "request_changes",
+    cycle: { round: 3, max: 3, stopped: true },
+  };
+
+  it("fermo al tetto → il verdetto dice dopo quante correzioni automatiche (en)", () => {
+    const text = formatNotificationText(FERMO, "en");
+    expect(text).toContain("changes still requested (automatic corrections: 3)");
+    expect(text).not.toContain(": changes requested.");
+  });
+
+  it("tetto a 1 → niente plurale sbagliato (forma `etichetta: N`)", () => {
+    const text = formatNotificationText({ ...FERMO, cycle: { round: 1, max: 1, stopped: true } }, "en");
+    expect(text).toContain("(automatic corrections: 1)");
+    expect(text).not.toContain("1 automatic corrections");
+  });
+
+  it("fermo al tetto → it", () => {
+    const text = formatNotificationText(FERMO, "it");
+    expect(text).toContain("modifiche ancora richieste (correzioni automatiche: 3)");
+  });
+
+  it("ciclo non fermo → il verdetto di sempre", () => {
+    const text = formatNotificationText({ ...FERMO, cycle: { round: 1, max: 3, stopped: false } }, "en");
+    expect(text).toContain("changes requested");
+    expect(text).not.toContain("automatic corrections");
+  });
+
+  it("evento SENZA `cycle` (pubblicato prima di questa funzione) → testo invariato", () => {
+    const vecchio: ReviewCompletedEvent = { ...FERMO };
+    delete vecchio.cycle; // ASSENTE, non `undefined`: la forma di un evento vecchio
+    const text = formatNotificationText(vecchio, "en");
+    expect(text).toContain("changes requested");
+    expect(text).not.toContain("automatic corrections");
+  });
+
+  it("generic: `cycle` sempre presente nel payload, null se l'evento non lo porta", () => {
+    const conCiclo = formatNotification(FERMO, "generic").body as Record<string, unknown>;
+    expect(conCiclo.cycle).toEqual({ round: 3, max: 3, stopped: true });
+    const vecchio: ReviewCompletedEvent = { ...FERMO };
+    delete vecchio.cycle;
+    const senza = formatNotification(vecchio, "generic").body as Record<string, unknown>;
+    expect(senza.cycle).toBeNull();
   });
 });

@@ -15,6 +15,7 @@
  */
 
 import { t, type Language } from "@stubwise/i18n";
+import type { PrCycleEvent } from "@stubwise/shared";
 
 /** Formato del messaggio: combacia con l'enum DB `notification_format`. */
 export type NotificationFormat = "slack" | "discord" | "generic";
@@ -171,6 +172,14 @@ export interface ReviewCompletedEvent {
    * superficie con markup deve escaparlo (vedi `buildInboxBlocks` per Slack).
    */
   summary?: string;
+  /**
+   * Il ciclo di correzione al momento della publish (design correzioni §10):
+   * a che giro era e se si è FERMATO al tetto. Un fatto vero solo in quel
+   * momento, quindi si scrive nell'evento (non si deriva a lettura).
+   * Opzionale: gli eventi pubblicati prima non lo hanno, e le PR non di
+   * Stubwise non hanno un ciclo.
+   */
+  cycle?: PrCycleEvent;
 }
 
 /** Il fix AI è fallito. */
@@ -831,12 +840,16 @@ function textParams(
     case "review.completed":
       return {
         ...base,
-        verdict: t(
-          lang,
-          event.verdict === "approve"
-            ? "notify.verdict.approve"
-            : "notify.verdict.requestChanges",
-        ),
+        // Fermo al tetto: il verdetto dice PERCHÉ nessuno sta più correggendo.
+        // Senza `cycle` (evento vecchio, PR esterna) il testo resta quello di sempre.
+        verdict: event.cycle?.stopped
+          ? t(lang, "notify.verdict.stoppedAtCap", { rounds: event.cycle.round })
+          : t(
+              lang,
+              event.verdict === "approve"
+                ? "notify.verdict.approve"
+                : "notify.verdict.requestChanges",
+            ),
       };
     case "job.failed":
       return { ...base, error: event.error };
@@ -1065,6 +1078,9 @@ function formatGeneric(event: NotificationEvent, lang: Language): Record<string,
         prUrl: event.prUrl,
         verdict: event.verdict,
         summary: event.summary ?? null,
+        // Sempre presente (null quando manca), come `summary`: chi consuma il
+        // webhook non deve distinguere "versione vecchia" da "nessun ciclo".
+        cycle: event.cycle ?? null,
       };
     case "job.failed":
       return { ...base, error: event.error };

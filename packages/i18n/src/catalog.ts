@@ -137,6 +137,10 @@ export const en: Catalog = {
   // Verdetti della review PR (interpolati in `notify.reviewCompleted`).
   "notify.verdict.approve": "approval suggested",
   "notify.verdict.requestChanges": "changes requested",
+  // Il ciclo di correzione si è fermato al tetto (review.completed con
+  // `cycle.stopped`): sostituisce il verdetto nella stessa frase.
+  "notify.verdict.stoppedAtCap":
+    "changes still requested (automatic corrections: {rounds}); the automatic cycle has stopped",
   // Suffisso costo (anteposto allo spazio: la frase ha già lo spazio prima).
   "notify.costSuffix": " (cost ${cost})",
   // Etichette dei link (rese nel markup del formato attorno all'URL).
@@ -580,6 +584,8 @@ export const it: Catalog = {
   "notify.scopeMonthly": "mensile",
   "notify.verdict.approve": "approvazione suggerita",
   "notify.verdict.requestChanges": "modifiche richieste",
+  "notify.verdict.stoppedAtCap":
+    "modifiche ancora richieste (correzioni automatiche: {rounds}); il ciclo automatico si è fermato",
   "notify.costSuffix": " (costo ${cost})",
   "notify.linkOpen": "Apri",
   "notify.linkReview": "Rivedi",

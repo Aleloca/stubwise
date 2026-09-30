@@ -179,5 +179,6 @@ export {
   type ProjectPulseEvent,
   type PulseProposal,
   type PulseUrgency,
+  type ReviewCompletedEvent,
   type TicketCreatedEvent,
 } from "./format.js";
