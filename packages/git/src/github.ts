@@ -56,6 +56,13 @@ const MAX_BRANCH_PAGES = 2;
  * il ciclo. */
 const MAX_COMMENT_PAGES = 10;
 
+/** Tetto di pagine della lista webhook di un repository: 5 da 100. GitHub
+ * limita già a una ventina gli hook per repository, quindi oltre è
+ * un'anomalia. Arrivati al tetto con ancora una pagina successiva si LANCIA
+ * invece di concludere «non c'è»: ensureWebhook creerebbe un duplicato di un
+ * hook che sta solo in una pagina non letta. Meglio fallire che duplicare. */
+const MAX_HOOK_PAGES = 5;
+
 /** Lunghezza massima della descrizione di uno status di commit su GitHub. */
 const MAX_STATUS_DESCRIPTION = 140;
 
@@ -869,15 +876,9 @@ export class GitHubProvider implements GitProvider {
     const base = `${API_BASE}/repos/${owner}/${repo}/hooks`;
 
     try {
-      const listResponse = await fetchImpl(base, { method: "GET", headers });
-      this.guardWebhookResponse(listResponse);
-      const list = (await readJsonResponse(listResponse, "GitHub")) as {
-        id?: unknown;
-        config?: { url?: unknown };
-      }[];
-      const existing = Array.isArray(list)
-        ? list.find((h) => h.config?.url === hook.url)
-        : undefined;
+      // Cerca su TUTTE le pagine (Link `next`): un hook in seconda pagina non
+      // trovato diventerebbe un duplicato alla creazione qui sotto.
+      const existing = await this.findHookByUrl(fetchImpl, `${base}?per_page=100`, headers, hook.url);
 
       if (existing && typeof existing.id === "number") {
         const updateResponse = await fetchImpl(`${base}/${existing.id}`, {
@@ -1022,6 +1023,51 @@ export class GitHubProvider implements GitProvider {
       );
     }
     return items;
+  }
+
+  /**
+   * Cerca fra gli hook del repository quello con `config.url` uguale a
+   * `targetUrl`, seguendo il Link `next` fino a {@link MAX_HOOK_PAGES}. Si
+   * ferma alla prima pagina che lo contiene. Lancia GitProviderError (mai
+   * `undefined`, che al chiamante varrebbe «crealo») su un corpo che non è un
+   * array, su una pagina successiva oltre il tetto e su un `next` fuori
+   * dall'host dell'API — quest'ultimo PRIMA di seguirlo, perché la richiesta
+   * porterebbe il token altrove.
+   */
+  private async findHookByUrl(
+    fetchImpl: FetchLike,
+    firstUrl: string,
+    headers: Record<string, string>,
+    targetUrl: string
+  ): Promise<{ id?: unknown; config?: { url?: unknown } } | undefined> {
+    let url: string | null = firstUrl;
+    for (let page = 0; page < MAX_HOOK_PAGES && url; page++) {
+      assertPageOnApiHost(url, API_BASE, "GitHub");
+      const response = await fetchImpl(url, { method: "GET", headers });
+      this.guardWebhookResponse(response);
+      const link = response.headers.get("link");
+      const list = await readJsonResponse(response, "GitHub");
+      if (!Array.isArray(list)) {
+        throw new GitProviderError(
+          "GitHub: risposta inattesa leggendo i webhook del repository: non ne creo uno nuovo alla cieca",
+          0,
+          ""
+        );
+      }
+      const found = (list as { id?: unknown; config?: { url?: unknown } }[]).find(
+        (h) => h?.config?.url === targetUrl
+      );
+      if (found) return found;
+      url = parseNextLink(link);
+    }
+    if (url) {
+      throw new GitProviderError(
+        `GitHub: oltre ${MAX_HOOK_PAGES} pagine di webhook sul repository: non ne creo uno nuovo per non duplicarlo`,
+        0,
+        ""
+      );
+    }
+    return undefined;
   }
 
   /**

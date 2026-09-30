@@ -513,7 +513,7 @@ describe("POST /api/projects/:slug/configure-webhook", () => {
       vi.fn((input: string | URL, init?: RequestInit) => {
         const url = String(input);
         calls.push({ url, init });
-        if (url === HOOKS_URL && (init?.method ?? "GET") === "GET") {
+        if (url === `${HOOKS_URL}?per_page=100` && (init?.method ?? "GET") === "GET") {
           return Promise.resolve(new Response("[]", { status: 200 }));
         }
         if (url === HOOKS_URL && init?.method === "POST") {
@@ -561,7 +561,7 @@ describe("POST /api/projects/:slug/configure-webhook", () => {
       vi.fn((input: string | URL, init?: RequestInit) => {
         const url = String(input);
         const hookUrl = "https://stubwise.example.com/webhooks/git/sito-vetrina";
-        if (url === HOOKS_URL && (init?.method ?? "GET") === "GET") {
+        if (url === `${HOOKS_URL}?per_page=100` && (init?.method ?? "GET") === "GET") {
           return Promise.resolve(new Response(JSON.stringify([{ id: 5, config: { url: hookUrl } }]), { status: 200 }));
         }
         if (url === `${HOOKS_URL}/5` && init?.method === "PATCH") {

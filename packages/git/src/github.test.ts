@@ -1202,6 +1202,7 @@ describe("GitHubProvider.validateAccount", () => {
 describe("GitHubProvider.ensureWebhook", () => {
   const hook = { url: "https://stubwise.example.com/webhooks/git/demo", secret: "hmac-secret" };
   const LIST_URL = "https://api.github.com/repos/octo/repo/hooks";
+  const PAGE1_URL = `${LIST_URL}?per_page=100`;
   const expectedBody = {
     name: "web",
     active: true,
@@ -1212,7 +1213,7 @@ describe("GitHubProvider.ensureWebhook", () => {
   it("crea il webhook quando assente: POST con body e Bearer corretti", async () => {
     const fetchImpl = vi.fn((input: string | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url === LIST_URL && (init?.method ?? "GET") === "GET") {
+      if (url === PAGE1_URL && (init?.method ?? "GET") === "GET") {
         return Promise.resolve(jsonResponse([], 200));
       }
       if (url === LIST_URL && init?.method === "POST") {
@@ -1240,7 +1241,7 @@ describe("GitHubProvider.ensureWebhook", () => {
       const url = String(input);
       // L'hook già configurato ha la lista eventi VECCHIA: il riallineamento
       // (script resync-webhooks) deve riscriverla in place, senza duplicarlo.
-      if (url === LIST_URL && (init?.method ?? "GET") === "GET") {
+      if (url === PAGE1_URL && (init?.method ?? "GET") === "GET") {
         return Promise.resolve(
           jsonResponse([{ id: 7, events: ["pull_request", "push"], config: { url: hook.url } }], 200)
         );
@@ -1275,6 +1276,129 @@ describe("GitHubProvider.ensureWebhook", () => {
       events: ["pull_request", "pull_request_review", "push"],
       config: { url: hook.url, content_type: "json", secret: hook.secret, insecure_ssl: "0" },
     });
+  });
+
+  /** Una pagina di hook con l'header Link verso `next` (o senza, se ultima). */
+  function hookPage(items: unknown[], next: string | null): Response {
+    const headers: Record<string, string> = { "content-type": "application/json" };
+    if (next) headers["link"] = `<${next}>; rel="next", <${next}>; rel="last"`;
+    return new Response(JSON.stringify(items), { status: 200, headers });
+  }
+  const PAGE2_URL = `${LIST_URL}?per_page=100&page=2`;
+  const otherHook = (id: number) => ({ id, config: { url: `https://altro.example.com/hook/${id}` } });
+
+  it("hook esistente in SECONDA pagina: PATCH su quello, nessun POST (nessun duplicato)", async () => {
+    const fetchImpl = vi.fn((input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url === PAGE1_URL && method === "GET") {
+        return Promise.resolve(hookPage([otherHook(1), otherHook(2)], PAGE2_URL));
+      }
+      if (url === PAGE2_URL && method === "GET") {
+        return Promise.resolve(hookPage([otherHook(3), { id: 7, config: { url: hook.url } }], null));
+      }
+      if (url === `${LIST_URL}/7` && method === "PATCH") {
+        return Promise.resolve(jsonResponse({ id: 7, config: { url: hook.url } }, 200));
+      }
+      // Il duplicato riceverebbe una risposta valida: deve fallire
+      // l'asserzione "nessun POST", non il doppio.
+      if (url === LIST_URL && method === "POST") {
+        return Promise.resolve(jsonResponse({ id: 99, config: { url: hook.url } }, 201));
+      }
+      return Promise.resolve(new Response("", { status: 404 }));
+    });
+    const provider = new GitHubProvider({ fetchImpl });
+
+    const result = await provider.ensureWebhook(config, hook);
+
+    expect(fetchImpl.mock.calls.filter((c) => c[1]?.method === "POST")).toHaveLength(0);
+    const patches = fetchImpl.mock.calls.filter((c) => c[1]?.method === "PATCH");
+    expect(patches).toHaveLength(1);
+    expect(patches[0]![0]).toBe(`${LIST_URL}/7`);
+    expect(result).toMatchObject({ created: false, updated: true, id: "7" });
+  });
+
+  it("nessun hook in nessuna pagina: legge tutte le pagine e fa UN solo POST", async () => {
+    const fetchImpl = vi.fn((input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url === PAGE1_URL && method === "GET") return Promise.resolve(hookPage([otherHook(1)], PAGE2_URL));
+      if (url === PAGE2_URL && method === "GET") return Promise.resolve(hookPage([otherHook(2)], null));
+      if (url === LIST_URL && method === "POST") {
+        return Promise.resolve(jsonResponse({ id: 42, config: { url: hook.url } }, 201));
+      }
+      return Promise.resolve(new Response("", { status: 404 }));
+    });
+    const provider = new GitHubProvider({ fetchImpl });
+
+    const result = await provider.ensureWebhook(config, hook);
+
+    expect(fetchImpl.mock.calls.map((c) => String(c[0]))).toContain(PAGE2_URL);
+    expect(fetchImpl.mock.calls.filter((c) => c[1]?.method === "POST")).toHaveLength(1);
+    expect(result).toMatchObject({ created: true, updated: false, id: "42" });
+  });
+
+  it("Link next verso un host estraneo: GitProviderError, nessuna richiesta lì e nessun POST", async () => {
+    const evil = "https://evil.example.com/repos/octo/repo/hooks?page=2";
+    const fetchImpl = vi.fn((input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url === PAGE1_URL && method === "GET") return Promise.resolve(hookPage([otherHook(1)], evil));
+      if (url === LIST_URL && method === "POST") {
+        return Promise.resolve(jsonResponse({ id: 99, config: { url: hook.url } }, 201));
+      }
+      return Promise.resolve(jsonResponse([{ id: 7, config: { url: hook.url } }], 200));
+    });
+    const provider = new GitHubProvider({ fetchImpl });
+
+    const error = await provider
+      .ensureWebhook(config, hook)
+      .then(() => null)
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).message).toMatch(/host inatteso/);
+    expect(fetchImpl.mock.calls.some((c) => String(c[0]).startsWith("https://evil.example.com"))).toBe(false);
+    expect(fetchImpl.mock.calls.filter((c) => c[1]?.method === "POST")).toHaveLength(0);
+  });
+
+  it("tetto di pagine superato: GitProviderError e nessun POST", async () => {
+    // Ogni pagina rimanda alla successiva, all'infinito, senza mai l'hook.
+    const fetchImpl = vi.fn((input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (method === "POST") return Promise.resolve(jsonResponse({ id: 99, config: { url: hook.url } }, 201));
+      const n = Number(new URL(url).searchParams.get("page") ?? "1");
+      return Promise.resolve(hookPage([otherHook(n)], `${LIST_URL}?per_page=100&page=${n + 1}`));
+    });
+    const provider = new GitHubProvider({ fetchImpl });
+
+    const error = await provider
+      .ensureWebhook(config, hook)
+      .then(() => null)
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).message).toMatch(/pagine di webhook/);
+    expect(fetchImpl.mock.calls.filter((c) => c[1]?.method === "POST")).toHaveLength(0);
+    expect(fetchImpl.mock.calls.filter((c) => (c[1]?.method ?? "GET") === "GET")).toHaveLength(5);
+  });
+
+  it("lista dalla forma inattesa: GitProviderError e nessun POST", async () => {
+    const fetchImpl = vi.fn((input: string | URL, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      if (method === "POST") return Promise.resolve(jsonResponse({ id: 99, config: { url: hook.url } }, 201));
+      return Promise.resolve(jsonResponse({ message: "not a list" }, 200));
+    });
+    const provider = new GitHubProvider({ fetchImpl });
+
+    const error = await provider
+      .ensureWebhook(config, hook)
+      .then(() => null)
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect(fetchImpl.mock.calls.filter((c) => c[1]?.method === "POST")).toHaveLength(0);
   });
 
   it("403: GitProviderError con guida sui permessi webhook", async () => {

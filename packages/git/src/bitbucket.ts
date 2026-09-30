@@ -57,6 +57,14 @@ const MAX_BRANCH_PAGES = 2;
  * resterebbero fuori per sempre. L'errore evita sia quello sia il ciclo. */
 const MAX_COMMENT_PAGES = 10;
 
+/** Tetto di pagine della lista webhook di un repository: 5 da 100. Oltre è
+ * un'anomalia (un repository ha pochi hook), e un `next` che non termina non
+ * deve girare all'infinito. Arrivati al tetto con ancora una pagina
+ * successiva si LANCIA invece di concludere «non c'è»: ensureWebhook
+ * creerebbe un duplicato di un hook che sta solo in una pagina non letta.
+ * Meglio fallire che duplicare. */
+const MAX_HOOK_PAGES = 5;
+
 /** Nome leggibile dello status di Stubwise nella UI di Bitbucket. */
 const COMMIT_STATUS_NAME = "Stubwise review";
 
@@ -962,16 +970,10 @@ export class BitbucketProvider implements GitProvider {
     };
 
     try {
-      // Lista (prima pagina): cerca un hook con lo stesso target URL.
-      const listResponse = await fetchImpl(base, {
-        method: "GET",
-        headers: { Authorization: auth },
-      });
-      this.guardWebhookResponse(listResponse);
-      const list = (await readJsonResponse(listResponse, "Bitbucket")) as {
-        values?: { uuid?: unknown; url?: unknown }[];
-      };
-      const existing = (list.values ?? []).find((h) => h.url === hook.url);
+      // Cerca un hook con lo stesso target URL su TUTTE le pagine (cursore
+      // `next`): uno in seconda pagina non trovato diventerebbe un duplicato
+      // alla creazione qui sotto.
+      const existing = await this.findHookByUrl(fetchImpl, `${base}?pagelen=100`, auth, hook.url);
 
       if (existing && typeof existing.uuid === "string") {
         const updateResponse = await fetchImpl(`${base}/${existing.uuid}`, {
@@ -1128,6 +1130,53 @@ export class BitbucketProvider implements GitProvider {
       );
     }
     return basicAuthHeader(restUser, p.credentials.token);
+  }
+
+  /**
+   * Cerca fra gli hook del repository quello con `url` uguale a `targetUrl`,
+   * seguendo il cursore `next` fino a {@link MAX_HOOK_PAGES}. Si ferma alla
+   * prima pagina che lo contiene. Lancia GitProviderError (mai `undefined`,
+   * che al chiamante varrebbe «crealo») su una risposta dalla forma inattesa
+   * (`values` non array), su una pagina successiva oltre il tetto e su un
+   * `next` fuori dall'host dell'API — quest'ultimo PRIMA di seguirlo, perché
+   * la richiesta porterebbe il token altrove.
+   */
+  private async findHookByUrl(
+    fetchImpl: FetchLike,
+    firstUrl: string,
+    auth: string,
+    targetUrl: string
+  ): Promise<{ uuid?: unknown; url?: unknown } | undefined> {
+    let url: string | null = firstUrl;
+    for (let page = 0; page < MAX_HOOK_PAGES && url; page++) {
+      assertPageOnApiHost(url, API_BASE, "Bitbucket");
+      const response = await fetchImpl(url, { method: "GET", headers: { Authorization: auth } });
+      this.guardWebhookResponse(response);
+      const data = (await readJsonResponse(response, "Bitbucket")) as {
+        values?: unknown;
+        next?: unknown;
+      } | null;
+      if (!data || typeof data !== "object" || !Array.isArray(data.values)) {
+        throw new GitProviderError(
+          "Bitbucket: risposta inattesa leggendo i webhook del repository: non ne creo uno nuovo alla cieca",
+          0,
+          ""
+        );
+      }
+      const found = (data.values as { uuid?: unknown; url?: unknown }[]).find(
+        (h) => h?.url === targetUrl
+      );
+      if (found) return found;
+      url = typeof data.next === "string" ? data.next : null;
+    }
+    if (url) {
+      throw new GitProviderError(
+        `Bitbucket: oltre ${MAX_HOOK_PAGES} pagine di webhook sul repository: non ne creo uno nuovo per non duplicarlo`,
+        0,
+        ""
+      );
+    }
+    return undefined;
   }
 
   /**

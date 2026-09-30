@@ -1741,12 +1741,13 @@ describe("BitbucketProvider.ensureWebhook", () => {
   };
   const hook = { url: "https://stubwise.example.com/webhooks/git/demo", secret: "hmac-secret" };
   const LIST_URL = "https://api.bitbucket.org/2.0/repositories/myws/myrepo/hooks";
+  const PAGE1_URL = `${LIST_URL}?pagelen=100`;
   const EXPECTED_AUTH = `Basic ${Buffer.from("alice@corp.io:api-token").toString("base64")}`;
 
   it("crea il webhook quando assente: POST con evento, secret e auth REST corretti", async () => {
     const fetchImpl = vi.fn((input: string | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url === LIST_URL && (init?.method ?? "GET") === "GET") {
+      if (url === PAGE1_URL && (init?.method ?? "GET") === "GET") {
         return Promise.resolve(jsonResponse({ values: [] }, 200));
       }
       if (url === LIST_URL && init?.method === "POST") {
@@ -1787,7 +1788,7 @@ describe("BitbucketProvider.ensureWebhook", () => {
     // in place, senza crearne un secondo.
     const fetchImpl = vi.fn((input: string | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url === LIST_URL && (init?.method ?? "GET") === "GET") {
+      if (url === PAGE1_URL && (init?.method ?? "GET") === "GET") {
         return Promise.resolve(
           jsonResponse(
             {
@@ -1852,6 +1853,127 @@ describe("BitbucketProvider.ensureWebhook", () => {
     });
   });
 
+  /** Una pagina di hook col cursore `next` (assente se ultima). */
+  function hookPage(values: unknown[], next: string | null): Response {
+    return jsonResponse(next ? { values, next } : { values }, 200);
+  }
+  const PAGE2_URL = `${LIST_URL}?pagelen=100&page=2`;
+  const otherHook = (n: number) => ({ uuid: `{other-${n}}`, url: `https://altro.example.com/hook/${n}` });
+
+  it("hook esistente in SECONDA pagina: PUT su quello, nessun POST (nessun duplicato)", async () => {
+    const fetchImpl = vi.fn((input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url === PAGE1_URL && method === "GET") {
+        return Promise.resolve(hookPage([otherHook(1), otherHook(2)], PAGE2_URL));
+      }
+      if (url === PAGE2_URL && method === "GET") {
+        return Promise.resolve(hookPage([otherHook(3), { uuid: "{existing}", url: hook.url }], null));
+      }
+      if (url === `${LIST_URL}/{existing}` && method === "PUT") {
+        return Promise.resolve(jsonResponse({ uuid: "{existing}", url: hook.url }, 200));
+      }
+      // Il duplicato riceverebbe una risposta valida: deve fallire
+      // l'asserzione "nessun POST", non il doppio.
+      if (url === LIST_URL && method === "POST") {
+        return Promise.resolve(jsonResponse({ uuid: "{duplicate}", url: hook.url }, 201));
+      }
+      return Promise.resolve(new Response("", { status: 404 }));
+    });
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    const result = await provider.ensureWebhook(apiConfig, hook);
+
+    expect(fetchImpl.mock.calls.filter((c) => c[1]?.method === "POST")).toHaveLength(0);
+    const puts = fetchImpl.mock.calls.filter((c) => c[1]?.method === "PUT");
+    expect(puts).toHaveLength(1);
+    expect(puts[0]![0]).toBe(`${LIST_URL}/{existing}`);
+    expect(result).toMatchObject({ created: false, updated: true, id: "{existing}" });
+  });
+
+  it("nessun hook in nessuna pagina: legge tutte le pagine e fa UN solo POST", async () => {
+    const fetchImpl = vi.fn((input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url === PAGE1_URL && method === "GET") return Promise.resolve(hookPage([otherHook(1)], PAGE2_URL));
+      if (url === PAGE2_URL && method === "GET") return Promise.resolve(hookPage([otherHook(2)], null));
+      if (url === LIST_URL && method === "POST") {
+        return Promise.resolve(jsonResponse({ uuid: "{new-uuid}", url: hook.url }, 201));
+      }
+      return Promise.resolve(new Response("", { status: 404 }));
+    });
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    const result = await provider.ensureWebhook(apiConfig, hook);
+
+    expect(fetchImpl.mock.calls.map((c) => String(c[0]))).toContain(PAGE2_URL);
+    expect(fetchImpl.mock.calls.filter((c) => c[1]?.method === "POST")).toHaveLength(1);
+    expect(result).toMatchObject({ created: true, updated: false, id: "{new-uuid}" });
+  });
+
+  it("next verso un host estraneo: GitProviderError, nessuna richiesta lì e nessun POST", async () => {
+    const evil = "https://evil.example.com/2.0/repositories/myws/myrepo/hooks?page=2";
+    const fetchImpl = vi.fn((input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url === PAGE1_URL && method === "GET") return Promise.resolve(hookPage([otherHook(1)], evil));
+      if (url === LIST_URL && method === "POST") {
+        return Promise.resolve(jsonResponse({ uuid: "{duplicate}", url: hook.url }, 201));
+      }
+      return Promise.resolve(hookPage([{ uuid: "{existing}", url: hook.url }], null));
+    });
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    const error = await provider
+      .ensureWebhook(apiConfig, hook)
+      .then(() => null)
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).message).toMatch(/host inatteso/);
+    expect(fetchImpl.mock.calls.some((c) => String(c[0]).startsWith("https://evil.example.com"))).toBe(false);
+    expect(fetchImpl.mock.calls.filter((c) => c[1]?.method === "POST")).toHaveLength(0);
+  });
+
+  it("tetto di pagine superato: GitProviderError e nessun POST", async () => {
+    // Ogni pagina rimanda alla successiva, all'infinito, senza mai l'hook.
+    const fetchImpl = vi.fn((input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (method === "POST") return Promise.resolve(jsonResponse({ uuid: "{duplicate}", url: hook.url }, 201));
+      const n = Number(new URL(url).searchParams.get("page") ?? "1");
+      return Promise.resolve(hookPage([otherHook(n)], `${LIST_URL}?pagelen=100&page=${n + 1}`));
+    });
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    const error = await provider
+      .ensureWebhook(apiConfig, hook)
+      .then(() => null)
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).message).toMatch(/pagine di webhook/);
+    expect(fetchImpl.mock.calls.filter((c) => c[1]?.method === "POST")).toHaveLength(0);
+    expect(fetchImpl.mock.calls.filter((c) => (c[1]?.method ?? "GET") === "GET")).toHaveLength(5);
+  });
+
+  it("lista dalla forma inattesa: GitProviderError e nessun POST", async () => {
+    const fetchImpl = vi.fn((input: string | URL, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      if (method === "POST") return Promise.resolve(jsonResponse({ uuid: "{duplicate}", url: hook.url }, 201));
+      return Promise.resolve(jsonResponse({ error: "not a page" }, 200));
+    });
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    const error = await provider
+      .ensureWebhook(apiConfig, hook)
+      .then(() => null)
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect(fetchImpl.mock.calls.filter((c) => c[1]?.method === "POST")).toHaveLength(0);
+  });
+
   it("403 sulla lista: GitProviderError con guida sullo scope webhook", async () => {
     const fetchImpl = vi.fn(() => Promise.resolve(new Response("forbidden", { status: 403 })));
     const provider = new BitbucketProvider({ fetchImpl });
@@ -1868,7 +1990,7 @@ describe("BitbucketProvider.ensureWebhook", () => {
   it("403 sulla creazione: GitProviderError con guida sullo scope webhook", async () => {
     const fetchImpl = vi.fn((input: string | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url === LIST_URL && (init?.method ?? "GET") === "GET") {
+      if (url === PAGE1_URL && (init?.method ?? "GET") === "GET") {
         return Promise.resolve(jsonResponse({ values: [] }, 200));
       }
       return Promise.resolve(new Response("forbidden", { status: 403 }));
