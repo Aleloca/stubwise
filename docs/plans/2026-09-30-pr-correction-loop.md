@@ -9202,6 +9202,24 @@ e il push in `openedPrs` diventa:
 con `const reviewsToEnqueue: EnqueuePrReviewNowInput[] = [];` dichiarato prima
 del ciclo (tipo esportato da `../review/enqueue.js`).
 
+**Solo se la chiusura è avvenuta** (revisione di C7, 30 set 2026). Tutto il
+blocco (e) — promozione e scelta delle review — gira SOLO se `completeJob` ha
+chiuso il job (`closed === true`), coerente con l'invariante «ciò che segue una
+chiusura parte solo se la chiusura è avvenuta» (la stessa di `runCorrection`).
+Con l'ownership persa (es. `requeueStale`) il job è di chi l'ha ripreso, che sta
+per cambiare la head: una review accodata qui leggerebbe una head vecchia e, con
+C10, un verdetto `request_changes` consumerebbe un giro del tetto. In quel ramo
+una sola riga di log («ownership persa dopo l'apertura delle PR (N): niente
+promozione né review, sono di chi ha ripreso il job»), `reviewsToEnqueue` resta
+vuota; la notifica `job.pr_opened` resta come oggi. Le `appendLog` del blocco
+hanno `.catch(() => {})` (best-effort davvero), e il numero della PR si calcola
+una volta sola all'apertura (`openedPrs[].prNumber`, lo stesso scritto in
+`ticket_repositories`). Multi-repo con una PR aperta e un'altra fallita: il fix
+fallisce, il fix non accoda nessuna review, la PR aperta la prende il webhook del
+provider. Test: ownership persa durante `openPullRequest` → pending ferma e
+`pr_review_jobs` vuota; seconda PR fallita → nessun `pr_review_jobs`; nel test a
+due repo la notifica `job.pr_opened` vede zero review in coda.
+
 (f) **L'accodamento è l'ULTIMO passo del job** (emendamento del 30 set 2026,
 «la review esiste dal claim», vedi C10): subito prima di `return "pr_opened"`,
 DOPO la notifica `job.pr_opened` e dopo TUTTI i repository:

@@ -13,8 +13,9 @@ import {
   tickets,
   type Db,
 } from "@stubwise/db";
-import { getProvider, type GitProvider } from "@stubwise/git";
+import { getProvider, parsePrNumberFromUrl, type GitProvider } from "@stubwise/git";
 import { t, type Language } from "@stubwise/i18n";
+import { prHasOpenCorrection, promotePendingForTicket } from "@stubwise/notifications";
 import type { GitProviderKind } from "@stubwise/shared";
 import { and, asc, count, desc, eq, isNotNull, isNull } from "drizzle-orm";
 import { execa } from "execa";
@@ -44,6 +45,7 @@ import {
   touchJob,
   type AiJob,
 } from "../queue.js";
+import { enqueuePrReviewNow, type EnqueuePrReviewNowInput } from "../review/enqueue.js";
 import { getContentLanguage } from "../settings.js";
 import {
   DEFAULT_AGENT_QUESTION_MAX_ROUNDS,
@@ -83,6 +85,7 @@ import {
   NoChangesError,
   SelfRepairFailedError,
   commitAsStubwise,
+  gitIn,
   materializeEnvAndInstall,
   newRepoState,
   readAndRemoveReport,
@@ -1005,6 +1008,9 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     testStatus: "passed" | "skipped";
     /** Fase 8, Task 7: i path modificati in questo repo — l'input del rischio. */
     changedFiles: string[];
+    /** Sha del commit pushato su questo repo (completo): la head che la prima
+     * review della PR deve leggere, accodata dal fix stesso. */
+    headSha: string;
   }
   // Esito della callback withProjectWorktrees, discriminato sulla modalità: in
   // plan-only la callback produce SOLO il piano (niente report/commit/push); in
@@ -1401,6 +1407,10 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
               state,
               `${prTitle}\n\nTicket #${ticket.number} — fix automatico di Stubwise AI`,
             );
+            // La head si legge QUI, dal worktree: all'uscita da withProjectWorktrees
+            // il ref sparisce dal mirror (e mirrors.resolveCommitSha, che fa
+            // ensureMirror/fetch --prune, non va chiamata dentro la callback).
+            const headSha = (await gitIn(state.dir, ["rev-parse", "HEAD"])).trim();
             await mirrors.pushBranch(state.prepared.mirrorProject, branch);
             changedRepos.push({
               repositoryId: state.prepared.repositoryId,
@@ -1408,6 +1418,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
               mirrorProject: state.prepared.mirrorProject,
               testStatus: loop.testStatusByRepo.get(state.prepared.repositoryId) ?? "skipped",
               changedFiles: state.changedFiles,
+              headSha,
             });
           }
           return { kind: "executed", report: reportContent, agentOutput: output, changedRepos };
@@ -1648,7 +1659,15 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     changedRepos.flatMap((r) => r.changedFiles),
     changedRepos.length,
   );
-  const openedPrs: { name: string; prUrl: string }[] = [];
+  const openedPrs: {
+    name: string;
+    prUrl: string;
+    /** Numero della PR letto dall'URL (una volta sola), null se non riconosciuto. */
+    prNumber: number | null;
+    repositoryId: string;
+    headSha: string;
+    targetBranch: string;
+  }[] = [];
   for (const repo of changedRepos) {
     let prUrl: string;
     try {
@@ -1657,6 +1676,9 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
         { branch, title: prTitle, body: prBody },
       ));
     } catch (err) {
+      // Multi-repo con una PR aperta e un'altra fallita: il fix fallisce e NON
+      // accoda nessuna review (l'accodamento è l'ultimo passo di un fix riuscito);
+      // la PR già aperta la prende il webhook del provider.
       const message = err instanceof Error ? err.message : String(err);
       await failJob(db, job.id, {
         log:
@@ -1672,6 +1694,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
       await notifyFailed(`apertura PR fallita (${repo.name}): ${message}`);
       return "failed";
     }
+    const prNumber = parsePrNumberFromUrl(prUrl);
     // Riga per-repo: branch + PR + stato open. UPSERT sul vincolo (ticketId,
     // repositoryId) così un re-run del fix aggiorna la riga invece di duplicarla.
     await db
@@ -1682,6 +1705,9 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
         branch,
         prUrl,
         prState: "open",
+        // Numero della PR (Tappa A): la chiave con cui il ciclo di correzione
+        // ritrova la PR. null se l'URL è in un formato che non riconosciamo.
+        prNumber,
         testStatus: repo.testStatus,
         risk: risk.level,
         riskReason: risk.reason,
@@ -1692,12 +1718,20 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
           branch,
           prUrl,
           prState: "open",
+          prNumber,
           testStatus: repo.testStatus,
           risk: risk.level,
           riskReason: risk.reason,
         },
       });
-    openedPrs.push({ name: repo.name, prUrl });
+    openedPrs.push({
+      name: repo.name,
+      prUrl,
+      prNumber,
+      repositoryId: repo.repositoryId,
+      headSha: repo.headSha,
+      targetBranch: repo.mirrorProject.defaultBranch,
+    });
     logLines.push(`[fix] '${repo.name}': PR aperta: ${prUrl}`);
   }
 
@@ -1741,10 +1775,78 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     log: logLines.join("\n"),
     prUrl: primaryPrUrl,
   });
+  // Ciò che segue una chiusura parte solo se la chiusura è AVVENUTA: con
+  // l'ownership persa (es. requeueStale) il job è di chi l'ha ripreso, che sta
+  // per cambiare la head — una review accodata qui leggerebbe una head vecchia
+  // e, con un verdetto request_changes, consumerebbe un giro del tetto.
+  const reviewsToEnqueue: EnqueuePrReviewNowInput[] = [];
   if (!closed) {
-    // Ownership persa proprio alla fine: le PR esistono e il commento pure
-    // (informazione vera comunque); solo una riga di log, niente overwrite.
-    await appendLog(db, job.id, `[fix] ownership persa dopo l'apertura delle PR (${openedPrs.length})`);
+    // Le PR esistono e il commento pure (informazione vera comunque); solo una
+    // riga di log, niente overwrite, niente promozione né review.
+    await appendLog(
+      db,
+      job.id,
+      `[fix] ownership persa dopo l'apertura delle PR (${openedPrs.length}): niente promozione né review, sono di chi ha ripreso il job`,
+    ).catch(() => {});
+  } else {
+    // DOPO L'APERTURA DELLE PR (ciclo review → correzione). Se durante il fix è
+    // arrivato un "Request changes" dal provider, è stato salvato come `pending`
+    // (non si può rifiutare a chi l'ha premuto) e parte ORA, al posto della
+    // review — è una richiesta umana. La promozione è per TICKET
+    // (promotePendingForTicket): il job vivo blocca per ticket, e promuovere solo
+    // le PR appena aperte lascerebbe ferma la pending di un'altra PR del ticket.
+    // Il fix qui è GIÀ terminale: dentro la sua transazione hasJobInFlight lo
+    // vedrebbe e non partirebbe niente. Poi, per ogni PR, la PRIMA REVIEW si
+    // accoda subito (vedi enqueuePrReviewNow per l'idempotenza) — tranne sulle
+    // PR con una correzione aperta, appena promossa o in attesa del suo turno:
+    // la review arriverà dopo il suo push. Tutto best-effort: il fix è chiuso.
+    // Qui si DECIDE quali PR vanno rivedute; l'accodamento è l'ULTIMO passo del
+    // job, dopo la notifica: vedi in fondo.
+    const promoted = await promotePendingForTicket(db, job.ticketId).catch(async (err: unknown) => {
+      await appendLog(
+        db,
+        job.id,
+        `[fix] promozione delle richieste di correzione in attesa fallita (${err instanceof Error ? err.message : String(err)})`,
+      ).catch(() => {});
+      return [] as string[];
+    });
+    for (const id of promoted) {
+      await appendLog(db, job.id, `[fix] richiesta di correzione in attesa avviata (${id}) al posto della review`).catch(
+        () => {},
+      );
+    }
+    for (const pr of openedPrs) {
+      const prNumber = pr.prNumber;
+      if (prNumber === null) {
+        await appendLog(
+          db,
+          job.id,
+          `[fix] '${pr.name}': numero della PR non leggibile da ${pr.prUrl}: review non accodata`,
+        ).catch(() => {});
+        continue;
+      }
+      // Errore della lettura → si accoda la review: una review in più è innocua
+      // (la correzione che poi pusha la riaccoda sulla head nuova).
+      const hasOpen = await prHasOpenCorrection(db, { repositoryId: pr.repositoryId, prNumber }).catch(() => false);
+      if (hasOpen) {
+        await appendLog(
+          db,
+          job.id,
+          `[fix] '${pr.name}': richiesta di correzione aperta, la review arriverà dopo il suo push`,
+        ).catch(() => {});
+        continue;
+      }
+      reviewsToEnqueue.push({
+        repositoryId: pr.repositoryId,
+        prNumber,
+        prUrl: pr.prUrl,
+        prTitle,
+        prBody,
+        sourceBranch: branch,
+        targetBranch: pr.targetBranch,
+        headSha: pr.headSha,
+      });
+    }
   }
 
   // Notifica job.pr_opened best-effort, DOPO la chiusura del job (stato committato).
@@ -1763,5 +1865,13 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     },
     notifyRefs,
   );
+  // ULTIMO passo del job, dopo TUTTI i repository e la notifica. Dal claim il
+  // poller crea già la riga `pr_reviews` in attesa (C10): accodare a metà
+  // (dentro il ciclo dei repo, o prima di una scrittura che segue) farebbe
+  // nascere la review di una PR mentre il fix sta ancora aprendo/scrivendo le
+  // altre. Chi aggiunge un passo al fix lo mette PRIMA di questo ciclo.
+  for (const review of reviewsToEnqueue) {
+    await enqueuePrReviewNow(db, review);
+  }
   return "pr_opened";
 }
