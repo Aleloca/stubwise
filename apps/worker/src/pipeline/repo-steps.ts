@@ -106,10 +106,13 @@ export class SelfRepairFailedError extends Error {
 /**
  * Tetto di costo del ticket sforato DENTRO il loop di self-repair (Task 6):
  * prima di ri-tentare una riparazione la spesa stimata del ticket ha superato
- * `automation_rules.max_cost_usd`. NON è un fallimento: esce da withWorktree e
- * nel catch di runFix porta al percorso budget-held (holdJob + commento +
- * notifica), MAI a failJob. Lo scope è sempre "ticket" (il tetto mensile è
- * controllato solo pre-fix, fuori dal loop).
+ * `automation_rules.max_cost_usd`. NON è un fallimento: esce dalla callback
+ * del worktree e nel catch di `runFix` — e, dal ciclo di correzione post-PR,
+ * di `runCorrection` — porta al percorso budget-held (holdJob + commento +
+ * notifica, `holdForBudget` di job-outcomes.ts), MAI a failJob: nella
+ * correzione la riga `pr_corrections` resta `queued`, il job verrà ripreso.
+ * Lo scope è sempre "ticket" (il tetto mensile è controllato solo prima del
+ * run, fuori dal loop).
  */
 export class BudgetExceededError extends Error {
   readonly scope: "ticket" | "monthly";

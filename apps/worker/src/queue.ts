@@ -12,6 +12,15 @@ import { requeueStaleNodes as requeueStaleNodesImpl } from "./docs/nodes.js";
 export type AiJob = typeof aiJobs.$inferSelect;
 
 /**
+ * Il db o una transazione aperta su di esso. `completeJob`/`failJob` sono un
+ * solo UPDATE guardato su ACTIVE_STATUSES, senza effetti collaterali: la
+ * correzione post-PR li chiama nella STESSA transazione di `completeCorrection`
+ * (pipeline/correction.ts), così job terminale e correzione `done` non possono
+ * separarsi.
+ */
+export type DbOrTx = Db | Parameters<Parameters<Db["transaction"]>[0]>[0];
+
+/**
  * L'OWNER del run, che è anche ciò che ne decide la fase.
  *
  * `agent_runs` ammette esattamente un owner fra `job_id`, `pr_review_id` ed
@@ -192,7 +201,7 @@ export interface CompleteJobInput {
  * il chiamante deve interpretarlo come "fermati, il job non è più tuo".
  */
 export async function completeJob(
-  db: Db,
+  db: DbOrTx,
   jobId: string,
   input: CompleteJobInput,
 ): Promise<boolean> {
@@ -219,7 +228,7 @@ export interface FailJobInput {
  * Chiude il job come `failed`: accoda il log, registra l'errore e
  * `finishedAt`. Come completeJob, restituisce false se la ownership è persa.
  */
-export async function failJob(db: Db, jobId: string, input: FailJobInput): Promise<boolean> {
+export async function failJob(db: DbOrTx, jobId: string, input: FailJobInput): Promise<boolean> {
   const updated = await db
     .update(aiJobs)
     .set({

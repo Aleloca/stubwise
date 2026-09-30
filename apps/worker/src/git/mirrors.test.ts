@@ -1620,3 +1620,46 @@ describe("runGit — ambiente", () => {
     }
   });
 });
+
+describe("MirrorManager.resolveBranchHead", () => {
+  it("la head ATTUALE del branch sull'upstream, sha completo — anche dopo che qualcun altro ci ha pushato", async () => {
+    const { manager, upstream } = await makeFixture();
+    const project = projectFor(upstream);
+    const branch = "stubwise/ticket-1";
+    const first = await upstream.addCommitOnBranch(branch, "a.txt", "alpha\n");
+    expect(await manager.resolveBranchHead(project, branch)).toBe(first);
+
+    // Un collega pusha sul branch: il mirror si riallinea al fetch.
+    const root = await makeRoot();
+    const clone = join(root, "collega");
+    await execa("git", ["clone", "--quiet", upstream.dir, clone]);
+    await git(["switch", branch], clone);
+    await writeFile(join(clone, "b.txt"), "beta\n");
+    await git(["add", "."], clone);
+    await git([...COMMIT_ARGS, "commit", "-m", "collega"], clone);
+    await git(["push", "origin", branch], clone);
+    const second = await git(["rev-parse", "HEAD"], clone);
+
+    const resolved = await manager.resolveBranchHead(project, branch);
+    expect(resolved).toBe(second);
+    expect(resolved).toHaveLength(40);
+  });
+
+  it("branch assente sull'upstream: errore, mai uno sha di ripiego", async () => {
+    const { manager, upstream } = await makeFixture();
+    await expect(manager.resolveBranchHead(projectFor(upstream), "stubwise/ticket-99")).rejects.toThrow();
+  });
+
+  it("rifiuta un nome di branch non valido prima di qualunque comando git", async () => {
+    const root = await makeRoot();
+    const manager = new MirrorManager({ mirrorsDir: join(root, "mirrors") });
+    const project: MirrorProject = {
+      provider: "github",
+      repoUrl: "https://github.com/acme/repo",
+      defaultBranch: "main",
+      credentials: { token: "t" },
+    };
+    await expect(manager.resolveBranchHead(project, "--evil")).rejects.toBeInstanceOf(InvalidBranchNameError);
+    expect(existsSync(manager.mirrorDirFor(project))).toBe(false);
+  });
+});

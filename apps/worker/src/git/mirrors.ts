@@ -1013,6 +1013,30 @@ export class MirrorManager {
     return full;
   }
 
+  /**
+   * Sha COMPLETO della head di `refs/heads/<branchName>` nel mirror appena
+   * aggiornato (`ensureMirror` → `fetch --prune`, che con `+refs/*:refs/*`
+   * riallinea il ref alla head dell'upstream, anche se un push nostro è stato
+   * rifiutato). Serve alla correzione post-PR che fallisce senza pushare: la
+   * review va accodata sulla head ATTUALE del branch della PR, che può essere
+   * il push di un collega. `resolveCommitSha` non basta: accetta solo uno sha.
+   *
+   * Branch validato con `assertBranchName` (mai un'opzione per git), output
+   * riverificato con `isFullCommitSha`. Branch assente → GitCommandError.
+   *
+   * ⚠️ Come `resolveCommitSha`: mai dentro la callback di un worktree aperto
+   * sullo stesso repo (il prune ne cancellerebbe il ref).
+   */
+  async resolveBranchHead(project: MirrorProject, branchName: string): Promise<string> {
+    assertBranchName(branchName);
+    const mirrorDir = await this.ensureMirror(project);
+    const full = (
+      await this.git(["rev-parse", "--verify", `refs/heads/${branchName}^{commit}`], { cwd: mirrorDir })
+    ).trim();
+    if (!isFullCommitSha(full)) throw new InvalidShaError(full);
+    return full;
+  }
+
   /** `protected` solo perché i test possano simulare un guasto di git. */
   protected git(
     args: string[],
