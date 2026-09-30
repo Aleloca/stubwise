@@ -1449,3 +1449,59 @@ describe("GitHubProvider.listBranches", () => {
     await expect(provider.listBranches(credentials, "octo/repo")).rejects.toBeInstanceOf(GitProviderError);
   });
 });
+
+describe("GitHubProvider: un Link next fuori da api.github.com non viene seguito", () => {
+  // Il Link `next` lo scrive la risposta: se puntasse altrove, seguirlo
+  // consegnerebbe il Bearer token a un host scelto da quella risposta.
+  const EVIL = "https://api.github.com@evil.example/user/repos?page=2";
+
+  function fetchWith(firstPage: (url: string) => { body: unknown; next?: string }) {
+    return vi.fn().mockImplementation((input: string | URL) => {
+      const url = String(input);
+      const { body, next } = url.startsWith("https://api.github.com/") ? firstPage(url) : { body: [] };
+      return Promise.resolve(
+        new Response(JSON.stringify(body), {
+          status: 200,
+          headers: { "content-type": "application/json", ...(next ? { link: `<${next}>; rel="next"` } : {}) },
+        })
+      );
+    });
+  }
+
+  function expectBlocked(error: unknown, fetchImpl: ReturnType<typeof vi.fn>) {
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).message).toMatch(/host inatteso/);
+    expect((error as GitProviderError).message).not.toContain("ghp_secret");
+    const calledUrls = fetchImpl.mock.calls.map((c) => String((c as [string])[0]));
+    expect(calledUrls).not.toContain(EVIL);
+    expect(calledUrls.every((u) => u.startsWith("https://api.github.com/"))).toBe(true);
+  }
+
+  it("listRepositories", async () => {
+    const fetchImpl = fetchWith(() => ({
+      body: [{ full_name: "octo/a", name: "a", clone_url: "https://github.com/octo/a.git", default_branch: "main" }],
+      next: EVIL,
+    }));
+    const provider = new GitHubProvider({ fetchImpl });
+    const error = await provider.listRepositories(account).then(() => null, (e: unknown) => e);
+    expectBlocked(error, fetchImpl);
+  });
+
+  it("listBranches", async () => {
+    const fetchImpl = fetchWith((url) =>
+      url.includes("/branches") ? { body: [{ name: "main" }], next: EVIL } : { body: { default_branch: "main" } }
+    );
+    const provider = new GitHubProvider({ fetchImpl });
+    const error = await provider.listBranches(credentials, "octo/repo").then(() => null, (e: unknown) => e);
+    expectBlocked(error, fetchImpl);
+  });
+
+  it("listPrComments (tutte e tre le fonti)", async () => {
+    for (const source of ["/issues/", "/pulls/42/comments", "/reviews"]) {
+      const fetchImpl = fetchWith((url) => (url.includes(source) ? { body: [], next: EVIL } : { body: [] }));
+      const provider = new GitHubProvider({ fetchImpl });
+      const error = await provider.listPrComments(config, 42).then(() => null, (e: unknown) => e);
+      expectBlocked(error, fetchImpl);
+    }
+  });
+});

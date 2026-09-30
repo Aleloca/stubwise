@@ -651,6 +651,49 @@ export function parseNextLink(linkHeader: string | null): string | null {
   return null;
 }
 
+/**
+ * Verifica che l'URL di una pagina da seguire stia sull'host dell'API del
+ * provider, PRIMA di mandargli una richiesta con l'header `Authorization`.
+ *
+ * L'URL della pagina successiva lo decide la RISPOSTA (il `next` del JSON di
+ * Bitbucket, il `Link rel="next"` di GitHub): se puntasse altrove, seguirlo
+ * consegnerebbe il token a un host scelto da chi ha scritto quella risposta.
+ * Il confronto è sull'`origin` calcolata da `new URL`, mai su un prefisso di
+ * stringa: `https://api.bitbucket.org.evil.com` e
+ * `https://api.bitbucket.org@evil.com` iniziano entrambi come l'API vera, ma
+ * la loro origin è quella di `evil.com`. Si rifiutano anche l'`http:` e le
+ * credenziali incorporate nell'URL (userinfo), pure sull'host giusto.
+ *
+ * Non combacia → lancia GitProviderError: mai risultati parziali in silenzio.
+ * Il messaggio mostra solo l'origin ricevuta (niente percorso né query, che
+ * potrebbero portare credenziali), e l'origin non include mai lo userinfo.
+ */
+export function assertPageOnApiHost(url: string, expectedOrigin: string, providerName: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new GitProviderError(
+      `${providerName} ha indicato una pagina successiva con un URL non valido: non la seguo`,
+      0,
+      ""
+    );
+  }
+  const expected = new URL(expectedOrigin).origin;
+  const ok =
+    parsed.protocol === "https:" &&
+    parsed.origin === expected &&
+    parsed.username === "" &&
+    parsed.password === "";
+  if (!ok) {
+    throw new GitProviderError(
+      `${providerName} ha indicato una pagina successiva su un host inatteso (${parsed.origin}, atteso ${expected}): non la seguo per non inviare il token altrove`,
+      0,
+      ""
+    );
+  }
+}
+
 /** Codifica `user:pass` in un header Authorization Basic. */
 export function basicAuthHeader(user: string, pass: string): string {
   return `Basic ${Buffer.from(`${user}:${pass}`).toString("base64")}`;

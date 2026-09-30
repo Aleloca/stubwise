@@ -1632,3 +1632,55 @@ describe("BitbucketProvider.listBranches", () => {
     await expect(provider.listBranches(credentials, "myws/repo")).rejects.toBeInstanceOf(GitProviderError);
   });
 });
+
+describe("BitbucketProvider: un `next` fuori da api.bitbucket.org non viene seguito", () => {
+  // Il cursore `next` lo scrive la risposta: se puntasse altrove, seguirlo
+  // consegnerebbe l'header Authorization a un host scelto da quella risposta.
+  const EVIL = "https://api.bitbucket.org.evil.example/2.0/page=2";
+
+  /** Ogni URL fuori dall'API risponde 200 vuoto: se il metodo lo seguisse,
+   * il test lo vedrebbe fra le chiamate, non come un errore di rete. */
+  function fetchWith(firstPages: (url: string) => unknown) {
+    return vi.fn().mockImplementation((input: string | URL) => {
+      const url = String(input);
+      if (!url.startsWith("https://api.bitbucket.org/")) return Promise.resolve(jsonOk({ values: [] }));
+      return Promise.resolve(jsonOk(firstPages(url)));
+    });
+  }
+
+  function expectBlocked(error: unknown, fetchImpl: ReturnType<typeof vi.fn>) {
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).message).toMatch(/host inatteso/);
+    expect((error as GitProviderError).message).not.toContain("api-token");
+    expect((error as GitProviderError).message).not.toContain("app-pass");
+    const calledUrls = fetchImpl.mock.calls.map((c) => String((c as [string])[0]));
+    expect(calledUrls).not.toContain(EVIL);
+    expect(calledUrls.every((u) => u.startsWith("https://api.bitbucket.org/"))).toBe(true);
+  }
+
+  it("listPrComments", async () => {
+    const fetchImpl = fetchWith(() => ({
+      values: [{ id: 1, created_on: "2026-09-30T10:00:00+00:00", content: { raw: "x" }, user: { uuid: "{u}" } }],
+      next: EVIL,
+    }));
+    const provider = new BitbucketProvider({ fetchImpl });
+    const error = await provider.listPrComments(config, 7).then(() => null, (e: unknown) => e);
+    expectBlocked(error, fetchImpl);
+  });
+
+  it("listRepositories", async () => {
+    const fetchImpl = fetchWith(() => ({ values: [bbRepo("myws/a", "main")], next: EVIL }));
+    const provider = new BitbucketProvider({ fetchImpl });
+    const error = await provider.listRepositories(account).then(() => null, (e: unknown) => e);
+    expectBlocked(error, fetchImpl);
+  });
+
+  it("listBranches", async () => {
+    const fetchImpl = fetchWith((url) =>
+      url.includes("/refs/branches") ? { values: [{ name: "main" }], next: EVIL } : { mainbranch: { name: "main" } }
+    );
+    const provider = new BitbucketProvider({ fetchImpl });
+    const error = await provider.listBranches(credentials, "myws/repo").then(() => null, (e: unknown) => e);
+    expectBlocked(error, fetchImpl);
+  });
+});

@@ -5,6 +5,7 @@ import {
   fetchWithTimeout,
   getHeader,
   GitProviderError,
+  assertPageOnApiHost,
   parseNextLink,
   parseRepoUrl,
   readJsonResponse,
@@ -746,6 +747,8 @@ export class GitHubProvider implements GitProvider {
       `${API_BASE}/user/repos?per_page=100&sort=updated&affiliation=${encodeURIComponent("owner,collaborator,organization_member")}`;
     const repos: RepoSummary[] = [];
     for (let pageNumber = 0; pageNumber < MAX_REPO_PAGES && url; pageNumber++) {
+      // Il `next` lo sceglie la risposta: mai seguirlo fuori dall'API col token.
+      assertPageOnApiHost(url, API_BASE, "GitHub");
       const response = await fetchImpl(url, { method: "GET", headers });
       await ensureListResponse(response, "GitHub");
       const link = response.headers.get("link");
@@ -793,6 +796,8 @@ export class GitHubProvider implements GitProvider {
     let url: string | null = `${API_BASE}/repos/${repoFullName}/branches?per_page=100`;
     const branches: string[] = [];
     for (let pageNumber = 0; pageNumber < MAX_BRANCH_PAGES && url; pageNumber++) {
+      // Il `next` lo sceglie la risposta: mai seguirlo fuori dall'API col token.
+      assertPageOnApiHost(url, API_BASE, "GitHub");
       const response = await fetchImpl(url, { method: "GET", headers });
       await ensureListResponse(response, "GitHub");
       const link = response.headers.get("link");
@@ -821,13 +826,7 @@ export class GitHubProvider implements GitProvider {
     const items: unknown[] = [];
     let url: string | null = firstUrl;
     for (let page = 0; page < MAX_COMMENT_PAGES && url; page++) {
-      if (!isGitHubApiUrl(url)) {
-        throw new GitProviderError(
-          "GitHub ha indicato una pagina successiva fuori da api.github.com: non la seguo per non inviare il token altrove",
-          0,
-          ""
-        );
-      }
+      assertPageOnApiHost(url, API_BASE, "GitHub");
       const response = await fetchImpl(url, { method: "GET", headers });
       await ensureOkResponse(response, "GitHub");
       const link = response.headers.get("link");
@@ -907,10 +906,3 @@ function githubAuthor(raw: unknown): { id: string; login: string } | null {
 }
 
 /** Vero solo per un URL https sull'host dell'API GitHub (`API_BASE`). */
-function isGitHubApiUrl(url: string): boolean {
-  try {
-    return new URL(url).origin === API_BASE;
-  } catch {
-    return false;
-  }
-}

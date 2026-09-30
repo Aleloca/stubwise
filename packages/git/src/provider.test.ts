@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import { BitbucketProvider } from "./bitbucket.js";
 import { GitHubProvider } from "./github.js";
 import {
+  assertPageOnApiHost,
   commitWebUrl,
+  GitProviderError,
   getProvider,
   isFullCommitSha,
   parsePrNumberFromUrl,
@@ -123,5 +125,53 @@ describe("isFullCommitSha", () => {
     expect(isFullCommitSha("g".repeat(40))).toBe(false);
     expect(isFullCommitSha("a".repeat(41))).toBe(false);
     expect(isFullCommitSha("")).toBe(false);
+  });
+});
+
+describe("assertPageOnApiHost", () => {
+  const BB = "https://api.bitbucket.org";
+
+  it("accetta una pagina sull'origin dell'API (anche con porta di default e maiuscole)", () => {
+    expect(() => assertPageOnApiHost(`${BB}/2.0/repositories/ws?page=2`, BB, "Bitbucket")).not.toThrow();
+    expect(() => assertPageOnApiHost("https://API.bitbucket.org:443/2.0/x", BB, "Bitbucket")).not.toThrow();
+    // L'origine attesa può arrivare con un percorso: conta solo l'origin.
+    expect(() =>
+      assertPageOnApiHost(`${BB}/2.0/x`, "https://api.bitbucket.org/2.0", "Bitbucket")
+    ).not.toThrow();
+  });
+
+  it.each([
+    ["host diverso", "https://evil.example/2.0/x"],
+    ["sottodominio-trappola", "https://api.bitbucket.org.evil.example/2.0/x"],
+    ["userinfo che maschera l'host", "https://api.bitbucket.org@evil.example/2.0/x"],
+    ["userinfo sull'host giusto", "https://user:pw@api.bitbucket.org/2.0/x"],
+    ["solo username sull'host giusto", "https://user@api.bitbucket.org/2.0/x"],
+    ["http invece di https", "http://api.bitbucket.org/2.0/x"],
+    ["porta diversa", "https://api.bitbucket.org:8443/2.0/x"],
+    ["URL relativo", "/2.0/repositories/ws?page=2"],
+    ["URL malformato", "https://"],
+    ["stringa vuota", ""],
+  ])("%s → GitProviderError", (_label, url) => {
+    let error: unknown = null;
+    try {
+      assertPageOnApiHost(url, BB, "Bitbucket");
+    } catch (e) {
+      error = e;
+    }
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).message).toMatch(/^Bitbucket ha indicato una pagina successiva/);
+  });
+
+  it("il messaggio mostra l'origin ricevuta, mai percorso, query né userinfo", () => {
+    let message = "";
+    try {
+      assertPageOnApiHost("https://user:s3cret@evil.example/path?token=abc", BB, "Bitbucket");
+    } catch (e) {
+      message = (e as Error).message;
+    }
+    expect(message).toContain("https://evil.example");
+    expect(message).not.toContain("s3cret");
+    expect(message).not.toContain("token=abc");
+    expect(message).not.toContain("/path");
   });
 });

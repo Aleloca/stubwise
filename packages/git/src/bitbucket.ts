@@ -5,6 +5,7 @@ import {
   fetchWithTimeout,
   getHeader,
   GitProviderError,
+  assertPageOnApiHost,
   parseRepoUrl,
   readJsonResponse,
   rollupCheckStatus,
@@ -308,6 +309,8 @@ export class BitbucketProvider implements GitProvider {
     let url: string | null =
       `${API_BASE}/repositories/${owner}/${repo}/pullrequests/${prNumber}/comments?pagelen=100`;
     for (let page = 0; page < MAX_COMMENT_PAGES && url; page++) {
+      // Il `next` lo sceglie la risposta: mai seguirlo fuori dall'API col token.
+      assertPageOnApiHost(url, API_BASE, "Bitbucket");
       const response = await fetchImpl(url, { method: "GET", headers: { Authorization: auth } });
       await ensureOkResponse(response, "Bitbucket");
       const data = (await readJsonResponse(response, "Bitbucket")) as {
@@ -841,6 +844,8 @@ export class BitbucketProvider implements GitProvider {
       workspace
     )}?pagelen=100&sort=-updated_on`;
     for (let page = 0; page < MAX_REPO_PAGES && url && repos.length < MAX_TOTAL_REPOS; page++) {
+      // Il `next` lo sceglie la risposta: mai seguirlo fuori dall'API col token.
+      assertPageOnApiHost(url, API_BASE, "Bitbucket");
       const response = await fetchImpl(url, { method: "GET", headers: { Authorization: auth } });
       await ensureListResponse(response, "Bitbucket");
       const data = (await readJsonResponse(response, "Bitbucket")) as {
@@ -893,6 +898,8 @@ export class BitbucketProvider implements GitProvider {
     let url: string | null = `${API_BASE}/repositories/${repoFullName}/refs/branches?pagelen=100`;
     const branches: string[] = [];
     for (let pageNumber = 0; pageNumber < MAX_BRANCH_PAGES && url; pageNumber++) {
+      // Il `next` lo sceglie la risposta: mai seguirlo fuori dall'API col token.
+      assertPageOnApiHost(url, API_BASE, "Bitbucket");
       const response = await fetchImpl(url, { method: "GET", headers: { Authorization: auth } });
       await ensureListResponse(response, "Bitbucket");
       const data = (await readJsonResponse(response, "Bitbucket")) as {
