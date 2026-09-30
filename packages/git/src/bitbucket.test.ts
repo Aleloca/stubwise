@@ -708,6 +708,12 @@ describe("BitbucketProvider.parseChangesRequestedEvent", () => {
     expect(provider.parseChangesRequestedEvent(headers, "x")).toBeNull();
     expect(provider.parseChangesRequestedEvent(headers, { pullrequest: null })).toBeNull();
   });
+
+  it("id della PR non intero → null", () => {
+    const p = payload();
+    (p.pullrequest as { id: unknown }).id = 1.5;
+    expect(provider.parseChangesRequestedEvent(headers, p)).toBeNull();
+  });
 });
 describe("BitbucketProvider.parsePushEvent", () => {
   const provider = new BitbucketProvider();

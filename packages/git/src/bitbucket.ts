@@ -374,7 +374,13 @@ export class BitbucketProvider implements GitProvider {
     if (typeof payload.pullrequest !== "object" || payload.pullrequest === null) return null;
     const pr = payload.pullrequest as { id?: unknown; source?: { branch?: { name?: unknown } } };
     const sourceBranch = pr.source?.branch?.name;
-    if (typeof pr.id !== "number" || typeof sourceBranch !== "string") return null;
+    if (
+      typeof pr.id !== "number" ||
+      !Number.isSafeInteger(pr.id) ||
+      typeof sourceBranch !== "string"
+    ) {
+      return null;
+    }
 
     const requester = bitbucketAccount(payload.changes_request?.user);
     const actor = bitbucketAccount(payload.actor);

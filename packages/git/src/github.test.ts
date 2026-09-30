@@ -653,6 +653,18 @@ describe("GitHubProvider.parseChangesRequestedEvent", () => {
     expect(provider.parseChangesRequestedEvent(headers, null)).toBeNull();
     expect(provider.parseChangesRequestedEvent(headers, { action: "submitted" })).toBeNull();
   });
+
+  it("numero della PR non intero → null", () => {
+    const p = payload();
+    (p.pull_request as { number: unknown }).number = 1.5;
+    expect(provider.parseChangesRequestedEvent(headers, p)).toBeNull();
+  });
+
+  it("id dell'autore non intero → null", () => {
+    const p = payload();
+    (p.review.user as { id: unknown }).id = 1.5;
+    expect(provider.parseChangesRequestedEvent(headers, p)).toBeNull();
+  });
 });
 
 describe("GitHubProvider.parsePushEvent", () => {

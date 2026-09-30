@@ -353,6 +353,10 @@ export class GitHubProvider implements GitProvider {
    * accettano entrambi. `review.body` può essere null. Ogni altro stato
    * (approved, commented) e ogni altra action (edited, dismissed) → null.
    * Mai lancia.
+   *
+   * `review.user` è l'autore della review; in `submitted` `sender` coincide,
+   * quindi non va confrontato. L'asimmetria con Bitbucket, dove actor e
+   * changes_request.user sono due campi che possono discordare, è voluta.
    */
   parseChangesRequestedEvent(
     headers: Record<string, string>,
@@ -377,8 +381,10 @@ export class GitHubProvider implements GitProvider {
     const actorLogin = review.user?.login;
     if (
       typeof pr.number !== "number" ||
+      !Number.isSafeInteger(pr.number) ||
       typeof pr.head?.ref !== "string" ||
       typeof actorId !== "number" ||
+      !Number.isSafeInteger(actorId) ||
       typeof actorLogin !== "string"
     ) {
       return null;
