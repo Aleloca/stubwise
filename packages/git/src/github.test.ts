@@ -584,6 +584,77 @@ describe("GitHubProvider.parsePrEvent", () => {
   });
 });
 
+describe("GitHubProvider.parseChangesRequestedEvent", () => {
+  const provider = new GitHubProvider();
+  const headers = { "x-github-event": "pull_request_review" };
+  const payload = (state = "changes_requested", action = "submitted") => ({
+    action,
+    review: {
+      id: 900,
+      state,
+      body: "Manca la gestione dell'errore 404",
+      user: { id: 12345, login: "mario-rossi" },
+      commit_id: "a".repeat(40),
+    },
+    pull_request: {
+      number: 42,
+      head: { ref: "stubwise/ticket-7", sha: "a".repeat(40) },
+      base: { ref: "main" },
+      html_url: "https://github.com/octo/repo/pull/42",
+    },
+    sender: { id: 12345, login: "mario-rossi" },
+  });
+
+  it("submitted + changes_requested → PR, branch, autore (id come stringa), testo", () => {
+    expect(provider.parseChangesRequestedEvent(headers, payload())).toEqual({
+      prNumber: 42,
+      sourceBranch: "stubwise/ticket-7",
+      actorId: "12345",
+      actorLogin: "mario-rossi",
+      reviewBody: "Manca la gestione dell'errore 404",
+    });
+  });
+
+  it("stato maiuscolo (forma REST) accettato; header case-insensitive", () => {
+    expect(
+      provider.parseChangesRequestedEvent({ "X-GitHub-Event": "pull_request_review" }, payload("CHANGES_REQUESTED"))
+    ).not.toBeNull();
+  });
+
+  it("body null o vuoto → reviewBody null", () => {
+    const p = payload();
+    (p.review as { body: unknown }).body = null;
+    expect(provider.parseChangesRequestedEvent(headers, p)?.reviewBody).toBeNull();
+    (p.review as { body: unknown }).body = "   ";
+    expect(provider.parseChangesRequestedEvent(headers, p)?.reviewBody).toBeNull();
+  });
+
+  it("approved, commented, dismissed, edited → null", () => {
+    expect(provider.parseChangesRequestedEvent(headers, payload("approved"))).toBeNull();
+    expect(provider.parseChangesRequestedEvent(headers, payload("commented"))).toBeNull();
+    expect(provider.parseChangesRequestedEvent(headers, payload("changes_requested", "dismissed"))).toBeNull();
+    expect(provider.parseChangesRequestedEvent(headers, payload("changes_requested", "edited"))).toBeNull();
+  });
+
+  it("altri eventi → null, e gli altri parser non vedono questo evento", () => {
+    expect(provider.parseChangesRequestedEvent({ "x-github-event": "pull_request" }, payload())).toBeNull();
+    expect(provider.parsePrEvent(headers, payload())).toBeNull();
+    expect(provider.parseWebhook(headers, payload())).toBeNull();
+    expect(provider.parsePushEvent(headers, payload())).toBeNull();
+  });
+
+  it("campi obbligatori mancanti o body malformato → null, senza lanciare", () => {
+    const noUser = payload();
+    (noUser.review as { user: unknown }).user = null;
+    expect(provider.parseChangesRequestedEvent(headers, noUser)).toBeNull();
+    const noRef = payload();
+    (noRef.pull_request as { head: unknown }).head = {};
+    expect(provider.parseChangesRequestedEvent(headers, noRef)).toBeNull();
+    expect(provider.parseChangesRequestedEvent(headers, null)).toBeNull();
+    expect(provider.parseChangesRequestedEvent(headers, { action: "submitted" })).toBeNull();
+  });
+});
+
 describe("GitHubProvider.parsePushEvent", () => {
   const provider = new GitHubProvider();
   const pushBody = {

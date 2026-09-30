@@ -13,6 +13,7 @@ import {
   MergeNotAllowedError,
   type AccountConfig,
   type AccountCredentials,
+  type ChangesRequestedEvent,
   type CheckOutcomeStatus,
   type CredentialCheck,
   type FetchLike,
@@ -342,6 +343,54 @@ export class GitHubProvider implements GitProvider {
       targetBranch: pr.base.ref,
       headSha: pr.head.sha,
       prUrl: pr.html_url,
+    };
+  }
+
+  /**
+   * "Request changes" su una PR (ciclo di correzione, design §9): evento
+   * `pull_request_review`, action `submitted`, `review.state`
+   * `changes_requested` — minuscolo nel webhook, maiuscolo nella REST: si
+   * accettano entrambi. `review.body` può essere null. Ogni altro stato
+   * (approved, commented) e ogni altra action (edited, dismissed) → null.
+   * Mai lancia.
+   */
+  parseChangesRequestedEvent(
+    headers: Record<string, string>,
+    body: unknown
+  ): ChangesRequestedEvent | null {
+    if (getHeader(headers, "x-github-event") !== "pull_request_review") return null;
+    if (typeof body !== "object" || body === null) return null;
+    const payload = body as { action?: unknown; review?: unknown; pull_request?: unknown };
+    if (payload.action !== "submitted") return null;
+    if (typeof payload.review !== "object" || payload.review === null) return null;
+    if (typeof payload.pull_request !== "object" || payload.pull_request === null) return null;
+    const review = payload.review as {
+      state?: unknown;
+      body?: unknown;
+      user?: { id?: unknown; login?: unknown } | null;
+    };
+    if (typeof review.state !== "string" || review.state.toLowerCase() !== "changes_requested") {
+      return null;
+    }
+    const pr = payload.pull_request as { number?: unknown; head?: { ref?: unknown } };
+    const actorId = review.user?.id;
+    const actorLogin = review.user?.login;
+    if (
+      typeof pr.number !== "number" ||
+      typeof pr.head?.ref !== "string" ||
+      typeof actorId !== "number" ||
+      typeof actorLogin !== "string"
+    ) {
+      return null;
+    }
+    const reviewBody =
+      typeof review.body === "string" && review.body.trim().length > 0 ? review.body : null;
+    return {
+      prNumber: pr.number,
+      sourceBranch: pr.head.ref,
+      actorId: String(actorId),
+      actorLogin,
+      reviewBody,
     };
   }
 
