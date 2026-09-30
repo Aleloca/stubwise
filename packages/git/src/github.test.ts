@@ -1746,3 +1746,131 @@ describe("GitHubProvider.submitPrReview", () => {
     expect((error as GitProviderError).message).not.toMatch(/autore/);
   });
 });
+
+describe("GitHubProvider.getAuthenticatedUserId", () => {
+  const USER_URL = "https://api.github.com/user";
+
+  it("GET /user con Bearer → id numerico come stringa", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ id: 12345, login: "stubwise-bot" }, 200));
+    const provider = new GitHubProvider({ fetchImpl });
+
+    await expect(provider.getAuthenticatedUserId({ credentials: { token: "ghp_secret" } })).resolves.toBe("12345");
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(USER_URL);
+    expect(init.method).toBe("GET");
+    expect((init.headers as Record<string, string>)["Authorization"]).toBe("Bearer ghp_secret");
+    expect((init.headers as Record<string, string>)["Accept"]).toBe("application/vnd.github+json");
+  });
+
+  it("restituisce l'id, MAI il login", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ id: 987, login: "1234" }, 200));
+    const provider = new GitHubProvider({ fetchImpl });
+    await expect(provider.getAuthenticatedUserId(config)).resolves.toBe("987");
+  });
+
+  it("accetta anche una ProjectGitConfig intera", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ id: 7, login: "x" }, 200));
+    const provider = new GitHubProvider({ fetchImpl });
+    await expect(provider.getAuthenticatedUserId(config)).resolves.toBe("7");
+  });
+
+  it("opts.fetchImpl per chiamata vince su quello del costruttore", async () => {
+    const ctorFetch = vi.fn().mockResolvedValue(jsonResponse({ id: 1, login: "ctor" }, 200));
+    const callFetch = vi.fn().mockResolvedValue(jsonResponse({ id: 2, login: "call" }, 200));
+    const provider = new GitHubProvider({ fetchImpl: ctorFetch });
+    await expect(provider.getAuthenticatedUserId(config, { fetchImpl: callFetch })).resolves.toBe("2");
+    expect(ctorFetch).not.toHaveBeenCalled();
+  });
+
+  it("stessa fixture utente: === actorId del webhook === authorId dei commenti", async () => {
+    // Il confronto del design §5 è un'uguaglianza di stringhe: la forma
+    // dell'identità deve essere UNA sola nei tre punti.
+    const user = { id: 424242, login: "stubwise-bot", type: "User" };
+    const fetchImpl = vi.fn().mockImplementation((input: string | URL) => {
+      const url = String(input);
+      if (url === USER_URL) return Promise.resolve(jsonResponse({ ...user }, 200));
+      if (url.includes("/issues/42/comments")) {
+        return Promise.resolve(
+          jsonResponse(
+            [{ id: 1, user: { ...user }, body: "da correggere", created_at: "2026-09-30T10:01:00Z" }],
+            200
+          )
+        );
+      }
+      return Promise.resolve(jsonResponse([], 200));
+    });
+    const provider = new GitHubProvider({ fetchImpl });
+
+    const me = await provider.getAuthenticatedUserId(config);
+    const [fromComment] = await provider.listPrComments(config, 42);
+    const fromEvent = provider.parseChangesRequestedEvent(
+      { "x-github-event": "pull_request_review" },
+      {
+        action: "submitted",
+        review: { id: 900, state: "changes_requested", body: "no", user: { ...user } },
+        pull_request: { number: 42, head: { ref: "stubwise/ticket-7" } },
+        sender: { ...user },
+      }
+    );
+
+    expect(me).toBe("424242");
+    expect(fromEvent?.actorId).toBe(me);
+    expect(fromComment?.authorId).toBe(me);
+  });
+
+  it.each([
+    ["id stringa", { id: "12345", login: "x" }],
+    ["id assente", { login: "x" }],
+    ["id non intero", { id: 1.5, login: "x" }],
+    ["id oltre gli interi sicuri", { id: 2 ** 53, login: "x" }],
+    ["corpo null", null],
+  ])("risposta con %s → GitProviderError (mai un'identità inventata)", async (_label, body) => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(body, 200));
+    const provider = new GitHubProvider({ fetchImpl });
+    await expect(provider.getAuthenticatedUserId(config)).rejects.toBeInstanceOf(GitProviderError);
+  });
+
+  it("401 → GitProviderError che dice credenziali non valide, senza il token", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("bad", { status: 401 }));
+    const provider = new GitHubProvider({ fetchImpl });
+    const error = await provider.getAuthenticatedUserId(config).then(
+      () => null,
+      (e: unknown) => e
+    );
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).status).toBe(401);
+    const message = (error as GitProviderError).message;
+    expect(message).toMatch(/credenziali/i);
+    expect(message).not.toMatch(/GitHub App/);
+    expect(message).not.toContain("ghp_secret");
+  });
+
+  it("403 → GitProviderError che spiega che serve un utente/PAT e non una GitHub App, senza il token", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("forbidden", { status: 403 }));
+    const provider = new GitHubProvider({ fetchImpl });
+    const error = await provider.getAuthenticatedUserId(config).then(
+      () => null,
+      (e: unknown) => e
+    );
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).status).toBe(403);
+    const message = (error as GitProviderError).message;
+    expect(message).toMatch(/GitHub App/);
+    expect(message).toMatch(/personal access token/i);
+    expect(message).not.toMatch(/credenziali non valide/i);
+    expect(message).not.toContain("ghp_secret");
+  });
+
+  it("altri non-2xx → GitProviderError con lo status vero", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("boom", { status: 500 }));
+    const provider = new GitHubProvider({ fetchImpl });
+    const error = await provider.getAuthenticatedUserId(config).then(
+      () => null,
+      (e: unknown) => e
+    );
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).status).toBe(500);
+    expect((error as GitProviderError).message).not.toMatch(/GitHub App/);
+  });
+});
