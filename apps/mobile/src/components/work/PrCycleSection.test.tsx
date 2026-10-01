@@ -9,6 +9,7 @@ import { Linking } from "react-native";
 import { AuthContext } from "../../app/auth-context";
 import type { AuthContextValue } from "../../app/providers";
 import "../../i18n";
+import * as correctionMutations from "../../lib/correction-mutations";
 import { settleMutations } from "../../test-utils/settle-mutations";
 import { workKeys } from "../../lib/query-keys";
 import { colors } from "../../theme/tokens";
@@ -483,6 +484,23 @@ describe("PrCycleSection — «Riprendi» una correzione ferma (G5)", () => {
         rejectFirst = reject;
       }),
     );
+    // Una spia sul `resume` che l'hook restituisce: prova che ENTRAMBI i tap
+    // sono arrivati al gestore (altrimenti «una sola run-ai» passerebbe anche
+    // se il secondo tap non fosse mai partito, e il test sarebbe vacuo) e che
+    // la guardia ha scartato il secondo (`false`).
+    const realUseResume = correctionMutations.useResumeCorrection;
+    const resumeResults: boolean[] = [];
+    const useResumeSpy = jest.spyOn(correctionMutations, "useResumeCorrection").mockImplementation((ticketId) => {
+      const real = realUseResume(ticketId);
+      return {
+        ...real,
+        resume: (heldJobId, onDone) => {
+          const started = real.resume(heldJobId, onDone);
+          resumeResults.push(started);
+          return started;
+        },
+      };
+    });
     const { queryClient } = await renderSection(client, [
       repo({ cycle: heldCycle() }),
       repo({ repositoryId: OTHER_REPO_ID, repositoryName: "API", prUrl: `${PR_URL}1`, cycle: heldCycle() }),
@@ -502,6 +520,7 @@ describe("PrCycleSection — «Riprendi» una correzione ferma (G5)", () => {
       tap(first);
       tap(second);
     });
+    expect(resumeResults).toEqual([true, false]);
     expect(runAi).toHaveBeenCalledTimes(1);
     expect(runAi).toHaveBeenCalledWith(TICKET_ID, { resumeCorrectionJobId: HELD_JOB_ID });
 
@@ -512,6 +531,7 @@ describe("PrCycleSection — «Riprendi» una correzione ferma (G5)", () => {
     await waitFor(() => expect(screen.getByTestId(`pr-cycle-resume-error-${REPO_ID}`)).toBeTruthy());
     expect(screen.queryByTestId(`pr-cycle-resume-error-${OTHER_REPO_ID}`)).toBeNull();
     await settleMutations(queryClient);
+    useResumeSpy.mockRestore();
   });
 
   test("l'errore di ripresa sparisce aprendo il pannello di «Applica»", async () => {

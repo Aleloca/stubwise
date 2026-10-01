@@ -49,6 +49,7 @@ export interface PrCycleSectionProps {
  * vuoto), e ogni riga su ticket + repository.
  */
 export function PrCycleSection(props: PrCycleSectionProps) {
+  if (!hasPrToShow(props.repositories)) return null;
   return <PrCycleSectionBody key={props.ticketId} {...props} />;
 }
 
@@ -72,8 +73,7 @@ function PrCycleSectionBody({ ticketId, ticketNumber, repositories }: PrCycleSec
   // suo errore va sotto quella riga e basta.
   const [resumedRepositoryId, setResumedRepositoryId] = useState<string | null>(null);
 
-  const withPr = repositories.filter((repo): repo is RepoWithPr => repo.prUrl !== null);
-  if (withPr.length === 0) return null;
+  const withPr = repositories.filter(hasPr);
 
   // Senza rete i bottoni sono spenti (`disabled` delle due mutazioni): la
   // sezione dice perché UNA volta, se almeno una riga offre un'azione.
@@ -191,6 +191,19 @@ function PrCycleSectionBody({ ticketId, ticketNumber, repositories }: PrCycleSec
       />
     </View>
   );
+}
+
+function hasPr(repo: Repo): repo is RepoWithPr {
+  return repo.prUrl !== null;
+}
+
+/**
+ * Se la sezione rende qualcosa: almeno una PR sul ticket. È l'UNICO posto in
+ * cui la condizione è scritta — la schermata la usa per non montare il suo
+ * contenitore (con il margine) attorno a una sezione che non c'è.
+ */
+export function hasPrToShow(repositories: readonly Repo[]): boolean {
+  return repositories.some(hasPr);
 }
 
 /**

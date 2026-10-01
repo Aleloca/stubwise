@@ -1114,6 +1114,7 @@ describe("WorkScreen — il ciclo di correzione della PR", () => {
     });
     await renderScreen(client, "admin");
     await waitFor(() => expect(screen.getByTestId("pr-cycle-section")).toBeTruthy());
+    expect(screen.getByTestId("work-pr-row")).toBeTruthy();
     expect(screen.getByText("portale-b2b")).toBeTruthy();
     expect(screen.getByTestId("pr-cycle-line-repo-1").props.children).toBe(
       "Giro 2 di 3 · correzione ferma · budget esaurito · Modifiche richieste da mario.rossi su Bitbucket · in coda · parte quando finisce il lavoro in corso sul ticket",
@@ -1173,10 +1174,17 @@ describe("WorkScreen — il ciclo di correzione della PR", () => {
   });
 
   test("nessuna PR sul ticket: nessuna sezione", async () => {
-    const client = makeClient();
+    // Un repository col branch ma senza PR: la sezione non ha niente da dire.
+    const client = makeClient({
+      get: jest.fn().mockResolvedValue(
+        ticket({ repositories: [{ ...prRepo(null), prUrl: null }] }),
+      ),
+    });
     await renderScreen(client);
     await waitFor(() => expect(screen.getByTestId("work-body")).toBeTruthy());
     expect(screen.queryByTestId("pr-cycle-section")).toBeNull();
+    // Nemmeno il contenitore col margine: niente spazio vuoto sotto il ticket.
+    expect(screen.queryByTestId("work-pr-row")).toBeNull();
   });
 });
 

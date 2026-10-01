@@ -26,7 +26,7 @@ import { CommentsSection } from "../../components/work/CommentsSection";
 import { DestructiveActions } from "../../components/work/DestructiveActions";
 import { PlanSection } from "../../components/work/PlanSection";
 import { QuestionBlock } from "../../components/work/QuestionBlock";
-import { PrCycleSection } from "../../components/work/PrCycleSection";
+import { hasPrToShow, PrCycleSection } from "../../components/work/PrCycleSection";
 import { RunWorkButton } from "../../components/work/RunWorkButton";
 import { StatusBadge } from "../../components/work/StatusBadge";
 import { TicketFields } from "../../components/work/TicketFields";
@@ -371,11 +371,15 @@ function WorkBody({
         Le PR del ticket col ciclo review → correzione (30 set 2026). Sotto
         «Avvia il lavoro» perché è l'altra azione che fa lavorare l'agente, e
         sopra i campi: chi apre un ticket in revisione cerca prima questo.
-        `PrCycleSection` non rende niente se il ticket non ha una PR.
+        Senza PR la sezione non c'è, e nemmeno il suo contenitore: il margine
+        resterebbe come uno spazio vuoto (`hasPrToShow`, la stessa condizione
+        con cui la sezione decide di non rendere niente).
       */}
-      <View style={styles.prRow}>
-        <PrCycleSection ticketId={ticket.id} ticketNumber={ticket.number} repositories={ticket.repositories} />
-      </View>
+      {hasPrToShow(ticket.repositories) && (
+        <View style={styles.prRow} testID="work-pr-row">
+          <PrCycleSection ticketId={ticket.id} ticketNumber={ticket.number} repositories={ticket.repositories} />
+        </View>
+      )}
 
       <View style={styles.fieldsRow}>
         <TicketFields ticket={ticket} users={users} milestones={milestones} />

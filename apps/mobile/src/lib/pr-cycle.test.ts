@@ -6,7 +6,7 @@ import webIt from "../../../web/src/i18n/locales/it.json";
 import i18n from "../i18n";
 import appEn from "../i18n/en.json";
 import appIt from "../i18n/it.json";
-import { prCycleLineFor, prCycleText } from "./pr-cycle";
+import { isHeldCorrectionJob, prCycleLineFor, prCycleText } from "./pr-cycle";
 
 /**
  * GEMELLO di `apps/web/src/lib/pr-cycle-line.test.ts`: ogni caso del web è
@@ -402,6 +402,44 @@ describe("prCycleLineFor (gemella di prCycleLineFor del web)", () => {
       );
       expect(line.segments[0]).toEqual({ key: "mobile.work.pr.cycle.requestedOnPlatform", params: { name: "octo", platform: "GitHub" } });
     });
+  });
+});
+
+/**
+ * La regola che toglie il rilancio generico su una correzione ferma, sul dato
+ * GREZZO: niente `readerSchema`, quindi un ciclo senza la chiave `heldJobId` o
+ * una voce senza `cycle` arrivano così come sono (doppi, fixture, server
+ * vecchio). Gemello di `$id.test.tsx` del web, «server vecchio (niente `cycle`
+ * né `heldJobId`)». La regola deve TACERE, non lanciare.
+ */
+describe("isHeldCorrectionJob sul dato grezzo", () => {
+  const job = { id: HELD_JOB_ID };
+
+  it("una voce SENZA la chiave `cycle`: tace", () => {
+    const raw: { cycle?: { heldJobId?: string | null } | null }[] = [{}];
+    expect("cycle" in raw[0]!).toBe(false);
+    expect(isHeldCorrectionJob(raw, job)).toBe(false);
+  });
+
+  it("un ciclo SENZA la chiave `heldJobId`: tace", () => {
+    const raw: { cycle?: { heldJobId?: string | null } | null }[] = [{ cycle: {} }];
+    expect("heldJobId" in raw[0]!.cycle!).toBe(false);
+    expect(isHeldCorrectionJob(raw, job)).toBe(false);
+  });
+
+  it("`job` undefined (nessun job sul ticket): tace", () => {
+    expect(isHeldCorrectionJob([{ cycle: { heldJobId: HELD_JOB_ID } }], undefined)).toBe(false);
+  });
+
+  it("le voci grezze non coprono una voce valida accanto: l'id combacia → true", () => {
+    const raw: { cycle?: { heldJobId?: string | null } | null }[] = [
+      {},
+      { cycle: {} },
+      { cycle: null },
+      { cycle: { heldJobId: HELD_JOB_ID } },
+    ];
+    expect(isHeldCorrectionJob(raw, job)).toBe(true);
+    expect(isHeldCorrectionJob(raw, { id: "un-altro-job" })).toBe(false);
   });
 });
 
