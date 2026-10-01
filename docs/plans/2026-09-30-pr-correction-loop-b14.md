@@ -187,7 +187,8 @@ Ordine: prima le letture (T1–T8), poi gli status di commit (T9–T18), poi i
 verdetti sulle PR di prova (T19–T33), poi chi ha il permesso di chiedere
 modifiche (T37–T40, emendamento E3 e permesso reale: aggiunti dopo, hanno
 numeri più alti ma vanno fatti qui), poi la riconsegna di Bitbucket (T41,
-emendamento E6), per ultimi i casi che richiedono una PR mergiata o chiusa
+emendamento E6), poi la riapertura di una PR rifiutata su Bitbucket (T42, G9),
+per ultimi i casi che richiedono una PR mergiata o chiusa
 (T34–T36).
 
 ### Letture (nessuna modifica)
@@ -752,6 +753,32 @@ endpoint che risponde **500**.
 - Pulizia: rimetti nel webhook di prova l'URL di prima; il revisore ritira la
   richiesta di modifiche dalla UI.
 
+#### T42 — Bitbucket: una PR rifiutata si può riaprire? (G9)
+
+Il server riporta una riga a `open` SOLO su un `reopened` di GitHub. Su
+Bitbucket non è sottoscritto nessun evento di riapertura, e il codice dà per
+scontato che una PR rifiutata (DECLINED) non si riapra. Va verificato.
+
+Prerequisito: una PR di prova **rifiutata** (`$PR_DECLINED`). Se non esiste,
+aprila sulla repo di prova e rifiutala dalla UI («Decline»). Non modifica
+nient'altro.
+
+1. Dalla UI di Bitbucket apri `$PR_DECLINED`: c'è un'azione per riaprirla
+   («Reopen» o simile)?
+2. Se c'è, premila. Il webhook di prova riceve una consegna? Se sì, con quale
+   `X-Event-Key`?
+
+```bash
+curl -sS -o "$OUT" -w 'HTTP %{http_code}\n' -u "$BB_EMAIL:$BB_TOKEN" "$B/$PR_DECLINED"; jq -c '{state}' "$OUT"
+```
+
+- Atteso: nessuna azione di riapertura, `state` = `DECLINED`.
+- Da annotare: c'è l'azione sì/no. Se c'è: l'`X-Event-Key` della consegna
+  (o «nessuna consegna») e lo `state` dopo la riapertura. Se una PR si
+  riapre, va detto **prima del merge**: in quel caso serve sottoscrivere
+  l'evento e chiamare `reopenPrRows` anche su Bitbucket.
+- Pulizia: se l'hai riaperta, rifiutala di nuovo.
+
 ### Casi con PR mergiata o chiusa (ultimi)
 
 #### T34 — `APPROVE` su una PR chiusa (B14 §8b, seconda parte)
@@ -841,3 +868,4 @@ node "$PROBE" bb-review BB_REV_EMAIL BB_REV_TOKEN "$PR_MERGED" approve
 | T39 | §9c (E3) | Bitbucket pubblico: bottone sì/no; premuto sì/no; consegna arrivata sì/no | |
 | T40 | §9d | esito/status di `gh-permission` con AUTHOR, META, NOPERM; permesso minimo del token; NOPERM → 403 o `none` | |
 | T41 | E6 | Bitbucket ritenta sì/no; n. tentativi e intervallo; `X-Request-UUID` uguale fra i tentativi sì/no; `X-Attempt-Number`; ultimo tentativo oltre 30' sì/no | |
+| T42 | G9 | azione di riapertura di una PR rifiutata sì/no; se sì: `X-Event-Key` della consegna (o nessuna) e `state` dopo | |
