@@ -349,7 +349,7 @@ describe("POST /api/git-accounts/:id/validate", () => {
     vi.unstubAllGlobals();
   });
 
-  it("validazione a livello account: usa /2.0/repositories/{workspace} e dà un singolo check", async () => {
+  it("validazione a livello account: usa /2.0/repositories/{workspace}; senza header degli scope, «non verificabili»", async () => {
     const created = await createAccount({
       name: "Validabile",
       provider: "bitbucket",
@@ -372,9 +372,12 @@ describe("POST /api/git-accounts/:id/validate", () => {
       headers: { cookie: adminCookie },
     });
     expect(res.statusCode).toBe(200);
-    const body = res.json() as { ok: boolean; checks: { name: string }[] };
-    expect(body.checks).toHaveLength(1);
-    expect(body.checks[0]!.name).toBe("Autenticazione e accesso workspace");
+    const body = res.json() as { ok: boolean; checks: { name: string; ok: boolean; detail: string }[] };
+    // Il 200 non porta `x-oauth-scopes`: il secondo check dice che gli scope
+    // non sono verificabili, con `ok: true` (D10) — il verdetto resta ok.
+    expect(body.checks.map((c) => c.name)).toEqual(["Autenticazione e accesso workspace", "Scope del token"]);
+    expect(body.checks[1]!.ok).toBe(true);
+    expect(body.checks[1]!.detail).toMatch(/non verificabili/);
     expect(body.ok).toBe(true);
     // Nessuna chiamata agli endpoint account/globali dismessi.
     expect(fetchMock.mock.calls.some(([u]) => String(u).includes("repositories?role=member"))).toBe(false);

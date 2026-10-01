@@ -1,5 +1,6 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
+import { BITBUCKET_REVIEWER_SCOPES } from "./bitbucket-scopes.js";
 import { GitHubProvider } from "./github.js";
 import {
   GitProviderError,
@@ -1267,6 +1268,26 @@ describe("GitHubProvider.validateAccount", () => {
     const headers = init.headers as Record<string, string>;
     expect(headers["Authorization"]).toBe("Bearer ghp_secret");
     expect(headers["Accept"]).toBe("application/vnd.github+json");
+  });
+
+  it("requiredScopes è ignorato: stesso output con e senza, anche con un header degli scope", async () => {
+    const respond = () =>
+      vi.fn(() =>
+        Promise.resolve(
+          new Response("[]", {
+            status: 200,
+            headers: { "x-oauth-scopes": "repo", "x-credential-type": "api_token" },
+          })
+        )
+      );
+    const provider = new GitHubProvider();
+    const without = await provider.validateAccount(account, { fetchImpl: respond() });
+    const withScopes = await provider.validateAccount(account, {
+      fetchImpl: respond(),
+      requiredScopes: BITBUCKET_REVIEWER_SCOPES,
+    });
+    expect(withScopes).toEqual(without);
+    expect(withScopes).toHaveLength(1);
   });
 
   it("401: check fallito (token non valido)", async () => {

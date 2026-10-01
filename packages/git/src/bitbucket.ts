@@ -40,6 +40,12 @@ import {
   type WebhookEvent,
   type WebhookResult,
 } from "./provider.js";
+import {
+  BITBUCKET_PRIMARY_SCOPES,
+  bitbucketMissingScopesFrom403,
+  bitbucketScopeChecks,
+  type BitbucketScope,
+} from "./bitbucket-scopes.js";
 
 const API_BASE = "https://api.bitbucket.org/2.0";
 
@@ -943,7 +949,7 @@ export class BitbucketProvider implements GitProvider {
 
   async validateAccount(
     config: AccountConfig,
-    opts: { fetchImpl?: FetchLike } = {}
+    opts: { fetchImpl?: FetchLike; requiredScopes?: readonly BitbucketScope[] } = {}
   ): Promise<CredentialCheck[]> {
     const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
     const { username, email, token } = config.credentials.credentials;
@@ -980,6 +986,10 @@ export class BitbucketProvider implements GitProvider {
       ];
     }
 
+    // La risposta della chiamata, conservata fuori dalla closure: sul 200 i
+    // suoi header dicono gli scope CONCESSI (nessuna chiamata in più). Resta
+    // `null` se `probe` cattura un errore di rete.
+    const seen: { ok: Response | null } = { ok: null };
     const check = await this.probe(CHECK, async () => {
       const r = await fetchWithTimeout(
         fetchImpl,
@@ -987,6 +997,7 @@ export class BitbucketProvider implements GitProvider {
         { headers: { Authorization: basicAuthHeader(restUser, token) } }
       );
       if (r.status === 200) {
+        seen.ok = r;
         return {
           name: CHECK,
           ok: true,
@@ -1001,11 +1012,13 @@ export class BitbucketProvider implements GitProvider {
         };
       }
       if (r.status === 403) {
+        const base =
+          "accesso negato (403): il token non ha accesso a questo workspace o manca lo scope read:repository:bitbucket";
+        const missing = bitbucketMissingScopesFrom403(await readBodySafely(r));
         return {
           name: CHECK,
           ok: false,
-          detail:
-            "accesso negato (403): il token non ha accesso a questo workspace o manca lo scope read:repository:bitbucket",
+          detail: missing.length > 0 ? `${base} (mancano ${missing.join(", ")})` : base,
         };
       }
       if (r.status === 404) {
@@ -1029,7 +1042,15 @@ export class BitbucketProvider implements GitProvider {
       };
     });
 
-    return [check];
+    // Gli scope si guardano SOLO su un 200: su ogni altro status (o su un
+    // errore di rete) gli header non dicono niente di affidabile, e resta il
+    // solo check di prima. Assente `requiredScopes` = l'insieme del
+    // principale, il più esigente (vedi `bitbucketRequiredScopes`).
+    if (seen.ok === null) return [check];
+    return [
+      check,
+      ...bitbucketScopeChecks(seen.ok.headers, opts.requiredScopes ?? BITBUCKET_PRIMARY_SCOPES),
+    ];
   }
 
   async ensureWebhook(
@@ -1325,6 +1346,15 @@ export class BitbucketProvider implements GitProvider {
  * (la sua forma base64) diventano `***`, PRIMA di qualunque taglio (un token
  * spezzato dal taglio non sopravvive). Il testo va nei log del chiamante.
  */
+/** Il corpo di una risposta come testo, o `null` se non si legge: non lancia mai. */
+async function readBodySafely(r: Response): Promise<string | null> {
+  try {
+    return await r.text();
+  } catch {
+    return null;
+  }
+}
+
 function maskCredentials(text: string, p: ProjectGitConfig, authHeader: string): string {
   const secrets = [p.credentials.token, authHeader.replace(/^Basic\s+/i, "")].filter((x) => x.length > 0);
   return secrets.reduce((acc, secret) => acc.split(secret).join("***"), text);

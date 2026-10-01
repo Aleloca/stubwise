@@ -3,6 +3,12 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import { BitbucketProvider } from "./bitbucket.js";
 import {
+  BITBUCKET_PRIMARY_SCOPES,
+  BITBUCKET_REVIEWER_SCOPES,
+  bitbucketRequiredScopes,
+  parseBitbucketScopes,
+} from "./bitbucket-scopes.js";
+import {
   GitProviderError,
   MergeNotAllowedError,
   ReviewCommentFailedError,
@@ -1813,7 +1819,7 @@ describe("BitbucketProvider.validateAccount", () => {
   const accountConfig = { credentials, workspace: "myws" };
   const ACCOUNT_URL = "https://api.bitbucket.org/2.0/repositories/myws?pagelen=1";
 
-  it("200: un solo check ok, con identità REST email:token; chiama /2.0/repositories/{workspace}", async () => {
+  it("200: check ok, con identità REST email:token; chiama /2.0/repositories/{workspace}", async () => {
     const fetchImpl = vi.fn((input: string | URL, init?: RequestInit) => {
       void input;
       void init;
@@ -1822,7 +1828,9 @@ describe("BitbucketProvider.validateAccount", () => {
     const provider = new BitbucketProvider();
     const checks = await provider.validateAccount(accountConfig, { fetchImpl });
 
-    expect(checks).toHaveLength(1);
+    // Risposta senza header degli scope: il secondo check dice che non sono verificabili.
+    expect(checks).toHaveLength(2);
+    expect(checks[1]!.name).toBe("Scope del token");
     expect(checks[0]!.name).toBe("Autenticazione e accesso workspace");
     expect(checks[0]!.ok).toBe(true);
     expect(checks[0]!.detail).toMatch(/myws/);
@@ -1901,6 +1909,214 @@ describe("BitbucketProvider.validateAccount", () => {
     expect(checks).toHaveLength(1);
     expect(checks[0]!.ok).toBe(false);
     expect(checks[0]!.detail).toMatch(/ECONNREFUSED/);
+  });
+});
+
+describe("BitbucketProvider.validateAccount: scope del token", () => {
+  const credentials: AccountCredentials = {
+    provider: "bitbucket",
+    credentials: { username: "alice", email: "alice@corp.io", token: "api-token" },
+  };
+  const accountConfig = { credentials, workspace: "myws" };
+  const FULL =
+    "read:user:bitbucket, read:repository:bitbucket, write:repository:bitbucket, read:pullrequest:bitbucket, write:pullrequest:bitbucket, read:webhook:bitbucket, write:webhook:bitbucket";
+  // Il token del revisore visto davvero sulla piattaforma (1 ott 2026): niente webhook.
+  const REVIEWER =
+    "read:user:bitbucket, read:repository:bitbucket, write:repository:bitbucket, read:pullrequest:bitbucket, write:pullrequest:bitbucket";
+
+  function respond(headers: Record<string, string>, status = 200) {
+    return vi.fn(() => Promise.resolve(new Response("{}", { status, headers })));
+  }
+  const apiToken = (scopes: string) => ({ "x-credential-type": "api_token", "x-oauth-scopes": scopes });
+  const byName = <C extends { name: string }>(checks: C[], name: string) => checks.find((c) => c.name === name);
+
+  it("token completo, validato come principale (default): tutti i check ok, nessuna chiamata in più", async () => {
+    const fetchImpl = respond(apiToken(FULL));
+    const checks = await new BitbucketProvider().validateAccount(accountConfig, { fetchImpl });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(checks.map((c) => c.name)).toEqual([
+      "Autenticazione e accesso workspace",
+      "Scope repository e pull request",
+      "Scope identità (read:user)",
+      "Scope webhook",
+    ]);
+    expect(checks.every((c) => c.ok)).toBe(true);
+    // Nessun `purpose`: `checkReviewAccount` del server filtra `webhook`.
+    expect(checks.every((c) => c.purpose === undefined)).toBe(true);
+  });
+
+  it("token del revisore validato come revisore: ok, e il gruppo webhook non c'è", async () => {
+    const fetchImpl = respond(apiToken(REVIEWER));
+    const checks = await new BitbucketProvider().validateAccount(accountConfig, {
+      fetchImpl,
+      requiredScopes: bitbucketRequiredScopes({ primary: false, reviewer: true }),
+    });
+    expect(checks.every((c) => c.ok)).toBe(true);
+    expect(byName(checks, "Scope webhook")).toBeUndefined();
+    expect(byName(checks, "Scope identità (read:user)")?.ok).toBe(true);
+  });
+
+  it("lo stesso token validato come principale: ko sul gruppo webhook, che nomina gli scope mancanti", async () => {
+    const fetchImpl = respond(apiToken(REVIEWER));
+    const checks = await new BitbucketProvider().validateAccount(accountConfig, {
+      fetchImpl,
+      requiredScopes: bitbucketRequiredScopes({ primary: true, reviewer: false }),
+    });
+    const webhook = byName(checks, "Scope webhook");
+    expect(webhook?.ok).toBe(false);
+    expect(webhook?.detail).toContain("read:webhook:bitbucket");
+    expect(webhook?.detail).toContain("write:webhook:bitbucket");
+    expect(byName(checks, "Scope repository e pull request")?.ok).toBe(true);
+  });
+
+  it("senza read:user: ko con il testo sui Request changes", async () => {
+    const fetchImpl = respond(apiToken(FULL.replace("read:user:bitbucket, ", "")));
+    const checks = await new BitbucketProvider().validateAccount(accountConfig, { fetchImpl });
+    const user = byName(checks, "Scope identità (read:user)");
+    expect(user?.ok).toBe(false);
+    expect(user?.detail).toContain("read:user:bitbucket");
+    expect(user?.detail).toMatch(/Request changes da Bitbucket vengono scartati/);
+    expect(byName(checks, "Scope webhook")?.ok).toBe(true);
+  });
+
+  it("scope repository mancante: ko bloccante anche per il revisore, nomina SOLO il mancante", async () => {
+    const fetchImpl = respond(apiToken(REVIEWER.replace("write:repository:bitbucket, ", "")));
+    const checks = await new BitbucketProvider().validateAccount(accountConfig, {
+      fetchImpl,
+      requiredScopes: BITBUCKET_REVIEWER_SCOPES,
+    });
+    const repo = byName(checks, "Scope repository e pull request");
+    expect(repo?.ok).toBe(false);
+    expect(repo?.detail).toContain("write:repository:bitbucket");
+    expect(repo?.detail).not.toContain("read:repository:bitbucket");
+    expect(checks.every((c) => c.ok)).toBe(false);
+  });
+
+  it("header con formattazione varia (spazi, maiuscole, virgole senza spazio): tutti ok", async () => {
+    const messy =
+      "  READ:User:Bitbucket,read:repository:bitbucket ,  Write:Repository:Bitbucket,,read:pullrequest:bitbucket,write:pullrequest:bitbucket,read:webhook:bitbucket,WRITE:webhook:bitbucket ";
+    const fetchImpl = respond({ "X-Credential-Type": " API_Token ", "X-OAuth-Scopes": messy });
+    const checks = await new BitbucketProvider().validateAccount(accountConfig, { fetchImpl });
+    expect(checks).toHaveLength(4);
+    expect(checks.every((c) => c.ok)).toBe(true);
+  });
+
+  it("parseBitbucketScopes: null se l'header manca, insieme normalizzato altrimenti", () => {
+    expect(parseBitbucketScopes(null)).toBeNull();
+    expect([...parseBitbucketScopes(" A:b ,c:D,, ")!]).toEqual(["a:b", "c:d"]);
+  });
+
+  it("header degli scope assente: check «non verificabili» che elenca cosa controllare, niente deduzioni", async () => {
+    const fetchImpl = respond({ "x-credential-type": "api_token" });
+    const checks = await new BitbucketProvider().validateAccount(accountConfig, { fetchImpl });
+    expect(checks).toHaveLength(2);
+    const scope = byName(checks, "Scope del token");
+    expect(scope?.ok).toBe(true);
+    expect(scope?.detail).toMatch(/non verificabili/);
+    for (const s of BITBUCKET_PRIMARY_SCOPES) expect(scope?.detail).toContain(s);
+  });
+
+  it("app password (x-credential-type diverso da api_token): non verificabile, anche se gli scope ci fossero", async () => {
+    const fetchImpl = respond({ "x-credential-type": "app_password", "x-oauth-scopes": "repository:write" });
+    const checks = await new BitbucketProvider().validateAccount(accountConfig, {
+      fetchImpl,
+      requiredScopes: BITBUCKET_REVIEWER_SCOPES,
+    });
+    expect(checks.map((c) => c.name)).toEqual(["Autenticazione e accesso workspace", "Scope del token"]);
+    expect(checks[1]!.detail).toMatch(/non verificabili/);
+    expect(checks[1]!.detail).not.toContain("webhook");
+  });
+
+  it("risposta non 2xx: nessun check sugli scope, il comportamento di prima resta", async () => {
+    const fetchImpl = respond(apiToken(""), 403);
+    const checks = await new BitbucketProvider().validateAccount(accountConfig, { fetchImpl });
+    expect(checks).toHaveLength(1);
+    expect(checks[0]!.ok).toBe(false);
+    expect(checks[0]!.detail).toMatch(/403/);
+  });
+
+  it("errore di rete: solo il check di autenticazione, nessun check sugli scope", async () => {
+    const fetchImpl = vi.fn(() => Promise.reject(new Error("network down")));
+    const checks = await new BitbucketProvider().validateAccount(accountConfig, { fetchImpl });
+    expect(checks).toHaveLength(1);
+    expect(checks[0]!.ok).toBe(false);
+    expect(checks[0]!.detail).toMatch(/network down/);
+  });
+
+  // D12: sul 403 Bitbucket dice nel corpo cosa serviva e cosa il token ha.
+  it("403 con error.detail.required/granted: il dettaglio nomina SOLO gli scope richiesti mancanti", async () => {
+    const body = JSON.stringify({
+      type: "error",
+      error: {
+        message: "Your credentials lack one or more required privilege scopes.",
+        detail: { required: ["read:repository:bitbucket"], granted: ["read:user:bitbucket"] },
+      },
+    });
+    const fetchImpl = vi.fn(() =>
+      Promise.resolve(new Response(body, { status: 403, headers: { "content-type": "application/json" } }))
+    );
+    const checks = await new BitbucketProvider().validateAccount(accountConfig, { fetchImpl });
+    expect(checks).toHaveLength(1);
+    expect(checks[0]!.ok).toBe(false);
+    expect(checks[0]!.detail).toMatch(/403/);
+    expect(checks[0]!.detail).toContain("mancano read:repository:bitbucket");
+    expect(checks[0]!.detail).not.toContain("read:user:bitbucket");
+  });
+
+  it("403 con error.detail.required stringa e granted che lo copre in parte", async () => {
+    const body = JSON.stringify({
+      type: "error",
+      error: {
+        message: "x",
+        detail: {
+          required: "read:repository:bitbucket, read:pullrequest:bitbucket",
+          granted: "read:pullrequest:bitbucket",
+        },
+      },
+    });
+    const fetchImpl = vi.fn(() => Promise.resolve(new Response(body, { status: 403 })));
+    const checks = await new BitbucketProvider().validateAccount(accountConfig, { fetchImpl });
+    expect(checks[0]!.detail).toContain("mancano read:repository:bitbucket");
+    expect(checks[0]!.detail).not.toContain("read:pullrequest:bitbucket");
+  });
+
+  it("403 con corpo non JSON: il dettaglio di sempre", async () => {
+    const fetchImpl = vi.fn(() => Promise.resolve(new Response("<html>Forbidden</html>", { status: 403 })));
+    const checks = await new BitbucketProvider().validateAccount(accountConfig, { fetchImpl });
+    expect(checks).toHaveLength(1);
+    expect(checks[0]!.detail).toBe(
+      "accesso negato (403): il token non ha accesso a questo workspace o manca lo scope read:repository:bitbucket"
+    );
+  });
+});
+
+describe("bitbucketRequiredScopes", () => {
+  it("principale: 7 scope, revisore: 5 (con i read accanto ai write), entrambi: l'unione, nessuno: il principale", () => {
+    expect(new Set(BITBUCKET_PRIMARY_SCOPES)).toEqual(
+      new Set([
+        "read:repository:bitbucket",
+        "write:repository:bitbucket",
+        "read:pullrequest:bitbucket",
+        "write:pullrequest:bitbucket",
+        "read:webhook:bitbucket",
+        "write:webhook:bitbucket",
+        "read:user:bitbucket",
+      ])
+    );
+    expect(new Set(BITBUCKET_REVIEWER_SCOPES)).toEqual(
+      new Set([
+        "read:repository:bitbucket",
+        "write:repository:bitbucket",
+        "read:pullrequest:bitbucket",
+        "write:pullrequest:bitbucket",
+        "read:user:bitbucket",
+      ])
+    );
+    expect(new Set(bitbucketRequiredScopes({ primary: true, reviewer: false }))).toEqual(new Set(BITBUCKET_PRIMARY_SCOPES));
+    expect(new Set(bitbucketRequiredScopes({ primary: false, reviewer: true }))).toEqual(new Set(BITBUCKET_REVIEWER_SCOPES));
+    expect(new Set(bitbucketRequiredScopes({ primary: true, reviewer: true }))).toEqual(new Set(BITBUCKET_PRIMARY_SCOPES));
+    expect(bitbucketRequiredScopes({ primary: true, reviewer: true })).toHaveLength(7);
+    expect(new Set(bitbucketRequiredScopes({ primary: false, reviewer: false }))).toEqual(new Set(BITBUCKET_PRIMARY_SCOPES));
   });
 });
 
