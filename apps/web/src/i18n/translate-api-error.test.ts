@@ -44,8 +44,10 @@ describe("translateApiError", () => {
  * in inglese o — per `review_account_no_write_permission` — in italiano).
  * Il messaggio grezzo qui è una sentinella: se torna quella, la chiave manca.
  */
+// Aggiorna questa lista quando una rotta del ciclo aggiunge un codice.
 const CORRECTION_CODES = [
   // POST /api/tickets/:id/repositories/:repositoryId/corrections
+  "pr_not_found",
   "correction_in_flight",
   "job_in_flight",
   "pr_not_open",
@@ -65,6 +67,7 @@ const CORRECTION_CODES = [
   "review_account_workspace_mismatch",
   "review_account_identity_unresolved",
   "review_git_account_not_found",
+  "repository_not_found",
 ] as const;
 
 describe("translateApiError — codici del ciclo di correzione e dell'account revisore", () => {

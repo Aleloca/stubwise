@@ -366,7 +366,7 @@ describe("POST /api/tickets/:id/repositories/:repositoryId/corrections", () => {
     const res = await request(ticketId, other.repositoryId, users.memberCookie);
 
     expect(res.statusCode).toBe(404);
-    expect((res.json() as { code: string }).code).toBe("not_found");
+    expect((res.json() as { code: string }).code).toBe("pr_not_found");
     expect(await correctionsOf(other.repositoryId)).toHaveLength(0);
   });
 

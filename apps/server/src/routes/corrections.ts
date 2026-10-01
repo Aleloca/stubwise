@@ -49,8 +49,11 @@ export async function correctionRoutes(instance: FastifyInstance): Promise<void>
       });
       if (result.ok) return reply.code(202).send({ correctionId: result.correctionId });
       switch (result.error) {
-        case "not_found":
-          return apiError(reply, 404, "not_found", "No PR for this ticket on this repository");
+        // Un codice DEDICATO, non il generico `not_found`: il web traduce per
+        // codice (`errors:<code>`), e `not_found` lo usano altre rotte con
+        // significati diversi — una chiave unica direbbe la cosa sbagliata.
+        case "pr_not_found":
+          return apiError(reply, 404, "pr_not_found", "There is no PR for this ticket on this repository");
         case "not_stubwise_pr":
           return apiError(reply, 409, "not_stubwise_pr", "Only PRs opened by Stubwise can be corrected");
         case "pr_not_open":

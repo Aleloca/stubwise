@@ -5,7 +5,7 @@ import { and, eq } from "drizzle-orm";
 import type { Actor } from "./jobs.js";
 
 export type RequestCorrectionError =
-  | "not_found"
+  | "pr_not_found"
   | "not_stubwise_pr"
   | "pr_not_open"
   | "correction_in_flight"
@@ -60,7 +60,7 @@ export async function requestCorrection(
     .where(
       and(eq(ticketRepositories.ticketId, ticketId), eq(ticketRepositories.repositoryId, repositoryId)),
     );
-  if (!pr) return { ok: false, error: "not_found" };
+  if (!pr) return { ok: false, error: "pr_not_found" };
   // Stubwise non pusha MAI sul branch di qualcun altro (design §2): solo
   // `stubwise/ticket-<N>` del ticket stesso (STUBWISE_BRANCH_RE di
   // @stubwise/shared, la stessa regola di derivePrCycle).

@@ -779,8 +779,8 @@ budget mensile: è una decisione di SPESA, e come l'approvazione del piano
 - **D5**: la rotta passa `actorRole: actor.role`. **D6**: il dettaglio ticket
   passa `viewerRole: request.user.role`, `cycle.canResume` nella risposta,
   test a due ruoli. **E2/E3, F2**: con `heldReason === "budget"` e
-  `!canResume` la frase è «ferma: budget esaurito · la riprende un
-  maintainer». **G2**: la guida dice che a budget esaurito la riprende un
+  `!canResume` la frase è «Correzione ferma · budget esaurito · chiedi a un
+  maintainer di riprenderla» (testo della revisione di E2). **G2**: la guida dice che a budget esaurito la riprende un
   maintainer.
 
 **G5 — «Riprendi» dice quale correzione, e non diventa un fix (1 ott 2026).**
@@ -18000,7 +18000,7 @@ import { and, eq } from "drizzle-orm";
 import type { Actor } from "./jobs.js";
 
 export type RequestCorrectionError =
-  | "not_found"
+  | "pr_not_found"
   | "not_stubwise_pr"
   | "pr_not_open"
   | "correction_in_flight"
@@ -18048,7 +18048,7 @@ export async function requestCorrection(
     .where(
       and(eq(ticketRepositories.ticketId, ticketId), eq(ticketRepositories.repositoryId, repositoryId)),
     );
-  if (!pr) return { ok: false, error: "not_found" };
+  if (!pr) return { ok: false, error: "pr_not_found" };
   // Stubwise non pusha MAI sul branch di qualcun altro (design §2): solo
   // `stubwise/ticket-<N>` del ticket stesso (STUBWISE_BRANCH_RE di
   // @stubwise/shared, la stessa regola di derivePrCycle).
@@ -18124,8 +18124,8 @@ export async function correctionRoutes(instance: FastifyInstance): Promise<void>
       });
       if (result.ok) return reply.code(202).send({ correctionId: result.correctionId });
       switch (result.error) {
-        case "not_found":
-          return apiError(reply, 404, "not_found", "No PR for this ticket on this repository");
+        case "pr_not_found":
+          return apiError(reply, 404, "pr_not_found", "There is no PR for this ticket on this repository");
         case "not_stubwise_pr":
           return apiError(reply, 409, "not_stubwise_pr", "Only PRs opened by Stubwise can be corrected");
         case "pr_not_open":
@@ -20419,12 +20419,31 @@ Atteso: typecheck pulito.
 > forzarla, usa l'etichetta VERA del bottone di run-ai del ticket.
 >
 > ⚠️ **E7**: in più `"heldBudgetNeedsMaintainer"` — en: `"Correction on hold ·
-> budget exhausted · a maintainer can resume it"`; it: `"Correzione ferma ·
-> budget esaurito · la riprende un maintainer"`. E per l'errore 403
-> `needs_maintainer` di run-ai (D4) una chiave propria, `"needsMaintainer"` —
-> en: `"This correction is on hold for the budget: a maintainer can resume
-> it"`; it: `"Questa correzione è ferma per il budget: può riprenderla un
-> maintainer"`.
+> budget exhausted · ask a maintainer to resume it"`; it: `"Correzione ferma ·
+> budget esaurito · chiedi a un maintainer di riprenderla"`. E per l'errore 403
+> `needs_maintainer` di run-ai (D4) una chiave propria, `"needsMaintainer"`, e
+> lo stesso testo in `errors.needs_maintainer` — en: `"This correction is on
+> hold because the budget is exhausted; only a maintainer can resume it: ask
+> one"`; it: `"Questa correzione è ferma per budget esaurito: solo un
+> maintainer può riprenderla, chiedilo a uno di loro"`.
+>
+> ⚠️ **Revisione di E2 (1 ott 2026) — i testi veri sono quelli di
+> `apps/web/src/i18n/locales/{en,it}.json`**, che correggono i blocchi qui
+> sotto: «il repository» al maschile; niente prima persona («Stubwise non
+> riesce a…»); ogni errore dice cosa fare (`review_account_no_write_permission`,
+> `review_credentials_undecryptable` → «Impostazioni → Account Git»,
+> `review_account_same_identity`, `review_git_account_not_found`,
+> `repository_changed_concurrently`); lo stop al tetto è «Ciclo fermo dopo
+> {{count}} correzione/i automatica/he» («Cycle stopped after…»); il campo
+> del progetto è «Numero massimo di correzioni automatiche» («Maximum number
+> of automatic corrections»). Codici in più: `pr_not_found` (la rotta
+> corrections non risponde più col generico `not_found`, vedi D5) e
+> `repository_not_found`.
+> **Deviazione**: `review_account_invalid` HA una chiave, «L'account revisore
+> non ha superato i controlli sul repository. {{detail}}»: `translateApiError`
+> passa il `message` del server come `{{detail}}`, così il dettaglio dei
+> controlli resta nel testo tradotto invece di sostituirlo. Vedi la voce in
+> «Decisioni e rischi».
 
 **Files:**
 - Modify: `apps/web/src/i18n/locales/en.json`
@@ -20442,8 +20461,8 @@ en:
       "correctingRound": "Round {{round}} of {{max}} · correction in progress",
       "approved": "Approved by the review · ready to merge",
       "changesRequested": "The review asks for changes",
-      "stoppedAtCap_one": "Stopped after {{count}} automatic correction",
-      "stoppedAtCap_other": "Stopped after {{count}} automatic corrections",
+      "stoppedAtCap_one": "Cycle stopped after {{count}} automatic correction",
+      "stoppedAtCap_other": "Cycle stopped after {{count}} automatic corrections",
       "correctionFailed": "The last correction failed",
       "idle": "No review yet",
       "unknown": "Correction cycle state not recognised",
@@ -20471,8 +20490,8 @@ it:
       "correctingRound": "Giro {{round}} di {{max}} · correzione in corso",
       "approved": "Approvata dalla review · pronta per il merge",
       "changesRequested": "La review chiede modifiche",
-      "stoppedAtCap_one": "Fermo dopo {{count}} correzione automatica",
-      "stoppedAtCap_other": "Fermo dopo {{count}} correzioni automatiche",
+      "stoppedAtCap_one": "Ciclo fermo dopo {{count}} correzione automatica",
+      "stoppedAtCap_other": "Ciclo fermo dopo {{count}} correzioni automatiche",
       "correctionFailed": "L'ultima correzione è fallita",
       "idle": "Nessuna review ancora",
       "unknown": "Stato del ciclo di correzione non riconosciuto",
@@ -20553,15 +20572,15 @@ l'avviso NON bloccante che il PATCH manda in `warnings` (D7, step 7–10):
 **Step 4:** namespace `projects.form` (en / it):
 
 ```json
-      "prCorrectionMaxRounds": "Max automatic corrections",
+      "prCorrectionMaxRounds": "Maximum number of automatic corrections",
       "prCorrectionMaxRoundsHint": "How many times the agent may fix a PR on its own when the review asks for changes, before stopping and asking you. 0 = automatic cycle off.",
-      "prCorrectionMaxRoundsRange": "Automatic corrections must be a whole number between {{min}} and {{max}}",
+      "prCorrectionMaxRoundsRange": "The maximum number of automatic corrections must be a whole number between {{min}} and {{max}}",
 ```
 
 ```json
-      "prCorrectionMaxRounds": "Correzioni automatiche massime",
+      "prCorrectionMaxRounds": "Numero massimo di correzioni automatiche",
       "prCorrectionMaxRoundsHint": "Quante volte l'agente può correggere da solo una PR quando la review chiede modifiche, prima di fermarsi e chiedere a te. 0 = ciclo automatico spento.",
-      "prCorrectionMaxRoundsRange": "Le correzioni automatiche devono essere un numero intero fra {{min}} e {{max}}",
+      "prCorrectionMaxRoundsRange": "Il numero massimo di correzioni automatiche deve essere un intero fra {{min}} e {{max}}",
 ```
 
 **Step 5:**
@@ -20586,8 +20605,8 @@ Atteso: parità PASS.
 > `heldReason` assente dalla fixture (server vecchio) → la frase di sempre.
 >
 > ⚠️ **E7**: con `heldReason === "budget"` e `!(cycle.canResume ?? false)` la
-> chiave è `heldBudgetNeedsMaintainer` («ferma: budget esaurito · la riprende
-> un maintainer»); con `canResume` true resta `heldBudget`. Il web legge
+> chiave è `heldBudgetNeedsMaintainer` («Correzione ferma · budget esaurito ·
+> chiedi a un maintainer di riprenderla»); con `canResume` true resta `heldBudget`. Il web legge
 > `cycle.canResume ?? false` (cast, non parse): la fixture di almeno un test
 > resta SENZA il campo. MAI dedurlo dal ruolo dell'utente nel client.
 > Se run-ai risponde 403 con `code: "needs_maintainer"` (letto da `ApiError`,
@@ -21147,7 +21166,7 @@ Atteso: 6 PASS.
     renderDetail();
 
     const section = await screen.findByRole("region", { name: "Repository / PR" });
-    expect(within(section).getByText("Stopped after 3 automatic corrections")).toBeInTheDocument();
+    expect(within(section).getByText("Cycle stopped after 3 automatic corrections")).toBeInTheDocument();
     // Un bottone solo: la PR mergiata ha `cycle: null`.
     expect(within(section).getAllByRole("button", { name: "Apply corrections" })).toHaveLength(1);
   });
@@ -21615,7 +21634,7 @@ Atteso: PASS.
 
 ---
 
-### Task E7: "Correzioni automatiche massime" nel form progetto
+### Task E7: "Numero massimo di correzioni automatiche" nel form progetto
 
 Il form è già montato solo per gli admin (`routes/projects/$projectId.tsx`,
 `isAdmin ? <ProjectForm …/>`): nessuna guardia nuova.
@@ -21636,7 +21655,7 @@ describe("ProjectForm — tetto del ciclo di correzione", () => {
     mockProviders();
     await renderForm(onSubmit);
 
-    expect(screen.getByLabelText("Max automatic corrections")).toHaveValue(3);
+    expect(screen.getByLabelText("Maximum number of automatic corrections")).toHaveValue(3);
     await user.click(screen.getByRole("button", { name: /save/i }));
 
     expect("prCorrectionMaxRounds" in (onSubmit.mock.calls[0]![0] as Record<string, unknown>)).toBe(false);
@@ -21648,7 +21667,7 @@ describe("ProjectForm — tetto del ciclo di correzione", () => {
     mockProviders();
     await renderForm(onSubmit);
 
-    const field = screen.getByLabelText("Max automatic corrections");
+    const field = screen.getByLabelText("Maximum number of automatic corrections");
     await user.clear(field);
     await user.type(field, "0");
     await user.click(screen.getByRole("button", { name: /save/i }));
@@ -21662,14 +21681,14 @@ describe("ProjectForm — tetto del ciclo di correzione", () => {
     mockProviders();
     await renderForm(onSubmit);
 
-    const field = screen.getByLabelText("Max automatic corrections");
+    const field = screen.getByLabelText("Maximum number of automatic corrections");
     await user.clear(field);
     await user.type(field, "11");
     await user.click(screen.getByRole("button", { name: /save/i }));
 
     expect(onSubmit).not.toHaveBeenCalled();
     expect(
-      screen.getByText("Automatic corrections must be a whole number between 0 and 10"),
+      screen.getByText("The maximum number of automatic corrections must be a whole number between 0 and 10"),
     ).toBeInTheDocument();
   });
 });
@@ -22108,7 +22127,11 @@ git commit -m "feat(api-client): chiedere la correzione di una PR e leggere il c
 > fixture senza il campo.
 >
 > ⚠️ **E7**: gemella di E3 — `heldReason === "budget"` e `!cycle.canResume` →
-> `mobile.work.pr.cycle.heldBudgetNeedsMaintainer` (stessi testi di E2).
+> `mobile.work.pr.cycle.heldBudgetNeedsMaintainer` (stessi testi di E2, nella
+> forma della revisione di E2: «Correzione ferma · budget esaurito · chiedi a
+> un maintainer di riprenderla» / «Correction on hold · budget exhausted · ask
+> a maintainer to resume it»; `needsMaintainer` e `stoppedAtCap` idem, vedi
+> la nota «Revisione di E2»).
 > L'app parsa (`readerSchema`, `.default(false)`), ma le fixture dei test vanno
 > complete col campo (CLAUDE.md, la trappola delle fixture dell'app). Il
 > valore lo calcola il server: MAI dal ruolo dell'utente nell'app. Un 403
@@ -22154,8 +22177,8 @@ rispetto al server.
           "correctingRound": "Giro {{round}} di {{max}} · correzione in corso",
           "approved": "Approvata dalla review · pronta per il merge",
           "changesRequested": "La review chiede modifiche",
-          "stoppedAtCap_one": "Fermo dopo {{count}} correzione automatica",
-          "stoppedAtCap_other": "Fermo dopo {{count}} correzioni automatiche",
+          "stoppedAtCap_one": "Ciclo fermo dopo {{count}} correzione automatica",
+          "stoppedAtCap_other": "Ciclo fermo dopo {{count}} correzioni automatiche",
           "correctionFailed": "L'ultima correzione è fallita",
           "idle": "Nessuna review ancora",
           "unknown": "Stato del ciclo di correzione non riconosciuto: aggiorna l'app",
@@ -22196,8 +22219,8 @@ In `en.json`, stessa posizione (dopo `"offline": "// no network, no start"\n    
           "correctingRound": "Round {{round}} of {{max}} · correction in progress",
           "approved": "Approved by the review · ready to merge",
           "changesRequested": "The review asks for changes",
-          "stoppedAtCap_one": "Stopped after {{count}} automatic correction",
-          "stoppedAtCap_other": "Stopped after {{count}} automatic corrections",
+          "stoppedAtCap_one": "Cycle stopped after {{count}} automatic correction",
+          "stoppedAtCap_other": "Cycle stopped after {{count}} automatic corrections",
           "correctionFailed": "The last correction failed",
           "idle": "No review yet",
           "unknown": "Correction cycle state not recognised: update the app",
@@ -22257,8 +22280,8 @@ describe("prCycleLine: una frase per stato, detta dal server (gemella di E3)", (
     [cycle({ state: "approved" }), "Approvata dalla review · pronta per il merge"],
     [cycle({ state: "changes_requested" }), "La review chiede modifiche"],
     // Il conteggio è `round` (i giri effettivi), non il tetto.
-    [cycle({ state: "stopped_at_cap", round: 3, maxRounds: 1 }), "Fermo dopo 3 correzioni automatiche"],
-    [cycle({ state: "stopped_at_cap", round: 1, maxRounds: 1 }), "Fermo dopo 1 correzione automatica"],
+    [cycle({ state: "stopped_at_cap", round: 3, maxRounds: 1 }), "Ciclo fermo dopo 3 correzioni automatiche"],
+    [cycle({ state: "stopped_at_cap", round: 1, maxRounds: 1 }), "Ciclo fermo dopo 1 correzione automatica"],
     [cycle({ state: "correction_failed" }), "L'ultima correzione è fallita"],
     [cycle({ state: "idle" }), "Nessuna review ancora"],
     [cycle({ state: UNKNOWN }), "Stato del ciclo di correzione non riconosciuto: aggiorna l'app"],
@@ -24050,7 +24073,7 @@ meantime merge into one.
 
 Under each PR, the ticket shows where the loop is, e.g. *Round 2 of 3 ·
 correction in progress*, *Waiting for the review*, *Approved by the review ·
-ready to merge*, *Stopped after 3 automatic corrections*, or *changes requested
+ready to merge*, *Cycle stopped after 3 automatic corrections*, or *changes requested
 by mario.rossi on the PR · queued · starts when the current work on the ticket
 finishes*.
 
@@ -24067,7 +24090,7 @@ finishes*.
   Apply corrections button pressed by a member**; only a **maintainer**
   overrides the budget, pressing the button or forcing a held correction with
   *Run AI* on the ticket. With the budget exhausted, the line under the PR says
-  *a maintainer can resume it* (E7). A correction held for the provider's
+  *ask a maintainer to resume it* (E7). A correction held for the provider's
   usage limit can be resumed by anyone who can run the ticket;
 - PR review is turned **off** for the instance: manual corrections still work,
   but after their push nobody reviews the PR.
@@ -24371,6 +24394,15 @@ Atteso: verde. (`pnpm lint` fa fallire la CI anche con typecheck e test verdi.)
 
 Consolidati dalle sezioni delle tappe. I «Problemi sui contratti» emersi scrivendo le
 tappe sono stati risolti e integrati nella sezione «Contratti» e nei task.
+
+### Voce di backlog — il dettaglio dei controlli del revisore non si traduce
+
+`review_account_invalid` (D7) porta nel `message` il dettaglio dei controlli
+falliti di `validateCredentials`, scritto in italiano dal server; il web lo
+incorpora nel testo tradotto come `{{detail}}` (revisione di E2), quindi nella
+UI inglese quel pezzo resta in italiano. Per localizzarlo servono codici
+stabili per i check di `validateCredentials` (oggi hanno solo un `name` e un
+`detail` testuali), da mandare al client al posto della frase.
 
 ### Tappa A — dati
 
@@ -24968,7 +25000,7 @@ si annotano nella descrizione della PR.
      correzione in corso» se la review chiede modifiche; sulla PR compare un
      commit nuovo sullo STESSO branch (push in avanti) e lo status
      `stubwise-review`; alla review successiva, se chiede ancora modifiche, la
-     riga dice «Fermo dopo 1 correzione automatica» e arriva UNA notifica.
+     riga dice «Ciclo fermo dopo 1 correzione automatica» e arriva UNA notifica.
 
    Gli altri, dopo: «Applica le correzioni» dal web con una nota; «Request
    changes» sulla piattaforma da un terzo utente (una correzione, e nessuna in

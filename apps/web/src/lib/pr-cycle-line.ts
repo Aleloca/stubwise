@@ -56,7 +56,7 @@ function requester(lastRequest: NonNullable<PrCycle["lastRequest"]>): PrCycleSeg
  * (`heldReason`). `canResume` lo calcola il SERVER col ruolo di chi guarda
  * (`canResumeCorrection`): qui si LEGGE, mai si deduce dal ruolo — la funzione
  * il ruolo non lo riceve nemmeno. Ferma per budget e non riprendibile da chi
- * guarda → «la riprende un maintainer». Un motivo che il web non conosce si
+ * guarda → «chiedi a un maintainer di riprenderla». Un motivo che il web non conosce si
  * legge come `heldOther`: non lancia, e non promette niente.
  */
 function heldSegment(heldReason: NonNullable<PrCycle["heldReason"]>, canResume: boolean): PrCycleSegment {
