@@ -1303,13 +1303,14 @@ describe("revisore EFFETTIVO nella proiezione (1 ott 2026)", () => {
 
   /** Validazione del revisore e identità: tutto ok, senza rete. */
   function mockGithubOk() {
-    vi.spyOn(GitHubProvider.prototype, "validateCredentials").mockResolvedValue([
+    const validate = vi.spyOn(GitHubProvider.prototype, "validateCredentials").mockResolvedValue([
       { name: "Accesso git (push)", ok: true, detail: "ok", purpose: "push" },
       { name: "Permessi repository (PR e merge)", ok: true, detail: "ok", purpose: "rest" },
     ]);
     vi.spyOn(GitHubProvider.prototype, "getAuthenticatedUserId").mockImplementation(async (p) =>
       p.credentials.username === "main-bot" ? "9001" : `id-${p.credentials.username ?? ""}`,
     );
+    return validate;
   }
 
   type Derived = {
@@ -1436,5 +1437,209 @@ describe("revisore EFFETTIVO nella proiezione (1 ott 2026)", () => {
       effectiveReviewAccount: { id: defaultId, name: "Revisore predefinito", source: "default" },
       skippedDefaultReviewAccount: null,
     });
+  });
+
+  // ── P1-6: l'avviso sul predefinito che diventa effettivo ──────────────────
+
+  /** Il predefinito vede la repository ma non ci scrive. */
+  function mockDefaultWithoutWrite() {
+    const validate = vi.spyOn(GitHubProvider.prototype, "validateCredentials").mockResolvedValue([
+      { name: "Accesso git (push)", ok: true, detail: "ok", purpose: "push" },
+      {
+        name: "Permessi repository (PR e merge)",
+        ok: false,
+        detail: "permissions.push false",
+        purpose: "rest",
+        failure: "no_write_permission",
+      },
+    ]);
+    vi.spyOn(GitHubProvider.prototype, "getAuthenticatedUserId").mockImplementation(async (p) =>
+      p.credentials.username === "main-bot" ? "9001" : `id-${p.credentials.username ?? ""}`,
+    );
+    return validate;
+  }
+
+  it("POST senza revisore, predefinito senza scrittura: 201, riga creata, avviso NON bloccante", async () => {
+    const validate = mockDefaultWithoutWrite();
+    const name = `Avviso ${randomBytes(3).toString("hex")}`;
+
+    const res = await createProject({
+      projectId: derivedProjectId,
+      name,
+      gitAccountId: mainId,
+      repoUrl: "https://github.com/acme/avviso",
+    });
+
+    expect(res.statusCode).toBe(201);
+    const body = res.json() as Derived & { warnings: string[] };
+    expect(body.warnings).toEqual(["default_review_account_invalid"]);
+    expect(body.effectiveReviewAccount).toMatchObject({ id: defaultId, source: "default" });
+    // La verifica è del PREDEFINITO, sulla repository appena creata.
+    expect(validate.mock.calls[0]![0]).toMatchObject({
+      repoUrl: "https://github.com/acme/avviso",
+      credentials: { username: "default-bot" },
+    });
+    const [row] = await testDb.db.select().from(repositories).where(eq(repositories.name, name));
+    expect(row).toBeDefined();
+  });
+
+  it("POST con un predefinito valido: nessun avviso", async () => {
+    mockGithubOk();
+
+    const res = await createProject({
+      projectId: derivedProjectId,
+      name: `Valido ${randomBytes(3).toString("hex")}`,
+      gitAccountId: mainId,
+      repoUrl: "https://github.com/acme/valido",
+    });
+
+    expect(res.statusCode).toBe(201);
+    expect((res.json() as { warnings: string[] }).warnings).toEqual([]);
+  });
+
+  it("PATCH che cambia solo il nome: nessuna chiamata di rete, nessun avviso", async () => {
+    const validate = mockDefaultWithoutWrite();
+    const repo = await insertRepository(mainId);
+
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/repositories/${repo.slug}`,
+      headers: { cookie: adminCookie },
+      payload: { name: `Rinominata ${randomBytes(3).toString("hex")}` },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { warnings: string[] }).warnings).toEqual([]);
+    expect(validate).not.toHaveBeenCalled();
+  });
+
+  it("PATCH che RIMANDA i valori di sempre (il form lo fa): nessuna chiamata di rete", async () => {
+    const validate = mockDefaultWithoutWrite();
+    const repo = await insertRepository(mainId);
+
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/repositories/${repo.slug}`,
+      headers: { cookie: adminCookie },
+      payload: {
+        gitAccountId: mainId,
+        repoUrl: repo.repoUrl,
+        defaultBranch: repo.defaultBranch,
+        reviewGitAccountId: null,
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(validate).not.toHaveBeenCalled();
+  });
+
+  it("PATCH che sposta la repository: il predefinito si riverifica DOVE andrà a scrivere", async () => {
+    const validate = mockDefaultWithoutWrite();
+    const repo = await insertRepository(mainId);
+
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/repositories/${repo.slug}`,
+      headers: { cookie: adminCookie },
+      payload: { repoUrl: "https://github.com/acme/spostata" },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { warnings: string[] }).warnings).toEqual(["default_review_account_invalid"]);
+    expect(validate.mock.calls[0]![0]).toMatchObject({ repoUrl: "https://github.com/acme/spostata" });
+  });
+
+  it("PATCH che cambia il principale: il predefinito si riverifica", async () => {
+    const validate = mockDefaultWithoutWrite();
+    const otherMain = await createAccount({
+      name: `Altro principale ${randomBytes(3).toString("hex")}`,
+      provider: "github",
+      credentials: { username: "main-bot", token: PLAINTEXT_TOKEN },
+    });
+    const repo = await insertRepository(mainId);
+
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/repositories/${repo.slug}`,
+      headers: { cookie: adminCookie },
+      payload: { gitAccountId: otherMain },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { warnings: string[] }).warnings).toContain("default_review_account_invalid");
+    expect(validate).toHaveBeenCalledTimes(1);
+  });
+
+  it("PATCH che toglie l'esplicito con un predefinito valido: nessun avviso, vale il predefinito", async () => {
+    const validate = mockGithubOk();
+    const repo = await insertRepository(mainId, explicitId);
+
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/repositories/${repo.slug}`,
+      headers: { cookie: adminCookie },
+      payload: { reviewGitAccountId: null },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as Derived & { warnings: string[] };
+    expect(body.warnings).toEqual([]);
+    expect(body.effectiveReviewAccount).toMatchObject({ id: defaultId, source: "default" });
+    // Il predefinito è stato verificato davvero: «nessun avviso» non è «nessun controllo».
+    expect(validate.mock.calls.some(([p]) => p.credentials.username === "default-bot")).toBe(true);
+  });
+
+  it("l'identità del PRINCIPALE non leggibile: un avviso solo, quello del principale", async () => {
+    mockGithubOk();
+    vi.spyOn(GitHubProvider.prototype, "getAuthenticatedUserId").mockImplementation(async (p) => {
+      if (p.credentials.username === "main-bot") throw new Error("403");
+      return `id-${p.credentials.username ?? ""}`;
+    });
+    await testDb.db.update(gitAccounts).set({ providerUserId: null }).where(eq(gitAccounts.id, mainId));
+
+    const res = await createProject({
+      projectId: derivedProjectId,
+      name: `Senza identità ${randomBytes(3).toString("hex")}`,
+      gitAccountId: mainId,
+      repoUrl: "https://github.com/acme/senza-identita",
+    });
+
+    expect(res.statusCode).toBe(201);
+    // Il predefinito non ha colpe: la causa è il principale, e la dice già l'altro avviso.
+    expect((res.json() as { warnings: string[] }).warnings).toEqual(["main_account_identity_unresolved"]);
+  });
+
+  it("la verifica del predefinito che LANCIA: 201, salvato — mai un 5xx", async () => {
+    vi.spyOn(GitHubProvider.prototype, "validateCredentials").mockRejectedValue(new Error("boom"));
+    const name = `Lancia ${randomBytes(3).toString("hex")}`;
+
+    const res = await createProject({
+      projectId: derivedProjectId,
+      name,
+      gitAccountId: mainId,
+      repoUrl: "https://github.com/acme/lancia",
+    });
+
+    expect(res.statusCode).toBe(201);
+    const [row] = await testDb.db.select().from(repositories).where(eq(repositories.name, name));
+    expect(row).toBeDefined();
+  });
+
+  it("non regressione: con un predefinito attivo, l'esplicito = principale resta un 400", async () => {
+    const repo = await insertRepository(mainId);
+
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/repositories/${repo.slug}`,
+      headers: { cookie: adminCookie },
+      payload: { reviewGitAccountId: mainId },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect((res.json() as { code: string }).code).toBe("review_account_same_as_main");
+  });
+
+  it("non regressione: il CHECK sulla colonna esplicita regge un inserimento diretto", async () => {
+    await expect(insertRepository(mainId, mainId)).rejects.toMatchObject({ cause: { code: "23514" } });
   });
 });

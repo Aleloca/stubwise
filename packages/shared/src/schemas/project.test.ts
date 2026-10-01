@@ -503,6 +503,13 @@ describe("repositorySaveResponseSchema.warnings (30 set 2026)", () => {
     ).toEqual(["main_account_identity_unresolved"]);
   });
 
+  it("l'avviso sul revisore predefinito si legge verbatim (1 ott 2026)", () => {
+    expect(
+      readerSchema(repositorySaveResponseSchema).parse({ ...saved, warnings: ["default_review_account_invalid"] })
+        .warnings,
+    ).toEqual(["default_review_account_invalid"]);
+  });
+
   it("un avviso che il client non conosce diventa UNKNOWN, non un parse fallito", () => {
     expect(
       readerSchema(repositorySaveResponseSchema).parse({ ...saved, warnings: ["qualcosa_di_nuovo"] }).warnings,

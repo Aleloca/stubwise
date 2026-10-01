@@ -115,8 +115,19 @@ export type Repository = z.infer<typeof repositorySchema>;
  * riesce a leggere chi è l'account principale sulla piattaforma, quindi ogni
  * "Request changes" dalla piattaforma verrà scartato (fail-closed) — su
  * Bitbucket il caso tipico è un token senza lo scope `read:user:bitbucket`.
+ *
+ * `default_review_account_invalid` (1 ott 2026): la repository non ha un
+ * revisore esplicito e quello EFFETTIVO è il predefinito del suo ambito, ma la
+ * verifica sulla repository è fallita (tipicamente: niente scrittura). Non
+ * blocca — l'admin non ha scelto quell'account qui, e non esiste l'opzione
+ * «nessun revisore» — e la review ricadrà su un commento del principale. Valore
+ * nuovo in un enum di risposta: l'app non salva repository, e `readerSchema` lo
+ * leggerebbe comunque come `UNKNOWN`.
  */
-export const repositoryWarningSchema = z.enum(["main_account_identity_unresolved"]);
+export const repositoryWarningSchema = z.enum([
+  "main_account_identity_unresolved",
+  "default_review_account_invalid",
+]);
 export type RepositoryWarning = z.infer<typeof repositoryWarningSchema>;
 
 /**

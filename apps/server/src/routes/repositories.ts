@@ -360,6 +360,50 @@ async function mainIdentityWarnings(app: FastifyInstance, mainAccount: GitAccoun
 }
 
 /**
+ * Avviso NON bloccante sul revisore PREDEFINITO (1 ott 2026, piano P1-6): la
+ * repository non ha un revisore esplicito e quello effettivo viene dal
+ * predefinito del suo ambito — si verifica, con gli STESSI controlli di rete
+ * dell'esplicito (`checkReviewAccount`), che possa davvero scrivere su QUESTA
+ * repository. Un esito ko è un avviso, mai un blocco: l'admin non ha scelto
+ * quell'account qui, e senza l'opzione «nessun revisore» un 422 renderebbe la
+ * repository non salvabile. La review ricadrà su un commento del principale.
+ *
+ * Il chiamante decide QUANDO (solo se è cambiato cosa va verificato): qui si
+ * guarda solo se il predefinito è effettivo. Due esiti non producono questo
+ * avviso: `main_account_identity_unresolved` (la colpa è del principale, e lo
+ * dice già `mainIdentityWarnings`) e un'eccezione (best-effort come
+ * l'avviso del principale: si logga, nessun avviso, la riga resta salvata).
+ */
+async function defaultReviewWarnings(
+  app: FastifyInstance,
+  input: { repository: RepositoryRow; mainAccount: GitAccountRow; review: ReviewResolution | undefined },
+): Promise<RepositoryWarning[]> {
+  const effective = input.review?.effective;
+  if (!effective || effective.source !== "default") return [];
+  try {
+    const check = await checkReviewAccount(app, {
+      mainAccount: input.mainAccount,
+      reviewGitAccountId: effective.account.id,
+      repoUrl: input.repository.repoUrl,
+      defaultBranch: input.repository.defaultBranch,
+      verifyRemote: true,
+    });
+    if (check.ok || check.code === "main_account_identity_unresolved") return [];
+    app.log.warn(
+      { repositoryId: input.repository.id, gitAccountId: effective.account.id, code: check.code },
+      "il revisore predefinito non supera la verifica sulla repository: avviso, non blocco",
+    );
+    return ["default_review_account_invalid"];
+  } catch (err) {
+    app.log.warn(
+      { repositoryId: input.repository.id, err: err instanceof Error ? err.message : String(err) },
+      "verifica del revisore predefinito non riuscita: nessun avviso",
+    );
+    return [];
+  }
+}
+
+/**
  * Route dei repository, registrate sotto /api/repositories. Lettura per ogni
  * utente autenticato; creazione e modifica solo admin. Le credenziali git
  * vivono sull'account collegato (git_accounts), non sul repository. Un
@@ -455,10 +499,14 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
           // L'account può aver appena salvato la sua identità in
           // `checkReviewAccount`: si rilegge, così l'avviso guarda la cache vera.
           const [mainAccount] = await app.db.select().from(gitAccounts).where(eq(gitAccounts.id, account.id));
-          const review = await resolveReviewAccounts(app.db, [created.id]);
+          const review = (await resolveReviewAccounts(app.db, [created.id])).get(created.id);
           return await reply.code(201).send({
-            ...toPublicRepository(created, account.name, review.get(created.id)),
-            warnings: await mainIdentityWarnings(app, mainAccount ?? account),
+            ...toPublicRepository(created, account.name, review),
+            warnings: [
+              ...(await mainIdentityWarnings(app, mainAccount ?? account)),
+              // Creazione: se vale il predefinito, si verifica sempre.
+              ...(await defaultReviewWarnings(app, { repository: created, mainAccount: mainAccount ?? account, review })),
+            ],
           });
         } catch (error) {
           // Collisione di slug: rigenerato al giro dopo. Tutto il resto riemerge.
@@ -640,6 +688,11 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
         reviewGitAccountId,
       } = request.body;
       const updates: Partial<RepositoryRow> = {};
+      // Il revisore PREDEFINITO si riverifica (avviso, P1-6) solo se cambia COSA
+      // va verificato: il principale (e con lui, forse, l'ambito), la
+      // repository su cui deve scrivere, o l'esplicito appena tolto. Rimandare
+      // gli stessi valori — il form lo fa a ogni salvataggio — non costa rete.
+      let verifyDefault = false;
       if (name !== undefined) updates.name = name;
       if (repoUrl !== undefined) updates.repoUrl = repoUrl;
       if (defaultBranch !== undefined) updates.defaultBranch = defaultBranch;
@@ -702,6 +755,11 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
         }
         // null toglie il revisore; omesso (undefined) lo lascia invariato.
         if (reviewGitAccountId !== undefined) updates.reviewGitAccountId = reviewGitAccountId;
+        verifyDefault =
+          (gitAccountId !== undefined && gitAccountId !== current.repository.gitAccountId) ||
+          (repoUrl !== undefined && repoUrl !== current.repository.repoUrl) ||
+          (defaultBranch !== undefined && defaultBranch !== current.repository.defaultBranch) ||
+          (reviewGitAccountId === null && current.repository.reviewGitAccountId !== null);
       }
 
       // Drizzle rifiuta un update senza colonne: un PATCH vuoto è una lettura.
@@ -750,10 +808,15 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
         .innerJoin(gitAccounts, eq(repositories.gitAccountId, gitAccounts.id))
         .where(eq(repositories.slug, request.params.slug));
       if (!row) return apiError(reply, 404, "repository_not_found", "Repository not found");
-      const review = await resolveReviewAccounts(app.db, [row.repository.id]);
+      const review = (await resolveReviewAccounts(app.db, [row.repository.id])).get(row.repository.id);
       return {
-        ...toPublicRepository(row.repository, row.account.name, review.get(row.repository.id)),
-        warnings: await mainIdentityWarnings(app, row.account),
+        ...toPublicRepository(row.repository, row.account.name, review),
+        warnings: [
+          ...(await mainIdentityWarnings(app, row.account)),
+          ...(verifyDefault
+            ? await defaultReviewWarnings(app, { repository: row.repository, mainAccount: row.account, review })
+            : []),
+        ],
       };
     },
   );
