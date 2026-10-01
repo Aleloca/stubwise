@@ -109,6 +109,28 @@ function makeQueryClient() {
   return { queryClient, invalidatedKeys };
 }
 
+/**
+ * Aspetta che la mutazione abbia finito E che React Query abbia CONSEGNATO il
+ * suo ultimo stato all'hook, dentro `act`.
+ *
+ * Perché serve: il `notifyManager` di React Query consegna gli aggiornamenti
+ * con un `setTimeout(0)`, e i callback della singola `mutate` (`onDone`)
+ * partono PRIMA di quella consegna. Un test che finiva su
+ * `waitFor(onDone)` — o sulla sola chiamata del client, a mutazione ancora in
+ * volo — lasciava quel timer in coda: scattava fuori da `act` e React
+ * stampava «An update to HookContainer inside a test was not wrapped in
+ * act(...)», solo a volte (dipende da quando gira il timer rispetto alla
+ * pulizia del test, quindi più spesso lanciando più file insieme).
+ * Il primo `waitFor` aspetta la fine della mutazione; il timer di `act` gira
+ * DOPO quello della consegna, già in coda, che quindi scatta dentro `act`.
+ */
+async function settle(queryClient: QueryClient): Promise<void> {
+  await waitFor(() => expect(queryClient.isMutating()).toBe(0));
+  await act(async () => {
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  });
+}
+
 beforeEach(() => {
   (NetInfo.useNetInfo as jest.Mock).mockReturnValue({ isConnected: true, isInternetReachable: true });
   fetchSpy.mockClear();
@@ -137,6 +159,7 @@ describe("useRequestCorrection", () => {
       expect.arrayContaining([workKeys.all(TICKET_ID), ticketKeys.all, projectsPulseKey]),
     );
     expect(rendered.result.current.errorMessage).toBeNull();
+    await settle(queryClient);
   });
 
   test("senza nota non manda `note`", async () => {
@@ -149,6 +172,7 @@ describe("useRequestCorrection", () => {
     });
 
     await waitFor(() => expect(requestCorrection).toHaveBeenCalledWith(TICKET_ID, REPO_ID, {}));
+    await settle(queryClient);
   });
 
   test("409 `correction_in_flight`: errore MOSTRATO, onDone NON chiamato, e il lavoro si rilegge", async () => {
@@ -167,6 +191,7 @@ describe("useRequestCorrection", () => {
     );
     expect(onDone).not.toHaveBeenCalled();
     expect(invalidatedKeys()).toContainEqual(workKeys.all(TICKET_ID));
+    await settle(queryClient);
   });
 
   test("errore di rete (status 0): il testo è quello dell'app, e niente da rileggere", async () => {
@@ -183,6 +208,7 @@ describe("useRequestCorrection", () => {
       expect(rendered.result.current.errorMessage).toBe("Stubwise non risponde, controlla la connessione e riprova"),
     );
     expect(invalidatedKeys()).not.toContainEqual(workKeys.all(TICKET_ID));
+    await settle(queryClient);
   });
 
   test.each([
@@ -202,6 +228,7 @@ describe("useRequestCorrection", () => {
       expect(rendered.result.current.errorMessage).toBe("La richiesta non è andata a buon fine, riprova"),
     );
     expect(invalidatedKeys()).not.toContainEqual(workKeys.all(TICKET_ID));
+    await settle(queryClient);
   });
 
   test("doppio tap nello stesso frame: UNA sola richiesta, e il pannello si chiude una volta", async () => {
@@ -217,6 +244,7 @@ describe("useRequestCorrection", () => {
 
     await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
     expect(requestCorrection).toHaveBeenCalledTimes(1);
+    await settle(queryClient);
   });
 
   test("dopo un errore la guardia si rilascia: riprovare manda la richiesta", async () => {
@@ -237,6 +265,9 @@ describe("useRequestCorrection", () => {
 
     await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
     expect(requestCorrection).toHaveBeenCalledTimes(2);
+    await settle(queryClient);
+    // Riuscito il secondo tentativo, l'errore del primo non resta sotto la riga.
+    expect(rendered.result.current.errorMessage).toBeNull();
   });
 
   test("offline: disabled e online=false", async () => {
@@ -268,6 +299,7 @@ describe("useResumeCorrection: «Riprendi» dice QUALE correzione (G5)", () => {
       expect.arrayContaining([workKeys.all(TICKET_ID), ticketKeys.all, projectsPulseKey]),
     );
     expect(rendered.result.current.errorMessage).toBeNull();
+    await settle(queryClient);
   });
 
   test("doppio tap nello stesso frame: UN solo run-ai", async () => {
@@ -283,6 +315,7 @@ describe("useResumeCorrection: «Riprendi» dice QUALE correzione (G5)", () => {
 
     await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
     expect(runAi).toHaveBeenCalledTimes(1);
+    await settle(queryClient);
   });
 
   test("409 `correction_not_held`: il ticket si ricarica, e la frase lo dice", async () => {
@@ -303,6 +336,7 @@ describe("useResumeCorrection: «Riprendi» dice QUALE correzione (G5)", () => {
     );
     expect(invalidatedKeys()).toContainEqual(workKeys.all(TICKET_ID));
     expect(onDone).not.toHaveBeenCalled();
+    await settle(queryClient);
   });
 
   test("409 `job_in_flight`: STESSO status, ma il ticket NON si ricarica — decide il `code`", async () => {
@@ -319,6 +353,7 @@ describe("useResumeCorrection: «Riprendi» dice QUALE correzione (G5)", () => {
       expect(rendered.result.current.errorMessage).toBe("C'è già un job in corso su questo ticket"),
     );
     expect(invalidatedKeys()).not.toContainEqual(workKeys.all(TICKET_ID));
+    await settle(queryClient);
   });
 
   test("403 `needs_maintainer`: la frase del maintainer, e onDone non parte", async () => {
@@ -338,6 +373,7 @@ describe("useResumeCorrection: «Riprendi» dice QUALE correzione (G5)", () => {
       ),
     );
     expect(onDone).not.toHaveBeenCalled();
+    await settle(queryClient);
   });
 
   test("errore di rete (status 0): il testo è quello dell'app", async () => {
@@ -353,6 +389,7 @@ describe("useResumeCorrection: «Riprendi» dice QUALE correzione (G5)", () => {
     await waitFor(() =>
       expect(rendered.result.current.errorMessage).toBe("Stubwise non risponde, controlla la connessione e riprova"),
     );
+    await settle(queryClient);
   });
 
   test("offline: disabled e online=false", async () => {
