@@ -267,6 +267,7 @@
     "network_error": "Impossibile contattare il server",
     "generic": "Qualcosa è andato storto",
     "default_reviewer_conflict": "Nello stesso momento è stato impostato un altro revisore predefinito per questa piattaforma/workspace: ricarica la pagina e riprova",
+    "default_reviewer_account_changed": "Il workspace dell'account è cambiato mentre lo verificavamo: ricarica la pagina e riprova",
     "default_reviewer_workspace_locked": "Questo account è il revisore predefinito: togli il predefinito prima di cambiarne il workspace",
     "default_reviewer_workspace_missing": "Un revisore predefinito Bitbucket ha bisogno di un workspace: impostalo prima sull'account",
     "default_reviewer_invalid": "L'account non ha superato i controlli che servono a un revisore. {{detail}}"

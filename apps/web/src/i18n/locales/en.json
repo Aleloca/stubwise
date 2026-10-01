@@ -267,6 +267,7 @@
     "network_error": "Unable to reach the server",
     "generic": "Something went wrong",
     "default_reviewer_conflict": "Another default reviewer was set for this platform/workspace at the same time: reload the page and try again",
+    "default_reviewer_account_changed": "The account's workspace changed while it was being checked: reload the page and try again",
     "default_reviewer_workspace_locked": "This account is the default reviewer: remove the default before changing its workspace",
     "default_reviewer_workspace_missing": "A Bitbucket default reviewer needs a workspace: set it on the account first",
     "default_reviewer_invalid": "The account failed the checks a reviewer needs. {{detail}}"

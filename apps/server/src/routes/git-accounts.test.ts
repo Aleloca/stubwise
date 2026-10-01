@@ -972,6 +972,61 @@ describe("PUT/DELETE /api/git-accounts/:id/default-reviewer", () => {
     expect(after!.workspace).toBe(moved);
   });
 
+  it("GitHub: il workspace di un predefinito si cambia (D7 vale solo dove il workspace entra nell'ambito)", async () => {
+    const created = await createAccount({ ...basePayload, name: "Predefinito GitHub", workspace: "acme" });
+    const id = (created.json() as { id: string }).id;
+    await testDb.db.update(gitAccounts).set({ isDefaultReviewer: true }).where(eq(gitAccounts.id, id));
+    try {
+      const res = await app.inject({
+        method: "PATCH",
+        url: `/api/git-accounts/${id}`,
+        headers: { cookie: adminCookie },
+        payload: { workspace: "altra-org" },
+      });
+      expect(res.statusCode).toBe(200);
+      const [row] = await testDb.db.select().from(gitAccounts).where(eq(gitAccounts.id, id));
+      expect(row!.workspace).toBe("altra-org");
+      expect(row!.isDefaultReviewer).toBe(true);
+    } finally {
+      // L'indice ammette un solo predefinito per ambito: non lasciarlo ai test dopo.
+      await testDb.db.update(gitAccounts).set({ isDefaultReviewer: false }).where(eq(gitAccounts.id, id));
+    }
+  });
+
+  it("corsa inversa: un PATCH sposta l'account durante le verifiche → 409, nessun flag, il predecessore resta", async () => {
+    const ws = newWorkspace();
+    const previous = await bitbucketAccount("resta-predefinito", ws);
+    const candidate = await bitbucketAccount("spostato-durante", ws);
+    stubAccountProbe(REVIEWER_SCOPES);
+    stubIdentities();
+    expect((await put(previous)).statusCode).toBe(200);
+
+    // Il doppio della verifica d'identità — rete, secondi veri — è il momento
+    // in cui un altro admin cambia il workspace: oggi permesso, perché
+    // l'account non è ancora predefinito.
+    const moved = newWorkspace();
+    stubIdentities().mockImplementation(async (p) => {
+      if (p.credentials.token === "tok-spostato-durante") {
+        const patched = await app.inject({
+          method: "PATCH",
+          url: `/api/git-accounts/${candidate}`,
+          headers: { cookie: adminCookie },
+          payload: { workspace: moved },
+        });
+        expect(patched.statusCode).toBe(200);
+      }
+      return `uid-${p.credentials.token}`;
+    });
+
+    const res = await put(candidate);
+    expect(res.statusCode).toBe(409);
+    expect((res.json() as { code: string }).code).toBe("default_reviewer_account_changed");
+    expect(await flagOf(candidate)).toBe(false);
+    expect(await flagOf(previous)).toBe(true);
+    const [row] = await testDb.db.select().from(gitAccounts).where(eq(gitAccounts.id, candidate));
+    expect(row!.workspace).toBe(moved);
+  });
+
   it("una corsa fra due admin sullo stesso ambito: l'indice la ferma, 409 default_reviewer_conflict", async () => {
     const ws = newWorkspace();
     const winner = await bitbucketAccount("vince", ws);

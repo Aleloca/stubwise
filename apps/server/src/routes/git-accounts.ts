@@ -132,6 +132,12 @@ async function mapWithConcurrency<T, R>(items: readonly T[], limit: number, fn: 
 class DefaultReviewerAccountGone extends Error {}
 
 /**
+ * Sentinella: l'account esiste ancora ma ha cambiato AMBITO (un PATCH del
+ * workspace) fra la lettura del PUT e la sua transazione, che va annullata.
+ */
+class DefaultReviewerAccountChanged extends Error {}
+
+/**
  * Proiezione pubblica di un account: campi elencati esplicitamente, mai spread
  * della riga, così `encryptedCredentials` non può trapelare nemmeno se lo
  * schema cambiasse.
@@ -331,16 +337,23 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
         updates.providerUserId = null;
       }
 
-      // D7: il workspace di un revisore PREDEFINITO non si cambia — sposterebbe
-      // in silenzio l'ambito, cioè il revisore di N repository, senza la
-      // validazione del PUT, e potrebbe collidere con l'indice. La guardia sta
-      // nel WHERE (non in una lettura prima): un PUT concorrente che marca
-      // l'account fra la lettura e la scrittura non la scavalca. Lo stesso
-      // workspace di prima non è un cambio.
+      // D7: il workspace di un revisore PREDEFINITO Bitbucket non si cambia —
+      // sposterebbe in silenzio l'ambito, cioè il revisore di N repository,
+      // senza la validazione del PUT, e potrebbe collidere con l'indice. Vale
+      // SOLO dove il workspace entra nell'ambito (`sameReviewScope`): su GitHub
+      // l'ambito è il solo provider, e cambiare il workspace non sposta niente.
+      // La guardia sta nel WHERE (non in una lettura prima): un PUT concorrente
+      // che marca l'account fra la lettura e la scrittura non la scavalca. Lo
+      // stesso workspace di prima non è un cambio. Il verso opposto (un PATCH
+      // che sposta l'account mentre il PUT verifica) lo chiude il PUT.
       const workspaceGuard =
         workspace === undefined
           ? undefined
-          : or(eq(gitAccounts.isDefaultReviewer, false), sql`${gitAccounts.workspace} is not distinct from ${workspace}`);
+          : or(
+              eq(gitAccounts.isDefaultReviewer, false),
+              ne(gitAccounts.provider, "bitbucket"),
+              sql`${gitAccounts.workspace} is not distinct from ${workspace}`,
+            );
 
       // Drizzle rifiuta un update senza colonne: un PATCH vuoto è una lettura.
       const [row] =
@@ -421,7 +434,11 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
    *
    * Un predefinito già presente nello stesso ambito si SOSTITUISCE nella stessa
    * transazione (`replaced`). Due admin in corsa li ferma l'indice unico
-   * parziale → 409 `default_reviewer_conflict`.
+   * parziale → 409 `default_reviewer_conflict`. Un PATCH che SPOSTA l'account
+   * in un altro ambito mentre il PUT verifica (secondi di rete, e il PATCH è
+   * permesso finché l'account non è predefinito) lo ferma la guardia
+   * sull'ambito letto nell'UPDATE che marca il flag → 409
+   * `default_reviewer_account_changed`, e il rollback rimette il predecessore.
    *
    * Le verifiche di account vengono PRIMA dell'identità (il piano diceva il
    * contrario): un token senza `read:user` o non valido produce così il
@@ -503,19 +520,34 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
             .set({ isDefaultReviewer: false })
             .where(and(sameReviewScope(row), eq(gitAccounts.isDefaultReviewer, true), ne(gitAccounts.id, id)))
             .returning({ id: gitAccounts.id, name: gitAccounts.name });
+          // Marca solo se l'account sta ANCORA nell'ambito letto (e verificato)
+          // sopra: altrimenti si toglierebbe il predefinito del vecchio ambito e
+          // si marcherebbe un account che ormai sta in un altro.
           const [account] = await tx
             .update(gitAccounts)
             .set({ isDefaultReviewer: true })
-            .where(eq(gitAccounts.id, id))
+            .where(and(eq(gitAccounts.id, id), sameReviewScope(row)))
             .returning();
-          // Sparito fra la lettura e qui: si annulla anche la rimozione del
-          // predefinito precedente, che altrimenti resterebbe tolto per niente.
-          if (!account) throw new DefaultReviewerAccountGone();
+          // Sparito o spostato fra la lettura e qui: si annulla anche la
+          // rimozione del predefinito precedente, che altrimenti resterebbe
+          // tolto per niente.
+          if (!account) {
+            const [exists] = await tx.select({ id: gitAccounts.id }).from(gitAccounts).where(eq(gitAccounts.id, id));
+            throw exists ? new DefaultReviewerAccountChanged() : new DefaultReviewerAccountGone();
+          }
           return { account, replaced: replaced[0] ?? null };
         });
       } catch (error) {
         if (error instanceof DefaultReviewerAccountGone) {
           return apiError(reply, 404, "git_account_not_found", "Git account not found");
+        }
+        if (error instanceof DefaultReviewerAccountChanged) {
+          return apiError(
+            reply,
+            409,
+            "default_reviewer_account_changed",
+            "The account's workspace changed while it was being verified: reload and retry",
+          );
         }
         if (isUniqueViolation(error)) {
           return apiError(

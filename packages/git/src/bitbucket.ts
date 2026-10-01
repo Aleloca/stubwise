@@ -1358,14 +1358,20 @@ function maskCredentials(text: string, p: ProjectGitConfig, authHeader: string):
  */
 const ERROR_BODY_TIMEOUT_MS = 5_000;
 
+/** Lo scadere di {@link ERROR_BODY_TIMEOUT_MS}: distinto da qualunque corpo. */
+const BODY_TIMEOUT: unique symbol = Symbol("body-timeout");
+
 /**
  * Il corpo di una risposta come testo, o `null` se non si legge entro
  * {@link ERROR_BODY_TIMEOUT_MS}: non lancia mai. Una corsa col timer sulla
  * lettura dello stream; allo scadere lo stream si CANCELLA dal suo reader
  * (`r.text()` lo bloccherebbe senza poterlo cancellare), così la connessione
- * non resta aperta per niente.
+ * non resta aperta per niente. Lo scadere è un `Symbol`, non una stringa: un
+ * corpo che valesse proprio quella stringa sarebbe letto come timeout.
+ *
+ * Esportata per i test, non dall'indice del package.
  */
-async function readBodySafely(r: Response): Promise<string | null> {
+export async function readBodySafely(r: Response): Promise<string | null> {
   if (r.body === null) return "";
   let reader: ReadableStreamDefaultReader<Uint8Array>;
   try {
@@ -1383,12 +1389,12 @@ async function readBodySafely(r: Response): Promise<string | null> {
     }
   };
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<"timeout">((resolve) => {
-    timer = setTimeout(() => resolve("timeout"), ERROR_BODY_TIMEOUT_MS);
+  const timeout = new Promise<typeof BODY_TIMEOUT>((resolve) => {
+    timer = setTimeout(() => resolve(BODY_TIMEOUT), ERROR_BODY_TIMEOUT_MS);
   });
   try {
     const outcome = await Promise.race([read().catch(() => null), timeout]);
-    if (outcome !== "timeout") return outcome;
+    if (outcome !== BODY_TIMEOUT) return outcome;
     void reader.cancel().catch(() => undefined);
     return null;
   } finally {

@@ -1,7 +1,7 @@
 import { createHmac } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
-import { BitbucketProvider } from "./bitbucket.js";
+import { BitbucketProvider, readBodySafely } from "./bitbucket.js";
 import {
   BITBUCKET_PRIMARY_SCOPES,
   BITBUCKET_REVIEWER_SCOPES,
@@ -2121,6 +2121,10 @@ describe("BitbucketProvider.validateAccount: scope del token", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("un corpo che vale esattamente «timeout» si legge come corpo, non come lo scadere del timer", async () => {
+    expect(await readBodySafely(new Response("timeout", { status: 403 }))).toBe("timeout");
   });
 
   it("403 con corpo non JSON: il dettaglio di sempre", async () => {

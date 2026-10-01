@@ -71,6 +71,7 @@ const CORRECTION_CODES = [
   // PUT /api/git-accounts/:id/default-reviewer e PATCH /api/git-accounts/:id
   // (revisore predefinito)
   "default_reviewer_conflict",
+  "default_reviewer_account_changed",
   "default_reviewer_workspace_locked",
   "default_reviewer_workspace_missing",
   "default_reviewer_invalid",
