@@ -117,6 +117,9 @@ async function seedExternalPr(
     prTitle: "Fix esterno",
     headSha: "extsha123",
     status: "completed",
+    // Una review completata è sempre partita (`runPrReview` scrive
+    // `started_at` alla partenza; la 0081 ha fatto il backfill sulle storiche).
+    startedAt: new Date(),
     verdict: overrides.verdict === undefined ? "approve" : overrides.verdict,
     prSummary: "Cambia solo un typo.",
   });
@@ -124,11 +127,53 @@ async function seedExternalPr(
   return { ticketId, repositoryId, prNumber, prUrl };
 }
 
+/**
+ * La riga `pr_reviews` che il poller crea al CLAIM (C10): `running`,
+ * `started_at` null, NESSUN ticket (lo risolve `runPrReview` alla fine),
+ * nessun verdetto. `createdAt` esplicito e DOPO quello della review completata:
+ * col default `now()` due insert ravvicinati possono avere lo stesso istante, e
+ * il test non riprodurrebbe la condizione del difetto («la più recente è quella
+ * in attesa») — vedi la trappola (c) del mutation testing in CLAUDE.md.
+ */
+async function seedWaitingReview(input: { repositoryId: string; prNumber: number; prUrl: string }) {
+  await testDb.db.insert(prReviews).values({
+    repositoryId: input.repositoryId,
+    ticketId: null,
+    prNumber: input.prNumber,
+    prUrl: input.prUrl,
+    prTitle: "Fix in attesa di review",
+    headSha: "waitingsha456",
+    status: "running",
+    startedAt: null,
+    verdict: null,
+    createdAt: new Date(Date.now() + 60_000),
+  });
+}
+
 function release(ticketId: string, repositoryId: string, cookie: string) {
   return app.inject({
     method: "POST",
     url: `/api/tickets/${ticketId}/repositories/${repositoryId}/release`,
     headers: { cookie },
+  });
+}
+
+/** Mock fetch per una PR ESTERNA aperta senza check (dettaglio + check-runs vuoti). */
+function externalFetch(prNumber: number) {
+  const detailUrl = `https://api.github.com/repos/acme/demo-shop/pulls/${prNumber}`;
+  const checksUrl = "https://api.github.com/repos/acme/demo-shop/commits/extheadsha/check-runs?per_page=100";
+  return vi.fn((input: string | URL, init?: RequestInit) => {
+    const url = String(input);
+    const method = init?.method ?? "GET";
+    if (url === detailUrl && method === "GET") {
+      return Promise.resolve(
+        new Response(JSON.stringify({ state: "open", head: { sha: "extheadsha" } }), { status: 200 }),
+      );
+    }
+    if (url === checksUrl && method === "GET") {
+      return Promise.resolve(new Response(JSON.stringify({ check_runs: [] }), { status: 200 }));
+    }
+    return Promise.resolve(new Response("", { status: 404 }));
   });
 }
 
@@ -544,6 +589,7 @@ describe("GET /api/release-queue", () => {
       prTitle: "Fix the bug",
       headSha: "headsha123",
       status: "completed",
+      startedAt: new Date(),
       verdict: "approve",
       prSummary: "Cambia solo la formula del totale.",
     });
@@ -600,5 +646,287 @@ describe("GET /api/release-queue", () => {
     const body = res.json() as { items: { ticketId: string; repositoryId: string }[] };
     expect(body.items.some((i) => i.ticketId === ticketId && i.repositoryId === repositoryId)).toBe(false);
     expect(calledForThisPr).toHaveLength(0);
+  });
+
+  it("una review IN ATTESA (senza ticket) dopo una completata: la PR esterna resta in coda col verdetto della completata", async () => {
+    const { ticketId, repositoryId, prNumber, prUrl } = await seedExternalPr({
+      prNumber: 301,
+      verdict: "request_changes",
+    });
+    await seedWaitingReview({ repositoryId, prNumber, prUrl });
+    vi.stubGlobal("fetch", externalFetch(prNumber));
+
+    const res = await app.inject({ method: "GET", url: "/api/release-queue", headers: { cookie: adminCookie } });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as {
+      items: { ticketId: string; repositoryId: string; origin: string; reviewVerdict: string | null }[];
+    };
+    const item = body.items.find((i) => i.ticketId === ticketId && i.repositoryId === repositoryId);
+    expect(item).toBeDefined();
+    expect(item!.origin).toBe("external");
+    expect(item!.reviewVerdict).toBe("request_changes");
+  });
+
+  it("la coda considera solo le review CON ticket: una completata più recente senza ticket non fa sparire la PR esterna", async () => {
+    // `pr_reviews.ticket_id` è ON DELETE SET NULL: anche una review completata
+    // può restare senza ticket. Se vincesse la DISTINCT ON, la PR uscirebbe
+    // dalla coda (non c'è un ticket da passare al rilascio); deve invece
+    // vincere la più recente CON ticket, col suo verdetto.
+    const { ticketId, repositoryId, prNumber, prUrl } = await seedExternalPr({
+      prNumber: 304,
+      verdict: "request_changes",
+    });
+    await testDb.db.insert(prReviews).values({
+      repositoryId,
+      ticketId: null,
+      prNumber,
+      prUrl,
+      prTitle: "Fix esterno",
+      headSha: "extsha304",
+      status: "completed",
+      startedAt: new Date(),
+      verdict: "approve",
+      createdAt: new Date(Date.now() + 60_000),
+    });
+    vi.stubGlobal("fetch", externalFetch(prNumber));
+
+    const res = await app.inject({ method: "GET", url: "/api/release-queue", headers: { cookie: adminCookie } });
+
+    const body = res.json() as {
+      items: { ticketId: string; repositoryId: string; origin: string; reviewVerdict: string | null }[];
+    };
+    const item = body.items.find((i) => i.ticketId === ticketId && i.repositoryId === repositoryId);
+    expect(item).toBeDefined();
+    expect(item!.origin).toBe("external");
+    expect(item!.reviewVerdict).toBe("request_changes");
+  });
+
+  it("una review FALLITA dopo una completata non dà verdetto: la PR esterna tiene quello della completata", async () => {
+    // Oggi `runPrReview` scrive il ticket solo all'esito completato, quindi una
+    // fallita col ticket non nasce: la riga qui è costruita apposta, con un
+    // verdetto residuo, per provare che il verdetto lo danno SOLO le completate.
+    const { ticketId, repositoryId, prNumber, prUrl } = await seedExternalPr({
+      prNumber: 302,
+      verdict: "request_changes",
+    });
+    await testDb.db.insert(prReviews).values({
+      repositoryId,
+      ticketId,
+      prNumber,
+      prUrl,
+      prTitle: "Fix esterno",
+      headSha: "extsha789",
+      status: "failed",
+      startedAt: new Date(),
+      verdict: "approve",
+      error: "agente fallito",
+      createdAt: new Date(Date.now() + 60_000),
+    });
+    vi.stubGlobal("fetch", externalFetch(prNumber));
+
+    const res = await app.inject({ method: "GET", url: "/api/release-queue", headers: { cookie: adminCookie } });
+
+    const body = res.json() as {
+      items: { ticketId: string; repositoryId: string; reviewVerdict: string | null }[];
+    };
+    const item = body.items.find((i) => i.ticketId === ticketId && i.repositoryId === repositoryId);
+    expect(item).toBeDefined();
+    expect(item!.reviewVerdict).toBe("request_changes");
+  });
+
+  it("una riga `completed` mai partita (`started_at` null) non dà verdetto, né alla PR esterna né a quella interna", async () => {
+    // Stato che il worker non produce (una review completata è sempre partita):
+    // costruito apposta per fissare che il verdetto richiede ANCHE `started_at`.
+    const ext = await seedExternalPr({ prNumber: 303, verdict: "request_changes" });
+    await testDb.db.insert(prReviews).values({
+      repositoryId: ext.repositoryId,
+      ticketId: ext.ticketId,
+      prNumber: ext.prNumber,
+      prUrl: ext.prUrl,
+      prTitle: "Fix esterno",
+      headSha: "extsha000",
+      status: "completed",
+      startedAt: null,
+      verdict: "approve",
+      createdAt: new Date(Date.now() + 60_000),
+    });
+    vi.stubGlobal("fetch", externalFetch(ext.prNumber));
+
+    const res = await app.inject({ method: "GET", url: "/api/release-queue", headers: { cookie: adminCookie } });
+
+    const body = res.json() as {
+      items: { ticketId: string; repositoryId: string; reviewVerdict: string | null }[];
+    };
+    const item = body.items.find((i) => i.ticketId === ext.ticketId && i.repositoryId === ext.repositoryId);
+    expect(item).toBeDefined();
+    expect(item!.reviewVerdict).toBe("request_changes");
+
+    const { ticketId, repositoryId } = await seedOpenPr();
+    await testDb.db.insert(prReviews).values([
+      {
+        repositoryId,
+        ticketId,
+        prNumber: 42,
+        prUrl: PR_URL,
+        prTitle: "Fix the bug",
+        headSha: "headsha123",
+        status: "completed",
+        startedAt: new Date(),
+        verdict: "request_changes",
+        prSummary: "Manca il test del totale.",
+      },
+      {
+        repositoryId,
+        ticketId,
+        prNumber: 42,
+        prUrl: PR_URL,
+        prTitle: "Fix the bug",
+        headSha: "headsha123",
+        status: "completed",
+        startedAt: null,
+        verdict: "approve",
+        prSummary: "Riga mai partita.",
+        createdAt: new Date(Date.now() + 60_000),
+      },
+    ]);
+    vi.stubGlobal("fetch", greenFetch());
+
+    const res2 = await app.inject({ method: "GET", url: "/api/release-queue", headers: { cookie: adminCookie } });
+
+    const body2 = res2.json() as {
+      items: { ticketId: string; repositoryId: string; reviewVerdict: string | null; reviewSummary: string | null }[];
+    };
+    const internal = body2.items.find((i) => i.ticketId === ticketId && i.repositoryId === repositoryId);
+    expect(internal).toBeDefined();
+    expect(internal!.reviewVerdict).toBe("request_changes");
+    expect(internal!.reviewSummary).toBe("Manca il test del totale.");
+  });
+
+  it("una review IN ATTESA dopo una completata: la PR interna tiene il verdetto della completata", async () => {
+    const { ticketId, repositoryId } = await seedOpenPr();
+    await testDb.db.insert(prReviews).values({
+      repositoryId,
+      ticketId,
+      prNumber: 42,
+      prUrl: PR_URL,
+      prTitle: "Fix the bug",
+      headSha: "headsha123",
+      status: "completed",
+      startedAt: new Date(),
+      verdict: "request_changes",
+      prSummary: "Manca il test del totale.",
+    });
+    await seedWaitingReview({ repositoryId, prNumber: 42, prUrl: PR_URL });
+    vi.stubGlobal("fetch", greenFetch());
+
+    const res = await app.inject({ method: "GET", url: "/api/release-queue", headers: { cookie: adminCookie } });
+
+    const body = res.json() as {
+      items: { ticketId: string; repositoryId: string; reviewVerdict: string | null; reviewSummary: string | null }[];
+    };
+    const item = body.items.find((i) => i.ticketId === ticketId && i.repositoryId === repositoryId);
+    expect(item).toBeDefined();
+    expect(item!.reviewVerdict).toBe("request_changes");
+    expect(item!.reviewSummary).toBe("Manca il test del totale.");
+  });
+
+  it("una review FALLITA dopo una completata: la PR interna tiene il verdetto della completata", async () => {
+    const { ticketId, repositoryId } = await seedOpenPr();
+    await testDb.db.insert(prReviews).values([
+      {
+        repositoryId,
+        ticketId,
+        prNumber: 42,
+        prUrl: PR_URL,
+        prTitle: "Fix the bug",
+        headSha: "headsha123",
+        status: "completed",
+        startedAt: new Date(),
+        verdict: "request_changes",
+        prSummary: "Manca il test del totale.",
+      },
+      {
+        repositoryId,
+        ticketId: null,
+        prNumber: 42,
+        prUrl: PR_URL,
+        prTitle: "Fix the bug",
+        headSha: "headsha123",
+        status: "failed",
+        startedAt: new Date(),
+        verdict: null,
+        error: "agente fallito",
+        createdAt: new Date(Date.now() + 60_000),
+      },
+    ]);
+    vi.stubGlobal("fetch", greenFetch());
+
+    const res = await app.inject({ method: "GET", url: "/api/release-queue", headers: { cookie: adminCookie } });
+
+    const body = res.json() as {
+      items: { ticketId: string; repositoryId: string; reviewVerdict: string | null }[];
+    };
+    const item = body.items.find((i) => i.ticketId === ticketId && i.repositoryId === repositoryId);
+    expect(item).toBeDefined();
+    expect(item!.reviewVerdict).toBe("request_changes");
+  });
+
+  it("due review completate sulla PR interna: il verdetto è quello della più recente", async () => {
+    const { ticketId, repositoryId } = await seedOpenPr();
+    await testDb.db.insert(prReviews).values([
+      {
+        repositoryId,
+        ticketId,
+        prNumber: 42,
+        prUrl: PR_URL,
+        prTitle: "Fix the bug",
+        headSha: "headsha123",
+        status: "completed",
+        startedAt: new Date(),
+        verdict: "request_changes",
+        prSummary: "Manca il test del totale.",
+      },
+      {
+        repositoryId,
+        ticketId,
+        prNumber: 42,
+        prUrl: PR_URL,
+        prTitle: "Fix the bug",
+        headSha: "headsha124",
+        status: "completed",
+        startedAt: new Date(Date.now() + 60_000),
+        verdict: "approve",
+        prSummary: "Il test del totale ora c'è.",
+        createdAt: new Date(Date.now() + 60_000),
+      },
+    ]);
+    vi.stubGlobal("fetch", greenFetch());
+
+    const res = await app.inject({ method: "GET", url: "/api/release-queue", headers: { cookie: adminCookie } });
+
+    const body = res.json() as {
+      items: { ticketId: string; repositoryId: string; reviewVerdict: string | null; reviewSummary: string | null }[];
+    };
+    const item = body.items.find((i) => i.ticketId === ticketId && i.repositoryId === repositoryId);
+    expect(item).toBeDefined();
+    expect(item!.reviewVerdict).toBe("approve");
+    expect(item!.reviewSummary).toBe("Il test del totale ora c'è.");
+  });
+
+  it("nessuna review completata, solo una IN ATTESA: la PR resta in coda, senza verdetto (non sparisce)", async () => {
+    const { ticketId, repositoryId } = await seedOpenPr();
+    await seedWaitingReview({ repositoryId, prNumber: 42, prUrl: PR_URL });
+    vi.stubGlobal("fetch", greenFetch());
+
+    const res = await app.inject({ method: "GET", url: "/api/release-queue", headers: { cookie: adminCookie } });
+
+    const body = res.json() as {
+      items: { ticketId: string; repositoryId: string; origin: string; reviewVerdict: string | null }[];
+    };
+    const matches = body.items.filter((i) => i.ticketId === ticketId && i.repositoryId === repositoryId);
+    expect(matches).toHaveLength(1);
+    expect(matches[0]!.origin).toBe("stubwise");
+    expect(matches[0]!.reviewVerdict).toBeNull();
   });
 });
