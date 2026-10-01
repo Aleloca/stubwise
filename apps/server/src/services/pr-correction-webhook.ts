@@ -72,8 +72,18 @@ export interface ChangesRequestedContext {
  *    ritrasmissioni oneste, non una difesa di sicurezza; a limitare un replay
  *    restano la finestra di ritrasmissione del provider, il dedup per PR di
  *    `enqueueCorrection` (una `pending` si fonde) e il permesso dell'autore.
- *  - **la difesa per PR, dietro questa (E6).** Un id diverso fra i tentativi,
- *    o un server riavviato che ha perso la memoria, non bastano a duplicare:
+ *  - **cosa fa davvero Bitbucket (B14 T41, 1 ott 2026).** Una consegna che
+ *    non riceve un 2xx viene ritentata 3 volte in pochi minuti
+ *    (`X-Attempt-Number` 1, 2, 3) con lo STESSO `X-Request-UUID` (e stessa
+ *    firma, stesso `X-Event-Time`): questa dedup basta per i ritentativi,
+ *    che cadono dentro i 5 minuti. Un ritentativo dopo un 500 passa perché
+ *    `release` ha liberato l'id; uno dopo un timeout nostro, con la prima
+ *    elaborazione ancora in corso o riuscita, trova l'id preso e prende 204.
+ *  - **la difesa per PR, dietro questa (E6).** Su Bitbucket l'id NON cambia
+ *    fra i tentativi (T41), quindi E6 non serve ai ritentativi ordinari: resta
+ *    la seconda difesa per un server riavviato che ha perso la memoria, per un
+ *    ritentativo oltre i 5 minuti e per GitHub (non verificato in B14). Questi
+ *    casi non bastano a duplicare:
  *    `enqueueCorrection` riconosce come RICONSEGNA un "Request changes" uguale
  *    (stesso login, stessa voce `review-body`) a una correzione `queued` della
  *    stessa PR nata da meno di `REDELIVERY_WINDOW_MINUTES` (30) e risponde con

@@ -184,7 +184,9 @@ export type PrReviewVerdict = "approve" | "request_changes";
  * Esito di {@link GitProvider.submitPrReview} quando non lancia.
  * `"already_in_state"`: il provider ha risposto che l'account era GIÀ in
  * quello stato (Bitbucket 409 sul POST del verdetto) — non un errore, il
- * testo è uscito comunque. Scelta difensiva da confermare con B14 §7a (piano).
+ * testo è uscito comunque. Scelta difensiva: dal vivo (B14 T21, 1 ott 2026)
+ * Bitbucket risponde 200 a un verdetto ripetuto, mai 409, quindi su Bitbucket
+ * questo esito oggi non nasce; il ramo resta, innocuo.
  * Il pacchetto non ha un logger: l'esito torna al chiamante, che scrive la
  * riga di log, con `responseExcerpt` — un estratto (al più 200 caratteri)
  * della risposta, con il token e la sua forma base64 già mascherati.

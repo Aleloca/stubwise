@@ -101,7 +101,8 @@ function errText(err: unknown): string {
  * pubblico è `https:` e non punta a localhost/127.0.0.1 (un link che nessun
  * altro può aprire non serve comunque); altrimenti si omette — GitHub accetta
  * lo status senza `target_url`, Bitbucket ripiega sulla pagina della
- * repository (B6).
+ * repository (B6) — ripiego necessario: senza `url` Bitbucket risponde 400
+ * (B14 T9). Il §6a riguarda GitHub ed è ancora da confermare.
  */
 export function commitStatusTargetUrl(publicUrl: string | undefined, ticketId: string): string | undefined {
   if (publicUrl === undefined || publicUrl.trim() === "") return undefined;
@@ -279,10 +280,11 @@ async function publishReview(deps: ReviewCycleDeps, input: AfterReviewCompletedI
     try {
       const outcome = await provider.submitPrReview(reviewer, input.job.prNumber, input.verdict, body);
       if (outcome.status === "already_in_state") {
-        // Bitbucket 409 sul verdetto (scelta difensiva da confermare con B14
-        // §7a): l'account revisore era già in quello stato. Nessun errore, e il
-        // testo è comunque uscito col commento del revisore. L'estratto arriva
-        // già senza credenziali (`@stubwise/git`).
+        // Bitbucket 409 sul verdetto (scelta difensiva): l'account revisore
+        // era già in quello stato. Nessun errore, e il testo è comunque uscito
+        // col commento del revisore. Dal vivo (B14 T21, 1 ott 2026) un
+        // verdetto ripetuto risponde 200, mai 409: il ramo oggi non scatta, ed
+        // è innocuo. L'estratto arriva già senza credenziali (`@stubwise/git`).
         console.error(
           `[stubwise-worker] pr-review: PR #${input.job.prNumber}: il revisore era già in stato '${input.verdict}' (409: ${JSON.stringify(outcome.responseExcerpt)}), pubblicato il solo commento`,
         );

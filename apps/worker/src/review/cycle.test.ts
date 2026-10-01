@@ -830,8 +830,9 @@ describe("afterReviewCompleted — link dello status di commit (B14 §6a)", () =
   });
 });
 
-// SCELTA DIFENSIVA da confermare con B14 §7a: un 409 sul verdetto Bitbucket è
-// «già in quello stato», non un errore — niente ripiego, niente testo doppio.
+// SCELTA DIFENSIVA: un 409 sul verdetto Bitbucket è «già in quello stato», non
+// un errore — niente ripiego, niente testo doppio. Dal vivo (B14 T21) un
+// verdetto ripetuto risponde 200, mai 409: il ramo oggi non scatta, è innocuo.
 describe("afterReviewCompleted — verdetto già in quello stato (B14 §7a)", () => {
   it("Bitbucket 409 sul verdetto: il commento del revisore esce, nessun ripiego", async () => {
     const s = await setup({

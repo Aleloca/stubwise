@@ -945,8 +945,9 @@ describe("BitbucketProvider.submitPrReview", () => {
     expect(calls(fetchImpl)).not.toContain(`POST ${PR}/comments`);
   });
 
-  // SCELTA DIFENSIVA da confermare con B14 §7a: il secondo POST dello stesso
-  // verdetto potrebbe rispondere 409. Non è un errore: lo stato è già quello.
+  // SCELTA DIFENSIVA: un 409 sul verdetto non è un errore, lo stato è già
+  // quello. Dal vivo (B14 T21) il secondo POST risponde 200, mai 409: il test
+  // fissa un ramo che oggi non scatta, ed è innocuo tenerlo.
   it("409 sul verdetto → «già in quello stato»: nessun errore, il commento parte", async () => {
     for (const verdict of ["approve", "request_changes"] as const) {
       const submit = verdict === "approve" ? "approve" : "request-changes";

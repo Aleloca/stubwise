@@ -746,7 +746,11 @@ GitHub riconsegna a mano dopo un riavvio, la seconda consegna diventava una
   deduplica per id della fotografia (test aggiunto).
 - **B14**: T41 (la guida operativa) — su Bitbucket, un webhook
   `pullrequest:changes_request_created` ritentato ha lo stesso
-  `X-Request-UUID` fra i tentativi?
+  `X-Request-UUID` fra i tentativi? **Esito (1 ott 2026): sì.** 3 tentativi
+  in pochi minuti (`X-Attempt-Number` 1, 2, 3), stesso `X-Request-UUID`,
+  stessa firma: li ferma già la dedup in memoria del server
+  (`createDeliveryDedupe`, 5'). E6 resta la seconda difesa, per un server
+  riavviato, un ritentativo oltre i 5' e GitHub (non verificato).
 
 **E7 — `manualTrigger` lo decide CHI AGISCE: solo un admin scavalca il
 budget (1 ott 2026, «D4b»).** `manualTrigger` scavalca gate di automazione E
@@ -886,7 +890,8 @@ correzione.
   `@stubwise/notifications`: un evento `opened` (GitHub `reopened`) riporta a
   `open` le righe `closed_unmerged` di quella PR (repository + numero, ripiego
   sull'URL), PRIMA del toggle della PR Review; `merged` non si riapre, il
-  ticket non si tocca; Bitbucket non ha un evento di riapertura. (M1) nel ramo
+  ticket non si tocca; Bitbucket non ha un evento di riapertura (e una PR
+  rifiutata non si riapre: B14 T42). (M1) nel ramo
   `closed_unmerged` la riga e la transizione a `triaged` si filtrano sul numero
   della PR: la chiusura in ritardo di una PR vecchia non tocca la nuova.
   Commit «fix: test del cablaggio di deployedOn e ritocchi agli script»: (M3)
@@ -6966,6 +6971,50 @@ di prova chiusa), `PR_MERGED` (una PR Bitbucket di prova già mergiata).
    non verificabile») o 404 (→ `none`, cioè «senza permesso»: fail-closed ma
    col motivo sbagliato). Guida: T40.
 
+**Esito di B14 — eseguito il 1 ott 2026, SOLO su Bitbucket** (repository di
+prova; PR #1 aperta, #2 mergiata, #3 rifiutata; risultati per test nella
+tabella «Da riportare» della guida operativa). I punti GitHub (§5, §6a/b/d,
+§8, §8 bis, §9a/b/d, T40) **non sono stati eseguiti** e restano da
+confermare. Nessun esito contraddice il codice; nessun cambio richiesto.
+- §1: `/user` risponde 200 con lo `uuid` tra graffe, diverso fra principale e
+  revisore (T1/T2). Senza `read:user:bitbucket` risponde **403** (non 401),
+  con `detail.required: ["read:user:bitbucket"]`: il ramo 403 di B10 è quello
+  giusto, e il messaggio di `getAuthenticatedUserId` è corretto e senza token
+  (T3/T4).
+- §2: senza `url` lo status risponde **400** `url: This field is required.`:
+  `url` è OBBLIGATORIO e il ripiego di B6 (pagina della repository) è
+  NECESSARIO, non prudenza (T9). Con `refname` + `url`: 201, legato alla PR
+  (T10).
+- §3: l'autore PUÒ chiedere modifiche sulla propria PR (200, T19); il DELETE
+  senza niente da ritirare risponde **404** «You haven't approved this pull
+  request.», che B8 ignora, ed è giusto (T20).
+- §4 / §4 bis: payload vero di `changes_request_created` con `actor.uuid` =
+  `changes_request.user.uuid` e `pullrequest.source.branch.name`; nessun testo
+  (T25, premuto dal revisore via API). Lo uuid è identico byte per byte in
+  `/user`, autore dei commenti e `actor.uuid` (T26). Fixture reale anonimizzata
+  nel test del parser (`packages/git/src/__fixtures__/`).
+- §6c su Bitbucket (T11/T12): saltato per scelta (incide solo sul testo di un
+  errore).
+- §7a: approve e request-changes ripetuti rispondono **200 e 200, MAI 409**
+  (T21). Il trattamento difensivo del 409 (`already_in_state`) resta, ed è
+  innocuo: su Bitbucket oggi non scatta.
+- §7b: approve diretto da `changes_requested` risponde **200** e porta lo
+  stato ad `approved` (T23): il DELETE preliminare di B8 è solo prudenza.
+- §7c: DELETE request-changes 204, stato vuoto (T24).
+- §7d: su una PR MERGIATA l'approve è **accettato (200)**, il request-changes
+  risponde **400** `CANNOT_REQUEST_CHANGES_MERGED_PR` (T35); `submitPrReview`
+  approve su mergiata: esito `submitted` (T36), non l'errore atteso.
+- §9c (T39): saltato, le repository Bitbucket dell'utente sono private: il
+  rischio «Bitbucket pubblico» resta aperto.
+- E6 (T41): Bitbucket ritenta una consegna non 2xx **3 volte** in pochi
+  minuti (`X-Attempt-Number` 1, 2, 3) con lo **stesso `X-Request-UUID`**,
+  stesso `X-Event-Time` e stessa firma. La dedup in memoria
+  (`createDeliveryDedupe`, 5') basta per questi ritentativi; E6 resta la
+  seconda difesa (riavvio del server, ritentativo oltre i 5', GitHub).
+- G9 (T42): una PR rifiutata **non si può riaprire** su Bitbucket (nessuna
+  azione dalla UI): `reopenPrRows` solo su GitHub regge.
+- Scope (T43): saltato (l'elenco degli scope chiede comunque anche i `read:`).
+
 ---
 
 ### Fatti verificati sulle API
@@ -7007,9 +7056,14 @@ e <https://github.com/octokit/webhooks/blob/main/payload-schemas/api.github.com/
   pull request (PR) can approve their own PR, but that approval does not count
   towards the number of approvals needed for the merge check to pass."
   Sul request-changes dell'autore la documentazione **non dice nulla** (B14 §3).
+  **Dal vivo (B14 T19)**: risponde 200, l'autore va in `changes_requested`.
+  Un DELETE senza niente da ritirare risponde 404 (T20); un verdetto ripetuto
+  200, mai 409 (T21); su una PR mergiata approve 200, request-changes 400
+  `CANNOT_REQUEST_CHANGES_MERGED_PR` (T35).
 - `POST /repositories/{ws}/{repo}/commit/{commit}/statuses/build`: schema
   `commitstatus` con **`required: ["key", "state"]`** (`url` NON obbligatorio
-  nello schema), `state` enum `FAILED | INPROGRESS | STOPPED | SUCCESSFUL`,
+  nello schema — ma la API vera risponde 400 `url: This field is required.`
+  senza: B14 T9), `state` enum `FAILED | INPROGRESS | STOPPED | SUCCESSFUL`,
   `name`, `description`, `url` (accetta template `{repository.full_name}`),
   `refname`. "If the specified key already exists, the existing status object
   will be overwritten." "To associate a commit status to a pull request, the
@@ -12440,7 +12494,9 @@ errore lascia una riga di log e non tocca la review già `completed`:
    allentare; se dice 422, resta com'è. È una guardia di UTILITÀ, non di
    sicurezza. Anche lo status «in correzione» di C8 (`pipeline/correction.ts`,
    `setStatus`) la usa (revisione di C10): una regola sola.
-   **Anche §7a, deciso in C10 e da confermare con B14**: in
+   **Anche §7a, deciso in C10** (esito B14 T21, 1 ott 2026: un verdetto
+   ripetuto su Bitbucket risponde 200, MAI 409 — il ramo resta come difesa,
+   ed è innocuo perché non scatta): in
    `BitbucketProvider.submitPrReview` un **409** sul POST del verdetto si
    tratta come «già in quello stato» — nessun errore, il commento parte
    comunque, e il metodo restituisce `{ status: "already_in_state",
@@ -15142,6 +15198,8 @@ su GitHub, `X-Request-UUID` su Bitbucket). La rotta tiene gli id visti negli
 ultimi 5 minuti (`createDeliveryDedupe`, in memoria: il server è un'istanza
 sola) e scarta la ritrasmissione PRIMA di `handleChangesRequested`; un errore
 libera l'id, così il ritentativo di un 500 passa. Nessuna migrazione.
+Verificato su Bitbucket (B14 T41): 3 tentativi in pochi minuti, tutti con lo
+stesso `X-Request-UUID` — dentro la finestra di 5'.
 
 `reviewId` non si calcola qui: `enqueueCorrection` usa già l'ultima review
 `completed` della PR quando non gliene si passa uno (A6) — una regola in un
@@ -24664,7 +24722,10 @@ Entrate con i fix della revisione di fine tappa:
     (decisione 9), con un limite accettato e scritto nel docblock: se il
     DELETE dell'opposto riesce e il POST del verdetto fallisce, la PR resta
     senza stato del revisore; il ripiego di C10 pubblica il testo ma non
-    ripristina il verdetto precedente. B14 verifica il POST ripetuto.
+    ripristina il verdetto precedente. B14 verifica il POST ripetuto: **esito
+    (T21) 200 e 200, mai 409**; il 409 trattato come «già in quello stato»
+    resta, innocuo. Il DELETE preliminare è solo prudenza: un approve diretto
+    da `changes_requested` risponde 200 (T23).
 18. **Suggerimento sui permessi su 401/403**: `ensureOkResponseWithHint` /
     `withPermissionHint` aggiungono al messaggio quale permesso manca al
     token (`COMMIT_STATUS_PERMISSION_HINT` per `setCommitStatus`,
@@ -24692,27 +24753,34 @@ Entrate con i fix della revisione di fine tappa:
    risponde 403 e — per il design §5, fail-closed — nessun "Request changes"
    da Bitbucket fa partire una correzione finché il token non è rigenerato.
    B10 lo rende leggibile nel messaggio; B14 §1 dice subito come stanno le
-   cose in produzione.
+   cose in produzione. **Esito B14 (T3/T4)**: senza lo scope `/user` risponde
+   403 con `detail.required: ["read:user:bitbucket"]`; il ramo e il messaggio
+   di B10 sono quelli giusti.
 2. **`DELETE .../approve` o `.../request-changes` quando non c'è niente da
    ritirare**: la spec elenca solo 204/400/401/404. B8 non guarda la risposta,
-   quindi nessun codice lo rompe; B14 §3 lo verifica.
+   quindi nessun codice lo rompe; B14 §3 lo verifica. **Esito (T20)**: 404
+   «You haven't approved this pull request.», ignorato, ed è giusto.
 3. **`url` obbligatorio nei build status Bitbucket**: lo schema dice di no, la
    memoria comune di chi integra Bitbucket dice che una volta era richiesto.
    B6 lo manda sempre, quindi il rischio è solo di sapere se il ripiego serve
-   (B14 §2).
+   (B14 §2). **Esito (T9)**: serve — senza `url` la API risponde 400 `url:
+   This field is required.`
 4. **Payload reale di `pullrequest:changes_request_created`**: la doc mostra
    `changes_request.user` come `User` e `pullrequest` come l'entità PR
    completa (con `source.branch.name` e `id`), ma il campione è schematico.
-   B14 §4 lo conferma su una consegna vera.
+   B14 §4 lo conferma su una consegna vera. **Esito (T25)**: confermato; la
+   consegna vera, anonimizzata, è una fixture del test del parser.
 5. **Limite di 140 caratteri per la descrizione di uno status GitHub**: non è
    nella pagina REST; B7 tronca comunque (innocuo), B14 §5 lo conferma.
 6. **Bitbucket: l'autore può chiedere modifiche sulla propria PR?** Non
    documentato. Il design usa lo stato vero solo con l'account revisore,
-   quindi non blocca nulla; è un'informazione (B14 §3).
+   quindi non blocca nulla; è un'informazione (B14 §3). **Esito (T19)**: sì,
+   200.
 7. **Associazione dello status alla PR su Bitbucket senza `refname`**: la doc
    dice che serve; se il chiamante non lo passa, lo status potrebbe non
    comparire sulla PR e non valere per il merge check: C8 e C10 lo passano
-   SEMPRE (`refname` = branch sorgente).
+   SEMPRE (`refname` = branch sorgente). **Esito (T10)**: con `refname` lo
+   status compare fra quelli della PR.
 
 ### Tappa C — worker
 
@@ -24912,7 +24980,9 @@ Entrate con i fix della revisione di fine tappa:
   Nessuna migrazione: il server è un'istanza sola. Un riavvio del server
   dentro la finestra perde la memoria: una ritrasmissione subito dopo un
   riavvio può ancora diventare una `pending` identica (caso raro, innocuo:
-  una correzione in più).
+  una correzione in più). Su Bitbucket i ritentativi (3, in pochi minuti)
+  tengono lo stesso `X-Request-UUID` (B14 T41): la finestra di 5' li copre;
+  E6 copre una `queued` anche dopo un riavvio.
 - **`reviewId` non si calcola né nel webhook né nella rotta**: è il default di
   `enqueueCorrection` (A6).
 - **`requested_by_provider_login` sempre valorizzato** dal webhook, anche con
@@ -24950,7 +25020,8 @@ Entrate con i fix della revisione di fine tappa:
   commento passano (`isTrustedAuthorAssociation` → sempre `true`). Oggi è
   accettabile perché i repository Bitbucket dell'utente sono PRIVATI: chi può
   premere il bottone o commentare ha già accesso. Su un repository Bitbucket
-  PUBBLICO, se un non membro può chiedere modifiche (lo dice B14 §9c / T39),
+  PUBBLICO, se un non membro può chiedere modifiche (lo dice B14 §9c / T39 —
+  NON eseguito il 1 ott 2026: le repository dell'utente sono private),
   un estraneo farebbe partire correzioni e scriverebbe nel prompt: da rivedere
   dopo B14, prima di collegare un repository Bitbucket pubblico (strada
   possibile: leggere i permessi dell'utente sulla repository via API).

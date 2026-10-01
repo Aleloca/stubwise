@@ -882,46 +882,46 @@ node "$PROBE" bb-review BB_REV_EMAIL BB_REV_TOKEN "$PR_MERGED" approve
 
 | Test | § B14 | Cosa annotare | Risultato |
 |---|---|---|---|
-| T1 | §1 | codice (200/403); `uuid` del principale | |
-| T2 | §1a | codice; `uuid` del revisore (diverso dal T1?) | |
-| T3 | §1b | **403 o 401?**; `error.message` | |
-| T4 | §1c | messaggio redatto; contiene il token sì/no | |
-| T5 | §8 bis a | codice; `id` numerico sì/no | |
-| T6 | §8 bis b | `id` del revisore GitHub | |
-| T7 | §8 bis c (facolt.) | codice; `message` | |
-| T8 | §8 bis c (facolt.) | messaggio «utente con PAT» o «rate limit»; token sì/no | |
-| T9 | §2 | **201 o 400** senza `url` | |
-| T10 | §2 | codice; status visibile nella PR sì/no | |
-| T11 | §6c (BB) | **401 o 403** | |
-| T12 | §6c (BB) | suggerimento status sì/no; token sì/no | |
-| T13 | §5 | **422 o 201** a 141 caratteri; `desc_len` | |
-| T14 | §6a | codice per `stubwise.example.com` e per `localhost` | |
-| T15 | §6b | array finale (atteso `["success"]`) | |
-| T16 | §6c (GH) | codice (atteso 403); `message` | |
-| T17 | §6c (GH) | suggerimento status sì/no; token sì/no | |
-| T18 | §6d | **OK o 422**; `tail` se OK | |
-| T19 | §3 | codice del request-changes dell'autore | |
-| T20 | §3 | codice del DELETE approve senza niente da ritirare | |
-| T21 | §7a | codici dei due approve (200/200 o 200/409…) | |
-| T22 | §7b prep | codici; stato finale `changes_requested` sì/no | |
-| T23 | §7b | codice; stato risultante del revisore | |
-| T24 | §7c | codice del DELETE request-changes; stato finale | |
-| T25 | §4 | `actor.uuid` = `changes_request.user.uuid` sì/no; branch presente sì/no; chi ha premuto (terzo utente o revisore) | |
-| T26 | §4 bis | tre uuid identici byte per byte sì/no | |
-| T27 | §5 | codice; testo di `message`/`errors` | |
-| T28 | §8c | codice (atteso 403); `message` | |
-| T29 | §8c | suggerimento review sì/no; token sì/no | |
-| T30 | §8b | codice; `message`/`errors`; contiene «own pull request» sì/no | |
-| T31 | §8a | codice; `mergeable_state` dopo REQUEST_CHANGES | |
-| T32 | §8a | codice; `mergeable_state` dopo APPROVE | |
-| T33 | §8 bis b | `review.user.id` = `sender.id` = id del T6 sì/no | |
-| T34 | §8b | codice; `message`/`errors`; contiene «own pull request» sì/no | |
-| T35 | §7d | codici di approve e request-changes su PR mergiata | |
-| T36 | §7d | status; suggerimento review sì/no (atteso no); token sì/no | |
-| T37 | §9a (E3) | **obbligatorio**, revisore membro privato via team: `review.author_association` della consegna; esito `gh-permission` per lo stesso login | |
-| T38 | §9b (E3) | **obbligatorio**, stesso revisore: `author_association` per fonte e autore; esito `gh-permission` | |
-| T39 | §9c (E3) | Bitbucket pubblico: bottone sì/no; premuto sì/no; consegna arrivata sì/no | |
-| T40 | §9d | esito/status di `gh-permission` con AUTHOR, META, NOPERM; permesso minimo del token; NOPERM → 403 o `none` | |
-| T41 | E6 | Bitbucket ritenta sì/no; n. tentativi e intervallo; `X-Request-UUID` uguale fra i tentativi sì/no; `X-Attempt-Number`; ultimo tentativo oltre 30' sì/no | |
-| T42 | G9 | azione di riapertura di una PR rifiutata sì/no; se sì: `X-Event-Key` della consegna (o nessuna) e `state` dopo | |
-| T43 | scope BB | codici di `/user`, repository e PR con il solo `write:` (200/403); `error.message` dei 403 | |
+| T1 | §1 | codice (200/403); `uuid` del principale | 200; `uuid` con le graffe (`{…}`), nickname del principale |
+| T2 | §1a | codice; `uuid` del revisore (diverso dal T1?) | 200; `uuid` con le graffe, **diverso** dal T1 |
+| T3 | §1b | **403 o 401?**; `error.message` | **403** «Your credentials lack one or more required privilege scopes.», con `detail.required: ["read:user:bitbucket"]` e l'elenco `granted` |
+| T4 | §1c | messaggio redatto; contiene il token sì/no | errore 403: «il token non può leggere la propria identità (403) — all'API token serve lo scope read:user:bitbucket»; token nel messaggio: **no**. Il ramo 403 è quello giusto |
+| T5 | §8 bis a | codice; `id` numerico sì/no | fuori perimetro (GitHub non eseguito) |
+| T6 | §8 bis b | `id` del revisore GitHub | fuori perimetro (GitHub non eseguito) |
+| T7 | §8 bis c (facolt.) | codice; `message` | fuori perimetro (GitHub non eseguito) |
+| T8 | §8 bis c (facolt.) | messaggio «utente con PAT» o «rate limit»; token sì/no | fuori perimetro (GitHub non eseguito) |
+| T9 | §2 | **201 o 400** senza `url` | **400** `url: This field is required.` → `url` OBBLIGATORIO, il ripiego di `bitbucket.ts` (pagina della repo) è necessario. `setCommitStatus` vero senza url: OK col ripiego + `refname` |
+| T10 | §2 | codice; status visibile nella PR sì/no | 201; status visibile nella PR **sì** (in `/pullrequests/1/statuses` col `refname`) |
+| T11 | §6c (BB) | **401 o 403** | saltato (incide solo sul testo di un errore) |
+| T12 | §6c (BB) | suggerimento status sì/no; token sì/no | saltato (incide solo sul testo di un errore) |
+| T13 | §5 | **422 o 201** a 141 caratteri; `desc_len` | fuori perimetro (GitHub non eseguito) |
+| T14 | §6a | codice per `stubwise.example.com` e per `localhost` | fuori perimetro (GitHub non eseguito) |
+| T15 | §6b | array finale (atteso `["success"]`) | fuori perimetro (GitHub non eseguito) |
+| T16 | §6c (GH) | codice (atteso 403); `message` | fuori perimetro (GitHub non eseguito) |
+| T17 | §6c (GH) | suggerimento status sì/no; token sì/no | fuori perimetro (GitHub non eseguito) |
+| T18 | §6d | **OK o 422**; `tail` se OK | fuori perimetro (GitHub non eseguito) |
+| T19 | §3 | codice del request-changes dell'autore | **200**: Bitbucket permette all'autore il request-changes sulla propria PR (stato `changes_requested`); pulizia 204 |
+| T20 | §3 | codice del DELETE approve senza niente da ritirare | **404** «You haven't approved this pull request.» → il DELETE best-effort lo ignora (B8), ed è giusto |
+| T21 | §7a | codici dei due approve (200/200 o 200/409…) | 200 / 200 — idempotente, **nessun 409**. Anche request-changes ripetuto: 200 / 200 |
+| T22 | §7b prep | codici; stato finale `changes_requested` sì/no | 204, 200; stato finale `changes_requested` **sì** |
+| T23 | §7b | codice; stato risultante del revisore | **200**, stato del revisore → `approved`: il DELETE preliminare di B8 è solo prudenza |
+| T24 | §7c | codice del DELETE request-changes; stato finale | 204; stato finale vuoto |
+| T25 | §4 | `actor.uuid` = `changes_request.user.uuid` sì/no; branch presente sì/no; chi ha premuto (terzo utente o revisore) | `actor.uuid` = `changes_request.user.uuid` **sì**; branch presente **sì** (`pullrequest.source.branch.name`); premuto dal revisore via API, non da un terzo utente. Nessun testo. Header: `X-Event-Key`, `X-Hub-Signature` e `X-Hub-Signature-256` (stesso valore `sha256=…`), `X-Request-UUID`, `X-Attempt-Number: 1`. Parser vero → `{prNumber:1, sourceBranch, actorId:"{…}", actorLogin, reviewBody:null}` |
+| T26 | §4 bis | tre uuid identici byte per byte sì/no | **sì**: uuid identico byte per byte in `/user` (T2), autore dei commenti, `actor.uuid` del webhook |
+| T27 | §5 | codice; testo di `message`/`errors` | fuori perimetro (GitHub non eseguito) |
+| T28 | §8c | codice (atteso 403); `message` | fuori perimetro (GitHub non eseguito) |
+| T29 | §8c | suggerimento review sì/no; token sì/no | fuori perimetro (GitHub non eseguito) |
+| T30 | §8b | codice; `message`/`errors`; contiene «own pull request» sì/no | fuori perimetro (GitHub non eseguito) |
+| T31 | §8a | codice; `mergeable_state` dopo REQUEST_CHANGES | fuori perimetro (GitHub non eseguito) |
+| T32 | §8a | codice; `mergeable_state` dopo APPROVE | fuori perimetro (GitHub non eseguito) |
+| T33 | §8 bis b | `review.user.id` = `sender.id` = id del T6 sì/no | fuori perimetro (GitHub non eseguito) |
+| T34 | §8b | codice; `message`/`errors`; contiene «own pull request» sì/no | fuori perimetro (GitHub non eseguito) |
+| T35 | §7d | codici di approve e request-changes su PR mergiata | approve → **200** (accettato!); request-changes → **400** `CANNOT_REQUEST_CHANGES_MERGED_PR` |
+| T36 | §7d | status; suggerimento review sì/no (atteso no); token sì/no | `ESITO: OK` (`submitted`), non l'`ERRORE` 400 atteso: coerente col T35, Bitbucket accetta l'approve su una PR mergiata. Suggerimento e token: non applicabili (nessun errore) |
+| T37 | §9a (E3) | **obbligatorio**, revisore membro privato via team: `review.author_association` della consegna; esito `gh-permission` per lo stesso login | fuori perimetro (GitHub non eseguito) |
+| T38 | §9b (E3) | **obbligatorio**, stesso revisore: `author_association` per fonte e autore; esito `gh-permission` | fuori perimetro (GitHub non eseguito) |
+| T39 | §9c (E3) | Bitbucket pubblico: bottone sì/no; premuto sì/no; consegna arrivata sì/no | saltato (le repository Bitbucket dell'utente sono private) |
+| T40 | §9d | esito/status di `gh-permission` con AUTHOR, META, NOPERM; permesso minimo del token; NOPERM → 403 o `none` | fuori perimetro (GitHub non eseguito) |
+| T41 | E6 | Bitbucket ritenta sì/no; n. tentativi e intervallo; `X-Request-UUID` uguale fra i tentativi sì/no; `X-Attempt-Number`; ultimo tentativo oltre 30' sì/no | ritenta **sì**: **3 tentativi** in pochi minuti (`X-Attempt-Number` 1, 2, 3) verso un endpoint che risponde 405; `X-Request-UUID` **uguale** fra i tentativi (anche `X-Event-Time` e firma); ultimo tentativo oltre 30' **no** |
+| T42 | G9 | azione di riapertura di una PR rifiutata sì/no; se sì: `X-Event-Key` della consegna (o nessuna) e `state` dopo | **no**: dalla UI della PR rifiutata nessuna azione di riapertura (solo «Approve») → G9 regge |
+| T43 | scope BB | codici di `/user`, repository e PR con il solo `write:` (200/403); `error.message` dei 403 | saltato (incide solo sull'elenco degli scope, che chiede comunque anche i `read:`) |

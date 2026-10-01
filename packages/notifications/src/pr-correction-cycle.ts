@@ -430,7 +430,11 @@ async function promoteRow(
  * consegna diventerebbe una `pending` e, a correzione finita, una SECONDA
  * correzione sulla stessa richiesta (e sullo stesso budget). Trenta minuti
  * coprono i tentativi automatici di Bitbucket e una riconsegna a mano fatta
- * subito; oltre, la stessa persona che rifà la stessa richiesta la sta
+ * subito. Dal vivo (B14 T41, 1 ott 2026) Bitbucket ritenta 3 volte in pochi
+ * minuti con lo STESSO `X-Request-UUID`: quei tentativi li ferma già la dedup
+ * in memoria del server (`createDeliveryDedupe`, 5'), e questa regola resta
+ * la seconda difesa — server riavviato, ritentativo oltre i 5', riconsegna a
+ * mano su GitHub (non verificata in B14); oltre, la stessa persona che rifà la stessa richiesta la sta
  * chiedendo davvero di nuovo (la correzione di prima non è bastata).
  */
 export const REDELIVERY_WINDOW_MINUTES = 30;
@@ -454,8 +458,9 @@ function webhookReviewBody(feedback: readonly PrComment[] | null | undefined): P
  * voce: è la stessa equivalenza che usa il worker per non mettere il testo
  * due volte.
  *
- * L'id dei commenti NON entra nel confronto: una riconsegna ha un id di
- * consegna diverso ma la stessa richiesta. Il caso `pending` non passa di qui:
+ * L'id dei commenti NON entra nel confronto: una riconsegna può avere un id
+ * di consegna diverso ma la stessa richiesta (non i tentativi automatici di
+ * Bitbucket, che tengono lo stesso: B14 T41). Il caso `pending` non passa di qui:
  * la fusione deduplica già per id della fotografia.
  */
 async function isRedeliveryOfQueued(
@@ -704,7 +709,9 @@ export async function markPrRowsClosed(
  * qualunque — ripetuto o arrivato in ritardo dopo la chiusura — riaprirebbe a
  * torto una riga chiusa. Bitbucket Cloud non ha un evento di riapertura
  * (`ensureWebhook` sottoscrive created/updated/fulfilled/rejected/
- * changes_request_created).
+ * changes_request_created), e una PR rifiutata NON si può riaprire: dalla UI
+ * di una PR `DECLINED` non c'è nessuna azione di riapertura (B14 T42, 1 ott
+ * 2026). Limitarla a GitHub è quindi corretto.
  */
 export async function reopenPrRows(
   db: DbOrTx,

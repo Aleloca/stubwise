@@ -423,7 +423,10 @@ export class BitbucketProvider implements GitProvider {
    * Status di commit di Stubwise (design §8). Stessa `key` sullo stesso commit
    * = sovrascrive (documentato). `refname` associa lo status alla PR (la doc
    * lo dice necessario); `url` si manda sempre — senza quello del chiamante,
-   * la pagina della repository. Lo sha dev'essere completo: un abbreviato è
+   * la pagina della repository. Il ripiego è NECESSARIO, non prudenza: lo
+   * schema della spec non mette `url` fra gli obbligatori, ma la API vera
+   * risponde 400 `url: This field is required.` (B14 T9, 1 ott 2026); con
+   * `refname` + `url` lo status nasce (201) e compare sulla PR (T10). Lo sha dev'essere completo: un abbreviato è
    * rifiutato qui, prima della richiesta. Lancia GitProviderError: chi chiama
    * lo tratta come best-effort (design §8).
    */
@@ -466,8 +469,11 @@ export class BitbucketProvider implements GitProvider {
    * Bitbucket non ha un testo per il verdetto: stato e commento sono due
    * chiamate. Ordine: (1) DELETE dell'opposto, best-effort — un partecipante
    * ha UNO stato (approved | changes_requested), quindi si ritira l'altro; la
-   * risposta non si guarda (il caso "niente da ritirare" non è documentato)
-   * e anche un errore di rete si ignora; (2) POST del verdetto; (3) il
+   * risposta non si guarda e anche un errore di rete si ignora. Il caso
+   * "niente da ritirare" risponde 404 («You haven't approved this pull
+   * request.», B14 T20): ignorarlo è giusto. Il DELETE è solo PRUDENZA: un
+   * approve diretto da `changes_requested` risponde 200 e porta comunque lo
+   * stato ad `approved` (T23); (2) POST del verdetto; (3) il
    * commento, se il corpo non è vuoto. Il verdetto va PRIMA del testo perché
    * chi chiama (C10), se questo metodo fallisce, ripiega su `createPrComment`
    * con l'account principale: se il verdetto fallisce non è uscito niente, se
@@ -480,11 +486,14 @@ export class BitbucketProvider implements GitProvider {
    * Limite accettato: se il DELETE dell'opposto riesce e poi il POST del
    * verdetto fallisce, la PR resta SENZA stato del revisore (quello
    * precedente è già stato ritirato). Il ripiego di C10 pubblica il testo ma
-   * non ripristina il verdetto di prima. La verifica dal vivo del POST
-   * ripetuto è nel task B14 del piano: nell'attesa, un 409 sul POST del
-   * verdetto si tratta come «già in quello stato» (esito
-   * `already_in_state`, il commento parte comunque) — scelta difensiva da
-   * confermare con B14 §7a.
+   * non ripristina il verdetto di prima. Un 409 sul POST del verdetto si
+   * tratta come «già in quello stato» (esito `already_in_state`, il commento
+   * parte comunque). Dal vivo (B14 T21, 1 ott 2026) il 409 NON arriva mai:
+   * approve e request-changes ripetuti rispondono 200 e 200, idempotenti. Il
+   * ramo resta come difesa, ed è innocuo: non scatta. Su una PR MERGIATA
+   * l'approve è accettato (200) e il request-changes no (400
+   * `CANNOT_REQUEST_CHANGES_MERGED_PR`, B14 T35): il 400 è un errore come gli
+   * altri, senza il suggerimento sui permessi.
    */
   async submitPrReview(
     p: ProjectGitConfig,
@@ -516,11 +525,12 @@ export class BitbucketProvider implements GitProvider {
       method: "POST",
       headers: { Authorization: auth },
     });
-    // 409 sul verdetto = l'account è GIÀ in quello stato (es. un secondo
-    // approve): SCELTA DIFENSIVA da confermare con B14 §7a — si tratta come
-    // successo e il commento parte comunque, così il chiamante non ripiega
-    // sul commento dell'account principale per uno stato già giusto. Ogni
-    // altro non-2xx resta un errore.
+    // 409 sul verdetto = l'account è GIÀ in quello stato: SCELTA DIFENSIVA —
+    // si tratta come successo e il commento parte comunque, così il chiamante
+    // non ripiega sul commento dell'account principale per uno stato già
+    // giusto. Dal vivo (B14 T21) un verdetto ripetuto risponde 200, mai 409:
+    // il ramo non scatta, ed è innocuo tenerlo. Ogni altro non-2xx resta un
+    // errore.
     let outcome: SubmitPrReviewOutcome = { status: "submitted" };
     if (response.status === 409) {
       const text = await response.text().catch(() => "");
@@ -550,7 +560,11 @@ export class BitbucketProvider implements GitProvider {
    * AccountCredentials); identità REST come gli altri metodi (email
    * Atlassian, poi username). Lancia GitProviderError: sul 401 dice che le
    * credenziali non valgono, sul 403 lo scope mancante (`read:user:bitbucket`
-   * dell'API token); senza uuid lancia invece di
+   * dell'API token) — verificato dal vivo (B14 T3/T4): senza quello scope
+   * `/user` risponde 403 (non 401) con `detail.required:
+   * ["read:user:bitbucket"]`, e il messaggio non contiene il token. Lo uuid
+   * arriva con le graffe (T1/T2) ed è identico byte per byte all'`actor.uuid`
+   * del webhook e all'autore dei commenti (T26); senza uuid lancia invece di
    * restituire un'identità vuota. Mai il token in un messaggio.
    */
   async getAuthenticatedUserId(
