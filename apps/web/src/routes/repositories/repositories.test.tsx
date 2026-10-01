@@ -286,7 +286,7 @@ describe("dettaglio repository", () => {
 
     // Non bloccante: salvato E avvisato — e solo quell'avviso, non quello del principale.
     expect(await screen.findByText("Changes saved.")).toBeInTheDocument();
-    expect(screen.getByText(/the default reviewer doesn't pass the checks/)).toBeInTheDocument();
+    expect(screen.getByText(/the default reviewer didn't pass the checks/)).toBeInTheDocument();
     expect(screen.queryByText(/can't read who the main account is/)).not.toBeInTheDocument();
   });
 
