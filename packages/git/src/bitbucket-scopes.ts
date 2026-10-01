@@ -113,8 +113,8 @@ const SCOPE_GROUPS: readonly ScopeGroup[] = [
  * deciso di chiedere o non chiedere.
  *
  * **Credenziale non verificabile** (header `x-credential-type` diverso da
- * `api_token`, o `x-oauth-scopes` assente — tipicamente un'app password
- * legacy): non si deduce niente. Si restituisce UN check «Scope del token» con
+ * `api_token`, o `x-oauth-scopes` assente o VUOTO — tipicamente un'app
+ * password legacy): non si deduce niente. Si restituisce UN check «Scope del token» con
  * `ok: true` e un dettaglio che dice che non è verificabile ed elenca cosa
  * controllare a mano. Perché `ok: true`: il verdetto complessivo della rotta è
  * `checks.every(ok)` e la UI lo mostra rosso («problemi»); con `ok: false` un
@@ -132,7 +132,10 @@ export function bitbucketScopeChecks(
   const granted = parseBitbucketScopes(headers.get("x-oauth-scopes"));
   const requiredSet = new Set(required);
 
-  if (credentialType !== "api_token" || granted === null) {
+  // Header PRESENTE ma VUOTO vale come assente: un API token senza nessuno
+  // scope non autenticherebbe nemmeno la chiamata che ha prodotto questo 200,
+  // quindi un elenco vuoto è un header che non dice niente, non «manca tutto».
+  if (credentialType !== "api_token" || granted === null || granted.size === 0) {
     return [
       {
         name: "Scope del token",

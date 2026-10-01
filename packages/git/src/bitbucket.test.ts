@@ -2080,6 +2080,49 @@ describe("BitbucketProvider.validateAccount: scope del token", () => {
     expect(checks[0]!.detail).not.toContain("read:pullrequest:bitbucket");
   });
 
+  it("x-oauth-scopes PRESENTE ma VUOTO su un api_token: non verificabile, non «manca tutto»", async () => {
+    const fetchImpl = respond(apiToken(""));
+    const checks = await new BitbucketProvider().validateAccount(accountConfig, {
+      fetchImpl,
+      requiredScopes: BITBUCKET_REVIEWER_SCOPES,
+    });
+    expect(checks.map((c) => c.name)).toEqual(["Autenticazione e accesso workspace", "Scope del token"]);
+    expect(checks.every((c) => c.ok)).toBe(true);
+    expect(checks[1]!.detail).toMatch(/non verificabili/);
+    // Anche solo spazi e virgole: nessuno scope dichiarato.
+    const blank = await new BitbucketProvider().validateAccount(accountConfig, { fetchImpl: respond(apiToken(" , ")) });
+    expect(blank.map((c) => c.name)).toEqual(["Autenticazione e accesso workspace", "Scope del token"]);
+  });
+
+  it("403 con un corpo che non arriva mai: Validate non resta appeso, dettaglio di sempre e stream cancellato", async () => {
+    vi.useFakeTimers();
+    try {
+      let cancelled = false;
+      const never = new ReadableStream<Uint8Array>({
+        cancel() {
+          cancelled = true;
+        },
+      });
+      const fetchImpl = vi.fn(() => Promise.resolve(new Response(never, { status: 403 })));
+      let settled = false;
+      const pending = new BitbucketProvider().validateAccount(accountConfig, { fetchImpl }).finally(() => {
+        settled = true;
+      });
+      await vi.advanceTimersByTimeAsync(4_999);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(settled).toBe(true);
+      const checks = await pending;
+      expect(checks).toHaveLength(1);
+      expect(checks[0]!.detail).toBe(
+        "accesso negato (403): il token non ha accesso a questo workspace o manca lo scope read:repository:bitbucket"
+      );
+      expect(cancelled).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("403 con corpo non JSON: il dettaglio di sempre", async () => {
     const fetchImpl = vi.fn(() => Promise.resolve(new Response("<html>Forbidden</html>", { status: 403 })));
     const checks = await new BitbucketProvider().validateAccount(accountConfig, { fetchImpl });

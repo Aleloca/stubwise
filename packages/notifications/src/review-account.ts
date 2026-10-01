@@ -1,6 +1,6 @@
 import { gitAccounts, repositories } from "@stubwise/db";
 import type { GitProviderKind } from "@stubwise/shared";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, exists, inArray, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { DbOrTx } from "./dispatch.js";
 
@@ -66,6 +66,13 @@ export function reviewScopeKey(a: { provider: GitProviderKind; workspace: string
 export type ReviewAccountSource = "explicit" | "default";
 
 export interface ReviewAccountResolution<A> {
+  /**
+   * L'account PRINCIPALE della repository, nella stessa forma degli altri
+   * (proiezione, o riga intera nella variante `WithCredentials`): chi ha
+   * bisogno di principale e revisore insieme — il webhook, per gli account
+   * propri e per il permesso dell'autore — fa UNA lettura sola.
+   */
+  main: A;
   /** Il revisore che Stubwise usa davvero su quella repository; null = nessuno (si commenta col principale). */
   effective: { account: A; source: ReviewAccountSource } | null;
   /**
@@ -76,8 +83,9 @@ export interface ReviewAccountResolution<A> {
 }
 
 /**
- * Regola pura (D2). `defaults` = TUTTI gli account con `is_default_reviewer`
- * (l'indice ne ammette al più uno per ambito).
+ * Regola pura (D2). `defaults` = account con `is_default_reviewer` (l'indice
+ * ne ammette al più uno per ambito); quelli di ambiti diversi da quello del
+ * principale si ignorano, quindi passarne in più non cambia l'esito.
  *
  * - un esplicito DIVERSO dal principale vince sempre, e il predefinito non si
  *   guarda nemmeno: se ce n'è uno uguale al principale non è «saltato», è
@@ -94,14 +102,48 @@ export interface ReviewAccountResolution<A> {
 export function pickReviewAccount<A extends { id: string; provider: GitProviderKind; workspace: string | null }>(
   input: { main: A; explicit: A | null; defaults: readonly A[] },
 ): ReviewAccountResolution<A> {
-  if (input.explicit !== null && input.explicit.id !== input.main.id) {
-    return { effective: { account: input.explicit, source: "explicit" }, skippedDefault: null };
+  const main = input.main;
+  if (input.explicit !== null && input.explicit.id !== main.id) {
+    return { main, effective: { account: input.explicit, source: "explicit" }, skippedDefault: null };
   }
-  const scope = reviewScopeKey(input.main);
+  const scope = reviewScopeKey(main);
   const def = input.defaults.find((d) => reviewScopeKey(d) === scope);
-  if (!def) return { effective: null, skippedDefault: null };
-  if (def.id === input.main.id) return { effective: null, skippedDefault: def };
-  return { effective: { account: def, source: "default" }, skippedDefault: null };
+  if (!def) return { main, effective: null, skippedDefault: null };
+  if (def.id === main.id) return { main, effective: null, skippedDefault: def };
+  return { main, effective: { account: def, source: "default" }, skippedDefault: null };
+}
+
+/**
+ * La condizione sui PREDEFINITI che servono a `repositoryIds`: quelli il cui
+ * ambito (D1) è l'ambito del principale di almeno una di quelle repository.
+ * Gli altri non possono essere scelti da `pickReviewAccount`, e caricarli
+ * vorrebbe dire — nella variante `WithCredentials` — leggere i blob delle
+ * credenziali di ambiti estranei. Una sottoquery `EXISTS` dentro la stessa
+ * query: le query restano DUE. Gemella SQL di `reviewScopeKey`, come l'indice
+ * della 0082 (su Bitbucket conta il workspace con NULL = '', altrove no).
+ */
+function defaultsInScopeOf(db: DbOrTx, repositoryIds: readonly string[]) {
+  const r = alias(repositories, "scope_repository");
+  const m = alias(gitAccounts, "scope_main_account");
+  return and(
+    eq(gitAccounts.isDefaultReviewer, true),
+    exists(
+      db
+        .select({ one: sql`1` })
+        .from(r)
+        .innerJoin(m, eq(m.id, r.gitAccountId))
+        .where(
+          and(
+            inArray(r.id, [...repositoryIds]),
+            eq(m.provider, gitAccounts.provider),
+            or(
+              sql`${m.provider} <> 'bitbucket'`,
+              sql`coalesce(${m.workspace}, '') = coalesce(${gitAccounts.workspace}, '')`,
+            ),
+          ),
+        ),
+    ),
+  );
 }
 
 /**
@@ -132,6 +174,14 @@ export function pickReviewAccount<A extends { id: string; provider: GitProviderK
  * scarterebbe ogni «Request changes» della repository) senza chiudere nessun
  * ciclo, perché il ciclo nasce solo dall'account con cui Stubwise pubblica su
  * QUELLA repository. Vale identica per la variante `WithCredentials`.
+ *
+ * ⚠️ E vale anche per il PASSATO, non solo per i secondi della finestra: la
+ * fotografia dei commenti della PRIMA correzione di una PR non ha taglio e
+ * rilegge TUTTI i commenti, quindi le review pubblicate da un predefinito
+ * PRECEDENTE — che oggi non è più «proprio» su questa repository — non sono
+ * escluse per autore: entrerebbero nel prompt come feedback umano. Questa
+ * regola non lo può chiudere (cambierebbe la semantica, vedi sopra): serve un
+ * criterio che non dipenda dall'autore.
  */
 export async function resolveReviewAccounts(
   db: DbOrTx,
@@ -180,7 +230,7 @@ export async function resolveReviewAccounts(
         isDefaultReviewer: gitAccounts.isDefaultReviewer,
       } satisfies Record<ViewKey, unknown>)
       .from(gitAccounts)
-      .where(eq(gitAccounts.isDefaultReviewer, true)),
+      .where(defaultsInScopeOf(db, repositoryIds)),
   ]);
 
   for (const row of rows) {
@@ -213,7 +263,9 @@ export async function resolveReviewAccountsWithCredentials(
       .innerJoin(mainAccount, eq(mainAccount.id, repositories.gitAccountId))
       .leftJoin(explicitAccount, eq(explicitAccount.id, repositories.reviewGitAccountId))
       .where(inArray(repositories.id, [...repositoryIds])),
-    db.select().from(gitAccounts).where(eq(gitAccounts.isDefaultReviewer, true)),
+    // Solo i predefiniti degli ambiti dei principali richiesti: i blob degli
+    // altri ambiti non si leggono nemmeno.
+    db.select().from(gitAccounts).where(defaultsInScopeOf(db, repositoryIds)),
   ]);
 
   for (const row of rows) {

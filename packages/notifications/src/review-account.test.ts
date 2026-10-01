@@ -43,6 +43,8 @@ describe("pickReviewAccount (regola pura, D2)", () => {
     const r = pickReviewAccount({ main, explicit, defaults: [def] });
     expect(r.effective).toEqual({ account: explicit, source: "explicit" });
     expect(r.skippedDefault).toBeNull();
+    // Il principale viaggia con la risoluzione: chi li vuole entrambi legge una volta.
+    expect(r.main).toBe(main);
   });
 
   it("1b. con l'esplicito, un predefinito uguale al principale non è «saltato»: è irrilevante", () => {
@@ -64,7 +66,7 @@ describe("pickReviewAccount (regola pura, D2)", () => {
   it("3. predefinito in un ALTRO workspace Bitbucket → nessuno", () => {
     const main = acc("main", "bitbucket", "ws1");
     const r = pickReviewAccount({ main, explicit: null, defaults: [acc("def", "bitbucket", "ws2")] });
-    expect(r).toEqual({ effective: null, skippedDefault: null });
+    expect(r).toEqual({ main, effective: null, skippedDefault: null });
   });
 
   it("3b. fra più predefiniti sceglie quello del SUO ambito", () => {
@@ -95,13 +97,13 @@ describe("pickReviewAccount (regola pura, D2)", () => {
   it("6. predefinito di un altro provider → nessuno", () => {
     const main = acc("main", "bitbucket", null);
     const r = pickReviewAccount({ main, explicit: null, defaults: [acc("def", "github", null)] });
-    expect(r).toEqual({ effective: null, skippedDefault: null });
+    expect(r).toEqual({ main, effective: null, skippedDefault: null });
   });
 
   it("1c. esplicito con lo STESSO id del principale (il CHECK lo vieta, la regola lo riverifica) → nessun effettivo", () => {
     const main = acc("main", "bitbucket", "ws1");
     const r = pickReviewAccount({ main, explicit: { ...main }, defaults: [] });
-    expect(r).toEqual({ effective: null, skippedDefault: null });
+    expect(r).toEqual({ main, effective: null, skippedDefault: null });
   });
 
   it("1d. esplicito = principale, con un predefinito valido nello stesso ambito → l'effettivo è il predefinito", () => {
@@ -113,8 +115,9 @@ describe("pickReviewAccount (regola pura, D2)", () => {
   });
 
   it("nessun predefinito, nessun esplicito → nessuno", () => {
-    const r = pickReviewAccount({ main: acc("main", "github"), explicit: null, defaults: [] });
-    expect(r).toEqual({ effective: null, skippedDefault: null });
+    const main = acc("main", "github");
+    const r = pickReviewAccount({ main, explicit: null, defaults: [] });
+    expect(r).toEqual({ main, effective: null, skippedDefault: null });
   });
 });
 
@@ -280,6 +283,7 @@ describe("con il database", () => {
       map.get(repoExplicit)?.effective?.account,
       map.get(repoDefault)?.effective?.account,
       map.get(repoSelf)?.skippedDefault,
+      map.get(repoDefault)?.main,
     ];
     for (const account of returned) {
       expect(account).toBeDefined();
@@ -314,9 +318,60 @@ describe("con il database", () => {
     expect(map.get(repoDefault)?.effective?.account.encryptedCredentials).toBe("blob");
     expect(map.get(repoExplicit)?.effective).toMatchObject({ source: "explicit", account: { id: explicit.id } });
     expect(map.get(repoExplicit)?.effective?.account.encryptedCredentials).toBe("blob");
+    // Il principale arriva con la risoluzione, credenziali comprese: il
+    // webhook non lo rilegge per id.
+    expect(map.get(repoDefault)?.main).toMatchObject({ id: main.id, encryptedCredentials: "blob" });
     const single = await resolveReviewAccountWithCredentials(testDb.db, repoDefault);
     expect(single?.effective?.account.encryptedCredentials).toBe("blob");
+    expect(single?.main.id).toBe(main.id);
     expect(await resolveReviewAccountWithCredentials(testDb.db, randomUUID())).toBeNull();
+  });
+
+  it("8f. WithCredentials legge SOLO i predefiniti degli ambiti dei principali richiesti", async () => {
+    const main = await insertAccount("bitbucket", "ws-filtro", false);
+    const inScope = await insertAccount("bitbucket", "ws-filtro", true);
+    const otherWorkspace = await insertAccount("bitbucket", "ws-filtro-altro", true);
+    const nullWorkspace = await insertAccount("bitbucket", null, true);
+    const github = await insertAccount("github", null, true);
+    const repoId = await insertRepository(main.id);
+
+    // Si cattura la query dei predefiniti così com'è stata eseguita, e la si
+    // riesegue sul Postgres vero: conta cosa CARICA, non solo cosa sceglie
+    // (la scelta sarebbe giusta anche caricandoli tutti).
+    const captured: { query: string; params: unknown[] }[] = [];
+    const counted = drizzle(testDb.client, {
+      schema: dbSchema,
+      logger: { logQuery: (query, params) => void captured.push({ query, params }) },
+    });
+    const map = await resolveReviewAccountsWithCredentials(counted, [repoId]);
+    expect(map.get(repoId)?.effective?.account.id).toBe(inScope.id);
+    expect(captured).toHaveLength(2);
+    const defaultsQuery = captured.find((q) => !q.query.includes('"main_account"'));
+    expect(defaultsQuery).toBeDefined();
+    const loaded = await testDb.client.unsafe(defaultsQuery!.query, defaultsQuery!.params as never[]);
+    const ids = loaded.map((row) => String(row.id));
+    expect(ids).toEqual([inScope.id]);
+    expect(ids).not.toContain(otherWorkspace.id);
+    expect(ids).not.toContain(nullWorkspace.id);
+    expect(ids).not.toContain(github.id);
+  });
+
+  it("8g. il filtro per ambito non perde il predefinito di NESSUNA delle repository richieste", async () => {
+    const bbMain = await insertAccount("bitbucket", "ws-multi", false);
+    const bbDef = await insertAccount("bitbucket", "ws-multi", true);
+    const bbNullMain = await insertAccount("bitbucket", null, false);
+    const bbNullDef = await insertAccount("bitbucket", "", true);
+    const ghMain = await insertAccount("github", "acme", false);
+    const ghDef = await insertAccount("github", null, true);
+    const ids = [
+      await insertRepository(bbMain.id),
+      await insertRepository(bbNullMain.id),
+      await insertRepository(ghMain.id),
+    ];
+    for (const resolve of [resolveReviewAccounts, resolveReviewAccountsWithCredentials]) {
+      const map = await resolve(testDb.db, ids);
+      expect(ids.map((id) => map.get(id)?.effective?.account.id)).toEqual([bbDef.id, bbNullDef.id, ghDef.id]);
+    }
   });
 
   it("8e. WithCredentials: anche lei in DUE query", async () => {

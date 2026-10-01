@@ -1,6 +1,5 @@
 import {
   comments,
-  gitAccounts,
   prCorrections,
   repositories,
   ticketRepositories,
@@ -256,12 +255,12 @@ export async function handleChangesRequested(
   // non quando la review è stata pubblicata.
   // La variante `WithCredentials`, e non la proiezione: un'identità non
   // ancora salvata si risolve DECIFRANDO le credenziali (`resolveProviderUserId`
-  // chiede `/user` al provider), quindi qui serve il blob. Il principale si
-  // rilegge a parte: la risoluzione restituisce il solo revisore, e il
-  // principale serve con le sue credenziali anche al permesso dell'autore (2b).
+  // chiede `/user` al provider), quindi qui serve il blob. Il principale
+  // arriva con la stessa lettura (`review.main`): serve con le sue credenziali
+  // anche al permesso dell'autore (2b).
   const review = await resolveReviewAccountWithCredentials(db, repositoryId);
   const reviewer = review?.effective?.account ?? null;
-  const [main] = await db.select().from(gitAccounts).where(eq(gitAccounts.id, row.gitAccountId));
+  const main = review?.main;
   // Mai un doppione: `pickReviewAccount` non restituisce il principale come revisore.
   const accountIds = [row.gitAccountId, ...(reviewer ? [reviewer.id] : [])];
   const accounts = [...(main ? [main] : []), ...(reviewer ? [reviewer] : [])];

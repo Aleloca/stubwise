@@ -1340,26 +1340,63 @@ export class BitbucketProvider implements GitProvider {
   }
 }
 
-/** Mappa `state` di un build status Bitbucket sul rollup a tre stati condiviso. */
 /**
  * Un testo della risposta senza le credenziali: il token e l'header Basic
  * (la sua forma base64) diventano `***`, PRIMA di qualunque taglio (un token
  * spezzato dal taglio non sopravvive). Il testo va nei log del chiamante.
  */
-/** Il corpo di una risposta come testo, o `null` se non si legge: non lancia mai. */
-async function readBodySafely(r: Response): Promise<string | null> {
-  try {
-    return await r.text();
-  } catch {
-    return null;
-  }
-}
-
 function maskCredentials(text: string, p: ProjectGitConfig, authHeader: string): string {
   const secrets = [p.credentials.token, authHeader.replace(/^Basic\s+/i, "")].filter((x) => x.length > 0);
   return secrets.reduce((acc, secret) => acc.split(secret).join("***"), text);
 }
 
+/**
+ * Tempo massimo per leggere il CORPO di una risposta d'errore. Il timeout di
+ * `fetchWithTimeout` copre solo l'arrivo degli header (il suo timer si chiude
+ * quando `fetch` risolve): un corpo che non arriva mai lascerebbe la chiamata
+ * appesa — e Validate con lei.
+ */
+const ERROR_BODY_TIMEOUT_MS = 5_000;
+
+/**
+ * Il corpo di una risposta come testo, o `null` se non si legge entro
+ * {@link ERROR_BODY_TIMEOUT_MS}: non lancia mai. Una corsa col timer sulla
+ * lettura dello stream; allo scadere lo stream si CANCELLA dal suo reader
+ * (`r.text()` lo bloccherebbe senza poterlo cancellare), così la connessione
+ * non resta aperta per niente.
+ */
+async function readBodySafely(r: Response): Promise<string | null> {
+  if (r.body === null) return "";
+  let reader: ReadableStreamDefaultReader<Uint8Array>;
+  try {
+    reader = r.body.getReader();
+  } catch {
+    return null;
+  }
+  const read = async (): Promise<string | null> => {
+    const decoder = new TextDecoder();
+    let text = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) return text + decoder.decode();
+      text += decoder.decode(value, { stream: true });
+    }
+  };
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<"timeout">((resolve) => {
+    timer = setTimeout(() => resolve("timeout"), ERROR_BODY_TIMEOUT_MS);
+  });
+  try {
+    const outcome = await Promise.race([read().catch(() => null), timeout]);
+    if (outcome !== "timeout") return outcome;
+    void reader.cancel().catch(() => undefined);
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Mappa `state` di un build status Bitbucket sul rollup a tre stati condiviso. */
 function bitbucketCheckStatus(state: unknown): CheckOutcomeStatus {
   if (state === "SUCCESSFUL") return "success";
   if (state === "INPROGRESS") return "pending";
