@@ -569,6 +569,57 @@ describe("aggiunta repository (wizard)", () => {
     expect(await screen.findByText(/can't read who the main account is/)).toBeInTheDocument();
   });
 
+  function mockWizardPost(post: Handler) {
+    mockApi({
+      "GET /api/auth/me": meHandler("admin"),
+      "GET /api/git-accounts": () => jsonResponse(200, [ACCOUNT]),
+      "GET /api/git-accounts/11111111-1111-4111-8111-111111111111/repositories": () =>
+        jsonResponse(200, [
+          {
+            fullName: "acme/demo-shop",
+            name: "demo-shop",
+            cloneUrl: "https://github.com/acme/demo-shop",
+            defaultBranch: "main",
+          },
+        ]),
+      "GET /api/git-accounts/11111111-1111-4111-8111-111111111111/branches": () =>
+        jsonResponse(200, { branches: ["main"], defaultBranch: "main" }),
+      "POST /api/repositories": post,
+    });
+  }
+
+  async function submitWizard(user: ReturnType<typeof userEvent.setup>) {
+    renderApp(`/projects/${PROJECT_ID}/repositories/new`);
+    await screen.findByRole("heading", { name: "Add a repository" });
+    await user.type(screen.getByLabelText("Name"), "Demo Shop");
+    await user.click(await screen.findByRole("button", { name: /acme\/demo-shop/ }));
+    const branchSelect = await screen.findByLabelText("Default branch");
+    await waitFor(() => expect((branchSelect as HTMLSelectElement).value).toBe("main"));
+    await user.click(screen.getByRole("button", { name: "Add repository" }));
+  }
+
+  it("admin: un errore del POST con un code noto si mostra col suo testo, non col message", async () => {
+    const user = userEvent.setup();
+    mockWizardPost(() =>
+      jsonResponse(404, { code: "git_account_not_found", message: "server says no account" }),
+    );
+    await submitWizard(user);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Git account not found");
+    expect(alert).not.toHaveTextContent("server says no account");
+  });
+
+  it("admin: un code senza testo ricade sul message del server", async () => {
+    const user = userEvent.setup();
+    mockWizardPost(() =>
+      jsonResponse(400, { code: "FST_ERR_VALIDATION", message: "body/name must NOT be empty" }),
+    );
+    await submitWizard(user);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("body/name must NOT be empty");
+  });
+
   it("member: la rotta di aggiunta reindirizza al dettaglio del progetto", async () => {
     mockApi({
       "GET /api/auth/me": meHandler("member"),

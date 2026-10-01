@@ -10,6 +10,7 @@ import {
   type RepoSummary,
 } from "../lib/api";
 import { gitAccountsQueryOptions } from "../lib/queries";
+import { translateApiError } from "../lib/translate-api-error";
 import { ProviderBadge } from "./badges";
 import { BranchSelect } from "./branch-select";
 import { CredentialChecks } from "./credential-fields";
@@ -146,7 +147,9 @@ export function RepositoryWizard({ projectId, onSubmit }: RepositoryWizardProps)
         installCommand: installCommand.trim() === "" ? null : installCommand.trim(),
       });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : t("common:unexpectedError"));
+      // Il `code` del server ha un testo proprio (localizzato); senza chiave si
+      // ricade sul `message`, come prima.
+      setError(translateApiError(cause, t));
     } finally {
       setPending(false);
     }
