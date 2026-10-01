@@ -222,7 +222,8 @@ With the **generic JSON** format your endpoint receives a `POST` request with
 | `scope`        | string           | only `job.budget_held`  | Which budget was hit: `ticket` or `monthly`.            |
 | `limitUsd`     | number           | only `job.budget_held`  | The budget ceiling in USD.                              |
 | `spentUsd`     | number           | only `job.budget_held`  | The cost already spent in USD.                          |
-| `verdict`      | string           | only `review.completed` | Review verdict: `approve` or `request_changes`.         |
+| `verdict`      | string \| null  | only `review.completed` | Review verdict: `approve` or `request_changes`. `null` when a review failed inside an automatic series of the [correction loop](/docs/ai-pipeline/automation/#pr-correction-loop) and stopped it (`cycle.stoppedReason` is then `review_failed`). |
+| `cycle`        | object \| null  | only `review.completed` | The [correction loop](/docs/ai-pipeline/automation/#pr-correction-loop) at the time of the review: `{ "round", "max", "stopped", "stoppedReason" }` — automatic corrections so far in this series, the project's cap, whether the automatic loop stopped, and why (`cap` or `review_failed`; may be missing on older events, where `stopped: true` always means the cap). Always present, `null` for a PR not opened by Stubwise. |
 | `questionId`   | string           | only `job.awaiting_input` | Id of the question being asked (the anchor an answer refers to). |
 | `round`        | number           | only `job.awaiting_input` | Which question this is within the run (`1` = the first). |
 | `question`     | string           | `job.awaiting_input` and `project.pulse` | The question: as the AI wrote it on `job.awaiting_input`; on `project.pulse` a sentence naming the project and the days it has been idle, composed in Italian (it does not go through the content language). |
@@ -364,7 +365,8 @@ render it without calling the API):
   "message": "PR review completed for #133 — Review PR #351 — cart refactor (web-shop): approval suggested.",
   "ticketUrl": "https://stubwise.example.com/tickets/133",
   "prUrl": "https://github.com/acme/web-shop/pull/351",
-  "verdict": "approve"
+  "verdict": "approve",
+  "cycle": null
 }
 ```
 

@@ -168,3 +168,31 @@ docker compose up -d --build
 ```
 
 New migrations are applied by the server on startup.
+
+After upgrading to a version that adds webhook events (for example the [PR
+correction loop](/docs/ai-pipeline/automation/#pr-correction-loop)), re-register
+the webhooks once, from inside the server container — dry run first:
+
+```bash
+docker compose exec server node dist/scripts/resync-webhooks.js --dry-run
+docker compose exec server node dist/scripts/resync-webhooks.js
+```
+
+The script only realigns repositories whose webhook was **already configured**;
+repositories never configured are left out unless you pass
+`--include-unconfigured` explicitly, because creating a webhook starts the
+events that trigger reviews and corrections. It is idempotent: running it twice
+does no harm.
+
+Optionally, after that, align the pull requests that were closed before the
+upgrade and are still shown as open (in the release queue, with the correction
+button on):
+
+```bash
+docker compose exec server node dist/scripts/backfill-pr-states.js --dry-run
+docker compose exec server node dist/scripts/backfill-pr-states.js
+```
+
+It asks the provider about each PR and writes only what it can verify: a PR it
+can't check (an error, a timeout, missing credentials) is left untouched and
+reported as unverified.

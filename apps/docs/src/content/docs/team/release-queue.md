@@ -60,9 +60,20 @@ Each row carries five facts, kept deliberately separate rather than folded
 into one traffic light:
 
 - **Review** — the verdict from Stubwise's [automatic
-  review](/docs/ai-pipeline/automation/#pr-review), when there is one.
+  review](/docs/ai-pipeline/automation/#pr-review), when there is one. When
+  the PR has moved on since that review — a
+  [correction](/docs/ai-pipeline/automation/#pr-correction-loop) or a commit
+  pushed by hand — the verdict is marked **stale** (*on an earlier version of
+  the PR*): it's still the latest verdict, but not about the code you'd be
+  merging. A review that is queued but hasn't started yet doesn't hide the
+  previous verdict.
 - **Checks** — what the provider (GitHub or Bitbucket) reports *right now*
   for that pull request's CI. This is read live, not from anything stored.
+  Stubwise's own `stubwise-review` status is **not** counted here (on
+  Bitbucket it would otherwise show up as a build): the review already has its
+  own column, and counting it twice would block a PR on one provider and not on
+  the other. To make the review mandatory, use the branch rules on the
+  platform.
 - **Tests** — what the fix pipeline's own test run reported *when it opened
   the PR*. This is a different fact from Checks: one is what the pipeline saw
   in its own container before opening the PR, the other is what the
@@ -75,9 +86,11 @@ into one traffic light:
   so that "why" is always answerable without guessing.
 - **Already on staging?** — whether the PR's commit is already what's running
   on a linked `staging` or `production` environment, read from the same
-  monitoring data as the Environments section. This is a conservative,
-  exact-match check: a missing badge means "not known to be there yet", never
-  a claim that it definitely isn't.
+  monitoring data as the Environments section. This is a conservative check:
+  the two commit ids must be the same commit — one may be an abbreviation of
+  the other, regardless of upper or lower case, but never shorter than 7
+  characters, and a missing commit id matches nothing. A missing badge means
+  "not known to be there yet", never a claim that it definitely isn't.
 
 ### Releasing
 
