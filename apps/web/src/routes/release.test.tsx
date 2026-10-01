@@ -219,3 +219,51 @@ describe("/release — rilascia", () => {
     expect(fetchMock.mock.calls.some((c) => c[1]?.method === "POST")).toBe(false);
   });
 });
+
+/**
+ * G6: il verdetto della review può riferirsi a una head precedente (una
+ * correzione o un commit a mano dopo la review). `ITEM` resta SENZA
+ * `reviewStale` apposta: il web fa un cast, il `.default(false)` dello schema
+ * non gira, e quella fixture è la prova della difesa `?? false`.
+ */
+describe("/release — verdetto superato", () => {
+  it("senza il campo (server vecchio) nessuna etichetta, e il verdetto resta", async () => {
+    expect("reviewStale" in ITEM).toBe(false);
+    mockApi(baseApi());
+    renderRelease();
+
+    await screen.findByText(/Fix the bug/);
+    expect(screen.getByText(/Approved/)).toBeInTheDocument();
+    expect(screen.queryByText("stale")).not.toBeInTheDocument();
+    expect(screen.queryByText("on an earlier version of the PR")).not.toBeInTheDocument();
+  });
+
+  it("reviewStale: true mostra l'etichetta e la spiegazione, leggibili senza hover", async () => {
+    mockApi(
+      baseApi({
+        "GET /api/release-queue": () => jsonResponse(200, { items: [{ ...ITEM, reviewStale: true }] }),
+      }),
+    );
+    renderRelease();
+
+    await screen.findByText(/Fix the bug/);
+    expect(screen.getByText(/Approved/)).toBeInTheDocument();
+    // Testo VISIBILE, non solo un title: un tooltip non si legge senza hover.
+    expect(screen.getByText("stale")).toBeVisible();
+    expect(screen.getByText("on an earlier version of the PR")).toBeVisible();
+    // Solo informazione: il merge resta disponibile come prima.
+    expect(screen.getByRole("button", { name: "Release" })).toBeEnabled();
+  });
+
+  it("reviewStale: false esplicito non mostra nulla", async () => {
+    mockApi(
+      baseApi({
+        "GET /api/release-queue": () => jsonResponse(200, { items: [{ ...ITEM, reviewStale: false }] }),
+      }),
+    );
+    renderRelease();
+
+    await screen.findByText(/Fix the bug/);
+    expect(screen.queryByText("stale")).not.toBeInTheDocument();
+  });
+});
