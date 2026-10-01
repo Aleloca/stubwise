@@ -161,6 +161,8 @@ prCycleSchema = z.object({                                                // PrC
     at: z.string(),               // ISO: created_at; updated_at solo per una pending
   }).nullable(),
   canRequestCorrection: z.boolean(), // calcolato dal SERVER: PR aperta, nessuna queued, nessun job vivo
+  heldReason: heldReasonSchema.nullable().default(null), // E5: perché la correzione in corso è ferma
+  canResume: z.boolean().default(false), // E7: il VIEWER può riprenderla (calcolato col suo ruolo)
 })
 requestCorrectionBodySchema = z.object({ note: z.string().trim().max(4000).optional() }) // RequestCorrectionBody
 requestCorrectionResponseSchema = z.object({ correctionId: z.uuid() })                  // RequestCorrectionResponse
@@ -231,9 +233,16 @@ kind nuovo.
     (niente creato, niente fuso). Una `pending` libera parte al posto di
     qualunque richiesta nuova; un click fuso in una pending `review` (senza
     `providerFeedback`) ne prende il trigger `stubwise`.
-  - il job nasce `queued`, `correctionId`, `manualTrigger = trigger === 'stubwise'`
-    (**E5**: era `trigger !== 'review'`; anche una pending `provider` promossa
-    DAL CLICK del bottone ha `manualTrigger`), `planApprovalRequired: false`.
+  - il job nasce `queued`, `correctionId`, `manualTrigger =
+    correctionManualTrigger(input.actorRole)` — **E7**: decide CHI AGISCE, vero
+    SOLO per un admin; il trigger della riga non conta (era `trigger ===
+    'stubwise'` in E5, `trigger !== 'review'` prima). `EnqueueCorrectionInput`
+    ha `actorRole?: "admin" | "member" | null`: assente = nessun utente di
+    Stubwise (webhook, ciclo automatico). Una promozione senza attore (fine
+    lavoro, tick) ha sempre `manualTrigger` false. `planApprovalRequired: false`.
+- `correctionManualTrigger(actorRole): boolean` (**E7**) — LA regola, in un
+  posto solo: `actorRole === "admin"`. La usano `createCorrectionJob` e la
+  forzatura di una correzione `held` in `startRun` (D4).
   - **E6**: un `provider` identico a una `queued` della stessa PR nata da meno
     di `REDELIVERY_WINDOW_MINUTES` (30) è una riconsegna: `{ ok: true,
     correctionId: <quella>, status: "queued", jobId: <il suo> }`, niente scritto.
@@ -291,8 +300,11 @@ kind nuovo.
 - `cancelOpenCorrections(db, { repositoryId, prNumber }): Promise<number>` —
   pending/queued → cancelled, e i loro ai_jobs ancora `queued` **o `held`** → `skipped`,
   con una riga nel log del job (`[correction] PR chiusa: correzione annullata`).
-- `derivePrCycle(db, { ticketId, repositoryId }): Promise<PrCycle | null>` — null
+- `derivePrCycle(db, { ticketId, repositoryId, viewerRole? }): Promise<PrCycle | null>` — null
   se la PR non è di Stubwise (`stubwiseTicketNumber(branch) !== ticket.number`) o non c'è.
+  `viewerRole` (**E7**, default `member`, il più restrittivo) decide `canResume`.
+- `canResumeCorrection(heldReason, viewerRole): boolean` (**E7**) — `heldReason`
+  non null e (`viewerRole === "admin"` oppure `heldReason !== "budget"`).
 - `resolvePrCycleState(facts: PrCycleFacts): PrCycleState` — la tabella di verità, pura.
 - tipi esportati: `EnqueueCorrectionInput`, `EnqueueCorrectionResult`, `PrCycleFacts`, `PrRef`.
 
@@ -475,8 +487,12 @@ Contratto aggiunto con i fix della revisione di fine tappa B:
   Il webhook NON chiama `listPrComments`. 204 in ogni caso.
 - chiusura PR nel webhook → `cancelOpenCorrections`.
 - `startRun`: ultimo job con `correctionId` e `status = 'held'` → lo FORZA (stesso
-  job, `correctionId` intatto, `manualTrigger: true`, niente gate del piano); ultimo
+  job, `correctionId` intatto, `manualTrigger: correctionManualTrigger(actor.role)`
+  — **E7**: solo un admin scavalca il budget —, niente gate del piano); ultimo
   job di una correzione terminale → INSERT di un fix nuovo.
+- **E7**: `requestCorrection` passa `actorRole: actor.role` a `enqueueCorrection`;
+  il dettaglio ticket chiama `derivePrCycle` con `viewerRole` = ruolo di chi
+  chiede (`cycle.canResume`).
 - `services/platform-identity.ts`: `fetchPlatformIdentity: FetchPlatformIdentity`.
 - `services/platform-permission.ts` (E3, permesso reale):
   `authorPermissionFetcher(ctx, { repoUrl, defaultBranch, account }): FetchAuthorPermission`
@@ -654,6 +670,9 @@ revisione di D2).** "Request changes" lo preme chiunque abbia scrittura sul
 repository, anche senza ruoli in Stubwise: col vecchio `manualTrigger =
 trigger !== 'review'` scavalcava budget mensile, tetto per ticket e gate di
 automazione (`checkBudgetsBeforeRun`).
+- ⚠️ **La regola sul trigger qui sotto è SUPERATA da E7**: `manualTrigger` lo
+  decide l'ATTORE (solo un admin), non il trigger. Il resto di E5 (commento,
+  `heldReason`, testi) resta valido.
 - **Già applicato** (commit «feat(notifications): una correzione dalla
   piattaforma rispetta il budget…» e «test(worker): …»): `createCorrectionJob`
   prende `manualTrigger` esplicito, vero SOLO per `trigger='stubwise'`;
@@ -706,6 +725,41 @@ GitHub riconsegna a mano dopo un riavvio, la seconda consegna diventava una
 - **B14**: T41 (la guida operativa) — su Bitbucket, un webhook
   `pullrequest:changes_request_created` ritentato ha lo stesso
   `X-Request-UUID` fra i tentativi?
+
+**E7 — `manualTrigger` lo decide CHI AGISCE: solo un admin scavalca il
+budget (1 ott 2026, «D4b»).** `manualTrigger` scavalca gate di automazione E
+budget mensile: è una decisione di SPESA, e come l'approvazione del piano
+(CLAUDE.md, «I due divieti dell'operatore») spetta a un maintainer.
+- **Già applicato** (commit «feat(notifications): manualTrigger di una
+  correzione lo decide chi agisce…», «feat(server): la forzatura di una
+  correzione held…», «test(worker): …»): una sola regola,
+  `correctionManualTrigger(actorRole)` in
+  `packages/notifications/src/pr-correction-cycle.ts`, vera SOLO per
+  `"admin"`. La usano `createCorrectionJob` (via
+  `EnqueueCorrectionInput.actorRole` e la promozione da click, che ha preso
+  il posto di `byStubwiseButton`) e `startRun` (`manualTrigger =
+  correctionManualTrigger(actor.role)`). Nessuna regola sul trigger della
+  riga: il bottone senza attore, il webhook, il ciclo automatico e ogni
+  promozione senza attore danno `false`.
+- Un `member` ottiene la correzione senza gate del piano, ma rispetta il
+  budget: a budget esaurito il job va `held` col commento
+  `comment.correctionBudgetHeld`. Per un held `limit`/`other` può
+  riprenderla con *Run AI* (sempre `manualTrigger` false); se la riprende da
+  ferma per budget, torna `held` per budget (test worker).
+- **Riga di stato**: `prCycleSchema.canResume` (ADDITIVO,
+  `z.boolean().default(false)`), calcolato dal SERVER col ruolo del viewer
+  (`derivePrCycle(…, { viewerRole })`, default `member`;
+  `canResumeCorrection`): la correzione è `held` e il viewer la può davvero
+  riprendere — admin sempre, member solo se `heldReason !== "budget"`.
+  Stesso criterio di `canMerge`: il client lo LEGGE, non lo deduce dal
+  proprio ruolo. Test a due ruoli sugli stessi dati in
+  `pr-correction-cycle.test.ts`.
+- **D5**: la rotta passa `actorRole: actor.role`. **D6**: il dettaglio ticket
+  passa `viewerRole: request.user.role`, `cycle.canResume` nella risposta,
+  test a due ruoli. **E2/E3, F2**: con `heldReason === "budget"` e
+  `!canResume` la frase è «ferma: budget esaurito · la riprende un
+  maintainer». **G2**: la guida dice che a budget esaurito la riprende un
+  maintainer.
 
 ## Tappa A — Fondamenta dati
 
@@ -17263,8 +17317,10 @@ avere `correction_id`, e i casi sono DUE, opposti:
    changes" della piattaforma hanno `manualTrigger = false`, e il resume poller
    NON riaccoda un `held` per budget). L'unica ripresa è
    l'«avvio manuale per forzare» di oggi: `startRun` riusa QUEL job con
-   `manualTrigger: true` e **non tocca `correction_id`**, così il worker lo
-   esegue come la correzione che era, scavalcando i tetti. Se invece si creasse
+   `manualTrigger: correctionManualTrigger(actor.role)` (**E7**: vero solo per
+   un admin — un member la rimette in coda, ma a budget esaurito torna `held`)
+   e **non tocca `correction_id`**, così il worker lo esegue come la
+   correzione che era, scavalcando i tetti se a forzarla è un maintainer. Se invece si creasse
    un fix nuovo, la correzione resterebbe `queued` per sempre (l'indice unico
    blocca la PR: `derivePrCycle` direbbe `correcting` all'infinito e ogni
    "Request changes" diventerebbe una `pending` che non parte più) e il fix,
@@ -17448,7 +17504,9 @@ sotto resta com'è e ora serve anche il caso 2). Se il tipo del ritorno di
 uno dei suoi valori. Aggiorna il docblock di `startRun`: «Riusa l'ultimo job
 del ticket se è concluso **e non è di una correzione**, altrimenti ne crea uno
 nuovo; il job `held` di una correzione ancora in coda lo **forza** (stesso job,
-`manualTrigger`, niente gate del piano)».
+`manualTrigger` dalla regola unica `correctionManualTrigger`, niente gate del
+piano)». **E7**: test a due ruoli sugli stessi dati — la forzatura di un
+maintainer → `manualTrigger: true`, quella di un operatore → `false`.
 
 **Step 3: verifica e commit**
 
@@ -17463,6 +17521,12 @@ Atteso: tutta la suite di `jobs.test.ts` PASS (i test del gate non cambiano).
 ---
 
 ### Task D5: `POST /api/tickets/:id/repositories/:repositoryId/corrections`
+
+> ⚠️ **E7**: `requestCorrection` passa `actorRole: actor.role` a
+> `enqueueCorrection`: solo il click di un admin scavalca il budget. Test a
+> due ruoli col budget mensile esaurito: admin → job `manualTrigger: true`,
+> member → `false` (il worker lo ferma `held` per budget: già provato in
+> `apps/worker/src/pipeline/correction.test.ts`).
 
 Chi può: chiunque sia autenticato — è la stessa regola di `POST
 /tickets/:id/run-ai` (`requireAuth`, `routes/tickets.ts`), verificata leggendo
@@ -17763,6 +17827,7 @@ export async function requestCorrection(
     prNumber,
     trigger: "stubwise",
     requestedByUserId: actor.id,
+    actorRole: actor.role, // E7: solo un admin scavalca il budget
     ...(note ? { note } : {}),
   });
   if (!result.ok) return { ok: false, error: result.error };
@@ -17868,6 +17933,12 @@ Atteso: PASS (la spec OpenAPI si genera ancora).
 > "budget"`, `state: "correcting"`», e uno con job attivo → `null`. Le fixture
 > tipizzate di `PrCycle` (web/app) prendono `heldReason: null` dove il
 > compilatore lo chiede.
+>
+> ⚠️ **E7**: `cycle.canResume` arriva calcolato col ruolo del VIEWER:
+> `derivePrCycle(db, { ticketId, repositoryId, viewerRole: request.user!.role })`.
+> Test a DUE RUOLI sugli stessi dati (correzione `queued`, job `held` per
+> budget): admin → `canResume: true`, member → `false`; con held `limit`
+> entrambi `true`. Le fixture tipizzate prendono `canResume: false`.
 
 **Files:**
 - Modify: `packages/shared/src/schemas/ticket.ts`
@@ -18048,7 +18119,9 @@ rosso.)
 
 **Step 5: implementazione** — in `apps/server/src/routes/tickets.ts`
 aggiungi `import { derivePrCycle } from "@stubwise/notifications";` e sostituisci
-il `return rows.map(...)` di `loadTicketRepositories`:
+il `return rows.map(...)` di `loadTicketRepositories` (**E7**:
+`loadTicketRepositories` riceve `viewerRole: "admin" | "member"` dal chiamante
+— il ruolo di `request.user` — e lo passa a `derivePrCycle`):
 
 ```ts
   // Il ciclo di correzione è DERIVATO qui (design §9) e il client lo legge
@@ -18062,7 +18135,7 @@ il `return rows.map(...)` di `loadTicketRepositories`:
       branch: row.branch,
       prUrl: row.prUrl,
       prState: row.prState,
-      cycle: await derivePrCycle(db, { ticketId, repositoryId: row.repositoryId }),
+      cycle: await derivePrCycle(db, { ticketId, repositoryId: row.repositoryId, viewerRole }),
     })),
   );
 ```
@@ -19987,6 +20060,10 @@ Atteso: typecheck pulito.
 > esaurito"`, `"heldLimit": "Correzione ferma · limite del provider raggiunto,
 > riparte da sola"`, `"heldOther": "Correzione ferma"`. Se la UI dice come
 > forzarla, usa l'etichetta VERA del bottone di run-ai del ticket.
+>
+> ⚠️ **E7**: in più `"heldBudgetNeedsMaintainer"` — en: `"Correction on hold ·
+> budget exhausted · a maintainer can resume it"`; it: `"Correzione ferma ·
+> budget esaurito · la riprende un maintainer"`.
 
 **Files:**
 - Modify: `apps/web/src/i18n/locales/en.json`
@@ -20146,6 +20223,12 @@ Atteso: parità PASS.
 > · correzione ferma · budget esaurito» — decidi la forma esatta e falla
 > IDENTICA in F2). Test: queued + `heldReason: "budget"` → chiave budget;
 > `heldReason` assente dalla fixture (server vecchio) → la frase di sempre.
+>
+> ⚠️ **E7**: con `heldReason === "budget"` e `!(cycle.canResume ?? false)` la
+> chiave è `heldBudgetNeedsMaintainer` («ferma: budget esaurito · la riprende
+> un maintainer»); con `canResume` true resta `heldBudget`. Il web legge
+> `cycle.canResume ?? false` (cast, non parse): la fixture di almeno un test
+> resta SENZA il campo. MAI dedurlo dal ruolo dell'utente nel client.
 
 Stessa forma di `lib/pulse-line.ts`: la funzione decide CHIAVI e parametri,
 il componente traduce. È il gemello deliberato di quello che l'app avrà in
@@ -21633,6 +21716,12 @@ git commit -m "feat(api-client): chiedere la correzione di una PR e leggere il c
 > `heldLimit`/`heldOther`, stessi testi di E2); un valore `UNKNOWN` da
 > `readerSchema` → `heldOther`. Test con `heldReason: "budget"` e con la
 > fixture senza il campo.
+>
+> ⚠️ **E7**: gemella di E3 — `heldReason === "budget"` e `!cycle.canResume` →
+> `mobile.work.pr.cycle.heldBudgetNeedsMaintainer` (stessi testi di E2).
+> L'app parsa (`readerSchema`, `.default(false)`), ma le fixture dei test vanno
+> complete col campo (CLAUDE.md, la trappola delle fixture dell'app). Il
+> valore lo calcola il server: MAI dal ruolo dell'utente nell'app.
 
 **Files:**
 - Modify: `apps/mobile/src/i18n/it.json`, `apps/mobile/src/i18n/en.json`
@@ -23564,9 +23653,12 @@ finishes*.
   usage limit is hit — the correction is held, like a fix, and the line under
   the PR says why (*Correction on hold · budget exhausted*). This applies to
   automatic corrections **and to Request changes on the platform** (anyone with
-  write access can press it, even without a Stubwise account); only the
-  **Apply corrections** button overrides the budget, like any manual start. A
-  maintainer can force a held correction with *Run AI* on the ticket (E5);
+  write access can press it, even without a Stubwise account) **and to the
+  Apply corrections button pressed by a member**; only a **maintainer**
+  overrides the budget, pressing the button or forcing a held correction with
+  *Run AI* on the ticket. With the budget exhausted, the line under the PR says
+  *a maintainer can resume it* (E7). A correction held for the provider's
+  usage limit can be resumed by anyone who can run the ticket;
 - PR review is turned **off** for the instance: manual corrections still work,
   but after their push nobody reviews the PR.
 
@@ -23889,10 +23981,11 @@ tappe sono stati risolti e integrati nella sezione «Contratti» e nei task.
   durante una correzione sia durante un fix qualsiasi. Una `pending` libera parte al posto di QUALUNQUE richiesta nuova,
   review compresa (la review la promuove senza fondersi: cambia solo il
   `reviewId`, che diventa l'ultima review completata — voluto).
-- **`manualTrigger = trigger === 'stubwise'`** sul job della correzione (E5,
-  era `!== 'review'`): solo il bottone di Stubwise scavalca i tetti di spesa
-  come ogni avvio a mano (`fix.ts:916`); il ciclo automatico e un "Request
-  changes" della piattaforma si fermano al budget mensile. `planApprovalRequired:
+- **`manualTrigger = correctionManualTrigger(actorRole)`** sul job della
+  correzione (E7; era `trigger === 'stubwise'` in E5, `!== 'review'` prima):
+  solo un ADMIN che agisce scavalca i tetti di spesa (`fix.ts:916`); il bottone
+  di un member, il ciclo automatico e un "Request changes" della piattaforma si
+  fermano al budget mensile. `planApprovalRequired:
   false` sempre (design §3).
 - **`reviewId` di default** = l'ultima review `completed` della PR.
 - **Una richiesta umana `pending` azzera GIÀ il contatore**, prima di partire.
@@ -24174,8 +24267,9 @@ Entrate con i fix della revisione di fine tappa:
 - **Costo**: fino a `pr_correction_max_rounds` (default 3) correzioni + 4 review
   per PR in una tornata automatica, ciascuna un run completo. Il ciclo automatico
   e le richieste dalla piattaforma rispettano il budget mensile
-  (`manualTrigger=false`, E5); il bottone di Stubwise no (come ogni avvio a
-  mano), e nemmeno run-ai che forza una correzione ferma (D4).
+  (`manualTrigger=false`, E5), e così il bottone premuto da un member (E7);
+  solo un maintainer lo scavalca, dal bottone o forzando con run-ai una
+  correzione ferma (D4).
 - **Comportamento del modello**: il confine «applica il feedback, non
   riprogettare» sta nel prompt. Lo verificano solo gli scenari golden (C13,
   manuali): vanno lanciati prima del merge, e dopo ogni cambio del CLI o dei
@@ -24254,7 +24348,8 @@ Entrate con i fix della revisione di fine tappa:
   → scartata.
 - **`startRun` e il job di una correzione** (D4): se è `held` con la
   correzione ancora `queued` lo FORZA (stesso job, `correctionId` intatto,
-  `manualTrigger`, niente gate del piano); se è terminale crea un fix nuovo.
+  `manualTrigger` solo se a forzarla è un admin — E7 —, niente gate del
+  piano); se è terminale crea un fix nuovo.
 - **Credenziali cambiate → `provider_user_id` azzerato** (D1).
 - **Validazione del revisore** con due controlli in più del design: identità
   del principale risolvibile adesso (dalla cache se c'è), identità diversa fra
