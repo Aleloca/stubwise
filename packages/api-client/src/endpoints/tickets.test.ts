@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { UNKNOWN } from "@stubwise/shared";
 import { ApiError, createStubwiseClient } from "../index.js";
 
 const ID = "11111111-1111-4111-8111-111111111111";
@@ -229,5 +230,174 @@ describe("endpoints tickets", () => {
     const [planUrl, planInit] = fetchImpl.mock.calls.at(-1)!;
     expect(planUrl).toBe(`/api/tickets/${ID}/plan`);
     expect(planInit!.method).toBe("DELETE");
+  });
+
+  it("requestCorrection: POST sulla rotta delle correzioni con la nota, torna l'id", async () => {
+    const REPO = "22222222-2222-4222-8222-222222222222";
+    const CORRECTION = "33333333-3333-4333-8333-333333333333";
+    const { c, fetchImpl } = clientReturning(202, { correctionId: CORRECTION });
+
+    const result = await c.tickets.requestCorrection(ID, REPO, { note: "Rinomina anche il test" });
+
+    const [url, init] = fetchImpl.mock.calls.at(-1)!;
+    expect(url).toBe(`/api/tickets/${ID}/repositories/${REPO}/corrections`);
+    expect(init!.method).toBe("POST");
+    expect(JSON.parse(init!.body as string)).toEqual({ note: "Rinomina anche il test" });
+    expect(result).toEqual({ correctionId: CORRECTION });
+  });
+
+  it("requestCorrection: senza nota il corpo è vuoto, non porta `note: undefined`", async () => {
+    const { c, fetchImpl } = clientReturning(202, { correctionId: ID });
+    await c.tickets.requestCorrection(ID, ID);
+    const [, init] = fetchImpl.mock.calls.at(-1)!;
+    // Confronto sulla STRINGA: un corpo assente (`undefined`) o `{ note: undefined }`
+    // serializzato da qualcun altro non deve passare per "vuoto".
+    expect(init!.body).toBe("{}");
+  });
+
+  it("requestCorrection: il 409 arriva come ApiError col suo codice, non ingoiato", async () => {
+    const { c } = clientReturning(409, { code: "correction_in_flight", message: "…" });
+    const error = await c.tickets.requestCorrection(ID, ID).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).status).toBe(409);
+    expect((error as ApiError).code).toBe("correction_in_flight");
+  });
+
+  it("runAi: `resumeCorrectionJobId` viaggia nel corpo, accanto alle altre opzioni", async () => {
+    const JOB = "44444444-4444-4444-8444-444444444444";
+    const { c, fetchImpl } = clientReturning(202, { jobId: JOB, status: "queued" });
+
+    await c.tickets.runAi(ID, { resumeCorrectionJobId: JOB });
+
+    const [url, init] = fetchImpl.mock.calls.at(-1)!;
+    expect(url).toBe(`/api/tickets/${ID}/run-ai`);
+    expect(init!.method).toBe("POST");
+    expect(JSON.parse(init!.body as string)).toEqual({ resumeCorrectionJobId: JOB });
+  });
+
+  it("runAi: senza opzioni nessun corpo — il rilancio di sempre, nessun campo nuovo", async () => {
+    const { c, fetchImpl } = clientReturning(202, { jobId: ID, status: "queued" });
+    await c.tickets.runAi(ID);
+    const [, init] = fetchImpl.mock.calls.at(-1)!;
+    expect(init!.body).toBeUndefined();
+  });
+
+  it("runAi: 409 `correction_not_held` e 403 `needs_maintainer` arrivano come ApiError col loro codice", async () => {
+    // Il client distingue dal `code`, non dallo status: anche `job_in_flight` è 409.
+    const notHeld = await clientReturning(409, { code: "correction_not_held", message: "…" })
+      .c.tickets.runAi(ID, { resumeCorrectionJobId: ID })
+      .catch((e: unknown) => e);
+    expect(notHeld).toBeInstanceOf(ApiError);
+    expect((notHeld as ApiError).status).toBe(409);
+    expect((notHeld as ApiError).code).toBe("correction_not_held");
+
+    const maintainer = await clientReturning(403, { code: "needs_maintainer", message: "…" })
+      .c.tickets.runAi(ID, { resumeCorrectionJobId: ID })
+      .catch((e: unknown) => e);
+    expect(maintainer).toBeInstanceOf(ApiError);
+    expect((maintainer as ApiError).status).toBe(403);
+    expect((maintainer as ApiError).code).toBe("needs_maintainer");
+  });
+
+  /** Una voce PR del dettaglio ticket, SENZA `cycle`: la forma di un server di prima. */
+  function prRow(extra: Record<string, unknown> = {}) {
+    return {
+      repositoryId: ID,
+      repositorySlug: "portale-b2b",
+      branch: "stubwise/ticket-1",
+      prUrl: "https://bitbucket.org/acme/portale-b2b/pull-requests/10",
+      prState: "open",
+      ...extra,
+    };
+  }
+
+  it("get: una voce PR senza `cycle` (server vecchio) si legge `cycle: null`, non fa fallire il parse", async () => {
+    const { c } = clientReturning(200, { ...ticketDetail({}), repositories: [prRow()] });
+    const detail = await c.tickets.get(ID);
+    expect(detail.repositories[0]!.cycle).toBeNull();
+  });
+
+  it("get: uno stato del ciclo che questa build non conosce diventa UNKNOWN, il resto resta", async () => {
+    const { c } = clientReturning(200, {
+      ...ticketDetail({}),
+      repositories: [
+        prRow({
+          cycle: {
+            state: "paused_by_moon",
+            round: 1,
+            maxRounds: 3,
+            pendingRequest: false,
+            lastRequest: { via: "carrier_pigeon", name: "mario.rossi", at: "2026-09-30T10:00:00.000Z" },
+            canRequestCorrection: true,
+            heldReason: "solar_flare",
+          },
+        }),
+      ],
+    });
+    const cycle = (await c.tickets.get(ID)).repositories[0]!.cycle!;
+    expect(cycle.state).toBe(UNKNOWN);
+    expect(cycle.lastRequest!.via).toBe(UNKNOWN);
+    expect(cycle.heldReason).toBe(UNKNOWN);
+    expect(cycle.round).toBe(1);
+    expect(cycle.canRequestCorrection).toBe(true);
+  });
+
+  it("get: un ciclo di un server senza `heldReason`/`canResume`/`heldJobId` si legge coi default, senza promesse", async () => {
+    const { c } = clientReturning(200, {
+      ...ticketDetail({}),
+      repositories: [
+        prRow({
+          cycle: {
+            state: "correcting",
+            round: 2,
+            maxRounds: 3,
+            pendingRequest: true,
+            lastRequest: { via: "provider", name: "mario.rossi", at: "2026-09-30T10:00:00.000Z" },
+            canRequestCorrection: false,
+          },
+        }),
+      ],
+    });
+    const detail = await c.tickets.get(ID);
+    expect(detail.repositories[0]!.cycle).toEqual({
+      state: "correcting",
+      round: 2,
+      maxRounds: 3,
+      pendingRequest: true,
+      // `platform` assente nella risposta (server di prima di A3): `.default(null)`.
+      lastRequest: { via: "provider", platform: null, name: "mario.rossi", at: "2026-09-30T10:00:00.000Z" },
+      canRequestCorrection: false,
+      // Server di prima di E5/E7/G5: nessuna correzione ferma, nessuna ripresa offerta.
+      heldReason: null,
+      canResume: false,
+      heldJobId: null,
+    });
+  });
+
+  it("get: SOLO i campi nuovi popolati — un ticket spoglio con una correzione ferma che chi guarda può riprendere", async () => {
+    const HELD_JOB = "55555555-5555-4555-8555-555555555555";
+    const { c } = clientReturning(200, {
+      ...ticketDetail({}),
+      repositories: [
+        prRow({
+          cycle: {
+            state: "correcting",
+            round: 0,
+            maxRounds: 3,
+            pendingRequest: false,
+            lastRequest: null,
+            canRequestCorrection: false,
+            heldReason: "budget",
+            canResume: true,
+            heldJobId: HELD_JOB,
+          },
+        }),
+      ],
+    });
+    const cycle = (await c.tickets.get(ID)).repositories[0]!.cycle!;
+    expect(cycle.heldReason).toBe("budget");
+    expect(cycle.canResume).toBe(true);
+    expect(cycle.heldJobId).toBe(HELD_JOB);
+    expect(cycle.lastRequest).toBeNull();
   });
 });

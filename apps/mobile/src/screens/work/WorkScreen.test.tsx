@@ -27,6 +27,7 @@ function findHostNode(tree: unknown, type: string): { props: Record<string, unkn
 
 const TICKET_ID = "11111111-1111-4111-8111-111111111111";
 const JOB_ID = "22222222-2222-4222-8222-222222222222";
+const CORRECTION_ID = "66666666-6666-4666-8666-666666666666";
 
 function ticket(overrides: Partial<Reader<TicketDetail>> = {}): Reader<TicketDetail> {
   return {
@@ -134,6 +135,7 @@ function makeClient(overrides: {
   answerQuestion?: jest.Mock;
   deleteDesign?: jest.Mock;
   deletePlan?: jest.Mock;
+  requestCorrection?: jest.Mock;
 } = {}): StubwiseClient {
   return {
     tickets: {
@@ -152,6 +154,7 @@ function makeClient(overrides: {
       answerQuestion: overrides.answerQuestion ?? jest.fn().mockResolvedValue({ jobId: JOB_ID }),
       deleteDesign: overrides.deleteDesign ?? jest.fn().mockResolvedValue(ticket()),
       deletePlan: overrides.deletePlan ?? jest.fn().mockResolvedValue(ticket()),
+      requestCorrection: overrides.requestCorrection ?? jest.fn().mockResolvedValue({ correctionId: CORRECTION_ID }),
     },
     projects: {
       reviews: overrides.reviews ?? jest.fn().mockResolvedValue([]),
