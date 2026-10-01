@@ -28,7 +28,11 @@ import {
   type Db,
 } from "@stubwise/db";
 import { t } from "@stubwise/i18n";
-import { IN_FLIGHT_JOB_STATUSES, publishNotification } from "@stubwise/notifications";
+import {
+  correctionManualTrigger,
+  IN_FLIGHT_JOB_STATUSES,
+  publishNotification,
+} from "@stubwise/notifications";
 import { and, count, desc, eq, like, notInArray, sql } from "drizzle-orm";
 import { ticketUrl } from "../ingest/shared.js";
 import { getContentLanguage } from "../settings.js";
@@ -91,7 +95,8 @@ export interface StartRunInput {
  * è concluso **e non è di una correzione**, altrimenti ne crea uno nuovo; se
  * invece è ancora in volo non tocca nulla e ritorna `job_in_flight`. Il job
  * `held` di una correzione ancora in coda lo **forza** (stesso job,
- * `correction_id` intatto, `manualTrigger`, niente gate del piano).
+ * `correction_id` intatto, niente gate del piano) con `manualTrigger` della
+ * regola unica `correctionManualTrigger`: solo un admin scavalca il budget.
  *
  * ESECUZIONE DIRETTA DAL PIANO SALVATO: con `implementationPlan` sul ticket e
  * senza `mode:"ai_plan"`, il job parte in execute-diretta (`resumeMode`
@@ -202,11 +207,15 @@ export async function startRun(db: Db, input: StartRunInput): Promise<StartRunRe
     }
 
     // Il job di una CORREZIONE (ciclo post-PR) ancora `held` — tipicamente
-    // per budget: il ciclo automatico e un "Request changes" della piattaforma
-    // non hanno manualTrigger, e il resume poller non riaccoda un held per
-    // budget — si FORZA: stesso job, `correction_id` intatto (non è in `set`),
-    // manualTrigger acceso (chi preme è un utente di Stubwise). Il worker lo
-    // esegue come la correzione che era. Niente gate del piano: una correzione
+    // per budget: il ciclo automatico, un "Request changes" della piattaforma e
+    // il bottone di un member non hanno manualTrigger, e il resume poller non
+    // riaccoda un held per budget — si FORZA: stesso job, `correction_id`
+    // intatto (non è in `set`). `manualTrigger` è la regola UNICA di
+    // `@stubwise/notifications` (`correctionManualTrigger`): solo un ADMIN
+    // scavalca il budget. Un member la rimette in coda, ma a budget esaurito il
+    // worker la riferma `held` per budget: per quella serve un maintainer (la
+    // riga di stato lo dice con `cycle.canResume`). Il worker la esegue come la
+    // correzione che era. Niente gate del piano: una correzione
     // non è un piano nuovo (design §3), e un `awaiting_plan_approval` con
     // `correction_id` non avrebbe consumatori. Un fix nuovo al suo posto
     // lascerebbe la correzione `queued` per sempre, e sarebbe rifiutato al push.
@@ -215,7 +224,7 @@ export async function startRun(db: Db, input: StartRunInput): Promise<StartRunRe
         .update(aiJobs)
         .set({
           status: "queued",
-          manualTrigger: true,
+          manualTrigger: correctionManualTrigger(actor.role),
           requestedByUserId: actor.id,
           planApprovalRequired: false,
           startedAt: null,

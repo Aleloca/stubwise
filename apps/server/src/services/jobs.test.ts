@@ -513,6 +513,33 @@ describe("startRun", () => {
     expect(corr!.status).toBe("queued");
   });
 
+  it("stessi dati, due ruoli: la forzatura di una correzione held per budget scavalca il budget SOLO per un admin", async () => {
+    for (const [actor, expected] of [
+      [maintainer, true],
+      [operator, false],
+    ] as const) {
+      const ticketId = await seedTicket();
+      const { correction, job: correctionJob } = await seedCorrectionJob(ticketId, {
+        correctionStatus: "queued",
+        jobStatus: "held",
+      });
+
+      const result = await startRun(db, { ticketId, actor });
+
+      // Entrambi la rimettono in coda (stesso job, niente gate del piano)...
+      expect(result).toMatchObject({ ok: true, jobId: correctionJob.id, status: "queued" });
+      // ...ma solo il maintainer scavalca il budget: quella del member, a
+      // budget esaurito, il worker la riferma `held` (test in apps/worker).
+      expect(await readJob(correctionJob.id)).toMatchObject({
+        status: "queued",
+        correctionId: correction.id,
+        manualTrigger: expected,
+        requestedByUserId: actor.id,
+        planApprovalRequired: false,
+      });
+    }
+  });
+
   it("CORREZIONE held forzata da un OPERATORE: niente gate del piano (una correzione non è un piano nuovo)", async () => {
     const ticketId = await seedTicket("## Piano salvato");
     const { job: correctionJob } = await seedCorrectionJob(ticketId, {
