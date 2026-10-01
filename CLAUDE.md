@@ -1385,13 +1385,15 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   (col CHECK `repositories_review_not_main_chk`: il revisore non può essere
   l'account principale), `git_accounts.provider_user_id`,
   `ticket_repositories.pr_number` (**backfill** dal `pr_url`; un URL che non
-  combacia resta NULL), `projects.pr_correction_max_rounds` (default 3, CHECK
-  0..10, **0 = ciclo automatico spento**) e, su `pr_reviews`, `started_at`
-  (**backfill** `= created_at`: ogni review storica è PARTITA — senza, il
-  worker nuovo scambierebbe una `running` del vecchio per una in attesa e la
-  cancellerebbe) più `pr_body`/`source_branch`/`target_branch` (per
-  rimettere in coda una review in attesa al riavvio senza richiamare il
-  provider). Il worker nuovo è l'unico che accoda la review subito dopo
+  combacia resta NULL) e, su `pr_reviews`, `started_at` (**backfill** `=
+  created_at`: ogni review storica è PARTITA — senza, all'avvio il worker
+  nuovo scambierebbe una `running` del vecchio per una in attesa e, non
+  trovandoci i metadati del job, la chiuderebbe `failed`) più
+  `pr_body`/`source_branch`/`target_branch` (per rimettere in coda una
+  review in attesa al riavvio senza richiamare il provider). A parte, NON
+  nullable: `projects.pr_correction_max_rounds` `integer DEFAULT 3 NOT NULL`
+  con CHECK 0..10 (`projects_pr_correction_max_rounds_chk`), **0 = ciclo
+  automatico spento**. Il worker nuovo è l'unico che accoda la review subito dopo
   l'apertura della PR (`enqueuePrReviewNow`), crea la riga della review al
   claim, apre un worktree sul branch della PR, esegue `runCorrection`, decide
   dopo ogni review (`afterReviewCompleted`: correzione automatica, stop al
@@ -1420,7 +1422,10 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   poi lo stesso senza `--dry-run`. **Riallinea, non crea**: prende SOLO i
   repository con `webhook_configured_at` valorizzato; i mai configurati
   entrano solo con `--include-unconfigured`, esplicito, perché creare un hook
-  fa arrivare eventi che possono far partire review e correzioni. Riscrive
+  fa arrivare eventi che possono far partire review e correzioni. I
+  repository con `webhook_secret` vuoto (legacy) restano fuori SEMPRE, anche
+  con `--include-unconfigured`: senza segreto l'hook non è verificabile.
+  Riscrive
   l'hook per intero come «Configura webhook» dalla UI (torna `active` se
   qualcuno l'aveva spento a mano). È **idempotente**, esce con 1 se un
   repository fallisce, vuole `DATABASE_URL`, `ENCRYPTION_KEY` e `PUBLIC_URL`
@@ -1436,7 +1441,8 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   senza scrivere:
   `docker compose exec server node dist/scripts/backfill-pr-states.js --dry-run`,
   poi lo stesso senza `--dry-run`. Scrive SOLO `pr_state` e annulla le
-  correzioni aperte di quelle PR (`cancelOpenCorrections`); non tocca lo stato
+  correzioni aperte di quelle PR (`cancelOpenCorrections`: `pending`/`queued`
+  → `cancelled`, e i loro job `queued`/`held` → `skipped`); non tocca lo stato
   dei ticket, non notifica, non crea job (le `pending` sbloccate le prende il
   tick del worker). Dove non può verificare (errore, timeout, PR non trovata,
   credenziali, numero mancante) **lascia la riga com'è** e la conta «non
@@ -1454,7 +1460,7 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   statuses: Read and write»** — senza, lo status `stubwise-review` fallisce
   (best-effort: una riga nel log con il permesso mancante, il ciclo prosegue)
   e la review non si può rendere obbligatoria per il merge. Su Bitbucket per
-  gli status bastano gli scope già richiesti (repository write).
+  gli status basta lo scope già richiesto `write:repository:bitbucket`.
   **Account revisore — facoltativo.** Senza, la review commenta con l'account
   principale come prima e lo stato vero della PR (approvata / modifiche
   richieste) non si scrive: GitHub vieta all'autore `APPROVE`/
@@ -1464,8 +1470,15 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   sceglie nel form della repository; il salvataggio lo valida (permesso di
   scrittura, identità leggibile e diversa dal principale) e ne registra
   l'identità (`provider_user_id`). Permessi del suo token: **GitHub** Contents
-  e Pull requests in scrittura; **Bitbucket** `repository:write`,
-  `pullrequest:write` e `read:user:bitbucket`.
+  e Pull requests in scrittura; **Bitbucket** (API token, la credenziale che
+  Stubwise si aspetta) `write:repository:bitbucket`,
+  `write:pullrequest:bitbucket` e `read:user:bitbucket`. ⚠️ Due nomenclature
+  da non mescolare: quelli sono gli scope degli **API token**;
+  `repository:write`/`pullrequest:write` sono i nomi di OAuth, e una **app
+  password** legacy (che Stubwise accetta ancora, autenticando con lo
+  username invece dell'email) li chiama *Repositories: Write*, *Pull
+  requests: Write* e *Account: Read* — quest'ultimo è l'equivalente di
+  `read:user:bitbucket`.
   **Comportamenti che cambiano anche senza toccare niente**: (1) le righe
   `ticket_repositories` si allineano alla chiusura della PR anche con il
   ticket non più in review (sopra); (2) «Già su staging?» (`deployedOn`)
@@ -1490,9 +1503,12 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   nuovo (`correction`), quindi vanno rilanciati gli scenari golden dei plugin
   (`pnpm --filter @stubwise/worker golden -- --plugin <dir>`).
   **Post-merge**: (a) mergiare la PR di versioning Changesets che pubblica
-  `@stubwise/mcp` (descrizione di `run_ticket`: per correggere una PR aperta
-  non si rilancia) e `@stubwise/shared` — arrivano agli utenti a quel merge,
-  non al deploy —; (b) ricopiare la skill aggiornata in
+  `@stubwise/mcp` in **patch** (`.changeset/mcp-run-ticket-corrections.md`:
+  la descrizione di `run_ticket` dice che una PR aperta non si corregge
+  rilanciando, e di non rilanciarlo alla cieca su una correzione ferma) e
+  `@stubwise/shared` in **minor** (`.changeset/shared-pr-correction-loop.md`:
+  gli schemi del ciclo) — arrivano agli utenti a quel merge, non al deploy
+  —; (b) ricopiare la skill aggiornata in
   `~/.claude/skills/stubwise/SKILL.md` sulle macchine degli sviluppatori.
   **L'app mobile NON fa parte di questo rebuild**: legge `cycle` dal
   `.default(null)` finché il server non lo manda, e senza ciclo la PR non ha
@@ -1512,26 +1528,36 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   e il fix chiesto non parte. Scendere sul **solo worker** con correzioni in
   coda **non è sicuro**: un worker vecchio prende quei job come fix normali —
   ripartono dal branch di default, fanno lavoro inutile e falliscono al push.
-  Prima di scendere: (1) nessuna correzione in esecuzione, `select id from
-  ai_jobs where correction_id is not null and status in
-  ('triaging','fixing','awaiting_input');` deve essere vuota; (2) `update
-  ai_jobs set status='skipped' where correction_id is not null and status in
-  ('queued','held');`; (3) `update pr_corrections set status='cancelled' where
-  status in ('pending','queued');`. ⚠️ E un worker vecchio scrive le review
-  **senza `started_at`**: le review che completa durante il rollback la coda
-  di rilascio del server nuovo non le vede (filtra le sole PARTITE), quindi
-  il loro verdetto manca anche dopo essere tornati avanti finché non si
-  ripara a mano — `update pr_reviews set started_at = created_at where
-  started_at is null and status <> 'running';`, PRIMA di riavviare il worker
-  nuovo (che all'avvio rimette in coda e cancella le `running` senza
-  `started_at`). Le tabelle e le colonne sopravvivono, e il migratore ignora
+  Prima di scendere, in quest'ordine: (1) togliere dalla coda i job delle
+  correzioni, così il worker nuovo non ne prende altri — `update ai_jobs set
+  status='skipped' where correction_id is not null and status in
+  ('queued','held');`; (2) aspettare che finiscano quelle già in esecuzione:
+  `select id from ai_jobs where correction_id is not null and status in
+  ('triaging','fixing','awaiting_input');` deve essere vuota; (3) fermare il
+  worker; (4) a worker fermo, rilanciare l'update del punto 1 — nel
+  frattempo il ciclo automatico o la promozione di una `pending` possono aver
+  creato job nuovi — e annullare le richieste: `update pr_corrections set
+  status='cancelled' where status in ('pending','queued');`. Solo dopo, il
+  worker vecchio. ⚠️ E un worker vecchio scrive le review **senza
+  `started_at`**, con due conseguenze anche dopo essere tornati avanti: la
+  coda di rilascio del server nuovo non vede il loro verdetto (filtra le
+  sole PARTITE), e il controllo anti-doppione di `runPrReview`
+  (`apps/worker/src/review/run-review.ts`), che tratta una riga senza
+  `started_at` più vecchia della soglia di staleness come un'attesa orfana,
+  non le conta più — la review della stessa head si rifarebbe al webhook
+  successivo. Si ripara a mano con `update pr_reviews set started_at =
+  created_at where started_at is null and status <> 'running';` (le
+  `running` sono escluse: le gestisce il worker nuovo all'avvio, che rimette
+  in coda le review in attesa con `source_branch`/`target_branch` e chiude
+  `failed` — «metadati del job assenti» — quelle senza, cioè proprio le
+  `running` lasciate dal worker vecchio). Le tabelle e le colonne sopravvivono, e il migratore ignora
   la 0081 già applicata. Per **spegnere solo il ciclo automatico** senza
   toccare immagini: `pr_correction_max_rounds = 0` sui progetti (le correzioni
   manuali restano).
   ⚠️ **Card di una review fallita dopo un rollback del server**: le
   `review.completed` con `verdict: null` (review fallita dentro una serie
-  automatica) su un server sceso d'immagine si leggono «modifiche (ancora)
-  richieste» — il binario vecchio non conosce `notify.reviewStopped` — e ci
+  automatica) su un server sceso d'immagine si leggono «Review della PR
+  completata per …: modifiche richieste» — il binario vecchio non conosce `notify.reviewStopped` — e ci
   viene allegato il riassunto di una review PRECEDENTE della PR. Nessun 500,
   nessun crash: solo testo sbagliato su quelle card. Pulizia facoltativa:
   `delete from notifications where kind='review.completed' and
@@ -2176,8 +2202,11 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   manda il webhook → senza difesa Stubwise lo leggerebbe come una richiesta
   UMANA, azzererebbe il contatore e ripartirebbe per sempre. Quindi un evento
   dal provider il cui autore è l'account principale **o** l'account revisore
-  della repository si **scarta prima di qualunque scrittura**
-  (`apps/server/src/services/pr-correction-webhook.ts`, esito `own_account`),
+  della repository si **scarta prima di qualunque scrittura in
+  `pr_corrections`/`ai_jobs`**
+  (`apps/server/src/services/pr-correction-webhook.ts`, esito `own_account`;
+  prima può solo salvarsi `git_accounts.provider_user_id`, che
+  `resolveProviderUserId` mette in cache),
   e gli stessi due account sono esclusi dalla fotografia dei commenti
   (`provider_feedback`: la review l'AI la riceve già dal DB). Se
   `provider_user_id` non è risolvibile per uno dei due (`identity_unresolved`,
@@ -2315,7 +2344,8 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   attesa non ha heartbeat); una riga in attesa la cancella il poller dopo il
   run (`dropIfNeverStarted`) o, all'avvio del worker,
   `requeueWaitingReviews` la rimette in `pr_review_jobs` e la cancella nella
-  stessa transazione. ⚠️ Quel riaccodamento presuppone che **nessun altro
+  stessa transazione — se ha `source_branch`/`target_branch`; senza quei
+  metadati (una riga non nata dal claim nuovo) la chiude `failed`. ⚠️ Quel riaccodamento presuppone che **nessun altro
   processo** abbia quella review nella sua catena in memoria — la stessa
   assunzione del serializer (`handler.ts`). Con due processi worker, l'avvio
   del secondo farebbe girare due volte le review in attesa del primo: va
@@ -2672,8 +2702,15 @@ Stubwise si integra con Claude Code via il server MCP `@stubwise/mcp`
   correzioni» sotto la PR nel ticket (web e app) o con «Request changes» sulla
   piattaforma — e, con la review accesa, il ciclo automatico ci prova da solo
   fino al tetto del progetto. **`run_ticket` non è quella strada**:
-  ripartirebbe dal branch di default e non aggiornerebbe la PR. La
-  descrizione del tool e la skill lo dicono.
+  ripartirebbe dal branch di default e non aggiornerebbe la PR. Né lo è per
+  una correzione FERMA: `run_ticket` non dice quale correzione riprendere, e
+  il server decide dallo stato del momento — se l'ultimo job è ancora il
+  `held` della correzione la forza (con il token di un admin anche oltre il
+  budget; un member su una ferma per budget riceve `needs_maintainer`), se
+  nel frattempo la correzione è terminale (PR mergiata, riconciliata) avvia
+  un **fix nuovo** dal branch di default. Si riprende da «Riprendi la
+  correzione» sul ticket, che manda `resumeCorrectionJobId`. La descrizione
+  del tool e la skill lo dicono.
 - Serve un Personal Access Token (`stw_pat_...`, dalle impostazioni Stubwise) in
   `STUBWISE_TOKEN`; `STUBWISE_URL` punta all'istanza (default
   `http://localhost:3000`). Il pacchetto è pubblicato su npm come

@@ -495,8 +495,8 @@ branch's rules:
 
 The main git account's token needs permission to write statuses: on GitHub a
 fine-grained token needs **Commit statuses: Read and write** on top of the
-permissions it already has; on Bitbucket the repository write scope already
-covers it. Statuses are best-effort: if writing one fails, the loop goes on and
+permissions it already has; on Bitbucket the `write:repository:bitbucket`
+scope already covers it. Statuses are best-effort: if writing one fails, the loop goes on and
 the truth stays in Stubwise.
 
 :::note[Merging from the release queue]
@@ -557,11 +557,17 @@ the start.
 
 | Account  | GitHub (fine-grained personal access token) | Bitbucket (API token) |
 | -------- | ------------------------------------------- | --------------------- |
-| Main     | Contents, Pull requests and Webhooks: Read and write, plus **Commit statuses: Read and write** | repository, pull request and webhook read and write, plus **`read:user:bitbucket`** |
-| Reviewer | **Contents: Read and write** and **Pull requests: Read and write** | **`repository:write`**, **`pullrequest:write`** and **`read:user:bitbucket`** |
+| Main     | Contents, Pull requests and Webhooks: Read and write, plus **Commit statuses: Read and write** | `read:repository:bitbucket`/`write:repository:bitbucket`, `read:pullrequest:bitbucket`/`write:pullrequest:bitbucket`, `read:webhook:bitbucket`/`write:webhook:bitbucket`, plus **`read:user:bitbucket`** |
+| Reviewer | **Contents: Read and write** and **Pull requests: Read and write** | **`write:repository:bitbucket`**, **`write:pullrequest:bitbucket`** and **`read:user:bitbucket`** |
 
 The reviewer only needs to **write**, never to administer the repository (it
 doesn't manage webhooks).
+
+The Bitbucket names above are the scopes of an **API token**, the credential
+Stubwise expects. A legacy **app password** still works, with the same
+permissions under their app-password names: *Repositories: Write*, *Pull
+requests: Write*, *Webhooks: Read and write* (main only) and *Account: Read*
+(the equivalent of `read:user:bitbucket`).
 
 On GitHub the main account's token also decides who may restart the loop: it
 reads the permission of a reviewer who isn't an owner, member or collaborator

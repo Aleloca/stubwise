@@ -1161,8 +1161,8 @@
       "token": "Access token",
       "tokenPlaceholder": "API token / PAT",
       "writeOnlyHint": "// write-only: they are encrypted and will never be shown again.",
-      "bitbucketHint": "// Bitbucket: Username = Bitbucket username (for git), Email = Atlassian email (for the REST API/PR), Token = API token (scope repository + pullrequest + webhook, read and write).",
-      "githubHint": "// GitHub: leave Username and Email empty, Token = fine-grained PAT (Contents + Pull requests + Webhooks: Read and write).",
+      "bitbucketHint": "// Bitbucket: Username = Bitbucket username (for git), Email = Atlassian email (for the REST API/PR), Token = API token (scopes read/write:repository:bitbucket, read/write:pullrequest:bitbucket, read/write:webhook:bitbucket and read:user:bitbucket).",
+      "githubHint": "// GitHub: leave Username and Email empty, Token = fine-grained PAT (Contents + Pull requests + Webhooks + Commit statuses: Read and write).",
       "keepHint": "// leave empty to keep the saved ones.",
       "valid": "Valid credentials",
       "issues": "Issues detected"
