@@ -1,6 +1,6 @@
 # Scenari golden del registro plugin (manuali)
 
-Tre run reali dell'agente con un plugin del registro caricato, per rispondere
+Quattro run reali dell'agente con un plugin del registro caricato, per rispondere
 all'unica domanda che i test unitari non pongono: **con quel plugin nel
 contesto, l'agente rispetta ancora il contratto della run?**
 
@@ -16,7 +16,8 @@ il modello vero.
 
 - Quando si **registra o si aggiorna** un plugin nel registro d'istanza (nuovo
   ref → nuovo sha → skill diverse nel contesto).
-- Quando si cambia un **prompt** della pipeline (piano, esecuzione) o il
+- Quando si cambia un **prompt** della pipeline (piano, esecuzione, **correzione
+  post-PR**) o il
   **contratto della run** del plugin base (`apps/worker/plugins/stubwise-base/`).
 - Quando si aggiorna il **CLI `claude`**: `--plugin-dir` e `--setting-sources`
   sono superfici del CLI, non nostre.
@@ -59,7 +60,7 @@ pnpm --filter @stubwise/worker golden -- --plugin /tmp/superpowers
 ```
 
 Opzioni: `--plugin <dir>` (ripetibile, nell'ordine di caricamento),
-`--scenario <nome>` (ripetibile; default tutti e tre), `--model <nome>`
+`--scenario <nome>` (ripetibile; default tutti e quattro), `--model <nome>`
 (default `sonnet`), `--out <file>` (JSON anche su file), `--keep` (conserva le
 working dir per ispezionarle), `--help`.
 
@@ -88,12 +89,22 @@ fix veri (che usano la parent dir dei worktree anche con un repo solo).
 | `plan-only` | pianificazione, `permission-mode plan` | il piano ha la sezione «Decisioni e assunzioni», nessun file è toccato, nessun ramo/commit/worktree/stash nel repo |
 | `ask-user` | pianificazione con il tool `ask_user` cablato | l'agente chiama `ask_user` (file-bridge scritto e valido) e **non** lascia la domanda in chiaro nel messaggio finale |
 | `execute` | esecuzione, `permission-mode acceptEdits` | il fix è applicato, `STUBWISE_REPORT.md` è nella radice della working dir, nessun `git commit`/`push` |
+| `correction` | correzione post-PR, `permission-mode acceptEdits`, sul primo giro già committato | il test chiesto dalla review è aggiunto, `src/cart.js` **non** è toccato (applica il feedback, non riprogetta), `STUBWISE_REPORT.md` nella radice, nessun commit oltre ai due preparati |
 
 Il ticket dello scenario `ask-user` è un **bivio materiale senza risposta nel
 ticket**: l'importo mostrato e quello addebitato divergono di un centesimo, e
 sistemare il totale (che alimenta anche l'export contabile) oppure solo
 l'incasso porta a lavori diversi su valori diversi. È esattamente il caso in cui
 il contratto dice di chiedere invece di scegliere.
+
+Lo scenario `correction` prepara il repo come lo trova il worker su una PR già
+aperta: HEAD sul branch della PR (`stubwise/ticket-101`) con dentro il **primo
+giro** (lo sconto sistemato, senza test di regressione), più una review
+`request_changes` e un commento inline su `test/cart.check.js` che chiedono il
+test. Il prompt è quello vero (`buildCorrectionPrompt`). I check di disciplina
+git confrontano con lo stato preparato: due commit, i rami `main` e
+`stubwise/ticket-101`, HEAD rimasto sul secondo. Il loop di self-repair (e il
+prompt di riparazione della correzione) non è simulato, come per `execute`.
 
 ## Come sono verificati (e perché non «dai tool usati nel log»)
 
@@ -122,6 +133,9 @@ perché a decidere sia chi legge:
   scattare il check senza aver sbagliato nulla: guarda le righe elencate.
 - «il fix è stato applicato» si limita a verificare che il repo sia sporco. Che
   il fix sia *giusto* lo giudica chi legge il diff (con `--keep`).
+- «nessuna riprogettazione (src/cart.js intatto)» nello scenario `correction`
+  guarda un file solo: se è rosso, il `detail` riporta il diff rispetto al primo
+  giro, e decide chi legge se era un ritocco legittimo o una riprogettazione.
 
 Il plugin passato con `--plugin` è caricato **integrale**, come fa lo smoke run
 del poller: la domanda qui è «come si comporta l'agente con questo plugin», non
@@ -148,7 +162,7 @@ genere, passa a `--plugin` una copia senza quel file.
 }
 ```
 
-Un check rosso su git nello scenario `execute` è il segnale più importante che
+Un check rosso su git negli scenari `execute` e `correction` è il segnale più importante che
 questi scenari possano dare: significa che una skill del plugin sta scavalcando
 il contratto della run. La risposta non è cambiare il golden — è spegnere quella
 skill dal preset del progetto (Progetto → Plugin) e ri-lanciare.

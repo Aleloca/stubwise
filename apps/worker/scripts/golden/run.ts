@@ -14,7 +14,7 @@
  * base di un output JSON. Si lancia quando si aggiorna un plugin del registro o
  * si cambia un prompt/contratto della pipeline. Vedi README.md accanto.
  *
- * ======================== I tre scenari (design §8) ========================
+ * ====================== I quattro scenari (design §8) ======================
  *
  * 1. `plan-only`  run di pianificazione (read-only) sul ticket dello sconto:
  *    il piano ha la sezione delle decisioni, NESSUN file è toccato e nessun
@@ -25,6 +25,10 @@
  *    la domanda in chiaro nel messaggio finale, dove non la leggerebbe nessuno.
  * 3. `execute`    run di esecuzione: il fix è applicato, `STUBWISE_REPORT.md`
  *    è nella radice della working dir e NESSUN `git commit`/`push` è avvenuto.
+ * 4. `correction` run di correzione post-PR sul branch della PR, col primo
+ *    giro già committato: il test chiesto dalla review è aggiunto, il codice
+ *    del primo giro NON è riprogettato, il report è nella radice della working
+ *    dir e nessun commit/ramo nuovo è nato oltre a quelli preparati.
  *
  * ============================ Come si verifica ============================
  *
@@ -96,7 +100,7 @@ const REPORT_FILENAME = "STUBWISE_REPORT.md";
 /** Tetto del messaggio finale riportato nel JSON: il resto è rumore da leggere a video. */
 const FINAL_MESSAGE_MAX_CHARS = 4000;
 
-const SCENARIO_NAMES = ["plan-only", "ask-user", "execute"] as const;
+const SCENARIO_NAMES = ["plan-only", "ask-user", "execute", "correction"] as const;
 type ScenarioName = (typeof SCENARIO_NAMES)[number];
 
 /* ------------------------------------------------------------------ *
@@ -122,7 +126,7 @@ function printUsage(): void {
       "  --plugin <dir>      directory di UN plugin da caricare (ripetibile, nell'ordine).",
       "                      Tipicamente la dir materializzata: /plugins/<slug>/<sha>.",
       "                      Il plugin base di Stubwise è sempre caricato per primo.",
-      "  --scenario <nome>   solo questo scenario (ripetibile). Default: tutti e tre.",
+      "  --scenario <nome>   solo questo scenario (ripetibile). Default: tutti e quattro.",
       `                      Nomi: ${SCENARIO_NAMES.join(", ")}.`,
       `  --model <nome>      modello dei run. Default: ${DEFAULT_MODEL}.`,
       "  --out <file>        scrive il JSON anche su file (lo stdout resta il JSON).",
@@ -225,6 +229,7 @@ async function loadRuntime() {
       basePluginPath: base.basePluginPath,
       buildFixPlanPrompt: prompts.buildFixPlanPrompt,
       buildFixExecutePrompt: prompts.buildFixExecutePrompt,
+      buildCorrectionPrompt: prompts.buildCorrectionPrompt,
     };
   } catch (error) {
     fail(
@@ -309,6 +314,8 @@ interface GitState {
   dirty: string[];
   /** Rami locali: uno solo (`main`) = nessun `git branch`/`checkout -b`. */
   branches: string[];
+  /** Ramo su cui sta HEAD a fine run: diverso da quello preparato = l'agente ha cambiato ramo. */
+  head: string;
   /** Commit su HEAD: 1 = nessun `git commit`. */
   commits: number;
   /** Worktree collegati oltre al principale: 0 = nessun `git worktree add`. */
@@ -326,6 +333,7 @@ async function readGitState(repoDir: string): Promise<GitState> {
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => line !== "");
+  const head = (await git(repoDir, ["rev-parse", "--abbrev-ref", "HEAD"])).trim();
   const commits = Number.parseInt(await git(repoDir, ["rev-list", "--count", "HEAD"]), 10);
   // `git worktree list --porcelain` elenca SEMPRE il worktree principale: i
   // collegati sono le voci `worktree ` in più.
@@ -336,7 +344,7 @@ async function readGitState(repoDir: string): Promise<GitState> {
   const stashes = (await git(repoDir, ["stash", "list"]))
     .split("\n")
     .filter((line) => line.trim() !== "").length;
-  return { dirty, branches, commits, linkedWorktrees, stashes };
+  return { dirty, branches, head, commits, linkedWorktrees, stashes };
 }
 
 /** Voci presenti nella working dir oltre alla sottocartella del repo. */
@@ -346,7 +354,7 @@ async function extraEntriesInParent(parentDir: string): Promise<string[]> {
 }
 
 /* ------------------------------------------------------------------ *
- * Ticket dei tre scenari
+ * Ticket degli scenari
  * ------------------------------------------------------------------ */
 
 function ticket(overrides: Partial<FixTicketInput>): FixTicketInput {
@@ -431,18 +439,35 @@ interface ScenarioResult {
   usage?: AgentRunResult["usage"];
 }
 
+/** Lo stato git che lo scenario ha PREPARATO prima del run: è il confronto dei check. */
+interface ExpectedGit {
+  /** Commit su HEAD preparati dallo scenario (1 = solo quello iniziale). */
+  commits: number;
+  /** Rami locali preparati dallo scenario (ordine indifferente). */
+  branches: string[];
+  /** Ramo su cui lo scenario ha lasciato HEAD. */
+  head: string;
+}
+
+const DEFAULT_EXPECTED_GIT: ExpectedGit = { commits: 1, branches: ["main"], head: "main" };
+
 /** Check comune a tutti gli scenari: la pipeline è l'unica a toccare git. */
-function gitDisciplineChecks(state: GitState): Check[] {
+function gitDisciplineChecks(state: GitState, expected: ExpectedGit = DEFAULT_EXPECTED_GIT): Check[] {
+  const sameBranches =
+    state.branches.length === expected.branches.length &&
+    [...state.branches].sort().every((name, i) => name === [...expected.branches].sort()[i]);
   return [
     {
       name: "nessun commit",
-      passed: state.commits === 1,
-      detail: `commit su HEAD: ${state.commits} (atteso 1, quello iniziale)`,
+      passed: state.commits === expected.commits,
+      detail: `commit su HEAD: ${state.commits} (atteso ${expected.commits}: ${
+        expected.commits === 1 ? "quello iniziale" : "quelli preparati dallo scenario"
+      })`,
     },
     {
       name: "nessun ramo nuovo",
-      passed: state.branches.length === 1 && state.branches[0] === "main",
-      detail: `rami locali: ${state.branches.join(", ") || "(nessuno)"}`,
+      passed: sameBranches && state.head === expected.head,
+      detail: `rami locali: ${state.branches.join(", ") || "(nessuno)"}; HEAD su ${state.head} (attesi: ${expected.branches.join(", ")}; HEAD su ${expected.head})`,
     },
     {
       name: "nessun worktree",
@@ -730,10 +755,145 @@ async function runExecute(ctx: ScenarioContext): Promise<ScenarioResult> {
   };
 }
 
+/** Branch della PR dello scenario `correction`: la forma che la pipeline usa (`stubwise/ticket-N`). */
+const CORRECTION_BRANCH = `stubwise/ticket-${DISCOUNT_TICKET.number}`;
+
+/**
+ * Scenario 4 — `correction`: la correzione post-PR applica il feedback di una
+ * review sulla PR già aperta. Il primo giro (sconto sistemato, test mancante) è
+ * già committato sul branch della PR, come lo trova il worker; la review chiede
+ * il test di regressione. Il deliverable è il test + il report; la cosa da NON
+ * fare è riprogettare (`src/cart.js` era già giusto), committare o cambiare
+ * ramo.
+ *
+ * Prompt e opzioni del run sono quelli di `runCorrection` (correction.ts):
+ * `buildCorrectionPrompt`, cwd sulla parent dir, `acceptEdits`, gli allowedTools
+ * del fix. Il loop di self-repair (e il suo prompt, `buildCorrectionRepairPrompt`)
+ * non è simulato, come non lo è per `execute`: qui si guarda la disciplina del
+ * primo run, non la riparazione dei test.
+ */
+async function runCorrection(ctx: ScenarioContext): Promise<ScenarioResult> {
+  const parentDir = await mkdtemp(join(tmpdir(), "stubwise-golden-correction-"));
+  const repoDir = await prepareWorkdir(parentDir);
+  // Il branch della PR, con dentro il PRIMO GIRO: il fix giusto, senza test.
+  // Il worker fa lavorare l'agente su quel branch e il prompt lo nomina: un repo
+  // rimasto su `main` contraddirebbe il prompt e inviterebbe a «sistemare» il ramo.
+  await git(repoDir, ["checkout", "--quiet", "-b", CORRECTION_BRANCH]);
+  const cartPath = join(repoDir, "src", "cart.js");
+  const cart = await readFile(cartPath, "utf8");
+  const firstRound = cart.replace(
+    "return (subtotal + order.shipping) * (1 - order.discountRate);",
+    "return subtotal * (1 - order.discountRate) + order.shipping;",
+  );
+  if (firstRound === cart) {
+    // La fixture è cambiata sotto lo scenario: senza il primo giro il run
+    // misurerebbe un'altra cosa (il fix intero), e passerebbe per il motivo sbagliato.
+    throw new Error("scenario correction: la riga del bug non è più in fixture/src/cart.js");
+  }
+  await writeFile(cartPath, firstRound);
+  await git(repoDir, ["commit", "--quiet", "-am", `fix: lo sconto non tocca la spedizione (#${DISCOUNT_TICKET.number})`]);
+
+  const startedAt = Date.now();
+  const result = await ctx.runner.run({
+    cwd: parentDir,
+    prompt: ctx.rt.buildCorrectionPrompt(
+      {
+        ticket: DISCOUNT_TICKET,
+        prUrl: `https://example.com/shop/pull/${DISCOUNT_TICKET.number}`,
+        branch: CORRECTION_BRANCH,
+        repo: { dir: REPO_DIR, name: "shop" },
+        review: {
+          verdict: "request_changes",
+          summary:
+            "- `shop/src/cart.js:22`: il calcolo ora è corretto.\n" +
+            "- Manca il test di regressione chiesto dal ticket: spedizione e sconto insieme (50 € di merce, 10 € di spedizione, 20% → 50 €) in `shop/test/cart.check.js`.",
+        },
+        note: null,
+        providerFeedback: [
+          {
+            authorLogin: "revisore",
+            body: "Qui serve un caso con spedizione E sconto insieme.",
+            path: "test/cart.check.js",
+            line: 26,
+          },
+        ],
+      },
+      LANG,
+    ),
+    model: ctx.model,
+    permissionMode: "acceptEdits",
+    maxTurns: EXECUTE_MAX_TURNS,
+    timeoutMs: ctx.rt.DEFAULT_FIX_TIMEOUT_MS,
+    allowedTools: ctx.rt.DEFAULT_FIX_ALLOWED_TOOLS,
+    pluginDirs: ctx.pluginDirs,
+    settingSources: "",
+  });
+  const durationMs = Date.now() - startedAt;
+
+  const gitState = await readGitState(repoDir);
+  const extras = await extraEntriesInParent(parentDir);
+  const reportPath = join(parentDir, REPORT_FILENAME);
+  const reportInRepo = existsSync(join(repoDir, REPORT_FILENAME));
+  const reportBytes = existsSync(reportPath) ? (await readFile(reportPath, "utf8")).length : 0;
+  const cartUnchanged = (await readFile(cartPath, "utf8")) === firstRound;
+
+  const checks: Check[] = [
+    { name: "exit 0", passed: result.exitCode === 0, detail: `exit code: ${result.exitCode}` },
+    {
+      name: "il test chiesto dalla review è stato aggiunto",
+      passed: gitState.dirty.some((line) => line.endsWith("test/cart.check.js")),
+      detail: `modifiche nel repo: ${gitState.dirty.join(", ") || "(NESSUNA)"}`,
+    },
+    {
+      name: "nessuna riprogettazione (src/cart.js intatto)",
+      passed: cartUnchanged,
+      detail: cartUnchanged
+        ? "src/cart.js uguale al primo giro"
+        : `src/cart.js modificato rispetto al primo giro:\n${await git(repoDir, ["diff", "HEAD", "--", "src/cart.js"])}`,
+    },
+    {
+      name: `${REPORT_FILENAME} nella radice della working dir`,
+      passed: reportBytes > 0,
+      detail:
+        reportBytes > 0
+          ? `${reportBytes} caratteri in ${reportPath}`
+          : reportInRepo
+            ? `report scritto DENTRO ${REPO_DIR}/ invece che nella radice della working dir`
+            : `nessun ${REPORT_FILENAME} in ${parentDir}`,
+    },
+    {
+      name: "nessun file estraneo nella working dir",
+      passed: extras.every((name) => name === REPORT_FILENAME),
+      detail: `voci oltre a ${REPO_DIR}/: ${extras.join(", ") || "(nessuna)"}`,
+    },
+    // Due commit preparati (l'iniziale + il primo giro), due rami (`main` e
+    // quello della PR) e HEAD rimasto sul ramo della PR.
+    ...gitDisciplineChecks(gitState, {
+      commits: 2,
+      branches: ["main", CORRECTION_BRANCH],
+      head: CORRECTION_BRANCH,
+    }),
+  ];
+
+  if (!ctx.keep) await rm(parentDir, { recursive: true, force: true });
+  return {
+    scenario: "correction",
+    passed: checks.every((check) => check.passed),
+    durationMs,
+    exitCode: result.exitCode,
+    cwd: parentDir,
+    checks,
+    gitState,
+    finalMessage: truncate(result.output, FINAL_MESSAGE_MAX_CHARS),
+    ...(result.usage !== undefined ? { usage: result.usage } : {}),
+  };
+}
+
 const SCENARIOS: Record<ScenarioName, (ctx: ScenarioContext) => Promise<ScenarioResult>> = {
   "plan-only": runPlanOnly,
   "ask-user": runAskUser,
   execute: runExecute,
+  correction: runCorrection,
 };
 
 /* ------------------------------------------------------------------ *
