@@ -125,9 +125,12 @@ function stateSegment(cycle: Cycle): PrCycleSegment {
     case "reviewing":
       return { key: `${K}.reviewing`, params: {} };
     case "correcting": {
-      // `?? null` / `?? false`: l'app parsa (`.default()` gira), ma resta
-      // difensiva come il web — senza, un `undefined !== null` direbbe «ferma»
-      // a una correzione che lavora.
+      // `?? null` / `?? false`: in produzione l'app parsa e i `.default()`
+      // girano, quindi qui la difesa serve soprattutto DOVE NON SI PARSA —
+      // fixture dei test e doppi del client (la trappola delle fixture
+      // dell'app, CLAUDE.md). Senza, un `undefined !== null` direbbe «ferma»
+      // a una correzione che lavora. È la stessa difesa del web, che non parsa
+      // mai.
       const heldReason = cycle.heldReason ?? null;
       const canResume = cycle.canResume ?? false;
       if (heldReason !== null) return heldSegment(cycle, heldReason, canResume);
@@ -149,6 +152,18 @@ function stateSegment(cycle: Cycle): PrCycleSegment {
       return { key: `${K}.correctionFailed`, params: {} };
     case "idle":
       return { key: `${K}.idle`, params: {} };
+    default: {
+      // Esaustività per il compilatore: ogni stato noto ha il suo `case`, e
+      // uno nuovo nell'enum rompe qui la compilazione.
+      const unhandled: never = state;
+      // Ma a RUNTIME uno stato grezzo arriva qui senza essere `UNKNOWN`
+      // quando la risposta non è passata da `readerSchema`: fixture dei test,
+      // doppi del client. Senza questo ramo la funzione tornerebbe
+      // `undefined` e `prCycleText` lancerebbe, portandosi via la schermata.
+      // Il web regge lo stesso caso con lo stesso `default`.
+      void unhandled;
+      return { key: `${K}.unknown`, params: {} };
+    }
   }
 }
 
@@ -164,7 +179,9 @@ function toneFor(cycle: Cycle): PrCycleTone {
     const heldReason = cycle.heldReason ?? null;
     if (heldReason !== null && heldReason !== "limit") return "signal";
   }
-  return TONE_BY_STATE[cycle.state];
+  // `?? "faint"`: uno stato grezzo non parsato (vedi il `default` di
+  // `stateSegment`) non è una chiave della tabella.
+  return TONE_BY_STATE[cycle.state] ?? "faint";
 }
 
 /**

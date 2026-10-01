@@ -22238,8 +22238,15 @@ git commit -m "feat(api-client): chiedere la correzione di una PR e leggere il c
 >   Le fixture tipate sono COMPLETE; i casi «server più vecchio» (che sul web
 >   tolgono i campi dalla fixture) qui passano la risposta GREZZA senza i campi
 >   da `readerSchema(prCycleSchema)`, cioè come l'app li riceve davvero. Lo stato
->   sconosciuto e il motivo sconosciuto sono `UNKNOWN` (non un cast). In più:
->   `via`/`platform` `UNKNOWN`, le frasi tradotte e la parità coi cataloghi web.
+>   sconosciuto è GREZZO (cast, come sul web) nei due casi che il web ha, più
+>   un caso con lo stesso stato passato da `readerSchema` (`UNKNOWN`); il motivo
+>   sconosciuto è `UNKNOWN`. In più: `via`/`platform` `UNKNOWN`, le frasi
+>   tradotte e la parità coi cataloghi web (riga, errori e pannello).
+> - **Revisione di F2**: `stateSegment` ha un `default` (dopo un `never` per
+>   l'esaustività) e `toneFor` un `?? "faint"`: uno stato grezzo NON parsato
+>   (fixture, doppi del client) dava `undefined` e `prCycleText` lanciava.
+>   Il limite della CI sul test di parità (non gira su una PR che tocca solo
+>   i testi del web) è scritto nel docblock del test.
 
 **Files:**
 - Modify: `apps/mobile/src/i18n/it.json`, `apps/mobile/src/i18n/en.json`
@@ -23123,6 +23130,28 @@ git commit -m "feat(mobile): il pannello «Applica le correzioni» con la nota f
 ---
 
 ### Task F5: la sezione PR del ticket, `PrCycleSection`
+
+> ⚠️ **Dalla revisione di F2 (1 ott 2026) — «Riprendi» su un 409
+> `correction_not_held` ricarica il ticket, e un test lo verifica.** Il testo
+> che l'app mostra in quel caso è `mobile.work.pr.cycle.correctionNotHeld`
+> («Questa correzione non è più ferma: il ticket è stato ricaricato»): senza
+> l'invalidazione quella frase MENTE, e la sezione resta su una correzione
+> ferma che non c'è più, con «Riprendi» ancora premibile. Stessa regola del web
+> (`apps/web/src/components/pr-cycle-row.tsx`, `onError` di `resumeMutation`,
+> che chiama `invalidateTicket` solo per `error.code === "correction_not_held"`
+> — letto dal `code`, MAI dallo status: anche `job_in_flight` è un 409, e lì
+> il ticket non va ricaricato). Nell'app si invalida l'albero del ticket,
+> `workKeys.all(ticketId)` (`apps/mobile/src/lib/query-keys.ts`), che copre
+> `ticket`, `jobs` e `activity` come le tre chiavi del web.
+> **Test obbligatori** (nel test della mutazione di ripresa o di
+> `PrCycleSection`, con `jest.spyOn(queryClient, "invalidateQueries")`):
+> (a) 409 `correction_not_held` → `invalidateQueries` chiamato con
+> `{ queryKey: workKeys.all(TICKET_ID) }` E il testo `correctionNotHeld`
+> mostrato; (b) 409 `job_in_flight` → NESSUNA invalidazione di
+> `workKeys.all(TICKET_ID)` per quel motivo, così il test discrimina il `code`
+> dallo status; (c) 403 `needs_maintainer` → testo
+> `mobile.work.pr.cycle.needsMaintainer`. Mutazione: togliere l'invalidazione
+> deve far diventare rosso (a).
 
 **Files:**
 - Create: `apps/mobile/src/components/work/PrCycleSection.tsx`

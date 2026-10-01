@@ -50,6 +50,15 @@ function oldServerCycle(raw: Record<string, unknown>): Reader<PrCycle> {
   });
 }
 
+/**
+ * Uno stato GREZZO che l'app non conosce, NON passato da `readerSchema`: è ciò
+ * che arriva da una fixture o da un doppio del client (che il parse non lo
+ * fanno). Stessa forma dei test del web, che fanno lo stesso cast.
+ */
+function rawUnknownStateCycle(): Reader<PrCycle> {
+  return { ...cycle(), state: "stato_futuro" } as unknown as Reader<PrCycle>;
+}
+
 const keys = (c: Reader<PrCycle>) => prCycleLineFor(c).segments.map((s) => s.key);
 const HELD_JOB_ID = "11111111-1111-4111-8111-111111111111";
 
@@ -131,9 +140,23 @@ describe("prCycleLineFor (gemella di prCycleLineFor del web)", () => {
     expect(prCycleLineFor(cycle({ state: "correction_failed" })).tone).toBe("danger");
   });
 
-  it("uno stato che l'app non conosce (UNKNOWN da readerSchema) non lancia: chiave neutra", () => {
-    const line = prCycleLineFor(oldServerCycle({ state: "stato_futuro" }));
+  it("uno stato che l'app non conosce non lancia: chiave neutra", () => {
+    const line = prCycleLineFor(rawUnknownStateCycle());
     expect(line.segments[0]!.key).toBe("mobile.work.pr.cycle.unknown");
+  });
+
+  it("lo stesso stato passato da readerSchema (UNKNOWN): chiave neutra", () => {
+    const c = oldServerCycle({ state: "stato_futuro" });
+    expect(c.state).toBe(UNKNOWN);
+    expect(prCycleLineFor(c).segments[0]!.key).toBe("mobile.work.pr.cycle.unknown");
+  });
+
+  it("stato GREZZO non parsato (fixture, doppio del client): chiave unknown, tono faint, e la riga si traduce senza lanciare", () => {
+    const line = prCycleLineFor(rawUnknownStateCycle());
+    expect(line.segments).toEqual([{ key: "mobile.work.pr.cycle.unknown", params: {} }]);
+    expect(line.tone).toBe("faint");
+    expect(() => prCycleText(line, t)).not.toThrow();
+    expect(prCycleText(line, t)).toBe("Stato del ciclo di correzione non riconosciuto: aggiorna l'app");
   });
 
   describe("correzione ferma (heldReason, canResume)", () => {
@@ -353,7 +376,7 @@ describe("prCycleLineFor (gemella di prCycleLineFor del web)", () => {
     });
 
     it("stato sconosciuto: tono faint", () => {
-      expect(prCycleLineFor(cycle({ state: UNKNOWN })).tone).toBe("faint");
+      expect(prCycleLineFor(rawUnknownStateCycle()).tone).toBe("faint");
     });
 
     it("reviewing: tono sky", () => {
@@ -429,10 +452,29 @@ describe("prCycleText: la riga tradotta, segmenti uniti da « · »", () => {
 
 /**
  * PARITÀ COL WEB: le due superfici non possono dire cose diverse (design §9).
- * Ogni testo della riga di stato e degli errori che il web ha, l'app lo ha
- * IDENTICO, in entrambe le lingue — letto dai cataloghi del web, non copiato
- * qui. `unknown` è l'unica eccezione voluta: solo l'app può restare indietro
- * rispetto al server, e allora dice «aggiorna l'app».
+ * Ogni testo della riga di stato, degli errori e del pannello che il web ha,
+ * l'app lo ha IDENTICO, in entrambe le lingue — letto dai cataloghi del web,
+ * non copiato qui. `unknown` è l'unica eccezione voluta: solo l'app può
+ * restare indietro rispetto al server, e allora dice «aggiorna l'app».
+ *
+ * ⚠️ **Limite della CI, da conoscere.** Su una pull request la CI lancia solo
+ * i test dei pacchetti toccati e di chi ne dipende (`--filter "...[$BASE_SHA]"`
+ * in `.github/workflows/ci.yml`). `apps/mobile` non dipende da `apps/web`:
+ * questo file legge i suoi JSON per percorso, non per dipendenza. Quindi una
+ * PR che cambia SOLO i testi del web (`apps/web/src/i18n/locales/*.json`) non
+ * seleziona l'app, e questo test su quella PR NON gira: la divergenza passa la
+ * review verde.
+ * Emerge al push su main, dove la CI lancia TUTTI i test, quindi dopo il merge
+ * e prima che qualcuno faccia il deploy guardando una CI verde su main. Il
+ * deploy però è manuale e la CI non lo blocca: va controllata.
+ *
+ * **Se questo test fallisce su main**, si ALLINEANO le due copie: si porta lo
+ * stesso testo nel catalogo dell'app (`apps/mobile/src/i18n/{it,en}.json`) o,
+ * se il cambio sul web era sbagliato, lo si riporta indietro là. Il test non
+ * si disattiva, non si salta e non si indebolisce (niente chiave tolta
+ * dall'elenco, niente `toEqual` sostituito da un confronto più largo): è
+ * l'unico punto che tiene d'accordo due superfici di cui una si aggiorna dagli
+ * store e non può essere corretta dopo.
  */
 describe("parità dei testi con il web", () => {
   const LINE_KEYS = [
@@ -478,6 +520,24 @@ describe("parità dei testi con il web", () => {
     ["needs_maintainer", "cycle.needsMaintainer"],
   ] as const;
 
+  /**
+   * Testi del pannello e dei bottoni: chiave dell'app (sotto `mobile.work.pr`)
+   * → chiave del web (sotto `tickets.cycle`). Sono quelli dichiarati identici
+   * nella nota di F2 nel piano; `sheet.title`, `sheet.offline`, `title` e
+   * `openPr` non hanno un equivalente sul web e restano fuori.
+   */
+  const PANEL_KEYS = [
+    ["requestCorrection", "apply"],
+    ["resume", "resume"],
+    ["resuming", "resuming"],
+    ["sheet.body", "hint"],
+    ["sheet.noteLabel", "noteLabel"],
+    ["sheet.placeholder", "notePlaceholder"],
+    ["sheet.confirm", "confirm"],
+    ["sheet.confirming", "confirming"],
+    ["sheet.cancel", "cancel"],
+  ] as const;
+
   const catalogs = [
     ["it", appIt, webIt],
     ["en", appEn, webEn],
@@ -500,6 +560,13 @@ describe("parità dei testi con il web", () => {
     for (const [code, appKey] of ERROR_KEYS) {
       const appText = appKey.split(".").reduce<unknown>((acc, part) => (acc as Record<string, unknown>)[part], app.mobile.work.pr);
       expect([code, appText]).toEqual([code, web.errors[code]]);
+    }
+  });
+
+  it.each(catalogs)("%s: ogni testo del pannello ha il testo del web", (_lang, app, web) => {
+    for (const [appKey, webKey] of PANEL_KEYS) {
+      const appText = appKey.split(".").reduce<unknown>((acc, part) => (acc as Record<string, unknown>)[part], app.mobile.work.pr);
+      expect([appKey, appText]).toEqual([appKey, web.tickets.cycle[webKey]]);
     }
   });
 
