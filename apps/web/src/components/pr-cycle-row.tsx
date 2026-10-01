@@ -42,6 +42,11 @@ function resumeErrorText(error: unknown, t: TFunction): string {
  *
  * Due passi (bottone → nota → conferma) e non un click secco: una correzione
  * spende un run dell'agente, e la nota è il momento di dirgli cosa guardare.
+ *
+ * ⚠️ Va keyato su ticket+repository: tiene stato locale (modulo aperto, nota,
+ * esito delle mutazioni) seminato da quell'identità, e una pagina che cambia
+ * ticket senza smontarsi (TanStack Router non rismonta sulla stessa rotta)
+ * porterebbe la nota di un ticket sotto la PR di un altro.
  */
 export function PrCycleRow({ ticketId, repositoryId, cycle }: PrCycleRowProps) {
   const { t } = useTranslation();
@@ -139,6 +144,7 @@ export function PrCycleRow({ ticketId, repositoryId, cycle }: PrCycleRowProps) {
             rows={3}
             maxLength={NOTE_MAX_LENGTH}
             value={note}
+            disabled={mutation.isPending}
             onChange={(event) => setNote(event.target.value)}
             placeholder={t("tickets:cycle.notePlaceholder")}
             className="mt-1 w-full rounded-sm border border-line-strong bg-ink-950/70 px-2 py-1.5 text-sm text-fg transition-colors focus-visible:border-signal-dim"
@@ -155,7 +161,12 @@ export function PrCycleRow({ ticketId, repositoryId, cycle }: PrCycleRowProps) {
             <button
               type="button"
               disabled={mutation.isPending}
-              onClick={() => setOpen(false)}
+              onClick={() => {
+                // L'errore parlava di QUESTO invio: chiuso il modulo, sparisce
+                // con lui invece di restare appeso sotto la riga.
+                mutation.reset();
+                setOpen(false);
+              }}
               className="rounded-sm border border-line-strong px-3 py-2 font-mono text-[11px] tracking-[0.08em] text-fg-muted uppercase transition-colors hover:text-fg disabled:cursor-not-allowed disabled:opacity-60"
             >
               {t("tickets:cycle.cancel")}

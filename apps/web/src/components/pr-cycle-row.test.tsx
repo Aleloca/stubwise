@@ -167,6 +167,40 @@ describe("PrCycleRow", () => {
     expect(screen.getByRole("button", { name: "Apply corrections" })).toBeEnabled();
   });
 
+  it("Annulla dopo un errore: l'errore sparisce col modulo", async () => {
+    const user = userEvent.setup();
+    fetchMock.mockResolvedValue(jsonResponse(409, { code: "correction_in_flight", message: "busy" }));
+    renderRow(cycle());
+
+    await user.click(screen.getByRole("button", { name: "Apply corrections" }));
+    await user.click(screen.getByRole("button", { name: "Start correction" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("A correction is already running on this PR");
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    // Il modulo è chiuso, e con lui l'errore che parlava di quell'invio.
+    expect(screen.queryByLabelText("Note for the agent (optional)")).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("durante l'invio la nota non si modifica (textarea disabled)", async () => {
+    const user = userEvent.setup();
+    // Una risposta che non arriva mai: l'invio resta in corso per tutto il test.
+    fetchMock.mockReturnValue(new Promise<Response>(() => {}));
+    renderRow(cycle());
+
+    await user.click(screen.getByRole("button", { name: "Apply corrections" }));
+    const textarea = screen.getByLabelText("Note for the agent (optional)");
+    expect(textarea).toBeEnabled();
+    await user.type(textarea, "prima");
+    await user.click(screen.getByRole("button", { name: "Start correction" }));
+
+    await waitFor(() => expect(textarea).toBeDisabled());
+    // La nota inviata è quella rimasta nel campo: non si può più cambiarla.
+    await user.type(textarea, " dopo");
+    expect(textarea).toHaveValue("prima");
+  });
+
   describe("Riprendi una correzione ferma (G5)", () => {
     it("con canResume e heldJobId: run-ai con resumeCorrectionJobId, poi ticket ricaricato", async () => {
       const user = userEvent.setup();
