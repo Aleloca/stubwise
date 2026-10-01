@@ -642,8 +642,11 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
   };
 
   // Tetti di spesa, come il fix. `manual_trigger` lo mette enqueueCorrection:
-  // true per una richiesta umana (bottone o piattaforma), che li scavalca come
-  // un avvio a mano; false per il ciclo automatico, che il budget mensile ferma.
+  // true SOLO per il bottone di Stubwise (o per run-ai che forza una correzione
+  // ferma, D4), che li scavalca come un avvio a mano; false per il ciclo
+  // automatico E per un "Request changes" della piattaforma (D-D2a: lo preme
+  // anche chi non ha ruoli in Stubwise). Fermo al budget: held, commento sul
+  // ticket (holdForBudget) e `heldReason` nella riga di stato (derivePrCycle).
   const budget = await checkBudgetsBeforeRun(db, {
     ticketId: ticket.id,
     ticketType: ticket.type,

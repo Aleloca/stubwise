@@ -15,7 +15,13 @@ import {
   type Db,
 } from "@stubwise/db";
 import { seedGitAccount, startTestDb, type TestDb } from "@stubwise/db/testing";
-import { MAX_PERMISSION_LOOKUPS_PER_SNAPSHOT, type NotificationEvent } from "@stubwise/notifications";
+import { t } from "@stubwise/i18n";
+import {
+  derivePrCycle,
+  enqueueCorrection,
+  MAX_PERMISSION_LOOKUPS_PER_SNAPSHOT,
+  type NotificationEvent,
+} from "@stubwise/notifications";
 import type { PrComment } from "@stubwise/shared";
 import { eq, sql } from "drizzle-orm";
 import { execa } from "execa";
@@ -236,7 +242,8 @@ async function seedCorrection(
       status: "fixing",
       startedAt: new Date(),
       correctionId: correction!.id,
-      manualTrigger: (values.trigger ?? "review") !== "review",
+      // La regola di `enqueueCorrection` (D-D2a): solo il bottone di Stubwise.
+      manualTrigger: values.trigger === "stubwise",
       ...jobValues,
     })
     .returning();
@@ -769,6 +776,79 @@ describe("runCorrection", () => {
     expect(jobAfter).toMatchObject({ status: "held", heldReason: "budget" });
     const [corrAfter] = await testDb.db.select().from(prCorrections).where(eq(prCorrections.id, correctionId));
     expect(corrAfter!.status).toBe("queued");
+  });
+
+  /**
+   * D-D2a: il job nasce dalla funzione VERA (`enqueueCorrection`), non dal
+   * `seedCorrection` del file — è la regola di creazione che si sta provando,
+   * insieme a ciò che il worker ne fa. Il job parte `fixing` come al claim.
+   */
+  async function enqueuedJob(
+    f: Fixture,
+    trigger: "provider" | "stubwise",
+  ): Promise<{ correctionId: string; job: AiJob }> {
+    const res = await enqueueCorrection(testDb.db, {
+      ticketId: f.ticket.id,
+      repositoryId: f.repositoryId,
+      prNumber: 12,
+      trigger,
+      reviewId: await seedReview(f),
+      ...(trigger === "provider" ? { requestedByProviderLogin: "estraneo", providerFeedback: [] } : {}),
+    });
+    if (!res.ok || res.jobId === null) throw new Error("attesa una correzione queued col suo job");
+    const [job] = await testDb.db
+      .update(aiJobs)
+      .set({ status: "fixing", startedAt: new Date() })
+      .where(eq(aiJobs.id, res.jobId))
+      .returning();
+    return { correctionId: res.correctionId, job: job! };
+  }
+
+  it("D-D2a: Request changes dalla piattaforma con budget mensile esaurito → held, commento sul ticket, heldReason budget", async () => {
+    const f = await makeFixture();
+    await testDb.db.update(instanceSettings).set({ monthlyBudgetUsd: "10" }).where(eq(instanceSettings.id, 1));
+    const { correctionId, job } = await enqueuedJob(f, "provider");
+    expect(job.manualTrigger).toBe(false);
+    const runner = applyingRunner(f);
+
+    const outcome = await runCorrection(
+      makeDeps(f, runner, makeProvider(), [], { monthlyCostUsdFn: async () => 25 }),
+      job,
+    );
+
+    expect(outcome).toBe("held");
+    expect(runner.calls).toHaveLength(0);
+    expect(await upstreamHead(f)).toBe(f.prSha);
+    const [jobAfter] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+    expect(jobAfter).toMatchObject({ status: "held", heldReason: "budget" });
+    const [corrAfter] = await testDb.db.select().from(prCorrections).where(eq(prCorrections.id, correctionId));
+    expect(corrAfter!.status).toBe("queued");
+    // Il commento di sistema, da template (mai AI): dove la persona lo vede.
+    const ticketComments = await testDb.db.select().from(comments).where(eq(comments.ticketId, f.ticket.id));
+    expect(ticketComments.map((c) => c.body)).toContain(
+      t("en", "comment.budgetHeld", { scope: t("en", "notify.scopeMonthly"), limit: "10.0000", spent: "25.0000" }),
+    );
+    // E la riga di stato dice perché la correzione è ferma.
+    expect(await derivePrCycle(testDb.db, { ticketId: f.ticket.id, repositoryId: f.repositoryId })).toMatchObject({
+      state: "correcting",
+      heldReason: "budget",
+    });
+  });
+
+  it("D-D2a: il bottone di Stubwise con budget mensile esaurito → PARTE (manualTrigger)", async () => {
+    const f = await makeFixture();
+    await testDb.db.update(instanceSettings).set({ monthlyBudgetUsd: "10" }).where(eq(instanceSettings.id, 1));
+    const { job } = await enqueuedJob(f, "stubwise");
+    expect(job.manualTrigger).toBe(true);
+    const runner = applyingRunner(f);
+
+    const outcome = await runCorrection(
+      makeDeps(f, runner, makeProvider(), [], { monthlyCostUsdFn: async () => 25 }),
+      job,
+    );
+
+    expect(outcome).toBe("pushed");
+    expect(runner.calls.length).toBeGreaterThan(0);
   });
 
   it("uno status di commit che fallisce non ferma la correzione", async () => {
