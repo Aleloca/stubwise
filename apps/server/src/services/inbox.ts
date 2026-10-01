@@ -536,6 +536,7 @@ async function runDecision(
       ...(input.publicUrl ? { publicUrl: input.publicUrl } : {}),
     });
     if (result.ok) return { ok: true, jobId: result.jobId };
+    if (result.error === "needs_maintainer") return { ok: false, error: "forbidden" };
     return result.error === "ticket_not_found"
       ? { ok: false, error: "not_found" }
       : {

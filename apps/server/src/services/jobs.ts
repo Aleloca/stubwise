@@ -29,6 +29,7 @@ import {
 } from "@stubwise/db";
 import { t } from "@stubwise/i18n";
 import {
+  canResumeCorrection,
   correctionManualTrigger,
   IN_FLIGHT_JOB_STATUSES,
   publishNotification,
@@ -56,7 +57,11 @@ export const IN_FLIGHT = IN_FLIGHT_JOB_STATUSES;
 
 export type StartRunResult =
   | { ok: true; jobId: string; status: "queued" | "awaiting_plan_approval" }
-  | { ok: false; error: "ticket_not_found" | "job_in_flight"; jobStatus?: string };
+  | { ok: false; error: "ticket_not_found" | "job_in_flight"; jobStatus?: string }
+  // Un operatore che prova a forzare una correzione ferma per BUDGET: solo un
+  // maintainer scavalca il budget (E7), e la forzatura di un member tornerebbe
+  // `held` al primo controllo del worker. Niente scritto.
+  | { ok: false; error: "needs_maintainer" };
 
 export interface StartRunInput {
   ticketId: string;
@@ -196,7 +201,12 @@ export async function startRun(db: Db, input: StartRunInput): Promise<StartRunRe
     // L'ultimo job del ticket (per createdAt, id come spareggio): è quello che
     // la timeline mostra in cima e che l'utente intende rilanciare.
     const [latest] = await tx
-      .select({ id: aiJobs.id, status: aiJobs.status, correctionId: aiJobs.correctionId })
+      .select({
+        id: aiJobs.id,
+        status: aiJobs.status,
+        correctionId: aiJobs.correctionId,
+        heldReason: aiJobs.heldReason,
+      })
       .from(aiJobs)
       .where(eq(aiJobs.ticketId, ticketId))
       .orderBy(desc(aiJobs.createdAt), desc(aiJobs.id))
@@ -220,6 +230,12 @@ export async function startRun(db: Db, input: StartRunInput): Promise<StartRunRe
     // `correction_id` non avrebbe consumatori. Un fix nuovo al suo posto
     // lascerebbe la correzione `queued` per sempre, e sarebbe rifiutato al push.
     if (latest && latest.correctionId !== null && latest.status === "held") {
+      // La regola di chi può riprenderla è quella della riga di stato
+      // (`canResumeCorrection`, `cycle.canResume`): un member non forza una
+      // correzione ferma per budget. Si risponde PRIMA di scrivere.
+      if (!canResumeCorrection(latest.heldReason ?? "other", actor.role)) {
+        return { ok: false, error: "needs_maintainer" };
+      }
       const forced = await tx
         .update(aiJobs)
         .set({

@@ -1375,6 +1375,14 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         if (result.error === "ticket_not_found") {
           return apiError(reply, 404, "ticket_not_found", "Ticket not found");
         }
+        if (result.error === "needs_maintainer") {
+          return apiError(
+            reply,
+            403,
+            "needs_maintainer",
+            "This correction is on hold for the budget: a maintainer can resume it",
+          );
+        }
         return apiError(
           reply,
           409,

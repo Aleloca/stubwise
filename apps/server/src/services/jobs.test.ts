@@ -421,6 +421,8 @@ describe("startRun", () => {
     opts: {
       correctionStatus: "queued" | "done";
       jobStatus: "held" | "pr_opened" | "failed" | "queued" | "fixing";
+      /** Solo per `held`; default `budget`. */
+      heldReason?: "budget" | "limit" | "other";
     },
   ) {
     const [repo] = await db
@@ -444,7 +446,7 @@ describe("startRun", () => {
         status: opts.jobStatus,
         correctionId: correction!.id,
         manualTrigger: false,
-        ...(opts.jobStatus === "held" ? { heldReason: "budget" as const } : {}),
+        ...(opts.jobStatus === "held" ? { heldReason: opts.heldReason ?? "budget" } : {}),
       })
       .returning();
     return { correction: correction!, job: job! };
@@ -513,38 +515,80 @@ describe("startRun", () => {
     expect(corr!.status).toBe("queued");
   });
 
-  it("stessi dati, due ruoli: la forzatura di una correzione held per budget scavalca il budget SOLO per un admin", async () => {
-    for (const [actor, expected] of [
-      [maintainer, true],
-      [operator, false],
-    ] as const) {
-      const ticketId = await seedTicket();
-      const { correction, job: correctionJob } = await seedCorrectionJob(ticketId, {
-        correctionStatus: "queued",
-        jobStatus: "held",
-      });
+  it("OPERATORE su una correzione held per BUDGET: needs_maintainer, e niente cambia in colonna", async () => {
+    const ticketId = await seedTicket();
+    const { correction, job: correctionJob } = await seedCorrectionJob(ticketId, {
+      correctionStatus: "queued",
+      jobStatus: "held",
+      heldReason: "budget",
+    });
+    const before = await readJob(correctionJob.id);
 
-      const result = await startRun(db, { ticketId, actor });
+    const result = await startRun(db, { ticketId, actor: operator });
 
-      // Entrambi la rimettono in coda (stesso job, niente gate del piano)...
-      expect(result).toMatchObject({ ok: true, jobId: correctionJob.id, status: "queued" });
-      // ...ma solo il maintainer scavalca il budget: quella del member, a
-      // budget esaurito, il worker la riferma `held` (test in apps/worker).
-      expect(await readJob(correctionJob.id)).toMatchObject({
-        status: "queued",
-        correctionId: correction.id,
-        manualTrigger: expected,
-        requestedByUserId: actor.id,
-        planApprovalRequired: false,
-      });
-    }
+    expect(result).toEqual({ ok: false, error: "needs_maintainer" });
+    // Il divieto è sul VALORE in colonna, non solo sulla risposta.
+    expect(await readJob(correctionJob.id)).toEqual(before);
+    expect(before).toMatchObject({ status: "held", heldReason: "budget", manualTrigger: false });
+    const [corr] = await db.select().from(prCorrections).where(eq(prCorrections.id, correction.id));
+    expect(corr!.status).toBe("queued");
+    expect(await db.select().from(aiJobs).where(eq(aiJobs.ticketId, ticketId))).toHaveLength(1);
   });
+
+  it("stessi dati, il MAINTAINER: la correzione held per budget la forza, scavalcando il budget", async () => {
+    const ticketId = await seedTicket();
+    const { correction, job: correctionJob } = await seedCorrectionJob(ticketId, {
+      correctionStatus: "queued",
+      jobStatus: "held",
+      heldReason: "budget",
+    });
+
+    const result = await startRun(db, { ticketId, actor: maintainer });
+
+    expect(result).toMatchObject({ ok: true, jobId: correctionJob.id, status: "queued" });
+    expect(await readJob(correctionJob.id)).toMatchObject({
+      status: "queued",
+      correctionId: correction.id,
+      manualTrigger: true,
+      requestedByUserId: maintainer.id,
+      planApprovalRequired: false,
+    });
+  });
+
+  it.each(["limit", "other"] as const)(
+    "stessi dati, due ruoli: held per %s la riprendono entrambi, ma solo il maintainer con manualTrigger",
+    async (heldReason) => {
+      for (const [actor, expected] of [
+        [maintainer, true],
+        [operator, false],
+      ] as const) {
+        const ticketId = await seedTicket();
+        const { correction, job: correctionJob } = await seedCorrectionJob(ticketId, {
+          correctionStatus: "queued",
+          jobStatus: "held",
+          heldReason,
+        });
+
+        const result = await startRun(db, { ticketId, actor });
+
+        expect(result).toMatchObject({ ok: true, jobId: correctionJob.id, status: "queued" });
+        expect(await readJob(correctionJob.id)).toMatchObject({
+          status: "queued",
+          correctionId: correction.id,
+          manualTrigger: expected,
+          requestedByUserId: actor.id,
+          planApprovalRequired: false,
+        });
+      }
+    },
+  );
 
   it("CORREZIONE held forzata da un OPERATORE: niente gate del piano (una correzione non è un piano nuovo)", async () => {
     const ticketId = await seedTicket("## Piano salvato");
     const { job: correctionJob } = await seedCorrectionJob(ticketId, {
       correctionStatus: "queued",
       jobStatus: "held",
+      heldReason: "limit",
     });
 
     const result = await startRun(db, { ticketId, actor: operator });

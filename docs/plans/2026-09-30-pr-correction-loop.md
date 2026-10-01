@@ -17508,6 +17508,17 @@ nuovo; il job `held` di una correzione ancora in coda lo **forza** (stesso job,
 piano)». **E7**: test a due ruoli sugli stessi dati — la forzatura di un
 maintainer → `manualTrigger: true`, quella di un operatore → `false`.
 
+**E7, ritocco (`needs_maintainer`)**: un `member` che prova a forzare una
+correzione `held` con `heldReason = 'budget'` NON la rimette in coda:
+`startRun` risponde `{ ok: false, error: "needs_maintainer" }` PRIMA di
+scrivere (la regola è `canResumeCorrection`, la stessa di `cycle.canResume`),
+e la rotta run-ai la traduce in **403** `needs_maintainer` via `apiError`
+(nel relaunch dall'inbox → `forbidden`). Held `limit`/`other`: invariato
+(entrambi i ruoli la riprendono, `manualTrigger` solo per l'admin); l'admin
+invariato. Test negativo sul valore in colonna (job e correzione identici),
+col verso positivo dell'admin sugli stessi dati, in `jobs.test.ts` e nella
+rotta (`tickets.test.ts`).
+
 **Step 3: verifica e commit**
 
 ```bash
@@ -20063,7 +20074,11 @@ Atteso: typecheck pulito.
 >
 > ⚠️ **E7**: in più `"heldBudgetNeedsMaintainer"` — en: `"Correction on hold ·
 > budget exhausted · a maintainer can resume it"`; it: `"Correzione ferma ·
-> budget esaurito · la riprende un maintainer"`.
+> budget esaurito · la riprende un maintainer"`. E per l'errore 403
+> `needs_maintainer` di run-ai (D4) una chiave propria, `"needsMaintainer"` —
+> en: `"This correction is on hold for the budget: a maintainer can resume
+> it"`; it: `"Questa correzione è ferma per il budget: può riprenderla un
+> maintainer"`.
 
 **Files:**
 - Modify: `apps/web/src/i18n/locales/en.json`
@@ -20229,6 +20244,8 @@ Atteso: parità PASS.
 > un maintainer»); con `canResume` true resta `heldBudget`. Il web legge
 > `cycle.canResume ?? false` (cast, non parse): la fixture di almeno un test
 > resta SENZA il campo. MAI dedurlo dal ruolo dell'utente nel client.
+> Se run-ai risponde 403 con `code: "needs_maintainer"` (letto da `ApiError`,
+> non dallo status), il web mostra `tickets:cycle.needsMaintainer`.
 
 Stessa forma di `lib/pulse-line.ts`: la funzione decide CHIAVI e parametri,
 il componente traduce. È il gemello deliberato di quello che l'app avrà in
@@ -21721,7 +21738,9 @@ git commit -m "feat(api-client): chiedere la correzione di una PR e leggere il c
 > `mobile.work.pr.cycle.heldBudgetNeedsMaintainer` (stessi testi di E2).
 > L'app parsa (`readerSchema`, `.default(false)`), ma le fixture dei test vanno
 > complete col campo (CLAUDE.md, la trappola delle fixture dell'app). Il
-> valore lo calcola il server: MAI dal ruolo dell'utente nell'app.
+> valore lo calcola il server: MAI dal ruolo dell'utente nell'app. Un 403
+> `needs_maintainer` da run-ai → `mobile.work.pr.cycle.needsMaintainer`
+> (stessi testi di E2), letto dal `code` dell'errore.
 
 **Files:**
 - Modify: `apps/mobile/src/i18n/it.json`, `apps/mobile/src/i18n/en.json`

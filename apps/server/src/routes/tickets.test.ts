@@ -12,6 +12,7 @@ import {
   notificationDeliveries,
   notifications,
   planDigest,
+  prCorrections,
   projectDecisions,
   projects,
   ticketEvents,
@@ -1332,6 +1333,54 @@ describe("POST /api/tickets/:id/run-ai", () => {
     expect(job?.ticketId).toBe(created.id);
     expect(job?.status).toBe("queued");
     expect(job?.manualTrigger).toBe(true);
+  });
+
+  it("correzione held per BUDGET: un member riceve 403 needs_maintainer e niente cambia; un admin la forza", async () => {
+    const created = (await postTicket({ projectId, title: "Run AI correzione ferma", type: "bug" })).json() as {
+      id: string;
+    };
+    const [correction] = await testDb.db
+      .insert(prCorrections)
+      .values({
+        ticketId: created.id,
+        repositoryId: repoForProject.get(projectId)!,
+        prNumber: 9100,
+        trigger: "review",
+        status: "queued",
+      })
+      .returning();
+    const [held] = await testDb.db
+      .insert(aiJobs)
+      .values({
+        ticketId: created.id,
+        status: "held",
+        heldReason: "budget",
+        correctionId: correction!.id,
+        manualTrigger: false,
+      })
+      .returning();
+
+    const denied = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${created.id}/run-ai`,
+      headers: { cookie: users.memberCookie },
+    });
+    expect(denied.statusCode).toBe(403);
+    expect(denied.json()).toMatchObject({ code: "needs_maintainer" });
+    const [unchanged] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, held!.id));
+    expect(unchanged).toEqual(held);
+    const [corr] = await testDb.db.select().from(prCorrections).where(eq(prCorrections.id, correction!.id));
+    expect(corr!.status).toBe("queued");
+
+    const forced = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${created.id}/run-ai`,
+      headers: { cookie: users.adminCookie },
+    });
+    expect(forced.statusCode).toBe(202);
+    expect(forced.json()).toMatchObject({ jobId: held!.id, status: "queued" });
+    const [job] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, held!.id));
+    expect(job).toMatchObject({ status: "queued", manualTrigger: true, correctionId: correction!.id });
   });
 
   it("rimette in coda l'ultimo job con manual_trigger, azzerando started/finished/error", async () => {
