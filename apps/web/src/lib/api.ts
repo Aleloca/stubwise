@@ -35,8 +35,8 @@ import type {
   InboxAction,
   InboxActionResult,
   InboxDecisionAction,
-  InboxItem,
-  InboxPage,
+  InboxItem as SharedInboxItem,
+  InboxPage as SharedInboxPage,
   InboxQuestion,
   InboxStatus,
   Language,
@@ -154,8 +154,6 @@ export type {
   InboxAction,
   InboxActionResult,
   InboxDecisionAction,
-  InboxItem,
-  InboxPage,
   InboxQuestion,
   InboxStatus,
   MailAdmission,
@@ -385,6 +383,23 @@ export type PrCycle = Omit<
   canResume?: boolean;
   /** Id del job `held` da rimandare come `resumeCorrectionJobId` a run-ai (G5). */
   heldJobId?: string | null;
+};
+
+/**
+ * Una riga d'inbox COME LA VEDE IL WEB, che fa un cast e non un parse (vedi il
+ * docblock in cima): `reviewOutcome` (F8 del ciclo di correzione, 1 ott 2026)
+ * lo schema lo riempie col `.default(null)`, che qui non gira — un server più
+ * indietro del bundle non lo manda. Il tipo lo dice OPZIONALE, così chi lo
+ * legge è costretto al `?? null` nel punto di lettura (stessa forma di
+ * {@link TicketRepository}). Il resto è lo schema condiviso.
+ */
+export type InboxItem = Omit<SharedInboxItem, "reviewOutcome"> & {
+  reviewOutcome?: SharedInboxItem["reviewOutcome"];
+};
+
+/** La pagina d'inbox del web: lo schema condiviso, con le righe viste qui sopra. */
+export type InboxPage = Omit<SharedInboxPage, "items"> & {
+  items: InboxItem[];
 };
 
 /**

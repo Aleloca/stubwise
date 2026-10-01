@@ -565,6 +565,50 @@ export const inboxAnswerBodySchema = z
 export type InboxAnswerBodyFields = z.infer<typeof inboxAnswerBodySchema>;
 
 /**
+ * L'esito di una review, sulla card di `review.completed` (F8 del ciclo di
+ * correzione post-PR, 1 ott 2026): è ciò che decide il TONO della card, e
+ * nient'altro — il testo lo dice già `text`.
+ *
+ * - `approved` — la review approva;
+ * - `changes_requested` — chiede modifiche (con o senza un ciclo dietro);
+ * - `stopped_at_cap` — il ciclo automatico si è fermato al tetto dei giri
+ *   (`cycle.stoppedReason: "cap"`, o `cycle.stopped` senza motivo su un evento
+ *   pubblicato prima del campo);
+ * - `review_failed` — la review non è riuscita dentro una serie automatica
+ *   (C10b, `isReviewFailedEvent` di `@stubwise/notifications`).
+ *
+ * DERIVATO A LETTURA dal server, dall'evento persistito (verdetto e ciclo sono
+ * fatti del momento della publish): nessun campo nuovo nell'evento, e vale
+ * anche per le card già in inbox. Un enum CHIUSO qui, che i client leggono
+ * attraverso `readerSchema` (un valore futuro arriva come `UNKNOWN`).
+ */
+export const inboxReviewOutcomeSchema = z.enum([
+  "approved",
+  "changes_requested",
+  "stopped_at_cap",
+  "review_failed",
+]);
+export type InboxReviewOutcome = z.infer<typeof inboxReviewOutcomeSchema>;
+
+/**
+ * Se la card di una review chiede ATTENZIONE: l'UNICA regola del tono,
+ * condivisa da web e app. Tono «tutto bene» SOLO per una review che approva;
+ * attenzione per ogni altro esito noto o ignoto (un valore futuro non è una
+ * buona notizia finché nessuno l'ha insegnato al client).
+ *
+ * `null` — un kind che non è una review, un evento illeggibile o un server di
+ * prima del campo — NON chiede attenzione: la card resta col tono di prima.
+ *
+ * ⚠️ Prende `null`, non `undefined`, apposta: un campo ASSENTE (il web fa un
+ * cast e non un parse; nei test dell'app il client è un doppio) va portato a
+ * `null` dal chiamante con `?? null` nel punto di lettura. Il tipo lo impone,
+ * e la difesa resta visibile dove serve invece di sparire qui dentro.
+ */
+export function reviewOutcomeNeedsAttention(outcome: string | null): boolean {
+  return outcome !== null && outcome !== "approved";
+}
+
+/**
  * Una riga d'inbox pronta per la UI. `text` è già localizzato nella lingua del
  * destinatario e `actions` è calcolato (kind + stato del job + ruolo di chi
  * guarda): il client non deve dedurre nulla, disegna quello che riceve.
@@ -616,6 +660,14 @@ export const inboxItemSchema = z.object({
    * che non c'è è un campo ASSENTE, non un `null` da distinguere nella UI.
    */
   summary: z.string().optional(),
+  /**
+   * L'esito della review, solo su `review.completed` (vedi
+   * {@link inboxReviewOutcomeSchema}); `null` su ogni altro kind e su un
+   * evento che non si lascia leggere. `.nullable().default(null)`: un server
+   * più vecchio non lo manda, e l'app deve restare leggibile (CLAUDE.md, solo
+   * cambi additivi).
+   */
+  reviewOutcome: inboxReviewOutcomeSchema.nullable().default(null),
   projectId: z.uuid().nullable(),
   ticketId: z.uuid().nullable(),
   jobId: z.uuid().nullable(),

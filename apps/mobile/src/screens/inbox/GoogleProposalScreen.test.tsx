@@ -41,6 +41,7 @@ function proposal(overrides: Partial<Reader<InboxItem>> = {}): Reader<InboxItem>
     snoozedUntil: null,
     handledAt: null,
     handledBy: null,
+    reviewOutcome: null,
     question: {
       questionId: ID,
       question: "Come diamo seguito?",

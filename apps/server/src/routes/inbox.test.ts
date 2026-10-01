@@ -236,6 +236,7 @@ interface InboxItemBody {
   snoozedUntil: string | null;
   handledAt: string | null;
   handledBy: { id: string; email: string } | null;
+  reviewOutcome?: string | null;
 }
 
 interface InboxPageBody {
@@ -289,6 +290,32 @@ describe("GET /api/inbox", () => {
     expect(item.jobId).toBe(jobId);
     expect(item.handledBy).toBeNull();
     expect(body.nextCursor).toBeNull();
+  });
+
+  it("reviewOutcome arriva nella risposta: l'esito su una review, null su ogni altro kind (F8)", async () => {
+    await clearInbox();
+    const ticketId = await seedTicket();
+    await seedNotification({
+      userId: seeded.adminId,
+      ticketId,
+      event: {
+        kind: "review.completed",
+        ticketNumber: 7,
+        ticketTitle: "Export CSV",
+        projectName: "negozio-web",
+        ticketUrl: "https://stubwise.test/tickets/7",
+        prUrl: "https://github.com/o/r/pull/7",
+        verdict: "request_changes",
+        cycle: { round: 3, max: 3, stopped: true, stoppedReason: "cap" },
+      },
+    });
+    await seedNotification({ userId: seeded.adminId, event: planReviewEvent(), ticketId });
+
+    const body = (await getInbox()).json() as InboxPageBody;
+    const byKind = new Map(body.items.map((item) => [item.kind, item]));
+    expect(byKind.get("review.completed")!.reviewOutcome).toBe("stopped_at_cap");
+    // Presente e `null`, non assente: lo schema di risposta lo dichiara.
+    expect(byKind.get("job.plan_review")).toHaveProperty("reviewOutcome", null);
   });
 
   it("rende il testo nella lingua dell'utente", async () => {

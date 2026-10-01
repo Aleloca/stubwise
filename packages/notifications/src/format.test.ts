@@ -3,6 +3,7 @@ import {
   formatNotification,
   formatNotificationText,
   isReviewFailedEvent,
+  reviewOutcomeOf,
   sampleEvents,
   type NotificationEvent,
   type NotificationFormat,
@@ -1220,6 +1221,37 @@ describe("review.completed: il ciclo di correzione", () => {
     expect(isReviewFailedEvent({ ...FERMO, verdict: null, cycle: undefined })).toBe(true);
     expect(isReviewFailedEvent(FERMO)).toBe(false);
     expect(isReviewFailedEvent({ ...FERMO, cycle: { round: 3, max: 3, stopped: true, stoppedReason: "cap" } })).toBe(false);
+  });
+
+  it("reviewOutcomeOf: l'esito per il tono della card, con la precedenza della frase", () => {
+    expect(reviewOutcomeOf(FALLITA)).toBe("review_failed");
+    // Il motivo vince sul verdetto, come nella frase.
+    expect(reviewOutcomeOf({ ...FALLITA, verdict: "request_changes" })).toBe("review_failed");
+    expect(reviewOutcomeOf({ ...FERMO, cycle: { round: 3, max: 3, stopped: true, stoppedReason: "cap" } })).toBe(
+      "stopped_at_cap",
+    );
+    // `stopped` senza motivo: evento pubblicato prima di `stoppedReason`.
+    expect(reviewOutcomeOf(FERMO)).toBe("stopped_at_cap");
+    expect(reviewOutcomeOf({ ...FERMO, cycle: { round: 1, max: 3, stopped: false } })).toBe("changes_requested");
+    expect(reviewOutcomeOf({ ...FERMO, verdict: "approve", cycle: { round: 1, max: 3, stopped: false } })).toBe(
+      "approved",
+    );
+  });
+
+  it("reviewOutcomeOf su un evento VECCHIO senza `cycle`: decide il verdetto", () => {
+    const vecchio: ReviewCompletedEvent = { ...FERMO };
+    delete vecchio.cycle;
+    expect("cycle" in vecchio).toBe(false);
+    expect(reviewOutcomeOf(vecchio)).toBe("changes_requested");
+    expect(reviewOutcomeOf({ ...vecchio, verdict: "approve" })).toBe("approved");
+  });
+
+  it("reviewOutcomeOf: un verdetto illeggibile o un altro kind → null, non indovina", () => {
+    const anomalo = { ...FERMO, cycle: undefined, verdict: "boh" } as unknown as ReviewCompletedEvent;
+    expect(reviewOutcomeOf(anomalo)).toBeNull();
+    for (const event of sampleEvents("https://app.example.com")) {
+      if (event.kind !== "review.completed") expect(reviewOutcomeOf(event)).toBeNull();
+    }
   });
 
   it("Slack e Discord: la review fallita usa la stessa frase, coi link", () => {

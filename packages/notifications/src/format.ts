@@ -15,7 +15,7 @@
  */
 
 import { t, type Language } from "@stubwise/i18n";
-import type { PrCycleEvent } from "@stubwise/shared";
+import type { InboxReviewOutcome, PrCycleEvent } from "@stubwise/shared";
 
 /** Formato del messaggio: combacia con l'enum DB `notification_format`. */
 export type NotificationFormat = "slack" | "discord" | "generic";
@@ -792,6 +792,28 @@ const KEY_FOR_KIND: Record<NotificationKind, string> = {
 export function isReviewFailedEvent(event: NotificationEvent): boolean {
   if (event.kind !== "review.completed") return false;
   return event.verdict === null || event.cycle?.stoppedReason === "review_failed";
+}
+
+/**
+ * L'esito di una review per la card d'inbox (`InboxItem.reviewOutcome`, F8 del
+ * ciclo di correzione): ciò da cui web e app decidono il TONO
+ * (`reviewOutcomeNeedsAttention` di `@stubwise/shared`). Derivato a lettura
+ * dall'evento persistito, con la STESSA precedenza della frase: prima la
+ * review fallita ({@link isReviewFailedEvent}), poi lo stop al tetto
+ * (`cycle.stopped`, anche senza `stoppedReason` su un evento vecchio: era
+ * l'unico stop che esisteva), poi il verdetto.
+ *
+ * Legge un jsonb che può essere vecchio o anomalo: senza `cycle` decide il
+ * verdetto, e un verdetto che non è nessuno dei due noti dà `null` (la card
+ * resta col tono di prima) invece di indovinare.
+ */
+export function reviewOutcomeOf(event: NotificationEvent): InboxReviewOutcome | null {
+  if (event.kind !== "review.completed") return null;
+  if (isReviewFailedEvent(event)) return "review_failed";
+  if (event.cycle?.stopped === true) return "stopped_at_cap";
+  if (event.verdict === "approve") return "approved";
+  if (event.verdict === "request_changes") return "changes_requested";
+  return null;
 }
 
 /**

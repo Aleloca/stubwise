@@ -1,3 +1,4 @@
+import { reviewOutcomeNeedsAttention } from "@stubwise/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
@@ -48,6 +49,22 @@ export const INBOX_KIND_LABEL_KEYS: Record<InboxItem["kind"], string> = {
   "project.brief": "inbox:kinds.brief",
   "google.proposal": "inbox:kinds.googleProposal",
 };
+
+/**
+ * Il TONO della card di una review (F8 del ciclo di correzione, 1 ott 2026):
+ * di attenzione per modifiche richieste, stop del ciclo al tetto e review
+ * fallita; neutro per una review che approva e per ogni altro kind. La regola
+ * è UNA, `reviewOutcomeNeedsAttention` di `@stubwise/shared`, la stessa
+ * dell'app.
+ *
+ * ⚠️ `?? null`: il web fa un cast, non un parse, quindi da un server più
+ * vecchio `reviewOutcome` non arriva `null` dal `.default` ma ASSENTE — e la
+ * card resta col tono di prima.
+ */
+export function reviewNeedsAttention(item: InboxItem): boolean {
+  if (item.kind !== "review.completed") return false;
+  return reviewOutcomeNeedsAttention(item.reviewOutcome ?? null);
+}
 
 /**
  * True se la riga chiede una DECISIONE (sezione "Da decidere"), non solo una
@@ -422,7 +439,13 @@ export function InboxItemCard({
       aria-label={item.text}
     >
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-fg-faint">
-        <span className="rounded-sm border border-line bg-ink-850 px-1.5 py-0.5 text-fg-muted">
+        <span
+          className={`rounded-sm border bg-ink-850 px-1.5 py-0.5 ${
+            reviewNeedsAttention(item) ? "border-signal-dim/40 text-signal" : "border-line text-fg-muted"
+          }`}
+          data-tone={reviewNeedsAttention(item) ? "attention" : "neutral"}
+          data-testid="inbox-kind-badge"
+        >
           {t(INBOX_KIND_LABEL_KEYS[item.kind])}
         </span>
         {displayProjectName !== undefined && (

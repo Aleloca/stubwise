@@ -30,6 +30,7 @@ export {
   formatNotification,
   formatNotificationText,
   isReviewFailedEvent,
+  reviewOutcomeOf,
   sampleEvents,
 } from "./format.js";
 

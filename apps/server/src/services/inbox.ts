@@ -37,6 +37,7 @@ import {
   formatNotificationText,
   isReviewFailedEvent,
   kindOffers,
+  reviewOutcomeOf,
   KINDS_WITH_OPTIONS,
   openUrl,
   stateAllows,
@@ -54,6 +55,7 @@ import {
   type InboxGoogleDecision,
   type InboxPulse,
   type InboxQuestion,
+  type InboxReviewOutcome,
   multiSelectableIndices,
 } from "@stubwise/shared";
 import { and, desc, eq, inArray, isNotNull, isNull, ne, sql, type SQL } from "drizzle-orm";
@@ -635,6 +637,12 @@ export interface InboxItem {
    */
   summary?: string;
   /**
+   * L'esito della review sul solo kind `review.completed` (`null` altrove e su
+   * un payload illeggibile): ciò da cui i client decidono il tono della card.
+   * Derivato a lettura dall'evento — vedi {@link reviewOutcomeForItem}.
+   */
+  reviewOutcome: InboxReviewOutcome | null;
+  /**
    * Il contorno del pulse (progetto, giorni di fermo, voci di backlog dietro le
    * opzioni), sul solo kind `project.pulse`. ASSENTE se il payload non lo porta
    * in forma leggibile, o se non è ALLINEATO alle opzioni — vedi
@@ -820,6 +828,9 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
         const summary = summaryForItem(r, r.event, planSummaryByJob, prSummaryByTicketAndUrl);
         return summary !== undefined ? { summary } : {};
       })(),
+      // L'esito della review, per il TONO della card (F8 del ciclo di
+      // correzione): derivato a lettura dall'evento, anche per le card vecchie.
+      reviewOutcome: reviewOutcomeForItem(r.kind, r.event),
       // Le azioni NON passano dal jsonb: la chiave del catalogo è la colonna
       // enum `kind`, che il DB garantisce valida. Una card col testo degradato
       // resta quindi azionabile.
@@ -1210,6 +1221,23 @@ function summaryForItem(
   const prUrl = rawEvent.prUrl;
   if (typeof prUrl !== "string" || prUrl === "") return undefined;
   return prSummaryByTicketAndUrl.get(`${row.ticketId}|${prUrl}`);
+}
+
+/**
+ * `InboxItem.reviewOutcome`: l'esito di una `review.completed`, `null` per ogni
+ * altro kind. Il kind è la COLONNA (il DB lo garantisce valido), non quello del
+ * jsonb — come in {@link summaryForItem}. Il predicato è quello della frase
+ * (`reviewOutcomeOf`, che usa `isReviewFailedEvent`): tono e testo non
+ * divergono. Recintato come `renderItem`: un jsonb anomalo non deve far
+ * saltare la pagina, al più toglie il tono (`null`, cioè quello di prima).
+ */
+function reviewOutcomeForItem(kind: NotificationKind, rawEvent: Record<string, unknown>): InboxReviewOutcome | null {
+  if (kind !== "review.completed") return null;
+  try {
+    return reviewOutcomeOf({ ...rawEvent, kind } as unknown as NotificationEvent);
+  } catch {
+    return null;
+  }
 }
 
 /**

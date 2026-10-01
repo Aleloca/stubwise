@@ -159,6 +159,7 @@ export {
   formatNotification,
   formatNotificationText,
   isReviewFailedEvent,
+  reviewOutcomeOf,
   sampleEvents,
   type AgentQuestionOption,
   type DocsLimitPausedEvent,

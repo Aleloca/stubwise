@@ -100,6 +100,8 @@ function toInboxItemView(item: ServiceInboxItem): InboxItem {
     // sulle proposte il cui payload non è leggibile o non è allineato alle
     // opzioni (vedi `readGoogle`).
     ...(item.google === undefined ? {} : { google: item.google }),
+    // `null` su ogni kind che non è una review (vedi `reviewOutcomeForItem`).
+    reviewOutcome: item.reviewOutcome,
     projectId: item.projectId,
     ticketId: item.ticketId,
     jobId: item.jobId,

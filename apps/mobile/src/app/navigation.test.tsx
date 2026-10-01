@@ -157,6 +157,7 @@ function hubNotification(id: string) {
     snoozedUntil: null,
     handledAt: null,
     handledBy: null,
+    reviewOutcome: null,
   };
 }
 
