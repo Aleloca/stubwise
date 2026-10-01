@@ -7,7 +7,9 @@ import {
   aiJobs,
   comments,
   gitAccounts,
+  instanceSettings,
   prCorrections,
+  prReviewJobs,
   prReviews,
   projects,
   repositories,
@@ -1128,5 +1130,202 @@ describe("webhook \"Request changes\" — il login nel commento di sistema non �
     const line = row!.body.split("\n").find((l) => l.includes("pixel.png"))!;
     expect(line.match(/`/g)).toHaveLength(2);
     expect(row!.body.split("\n")[0]).toBe("Changes requested on PR #42: no correction was started");
+  });
+});
+
+describe("chiusura della PR", () => {
+  function githubClosed(merged: boolean) {
+    return JSON.stringify({
+      action: "closed",
+      pull_request: {
+        number: 42,
+        merged,
+        html_url: "https://github.com/acme/repo/pull/42",
+        head: { ref: "stubwise/ticket-3" },
+      },
+    });
+  }
+
+  function postClosed(fx: Fixture, body: string) {
+    return app.inject({
+      method: "POST",
+      url: `/webhooks/git/${fx.slug}`,
+      headers: {
+        "content-type": "application/json",
+        "x-github-event": "pull_request",
+        "x-hub-signature-256": sign(fx.secret, body),
+      },
+      payload: body,
+    });
+  }
+
+  for (const merged of [true, false]) {
+    it(`${merged ? "mergiata" : "chiusa senza merge"}: pending e queued diventano cancelled, il job in coda skipped`, async () => {
+      const fx = await seedFixture();
+      identityMustNotBeCalled(GitHubProvider);
+      vi.spyOn(GitHubProvider.prototype, "listPrComments").mockResolvedValue([]);
+      await postGithub(fx, githubReview());
+      await postGithub(fx, githubReview({ login: "giulia-bianchi", actorId: "6160" }));
+      // Premessa: una in coda (col suo job) e una in attesa, non due righe qualunque.
+      expect((await correctionsOf(fx.repositoryId)).map((r) => r.status).sort()).toEqual(["pending", "queued"]);
+
+      const res = await postClosed(fx, githubClosed(merged));
+      expect(res.statusCode).toBe(204);
+
+      const statuses = (await correctionsOf(fx.repositoryId)).map((r) => r.status);
+      expect(statuses).toEqual(["cancelled", "cancelled"]);
+      const jobs = await correctionJobsOf(fx.ticketId);
+      expect(jobs.map((j) => j.status)).toEqual(["skipped"]);
+      expect(jobs[0]!.log).toContain("PR chiusa: correzione annullata");
+    });
+  }
+
+  it("una correzione già conclusa resta com'era", async () => {
+    const fx = await seedFixture();
+    await testDb.db.insert(prCorrections).values({
+      ticketId: fx.ticketId,
+      repositoryId: fx.repositoryId,
+      prNumber: 42,
+      trigger: "review",
+      status: "done",
+    });
+
+    await postClosed(fx, githubClosed(true));
+
+    expect((await correctionsOf(fx.repositoryId)).map((r) => r.status)).toEqual(["done"]);
+  });
+
+  it("un job di correzione GIÀ partito (`fixing`) non si tocca: lo chiude il worker rileggendo la correzione", async () => {
+    const fx = await seedFixture();
+    const [inLavoro] = await testDb.db
+      .insert(prCorrections)
+      .values({ ticketId: fx.ticketId, repositoryId: fx.repositoryId, prNumber: 42, trigger: "review", status: "queued" })
+      .returning();
+    await testDb.db.insert(aiJobs).values({ ticketId: fx.ticketId, status: "fixing", correctionId: inLavoro!.id });
+
+    await postClosed(fx, githubClosed(false));
+
+    // La correzione è annullata (il worker la rilegge prima del push → job `skipped`, C8)…
+    expect((await correctionsOf(fx.repositoryId)).map((r) => r.status)).toEqual(["cancelled"]);
+    // …ma il job in lavorazione resta com'era: il webhook non ferma un processo vivo.
+    const jobs = await correctionJobsOf(fx.ticketId);
+    expect(jobs.map((j) => j.status)).toEqual(["fixing"]);
+    expect(jobs[0]!.finishedAt).toBeNull();
+  });
+
+  it("annullata la correzione in coda, parte la pending di un'ALTRA PR dello stesso ticket", async () => {
+    const fx = await seedFixture();
+    // PR 42: una correzione in coda (il suo job `queued` blocca il ticket).
+    const [inCoda] = await testDb.db
+      .insert(prCorrections)
+      .values({ ticketId: fx.ticketId, repositoryId: fx.repositoryId, prNumber: 42, trigger: "review", status: "queued" })
+      .returning();
+    await testDb.db.insert(aiJobs).values({ ticketId: fx.ticketId, status: "queued", correctionId: inCoda!.id });
+    // PR 43 dello stesso ticket: una richiesta umana che aspettava.
+    const [altra] = await testDb.db
+      .insert(prCorrections)
+      .values({ ticketId: fx.ticketId, repositoryId: fx.repositoryId, prNumber: 43, trigger: "provider", status: "pending" })
+      .returning();
+
+    await postClosed(fx, githubClosed(true));
+
+    const byId = new Map((await correctionsOf(fx.repositoryId)).map((r) => [r.id, r.status]));
+    expect(byId.get(inCoda!.id)).toBe("cancelled");
+    expect(byId.get(altra!.id)).toBe("queued");
+    const jobs = await correctionJobsOf(fx.ticketId);
+    expect(jobs.find((j) => j.correctionId === altra!.id)?.status).toBe("queued");
+  });
+
+  it("la pending di un'altra PR NON parte se un altro job blocca ancora il ticket", async () => {
+    const fx = await seedFixture();
+    const [inCoda] = await testDb.db
+      .insert(prCorrections)
+      .values({ ticketId: fx.ticketId, repositoryId: fx.repositoryId, prNumber: 42, trigger: "review", status: "queued" })
+      .returning();
+    await testDb.db.insert(aiJobs).values({ ticketId: fx.ticketId, status: "queued", correctionId: inCoda!.id });
+    // Un fix parcheggiato sullo stesso ticket: blocca ogni correzione.
+    await testDb.db.insert(aiJobs).values({ ticketId: fx.ticketId, status: "held" });
+    const [altra] = await testDb.db
+      .insert(prCorrections)
+      .values({ ticketId: fx.ticketId, repositoryId: fx.repositoryId, prNumber: 43, trigger: "provider", status: "pending" })
+      .returning();
+
+    await postClosed(fx, githubClosed(true));
+
+    const byId = new Map((await correctionsOf(fx.repositoryId)).map((r) => [r.id, r.status]));
+    expect(byId.get(inCoda!.id)).toBe("cancelled");
+    expect(byId.get(altra!.id)).toBe("pending");
+  });
+});
+
+describe("apertura/aggiornamento della PR con una correzione aperta", () => {
+  afterEach(async () => {
+    await testDb.db.update(instanceSettings).set({ prReviewEnabled: false }).where(eq(instanceSettings.id, 1));
+  });
+
+  function postSynchronize(fx: Fixture) {
+    const body = JSON.stringify({
+      action: "synchronize",
+      pull_request: {
+        number: 42,
+        title: "fix (#3)",
+        body: "",
+        html_url: "https://github.com/acme/repo/pull/42",
+        head: { ref: "stubwise/ticket-3", sha: "b".repeat(40) },
+        base: { ref: "main" },
+      },
+    });
+    return app.inject({
+      method: "POST",
+      url: `/webhooks/git/${fx.slug}`,
+      payload: body,
+      headers: {
+        "content-type": "application/json",
+        "x-github-event": "pull_request",
+        "x-hub-signature-256": sign(fx.secret, body),
+      },
+    });
+  }
+
+  async function reviewJobsOf(repositoryId: string) {
+    return testDb.db.select().from(prReviewJobs).where(eq(prReviewJobs.repositoryId, repositoryId));
+  }
+
+  for (const status of ["queued", "pending"] as const) {
+    it(`una correzione \`${status}\` sulla PR: il webhook \`synchronize\` NON accoda la review`, async () => {
+      const fx = await seedFixture();
+      await testDb.db.update(instanceSettings).set({ prReviewEnabled: true }).where(eq(instanceSettings.id, 1));
+      await testDb.db.insert(prCorrections).values({
+        ticketId: fx.ticketId,
+        repositoryId: fx.repositoryId,
+        prNumber: 42,
+        trigger: "review",
+        status,
+      });
+
+      const res = await postSynchronize(fx);
+
+      expect(res.statusCode).toBe(204);
+      expect(await reviewJobsOf(fx.repositoryId)).toHaveLength(0);
+    });
+  }
+
+  it("una correzione conclusa sulla stessa PR: la review si accoda come sempre", async () => {
+    const fx = await seedFixture();
+    await testDb.db.update(instanceSettings).set({ prReviewEnabled: true }).where(eq(instanceSettings.id, 1));
+    await testDb.db.insert(prCorrections).values({
+      ticketId: fx.ticketId,
+      repositoryId: fx.repositoryId,
+      prNumber: 42,
+      trigger: "review",
+      status: "done",
+    });
+
+    const res = await postSynchronize(fx);
+
+    expect(res.statusCode).toBe(204);
+    const rows = await reviewJobsOf(fx.repositoryId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ prNumber: 42, headSha: "b".repeat(40) });
   });
 });
