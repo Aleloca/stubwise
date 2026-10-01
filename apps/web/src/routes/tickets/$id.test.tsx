@@ -1050,6 +1050,95 @@ describe("dettaglio ticket", () => {
     const prLinks = within(section).getAllByRole("link", { name: /view pr/i });
     expect(prLinks[0]).toHaveAttribute("href", "https://github.com/acme/shop-api/pull/12");
     expect(prLinks[1]).toHaveAttribute("href", "https://github.com/acme/shop-web/pull/34");
+    // Server senza il ciclo di correzione: la sezione resta intera, e nessun
+    // bottone compare (il web difende `cycle` con `?? null`, non si fida del
+    // `.default` dello schema che qui non gira).
+    expect(within(section).queryByRole("button", { name: "Apply corrections" })).not.toBeInTheDocument();
+  });
+
+  it("sezione Repository/PR: sotto una PR di Stubwise, la riga del ciclo e il bottone", async () => {
+    const [openPr, mergedPr] = ticketRepositoriesFixture;
+    mockDetailApi({
+      ticket: {
+        ...ticketFixture,
+        repositories: [
+          {
+            ...openPr!,
+            cycle: {
+              state: "stopped_at_cap",
+              round: 3,
+              maxRounds: 3,
+              pendingRequest: false,
+              lastRequest: null,
+              canRequestCorrection: true,
+            },
+          },
+          { ...mergedPr!, cycle: null },
+        ],
+      },
+    });
+    renderDetail();
+
+    const section = await screen.findByRole("region", { name: "Repository / PR" });
+    expect(within(section).getByText("Cycle stopped after 3 automatic corrections")).toBeInTheDocument();
+    // Un bottone solo: la PR mergiata ha `cycle: null`.
+    expect(within(section).getAllByRole("button", { name: "Apply corrections" })).toHaveLength(1);
+  });
+
+  it("sezione Repository/PR: cambiando ticket senza smontare la pagina, il modulo della riga riparte chiuso e vuoto", async () => {
+    // Stesso repository su due ticket: la `<li>` ha la stessa key
+    // (`repositoryId`) e TanStack Router non rismonta la pagina sulla stessa
+    // rotta. Solo la key ticket+repository della riga la fa ripartire.
+    const OTHER_TICKET_ID = "66666666-6666-4666-8666-666666666666";
+    const [openPr] = ticketRepositoriesFixture;
+    const repoWithCycle: TicketRepository = {
+      ...openPr!,
+      cycle: {
+        state: "changes_requested",
+        round: 0,
+        maxRounds: 3,
+        pendingRequest: false,
+        lastRequest: null,
+        canRequestCorrection: true,
+      },
+    };
+    mockDetailApi({ ticket: { ...ticketFixture, repositories: [repoWithCycle] } });
+    // Il ticket B riusa le risposte di A per tutto il resto (commenti, job…):
+    // cambia solo il dettaglio, con un titolo suo per sapere quando è a schermo.
+    const base = fetchMock.getMockImplementation()!;
+    const ticketB: Ticket = {
+      ...ticketFixture,
+      id: OTHER_TICKET_ID,
+      number: 8,
+      title: "Secondo ticket",
+      repositories: [repoWithCycle],
+    };
+    fetchMock.mockImplementation((input, init) => {
+      const raw = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      const url = new URL(raw, "http://test.local");
+      if ((init?.method ?? "GET") === "GET" && url.pathname === `/api/tickets/${OTHER_TICKET_ID}`) {
+        return Promise.resolve(jsonResponse(200, ticketB));
+      }
+      return base(url.href.replace(OTHER_TICKET_ID, TICKET_ID), init);
+    });
+    const { router } = renderDetail();
+
+    const user = userEvent.setup();
+    await screen.findByRole("heading", { name: /TypeError al checkout/ });
+    await user.click(screen.getByRole("button", { name: "Apply corrections" }));
+    await user.type(screen.getByLabelText("Note for the agent (optional)"), "nota del ticket A");
+    // Un nodo della pagina FUORI dalla riga: se dopo il cambio è lo stesso, la
+    // pagina non si è rismontata — è proprio il caso che la key deve coprire.
+    const sectionOnA = screen.getByRole("region", { name: "Repository / PR" });
+
+    await router.navigate({ to: "/tickets/$id", params: { id: OTHER_TICKET_ID } });
+    await screen.findByRole("heading", { name: /Secondo ticket/ });
+
+    expect(screen.getByRole("region", { name: "Repository / PR" })).toBe(sectionOnA);
+    // Su B il modulo è chiuso, e riaprendolo la nota di A non c'è.
+    expect(screen.queryByLabelText("Note for the agent (optional)")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Apply corrections" }));
+    expect(screen.getByLabelText("Note for the agent (optional)")).toHaveValue("");
   });
 
   it("sezione Repository/PR: placeholder quando il fix non ha ancora toccato repo", async () => {
@@ -1100,6 +1189,90 @@ describe("dettaglio ticket", () => {
     await userEvent.click(button);
 
     await waitFor(() => expect(state.runAiCalls).toEqual([{ withInstructions: true }]));
+  });
+
+  describe("job 'held' che è una CORREZIONE ferma (G5)", () => {
+    /** Ciclo con una correzione ferma; `heldJobId` lo decide il chiamante. */
+    function heldCorrectionRepo(heldJobId: string): TicketRepository {
+      const [openPr] = ticketRepositoriesFixture;
+      return {
+        ...openPr!,
+        cycle: {
+          state: "correcting",
+          round: 1,
+          maxRounds: 3,
+          pendingRequest: false,
+          lastRequest: null,
+          canRequestCorrection: false,
+          heldReason: "limit",
+          canResume: true,
+          heldJobId,
+        },
+      };
+    }
+
+    it("l'ultimo job è la correzione ferma: niente rilancio generico, solo «Riprendi»", async () => {
+      const state = mockDetailApi({
+        jobs: [heldJobFixture],
+        role: "member",
+        ticket: { ...ticketFixture, repositories: [heldCorrectionRepo(heldJobFixture.id)] },
+      });
+      renderDetail();
+
+      const section = await screen.findByRole("region", { name: "Repository / PR" });
+      expect(within(section).getByRole("button", { name: "Resume correction" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Start AI fix" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Relaunch with instructions" })).not.toBeInTheDocument();
+      // Nemmeno l'avviso da operatore sul run generico: quel run non c'è.
+      expect(
+        screen.queryByText("The run will stop on the plan: a maintainer has to approve it."),
+      ).not.toBeInTheDocument();
+      expect(state.runAiCalls).toEqual([]);
+    });
+
+    it("heldJobId di un altro job: il rilancio generico resta, come prima", async () => {
+      mockDetailApi({
+        jobs: [heldJobFixture],
+        ticket: {
+          ...ticketFixture,
+          repositories: [heldCorrectionRepo("eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee")],
+        },
+      });
+      renderDetail();
+
+      expect(await screen.findByRole("button", { name: "Start AI fix" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Relaunch with instructions" })).toBeInTheDocument();
+    });
+
+    it("nessun ciclo sul repository: il rilancio generico resta", async () => {
+      const [openPr] = ticketRepositoriesFixture;
+      mockDetailApi({
+        jobs: [heldJobFixture],
+        ticket: { ...ticketFixture, repositories: [{ ...openPr!, cycle: null }] },
+      });
+      renderDetail();
+
+      expect(await screen.findByRole("button", { name: "Start AI fix" })).toBeInTheDocument();
+    });
+
+    it("server vecchio (niente `cycle` né `heldJobId`): il rilancio generico resta", async () => {
+      // Fixture SENZA i due campi: la regola li legge e deve tacere, non
+      // lanciare (un `repo.cycle.heldJobId` senza difesa farebbe saltare la
+      // pagina). Due voci: una senza `cycle`, una con un ciclo senza `heldJobId`.
+      const [openPr, mergedPr] = ticketRepositoriesFixture;
+      const withoutHeldJobId = heldCorrectionRepo(heldJobFixture.id);
+      delete withoutHeldJobId.cycle!.heldJobId;
+      expect("cycle" in openPr!).toBe(false);
+      expect("heldJobId" in withoutHeldJobId.cycle!).toBe(false);
+      mockDetailApi({
+        jobs: [heldJobFixture],
+        ticket: { ...ticketFixture, repositories: [openPr!, { ...withoutHeldJobId, repositoryId: mergedPr!.repositoryId }] },
+      });
+      renderDetail();
+
+      expect(await screen.findByRole("button", { name: "Start AI fix" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Relaunch with instructions" })).toBeInTheDocument();
+    });
   });
 
   it("hint 'aggiungi un commento': assente quando l'utente ha già commentato", async () => {

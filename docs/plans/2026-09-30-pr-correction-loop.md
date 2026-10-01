@@ -21199,6 +21199,27 @@ suo valore è restare verde dopo lo step 2.
 (il `<li>` è già `flex flex-wrap`: il `basis-full` del componente lo manda a
 capo sotto la riga della PR.)
 
+> ⚠️ **Decisioni di revisione (1 ott 2026), applicate in E5:**
+> - **Key.** `PrCycleRow` si monta con `key={`${id}:${repo.repositoryId}`}`:
+>   tiene stato locale (modulo aperto, nota, esito delle mutazioni) seminato
+>   da quell'identità, e passando dal ticket A al ticket B sulla stessa rotta
+>   TanStack Router non rismonta la pagina (e la `<li>` ha la stessa key,
+>   `repositoryId`). Test: modulo aperto con una nota su A, `router.navigate`
+>   a B senza smontare la pagina → su B modulo chiuso e nota vuota.
+> - **Il rilancio generico non tocca una correzione ferma.** Se
+>   `ticket.repositories.some(r => (r.cycle?.heldJobId ?? null) ===
+>   latestJob.id)`, `canRelaunch` è falso: niente «Avvia fix», niente
+>   «Rilancia con istruzioni», niente `memberRunHint`. L'unica azione è il
+>   «Riprendi» della riga PR. Motivo: quei due bottoni chiamano run-ai SENZA
+>   `resumeCorrectionJobId`, e da una schermata vecchia (correzione nel
+>   frattempo annullata o riconciliata) avvierebbero un fix completo nuovo,
+>   che per un admin supera il budget — la porta che G5 chiude. Se il ticket
+>   ricaricato mostra quel job ormai terminale, il ciclo non lo dichiara più
+>   fermo e il rilancio generico torna, onestamente, come fix nuovo. Test:
+>   `heldJobId` uguale all'ultimo job → nessun rilancio e «Riprendi»
+>   presente; `heldJobId` diverso, `cycle: null`, o fixture di un server
+>   vecchio SENZA `cycle`/`heldJobId` → rilancio presente.
+
 **Step 3:**
 
 ```bash
@@ -22169,6 +22190,16 @@ git commit -m "feat(api-client): chiedere la correzione di una PR e leggere il c
 >   il nome compare una volta sola, davanti a «in coda».
 > - **Tono**: ferma per `limit` resta `sky` (riparte da sola), per
 >   `budget`/`other`/motivo sconosciuto `signal`.
+>
+> ⚠️ **Il rilancio generico non tocca una correzione ferma (1 ott 2026,
+> gemella di E5).** STESSA regola del web: se l'ultimo job del ticket coincide
+> con il `heldJobId` di un ciclo (`ticket.repositories.some(r =>
+> r.cycle?.heldJobId === latestJob.id)`), il rilancio generico dell'app (run-ai
+> senza `resumeCorrectionJobId`) NON si offre, e resta solo «Riprendi» della
+> sezione PR. Stessi tre test: correzione ferma con id uguale → nessun
+> rilancio generico; nessun ciclo o `heldJobId` diverso → rilancio presente;
+> server vecchio senza i campi (risposta grezza parsata da `readerSchema`, che
+> li porta a `null`) → rilancio presente.
 
 **Files:**
 - Modify: `apps/mobile/src/i18n/it.json`, `apps/mobile/src/i18n/en.json`
@@ -24924,6 +24955,16 @@ Entrate con i fix della revisione di fine tappa:
   (`forbidden`, 403). Accettato per ora. Se un giorno servirà sistemarlo, la
   strada giusta è NON offrirgli l'azione — con un dato derivato a lettura, come
   `canMerge`/`canResume` — piuttosto che inventare un codice d'errore nuovo.
+- **«Rilancia» dall'inbox o da Slack su una correzione ferma, da una
+  schermata vecchia (nota del coordinatore, 1 ott 2026).** Stesso punto
+  d'ingresso del caso qui sopra, rischio diverso: «Rilancia» dall'inbox o da
+  Slack chiama `startRun` SENZA `resumeCorrectionJobId`. Se nel frattempo la
+  correzione è stata annullata (PR mergiata → job `skipped`) o riconciliata
+  (job `failed`), avvia un fix completo nuovo, che per un admin supera il
+  budget — la porta che G5 ha chiuso sul web (E5) e sull'app (F2), ma non su
+  queste due superfici. Accettato per ora. Come per l'altro caso, la soluzione
+  giusta, se servirà, è NON offrire l'azione oppure passare l'intento
+  (`resumeCorrectionJobId`), derivato a lettura.
 
 ### Tappe F e G — app e documentazione
 
