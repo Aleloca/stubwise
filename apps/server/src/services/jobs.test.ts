@@ -8,7 +8,9 @@ import {
   notificationDeliveries,
   notifications,
   planDigest,
+  prCorrections,
   projectDecisions,
+  repositories,
   tickets,
   users,
   type Db,
@@ -404,6 +406,147 @@ describe("startRun", () => {
     const jobs = await db.select().from(aiJobs).where(eq(aiJobs.ticketId, ticketId));
     expect(jobs).toHaveLength(1);
   });
+
+  // --- Il job di una CORREZIONE (ciclo post-PR) -----------------------------
+
+  /**
+   * Numero di PR diverso per ogni seed: l'indice unico parziale
+   * `pr_corrections_queued_unique` è su `(repository_id, pr_number)`, e tutti i
+   * ticket del file stanno sulla stessa repository.
+   */
+  let nextPrNumber = 4200;
+
+  async function seedCorrectionJob(
+    ticketId: string,
+    opts: {
+      correctionStatus: "queued" | "done";
+      jobStatus: "held" | "pr_opened" | "failed" | "queued" | "fixing";
+    },
+  ) {
+    const [repo] = await db
+      .select({ id: repositories.id })
+      .from(repositories)
+      .where(eq(repositories.projectId, projectId));
+    const [correction] = await db
+      .insert(prCorrections)
+      .values({
+        ticketId,
+        repositoryId: repo!.id,
+        prNumber: nextPrNumber++,
+        trigger: "review",
+        status: opts.correctionStatus,
+      })
+      .returning();
+    const [job] = await db
+      .insert(aiJobs)
+      .values({
+        ticketId,
+        status: opts.jobStatus,
+        correctionId: correction!.id,
+        manualTrigger: false,
+        ...(opts.jobStatus === "held" ? { heldReason: "budget" as const } : {}),
+      })
+      .returning();
+    return { correction: correction!, job: job! };
+  }
+
+  it("l'ultimo job è di una CORREZIONE conclusa: il rilancio ne crea uno nuovo, e quello della correzione resta suo", async () => {
+    const ticketId = await seedTicket();
+    const { correction, job: correctionJob } = await seedCorrectionJob(ticketId, {
+      correctionStatus: "done",
+      jobStatus: "pr_opened",
+    });
+
+    const result = await startRun(db, { ticketId, actor: maintainer });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.jobId).not.toBe(correctionJob.id);
+    const fresh = await readJob(result.jobId);
+    expect(fresh).toMatchObject({ status: "queued", correctionId: null });
+    const old = await readJob(correctionJob.id);
+    expect(old).toMatchObject({ status: "pr_opened", correctionId: correction.id });
+  });
+
+  it("CORREZIONE conclusa con job failed: il rilancio di un OPERATORE è un fix nuovo, e passa dal gate del piano", async () => {
+    const ticketId = await seedTicket("## Piano salvato");
+    const { job: correctionJob } = await seedCorrectionJob(ticketId, {
+      correctionStatus: "done",
+      jobStatus: "failed",
+    });
+
+    const result = await startRun(db, { ticketId, actor: operator });
+
+    expect(result).toMatchObject({ ok: true, status: "awaiting_plan_approval" });
+    if (!result.ok) return;
+    expect(result.jobId).not.toBe(correctionJob.id);
+    expect(await readJob(result.jobId)).toMatchObject({
+      correctionId: null,
+      planApprovalRequired: true,
+    });
+    expect(await readJob(correctionJob.id)).toMatchObject({ status: "failed" });
+  });
+
+  it("CORREZIONE held per budget: run-ai la FORZA — stesso job, correctionId intatto, manualTrigger true", async () => {
+    const ticketId = await seedTicket();
+    const { correction, job: correctionJob } = await seedCorrectionJob(ticketId, {
+      correctionStatus: "queued",
+      jobStatus: "held",
+    });
+
+    const result = await startRun(db, { ticketId, actor: maintainer });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.jobId).toBe(correctionJob.id);
+    expect(await readJob(correctionJob.id)).toMatchObject({
+      status: "queued",
+      correctionId: correction.id,
+      manualTrigger: true,
+      planApprovalRequired: false,
+    });
+    // Nessun job in più sul ticket.
+    const all = await db.select().from(aiJobs).where(eq(aiJobs.ticketId, ticketId));
+    expect(all).toHaveLength(1);
+    // La correzione è sempre la stessa, ancora in coda.
+    const [corr] = await db.select().from(prCorrections).where(eq(prCorrections.id, correction.id));
+    expect(corr!.status).toBe("queued");
+  });
+
+  it("CORREZIONE held forzata da un OPERATORE: niente gate del piano (una correzione non è un piano nuovo)", async () => {
+    const ticketId = await seedTicket("## Piano salvato");
+    const { job: correctionJob } = await seedCorrectionJob(ticketId, {
+      correctionStatus: "queued",
+      jobStatus: "held",
+    });
+
+    const result = await startRun(db, { ticketId, actor: operator });
+
+    expect(result.ok).toBe(true);
+    expect(await readJob(correctionJob.id)).toMatchObject({ status: "queued", planApprovalRequired: false });
+  });
+
+  it.each(["queued", "fixing"] as const)(
+    "CORREZIONE col job vivo (%s): job_in_flight, nulla cambia",
+    async (jobStatus) => {
+      const ticketId = await seedTicket();
+      const { correction, job: correctionJob } = await seedCorrectionJob(ticketId, {
+        correctionStatus: "queued",
+        jobStatus,
+      });
+
+      const result = await startRun(db, { ticketId, actor: maintainer });
+
+      expect(result).toEqual({ ok: false, error: "job_in_flight", jobStatus });
+      expect(await readJob(correctionJob.id)).toMatchObject({
+        status: jobStatus,
+        correctionId: correction.id,
+        manualTrigger: false,
+      });
+      const all = await db.select().from(aiJobs).where(eq(aiJobs.ticketId, ticketId));
+      expect(all).toHaveLength(1);
+    },
+  );
 });
 
 describe("startRun — pre-approvazione del piano (fase 7)", () => {

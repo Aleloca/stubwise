@@ -88,8 +88,10 @@ export interface StartRunInput {
 
 /**
  * Avvia (o rilancia) il run AI di un ticket. Riusa l'ultimo job del ticket se
- * è concluso, altrimenti ne crea uno nuovo; se invece è ancora in volo non
- * tocca nulla e ritorna `job_in_flight`.
+ * è concluso **e non è di una correzione**, altrimenti ne crea uno nuovo; se
+ * invece è ancora in volo non tocca nulla e ritorna `job_in_flight`. Il job
+ * `held` di una correzione ancora in coda lo **forza** (stesso job,
+ * `correction_id` intatto, `manualTrigger`, niente gate del piano).
  *
  * ESECUZIONE DIRETTA DAL PIANO SALVATO: con `implementationPlan` sul ticket e
  * senza `mode:"ai_plan"`, il job parte in execute-diretta (`resumeMode`
@@ -189,7 +191,7 @@ export async function startRun(db: Db, input: StartRunInput): Promise<StartRunRe
     // L'ultimo job del ticket (per createdAt, id come spareggio): è quello che
     // la timeline mostra in cima e che l'utente intende rilanciare.
     const [latest] = await tx
-      .select({ id: aiJobs.id, status: aiJobs.status })
+      .select({ id: aiJobs.id, status: aiJobs.status, correctionId: aiJobs.correctionId })
       .from(aiJobs)
       .where(eq(aiJobs.ticketId, ticketId))
       .orderBy(desc(aiJobs.createdAt), desc(aiJobs.id))
@@ -199,7 +201,47 @@ export async function startRun(db: Db, input: StartRunInput): Promise<StartRunRe
       return { ok: false, error: "job_in_flight", jobStatus: latest.status };
     }
 
-    if (latest) {
+    // Il job di una CORREZIONE (ciclo post-PR) ancora `held` — tipicamente
+    // per budget: il ciclo automatico e un "Request changes" della piattaforma
+    // non hanno manualTrigger, e il resume poller non riaccoda un held per
+    // budget — si FORZA: stesso job, `correction_id` intatto (non è in `set`),
+    // manualTrigger acceso (chi preme è un utente di Stubwise). Il worker lo
+    // esegue come la correzione che era. Niente gate del piano: una correzione
+    // non è un piano nuovo (design §3), e un `awaiting_plan_approval` con
+    // `correction_id` non avrebbe consumatori. Un fix nuovo al suo posto
+    // lascerebbe la correzione `queued` per sempre, e sarebbe rifiutato al push.
+    if (latest && latest.correctionId !== null && latest.status === "held") {
+      const forced = await tx
+        .update(aiJobs)
+        .set({
+          status: "queued",
+          manualTrigger: true,
+          requestedByUserId: actor.id,
+          planApprovalRequired: false,
+          startedAt: null,
+          finishedAt: null,
+          error: null,
+          lastActivityAt: sql`now()`,
+        })
+        .where(and(eq(aiJobs.id, latest.id), eq(aiJobs.status, "held")))
+        .returning({ id: aiJobs.id });
+      if (forced.length === 0) {
+        const [current] = await tx
+          .select({ status: aiJobs.status })
+          .from(aiJobs)
+          .where(eq(aiJobs.id, latest.id));
+        return { ok: false, error: "job_in_flight", jobStatus: current?.status };
+      }
+      return { ok: true, jobId: latest.id, status: "queued" };
+    }
+
+    // Il job TERMINALE di una correzione non si ricicla: rimesso in coda con
+    // `correction_id` ancora valorizzato, il worker lo eseguirebbe come una
+    // correzione — worktree sul branch della PR, niente triage — invece che
+    // come il fix che si sta chiedendo. Si crea un job nuovo (il ramo
+    // d'inserimento sotto), e quello della correzione resta legato a lei: è la
+    // storia con cui `derivePrCycle` legge l'esito della correzione.
+    if (latest && latest.correctionId === null) {
       // UPDATE guardato sugli stati NON in volo: il lock esclude gli altri
       // startRun, ma non chi tocca il job da fuori (il claim del worker o il
       // resume poller possono portare un `held` a `queued` proprio ora). In quel
