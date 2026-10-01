@@ -17,6 +17,7 @@ import {
 import { seedGitAccount, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { t } from "@stubwise/i18n";
 import {
+  correctionManualTrigger,
   derivePrCycle,
   enqueueCorrection,
   MAX_PERMISSION_LOOKUPS_PER_SNAPSHOT,
@@ -242,8 +243,9 @@ async function seedCorrection(
       status: "fixing",
       startedAt: new Date(),
       correctionId: correction!.id,
-      // La regola di `enqueueCorrection` (D-D2a): solo il bottone di Stubwise.
-      manualTrigger: values.trigger === "stubwise",
+      // Nessun attore (D4b): `manualTrigger` lo accende solo un admin che agisce
+      // (`correctionManualTrigger`); chi lo vuole lo passa in `jobValues`.
+      manualTrigger: false,
       ...jobValues,
     })
     .returning();
@@ -786,6 +788,7 @@ describe("runCorrection", () => {
   async function enqueuedJob(
     f: Fixture,
     trigger: "provider" | "stubwise",
+    actorRole?: "admin" | "member",
   ): Promise<{ correctionId: string; job: AiJob }> {
     const res = await enqueueCorrection(testDb.db, {
       ticketId: f.ticket.id,
@@ -793,6 +796,7 @@ describe("runCorrection", () => {
       prNumber: 12,
       trigger,
       reviewId: await seedReview(f),
+      ...(actorRole !== undefined ? { actorRole } : {}),
       ...(trigger === "provider" ? { requestedByProviderLogin: "estraneo", providerFeedback: [] } : {}),
     });
     if (!res.ok || res.jobId === null) throw new Error("attesa una correzione queued col suo job");
@@ -837,10 +841,15 @@ describe("runCorrection", () => {
     });
   });
 
-  it("D-D2a: il bottone di Stubwise con budget mensile esaurito → PARTE (manualTrigger)", async () => {
+  /**
+   * D4b: `manualTrigger` lo decide CHI AGISCE. Stessi dati (budget mensile
+   * esaurito), due ruoli: il bottone di un admin parte, quello di un member
+   * si ferma `held` per budget col commento della correzione.
+   */
+  it("D4b: bottone di un ADMIN con budget mensile esaurito → PARTE (manualTrigger)", async () => {
     const f = await makeFixture();
     await testDb.db.update(instanceSettings).set({ monthlyBudgetUsd: "10" }).where(eq(instanceSettings.id, 1));
-    const { job } = await enqueuedJob(f, "stubwise");
+    const { job } = await enqueuedJob(f, "stubwise", "admin");
     expect(job.manualTrigger).toBe(true);
     const runner = applyingRunner(f);
 
@@ -851,6 +860,77 @@ describe("runCorrection", () => {
 
     expect(outcome).toBe("pushed");
     expect(runner.calls.length).toBeGreaterThan(0);
+  });
+
+  /** Il commento di una correzione ferma al budget mensile (10 su 25). */
+  const budgetComment = () =>
+    t("en", "comment.correctionBudgetHeld", { scope: t("en", "notify.scopeMonthly"), limit: "10.0000", spent: "25.0000" });
+
+  it("D4b: bottone di un MEMBER con budget mensile esaurito → held per budget, commento sul ticket", async () => {
+    const f = await makeFixture();
+    await testDb.db.update(instanceSettings).set({ monthlyBudgetUsd: "10" }).where(eq(instanceSettings.id, 1));
+    const { correctionId, job } = await enqueuedJob(f, "stubwise", "member");
+    expect(job.manualTrigger).toBe(false);
+    const runner = applyingRunner(f);
+
+    const outcome = await runCorrection(
+      makeDeps(f, runner, makeProvider(), [], { monthlyCostUsdFn: async () => 25 }),
+      job,
+    );
+
+    expect(outcome).toBe("held");
+    expect(runner.calls).toHaveLength(0);
+    expect(await upstreamHead(f)).toBe(f.prSha);
+    const [jobAfter] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+    expect(jobAfter).toMatchObject({ status: "held", heldReason: "budget" });
+    const [corrAfter] = await testDb.db.select().from(prCorrections).where(eq(prCorrections.id, correctionId));
+    expect(corrAfter!.status).toBe("queued");
+    const ticketComments = await testDb.db.select().from(comments).where(eq(comments.ticketId, f.ticket.id));
+    expect(ticketComments.map((c) => c.body)).toContain(budgetComment());
+    // E la riga di stato dice che serve un maintainer: il member non la riprende.
+    const pr = { ticketId: f.ticket.id, repositoryId: f.repositoryId };
+    expect(await derivePrCycle(testDb.db, { ...pr, viewerRole: "member" })).toMatchObject({
+      heldReason: "budget",
+      canResume: false,
+    });
+    expect(await derivePrCycle(testDb.db, { ...pr, viewerRole: "admin" })).toMatchObject({
+      heldReason: "budget",
+      canResume: true,
+    });
+  });
+
+  /**
+   * La forzatura di `startRun` (server, D4) su una correzione held per budget:
+   * stesso job rimesso in coda con `manualTrigger` della regola unica. Qui la
+   * si riproduce con la STESSA funzione (`correctionManualTrigger`) — il
+   * valore per ruolo lo prova `apps/server/src/services/jobs.test.ts`; questo
+   * prova cosa ne fa il worker.
+   */
+  it.each([
+    ["member", "held"],
+    ["admin", "pushed"],
+  ] as const)("D4b: correzione held per budget forzata da un %s → %s", async (role, expected) => {
+    const f = await makeFixture();
+    await testDb.db.update(instanceSettings).set({ monthlyBudgetUsd: "10" }).where(eq(instanceSettings.id, 1));
+    const { job } = await enqueuedJob(f, "provider");
+    const deps = () => makeDeps(f, applyingRunner(f), makeProvider(), [], { monthlyCostUsdFn: async () => 25 });
+    expect(await runCorrection(deps(), job)).toBe("held");
+
+    const [forced] = await testDb.db
+      .update(aiJobs)
+      .set({ status: "fixing", startedAt: new Date(), manualTrigger: correctionManualTrigger(role) })
+      .where(eq(aiJobs.id, job.id))
+      .returning();
+
+    expect(await runCorrection(deps(), forced!)).toBe(expected);
+    const [jobAfter] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+    if (expected === "held") {
+      // Ripresa da un member, a budget esaurito torna ferma per budget.
+      expect(jobAfter).toMatchObject({ status: "held", heldReason: "budget" });
+      expect(await upstreamHead(f)).toBe(f.prSha);
+    } else {
+      expect(await upstreamHead(f)).not.toBe(f.prSha);
+    }
   });
 
   it("uno status di commit che fallisce non ferma la correzione", async () => {
