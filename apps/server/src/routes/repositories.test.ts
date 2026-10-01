@@ -1549,6 +1549,26 @@ describe("revisore EFFETTIVO nella proiezione (1 ott 2026)", () => {
     expect(validate.mock.calls[0]![0]).toMatchObject({ repoUrl: "https://github.com/acme/spostata" });
   });
 
+  it("PATCH che cambia SOLO il branch di default: il predefinito si riverifica", async () => {
+    const validate = mockDefaultWithoutWrite();
+    const repo = await insertRepository(mainId);
+
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/repositories/${repo.slug}`,
+      headers: { cookie: adminCookie },
+      payload: { defaultBranch: "release" },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { warnings: string[] }).warnings).toEqual(["default_review_account_invalid"]);
+    // Verificato il PREDEFINITO, sul branch NUOVO: è lì che scriverà.
+    expect(validate.mock.calls[0]![0]).toMatchObject({
+      defaultBranch: "release",
+      credentials: { username: "default-bot" },
+    });
+  });
+
   it("PATCH che cambia il principale: il predefinito si riverifica", async () => {
     const validate = mockDefaultWithoutWrite();
     const otherMain = await createAccount({
@@ -1621,6 +1641,9 @@ describe("revisore EFFETTIVO nella proiezione (1 ott 2026)", () => {
     });
 
     expect(res.statusCode).toBe(201);
+    // Best-effort: la verifica che lancia si logga e NON diventa un avviso
+    // (né quello del predefinito, né un altro al suo posto).
+    expect((res.json() as { warnings: string[] }).warnings).toEqual([]);
     const [row] = await testDb.db.select().from(repositories).where(eq(repositories.name, name));
     expect(row).toBeDefined();
   });
