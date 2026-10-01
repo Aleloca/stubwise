@@ -12,8 +12,10 @@ import { parsePrNumberFromUrl, type ChangesRequestedEvent } from "@stubwise/git"
 import {
   enqueueCorrection,
   isAuthorPermitted,
+  isTrustedAuthorAssociation,
   resolveProviderUserId,
   WEBHOOK_REVIEW_BODY_ID,
+  type AuthorPermissionVerdict,
 } from "@stubwise/notifications";
 import { stubwiseTicketNumber, type GitProviderKind, type PrComment } from "@stubwise/shared";
 import { and, desc, eq, gt, inArray, sql } from "drizzle-orm";
@@ -42,6 +44,8 @@ export interface ChangesRequestedContext {
   log: FastifyBaseLogger;
   repositoryId: string;
   provider: GitProviderKind;
+  /** Gli esiti NEGATIVI del permesso già chiesti: vedi createNegativePermissionCache. */
+  permissionCache: NegativePermissionCache;
 }
 
 /**
@@ -53,6 +57,21 @@ export interface ChangesRequestedContext {
  *
  * `claim` è vero la prima volta; `release` lo libera quando l'elaborazione è
  * fallita, così il ritentativo di un 500 passa.
+ *
+ * Due limiti da sapere:
+ *  - **la corsa timeout/riconsegna.** Se l'elaborazione supera il timeout del
+ *    provider (~10 s su GitHub), il provider ritrasmette mentre la prima è
+ *    ancora in corso: la seconda trova l'id già preso e risponde 204 subito,
+ *    e va bene così. Ma se poi la PRIMA fallisce, `release` libera un id che
+ *    il provider ha già considerato consegnato (la ritrasmissione ha avuto il
+ *    suo 204): quella richiesta non torna più. Si perde una richiesta, mai se
+ *    ne duplica una — e si ripete dal bottone «Applica le correzioni».
+ *  - **NON difende dai replay.** L'header con l'id NON è coperto dalla firma
+ *    HMAC (che è sul solo corpo): chi ha catturato una consegna firmata può
+ *    rimandarla con un id nuovo e passa da qui. È una dedup delle
+ *    ritrasmissioni oneste, non una difesa di sicurezza; a limitare un replay
+ *    restano la finestra di ritrasmissione del provider, il dedup per PR di
+ *    `enqueueCorrection` (una `pending` si fonde) e il permesso dell'autore.
  */
 export interface DeliveryDedupe {
   claim(deliveryId: string): boolean;
@@ -71,6 +90,73 @@ export function createDeliveryDedupe(ttlMs: number, now: () => number = Date.now
     },
     release(deliveryId) {
       seen.delete(deliveryId);
+    },
+  };
+}
+
+/**
+ * Quanto resta in memoria un esito NEGATIVO del permesso (`denied` o
+ * `unverifiable`) per `(repository, login)`: 10 minuti. Senza, ogni
+ * "Request changes" di un estraneo — anche lo stesso, ripetuto — rifarebbe
+ * `GET /collaborators/{login}/permission` col token PRINCIPALE: un estraneo
+ * su un repository pubblico ne consumerebbe il rate limit a piacere. Abbastanza
+ * corto perché chi riceve davvero il permesso (o un token sistemato) torni a
+ * passare in pochi minuti; gli esiti POSITIVI non si memorizzano mai, così un
+ * permesso revocato non resta valido nemmeno per un attimo.
+ */
+export const NEGATIVE_PERMISSION_TTL_MS = 10 * 60_000;
+
+/**
+ * Tetto alle voci: oltre, si scarta la più vecchia (le Map tengono l'ordine
+ * d'inserimento). Mille estranei diversi in dieci minuti non fanno crescere la
+ * memoria del server; nel caso peggiore un login scartato si richiede una
+ * volta in più.
+ */
+export const NEGATIVE_PERMISSION_MAX_ENTRIES = 1000;
+
+export type NegativePermissionVerdict = Exclude<AuthorPermissionVerdict, "permitted">;
+
+/**
+ * Cache NEGATIVA del permesso dell'autore, in memoria, una per istanza
+ * dell'app (stesso modello di {@link createDeliveryDedupe}: il server è
+ * un'istanza sola). Chiave `(repositoryId, login)` con il login in minuscolo
+ * (GitHub non distingue maiuscole). Solo `denied`/`unverifiable`: `set` con un
+ * esito positivo non è nemmeno esprimibile dal tipo.
+ */
+export interface NegativePermissionCache {
+  get(repositoryId: string, login: string): NegativePermissionVerdict | undefined;
+  set(repositoryId: string, login: string, verdict: NegativePermissionVerdict): void;
+}
+
+export function createNegativePermissionCache(
+  opts: { ttlMs?: number; maxEntries?: number; now?: () => number } = {},
+): NegativePermissionCache {
+  const ttlMs = opts.ttlMs ?? NEGATIVE_PERMISSION_TTL_MS;
+  const maxEntries = opts.maxEntries ?? NEGATIVE_PERMISSION_MAX_ENTRIES;
+  // `() => Date.now()` e non `Date.now`: si legge l'orologio a ogni chiamata.
+  const now = opts.now ?? (() => Date.now());
+  const entries = new Map<string, { verdict: NegativePermissionVerdict; expiresAt: number }>();
+  const keyOf = (repositoryId: string, login: string) => `${repositoryId}\u0000${login.toLowerCase()}`;
+  const prune = (t: number) => {
+    for (const [key, entry] of entries) if (entry.expiresAt <= t) entries.delete(key);
+  };
+  return {
+    get(repositoryId, login) {
+      const t = now();
+      prune(t);
+      return entries.get(keyOf(repositoryId, login))?.verdict;
+    },
+    set(repositoryId, login, verdict) {
+      const t = now();
+      prune(t);
+      const key = keyOf(repositoryId, login);
+      entries.delete(key); // reinserita in fondo: è la più recente
+      while (entries.size >= maxEntries) {
+        const oldest = entries.keys().next().value;
+        if (oldest === undefined) break;
+        entries.delete(oldest);
+      }
+      entries.set(key, { verdict, expiresAt: t + ttlMs });
     },
   };
 }
@@ -187,12 +273,21 @@ export async function handleChangesRequested(
   // non fa partire una correzione, e il suo testo non entra nel prompt.
   // `author_association` fidata = scorciatoia, nessuna chiamata; altrimenti il
   // permesso reale, col token dell'account PRINCIPALE (step 16).
-  const mainAccount = accounts.find((a) => a.id === row.gitAccountId)!;
-  const verdict = await isAuthorPermitted(
-    { login: event.actorLogin, association: event.authorAssociation },
-    ctx.provider,
-    authorPermissionFetcher(ctx, { repoUrl: row.repoUrl, defaultBranch: row.defaultBranch, account: mainAccount }),
-  );
+  const mainAccount = accounts.find((a) => a.id === row.gitAccountId);
+  if (!mainAccount) {
+    // Difensivo: il ciclo qui sopra ha già risolto l'identità del principale,
+    // quindi la riga c'era. Se non c'è, fail-closed come un'identità mancante.
+    log.warn(
+      { repositoryId, prNumber, gitAccountId: row.gitAccountId },
+      "Request changes ignorato: account principale della repository non trovato (fail-closed)",
+    );
+    return "identity_unresolved";
+  }
+  const verdict = await authorVerdict(ctx, event, {
+    repoUrl: row.repoUrl,
+    defaultBranch: row.defaultBranch,
+    account: mainAccount,
+  });
   if (verdict !== "permitted") {
     log.info(
       { repositoryId, prNumber, actorLogin: event.actorLogin, authorAssociation: event.authorAssociation, verdict },
@@ -241,6 +336,27 @@ export async function handleChangesRequested(
     "Request changes dalla piattaforma: correzione accodata",
   );
   return "enqueued";
+}
+
+/**
+ * Il permesso dell'autore, con la cache NEGATIVA davanti alla piattaforma.
+ * La scorciatoia (`author_association` fidata) vince sempre sulla cache: un
+ * login scartato poco fa che ora arriva come COLLABORATOR passa. Un esito
+ * negativo si memorizza; uno positivo mai.
+ */
+async function authorVerdict(
+  ctx: ChangesRequestedContext,
+  event: ChangesRequestedEvent,
+  input: Parameters<typeof authorPermissionFetcher>[1],
+): Promise<AuthorPermissionVerdict> {
+  const author = { login: event.actorLogin, association: event.authorAssociation };
+  if (!isTrustedAuthorAssociation(author.association, ctx.provider)) {
+    const cached = ctx.permissionCache.get(ctx.repositoryId, author.login);
+    if (cached) return cached;
+  }
+  const verdict = await isAuthorPermitted(author, ctx.provider, authorPermissionFetcher(ctx, input));
+  if (verdict !== "permitted") ctx.permissionCache.set(ctx.repositoryId, author.login, verdict);
+  return verdict;
 }
 
 /**
@@ -320,12 +436,13 @@ export type DroppedRequestNoticeInput =
  */
 export function droppedRequestNoticeBody(lang: Language, input: DroppedRequestNoticeInput): string {
   const platform = PLATFORM_NAME[input.provider];
+  const login = markdownSafeLogin(input.login);
   const title = t(lang, NOTICE_TITLE_KEY[input.reason], { prNumber: input.prNumber });
   if (input.reason === "untrusted_author") {
     return [
       title,
       "",
-      t(lang, "comment.changesRequestUntrusted.requestedBy", { login: input.login, platform }),
+      t(lang, "comment.changesRequestUntrusted.requestedBy", { login, platform }),
       t(lang, "comment.changesRequestUntrusted.reason", { platform }),
       t(lang, "comment.changesRequestUntrusted.meanwhile"),
     ].join("\n");
@@ -337,7 +454,7 @@ export function droppedRequestNoticeBody(lang: Language, input: DroppedRequestNo
     return [
       title,
       "",
-      t(lang, "comment.changesRequestPermissionUnverifiable.requestedBy", { login: input.login, platform }),
+      t(lang, "comment.changesRequestPermissionUnverifiable.requestedBy", { login, platform }),
       t(lang, "comment.changesRequestPermissionUnverifiable.reason", { platform }),
       t(lang, "comment.changesRequestPermissionUnverifiable.meanwhile"),
     ].join("\n");
@@ -345,11 +462,25 @@ export function droppedRequestNoticeBody(lang: Language, input: DroppedRequestNo
   return [
     title,
     "",
-    t(lang, "comment.changesRequestDropped.requestedBy", { login: input.login, platform }),
+    t(lang, "comment.changesRequestDropped.requestedBy", { login, platform }),
     t(lang, "comment.changesRequestDropped.reason", { account: input.accountName, platform }),
     ...(input.provider === "bitbucket" ? [t(lang, "comment.changesRequestDropped.bitbucketScope")] : []),
     t(lang, "comment.changesRequestDropped.meanwhile"),
   ].join("\n");
+}
+
+/**
+ * Il login com'è arrivato dalla piattaforma NON è fidato: su Bitbucket può
+ * essere il `display_name`, testo libero scelto da chiunque. Nel commento —
+ * che il web rende come markdown — un `![](https://…)` diventerebbe
+ * un'immagine remota (un pixel di tracciamento) e un `[testo](…)` un link.
+ * Dentro uno span di codice il markdown non si interpreta: si tolgono i
+ * backtick (chiuderebbero lo span) e gli a capo (spezzerebbero la riga, e il
+ * titolo del dedup sta in un'altra riga apposta), poi lo si racchiude.
+ */
+export function markdownSafeLogin(login: string): string {
+  const flat = login.replace(/`/g, "").replace(/[\r\n]+/g, " ").trim();
+  return `\`${flat === "" ? "?" : flat}\``;
 }
 
 /**

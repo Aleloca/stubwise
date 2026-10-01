@@ -23,7 +23,11 @@ import {
 import { STUBWISE_BRANCH_RE } from "@stubwise/shared";
 import { getContentLanguage } from "../settings.js";
 import { apiError } from "../errors.js";
-import { createDeliveryDedupe, handleChangesRequested } from "../services/pr-correction-webhook.js";
+import {
+  createDeliveryDedupe,
+  createNegativePermissionCache,
+  handleChangesRequested,
+} from "../services/pr-correction-webhook.js";
 
 /**
  * Tetto al corpo del webhook: 1 MiB. I payload di Bitbucket/GitHub per una PR
@@ -180,6 +184,9 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
   // provider): vedi createDeliveryDedupe. Una per istanza dell'app, così i
   // test con `buildApp` non si pestano.
   const changesRequestedDeliveries = createDeliveryDedupe(5 * 60_000);
+  // Esiti negativi del permesso dell'autore (estranei): vedi
+  // createNegativePermissionCache. Anche questa una per istanza dell'app.
+  const changesRequestedPermissions = createNegativePermissionCache();
 
   instance.post<{ Params: { projectSlug: string } }>(
     "/git/:projectSlug",
@@ -337,6 +344,7 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
               log: request.log,
               repositoryId: context.repositoryId,
               provider: context.provider,
+              permissionCache: changesRequestedPermissions,
             },
             changesRequested,
           );

@@ -19,6 +19,7 @@ import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import { BitbucketProvider, GitHubProvider, GitProviderError, type RepositoryPermission } from "@stubwise/git";
 import type { PrComment } from "@stubwise/shared";
+import { NEGATIVE_PERMISSION_TTL_MS } from "../services/pr-correction-webhook.js";
 import { seedUsers } from "../test/fixtures.js";
 
 /**
@@ -1053,5 +1054,79 @@ describe("webhook \"Request changes\" — il permesso reale (E3)", () => {
 
     expect(await correctionsOf(fx.repositoryId)).toHaveLength(1);
     expect(spy).not.toHaveBeenCalled();
+  });
+});
+
+describe("webhook \"Request changes\" — un estraneo non consuma il token principale", () => {
+  it("lo stesso estraneo, N volte: UNA sola chiamata del permesso; dopo il TTL si richiede", async () => {
+    const fx = await seedFixture();
+    identityMustNotBeCalled(GitHubProvider);
+    const spy = permissionIs("read");
+
+    for (let i = 0; i < 4; i++) {
+      await postGithub(fx, githubReview({ association: "NONE", actorId: "7777", login: "sconosciuto" }));
+    }
+    // Maiuscole diverse: per GitHub è lo stesso login.
+    await postGithub(fx, githubReview({ association: "NONE", actorId: "7777", login: "Sconosciuto" }));
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(await correctionsOf(fx.repositoryId)).toHaveLength(0);
+
+    // Oltre il TTL l'esito negativo scade e il permesso si richiede.
+    const realNow = Date.now.bind(Date);
+    vi.spyOn(Date, "now").mockImplementation(() => realNow() + NEGATIVE_PERMISSION_TTL_MS + 1_000);
+    await postGithub(fx, githubReview({ association: "NONE", actorId: "7777", login: "sconosciuto" }));
+    expect(spy).toHaveBeenCalledTimes(2);
+  });
+
+  it("anche un esito non verificabile si ricorda: niente raffica di chiamate fallite", async () => {
+    const fx = await seedFixture();
+    identityMustNotBeCalled(GitHubProvider);
+    const spy = permissionIs(new Error("rete"));
+
+    for (let i = 0; i < 3; i++) {
+      await postGithub(fx, githubReview({ association: "NONE", actorId: "7777", login: "sconosciuto" }));
+    }
+
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(await correctionsOf(fx.repositoryId)).toHaveLength(0);
+  });
+
+  it("un esito negativo in cache non ferma la scorciatoia: lo stesso login ora COLLABORATOR passa", async () => {
+    const fx = await seedFixture();
+    identityMustNotBeCalled(GitHubProvider);
+    permissionIs("read");
+    await postGithub(fx, githubReview({ association: "NONE", actorId: "7777", login: "sconosciuto" }));
+
+    await postGithub(fx, githubReview({ association: "COLLABORATOR", actorId: "7777", login: "sconosciuto" }));
+
+    expect(await correctionsOf(fx.repositoryId)).toHaveLength(1);
+  });
+
+  it("un esito POSITIVO non si ricorda: ogni richiesta lo richiede (un permesso revocato non resta valido)", async () => {
+    const fx = await seedFixture();
+    identityMustNotBeCalled(GitHubProvider);
+    const spy = permissionIs("write");
+
+    await postGithub(fx, githubReview({ association: "CONTRIBUTOR", login: "membro-privato" }));
+    await postGithub(fx, githubReview({ association: "CONTRIBUTOR", login: "membro-privato" }));
+
+    expect(spy).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("webhook \"Request changes\" — il login nel commento di sistema non è markdown", () => {
+  it("un display_name con immagine e link resta testo, dentro uno span di codice", async () => {
+    const fx = await seedFixture({ provider: "bitbucket", mainUserId: null });
+    identityFails(BitbucketProvider);
+    const hostile = "![](https://x.test/pixel.png) [link](https://y.test)\n`fuga`";
+
+    await postBitbucket(fx, bitbucketChangesRequest({ login: hostile }));
+
+    const [row] = await systemCommentsOf(fx.ticketId);
+    expect(row!.body).toContain("`![](https://x.test/pixel.png) [link](https://y.test) fuga`");
+    // Nessuna riga in cui l'immagine o il link stiano FUORI dallo span.
+    const line = row!.body.split("\n").find((l) => l.includes("pixel.png"))!;
+    expect(line.match(/`/g)).toHaveLength(2);
+    expect(row!.body.split("\n")[0]).toBe("Changes requested on PR #42: no correction was started");
   });
 });

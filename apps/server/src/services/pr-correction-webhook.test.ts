@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { createDeliveryDedupe, droppedRequestNoticeBody, isDroppedRequestNotice } from "./pr-correction-webhook.js";
+import {
+  createDeliveryDedupe,
+  createNegativePermissionCache,
+  droppedRequestNoticeBody,
+  isDroppedRequestNotice,
+  markdownSafeLogin,
+} from "./pr-correction-webhook.js";
 
 describe("createDeliveryDedupe", () => {
   it("un id si prende una volta sola dentro la finestra", () => {
@@ -131,5 +137,54 @@ describe("isDroppedRequestNotice — il terzo motivo (permesso non verificabile)
     expect(unverifiable).not.toContain("read:user:bitbucket");
     expect(unverifiable).not.toMatch(/token:|tok-/);
     expect(unverifiable).toContain('"Apply corrections"');
+  });
+});
+
+describe("createNegativePermissionCache", () => {
+  it("ricorda denied/unverifiable per (repository, login), login senza maiuscole", () => {
+    const cache = createNegativePermissionCache({ now: () => 0 });
+    cache.set("repo-1", "Mario", "denied");
+    cache.set("repo-1", "giulia", "unverifiable");
+    expect(cache.get("repo-1", "mario")).toBe("denied");
+    expect(cache.get("repo-1", "GIULIA")).toBe("unverifiable");
+    expect(cache.get("repo-2", "mario")).toBeUndefined();
+  });
+
+  it("dopo il TTL la voce scade", () => {
+    let now = 0;
+    const cache = createNegativePermissionCache({ ttlMs: 1_000, now: () => now });
+    cache.set("r", "x", "denied");
+    now = 999;
+    expect(cache.get("r", "x")).toBe("denied");
+    now = 1_000;
+    expect(cache.get("r", "x")).toBeUndefined();
+  });
+
+  it("oltre il tetto si scarta la voce più vecchia", () => {
+    const cache = createNegativePermissionCache({ maxEntries: 2, now: () => 0 });
+    cache.set("r", "a", "denied");
+    cache.set("r", "b", "denied");
+    cache.set("r", "c", "denied");
+    expect(cache.get("r", "a")).toBeUndefined();
+    expect(cache.get("r", "b")).toBe("denied");
+    expect(cache.get("r", "c")).toBe("denied");
+  });
+});
+
+describe("markdownSafeLogin", () => {
+  it("racchiude in uno span di codice, senza backtick né a capo", () => {
+    expect(markdownSafeLogin("mario-rossi")).toBe("`mario-rossi`");
+    expect(markdownSafeLogin("![](https://x) `a`\r\n[l](https://y)")).toBe("`![](https://x) a [l](https://y)`");
+    expect(markdownSafeLogin("``")).toBe("`?`");
+  });
+
+  it("il corpo dell'avviso porta il login dentro lo span", () => {
+    const body = droppedRequestNoticeBody("en", {
+      reason: "untrusted_author",
+      prNumber: 42,
+      login: "[link](https://y.test)",
+      provider: "github",
+    });
+    expect(body).toContain("Requested by `[link](https://y.test)` on GitHub.");
   });
 });
