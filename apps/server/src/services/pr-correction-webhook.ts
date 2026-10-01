@@ -14,11 +14,12 @@ import {
   isAuthorPermitted,
   isTrustedAuthorAssociation,
   resolveProviderUserId,
+  resolveReviewAccountWithCredentials,
   WEBHOOK_REVIEW_BODY_ID,
   type AuthorPermissionVerdict,
 } from "@stubwise/notifications";
 import { stubwiseTicketNumber, type GitProviderKind, type PrComment } from "@stubwise/shared";
-import { and, desc, eq, gt, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, gt, sql } from "drizzle-orm";
 import { t, type Language } from "@stubwise/i18n";
 import type { FastifyBaseLogger } from "fastify";
 import { getContentLanguage } from "../settings.js";
@@ -188,7 +189,15 @@ export function createNegativePermissionCache(
  *     aperta, e QUELLA della riga `ticket_repositories` (un numero diverso
  *     sullo stesso branch è una PR vecchia o di qualcun altro);
  *  2. il filtro degli account propri, FAIL-CLOSED (design §5), PRIMA di
- *     qualunque scrittura;
+ *     qualunque scrittura. Propri = il principale più il revisore EFFETTIVO
+ *     della repository (`resolveReviewAccountWithCredentials`: l'esplicito,
+ *     altrimenti il predefinito del suo ambito — D6 del piano
+ *     `2026-10-01-default-reviewer-and-scopes`), mai ogni predefinito
+ *     dell'istanza. La regola si valuta all'arrivo dell'evento: la FINESTRA
+ *     che ne nasce (predefinito cambiato fra la pubblicazione della review e
+ *     il suo webhook), e perché è accettata e non si chiude allargando la
+ *     lista, è scritta nel docblock di `resolveReviewAccounts`
+ *     (`@stubwise/notifications`, `review-account.ts`);
  *  2b. il PERMESSO dell'autore sul repository (emendamento E3,
  *     `isAuthorPermitted`): su GitHub owner, membri e collaboratori passano
  *     per `author_association` (scorciatoia), tutti gli altri solo col
@@ -217,7 +226,6 @@ export async function handleChangesRequested(
       prState: ticketRepositories.prState,
       prNumber: ticketRepositories.prNumber,
       gitAccountId: repositories.gitAccountId,
-      reviewGitAccountId: repositories.reviewGitAccountId,
       // step 2b: la chiamata del permesso reale
       repoUrl: repositories.repoUrl,
       defaultBranch: repositories.defaultBranch,
@@ -240,8 +248,23 @@ export async function handleChangesRequested(
   if (prNumber !== event.prNumber) return "pr_not_open";
 
   // --- 2. Gli account di Stubwise su questa repository, fail-closed. ---
-  const accountIds = [row.gitAccountId, ...(row.reviewGitAccountId ? [row.reviewGitAccountId] : [])];
-  const accounts = await db.select().from(gitAccounts).where(inArray(gitAccounts.id, accountIds));
+  // Il principale più il revisore EFFETTIVO (l'esplicito, altrimenti il
+  // predefinito del suo ambito): gli unici account con cui Stubwise pubblica
+  // su QUESTA repository (D6). Non ogni predefinito dell'istanza, e con la
+  // finestra accettata documentata su `resolveReviewAccounts`
+  // (@stubwise/notifications, review-account.ts): la regola si valuta ora,
+  // non quando la review è stata pubblicata.
+  // La variante `WithCredentials`, e non la proiezione: un'identità non
+  // ancora salvata si risolve DECIFRANDO le credenziali (`resolveProviderUserId`
+  // chiede `/user` al provider), quindi qui serve il blob. Il principale si
+  // rilegge a parte: la risoluzione restituisce il solo revisore, e il
+  // principale serve con le sue credenziali anche al permesso dell'autore (2b).
+  const review = await resolveReviewAccountWithCredentials(db, repositoryId);
+  const reviewer = review?.effective?.account ?? null;
+  const [main] = await db.select().from(gitAccounts).where(eq(gitAccounts.id, row.gitAccountId));
+  // Mai un doppione: `pickReviewAccount` non restituisce il principale come revisore.
+  const accountIds = [row.gitAccountId, ...(reviewer ? [reviewer.id] : [])];
+  const accounts = [...(main ? [main] : []), ...(reviewer ? [reviewer] : [])];
   const ownIds: string[] = [];
   for (const accountId of accountIds) {
     const account = accounts.find((a) => a.id === accountId);
