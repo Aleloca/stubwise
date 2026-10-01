@@ -783,7 +783,7 @@ export class BitbucketProvider implements GitProvider {
             return {
               name: "Accesso git (push)",
               ok: false,
-              detail: `autenticazione git fallita (status ${r.status}): verifica username Bitbucket, token e scope repository:write`,
+              detail: `autenticazione git fallita (status ${r.status}): verifica username Bitbucket, token e scope write:repository:bitbucket`,
             };
           }
           return {
@@ -810,21 +810,21 @@ export class BitbucketProvider implements GitProvider {
             { headers: { Authorization: basicAuthHeader(restUser, token) } }
           );
           if (r.status === 200) {
-            return { name: "Accesso REST API (PR)", ok: true, detail: "accesso REST e scope pullrequest ok" };
+            return { name: "Accesso REST API (PR)", ok: true, detail: "accesso REST e scope read:pullrequest:bitbucket ok" };
           }
           if (r.status === 401) {
             return {
               name: "Accesso REST API (PR)",
               ok: false,
               detail:
-                "autenticazione REST fallita (401): per gli API token Atlassian serve l'email come identità, e il token deve avere lo scope pullrequest",
+                "autenticazione REST fallita (401): per gli API token Atlassian serve l'email come identità, e il token deve avere gli scope read:pullrequest:bitbucket e write:pullrequest:bitbucket",
             };
           }
           if (r.status === 403) {
             return {
               name: "Accesso REST API (PR)",
               ok: false,
-              detail: "accesso negato (403): manca lo scope pullrequest",
+              detail: "accesso negato (403): manca lo scope read:pullrequest:bitbucket (per aprire le PR serve anche write:pullrequest:bitbucket)",
             };
           }
           return {
@@ -854,7 +854,7 @@ export class BitbucketProvider implements GitProvider {
             return {
               name: "Accesso webhook (config automatica)",
               ok: true,
-              detail: "scope webhook presente",
+              detail: "scope read:webhook:bitbucket presente",
             };
           }
           if (r.status === 403) {
@@ -862,7 +862,7 @@ export class BitbucketProvider implements GitProvider {
               name: "Accesso webhook (config automatica)",
               ok: false,
               detail:
-                "403: o manca lo scope webhook (read/write:webhook) sul token, oppure l'account non ha accesso Admin al repository (la gestione dei webhook su Bitbucket richiede Admin, non basta Write)",
+                "403: o mancano gli scope read:webhook:bitbucket e write:webhook:bitbucket sul token, oppure l'account non ha accesso Admin al repository (la gestione dei webhook su Bitbucket richiede Admin, non basta Write)",
             };
           }
           return {
@@ -991,7 +991,7 @@ export class BitbucketProvider implements GitProvider {
           name: CHECK,
           ok: false,
           detail:
-            "accesso negato (403): il token non ha accesso a questo workspace o manca lo scope repository",
+            "accesso negato (403): il token non ha accesso a questo workspace o manca lo scope read:repository:bitbucket",
         };
       }
       if (r.status === 404) {
@@ -1274,7 +1274,7 @@ export class BitbucketProvider implements GitProvider {
     if (response.ok) return;
     if (response.status === 403) {
       throw new GitProviderError(
-        "403 dalla gestione webhook: verifica che il token abbia gli scope read:webhook e write:webhook, E che l'account abbia accesso Admin al repository (Bitbucket richiede Admin per gestire i webhook, non basta Write)",
+        "403 dalla gestione webhook: verifica che il token abbia gli scope read:webhook:bitbucket e write:webhook:bitbucket, E che l'account abbia accesso Admin al repository (Bitbucket richiede Admin per gestire i webhook, non basta Write)",
         403,
         ""
       );

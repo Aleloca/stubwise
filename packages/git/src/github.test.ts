@@ -1844,7 +1844,7 @@ describe("GitHubProvider.setCommitStatus", () => {
     expect(error).toBeInstanceOf(GitProviderError);
     expect((error as GitProviderError).status).toBe(403);
     expect((error as GitProviderError).message).toContain(
-      "il token deve poter scrivere gli status di commit (GitHub: Commit statuses write; Bitbucket: repository write)"
+      "il token deve poter scrivere gli status di commit (GitHub: Commit statuses write; Bitbucket: scope write:repository:bitbucket)"
     );
     expect((error as GitProviderError).message).not.toContain("ghp_secret");
   });
@@ -1853,7 +1853,7 @@ describe("GitHubProvider.setCommitStatus", () => {
 describe("GitHubProvider.submitPrReview", () => {
   const REVIEWS_URL = "https://api.github.com/repos/octo/repo/pulls/42/reviews";
   const HINT =
-    "il token deve poter revisionare le pull request (GitHub: Pull requests write; Bitbucket: pullrequest write)";
+    "il token deve poter revisionare le pull request (GitHub: Pull requests write; Bitbucket: scope write:pullrequest:bitbucket)";
 
   it("request_changes → una review REQUEST_CHANGES col testo", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ id: 1, state: "CHANGES_REQUESTED" }, 200));

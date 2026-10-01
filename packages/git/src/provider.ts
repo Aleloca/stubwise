@@ -825,13 +825,13 @@ export async function ensureOkResponse(response: Response, provider: string): Pr
 /** Cosa manca al token quando la scrittura di uno status di commit riceve
  * 401/403. Senza segreti: nomina i permessi, mai il token. */
 export const COMMIT_STATUS_PERMISSION_HINT =
-  "il token deve poter scrivere gli status di commit (GitHub: Commit statuses write; Bitbucket: repository write)";
+  "il token deve poter scrivere gli status di commit (GitHub: Commit statuses write; Bitbucket: scope write:repository:bitbucket)";
 
 /** Cosa manca al token quando la pubblicazione del verdetto di una review
  * (approvare / chiedere modifiche, e il commento che lo accompagna) riceve
  * 401/403. Senza segreti: nomina i permessi, mai il token. */
 export const PR_REVIEW_PERMISSION_HINT =
-  "il token deve poter revisionare le pull request (GitHub: Pull requests write; Bitbucket: pullrequest write)";
+  "il token deve poter revisionare le pull request (GitHub: Pull requests write; Bitbucket: scope write:pullrequest:bitbucket)";
 
 /** Cosa manca al token quando la lettura del permesso di un utente sulla
  * repository riceve 401/403. Senza segreti: nomina i permessi, mai il token.

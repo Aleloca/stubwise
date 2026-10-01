@@ -839,7 +839,7 @@ describe("BitbucketProvider.setCommitStatus", () => {
       .catch((e: unknown) => e);
     expect(error).toBeInstanceOf(GitProviderError);
     expect((error as GitProviderError).status).toBe(404);
-    expect((error as GitProviderError).message).not.toContain("repository write");
+    expect((error as GitProviderError).message).not.toContain("write:repository:bitbucket");
   });
 
   it("401 → GitProviderError che dice quale permesso manca, senza credenziali", async () => {
@@ -853,7 +853,7 @@ describe("BitbucketProvider.setCommitStatus", () => {
     expect((error as GitProviderError).status).toBe(401);
     const message = (error as GitProviderError).message;
     expect(message).toContain(
-      "il token deve poter scrivere gli status di commit (GitHub: Commit statuses write; Bitbucket: repository write)"
+      "il token deve poter scrivere gli status di commit (GitHub: Commit statuses write; Bitbucket: scope write:repository:bitbucket)"
     );
     expect(message).not.toContain("app-pass");
     expect(message).not.toContain(Buffer.from("alice:app-pass").toString("base64"));
@@ -864,7 +864,7 @@ describe("BitbucketProvider.submitPrReview", () => {
   const PR = "https://api.bitbucket.org/2.0/repositories/myws/myrepo/pullrequests/7";
   const AUTH = `Basic ${Buffer.from("alice:app-pass").toString("base64")}`;
   const HINT =
-    "il token deve poter revisionare le pull request (GitHub: Pull requests write; Bitbucket: pullrequest write)";
+    "il token deve poter revisionare le pull request (GitHub: Pull requests write; Bitbucket: scope write:pullrequest:bitbucket)";
 
   /** Doppio che risponde bene a tutto, salvo le risposte forzate per "METODO url". */
   function recorder(overrides: Record<string, () => Promise<Response>> = {}) {
@@ -1717,6 +1717,9 @@ describe("BitbucketProvider.validateCredentials", () => {
     const webhook = checks.find((c) => c.name === "Accesso webhook (config automatica)")!;
     expect(webhook.ok).toBe(false);
     expect(webhook.detail).toMatch(/webhook/i);
+    // Nomenclatura degli API token, non quella OAuth (`webhook:write`).
+    expect(webhook.detail).toContain("read:webhook:bitbucket");
+    expect(webhook.detail).toContain("write:webhook:bitbucket");
   });
 
   it("REST 401: detail spiega che serve l'email come identità", async () => {
@@ -1731,10 +1734,11 @@ describe("BitbucketProvider.validateCredentials", () => {
     const rest = checks.find((c) => c.name === "Accesso REST API (PR)")!;
     expect(rest.ok).toBe(false);
     expect(rest.detail).toMatch(/email/i);
-    expect(rest.detail).toMatch(/pullrequest/i);
+    expect(rest.detail).toContain("read:pullrequest:bitbucket");
+    expect(rest.detail).toContain("write:pullrequest:bitbucket");
   });
 
-  it("git 401: detail parla di username/token/scope repository:write", async () => {
+  it("git 401: detail parla di username/token/scope write:repository:bitbucket", async () => {
     const fetchImpl = routedFetch({
       git: () => new Response("", { status: 401 }),
       rest: () => new Response("{}", { status: 200 }),
@@ -1745,7 +1749,9 @@ describe("BitbucketProvider.validateCredentials", () => {
 
     const git = checks.find((c) => c.name === "Accesso git (push)")!;
     expect(git.ok).toBe(false);
-    expect(git.detail).toMatch(/repository:write|username|token/i);
+    expect(git.detail).toMatch(/username/i);
+    expect(git.detail).toMatch(/token/i);
+    expect(git.detail).toContain("write:repository:bitbucket");
   });
 
   it("username mancante: il check git fallisce senza chiamare la rete per git", async () => {
@@ -1832,7 +1838,8 @@ describe("BitbucketProvider.validateAccount", () => {
     const checks = await provider.validateAccount(accountConfig, { fetchImpl });
     expect(checks[0]!.ok).toBe(false);
     expect(checks[0]!.detail).toMatch(/403/);
-    expect(checks[0]!.detail).toMatch(/workspace|scope/i);
+    expect(checks[0]!.detail).toMatch(/workspace/i);
+    expect(checks[0]!.detail).toContain("read:repository:bitbucket");
   });
 
   it("404: check fallito con messaggio sullo slug del workspace", async () => {
@@ -2126,6 +2133,8 @@ describe("BitbucketProvider.ensureWebhook", () => {
 
     expect(error).toBeInstanceOf(GitProviderError);
     expect((error as GitProviderError).message).toMatch(/scope|webhook/i);
+    expect((error as GitProviderError).message).toContain("read:webhook:bitbucket");
+    expect((error as GitProviderError).message).toContain("write:webhook:bitbucket");
   });
 
   it("403 sulla creazione: GitProviderError con guida sullo scope webhook", async () => {
