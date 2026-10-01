@@ -23,6 +23,9 @@ export default defineConfig({
         minForks: 1,
       },
     },
+    // Una chiamata `fetch` verso un host esterno non doppiata fa fallire il
+    // test, anche se il codice sotto ne ingoia l'errore: vedi il docblock.
+    setupFiles: ["./src/test/network-guard.ts"],
     hookTimeout: 60_000,
     testTimeout: 30_000,
   },
