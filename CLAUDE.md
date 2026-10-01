@@ -1565,6 +1565,127 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   nessun crash: solo testo sbagliato su quelle card. Pulizia facoltativa:
   `delete from notifications where kind='review.completed' and
   event->>'verdict' is null;`.
+- **«Revisore predefinito e scope di Validate» (1 ott 2026)**: **ORDINE, da
+  seguire alla lettera — prima il server, poi il resto**:
+  (1) `docker compose up -d --build server`;
+  (2) aspetta che sia healthy — `docker inspect -f '{{.State.Health.Status}}'
+  "$(docker compose ps -q server)"` deve stampare `healthy` (l'`HEALTHCHECK`
+  di `apps/server/Dockerfile` interroga `/health`, e il server applica le
+  migrazioni PRIMA di mettersi in ascolto, `apps/server/src/index.ts`) — e
+  verifica che la **0082** sia applicata: `docker compose exec postgres sh -c
+  'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "\d git_accounts"'` deve
+  mostrare la colonna `is_default_reviewer` e l'indice
+  `git_accounts_default_reviewer_scope_uq` (in alternativa, `select
+  max(created_at) from drizzle.__drizzle_migrations;` deve dare
+  `1790841600000`, il `when` della 0082 in `_journal.json`);
+  (3) solo allora `docker compose up -d --build worker caddy`.
+  **Perché quest'ordine**: il worker nuovo interroga
+  `git_accounts.is_default_reviewer` (`resolveReviewAccountWithCredentials`,
+  `packages/notifications/src/review-account.ts`) a ogni review che pubblica
+  il verdetto e a ogni correzione che rilegge i commenti della PR: contro uno
+  schema senza la 0082 quella query fallisce (colonna assente). Il worker
+  VECCHIO davanti allo schema nuovo invece è innocuo — la colonna è additiva e
+  lui non la legge —, ed è ciò che rende sicuro il passo (1) da solo. L'app si
+  aggiorna dagli store e non legge niente di nuovo (`repositorySchema` sì, ma
+  i due campi nuovi nascono `.default(null)` e l'app non mostra il revisore).
+  Migrazione **0082** (`packages/db/drizzle/0082_default_reviewer.sql`) —
+  additiva, **nessun `ALTER TYPE`**, un solo batch, **nessun backfill**:
+  colonna `git_accounts.is_default_reviewer boolean DEFAULT false NOT NULL`
+  (il default È il backfill corretto: al deploy nessun account è predefinito,
+  quindi **nessun comportamento cambia finché un admin non ne imposta uno**) e
+  l'indice unico PARZIALE `git_accounts_default_reviewer_scope_uq` su
+  `("provider", (CASE WHEN "provider" = 'bitbucket' THEN COALESCE("workspace",
+  '') ELSE '' END)) WHERE "is_default_reviewer"` — al più UN predefinito per
+  ambito, dove l'ambito è provider + workspace su Bitbucket e il solo provider
+  altrove (vedi l'invariante «Il revisore effettivo si risolve in UN posto»).
+  Il CHECK `repositories_review_not_main_chk` della 0081 resta sulla sola
+  colonna esplicita. **Rotte nuove** (solo admin):
+  `PUT /api/git-accounts/:id/default-reviewer` (imposta; risposta `{ account,
+  replaced, warnings }`: `replaced` è il predefinito precedente dello stesso
+  ambito, tolto nella STESSA transazione, e `warnings` sono avvisi per
+  repository `{ repositoryId, repositoryName, code }`, con `code` =
+  `default_is_main` o un codice di `checkReviewAccount`) e
+  `DELETE /api/git-accounts/:id/default-reviewer` (toglie, idempotente, 204).
+  **Codici d'errore nuovi**: `default_reviewer_workspace_missing` (422,
+  Bitbucket senza workspace), `default_reviewer_invalid` (422, un check di
+  `validateAccount` con gli scope del revisore è ko; il messaggio porta i
+  dettagli), `default_reviewer_conflict` (409, due admin in corsa: lo ferma
+  l'indice), `default_reviewer_account_changed` (409, il workspace è cambiato
+  mentre il PUT verificava) e `default_reviewer_workspace_locked` (409 sul
+  `PATCH /api/git-accounts/:id` che cambia il workspace di un predefinito: va
+  tolto prima). Il PUT riusa `review_account_identity_unresolved` (422) e
+  `credentials_undecryptable` (400), già esistenti. **Campi additivi**:
+  `gitAccountSchema.isDefaultReviewer` (`.default(false)`),
+  `repositorySchema.effectiveReviewAccount` (`{ id, name, source: "explicit" |
+  "default" }`) e `.skippedDefaultReviewAccount` (`{ id, name }`), entrambi
+  `.nullable().default(null)` e DERIVATI dal server a ogni lettura (il web li
+  legge con `?? null`); un valore nuovo, `default_review_account_invalid`, in
+  `repositoryWarningSchema` (avviso NON bloccante del form della repository
+  quando il predefinito che diventa effettivo non passa le verifiche su quella
+  repository: lo legge solo il web). **Validate** (`POST
+  /api/git-accounts/:id/validate`) non cambia forma: su Bitbucket aggiunge
+  check a `checks`, uno per gruppo di scope che il RUOLO dell'account chiede
+  («Scope repository e pull request», «Scope identità (read:user)», «Scope
+  webhook» — quest'ultimo solo a un principale), letti dall'header
+  `x-oauth-scopes` della chiamata che già faceva; con un'app password (nessun
+  header, o `x-credential-type` diverso da `api_token`) un solo check «Scope del
+  token» `ok: true` che dice che non sono verificabili. GitHub invariato.
+  **Nessuna env nuova, nessun kind di notifica, nessun valore aggiunto a un
+  enum che entri in una risposta letta dall'app**: niente della famiglia del
+  500 su `/api/inbox`. **Nessun passo manuale obbligatorio.** Facoltativi,
+  post-deploy: impostare il predefinito (Impostazioni → Account Git, casella
+  «Default reviewer»/«Revisore predefinito») e rilanciare Validate sugli
+  account Bitbucket, che ora segnala gli scope mancanti. **Post-merge**:
+  mergiare la PR di versioning Changesets che pubblica `@stubwise/shared` in
+  **minor** (`.changeset/shared-default-reviewer.md`).
+  **Rollback — il SERVER NON è innocuo, il worker sì** (verificato leggendo le
+  due versioni, `8ad52eb0` e questa). **Scendere col solo server**, con un
+  predefinito impostato, riapre l'auto-innesco: il worker nuovo continua a
+  pubblicare il verdetto con le credenziali del predefinito, ma il webhook
+  vecchio considera «propri» solo il principale e la colonna esplicita
+  (`accountIds = [gitAccountId, reviewGitAccountId?]`) — il «Request changes»
+  del predefinito passa per una richiesta UMANA (ha scrittura, quindi supera
+  anche il permesso), azzera la serie e il ciclo riparte: il tetto non lo
+  ferma, perché `autoRoundsInCurrentSeries` conta i giri DOPO l'ultima
+  richiesta umana; resta solo il budget, se configurato. ⚠️ La firma delle
+  review di Stubwise (`hasStubwiseReviewSignature`) **non aiuta qui**: il
+  controllo nel webhook è di QUESTO rilascio (97b594ce) e il server vecchio
+  non ce l'ha — e comunque varrebbe solo su GitHub, perché l'evento Bitbucket
+  non porta il testo della review (`reviewBody: null` in
+  `packages/git/src/bitbucket.ts`). Prima di scendere col server, una delle
+  due:
+  (a) **materializzare** il predefinito come revisore esplicito e POI togliere
+  il flag, così il worker nuovo e il server vecchio dicono la stessa cosa:
+  ```sql
+  update repositories r set review_git_account_id = d.id
+  from git_accounts m, git_accounts d
+  where r.git_account_id = m.id and r.review_git_account_id is null
+    and d.is_default_reviewer and d.provider = m.provider
+    and (m.provider <> 'bitbucket' or coalesce(d.workspace,'') = coalesce(m.workspace,''))
+    and d.id <> m.id;
+  update git_accounts set is_default_reviewer = false;
+  ```
+  Il secondo `update` non è facoltativo: senza, una repository creata (o il
+  cui esplicito viene tolto) dal server vecchio tornerebbe a ricadere sul
+  predefinito nel worker nuovo, e il ciclo ripartirebbe proprio lì. Le
+  repository mantengono il revisore, ma da quel momento è esplicito: tornati
+  avanti, cambiare il predefinito non le tocca più;
+  (b) **togliere il predefinito** (dalla UI, o `update git_accounts set
+  is_default_reviewer = false;`) e scendere server E worker insieme — le
+  repository che lo usavano restano senza revisore (la review commenta col
+  principale).
+  In entrambi i casi il caddy scende col server, come sempre (il bundle nuovo
+  chiama le rotte del predefinito, che sul server vecchio sono 404). La
+  colonna e l'indice sopravvivono; il migratore ignora la 0082 già applicata.
+  **Scendere col solo worker è innocuo**: il worker vecchio legge solo la
+  colonna esplicita, quindi il predefinito non pubblica niente — nessun ciclo,
+  le repository che lo usavano restano solo senza revisore (commento del
+  principale). Unico effetto collaterale: la fotografia dei commenti del
+  worker vecchio non esclude né il predefinito né la firma, quindi una review
+  GIÀ pubblicata dal predefinito può entrare nel prompt della prima correzione
+  di quella PR come feedback (un doppione della review che l'AI riceve già dal
+  DB, non un innesco). Per **spegnere la funzione senza toccare immagini**:
+  togliere il predefinito dalla UI.
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
@@ -2204,8 +2325,11 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   (1 ott 2026).** L'account revisore mette «Request changes» → il provider
   manda il webhook → senza difesa Stubwise lo leggerebbe come una richiesta
   UMANA, azzererebbe il contatore e ripartirebbe per sempre. Quindi un evento
-  dal provider il cui autore è l'account principale **o** l'account revisore
-  della repository si **scarta prima di qualunque scrittura in
+  dal provider il cui autore è l'account principale **o** il revisore
+  EFFETTIVO della repository — l'esplicito, altrimenti il predefinito del suo
+  ambito, risolto da `resolveReviewAccountWithCredentials` (vedi «Il revisore
+  effettivo si risolve in UN posto» qui sotto); mai la sola colonna
+  `review_git_account_id`, mai ogni predefinito dell'istanza — si **scarta prima di qualunque scrittura in
   `pr_corrections`/`ai_jobs`**
   (`apps/server/src/services/pr-correction-webhook.ts`, esito `own_account`;
   prima può solo salvarsi `git_accounts.provider_user_id`, che
@@ -2230,7 +2354,114 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   trasformi quel «non so chi è» in un «allora è umano». Il test che la
   presidia è NEGATIVO e asserisce sulle righe in DB, non sulla risposta (che è
   204 in ogni caso): lo stesso evento da un terzo crea la correzione, dai due
-  account propri no.
+  account propri no — e dal 1 ott 2026 anche dal predefinito
+  (`apps/server/src/routes/webhooks.corrections.test.ts`, «webhook "Request
+  changes" — il revisore predefinito è un account proprio»).
+- **Il revisore effettivo si risolve in UN posto (1 ott 2026).** Quale
+  account fa da revisore su una repository lo decide SOLO
+  `pickReviewAccount` (regola pura) attraverso `resolveReviewAccount(s)` /
+  `resolveReviewAccount(s)WithCredentials`
+  (`packages/notifications/src/review-account.ts`): l'esplicito
+  (`repositories.review_git_account_id`) se c'è, altrimenti il predefinito
+  (`git_accounts.is_default_reviewer`) dello stesso ambito del principale,
+  **scartato se è il principale stesso** (`skippedDefault`: esiste per dirlo
+  all'utente, mai per usarlo); mai il principale. I consumatori, tutti: la
+  pubblicazione del verdetto (`loadReviewerProject`,
+  `apps/worker/src/review/cycle.ts`), la fotografia dei commenti di una
+  correzione (`apps/worker/src/pipeline/correction.ts`), gli account propri
+  del webhook (`handleChangesRequested`,
+  `apps/server/src/services/pr-correction-webhook.ts`), la proiezione della
+  repository e l'avviso del form (`apps/server/src/routes/repositories.ts`),
+  gli avvisi del PUT del predefinito e il ruolo di Validate
+  (`defaultReviewerWarnings`/`accountReviewRole`,
+  `apps/server/src/routes/git-accounts.ts`). **Nessuno legge
+  `review_git_account_id` per decidere chi pubblica o chi è «proprio»**: la
+  colonna la leggono solo `review-account.ts` stesso, le rotte che la
+  SCRIVONO (form della repository, `checkReviewAccount` in
+  `apps/server/src/services/review-account-check.ts`, che valida l'esplicito
+  scelto) e la proiezione che la espone così com'è. Chi la rilegge da sé fa
+  valere il predefinito in un posto e non in un altro — e se quel posto è il
+  webhook, riapre l'auto-innesco qui sopra. Il web non deduce niente: legge
+  `effectiveReviewAccount`/`skippedDefaultReviewAccount` dal server (stesso
+  criterio di `canMerge`).
+  **La proiezione di default è SENZA credenziali.** `resolveReviewAccounts`
+  restituisce le sole colonne di `REVIEW_ACCOUNT_VIEW_KEYS` (id, nome,
+  provider, workspace, identità in cache, flag), mai
+  `encrypted_credentials`; le varianti `…WithCredentials` restituiscono le
+  righe intere e servono SOLO a chi si autentica con l'account — il worker che
+  pubblica, la fotografia e il webhook, che decifrano le credenziali per
+  risolvere un'identità non ancora salvata (`resolveProviderUserId`). Il
+  risultato di una `…WithCredentials` non si serializza mai. Chi aggiunge un
+  consumatore che deve solo LEGGERE usa la proiezione.
+  **`reviewScopeKey` è una regola sola, gemella dell'indice della 0082.**
+  L'ambito di un account — `(provider, workspace se Bitbucket altrimenti
+  '')`, con un workspace NULL uguale a `''` — sta in
+  `packages/shared/src/review-scope.ts` (in shared e non in notifications
+  perché la usa anche la SPA, per chiedere conferma prima di sostituire il
+  predefinito dello stesso ambito; notifications la ri-esporta) e nell'indice
+  `git_accounts_default_reviewer_scope_uq`
+  (`packages/db/drizzle/0082_default_reviewer.sql`). Su GitHub il workspace
+  non conta, come in `checkReviewAccount`. Il test di accordo è
+  `packages/notifications/src/review-account.test.ts` («7. indice e
+  reviewScopeKey d'accordo»): contro un Postgres vero, l'indice rifiuta due
+  predefiniti ESATTAMENTE quando la funzione li mette nello stesso ambito. Chi
+  cambia l'una cambia l'altro, e anche le due gemelle SQL che filtrano per
+  ambito (`defaultsInScopeOf` in `review-account.ts`, `sameReviewScope` in
+  `git-accounts.ts`).
+  **Account propri = principale + revisore EFFETTIVO, e c'è una FINESTRA nota
+  (D6 del piano `docs/plans/2026-10-01-default-reviewer-and-scopes.md`).** La
+  regola si valuta all'arrivo del webhook, non alla pubblicazione della review:
+  se un admin cambia il predefinito fra le due, l'evento viene valutato con la
+  configurazione NUOVA e l'account che ha pubblicato può non risultare più
+  proprio. È accettata perché il cambio è raro, lo fa un admin, e nel caso
+  peggiore parte UNA correzione, sotto tetto e budget. **Non va chiusa
+  allargando gli account propri a tutti i predefiniti dell'istanza**: cambia
+  la semantica — un account che su quella repository non pubblica niente
+  entrerebbe nel fail-closed (una sua identità non risolvibile scarterebbe
+  ogni «Request changes» della repository) senza chiudere nessun ciclo, perché
+  il ciclo nasce solo dall'account con cui Stubwise pubblica su QUELLA
+  repository. Il ragionamento esteso è nel docblock di
+  `resolveReviewAccounts`. La restringe la firma, qui sotto.
+  ⚠️ Rollback: questa regola vive nel server E nel worker, e devono essere
+  della stessa versione finché esiste un predefinito — vedi la voce di deploy
+  «Revisore predefinito e scope di Validate».
+- **Le review di Stubwise sono FIRMATE, e la firma esclude a prescindere
+  dall'autore (1 ott 2026).** `packages/shared/src/review-signature.ts`
+  genera (`signReviewBody`, usata da `publishReview` nel worker) e riconosce
+  (`hasStubwiseReviewSignature`) la riga `_— Stubwise PR Review ·
+  \`<sha7>\`_`, una accanto all'altra perché non divergano. Il
+  riconoscimento è STRETTO: firma intera, su una riga sua, ancorata in fondo
+  al corpo, sha esadecimale di 7 caratteri — non una parola chiave, così un
+  commento umano che nomina Stubwise o cita la firma in mezzo resta feedback.
+  Due punti la guardano, qualunque sia l'autore: la fotografia dei commenti
+  (`selectProviderFeedback`, `packages/notifications/src/pr-correction-feedback.ts`),
+  che così chiude anche il caso del PASSATO della finestra qui sopra (una
+  review di un predefinito precedente nella prima correzione di una PR, che
+  non ha taglio), e il webhook (`handleChangesRequested`, passo 2a, PRIMA
+  degli account propri e senza rete), dove restringe la finestra **solo su
+  GitHub**: l'evento Bitbucket non porta il testo della review (`reviewBody:
+  null`). **È il verso sicuro**: un errore di riconoscimento può solo
+  TOGLIERE. Chi incolla la firma in fondo al proprio «Request changes» su
+  GitHub viene scartato come `own_account` **senza commento di sistema sul
+  ticket** — a differenza di `identity_unresolved`, questo scarto è muto — e
+  perde la sua richiesta; nessuno può far ENTRARE niente per via della firma.
+  Chi allenta il riconoscimento (una parola chiave, la firma ovunque nel
+  testo) trasforma un commento umano qualunque in uno scarto silenzioso.
+- **Validate chiede gli scope del RUOLO, e il ruolo lo calcola il server (1 ott
+  2026).** Su Bitbucket `POST /api/git-accounts/:id/validate` confronta gli
+  scope CONCESSI (header `x-oauth-scopes` della chiamata che già fa) con
+  `bitbucketRequiredScopes({ primary, reviewer })`
+  (`packages/git/src/bitbucket-scopes.ts`): `primary` = principale di almeno
+  una repository, `reviewer` = revisore EFFETTIVO di almeno una (via
+  `resolveReviewAccounts`) **oppure** marcato predefinito anche senza
+  repository nel suo ambito (`accountReviewRole`); nessuno dei due → l'insieme
+  del principale, il più esigente. Un revisore non si vede chiedere i webhook.
+  Una credenziale che non dichiara gli scope (app password legacy, header
+  assente o vuoto, `x-credential-type` diverso da `api_token`) dà un check
+  «Scope del token» **`ok: true`** col testo «non verificabili…»: `ok: false`
+  la lascerebbe rossa per sempre per un fatto che nessuna azione dell'utente
+  cambia. Il check non afferma che gli scope ci siano: lo dice nel testo. Chi
+  lo trasforma in un ko «per prudenza» rompe Validate per ogni app password.
 - **Una correzione non forza MAI il push.** `runCorrection`
   (`apps/worker/src/pipeline/correction.ts`) chiama `mirrors.pushBranch` SENZA
   `{ force: true }` — l'opzione esiste, ma la usa solo la PR di setup del
