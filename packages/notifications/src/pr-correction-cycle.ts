@@ -685,18 +685,53 @@ export async function markPrRowsClosed(
   pr: { repositoryId: string; prNumber: number },
   state: "merged" | "closed_unmerged",
 ): Promise<Set<string>> {
+  return movePrRows(db, pr, "open", state);
+}
+
+/**
+ * Una PR chiusa senza merge e poi RIAPERTA (GitHub `pull_request` `reopened`,
+ * che `parsePrEvent` mappa su `opened`): le righe `ticket_repositories`
+ * `closed_unmerged` di questa PR — stesso repository, stesso numero, con
+ * ripiego sull'URL per le righe storiche, la regola di `markPrRowsClosed` —
+ * tornano `open`. Una riga `merged` non si riapre mai (una PR mergiata non si
+ * riapre, e il gate aggregato del `done` la conta già). Lo stato del ticket
+ * NON si tocca: la chiusura l'ha portato a `triaged`, e se rimetterlo in
+ * review è una decisione di chi riapre, non del webhook. Ritorna i ticket
+ * toccati. Idempotente: una riconsegna non trova righe `closed_unmerged`.
+ *
+ * Bitbucket: fra gli eventi di Bitbucket Cloud non ce n'è uno di riapertura
+ * (`ensureWebhook` sottoscrive created/updated/fulfilled/rejected/
+ * changes_request_created), e una PR `declined` lì si rifà come PR nuova, con
+ * un numero nuovo. Il webhook chiama questa funzione solo sugli eventi
+ * `opened`: un `pullrequest:updated` arrivato in ritardo dopo il `rejected`
+ * riaprirebbe a torto una riga chiusa, quindi `updated` NON la innesca.
+ */
+export async function reopenPrRows(
+  db: DbOrTx,
+  pr: { repositoryId: string; prNumber: number },
+): Promise<Set<string>> {
+  return movePrRows(db, pr, "closed_unmerged", "open");
+}
+
+/** Le righe di QUESTA PR (repository + numero, ripiego sull'URL) da `from` a `to`. */
+async function movePrRows(
+  db: DbOrTx,
+  pr: { repositoryId: string; prNumber: number },
+  from: "open" | "closed_unmerged",
+  to: "open" | "merged" | "closed_unmerged",
+): Promise<Set<string>> {
   const rows = await db
     .select({ id: ticketRepositories.id, prUrl: ticketRepositories.prUrl, prNumber: ticketRepositories.prNumber })
     .from(ticketRepositories)
-    .where(and(eq(ticketRepositories.repositoryId, pr.repositoryId), eq(ticketRepositories.prState, "open")));
+    .where(and(eq(ticketRepositories.repositoryId, pr.repositoryId), eq(ticketRepositories.prState, from)));
   const ids = rows
     .filter((r) => (r.prNumber ?? (r.prUrl === null ? null : prNumberFromUrl(r.prUrl))) === pr.prNumber)
     .map((r) => r.id);
   if (ids.length === 0) return new Set();
   const updated = await db
     .update(ticketRepositories)
-    .set({ prState: state })
-    .where(and(inArray(ticketRepositories.id, ids), eq(ticketRepositories.prState, "open")))
+    .set({ prState: to })
+    .where(and(inArray(ticketRepositories.id, ids), eq(ticketRepositories.prState, from)))
     .returning({ ticketId: ticketRepositories.ticketId });
   return new Set(updated.map((r) => r.ticketId));
 }

@@ -874,6 +874,21 @@ correzione.
   usa ancora).
 - **G1** (deploy): vedi la voce di deploy — comportamento che cambia e passo
   facoltativo.
+- **Correzioni della seconda revisione (1 ott 2026).** Commit «fix(server): la
+  riconsegna di un merge chiude ancora il ticket, e una PR riaperta torna
+  aperta»: (I1) nel ramo del merge il «primo arrivo» non dipende più solo da
+  `pr_state` — `markPrRowsClosed` committa `merged` PRIMA della transazione, e
+  se quella lanciava la riconsegna usciva lasciando il ticket `in_review` per
+  sempre. Ora una riconsegna salta SOLO il commento di sistema, ed è
+  riconsegna solo se la riga era già `merged` E il commento `comment.prMerged`
+  di quella PR esiste già (sotto `FOR UPDATE` sul ticket); gate aggregato,
+  `done` e `pr_merged` girano comunque. (I2) `reopenPrRows` in
+  `@stubwise/notifications`: un evento `opened` (GitHub `reopened`) riporta a
+  `open` le righe `closed_unmerged` di quella PR (repository + numero, ripiego
+  sull'URL), PRIMA del toggle della PR Review; `merged` non si riapre, il
+  ticket non si tocca; Bitbucket non ha un evento di riapertura. (M1) nel ramo
+  `closed_unmerged` la riga e la transizione a `triaged` si filtrano sul numero
+  della PR: la chiusura in ritardo di una PR vecchia non tocca la nuova.
 
 ## Tappa A — Fondamenta dati
 

@@ -197,6 +197,7 @@ export {
   cancelOpenCorrections,
   cancelPendingCorrection,
   markPrRowsClosed,
+  reopenPrRows,
   canResumeCorrection,
   completeCorrection,
   correctionManualTrigger,

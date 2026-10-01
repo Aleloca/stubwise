@@ -1308,6 +1308,92 @@ describe("chiusura della PR", () => {
     expect(ticket!.status).toBe("done");
   });
 
+  // I1: `markPrRowsClosed` committa `merged` PRIMA della transazione del ramo
+  // stubwise. Se quella lancia, il webhook risponde 500 e il provider
+  // riconsegna: la riga è già `merged`, ma il ticket è ancora in review.
+  it("riconsegna dopo un 500: riga già `merged`, ticket ancora in review → done, job pr_merged, UN commento", async () => {
+    const fx = await seedFixture({ prState: "merged" });
+    await testDb.db.insert(aiJobs).values({ ticketId: fx.ticketId, status: "pr_opened" });
+
+    const res = await postClosed(fx, githubClosed(true));
+
+    expect(res.statusCode).toBe(204);
+    const [ticket] = await testDb.db.select({ status: tickets.status }).from(tickets).where(eq(tickets.id, fx.ticketId));
+    expect(ticket!.status).toBe("done");
+    const jobs = await testDb.db.select({ status: aiJobs.status }).from(aiJobs).where(eq(aiJobs.ticketId, fx.ticketId));
+    expect(jobs.map((j) => j.status)).toEqual(["pr_merged"]);
+    const systemComments = await testDb.db
+      .select({ body: comments.body })
+      .from(comments)
+      .where(and(eq(comments.ticketId, fx.ticketId), eq(comments.authorType, "system")));
+    expect(systemComments).toHaveLength(1);
+    expect(systemComments[0]!.body).toContain("https://github.com/acme/repo/pull/42");
+  });
+
+  it("riconsegna con il commento del merge GIÀ scritto: ticket a done, nessun secondo commento", async () => {
+    const fx = await seedFixture();
+    // Primo arrivo completo, poi il ticket torna in review (merge parziale
+    // simulato): la riconsegna rifà il gate ma non riscrive il commento.
+    await postClosed(fx, githubClosed(true));
+    await testDb.db.update(tickets).set({ status: "in_review" }).where(eq(tickets.id, fx.ticketId));
+    await testDb.db.insert(aiJobs).values({ ticketId: fx.ticketId, status: "pr_opened" });
+
+    await postClosed(fx, githubClosed(true));
+
+    const [ticket] = await testDb.db.select({ status: tickets.status }).from(tickets).where(eq(tickets.id, fx.ticketId));
+    expect(ticket!.status).toBe("done");
+    const jobs = await testDb.db.select({ status: aiJobs.status }).from(aiJobs).where(eq(aiJobs.ticketId, fx.ticketId));
+    expect(jobs.map((j) => j.status)).toEqual(["pr_merged"]);
+    const systemComments = await testDb.db
+      .select({ body: comments.body })
+      .from(comments)
+      .where(and(eq(comments.ticketId, fx.ticketId), eq(comments.authorType, "system")));
+    expect(systemComments).toHaveLength(1);
+  });
+
+  // M1: la chiusura in ritardo della PR VECCHIA (#42) mentre il ticket è in
+  // review sulla PR nuova (#50) dello stesso repository.
+  it("chiusura in ritardo di una PR vecchia: né la riga della PR nuova né il ticket si toccano", async () => {
+    const fx = await seedFixture();
+    await testDb.db
+      .update(ticketRepositories)
+      .set({ prNumber: 50, prUrl: "https://github.com/acme/repo/pull/50" })
+      .where(eq(ticketRepositories.ticketId, fx.ticketId));
+    await testDb.db.insert(aiJobs).values({ ticketId: fx.ticketId, status: "pr_opened" });
+
+    const res = await postClosed(fx, githubClosed(false));
+
+    expect(res.statusCode).toBe(204);
+    const [row] = await testDb.db
+      .select({ prState: ticketRepositories.prState, prUrl: ticketRepositories.prUrl })
+      .from(ticketRepositories)
+      .where(eq(ticketRepositories.ticketId, fx.ticketId));
+    expect(row).toEqual({ prState: "open", prUrl: "https://github.com/acme/repo/pull/50" });
+    const [ticket] = await testDb.db.select({ status: tickets.status }).from(tickets).where(eq(tickets.id, fx.ticketId));
+    expect(ticket!.status).toBe("in_review");
+    const jobs = await testDb.db.select({ status: aiJobs.status }).from(aiJobs).where(eq(aiJobs.ticketId, fx.ticketId));
+    expect(jobs.map((j) => j.status)).toEqual(["pr_opened"]);
+    const systemComments = await testDb.db
+      .select({ id: comments.id })
+      .from(comments)
+      .where(and(eq(comments.ticketId, fx.ticketId), eq(comments.authorType, "system")));
+    expect(systemComments).toHaveLength(0);
+  });
+
+  it("chiusura della PR CORRENTE: riga closed_unmerged e ticket triaged (il filtro sul numero non blocca il caso normale)", async () => {
+    const fx = await seedFixture();
+
+    await postClosed(fx, githubClosed(false));
+
+    const [row] = await testDb.db
+      .select({ prState: ticketRepositories.prState })
+      .from(ticketRepositories)
+      .where(eq(ticketRepositories.ticketId, fx.ticketId));
+    expect(row!.prState).toBe("closed_unmerged");
+    const [ticket] = await testDb.db.select({ status: tickets.status }).from(tickets).where(eq(tickets.id, fx.ticketId));
+    expect(ticket!.status).toBe("triaged");
+  });
+
   // La corsa: un accodamento ha letto la PR aperta, ha il lock del ticket e la
   // sua riga non è ancora committata. Il webhook chiude la riga PR e poi
   // annulla prendendo lo stesso lock: aspetta, e annulla anche quella.
@@ -1344,6 +1430,94 @@ describe("chiusura della PR", () => {
 
     expect((await correctionsOf(fx.repositoryId)).map((r) => r.status)).toEqual(["cancelled"]);
     expect((await correctionJobsOf(fx.ticketId)).map((j) => j.status)).toEqual(["skipped"]);
+  });
+});
+
+describe("PR riaperta (I2)", () => {
+  function postReopened(fx: Fixture, prNumber = 42) {
+    const body = JSON.stringify({
+      action: "reopened",
+      pull_request: {
+        number: prNumber,
+        title: "fix (#3)",
+        body: "",
+        html_url: `https://github.com/acme/repo/pull/${prNumber}`,
+        head: { ref: "stubwise/ticket-3", sha: "c".repeat(40) },
+        base: { ref: "main" },
+      },
+    });
+    return app.inject({
+      method: "POST",
+      url: `/webhooks/git/${fx.slug}`,
+      payload: body,
+      headers: {
+        "content-type": "application/json",
+        "x-github-event": "pull_request",
+        "x-hub-signature-256": sign(fx.secret, body),
+      },
+    });
+  }
+
+  async function prStateOf(ticketId: string) {
+    const [row] = await testDb.db
+      .select({ prState: ticketRepositories.prState })
+      .from(ticketRepositories)
+      .where(eq(ticketRepositories.ticketId, ticketId));
+    return row!.prState;
+  }
+
+  it("una PR chiusa e riaperta torna `open`, e il bottone delle correzioni non risponde più `pr_not_open`", async () => {
+    const fx = await seedFixture({ prState: "closed_unmerged" });
+    await testDb.db.update(tickets).set({ status: "triaged" }).where(eq(tickets.id, fx.ticketId));
+    // Premessa: chiusa, il bottone la rifiuta.
+    const before = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${fx.ticketId}/repositories/${fx.repositoryId}/corrections`,
+      headers: { cookie: adminCookie },
+    });
+    expect(before.statusCode).toBe(409);
+    expect(before.json()).toMatchObject({ code: "pr_not_open" });
+
+    // Il toggle della PR Review è spento (default): la riapertura passa lo stesso.
+    const res = await postReopened(fx);
+
+    expect(res.statusCode).toBe(204);
+    expect(await prStateOf(fx.ticketId)).toBe("open");
+    // Lo stato del ticket non si tocca.
+    const [ticket] = await testDb.db.select({ status: tickets.status }).from(tickets).where(eq(tickets.id, fx.ticketId));
+    expect(ticket!.status).toBe("triaged");
+    const after = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${fx.ticketId}/repositories/${fx.repositoryId}/corrections`,
+      headers: { cookie: adminCookie },
+    });
+    expect(after.statusCode).toBe(202);
+  });
+
+  it("una riga `merged` non si riapre mai", async () => {
+    const fx = await seedFixture({ prState: "merged" });
+
+    await postReopened(fx);
+
+    expect(await prStateOf(fx.ticketId)).toBe("merged");
+  });
+
+  it("un ALTRO repository con lo stesso numero di PR non si tocca", async () => {
+    const fx = await seedFixture({ prState: "closed_unmerged" });
+    const other = await seedFixture({ prState: "closed_unmerged" });
+
+    await postReopened(fx);
+
+    expect(await prStateOf(fx.ticketId)).toBe("open");
+    expect(await prStateOf(other.ticketId)).toBe("closed_unmerged");
+  });
+
+  it("un numero di PR diverso sullo stesso repository non si tocca", async () => {
+    const fx = await seedFixture({ prState: "closed_unmerged" });
+
+    await postReopened(fx, 43);
+
+    expect(await prStateOf(fx.ticketId)).toBe("closed_unmerged");
   });
 });
 
