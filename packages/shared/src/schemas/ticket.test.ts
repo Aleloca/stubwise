@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { readerSchema, UNKNOWN } from "../reader.js";
-import { ticketDetailSchema, ticketPageSchema } from "./ticket.js";
+import { runAiBodySchema, ticketDetailSchema, ticketPageSchema } from "./ticket.js";
 
 /**
  * COMPATIBILITÀ VERSO L'APP GIÀ INSTALLATA (fase 7).
@@ -134,6 +134,7 @@ describe("ticketRepositorySchema.cycle verso un server più vecchio", () => {
     canRequestCorrection: false,
     heldReason: "budget",
     canResume: false,
+    heldJobId: "55555555-5555-4555-8555-555555555555",
   };
 
   it("una voce senza `cycle` si legge con cycle null", () => {
@@ -155,5 +156,21 @@ describe("ticketRepositorySchema.cycle verso un server più vecchio", () => {
       ticketSenzaFase7({ repositories: [{ ...voceSenzaCiclo, cycle: { ...ciclo, state: "stato_futuro" } }] }),
     );
     expect(parsed.repositories[0]!.cycle?.state).toBe(UNKNOWN);
+  });
+});
+
+describe("runAiBodySchema (G5)", () => {
+  it("tutti i campi opzionali: un client vecchio manda {} o i soli campi di prima", () => {
+    expect(runAiBodySchema.parse({})).toEqual({});
+    expect(runAiBodySchema.parse({ withInstructions: true, mode: "ai_plan" })).toEqual({
+      withInstructions: true,
+      mode: "ai_plan",
+    });
+  });
+
+  it("resumeCorrectionJobId è un uuid", () => {
+    const id = "55555555-5555-4555-8555-555555555555";
+    expect(runAiBodySchema.parse({ resumeCorrectionJobId: id })).toEqual({ resumeCorrectionJobId: id });
+    expect(runAiBodySchema.safeParse({ resumeCorrectionJobId: "non-un-uuid" }).success).toBe(false);
   });
 });

@@ -61,7 +61,13 @@ export type StartRunResult =
   // Un operatore che prova a forzare una correzione ferma per BUDGET: solo un
   // maintainer scavalca il budget (E7), e la forzatura di un member tornerebbe
   // `held` al primo controllo del worker. Niente scritto.
-  | { ok: false; error: "needs_maintainer" };
+  | { ok: false; error: "needs_maintainer" }
+  // «Riprendi» su una correzione che NON è più quella ferma che la schermata
+  // mostrava (annullata con la PR mergiata, riconciliata, finita, o superata
+  // da un job più recente): con `resumeCorrectionJobId` non si cade nel
+  // rilancio generico — che dopo una correzione terminale avvierebbe un FIX
+  // nuovo. Niente scritto.
+  | { ok: false; error: "correction_not_held" };
 
 export interface StartRunInput {
   ticketId: string;
@@ -93,6 +99,14 @@ export interface StartRunInput {
    * (solo un `member` passa dal gate).
    */
   requirePlanApproval?: boolean;
+  /**
+   * «Riprendi» di UNA correzione ferma: l'id del suo job `held`
+   * (`cycle.heldJobId` del dettaglio ticket). Presente, `startRun` forza
+   * QUEL job solo se è ancora l'ultimo del ticket, di una correzione e
+   * `held`; altrimenti `correction_not_held` senza scrivere niente. Assente =
+   * comportamento di sempre (lo usa solo la rotta run-ai; l'inbox no).
+   */
+  resumeCorrectionJobId?: string;
 }
 
 /**
@@ -211,6 +225,26 @@ export async function startRun(db: Db, input: StartRunInput): Promise<StartRunRe
       .where(eq(aiJobs.ticketId, ticketId))
       .orderBy(desc(aiJobs.createdAt), desc(aiJobs.id))
       .limit(1);
+
+    // «Riprendi» chiede QUELLA correzione ferma, non un rilancio qualunque.
+    // Una schermata vecchia può mostrarla `held` quando nel frattempo è stata
+    // annullata (PR mergiata → job `skipped`), riconciliata (job `failed`) o
+    // ripresa da qualcun altro: senza questo controllo il ramo del job
+    // terminale qui sotto avvierebbe un FIX COMPLETO NUOVO, con
+    // `manualTrigger` true e quindi oltre il budget. Sotto il lock del ticket,
+    // prima di ogni scrittura; se combacia si prosegue nella forzatura di
+    // sempre (permesso `needs_maintainer` compreso).
+    if (
+      input.resumeCorrectionJobId !== undefined &&
+      !(
+        latest &&
+        latest.id === input.resumeCorrectionJobId &&
+        latest.correctionId !== null &&
+        latest.status === "held"
+      )
+    ) {
+      return { ok: false, error: "correction_not_held" };
+    }
 
     if (latest && isInFlight(latest.status)) {
       return { ok: false, error: "job_in_flight", jobStatus: latest.status };

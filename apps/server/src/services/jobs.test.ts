@@ -18,6 +18,7 @@ import {
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { t } from "@stubwise/i18n";
+import { cancelOpenCorrections } from "@stubwise/notifications";
 import { createTicket } from "../db/tickets.js";
 import { IN_FLIGHT, resolvePlan, revokePlanApproval, startRun, type Actor } from "./jobs.js";
 
@@ -678,6 +679,128 @@ describe("startRun", () => {
       expect(all).toHaveLength(1);
     },
   );
+
+  // --- G5: «Riprendi» dice QUALE correzione (`resumeCorrectionJobId`) -------
+
+  /** Fotografia di job e correzione, per asserire che niente è stato scritto. */
+  async function snapshot(ticketId: string, correctionId: string) {
+    const jobs = await db
+      .select()
+      .from(aiJobs)
+      .where(eq(aiJobs.ticketId, ticketId))
+      .orderBy(asc(aiJobs.createdAt), asc(aiJobs.id));
+    const [corr] = await db.select().from(prCorrections).where(eq(prCorrections.id, correctionId));
+    return { jobs, corr };
+  }
+
+  it("G5 corsa: la correzione held viene ANNULLATA (PR mergiata), poi «Riprendi» → correction_not_held, niente scritto", async () => {
+    const ticketId = await seedTicket();
+    const { correction, job: correctionJob } = await seedCorrectionJob(ticketId, {
+      correctionStatus: "queued",
+      jobStatus: "held",
+    });
+    // La schermata ha letto `heldJobId = correctionJob.id`; intanto la PR è
+    // stata mergiata e il webhook ha annullato la correzione.
+    await cancelOpenCorrections(db, { repositoryId: correction.repositoryId, prNumber: correction.prNumber });
+    const before = await snapshot(ticketId, correction.id);
+    expect(before.corr!.status).toBe("cancelled");
+    expect(before.jobs).toHaveLength(1);
+    expect(before.jobs[0]!.status).toBe("skipped");
+
+    const result = await startRun(db, {
+      ticketId,
+      actor: maintainer,
+      resumeCorrectionJobId: correctionJob.id,
+    });
+
+    expect(result).toEqual({ ok: false, error: "correction_not_held" });
+    // Nessun fix nuovo (prima: un INSERT con manualTrigger true, oltre il budget).
+    expect(await snapshot(ticketId, correction.id)).toEqual(before);
+  });
+
+  it("G5: correzione RICONCILIATA (job failed) → correction_not_held, niente scritto", async () => {
+    const ticketId = await seedTicket();
+    const { correction, job: correctionJob } = await seedCorrectionJob(ticketId, {
+      correctionStatus: "done",
+      jobStatus: "failed",
+    });
+    const before = await snapshot(ticketId, correction.id);
+
+    const result = await startRun(db, {
+      ticketId,
+      actor: maintainer,
+      resumeCorrectionJobId: correctionJob.id,
+    });
+
+    expect(result).toEqual({ ok: false, error: "correction_not_held" });
+    expect(await snapshot(ticketId, correction.id)).toEqual(before);
+  });
+
+  it("G5: l'id di un job che NON è l'ultimo del ticket → correction_not_held, niente scritto", async () => {
+    const ticketId = await seedTicket();
+    const { correction, job: correctionJob } = await seedCorrectionJob(ticketId, {
+      correctionStatus: "queued",
+      jobStatus: "held",
+    });
+    // Un job più recente (un fix concluso) diventa l'ultimo del ticket.
+    await db.insert(aiJobs).values({
+      ticketId,
+      status: "pr_opened",
+      createdAt: new Date(Date.now() + 60_000),
+    });
+    const before = await snapshot(ticketId, correction.id);
+
+    const result = await startRun(db, {
+      ticketId,
+      actor: maintainer,
+      resumeCorrectionJobId: correctionJob.id,
+    });
+
+    expect(result).toEqual({ ok: false, error: "correction_not_held" });
+    expect(await snapshot(ticketId, correction.id)).toEqual(before);
+  });
+
+  it("G5: l'id del job held ancora in piedi → forzata come sempre (stesso job, correctionId intatto)", async () => {
+    const ticketId = await seedTicket();
+    const { correction, job: correctionJob } = await seedCorrectionJob(ticketId, {
+      correctionStatus: "queued",
+      jobStatus: "held",
+    });
+
+    const result = await startRun(db, {
+      ticketId,
+      actor: maintainer,
+      resumeCorrectionJobId: correctionJob.id,
+    });
+
+    expect(result).toEqual({ ok: true, jobId: correctionJob.id, status: "queued" });
+    expect(await readJob(correctionJob.id)).toMatchObject({
+      status: "queued",
+      correctionId: correction.id,
+      manualTrigger: true,
+      planApprovalRequired: false,
+    });
+    expect(await db.select().from(aiJobs).where(eq(aiJobs.ticketId, ticketId))).toHaveLength(1);
+  });
+
+  it("G5: OPERATORE con l'id su una correzione held per BUDGET → needs_maintainer (il permesso resta), niente scritto", async () => {
+    const ticketId = await seedTicket();
+    const { correction, job: correctionJob } = await seedCorrectionJob(ticketId, {
+      correctionStatus: "queued",
+      jobStatus: "held",
+      heldReason: "budget",
+    });
+    const before = await snapshot(ticketId, correction.id);
+
+    const result = await startRun(db, {
+      ticketId,
+      actor: operator,
+      resumeCorrectionJobId: correctionJob.id,
+    });
+
+    expect(result).toEqual({ ok: false, error: "needs_maintainer" });
+    expect(await snapshot(ticketId, correction.id)).toEqual(before);
+  });
 });
 
 describe("startRun — pre-approvazione del piano (fase 7)", () => {

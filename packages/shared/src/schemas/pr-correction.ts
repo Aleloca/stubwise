@@ -85,6 +85,13 @@ export const prCycleSchema = z.object({
   // false la riga dice «la riprende un maintainer». `.default(false)`: campo
   // nuovo, mai obbligatorio (server più vecchio → nessuna promessa).
   canResume: z.boolean().default(false),
+  // QUALE correzione è ferma: l'id del suo job `held`, valorizzato insieme a
+  // `heldReason` (null altrimenti). Il client lo rimanda in
+  // `POST /api/tickets/:id/run-ai` come `resumeCorrectionJobId`, così una
+  // schermata vecchia non trasforma «Riprendi» in un fix nuovo se nel
+  // frattempo la correzione è stata annullata o è finita (409
+  // `correction_not_held`). `.default(null)`: campo nuovo, mai obbligatorio.
+  heldJobId: z.uuid().nullable().default(null),
 });
 export type PrCycle = z.infer<typeof prCycleSchema>;
 

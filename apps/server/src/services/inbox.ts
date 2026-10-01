@@ -537,6 +537,10 @@ async function runDecision(
     });
     if (result.ok) return { ok: true, jobId: result.jobId };
     if (result.error === "needs_maintainer") return { ok: false, error: "forbidden" };
+    // Irraggiungibile: il relaunch dall'inbox non passa `resumeCorrectionJobId`
+    // (è il «Riprendi» della riga del ciclo, G5). Se un giorno lo passasse, il
+    // significato più vicino è «lo stato è cambiato sotto di te» → 409.
+    if (result.error === "correction_not_held") return { ok: false, error: "job_in_flight" };
     return result.error === "ticket_not_found"
       ? { ok: false, error: "not_found" }
       : {

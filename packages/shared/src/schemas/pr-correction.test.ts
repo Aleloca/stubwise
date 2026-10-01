@@ -34,11 +34,19 @@ const CICLO = {
 
 describe("prCycleSchema", () => {
   it("parsa un ciclo completo", () => {
-    expect(prCycleSchema.parse({ ...CICLO, heldReason: "budget", canResume: true })).toEqual({
+    const heldJobId = "55555555-5555-4555-8555-555555555555";
+    expect(prCycleSchema.parse({ ...CICLO, heldReason: "budget", canResume: true, heldJobId })).toEqual({
       ...CICLO,
       heldReason: "budget",
       canResume: true,
+      heldJobId,
     });
+  });
+
+  it("heldJobId ASSENTE (server più vecchio) si legge null: il client riprende senza dire quale", () => {
+    // `CICLO` è senza `heldJobId` apposta.
+    expect(prCycleSchema.parse(CICLO).heldJobId).toBeNull();
+    expect(readerSchema(prCycleSchema).parse(CICLO).heldJobId).toBeNull();
   });
 
   it("heldReason ASSENTE (server più vecchio) si legge null", () => {

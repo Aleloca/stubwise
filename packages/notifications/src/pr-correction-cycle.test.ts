@@ -1311,6 +1311,7 @@ describe("derivePrCycle", () => {
       canRequestCorrection: true,
       heldReason: null,
       canResume: false,
+      heldJobId: null,
     });
   });
 
@@ -1403,6 +1404,7 @@ describe("derivePrCycle", () => {
       // A essere fermo è il FIX, non una correzione: nessun motivo da dire.
       heldReason: null,
       canResume: false,
+      heldJobId: null,
     });
   });
 
@@ -1593,6 +1595,19 @@ describe("D4b — canResume: chi guarda può riprendere la correzione ferma (col
     const pr = await heldCorrection("limit");
     expect((await derivePrCycle(db, { ...pr, viewerRole: "admin" }))?.canResume).toBe(true);
     expect((await derivePrCycle(db, { ...pr, viewerRole: "member" }))?.canResume).toBe(true);
+  });
+
+  it("heldJobId: l'id del job FERMO della correzione, per chiunque guardi; null quando niente è fermo", async () => {
+    const pr = await heldCorrection("budget");
+    const [job] = await jobsOf(pr);
+    expect(job?.status).toBe("held");
+    expect((await derivePrCycle(db, { ...pr, viewerRole: "admin" }))?.heldJobId).toBe(job!.id);
+    // Anche a chi non può riprenderla: è un'identità, non un permesso.
+    expect((await derivePrCycle(db, { ...pr, viewerRole: "member" }))?.heldJobId).toBe(job!.id);
+
+    const running = await seedPr();
+    await seedCorrection(running, { trigger: "provider", status: "queued", login: "anna", jobStatus: "fixing" });
+    expect((await derivePrCycle(db, { ...running, viewerRole: "admin" }))?.heldJobId).toBeNull();
   });
 
   it("senza viewerRole vale il più restrittivo (member)", async () => {

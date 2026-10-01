@@ -1511,6 +1511,54 @@ describe("POST /api/tickets/:id/run-ai", () => {
     expect(job).toMatchObject({ status: "queued", manualTrigger: true, correctionId: correction!.id });
   });
 
+  it("G5: «Riprendi» con resumeCorrectionJobId su una correzione non più held → 409 correction_not_held, nessun job nuovo; un id non uuid → 400", async () => {
+    const created = (await postTicket({ projectId, title: "Run AI riprendi superata", type: "bug" })).json() as {
+      id: string;
+    };
+    const [correction] = await testDb.db
+      .insert(prCorrections)
+      .values({
+        ticketId: created.id,
+        repositoryId: repoForProject.get(projectId)!,
+        prNumber: 9101,
+        trigger: "review",
+        status: "cancelled",
+      })
+      .returning();
+    const [skipped] = await testDb.db
+      .insert(aiJobs)
+      .values({ ticketId: created.id, status: "skipped", correctionId: correction!.id, manualTrigger: false })
+      .returning();
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${created.id}/run-ai`,
+      headers: { cookie: users.adminCookie },
+      payload: { resumeCorrectionJobId: skipped!.id },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toMatchObject({ code: "correction_not_held" });
+    const jobs = await testDb.db.select().from(aiJobs).where(eq(aiJobs.ticketId, created.id));
+    expect(jobs).toEqual([skipped]);
+
+    const bad = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${created.id}/run-ai`,
+      headers: { cookie: users.adminCookie },
+      payload: { resumeCorrectionJobId: "non-un-uuid" },
+    });
+    expect(bad.statusCode).toBe(400);
+
+    // Senza il campo, lo stesso rilancio è quello di sempre: un fix NUOVO.
+    const plain = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${created.id}/run-ai`,
+      headers: { cookie: users.adminCookie },
+    });
+    expect(plain.statusCode).toBe(202);
+    expect((plain.json() as { jobId: string }).jobId).not.toBe(skipped!.id);
+  });
+
   it("rimette in coda l'ultimo job con manual_trigger, azzerando started/finished/error", async () => {
     const created = (await postTicket({ projectId, title: "Run AI esistente", type: "bug" })).json() as {
       id: string;

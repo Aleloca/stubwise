@@ -8,6 +8,7 @@ import {
   ticketStatusSchema,
   answerQuestionResultSchema,
   planDecisionResultSchema,
+  runAiBodySchema,
   runAiResultSchema,
   ticketQuestionsSchema,
   ticketTypeSchema,
@@ -1357,17 +1358,14 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         params: idParamsSchema,
         // nullish (non optional): fastify-type-provider-zod passa `null` quando
         // la POST arriva senza corpo, e un `.optional()` puro lo rifiuterebbe.
-        body: z
-          .object({
-            withInstructions: z.boolean().optional(),
-            // "ai_plan" forza il flusso normale (triage/pianificazione) anche se
-            // il ticket ha un piano salvato: l'unico valore ammesso.
-            mode: z.literal("ai_plan").optional(),
-          })
-          .nullish(),
+        // Lo schema sta in @stubwise/shared (`runAiBodySchema`): lo stesso
+        // che i client usano per sapere cosa possono mandare.
+        body: runAiBodySchema.nullish(),
         response: {
           202: runAiResultSchema,
+          // 403 `needs_maintainer` (in authErrorResponses)
           404: errorSchema,
+          // 409 `job_in_flight` | `correction_not_held`
           409: errorSchema,
           ...authErrorResponses,
         },
@@ -1379,6 +1377,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         actor: request.user!,
         mode: request.body?.mode,
         withInstructions: request.body?.withInstructions,
+        resumeCorrectionJobId: request.body?.resumeCorrectionJobId,
         // Serve al link della notifica job.plan_review quando il run di un
         // operator nasce già parcheggiato sul gate del piano.
         publicUrl: publicUrlOrUndefined(app),
@@ -1393,6 +1392,14 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
             403,
             "needs_maintainer",
             "This correction is on hold for the budget: a maintainer can resume it",
+          );
+        }
+        if (result.error === "correction_not_held") {
+          return apiError(
+            reply,
+            409,
+            "correction_not_held",
+            "This correction is no longer on hold: reload the ticket",
           );
         }
         return apiError(

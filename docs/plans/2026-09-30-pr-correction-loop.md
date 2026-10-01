@@ -490,6 +490,20 @@ Contratto aggiunto con i fix della revisione di fine tappa B:
   job, `correctionId` intatto, `manualTrigger: correctionManualTrigger(actor.role)`
   — **E7**: solo un admin scavalca il budget —, niente gate del piano); ultimo
   job di una correzione terminale → INSERT di un fix nuovo.
+- **G5**: il body di `POST /api/tickets/:id/run-ai` è `runAiBodySchema`
+  (`@stubwise/shared`, `schemas/ticket.ts`: `withInstructions?`, `mode?`,
+  `resumeCorrectionJobId?` uuid, tutti opzionali) `.nullish()`. Con
+  `resumeCorrectionJobId`, `startRun` (sotto il lock del ticket, prima di ogni
+  scrittura) richiede che l'ultimo job sia ESATTAMENTE quello, con
+  `correctionId` valorizzato e `status = 'held'`; altrimenti
+  `{ ok: false, error: "correction_not_held" }` → **409**
+  `correction_not_held` via `apiError`, nessuna riga scritta. Se combacia, la
+  forzatura di sempre (403 `needs_maintainer` compreso). Senza il campo:
+  invariato. L'inbox (relaunch) non lo passa.
+- **G5**: `prCycleSchema.heldJobId` (`z.uuid().nullable().default(null)`,
+  additivo): l'id del job `held` della correzione ferma, valorizzato da
+  `derivePrCycle` insieme a `heldReason`. È ciò che il client rimanda come
+  `resumeCorrectionJobId`.
 - **E7**: `requestCorrection` passa `actorRole: actor.role` a `enqueueCorrection`;
   il dettaglio ticket chiama `derivePrCycle` con `viewerRole` = ruolo di chi
   chiede (`cycle.canResume`).
@@ -760,6 +774,41 @@ budget mensile: è una decisione di SPESA, e come l'approvazione del piano
   `!canResume` la frase è «ferma: budget esaurito · la riprende un
   maintainer». **G2**: la guida dice che a budget esaurito la riprende un
   maintainer.
+
+**G5 — «Riprendi» dice quale correzione, e non diventa un fix (1 ott 2026).**
+Un admin preme *Run AI* per riprendere una correzione `held` da una schermata
+vecchia; nel frattempo la correzione è stata annullata (PR mergiata → job
+`skipped`) o riconciliata (job `failed`). Prima `startRun` trovava un job di
+correzione TERMINALE e avviava un FIX COMPLETO NUOVO, con `manualTrigger` true
+e quindi oltre il budget.
+- **Già applicato** (commit «feat(server): "Riprendi" dice quale correzione, e
+  non diventa un fix»): `runAiBodySchema` in `@stubwise/shared`
+  (`schemas/ticket.ts`, nessun import nuovo: il ciclo fra gli schemi non si
+  riforma, `load-isolated.test.ts` verde) con `resumeCorrectionJobId`
+  opzionale; `StartRunInput.resumeCorrectionJobId` e l'esito
+  `correction_not_held` (rotta → 409 via `apiError`; inbox → irraggiungibile,
+  mappato su `job_in_flight` per esaustività); `prCycleSchema.heldJobId`
+  derivato da `derivePrCycle`. Test in `jobs.test.ts` (corsa con
+  `cancelOpenCorrections`, riconciliata, id non ultimo, caso felice, member su
+  budget → `needs_maintainer`), in `tickets.test.ts` (409 dalla rotta, 400 su
+  un id non uuid, senza campo → fix nuovo come prima) e in
+  `pr-correction-cycle.test.ts` (`heldJobId` per entrambi i ruoli, null se
+  niente è fermo).
+- **E1 / F1**: `postRunAi` (web) e `tickets.runAi` (api-client) accettano
+  `resumeCorrectionJobId?: string` nelle opzioni.
+- **E2 / F2**: chiave `cycle.correctionNotHeld` — en: `"This correction is no
+  longer on hold: the ticket has been reloaded"`; it: `"Questa correzione non è
+  più ferma: il ticket è stato ricaricato"`.
+- **E3–E5 / F2–F6**: quando il bottone di run-ai del ticket serve a RIPRENDERE
+  una correzione ferma — c'è un ciclo con `heldReason` non null e
+  `canResume` — il client manda `resumeCorrectionJobId: cycle.heldJobId`. Il
+  web legge `cycle.heldJobId ?? null` (cast, non parse): se è null (server
+  vecchio) manda la richiesta senza il campo, come oggi. Su 409 con `code:
+  "correction_not_held"` (letto dal `code`, non dallo status: anche
+  `job_in_flight` è 409) mostra `correctionNotHeld` e invalida/ricarica il
+  ticket. Il client NON ricostruisce la condizione: è il server a decidere se
+  quel job è ancora quello fermo. Fixture: sul web almeno una SENZA
+  `heldJobId`; sull'app tutte complete col campo.
 
 ## Tappa A — Fondamenta dati
 
@@ -17562,6 +17611,16 @@ invariato. Test negativo sul valore in colonna (job e correzione identici),
 col verso positivo dell'admin sugli stessi dati, in `jobs.test.ts` e nella
 rotta (`tickets.test.ts`).
 
+**G5, ritocco (`resumeCorrectionJobId`)**: il caso 1 si può chiedere
+ESPLICITAMENTE. Con `resumeCorrectionJobId` nel body di run-ai, `startRun`
+(sotto il lock, prima di ogni scrittura e prima del controllo `job_in_flight`)
+richiede che l'ultimo job sia quello, con `correctionId` e `status = 'held'`;
+altrimenti 409 `correction_not_held` e niente scritto — non si scivola nel
+caso 2, che dopo una correzione annullata o riconciliata avvierebbe un fix
+nuovo oltre il budget. Combaciando, la forzatura del caso 1 con le stesse
+regole (403 `needs_maintainer`, `correctionManualTrigger`, UPDATE guardato su
+`status` e `heldReason`). Vedi l'emendamento G5.
+
 **Step 3: verifica e commit**
 
 ```bash
@@ -20421,6 +20480,11 @@ Atteso: parità PASS.
 > resta SENZA il campo. MAI dedurlo dal ruolo dell'utente nel client.
 > Se run-ai risponde 403 con `code: "needs_maintainer"` (letto da `ApiError`,
 > non dallo status), il web mostra `tickets:cycle.needsMaintainer`.
+>
+> ⚠️ **G5**: la ripresa di una correzione ferma manda
+> `resumeCorrectionJobId: cycle.heldJobId ?? null` (omesso se null); un 409 con
+> `code: "correction_not_held"` → `tickets:cycle.correctionNotHeld` e ricarica
+> del ticket. Fixture di almeno un test SENZA `heldJobId`.
 
 Stessa forma di `lib/pulse-line.ts`: la funzione decide CHIAVI e parametri,
 il componente traduce. È il gemello deliberato di quello che l'app avrà in
@@ -21916,6 +21980,11 @@ git commit -m "feat(api-client): chiedere la correzione di una PR e leggere il c
 > valore lo calcola il server: MAI dal ruolo dell'utente nell'app. Un 403
 > `needs_maintainer` da run-ai → `mobile.work.pr.cycle.needsMaintainer`
 > (stessi testi di E2), letto dal `code` dell'errore.
+>
+> ⚠️ **G5**: la ripresa manda `resumeCorrectionJobId: cycle.heldJobId`
+> (`tickets.runAi`, F1); un 409 `correction_not_held` →
+> `mobile.work.pr.cycle.correctionNotHeld` (stessi testi di E2) e
+> invalidazione del ticket. Fixture dei test dell'app complete con `heldJobId`.
 
 **Files:**
 - Modify: `apps/mobile/src/i18n/it.json`, `apps/mobile/src/i18n/en.json`

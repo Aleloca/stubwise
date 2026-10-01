@@ -1112,6 +1112,7 @@ export async function derivePrCycle(
       updatedAt: prCorrections.updatedAt,
       login: prCorrections.requestedByProviderLogin,
       email: users.email,
+      jobId: aiJobs.id,
       jobStatus: aiJobs.status,
       jobHeldReason: aiJobs.heldReason,
     })
@@ -1206,5 +1207,9 @@ export async function derivePrCycle(
     canRequestCorrection: prOpen && !queued && !jobBusy,
     heldReason,
     canResume: canResumeCorrection(heldReason, input.viewerRole ?? "member"),
+    // Insieme a `heldReason`: l'id che «Riprendi» rimanda a run-ai
+    // (`resumeCorrectionJobId`), perché il server forzi QUESTA correzione e
+    // nessun'altra cosa.
+    heldJobId: heldReason !== null ? (queuedRow?.jobId ?? null) : null,
   };
 }

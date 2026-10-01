@@ -216,6 +216,28 @@ export const answerQuestionResultSchema = z.object({ jobId: z.uuid(), questionId
 export type AnswerQuestionResult = z.infer<typeof answerQuestionResultSchema>;
 
 /**
+ * Corpo di `POST /api/tickets/:id/run-ai`. Tutti i campi sono OPZIONALI: un
+ * client vecchio che non ne conosce uno continua a funzionare (verso l'app
+ * mobile si cresce solo per aggiunta, anche nelle richieste — CLAUDE.md).
+ *
+ * `resumeCorrectionJobId` dice QUALE correzione ferma si vuole riprendere: il
+ * job `held` che la schermata mostrava (`cycle.heldJobId`). Il server lo
+ * forza SOLO se è ancora l'ultimo job del ticket, di una correzione, e ancora
+ * `held`; altrimenti 409 `correction_not_held`, senza scrivere niente. Senza
+ * il campo il rilancio è quello di sempre — e su una correzione nel frattempo
+ * annullata o conclusa partirebbe un fix nuovo, cioè ciò che una schermata
+ * vecchia con «Riprendi» non deve poter chiedere.
+ */
+export const runAiBodySchema = z.object({
+  withInstructions: z.boolean().optional(),
+  // "ai_plan" forza il flusso normale (triage/pianificazione) anche se il
+  // ticket ha un piano salvato: l'unico valore ammesso.
+  mode: z.literal("ai_plan").optional(),
+  resumeCorrectionJobId: z.uuid().optional(),
+});
+export type RunAiBody = z.infer<typeof runAiBodySchema>;
+
+/**
  * Esito (202) dell'avvio manuale dell'AI su un ticket. `status` distingue i due
  * modi in cui un run può nascere: in coda, oppure GIÀ fermo sul gate di
  * approvazione — un run chiesto da un operatore su un ticket con piano salvato.
