@@ -265,7 +265,11 @@
     "plugin_not_ready": "Il plugin non ha una revisione materializzata su cui eseguire lo smoke",
     "plugin_in_use": "Plugin abilitato su almeno un progetto: disabilitalo lì prima di rimuoverlo",
     "network_error": "Impossibile contattare il server",
-    "generic": "Qualcosa è andato storto"
+    "generic": "Qualcosa è andato storto",
+    "default_reviewer_conflict": "Nello stesso momento è stato impostato un altro revisore predefinito per questa piattaforma/workspace: ricarica la pagina e riprova",
+    "default_reviewer_workspace_locked": "Questo account è il revisore predefinito: togli il predefinito prima di cambiarne il workspace",
+    "default_reviewer_workspace_missing": "Un revisore predefinito Bitbucket ha bisogno di un workspace: impostalo prima sull'account",
+    "default_reviewer_invalid": "L'account non ha superato i controlli che servono a un revisore. {{detail}}"
   },
   "auth": {
     "shell": {
@@ -968,7 +972,21 @@
       "delete": "Elimina",
       "confirm": "Conferma",
       "validationError": "Errore di validazione",
-      "inUse": "Account usato da uno o più progetti: scollegalo prima di eliminarlo"
+      "inUse": "Account usato da uno o più progetti: scollegalo prima di eliminarlo",
+      "defaultReviewer": "Revisore predefinito",
+      "defaultReviewerHint": "Le repository di questa piattaforma (su Bitbucket: di questo workspace) senza un account revisore proprio usano questo.",
+      "defaultReviewerReplaceConfirm": "Sostituisce {{name}} come revisore predefinito.",
+      "defaultReviewerConfirm": "Sostituisci",
+      "defaultReviewerSaving": "Salvataggio…",
+      "defaultReviewerSet": "Ora è il revisore predefinito.",
+      "defaultReviewerReplaced": "Ora è il revisore predefinito, al posto di {{name}}.",
+      "defaultReviewerRemoved": "Non è più il revisore predefinito.",
+      "defaultReviewerWarningsTitle": "Impostato, ma su queste repository non farà la review:",
+      "defaultReviewerWarningUnknown": "verifica non superata ({{code}})",
+      "defaultReviewerWarning": {
+        "default_is_main": "è l'account principale di questa repository, quindi qui il predefinito non si applica",
+        "review_account_invalid": "non ha superato i controlli sulla repository"
+      }
     },
     "storage": {
       "title": "Storage (S3)",
@@ -1773,7 +1791,8 @@
       "status": "Stato",
       "webhookConfiguredAt": "✓ Webhook configurato il {{date}}",
       "webhookNotConfigured": "— Webhook non configurato",
-      "readOnlyHint": "// sola lettura: la configurazione la modificano i maintainer"
+      "readOnlyHint": "// sola lettura: la configurazione la modificano i maintainer",
+      "defaultReviewInvalidWarning": "Salvato, ma il revisore predefinito non supera i controlli su questa repository: la review sarà un commento dell'account principale, senza verdetto. Dagli l'accesso in scrittura, oppure scegli un account revisore."
     },
     "form": {
       "name": "Nome",
@@ -1781,7 +1800,6 @@
       "repoUrl": "URL repository",
       "gitAccount": "Account git",
       "reviewAccount": "Account revisore (facoltativo)",
-      "reviewAccountNone": "Nessuno — la review commenta con l'account principale",
       "reviewAccountInvalid": "{{name}} — non più valido: provider/workspace diverso",
       "reviewAccountHint": "Un secondo account sulla stessa piattaforma che approva o chiede modifiche sulle PR di Stubwise. Deve essere diverso da quello principale e avere accesso in scrittura al repository.",
       "credentialsHint": "// le credenziali vivono sull'account: gestiscile in Settings → Account Git.",
@@ -1792,7 +1810,11 @@
       "graph": "Knowledge graph del codice",
       "graphHint": "// estrae il grafo del codice a ogni push sul branch di default; lo trovi nella tab \"Grafo\" della documentazione.",
       "save": "Salva modifiche",
-      "saving": "Salvataggio…"
+      "saving": "Salvataggio…",
+      "reviewAccountDefaultOption": "Predefinito — il revisore predefinito, se c'è",
+      "reviewEffectiveDefault": "Revisore: predefinito ({{name}})",
+      "reviewEffectiveSkipped": "Revisore: nessuno — il predefinito ({{name}}) è l'account principale di questa repository",
+      "reviewEffectiveNone": "Revisore: nessuno — la review commenta con l'account principale"
     },
     "wizard": {
       "name": "Nome",

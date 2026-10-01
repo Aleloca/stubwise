@@ -151,6 +151,10 @@ describe("dettaglio repository", () => {
     // `makeRepo()` non ha `reviewGitAccountId`: il revisore resta «nessuno» e
     // il PATCH (che cambia solo il nome) non lo manda.
     expect(screen.getByLabelText("Review account (optional)")).toHaveValue("");
+    // …e non ha nemmeno i campi DERIVATI del revisore effettivo: il dettaglio
+    // li passa `?? null` e il form dice «nessuno», senza eccezioni.
+    expect("effectiveReviewAccount" in makeRepo()).toBe(false);
+    expect(screen.getByText(/^Reviewer: none/)).toBeInTheDocument();
     expect(patchBody).toEqual({
       name: "Demo Shop EU",
       repoUrl: "https://github.com/acme/demo-shop",
@@ -227,7 +231,11 @@ describe("dettaglio repository", () => {
     );
   });
 
-  function mockDetailWithWarning(repo: Repository, account: GitAccount) {
+  function mockDetailWithWarning(
+    repo: Repository,
+    account: GitAccount,
+    warnings: string[] = ["main_account_identity_unresolved"],
+  ) {
     mockApi({
       "GET /api/auth/me": meHandler("admin"),
       "GET /api/repositories/demo-shop": () => jsonResponse(200, repo),
@@ -239,7 +247,7 @@ describe("dettaglio repository", () => {
       "GET /api/repositories/demo-shop/webhook": () =>
         jsonResponse(200, { webhookSecret: "s3cr3t", webhookPath: "/webhooks/git/demo-shop" }),
       "PATCH /api/repositories/demo-shop": () =>
-        jsonResponse(200, { ...repo, warnings: ["main_account_identity_unresolved"] }),
+        jsonResponse(200, { ...repo, warnings }),
     });
   }
 
@@ -262,6 +270,24 @@ describe("dettaglio repository", () => {
     expect(await screen.findByText("Changes saved.")).toBeInTheDocument();
     expect(screen.getByText(/can't read who the main account is/)).toBeInTheDocument();
     expect(screen.getByText(/read:user:bitbucket/)).toBeInTheDocument();
+  });
+
+  it("admin: il PATCH avvisa che il revisore PREDEFINITO non supera i controlli", async () => {
+    const user = userEvent.setup();
+    const repo = makeRepo({
+      effectiveReviewAccount: { id: ACCOUNT_B.id, name: "pr-bot", source: "default" },
+    });
+    mockDetailWithWarning(repo, ACCOUNT, ["default_review_account_invalid"]);
+
+    renderApp("/repositories/demo-shop");
+    await screen.findByLabelText("Name");
+    expect(screen.getByText("Reviewer: default (pr-bot)")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    // Non bloccante: salvato E avvisato — e solo quell'avviso, non quello del principale.
+    expect(await screen.findByText("Changes saved.")).toBeInTheDocument();
+    expect(screen.getByText(/the default reviewer doesn't pass the checks/)).toBeInTheDocument();
+    expect(screen.queryByText(/can't read who the main account is/)).not.toBeInTheDocument();
   });
 
   it("admin: su GitHub l'avviso non nomina lo scope di Bitbucket", async () => {

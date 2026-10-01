@@ -571,6 +571,14 @@ describe("RepositoryForm — account revisore (ciclo di correzione)", () => {
     );
   });
 
+  it("l'opzione vuota del select è «Predefinito», non più «Nessuno»", async () => {
+    mockAccounts([ACCOUNT_A, ACCOUNT_C]);
+    await renderForm({ onSubmit: vi.fn() });
+
+    const select = screen.getByLabelText("Review account (optional)") as HTMLSelectElement;
+    expect(select.options[0]!.textContent).toBe(en.repositories.form.reviewAccountDefaultOption);
+  });
+
   // Ogni `code` che il PATCH può restituire ha un testo proprio: il `message`
   // del server (inglese, tecnico) è diverso apposta, così l'asserzione prova
   // la traduzione del code e non l'eco del message.
@@ -616,5 +624,81 @@ describe("RepositoryForm — account revisore (ciclo di correzione)", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "The review account failed the checks on the repository. missing pullrequest:write",
     );
+  });
+});
+
+/**
+ * Il revisore EFFETTIVO sotto il select vuoto (D8): lo deriva il SERVER
+ * (`effectiveReviewAccount` / `skippedDefaultReviewAccount`), il form lo legge
+ * e basta. La fixture `initial` resta SENZA i due campi: è la prova che la
+ * lettura `?? null` regge un server più vecchio (il web fa un cast).
+ */
+describe("RepositoryForm — revisore effettivo (predefinito)", () => {
+  const PR_BOT = { id: "77777777-7777-4777-8777-777777777777", name: "pr-bot" };
+
+  it("predefinito effettivo e select vuoto: «Revisore: predefinito (pr-bot)»", async () => {
+    // La lista degli account dice ALTRO (C marcato predefinito): il nome viene
+    // dal campo derivato, mai ridedotto dalla lista nel client.
+    mockAccounts([ACCOUNT_A, { ...ACCOUNT_C, isDefaultReviewer: true }]);
+    await renderForm({
+      onSubmit: vi.fn(),
+      initial: { ...initial, effectiveReviewAccount: { ...PR_BOT, source: "default" } },
+    });
+
+    expect(screen.getByText("Reviewer: default (pr-bot)")).toBeInTheDocument();
+    expect(screen.queryByText(/GitHub Review/, { selector: "p" })).not.toBeInTheDocument();
+  });
+
+  it("fixture SENZA i campi nuovi: «Revisore: nessuno», nessuna eccezione", async () => {
+    mockAccounts([ACCOUNT_A, ACCOUNT_C]);
+    expect("effectiveReviewAccount" in initial).toBe(false);
+    expect("skippedDefaultReviewAccount" in initial).toBe(false);
+    await renderForm({ onSubmit: vi.fn() });
+
+    expect(screen.getByText(en.repositories.form.reviewEffectiveNone)).toBeInTheDocument();
+  });
+
+  it("predefinito saltato perché è il principale: lo dice", async () => {
+    mockAccounts([ACCOUNT_A, ACCOUNT_C]);
+    await renderForm({
+      onSubmit: vi.fn(),
+      initial: {
+        ...initial,
+        effectiveReviewAccount: null,
+        skippedDefaultReviewAccount: { id: ACCOUNT_A.id, name: "GitHub Demo" },
+      },
+    });
+
+    expect(
+      screen.getByText("Reviewer: none — the default (GitHub Demo) is the main account of this repository"),
+    ).toBeInTheDocument();
+  });
+
+  it("revisore esplicito salvato: nessuna scritta del predefinito", async () => {
+    mockAccounts([ACCOUNT_A, ACCOUNT_C]);
+    await renderForm({
+      onSubmit: vi.fn(),
+      initial: {
+        ...initial,
+        reviewGitAccountId: ACCOUNT_C.id,
+        effectiveReviewAccount: { id: ACCOUNT_C.id, name: ACCOUNT_C.name, source: "explicit" },
+      },
+    });
+
+    expect(screen.queryByText(/^Reviewer:/)).not.toBeInTheDocument();
+  });
+
+  it("principale cambiato nel form senza salvare: la scritta si nasconde (descrive lo stato SALVATO)", async () => {
+    const user = userEvent.setup();
+    mockAccounts([ACCOUNT_A, ACCOUNT_C, ACCOUNT_F]);
+    await renderForm({
+      onSubmit: vi.fn(),
+      initial: { ...initial, effectiveReviewAccount: { ...PR_BOT, source: "default" } },
+    });
+    expect(screen.getByText("Reviewer: default (pr-bot)")).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText("Git account"), ACCOUNT_C.id);
+
+    expect(screen.queryByText(/^Reviewer:/)).not.toBeInTheDocument();
   });
 });

@@ -1,7 +1,7 @@
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
-import type { RepositoryPatch } from "../lib/api";
+import type { Repository, RepositoryPatch } from "../lib/api";
 import { deriveFullName } from "../lib/format";
 import { gitAccountsQueryOptions } from "../lib/queries";
 import { translateApiError } from "../lib/translate-api-error";
@@ -26,6 +26,14 @@ interface RepositoryInitialValues {
    * NON parsa (cast), quindi da un server più vecchio arriva `undefined`.
    */
   reviewGitAccountId?: string | null;
+  /**
+   * Revisore EFFETTIVO e predefinito saltato, DERIVATI dal server (D8): il
+   * form li legge per la scritta sotto il select vuoto, non li ricalcola.
+   * Opzionali per la stessa ragione di `reviewGitAccountId`: si leggono
+   * `?? null`.
+   */
+  effectiveReviewAccount?: Repository["effectiveReviewAccount"];
+  skippedDefaultReviewAccount?: Repository["skippedDefaultReviewAccount"];
 }
 
 interface RepositoryFormProps {
@@ -85,6 +93,21 @@ export function RepositoryForm({ initial, onSubmit }: RepositoryFormProps) {
     !reviewIsCandidate && !mainChanged && reviewGitAccountId !== "" && reviewGitAccountId === storedReview;
   const effectiveReview = reviewIsCandidate || keepsInvalidStored ? reviewGitAccountId : "";
   const invalidStoredAccount = accounts.find((account) => account.id === storedReview);
+  // Chi fa la review quando il select è vuoto: lo dice il SERVER (D8), dallo
+  // stato SALVATO. Il client non lo deduce dalla lista degli account (che sa
+  // del flag `isDefaultReviewer`, ma non della regola che lo applica), quindi
+  // la scritta compare solo se il form descrive ancora lo stato salvato: select
+  // vuoto, nessun revisore esplicito salvato, principale non cambiato qui.
+  // `?? null`: il web fa un cast, e un server più vecchio non manda i campi.
+  const savedEffective = initial.effectiveReviewAccount ?? null;
+  const savedSkipped = initial.skippedDefaultReviewAccount ?? null;
+  const showsSavedReviewer = effectiveReview === "" && storedReview === "" && !mainChanged;
+  const effectiveReviewText =
+    savedEffective?.source === "default"
+      ? t("repositories:form.reviewEffectiveDefault", { name: savedEffective.name })
+      : savedSkipped
+        ? t("repositories:form.reviewEffectiveSkipped", { name: savedSkipped.name })
+        : t("repositories:form.reviewEffectiveNone");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
@@ -188,7 +211,7 @@ export function RepositoryForm({ initial, onSubmit }: RepositoryFormProps) {
         onChange={(event) => setReviewGitAccountId(event.target.value)}
         aria-describedby="repository-review-account-hint"
         options={[
-          { value: "", label: t("repositories:form.reviewAccountNone") },
+          { value: "", label: t("repositories:form.reviewAccountDefaultOption") },
           ...reviewCandidates.map((account) => ({
             value: account.id,
             label: `${account.name} (${account.provider})`,
@@ -207,6 +230,11 @@ export function RepositoryForm({ initial, onSubmit }: RepositoryFormProps) {
             : []),
         ]}
       />
+      {showsSavedReviewer && (
+        <p data-testid="repository-effective-reviewer" className="-mt-1 font-mono text-[12px] text-fg-muted">
+          {effectiveReviewText}
+        </p>
+      )}
       <p id="repository-review-account-hint" className="-mt-1 font-mono text-[11px] text-fg-faint">
         {t("repositories:form.reviewAccountHint")}
       </p>
