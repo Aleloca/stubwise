@@ -148,6 +148,11 @@ export const projectSchema = z.object({
   // telefono. Il server continua a emetterlo sempre; il default serve al
   // lettore. Vedi `project.test.ts` qui accanto.
   weeklyBriefEnabled: z.boolean().default(false),
+  // Tetto delle correzioni AUTOMATICHE per tornata del ciclo review →
+  // correzione (30 set 2026): 0 = ciclo automatico spento (le correzioni
+  // manuali funzionano comunque). Range 0..10 = il CHECK della migrazione.
+  // `.default(3)` per l'app installata, come `weeklyBriefEnabled`.
+  prCorrectionMaxRounds: z.number().int().min(0).max(10).default(3),
   // Chiave di ingestion del progetto: gli SDK la usano per inviare errori e
   // feedback (l'ingestion è di prodotto, non di repo — Fase 3).
   ingestionKey: z.string().min(1),
@@ -191,6 +196,8 @@ export const updateProjectSchema = z.object({
   // CHECK del DB (che resta l'arbitro per chi scrive senza passare da qui).
   pulseEveryDays: z.number().int().min(1).max(30).optional(),
   weeklyBriefEnabled: z.boolean().optional(),
+  // Fuori da 0..10 il PATCH è un 400 di validazione.
+  prCorrectionMaxRounds: z.number().int().min(0).max(10).optional(),
 });
 export type UpdateProjectInput = z.infer<typeof updateProjectSchema>;
 

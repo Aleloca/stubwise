@@ -85,6 +85,28 @@ describe("projectSchema: campi della fase 5 verso un server più vecchio", () =>
 });
 
 /**
+ * STESSA REGOLA, campo nuovo: il tetto del ciclo di correzione (30 set 2026).
+ * Un server senza il ciclo non manda `prCorrectionMaxRounds`: l'app lo legge
+ * col default 3, e il parse della lista non salta.
+ */
+describe("projectSchema.prCorrectionMaxRounds verso un server più vecchio (30 set 2026)", () => {
+  it("un progetto senza il tetto si legge col default 3", () => {
+    expect(readerSchema(projectSchema).parse(progettoSenzaFase5()).prCorrectionMaxRounds).toBe(3);
+  });
+
+  it("anche nella LISTA progetti", () => {
+    const parsed = readerSchema(projectListItemSchema).parse({ ...progettoSenzaFase5(), repositoryCount: 1 });
+    expect(parsed.prCorrectionMaxRounds).toBe(3);
+  });
+
+  it("0 (ciclo spento) si legge verbatim", () => {
+    expect(
+      readerSchema(projectSchema).parse(progettoSenzaFase5({ prCorrectionMaxRounds: 0 })).prCorrectionMaxRounds,
+    ).toBe(0);
+  });
+});
+
+/**
  * STESSA REGOLA, campo nuovo: il quarto secchio del polso (21 set 2026).
  *
  * `projectPulseSummarySchema` è la risposta di `GET /api/projects/pulse`, la

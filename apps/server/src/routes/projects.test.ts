@@ -86,6 +86,8 @@ describe("POST /api/projects", () => {
       pulseEveryDays: 3,
       // Brief settimanale (fase 5): spento, e indipendente dal backlog.
       weeklyBriefEnabled: false,
+      // Ciclo di correzione (30 set 2026): tre correzioni automatiche per tornata.
+      prCorrectionMaxRounds: 3,
       // Fase 3: il progetto nasce con la chiave di ingestion (32 hex) e il
       // contatore ticket per-progetto a 1.
       ingestionKey: expect.stringMatching(/^[0-9a-f]{32}$/),
@@ -1626,5 +1628,54 @@ describe("regole di routing della posta", () => {
       });
       expect(res.statusCode).toBe(404);
     });
+  });
+});
+
+describe("PATCH prCorrectionMaxRounds (ciclo di correzione, 30 set 2026)", () => {
+  it("l'admin lo porta a 0 (ciclo automatico spento) e la GET lo rilegge", async () => {
+    const created = await createProject({ name: `Tetto ${randomBytes(3).toString("hex")}` });
+    const id = (created.json() as { id: string }).id;
+
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/projects/${id}`,
+      headers: { cookie: adminCookie },
+      payload: { prCorrectionMaxRounds: 0 },
+    });
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { prCorrectionMaxRounds: number }).prCorrectionMaxRounds).toBe(0);
+
+    const get = await app.inject({ method: "GET", url: `/api/projects/${id}`, headers: { cookie: memberCookie } });
+    expect((get.json() as { prCorrectionMaxRounds: number }).prCorrectionMaxRounds).toBe(0);
+  });
+
+  it("fuori range: 400, valore invariato", async () => {
+    const created = await createProject({ name: `Tetto ${randomBytes(3).toString("hex")}` });
+    const id = (created.json() as { id: string }).id;
+
+    for (const value of [-1, 11, 2.5]) {
+      const res = await app.inject({
+        method: "PATCH",
+        url: `/api/projects/${id}`,
+        headers: { cookie: adminCookie },
+        payload: { prCorrectionMaxRounds: value },
+      });
+      expect(res.statusCode).toBe(400);
+    }
+    const [row] = await testDb.db.select().from(projects).where(eq(projects.id, id));
+    expect(row!.prCorrectionMaxRounds).toBe(3);
+  });
+
+  it("un member non può cambiarlo: 403", async () => {
+    const created = await createProject({ name: `Tetto ${randomBytes(3).toString("hex")}` });
+    const id = (created.json() as { id: string }).id;
+
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/projects/${id}`,
+      headers: { cookie: memberCookie },
+      payload: { prCorrectionMaxRounds: 5 },
+    });
+    expect(res.statusCode).toBe(403);
   });
 });
