@@ -1,5 +1,5 @@
 import { gitAccounts, repositories } from "@stubwise/db";
-import type { GitProviderKind } from "@stubwise/shared";
+import { reviewScopeKey, type GitProviderKind } from "@stubwise/shared";
 import { and, eq, exists, inArray, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { DbOrTx } from "./dispatch.js";
@@ -43,25 +43,12 @@ type ViewKey = (typeof REVIEW_ACCOUNT_VIEW_KEYS)[number];
 export type ReviewAccountView = Pick<GitAccountRow, ViewKey>;
 
 /**
- * L'AMBITO di un account per il revisore predefinito (D1):
- * `(provider, workspace se Bitbucket altrimenti '')`.
- *
- * ⚠️ Gemello dell'indice `git_accounts_default_reviewer_scope_uq` della
- * migrazione 0082 (`packages/db/drizzle/0082_default_reviewer.sql`):
- * `(provider, CASE WHEN provider = 'bitbucket' THEN COALESCE(workspace, '') ELSE '' END)`.
- * Chi cambia l'uno cambia l'altro: `review-account.test.ts` verifica contro il
- * Postgres vero che l'indice rifiuti due predefiniti ESATTAMENTE quando questa
- * funzione li mette nello stesso ambito. Su GitHub il workspace non significa
- * niente (come in `checkReviewAccount`), quindi non entra nella chiave; su
- * Bitbucket un workspace NULL vale come '' (la COALESCE).
- *
- * La chiave è una stringa solo per confrontarla: il separatore `\u0000` non può
- * comparire in un nome di provider, quindi due ambiti diversi non collidono.
+ * L'AMBITO di un account per il revisore predefinito (D1). La regola vive in
+ * `@stubwise/shared` (`review-scope.ts`), pura, perché la usa anche la SPA; qui
+ * si ri-esporta, così chi la importava da notifications non cambia import.
+ * L'accordo con l'indice della 0082 resta verificato in `review-account.test.ts`.
  */
-export function reviewScopeKey(a: { provider: GitProviderKind; workspace: string | null }): string {
-  const workspace = a.provider === "bitbucket" ? (a.workspace ?? "") : "";
-  return `${a.provider}\u0000${workspace}`;
-}
+export { reviewScopeKey };
 
 export type ReviewAccountSource = "explicit" | "default";
 

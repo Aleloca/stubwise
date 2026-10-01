@@ -975,7 +975,7 @@
       "validationError": "Errore di validazione",
       "inUse": "Account usato da uno o più progetti: scollegalo prima di eliminarlo",
       "defaultReviewer": "Revisore predefinito",
-      "defaultReviewerHint": "Le repository di questa piattaforma (su Bitbucket: di questo workspace) senza un account revisore proprio usano questo.",
+      "defaultReviewerHint": "Le repository di questa piattaforma (su Bitbucket: di questo workspace) senza un account revisore proprio usano questo — non quelle dove è l'account principale.",
       "defaultReviewerReplaceConfirm": "Sostituisce {{name}} come revisore predefinito.",
       "defaultReviewerConfirm": "Sostituisci",
       "defaultReviewerSaving": "Salvataggio…",

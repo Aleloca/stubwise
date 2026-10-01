@@ -3,7 +3,8 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import en from "../i18n/locales/en.json";
-import type { GitAccount } from "../lib/api";
+import type { GitAccount, SessionUser } from "../lib/api";
+import { meQueryOptions } from "../lib/auth";
 import { GitAccountsSection } from "./git-accounts-section";
 
 /**
@@ -61,13 +62,21 @@ function makeAccount(overrides: Partial<GitAccount> = {}): GitAccount {
   };
 }
 
-function renderSection() {
+function renderSection(opts: { me?: "admin" | "member" } = {}): QueryClient {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  // Pre-seminato: il ruolo è GIÀ noto al primo render, quindi l'assenza del
+  // toggle non può essere «/me non è ancora arrivato».
+  if (opts.me) {
+    queryClient.setQueryData(meQueryOptions.queryKey, {
+      user: { id: "u1", email: "ada@example.com", role: opts.me, language: "en", avatarUrl: null, slackUserId: null } satisfies SessionUser,
+    });
+  }
   render(
     <QueryClientProvider client={queryClient}>
       <GitAccountsSection />
     </QueryClientProvider>,
   );
+  return queryClient;
 }
 
 describe("GitAccountsSection — lista", () => {
@@ -246,9 +255,14 @@ const ACCOUNT_ID = "11111111-1111-4111-8111-111111111111";
 const OTHER_ID = "22222222-2222-4222-8222-222222222222";
 const PUT_PATH = `PUT /api/git-accounts/${ACCOUNT_ID}/default-reviewer`;
 
-function toggleOf(name: string): HTMLInputElement {
-  const row = screen.getByText(name).closest("li") as HTMLElement;
-  return within(row).getByRole("checkbox", { name: "Default reviewer" });
+/**
+ * Il toggle di un account. ASINCRONO: compare solo quando la query di `/me`
+ * (separata da quella degli account) ha detto che l'utente è admin, quindi
+ * cercarlo in modo sincrono subito dopo il nome dell'account è una corsa.
+ */
+async function toggleOf(name: string): Promise<HTMLInputElement> {
+  const row = (await screen.findByText(name)).closest("li") as HTMLElement;
+  return within(row).findByRole<HTMLInputElement>("checkbox", { name: "Default reviewer" });
 }
 
 describe("GitAccountsSection — revisore predefinito", () => {
@@ -259,7 +273,7 @@ describe("GitAccountsSection — revisore predefinito", () => {
     renderSection();
 
     await screen.findByText("Account Demo");
-    expect(toggleOf("Account Demo")).not.toBeChecked();
+    expect(await toggleOf("Account Demo")).not.toBeChecked();
   });
 
   it("accenderlo chiama il PUT e mostra l'esito con gli avvisi per repository", async () => {
@@ -284,7 +298,7 @@ describe("GitAccountsSection — revisore predefinito", () => {
 
     renderSection();
     await screen.findByText("Account Demo");
-    await user.click(toggleOf("Account Demo"));
+    await user.click(await toggleOf("Account Demo"));
 
     expect(await screen.findByText(en.settings.gitAccounts.defaultReviewerSet)).toBeInTheDocument();
     expect(put).toBe(1);
@@ -295,7 +309,7 @@ describe("GitAccountsSection — revisore predefinito", () => {
       `shop-web: ${en.errors.review_account_no_write_permission}`,
       "shop-ops: check failed (codice_nuovo_del_server)",
     ]);
-    await waitFor(() => expect(toggleOf("Account Demo")).toBeChecked());
+    await waitFor(async () => expect(await toggleOf("Account Demo")).toBeChecked());
   });
 
   it("risposta SENZA `replaced` né `warnings`: l'esito si mostra, nessuna eccezione", async () => {
@@ -308,7 +322,7 @@ describe("GitAccountsSection — revisore predefinito", () => {
 
     renderSection();
     await screen.findByText("Account Demo");
-    await user.click(toggleOf("Account Demo"));
+    await user.click(await toggleOf("Account Demo"));
 
     expect(await screen.findByText(en.settings.gitAccounts.defaultReviewerSet)).toBeInTheDocument();
     expect(
@@ -337,7 +351,7 @@ describe("GitAccountsSection — revisore predefinito", () => {
 
     renderSection();
     await screen.findByText("Account Demo");
-    await user.click(toggleOf("Account Demo"));
+    await user.click(await toggleOf("Account Demo"));
 
     expect(screen.getByText("This replaces Vecchio Bot as the default reviewer.")).toBeInTheDocument();
     expect(put).toBe(0);
@@ -365,7 +379,7 @@ describe("GitAccountsSection — revisore predefinito", () => {
 
     renderSection();
     await screen.findByText("Account Demo");
-    await user.click(toggleOf("Account Demo"));
+    await user.click(await toggleOf("Account Demo"));
 
     await waitFor(() => expect(put).toBe(1));
     expect(screen.queryByRole("button", { name: "Replace" })).not.toBeInTheDocument();
@@ -384,12 +398,12 @@ describe("GitAccountsSection — revisore predefinito", () => {
 
     renderSection();
     await screen.findByText("Account Demo");
-    expect(toggleOf("Account Demo")).toBeChecked();
-    await user.click(toggleOf("Account Demo"));
+    expect(await toggleOf("Account Demo")).toBeChecked();
+    await user.click(await toggleOf("Account Demo"));
 
     expect(await screen.findByText(en.settings.gitAccounts.defaultReviewerRemoved)).toBeInTheDocument();
     expect(deleted).toBe(1);
-    await waitFor(() => expect(toggleOf("Account Demo")).not.toBeChecked());
+    await waitFor(async () => expect(await toggleOf("Account Demo")).not.toBeChecked());
   });
 
   // Ogni `code` del PUT ha un testo proprio: il `message` del server è diverso
@@ -410,12 +424,12 @@ describe("GitAccountsSection — revisore predefinito", () => {
 
     renderSection();
     await screen.findByText("Account Demo");
-    await user.click(toggleOf("Account Demo"));
+    await user.click(await toggleOf("Account Demo"));
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent(en.errors[code]);
     expect(alert).not.toHaveTextContent("server message");
-    expect(toggleOf("Account Demo")).not.toBeChecked();
+    expect(await toggleOf("Account Demo")).not.toBeChecked();
   });
 
   it("422 default_reviewer_invalid porta il dettaglio dei check falliti", async () => {
@@ -431,7 +445,7 @@ describe("GitAccountsSection — revisore predefinito", () => {
 
     renderSection();
     await screen.findByText("Account Demo");
-    await user.click(toggleOf("Account Demo"));
+    await user.click(await toggleOf("Account Demo"));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "The account failed the checks a reviewer needs. Scope del token: manca write:pullrequest:bitbucket",
@@ -444,13 +458,110 @@ describe("GitAccountsSection — revisore predefinito", () => {
       "GET /api/git-accounts": () => jsonResponse(200, [makeAccount({ isDefaultReviewer: true })]),
     });
 
-    renderSection();
+    // Il ruolo è pre-seminato: al primo render è già «member», quindi l'assenza
+    // del toggle la decide la guardia, non un `/me` ancora in volo.
+    const queryClient = renderSection({ me: "member" });
     await screen.findByText("Account Demo");
-    // La sezione ha caricato anche l'utente: l'assenza non è un caricamento in corso.
-    await waitFor(() =>
-      expect(fetchMock.mock.calls.some(([input]) => String(input).includes("/api/auth/me"))).toBe(true),
-    );
+    expect(queryClient.getQueryState(meQueryOptions.queryKey)?.status).toBe("success");
     expect(screen.queryByRole("checkbox", { name: "Default reviewer" })).not.toBeInTheDocument();
+  });
+
+  it("l'hint del toggle dice l'eccezione: non dove è l'account principale", async () => {
+    mockApi({ "GET /api/git-accounts": () => jsonResponse(200, [makeAccount()]) });
+    renderSection();
+
+    expect(await toggleOf("Account Demo")).toHaveAccessibleDescription(
+      en.settings.gitAccounts.defaultReviewerHint,
+    );
+    expect(en.settings.gitAccounts.defaultReviewerHint).toMatch(/where it is the main account/);
+  });
+
+  // Il revisore delle repository è DERIVATO dal server (D8): cambiare il
+  // predefinito, o l'account che lo è, lo cambia. La cache dei repository
+  // (`staleTime` 60 s) va invalidata, o un admin legge ancora il vecchio.
+  const REPO_DETAIL_KEY = ["repositories", "detail", "demo-shop"];
+  const REPO_LIST_KEY = ["repositories", null];
+  function seedRepositories(queryClient: QueryClient) {
+    queryClient.setQueryData(REPO_DETAIL_KEY, { slug: "demo-shop" });
+    queryClient.setQueryData(REPO_LIST_KEY, [{ slug: "demo-shop" }]);
+  }
+  function repositoriesInvalidated(queryClient: QueryClient): boolean {
+    return (
+      queryClient.getQueryState(REPO_DETAIL_KEY)?.isInvalidated === true &&
+      queryClient.getQueryState(REPO_LIST_KEY)?.isInvalidated === true
+    );
+  }
+
+  it("dopo il PUT la cache dei repository è invalidata", async () => {
+    const user = userEvent.setup();
+    mockApi({
+      "GET /api/git-accounts": () => jsonResponse(200, [makeAccount()]),
+      [PUT_PATH]: () => jsonResponse(200, { account: makeAccount({ isDefaultReviewer: true }), replaced: null, warnings: [] }),
+    });
+    const queryClient = renderSection();
+    seedRepositories(queryClient);
+    expect(repositoriesInvalidated(queryClient)).toBe(false);
+
+    await user.click(await toggleOf("Account Demo"));
+
+    await screen.findByText(en.settings.gitAccounts.defaultReviewerSet);
+    await waitFor(() => expect(repositoriesInvalidated(queryClient)).toBe(true));
+  });
+
+  it("dopo il DELETE la cache dei repository è invalidata", async () => {
+    const user = userEvent.setup();
+    mockApi({
+      "GET /api/git-accounts": () => jsonResponse(200, [makeAccount({ isDefaultReviewer: true })]),
+      [`DELETE /api/git-accounts/${ACCOUNT_ID}/default-reviewer`]: () => jsonResponse(204, null),
+    });
+    const queryClient = renderSection();
+    seedRepositories(queryClient);
+
+    await user.click(await toggleOf("Account Demo"));
+
+    await screen.findByText(en.settings.gitAccounts.defaultReviewerRemoved);
+    await waitFor(() => expect(repositoriesInvalidated(queryClient)).toBe(true));
+  });
+
+  it("dopo il PATCH di un account la cache dei repository è invalidata", async () => {
+    const user = userEvent.setup();
+    mockApi({
+      "GET /api/git-accounts": () => jsonResponse(200, [makeAccount({ isDefaultReviewer: true })]),
+      [`PATCH /api/git-accounts/${ACCOUNT_ID}`]: () => jsonResponse(200, makeAccount({ name: "Rinominato" })),
+    });
+    const queryClient = renderSection();
+    seedRepositories(queryClient);
+
+    const row = (await screen.findByText("Account Demo")).closest("li") as HTMLElement;
+    await user.click(within(row).getByRole("button", { name: "Edit" }));
+    await user.click(within(row).getByRole("button", { name: "Save account" }));
+
+    await waitFor(() => expect(repositoriesInvalidated(queryClient)).toBe(true));
+  });
+
+  it("conferma pendente e il predefinito da sostituire sparisce dopo un refetch: il toggle non resta bloccato", async () => {
+    const user = userEvent.setup();
+    let otherIsDefault = true;
+    mockApi({
+      "GET /api/git-accounts": () =>
+        jsonResponse(200, [
+          makeAccount(),
+          makeAccount({ id: OTHER_ID, name: "Vecchio Bot", isDefaultReviewer: otherIsDefault }),
+        ]),
+    });
+    const queryClient = renderSection();
+    await user.click(await toggleOf("Account Demo"));
+    expect(screen.getByText("This replaces Vecchio Bot as the default reviewer.")).toBeInTheDocument();
+    expect(await toggleOf("Account Demo")).toBeDisabled();
+
+    // Un altro admin ha spento il vecchio predefinito: il refetch lo toglie.
+    otherIsDefault = false;
+    await queryClient.invalidateQueries({ queryKey: ["git-accounts"] });
+
+    await waitFor(() =>
+      expect(screen.queryByText("This replaces Vecchio Bot as the default reviewer.")).not.toBeInTheDocument(),
+    );
+    expect(await toggleOf("Account Demo")).toBeEnabled();
   });
 
   it("PATCH del workspace su un predefinito: 409 col suo testo", async () => {

@@ -112,13 +112,17 @@ test("aggiunge un repository al progetto dal wizard (fallback manuale)", async (
   await expect(page.getByRole("heading", { name: "Demo Shop" })).toBeVisible();
 });
 
-// Revisore PREDEFINITO. La repository appena creata non ha revisore: lo stack
-// vero lo dice («nessuno»). Poi si crea un secondo account dalla UI e lo si
-// marca predefinito. Il PUT verifica le credenziali sul provider, che nello
-// stack e2e sono finte, quindi la sua risposta è MOCKATA (`page.route`), e così
-// la GET della repository, a cui si aggiunge il campo derivato
-// `effectiveReviewAccount`: lo stato in DB non cambia, si prova il cablaggio
-// della UI (toggle → esito con avvisi; form → «predefinito (<nome>)»).
+// Revisore PREDEFINITO, in due parti che provano cose diverse.
+// 1. INTEGRAZIONE, stack vero e nessun mock: la repository nuova dice
+//    «nessuno»; poi si crea un secondo account dalla UI e lo si marca
+//    predefinito col PUT VERO. Le credenziali dello stack e2e sono finte, quindi
+//    il server rifiuta (422 `default_reviewer_invalid`, i check dell'account
+//    falliscono sul provider): la UI deve mostrare il messaggio TRADOTTO e
+//    lasciare il toggle spento.
+// 2. PROVA DI RENDER, NON di integrazione: le risposte del PUT e della GET della
+//    repository sono MOCKATE (`page.route`) per vedere come la UI disegna un
+//    esito positivo (avvisi per repository; form → «predefinito (<nome>)»).
+//    Lo stato in DB non cambia: questa parte non dice niente del server.
 test("revisore predefinito: lo si imposta dagli account git e il form della repository lo nomina", async () => {
   // Stack vero, nessun mock: la repository nuova non ha revisore.
   await expect(page.getByText("Reviewer: none — the review comments with the main account")).toBeVisible();
@@ -139,6 +143,23 @@ test("revisore predefinito: lo si imposta dagli account git e il form della repo
   const botRow = gitSection.getByText("PR Bot", { exact: true }).locator("xpath=ancestor::li[1]");
   await expect(botRow).toBeVisible();
 
+  // 1. PUT vero.
+  const toggle = botRow.getByRole("checkbox", { name: "Default reviewer" });
+  const realPut = page.waitForResponse(
+    (r) => r.url().endsWith("/default-reviewer") && r.request().method() === "PUT",
+  );
+  await toggle.click();
+  const realResponse = await realPut;
+  expect(realResponse.status()).toBe(422);
+  const realBody = (await realResponse.json()) as { code: string; message: string };
+  expect(realBody.code).toBe("default_reviewer_invalid");
+  const alert = botRow.getByRole("alert");
+  await expect(alert).toContainText("The account failed the checks a reviewer needs.");
+  // Il dettaglio dei check viaggia dentro il testo tradotto, mai al suo posto.
+  await expect(alert).toContainText(realBody.message);
+  await expect(toggle).not.toBeChecked();
+
+  // 2. Prova di render (mock).
   await page.route("**/api/git-accounts/*/default-reviewer", async (route) => {
     if (route.request().method() !== "PUT") return route.fallback();
     const id = new URL(route.request().url()).pathname.split("/")[3]!;
@@ -152,7 +173,7 @@ test("revisore predefinito: lo si imposta dagli account git e il form della repo
   });
   // `click`, non `check`: lo stato vero in DB non cambia (PUT mockato), e dopo
   // il refetch il toggle torna spento — qui conta l'esito mostrato.
-  await botRow.getByRole("checkbox", { name: "Default reviewer" }).click();
+  await toggle.click();
   await expect(botRow.getByText("Now the default reviewer.")).toBeVisible();
   await expect(botRow.getByRole("listitem")).toHaveText(
     "Demo Shop: The review account has no write access to the repository: give it write permission, without it, it can neither approve nor request changes",

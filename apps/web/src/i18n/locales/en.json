@@ -975,7 +975,7 @@
       "validationError": "Validation error",
       "inUse": "Account used by one or more projects: unlink it before deleting",
       "defaultReviewer": "Default reviewer",
-      "defaultReviewerHint": "Repositories on this platform (on Bitbucket: this workspace) without a review account of their own use this one.",
+      "defaultReviewerHint": "Repositories on this platform (on Bitbucket: this workspace) without a review account of their own use this one — except the repositories where it is the main account.",
       "defaultReviewerReplaceConfirm": "This replaces {{name}} as the default reviewer.",
       "defaultReviewerConfirm": "Replace",
       "defaultReviewerSaving": "Saving…",

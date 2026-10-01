@@ -1,4 +1,4 @@
-import { gitProviderKindSchema, type GitProviderKind } from "@stubwise/shared";
+import { gitProviderKindSchema, reviewScopeKey, type GitProviderKind } from "@stubwise/shared";
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
@@ -196,14 +196,14 @@ function NewAccountForm({ onDone }: { onDone: () => void }) {
 }
 
 /**
- * Stesso AMBITO del revisore predefinito (D1): stesso provider e, solo su
- * Bitbucket, stesso workspace. Serve SOLO a chiedere conferma prima di una
- * sostituzione: chi è stato sostituito davvero lo dice il server (`replaced`).
+ * Le cache che mostrano un revisore DERIVATO dal server (D8): lista e dettaglio
+ * dei repository (`repositoriesQueryOptions` = `["repositories", projectId]`,
+ * `repositoryQueryOptions` = `["repositories", "detail", slug]`, entrambe sotto
+ * la radice `["repositories"]`). Cambiare il predefinito, o l'account che lo è,
+ * cambia `effectiveReviewAccount` di N repository: con lo `staleTime` di 60 s
+ * un admin che torna su una repository leggerebbe ancora il revisore vecchio.
  */
-function sameReviewScope(a: GitAccount, b: GitAccount): boolean {
-  if (a.provider !== b.provider) return false;
-  return a.provider !== "bitbucket" || (a.workspace ?? "") === (b.workspace ?? "");
-}
+const REPOSITORIES_ROOT_KEY = ["repositories"] as const;
 
 /** Riga di un account: badge, data, e azioni Valida / Modifica / Elimina. */
 function AccountRow({
@@ -312,7 +312,11 @@ function EditAccountForm({ account, onDone }: { account: GitAccount; onDone: () 
       workspace?: string;
     }) => patchGitAccount(account.id, patch as never),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: gitAccountsQueryOptions.queryKey });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: gitAccountsQueryOptions.queryKey }),
+        // Nome e credenziali entrano nel revisore derivato delle repository.
+        queryClient.invalidateQueries({ queryKey: REPOSITORIES_ROOT_KEY }),
+      ]);
       onDone();
     },
   });
@@ -399,15 +403,23 @@ function DefaultReviewerToggle({ account, accounts }: { account: GitAccount; acc
   // Senza, il checkbox sarebbe NON controllato e resterebbe acceso dopo un PUT
   // fallito, dicendo il falso.
   const isDefault = account.isDefaultReviewer ?? false;
+  // Stesso AMBITO (D1) con la regola condivisa di `@stubwise/shared`: serve
+  // SOLO a chiedere conferma prima di una sostituzione, chi è stato sostituito
+  // davvero lo dice il server (`replaced`).
+  const scope = reviewScopeKey(account);
   const current = accounts.find(
-    (other) => other.id !== account.id && (other.isDefaultReviewer ?? false) && sameReviewScope(other, account),
+    (other) => other.id !== account.id && (other.isDefaultReviewer ?? false) && reviewScopeKey(other) === scope,
   );
   const [confirming, setConfirming] = useState(false);
   const [outcome, setOutcome] = useState<
     { kind: "set"; result: DefaultReviewerResult } | { kind: "removed" } | null
   >(null);
 
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: gitAccountsQueryOptions.queryKey });
+  const invalidate = () =>
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey: gitAccountsQueryOptions.queryKey }),
+      queryClient.invalidateQueries({ queryKey: REPOSITORIES_ROOT_KEY }),
+    ]);
   const setDefault = useMutation({
     mutationFn: () => putDefaultReviewer(account.id),
     onMutate: () => setOutcome(null),
@@ -425,11 +437,16 @@ function DefaultReviewerToggle({ account, accounts }: { account: GitAccount; acc
     },
   });
   const pending = setDefault.isPending || unsetDefault.isPending;
+  // La conferma ha senso solo finché il predefinito da sostituire c'è: se un
+  // refetch lo toglie (un altro admin l'ha spento), la richiesta di conferma
+  // sparisce e il toggle NON deve restare bloccato.
+  const awaitingConfirm = confirming && current !== undefined;
   const error = setDefault.error ?? unsetDefault.error;
 
   function handleToggle() {
     setDefault.reset();
     unsetDefault.reset();
+    setConfirming(false);
     if (isDefault) unsetDefault.mutate();
     else if (current) setConfirming(true);
     else setDefault.mutate();
@@ -443,7 +460,7 @@ function DefaultReviewerToggle({ account, accounts }: { account: GitAccount; acc
           id={id}
           type="checkbox"
           checked={isDefault}
-          disabled={pending || confirming}
+          disabled={pending || awaitingConfirm}
           onChange={handleToggle}
           aria-describedby={`${id}-hint`}
           className="h-4 w-4 shrink-0 accent-signal"
@@ -459,7 +476,7 @@ function DefaultReviewerToggle({ account, accounts }: { account: GitAccount; acc
         {t("settings:gitAccounts.defaultReviewerHint")}
       </p>
 
-      {confirming && current && (
+      {awaitingConfirm && current && (
         <div className="flex flex-wrap items-center gap-2">
           <span className="font-mono text-[12px] text-signal">
             {t("settings:gitAccounts.defaultReviewerReplaceConfirm", { name: current.name })}

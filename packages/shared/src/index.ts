@@ -27,6 +27,7 @@ export * from "./quoted-reply.js";
 export * from "./closed-reason.js";
 export * from "./multi-select.js";
 export * from "./project-order.js";
+export * from "./review-scope.js";
 export * from "./reader.js";
 // NOTA: `mirror-slug.js` NON è ri-esportato da questo barrel di proposito —
 // importa `node:crypto` e apps/web importa questo index nel bundle browser
