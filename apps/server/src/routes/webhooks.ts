@@ -20,8 +20,10 @@ import {
   ticketRepositories,
   tickets,
 } from "@stubwise/db";
+import { STUBWISE_BRANCH_RE } from "@stubwise/shared";
 import { getContentLanguage } from "../settings.js";
 import { apiError } from "../errors.js";
+import { createDeliveryDedupe, handleChangesRequested } from "../services/pr-correction-webhook.js";
 
 /**
  * Tetto al corpo del webhook: 1 MiB. I payload di Bitbucket/GitHub per una PR
@@ -29,9 +31,6 @@ import { apiError } from "../errors.js";
  * (DoS di memoria). Fastify risponde 413 quando lo supera.
  */
 const MAX_WEBHOOK_BODY_BYTES = 1024 * 1024;
-
-/** I rami stubwise sono `stubwise/ticket-<N>`: da lì si estrae il numero del ticket. */
-const STUBWISE_BRANCH_RE = /^stubwise\/ticket-(\d+)$/;
 
 /**
  * Finestra di debounce dell'auto-aggiornamento Docs ai push: ogni push sul
@@ -177,6 +176,11 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
     },
   );
 
+  // Riconsegne dello stesso evento "Request changes" (id di consegna del
+  // provider): vedi createDeliveryDedupe. Una per istanza dell'app, così i
+  // test con `buildApp` non si pestano.
+  const changesRequestedDeliveries = createDeliveryDedupe(5 * 60_000);
+
   instance.post<{ Params: { projectSlug: string } }>(
     "/git/:projectSlug",
     {
@@ -307,8 +311,45 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
         return reply.code(204).send();
       }
 
+      // Ramo "Request changes" (ciclo di correzione post-PR, 30 set 2026):
+      // Bitbucket `pullrequest:changes_request_created`, GitHub
+      // `pull_request_review` con `changes_requested`. Mutuamente esclusivo
+      // con gli altri parser (header diversi). La firma l'ha già verificata il
+      // preValidation qui sopra. 204 in OGNI caso, anche quando l'evento è
+      // scartato: un evento dell'account revisore ritentato dal provider
+      // resterebbe scartato, e la ritrasmissione è solo rumore. Gli errori non
+      // gestiti (DB) invece risalgono: un 500 fa ritentare, e l'accodamento è
+      // transazionale.
+      const changesRequested = provider.parseChangesRequestedEvent(headers, request.body);
+      if (changesRequested) {
+        // Una ritrasmissione (stesso id di consegna) non diventa una seconda
+        // correzione. Senza id — un proxy che lo toglie — si elabora comunque.
+        const deliveryId = headers["x-github-delivery"] ?? headers["x-request-uuid"];
+        if (deliveryId && !changesRequestedDeliveries.claim(deliveryId)) {
+          request.log.info({ deliveryId }, "Request changes: consegna già elaborata, scartata");
+          return reply.code(204).send();
+        }
+        try {
+          await handleChangesRequested(
+            {
+              db: instance.db,
+              encryptionKey: instance.encryptionKey,
+              log: request.log,
+              repositoryId: context.repositoryId,
+              provider: context.provider,
+            },
+            changesRequested,
+          );
+        } catch (error) {
+          if (deliveryId) changesRequestedDeliveries.release(deliveryId);
+          throw error;
+        }
+        return reply.code(204).send();
+      }
+
       // Ramo PR Review: apertura/aggiornamento di una PR. Mutuamente esclusivo
-      // con gli altri due (parsePushEvent copre solo i push, parseWebhook solo
+      // con gli altri tre (parsePushEvent copre solo i push,
+      // parseChangesRequestedEvent solo i "Request changes", parseWebhook solo
       // le chiusure). Gate sul toggle d'istanza: spento = no-op.
       const prEvent = provider.parsePrEvent(headers, request.body);
       if (prEvent) {
