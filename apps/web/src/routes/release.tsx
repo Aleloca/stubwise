@@ -157,27 +157,27 @@ function ReleaseRow({ item }: { item: ReleaseQueueItem }) {
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 font-mono text-[11px]">
-        <ColumnBadge
-          label={t("release:columns.review")}
-          value={item.reviewVerdict ? t(`release:review.${item.reviewVerdict}`) : t("release:review.none")}
-          tone={item.reviewVerdict === "approve" ? "good" : item.reviewVerdict === "request_changes" ? "bad" : "neutral"}
-        />
-        {/*
-          Verdetto superato: etichetta E spiegazione in chiaro, accanto al
-          verdetto — non solo un title, che senza hover (e sul touch) non si
-          legge. Solo informazione: il merge non cambia.
-        */}
-        {reviewStale && (
-          <span className="inline-flex items-baseline gap-1.5">
-            <span
-              className="rounded-sm border border-line-strong px-1.5 py-0.5 tracking-[0.06em] text-fg-muted uppercase"
-              title={t("release:reviewStaleHint")}
-            >
-              {t("release:reviewStale")}
+        {/* Verdetto e «superata» restano insieme anche quando la riga va a capo. */}
+        <span className="inline-flex flex-wrap items-baseline gap-x-4 gap-y-1">
+          <ColumnBadge
+            label={t("release:columns.review")}
+            value={item.reviewVerdict ? t(`release:review.${item.reviewVerdict}`) : t("release:review.none")}
+            tone={item.reviewVerdict === "approve" ? "good" : item.reviewVerdict === "request_changes" ? "bad" : "neutral"}
+          />
+          {/*
+            Verdetto superato: etichetta E spiegazione in chiaro, accanto al
+            verdetto — non solo un title, che senza hover (e sul touch) non si
+            legge. Solo informazione: il merge non cambia.
+          */}
+          {reviewStale && (
+            <span className="inline-flex items-baseline gap-1.5">
+              <span className="rounded-sm border border-line-strong px-1.5 py-0.5 tracking-[0.06em] text-fg-muted uppercase">
+                {t("release:reviewStale")}
+              </span>
+              <span className="text-fg-faint">{t("release:reviewStaleHint")}</span>
             </span>
-            <span className="text-fg-faint">{t("release:reviewStaleHint")}</span>
-          </span>
-        )}
+          )}
+        </span>
         <ColumnBadge
           label={t("release:columns.checks")}
           value={checksLabel}
