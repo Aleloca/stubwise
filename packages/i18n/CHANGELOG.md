@@ -1,5 +1,12 @@
 # @stubwise/i18n
 
+## 0.1.5
+
+### Patch Changes
+
+- Updated dependencies [432b414]
+  - @stubwise/shared@0.7.0
+
 ## 0.1.4
 
 ### Patch Changes
