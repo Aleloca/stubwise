@@ -19,6 +19,7 @@ import type {
   AnswerQuestionResult,
   PlanDecisionResult,
   ReleaseResult,
+  RequestCorrectionBody,
   RequestCorrectionResponse,
   RunAiBody,
   RunAiResult,
@@ -215,6 +216,11 @@ export function createTicketsEndpoints(request: ApiRequest) {
      * `correction_not_held` (distinto da `job_in_flight` dal `code`, non dallo
      * status), e per un `member` su una correzione ferma per budget 403
      * `needs_maintainer`. Senza il campo il rilancio è quello di sempre.
+     *
+     * ⚠️ Un server PRECEDENTE a G5 non conosce il campo e lo IGNORA (il corpo
+     * non è `.strict()`): per lui è un rilancio normale, cioè un fix nuovo.
+     * Per questo il chiamante lo manda solo quando `cycle.heldJobId` c'è —
+     * un server che lo valorizza è anche uno che sa leggerlo.
      */
     runAi(ticketId: string, opts?: RunAiBody): Promise<Reader<RunAiResult>> {
       return request("POST", `/api/tickets/${seg(ticketId)}/run-ai`, opts, runAiResultSchema);
@@ -296,7 +302,7 @@ export function createTicketsEndpoints(request: ApiRequest) {
     requestCorrection(
       ticketId: string,
       repositoryId: string,
-      body: { note?: string } = {},
+      body: RequestCorrectionBody = {},
     ): Promise<Reader<RequestCorrectionResponse>> {
       return request(
         "POST",
