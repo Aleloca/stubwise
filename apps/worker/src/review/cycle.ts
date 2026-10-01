@@ -7,7 +7,13 @@ import {
   tickets,
   type Db,
 } from "@stubwise/db";
-import { getProvider, GitProviderError, STUBWISE_REVIEW_STATUS_KEY, type GitProvider } from "@stubwise/git";
+import {
+  getProvider,
+  GitProviderError,
+  ReviewCommentFailedError,
+  STUBWISE_REVIEW_STATUS_KEY,
+  type GitProvider,
+} from "@stubwise/git";
 import { t, type Language } from "@stubwise/i18n";
 import {
   autoRoundsInCurrentSeries,
@@ -196,7 +202,7 @@ async function loadReviewerProject(
 }
 
 /** Perché il verdetto dell'account revisore non è stato apposto: solo la CATEGORIA. */
-export type VerdictFailureReason = "permissions" | "network" | "other";
+export type VerdictFailureReason = "permissions" | "configuration" | "network" | "other";
 
 const NETWORK_ERROR_CODES = new Set([
   "ECONNREFUSED",
@@ -216,14 +222,22 @@ const NETWORK_ERROR_CODES = new Set([
  * Classifica l'errore di `submitPrReview` in una CATEGORIA, l'unica cosa che
  * il commento di ripiego dice: il messaggio grezzo resta nel log del worker
  * (può contenere estratti della risposta del provider), mai sulla PR.
- *  - `permissions`: `GitProviderError` con status 401/403;
+ *  - `permissions`: `GitProviderError` con status 401/403, e 404 — il
+ *    revisore che non VEDE un repository privato riceve 404, non 403 (su
+ *    entrambi i provider: non rivelano l'esistenza della risorsa);
+ *  - `configuration`: GitHub 422 «own pull request» — l'account revisore è
+ *    l'autore della PR. Distinto da `permissions` perché il rimedio è un
+ *    altro (un account diverso, non uno scope in più) e si riconosce senza
+ *    ambiguità dal corpo della risposta; un 422 qualunque resta `other`;
  *  - `network`: timeout (`AbortError`/`TimeoutError`, `fetchWithTimeout`) o
  *    fetch fallita (`TypeError: fetch failed`, o un codice di rete in `cause`);
  *  - `other`: tutto il resto (4xx/5xx diversi, credenziali incomplete…).
  */
 export function verdictFailureReason(err: unknown): VerdictFailureReason {
   if (err instanceof GitProviderError) {
-    return err.status === 401 || err.status === 403 ? "permissions" : "other";
+    if (err.status === 401 || err.status === 403 || err.status === 404) return "permissions";
+    if (err.status === 422 && /own pull request/i.test(err.responseText)) return "configuration";
+    return "other";
   }
   if (err instanceof Error) {
     if (err.name === "AbortError" || err.name === "TimeoutError") return "network";
@@ -243,7 +257,8 @@ export function verdictFailureReason(err: unknown): VerdictFailureReason {
  * commento dell'account principale: il testo non si perde, e non si duplica —
  * su Bitbucket submitPrReview manda il verdetto PRIMA del commento (B8), quindi
  * quando fallisce il testo non è ancora uscito oppure è proprio il commento ad
- * aver fallito; su GitHub è una richiesta sola. Ogni review lascia un commento
+ * aver fallito (`ReviewCommentFailedError`: allora il verdetto c'è e la riga
+ * del ripiego lo dice); su GitHub è una richiesta sola. Ogni review lascia un commento
  * NUOVO, firmato col commit rivisto.
  */
 async function publishReview(deps: ReviewCycleDeps, input: AfterReviewCompletedInput): Promise<void> {
@@ -271,7 +286,14 @@ async function publishReview(deps: ReviewCycleDeps, input: AfterReviewCompletedI
       console.error(
         `[stubwise-worker] pr-review: review con l'account revisore sulla PR #${input.job.prNumber} fallita (${errText(err)}), ripiego sul commento`,
       );
-      const verdictNotice = t(input.lang, `comment.reviewVerdictNotSubmitted.${verdictFailureReason(err)}`);
+      // Verdetto apposto, commento fallito (solo Bitbucket): la riga «non
+      // apposto» mentirebbe. Se ne scrive una diversa, non nessuna: sulla PR
+      // il verdetto risulta del revisore e il testo dell'account principale,
+      // e senza una riga chi legge non sa perché.
+      const verdictNotice =
+        err instanceof ReviewCommentFailedError
+          ? t(input.lang, "comment.reviewVerdictSubmittedCommentFailed")
+          : t(input.lang, `comment.reviewVerdictNotSubmitted.${verdictFailureReason(err)}`);
       fallbackBody = `${verdictNotice}\n\n${body}`;
     }
   }

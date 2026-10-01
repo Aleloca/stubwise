@@ -4,6 +4,7 @@ import { BitbucketProvider } from "./bitbucket.js";
 import {
   GitProviderError,
   MergeNotAllowedError,
+  ReviewCommentFailedError,
   type AccountCredentials,
   type ProjectGitConfig,
 } from "./provider.js";
@@ -965,11 +966,35 @@ describe("BitbucketProvider.submitPrReview", () => {
     const error = await errorOf(provider.submitPrReview(config, 7, "request_changes", "Manca il test"));
     expect(error).toBeInstanceOf(GitProviderError);
     expect((error as GitProviderError).status).toBe(500);
+    // Distinguibile: il ripiego non deve dire «verdetto non apposto».
+    expect(error).toBeInstanceOf(ReviewCommentFailedError);
+    expect((error as ReviewCommentFailedError).verdictSubmitted).toBe(true);
     expect(calls(fetchImpl)).toEqual([
       `DELETE ${PR}/approve`,
       `POST ${PR}/request-changes`,
       `POST ${PR}/comments`,
     ]);
+  });
+
+  it("409 sul verdetto e commento che fallisce → il verdetto c'è comunque (ReviewCommentFailedError)", async () => {
+    const fetchImpl = recorder({
+      [`POST ${PR}/approve`]: () => Promise.resolve(new Response("already", { status: 409 })),
+      [`POST ${PR}/comments`]: () => Promise.resolve(new Response("boom", { status: 500 })),
+    });
+    const provider = new BitbucketProvider({ fetchImpl });
+    const error = await errorOf(provider.submitPrReview(config, 7, "approve", "testo"));
+    expect(error).toBeInstanceOf(ReviewCommentFailedError);
+    expect((error as ReviewCommentFailedError).status).toBe(500);
+  });
+
+  it("il verdetto fallisce → NON è un ReviewCommentFailedError", async () => {
+    const fetchImpl = recorder({
+      [`POST ${PR}/approve`]: () => Promise.resolve(new Response("nope", { status: 403 })),
+    });
+    const provider = new BitbucketProvider({ fetchImpl });
+    const error = await errorOf(provider.submitPrReview(config, 7, "approve", "testo"));
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect(error).not.toBeInstanceOf(ReviewCommentFailedError);
   });
 
   it("400/500 sul commento → nessun suggerimento sui permessi", async () => {

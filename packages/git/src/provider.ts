@@ -437,7 +437,9 @@ export interface GitProvider {
    * l'approvazione dell'autore non conta per i merge check. Sostituisce
    * `createPrComment` quando l'account revisore c'è. Lancia GitProviderError;
    * `"already_in_state"` quando il verdetto c'era già (vedi
-   * {@link SubmitPrReviewOutcome}).
+   * {@link SubmitPrReviewOutcome}). Se il verdetto è apposto ma il commento
+   * fallisce (solo Bitbucket: due richieste) lancia
+   * {@link ReviewCommentFailedError}, `verdictSubmitted: true`.
    */
   submitPrReview(
     p: ProjectGitConfig,
@@ -620,6 +622,32 @@ export class MergeNotAllowedError extends GitProviderError {
     super(message, status, responseText);
     this.name = "MergeNotAllowedError";
     this.reason = reason;
+  }
+}
+
+/**
+ * Lanciato da `submitPrReview` quando il VERDETTO è stato apposto (o c'era
+ * già: 409 Bitbucket, `already_in_state`) ma il COMMENTO che porta il testo
+ * della review è fallito. Esiste solo su Bitbucket, dove verdetto e testo
+ * sono due richieste distinte (POST dello stato, poi `createPrComment`); su
+ * GitHub la review è UNA richiesta col corpo dentro, quindi il caso non si
+ * presenta. È una `GitProviderError` con status e testo dell'errore del
+ * commento, così chi guarda solo lo status vede quello di sempre; chi deve
+ * distinguere (il ripiego del worker, che altrimenti scriverebbe «verdetto non
+ * apposto» su una PR che il verdetto ce l'ha) guarda `verdictSubmitted`.
+ */
+export class ReviewCommentFailedError extends GitProviderError {
+  readonly verdictSubmitted = true as const;
+  constructor(commentError: unknown) {
+    const inner = commentError instanceof GitProviderError ? commentError : null;
+    const message = commentError instanceof Error ? commentError.message : String(commentError);
+    super(
+      `Verdetto apposto, ma il commento della review non è stato pubblicato: ${message}`,
+      inner?.status ?? 0,
+      inner?.responseText ?? ""
+    );
+    this.name = "ReviewCommentFailedError";
+    this.cause = commentError;
   }
 }
 

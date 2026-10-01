@@ -570,6 +570,23 @@ describe("afterReviewCompleted — pubblicazione e status", () => {
       it: "Verdetto non apposto: l'account revisore non ha i permessi.",
     },
     {
+      name: "permessi (GitProviderError 404, repository privato non visibile)",
+      err: () => new GitProviderError("GitHub API error 404: SECRET-TOKEN-xyz", 404, "SECRET-TOKEN-xyz"),
+      en: "Verdict not submitted: the reviewer account does not have the required permissions.",
+      it: "Verdetto non apposto: l'account revisore non ha i permessi.",
+    },
+    {
+      name: "configurazione (GitHub 422 own pull request)",
+      err: () =>
+        new GitProviderError(
+          "GitHub: review rifiutata (422) SECRET-TOKEN-xyz",
+          422,
+          "Can not approve your own pull request SECRET-TOKEN-xyz",
+        ),
+      en: "Verdict not submitted: the reviewer account is the author of the pull request.",
+      it: "Verdetto non apposto: l'account revisore è l'autore della pull request.",
+    },
+    {
       name: "rete (fetch failed)",
       err: () => new TypeError("fetch failed", { cause: Object.assign(new Error("SECRET-TOKEN-xyz"), { code: "ECONNREFUSED" }) }),
       en: "Verdict not submitted: the reviewer account could not be reached.",
@@ -621,7 +638,16 @@ describe("afterReviewCompleted — pubblicazione e status", () => {
   it("verdictFailureReason: i casi puri", () => {
     expect(verdictFailureReason(new GitProviderError("x", 403, ""))).toBe("permissions");
     expect(verdictFailureReason(new GitProviderError("x", 401, ""))).toBe("permissions");
-    expect(verdictFailureReason(new GitProviderError("x", 404, ""))).toBe("other");
+    // 404: il revisore non VEDE il repository privato — è un permesso.
+    expect(verdictFailureReason(new GitProviderError("x", 404, ""))).toBe("permissions");
+    // 422 GitHub «own pull request»: revisore = autore, è configurazione.
+    expect(
+      verdictFailureReason(
+        new GitProviderError("x", 422, '{"message":"Can not request changes on your own pull request"}'),
+      ),
+    ).toBe("configuration");
+    expect(verdictFailureReason(new GitProviderError("x", 422, '{"message":"Validation Failed"}'))).toBe("other");
+    expect(verdictFailureReason(new GitProviderError("x", 400, ""))).toBe("other");
     expect(verdictFailureReason(new GitProviderError("x", 0, ""))).toBe("other");
     expect(verdictFailureReason(new TypeError("fetch failed"))).toBe("network");
     expect(verdictFailureReason(Object.assign(new Error("t"), { name: "TimeoutError" }))).toBe("network");
@@ -678,6 +704,59 @@ describe("afterReviewCompleted — pubblicazione e status", () => {
     // non è un problema di permessi né di rete: errore del provider)
     const sent = JSON.parse(String((comments[0]![1] as RequestInit).body)) as { content: { raw: string } };
     expect(sent.content.raw.split("\n")[0]).toBe("Verdict not submitted: provider error.");
+  });
+
+  // Bitbucket: il verdetto è apposto (POST riuscito), poi il commento del
+  // REVISORE fallisce. Il ripiego pubblica il testo dall'account principale,
+  // ma la sua prima riga non può dire «verdetto non apposto»: il verdetto c'è.
+  it("verdetto apposto e commento del revisore fallito su Bitbucket → nessuna riga «non apposto»", async () => {
+    const s = await setup({
+      reviewer: true,
+      reviewerCredentials: { email: "rev@example.com", token: "reviewer-token" },
+    });
+    const f = fakes();
+    const PR = "https://api.bitbucket.org/2.0/repositories/ws/repo/pullrequests/12";
+    const reviewerAuth = `Basic ${Buffer.from("rev@example.com:reviewer-token").toString("base64")}`;
+    const fetchImpl = vi.fn().mockImplementation((url: string | URL, init?: RequestInit) => {
+      const key = `${init?.method} ${String(url)}`;
+      const auth = (init?.headers as Record<string, string> | undefined)?.["Authorization"];
+      if (key === `POST ${PR}/comments`) {
+        return Promise.resolve(
+          auth === reviewerAuth
+            ? new Response("boom", { status: 500 })
+            : new Response(JSON.stringify({ id: 1 }), { status: 201 }),
+        );
+      }
+      return Promise.resolve(new Response(JSON.stringify({ approved: true }), { status: 200 }));
+    });
+    const bitbucket = new BitbucketProvider({ fetchImpl });
+    const mainBitbucket: MirrorProject = {
+      provider: "bitbucket",
+      repoUrl: "https://bitbucket.org/ws/repo",
+      defaultBranch: "main",
+      credentials: { email: "main@example.com", token: "main-token" },
+    };
+    const deps: ReviewCycleDeps = { ...f.deps, getProviderFn: () => bitbucket };
+
+    for (const lang of ["en", "it"] as const) {
+      fetchImpl.mockClear();
+      await afterReviewCompleted(deps, input(s, { mirrorProject: mainBitbucket, lang }));
+
+      const comments = fetchImpl.mock.calls.filter(
+        ([url, init]) => String(url) === `${PR}/comments` && (init as RequestInit).method === "POST",
+      );
+      // il commento del revisore (fallito) e quello di ripiego
+      expect(comments).toHaveLength(2);
+      const sent = JSON.parse(String((comments[1]![1] as RequestInit).body)) as { content: { raw: string } };
+      expect(sent.content.raw).not.toContain("Verdict not submitted");
+      expect(sent.content.raw).not.toContain("Verdetto non apposto");
+      expect(sent.content.raw.split("\n")[0]).toBe(
+        lang === "en"
+          ? "The reviewer account submitted the verdict, but its comment could not be published."
+          : "Il revisore ha apposto il verdetto, ma il suo commento non è stato pubblicato.",
+      );
+      expect(sent.content.raw).toContain("manca un test");
+    }
   });
 
   it("status di commit sullo sha COMPLETO risolto alla partenza, legato al branch sorgente", async () => {

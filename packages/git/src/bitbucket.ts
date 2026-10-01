@@ -34,6 +34,7 @@ import {
   type PullRequestChecks,
   type PushWebhookEvent,
   type RepoSummary,
+  ReviewCommentFailedError,
   type SubmitPrReviewOutcome,
   type WebhookEvent,
   type WebhookResult,
@@ -494,7 +495,9 @@ export class BitbucketProvider implements GitProvider {
       try {
         await this.createPrComment(p, prNumber, body, { fetchImpl });
       } catch (error) {
-        throw withPermissionHint(error, PR_REVIEW_PERMISSION_HINT);
+        // Il verdetto c'è già: chi ripiega deve poterlo sapere, o direbbe
+        // «verdetto non apposto» su una PR che ce l'ha.
+        throw new ReviewCommentFailedError(withPermissionHint(error, PR_REVIEW_PERMISSION_HINT));
       }
     }
     return outcome;

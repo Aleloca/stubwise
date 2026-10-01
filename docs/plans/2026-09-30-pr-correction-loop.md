@@ -12255,7 +12255,7 @@ errore lascia una riga di log e non tocca la review già `completed`:
    commento il ripiego lo pubblica una volta sola; su GitHub è una richiesta
    sola. Senza account revisore: il commento di oggi. Il commento di ripiego
    dopo un `submitPrReview` FALLITO si apre con una riga fissa
-   (`comment.reviewVerdictNotSubmitted.{permissions|network|other}`, i18n
+   (`comment.reviewVerdictNotSubmitted.{permissions|configuration|network|other}`, i18n
    en/it) che dice che il verdetto non è stato apposto e solo la CATEGORIA del
    motivo (`verdictFailureReason`: 401/403 → permessi, timeout/fetch fallita →
    rete, altro → provider), mai l'errore grezzo; senza revisore la riga non c'è.
@@ -12366,6 +12366,21 @@ status appesi né giri superati»:
   (`review/poller.ts`, try/catch testato): un errore si logga e il worker
   parte.
 - Il log di `already_in_state` porta l'estratto della risposta.
+
+**Correzioni di revisione (1 ott 2026)** — la riga del ripiego non mente più:
+su Bitbucket, se il verdetto è apposto (o c'era già, 409) e fallisce solo il
+commento, `submitPrReview` lancia `ReviewCommentFailedError` (sottoclasse di
+`GitProviderError`, `verdictSubmitted: true`, status del commento), e il
+ripiego apre il testo con `comment.reviewVerdictSubmittedCommentFailed` invece
+di «Verdetto non apposto»: una riga diversa e non nessuna, perché sulla PR il
+verdetto risulta del revisore e il testo dell'account principale, e senza
+spiegazione chi legge non capisce perché. GitHub non ha il problema: la review
+è UNA richiesta col corpo dentro. `verdictFailureReason`: 404 → `permissions`
+(il revisore non vede il repository privato); GitHub 422 con «own pull
+request» nel corpo → categoria nuova `configuration`
+(`comment.reviewVerdictNotSubmitted.configuration`: il revisore è l'autore
+della PR — il rimedio è un altro account, non uno scope); ogni altro 422 resta
+`other`.
 
 #### La review esiste dal claim (emendamento del 30 set 2026)
 

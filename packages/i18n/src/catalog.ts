@@ -74,6 +74,13 @@ export const en: Catalog = {
     "Verdict not submitted: the reviewer account does not have the required permissions.",
   "comment.reviewVerdictNotSubmitted.network": "Verdict not submitted: the reviewer account could not be reached.",
   "comment.reviewVerdictNotSubmitted.other": "Verdict not submitted: provider error.",
+  "comment.reviewVerdictNotSubmitted.configuration":
+    "Verdict not submitted: the reviewer account is the author of the pull request.",
+  // Il verdetto c'È (Bitbucket: stato apposto) ma il commento del revisore
+  // col testo è fallito: il testo esce dall'account principale, e la riga
+  // non deve dire «non apposto».
+  "comment.reviewVerdictSubmittedCommentFailed":
+    "The reviewer account submitted the verdict, but its comment could not be published.",
   // --- commitStatus.* — descrizione dello status `stubwise-review` sulla PR.
   // GitHub la tronca oltre 140 caratteri: restano corte apposta (c'è un test).
   "commitStatus.reviewing": "Stubwise review in progress",
@@ -616,6 +623,10 @@ export const it: Catalog = {
     "Verdetto non apposto: l'account revisore non ha i permessi.",
   "comment.reviewVerdictNotSubmitted.network": "Verdetto non apposto: l'account revisore non è raggiungibile.",
   "comment.reviewVerdictNotSubmitted.other": "Verdetto non apposto: errore del provider.",
+  "comment.reviewVerdictNotSubmitted.configuration":
+    "Verdetto non apposto: l'account revisore è l'autore della pull request.",
+  "comment.reviewVerdictSubmittedCommentFailed":
+    "Il revisore ha apposto il verdetto, ma il suo commento non è stato pubblicato.",
   // --- commitStatus.* (vedi nota in `en`) ---
   "commitStatus.reviewing": "Review di Stubwise in corso",
   "commitStatus.correcting": "Stubwise sta applicando le modifiche richieste",
