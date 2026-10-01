@@ -139,24 +139,27 @@ describe("prCycleLineFor", () => {
       };
       const seenByWhoCanResume = prCycleLineFor(cycle({ ...data, canResume: true }));
       const seenByWhoCannot = prCycleLineFor(cycle({ ...data, canResume: false }));
-      expect(seenByWhoCanResume.segments.map((s) => s.key)).toEqual([
-        "tickets:cycle.round",
-        "tickets:cycle.heldBudget",
+      expect(seenByWhoCanResume.segments).toEqual([
+        { key: "tickets:cycle.heldBudgetRound", params: { round: 1, max: 3 } },
       ]);
-      expect(seenByWhoCannot.segments.map((s) => s.key)).toEqual([
-        "tickets:cycle.round",
-        "tickets:cycle.heldBudgetNeedsMaintainer",
+      expect(seenByWhoCannot.segments).toEqual([
+        { key: "tickets:cycle.heldBudgetNeedsMaintainerRound", params: { round: 1, max: 3 } },
       ]);
       // La funzione prende SOLO il ciclo: nessun parametro per il ruolo.
       expect(prCycleLineFor.length).toBe(1);
     });
 
-    it("con un giro: «Giro N di M», poi il motivo al posto di «in corso»", () => {
-      const line = prCycleLineFor(cycle({ state: "correcting", round: 2, heldReason: "budget", canResume: true }));
-      expect(line.segments).toEqual([
-        { key: "tickets:cycle.round", params: { round: 2, max: 3 } },
-        { key: "tickets:cycle.heldBudget", params: {} },
-      ]);
+    it("con un giro: UNA frase «Giro N di M · correzione ferma · …», per ogni motivo", () => {
+      const cases: [NonNullable<PrCycle["heldReason"]>, boolean, string][] = [
+        ["budget", true, "tickets:cycle.heldBudgetRound"],
+        ["budget", false, "tickets:cycle.heldBudgetNeedsMaintainerRound"],
+        ["limit", false, "tickets:cycle.heldLimitRound"],
+        ["other", true, "tickets:cycle.heldOtherRound"],
+      ];
+      for (const [heldReason, canResume, key] of cases) {
+        const line = prCycleLineFor(cycle({ state: "correcting", round: 2, heldReason, canResume }));
+        expect(line.segments).toEqual([{ key, params: { round: 2, max: 3 } }]);
+      }
     });
 
     it("limite del provider: riparte da sola, `canResume` non cambia la frase", () => {
@@ -167,16 +170,18 @@ describe("prCycleLineFor", () => {
       }
     });
 
-    it("altro motivo: heldOther", () => {
-      expect(keys(cycle({ state: "correcting", heldReason: "other", canResume: true }))).toEqual([
-        "tickets:cycle.heldOther",
-      ]);
+    it("altro motivo: heldOther, tono signal", () => {
+      const line = prCycleLineFor(cycle({ state: "correcting", heldReason: "other", canResume: true }));
+      expect(line.tone).toBe("signal");
+      expect(line.segments).toEqual([{ key: "tickets:cycle.heldOther", params: {} }]);
     });
 
-    it("un motivo che il web non conosce: heldOther, non lancia", () => {
-      expect(
-        keys(cycle({ state: "correcting", heldReason: "futuro" as NonNullable<PrCycle["heldReason"]> })),
-      ).toEqual(["tickets:cycle.heldOther"]);
+    it("un motivo che il web non conosce: heldOther, tono signal, non lancia", () => {
+      const line = prCycleLineFor(
+        cycle({ state: "correcting", heldReason: "futuro" as NonNullable<PrCycle["heldReason"]> }),
+      );
+      expect(line.tone).toBe("signal");
+      expect(line.segments).toEqual([{ key: "tickets:cycle.heldOther", params: {} }]);
     });
 
     it("richiesta umana (giro 0) poi ferma: chi l'ha chiesta resta, il motivo prende il posto di «in corso»", () => {
@@ -205,8 +210,7 @@ describe("prCycleLineFor", () => {
           }),
         ),
       ).toEqual([
-        "tickets:cycle.round",
-        "tickets:cycle.heldBudget",
+        "tickets:cycle.heldBudgetRound",
         "tickets:cycle.requestedOnPlatform",
         "tickets:cycle.queued",
       ]);
@@ -216,6 +220,131 @@ describe("prCycleLineFor", () => {
       expect(keys(cycle({ state: "reviewing", heldReason: "budget", canResume: false }))).toEqual([
         "tickets:cycle.reviewing",
       ]);
+    });
+  });
+  describe("chi ha chiesto: la richiesta in attesa non si attribuisce il lavoro in corso", () => {
+    const A_BUT_B_PENDING = {
+      via: "provider" as const,
+      platform: "bitbucket" as const,
+      name: "bruno",
+      at: "2026-09-30T11:00:00.000Z",
+    };
+
+    it("correcting, giro 0, pending: niente prefisso; il nome sta solo davanti a «in coda», UNA volta", () => {
+      const line = prCycleLineFor(
+        cycle({ state: "correcting", round: 0, pendingRequest: true, lastRequest: A_BUT_B_PENDING }),
+      );
+      expect(line.segments).toEqual([
+        { key: "tickets:cycle.correcting", params: {} },
+        { key: "tickets:cycle.requestedOnPlatform", params: { name: "bruno", platform: "Bitbucket" } },
+        { key: "tickets:cycle.queued", params: {} },
+      ]);
+    });
+
+    it("stessa combinazione con la correzione ferma: il motivo, poi chi aspetta in coda", () => {
+      expect(
+        keys(
+          cycle({
+            state: "correcting",
+            round: 0,
+            pendingRequest: true,
+            heldReason: "budget",
+            canResume: false,
+            lastRequest: A_BUT_B_PENDING,
+          }),
+        ),
+      ).toEqual([
+        "tickets:cycle.heldBudgetNeedsMaintainer",
+        "tickets:cycle.requestedOnPlatform",
+        "tickets:cycle.queued",
+      ]);
+    });
+  });
+
+  describe("nome vuoto: la frase omette «da X»", () => {
+    const at = "2026-09-30T10:00:00.000Z";
+
+    it("Stubwise, nome vuoto", () => {
+      const line = prCycleLineFor(
+        cycle({ state: "correcting", lastRequest: { via: "stubwise", platform: null, name: "", at } }),
+      );
+      expect(line.segments[0]).toEqual({ key: "tickets:cycle.requestedInStubwiseAnon", params: {} });
+    });
+
+    it("piattaforma nota, nome di soli spazi", () => {
+      const line = prCycleLineFor(
+        cycle({ state: "correcting", lastRequest: { via: "provider", platform: "github", name: "   ", at } }),
+      );
+      expect(line.segments[0]).toEqual({
+        key: "tickets:cycle.requestedOnPlatformAnon",
+        params: { platform: "GitHub" },
+      });
+    });
+
+    it("provider senza piattaforma, nome vuoto, in coda", () => {
+      expect(
+        prCycleLineFor(
+          cycle({ state: "reviewing", pendingRequest: true, lastRequest: { via: "provider", name: "", at } }),
+        ).segments,
+      ).toEqual([
+        { key: "tickets:cycle.reviewing", params: {} },
+        { key: "tickets:cycle.requestedOnPrAnon", params: {} },
+        { key: "tickets:cycle.queued", params: {} },
+      ]);
+    });
+  });
+
+  describe("chiavi, toni e parametri di ogni stato", () => {
+    it("changes_requested: chiave e tono signal", () => {
+      const line = prCycleLineFor(cycle({ state: "changes_requested" }));
+      expect(line.tone).toBe("signal");
+      expect(line.segments).toEqual([{ key: "tickets:cycle.changesRequested", params: {} }]);
+    });
+
+    it("idle: chiave e tono faint", () => {
+      const line = prCycleLineFor(cycle({ state: "idle" }));
+      expect(line.tone).toBe("faint");
+      expect(line.segments).toEqual([{ key: "tickets:cycle.idle", params: {} }]);
+    });
+
+    it("correction_failed: la chiave", () => {
+      expect(prCycleLineFor(cycle({ state: "correction_failed" })).segments).toEqual([
+        { key: "tickets:cycle.correctionFailed", params: {} },
+      ]);
+    });
+
+    it("stato sconosciuto: tono faint", () => {
+      expect(prCycleLineFor(cycle({ state: "stato_futuro" as PrCycle["state"] })).tone).toBe("faint");
+    });
+
+    it("reviewing: tono sky", () => {
+      expect(prCycleLineFor(cycle({ state: "reviewing" })).tone).toBe("sky");
+    });
+
+    it("requestedInStubwise porta il nome", () => {
+      const line = prCycleLineFor(
+        cycle({
+          state: "correcting",
+          lastRequest: { via: "stubwise", platform: null, name: "ada@acme.test", at: "2026-09-30T10:00:00.000Z" },
+        }),
+      );
+      expect(line.segments[0]).toEqual({
+        key: "tickets:cycle.requestedInStubwise",
+        params: { name: "ada@acme.test" },
+      });
+    });
+
+    it("piattaforma github → «GitHub»", () => {
+      const line = prCycleLineFor(
+        cycle({
+          state: "correcting",
+          lastRequest: { via: "provider", platform: "github", name: "octo", at: "2026-09-30T10:00:00.000Z" },
+        }),
+      );
+      expect(line.segments[0]).toEqual({
+        key: "tickets:cycle.requestedOnPlatform",
+        params: { name: "octo", platform: "GitHub" },
+      });
     });
   });
 });

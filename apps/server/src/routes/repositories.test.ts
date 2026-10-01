@@ -908,7 +908,7 @@ describe("account revisore (ciclo di correzione, 30 set 2026)", () => {
     expect(res.statusCode).toBe(422);
     const body = res.json() as { code: string; message: string };
     expect(body.code).toBe("review_account_no_write_permission");
-    expect(body.message).toBe("L'account revisore non ha permesso di scrittura sul repository");
+    expect(body.message).toBe("The review account has no write permission on the repository");
     expect(await reviewColumn(slug)).toBeNull();
   });
 

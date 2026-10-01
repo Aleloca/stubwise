@@ -22142,6 +22142,33 @@ git commit -m "feat(api-client): chiedere la correzione di una PR e leggere il c
 > (`tickets.runAi`, F1); un 409 `correction_not_held` →
 > `mobile.work.pr.cycle.correctionNotHeld` (stessi testi di E2) e
 > invalidazione del ticket. Fixture dei test dell'app complete con `heldJobId`.
+>
+> ⚠️ **Revisione di E3 (1 ott 2026) — F2 deve usare questa forma, IDENTICA al
+> web** (`apps/web/src/lib/pr-cycle-line.ts`):
+> - **Correzione ferma con un giro**: UNA chiave, minuscola dopo il giro come
+>   `correctingRound` — `heldBudgetRound`, `heldBudgetNeedsMaintainerRound`,
+>   `heldLimitRound`, `heldOtherRound`, params `{ round, max }`. Testi:
+>   «Giro {{round}} di {{max}} · correzione ferma · budget esaurito» /
+>   «… · correzione ferma · budget esaurito · chiedi a un maintainer di
+>   riprenderla» / «… · correzione ferma · limite del provider raggiunto,
+>   riparte da sola» / «… · correzione ferma»; en «Round {{round}} of {{max}}
+>   · correction on hold · budget exhausted» / «… · budget exhausted · ask a
+>   maintainer to resume it» / «… · provider usage limit reached, it resumes
+>   by itself» / «… · correction on hold». A giro 0 restano le chiavi senza
+>   `Round`. Niente chiave «Giro N di M» separata.
+> - **Nome vuoto**: `lastRequest.name` può essere `""` (`derivePrCycle`): con
+>   `name.trim() === ""` le chiavi sono `requestedInStubwiseAnon` («Modifiche
+>   richieste su Stubwise» / «Changes requested in Stubwise»),
+>   `requestedOnPlatformAnon` («Modifiche richieste su {{platform}}» /
+>   «Changes requested on {{platform}}», params `{ platform }`) e
+>   `requestedOnPrAnon` («Modifiche richieste sulla PR» / «Changes requested
+>   on the PR»). L'app deve fare lo stesso: mai «da » seguito dal vuoto.
+> - **Richiesta in attesa**: `lastRequest` è la richiesta umana PIÙ RECENTE,
+>   cioè la `pending` se c'è. Il prefisso del richiedente su `correcting` a
+>   giro 0 si mostra SOLO con `!pendingRequest`; con una richiesta in attesa
+>   il nome compare una volta sola, davanti a «in coda».
+> - **Tono**: ferma per `limit` resta `sky` (riparte da sola), per
+>   `budget`/`other`/motivo sconosciuto `signal`.
 
 **Files:**
 - Modify: `apps/mobile/src/i18n/it.json`, `apps/mobile/src/i18n/en.json`

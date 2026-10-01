@@ -247,7 +247,7 @@ async function checkReviewAccount(
       ok: false,
       status: 422,
       code: "review_account_no_write_permission",
-      message: "L'account revisore non ha permesso di scrittura sul repository",
+      message: "The review account has no write permission on the repository",
     };
   }
   if (failed.length > 0) {
