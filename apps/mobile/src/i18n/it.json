@@ -710,6 +710,7 @@
         "requestCorrection": "Applica le correzioni",
         "resume": "Riprendi la correzione",
         "resuming": "Ripresa…",
+        "resumeOffline": "// senza rete non si riprende",
         "cycle": {
           "reviewing": "In attesa della review",
           "correcting": "Correzione in corso",
