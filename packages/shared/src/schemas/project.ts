@@ -3,8 +3,9 @@ import { handledBySchema } from "./notification.js";
 import { milestoneStatusSchema } from "./milestone.js";
 import { ticketPrioritySchema, ticketTypeSchema } from "./ticket.js";
 
-export const gitProviderKindSchema = z.enum(["bitbucket", "github"]);
-export type GitProviderKind = z.infer<typeof gitProviderKindSchema>;
+// Spostato in `base-enums.ts` (import circolare con `ticket.ts`, vedi lì).
+import { gitProviderKindSchema, type GitProviderKind } from "./base-enums.js";
+export { gitProviderKindSchema, type GitProviderKind };
 
 /**
  * Proiezione pubblica di un account git riutilizzabile. Le credenziali (token,

@@ -1,6 +1,7 @@
 import { z } from "zod";
-import { heldReasonSchema } from "./docs.js";
-import { gitProviderKindSchema } from "./project.js";
+// Da `base-enums.ts`, non da `docs.ts`/`project.ts`: `ticket.ts` importa da
+// qui, e quei due importano da `ticket.ts` (vedi il docblock di `base-enums.ts`).
+import { gitProviderKindSchema, heldReasonSchema } from "./base-enums.js";
 
 /**
  * Ciclo di correzione post-PR (design `2026-09-30-pr-correction-loop-design.md`).

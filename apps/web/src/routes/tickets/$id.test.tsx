@@ -11,6 +11,7 @@ import type {
   Ticket,
   TicketLinkView,
   TicketQuestion,
+  TicketRepository,
   TicketUsage,
 } from "../../lib/api";
 import { ticketKeys } from "../../lib/queries";
@@ -95,8 +96,15 @@ const ticketFixture: Ticket = {
 const REPO_A_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const REPO_B_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 
-/** Stato PR per-repo di un ticket dopo l'esecuzione del fix (Fase 3). */
-const ticketRepositoriesFixture = [
+/**
+ * Stato PR per-repo di un ticket dopo l'esecuzione del fix (Fase 3).
+ *
+ * ⚠️ SENZA `cycle` apposta (30 set 2026): è la risposta di un server senza il
+ * ciclo di correzione, e sul web il `.default(null)` dello schema non gira
+ * (`lib/api.ts` fa un cast, non un parse). Il cast al punto d'uso è il prezzo
+ * di tenerla così: non completarla.
+ */
+const ticketRepositoriesFixture: Array<Omit<TicketRepository, "cycle">> = [
   {
     repositoryId: REPO_A_ID,
     repositorySlug: "shop-api",
@@ -1028,7 +1036,12 @@ describe("dettaglio ticket", () => {
   });
 
   it("sezione Repository/PR: elenca repo, stato PR e link alla PR (fix eseguito)", async () => {
-    mockDetailApi({ ticket: { ...ticketFixture, repositories: ticketRepositoriesFixture } });
+    mockDetailApi({
+      ticket: {
+        ...ticketFixture,
+        repositories: ticketRepositoriesFixture as Ticket["repositories"],
+      },
+    });
     renderDetail();
 
     const section = await screen.findByRole("region", { name: "Repository / PR" });

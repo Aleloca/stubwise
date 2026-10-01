@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { handledBySchema } from "./actor.js";
+import { prCycleSchema } from "./pr-correction.js";
 
 export const ticketStatusSchema = z.enum([
   "open",
@@ -70,6 +71,20 @@ export const ticketRepositorySchema = z.object({
   branch: z.string().min(1),
   prUrl: z.url().nullable(),
   prState: prStateSchema,
+  /**
+   * Stato del ciclo review → correzione della PR (30 set 2026, design
+   * `2026-09-30-pr-correction-loop-design.md` §9). Lo DERIVA il server
+   * (`derivePrCycle`, `@stubwise/notifications`, col ruolo di chi GUARDA) e i
+   * client lo LEGGONO, bottone compreso (`canRequestCorrection`, `canResume`):
+   * web e app non possono dire cose diverse, stessa regola di `canMerge`.
+   * `null` = PR non aperta da Stubwise.
+   *
+   * `.nullable().default(null)` e mai obbligatorio: l'app installata valida
+   * questa risposta, e un server senza il ciclo (rollback, istanza indietro)
+   * non lo manda. Vedi `ticket.test.ts`. Sul WEB il default non gira (cast,
+   * non parse): chi lo legge lì lo difende con `?? null`.
+   */
+  cycle: prCycleSchema.nullable().default(null),
 });
 export type TicketRepository = z.infer<typeof ticketRepositorySchema>;
 

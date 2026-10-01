@@ -24445,6 +24445,25 @@ Entrate con i fix della revisione di fine tappa:
 - **`bitbucketUsername` scritto a mano**: se contiene un vecchio username e il
   parser restituisce il `nickname`, la persona non viene riconosciuta (resta
   il login: nessun danno, meno informazione).
+- **`derivePrCycle` fa ~7 letture per voce PR** (misurato in D6, non una
+  sola come scritto sopra): riga del ticket, correzioni, due su `pr_reviews`,
+  `pr_review_jobs`, job che blocca, giri della tornata. Il dettaglio le chiama
+  una volta per repository del ticket, in parallelo (`Promise.all`), e mai
+  sulla lista (`ticketListItemSchema` porta solo `repositoryCount`; c'è un test
+  che lo fissa). Per un ticket con un repo sono ~7 query in più per GET.
+- **D6 — import circolare in `@stubwise/shared`.** `ticket.ts` →
+  `pr-correction.ts` → `project.ts`/`docs.ts` → `ticket.ts` chiudeva un giro
+  (`ReferenceError ... before initialization` caricando il package).
+  `gitProviderKindSchema` e `heldReasonSchema` sono stati spostati SENZA
+  cambiarne la forma in `schemas/base-enums.ts` (foglia, stesso precedente di
+  `actor.ts`), e `project.ts`/`docs.ts` li ri-esportano: nessun import
+  esistente cambia.
+- **«Rilancia» su una correzione ferma per budget, per un member (nota del
+  coordinatore, 1 ott 2026).** Dall'inbox o da Slack un `member` che preme
+  «Rilancia» su una correzione `held` per budget riceve un messaggio generico
+  (`forbidden`, 403). Accettato per ora. Se un giorno servirà sistemarlo, la
+  strada giusta è NON offrirgli l'azione — con un dato derivato a lettura, come
+  `canMerge`/`canResume` — piuttosto che inventare un codice d'errore nuovo.
 
 ### Tappe F e G — app e documentazione
 

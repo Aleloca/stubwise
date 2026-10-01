@@ -346,6 +346,7 @@ describe("WorkScreen — ruolo e gate di approvazione", () => {
               branch: "stubwise/fix-245-image-cache",
               prUrl: null,
               prState: "open",
+              cycle: null,
             },
           ],
         }),

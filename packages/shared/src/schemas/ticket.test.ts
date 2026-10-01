@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readerSchema } from "../reader.js";
+import { readerSchema, UNKNOWN } from "../reader.js";
 import { ticketDetailSchema, ticketPageSchema } from "./ticket.js";
 
 /**
@@ -106,5 +106,54 @@ describe("ticketPageSchema: il totale verso un server più vecchio", () => {
   it("un server che lo manda viene letto verbatim", () => {
     const parsed = readerSchema(ticketPageSchema).parse({ ...paginaSenzaTotale, total: 14 });
     expect(parsed.total).toBe(14);
+  });
+});
+
+/**
+ * IL CICLO DI CORREZIONE VERSO UN SERVER PIÙ VECCHIO (30 set 2026).
+ *
+ * `cycle` è nuovo su ogni voce PR del dettaglio: un server senza il ciclo
+ * (rollback, istanza self-hosted indietro) non lo manda. Nasce
+ * `.nullable().default(null)` e questo test parsa una voce che non lo porta.
+ * Il parse passa da `readerSchema` perché è così che l'app legge davvero.
+ */
+describe("ticketRepositorySchema.cycle verso un server più vecchio", () => {
+  const voceSenzaCiclo = {
+    repositoryId: "44444444-4444-4444-8444-444444444444",
+    repositorySlug: "shop-api",
+    branch: "stubwise/ticket-42",
+    prUrl: "https://github.com/acme/shop-api/pull/12",
+    prState: "open",
+  };
+  const ciclo = {
+    state: "correcting",
+    round: 2,
+    maxRounds: 3,
+    pendingRequest: false,
+    lastRequest: null,
+    canRequestCorrection: false,
+    heldReason: "budget",
+    canResume: false,
+  };
+
+  it("una voce senza `cycle` si legge con cycle null", () => {
+    const parsed = readerSchema(ticketDetailSchema).parse(
+      ticketSenzaFase7({ repositories: [voceSenzaCiclo] }),
+    );
+    expect(parsed.repositories[0]!.cycle).toBeNull();
+  });
+
+  it("un ciclo presente si legge verbatim", () => {
+    const parsed = readerSchema(ticketDetailSchema).parse(
+      ticketSenzaFase7({ repositories: [{ ...voceSenzaCiclo, cycle: ciclo }] }),
+    );
+    expect(parsed.repositories[0]!.cycle).toEqual(ciclo);
+  });
+
+  it("uno stato del ciclo che l'app non conosce non fa saltare il dettaglio", () => {
+    const parsed = readerSchema(ticketDetailSchema).parse(
+      ticketSenzaFase7({ repositories: [{ ...voceSenzaCiclo, cycle: { ...ciclo, state: "stato_futuro" } }] }),
+    );
+    expect(parsed.repositories[0]!.cycle?.state).toBe(UNKNOWN);
   });
 });

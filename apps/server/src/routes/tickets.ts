@@ -24,6 +24,7 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { requireAdmin, requireAuth } from "../auth/session.js";
 import type { Db } from "@stubwise/db";
+import { derivePrCycle, type ActorRole } from "@stubwise/notifications";
 import {
   agentQuestions,
   aiJobs,
@@ -302,6 +303,7 @@ function toPublicTicket(row: Ticket): z.infer<typeof ticketSchema> {
 async function loadTicketRepositories(
   db: Db,
   ticketId: string,
+  viewerRole: ActorRole,
 ): Promise<z.infer<typeof ticketRepositorySchema>[]> {
   const rows = await db
     .select({
@@ -316,14 +318,23 @@ async function loadTicketRepositories(
     .innerJoin(repositories, eq(repositories.id, ticketRepositories.repositoryId))
     .where(eq(ticketRepositories.ticketId, ticketId))
     .orderBy(ticketRepositories.createdAt, ticketRepositories.repositoryId);
-  return rows.map((row) => ({
-    repositoryId: row.repositoryId,
-    repositorySlug: row.repositorySlug,
-    repositoryName: row.repositoryName,
-    branch: row.branch,
-    prUrl: row.prUrl,
-    prState: row.prState,
-  }));
+  // Il ciclo di correzione è DERIVATO qui (design §9) e il client lo legge
+  // soltanto — bottone compreso. `canResume` dipende da CHI GUARDA (E7), quindi
+  // il ruolo è quello del viewer, mai dedotto nel client. Costo: `derivePrCycle`
+  // fa ~7 letture per voce, una chiamata per repository del ticket (di solito
+  // uno, comunque pochi), in parallelo. Solo sul DETTAGLIO: la lista ticket non
+  // porta le voci PR (`ticketListItemSchema` ha solo `repositoryCount`).
+  return Promise.all(
+    rows.map(async (row) => ({
+      repositoryId: row.repositoryId,
+      repositorySlug: row.repositorySlug,
+      repositoryName: row.repositoryName,
+      branch: row.branch,
+      prUrl: row.prUrl,
+      prState: row.prState,
+      cycle: await derivePrCycle(db, { ticketId, repositoryId: row.repositoryId, viewerRole }),
+    })),
+  );
 }
 
 /**
@@ -390,8 +401,9 @@ function decodeCursor(raw: string): Cursor | null {
 async function ticketDetailResponse(
   db: Db,
   row: Ticket,
+  viewerRole: ActorRole,
 ): Promise<z.infer<typeof ticketDetailSchema>> {
-  const repositoriesState = await loadTicketRepositories(db, row.id);
+  const repositoriesState = await loadTicketRepositories(db, row.id, viewerRole);
   // Riassunto "in breve" del piano (fase 5): dell'ULTIMO job, che è lo stesso
   // che la pagina ticket mostra come `jobs[0]`. Un job più vecchio col suo
   // riassunto non deve riemergere sul dettaglio quando un run nuovo è partito.
@@ -631,7 +643,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
       // Unica fonte della forma di dettaglio (design/piano + stato PR per-repo,
       // vuoto finché l'agente non apre PR): la stessa risposta prodotta dagli
       // endpoint design/plan (helper condiviso, niente duplicazione).
-      return ticketDetailResponse(app.db, row);
+      return ticketDetailResponse(app.db, row, request.user!.role);
     },
   );
 
@@ -1217,7 +1229,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         return updated!;
       });
       if (!result) return apiError(reply, 404, "ticket_not_found", "Ticket not found");
-      return ticketDetailResponse(app.db, result);
+      return ticketDetailResponse(app.db, result, request.user!.role);
     },
   );
 
@@ -1266,7 +1278,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
       if (result === "no_design") {
         return apiError(reply, 404, "no_active_design", "No active design to remove");
       }
-      return ticketDetailResponse(app.db, result);
+      return ticketDetailResponse(app.db, result, request.user!.role);
     },
   );
 
@@ -1301,7 +1313,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         .where(eq(tickets.id, id))
         .returning();
       if (!row) return apiError(reply, 404, "ticket_not_found", "Ticket not found");
-      return ticketDetailResponse(app.db, row);
+      return ticketDetailResponse(app.db, row, request.user!.role);
     },
   );
 
@@ -1327,7 +1339,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         .where(eq(tickets.id, id))
         .returning();
       if (!row) return apiError(reply, 404, "ticket_not_found", "Ticket not found");
-      return ticketDetailResponse(app.db, row);
+      return ticketDetailResponse(app.db, row, request.user!.role);
     },
   );
 
@@ -1488,7 +1500,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         }
       }
       const [row] = await app.db.select().from(tickets).where(eq(tickets.id, request.params.id));
-      return ticketDetailResponse(app.db, row!);
+      return ticketDetailResponse(app.db, row!, request.user!.role);
     },
   );
 
@@ -1518,7 +1530,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         }
       }
       const [row] = await app.db.select().from(tickets).where(eq(tickets.id, request.params.id));
-      return ticketDetailResponse(app.db, row!);
+      return ticketDetailResponse(app.db, row!, request.user!.role);
     },
   );
 }
