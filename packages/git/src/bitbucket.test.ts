@@ -375,6 +375,42 @@ describe("BitbucketProvider.getPullRequestChecks", () => {
     const result = await provider.getPullRequestChecks(config, 7);
     expect(result.headRef).toBe("fix/typo-in-readme");
   });
+
+  it("lo status `stubwise-review` non è un check: la coda di rilascio ha già il verdetto della review", async () => {
+    const fetchImpl = fetchSequence(
+      prResponse(),
+      jsonResponse(
+        {
+          values: [
+            { key: "build", name: "build", state: "SUCCESSFUL" },
+            { key: "stubwise-review", name: "Stubwise review", state: "FAILED" },
+          ],
+        },
+        200
+      )
+    );
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    const result = await provider.getPullRequestChecks(config, 7);
+
+    expect(result).toEqual({
+      status: "success",
+      checks: [{ name: "build", status: "success" }],
+      headSha: "abc123",
+    });
+  });
+
+  it("se `stubwise-review` è l'unico status, la PR non ha check", async () => {
+    const fetchImpl = fetchSequence(
+      prResponse(),
+      jsonResponse({ values: [{ key: "stubwise-review", name: "Stubwise review", state: "INPROGRESS" }] }, 200)
+    );
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    const result = await provider.getPullRequestChecks(config, 7);
+
+    expect(result).toEqual({ status: "no_checks", checks: [], headSha: "abc123" });
+  });
 });
 
 describe("BitbucketProvider.mergePullRequest", () => {

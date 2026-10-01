@@ -14,6 +14,7 @@ import {
   withPermissionHint,
   readJsonResponse,
   rollupCheckStatus,
+  STUBWISE_REVIEW_STATUS_KEY,
   verifyHmacSignature,
   MergeNotAllowedError,
   type AccountConfig,
@@ -205,7 +206,15 @@ export class BitbucketProvider implements GitProvider {
       const data = (await readJsonResponse(response, "Bitbucket")) as {
         values?: { name?: unknown; key?: unknown; state?: unknown }[];
       };
-      const values = Array.isArray(data.values) ? data.values : [];
+      // Lo status che la review di Stubwise scrive sulla PR (ciclo di
+      // correzione, `setCommitStatus` con key `stubwise-review`) NON è un
+      // check: la coda di rilascio legge il verdetto della review dal DB, in
+      // una colonna sua. Contarlo qui bloccherebbe il merge da Stubwise solo
+      // su Bitbucket (GitHub legge i check-run, non gli status). Le regole del
+      // branch sulla piattaforma lo vedono comunque: il filtro è solo nostro.
+      const values = (Array.isArray(data.values) ? data.values : []).filter(
+        (v) => v.key !== STUBWISE_REVIEW_STATUS_KEY,
+      );
       if (values.length === 0) return { status: "no_checks", checks: [], ...extra };
 
       const checks = values.map((v) => ({
