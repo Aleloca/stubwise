@@ -66,6 +66,14 @@ export const en: Catalog = {
   "comment.correctionApplied": "Corrections pushed to the pull request: {url}",
   "comment.correctionNoChanges":
     "Correction of {url}: the AI changed nothing. Its answer is below — often the requested change was not applicable.",
+  // Prima riga del commento di RIPIEGO della review (worker, review/cycle.ts):
+  // l'account revisore non è riuscito ad apporre il verdetto e il testo esce
+  // col commento dell'account principale. Solo la CATEGORIA del motivo, mai
+  // il messaggio d'errore grezzo (potrebbe contenere dati del provider).
+  "comment.reviewVerdictNotSubmitted.permissions":
+    "Verdict not submitted: the reviewer account does not have the required permissions.",
+  "comment.reviewVerdictNotSubmitted.network": "Verdict not submitted: the reviewer account could not be reached.",
+  "comment.reviewVerdictNotSubmitted.other": "Verdict not submitted: provider error.",
   // --- commitStatus.* — descrizione dello status `stubwise-review` sulla PR.
   // GitHub la tronca oltre 140 caratteri: restano corte apposta (c'è un test).
   "commitStatus.reviewing": "Stubwise review in progress",
@@ -603,6 +611,11 @@ export const it: Catalog = {
   "comment.correctionApplied": "Correzioni pushate sulla pull request: {url}",
   "comment.correctionNoChanges":
     "Correzione di {url}: l'AI non ha modificato nulla. Qui sotto la sua risposta — spesso la modifica richiesta non era applicabile.",
+  // Ripiego della review senza verdetto (vedi nota in `en`).
+  "comment.reviewVerdictNotSubmitted.permissions":
+    "Verdetto non apposto: l'account revisore non ha i permessi.",
+  "comment.reviewVerdictNotSubmitted.network": "Verdetto non apposto: l'account revisore non è raggiungibile.",
+  "comment.reviewVerdictNotSubmitted.other": "Verdetto non apposto: errore del provider.",
   // --- commitStatus.* (vedi nota in `en`) ---
   "commitStatus.reviewing": "Review di Stubwise in corso",
   "commitStatus.correcting": "Stubwise sta applicando le modifiche richieste",

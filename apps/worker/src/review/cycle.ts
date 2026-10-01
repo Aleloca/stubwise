@@ -7,7 +7,7 @@ import {
   tickets,
   type Db,
 } from "@stubwise/db";
-import { getProvider, STUBWISE_REVIEW_STATUS_KEY, type GitProvider } from "@stubwise/git";
+import { getProvider, GitProviderError, STUBWISE_REVIEW_STATUS_KEY, type GitProvider } from "@stubwise/git";
 import { t, type Language } from "@stubwise/i18n";
 import {
   autoRoundsInCurrentSeries,
@@ -195,6 +195,47 @@ async function loadReviewerProject(
   return { ...main, credentials };
 }
 
+/** Perché il verdetto dell'account revisore non è stato apposto: solo la CATEGORIA. */
+export type VerdictFailureReason = "permissions" | "network" | "other";
+
+const NETWORK_ERROR_CODES = new Set([
+  "ECONNREFUSED",
+  "ECONNRESET",
+  "ETIMEDOUT",
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "EHOSTUNREACH",
+  "ENETUNREACH",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "UND_ERR_HEADERS_TIMEOUT",
+  "UND_ERR_BODY_TIMEOUT",
+  "UND_ERR_SOCKET",
+]);
+
+/**
+ * Classifica l'errore di `submitPrReview` in una CATEGORIA, l'unica cosa che
+ * il commento di ripiego dice: il messaggio grezzo resta nel log del worker
+ * (può contenere estratti della risposta del provider), mai sulla PR.
+ *  - `permissions`: `GitProviderError` con status 401/403;
+ *  - `network`: timeout (`AbortError`/`TimeoutError`, `fetchWithTimeout`) o
+ *    fetch fallita (`TypeError: fetch failed`, o un codice di rete in `cause`);
+ *  - `other`: tutto il resto (4xx/5xx diversi, credenziali incomplete…).
+ */
+export function verdictFailureReason(err: unknown): VerdictFailureReason {
+  if (err instanceof GitProviderError) {
+    return err.status === 401 || err.status === 403 ? "permissions" : "other";
+  }
+  if (err instanceof Error) {
+    if (err.name === "AbortError" || err.name === "TimeoutError") return "network";
+    const cause = (err as { cause?: unknown }).cause;
+    const code =
+      typeof cause === "object" && cause !== null && "code" in cause ? (cause as { code?: unknown }).code : undefined;
+    if (typeof code === "string" && NETWORK_ERROR_CODES.has(code)) return "network";
+    if (err instanceof TypeError && err.message === "fetch failed") return "network";
+  }
+  return "other";
+}
+
 /**
  * Pubblica la review sulla PR. Con l'account revisore: SOLO submitPrReview, che
  * pubblica anche il testo (GitHub: è la review; Bitbucket: commento + stato) —
@@ -209,6 +250,10 @@ async function publishReview(deps: ReviewCycleDeps, input: AfterReviewCompletedI
   const provider = (deps.getProviderFn ?? getProvider)(input.mirrorProject.provider);
   const body = `${input.reviewBody}\n\n_— Stubwise PR Review · \`${input.job.headSha.slice(0, 7)}\`_`;
   const reviewer = await loadReviewerProject(deps, input.job.repositoryId, input.mirrorProject);
+  // Il commento di ripiego si apre con una riga FISSA (template i18n) SOLO se
+  // il ripiego nasce dal fallimento del revisore: senza revisore configurato
+  // (o con credenziali non decifrabili) il commento è quello di sempre.
+  let fallbackBody = body;
   if (reviewer) {
     try {
       const outcome = await provider.submitPrReview(reviewer, input.job.prNumber, input.verdict, body);
@@ -226,10 +271,12 @@ async function publishReview(deps: ReviewCycleDeps, input: AfterReviewCompletedI
       console.error(
         `[stubwise-worker] pr-review: review con l'account revisore sulla PR #${input.job.prNumber} fallita (${errText(err)}), ripiego sul commento`,
       );
+      const verdictNotice = t(input.lang, `comment.reviewVerdictNotSubmitted.${verdictFailureReason(err)}`);
+      fallbackBody = `${verdictNotice}\n\n${body}`;
     }
   }
   try {
-    await provider.createPrComment(input.mirrorProject, input.job.prNumber, body);
+    await provider.createPrComment(input.mirrorProject, input.job.prNumber, fallbackBody);
   } catch (err) {
     console.error(
       `[stubwise-worker] pr-review: commento sulla PR #${input.job.prNumber} fallito (${errText(err)}), la review resta completata`,

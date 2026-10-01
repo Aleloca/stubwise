@@ -102,6 +102,28 @@ describe("correzioni post-PR", () => {
   });
 });
 
+describe("ripiego della review senza verdetto", () => {
+  test("una riga per categoria, in entrambe le lingue, senza segnaposto", () => {
+    const expected = {
+      en: {
+        permissions: "Verdict not submitted: the reviewer account does not have the required permissions.",
+        network: "Verdict not submitted: the reviewer account could not be reached.",
+        other: "Verdict not submitted: provider error.",
+      },
+      it: {
+        permissions: "Verdetto non apposto: l'account revisore non ha i permessi.",
+        network: "Verdetto non apposto: l'account revisore non è raggiungibile.",
+        other: "Verdetto non apposto: errore del provider.",
+      },
+    } as const;
+    for (const lang of ["en", "it"] as const) {
+      for (const reason of ["permissions", "network", "other"] as const) {
+        expect(t(lang, `comment.reviewVerdictNotSubmitted.${reason}`)).toBe(expected[lang][reason]);
+      }
+    }
+  });
+});
+
 describe("Request changes scartato (identità irrisolvibile)", () => {
   test("il titolo porta il numero della PR, in entrambe le lingue", () => {
     expect(t("en", "comment.changesRequestDropped.title", { prNumber: 42 })).toBe(

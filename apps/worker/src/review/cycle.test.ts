@@ -11,7 +11,7 @@ import {
   type Db,
 } from "@stubwise/db";
 import { startTestDb, type TestDb } from "@stubwise/db/testing";
-import { BitbucketProvider } from "@stubwise/git";
+import { BitbucketProvider, GitProviderError } from "@stubwise/git";
 import {
   autoRoundsInCurrentSeries,
   completeCorrection,
@@ -25,6 +25,7 @@ import type { MirrorProject } from "../git/mirrors.js";
 import {
   afterReviewCompleted,
   commitStatusTargetUrl,
+  verdictFailureReason,
   type AfterReviewCompletedInput,
   type ReviewCycleDeps,
 } from "./cycle.js";
@@ -552,6 +553,84 @@ describe("afterReviewCompleted — pubblicazione e status", () => {
     expect((f.createPrComment.mock.calls[0]![0] as MirrorProject).credentials.token).toBe("main-token");
   });
 
+  // Il commento di ripiego si apre con UNA riga fissa (template i18n) che dice
+  // che il verdetto non è stato apposto, con la sola CATEGORIA del motivo:
+  // mai il messaggio grezzo (qui contiene un token finto apposta).
+  const fallbackCases: Array<{ name: string; err: () => unknown; en: string; it: string }> = [
+    {
+      name: "permessi (GitProviderError 403)",
+      err: () => new GitProviderError("GitHub API error 403: SECRET-TOKEN-xyz", 403, "SECRET-TOKEN-xyz"),
+      en: "Verdict not submitted: the reviewer account does not have the required permissions.",
+      it: "Verdetto non apposto: l'account revisore non ha i permessi.",
+    },
+    {
+      name: "permessi (GitProviderError 401)",
+      err: () => new GitProviderError("Bitbucket API error 401: SECRET-TOKEN-xyz", 401, "SECRET-TOKEN-xyz"),
+      en: "Verdict not submitted: the reviewer account does not have the required permissions.",
+      it: "Verdetto non apposto: l'account revisore non ha i permessi.",
+    },
+    {
+      name: "rete (fetch failed)",
+      err: () => new TypeError("fetch failed", { cause: Object.assign(new Error("SECRET-TOKEN-xyz"), { code: "ECONNREFUSED" }) }),
+      en: "Verdict not submitted: the reviewer account could not be reached.",
+      it: "Verdetto non apposto: l'account revisore non è raggiungibile.",
+    },
+    {
+      name: "rete (timeout)",
+      err: () => Object.assign(new Error("This operation was aborted SECRET-TOKEN-xyz"), { name: "AbortError" }),
+      en: "Verdict not submitted: the reviewer account could not be reached.",
+      it: "Verdetto non apposto: l'account revisore non è raggiungibile.",
+    },
+    {
+      name: "altro (GitProviderError 500)",
+      err: () => new GitProviderError("GitHub API error 500: SECRET-TOKEN-xyz", 500, "SECRET-TOKEN-xyz"),
+      en: "Verdict not submitted: provider error.",
+      it: "Verdetto non apposto: errore del provider.",
+    },
+  ];
+
+  it.each(fallbackCases)("ripiego per $name: la prima riga dice la categoria, mai l'errore grezzo", async (c) => {
+    for (const lang of ["en", "it"] as const) {
+      const s = await setup({ reviewer: true });
+      const f = fakes();
+      f.submitPrReview.mockRejectedValue(c.err());
+
+      await afterReviewCompleted(f.deps, input(s, { lang }));
+
+      expect(f.createPrComment).toHaveBeenCalledTimes(1);
+      const body = f.createPrComment.mock.calls[0]![2] as string;
+      expect(body.split("\n")[0]).toBe(lang === "en" ? c.en : c.it);
+      expect(body).toContain("manca un test");
+      expect(body).not.toContain("SECRET-TOKEN");
+      expect(body).not.toContain("main-token");
+      expect(body).not.toContain("reviewer-token");
+    }
+  });
+
+  it("senza account revisore il commento NON porta la riga del verdetto non apposto", async () => {
+    const s = await setup();
+    const f = fakes();
+
+    await afterReviewCompleted(f.deps, input(s));
+
+    const body = f.createPrComment.mock.calls[0]![2] as string;
+    expect(body.startsWith("🔎 **PR Review**")).toBe(true);
+    expect(body).not.toContain("Verdict not submitted");
+  });
+
+  it("verdictFailureReason: i casi puri", () => {
+    expect(verdictFailureReason(new GitProviderError("x", 403, ""))).toBe("permissions");
+    expect(verdictFailureReason(new GitProviderError("x", 401, ""))).toBe("permissions");
+    expect(verdictFailureReason(new GitProviderError("x", 404, ""))).toBe("other");
+    expect(verdictFailureReason(new GitProviderError("x", 0, ""))).toBe("other");
+    expect(verdictFailureReason(new TypeError("fetch failed"))).toBe("network");
+    expect(verdictFailureReason(Object.assign(new Error("t"), { name: "TimeoutError" }))).toBe("network");
+    expect(verdictFailureReason(new Error("x", { cause: { code: "ETIMEDOUT" } }))).toBe("network");
+    // un "403" nel messaggio di un errore generico non è un permesso
+    expect(verdictFailureReason(new Error("403"))).toBe("other");
+    expect(verdictFailureReason("boom")).toBe("other");
+  });
+
   // Con il VERO BitbucketProvider (solo `fetch` finto): è l'ordine interno di
   // submitPrReview (verdetto prima del commento, B8) a garantire che il
   // ripiego non duplichi il testo, e un doppio di submitPrReview non lo
@@ -595,6 +674,10 @@ describe("afterReviewCompleted — pubblicazione e status", () => {
     expect(((comments[0]![1] as RequestInit).headers as Record<string, string>)["Authorization"]).toBe(
       `Basic ${Buffer.from("main@example.com:main-token").toString("base64")}`,
     );
+    // e il testo del ripiego dice che il verdetto non è stato apposto (un 400
+    // non è un problema di permessi né di rete: errore del provider)
+    const sent = JSON.parse(String((comments[0]![1] as RequestInit).body)) as { content: { raw: string } };
+    expect(sent.content.raw.split("\n")[0]).toBe("Verdict not submitted: provider error.");
   });
 
   it("status di commit sullo sha COMPLETO risolto alla partenza, legato al branch sorgente", async () => {

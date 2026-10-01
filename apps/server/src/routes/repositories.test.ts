@@ -925,14 +925,9 @@ describe("account revisore (ciclo di correzione, 30 set 2026)", () => {
     expect(await reviewColumn(slug)).toBe(reviewerId);
   });
 
-  // Prima condizione M4 (si cambia il SOLO principale mentre un altro admin
-  // imposta il revisore su quell'account): in quel percorso non c'è nessuna
-  // chiamata di rete né altro doppio PRIMA dell'update in cui infilare la
-  // scrittura concorrente, quindi la corsa non si riproduce da qui. La
-  // coprono il WHERE (`review_git_account_id is distinct from <nuovo
-  // principale>`) e, comunque, il CHECK `repositories_review_not_main_chk`
-  // della 0081 (testato in packages/db, migration-0081.test.ts).
-  it.skip("corsa fra due admin sul cambio del principale → 409 (non riproducibile: nessun doppio prima dell'update)", () => {});
+  // La prima condizione M4 (cambio del SOLO principale in corsa con un altro
+  // admin) non si riproduce da qui: la copre il CHECK della 0081, vedi il
+  // commento accanto al suo test in packages/db/src/migration-0081.test.ts.
 
   it("PATCH con lo STESSO revisore già salvato: nessun controllo di rete", async () => {
     const { validate } = mockGithub();

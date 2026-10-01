@@ -12253,7 +12253,12 @@ errore lascia una riga di log e non tocca la review già `completed`:
    su Bitbucket `submitPrReview` manda il verdetto PRIMA del commento (B8),
    quindi se fallisce il verdetto nessun testo è uscito, e se fallisce il
    commento il ripiego lo pubblica una volta sola; su GitHub è una richiesta
-   sola. Senza account revisore: il commento di oggi.
+   sola. Senza account revisore: il commento di oggi. Il commento di ripiego
+   dopo un `submitPrReview` FALLITO si apre con una riga fissa
+   (`comment.reviewVerdictNotSubmitted.{permissions|network|other}`, i18n
+   en/it) che dice che il verdetto non è stato apposto e solo la CATEGORIA del
+   motivo (`verdictFailureReason`: 401/403 → permessi, timeout/fetch fallita →
+   rete, altro → provider), mai l'errore grezzo; senza revisore la riga non c'è.
 2. **Status di commit `stubwise-review`**, sempre, con l'account principale (è
    quello che ha scritto sul repo): `success` su approve, `failure` su
    request_changes. Sha COMPLETO dal mirror (`resolveCommitSha`, chiamata

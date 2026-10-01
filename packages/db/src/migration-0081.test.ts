@@ -206,6 +206,17 @@ describe("migrazione 0081: correzioni post-PR", () => {
     await db.execute(sql`update "projects" set "pr_correction_max_rounds" = 0 where "id" = ${projectId}`);
   });
 
+  // Questo CHECK è anche ciò che copre la PRIMA condizione M4 della rotta
+  // `PATCH /api/repositories/:slug` (apps/server/src/routes/repositories.ts):
+  // un admin cambia il SOLO principale mentre un altro imposta il revisore su
+  // quello stesso account. In quel percorso non c'è nessuna chiamata di rete
+  // né altro doppio PRIMA dell'update in cui infilare la scrittura
+  // concorrente, quindi la corsa non si riproduce dai test della rotta (lì
+  // c'era un test saltato, tolto). La guardano il WHERE dell'update
+  // (`review_git_account_id is distinct from <nuovo principale>`) e, in
+  // ultima istanza, questo vincolo: la riga «revisore = principale» non può
+  // esistere, qualunque sia l'ordine delle due scritture — è il caso
+  // «promuovere il revisore a principale» qui sotto.
   it("il CHECK revisore ≠ principale: un UPDATE diretto che li rende uguali fallisce con 23514", async () => {
     const accounts = await db.execute<{ id: string }>(sql`
       select "git_account_id" as "id" from "repositories" where "id" = ${repositoryId}
