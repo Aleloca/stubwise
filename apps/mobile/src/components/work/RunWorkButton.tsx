@@ -27,6 +27,12 @@ export interface RunWorkButtonProps {
   latestJob: Reader<AiJob> | undefined;
   /** C'è almeno un commento di una persona: "riprendi da lì" ha qualcosa da leggere. */
   hasUserComment: boolean;
+  /**
+   * L'ultimo job è la correzione che un ciclo dichiara ferma
+   * (`isHeldCorrectionJob`): allora NON si rilancia da qui, solo da «Riprendi»
+   * della sezione PR. Vedi il docblock di `isHeldCorrectionJob`.
+   */
+  latestJobIsHeldCorrection: boolean;
 }
 
 /**
@@ -45,13 +51,15 @@ export interface RunWorkButtonProps {
  * non c'è, il secondo bottone non compare affatto: non avrebbe istruzioni da
  * riprendere.
  */
-export function RunWorkButton({ ticketId, latestJob, hasUserComment }: RunWorkButtonProps) {
+export function RunWorkButton({ ticketId, latestJob, hasUserComment, latestJobIsHeldCorrection }: RunWorkButtonProps) {
   const { t } = useTranslation();
   const run = useRunAi(ticketId);
 
   const status = latestJob !== undefined && !isUnknown(latestJob.status) ? latestJob.status : null;
   const canStart = latestJob === undefined;
-  const canRelaunch = status !== null && RELAUNCHABLE.includes(status);
+  // Una correzione ferma è `held`, quindi fra i RELAUNCHABLE: senza questa
+  // condizione il rilancio generico la trasformerebbe in un fix nuovo.
+  const canRelaunch = status !== null && RELAUNCHABLE.includes(status) && !latestJobIsHeldCorrection;
   if (!canStart && !canRelaunch) return null;
 
   return (

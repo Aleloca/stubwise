@@ -212,6 +212,36 @@ export function prCycleLineFor(cycle: Cycle): PrCycleLine {
   return { tone: toneFor(cycle), segments };
 }
 
+/**
+ * L'ultimo job del ticket è la correzione che un ciclo dichiara FERMA
+ * (`cycle.heldJobId`)? Gemella di `latestJobIsHeldCorrection` del web
+ * (`apps/web/src/routes/tickets/$id.tsx`).
+ *
+ * Quando è vero, il rilancio generico («Avvia il lavoro», «riprendi dalle
+ * istruzioni») NON si offre: chiamerebbe run-ai SENZA
+ * `resumeCorrectionJobId`, e da una schermata vecchia — correzione nel
+ * frattempo annullata o riconciliata — il server avvierebbe un fix completo
+ * nuovo, che per un maintainer supera il budget. L'unica azione resta
+ * «Riprendi» della sezione PR, che dice QUALE correzione. Se il ticket
+ * ricaricato mostra quel job ormai terminale, il ciclo non lo dichiara più
+ * fermo e il rilancio generico torna, onestamente, come fix nuovo.
+ *
+ * `jobs[0]` è l'ultimo job perché il server li ordina `createdAt` desc, `id`
+ * desc — lo stesso ordine con cui `startRun` sceglie l'ultimo job quando
+ * verifica `resumeCorrectionJobId` — e l'app non li riordina.
+ *
+ * `?.` / `?? null`: in produzione `readerSchema` porta un ciclo o un
+ * `heldJobId` assenti a `null`; la difesa serve dove non si parsa (doppi e
+ * fixture), come sul web, e con un server vecchio la regola tace.
+ */
+export function isHeldCorrectionJob(
+  repositories: readonly { cycle?: { heldJobId?: string | null } | null }[],
+  job: { id: string } | undefined,
+): boolean {
+  if (job === undefined) return false;
+  return repositories.some((repo) => (repo.cycle?.heldJobId ?? null) === job.id);
+}
+
 /** La riga in parole: ogni segmento tradotto, uniti da « · » (come il web). */
 export function prCycleText(line: PrCycleLine, t: TFunction): string {
   return line.segments.map((segment) => t(segment.key, segment.params)).join(" · ");

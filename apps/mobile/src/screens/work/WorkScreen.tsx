@@ -26,12 +26,14 @@ import { CommentsSection } from "../../components/work/CommentsSection";
 import { DestructiveActions } from "../../components/work/DestructiveActions";
 import { PlanSection } from "../../components/work/PlanSection";
 import { QuestionBlock } from "../../components/work/QuestionBlock";
+import { PrCycleSection } from "../../components/work/PrCycleSection";
 import { RunWorkButton } from "../../components/work/RunWorkButton";
 import { StatusBadge } from "../../components/work/StatusBadge";
 import { TicketFields } from "../../components/work/TicketFields";
 import { TechLevel } from "../../components/work/TechLevel";
 import { Timeline } from "../../components/work/Timeline";
 import { WorkingPill } from "../../components/work/WorkingPill";
+import { isHeldCorrectionJob } from "../../lib/pr-cycle";
 import { buildTimeline, resolveWorkState } from "../../lib/timeline";
 import { workKeys } from "../../lib/work-mutations";
 import { milestoneKeys } from "../../lib/query-keys";
@@ -55,6 +57,10 @@ const CONTENT_BASE_BOTTOM_PADDING = 40;
  * e — dalla fase 5 — il feed di attività del ticket. Solo `jobs[0]` — l'ultimo
  * job — decide badge/pillola/timeline/gate di approvazione: vedi il commento su
  * questa stessa scelta in `lib/timeline.ts`.
+ *
+ * Il ciclo review → correzione delle PR (30 set 2026) arriva COL dettaglio del
+ * ticket (`repositories[].cycle`), non con una query sua: un guasto del ciclo
+ * non esiste come caso a sé, e `PrCycleSection` non aggiunge letture.
  *
  * ⚠️ **Le due query della fase 5 NON entrano nei gate `isPending`/`isError`.**
  * Il feed di attività (date reali dei passi "piano approvato" e "PR e review")
@@ -353,7 +359,22 @@ function WorkBody({
       </View>
 
       <View style={styles.runRow}>
-        <RunWorkButton ticketId={ticket.id} latestJob={latestJob} hasUserComment={hasUserComment} />
+        <RunWorkButton
+          ticketId={ticket.id}
+          latestJob={latestJob}
+          hasUserComment={hasUserComment}
+          latestJobIsHeldCorrection={isHeldCorrectionJob(ticket.repositories, latestJob)}
+        />
+      </View>
+
+      {/*
+        Le PR del ticket col ciclo review → correzione (30 set 2026). Sotto
+        «Avvia il lavoro» perché è l'altra azione che fa lavorare l'agente, e
+        sopra i campi: chi apre un ticket in revisione cerca prima questo.
+        `PrCycleSection` non rende niente se il ticket non ha una PR.
+      */}
+      <View style={styles.prRow}>
+        <PrCycleSection ticketId={ticket.id} ticketNumber={ticket.number} repositories={ticket.repositories} />
       </View>
 
       <View style={styles.fieldsRow}>
@@ -477,6 +498,9 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
   runRow: {
+    marginTop: 16,
+  },
+  prRow: {
     marginTop: 16,
   },
   fieldsRow: {
