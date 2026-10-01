@@ -350,8 +350,27 @@ export const gitAccounts = pgTable("git_accounts", {
   // il ciclo (design correzioni §5). Scritta alla validazione; null per gli
   // account registrati prima, risolta al primo uso.
   providerUserId: text("provider_user_id"),
+  // Revisore PREDEFINITO del suo ambito (migrazione 0082): una repository
+  // senza revisore esplicito (`repositories.review_git_account_id`) usa il
+  // predefinito con lo stesso ambito del suo account principale. Nessun
+  // backfill: al deploy nessun account è predefinito.
+  isDefaultReviewer: boolean("is_default_reviewer").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => [
+  // Al più UN predefinito per AMBITO = `(provider, workspace se Bitbucket
+  // altrimenti '')` (D1 del piano 2026-10-01-default-reviewer-and-scopes).
+  // Un'espressione e non `NULLS NOT DISTINCT` su `(provider, workspace)`: su
+  // GitHub il workspace non significa niente (come in `checkReviewAccount`),
+  // e due account GitHub con workspace diversi devono restare UN ambito.
+  // Gemello di `reviewScopeKey` (`@stubwise/notifications`, review-account):
+  // chi cambia l'uno cambia l'altro — `migration-0082.test.ts` fissa i casi.
+  uniqueIndex("git_accounts_default_reviewer_scope_uq")
+    .on(
+      table.provider,
+      sql`(CASE WHEN ${table.provider} = 'bitbucket' THEN COALESCE(${table.workspace}, '') ELSE '' END)`,
+    )
+    .where(sql`${table.isDefaultReviewer}`),
+]);
 
 /**
  * Progetto (gruppo): raggruppa uno o più repository (relazione 1:N). È il

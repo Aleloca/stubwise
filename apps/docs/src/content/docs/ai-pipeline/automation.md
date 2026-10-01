@@ -553,6 +553,46 @@ not have the required permissions*. Give the token write on pull requests from
 the start.
 :::
 
+#### A default reviewer for a platform or workspace
+
+Instead of picking the reviewer repository by repository, an administrator can
+mark one git account as the **default reviewer**: in **Settings → Git
+accounts** (admin only), tick **Default reviewer** on that account.
+Repositories on the same platform — on Bitbucket, in the same **workspace** —
+that have no review account of their own then use it.
+
+- **One per platform, or per Bitbucket workspace.** On GitHub the workspace
+  plays no part. Ticking the box on a second account of the same platform or
+  workspace asks first (*This replaces … as the default reviewer.*) and then
+  takes the place of the previous one.
+- **Which reviewer wins.** The **Review account (optional)** chosen in the
+  repository form always wins; only when it is left on *Default — the default
+  reviewer, if there is one* does the default apply. The main account is never
+  the reviewer: on a repository where the default reviewer **is** the main
+  account, the default doesn't apply and the review comments with the main
+  account. Under the field the form says which case applies: *Reviewer:
+  default (…)*, *Reviewer: none — the default (…) is the main account of this
+  repository*, or *Reviewer: none — the review comments with the main
+  account*.
+- **What is checked when you set it.** On the account itself, and blocking: a
+  Bitbucket account needs its workspace, its credentials must be readable, the
+  token must have the [reviewer's scopes](#tokens-what-each-account-needs) and
+  Stubwise must be able to read who the account is on the platform. Per
+  repository, without blocking: the account is set anyway, and a list
+  (*Set, but on these repositories it won't review:*) names the repositories
+  where it can't act as the reviewer — for example where it has no write
+  access, or where it is the main account. On those repositories the review
+  falls back to a comment by the main account; give the account access there,
+  or choose a review account in the repository form.
+- **Saving a repository** that falls back on the default reviewer checks it on
+  that repository too, and warns without blocking: *Saved, but the default
+  reviewer doesn't pass the checks on this repository…*.
+- **Moving it.** The workspace of the default reviewer can't be changed while
+  it is the default: untick it first.
+
+Like an explicit reviewer, the default reviewer's own *Request changes* on a
+Stubwise PR is recognised as Stubwise's and never restarts the loop.
+
 ### Tokens: what each account needs
 
 | Account  | GitHub (fine-grained personal access token) | Bitbucket (API token) |
@@ -570,6 +610,21 @@ Stubwise expects. A legacy **app password** still works, with the same
 permissions under their app-password names: *Repositories: Write*, *Pull
 requests: Write*, *Webhooks: Read and write* (main only) and *Account: Read*
 (the equivalent of `read:user:bitbucket`).
+
+**Validate** (in **Settings → Git accounts**) checks these scopes on Bitbucket.
+It compares the scopes the token was actually granted with the ones the
+account's **role** needs, and Stubwise works the role out itself: an account
+that is the main account of some repository needs the main account's scopes,
+webhooks included; an account that only reviews — the review account of some
+repository, the default reviewer that applies to one, or simply an account
+ticked as **Default reviewer** — needs the reviewer's scopes, without webhooks;
+an account not used yet is checked against the main account's set, the
+strictest. Each group of scopes (repository and pull requests, identity,
+webhooks) is a line in the result, naming what is missing. With an **app
+password**, Bitbucket doesn't say which permissions the credential has: the
+scopes are reported as **not verifiable**: the line passes, and it lists
+what to check by hand — it doesn't claim the permissions are there. On GitHub
+Validate is unchanged.
 
 On GitHub the main account's token also decides who may restart the loop: it
 reads the permission of a reviewer who isn't an owner, member or collaborator

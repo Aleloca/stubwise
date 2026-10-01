@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { prNumberFromUrl, type GitProviderKind, type PrComment } from "@stubwise/shared";
+import type { BitbucketScope } from "./bitbucket-scopes.js";
 
 /**
  * Git configuration of a project, with credentials ALREADY decrypted.
@@ -560,10 +561,16 @@ export interface GitProvider {
    * validateCredentials e vengono eseguiti nel wizard dopo la scelta del repo).
    * Come validateCredentials non lancia mai: ogni problema (rete inclusa)
    * diventa un check con `ok: false`.
+   *
+   * `requiredScopes` (opzionale, solo Bitbucket — GitHub lo ignora): gli scope
+   * che il RUOLO dell'account richiede, calcolati dal server con
+   * `bitbucketRequiredScopes`. Assente = l'insieme del principale. Su un
+   * 2xx Bitbucket li confronta con gli scope concessi (`x-oauth-scopes`) senza
+   * chiamate in più: vedi `bitbucketScopeChecks`.
    */
   validateAccount(
     config: AccountConfig,
-    opts?: { fetchImpl?: FetchLike }
+    opts?: { fetchImpl?: FetchLike; requiredScopes?: readonly BitbucketScope[] }
   ): Promise<CredentialCheck[]>;
   /**
    * Registra in modo idempotente il webhook del repository (PR

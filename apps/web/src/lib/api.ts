@@ -72,6 +72,8 @@ import type {
   ReleaseQueueItem as SharedReleaseQueueItem,
   ReleaseResult,
   RecordSearchHistoryBody,
+  EffectiveReviewAccount,
+  SkippedDefaultReviewAccount,
   RepositoryWarning,
   RequestCorrectionBody,
   RequestCorrectionResponse,
@@ -1129,6 +1131,19 @@ export interface Repository {
    * si legge `?? null`.
    */
   reviewGitAccountId?: string | null;
+  /**
+   * Revisore EFFETTIVO, derivato dal server (D8): l'esplicito se c'è,
+   * altrimenti il revisore predefinito del suo provider/workspace; null =
+   * nessuno. Il web lo LEGGE, non lo deduce dalla lista degli account.
+   * OPZIONALE perché un server senza il revisore predefinito non lo manda (il
+   * web fa un cast): si legge `?? null`.
+   */
+  effectiveReviewAccount?: EffectiveReviewAccount | null;
+  /**
+   * Il predefinito dell'ambito che QUI non si applica perché è l'account
+   * principale di questa repository (D3). OPZIONALE, si legge `?? null`.
+   */
+  skippedDefaultReviewAccount?: SkippedDefaultReviewAccount | null;
   createdAt: string;
 }
 
@@ -1740,7 +1755,40 @@ export interface GitAccount {
   // Slug del workspace Bitbucket (null per GitHub). Serve a elencare/validare i
   // repo Bitbucket: gli endpoint account/globali sono stati dismessi (410).
   workspace: string | null;
+  /**
+   * Revisore PREDEFINITO del suo ambito (provider + workspace Bitbucket): le
+   * repository senza un revisore esplicito usano lui. OPZIONALE perché un
+   * server più vecchio non lo manda (il web fa un cast): si legge `?? false`.
+   */
+  isDefaultReviewer?: boolean;
   createdAt: string;
+}
+
+/**
+ * Un avviso dell'impostazione del revisore predefinito, PER REPOSITORY: il
+ * predefinito è già impostato, l'avviso dice dove non funzionerà.
+ * `default_is_main` = lì è l'account principale e non si applica; ogni altro
+ * `code` è quello della verifica del revisore sulla repository (es.
+ * `review_account_no_write_permission`). Stringa aperta, non un'unione: un
+ * server più nuovo può mandare un codice che questo bundle non conosce.
+ */
+export interface DefaultReviewerWarning {
+  repositoryId: string;
+  repositoryName: string;
+  code: string;
+}
+
+/**
+ * Risposta di `PUT /api/git-accounts/:id/default-reviewer`. Gli schemi stanno
+ * solo nel server (`apps/server/src/routes/git-accounts.ts`): qui la forma è
+ * dichiarata a mano e il web fa un cast, quindi `replaced` e `warnings` si
+ * leggono `?? null` / `?? []`.
+ */
+export interface DefaultReviewerResult {
+  account: GitAccount;
+  /** Il predefinito precedente dello stesso ambito, tolto nella stessa transazione. */
+  replaced?: { id: string; name: string } | null;
+  warnings?: DefaultReviewerWarning[];
 }
 
 /** Creazione di un account git (solo admin): nome, provider, credenziali e
@@ -1804,6 +1852,21 @@ export function deleteGitAccount(id: string): Promise<void> {
  */
 export function postValidateGitAccount(id: string): Promise<ValidateCredentialsResult> {
   return api.post(`/api/git-accounts/${id}/validate`);
+}
+
+/**
+ * Marca l'account come revisore PREDEFINITO del suo ambito (solo admin). Un
+ * predefinito già presente nello stesso ambito viene sostituito (`replaced`).
+ * Gli errori (422 di validazione, 409 `default_reviewer_conflict`) arrivano
+ * come `ApiError` col loro `code`.
+ */
+export function putDefaultReviewer(id: string): Promise<DefaultReviewerResult> {
+  return api.put(`/api/git-accounts/${encodeURIComponent(id)}/default-reviewer`);
+}
+
+/** Toglie il revisore predefinito (solo admin). Idempotente. */
+export function deleteDefaultReviewer(id: string): Promise<void> {
+  return request("DELETE", `/api/git-accounts/${encodeURIComponent(id)}/default-reviewer`);
 }
 
 // --- Provider AI ---

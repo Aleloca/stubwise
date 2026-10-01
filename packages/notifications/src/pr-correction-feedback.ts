@@ -1,5 +1,5 @@
 import { decrypt, gitAccounts, prCorrections, type Db } from "@stubwise/db";
-import type { GitProviderKind, PrComment } from "@stubwise/shared";
+import { hasStubwiseReviewSignature, type GitProviderKind, type PrComment } from "@stubwise/shared";
 import { and, desc, eq } from "drizzle-orm";
 
 /**
@@ -326,7 +326,10 @@ export interface ProviderFeedbackSelection {
 /**
  * I commenti che entrano nella fotografia: non scritti dagli account di
  * Stubwise (la review l'AI la riceve già dal DB, e un commento del bot non è
- * feedback umano), scritti DOPO il taglio, e di un autore che ha il permesso
+ * feedback umano), senza la FIRMA delle review di Stubwise in fondo
+ * (`hasStubwiseReviewSignature`, `@stubwise/shared`: qualunque sia l'autore —
+ * un umano che la incolla in fondo al proprio commento si esclude da solo, il
+ * verso sicuro), scritti DOPO il taglio, e di un autore che ha il permesso
  * di chiedere modifiche ({@link isAuthorPermitted}: su GitHub un commento di un
  * estraneo non entra nel prompt).
  *
@@ -362,7 +365,14 @@ export async function selectProviderFeedback(
 ): Promise<ProviderFeedbackSelection> {
   const own = new Set(opts.ownIds);
   const candidates = comments.filter(
-    (c) => !own.has(c.authorId) && (opts.cutoff === null || !isBeforeOrAt(c.createdAt, opts.cutoff)),
+    (c) =>
+      !own.has(c.authorId) &&
+      // Una review di Stubwise resta fuori anche quando il suo autore non è
+      // più fra gli account propri (predefinito cambiato: la prima correzione
+      // di una PR rilegge TUTTI i commenti, senza taglio). Verso sicuro: la
+      // firma può solo togliere un commento, mai farne entrare uno.
+      !hasStubwiseReviewSignature(c.body) &&
+      (opts.cutoff === null || !isBeforeOrAt(c.createdAt, opts.cutoff)),
   );
   // La fotografia: il verdetto della PIATTAFORMA per login, solo per questa
   // chiamata. La scorciatoia NON passa dalla cache: si guarda commento per

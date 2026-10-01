@@ -65,6 +65,13 @@ async function setup(
     linked?: boolean;
     reviewer?: boolean;
     reviewerCredentials?: Record<string, string>;
+    /**
+     * Revisore PREDEFINITO dell'ambito GitHub (P1-5): `other` = un account a
+     * sé col token `default-token`, `main` = il principale stesso marcato
+     * predefinito. L'afterEach cancella tutti gli account: nessun predefinito
+     * sopravvive al caso che lo crea.
+     */
+    defaultReviewer?: "other" | "main";
   } = {},
 ): Promise<Setup> {
   const [account] = await testDb.db
@@ -73,8 +80,17 @@ async function setup(
       name: `Principale ${randomUUID()}`,
       provider: "github",
       encryptedCredentials: encrypt(JSON.stringify({ token: "main-token" }), ENCRYPTION_KEY),
+      isDefaultReviewer: opts.defaultReviewer === "main",
     })
     .returning();
+  if (opts.defaultReviewer === "other") {
+    await testDb.db.insert(gitAccounts).values({
+      name: `Predefinito ${randomUUID()}`,
+      provider: "github",
+      encryptedCredentials: encrypt(JSON.stringify({ token: "default-token" }), ENCRYPTION_KEY),
+      isDefaultReviewer: true,
+    });
+  }
   const [reviewer] = opts.reviewer
     ? await testDb.db
         .insert(gitAccounts)
@@ -540,6 +556,40 @@ describe("afterReviewCompleted — pubblicazione e status", () => {
     expect([prNumber, verdict]).toEqual([12, "request_changes"]);
     expect(body).toContain("manca un test");
     expect(f.createPrComment).not.toHaveBeenCalled();
+  });
+
+  it("senza esplicito, col PREDEFINITO dell'ambito: submitPrReview con le credenziali del predefinito", async () => {
+    const s = await setup({ defaultReviewer: "other" });
+    const f = fakes();
+
+    await afterReviewCompleted(f.deps, input(s));
+
+    expect(f.submitPrReview).toHaveBeenCalledTimes(1);
+    const [project, prNumber, verdict] = f.submitPrReview.mock.calls[0] as [MirrorProject, number, string];
+    expect(project.credentials.token).toBe("default-token");
+    expect([prNumber, verdict]).toEqual([12, "request_changes"]);
+    expect(f.createPrComment).not.toHaveBeenCalled();
+  });
+
+  it("predefinito = principale: nessun revisore, commento col principale (come senza revisore)", async () => {
+    const s = await setup({ defaultReviewer: "main" });
+    const f = fakes();
+
+    await afterReviewCompleted(f.deps, input(s));
+
+    expect(f.submitPrReview).not.toHaveBeenCalled();
+    expect(f.createPrComment).toHaveBeenCalledTimes(1);
+    expect((f.createPrComment.mock.calls[0]![0] as MirrorProject).credentials.token).toBe("main-token");
+  });
+
+  it("esplicito E predefinito: vince l'esplicito, con le SUE credenziali", async () => {
+    const s = await setup({ reviewer: true, defaultReviewer: "other" });
+    const f = fakes();
+
+    await afterReviewCompleted(f.deps, input(s));
+
+    expect(f.submitPrReview).toHaveBeenCalledTimes(1);
+    expect((f.submitPrReview.mock.calls[0]![0] as MirrorProject).credentials.token).toBe("reviewer-token");
   });
 
   it("submitPrReview fallisce: ripiega sul commento dell'account principale", async () => {

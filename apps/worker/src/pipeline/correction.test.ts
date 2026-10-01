@@ -23,7 +23,7 @@ import {
   MAX_PERMISSION_LOOKUPS_PER_SNAPSHOT,
   type NotificationEvent,
 } from "@stubwise/notifications";
-import type { PrComment } from "@stubwise/shared";
+import { signReviewBody, type PrComment } from "@stubwise/shared";
 import { eq, sql } from "drizzle-orm";
 import { execa } from "execa";
 import { randomBytes } from "node:crypto";
@@ -1023,6 +1023,88 @@ describe("runCorrection", () => {
     expect((corrAfter!.providerFeedback as PrComment[]).map((c) => c.id)).toEqual(["1"]);
     // Le identità erano già note: nessuna chiamata per risolverle.
     expect(provider.getAuthenticatedUserId).not.toHaveBeenCalled();
+  });
+
+  it("revisore PREDEFINITO (nessun esplicito): i suoi commenti NON entrano nella fotografia, quelli di un terzo sì", async () => {
+    const f = await makeFixture();
+    // Predefinito dell'ambito GitHub, con la sua identità in cache; la
+    // repository NON ha un revisore esplicito.
+    const defaultId = await seedGitAccount(testDb.db, {
+      provider: "github",
+      encryptedCredentials: encrypt(JSON.stringify({ token: "def" }), ENCRYPTION_KEY),
+    });
+    await testDb.db
+      .update(gitAccounts)
+      .set({ providerUserId: "stubwise-default", isDefaultReviewer: true })
+      .where(eq(gitAccounts.id, defaultId));
+    const at = new Date().toISOString();
+    const comment = (id: string, authorId: string, body: string): PrComment => ({
+      id,
+      authorId,
+      authorLogin: authorId,
+      body,
+      createdAt: at,
+      path: null,
+      line: null,
+      authorAssociation: "COLLABORATOR",
+    });
+    const provider = makeProvider();
+    provider.listPrComments.mockResolvedValue([
+      comment("1", "mario", "rinomina sum in add"),
+      comment("2", "stubwise-default", "la review AI del predefinito"),
+    ]);
+    const { correctionId, job } = await seedCorrection(f, {
+      trigger: "provider",
+      requestedByProviderLogin: "mario",
+      providerFeedback: [],
+    });
+    const runner = applyingRunner(f);
+
+    await runCorrection(makeDeps(f, runner, provider), job);
+
+    const [corrAfter] = await testDb.db.select().from(prCorrections).where(eq(prCorrections.id, correctionId));
+    expect((corrAfter!.providerFeedback as PrComment[]).map((c) => c.id)).toEqual(["1"]);
+    expect(corrAfter!.feedbackComplete).toBe(true);
+    const prompt = runner.calls[0]!.prompt;
+    expect(prompt).toContain("rinomina sum in add");
+    expect(prompt).not.toContain("la review AI del predefinito");
+    expect(provider.getAuthenticatedUserId).not.toHaveBeenCalled();
+  });
+
+  it("la review FIRMATA di un predefinito di PRIMA (oggi estraneo) non entra nella fotografia; un umano che nomina Stubwise sì", async () => {
+    const f = await makeFixture();
+    const at = new Date().toISOString();
+    const comment = (id: string, authorId: string, body: string): PrComment => ({
+      id,
+      authorId,
+      authorLogin: authorId,
+      body,
+      createdAt: at,
+      path: null,
+      line: null,
+      authorAssociation: "COLLABORATOR",
+    });
+    const provider = makeProvider();
+    provider.listPrComments.mockResolvedValue([
+      comment("1", "mario", "la Stubwise PR Review ha ragione: rinomina sum in add"),
+      // Il revisore che l'ha pubblicata non è più fra gli account propri: la
+      // firma, generata dalla funzione VERA del worker, la tiene fuori.
+      comment("2", "vecchio-predefinito", signReviewBody("la review AI di prima", "abcdef0123456789abcdef0123456789abcdef01")),
+    ]);
+    const { correctionId, job } = await seedCorrection(f, {
+      trigger: "provider",
+      requestedByProviderLogin: "mario",
+      providerFeedback: [],
+    });
+    const runner = applyingRunner(f);
+
+    await runCorrection(makeDeps(f, runner, provider), job);
+
+    const [corrAfter] = await testDb.db.select().from(prCorrections).where(eq(prCorrections.id, correctionId));
+    expect((corrAfter!.providerFeedback as PrComment[]).map((c) => c.id)).toEqual(["1"]);
+    const prompt = runner.calls[0]!.prompt;
+    expect(prompt).toContain("rinomina sum in add");
+    expect(prompt).not.toContain("la review AI di prima");
   });
 
   // --- E3, permesso reale: la fotografia riletta --------------------------

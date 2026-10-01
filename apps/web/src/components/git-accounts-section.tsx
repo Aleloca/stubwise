@@ -1,17 +1,23 @@
-import { gitProviderKindSchema, type GitProviderKind } from "@stubwise/shared";
-import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { gitProviderKindSchema, reviewScopeKey, type GitProviderKind } from "@stubwise/shared";
+import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import {
   ApiError,
+  deleteDefaultReviewer,
   deleteGitAccount,
   patchGitAccount,
   postGitAccount,
   postValidateGitAccount,
+  putDefaultReviewer,
   type CredentialCheck,
+  type DefaultReviewerResult,
+  type DefaultReviewerWarning,
   type GitAccount,
 } from "../lib/api";
+import { meQueryOptions } from "../lib/auth";
 import { gitAccountsQueryOptions } from "../lib/queries";
+import { translateApiError } from "../lib/translate-api-error";
 import { ProviderBadge, PROVIDER_LABELS } from "./badges";
 import {
   buildCredentials,
@@ -31,6 +37,11 @@ import { formatDateTime } from "../lib/format";
 export function GitAccountsSection() {
   const { t } = useTranslation();
   const { data: accounts } = useSuspenseQuery(gitAccountsQueryOptions);
+  // La pagina è già solo admin (guardia della rotta), ma il toggle del
+  // revisore predefinito si nasconde anche qui: chi non è admin riceverebbe un
+  // 403. Senza la risposta di /me (in caricamento o fallita) non si mostra.
+  const { data: me } = useQuery(meQueryOptions);
+  const isAdmin = me?.user.role === "admin";
   const [creating, setCreating] = useState(false);
 
   return (
@@ -68,7 +79,7 @@ export function GitAccountsSection() {
       ) : (
         <ul className="divide-y divide-line">
           {accounts.map((account) => (
-            <AccountRow key={account.id} account={account} />
+            <AccountRow key={account.id} account={account} accounts={accounts} isAdmin={isAdmin} />
           ))}
         </ul>
       )}
@@ -184,8 +195,26 @@ function NewAccountForm({ onDone }: { onDone: () => void }) {
   );
 }
 
+/**
+ * Le cache che mostrano un revisore DERIVATO dal server (D8): lista e dettaglio
+ * dei repository (`repositoriesQueryOptions` = `["repositories", projectId]`,
+ * `repositoryQueryOptions` = `["repositories", "detail", slug]`, entrambe sotto
+ * la radice `["repositories"]`). Cambiare il predefinito, o l'account che lo è,
+ * cambia `effectiveReviewAccount` di N repository: con lo `staleTime` di 60 s
+ * un admin che torna su una repository leggerebbe ancora il revisore vecchio.
+ */
+const REPOSITORIES_ROOT_KEY = ["repositories"] as const;
+
 /** Riga di un account: badge, data, e azioni Valida / Modifica / Elimina. */
-function AccountRow({ account }: { account: GitAccount }) {
+function AccountRow({
+  account,
+  accounts,
+  isAdmin,
+}: {
+  account: GitAccount;
+  accounts: readonly GitAccount[];
+  isAdmin: boolean;
+}) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
@@ -257,6 +286,8 @@ function AccountRow({ account }: { account: GitAccount }) {
         </p>
       )}
 
+      {isAdmin && <DefaultReviewerToggle account={account} accounts={accounts} />}
+
       {editing && (
         <div className="mt-3 rounded-sm border border-line bg-ink-950/40 p-4">
           <EditAccountForm account={account} onDone={() => setEditing(false)} />
@@ -281,7 +312,11 @@ function EditAccountForm({ account, onDone }: { account: GitAccount; onDone: () 
       workspace?: string;
     }) => patchGitAccount(account.id, patch as never),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: gitAccountsQueryOptions.queryKey });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: gitAccountsQueryOptions.queryKey }),
+        // Nome e credenziali entrano nel revisore derivato delle repository.
+        queryClient.invalidateQueries({ queryKey: REPOSITORIES_ROOT_KEY }),
+      ]);
       onDone();
     },
   });
@@ -336,7 +371,8 @@ function EditAccountForm({ account, onDone }: { account: GitAccount; onDone: () 
           {t("settings:gitAccounts.editHint")}
         </p>
       </fieldset>
-      <FormError message={mutation.error instanceof Error ? mutation.error.message : null} />
+      {/* `translateApiError`: il 409 `default_reviewer_workspace_locked` (D7) ha un testo suo. */}
+      <FormError message={mutation.error ? translateApiError(mutation.error, t) : null} />
       <div className="flex flex-wrap items-center gap-3">
         <SubmitButton pending={mutation.isPending}>
           {mutation.isPending ? t("settings:gitAccounts.savingAccount") : t("settings:gitAccounts.saveAccount")}
@@ -351,6 +387,177 @@ function EditAccountForm({ account, onDone }: { account: GitAccount; onDone: () 
       </div>
     </form>
   );
+}
+
+/**
+ * Toggle «Revisore predefinito» di un account (solo admin, D4): acceso = PUT,
+ * spento = DELETE. Se nello stesso ambito c'è già un altro predefinito, prima
+ * di sostituirlo chiede conferma. Dopo il PUT mostra l'esito del SERVER: chi è
+ * stato sostituito (`replaced`) e gli avvisi per repository (`warnings`), che
+ * non bloccano — il predefinito è già impostato quando si leggono.
+ */
+function DefaultReviewerToggle({ account, accounts }: { account: GitAccount; accounts: readonly GitAccount[] }) {
+  const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  // `?? false`: il web fa un cast, e un server più vecchio non manda il campo.
+  // Senza, il checkbox sarebbe NON controllato e resterebbe acceso dopo un PUT
+  // fallito, dicendo il falso.
+  const isDefault = account.isDefaultReviewer ?? false;
+  // Stesso AMBITO (D1) con la regola condivisa di `@stubwise/shared`: serve
+  // SOLO a chiedere conferma prima di una sostituzione, chi è stato sostituito
+  // davvero lo dice il server (`replaced`).
+  const scope = reviewScopeKey(account);
+  const current = accounts.find(
+    (other) => other.id !== account.id && (other.isDefaultReviewer ?? false) && reviewScopeKey(other) === scope,
+  );
+  const [confirming, setConfirming] = useState(false);
+  const [outcome, setOutcome] = useState<
+    { kind: "set"; result: DefaultReviewerResult } | { kind: "removed" } | null
+  >(null);
+
+  const invalidate = () =>
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey: gitAccountsQueryOptions.queryKey }),
+      queryClient.invalidateQueries({ queryKey: REPOSITORIES_ROOT_KEY }),
+    ]);
+  const setDefault = useMutation({
+    mutationFn: () => putDefaultReviewer(account.id),
+    onMutate: () => setOutcome(null),
+    onSuccess: async (result) => {
+      setOutcome({ kind: "set", result });
+      await invalidate();
+    },
+  });
+  const unsetDefault = useMutation({
+    mutationFn: () => deleteDefaultReviewer(account.id),
+    onMutate: () => setOutcome(null),
+    onSuccess: async () => {
+      setOutcome({ kind: "removed" });
+      await invalidate();
+    },
+  });
+  const pending = setDefault.isPending || unsetDefault.isPending;
+  // La conferma ha senso solo finché il predefinito da sostituire c'è: se un
+  // refetch lo toglie (un altro admin l'ha spento), la richiesta di conferma
+  // sparisce e il toggle NON deve restare bloccato.
+  const awaitingConfirm = confirming && current !== undefined;
+  const error = setDefault.error ?? unsetDefault.error;
+
+  function handleToggle() {
+    setDefault.reset();
+    unsetDefault.reset();
+    setConfirming(false);
+    if (isDefault) unsetDefault.mutate();
+    else if (current) setConfirming(true);
+    else setDefault.mutate();
+  }
+
+  const id = `default-reviewer-${account.id}`;
+  return (
+    <div className="mt-3 flex flex-col gap-1.5">
+      <div className="flex items-center gap-2.5">
+        <input
+          id={id}
+          type="checkbox"
+          checked={isDefault}
+          disabled={pending || awaitingConfirm}
+          onChange={handleToggle}
+          aria-describedby={`${id}-hint`}
+          className="h-4 w-4 shrink-0 accent-signal"
+        />
+        <label htmlFor={id} className="font-mono text-[11px] font-medium tracking-[0.14em] text-fg-muted uppercase">
+          {t("settings:gitAccounts.defaultReviewer")}
+        </label>
+        {pending && (
+          <span className="font-mono text-[11px] text-fg-faint">{t("settings:gitAccounts.defaultReviewerSaving")}</span>
+        )}
+      </div>
+      <p id={`${id}-hint`} className="font-mono text-[11px] text-fg-faint">
+        {t("settings:gitAccounts.defaultReviewerHint")}
+      </p>
+
+      {awaitingConfirm && current && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-mono text-[12px] text-signal">
+            {t("settings:gitAccounts.defaultReviewerReplaceConfirm", { name: current.name })}
+          </span>
+          <RowButton
+            onClick={() => {
+              setConfirming(false);
+              setDefault.mutate();
+            }}
+            label={t("settings:gitAccounts.defaultReviewerConfirm")}
+          />
+          <RowButton onClick={() => setConfirming(false)} label={t("common:cancel")} />
+        </div>
+      )}
+
+      {error && (
+        <p role="alert" className="font-mono text-[12px] wrap-anywhere text-danger">
+          {translateApiError(error, t)}
+        </p>
+      )}
+
+      {outcome?.kind === "removed" && (
+        <p role="status" className="font-mono text-[12px] text-ok">
+          {t("settings:gitAccounts.defaultReviewerRemoved")}
+        </p>
+      )}
+      {outcome?.kind === "set" && <DefaultReviewerOutcome result={outcome.result} />}
+    </div>
+  );
+}
+
+/**
+ * Esito del PUT: chi è stato sostituito e dove il predefinito non farà la
+ * review. `replaced ?? null` e `warnings ?? []`: il web fa un cast, e la
+ * risposta di un server diverso può non avere i campi.
+ */
+function DefaultReviewerOutcome({ result }: { result: DefaultReviewerResult }) {
+  const { t } = useTranslation();
+  const replaced = result.replaced ?? null;
+  const warnings = result.warnings ?? [];
+  const titleId = `default-reviewer-warnings-${result.account.id}`;
+  return (
+    <>
+      <p role="status" className="font-mono text-[12px] text-ok">
+        {replaced
+          ? t("settings:gitAccounts.defaultReviewerReplaced", { name: replaced.name })
+          : t("settings:gitAccounts.defaultReviewerSet")}
+      </p>
+      {warnings.length > 0 && (
+        <div className="font-mono text-[12px] text-signal">
+          <p id={titleId}>{t("settings:gitAccounts.defaultReviewerWarningsTitle")}</p>
+          <ul aria-labelledby={titleId} className="mt-1 list-disc pl-5">
+            {warnings.map((warning) => (
+              <li key={warning.repositoryId} className="wrap-anywhere">
+                {warning.repositoryName}: {defaultReviewerWarningText(warning, t)}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </>
+  );
+}
+
+// Sentinella come in `translateApiError`: distingue «chiave mancante» da una
+// traduzione vuota.
+const MISSING = "\u0000__missing__";
+
+/**
+ * Testo di un avviso per repository: prima una chiave propria
+ * (`defaultReviewerWarning.<code>`, per i codici che altrove hanno un testo da
+ * errore inadatto qui), poi quella dell'errore omonimo (`errors:<code>`: i
+ * codici della verifica del revisore dicono la stessa cosa), infine il codice
+ * grezzo — un server più nuovo può mandarne uno che questo bundle non conosce.
+ */
+function defaultReviewerWarningText(warning: DefaultReviewerWarning, t: ReturnType<typeof useTranslation>["t"]): string {
+  const own = t(`settings:gitAccounts.defaultReviewerWarning.${warning.code}`, { defaultValue: MISSING });
+  if (own !== MISSING) return own;
+  const shared = t(`errors:${warning.code}`, { defaultValue: MISSING, detail: "" });
+  if (shared !== MISSING) return shared;
+  return t("settings:gitAccounts.defaultReviewerWarningUnknown", { code: warning.code });
 }
 
 function RowButton({

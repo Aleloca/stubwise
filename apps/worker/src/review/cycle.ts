@@ -1,8 +1,6 @@
 import {
-  gitAccounts,
   prCorrections,
   projects,
-  repositories,
   ticketRepositories,
   tickets,
   type Db,
@@ -22,8 +20,10 @@ import {
   enqueueCorrection,
   prHasOpenCorrection,
   promotePendingCorrection,
+  resolveReviewAccountWithCredentials,
 } from "@stubwise/notifications";
 import {
+  signReviewBody,
   STUBWISE_BRANCH_RE,
   stubwiseTicketNumber,
   type GitProviderKind,
@@ -179,23 +179,27 @@ export async function setReviewCommitStatus(
   }
 }
 
-/** L'account revisore della repository, con le SUE credenziali; null se non c'è. */
+/**
+ * Il revisore EFFETTIVO della repository (l'esplicito, altrimenti il
+ * predefinito del suo ambito: `resolveReviewAccountWithCredentials`, la stessa
+ * regola del webhook e della fotografia dei commenti), con le SUE credenziali;
+ * null se non c'è — e allora si pubblica col principale. Variante
+ * `WithCredentials`: qui ci si AUTENTICA con l'account.
+ */
 async function loadReviewerProject(
   deps: ReviewCycleDeps,
   repositoryId: string,
   main: MirrorProject,
 ): Promise<MirrorProject | null> {
-  const [row] = await deps.db
-    .select({ encryptedCredentials: gitAccounts.encryptedCredentials })
-    .from(repositories)
-    .innerJoin(gitAccounts, eq(gitAccounts.id, repositories.reviewGitAccountId))
-    .where(eq(repositories.id, repositoryId));
-  if (!row) return null;
+  const review = await resolveReviewAccountWithCredentials(deps.db, repositoryId);
+  const effective = review?.effective ?? null;
+  if (effective === null) return null;
   // Stesso helper del webhook e della correzione (pr-correction-feedback.ts).
-  const credentials = decryptGitCredentials(row.encryptedCredentials, deps.encryptionKey);
+  const credentials = decryptGitCredentials(effective.account.encryptedCredentials, deps.encryptionKey);
   if (credentials === null) {
+    const source = effective.source === "explicit" ? "esplicito" : "predefinito";
     console.error(
-      `[stubwise-worker] pr-review: credenziali dell'account revisore del repository ${repositoryId} non decifrabili, pubblico con l'account principale`,
+      `[stubwise-worker] pr-review: credenziali dell'account revisore (${source}) del repository ${repositoryId} non decifrabili, pubblico con l'account principale`,
     );
     return null;
   }
@@ -270,7 +274,10 @@ export function verdictFailureReason(err: unknown): VerdictFailureReason {
  */
 async function publishReview(deps: ReviewCycleDeps, input: AfterReviewCompletedInput): Promise<void> {
   const provider = (deps.getProviderFn ?? getProvider)(input.mirrorProject.provider);
-  const body = `${input.reviewBody}\n\n_— Stubwise PR Review · \`${input.job.headSha.slice(0, 7)}\`_`;
+  // La firma la genera `@stubwise/shared`, accanto a chi la riconosce: la
+  // fotografia dei commenti e il webhook escludono le review di Stubwise da
+  // lei, qualunque account le abbia pubblicate.
+  const body = signReviewBody(input.reviewBody, input.job.headSha);
   const reviewer = await loadReviewerProject(deps, input.job.repositoryId, input.mirrorProject);
   // Il commento di ripiego si apre con una riga FISSA (template i18n) SOLO se
   // il ripiego nasce dal fallimento del revisore: senza revisore configurato

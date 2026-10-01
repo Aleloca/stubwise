@@ -24,8 +24,13 @@ import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import { BitbucketProvider, GitHubProvider, GitProviderError, type RepositoryPermission } from "@stubwise/git";
 import { enqueueCorrection } from "@stubwise/notifications";
-import type { PrComment } from "@stubwise/shared";
-import { NEGATIVE_PERMISSION_TTL_MS } from "../services/pr-correction-webhook.js";
+import { signReviewBody, type PrComment } from "@stubwise/shared";
+import {
+  createNegativePermissionCache,
+  handleChangesRequested,
+  NEGATIVE_PERMISSION_TTL_MS,
+  type ChangesRequestedOutcome,
+} from "../services/pr-correction-webhook.js";
 import { seedUsers, withOfflinePlatformIdentity } from "../test/fixtures.js";
 
 /**
@@ -83,7 +88,7 @@ interface Fixture {
   reviewAccountId: string | null;
 }
 
-async function createAccount(provider: "github" | "bitbucket", name: string): Promise<string> {
+async function createAccount(provider: "github" | "bitbucket", name: string, workspace = "acme"): Promise<string> {
   const res = await app.inject({
     method: "POST",
     url: "/api/git-accounts",
@@ -92,7 +97,7 @@ async function createAccount(provider: "github" | "bitbucket", name: string): Pr
       name: `${name} ${randomBytes(3).toString("hex")}`,
       provider,
       credentials: { username: `${name}-bot`, token: `tok-${name}` },
-      ...(provider === "bitbucket" ? { workspace: "acme" } : {}),
+      ...(provider === "bitbucket" ? { workspace } : {}),
     },
   });
   if (res.statusCode !== 201) throw new Error(`account: ${res.statusCode} ${res.body}`);
@@ -113,11 +118,14 @@ async function seedFixture(
     reviewerUserId?: string | null;
     branch?: string;
     prState?: "open" | "merged" | "closed_unmerged";
+    /** Workspace Bitbucket dei due account (default `acme`). */
+    workspace?: string;
   } = {},
 ): Promise<Fixture> {
   const provider = opts.provider ?? "github";
-  const mainAccountId = await createAccount(provider, "principale");
-  const reviewAccountId = opts.withReviewer === false ? null : await createAccount(provider, "revisore");
+  const mainAccountId = await createAccount(provider, "principale", opts.workspace);
+  const reviewAccountId =
+    opts.withReviewer === false ? null : await createAccount(provider, "revisore", opts.workspace);
   const [project] = await testDb.db
     .insert(projects)
     .values({
@@ -413,6 +421,32 @@ describe("webhook \"Request changes\" — chi lo chiede", () => {
     expect(await correctionJobsOf(fx.ticketId)).toHaveLength(0);
   });
 
+  it("una review con la FIRMA di Stubwise da un account ESTRANEO (predefinito di prima): nessuna riga, nessuna rete", async () => {
+    const fx = await seedFixture();
+    const identity = identityMustNotBeCalled(GitHubProvider);
+    const permission = permissionMustNotBeCalled();
+    // La firma generata dalla funzione VERA del worker.
+    const body = signReviewBody("## Verdetto\n\nRinomina la funzione.", "0123456789abcdef0123456789abcdef01234567");
+
+    const res = await postGithub(fx, githubReview({ actorId: "424242", login: "vecchio-predefinito", body }));
+    expect(res.statusCode).toBe(204);
+
+    expect(await correctionsOf(fx.repositoryId)).toHaveLength(0);
+    expect(await correctionJobsOf(fx.ticketId)).toHaveLength(0);
+    expect(identity).not.toHaveBeenCalled();
+    expect(permission).not.toHaveBeenCalled();
+  });
+
+  it("POSITIVO, stessi dati: una review umana che NOMINA Stubwise, o cita la firma in mezzo, fa partire la correzione", async () => {
+    identityMustNotBeCalled(GitHubProvider);
+    const quoted = `${signReviewBody("citata:", "0123456789abcdef0123456789abcdef01234567")}\n\nNon sono d'accordo.`;
+    for (const body of ["La Stubwise PR Review ha ragione", quoted]) {
+      const fx = await seedFixture();
+      await postGithub(fx, githubReview({ body }));
+      expect(await correctionsOf(fx.repositoryId)).toHaveLength(1);
+    }
+  });
+
   it("identità del revisore NON risolvibile: fail-closed, nessuna riga", async () => {
     const fx = await seedFixture({ reviewerUserId: null });
     const identity = vi
@@ -523,6 +557,155 @@ describe("webhook \"Request changes\" — chi lo chiede", () => {
       // Bitbucket non porta testo: fotografia vuota ma NON null (la rifà il worker).
       providerFeedback: [],
     });
+  });
+});
+
+/**
+ * Il revisore PREDEFINITO (piano `2026-10-01-default-reviewer-and-scopes`,
+ * P1-4, D6): gli account «propri» del webhook sono il principale più il
+ * revisore EFFETTIVO — l'esplicito, altrimenti il predefinito del suo ambito.
+ * È l'invariante «il ciclo di correzione non si innesca da sé»: una review
+ * pubblicata dal predefinito non deve far partire una correzione.
+ *
+ * Ogni caso usa un workspace Bitbucket SUO: il predefinito vale per tutto
+ * l'ambito `(provider, workspace)`, e un predefinito GitHub o nel workspace
+ * `acme` cambierebbe il revisore effettivo delle fixture degli altri test.
+ * Il flag si scrive in DB DOPO aver creato la repository: le rotte del
+ * predefinito hanno i loro test (P1-7).
+ */
+describe("webhook \"Request changes\" — il revisore predefinito è un account proprio", () => {
+  const DEFAULT_ID = "1003";
+
+  async function seedWithDefault(
+    opts: { withExplicit?: boolean; defaultUserId?: string | null; defaultIsMain?: boolean; mainUserId?: string | null } = {},
+  ) {
+    const workspace = `ws-${randomBytes(4).toString("hex")}`;
+    const fx = await seedFixture({
+      provider: "bitbucket",
+      workspace,
+      withReviewer: opts.withExplicit === true,
+      ...(opts.mainUserId !== undefined ? { mainUserId: opts.mainUserId } : {}),
+    });
+    let defaultAccountId = fx.mainAccountId;
+    if (opts.defaultIsMain !== true) {
+      defaultAccountId = await createAccount("bitbucket", "predefinito", workspace);
+      await testDb.db
+        .update(gitAccounts)
+        .set({ providerUserId: opts.defaultUserId === undefined ? DEFAULT_ID : opts.defaultUserId })
+        .where(eq(gitAccounts.id, defaultAccountId));
+    }
+    await testDb.db
+      .update(gitAccounts)
+      .set({ isDefaultReviewer: true })
+      .where(eq(gitAccounts.id, defaultAccountId));
+    const [def] = await testDb.db.select().from(gitAccounts).where(eq(gitAccounts.id, defaultAccountId));
+    return { fx, defaultAccount: def! };
+  }
+
+  /** L'esito ESATTO, chiamando il servizio: la risposta HTTP è 204 in ogni caso. */
+  function handle(fx: Fixture, actorId: string, actorLogin = "mario.rossi"): Promise<ChangesRequestedOutcome> {
+    return handleChangesRequested(
+      {
+        db: testDb.db,
+        encryptionKey: ENCRYPTION_KEY,
+        log: app.log,
+        repositoryId: fx.repositoryId,
+        provider: "bitbucket",
+        permissionCache: createNegativePermissionCache(),
+      },
+      {
+        prNumber: 42,
+        sourceBranch: "stubwise/ticket-3",
+        actorId,
+        actorLogin,
+        reviewBody: null,
+        authorAssociation: null,
+      },
+    );
+  }
+
+  it("NEGATIVO: un Request changes del PREDEFINITO è `own_account` e non lascia NESSUNA riga", async () => {
+    const { fx } = await seedWithDefault();
+    identityMustNotBeCalled(BitbucketProvider);
+
+    expect(await handle(fx, DEFAULT_ID, "stubwise-default")).toBe("own_account");
+    // E dalla rotta vera, con la firma: nessuna riga nemmeno lì.
+    const res = await postBitbucket(fx, bitbucketChangesRequest({ actorId: DEFAULT_ID, login: "stubwise-default" }));
+    expect(res.statusCode).toBe(204);
+
+    const [corrections] = await testDb.db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(prCorrections)
+      .where(eq(prCorrections.repositoryId, fx.repositoryId));
+    expect(corrections!.n).toBe(0);
+    const [jobs] = await testDb.db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(aiJobs)
+      .where(and(eq(aiJobs.ticketId, fx.ticketId), isNotNull(aiJobs.correctionId)));
+    expect(jobs!.n).toBe(0);
+  });
+
+  it("POSITIVO, stessi dati: lo stesso evento da un terzo fa partire UNA correzione", async () => {
+    const { fx } = await seedWithDefault();
+    identityMustNotBeCalled(BitbucketProvider);
+
+    expect(await handle(fx, HUMAN_ID)).toBe("enqueued");
+
+    const [corrections] = await testDb.db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(prCorrections)
+      .where(eq(prCorrections.repositoryId, fx.repositoryId));
+    expect(corrections!.n).toBe(1);
+    const [jobs] = await testDb.db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(aiJobs)
+      .where(and(eq(aiJobs.ticketId, fx.ticketId), isNotNull(aiJobs.correctionId)));
+    expect(jobs!.n).toBe(1);
+  });
+
+  it("identità del predefinito NON risolvibile (403, nessuna cache): fail-closed, avviso col suo nome", async () => {
+    const { fx, defaultAccount } = await seedWithDefault({ defaultUserId: null });
+    const identity = vi
+      .spyOn(BitbucketProvider.prototype, "getAuthenticatedUserId")
+      .mockRejectedValue(new GitProviderError("Bitbucket: accesso negato (403)", 403, ""));
+
+    expect(await handle(fx, HUMAN_ID)).toBe("identity_unresolved");
+
+    // Il principale ha l'identità in cache: l'unica chiamata è per il predefinito.
+    expect(identity).toHaveBeenCalledTimes(1);
+    expect(await correctionsOf(fx.repositoryId)).toHaveLength(0);
+    expect(await correctionJobsOf(fx.ticketId)).toHaveLength(0);
+    const notices = await testDb.db
+      .select({ body: comments.body })
+      .from(comments)
+      .where(and(eq(comments.ticketId, fx.ticketId), eq(comments.authorType, "system")));
+    expect(notices).toHaveLength(1);
+    expect(notices[0]!.body).toContain(defaultAccount.name);
+  });
+
+  it("con un revisore ESPLICITO il predefinito non conta (D6): né proprio, né nel fail-closed", async () => {
+    // Predefinito SENZA identità in cache: se entrasse nella lista, il
+    // provider verrebbe interrogato (e fallirebbe → evento scartato).
+    const { fx } = await seedWithDefault({ withExplicit: true, defaultUserId: null });
+    const identity = identityFails(BitbucketProvider);
+
+    // Un evento del predefinito, su QUESTA repository, è di una persona qualunque.
+    expect(await handle(fx, DEFAULT_ID, "stubwise-default")).toBe("enqueued");
+    expect(identity).not.toHaveBeenCalled();
+    expect(await correctionsOf(fx.repositoryId)).toHaveLength(1);
+    // E l'esplicito resta proprio.
+    expect(await handle(fx, REVIEWER_ID, "stubwise-review")).toBe("own_account");
+  });
+
+  it("predefinito = principale: la lista è il solo principale, risolto UNA volta", async () => {
+    const { fx } = await seedWithDefault({ defaultIsMain: true, mainUserId: null });
+    const identity = vi.spyOn(BitbucketProvider.prototype, "getAuthenticatedUserId").mockResolvedValue(MAIN_ID);
+
+    expect(await handle(fx, MAIN_ID, "stubwise-bot")).toBe("own_account");
+    // Una chiamata sola: nessun duplicato nella lista (la cache in memoria
+    // della riga letta è vuota, quindi un doppione rifarebbe la chiamata).
+    expect(identity).toHaveBeenCalledTimes(1);
+    expect(await correctionsOf(fx.repositoryId)).toHaveLength(0);
   });
 });
 

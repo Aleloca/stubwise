@@ -68,6 +68,13 @@ const CORRECTION_CODES = [
   "review_account_identity_unresolved",
   "review_git_account_not_found",
   "repository_not_found",
+  // PUT /api/git-accounts/:id/default-reviewer e PATCH /api/git-accounts/:id
+  // (revisore predefinito)
+  "default_reviewer_conflict",
+  "default_reviewer_account_changed",
+  "default_reviewer_workspace_locked",
+  "default_reviewer_workspace_missing",
+  "default_reviewer_invalid",
 ] as const;
 
 describe("translateApiError — codici del ciclo di correzione e dell'account revisore", () => {
@@ -98,6 +105,14 @@ describe("translateApiError — codici del ciclo di correzione e dell'account re
     await i18n.changeLanguage("it");
     const detail = "Pull requests: 403 Forbidden";
     const out = translateApiError(new ApiError(422, detail, "review_account_invalid"), t);
+    expect(out).not.toBe(detail);
+    expect(out).toContain(detail);
+  });
+
+  test("default_reviewer_invalid conserva i dettagli dei check falliti dentro il testo tradotto", async () => {
+    await i18n.changeLanguage("it");
+    const detail = "Scope del token: manca write:pullrequest:bitbucket";
+    const out = translateApiError(new ApiError(422, detail, "default_reviewer_invalid"), t);
     expect(out).not.toBe(detail);
     expect(out).toContain(detail);
   });

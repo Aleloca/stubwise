@@ -40,6 +40,7 @@ import {
   type WebhookEvent,
   type WebhookResult,
 } from "./provider.js";
+import type { BitbucketScope } from "./bitbucket-scopes.js";
 
 const API_BASE = "https://api.github.com";
 
@@ -1014,7 +1015,11 @@ export class GitHubProvider implements GitProvider {
 
   async validateAccount(
     config: AccountConfig,
-    opts: { fetchImpl?: FetchLike } = {}
+    // `requiredScopes` è solo per Bitbucket e qui si IGNORA (D11): un
+    // fine-grained PAT non dichiara i suoi permessi in nessun header, e
+    // `x-accepted-github-permissions` dice cosa chiede l'endpoint, non cosa ha
+    // il token — non c'è niente con cui confrontarli.
+    opts: { fetchImpl?: FetchLike; requiredScopes?: readonly BitbucketScope[] } = {}
   ): Promise<CredentialCheck[]> {
     const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
     // GitHub ignora il workspace: /user/repos elenca già tutti i repo accessibili.

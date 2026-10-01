@@ -40,6 +40,12 @@ import {
   type WebhookEvent,
   type WebhookResult,
 } from "./provider.js";
+import {
+  BITBUCKET_PRIMARY_SCOPES,
+  bitbucketMissingScopesFrom403,
+  bitbucketScopeChecks,
+  type BitbucketScope,
+} from "./bitbucket-scopes.js";
 
 const API_BASE = "https://api.bitbucket.org/2.0";
 
@@ -943,7 +949,7 @@ export class BitbucketProvider implements GitProvider {
 
   async validateAccount(
     config: AccountConfig,
-    opts: { fetchImpl?: FetchLike } = {}
+    opts: { fetchImpl?: FetchLike; requiredScopes?: readonly BitbucketScope[] } = {}
   ): Promise<CredentialCheck[]> {
     const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
     const { username, email, token } = config.credentials.credentials;
@@ -980,6 +986,10 @@ export class BitbucketProvider implements GitProvider {
       ];
     }
 
+    // La risposta della chiamata, conservata fuori dalla closure: sul 200 i
+    // suoi header dicono gli scope CONCESSI (nessuna chiamata in più). Resta
+    // `null` se `probe` cattura un errore di rete.
+    const seen: { ok: Response | null } = { ok: null };
     const check = await this.probe(CHECK, async () => {
       const r = await fetchWithTimeout(
         fetchImpl,
@@ -987,6 +997,7 @@ export class BitbucketProvider implements GitProvider {
         { headers: { Authorization: basicAuthHeader(restUser, token) } }
       );
       if (r.status === 200) {
+        seen.ok = r;
         return {
           name: CHECK,
           ok: true,
@@ -1001,11 +1012,13 @@ export class BitbucketProvider implements GitProvider {
         };
       }
       if (r.status === 403) {
+        const base =
+          "accesso negato (403): il token non ha accesso a questo workspace o manca lo scope read:repository:bitbucket";
+        const missing = bitbucketMissingScopesFrom403(await readBodySafely(r));
         return {
           name: CHECK,
           ok: false,
-          detail:
-            "accesso negato (403): il token non ha accesso a questo workspace o manca lo scope read:repository:bitbucket",
+          detail: missing.length > 0 ? `${base} (mancano ${missing.join(", ")})` : base,
         };
       }
       if (r.status === 404) {
@@ -1029,7 +1042,15 @@ export class BitbucketProvider implements GitProvider {
       };
     });
 
-    return [check];
+    // Gli scope si guardano SOLO su un 200: su ogni altro status (o su un
+    // errore di rete) gli header non dicono niente di affidabile, e resta il
+    // solo check di prima. Assente `requiredScopes` = l'insieme del
+    // principale, il più esigente (vedi `bitbucketRequiredScopes`).
+    if (seen.ok === null) return [check];
+    return [
+      check,
+      ...bitbucketScopeChecks(seen.ok.headers, opts.requiredScopes ?? BITBUCKET_PRIMARY_SCOPES),
+    ];
   }
 
   async ensureWebhook(
@@ -1319,7 +1340,6 @@ export class BitbucketProvider implements GitProvider {
   }
 }
 
-/** Mappa `state` di un build status Bitbucket sul rollup a tre stati condiviso. */
 /**
  * Un testo della risposta senza le credenziali: il token e l'header Basic
  * (la sua forma base64) diventano `***`, PRIMA di qualunque taglio (un token
@@ -1330,6 +1350,59 @@ function maskCredentials(text: string, p: ProjectGitConfig, authHeader: string):
   return secrets.reduce((acc, secret) => acc.split(secret).join("***"), text);
 }
 
+/**
+ * Tempo massimo per leggere il CORPO di una risposta d'errore. Il timeout di
+ * `fetchWithTimeout` copre solo l'arrivo degli header (il suo timer si chiude
+ * quando `fetch` risolve): un corpo che non arriva mai lascerebbe la chiamata
+ * appesa — e Validate con lei.
+ */
+const ERROR_BODY_TIMEOUT_MS = 5_000;
+
+/** Lo scadere di {@link ERROR_BODY_TIMEOUT_MS}: distinto da qualunque corpo. */
+const BODY_TIMEOUT: unique symbol = Symbol("body-timeout");
+
+/**
+ * Il corpo di una risposta come testo, o `null` se non si legge entro
+ * {@link ERROR_BODY_TIMEOUT_MS}: non lancia mai. Una corsa col timer sulla
+ * lettura dello stream; allo scadere lo stream si CANCELLA dal suo reader
+ * (`r.text()` lo bloccherebbe senza poterlo cancellare), così la connessione
+ * non resta aperta per niente. Lo scadere è un `Symbol`, non una stringa: un
+ * corpo che valesse proprio quella stringa sarebbe letto come timeout.
+ *
+ * Esportata per i test, non dall'indice del package.
+ */
+export async function readBodySafely(r: Response): Promise<string | null> {
+  if (r.body === null) return "";
+  let reader: ReadableStreamDefaultReader<Uint8Array>;
+  try {
+    reader = r.body.getReader();
+  } catch {
+    return null;
+  }
+  const read = async (): Promise<string | null> => {
+    const decoder = new TextDecoder();
+    let text = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) return text + decoder.decode();
+      text += decoder.decode(value, { stream: true });
+    }
+  };
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<typeof BODY_TIMEOUT>((resolve) => {
+    timer = setTimeout(() => resolve(BODY_TIMEOUT), ERROR_BODY_TIMEOUT_MS);
+  });
+  try {
+    const outcome = await Promise.race([read().catch(() => null), timeout]);
+    if (outcome !== BODY_TIMEOUT) return outcome;
+    void reader.cancel().catch(() => undefined);
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Mappa `state` di un build status Bitbucket sul rollup a tre stati condiviso. */
 function bitbucketCheckStatus(state: unknown): CheckOutcomeStatus {
   if (state === "SUCCESSFUL") return "success";
   if (state === "INPROGRESS") return "pending";

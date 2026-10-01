@@ -5,6 +5,7 @@ import type { GitProvider, GitProviderOptions } from "./provider.js";
 
 export * from "./provider.js";
 export { BitbucketProvider } from "./bitbucket.js";
+export * from "./bitbucket-scopes.js";
 export { GitHubProvider } from "./github.js";
 
 export function getProvider(kind: GitProviderKind, options: GitProviderOptions = {}): GitProvider {

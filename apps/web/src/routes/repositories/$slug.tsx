@@ -168,6 +168,10 @@ function RepositoryDetail({ slug }: { slug: string }) {
                   // `?? null`: il web fa un cast, e un server senza il ciclo
                   // di correzione non manda il campo.
                   reviewGitAccountId: repository.reviewGitAccountId ?? null,
+                  // Derivati dal server (revisore effettivo, predefinito
+                  // saltato): `?? null` per la stessa ragione.
+                  effectiveReviewAccount: repository.effectiveReviewAccount ?? null,
+                  skippedDefaultReviewAccount: repository.skippedDefaultReviewAccount ?? null,
                 }}
                 onSubmit={handleSubmit}
               />

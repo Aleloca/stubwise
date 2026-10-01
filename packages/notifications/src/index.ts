@@ -242,3 +242,19 @@ export {
   type GitCredentials,
   type IdentityAccount,
 } from "./pr-correction-feedback.js";
+
+// Revisore EFFETTIVO di una repository (esplicito, altrimenti il predefinito
+// del suo ambito): una sola regola per worker, webhook, proiezione e Validate.
+export {
+  pickReviewAccount,
+  resolveReviewAccount,
+  resolveReviewAccounts,
+  resolveReviewAccountsWithCredentials,
+  resolveReviewAccountWithCredentials,
+  REVIEW_ACCOUNT_VIEW_KEYS,
+  reviewScopeKey,
+  type GitAccountRow,
+  type ReviewAccountView,
+  type ReviewAccountResolution,
+  type ReviewAccountSource,
+} from "./review-account.js";

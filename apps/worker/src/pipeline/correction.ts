@@ -23,6 +23,7 @@ import {
   promotePendingForTicket,
   providerFeedbackCutoff,
   resolveProviderUserId,
+  resolveReviewAccountWithCredentials,
   selectProviderFeedback,
   MAX_PERMISSION_LOOKUPS_PER_SNAPSHOT,
   WEBHOOK_REVIEW_BODY_ID,
@@ -305,7 +306,7 @@ async function refreshProviderFeedback(input: {
   provider: Pick<GitProvider, "listPrComments" | "getCollaboratorPermission">;
   fetchIdentity: FetchPlatformIdentity;
   project: MirrorProject;
-  /** Account principale e (se c'è) revisore: le identità da escludere. */
+  /** Account principale e (se c'è) revisore EFFETTIVO: le identità da escludere. */
   accounts: (typeof gitAccounts.$inferSelect)[];
   correctionId: string;
   pr: { repositoryId: string; prNumber: number };
@@ -701,10 +702,11 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
   // questa regola lo scrive C8: una correzione con `providerFeedback` non
   // null rilegge i commenti, una con `providerFeedback` null no.
   if (correction.providerFeedback !== null) {
-    const [reviewerAccount] =
-      row.repository.reviewGitAccountId !== null
-        ? await db.select().from(gitAccounts).where(eq(gitAccounts.id, row.repository.reviewGitAccountId))
-        : [];
+    // Il revisore EFFETTIVO (l'esplicito, altrimenti il predefinito del suo
+    // ambito): la stessa lista di account «propri» del webhook (D6). Variante
+    // `WithCredentials`: un'identità non ancora salvata si risolve decifrando
+    // le credenziali (`resolveProviderUserId`).
+    const reviewerAccount = (await resolveReviewAccountWithCredentials(db, row.repository.id))?.effective?.account;
     // Chi è il token sulla piattaforma: la stessa chiamata che fa il server.
     const fetchIdentity: FetchPlatformIdentity = ({ provider: kind, credentials: creds }) =>
       getProviderFn(kind).getAuthenticatedUserId({ credentials: creds });

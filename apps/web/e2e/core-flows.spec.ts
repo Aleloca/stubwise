@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import process from "node:process";
 import { expect, test, type Page } from "@playwright/test";
 
 /*
@@ -110,6 +113,109 @@ test("aggiunge un repository al progetto dal wizard (fallback manuale)", async (
   // Sul 201 si atterra sul dettaglio del repository.
   await expect(page).toHaveURL(/\/repositories\/demo-shop$/);
   await expect(page.getByRole("heading", { name: "Demo Shop" })).toBeVisible();
+});
+
+// Revisore PREDEFINITO, in due parti che provano cose diverse.
+// 1. INTEGRAZIONE, stack vero e nessun mock: la repository nuova dice
+//    «nessuno»; poi si crea un secondo account dalla UI e lo si marca
+//    predefinito col PUT VERO. Le credenziali dello stack e2e sono finte e il
+//    server parla col provider VERO (la base URL di GitHub non è
+//    configurabile; anche il wizard qui sopra ci va, per l'elenco dei repo):
+//    l'esito esatto dipende quindi dalla rete — 422 `default_reviewer_invalid`
+//    con GitHub raggiungibile, altro codice con la rete giù o in rate limit.
+//    L'asserzione NON fissa il codice: prova la rotta, il cancello admin e la
+//    traduzione — un rifiuto fra quelli della validazione del predefinito,
+//    mostrato col testo TRADOTTO di quel codice, e il toggle spento.
+// 2. PROVA DI RENDER, NON di integrazione: le risposte del PUT e della GET della
+//    repository sono MOCKATE (`page.route`) per vedere come la UI disegna un
+//    esito positivo (avvisi per repository; form → «predefinito (<nome>)»).
+//    Lo stato in DB non cambia: questa parte non dice niente del server.
+/** I rifiuti del PUT del predefinito che dipendono da provider e corse (409/422). */
+const DEFAULT_REVIEWER_REJECTIONS = [
+  "default_reviewer_invalid",
+  "review_account_identity_unresolved",
+  "default_reviewer_conflict",
+  "default_reviewer_account_changed",
+];
+
+// I testi inglesi degli errori, letti dal catalogo vero del web (Playwright
+// gira con cwd = apps/web): l'E2E confronta con la traduzione, non con una copia.
+const EN_ERRORS = (
+  JSON.parse(readFileSync(path.join(process.cwd(), "src/i18n/locales/en.json"), "utf8")) as {
+    errors: Record<string, string>;
+  }
+).errors;
+
+test("revisore predefinito: lo si imposta dagli account git e il form della repository lo nomina", async () => {
+  // Stack vero, nessun mock: la repository nuova non ha revisore.
+  await expect(page.getByText("Reviewer: none — the review comments with the main account")).toBeVisible();
+  const repositoryUrl = page.url();
+
+  await page.getByRole("link", { name: /SET settings/i }).click();
+  const settingsNav = page.getByRole("navigation", { name: /settings/i });
+  await settingsNav.getByRole("link", { name: "Git accounts" }).click();
+  const gitSection = page
+    .getByRole("heading", { name: "Git accounts" })
+    .locator("xpath=ancestor::section[1]");
+
+  await page.getByRole("button", { name: /new git account/i }).click();
+  await page.getByLabel("Name", { exact: true }).fill("PR Bot");
+  await page.getByLabel("Provider").selectOption("github");
+  await page.getByLabel("Access token").fill("ghp_token_del_revisore");
+  await page.getByRole("button", { name: "Create account" }).click();
+  const botRow = gitSection.getByText("PR Bot", { exact: true }).locator("xpath=ancestor::li[1]");
+  await expect(botRow).toBeVisible();
+
+  // 1. PUT vero.
+  const toggle = botRow.getByRole("checkbox", { name: "Default reviewer" });
+  const realPut = page.waitForResponse(
+    (r) => r.url().endsWith("/default-reviewer") && r.request().method() === "PUT",
+  );
+  await toggle.click();
+  const realResponse = await realPut;
+  expect([409, 422]).toContain(realResponse.status());
+  const realBody = (await realResponse.json()) as { code: string; message: string };
+  expect(DEFAULT_REVIEWER_REJECTIONS).toContain(realBody.code);
+  // Il testo atteso è la traduzione di QUEL codice (col dettaglio del server
+  // dove la chiave lo prevede), mai il messaggio grezzo.
+  const expected = EN_ERRORS[realBody.code]!.replace("{{detail}}", realBody.message);
+  expect(expected).not.toBe(realBody.message);
+  await expect(botRow.getByRole("alert")).toHaveText(expected);
+  await expect(toggle).not.toBeChecked();
+
+  // 2. Prova di render (mock).
+  await page.route("**/api/git-accounts/*/default-reviewer", async (route) => {
+    if (route.request().method() !== "PUT") return route.fallback();
+    const id = new URL(route.request().url()).pathname.split("/")[3]!;
+    await route.fulfill({
+      json: {
+        account: { id, name: "PR Bot", provider: "github", workspace: null, isDefaultReviewer: true, createdAt: new Date().toISOString() },
+        replaced: null,
+        warnings: [{ repositoryId: "00000000-0000-4000-8000-000000000000", repositoryName: "Demo Shop", code: "review_account_no_write_permission" }],
+      },
+    });
+  });
+  // `click`, non `check`: lo stato vero in DB non cambia (PUT mockato), e dopo
+  // il refetch il toggle torna spento — qui conta l'esito mostrato.
+  await toggle.click();
+  await expect(botRow.getByText("Now the default reviewer.")).toBeVisible();
+  await expect(botRow.getByRole("listitem")).toHaveText(
+    "Demo Shop: The review account has no write access to the repository: give it write permission, without it, it can neither approve nor request changes",
+  );
+
+  await page.route("**/api/repositories/demo-shop", async (route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    const response = await route.fetch();
+    const json = (await response.json()) as Record<string, unknown>;
+    await route.fulfill({
+      response,
+      json: { ...json, effectiveReviewAccount: { id: "00000000-0000-4000-8000-000000000001", name: "PR Bot", source: "default" } },
+    });
+  });
+  await page.goto(repositoryUrl);
+  await expect(page.getByText("Reviewer: default (PR Bot)")).toBeVisible();
+
+  await page.unrouteAll({ behavior: "wait" });
 });
 
 test("crea un ticket dal dialog (solo progetto, niente repo bersaglio) e lo ritrova in lista", async () => {

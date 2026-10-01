@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readerSchema, UNKNOWN } from "../reader.js";
 import {
+  gitAccountSchema,
   projectDetailSchema,
   projectListItemSchema,
   projectPulseSummarySchema,
@@ -417,6 +418,61 @@ describe("repositorySchema.reviewGitAccountId verso un server più vecchio (30 s
   });
 });
 
+describe("revisore EFFETTIVO e predefinito verso un server più vecchio (1 ott 2026)", () => {
+  // Una risposta di un server senza il revisore predefinito: nessuno dei campi
+  // derivati. Deve leggersi, e con `null`/`false` — mai un parse fallito.
+  const repositorySenzaDerivati = {
+    id: "11111111-1111-4111-8111-111111111111",
+    projectId: "22222222-2222-4222-8222-222222222222",
+    name: "Shop API",
+    slug: "shop-api",
+    provider: "github",
+    repoUrl: "https://github.com/acme/shop-api",
+    defaultBranch: "main",
+    gitAccountId: "33333333-3333-4333-8333-333333333333",
+    gitAccountName: "Account GitHub",
+    reviewGitAccountId: null,
+    testCommand: null,
+    installCommand: null,
+    webhookConfiguredAt: null,
+    graphEnabled: false,
+    createdAt: "2026-09-01T10:00:00.000Z",
+  };
+
+  it("una repository senza i due campi derivati li legge entrambi null", () => {
+    const parsed = readerSchema(repositorySchema).parse(repositorySenzaDerivati);
+    expect(parsed.effectiveReviewAccount).toBeNull();
+    expect(parsed.skippedDefaultReviewAccount).toBeNull();
+  });
+
+  it("i due campi presenti si leggono verbatim", () => {
+    const effectiveReviewAccount = {
+      id: "44444444-4444-4444-8444-444444444444",
+      name: "Revisore",
+      source: "default",
+    };
+    const skippedDefaultReviewAccount = { id: "55555555-5555-4555-8555-555555555555", name: "Bot" };
+    const parsed = readerSchema(repositorySchema).parse({
+      ...repositorySenzaDerivati,
+      effectiveReviewAccount,
+      skippedDefaultReviewAccount,
+    });
+    expect(parsed.effectiveReviewAccount).toEqual(effectiveReviewAccount);
+    expect(parsed.skippedDefaultReviewAccount).toEqual(skippedDefaultReviewAccount);
+  });
+
+  it("un account git senza `isDefaultReviewer` si legge false", () => {
+    const parsed = readerSchema(gitAccountSchema).parse({
+      id: "33333333-3333-4333-8333-333333333333",
+      name: "Account GitHub",
+      provider: "github",
+      workspace: null,
+      createdAt: "2026-09-01T10:00:00.000Z",
+    });
+    expect(parsed.isDefaultReviewer).toBe(false);
+  });
+});
+
 describe("repositorySaveResponseSchema.warnings (30 set 2026)", () => {
   const saved = {
     id: "11111111-1111-4111-8111-111111111111",
@@ -445,6 +501,13 @@ describe("repositorySaveResponseSchema.warnings (30 set 2026)", () => {
       readerSchema(repositorySaveResponseSchema).parse({ ...saved, warnings: ["main_account_identity_unresolved"] })
         .warnings,
     ).toEqual(["main_account_identity_unresolved"]);
+  });
+
+  it("l'avviso sul revisore predefinito si legge verbatim (1 ott 2026)", () => {
+    expect(
+      readerSchema(repositorySaveResponseSchema).parse({ ...saved, warnings: ["default_review_account_invalid"] })
+        .warnings,
+    ).toEqual(["default_review_account_invalid"]);
   });
 
   it("un avviso che il client non conosce diventa UNKNOWN, non un parse fallito", () => {

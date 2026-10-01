@@ -8,8 +8,14 @@ import { z } from "zod";
 import { requireAdmin, requireAuth } from "../auth/session.js";
 import { GitProviderError } from "@stubwise/git";
 import { decrypt, gitAccounts, projects, repositories } from "@stubwise/db";
-import { decryptGitCredentials, resolveProviderUserId } from "@stubwise/notifications";
+import {
+  resolveProviderUserId,
+  resolveReviewAccounts,
+  type ReviewAccountResolution,
+  type ReviewAccountView,
+} from "@stubwise/notifications";
 import { fetchPlatformIdentity } from "../services/platform-identity.js";
+import { checkReviewAccount, logIdentityError } from "../services/review-account-check.js";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
 import { apiError } from "../errors.js";
 
@@ -117,6 +123,8 @@ function slugify(name: string): string {
 
 type RepositoryRow = typeof repositories.$inferSelect;
 
+type ReviewResolution = ReviewAccountResolution<ReviewAccountView>;
+
 /**
  * Proiezione pubblica di un repository: campi elencati esplicitamente, mai
  * spread della riga. Le credenziali non vivono sul repository (stanno
@@ -125,11 +133,20 @@ type RepositoryRow = typeof repositories.$inferSelect;
  * impostazioni di prodotto (provider AI, auto-update docs) e l'ingestion
  * (`ingestionKey`, numerazione ticket) sono salite al progetto (Fase 3) e NON
  * fanno più parte di questa proiezione.
+ *
+ * `review` è il revisore EFFETTIVO calcolato da `resolveReviewAccounts` (1 ott
+ * 2026): se ne copiano SOLO id, nome e fonte — la risoluzione porta anche
+ * provider, workspace e identità sulla piattaforma, che il client non deve
+ * vedere. `undefined` (repository sparita fra le due letture) = nessun
+ * revisore, mai un errore.
  */
 function toPublicRepository(
   row: RepositoryRow,
   gitAccountName: string,
+  review: ReviewResolution | undefined,
 ): z.infer<typeof repositorySchema> {
+  const effective = review?.effective ?? null;
+  const skipped = review?.skippedDefault ?? null;
   return {
     id: row.id,
     projectId: row.projectId,
@@ -141,6 +158,11 @@ function toPublicRepository(
     gitAccountId: row.gitAccountId,
     gitAccountName,
     reviewGitAccountId: row.reviewGitAccountId,
+    effectiveReviewAccount:
+      effective === null
+        ? null
+        : { id: effective.account.id, name: effective.account.name, source: effective.source },
+    skippedDefaultReviewAccount: skipped === null ? null : { id: skipped.id, name: skipped.name },
     testCommand: row.testCommand,
     installCommand: row.installCommand,
     webhookConfiguredAt: row.webhookConfiguredAt?.toISOString() ?? null,
@@ -150,163 +172,6 @@ function toPublicRepository(
 }
 
 type GitAccountRow = typeof gitAccounts.$inferSelect;
-
-type ReviewAccountCheck =
-  | { ok: true }
-  | { ok: false; status: 400 | 404 | 422; code: string; message: string };
-
-/** Scrive nel log PERCHÉ un'identità non si risolve: il messaggio del provider, mai il token. */
-function logIdentityError(app: FastifyInstance, gitAccountId: string, what: string) {
-  return (err: unknown) =>
-    app.log.warn({ gitAccountId, err: err instanceof Error ? err.message : String(err) }, what);
-}
-
-/**
- * Validazione dell'account revisore (design §8). I controlli LOCALI —
- * esistenza, account diverso, stesso provider, stesso workspace Bitbucket —
- * sempre; quelli di RETE solo quando il revisore viene scelto adesso
- * o quando cambia DOVE va verificato (`verifyRemote`): permessi di SCRITTURA
- * sulla repository — non quello di gestire i webhook, che vuole Admin e che il
- * revisore non usa (`purpose: "webhook"` escluso) — e identità sulla piattaforma,
- * RI-risolta (non dalla cache: il salvataggio è il momento in cui l'admin
- * deve sapere se funziona) e diversa da quella del principale. Anche
- * l'identità del principale si risolve qui: serve al confronto, e senza il
- * webhook scarterebbe ogni "Request changes" (fail-closed, §5). Senza
- * revisore, la stessa condizione è solo un avviso (`mainIdentityWarnings`).
- */
-async function checkReviewAccount(
-  app: FastifyInstance,
-  input: {
-    mainAccount: GitAccountRow;
-    reviewGitAccountId: string;
-    repoUrl: string;
-    defaultBranch: string;
-    verifyRemote: boolean;
-  },
-): Promise<ReviewAccountCheck> {
-  const { mainAccount } = input;
-  if (input.reviewGitAccountId === mainAccount.id) {
-    return {
-      ok: false,
-      status: 400,
-      code: "review_account_same_as_main",
-      message: "The review account must differ from the repository's main account",
-    };
-  }
-  const [review] = await app.db
-    .select()
-    .from(gitAccounts)
-    .where(eq(gitAccounts.id, input.reviewGitAccountId));
-  if (!review) {
-    return { ok: false, status: 404, code: "review_git_account_not_found", message: "Review git account not found" };
-  }
-  if (review.provider !== mainAccount.provider) {
-    return {
-      ok: false,
-      status: 400,
-      code: "review_account_provider_mismatch",
-      message: "The review account must be on the same provider as the main account",
-    };
-  }
-  if (review.provider === "bitbucket" && review.workspace !== mainAccount.workspace) {
-    return {
-      ok: false,
-      status: 400,
-      code: "review_account_workspace_mismatch",
-      message: "The review account must be in the same Bitbucket workspace as the main account",
-    };
-  }
-  if (!input.verifyRemote) return { ok: true };
-
-  const credentials = decryptGitCredentials(review.encryptedCredentials, app.encryptionKey);
-  if (!credentials) {
-    return {
-      ok: false,
-      status: 400,
-      // Codice suo: il 400 generico della rotta parla dell'account
-      // PRINCIPALE (configure-webhook), qui è il revisore a non decifrarsi.
-      code: "review_credentials_undecryptable",
-      message: "The review account's credentials cannot be decrypted: re-enter them in the git account",
-    };
-  }
-  const checks = await getProvider(review.provider).validateCredentials(
-    { repoUrl: input.repoUrl, defaultBranch: input.defaultBranch, credentials },
-    { fetchImpl: fetch },
-  );
-  // Al revisore basta la SCRITTURA (push, REST delle PR, merge): approvare o
-  // chiedere modifiche non tocca i webhook, e il controllo dei webhook vuole
-  // Admin su entrambi i provider — con quello dentro, un revisore configurato
-  // come dice la guida riceverebbe sempre 422. Si esclude per SCOPO, mai per
-  // etichetta: le etichette sono testo per le persone e possono cambiare.
-  const failed = checks.filter((check) => check.purpose !== "webhook" && !check.ok);
-  // Il caso più probabile, e il più fraintendibile dal solo dettaglio del
-  // provider: il token vede la repository ma non ci può scrivere. Senza
-  // scrittura né approve né "Request changes" passano: lo si dice in chiaro.
-  if (failed.some((check) => check.failure === "no_write_permission")) {
-    return {
-      ok: false,
-      status: 422,
-      code: "review_account_no_write_permission",
-      message: "The review account has no write permission on the repository",
-    };
-  }
-  if (failed.length > 0) {
-    return {
-      ok: false,
-      status: 422,
-      code: "review_account_invalid",
-      // Il dettaglio dei controlli (dal provider) è la parte utile: dice
-      // quale permesso manca.
-      message: failed.map((check) => `${check.name}: ${check.detail}`).join("; "),
-    };
-  }
-  // Su Bitbucket leggere "chi sono" vuole lo scope `read:user:bitbucket`: un
-  // token creato prima del ciclo di correzione risponde 403, e va detto QUI —
-  // al webhook sarebbe un "Request changes" scartato (fail-closed), spiegato
-  // solo a cose fatte sul ticket (D2). È un SUGGERIMENTO, non la diagnosi: il
-  // motivo vero (401, 403, rate limit…) lo scrive onError nel log.
-  const scopeHint =
-    review.provider === "bitbucket" ? " (on Bitbucket, check that the token has the read:user:bitbucket scope)" : "";
-  const reviewerId = await resolveProviderUserId(app.db, app.encryptionKey, review, fetchPlatformIdentity, {
-    refresh: true,
-    onError: logIdentityError(app, review.id, "identità dell'account revisore: il provider ha risposto con un errore"),
-  });
-  if (reviewerId === null) {
-    return {
-      ok: false,
-      status: 422,
-      code: "review_account_identity_unresolved",
-      message: `Could not read the review account's identity from the provider${scopeHint}`,
-    };
-  }
-  // Il principale dalla cache se c'è: è l'identità con cui il webhook
-  // lavorerà comunque, e un rinfresco fallito non deve bloccare la scelta del
-  // revisore se quella salvata è buona.
-  const mainId = await resolveProviderUserId(app.db, app.encryptionKey, mainAccount, fetchPlatformIdentity, {
-    onError: logIdentityError(
-      app,
-      mainAccount.id,
-      "identità dell'account principale: il provider ha risposto con un errore",
-    ),
-  });
-  if (mainId === null) {
-    return {
-      ok: false,
-      status: 422,
-      code: "main_account_identity_unresolved",
-      message: `Could not read the main account's identity from the provider${scopeHint}`,
-    };
-  }
-  if (mainId === reviewerId) {
-    return {
-      ok: false,
-      status: 400,
-      code: "review_account_same_identity",
-      message: "The two accounts belong to the same user on the provider",
-    };
-  }
-  return { ok: true };
-}
 
 /**
  * Avviso NON bloccante (ciclo di correzione): l'identità dell'account
@@ -332,6 +197,50 @@ async function mainIdentityWarnings(app: FastifyInstance, mainAccount: GitAccoun
     app.log.warn(
       { gitAccountId: mainAccount.id, err: err instanceof Error ? err.message : String(err) },
       "verifica dell'identità dell'account principale non riuscita: nessun avviso",
+    );
+    return [];
+  }
+}
+
+/**
+ * Avviso NON bloccante sul revisore PREDEFINITO (1 ott 2026, piano P1-6): la
+ * repository non ha un revisore esplicito e quello effettivo viene dal
+ * predefinito del suo ambito — si verifica, con gli STESSI controlli di rete
+ * dell'esplicito (`checkReviewAccount`), che possa davvero scrivere su QUESTA
+ * repository. Un esito ko è un avviso, mai un blocco: l'admin non ha scelto
+ * quell'account qui, e senza l'opzione «nessun revisore» un 422 renderebbe la
+ * repository non salvabile. La review ricadrà su un commento del principale.
+ *
+ * Il chiamante decide QUANDO (solo se è cambiato cosa va verificato): qui si
+ * guarda solo se il predefinito è effettivo. Due esiti non producono questo
+ * avviso: `main_account_identity_unresolved` (la colpa è del principale, e lo
+ * dice già `mainIdentityWarnings`) e un'eccezione (best-effort come
+ * l'avviso del principale: si logga, nessun avviso, la riga resta salvata).
+ */
+async function defaultReviewWarnings(
+  app: FastifyInstance,
+  input: { repository: RepositoryRow; mainAccount: GitAccountRow; review: ReviewResolution | undefined },
+): Promise<RepositoryWarning[]> {
+  const effective = input.review?.effective;
+  if (!effective || effective.source !== "default") return [];
+  try {
+    const check = await checkReviewAccount(app, {
+      mainAccount: input.mainAccount,
+      reviewGitAccountId: effective.account.id,
+      repoUrl: input.repository.repoUrl,
+      defaultBranch: input.repository.defaultBranch,
+      verifyRemote: true,
+    });
+    if (check.ok || check.code === "main_account_identity_unresolved") return [];
+    app.log.warn(
+      { repositoryId: input.repository.id, gitAccountId: effective.account.id, code: check.code },
+      "il revisore predefinito non supera la verifica sulla repository: avviso, non blocco",
+    );
+    return ["default_review_account_invalid"];
+  } catch (err) {
+    app.log.warn(
+      { repositoryId: input.repository.id, err: err instanceof Error ? err.message : String(err) },
+      "verifica del revisore predefinito non riuscita: nessun avviso",
     );
     return [];
   }
@@ -433,9 +342,14 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
           // L'account può aver appena salvato la sua identità in
           // `checkReviewAccount`: si rilegge, così l'avviso guarda la cache vera.
           const [mainAccount] = await app.db.select().from(gitAccounts).where(eq(gitAccounts.id, account.id));
+          const review = (await resolveReviewAccounts(app.db, [created.id])).get(created.id);
           return await reply.code(201).send({
-            ...toPublicRepository(created, account.name),
-            warnings: await mainIdentityWarnings(app, mainAccount ?? account),
+            ...toPublicRepository(created, account.name, review),
+            warnings: [
+              ...(await mainIdentityWarnings(app, mainAccount ?? account)),
+              // Creazione: se vale il predefinito, si verifica sempre.
+              ...(await defaultReviewWarnings(app, { repository: created, mainAccount: mainAccount ?? account, review })),
+            ],
           });
         } catch (error) {
           // Collisione di slug: rigenerato al giro dopo. Tutto il resto riemerge.
@@ -463,7 +377,12 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
         .innerJoin(gitAccounts, eq(repositories.gitAccountId, gitAccounts.id))
         .where(projectId ? eq(repositories.projectId, projectId) : undefined)
         .orderBy(repositories.createdAt);
-      return rows.map((r) => toPublicRepository(r.repository, r.gitAccountName));
+      // UNA risoluzione per tutta la lista (due query), mai una per riga.
+      const reviews = await resolveReviewAccounts(
+        app.db,
+        rows.map((r) => r.repository.id),
+      );
+      return rows.map((r) => toPublicRepository(r.repository, r.gitAccountName, reviews.get(r.repository.id)));
     },
   );
 
@@ -483,7 +402,8 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
         .innerJoin(gitAccounts, eq(repositories.gitAccountId, gitAccounts.id))
         .where(eq(repositories.slug, request.params.slug));
       if (!row) return apiError(reply, 404, "repository_not_found", "Repository not found");
-      return toPublicRepository(row.repository, row.gitAccountName);
+      const review = await resolveReviewAccounts(app.db, [row.repository.id]);
+      return toPublicRepository(row.repository, row.gitAccountName, review.get(row.repository.id));
     },
   );
 
@@ -611,6 +531,11 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
         reviewGitAccountId,
       } = request.body;
       const updates: Partial<RepositoryRow> = {};
+      // Il revisore PREDEFINITO si riverifica (avviso, P1-6) solo se cambia COSA
+      // va verificato: il principale (e con lui, forse, l'ambito), la
+      // repository su cui deve scrivere, o l'esplicito appena tolto. Rimandare
+      // gli stessi valori — il form lo fa a ogni salvataggio — non costa rete.
+      let verifyDefault = false;
       if (name !== undefined) updates.name = name;
       if (repoUrl !== undefined) updates.repoUrl = repoUrl;
       if (defaultBranch !== undefined) updates.defaultBranch = defaultBranch;
@@ -673,6 +598,11 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
         }
         // null toglie il revisore; omesso (undefined) lo lascia invariato.
         if (reviewGitAccountId !== undefined) updates.reviewGitAccountId = reviewGitAccountId;
+        verifyDefault =
+          (gitAccountId !== undefined && gitAccountId !== current.repository.gitAccountId) ||
+          (repoUrl !== undefined && repoUrl !== current.repository.repoUrl) ||
+          (defaultBranch !== undefined && defaultBranch !== current.repository.defaultBranch) ||
+          (reviewGitAccountId === null && current.repository.reviewGitAccountId !== null);
       }
 
       // Drizzle rifiuta un update senza colonne: un PATCH vuoto è una lettura.
@@ -721,9 +651,15 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
         .innerJoin(gitAccounts, eq(repositories.gitAccountId, gitAccounts.id))
         .where(eq(repositories.slug, request.params.slug));
       if (!row) return apiError(reply, 404, "repository_not_found", "Repository not found");
+      const review = (await resolveReviewAccounts(app.db, [row.repository.id])).get(row.repository.id);
       return {
-        ...toPublicRepository(row.repository, row.account.name),
-        warnings: await mainIdentityWarnings(app, row.account),
+        ...toPublicRepository(row.repository, row.account.name, review),
+        warnings: [
+          ...(await mainIdentityWarnings(app, row.account)),
+          ...(verifyDefault
+            ? await defaultReviewWarnings(app, { repository: row.repository, mainAccount: row.account, review })
+            : []),
+        ],
       };
     },
   );
