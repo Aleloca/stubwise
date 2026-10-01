@@ -59,6 +59,46 @@ interface GitCredentials {
   token: string;
 }
 
+/**
+ * Lunghezza minima perché un prefisso identifichi un commit: quella delle
+ * abbreviazioni di git. Sotto, «combacia» non direbbe niente (una stringa
+ * vuota è prefisso di tutto).
+ */
+export const MIN_SHA_PREFIX = 7;
+
+/**
+ * Due sha indicano lo STESSO commit? Per prefisso: il più corto è prefisso
+ * del più lungo, senza distinguere maiuscole e minuscole — Bitbucket salva
+ * head abbreviate (~12 caratteri), GitHub complete, l'agente di monitoraggio
+ * quello che il deploy gli dice. Sotto {@link MIN_SHA_PREFIX} caratteri,
+ * o con uno dei due assente, NON combaciano: chi chiama non afferma niente.
+ *
+ * La regola è UNA per la coda di rilascio: la usano `deployedOn` («questa
+ * head gira lì») e `reviewStale` («il verdetto è su un'altra head»).
+ */
+export function sameCommit(a: string | null | undefined, b: string | null | undefined): boolean {
+  if (!a || !b) return false;
+  const x = a.trim().toLowerCase();
+  const y = b.trim().toLowerCase();
+  if (x.length < MIN_SHA_PREFIX || y.length < MIN_SHA_PREFIX) return false;
+  return x.length <= y.length ? y.startsWith(x) : x.startsWith(y);
+}
+
+/**
+ * Il verdetto della review è su codice SUPERATO? Solo se entrambe le head
+ * sono note e NON sono lo stesso commit. Senza verdetto, senza head della
+ * review o senza head letta dal vivo (check illeggibili) → false: non si
+ * afferma niente che Stubwise non possa verificare.
+ */
+export function isReviewStale(
+  verdict: string | null | undefined,
+  reviewHeadSha: string | null | undefined,
+  liveHeadSha: string | null | undefined,
+): boolean {
+  if (!verdict || !reviewHeadSha || !liveHeadSha) return false;
+  return !sameCommit(reviewHeadSha, liveHeadSha);
+}
+
 /** `null` se le credenziali cifrate dell'account non si decifrano (config errata). */
 function decryptCredentials(encryptedCredentials: string, encryptionKey: Buffer): GitCredentials | null {
   try {
@@ -270,6 +310,8 @@ export async function listReleaseQueue(db: Db, encryptionKey: Buffer): Promise<R
           prUrl: prReviews.prUrl,
           verdict: prReviews.verdict,
           prSummary: prReviews.prSummary,
+          // La head su cui la review ha dato il verdetto: `reviewStale`.
+          headSha: prReviews.headSha,
         })
         .from(prReviews)
         .where(
@@ -300,6 +342,7 @@ export async function listReleaseQueue(db: Db, encryptionKey: Buffer): Promise<R
       ticketId: prReviews.ticketId,
       verdict: prReviews.verdict,
       prSummary: prReviews.prSummary,
+      headSha: prReviews.headSha,
       createdAt: prReviews.createdAt,
     })
     .from(prReviews)
@@ -388,7 +431,9 @@ export async function listReleaseQueue(db: Db, encryptionKey: Buffer): Promise<R
     for (const env of deployTargets) {
       if (env.projectId !== projectId || !env.serverId) continue;
       const services = servicesByServer.get(env.serverId) ?? [];
-      const match = services.some((s) => s.commitSha !== undefined && headSha.startsWith(s.commitSha));
+      // Stessa regola di `reviewStale` (`sameCommit`): per prefisso, in
+      // entrambi i versi, senza maiuscole, con una lunghezza minima.
+      const match = services.some((s) => sameCommit(s.commitSha, headSha));
       if (match) names.push(env.name);
     }
     return names;
@@ -436,6 +481,10 @@ export async function listReleaseQueue(db: Db, encryptionKey: Buffer): Promise<R
         // PR nata da Stubwise vedrebbe sempre "deployedOn" vuoto anche se lo
         // era davvero.
         deployedOn: deployedOnFor(project.id, checks.headSha),
+        // Il verdetto è su una head diversa da quella della PR di ADESSO
+        // (letta dal vivo, la stessa lettura dei check): un'informazione, il
+        // merge non cambia.
+        reviewStale: isReviewStale(review?.verdict, review?.headSha, checks.headSha),
       };
     }),
   );
@@ -496,6 +545,7 @@ export async function listReleaseQueue(db: Db, encryptionKey: Buffer): Promise<R
           risk: null,
           riskReason: null,
           deployedOn: deployedOnFor(project.id, checks.headSha),
+          reviewStale: isReviewStale(candidate.verdict, candidate.headSha, checks.headSha),
         };
       }),
     )

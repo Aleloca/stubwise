@@ -84,13 +84,24 @@ export const releaseQueueItemSchema = z.object({
   riskReason: z.string().nullable(),
   /**
    * Nomi degli ambienti (non-test) del progetto il cui ultimo campione
-   * riporta ESATTAMENTE l'head commit di questa PR — match esatto, non un
-   * antenato: non prova che una revisione precedente sia già live altrove,
+   * riporta ESATTAMENTE l'head commit di questa PR — lo stesso commit (per
+   * prefisso, come `reviewStale`: `sameCommit` in `services/release.ts`),
+   * non un antenato: non prova che una revisione precedente sia già live altrove,
    * solo che QUESTA lo è. Vuoto = nessun match, non "sicuramente non
    * rilasciata" (potrebbe non esserci un ambiente collegato, o l'agente non
    * ha ancora campionato).
    */
   deployedOn: z.array(z.string()),
+  /**
+   * Il verdetto (`reviewVerdict`) è su codice SUPERATO: la head su cui la
+   * review l'ha dato (`pr_reviews.headSha`) non è la head della PR letta dal
+   * vivo adesso — confronto per prefisso (Bitbucket salva head abbreviate).
+   * `false` quando non si può affermare niente: nessun verdetto, head della
+   * review o head dal vivo assente (check illeggibili). Solo informazione: il
+   * merge non cambia. `.default(false)`: campo nuovo, mai obbligatorio; il web
+   * (cast, non parse) lo legge con `?? false`.
+   */
+  reviewStale: z.boolean().default(false),
 });
 export type ReleaseQueueItem = z.infer<typeof releaseQueueItemSchema>;
 

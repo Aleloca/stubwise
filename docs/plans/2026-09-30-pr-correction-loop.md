@@ -515,10 +515,18 @@ Contratto aggiunto con i fix della revisione di fine tappa B:
 - `repositories`: campo `reviewGitAccountId` (create/update/risposta).
 - `projects`: campo `prCorrectionMaxRounds` (update/risposta, solo admin).
 - script `apps/server/scripts/resync-webhooks.ts` → `dist/scripts/resync-webhooks.js` (`--dry-run`).
-- `services/release.ts`, `listReleaseQueue` (D10, firma e risposta invariate):
+- `services/release.ts`, `listReleaseQueue` (D10, firma invariata):
   i candidati esterni (`latestExternalReviews`, `DISTINCT ON`) si scelgono solo
   fra le review con `ticket_id` non null; il verdetto delle PR interne
   (`reviewRows`/`reviewByKey`) solo fra le review `completed`, la più recente.
+- **G6**: ogni voce della coda ha `reviewStale`
+  (`releaseQueueItemSchema`, `z.boolean().default(false)`, additivo): true se
+  `pr_reviews.headSha` della review da cui viene il verdetto NON è lo stesso
+  commit della head letta dal vivo (`checks.headSha`). Confronto per prefisso
+  con `sameCommit` (esportata da `services/release.ts`, la stessa che ora usa
+  `deployedOn`): il più corto prefisso del più lungo, maiuscole ignorate,
+  almeno `MIN_SHA_PREFIX` (7) caratteri. Senza verdetto o senza una delle due
+  head → false. Nessuna azione nuova: il merge non cambia.
 
 ### Client
 
@@ -809,6 +817,27 @@ e quindi oltre il budget.
   ticket. Il client NON ricostruisce la condizione: è il server a decidere se
   quel job è ancora quello fermo. Fixture: sul web almeno una SENZA
   `heldJobId`; sull'app tutte complete col campo.
+
+**G6 — La coda di rilascio dice se il verdetto è su codice superato (1 ott
+2026).** Dopo un push (una correzione, un commit a mano) la coda mostrava
+ancora il verdetto della review della head PRECEDENTE come se valesse per la
+PR di adesso.
+- **Già applicato** (commit «feat(server): la coda di rilascio dice se il
+  verdetto è su codice superato»): `reviewStale` su ogni voce (interna ed
+  esterna) di `listReleaseQueue`, calcolato da `isReviewStale(verdict,
+  reviewHeadSha, liveHeadSha)`. La regola del confronto è estratta in
+  `sameCommit` e la usa anche `deployedOn`, che prima faceva
+  `headSha.startsWith(commitSha)`: un verso solo, maiuscole distinte, nessuna
+  lunghezza minima — un `commitSha` vuoto combaciava con tutto. Test puri in
+  `apps/server/src/services/release.test.ts`, di rotta in
+  `apps/server/src/routes/release.test.ts` (prefisso abbreviato e maiuscolo,
+  head diversa, head della review vuota — la colonna è NOT NULL, quindi «null»
+  si prova sulla funzione pura —, check illeggibili, nessun verdetto, PR
+  esterna nei due versi).
+- **E** (web, Task E7b): la pagina `/release` lo legge con
+  `item.reviewStale ?? false` (cast, non parse) e la fixture del suo test resta
+  SENZA il campo in almeno un caso. L'app non mostra la coda di rilascio:
+  niente in F.
 
 ## Tappa A — Fondamenta dati
 
@@ -20181,7 +20210,9 @@ Il filtro `if (c.ticketId === null) return false;` in `externalCandidates`
 resta, come difesa; il suo commento («capita solo quando l'ULTIMA review…»)
 va aggiornato: dopo il `where` non capita più, e la riga dice che è una difesa.
 Il docblock di `listReleaseQueue`, punto (1), diventa «candidati = l'ULTIMA
-review CON ticket per ogni (repository, prNumber)…». Non si aggiunge un filtro
+review CON ticket per ogni (repository, prNumber)…». (**G6**, dopo D10: le due
+query della review leggono anche `headSha`, e ogni voce porta `reviewStale` —
+vedi l'emendamento G6.) Non si aggiunge un filtro
 `completed` ai candidati esterni: il ticket di una PR esterna lo scrive la
 review al suo esito, quindi la riga più recente con ticket è già quella che ha
 un verdetto da mostrare.
@@ -21694,6 +21725,28 @@ git commit -m "feat(web): tetto delle correzioni automatiche nel form del proget
 ```
 
 Atteso: PASS.
+
+---
+
+### Task E7b: la coda di rilascio dice se il verdetto è superato (G6)
+
+**Files:**
+- Modify: `apps/web/src/routes/release.tsx`, `apps/web/src/routes/release.test.tsx`
+- Modify: `apps/web/src/i18n/locales/en.json`, `apps/web/src/i18n/locales/it.json`
+
+Accanto al verdetto della review, se `item.reviewStale ?? false`, un'etichetta
+— en: `"on an earlier version of the PR"`; it: `"su una versione precedente
+della PR"` (chiave nel namespace della pagina, accanto alle altre del
+verdetto). Solo informazione: il bottone di merge non cambia. Test: una voce
+con `reviewStale: true` mostra l'etichetta; la fixture di base resta SENZA
+`reviewStale` (il web fa un cast, il `.default(false)` non gira) e non la
+mostra — è la prova della difesa, non una svista (CLAUDE.md).
+
+```bash
+pnpm --filter @stubwise/web exec vitest run src/routes/release.test.tsx
+git add apps/web/src/routes/release.tsx apps/web/src/routes/release.test.tsx apps/web/src/i18n/locales/en.json apps/web/src/i18n/locales/it.json
+git commit -m "feat(web): la coda di rilascio dice quando il verdetto è su codice superato"
+```
 
 ---
 

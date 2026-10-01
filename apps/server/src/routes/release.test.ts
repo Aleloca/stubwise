@@ -929,4 +929,99 @@ describe("GET /api/release-queue", () => {
     expect(matches[0]!.origin).toBe("stubwise");
     expect(matches[0]!.reviewVerdict).toBeNull();
   });
+
+  // --- G6: `reviewStale`, il verdetto è su codice superato? -----------------
+
+  type StaleItem = { ticketId: string; repositoryId: string; reviewVerdict: string | null; reviewStale: boolean };
+
+  async function queueItem(ticketId: string, repositoryId: string): Promise<StaleItem> {
+    const res = await app.inject({ method: "GET", url: "/api/release-queue", headers: { cookie: adminCookie } });
+    expect(res.statusCode).toBe(200);
+    const item = (res.json() as { items: StaleItem[] }).items.find(
+      (i) => i.ticketId === ticketId && i.repositoryId === repositoryId,
+    );
+    expect(item).toBeDefined();
+    return item!;
+  }
+
+  async function seedInternalReview(repositoryId: string, ticketId: string, headSha: string) {
+    await testDb.db.insert(prReviews).values({
+      repositoryId,
+      ticketId,
+      prNumber: 42,
+      prUrl: PR_URL,
+      prTitle: "Fix the bug",
+      headSha,
+      status: "completed",
+      startedAt: new Date(),
+      verdict: "approve",
+      prSummary: "Riassunto.",
+    });
+  }
+
+  it("G6 PR interna: head della review ABBREVIATA e in maiuscolo, stesso commit per prefisso → reviewStale false", async () => {
+    const { ticketId, repositoryId } = await seedOpenPr();
+    // Dal vivo la head è "headsha123" (greenFetch): Bitbucket ne salva un prefisso.
+    await seedInternalReview(repositoryId, ticketId, "HEADSHA12");
+    vi.stubGlobal("fetch", greenFetch());
+
+    const item = await queueItem(ticketId, repositoryId);
+    expect(item.reviewVerdict).toBe("approve");
+    expect(item.reviewStale).toBe(false);
+  });
+
+  it("G6 PR interna: verdetto su una head DIVERSA da quella di adesso → reviewStale true", async () => {
+    const { ticketId, repositoryId } = await seedOpenPr();
+    await seedInternalReview(repositoryId, ticketId, "oldsha9999");
+    vi.stubGlobal("fetch", greenFetch());
+
+    expect((await queueItem(ticketId, repositoryId)).reviewStale).toBe(true);
+  });
+
+  it("G6 PR interna: head della review vuota → reviewStale false (non si afferma niente)", async () => {
+    const { ticketId, repositoryId } = await seedOpenPr();
+    await seedInternalReview(repositoryId, ticketId, "");
+    vi.stubGlobal("fetch", greenFetch());
+
+    expect((await queueItem(ticketId, repositoryId)).reviewStale).toBe(false);
+  });
+
+  it("G6 PR interna: head dal vivo non disponibile (check illeggibili) → reviewStale false", async () => {
+    const { ticketId, repositoryId } = await seedOpenPr();
+    await seedInternalReview(repositoryId, ticketId, "oldsha9999");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(new Response("boom", { status: 500 }))),
+    );
+
+    const item = await queueItem(ticketId, repositoryId);
+    expect(item.reviewVerdict).toBe("approve");
+    expect(item.reviewStale).toBe(false);
+  });
+
+  it("G6 PR interna senza review: nessun verdetto → reviewStale false", async () => {
+    const { ticketId, repositoryId } = await seedOpenPr();
+    vi.stubGlobal("fetch", greenFetch());
+
+    const item = await queueItem(ticketId, repositoryId);
+    expect(item.reviewVerdict).toBeNull();
+    expect(item.reviewStale).toBe(false);
+  });
+
+  it("G6 PR esterna: head della review su un altro commit → true; stesso commit per prefisso → false", async () => {
+    // seedExternalPr scrive headSha "extsha123"; dal vivo è "extheadsha".
+    const stale = await seedExternalPr({ prNumber: 301 });
+    vi.stubGlobal("fetch", externalFetch(301));
+    expect((await queueItem(stale.ticketId, stale.repositoryId)).reviewStale).toBe(true);
+
+    const fresh = await seedExternalPr({ prNumber: 302 });
+    await testDb.db
+      .update(prReviews)
+      .set({ headSha: "EXTHEADS" })
+      .where(eq(prReviews.repositoryId, fresh.repositoryId));
+    vi.stubGlobal("fetch", externalFetch(302));
+    const item = await queueItem(fresh.ticketId, fresh.repositoryId);
+    expect(item.reviewVerdict).toBe("approve");
+    expect(item.reviewStale).toBe(false);
+  });
 });
