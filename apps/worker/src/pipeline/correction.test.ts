@@ -1025,6 +1025,52 @@ describe("runCorrection", () => {
     expect(provider.getAuthenticatedUserId).not.toHaveBeenCalled();
   });
 
+  it("revisore PREDEFINITO (nessun esplicito): i suoi commenti NON entrano nella fotografia, quelli di un terzo sì", async () => {
+    const f = await makeFixture();
+    // Predefinito dell'ambito GitHub, con la sua identità in cache; la
+    // repository NON ha un revisore esplicito.
+    const defaultId = await seedGitAccount(testDb.db, {
+      provider: "github",
+      encryptedCredentials: encrypt(JSON.stringify({ token: "def" }), ENCRYPTION_KEY),
+    });
+    await testDb.db
+      .update(gitAccounts)
+      .set({ providerUserId: "stubwise-default", isDefaultReviewer: true })
+      .where(eq(gitAccounts.id, defaultId));
+    const at = new Date().toISOString();
+    const comment = (id: string, authorId: string, body: string): PrComment => ({
+      id,
+      authorId,
+      authorLogin: authorId,
+      body,
+      createdAt: at,
+      path: null,
+      line: null,
+      authorAssociation: "COLLABORATOR",
+    });
+    const provider = makeProvider();
+    provider.listPrComments.mockResolvedValue([
+      comment("1", "mario", "rinomina sum in add"),
+      comment("2", "stubwise-default", "la review AI del predefinito"),
+    ]);
+    const { correctionId, job } = await seedCorrection(f, {
+      trigger: "provider",
+      requestedByProviderLogin: "mario",
+      providerFeedback: [],
+    });
+    const runner = applyingRunner(f);
+
+    await runCorrection(makeDeps(f, runner, provider), job);
+
+    const [corrAfter] = await testDb.db.select().from(prCorrections).where(eq(prCorrections.id, correctionId));
+    expect((corrAfter!.providerFeedback as PrComment[]).map((c) => c.id)).toEqual(["1"]);
+    expect(corrAfter!.feedbackComplete).toBe(true);
+    const prompt = runner.calls[0]!.prompt;
+    expect(prompt).toContain("rinomina sum in add");
+    expect(prompt).not.toContain("la review AI del predefinito");
+    expect(provider.getAuthenticatedUserId).not.toHaveBeenCalled();
+  });
+
   // --- E3, permesso reale: la fotografia riletta --------------------------
 
   /** Commento dopo il taglio (nessun giro precedente: il taglio non c'è). */
