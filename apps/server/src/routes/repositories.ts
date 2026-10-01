@@ -239,6 +239,17 @@ async function checkReviewAccount(
   // come dice la guida riceverebbe sempre 422. Si esclude per SCOPO, mai per
   // etichetta: le etichette sono testo per le persone e possono cambiare.
   const failed = checks.filter((check) => check.purpose !== "webhook" && !check.ok);
+  // Il caso più probabile, e il più fraintendibile dal solo dettaglio del
+  // provider: il token vede la repository ma non ci può scrivere. Senza
+  // scrittura né approve né "Request changes" passano: lo si dice in chiaro.
+  if (failed.some((check) => check.failure === "no_write_permission")) {
+    return {
+      ok: false,
+      status: 422,
+      code: "review_account_no_write_permission",
+      message: "L'account revisore non ha permesso di scrittura sul repository",
+    };
+  }
   if (failed.length > 0) {
     return {
       ok: false,

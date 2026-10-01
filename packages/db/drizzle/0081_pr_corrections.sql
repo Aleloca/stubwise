@@ -61,6 +61,7 @@ ALTER TABLE "ai_jobs" ADD CONSTRAINT "ai_jobs_correction_id_pr_corrections_id_fk
 -- L'account revisore (facoltativo) e l'identità degli account sulla
 -- piattaforma, che serve a scartare gli eventi generati da noi stessi (§5).
 ALTER TABLE "repositories" ADD COLUMN "review_git_account_id" uuid;--> statement-breakpoint
+ALTER TABLE "repositories" ADD CONSTRAINT "repositories_review_not_main_chk" CHECK ("review_git_account_id" IS DISTINCT FROM "git_account_id");--> statement-breakpoint
 ALTER TABLE "repositories" ADD CONSTRAINT "repositories_review_git_account_id_git_accounts_id_fk" FOREIGN KEY ("review_git_account_id") REFERENCES "public"."git_accounts"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "git_accounts" ADD COLUMN "provider_user_id" text;--> statement-breakpoint
 

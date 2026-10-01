@@ -493,7 +493,16 @@ export const repositories = pgTable("repositories", {
   // Default false: nessun repository esistente cambia comportamento al deploy.
   graphEnabled: boolean("graph_enabled").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => [
+  // Il revisore non è MAI l'account principale (ciclo di correzione): la rotta
+  // lo controlla e riverifica nel WHERE del PATCH, il vincolo chiude ogni altra
+  // strada (corse fra due admin, UPDATE fuori dalla rotta). NULL = nessun
+  // revisore, che IS DISTINCT FROM tratta come diverso.
+  check(
+    "repositories_review_not_main_chk",
+    sql`${table.reviewGitAccountId} IS DISTINCT FROM ${table.gitAccountId}`,
+  ),
+]);
 
 /**
  * Milestone di progetto: raggruppa i ticket verso un obiettivo (release,

@@ -1566,6 +1566,7 @@ describe("BitbucketProvider.validateCredentials", () => {
     const merge = checks.find((c) => c.name === "Permesso di merge")!;
     expect(merge.ok).toBe(false);
     expect(merge.detail).toMatch(/lettura/i);
+    expect(merge.failure).toBe("no_write_permission");
   });
 
   it("nessun permesso trovato (values vuoto): merge ok:false", async () => {
@@ -2369,5 +2370,38 @@ describe("BitbucketProvider — ciclo di correzione: scopo dei controlli e tempi
     const provider = new BitbucketProvider({ fetchImpl });
 
     await expect(provider.getAuthenticatedUserId(apiConfig, { timeoutMs: 20 })).rejects.toThrow(/timeout/);
+  });
+});
+
+describe("BitbucketProvider — i metodi del ciclo hanno un tempo massimo (1 ott 2026)", () => {
+  it("submitPrReview: un provider che non risponde diventa un errore dopo il timeout di default", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchImpl = vi.fn(
+        (_input: string | URL, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () => reject(new Error("richiesta interrotta (timeout)")));
+          })
+      );
+      const provider = new BitbucketProvider({ fetchImpl });
+      const pending = provider.submitPrReview(
+        {
+          repoUrl: "https://bitbucket.org/myws/myrepo",
+          defaultBranch: "main",
+          credentials: { username: "alice", email: "alice@corp.io", token: "api-token" },
+        },
+        7,
+        "approve",
+        ""
+      );
+      const outcome = expect(pending).rejects.toThrow(/timeout/);
+      // Due richieste in sequenza: il ritiro (best-effort) e l'invio.
+      await vi.advanceTimersByTimeAsync(10_000);
+      await vi.advanceTimersByTimeAsync(10_000);
+      await outcome;
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

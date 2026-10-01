@@ -234,6 +234,13 @@ export interface CredentialCheck {
    * - `merge`: permesso di merge (Bitbucket: write o admin).
    */
   purpose?: CredentialCheckPurpose;
+  /**
+   * PERCHÉ un controllo è fallito, quando conta per chi decide (1 ott 2026).
+   * `no_write_permission`: il token autentica e vede la repository, ma non ha
+   * permesso di SCRITTURA (GitHub `permissions.push === false`, Bitbucket
+   * permesso `read`). Assente quando il controllo passa o fallisce per altro.
+   */
+  failure?: "no_write_permission";
 }
 
 /** Vedi {@link CredentialCheck.purpose}. */

@@ -35,8 +35,10 @@ describe("authorPermissionFetcher", () => {
     const fetch = authorPermissionFetcher({ provider: "github", encryptionKey: KEY, log }, input);
     await expect(fetch("mario")).resolves.toBe("write");
 
-    const [p, login] = spy.mock.calls[0]! as [ProjectGitConfig, string];
+    const [p, login, opts] = spy.mock.calls[0]! as [ProjectGitConfig, string, { timeoutMs?: number }];
     expect(login).toBe("mario");
+    // Con 5 s al massimo: il webhook ne fa più d'una prima dei 10 s di GitHub.
+    expect(opts).toEqual({ timeoutMs: 5_000 });
     expect(p.repoUrl).toBe("https://github.com/acme/repo");
     expect(p.credentials.token).toBe(TOKEN);
   });

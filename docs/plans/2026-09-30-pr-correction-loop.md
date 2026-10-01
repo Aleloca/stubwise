@@ -19100,6 +19100,15 @@ allineati dove dicono cosa fare.
   perché scarta come `own_account` qualunque "Request changes" di un'identità
   propria; su GitHub `submitPrReview` col revisore uguale all'autore della PR
   viene rifiutato dalla piattaforma e la review ripiega sul commento.
+- **M2b, altre corse non coperte dal WHERE (rischio basso, accettato).** Il
+  WHERE del PATCH (e il CHECK `repositories_review_not_main_chk` della 0081)
+  garantiscono solo «revisore ≠ principale». Se fra la lettura e la scrittura
+  un altro admin cambia il principale verso un provider o un workspace diversi
+  da quelli del revisore, o verso un account con la stessa identità del
+  revisore, la combinazione finale non viene riverificata. Serve un secondo
+  admin che salvi la stessa repository nello stesso istante; l'effetto è quello
+  del «gemello» qui sopra (D2 resta sicuro, la review ripiega sul commento) o
+  una review che fallisce e ripiega sul commento per il provider sbagliato.
 - **M3.** Credenziali del REVISORE non decifrabili → 400
   `review_credentials_undecryptable`, distinto da `credentials_undecryptable`
   (che nella rotta parla dell'account principale).
@@ -19111,6 +19120,32 @@ allineati dove dicono cosa fare.
   non si scrive niente: 409 `repository_changed_concurrently`. Test: il doppio
   di `validateCredentials` promuove il revisore a principale «dall'altro
   admin» mentre il PATCH lo sta scegliendo → 409, riga intatta.
+
+**Seconda revisione (1 ott 2026)** — un altro commit a sé:
+
+- **Vincolo nel DB.** La 0081 (non ancora deployata) aggiunge
+  `repositories_review_not_main_chk CHECK ("review_git_account_id" IS DISTINCT
+  FROM "git_account_id")`, con il `check()` gemello in `schema.ts`. Un UPDATE
+  diretto che rende uguali i due account fallisce con 23514
+  (`migration-0081.test.ts`). Copre anche la corsa sul cambio del SOLO
+  principale, che dalla rotta non si riesce a riprodurre (nessun doppio prima
+  dell'update: il test è `it.skip` con la spiegazione).
+- **Tempi massimi sui metodi della tappa B.** `listPrComments` (GitHub con
+  `fetchCommentPages`), `setCommitStatus`, `submitPrReview` (Bitbucket: ritiro e
+  invio) e `findHookByUrl` passano da `fetchWithTimeout` col default di 10 s.
+  Restano fuori `createPrComment` e `mergePullRequest`, che esistevano già prima.
+- **Il server chiama la piattaforma con 5 s** (`PLATFORM_CALL_TIMEOUT_MS` in
+  `platform-identity.ts`, usato anche da `platform-permission.ts`): il webhook
+  può fare più chiamate in fila, e GitHub concede 10 s alla risposta.
+- **Senza scrittura, detto in chiaro.** `CredentialCheck.failure =
+  "no_write_permission"` (GitHub `permissions.push === false`, Bitbucket permesso
+  `read`): il revisore riceve 422 `review_account_no_write_permission`, «L'account
+  revisore non ha permesso di scrittura sul repository», senza chiamate in più
+  (GitHub lo legge dalla stessa `GET /repos/{o}/{r}` del controllo `rest`).
+- **Limite noto, nella guida (G2):** il controllo `rest` verifica solo la
+  LETTURA delle PR. Un token con le PR in sola lettura passa il salvataggio e
+  fallisce al primo approve; la review ripiega sul commento dell'account
+  principale, e il motivo resta solo nel log del worker.
 
 ### Task D8: `prCorrectionMaxRounds` sul progetto
 
@@ -23796,19 +23831,29 @@ To set it up:
 1. On the platform, create the account (e.g. `pr-review@your-company.com`) and
    give it **write access** to the repositories it will review. On Bitbucket
    it must belong to the **same workspace** as the main account.
-2. Create a token for it with the same permissions as the main account:
-   - **Bitbucket**: an API token with **repository** and **pull request**
-     scopes, read and write, plus **`read:user:bitbucket`** — Stubwise uses it
+2. Create a token for it. The reviewer only needs to **write**, never to
+   administer the repository (it doesn't manage webhooks):
+   - **Bitbucket**: an API token with **`repository:write`** and
+     **`pullrequest:write`**, plus **`read:user:bitbucket`** — Stubwise uses it
      to learn who the account is;
-   - **GitHub**: a fine-grained personal access token with **Contents**, **Pull
-     requests** and **Commit statuses**, read and write. It must belong to a
+   - **GitHub**: a fine-grained personal access token with **Contents: Read and
+     write** and **Pull requests: Read and write**. It must belong to a
      **user**: a GitHub App installation token can't tell Stubwise who it is
      (`GET /user` answers 403), so it can't be used as the main or the reviewer
      account.
 3. In Stubwise, register it among the **git accounts**, then open the
    repository form and pick it as the **Reviewer account**. Saving checks that
    it's the same provider (and workspace), that it's a different account from
-   the main one, and that the token can comment and approve.
+   the main one, that it can push to the repository and read its pull
+   requests, and who it is on the platform.
+
+:::caution[Pull requests: read and write]
+Saving can verify that the token **reads** pull requests, not that it can
+**write** them. A token with pull requests in read-only passes the check and
+fails at the first approve: the review then falls back to a comment from the
+main account, and the reason is only in the worker log. Give the token write
+on pull requests from the start.
+:::
 
 The reviewer account's own *Request changes* never restarts the loop: events
 authored by Stubwise's accounts are discarded before anything is written. If

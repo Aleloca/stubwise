@@ -2,6 +2,7 @@ import { getProvider } from "@stubwise/git";
 import { decryptGitCredentials, type FetchAuthorPermission } from "@stubwise/notifications";
 import type { GitProviderKind } from "@stubwise/shared";
 import type { FastifyBaseLogger } from "fastify";
+import { PLATFORM_CALL_TIMEOUT_MS } from "./platform-identity.js";
 
 /**
  * Il {@link FetchAuthorPermission} del webhook: il permesso reale di un login
@@ -28,6 +29,7 @@ export function authorPermissionFetcher(
       return await provider.getCollaboratorPermission(
         { repoUrl: input.repoUrl, defaultBranch: input.defaultBranch, credentials },
         login,
+        { timeoutMs: PLATFORM_CALL_TIMEOUT_MS },
       );
     } catch (err) {
       ctx.log.warn(

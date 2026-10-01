@@ -10,6 +10,7 @@ import { migrate } from "drizzle-orm/postgres-js/migrator";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDb, type Db } from "./client.js";
+import { expectSqlState } from "./testing.js";
 
 /**
  * Verifica la migrazione 0081 (ciclo di correzione post-PR) sui suoi due
@@ -203,6 +204,31 @@ describe("migrazione 0081: correzioni post-PR", () => {
       db.execute(sql`update "projects" set "pr_correction_max_rounds" = 11 where "id" = ${projectId}`),
     ).rejects.toThrow();
     await db.execute(sql`update "projects" set "pr_correction_max_rounds" = 0 where "id" = ${projectId}`);
+  });
+
+  it("il CHECK revisore ≠ principale: un UPDATE diretto che li rende uguali fallisce con 23514", async () => {
+    const accounts = await db.execute<{ id: string }>(sql`
+      select "git_account_id" as "id" from "repositories" where "id" = ${repositoryId}
+    `);
+    const mainId = accounts[0]!.id;
+    await expectSqlState(
+      db.execute(sql`update "repositories" set "review_git_account_id" = ${mainId} where "id" = ${repositoryId}`),
+      "23514",
+    );
+    // Un revisore diverso, e poi nessuno, passano.
+    const other = await db.execute<{ id: string }>(sql`
+      insert into "git_accounts" ("name", "provider", "encrypted_credentials")
+      values ('revisore', 'github', 'enc') returning "id"
+    `);
+    await db.execute(
+      sql`update "repositories" set "review_git_account_id" = ${other[0]!.id} where "id" = ${repositoryId}`,
+    );
+    // Promuovere il revisore a principale senza toglierlo: rifiutato anche così.
+    await expectSqlState(
+      db.execute(sql`update "repositories" set "git_account_id" = ${other[0]!.id} where "id" = ${repositoryId}`),
+      "23514",
+    );
+    await db.execute(sql`update "repositories" set "review_git_account_id" = null where "id" = ${repositoryId}`);
   });
 
   it("le colonne nuove esistono, nullable, sulle tabelle preesistenti", async () => {

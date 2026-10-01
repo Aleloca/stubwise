@@ -476,7 +476,7 @@ export class GitHubProvider implements GitProvider {
       status.description.length > MAX_STATUS_DESCRIPTION
         ? `${status.description.slice(0, MAX_STATUS_DESCRIPTION - 1)}…`
         : status.description;
-    const response = await fetchImpl(`${API_BASE}/repos/${owner}/${repo}/statuses/${sha}`, {
+    const response = await fetchWithTimeout(fetchImpl, `${API_BASE}/repos/${owner}/${repo}/statuses/${sha}`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${p.credentials.token}`,
@@ -523,7 +523,7 @@ export class GitHubProvider implements GitProvider {
     }
     const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
     const { owner, repo } = parseRepoUrl(p.repoUrl);
-    const response = await fetchImpl(`${API_BASE}/repos/${owner}/${repo}/pulls/${prNumber}/reviews`, {
+    const response = await fetchWithTimeout(fetchImpl, `${API_BASE}/repos/${owner}/${repo}/pulls/${prNumber}/reviews`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${p.credentials.token}`,
@@ -913,6 +913,7 @@ export class GitHubProvider implements GitProvider {
           name: "Permessi repository (PR e merge)",
           ok: false,
           detail: "il token non ha permessi di scrittura sul repository (serve anche per mergiare le PR)",
+          failure: "no_write_permission",
         };
       }
       if (r.status === 401) {
@@ -1152,7 +1153,9 @@ export class GitHubProvider implements GitProvider {
     let url: string | null = firstUrl;
     for (let page = 0; page < MAX_COMMENT_PAGES && url; page++) {
       assertPageOnApiHost(url, API_BASE, "GitHub");
-      const response = await fetchImpl(url, { method: "GET", headers });
+      // Con un tempo massimo: gira nel ciclo di correzione (fotografia della
+      // PR), dove un provider che non risponde non deve fermare il job.
+      const response = await fetchWithTimeout(fetchImpl, url, { method: "GET", headers });
       await ensureOkResponse(response, "GitHub");
       const link = response.headers.get("link");
       const data = await readJsonResponse(response, "GitHub");
@@ -1194,7 +1197,7 @@ export class GitHubProvider implements GitProvider {
     let url: string | null = firstUrl;
     for (let page = 0; page < MAX_HOOK_PAGES && url; page++) {
       assertPageOnApiHost(url, API_BASE, "GitHub");
-      const response = await fetchImpl(url, { method: "GET", headers });
+      const response = await fetchWithTimeout(fetchImpl, url, { method: "GET", headers });
       this.guardWebhookResponse(response);
       const link = response.headers.get("link");
       const list = await readJsonResponse(response, "GitHub");

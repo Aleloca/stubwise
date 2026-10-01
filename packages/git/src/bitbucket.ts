@@ -339,7 +339,9 @@ export class BitbucketProvider implements GitProvider {
     for (let page = 0; page < MAX_COMMENT_PAGES && url; page++) {
       // Il `next` lo sceglie la risposta: mai seguirlo fuori dall'API col token.
       assertPageOnApiHost(url, API_BASE, "Bitbucket");
-      const response = await fetchImpl(url, { method: "GET", headers: { Authorization: auth } });
+      // Con un tempo massimo: gira nel ciclo di correzione (fotografia della
+      // PR), dove un provider che non risponde non deve fermare il job.
+      const response = await fetchWithTimeout(fetchImpl, url, { method: "GET", headers: { Authorization: auth } });
       await ensureOkResponse(response, "Bitbucket");
       const data = (await readJsonResponse(response, "Bitbucket")) as {
         values?: unknown;
@@ -393,7 +395,8 @@ export class BitbucketProvider implements GitProvider {
     }
     const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
     const { host, owner, repo } = parseRepoUrl(p.repoUrl);
-    const response = await fetchImpl(
+    const response = await fetchWithTimeout(
+      fetchImpl,
       `${API_BASE}/repositories/${owner}/${repo}/commit/${sha}/statuses/build`,
       {
         method: "POST",
@@ -454,7 +457,7 @@ export class BitbucketProvider implements GitProvider {
         ? (["request-changes", "approve"] as const)
         : (["approve", "request-changes"] as const);
     try {
-      const withdrawn = await fetchImpl(`${prBase}/${withdraw}`, {
+      const withdrawn = await fetchWithTimeout(fetchImpl, `${prBase}/${withdraw}`, {
         method: "DELETE",
         headers: { Authorization: auth },
       });
@@ -462,7 +465,7 @@ export class BitbucketProvider implements GitProvider {
     } catch {
       // best-effort: il POST qui sotto decide.
     }
-    const response = await fetchImpl(`${prBase}/${submit}`, {
+    const response = await fetchWithTimeout(fetchImpl, `${prBase}/${submit}`, {
       method: "POST",
       headers: { Authorization: auth },
     });
@@ -854,6 +857,7 @@ export class BitbucketProvider implements GitProvider {
                 permission === "read"
                   ? "il token ha solo accesso in lettura: mergiare richiede write o admin"
                   : "nessun permesso trovato sul repository per questo token",
+              ...(permission === "read" ? { failure: "no_write_permission" as const } : {}),
             };
           }
           if (r.status === 401) {
@@ -1183,7 +1187,7 @@ export class BitbucketProvider implements GitProvider {
     let url: string | null = firstUrl;
     for (let page = 0; page < MAX_HOOK_PAGES && url; page++) {
       assertPageOnApiHost(url, API_BASE, "Bitbucket");
-      const response = await fetchImpl(url, { method: "GET", headers: { Authorization: auth } });
+      const response = await fetchWithTimeout(fetchImpl, url, { method: "GET", headers: { Authorization: auth } });
       this.guardWebhookResponse(response);
       const data = (await readJsonResponse(response, "Bitbucket")) as {
         values?: unknown;

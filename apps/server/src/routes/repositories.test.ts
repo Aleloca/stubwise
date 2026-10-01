@@ -875,6 +875,65 @@ describe("account revisore (ciclo di correzione, 30 set 2026)", () => {
     expect(await reviewColumn(slug)).toBeNull();
   });
 
+  /**
+   * GitHub VERO dietro `validateCredentials` (nessun doppio del metodo): solo
+   * `fetch` è sostituito, così il test copre anche il cablaggio fra il motivo
+   * dichiarato dal provider (`failure`) e la risposta della rotta.
+   */
+  function stubGithubRepoFetch(push: boolean) {
+    return vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes(".git/info/refs")) return new Response("", { status: 200 });
+      if (url === "https://api.github.com/repos/acme/sito-vetrina") {
+        return new Response(JSON.stringify({ permissions: { push } }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      // I webhook vogliono Admin: al revisore non servono.
+      if (url.includes("/hooks")) return new Response("", { status: 403 });
+      throw new Error(`fetch inatteso nel test: ${url}`);
+    });
+  }
+
+  it("GitHub, il revisore vede la repository ma permissions.push è false: 422 che lo dice in chiaro", async () => {
+    mockGithub();
+    vi.mocked(GitHubProvider.prototype.validateCredentials).mockRestore();
+    stubGithubRepoFetch(false);
+    const reviewerId = await newReviewer();
+    const slug = await newRepository();
+
+    const res = await patch(slug, { reviewGitAccountId: reviewerId });
+
+    expect(res.statusCode).toBe(422);
+    const body = res.json() as { code: string; message: string };
+    expect(body.code).toBe("review_account_no_write_permission");
+    expect(body.message).toBe("L'account revisore non ha permesso di scrittura sul repository");
+    expect(await reviewColumn(slug)).toBeNull();
+  });
+
+  it("GitHub, permissions.push true (webhook 403): 200", async () => {
+    mockGithub();
+    vi.mocked(GitHubProvider.prototype.validateCredentials).mockRestore();
+    stubGithubRepoFetch(true);
+    const reviewerId = await newReviewer();
+    const slug = await newRepository();
+
+    const res = await patch(slug, { reviewGitAccountId: reviewerId });
+
+    expect(res.statusCode).toBe(200);
+    expect(await reviewColumn(slug)).toBe(reviewerId);
+  });
+
+  // Prima condizione M4 (si cambia il SOLO principale mentre un altro admin
+  // imposta il revisore su quell'account): in quel percorso non c'è nessuna
+  // chiamata di rete né altro doppio PRIMA dell'update in cui infilare la
+  // scrittura concorrente, quindi la corsa non si riproduce da qui. La
+  // coprono il WHERE (`review_git_account_id is distinct from <nuovo
+  // principale>`) e, comunque, il CHECK `repositories_review_not_main_chk`
+  // della 0081 (testato in packages/db, migration-0081.test.ts).
+  it.skip("corsa fra due admin sul cambio del principale → 409 (non riproducibile: nessun doppio prima dell'update)", () => {});
+
   it("PATCH con lo STESSO revisore già salvato: nessun controllo di rete", async () => {
     const { validate } = mockGithub();
     const reviewerId = await newReviewer();

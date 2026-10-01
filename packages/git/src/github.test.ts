@@ -1149,6 +1149,8 @@ describe("GitHubProvider.validateCredentials", () => {
     const pr = checks.find((c) => c.name === "Permessi repository (PR e merge)")!;
     expect(pr.ok).toBe(false);
     expect(pr.detail).toMatch(/scrittura/i);
+    // Il motivo è dichiarato, così chi decide non deve leggere il testo.
+    expect(pr.failure).toBe("no_write_permission");
   });
 
   it("git 401: detail parla di token/scope", async () => {
@@ -2298,5 +2300,24 @@ describe("GitHubProvider — ciclo di correzione: scopo dei controlli e tempi ma
     await expect(provider.getCollaboratorPermission(config, "mario-rossi", { timeoutMs: 20 })).rejects.toThrow(
       /timeout/
     );
+  });
+});
+
+describe("GitHubProvider — i metodi del ciclo hanno un tempo massimo (1 ott 2026)", () => {
+  it("setCommitStatus: un provider che non risponde diventa un errore dopo il timeout di default", async () => {
+    vi.useFakeTimers();
+    try {
+      const provider = new GitHubProvider({ fetchImpl: hangingFetch() });
+      const pending = provider.setCommitStatus(config, "0123456789abcdef0123456789abcdef01234567", {
+        state: "pending",
+        key: "stubwise-review",
+        description: "d",
+      });
+      const outcome = expect(pending).rejects.toThrow(/timeout/);
+      await vi.advanceTimersByTimeAsync(10_000);
+      await outcome;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

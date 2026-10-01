@@ -15,11 +15,12 @@ describe("fetchPlatformIdentity", () => {
     const credentials = { username: "bot", token: "segreto" };
 
     await expect(fetchPlatformIdentity({ provider: "github", credentials })).resolves.toBe("4242");
-    expect(github).toHaveBeenCalledWith({ credentials });
+    // Con 5 s al massimo: il webhook ne fa più d'una prima dei 10 s di GitHub.
+    expect(github).toHaveBeenCalledWith({ credentials }, { timeoutMs: 5_000 });
     expect(bitbucket).not.toHaveBeenCalled();
 
     await expect(fetchPlatformIdentity({ provider: "bitbucket", credentials })).resolves.toBe("{uuid-bb}");
-    expect(bitbucket).toHaveBeenCalledWith({ credentials });
+    expect(bitbucket).toHaveBeenCalledWith({ credentials }, { timeoutMs: 5_000 });
     expect(github).toHaveBeenCalledTimes(1);
   });
 
