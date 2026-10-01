@@ -471,7 +471,9 @@
       "confirming": "Starting…",
       "cancel": "Cancel",
       "hint": "The agent applies the feedback to this PR and pushes to the same branch: it does not redesign the fix.",
-      "requested": "Correction requested"
+      "requested": "Correction requested",
+      "resume": "Resume correction",
+      "resuming": "Resuming…"
     },
     "timeline": {
       "empty": "// no AI activity for this ticket",

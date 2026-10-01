@@ -471,7 +471,9 @@
       "confirming": "Avvio…",
       "cancel": "Annulla",
       "hint": "L'agente applica le osservazioni su questa PR e carica le modifiche sullo stesso branch: non riprogetta il fix.",
-      "requested": "Correzione richiesta"
+      "requested": "Correzione richiesta",
+      "resume": "Riprendi la correzione",
+      "resuming": "Ripresa…"
     },
     "timeline": {
       "empty": "// nessuna attività AI per questo ticket",
