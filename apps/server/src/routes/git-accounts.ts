@@ -1,5 +1,5 @@
 import { gitAccountSchema, gitProviderKindSchema } from "@stubwise/shared";
-import { BITBUCKET_REVIEWER_SCOPES, GitProviderError, getProvider } from "@stubwise/git";
+import { BITBUCKET_REVIEWER_SCOPES, GitProviderError, bitbucketRequiredScopes, getProvider } from "@stubwise/git";
 import { decrypt, encrypt, gitAccounts, repositories } from "@stubwise/db";
 import { resolveProviderUserId, resolveReviewAccounts } from "@stubwise/notifications";
 import { and, eq, ne, or, sql, type SQL } from "drizzle-orm";
@@ -205,6 +205,43 @@ async function defaultReviewerWarnings(app: FastifyInstance, account: GitAccount
     }
   });
   return results.filter((w): w is DefaultReviewerWarning => w !== null);
+}
+
+/**
+ * Il RUOLO di un account, per gli scope che Validate gli chiede (D9). Lo
+ * calcola il server, dal database:
+ * - `primary`: è il principale di almeno una repository;
+ * - `reviewer`: è il revisore EFFETTIVO di almeno una repository — la regola è
+ *   `resolveReviewAccounts`, mai la sola colonna esplicita: un predefinito che
+ *   fa da revisore senza essere scritto da nessuna parte conta — OPPURE è
+ *   marcato predefinito. Il flag conta anche senza repository nell'ambito
+ *   (deviazione dalla lettera della richiesta, D9): un predefinito appena
+ *   impostato cadrebbe altrimenti in «mai usato», cioè nell'insieme del
+ *   principale, e Validate gli segnerebbe ko sui webhook che il suo ruolo non
+ *   chiede.
+ * Nessuno dei due → `bitbucketRequiredScopes` chiede l'insieme del principale.
+ *
+ * Tre query in tutto, qualunque sia il numero di repository: una per le
+ * repository candidate (lo stesso provider, o quelle di cui è il principale),
+ * due dentro `resolveReviewAccounts`. Nessuna scrittura, nessuna chiamata al
+ * provider.
+ */
+async function accountReviewRole(
+  app: FastifyInstance,
+  account: GitAccountRow,
+): Promise<{ primary: boolean; reviewer: boolean }> {
+  const rows = await app.db
+    .select({ id: repositories.id, gitAccountId: repositories.gitAccountId })
+    .from(repositories)
+    .where(or(eq(repositories.provider, account.provider), eq(repositories.gitAccountId, account.id)));
+  const primary = rows.some((r) => r.gitAccountId === account.id);
+  if (account.isDefaultReviewer) return { primary, reviewer: true };
+  const resolutions = await resolveReviewAccounts(
+    app.db,
+    rows.map((r) => r.id),
+  );
+  const reviewer = [...resolutions.values()].some((r) => r.effective?.account.id === account.id);
+  return { primary, reviewer };
 }
 
 /**
@@ -521,6 +558,9 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
   // decifra e controlla via HTTPS che il token autentichi e abbia accesso in
   // lettura ai repository. I check repo-specifici (push git / PR / webhook su un
   // repo) vivono in /validate-repo, eseguiti nel wizard dopo la scelta del repo.
+  // Su Bitbucket confronta anche gli scope CONCESSI con quelli del RUOLO
+  // dell'account (`accountReviewRole`, D9): un account solo revisore non deve
+  // risultare ko sui webhook, che non usa.
   app.post(
     "/:id/validate",
     {
@@ -544,9 +584,11 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
         return apiError(reply, 400, "credentials_undecryptable", "Account credentials cannot be decrypted");
       }
 
+      const requiredScopes =
+        row.provider === "bitbucket" ? bitbucketRequiredScopes(await accountReviewRole(app, row)) : undefined;
       const checks = await getProvider(row.provider).validateAccount(
         { credentials: { provider: row.provider, credentials }, workspace: row.workspace ?? undefined },
-        { fetchImpl: fetch },
+        { fetchImpl: fetch, requiredScopes },
       );
       return { ok: checks.every((c) => c.ok), checks };
     },

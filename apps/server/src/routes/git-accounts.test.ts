@@ -684,96 +684,98 @@ describe("GET /api/git-accounts/:id/branches", () => {
   });
 });
 
+/* Helper del revisore predefinito e degli scope di Validate (P1-7, P2-2). */
+
+/** Gli scope che bastano al RUOLO revisore, senza i webhook. */
+const REVIEWER_SCOPES =
+  "read:repository:bitbucket, write:repository:bitbucket, read:pullrequest:bitbucket, write:pullrequest:bitbucket, read:user:bitbucket";
+
+function newWorkspace(): string {
+  return `ws-${randomBytes(4).toString("hex")}`;
+}
+
+async function bitbucketAccount(name: string, workspace: string | undefined, token = `tok-${name}`): Promise<string> {
+  const res = await createAccount({
+    name,
+    provider: "bitbucket",
+    credentials: { username: "bot", email: `${name}@corp.io`, token },
+    ...(workspace === undefined ? {} : { workspace }),
+  });
+  expect(res.statusCode).toBe(201);
+  return (res.json() as { id: string }).id;
+}
+
+/**
+ * La chiamata di `validateAccount` (GET /2.0/repositories/{ws}): 200 con gli
+ * scope dati; `scopes: null` = header assenti, come un'app password.
+ */
+function stubAccountProbe(scopes: string | null) {
+  const fetchMock = vi.fn((input: string) => {
+    if (input.includes("api.bitbucket.org/2.0/repositories/")) {
+      const headers: Record<string, string> =
+        scopes === null ? {} : { "x-credential-type": "api_token", "x-oauth-scopes": scopes };
+      return Promise.resolve(new Response("{}", { status: 200, headers }));
+    }
+    return Promise.resolve(new Response("", { status: 404 }));
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+/** Identità sulla piattaforma = derivata dal token: account diversi, utenti diversi. */
+function stubIdentities(resolve: (token: string) => string | null = (t) => `uid-${t}`) {
+  return vi.spyOn(BitbucketProvider.prototype, "getAuthenticatedUserId").mockImplementation(async (p) => {
+    const id = resolve(p.credentials.token);
+    if (id === null) throw new Error("403 read:user mancante");
+    return id;
+  });
+}
+
+function put(id: string, cookie = adminCookie) {
+  return app.inject({ method: "PUT", url: `/api/git-accounts/${id}/default-reviewer`, headers: { cookie } });
+}
+
+async function flagOf(id: string): Promise<boolean> {
+  const [row] = await testDb.db.select().from(gitAccounts).where(eq(gitAccounts.id, id));
+  return row!.isDefaultReviewer;
+}
+
+async function repository(name: string, mainId: string, reviewId: string | null = null): Promise<string> {
+  const [project] = await testDb.db
+    .insert(projects)
+    .values({
+      name: `Progetto ${name}`,
+      slug: `p-${randomBytes(4).toString("hex")}`,
+      ingestionKey: randomBytes(16).toString("hex"),
+    })
+    .returning({ id: projects.id });
+  const [repo] = await testDb.db
+    .insert(repositories)
+    .values({
+      projectId: project!.id,
+      name,
+      slug: `r-${randomBytes(4).toString("hex")}`,
+      provider: "bitbucket",
+      gitAccountId: mainId,
+      reviewGitAccountId: reviewId,
+      repoUrl: `https://bitbucket.org/acme/${name}`,
+      defaultBranch: "main",
+      webhookSecret: randomBytes(16).toString("hex"),
+    })
+    .returning({ id: repositories.id });
+  return repo!.id;
+}
+
 /**
  * Revisore predefinito (1 ott 2026, piano P1-7). Ogni test lavora in un
  * workspace Bitbucket SUO: l'indice ammette un predefinito per ambito, e i
  * test condividono il database.
  */
 describe("PUT/DELETE /api/git-accounts/:id/default-reviewer", () => {
-  /** Gli scope che bastano al RUOLO revisore, senza i webhook. */
-  const REVIEWER_SCOPES =
-    "read:repository:bitbucket, write:repository:bitbucket, read:pullrequest:bitbucket, write:pullrequest:bitbucket, read:user:bitbucket";
-
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
-
-  function newWorkspace(): string {
-    return `ws-${randomBytes(4).toString("hex")}`;
-  }
-
-  async function bitbucketAccount(name: string, workspace: string | undefined, token = `tok-${name}`): Promise<string> {
-    const res = await createAccount({
-      name,
-      provider: "bitbucket",
-      credentials: { username: "bot", email: `${name}@corp.io`, token },
-      ...(workspace === undefined ? {} : { workspace }),
-    });
-    expect(res.statusCode).toBe(201);
-    return (res.json() as { id: string }).id;
-  }
-
-  /**
-   * La chiamata di `validateAccount` (GET /2.0/repositories/{ws}): 200 con gli
-   * scope dati; `scopes: null` = header assenti, come un'app password.
-   */
-  function stubAccountProbe(scopes: string | null) {
-    const fetchMock = vi.fn((input: string) => {
-      if (input.includes("api.bitbucket.org/2.0/repositories/")) {
-        const headers: Record<string, string> =
-          scopes === null ? {} : { "x-credential-type": "api_token", "x-oauth-scopes": scopes };
-        return Promise.resolve(new Response("{}", { status: 200, headers }));
-      }
-      return Promise.resolve(new Response("", { status: 404 }));
-    });
-    vi.stubGlobal("fetch", fetchMock);
-    return fetchMock;
-  }
-
-  /** Identità sulla piattaforma = derivata dal token: account diversi, utenti diversi. */
-  function stubIdentities(resolve: (token: string) => string | null = (t) => `uid-${t}`) {
-    return vi.spyOn(BitbucketProvider.prototype, "getAuthenticatedUserId").mockImplementation(async (p) => {
-      const id = resolve(p.credentials.token);
-      if (id === null) throw new Error("403 read:user mancante");
-      return id;
-    });
-  }
-
-  function put(id: string, cookie = adminCookie) {
-    return app.inject({ method: "PUT", url: `/api/git-accounts/${id}/default-reviewer`, headers: { cookie } });
-  }
-
-  async function flagOf(id: string): Promise<boolean> {
-    const [row] = await testDb.db.select().from(gitAccounts).where(eq(gitAccounts.id, id));
-    return row!.isDefaultReviewer;
-  }
-
-  async function repository(name: string, mainId: string, reviewId: string | null = null): Promise<string> {
-    const [project] = await testDb.db
-      .insert(projects)
-      .values({
-        name: `Progetto ${name}`,
-        slug: `p-${randomBytes(4).toString("hex")}`,
-        ingestionKey: randomBytes(16).toString("hex"),
-      })
-      .returning({ id: projects.id });
-    const [repo] = await testDb.db
-      .insert(repositories)
-      .values({
-        projectId: project!.id,
-        name,
-        slug: `r-${randomBytes(4).toString("hex")}`,
-        provider: "bitbucket",
-        gitAccountId: mainId,
-        reviewGitAccountId: reviewId,
-        repoUrl: `https://bitbucket.org/acme/${name}`,
-        defaultBranch: "main",
-        webhookSecret: randomBytes(16).toString("hex"),
-      })
-      .returning({ id: repositories.id });
-    return repo!.id;
-  }
 
   it("imposta il predefinito: 200, flag in DB, nessun predefinito sostituito", async () => {
     const ws = newWorkspace();
@@ -999,5 +1001,142 @@ describe("PUT/DELETE /api/git-accounts/:id/default-reviewer", () => {
     expect((res.json() as { code: string }).code).toBe("default_reviewer_conflict");
     expect(await flagOf(winner)).toBe(true);
     expect(await flagOf(loser)).toBe(false);
+  });
+});
+
+/**
+ * Validate chiede gli scope del RUOLO dell'account, calcolato dal server (1 ott
+ * 2026, piano P2-2, D9): il predefinito conta come revisore. Header
+ * `x-oauth-scopes` simulato sulla chiamata che Validate fa già.
+ */
+describe("POST /api/git-accounts/:id/validate — scope secondo il ruolo", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  type ValidateBody = { ok: boolean; checks: { name: string; ok: boolean; detail: string }[] };
+
+  async function validate(id: string): Promise<ValidateBody> {
+    const res = await app.inject({ method: "POST", url: `/api/git-accounts/${id}/validate`, headers: { cookie: adminCookie } });
+    expect(res.statusCode).toBe(200);
+    return res.json() as ValidateBody;
+  }
+
+  async function markDefault(id: string): Promise<void> {
+    await testDb.db.update(gitAccounts).set({ isDefaultReviewer: true }).where(eq(gitAccounts.id, id));
+  }
+
+  /** Il verdetto dell'insieme del PRINCIPALE su un token da revisore: ko sui webhook. */
+  function expectPrimarySet(body: ValidateBody) {
+    expect(body.ok).toBe(false);
+    const webhook = body.checks.find((c) => c.name === "Scope webhook");
+    expect(webhook?.ok).toBe(false);
+    expect(webhook?.detail).toMatch(/read:webhook:bitbucket/);
+    expect(webhook?.detail).toMatch(/write:webhook:bitbucket/);
+  }
+
+  /** Il verdetto dell'insieme del REVISORE: nessun check sui webhook. */
+  function expectReviewerSet(body: ValidateBody) {
+    expect(body.ok).toBe(true);
+    expect(body.checks.some((c) => c.name === "Scope webhook")).toBe(false);
+    expect(body.checks.map((c) => c.name)).toContain("Scope repository e pull request");
+  }
+
+  it("revisore esplicito, token senza webhook: ok, nessun check sui webhook", async () => {
+    const ws = newWorkspace();
+    const reviewer = await bitbucketAccount("v-esplicito", ws);
+    const main = await bitbucketAccount("v-principale-1", ws);
+    await repository("v-repo-esplicito", main, reviewer);
+    stubAccountProbe(REVIEWER_SCOPES);
+    expectReviewerSet(await validate(reviewer));
+  });
+
+  it("lo stesso token su un account principale: ko, il check webhook nomina i due scope", async () => {
+    const ws = newWorkspace();
+    const main = await bitbucketAccount("v-principale-2", ws);
+    await repository("v-repo-principale", main);
+    stubAccountProbe(REVIEWER_SCOPES);
+    expectPrimarySet(await validate(main));
+  });
+
+  it("predefinito EFFETTIVO su una repository senza esplicito: insieme del revisore", async () => {
+    const ws = newWorkspace();
+    const reviewer = await bitbucketAccount("v-predefinito", ws);
+    const main = await bitbucketAccount("v-principale-3", ws);
+    await repository("v-repo-predefinito", main);
+    await markDefault(reviewer);
+    try {
+      stubAccountProbe(REVIEWER_SCOPES);
+      expectReviewerSet(await validate(reviewer));
+    } finally {
+      await testDb.db.update(gitAccounts).set({ isDefaultReviewer: false }).where(eq(gitAccounts.id, reviewer));
+    }
+  });
+
+  it("predefinito senza repository nel suo ambito: conta il flag (D9), insieme del revisore", async () => {
+    const reviewer = await bitbucketAccount("v-predefinito-solo", newWorkspace());
+    await markDefault(reviewer);
+    try {
+      stubAccountProbe(REVIEWER_SCOPES);
+      expectReviewerSet(await validate(reviewer));
+    } finally {
+      await testDb.db.update(gitAccounts).set({ isDefaultReviewer: false }).where(eq(gitAccounts.id, reviewer));
+    }
+  });
+
+  it("predefinito saltato ovunque perché è il principale: insieme del principale", async () => {
+    const ws = newWorkspace();
+    const account = await bitbucketAccount("v-saltato", ws);
+    await repository("v-repo-saltato", account);
+    await markDefault(account);
+    try {
+      stubAccountProbe(REVIEWER_SCOPES);
+      expectPrimarySet(await validate(account));
+    } finally {
+      await testDb.db.update(gitAccounts).set({ isDefaultReviewer: false }).where(eq(gitAccounts.id, account));
+    }
+  });
+
+  it("account mai usato: insieme del principale", async () => {
+    const account = await bitbucketAccount("v-mai-usato", newWorkspace());
+    stubAccountProbe(REVIEWER_SCOPES);
+    expectPrimarySet(await validate(account));
+  });
+
+  it("token senza read:user: check identità ko, coi Request changes scartati", async () => {
+    const ws = newWorkspace();
+    const reviewer = await bitbucketAccount("v-senza-user", ws);
+    const main = await bitbucketAccount("v-principale-4", ws);
+    await repository("v-repo-senza-user", main, reviewer);
+    stubAccountProbe(
+      "read:repository:bitbucket, write:repository:bitbucket, read:pullrequest:bitbucket, write:pullrequest:bitbucket",
+    );
+    const body = await validate(reviewer);
+    expect(body.ok).toBe(false);
+    const identity = body.checks.find((c) => c.name === "Scope identità (read:user)");
+    expect(identity?.ok).toBe(false);
+    expect(identity?.detail).toMatch(/i Request changes da Bitbucket vengono scartati/);
+    expect(body.checks.some((c) => c.name === "Scope webhook")).toBe(false);
+  });
+
+  it("GitHub: output invariato, un solo check", async () => {
+    const created = await createAccount({ ...basePayload, name: "v-github" });
+    const id = (created.json() as { id: string }).id;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string) =>
+        Promise.resolve(
+          input.includes("api.github.com/user/repos")
+            ? new Response("[]", { status: 200, headers: { "x-oauth-scopes": "" } })
+            : new Response("", { status: 404 }),
+        ),
+      ),
+    );
+    const body = await validate(id);
+    expect(body).toEqual({
+      ok: true,
+      checks: [{ name: "Autenticazione e accesso repository", ok: true, detail: "token valido, accesso ai repository ok" }],
+    });
   });
 });
