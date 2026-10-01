@@ -231,8 +231,12 @@ kind nuovo.
     (niente creato, niente fuso). Una `pending` libera parte al posto di
     qualunque richiesta nuova; un click fuso in una pending `review` (senza
     `providerFeedback`) ne prende il trigger `stubwise`.
-  - il job nasce `queued`, `correctionId`, `manualTrigger = trigger !== 'review'`,
-    `planApprovalRequired: false`.
+  - il job nasce `queued`, `correctionId`, `manualTrigger = trigger === 'stubwise'`
+    (**E5**: era `trigger !== 'review'`; anche una pending `provider` promossa
+    DAL CLICK del bottone ha `manualTrigger`), `planApprovalRequired: false`.
+  - **E6**: un `provider` identico a una `queued` della stessa PR nata da meno
+    di `REDELIVERY_WINDOW_MINUTES` (30) è una riconsegna: `{ ok: true,
+    correctionId: <quella>, status: "queued", jobId: <il suo> }`, niente scritto.
 - `completeCorrection(db, correctionId): Promise<boolean>` — POSIZIONALE,
   `queued → done`. Il worker la chiama **nella stessa transazione** di
   `completeJob`/`failJob`, e solo se quelle hanno restituito `true`.
@@ -644,6 +648,64 @@ nessuna riga diceva che la review c'era, e il ciclo della PR si leggeva `idle`.
 - **C7, C8**: `enqueuePrReviewNow` è l'ULTIMO passo del job.
 - **C11**: nessun termine nuovo; il recovery delle review non tocca le righe in
   attesa.
+
+**E5 — Una correzione dalla piattaforma rispetta il budget (1 ott 2026,
+revisione di D2).** "Request changes" lo preme chiunque abbia scrittura sul
+repository, anche senza ruoli in Stubwise: col vecchio `manualTrigger =
+trigger !== 'review'` scavalcava budget mensile, tetto per ticket e gate di
+automazione (`checkBudgetsBeforeRun`).
+- **Già applicato** (commit «feat(notifications): una correzione dalla
+  piattaforma rispetta il budget…» e «test(worker): …»): `createCorrectionJob`
+  prende `manualTrigger` esplicito, vero SOLO per `trigger='stubwise'`;
+  `promoteRow(…, { byStubwiseButton })` lo accende anche per una pending
+  `provider` promossa DAL CLICK (la riga resta `provider`, ma ha premuto il
+  bottone). Ogni altra promozione (fine lavoro, tick, review) guarda il
+  trigger della riga. D4 non cambia: run-ai che FORZA una correzione `held` è
+  un umano di Stubwise, `manualTrigger: true`.
+- Ferma al budget, la correzione lo dice: il commento `comment.budgetHeld` lo
+  scrive già `holdForBudget` (C4), chiamato da `runCorrection` (test worker con
+  una `provider` vera); e `prCycleSchema.heldReason` (ADDITIVO,
+  `heldReasonSchema.nullable().default(null)` — i valori di
+  `ai_jobs.held_reason`: `limit`/`budget`/`other`) è valorizzato da
+  `derivePrCycle` quando lo stato è `correcting` e il job della `queued` è
+  `held` (`held` senza motivo → `other`). `state` resta `correcting`: nessun
+  valore nuovo nell'enum.
+- **D6**: `cycle.heldReason` arriva così nel dettaglio ticket, niente da
+  derivare nella rotta; il test di contratto con un job `held` per budget
+  verifica `heldReason: "budget"` nella risposta.
+- **E2/E3**: chiavi `tickets:cycle.heldBudget`/`heldLimit`/`heldOther` (vedi
+  E2) e, in `prCycleLineFor`, su `correcting` con `heldReason` non null la
+  frase di stato è quella della chiave (al posto di «correzione in corso»;
+  il giro e il richiedente restano dove sono). Il web legge `cycle.heldReason
+  ?? null` (fa un cast, non un parse) e la fixture del test resta SENZA il
+  campo in almeno un caso.
+- **F2**: stessa frase sull'app (`mobile.work.pr.cycle.heldBudget`/
+  `heldLimit`/`heldOther`); un `heldReason` `UNKNOWN` (readerSchema) si legge
+  come `heldOther`. Fixture dei test dell'app complete col campo.
+- **G2**: nella guida, «What stops the loop» dice che una richiesta dalla
+  piattaforma rispetta il budget come il ciclo automatico, che la riga sotto la
+  PR dice perché la correzione è ferma, e che un maintainer la forza con
+  *Run AI*.
+
+**E6 — Una riconsegna non diventa una seconda correzione (1 ott 2026,
+revisione di D2).** La dedup per id di consegna del server è in memoria e
+dipende da un header non firmato; se Bitbucket ritenta con un id diverso, o
+GitHub riconsegna a mano dopo un riavvio, la seconda consegna diventava una
+`pending` e poi una SECONDA correzione sulla stessa richiesta.
+- **Già applicato** (stesso commit di E5): in `enqueueCorrection`, per
+  `trigger='provider'` con una `queued` sulla PR: se quella è `provider`, con
+  lo stesso `requestedByProviderLogin`, nata da meno di
+  `REDELIVERY_WINDOW_MINUTES` (30, esportata) e con la stessa voce
+  `WEBHOOK_REVIEW_BODY_ID` (testo uguale a meno degli spazi ai bordi; entrambe
+  senza voce = stessa richiesta, il caso Bitbucket; su GitHub vale anche la
+  voce `review-<id>` dello stesso autore con lo stesso testo, cioè la forma
+  che C8 le dà quando la correzione parte), si risponde `{ ok: true,
+  correctionId, status: "queued", jobId }` senza scrivere niente. Sotto lo
+  stesso lock advisory. Il caso `pending` era già coperto: la fusione
+  deduplica per id della fotografia (test aggiunto).
+- **B14**: T41 (la guida operativa) — su Bitbucket, un webhook
+  `pullrequest:changes_request_created` ritentato ha lo stesso
+  `X-Request-UUID` fra i tentativi?
 
 ## Tappa A — Fondamenta dati
 
@@ -2271,10 +2333,12 @@ ricopiano.
 - Il job nasce `queued`, `correctionId` valorizzato, `resumeMode`/`planText`
   null, `planApprovalRequired: false` (una correzione non è un piano nuovo:
   design §3), `requestedByUserId` = chi l'ha chiesta, e
-  **`manualTrigger = trigger !== 'review'`**: le richieste di una persona
-  scavalcano i tetti di spesa come ogni avvio a mano di oggi
-  (`fix.ts:916`), il ciclo automatico NO — il design dice che il budget
-  mensile esaurito ferma il ciclo.
+  **`manualTrigger = trigger === 'stubwise'`** (⚠️ **E5** — fino alla
+  revisione di D2 era `trigger !== 'review'`): solo il bottone di Stubwise
+  scavalca i tetti di spesa come ogni avvio a mano di oggi (`fix.ts:916`); il
+  ciclo automatico NO — il design dice che il budget mensile esaurito ferma il
+  ciclo — e nemmeno un "Request changes" della piattaforma, che preme anche
+  chi non ha ruoli in Stubwise.
 - `reviewId` assente → l'ultima review `completed` della PR (così il prompt ha
   sempre "l'ultima review" anche per una richiesta dal bottone).
 - Fusione nella `pending`: `trigger`, `requestedByUserId`,
@@ -6466,8 +6530,9 @@ del piano, quando useranno i metodi nuovi:
 ### B14 — Verifica manuale con chiamate vere (non in CI, niente commit)
 
 > **Si esegue dalla guida operativa, non da qui:**
-> `docs/plans/2026-09-30-pr-correction-loop-b14.md` (40 test T1–T40 — i
-> T37–T40 per il §9, emendamento E3 e permesso reale; T37/T38 obbligatori con
+> `docs/plans/2026-09-30-pr-correction-loop-b14.md` (41 test T1–T41 — i
+> T37–T40 per il §9, emendamento E3 e permesso reale; il T41 per E6, la
+> riconsegna di Bitbucket con lo stesso `X-Request-UUID`?; T37/T38 obbligatori con
 > un revisore membro PRIVATO dell'organizzazione e accesso via team —, uno alla volta, con preparazione, comandi esatti e tabella «Da riportare») e lo script
 > `packages/git/scripts/b14-probe.mjs` per i casi «da uno script». La guida
 > corregge le incongruenze del testo qui sotto: i `curl | jq` che nascondevano
@@ -17194,8 +17259,9 @@ volo (`UPDATE ... set status = 'queued'`). Con le correzioni l'ultimo job può
 avere `correction_id`, e i casi sono DUE, opposti:
 
 1. **La correzione è ancora `queued` e il suo job è `held`** (tipicamente il
-   budget mensile esaurito: il ciclo automatico ha `manualTrigger = false`, e
-   il resume poller NON riaccoda un `held` per budget). L'unica ripresa è
+   budget mensile esaurito: il ciclo automatico e — **E5** — un "Request
+   changes" della piattaforma hanno `manualTrigger = false`, e il resume poller
+   NON riaccoda un `held` per budget). L'unica ripresa è
    l'«avvio manuale per forzare» di oggi: `startRun` riusa QUEL job con
    `manualTrigger: true` e **non tocca `correction_id`**, così il worker lo
    esegue come la correzione che era, scavalcando i tetti. Se invece si creasse
@@ -17795,6 +17861,13 @@ Atteso: PASS (la spec OpenAPI si genera ancora).
 ---
 
 ### Task D6: `cycle` nella voce PR del dettaglio ticket
+
+> ⚠️ **E5**: `prCycleSchema` ha anche `heldReason` (già nello schema e in
+> `derivePrCycle`). Nel test di integrazione della rotta aggiungi il caso
+> «correzione `queued` col job `held` per budget → `cycle.heldReason:
+> "budget"`, `state: "correcting"`», e uno con job attivo → `null`. Le fixture
+> tipizzate di `PrCycle` (web/app) prendono `heldReason: null` dove il
+> compilatore lo chiede.
 
 **Files:**
 - Modify: `packages/shared/src/schemas/ticket.ts`
@@ -19907,6 +19980,14 @@ Atteso: typecheck pulito.
 
 ### Task E2: testi (en/it)
 
+> ⚠️ **E5**: nell'oggetto `"cycle"` aggiungi anche — en: `"heldBudget":
+> "Correction on hold · budget exhausted"`, `"heldLimit": "Correction on hold ·
+> provider usage limit reached, it resumes by itself"`, `"heldOther":
+> "Correction on hold"`; it: `"heldBudget": "Correzione ferma · budget
+> esaurito"`, `"heldLimit": "Correzione ferma · limite del provider raggiunto,
+> riparte da sola"`, `"heldOther": "Correzione ferma"`. Se la UI dice come
+> forzarla, usa l'etichetta VERA del bottone di run-ai del ticket.
+
 **Files:**
 - Modify: `apps/web/src/i18n/locales/en.json`
 - Modify: `apps/web/src/i18n/locales/it.json`
@@ -20058,6 +20139,13 @@ Atteso: parità PASS.
 ---
 
 ### Task E3: la riga di stato come funzione pura
+
+> ⚠️ **E5**: su `correcting` con `cycle.heldReason ?? null` non null, il
+> segmento di stato è `tickets:cycle.heldBudget`/`heldLimit`/`heldOther` al
+> posto di `correcting`/`correctingRound` (il giro, se c'è, resta: «Giro 2 di 3
+> · correzione ferma · budget esaurito» — decidi la forma esatta e falla
+> IDENTICA in F2). Test: queued + `heldReason: "budget"` → chiave budget;
+> `heldReason` assente dalla fixture (server vecchio) → la frase di sempre.
 
 Stessa forma di `lib/pulse-line.ts`: la funzione decide CHIAVI e parametri,
 il componente traduce. È il gemello deliberato di quello che l'app avrà in
@@ -21539,6 +21627,12 @@ git commit -m "feat(api-client): chiedere la correzione di una PR e leggere il c
 ---
 
 ### Task F2: testi dell'app e riga di stato del ciclo (funzione pura)
+
+> ⚠️ **E5**: gemella di E3 anche qui — `heldReason` non null su `correcting`
+> dice perché la correzione è ferma (`mobile.work.pr.cycle.heldBudget`/
+> `heldLimit`/`heldOther`, stessi testi di E2); un valore `UNKNOWN` da
+> `readerSchema` → `heldOther`. Test con `heldReason: "budget"` e con la
+> fixture senza il campo.
 
 **Files:**
 - Modify: `apps/mobile/src/i18n/it.json`, `apps/mobile/src/i18n/en.json`
@@ -23467,7 +23561,12 @@ finishes*.
   running one doesn't push;
 - the **cap** is reached;
 - the instance's [monthly budget](#cost-budget) is exhausted, or the provider's
-  usage limit is hit — the correction is held, like a fix;
+  usage limit is hit — the correction is held, like a fix, and the line under
+  the PR says why (*Correction on hold · budget exhausted*). This applies to
+  automatic corrections **and to Request changes on the platform** (anyone with
+  write access can press it, even without a Stubwise account); only the
+  **Apply corrections** button overrides the budget, like any manual start. A
+  maintainer can force a held correction with *Run AI* on the ticket (E5);
 - PR review is turned **off** for the instance: manual corrections still work,
   but after their push nobody reviews the PR.
 
@@ -23790,10 +23889,11 @@ tappe sono stati risolti e integrati nella sezione «Contratti» e nei task.
   durante una correzione sia durante un fix qualsiasi. Una `pending` libera parte al posto di QUALUNQUE richiesta nuova,
   review compresa (la review la promuove senza fondersi: cambia solo il
   `reviewId`, che diventa l'ultima review completata — voluto).
-- **`manualTrigger = trigger !== 'review'`** sul job della correzione: le
-  richieste di una persona scavalcano i tetti di spesa come ogni avvio a mano
-  (`fix.ts:916`); il ciclo automatico si ferma al budget mensile, come chiede
-  il design. `planApprovalRequired: false` sempre (design §3).
+- **`manualTrigger = trigger === 'stubwise'`** sul job della correzione (E5,
+  era `!== 'review'`): solo il bottone di Stubwise scavalca i tetti di spesa
+  come ogni avvio a mano (`fix.ts:916`); il ciclo automatico e un "Request
+  changes" della piattaforma si fermano al budget mensile. `planApprovalRequired:
+  false` sempre (design §3).
 - **`reviewId` di default** = l'ultima review `completed` della PR.
 - **Una richiesta umana `pending` azzera GIÀ il contatore**, prima di partire.
 - **`derivePrCycle` → `idle`** anche quando l'ultima correzione è riuscita ma
@@ -24073,8 +24173,9 @@ Entrate con i fix della revisione di fine tappa:
   questo piano.
 - **Costo**: fino a `pr_correction_max_rounds` (default 3) correzioni + 4 review
   per PR in una tornata automatica, ciascuna un run completo. Il ciclo automatico
-  rispetta il budget mensile (`manualTrigger=false`), quelle umane no (come ogni
-  avvio a mano).
+  e le richieste dalla piattaforma rispettano il budget mensile
+  (`manualTrigger=false`, E5); il bottone di Stubwise no (come ogni avvio a
+  mano), e nemmeno run-ai che forza una correzione ferma (D4).
 - **Comportamento del modello**: il confine «applica il feedback, non
   riprogettare» sta nel prompt. Lo verificano solo gli scenari golden (C13,
   manuali): vanno lanciati prima del merge, e dopo ogni cambio del CLI o dei

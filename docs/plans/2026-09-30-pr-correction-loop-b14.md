@@ -186,7 +186,8 @@ sia `null`. Non fare push sulle due PR durante i test: gli sha cambierebbero.
 Ordine: prima le letture (T1–T8), poi gli status di commit (T9–T18), poi i
 verdetti sulle PR di prova (T19–T33), poi chi ha il permesso di chiedere
 modifiche (T37–T40, emendamento E3 e permesso reale: aggiunti dopo, hanno
-numeri più alti ma vanno fatti qui), per ultimi i casi che richiedono una PR mergiata o chiusa
+numeri più alti ma vanno fatti qui), poi la riconsegna di Bitbucket (T41,
+emendamento E6), per ultimi i casi che richiedono una PR mergiata o chiusa
 (T34–T36).
 
 ### Letture (nessuna modifica)
@@ -712,6 +713,45 @@ for T in GH_TOKEN_AUTHOR GH_TOKEN_META GH_TOKEN_NOPERM; do echo "== $T"; node pa
   sbagliata. Va detto prima del merge.
 - Da annotare: esito e status per ciascun token; il permesso minimo che serve.
 
+### Una riconsegna non è una richiesta nuova (emendamento E6)
+
+Il server scarta una consegna già vista per id (`X-GitHub-Delivery`,
+`X-Request-UUID`), in memoria; dietro, `enqueueCorrection` riconosce come
+riconsegna un "Request changes" identico a una correzione `queued` della
+stessa PR nata da meno di 30 minuti. Questo test dice quale dei due scatta
+davvero su Bitbucket: se l'id cambia fra i tentativi, la prima difesa non
+serve a niente e regge solo la seconda.
+
+#### T41 — Bitbucket: `X-Request-UUID` resta lo stesso fra i tentativi?
+
+**Modifica:** una richiesta di modifiche sulla PR di prova, consegnata a un
+endpoint che risponde **500**.
+
+1. Prepara un endpoint che risponde sempre 500 e che puoi ispezionare: un
+   servizio di ispezione delle richieste configurato per rispondere 500
+   (es. una nuova URL di webhook.site con *Edit → Default status code: 500*),
+   oppure un tuo server. NON usare l'URL di Stubwise.
+2. Nel webhook di prova (Repository settings → Webhooks → il webhook di prova
+   → *Edit*), metti quell'URL; trigger invariato (**Changes request created**).
+3. Nel browser, con il **revisore**: sulla PR di prova premi **Request
+   changes**.
+4. Aspetta qualche minuto, poi guarda le richieste arrivate all'endpoint (e,
+   come amministratore, *View requests* del webhook): quante volte è arrivata
+   la stessa consegna, a che distanza, e l'header `X-Request-UUID` di
+   ciascuna.
+
+- Atteso da capire, non da indovinare: Bitbucket **ritenta**? Se sì, i
+  tentativi hanno lo **stesso** `X-Request-UUID` (la dedup in memoria del
+  server basta, finché il server non si riavvia) o uno **diverso** (regge
+  solo la dedup di E6 in `enqueueCorrection`, entro 30 minuti)?
+- Da annotare: numero di tentativi; intervallo fra il primo e l'ultimo;
+  `X-Request-UUID` uguale sì/no fra i tentativi; anche
+  `X-Attempt-Number` (se c'è) e il suo valore per tentativo. Se l'ultimo
+  tentativo arriva **oltre 30 minuti** dopo il primo, va detto prima del
+  merge: oltre quella finestra E6 non lo riconosce più.
+- Pulizia: rimetti nel webhook di prova l'URL di prima; il revisore ritira la
+  richiesta di modifiche dalla UI.
+
 ### Casi con PR mergiata o chiusa (ultimi)
 
 #### T34 — `APPROVE` su una PR chiusa (B14 §8b, seconda parte)
@@ -800,3 +840,4 @@ node "$PROBE" bb-review BB_REV_EMAIL BB_REV_TOKEN "$PR_MERGED" approve
 | T38 | §9b (E3) | **obbligatorio**, stesso revisore: `author_association` per fonte e autore; esito `gh-permission` | |
 | T39 | §9c (E3) | Bitbucket pubblico: bottone sì/no; premuto sì/no; consegna arrivata sì/no | |
 | T40 | §9d | esito/status di `gh-permission` con AUTHOR, META, NOPERM; permesso minimo del token; NOPERM → 403 o `none` | |
+| T41 | E6 | Bitbucket ritenta sì/no; n. tentativi e intervallo; `X-Request-UUID` uguale fra i tentativi sì/no; `X-Attempt-Number`; ultimo tentativo oltre 30' sì/no | |
