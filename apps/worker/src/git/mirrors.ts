@@ -1,4 +1,4 @@
-import { getProvider, parseRepoUrl, type ProjectGitConfig } from "@stubwise/git";
+import { getProvider, isFullCommitSha, parseRepoUrl, type ProjectGitConfig } from "@stubwise/git";
 import type { GitProviderKind } from "@stubwise/shared";
 import { mirrorSlug } from "@stubwise/shared/mirror-slug";
 import { execa } from "execa";
@@ -96,6 +96,17 @@ export interface OpenWorktreeOptions {
    * withProjectWorktrees per collocare N worktree sotto una parent comune.
    */
   dir?: string;
+  /**
+   * Parte dalla head di `refs/heads/<branchName>` GIÀ presente nel mirror
+   * invece che dal default branch: è il worktree della CORREZIONE post-PR, che
+   * lavora sul branch della PR che Stubwise ha aperto. Il branch deve esistere
+   * (dopo il `fetch --prune` di ensureMirror il mirror ne ha la copia
+   * AGGIORNATA, via `+refs/*:refs/*`): se manca, `BranchNotFoundError`.
+   * `switch -C` resta, ed è un no-op sul ref (lo riporta sullo stesso commit):
+   * serve solo a far risultare il worktree SUL branch, così i commit ne fanno
+   * avanzare il ref.
+   */
+  fromExistingBranch?: boolean;
 }
 
 /** Opzioni di `withProjectWorktrees`. */
@@ -116,6 +127,8 @@ export interface ProjectWorktreesOptions {
    * l'agente non potrebbe più fare domande nei round successivi, in silenzio.
    */
   parentDir?: string;
+  /** Come {@link OpenWorktreeOptions.fromExistingBranch}, per ogni repo. */
+  fromExistingBranch?: boolean;
 }
 
 /**
@@ -179,6 +192,20 @@ export class MirrorNotFoundError extends Error {
 }
 
 /**
+ * Errore tipato: `fromExistingBranch` su un branch che il mirror non ha (PR mai
+ * pushata, branch cancellato sull'upstream). Mai confuso con un errore git
+ * generico: il chiamante (la correzione) lo racconta così com'è.
+ */
+export class BranchNotFoundError extends Error {
+  constructor(branch: string) {
+    super(
+      `Il branch "${branch}" non esiste nel mirror (cancellato sull'upstream o mai pushato): impossibile aprirci un worktree`
+    );
+    this.name = "BranchNotFoundError";
+  }
+}
+
+/**
  * Errore di un comando git: include il comando (con i segreti redatti) e lo
  * stderr troncato/redatto. MAI il valore dell'header di auth o il token.
  */
@@ -194,6 +221,38 @@ export class GitCommandError extends Error {
     this.stderr = stderr;
   }
 }
+
+/**
+ * Push rifiutato perché non fast-forward: qualcuno ha pushato sul branch dopo il
+ * nostro fetch. Sottoclasse di GitCommandError di proposito — i catch generici
+ * esistenti (il fix) continuano a trattarlo come qualunque errore git — ma
+ * riconoscibile da chi vuole dirlo chiaro (la correzione). La risposta giusta
+ * NON è mai ritentare con `--force` né un rebase automatico: la prossima
+ * richiesta riparte dal branch aggiornato. Il messaggio contiene solo il nome
+ * del branch; lo stderr è quello di runGit, già redatto.
+ */
+export class PushRejectedError extends GitCommandError {
+  readonly branch: string;
+  constructor(branch: string, cause: GitCommandError) {
+    super(
+      `Push di "${branch}" rifiutato dall'upstream (non fast-forward): il branch è stato aggiornato da qualcun altro durante il lavoro`,
+      cause.exitCode,
+      cause.stderr
+    );
+    this.name = "PushRejectedError";
+    this.branch = branch;
+  }
+}
+
+/**
+ * Riconosce un rifiuto non fast-forward nello stderr di `git push`. Lo stderr di
+ * GitCommandError è TRONCATO agli ultimi 500 caratteri: per questo pushBranch
+ * spegne gli hint (`advice.pushUpdateRejected=false`), che altrimenti
+ * spingerebbero la riga `[rejected]` fuori dalla finestra, e runGit fissa
+ * `LC_ALL=C` perché il testo resti in inglese. "Updates were rejected" resta
+ * nell'alternanza solo come rete, se gli hint tornassero.
+ */
+const PUSH_REJECTED_RE = /\[rejected\]|non-fast-forward|fetch first|Updates were rejected/i;
 
 /**
  * Lo slug della directory del mirror vive in `@stubwise/shared`: lo usa anche
@@ -302,6 +361,12 @@ async function runGit(args: string[], opts: RunGitOptions): Promise<string> {
   const env: Record<string, string> = {
     // Mai prompt interattivi: meglio fallire subito che un worker appeso.
     GIT_TERMINAL_PROMPT: "0",
+    // Messaggi di git SEMPRE in inglese: i rifiuti del push (PushRejectedError)
+    // si riconoscono dal testo dello stderr, che con un git localizzato
+    // cambierebbe lingua e smetterebbe di combaciare. In produzione oggi non
+    // cambia nulla (l'immagine non ha traduzioni né locale impostata): è una
+    // garanzia, non una correzione.
+    LC_ALL: "C",
   };
   if (opts.auth && opts.auth.repoUrl.startsWith("https://")) {
     env.GIT_CONFIG_COUNT = "1";
@@ -433,6 +498,13 @@ export class MirrorManager {
    * ref checked-out). La serializzazione verso i fix-job è garantita a monte
    * dalla catena per-progetto (M7): nessun ensureMirror concorrente mentre il
    * worktree di generazione è aperto.
+   *
+   * Con `options.fromExistingBranch` il punto di partenza è la head del branch
+   * stesso invece del default (vedi OpenWorktreeOptions): la head APPENA
+   * scaricata, perché ensureMirror qui sopra fa `fetch --prune` col refspec
+   * `+refs/*:refs/*` e riallinea la copia locale all'upstream. La `remove()` fa
+   * comunque `branch -D` nel mirror: gira DOPO la callback, quindi dopo il push,
+   * e cancella solo la copia locale — il prossimo fetch la ripristina.
    */
   async openWorktree(
     project: MirrorProject,
@@ -450,18 +522,34 @@ export class MirrorManager {
     const externalDir = options?.dir;
     const parent = externalDir ? undefined : await mkdtemp(join(tmpdir(), "stubwise-wt-"));
     const worktreeDir = externalDir ?? join(parent as string, "wt");
+    const fromExisting = options?.fromExistingBranch === true;
+    // refs/heads/<branch>: forma non ambigua, mai interpretabile come opzione
+    // da git (oltre a assertBranchName/assertDefaultBranch).
+    const startRef = fromExisting ? `refs/heads/${branchName}` : `refs/heads/${project.defaultBranch}`;
     try {
-      // refs/heads/<branch>: forma non ambigua, mai interpretabile come
-      // opzione da git (oltre alla validazione di assertDefaultBranch).
-      await this.git(
-        ["worktree", "add", "--force", "--detach", worktreeDir, `refs/heads/${project.defaultBranch}`],
-        { cwd: mirrorDir }
-      );
-      // -C (force): un branch residuo di un run precedente viene riallineato.
+      if (fromExisting) {
+        // Il branch della PR deve esserci davvero: senza, `worktree add`
+        // fallirebbe con un errore git generico che non dice cosa manca.
+        // Solo exit 1 significa "ref assente" (`rev-parse --verify --quiet`):
+        // ogni altro errore (mirror corrotto, timeout) resta quello che è.
+        await this.git(["rev-parse", "--verify", "--quiet", `${startRef}^{commit}`], {
+          cwd: mirrorDir,
+        }).catch((error: unknown) => {
+          if (error instanceof GitCommandError && error.exitCode === 1) {
+            throw new BranchNotFoundError(branchName);
+          }
+          throw error;
+        });
+      }
+      await this.git(["worktree", "add", "--force", "--detach", worktreeDir, startRef], { cwd: mirrorDir });
+      // -C (force): un branch residuo di un run precedente viene riallineato. Con
+      // fromExistingBranch il branch punta già a HEAD: -C non lo sposta.
       await this.git(["switch", "-C", branchName], { cwd: worktreeDir });
     } catch (error) {
-      // Setup fallito a metà: smonta quel che è stato creato e rilancia.
-      await this.removeWorktree(mirrorDir, worktreeDir, parent, branchName);
+      // Setup fallito a metà: smonta quel che è stato creato e rilancia. Con
+      // fromExistingBranch il ref NON si cancella: è la copia dell'upstream, non
+      // un branch effimero nostro, e non contiene ancora niente di nostro.
+      await this.removeWorktree(mirrorDir, worktreeDir, parent, fromExisting ? undefined : branchName);
       throw error;
     }
     let removed = false;
@@ -561,7 +649,10 @@ export class MirrorManager {
         // openWorktree con dir imposta: crea/aggancia il worktree SOTTO parentDir.
         // La sua pulizia (worktree + branch effimero) è gestita dalla remove()
         // che ci restituisce; la parent dir la possediamo noi (finally sotto).
-        const handle = await this.openWorktree(project, branchName, { dir });
+        const handle = await this.openWorktree(project, branchName, {
+          dir,
+          ...(options?.fromExistingBranch === true ? { fromExistingBranch: true } : {}),
+        });
         opened.push({ project, dir: handle.dir, remove: handle.remove });
       }
       return await fn({
@@ -639,17 +730,31 @@ export class MirrorManager {
     if (!existsSync(join(mirrorDir, "HEAD"))) {
       throw new MirrorNotFoundError(mirrorRemoteUrl(project));
     }
-    await this.git(
-      [
-        "-c",
-        "remote.origin.mirror=false",
-        "push",
-        ...(opts?.force === true ? ["--force"] : []),
-        "origin",
-        `${branchName}:refs/heads/${branchName}`,
-      ],
-      { cwd: mirrorDir, auth: project }
-    );
+    try {
+      await this.git(
+        [
+          "-c",
+          "remote.origin.mirror=false",
+          // Niente hint `Updates were rejected…`: lo stderr viene troncato agli
+          // ultimi 500 caratteri, e gli hint spingerebbero fuori la riga
+          // `[rejected]` su cui si riconosce PushRejectedError.
+          "-c",
+          "advice.pushUpdateRejected=false",
+          "push",
+          ...(opts?.force === true ? ["--force"] : []),
+          "origin",
+          `${branchName}:refs/heads/${branchName}`,
+        ],
+        { cwd: mirrorDir, auth: project }
+      );
+    } catch (error) {
+      // Un rifiuto non fast-forward diventa un errore TIPATO, mai un retry
+      // forzato: chi ha pushato sul branch nel frattempo vince.
+      if (opts?.force !== true && error instanceof GitCommandError && PUSH_REJECTED_RE.test(error.stderr)) {
+        throw new PushRejectedError(branchName, error);
+      }
+      throw error;
+    }
   }
 
   /**
@@ -886,7 +991,54 @@ export class MirrorManager {
     return sha;
   }
 
-  private git(
+  /**
+   * Sha COMPLETO (40 caratteri) di un commit dal mirror aggiornato. Serve allo
+   * status di commit della review: le API di status vogliono lo sha intero, e
+   * `pr_review_jobs.head_sha` dei webhook Bitbucket è abbreviato. Input
+   * validato da SHA_RE (mai un'opzione per git), output riverificato con
+   * `isFullCommitSha` di @stubwise/git (la stessa regola dei provider).
+   *
+   * ⚠️ Chiama `ensureMirror`, cioè `fetch --prune`: NON va invocata dentro la
+   * callback di `withProjectWorktrees`/`withWorktree` sullo stesso repo — il
+   * prune cancellerebbe il ref `stubwise/*` del worktree aperto (invariante del
+   * modulo). Dentro un worktree lo sha completo si legge con `git rev-parse
+   * HEAD`; questa serve fuori, a chi ha solo lo sha (anche abbreviato) di un
+   * webhook.
+   */
+  async resolveCommitSha(project: MirrorProject, sha: string): Promise<string> {
+    if (!SHA_RE.test(sha)) throw new InvalidShaError(sha);
+    const mirrorDir = await this.ensureMirror(project);
+    const full = (await this.git(["rev-parse", "--verify", `${sha}^{commit}`], { cwd: mirrorDir })).trim();
+    if (!isFullCommitSha(full)) throw new InvalidShaError(full);
+    return full;
+  }
+
+  /**
+   * Sha COMPLETO della head di `refs/heads/<branchName>` nel mirror appena
+   * aggiornato (`ensureMirror` → `fetch --prune`, che con `+refs/*:refs/*`
+   * riallinea il ref alla head dell'upstream, anche se un push nostro è stato
+   * rifiutato). Serve alla correzione post-PR che fallisce senza pushare: la
+   * review va accodata sulla head ATTUALE del branch della PR, che può essere
+   * il push di un collega. `resolveCommitSha` non basta: accetta solo uno sha.
+   *
+   * Branch validato con `assertBranchName` (mai un'opzione per git), output
+   * riverificato con `isFullCommitSha`. Branch assente → GitCommandError.
+   *
+   * ⚠️ Come `resolveCommitSha`: mai dentro la callback di un worktree aperto
+   * sullo stesso repo (il prune ne cancellerebbe il ref).
+   */
+  async resolveBranchHead(project: MirrorProject, branchName: string): Promise<string> {
+    assertBranchName(branchName);
+    const mirrorDir = await this.ensureMirror(project);
+    const full = (
+      await this.git(["rev-parse", "--verify", `refs/heads/${branchName}^{commit}`], { cwd: mirrorDir })
+    ).trim();
+    if (!isFullCommitSha(full)) throw new InvalidShaError(full);
+    return full;
+  }
+
+  /** `protected` solo perché i test possano simulare un guasto di git. */
+  protected git(
     args: string[],
     opts: Omit<RunGitOptions, "timeoutMs"> & { timeoutMs?: number }
   ): Promise<string> {

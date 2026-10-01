@@ -1,7 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { BitbucketProvider } from "./bitbucket.js";
 import { GitHubProvider } from "./github.js";
-import { commitWebUrl, getProvider, parsePrNumberFromUrl, parseRepoUrl } from "./index.js";
+import {
+  assertPageOnApiHost,
+  commitWebUrl,
+  GitProviderError,
+  getProvider,
+  isFullCommitSha,
+  parsePrNumberFromUrl,
+  parseRepoUrl,
+  STUBWISE_REVIEW_STATUS_KEY,
+} from "./index.js";
 
 describe("getProvider", () => {
   it("returns the Bitbucket implementation for 'bitbucket'", () => {
@@ -100,5 +109,78 @@ describe("commitWebUrl", () => {
   it("repoUrl non parsabile o sha vuoto → null (la UI mostra il solo sha)", () => {
     expect(commitWebUrl("github", "git@github.com:acme/api.git", "abc1234")).toBeNull();
     expect(commitWebUrl("github", "https://github.com/acme/api", "")).toBeNull();
+  });
+});
+
+describe("isFullCommitSha", () => {
+  it("accetta solo 40 caratteri esadecimali, maiuscole comprese", () => {
+    expect(isFullCommitSha("a".repeat(40))).toBe(true);
+    expect(isFullCommitSha("0123456789ABCDEFabcdef0123456789abcdef01")).toBe(true);
+  });
+
+  it("rifiuta lo sha abbreviato di Bitbucket e ogni altra cosa", () => {
+    // pr_review_jobs.head_sha di Bitbucket è abbreviato (~12 caratteri): lo
+    // status di commit vuole lo sha completo, e un abbreviato va fermato
+    // PRIMA della richiesta, non scoperto da un 404.
+    expect(isFullCommitSha("abc123def456")).toBe(false);
+    expect(isFullCommitSha("g".repeat(40))).toBe(false);
+    expect(isFullCommitSha("a".repeat(41))).toBe(false);
+    expect(isFullCommitSha("")).toBe(false);
+  });
+});
+
+describe("assertPageOnApiHost", () => {
+  const BB = "https://api.bitbucket.org";
+
+  it("accetta una pagina sull'origin dell'API (anche con porta di default e maiuscole)", () => {
+    expect(() => assertPageOnApiHost(`${BB}/2.0/repositories/ws?page=2`, BB, "Bitbucket")).not.toThrow();
+    expect(() => assertPageOnApiHost("https://API.bitbucket.org:443/2.0/x", BB, "Bitbucket")).not.toThrow();
+    // L'origine attesa può arrivare con un percorso: conta solo l'origin.
+    expect(() =>
+      assertPageOnApiHost(`${BB}/2.0/x`, "https://api.bitbucket.org/2.0", "Bitbucket")
+    ).not.toThrow();
+  });
+
+  it.each([
+    ["host diverso", "https://evil.example/2.0/x"],
+    ["sottodominio-trappola", "https://api.bitbucket.org.evil.example/2.0/x"],
+    ["userinfo che maschera l'host", "https://api.bitbucket.org@evil.example/2.0/x"],
+    ["userinfo sull'host giusto", "https://user:pw@api.bitbucket.org/2.0/x"],
+    ["solo username sull'host giusto", "https://user@api.bitbucket.org/2.0/x"],
+    ["http invece di https", "http://api.bitbucket.org/2.0/x"],
+    ["porta diversa", "https://api.bitbucket.org:8443/2.0/x"],
+    ["URL relativo", "/2.0/repositories/ws?page=2"],
+    ["URL malformato", "https://"],
+    ["stringa vuota", ""],
+  ])("%s → GitProviderError", (_label, url) => {
+    let error: unknown = null;
+    try {
+      assertPageOnApiHost(url, BB, "Bitbucket");
+    } catch (e) {
+      error = e;
+    }
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).message).toMatch(/^Bitbucket ha indicato una pagina successiva/);
+  });
+
+  it("il messaggio mostra l'origin ricevuta, mai percorso, query né userinfo", () => {
+    let message = "";
+    try {
+      assertPageOnApiHost("https://user:s3cret@evil.example/path?token=abc", BB, "Bitbucket");
+    } catch (e) {
+      message = (e as Error).message;
+    }
+    expect(message).toContain("https://evil.example");
+    expect(message).not.toContain("s3cret");
+    expect(message).not.toContain("token=abc");
+    expect(message).not.toContain("/path");
+  });
+});
+
+describe("STUBWISE_REVIEW_STATUS_KEY", () => {
+  it("è la chiave che le regole del branch rendono obbligatoria: non cambia", () => {
+    // Cambiarla orfanerebbe lo status già richiesto dalle regole di branch
+    // configurate sui repository: è un contratto verso l'esterno.
+    expect(STUBWISE_REVIEW_STATUS_KEY).toBe("stubwise-review");
   });
 });

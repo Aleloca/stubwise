@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { readerSchema } from "../reader.js";
+import { readerSchema, UNKNOWN } from "../reader.js";
 import {
   projectDetailSchema,
   projectListItemSchema,
   projectPulseSummarySchema,
   projectSchema,
+  repositorySaveResponseSchema,
+  repositorySchema,
+  updateProjectSchema,
 } from "./project.js";
 
 /**
@@ -79,6 +82,46 @@ describe("projectSchema: campi della fase 5 verso un server più vecchio", () =>
   it("un server CON la fase 5 continua a essere letto verbatim", () => {
     const parsed = projectSchema.parse(progettoSenzaFase5({ weeklyBriefEnabled: true }));
     expect(parsed.weeklyBriefEnabled).toBe(true);
+  });
+});
+
+/**
+ * STESSA REGOLA, campo nuovo: il tetto del ciclo di correzione (30 set 2026).
+ * Un server senza il ciclo non manda `prCorrectionMaxRounds`: l'app lo legge
+ * col default 3, e il parse della lista non salta.
+ */
+describe("projectSchema.prCorrectionMaxRounds verso un server più vecchio (30 set 2026)", () => {
+  it("un progetto senza il tetto si legge col default 3", () => {
+    expect(readerSchema(projectSchema).parse(progettoSenzaFase5()).prCorrectionMaxRounds).toBe(3);
+  });
+
+  it("anche nella LISTA progetti", () => {
+    const parsed = readerSchema(projectListItemSchema).parse({ ...progettoSenzaFase5(), repositoryCount: 1 });
+    expect(parsed.prCorrectionMaxRounds).toBe(3);
+  });
+
+  it("0 (ciclo spento) si legge verbatim", () => {
+    expect(
+      readerSchema(projectSchema).parse(progettoSenzaFase5({ prCorrectionMaxRounds: 0 })).prCorrectionMaxRounds,
+    ).toBe(0);
+  });
+
+  // Il range sta nel body del PATCH, non nella risposta: un server futuro con
+  // un tetto più alto non deve rompere l'app installata.
+  it("un valore oltre il range di oggi (20) si legge verbatim, anche nella lista", () => {
+    expect(
+      readerSchema(projectSchema).parse(progettoSenzaFase5({ prCorrectionMaxRounds: 20 })).prCorrectionMaxRounds,
+    ).toBe(20);
+    const listed = readerSchema(projectListItemSchema).parse({
+      ...progettoSenzaFase5({ prCorrectionMaxRounds: 20 }),
+      repositoryCount: 1,
+    });
+    expect(listed.prCorrectionMaxRounds).toBe(20);
+  });
+
+  it("il body del PATCH resta 0..10", () => {
+    expect(updateProjectSchema.safeParse({ prCorrectionMaxRounds: 11 }).success).toBe(false);
+    expect(updateProjectSchema.safeParse({ prCorrectionMaxRounds: 10 }).success).toBe(true);
   });
 });
 
@@ -340,5 +383,73 @@ describe("projectPulseSummarySchema: il repository della voce di merge", () => {
 
     expect(parsed.waitingForMerge[0]?.repositoryId).toBe("44444444-4444-4444-8444-444444444444");
     expect(parsed.waitingForMerge[0]?.repositoryName).toBe("web-app");
+  });
+});
+
+describe("repositorySchema.reviewGitAccountId verso un server più vecchio (30 set 2026)", () => {
+  const repositorySenzaRevisore = {
+    id: "11111111-1111-4111-8111-111111111111",
+    projectId: "22222222-2222-4222-8222-222222222222",
+    name: "Shop API",
+    slug: "shop-api",
+    provider: "github",
+    repoUrl: "https://github.com/acme/shop-api",
+    defaultBranch: "main",
+    gitAccountId: "33333333-3333-4333-8333-333333333333",
+    gitAccountName: "Account GitHub",
+    testCommand: null,
+    installCommand: null,
+    webhookConfiguredAt: null,
+    graphEnabled: false,
+    createdAt: "2026-09-01T10:00:00.000Z",
+  };
+
+  it("un repository senza account revisore si legge con null", () => {
+    expect(readerSchema(repositorySchema).parse(repositorySenzaRevisore).reviewGitAccountId).toBeNull();
+  });
+
+  it("un revisore presente si legge verbatim", () => {
+    const reviewGitAccountId = "44444444-4444-4444-8444-444444444444";
+    expect(
+      readerSchema(repositorySchema).parse({ ...repositorySenzaRevisore, reviewGitAccountId })
+        .reviewGitAccountId,
+    ).toBe(reviewGitAccountId);
+  });
+});
+
+describe("repositorySaveResponseSchema.warnings (30 set 2026)", () => {
+  const saved = {
+    id: "11111111-1111-4111-8111-111111111111",
+    projectId: "22222222-2222-4222-8222-222222222222",
+    name: "Shop API",
+    slug: "shop-api",
+    provider: "bitbucket",
+    repoUrl: "https://bitbucket.org/acme/shop-api",
+    defaultBranch: "main",
+    gitAccountId: "33333333-3333-4333-8333-333333333333",
+    gitAccountName: "Account Bitbucket",
+    reviewGitAccountId: null,
+    testCommand: null,
+    installCommand: null,
+    webhookConfiguredAt: null,
+    graphEnabled: false,
+    createdAt: "2026-09-01T10:00:00.000Z",
+  };
+
+  it("una risposta senza `warnings` (server più vecchio) si legge []", () => {
+    expect(readerSchema(repositorySaveResponseSchema).parse(saved).warnings).toEqual([]);
+  });
+
+  it("l'avviso sull'identità del principale si legge verbatim", () => {
+    expect(
+      readerSchema(repositorySaveResponseSchema).parse({ ...saved, warnings: ["main_account_identity_unresolved"] })
+        .warnings,
+    ).toEqual(["main_account_identity_unresolved"]);
+  });
+
+  it("un avviso che il client non conosce diventa UNKNOWN, non un parse fallito", () => {
+    expect(
+      readerSchema(repositorySaveResponseSchema).parse({ ...saved, warnings: ["qualcosa_di_nuovo"] }).warnings,
+    ).toEqual([UNKNOWN]);
   });
 });

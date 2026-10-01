@@ -5,8 +5,10 @@ import {
   comments,
   encrypt,
   gitAccounts,
+  prCorrections,
   projects,
   repositories,
+  ticketRepositories,
   tickets,
   type Db,
 } from "@stubwise/db";
@@ -14,6 +16,7 @@ import { seedGitAccount, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import { execa } from "execa";
 import { randomBytes } from "node:crypto";
+import { existsSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -88,6 +91,31 @@ async function makeUpstream(): Promise<{ dir: string; url: string }> {
   await git(["-c", "user.name=Seed", "-c", "user.email=seed@example.com", "commit", "-m", "seed"], work);
   await git(["push", "origin", "main"], work);
   return { dir, url: pathToFileURL(dir).href };
+}
+
+/** Pusha sull'upstream il branch della PR del ticket `number` (il primo giro del fix). */
+async function pushPrBranch(upstream: { dir: string }, number: number): Promise<string> {
+  const work = await mkdtemp(join(tmpdir(), "stubwise-handler-pr-"));
+  cleanups.push(() => rm(work, { recursive: true, force: true }));
+  await execa("git", ["clone", "--quiet", upstream.dir, work]);
+  await git(["switch", "-c", `stubwise/ticket-${number}`], work);
+  await writeFile(join(work, "app.js"), "exports.sum = (a, b) => a + b;\n");
+  await git(["add", "."], work);
+  await git(["-c", "user.name=Seed", "-c", "user.email=seed@example.com", "commit", "-m", "fix"], work);
+  await git(["push", "origin", `stubwise/ticket-${number}`], work);
+  return git(["rev-parse", "HEAD"], work);
+}
+
+/** Collega il ticket a una PR aperta di Stubwise sul repo. */
+async function linkOpenPr(db: Db, ticketId: string, repositoryId: string, number: number): Promise<void> {
+  await db.insert(ticketRepositories).values({
+    ticketId,
+    repositoryId,
+    branch: `stubwise/ticket-${number}`,
+    prUrl: `https://github.com/acme/repo/pull/${number}`,
+    prState: "open",
+    prNumber: number,
+  });
 }
 
 async function makeMirrors(): Promise<MirrorManager> {
@@ -978,5 +1006,291 @@ describe("createHandler", () => {
     expect(runner.calls[0]?.provider).toBeUndefined();
     const [jobAfter] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
     expect(jobAfter?.providerId).toBeNull();
+  });
+
+  it("job con correction_id: salta triage e resolveFixMode, esegue la correzione sul branch della PR", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream();
+    const prSha = await pushPrBranch(upstream, 4);
+    const mirrors = await makeMirrors();
+    const repo = await createRepository(db, upstream.url);
+    // resume_mode=execute + plan_text: se il dispatch passasse da resolveFixMode
+    // questo job diventerebbe un execute-only dal DEFAULT branch. È la condizione
+    // che rende il test capace di sbagliare.
+    const ticketId = await createQueuedJob(db, repo, "sum sbaglia il segno", 4);
+    await linkOpenPr(db, ticketId, repo.repositoryId, 4);
+    const [correction] = await db
+      .insert(prCorrections)
+      .values({
+        ticketId,
+        repositoryId: repo.repositoryId,
+        prNumber: 4,
+        trigger: "stubwise",
+        status: "queued",
+        note: "aggiungi un test per i negativi",
+      })
+      .returning();
+    await db
+      .update(aiJobs)
+      .set({ correctionId: correction!.id, resumeMode: "execute", planText: "PIANO DA NON ESEGUIRE", manualTrigger: true })
+      .where(eq(aiJobs.ticketId, ticketId));
+
+    const runner = new FakeAgentRunner({
+      script: async (opts: AgentRunOptions) => {
+        await writeFile(join(opts.cwd, mirrorSlug(upstream.url), "sum.test.js"), "// negativi\n");
+        await writeFile(join(opts.cwd, "STUBWISE_REPORT.md"), "## x\nok\n");
+        return { output: "corretto", exitCode: 0 };
+      },
+    });
+    const openPullRequest = vi.fn().mockResolvedValue({ url: "https://github.com/acme/repo/pull/99" });
+    const provider = {
+      openPullRequest,
+      getPullRequestState: vi.fn().mockResolvedValue("open"),
+      setCommitStatus: vi.fn().mockResolvedValue(undefined),
+      listPrComments: vi.fn().mockResolvedValue([]),
+      getAuthenticatedUserId: vi.fn().mockResolvedValue("me"),
+    };
+    const handler = createHandler({
+      db,
+      runner,
+      mirrors,
+      encryptionKey: ENCRYPTION_KEY,
+      getProviderFn: () => provider,
+    });
+
+    const job = await claim(db);
+    await handler(job);
+
+    expect(runner.calls).toHaveLength(1);
+    expect(runner.calls[0]?.model).not.toBe("haiku");
+    expect(runner.calls[0]?.permissionMode).toBe("acceptEdits");
+    expect(runner.calls[0]?.prompt).toContain("<nota_della_richiesta>");
+    expect(runner.calls[0]?.prompt).not.toContain("PIANO DA NON ESEGUIRE");
+    expect(openPullRequest).not.toHaveBeenCalled();
+    const head = await git(["rev-parse", "refs/heads/stubwise/ticket-4"], upstream.dir);
+    expect(await git(["rev-parse", `${head}^`], upstream.dir)).toBe(prSha);
+    const [jobAfter] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+    expect(jobAfter?.status).toBe("pr_opened");
+    const [corrAfter] = await db.select().from(prCorrections).where(eq(prCorrections.id, correction!.id));
+    expect(corrAfter?.status).toBe("done");
+  });
+
+  it("job con correction_id e ownership persa: la correzione NON parte", async () => {
+    const { db } = testDb;
+    const mirrors = await makeMirrors();
+    const repo = await createRepository(db, "https://github.com/acme/mai-clonato");
+    const ticketId = await createQueuedJob(db, repo, "correzione orfana", 12);
+    const [correction] = await db
+      .insert(prCorrections)
+      .values({ ticketId, repositoryId: repo.repositoryId, prNumber: 12, trigger: "review", status: "queued" })
+      .returning();
+    await db.update(aiJobs).set({ correctionId: correction!.id }).where(eq(aiJobs.ticketId, ticketId));
+    const runner = new FakeAgentRunner({ output: "non dovrei mai girare" });
+    const handler = createHandler({ db, runner, mirrors, encryptionKey: ENCRYPTION_KEY });
+
+    const job = await claim(db);
+    await db.update(aiJobs).set({ status: "failed" }).where(eq(aiJobs.id, job.id));
+    await handler(job);
+
+    expect(runner.calls).toHaveLength(0);
+    const [jobAfter] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+    expect(jobAfter?.log).toContain("[correction] ownership persa");
+    expect(jobAfter?.status).toBe("failed");
+    // La correzione resta com'era: il job è di chi l'ha ripreso.
+    const [corrAfter] = await db.select().from(prCorrections).where(eq(prCorrections.id, correction!.id));
+    expect(corrAfter?.status).toBe("queued");
+  });
+
+  it("un fix che fallisce con una richiesta dal provider in attesa: la pending parte comunque", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream();
+    const mirrors = await makeMirrors();
+    const repo = await createRepository(db, upstream.url);
+    const ticketId = await createQueuedJob(db, repo, "rilancio del fix", 5, { resumeMode: "fix" });
+    await linkOpenPr(db, ticketId, repo.repositoryId, 5);
+    // "Request changes" arrivato mentre il fix era in volo: salvato `pending`.
+    const [pending] = await db
+      .insert(prCorrections)
+      .values({
+        ticketId,
+        repositoryId: repo.repositoryId,
+        prNumber: 5,
+        trigger: "provider",
+        status: "pending",
+        requestedByProviderLogin: "mario.rossi",
+      })
+      .returning();
+    // Nessuna modifica: il fix fallisce con NoChangesError.
+    const runner = new FakeAgentRunner({ output: "non trovo il bug" });
+    const handler = createHandler({
+      db,
+      runner,
+      mirrors,
+      encryptionKey: ENCRYPTION_KEY,
+      // Doppio COMPLETO del Pick di HandlerDeps.getProviderFn, senza cast: un
+      // metodo mancante lo dice il compilatore, non un test verde per caso. Ogni
+      // metodo risponde comunque in modo valido, anche se qui nessuno lo chiama.
+      getProviderFn: () => ({
+        openPullRequest: vi.fn().mockResolvedValue({ url: "https://github.com/acme/repo/pull/5" }),
+        getPullRequestState: vi.fn().mockResolvedValue("open"),
+        setCommitStatus: vi.fn().mockResolvedValue(undefined),
+        listPrComments: vi.fn().mockResolvedValue([]),
+        getAuthenticatedUserId: vi.fn().mockResolvedValue("me"),
+        getCollaboratorPermission: vi.fn().mockResolvedValue("write"),
+      }),
+    });
+
+    const job = await claim(db);
+    await handler(job);
+
+    const [fixJob] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+    expect(fixJob?.status).toBe("failed");
+    const [after] = await db.select().from(prCorrections).where(eq(prCorrections.id, pending!.id));
+    expect(after?.status).toBe("queued");
+    const [correctionJob] = await db.select().from(aiJobs).where(eq(aiJobs.correctionId, pending!.id));
+    expect(correctionJob?.status).toBe("queued");
+    expect(fixJob?.log).toContain(`richiesta di correzione in attesa avviata (${pending!.id})`);
+  });
+
+  it("un fix che fallisce SENZA pending: nessuna correzione nasce", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream();
+    const mirrors = await makeMirrors();
+    const repo = await createRepository(db, upstream.url);
+    const ticketId = await createQueuedJob(db, repo, "fix senza richieste", 6, { resumeMode: "fix" });
+    await linkOpenPr(db, ticketId, repo.repositoryId, 6);
+    const runner = new FakeAgentRunner({ output: "non trovo il bug" });
+    const handler = createHandler({ db, runner, mirrors, encryptionKey: ENCRYPTION_KEY });
+
+    const job = await claim(db);
+    await handler(job);
+
+    const [fixJob] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+    expect(fixJob?.status).toBe("failed");
+    expect(await db.select().from(prCorrections).where(eq(prCorrections.ticketId, ticketId))).toHaveLength(0);
+  });
+
+  it("un job saltato dal triage con una richiesta in attesa: la pending parte comunque", async () => {
+    const { db } = testDb;
+    const mirrors = await makeMirrors();
+    const repo = await createRepository(db, "https://github.com/acme/mai-clonato");
+    const ticketId = await createQueuedJob(db, repo, "ticket vago", 7);
+    await linkOpenPr(db, ticketId, repo.repositoryId, 7);
+    const [pending] = await db
+      .insert(prCorrections)
+      .values({ ticketId, repositoryId: repo.repositoryId, prNumber: 7, trigger: "provider", status: "pending" })
+      .returning();
+    const runner = new FakeAgentRunner({
+      output: `{"decision":"skip","type":"bug","effort":1,"reason":"troppo vago"}`,
+    });
+    const handler = createHandler({ db, runner, mirrors, encryptionKey: ENCRYPTION_KEY });
+
+    const job = await claim(db);
+    await handler(job);
+
+    const [jobAfter] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+    expect(jobAfter?.status).toBe("skipped");
+    const [after] = await db.select().from(prCorrections).where(eq(prCorrections.id, pending!.id));
+    expect(after?.status).toBe("queued");
+  });
+
+  it("job con correction_id al limite sul provider di progetto: stesso percorso del fix, job HELD e correzione ancora in coda", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream();
+    await pushPrBranch(upstream, 9);
+    const mirrors = await makeMirrors();
+    const [assigned] = await db
+      .insert(aiProviders)
+      .values({ position: 1, kind: "api_key", label: "progetto", secretEncrypted: encrypt("sk-progetto", ENCRYPTION_KEY) })
+      .returning();
+    if (!assigned) throw new Error("insert provider non ha restituito la riga");
+    const repo = await createRepository(db, upstream.url, { aiProviderId: assigned.id });
+    const ticketId = await createQueuedJob(db, repo, "correzione al limite", 9);
+    await linkOpenPr(db, ticketId, repo.repositoryId, 9);
+    const [correction] = await db
+      .insert(prCorrections)
+      .values({
+        ticketId,
+        repositoryId: repo.repositoryId,
+        prNumber: 9,
+        trigger: "stubwise",
+        status: "queued",
+        note: "ripresa dopo il limite",
+      })
+      .returning();
+    await db.update(aiJobs).set({ correctionId: correction!.id }).where(eq(aiJobs.ticketId, ticketId));
+    const loadProviderByIdFn = vi
+      .fn()
+      .mockResolvedValue({ id: assigned.id, kind: "api_key" as const, secret: "sk-progetto" });
+    // Qualunque run → limite di rate/usage.
+    const runner = new FakeAgentRunner({ output: "usage limit reached", exitCode: 1 });
+    const openPullRequest = vi.fn().mockResolvedValue({ url: "https://github.com/acme/repo/pull/9" });
+    const provider = {
+      openPullRequest,
+      getPullRequestState: vi.fn().mockResolvedValue("open"),
+      setCommitStatus: vi.fn().mockResolvedValue(undefined),
+      listPrComments: vi.fn().mockResolvedValue([]),
+      getAuthenticatedUserId: vi.fn().mockResolvedValue("me"),
+      getCollaboratorPermission: vi.fn().mockResolvedValue("write"),
+    };
+    const handler = createHandler({
+      db,
+      runner,
+      mirrors,
+      encryptionKey: ENCRYPTION_KEY,
+      loadProviderByIdFn,
+      getProviderFn: () => provider,
+    });
+
+    const job = await claim(db);
+    await handler(job);
+
+    expect(runner.calls.length).toBeGreaterThan(0);
+    const [jobAfter] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+    expect(jobAfter?.status).toBe("held");
+    expect(jobAfter?.heldReason).toBe("limit");
+    expect(jobAfter?.log).toContain("provider AI del progetto al limite");
+    // Lo STESSO job resta legato alla correzione: la ripresa deve ritrovarla.
+    expect(jobAfter?.correctionId).toBe(correction!.id);
+    const [corrAfter] = await db.select().from(prCorrections).where(eq(prCorrections.id, correction!.id));
+    expect(corrAfter?.status).toBe("queued");
+
+    // RIPRESA, come fa il resume poller (limit-resume-poller.ts): held → queued,
+    // con `heldReason` lasciato com'è (storico dell'ultimo hold). Il job
+    // riparte con quel residuo addosso, e deve tornare nel ramo della correzione.
+    await db
+      .update(aiJobs)
+      .set({ status: "queued", startedAt: null, finishedAt: null })
+      .where(eq(aiJobs.id, job.id));
+    const resumeRunner = new FakeAgentRunner({
+      script: async (opts: AgentRunOptions) => {
+        // Se la ripresa sbagliasse strada (triage in una tmpdir senza il repo)
+        // lo script non lancia: il test deve fallire sulle asserzioni.
+        const repoDir = join(opts.cwd, mirrorSlug(upstream.url));
+        if (!existsSync(repoDir)) return { output: "strada sbagliata", exitCode: 0 };
+        await writeFile(join(repoDir, "sum.test.js"), "// ripresa\n");
+        await writeFile(join(opts.cwd, "STUBWISE_REPORT.md"), "## x\nok\n");
+        return { output: "corretto", exitCode: 0 };
+      },
+    });
+    const resumeHandler = createHandler({
+      db,
+      runner: resumeRunner,
+      mirrors,
+      encryptionKey: ENCRYPTION_KEY,
+      loadProviderByIdFn,
+      getProviderFn: () => provider,
+    });
+
+    const resumed = await claim(db);
+    expect(resumed.id).toBe(job.id);
+    expect(resumed.heldReason).toBe("limit");
+    await resumeHandler(resumed);
+
+    expect(resumeRunner.calls).toHaveLength(1);
+    expect(resumeRunner.calls[0]?.prompt).toContain("<nota_della_richiesta>");
+    expect(openPullRequest).not.toHaveBeenCalled();
+    const [corrResumed] = await db.select().from(prCorrections).where(eq(prCorrections.id, correction!.id));
+    expect(corrResumed?.status).toBe("done");
   });
 });

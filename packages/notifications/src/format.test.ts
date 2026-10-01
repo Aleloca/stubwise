@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   formatNotification,
   formatNotificationText,
+  isReviewFailedEvent,
+  reviewOutcomeOf,
   sampleEvents,
   type NotificationEvent,
   type NotificationFormat,
+  type ReviewCompletedEvent,
 } from "./format.js";
 
 /**
@@ -1099,5 +1102,171 @@ describe("sampleEvents", () => {
         expect(() => formatNotification(event, format)).not.toThrow();
       }
     }
+  });
+});
+
+/**
+ * Ciclo di correzione post-PR: "fermo al tetto" NON è un kind nuovo (un valore
+ * nuovo di `notification_kind` è la trappola del 500 su `/api/inbox` al
+ * rollback, fasi 2/5/6). Riusa `review.completed` con un campo ADDITIVO,
+ * `cycle`, e un evento pubblicato prima — senza il campo — deve rendersi
+ * esattamente come sempre.
+ */
+describe("review.completed: il ciclo di correzione", () => {
+  const FERMO: ReviewCompletedEvent = {
+    kind: "review.completed",
+    ticketNumber: 42,
+    ticketTitle: "Fix checkout",
+    projectName: "webapp",
+    prUrl: "https://github.com/o/r/pull/7",
+    ticketUrl: "https://app.example.com/tickets/42",
+    verdict: "request_changes",
+    cycle: { round: 3, max: 3, stopped: true },
+  };
+
+  it("fermo al tetto → il verdetto dice dopo quante correzioni automatiche (en)", () => {
+    const text = formatNotificationText(FERMO, "en");
+    expect(text).toContain("changes still requested (automatic corrections: 3)");
+    expect(text).not.toContain(": changes requested.");
+  });
+
+  it("tetto a 1 → niente plurale sbagliato (forma `etichetta: N`)", () => {
+    const text = formatNotificationText({ ...FERMO, cycle: { round: 1, max: 1, stopped: true } }, "en");
+    expect(text).toContain("(automatic corrections: 1)");
+    expect(text).not.toContain("1 automatic corrections");
+  });
+
+  it("fermo al tetto → it", () => {
+    const text = formatNotificationText(FERMO, "it");
+    expect(text).toContain("modifiche ancora richieste (correzioni automatiche: 3)");
+  });
+
+  it("ciclo non fermo → il verdetto di sempre", () => {
+    const text = formatNotificationText({ ...FERMO, cycle: { round: 1, max: 3, stopped: false } }, "en");
+    expect(text).toContain("changes requested");
+    expect(text).not.toContain("automatic corrections");
+  });
+
+  it("evento SENZA `cycle` (pubblicato prima di questa funzione) → testo invariato", () => {
+    const vecchio: ReviewCompletedEvent = { ...FERMO };
+    delete vecchio.cycle; // ASSENTE, non `undefined`: la forma di un evento vecchio
+    const text = formatNotificationText(vecchio, "en");
+    expect(text).toContain("changes requested");
+    expect(text).not.toContain("automatic corrections");
+  });
+
+  it("generic: `cycle` sempre presente nel payload, null se l'evento non lo porta", () => {
+    const conCiclo = formatNotification(FERMO, "generic").body as Record<string, unknown>;
+    expect(conCiclo.cycle).toEqual({ round: 3, max: 3, stopped: true });
+    const vecchio: ReviewCompletedEvent = { ...FERMO };
+    delete vecchio.cycle;
+    const senza = formatNotification(vecchio, "generic").body as Record<string, unknown>;
+    expect(senza.cycle).toBeNull();
+  });
+
+  // C10b: dentro una serie automatica la review è FALLITA. Stesso kind, verdetto
+  // nullo, `stoppedReason: "review_failed"`: una frase SUA (`notify.reviewStopped`),
+  // né «review completed» né un verdetto («changes requested») mai dato.
+  const FALLITA: ReviewCompletedEvent = {
+    ...FERMO,
+    verdict: null,
+    cycle: { round: 2, max: 3, stopped: true, stoppedReason: "review_failed" },
+  };
+
+  it("review fallita dentro una serie → la frase delle correzioni ferme (en)", () => {
+    const text = formatNotificationText(FALLITA, "en");
+    expect(text).toBe(
+      "Automatic PR corrections stopped for #42 — Fix checkout (webapp): the review did not succeed (automatic corrections: 2).",
+    );
+  });
+
+  it("review fallita dentro una serie → it", () => {
+    const text = formatNotificationText(FALLITA, "it");
+    expect(text).toBe(
+      "Correzioni automatiche della PR ferme per #42 — Fix checkout (webapp): la review non è riuscita (correzioni automatiche: 2).",
+    );
+  });
+
+  it("evento vecchio (senza `cycle`, verdetto valorizzato) → la frase di sempre", () => {
+    const vecchio: ReviewCompletedEvent = { ...FERMO };
+    delete vecchio.cycle;
+    expect(formatNotificationText(vecchio, "en")).toBe(
+      "PR review completed for #42 — Fix checkout (webapp): changes requested.",
+    );
+  });
+
+  it("stop al tetto con `stoppedReason: \"cap\"` → la frase del tetto", () => {
+    const text = formatNotificationText({ ...FERMO, cycle: { round: 3, max: 3, stopped: true, stoppedReason: "cap" } }, "en");
+    expect(text).toContain("PR review completed for #42");
+    expect(text).toContain("changes still requested (automatic corrections: 3)");
+  });
+
+  it("`stoppedReason: \"review_failed\"` basta anche col verdetto valorizzato", () => {
+    const text = formatNotificationText({ ...FALLITA, verdict: "request_changes" }, "en");
+    expect(text).toContain("Automatic PR corrections stopped for #42");
+    expect(text).not.toContain("PR review completed");
+  });
+
+  it("verdetto nullo senza `cycle` (jsonb anomalo) → frase delle correzioni ferme, non lancia", () => {
+    const anomalo: ReviewCompletedEvent = { ...FERMO, verdict: null };
+    delete anomalo.cycle;
+    const text = formatNotificationText(anomalo, "en");
+    expect(text).toContain("Automatic PR corrections stopped for #42");
+    expect(text).toContain("(automatic corrections: 0)");
+  });
+
+  it("isReviewFailedEvent: vero per verdetto nullo o motivo review_failed, falso altrimenti", () => {
+    expect(isReviewFailedEvent(FALLITA)).toBe(true);
+    expect(isReviewFailedEvent({ ...FALLITA, verdict: "request_changes" })).toBe(true);
+    expect(isReviewFailedEvent({ ...FERMO, verdict: null, cycle: undefined })).toBe(true);
+    expect(isReviewFailedEvent(FERMO)).toBe(false);
+    expect(isReviewFailedEvent({ ...FERMO, cycle: { round: 3, max: 3, stopped: true, stoppedReason: "cap" } })).toBe(false);
+  });
+
+  it("reviewOutcomeOf: l'esito per il tono della card, con la precedenza della frase", () => {
+    expect(reviewOutcomeOf(FALLITA)).toBe("review_failed");
+    // Il motivo vince sul verdetto, come nella frase.
+    expect(reviewOutcomeOf({ ...FALLITA, verdict: "request_changes" })).toBe("review_failed");
+    expect(reviewOutcomeOf({ ...FERMO, cycle: { round: 3, max: 3, stopped: true, stoppedReason: "cap" } })).toBe(
+      "stopped_at_cap",
+    );
+    // `stopped` senza motivo: evento pubblicato prima di `stoppedReason`.
+    expect(reviewOutcomeOf(FERMO)).toBe("stopped_at_cap");
+    expect(reviewOutcomeOf({ ...FERMO, cycle: { round: 1, max: 3, stopped: false } })).toBe("changes_requested");
+    expect(reviewOutcomeOf({ ...FERMO, verdict: "approve", cycle: { round: 1, max: 3, stopped: false } })).toBe(
+      "approved",
+    );
+  });
+
+  it("reviewOutcomeOf su un evento VECCHIO senza `cycle`: decide il verdetto", () => {
+    const vecchio: ReviewCompletedEvent = { ...FERMO };
+    delete vecchio.cycle;
+    expect("cycle" in vecchio).toBe(false);
+    expect(reviewOutcomeOf(vecchio)).toBe("changes_requested");
+    expect(reviewOutcomeOf({ ...vecchio, verdict: "approve" })).toBe("approved");
+  });
+
+  it("reviewOutcomeOf: un verdetto illeggibile o un altro kind → null, non indovina", () => {
+    const anomalo = { ...FERMO, cycle: undefined, verdict: "boh" } as unknown as ReviewCompletedEvent;
+    expect(reviewOutcomeOf(anomalo)).toBeNull();
+    for (const event of sampleEvents("https://app.example.com")) {
+      if (event.kind !== "review.completed") expect(reviewOutcomeOf(event)).toBeNull();
+    }
+  });
+
+  it("Slack e Discord: la review fallita usa la stessa frase, coi link", () => {
+    for (const format of ["slack", "discord"] as const) {
+      const out = JSON.stringify(formatNotification(FALLITA, format).body);
+      expect(out).toContain("Automatic PR corrections stopped for");
+      expect(out).toContain("the review did not succeed");
+      expect(out).not.toContain("PR review completed");
+    }
+  });
+
+  it("generic: verdetto null, `cycle` col motivo dello stop e la frase nuova in `message`", () => {
+    const body = formatNotification(FALLITA, "generic").body as Record<string, unknown>;
+    expect(body.verdict).toBeNull();
+    expect(body.cycle).toEqual({ round: 2, max: 3, stopped: true, stoppedReason: "review_failed" });
+    expect(String(body.message)).toContain("Automatic PR corrections stopped");
   });
 });

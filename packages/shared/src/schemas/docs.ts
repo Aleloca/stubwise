@@ -35,9 +35,8 @@ export const docGenerationStatusSchema = z.enum([
 ]);
 export type DocGenerationStatus = z.infer<typeof docGenerationStatusSchema>;
 
-/** Motivo per cui un job è in `held`: solo `limit` è auto-ripristinabile. */
-export const heldReasonSchema = z.enum(["limit", "budget", "other"]);
-export type HeldReason = z.infer<typeof heldReasonSchema>;
+// Spostato in `base-enums.ts` (import circolare con `ticket.ts`, vedi lì).
+export { heldReasonSchema, type HeldReason } from "./base-enums.js";
 
 /**
  * Origine di una generazione: "manual" (avviata da un umano) o "push"

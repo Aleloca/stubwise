@@ -1,27 +1,42 @@
 import {
   basicAuthHeader,
   ensureListResponse,
+  ensureCommitStatusResponse,
   ensureOkResponse,
+  ensureOkResponseWithHint,
   fetchWithTimeout,
   getHeader,
   GitProviderError,
+  assertPageOnApiHost,
+  isFullCommitSha,
   parseRepoUrl,
+  PR_REVIEW_PERMISSION_HINT,
+  withPermissionHint,
   readJsonResponse,
   rollupCheckStatus,
+  STUBWISE_REVIEW_STATUS_KEY,
   verifyHmacSignature,
   MergeNotAllowedError,
   type AccountConfig,
   type AccountCredentials,
+  type ChangesRequestedEvent,
   type CheckOutcomeStatus,
+  type CommitStatusInput,
+  type CommitStatusState,
   type CredentialCheck,
   type FetchLike,
   type GitProvider,
   type GitProviderOptions,
   type PrActivityEvent,
+  type PrComment,
+  type PrReviewVerdict,
   type ProjectGitConfig,
   type PullRequestChecks,
+  type PullRequestFinalState,
   type PushWebhookEvent,
   type RepoSummary,
+  ReviewCommentFailedError,
+  type SubmitPrReviewOutcome,
   type WebhookEvent,
   type WebhookResult,
 } from "./provider.js";
@@ -38,6 +53,40 @@ const MAX_TOTAL_REPOS = 300;
 
 /** Tetto di branch elencati: ~2 pagine da 100 (~200 branch). */
 const MAX_BRANCH_PAGES = 2;
+
+/** Tetto di pagine di commenti di una PR: 10 da 100 (~1000 commenti). Oltre
+ * è un'anomalia, e un `next` che non termina non deve girare all'infinito.
+ * Arrivati al tetto con ancora una pagina successiva si LANCIA, non si tronca:
+ * una fotografia parziale verrebbe presa per completa e i commenti persi
+ * resterebbero fuori per sempre. L'errore evita sia quello sia il ciclo. */
+const MAX_COMMENT_PAGES = 10;
+
+/** Tetto di pagine della lista webhook di un repository: 5 da 100. Oltre è
+ * un'anomalia (un repository ha pochi hook), e un `next` che non termina non
+ * deve girare all'infinito. Arrivati al tetto con ancora una pagina
+ * successiva si LANCIA invece di concludere «non c'è»: ensureWebhook
+ * creerebbe un duplicato di un hook che sta solo in una pagina non letta.
+ * Meglio fallire che duplicare. */
+const MAX_HOOK_PAGES = 5;
+
+/** Nome leggibile dello status di Stubwise nella UI di Bitbucket. */
+const COMMIT_STATUS_NAME = "Stubwise review";
+
+const BITBUCKET_STATUS_STATE: Record<CommitStatusState, "INPROGRESS" | "SUCCESSFUL" | "FAILED"> = {
+  pending: "INPROGRESS",
+  success: "SUCCESSFUL",
+  failure: "FAILED",
+};
+
+interface BitbucketCommentPayload {
+  id?: unknown;
+  created_on?: unknown;
+  deleted?: unknown;
+  pending?: unknown;
+  content?: { raw?: unknown };
+  user?: unknown;
+  inline?: { path?: unknown; to?: unknown; from?: unknown };
+}
 
 interface BitbucketPrResponse {
   links?: { html?: { href?: unknown } };
@@ -111,6 +160,42 @@ export class BitbucketProvider implements GitProvider {
   }
 
   /**
+   * Stato della PR via REST, mergiata distinta da rifiutata: OPEN → 'open',
+   * MERGED → 'merged', DECLINED/SUPERSEDED → 'closed_unmerged'. Uno stato
+   * diverso lancia: non si deduce.
+   */
+  async getPullRequestFinalState(
+    p: ProjectGitConfig,
+    prNumber: number,
+    opts: { fetchImpl?: FetchLike } = {}
+  ): Promise<PullRequestFinalState> {
+    const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
+    const { owner, repo } = parseRepoUrl(p.repoUrl);
+    const auth = this.projectRestAuthHeader(p);
+    const response = await fetchImpl(
+      `${API_BASE}/repositories/${owner}/${repo}/pullrequests/${prNumber}`,
+      { method: "GET", headers: { Authorization: auth } }
+    );
+    await ensureOkResponse(response, "Bitbucket");
+    const data = (await readJsonResponse(response, "Bitbucket")) as { state?: unknown };
+    switch (data.state) {
+      case "OPEN":
+        return "open";
+      case "MERGED":
+        return "merged";
+      case "DECLINED":
+      case "SUPERSEDED":
+        return "closed_unmerged";
+      default:
+        throw new GitProviderError(
+          `Bitbucket: stato della PR non riconosciuto (${String(data.state).slice(0, 40)})`,
+          response.status,
+          ""
+        );
+    }
+  }
+
+  /**
    * Build status della PR via REST: una pagina da 100 (come il commento
    * sticky) — l'endpoint elenca i report su TUTTI i commit della PR, non
    * serve risolvere lo sha per LEGGERLI. Lo si risolve comunque con una
@@ -159,7 +244,15 @@ export class BitbucketProvider implements GitProvider {
       const data = (await readJsonResponse(response, "Bitbucket")) as {
         values?: { name?: unknown; key?: unknown; state?: unknown }[];
       };
-      const values = Array.isArray(data.values) ? data.values : [];
+      // Lo status che la review di Stubwise scrive sulla PR (ciclo di
+      // correzione, `setCommitStatus` con key `stubwise-review`) NON è un
+      // check: la coda di rilascio legge il verdetto della review dal DB, in
+      // una colonna sua. Contarlo qui bloccherebbe il merge da Stubwise solo
+      // su Bitbucket (GitHub legge i check-run, non gli status). Le regole del
+      // branch sulla piattaforma lo vedono comunque: il filtro è solo nostro.
+      const values = (Array.isArray(data.values) ? data.values : []).filter(
+        (v) => v.key !== STUBWISE_REVIEW_STATUS_KEY,
+      );
       if (values.length === 0) return { status: "no_checks", checks: [], ...extra };
 
       const checks = values.map((v) => ({
@@ -271,6 +364,246 @@ export class BitbucketProvider implements GitProvider {
     await ensureOkResponse(response, "Bitbucket");
   }
 
+  /**
+   * Commenti della PR (generali, sulle righe e risposte), dal più vecchio al
+   * più nuovo come li ordina Bitbucket, seguendo `next` fino al tetto
+   * {@link MAX_COMMENT_PAGES}. Mai i cancellati (`deleted`), le bozze
+   * (`pending`), i vuoti, né quelli senza `user.uuid` (vedi {@link PrComment}).
+   * Lancia GitProviderError sui non-2xx: la fotografia del feedback non si
+   * prende a metà.
+   */
+  async listPrComments(
+    p: ProjectGitConfig,
+    prNumber: number,
+    opts: { fetchImpl?: FetchLike } = {}
+  ): Promise<PrComment[]> {
+    const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
+    const { owner, repo } = parseRepoUrl(p.repoUrl);
+    const auth = this.projectRestAuthHeader(p);
+    const comments: PrComment[] = [];
+    let url: string | null =
+      `${API_BASE}/repositories/${owner}/${repo}/pullrequests/${prNumber}/comments?pagelen=100`;
+    for (let page = 0; page < MAX_COMMENT_PAGES && url; page++) {
+      // Il `next` lo sceglie la risposta: mai seguirlo fuori dall'API col token.
+      assertPageOnApiHost(url, API_BASE, "Bitbucket");
+      // Con un tempo massimo: gira nel ciclo di correzione (fotografia della
+      // PR), dove un provider che non risponde non deve fermare il job.
+      const response = await fetchWithTimeout(fetchImpl, url, { method: "GET", headers: { Authorization: auth } });
+      await ensureOkResponse(response, "Bitbucket");
+      const data = (await readJsonResponse(response, "Bitbucket")) as {
+        values?: unknown;
+        next?: unknown;
+      } | null;
+      // Una pagina senza `values` non è "nessun commento": è una risposta che
+      // non capiamo, e contarla come vuota darebbe una fotografia a metà.
+      if (typeof data !== "object" || data === null || !Array.isArray(data.values)) {
+        throw new GitProviderError(
+          "Bitbucket: risposta inattesa leggendo i commenti della PR: non prendo una fotografia parziale",
+          0,
+          ""
+        );
+      }
+      for (const raw of data.values as BitbucketCommentPayload[]) {
+        const comment = bitbucketComment(raw);
+        if (comment !== null) comments.push(comment);
+      }
+      url = typeof data.next === "string" ? data.next : null;
+    }
+    if (url) {
+      throw new GitProviderError(
+        `Bitbucket: oltre ${MAX_COMMENT_PAGES} pagine di commenti sulla PR: non prendo una fotografia parziale`,
+        0,
+        ""
+      );
+    }
+    return comments;
+  }
+
+  /**
+   * Status di commit di Stubwise (design §8). Stessa `key` sullo stesso commit
+   * = sovrascrive (documentato). `refname` associa lo status alla PR (la doc
+   * lo dice necessario); `url` si manda sempre — senza quello del chiamante,
+   * la pagina della repository. Il ripiego è NECESSARIO, non prudenza: lo
+   * schema della spec non mette `url` fra gli obbligatori, ma la API vera
+   * risponde 400 `url: This field is required.` (B14 T9, 1 ott 2026); con
+   * `refname` + `url` lo status nasce (201) e compare sulla PR (T10). Lo sha dev'essere completo: un abbreviato è
+   * rifiutato qui, prima della richiesta. Lancia GitProviderError: chi chiama
+   * lo tratta come best-effort (design §8).
+   */
+  async setCommitStatus(
+    p: ProjectGitConfig,
+    sha: string,
+    status: CommitStatusInput,
+    opts: { fetchImpl?: FetchLike } = {}
+  ): Promise<void> {
+    if (!isFullCommitSha(sha)) {
+      throw new GitProviderError(
+        `Bitbucket: lo status di commit richiede lo sha completo (40 caratteri), ricevuto "${sha}"`,
+        0,
+        ""
+      );
+    }
+    const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
+    const { host, owner, repo } = parseRepoUrl(p.repoUrl);
+    const response = await fetchWithTimeout(
+      fetchImpl,
+      `${API_BASE}/repositories/${owner}/${repo}/commit/${sha}/statuses/build`,
+      {
+        method: "POST",
+        headers: { Authorization: this.projectRestAuthHeader(p), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          key: status.key,
+          state: BITBUCKET_STATUS_STATE[status.state],
+          name: COMMIT_STATUS_NAME,
+          description: status.description,
+          url: status.url ?? `https://${host}/${owner}/${repo}`,
+          ...(status.refname !== undefined ? { refname: status.refname } : {}),
+        }),
+      }
+    );
+    await ensureCommitStatusResponse(response, "Bitbucket");
+  }
+
+  /**
+   * Verdetto dell'account revisore come stato vero della PR (design §8).
+   * Bitbucket non ha un testo per il verdetto: stato e commento sono due
+   * chiamate. Ordine: (1) DELETE dell'opposto, best-effort — un partecipante
+   * ha UNO stato (approved | changes_requested), quindi si ritira l'altro; la
+   * risposta non si guarda e anche un errore di rete si ignora. Il caso
+   * "niente da ritirare" risponde 404 («You haven't approved this pull
+   * request.», B14 T20): ignorarlo è giusto. Il DELETE è solo PRUDENZA: un
+   * approve diretto da `changes_requested` risponde 200 e porta comunque lo
+   * stato ad `approved` (T23); (2) POST del verdetto; (3) il
+   * commento, se il corpo non è vuoto. Il verdetto va PRIMA del testo perché
+   * chi chiama (C10), se questo metodo fallisce, ripiega su `createPrComment`
+   * con l'account principale: se il verdetto fallisce non è uscito niente, se
+   * fallisce il commento il ripiego pubblica il testo una volta sola — con
+   * l'ordine opposto un verdetto fallito dopo il commento lo farebbe uscire
+   * due volte. L'autore della PR può approvarla ma la sua approvazione non
+   * conta per i merge check: per questo serve un account revisore distinto.
+   * Su 401/403 (stato o commento) il messaggio nomina il permesso mancante
+   * ({@link PR_REVIEW_PERMISSION_HINT}); gli altri errori passano invariati.
+   * Limite accettato: se il DELETE dell'opposto riesce e poi il POST del
+   * verdetto fallisce, la PR resta SENZA stato del revisore (quello
+   * precedente è già stato ritirato). Il ripiego di C10 pubblica il testo ma
+   * non ripristina il verdetto di prima. Un 409 sul POST del verdetto si
+   * tratta come «già in quello stato» (esito `already_in_state`, il commento
+   * parte comunque). Dal vivo (B14 T21, 1 ott 2026) il 409 NON arriva mai:
+   * approve e request-changes ripetuti rispondono 200 e 200, idempotenti. Il
+   * ramo resta come difesa, ed è innocuo: non scatta. Su una PR MERGIATA
+   * l'approve è accettato (200) e il request-changes no (400
+   * `CANNOT_REQUEST_CHANGES_MERGED_PR`, B14 T35): il 400 è un errore come gli
+   * altri, senza il suggerimento sui permessi.
+   */
+  async submitPrReview(
+    p: ProjectGitConfig,
+    prNumber: number,
+    verdict: PrReviewVerdict,
+    body: string,
+    opts: { fetchImpl?: FetchLike } = {}
+  ): Promise<SubmitPrReviewOutcome> {
+    const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
+    const { owner, repo } = parseRepoUrl(p.repoUrl);
+    const auth = this.projectRestAuthHeader(p);
+    const prBase = `${API_BASE}/repositories/${owner}/${repo}/pullrequests/${prNumber}`;
+    // `as const`: senza, l'array è string[] e con noUncheckedIndexedAccess la
+    // destrutturazione darebbe string | undefined.
+    const [withdraw, submit] =
+      verdict === "approve"
+        ? (["request-changes", "approve"] as const)
+        : (["approve", "request-changes"] as const);
+    try {
+      const withdrawn = await fetchWithTimeout(fetchImpl, `${prBase}/${withdraw}`, {
+        method: "DELETE",
+        headers: { Authorization: auth },
+      });
+      await withdrawn.body?.cancel();
+    } catch {
+      // best-effort: il POST qui sotto decide.
+    }
+    const response = await fetchWithTimeout(fetchImpl, `${prBase}/${submit}`, {
+      method: "POST",
+      headers: { Authorization: auth },
+    });
+    // 409 sul verdetto = l'account è GIÀ in quello stato: SCELTA DIFENSIVA —
+    // si tratta come successo e il commento parte comunque, così il chiamante
+    // non ripiega sul commento dell'account principale per uno stato già
+    // giusto. Dal vivo (B14 T21) un verdetto ripetuto risponde 200, mai 409:
+    // il ramo non scatta, ed è innocuo tenerlo. Ogni altro non-2xx resta un
+    // errore.
+    let outcome: SubmitPrReviewOutcome = { status: "submitted" };
+    if (response.status === 409) {
+      const text = await response.text().catch(() => "");
+      outcome = { status: "already_in_state", responseExcerpt: maskCredentials(text, p, auth).slice(0, 200) };
+    } else {
+      await ensureOkResponseWithHint(response, "Bitbucket", PR_REVIEW_PERMISSION_HINT);
+    }
+    if (body.trim().length > 0) {
+      try {
+        await this.createPrComment(p, prNumber, body, { fetchImpl });
+      } catch (error) {
+        // Il verdetto c'è già: chi ripiega deve poterlo sapere, o direbbe
+        // «verdetto non apposto» su una PR che ce l'ha.
+        throw new ReviewCommentFailedError(withPermissionHint(error, PR_REVIEW_PERMISSION_HINT));
+      }
+    }
+    return outcome;
+  }
+
+  /**
+   * Identità stabile dell'account sulla piattaforma (design §4/§5): lo uuid di
+   * `GET /2.0/user`, GREZZO — graffe comprese e maiuscole come arrivano. Lo
+   * ricava {@link bitbucketAccount}, la stessa funzione che dà `actorId` al
+   * webhook "Request changes" e `authorId` ai commenti: il confronto del
+   * design §5 è un'uguaglianza di stringhe, e la forma sta in un posto solo.
+   * Accetta qualunque oggetto con `credentials` (ProjectGitConfig o
+   * AccountCredentials); identità REST come gli altri metodi (email
+   * Atlassian, poi username). Lancia GitProviderError: sul 401 dice che le
+   * credenziali non valgono, sul 403 lo scope mancante (`read:user:bitbucket`
+   * dell'API token) — verificato dal vivo (B14 T3/T4): senza quello scope
+   * `/user` risponde 403 (non 401) con `detail.required:
+   * ["read:user:bitbucket"]`, e il messaggio non contiene il token. Lo uuid
+   * arriva con le graffe (T1/T2) ed è identico byte per byte all'`actor.uuid`
+   * del webhook e all'autore dei commenti (T26); senza uuid lancia invece di
+   * restituire un'identità vuota. Mai il token in un messaggio.
+   */
+  async getAuthenticatedUserId(
+    p: Pick<ProjectGitConfig, "credentials">,
+    opts: { fetchImpl?: FetchLike; timeoutMs?: number } = {}
+  ): Promise<string> {
+    const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
+    // Con un tempo massimo, come i controlli di validateCredentials: un
+    // provider che non risponde non deve tenere appeso il salvataggio di una
+    // repository né il webhook. Il timeout diventa un errore (fail-closed).
+    const response = await fetchWithTimeout(
+      fetchImpl,
+      `${API_BASE}/user`,
+      { method: "GET", headers: { Authorization: this.projectRestAuthHeader(p) } },
+      opts.timeoutMs
+    );
+    if (response.status === 401 || response.status === 403) {
+      const text = (await response.text().catch(() => "")).slice(0, 500);
+      throw new GitProviderError(
+        response.status === 401
+          ? "Bitbucket: credenziali non valide leggendo l'identità dell'account (401) — verifica email/username e token"
+          : "Bitbucket: il token non può leggere la propria identità (403) — all'API token serve lo scope read:user:bitbucket",
+        response.status,
+        text
+      );
+    }
+    await ensureOkResponse(response, "Bitbucket");
+    const data = await readJsonResponse(response, "Bitbucket");
+    const account = bitbucketAccount(data);
+    if (account === null) {
+      throw new GitProviderError(
+        "Bitbucket: la risposta di /user non contiene uno uuid: identità dell'account non determinabile",
+        response.status,
+        ""
+      );
+    }
+    return account.id;
+  }
+
   parseWebhook(headers: Record<string, string>, body: unknown): WebhookEvent | null {
     const eventKey = getHeader(headers, "x-event-key");
     const kind =
@@ -351,6 +684,52 @@ export class BitbucketProvider implements GitProvider {
     };
   }
 
+  /**
+   * "Request changes" su una PR (ciclo di correzione, design §9). Il payload
+   * documentato è `{ actor, pullrequest, repository, changes_request: { date,
+   * user } }`: nessun testo, quindi `reviewBody` è sempre null. L'autore è
+   * `changes_request.user`, con `actor` come ripiego; se entrambi hanno un
+   * uuid e non coincidono l'evento è scartato — non si può escludere che sia
+   * di un account di Stubwise (design §5, fail-closed). Mai lancia.
+   */
+  parseChangesRequestedEvent(
+    headers: Record<string, string>,
+    body: unknown
+  ): ChangesRequestedEvent | null {
+    if (getHeader(headers, "x-event-key") !== "pullrequest:changes_request_created") return null;
+    if (typeof body !== "object" || body === null) return null;
+    const payload = body as {
+      actor?: unknown;
+      pullrequest?: unknown;
+      changes_request?: { user?: unknown } | null;
+    };
+    if (typeof payload.pullrequest !== "object" || payload.pullrequest === null) return null;
+    const pr = payload.pullrequest as { id?: unknown; source?: { branch?: { name?: unknown } } };
+    const sourceBranch = pr.source?.branch?.name;
+    if (
+      typeof pr.id !== "number" ||
+      !Number.isSafeInteger(pr.id) ||
+      typeof sourceBranch !== "string"
+    ) {
+      return null;
+    }
+
+    const requester = bitbucketAccount(payload.changes_request?.user);
+    const actor = bitbucketAccount(payload.actor);
+    if (requester !== null && actor !== null && requester.id !== actor.id) return null;
+    const who = requester ?? actor;
+    if (who === null) return null;
+    return {
+      prNumber: pr.id,
+      sourceBranch,
+      actorId: who.id,
+      actorLogin: who.login,
+      reviewBody: null,
+      // Bitbucket non dice che rapporto ha l'autore col repository.
+      authorAssociation: null,
+    };
+  }
+
   parsePushEvent(headers: Record<string, string>, body: unknown): PushWebhookEvent | null {
     if (getHeader(headers, "x-event-key") !== "repo:push") return null;
     if (typeof body !== "object" || body === null) return null;
@@ -418,7 +797,7 @@ export class BitbucketProvider implements GitProvider {
             return {
               name: "Accesso git (push)",
               ok: false,
-              detail: `autenticazione git fallita (status ${r.status}): verifica username Bitbucket, token e scope repository:write`,
+              detail: `autenticazione git fallita (status ${r.status}): verifica username Bitbucket, token e scope write:repository:bitbucket`,
             };
           }
           return {
@@ -445,21 +824,21 @@ export class BitbucketProvider implements GitProvider {
             { headers: { Authorization: basicAuthHeader(restUser, token) } }
           );
           if (r.status === 200) {
-            return { name: "Accesso REST API (PR)", ok: true, detail: "accesso REST e scope pullrequest ok" };
+            return { name: "Accesso REST API (PR)", ok: true, detail: "accesso REST e scope read:pullrequest:bitbucket ok" };
           }
           if (r.status === 401) {
             return {
               name: "Accesso REST API (PR)",
               ok: false,
               detail:
-                "autenticazione REST fallita (401): per gli API token Atlassian serve l'email come identità, e il token deve avere lo scope pullrequest",
+                "autenticazione REST fallita (401): per gli API token Atlassian serve l'email come identità, e il token deve avere gli scope read:pullrequest:bitbucket e write:pullrequest:bitbucket",
             };
           }
           if (r.status === 403) {
             return {
               name: "Accesso REST API (PR)",
               ok: false,
-              detail: "accesso negato (403): manca lo scope pullrequest",
+              detail: "accesso negato (403): manca lo scope read:pullrequest:bitbucket (per aprire le PR serve anche write:pullrequest:bitbucket)",
             };
           }
           return {
@@ -489,7 +868,7 @@ export class BitbucketProvider implements GitProvider {
             return {
               name: "Accesso webhook (config automatica)",
               ok: true,
-              detail: "scope webhook presente",
+              detail: "scope read:webhook:bitbucket presente",
             };
           }
           if (r.status === 403) {
@@ -497,7 +876,7 @@ export class BitbucketProvider implements GitProvider {
               name: "Accesso webhook (config automatica)",
               ok: false,
               detail:
-                "403: o manca lo scope webhook (read/write:webhook) sul token, oppure l'account non ha accesso Admin al repository (la gestione dei webhook su Bitbucket richiede Admin, non basta Write)",
+                "403: o mancano gli scope read:webhook:bitbucket e write:webhook:bitbucket sul token, oppure l'account non ha accesso Admin al repository (la gestione dei webhook su Bitbucket richiede Admin, non basta Write)",
             };
           }
           return {
@@ -541,6 +920,7 @@ export class BitbucketProvider implements GitProvider {
                 permission === "read"
                   ? "il token ha solo accesso in lettura: mergiare richiede write o admin"
                   : "nessun permesso trovato sul repository per questo token",
+              ...(permission === "read" ? { failure: "no_write_permission" as const } : {}),
             };
           }
           if (r.status === 401) {
@@ -553,7 +933,12 @@ export class BitbucketProvider implements GitProvider {
           };
         });
 
-    return [gitCheck, restCheck, webhookCheck, mergeCheck];
+    return [
+      { ...gitCheck, purpose: "push" },
+      { ...restCheck, purpose: "rest" },
+      { ...webhookCheck, purpose: "webhook" },
+      { ...mergeCheck, purpose: "merge" },
+    ];
   }
 
   async validateAccount(
@@ -620,7 +1005,7 @@ export class BitbucketProvider implements GitProvider {
           name: CHECK,
           ok: false,
           detail:
-            "accesso negato (403): il token non ha accesso a questo workspace o manca lo scope repository",
+            "accesso negato (403): il token non ha accesso a questo workspace o manca lo scope read:repository:bitbucket",
         };
       }
       if (r.status === 404) {
@@ -669,29 +1054,26 @@ export class BitbucketProvider implements GitProvider {
       url: hook.url,
       active: true,
       // created/updated alimentano l'automazione PR Review; fulfilled/rejected
-      // e repo:push servono al tracking dei fix. I webhook già configurati vanno
-      // riallineati con "Configura webhook" dalla UI (ensureWebhook è idempotente).
+      // e repo:push servono al tracking dei fix; changes_request_created al
+      // ciclo di correzione ("Request changes" sulla PR). I webhook già
+      // configurati vanno riallineati rilanciando ensureWebhook (idempotente):
+      // dalla UI con "Configura webhook" o con lo script resync-webhooks.
       events: [
         "pullrequest:created",
         "pullrequest:updated",
         "pullrequest:fulfilled",
         "pullrequest:rejected",
+        "pullrequest:changes_request_created",
         "repo:push",
       ],
       secret: hook.secret,
     };
 
     try {
-      // Lista (prima pagina): cerca un hook con lo stesso target URL.
-      const listResponse = await fetchImpl(base, {
-        method: "GET",
-        headers: { Authorization: auth },
-      });
-      this.guardWebhookResponse(listResponse);
-      const list = (await readJsonResponse(listResponse, "Bitbucket")) as {
-        values?: { uuid?: unknown; url?: unknown }[];
-      };
-      const existing = (list.values ?? []).find((h) => h.url === hook.url);
+      // Cerca un hook con lo stesso target URL su TUTTE le pagine (cursore
+      // `next`): uno in seconda pagina non trovato diventerebbe un duplicato
+      // alla creazione qui sotto.
+      const existing = await this.findHookByUrl(fetchImpl, `${base}?pagelen=100`, auth, hook.url);
 
       if (existing && typeof existing.uuid === "string") {
         const updateResponse = await fetchImpl(`${base}/${existing.uuid}`, {
@@ -745,6 +1127,8 @@ export class BitbucketProvider implements GitProvider {
       workspace
     )}?pagelen=100&sort=-updated_on`;
     for (let page = 0; page < MAX_REPO_PAGES && url && repos.length < MAX_TOTAL_REPOS; page++) {
+      // Il `next` lo sceglie la risposta: mai seguirlo fuori dall'API col token.
+      assertPageOnApiHost(url, API_BASE, "Bitbucket");
       const response = await fetchImpl(url, { method: "GET", headers: { Authorization: auth } });
       await ensureListResponse(response, "Bitbucket");
       const data = (await readJsonResponse(response, "Bitbucket")) as {
@@ -797,6 +1181,8 @@ export class BitbucketProvider implements GitProvider {
     let url: string | null = `${API_BASE}/repositories/${repoFullName}/refs/branches?pagelen=100`;
     const branches: string[] = [];
     for (let pageNumber = 0; pageNumber < MAX_BRANCH_PAGES && url; pageNumber++) {
+      // Il `next` lo sceglie la risposta: mai seguirlo fuori dall'API col token.
+      assertPageOnApiHost(url, API_BASE, "Bitbucket");
       const response = await fetchImpl(url, { method: "GET", headers: { Authorization: auth } });
       await ensureListResponse(response, "Bitbucket");
       const data = (await readJsonResponse(response, "Bitbucket")) as {
@@ -834,7 +1220,7 @@ export class BitbucketProvider implements GitProvider {
    * legacy). Stessa regola di openPullRequest/restAuthHeader; lancia se
    * mancano entrambe, prima di qualsiasi richiesta.
    */
-  private projectRestAuthHeader(p: ProjectGitConfig): string {
+  private projectRestAuthHeader(p: Pick<ProjectGitConfig, "credentials">): string {
     const restUser = p.credentials.email ?? p.credentials.username;
     if (!restUser) {
       throw new GitProviderError(
@@ -847,6 +1233,53 @@ export class BitbucketProvider implements GitProvider {
   }
 
   /**
+   * Cerca fra gli hook del repository quello con `url` uguale a `targetUrl`,
+   * seguendo il cursore `next` fino a {@link MAX_HOOK_PAGES}. Si ferma alla
+   * prima pagina che lo contiene. Lancia GitProviderError (mai `undefined`,
+   * che al chiamante varrebbe «crealo») su una risposta dalla forma inattesa
+   * (`values` non array), su una pagina successiva oltre il tetto e su un
+   * `next` fuori dall'host dell'API — quest'ultimo PRIMA di seguirlo, perché
+   * la richiesta porterebbe il token altrove.
+   */
+  private async findHookByUrl(
+    fetchImpl: FetchLike,
+    firstUrl: string,
+    auth: string,
+    targetUrl: string
+  ): Promise<{ uuid?: unknown; url?: unknown } | undefined> {
+    let url: string | null = firstUrl;
+    for (let page = 0; page < MAX_HOOK_PAGES && url; page++) {
+      assertPageOnApiHost(url, API_BASE, "Bitbucket");
+      const response = await fetchWithTimeout(fetchImpl, url, { method: "GET", headers: { Authorization: auth } });
+      this.guardWebhookResponse(response);
+      const data = (await readJsonResponse(response, "Bitbucket")) as {
+        values?: unknown;
+        next?: unknown;
+      } | null;
+      if (!data || typeof data !== "object" || !Array.isArray(data.values)) {
+        throw new GitProviderError(
+          "Bitbucket: risposta inattesa leggendo i webhook del repository: non ne creo uno nuovo alla cieca",
+          0,
+          ""
+        );
+      }
+      const found = (data.values as { uuid?: unknown; url?: unknown }[]).find(
+        (h) => h?.url === targetUrl
+      );
+      if (found) return found;
+      url = typeof data.next === "string" ? data.next : null;
+    }
+    if (url) {
+      throw new GitProviderError(
+        `Bitbucket: oltre ${MAX_HOOK_PAGES} pagine di webhook sul repository: non ne creo uno nuovo per non duplicarlo`,
+        0,
+        ""
+      );
+    }
+    return undefined;
+  }
+
+  /**
    * Lancia GitProviderError sui non-2xx delle chiamate webhook, con messaggio
    * dedicato sul 403 (scope webhook mancante). Il chiamante ensureWebhook
    * cattura solo gli errori di rete grezzi; questo invece propaga GitProviderError.
@@ -855,7 +1288,7 @@ export class BitbucketProvider implements GitProvider {
     if (response.ok) return;
     if (response.status === 403) {
       throw new GitProviderError(
-        "403 dalla gestione webhook: verifica che il token abbia gli scope read:webhook e write:webhook, E che l'account abbia accesso Admin al repository (Bitbucket richiede Admin per gestire i webhook, non basta Write)",
+        "403 dalla gestione webhook: verifica che il token abbia gli scope read:webhook:bitbucket e write:webhook:bitbucket, E che l'account abbia accesso Admin al repository (Bitbucket richiede Admin per gestire i webhook, non basta Write)",
         403,
         ""
       );
@@ -887,8 +1320,77 @@ export class BitbucketProvider implements GitProvider {
 }
 
 /** Mappa `state` di un build status Bitbucket sul rollup a tre stati condiviso. */
+/**
+ * Un testo della risposta senza le credenziali: il token e l'header Basic
+ * (la sua forma base64) diventano `***`, PRIMA di qualunque taglio (un token
+ * spezzato dal taglio non sopravvive). Il testo va nei log del chiamante.
+ */
+function maskCredentials(text: string, p: ProjectGitConfig, authHeader: string): string {
+  const secrets = [p.credentials.token, authHeader.replace(/^Basic\s+/i, "")].filter((x) => x.length > 0);
+  return secrets.reduce((acc, secret) => acc.split(secret).join("***"), text);
+}
+
 function bitbucketCheckStatus(state: unknown): CheckOutcomeStatus {
   if (state === "SUCCESSFUL") return "success";
   if (state === "INPROGRESS") return "pending";
   return "failure"; // FAILED, STOPPED, o qualunque valore non riconosciuto.
+}
+
+/**
+ * Identità di un account Bitbucket da un payload (webhook o REST): uuid (con
+ * le graffe, com'è) come id stabile, `nickname` come nome leggibile —
+ * `display_name` se manca, l'uuid come ultima risorsa. Null senza uuid:
+ * un'identità che non si può confrontare con gli account di Stubwise non
+ * vale niente per il filtro del design §5.
+ */
+function bitbucketAccount(raw: unknown): { id: string; login: string } | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const account = raw as { uuid?: unknown; nickname?: unknown; display_name?: unknown };
+  if (typeof account.uuid !== "string" || account.uuid.length === 0) return null;
+  const login =
+    typeof account.nickname === "string" && account.nickname.length > 0
+      ? account.nickname
+      : typeof account.display_name === "string" && account.display_name.length > 0
+        ? account.display_name
+        : account.uuid;
+  return { id: account.uuid, login };
+}
+
+/**
+ * Un commento REST di Bitbucket → {@link PrComment}, o null se non va nella
+ * fotografia (cancellato, bozza, vuoto, senza id/data/autore). L'autore passa
+ * da {@link bitbucketAccount}, la stessa funzione del webhook "Request
+ * changes": l'identità Bitbucket ha UNA forma sola (uuid grezzo con le
+ * graffe), confrontabile con gli account di Stubwise. La riga è `inline.to`
+ * (versione nuova del file) e, se manca, `inline.from` (riga tolta); nessuna
+ * riga per un commento generale.
+ */
+function bitbucketComment(c: BitbucketCommentPayload): PrComment | null {
+  if (typeof c !== "object" || c === null) return null;
+  if (c.deleted === true || c.pending === true) return null;
+  if (typeof c.id !== "number" || typeof c.created_on !== "string") return null;
+  const body = typeof c.content?.raw === "string" ? c.content.raw : "";
+  if (body.trim().length === 0) return null;
+  const author = bitbucketAccount(c.user);
+  if (author === null) return null;
+  const path = typeof c.inline?.path === "string" ? c.inline.path : null;
+  const line =
+    path === null
+      ? null
+      : typeof c.inline?.to === "number"
+        ? c.inline.to
+        : typeof c.inline?.from === "number"
+          ? c.inline.from
+          : null;
+  return {
+    id: String(c.id),
+    authorId: author.id,
+    authorLogin: author.login,
+    body,
+    createdAt: c.created_on,
+    path,
+    line,
+    // Nessun equivalente di `author_association` su Bitbucket.
+    authorAssociation: null,
+  };
 }

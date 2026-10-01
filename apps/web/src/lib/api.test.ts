@@ -26,10 +26,26 @@ import {
   postInboxAction,
   postLogin,
   postLogout,
+  postRunAi,
   postSetup,
   refreshBacklogDocument,
+  requestCorrection,
   requestDeepDive,
 } from "./api";
+import type {
+  PrCycle,
+  Project,
+  ReleaseQueueItem,
+  Repository,
+  RepositorySaveResponse,
+  TicketRepository,
+} from "./api";
+import type {
+  GitProviderKind,
+  HeldReason,
+  PrCycle as SharedPrCycle,
+  RepositoryWarning,
+} from "@stubwise/shared";
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -493,3 +509,144 @@ describe("inbox", () => {
     expect(handledByFromError(new Error("boom"))).toBeUndefined();
   });
 });
+
+describe("ciclo di correzione: client (30 set 2026)", () => {
+  const TICKET = "11111111-1111-4111-8111-111111111111";
+  const REPO = "22222222-2222-4222-8222-222222222222";
+  const CORRECTION = "33333333-3333-4333-8333-333333333333";
+
+  it("requestCorrection: POST sul path della voce PR (id url-encoded) con la nota", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(202, { correctionId: CORRECTION }));
+
+    await expect(requestCorrection(TICKET, REPO, { note: "rinomina la variabile" })).resolves.toEqual({
+      correctionId: CORRECTION,
+    });
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe(`/api/tickets/${TICKET}/repositories/${REPO}/corrections`);
+    expect(init?.method).toBe("POST");
+    expect(init?.body).toBe(JSON.stringify({ note: "rinomina la variabile" }));
+  });
+
+  it("requestCorrection senza nota: il corpo è `{}`, e gli id sono url-encoded", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(202, { correctionId: CORRECTION }));
+
+    await requestCorrection("t/1", "r 2", {});
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe("/api/tickets/t%2F1/repositories/r%202/corrections");
+    expect(init?.body).toBe("{}");
+  });
+
+  it("requestCorrection: un 409 arriva come ApiError col suo `code` (si MOSTRA, non si ingoia)", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(409, { code: "correction_in_flight", message: "A correction is already queued" }),
+    );
+
+    const error = await requestCorrection(TICKET, REPO, {}).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error).toMatchObject({ status: 409, code: "correction_in_flight" });
+  });
+
+  it("postRunAi con resumeCorrectionJobId: il campo viaggia nel corpo (G5)", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(202, { jobId: CORRECTION, status: "queued" }));
+
+    await postRunAi(TICKET, { resumeCorrectionJobId: CORRECTION });
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe(`/api/tickets/${TICKET}/run-ai`);
+    expect(init?.body).toBe(JSON.stringify({ resumeCorrectionJobId: CORRECTION }));
+  });
+
+  it("postRunAi senza opzioni: nessun corpo, come prima", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(202, { jobId: CORRECTION, status: "queued" }));
+
+    await postRunAi(TICKET);
+
+    expect(fetchMock.mock.calls[0]![1]?.body).toBeUndefined();
+  });
+
+  it("postRunAi: un 409 correction_not_held si distingue dal `code`, non dallo status", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(409, { code: "correction_not_held", message: "Correction is no longer held" }),
+    );
+
+    const error = await postRunAi(TICKET, { resumeCorrectionJobId: CORRECTION }).catch(
+      (e: unknown) => e,
+    );
+    expect(error).toMatchObject({ status: 409, code: "correction_not_held" });
+  });
+});
+
+/**
+ * Prova a livello di TIPO, controllata da `pnpm typecheck` (non da vitest: a
+ * runtime questa funzione non gira mai). Il web fa un cast e non un parse,
+ * quindi i `.default()` degli schemi non girano: i campi nuovi del ciclo di
+ * correzione sono OPZIONALI nei tipi del web, e ogni `@ts-expect-error` qui
+ * sotto fallisce il typecheck il giorno in cui qualcuno li rendesse di nuovo
+ * obbligatori — cioè il giorno in cui il compilatore smetterebbe di
+ * costringere chi legge al `?? …`.
+ */
+export function _typeLevelChecks(
+  repo: TicketRepository,
+  cycle: PrCycle,
+  repository: Repository,
+  saved: RepositorySaveResponse,
+  project: Project,
+  item: ReleaseQueueItem,
+): void {
+  // Una voce PR SENZA `cycle` (server senza il ciclo) è una TicketRepository valida.
+  const withoutCycle: TicketRepository = {
+    repositoryId: "r",
+    repositorySlug: "shop-api",
+    branch: "stubwise/ticket-1",
+    prUrl: null,
+    prState: "open",
+  };
+  void withoutCycle;
+
+  // @ts-expect-error `cycle` può mancare: si legge `repo.cycle ?? null`.
+  const c: SharedPrCycle | null = repo.cycle;
+  // @ts-expect-error `heldReason` può mancare: si legge `?? null`.
+  const h: HeldReason | null = cycle.heldReason;
+  // @ts-expect-error `canResume` può mancare: si legge `?? false`.
+  const r: boolean = cycle.canResume;
+  // @ts-expect-error `heldJobId` può mancare: si legge `?? null`.
+  const j: string | null = cycle.heldJobId;
+  // @ts-expect-error `lastRequest.platform` può mancare (anche lui `.default(null)`).
+  const pl: GitProviderKind | null = cycle.lastRequest!.platform;
+  // @ts-expect-error `reviewGitAccountId` può mancare: si legge `?? null`.
+  const rv: string | null = repository.reviewGitAccountId;
+  // @ts-expect-error `warnings` può mancare: si legge `?? []`.
+  const w: RepositoryWarning[] = saved.warnings;
+  // @ts-expect-error `prCorrectionMaxRounds` può mancare.
+  const m: number = project.prCorrectionMaxRounds;
+  // @ts-expect-error `reviewStale` può mancare: si legge `?? false`.
+  const st: boolean = item.reviewStale;
+
+  // Con la difesa, tutto compila.
+  const defended: [
+    SharedPrCycle["heldReason"],
+    boolean,
+    string | null,
+    string | null,
+    RepositoryWarning[],
+    boolean,
+    PrCycle | null,
+    GitProviderKind | null,
+    number,
+  ] = [
+    cycle.heldReason ?? null,
+    cycle.canResume ?? false,
+    cycle.heldJobId ?? null,
+    repository.reviewGitAccountId ?? null,
+    saved.warnings ?? [],
+    item.reviewStale ?? false,
+    // Questi tre tengono vivi i `@ts-expect-error` qui sopra: senza, un campo
+    // SPARITO dal tipo darebbe comunque un errore, e l'expect-error passerebbe.
+    repo.cycle ?? null,
+    cycle.lastRequest?.platform ?? null,
+    project.prCorrectionMaxRounds ?? 3,
+  ];
+  void [c, h, r, j, pl, rv, w, m, st, defended];
+}

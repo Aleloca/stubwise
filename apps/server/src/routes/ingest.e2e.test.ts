@@ -19,7 +19,7 @@ import { buildApp } from "../app.js";
 import { aiJobs, projects, tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
-import { seedUsers } from "../test/fixtures.js";
+import { seedUsers, withOfflinePlatformIdentity } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 const ENCRYPTION_KEY = randomBytes(32).toString("base64");
@@ -62,17 +62,19 @@ beforeAll(async () => {
     .insert(projects)
     .values({ name: "e2e — gruppo", slug: projectSlug, ingestionKey })
     .returning({ id: projects.id });
-  const created = await app.inject({
-    method: "POST",
-    url: "/api/repositories",
-    headers: { cookie: adminCookie },
-    payload: {
-      projectId: group!.id,
-      name: "e2e-ingestion",
-      gitAccountId,
-      repoUrl: "https://github.com/acme/e2e-ingestion",
-    },
-  });
+  const created = await withOfflinePlatformIdentity(() =>
+    app.inject({
+      method: "POST",
+      url: "/api/repositories",
+      headers: { cookie: adminCookie },
+      payload: {
+        projectId: group!.id,
+        name: "e2e-ingestion",
+        gitAccountId,
+        repoUrl: "https://github.com/acme/e2e-ingestion",
+      },
+    }),
+  );
   if (created.statusCode !== 201) {
     throw new Error(`creazione repository fallita: ${created.statusCode} ${created.body}`);
   }

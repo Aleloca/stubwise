@@ -1,12 +1,15 @@
-import { comments, projects, tickets, type Db } from "@stubwise/db";
+import { aiJobs, comments, projects, tickets, type Db } from "@stubwise/db";
+import type { GitProvider } from "@stubwise/git";
 import { t } from "@stubwise/i18n";
-import type { HeldReason } from "@stubwise/shared";
+import { promotePendingForTicket } from "@stubwise/notifications";
+import type { GitProviderKind, HeldReason } from "@stubwise/shared";
 import { eq } from "drizzle-orm";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentRunner } from "./agent/runner.js";
 import type { MirrorManager } from "./git/mirrors.js";
+import { runCorrection, type CorrectionDeps } from "./pipeline/correction.js";
 import { runFix, type FixDeps, type FixOutcome } from "./pipeline/fix.js";
 import type { PublishFn } from "./pipeline/notify.js";
 import { runTriage, type TriageOutcome } from "./pipeline/triage.js";
@@ -35,8 +38,20 @@ export interface HandlerDeps {
   mirrors: MirrorManager;
   /** Chiave AES-256 per decifrare le credenziali dei progetti. */
   encryptionKey: Buffer;
-  /** Iniettabile nei test (provider finto, niente HTTP). */
-  getProviderFn?: FixDeps["getProviderFn"];
+  /** Iniettabile nei test (provider finto, niente HTTP). Copre sia il fix
+   * (apertura PR) sia la correzione post-PR (stato della PR, status di commit,
+   * commenti della PR, identità dell'account, permesso di un autore). */
+  getProviderFn?: (
+    kind: GitProviderKind,
+  ) => Pick<
+    GitProvider,
+    | "openPullRequest"
+    | "getPullRequestState"
+    | "setCommitStatus"
+    | "listPrComments"
+    | "getAuthenticatedUserId"
+    | "getCollaboratorPermission"
+  >;
   /** Caricatore della catena di provider AI (iniettabile nei test). Default:
    * loadProviderChain da ./providers/chain.js. Restituisce le credenziali
    * abilitate ordinate per position, già decifrate. */
@@ -113,18 +128,44 @@ async function runJobWithProvider(
   if (provider) await setJobProvider(deps.db, job.id, provider.id);
   const providerOpt = provider !== undefined ? { provider } : {};
 
-  const fixDeps: FixDeps = {
+  // Dipendenze comuni a fix e correzione: stesso runner, stessi mirror, stessa
+  // credenziale del provider AI, stessi modelli/timeout/self-repair.
+  const commonDeps = {
     db: deps.db,
     runner: deps.runner,
     mirrors: deps.mirrors,
     encryptionKey: deps.encryptionKey,
-    ...(deps.getProviderFn ? { getProviderFn: deps.getProviderFn } : {}),
     ...(deps.graphsDir !== undefined ? { graphsDir: deps.graphsDir } : {}),
     ...(deps.pluginsDir !== undefined ? { pluginsDir: deps.pluginsDir } : {}),
     ...providerOpt,
     ...notifyOpts,
     ...deps.fix,
   };
+  const providerFnOpt = deps.getProviderFn ? { getProviderFn: deps.getProviderFn } : {};
+  const fixDeps: FixDeps = { ...commonDeps, ...providerFnOpt };
+  const correctionDeps: CorrectionDeps = { ...commonDeps, ...providerFnOpt };
+
+  // CORREZIONE POST-PR: un job con `correction_id` non è un fix. Il ramo sta
+  // PRIMA di quello di ripresa e non passa MAI dal triage né da `resolveFixMode`:
+  // un job di correzione riusato da un rilancio può portare un `resume_mode`
+  // qualunque, e lì dentro degraderebbe a un fix dal default branch (che
+  // pusherebbe un branch divergente sulla PR). È `runCorrection` a decidere se
+  // c'è ancora qualcosa da fare (correzione `queued`) o se chiudere il job come
+  // saltato.
+  //
+  // Solo "limit" chiede il failover, come per runFix: il chiamante (processJob)
+  // fa lo STESSO percorso del fix — credenziale successiva della catena, oppure
+  // held sul provider di progetto / a catena esaurita. Tutti gli altri esiti
+  // (pushed, no_changes, failed, held, skipped, lost) sono già gestiti da
+  // runCorrection e non vanno ritentati.
+  if (job.correctionId !== null) {
+    const owned = await markFixing(deps.db, job.id);
+    if (!owned) {
+      await appendLog(deps.db, job.id, "[correction] ownership persa, mi fermo");
+      return false;
+    }
+    return (await runCorrection(correctionDeps, job)) === "limit";
+  }
 
   // Percorso di RIPRESA (ogni resume_mode): niente triage. Il job arriva
   // `triaging` (claimNextJob marca sempre così, anche i job di ripresa); lo
@@ -357,6 +398,53 @@ export function createProjectSerializer(): ProjectSerializer {
 }
 
 /**
+ * Dopo un job NON di correzione chiuso senza aprire PR (`failed`/`skipped`):
+ * le richieste di correzione rimaste `pending` sulle PR del ticket partono ora
+ * (`promotePendingForTicket` di `@stubwise/notifications`, mai una copia qui).
+ * Un "Request changes" arrivato mentre il fix era in volo è stato salvato
+ * `pending`: se il fix apre la PR la promozione la fa il fix stesso (C7), la
+ * correzione gestisce da sé la sua coda (runCorrection); resta solo il caso che
+ * nessuno dei due vede — la dozzina di `return "failed"` di runFix e i job
+ * saltati dal triage — e l'unico punto che li vede tutti è questo.
+ *
+ * FUORI da ogni transazione e DOPO la chiusura del job: dentro, o prima,
+ * `hasJobInFlight` vedrebbe questo job e la pending non partirebbe.
+ * Best-effort: un errore finisce nel log del job, e la pending la riprende il
+ * tick periodico (promoteStalePendings in runWorker).
+ *
+ * Se `processJob` LANCIA, qui non si arriva: runJob marca il job `failed` e la
+ * promozione non parte da questo punto — la pending la riprende il tick
+ * periodico di runWorker entro circa 60 s (`requeueEveryMs`).
+ *
+ * Le due guardie qui sotto (job non di correzione, stato `failed`/`skipped`)
+ * sono OTTIMIZZAZIONI, per non fare query inutili: la guardia VERA sta sotto
+ * lock in `promotePendingCorrection` (una `queued` sulla PR o un job che blocca
+ * il ticket → niente promozione), quindi chiamare la promozione a torto non
+ * farebbe partire niente di sbagliato.
+ */
+async function promotePendingAfterJob(db: Db, job: AiJob): Promise<void> {
+  if (job.correctionId !== null) return;
+  try {
+    const [row] = await db.select({ status: aiJobs.status }).from(aiJobs).where(eq(aiJobs.id, job.id));
+    if (row?.status !== "failed" && row?.status !== "skipped") return;
+    const promoted = await promotePendingForTicket(db, job.ticketId);
+    for (const id of promoted) {
+      await appendLog(db, job.id, `[stubwise] richiesta di correzione in attesa avviata (${id})`).catch(() => {});
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    await appendLog(
+      db,
+      job.id,
+      `[stubwise] promozione delle richieste di correzione in attesa fallita (${message}): la riprende il tick`,
+    ).catch(() => {});
+    console.error(
+      `[stubwise-worker] correction: promozione delle richieste in attesa dopo il job ${job.id} fallita (${message})`,
+    );
+  }
+}
+
+/**
  * Crea l'handler fix per runWorker, con la serializzazione per progetto. Se
  * `serializer` è passato (da index.ts), la catena per-progetto è CONDIVISA con
  * l'handler doc-generation (vedi createProjectSerializer); altrimenti ne crea
@@ -389,8 +477,9 @@ export function createHandler(
       return;
     }
 
-    return serializer.run(row.projectId, () =>
-      processJob(deps, job, row.projectName, job.ticketId, row.aiProviderId),
-    );
+    return serializer.run(row.projectId, async () => {
+      await processJob(deps, job, row.projectName, job.ticketId, row.aiProviderId);
+      await promotePendingAfterJob(deps.db, job);
+    });
   };
 }

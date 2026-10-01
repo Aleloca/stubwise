@@ -3,6 +3,7 @@ import {
   answerQuestionResultSchema,
   planDecisionResultSchema,
   releaseResultSchema,
+  requestCorrectionResponseSchema,
   runAiResultSchema,
   ticketCommentSchema,
   ticketDetailSchema,
@@ -18,6 +19,9 @@ import type {
   AnswerQuestionResult,
   PlanDecisionResult,
   ReleaseResult,
+  RequestCorrectionBody,
+  RequestCorrectionResponse,
+  RunAiBody,
   RunAiResult,
   Ticket,
   TicketActivityEntry,
@@ -204,11 +208,21 @@ export function createTicketsEndpoints(request: ApiRequest) {
      * sul gate (`awaiting_plan_approval`) invece che in coda, e l'app deve dirlo
      * invece di annunciare un fix partito. 409 `job_in_flight` se un job è già
      * in volo.
+     *
+     * `resumeCorrectionJobId` (facoltativo, come ogni campo del corpo:
+     * `runAiBodySchema`) dice QUALE correzione ferma si vuole riprendere — il
+     * `cycle.heldJobId` che la schermata mostrava. Il server la forza solo se
+     * quel job è ancora l'ultimo del ticket e ancora `held`; altrimenti 409
+     * `correction_not_held` (distinto da `job_in_flight` dal `code`, non dallo
+     * status), e per un `member` su una correzione ferma per budget 403
+     * `needs_maintainer`. Senza il campo il rilancio è quello di sempre.
+     *
+     * ⚠️ Un server PRECEDENTE a G5 non conosce il campo e lo IGNORA (il corpo
+     * non è `.strict()`): per lui è un rilancio normale, cioè un fix nuovo.
+     * Per questo il chiamante lo manda solo quando `cycle.heldJobId` c'è —
+     * un server che lo valorizza è anche uno che sa leggerlo.
      */
-    runAi(
-      ticketId: string,
-      opts?: { withInstructions?: boolean; mode?: "ai_plan" },
-    ): Promise<Reader<RunAiResult>> {
+    runAi(ticketId: string, opts?: RunAiBody): Promise<Reader<RunAiResult>> {
       return request("POST", `/api/tickets/${seg(ticketId)}/run-ai`, opts, runAiResultSchema);
     },
 
@@ -266,6 +280,35 @@ export function createTicketsEndpoints(request: ApiRequest) {
         `/api/tickets/${seg(ticketId)}/repositories/${seg(repositoryId)}/release`,
         undefined,
         releaseResultSchema,
+      );
+    },
+
+    /**
+     * Chiede una CORREZIONE della PR del ticket su UN repository (202): l'AI
+     * applica sulla stessa PR l'ultima review più la `note`, pusha in avanti
+     * sullo stesso branch e fa ripartire la review. Non è un piano nuovo, e per
+     * questo non passa dal gate di approvazione: chiunque possa lanciare un run
+     * sul ticket può chiederla (il cancello vero è sul server).
+     *
+     * Il corpo è una PATCH per costruzione: `note` facoltativa, e senza nota il
+     * corpo è `{}` — mai `note: undefined`, mai un campo obbligatorio che un'app
+     * vecchia non saprebbe mandare.
+     *
+     * Gli errori arrivano come `ApiError` col loro `code` — 409
+     * `correction_in_flight`/`job_in_flight`/`pr_not_open`/`not_stubwise_pr` — e
+     * chi chiama li MOSTRA. Se una correzione è già possibile oppure no lo dice
+     * `cycle.canRequestCorrection` nel dettaglio: il client non lo rideduce.
+     */
+    requestCorrection(
+      ticketId: string,
+      repositoryId: string,
+      body: RequestCorrectionBody = {},
+    ): Promise<Reader<RequestCorrectionResponse>> {
+      return request(
+        "POST",
+        `/api/tickets/${seg(ticketId)}/repositories/${seg(repositoryId)}/corrections`,
+        body.note !== undefined ? { note: body.note } : {},
+        requestCorrectionResponseSchema,
       );
     },
   };

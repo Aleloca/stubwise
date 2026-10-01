@@ -218,6 +218,8 @@ export async function seedTicketRepository(
     branch?: string;
     prUrl?: string | null;
     prState?: "open" | "merged" | "closed_unmerged";
+    /** Numero della PR (migrazione 0081). Default null, come `prUrl`. */
+    prNumber?: number | null;
   },
 ): Promise<string> {
   const [row] = await db
@@ -227,6 +229,7 @@ export async function seedTicketRepository(
       repositoryId: opts.repositoryId,
       branch: opts.branch ?? "stubwise/ticket-1",
       prUrl: opts.prUrl ?? null,
+      prNumber: opts.prNumber ?? null,
       prState: opts.prState ?? "open",
     })
     .returning();

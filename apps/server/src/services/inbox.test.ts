@@ -1153,6 +1153,113 @@ describe("listInbox — riassunto in breve", () => {
     expect(items[0]!.summary).toBe("La PR sistema il login. La review approva.");
   });
 
+  /** Review PRECEDENTE della stessa PR, col suo riassunto, e la card da leggere. */
+  async function failedReviewCard(event: Record<string, unknown>) {
+    const user = await seedUser("admin");
+    const ticketId = await seedTicket();
+    const prUrl = "https://github.com/o/r/pull/7";
+    const [repository] = await db
+      .select({ id: repositories.id })
+      .from(repositories)
+      .where(eq(repositories.projectId, projectId));
+    await db.insert(prReviews).values({
+      repositoryId: repository!.id,
+      ticketId,
+      prNumber: 7,
+      prUrl,
+      prTitle: "fix: somma",
+      headSha: "a".repeat(40),
+      status: "completed",
+      verdict: "request_changes",
+      summary: "- `src/x.ts:3`: bug",
+      prSummary: "La PR sistema il login. La review chiede modifiche.",
+    });
+    await seedNotification({
+      userId: user.id,
+      kind: "review.completed",
+      event: {
+        kind: "review.completed",
+        ticketNumber: 7,
+        ticketTitle: "Export CSV",
+        projectName: "negozio-web",
+        ticketUrl: "https://stubwise.test/tickets/7",
+        prUrl,
+        ...event,
+      } as unknown as NotificationEvent,
+      ticketId,
+    });
+    const { items } = await listInbox(db, { userId: user.id, lang: "it" });
+    expect(items).toHaveLength(1);
+    return items[0]!;
+  }
+
+  it("review.completed con verdetto NULLO (review fallita in una serie, C10b): niente riassunto di una review precedente, frase delle correzioni ferme", async () => {
+    const item = await failedReviewCard({
+      verdict: null,
+      cycle: { round: 2, max: 3, stopped: true, stoppedReason: "review_failed" },
+    });
+    expect(item).not.toHaveProperty("summary");
+    expect(item.text).toContain("Correzioni automatiche della PR ferme per #7");
+    expect(item.text).toContain("la review non è riuscita (correzioni automatiche: 2)");
+    expect(item.text).not.toContain("modifiche richieste");
+  });
+
+  it("review.completed con `stoppedReason: \"review_failed\"` e verdetto VALORIZZATO: nessun riassunto (stesso predicato del testo)", async () => {
+    const item = await failedReviewCard({
+      verdict: "request_changes",
+      cycle: { round: 2, max: 3, stopped: true, stoppedReason: "review_failed" },
+    });
+    expect(item).not.toHaveProperty("summary");
+    expect(item.text).toContain("Correzioni automatiche della PR ferme per #7");
+  });
+
+  it("review.completed al tetto (`stoppedReason: \"cap\"`): il riassunto resta", async () => {
+    const item = await failedReviewCard({
+      verdict: "request_changes",
+      cycle: { round: 3, max: 3, stopped: true, stoppedReason: "cap" },
+    });
+    expect(item.summary).toBe("La PR sistema il login. La review chiede modifiche.");
+  });
+
+  /**
+   * L'esito della review per il TONO della card (F8 del ciclo di correzione):
+   * derivato a lettura dall'evento, con la precedenza della frase. Nessun
+   * campo nuovo nell'evento: vale anche per le card già in inbox.
+   */
+  it.each([
+    ["approve senza ciclo", { verdict: "approve" }, "approved"],
+    ["request_changes senza ciclo (evento VECCHIO, niente `cycle`)", { verdict: "request_changes" }, "changes_requested"],
+    ["request_changes con un ciclo non fermo", { verdict: "request_changes", cycle: { round: 1, max: 3, stopped: false } }, "changes_requested"],
+    ["stop al tetto (`stoppedReason: \"cap\"`)", { verdict: "request_changes", cycle: { round: 3, max: 3, stopped: true, stoppedReason: "cap" } }, "stopped_at_cap"],
+    ["stop senza motivo (evento di prima di `stoppedReason`)", { verdict: "request_changes", cycle: { round: 3, max: 3, stopped: true } }, "stopped_at_cap"],
+    ["review fallita (verdetto nullo)", { verdict: null, cycle: { round: 2, max: 3, stopped: true, stoppedReason: "review_failed" } }, "review_failed"],
+    ["verdetto illeggibile", { verdict: "boh" }, null],
+  ] as const)("reviewOutcome — %s → %s", async (_label, event, expected) => {
+    const item = await failedReviewCard(event);
+    expect(item.reviewOutcome).toBe(expected);
+  });
+
+  it("reviewOutcome è null su un kind che non è una review, anche col verdetto nel jsonb", async () => {
+    const user = await seedUser("admin");
+    const ticketId = await seedTicket();
+    await seedNotification({
+      userId: user.id,
+      kind: "job.pr_opened",
+      event: {
+        kind: "job.pr_opened",
+        ticketNumber: 7,
+        ticketTitle: "Export CSV",
+        projectName: "negozio-web",
+        ticketUrl: "https://stubwise.test/tickets/7",
+        prUrl: "https://github.com/o/r/pull/7",
+        verdict: "request_changes",
+      } as unknown as NotificationEvent,
+      ticketId,
+    });
+    const { items } = await listInbox(db, { userId: user.id, lang: "it" });
+    expect(items[0]!.reviewOutcome).toBeNull();
+  });
+
   it("una pagina intera costa UNA query in più, non una per item", async () => {
     const user = await seedUser("admin");
     for (let i = 0; i < 5; i++) {

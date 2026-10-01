@@ -1,4 +1,4 @@
-import type { InboxItem } from "@stubwise/shared";
+import type { InboxItem } from "../lib/api";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, RouterProvider } from "@tanstack/react-router";
 import { render, screen, waitFor, within } from "@testing-library/react";
@@ -360,6 +360,59 @@ describe("pagina /inbox", () => {
     const decide = card("Plan awaiting approval for TCK-1");
     expect(within(decide).getByText("Plan awaiting approval for TCK-1")).toBeInTheDocument();
     expect(within(decide).queryByText(/In breve|In brief/)).toBeNull();
+  });
+
+  /**
+   * IL TONO DELLA CARD DI UNA REVIEW (F8 del ciclo di correzione): attenzione
+   * per modifiche richieste, stop al tetto e review fallita; neutro per una
+   * review che approva. Il web fa un cast, non un parse: la fixture della card
+   * VECCHIA è `item()` così com'è, SENZA la chiave `reviewOutcome`, ed è un
+   * `review.completed` — cioè arriva proprio al ramo che legge il campo.
+   */
+  describe("tono della card di una review", () => {
+    const REVIEW_ID = "cccccccc-3333-4333-8333-cccccccccccc";
+    const REVIEW = item({
+      id: REVIEW_ID,
+      kind: "review.completed",
+      text: "PR review completed for TCK-9",
+      actions: ["open", "snooze", "handled"],
+      url: "https://github.com/acme/shop/pull/9",
+      readAt: "2026-08-31T10:00:00.000Z",
+    });
+
+    async function badgeFor(review: InboxItem) {
+      mockApi(baseApi({ "GET /api/inbox": () => jsonResponse(200, { items: [review], nextCursor: null }) }));
+      renderInbox();
+      await screen.findByRole("heading", { name: "Inbox" });
+      return within(card(review.text)).getByTestId("inbox-kind-badge");
+    }
+
+    it.each(["changes_requested", "stopped_at_cap", "review_failed"] as const)(
+      "%s → tono di attenzione",
+      async (reviewOutcome) => {
+        const badge = await badgeFor({ ...REVIEW, reviewOutcome });
+        expect(badge).toHaveAttribute("data-tone", "attention");
+        expect(badge).toHaveClass("text-signal");
+      },
+    );
+
+    it("approved → neutro, come ogni altra card", async () => {
+      const badge = await badgeFor({ ...REVIEW, reviewOutcome: "approved" });
+      expect(badge).toHaveAttribute("data-tone", "neutral");
+      expect(badge).not.toHaveClass("text-signal");
+    });
+
+    it("⚠️ server più vecchio (nessun `reviewOutcome`): la card resta intera, col tono di prima", async () => {
+      expect("reviewOutcome" in REVIEW).toBe(false);
+      const badge = await badgeFor(REVIEW);
+      expect(within(card(REVIEW.text)).getByText("PR review completed for TCK-9")).toBeInTheDocument();
+      expect(badge).toHaveAttribute("data-tone", "neutral");
+    });
+
+    it("job.pr_opened resta neutro anche con un esito nel campo", async () => {
+      const badge = await badgeFor({ ...KNOW, readAt: "2026-08-31T10:00:00.000Z", reviewOutcome: "changes_requested" });
+      expect(badge).toHaveAttribute("data-tone", "neutral");
+    });
   });
 
   it("approva il piano: la riga passa a gestita e perde i bottoni PRIMA del refetch", async () => {

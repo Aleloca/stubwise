@@ -23,11 +23,24 @@ interface ProjectInitialValues {
   pulseEveryDays: number;
   /** Se true, una volta a settimana il worker scrive il brief del progetto. */
   weeklyBriefEnabled: boolean;
+  /**
+   * Tetto delle correzioni automatiche del ciclo review → correzione (0..10,
+   * 0 = spento). Opzionale: arriva da una risposta che il web non parsa (cast,
+   * non parse), e un server senza il ciclo non lo manda — vale il default del
+   * server, 3. La difesa è UNA, qui dove si legge: vedi `initialRounds`.
+   */
+  prCorrectionMaxRounds?: number | undefined;
 }
 
 /** Estremi della cadenza del pulse: gli stessi del CHECK sul DB. */
 const PULSE_DAYS_MIN = 1;
 const PULSE_DAYS_MAX = 30;
+
+/** Estremi del tetto delle correzioni automatiche: gli stessi del CHECK sul DB. */
+const CORRECTION_ROUNDS_MIN = 0;
+const CORRECTION_ROUNDS_MAX = 10;
+/** Il default della colonna: quello che vale quando il server non manda il campo. */
+const CORRECTION_ROUNDS_DEFAULT = 3;
 
 interface ProjectFormProps {
   initial: ProjectInitialValues;
@@ -69,6 +82,10 @@ export function ProjectForm({ initial, onSubmit }: ProjectFormProps) {
   // "15"). La conversione — e il range — si applicano all'invio.
   const [pulseEveryDays, setPulseEveryDays] = useState(String(initial.pulseEveryDays));
   const [weeklyBriefEnabled, setWeeklyBriefEnabled] = useState(initial.weeklyBriefEnabled);
+  // Tetto del ciclo di correzione. `?? 3`: il web fa un cast, e un server senza
+  // il ciclo non manda il campo. Stringa per la stessa ragione della cadenza.
+  const initialRounds = initial.prCorrectionMaxRounds ?? CORRECTION_ROUNDS_DEFAULT;
+  const [correctionRounds, setCorrectionRounds] = useState(String(initialRounds));
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
@@ -91,6 +108,24 @@ export function ProjectForm({ initial, onSubmit }: ProjectFormProps) {
     const daysValid = Number.isInteger(days) && days >= PULSE_DAYS_MIN && days <= PULSE_DAYS_MAX;
     if (pulseAvailable && !daysValid) {
       setError(t("projects:form.pulseEveryDaysRange", { min: PULSE_DAYS_MIN, max: PULSE_DAYS_MAX }));
+      return;
+    }
+    // Il range 0..10 è il CHECK del DB. A differenza della cadenza il campo non
+    // è mai disabilitato, quindi il controllo vale sempre. `trim() !== ""`
+    // perché `Number("")` è 0, e un campo svuotato non è una scelta di 0.
+    const rounds = Number(correctionRounds);
+    const roundsValid =
+      correctionRounds.trim() !== "" &&
+      Number.isInteger(rounds) &&
+      rounds >= CORRECTION_ROUNDS_MIN &&
+      rounds <= CORRECTION_ROUNDS_MAX;
+    if (!roundsValid) {
+      setError(
+        t("projects:form.prCorrectionMaxRoundsRange", {
+          min: CORRECTION_ROUNDS_MIN,
+          max: CORRECTION_ROUNDS_MAX,
+        }),
+      );
       return;
     }
     setPending(true);
@@ -118,6 +153,11 @@ export function ProjectForm({ initial, onSubmit }: ProjectFormProps) {
         ...(daysValid && days !== initial.pulseEveryDays && { pulseEveryDays: days }),
         // Brief settimanale: incluso solo se cambiato, per un PATCH minimo.
         ...(weeklyBriefEnabled !== initial.weeklyBriefEnabled && { weeklyBriefEnabled }),
+        // Tetto del ciclo di correzione: incluso solo se cambiato, per un PATCH
+        // minimo. Il confronto è col valore MOSTRATO (`initialRounds`, già col
+        // default): lasciare il 3 di un server che non manda il campo non lo
+        // scrive.
+        ...(rounds !== initialRounds && { prCorrectionMaxRounds: rounds }),
       });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : t("common:unexpectedError"));
@@ -315,6 +355,35 @@ export function ProjectForm({ initial, onSubmit }: ProjectFormProps) {
           </label>
         </div>
         <p className="font-mono text-[11px] text-fg-faint">{t("projects:form.weeklyBriefHint")}</p>
+      </div>
+
+      {/*
+        Ciclo review → correzione: quante correzioni automatiche per tornata
+        prima di fermarsi e chiedere a una persona. 0 = ciclo automatico spento
+        (il bottone "Applica le correzioni" funziona comunque).
+      */}
+      <div className="flex flex-col gap-1.5 rounded-sm border border-line bg-ink-900 px-3 py-3">
+        <div className="flex items-center gap-2.5">
+          <label
+            htmlFor="project-pr-correction-max-rounds"
+            className="font-mono text-[11px] font-medium tracking-[0.14em] text-fg-muted uppercase"
+          >
+            {t("projects:form.prCorrectionMaxRounds")}
+          </label>
+          <input
+            id="project-pr-correction-max-rounds"
+            type="number"
+            min={CORRECTION_ROUNDS_MIN}
+            max={CORRECTION_ROUNDS_MAX}
+            step={1}
+            value={correctionRounds}
+            onChange={(event) => setCorrectionRounds(event.target.value)}
+            className="w-20 rounded-sm border border-line-strong bg-ink-950/70 px-2 py-1 font-mono text-[13px] text-fg transition-colors hover:border-ink-700 focus-visible:border-signal-dim"
+          />
+        </div>
+        <p className="font-mono text-[11px] text-fg-faint">
+          {t("projects:form.prCorrectionMaxRoundsHint")}
+        </p>
       </div>
 
       <FormError message={error} />

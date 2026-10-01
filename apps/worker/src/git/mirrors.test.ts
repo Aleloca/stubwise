@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  BranchNotFoundError,
   GitCommandError,
   InvalidBranchNameError,
   InvalidDefaultBranchError,
@@ -17,6 +18,7 @@ import {
   mirrorRemoteUrl,
   mirrorSlug,
   type MirrorProject,
+  PushRejectedError,
 } from "./mirrors.js";
 
 // I test usano repo git locali REALI (niente rete): un bare repo in tmpdir fa
@@ -1298,5 +1300,366 @@ describe("MirrorManager.withProjectWorktrees — parentDir deterministica", () =
 
     expect(parents[0]).not.toBe(parents[1]);
     for (const p of parents) expect(p.includes("stubwise-proj-")).toBe(true);
+  });
+});
+
+/**
+ * Clona l'upstream in una dir a parte, avanza `branch` di un commit e lo pusha:
+ * è "qualcun altro" che lavora sul branch della PR mentre Stubwise ha il suo
+ * worktree aperto. NON usa `addCommitOnBranch`, che ricrea il branch da main
+ * (`switch -C`) e produrrebbe un push divergente già in partenza.
+ */
+async function advanceUpstreamBranch(root: string, upstream: Upstream, branch: string): Promise<string> {
+  const clone = await mkdtemp(join(root, "concurrent-"));
+  await execa("git", ["clone", "--quiet", upstream.dir, clone]);
+  await git(["switch", branch], clone);
+  await writeFile(join(clone, "concurrent.txt"), "da un collega\n");
+  await git(["add", "."], clone);
+  await git([...COMMIT_ARGS, "commit", "-m", "commit concorrente"], clone);
+  await git(["push", "origin", branch], clone);
+  return git(["rev-parse", "HEAD"], clone);
+}
+
+describe("MirrorManager — worktree sul branch esistente di una PR (fromExistingBranch)", () => {
+  it("parte dalla head del branch della PR, non dal default", async () => {
+    const root = await makeRoot();
+    const upstream = await makeUpstream(root);
+    const manager = new MirrorManager({ mirrorsDir: join(root, "mirrors") });
+    const project = projectFor(upstream);
+    const prSha = await upstream.addCommitOnBranch("stubwise/ticket-5", "fix.txt", "primo giro\n");
+    // main avanza DOPO la creazione del branch: un worktree aperto sul default
+    // avrebbe main-later.txt e NON fix.txt. Senza questo commit i due punti di
+    // partenza coinciderebbero e il test passerebbe anche col codice sbagliato.
+    await upstream.addCommit("main-later.txt", "solo su main\n");
+
+    let seen: { head: string; branch: string; fix: boolean; mainOnly: boolean } | null = null;
+    await manager.withProjectWorktrees(
+      [project],
+      "stubwise/ticket-5",
+      async ({ worktrees }) => {
+        const dir = worktrees[0]!.dir;
+        seen = {
+          head: await git(["rev-parse", "HEAD"], dir),
+          branch: await git(["rev-parse", "--abbrev-ref", "HEAD"], dir),
+          fix: existsSync(join(dir, "fix.txt")),
+          mainOnly: existsSync(join(dir, "main-later.txt")),
+        };
+      },
+      { fromExistingBranch: true },
+    );
+
+    expect(seen).toEqual({ head: prSha, branch: "stubwise/ticket-5", fix: true, mainOnly: false });
+  });
+
+  it("con un mirror già esistente parte dalla head AGGIORNATA dell'upstream, non dalla copia locale vecchia", async () => {
+    const root = await makeRoot();
+    const upstream = await makeUpstream(root);
+    const manager = new MirrorManager({ mirrorsDir: join(root, "mirrors") });
+    const project = projectFor(upstream);
+    const oldSha = await upstream.addCommitOnBranch("stubwise/ticket-5", "fix.txt", "primo giro\n");
+    // Il mirror nasce ORA e registra la head vecchia del branch.
+    const mirrorDir = await manager.ensureMirror(project);
+    expect(await git(["rev-parse", "refs/heads/stubwise/ticket-5"], mirrorDir)).toBe(oldSha);
+    // Un collega pusha sul branch della PR: il mirror non lo sa ancora.
+    const newSha = await advanceUpstreamBranch(root, upstream, "stubwise/ticket-5");
+
+    let head = "";
+    await manager.withProjectWorktrees(
+      [project],
+      "stubwise/ticket-5",
+      async ({ worktrees }) => {
+        head = await git(["rev-parse", "HEAD"], worktrees[0]!.dir);
+      },
+      { fromExistingBranch: true },
+    );
+
+    expect(head).toBe(newSha);
+    expect(head).not.toBe(oldSha);
+  });
+
+  it("commit + push avanzano il branch della PR in fast-forward, senza force", async () => {
+    const root = await makeRoot();
+    const upstream = await makeUpstream(root);
+    const manager = new MirrorManager({ mirrorsDir: join(root, "mirrors") });
+    const project = projectFor(upstream);
+    const prSha = await upstream.addCommitOnBranch("stubwise/ticket-5", "fix.txt", "primo giro\n");
+
+    let pushedSha = "";
+    await manager.withProjectWorktrees(
+      [project],
+      "stubwise/ticket-5",
+      async ({ worktrees }) => {
+        const dir = worktrees[0]!.dir;
+        await writeFile(join(dir, "fix.txt"), "secondo giro\n");
+        await git(["add", "."], dir);
+        await git([...COMMIT_ARGS, "commit", "-m", "correzione"], dir);
+        pushedSha = await git(["rev-parse", "HEAD"], dir);
+        await manager.pushBranch(project, "stubwise/ticket-5");
+      },
+      { fromExistingBranch: true },
+    );
+
+    expect(await git(["rev-parse", "refs/heads/stubwise/ticket-5"], upstream.dir)).toBe(pushedSha);
+    // Fast-forward: il genitore del commit pushato è la head di prima.
+    expect(await git(["rev-parse", `${pushedSha}^`], upstream.dir)).toBe(prSha);
+  });
+
+  it("push rifiutato se il branch è avanzato sull'upstream nel frattempo: PushRejectedError, upstream intatto", async () => {
+    const root = await makeRoot();
+    const upstream = await makeUpstream(root);
+    const manager = new MirrorManager({ mirrorsDir: join(root, "mirrors") });
+    const project = projectFor(upstream);
+    await upstream.addCommitOnBranch("stubwise/ticket-5", "fix.txt", "primo giro\n");
+
+    let concurrentSha = "";
+    const error = await manager
+      .withProjectWorktrees(
+        [project],
+        "stubwise/ticket-5",
+        async ({ worktrees }) => {
+          const dir = worktrees[0]!.dir;
+          concurrentSha = await advanceUpstreamBranch(root, upstream, "stubwise/ticket-5");
+          await writeFile(join(dir, "fix.txt"), "secondo giro\n");
+          await git(["add", "."], dir);
+          await git([...COMMIT_ARGS, "commit", "-m", "correzione"], dir);
+          await manager.pushBranch(project, "stubwise/ticket-5");
+        },
+        { fromExistingBranch: true },
+      )
+      .then(
+        () => null,
+        (e: unknown) => e,
+      );
+
+    expect(error).toBeInstanceOf(PushRejectedError);
+    expect((error as PushRejectedError).branch).toBe("stubwise/ticket-5");
+    // Hint spenti (advice.pushUpdateRejected=false): nei 500 caratteri di stderr
+    // resta la riga `[rejected]`, non il paragrafo di consigli.
+    expect((error as PushRejectedError).stderr).toContain("[rejected]");
+    expect((error as PushRejectedError).stderr).not.toContain("hint:");
+    // Resta un GitCommandError: i catch generici esistenti lo gestiscono come prima.
+    expect(error).toBeInstanceOf(GitCommandError);
+    // Mai force: il commit del collega è ancora la head dell'upstream.
+    expect(await git(["rev-parse", "refs/heads/stubwise/ticket-5"], upstream.dir)).toBe(concurrentSha);
+  });
+
+  it("un push fallito per altre ragioni NON è un PushRejectedError e non espone le credenziali", async () => {
+    const root = await makeRoot();
+    const manager = new MirrorManager({ mirrorsDir: join(root, "mirrors"), fetchTimeoutMs: 30_000 });
+    const token = "super-secret-push-token";
+    // Porta chiusa su localhost: il push https fallisce subito, niente rete esterna.
+    const project: MirrorProject = {
+      provider: "github",
+      repoUrl: "https://127.0.0.1:1/acme/repo",
+      defaultBranch: "main",
+      credentials: { token },
+    };
+    // Mirror costruito a mano (ensureMirror clonerebbe dalla porta chiusa):
+    // un bare con un branch stubwise/* e il remote https.
+    const mirrorDir = manager.mirrorDirFor(project);
+    await mkdir(join(root, "mirrors"), { recursive: true });
+    await execa("git", ["init", "--bare", "-b", "main", mirrorDir]);
+    await git(["remote", "add", "origin", "https://127.0.0.1:1/acme/repo.git"], mirrorDir);
+    const seed = join(root, "seed");
+    await execa("git", ["init", "-b", "stubwise/ticket-5", seed]);
+    await writeFile(join(seed, "a.txt"), "a\n");
+    await git(["add", "."], seed);
+    await git([...COMMIT_ARGS, "commit", "-m", "a"], seed);
+    await git(["push", mirrorDir, "stubwise/ticket-5"], seed);
+
+    const error = await manager.pushBranch(project, "stubwise/ticket-5").then(
+      () => null,
+      (e: unknown) => e,
+    );
+
+    expect(error).toBeInstanceOf(GitCommandError);
+    expect(error).not.toBeInstanceOf(PushRejectedError);
+    const message = (error as GitCommandError).message;
+    expect(message).not.toContain(token);
+    expect(message).not.toContain("Authorization");
+    expect(message).not.toContain(Buffer.from(`x-access-token:${token}`).toString("base64"));
+  });
+
+  it("BranchNotFoundError se il branch non esiste nel mirror, senza eseguire fn", async () => {
+    const { manager, upstream } = await makeFixture();
+    const project = projectFor(upstream);
+    const fn = vi.fn();
+
+    await expect(
+      manager.withProjectWorktrees([project], "stubwise/ticket-404", fn, { fromExistingBranch: true }),
+    ).rejects.toBeInstanceOf(BranchNotFoundError);
+    expect(fn).not.toHaveBeenCalled();
+    // Il mirror resta sano: nessun worktree registrato.
+    expect(await git(["worktree", "list", "--porcelain"], manager.mirrorDirFor(project))).not.toContain("stubwise-proj-");
+  });
+
+  it("PR mergiata e branch cancellato sull'upstream: il fetch con --prune lo toglie dal mirror e dà BranchNotFoundError", async () => {
+    const root = await makeRoot();
+    const upstream = await makeUpstream(root);
+    const manager = new MirrorManager({ mirrorsDir: join(root, "mirrors") });
+    const project = projectFor(upstream);
+    await upstream.addCommitOnBranch("stubwise/ticket-5", "fix.txt", "primo giro\n");
+    // Il mirror nasce ORA e ha la copia del branch.
+    const mirrorDir = await manager.ensureMirror(project);
+    expect(await git(["branch", "--list", "stubwise/ticket-5"], mirrorDir)).not.toBe("");
+    // La PR viene mergiata e il branch cancellato sull'upstream.
+    await git(["branch", "-D", "stubwise/ticket-5"], upstream.dir);
+    const fn = vi.fn();
+
+    await expect(
+      manager.withProjectWorktrees([project], "stubwise/ticket-5", fn, { fromExistingBranch: true }),
+    ).rejects.toBeInstanceOf(BranchNotFoundError);
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { label: "mirror corrotto (exit 128)", exitCode: 128 as number | undefined },
+    { label: "timeout (exit assente)", exitCode: undefined },
+  ])("un errore di rev-parse diverso da 'ref assente' NON diventa BranchNotFoundError: $label", async ({ exitCode }) => {
+    const root = await makeRoot();
+    const upstream = await makeUpstream(root);
+    await upstream.addCommitOnBranch("stubwise/ticket-5", "fix.txt", "primo giro\n");
+    const failure = new GitCommandError("Comando fallito: git rev-parse", exitCode, "fatal: bad object");
+    // Guasto simulato SOLO sul controllo del branch: tutto il resto è git vero.
+    class FaultyMirrorManager extends MirrorManager {
+      protected override git(
+        args: string[],
+        opts: Parameters<MirrorManager["git"]>[1],
+      ): Promise<string> {
+        if (args[0] === "rev-parse" && args.includes("--verify")) return Promise.reject(failure);
+        return super.git(args, opts);
+      }
+    }
+    const manager = new FaultyMirrorManager({ mirrorsDir: join(root, "mirrors") });
+    const fn = vi.fn();
+
+    const error = await manager
+      .withProjectWorktrees([projectFor(upstream)], "stubwise/ticket-5", fn, { fromExistingBranch: true })
+      .then(
+        () => null,
+        (e: unknown) => e,
+      );
+
+    expect(error).toBe(failure);
+    expect(error).not.toBeInstanceOf(BranchNotFoundError);
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  it("dopo la callback la copia locale del branch sparisce dal mirror ma il fetch successivo la ripristina", async () => {
+    const root = await makeRoot();
+    const upstream = await makeUpstream(root);
+    const manager = new MirrorManager({ mirrorsDir: join(root, "mirrors") });
+    const project = projectFor(upstream);
+    await upstream.addCommitOnBranch("stubwise/ticket-5", "fix.txt", "primo giro\n");
+
+    let pushedSha = "";
+    await manager.withProjectWorktrees(
+      [project],
+      "stubwise/ticket-5",
+      async ({ worktrees }) => {
+        const dir = worktrees[0]!.dir;
+        await writeFile(join(dir, "fix.txt"), "secondo giro\n");
+        await git(["add", "."], dir);
+        await git([...COMMIT_ARGS, "commit", "-m", "correzione"], dir);
+        pushedSha = await git(["rev-parse", "HEAD"], dir);
+        await manager.pushBranch(project, "stubwise/ticket-5");
+      },
+      { fromExistingBranch: true },
+    );
+
+    const mirrorDir = manager.mirrorDirFor(project);
+    expect(await git(["branch", "--list", "stubwise/ticket-5"], mirrorDir)).toBe("");
+    await manager.ensureMirror(project);
+    expect(await git(["rev-parse", "refs/heads/stubwise/ticket-5"], mirrorDir)).toBe(pushedSha);
+  });
+});
+
+describe("MirrorManager.resolveCommitSha", () => {
+  it("risolve uno sha abbreviato (come quello dei webhook Bitbucket) nello sha completo", async () => {
+    const { manager, upstream } = await makeFixture();
+    const project = projectFor(upstream);
+    const sha = await upstream.addCommit("a.txt", "alpha\n");
+
+    const resolved = await manager.resolveCommitSha(project, sha.slice(0, 12));
+    expect(resolved).toBe(sha);
+    expect(resolved).toHaveLength(40);
+    expect(await manager.resolveCommitSha(project, sha)).toBe(sha);
+  });
+
+  it("rifiuta uno sha malformato con InvalidShaError prima di qualunque comando git", async () => {
+    const root = await makeRoot();
+    const manager = new MirrorManager({ mirrorsDir: join(root, "mirrors") });
+    const project: MirrorProject = {
+      provider: "github",
+      repoUrl: "https://github.com/acme/repo",
+      defaultBranch: "main",
+      credentials: { token: "t" },
+    };
+    await expect(manager.resolveCommitSha(project, "--evil")).rejects.toBeInstanceOf(InvalidShaError);
+    // Nessun comando git: il mirror non è stato nemmeno creato (niente clone verso github.com).
+    expect(existsSync(manager.mirrorDirFor(project))).toBe(false);
+  });
+});
+
+describe("runGit — ambiente", () => {
+  it("git gira con LC_ALL=C anche se il processo ha un'altra locale (i rifiuti del push si riconoscono dal testo inglese)", async () => {
+    const root = await makeRoot();
+    class ProbeMirrorManager extends MirrorManager {
+      probeLocale(cwd: string): Promise<string> {
+        return this.git(["-c", 'alias.envprobe=!printf %s "$LC_ALL"', "envprobe"], { cwd });
+      }
+    }
+    const manager = new ProbeMirrorManager({ mirrorsDir: join(root, "mirrors") });
+    const previous = process.env.LC_ALL;
+    process.env.LC_ALL = "it_IT.UTF-8";
+    try {
+      expect(await manager.probeLocale(root)).toBe("C");
+    } finally {
+      if (previous === undefined) delete process.env.LC_ALL;
+      else process.env.LC_ALL = previous;
+    }
+  });
+});
+
+describe("MirrorManager.resolveBranchHead", () => {
+  it("la head ATTUALE del branch sull'upstream, sha completo — anche dopo che qualcun altro ci ha pushato", async () => {
+    const { manager, upstream } = await makeFixture();
+    const project = projectFor(upstream);
+    const branch = "stubwise/ticket-1";
+    const first = await upstream.addCommitOnBranch(branch, "a.txt", "alpha\n");
+    expect(await manager.resolveBranchHead(project, branch)).toBe(first);
+
+    // Un collega pusha sul branch: il mirror si riallinea al fetch.
+    const root = await makeRoot();
+    const clone = join(root, "collega");
+    await execa("git", ["clone", "--quiet", upstream.dir, clone]);
+    await git(["switch", branch], clone);
+    await writeFile(join(clone, "b.txt"), "beta\n");
+    await git(["add", "."], clone);
+    await git([...COMMIT_ARGS, "commit", "-m", "collega"], clone);
+    await git(["push", "origin", branch], clone);
+    const second = await git(["rev-parse", "HEAD"], clone);
+
+    const resolved = await manager.resolveBranchHead(project, branch);
+    expect(resolved).toBe(second);
+    expect(resolved).toHaveLength(40);
+  });
+
+  it("branch assente sull'upstream: errore, mai uno sha di ripiego", async () => {
+    const { manager, upstream } = await makeFixture();
+    await expect(manager.resolveBranchHead(projectFor(upstream), "stubwise/ticket-99")).rejects.toThrow();
+  });
+
+  it("rifiuta un nome di branch non valido prima di qualunque comando git", async () => {
+    const root = await makeRoot();
+    const manager = new MirrorManager({ mirrorsDir: join(root, "mirrors") });
+    const project: MirrorProject = {
+      provider: "github",
+      repoUrl: "https://github.com/acme/repo",
+      defaultBranch: "main",
+      credentials: { token: "t" },
+    };
+    await expect(manager.resolveBranchHead(project, "--evil")).rejects.toBeInstanceOf(InvalidBranchNameError);
+    expect(existsSync(manager.mirrorDirFor(project))).toBe(false);
   });
 });

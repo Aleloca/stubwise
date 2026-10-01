@@ -1,6 +1,7 @@
 import type { StubwiseClient } from "@stubwise/api-client";
 import { ApiError } from "@stubwise/api-client";
-import type { AiJob, TicketComment, TicketDetail, TicketQuestion, Reader } from "@stubwise/shared";
+import { readerSchema, ticketRepositorySchema } from "@stubwise/shared";
+import type { AiJob, PrCycle, TicketComment, TicketDetail, TicketQuestion, Reader } from "@stubwise/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react-native";
 import { StyleSheet } from "react-native";
@@ -27,6 +28,9 @@ function findHostNode(tree: unknown, type: string): { props: Record<string, unkn
 
 const TICKET_ID = "11111111-1111-4111-8111-111111111111";
 const JOB_ID = "22222222-2222-4222-8222-222222222222";
+const CORRECTION_ID = "66666666-6666-4666-8666-666666666666";
+const HELD_JOB_ID = "77777777-7777-4777-8777-777777777777";
+const PR_URL = "https://bitbucket.org/acme/portale-b2b/pull-requests/10";
 
 function ticket(overrides: Partial<Reader<TicketDetail>> = {}): Reader<TicketDetail> {
   return {
@@ -134,6 +138,7 @@ function makeClient(overrides: {
   answerQuestion?: jest.Mock;
   deleteDesign?: jest.Mock;
   deletePlan?: jest.Mock;
+  requestCorrection?: jest.Mock;
 } = {}): StubwiseClient {
   return {
     tickets: {
@@ -152,6 +157,7 @@ function makeClient(overrides: {
       answerQuestion: overrides.answerQuestion ?? jest.fn().mockResolvedValue({ jobId: JOB_ID }),
       deleteDesign: overrides.deleteDesign ?? jest.fn().mockResolvedValue(ticket()),
       deletePlan: overrides.deletePlan ?? jest.fn().mockResolvedValue(ticket()),
+      requestCorrection: overrides.requestCorrection ?? jest.fn().mockResolvedValue({ correctionId: CORRECTION_ID }),
     },
     projects: {
       reviews: overrides.reviews ?? jest.fn().mockResolvedValue([]),
@@ -346,6 +352,7 @@ describe("WorkScreen — ruolo e gate di approvazione", () => {
               branch: "stubwise/fix-245-image-cache",
               prUrl: null,
               prState: "open",
+              cycle: null,
             },
           ],
         }),
@@ -1027,5 +1034,248 @@ describe("WorkScreen — tastiera", () => {
     const scroll = await waitFor(() => screen.getByTestId("keyboard-aware-scroll"));
     expect(scroll.props.automaticallyAdjustKeyboardInsets).toBe(true);
     expect(scroll.props.keyboardShouldPersistTaps).toBe("handled");
+  });
+});
+
+/**
+ * Un ciclo COMPLETO (trappola delle fixture dell'app, CLAUDE.md): nei test il
+ * client è un doppio e `readerSchema` non gira, quindi ogni campo dello schema
+ * c'è, anche quelli che in produzione arriverebbero dai `.default()`.
+ */
+function prCycle(overrides: Partial<Reader<PrCycle>> = {}): Reader<PrCycle> {
+  return {
+    state: "reviewing",
+    round: 0,
+    maxRounds: 3,
+    pendingRequest: false,
+    lastRequest: null,
+    canRequestCorrection: true,
+    heldReason: null,
+    canResume: false,
+    heldJobId: null,
+    ...overrides,
+  };
+}
+
+function prRepo(cycle: Reader<PrCycle> | null): Reader<TicketDetail>["repositories"][number] {
+  return {
+    repositoryId: "repo-1",
+    repositorySlug: "portale-b2b",
+    repositoryName: "Portale B2B",
+    branch: "stubwise/ticket-247",
+    prUrl: PR_URL,
+    prState: "open",
+    cycle,
+  };
+}
+
+/**
+ * Correzioni post-PR (30 set 2026): la schermata mostra le PR del ticket con lo
+ * stato del ciclo e «Applica le correzioni». Il ciclo arriva COL ticket
+ * (`repositories[].cycle`), nessuna query in più.
+ */
+describe("WorkScreen — il ciclo di correzione della PR", () => {
+  /**
+   * TRAPPOLA 2 (CLAUDE.md): SOLO i campi nuovi popolati — ticket spoglio,
+   * nessun job, niente `repositoryName`, e il ciclo con i suoi campi nuovi
+   * accesi. Una fixture completata a zero non produce mai questo scenario.
+   */
+  test("SOLO i campi nuovi popolati: ticket spoglio, nessun job, una PR col suo ciclo", async () => {
+    const client = makeClient({
+      get: jest.fn().mockResolvedValue(
+        ticket({
+          repositories: [
+            {
+              repositoryId: "repo-1",
+              repositorySlug: "portale-b2b",
+              branch: "stubwise/ticket-247",
+              prUrl: PR_URL,
+              prState: "open",
+              cycle: {
+                state: "correcting",
+                round: 2,
+                maxRounds: 3,
+                pendingRequest: true,
+                lastRequest: {
+                  via: "provider",
+                  platform: "bitbucket",
+                  name: "mario.rossi",
+                  at: "2026-09-30T10:00:00.000Z",
+                },
+                canRequestCorrection: false,
+                heldReason: "budget",
+                canResume: true,
+                heldJobId: HELD_JOB_ID,
+              },
+            },
+          ],
+        }),
+      ),
+    });
+    await renderScreen(client, "admin");
+    await waitFor(() => expect(screen.getByTestId("pr-cycle-section")).toBeTruthy());
+    expect(screen.getByTestId("work-pr-row")).toBeTruthy();
+    expect(screen.getByText("portale-b2b")).toBeTruthy();
+    expect(screen.getByTestId("pr-cycle-line-repo-1").props.children).toBe(
+      "Giro 2 di 3 · correzione ferma · budget esaurito · Modifiche richieste da mario.rossi su Bitbucket · in coda · parte quando finisce il lavoro in corso sul ticket",
+    );
+    expect(screen.getByTestId("pr-cycle-request-repo-1").props.accessibilityState?.disabled).toBe(true);
+    expect(screen.getByTestId("pr-cycle-resume-repo-1")).toBeTruthy();
+  });
+
+  test("un OPERATORE chiede la correzione dalla schermata: parte, senza gate di ruolo", async () => {
+    const requestCorrection = jest.fn().mockResolvedValue({ correctionId: CORRECTION_ID });
+    const client = makeClient({
+      requestCorrection,
+      get: jest.fn().mockResolvedValue(
+        ticket({ repositories: [prRepo(prCycle({ state: "changes_requested", maxRounds: 0 }))] }),
+      ),
+    });
+    await renderScreen(client, "member");
+    await waitFor(() => expect(screen.getByTestId("pr-cycle-request-repo-1")).toBeTruthy());
+
+    await fireEvent.press(screen.getByTestId("pr-cycle-request-repo-1"));
+    await waitFor(() => expect(screen.getByTestId("correction-sheet-confirm")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("correction-sheet-confirm"));
+
+    await waitFor(() => expect(requestCorrection).toHaveBeenCalledWith(TICKET_ID, "repo-1", {}));
+  });
+
+  test("dopo la richiesta il ticket si rilegge: la riga dice chi l'ha chiesta e che corregge", async () => {
+    const get = jest
+      .fn()
+      .mockResolvedValueOnce(ticket({ repositories: [prRepo(prCycle({ state: "approved" }))] }))
+      .mockResolvedValue(
+        ticket({
+          repositories: [
+            prRepo(
+              prCycle({
+                state: "correcting",
+                lastRequest: { via: "stubwise", platform: null, name: "op@example.com", at: "2026-09-30T10:00:00.000Z" },
+                canRequestCorrection: false,
+              }),
+            ),
+          ],
+        }),
+      );
+    const client = makeClient({ get });
+    await renderScreen(client);
+    await waitFor(() => expect(screen.getByTestId("pr-cycle-request-repo-1")).toBeTruthy());
+
+    await fireEvent.press(screen.getByTestId("pr-cycle-request-repo-1"));
+    await waitFor(() => expect(screen.getByTestId("correction-sheet-confirm")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("correction-sheet-confirm"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("pr-cycle-line-repo-1").props.children).toBe(
+        "Modifiche richieste da op@example.com su Stubwise · Correzione in corso",
+      ),
+    );
+  });
+
+  test("nessuna PR sul ticket: nessuna sezione", async () => {
+    // Un repository col branch ma senza PR: la sezione non ha niente da dire.
+    const client = makeClient({
+      get: jest.fn().mockResolvedValue(
+        ticket({ repositories: [{ ...prRepo(null), prUrl: null }] }),
+      ),
+    });
+    await renderScreen(client);
+    await waitFor(() => expect(screen.getByTestId("work-body")).toBeTruthy());
+    expect(screen.queryByTestId("pr-cycle-section")).toBeNull();
+    // Nemmeno il contenitore col margine: niente spazio vuoto sotto il ticket.
+    expect(screen.queryByTestId("work-pr-row")).toBeNull();
+  });
+});
+
+/**
+ * Il rilancio generico non tocca una correzione ferma (gemella di
+ * `latestJobIsHeldCorrection` del web): se l'ultimo job del ticket è il
+ * `heldJobId` di un ciclo, «Avvia il lavoro» non si offre e resta solo
+ * «Riprendi» della sezione PR. In tutti e tre i casi l'ultimo job è `held`,
+ * cioè uno stato da cui il rilancio generico si offrirebbe: la regola è
+ * l'unica cosa che lo toglie, e il test arriva davvero al suo ramo.
+ */
+describe("WorkScreen — una correzione ferma si riprende, non si rilancia", () => {
+  const heldJob = () => job({ id: HELD_JOB_ID, status: "held" });
+
+  test("l'ultimo job È la correzione ferma: niente rilancio generico, «Riprendi» sì", async () => {
+    const client = makeClient({
+      jobs: jest.fn().mockResolvedValue([heldJob()]),
+      get: jest.fn().mockResolvedValue(
+        ticket({
+          repositories: [
+            prRepo(
+              prCycle({
+                state: "correcting",
+                canRequestCorrection: false,
+                heldReason: "budget",
+                canResume: true,
+                heldJobId: HELD_JOB_ID,
+              }),
+            ),
+          ],
+        }),
+      ),
+    });
+    await renderScreen(client, "admin");
+    await waitFor(() => expect(screen.getByTestId("pr-cycle-resume-repo-1")).toBeTruthy());
+    expect(screen.queryByTestId("work-run")).toBeNull();
+    expect(screen.queryByTestId("work-run-start")).toBeNull();
+  });
+
+  test.each([
+    ["nessun ciclo sulla PR", () => prRepo(null)],
+    [
+      "un ciclo fermo su un ALTRO job",
+      () =>
+        prRepo(
+          prCycle({
+            state: "correcting",
+            canRequestCorrection: false,
+            heldReason: "budget",
+            canResume: true,
+            heldJobId: "88888888-8888-4888-8888-888888888888",
+          }),
+        ),
+    ],
+  ])("%s: il rilancio generico c'è", async (_title, makeRepo) => {
+    const client = makeClient({
+      jobs: jest.fn().mockResolvedValue([heldJob()]),
+      get: jest.fn().mockResolvedValue(ticket({ repositories: [makeRepo()] })),
+    });
+    await renderScreen(client, "admin");
+    await waitFor(() => expect(screen.getByTestId("work-run-start")).toBeTruthy());
+  });
+
+  test("server vecchio, senza i campi nuovi del ciclo: il rilancio generico c'è", async () => {
+    // La voce GREZZA di un server di prima di G5, passata da `readerSchema`
+    // come l'app la riceve: `heldJobId` (e `heldReason`/`canResume`) arrivano
+    // dai `.default()`. Il ciclo c'è ed è `correcting`, così la regola guarda
+    // davvero dentro `cycle` e non si ferma a un `null`.
+    const repository = readerSchema(ticketRepositorySchema).parse({
+      repositoryId: "33333333-3333-4333-8333-333333333333",
+      repositorySlug: "portale-b2b",
+      branch: "stubwise/ticket-247",
+      prUrl: PR_URL,
+      prState: "open",
+      cycle: {
+        state: "correcting",
+        round: 1,
+        maxRounds: 3,
+        pendingRequest: false,
+        lastRequest: null,
+        canRequestCorrection: false,
+      },
+    });
+    expect(repository.cycle?.heldJobId).toBeNull();
+    const client = makeClient({
+      jobs: jest.fn().mockResolvedValue([heldJob()]),
+      get: jest.fn().mockResolvedValue(ticket({ repositories: [repository] })),
+    });
+    await renderScreen(client, "admin");
+    await waitFor(() => expect(screen.getByTestId("work-run-start")).toBeTruthy());
+    expect(screen.getByTestId("pr-cycle-line-33333333-3333-4333-8333-333333333333")).toBeTruthy();
+    expect(screen.queryByTestId("pr-cycle-resume-33333333-3333-4333-8333-333333333333")).toBeNull();
   });
 });

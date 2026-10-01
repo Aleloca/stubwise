@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import type { GitProviderKind } from "@stubwise/shared";
+import { prNumberFromUrl, type GitProviderKind, type PrComment } from "@stubwise/shared";
 
 /**
  * Git configuration of a project, with credentials ALREADY decrypted.
@@ -100,6 +100,13 @@ export interface PrActivityEvent {
   targetBranch: string;
   headSha: string;
   prUrl: string;
+  /**
+   * `true` solo per una RIAPERTURA esplicita (GitHub `reopened`): `kind`
+   * resta `opened` per la PR Review, questo campo serve a chi deve
+   * distinguerla da un'apertura (riportare `open` una riga `closed_unmerged`).
+   * Assente altrove: Bitbucket non ha un evento di riapertura.
+   */
+  reopened?: true;
 }
 
 /**
@@ -119,6 +126,102 @@ export interface PushWebhookEvent {
 }
 
 /**
+ * Il commento di una PR ha UNA sola definizione: lo schema `prCommentSchema`
+ * di `@stubwise/shared` (tappa A, Task A3), che tipizza anche la colonna
+ * `pr_corrections.provider_feedback`. Qui lo si importa (in cima al file) e lo
+ * si riesporta, così l'`export *` di `index.ts` continua a offrirlo ai
+ * consumatori di `@stubwise/git` senza una seconda fonte di verità
+ * (`packages/git` dipende già da `@stubwise/shared`). Il docblock sulla
+ * semantica (`authorId`, `line` nuova/vecchia) sta sullo schema.
+ */
+export type { PrComment };
+
+/**
+ * Permesso di un utente su una repository, dal più forte al più debole
+ * (GitHub `role_name`: `maintain` e `triage` sono ruoli propri, che il campo
+ * legacy `permission` appiattisce su `write`/`read`). `none` = nessun accesso.
+ *
+ * ⚠️ COPIA VOLUTA in `PlatformPermission` (`packages/notifications/src/pr-correction-feedback.ts`):
+ * `@stubwise/notifications` non dipende da questo package, quindi l'unione è
+ * ripetuta là. Chi aggiunge un valore qui lo aggiunga anche là.
+ */
+export const REPOSITORY_PERMISSIONS = ["admin", "maintain", "write", "triage", "read", "none"] as const;
+export type RepositoryPermission = (typeof REPOSITORY_PERMISSIONS)[number];
+
+/** Stato di uno status di commit di Stubwise: in corso, approvata, modifiche richieste. */
+export type CommitStatusState = "pending" | "success" | "failure";
+
+/**
+ * Chiave dello status di commit di Stubwise (design §8). Una sola, esportata:
+ * chi scrive lo status (worker) e chi lo filtra (server) importano questa
+ * costante invece di ripetere il letterale, così le due metà non divergono.
+ */
+export const STUBWISE_REVIEW_STATUS_KEY = "stubwise-review" as const;
+
+/**
+ * Status di commit scritto da Stubwise (design §8). `key` è fisso: è la
+ * chiave che le regole del branch possono rendere obbligatoria, e uno status
+ * con la stessa chiave SOVRASCRIVE il precedente sullo stesso commit (così
+ * "in corso" diventa "approvata" invece di affiancarlesi).
+ */
+export interface CommitStatusInput {
+  state: CommitStatusState;
+  key: typeof STUBWISE_REVIEW_STATUS_KEY;
+  description: string;
+  url?: string;
+  /**
+   * Branch sorgente della PR. Solo Bitbucket lo usa (`refname`): la sua
+   * documentazione dice che serve ad associare lo status alla PR. GitHub lo
+   * ignora (associa per sha).
+   */
+  refname?: string;
+}
+
+/** Verdetto pubblicato come stato vero della PR dall'account revisore. */
+export type PrReviewVerdict = "approve" | "request_changes";
+
+/**
+ * Esito di {@link GitProvider.submitPrReview} quando non lancia.
+ * `"already_in_state"`: il provider ha risposto che l'account era GIÀ in
+ * quello stato (Bitbucket 409 sul POST del verdetto) — non un errore, il
+ * testo è uscito comunque. Scelta difensiva: dal vivo (B14 T21, 1 ott 2026)
+ * Bitbucket risponde 200 a un verdetto ripetuto, mai 409, quindi su Bitbucket
+ * questo esito oggi non nasce; il ramo resta, innocuo.
+ * Il pacchetto non ha un logger: l'esito torna al chiamante, che scrive la
+ * riga di log, con `responseExcerpt` — un estratto (al più 200 caratteri)
+ * della risposta, con il token e la sua forma base64 già mascherati.
+ */
+export type SubmitPrReviewOutcome =
+  | { status: "submitted" }
+  | { status: "already_in_state"; responseExcerpt: string };
+
+/**
+ * "Request changes" arrivato dal webhook (Bitbucket
+ * `pullrequest:changes_request_created`, GitHub `pull_request_review` con
+ * `review.state = changes_requested`). `actorId` è la stessa identità di
+ * {@link PrComment.authorId}: il chiamante la confronta con gli account di
+ * Stubwise PRIMA di qualunque scrittura (design §5). `reviewBody` è il testo
+ * della review su GitHub; Bitbucket non ne manda uno (sempre `null`).
+ */
+export interface ChangesRequestedEvent {
+  prNumber: number;
+  sourceBranch: string;
+  actorId: string;
+  actorLogin: string;
+  reviewBody: string | null;
+  /**
+   * Il rapporto dell'autore col repository: `review.author_association` di
+   * GitHub (`OWNER`, `MEMBER`, `COLLABORATOR`, `CONTRIBUTOR`, `NONE`…),
+   * maiuscolo come GitHub lo manda; `null` se assente. Bitbucket non ha un
+   * equivalente: sempre `null`. Il chiamante lo passa a
+   * `isTrustedAuthorAssociation` (`@stubwise/notifications`) prima di far
+   * partire una correzione: su un repository pubblico chiunque può chiedere
+   * modifiche.
+   */
+  authorAssociation: string | null;
+}
+
+/**
  * Esito di una singola sonda di validazione delle credenziali. `name` è
  * l'etichetta umana del controllo (es. "Accesso git (push)"), `ok` dice se è
  * passato, `detail` è un messaggio in italiano comprensibile all'utente.
@@ -127,7 +230,30 @@ export interface CredentialCheck {
   name: string;
   ok: boolean;
   detail: string;
+  /**
+   * COSA verifica il controllo, per chi deve sceglierne un sottoinsieme senza
+   * confrontare le etichette (ciclo di correzione, 1 ott 2026). Valorizzato da
+   * `validateCredentials`; assente dove non serve (`validateAccount`).
+   * - `push`: scrittura git sul repository;
+   * - `rest`: accesso REST alle pull request (su GitHub anche il bit di
+   *   scrittura che serve a mergiare);
+   * - `webhook`: gestione dei webhook — su entrambi i provider richiede
+   *   accesso ADMIN alla repository. Un account che non configura webhook
+   *   (l'account revisore, a cui basta la scrittura) lo deve ignorare;
+   * - `merge`: permesso di merge (Bitbucket: write o admin).
+   */
+  purpose?: CredentialCheckPurpose;
+  /**
+   * PERCHÉ un controllo è fallito, quando conta per chi decide (1 ott 2026).
+   * `no_write_permission`: il token autentica e vede la repository, ma non ha
+   * permesso di SCRITTURA (GitHub `permissions.push === false`, Bitbucket
+   * permesso `read`). Assente quando il controllo passa o fallisce per altro.
+   */
+  failure?: "no_write_permission";
 }
+
+/** Vedi {@link CredentialCheck.purpose}. */
+export type CredentialCheckPurpose = "push" | "rest" | "webhook" | "merge";
 
 /**
  * Esito della registrazione idempotente di un webhook sul provider git.
@@ -247,6 +373,20 @@ export interface GitProvider {
     opts?: { fetchImpl?: FetchLike }
   ): Promise<"open" | "closed">;
   /**
+   * Stato della PR con la DISTINZIONE fra mergiata e rifiutata, che
+   * {@link getPullRequestState} non fa: `merged` / `closed_unmerged` sono gli
+   * stessi valori di `ticket_repositories.pr_state`. Nato per lo script una
+   * tantum che allinea le righe rimaste `open` su PR già chiuse (ciclo di
+   * correzione post-PR, G7). Non DEDUCE mai: uno stato che il provider non
+   * dichiara in modo riconoscibile lancia `GitProviderError`, come una
+   * risposta non 2xx — al chiamante resta «non verificata», mai un ripiego.
+   */
+  getPullRequestFinalState(
+    p: ProjectGitConfig,
+    prNumber: number,
+    opts?: { fetchImpl?: FetchLike }
+  ): Promise<PullRequestFinalState>;
+  /**
    * Stato dei check del provider (fase 8, Task 5) — GitHub Actions check-run
    * sull'ultimo commit della PR, Bitbucket build status. **È la colonna che
    * conta** per la coda di rilascio (design §4): il test interno è ciò che la
@@ -289,6 +429,84 @@ export interface GitProvider {
     opts?: { fetchImpl?: FetchLike }
   ): Promise<void>;
   /**
+   * Commenti della PR — generali e sulle righe (GitHub: anche il testo delle
+   * review inviate) — per la fotografia del feedback umano (design §9). Mai
+   * cancellati, bozze o vuoti; mai commenti senza un autore riconoscibile
+   * (il chiamante esclude gli account di Stubwise per `authorId`). Lancia
+   * GitProviderError: una fotografia parziale non si prende.
+   */
+  listPrComments(
+    p: ProjectGitConfig,
+    prNumber: number,
+    opts?: { fetchImpl?: FetchLike }
+  ): Promise<PrComment[]>;
+  /**
+   * Scrive (o sovrascrive, stessa `key`) lo status di commit di Stubwise
+   * sullo sha COMPLETO (design §8). Lancia GitProviderError, anche su uno
+   * sha abbreviato prima di qualunque richiesta: il chiamante lo tratta come
+   * best-effort, un errore non ferma il ciclo.
+   */
+  setCommitStatus(
+    p: ProjectGitConfig,
+    sha: string,
+    status: CommitStatusInput,
+    opts?: { fetchImpl?: FetchLike }
+  ): Promise<void>;
+  /**
+   * Pubblica il verdetto della review come stato vero della PR, testo
+   * compreso (Bitbucket: commento + approve/request-changes; GitHub: una
+   * review). Va chiamato con l'account REVISORE: GitHub rifiuta i due
+   * verdetti all'autore della PR (422), Bitbucket li accetta ma
+   * l'approvazione dell'autore non conta per i merge check. Sostituisce
+   * `createPrComment` quando l'account revisore c'è. Lancia GitProviderError;
+   * `"already_in_state"` quando il verdetto c'era già (vedi
+   * {@link SubmitPrReviewOutcome}). Se il verdetto è apposto ma il commento
+   * fallisce (solo Bitbucket: due richieste) lancia
+   * {@link ReviewCommentFailedError}, `verdictSubmitted: true`.
+   */
+  submitPrReview(
+    p: ProjectGitConfig,
+    prNumber: number,
+    verdict: PrReviewVerdict,
+    body: string,
+    opts?: { fetchImpl?: FetchLike }
+  ): Promise<SubmitPrReviewOutcome>;
+  /**
+   * Identità stabile dell'account delle credenziali (uuid Bitbucket con le
+   * graffe / id numerico GitHub come stringa), nella stessa forma di
+   * `ChangesRequestedEvent.actorId` e `PrComment.authorId`. Accetta
+   * qualunque oggetto con `credentials` (ProjectGitConfig o
+   * AccountCredentials). Lancia GitProviderError.
+   */
+  getAuthenticatedUserId(
+    p: Pick<ProjectGitConfig, "credentials">,
+    opts?: { fetchImpl?: FetchLike; timeoutMs?: number }
+  ): Promise<string>;
+  /**
+   * Il permesso EFFETTIVO di un utente sulla repository di `p` (GitHub:
+   * `GET /repos/{o}/{r}/collaborators/{login}/permission`), comprese le
+   * appartenenze via organizzazione e team — anche quelle PRIVATE, che
+   * `author_association` non riporta (arrivano come `CONTRIBUTOR`/`NONE`).
+   * Serve al filtro «chi ha il permesso di chiedere modifiche»
+   * (`isAuthorPermitted` in `@stubwise/notifications`).
+   *
+   * **Opzionale apposta**: esiste solo su GitHub. Bitbucket non ha un dato
+   * equivalente e il filtro non lo interroga mai (lì ammette sempre); un
+   * metodo Bitbucket che lanciasse o restituisse un valore inventato sarebbe
+   * un'implementazione finta che nessuno chiama. Col `?` il compilatore
+   * obbliga il chiamante a gestirne l'assenza, e l'assenza su GitHub va
+   * trattata come «non verificabile» (fail-closed), mai come un permesso.
+   *
+   * Un login che non è un collaboratore (404) → `"none"`. Lancia
+   * GitProviderError sugli altri errori e su un login malformato (in quel
+   * caso senza fare la richiesta). Mai il token in un messaggio.
+   */
+  getCollaboratorPermission?(
+    p: ProjectGitConfig,
+    login: string,
+    opts?: { fetchImpl?: FetchLike; timeoutMs?: number }
+  ): Promise<RepositoryPermission>;
+  /**
    * Returns a WebhookEvent if the webhook payload represents a closed PR —
    * `kind: "merged"` if it was merged, `kind: "closed_unmerged"` if it was
    * closed/rejected without merging — otherwise null. Never throws on malformed
@@ -304,6 +522,18 @@ export interface GitProvider {
    * call verifyWebhook first.
    */
   parsePushEvent(headers: Record<string, string>, body: unknown): PushWebhookEvent | null;
+  /**
+   * "Request changes" su una PR (Bitbucket
+   * `pullrequest:changes_request_created`, GitHub `pull_request_review`
+   * submitted con stato changes_requested), altrimenti null. Mutuamente
+   * esclusivo con parseWebhook/parsePrEvent/parsePushEvent: nessun payload è
+   * riconosciuto da due parser. Mai lancia. NON verifica la firma — chiamare
+   * prima verifyWebhook.
+   */
+  parseChangesRequestedEvent(
+    headers: Record<string, string>,
+    body: unknown
+  ): ChangesRequestedEvent | null;
   /**
    * Verifies the webhook HMAC-SHA256 signature against the RAW body.
    * Returns false if the signature header is missing or invalid.
@@ -336,7 +566,8 @@ export interface GitProvider {
     opts?: { fetchImpl?: FetchLike }
   ): Promise<CredentialCheck[]>;
   /**
-   * Registra in modo idempotente il webhook delle PR chiuse (merge e rifiuto) sul provider git usando
+   * Registra in modo idempotente il webhook del repository (PR
+   * aperte/aggiornate/chiuse, "Request changes", push) sul provider git usando
    * l'autenticazione REST (Bitbucket: email-o-username:token Basic; GitHub:
    * Bearer). Elenca i webhook esistenti, cerca quello con lo stesso target URL
    * di `hook.url`: se lo trova lo aggiorna (attivo + eventi corretti + secret
@@ -390,6 +621,9 @@ export interface GitProvider {
  */
 export type MergeFailureReason = "not_mergeable" | "forbidden" | "unknown";
 
+/** Lo stato di una PR come lo scrive `ticket_repositories.pr_state`. */
+export type PullRequestFinalState = "open" | "merged" | "closed_unmerged";
+
 export class GitProviderError extends Error {
   readonly status: number;
   /** Response body, truncated to 500 characters. */
@@ -414,6 +648,32 @@ export class MergeNotAllowedError extends GitProviderError {
     super(message, status, responseText);
     this.name = "MergeNotAllowedError";
     this.reason = reason;
+  }
+}
+
+/**
+ * Lanciato da `submitPrReview` quando il VERDETTO è stato apposto (o c'era
+ * già: 409 Bitbucket, `already_in_state`) ma il COMMENTO che porta il testo
+ * della review è fallito. Esiste solo su Bitbucket, dove verdetto e testo
+ * sono due richieste distinte (POST dello stato, poi `createPrComment`); su
+ * GitHub la review è UNA richiesta col corpo dentro, quindi il caso non si
+ * presenta. È una `GitProviderError` con status e testo dell'errore del
+ * commento, così chi guarda solo lo status vede quello di sempre; chi deve
+ * distinguere (il ripiego del worker, che altrimenti scriverebbe «verdetto non
+ * apposto» su una PR che il verdetto ce l'ha) guarda `verdictSubmitted`.
+ */
+export class ReviewCommentFailedError extends GitProviderError {
+  readonly verdictSubmitted = true as const;
+  constructor(commentError: unknown) {
+    const inner = commentError instanceof GitProviderError ? commentError : null;
+    const message = commentError instanceof Error ? commentError.message : String(commentError);
+    super(
+      `Verdetto apposto, ma il commento della review non è stato pubblicato: ${message}`,
+      inner?.status ?? 0,
+      inner?.responseText ?? ""
+    );
+    this.name = "ReviewCommentFailedError";
+    this.cause = commentError;
   }
 }
 
@@ -461,15 +721,23 @@ export function parseRepoUrl(repoUrl: string): ParsedRepoUrl {
 
 /**
  * Estrae il numero della PR dal suo URL (fase 8, Task 9): GitHub
- * `.../pull/N`, Bitbucket `.../pull-requests/N`. `null` se il formato non è
- * riconosciuto — MAI lancia: chi lo chiama (la coda di rilascio) legge un URL
- * salvato da un run precedente e non deve rompersi su un formato imprevisto.
+ * `.../pull/N`, Bitbucket `.../pull-requests/N` (e `/pulls/N`). `null` se il
+ * formato non è riconosciuto — MAI lancia: chi lo chiama (la coda di rilascio)
+ * legge un URL salvato da un run precedente e non deve rompersi su un formato
+ * imprevisto. Delega a `prNumberFromUrl` di @stubwise/shared, la regola unica
+ * del monorepo; il nome resta perché lo usano altri (es. `release.ts`).
  */
 export function parsePrNumberFromUrl(prUrl: string): number | null {
-  const match = /\/pull(?:-requests)?\/(\d+)\b/.exec(prUrl);
-  if (!match) return null;
-  const n = Number(match[1]);
-  return Number.isInteger(n) ? n : null;
+  return prNumberFromUrl(prUrl);
+}
+
+/**
+ * Vero se `sha` è uno sha git COMPLETO (40 esadecimali). Gli status di commit
+ * lo esigono su entrambi i provider; lo sha di `pr_review_jobs.head_sha` di
+ * Bitbucket è abbreviato e va risolto nel mirror prima di arrivare qui.
+ */
+export function isFullCommitSha(sha: string): boolean {
+  return /^[0-9a-f]{40}$/i.test(sha);
 }
 
 /** Reads a header value case-insensitively. */
@@ -556,6 +824,63 @@ export async function ensureOkResponse(response: Response, provider: string): Pr
   );
 }
 
+/** Cosa manca al token quando la scrittura di uno status di commit riceve
+ * 401/403. Senza segreti: nomina i permessi, mai il token. */
+export const COMMIT_STATUS_PERMISSION_HINT =
+  "il token deve poter scrivere gli status di commit (GitHub: Commit statuses write; Bitbucket: scope write:repository:bitbucket)";
+
+/** Cosa manca al token quando la pubblicazione del verdetto di una review
+ * (approvare / chiedere modifiche, e il commento che lo accompagna) riceve
+ * 401/403. Senza segreti: nomina i permessi, mai il token. */
+export const PR_REVIEW_PERMISSION_HINT =
+  "il token deve poter revisionare le pull request (GitHub: Pull requests write; Bitbucket: scope write:pullrequest:bitbucket)";
+
+/** Cosa manca al token quando la lettura del permesso di un utente sulla
+ * repository riceve 401/403. Senza segreti: nomina i permessi, mai il token.
+ * Il permesso esatto richiesto a un token fine-grained è da confermare in
+ * B14 (T40). */
+export const COLLABORATOR_PERMISSION_HINT =
+  "il token deve poter leggere i collaboratori della repository (GitHub: Metadata read sulla repository; token classico: scope repo)";
+
+/**
+ * Se `error` è un {@link GitProviderError} 401/403, ne restituisce una copia
+ * col messaggio che nomina il permesso mancante (`hint`); altrimenti
+ * restituisce `error` invariato. Lo status HTTP resta quello vero.
+ */
+export function withPermissionHint(error: unknown, hint: string): unknown {
+  if (error instanceof GitProviderError && (error.status === 401 || error.status === 403)) {
+    return new GitProviderError(`${error.message} — ${hint}`, error.status, error.responseText);
+  }
+  return error;
+}
+
+/**
+ * Come {@link ensureOkResponse}, ma su 401/403 il messaggio dice quale
+ * permesso manca (`hint`): un "403" nudo nel log non spiega che cosa va
+ * aggiunto al token.
+ */
+export async function ensureOkResponseWithHint(
+  response: Response,
+  provider: string,
+  hint: string
+): Promise<void> {
+  try {
+    await ensureOkResponse(response, provider);
+  } catch (error) {
+    throw withPermissionHint(error, hint);
+  }
+}
+
+/**
+ * Come {@link ensureOkResponse}, ma su 401/403 il messaggio dice quale
+ * permesso manca ({@link COMMIT_STATUS_PERMISSION_HINT}): lo status di commit
+ * è l'unica scrittura della review che un token in sola lettura non può fare,
+ * e un "403" nudo nel log non lo spiega. Lo status HTTP resta quello vero.
+ */
+export async function ensureCommitStatusResponse(response: Response, provider: string): Promise<void> {
+  await ensureOkResponseWithHint(response, provider, COMMIT_STATUS_PERMISSION_HINT);
+}
+
 /**
  * Esegue una fetch GET con un timeout (default 10s) via AbortController. A
  * differenza di `ensureOkResponse`, non lancia sui non-2xx: restituisce la
@@ -589,6 +914,49 @@ export function parseNextLink(linkHeader: string | null): string | null {
     if (match) return match[1] ?? null;
   }
   return null;
+}
+
+/**
+ * Verifica che l'URL di una pagina da seguire stia sull'host dell'API del
+ * provider, PRIMA di mandargli una richiesta con l'header `Authorization`.
+ *
+ * L'URL della pagina successiva lo decide la RISPOSTA (il `next` del JSON di
+ * Bitbucket, il `Link rel="next"` di GitHub): se puntasse altrove, seguirlo
+ * consegnerebbe il token a un host scelto da chi ha scritto quella risposta.
+ * Il confronto è sull'`origin` calcolata da `new URL`, mai su un prefisso di
+ * stringa: `https://api.bitbucket.org.evil.com` e
+ * `https://api.bitbucket.org@evil.com` iniziano entrambi come l'API vera, ma
+ * la loro origin è quella di `evil.com`. Si rifiutano anche l'`http:` e le
+ * credenziali incorporate nell'URL (userinfo), pure sull'host giusto.
+ *
+ * Non combacia → lancia GitProviderError: mai risultati parziali in silenzio.
+ * Il messaggio mostra solo l'origin ricevuta (niente percorso né query, che
+ * potrebbero portare credenziali), e l'origin non include mai lo userinfo.
+ */
+export function assertPageOnApiHost(url: string, expectedOrigin: string, providerName: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new GitProviderError(
+      `${providerName} ha indicato una pagina successiva con un URL non valido: non la seguo`,
+      0,
+      ""
+    );
+  }
+  const expected = new URL(expectedOrigin).origin;
+  const ok =
+    parsed.protocol === "https:" &&
+    parsed.origin === expected &&
+    parsed.username === "" &&
+    parsed.password === "";
+  if (!ok) {
+    throw new GitProviderError(
+      `${providerName} ha indicato una pagina successiva su un host inatteso (${parsed.origin}, atteso ${expected}): non la seguo per non inviare il token altrove`,
+      0,
+      ""
+    );
+  }
 }
 
 /** Codifica `user:pass` in un header Authorization Basic. */

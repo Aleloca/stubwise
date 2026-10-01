@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import {
   decrypt,
   gitAccounts,
@@ -57,6 +57,46 @@ interface GitCredentials {
   username?: string;
   email?: string;
   token: string;
+}
+
+/**
+ * Lunghezza minima perché un prefisso identifichi un commit: quella delle
+ * abbreviazioni di git. Sotto, «combacia» non direbbe niente (una stringa
+ * vuota è prefisso di tutto).
+ */
+export const MIN_SHA_PREFIX = 7;
+
+/**
+ * Due sha indicano lo STESSO commit? Per prefisso: il più corto è prefisso
+ * del più lungo, senza distinguere maiuscole e minuscole — Bitbucket salva
+ * head abbreviate (~12 caratteri), GitHub complete, l'agente di monitoraggio
+ * quello che il deploy gli dice. Sotto {@link MIN_SHA_PREFIX} caratteri,
+ * o con uno dei due assente, NON combaciano: chi chiama non afferma niente.
+ *
+ * La regola è UNA per la coda di rilascio: la usano `deployedOn` («questa
+ * head gira lì») e `reviewStale` («il verdetto è su un'altra head»).
+ */
+export function sameCommit(a: string | null | undefined, b: string | null | undefined): boolean {
+  if (!a || !b) return false;
+  const x = a.trim().toLowerCase();
+  const y = b.trim().toLowerCase();
+  if (x.length < MIN_SHA_PREFIX || y.length < MIN_SHA_PREFIX) return false;
+  return x.length <= y.length ? y.startsWith(x) : x.startsWith(y);
+}
+
+/**
+ * Il verdetto della review è su codice SUPERATO? Solo se entrambe le head
+ * sono note e NON sono lo stesso commit. Senza verdetto, senza head della
+ * review o senza head letta dal vivo (check illeggibili) → false: non si
+ * afferma niente che Stubwise non possa verificare.
+ */
+export function isReviewStale(
+  verdict: string | null | undefined,
+  reviewHeadSha: string | null | undefined,
+  liveHeadSha: string | null | undefined,
+): boolean {
+  if (!verdict || !reviewHeadSha || !liveHeadSha) return false;
+  return !sameCommit(reviewHeadSha, liveHeadSha);
 }
 
 /** `null` se le credenziali cifrate dell'account non si decifrano (config errata). */
@@ -212,8 +252,10 @@ export async function releasePullRequest(
  *
  * `pr_reviews` non registra lo stato della PR (a differenza di
  * `ticket_repositories.prState`): "è ancora aperta?" si decide così —
- * (1) candidati = l'ULTIMA review per ogni (repository, prNumber) che questa
- * lista non ha già dalla sorgente interna; (2) filtro economico: se il
+ * (1) candidati = l'ULTIMA review CON ticket, completata e partita
+ * (`started_at` valorizzato), per ogni (repository, prNumber) che questa
+ * lista non ha già dalla sorgente interna — la riga in attesa che il poller
+ * crea al claim, una review in corso o una fallita non contano; (2) filtro economico: se il
  * ticket collegato è già `done`/`closed` (il webhook di merge/chiusura lo fa
  * per i ticket di tipo `review`, vedi `webhooks.ts`), la PR è quasi
  * certamente chiusa — SALTATO senza una chiamata al provider; (3) per i
@@ -247,6 +289,14 @@ export async function listReleaseQueue(db: Db, encryptionKey: Buffer): Promise<R
     internalRows.map((r) => `${r.repository.id}:${parsePrNumberFromUrl(r.tr.prUrl)}`),
   );
 
+  // Il verdetto viene SOLO da review COMPLETATE e partite (`started_at`
+  // valorizzato), dalla più vecchia alla più recente: nella Map vince l'ultima
+  // inserita, cioè la completata più recente. Senza il filtro, la riga che il
+  // poller crea al claim (`running`, `started_at` null, verdetto null), una
+  // review in corso o una fallita coprirebbero il verdetto vero per tutta
+  // l'attesa (fino a ore dietro un fix); senza l'ordine, quale riga vince lo
+  // deciderebbe Postgres.
+  //
   // Review: LEFT JOIN manuale via una seconda query (repositoryId, prUrl) —
   // niente in comune con una query unica perché pr_reviews non ha FK verso
   // ticket_repositories (sono scritte da percorsi indipendenti: fix vs
@@ -260,15 +310,29 @@ export async function listReleaseQueue(db: Db, encryptionKey: Buffer): Promise<R
           prUrl: prReviews.prUrl,
           verdict: prReviews.verdict,
           prSummary: prReviews.prSummary,
+          // La head su cui la review ha dato il verdetto: `reviewStale`.
+          headSha: prReviews.headSha,
         })
         .from(prReviews)
-        .where(inArray(prReviews.prUrl, internalPrUrls))
+        .where(
+          and(
+            inArray(prReviews.prUrl, internalPrUrls),
+            eq(prReviews.status, "completed"),
+            isNotNull(prReviews.startedAt),
+          ),
+        )
+        .orderBy(asc(prReviews.createdAt))
     : [];
   const reviewByKey = new Map(reviewRows.map((r) => [`${r.repositoryId}:${r.prUrl}`, r]));
 
   // Candidati esterni: l'ULTIMA review per ogni (repository, prNumber) di
   // TUTTA l'istanza — non c'è un altro modo di sapere quali PR esterne
-  // Stubwise conosce, se non guardare cosa ha già rivisto.
+  // Stubwise conosce, se non guardare cosa ha già rivisto. Solo le review CON
+  // ticket, completate e partite: la riga in attesa (claim del poller) e
+  // quella in corso il ticket non l'hanno ancora — lo risolve `runPrReview`
+  // alla fine —, e se vincessero la DISTINCT ON la PR sparirebbe dalla coda
+  // per tutta l'attesa (fino a ore). Così vince la review precedente, col suo
+  // verdetto; una fallita non ne dà uno, quindi non può nemmeno coprirlo.
   const latestExternalReviews = await db
     .selectDistinctOn([prReviews.repositoryId, prReviews.prNumber], {
       repositoryId: prReviews.repositoryId,
@@ -278,19 +342,24 @@ export async function listReleaseQueue(db: Db, encryptionKey: Buffer): Promise<R
       ticketId: prReviews.ticketId,
       verdict: prReviews.verdict,
       prSummary: prReviews.prSummary,
+      headSha: prReviews.headSha,
       createdAt: prReviews.createdAt,
     })
     .from(prReviews)
+    .where(
+      and(
+        isNotNull(prReviews.ticketId),
+        eq(prReviews.status, "completed"),
+        isNotNull(prReviews.startedAt),
+      ),
+    )
     .orderBy(prReviews.repositoryId, prReviews.prNumber, desc(prReviews.createdAt));
 
   const externalCandidates = latestExternalReviews.filter((c) => {
     if (internalKeys.has(`${c.repositoryId}:${c.prNumber}`)) return false;
-    // Senza ticketId non c'è un ticket da passare all'azione di rilascio —
-    // capita solo quando l'ULTIMA review di quel PR non è andata a buon
-    // fine (parse fallito, nessun ticket creato): è un caso raro e si
-    // autorisolve alla prossima review riuscita. Va scartato qui, non
-    // nascosto più a valle: mostrare una riga senza un modo di rilasciarla
-    // sarebbe peggio di non mostrarla.
+    // Difesa: dopo il `where` della query non capita più. Senza ticketId non
+    // c'è un ticket da passare all'azione di rilascio, e mostrare una riga
+    // senza un modo di rilasciarla sarebbe peggio di non mostrarla.
     if (c.ticketId === null) return false;
     return true;
   });
@@ -362,7 +431,9 @@ export async function listReleaseQueue(db: Db, encryptionKey: Buffer): Promise<R
     for (const env of deployTargets) {
       if (env.projectId !== projectId || !env.serverId) continue;
       const services = servicesByServer.get(env.serverId) ?? [];
-      const match = services.some((s) => s.commitSha !== undefined && headSha.startsWith(s.commitSha));
+      // Stessa regola di `reviewStale` (`sameCommit`): per prefisso, in
+      // entrambi i versi, senza maiuscole, con una lunghezza minima.
+      const match = services.some((s) => sameCommit(s.commitSha, headSha));
       if (match) names.push(env.name);
     }
     return names;
@@ -410,6 +481,10 @@ export async function listReleaseQueue(db: Db, encryptionKey: Buffer): Promise<R
         // PR nata da Stubwise vedrebbe sempre "deployedOn" vuoto anche se lo
         // era davvero.
         deployedOn: deployedOnFor(project.id, checks.headSha),
+        // Il verdetto è su una head diversa da quella della PR di ADESSO
+        // (letta dal vivo, la stessa lettura dei check): un'informazione, il
+        // merge non cambia.
+        reviewStale: isReviewStale(review?.verdict, review?.headSha, checks.headSha),
       };
     }),
   );
@@ -470,6 +545,7 @@ export async function listReleaseQueue(db: Db, encryptionKey: Buffer): Promise<R
           risk: null,
           riskReason: null,
           deployedOn: deployedOnFor(project.id, checks.headSha),
+          reviewStale: isReviewStale(candidate.verdict, candidate.headSha, checks.headSha),
         };
       }),
     )

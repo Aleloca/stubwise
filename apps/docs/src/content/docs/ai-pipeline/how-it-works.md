@@ -153,6 +153,16 @@ prompt the latest **user** comments on the ticket (roughly the last 10), in a
 steers the agent but **does not override the security rules**
 (see [Security](/docs/ai-pipeline/security/)).
 
+:::note[Fixing an open PR]
+Relaunching rebuilds the fix from the default branch: it isn't the way to
+change a PR that's already open. For that, use **Apply corrections** under
+the PR on the ticket, or **Request changes** on the PR itself — see the [PR
+correction loop](/docs/ai-pipeline/automation/#pr-correction-loop). A comment on
+the ticket on its own doesn't start anything; the next correction reads it.
+While a correction is on hold, **Start AI fix** and **Relaunch with
+instructions** aren't offered: use **Resume correction** under the PR.
+:::
+
 :::note[Plan approval]
 For the most demanding fixes you can insert a step of **human plan approval**:
 the AI plans, stops and waits for your go-ahead before writing code. You

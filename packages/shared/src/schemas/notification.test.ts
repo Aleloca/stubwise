@@ -7,6 +7,7 @@ import {
   inboxItemSchema,
   inboxPageSchema,
   inboxQuestionSchema,
+  reviewOutcomeNeedsAttention,
   ticketQuestionSchema,
 } from "./notification.js";
 
@@ -234,5 +235,57 @@ describe("inboxPageSchema: il totale verso un server più vecchio", () => {
   it("un server che lo manda viene letto verbatim", () => {
     const parsed = readerSchema(inboxPageSchema).parse({ ...paginaSenzaTotale, total: 4 });
     expect(parsed.total).toBe(4);
+  });
+});
+
+/**
+ * L'ESITO DELLA REVIEW SULLA CARD (F8 del ciclo di correzione, 1 ott 2026).
+ * Il campo è additivo: una riga di un server più vecchio non lo porta, e
+ * l'app deve leggerla lo stesso (`null`, cioè il tono di prima).
+ */
+describe("inboxItemSchema.reviewOutcome", () => {
+  /** Una riga come la emette un server SENZA il campo: fixture lasciata così apposta. */
+  const rigaSenzaEsito = {
+    id: "11111111-1111-4111-8111-111111111111",
+    kind: "review.completed",
+    status: "open",
+    text: "PR review completed",
+    actions: [],
+    projectId: null,
+    ticketId: null,
+    jobId: null,
+    createdAt: "2026-10-01T10:00:00.000Z",
+    readAt: null,
+    snoozedUntil: null,
+    handledAt: null,
+    handledBy: null,
+  };
+
+  it("una riga SENZA il campo si legge, con `null`", () => {
+    expect("reviewOutcome" in rigaSenzaEsito).toBe(false);
+    const parsed = readerSchema(inboxItemSchema).parse(rigaSenzaEsito);
+    expect(parsed.reviewOutcome).toBeNull();
+  });
+
+  it("un valore futuro arriva come UNKNOWN, non fa fallire il parse", () => {
+    const parsed = readerSchema(inboxItemSchema).parse({ ...rigaSenzaEsito, reviewOutcome: "qualcosa_di_nuovo" });
+    expect(parsed.reviewOutcome).not.toBe("qualcosa_di_nuovo");
+    expect(reviewOutcomeNeedsAttention(parsed.reviewOutcome)).toBe(true);
+  });
+});
+
+describe("reviewOutcomeNeedsAttention: il tono della card, una regola per web e app", () => {
+  it("tutto bene SOLO per una review che approva", () => {
+    expect(reviewOutcomeNeedsAttention("approved")).toBe(false);
+  });
+
+  it("attenzione per modifiche richieste, stop al tetto e review fallita", () => {
+    expect(reviewOutcomeNeedsAttention("changes_requested")).toBe(true);
+    expect(reviewOutcomeNeedsAttention("stopped_at_cap")).toBe(true);
+    expect(reviewOutcomeNeedsAttention("review_failed")).toBe(true);
+  });
+
+  it("campo nullo (server vecchio parsato, altro kind): il tono di prima", () => {
+    expect(reviewOutcomeNeedsAttention(null)).toBe(false);
   });
 });

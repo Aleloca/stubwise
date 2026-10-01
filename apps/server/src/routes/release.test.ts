@@ -3,7 +3,17 @@ import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../app.js";
-import { encrypt, gitAccounts, prReviews, repositories, ticketRepositories, tickets } from "@stubwise/db";
+import {
+  encrypt,
+  gitAccounts,
+  prReviews,
+  projectEnvironments,
+  repositories,
+  serverMetrics,
+  servers,
+  ticketRepositories,
+  tickets,
+} from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, seedTicket, startTestDb } from "@stubwise/db/testing";
 import { seedUsers } from "../test/fixtures.js";
@@ -80,7 +90,7 @@ async function seedOpenPr(overrides: { testStatus?: "passed" | "failed" | "skipp
     })
     .returning();
 
-  return { ticketId, repositoryId, trId: tr!.id };
+  return { ticketId, repositoryId, projectId, trId: tr!.id };
 }
 
 /**
@@ -117,6 +127,9 @@ async function seedExternalPr(
     prTitle: "Fix esterno",
     headSha: "extsha123",
     status: "completed",
+    // Una review completata è sempre partita (`runPrReview` scrive
+    // `started_at` alla partenza; la 0081 ha fatto il backfill sulle storiche).
+    startedAt: new Date(),
     verdict: overrides.verdict === undefined ? "approve" : overrides.verdict,
     prSummary: "Cambia solo un typo.",
   });
@@ -124,11 +137,53 @@ async function seedExternalPr(
   return { ticketId, repositoryId, prNumber, prUrl };
 }
 
+/**
+ * La riga `pr_reviews` che il poller crea al CLAIM (C10): `running`,
+ * `started_at` null, NESSUN ticket (lo risolve `runPrReview` alla fine),
+ * nessun verdetto. `createdAt` esplicito e DOPO quello della review completata:
+ * col default `now()` due insert ravvicinati possono avere lo stesso istante, e
+ * il test non riprodurrebbe la condizione del difetto («la più recente è quella
+ * in attesa») — vedi la trappola (c) del mutation testing in CLAUDE.md.
+ */
+async function seedWaitingReview(input: { repositoryId: string; prNumber: number; prUrl: string }) {
+  await testDb.db.insert(prReviews).values({
+    repositoryId: input.repositoryId,
+    ticketId: null,
+    prNumber: input.prNumber,
+    prUrl: input.prUrl,
+    prTitle: "Fix in attesa di review",
+    headSha: "waitingsha456",
+    status: "running",
+    startedAt: null,
+    verdict: null,
+    createdAt: new Date(Date.now() + 60_000),
+  });
+}
+
 function release(ticketId: string, repositoryId: string, cookie: string) {
   return app.inject({
     method: "POST",
     url: `/api/tickets/${ticketId}/repositories/${repositoryId}/release`,
     headers: { cookie },
+  });
+}
+
+/** Mock fetch per una PR ESTERNA aperta senza check (dettaglio + check-runs vuoti). */
+function externalFetch(prNumber: number) {
+  const detailUrl = `https://api.github.com/repos/acme/demo-shop/pulls/${prNumber}`;
+  const checksUrl = "https://api.github.com/repos/acme/demo-shop/commits/extheadsha/check-runs?per_page=100";
+  return vi.fn((input: string | URL, init?: RequestInit) => {
+    const url = String(input);
+    const method = init?.method ?? "GET";
+    if (url === detailUrl && method === "GET") {
+      return Promise.resolve(
+        new Response(JSON.stringify({ state: "open", head: { sha: "extheadsha" } }), { status: 200 }),
+      );
+    }
+    if (url === checksUrl && method === "GET") {
+      return Promise.resolve(new Response(JSON.stringify({ check_runs: [] }), { status: 200 }));
+    }
+    return Promise.resolve(new Response("", { status: 404 }));
   });
 }
 
@@ -544,6 +599,7 @@ describe("GET /api/release-queue", () => {
       prTitle: "Fix the bug",
       headSha: "headsha123",
       status: "completed",
+      startedAt: new Date(),
       verdict: "approve",
       prSummary: "Cambia solo la formula del totale.",
     });
@@ -601,4 +657,487 @@ describe("GET /api/release-queue", () => {
     expect(body.items.some((i) => i.ticketId === ticketId && i.repositoryId === repositoryId)).toBe(false);
     expect(calledForThisPr).toHaveLength(0);
   });
+
+  it("una review IN ATTESA (senza ticket) dopo una completata: la PR esterna resta in coda col verdetto della completata", async () => {
+    const { ticketId, repositoryId, prNumber, prUrl } = await seedExternalPr({
+      prNumber: 301,
+      verdict: "request_changes",
+    });
+    await seedWaitingReview({ repositoryId, prNumber, prUrl });
+    vi.stubGlobal("fetch", externalFetch(prNumber));
+
+    const res = await app.inject({ method: "GET", url: "/api/release-queue", headers: { cookie: adminCookie } });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as {
+      items: { ticketId: string; repositoryId: string; origin: string; reviewVerdict: string | null }[];
+    };
+    const item = body.items.find((i) => i.ticketId === ticketId && i.repositoryId === repositoryId);
+    expect(item).toBeDefined();
+    expect(item!.origin).toBe("external");
+    expect(item!.reviewVerdict).toBe("request_changes");
+  });
+
+  it("la coda considera solo le review CON ticket: una completata più recente senza ticket non fa sparire la PR esterna", async () => {
+    // `pr_reviews.ticket_id` è ON DELETE SET NULL: anche una review completata
+    // può restare senza ticket. Se vincesse la DISTINCT ON, la PR uscirebbe
+    // dalla coda (non c'è un ticket da passare al rilascio); deve invece
+    // vincere la più recente CON ticket, col suo verdetto.
+    const { ticketId, repositoryId, prNumber, prUrl } = await seedExternalPr({
+      prNumber: 304,
+      verdict: "request_changes",
+    });
+    await testDb.db.insert(prReviews).values({
+      repositoryId,
+      ticketId: null,
+      prNumber,
+      prUrl,
+      prTitle: "Fix esterno",
+      headSha: "extsha304",
+      status: "completed",
+      startedAt: new Date(),
+      verdict: "approve",
+      createdAt: new Date(Date.now() + 60_000),
+    });
+    vi.stubGlobal("fetch", externalFetch(prNumber));
+
+    const res = await app.inject({ method: "GET", url: "/api/release-queue", headers: { cookie: adminCookie } });
+
+    const body = res.json() as {
+      items: { ticketId: string; repositoryId: string; origin: string; reviewVerdict: string | null }[];
+    };
+    const item = body.items.find((i) => i.ticketId === ticketId && i.repositoryId === repositoryId);
+    expect(item).toBeDefined();
+    expect(item!.origin).toBe("external");
+    expect(item!.reviewVerdict).toBe("request_changes");
+  });
+
+  it("una review FALLITA dopo una completata non dà verdetto: la PR esterna tiene quello della completata", async () => {
+    // Oggi `runPrReview` scrive il ticket solo all'esito completato, quindi una
+    // fallita col ticket non nasce: la riga qui è costruita apposta, con un
+    // verdetto residuo, per provare che il verdetto lo danno SOLO le completate.
+    const { ticketId, repositoryId, prNumber, prUrl } = await seedExternalPr({
+      prNumber: 302,
+      verdict: "request_changes",
+    });
+    await testDb.db.insert(prReviews).values({
+      repositoryId,
+      ticketId,
+      prNumber,
+      prUrl,
+      prTitle: "Fix esterno",
+      headSha: "extsha789",
+      status: "failed",
+      startedAt: new Date(),
+      verdict: "approve",
+      error: "agente fallito",
+      createdAt: new Date(Date.now() + 60_000),
+    });
+    vi.stubGlobal("fetch", externalFetch(prNumber));
+
+    const res = await app.inject({ method: "GET", url: "/api/release-queue", headers: { cookie: adminCookie } });
+
+    const body = res.json() as {
+      items: { ticketId: string; repositoryId: string; reviewVerdict: string | null }[];
+    };
+    const item = body.items.find((i) => i.ticketId === ticketId && i.repositoryId === repositoryId);
+    expect(item).toBeDefined();
+    expect(item!.reviewVerdict).toBe("request_changes");
+  });
+
+  it("una riga `completed` mai partita (`started_at` null) non dà verdetto, né alla PR esterna né a quella interna", async () => {
+    // Stato che il worker non produce (una review completata è sempre partita):
+    // costruito apposta per fissare che il verdetto richiede ANCHE `started_at`.
+    const ext = await seedExternalPr({ prNumber: 303, verdict: "request_changes" });
+    await testDb.db.insert(prReviews).values({
+      repositoryId: ext.repositoryId,
+      ticketId: ext.ticketId,
+      prNumber: ext.prNumber,
+      prUrl: ext.prUrl,
+      prTitle: "Fix esterno",
+      headSha: "extsha000",
+      status: "completed",
+      startedAt: null,
+      verdict: "approve",
+      createdAt: new Date(Date.now() + 60_000),
+    });
+    vi.stubGlobal("fetch", externalFetch(ext.prNumber));
+
+    const res = await app.inject({ method: "GET", url: "/api/release-queue", headers: { cookie: adminCookie } });
+
+    const body = res.json() as {
+      items: { ticketId: string; repositoryId: string; reviewVerdict: string | null }[];
+    };
+    const item = body.items.find((i) => i.ticketId === ext.ticketId && i.repositoryId === ext.repositoryId);
+    expect(item).toBeDefined();
+    expect(item!.reviewVerdict).toBe("request_changes");
+
+    const { ticketId, repositoryId } = await seedOpenPr();
+    await testDb.db.insert(prReviews).values([
+      {
+        repositoryId,
+        ticketId,
+        prNumber: 42,
+        prUrl: PR_URL,
+        prTitle: "Fix the bug",
+        headSha: "headsha123",
+        status: "completed",
+        startedAt: new Date(),
+        verdict: "request_changes",
+        prSummary: "Manca il test del totale.",
+      },
+      {
+        repositoryId,
+        ticketId,
+        prNumber: 42,
+        prUrl: PR_URL,
+        prTitle: "Fix the bug",
+        headSha: "headsha123",
+        status: "completed",
+        startedAt: null,
+        verdict: "approve",
+        prSummary: "Riga mai partita.",
+        createdAt: new Date(Date.now() + 60_000),
+      },
+    ]);
+    vi.stubGlobal("fetch", greenFetch());
+
+    const res2 = await app.inject({ method: "GET", url: "/api/release-queue", headers: { cookie: adminCookie } });
+
+    const body2 = res2.json() as {
+      items: { ticketId: string; repositoryId: string; reviewVerdict: string | null; reviewSummary: string | null }[];
+    };
+    const internal = body2.items.find((i) => i.ticketId === ticketId && i.repositoryId === repositoryId);
+    expect(internal).toBeDefined();
+    expect(internal!.reviewVerdict).toBe("request_changes");
+    expect(internal!.reviewSummary).toBe("Manca il test del totale.");
+  });
+
+  it("una review IN ATTESA dopo una completata: la PR interna tiene il verdetto della completata", async () => {
+    const { ticketId, repositoryId } = await seedOpenPr();
+    await testDb.db.insert(prReviews).values({
+      repositoryId,
+      ticketId,
+      prNumber: 42,
+      prUrl: PR_URL,
+      prTitle: "Fix the bug",
+      headSha: "headsha123",
+      status: "completed",
+      startedAt: new Date(),
+      verdict: "request_changes",
+      prSummary: "Manca il test del totale.",
+    });
+    await seedWaitingReview({ repositoryId, prNumber: 42, prUrl: PR_URL });
+    vi.stubGlobal("fetch", greenFetch());
+
+    const res = await app.inject({ method: "GET", url: "/api/release-queue", headers: { cookie: adminCookie } });
+
+    const body = res.json() as {
+      items: { ticketId: string; repositoryId: string; reviewVerdict: string | null; reviewSummary: string | null }[];
+    };
+    const item = body.items.find((i) => i.ticketId === ticketId && i.repositoryId === repositoryId);
+    expect(item).toBeDefined();
+    expect(item!.reviewVerdict).toBe("request_changes");
+    expect(item!.reviewSummary).toBe("Manca il test del totale.");
+  });
+
+  it("una review FALLITA dopo una completata: la PR interna tiene il verdetto della completata", async () => {
+    const { ticketId, repositoryId } = await seedOpenPr();
+    await testDb.db.insert(prReviews).values([
+      {
+        repositoryId,
+        ticketId,
+        prNumber: 42,
+        prUrl: PR_URL,
+        prTitle: "Fix the bug",
+        headSha: "headsha123",
+        status: "completed",
+        startedAt: new Date(),
+        verdict: "request_changes",
+        prSummary: "Manca il test del totale.",
+      },
+      {
+        repositoryId,
+        ticketId: null,
+        prNumber: 42,
+        prUrl: PR_URL,
+        prTitle: "Fix the bug",
+        headSha: "headsha123",
+        status: "failed",
+        startedAt: new Date(),
+        verdict: null,
+        error: "agente fallito",
+        createdAt: new Date(Date.now() + 60_000),
+      },
+    ]);
+    vi.stubGlobal("fetch", greenFetch());
+
+    const res = await app.inject({ method: "GET", url: "/api/release-queue", headers: { cookie: adminCookie } });
+
+    const body = res.json() as {
+      items: { ticketId: string; repositoryId: string; reviewVerdict: string | null }[];
+    };
+    const item = body.items.find((i) => i.ticketId === ticketId && i.repositoryId === repositoryId);
+    expect(item).toBeDefined();
+    expect(item!.reviewVerdict).toBe("request_changes");
+  });
+
+  it("due review completate sulla PR interna: il verdetto è quello della più recente", async () => {
+    const { ticketId, repositoryId } = await seedOpenPr();
+    await testDb.db.insert(prReviews).values([
+      {
+        repositoryId,
+        ticketId,
+        prNumber: 42,
+        prUrl: PR_URL,
+        prTitle: "Fix the bug",
+        headSha: "headsha123",
+        status: "completed",
+        startedAt: new Date(),
+        verdict: "request_changes",
+        prSummary: "Manca il test del totale.",
+      },
+      {
+        repositoryId,
+        ticketId,
+        prNumber: 42,
+        prUrl: PR_URL,
+        prTitle: "Fix the bug",
+        headSha: "headsha124",
+        status: "completed",
+        startedAt: new Date(Date.now() + 60_000),
+        verdict: "approve",
+        prSummary: "Il test del totale ora c'è.",
+        createdAt: new Date(Date.now() + 60_000),
+      },
+    ]);
+    vi.stubGlobal("fetch", greenFetch());
+
+    const res = await app.inject({ method: "GET", url: "/api/release-queue", headers: { cookie: adminCookie } });
+
+    const body = res.json() as {
+      items: { ticketId: string; repositoryId: string; reviewVerdict: string | null; reviewSummary: string | null }[];
+    };
+    const item = body.items.find((i) => i.ticketId === ticketId && i.repositoryId === repositoryId);
+    expect(item).toBeDefined();
+    expect(item!.reviewVerdict).toBe("approve");
+    expect(item!.reviewSummary).toBe("Il test del totale ora c'è.");
+  });
+
+  it("nessuna review completata, solo una IN ATTESA: la PR resta in coda, senza verdetto (non sparisce)", async () => {
+    const { ticketId, repositoryId } = await seedOpenPr();
+    await seedWaitingReview({ repositoryId, prNumber: 42, prUrl: PR_URL });
+    vi.stubGlobal("fetch", greenFetch());
+
+    const res = await app.inject({ method: "GET", url: "/api/release-queue", headers: { cookie: adminCookie } });
+
+    const body = res.json() as {
+      items: { ticketId: string; repositoryId: string; origin: string; reviewVerdict: string | null }[];
+    };
+    const matches = body.items.filter((i) => i.ticketId === ticketId && i.repositoryId === repositoryId);
+    expect(matches).toHaveLength(1);
+    expect(matches[0]!.origin).toBe("stubwise");
+    expect(matches[0]!.reviewVerdict).toBeNull();
+  });
+
+  // --- G6: `reviewStale`, il verdetto è su codice superato? -----------------
+
+  type StaleItem = { ticketId: string; repositoryId: string; reviewVerdict: string | null; reviewStale: boolean };
+
+  async function queueItem(ticketId: string, repositoryId: string): Promise<StaleItem> {
+    const res = await app.inject({ method: "GET", url: "/api/release-queue", headers: { cookie: adminCookie } });
+    expect(res.statusCode).toBe(200);
+    const item = (res.json() as { items: StaleItem[] }).items.find(
+      (i) => i.ticketId === ticketId && i.repositoryId === repositoryId,
+    );
+    expect(item).toBeDefined();
+    return item!;
+  }
+
+  async function seedInternalReview(repositoryId: string, ticketId: string, headSha: string) {
+    await testDb.db.insert(prReviews).values({
+      repositoryId,
+      ticketId,
+      prNumber: 42,
+      prUrl: PR_URL,
+      prTitle: "Fix the bug",
+      headSha,
+      status: "completed",
+      startedAt: new Date(),
+      verdict: "approve",
+      prSummary: "Riassunto.",
+    });
+  }
+
+  it("G6 PR interna: head della review ABBREVIATA e in maiuscolo, stesso commit per prefisso → reviewStale false", async () => {
+    const { ticketId, repositoryId } = await seedOpenPr();
+    // Dal vivo la head è "headsha123" (greenFetch): Bitbucket ne salva un prefisso.
+    await seedInternalReview(repositoryId, ticketId, "HEADSHA12");
+    vi.stubGlobal("fetch", greenFetch());
+
+    const item = await queueItem(ticketId, repositoryId);
+    expect(item.reviewVerdict).toBe("approve");
+    expect(item.reviewStale).toBe(false);
+  });
+
+  it("G6 PR interna: verdetto su una head DIVERSA da quella di adesso → reviewStale true", async () => {
+    const { ticketId, repositoryId } = await seedOpenPr();
+    await seedInternalReview(repositoryId, ticketId, "oldsha9999");
+    vi.stubGlobal("fetch", greenFetch());
+
+    expect((await queueItem(ticketId, repositoryId)).reviewStale).toBe(true);
+  });
+
+  it("G6 PR interna: head della review vuota → reviewStale false (non si afferma niente)", async () => {
+    const { ticketId, repositoryId } = await seedOpenPr();
+    await seedInternalReview(repositoryId, ticketId, "");
+    vi.stubGlobal("fetch", greenFetch());
+
+    expect((await queueItem(ticketId, repositoryId)).reviewStale).toBe(false);
+  });
+
+  it("G6 PR interna: head dal vivo non disponibile (check illeggibili) → reviewStale false", async () => {
+    const { ticketId, repositoryId } = await seedOpenPr();
+    await seedInternalReview(repositoryId, ticketId, "oldsha9999");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(new Response("boom", { status: 500 }))),
+    );
+
+    const item = await queueItem(ticketId, repositoryId);
+    expect(item.reviewVerdict).toBe("approve");
+    expect(item.reviewStale).toBe(false);
+  });
+
+  it("G6 PR interna senza review: nessun verdetto → reviewStale false", async () => {
+    const { ticketId, repositoryId } = await seedOpenPr();
+    vi.stubGlobal("fetch", greenFetch());
+
+    const item = await queueItem(ticketId, repositoryId);
+    expect(item.reviewVerdict).toBeNull();
+    expect(item.reviewStale).toBe(false);
+  });
+
+  it("G6 PR esterna: head della review su un altro commit → true; stesso commit per prefisso → false", async () => {
+    // seedExternalPr scrive headSha "extsha123"; dal vivo è "extheadsha".
+    const stale = await seedExternalPr({ prNumber: 301 });
+    vi.stubGlobal("fetch", externalFetch(301));
+    expect((await queueItem(stale.ticketId, stale.repositoryId)).reviewStale).toBe(true);
+
+    const fresh = await seedExternalPr({ prNumber: 302 });
+    await testDb.db
+      .update(prReviews)
+      .set({ headSha: "EXTHEADS" })
+      .where(eq(prReviews.repositoryId, fresh.repositoryId));
+    vi.stubGlobal("fetch", externalFetch(302));
+    const item = await queueItem(fresh.ticketId, fresh.repositoryId);
+    expect(item.reviewVerdict).toBe("approve");
+    expect(item.reviewStale).toBe(false);
+  });
+});
+
+/**
+ * «Già su staging?» (`deployedOn`) — il CABLAGGIO, non solo `sameCommit`: la
+ * head letta dal vivo dal provider contro il `commitSha` che l'agente di
+ * monitoraggio riporta nell'ultimo campione del server collegato
+ * all'ambiente. Campioni seminati come in `project-environments.test.ts`.
+ */
+describe("GET /api/release-queue — deployedOn", () => {
+  const FULL_SHA = "0123456789abcdef0123456789abcdef01234567";
+
+  /** Il provider dice che la head della PR è `head` (check verdi). */
+  function fetchWithHead(head: string) {
+    const checksUrl = `https://api.github.com/repos/acme/demo-shop/commits/${head}/check-runs?per_page=100`;
+    return vi.fn((input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url === PR_DETAIL_URL && method === "GET") {
+        return Promise.resolve(new Response(JSON.stringify({ state: "open", head: { sha: head } }), { status: 200 }));
+      }
+      if (url === checksUrl && method === "GET") {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ check_runs: [{ name: "ci", status: "completed", conclusion: "success" }] }),
+            { status: 200 },
+          ),
+        );
+      }
+      return Promise.resolve(new Response("", { status: 404 }));
+    });
+  }
+
+  /** Un ambiente staging del progetto, col suo server e l'ultimo campione dell'agente. */
+  async function seedStaging(projectId: string, commitSha: string | undefined) {
+    const [server] = await testDb.db
+      .insert(servers)
+      .values({ name: `vps-${randomBytes(3).toString("hex")}`, keyHash: `hash-${crypto.randomUUID()}` })
+      .returning();
+    const name = `staging-${randomBytes(3).toString("hex")}`;
+    await testDb.db.insert(projectEnvironments).values({ projectId, name, kind: "staging", serverId: server!.id });
+    await testDb.db.insert(serverMetrics).values({
+      serverId: server!.id,
+      ts: new Date(),
+      cpuPct: 1,
+      load1m: 0.1,
+      memUsedBytes: 1000,
+      memTotalBytes: 2000,
+      swapUsedBytes: 0,
+      diskUsedBytes: 1000,
+      diskTotalBytes: 2000,
+      netRxBytes: 0,
+      netTxBytes: 0,
+      services: [
+        {
+          source: "docker",
+          name,
+          state: "running",
+          cpuPct: 1,
+          memBytes: 1000,
+          restarts: null,
+          image: "acme/web:2.0.0",
+          ...(commitSha === undefined ? {} : { commitSha }),
+        },
+      ],
+    });
+    return name;
+  }
+
+  async function deployedOnOf(ticketId: string, repositoryId: string): Promise<string[]> {
+    const res = await app.inject({ method: "GET", url: "/api/release-queue", headers: { cookie: adminCookie } });
+    expect(res.statusCode).toBe(200);
+    const item = (res.json() as { items: { ticketId: string; repositoryId: string; deployedOn: string[] }[] }).items.find(
+      (i) => i.ticketId === ticketId && i.repositoryId === repositoryId,
+    );
+    expect(item).toBeDefined();
+    return item!.deployedOn;
+  }
+
+  it("head della PR ABBREVIATA (12 caratteri, Bitbucket) contro lo sha completo dell'agente: combacia", async () => {
+    const { ticketId, repositoryId, projectId } = await seedOpenPr();
+    const staging = await seedStaging(projectId, FULL_SHA);
+    vi.stubGlobal("fetch", fetchWithHead(FULL_SHA.slice(0, 12)));
+
+    expect(await deployedOnOf(ticketId, repositoryId)).toEqual([staging]);
+  });
+
+  it("commit diverso: deployedOn vuoto (il caso positivo qui sopra non è un vero-per-tutto)", async () => {
+    const { ticketId, repositoryId, projectId } = await seedOpenPr();
+    await seedStaging(projectId, "fedcba9876543210fedcba9876543210fedcba98");
+    vi.stubGlobal("fetch", fetchWithHead(FULL_SHA.slice(0, 12)));
+
+    expect(await deployedOnOf(ticketId, repositoryId)).toEqual([]);
+  });
+
+  for (const [label, sha] of [
+    ["vuoto", ""],
+    ["assente", undefined],
+  ] as const) {
+    it(`commitSha ${label} nell'ultimo campione: deployedOn è []`, async () => {
+      const { ticketId, repositoryId, projectId } = await seedOpenPr();
+      await seedStaging(projectId, sha);
+      vi.stubGlobal("fetch", fetchWithHead(FULL_SHA.slice(0, 12)));
+
+      expect(await deployedOnOf(ticketId, repositoryId)).toEqual([]);
+    });
+  }
 });

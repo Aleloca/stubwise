@@ -1,5 +1,6 @@
-import { agentQuestions, agentRuns, aiJobs, automationRules, comments, encrypt, gitAccounts, instanceSettings, plugins, projectPlugins, projects, repositories, ticketEvents, ticketRepositories, tickets, type Db } from "@stubwise/db";
+import { agentQuestions, agentRuns, aiJobs, automationRules, comments, encrypt, gitAccounts, instanceSettings, plugins, prCorrections, prReviewJobs, projectPlugins, projects, repositories, ticketEvents, ticketRepositories, tickets, type Db } from "@stubwise/db";
 import { seedGitAccount, startTestDb, type TestDb } from "@stubwise/db/testing";
+import type { GitProvider } from "@stubwise/git";
 import type { PublishOpts } from "@stubwise/notifications";
 import type { AgentQuestionAnswer } from "@stubwise/shared";
 import { asc, eq } from "drizzle-orm";
@@ -10,7 +11,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi, type Mock } from "vitest";
 import { FakeAgentRunner } from "../agent/fake.js";
 import { basePluginPath } from "../plugins/base.js";
 import { AgentTimeoutError } from "../agent/runner.js";
@@ -51,7 +52,9 @@ afterEach(async () => {
   // successivi.
   await testDb.db
     .update(instanceSettings)
-    .set({ contentLanguage: "en", monthlyBudgetUsd: null })
+    // prReviewEnabled: i test della review accodata dal fix (C7) la accendono.
+    // Le righe di pr_review_jobs cascano coi repository, cancellati via projects.
+    .set({ contentLanguage: "en", monthlyBudgetUsd: null, prReviewEnabled: false })
     .where(eq(instanceSettings.id, 1));
 });
 
@@ -185,8 +188,12 @@ async function getJob(db: Db, id: string): Promise<AiJob> {
   return job;
 }
 
+// Il doppio del provider ha TUTTI i metodi che il fix chiama (oggi solo
+// openPullRequest, il Pick di FixDeps.getProviderFn): tipato sulla firma vera,
+// così un metodo nuovo chiamato dal fix fa fallire il compilatore qui invece
+// di sparire dietro un cast.
 interface FakeProvider {
-  openPullRequest: ReturnType<typeof vi.fn>;
+  openPullRequest: Mock<GitProvider["openPullRequest"]>;
 }
 
 function makeProvider(url = "https://github.com/acme/repo/pull/1"): FakeProvider {
@@ -204,7 +211,7 @@ function makeDeps(
     runner,
     mirrors: fixture.mirrors,
     encryptionKey: ENCRYPTION_KEY,
-    getProviderFn: () => provider as never,
+    getProviderFn: () => provider,
     // Riassunto "in breve" del piano SPENTO di default nei test: è un run in
     // più dell'agente e falserebbe i `runner.calls` di tutti i test plan-only
     // che contano i run. I test che lo riguardano lo riaccendono con override.
@@ -2923,7 +2930,7 @@ function makeMultiDeps(
     runner,
     mirrors: fixture.mirrors,
     encryptionKey: ENCRYPTION_KEY,
-    getProviderFn: () => provider as never,
+    getProviderFn: () => provider,
     ...overrides,
   };
 }
@@ -4331,5 +4338,253 @@ describe("runFix — plugin del progetto", () => {
     expect(runner.calls[0]!.pluginDirs).toBeUndefined();
     const jobAfter = await getJob(db, job.id);
     expect(jobAfter.log).toContain(slug);
+  });
+});
+
+describe("runFix — review accodata subito dopo l'apertura della PR", () => {
+  it("review accesa: accoda la review con la head pushata e registra il numero della PR", async () => {
+    const fixture = await makeFixture();
+    await testDb.db.update(instanceSettings).set({ prReviewEnabled: true }).where(eq(instanceSettings.id, 1));
+    const ticket = await createTicket(testDb.db, fixture);
+    const job = await createFixingJob(testDb.db, ticket.id);
+    const runner = new FakeAgentRunner({ fileChanges: fixChanges(fixture) });
+    const provider = makeProvider("https://github.com/acme/repo/pull/31");
+
+    expect(await runFix(makeDeps(fixture, runner, provider, { twoPhase: false }), job)).toBe("pr_opened");
+
+    const pushedSha = await git(["rev-parse", "refs/heads/stubwise/ticket-7"], fixture.upstreamDir);
+    const [pending] = await testDb.db
+      .select()
+      .from(prReviewJobs)
+      .where(eq(prReviewJobs.repositoryId, fixture.repositoryId));
+    expect(pending).toMatchObject({
+      prNumber: 31,
+      prUrl: "https://github.com/acme/repo/pull/31",
+      sourceBranch: "stubwise/ticket-7",
+      targetBranch: "main",
+      // La head che la review legge è QUELLA pushata, sha completo.
+      headSha: pushedSha,
+      prTitle: "fix: sum restituisce la differenza (#7)",
+    });
+    const [link] = await testDb.db
+      .select()
+      .from(ticketRepositories)
+      .where(eq(ticketRepositories.ticketId, ticket.id));
+    expect(link!.prNumber).toBe(31);
+  });
+
+  it("review spenta: nessun pending, ma il numero della PR è registrato lo stesso", async () => {
+    const fixture = await makeFixture();
+    const ticket = await createTicket(testDb.db, fixture);
+    const job = await createFixingJob(testDb.db, ticket.id);
+    const runner = new FakeAgentRunner({ fileChanges: fixChanges(fixture) });
+
+    await runFix(makeDeps(fixture, runner, makeProvider("https://github.com/acme/repo/pull/8"), { twoPhase: false }), job);
+
+    expect(await testDb.db.select().from(prReviewJobs)).toHaveLength(0);
+    const [link] = await testDb.db
+      .select()
+      .from(ticketRepositories)
+      .where(eq(ticketRepositories.ticketId, ticket.id));
+    expect(link!.prNumber).toBe(8);
+  });
+
+  it("una richiesta dal provider arrivata DURANTE il fix parte al posto della review", async () => {
+    const fixture = await makeFixture();
+    await testDb.db.update(instanceSettings).set({ prReviewEnabled: true }).where(eq(instanceSettings.id, 1));
+    const ticket = await createTicket(testDb.db, fixture);
+    const job = await createFixingJob(testDb.db, ticket.id);
+    // "Request changes" arrivato mentre il fix era in volo: il server l'ha salvato
+    // `pending` sulla PR che il fix sta per (ri)aprire.
+    const [pending] = await testDb.db
+      .insert(prCorrections)
+      .values({
+        ticketId: ticket.id,
+        repositoryId: fixture.repositoryId,
+        prNumber: 31,
+        trigger: "provider",
+        status: "pending",
+        requestedByProviderLogin: "mario.rossi",
+      })
+      .returning();
+    const runner = new FakeAgentRunner({ fileChanges: fixChanges(fixture) });
+
+    await runFix(makeDeps(fixture, runner, makeProvider("https://github.com/acme/repo/pull/31"), { twoPhase: false }), job);
+
+    const [after] = await testDb.db.select().from(prCorrections).where(eq(prCorrections.id, pending!.id));
+    expect(after!.status).toBe("queued");
+    const [correctionJob] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.correctionId, pending!.id));
+    expect(correctionJob!.status).toBe("queued");
+    // La review NON si accoda: la correzione umana viene prima, e dopo il suo
+    // push sarà lei ad accodarla.
+    expect(await testDb.db.select().from(prReviewJobs)).toHaveLength(0);
+    expect((await getJob(testDb.db, job.id)).log).toContain("al posto della review");
+  });
+
+  it("una pending su un'ALTRA PR del ticket parte, e la review di questa PR si accoda", async () => {
+    // Il job vivo blocca per TICKET: la promozione è per ticket
+    // (promotePendingForTicket), la review per PR (prHasOpenCorrection). E la
+    // promozione avviene DOPO la chiusura del fix: dentro la sua transazione
+    // hasJobInFlight vedrebbe il fix stesso e la pending resterebbe ferma.
+    const fixture = await makeFixture();
+    await testDb.db.update(instanceSettings).set({ prReviewEnabled: true }).where(eq(instanceSettings.id, 1));
+    const ticket = await createTicket(testDb.db, fixture);
+    const job = await createFixingJob(testDb.db, ticket.id);
+    const [altra] = await testDb.db
+      .insert(prCorrections)
+      .values({
+        ticketId: ticket.id,
+        repositoryId: fixture.repositoryId,
+        prNumber: 99,
+        trigger: "provider",
+        status: "pending",
+        requestedByProviderLogin: "mario.rossi",
+      })
+      .returning();
+    const runner = new FakeAgentRunner({ fileChanges: fixChanges(fixture) });
+
+    await runFix(makeDeps(fixture, runner, makeProvider("https://github.com/acme/repo/pull/31"), { twoPhase: false }), job);
+
+    const [after] = await testDb.db.select().from(prCorrections).where(eq(prCorrections.id, altra!.id));
+    expect(after!.status).toBe("queued");
+    const [correctionJob] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.correctionId, altra!.id));
+    expect(correctionJob!.status).toBe("queued");
+    // Il fix è chiuso PRIMA che la correzione nasca: è la condizione perché parta.
+    const fixFinishedAt = (await getJob(testDb.db, job.id)).finishedAt!;
+    expect(correctionJob!.createdAt.getTime()).toBeGreaterThanOrEqual(fixFinishedAt.getTime());
+    const reviews = await testDb.db.select().from(prReviewJobs);
+    expect(reviews.map((r) => r.prNumber)).toEqual([31]);
+  });
+
+  it("due repo: le review si accodano DOPO l'ultima PR aperta e dopo la chiusura del job", async () => {
+    // Emendamento «la review esiste dal claim» (C10): l'accodamento è l'ULTIMO
+    // passo del job. Il provider controlla, all'apertura della SECONDA PR, che
+    // nessuna review sia ancora in coda: con l'accodamento dentro il ciclo dei
+    // repo la prima ci sarebbe già.
+    const { db } = testDb;
+    await db.update(instanceSettings).set({ prReviewEnabled: true }).where(eq(instanceSettings.id, 1));
+    const fixture = await makeMultiRepoFixture(2);
+    const ticket = await createMultiTicket(db, fixture.projectId);
+    const job = await createFixingJob(db, ticket.id);
+    const [repoA, repoB] = fixture.repos as [MultiRepo, MultiRepo];
+    const runner = new FakeAgentRunner({
+      fileChanges: {
+        [`${mirrorSlug(repoA.repoUrl)}/app.js`]: "exports.sum = (a, b) => a + b;\n",
+        [`${mirrorSlug(repoB.repoUrl)}/app.js`]: "exports.mul = (a, b) => a * b;\n",
+        "STUBWISE_REPORT.md": REPORT,
+      },
+      results: [
+        { output: "PIANO", exitCode: 0 },
+        { output: "fix", exitCode: 0 },
+      ],
+    });
+    let n = 0;
+    const queuedAtOpen: number[] = [];
+    const provider: FakeProvider = {
+      openPullRequest: vi.fn().mockImplementation(async () => {
+        queuedAtOpen.push((await db.select().from(prReviewJobs)).length);
+        return { url: `https://github.com/acme/pull/${++n}` };
+      }),
+    };
+    // Anche la notifica job.pr_opened precede l'accodamento: al momento della
+    // publish nessuna review è ancora in coda.
+    const queuedAtNotify: { kind: string; queued: number }[] = [];
+    const publish: NonNullable<FixDeps["publish"]> = async (_db, event) => {
+      queuedAtNotify.push({ kind: event.kind, queued: (await db.select().from(prReviewJobs)).length });
+      return { published: 1, notificationIds: [randomUUID()] };
+    };
+
+    expect(await runFix(makeMultiDeps(fixture, runner, provider, { publish }), job)).toBe("pr_opened");
+
+    expect(queuedAtOpen).toEqual([0, 0]);
+    expect(queuedAtNotify).toEqual([{ kind: "job.pr_opened", queued: 0 }]);
+    const reviews = await db.select().from(prReviewJobs);
+    expect(reviews.map((r) => r.prNumber).sort()).toEqual([1, 2]);
+    const finishedAt = (await getJob(db, job.id)).finishedAt!;
+    for (const r of reviews) expect(r.createdAt.getTime()).toBeGreaterThanOrEqual(finishedAt.getTime());
+  });
+
+  it("URL della PR in un formato non riconosciuto: niente review accodata, il fix resta riuscito", async () => {
+    const fixture = await makeFixture();
+    await testDb.db.update(instanceSettings).set({ prReviewEnabled: true }).where(eq(instanceSettings.id, 1));
+    const ticket = await createTicket(testDb.db, fixture);
+    const job = await createFixingJob(testDb.db, ticket.id);
+    const runner = new FakeAgentRunner({ fileChanges: fixChanges(fixture) });
+
+    expect(
+      await runFix(makeDeps(fixture, runner, makeProvider("https://git.example.com/merge/9"), { twoPhase: false }), job),
+    ).toBe("pr_opened");
+    expect(await testDb.db.select().from(prReviewJobs)).toHaveLength(0);
+    expect((await getJob(testDb.db, job.id)).log).toContain("numero della PR non leggibile");
+  });
+
+  it("ownership persa alla chiusura: niente promozione né review, sono di chi ha ripreso il job", async () => {
+    // Ciò che segue una chiusura parte solo se la chiusura è avvenuta: il job
+    // riaccodato (es. requeueStale) cambierà la head, e una review accodata ora
+    // leggerebbe quella vecchia.
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    await db.update(instanceSettings).set({ prReviewEnabled: true }).where(eq(instanceSettings.id, 1));
+    const ticket = await createTicket(db, fixture);
+    const job = await createFixingJob(db, ticket.id);
+    const [pending] = await db
+      .insert(prCorrections)
+      .values({
+        ticketId: ticket.id,
+        repositoryId: fixture.repositoryId,
+        prNumber: 99,
+        trigger: "provider",
+        status: "pending",
+        requestedByProviderLogin: "mario.rossi",
+      })
+      .returning();
+    const runner = new FakeAgentRunner({ fileChanges: fixChanges(fixture) });
+    const provider: FakeProvider = {
+      openPullRequest: vi.fn().mockImplementation(async () => {
+        // Mentre il fix apre la PR, il job gli viene tolto (riaccodato).
+        await db.update(aiJobs).set({ status: "queued" }).where(eq(aiJobs.id, job.id));
+        return { url: "https://github.com/acme/repo/pull/31" };
+      }),
+    };
+
+    await runFix(makeDeps(fixture, runner, provider, { twoPhase: false }), job);
+
+    const [after] = await db.select().from(prCorrections).where(eq(prCorrections.id, pending!.id));
+    expect(after!.status).toBe("pending");
+    expect(await db.select().from(prReviewJobs)).toHaveLength(0);
+    expect((await getJob(db, job.id)).log).toContain("niente promozione né review");
+  });
+
+  it("review accesa e fix fallito sulla seconda PR di un multi-repo: nessuna review accodata dal fix", async () => {
+    // La PR già aperta la prende il webhook del provider.
+    const { db } = testDb;
+    await db.update(instanceSettings).set({ prReviewEnabled: true }).where(eq(instanceSettings.id, 1));
+    const fixture = await makeMultiRepoFixture(2);
+    const ticket = await createMultiTicket(db, fixture.projectId);
+    const job = await createFixingJob(db, ticket.id);
+    const [repoA, repoB] = fixture.repos as [MultiRepo, MultiRepo];
+    const runner = new FakeAgentRunner({
+      fileChanges: {
+        [`${mirrorSlug(repoA.repoUrl)}/app.js`]: "exports.sum = (a, b) => a + b;\n",
+        [`${mirrorSlug(repoB.repoUrl)}/app.js`]: "exports.mul = (a, b) => a * b;\n",
+        "STUBWISE_REPORT.md": REPORT,
+      },
+      results: [
+        { output: "PIANO", exitCode: 0 },
+        { output: "fix", exitCode: 0 },
+      ],
+    });
+    let call = 0;
+    const provider: FakeProvider = {
+      openPullRequest: vi.fn().mockImplementation(async () => {
+        call++;
+        if (call === 1) return { url: "https://github.com/acme/rA/pull/1" };
+        throw new Error("500 da GitHub sul 2° repo");
+      }),
+    };
+
+    expect(await runFix(makeMultiDeps(fixture, runner, provider), job)).toBe("failed");
+    expect(provider.openPullRequest).toHaveBeenCalledTimes(2);
+    expect(await db.select().from(prReviewJobs)).toHaveLength(0);
   });
 });

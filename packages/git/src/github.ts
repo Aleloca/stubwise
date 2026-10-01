@@ -1,33 +1,67 @@
 import {
   basicAuthHeader,
   ensureListResponse,
+  ensureCommitStatusResponse,
   ensureOkResponse,
+  ensureOkResponseWithHint,
   fetchWithTimeout,
   getHeader,
   GitProviderError,
+  isFullCommitSha,
+  assertPageOnApiHost,
   parseNextLink,
   parseRepoUrl,
+  PR_REVIEW_PERMISSION_HINT,
+  COLLABORATOR_PERMISSION_HINT,
+  REPOSITORY_PERMISSIONS,
   readJsonResponse,
   rollupCheckStatus,
   verifyHmacSignature,
   MergeNotAllowedError,
   type AccountConfig,
   type AccountCredentials,
+  type ChangesRequestedEvent,
+  type CommitStatusInput,
   type CheckOutcomeStatus,
   type CredentialCheck,
   type FetchLike,
   type GitProvider,
   type GitProviderOptions,
   type PrActivityEvent,
+  type PrComment,
+  type PrReviewVerdict,
   type ProjectGitConfig,
   type PullRequestChecks,
+  type PullRequestFinalState,
   type PushWebhookEvent,
   type RepoSummary,
+  type SubmitPrReviewOutcome,
+  type RepositoryPermission,
   type WebhookEvent,
   type WebhookResult,
 } from "./provider.js";
 
 const API_BASE = "https://api.github.com";
+
+/** Sostituisce ogni occorrenza di `secret` in `text` con `***`. Un segreto
+ * vuoto non maschera niente (altrimenti `***` finirebbe fra ogni carattere). */
+function maskSecret(text: string, secret: string): string {
+  return secret.length === 0 ? text : text.split(secret).join("***");
+}
+
+/**
+ * Comparatore dei commenti per data crescente, con le date non leggibili in
+ * fondo (fra loro pari, così `Array.prototype.sort`, stabile, le lascia
+ * nell'ordine d'arrivo). Mai un NaN restituito al sort.
+ */
+function byCreatedAtUnreadableLast(a: PrComment, b: PrComment): number {
+  const ta = Date.parse(a.createdAt);
+  const tb = Date.parse(b.createdAt);
+  const aBad = Number.isNaN(ta);
+  const bBad = Number.isNaN(tb);
+  if (aBad || bBad) return aBad === bBad ? 0 : aBad ? 1 : -1;
+  return ta - tb;
+}
 
 /**
  * Tetto di repository elencati: ~3 pagine da 100. Oltre questa soglia la UI
@@ -38,6 +72,31 @@ const MAX_REPO_PAGES = 3;
 
 /** Tetto di branch elencati: ~2 pagine da 100. */
 const MAX_BRANCH_PAGES = 2;
+
+/** Tetto di pagine PER FONTE di commenti di una PR: 10 da 100 (~1000). Oltre
+ * è un'anomalia, e un Link `next` che non termina non deve girare
+ * all'infinito. Arrivati al tetto con ancora una pagina successiva si LANCIA,
+ * non si tronca: una fotografia parziale verrebbe presa per completa e i
+ * commenti persi resterebbero fuori per sempre. L'errore evita sia quello sia
+ * il ciclo. */
+const MAX_COMMENT_PAGES = 10;
+
+/** Tetto di pagine della lista webhook di un repository: 5 da 100. GitHub
+ * limita già a una ventina gli hook per repository, quindi oltre è
+ * un'anomalia. Arrivati al tetto con ancora una pagina successiva si LANCIA
+ * invece di concludere «non c'è»: ensureWebhook creerebbe un duplicato di un
+ * hook che sta solo in una pagina non letta. Meglio fallire che duplicare. */
+const MAX_HOOK_PAGES = 5;
+
+/** Lunghezza massima della descrizione di uno status di commit su GitHub. */
+const MAX_STATUS_DESCRIPTION = 140;
+
+/**
+ * Eventi del webhook: `pull_request` (apertura/aggiornamento/chiusura),
+ * `pull_request_review` (ciclo di correzione: "Request changes"), `push`
+ * (auto-aggiornamento Docs). Una sola lista per creazione e aggiornamento.
+ */
+const WEBHOOK_EVENTS = ["pull_request", "pull_request_review", "push"];
 
 export class GitHubProvider implements GitProvider {
   private readonly fetchImpl: FetchLike;
@@ -104,6 +163,47 @@ export class GitHubProvider implements GitProvider {
     await ensureOkResponse(response, "GitHub");
     const data = (await readJsonResponse(response, "GitHub")) as { state?: unknown };
     return data.state === "open" ? "open" : "closed";
+  }
+
+  /**
+   * Stato della PR via REST, mergiata distinta da rifiutata: `state: open` →
+   * 'open'; `state: closed` con `merged: true` → 'merged', con `merged:
+   * false` → 'closed_unmerged'. Se `merged` MANCA, lo stato si ricava da
+   * `merged_at`, che è il campo autorevole (GitHub lo valorizza solo al merge):
+   * una data → 'merged', `null` → 'closed_unmerged'. Senza nessuno dei due
+   * (o con uno `state` sconosciuto) la funzione lancia `GitProviderError`.
+   */
+  async getPullRequestFinalState(
+    p: ProjectGitConfig,
+    prNumber: number,
+    opts: { fetchImpl?: FetchLike } = {}
+  ): Promise<PullRequestFinalState> {
+    const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
+    const { owner, repo } = parseRepoUrl(p.repoUrl);
+    const response = await fetchImpl(`${API_BASE}/repos/${owner}/${repo}/pulls/${prNumber}`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${p.credentials.token}`,
+        Accept: "application/vnd.github+json",
+      },
+    });
+    await ensureOkResponse(response, "GitHub");
+    const data = (await readJsonResponse(response, "GitHub")) as {
+      state?: unknown;
+      merged?: unknown;
+      merged_at?: unknown;
+    };
+    if (data.state === "open") return "open";
+    if (data.state === "closed") {
+      if (typeof data.merged === "boolean") return data.merged ? "merged" : "closed_unmerged";
+      if (typeof data.merged_at === "string") return "merged";
+      if (data.merged_at === null) return "closed_unmerged";
+    }
+    throw new GitProviderError(
+      `GitHub: stato della PR non riconosciuto (${String(data.state).slice(0, 40)})`,
+      response.status,
+      ""
+    );
   }
 
   /**
@@ -274,6 +374,375 @@ export class GitHubProvider implements GitProvider {
     await ensureOkResponse(response, "GitHub");
   }
 
+  /**
+   * Feedback scritto su una PR, da tre fonti: conversazione (issue comment),
+   * righe (review comment, con `path`/`line` — `original_line` se la riga non
+   * è più nel diff) e testo delle review inviate (le PENDING no, i testi vuoti
+   * no: un "Approve" senza testo non è feedback). Ordinato per data; id con
+   * prefisso per fonte (`issue-`, `review-comment-`, `review-`), perché GitHub
+   * non garantisce che gli id delle tre non si sovrappongano. L'autore passa
+   * da {@link githubAuthor} per tutte e tre, la stessa funzione del webhook
+   * "Request changes": scarta ciò che non ha un id numerico sicuro (vedi
+   * {@link PrComment}). Lancia GitProviderError sui non-2xx: la fotografia
+   * del feedback non si prende a metà. Un commento con una data non leggibile
+   * (`Date.parse` → NaN) NON si scarta — perderlo sarebbe peggio di mostrarlo
+   * fuori posto, ed è la stessa scelta per eccesso di `selectProviderFeedback`
+   * — ma va in FONDO, nell'ordine in cui è arrivato: un NaN nel comparatore
+   * renderebbe l'ordinamento incoerente anche per i commenti con data buona.
+   */
+  async listPrComments(
+    p: ProjectGitConfig,
+    prNumber: number,
+    opts: { fetchImpl?: FetchLike } = {}
+  ): Promise<PrComment[]> {
+    const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
+    const { owner, repo } = parseRepoUrl(p.repoUrl);
+    const headers = {
+      Authorization: `Bearer ${p.credentials.token}`,
+      Accept: "application/vnd.github+json",
+    };
+    const base = `${API_BASE}/repos/${owner}/${repo}`;
+    const comments: PrComment[] = [];
+
+    for (const raw of await this.fetchCommentPages(fetchImpl, `${base}/issues/${prNumber}/comments?per_page=100`, headers)) {
+      const c = raw as {
+        id?: unknown;
+        user?: unknown;
+        body?: unknown;
+        created_at?: unknown;
+        author_association?: unknown;
+      };
+      const author = githubAuthor(c.user);
+      if (author === null || !Number.isSafeInteger(c.id) || typeof c.created_at !== "string") continue;
+      if (typeof c.body !== "string" || c.body.trim().length === 0) continue;
+      comments.push({
+        id: `issue-${String(c.id)}`,
+        authorId: author.id,
+        authorLogin: author.login,
+        body: c.body,
+        createdAt: c.created_at,
+        path: null,
+        line: null,
+        authorAssociation: githubAuthorAssociation(c.author_association),
+      });
+    }
+
+    for (const raw of await this.fetchCommentPages(fetchImpl, `${base}/pulls/${prNumber}/comments?per_page=100`, headers)) {
+      const c = raw as {
+        id?: unknown;
+        user?: unknown;
+        body?: unknown;
+        created_at?: unknown;
+        path?: unknown;
+        line?: unknown;
+        original_line?: unknown;
+        author_association?: unknown;
+      };
+      const author = githubAuthor(c.user);
+      if (author === null || !Number.isSafeInteger(c.id) || typeof c.created_at !== "string") continue;
+      if (typeof c.body !== "string" || c.body.trim().length === 0) continue;
+      const path = typeof c.path === "string" ? c.path : null;
+      const line =
+        path === null
+          ? null
+          : Number.isSafeInteger(c.line)
+            ? (c.line as number)
+            : Number.isSafeInteger(c.original_line)
+              ? (c.original_line as number)
+              : null;
+      comments.push({
+        id: `review-comment-${String(c.id)}`,
+        authorId: author.id,
+        authorLogin: author.login,
+        body: c.body,
+        createdAt: c.created_at,
+        path,
+        line,
+        authorAssociation: githubAuthorAssociation(c.author_association),
+      });
+    }
+
+    for (const raw of await this.fetchCommentPages(fetchImpl, `${base}/pulls/${prNumber}/reviews?per_page=100`, headers)) {
+      const r = raw as {
+        id?: unknown;
+        user?: unknown;
+        body?: unknown;
+        state?: unknown;
+        submitted_at?: unknown;
+        author_association?: unknown;
+      };
+      const author = githubAuthor(r.user);
+      if (author === null || !Number.isSafeInteger(r.id) || typeof r.submitted_at !== "string") continue;
+      if (r.state === "PENDING") continue;
+      if (typeof r.body !== "string" || r.body.trim().length === 0) continue;
+      comments.push({
+        id: `review-${String(r.id)}`,
+        authorId: author.id,
+        authorLogin: author.login,
+        body: r.body,
+        createdAt: r.submitted_at,
+        path: null,
+        line: null,
+        authorAssociation: githubAuthorAssociation(r.author_association),
+      });
+    }
+
+    return comments.sort(byCreatedAtUnreadableLast);
+  }
+
+  /**
+   * Status di commit di Stubwise (design §8): `context` = key. GitHub non
+   * sovrascrive: ACCODA uno status nuovo a ogni chiamata, e la vista combinata
+   * e la protezione del branch usano l'ultimo per `context` (tetto di 1000
+   * status per sha e context). `refname` non serve (GitHub associa per sha).
+   * Descrizione troncata a 140 caratteri. Sha completo obbligatorio. Lancia
+   * GitProviderError (best-effort a monte); su 401/403 il messaggio dice quale
+   * permesso manca al token.
+   */
+  async setCommitStatus(
+    p: ProjectGitConfig,
+    sha: string,
+    status: CommitStatusInput,
+    opts: { fetchImpl?: FetchLike } = {}
+  ): Promise<void> {
+    if (!isFullCommitSha(sha)) {
+      throw new GitProviderError(
+        `GitHub: lo status di commit richiede lo sha completo (40 caratteri), ricevuto "${sha}"`,
+        0,
+        ""
+      );
+    }
+    const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
+    const { owner, repo } = parseRepoUrl(p.repoUrl);
+    const description =
+      status.description.length > MAX_STATUS_DESCRIPTION
+        ? `${status.description.slice(0, MAX_STATUS_DESCRIPTION - 1)}…`
+        : status.description;
+    const response = await fetchWithTimeout(fetchImpl, `${API_BASE}/repos/${owner}/${repo}/statuses/${sha}`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${p.credentials.token}`,
+        Accept: "application/vnd.github+json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        state: status.state,
+        context: status.key,
+        description,
+        ...(status.url !== undefined ? { target_url: status.url } : {}),
+      }),
+    });
+    await ensureCommitStatusResponse(response, "GitHub");
+  }
+
+  /**
+   * Verdetto dell'account revisore come review GitHub (design §8): una sola
+   * richiesta, `POST /pulls/{n}/reviews`, testo incluso — quindi chi chiama
+   * NON pubblica anche un `createPrComment`, o il testo uscirebbe doppio.
+   * `body` è obbligatorio per REQUEST_CHANGES (GitHub lo esige): un testo
+   * vuoto o di soli spazi è un errore locale, senza chiamare GitHub, perché
+   * il 422 che ne tornerebbe sembrerebbe un altro problema. Per APPROVE il
+   * testo vuoto si omette. GitHub rifiuta con 422 sia APPROVE sia
+   * REQUEST_CHANGES dall'autore della PR: l'account revisore DEVE essere un
+   * account diverso da quello che apre le PR. Il messaggio del 422 nomina
+   * l'autore solo se la risposta lo dice ("own pull request"); altrimenti
+   * riporta un estratto della risposta, con ogni occorrenza del token
+   * sostituita da `***` prima del taglio, e indica l'autore come causa
+   * possibile. Su 401/403 il messaggio nomina il
+   * permesso mancante ({@link PR_REVIEW_PERMISSION_HINT}), come il gemello
+   * Bitbucket.
+   */
+  async submitPrReview(
+    p: ProjectGitConfig,
+    prNumber: number,
+    verdict: PrReviewVerdict,
+    body: string,
+    opts: { fetchImpl?: FetchLike } = {}
+  ): Promise<SubmitPrReviewOutcome> {
+    const hasBody = body.trim().length > 0;
+    if (verdict === "request_changes" && !hasBody) {
+      throw new GitProviderError("GitHub: REQUEST_CHANGES richiede un testo (il corpo della review è vuoto)", 0, "");
+    }
+    const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
+    const { owner, repo } = parseRepoUrl(p.repoUrl);
+    const response = await fetchWithTimeout(fetchImpl, `${API_BASE}/repos/${owner}/${repo}/pulls/${prNumber}/reviews`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${p.credentials.token}`,
+        Accept: "application/vnd.github+json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        event: verdict === "approve" ? "APPROVE" : "REQUEST_CHANGES",
+        ...(hasBody ? { body } : {}),
+      }),
+    });
+    if (response.status === 422) {
+      // Il corpo finisce nel messaggio (estratto) e in `responseText`: si
+      // maschera il token PRIMA di troncare, così nemmeno un token spezzato
+      // dal taglio può sopravvivere. GitHub non ha motivo di rimandarlo, ma il
+      // messaggio va nei log e il corpo non è sotto il nostro controllo.
+      const text = maskSecret(await response.text().catch(() => ""), p.credentials.token).slice(0, 500);
+      const message = /own pull request/i.test(text)
+        ? "GitHub: review rifiutata (422) — GitHub non permette all'autore della PR di approvarla o di chiedere modifiche: verifica che l'account revisore sia diverso da quello che apre le PR"
+        : `GitHub: review rifiutata (422): ${text.slice(0, 200)} — una causa possibile è l'account revisore che coincide con l'autore della PR`;
+      throw new GitProviderError(message, 422, text);
+    }
+    await ensureOkResponseWithHint(response, "GitHub", PR_REVIEW_PERMISSION_HINT);
+    return { status: "submitted" };
+  }
+
+  /**
+   * Identità stabile dell'account sulla piattaforma (design §4/§5): l'`id`
+   * numerico di `GET /user`, come stringa — MAI il login, che cambia. Lo
+   * ricava {@link githubAuthor}, la stessa funzione che dà `actorId` al
+   * webhook "Request changes" e `authorId` ai commenti: il confronto del
+   * design §5 è un'uguaglianza di stringhe, e la forma sta in un posto solo.
+   * Accetta qualunque oggetto con `credentials` (ProjectGitConfig o
+   * AccountCredentials). Lancia GitProviderError: sul 401 dice che le
+   * credenziali non valgono; sul 403 che il token non rappresenta un utente —
+   * l'installation token di una GitHub App riceve 403 su `/user`, e l'account
+   * (principale o revisore) deve essere un utente con un personal access
+   * token — salvo che il 403 sia il rate limit (`x-ratelimit-remaining: 0` o
+   * "rate limit" nel corpo), che ha un messaggio suo. Senza un id intero
+   * sicuro lancia invece di inventare un'identità. Mai il token in un
+   * messaggio.
+   */
+  async getAuthenticatedUserId(
+    p: Pick<ProjectGitConfig, "credentials">,
+    opts: { fetchImpl?: FetchLike; timeoutMs?: number } = {}
+  ): Promise<string> {
+    const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
+    // Con un tempo massimo, come i controlli di validateCredentials: la
+    // chiamata sta dentro il salvataggio di una repository e dentro il
+    // webhook, e un provider che non risponde non deve tenerli appesi. Il
+    // timeout diventa un errore (fail-closed per chi lo chiama).
+    const response = await fetchWithTimeout(
+      fetchImpl,
+      `${API_BASE}/user`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${p.credentials.token}`,
+          Accept: "application/vnd.github+json",
+        },
+      },
+      opts.timeoutMs
+    );
+    if (response.status === 401 || response.status === 403) {
+      const text = (await response.text().catch(() => "")).slice(0, 500);
+      // Un 403 di GitHub è anche il rate limit primario/secondario: lì il
+      // token va bene, e dire "non una GitHub App" manderebbe a cercare il
+      // guasto nel posto sbagliato.
+      const rateLimited =
+        response.status === 403 &&
+        (response.headers.get("x-ratelimit-remaining") === "0" || /rate limit/i.test(text));
+      const message =
+        response.status === 401
+          ? "GitHub: credenziali non valide leggendo l'identità dell'account (401) — verifica il token"
+          : rateLimited
+            ? "GitHub: limite di richieste raggiunto leggendo l'identità dell'account (403, rate limit) — riprova più tardi"
+            : "GitHub: il token non può leggere la propria identità (403) — l'account (principale o revisore) deve essere un utente GitHub con un personal access token, non una GitHub App: l'installation token di un'App non può leggere /user";
+      throw new GitProviderError(message, response.status, text);
+    }
+    await ensureOkResponse(response, "GitHub");
+    const data = await readJsonResponse(response, "GitHub");
+    const account = githubAuthor(data);
+    if (account === null) {
+      throw new GitProviderError(
+        "GitHub: la risposta di /user non contiene un id numerico: identità dell'account non determinabile",
+        response.status,
+        ""
+      );
+    }
+    return account.id;
+  }
+
+  /**
+   * Il permesso effettivo di `login` sulla repository di `p`:
+   * `GET /repos/{o}/{r}/collaborators/{login}/permission`. Conta anche
+   * l'accesso via organizzazione e team, e le appartenenze PRIVATE che
+   * `author_association` riporta come `CONTRIBUTOR`/`NONE`.
+   *
+   * - Si legge `role_name` (distingue `maintain` e `triage`); se non è uno dei
+   *   ruoli noti — un ruolo personalizzato dell'organizzazione ha un nome suo
+   *   — si ripiega su `permission`, che GitHub mappa sempre sul ruolo base
+   *   (`admin`/`write`/`read`/`none`). Nessuno dei due riconoscibile → lancia:
+   *   inventare un permesso aprirebbe il cancello.
+   * - 404 → `"none"`: il login non è un collaboratore (o non esiste). Anche un
+   *   token che non vede la repository prende 404: l'esito resta un rifiuto,
+   *   quindi l'errore è comunque dalla parte chiusa.
+   * - 401/403 → GitProviderError che nomina il permesso mancante
+   *   ({@link COLLABORATOR_PERMISSION_HINT}), salvo il rate limit, che ha un
+   *   messaggio suo; altri non-2xx → GitProviderError generico.
+   * - Il login è validato PRIMA di comporre l'URL (niente path injection):
+   *   caratteri di un login GitHub, al più 39, più il suffisso `[bot]` degli
+   *   account delle App (che poi prende 404 → `none`). Malformato → lancia
+   *   senza fare la richiesta.
+   * - Mai il token in un messaggio.
+   */
+  async getCollaboratorPermission(
+    p: ProjectGitConfig,
+    login: string,
+    opts: { fetchImpl?: FetchLike; timeoutMs?: number } = {}
+  ): Promise<RepositoryPermission> {
+    if (!isValidGitHubLogin(login)) {
+      throw new GitProviderError(
+        "GitHub: login non valido per la lettura del permesso sulla repository",
+        0,
+        ""
+      );
+    }
+    const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
+    const { owner, repo } = parseRepoUrl(p.repoUrl);
+    // Con un tempo massimo (vedi getAuthenticatedUserId): un timeout lancia,
+    // e il filtro lo legge come «non verificabile».
+    const response = await fetchWithTimeout(
+      fetchImpl,
+      `${API_BASE}/repos/${owner}/${repo}/collaborators/${encodeURIComponent(login)}/permission`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${p.credentials.token}`,
+          Accept: "application/vnd.github+json",
+        },
+      },
+      opts.timeoutMs
+    );
+    if (response.status === 404) return "none";
+    if (response.status === 403) {
+      const text = maskSecret(await response.text().catch(() => ""), p.credentials.token).slice(0, 500);
+      const rateLimited =
+        response.headers.get("x-ratelimit-remaining") === "0" || /rate limit/i.test(text);
+      throw new GitProviderError(
+        rateLimited
+          ? "GitHub: limite di richieste raggiunto leggendo il permesso sulla repository (403, rate limit) — riprova più tardi"
+          : `GitHub: accesso negato leggendo il permesso sulla repository (403) — ${COLLABORATOR_PERMISSION_HINT}`,
+        403,
+        text
+      );
+    }
+    if (response.status === 401) {
+      const text = maskSecret(await response.text().catch(() => ""), p.credentials.token).slice(0, 500);
+      throw new GitProviderError(
+        `GitHub: credenziali non valide leggendo il permesso sulla repository (401) — ${COLLABORATOR_PERMISSION_HINT}`,
+        401,
+        text
+      );
+    }
+    await ensureOkResponse(response, "GitHub");
+    const data = (await readJsonResponse(response, "GitHub")) as { role_name?: unknown; permission?: unknown };
+    const permission = knownPermission(data.role_name) ?? knownPermission(data.permission);
+    if (permission === null) {
+      throw new GitProviderError(
+        "GitHub: la risposta del permesso sulla repository non contiene un ruolo riconoscibile",
+        response.status,
+        ""
+      );
+    }
+    return permission;
+  }
+
   parseWebhook(headers: Record<string, string>, body: unknown): WebhookEvent | null {
     if (getHeader(headers, "x-github-event") !== "pull_request") return null;
     if (typeof body !== "object" || body === null) return null;
@@ -342,6 +811,60 @@ export class GitHubProvider implements GitProvider {
       targetBranch: pr.base.ref,
       headSha: pr.head.sha,
       prUrl: pr.html_url,
+      ...(payload.action === "reopened" ? { reopened: true as const } : {}),
+    };
+  }
+
+  /**
+   * "Request changes" su una PR (ciclo di correzione, design §9): evento
+   * `pull_request_review`, action `submitted`, `review.state`
+   * `changes_requested` — minuscolo nel webhook, maiuscolo nella REST: si
+   * accettano entrambi. `review.body` può essere null. Ogni altro stato
+   * (approved, commented) e ogni altra action (edited, dismissed) → null.
+   * Mai lancia.
+   *
+   * `review.user` è l'autore della review; in `submitted` `sender` coincide,
+   * quindi non va confrontato. L'asimmetria con Bitbucket, dove actor e
+   * changes_request.user sono due campi che possono discordare, è voluta.
+   */
+  parseChangesRequestedEvent(
+    headers: Record<string, string>,
+    body: unknown
+  ): ChangesRequestedEvent | null {
+    if (getHeader(headers, "x-github-event") !== "pull_request_review") return null;
+    if (typeof body !== "object" || body === null) return null;
+    const payload = body as { action?: unknown; review?: unknown; pull_request?: unknown };
+    if (payload.action !== "submitted") return null;
+    if (typeof payload.review !== "object" || payload.review === null) return null;
+    if (typeof payload.pull_request !== "object" || payload.pull_request === null) return null;
+    const review = payload.review as {
+      state?: unknown;
+      body?: unknown;
+      user?: { id?: unknown; login?: unknown } | null;
+      author_association?: unknown;
+    };
+    if (typeof review.state !== "string" || review.state.toLowerCase() !== "changes_requested") {
+      return null;
+    }
+    const pr = payload.pull_request as { number?: unknown; head?: { ref?: unknown } };
+    const actor = githubAuthor(review.user);
+    if (
+      typeof pr.number !== "number" ||
+      !Number.isSafeInteger(pr.number) ||
+      typeof pr.head?.ref !== "string" ||
+      actor === null
+    ) {
+      return null;
+    }
+    const reviewBody =
+      typeof review.body === "string" && review.body.trim().length > 0 ? review.body : null;
+    return {
+      prNumber: pr.number,
+      sourceBranch: pr.head.ref,
+      actorId: actor.id,
+      actorLogin: actor.login,
+      reviewBody,
+      authorAssociation: githubAuthorAssociation(review.author_association),
     };
   }
 
@@ -433,6 +956,7 @@ export class GitHubProvider implements GitProvider {
           name: "Permessi repository (PR e merge)",
           ok: false,
           detail: "il token non ha permessi di scrittura sul repository (serve anche per mergiare le PR)",
+          failure: "no_write_permission",
         };
       }
       if (r.status === 401) {
@@ -481,7 +1005,11 @@ export class GitHubProvider implements GitProvider {
       };
     }, "Accesso webhook (config automatica)");
 
-    return [gitCheck, prCheck, webhookCheck];
+    return [
+      { ...gitCheck, purpose: "push" },
+      { ...prCheck, purpose: "rest" },
+      { ...webhookCheck, purpose: "webhook" },
+    ];
   }
 
   async validateAccount(
@@ -543,21 +1071,15 @@ export class GitHubProvider implements GitProvider {
     const base = `${API_BASE}/repos/${owner}/${repo}/hooks`;
 
     try {
-      const listResponse = await fetchImpl(base, { method: "GET", headers });
-      this.guardWebhookResponse(listResponse);
-      const list = (await readJsonResponse(listResponse, "GitHub")) as {
-        id?: unknown;
-        config?: { url?: unknown };
-      }[];
-      const existing = Array.isArray(list)
-        ? list.find((h) => h.config?.url === hook.url)
-        : undefined;
+      // Cerca su TUTTE le pagine (Link `next`): un hook in seconda pagina non
+      // trovato diventerebbe un duplicato alla creazione qui sotto.
+      const existing = await this.findHookByUrl(fetchImpl, `${base}?per_page=100`, headers, hook.url);
 
       if (existing && typeof existing.id === "number") {
         const updateResponse = await fetchImpl(`${base}/${existing.id}`, {
           method: "PATCH",
           headers,
-          body: JSON.stringify({ active: true, events: ["pull_request", "push"], config }),
+          body: JSON.stringify({ active: true, events: WEBHOOK_EVENTS, config }),
         });
         this.guardWebhookResponse(updateResponse);
         return { created: false, updated: true, id: String(existing.id), detail: "Webhook aggiornato" };
@@ -566,7 +1088,7 @@ export class GitHubProvider implements GitProvider {
       const createResponse = await fetchImpl(base, {
         method: "POST",
         headers,
-        body: JSON.stringify({ name: "web", active: true, events: ["pull_request", "push"], config }),
+        body: JSON.stringify({ name: "web", active: true, events: WEBHOOK_EVENTS, config }),
       });
       this.guardWebhookResponse(createResponse);
       const created = (await readJsonResponse(createResponse, "GitHub")) as { id?: unknown };
@@ -593,6 +1115,8 @@ export class GitHubProvider implements GitProvider {
       `${API_BASE}/user/repos?per_page=100&sort=updated&affiliation=${encodeURIComponent("owner,collaborator,organization_member")}`;
     const repos: RepoSummary[] = [];
     for (let pageNumber = 0; pageNumber < MAX_REPO_PAGES && url; pageNumber++) {
+      // Il `next` lo sceglie la risposta: mai seguirlo fuori dall'API col token.
+      assertPageOnApiHost(url, API_BASE, "GitHub");
       const response = await fetchImpl(url, { method: "GET", headers });
       await ensureListResponse(response, "GitHub");
       const link = response.headers.get("link");
@@ -640,6 +1164,8 @@ export class GitHubProvider implements GitProvider {
     let url: string | null = `${API_BASE}/repos/${repoFullName}/branches?per_page=100`;
     const branches: string[] = [];
     for (let pageNumber = 0; pageNumber < MAX_BRANCH_PAGES && url; pageNumber++) {
+      // Il `next` lo sceglie la risposta: mai seguirlo fuori dall'API col token.
+      assertPageOnApiHost(url, API_BASE, "GitHub");
       const response = await fetchImpl(url, { method: "GET", headers });
       await ensureListResponse(response, "GitHub");
       const link = response.headers.get("link");
@@ -651,6 +1177,94 @@ export class GitHubProvider implements GitProvider {
       url = parseNextLink(link);
     }
     return { branches, defaultBranch };
+  }
+
+  /**
+   * GET paginato con l'header Link (`parseNextLink`), fino a
+   * {@link MAX_COMMENT_PAGES}. O tutte le pagine o un GitProviderError, mai
+   * una fotografia a metà: lancia su un corpo che non è un array (risposta
+   * inattesa), su una pagina successiva oltre il tetto, e su un `next` che non
+   * sta sull'host dell'API GitHub — quest'ultimo PRIMA di seguirlo, perché la
+   * richiesta porterebbe il token altrove.
+   */
+  private async fetchCommentPages(
+    fetchImpl: FetchLike,
+    firstUrl: string,
+    headers: Record<string, string>
+  ): Promise<unknown[]> {
+    const items: unknown[] = [];
+    let url: string | null = firstUrl;
+    for (let page = 0; page < MAX_COMMENT_PAGES && url; page++) {
+      assertPageOnApiHost(url, API_BASE, "GitHub");
+      // Con un tempo massimo: gira nel ciclo di correzione (fotografia della
+      // PR), dove un provider che non risponde non deve fermare il job.
+      const response = await fetchWithTimeout(fetchImpl, url, { method: "GET", headers });
+      await ensureOkResponse(response, "GitHub");
+      const link = response.headers.get("link");
+      const data = await readJsonResponse(response, "GitHub");
+      if (!Array.isArray(data)) {
+        throw new GitProviderError(
+          "GitHub: risposta inattesa leggendo i commenti della PR: non prendo una fotografia parziale",
+          0,
+          ""
+        );
+      }
+      items.push(...(data as unknown[]));
+      url = parseNextLink(link);
+    }
+    if (url) {
+      throw new GitProviderError(
+        `GitHub: oltre ${MAX_COMMENT_PAGES} pagine di commenti sulla PR: non prendo una fotografia parziale`,
+        0,
+        ""
+      );
+    }
+    return items;
+  }
+
+  /**
+   * Cerca fra gli hook del repository quello con `config.url` uguale a
+   * `targetUrl`, seguendo il Link `next` fino a {@link MAX_HOOK_PAGES}. Si
+   * ferma alla prima pagina che lo contiene. Lancia GitProviderError (mai
+   * `undefined`, che al chiamante varrebbe «crealo») su un corpo che non è un
+   * array, su una pagina successiva oltre il tetto e su un `next` fuori
+   * dall'host dell'API — quest'ultimo PRIMA di seguirlo, perché la richiesta
+   * porterebbe il token altrove.
+   */
+  private async findHookByUrl(
+    fetchImpl: FetchLike,
+    firstUrl: string,
+    headers: Record<string, string>,
+    targetUrl: string
+  ): Promise<{ id?: unknown; config?: { url?: unknown } } | undefined> {
+    let url: string | null = firstUrl;
+    for (let page = 0; page < MAX_HOOK_PAGES && url; page++) {
+      assertPageOnApiHost(url, API_BASE, "GitHub");
+      const response = await fetchWithTimeout(fetchImpl, url, { method: "GET", headers });
+      this.guardWebhookResponse(response);
+      const link = response.headers.get("link");
+      const list = await readJsonResponse(response, "GitHub");
+      if (!Array.isArray(list)) {
+        throw new GitProviderError(
+          "GitHub: risposta inattesa leggendo i webhook del repository: non ne creo uno nuovo alla cieca",
+          0,
+          ""
+        );
+      }
+      const found = (list as { id?: unknown; config?: { url?: unknown } }[]).find(
+        (h) => h?.config?.url === targetUrl
+      );
+      if (found) return found;
+      url = parseNextLink(link);
+    }
+    if (url) {
+      throw new GitProviderError(
+        `GitHub: oltre ${MAX_HOOK_PAGES} pagine di webhook sul repository: non ne creo uno nuovo per non duplicarlo`,
+        0,
+        ""
+      );
+    }
+    return undefined;
   }
 
   /**
@@ -701,4 +1315,56 @@ function githubCheckStatus(status: unknown, conclusion: unknown): CheckOutcomeSt
     return "success";
   }
   return "failure";
+}
+
+/**
+ * Identità di un utente GitHub in un commento, una review o un webhook: id
+ * numerico come stringa (stabile, sopravvive a un cambio di login — è ciò che
+ * si confronta con gli account di Stubwise) e login. Null se `user` manca o è
+ * null (account cancellato, "ghost"), se l'id non è un intero sicuro o se il
+ * login manca: senza un id affidabile non lo si può escludere dagli account
+ * di Stubwise. UNA funzione per commenti e webhook, così le due identità non
+ * possono divergere.
+ */
+function githubAuthor(raw: unknown): { id: string; login: string } | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const user = raw as { id?: unknown; login?: unknown };
+  if (typeof user.id !== "number" || !Number.isSafeInteger(user.id)) return null;
+  if (typeof user.login !== "string") return null;
+  return { id: String(user.id), login: user.login };
+}
+
+/**
+ * Un login GitHub: lettere, cifre, trattini e underscore, al più 45 caratteri,
+ * che non comincia con un trattino o un underscore; più il suffisso `[bot]`
+ * degli account delle GitHub App. L'underscore e la lunghezza servono agli
+ * Enterprise Managed Users (`handle_shortcode`); i login storici possono avere
+ * trattini doppi o in coda, quindi non si vietano. Il controllo è largo apposta:
+ * tiene fuori `/`, `.`, `?`, `%`, spazi…, e la difesa vera resta
+ * `encodeURIComponent` sul segmento.
+ */
+const GITHUB_LOGIN_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,44}(?:\[bot\])?$/;
+
+function isValidGitHubLogin(login: string): boolean {
+  return GITHUB_LOGIN_RE.test(login);
+}
+
+const KNOWN_PERMISSIONS = new Set<string>(REPOSITORY_PERMISSIONS);
+
+function knownPermission(raw: unknown): RepositoryPermission | null {
+  return typeof raw === "string" && KNOWN_PERMISSIONS.has(raw) ? (raw as RepositoryPermission) : null;
+}
+
+/**
+ * `author_association` di GitHub (commento, review, webhook): il rapporto
+ * dell'autore col repository — `OWNER`, `MEMBER`, `COLLABORATOR`,
+ * `CONTRIBUTOR`, `FIRST_TIME_CONTRIBUTOR`, `NONE`… — restituito così come
+ * GitHub lo manda (maiuscolo), senza normalizzarlo: la decisione su chi è
+ * ammesso la prende `isTrustedAuthorAssociation` in `@stubwise/notifications`,
+ * non questo package. Assente, vuoto o non stringa → `null` (sconosciuto, e a
+ * valle fail-closed). UNA funzione per le tre fonti dei commenti e per il
+ * webhook, come {@link githubAuthor}.
+ */
+function githubAuthorAssociation(raw: unknown): string | null {
+  return typeof raw === "string" && raw.length > 0 ? raw : null;
 }

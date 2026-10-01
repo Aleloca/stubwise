@@ -67,6 +67,16 @@ the same effect: no permission, no token, no push.
 - **Projects** — the projects you follow, each with a plain-language summary
   of what's going on (jobs running, PRs waiting, backlog ready) rather than
   raw logs; tapping one opens its current job with a timeline told in words.
+  A ticket with an open pull request has a **Pull requests** section: each PR
+  with the line that says where its [correction
+  loop](/docs/ai-pipeline/automation/#pr-correction-loop) is (the same line as
+  on the web), **Open the PR →**, and **Apply corrections**, which opens a panel
+  with an optional **Note for the agent** and **Start correction**. When a
+  correction is on hold and you're allowed to resume it, **Resume correction**
+  appears next to it — and the ticket's **Start the work** and **Resume from
+  instructions** don't, so you can't start a new fix by mistake. Held for the budget, only a maintainer
+  can resume it: an operator reads *ask a maintainer to resume it* instead.
+  Without network both buttons are off.
 - **Backlog** — browse each project's backlog, tap **Continue** on an item
   that's ready to restart, capture a new idea as a quick note, or chat about
   one to refine it.

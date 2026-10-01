@@ -1,10 +1,9 @@
 import { ApiError } from "@stubwise/api-client";
-import type { ReleaseQueueItem } from "@stubwise/shared";
 import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { releasePullRequest } from "../lib/api";
+import { releasePullRequest, type ReleaseQueueItem } from "../lib/api";
 import { formatRelativeTime } from "../lib/format";
 import { releaseQueueQueryOptions } from "../lib/queries";
 
@@ -79,6 +78,9 @@ function ReleaseRow({ item }: { item: ReleaseQueueItem }) {
   // calcolare" come per una riga storica pre-fase-8 — l'etichetta lo dice
   // esplicitamente invece di mostrare "Unknown" per entrambi i casi.
   const isExternal = item.origin === "external";
+  // G6: il verdetto viene da una review su una head precedente. `?? false`: il
+  // web fa un cast, e un server più vecchio non manda il campo.
+  const reviewStale = item.reviewStale ?? false;
 
   return (
     <li className="px-4 py-4">
@@ -155,11 +157,27 @@ function ReleaseRow({ item }: { item: ReleaseQueueItem }) {
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 font-mono text-[11px]">
-        <ColumnBadge
-          label={t("release:columns.review")}
-          value={item.reviewVerdict ? t(`release:review.${item.reviewVerdict}`) : t("release:review.none")}
-          tone={item.reviewVerdict === "approve" ? "good" : item.reviewVerdict === "request_changes" ? "bad" : "neutral"}
-        />
+        {/* Verdetto e «superata» restano insieme anche quando la riga va a capo. */}
+        <span className="inline-flex flex-wrap items-baseline gap-x-4 gap-y-1">
+          <ColumnBadge
+            label={t("release:columns.review")}
+            value={item.reviewVerdict ? t(`release:review.${item.reviewVerdict}`) : t("release:review.none")}
+            tone={item.reviewVerdict === "approve" ? "good" : item.reviewVerdict === "request_changes" ? "bad" : "neutral"}
+          />
+          {/*
+            Verdetto superato: etichetta E spiegazione in chiaro, accanto al
+            verdetto — non solo un title, che senza hover (e sul touch) non si
+            legge. Solo informazione: il merge non cambia.
+          */}
+          {reviewStale && (
+            <span className="inline-flex items-baseline gap-1.5">
+              <span className="rounded-sm border border-line-strong px-1.5 py-0.5 tracking-[0.06em] text-fg-muted uppercase">
+                {t("release:reviewStale")}
+              </span>
+              <span className="text-fg-faint">{t("release:reviewStaleHint")}</span>
+            </span>
+          )}
+        </span>
         <ColumnBadge
           label={t("release:columns.checks")}
           value={checksLabel}

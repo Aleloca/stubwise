@@ -1,7 +1,14 @@
 import { getProvider } from "@stubwise/git";
-import { t } from "@stubwise/i18n";
-import { publishNotification } from "@stubwise/notifications";
-import { and, count, desc, eq, isNotNull, ne, notInArray, sql } from "drizzle-orm";
+import { catalogs, t, type Language } from "@stubwise/i18n";
+import {
+  cancelOpenCorrections,
+  markPrRowsClosed,
+  reopenPrRows,
+  prHasOpenCorrection,
+  promotePendingForTicket,
+  publishNotification,
+} from "@stubwise/notifications";
+import { and, count, desc, eq, inArray, isNotNull, ne, notInArray, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { Db } from "@stubwise/db";
 import {
@@ -20,8 +27,14 @@ import {
   ticketRepositories,
   tickets,
 } from "@stubwise/db";
+import { STUBWISE_BRANCH_RE, prNumberFromUrl } from "@stubwise/shared";
 import { getContentLanguage } from "../settings.js";
 import { apiError } from "../errors.js";
+import {
+  createDeliveryDedupe,
+  createNegativePermissionCache,
+  handleChangesRequested,
+} from "../services/pr-correction-webhook.js";
 
 /**
  * Tetto al corpo del webhook: 1 MiB. I payload di Bitbucket/GitHub per una PR
@@ -29,9 +42,6 @@ import { apiError } from "../errors.js";
  * (DoS di memoria). Fastify risponde 413 quando lo supera.
  */
 const MAX_WEBHOOK_BODY_BYTES = 1024 * 1024;
-
-/** I rami stubwise sono `stubwise/ticket-<N>`: da lì si estrae il numero del ticket. */
-const STUBWISE_BRANCH_RE = /^stubwise\/ticket-(\d+)$/;
 
 /**
  * Finestra di debounce dell'auto-aggiornamento Docs ai push: ogni push sul
@@ -177,6 +187,14 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
     },
   );
 
+  // Riconsegne dello stesso evento "Request changes" (id di consegna del
+  // provider): vedi createDeliveryDedupe. Una per istanza dell'app, così i
+  // test con `buildApp` non si pestano.
+  const changesRequestedDeliveries = createDeliveryDedupe(5 * 60_000);
+  // Esiti negativi del permesso dell'autore (estranei): vedi
+  // createNegativePermissionCache. Anche questa una per istanza dell'app.
+  const changesRequestedPermissions = createNegativePermissionCache();
+
   instance.post<{ Params: { projectSlug: string } }>(
     "/git/:projectSlug",
     {
@@ -307,16 +325,80 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
         return reply.code(204).send();
       }
 
+      // Ramo "Request changes" (ciclo di correzione post-PR, 30 set 2026):
+      // Bitbucket `pullrequest:changes_request_created`, GitHub
+      // `pull_request_review` con `changes_requested`. Mutuamente esclusivo
+      // con gli altri parser (header diversi). La firma l'ha già verificata il
+      // preValidation qui sopra. 204 in OGNI caso, anche quando l'evento è
+      // scartato: un evento dell'account revisore ritentato dal provider
+      // resterebbe scartato, e la ritrasmissione è solo rumore. Gli errori non
+      // gestiti (DB) invece risalgono: un 500 fa ritentare, e l'accodamento è
+      // transazionale.
+      const changesRequested = provider.parseChangesRequestedEvent(headers, request.body);
+      if (changesRequested) {
+        // Una ritrasmissione (stesso id di consegna) non diventa una seconda
+        // correzione. Senza id — un proxy che lo toglie — si elabora comunque.
+        const deliveryId = headers["x-github-delivery"] ?? headers["x-request-uuid"];
+        if (deliveryId && !changesRequestedDeliveries.claim(deliveryId)) {
+          request.log.info({ deliveryId }, "Request changes: consegna già elaborata, scartata");
+          return reply.code(204).send();
+        }
+        try {
+          await handleChangesRequested(
+            {
+              db: instance.db,
+              encryptionKey: instance.encryptionKey,
+              log: request.log,
+              repositoryId: context.repositoryId,
+              provider: context.provider,
+              permissionCache: changesRequestedPermissions,
+            },
+            changesRequested,
+          );
+        } catch (error) {
+          if (deliveryId) changesRequestedDeliveries.release(deliveryId);
+          throw error;
+        }
+        return reply.code(204).send();
+      }
+
       // Ramo PR Review: apertura/aggiornamento di una PR. Mutuamente esclusivo
-      // con gli altri due (parsePushEvent copre solo i push, parseWebhook solo
+      // con gli altri tre (parsePushEvent copre solo i push,
+      // parseChangesRequestedEvent solo i "Request changes", parseWebhook solo
       // le chiusure). Gate sul toggle d'istanza: spento = no-op.
       const prEvent = provider.parsePrEvent(headers, request.body);
       if (prEvent) {
+        // Una PR chiusa senza merge e poi RIAPERTA (GitHub `reopened`, che
+        // `parsePrEvent` segnala con `reopened: true`): la sua riga
+        // `ticket_repositories` torna `open`, o resterebbe `closed_unmerged`
+        // per sempre e il bottone delle correzioni risponderebbe `pr_not_open`
+        // su una PR aperta. PRIMA del toggle della PR Review: lo stato della
+        // riga non dipende da quella funzione. SOLO su una riapertura
+        // esplicita: un `opened`/`created` ripetuto o tardivo (Bitbucket non ha
+        // riaperture) non deve riaprire una riga chiusa. Il ticket non si tocca.
+        if (prEvent.reopened === true) {
+          await reopenPrRows(instance.db, { repositoryId: context.repositoryId, prNumber: prEvent.prNumber });
+        }
+
         const [settings] = await instance.db
           .select({ enabled: instanceSettings.prReviewEnabled })
           .from(instanceSettings)
           .where(eq(instanceSettings.id, 1));
         if (settings?.enabled !== true) return reply.code(204).send();
+
+        // Ciclo di correzione: con una correzione aperta sulla PR (`pending`
+        // o `queued`) la review la accoda la CORREZIONE — dopo il suo push, o
+        // sulla head attuale se fallisce senza pushare (C8) —, non il push che
+        // stiamo ricevendo: accodarla qui farebbe rivedere una head che la
+        // correzione sta per superare.
+        if (
+          await prHasOpenCorrection(instance.db, {
+            repositoryId: context.repositoryId,
+            prNumber: prEvent.prNumber,
+          })
+        ) {
+          return reply.code(204).send();
+        }
 
         // Upsert sul vincolo (repository, PR): un solo pending per PR, i push
         // ravvicinati aggiornano head/metadati e allungano il debounce.
@@ -356,6 +438,34 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
       // Non è un merge di PR che ci interessa: ignorato (204), niente da fare.
       if (!event) return reply.code(204).send();
 
+      // Ticket delle correzioni ANNULLATE su questa PR (lo dice
+      // `cancelOpenCorrections`): solo lì il job che bloccava le `pending` di
+      // un'altra PR è appena sparito, quindi solo lì serve la promozione in
+      // `finish`. Un ticket con sole correzioni storiche non c'entra.
+      let correctionTicketIds: string[] = [];
+      // Ticket la cui riga `ticket_repositories` di QUESTA PR è passata ora da
+      // `open` allo stato vero (vedi sotto): `cancelOpenCorrections` ne prende
+      // il lock, e per il ramo del merge sono un primo arrivo certo.
+      let closedNowTicketIds = new Set<string>();
+      // Ogni uscita del ramo di chiusura passa di qui: la promozione delle
+      // `pending` di un'ALTRA PR dello stesso ticket gira DOPO tutte le
+      // transazioni del webhook (chiusura del ticket del fix o di quello di
+      // review), con `instance.db` e mai dentro una di esse — la promozione
+      // apre la sua transazione e prende il lock advisory del ticket, lo
+      // stesso di `startRun`: dentro una transazione che ha già scritto su
+      // `ai_jobs` l'ordine sarebbe invertito (righe, poi lock: deadlock, vedi
+      // il docblock di `enqueueCorrection`). Best-effort: un errore si logga e
+      // la 204 resta; quello che resta indietro lo ripesca il tick del worker
+      // (`promoteStalePendings`).
+      const finish = async () => {
+        for (const ticketId of correctionTicketIds) {
+          await promotePendingForTicket(instance.db, ticketId).catch((err: unknown) => {
+            request.log.warn({ err, ticketId }, "promozione delle correzioni in attesa fallita");
+          });
+        }
+        return reply.code(204).send();
+      };
+
       // Lato PR Review, per QUALUNQUE PR chiusa: il pending in coda non serve
       // più (la review di una PR chiusa è inutile), e l'eventuale ticket di
       // tipo `review` della PR si chiude da solo (done se mergiata, closed se
@@ -372,6 +482,32 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
               eq(prReviewJobs.prNumber, event.prNumber),
             ),
           );
+
+        // Ciclo di correzione (design §11): una PR chiusa o mergiata non si
+        // corregge più. Le correzioni in attesa (`pending`) e in coda
+        // (`queued`) diventano `cancelled`, e i loro job ancora `queued`/`held`
+        // → `skipped` (con una riga di log). Un job GIÀ in lavorazione
+        // (`fixing` e oltre) non si tocca qui: il worker rilegge la correzione
+        // prima del push, la trova `cancelled` e chiude il job `skipped` (C8).
+        //
+        // ORDINE, e non è un dettaglio: PRIMA lo stato della riga PR, POI
+        // l'annullamento. `enqueueCorrection` rilegge `prState` sotto il lock
+        // del ticket; `cancelOpenCorrections` prende lo stesso lock sui ticket
+        // appena chiusi (`lockTicketIds`), anche se non vede ancora correzioni
+        // aperte. Così un "Applica le correzioni" che ha letto la PR aperta un
+        // attimo prima o vede la chiusura (409 `pr_not_open`) o ha già
+        // committato la sua riga quando l'annullamento la cerca: mai una
+        // `queued` orfana su una PR chiusa. Entrambe aprono la LORO
+        // transazione su `instance.db`, prima e fuori da quelle qui sotto.
+        const pr = { repositoryId: context.repositoryId, prNumber: event.prNumber };
+        closedNowTicketIds = await markPrRowsClosed(
+          instance.db,
+          pr,
+          event.kind === "merged" ? "merged" : "closed_unmerged",
+        );
+        correctionTicketIds = await cancelOpenCorrections(instance.db, pr, {
+          lockTicketIds: [...closedNowTicketIds],
+        });
 
         // Solo le righe CON ticket: quelle failed/running hanno ticketId null
         // e una re-review fallita più recente maschererebbe la review
@@ -459,7 +595,7 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
 
       const match = STUBWISE_BRANCH_RE.exec(event.branch);
       // Ramo non gestito da Stubwise: ignorato.
-      if (!match) return reply.code(204).send();
+      if (!match) return finish();
       const ticketNumber = Number(match[1]);
 
       // Il ticket appartiene solo al PROGETTO (Fase 3, tickets.repositoryId
@@ -491,7 +627,7 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
         // Nessun ticket per quel numero, o già chiuso/concluso: nulla da fare,
         // idempotente. Non si crea un secondo commento di sistema.
         if (!ticket || ticket.status === "done" || ticket.status === "closed") {
-          return reply.code(204).send();
+          return finish();
         }
 
         // Chiusura AGGREGATA multi-repo. Regole:
@@ -511,22 +647,91 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
         //     Fonte di verità = l'insieme attuale delle righe: un re-run che
         //     restringe i repo toccati rimpiazza le righe (upsert per repo), non
         //     lascia righe stale di repo non più modificati.
+        // Numero della PR mergiata: dall'evento, con ripiego sull'URL.
+        const mergedPrNumber = event.prNumber ?? prNumberFromUrl(event.prUrl);
         await instance.db.transaction(async (tx) => {
-          // Stato della riga di QUESTO repo prima dell'upsert: distingue la
-          // prima consegna del merge (riga assente o `open`/`closed_unmerged`)
-          // da una ri-consegna (riga già `merged`). Serve a non scrivere un
-          // secondo commento di sistema quando il merge dello stesso repo viene
-          // riconsegnato mentre il ticket è ancora `in_review` (merge parziale).
+          // ORDINE DEI LOCK, lo stesso del ramo `closed_unmerged` qui sotto:
+          // PRIMA la riga del ticket, POI quella di `ticket_repositories`. Con
+          // l'ordine invertito in uno dei due rami, la chiusura tardiva di una
+          // PR vecchia e il merge di quella nuova si bloccherebbero a vicenda.
+          // Due consegne CONCORRENTI dello stesso merge si mettono in fila qui,
+          // e la seconda vede il commento che la prima ha committato (sotto).
+          const [locked] = await tx
+            .select({ status: tickets.status })
+            .from(tickets)
+            .where(eq(tickets.id, ticket.id))
+            .for("update");
+          // Lo stato letto FUORI dalla transazione serviva al fast-path: quello
+          // vero si rilegge qui, sotto il lock. Una consegna concorrente che ha
+          // già chiuso il ticket non lascia un secondo evento di stato.
+          if (!locked || locked.status === "done" || locked.status === "closed") return;
+          // «Primo arrivo» = il commento di sistema del merge di QUESTA PR non
+          // c'è ancora. NON `pr_state`: `markPrRowsClosed` (sopra) ha già
+          // COMMITTATO `merged` prima di questa transazione, quindi se questa
+          // (o `cancelOpenCorrections`) lancia, il webhook risponde 500 e alla
+          // riconsegna la riga è già `merged` — col criterio sullo stato il
+          // ramo usciva, e il ticket restava `in_review` per sempre col job
+          // `pr_opened` e nessun commento. Il commento invece nasce nella STESSA
+          // transazione del `done`: o ci sono tutti e due, o nessuno.
+          // Il gate aggregato, il `done` e `pr_merged` sotto girano COMUNQUE:
+          // sono idempotenti (il ticket già `done` esce poco sopra, riletto
+          // SOTTO il lock; il job si tocca solo da `pr_opened`/`pr_closed`).
+          // Il commento si cerca in TUTTE le lingue del catalogo: se la lingua
+          // d'istanza è cambiata fra la prima consegna e la riconsegna, quello
+          // già scritto è nell'altra.
+          const mergedBody = t(lang, "comment.prMerged", { url: event.prUrl });
+          const mergedBodies = [
+            ...new Set(
+              (Object.keys(catalogs) as Language[]).map((l) => t(l, "comment.prMerged", { url: event.prUrl })),
+            ),
+          ];
+          const [existingComment] = await tx
+            .select({ id: comments.id })
+            .from(comments)
+            .where(
+              and(
+                eq(comments.ticketId, ticket.id),
+                eq(comments.authorType, "system"),
+                inArray(comments.body, mergedBodies),
+              ),
+            )
+            .limit(1);
+          // Il criterio di prima resta, e si AGGIUNGE il commento: una riga che
+          // non era `merged` (assente, `open`, `closed_unmerged` — o passata a
+          // `merged` ORA da `markPrRowsClosed`, `closedNowTicketIds`) è un
+          // primo arrivo certo anche se un commento con lo stesso testo
+          // esistesse già (due repository con lo stesso URL di PR).
           const [existingRow] = await tx
-            .select({ prState: ticketRepositories.prState })
+            .select({
+              prState: ticketRepositories.prState,
+              prNumber: ticketRepositories.prNumber,
+              prUrl: ticketRepositories.prUrl,
+            })
             .from(ticketRepositories)
             .where(
               and(
                 eq(ticketRepositories.ticketId, ticket.id),
                 eq(ticketRepositories.repositoryId, context.repositoryId),
               ),
+            )
+            .for("update");
+          // Il merge di una PR VECCHIA di questo ticket su questo repository
+          // (la #42 riaperta e mergiata mentre il ticket è sulla #50): la riga
+          // appartiene alla PR nuova. Non si sovrascrive `prUrl` e il ticket
+          // non va a `done` — la #50 è ancora aperta. Stesso filtro del ramo
+          // `closed_unmerged`; con un numero ignoto, il comportamento di prima.
+          const rowPrNumber = existingRow ? rowPrNumberOf(existingRow) : null;
+          if (rowPrNumber !== null && mergedPrNumber !== null && rowPrNumber !== mergedPrNumber) {
+            request.log.warn(
+              { ticketId: ticket.id, repositoryId: context.repositoryId, rowPrNumber, mergedPrNumber },
+              "merge di una PR diversa da quella della riga: riga e ticket non toccati",
             );
-          const alreadyMerged = existingRow?.prState === "merged";
+            return;
+          }
+          const alreadyMerged =
+            existingRow?.prState === "merged" &&
+            !closedNowTicketIds.has(ticket.id) &&
+            existingComment !== undefined;
 
           await tx
             .insert(ticketRepositories)
@@ -542,17 +747,15 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
               set: { prState: "merged", prUrl: event.prUrl },
             });
 
-          // Ri-consegna dello stesso repo già `merged`: idempotente, niente
-          // commento né transizioni. (La riga era già merged; il gate sotto non
-          // cambierebbe nulla.)
-          if (alreadyMerged) return;
-
-          // Commento di sistema: una PR di questo repo è stata mergiata.
-          await tx.insert(comments).values({
-            ticketId: ticket.id,
-            authorType: "system",
-            body: t(lang, "comment.prMerged", { url: event.prUrl }),
-          });
+          // Commento di sistema: una PR di questo repo è stata mergiata. Una
+          // riconsegna salta SOLO questo.
+          if (!alreadyMerged) {
+            await tx.insert(comments).values({
+              ticketId: ticket.id,
+              authorType: "system",
+              body: mergedBody,
+            });
+          }
 
           // Gate aggregato: esiste ancora una riga NON `merged`? Se sì, il
           // ticket resta in review; se no (tutte merged), va a `done`.
@@ -591,30 +794,91 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
           // aggiornare (idempotenza) e gli altri stati restano intatti. Il job
           // passa a `pr_merged` quando il TICKET va a `done` (semantica job
           // coerente col ticket: un solo job per ticket, non per repo).
-          await tx
+          const merged = await tx
             .update(aiJobs)
             .set({
               status: "pr_merged",
               finishedAt: sql`coalesce(${aiJobs.finishedAt}, now())`,
               lastActivityAt: sql`now()`,
             })
-            .where(and(eq(aiJobs.ticketId, ticket.id), eq(aiJobs.status, "pr_opened")));
+            .where(and(eq(aiJobs.ticketId, ticket.id), eq(aiJobs.status, "pr_opened")))
+            .returning({ id: aiJobs.id });
+          // Chiusa → riaperta → mergiata: la chiusura ha portato il job a
+          // `pr_closed`, e la riapertura non lo riporta indietro. Senza un job
+          // `pr_opened`, passa a `pr_merged` il job PIÙ RECENTE del ticket se è
+          // `pr_closed` — solo quello: i `pr_closed` di tentativi precedenti
+          // restano la storia che sono.
+          if (merged.length === 0) {
+            const [latest] = await tx
+              .select({ id: aiJobs.id, status: aiJobs.status })
+              .from(aiJobs)
+              .where(eq(aiJobs.ticketId, ticket.id))
+              .orderBy(desc(aiJobs.createdAt))
+              .limit(1);
+            if (latest?.status === "pr_closed") {
+              await tx
+                .update(aiJobs)
+                .set({ status: "pr_merged", lastActivityAt: sql`now()` })
+                .where(and(eq(aiJobs.id, latest.id), eq(aiJobs.status, "pr_closed")));
+            }
+          }
         });
 
-        return reply.code(204).send();
+        return finish();
       }
 
       // event.kind === "closed_unmerged": riapertura del ticket per QUESTO repo.
       // Agiamo SOLO se il ticket è ancora in review (la pipeline ci ha appena
       // aperto la PR). Qualunque altro stato → 204 idempotente: una ri-consegna,
       // o un ticket già ripreso/concluso a mano, non deve produrre effetti.
-      if (!ticket || ticket.status !== "in_review") return reply.code(204).send();
+      if (!ticket || ticket.status !== "in_review") return finish();
 
       // Job AI riallineato dalla transazione qui sotto: è l'ancora `jobId` della
       // notifica (nessuna riga = nessun job `pr_opened`, l'evento resta legato
       // a ticket e progetto).
       let closedJobId: string | undefined;
+      // Numero della PR chiusa: dall'evento, con ripiego sull'URL.
+      const closedPrNumber = event.prNumber ?? prNumberFromUrl(event.prUrl);
+      // La chiusura riguarda una PR VECCHIA di questo ticket su questo repo
+      // (la #42 chiusa in ritardo mentre il ticket è in review sulla #50): la
+      // riga e il ticket appartengono alla PR nuova, e non si toccano.
+      let stalePr = false;
+      // Due consegne CONCORRENTI della stessa chiusura: la seconda, sotto il
+      // lock, trova il ticket non più in review ed esce senza scrivere.
+      let notInReview = false;
       await instance.db.transaction(async (tx) => {
+        // ORDINE DEI LOCK, lo stesso del ramo del merge: PRIMA la riga del
+        // ticket, POI quella di `ticket_repositories` (vedi lì il perché). Lo
+        // stato si RILEGGE sotto il lock: quello letto fuori era il fast-path,
+        // e due consegne concorrenti lo leggono entrambe `in_review` — prima
+        // producevano due `comment.prClosed`, due eventi e due notifiche.
+        const [locked] = await tx
+          .select({ status: tickets.status })
+          .from(tickets)
+          .where(eq(tickets.id, ticket.id))
+          .for("update");
+        if (locked?.status !== "in_review") {
+          notInReview = true;
+          return;
+        }
+        const [row] = await tx
+          .select({ id: ticketRepositories.id, prNumber: ticketRepositories.prNumber, prUrl: ticketRepositories.prUrl })
+          .from(ticketRepositories)
+          .where(
+            and(
+              eq(ticketRepositories.ticketId, ticket.id),
+              eq(ticketRepositories.repositoryId, context.repositoryId),
+            ),
+          )
+          .for("update");
+        // Stesso filtro di `markPrRowsClosed`: il numero dalla colonna, per le
+        // righe storiche dall'URL. Se uno dei due numeri è ignoto si resta al
+        // comportamento di prima (scope ticket+repository).
+        const rowPrNumber = row ? rowPrNumberOf(row) : null;
+        if (row && rowPrNumber !== null && closedPrNumber !== null && rowPrNumber !== closedPrNumber) {
+          stalePr = true;
+          return;
+        }
         // Marca la riga ticket_repositories di QUESTO repo come
         // `closed_unmerged`, senza toccare le righe/PR degli altri repo (lo
         // scope ticketId+repositoryId isola l'update). La riga tornerà `merged`
@@ -631,11 +895,13 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
             and(
               eq(ticketRepositories.ticketId, ticket.id),
               eq(ticketRepositories.repositoryId, context.repositoryId),
+              // La riga letta (e filtrata sul numero) sopra, sotto lock.
+              ...(row ? [eq(ticketRepositories.id, row.id)] : []),
             ),
           );
         await tx.update(tickets).set({ status: "triaged" }).where(eq(tickets.id, ticket.id));
-        // Audit della riapertura. Qui lo stato precedente è certo: il ramo è
-        // guardato da `ticket.status !== "in_review"` poche righe sopra.
+        // Audit della riapertura. Qui lo stato precedente è certo: è quello
+        // riletto sotto il lock poche righe sopra.
         await recordTicketStatusChange(tx, {
           ticketId: ticket.id,
           from: "in_review",
@@ -661,6 +927,7 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
           .returning({ id: aiJobs.id });
         closedJobId = closed[0]?.id;
       });
+      if (stalePr || notInReview) return finish();
 
       // Notifica best-effort job.pr_closed DOPO il commit (riflette realtà
       // committata). Il gating del toggle `notifyPrClosed` decide solo la
@@ -693,9 +960,17 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
         // Best-effort: una notifica mancata non deve disfare la riapertura.
       }
 
-      return reply.code(204).send();
+      return finish();
     },
   );
+}
+
+/**
+ * Il numero della PR di una riga `ticket_repositories`: dalla colonna, per le
+ * righe storiche dall'URL (la regola di `markPrRowsClosed`). `null` se ignoto.
+ */
+function rowPrNumberOf(row: { prNumber: number | null; prUrl: string | null }): number | null {
+  return row.prNumber ?? (row.prUrl === null ? null : prNumberFromUrl(row.prUrl));
 }
 
 declare module "fastify" {

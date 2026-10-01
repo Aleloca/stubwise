@@ -3,6 +3,7 @@ import { getRouteApi, Link, useNavigate } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { RepositoryWizard } from "../../components/repository-wizard";
 import { postRepository, type RepositoryDraft } from "../../lib/api";
+import { withRepositoryWarnings } from "../../lib/repository-warnings";
 import { projectQueryOptions, repositoryQueryOptions } from "../../lib/queries";
 
 // L'id della route include il layout autenticato (id "authed").
@@ -21,13 +22,20 @@ export function NewRepositoryPage() {
   const queryClient = useQueryClient();
 
   async function handleSubmit(draft: RepositoryDraft) {
-    const repository = await postRepository(draft);
+    // Gli avvisi del salvataggio non vanno in cache con la repository: viaggiano
+    // con la navigazione fino al dettaglio, che li mostra.
+    const { warnings, ...repository } = await postRepository(draft);
     queryClient.setQueryData(repositoryQueryOptions(repository.slug).queryKey, repository);
     // Il progetto ora ha un repo in più: invalida liste e dettaglio del gruppo.
     await queryClient.invalidateQueries({ queryKey: ["projects"] });
     await queryClient.invalidateQueries({ queryKey: projectQueryOptions(projectId).queryKey });
     await queryClient.invalidateQueries({ queryKey: ["repositories"] });
-    await navigate({ to: "/repositories/$slug", params: { slug: repository.slug } });
+    await navigate({
+      to: "/repositories/$slug",
+      params: { slug: repository.slug },
+      // `?? []`: il web fa un cast, e un server senza il ciclo non manda il campo.
+      state: (prev) => withRepositoryWarnings(prev, warnings ?? []),
+    });
   }
 
   return (

@@ -178,6 +178,12 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
       if (workspace !== undefined) updates.workspace = workspace;
       if (credentials !== undefined) {
         updates.encryptedCredentials = encrypt(JSON.stringify(credentials), app.encryptionKey);
+        // Un token nuovo può appartenere a un ALTRO utente della piattaforma:
+        // l'identità salvata (ciclo di correzione, design §5) non vale più e si
+        // riscopre al primo uso. Tenerla farebbe passare dal filtro
+        // anti-auto-innesco proprio il bot nuovo. Stessa scrittura del blob
+        // nuovo: `resolveProviderUserId` guarda la sua cache proprio sul blob.
+        updates.providerUserId = null;
       }
 
       // Drizzle rifiuta un update senza colonne: un PATCH vuoto è una lettura.

@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AiProvider } from "../lib/api";
 import { ProjectForm } from "./project-form";
@@ -92,7 +93,7 @@ function mockProviders() {
 
 async function renderForm(
   props: { onSubmit: (values: unknown) => Promise<void> },
-  init = initial,
+  init: ComponentProps<typeof ProjectForm>["initial"] = initial,
 ) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
@@ -303,5 +304,81 @@ describe("ProjectForm (impostazioni del gruppo)", () => {
 
     const payload = onSubmit.mock.calls[0]![0] as Record<string, unknown>;
     expect(payload.description).toBe("Il monorepo Acme");
+  });
+});
+
+/**
+ * Tetto del ciclo review → correzione. L'`initial` del file resta SENZA
+ * `prCorrectionMaxRounds` apposta: il web fa un cast e un server senza il ciclo
+ * non manda il campo, quindi è la fixture che prova la difesa `?? 3`.
+ */
+describe("ProjectForm — tetto del ciclo di correzione", () => {
+  const LABEL = "Maximum number of automatic corrections";
+
+  it("senza il campo nell'initial mostra 3 e non lo manda", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    mockProviders();
+    await renderForm({ onSubmit });
+
+    expect("prCorrectionMaxRounds" in initial).toBe(false);
+    expect(screen.getByLabelText(LABEL)).toHaveValue(3);
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    const payload = onSubmit.mock.calls[0]![0] as Record<string, unknown>;
+    expect("prCorrectionMaxRounds" in payload).toBe(false);
+  });
+
+  it("valore dal server mostrato, e rimandato solo se cambia", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    mockProviders();
+    await renderForm({ onSubmit }, { ...initial, prCorrectionMaxRounds: 5 });
+
+    const field = screen.getByLabelText(LABEL);
+    expect(field).toHaveValue(5);
+    await user.clear(field);
+    await user.type(field, "5");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    expect(onSubmit.mock.calls[0]![0]).toEqual({});
+  });
+
+  it("0 spegne il ciclo automatico, e si manda", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    mockProviders();
+    await renderForm({ onSubmit });
+
+    const field = screen.getByLabelText(LABEL);
+    await user.clear(field);
+    await user.type(field, "0");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    expect(onSubmit.mock.calls[0]![0]).toEqual({ prCorrectionMaxRounds: 0 });
+  });
+
+  it("il suggerimento spiega che 0 lascia solo le correzioni manuali", async () => {
+    mockProviders();
+    await renderForm({ onSubmit: vi.fn() });
+
+    expect(screen.getByText(/0 = automatic cycle off: manual corrections only/)).toBeInTheDocument();
+  });
+
+  it.each(["11", "-1", "2.5", ""])("fuori da 0..10 (%j): errore e nessun invio", async (value) => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    mockProviders();
+    await renderForm({ onSubmit });
+
+    const field = screen.getByLabelText(LABEL);
+    await user.clear(field);
+    if (value !== "") await user.type(field, value);
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "The maximum number of automatic corrections must be a whole number between 0 and 10",
+    );
   });
 });

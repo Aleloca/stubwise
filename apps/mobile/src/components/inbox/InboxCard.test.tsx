@@ -1,13 +1,15 @@
 import { ApiError } from "@stubwise/api-client";
 import type { StubwiseClient } from "@stubwise/api-client";
 import type { InboxItem, Reader } from "@stubwise/shared";
+import { UNKNOWN } from "@stubwise/shared";
 import NetInfo from "@react-native-community/netinfo";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
-import { Linking } from "react-native";
+import { Linking, StyleSheet } from "react-native";
 import { AuthContext } from "../../app/auth-context";
 import type { AuthContextValue } from "../../app/providers";
 import "../../i18n";
+import { colors } from "../../theme/tokens";
 import { InboxCard } from "./InboxCard";
 
 function item(overrides: Partial<Reader<InboxItem>> & Pick<InboxItem, "id" | "kind">): Reader<InboxItem> {
@@ -23,6 +25,7 @@ function item(overrides: Partial<Reader<InboxItem>> & Pick<InboxItem, "id" | "ki
     snoozedUntil: null,
     handledAt: null,
     handledBy: null,
+    reviewOutcome: null,
     ...overrides,
   } as Reader<InboxItem>;
 }
@@ -273,6 +276,58 @@ describe("InboxCard", () => {
       const client = makeClient();
       await renderCard({ ...PR_ITEM, kind: "review.completed" }, client);
       expect(screen.getByText("Review completata")).toBeTruthy();
+    });
+
+    /**
+     * IL TONO DICE QUANDO SERVE ATTENZIONE (F8 del ciclo di correzione). Il
+     * colore si legge dall'etichetta del kind, che `CardShell` tinge col tono.
+     * Nessun parse qui (il client è un doppio): le fixture arrivano così come
+     * sono, e quella della card VECCHIA non ha proprio la chiave.
+     */
+    const kindColor = (label: string) => StyleSheet.flatten(screen.getByText(label).props.style).color;
+    const REVIEW_ITEM: Reader<InboxItem> = { ...PR_ITEM, kind: "review.completed" };
+
+    test("review che approva → tono ok (verde)", async () => {
+      await renderCard({ ...REVIEW_ITEM, reviewOutcome: "approved" }, makeClient());
+      expect(kindColor("Review completata")).toBe(colors.ok);
+    });
+
+    test.each(["changes_requested", "stopped_at_cap", "review_failed"] as const)(
+      "%s → tono di attenzione, non verde",
+      async (reviewOutcome) => {
+        await renderCard({ ...REVIEW_ITEM, reviewOutcome }, makeClient());
+        expect(kindColor("Review completata")).toBe(colors.signal);
+      },
+    );
+
+    test("un esito che il client non conosce (UNKNOWN) → attenzione: verde solo per approve", async () => {
+      await renderCard({ ...REVIEW_ITEM, reviewOutcome: UNKNOWN }, makeClient());
+      expect(kindColor("Review completata")).toBe(colors.signal);
+    });
+
+    test("card VECCHIA, server senza il campo: la chiave manca e la card resta col tono di prima", async () => {
+      const old: Partial<Reader<InboxItem>> = { ...REVIEW_ITEM };
+      delete old.reviewOutcome;
+      expect("reviewOutcome" in old).toBe(false);
+      await renderCard(old as Reader<InboxItem>, makeClient());
+      expect(screen.getByText(REVIEW_ITEM.text)).toBeTruthy();
+      expect(kindColor("Review completata")).toBe(colors.ok);
+    });
+
+    test("job.pr_opened resta verde anche con un esito nel campo", async () => {
+      await renderCard({ ...PR_ITEM, reviewOutcome: "changes_requested" }, makeClient());
+      expect(kindColor("PR aperta")).toBe(colors.ok);
+    });
+
+    test("SOLO i campi nuovi popolati: nessuna azione, niente url né riassunto, la review fallita", async () => {
+      await renderCard(
+        item({ id: "rv-min", kind: "review.completed", text: "Correzioni automatiche ferme", reviewOutcome: "review_failed" }),
+        makeClient(),
+      );
+      expect(screen.getByText("Correzioni automatiche ferme")).toBeTruthy();
+      expect(kindColor("Review completata")).toBe(colors.signal);
+      expect(screen.queryByTestId("pr-ready-card-open")).toBeNull();
+      expect(screen.queryByTestId("pr-ready-card-summary")).toBeNull();
     });
   });
 

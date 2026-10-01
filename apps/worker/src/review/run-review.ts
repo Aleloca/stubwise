@@ -14,8 +14,9 @@ import {
 } from "@stubwise/db";
 import { getProvider, type GitProvider } from "@stubwise/git";
 import { t, type Language } from "@stubwise/i18n";
-import type { GitProviderKind } from "@stubwise/shared";
-import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
+import type { DbOrTx } from "@stubwise/notifications";
+import { STUBWISE_BRANCH_RE, type GitProviderKind } from "@stubwise/shared";
+import { and, desc, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { AgentRunner, AgentRunUsage } from "../agent/runner.js";
 import type { MirrorManager, MirrorProject } from "../git/mirrors.js";
@@ -27,7 +28,7 @@ import {
   type BlastRadius,
 } from "../graph/blast-radius.js";
 import { toSingleLine } from "../pipeline/prompts.js";
-import { notify, ticketUrl, type PublishFn } from "../pipeline/notify.js";
+import type { PublishFn } from "../pipeline/notify.js";
 import {
   loadProviderById,
   loadProviderChain,
@@ -35,14 +36,24 @@ import {
 } from "../providers/chain.js";
 import { isLimitError } from "../providers/limit.js";
 import { generatePrSummary } from "../summaries/pr-summary.js";
+import {
+  afterReviewCompleted,
+  notifyCycleStoppedByFailedReview,
+  promotePendingAfterFailedReview,
+  resolveReviewSha,
+  setReviewCommitStatus,
+  type ReviewCycleDeps,
+} from "./cycle.js";
 import { buildReviewPrompt, parseReviewOutput } from "./prompts.js";
 
 /**
  * PR REVIEW automatica — esecuzione di UN job già reclamato dal poller.
  *
  * Il webhook del server accoda in `pr_review_jobs` (debounce, un pending per
- * (repo, PR)); il poller del worker reclama con DELETE...RETURNING e chiama
- * `runPrReview` — come `runAutoUpdate` per l'auto-update dei Docs, il job è già
+ * (repo, PR)); il poller del worker reclama con DELETE...RETURNING, crea nella
+ * STESSA transazione la riga `pr_reviews` IN ATTESA (`insertWaitingReview`,
+ * `started_at` null: la review esiste dal claim) e chiama `runPrReview` con
+ * l'id di quella riga — come `runAutoUpdate` per l'auto-update dei Docs, il job è già
  * stato consumato: qui è tutto BEST-EFFORT, nessun errore risale al chiamante e
  * nessun percorso rimette il pending in coda (il prossimo push sulla PR ne
  * ricreerà uno) — UNICA eccezione il limite di rate/usage del provider, che
@@ -53,13 +64,22 @@ import { buildReviewPrompt, parseReviewOutput } from "./prompts.js";
  *  2. GATE toggle: `instance_settings.pr_review_enabled` riletto AL CLAIM (una
  *     sola select porta anche cap per-review, budget mensile e lingua) —
  *     spento → return silenzioso (disabilitato dopo l'accodamento);
- *  3. GATE PR aperta: `getPullRequestState` — chiusa → return senza riga;
- *     errore API → warning e si PROSEGUE (fail-open: meglio una review su una
- *     PR appena chiusa che nessuna review per un errore transitorio);
- *  4. GATE budget mensile: sforato → riga `failed` (visibile nello storico);
+ *  3. GATE PR aperta: `getPullRequestState` — chiusa → return (la riga in
+ *     attesa la cancella il poller); errore API → warning e si PROSEGUE
+ *     (fail-open: meglio una review su una PR appena chiusa che nessuna
+ *     review per un errore transitorio);
+ *  3-bis. guardia anti-doppione sulla stessa head: una review
+ *     `running`/`completed` di quella head, ESCLUSA la propria riga e le righe
+ *     in attesa più vecchie di `staleMinutes` (orfane) → return;
+ *  4. GATE budget mensile: sforato → la riga in attesa diventa `failed` senza
+ *     essere mai partita (`started_at` null, visibile nello storico);
  *  5. provider AI: pinned del progetto o chain[0]; pinned non risolvibile →
  *     riga `failed` senza fallback (come l'auto-update);
- *  6. riga `pr_reviews` RUNNING + heartbeat su lastActivityAt (60s, unref);
+ *  6. PARTENZA: la riga del claim si marca partita (`started_at`,
+ *     `last_activity_at` = now()) + heartbeat su lastActivityAt (60s, unref);
+ *     lo sha COMPLETO della head si risolve qui, UNA volta, e lo status di
+ *     commit `stubwise-review` va a `pending` su quello sha (l'esito, o il
+ *     `failure` di un fallimento dopo la partenza, va sullo stesso);
  *  7. diff dal mirror + agente read-only (plan) nel worktree alla head; se il
  *     repository ha un grafo sul volume (fase 2d graphify) il prompt riceve il
  *     blocco CODE GRAPH e l'impatto deterministico del diff (blast radius), e
@@ -80,13 +100,19 @@ import { buildReviewPrompt, parseReviewOutput } from "./prompts.js";
  * 12. transazione: commento AI sul ticket + riga → `completed`; al testo
  *     dell'agente si appende la sezione "Impatto sul codice" (blast radius),
  *     omessa se il calcolo non ha prodotto nulla;
- * 13. commento NUOVO sulla PR (best-effort, fuori transazione): uno per
- *     review, mai la riscrittura del precedente;
- * 14. notifica `review.completed` (best-effort).
+ * 13. pubblicazione sulla PR (best-effort, fuori transazione): con l'account
+ *     revisore della repository una review VERA (`submitPrReview`), altrimenti
+ *     un commento NUOVO dell'account principale; poi lo status di commit
+ *     `stubwise-review` (all'avvio `pending`, qui l'esito) — vedi cycle.ts;
+ * 14. ciclo review → correzione sulle PR di Stubwise (correzione automatica
+ *     sotto il tetto, richiesta umana promossa, stop al tetto) e notifica
+ *     `review.completed` — ma non per un giro automatico intermedio.
+ *
+ * Ogni uscita che chiude la riga `failed` (gate 4-5, errori e guardie dei passi
+ * 7-11) — ESCLUSO il limite del provider, che riaccoda — promuove la richiesta
+ * umana in fila su questa PR (emendamento E2, `promotePendingAfterFailedReview`):
+ * una review fallita non avvia MAI una correzione automatica.
  */
-
-/** Branch dei fix di Stubwise: `stubwise/ticket-<N>` (N = numero di progetto). */
-const STUBWISE_BRANCH_RE = /^stubwise\/ticket-(\d+)$/;
 
 /** Intervallo dell'heartbeat su pr_reviews.lastActivityAt (<< soglia stale). */
 const HEARTBEAT_INTERVAL_MS = 60_000;
@@ -115,7 +141,7 @@ export interface PrReviewJobRow {
 
 export interface RunPrReviewDeps {
   db: Db;
-  mirrors: Pick<MirrorManager, "withWorktreeAtSha" | "getPrDiff">;
+  mirrors: Pick<MirrorManager, "withWorktreeAtSha" | "getPrDiff" | "resolveCommitSha">;
   runner: AgentRunner;
   /** Chiave AES-256 per decifrare credenziali git e segreti dei provider AI. */
   encryptionKey: Buffer;
@@ -133,7 +159,7 @@ export interface RunPrReviewDeps {
   /** Provider git iniettabile nei test (default: getProvider). */
   getProviderFn?: (
     kind: GitProviderKind,
-  ) => Pick<GitProvider, "getPullRequestState" | "createPrComment">;
+  ) => Pick<GitProvider, "getPullRequestState" | "createPrComment" | "submitPrReview" | "setCommitStatus">;
   /** Risolutore di UN provider AI per id (iniettabile). Default: loadProviderById. */
   loadProviderByIdFn?: typeof loadProviderById;
   /** Caricatore della catena di provider AI (iniettabile). Default: loadProviderChain. */
@@ -149,6 +175,13 @@ export interface RunPrReviewDeps {
   summaryModel?: string;
   /** Timeout del run di riassunto in ms (default SUMMARY_TIMEOUT_MS). */
   summaryTimeoutMs?: number;
+  /**
+   * Minuti oltre cui una riga IN ATTESA (`started_at` null) è orfana (è
+   * `WORKER_STALE_MINUTES`, lo stesso valore del recovery del poller): la
+   * guardia anti-doppione non la conta più, così una riga rimasta appesa non
+   * blocca per sempre le review successive della stessa head.
+   */
+  staleMinutes: number;
 }
 
 /**
@@ -246,27 +279,46 @@ async function resolveProvider(
   return { provider: chain[0] };
 }
 
-/** Inserisce direttamente una riga pr_reviews TERMINALE failed (gate falliti
- * prima del running: budget, provider). Best-effort: un errore qui logga solo. */
-async function insertFailedReview(
-  db: Db,
-  job: PrReviewJobRow,
-  error: string,
-): Promise<void> {
-  try {
-    await db.insert(prReviews).values({
+/**
+ * La riga `pr_reviews` IN ATTESA (`started_at` null) di un job appena
+ * reclamato: la scrive il poller nella STESSA transazione del DELETE su
+ * `pr_review_jobs` (poller.ts), così la review esiste dal claim e il ciclo
+ * della PR si legge `reviewing` anche mentre aspetta nel serializer. I
+ * metadati del job restano sulla riga per il riaccodamento all'avvio
+ * (`requeueWaitingReviews`). Esportata per i test (`runClaimed`).
+ */
+export async function insertWaitingReview(db: DbOrTx, job: PrReviewJobRow): Promise<string> {
+  const [row] = await db
+    .insert(prReviews)
+    .values({
       repositoryId: job.repositoryId,
       prNumber: job.prNumber,
       prUrl: job.prUrl,
       prTitle: job.prTitle,
       headSha: job.headSha,
-      status: "failed",
-      error,
-      finishedAt: sql`now()`,
-    });
+      prBody: job.prBody,
+      sourceBranch: job.sourceBranch,
+      targetBranch: job.targetBranch,
+      status: "running",
+    })
+    .returning({ id: prReviews.id });
+  if (!row) throw new Error("insert della review in attesa non ha restituito la riga");
+  return row.id;
+}
+
+/** La riga IN ATTESA diventa TERMINALE failed senza essere mai partita (gate
+ * falliti prima della partenza: budget, provider): `started_at` resta null, e
+ * lo storico lo dice. La guardia su `started_at IS NULL` la rende innocua su
+ * una riga già presa o chiusa. Best-effort: un errore qui logga solo. */
+async function failWaitingReview(db: Db, reviewId: string, error: string): Promise<void> {
+  try {
+    await db
+      .update(prReviews)
+      .set({ status: "failed", error, finishedAt: sql`now()`, lastActivityAt: sql`now()` })
+      .where(and(eq(prReviews.id, reviewId), eq(prReviews.status, "running"), isNull(prReviews.startedAt)));
   } catch (err) {
     console.error(
-      `[stubwise-worker] pr-review: insert della riga failed per PR #${job.prNumber} fallito (${errText(err)})`,
+      `[stubwise-worker] pr-review: chiusura failed della review in attesa ${reviewId} fallita (${errText(err)})`,
     );
   }
 }
@@ -274,16 +326,19 @@ async function insertFailedReview(
 /** Chiude come failed una riga running (mai lancia). La guardia sullo status
  * rende innocua una scrittura tardiva se il recovery delle righe stale l'ha
  * già chiusa (riga non più running → update a vuoto). */
-async function failRunningReview(db: Db, reviewId: string, error: string): Promise<void> {
+async function failRunningReview(db: Db, reviewId: string, error: string): Promise<boolean> {
   try {
-    await db
+    const closed = await db
       .update(prReviews)
       .set({ status: "failed", error, finishedAt: sql`now()`, lastActivityAt: sql`now()` })
-      .where(and(eq(prReviews.id, reviewId), eq(prReviews.status, "running")));
+      .where(and(eq(prReviews.id, reviewId), eq(prReviews.status, "running")))
+      .returning({ id: prReviews.id });
+    return closed.length > 0;
   } catch (err) {
     console.error(
       `[stubwise-worker] pr-review: update failed della review ${reviewId} fallito (${errText(err)})`,
     );
+    return false;
   }
 }
 
@@ -452,9 +507,22 @@ async function resolveTicket(
  * lancia verso il chiamante; ogni percorso d'uscita logga con prefisso
  * `[stubwise-worker] pr-review:`. Vedi il docblock del modulo per il flusso.
  */
-export async function runPrReview(deps: RunPrReviewDeps, job: PrReviewJobRow): Promise<void> {
+export async function runPrReview(
+  deps: RunPrReviewDeps,
+  job: PrReviewJobRow,
+  /** La riga IN ATTESA creata dal poller al claim (`insertWaitingReview`). */
+  reviewId: string,
+): Promise<void> {
   const getProviderFn = deps.getProviderFn ?? getProvider;
   const monthlyCostUsdFn = deps.monthlyCostUsdFn ?? monthlyCostUsd;
+  // Uscita terminale `failed` di una review MAI PARTITA (E2): la riga si
+  // chiude, poi la richiesta umana in fila su questa PR parte. Nessuno status
+  // di commit: il `pending` non è mai stato scritto. L'uscita gemella per le
+  // review PARTITE (`failRunningAndPromote`) nasce al passo 6.
+  const failWaitingAndPromote = async (error: string): Promise<void> => {
+    await failWaitingReview(deps.db, reviewId, error);
+    await promotePendingAfterFailedReview(deps.db, job);
+  };
 
   // 1. Contesto (repo/account/progetto + credenziali decifrate).
   const ctx = await loadReviewContext(deps, job.repositoryId);
@@ -493,7 +561,47 @@ export async function runPrReview(deps: RunPrReviewDeps, job: PrReviewJobRow): P
     );
   }
 
-  // 4. GATE budget mensile dell'istanza: sforato → riga failed (storico visibile).
+  // 3-bis. GUARDIA ANTI-DOPPIONE: la stessa head della stessa PR ha già una
+  // review viva o completata → niente run. Succede quando il worker ha accodato
+  // la review da sé (fix/correzione, vedi enqueuePrReviewNow) e il webhook del
+  // provider arriva DOPO il claim. Confronto per prefisso: la head di un webhook
+  // Bitbucket è abbreviata, quella del worker completa. Una review `failed`
+  // (limite compreso) resta ripetibile. La PROPRIA riga (in attesa, `running`,
+  // stessa head) è esclusa: senza, ogni review troverebbe sé stessa e si
+  // salterebbe. Una SECONDA riga in attesa della stessa head la trova e si
+  // salta: la sua riga la cancella il poller.
+  const [duplicate] = await deps.db
+    .select({ id: prReviews.id })
+    .from(prReviews)
+    .where(
+      and(
+        eq(prReviews.repositoryId, job.repositoryId),
+        eq(prReviews.prNumber, job.prNumber),
+        ne(prReviews.id, reviewId),
+        inArray(prReviews.status, ["running", "completed"]),
+        // Una riga IN ATTESA più vecchia della soglia è orfana (un run che non
+        // l'ha mai marcata partita né cancellata): non blocca. Le partite e le
+        // completate contano sempre.
+        or(
+          isNotNull(prReviews.startedAt),
+          sql`${prReviews.createdAt} > now() - make_interval(mins => ${deps.staleMinutes})`,
+        ),
+        or(
+          sql`starts_with(${prReviews.headSha}, ${job.headSha})`,
+          sql`starts_with(${job.headSha}, ${prReviews.headSha})`,
+        ),
+      ),
+    )
+    .limit(1);
+  if (duplicate) {
+    console.error(
+      `[stubwise-worker] pr-review: head ${job.headSha.slice(0, 7)} della PR #${job.prNumber} già revisionata, salto`,
+    );
+    return;
+  }
+
+  // 4. GATE budget mensile dell'istanza: sforato → la riga in attesa diventa
+  // failed senza essere mai partita (storico visibile).
   if (settings.monthlyBudgetUsd != null) {
     const budget = Number(settings.monthlyBudgetUsd);
     let spent: number;
@@ -510,9 +618,7 @@ export async function runPrReview(deps: RunPrReviewDeps, job: PrReviewJobRow): P
       return;
     }
     if (spent >= budget) {
-      await insertFailedReview(
-        deps.db,
-        job,
+      await failWaitingAndPromote(
         `budget mensile superato: spesi $${spent.toFixed(4)} sul limite di $${budget.toFixed(4)}`,
       );
       return;
@@ -523,36 +629,29 @@ export async function runPrReview(deps: RunPrReviewDeps, job: PrReviewJobRow): P
   // failed senza fallback (coerente con auto-update e generazione Docs).
   const resolved = await resolveProvider(deps, ctx.aiProviderId);
   if ("blocked" in resolved) {
-    await insertFailedReview(
-      deps.db,
-      job,
-      "provider AI del progetto non disponibile (disabilitato o eliminato)",
-    );
+    await failWaitingAndPromote("provider AI del progetto non disponibile (disabilitato o eliminato)");
     return;
   }
 
-  // 6. Riga RUNNING: da qui in poi ogni fallimento chiude QUESTA riga.
-  let reviewId: string;
+  // 6. PARTENZA: la riga del claim diventa "partita". `last_activity_at` si
+  // rinnova qui: una review rimasta in attesa oltre la soglia non deve essere
+  // presa per un run stantio dal recovery al primo tick (che guarda solo le
+  // partite, poller.ts). Nessuna riga = già chiusa o presa: non si parte. Da
+  // qui in poi ogni fallimento chiude QUESTA riga.
+  let started: { id: string } | undefined;
   try {
-    const [running] = await deps.db
-      .insert(prReviews)
-      .values({
-        repositoryId: job.repositoryId,
-        prNumber: job.prNumber,
-        prUrl: job.prUrl,
-        prTitle: job.prTitle,
-        headSha: job.headSha,
-        status: "running",
-      })
+    [started] = await deps.db
+      .update(prReviews)
+      .set({ startedAt: sql`now()`, lastActivityAt: sql`now()` })
+      .where(and(eq(prReviews.id, reviewId), eq(prReviews.status, "running"), isNull(prReviews.startedAt)))
       .returning({ id: prReviews.id });
-    if (!running) throw new Error("insert della review non ha restituito la riga");
-    reviewId = running.id;
   } catch (err) {
     console.error(
-      `[stubwise-worker] pr-review: insert della riga running per PR #${job.prNumber} fallito (${errText(err)})`,
+      `[stubwise-worker] pr-review: partenza della review ${reviewId} (PR #${job.prNumber}) non registrata (${errText(err)})`,
     );
     return;
   }
+  if (!started) return;
 
   // Heartbeat: bumpa lastActivityAt ogni 60s così il recovery delle righe
   // running orfane (riavvio del worker) non tocca una review viva. Pattern
@@ -567,6 +666,64 @@ export async function runPrReview(deps: RunPrReviewDeps, job: PrReviewJobRow): P
       });
   }, HEARTBEAT_INTERVAL_MS);
   heartbeat.unref();
+
+  // Dipendenze del ciclo (status, pubblicazione, correzioni): le stesse della review.
+  const cycleDeps: ReviewCycleDeps = {
+    db: deps.db,
+    encryptionKey: deps.encryptionKey,
+    ...(deps.getProviderFn !== undefined ? { getProviderFn: deps.getProviderFn } : {}),
+    ...(deps.publicUrl !== undefined ? { publicUrl: deps.publicUrl } : {}),
+    ...(deps.publish !== undefined ? { publish: deps.publish } : {}),
+  };
+  // Sha COMPLETO della head, risolto UNA volta (fuori da ogni worktree): il
+  // `pending` qui e l'esito alla fine (o il `failure` di un fallimento) vanno
+  // sullo stesso commit anche se nel frattempo il branch si muove.
+  const fullSha = await resolveReviewSha(deps.mirrors, ctx.mirrorProject, job.headSha);
+  // Status "in corso" sulla head: con la review obbligatoria nelle regole del
+  // branch, finché non c'è un esito il merge aspetta. Best-effort. Senza link:
+  // il ticket che ospita la review non è ancora risolto a questo punto.
+  await setReviewCommitStatus(cycleDeps, {
+    mirrorProject: ctx.mirrorProject,
+    sha: fullSha,
+    sourceBranch: job.sourceBranch,
+    state: "pending",
+    description: t(lang, "commitStatus.reviewing"),
+  });
+  // Uscita terminale `failed` di una review PARTITA (E2): la riga si chiude,
+  // lo status «in corso» diventa `failure` — altrimenti, con la review
+  // obbligatoria nelle regole del branch, la PR resterebbe bloccata — e la
+  // richiesta umana in fila su questa PR parte. Lo status si scrive SOLO se
+  // questa chiusura è avvenuta: una riga già chiusa (dal recovery, o
+  // `completed` prima di un errore tardivo) non si contraddice. Mai per il
+  // limite del provider: lì la review è riaccodata e lo status resta
+  // `pending` fino alla ripartenza. LIMITE: se il worker muore a review
+  // partita, nessuno scrive l'esito — lo status resta `pending` fino al push
+  // successivo (il recovery chiude la riga, ma non tocca la piattaforma).
+  //
+  // C10b: dentro una serie di correzioni automatiche la chiusura avvisa che il
+  // ciclo si è fermato (`notifyCycleStoppedByFailedReview`), DOPO la
+  // promozione — una richiesta umana appena partita vuol dire che il ciclo
+  // non è fermo — e solo se la chiusura è stata nostra.
+  const failRunningAndPromote = async (error: string): Promise<void> => {
+    const closed = await failRunningReview(deps.db, reviewId, error);
+    if (closed) {
+      await setReviewCommitStatus(cycleDeps, {
+        mirrorProject: ctx.mirrorProject,
+        sha: fullSha,
+        sourceBranch: job.sourceBranch,
+        state: "failure",
+        description: t(lang, "commitStatus.reviewFailed"),
+      });
+    }
+    await promotePendingAfterFailedReview(deps.db, job);
+    if (closed) {
+      await notifyCycleStoppedByFailedReview(cycleDeps, {
+        job,
+        projectId: ctx.projectId,
+        repositoryName: ctx.repositoryName,
+      });
+    }
+  };
 
   // Grafo del repository sul volume (fase 2d graphify): quando esiste, il
   // prompt riceve il blocco CODE GRAPH e il run l'allowlist dei comandi
@@ -622,7 +779,7 @@ export async function runPrReview(deps: RunPrReviewDeps, job: PrReviewJobRow): P
     } catch (err) {
       // Errori tipati dell'agente (AgentTimeoutError/AgentRunError) e del git
       // (sha irraggiungibile, mirror rotto): failed col messaggio.
-      await failRunningReview(deps.db, reviewId, errText(err));
+      await failRunningAndPromote(errText(err));
       return;
     }
 
@@ -633,7 +790,9 @@ export async function runPrReview(deps: RunPrReviewDeps, job: PrReviewJobRow): P
     // Limite di rate/usage: la review non ha failover di catena, ma la sua
     // coda è già temporizzata — si riaccoda con un cooldown. Se il limite
     // persiste al prossimo claim, si ri-accoda di nuovo: un run sonda ogni
-    // cooldown, autolimitante. La chiusura della PR pulisce la coda.
+    // cooldown, autolimitante. La chiusura della PR pulisce la coda. NIENTE
+    // promozione della richiesta in fila (E2): la review ripartirà, e la
+    // promozione avverrà alla sua fine.
     if (isLimitError(result)) {
       await failRunningReview(
         deps.db,
@@ -651,7 +810,7 @@ export async function runPrReview(deps: RunPrReviewDeps, job: PrReviewJobRow): P
     // Mai un verdetto da un run fallito: stessa scelta di fix.ts
     // (AgentExitError), più stretta di auto-update.ts.
     if (result.exitCode !== 0) {
-      await failRunningReview(deps.db, reviewId, `agente uscito con exit ${result.exitCode}`);
+      await failRunningAndPromote(`agente uscito con exit ${result.exitCode}`);
       return;
     }
 
@@ -661,9 +820,7 @@ export async function runPrReview(deps: RunPrReviewDeps, job: PrReviewJobRow): P
       const cap = Number(settings.prReviewMaxCostUsd);
       const cost = runCostUsd(result.usage);
       if (cost > cap) {
-        await failRunningReview(
-          deps.db,
-          reviewId,
+        await failRunningAndPromote(
           `costo della review ($${cost.toFixed(4)}) oltre il tetto per-review ($${cap.toFixed(4)}): risultato scartato`,
         );
         return;
@@ -673,7 +830,7 @@ export async function runPrReview(deps: RunPrReviewDeps, job: PrReviewJobRow): P
     // 10. Parse dell'output: mai un verdetto inventato.
     const parsed = parseReviewOutput(result.output);
     if (!parsed) {
-      await failRunningReview(deps.db, reviewId, "output dell'agente non parsabile");
+      await failRunningAndPromote("output dell'agente non parsabile");
       return;
     }
 
@@ -708,7 +865,7 @@ export async function runPrReview(deps: RunPrReviewDeps, job: PrReviewJobRow): P
       ),
     );
     if (!ticket) {
-      await failRunningReview(deps.db, reviewId, "ticket della review non risolvibile");
+      await failRunningAndPromote("ticket della review non risolvibile");
       return;
     }
     if ("prClosed" in ticket) {
@@ -771,55 +928,28 @@ export async function runPrReview(deps: RunPrReviewDeps, job: PrReviewJobRow): P
         .where(eq(prReviews.id, reviewId));
     });
 
-    // 13. Commento sulla PR: best-effort FUORI transazione (la review è già
-    // completed; un provider giù non la degrada). Ogni review ne pubblica uno
-    // NUOVO — come il commento sul ticket — e la firma porta il commit rivisto,
-    // così nella conversazione della PR si distingue a quale push risponde.
-    try {
-      await getProviderFn(ctx.mirrorProject.provider).createPrComment(
-        ctx.mirrorProject,
-        job.prNumber,
-        `${reviewBody}\n\n_— Stubwise PR Review · \`${job.headSha.slice(0, 7)}\`_`,
-      );
-    } catch (err) {
-      console.error(
-        `[stubwise-worker] pr-review: commento sulla PR #${job.prNumber} fallito (${errText(err)}), la review resta completata`,
-      );
-    }
-
-    // 14. Notifica review.completed (best-effort; projectName = nome del
-    // REPOSITORY, come gli altri dispatch del webhook server).
-    await notify(
-      {
-        ...(deps.publicUrl !== undefined ? { publicUrl: deps.publicUrl } : {}),
-        projectName: ctx.repositoryName,
-        ...(deps.publish !== undefined ? { publish: deps.publish } : {}),
-      },
-      deps.db,
-      {
-        kind: "review.completed",
-        ticketNumber: ticket.number,
-        ticketTitle: ticket.title,
-        projectName: ctx.repositoryName,
-        ticketUrl: ticketUrl(deps.publicUrl, ticket.id),
-        prUrl: job.prUrl,
-        verdict: parsed.verdict,
-        // Riassunto anche nell'evento: webhook e DM Slack partono dal payload
-        // pubblicato, non da una rilettura di `pr_reviews`.
-        ...(prSummary !== null ? { summary: prSummary } : {}),
-      },
-      // NIENTE jobId: il "job" della review è una riga `pr_review_jobs`, mentre
-      // `notifications.job_id` ha la FK su `ai_jobs` — passarlo qui farebbe
-      // fallire l'insert (e la notifica sparirebbe in silenzio). Le ancore
-      // vere sono progetto e ticket collegato.
-      { projectId: ctx.projectId, ticketId: ticket.id },
-    );
+    // 13-14. Pubblicazione sulla PR (account revisore o principale), status di
+    // commit, ciclo di correzione e notifica: vedi cycle.ts. Tutto best-effort:
+    // la review è già completed.
+    await afterReviewCompleted(cycleDeps, {
+      job,
+      reviewId,
+      fullSha,
+      mirrorProject: ctx.mirrorProject,
+      projectId: ctx.projectId,
+      repositoryName: ctx.repositoryName,
+      ticket,
+      verdict: parsed.verdict,
+      reviewBody,
+      prSummary,
+      lang,
+    });
   } catch (err) {
     // Errore inatteso: chiudi la riga running e logga, MAI propagare.
     console.error(
       `[stubwise-worker] pr-review: errore inatteso sulla PR #${job.prNumber} (${errText(err)})`,
     );
-    await failRunningReview(deps.db, reviewId, errText(err));
+    await failRunningAndPromote(errText(err));
   } finally {
     clearInterval(heartbeat);
   }

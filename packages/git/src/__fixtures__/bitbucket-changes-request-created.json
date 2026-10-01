@@ -1,0 +1,36 @@
+{
+  "//": "Consegna REALE del webhook Bitbucket Cloud pullrequest:changes_request_created (header X-Event-Key), catturata durante la verifica manuale B14 del 1 ott 2026 (T25) su una repository di prova e ridotta ai campi utili. ANONIMIZZATA: workspace, repository, nomi, nickname, uuid, account_id, hash e URL sono finti ma della stessa forma (uuid tra graffe, account_id <numero>:<uuid>, hash da 12 caratteri, URL con lo stesso schema di path). Nessun token ne' segreto. Usata da bitbucket.test.ts.",
+  "repository": { "type": "repository", "full_name": "acme-ws/demo-repo", "name": "demo-repo", "uuid": "{c48670fb-42ff-456f-b30a-9b4c47567b6e}", "is_private": true },
+  "actor": {
+    "display_name": "Revisore Esempio",
+    "type": "user",
+    "uuid": "{37b0ddd0-c0c8-4522-932e-4a25f5dc6fa3}",
+    "account_id": "712020:dc6f63af-417c-410d-991e-8bcc251764e1",
+    "nickname": "Revisore Esempio"
+  },
+  "pullrequest": {
+    "type": "pullrequest",
+    "id": 1,
+    "title": "Prova B14",
+    "state": "OPEN",
+    "draft": false,
+    "author": { "display_name": "Account Principale", "type": "user", "uuid": "{da069572-44b0-41f1-a91e-686e9b5ba3f1}", "account_id": "712020:3da6966b-5236-4b33-93d1-13eb1835222b", "nickname": "Account Principale" },
+    "destination": { "branch": { "name": "main" }, "commit": { "hash": "5ff0ee2405ac", "type": "commit" } },
+    "source": { "branch": { "name": "test/b14", "links": {}, "sync_strategies": ["merge_commit", "rebase"] }, "commit": { "hash": "4d56edc2f0e7", "type": "commit" } },
+    "reviewers": [],
+    "participants": [
+      { "type": "participant", "user": { "display_name": "Revisore Esempio", "type": "user", "uuid": "{37b0ddd0-c0c8-4522-932e-4a25f5dc6fa3}", "nickname": "Revisore Esempio" }, "role": "PARTICIPANT", "approved": false, "state": "changes_requested" }
+    ],
+    "links": { "html": { "href": "https://bitbucket.org/acme-ws/demo-repo/pull-requests/1" } }
+  },
+  "changes_request": {
+    "date": "2026-10-01T12:13:37.565013+00:00",
+    "user": {
+      "display_name": "Revisore Esempio",
+      "type": "user",
+      "uuid": "{37b0ddd0-c0c8-4522-932e-4a25f5dc6fa3}",
+      "account_id": "712020:dc6f63af-417c-410d-991e-8bcc251764e1",
+      "nickname": "Revisore Esempio"
+    }
+  }
+}

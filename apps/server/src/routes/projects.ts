@@ -138,6 +138,9 @@ function toPublicProject(row: ProjectRow): z.infer<typeof projectSchema> {
     // pulse — il brief racconta quello che è già successo, e ha qualcosa da
     // dire anche su un progetto senza backlog di discovery.
     weeklyBriefEnabled: row.weeklyBriefEnabled,
+    // Ciclo di correzione (30 set 2026): tetto delle correzioni automatiche
+    // per tornata; 0 = ciclo automatico spento.
+    prCorrectionMaxRounds: row.prCorrectionMaxRounds,
     // Ingestion di prodotto (Fase 3): la chiave con cui gli SDK inviano
     // errori/feedback e il contatore ticket per-progetto, saliti dal repo.
     ingestionKey: row.ingestionKey,
@@ -815,6 +818,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
         pulseEnabled,
         pulseEveryDays,
         weeklyBriefEnabled,
+        prCorrectionMaxRounds,
       } = request.body;
       const updates: Partial<ProjectRow> = {};
       if (name !== undefined) updates.name = name;
@@ -833,6 +837,8 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
       if (pulseEveryDays !== undefined) updates.pulseEveryDays = pulseEveryDays;
       // Toggle brief settimanale: omesso lo lascia invariato.
       if (weeklyBriefEnabled !== undefined) updates.weeklyBriefEnabled = weeklyBriefEnabled;
+      // Tetto del ciclo di correzione: range già applicato dallo schema (400).
+      if (prCorrectionMaxRounds !== undefined) updates.prCorrectionMaxRounds = prCorrectionMaxRounds;
       // Provider AI del progetto (Docs e fix). null lo azzera (automatico); un
       // uuid deve riferire una riga ai_providers esistente; omesso lo lascia.
       if (aiProviderId !== undefined) {

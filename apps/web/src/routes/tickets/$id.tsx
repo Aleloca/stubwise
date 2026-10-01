@@ -33,6 +33,7 @@ import { ConfirmDeleteButton } from "../../components/confirm-delete-button";
 import { SelectField } from "../../components/field";
 import { LabelsEditor } from "../../components/labels-editor";
 import { Markdown } from "../../components/markdown";
+import { PrCycleRow } from "../../components/pr-cycle-row";
 import { answerErrorMessage, QuestionPanel } from "../../components/question-panel";
 import { TechnicalPayload } from "../../components/technical-payload";
 import { TicketLinks } from "../../components/ticket-links";
@@ -310,9 +311,30 @@ export function TicketDetailPage() {
   // ha i suoi bottoni Approva/Rifiuta — mutuamente esclusivi col rilancio).
   const latestJob = jobs[0];
   const RELAUNCHABLE_STATUSES = ["held", "pr_closed", "failed", "skipped"] as const;
+  // ⚠️ Una CORREZIONE ferma non si rilancia da qui (G5). Se l'ultimo job è
+  // quello che un ciclo dichiara fermo (`heldJobId`), "Avvia fix" e "Rilancia
+  // con istruzioni" chiamerebbero run-ai SENZA `resumeCorrectionJobId`: da una
+  // schermata vecchia — correzione nel frattempo annullata o riconciliata —
+  // il server avvierebbe un fix completo nuovo, che per un admin supera il
+  // budget. L'unica azione è il "Riprendi" della riga PR, che dice quale
+  // correzione. Se il ticket ricaricato mostra quel job ormai terminale, il
+  // ciclo non lo dichiara più fermo e il rilancio generico torna, onestamente,
+  // come fix nuovo.
+  // Il caso inverso, accettato: ticket già ricaricato ma lista dei job ancora
+  // vecchia (correzione appena annullata, ultimo job visto ancora `held`). Il
+  // ciclo non dichiara più fermo quel job, quindi il rilancio generico può
+  // ricomparire per un attimo e, premuto, avviare un fix nuovo. È raro perché
+  // ogni azione invalida entrambe le query; accettato come il caso analogo
+  // dell'inbox (vedi «Decisioni e rischi» nel piano).
+  // DIFESA NEL PUNTO DI LETTURA (`lib/api.ts` fa un cast): da un server senza
+  // il ciclo `cycle` e `heldJobId` arrivano `undefined`, e la regola tace.
+  const latestJobIsHeldCorrection =
+    latestJob !== undefined &&
+    ticket.repositories.some((repo) => (repo.cycle?.heldJobId ?? null) === latestJob.id);
   const canRelaunch =
     latestJob !== undefined &&
-    (RELAUNCHABLE_STATUSES as readonly string[]).includes(latestJob.status);
+    (RELAUNCHABLE_STATUSES as readonly string[]).includes(latestJob.status) &&
+    !latestJobIsHeldCorrection;
   const awaitingPlanApproval = latestJob?.status === "awaiting_plan_approval";
   // Il job è fermo su una DOMANDA dell'agente. Non è uno stato da cui si
   // rilancia (per questo `awaiting_input` non è fra i RELAUNCHABLE): il job è
@@ -875,6 +897,25 @@ export function TicketDetailPage() {
                         {t("tickets:repositories.viewPr")}
                       </a>
                     )}
+                    {(() => {
+                      // ⚠️ DIFESA NEL PUNTO DI LETTURA: `lib/api.ts` fa un
+                      // cast, non un parse, quindi il `.default(null)` di
+                      // `ticketRepositorySchema.cycle` qui non gira — da un
+                      // server senza il ciclo il campo arriva `undefined`.
+                      const cycle = repo.cycle ?? null;
+                      // Keyato su ticket+repository: la riga tiene stato
+                      // locale (modulo, nota) e passando da un ticket all'altro
+                      // la pagina non si rismonta — senza key la nota scritta
+                      // su un ticket resterebbe sotto la PR dell'altro.
+                      return cycle ? (
+                        <PrCycleRow
+                          key={`${id}:${repo.repositoryId}`}
+                          ticketId={id}
+                          repositoryId={repo.repositoryId}
+                          cycle={cycle}
+                        />
+                      ) : null;
+                    })()}
                   </li>
                 ))}
               </ul>

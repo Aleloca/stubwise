@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { RepositoryWizard } from "../../components/repository-wizard";
 import { SelectField } from "../../components/field";
 import { postRepository, type RepositoryDraft } from "../../lib/api";
+import { withRepositoryWarnings } from "../../lib/repository-warnings";
 import { projectsQueryOptions, repositoryQueryOptions } from "../../lib/queries";
 
 /**
@@ -23,12 +24,19 @@ export function NewRepositoryStandalonePage() {
   const [projectId, setProjectId] = useState("");
 
   async function handleSubmit(draft: RepositoryDraft) {
-    const repository = await postRepository(draft);
+    // Gli avvisi del salvataggio non vanno in cache con la repository: viaggiano
+    // con la navigazione fino al dettaglio, che li mostra.
+    const { warnings, ...repository } = await postRepository(draft);
     queryClient.setQueryData(repositoryQueryOptions(repository.slug).queryKey, repository);
     // Il progetto ora ha un repo in più: invalida liste progetti e repository.
     await queryClient.invalidateQueries({ queryKey: ["projects"] });
     await queryClient.invalidateQueries({ queryKey: ["repositories"] });
-    await navigate({ to: "/repositories/$slug", params: { slug: repository.slug } });
+    await navigate({
+      to: "/repositories/$slug",
+      params: { slug: repository.slug },
+      // `?? []`: il web fa un cast, e un server senza il ciclo non manda il campo.
+      state: (prev) => withRepositoryWarnings(prev, warnings ?? []),
+    });
   }
 
   return (

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { handledBySchema } from "./actor.js";
+import { prCycleSchema } from "./pr-correction.js";
 
 export const ticketStatusSchema = z.enum([
   "open",
@@ -70,6 +71,20 @@ export const ticketRepositorySchema = z.object({
   branch: z.string().min(1),
   prUrl: z.url().nullable(),
   prState: prStateSchema,
+  /**
+   * Stato del ciclo review → correzione della PR (30 set 2026, design
+   * `2026-09-30-pr-correction-loop-design.md` §9). Lo DERIVA il server
+   * (`derivePrCycle`, `@stubwise/notifications`, col ruolo di chi GUARDA) e i
+   * client lo LEGGONO, bottone compreso (`canRequestCorrection`, `canResume`):
+   * web e app non possono dire cose diverse, stessa regola di `canMerge`.
+   * `null` = PR non aperta da Stubwise.
+   *
+   * `.nullable().default(null)` e mai obbligatorio: l'app installata valida
+   * questa risposta, e un server senza il ciclo (rollback, istanza indietro)
+   * non lo manda. Vedi `ticket.test.ts`. Sul WEB il default non gira (cast,
+   * non parse): chi lo legge lì lo difende con `?? null`.
+   */
+  cycle: prCycleSchema.nullable().default(null),
 });
 export type TicketRepository = z.infer<typeof ticketRepositorySchema>;
 
@@ -199,6 +214,28 @@ export type TicketPage = z.infer<typeof ticketPageSchema>;
  */
 export const answerQuestionResultSchema = z.object({ jobId: z.uuid(), questionId: z.uuid() });
 export type AnswerQuestionResult = z.infer<typeof answerQuestionResultSchema>;
+
+/**
+ * Corpo di `POST /api/tickets/:id/run-ai`. Tutti i campi sono OPZIONALI: un
+ * client vecchio che non ne conosce uno continua a funzionare (verso l'app
+ * mobile si cresce solo per aggiunta, anche nelle richieste — CLAUDE.md).
+ *
+ * `resumeCorrectionJobId` dice QUALE correzione ferma si vuole riprendere: il
+ * job `held` che la schermata mostrava (`cycle.heldJobId`). Il server lo
+ * forza SOLO se è ancora l'ultimo job del ticket, di una correzione, e ancora
+ * `held`; altrimenti 409 `correction_not_held`, senza scrivere niente. Senza
+ * il campo il rilancio è quello di sempre — e su una correzione nel frattempo
+ * annullata o conclusa partirebbe un fix nuovo, cioè ciò che una schermata
+ * vecchia con «Riprendi» non deve poter chiedere.
+ */
+export const runAiBodySchema = z.object({
+  withInstructions: z.boolean().optional(),
+  // "ai_plan" forza il flusso normale (triage/pianificazione) anche se il
+  // ticket ha un piano salvato: l'unico valore ammesso.
+  mode: z.literal("ai_plan").optional(),
+  resumeCorrectionJobId: z.uuid().optional(),
+});
+export type RunAiBody = z.infer<typeof runAiBodySchema>;
 
 /**
  * Esito (202) dell'avvio manuale dell'AI su un ticket. `status` distingue i due

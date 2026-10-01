@@ -1,0 +1,190 @@
+import { describe, expect, it } from "vitest";
+import {
+  createDeliveryDedupe,
+  createNegativePermissionCache,
+  droppedRequestNoticeBody,
+  isDroppedRequestNotice,
+  markdownSafeLogin,
+} from "./pr-correction-webhook.js";
+
+describe("createDeliveryDedupe", () => {
+  it("un id si prende una volta sola dentro la finestra", () => {
+    const dedupe = createDeliveryDedupe(5 * 60_000, () => 0);
+    expect(dedupe.claim("d1")).toBe(true);
+    expect(dedupe.claim("d1")).toBe(false);
+    expect(dedupe.claim("d2")).toBe(true);
+  });
+
+  it("release libera l'id: il ritentativo dopo un errore passa", () => {
+    const dedupe = createDeliveryDedupe(5 * 60_000, () => 0);
+    expect(dedupe.claim("d1")).toBe(true);
+    dedupe.release("d1");
+    expect(dedupe.claim("d1")).toBe(true);
+  });
+
+  it("oltre la finestra lo stesso id torna nuovo", () => {
+    let now = 0;
+    const dedupe = createDeliveryDedupe(1_000, () => now);
+    expect(dedupe.claim("d1")).toBe(true);
+    now = 999;
+    expect(dedupe.claim("d1")).toBe(false);
+    now = 1_000;
+    expect(dedupe.claim("d1")).toBe(true);
+  });
+});
+
+describe("isDroppedRequestNotice", () => {
+  const body = droppedRequestNoticeBody("en", {
+    reason: "identity_unresolved",
+    prNumber: 42,
+    login: "mario-rossi",
+    provider: "github",
+    accountName: "Account GitHub",
+  });
+
+  it("prima riga uguale al titolo di QUELLA PR → true", () => {
+    expect(isDroppedRequestNotice(body, 42, "en", "identity_unresolved")).toBe(true);
+  });
+
+  it("stesso avviso, numero di PR diverso → false (anche se è un prefisso: #4 vs #42)", () => {
+    expect(isDroppedRequestNotice(body, 43, "en", "identity_unresolved")).toBe(false);
+    expect(isDroppedRequestNotice(body, 4, "en", "identity_unresolved")).toBe(false);
+  });
+
+  it("un altro commento di sistema → false", () => {
+    expect(isDroppedRequestNotice("PR merged: https://github.com/acme/repo/pull/42 — ticket closed automatically", 42, "en", "identity_unresolved")).toBe(false);
+  });
+
+  it("il titolo in coda a un testo diverso → false: conta solo la PRIMA riga", () => {
+    const title = body.split("\n")[0]!;
+    expect(isDroppedRequestNotice(`Nota a mano\n${title}`, 42, "en", "identity_unresolved")).toBe(false);
+  });
+
+  it("lingua diversa da quella in cui è stato scritto → false (si riavvisa una volta, per eccesso)", () => {
+    expect(isDroppedRequestNotice(body, 42, "it", "identity_unresolved")).toBe(false);
+  });
+
+  it("il login sta in una riga successiva, mai nella prima", () => {
+    const [first, ...rest] = body.split("\n");
+    expect(first).not.toContain("mario-rossi");
+    expect(rest.join("\n")).toContain("mario-rossi");
+  });
+});
+
+describe("isDroppedRequestNotice — un dedup per motivo", () => {
+  const identity = droppedRequestNoticeBody("en", {
+    reason: "identity_unresolved",
+    prNumber: 42,
+    login: "mario-rossi",
+    provider: "github",
+    accountName: "Account GitHub",
+  });
+  const untrusted = droppedRequestNoticeBody("en", {
+    reason: "untrusted_author",
+    prNumber: 42,
+    login: "sconosciuto",
+    provider: "github",
+  });
+
+  it("ogni avviso si riconosce col SUO motivo, mai con l'altro", () => {
+    expect(isDroppedRequestNotice(untrusted, 42, "en", "untrusted_author")).toBe(true);
+    expect(isDroppedRequestNotice(untrusted, 42, "en", "identity_unresolved")).toBe(false);
+    expect(isDroppedRequestNotice(identity, 42, "en", "untrusted_author")).toBe(false);
+  });
+
+  it("l'avviso per permesso non nomina credenziali né scope, e il login sta dopo la prima riga", () => {
+    const [first, ...rest] = untrusted.split("\n");
+    expect(first).not.toContain("sconosciuto");
+    expect(rest.join("\n")).toContain("sconosciuto");
+    expect(untrusted).not.toContain("read:user:bitbucket");
+    expect(untrusted).toContain('"Apply corrections"');
+  });
+});
+
+describe("isDroppedRequestNotice — il terzo motivo (permesso non verificabile)", () => {
+  const unverifiable = droppedRequestNoticeBody("en", {
+    reason: "permission_unverifiable",
+    prNumber: 42,
+    login: "membro-privato",
+    provider: "github",
+  });
+  const untrusted = droppedRequestNoticeBody("en", {
+    reason: "untrusted_author",
+    prNumber: 42,
+    login: "sconosciuto",
+    provider: "github",
+  });
+  const identity = droppedRequestNoticeBody("en", {
+    reason: "identity_unresolved",
+    prNumber: 42,
+    login: "mario-rossi",
+    provider: "github",
+    accountName: "Account GitHub",
+  });
+
+  it("si riconosce SOLO col suo motivo, e i due vecchi non si riconoscono col nuovo", () => {
+    expect(isDroppedRequestNotice(unverifiable, 42, "en", "permission_unverifiable")).toBe(true);
+    expect(isDroppedRequestNotice(unverifiable, 42, "en", "untrusted_author")).toBe(false);
+    expect(isDroppedRequestNotice(unverifiable, 42, "en", "identity_unresolved")).toBe(false);
+    expect(isDroppedRequestNotice(untrusted, 42, "en", "permission_unverifiable")).toBe(false);
+    expect(isDroppedRequestNotice(identity, 42, "en", "permission_unverifiable")).toBe(false);
+  });
+
+  it("non nomina credenziali né scope, e il login sta dopo la prima riga", () => {
+    const [first, ...rest] = unverifiable.split("\n");
+    expect(first).not.toContain("membro-privato");
+    expect(rest.join("\n")).toContain("membro-privato");
+    expect(unverifiable).not.toContain("read:user:bitbucket");
+    expect(unverifiable).not.toMatch(/token:|tok-/);
+    expect(unverifiable).toContain('"Apply corrections"');
+  });
+});
+
+describe("createNegativePermissionCache", () => {
+  it("ricorda denied/unverifiable per (repository, login), login senza maiuscole", () => {
+    const cache = createNegativePermissionCache({ now: () => 0 });
+    cache.set("repo-1", "Mario", "denied");
+    cache.set("repo-1", "giulia", "unverifiable");
+    expect(cache.get("repo-1", "mario")).toBe("denied");
+    expect(cache.get("repo-1", "GIULIA")).toBe("unverifiable");
+    expect(cache.get("repo-2", "mario")).toBeUndefined();
+  });
+
+  it("dopo il TTL la voce scade", () => {
+    let now = 0;
+    const cache = createNegativePermissionCache({ ttlMs: 1_000, now: () => now });
+    cache.set("r", "x", "denied");
+    now = 999;
+    expect(cache.get("r", "x")).toBe("denied");
+    now = 1_000;
+    expect(cache.get("r", "x")).toBeUndefined();
+  });
+
+  it("oltre il tetto si scarta la voce più vecchia", () => {
+    const cache = createNegativePermissionCache({ maxEntries: 2, now: () => 0 });
+    cache.set("r", "a", "denied");
+    cache.set("r", "b", "denied");
+    cache.set("r", "c", "denied");
+    expect(cache.get("r", "a")).toBeUndefined();
+    expect(cache.get("r", "b")).toBe("denied");
+    expect(cache.get("r", "c")).toBe("denied");
+  });
+});
+
+describe("markdownSafeLogin", () => {
+  it("racchiude in uno span di codice, senza backtick né a capo", () => {
+    expect(markdownSafeLogin("mario-rossi")).toBe("`mario-rossi`");
+    expect(markdownSafeLogin("![](https://x) `a`\r\n[l](https://y)")).toBe("`![](https://x) a [l](https://y)`");
+    expect(markdownSafeLogin("``")).toBe("`?`");
+  });
+
+  it("il corpo dell'avviso porta il login dentro lo span", () => {
+    const body = droppedRequestNoticeBody("en", {
+      reason: "untrusted_author",
+      prNumber: 42,
+      login: "[link](https://y.test)",
+      provider: "github",
+    });
+    expect(body).toContain("Requested by `[link](https://y.test)` on GitHub.");
+  });
+});

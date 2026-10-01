@@ -107,12 +107,15 @@ const TOGGLE_FOR_KIND: Record<NotificationKind, keyof NotificationSettingsRow> =
   "google.proposal": "notifyGoogleProposal",
 };
 
+/** Una transazione drizzle aperta su `Db` (il `tx` di `db.transaction`). */
+export type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
+
 /**
  * `Db` o una transazione drizzle: le letture di configurazione funzionano
  * identiche sui due, e chi pubblica una notifica dentro una transazione
  * (vedi `./publish.ts`) deve poter passare il suo `tx`.
  */
-export type DbOrTx = Db | Parameters<Parameters<Db["transaction"]>[0]>[0];
+export type DbOrTx = Db | Tx;
 
 /**
  * Legge l'unica riga di configurazione (`notification_settings`, id=1 seedato

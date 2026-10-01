@@ -41,6 +41,8 @@ export const en: Catalog = {
     "The agent did not generate a report ({filename} missing). Review the PR diff.",
   "comment.budgetHeld":
     "Cost budget exceeded ({scope}): spent ${spent} of ${limit}. The fix is on hold; start it manually to override.",
+  "comment.correctionBudgetHeld":
+    "Cost budget exceeded ({scope}): spent ${spent} of ${limit}. The PR correction is on hold; start it manually to override.",
   "comment.providersLimitHeld":
     "All AI providers reached their rate/usage limit. The job will need to be retried after the limit resets.",
   "comment.limitResumed": "The provider usage limit has reset: the job was requeued automatically.",
@@ -58,6 +60,74 @@ export const en: Catalog = {
   "comment.reviewImpact.files":
     "Files touched: {inGraph} in the graph, {outside} outside it — symbols touched: {nodes}",
   "comment.reviewImpact.communities": "Areas crossed: {list}",
+  // Correzioni post-PR (ciclo review → correzione): il commento che il worker
+  // lascia sul ticket dopo aver pushato le correzioni sulla PR, e quello del
+  // giro che non ha cambiato nulla (sotto segue la risposta dell'AI).
+  "comment.correctionApplied": "Corrections pushed to the pull request: {url}",
+  "comment.correctionNoChanges":
+    "Correction of {url}: the AI changed nothing. Its answer is below — often the requested change was not applicable.",
+  // Prima riga del commento di RIPIEGO della review (worker, review/cycle.ts):
+  // l'account revisore non è riuscito ad apporre il verdetto e il testo esce
+  // col commento dell'account principale. Solo la CATEGORIA del motivo, mai
+  // il messaggio d'errore grezzo (potrebbe contenere dati del provider).
+  "comment.reviewVerdictNotSubmitted.permissions":
+    "Verdict not submitted: the reviewer account does not have the required permissions.",
+  "comment.reviewVerdictNotSubmitted.network": "Verdict not submitted: the reviewer account could not be reached.",
+  "comment.reviewVerdictNotSubmitted.other": "Verdict not submitted: provider error.",
+  "comment.reviewVerdictNotSubmitted.configuration":
+    "Verdict not submitted: the reviewer account is the author of the pull request.",
+  // Il verdetto c'È (Bitbucket: stato apposto) ma il commento del revisore
+  // col testo è fallito: il testo esce dall'account principale, e la riga
+  // non deve dire «non apposto».
+  "comment.reviewVerdictSubmittedCommentFailed":
+    "The reviewer account submitted the verdict, but its comment could not be published.",
+  // --- commitStatus.* — descrizione dello status `stubwise-review` sulla PR.
+  // GitHub la tronca oltre 140 caratteri: restano corte apposta (c'è un test).
+  "commitStatus.reviewing": "Stubwise review in progress",
+  "commitStatus.correcting": "Stubwise is applying the requested changes",
+  "commitStatus.approved": "Approved by the Stubwise review",
+  "commitStatus.changesRequested": "The Stubwise review requests changes",
+  "commitStatus.correctionFailed": "The Stubwise correction did not complete",
+  "commitStatus.reviewFailed": "The Stubwise review did not complete",
+  // --- Request changes dalla piattaforma scartato perché Stubwise non sa chi
+  // sono i propri account (webhook, fail-closed). Commento di sistema sul
+  // ticket, una riga per chiave, unite con "\n" dal server.
+  // ⚠️ `.title` è la PRIMA riga del commento ed è ciò con cui il server
+  // riconosce un avviso già scritto (isDroppedRequestNotice): NESSUN dato
+  // variabile oltre a {prNumber} — niente login, niente date, niente nomi di
+  // account. Ritoccarne il testo è innocuo (si riavvisa una volta), metterci
+  // un dato variabile rompe il dedup per sempre. C'è un test.
+  "comment.changesRequestDropped.title": "Changes requested on PR #{prNumber}: no correction was started",
+  "comment.changesRequestDropped.requestedBy": "Requested by {login} on {platform}.",
+  "comment.changesRequestDropped.reason":
+    'Reason: the credentials of the git account "{account}" don\'t let Stubwise read who that account is on {platform}, so it can\'t tell a person\'s request from its own review, and to be safe it ignored the event.',
+  "comment.changesRequestDropped.bitbucketScope":
+    "On Bitbucket the account's token needs the read:user:bitbucket scope.",
+  "comment.changesRequestDropped.meanwhile":
+    'Meanwhile you can ask for the correction with the "Apply corrections" button on this ticket.',
+  // --- Request changes dalla piattaforma scartato perché l'autore non ha la
+  // scrittura sul repository (E3, permesso reale `denied`). Stesso meccanismo
+  // dell'avviso qui sopra. ⚠️ `.title` è la chiave del dedup PER QUESTO
+  // MOTIVO: nessun dato variabile oltre a {prNumber}, e DIVERSO dal titolo
+  // di `changesRequestDropped` (c'è un test su entrambe le cose).
+  "comment.changesRequestUntrusted.title":
+    "Changes requested on PR #{prNumber} by an account without permission: no correction was started",
+  "comment.changesRequestUntrusted.requestedBy": "Requested by {login} on {platform}.",
+  "comment.changesRequestUntrusted.reason":
+    "Reason: on {platform} this account does not have write access to the repository (write, maintain or admin). On a public repository anyone can request changes, so Stubwise restarts the correction loop only for people with permission on it.",
+  "comment.changesRequestUntrusted.meanwhile":
+    'If the request is valid, a maintainer can ask for the correction with the "Apply corrections" button on this ticket.',
+  // --- Request changes scartato perché il permesso reale dell'autore non si è
+  // potuto verificare (E3, `unverifiable`: fail-closed). ⚠️ `.title` è la
+  // chiave del dedup PER QUESTO MOTIVO: solo {prNumber}, e diverso dagli
+  // altri due titoli (c'è un test).
+  "comment.changesRequestPermissionUnverifiable.title":
+    "Changes requested on PR #{prNumber}, but the author's permission could not be verified: no correction was started",
+  "comment.changesRequestPermissionUnverifiable.requestedBy": "Requested by {login} on {platform}.",
+  "comment.changesRequestPermissionUnverifiable.reason":
+    "Reason: Stubwise could not ask {platform} whether this account has write access to the repository. Usually the main git account's token cannot read the repository's collaborators: an admin should check its permissions.",
+  "comment.changesRequestPermissionUnverifiable.meanwhile":
+    'If the request is valid, a maintainer can ask for the correction with the "Apply corrections" button on this ticket.',
   "comment.reviewImpact.communityEntry": "{name} (files: {files}, symbols: {nodes})",
   "comment.reviewImpact.godNodes": "Highly connected symbols touched: {list}",
   "comment.reviewImpact.godNodeEntry": "`{label}` (degree {degree})",
@@ -98,6 +168,13 @@ export const en: Catalog = {
     "Budget exceeded ({scope}) — {ref} {ticketTitle} ({projectName}): spent ${spent} of ${limit} limit. Job on hold; start it manually to override. {link}",
   "notify.reviewCompleted":
     "PR review completed for {ref} — {ticketTitle} ({projectName}): {verdict}. {link}",
+  // Stesso kind (`review.completed`), frase diversa: dentro una serie di
+  // correzioni automatiche la review NON è arrivata a un verdetto
+  // (`verdict: null` / `cycle.stoppedReason === "review_failed"`, vedi
+  // `isReviewFailedEvent`). Dire «review completed» sarebbe falso.
+  // `{rounds}` in forma `etichetta: N` (niente plurali).
+  "notify.reviewStopped":
+    "Automatic PR corrections stopped for {ref} — {ticketTitle} ({projectName}): the review did not succeed (automatic corrections: {rounds}). {link}",
   // Unico evento SENZA ticket: niente {ref}, il {link} porta alla pagina Docs.
   "notify.docsLimitPaused":
     "Docs generation paused for {repositoryName} ({projectName}): provider usage limit reached. It will resume automatically. {link}",
@@ -137,6 +214,10 @@ export const en: Catalog = {
   // Verdetti della review PR (interpolati in `notify.reviewCompleted`).
   "notify.verdict.approve": "approval suggested",
   "notify.verdict.requestChanges": "changes requested",
+  // Il ciclo di correzione si è fermato al tetto (review.completed con
+  // `cycle.stopped`): sostituisce il verdetto nella stessa frase.
+  "notify.verdict.stoppedAtCap":
+    "changes still requested (automatic corrections: {rounds}); the automatic cycle has stopped",
   // Suffisso costo (anteposto allo spazio: la frase ha già lo spazio prima).
   "notify.costSuffix": " (cost ${cost})",
   // Etichette dei link (rese nel markup del formato attorno all'URL).
@@ -267,6 +348,9 @@ export const en: Catalog = {
   "push.title.job.plan_review": "Plan to approve",
   "push.title.job.budget_held": "Budget exceeded",
   "push.title.review.completed": "PR review ready",
+  // Titolo della `review.completed` di una review FALLITA dentro una serie
+  // (`isReviewFailedEvent`): «ready» sarebbe falso.
+  "push.title.review.stopped": "Automatic PR corrections stopped",
   "push.title.job.failed": "Job failed",
   "push.title.docs.limit_paused": "Docs paused",
   "push.title.monitor.alert": "Server alert",
@@ -515,6 +599,8 @@ export const it: Catalog = {
     "Il report non è stato generato dall'agente ({filename} mancante). Esaminare il diff della PR.",
   "comment.budgetHeld":
     "Budget di costo superato ({scope}): spesi ${spent} sul limite di ${limit}. Il fix è in pausa; avvialo manualmente per forzare.",
+  "comment.correctionBudgetHeld":
+    "Budget di costo superato ({scope}): spesi ${spent} sul limite di ${limit}. La correzione della PR è in pausa; avviala manualmente per forzare.",
   "comment.providersLimitHeld":
     "Tutti i provider AI hanno raggiunto il limite di rate/usage. Il job dovrà essere ritentato dopo il reset del limite.",
   "comment.limitResumed":
@@ -528,6 +614,56 @@ export const it: Catalog = {
   "comment.reviewImpact.files":
     "File toccati: {inGraph} nel grafo, {outside} fuori — simboli toccati: {nodes}",
   "comment.reviewImpact.communities": "Aree attraversate: {list}",
+  // Correzioni post-PR (vedi nota in `en`).
+  "comment.correctionApplied": "Correzioni pushate sulla pull request: {url}",
+  "comment.correctionNoChanges":
+    "Correzione di {url}: l'AI non ha modificato nulla. Qui sotto la sua risposta — spesso la modifica richiesta non era applicabile.",
+  // Ripiego della review senza verdetto (vedi nota in `en`).
+  "comment.reviewVerdictNotSubmitted.permissions":
+    "Verdetto non apposto: l'account revisore non ha i permessi.",
+  "comment.reviewVerdictNotSubmitted.network": "Verdetto non apposto: l'account revisore non è raggiungibile.",
+  "comment.reviewVerdictNotSubmitted.other": "Verdetto non apposto: errore del provider.",
+  "comment.reviewVerdictNotSubmitted.configuration":
+    "Verdetto non apposto: l'account revisore è l'autore della pull request.",
+  "comment.reviewVerdictSubmittedCommentFailed":
+    "Il revisore ha apposto il verdetto, ma il suo commento non è stato pubblicato.",
+  // --- commitStatus.* (vedi nota in `en`) ---
+  "commitStatus.reviewing": "Review di Stubwise in corso",
+  "commitStatus.correcting": "Stubwise sta applicando le modifiche richieste",
+  "commitStatus.approved": "Approvata dalla review di Stubwise",
+  "commitStatus.changesRequested": "La review di Stubwise chiede modifiche",
+  "commitStatus.correctionFailed": "La correzione di Stubwise non è andata a buon fine",
+  "commitStatus.reviewFailed": "La review di Stubwise non è andata a buon fine",
+  // --- Request changes scartato (vedi nota in `en`).
+  // ⚠️ `.title` è la prima riga e la chiave del dedup: nessun dato variabile
+  // oltre a {prNumber} (niente login né date). Vedi la nota in `en`.
+  "comment.changesRequestDropped.title": "Modifiche richieste sulla PR #{prNumber}: nessuna correzione avviata",
+  "comment.changesRequestDropped.requestedBy": "Richieste da {login} su {platform}.",
+  "comment.changesRequestDropped.reason":
+    "Motivo: le credenziali dell'account git «{account}» non permettono a Stubwise di leggere chi è quell'account su {platform}, quindi non può distinguere la richiesta di una persona dalla propria review, e per sicurezza ha ignorato l'evento.",
+  "comment.changesRequestDropped.bitbucketScope":
+    "Su Bitbucket il token dell'account deve avere lo scope read:user:bitbucket.",
+  "comment.changesRequestDropped.meanwhile":
+    "Nel frattempo puoi chiedere la correzione col bottone «Applica le correzioni» su questo ticket.",
+  // --- Request changes scartato: autore senza permesso sul repository (E3).
+  // ⚠️ `.title` è la chiave del dedup per questo motivo: solo {prNumber}, e
+  // diverso dal titolo di `changesRequestDropped`. Vedi la nota in `en`.
+  "comment.changesRequestUntrusted.title":
+    "Modifiche richieste sulla PR #{prNumber} da un account senza permesso: nessuna correzione avviata",
+  "comment.changesRequestUntrusted.requestedBy": "Richieste da {login} su {platform}.",
+  "comment.changesRequestUntrusted.reason":
+    "Motivo: su {platform} questo account non ha la scrittura sul repository (write, maintain o admin). Su un repository pubblico chiunque può chiedere modifiche, quindi Stubwise fa ripartire il ciclo di correzione solo per chi ha il permesso.",
+  "comment.changesRequestUntrusted.meanwhile":
+    "Se la richiesta è valida, un maintainer può chiedere la correzione col bottone «Applica le correzioni» su questo ticket.",
+  // --- Request changes scartato: permesso dell'autore non verificabile (E3).
+  // ⚠️ `.title` è la chiave del dedup per questo motivo. Vedi la nota in `en`.
+  "comment.changesRequestPermissionUnverifiable.title":
+    "Modifiche richieste sulla PR #{prNumber}, ma il permesso dell'autore non è verificabile: nessuna correzione avviata",
+  "comment.changesRequestPermissionUnverifiable.requestedBy": "Richieste da {login} su {platform}.",
+  "comment.changesRequestPermissionUnverifiable.reason":
+    "Motivo: Stubwise non è riuscito a chiedere a {platform} se questo account ha la scrittura sul repository. Di solito il token dell'account git principale non può leggere i collaboratori del repository: un admin ne verifichi i permessi.",
+  "comment.changesRequestPermissionUnverifiable.meanwhile":
+    "Se la richiesta è valida, un maintainer può chiedere la correzione col bottone «Applica le correzioni» su questo ticket.",
   "comment.reviewImpact.communityEntry": "{name} (file: {files}, simboli: {nodes})",
   "comment.reviewImpact.godNodes": "Simboli molto connessi toccati: {list}",
   "comment.reviewImpact.godNodeEntry": "`{label}` (grado {degree})",
@@ -562,6 +698,8 @@ export const it: Catalog = {
     "Budget superato ({scope}) — {ref} {ticketTitle} ({projectName}): spesi ${spent} sul limite di ${limit}. Job in pausa; avvialo manualmente per forzare. {link}",
   "notify.reviewCompleted":
     "Review della PR completata per {ref} — {ticketTitle} ({projectName}): {verdict}. {link}",
+  "notify.reviewStopped":
+    "Correzioni automatiche della PR ferme per {ref} — {ticketTitle} ({projectName}): la review non è riuscita (correzioni automatiche: {rounds}). {link}",
   // Unico evento SENZA ticket: niente {ref}, il {link} porta alla pagina Docs.
   "notify.docsLimitPaused":
     "Generazione Docs in pausa per {repositoryName} ({projectName}): limite di utilizzo del provider raggiunto. Riprenderà da sola. {link}",
@@ -580,6 +718,8 @@ export const it: Catalog = {
   "notify.scopeMonthly": "mensile",
   "notify.verdict.approve": "approvazione suggerita",
   "notify.verdict.requestChanges": "modifiche richieste",
+  "notify.verdict.stoppedAtCap":
+    "modifiche ancora richieste (correzioni automatiche: {rounds}); il ciclo automatico si è fermato",
   "notify.costSuffix": " (costo ${cost})",
   "notify.linkOpen": "Apri",
   "notify.linkReview": "Rivedi",
@@ -661,6 +801,7 @@ export const it: Catalog = {
   "push.title.job.plan_review": "Piano da approvare",
   "push.title.job.budget_held": "Budget superato",
   "push.title.review.completed": "Review della PR pronta",
+  "push.title.review.stopped": "Correzioni automatiche della PR ferme",
   "push.title.job.failed": "Fix AI fallito",
   "push.title.docs.limit_paused": "Docs in pausa",
   "push.title.monitor.alert": "Allarme su un server",

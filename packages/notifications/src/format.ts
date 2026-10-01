@@ -15,6 +15,7 @@
  */
 
 import { t, type Language } from "@stubwise/i18n";
+import type { InboxReviewOutcome, PrCycleEvent } from "@stubwise/shared";
 
 /** Formato del messaggio: combacia con l'enum DB `notification_format`. */
 export type NotificationFormat = "slack" | "discord" | "generic";
@@ -161,8 +162,13 @@ export interface ReviewCompletedEvent {
   projectName: string;
   ticketUrl: string;
   prUrl: string;
-  /** Verdetto della review. */
-  verdict: "approve" | "request_changes";
+  /**
+   * Verdetto della review. `null` SOLO quando la review non è arrivata a un
+   * verdetto dentro una serie di correzioni automatiche: l'evento porta allora
+   * `cycle.stoppedReason === "review_failed"` (ciclo fermato perché la review
+   * è fallita). Una review fallita FUORI da una serie non notifica affatto.
+   */
+  verdict: "approve" | "request_changes" | null;
   /**
    * Riassunto "in breve" (fase 5): due o tre frasi in linguaggio NON tecnico,
    * generate dall'agente. Assente quando i riassunti sono spenti, quando il run
@@ -171,6 +177,14 @@ export interface ReviewCompletedEvent {
    * superficie con markup deve escaparlo (vedi `buildInboxBlocks` per Slack).
    */
   summary?: string;
+  /**
+   * Il ciclo di correzione al momento della publish (design correzioni §10):
+   * a che giro era e se si è FERMATO al tetto. Un fatto vero solo in quel
+   * momento, quindi si scrive nell'evento (non si deriva a lettura).
+   * Opzionale: gli eventi pubblicati prima non lo hanno, e le PR non di
+   * Stubwise non hanno un ciclo.
+   */
+  cycle?: PrCycleEvent;
 }
 
 /** Il fix AI è fallito. */
@@ -764,6 +778,68 @@ const KEY_FOR_KIND: Record<NotificationKind, string> = {
   "google.proposal": "notify.googleProposal",
 };
 
+/**
+ * Una `review.completed` che NON è una review completata: dentro una serie di
+ * correzioni automatiche la review è fallita (C10b del ciclo di correzione).
+ * Il worker la pubblica con `verdict: null` e `cycle.stoppedReason:
+ * "review_failed"`; basta uno dei due (un jsonb scritto a mano, o un campo
+ * perso) per non chiamarla «completata» né «pronta», e per non inventarle un
+ * verdetto. L'UNICA definizione: la usano il testo ({@link templateKey}), il
+ * titolo della push e il server (`summaryForItem`, nessun riassunto di una
+ * review precedente). Legge un evento che può venire da un jsonb vecchio:
+ * tollera `cycle` assente.
+ */
+export function isReviewFailedEvent(event: NotificationEvent): boolean {
+  if (event.kind !== "review.completed") return false;
+  return event.verdict === null || event.cycle?.stoppedReason === "review_failed";
+}
+
+/**
+ * L'esito di una review per la card d'inbox (`InboxItem.reviewOutcome`, F8 del
+ * ciclo di correzione): ciò da cui web e app decidono il TONO
+ * (`reviewOutcomeNeedsAttention` di `@stubwise/shared`). Derivato a lettura
+ * dall'evento persistito, con la STESSA precedenza della frase: prima la
+ * review fallita ({@link isReviewFailedEvent}), poi lo stop al tetto
+ * (`cycle.stopped`, anche senza `stoppedReason` su un evento vecchio: era
+ * l'unico stop che esisteva), poi il verdetto.
+ *
+ * Legge un jsonb che può essere vecchio o anomalo: senza `cycle` decide il
+ * verdetto, e un verdetto che non è nessuno dei due noti dà `null` (la card
+ * resta col tono di prima) invece di indovinare.
+ */
+export function reviewOutcomeOf(event: NotificationEvent): InboxReviewOutcome | null {
+  if (event.kind !== "review.completed") return null;
+  if (isReviewFailedEvent(event)) return "review_failed";
+  if (event.cycle?.stopped === true) return "stopped_at_cap";
+  if (event.verdict === "approve") return "approved";
+  if (event.verdict === "request_changes") return "changes_requested";
+  return null;
+}
+
+/**
+ * La chiave `notify.*` della frase: quella del kind, tranne per una review
+ * fallita dentro una serie ({@link isReviewFailedEvent}), che ha una frase sua
+ * (`notify.reviewStopped`) — stesso kind, nessun valore nuovo di
+ * `notification_kind`.
+ */
+function templateKey(event: NotificationEvent): string {
+  return isReviewFailedEvent(event) ? "notify.reviewStopped" : KEY_FOR_KIND[event.kind];
+}
+
+/**
+ * Il `{verdict}` di `notify.reviewCompleted`. Fermo al tetto: il verdetto dice
+ * PERCHÉ nessuno sta più correggendo. Senza `cycle` (evento vecchio, PR
+ * esterna) il testo resta quello di sempre, e uno `stopped` senza
+ * `stoppedReason` (evento pubblicato prima del campo) è lo stop al tetto,
+ * l'unico che esisteva. La review fallita non passa di qui: ha la sua frase
+ * ({@link templateKey}).
+ */
+function reviewVerdictText(lang: Language, event: ReviewCompletedEvent): string {
+  const cycle = event.cycle;
+  if (cycle?.stopped) return t(lang, "notify.verdict.stoppedAtCap", { rounds: cycle.round });
+  return t(lang, event.verdict === "approve" ? "notify.verdict.approve" : "notify.verdict.requestChanges");
+}
+
 /** Params (oltre a ref/link/cost) specifici per evento, passati a `t()`. */
 function textParams(
   event: NotificationEvent,
@@ -829,15 +905,8 @@ function textParams(
         spent: event.spentUsd.toFixed(2),
       };
     case "review.completed":
-      return {
-        ...base,
-        verdict: t(
-          lang,
-          event.verdict === "approve"
-            ? "notify.verdict.approve"
-            : "notify.verdict.requestChanges",
-        ),
-      };
+      // `rounds` serve solo a `notify.reviewStopped` (review fallita).
+      return { ...base, verdict: reviewVerdictText(lang, event), rounds: event.cycle?.round ?? 0 };
     case "job.failed":
       return { ...base, error: event.error };
     case "job.awaiting_input":
@@ -900,7 +969,7 @@ function renderText(
       if (typeof value === "string") params[name] = escapeSlackMrkdwn(value);
     }
   }
-  const sentence = t(lang, KEY_FOR_KIND[event.kind], {
+  const sentence = t(lang, templateKey(event), {
     ...params,
     // `{ref}` esiste solo per gli eventi ancorati a un ticket.
     ...(hasTicket(event) ? { ref: refParam(format, event.ticketNumber) } : {}),
@@ -932,7 +1001,7 @@ function formatDiscord(event: NotificationEvent, lang: Language): Record<string,
  */
 export function formatNotificationText(event: NotificationEvent, lang: Language = "en"): string {
   const cost = event.kind === "job.pr_opened" ? costParam(lang, event.costUsd) : "";
-  return t(lang, KEY_FOR_KIND[event.kind], {
+  return t(lang, templateKey(event), {
     ...textParams(event, lang),
     ...(hasTicket(event) ? { ref: refParam("generic", event.ticketNumber) } : {}),
     cost,
@@ -1065,6 +1134,9 @@ function formatGeneric(event: NotificationEvent, lang: Language): Record<string,
         prUrl: event.prUrl,
         verdict: event.verdict,
         summary: event.summary ?? null,
+        // Sempre presente (null quando manca), come `summary`: chi consuma il
+        // webhook non deve distinguere "versione vecchia" da "nessun ciclo".
+        cycle: event.cycle ?? null,
       };
     case "job.failed":
       return { ...base, error: event.error };

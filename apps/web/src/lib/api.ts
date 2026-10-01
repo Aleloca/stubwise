@@ -31,11 +31,12 @@ import type {
   GoogleWorkspaceOption,
   GoogleWorkspacePatch,
   HandledBy,
+  HeldReason,
   InboxAction,
   InboxActionResult,
   InboxDecisionAction,
-  InboxItem,
-  InboxPage,
+  InboxItem as SharedInboxItem,
+  InboxPage as SharedInboxPage,
   InboxQuestion,
   InboxStatus,
   Language,
@@ -55,6 +56,7 @@ import type {
   PatchEnvironmentInput,
   PatView,
   PatWithToken,
+  PrCycle as SharedPrCycle,
   PrReviewSummary,
   Plugin,
   ProjectBriefWeekly,
@@ -67,9 +69,13 @@ import type {
   ProjectTimeline,
   ProjectTimelineEntry,
   ProjectTimelineKind,
-  ReleaseQueue,
+  ReleaseQueueItem as SharedReleaseQueueItem,
   ReleaseResult,
   RecordSearchHistoryBody,
+  RepositoryWarning,
+  RequestCorrectionBody,
+  RequestCorrectionResponse,
+  RunAiBody,
   SearchDocsSemanticResults,
   SearchEntityType,
   SearchHistoryItem,
@@ -79,11 +85,11 @@ import type {
   // `TicketBase` non esce da questo file: è la forma che il server restituisce
   // da POST/PATCH (`ticketSchema`), senza `repositories`.
   Ticket as TicketBase,
-  TicketDetail as Ticket,
+  TicketDetail as SharedTicketDetail,
   TicketListItem,
   TicketPriority,
   TicketQuestion,
-  TicketRepository,
+  TicketRepository as SharedTicketRepository,
   TicketStatus,
   TicketType,
   UnreadCount,
@@ -148,8 +154,6 @@ export type {
   InboxAction,
   InboxActionResult,
   InboxDecisionAction,
-  InboxItem,
-  InboxPage,
   InboxQuestion,
   InboxStatus,
   MailAdmission,
@@ -349,7 +353,68 @@ export function postRegister(registration: Registration): Promise<{ user: Public
 // una sola inversione di nome: per la SPA `Ticket` è il DETTAGLIO, che in
 // shared si chiama `TicketDetail`. Rinominarlo nelle sue ~40 occorrenze sarebbe
 // churn senza valore.
-export type { TicketRepository, Ticket, TicketListItem };
+export type { TicketListItem };
+
+/**
+ * Lo stato del ciclo review → correzione di una PR (30 set 2026) COME LO VEDE
+ * IL WEB, che fa un cast e non un parse (vedi il docblock in cima): i campi
+ * che lo schema riempie col `.default()` — `lastRequest.platform`,
+ * `heldReason`, `canResume`, `heldJobId` — qui sono OPZIONALI, perché quel
+ * default gira solo in un client che parsa, e un server più indietro del
+ * bundle non li manda. Il tipo lo dice, così chi li legge è costretto dal
+ * compilatore al `?? …` nel punto di lettura (stessa forma di
+ * {@link ServerDetail}). Il resto è lo schema condiviso, non una copia.
+ *
+ * `canRequestCorrection` e `canResume` li calcola il SERVER col ruolo di chi
+ * guarda: il client li LEGGE, mai li deduce dal proprio ruolo.
+ */
+export type PrCycle = Omit<
+  SharedPrCycle,
+  "lastRequest" | "heldReason" | "canResume" | "heldJobId"
+> & {
+  lastRequest:
+    | (Omit<NonNullable<SharedPrCycle["lastRequest"]>, "platform"> & {
+        platform?: GitProviderKind | null;
+      })
+    | null;
+  /** Perché la correzione in corso è ferma (`ai_jobs.held_reason`); assente/null = non è ferma. */
+  heldReason?: HeldReason | null;
+  /** Il viewer può riprendere la correzione ferma (calcolato dal server col suo ruolo). */
+  canResume?: boolean;
+  /** Id del job `held` da rimandare come `resumeCorrectionJobId` a run-ai (G5). */
+  heldJobId?: string | null;
+};
+
+/**
+ * Una riga d'inbox COME LA VEDE IL WEB, che fa un cast e non un parse (vedi il
+ * docblock in cima): `reviewOutcome` (F8 del ciclo di correzione, 1 ott 2026)
+ * lo schema lo riempie col `.default(null)`, che qui non gira — un server più
+ * indietro del bundle non lo manda. Il tipo lo dice OPZIONALE, così chi lo
+ * legge è costretto al `?? null` nel punto di lettura (stessa forma di
+ * {@link TicketRepository}). Il resto è lo schema condiviso.
+ */
+export type InboxItem = Omit<SharedInboxItem, "reviewOutcome"> & {
+  reviewOutcome?: SharedInboxItem["reviewOutcome"];
+};
+
+/** La pagina d'inbox del web: lo schema condiviso, con le righe viste qui sopra. */
+export type InboxPage = Omit<SharedInboxPage, "items"> & {
+  items: InboxItem[];
+};
+
+/**
+ * Voce PR per repository del dettaglio ticket, come la vede il web: `cycle` è
+ * OPZIONALE (un server senza il ciclo non lo manda, e qui il `.default(null)`
+ * non gira) — si legge `repo.cycle ?? null`.
+ */
+export type TicketRepository = Omit<SharedTicketRepository, "cycle"> & {
+  cycle?: PrCycle | null;
+};
+
+/** Il dettaglio ticket del web: lo schema condiviso, con le voci PR viste qui sopra. */
+export type Ticket = Omit<SharedTicketDetail, "repositories"> & {
+  repositories: TicketRepository[];
+};
 
 /** Filtri della lista ticket: combaciano con i search param di /tickets. */
 export interface TicketFilters {
@@ -713,9 +778,27 @@ export function answerTicketQuestion(
  */
 export function postRunAi(
   ticketId: string,
-  opts?: { withInstructions?: boolean },
+  opts?: RunAiBody,
 ): Promise<{ jobId: string; status: "queued" | "awaiting_plan_approval" }> {
   return api.post(`/api/tickets/${ticketId}/run-ai`, opts);
+}
+
+/**
+ * Chiede una correzione sulla PR del ticket su UN repository (ciclo review →
+ * correzione, 30 set 2026). 202 con l'id della correzione. I 409 —
+ * `correction_in_flight`, `job_in_flight`, `pr_not_open`, `not_stubwise_pr` —
+ * si MOSTRANO (`translateApiError`). La nota è facoltativa: senza, l'agente
+ * lavora sull'ultima review, e il corpo è `{}`.
+ */
+export function requestCorrection(
+  ticketId: string,
+  repositoryId: string,
+  body: RequestCorrectionBody,
+): Promise<RequestCorrectionResponse> {
+  return api.post(
+    `/api/tickets/${encodeURIComponent(ticketId)}/repositories/${encodeURIComponent(repositoryId)}/corrections`,
+    body,
+  );
 }
 
 /**
@@ -1039,7 +1122,24 @@ export interface Repository {
    * spento nessun grafo viene generato, né ai push né a mano. Default false.
    */
   graphEnabled: boolean;
+  /**
+   * Account REVISORE (ciclo di correzione, 30 set 2026): con lui la review
+   * approva o chiede modifiche sulle PR di Stubwise; null = nessuno.
+   * OPZIONALE perché un server senza il ciclo non lo manda (il web fa un cast):
+   * si legge `?? null`.
+   */
+  reviewGitAccountId?: string | null;
   createdAt: string;
+}
+
+/**
+ * Risposta di POST/PATCH di una repository: la repository più gli avvisi NON
+ * bloccanti del salvataggio (`main_account_identity_unresolved`: ogni "Request
+ * changes" dalla piattaforma verrà scartato). Solo lì, la GET non li porta.
+ * OPZIONALI: un server più vecchio non li manda — si legge `warnings ?? []`.
+ */
+export interface RepositorySaveResponse extends Repository {
+  warnings?: RepositoryWarning[];
 }
 
 /**
@@ -1066,6 +1166,11 @@ export interface RepositoryDraft {
   testCommand?: string | null;
   /** Comando di installazione custom; null/assente = auto-detect (dal lockfile). */
   installCommand?: string | null;
+  /**
+   * Account revisore (ciclo di correzione): null/assente = nessuno. Il server
+   * lo valida: gli errori arrivano come `ApiError` col loro `code`.
+   */
+  reviewGitAccountId?: string | null;
 }
 
 export interface RepositoryPatch {
@@ -1080,6 +1185,12 @@ export interface RepositoryPatch {
   installCommand?: string | null;
   /** Toggle del knowledge graph (graphify) del repository; assente = invariato. */
   graphEnabled?: boolean;
+  /**
+   * Account revisore (ciclo di correzione): null lo toglie; assente = invariato.
+   * Il server lo valida (provider, workspace, permessi, identità): gli errori
+   * arrivano come `ApiError` col loro `code`.
+   */
+  reviewGitAccountId?: string | null;
 }
 
 /** Elenca i repository, opzionalmente filtrati per progetto (gruppo). */
@@ -1107,11 +1218,14 @@ export function getRepositoryWebhook(slug: string): Promise<RepositoryWebhook> {
   return api.get(`/api/repositories/${encodeURIComponent(slug)}/webhook`);
 }
 
-export function postRepository(draft: RepositoryDraft): Promise<Repository> {
+export function postRepository(draft: RepositoryDraft): Promise<RepositorySaveResponse> {
   return api.post("/api/repositories", draft);
 }
 
-export function patchRepository(slug: string, patch: RepositoryPatch): Promise<Repository> {
+export function patchRepository(
+  slug: string,
+  patch: RepositoryPatch,
+): Promise<RepositorySaveResponse> {
   return api.patch(`/api/repositories/${encodeURIComponent(slug)}`, patch);
 }
 
@@ -1281,6 +1395,12 @@ export interface Project {
    */
   weeklyBriefEnabled: boolean;
   /**
+   * Tetto delle correzioni automatiche per tornata del ciclo review →
+   * correzione (0..10, 0 = spento; default 3 sul server). OPZIONALE perché un
+   * server senza il ciclo non lo manda (il web fa un cast): `?? 3`.
+   */
+  prCorrectionMaxRounds?: number;
+  /**
    * Chiave di ingestion del progetto (Fase 3): gli SDK e i webhook inbound la
    * usano per autenticare l'invio di errori/ticket. Salita dal repository al
    * progetto; tutti i repo del gruppo condividono questa chiave.
@@ -1339,6 +1459,8 @@ export interface ProjectPatch {
   pulseEveryDays?: number;
   /** Toggle brief settimanale (Fase 5); assente = invariato. */
   weeklyBriefEnabled?: boolean;
+  /** Tetto delle correzioni automatiche per tornata (0..10, 0 = spento); assente = invariato. */
+  prCorrectionMaxRounds?: number;
 }
 
 export function getProjects(): Promise<ProjectListItem[]> {
@@ -1522,6 +1644,18 @@ export function deleteEnvironment(projectId: string, environmentId: string): Pro
 }
 
 // --- Coda di rilascio (fase 8) ---
+
+/**
+ * Una voce della coda di rilascio come la vede il web (cast, non parse):
+ * `reviewStale` (G6, 1 ott 2026 — il verdetto è su una head superata) è
+ * OPZIONALE perché un server più vecchio non lo manda: `item.reviewStale ?? false`.
+ */
+export type ReleaseQueueItem = Omit<SharedReleaseQueueItem, "reviewStale"> & {
+  reviewStale?: boolean;
+};
+export interface ReleaseQueue {
+  items: ReleaseQueueItem[];
+}
 
 /** Tutte le PR aperte sui repository collegati (solo admin): 403 per i member. */
 export function listReleaseQueue(): Promise<ReleaseQueue> {

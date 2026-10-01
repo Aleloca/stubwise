@@ -44,6 +44,7 @@ function item(overrides: Partial<Reader<InboxItem>> & Pick<InboxItem, "id" | "ki
     snoozedUntil: null,
     handledAt: null,
     handledBy: null,
+    reviewOutcome: null,
     ...overrides,
   } as Reader<InboxItem>;
 }

@@ -35,7 +35,9 @@ import {
   actionsFor,
   actorAllows,
   formatNotificationText,
+  isReviewFailedEvent,
   kindOffers,
+  reviewOutcomeOf,
   KINDS_WITH_OPTIONS,
   openUrl,
   stateAllows,
@@ -53,6 +55,7 @@ import {
   type InboxGoogleDecision,
   type InboxPulse,
   type InboxQuestion,
+  type InboxReviewOutcome,
   multiSelectableIndices,
 } from "@stubwise/shared";
 import { and, desc, eq, inArray, isNotNull, isNull, ne, sql, type SQL } from "drizzle-orm";
@@ -535,6 +538,11 @@ async function runDecision(
       ...(input.publicUrl ? { publicUrl: input.publicUrl } : {}),
     });
     if (result.ok) return { ok: true, jobId: result.jobId };
+    if (result.error === "needs_maintainer") return { ok: false, error: "forbidden" };
+    // Irraggiungibile: il relaunch dall'inbox non passa `resumeCorrectionJobId`
+    // (è il «Riprendi» della riga del ciclo, G5). Se un giorno lo passasse, il
+    // significato più vicino è «lo stato è cambiato sotto di te» → 409.
+    if (result.error === "correction_not_held") return { ok: false, error: "job_in_flight" };
     return result.error === "ticket_not_found"
       ? { ok: false, error: "not_found" }
       : {
@@ -628,6 +636,12 @@ export interface InboxItem {
    * `null`, quando non c'è — vedi {@link summaryForItem}.
    */
   summary?: string;
+  /**
+   * L'esito della review sul solo kind `review.completed` (`null` altrove e su
+   * un payload illeggibile): ciò da cui i client decidono il tono della card.
+   * Derivato a lettura dall'evento — vedi {@link reviewOutcomeForItem}.
+   */
+  reviewOutcome: InboxReviewOutcome | null;
   /**
    * Il contorno del pulse (progetto, giorni di fermo, voci di backlog dietro le
    * opzioni), sul solo kind `project.pulse`. ASSENTE se il payload non lo porta
@@ -814,6 +828,9 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
         const summary = summaryForItem(r, r.event, planSummaryByJob, prSummaryByTicketAndUrl);
         return summary !== undefined ? { summary } : {};
       })(),
+      // L'esito della review, per il TONO della card (F8 del ciclo di
+      // correzione): derivato a lettura dall'evento, anche per le card vecchie.
+      reviewOutcome: reviewOutcomeForItem(r.kind, r.event),
       // Le azioni NON passano dal jsonb: la chiave del catalogo è la colonna
       // enum `kind`, che il DB garantisce valida. Una card col testo degradato
       // resta quindi azionabile.
@@ -1192,9 +1209,38 @@ function summaryForItem(
     return row.jobId ? planSummaryByJob.get(row.jobId) : undefined;
   }
   if (!PR_SUMMARY_KINDS.has(row.kind) || row.ticketId === null) return undefined;
+  // Review FALLITA dentro una serie automatica (C10b del ciclo di correzione,
+  // `isReviewFailedEvent`: verdetto nullo o `stoppedReason: "review_failed"`):
+  // non ha prodotto nessun riassunto. Quello che la mappa troverebbe è il
+  // riassunto di una review PRECEDENTE della stessa PR (per esempio «la review
+  // approva»): mostrarlo sotto «la review non è riuscita» lo contraddirebbe.
+  // Il predicato è lo stesso che sceglie la frase: le due cose non divergono.
+  if (row.kind === "review.completed" && isReviewFailedEvent({ ...rawEvent, kind: row.kind } as unknown as NotificationEvent)) {
+    return undefined;
+  }
   const prUrl = rawEvent.prUrl;
   if (typeof prUrl !== "string" || prUrl === "") return undefined;
   return prSummaryByTicketAndUrl.get(`${row.ticketId}|${prUrl}`);
+}
+
+/**
+ * `InboxItem.reviewOutcome`: l'esito di una `review.completed`, `null` per ogni
+ * altro kind. Il kind è la COLONNA (il DB lo garantisce valido), non quello del
+ * jsonb — come in {@link summaryForItem}. Il predicato è quello della frase
+ * (`reviewOutcomeOf`, che usa `isReviewFailedEvent`), quindi sugli eventi
+ * reali tono e testo dicono la stessa cosa. Su un jsonb anomalo (un `verdict`
+ * illeggibile) la frase ripiega su «modifiche richieste» mentre l'esito è
+ * `null`, cioè il tono di prima: divergenza accettata, mai un tono più
+ * allarmante del testo. Recintato come `renderItem`: un jsonb anomalo non deve
+ * far saltare la pagina.
+ */
+function reviewOutcomeForItem(kind: NotificationKind, rawEvent: Record<string, unknown>): InboxReviewOutcome | null {
+  if (kind !== "review.completed") return null;
+  try {
+    return reviewOutcomeOf({ ...rawEvent, kind } as unknown as NotificationEvent);
+  } catch {
+    return null;
+  }
 }
 
 /**

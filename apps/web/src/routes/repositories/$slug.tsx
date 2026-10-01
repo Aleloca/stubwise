@@ -1,13 +1,18 @@
 import { useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
-import { getRouteApi, Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { getRouteApi, Link, useNavigate, useRouter } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ProviderBadge } from "../../components/badges";
 import { WebhookConfigPanel } from "../../components/webhook-config-panel";
 import { ProjectEnvFilesSection } from "../../components/project-env-files-section";
 import { RepositoryForm } from "../../components/repository-form";
+import { RepositorySaveWarnings } from "../../components/repository-save-warnings";
 import { patchRepository, type RepositoryPatch } from "../../lib/api";
 import { meQueryOptions } from "../../lib/auth";
+import {
+  readRepositoryWarnings,
+  withoutRepositoryWarnings,
+} from "../../lib/repository-warnings";
 import { formatDateTime } from "../../lib/format";
 import {
   graphKeys,
@@ -27,9 +32,19 @@ const route = getRouteApi("/authed/repositories/$slug");
  * repository, raggiungibile dal link in testata.
  */
 export function RepositoryDetailPage() {
-  const { t } = useTranslation();
   const { slug } = route.useParams();
+  // `key={slug}`: passando da una repository all'altra la rotta non si
+  // smonta, e lo stato locale (avvisi del salvataggio, «Modifiche salvate»)
+  // è l'esito di un salvataggio di QUELLA repository — non deve comparire
+  // sull'altra.
+  return <RepositoryDetail key={slug} slug={slug} />;
+}
+
+function RepositoryDetail({ slug }: { slug: string }) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
+  const router = useRouter();
+  const navigate = useNavigate();
 
   const { data: repository } = useSuspenseQuery(repositoryQueryOptions(slug));
   const { data: me } = useSuspenseQuery(meQueryOptions);
@@ -40,10 +55,36 @@ export function RepositoryDetailPage() {
     enabled: isAdmin,
   });
   const [saved, setSaved] = useState(false);
+  // Avvisi NON bloccanti del salvataggio: dal PATCH qui sotto, oppure —
+  // appena atterrati dal wizard — dallo stato della navigazione. Quello si
+  // legge UNA volta, al montaggio, e si CONSUMA subito (sotto): `history.state`
+  // sopravvive a un reload e a back/forward, e l'avviso è l'esito di UN
+  // salvataggio, non una proprietà della repository. Un PATCH successivo
+  // sostituisce quelli della creazione.
+  const [createdWarnings] = useState(
+    () => readRepositoryWarnings(router.state.location.state) ?? null,
+  );
+  const [patchWarnings, setPatchWarnings] = useState<string[] | null>(null);
+  const warnings = patchWarnings ?? createdWarnings ?? [];
+
+  useEffect(() => {
+    if (createdWarnings === null) return;
+    // Riscrive la voce di history corrente senza gli avvisi: un F5 o un
+    // back/forward rileggono uno stato pulito. Idempotente (StrictMode).
+    void navigate({
+      to: "/repositories/$slug",
+      params: { slug },
+      replace: true,
+      resetScroll: false,
+      state: (prev) => withoutRepositoryWarnings(prev),
+    });
+  }, [createdWarnings, navigate, slug]);
 
   async function handleSubmit(patch: RepositoryPatch) {
     setSaved(false);
-    const updated = await patchRepository(slug, patch);
+    setPatchWarnings([]);
+    const { warnings: saveWarnings, ...updated } = await patchRepository(slug, patch);
+    // Nella cache va la repository, non gli avvisi del salvataggio.
     queryClient.setQueryData(repositoryQueryOptions(slug).queryKey, updated);
     // Il nome compare nel dettaglio del progetto e nei badge dei ticket.
     await queryClient.invalidateQueries({ queryKey: ["repositories"] });
@@ -56,6 +97,8 @@ export function RepositoryDetailPage() {
       await queryClient.invalidateQueries({ queryKey: graphKeys.detail(repository.id) });
     }
     setSaved(true);
+    // `?? []`: il web fa un cast, e un server senza il ciclo non manda il campo.
+    setPatchWarnings(saveWarnings ?? []);
   }
 
   // Dopo una (ri)configurazione del webhook la proiezione del repository cambia
@@ -122,6 +165,9 @@ export function RepositoryDetailPage() {
                   testCommand: repository.testCommand,
                   installCommand: repository.installCommand,
                   graphEnabled: repository.graphEnabled,
+                  // `?? null`: il web fa un cast, e un server senza il ciclo
+                  // di correzione non manda il campo.
+                  reviewGitAccountId: repository.reviewGitAccountId ?? null,
                 }}
                 onSubmit={handleSubmit}
               />
@@ -130,6 +176,7 @@ export function RepositoryDetailPage() {
                   {t("repositories:detail.saved")}
                 </p>
               )}
+              <RepositorySaveWarnings warnings={warnings} provider={repository.provider} />
             </>
           ) : (
             <dl className="space-y-3 rounded-sm border border-line bg-ink-900 px-4 py-4">

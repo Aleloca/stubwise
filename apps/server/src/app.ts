@@ -52,6 +52,7 @@ import { projectDocsRoutes } from "./routes/project-docs.js";
 import { projectEnvFileRoutes } from "./routes/project-env-files.js";
 import { projectEnvironmentRoutes } from "./routes/project-environments.js";
 import { releaseRoutes } from "./routes/release.js";
+import { correctionRoutes } from "./routes/corrections.js";
 import { briefRoutes } from "./routes/briefs.js";
 import { projectRoutes } from "./routes/projects.js";
 import { repositoryRoutes } from "./routes/repositories.js";
@@ -546,6 +547,9 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // Coda di rilascio (fase 8): lista + azione di merge, entrambe requireAdmin
   // ("una pagina sola, per il maintainer", design §4).
   void app.register(releaseRoutes, { prefix: "/api" });
+  // Correzioni post-PR (ciclo review → correzione, 30 set 2026): il bottone
+  // "Applica le correzioni" del ticket. requireAuth, come /run-ai.
+  void app.register(correctionRoutes, { prefix: "/api" });
   // Knowledge graph del repository (graphify): stato/azioni + contenuti letti dal
   // volume condiviso `graphs` (montato read-only sul server). Stesso prefisso dei
   // repository, `:id` = repositoryId.

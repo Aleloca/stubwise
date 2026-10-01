@@ -1,4 +1,5 @@
 import type { InboxItem, Reader } from "@stubwise/shared";
+import { reviewOutcomeNeedsAttention } from "@stubwise/shared";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Linking, StyleSheet, Text } from "react-native";
@@ -40,6 +41,7 @@ export function PrReadyCard({ item, projectName }: PrReadyCardProps) {
   const [snoozeOpen, setSnoozeOpen] = useState(false);
 
   const kindLabelKey = item.kind === "review.completed" ? "mobile.inbox.kinds.reviewCompleted" : "mobile.inbox.kinds.prOpened";
+  const tone = prReadyTone(item);
 
   const buttons = [];
   if (can(item, "open") && item.url !== undefined) {
@@ -70,7 +72,7 @@ export function PrReadyCard({ item, projectName }: PrReadyCardProps) {
 
   return (
     <CardShell
-      tone="ok"
+      tone={tone}
       kindLabel={t(kindLabelKey)}
       projectName={projectName}
       createdAt={item.createdAt}
@@ -96,6 +98,23 @@ export function PrReadyCard({ item, projectName }: PrReadyCardProps) {
       />
     </CardShell>
   );
+}
+
+/**
+ * Il tono della card (F8 del ciclo di correzione, 1 ott 2026). Verde SOLO per
+ * una review che approva; di attenzione (`signal`) per modifiche richieste,
+ * per lo stop del ciclo al tetto e per la review fallita — la regola è UNA,
+ * `reviewOutcomeNeedsAttention` di `@stubwise/shared`, la stessa del web.
+ * `job.pr_opened` resta com'era.
+ *
+ * `reviewOutcome` lo DERIVA il server a lettura dall'evento. In produzione
+ * l'app parsa e un server vecchio lo fa arrivare `null` dal `.default`; dove
+ * non si parsa (doppi e fixture) il campo può mancare del tutto, e `?? null`
+ * lo porta al tono di prima — difensivo come il web.
+ */
+function prReadyTone(item: Reader<InboxItem>): "ok" | "signal" {
+  if (item.kind !== "review.completed") return "ok";
+  return reviewOutcomeNeedsAttention(item.reviewOutcome ?? null) ? "signal" : "ok";
 }
 
 const styles = StyleSheet.create({

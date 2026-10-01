@@ -12,10 +12,12 @@ import {
   notificationDeliveries,
   notifications,
   planDigest,
+  prCorrections,
   projectDecisions,
   projects,
   ticketEvents,
   ticketLinks,
+  ticketRepositories,
   tickets,
 } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
@@ -751,6 +753,133 @@ describe("GET /api/tickets/:id", () => {
     });
   });
 
+  /**
+   * Il ciclo di correzione (30 set 2026, Task D6): DERIVATO dal server col
+   * ruolo di chi GUARDA (E7), il client lo legge soltanto.
+   */
+  async function ticketConPrStubwise(title: string) {
+    const created = await postTicket({ projectId, title, type: "task" });
+    const ticket = created.json() as TicketBody;
+    const repositoryId = repoForProject.get(projectId)!;
+    // Il branch deve essere quello del ticket STESSO (`stubwise/ticket-<N>`):
+    // è la condizione di `derivePrCycle` e della rotta delle correzioni.
+    await seedTicketRepository(testDb.db, {
+      ticketId: ticket.id,
+      repositoryId,
+      branch: `stubwise/ticket-${ticket.number}`,
+      prUrl: `https://github.com/acme/repo/pull/${ticket.number}`,
+      prState: "open",
+    });
+    await testDb.db
+      .update(ticketRepositories)
+      .set({ prNumber: ticket.number })
+      .where(eq(ticketRepositories.ticketId, ticket.id));
+    return { id: ticket.id, repositoryId };
+  }
+
+  async function cycleOf(id: string, cookie: string) {
+    const res = await app.inject({ method: "GET", url: `/api/tickets/${id}`, headers: { cookie } });
+    expect(res.statusCode).toBe(200);
+    return (res.json() as { repositories: Array<{ cycle: Record<string, unknown> | null }> })
+      .repositories[0]!.cycle;
+  }
+
+  /** Chiede una correzione e ne parcheggia il job `held` col motivo dato. */
+  async function correzioneFerma(id: string, repositoryId: string, heldReason: "budget" | "limit") {
+    const asked = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${id}/repositories/${repositoryId}/corrections`,
+      headers: { cookie: users.memberCookie },
+    });
+    expect(asked.statusCode).toBe(202);
+    const { correctionId } = asked.json() as { correctionId: string };
+    await testDb.db
+      .update(aiJobs)
+      .set({ status: "held", heldReason })
+      .where(eq(aiJobs.correctionId, correctionId));
+  }
+
+  it("ogni voce PR porta il ciclo di correzione DERIVATO dal server (30 set 2026)", async () => {
+    const { id, repositoryId } = await ticketConPrStubwise("Con ciclo");
+
+    // Nessuna review, nessuna correzione: il bottone è acceso.
+    expect(await cycleOf(id, users.memberCookie)).toMatchObject({
+      state: "idle",
+      round: 0,
+      maxRounds: 3,
+      pendingRequest: false,
+      lastRequest: null,
+      canRequestCorrection: true,
+      heldReason: null,
+      canResume: false,
+    });
+
+    // Chiesta una correzione, il ciclo dice che corregge e il bottone si spegne.
+    const asked = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${id}/repositories/${repositoryId}/corrections`,
+      headers: { cookie: users.memberCookie },
+    });
+    expect(asked.statusCode).toBe(202);
+    expect(await cycleOf(id, users.memberCookie)).toMatchObject({
+      state: "correcting",
+      canRequestCorrection: false,
+      // Job vivo (in coda), non fermo: nessun motivo, niente da riprendere.
+      heldReason: null,
+      canResume: false,
+      lastRequest: { via: "stubwise", platform: null, name: expect.any(String) },
+    });
+  });
+
+  it("una PR non di Stubwise ha cycle null", async () => {
+    const created = await postTicket({ projectId, title: "PR esterna", type: "task" });
+    const id = (created.json() as TicketBody).id;
+    await seedTicketRepository(testDb.db, {
+      ticketId: id,
+      repositoryId: repoForProject.get(projectId)!,
+      branch: "feature/a-mano",
+      prUrl: "https://github.com/acme/repo/pull/78",
+      prState: "open",
+    });
+
+    expect(await cycleOf(id, users.memberCookie)).toBeNull();
+  });
+
+  // E5 + E7: stessi dati, due ruoli. Una correzione ferma per BUDGET la può
+  // riprendere solo un maintainer (un member la rimetterebbe `held` per budget):
+  // `canResume` lo dice il server col ruolo del viewer, il client non lo deduce.
+  it("correzione ferma per budget, stessi dati: canResume true all'admin, false al member", async () => {
+    const { id, repositoryId } = await ticketConPrStubwise("Ferma per budget");
+    await correzioneFerma(id, repositoryId, "budget");
+
+    const comeAdmin = await cycleOf(id, users.adminCookie);
+    const comeMember = await cycleOf(id, users.memberCookie);
+
+    expect(comeAdmin).toMatchObject({ state: "correcting", heldReason: "budget", canResume: true });
+    expect(comeMember).toMatchObject({ state: "correcting", heldReason: "budget", canResume: false });
+    // L'unica differenza fra le due risposte è `canResume`.
+    expect({ ...comeAdmin, canResume: null }).toEqual({ ...comeMember, canResume: null });
+  });
+
+  it("correzione ferma per limite del provider: canResume true per entrambi i ruoli", async () => {
+    const { id, repositoryId } = await ticketConPrStubwise("Ferma per limite");
+    await correzioneFerma(id, repositoryId, "limit");
+
+    expect(await cycleOf(id, users.adminCookie)).toMatchObject({ heldReason: "limit", canResume: true });
+    expect(await cycleOf(id, users.memberCookie)).toMatchObject({ heldReason: "limit", canResume: true });
+  });
+
+  it("la lista ticket non porta le voci PR né il ciclo", async () => {
+    const { id } = await ticketConPrStubwise("Nella lista");
+    const res = await listTickets({ projectId });
+    expect(res.statusCode).toBe(200);
+    const item = (res.json() as { items: Array<Record<string, unknown>> }).items.find((i) => i.id === id)!;
+    expect(item).toBeDefined();
+    expect(item).not.toHaveProperty("repositories");
+    expect(item).not.toHaveProperty("cycle");
+    expect(item.repositoryCount).toBe(1);
+  });
+
   it("espone milestoneId: null di default, l'id della milestone dopo l'assegnazione", async () => {
     const created = await postTicket({ projectId, title: "Con milestone", type: "task" });
     const id = (created.json() as TicketBody).id;
@@ -1332,6 +1461,102 @@ describe("POST /api/tickets/:id/run-ai", () => {
     expect(job?.ticketId).toBe(created.id);
     expect(job?.status).toBe("queued");
     expect(job?.manualTrigger).toBe(true);
+  });
+
+  it("correzione held per BUDGET: un member riceve 403 needs_maintainer e niente cambia; un admin la forza", async () => {
+    const created = (await postTicket({ projectId, title: "Run AI correzione ferma", type: "bug" })).json() as {
+      id: string;
+    };
+    const [correction] = await testDb.db
+      .insert(prCorrections)
+      .values({
+        ticketId: created.id,
+        repositoryId: repoForProject.get(projectId)!,
+        prNumber: 9100,
+        trigger: "review",
+        status: "queued",
+      })
+      .returning();
+    const [held] = await testDb.db
+      .insert(aiJobs)
+      .values({
+        ticketId: created.id,
+        status: "held",
+        heldReason: "budget",
+        correctionId: correction!.id,
+        manualTrigger: false,
+      })
+      .returning();
+
+    const denied = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${created.id}/run-ai`,
+      headers: { cookie: users.memberCookie },
+    });
+    expect(denied.statusCode).toBe(403);
+    expect(denied.json()).toMatchObject({ code: "needs_maintainer" });
+    const [unchanged] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, held!.id));
+    expect(unchanged).toEqual(held);
+    const [corr] = await testDb.db.select().from(prCorrections).where(eq(prCorrections.id, correction!.id));
+    expect(corr!.status).toBe("queued");
+
+    const forced = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${created.id}/run-ai`,
+      headers: { cookie: users.adminCookie },
+    });
+    expect(forced.statusCode).toBe(202);
+    expect(forced.json()).toMatchObject({ jobId: held!.id, status: "queued" });
+    const [job] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, held!.id));
+    expect(job).toMatchObject({ status: "queued", manualTrigger: true, correctionId: correction!.id });
+  });
+
+  it("G5: «Riprendi» con resumeCorrectionJobId su una correzione non più held → 409 correction_not_held, nessun job nuovo; un id non uuid → 400", async () => {
+    const created = (await postTicket({ projectId, title: "Run AI riprendi superata", type: "bug" })).json() as {
+      id: string;
+    };
+    const [correction] = await testDb.db
+      .insert(prCorrections)
+      .values({
+        ticketId: created.id,
+        repositoryId: repoForProject.get(projectId)!,
+        prNumber: 9101,
+        trigger: "review",
+        status: "cancelled",
+      })
+      .returning();
+    const [skipped] = await testDb.db
+      .insert(aiJobs)
+      .values({ ticketId: created.id, status: "skipped", correctionId: correction!.id, manualTrigger: false })
+      .returning();
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${created.id}/run-ai`,
+      headers: { cookie: users.adminCookie },
+      payload: { resumeCorrectionJobId: skipped!.id },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toMatchObject({ code: "correction_not_held" });
+    const jobs = await testDb.db.select().from(aiJobs).where(eq(aiJobs.ticketId, created.id));
+    expect(jobs).toEqual([skipped]);
+
+    const bad = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${created.id}/run-ai`,
+      headers: { cookie: users.adminCookie },
+      payload: { resumeCorrectionJobId: "non-un-uuid" },
+    });
+    expect(bad.statusCode).toBe(400);
+
+    // Senza il campo, lo stesso rilancio è quello di sempre: un fix NUOVO.
+    const plain = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${created.id}/run-ai`,
+      headers: { cookie: users.adminCookie },
+    });
+    expect(plain.statusCode).toBe(202);
+    expect((plain.json() as { jobId: string }).jobId).not.toBe(skipped!.id);
   });
 
   it("rimette in coda l'ultimo job con manual_trigger, azzerando started/finished/error", async () => {

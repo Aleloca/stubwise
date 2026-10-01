@@ -28,8 +28,13 @@ import {
   type Db,
 } from "@stubwise/db";
 import { t } from "@stubwise/i18n";
-import { IN_FLIGHT_JOB_STATUSES, publishNotification } from "@stubwise/notifications";
-import { and, count, desc, eq, like, notInArray, sql } from "drizzle-orm";
+import {
+  canResumeCorrection,
+  correctionManualTrigger,
+  IN_FLIGHT_JOB_STATUSES,
+  publishNotification,
+} from "@stubwise/notifications";
+import { and, count, desc, eq, isNull, like, notInArray, sql } from "drizzle-orm";
 import { ticketUrl } from "../ingest/shared.js";
 import { getContentLanguage } from "../settings.js";
 import { propagateDecision } from "./notifications-propagation.js";
@@ -52,7 +57,17 @@ export const IN_FLIGHT = IN_FLIGHT_JOB_STATUSES;
 
 export type StartRunResult =
   | { ok: true; jobId: string; status: "queued" | "awaiting_plan_approval" }
-  | { ok: false; error: "ticket_not_found" | "job_in_flight"; jobStatus?: string };
+  | { ok: false; error: "ticket_not_found" | "job_in_flight"; jobStatus?: string }
+  // Un operatore che prova a forzare una correzione ferma per BUDGET: solo un
+  // maintainer scavalca il budget (E7), e la forzatura di un member tornerebbe
+  // `held` al primo controllo del worker. Niente scritto.
+  | { ok: false; error: "needs_maintainer" }
+  // «Riprendi» su una correzione che NON è più quella ferma che la schermata
+  // mostrava (annullata con la PR mergiata, riconciliata, finita, o superata
+  // da un job più recente): con `resumeCorrectionJobId` non si cade nel
+  // rilancio generico — che dopo una correzione terminale avvierebbe un FIX
+  // nuovo. Niente scritto.
+  | { ok: false; error: "correction_not_held" };
 
 export interface StartRunInput {
   ticketId: string;
@@ -84,12 +99,23 @@ export interface StartRunInput {
    * (solo un `member` passa dal gate).
    */
   requirePlanApproval?: boolean;
+  /**
+   * «Riprendi» di UNA correzione ferma: l'id del suo job `held`
+   * (`cycle.heldJobId` del dettaglio ticket). Presente, `startRun` forza
+   * QUEL job solo se è ancora l'ultimo del ticket, di una correzione e
+   * `held`; altrimenti `correction_not_held` senza scrivere niente. Assente =
+   * comportamento di sempre (lo usa solo la rotta run-ai; l'inbox no).
+   */
+  resumeCorrectionJobId?: string;
 }
 
 /**
  * Avvia (o rilancia) il run AI di un ticket. Riusa l'ultimo job del ticket se
- * è concluso, altrimenti ne crea uno nuovo; se invece è ancora in volo non
- * tocca nulla e ritorna `job_in_flight`.
+ * è concluso **e non è di una correzione**, altrimenti ne crea uno nuovo; se
+ * invece è ancora in volo non tocca nulla e ritorna `job_in_flight`. Il job
+ * `held` di una correzione ancora in coda lo **forza** (stesso job,
+ * `correction_id` intatto, niente gate del piano) con `manualTrigger` della
+ * regola unica `correctionManualTrigger`: solo un admin scavalca il budget.
  *
  * ESECUZIONE DIRETTA DAL PIANO SALVATO: con `implementationPlan` sul ticket e
  * senza `mode:"ai_plan"`, il job parte in execute-diretta (`resumeMode`
@@ -189,17 +215,106 @@ export async function startRun(db: Db, input: StartRunInput): Promise<StartRunRe
     // L'ultimo job del ticket (per createdAt, id come spareggio): è quello che
     // la timeline mostra in cima e che l'utente intende rilanciare.
     const [latest] = await tx
-      .select({ id: aiJobs.id, status: aiJobs.status })
+      .select({
+        id: aiJobs.id,
+        status: aiJobs.status,
+        correctionId: aiJobs.correctionId,
+        heldReason: aiJobs.heldReason,
+      })
       .from(aiJobs)
       .where(eq(aiJobs.ticketId, ticketId))
       .orderBy(desc(aiJobs.createdAt), desc(aiJobs.id))
       .limit(1);
 
+    // «Riprendi» chiede QUELLA correzione ferma, non un rilancio qualunque.
+    // Una schermata vecchia può mostrarla `held` quando nel frattempo è stata
+    // annullata (PR mergiata → job `skipped`), riconciliata (job `failed`) o
+    // ripresa da qualcun altro: senza questo controllo il ramo del job
+    // terminale qui sotto avvierebbe un FIX COMPLETO NUOVO, con
+    // `manualTrigger` true e quindi oltre il budget. Sotto il lock del ticket,
+    // prima di ogni scrittura; se combacia si prosegue nella forzatura di
+    // sempre (permesso `needs_maintainer` compreso).
+    if (
+      input.resumeCorrectionJobId !== undefined &&
+      !(
+        latest &&
+        latest.id === input.resumeCorrectionJobId &&
+        latest.correctionId !== null &&
+        latest.status === "held"
+      )
+    ) {
+      return { ok: false, error: "correction_not_held" };
+    }
+
     if (latest && isInFlight(latest.status)) {
       return { ok: false, error: "job_in_flight", jobStatus: latest.status };
     }
 
-    if (latest) {
+    // Il job di una CORREZIONE (ciclo post-PR) ancora `held` — tipicamente
+    // per budget: il ciclo automatico, un "Request changes" della piattaforma e
+    // il bottone di un member non hanno manualTrigger, e il resume poller non
+    // riaccoda un held per budget — si FORZA: stesso job, `correction_id`
+    // intatto (non è in `set`). `manualTrigger` è la regola UNICA di
+    // `@stubwise/notifications` (`correctionManualTrigger`): solo un ADMIN
+    // scavalca il budget. Un member la rimette in coda, ma a budget esaurito il
+    // worker la riferma `held` per budget: per quella serve un maintainer (la
+    // riga di stato lo dice con `cycle.canResume`). Il worker la esegue come la
+    // correzione che era. `manualTrigger` lo decide CHI AGISCE ORA, non chi
+    // l'aveva avviata: un member che riprende una correzione ferma per
+    // `limit` avviata da un admin la DECLASSA (`manualTrigger` true → false),
+    // e a budget esaurito il worker la fermerà `held` per budget. È voluto:
+    // scavalcare il budget è una decisione di spesa, e conta chi la prende. Niente gate del piano: una correzione
+    // non è un piano nuovo (design §3), e un `awaiting_plan_approval` con
+    // `correction_id` non avrebbe consumatori. Un fix nuovo al suo posto
+    // lascerebbe la correzione `queued` per sempre, e sarebbe rifiutato al push.
+    if (latest && latest.correctionId !== null && latest.status === "held") {
+      // La regola di chi può riprenderla è quella della riga di stato
+      // (`canResumeCorrection`, `cycle.canResume`): un member non forza una
+      // correzione ferma per budget. Si risponde PRIMA di scrivere.
+      if (!canResumeCorrection(latest.heldReason ?? "other", actor.role)) {
+        return { ok: false, error: "needs_maintainer" };
+      }
+      const forced = await tx
+        .update(aiJobs)
+        .set({
+          status: "queued",
+          manualTrigger: correctionManualTrigger(actor.role),
+          requestedByUserId: actor.id,
+          planApprovalRequired: false,
+          startedAt: null,
+          finishedAt: null,
+          error: null,
+          lastActivityAt: sql`now()`,
+        })
+        // Guardato anche sul MOTIVO letto: il permesso qui sopra è stato
+        // deciso su quel motivo. Se nel frattempo il job è ripassato `held`
+        // per un altro (es. `limit` → `budget`), un member non deve forzarlo
+        // col permesso del motivo vecchio.
+        .where(
+          and(
+            eq(aiJobs.id, latest.id),
+            eq(aiJobs.status, "held"),
+            latest.heldReason === null ? isNull(aiJobs.heldReason) : eq(aiJobs.heldReason, latest.heldReason),
+          ),
+        )
+        .returning({ id: aiJobs.id });
+      if (forced.length === 0) {
+        const [current] = await tx
+          .select({ status: aiJobs.status })
+          .from(aiJobs)
+          .where(eq(aiJobs.id, latest.id));
+        return { ok: false, error: "job_in_flight", jobStatus: current?.status };
+      }
+      return { ok: true, jobId: latest.id, status: "queued" };
+    }
+
+    // Il job TERMINALE di una correzione non si ricicla: rimesso in coda con
+    // `correction_id` ancora valorizzato, il worker lo eseguirebbe come una
+    // correzione — worktree sul branch della PR, niente triage — invece che
+    // come il fix che si sta chiedendo. Si crea un job nuovo (il ramo
+    // d'inserimento sotto), e quello della correzione resta legato a lei: è la
+    // storia con cui `derivePrCycle` legge l'esito della correzione.
+    if (latest && latest.correctionId === null) {
       // UPDATE guardato sugli stati NON in volo: il lock esclude gli altri
       // startRun, ma non chi tocca il job da fuori (il claim del worker o il
       // resume poller possono portare un `held` a `queued` proprio ora). In quel

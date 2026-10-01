@@ -6,6 +6,7 @@ import { buildApp } from "../app.js";
 import { decrypt, gitAccounts, projects, repositories } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
+import { resolveProviderUserId, type FetchPlatformIdentity } from "@stubwise/notifications";
 import { seedUsers } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
@@ -176,6 +177,67 @@ describe("PATCH /api/git-accounts/:id", () => {
     expect(JSON.parse(decrypt(after!.encryptedCredentials, ENCRYPTION_KEY))).toEqual({
       token: "nuovo-token-ruotato",
     });
+  });
+
+  it("cambiando le credenziali l'identità sulla piattaforma si azzera (il token può essere di un altro utente)", async () => {
+    const created = await createAccount({ ...basePayload, name: "Con Identità" });
+    const id = (created.json() as { id: string }).id;
+    await testDb.db.update(gitAccounts).set({ providerUserId: "1001" }).where(eq(gitAccounts.id, id));
+    const [initial] = await testDb.db.select().from(gitAccounts).where(eq(gitAccounts.id, id));
+
+    // Solo nome e workspace: né il blob né l'identità cambiano.
+    const renamed = await app.inject({
+      method: "PATCH",
+      url: `/api/git-accounts/${id}`,
+      headers: { cookie: adminCookie },
+      payload: { name: "Rinominato", workspace: "altro-ws" },
+    });
+    expect(renamed.statusCode).toBe(200);
+    let [row] = await testDb.db.select().from(gitAccounts).where(eq(gitAccounts.id, id));
+    expect(row!.providerUserId).toBe("1001");
+    expect(row!.encryptedCredentials).toBe(initial!.encryptedCredentials);
+
+    // Credenziali nuove: l'identità si risolverà di nuovo al primo uso, e il
+    // blob cambia nella STESSA scrittura (è la versione su cui
+    // `resolveProviderUserId` guarda la sua cache).
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/git-accounts/${id}`,
+      headers: { cookie: adminCookie },
+      payload: { credentials: { username: "altro-bot", token: "token-nuovo" } },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).not.toContain("token-nuovo");
+    [row] = await testDb.db.select().from(gitAccounts).where(eq(gitAccounts.id, id));
+    expect(row!.providerUserId).toBeNull();
+    expect(row!.encryptedCredentials).not.toBe(initial!.encryptedCredentials);
+  });
+
+  it("una risoluzione dell'identità partita col token vecchio non riscrive la cache dopo il cambio di credenziali", async () => {
+    const created = await createAccount({ ...basePayload, name: "Corsa Identità" });
+    const id = (created.json() as { id: string }).id;
+    await testDb.db.update(gitAccounts).set({ providerUserId: "id-del-token-vecchio" }).where(eq(gitAccounts.id, id));
+    const [stale] = await testDb.db.select().from(gitAccounts).where(eq(gitAccounts.id, id));
+
+    // Il provider risponde col token VECCHIO, ma solo dopo che il PATCH ha
+    // cambiato le credenziali.
+    const fetchIdentity: FetchPlatformIdentity = async () => {
+      const patch = await app.inject({
+        method: "PATCH",
+        url: `/api/git-accounts/${id}`,
+        headers: { cookie: adminCookie },
+        payload: { credentials: { token: "token-del-bot-nuovo" } },
+      });
+      expect(patch.statusCode).toBe(200);
+      return "id-del-token-vecchio";
+    };
+    const resolved = await resolveProviderUserId(testDb.db, ENCRYPTION_KEY, stale!, fetchIdentity, {
+      refresh: true,
+    });
+
+    expect(resolved).toBeNull();
+    const [row] = await testDb.db.select().from(gitAccounts).where(eq(gitAccounts.id, id));
+    expect(row!.providerUserId).toBeNull();
   });
 
   it("l'admin aggiorna il workspace", async () => {
