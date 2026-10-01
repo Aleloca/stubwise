@@ -72,6 +72,22 @@ export const en: Catalog = {
   "commitStatus.changesRequested": "The Stubwise review requests changes",
   "commitStatus.correctionFailed": "The Stubwise correction did not complete",
   "commitStatus.reviewFailed": "The Stubwise review did not complete",
+  // --- Request changes dalla piattaforma scartato perché Stubwise non sa chi
+  // sono i propri account (webhook, fail-closed). Commento di sistema sul
+  // ticket, una riga per chiave, unite con "\n" dal server.
+  // ⚠️ `.title` è la PRIMA riga del commento ed è ciò con cui il server
+  // riconosce un avviso già scritto (isDroppedRequestNotice): NESSUN dato
+  // variabile oltre a {prNumber} — niente login, niente date, niente nomi di
+  // account. Ritoccarne il testo è innocuo (si riavvisa una volta), metterci
+  // un dato variabile rompe il dedup per sempre. C'è un test.
+  "comment.changesRequestDropped.title": "Changes requested on PR #{prNumber}: no correction was started",
+  "comment.changesRequestDropped.requestedBy": "Requested by {login} on {platform}.",
+  "comment.changesRequestDropped.reason":
+    'Reason: the credentials of the git account "{account}" don\'t let Stubwise read who that account is on {platform}, so it can\'t tell a person\'s request from its own review, and to be safe it ignored the event.',
+  "comment.changesRequestDropped.bitbucketScope":
+    "On Bitbucket the account's token needs the read:user:bitbucket scope.",
+  "comment.changesRequestDropped.meanwhile":
+    'Meanwhile you can ask for the correction with the "Apply corrections" button on this ticket.',
   "comment.reviewImpact.communityEntry": "{name} (files: {files}, symbols: {nodes})",
   "comment.reviewImpact.godNodes": "Highly connected symbols touched: {list}",
   "comment.reviewImpact.godNodeEntry": "`{label}` (degree {degree})",
@@ -567,6 +583,17 @@ export const it: Catalog = {
   "commitStatus.changesRequested": "La review di Stubwise chiede modifiche",
   "commitStatus.correctionFailed": "La correzione di Stubwise non è andata a buon fine",
   "commitStatus.reviewFailed": "La review di Stubwise non è andata a buon fine",
+  // --- Request changes scartato (vedi nota in `en`).
+  // ⚠️ `.title` è la prima riga e la chiave del dedup: nessun dato variabile
+  // oltre a {prNumber} (niente login né date). Vedi la nota in `en`.
+  "comment.changesRequestDropped.title": "Modifiche richieste sulla PR #{prNumber}: nessuna correzione avviata",
+  "comment.changesRequestDropped.requestedBy": "Richieste da {login} su {platform}.",
+  "comment.changesRequestDropped.reason":
+    "Motivo: le credenziali dell'account git «{account}» non permettono a Stubwise di leggere chi è quell'account su {platform}, quindi non può distinguere la richiesta di una persona dalla propria review, e per sicurezza ha ignorato l'evento.",
+  "comment.changesRequestDropped.bitbucketScope":
+    "Su Bitbucket il token dell'account deve avere lo scope read:user:bitbucket.",
+  "comment.changesRequestDropped.meanwhile":
+    "Nel frattempo puoi chiedere la correzione col bottone «Applica le correzioni» su questo ticket.",
   "comment.reviewImpact.communityEntry": "{name} (file: {files}, simboli: {nodes})",
   "comment.reviewImpact.godNodes": "Simboli molto connessi toccati: {list}",
   "comment.reviewImpact.godNodeEntry": "`{label}` (grado {degree})",

@@ -1,4 +1,13 @@
-import { gitAccounts, repositories, ticketRepositories, tickets, users, type Db } from "@stubwise/db";
+import {
+  comments,
+  gitAccounts,
+  prCorrections,
+  repositories,
+  ticketRepositories,
+  tickets,
+  users,
+  type Db,
+} from "@stubwise/db";
 import { parsePrNumberFromUrl, type ChangesRequestedEvent } from "@stubwise/git";
 import {
   enqueueCorrection,
@@ -7,8 +16,10 @@ import {
   WEBHOOK_REVIEW_BODY_ID,
 } from "@stubwise/notifications";
 import { stubwiseTicketNumber, type GitProviderKind, type PrComment } from "@stubwise/shared";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, sql } from "drizzle-orm";
+import { t, type Language } from "@stubwise/i18n";
 import type { FastifyBaseLogger } from "fastify";
+import { getContentLanguage } from "../settings.js";
 import { fetchPlatformIdentity } from "./platform-identity.js";
 import { authorPermissionFetcher } from "./platform-permission.js";
 
@@ -144,7 +155,8 @@ export async function handleChangesRequested(
       : null;
     if (resolved === null) {
       // Un ciclo infinito costa più di una richiesta persa, che si ripete dal
-      // bottone "Applica le correzioni" sul ticket (design §5). La causa l'ha
+      // bottone "Applica le correzioni" sul ticket (design §5) — e il ticket lo
+      // dice, col commento qui sotto. La causa l'ha
       // già scritta onError qui sopra; su Bitbucket la più frequente è un token
       // senza lo scope `read:user:bitbucket`, ma è un suggerimento, non la
       // diagnosi.
@@ -152,6 +164,14 @@ export async function handleChangesRequested(
         { repositoryId, prNumber, gitAccountId: accountId },
         "Request changes ignorato: identità dell'account di Stubwise non risolvibile (fail-closed)",
       );
+      // L'unico scarto che una persona non può capire da sola: lo si dice sul
+      // ticket (best-effort, deduplicato). Gli altri scarti restano muti.
+      await postDroppedRequestNotice(ctx, {
+        ticketId: row.ticketId,
+        prNumber,
+        login: event.actorLogin,
+        accountName: account?.name ?? accountId,
+      });
       return "identity_unresolved";
     }
     ownIds.push(resolved);
@@ -258,4 +278,117 @@ function reviewBodyFeedback(event: ChangesRequestedEvent): PrComment[] {
       authorAssociation: event.authorAssociation,
     },
   ];
+}
+
+const PLATFORM_NAME: Record<GitProviderKind, string> = { github: "GitHub", bitbucket: "Bitbucket" };
+
+/**
+ * Il commento di sistema di un "Request changes" scartato perché l'identità
+ * di un account di Stubwise non si legge (design §5, fail-closed). Una riga per
+ * chiave del catalogo: il TITOLO è la prima e porta il solo numero della PR —
+ * login, piattaforma e account stanno nelle righe dopo, così il titolo resta
+ * uguale da un avviso all'altro e fa da chiave del dedup.
+ */
+export function droppedRequestNoticeBody(
+  lang: Language,
+  input: { prNumber: number; login: string; provider: GitProviderKind; accountName: string },
+): string {
+  const platform = PLATFORM_NAME[input.provider];
+  return [
+    t(lang, "comment.changesRequestDropped.title", { prNumber: input.prNumber }),
+    "",
+    t(lang, "comment.changesRequestDropped.requestedBy", { login: input.login, platform }),
+    t(lang, "comment.changesRequestDropped.reason", { account: input.accountName, platform }),
+    ...(input.provider === "bitbucket" ? [t(lang, "comment.changesRequestDropped.bitbucketScope")] : []),
+    t(lang, "comment.changesRequestDropped.meanwhile"),
+  ].join("\n");
+}
+
+/**
+ * È l'avviso di un "Request changes" scartato su QUESTA PR? Unico punto in cui
+ * si riconosce: la PRIMA riga del commento deve essere esattamente il titolo
+ * del template renderizzato per `prNumber` nella lingua `lang`.
+ *
+ * Due cose da sapere prima di toccarla:
+ *  1. se cambia la lingua dell'istanza o il testo del template, un avviso già
+ *     scritto non si riconosce più e si riavvisa UNA volta. È un errore per
+ *     eccesso, innocuo: un commento in più, mai una richiesta persa in silenzio;
+ *  2. il titolo NON deve contenere dati variabili oltre al numero della PR —
+ *     niente login né date: ogni avviso sarebbe diverso dal precedente e il
+ *     dedup non tacerebbe mai. Per questo il login sta in una riga successiva.
+ *     La stessa nota è accanto alla chiave nel catalogo i18n, e un test in
+ *     `packages/i18n` controlla i segnaposto del titolo.
+ */
+export function isDroppedRequestNotice(body: string, prNumber: number, lang: Language): boolean {
+  const firstLine = body.split("\n", 1)[0];
+  return firstLine === t(lang, "comment.changesRequestDropped.title", { prNumber });
+}
+
+/**
+ * Scrive l'avviso sul ticket, a meno che ce ne sia già uno per questa PR non
+ * "superato" da una richiesta dalla piattaforma riuscita DOPO di lui (prova che
+ * l'identità era tornata risolvibile: allora questo è un guasto nuovo).
+ * Limite accettato: credenziali sistemate e rotte di nuovo senza nessuna
+ * richiesta riuscita in mezzo → silenzio.
+ *
+ * BEST-EFFORT: un errore si logga e basta — il webhook risponde 204 comunque,
+ * e questo non avvia job né scrive in `pr_corrections`. La transazione con
+ * l'advisory lock (chiave propria, non quella di `startRun`) serializza due
+ * consegne DIVERSE arrivate insieme, che altrimenti scriverebbero due avvisi.
+ */
+async function postDroppedRequestNotice(
+  ctx: ChangesRequestedContext,
+  input: { ticketId: string; prNumber: number; login: string; accountName: string },
+): Promise<void> {
+  try {
+    const lang = await getContentLanguage(ctx.db);
+    const title = t(lang, "comment.changesRequestDropped.title", { prNumber: input.prNumber });
+    await ctx.db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`pr-dropped-notice:${input.ticketId}`}))`);
+      // `starts_with` restringe in SQL; la decisione la prende isDroppedRequestNotice.
+      const candidates = await tx
+        .select({ body: comments.body, createdAt: comments.createdAt })
+        .from(comments)
+        .where(
+          and(
+            eq(comments.ticketId, input.ticketId),
+            eq(comments.authorType, "system"),
+            sql`starts_with(${comments.body}, ${title})`,
+          ),
+        )
+        .orderBy(desc(comments.createdAt));
+      const lastNotice = candidates.find((c) => isDroppedRequestNotice(c.body, input.prNumber, lang));
+      if (lastNotice) {
+        const [succeededSince] = await tx
+          .select({ id: prCorrections.id })
+          .from(prCorrections)
+          .where(
+            and(
+              eq(prCorrections.repositoryId, ctx.repositoryId),
+              eq(prCorrections.prNumber, input.prNumber),
+              eq(prCorrections.trigger, "provider"),
+              gt(prCorrections.createdAt, lastNotice.createdAt),
+            ),
+          )
+          .limit(1);
+        if (!succeededSince) return; // già avvisato, e nulla è cambiato da allora
+      }
+      await tx.insert(comments).values({
+        ticketId: input.ticketId,
+        authorType: "system",
+        authorId: null,
+        body: droppedRequestNoticeBody(lang, {
+          prNumber: input.prNumber,
+          login: input.login,
+          provider: ctx.provider,
+          accountName: input.accountName,
+        }),
+      });
+    });
+  } catch (err) {
+    ctx.log.warn(
+      { repositoryId: ctx.repositoryId, prNumber: input.prNumber, err: err instanceof Error ? err.message : String(err) },
+      "Request changes scartato: l'avviso sul ticket non è stato scritto",
+    );
+  }
 }

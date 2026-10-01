@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createDeliveryDedupe } from "./pr-correction-webhook.js";
+import { createDeliveryDedupe, droppedRequestNoticeBody, isDroppedRequestNotice } from "./pr-correction-webhook.js";
 
 describe("createDeliveryDedupe", () => {
   it("un id si prende una volta sola dentro la finestra", () => {
@@ -24,5 +24,42 @@ describe("createDeliveryDedupe", () => {
     expect(dedupe.claim("d1")).toBe(false);
     now = 1_000;
     expect(dedupe.claim("d1")).toBe(true);
+  });
+});
+
+describe("isDroppedRequestNotice", () => {
+  const body = droppedRequestNoticeBody("en", {
+    prNumber: 42,
+    login: "mario-rossi",
+    provider: "github",
+    accountName: "Account GitHub",
+  });
+
+  it("prima riga uguale al titolo di QUELLA PR → true", () => {
+    expect(isDroppedRequestNotice(body, 42, "en")).toBe(true);
+  });
+
+  it("stesso avviso, numero di PR diverso → false (anche se è un prefisso: #4 vs #42)", () => {
+    expect(isDroppedRequestNotice(body, 43, "en")).toBe(false);
+    expect(isDroppedRequestNotice(body, 4, "en")).toBe(false);
+  });
+
+  it("un altro commento di sistema → false", () => {
+    expect(isDroppedRequestNotice("PR merged: https://github.com/acme/repo/pull/42 — ticket closed automatically", 42, "en")).toBe(false);
+  });
+
+  it("il titolo in coda a un testo diverso → false: conta solo la PRIMA riga", () => {
+    const title = body.split("\n")[0]!;
+    expect(isDroppedRequestNotice(`Nota a mano\n${title}`, 42, "en")).toBe(false);
+  });
+
+  it("lingua diversa da quella in cui è stato scritto → false (si riavvisa una volta, per eccesso)", () => {
+    expect(isDroppedRequestNotice(body, 42, "it")).toBe(false);
+  });
+
+  it("il login sta in una riga successiva, mai nella prima", () => {
+    const [first, ...rest] = body.split("\n");
+    expect(first).not.toContain("mario-rossi");
+    expect(rest.join("\n")).toContain("mario-rossi");
   });
 });

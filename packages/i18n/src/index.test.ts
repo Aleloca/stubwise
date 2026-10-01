@@ -1,5 +1,5 @@
 import { describe, it as test, expect } from "vitest";
-import { t, languageName } from "./index.js";
+import { t, languageName, catalogs } from "./index.js";
 import { en, it } from "./catalog.js";
 
 describe("t", () => {
@@ -98,6 +98,28 @@ describe("correzioni post-PR", () => {
         expect(text).not.toBe(key);
         expect(text.length).toBeLessThanOrEqual(140);
       }
+    }
+  });
+});
+
+describe("Request changes scartato (identità irrisolvibile)", () => {
+  test("il titolo porta il numero della PR, in entrambe le lingue", () => {
+    expect(t("en", "comment.changesRequestDropped.title", { prNumber: 42 })).toBe(
+      "Changes requested on PR #42: no correction was started",
+    );
+    expect(t("it", "comment.changesRequestDropped.title", { prNumber: 42 })).toBe(
+      "Modifiche richieste sulla PR #42: nessuna correzione avviata",
+    );
+  });
+
+  test("il titolo non ha ALTRI dati variabili oltre al numero della PR", () => {
+    // È la riga con cui il server riconosce l'avviso già scritto
+    // (isDroppedRequestNotice): un login o una data qui dentro renderebbero
+    // ogni avviso diverso dal precedente, e il dedup non tacerebbe mai.
+    for (const lang of ["en", "it"] as const) {
+      const template = catalogs[lang]["comment.changesRequestDropped.title"]!;
+      expect(template.match(/\{(\w+)\}/g)).toEqual(["{prNumber}"]);
+      expect(template).not.toContain("\n");
     }
   });
 });

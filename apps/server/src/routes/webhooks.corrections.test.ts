@@ -5,6 +5,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import { buildApp } from "../app.js";
 import {
   aiJobs,
+  comments,
   gitAccounts,
   prCorrections,
   prReviews,
@@ -665,5 +666,200 @@ describe("webhook \"Request changes\" — riconsegne e concorrenza", () => {
     await postGithub(fx, githubReview({ body: null }));
 
     expect((await correctionsOf(fx.repositoryId))[0]!.providerFeedback).toEqual([]);
+  });
+});
+
+async function systemCommentsOf(ticketId: string) {
+  return testDb.db
+    .select()
+    .from(comments)
+    .where(and(eq(comments.ticketId, ticketId), eq(comments.authorType, "system")))
+    .orderBy(comments.createdAt);
+}
+
+/** L'identità di QUALUNQUE account non si legge: il caso del token senza scope. */
+function identityFails(provider: typeof GitHubProvider | typeof BitbucketProvider) {
+  return vi.spyOn(provider.prototype, "getAuthenticatedUserId").mockRejectedValue(new Error("403"));
+}
+
+describe("webhook \"Request changes\" scartato — l'avviso sul ticket", () => {
+  it("identità non risolvibile: UN commento di sistema con PR, chi l'ha chiesto e il bottone", async () => {
+    const fx = await seedFixture({ reviewerUserId: null });
+    identityFails(GitHubProvider);
+
+    const res = await postGithub(fx, githubReview());
+    expect(res.statusCode).toBe(204);
+
+    const rows = await systemCommentsOf(fx.ticketId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ authorType: "system", authorId: null });
+    const lines = rows[0]!.body.split("\n");
+    expect(lines[0]).toBe("Changes requested on PR #42: no correction was started");
+    expect(rows[0]!.body).toContain("mario-rossi");
+    expect(rows[0]!.body).toContain('"Apply corrections"');
+    // GitHub: nessuno scope da nominare.
+    expect(rows[0]!.body).not.toContain("read:user:bitbucket");
+    // Un avviso, non una richiesta: nessuna correzione, nessun job.
+    expect(await correctionsOf(fx.repositoryId)).toHaveLength(0);
+    expect(await correctionJobsOf(fx.ticketId)).toHaveLength(0);
+  });
+
+  it("Bitbucket: l'avviso nomina lo scope read:user:bitbucket", async () => {
+    const fx = await seedFixture({ provider: "bitbucket", mainUserId: null });
+    identityFails(BitbucketProvider);
+
+    await postBitbucket(fx, bitbucketChangesRequest());
+
+    const [row] = await systemCommentsOf(fx.ticketId);
+    expect(row!.body).toContain("read:user:bitbucket");
+    expect(row!.body).toContain("mario.rossi");
+    expect(row!.body).toContain("Bitbucket");
+  });
+
+  it("un secondo Request changes con la condizione che persiste: nessun commento nuovo", async () => {
+    const fx = await seedFixture({ reviewerUserId: null });
+    identityFails(GitHubProvider);
+
+    await postGithub(fx, githubReview());
+    await postGithub(fx, githubReview({ login: "giulia-bianchi", actorId: "6160" }));
+
+    expect(await systemCommentsOf(fx.ticketId)).toHaveLength(1);
+  });
+
+  it("dopo una richiesta dalla piattaforma riuscita DOPO l'avviso, un nuovo scarto riavvisa", async () => {
+    const fx = await seedFixture({ reviewerUserId: null });
+    identityFails(GitHubProvider);
+    await postGithub(fx, githubReview());
+    const [notice] = await systemCommentsOf(fx.ticketId);
+
+    // L'identità era tornata risolvibile: una correzione `provider` è nata
+    // dopo l'avviso (qui scritta a mano; `done` per non toccare gli indici
+    // unici parziali su pending/queued).
+    await testDb.db.insert(prCorrections).values({
+      ticketId: fx.ticketId,
+      repositoryId: fx.repositoryId,
+      prNumber: 42,
+      trigger: "provider",
+      status: "done",
+      requestedByProviderLogin: "mario-rossi",
+      providerFeedback: [],
+      createdAt: new Date(notice!.createdAt.getTime() + 1_000),
+    });
+
+    await postGithub(fx, githubReview());
+
+    expect(await systemCommentsOf(fx.ticketId)).toHaveLength(2);
+  });
+
+  it("una correzione NON `provider` nata dopo l'avviso non lo riarma (non prova che l'identità sia tornata)", async () => {
+    const fx = await seedFixture({ reviewerUserId: null });
+    identityFails(GitHubProvider);
+    await postGithub(fx, githubReview());
+    const [notice] = await systemCommentsOf(fx.ticketId);
+
+    // Un click su "Applica le correzioni" non passa dal webhook: niente dice
+    // che l'identità degli account sia di nuovo leggibile.
+    await testDb.db.insert(prCorrections).values({
+      ticketId: fx.ticketId,
+      repositoryId: fx.repositoryId,
+      prNumber: 42,
+      trigger: "stubwise",
+      status: "done",
+      createdAt: new Date(notice!.createdAt.getTime() + 1_000),
+    });
+
+    await postGithub(fx, githubReview());
+
+    expect(await systemCommentsOf(fx.ticketId)).toHaveLength(1);
+  });
+
+  it("una correzione `provider` più VECCHIA dell'avviso non lo riarma", async () => {
+    const fx = await seedFixture({ reviewerUserId: null });
+    identityFails(GitHubProvider);
+    await testDb.db.insert(prCorrections).values({
+      ticketId: fx.ticketId,
+      repositoryId: fx.repositoryId,
+      prNumber: 42,
+      trigger: "provider",
+      status: "done",
+      requestedByProviderLogin: "mario-rossi",
+      providerFeedback: [],
+      createdAt: new Date(Date.now() - 60 * 60_000),
+    });
+
+    await postGithub(fx, githubReview());
+    await postGithub(fx, githubReview());
+
+    expect(await systemCommentsOf(fx.ticketId)).toHaveLength(1);
+  });
+
+  it("una PR diversa sullo stesso ticket: commento nuovo", async () => {
+    const fx = await seedFixture({ reviewerUserId: null });
+    identityFails(GitHubProvider);
+    await postGithub(fx, githubReview());
+
+    // La PR #42 è stata chiusa e il fix ne ha aperta un'altra, la #43.
+    await testDb.db
+      .update(ticketRepositories)
+      .set({ prNumber: 43, prUrl: "https://github.com/acme/repo/pull/43" })
+      .where(eq(ticketRepositories.ticketId, fx.ticketId));
+    await postGithub(fx, githubReview({ prNumber: 43 }));
+
+    const rows = await systemCommentsOf(fx.ticketId);
+    expect(rows.map((r) => r.body.split("\n")[0])).toEqual([
+      "Changes requested on PR #42: no correction was started",
+      "Changes requested on PR #43: no correction was started",
+    ]);
+  });
+
+  it("scartato per un ALTRO motivo (evento dell'account principale, branch non di Stubwise): nessun commento", async () => {
+    const fx = await seedFixture();
+    identityMustNotBeCalled(GitHubProvider);
+
+    await postGithub(fx, githubReview({ actorId: MAIN_ID, login: "stubwise-bot" }));
+    expect(await systemCommentsOf(fx.ticketId)).toHaveLength(0);
+
+    const other = await seedFixture({ branch: "feature/login" });
+    await postGithub(other, githubReview({ branch: "feature/login" }));
+    expect(await systemCommentsOf(other.ticketId)).toHaveLength(0);
+  });
+
+  it("la scrittura del commento fallisce: 204 comunque, nessuna riga", async () => {
+    const fx = await seedFixture({ reviewerUserId: null });
+    identityFails(GitHubProvider);
+    // Un'app col DB che rifiuta le transazioni: l'avviso si scrive in una
+    // transazione (lock del dedup), il resto del ramo no. Verifica prima che
+    // la rotta non apra una transazione PRIMA del ramo "Request changes":
+    // se lo fa, restringi il Proxy (es. fallisci solo al secondo `transaction`).
+    const failingDb = new Proxy(testDb.db, {
+      get(target, prop, receiver) {
+        if (prop === "transaction") return () => Promise.reject(new Error("DB giù per il test"));
+        return Reflect.get(target, prop, receiver);
+      },
+    });
+    const faulty = buildApp({
+      db: failingDb,
+      sessionSecret: SESSION_SECRET,
+      encryptionKey: ENCRYPTION_KEY.toString("base64"),
+      publicUrl: "https://stubwise.example.com",
+    });
+    try {
+      const body = githubReview();
+      const res = await faulty.inject({
+        method: "POST",
+        url: `/webhooks/git/${fx.slug}`,
+        headers: {
+          "content-type": "application/json",
+          "x-github-event": "pull_request_review",
+          "x-github-delivery": newDelivery(),
+          "x-hub-signature-256": sign(fx.secret, body),
+        },
+        payload: body,
+      });
+      expect(res.statusCode).toBe(204);
+    } finally {
+      await faulty.close();
+    }
+    expect(await systemCommentsOf(fx.ticketId)).toHaveLength(0);
   });
 });
