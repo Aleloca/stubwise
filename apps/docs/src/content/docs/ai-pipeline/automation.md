@@ -536,13 +536,26 @@ Saving checks that the reviewer:
 - is on the **same platform** as the main account and, on Bitbucket, in the
   **same workspace**;
 - can read the repository's **pull requests** through the platform's API —
-  the only access check that counts for a reviewer, since it never pushes,
-  merges or manages webhooks (so a Bitbucket reviewer doesn't need a Bitbucket
-  username: the API token works with the Atlassian email). On GitHub this check
-  also needs **write access**: without it Stubwise refuses with *The review
-  account has no write access to the repository* — a reviewer that can only
-  read can neither approve nor request changes;
+  the reviewer never pushes, merges or manages webhooks, so those aren't
+  checked (and a Bitbucket reviewer doesn't need a Bitbucket username: the API
+  token works with the Atlassian email). On GitHub this check also needs
+  **write access**: without it Stubwise refuses with *The review account has
+  no write access to the repository* — a reviewer that can only read can
+  neither approve nor request changes;
+- on Bitbucket, has the [reviewer's scopes](#tokens-what-each-account-needs)
+  on its **token** (read from the same API response, no extra call): a missing
+  scope is refused and named. If Bitbucket doesn't declare the scopes — an app
+  password, for example — they're *not verifiable* and saving goes ahead;
 - can tell Stubwise who it is on the platform.
+
+:::note[Token scopes are not repository permissions]
+On Bitbucket these are the scopes of the **token**, not the user's permission
+on the repository: since Bitbucket removed the permissions endpoint
+(CHANGE-2770) write access to the repository can't be verified. A reviewer
+with read-only access — even with a token that has `write:pullrequest` —
+passes the checks and is found out at the first verdict, with a line saying
+the verdict wasn't submitted.
+:::
 
 If the main account is later changed so that the reviewer no longer matches
 its platform or workspace, the form shows the reviewer as *no longer valid*.
@@ -551,9 +564,10 @@ its platform or workspace, the form shows the reviewer as *no longer valid*.
 Saving can verify that the token **reads** pull requests, not that it can
 **write** them. A token with pull requests in read-only passes the check and
 fails at the first approve: the review then falls back to a comment from the
-main account, opening with *Verdict not submitted: the reviewer account does
-not have the required permissions*. Give the token write on pull requests from
-the start.
+main account, with a line saying the verdict wasn't submitted because the
+reviewer account lacks the required permissions. On Bitbucket the token's
+scopes are checked, so this mostly concerns GitHub and Bitbucket app
+passwords. Give the token write on pull requests from the start.
 :::
 
 #### A default reviewer for a platform or workspace
@@ -583,12 +597,13 @@ that have no review account of their own then use it.
   Stubwise must be able to read who the account is on the platform. Per
   repository, without blocking: the account is set anyway, and a list
   (*Set — but check these repositories:*) names the repositories where it
-  failed the checks — for example where it can't read the pull requests — or
-  where it is the main account, so the default doesn't apply. Where the checks
-  failed the review **still tries** with the default reviewer; if the verdict
-  can't be submitted, the comment comes from the main account, opening with
-  *Verdict not submitted*. Give the account access there, or choose a review
-  account in the repository form.
+  failed the same checks as an explicit reviewer (pull requests through the
+  API, on Bitbucket the token's scopes, identity) or where it is the main
+  account, so the default doesn't apply. Where the checks failed the review
+  **still tries** with the default reviewer; if the verdict can't be
+  submitted, the comment comes from the main account with a line saying so.
+  Give the account access there, or choose a review account in the repository
+  form.
 - **Saving a repository** that falls back on the default reviewer checks it on
   that repository too, and warns without blocking: *Saved, but the default
   reviewer didn't pass the checks on this repository…*.

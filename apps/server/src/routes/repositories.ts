@@ -205,11 +205,15 @@ async function mainIdentityWarnings(app: FastifyInstance, mainAccount: GitAccoun
 /**
  * Avviso NON bloccante sul revisore PREDEFINITO (1 ott 2026, piano P1-6): la
  * repository non ha un revisore esplicito e quello effettivo viene dal
- * predefinito del suo ambito — si verifica, con gli STESSI controlli di rete
- * dell'esplicito (`checkReviewAccount`), che possa davvero scrivere su QUESTA
- * repository. Un esito ko è un avviso, mai un blocco: l'admin non ha scelto
- * quell'account qui, e senza l'opzione «nessun revisore» un 422 renderebbe la
- * repository non salvabile. La review ricadrà su un commento del principale.
+ * predefinito del suo ambito — lo si verifica su QUESTA repository con gli
+ * STESSI controlli di rete dell'esplicito (`checkReviewAccount`: REST delle
+ * PR, scope del token su Bitbucket, identità). Un esito ko è un avviso, mai un
+ * blocco: l'admin non ha scelto quell'account qui, e senza l'opzione «nessun
+ * revisore» un 422 renderebbe la repository non salvabile. Il revisore
+ * effettivo resta comunque il predefinito: la review prova con lui, e solo se
+ * il verdetto non passa ripiega su un commento del principale (`publishReview`
+ * nel worker; con credenziali non decifrabili non prova affatto e commenta col
+ * principale).
  *
  * Il chiamante decide QUANDO (solo se è cambiato cosa va verificato): qui si
  * guarda solo se il predefinito è effettivo. Due esiti non producono questo

@@ -312,7 +312,7 @@ describe("GitAccountsSection — revisore predefinito", () => {
     // Dice cosa succede DAVVERO: la review prova comunque, e il ripiego è
     // il commento del principale con «Verdict not submitted».
     const consequence = screen.getByText(en.settings.gitAccounts.defaultReviewerWarningsConsequence);
-    expect(consequence.textContent).toContain("Verdict not submitted");
+    expect(consequence.textContent).toContain("still tries");
     expect(screen.queryByText(/won't review/)).not.toBeInTheDocument();
     await waitFor(async () => expect(await toggleOf("Account Demo")).toBeChecked());
   });
@@ -328,6 +328,30 @@ describe("GitAccountsSection — revisore predefinito", () => {
           account: makeAccount({ isDefaultReviewer: true }),
           replaced: null,
           warnings: [{ repositoryId: "r1", repositoryName: "shop-api", code: "default_is_main" }],
+        });
+      },
+    });
+
+    renderSection();
+    await screen.findByText("Account Demo");
+    await user.click(await toggleOf("Account Demo"));
+
+    expect(
+      await screen.findByRole("list", { name: en.settings.gitAccounts.defaultReviewerWarningsTitle }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(en.settings.gitAccounts.defaultReviewerWarningsConsequence)).not.toBeInTheDocument();
+  });
+  it("solo `review_credentials_undecryptable`: nessuna frase sul ripiego — il worker non prova affatto", async () => {
+    const user = userEvent.setup();
+    let put = 0;
+    mockApi({
+      "GET /api/git-accounts": () => jsonResponse(200, [makeAccount({ isDefaultReviewer: put > 0 })]),
+      [PUT_PATH]: () => {
+        put++;
+        return jsonResponse(200, {
+          account: makeAccount({ isDefaultReviewer: true }),
+          replaced: null,
+          warnings: [{ repositoryId: "r1", repositoryName: "shop-api", code: "review_credentials_undecryptable" }],
         });
       },
     });

@@ -898,11 +898,19 @@ describe("account revisore (ciclo di correzione, 30 set 2026)", () => {
   // Bitbucket (push KO «username mancante», o 401 con uno indovinato). Il
   // provider VERO dietro `validateCredentials`: solo `fetch` è doppiato, con
   // le risposte che Bitbucket ha dato davvero al revisore di prova.
-  function stubBitbucketFetch(r: { push?: number; rest: number; hooks?: number; merge?: number }) {
+  function stubBitbucketFetch(r: {
+    push?: number;
+    rest: number;
+    restHeaders?: Record<string, string>;
+    hooks?: number;
+    merge?: number;
+  }) {
     return vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
       if (url.includes(".git/info/refs")) return new Response("", { status: r.push ?? 200 });
-      if (url.includes("/pullrequests?pagelen=1")) return new Response("{}", { status: r.rest });
+      if (url.includes("/pullrequests?pagelen=1")) {
+        return new Response("{}", { status: r.rest, ...(r.restHeaders ? { headers: r.restHeaders } : {}) });
+      }
       if (url.includes("/hooks?pagelen=1")) return new Response("", { status: r.hooks ?? 403 });
       if (url.includes("/2.0/user/permissions/repositories")) {
         return new Response('{"type":"error","error":{"message":"Resource not found"}}', { status: r.merge ?? 404 });
@@ -956,6 +964,73 @@ describe("account revisore (ciclo di correzione, 30 set 2026)", () => {
 
     expect(res.statusCode).toBe(200);
     expect(await reviewColumn(slug)).toBe(reviewBb);
+  });
+
+  // Gli SCOPE DEL REVISORE sul TOKEN, dalla stessa risposta della REST.
+  const REVIEWER_SCOPES_HEADER =
+    "read:repository:bitbucket, write:repository:bitbucket, read:pullrequest:bitbucket, write:pullrequest:bitbucket, read:user:bitbucket";
+
+  it("Bitbucket, REST ok e scope del revisore completi sul token: 200", async () => {
+    const { slug, reviewBb } = await bitbucketPair({ email: "review@acme.test" });
+    stubBitbucketFetch({
+      rest: 200,
+      restHeaders: { "x-credential-type": "api_token", "x-oauth-scopes": REVIEWER_SCOPES_HEADER },
+    });
+
+    const res = await patch(slug, { reviewGitAccountId: reviewBb });
+
+    expect(res.statusCode).toBe(200);
+    expect(await reviewColumn(slug)).toBe(reviewBb);
+  });
+
+  it("Bitbucket, REST ok ma il token non ha write:pullrequest: 422 che nomina lo scope (del TOKEN)", async () => {
+    const { slug, reviewBb } = await bitbucketPair({ email: "review@acme.test" });
+    stubBitbucketFetch({
+      rest: 200,
+      restHeaders: {
+        "x-credential-type": "api_token",
+        "x-oauth-scopes": REVIEWER_SCOPES_HEADER.replace(", write:pullrequest:bitbucket", ""),
+      },
+    });
+
+    const res = await patch(slug, { reviewGitAccountId: reviewBb });
+
+    expect(res.statusCode).toBe(422);
+    const body = res.json() as { code: string; message: string };
+    expect(body.code).toBe("review_account_invalid");
+    expect(body.message).toContain("write:pullrequest:bitbucket");
+    expect(body.message).toContain("token's scopes, not the user's permission");
+    expect(await reviewColumn(slug)).toBeNull();
+  });
+
+  it("Bitbucket, header degli scope assente (app password): 200 — «non verificabile», non blocca", async () => {
+    const { slug, reviewBb } = await bitbucketPair({ username: "legacy", email: "review@acme.test" });
+    stubBitbucketFetch({ rest: 200, push: 200 });
+
+    const res = await patch(slug, { reviewGitAccountId: reviewBb });
+
+    expect(res.statusCode).toBe(200);
+    expect(await reviewColumn(slug)).toBe(reviewBb);
+  });
+
+  it("GitHub invariato: l'opzione degli scope arriva al provider ma non aggiunge check", async () => {
+    mockGithub();
+    vi.mocked(GitHubProvider.prototype.validateCredentials).mockRestore();
+    const fetchSpy = stubGithubRepoFetch(true);
+    const reviewerId = await newReviewer();
+    const slug = await newRepository();
+
+    const res = await patch(slug, { reviewGitAccountId: reviewerId });
+
+    expect(res.statusCode).toBe(200);
+    // Le stesse tre chiamate di sempre: nessuna per gli scope.
+    expect(fetchSpy.mock.calls.map(([u]) => String(u)).sort()).toEqual(
+      [
+        "https://api.github.com/repos/acme/sito-vetrina",
+        "https://api.github.com/repos/acme/sito-vetrina/hooks?per_page=1",
+        "https://github.com/acme/sito-vetrina.git/info/refs?service=git-receive-pack",
+      ].sort(),
+    );
   });
 
   it.each([403, 401])("Bitbucket, revisore SENZA accesso alle PR (REST %i): 422 review_account_invalid", async (status) => {

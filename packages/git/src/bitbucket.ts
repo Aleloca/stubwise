@@ -774,7 +774,7 @@ export class BitbucketProvider implements GitProvider {
 
   async validateCredentials(
     p: ProjectGitConfig,
-    opts: { fetchImpl?: FetchLike } = {}
+    opts: { fetchImpl?: FetchLike; requiredScopes?: readonly BitbucketScope[] } = {}
   ): Promise<CredentialCheck[]> {
     const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
     const { owner, repo } = parseRepoUrl(p.repoUrl);
@@ -817,6 +817,10 @@ export class BitbucketProvider implements GitProvider {
     // (gli API token autenticano su api.bitbucket.org come email, non come
     // username); fallback su username per le app password legacy.
     const restUser = email ?? username;
+    // La risposta 200 della REST, conservata fuori dalla closure come in
+    // `validateAccount`: i suoi header dicono gli scope CONCESSI al token,
+    // senza chiamate in più (vedi `requiredScopes` più sotto).
+    const restSeen: { ok: Response | null } = { ok: null };
     const restCheck: CredentialCheck = !restUser
       ? {
           name: "Accesso REST API (PR)",
@@ -830,6 +834,7 @@ export class BitbucketProvider implements GitProvider {
             { headers: { Authorization: basicAuthHeader(restUser, token) } }
           );
           if (r.status === 200) {
+            restSeen.ok = r;
             return { name: "Accesso REST API (PR)", ok: true, detail: "accesso REST e scope read:pullrequest:bitbucket ok" };
           }
           if (r.status === 401) {
@@ -956,11 +961,27 @@ export class BitbucketProvider implements GitProvider {
           };
         });
 
+    // Gli scope del TOKEN, solo se il chiamante li chiede (oggi il revisore,
+    // `checkReviewAccount`) e solo sul 200 della REST: su ogni altro status
+    // gli header non dicono niente di affidabile, e il check `rest` è già KO.
+    // Stessa regola di Validate (`bitbucketScopeChecks`): header assente o
+    // vuoto, o credenziale diversa da `api_token`, è un ok «non
+    // verificabile», mai un KO. Dice cosa il TOKEN può fare, NON il permesso
+    // dell'utente sul repository: quello, dopo CHANGE-2770, non è
+    // verificabile (vedi il check `merge` qui sopra).
+    const scopeChecks =
+      opts.requiredScopes !== undefined && restSeen.ok !== null
+        ? bitbucketScopeChecks(restSeen.ok.headers, opts.requiredScopes).map(
+            (check): CredentialCheck => ({ ...check, purpose: "scopes" })
+          )
+        : [];
+
     return [
       { ...gitCheck, purpose: "push" },
       { ...restCheck, purpose: "rest" },
       { ...webhookCheck, purpose: "webhook" },
       { ...mergeCheck, purpose: "merge" },
+      ...scopeChecks,
     ];
   }
 

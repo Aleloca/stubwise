@@ -1754,18 +1754,106 @@ describe("BitbucketProvider.validateCredentials", () => {
     expect(checks.every((c) => c.ok)).toBe(true);
   });
 
-  it("merge 500: resta un KO «risposta inattesa» (solo 404/410 sono l'endpoint dismesso)", async () => {
+  it.each([500, 403])("merge %i: resta un KO «risposta inattesa» (solo 404/410 sono l'endpoint dismesso)", async (status) => {
     const fetchImpl = routedFetch({
       git: () => new Response("", { status: 200 }),
       rest: () => new Response("{}", { status: 200 }),
       hooks: () => new Response("{}", { status: 200 }),
-      merge: () => new Response("", { status: 500 }),
+      merge: () => new Response("", { status }),
     });
     const checks = await new BitbucketProvider().validateCredentials(apiConfig, { fetchImpl });
 
     const merge = checks.find((c) => c.purpose === "merge")!;
     expect(merge.ok).toBe(false);
-    expect(merge.detail).toMatch(/status 500/);
+    expect(merge.detail).toContain(`status ${status}`);
+  });
+
+  // Scope del TOKEN sulla stessa risposta della REST (1 ott 2026): solo se il
+  // chiamante passa `requiredScopes` (il revisore), mai per il principale.
+  const REVIEWER = [
+    "read:repository:bitbucket",
+    "write:repository:bitbucket",
+    "read:pullrequest:bitbucket",
+    "write:pullrequest:bitbucket",
+    "read:user:bitbucket",
+  ] as const;
+  function restWithScopes(scopes: string | null, type = "api_token") {
+    const headers: Record<string, string> = scopes === null ? {} : { "x-credential-type": type, "x-oauth-scopes": scopes };
+    return () => new Response("{}", { status: 200, headers });
+  }
+
+  it("requiredScopes, scope completi: check `scopes` ok, nessuna chiamata in più", async () => {
+    const fetchImpl = routedFetch({
+      git: () => new Response("", { status: 200 }),
+      rest: restWithScopes(REVIEWER.join(", ")),
+      hooks: () => new Response("{}", { status: 200 }),
+      merge: () => new Response("", { status: 404 }),
+    });
+    const checks = await new BitbucketProvider().validateCredentials(apiConfig, { fetchImpl, requiredScopes: REVIEWER });
+
+    const scopes = checks.filter((c) => c.purpose === "scopes");
+    expect(scopes.length).toBeGreaterThan(0);
+    expect(scopes.every((c) => c.ok)).toBe(true);
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
+  });
+
+  it("requiredScopes, manca write:pullrequest: check `scopes` KO che lo nomina", async () => {
+    const fetchImpl = routedFetch({
+      git: () => new Response("", { status: 200 }),
+      rest: restWithScopes(REVIEWER.filter((s) => s !== "write:pullrequest:bitbucket").join(", ")),
+      hooks: () => new Response("{}", { status: 200 }),
+      merge: () => new Response("", { status: 404 }),
+    });
+    const checks = await new BitbucketProvider().validateCredentials(apiConfig, { fetchImpl, requiredScopes: REVIEWER });
+
+    const failed = checks.filter((c) => c.purpose === "scopes" && !c.ok);
+    expect(failed).toHaveLength(1);
+    expect(failed[0]!.detail).toContain("write:pullrequest:bitbucket");
+  });
+
+  it.each([
+    ["header assente (app password)", restWithScopes(null)],
+    ["header vuoto", restWithScopes("")],
+    ["credenziale non api_token", restWithScopes("read:repository:bitbucket", "app_password")],
+  ])("requiredScopes, %s: un solo check `scopes` ok «non verificabile», mai «manca tutto»", async (_label, rest) => {
+    const fetchImpl = routedFetch({
+      git: () => new Response("", { status: 200 }),
+      rest,
+      hooks: () => new Response("{}", { status: 200 }),
+      merge: () => new Response("", { status: 404 }),
+    });
+    const checks = await new BitbucketProvider().validateCredentials(apiConfig, { fetchImpl, requiredScopes: REVIEWER });
+
+    const scopes = checks.filter((c) => c.purpose === "scopes");
+    expect(scopes).toHaveLength(1);
+    expect(scopes[0]!.ok).toBe(true);
+    expect(scopes[0]!.detail).toMatch(/non verificabili/);
+  });
+
+  it("senza requiredScopes (principale, Validate): nessun check `scopes`, anche con gli header", async () => {
+    const fetchImpl = routedFetch({
+      git: () => new Response("", { status: 200 }),
+      rest: restWithScopes("read:pullrequest:bitbucket"),
+      hooks: () => new Response("{}", { status: 200 }),
+      merge: () => new Response("", { status: 404 }),
+    });
+    const checks = await new BitbucketProvider().validateCredentials(apiConfig, { fetchImpl });
+
+    expect(checks.map((c) => c.purpose)).toEqual(["push", "rest", "webhook", "merge"]);
+    expect(checks.every((c) => c.ok)).toBe(true);
+  });
+
+  it("requiredScopes con REST 403: nessun check `scopes` (gli header di un errore non dicono niente)", async () => {
+    const fetchImpl = routedFetch({
+      git: () => new Response("", { status: 200 }),
+      rest: () => new Response("", { status: 403, headers: { "x-credential-type": "api_token", "x-oauth-scopes": "x" } }),
+      hooks: () => new Response("{}", { status: 200 }),
+      merge: () => new Response("", { status: 404 }),
+    });
+    const checks = await new BitbucketProvider().validateCredentials(apiConfig, { fetchImpl, requiredScopes: REVIEWER });
+
+    expect(checks.some((c) => c.purpose === "scopes")).toBe(false);
+    expect(checks.find((c) => c.purpose === "rest")!.ok).toBe(false);
   });
 
   it("hooks 403: check webhook ok:false con guida sullo scope, ma advisory", async () => {

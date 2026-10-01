@@ -539,8 +539,8 @@ function DefaultReviewerOutcome({ result }: { result: DefaultReviewerResult }) {
               il revisore effettivo resta il predefinito, e il worker ripiega
               sul commento del principale solo se il verdetto non passa
               (`publishReview`, apps/worker/src/review/cycle.ts). Non vale
-              per `default_is_main`, dove il predefinito non si applica. */}
-          {warnings.some((warning) => warning.code !== "default_is_main") && (
+              per i codici in `NO_FALLBACK_LINE_CODES`. */}
+          {warnings.some((warning) => !NO_FALLBACK_LINE_CODES.has(warning.code)) && (
             <p className="mt-1 wrap-anywhere">{t("settings:gitAccounts.defaultReviewerWarningsConsequence")}</p>
           )}
         </div>
@@ -548,6 +548,15 @@ function DefaultReviewerOutcome({ result }: { result: DefaultReviewerResult }) {
     </>
   );
 }
+
+/**
+ * Gli avvisi per cui la frase «la review prova comunque, e se il verdetto non
+ * passa…» sarebbe FALSA: `default_is_main` (lì il predefinito non si applica)
+ * e `review_credentials_undecryptable` — il worker con credenziali non
+ * decifrabili non prova affatto (`loadReviewerProject` ritorna null) e il
+ * commento del principale esce SENZA la riga sul verdetto.
+ */
+const NO_FALLBACK_LINE_CODES: ReadonlySet<string> = new Set(["default_is_main", "review_credentials_undecryptable"]);
 
 // Sentinella come in `translateApiError`: distingue «chiave mancante» da una
 // traduzione vuota.

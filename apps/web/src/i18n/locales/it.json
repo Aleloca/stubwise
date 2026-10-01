@@ -983,7 +983,7 @@
       "defaultReviewerReplaced": "Ora è il revisore predefinito, al posto di {{name}}.",
       "defaultReviewerRemoved": "Non è più il revisore predefinito.",
       "defaultReviewerWarningsTitle": "Impostato — ma controlla queste repository:",
-      "defaultReviewerWarningsConsequence": "Dove i controlli sono falliti la review prova comunque con questo account; se il verdetto non si può apporre, il commento esce dall'account principale e si apre con «Verdetto non apposto».",
+      "defaultReviewerWarningsConsequence": "Dove i controlli sono falliti la review prova comunque con questo account; se il verdetto non si può apporre, il commento esce dall'account principale, con una riga che dice che il verdetto non è stato apposto.",
       "defaultReviewerWarningUnknown": "verifica non superata ({{code}})",
       "defaultReviewerWarning": {
         "default_is_main": "è l'account principale di questa repository, quindi qui il predefinito non si applica",
@@ -1794,7 +1794,7 @@
       "webhookConfiguredAt": "✓ Webhook configurato il {{date}}",
       "webhookNotConfigured": "— Webhook non configurato",
       "readOnlyHint": "// sola lettura: la configurazione la modificano i maintainer",
-      "defaultReviewInvalidWarning": "Salvato, ma il revisore predefinito non ha superato i controlli su questa repository. La review prova comunque con questo account; se il verdetto non si può apporre, il commento esce dall'account principale e si apre con «Verdetto non apposto». Controlla il suo accesso alle pull request di questa repository, oppure scegli un account revisore."
+      "defaultReviewInvalidWarning": "Salvato, ma il revisore predefinito non ha superato i controlli su questa repository, quindi il suo verdetto potrebbe non passare: in quel caso la review è un commento dell'account principale. Controlla il suo accesso alle pull request di questa repository e il suo token, oppure scegli un account revisore."
     },
     "form": {
       "name": "Nome",

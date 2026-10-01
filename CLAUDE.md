@@ -1618,8 +1618,10 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   ambito, tolto nella STESSA transazione, e `warnings` sono avvisi per
   repository `{ repositoryId, repositoryName, code }`, con `code` =
   `default_is_main` o un codice di `checkReviewAccount` — che per il revisore
-  guarda SOLO l'accesso REST alle PR, identità e scope, mai push/merge/webhook:
-  vedi la voce «I controlli del revisore guardano solo la REST») e
+  guarda SOLO la REST delle PR, l'identità e, su Bitbucket, gli scope del
+  TOKEN («non verificabili», quindi non bloccanti, se l'header manca), mai
+  push/merge/webhook; il permesso di scrittura sul repository non è verificabile su Bitbucket dopo CHANGE-2770; un revisore in sola lettura si scopre al primo verdetto, con "Verdetto non apposto"; vedi la voce «I controlli del revisore:
+  REST delle PR e scope del token») e
   `DELETE /api/git-accounts/:id/default-reviewer` (toglie, idempotente, 204).
   **Codici d'errore nuovi**: `default_reviewer_workspace_missing` (422,
   Bitbucket senza workspace), `default_reviewer_invalid` (422, un check di
@@ -1705,10 +1707,10 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   di quella PR come feedback (un doppione della review che l'AI riceve già dal
   DB, non un innesco). Per **spegnere la funzione senza toccare immagini**:
   togliere il predefinito dalla UI.
-- **«I controlli del revisore guardano solo la REST» (1 ott 2026)**: rebuild
-  **server + caddy**; il **worker resta fuori, verificato**: l'unico codice
-  runtime toccato in `packages/git` è `validateCredentials`, che il worker non
-  chiama mai (lo nomina solo il doppio di
+- **«I controlli del revisore: REST delle PR e scope del token» (1 ott
+  2026)**: rebuild **server + caddy**; il **worker resta fuori, verificato**:
+  l'unico codice runtime toccato in `packages/git` è `validateCredentials`,
+  che il worker non chiama mai (lo nomina solo il doppio di
   `apps/worker/src/review/correction-cycle.integration.test.ts`; i suoi
   chiamanti sono `checkReviewAccount` e Validate del server) — un'immagine
   worker col `packages/git` vecchio non si comporta diversamente. Caddy per
@@ -1723,24 +1725,39 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   `checkReviewAccount` escludeva solo `purpose: "webhook"`, così anche `push`
   (KO per un revisore senza username Bitbucket — con un API token l'identità
   REST è l'email) e `merge` facevano fallire il revisore. **Correzione**:
-  `checkReviewAccount` tiene una **ALLOW-LIST** (`REVIEWER_CHECK_PURPOSES`,
-  oggi il solo `rest`), non una lista di esclusioni — un check nuovo NON entra
-  per default fra quelli che bocciano il revisore; su GitHub il `rest` porta
-  ancora `failure: "no_write_permission"` da `permissions.push`, e resta il
-  controllo giusto (approvare vuole la scrittura). Il check `merge` di
-  Bitbucket con 404/410 è un ok «non verificabile» (anche per l'account
-  PRINCIPALE nella validazione della repository: mai un KO falso); gli altri
-  status restano com'erano. Non esiste un sostituto affidabile per un account
-  in sola scrittura: gli endpoint per-repository dei permessi
-  (`permissions-config`) vogliono Admin. Gli avvisi ora dicono cosa succede
+  `checkReviewAccount` tiene una **ALLOW-LIST** (`REVIEWER_CHECK_PURPOSES`:
+  `rest` e `scopes`), non una lista di esclusioni — un check nuovo NON entra
+  per default fra quelli che bocciano il revisore. **I controlli del
+  revisore, gli stessi in docblock, guida e avvisi**: (a) la REST delle PR
+  (`rest`; su GitHub porta ancora `failure: "no_write_permission"` da
+  `permissions.push`, il controllo giusto: approvare vuole la scrittura); (b)
+  l'identità sulla piattaforma, diversa da quella del principale; (c) solo su
+  Bitbucket gli **scope del TOKEN** (`BITBUCKET_REVIEWER_SCOPES`), letti
+  dall'`x-oauth-scopes` della stessa risposta 200 della REST — nessuna
+  chiamata in più — con la regola di Validate (`bitbucketScopeChecks`):
+  header assente o vuoto, o credenziale non `api_token` (app password) = ok
+  «non verificabile», mai un blocco. Ci arrivano con l'opzione
+  `requiredScopes` di `validateCredentials` (gemella di quella di
+  `validateAccount`) e `purpose: "scopes"`: **senza l'opzione nessun check in
+  più**, quindi il principale e Validate (`validate-repo`, che non la passa)
+  vedono esattamente i quattro check di prima — scelta preferita a un
+  `purpose` sempre presente, che avrebbe aggiunto check alla validazione del
+  principale. ⚠️ Sono gli scope del TOKEN, non il permesso dell'utente: il permesso di scrittura sul repository non è verificabile su Bitbucket dopo CHANGE-2770; un revisore in sola lettura si scopre al primo verdetto, con "Verdetto non apposto". Un utente in sola lettura con un token che ha
+  `write:pullrequest` passa comunque. Prima lo fermavano push e merge, che
+  però bocciavano anche chi poteva. Il check `merge` di Bitbucket con 404/410
+  è un ok «non verificabile» (anche per l'account PRINCIPALE nella
+  validazione della repository: mai un KO falso); gli altri status (401,
+  403, 500…) restano KO. Non esiste un sostituto affidabile per un account in
+  sola scrittura: gli endpoint per-repository dei permessi
+  (`permissions-config`) vogliono Admin. Gli avvisi dicono cosa succede
   davvero: la review prova comunque col revisore effettivo, e se il verdetto
-  non passa il commento esce dal principale con «Verdetto non apposto»
-  (`publishReview`, `apps/worker/src/review/cycle.ts`). ⚠️ Conseguenza da
-  sapere: su Bitbucket la REST delle PR passa anche con il solo permesso di
-  LETTURA, quindi un revisore read-only non è più fermato al salvataggio — se
-  poi il verdetto non gli passa, lo dice il primo («Verdetto non apposto»).
-  Prima lo fermavano push e merge, che però bocciavano anche chi poteva. **Rollback innocuo**:
-  tornano i KO falsi, niente da ripulire.
+  non passa il commento esce dal principale con una riga che lo dice
+  (`publishReview`, `apps/worker/src/review/cycle.ts`, nella lingua
+  dell'istanza). Eccezione: con `review_credentials_undecryptable` il worker
+  non prova affatto (`loadReviewerProject` ritorna null) e commenta col
+  principale SENZA quella riga — la frase sul ripiego non compare per quel
+  codice né per `default_is_main`. **Rollback innocuo**: tornano i KO falsi,
+  niente da ripulire.
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
