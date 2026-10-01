@@ -14757,6 +14757,24 @@ git commit -m "test(worker): ciclo review → correzione di un capo all'altro, t
 
 ### C13 — Golden: scenario `correction` e rilancio manuale
 
+> **Esito del lancio manuale — 1 ott 2026** (plugin superpowers `v4.0.3`,
+> sha `b9e16498b9b6b06defa34cf0d6d345cd2c13ad31`, CLI `claude` 2.1.286; costo
+> complessivo circa 0,6 $):
+>
+> - `correction`: **verde 9/9 in due run separati**. Il diff è un solo test
+>   aggiunto in `test/cart.check.js` (sconto e spedizione insieme),
+>   `src/cart.js` intatto, `STUBWISE_REPORT.md` nella radice; il report
+>   distingue il punto della review che era una conferma da quello che
+>   chiedeva una modifica.
+> - `plan-only` ed `execute`: verdi.
+> - `ask-user`: **rosso** sul solo controllo «ask_user chiamato» (3 run su 3
+>   sul branch), tutti gli altri verdi. **Rosso identico su main** (`e593ae8d`,
+>   2 run su 2): l'agente giudica ovvio il bivio 8,19 €/8,20 € e scrive nel
+>   piano «Nessuna ask_user». Non è una regressione di questo branch: dipende
+>   dal modello/CLI attuale. Voce di backlog
+>   https://stubwise.thecove.it/backlog/ff380b70-260e-49de-abaa-89b02886ec39
+>   (ridisegnare la fixture o rafforzare la guida su `ask_user`).
+
 Il prompt nuovo va coperto dall'unica verifica del comportamento del modello coi
 plugin caricati (CLAUDE.md, «Scenari golden»): la correzione è un run di
 esecuzione nel perimetro plugin, e le skill di terze parti che spingono a
