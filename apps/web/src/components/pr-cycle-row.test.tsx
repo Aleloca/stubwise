@@ -87,6 +87,32 @@ describe("PrCycleRow", () => {
     expect(screen.getByRole("button", { name: "Apply corrections" })).toBeEnabled();
   });
 
+  // happy-dom non fa layout: si verifica la CLASSE, l'unica cosa che decide
+  // se un'email lunga del richiedente va a capo invece di allargare la pagina
+  // su 320px. `min-w-0` perché la riga è un elemento flex.
+  it("la riga di stato va a capo anche dentro una parola lunga (email)", () => {
+    renderRow(cycle({ state: "correcting", round: 2 }));
+    const line = screen.getByText("Round 2 of 3 · correction in progress");
+    expect(line).toHaveClass("min-w-0", "wrap-anywhere");
+  });
+
+  it("e così l'errore della richiesta", async () => {
+    const user = userEvent.setup();
+    fetchMock.mockResolvedValue(jsonResponse(409, { code: "correction_in_flight", message: "busy" }));
+    renderRow(cycle());
+    await user.click(screen.getByRole("button", { name: "Apply corrections" }));
+    await user.click(screen.getByRole("button", { name: "Start correction" }));
+    expect(await screen.findByRole("alert")).toHaveClass("min-w-0", "wrap-anywhere");
+  });
+
+  it("e l'errore della ripresa", async () => {
+    const user = userEvent.setup();
+    fetchMock.mockResolvedValue(jsonResponse(409, { code: "job_in_flight", message: "busy" }));
+    renderRow(heldCycle());
+    await user.click(screen.getByRole("button", { name: "Resume correction" }));
+    expect(await screen.findByRole("alert")).toHaveClass("min-w-0", "wrap-anywhere");
+  });
+
   it("la nota ha un tetto di 4000 caratteri", async () => {
     const user = userEvent.setup();
     renderRow(cycle());

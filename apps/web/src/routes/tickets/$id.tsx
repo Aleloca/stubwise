@@ -320,6 +320,12 @@ export function TicketDetailPage() {
   // correzione. Se il ticket ricaricato mostra quel job ormai terminale, il
   // ciclo non lo dichiara più fermo e il rilancio generico torna, onestamente,
   // come fix nuovo.
+  // Il caso inverso, accettato: ticket già ricaricato ma lista dei job ancora
+  // vecchia (correzione appena annullata, ultimo job visto ancora `held`). Il
+  // ciclo non dichiara più fermo quel job, quindi il rilancio generico può
+  // ricomparire per un attimo e, premuto, avviare un fix nuovo. È raro perché
+  // ogni azione invalida entrambe le query; accettato come il caso analogo
+  // dell'inbox (vedi «Decisioni e rischi» nel piano).
   // DIFESA NEL PUNTO DI LETTURA (`lib/api.ts` fa un cast): da un server senza
   // il ciclo `cycle` e `heldJobId` arrivano `undefined`, e la regola tace.
   const latestJobIsHeldCorrection =

@@ -102,7 +102,14 @@ export function PrCycleRow({ ticketId, repositoryId, cycle }: PrCycleRowProps) {
   return (
     <div className="flex basis-full flex-col gap-2" data-testid={`pr-cycle-${repositoryId}`}>
       <div className="flex flex-wrap items-center gap-3">
-        <span className={`font-mono text-[11px] ${PR_CYCLE_TONE_CLASS[line.tone]}`}>{text}</span>
+        {/* `min-w-0 wrap-anywhere`: la riga può contenere l'email del
+            richiedente, che senza punti di rottura su 320px allargherebbe la
+            pagina (scroll orizzontale). */}
+        <span
+          className={`min-w-0 font-mono text-[11px] wrap-anywhere ${PR_CYCLE_TONE_CLASS[line.tone]}`}
+        >
+          {text}
+        </span>
         {!open && (
           <button
             type="button"
@@ -176,12 +183,12 @@ export function PrCycleRow({ ticketId, repositoryId, cycle }: PrCycleRowProps) {
         </div>
       )}
       {mutation.isError && (
-        <span role="alert" className="font-mono text-[12px] text-danger">
+        <span role="alert" className="min-w-0 font-mono text-[12px] wrap-anywhere text-danger">
           {translateApiError(mutation.error, t)}
         </span>
       )}
       {resumeMutation.isError && (
-        <span role="alert" className="font-mono text-[12px] text-danger">
+        <span role="alert" className="min-w-0 font-mono text-[12px] wrap-anywhere text-danger">
           {resumeErrorText(resumeMutation.error, t)}
         </span>
       )}
