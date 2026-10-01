@@ -117,6 +117,9 @@ describe("POST /api/projects", () => {
       gitAccountName: "Account GitHub",
       // Nessun account revisore alla creazione, se non indicato.
       reviewGitAccountId: null,
+      // Nessun revisore effettivo: né esplicito né un predefinito nell'ambito.
+      effectiveReviewAccount: null,
+      skippedDefaultReviewAccount: null,
       testCommand: null,
       installCommand: null,
       webhookConfiguredAt: null,
@@ -1230,5 +1233,208 @@ describe("account revisore (ciclo di correzione, 30 set 2026)", () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.json()).not.toHaveProperty("warnings");
+  });
+});
+
+describe("revisore EFFETTIVO nella proiezione (1 ott 2026)", () => {
+  /** Un progetto suo: la lista si filtra lì, così le repository degli altri test non entrano. */
+  let derivedProjectId: string;
+  /** Principale GitHub delle repository di questo blocco. */
+  let mainId: string;
+  /** Revisore esplicito. */
+  let explicitId: string;
+  /** Predefinito dell'ambito GitHub. */
+  let defaultId: string;
+
+  beforeAll(async () => {
+    const [project] = await testDb.db
+      .insert(projects)
+      .values({ name: "Derivati", slug: "derivati-revisore", ingestionKey: randomBytes(16).toString("hex") })
+      .returning({ id: projects.id });
+    derivedProjectId = project!.id;
+    mainId = await createAccount({
+      name: "Principale derivati",
+      provider: "github",
+      credentials: { username: "main-bot", token: PLAINTEXT_TOKEN },
+    });
+    explicitId = await createAccount({
+      name: "Revisore esplicito",
+      provider: "github",
+      credentials: { username: "explicit-bot", token: PLAINTEXT_TOKEN },
+    });
+    defaultId = await createAccount({
+      name: "Revisore predefinito",
+      provider: "github",
+      credentials: { username: "default-bot", token: PLAINTEXT_TOKEN },
+    });
+  });
+
+  beforeEach(async () => {
+    // L'identità in cache tiene la rete fuori da ogni controllo del principale.
+    await testDb.db.update(gitAccounts).set({ providerUserId: "9001" }).where(eq(gitAccounts.id, mainId));
+    await testDb.db.update(gitAccounts).set({ isDefaultReviewer: true }).where(eq(gitAccounts.id, defaultId));
+  });
+
+  afterEach(async () => {
+    // Un predefinito lasciato acceso cambierebbe il revisore EFFETTIVO di ogni
+    // repository GitHub degli altri blocchi.
+    await testDb.db.update(gitAccounts).set({ isDefaultReviewer: false });
+  });
+
+  /** Inserita direttamente: questa è la PROIEZIONE, non la validazione del form. */
+  async function insertRepository(gitAccountId: string, reviewGitAccountId: string | null = null) {
+    const name = `Derivata ${randomBytes(3).toString("hex")}`;
+    const [row] = await testDb.db
+      .insert(repositories)
+      .values({
+        projectId: derivedProjectId,
+        name,
+        slug: name.toLowerCase().replace(/\s+/g, "-"),
+        provider: "github",
+        gitAccountId,
+        reviewGitAccountId,
+        repoUrl: "https://github.com/acme/derivata",
+        defaultBranch: "main",
+        webhookSecret: randomBytes(16).toString("hex"),
+      })
+      .returning();
+    return row!;
+  }
+
+  /** Validazione del revisore e identità: tutto ok, senza rete. */
+  function mockGithubOk() {
+    vi.spyOn(GitHubProvider.prototype, "validateCredentials").mockResolvedValue([
+      { name: "Accesso git (push)", ok: true, detail: "ok", purpose: "push" },
+      { name: "Permessi repository (PR e merge)", ok: true, detail: "ok", purpose: "rest" },
+    ]);
+    vi.spyOn(GitHubProvider.prototype, "getAuthenticatedUserId").mockImplementation(async (p) =>
+      p.credentials.username === "main-bot" ? "9001" : `id-${p.credentials.username ?? ""}`,
+    );
+  }
+
+  type Derived = {
+    slug: string;
+    effectiveReviewAccount: { id: string; name: string; source: string } | null;
+    skippedDefaultReviewAccount: { id: string; name: string } | null;
+  };
+
+  it("lista: esplicito, predefinito, nessuno e predefinito = principale, ognuno col suo", async () => {
+    const withExplicit = await insertRepository(mainId, explicitId);
+    const withDefault = await insertRepository(mainId);
+    // Il predefinito è principale qui: non si applica, e lo si dice.
+    const defaultIsMain = await insertRepository(defaultId);
+    // Nessun predefinito nell'ambito Bitbucket: nessun revisore.
+    const name = `Derivata bb ${randomBytes(3).toString("hex")}`;
+    const [none] = await testDb.db
+      .insert(repositories)
+      .values({
+        projectId: derivedProjectId,
+        name,
+        slug: name.toLowerCase().replace(/\s+/g, "-"),
+        provider: "bitbucket",
+        gitAccountId: bitbucketAccountId,
+        repoUrl: "https://bitbucket.org/acme/derivata",
+        defaultBranch: "main",
+        webhookSecret: randomBytes(16).toString("hex"),
+      })
+      .returning();
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/repositories?projectId=${derivedProjectId}`,
+      headers: { cookie: memberCookie },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const bySlug = new Map((res.json() as Derived[]).map((r) => [r.slug, r]));
+    expect(bySlug.get(withExplicit.slug)).toMatchObject({
+      effectiveReviewAccount: { id: explicitId, name: "Revisore esplicito", source: "explicit" },
+      skippedDefaultReviewAccount: null,
+    });
+    expect(bySlug.get(withDefault.slug)).toMatchObject({
+      effectiveReviewAccount: { id: defaultId, name: "Revisore predefinito", source: "default" },
+      skippedDefaultReviewAccount: null,
+    });
+    expect(bySlug.get(defaultIsMain.slug)).toMatchObject({
+      effectiveReviewAccount: null,
+      skippedDefaultReviewAccount: { id: defaultId, name: "Revisore predefinito" },
+    });
+    expect(bySlug.get(none!.slug)).toMatchObject({
+      effectiveReviewAccount: null,
+      skippedDefaultReviewAccount: null,
+    });
+  });
+
+  it("i sotto-oggetti hanno SOLO id, nome (e fonte): niente credenziali né identità", async () => {
+    await testDb.db.update(gitAccounts).set({ providerUserId: "segreto-7777" }).where(eq(gitAccounts.id, defaultId));
+    const withDefault = await insertRepository(mainId);
+    const defaultIsMain = await insertRepository(defaultId);
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/repositories?projectId=${derivedProjectId}`,
+      headers: { cookie: memberCookie },
+    });
+
+    const bySlug = new Map((res.json() as Derived[]).map((r) => [r.slug, r]));
+    expect(Object.keys(bySlug.get(withDefault.slug)!.effectiveReviewAccount!).sort()).toEqual(["id", "name", "source"]);
+    expect(Object.keys(bySlug.get(defaultIsMain.slug)!.skippedDefaultReviewAccount!).sort()).toEqual(["id", "name"]);
+    expect(res.body).not.toContain("encryptedCredentials");
+    expect(res.body).not.toContain("providerUserId");
+    expect(res.body).not.toContain("segreto-7777");
+    expect(res.body).not.toContain("isDefaultReviewer");
+  });
+
+  it("GET /:slug porta gli stessi campi", async () => {
+    const withDefault = await insertRepository(mainId);
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/repositories/${withDefault.slug}`,
+      headers: { cookie: memberCookie },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      effectiveReviewAccount: { id: defaultId, name: "Revisore predefinito", source: "default" },
+      skippedDefaultReviewAccount: null,
+    });
+  });
+
+  it("POST porta gli stessi campi", async () => {
+    mockGithubOk();
+
+    const res = await createProject({
+      projectId: derivedProjectId,
+      name: `Creata ${randomBytes(3).toString("hex")}`,
+      gitAccountId: defaultId,
+      repoUrl: "https://github.com/acme/creata",
+    });
+
+    expect(res.statusCode).toBe(201);
+    expect(res.json()).toMatchObject({
+      effectiveReviewAccount: null,
+      skippedDefaultReviewAccount: { id: defaultId, name: "Revisore predefinito" },
+    });
+  });
+
+  it("PATCH porta gli stessi campi, ricalcolati DOPO il salvataggio", async () => {
+    mockGithubOk();
+    const withExplicit = await insertRepository(mainId, explicitId);
+
+    // Toglie l'esplicito: da quel momento vale il predefinito.
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/repositories/${withExplicit.slug}`,
+      headers: { cookie: adminCookie },
+      payload: { reviewGitAccountId: null },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      reviewGitAccountId: null,
+      effectiveReviewAccount: { id: defaultId, name: "Revisore predefinito", source: "default" },
+      skippedDefaultReviewAccount: null,
+    });
   });
 });

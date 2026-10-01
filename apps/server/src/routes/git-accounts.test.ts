@@ -59,6 +59,8 @@ describe("POST /api/git-accounts", () => {
       name: "Account GitHub",
       provider: "github",
       workspace: null,
+      // Nessun account nasce revisore predefinito: lo si marca con la sua rotta.
+      isDefaultReviewer: false,
       createdAt: expect.any(String),
     });
     expect(res.body).not.toContain("credentials");
@@ -127,6 +129,23 @@ describe("GET /api/git-accounts", () => {
     expect(body.length).toBeGreaterThanOrEqual(2);
     expect(res.body).not.toContain(PLAINTEXT_TOKEN);
     expect(res.body).not.toContain("credentials");
+  });
+
+  it("porta `isDefaultReviewer` di ogni account (1 ott 2026)", async () => {
+    const created = await createAccount({ ...basePayload, name: "Predefinito in lista" });
+    const id = (created.json() as { id: string }).id;
+    await testDb.db.update(gitAccounts).set({ isDefaultReviewer: true }).where(eq(gitAccounts.id, id));
+    try {
+      const res = await app.inject({ method: "GET", url: "/api/git-accounts", headers: { cookie: memberCookie } });
+      expect(res.statusCode).toBe(200);
+      const body = res.json() as { id: string; isDefaultReviewer: boolean }[];
+      expect(body.find((a) => a.id === id)?.isDefaultReviewer).toBe(true);
+      // Gli altri no: il flag è per account, non un valore costante.
+      expect(body.filter((a) => a.id !== id).every((a) => a.isDefaultReviewer === false)).toBe(true);
+    } finally {
+      // L'indice ammette un solo predefinito per ambito: non lasciarlo ai test dopo.
+      await testDb.db.update(gitAccounts).set({ isDefaultReviewer: false }).where(eq(gitAccounts.id, id));
+    }
   });
 
   it("senza sessione: 401", async () => {

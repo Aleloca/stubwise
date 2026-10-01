@@ -8,7 +8,13 @@ import { z } from "zod";
 import { requireAdmin, requireAuth } from "../auth/session.js";
 import { GitProviderError } from "@stubwise/git";
 import { decrypt, gitAccounts, projects, repositories } from "@stubwise/db";
-import { decryptGitCredentials, resolveProviderUserId } from "@stubwise/notifications";
+import {
+  decryptGitCredentials,
+  resolveProviderUserId,
+  resolveReviewAccounts,
+  type ReviewAccountResolution,
+  type ReviewAccountView,
+} from "@stubwise/notifications";
 import { fetchPlatformIdentity } from "../services/platform-identity.js";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
 import { apiError } from "../errors.js";
@@ -117,6 +123,8 @@ function slugify(name: string): string {
 
 type RepositoryRow = typeof repositories.$inferSelect;
 
+type ReviewResolution = ReviewAccountResolution<ReviewAccountView>;
+
 /**
  * Proiezione pubblica di un repository: campi elencati esplicitamente, mai
  * spread della riga. Le credenziali non vivono sul repository (stanno
@@ -125,11 +133,20 @@ type RepositoryRow = typeof repositories.$inferSelect;
  * impostazioni di prodotto (provider AI, auto-update docs) e l'ingestion
  * (`ingestionKey`, numerazione ticket) sono salite al progetto (Fase 3) e NON
  * fanno più parte di questa proiezione.
+ *
+ * `review` è il revisore EFFETTIVO calcolato da `resolveReviewAccounts` (1 ott
+ * 2026): se ne copiano SOLO id, nome e fonte — la risoluzione porta anche
+ * provider, workspace e identità sulla piattaforma, che il client non deve
+ * vedere. `undefined` (repository sparita fra le due letture) = nessun
+ * revisore, mai un errore.
  */
 function toPublicRepository(
   row: RepositoryRow,
   gitAccountName: string,
+  review: ReviewResolution | undefined,
 ): z.infer<typeof repositorySchema> {
+  const effective = review?.effective ?? null;
+  const skipped = review?.skippedDefault ?? null;
   return {
     id: row.id,
     projectId: row.projectId,
@@ -141,6 +158,11 @@ function toPublicRepository(
     gitAccountId: row.gitAccountId,
     gitAccountName,
     reviewGitAccountId: row.reviewGitAccountId,
+    effectiveReviewAccount:
+      effective === null
+        ? null
+        : { id: effective.account.id, name: effective.account.name, source: effective.source },
+    skippedDefaultReviewAccount: skipped === null ? null : { id: skipped.id, name: skipped.name },
     testCommand: row.testCommand,
     installCommand: row.installCommand,
     webhookConfiguredAt: row.webhookConfiguredAt?.toISOString() ?? null,
@@ -433,8 +455,9 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
           // L'account può aver appena salvato la sua identità in
           // `checkReviewAccount`: si rilegge, così l'avviso guarda la cache vera.
           const [mainAccount] = await app.db.select().from(gitAccounts).where(eq(gitAccounts.id, account.id));
+          const review = await resolveReviewAccounts(app.db, [created.id]);
           return await reply.code(201).send({
-            ...toPublicRepository(created, account.name),
+            ...toPublicRepository(created, account.name, review.get(created.id)),
             warnings: await mainIdentityWarnings(app, mainAccount ?? account),
           });
         } catch (error) {
@@ -463,7 +486,12 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
         .innerJoin(gitAccounts, eq(repositories.gitAccountId, gitAccounts.id))
         .where(projectId ? eq(repositories.projectId, projectId) : undefined)
         .orderBy(repositories.createdAt);
-      return rows.map((r) => toPublicRepository(r.repository, r.gitAccountName));
+      // UNA risoluzione per tutta la lista (due query), mai una per riga.
+      const reviews = await resolveReviewAccounts(
+        app.db,
+        rows.map((r) => r.repository.id),
+      );
+      return rows.map((r) => toPublicRepository(r.repository, r.gitAccountName, reviews.get(r.repository.id)));
     },
   );
 
@@ -483,7 +511,8 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
         .innerJoin(gitAccounts, eq(repositories.gitAccountId, gitAccounts.id))
         .where(eq(repositories.slug, request.params.slug));
       if (!row) return apiError(reply, 404, "repository_not_found", "Repository not found");
-      return toPublicRepository(row.repository, row.gitAccountName);
+      const review = await resolveReviewAccounts(app.db, [row.repository.id]);
+      return toPublicRepository(row.repository, row.gitAccountName, review.get(row.repository.id));
     },
   );
 
@@ -721,8 +750,9 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
         .innerJoin(gitAccounts, eq(repositories.gitAccountId, gitAccounts.id))
         .where(eq(repositories.slug, request.params.slug));
       if (!row) return apiError(reply, 404, "repository_not_found", "Repository not found");
+      const review = await resolveReviewAccounts(app.db, [row.repository.id]);
       return {
-        ...toPublicRepository(row.repository, row.account.name),
+        ...toPublicRepository(row.repository, row.account.name, review.get(row.repository.id)),
         warnings: await mainIdentityWarnings(app, row.account),
       };
     },

@@ -21,9 +21,40 @@ export const gitAccountSchema = z.object({
   // elencare/validare i repo: gli endpoint account/globali sono stati dismessi
   // (CHANGE-2770, 410 Gone) e si può interrogare solo GET /2.0/repositories/{workspace}.
   workspace: z.string().nullable(),
+  // Revisore PREDEFINITO del suo ambito (provider + workspace Bitbucket, 1 ott
+  // 2026): le repository di quell'ambito senza revisore esplicito usano lui.
+  // `.default(false)` per un client contro un server che non lo manda.
+  isDefaultReviewer: z.boolean().default(false),
   createdAt: z.iso.datetime(),
 });
 export type GitAccount = z.infer<typeof gitAccountSchema>;
+
+/**
+ * Il revisore che Stubwise usa DAVVERO su una repository (1 ott 2026): lo
+ * deriva il server con `resolveReviewAccounts` (`@stubwise/notifications`) e il
+ * client lo LEGGE, mai lo deduce da `reviewGitAccountId` e dalla lista degli
+ * account — la regola sta in un posto solo, come `canMerge`. Solo id e nome:
+ * mai credenziali né identità sulla piattaforma. `source` dice se viene dalla
+ * colonna della repository (`explicit`) o dal predefinito del suo ambito
+ * (`default`).
+ */
+export const effectiveReviewAccountSchema = z.object({
+  id: z.uuid(),
+  name: z.string().min(1),
+  source: z.enum(["explicit", "default"]),
+});
+export type EffectiveReviewAccount = z.infer<typeof effectiveReviewAccountSchema>;
+
+/**
+ * Il predefinito dell'ambito che su QUESTA repository non si applica perché ne
+ * è l'account principale (un account non fa da revisore a sé): esiste per
+ * dirlo all'utente nel form.
+ */
+export const skippedDefaultReviewAccountSchema = z.object({
+  id: z.uuid(),
+  name: z.string().min(1),
+});
+export type SkippedDefaultReviewAccount = z.infer<typeof skippedDefaultReviewAccountSchema>;
 
 /**
  * Proiezione pubblica di un REPOSITORY (l'ex "progetto", rinominato): un singolo
@@ -54,6 +85,12 @@ export const repositorySchema = z.object({
   // null = nessuno, la review commenta con l'account principale. `.default`
   // per l'app installata: un server senza il ciclo non lo manda.
   reviewGitAccountId: z.uuid().nullable().default(null),
+  // Revisore EFFETTIVO e predefinito saltato (1 ott 2026): campi DERIVATI dal
+  // server a ogni lettura, vedi gli schemi sopra. null = nessun revisore /
+  // nessun predefinito saltato. `.default(null)` per l'app installata e per un
+  // server più vecchio; il web non parsa, quindi li difende con `?? null`.
+  effectiveReviewAccount: effectiveReviewAccountSchema.nullable().default(null),
+  skippedDefaultReviewAccount: skippedDefaultReviewAccountSchema.nullable().default(null),
   // Comando di test che la pipeline AI esegue per validare il fix (es.
   // "pnpm test"). null = nessun comando configurato.
   testCommand: z.string().min(1).nullable(),

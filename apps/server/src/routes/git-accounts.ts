@@ -83,6 +83,7 @@ function toPublicAccount(row: GitAccountRow): z.infer<typeof gitAccountSchema> {
     name: row.name,
     provider: row.provider,
     workspace: row.workspace,
+    isDefaultReviewer: row.isDefaultReviewer,
     createdAt: row.createdAt.toISOString(),
   };
 }
