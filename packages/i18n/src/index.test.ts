@@ -147,3 +147,27 @@ describe("Request changes scartato (account senza permesso)", () => {
     }
   });
 });
+
+describe("Request changes scartato (permesso non verificabile)", () => {
+  test("il titolo porta il numero della PR ed è DIVERSO dagli altri due motivi", () => {
+    expect(t("en", "comment.changesRequestPermissionUnverifiable.title", { prNumber: 42 })).toBe(
+      "Changes requested on PR #42, but the author's permission could not be verified: no correction was started",
+    );
+    expect(t("it", "comment.changesRequestPermissionUnverifiable.title", { prNumber: 42 })).toBe(
+      "Modifiche richieste sulla PR #42, ma il permesso dell'autore non è verificabile: nessuna correzione avviata",
+    );
+    for (const lang of ["en", "it"] as const) {
+      const title = t(lang, "comment.changesRequestPermissionUnverifiable.title", { prNumber: 42 });
+      expect(title).not.toBe(t(lang, "comment.changesRequestDropped.title", { prNumber: 42 }));
+      expect(title).not.toBe(t(lang, "comment.changesRequestUntrusted.title", { prNumber: 42 }));
+    }
+  });
+
+  test("il titolo non ha ALTRI dati variabili oltre al numero della PR", () => {
+    for (const lang of ["en", "it"] as const) {
+      const template = catalogs[lang]["comment.changesRequestPermissionUnverifiable.title"]!;
+      expect(template.match(/\{(\w+)\}/g)).toEqual(["{prNumber}"]);
+      expect(template).not.toContain("\n");
+    }
+  });
+});

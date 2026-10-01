@@ -17,7 +17,7 @@ import {
 } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
-import { BitbucketProvider, GitHubProvider, type RepositoryPermission } from "@stubwise/git";
+import { BitbucketProvider, GitHubProvider, GitProviderError, type RepositoryPermission } from "@stubwise/git";
 import type { PrComment } from "@stubwise/shared";
 import { seedUsers } from "../test/fixtures.js";
 
@@ -945,5 +945,113 @@ describe("webhook \"Request changes\" da chi non ha il permesso — l'avviso sul
       "Changes requested on PR #42 by an account without permission: no correction was started",
       "Changes requested on PR #42: no correction was started",
     ]);
+  });
+});
+
+describe("webhook \"Request changes\" — il permesso reale (E3)", () => {
+  it.each(["write", "maintain", "admin"] as const)(
+    "CONTRIBUTOR (membro con appartenenza privata) con permesso %s: la correzione parte, nessun avviso",
+    async (permission) => {
+      const fx = await seedFixture();
+      identityMustNotBeCalled(GitHubProvider);
+      const spy = permissionIs(permission);
+
+      await postGithub(fx, githubReview({ association: "CONTRIBUTOR", login: "membro-privato" }));
+
+      expect(await correctionsOf(fx.repositoryId)).toHaveLength(1);
+      expect(await systemCommentsOf(fx.ticketId)).toHaveLength(0);
+      // col token dell'account PRINCIPALE e sulla repository della PR
+      const [p, login] = spy.mock.calls[0]!;
+      expect(login).toBe("membro-privato");
+      expect(p.repoUrl).toBe("https://github.com/acme/repo");
+      expect(p.credentials.token).toBe("tok-principale");
+    },
+  );
+
+  it.each(["triage", "read", "none"] as const)(
+    "permesso %s → denied: nessuna correzione, avviso «senza permesso»",
+    async (permission) => {
+      const fx = await seedFixture();
+      identityMustNotBeCalled(GitHubProvider);
+      permissionIs(permission);
+
+      await postGithub(fx, githubReview({ association: "NONE", actorId: "7777", login: "sconosciuto" }));
+
+      expect(await correctionsOf(fx.repositoryId)).toHaveLength(0);
+      const rows = await systemCommentsOf(fx.ticketId);
+      expect(rows.map((r) => r.body.split("\n")[0])).toEqual([
+        "Changes requested on PR #42 by an account without permission: no correction was started",
+      ]);
+    },
+  );
+
+  it("la verifica fallisce → unverifiable: nessuna correzione, avviso col TERZO motivo", async () => {
+    const fx = await seedFixture();
+    identityMustNotBeCalled(GitHubProvider);
+    permissionIs(new GitProviderError("GitHub: accesso negato leggendo il permesso sulla repository (403)", 403, ""));
+
+    const res = await postGithub(fx, githubReview({ association: "CONTRIBUTOR", login: "membro-privato" }));
+    expect(res.statusCode).toBe(204);
+
+    expect(await correctionsOf(fx.repositoryId)).toHaveLength(0);
+    expect(await correctionJobsOf(fx.ticketId)).toHaveLength(0);
+    const rows = await systemCommentsOf(fx.ticketId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.body.split("\n")[0]).toBe(
+      "Changes requested on PR #42, but the author's permission could not be verified: no correction was started",
+    );
+    expect(rows[0]!.body).toContain("membro-privato");
+  });
+
+  it("unverifiable ripetuto sulla stessa PR: UN commento (dedup per motivo)", async () => {
+    const fx = await seedFixture();
+    identityMustNotBeCalled(GitHubProvider);
+    permissionIs(new Error("rete"));
+
+    for (let i = 0; i < 5; i++) {
+      await postGithub(fx, githubReview({ association: "NONE", actorId: String(7000 + i), login: `estraneo-${i}` }));
+    }
+
+    expect(await systemCommentsOf(fx.ticketId)).toHaveLength(1);
+  });
+
+  it("denied e unverifiable sulla stessa PR non si zittiscono a vicenda", async () => {
+    const fx = await seedFixture();
+    identityMustNotBeCalled(GitHubProvider);
+    permissionIs("read");
+    await postGithub(fx, githubReview({ association: "NONE", actorId: "7777", login: "sconosciuto" }));
+    vi.restoreAllMocks();
+
+    identityMustNotBeCalled(GitHubProvider);
+    permissionIs(new Error("rete"));
+    await postGithub(fx, githubReview({ association: "NONE", actorId: "7778", login: "altro" }));
+
+    const firstLines = (await systemCommentsOf(fx.ticketId)).map((r) => r.body.split("\n")[0]);
+    expect(firstLines).toEqual([
+      "Changes requested on PR #42 by an account without permission: no correction was started",
+      "Changes requested on PR #42, but the author's permission could not be verified: no correction was started",
+    ]);
+  });
+
+  it("il nostro revisore (NONE): scartato come PROPRIO, il permesso non si chiede", async () => {
+    const fx = await seedFixture();
+    identityMustNotBeCalled(GitHubProvider);
+    const spy = permissionMustNotBeCalled();
+
+    await postGithub(fx, githubReview({ actorId: REVIEWER_ID, login: "stubwise-review", association: "NONE" }));
+
+    expect(await systemCommentsOf(fx.ticketId)).toHaveLength(0);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("Bitbucket: il permesso non si chiede mai", async () => {
+    const fx = await seedFixture({ provider: "bitbucket" });
+    identityMustNotBeCalled(BitbucketProvider);
+    const spy = permissionMustNotBeCalled();
+
+    await postBitbucket(fx, bitbucketChangesRequest());
+
+    expect(await correctionsOf(fx.repositoryId)).toHaveLength(1);
+    expect(spy).not.toHaveBeenCalled();
   });
 });

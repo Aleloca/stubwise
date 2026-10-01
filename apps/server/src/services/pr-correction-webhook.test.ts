@@ -94,3 +94,42 @@ describe("isDroppedRequestNotice — un dedup per motivo", () => {
     expect(untrusted).toContain('"Apply corrections"');
   });
 });
+
+describe("isDroppedRequestNotice — il terzo motivo (permesso non verificabile)", () => {
+  const unverifiable = droppedRequestNoticeBody("en", {
+    reason: "permission_unverifiable",
+    prNumber: 42,
+    login: "membro-privato",
+    provider: "github",
+  });
+  const untrusted = droppedRequestNoticeBody("en", {
+    reason: "untrusted_author",
+    prNumber: 42,
+    login: "sconosciuto",
+    provider: "github",
+  });
+  const identity = droppedRequestNoticeBody("en", {
+    reason: "identity_unresolved",
+    prNumber: 42,
+    login: "mario-rossi",
+    provider: "github",
+    accountName: "Account GitHub",
+  });
+
+  it("si riconosce SOLO col suo motivo, e i due vecchi non si riconoscono col nuovo", () => {
+    expect(isDroppedRequestNotice(unverifiable, 42, "en", "permission_unverifiable")).toBe(true);
+    expect(isDroppedRequestNotice(unverifiable, 42, "en", "untrusted_author")).toBe(false);
+    expect(isDroppedRequestNotice(unverifiable, 42, "en", "identity_unresolved")).toBe(false);
+    expect(isDroppedRequestNotice(untrusted, 42, "en", "permission_unverifiable")).toBe(false);
+    expect(isDroppedRequestNotice(identity, 42, "en", "permission_unverifiable")).toBe(false);
+  });
+
+  it("non nomina credenziali né scope, e il login sta dopo la prima riga", () => {
+    const [first, ...rest] = unverifiable.split("\n");
+    expect(first).not.toContain("membro-privato");
+    expect(rest.join("\n")).toContain("membro-privato");
+    expect(unverifiable).not.toContain("read:user:bitbucket");
+    expect(unverifiable).not.toMatch(/token:|tok-/);
+    expect(unverifiable).toContain('"Apply corrections"');
+  });
+});

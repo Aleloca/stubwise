@@ -200,19 +200,17 @@ export async function handleChangesRequested(
         ? "Request changes da un account senza permesso sul repository: scartato"
         : "Request changes: permesso dell'autore non verificabile, scartato (fail-closed)",
     );
-    if (verdict === "denied") {
-      // Chi ha premuto il bottone, o chi guarda la PR, deve poter capire perché
-      // non è partito niente (best-effort, deduplicato PER MOTIVO: un estraneo
-      // che insiste non riempie il ticket).
-      await postDroppedRequestNotice(ctx, {
-        reason: "untrusted_author",
-        ticketId: row.ticketId,
-        prNumber,
-        login: event.actorLogin,
-      });
-      return "untrusted_author";
-    }
-    return "permission_unverifiable";
+    // Chi ha premuto il bottone, o chi guarda la PR, deve poter capire perché
+    // non è partito niente (best-effort, deduplicato PER MOTIVO: un estraneo
+    // che insiste non riempie il ticket). `unverifiable` ha il SUO motivo:
+    // dire «non ha il permesso» sarebbe falso.
+    await postDroppedRequestNotice(ctx, {
+      reason: verdict === "denied" ? "untrusted_author" : "permission_unverifiable",
+      ticketId: row.ticketId,
+      prNumber,
+      login: event.actorLogin,
+    });
+    return verdict === "denied" ? "untrusted_author" : "permission_unverifiable";
   }
 
   // --- 3. Chi, cosa, e l'accodamento. ---
@@ -295,7 +293,7 @@ function reviewBodyFeedback(event: ChangesRequestedEvent): PrComment[] {
 const PLATFORM_NAME: Record<GitProviderKind, string> = { github: "GitHub", bitbucket: "Bitbucket" };
 
 /** Perché un "Request changes" è stato scartato CON avviso sul ticket. */
-export type DroppedRequestReason = "identity_unresolved" | "untrusted_author";
+export type DroppedRequestReason = "identity_unresolved" | "untrusted_author" | "permission_unverifiable";
 
 /**
  * Il titolo (prima riga, chiave del dedup) di ciascun motivo: UNO per motivo.
@@ -305,11 +303,13 @@ export type DroppedRequestReason = "identity_unresolved" | "untrusted_author";
 const NOTICE_TITLE_KEY = {
   identity_unresolved: "comment.changesRequestDropped.title",
   untrusted_author: "comment.changesRequestUntrusted.title",
+  permission_unverifiable: "comment.changesRequestPermissionUnverifiable.title",
 } as const satisfies Record<DroppedRequestReason, string>;
 
 export type DroppedRequestNoticeInput =
   | { reason: "identity_unresolved"; prNumber: number; login: string; provider: GitProviderKind; accountName: string }
-  | { reason: "untrusted_author"; prNumber: number; login: string; provider: GitProviderKind };
+  | { reason: "untrusted_author"; prNumber: number; login: string; provider: GitProviderKind }
+  | { reason: "permission_unverifiable"; prNumber: number; login: string; provider: GitProviderKind };
 
 /**
  * Il commento di sistema di un "Request changes" scartato (design §5,
@@ -328,6 +328,18 @@ export function droppedRequestNoticeBody(lang: Language, input: DroppedRequestNo
       t(lang, "comment.changesRequestUntrusted.requestedBy", { login: input.login, platform }),
       t(lang, "comment.changesRequestUntrusted.reason", { platform }),
       t(lang, "comment.changesRequestUntrusted.meanwhile"),
+    ].join("\n");
+  }
+  if (input.reason === "permission_unverifiable") {
+    // «Non ha il permesso» sarebbe falso: il guasto è di configurazione (di
+    // solito il token principale non legge i collaboratori), da far vedere a
+    // un admin.
+    return [
+      title,
+      "",
+      t(lang, "comment.changesRequestPermissionUnverifiable.requestedBy", { login: input.login, platform }),
+      t(lang, "comment.changesRequestPermissionUnverifiable.reason", { platform }),
+      t(lang, "comment.changesRequestPermissionUnverifiable.meanwhile"),
     ].join("\n");
   }
   return [
